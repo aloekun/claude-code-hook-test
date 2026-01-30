@@ -1,0 +1,24 @@
+==================================================
+Hook executed at: E:\work\claude-code-hook-test\.claude\debug-hook.py
+Current working directory: E:\work\claude-code-hook-test
+CLAUDE_PROJECT_DIR: E:\work\claude-code-hook-test
+CLAUDE_PLUGIN_ROOT: NOT SET
+Files found (relative to CWD): ['.claude\\hookify.block-dangerous-rm.local.md', '.claude\\hookify.block-git.local.md']
+Files found (using CLAUDE_PROJECT_DIR): ['E:\\work\\claude-code-hook-test\\.claude\\hookify.block-dangerous-rm.local.md', 'E:\\work\\claude-code-hook-test\\.claude\\hookify.block-git.local.md']
+Hook input cwd: E:\work\claude-code-hook-test
+Tool name: Bash
+Command: echo "Test 2"
+==================================================
+
+==================================================
+Hook executed at: E:\work\claude-code-hook-test\.claude\debug-hook.py
+Current working directory: E:\work\claude-code-hook-test
+CLAUDE_PROJECT_DIR: E:\work\claude-code-hook-test
+CLAUDE_PLUGIN_ROOT: NOT SET
+Files found (relative to CWD): ['.claude\\hookify.block-dangerous-rm.local.md', '.claude\\hookify.block-git.local.md']
+Files found (using CLAUDE_PROJECT_DIR): ['E:\\work\\claude-code-hook-test\\.claude\\hookify.block-dangerous-rm.local.md', 'E:\\work\\claude-code-hook-test\\.claude\\hookify.block-git.local.md']
+Hook input cwd: E:\work\claude-code-hook-test
+Tool name: Bash
+Command: git status
+==================================================
+
