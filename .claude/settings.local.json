@@ -1,8 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "Bash(cargo build:*)"
     ]
   },
   "hooks": {
@@ -12,8 +11,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"%CLAUDE_PROJECT_DIR%\\.claude\\debug-hook.py\"",
-            "timeout": 10
+            "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\validate-command.exe\"",
+            "timeout": 5
           }
         ]
       }
