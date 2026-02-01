@@ -1,0 +1,8 @@
+# Debug logs
+.claude/hook-debug.log
+
+# Built executables (can be rebuilt with npm run build:hooks-rs)
+.claude/validate-command.exe
+
+# Rust build artifacts
+.claude/hooks-rs/target/

@@ -1,0 +1,8 @@
+{
+  "name": "claude-code-hook-test",
+  "version": "1.0.0",
+  "description": "Claude Code hooks testing project",
+  "scripts": {
+    "build:hooks-rs": "cd .claude/hooks-rs && cargo build --release && cp target/release/validate-command.exe ../validate-command.exe"
+  }
+}
