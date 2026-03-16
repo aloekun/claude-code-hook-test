@@ -1,8 +1,10 @@
 # Debug logs
 .claude/hook-debug.log
 
-# Built executables (can be rebuilt with npm run build:hooks-rs)
+# Built executables (can be rebuilt with npm run build:hooks)
 .claude/validate-command.exe
+.claude/hooks-linter.exe
 
 # Rust build artifacts
 .claude/hooks-rs/target/
+.claude/hooks-linter/target/

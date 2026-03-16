@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo build:*)"
+      "Bash(pnpm build:hooks)"
     ]
   },
   "hooks": {
@@ -13,6 +13,17 @@
             "type": "command",
             "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\validate-command.exe\"",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\hooks-linter.exe\""
           }
         ]
       }

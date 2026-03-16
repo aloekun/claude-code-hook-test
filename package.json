@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "Claude Code hooks testing project",
   "scripts": {
-    "build:hooks-rs": "cd .claude/hooks-rs && cargo build --release && cp target/release/validate-command.exe ../validate-command.exe"
+    "build:hooks-rs": "cd .claude/hooks-rs && cargo build --release && cp target/release/validate-command.exe ../validate-command.exe",
+    "build:hooks-linter": "cd .claude/hooks-linter && cargo build --release && cp target/release/hooks-linter.exe ../hooks-linter.exe",
+    "build:hooks": "npm run build:hooks-rs && npm run build:hooks-linter"
   }
 }
