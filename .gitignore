@@ -1,6 +1,9 @@
 # Debug logs
 .claude/hook-debug.log
 
+# Generated from .claude/settings.local.json.template by build:hooks
+.claude/settings.local.json
+
 # Built executables (can be rebuilt with pnpm build:hooks)
 .claude/hooks-pre-tool-validate.exe
 .claude/hooks-post-tool-linter.exe

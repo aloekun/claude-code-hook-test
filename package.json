@@ -10,6 +10,7 @@
     "build:hooks-pre-tool-validate": "cd .claude/hooks-pre-tool-validate && cargo build --release && cp target/release/hooks-pre-tool-validate.exe ../hooks-pre-tool-validate.exe",
     "build:hooks-post-tool-linter": "cd .claude/hooks-post-tool-linter && cargo build --release && cp target/release/hooks-post-tool-linter.exe ../hooks-post-tool-linter.exe",
     "build:hooks-stop-quality": "cd .claude/hooks-stop-quality && cargo build --release && cp target/release/hooks-stop-quality.exe ../hooks-stop-quality.exe",
-    "build:hooks": "pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-stop-quality"
+    "build:hooks-settings": "node -e \"const fs=require('fs');const t=fs.readFileSync('.claude/settings.local.json.template','utf8');const p=process.cwd().replace(/\\\\/g,'\\\\\\\\');fs.writeFileSync('.claude/settings.local.json',t.replace(/\\{\\{PROJECT_DIR\\}\\}/g,p))\" && echo settings.local.json generated",
+    "build:hooks": "pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-stop-quality && pnpm build:hooks-settings"
   }
 }
