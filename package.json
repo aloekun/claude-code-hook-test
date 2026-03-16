@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "description": "Claude Code hooks testing project",
   "scripts": {
+    "lint": "npx oxlint src/",
+    "test": "npx vitest run",
+    "test:e2e": "node scripts/e2e.mjs",
+    "build": "npx tsc --noEmit --pretty || true",
     "build:hooks-pre-tool-validate": "cd .claude/hooks-pre-tool-validate && cargo build --release && cp target/release/hooks-pre-tool-validate.exe ../hooks-pre-tool-validate.exe",
     "build:hooks-post-tool-linter": "cd .claude/hooks-post-tool-linter && cargo build --release && cp target/release/hooks-post-tool-linter.exe ../hooks-post-tool-linter.exe",
-    "build:hooks": "npm run build:hooks-pre-tool-validate && npm run build:hooks-post-tool-linter"
+    "build:hooks-stop-quality": "cd .claude/hooks-stop-quality && cargo build --release && cp target/release/hooks-stop-quality.exe ../hooks-stop-quality.exe",
+    "build:hooks": "npm run build:hooks-pre-tool-validate && npm run build:hooks-post-tool-linter && npm run build:hooks-stop-quality"
   }
 }
