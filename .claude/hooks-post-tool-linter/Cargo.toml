@@ -1,5 +1,5 @@
 [package]
-name = "hooks-linter"
+name = "hooks-post-tool-linter"
 version = "0.1.0"
 edition = "2021"
 

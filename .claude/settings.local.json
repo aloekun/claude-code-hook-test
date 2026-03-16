@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\validate-command.exe\"",
+            "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\hooks-pre-tool-validate.exe\"",
             "timeout": 5
           }
         ]
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\hooks-linter.exe\""
+            "command": "\"%CLAUDE_PROJECT_DIR%\\.claude\\hooks-post-tool-linter.exe\""
           }
         ]
       }

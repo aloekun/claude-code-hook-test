@@ -32,7 +32,7 @@ Windows 環境では以下の問題が発生した。
 
 - **外部依存ゼロ**: `jq`、`cat`、`bash` の有無に左右されない。stdin から JSON を読み、stdout に JSON を書くだけ
 - **実行速度**: 参考記事（ハーネスエンジニアリング実装ガイド）が「PostToolUse はミリ秒単位で完了する必要がある」と強調しており、Rust の起動速度はこの要件に最適
-- **既存実績**: PreToolUse フック（`validate-command.exe`）で同じアプローチが既に安定稼働している
+- **既存実績**: PreToolUse フック（`hooks-pre-tool-validate.exe`）で同じアプローチが既に安定稼働している
 - **serde_json による堅牢な JSON 処理**: `jq` のような外部ツールに頼らず、型安全な JSON パース/生成が可能
 
 ## Consequences
@@ -53,5 +53,5 @@ Windows 環境では以下の問題が発生した。
 ## References
 
 - [ハーネスエンジニアリング実装ガイド - 4つのhookパターン](https://nyosegawa.github.io/posts/harness-engineering-best-practices-2026/#4%E3%81%A4%E3%81%AEhook%E3%83%91%E3%82%BF%E3%83%BC%E3%83%B3)
-- `.claude/hooks-rs/` (PreToolUse: validate-command.exe)
-- `.claude/hooks-linter/` (PostToolUse: hooks-linter.exe)
+- `.claude/hooks-pre-tool-validate/` (PreToolUse: hooks-pre-tool-validate.exe)
+- `.claude/hooks-post-tool-linter/` (PostToolUse: hooks-post-tool-linter.exe)

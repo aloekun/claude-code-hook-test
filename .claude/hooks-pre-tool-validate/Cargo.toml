@@ -1,5 +1,5 @@
 [package]
-name = "validate-command"
+name = "hooks-pre-tool-validate"
 version = "0.1.0"
 edition = "2021"
 
