@@ -22,6 +22,8 @@ struct HookInput {
 #[derive(Deserialize)]
 struct ToolInput {
     command: Option<String>,
+    file_path: Option<String>,
+    path: Option<String>,
 }
 
 struct BlockedPattern {
@@ -151,6 +153,15 @@ GUI アプリケーションは Claude Code のヘッドレス環境では動作
 
 詳細は CLAUDE.md の "Electron E2E Testing" セクションを参照してください。"#,
         },
+        // jj --ignore-immutable (immutable commits の保護バイパスを禁止)
+        BlockedPattern {
+            pattern: Regex::new(r"(?i)\bjj\b.*--ignore-immutable").unwrap(),
+            message: r#"**jj --ignore-immutable がブロックされました**
+
+immutable commits（main 等）の書き換え保護を無効化するオプションのため、使用が禁止されています。
+
+immutable commits を変更する必要がある場合は、ユーザーに確認を取ってください。"#,
+        },
         // 第2層: jj new main (ローカル main からの派生を禁止)
         // main@origin は許可。jj new main / pnpm jj-new main をブロック。クォート形式も対象。
         BlockedPattern {
@@ -195,6 +206,76 @@ fn validate_command(command: &str, patterns: &[BlockedPattern]) -> Option<&'stat
     None
 }
 
+/// リンター/フォーマッター設定ファイルとして保護する対象
+const PROTECTED_CONFIG_FILES: &[&str] = &[
+    // JavaScript / TypeScript
+    ".eslintrc",
+    ".eslintrc.js",
+    ".eslintrc.cjs",
+    ".eslintrc.json",
+    ".eslintrc.yml",
+    ".eslintrc.yaml",
+    "eslint.config.js",
+    "eslint.config.mjs",
+    "eslint.config.cjs",
+    "eslint.config.ts",
+    "eslint.config.mts",
+    "eslint.config.cts",
+    ".prettierrc",
+    ".prettierrc.js",
+    ".prettierrc.cjs",
+    ".prettierrc.json",
+    ".prettierrc.yml",
+    ".prettierrc.yaml",
+    "prettier.config.js",
+    "prettier.config.cjs",
+    "biome.json",
+    "biome.jsonc",
+    "tsconfig.json",
+    "tsconfig.build.json",
+    // Git hooks / pre-commit
+    "lefthook.yml",
+    "lefthook.yaml",
+    ".pre-commit-config.yaml",
+    ".husky",
+    // Python
+    "pyproject.toml",
+    ".flake8",
+    ".pylintrc",
+    "setup.cfg",
+    // Rust
+    "rustfmt.toml",
+    ".rustfmt.toml",
+    "clippy.toml",
+    ".clippy.toml",
+    // Go
+    ".golangci.yml",
+    ".golangci.yaml",
+    // Swift
+    ".swiftlint.yml",
+    ".swiftlint.yaml",
+    // Secrets / Environment
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production",
+    ".env.staging",
+    ".env.test",
+];
+
+/// ファイルパスが保護対象の設定ファイルに該当するか判定
+fn is_protected_config(file_path: &str) -> bool {
+    // パスからファイル名部分を取得（Windows \ と Unix / の両方に対応）
+    let file_name = file_path
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(file_path);
+
+    PROTECTED_CONFIG_FILES
+        .iter()
+        .any(|&protected| file_name.eq_ignore_ascii_case(protected))
+}
+
 fn main() -> ExitCode {
     // stdinからJSONを読み込む
     let mut input = String::new();
@@ -212,28 +293,49 @@ fn main() -> ExitCode {
         }
     };
 
-    // Bashツール以外は許可
     let tool_name = hook_input.tool_name.unwrap_or_default();
-    if tool_name != "Bash" {
-        return ExitCode::SUCCESS;
-    }
+    let tool_input = hook_input.tool_input.unwrap_or(ToolInput {
+        command: None,
+        file_path: None,
+        path: None,
+    });
 
-    // コマンドを取得
-    let command = hook_input
-        .tool_input
-        .and_then(|t| t.command)
-        .unwrap_or_default();
+    match tool_name.as_str() {
+        "Bash" => {
+            let command = tool_input.command.unwrap_or_default();
+            if command.trim().is_empty() {
+                return ExitCode::SUCCESS;
+            }
 
-    // コマンドが空の場合は許可
-    if command.trim().is_empty() {
-        return ExitCode::SUCCESS;
-    }
-
-    // コマンドを検証
-    let patterns = get_blocked_patterns();
-    if let Some(message) = validate_command(&command, &patterns) {
-        let _ = io::stderr().write_all(message.as_bytes());
-        return ExitCode::from(2);
+            // コマンドを検証
+            let patterns = get_blocked_patterns();
+            if let Some(message) = validate_command(&command, &patterns) {
+                let _ = io::stderr().write_all(message.as_bytes());
+                return ExitCode::from(2);
+            }
+        }
+        "Write" | "Edit" => {
+            let file_path = tool_input
+                .file_path
+                .or(tool_input.path)
+                .unwrap_or_default();
+            if !file_path.is_empty() && is_protected_config(&file_path) {
+                let msg = format!(
+                    "**保護されたファイルの編集がブロックされました**\n\n\
+                     `{}` は保護対象ファイル（設定ファイル/機密ファイル）のため、編集が禁止されています。\n\n\
+                     リンター設定の場合: 設定を変更するのではなく **コード側を修正** してください。\n\
+                     機密ファイルの場合: 秘密情報の漏洩を防ぐため、編集できません。\n\n\
+                     変更が本当に必要な場合は、ユーザーに確認を取ってください。",
+                    file_path
+                        .rsplit(|c| c == '/' || c == '\\')
+                        .next()
+                        .unwrap_or(&file_path)
+                );
+                let _ = io::stderr().write_all(msg.as_bytes());
+                return ExitCode::from(2);
+            }
+        }
+        _ => {}
     }
 
     ExitCode::SUCCESS
@@ -504,6 +606,23 @@ mod tests {
         assert!(!is_blocked("jj edit feature/foo"));
     }
 
+    // --- jj --ignore-immutable (should block) ---
+
+    #[test]
+    fn blocks_jj_ignore_immutable() {
+        assert!(is_blocked("jj --ignore-immutable rebase -r abc -d main"));
+    }
+
+    #[test]
+    fn blocks_jj_ignore_immutable_after_subcommand() {
+        assert!(is_blocked("jj rebase --ignore-immutable -r abc -d main"));
+    }
+
+    #[test]
+    fn allows_jj_rebase_without_ignore_immutable() {
+        assert!(!is_blocked("jj rebase -r abc -d main"));
+    }
+
     // --- safe commands (should NOT block) ---
 
     #[test]
@@ -519,5 +638,102 @@ mod tests {
     #[test]
     fn allows_cd_normal() {
         assert!(!is_blocked("cd /e/work/project"));
+    }
+
+    // --- protected config files (should block Write/Edit) ---
+
+    #[test]
+    fn protects_eslint_config() {
+        assert!(is_protected_config("eslint.config.js"));
+    }
+
+    #[test]
+    fn protects_eslintrc_json() {
+        assert!(is_protected_config(".eslintrc.json"));
+    }
+
+    #[test]
+    fn protects_biome_json() {
+        assert!(is_protected_config("biome.json"));
+    }
+
+    #[test]
+    fn protects_prettierrc() {
+        assert!(is_protected_config(".prettierrc"));
+    }
+
+    #[test]
+    fn protects_tsconfig() {
+        assert!(is_protected_config("tsconfig.json"));
+    }
+
+    #[test]
+    fn protects_pyproject_toml() {
+        assert!(is_protected_config("pyproject.toml"));
+    }
+
+    #[test]
+    fn protects_rustfmt_toml() {
+        assert!(is_protected_config("rustfmt.toml"));
+    }
+
+    #[test]
+    fn protects_golangci_yml() {
+        assert!(is_protected_config(".golangci.yml"));
+    }
+
+    #[test]
+    fn protects_lefthook_yml() {
+        assert!(is_protected_config("lefthook.yml"));
+    }
+
+    #[test]
+    fn protects_pre_commit_config() {
+        assert!(is_protected_config(".pre-commit-config.yaml"));
+    }
+
+    #[test]
+    fn protects_with_windows_path() {
+        assert!(is_protected_config(r"e:\work\project\biome.json"));
+    }
+
+    #[test]
+    fn protects_with_unix_path() {
+        assert!(is_protected_config("/home/user/project/.eslintrc.json"));
+    }
+
+    #[test]
+    fn allows_regular_ts_file() {
+        assert!(!is_protected_config("src/app.ts"));
+    }
+
+    #[test]
+    fn allows_regular_json_file() {
+        assert!(!is_protected_config("src/data.json"));
+    }
+
+    #[test]
+    fn allows_package_json() {
+        assert!(!is_protected_config("package.json"));
+    }
+
+    #[test]
+    fn protects_env() {
+        assert!(is_protected_config(".env"));
+    }
+
+    #[test]
+    fn protects_env_local() {
+        assert!(is_protected_config(".env.local"));
+    }
+
+    #[test]
+    fn protects_env_production() {
+        assert!(is_protected_config(".env.production"));
+    }
+
+    #[test]
+    fn protects_env_with_path() {
+        assert!(is_protected_config(r"e:\work\project\.env"));
     }
 }
