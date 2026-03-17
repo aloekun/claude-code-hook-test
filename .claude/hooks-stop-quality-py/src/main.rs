@@ -1,7 +1,12 @@
-//! Stop 品質ゲートフック
+//! Stop 品質ゲートフック (Python 版)
 //!
-//! Claude が応答を終了しようとする際に品質チェックを実行し、
+//! Claude が応答を終了しようとする際に Python プロジェクト向け品質チェックを実行し、
 //! 失敗があれば作業継続を強制します。
+//!
+//! 品質チェックステップ:
+//!   1. py-lint   — ruff check によるリント
+//!   2. py-test   — pytest によるテスト
+//!   3. py-typecheck — mypy による型チェック
 //!
 //! 無限ループ防止:
 //!   stop_hook_active が true の場合、品質ゲートをスキップして停止を許可します。
@@ -45,28 +50,23 @@ struct QualityStep {
     args: &'static [&'static str],
 }
 
-/// 品質チェックステップ一覧
+/// Python 向け品質チェックステップ一覧
 fn get_quality_steps() -> Vec<QualityStep> {
     vec![
         QualityStep {
-            name: "lint",
+            name: "py-lint",
             command: "pnpm",
-            args: &["lint"],
+            args: &["py-lint"],
         },
         QualityStep {
-            name: "test",
+            name: "py-test",
             command: "pnpm",
-            args: &["test"],
+            args: &["py-test"],
         },
         QualityStep {
-            name: "test:e2e",
+            name: "py-typecheck",
             command: "pnpm",
-            args: &["test:e2e"],
-        },
-        QualityStep {
-            name: "build",
-            command: "pnpm",
-            args: &["build"],
+            args: &["py-typecheck"],
         },
     ]
 }
@@ -161,7 +161,7 @@ fn main() {
     // 失敗があれば block を出力
     if !failures.is_empty() {
         let reason = format!(
-            "品質ゲートが失敗しました。以下の問題を修正してください:\n\n{}",
+            "Python 品質ゲートが失敗しました。以下の問題を修正してください:\n\n{}",
             failures.join("\n\n")
         );
         emit_block(&reason);
@@ -175,14 +175,14 @@ mod tests {
 
     #[test]
     fn quality_steps_count() {
-        assert_eq!(get_quality_steps().len(), 4);
+        assert_eq!(get_quality_steps().len(), 3);
     }
 
     #[test]
     fn quality_steps_names() {
         let steps = get_quality_steps();
         let names: Vec<&str> = steps.iter().map(|s| s.name).collect();
-        assert_eq!(names, vec!["lint", "test", "test:e2e", "build"]);
+        assert_eq!(names, vec!["py-lint", "py-test", "py-typecheck"]);
     }
 
     #[test]

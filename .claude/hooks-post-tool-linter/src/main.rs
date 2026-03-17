@@ -1,8 +1,11 @@
 //! PostToolUse リンターフック
 //!
-//! Write/Edit ツール使用後に TypeScript/JavaScript ファイルに対して
-//! Biome (フォーマット) と oxlint (リント) を実行し、
+//! Write/Edit ツール使用後にファイルに対してリンター/フォーマッターを実行し、
 //! 診断結果を additionalContext として Claude にフィードバックします。
+//!
+//! 対応言語:
+//!   - TypeScript/JavaScript (.ts, .tsx, .js, .jsx): Biome (format) + oxlint (lint)
+//!   - Python (.py): ruff (check --fix + format + check)
 
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
@@ -38,32 +41,48 @@ struct HookSpecificOutput {
     additional_context: String,
 }
 
-/// 対象の拡張子か判定
-fn is_target_extension(file: &str) -> bool {
-    matches!(
-        Path::new(file)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .as_deref(),
-        Some("ts" | "tsx" | "js" | "jsx")
-    )
+/// 言語カテゴリ
+enum LangCategory {
+    TypeScriptJs,
+    Python,
 }
 
-/// cmd /c 経由で npx コマンドを実行し、(stdout, stderr) を返す
-fn run_npx(args: &[&str], file: &str) -> (String, String) {
-    let mut cmd_args = vec!["/c", "npx"];
-    cmd_args.extend_from_slice(args);
-    cmd_args.push(file);
+/// ファイル拡張子から言語カテゴリを判定
+fn detect_language(file: &str) -> Option<LangCategory> {
+    let ext = Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
 
-    let output = Command::new("cmd").args(&cmd_args).output();
+    match ext.as_deref() {
+        Some("ts" | "tsx" | "js" | "jsx") => Some(LangCategory::TypeScriptJs),
+        Some("py") => Some(LangCategory::Python),
+        _ => None,
+    }
+}
 
-    match output {
+/// コマンドを直接実行し、(stdout, stderr) を返す
+/// シェル (cmd /c) を経由しないため、ファイルパスのメタ文字によるインジェクションを防止する
+fn run_command(program: &str, args: &[&str]) -> (String, String) {
+    match Command::new(program).args(args).output() {
         Ok(o) => (
             String::from_utf8_lossy(&o.stdout).to_string(),
             String::from_utf8_lossy(&o.stderr).to_string(),
         ),
-        Err(e) => (String::new(), format!("Failed to run npx: {}", e)),
+        Err(e) => (String::new(), format!("Failed to run {}: {}", program, e)),
+    }
+}
+
+/// stdout と stderr を適切に結合する
+fn combine_output(stdout: &str, stderr: &str) -> String {
+    if stdout.is_empty() {
+        stderr.to_string()
+    } else if stderr.is_empty() {
+        stdout.to_string()
+    } else if stdout.ends_with('\n') {
+        format!("{}{}", stdout, stderr)
+    } else {
+        format!("{}\n{}", stdout, stderr)
     }
 }
 
@@ -80,6 +99,44 @@ fn emit_feedback(message: &str) {
     }
 }
 
+/// TypeScript/JavaScript 向けリンターパイプライン
+fn lint_typescript(file: &str) {
+    // 1. Biome でフォーマット (失敗しても続行)
+    let _ = run_command("npx", &["biome", "format", "--write", file]);
+
+    // 2. oxlint --fix で自動修正 (失敗しても続行)
+    let _ = run_command("npx", &["oxlint", "--fix", file]);
+
+    // 3. oxlint で残りの診断を取得 (stdout + stderr を結合)
+    let (stdout, stderr) = run_command("npx", &["oxlint", file]);
+    let combined = combine_output(&stdout, &stderr);
+
+    // 診断結果があればフィードバック (先頭20行に制限)
+    let trimmed: String = combined.lines().take(20).collect::<Vec<_>>().join("\n");
+    if !trimmed.trim().is_empty() {
+        emit_feedback(&trimmed);
+    }
+}
+
+/// Python 向けリンターパイプライン
+fn lint_python(file: &str) {
+    // 1. ruff check --fix で自動修正 (失敗しても続行)
+    let _ = run_command("ruff", &["check", "--fix", file]);
+
+    // 2. ruff format でフォーマット (失敗しても続行)
+    let _ = run_command("ruff", &["format", file]);
+
+    // 3. ruff check で残りの診断を取得 (stdout + stderr を結合)
+    let (stdout, stderr) = run_command("ruff", &["check", file]);
+    let combined = combine_output(&stdout, &stderr);
+
+    // 診断結果があればフィードバック (先頭20行に制限)
+    let trimmed: String = combined.lines().take(20).collect::<Vec<_>>().join("\n");
+    if !trimmed.trim().is_empty() {
+        emit_feedback(&trimmed);
+    }
+}
+
 fn main() {
     // stdin を消費（フックの仕様上必須）
     let mut input = String::new();
@@ -93,31 +150,18 @@ fn main() {
 
     let file = hook_input
         .tool_input
-        .and_then(|t| t.file_path.or(t.path))
+        .and_then(|t| t.file_path.filter(|s| !s.is_empty()).or(t.path))
         .unwrap_or_default();
 
     if file.is_empty() {
         return;
     }
 
-    // 対象拡張子でなければスキップ
-    if !is_target_extension(&file) {
-        return;
-    }
-
-    // 1. Biome でフォーマット (失敗しても続行)
-    let _ = run_npx(&["biome", "format", "--write"], &file);
-
-    // 2. oxlint --fix で自動修正 (失敗しても続行)
-    let _ = run_npx(&["oxlint", "--fix"], &file);
-
-    // 3. oxlint で残りの診断を取得
-    let (stdout, _stderr) = run_npx(&["oxlint"], &file);
-
-    // 診断結果があればフィードバック (先頭20行に制限)
-    let trimmed: String = stdout.lines().take(20).collect::<Vec<_>>().join("\n");
-    if !trimmed.trim().is_empty() {
-        emit_feedback(&trimmed);
+    // 言語カテゴリに応じてリンターを実行
+    match detect_language(&file) {
+        Some(LangCategory::TypeScriptJs) => lint_typescript(&file),
+        Some(LangCategory::Python) => lint_python(&file),
+        None => {} // 非対象の拡張子 → 何もしない
     }
 }
 
@@ -125,54 +169,113 @@ fn main() {
 mod tests {
     use super::*;
 
+    // --- TypeScript/JavaScript 判定 ---
+
     #[test]
     fn ts_is_target() {
-        assert!(is_target_extension("src/app.ts"));
+        assert!(matches!(detect_language("src/app.ts"), Some(LangCategory::TypeScriptJs)));
     }
 
     #[test]
     fn tsx_is_target() {
-        assert!(is_target_extension("components/App.tsx"));
+        assert!(matches!(detect_language("components/App.tsx"), Some(LangCategory::TypeScriptJs)));
     }
 
     #[test]
     fn js_is_target() {
-        assert!(is_target_extension("index.js"));
+        assert!(matches!(detect_language("index.js"), Some(LangCategory::TypeScriptJs)));
     }
 
     #[test]
     fn jsx_is_target() {
-        assert!(is_target_extension("Component.jsx"));
+        assert!(matches!(detect_language("Component.jsx"), Some(LangCategory::TypeScriptJs)));
+    }
+
+    // --- Python 判定 ---
+
+    #[test]
+    fn py_is_target() {
+        assert!(matches!(detect_language("main.py"), Some(LangCategory::Python)));
     }
 
     #[test]
+    fn py_windows_path_is_target() {
+        assert!(matches!(detect_language(r"e:\work\project\src\app.py"), Some(LangCategory::Python)));
+    }
+
+    #[test]
+    fn py_case_insensitive() {
+        assert!(matches!(detect_language("file.PY"), Some(LangCategory::Python)));
+        assert!(matches!(detect_language("file.Py"), Some(LangCategory::Python)));
+    }
+
+    // --- 非対象 ---
+
+    #[test]
     fn rs_is_not_target() {
-        assert!(!is_target_extension("main.rs"));
+        assert!(detect_language("main.rs").is_none());
     }
 
     #[test]
     fn json_is_not_target() {
-        assert!(!is_target_extension("package.json"));
+        assert!(detect_language("package.json").is_none());
     }
 
     #[test]
     fn no_extension_is_not_target() {
-        assert!(!is_target_extension("Makefile"));
+        assert!(detect_language("Makefile").is_none());
     }
 
     #[test]
     fn empty_is_not_target() {
-        assert!(!is_target_extension(""));
+        assert!(detect_language("").is_none());
     }
 
     #[test]
     fn windows_path_ts_is_target() {
-        assert!(is_target_extension(r"e:\work\project\src\app.ts"));
+        assert!(matches!(detect_language(r"e:\work\project\src\app.ts"), Some(LangCategory::TypeScriptJs)));
     }
 
     #[test]
     fn case_insensitive_ts() {
-        assert!(is_target_extension("file.TS"));
-        assert!(is_target_extension("file.Tsx"));
+        assert!(matches!(detect_language("file.TS"), Some(LangCategory::TypeScriptJs)));
+        assert!(matches!(detect_language("file.Tsx"), Some(LangCategory::TypeScriptJs)));
+    }
+
+    // --- 出力結合 ---
+
+    #[test]
+    fn combine_empty_stdout() {
+        assert_eq!(combine_output("", "error"), "error");
+    }
+
+    #[test]
+    fn combine_empty_stderr() {
+        assert_eq!(combine_output("output", ""), "output");
+    }
+
+    #[test]
+    fn combine_both_with_trailing_newline() {
+        assert_eq!(combine_output("output\n", "error"), "output\nerror");
+    }
+
+    #[test]
+    fn combine_both_without_trailing_newline() {
+        assert_eq!(combine_output("output", "error"), "output\nerror");
+    }
+
+    // --- フィードバック JSON ---
+
+    #[test]
+    fn feedback_json_has_correct_structure() {
+        let output = HookOutput {
+            hook_specific_output: HookSpecificOutput {
+                hook_event_name: "PostToolUse".to_string(),
+                additional_context: "test diagnostic".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains(r#""hookEventName":"PostToolUse""#));
+        assert!(json.contains(r#""additionalContext":"test diagnostic""#));
     }
 }

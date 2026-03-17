@@ -24,7 +24,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-linter.exe\""
+            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-linter.exe\"",
+            "timeout": 30
           }
         ]
       }
@@ -35,6 +36,11 @@
           {
             "type": "command",
             "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-quality.exe\"",
+            "timeout": 300
+          },
+          {
+            "type": "command",
+            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-quality-py.exe\"",
             "timeout": 300
           }
         ]

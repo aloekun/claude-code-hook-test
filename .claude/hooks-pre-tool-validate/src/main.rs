@@ -155,7 +155,7 @@ GUI アプリケーションは Claude Code のヘッドレス環境では動作
         },
         // jj --ignore-immutable (immutable commits の保護バイパスを禁止)
         BlockedPattern {
-            pattern: Regex::new(r"(?i)\bjj\b.*--ignore-immutable").unwrap(),
+            pattern: Regex::new(r"(?is)\bjj\b.*--ignore-immutable").unwrap(),
             message: r#"**jj --ignore-immutable がブロックされました**
 
 immutable commits（main 等）の書き換え保護を無効化するオプションのため、使用が禁止されています。
@@ -265,15 +265,28 @@ const PROTECTED_CONFIG_FILES: &[&str] = &[
 
 /// ファイルパスが保護対象の設定ファイルに該当するか判定
 fn is_protected_config(file_path: &str) -> bool {
-    // パスからファイル名部分を取得（Windows \ と Unix / の両方に対応）
-    let file_name = file_path
-        .rsplit(|c| c == '/' || c == '\\')
-        .next()
-        .unwrap_or(file_path);
+    // パスを正規化（Windows \ → / に統一し、小文字化）
+    let normalized = file_path.replace('\\', "/");
+    let normalized_lower = normalized.to_ascii_lowercase();
 
-    PROTECTED_CONFIG_FILES
-        .iter()
-        .any(|&protected| file_name.eq_ignore_ascii_case(protected))
+    // ファイル名部分を取得
+    let file_name = normalized_lower
+        .rsplit('/')
+        .next()
+        .unwrap_or(&normalized_lower);
+
+    PROTECTED_CONFIG_FILES.iter().any(|&protected| {
+        let protected_lower = protected.to_ascii_lowercase();
+        if protected == ".husky" {
+            // ディレクトリエントリ: ファイル名一致 or パスコンポーネントとして含まれるか
+            let dir_prefix = format!("{}/", protected_lower);
+            file_name == protected_lower
+                || normalized_lower.contains(&format!("/{}", dir_prefix))
+                || normalized_lower.starts_with(&dir_prefix)
+        } else {
+            file_name == protected_lower
+        }
+    })
 }
 
 fn main() -> ExitCode {
@@ -317,6 +330,7 @@ fn main() -> ExitCode {
         "Write" | "Edit" => {
             let file_path = tool_input
                 .file_path
+                .filter(|s| !s.is_empty())
                 .or(tool_input.path)
                 .unwrap_or_default();
             if !file_path.is_empty() && is_protected_config(&file_path) {
@@ -735,5 +749,46 @@ mod tests {
     #[test]
     fn protects_env_with_path() {
         assert!(is_protected_config(r"e:\work\project\.env"));
+    }
+
+    // --- regression: .husky ディレクトリ内ファイルの保護 ---
+
+    #[test]
+    fn protects_husky_pre_commit() {
+        assert!(is_protected_config(".husky/pre-commit"));
+    }
+
+    #[test]
+    fn protects_husky_with_absolute_path() {
+        assert!(is_protected_config("/home/user/project/.husky/pre-commit"));
+    }
+
+    #[test]
+    fn protects_husky_with_windows_path() {
+        assert!(is_protected_config(r"e:\work\project\.husky\pre-commit"));
+    }
+
+    // --- regression: case-insensitive 保護 ---
+
+    #[test]
+    fn protects_uppercase_husky() {
+        assert!(is_protected_config(".HUSKY/pre-commit"));
+    }
+
+    #[test]
+    fn protects_uppercase_eslintrc() {
+        assert!(is_protected_config(".ESLINTRC.JSON"));
+    }
+
+    #[test]
+    fn protects_mixed_case_biome() {
+        assert!(is_protected_config("Biome.Json"));
+    }
+
+    // --- regression: jj --ignore-immutable dotall ---
+
+    #[test]
+    fn blocks_jj_ignore_immutable_multiline() {
+        assert!(is_blocked("jj rebase\n--ignore-immutable -r abc -d main"));
     }
 }

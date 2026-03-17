@@ -54,6 +54,23 @@ Claude Code の Stop フック入力には `stop_hook_active` フラグが含ま
 
 全チェック成功時: 何も出力しない（exit 0 → 停止許可）
 
+### Python 版 Stop フック (hooks-stop-quality-py)
+
+TypeScript 版と同じアーキテクチャで Python プロジェクト向けの品質ゲートを提供する。
+
+| 順番 | コマンド | 目的 |
+|------|---------|------|
+| 1 | `pnpm py-lint` | ruff check によるリント |
+| 2 | `pnpm py-test` | pytest によるユニットテスト |
+| 3 | `pnpm py-typecheck` | mypy による型チェック |
+
+TypeScript 版と共通の設計:
+- fail-closed: stdin 読み込みエラー/JSON パース失敗時は block 判定を出力
+- ステップごとのタイムアウト（120秒）でハング防止
+- `stop_hook_active` による無限ループ防止
+
+利用側プロジェクトでは、不要な言語の Stop フックを `settings.local.json.template` から削除して運用する。
+
 ## Consequences
 
 ### Positive

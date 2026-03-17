@@ -8,6 +8,7 @@
 .claude/hooks-pre-tool-validate.exe
 .claude/hooks-post-tool-linter.exe
 .claude/hooks-stop-quality.exe
+.claude/hooks-stop-quality-py.exe
 
 # Node.js
 node_modules/
@@ -16,3 +17,4 @@ node_modules/
 .claude/hooks-pre-tool-validate/target/
 .claude/hooks-post-tool-linter/target/
 .claude/hooks-stop-quality/target/
+.claude/hooks-stop-quality-py/target/
