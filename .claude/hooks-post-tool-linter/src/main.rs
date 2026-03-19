@@ -1,15 +1,14 @@
-//! PostToolUse リンターフック
+//! PostToolUse リンターフック (設定駆動型)
 //!
 //! Write/Edit ツール使用後にファイルに対してリンター/フォーマッターを実行し、
 //! 診断結果を additionalContext として Claude にフィードバックします。
 //!
-//! 対応言語:
-//!   - TypeScript/JavaScript (.ts, .tsx, .js, .jsx): Biome (format) + oxlint (lint)
-//!   - Python (.py): ruff (check --fix + format + check)
+//! .claude/hooks-config.toml の [post_tool_linter] セクションから
+//! 拡張子ごとのパイプラインを読み込みます。
 
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // --- 入力 ---
@@ -41,29 +40,87 @@ struct HookSpecificOutput {
     additional_context: String,
 }
 
-/// 言語カテゴリ
-enum LangCategory {
-    TypeScriptJs,
-    Python,
+// --- 設定 ---
+
+#[derive(Deserialize, Default)]
+struct Config {
+    post_tool_linter: Option<PostToolLinterConfig>,
 }
 
-/// ファイル拡張子から言語カテゴリを判定
-fn detect_language(file: &str) -> Option<LangCategory> {
-    let ext = Path::new(file)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase());
+#[derive(Deserialize, Default)]
+struct PostToolLinterConfig {
+    pipelines: Option<Vec<PipelineConfig>>,
+}
 
-    match ext.as_deref() {
-        Some("ts" | "tsx" | "js" | "jsx") => Some(LangCategory::TypeScriptJs),
-        Some("py") => Some(LangCategory::Python),
-        _ => None,
+#[derive(Deserialize, Clone)]
+struct PipelineConfig {
+    extensions: Vec<String>,
+    steps: Vec<StepConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+struct StepConfig {
+    cmd: String,
+    args: Vec<String>,
+    fix: bool,
+}
+
+/// デフォルトパイプライン (設定ファイルが無い場合のフォールバック)
+fn default_pipelines() -> Vec<PipelineConfig> {
+    vec![
+        PipelineConfig {
+            extensions: vec!["ts".into(), "tsx".into(), "js".into(), "jsx".into()],
+            steps: vec![
+                StepConfig { cmd: "npx".into(), args: vec!["--no-install".into(), "biome".into(), "format".into(), "--write".into(), "{file}".into()], fix: true },
+                StepConfig { cmd: "npx".into(), args: vec!["--no-install".into(), "oxlint".into(), "--fix".into(), "{file}".into()], fix: true },
+                StepConfig { cmd: "npx".into(), args: vec!["--no-install".into(), "oxlint".into(), "{file}".into()], fix: false },
+            ],
+        },
+        PipelineConfig {
+            extensions: vec!["py".into()],
+            steps: vec![
+                StepConfig { cmd: "ruff".into(), args: vec!["check".into(), "--fix".into(), "{file}".into()], fix: true },
+                StepConfig { cmd: "ruff".into(), args: vec!["format".into(), "{file}".into()], fix: true },
+                StepConfig { cmd: "ruff".into(), args: vec!["check".into(), "{file}".into()], fix: false },
+            ],
+        },
+    ]
+}
+
+/// 設定ファイルのパス解決
+fn config_path() -> PathBuf {
+    std::env::current_exe()
+        .unwrap_or_default()
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("hooks-config.toml")
+}
+
+/// 設定ファイルを読み込む
+fn load_config() -> Config {
+    let path = config_path();
+    match std::fs::read_to_string(&path) {
+        Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
+            eprintln!("[post-tool-linter] Warning: Failed to parse {}: {}", path.display(), e);
+            Config::default()
+        }),
+        Err(_) => Config::default(),
     }
 }
 
-/// コマンドを直接実行し、(stdout, stderr) を返す
+/// ファイル拡張子に一致するパイプラインを検索
+fn find_pipeline<'a>(file: &str, pipelines: &'a [PipelineConfig]) -> Option<&'a PipelineConfig> {
+    let ext = Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())?;
+
+    pipelines.iter().find(|p| p.extensions.iter().any(|e| e.to_lowercase() == ext))
+}
+
+/// コマンドを実行し、(stdout, stderr) を返す
 /// シェル (cmd /c) を経由しないため、ファイルパスのメタ文字によるインジェクションを防止する
-fn run_command(program: &str, args: &[&str]) -> (String, String) {
+fn run_command(program: &str, args: &[String]) -> (String, String) {
     match Command::new(program).args(args).output() {
         Ok(o) => (
             String::from_utf8_lossy(&o.stdout).to_string(),
@@ -99,45 +156,42 @@ fn emit_feedback(message: &str) {
     }
 }
 
-/// TypeScript/JavaScript 向けリンターパイプライン
-fn lint_typescript(file: &str) {
-    // 1. Biome でフォーマット (失敗しても続行)
-    let _ = run_command("npx", &["--no-install", "biome", "format", "--write", file]);
-
-    // 2. oxlint --fix で自動修正 (失敗しても続行)
-    let _ = run_command("npx", &["--no-install", "oxlint", "--fix", file]);
-
-    // 3. oxlint で残りの診断を取得 (stdout + stderr を結合)
-    let (stdout, stderr) = run_command("npx", &["--no-install", "oxlint", file]);
-    let combined = combine_output(&stdout, &stderr);
-
-    // 診断結果があればフィードバック (先頭20行に制限)
-    let trimmed: String = combined.lines().take(20).collect::<Vec<_>>().join("\n");
-    if !trimmed.trim().is_empty() {
-        emit_feedback(&trimmed);
-    }
+/// args 内の {file} プレースホルダーをファイルパスに置換
+fn resolve_args(args: &[String], file: &str) -> Vec<String> {
+    args.iter().map(|a| a.replace("{file}", file)).collect()
 }
 
-/// Python 向けリンターパイプライン
-fn lint_python(file: &str) {
-    // 1. ruff check --fix で自動修正 (失敗しても続行)
-    let _ = run_command("ruff", &["check", "--fix", file]);
+/// パイプラインを実行
+fn run_pipeline(file: &str, pipeline: &PipelineConfig) {
+    let mut diagnostics = String::new();
 
-    // 2. ruff format でフォーマット (失敗しても続行)
-    let _ = run_command("ruff", &["format", file]);
+    for step in &pipeline.steps {
+        let resolved = resolve_args(&step.args, file);
+        let (stdout, stderr) = run_command(&step.cmd, &resolved);
 
-    // 3. ruff check で残りの診断を取得 (stdout + stderr を結合)
-    let (stdout, stderr) = run_command("ruff", &["check", file]);
-    let combined = combine_output(&stdout, &stderr);
+        if !step.fix {
+            // 診断ステップ: 出力を収集
+            let combined = combine_output(&stdout, &stderr);
+            if !combined.trim().is_empty() {
+                if !diagnostics.is_empty() {
+                    diagnostics.push('\n');
+                }
+                diagnostics.push_str(&combined);
+            }
+        }
+        // fix ステップ: 出力を捨てて続行
+    }
 
     // 診断結果があればフィードバック (先頭20行に制限)
-    let trimmed: String = combined.lines().take(20).collect::<Vec<_>>().join("\n");
+    let trimmed: String = diagnostics.lines().take(20).collect::<Vec<_>>().join("\n");
     if !trimmed.trim().is_empty() {
         emit_feedback(&trimmed);
     }
 }
 
 fn main() {
+    let config = load_config();
+
     // stdin を消費（フックの仕様上必須）
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
@@ -145,10 +199,9 @@ fn main() {
         return;
     }
 
-    // JSON からファイルパスを取得
     let hook_input: HookInput = match serde_json::from_str(&input) {
         Ok(v) => v,
-        Err(_) => return, // パース失敗 → 何もせず終了
+        Err(_) => return,
     };
 
     let file = hook_input
@@ -160,11 +213,13 @@ fn main() {
         return;
     }
 
-    // 言語カテゴリに応じてリンターを実行
-    match detect_language(&file) {
-        Some(LangCategory::TypeScriptJs) => lint_typescript(&file),
-        Some(LangCategory::Python) => lint_python(&file),
-        None => {} // 非対象の拡張子 → 何もしない
+    let pipelines = config
+        .post_tool_linter
+        .and_then(|c| c.pipelines)
+        .unwrap_or_else(default_pipelines);
+
+    if let Some(pipeline) = find_pipeline(&file, &pipelines) {
+        run_pipeline(&file, pipeline);
     }
 }
 
@@ -172,77 +227,86 @@ fn main() {
 mod tests {
     use super::*;
 
-    // --- TypeScript/JavaScript 判定 ---
+    // --- パイプライン検索テスト ---
 
     #[test]
-    fn ts_is_target() {
-        assert!(matches!(detect_language("src/app.ts"), Some(LangCategory::TypeScriptJs)));
+    fn finds_ts_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("src/app.ts", &pipelines).is_some());
     }
 
     #[test]
-    fn tsx_is_target() {
-        assert!(matches!(detect_language("components/App.tsx"), Some(LangCategory::TypeScriptJs)));
+    fn finds_tsx_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("components/App.tsx", &pipelines).is_some());
     }
 
     #[test]
-    fn js_is_target() {
-        assert!(matches!(detect_language("index.js"), Some(LangCategory::TypeScriptJs)));
+    fn finds_js_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("index.js", &pipelines).is_some());
     }
 
     #[test]
-    fn jsx_is_target() {
-        assert!(matches!(detect_language("Component.jsx"), Some(LangCategory::TypeScriptJs)));
-    }
-
-    // --- Python 判定 ---
-
-    #[test]
-    fn py_is_target() {
-        assert!(matches!(detect_language("main.py"), Some(LangCategory::Python)));
+    fn finds_jsx_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("Component.jsx", &pipelines).is_some());
     }
 
     #[test]
-    fn py_windows_path_is_target() {
-        assert!(matches!(detect_language(r"e:\work\project\src\app.py"), Some(LangCategory::Python)));
+    fn finds_py_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("main.py", &pipelines).is_some());
     }
 
     #[test]
-    fn py_case_insensitive() {
-        assert!(matches!(detect_language("file.PY"), Some(LangCategory::Python)));
-        assert!(matches!(detect_language("file.Py"), Some(LangCategory::Python)));
-    }
-
-    // --- 非対象 ---
-
-    #[test]
-    fn rs_is_not_target() {
-        assert!(detect_language("main.rs").is_none());
+    fn finds_py_windows_path() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline(r"e:\work\project\src\app.py", &pipelines).is_some());
     }
 
     #[test]
-    fn json_is_not_target() {
-        assert!(detect_language("package.json").is_none());
+    fn finds_py_case_insensitive() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("file.PY", &pipelines).is_some());
+        assert!(find_pipeline("file.Py", &pipelines).is_some());
     }
 
     #[test]
-    fn no_extension_is_not_target() {
-        assert!(detect_language("Makefile").is_none());
+    fn rs_has_no_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("main.rs", &pipelines).is_none());
     }
 
     #[test]
-    fn empty_is_not_target() {
-        assert!(detect_language("").is_none());
+    fn json_has_no_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("package.json", &pipelines).is_none());
     }
 
     #[test]
-    fn windows_path_ts_is_target() {
-        assert!(matches!(detect_language(r"e:\work\project\src\app.ts"), Some(LangCategory::TypeScriptJs)));
+    fn no_extension_has_no_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("Makefile", &pipelines).is_none());
+    }
+
+    #[test]
+    fn empty_has_no_pipeline() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("", &pipelines).is_none());
+    }
+
+    #[test]
+    fn windows_path_ts() {
+        let pipelines = default_pipelines();
+        assert!(find_pipeline(r"e:\work\project\src\app.ts", &pipelines).is_some());
     }
 
     #[test]
     fn case_insensitive_ts() {
-        assert!(matches!(detect_language("file.TS"), Some(LangCategory::TypeScriptJs)));
-        assert!(matches!(detect_language("file.Tsx"), Some(LangCategory::TypeScriptJs)));
+        let pipelines = default_pipelines();
+        assert!(find_pipeline("file.TS", &pipelines).is_some());
+        assert!(find_pipeline("file.Tsx", &pipelines).is_some());
     }
 
     // --- 出力結合 ---
@@ -280,5 +344,69 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains(r#""hookEventName":"PostToolUse""#));
         assert!(json.contains(r#""additionalContext":"test diagnostic""#));
+    }
+
+    // --- args 置換 ---
+
+    #[test]
+    fn resolve_args_replaces_file() {
+        let args = vec!["check".to_string(), "{file}".to_string()];
+        let resolved = resolve_args(&args, "src/app.ts");
+        assert_eq!(resolved, vec!["check", "src/app.ts"]);
+    }
+
+    #[test]
+    fn resolve_args_no_placeholder() {
+        let args = vec!["--fix".to_string()];
+        let resolved = resolve_args(&args, "src/app.ts");
+        assert_eq!(resolved, vec!["--fix"]);
+    }
+
+    // --- カスタムパイプライン ---
+
+    #[test]
+    fn custom_pipeline_matches() {
+        let pipelines = vec![PipelineConfig {
+            extensions: vec!["go".into()],
+            steps: vec![StepConfig {
+                cmd: "gofmt".into(),
+                args: vec!["-w".into(), "{file}".into()],
+                fix: true,
+            }],
+        }];
+        assert!(find_pipeline("main.go", &pipelines).is_some());
+        assert!(find_pipeline("main.rs", &pipelines).is_none());
+    }
+
+    // --- デフォルトパイプライン ---
+
+    #[test]
+    fn default_pipelines_has_ts_and_py() {
+        let pipelines = default_pipelines();
+        assert_eq!(pipelines.len(), 2);
+        assert!(pipelines[0].extensions.contains(&"ts".to_string()));
+        assert!(pipelines[1].extensions.contains(&"py".to_string()));
+    }
+
+    #[test]
+    fn ts_pipeline_has_3_steps() {
+        let pipelines = default_pipelines();
+        assert_eq!(pipelines[0].steps.len(), 3);
+    }
+
+    #[test]
+    fn py_pipeline_has_3_steps() {
+        let pipelines = default_pipelines();
+        assert_eq!(pipelines[1].steps.len(), 3);
+    }
+
+    #[test]
+    fn fix_steps_come_before_check() {
+        let pipelines = default_pipelines();
+        for p in &pipelines {
+            // fix ステップが先、check (fix=false) が最後
+            let last = p.steps.last().unwrap();
+            assert!(!last.fix, "Last step should be a check (fix=false)");
+        }
     }
 }

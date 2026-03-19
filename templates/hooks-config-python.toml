@@ -1,0 +1,39 @@
+# hooks-config.toml — Python プロジェクト向けテンプレート
+
+[pre_tool_validate]
+blocked_patterns = [
+  "default",
+  "git",
+  "jj-immutable",
+  "jj-main-guard",
+]
+
+extra_protected_files = [
+  "settings.local.json",
+  "settings.local.json.template",
+]
+
+[post_tool_linter]
+
+[[post_tool_linter.pipelines]]
+extensions = ["py"]
+steps = [
+  { cmd = "ruff", args = ["check", "--fix", "{file}"], fix = true },
+  { cmd = "ruff", args = ["format", "{file}"], fix = true },
+  { cmd = "ruff", args = ["check", "{file}"], fix = false },
+]
+
+[stop_quality]
+step_timeout = 120
+
+[[stop_quality.steps]]
+name = "py-lint"
+cmd = "pnpm py-lint"
+
+[[stop_quality.steps]]
+name = "py-test"
+cmd = "pnpm py-test"
+
+[[stop_quality.steps]]
+name = "py-test:e2e"
+cmd = "pnpm py-test:e2e"

@@ -1,0 +1,43 @@
+# hooks-config.toml — TypeScript プロジェクト向けテンプレート
+
+[pre_tool_validate]
+blocked_patterns = [
+  "default",
+  "git",
+  "jj-immutable",
+  "jj-main-guard",
+]
+
+extra_protected_files = [
+  "settings.local.json",
+  "settings.local.json.template",
+]
+
+[post_tool_linter]
+
+[[post_tool_linter.pipelines]]
+extensions = ["ts", "tsx", "js", "jsx"]
+steps = [
+  { cmd = "npx", args = ["--no-install", "biome", "format", "--write", "{file}"], fix = true },
+  { cmd = "npx", args = ["--no-install", "oxlint", "--fix", "{file}"], fix = true },
+  { cmd = "npx", args = ["--no-install", "oxlint", "{file}"], fix = false },
+]
+
+[stop_quality]
+step_timeout = 60
+
+[[stop_quality.steps]]
+name = "lint"
+cmd = "pnpm lint"
+
+[[stop_quality.steps]]
+name = "test"
+cmd = "pnpm test"
+
+[[stop_quality.steps]]
+name = "typecheck"
+cmd = "pnpm typecheck"
+
+[[stop_quality.steps]]
+name = "build"
+cmd = "pnpm build"
