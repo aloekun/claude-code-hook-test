@@ -7,9 +7,11 @@
 - [ADR-003: hooks の配置規則とビルド戦略](docs/adr/adr-003-hooks-layout-and-build-strategy.md)
 - [ADR-004: Stop フックによる品質ゲート](docs/adr/adr-004-stop-hook-quality-gate.md)
 - [ADR-005: hooks の exe パスをテンプレートから自動生成](docs/adr/adr-005-hooks-path-resolution-with-template.md)
+- [ADR-006: hooks の設定駆動型アーキテクチャ](docs/adr/adr-006-config-driven-hooks.md)
 
 ## Build
 
 ```sh
-pnpm build:hooks  # 全 hooks exe を一括ビルド
+pnpm build:hooks   # 全 hooks exe を一括ビルド
+pnpm deploy:hooks  # 派生プロジェクトに exe を配布
 ```

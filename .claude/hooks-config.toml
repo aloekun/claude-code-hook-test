@@ -1,0 +1,66 @@
+# hooks-config.toml — プロジェクト固有の hooks 設定
+#
+# このファイルは各 hook exe と同じディレクトリ (.claude/) に配置します。
+# 設定ファイルが存在しない場合、各 hook はデフォルト動作にフォールバックします。
+
+# ─── PreToolUse: コマンド検証 ───
+
+[pre_tool_validate]
+# ブロックパターンのプリセット名を指定
+#   "default"       — rm -rf, cd /d (ほぼ全プロジェクト共通)
+#   "git"           — git コマンドブロック (jj 利用プロジェクト向け)
+#   "jj-immutable"  — jj --ignore-immutable
+#   "jj-main-guard" — jj new main / jj edit main
+#   "electron"      — Electron GUI 実行ブロック
+# プリセット名以外の文字列は正規表現としてカスタムパターン扱い
+blocked_patterns = [
+  "default",
+  "git",
+  "jj-immutable",
+  "jj-main-guard",
+  "electron",
+]
+
+# 追加の保護ファイル (デフォルトリストに追加)
+extra_protected_files = []
+
+# ─── PostToolUse: リンター ───
+
+[post_tool_linter]
+
+[[post_tool_linter.pipelines]]
+extensions = ["ts", "tsx", "js", "jsx"]
+steps = [
+  { cmd = "npx", args = ["--no-install", "biome", "format", "--write", "{file}"], fix = true },
+  { cmd = "npx", args = ["--no-install", "oxlint", "--fix", "{file}"], fix = true },
+  { cmd = "npx", args = ["--no-install", "oxlint", "{file}"], fix = false },
+]
+
+[[post_tool_linter.pipelines]]
+extensions = ["py"]
+steps = [
+  { cmd = "ruff", args = ["check", "--fix", "{file}"], fix = true },
+  { cmd = "ruff", args = ["format", "{file}"], fix = true },
+  { cmd = "ruff", args = ["check", "{file}"], fix = false },
+]
+
+# ─── Stop: 品質ゲート ───
+
+[stop_quality]
+step_timeout = 60
+
+[[stop_quality.steps]]
+name = "lint"
+cmd = "pnpm lint"
+
+[[stop_quality.steps]]
+name = "test"
+cmd = "pnpm test"
+
+[[stop_quality.steps]]
+name = "test:e2e"
+cmd = "pnpm test:e2e"
+
+[[stop_quality.steps]]
+name = "build"
+cmd = "pnpm build"
