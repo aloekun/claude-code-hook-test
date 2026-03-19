@@ -102,13 +102,13 @@ fn emit_feedback(message: &str) {
 /// TypeScript/JavaScript 向けリンターパイプライン
 fn lint_typescript(file: &str) {
     // 1. Biome でフォーマット (失敗しても続行)
-    let _ = run_command("npx", &["biome", "format", "--write", file]);
+    let _ = run_command("npx", &["--no-install", "biome", "format", "--write", file]);
 
     // 2. oxlint --fix で自動修正 (失敗しても続行)
-    let _ = run_command("npx", &["oxlint", "--fix", file]);
+    let _ = run_command("npx", &["--no-install", "oxlint", "--fix", file]);
 
     // 3. oxlint で残りの診断を取得 (stdout + stderr を結合)
-    let (stdout, stderr) = run_command("npx", &["oxlint", file]);
+    let (stdout, stderr) = run_command("npx", &["--no-install", "oxlint", file]);
     let combined = combine_output(&stdout, &stderr);
 
     // 診断結果があればフィードバック (先頭20行に制限)
@@ -140,7 +140,10 @@ fn lint_python(file: &str) {
 fn main() {
     // stdin を消費（フックの仕様上必須）
     let mut input = String::new();
-    let _ = io::stdin().read_to_string(&mut input);
+    if let Err(e) = io::stdin().read_to_string(&mut input) {
+        eprintln!("[post-tool-linter] Warning: Failed to read stdin: {}", e);
+        return;
+    }
 
     // JSON からファイルパスを取得
     let hook_input: HookInput = match serde_json::from_str(&input) {

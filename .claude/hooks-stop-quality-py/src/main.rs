@@ -72,7 +72,8 @@ fn get_quality_steps() -> Vec<QualityStep> {
 }
 
 /// ステップごとのタイムアウト（秒）
-const STEP_TIMEOUT_SECS: u64 = 120;
+/// 3ステップ直列で最大 3×60=180s < hook timeout 300s（120s バッファ）
+const STEP_TIMEOUT_SECS: u64 = 60;
 
 /// cmd /c 経由でコマンドを実行し、(成功, 出力) を返す
 /// タイムアウト超過時はプロセスを kill して失敗扱いにする
