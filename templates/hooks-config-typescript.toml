@@ -11,6 +11,7 @@ blocked_patterns = [
 extra_protected_files = [
   "settings.local.json",
   "settings.local.json.template",
+  "hooks-config.toml",
 ]
 
 [post_tool_linter]
