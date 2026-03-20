@@ -88,7 +88,40 @@ fn load_config() -> (Config, bool) {
     }
 }
 
+/// パイプから最大 MAX_LINES 行を読み出すヘルパー
+/// 残りの行は読み捨てる（パイプバッファの排出を継続するため）
+const MAX_LINES: usize = 20;
+
+fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(pipe);
+        let mut collected = Vec::with_capacity(MAX_LINES);
+        let mut buf = Vec::new();
+
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break, // EOF
+                Ok(_) => {
+                    if collected.len() < MAX_LINES {
+                        collected.push(
+                            String::from_utf8_lossy(&buf)
+                                .trim_end_matches(&['\r', '\n'][..])
+                                .to_string(),
+                        );
+                    }
+                    // MAX_LINES 超過分も読み捨てて排出を継続
+                }
+                Err(_) => break,
+            }
+        }
+        collected.join("\n")
+    })
+}
+
 /// cmd /c 経由でコマンドを実行し、(成功, 出力) を返す
+/// stdout/stderr を別スレッドで排出し、パイプデッドロックを防止する
 /// タイムアウト超過時はプロセスを kill して失敗扱いにする
 fn run_step(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
     let mut child = match Command::new("cmd")
@@ -101,41 +134,60 @@ fn run_step(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
         Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
     };
 
+    // パイプを別スレッドで排出（デッドロック防止）
+    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
+    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+
+    // タイムアウト付きでプロセス終了を待つ
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
+    let timed_out = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(_)) => break false,
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
-                    // ゾンビプロセス防止: kill 後に wait
                     let _ = child.wait();
-                    return (
-                        false,
-                        format!("{} timed out after {}s", name, timeout_secs),
-                    );
+                    break true;
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
             Err(e) => return (false, format!("Failed to wait for {}: {}", cmd, e)),
         }
-    }
-
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(e) => return (false, format!("Failed to read output of {}: {}", cmd, e)),
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = if stdout.ends_with('\n') || stdout.is_empty() {
-        format!("{}{}", stdout, stderr)
+    if timed_out {
+        // スレッドから出力を回収してタイムアウトメッセージに含める
+        let stdout = stdout_handle.join().unwrap_or_default();
+        let stderr = stderr_handle.join().unwrap_or_default();
+        let mut msg = format!("{} timed out after {}s", name, timeout_secs);
+        if !stdout.is_empty() || !stderr.is_empty() {
+            let combined = if stdout.is_empty() {
+                stderr
+            } else if stderr.is_empty() {
+                stdout
+            } else {
+                format!("{}\n{}", stdout, stderr)
+            };
+            msg = format!("{}\n{}", msg, combined);
+        }
+        return (false, msg);
+    }
+
+    // 終了ステータスを取得
+    let success = child.wait().map(|s| s.success()).unwrap_or(false);
+
+    // スレッドから出力を回収
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    let combined = if stdout.is_empty() {
+        stderr
+    } else if stderr.is_empty() {
+        stdout
     } else {
         format!("{}\n{}", stdout, stderr)
     };
-    // 先頭20行に制限
-    let trimmed: String = combined.lines().take(20).collect::<Vec<_>>().join("\n");
-    (output.status.success(), trimmed)
+
+    (success, combined)
 }
 
 fn main() {
