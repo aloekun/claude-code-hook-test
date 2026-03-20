@@ -357,6 +357,10 @@ fn is_protected_config(file_path: &str, extra_files: &[String]) -> bool {
             file_name == protected_lower
                 || normalized_lower.contains(&format!("/{}", dir_prefix))
                 || normalized_lower.starts_with(&dir_prefix)
+        } else if protected_lower.contains('/') {
+            // パス付き指定: 完全一致 or スラッシュ境界での末尾一致
+            normalized_lower == protected_lower
+                || normalized_lower.ends_with(&format!("/{}", protected_lower))
         } else {
             file_name == protected_lower
         }
@@ -995,5 +999,37 @@ mod tests {
         assert!(is_protected_config("biome.json", &extra));
         // 追加リストにないファイルは許可
         assert!(!is_protected_config("src/app.ts", &extra));
+    }
+
+    // --- extra_protected_files パス付き指定テスト ---
+
+    #[test]
+    fn extra_protected_path_matches_full_path() {
+        let extra = vec![".claude/hooks-config.toml".to_string()];
+        assert!(is_protected_config(r"e:\work\project\.claude\hooks-config.toml", &extra));
+        assert!(is_protected_config("/home/user/project/.claude/hooks-config.toml", &extra));
+    }
+
+    #[test]
+    fn extra_protected_path_does_not_match_different_dir() {
+        let extra = vec![".claude/hooks-config.toml".to_string()];
+        // 別ディレクトリの同名ファイルはマッチしない
+        assert!(!is_protected_config("other/hooks-config.toml", &extra));
+    }
+
+    #[test]
+    fn extra_protected_path_does_not_match_bare_basename() {
+        let extra = vec![".claude/hooks-config.toml".to_string()];
+        // パス付き指定はベースネームだけではマッチしない
+        assert!(!is_protected_config("hooks-config.toml", &extra));
+    }
+
+    #[test]
+    fn extra_protected_basename_still_works() {
+        // ベースネーム指定は従来通りどこでもマッチ
+        let extra = vec!["hooks-config.toml".to_string()];
+        assert!(is_protected_config("hooks-config.toml", &extra));
+        assert!(is_protected_config(r"e:\work\.claude\hooks-config.toml", &extra));
+        assert!(is_protected_config("other/hooks-config.toml", &extra));
     }
 }
