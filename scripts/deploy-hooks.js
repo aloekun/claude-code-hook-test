@@ -84,17 +84,29 @@ function deployTo(targetDir) {
   if (fs.existsSync(templateSrc)) {
     copyFile(templateSrc, path.join(targetClaude, SETTINGS_TEMPLATE));
 
-    // settings.local.json を生成 (テンプレートの {{PROJECT_DIR}} を置換)
+    // settings.local.json を生成 (hooks のみ更新、既存 permissions 等は保持)
     const template = fs.readFileSync(templateSrc, "utf8");
     const resolved = template.replace(
       /\{\{PROJECT_DIR\}\}/g,
       targetDir.replace(/\\/g, "\\\\")
     );
-    fs.writeFileSync(
-      path.join(targetClaude, "settings.local.json"),
-      resolved
-    );
-    console.log("  generated: settings.local.json");
+    const newSettings = JSON.parse(resolved);
+    const settingsDest = path.join(targetClaude, "settings.local.json");
+
+    if (fs.existsSync(settingsDest)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+        existing.hooks = newSettings.hooks;
+        fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n");
+        console.log("  updated: settings.local.json (hooks merged, permissions preserved)");
+      } catch {
+        fs.writeFileSync(settingsDest, JSON.stringify(newSettings, null, 2) + "\n");
+        console.log("  WARN: existing settings.local.json was invalid, regenerated");
+      }
+    } else {
+      fs.writeFileSync(settingsDest, JSON.stringify(newSettings, null, 2) + "\n");
+      console.log("  generated: settings.local.json");
+    }
   }
 
   return true;

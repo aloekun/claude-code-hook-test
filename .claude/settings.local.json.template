@@ -8,7 +8,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit",
+        "matcher": "Bash|Write|Edit|Replace",
         "hooks": [
           {
             "type": "command",
@@ -20,7 +20,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|Replace",
         "hooks": [
           {
             "type": "command",
