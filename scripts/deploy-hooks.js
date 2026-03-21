@@ -91,11 +91,25 @@ function deployTo(targetDir) {
       targetDir.replace(/\\/g, "\\\\")
     );
     const newSettings = JSON.parse(resolved);
+    if (
+      !newSettings ||
+      typeof newSettings !== "object" ||
+      Array.isArray(newSettings) ||
+      !newSettings.hooks ||
+      typeof newSettings.hooks !== "object" ||
+      Array.isArray(newSettings.hooks)
+    ) {
+      throw new Error("Invalid settings template: `hooks` object is required");
+    }
     const settingsDest = path.join(targetClaude, "settings.local.json");
 
     if (fs.existsSync(settingsDest)) {
       try {
-        const existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+        const parsed = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+        const existing =
+          parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed
+            : {};
         existing.hooks = newSettings.hooks;
         fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n");
         console.log("  updated: settings.local.json (hooks merged, permissions preserved)");
