@@ -4,7 +4,8 @@
  * 動作:
  *   1. deploy-targets.json からターゲットプロジェクト一覧を読み込み
  *   2. 各ターゲットの .claude/ ディレクトリに exe をコピー
- *   3. hooks-config.toml が存在しない場合のみ、テンプレートをコピー
+ *   3. settings.local.json.template を解決して settings.local.json を生成
+ *   4. hooks-config.toml が存在しない場合は作成を促すメッセージを表示
  *
  * 使い方: pnpm deploy:hooks
  */
@@ -87,7 +88,13 @@ function deployTo(targetDir) {
       /\{\{PROJECT_DIR\}\}/g,
       targetDir.replace(/\\/g, "\\\\")
     );
-    const newSettings = JSON.parse(resolved);
+    let newSettings;
+    try {
+      newSettings = JSON.parse(resolved);
+    } catch (e) {
+      console.log(`  WARN: Failed to parse ${SETTINGS_TEMPLATE}: ${e.message}`);
+      return true;
+    }
     if (
       !newSettings ||
       typeof newSettings !== "object" ||
@@ -110,9 +117,9 @@ function deployTo(targetDir) {
         existing.hooks = newSettings.hooks;
         fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n");
         console.log("  updated: settings.local.json (hooks merged, permissions preserved)");
-      } catch {
+      } catch (e) {
         fs.writeFileSync(settingsDest, JSON.stringify(newSettings, null, 2) + "\n");
-        console.log("  WARN: existing settings.local.json was invalid, regenerated");
+        console.log(`  WARN: existing settings.local.json was invalid (${e.message}), regenerated`);
       }
     } else {
       fs.writeFileSync(settingsDest, JSON.stringify(newSettings, null, 2) + "\n");
