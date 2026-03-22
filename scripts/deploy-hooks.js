@@ -79,12 +79,9 @@ function deployTo(targetDir) {
     );
   }
 
-  // settings.local.json.template をコピー (常に最新に更新)
+  // settings.local.json を生成 (hooks のみ更新、既存 permissions 等は保持)
   const templateSrc = path.join(CLAUDE_DIR, SETTINGS_TEMPLATE);
   if (fs.existsSync(templateSrc)) {
-    copyFile(templateSrc, path.join(targetClaude, SETTINGS_TEMPLATE));
-
-    // settings.local.json を生成 (hooks のみ更新、既存 permissions 等は保持)
     const template = fs.readFileSync(templateSrc, "utf8");
     const resolved = template.replace(
       /\{\{PROJECT_DIR\}\}/g,
