@@ -23,6 +23,7 @@ const EXE_FILES = [
   "hooks-pre-tool-validate.exe",
   "hooks-post-tool-linter.exe",
   "hooks-stop-quality.exe",
+  "hooks-push-pipeline.exe",
 ];
 
 const SETTINGS_TEMPLATE = "settings.local.json.template";

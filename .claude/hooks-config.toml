@@ -11,6 +11,7 @@
 #   "git"           — git コマンドブロック (jj 利用プロジェクト向け)
 #   "jj-immutable"  — jj --ignore-immutable
 #   "jj-main-guard" — jj new main / jj edit main
+#   "jj-push-guard" — jj git push / jj push 禁止 (pnpm push に誘導)
 #   "electron"      — Electron GUI 実行ブロック
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
@@ -18,6 +19,7 @@ blocked_patterns = [
   "git",
   "jj-immutable",
   "jj-main-guard",
+  "jj-push-guard",
   "electron",
 ]
 
@@ -69,3 +71,32 @@ cmd = "pnpm test:e2e"
 [[stop_quality.steps]]
 name = "build"
 cmd = "pnpm build"
+
+# ─── Push Pipeline: push 前パイプライン ───
+#
+# pnpm push で起動されるパイプライン。
+# PreToolUse の "jj-push-guard" プリセットにより直接の jj git push はブロックされ、
+# このパイプラインを通すことが強制される。
+#
+# ステップの type:
+#   "command" — シェルコマンドを実行。exit code 0 で成功判定
+#   "ai"     — AI 処理が必要なステップ (将来実装、現在は placeholder)
+
+[push_pipeline]
+step_timeout = 120
+push_cmd = "jj git push"
+
+[[push_pipeline.steps]]
+name = "integration_test"
+type = "command"
+cmd = "pnpm test"
+
+[[push_pipeline.steps]]
+name = "ai_review"
+type = "ai"
+prompt = "review_changes"
+
+[[push_pipeline.steps]]
+name = "commit_refactor"
+type = "ai"
+prompt = "optimize_commit_structure"
