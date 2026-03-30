@@ -1,10 +1,14 @@
-// E2E test runner
-// .env.e2e が存在しない場合は自動スキップ
+/**
+ * E2E test runner
+ * .env.e2e が存在しない場合は自動スキップ
+ */
+
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { logger } from "../src/logger";
 
 if (!existsSync(".env.e2e")) {
-  console.log("Skipped: .env.e2e not found");
+  logger.info("Skipped: .env.e2e not found");
   process.exit(0);
 }
 
