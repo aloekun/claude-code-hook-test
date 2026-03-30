@@ -24,6 +24,11 @@ blocked_patterns = [
 # 追加の保護ファイル (デフォルトリストに追加)
 extra_protected_files = []
 
+# ─── PostToolUse: カスタムリンター ───
+# プロジェクト固有のカスタムルールは custom-lint-rules.toml に定義。
+# 正規表現ベースのリテラルマッチのみ。AST解析が必要なルールは
+# ast-grep を下記パイプラインのステップとして追加する (ADR-007)。
+
 # ─── PostToolUse: リンター ───
 
 [post_tool_linter]

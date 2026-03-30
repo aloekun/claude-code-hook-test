@@ -6,6 +6,7 @@
 //! .claude/hooks-config.toml の [post_tool_linter] セクションから
 //! 拡張子ごとのパイプラインを読み込みます。
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -63,6 +64,70 @@ struct StepConfig {
     cmd: String,
     args: Vec<String>,
     fix: bool,
+}
+
+// --- カスタムルール設定 (custom-lint-rules.toml) ---
+
+#[derive(Deserialize, Default)]
+struct CustomRulesConfig {
+    rules: Option<Vec<CustomRule>>,
+}
+
+#[derive(Deserialize, Clone)]
+struct CustomRule {
+    id: String,
+    pattern: String,
+    severity: String,
+    message: String,
+    #[serde(default)]
+    why: String,
+    extensions: Vec<String>,
+    fix: Option<CustomRuleFix>,
+    example: Option<CustomRuleExample>,
+}
+
+#[derive(Deserialize, Clone)]
+struct CustomRuleFix {
+    strategy: String,
+    steps: Vec<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct CustomRuleExample {
+    bad: String,
+    good: String,
+}
+
+// --- カスタムルール構造化出力 (additionalContext 用) ---
+
+#[derive(Serialize)]
+struct LintViolation {
+    r#type: String,
+    severity: String,
+    location: ViolationLocation,
+    message: String,
+    why: String,
+    fix: ViolationFix,
+    example: ViolationExample,
+}
+
+#[derive(Serialize)]
+struct ViolationLocation {
+    file: String,
+    line: usize,
+    symbol: String,
+}
+
+#[derive(Serialize)]
+struct ViolationFix {
+    strategy: String,
+    steps: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ViolationExample {
+    bad: String,
+    good: String,
 }
 
 /// デフォルトパイプライン (設定ファイルが無い場合のフォールバック)
@@ -189,6 +254,118 @@ fn run_pipeline(file: &str, pipeline: &PipelineConfig) {
     }
 }
 
+/// カスタムルール設定ファイルのパス解決
+fn custom_rules_path() -> PathBuf {
+    std::env::current_exe()
+        .unwrap_or_default()
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("custom-lint-rules.toml")
+}
+
+/// コンパイル済み正規表現を持つルール
+struct CompiledRule {
+    rule: CustomRule,
+    regex: Regex,
+}
+
+/// カスタムルール設定を読み込み、正規表現をプリコンパイルする
+fn load_custom_rules() -> Vec<CompiledRule> {
+    let path = custom_rules_path();
+    let rules = match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            let config: CustomRulesConfig = toml::from_str(&content).unwrap_or_else(|e| {
+                eprintln!("[post-tool-linter] Warning: Failed to parse {}: {}", path.display(), e);
+                CustomRulesConfig::default()
+            });
+            config.rules.unwrap_or_default()
+        }
+        Err(_) => return Vec::new(),
+    };
+
+    rules
+        .into_iter()
+        .filter_map(|rule| match Regex::new(&rule.pattern) {
+            Ok(regex) => Some(CompiledRule { rule, regex }),
+            Err(e) => {
+                eprintln!("[post-tool-linter] Warning: Invalid regex in rule '{}': {}", rule.id, e);
+                None
+            }
+        })
+        .collect()
+}
+
+/// カスタムルール違反の最大出力件数 (外部ツール診断の20行制限と同等)
+const MAX_CUSTOM_VIOLATIONS: usize = 20;
+
+/// ファイル拡張子がルールの対象かチェック
+fn rule_matches_ext(rule: &CustomRule, file: &str) -> bool {
+    let ext = Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
+
+    match ext {
+        Some(ext) => rule.extensions.iter().any(|e| e.to_lowercase() == ext),
+        None => false,
+    }
+}
+
+/// カスタムルールをファイルに適用し、構造化された違反 JSON を返す
+fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
+    let content = match std::fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut violations = Vec::new();
+
+    for compiled in rules {
+        if !rule_matches_ext(&compiled.rule, file) {
+            continue;
+        }
+
+        for (line_idx, line) in content.lines().enumerate() {
+            if violations.len() >= MAX_CUSTOM_VIOLATIONS {
+                break;
+            }
+
+            if let Some(m) = compiled.regex.find(line) {
+                let rule = &compiled.rule;
+                let violation = LintViolation {
+                    r#type: rule.id.to_uppercase().replace('-', "_"),
+                    severity: rule.severity.clone(),
+                    location: ViolationLocation {
+                        file: file.to_string(),
+                        line: line_idx + 1,
+                        symbol: m.as_str().to_string(),
+                    },
+                    message: rule.message.clone(),
+                    why: rule.why.clone(),
+                    fix: ViolationFix {
+                        strategy: rule.fix.as_ref().map_or_else(String::new, |f| f.strategy.clone()),
+                        steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
+                    },
+                    example: ViolationExample {
+                        bad: rule.example.as_ref().map_or_else(String::new, |e| e.bad.clone()),
+                        good: rule.example.as_ref().map_or_else(String::new, |e| e.good.clone()),
+                    },
+                };
+
+                if let Ok(json) = serde_json::to_string(&violation) {
+                    violations.push(json);
+                }
+            }
+        }
+
+        if violations.len() >= MAX_CUSTOM_VIOLATIONS {
+            break;
+        }
+    }
+
+    violations
+}
+
 fn main() {
     let config = load_config();
 
@@ -213,6 +390,19 @@ fn main() {
         return;
     }
 
+    // 第1層: カスタムルール (正規表現ベース, ~1ms)
+    let compiled_rules = load_custom_rules();
+    let violations = run_custom_rules(&file, &compiled_rules);
+    if !violations.is_empty() {
+        let feedback = format!(
+            "[custom-lint] {} violation(s) found:\n{}",
+            violations.len(),
+            violations.join("\n")
+        );
+        emit_feedback(&feedback);
+    }
+
+    // 第2層: 外部ツールパイプライン (biome, oxlint, ruff 等)
     let pipelines = config
         .post_tool_linter
         .and_then(|c| c.pipelines)
@@ -408,5 +598,270 @@ mod tests {
             let last = p.steps.last().unwrap();
             assert!(!last.fix, "Last step should be a check (fix=false)");
         }
+    }
+
+    // --- カスタムルール: ルール拡張子マッチ ---
+
+    fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
+        CustomRule {
+            id: id.into(),
+            pattern: pattern.into(),
+            severity: "error".into(),
+            message: "test message".into(),
+            why: "test reason".into(),
+            extensions: extensions.iter().map(|e| e.to_string()).collect(),
+            fix: Some(CustomRuleFix {
+                strategy: "test strategy".into(),
+                steps: vec!["step1".into()],
+            }),
+            example: Some(CustomRuleExample {
+                bad: "bad code".into(),
+                good: "good code".into(),
+            }),
+        }
+    }
+
+    #[test]
+    fn rule_matches_ts_extension() {
+        let rule = make_test_rule("test", "pattern", &["ts", "tsx"]);
+        assert!(rule_matches_ext(&rule, "src/app.ts"));
+        assert!(rule_matches_ext(&rule, "src/App.tsx"));
+    }
+
+    #[test]
+    fn rule_does_not_match_other_extension() {
+        let rule = make_test_rule("test", "pattern", &["ts"]);
+        assert!(!rule_matches_ext(&rule, "main.rs"));
+        assert!(!rule_matches_ext(&rule, "style.css"));
+    }
+
+    #[test]
+    fn rule_matches_case_insensitive() {
+        let rule = make_test_rule("test", "pattern", &["ts"]);
+        assert!(rule_matches_ext(&rule, "file.TS"));
+        assert!(rule_matches_ext(&rule, "file.Ts"));
+    }
+
+    #[test]
+    fn rule_no_match_for_no_extension() {
+        let rule = make_test_rule("test", "pattern", &["ts"]);
+        assert!(!rule_matches_ext(&rule, "Makefile"));
+        assert!(!rule_matches_ext(&rule, ""));
+    }
+
+    #[test]
+    fn rule_matches_windows_path() {
+        let rule = make_test_rule("test", "pattern", &["ts"]);
+        assert!(rule_matches_ext(&rule, r"e:\work\project\src\app.ts"));
+    }
+
+    // --- カスタムルール: 違反検出 ---
+
+    /// テスト用: CustomRule からコンパイル済みルールを生成するヘルパー
+    fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
+        rules
+            .into_iter()
+            .filter_map(|rule| Regex::new(&rule.pattern).ok().map(|regex| CompiledRule { rule, regex }))
+            .collect()
+    }
+
+    #[test]
+    fn run_custom_rules_detects_console_log() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "const x = 1;").unwrap();
+            writeln!(f, "console.log('debug');").unwrap();
+            writeln!(f, "const y = 2;").unwrap();
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert_eq!(violations.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        assert_eq!(v["type"], "NO_CONSOLE_LOG");
+        assert_eq!(v["severity"], "error");
+        assert_eq!(v["location"]["line"], 2);
+        assert_eq!(v["message"], "test message");
+    }
+
+    #[test]
+    fn run_custom_rules_no_violation_on_clean_file() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clean.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "const x = 1;").unwrap();
+            writeln!(f, "logger.info('message');").unwrap();
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn run_custom_rules_skips_non_matching_extension() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.rs");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "console.log('should be ignored');").unwrap();
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn run_custom_rules_multiple_violations() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("multi.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "console.log('first');").unwrap();
+            writeln!(f, "const x = 1;").unwrap();
+            writeln!(f, "console.log('second');").unwrap();
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert_eq!(violations.len(), 2);
+        let v1: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&violations[1]).unwrap();
+        assert_eq!(v1["location"]["line"], 1);
+        assert_eq!(v2["location"]["line"], 3);
+    }
+
+    #[test]
+    fn run_custom_rules_respects_max_violations() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("many.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            for i in 0..30 {
+                writeln!(f, "console.log('line {}');", i).unwrap();
+            }
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert_eq!(violations.len(), MAX_CUSTOM_VIOLATIONS);
+    }
+
+    #[test]
+    fn compile_test_rules_filters_invalid_regex() {
+        let rules = vec![
+            make_test_rule("bad-rule", r"[invalid(", &["ts"]),
+            make_test_rule("good-rule", r"console\.log\(", &["ts"]),
+        ];
+        let compiled = compile_test_rules(rules);
+
+        // 不正な正規表現のルールはフィルタされ、有効なルールのみ残る
+        assert_eq!(compiled.len(), 1);
+        assert_eq!(compiled[0].rule.id, "good-rule");
+    }
+
+    #[test]
+    fn run_custom_rules_nonexistent_file() {
+        let rules = compile_test_rules(vec![make_test_rule("test", r"pattern", &["ts"])]);
+        let violations = run_custom_rules("/nonexistent/file.ts", &rules);
+        assert!(violations.is_empty());
+    }
+
+    // --- カスタムルール: 構造化 JSON 出力 ---
+
+    #[test]
+    fn violation_json_has_all_fields() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "console.log('x');").unwrap();
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+
+        // 記事のフォーマットに準拠した全フィールドの存在を確認
+        assert!(v.get("type").is_some());
+        assert!(v.get("severity").is_some());
+        assert!(v.get("location").is_some());
+        assert!(v["location"].get("file").is_some());
+        assert!(v["location"].get("line").is_some());
+        assert!(v["location"].get("symbol").is_some());
+        assert!(v.get("message").is_some());
+        assert!(v.get("why").is_some());
+        assert!(v.get("fix").is_some());
+        assert!(v["fix"].get("strategy").is_some());
+        assert!(v["fix"].get("steps").is_some());
+        assert!(v.get("example").is_some());
+        assert!(v["example"].get("bad").is_some());
+        assert!(v["example"].get("good").is_some());
+    }
+
+    // --- カスタムルール: TOML パース ---
+
+    #[test]
+    fn parse_custom_rules_toml() {
+        let toml_str = r#"
+[[rules]]
+id = "no-console-log"
+pattern = 'console\.log\('
+severity = "error"
+message = "console.log は禁止"
+why = "デバッグコード残留防止"
+extensions = ["ts", "tsx"]
+
+[rules.fix]
+strategy = "削除 or logger置換"
+steps = ["console.log行を削除する"]
+
+[rules.example]
+bad = "console.log('x');"
+good = "logger.debug('x');"
+"#;
+
+        let config: CustomRulesConfig = toml::from_str(toml_str).unwrap();
+        let rules = config.rules.unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "no-console-log");
+        assert_eq!(rules[0].severity, "error");
+        assert_eq!(rules[0].extensions, vec!["ts", "tsx"]);
+        assert!(rules[0].fix.is_some());
+        assert!(rules[0].example.is_some());
+    }
+
+    #[test]
+    fn parse_custom_rules_toml_minimal() {
+        let toml_str = r#"
+[[rules]]
+id = "no-todo"
+pattern = "TODO"
+severity = "warning"
+message = "TODO残留"
+extensions = ["ts", "js"]
+"#;
+
+        let config: CustomRulesConfig = toml::from_str(toml_str).unwrap();
+        let rules = config.rules.unwrap();
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].fix.is_none());
+        assert!(rules[0].example.is_none());
+        assert_eq!(rules[0].why, "");
     }
 }

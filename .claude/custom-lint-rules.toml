@@ -1,0 +1,43 @@
+# custom-lint-rules.toml — プロジェクト固有のカスタムリントルール
+#
+# このファイルは .claude/ 直下に配置し、hooks-post-tool-linter が読み込みます。
+# プロジェクトごとに異なるルールセットを定義できます。
+#
+# ── ルール定義 ──
+#
+# [[rules]]
+# id          = "ルールID（一意）"
+# pattern     = "検出する正規表現パターン"
+# severity    = "error" | "warning"
+# message     = "違反時のメッセージ"
+# why         = "なぜこのルールが必要か（ADR参照など）"
+# extensions  = ["対象ファイル拡張子"]
+#
+# [rules.fix]
+# strategy    = "修正戦略の概要"
+# steps       = ["修正手順1", "修正手順2"]
+#
+# [rules.example]
+# bad         = "NG例コード"
+# good        = "OK例コード"
+
+# ─── ルール①: console.log 禁止 ───
+
+[[rules]]
+id = "no-console-log"
+pattern = 'console\.\s*log\s*\('
+severity = "error"
+message = "console.log は本番コードでは使用禁止です"
+why = "デバッグコードの残留防止。本番環境では構造化ログ（logger）を使用してください"
+extensions = ["ts", "tsx", "js", "jsx"]
+
+[rules.fix]
+strategy = "削除 or logger置換"
+steps = [
+  "デバッグ目的の場合: console.log 行を削除する",
+  "ログ出力が必要な場合: logger.debug() / logger.info() に置き換える",
+]
+
+[rules.example]
+bad = "console.log('user data:', userData);"
+good = "logger.debug('user data:', userData);"
