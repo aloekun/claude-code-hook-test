@@ -231,6 +231,39 @@ GUI アプリケーションは Claude Code のヘッドレス環境では動作
     ]
 }
 
+/// プリセット: jj-push-guard (jj git push / jj push を禁止し pnpm push に誘導)
+fn preset_jj_push_guard() -> Vec<BlockedPattern> {
+    vec![
+        BlockedPattern {
+            pattern: Regex::new(r#"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*jj\s+git\s+push(\s|$)"#).unwrap(),
+            message: r#"**jj git push がブロックされました**
+
+直接の push は禁止されています。push 前パイプライン（テスト・レビュー）を通す必要があります。
+
+**代わりに以下を実行してください:**
+```
+pnpm push
+```
+
+これにより、テスト実行 → レビュー → push が一括で行われます。"#,
+        },
+        BlockedPattern {
+            pattern: Regex::new(r#"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*jj\s+push(\s|$)"#).unwrap(),
+            message: r#"**jj push がブロックされました**
+
+`jj push` は非推奨です。代わりに `jj git push` を使用しますが、
+直接の push は禁止されています。push 前パイプラインを通す必要があります。
+
+**代わりに以下を実行してください:**
+```
+pnpm push
+```
+
+これにより、テスト実行 → レビュー → push が一括で行われます。"#,
+        },
+    ]
+}
+
 /// 設定ファイルに基づいてブロックパターンを構築
 fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
     let preset_names: Vec<String> = config
@@ -245,6 +278,7 @@ fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
                 "git".to_string(),
                 "jj-immutable".to_string(),
                 "jj-main-guard".to_string(),
+                "jj-push-guard".to_string(),
                 "electron".to_string(),
             ]
         });
@@ -256,6 +290,7 @@ fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
             "git" => patterns.extend(preset_git()),
             "jj-immutable" => patterns.extend(preset_jj_immutable()),
             "jj-main-guard" => patterns.extend(preset_jj_main_guard()),
+            "jj-push-guard" => patterns.extend(preset_jj_push_guard()),
             "electron" => patterns.extend(preset_electron()),
             custom => {
                 // プリセット名以外はカスタム正規表現として扱う
@@ -630,8 +665,10 @@ mod tests {
     // --- git: allowed commands (should NOT block) ---
 
     #[test]
-    fn allows_jj_git_push() {
-        assert!(!is_blocked("jj git push"));
+    fn blocks_jj_git_push() {
+        // jj-push-guard プリセットにより、直接の jj git push はブロックされる
+        // pnpm push 経由でのみ push を許可する設計
+        assert!(is_blocked("jj git push"));
     }
 
     #[test]
