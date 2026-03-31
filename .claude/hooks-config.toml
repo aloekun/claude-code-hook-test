@@ -83,7 +83,7 @@ cmd = "pnpm build"
 #   "ai"     — AI 処理が必要なステップ (将来実装、現在は placeholder)
 
 [push_pipeline]
-step_timeout = 120
+step_timeout = 600
 push_cmd = "jj git push"
 
 [[push_pipeline.steps]]
@@ -93,8 +93,8 @@ cmd = "pnpm test"
 
 [[push_pipeline.steps]]
 name = "ai_review"
-type = "ai"
-prompt = "review_changes"
+type = "command"
+cmd = "pnpm review:ai"
 
 [[push_pipeline.steps]]
 name = "commit_refactor"
