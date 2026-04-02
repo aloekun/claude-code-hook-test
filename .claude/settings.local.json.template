@@ -28,6 +28,16 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-pr-monitor.exe\"",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "Stop": [

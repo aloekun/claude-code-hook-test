@@ -100,3 +100,20 @@ cmd = "pnpm review:ai"
 name = "commit_refactor"
 type = "ai"
 prompt = "optimize_commit_structure"
+
+# ─── PostToolUse: PR モニター ───
+#
+# gh pr create / git push / jj git push 検出後に
+# CI + CodeRabbit の自動モニタリングを CronCreate で開始する。
+# check-ci-coderabbit.exe によるポーリングで監視し、
+# 結果の action フィールドに従って Claude が行動する。
+
+[post_pr_monitor]
+enabled = true
+poll_interval_secs = 30      # CronCreate のポーリング間隔（秒）
+max_duration_secs = 600      # 最大監視時間（秒、10分）
+check_ci = true              # GitHub Actions の監視
+check_coderabbit = true      # CodeRabbit レビューの監視
+# trigger_patterns をコメントアウトまたは未設定 → デフォルトトリガー有効
+# trigger_patterns = ["gh pr create", "git push", "jj git push"]  # 明示指定する場合
+# trigger_patterns = []  # 空配列 = 全トリガー無効化（モニタリング停止）

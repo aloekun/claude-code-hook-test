@@ -24,6 +24,8 @@ const EXE_FILES = [
   "hooks-post-tool-linter.exe",
   "hooks-stop-quality.exe",
   "hooks-push-pipeline.exe",
+  "hooks-post-pr-monitor.exe",
+  "check-ci-coderabbit.exe",
 ];
 
 const SETTINGS_TEMPLATE = "settings.local.json.template";

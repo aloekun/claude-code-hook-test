@@ -9,6 +9,8 @@
 .claude/hooks-post-tool-linter.exe
 .claude/hooks-stop-quality.exe
 .claude/hooks-push-pipeline.exe
+.claude/hooks-post-pr-monitor.exe
+.claude/check-ci-coderabbit.exe
 
 # Deploy targets (contains local paths; create from deploy-targets.template.json)
 scripts/deploy-targets.json
@@ -25,3 +27,5 @@ __pycache__/
 .claude/hooks-post-tool-linter/target/
 .claude/hooks-stop-quality/target/
 .claude/hooks-push-pipeline/target/
+.claude/hooks-post-pr-monitor/target/
+.claude/check-ci-coderabbit/target/
