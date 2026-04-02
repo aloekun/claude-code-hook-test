@@ -3,6 +3,7 @@
     "allow": [
       "Bash(pnpm build:hooks)",
       "Bash(pnpm check-ci *)",
+      "Bash(pnpm pr-create *)",
       "Bash(cargo test:*)"
     ]
   },
@@ -26,16 +27,6 @@
           {
             "type": "command",
             "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-linter.exe\"",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-pr-monitor.exe\"",
             "timeout": 30
           }
         ]

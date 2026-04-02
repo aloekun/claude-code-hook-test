@@ -264,6 +264,26 @@ pnpm push
     ]
 }
 
+/// プリセット: gh-pr-create-guard (gh pr create を禁止し pnpm pr に誘導)
+fn preset_gh_pr_create_guard() -> Vec<BlockedPattern> {
+    vec![
+        BlockedPattern {
+            pattern: Regex::new(r#"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*gh\s+(?:.*\s+)?pr\s+create(\s|$)"#).unwrap(),
+            message: r#"**gh pr create がブロックされました**
+
+PR 作成は pnpm pr 経由で行ってください。
+pnpm pr-create は PR 作成後に CI・CodeRabbit の自動監視も開始します。
+
+**代わりに以下を実行してください:**
+```
+pnpm pr-create -- --title "タイトル" --body "本文"
+```
+
+-- 以降の引数はそのまま gh pr create に転送されます。"#,
+        },
+    ]
+}
+
 /// 設定ファイルに基づいてブロックパターンを構築
 fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
     let preset_names: Vec<String> = config
@@ -291,6 +311,7 @@ fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
             "jj-immutable" => patterns.extend(preset_jj_immutable()),
             "jj-main-guard" => patterns.extend(preset_jj_main_guard()),
             "jj-push-guard" => patterns.extend(preset_jj_push_guard()),
+            "gh-pr-create-guard" => patterns.extend(preset_gh_pr_create_guard()),
             "electron" => patterns.extend(preset_electron()),
             custom => {
                 // プリセット名以外はカスタム正規表現として扱う
@@ -679,6 +700,38 @@ mod tests {
     #[test]
     fn allows_gh_pr_create() {
         assert!(!is_blocked("gh pr create --title 'test'"));
+    }
+
+    // --- gh-pr-create-guard ---
+
+    #[test]
+    fn gh_pr_create_guard_blocks_gh_pr_create() {
+        assert!(is_blocked_with("gh pr create --title 'test'", &["gh-pr-create-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_create_guard_blocks_gh_pr_create_in_chain() {
+        assert!(is_blocked_with("cd /tmp && gh pr create --title 'test'", &["gh-pr-create-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_create_guard_blocks_gh_with_repo_pr_create() {
+        assert!(is_blocked_with("gh -R owner/repo pr create", &["gh-pr-create-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_create_guard_allows_gh_pr_view() {
+        assert!(!is_blocked_with("gh pr view", &["gh-pr-create-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_create_guard_allows_gh_pr_list() {
+        assert!(!is_blocked_with("gh pr list", &["gh-pr-create-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_create_guard_allows_gh_pr_merge() {
+        assert!(!is_blocked_with("gh pr merge 42", &["gh-pr-create-guard"]));
     }
 
     #[test]

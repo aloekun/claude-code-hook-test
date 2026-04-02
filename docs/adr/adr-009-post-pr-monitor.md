@@ -41,19 +41,36 @@ public リポジトリでは PR 作成や push 後に CodeRabbit による自動
 ### アーキテクチャ
 
 ```text
-Claude が "gh pr create" / "git push" を実行
+【PR 作成時】
+Claude が "gh pr create" を実行しようとする
        │
        ▼
-PostToolUse hook (hooks-post-pr-monitor.exe)
-  ├─ コマンド検出 (regex)
+PreToolUse guard (gh-pr-create-guard) がブロック
+  └─ 「pnpm pr-create を使ってください」と誘導
+       │
+       ▼
+Claude が "pnpm pr-create -- --title ..." を実行
+       │
+       ▼
+hooks-post-pr-monitor.exe (スタンドアロン)
+  ├─ gh pr create を実行（引数を転送）
   ├─ PR番号・リポジトリ情報を gh CLI で取得
   ├─ PUSH_TIME を記録 (UTC ISO 8601)
-  └─ additionalContext で CronCreate 指示を返す
+  └─ claude -p で CronCreate 指示を送信
        │
        ▼
-Claude が CronCreate で定期ジョブ作成 (30秒間隔)
+Claude が CronCreate で定期ジョブ作成 (120秒間隔)
+
+【既存 PR への push 時】
+pnpm push → hooks-push-pipeline.exe (テスト + レビュー + push)
        │
-       ▼ (定期実行)
+       ▼ (push 成功後に && でチェイン)
+hooks-post-pr-monitor.exe --monitor-only
+  ├─ gh pr view で PR 存在確認
+  ├─ PR なし → exit 0 (何もしない)
+  └─ PR あり → claude -p で CronCreate 指示を送信
+
+【定期実行】
 check-ci-coderabbit.exe --push-time <T> --repo <R> --pr <N>
   ├─ CI 状態チェック (gh run list)
   ├─ CodeRabbit 状態チェック (gh api .../statuses)
@@ -70,7 +87,8 @@ Claude が action フィールドに従い行動
 
 | コンポーネント | 種別 | 役割 |
 |---|---|---|
-| `hooks-post-pr-monitor.exe` | PostToolUse hook (Rust) | コマンド検出 → CronCreate 指示 |
+| `hooks-post-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + CronCreate 監視開始 |
+| `hooks-pre-tool-validate.exe` | PreToolUse hook (Rust) | `gh-pr-create-guard` で直接の `gh pr create` をブロック |
 | `check-ci-coderabbit.exe` | スタンドアロン CLI (Rust) | CI・CodeRabbit 状態チェック → JSON 出力 |
 | `post-pr-create-review-check` SKILL.md | Claude Skill | 監視結果の解釈・報告手順 |
 | `hooks-config.toml [post_pr_monitor]` | 設定 | ポーリング間隔・監視対象の設定 |
@@ -98,7 +116,7 @@ Claude が action フィールドに従い行動
 ```toml
 [post_pr_monitor]
 enabled = true
-poll_interval_secs = 30
+poll_interval_secs = 120
 max_duration_secs = 600
 check_ci = true
 check_coderabbit = true
@@ -115,10 +133,16 @@ check_coderabbit = true
 
 ### Negative
 
-- PostToolUse hook が全 Bash コマンドで発火するため、非対象コマンドでの性能影響に注意が必要
-  （stdin パース + regex チェックのみで即座に exit するよう設計で対処）
 - CronCreate は Claude のセッション内機能であり、セッション終了時にジョブも消える
 - `check-ci-coderabbit` は gh CLI に依存するため、gh 未インストール環境では動作しない
+
+### 変更履歴
+
+- **2026-04-03**: PostToolUse hook → スタンドアロン exe + PreToolUse guard に変更。
+  元の PostToolUse hook 方式（参考: shomatan/cc-knowledge）は additionalContext で
+  Claude に CronCreate を「お願い」する設計だったが、Claude が指示に従わないケースがあり
+  信頼性が低かった。push-pipeline と同じ「ガード + 専用コマンド + claude -p」パターンに
+  統一することで、CronCreate の実行を確実にした。
 
 ## 参考
 
