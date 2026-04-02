@@ -58,6 +58,9 @@ fn parse_args() -> Result<CliArgs, String> {
 /// gh コマンドを実行し stdout を返す。タイムアウト 30 秒。
 /// パイプのデッドロックを防ぐため、タイムアウトは別スレッドで kill し、
 /// メインスレッドは wait_with_output でパイプを安全に読み取る。
+///
+/// NOTE: タイムアウト時のプロセス kill は Windows (taskkill) のみ実装。
+/// この exe は Windows 専用として設計されている (ADR-001)。
 fn run_gh(args: &[&str]) -> Result<String, String> {
     let child = Command::new("gh")
         .args(args)
@@ -279,7 +282,14 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
                 .map(|t| t > push_time)
                 .unwrap_or(false);
 
-            is_coderabbit && after_push_time
+            // 「処理中」通知コメントを除外 (レビュー結果ではない)
+            let is_review_in_progress = c
+                .body
+                .as_deref()
+                .map(|b| b.contains("review in progress"))
+                .unwrap_or(false);
+
+            is_coderabbit && after_push_time && !is_review_in_progress
         })
         .count()
 }
@@ -350,11 +360,30 @@ fn decide(ci: &CiStatus, cr: &CodeRabbitStatus) -> (String, String) {
         return ("error".to_string(), "stop_monitoring_failure".to_string());
     }
 
-    // CI または CodeRabbit が pending → 監視続行
-    if ci.overall == "pending"
-        || cr.review_state == "pending"
-        || cr.review_state == "not_found"
-    {
+    // コメント/スレッドの集計 (review_state に関わらず先に計算)
+    let has_unresolved = cr.unresolved_threads.map(|n| n > 0).unwrap_or(false);
+    let effective_new = if let Some(actionable) = cr.actionable_comments {
+        std::cmp::max(cr.new_comments, actionable)
+    } else {
+        cr.new_comments
+    };
+    let has_actionable = effective_new > 0 || has_unresolved;
+
+    // CodeRabbit の review_state が not_found でもコメント/スレッドがあれば対応が必要
+    // (commit status は未投稿でも inline comments は先に投稿されるケースがある)
+    if cr.review_state == "not_found" && has_actionable {
+        return (
+            "action_required".to_string(),
+            "action_required".to_string(),
+        );
+    }
+
+    // CI が pending (runs 空 = no_ci は "pending" ではなく CI チェックをスキップ)
+    let ci_pending = ci.overall == "pending" && !ci.runs.is_empty();
+    // CodeRabbit がまだレビュー中 or 未検出 (コメントもない)
+    let cr_pending = cr.review_state == "pending" || cr.review_state == "not_found";
+
+    if ci_pending || cr_pending {
         return ("pending".to_string(), "continue_monitoring".to_string());
     }
 
@@ -363,16 +392,8 @@ fn decide(ci: &CiStatus, cr: &CodeRabbitStatus) -> (String, String) {
         return ("error".to_string(), "stop_monitoring_failure".to_string());
     }
 
-    // 新規コメントまたは未解決スレッドがある → 対応が必要
-    let has_unresolved = cr.unresolved_threads.map(|n| n > 0).unwrap_or(false);
-    // actionable_comments が new_comments より多い場合はそちらを信頼
-    let effective_new = if let Some(actionable) = cr.actionable_comments {
-        std::cmp::max(cr.new_comments, actionable)
-    } else {
-        cr.new_comments
-    };
-
-    if effective_new > 0 || has_unresolved {
+    // コメント/スレッドがある → 対応が必要
+    if has_actionable {
         return (
             "action_required".to_string(),
             "action_required".to_string(),
@@ -420,7 +441,25 @@ fn build_summary(ci: &CiStatus, cr: &CodeRabbitStatus) -> String {
                 format!("CodeRabbit: {}", parts.join("、"))
             }
         }
-        "pending" | "not_found" => "CodeRabbitレビュー待ち".to_string(),
+        "pending" => "CodeRabbitレビュー待ち".to_string(),
+        "not_found" => {
+            // not_found でもコメント/スレッドがある場合は内容を表示
+            let mut parts = vec![];
+            let effective_new = cr.actionable_comments.unwrap_or(cr.new_comments);
+            if effective_new > 0 {
+                parts.push(format!("新規コメント{}件", effective_new));
+            }
+            if let Some(n) = cr.unresolved_threads {
+                if n > 0 {
+                    parts.push(format!("未解決スレッド{}件", n));
+                }
+            }
+            if parts.is_empty() {
+                "CodeRabbitレビュー待ち".to_string()
+            } else {
+                format!("CodeRabbit: {}", parts.join("、"))
+            }
+        }
         _ => format!("CodeRabbit状態: {}", cr.review_state),
     };
 
@@ -527,11 +566,22 @@ fn run_check(args: CliArgs) -> CheckResult {
     // 1. CI 状態チェック
     let branch = get_current_branch().unwrap_or_default();
     let ci = if !branch.is_empty() {
-        let ci_json = run_gh(&[
+        match run_gh(&[
             "run", "list", "--branch", &branch, "--limit", "5", "--json", "name,conclusion",
-        ])
-        .unwrap_or_else(|_| "[]".to_string());
-        parse_ci_runs(&ci_json)
+        ]) {
+            Ok(ci_json) => parse_ci_runs(&ci_json),
+            Err(e) => {
+                // API エラー/タイムアウト → pending (runs 非空) として CI スキップを防止
+                eprintln!("[check-ci-coderabbit] CI 取得エラー (pending 扱い): {}", e);
+                CiStatus {
+                    overall: "pending".to_string(),
+                    runs: vec![CiRunSummary {
+                        name: "(API error)".to_string(),
+                        conclusion: "".to_string(),
+                    }],
+                }
+            }
+        }
     } else {
         CiStatus {
             overall: "pending".to_string(),
@@ -761,6 +811,16 @@ mod tests {
         assert_eq!(parse_new_comments("[]", "2026-04-01T12:00:00Z"), 0);
     }
 
+    #[test]
+    fn comments_excludes_review_in_progress() {
+        let json = r#"[
+            {"user":{"login":"coderabbitai[bot]"},"created_at":"2026-04-01T13:00:00Z","body":"<!-- review in progress by coderabbit.ai -->\nCurrently processing..."},
+            {"user":{"login":"coderabbitai[bot]"},"created_at":"2026-04-01T13:05:00Z","body":"_Actionable comments posted: 2_\nReview summary..."}
+        ]"#;
+        // 「処理中」コメントは除外され、レビュー結果コメントのみカウント
+        assert_eq!(parse_new_comments(json, "2026-04-01T12:00:00Z"), 1);
+    }
+
     // --- parse_actionable_comments ---
 
     #[test]
@@ -871,7 +931,10 @@ mod tests {
     fn decide_ci_pending() {
         let ci = CiStatus {
             overall: "pending".to_string(),
-            runs: vec![],
+            runs: vec![CiRunSummary {
+                name: "build".to_string(),
+                conclusion: "".to_string(),
+            }],
         };
         let cr = CodeRabbitStatus {
             review_state: "success".to_string(),
@@ -1011,6 +1074,58 @@ mod tests {
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "error");
         assert_eq!(action, "stop_monitoring_failure");
+    }
+
+    #[test]
+    fn decide_cr_not_found_with_comments() {
+        // review_state が not_found でも actionable_comments があれば action_required
+        let ci = CiStatus {
+            overall: "success".to_string(),
+            runs: vec![],
+        };
+        let cr = CodeRabbitStatus {
+            review_state: "not_found".to_string(),
+            new_comments: 0,
+            actionable_comments: Some(3),
+            unresolved_threads: Some(3),
+        };
+        let (status, action) = decide(&ci, &cr);
+        assert_eq!(status, "action_required");
+        assert_eq!(action, "action_required");
+    }
+
+    #[test]
+    fn decide_no_ci_cr_success() {
+        // CI runs 空 (CI 未設定) + CR 成功 → complete (CI スキップ)
+        let ci = CiStatus {
+            overall: "pending".to_string(),
+            runs: vec![],
+        };
+        let cr = CodeRabbitStatus {
+            review_state: "success".to_string(),
+            new_comments: 0,
+            actionable_comments: Some(0),
+            unresolved_threads: Some(0),
+        };
+        let (status, action) = decide(&ci, &cr);
+        assert_eq!(status, "complete");
+        assert_eq!(action, "stop_monitoring_success");
+    }
+
+    #[test]
+    fn decide_no_ci_cr_not_found_no_comments() {
+        // CI 未設定 + CR not_found + コメントなし → pending (まだレビュー待ち)
+        let ci = CiStatus {
+            overall: "pending".to_string(),
+            runs: vec![],
+        };
+        let cr = CodeRabbitStatus {
+            review_state: "not_found".to_string(),
+            ..Default::default()
+        };
+        let (status, action) = decide(&ci, &cr);
+        assert_eq!(status, "pending");
+        assert_eq!(action, "continue_monitoring");
     }
 
     // --- build_summary ---
