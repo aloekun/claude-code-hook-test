@@ -45,7 +45,7 @@ cmd = "pnpm py-test:e2e"
 
 # [post_pr_monitor]
 # enabled = true
-# poll_interval_secs = 30
+# poll_interval_secs = 120
 # max_duration_secs = 600
 # check_ci = true
 # check_coderabbit = true

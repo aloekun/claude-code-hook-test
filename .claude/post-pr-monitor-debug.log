@@ -145,3 +145,11 @@ Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
 - regex クレートを check-ci-coderabbit に追加
 
 Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>")
+[2026-04-02T12:57:00Z] hook 起動
+[2026-04-02T12:57:00Z] stdin (1161 bytes): {"session_id":"362ead1f-3bb6-4e2c-9a8a-64a54350c916","transcript_path":"C:\\Users\\HIROKI\\.claude\\projects\\e--work-claude-code-hook-test\\362ead1f-3bb6-4e2c-9a8a-64a54350c916.jsonl","cwd":"E:\\work
+[2026-04-02T12:57:00Z] コマンド検出: cd e:/work/claude-code-hook-test && jj restore .claude/post-pr-monitor-debug.log 2>&1 && jj status 2>&1
+[2026-04-02T12:57:00Z] トリガー不一致 — スキップ (command=cd e:/work/claude-code-hook-test && jj restore .claude/post-pr-monitor-debug.log 2>&1 && jj status 2>&1)
+[2026-04-02T13:07:50Z] hook 起動
+[2026-04-02T13:07:50Z] stdin (4714 bytes): {"session_id":"362ead1f-3bb6-4e2c-9a8a-64a54350c916","transcript_path":"C:\\Users\\HIROKI\\.claude\\projects\\e--work-claude-code-hook-test\\362ead1f-3bb6-4e2c-9a8a-64a54350c916.jsonl","cwd":"E:\\work
+[2026-04-02T13:07:50Z] コマンド検出: cd e:/work/claude-code-hook-test/.claude/hooks-post-pr-monitor && cargo test 2>&1 && echo "---" && cd ../check-ci-coderabbit && cargo test 2>&1
+[2026-04-02T13:07:50Z] トリガー不一致 — スキップ (command=cd e:/work/claude-code-hook-test/.claude/hooks-post-pr-monitor && cargo test 2>&1 && echo "---" && cd ../check-ci-coderabbit && cargo test 2>&1)

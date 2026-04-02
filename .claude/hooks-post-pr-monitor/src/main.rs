@@ -86,11 +86,15 @@ const PAT_GIT_PUSH: &str = r"^\s*git\s+push(\s|$)";
 /// jj git push
 const PAT_JJ_GIT_PUSH: &str = r"^\s*jj\s+git\s+push(\s|$)";
 
+/// pnpm push / npm push / pnpm run push (パイプライン経由の push)
+const PAT_PNPM_PUSH: &str = r"^\s*(?:pnpm|npm)\s+(?:run\s+)?push(\s|$)";
+
 fn default_patterns() -> Vec<String> {
     vec![
         PAT_GH_PR_CREATE.to_string(),
         PAT_GIT_PUSH.to_string(),
         PAT_JJ_GIT_PUSH.to_string(),
+        PAT_PNPM_PUSH.to_string(),
     ]
 }
 
@@ -128,6 +132,15 @@ fn detect_command_type(command: &str) -> &'static str {
     if let Ok(re) = Regex::new(PAT_JJ_GIT_PUSH) {
         if re.is_match(command) {
             return "jj git push";
+        }
+    }
+    if let Ok(re) = Regex::new(PAT_PNPM_PUSH) {
+        if re.is_match(command) {
+            // npm push と pnpm push を区別
+            if command.trim_start().starts_with("npm ") {
+                return "npm push";
+            }
+            return "pnpm push";
         }
     }
     "unknown"
@@ -183,8 +196,7 @@ fn get_pr_info() -> PrInfo {
 
 /// gh コマンドを静かに実行 (stderr 抑制)
 fn run_gh_quiet(args: &[&str]) -> Option<String> {
-    let output = Command::new("cmd")
-        .args(["/c", "gh"])
+    let output = Command::new("gh")
         .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -280,37 +292,19 @@ fn emit_feedback(context: &str) {
 
 // ─── メイン ───
 
-/// デバッグログをファイルに追記 (テスト用 — 本番では削除)
-fn debug_log(msg: &str) {
-    use std::io::Write;
-    let log_path = std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("post-pr-monitor-debug.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
-        let _ = writeln!(f, "[{}] {}", utc_now_iso8601(), msg);
-    }
-    eprintln!("[post-pr-monitor] {}", msg);
-}
-
 fn run() {
-    debug_log("hook 起動");
-
     // stdin を読み込み
     let mut input = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut input) {
-        debug_log(&format!("stdin 読み込みエラー: {}", e));
+        eprintln!("[post-pr-monitor] stdin 読み込みエラー: {}", e);
         return;
     }
-
-    debug_log(&format!("stdin ({} bytes): {}", input.len(), &input[..input.len().min(200)]));
 
     // JSON パース
     let hook_input: HookInput = match serde_json::from_str(&input) {
         Ok(h) => h,
         Err(e) => {
-            debug_log(&format!("JSON パースエラー: {}", e));
+            eprintln!("[post-pr-monitor] JSON パースエラー: {}", e);
             return;
         }
     };
@@ -318,13 +312,8 @@ fn run() {
     // コマンド抽出
     let command = match hook_input.tool_input.and_then(|t| t.command) {
         Some(c) if !c.trim().is_empty() => c,
-        _ => {
-            debug_log("コマンドなし — スキップ");
-            return;
-        }
+        _ => return,
     };
-
-    debug_log(&format!("コマンド検出: {}", command));
 
     // 設定読み込み
     let config = load_config();
@@ -332,7 +321,6 @@ fn run() {
 
     // 無効化チェック
     if !monitor_config.enabled.unwrap_or(true) {
-        debug_log("設定で無効化 — スキップ");
         return;
     }
 
@@ -343,12 +331,10 @@ fn run() {
         .unwrap_or_else(default_patterns);
 
     if !is_trigger_command(&command, &patterns) {
-        debug_log(&format!("トリガー不一致 — スキップ (command={})", command));
         return;
     }
 
     // ── ここから先はマッチした場合のみ実行 ──
-    debug_log(&format!("トリガーマッチ！ type={}", detect_command_type(&command)));
 
     let command_type = detect_command_type(&command);
 
@@ -484,6 +470,30 @@ mod tests {
         assert!(!is_trigger_command("git push", &patterns));
     }
 
+    #[test]
+    fn trigger_pnpm_push() {
+        let patterns = default_patterns();
+        assert!(is_trigger_command("pnpm push", &patterns));
+    }
+
+    #[test]
+    fn trigger_pnpm_run_push() {
+        let patterns = default_patterns();
+        assert!(is_trigger_command("pnpm run push", &patterns));
+    }
+
+    #[test]
+    fn trigger_npm_push() {
+        let patterns = default_patterns();
+        assert!(is_trigger_command("npm push", &patterns));
+    }
+
+    #[test]
+    fn no_trigger_pnpm_build() {
+        let patterns = default_patterns();
+        assert!(!is_trigger_command("pnpm build", &patterns));
+    }
+
     // --- detect_command_type ---
 
     #[test]
@@ -499,6 +509,21 @@ mod tests {
     #[test]
     fn detect_jj_git_push() {
         assert_eq!(detect_command_type("jj git push"), "jj git push");
+    }
+
+    #[test]
+    fn detect_pnpm_push() {
+        assert_eq!(detect_command_type("pnpm push"), "pnpm push");
+    }
+
+    #[test]
+    fn detect_npm_push() {
+        assert_eq!(detect_command_type("npm push"), "npm push");
+    }
+
+    #[test]
+    fn detect_pnpm_run_push() {
+        assert_eq!(detect_command_type("pnpm run push"), "pnpm push");
     }
 
     // --- config parsing ---
