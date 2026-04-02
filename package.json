@@ -17,6 +17,7 @@
     "build:hooks": "pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-stop-quality && pnpm build:hooks-push-pipeline && pnpm build:hooks-post-pr-monitor && pnpm build:check-ci-coderabbit && pnpm build:hooks-settings",
     "review:ai": "claude -p \"/pre-push-review\"",
     "push": ".\\.claude\\hooks-push-pipeline.exe",
+    "check-ci": ".\\.claude\\check-ci-coderabbit.exe",
     "deploy:hooks": "npx tsx scripts/deploy-hooks.ts",
     "py-lint": "ruff check src/",
     "py-test": "python -m pytest tests/",
