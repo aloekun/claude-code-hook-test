@@ -72,7 +72,7 @@ impl Default for PostPrMonitorConfig {
     }
 }
 
-const DEFAULT_POLL_INTERVAL: u64 = 30;
+const DEFAULT_POLL_INTERVAL: u64 = 120;
 const DEFAULT_MAX_DURATION: u64 = 600;
 
 // ─── デフォルトトリガーパターン ───
@@ -168,15 +168,6 @@ fn load_config() -> Config {
     })
 }
 
-// ─── check-ci-coderabbit.exe のパス解決 ───
-
-fn checker_exe_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("check-ci-coderabbit.exe")
-}
 
 // ─── PR 情報取得 ───
 
@@ -221,7 +212,6 @@ fn build_additional_context(
     command_type: &str,
     pr_info: &PrInfo,
     push_time: &str,
-    checker_path: &Path,
     config: &PostPrMonitorConfig,
 ) -> String {
     let interval = config.poll_interval_secs.unwrap_or(DEFAULT_POLL_INTERVAL);
@@ -233,10 +223,8 @@ fn build_additional_context(
         .map(|n| format!("PR #{}", n))
         .unwrap_or_else(|| "PR".to_string());
 
-    let checker = checker_path.to_string_lossy();
-
-    // check-ci-coderabbit の引数を組み立て
-    let mut checker_args = format!("--push-time \"{}\"", push_time);
+    // check-ci-coderabbit の引数を組み立て (pnpm check-ci -- 経由)
+    let mut checker_args = format!("-- --push-time \"{}\"", push_time);
     if let Some(ref repo) = pr_info.repo {
         checker_args.push_str(&format!(" --repo \"{}\"", repo));
     }
@@ -259,7 +247,7 @@ fn build_additional_context(
 
 [CronCreate 設定]
 CronCreate で {interval}秒間隔の監視ジョブを作成してください。
-- command: "{checker}" {checker_args}
+- command: pnpm check-ci {checker_args}
 - 最大監視時間: {max_dur_min}分（{max_dur}秒経過後は CronDelete で停止）
 
 [監視結果の読み方]
@@ -344,12 +332,9 @@ fn run() {
     // PR 情報を取得
     let pr_info = get_pr_info();
 
-    // check-ci-coderabbit.exe のパス
-    let checker_path = checker_exe_path();
-
     // additionalContext を構築して出力
     let context =
-        build_additional_context(command_type, &pr_info, &push_time, &checker_path, &monitor_config);
+        build_additional_context(command_type, &pr_info, &push_time, &monitor_config);
     emit_feedback(&context);
 }
 
@@ -578,15 +563,14 @@ trigger_patterns = ["^my-push"]
             "gh pr create",
             &pr_info,
             "2026-04-01T12:00:00Z",
-            Path::new("C:\\test\\check-ci-coderabbit.exe"),
             &config,
         );
         assert!(context.contains("CronCreate"));
-        assert!(context.contains("30秒間隔"));
+        assert!(context.contains("120秒間隔"));
         assert!(context.contains("PR #42"));
         assert!(context.contains("owner/repo"));
         assert!(context.contains("2026-04-01T12:00:00Z"));
-        assert!(context.contains("check-ci-coderabbit.exe"));
+        assert!(context.contains("pnpm check-ci"));
     }
 
     #[test]
@@ -604,7 +588,6 @@ trigger_patterns = ["^my-push"]
             "git push",
             &pr_info,
             "2026-04-01T12:00:00Z",
-            Path::new("checker.exe"),
             &config,
         );
         assert!(context.contains("60秒間隔"));
@@ -622,7 +605,6 @@ trigger_patterns = ["^my-push"]
             "git push",
             &pr_info,
             "2026-04-01T12:00:00Z",
-            Path::new("checker.exe"),
             &config,
         );
         // PR番号なしの場合は "PR" のみ表示

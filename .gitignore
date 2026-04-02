@@ -1,5 +1,6 @@
 # Debug logs
 .claude/hook-debug.log
+.claude/post-pr-monitor-debug.log
 
 # Generated from .claude/settings.local.json.template by build:hooks
 .claude/settings.local.json
