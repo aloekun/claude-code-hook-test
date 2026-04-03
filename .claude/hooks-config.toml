@@ -20,6 +20,7 @@ blocked_patterns = [
   "jj-immutable",
   "jj-main-guard",
   "jj-push-guard",
+  "gh-pr-create-guard",
   "electron",
 ]
 

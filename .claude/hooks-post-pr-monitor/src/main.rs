@@ -1,46 +1,23 @@
-//! PostToolUse hook: PR モニター起動トリガー
+//! Post-PR Monitor (スタンドアロン exe)
 //!
-//! Bash ツール実行後に gh pr create / git push / jj git push を検出し、
-//! CronCreate で check-ci-coderabbit を起動する指示を Claude に返す。
+//! PR 作成と監視を一貫して行うスタンドアロン CLI。
+//! push-pipeline と同じ「ガード + 専用コマンド」パターンで動作する。
 //!
-//! 入力 (stdin): {"tool_input": {"command": "gh pr create ..."}}
-//! 出力 (stdout): {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "..."}}
+//! モード:
+//!   デフォルト (PR 作成): gh pr create を実行 → 監視開始
+//!     pnpm pr-create -- --title "..." --body "..."
 //!
-//! 非対象コマンドの場合は何も出力せず exit 0。
+//!   --monitor-only: PR が存在すれば監視開始、なければ exit 0
+//!     pnpm push 完了後にチェインで呼ばれる
+//!
+//! 終了コード:
+//!   0 - 正常終了
+//!   1 - gh pr create 失敗 (PR 作成モードのみ)
 
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::io::Read;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-// ─── stdin モデル ───
-
-#[derive(Deserialize)]
-struct HookInput {
-    tool_input: Option<ToolInput>,
-}
-
-#[derive(Deserialize)]
-struct ToolInput {
-    command: Option<String>,
-}
-
-// ─── stdout モデル ───
-
-#[derive(Serialize)]
-struct HookOutput {
-    #[serde(rename = "hookSpecificOutput")]
-    hook_specific_output: HookSpecificOutput,
-}
-
-#[derive(Serialize)]
-struct HookSpecificOutput {
-    #[serde(rename = "hookEventName")]
-    hook_event_name: String,
-    #[serde(rename = "additionalContext")]
-    additional_context: String,
-}
+use std::time::Duration;
 
 // ─── 設定 ───
 
@@ -56,7 +33,6 @@ struct PostPrMonitorConfig {
     max_duration_secs: Option<u64>,
     check_ci: Option<bool>,
     check_coderabbit: Option<bool>,
-    trigger_patterns: Option<Vec<String>>,
 }
 
 impl Default for PostPrMonitorConfig {
@@ -67,83 +43,155 @@ impl Default for PostPrMonitorConfig {
             max_duration_secs: Some(DEFAULT_MAX_DURATION),
             check_ci: Some(true),
             check_coderabbit: Some(true),
-            trigger_patterns: None,
         }
     }
 }
 
 const DEFAULT_POLL_INTERVAL: u64 = 120;
 const DEFAULT_MAX_DURATION: u64 = 600;
+const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
 
-// ─── デフォルトトリガーパターン ───
+// ─── ログ出力ヘルパー ───
 
-/// gh pr create (オプション付き、gh -R owner/repo pr create 等)
-const PAT_GH_PR_CREATE: &str = r"^\s*gh\s+(?:.*\s+)?pr\s+create(\s|$)";
-
-/// git push (git stash push / git submodule push を除外)
-const PAT_GIT_PUSH: &str = r"^\s*git\s+push(\s|$)";
-
-/// jj git push
-const PAT_JJ_GIT_PUSH: &str = r"^\s*jj\s+git\s+push(\s|$)";
-
-/// pnpm push / npm push / pnpm run push (パイプライン経由の push)
-const PAT_PNPM_PUSH: &str = r"^\s*(?:pnpm|npm)\s+(?:run\s+)?push(\s|$)";
-
-fn default_patterns() -> Vec<String> {
-    vec![
-        PAT_GH_PR_CREATE.to_string(),
-        PAT_GIT_PUSH.to_string(),
-        PAT_JJ_GIT_PUSH.to_string(),
-        PAT_PNPM_PUSH.to_string(),
-    ]
+fn log_info(msg: &str) {
+    eprintln!("[post-pr-monitor] {}", msg);
 }
 
-// ─── コマンド検出 ───
+// ─── パイプ排出 (push-pipeline から移植) ───
 
-/// コマンド文字列がトリガーパターンにマッチするか判定
-fn is_trigger_command(command: &str, patterns: &[String]) -> bool {
-    for pat in patterns {
-        match Regex::new(pat) {
-            Ok(re) => {
-                if re.is_match(command) {
-                    return true;
+const MAX_LINES: usize = 40;
+
+fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(pipe);
+        let mut collected = Vec::with_capacity(MAX_LINES);
+        let mut buf = Vec::new();
+
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if collected.len() < MAX_LINES {
+                        collected.push(
+                            String::from_utf8_lossy(&buf)
+                                .trim_end_matches(&['\r', '\n'][..])
+                                .to_string(),
+                        );
+                    }
                 }
-            }
-            Err(e) => {
-                eprintln!("[post-pr-monitor] 無効な正規表現パターン \"{}\": {}", pat, e);
+                Err(_) => break,
             }
         }
-    }
-    false
+        collected.join("\n")
+    })
 }
 
-/// マッチしたコマンドの種別を返す (ログ用)
-fn detect_command_type(command: &str) -> &'static str {
-    if let Ok(re) = Regex::new(PAT_GH_PR_CREATE) {
-        if re.is_match(command) {
-            return "gh pr create";
-        }
-    }
-    if let Ok(re) = Regex::new(PAT_GIT_PUSH) {
-        if re.is_match(command) {
-            return "git push";
-        }
-    }
-    if let Ok(re) = Regex::new(PAT_JJ_GIT_PUSH) {
-        if re.is_match(command) {
-            return "jj git push";
-        }
-    }
-    if let Ok(re) = Regex::new(PAT_PNPM_PUSH) {
-        if re.is_match(command) {
-            // npm push と pnpm push を区別
-            if command.trim_start().starts_with("npm ") {
-                return "npm push";
+// ─── コマンド実行 (push-pipeline から移植) ───
+
+/// 引数を配列で直接渡す版（スペースを含む引数を正しくハンドリング）
+fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], timeout_secs: u64) -> (bool, String) {
+    let mut child = match Command::new(program)
+        .args(fixed_args)
+        .args(extra_args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return (false, format!("Failed to execute {} {:?}: {}", program, fixed_args, e)),
+    };
+
+    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
+    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let timed_out = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break false,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break true;
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
-            return "pnpm push";
+            Err(_) => break true,
         }
+    };
+
+    let stdout_text = stdout_handle.join().unwrap_or_default();
+    let stderr_text = stderr_handle.join().unwrap_or_default();
+    let combined = format!("{}{}", stdout_text, stderr_text).trim().to_string();
+
+    if timed_out {
+        return (false, format!("{}\n(timeout after {}s)", combined, timeout_secs));
     }
-    "unknown"
+
+    let code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
+    (code == 0, combined)
+}
+
+fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
+    let mut child = match Command::new("cmd")
+        .args(["/c", cmd])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
+    };
+
+    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
+    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let timed_out = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break false,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break true;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return (false, format!("Failed to wait for {}: {}", name, e)),
+        }
+    };
+
+    if timed_out {
+        let stdout = stdout_handle.join().unwrap_or_default();
+        let stderr = stderr_handle.join().unwrap_or_default();
+        let combined = combine_output(&stdout, &stderr);
+        let mut msg = format!("timed out after {}s", timeout_secs);
+        if !combined.is_empty() {
+            msg = format!("{}\n{}", msg, combined);
+        }
+        return (false, msg);
+    }
+
+    let success = child.wait().map(|s| s.success()).unwrap_or(false);
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    let combined = combine_output(&stdout, &stderr);
+
+    (success, combined)
+}
+
+fn combine_output(stdout: &str, stderr: &str) -> String {
+    if stdout.is_empty() {
+        stderr.to_string()
+    } else if stderr.is_empty() {
+        stdout.to_string()
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    }
 }
 
 // ─── 設定ファイル読み込み ───
@@ -167,7 +215,6 @@ fn load_config() -> Config {
         Config::default()
     })
 }
-
 
 // ─── PR 情報取得 ───
 
@@ -206,10 +253,9 @@ fn run_gh_quiet(args: &[&str]) -> Option<String> {
     }
 }
 
-// ─── additionalContext 構築 ───
+// ─── CronCreate プロンプト構築 ───
 
-fn build_additional_context(
-    command_type: &str,
+fn build_monitor_prompt(
     pr_info: &PrInfo,
     push_time: &str,
     config: &PostPrMonitorConfig,
@@ -243,100 +289,128 @@ fn build_additional_context(
     };
 
     format!(
-        r#"[post-pr-monitor] {command_type} 検出 ({pr_label})。{check_scope} の自動監視を開始してください。
+        r#"{pr_label} の {check_scope} を自動監視してください。
 
-[CronCreate 設定]
 CronCreate で {interval}秒間隔の監視ジョブを作成してください。
 - command: pnpm check-ci {checker_args}
 - 最大監視時間: {max_dur_min}分（{max_dur}秒経過後は CronDelete で停止）
 
-[監視結果の読み方]
 check-ci-coderabbit は JSON を返します。action フィールドに従って行動してください:
 - continue_monitoring → 何もせず次回チェックを待つ
 - stop_monitoring_success → CronDelete で監視停止。「CI・CodeRabbit 共に成功、新規指摘なし」と報告
 - stop_monitoring_failure → CronDelete で監視停止。ci.runs や summary をユーザーに報告
 - action_required → CronDelete で監視停止。coderabbit の new_comments と unresolved_threads を確認し、/post-pr-create-review-check で詳細を取得して対応方針をまとめ、ユーザーに判断を仰ぐ（勝手に修正しない）
 
-[対応完了後の返信ルール]
 CodeRabbit の全コメントに必ず返信すること（対応済み・対応不要の両方。resolve はしない）。
 返信は必ず push 後に行うこと（修正コミット → push → 返信の順）。"#
     )
 }
 
-// ─── stdout 出力 ───
+// ─── 監視開始 (claude -p でプロンプトを送信) ───
 
-fn emit_feedback(context: &str) {
-    let output = HookOutput {
-        hook_specific_output: HookSpecificOutput {
-            hook_event_name: "PostToolUse".to_string(),
-            additional_context: context.to_string(),
-        },
-    };
-    match serde_json::to_string(&output) {
-        Ok(json) => println!("{}", json),
-        Err(e) => eprintln!("[post-pr-monitor] JSON シリアライズエラー: {}", e),
+fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorConfig) {
+    let prompt = build_monitor_prompt(pr_info, push_time, config);
+
+    log_info(&format!(
+        "監視開始: pr={:?}, repo={:?}",
+        pr_info.pr_number, pr_info.repo
+    ));
+
+    let (success, output) = run_cmd(
+        "claude-monitor",
+        &format!("claude -p \"{}\"", prompt.replace('"', "\\\"")),
+        DEFAULT_STEP_TIMEOUT_SECS,
+    );
+
+    if success {
+        log_info("監視ジョブ作成完了");
+    } else {
+        log_info("警告: claude -p による監視ジョブ作成に失敗しました");
+        if !output.is_empty() {
+            eprintln!("{}", output);
+        }
     }
 }
 
-// ─── メイン ───
+// ─── PR 作成モード ───
 
-fn run() {
-    // stdin を読み込み
-    let mut input = String::new();
-    if let Err(e) = std::io::stdin().read_to_string(&mut input) {
-        eprintln!("[post-pr-monitor] stdin 読み込みエラー: {}", e);
-        return;
+fn run_create_pr(gh_args: &[String]) -> i32 {
+    log_info("PR 作成モード");
+
+    // gh pr create を引数配列で直接実行（スペースを含む引数を正しく渡すため）
+    log_info(&format!(
+        "実行: gh pr create {}",
+        gh_args
+            .iter()
+            .map(|a| if a.contains(' ') {
+                format!("\"{}\"", a)
+            } else {
+                a.clone()
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    ));
+
+    let (success, output) = run_cmd_direct("gh", &["pr", "create"], gh_args, DEFAULT_STEP_TIMEOUT_SECS);
+
+    if !success {
+        log_info("PR 作成失敗:");
+        if !output.is_empty() {
+            eprintln!("{}", output);
+        }
+        return 1;
     }
 
-    // JSON パース
-    let hook_input: HookInput = match serde_json::from_str(&input) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("[post-pr-monitor] JSON パースエラー: {}", e);
-            return;
-        }
-    };
-
-    // コマンド抽出
-    let command = match hook_input.tool_input.and_then(|t| t.command) {
-        Some(c) if !c.trim().is_empty() => c,
-        _ => return,
-    };
+    log_info("PR 作成完了");
+    if !output.is_empty() {
+        eprintln!("{}", output);
+    }
 
     // 設定読み込み
     let config = load_config();
     let monitor_config = config.post_pr_monitor.unwrap_or_default();
 
-    // 無効化チェック
     if !monitor_config.enabled.unwrap_or(true) {
-        return;
+        log_info("監視は設定で無効化されています");
+        return 0;
     }
 
-    // トリガーパターン判定
-    let patterns = monitor_config
-        .trigger_patterns
-        .clone()
-        .unwrap_or_else(default_patterns);
-
-    if !is_trigger_command(&command, &patterns) {
-        return;
-    }
-
-    // ── ここから先はマッチした場合のみ実行 ──
-
-    let command_type = detect_command_type(&command);
-
-    // push 時刻を記録 (UTC ISO 8601)
+    // PR 情報取得 & 監視開始
     let push_time = utc_now_iso8601();
+    let pr_info = get_pr_info();
+    start_monitoring(&pr_info, &push_time, &monitor_config);
 
-    // PR 情報を取得
+    0
+}
+
+// ─── 監視のみモード ───
+
+fn run_monitor_only() -> i32 {
+    // 設定読み込み
+    let config = load_config();
+    let monitor_config = config.post_pr_monitor.unwrap_or_default();
+
+    if !monitor_config.enabled.unwrap_or(true) {
+        return 0;
+    }
+
+    // PR が存在するか確認
     let pr_info = get_pr_info();
 
-    // additionalContext を構築して出力
-    let context =
-        build_additional_context(command_type, &pr_info, &push_time, &monitor_config);
-    emit_feedback(&context);
+    if pr_info.pr_number.is_none() {
+        log_info("PR が存在しないため、監視をスキップします");
+        return 0;
+    }
+
+    log_info("監視のみモード (既存 PR 検出)");
+
+    let push_time = utc_now_iso8601();
+    start_monitoring(&pr_info, &push_time, &monitor_config);
+
+    0
 }
+
+// ─── 時刻ユーティリティ ───
 
 /// epoch seconds を ISO 8601 UTC 文字列に変換する (std のみ, chrono 不要)
 /// Howard Hinnant の civil_from_days アルゴリズムを使用
@@ -345,10 +419,9 @@ fn epoch_secs_to_iso8601(epoch: u64) -> String {
     let day_count = (epoch / secs_per_day) as i64;
     let time_of_day = epoch % secs_per_day;
 
-    // Howard Hinnant's civil_from_days (epoch = 1970-01-01)
-    let z = day_count + 719468; // shift to 0000-03-01 epoch
+    let z = day_count + 719468;
     let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = (z - era * 146097) as u64; // day of era [0, 146096]
+    let doe = (z - era * 146097) as u64;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe as i64 + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
@@ -367,7 +440,6 @@ fn epoch_secs_to_iso8601(epoch: u64) -> String {
     )
 }
 
-/// 現在の UTC 時刻を ISO 8601 形式で返す
 fn utc_now_iso8601() -> String {
     use std::time::SystemTime;
     let now = SystemTime::now()
@@ -376,8 +448,24 @@ fn utc_now_iso8601() -> String {
     epoch_secs_to_iso8601(now.as_secs())
 }
 
+// ─── メイン ───
+
 fn main() {
-    run();
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--monitor-only") {
+        std::process::exit(run_monitor_only());
+    }
+
+    // -- 以降の引数を gh pr create に転送
+    let gh_args: Vec<String> = if let Some(pos) = args.iter().position(|a| a == "--") {
+        args[pos + 1..].to_vec()
+    } else {
+        // -- なしで引数がある場合はそのまま転送
+        args[1..].to_vec()
+    };
+
+    std::process::exit(run_create_pr(&gh_args));
 }
 
 // ─── テスト ───
@@ -385,131 +473,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // --- is_trigger_command ---
-
-    #[test]
-    fn trigger_gh_pr_create() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("gh pr create --title \"test\"", &patterns));
-    }
-
-    #[test]
-    fn trigger_gh_pr_create_with_repo() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("gh -R owner/repo pr create", &patterns));
-    }
-
-    #[test]
-    fn trigger_git_push() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("git push origin main", &patterns));
-    }
-
-    #[test]
-    fn trigger_git_push_bare() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("git push", &patterns));
-    }
-
-    #[test]
-    fn trigger_jj_git_push() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("jj git push", &patterns));
-    }
-
-    #[test]
-    fn no_trigger_gh_pr_view() {
-        let patterns = default_patterns();
-        assert!(!is_trigger_command("gh pr view", &patterns));
-    }
-
-    #[test]
-    fn no_trigger_git_status() {
-        let patterns = default_patterns();
-        assert!(!is_trigger_command("git status", &patterns));
-    }
-
-    #[test]
-    fn no_trigger_git_stash_push() {
-        let patterns = default_patterns();
-        assert!(!is_trigger_command("git stash push -m \"wip\"", &patterns));
-    }
-
-    #[test]
-    fn no_trigger_npm_run() {
-        let patterns = default_patterns();
-        assert!(!is_trigger_command("npm run build", &patterns));
-    }
-
-    #[test]
-    fn no_trigger_empty() {
-        let patterns = default_patterns();
-        assert!(!is_trigger_command("", &patterns));
-    }
-
-    #[test]
-    fn custom_trigger_patterns() {
-        let patterns = vec![r"^\s*my-push-cmd".to_string()];
-        assert!(is_trigger_command("my-push-cmd --force", &patterns));
-        assert!(!is_trigger_command("git push", &patterns));
-    }
-
-    #[test]
-    fn trigger_pnpm_push() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("pnpm push", &patterns));
-    }
-
-    #[test]
-    fn trigger_pnpm_run_push() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("pnpm run push", &patterns));
-    }
-
-    #[test]
-    fn trigger_npm_push() {
-        let patterns = default_patterns();
-        assert!(is_trigger_command("npm push", &patterns));
-    }
-
-    #[test]
-    fn no_trigger_pnpm_build() {
-        let patterns = default_patterns();
-        assert!(!is_trigger_command("pnpm build", &patterns));
-    }
-
-    // --- detect_command_type ---
-
-    #[test]
-    fn detect_gh_pr_create() {
-        assert_eq!(detect_command_type("gh pr create --title test"), "gh pr create");
-    }
-
-    #[test]
-    fn detect_git_push() {
-        assert_eq!(detect_command_type("git push origin main"), "git push");
-    }
-
-    #[test]
-    fn detect_jj_git_push() {
-        assert_eq!(detect_command_type("jj git push"), "jj git push");
-    }
-
-    #[test]
-    fn detect_pnpm_push() {
-        assert_eq!(detect_command_type("pnpm push"), "pnpm push");
-    }
-
-    #[test]
-    fn detect_npm_push() {
-        assert_eq!(detect_command_type("npm push"), "npm push");
-    }
-
-    #[test]
-    fn detect_pnpm_run_push() {
-        assert_eq!(detect_command_type("pnpm run push"), "pnpm push");
-    }
 
     // --- config parsing ---
 
@@ -522,7 +485,6 @@ poll_interval_secs = 45
 max_duration_secs = 900
 check_ci = true
 check_coderabbit = false
-trigger_patterns = ["^my-push"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         let m = config.post_pr_monitor.unwrap();
@@ -531,7 +493,6 @@ trigger_patterns = ["^my-push"]
         assert_eq!(m.max_duration_secs, Some(900));
         assert_eq!(m.check_ci, Some(true));
         assert_eq!(m.check_coderabbit, Some(false));
-        assert_eq!(m.trigger_patterns.unwrap(), vec!["^my-push"]);
     }
 
     #[test]
@@ -550,113 +511,6 @@ trigger_patterns = ["^my-push"]
         assert!(config.post_pr_monitor.is_none());
     }
 
-    // --- build_additional_context ---
-
-    #[test]
-    fn context_contains_cron_instruction() {
-        let pr_info = PrInfo {
-            pr_number: Some(42),
-            repo: Some("owner/repo".to_string()),
-        };
-        let config = PostPrMonitorConfig::default();
-        let context = build_additional_context(
-            "gh pr create",
-            &pr_info,
-            "2026-04-01T12:00:00Z",
-            &config,
-        );
-        assert!(context.contains("CronCreate"));
-        assert!(context.contains("120秒間隔"));
-        assert!(context.contains("PR #42"));
-        assert!(context.contains("owner/repo"));
-        assert!(context.contains("2026-04-01T12:00:00Z"));
-        assert!(context.contains("pnpm check-ci"));
-    }
-
-    #[test]
-    fn context_with_custom_interval() {
-        let pr_info = PrInfo {
-            pr_number: Some(1),
-            repo: Some("o/r".to_string()),
-        };
-        let config = PostPrMonitorConfig {
-            poll_interval_secs: Some(60),
-            max_duration_secs: Some(300),
-            ..Default::default()
-        };
-        let context = build_additional_context(
-            "git push",
-            &pr_info,
-            "2026-04-01T12:00:00Z",
-            &config,
-        );
-        assert!(context.contains("60秒間隔"));
-        assert!(context.contains("5分"));
-    }
-
-    #[test]
-    fn context_without_pr_number() {
-        let pr_info = PrInfo {
-            pr_number: None,
-            repo: Some("owner/repo".to_string()),
-        };
-        let config = PostPrMonitorConfig::default();
-        let context = build_additional_context(
-            "git push",
-            &pr_info,
-            "2026-04-01T12:00:00Z",
-            &config,
-        );
-        // PR番号なしの場合は "PR" のみ表示
-        assert!(context.contains("(PR)"));
-    }
-
-    // --- HookInput parsing ---
-
-    #[test]
-    fn parse_hook_input_with_command() {
-        let json = r#"{"tool_input": {"command": "gh pr create --title test"}}"#;
-        let input: HookInput = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            input.tool_input.unwrap().command.unwrap(),
-            "gh pr create --title test"
-        );
-    }
-
-    #[test]
-    fn parse_hook_input_without_command() {
-        let json = r#"{"tool_input": {"file_path": "src/main.rs"}}"#;
-        let input: HookInput = serde_json::from_str(json).unwrap();
-        assert!(input.tool_input.unwrap().command.is_none());
-    }
-
-    #[test]
-    fn parse_hook_input_empty() {
-        let json = r#"{}"#;
-        let input: HookInput = serde_json::from_str(json).unwrap();
-        assert!(input.tool_input.is_none());
-    }
-
-    // --- emit_feedback ---
-
-    #[test]
-    fn hook_output_serializes_correctly() {
-        let output = HookOutput {
-            hook_specific_output: HookSpecificOutput {
-                hook_event_name: "PostToolUse".to_string(),
-                additional_context: "test context".to_string(),
-            },
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(json.contains("hookSpecificOutput"));
-        assert!(json.contains("hookEventName"));
-        assert!(json.contains("PostToolUse"));
-        assert!(json.contains("additionalContext"));
-        assert!(json.contains("test context"));
-    }
-
-    // --- disabled config ---
-
     #[test]
     fn disabled_config() {
         let toml_str = r#"
@@ -668,6 +522,82 @@ enabled = false
         assert_eq!(m.enabled, Some(false));
     }
 
+    // --- build_monitor_prompt ---
+
+    #[test]
+    fn prompt_contains_cron_instruction() {
+        let pr_info = PrInfo {
+            pr_number: Some(42),
+            repo: Some("owner/repo".to_string()),
+        };
+        let config = PostPrMonitorConfig::default();
+        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
+        assert!(prompt.contains("CronCreate"));
+        assert!(prompt.contains("120秒間隔"));
+        assert!(prompt.contains("PR #42"));
+        assert!(prompt.contains("owner/repo"));
+        assert!(prompt.contains("2026-04-01T12:00:00Z"));
+        assert!(prompt.contains("pnpm check-ci"));
+    }
+
+    #[test]
+    fn prompt_with_custom_interval() {
+        let pr_info = PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".to_string()),
+        };
+        let config = PostPrMonitorConfig {
+            poll_interval_secs: Some(60),
+            max_duration_secs: Some(300),
+            ..Default::default()
+        };
+        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
+        assert!(prompt.contains("60秒間隔"));
+        assert!(prompt.contains("5分"));
+    }
+
+    #[test]
+    fn prompt_without_pr_number() {
+        let pr_info = PrInfo {
+            pr_number: None,
+            repo: Some("owner/repo".to_string()),
+        };
+        let config = PostPrMonitorConfig::default();
+        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
+        assert!(prompt.contains("PR の"));
+        assert!(!prompt.contains("PR #"));
+    }
+
+    #[test]
+    fn prompt_check_scope_ci_only() {
+        let pr_info = PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".to_string()),
+        };
+        let config = PostPrMonitorConfig {
+            check_ci: Some(true),
+            check_coderabbit: Some(false),
+            ..Default::default()
+        };
+        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
+        assert!(prompt.contains("CI を自動監視"));
+    }
+
+    #[test]
+    fn prompt_check_scope_coderabbit_only() {
+        let pr_info = PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".to_string()),
+        };
+        let config = PostPrMonitorConfig {
+            check_ci: Some(false),
+            check_coderabbit: Some(true),
+            ..Default::default()
+        };
+        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
+        assert!(prompt.contains("CodeRabbit を自動監視"));
+    }
+
     // --- epoch_secs_to_iso8601 ---
 
     #[test]
@@ -677,19 +607,38 @@ enabled = false
 
     #[test]
     fn epoch_known_date() {
-        // 2026-04-01T12:00:00Z = day 20544 * 86400 + 43200 = 1775044800
         assert_eq!(epoch_secs_to_iso8601(1775044800), "2026-04-01T12:00:00Z");
     }
 
     #[test]
     fn epoch_leap_year() {
-        // 2024-02-29T00:00:00Z = 1709164800
         assert_eq!(epoch_secs_to_iso8601(1709164800), "2024-02-29T00:00:00Z");
     }
 
     #[test]
     fn epoch_end_of_day() {
-        // 2026-04-01T23:59:59Z = day 20544 * 86400 + 86399 = 1775087999
         assert_eq!(epoch_secs_to_iso8601(1775087999), "2026-04-01T23:59:59Z");
+    }
+
+    // --- combine_output ---
+
+    #[test]
+    fn combine_output_both() {
+        assert_eq!(combine_output("a", "b"), "a\nb");
+    }
+
+    #[test]
+    fn combine_output_stdout_only() {
+        assert_eq!(combine_output("a", ""), "a");
+    }
+
+    #[test]
+    fn combine_output_stderr_only() {
+        assert_eq!(combine_output("", "b"), "b");
+    }
+
+    #[test]
+    fn combine_output_empty() {
+        assert_eq!(combine_output("", ""), "");
     }
 }
