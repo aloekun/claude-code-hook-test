@@ -49,7 +49,7 @@ impl Default for PostPrMonitorConfig {
 
 const DEFAULT_POLL_INTERVAL: u64 = 120;
 const DEFAULT_MAX_DURATION: u64 = 600;
-const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STEP_TIMEOUT_SECS: u64 = 300;
 
 // ─── ログ出力ヘルパー ───
 
@@ -134,56 +134,6 @@ fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], tim
     (code == 0, combined)
 }
 
-fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
-
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return (false, format!("Failed to wait for {}: {}", name, e)),
-        }
-    };
-
-    if timed_out {
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        let combined = combine_output(&stdout, &stderr);
-        let mut msg = format!("timed out after {}s", timeout_secs);
-        if !combined.is_empty() {
-            msg = format!("{}\n{}", msg, combined);
-        }
-        return (false, msg);
-    }
-
-    let success = child.wait().map(|s| s.success()).unwrap_or(false);
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    (success, combined)
-}
-
 fn combine_output(stdout: &str, stderr: &str) -> String {
     if stdout.is_empty() {
         stderr.to_string()
@@ -223,13 +173,72 @@ struct PrInfo {
     repo: Option<String>,
 }
 
+/// PR 情報を取得する（多段フォールバック）
+///
+/// Strategy A: gh pr view (標準 git ブランチ環境)
+/// Strategy B: jj bookmark → gh pr list --head (jj 環境)
 fn get_pr_info() -> PrInfo {
+    let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+
+    // Strategy A: gh pr view (git ブランチが使える場合)
     let pr_number = run_gh_quiet(&["pr", "view", "--json", "number", "-q", ".number"])
         .and_then(|s| s.parse::<u64>().ok());
 
-    let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+    if pr_number.is_some() {
+        return PrInfo { pr_number, repo };
+    }
 
-    PrInfo { pr_number, repo }
+    // Strategy B: jj bookmark → gh pr list --head
+    if let Some(bookmark) = get_jj_bookmark() {
+        log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
+        let pr_number = run_gh_quiet(&[
+            "pr", "list", "--head", &bookmark, "--json", "number", "-q", ".[0].number",
+        ])
+        .and_then(|s| s.parse::<u64>().ok());
+
+        return PrInfo { pr_number, repo };
+    }
+
+    PrInfo { pr_number: None, repo }
+}
+
+/// PR URL (https://github.com/.../pull/123) から PR 番号を抽出する
+fn parse_pr_number_from_url(output: &str) -> Option<u64> {
+    // 出力に含まれる PR URL を行ごとに探す
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if let Some(pos) = trimmed.rfind("/pull/") {
+            let num_str = &trimmed[pos + 6..];
+            // 数値部分だけ取り出す
+            let num_part: String = num_str.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = num_part.parse::<u64>() {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
+/// 現在の jj change に紐づくブックマーク名を取得する
+fn get_jj_bookmark() -> Option<String> {
+    let output = Command::new("jj")
+        .args(["log", "-r", "@", "--no-graph", "-T", "local_bookmarks.map(|b| b.name()).join(\",\")"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() {
+        return None;
+    }
+
+    // カンマ区切りの最初のブックマーク名を返す
+    Some(s.split(',').next().unwrap_or(&s).to_string())
 }
 
 /// gh コマンドを静かに実行 (stderr 抑制)
@@ -306,7 +315,7 @@ CodeRabbit の全コメントに必ず返信すること（対応済み・対応
     )
 }
 
-// ─── 監視開始 (claude -p でプロンプトを送信) ───
+// ─── 監視開始 (claude -p --continue でプロンプトを送信) ───
 
 fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorConfig) {
     let prompt = build_monitor_prompt(pr_info, push_time, config);
@@ -316,20 +325,94 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorCon
         pr_info.pr_number, pr_info.repo
     ));
 
-    let (success, output) = run_cmd(
-        "claude-monitor",
-        &format!("claude -p \"{}\"", prompt.replace('"', "\\\"")),
-        DEFAULT_STEP_TIMEOUT_SECS,
-    );
+    // claude -p --continue でインタラクティブセッションに CronCreate 指示を送信
+    // --continue: 最新のセッションに接続（新規セッションではなく既存に注入）
+    // Command で直接起動し stdin にプロンプトを書き込む
+    // (Windows の cmd /c 経由では < リダイレクトが正しく動作しないため)
 
-    if success {
-        log_info("監視ジョブ作成完了");
-    } else {
-        log_info("警告: claude -p による監視ジョブ作成に失敗しました");
-        if !output.is_empty() {
-            eprintln!("{}", output);
+    let start = std::time::Instant::now();
+    let result = run_claude_with_stdin(&prompt, DEFAULT_STEP_TIMEOUT_SECS);
+    let elapsed = start.elapsed();
+
+    match result {
+        Ok((success, output)) => {
+            if success {
+                log_info(&format!("監視ジョブ作成完了 ({:.1}s)", elapsed.as_secs_f64()));
+            } else {
+                log_info(&format!(
+                    "警告: claude -p --continue による監視ジョブ作成に失敗しました ({:.1}s)",
+                    elapsed.as_secs_f64()
+                ));
+                if !output.is_empty() {
+                    eprintln!("{}", output);
+                }
+            }
+        }
+        Err(e) => {
+            log_info(&format!(
+                "警告: claude プロセス起動失敗 ({:.1}s): {}",
+                elapsed.as_secs_f64(),
+                e
+            ));
         }
     }
+}
+
+/// claude -p --continue を直接起動し、stdin にプロンプトを書き込む
+fn run_claude_with_stdin(prompt: &str, timeout_secs: u64) -> Result<(bool, String), String> {
+    use std::io::Write;
+
+    let mut child = Command::new("claude")
+        .args(["-p", "--continue"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("claude の起動に失敗: {}", e))?;
+
+    // stdin にプロンプトを書き込んで閉じる
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt.as_bytes());
+        // stdin をドロップして EOF を送信
+    }
+
+    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
+    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+
+    // タイムアウト付きで完了を待つ
+    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let timed_out = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break false,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break true;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("claude プロセスの待機に失敗: {}", e)),
+        }
+    };
+
+    if timed_out {
+        let stdout = stdout_handle.join().unwrap_or_default();
+        let stderr = stderr_handle.join().unwrap_or_default();
+        let combined = combine_output(&stdout, &stderr);
+        let mut msg = format!("timed out after {}s", timeout_secs);
+        if !combined.is_empty() {
+            msg = format!("{}\n{}", msg, combined);
+        }
+        return Ok((false, msg));
+    }
+
+    let success = child.wait().map(|s| s.success()).unwrap_or(false);
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    let combined = combine_output(&stdout, &stderr);
+
+    Ok((success, combined))
 }
 
 // ─── PR 作成モード ───
@@ -375,9 +458,21 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
         return 0;
     }
 
-    // PR 情報取得 & 監視開始
+    // PR 情報取得: gh pr create の出力から PR 番号を直接パース (issue #2 修正)
+    // gh pr create は stdout に "https://github.com/.../pull/14" を返す
+    let pr_number_from_url = parse_pr_number_from_url(&output);
     let push_time = utc_now_iso8601();
-    let pr_info = get_pr_info();
+
+    let pr_info = if pr_number_from_url.is_some() {
+        log_info(&format!("PR URL から番号を取得: {:?}", pr_number_from_url));
+        let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+        PrInfo { pr_number: pr_number_from_url, repo }
+    } else {
+        // フォールバック: get_pr_info() で多段検索
+        log_info("PR URL からの番号取得失敗、gh コマンドで検索");
+        get_pr_info()
+    };
+
     start_monitoring(&pr_info, &push_time, &monitor_config);
 
     0
@@ -640,5 +735,30 @@ enabled = false
     #[test]
     fn combine_output_empty() {
         assert_eq!(combine_output("", ""), "");
+    }
+
+    // --- parse_pr_number_from_url ---
+
+    #[test]
+    fn parse_pr_url_standard() {
+        let output = "https://github.com/aloekun/claude-code-hook-test/pull/14";
+        assert_eq!(parse_pr_number_from_url(output), Some(14));
+    }
+
+    #[test]
+    fn parse_pr_url_with_prefix_lines() {
+        let output = "some warning\nhttps://github.com/owner/repo/pull/42\n";
+        assert_eq!(parse_pr_number_from_url(output), Some(42));
+    }
+
+    #[test]
+    fn parse_pr_url_no_match() {
+        let output = "no url here";
+        assert_eq!(parse_pr_number_from_url(output), None);
+    }
+
+    #[test]
+    fn parse_pr_url_empty() {
+        assert_eq!(parse_pr_number_from_url(""), None);
     }
 }
