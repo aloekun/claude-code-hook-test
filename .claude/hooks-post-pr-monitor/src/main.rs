@@ -49,7 +49,7 @@ impl Default for PostPrMonitorConfig {
 
 const DEFAULT_POLL_INTERVAL: u64 = 120;
 const DEFAULT_MAX_DURATION: u64 = 600;
-const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STEP_TIMEOUT_SECS: u64 = 300;
 
 // ─── ログ出力ヘルパー ───
 
@@ -306,7 +306,7 @@ CodeRabbit の全コメントに必ず返信すること（対応済み・対応
     )
 }
 
-// ─── 監視開始 (claude -p でプロンプトを送信) ───
+// ─── 監視開始 (claude -p --continue でプロンプトを送信) ───
 
 fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorConfig) {
     let prompt = build_monitor_prompt(pr_info, push_time, config);
@@ -316,20 +316,67 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorCon
         pr_info.pr_number, pr_info.repo
     ));
 
-    let (success, output) = run_cmd(
-        "claude-monitor",
-        &format!("claude -p \"{}\"", prompt.replace('"', "\\\"")),
-        DEFAULT_STEP_TIMEOUT_SECS,
+    // DEBUG: プロンプト内容を出力
+    log_info("=== DEBUG: 生成プロンプト ===");
+    eprintln!("{}", prompt);
+    log_info("=== DEBUG: プロンプト終了 ===");
+
+    // DEBUG: claude コマンドの存在確認
+    let (ver_ok, ver_out) = run_cmd("claude-version", "claude --version", 10);
+    log_info(&format!(
+        "DEBUG: claude --version: ok={}, output={}",
+        ver_ok,
+        ver_out.lines().next().unwrap_or("(empty)")
+    ));
+
+    // プロンプトを一時ファイルに書き出してパイプで渡す
+    // (シェルエスケープ問題を回避)
+    let prompt_file = std::env::temp_dir().join("claude-monitor-prompt.txt");
+    if let Err(e) = std::fs::write(&prompt_file, &prompt) {
+        log_info(&format!("警告: プロンプトファイル書き出し失敗: {}", e));
+        return;
+    }
+    log_info(&format!(
+        "DEBUG: プロンプトファイル: {} ({} bytes)",
+        prompt_file.display(),
+        prompt.len()
+    ));
+
+    // claude -p --continue でインタラクティブセッションに CronCreate 指示を送信
+    // --continue: 最新のセッションに接続（新規セッションではなく既存に注入）
+    let cmd = format!(
+        "claude -p --continue < \"{}\"",
+        prompt_file.display()
     );
+    log_info(&format!("DEBUG: 実行コマンド: {}", cmd));
+
+    let start = std::time::Instant::now();
+    let (success, output) = run_cmd("claude-monitor", &cmd, DEFAULT_STEP_TIMEOUT_SECS);
+    let elapsed = start.elapsed();
+
+    log_info(&format!(
+        "DEBUG: claude -p 完了: success={}, elapsed={:.1}s, output_len={}",
+        success,
+        elapsed.as_secs_f64(),
+        output.len()
+    ));
 
     if success {
         log_info("監視ジョブ作成完了");
+        if !output.is_empty() {
+            // DEBUG: claude の応答を表示
+            log_info("DEBUG: claude 応答:");
+            eprintln!("{}", output);
+        }
     } else {
-        log_info("警告: claude -p による監視ジョブ作成に失敗しました");
+        log_info("警告: claude -p --continue による監視ジョブ作成に失敗しました");
         if !output.is_empty() {
             eprintln!("{}", output);
         }
     }
+
+    // 一時ファイルを削除
+    let _ = std::fs::remove_file(&prompt_file);
 }
 
 // ─── PR 作成モード ───
