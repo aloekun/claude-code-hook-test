@@ -49,7 +49,7 @@ impl Default for PostPrMonitorConfig {
 
 const DEFAULT_POLL_INTERVAL: u64 = 120;
 const DEFAULT_MAX_DURATION: u64 = 600;
-const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STEP_TIMEOUT_SECS: u64 = 300;
 
 // ─── ログ出力ヘルパー ───
 
@@ -134,56 +134,6 @@ fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], tim
     (code == 0, combined)
 }
 
-fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
-
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return (false, format!("Failed to wait for {}: {}", name, e)),
-        }
-    };
-
-    if timed_out {
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        let combined = combine_output(&stdout, &stderr);
-        let mut msg = format!("timed out after {}s", timeout_secs);
-        if !combined.is_empty() {
-            msg = format!("{}\n{}", msg, combined);
-        }
-        return (false, msg);
-    }
-
-    let success = child.wait().map(|s| s.success()).unwrap_or(false);
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    (success, combined)
-}
-
 fn combine_output(stdout: &str, stderr: &str) -> String {
     if stdout.is_empty() {
         stderr.to_string()
@@ -223,13 +173,76 @@ struct PrInfo {
     repo: Option<String>,
 }
 
+/// PR 情報を取得する（多段フォールバック）
+///
+/// Strategy A: gh pr view (標準 git ブランチ環境)
+/// Strategy B: jj bookmark → gh pr list --head (jj 環境)
 fn get_pr_info() -> PrInfo {
+    let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+
+    // Strategy A: gh pr view (git ブランチが使える場合)
     let pr_number = run_gh_quiet(&["pr", "view", "--json", "number", "-q", ".number"])
         .and_then(|s| s.parse::<u64>().ok());
 
-    let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+    if pr_number.is_some() {
+        return PrInfo { pr_number, repo };
+    }
 
-    PrInfo { pr_number, repo }
+    // Strategy B: jj bookmark → gh pr list --head (全ブックマークを順に試す)
+    let bookmarks = get_jj_bookmarks();
+    for bookmark in &bookmarks {
+        log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
+        let pr_number = run_gh_quiet(&[
+            "pr", "list", "--head", bookmark, "--json", "number", "-q", ".[0].number",
+        ])
+        .and_then(|s| s.parse::<u64>().ok());
+
+        if pr_number.is_some() {
+            return PrInfo { pr_number, repo };
+        }
+    }
+
+    PrInfo { pr_number: None, repo }
+}
+
+/// PR URL (https://github.com/.../pull/123) から PR 番号を抽出する
+fn parse_pr_number_from_url(output: &str) -> Option<u64> {
+    // 出力に含まれる PR URL を行ごとに探す
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if let Some(pos) = trimmed.rfind("/pull/") {
+            let num_str = &trimmed[pos + 6..];
+            // 数値部分だけ取り出す
+            let num_part: String = num_str.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = num_part.parse::<u64>() {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
+/// 現在の jj change に紐づく全ブックマーク名を取得する
+fn get_jj_bookmarks() -> Vec<String> {
+    let output = match Command::new("jj")
+        .args(["log", "-r", "@", "--no-graph", "-T", "local_bookmarks.map(|b| b.name()).join(\",\")"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() {
+        return Vec::new();
+    }
+
+    s.split(',')
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty())
+        .collect()
 }
 
 /// gh コマンドを静かに実行 (stderr 抑制)
@@ -306,7 +319,7 @@ CodeRabbit の全コメントに必ず返信すること（対応済み・対応
     )
 }
 
-// ─── 監視開始 (claude -p でプロンプトを送信) ───
+// ─── 監視開始 (claude -p --continue でプロンプトを送信) ───
 
 fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorConfig) {
     let prompt = build_monitor_prompt(pr_info, push_time, config);
@@ -316,20 +329,156 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorCon
         pr_info.pr_number, pr_info.repo
     ));
 
-    let (success, output) = run_cmd(
-        "claude-monitor",
-        &format!("claude -p \"{}\"", prompt.replace('"', "\\\"")),
-        DEFAULT_STEP_TIMEOUT_SECS,
-    );
+    // claude -p --continue でインタラクティブセッションに CronCreate 指示を送信
+    // --continue: 最新のセッションに接続（新規セッションではなく既存に注入）
+    // Command で直接起動し stdin にプロンプトを書き込む
+    // (Windows の cmd /c 経由では < リダイレクトが正しく動作しないため)
 
-    if success {
-        log_info("監視ジョブ作成完了");
-    } else {
-        log_info("警告: claude -p による監視ジョブ作成に失敗しました");
-        if !output.is_empty() {
-            eprintln!("{}", output);
+    let start = std::time::Instant::now();
+    let result = run_claude_with_stdin(&prompt, DEFAULT_STEP_TIMEOUT_SECS);
+    let elapsed = start.elapsed();
+
+    match result {
+        Ok((success, output)) => {
+            if success {
+                log_info(&format!("監視ジョブ作成完了 ({:.1}s)", elapsed.as_secs_f64()));
+            } else {
+                log_info(&format!(
+                    "警告: claude -p --continue による監視ジョブ作成に失敗しました ({:.1}s)",
+                    elapsed.as_secs_f64()
+                ));
+                if !output.is_empty() {
+                    eprintln!("{}", output);
+                }
+            }
+        }
+        Err(e) => {
+            log_info(&format!(
+                "警告: claude プロセス起動失敗 ({:.1}s): {}",
+                elapsed.as_secs_f64(),
+                e
+            ));
         }
     }
+}
+
+/// claude -p --continue を直接起動し、stdin にプロンプトを書き込む
+fn run_claude_with_stdin(prompt: &str, timeout_secs: u64) -> Result<(bool, String), String> {
+    use std::io::Write;
+
+    let mut child = Command::new("claude")
+        .args(["-p", "--continue"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("claude の起動に失敗: {}", e))?;
+
+    // stdin にプロンプトを書き込んで閉じる (ドロップで EOF 送信)
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(prompt.as_bytes())
+            .map_err(|e| format!("claude の stdin 書き込みに失敗: {}", e))?;
+    }
+
+    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
+    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+
+    // タイムアウト付きで完了を待つ
+    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let timed_out = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break false,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break true;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("claude プロセスの待機に失敗: {}", e)),
+        }
+    };
+
+    if timed_out {
+        let stdout = stdout_handle.join().unwrap_or_default();
+        let stderr = stderr_handle.join().unwrap_or_default();
+        let combined = combine_output(&stdout, &stderr);
+        let mut msg = format!("timed out after {}s", timeout_secs);
+        if !combined.is_empty() {
+            msg = format!("{}\n{}", msg, combined);
+        }
+        return Ok((false, msg));
+    }
+
+    let success = child.wait().map(|s| s.success()).unwrap_or(false);
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    let combined = combine_output(&stdout, &stderr);
+
+    Ok((success, combined))
+}
+
+// ─── --body → --body-file 変換 (issue #1) ───
+
+/// Drop 時に自動削除される一時ファイル
+struct TempFile(PathBuf);
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// --body 引数に改行が含まれる場合、一時ファイルに書き出して --body-file に差し替える。
+/// TempFile は Drop で自動削除されるため、早期 return でもリークしない。
+fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
+    let mut result = Vec::with_capacity(args.len());
+    let mut i = 0;
+    let mut temp_guard: Option<TempFile> = None;
+
+    while i < args.len() {
+        if args[i] == "--body" && i + 1 < args.len() {
+            let body = &args[i + 1];
+            if body.contains('\n') || body.contains("\\n") {
+                // 一意なファイル名 (PID + タイムスタンプ)
+                let filename = format!(
+                    "gh-pr-body-{}-{}.md",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()
+                );
+                let path = std::env::temp_dir().join(filename);
+                // "\\n" リテラルを実際の改行に変換
+                let resolved = body.replace("\\n", "\n");
+                match std::fs::write(&path, &resolved) {
+                    Ok(()) => {
+                        log_info(&format!(
+                            "--body に改行を検出 → --body-file に変換 ({})",
+                            path.display()
+                        ));
+                        result.push("--body-file".to_string());
+                        result.push(path.to_string_lossy().to_string());
+                        temp_guard = Some(TempFile(path));
+                    }
+                    Err(e) => {
+                        log_info(&format!("警告: body ファイル書き出し失敗: {}。--body をそのまま使用", e));
+                        result.push(args[i].clone());
+                        result.push(args[i + 1].clone());
+                    }
+                }
+                i += 2;
+                continue;
+            }
+        }
+        result.push(args[i].clone());
+        i += 1;
+    }
+
+    (result, temp_guard)
 }
 
 // ─── PR 作成モード ───
@@ -337,10 +486,13 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorCon
 fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
 
+    // --body に改行が含まれる場合、--body-file に自動変換 (issue #1 修正)
+    let (final_args, _body_tempfile) = convert_body_to_file(gh_args);
+
     // gh pr create を引数配列で直接実行（スペースを含む引数を正しく渡すため）
     log_info(&format!(
         "実行: gh pr create {}",
-        gh_args
+        final_args
             .iter()
             .map(|a| if a.contains(' ') {
                 format!("\"{}\"", a)
@@ -351,7 +503,7 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
             .join(" ")
     ));
 
-    let (success, output) = run_cmd_direct("gh", &["pr", "create"], gh_args, DEFAULT_STEP_TIMEOUT_SECS);
+    let (success, output) = run_cmd_direct("gh", &["pr", "create"], &final_args, DEFAULT_STEP_TIMEOUT_SECS);
 
     if !success {
         log_info("PR 作成失敗:");
@@ -375,11 +527,24 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
         return 0;
     }
 
-    // PR 情報取得 & 監視開始
+    // PR 情報取得: gh pr create の出力から PR 番号を直接パース (issue #2 修正)
+    // gh pr create は stdout に "https://github.com/.../pull/14" を返す
+    let pr_number_from_url = parse_pr_number_from_url(&output);
     let push_time = utc_now_iso8601();
-    let pr_info = get_pr_info();
+
+    let pr_info = if pr_number_from_url.is_some() {
+        log_info(&format!("PR URL から番号を取得: {:?}", pr_number_from_url));
+        let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+        PrInfo { pr_number: pr_number_from_url, repo }
+    } else {
+        // フォールバック: get_pr_info() で多段検索
+        log_info("PR URL からの番号取得失敗、gh コマンドで検索");
+        get_pr_info()
+    };
+
     start_monitoring(&pr_info, &push_time, &monitor_config);
 
+    // _body_tempfile は TempFile の Drop で自動削除される
     0
 }
 
@@ -640,5 +805,71 @@ enabled = false
     #[test]
     fn combine_output_empty() {
         assert_eq!(combine_output("", ""), "");
+    }
+
+    // --- parse_pr_number_from_url ---
+
+    #[test]
+    fn parse_pr_url_standard() {
+        let output = "https://github.com/aloekun/claude-code-hook-test/pull/14";
+        assert_eq!(parse_pr_number_from_url(output), Some(14));
+    }
+
+    #[test]
+    fn parse_pr_url_with_prefix_lines() {
+        let output = "some warning\nhttps://github.com/owner/repo/pull/42\n";
+        assert_eq!(parse_pr_number_from_url(output), Some(42));
+    }
+
+    #[test]
+    fn parse_pr_url_no_match() {
+        let output = "no url here";
+        assert_eq!(parse_pr_number_from_url(output), None);
+    }
+
+    #[test]
+    fn parse_pr_url_empty() {
+        assert_eq!(parse_pr_number_from_url(""), None);
+    }
+
+    // --- convert_body_to_file ---
+
+    #[test]
+    fn body_without_newline_unchanged() {
+        let args = vec!["--title".into(), "test".into(), "--body".into(), "simple body".into()];
+        let (result, temp) = convert_body_to_file(&args);
+        assert_eq!(result, args);
+        assert!(temp.is_none());
+    }
+
+    #[test]
+    fn body_with_literal_newline_converted() {
+        let args = vec!["--title".into(), "test".into(), "--body".into(), "line1\\nline2".into()];
+        let (result, temp) = convert_body_to_file(&args);
+        assert_eq!(result[0], "--title");
+        assert_eq!(result[1], "test");
+        assert_eq!(result[2], "--body-file");
+        assert!(temp.is_some());
+        // ファイルの中身を確認
+        let content = std::fs::read_to_string(&temp.as_ref().unwrap().0).unwrap();
+        assert!(content.contains("line1\nline2"));
+        // TempFile は Drop で自動削除される
+    }
+
+    #[test]
+    fn body_with_real_newline_converted() {
+        let args = vec!["--body".into(), "line1\nline2".into()];
+        let (result, temp) = convert_body_to_file(&args);
+        assert_eq!(result[0], "--body-file");
+        assert!(temp.is_some());
+        // TempFile は Drop で自動削除される
+    }
+
+    #[test]
+    fn no_body_arg_unchanged() {
+        let args = vec!["--title".into(), "test".into()];
+        let (result, temp) = convert_body_to_file(&args);
+        assert_eq!(result, args);
+        assert!(temp.is_none());
     }
 }
