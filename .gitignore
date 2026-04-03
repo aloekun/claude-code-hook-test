@@ -12,6 +12,7 @@
 .claude/hooks-push-pipeline.exe
 .claude/hooks-post-pr-monitor.exe
 .claude/check-ci-coderabbit.exe
+.claude/hooks-session-start.exe
 
 # Deploy targets (contains local paths; create from deploy-targets.template.json)
 scripts/deploy-targets.json
@@ -30,3 +31,7 @@ __pycache__/
 .claude/hooks-push-pipeline/target/
 .claude/hooks-post-pr-monitor/target/
 .claude/check-ci-coderabbit/target/
+.claude/hooks-session-start/target/
+
+# Runtime generated files
+.claude/.session-id
