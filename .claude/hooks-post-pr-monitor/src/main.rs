@@ -319,7 +319,40 @@ CodeRabbit の全コメントに必ず返信すること（対応済み・対応
     )
 }
 
-// ─── 監視開始 (claude -p --continue でプロンプトを送信) ───
+// ─── セッション ID 取得 ───
+
+/// メインセッションの session_id を取得する（SessionStart hook が書き出したもの）
+///
+/// 優先順位:
+///   1. 環境変数 CLAUDE_CODE_SESSION_ID
+///   2. .claude/.session-id ファイル
+///   3. None (フォールバック: --continue を使用)
+fn get_main_session_id() -> Option<String> {
+    // 1. 環境変数から取得
+    if let Ok(id) = std::env::var("CLAUDE_CODE_SESSION_ID") {
+        if !id.is_empty() {
+            return Some(id);
+        }
+    }
+
+    // 2. .session-id ファイルから取得
+    let sid_path = std::env::current_exe()
+        .unwrap_or_default()
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(".session-id");
+
+    if let Ok(id) = std::fs::read_to_string(&sid_path) {
+        let id = id.trim().to_string();
+        if !id.is_empty() {
+            return Some(id);
+        }
+    }
+
+    None
+}
+
+// ─── 監視開始 (claude -p --resume でプロンプトを送信) ───
 
 fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorConfig) {
     let prompt = build_monitor_prompt(pr_info, push_time, config);
@@ -329,22 +362,57 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorCon
         pr_info.pr_number, pr_info.repo
     ));
 
-    // claude -p --continue でインタラクティブセッションに CronCreate 指示を送信
-    // --continue: 最新のセッションに接続（新規セッションではなく既存に注入）
-    // Command で直接起動し stdin にプロンプトを書き込む
-    // (Windows の cmd /c 経由では < リダイレクトが正しく動作しないため)
+    // メインセッション ID を取得して --resume で確実にメインセッションに接続
+    // SessionStart hook が .session-id ファイル / 環境変数に書き出した ID を使用
+    // 未設定の場合は --continue にフォールバック
+    let session_id = get_main_session_id();
+    let mode = match &session_id {
+        Some(id) => {
+            log_info(&format!("--resume {} でメインセッションに接続", id));
+            format!("--resume {}", id)
+        }
+        None => {
+            log_info("警告: セッション ID 未検出、--continue にフォールバック");
+            "--continue".to_string()
+        }
+    };
 
     let start = std::time::Instant::now();
-    let result = run_claude_with_stdin(&prompt, DEFAULT_STEP_TIMEOUT_SECS);
+    let result = run_claude_with_stdin(&prompt, session_id.as_deref(), DEFAULT_STEP_TIMEOUT_SECS);
     let elapsed = start.elapsed();
 
     match result {
         Ok((success, output)) => {
             if success {
-                log_info(&format!("監視ジョブ作成完了 ({:.1}s)", elapsed.as_secs_f64()));
+                log_info(&format!("監視ジョブ作成完了 ({:.1}s, {})", elapsed.as_secs_f64(), mode));
+            } else if session_id.is_some() {
+                // --resume が失敗した場合、--continue にフォールバック
+                // (セッション再起動で .session-id が古くなった場合の安全網)
+                log_info(&format!(
+                    "--resume 失敗 ({:.1}s)、--continue にフォールバック",
+                    elapsed.as_secs_f64()
+                ));
+                let start2 = std::time::Instant::now();
+                let result2 = run_claude_with_stdin(&prompt, None, DEFAULT_STEP_TIMEOUT_SECS);
+                let elapsed2 = start2.elapsed();
+                match result2 {
+                    Ok((true, _)) => {
+                        log_info(&format!("監視ジョブ作成完了 ({:.1}s, --continue fallback)", elapsed2.as_secs_f64()));
+                    }
+                    Ok((false, fallback_output)) => {
+                        log_info(&format!("警告: --continue フォールバックも失敗 ({:.1}s)", elapsed2.as_secs_f64()));
+                        if !fallback_output.is_empty() {
+                            eprintln!("{}", fallback_output);
+                        }
+                    }
+                    Err(e2) => {
+                        log_info(&format!("警告: --continue フォールバック起動失敗: {}", e2));
+                    }
+                }
             } else {
                 log_info(&format!(
-                    "警告: claude -p --continue による監視ジョブ作成に失敗しました ({:.1}s)",
+                    "警告: claude -p {} による監視ジョブ作成に失敗しました ({:.1}s)",
+                    mode,
                     elapsed.as_secs_f64()
                 ));
                 if !output.is_empty() {
@@ -362,12 +430,21 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorCon
     }
 }
 
-/// claude -p --continue を直接起動し、stdin にプロンプトを書き込む
-fn run_claude_with_stdin(prompt: &str, timeout_secs: u64) -> Result<(bool, String), String> {
+/// claude -p --resume/--continue を直接起動し、stdin にプロンプトを書き込む
+///
+/// session_id が Some の場合は `--resume <id>` でメインセッションに接続。
+/// None の場合は `--continue` にフォールバック。
+fn run_claude_with_stdin(prompt: &str, session_id: Option<&str>, timeout_secs: u64) -> Result<(bool, String), String> {
     use std::io::Write;
 
-    let mut child = Command::new("claude")
-        .args(["-p", "--continue"])
+    let mut cmd = Command::new("claude");
+    cmd.arg("-p");
+    match session_id {
+        Some(id) => { cmd.args(["--resume", id]); }
+        None => { cmd.arg("--continue"); }
+    }
+
+    let mut child = cmd
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
