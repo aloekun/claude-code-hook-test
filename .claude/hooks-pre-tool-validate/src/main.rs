@@ -264,14 +264,14 @@ pnpm push
     ]
 }
 
-/// プリセット: gh-pr-create-guard (gh pr create を禁止し pnpm pr に誘導)
+/// プリセット: gh-pr-create-guard (gh pr create を禁止し pnpm pr-create に誘導)
 fn preset_gh_pr_create_guard() -> Vec<BlockedPattern> {
     vec![
         BlockedPattern {
             pattern: Regex::new(r#"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*gh\s+(?:.*\s+)?pr\s+create(\s|$)"#).unwrap(),
             message: r#"**gh pr create がブロックされました**
 
-PR 作成は pnpm pr 経由で行ってください。
+PR 作成は pnpm pr-create 経由で行ってください。
 pnpm pr-create は PR 作成後に CI・CodeRabbit の自動監視も開始します。
 
 **代わりに以下を実行してください:**
