@@ -87,7 +87,7 @@ Claude が action フィールドに従い行動
 
 | コンポーネント | 種別 | 役割 |
 |---|---|---|
-| `hooks-post-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + CronCreate 監視開始 |
+| `hooks-post-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + daemon 起動 + state file 管理 |
 | `hooks-pre-tool-validate.exe` | PreToolUse hook (Rust) | `gh-pr-create-guard` で直接の `gh pr create` をブロック |
 | `check-ci-coderabbit.exe` | スタンドアロン CLI (Rust) | CI・CodeRabbit 状態チェック → JSON 出力 |
 | `post-pr-create-review-check` SKILL.md | Claude Skill | 監視結果の解釈・報告手順 |
@@ -143,6 +143,14 @@ check_coderabbit = true
   Claude に CronCreate を「お願い」する設計だったが、Claude が指示に従わないケースがあり
   信頼性が低かった。push-pipeline と同じ「ガード + 専用コマンド + claude -p」パターンに
   統一することで、CronCreate の実行を確実にした。
+
+- **2026-04-05**: `claude -p --resume` → daemon + state file アーキテクチャに変更。
+  VSCode 拡張では `~/.claude/sessions/` に CLI セッションのみ登録されるため、
+  `claude -p --resume <session_id>` で VSCode セッションにアクセスできないことが判明。
+  外部プロセスから Claude セッションに状態を注入する設計自体がアンチパターンであると認識。
+  新設計: daemon が外部で監視を完結させ、結果を `.claude/pr-monitor-state.json` に書き出す。
+  Claude は state file を読むだけ。CronCreate は UX 最適化レイヤーとして維持（state file の
+  cat のみ実行）し、コア機能ではない。フォールバック: 手動 `cat` で確認可能。
 
 ## 参考
 
