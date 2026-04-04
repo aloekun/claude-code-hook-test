@@ -53,5 +53,5 @@ Windows 環境では以下の問題が発生した。
 ## References
 
 - [ハーネスエンジニアリング実装ガイド - 4つのhookパターン](https://nyosegawa.github.io/posts/harness-engineering-best-practices-2026/#4%E3%81%A4%E3%81%AEhook%E3%83%91%E3%82%BF%E3%83%BC%E3%83%B3)
-- `.claude/hooks-pre-tool-validate/` (PreToolUse: hooks-pre-tool-validate.exe)
-- `.claude/hooks-post-tool-linter/` (PostToolUse: hooks-post-tool-linter.exe)
+- `src/hooks-pre-tool-validate/` (PreToolUse: hooks-pre-tool-validate.exe)
+- `src/hooks-post-tool-linter/` (PostToolUse: hooks-post-tool-linter.exe)

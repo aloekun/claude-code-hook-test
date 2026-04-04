@@ -81,4 +81,4 @@ PostToolUse フックはミリ秒〜秒単位で完了する必要があり、
 - [ハーネスエンジニアリング実装ガイド - 4つのhookパターン](https://nyosegawa.github.io/posts/harness-engineering-best-practices-2026/#4%E3%81%A4%E3%81%AEhook%E3%83%91%E3%82%BF%E3%83%BC%E3%83%B3)
 - [Biome](https://biomejs.dev/) — Rust 製フォーマッタ/リンター（10〜25倍高速）
 - [oxlint](https://oxc.rs/docs/guide/usage/linter.html) — Rust 製リンター（50〜100倍高速）
-- `.claude/hooks-post-tool-linter/src/main.rs`
+- `src/hooks-post-tool-linter/src/main.rs`

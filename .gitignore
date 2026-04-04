@@ -25,13 +25,13 @@ __pycache__/
 *.pyc
 
 # Rust build artifacts
-.claude/hooks-pre-tool-validate/target/
-.claude/hooks-post-tool-linter/target/
-.claude/hooks-stop-quality/target/
-.claude/hooks-push-pipeline/target/
-.claude/hooks-post-pr-monitor/target/
-.claude/check-ci-coderabbit/target/
-.claude/hooks-session-start/target/
+src/hooks-pre-tool-validate/target/
+src/hooks-post-tool-linter/target/
+src/hooks-stop-quality/target/
+src/hooks-push-pipeline/target/
+src/hooks-post-pr-monitor/target/
+src/check-ci-coderabbit/target/
+src/hooks-session-start/target/
 
 # Runtime generated files
 .claude/.session-id

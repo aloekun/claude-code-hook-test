@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-03-16)
+Superseded by [ADR-010](adr-010-hooks-layout-and-build-strategy-v2.md) (2026-04-04)
+
+Originally: Accepted (2026-03-16)
 
 ## Context
 
