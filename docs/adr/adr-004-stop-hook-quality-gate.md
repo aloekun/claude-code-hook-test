@@ -90,4 +90,4 @@ TypeScript 版と共通の設計:
 
 - [Claude Code Hooks リファレンス - Stop 入力](https://code.claude.com/docs/ja/hooks#stop-%E5%85%A5%E5%8A%9B)
 - [ハーネスエンジニアリング実装ガイド - フィードバックループの設計](https://nyosegawa.github.io/posts/harness-engineering-best-practices-2026/#%E3%83%95%E3%82%A3%E3%83%BC%E3%83%89%E3%83%90%E3%83%83%E3%82%AF%E3%83%AB%E3%83%BC%E3%83%97%E3%81%AE%E8%A8%AD%E8%A8%88%3A-hooks%E3%81%AE%E6%B4%BB%E7%94%A8)
-- `.claude/hooks-stop-quality/src/main.rs`
+- `src/hooks-stop-quality/src/main.rs`
