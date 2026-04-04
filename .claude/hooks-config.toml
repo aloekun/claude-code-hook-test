@@ -98,13 +98,20 @@ cmd = "pnpm build"
 step_timeout = 600
 push_cmd = "jj git push"
 
-# TEMP-SKIP
-# [[push_pipeline.steps]]
-# name = "integration_test"
-# [[push_pipeline.steps]]
-# name = "ai_review"
-# [[push_pipeline.steps]]
-# name = "commit_refactor"
+[[push_pipeline.steps]]
+name = "integration_test"
+type = "command"
+cmd = "pnpm test"
+
+[[push_pipeline.steps]]
+name = "ai_review"
+type = "command"
+cmd = "pnpm review:ai"
+
+[[push_pipeline.steps]]
+name = "commit_refactor"
+type = "ai"
+prompt = "optimize_commit_structure"
 
 # ─── PostToolUse: PR モニター ───
 #
