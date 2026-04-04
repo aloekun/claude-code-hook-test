@@ -35,3 +35,6 @@ src/hooks-session-start/target/
 
 # Runtime generated files
 .claude/.session-id
+.claude/pr-monitor-state.json
+.claude/pr-monitor-state.json.tmp
+.claude/scheduled_tasks.lock

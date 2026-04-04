@@ -4,17 +4,23 @@
 //! push-pipeline と同じ「ガード + 専用コマンド」パターンで動作する。
 //!
 //! モード:
-//!   デフォルト (PR 作成): gh pr create を実行 → 監視開始
+//!   デフォルト (PR 作成): gh pr create を実行 → daemon 起動 → CronCreate 指示を stdout 出力
 //!     pnpm pr-create -- --title "..." --body "..."
 //!
-//!   --monitor-only: PR が存在すれば監視開始、なければ exit 0
+//!   --monitor-only: PR が存在すれば daemon 起動、なければ exit 0
 //!     pnpm push 完了後にチェインで呼ばれる
+//!
+//!   --daemon: バックグラウンドで check-ci-coderabbit.exe をポーリングし state file を更新
+//!     PR Create / Monitor-Only から自動スポーンされる
+//!
+//!   --mark-notified: state file の notified フラグを true にする
+//!     Claude が結果を処理した後に呼ばれる
 //!
 //! 終了コード:
 //!   0 - 正常終了
 //!   1 - gh pr create 失敗 (PR 作成モードのみ)
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -50,11 +56,109 @@ impl Default for PostPrMonitorConfig {
 const DEFAULT_POLL_INTERVAL: u64 = 120;
 const DEFAULT_MAX_DURATION: u64 = 600;
 const DEFAULT_STEP_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_CHECK_TIMEOUT_SECS: u64 = 60;
+
+// ─── State Store ───
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct PrMonitorState {
+    pr: Option<u64>,
+    repo: Option<String>,
+    started_at: String,
+    last_checked: Option<String>,
+    ci: Option<CiState>,
+    coderabbit: Option<CodeRabbitState>,
+    action: String,
+    summary: String,
+    notified: bool,
+    daemon_pid: Option<u32>,
+    daemon_status: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct CiState {
+    overall: String,
+    runs: Vec<CiRunState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct CiRunState {
+    name: String,
+    conclusion: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+struct CodeRabbitState {
+    review_state: String,
+    new_comments: usize,
+    actionable_comments: Option<usize>,
+    unresolved_threads: Option<usize>,
+}
+
+impl PrMonitorState {
+    fn new(pr: Option<u64>, repo: Option<String>, started_at: String) -> Self {
+        Self {
+            pr,
+            repo,
+            started_at,
+            last_checked: None,
+            ci: None,
+            coderabbit: None,
+            action: "continue_monitoring".to_string(),
+            summary: "監視開始...".to_string(),
+            notified: false,
+            daemon_pid: None,
+            daemon_status: "running".to_string(),
+        }
+    }
+}
+
+fn state_file_path() -> PathBuf {
+    std::env::current_exe()
+        .unwrap_or_default()
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("pr-monitor-state.json")
+}
+
+fn write_state_to(path: &Path, state: &PrMonitorState) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|e| format!("state シリアライズ失敗: {}", e))?;
+    // アトミック書き込み: .tmp に書いてから rename
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &json)
+        .map_err(|e| format!("state 一時ファイル書き込み失敗: {}", e))?;
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| format!("state ファイル rename 失敗: {}", e))?;
+    Ok(())
+}
+
+fn read_state_from(path: &Path) -> Option<PrMonitorState> {
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn write_state(state: &PrMonitorState) -> Result<(), String> {
+    write_state_to(&state_file_path(), state)
+}
+
+#[allow(dead_code)]
+fn read_state() -> Option<PrMonitorState> {
+    read_state_from(&state_file_path())
+}
 
 // ─── ログ出力ヘルパー ───
 
 fn log_info(msg: &str) {
     eprintln!("[post-pr-monitor] {}", msg);
+}
+
+/// UTF-8 安全な文字列切り詰め（バイト境界ではなく char 境界で切る）
+fn truncate_safe(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
 }
 
 // ─── パイプ排出 (push-pipeline から移植) ───
@@ -134,6 +238,7 @@ fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], tim
     (code == 0, combined)
 }
 
+#[allow(dead_code)]
 fn combine_output(stdout: &str, stderr: &str) -> String {
     if stdout.is_empty() {
         stderr.to_string()
@@ -207,12 +312,10 @@ fn get_pr_info() -> PrInfo {
 
 /// PR URL (https://github.com/.../pull/123) から PR 番号を抽出する
 fn parse_pr_number_from_url(output: &str) -> Option<u64> {
-    // 出力に含まれる PR URL を行ごとに探す
     for line in output.lines() {
         let trimmed = line.trim();
         if let Some(pos) = trimmed.rfind("/pull/") {
             let num_str = &trimmed[pos + 6..];
-            // 数値部分だけ取り出す
             let num_part: String = num_str.chars().take_while(|c| c.is_ascii_digit()).collect();
             if let Ok(n) = num_part.parse::<u64>() {
                 return Some(n);
@@ -266,30 +369,43 @@ fn run_gh_quiet(args: &[&str]) -> Option<String> {
     }
 }
 
-// ─── CronCreate プロンプト構築 ───
+// ─── check-ci-coderabbit exe パス ───
 
-fn build_monitor_prompt(
-    pr_info: &PrInfo,
-    push_time: &str,
-    config: &PostPrMonitorConfig,
-) -> String {
-    let interval = config.poll_interval_secs.unwrap_or(DEFAULT_POLL_INTERVAL);
-    let max_dur = config.max_duration_secs.unwrap_or(DEFAULT_MAX_DURATION);
-    let max_dur_min = max_dur / 60;
+fn checker_exe_path() -> PathBuf {
+    std::env::current_exe()
+        .unwrap_or_default()
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("check-ci-coderabbit.exe")
+}
 
-    let pr_label = pr_info
-        .pr_number
+// ─── State 更新 ───
+
+/// check-ci-coderabbit の JSON 出力から state を更新する
+fn update_state_from_check_result(state: &mut PrMonitorState, result: &serde_json::Value) {
+    if let Some(action) = result.get("action").and_then(|v| v.as_str()) {
+        state.action = action.to_string();
+    }
+    if let Some(summary) = result.get("summary").and_then(|v| v.as_str()) {
+        state.summary = summary.to_string();
+    }
+    if let Some(ci_val) = result.get("ci") {
+        state.ci = serde_json::from_value(ci_val.clone()).ok();
+    }
+    if let Some(cr_val) = result.get("coderabbit") {
+        state.coderabbit = serde_json::from_value(cr_val.clone()).ok();
+    }
+}
+
+// ─── stdout CronCreate 指示 ───
+
+fn print_cron_instruction(state: &PrMonitorState, config: &PostPrMonitorConfig) {
+    let pr_label = state
+        .pr
         .map(|n| format!("PR #{}", n))
         .unwrap_or_else(|| "PR".to_string());
 
-    // check-ci-coderabbit の引数を組み立て (pnpm check-ci -- 経由)
-    let mut checker_args = format!("-- --push-time \"{}\"", push_time);
-    if let Some(ref repo) = pr_info.repo {
-        checker_args.push_str(&format!(" --repo \"{}\"", repo));
-    }
-    if let Some(pr) = pr_info.pr_number {
-        checker_args.push_str(&format!(" --pr {}", pr));
-    }
+    let interval = config.poll_interval_secs.unwrap_or(DEFAULT_POLL_INTERVAL);
 
     let check_scope = match (
         config.check_ci.unwrap_or(true),
@@ -301,200 +417,189 @@ fn build_monitor_prompt(
         (false, false) => "なし",
     };
 
-    format!(
-        r#"{pr_label} の {check_scope} を自動監視してください。
+    println!(
+        r#"
+{pr_label} の {check_scope} 監視 daemon を起動しました (PID: {pid})。
 
-CronCreate で {interval}秒間隔の監視ジョブを作成してください。
-- command: pnpm check-ci {checker_args}
-- 最大監視時間: {max_dur_min}分（{max_dur}秒経過後は CronDelete で停止）
+以下の CronCreate ジョブを作成してください:
+- command: cat .claude/pr-monitor-state.json
+- interval: {interval}秒
+- 終了条件: daemon_status が "completed", "timed_out", "error" のいずれかなら CronDelete
 
-check-ci-coderabbit は JSON を返します。action フィールドに従って行動してください:
-- continue_monitoring → 何もせず次回チェックを待つ
-- stop_monitoring_success → CronDelete で監視停止。「CI・CodeRabbit 共に成功、新規指摘なし」と報告
-- stop_monitoring_failure → CronDelete で監視停止。ci.runs や summary をユーザーに報告
-- action_required → CronDelete で監視停止。coderabbit の new_comments と unresolved_threads を確認し、/post-pr-create-review-check で詳細を取得して対応方針をまとめ、ユーザーに判断を仰ぐ（勝手に修正しない）
+state file の action フィールドに従って行動:
+- continue_monitoring → 次回チェックを待つ
+- stop_monitoring_success → CronDelete。「CI・CodeRabbit 共に成功、新規指摘なし」と報告
+- stop_monitoring_failure → CronDelete。summary をユーザーに報告
+- action_required → CronDelete。/post-pr-create-review-check で詳細確認し、ユーザーに判断を仰ぐ（勝手に修正しない）
 
-CodeRabbit の全コメントに必ず返信すること（対応済み・対応不要の両方。resolve はしない）。
-返信は必ず push 後に行うこと（修正コミット → push → 返信の順）。"#
-    )
+処理後は pnpm mark-notified を実行して二重通知を防止してください。
+手動確認: cat .claude/pr-monitor-state.json"#,
+        pr_label = pr_label,
+        check_scope = check_scope,
+        pid = state.daemon_pid.map(|p| p.to_string()).unwrap_or_else(|| "?".to_string()),
+        interval = interval,
+    );
 }
 
-// ─── セッション ID 取得 ───
+// ─── Daemon スポーン (Windows detached process) ───
 
-/// メインセッションの session_id を取得する（SessionStart hook が書き出したもの）
-///
-/// 優先順位:
-///   1. 環境変数 CLAUDE_CODE_SESSION_ID
-///   2. .claude/.session-id ファイル
-///   3. None (フォールバック: --continue を使用)
-fn get_main_session_id() -> Option<String> {
-    // 1. 環境変数から取得
-    if let Ok(id) = std::env::var("CLAUDE_CODE_SESSION_ID") {
-        if !id.is_empty() {
-            return Some(id);
-        }
-    }
+#[cfg(target_os = "windows")]
+fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
+    use std::os::windows::process::CommandExt;
 
-    // 2. .session-id ファイルから取得
-    let sid_path = std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(".session-id");
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const DETACHED_PROCESS: u32 = 0x00000008;
 
-    if let Ok(id) = std::fs::read_to_string(&sid_path) {
-        let id = id.trim().to_string();
-        if !id.is_empty() {
-            return Some(id);
-        }
-    }
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("exe パス取得失敗: {}", e))?;
 
-    None
+    let child = Command::new(&exe)
+        .args(["--daemon", "--state-file", &state_file.to_string_lossy()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+        .spawn()
+        .map_err(|e| format!("daemon スポーン失敗: {}", e))?;
+
+    Ok(child.id())
 }
 
-// ─── 監視開始 (claude -p --resume でプロンプトを送信) ───
+#[cfg(not(target_os = "windows"))]
+fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("exe パス取得失敗: {}", e))?;
 
-fn start_monitoring(pr_info: &PrInfo, push_time: &str, config: &PostPrMonitorConfig) {
-    let prompt = build_monitor_prompt(pr_info, push_time, config);
+    let child = Command::new(&exe)
+        .args(["--daemon", "--state-file", &state_file.to_string_lossy()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("daemon スポーン失敗: {}", e))?;
 
-    log_info(&format!(
-        "監視開始: pr={:?}, repo={:?}",
-        pr_info.pr_number, pr_info.repo
-    ));
+    Ok(child.id())
+}
 
-    // メインセッション ID を取得して --resume で確実にメインセッションに接続
-    // SessionStart hook が .session-id ファイル / 環境変数に書き出した ID を使用
-    // 未設定の場合は --continue にフォールバック
-    let session_id = get_main_session_id();
-    let mode = match &session_id {
-        Some(id) => {
-            log_info(&format!("--resume {} でメインセッションに接続", id));
-            format!("--resume {}", id)
+// ─── Daemon モード ───
+
+fn run_daemon(state_file: &Path) -> i32 {
+    let config = load_config();
+    let monitor_config = config.post_pr_monitor.unwrap_or_default();
+    let poll_interval = monitor_config.poll_interval_secs.unwrap_or(DEFAULT_POLL_INTERVAL);
+    let max_duration = monitor_config.max_duration_secs.unwrap_or(DEFAULT_MAX_DURATION);
+    let skip_ci = !monitor_config.check_ci.unwrap_or(true);
+    let skip_coderabbit = !monitor_config.check_coderabbit.unwrap_or(true);
+
+    let checker = checker_exe_path();
+    if !checker.exists() {
+        log_info(&format!("check-ci-coderabbit.exe が見つかりません: {}", checker.display()));
+        if let Some(mut state) = read_state_from(state_file) {
+            state.daemon_status = "error".to_string();
+            state.summary = "check-ci-coderabbit.exe が見つかりません".to_string();
+            let _ = write_state_to(state_file, &state);
         }
-        None => {
-            log_info("警告: セッション ID 未検出、--continue にフォールバック");
-            "--continue".to_string()
-        }
-    };
+        return 1;
+    }
 
     let start = std::time::Instant::now();
-    let result = run_claude_with_stdin(&prompt, session_id.as_deref(), DEFAULT_STEP_TIMEOUT_SECS);
-    let elapsed = start.elapsed();
 
-    match result {
-        Ok((success, output)) => {
-            if success {
-                log_info(&format!("監視ジョブ作成完了 ({:.1}s, {})", elapsed.as_secs_f64(), mode));
-            } else if session_id.is_some() {
-                // --resume が失敗した場合、--continue にフォールバック
-                // (セッション再起動で .session-id が古くなった場合の安全網)
-                log_info(&format!(
-                    "--resume 失敗 ({:.1}s)、--continue にフォールバック",
-                    elapsed.as_secs_f64()
-                ));
-                let start2 = std::time::Instant::now();
-                let result2 = run_claude_with_stdin(&prompt, None, DEFAULT_STEP_TIMEOUT_SECS);
-                let elapsed2 = start2.elapsed();
-                match result2 {
-                    Ok((true, _)) => {
-                        log_info(&format!("監視ジョブ作成完了 ({:.1}s, --continue fallback)", elapsed2.as_secs_f64()));
-                    }
-                    Ok((false, fallback_output)) => {
-                        log_info(&format!("警告: --continue フォールバックも失敗 ({:.1}s)", elapsed2.as_secs_f64()));
-                        if !fallback_output.is_empty() {
-                            eprintln!("{}", fallback_output);
-                        }
-                    }
-                    Err(e2) => {
-                        log_info(&format!("警告: --continue フォールバック起動失敗: {}", e2));
-                    }
-                }
-            } else {
-                log_info(&format!(
-                    "警告: claude -p {} による監視ジョブ作成に失敗しました ({:.1}s)",
-                    mode,
-                    elapsed.as_secs_f64()
-                ));
-                if !output.is_empty() {
-                    eprintln!("{}", output);
-                }
+    loop {
+        // 1. Read current state (state file 削除検出で graceful exit)
+        let mut state = match read_state_from(state_file) {
+            Some(s) => s,
+            None => {
+                log_info("state file が見つかりません、daemon を終了します");
+                return 0;
+            }
+        };
+
+        // 2. Build checker arguments
+        let mut checker_args: Vec<String> = vec![
+            "--push-time".to_string(),
+            state.started_at.clone(),
+        ];
+        if let Some(ref repo) = state.repo {
+            checker_args.push("--repo".to_string());
+            checker_args.push(repo.clone());
+        }
+        if let Some(pr) = state.pr {
+            checker_args.push("--pr".to_string());
+            checker_args.push(pr.to_string());
+        }
+
+        // 3. Run check-ci-coderabbit.exe
+        let (success, output) = run_cmd_direct(
+            &checker.to_string_lossy(),
+            &[],
+            &checker_args,
+            DEFAULT_CHECK_TIMEOUT_SECS,
+        );
+
+        // 4. Parse output and update state (checker 失敗時はエラーを state に書き出して停止)
+        if !success {
+            state.daemon_status = "error".to_string();
+            state.summary = format!("check-ci-coderabbit.exe 失敗: {}", truncate_safe(&output, 200));
+            state.notified = false;
+            let _ = write_state_to(state_file, &state);
+            log_info(&format!("checker 失敗: {}", truncate_safe(&output, 200)));
+            return 1;
+        }
+
+        let result = match serde_json::from_str::<serde_json::Value>(&output) {
+            Ok(r) => r,
+            Err(e) => {
+                state.daemon_status = "error".to_string();
+                state.summary = format!("checker 出力の JSON パース失敗: {}", e);
+                state.notified = false;
+                let _ = write_state_to(state_file, &state);
+                log_info(&format!("JSON パース失敗: {}", e));
+                return 1;
+            }
+        };
+        update_state_from_check_result(&mut state, &result);
+
+        // check_ci=false / check_coderabbit=false の場合、スキップした側を成功扱い
+        if skip_ci {
+            state.ci = Some(CiState { overall: "skipped".into(), runs: vec![] });
+        }
+        if skip_coderabbit {
+            state.coderabbit = Some(CodeRabbitState {
+                review_state: "skipped".into(),
+                new_comments: 0,
+                actionable_comments: None,
+                unresolved_threads: None,
+            });
+            // coderabbit スキップ時は action_required を無視して success に
+            if state.action == "action_required" {
+                state.action = "stop_monitoring_success".to_string();
             }
         }
-        Err(e) => {
-            log_info(&format!(
-                "警告: claude プロセス起動失敗 ({:.1}s): {}",
-                elapsed.as_secs_f64(),
-                e
-            ));
+
+        state.last_checked = Some(utc_now_iso8601());
+        state.notified = false; // 新しいデータを書いたので notified をリセット
+
+        // 5. Check terminal action → exit
+        if state.action != "continue_monitoring" {
+            state.daemon_status = "completed".to_string();
+            let _ = write_state_to(state_file, &state);
+            log_info(&format!("監視完了: action={}, summary={}", state.action, state.summary));
+            return 0;
         }
-    }
-}
 
-/// claude -p --resume/--continue を直接起動し、stdin にプロンプトを書き込む
-///
-/// session_id が Some の場合は `--resume <id>` でメインセッションに接続。
-/// None の場合は `--continue` にフォールバック。
-fn run_claude_with_stdin(prompt: &str, session_id: Option<&str>, timeout_secs: u64) -> Result<(bool, String), String> {
-    use std::io::Write;
-
-    let mut cmd = Command::new("claude");
-    cmd.arg("-p");
-    match session_id {
-        Some(id) => { cmd.args(["--resume", id]); }
-        None => { cmd.arg("--continue"); }
-    }
-
-    let mut child = cmd
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("claude の起動に失敗: {}", e))?;
-
-    // stdin にプロンプトを書き込んで閉じる (ドロップで EOF 送信)
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt.as_bytes())
-            .map_err(|e| format!("claude の stdin 書き込みに失敗: {}", e))?;
-    }
-
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
-
-    // タイムアウト付きで完了を待つ
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return Err(format!("claude プロセスの待機に失敗: {}", e)),
+        // 6. Check timeout
+        if start.elapsed() >= Duration::from_secs(max_duration) {
+            state.daemon_status = "timed_out".to_string();
+            state.summary = format!("監視タイムアウト ({}秒)", max_duration);
+            let _ = write_state_to(state_file, &state);
+            log_info(&format!("監視タイムアウト ({}秒)", max_duration));
+            return 0;
         }
-    };
 
-    if timed_out {
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        let combined = combine_output(&stdout, &stderr);
-        let mut msg = format!("timed out after {}s", timeout_secs);
-        if !combined.is_empty() {
-            msg = format!("{}\n{}", msg, combined);
-        }
-        return Ok((false, msg));
+        // 7. Write updated state and sleep
+        let _ = write_state_to(state_file, &state);
+        std::thread::sleep(Duration::from_secs(poll_interval));
     }
-
-    let success = child.wait().map(|s| s.success()).unwrap_or(false);
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    Ok((success, combined))
 }
 
 // ─── --body → --body-file 変換 (issue #1) ───
@@ -509,7 +614,6 @@ impl Drop for TempFile {
 }
 
 /// --body 引数に改行が含まれる場合、一時ファイルに書き出して --body-file に差し替える。
-/// TempFile は Drop で自動削除されるため、早期 return でもリークしない。
 fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
     let mut result = Vec::with_capacity(args.len());
     let mut i = 0;
@@ -519,7 +623,6 @@ fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
         if args[i] == "--body" && i + 1 < args.len() {
             let body = &args[i + 1];
             if body.contains('\n') || body.contains("\\n") {
-                // 一意なファイル名 (PID + タイムスタンプ)
                 let filename = format!(
                     "gh-pr-body-{}-{}.md",
                     std::process::id(),
@@ -529,7 +632,6 @@ fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
                         .as_millis()
                 );
                 let path = std::env::temp_dir().join(filename);
-                // "\\n" リテラルを実際の改行に変換
                 let resolved = body.replace("\\n", "\n");
                 match std::fs::write(&path, &resolved) {
                     Ok(()) => {
@@ -558,15 +660,62 @@ fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
     (result, temp_guard)
 }
 
+// ─── 監視開始 (共通ロジック) ───
+
+fn start_monitoring(pr_info: &PrInfo, push_time: &str) -> i32 {
+    let config = load_config();
+    let monitor_config = config.post_pr_monitor.unwrap_or_default();
+
+    if !monitor_config.enabled.unwrap_or(true) {
+        log_info("監視は設定で無効化されています");
+        return 0;
+    }
+
+    let state_path = state_file_path();
+
+    // 初期 state 作成 → 先に書き出してから daemon をスポーン
+    // (daemon は state file がないと即終了するため、書き込みを先に行う)
+    let mut state = PrMonitorState::new(
+        pr_info.pr_number,
+        pr_info.repo.clone(),
+        push_time.to_string(),
+    );
+
+    if let Err(e) = write_state(&state) {
+        log_info(&format!("初期 state 書き込み失敗: {}", e));
+        return 1;
+    }
+
+    // Daemon スポーン (state file が存在する状態で起動)
+    match spawn_daemon(&state_path) {
+        Ok(pid) => {
+            state.daemon_pid = Some(pid);
+            log_info(&format!("daemon スポーン完了 (PID: {})", pid));
+        }
+        Err(e) => {
+            state.daemon_status = "error".to_string();
+            state.summary = format!("daemon スポーン失敗: {}", e);
+            log_info(&format!("daemon スポーン失敗: {}", e));
+        }
+    }
+
+    // daemon PID を含む最終 state を書き込み
+    let _ = write_state(&state);
+
+    // stdout に CronCreate 指示を出力
+    print_cron_instruction(&state, &monitor_config);
+
+    0
+}
+
 // ─── PR 作成モード ───
 
 fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
 
-    // --body に改行が含まれる場合、--body-file に自動変換 (issue #1 修正)
+    // --body に改行が含まれる場合、--body-file に自動変換
     let (final_args, _body_tempfile) = convert_body_to_file(gh_args);
 
-    // gh pr create を引数配列で直接実行（スペースを含む引数を正しく渡すため）
     log_info(&format!(
         "実行: gh pr create {}",
         final_args
@@ -591,21 +740,12 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
     }
 
     log_info("PR 作成完了");
+    // PR URL を表示 (Claude が読める stdout に出力)
     if !output.is_empty() {
-        eprintln!("{}", output);
+        println!("{}", output);
     }
 
-    // 設定読み込み
-    let config = load_config();
-    let monitor_config = config.post_pr_monitor.unwrap_or_default();
-
-    if !monitor_config.enabled.unwrap_or(true) {
-        log_info("監視は設定で無効化されています");
-        return 0;
-    }
-
-    // PR 情報取得: gh pr create の出力から PR 番号を直接パース (issue #2 修正)
-    // gh pr create は stdout に "https://github.com/.../pull/14" を返す
+    // PR 情報取得: gh pr create の出力から PR 番号を直接パース
     let pr_number_from_url = parse_pr_number_from_url(&output);
     let push_time = utc_now_iso8601();
 
@@ -614,21 +754,16 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
         let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
         PrInfo { pr_number: pr_number_from_url, repo }
     } else {
-        // フォールバック: get_pr_info() で多段検索
         log_info("PR URL からの番号取得失敗、gh コマンドで検索");
         get_pr_info()
     };
 
-    start_monitoring(&pr_info, &push_time, &monitor_config);
-
-    // _body_tempfile は TempFile の Drop で自動削除される
-    0
+    start_monitoring(&pr_info, &push_time)
 }
 
 // ─── 監視のみモード ───
 
 fn run_monitor_only() -> i32 {
-    // 設定読み込み
     let config = load_config();
     let monitor_config = config.post_pr_monitor.unwrap_or_default();
 
@@ -636,7 +771,6 @@ fn run_monitor_only() -> i32 {
         return 0;
     }
 
-    // PR が存在するか確認
     let pr_info = get_pr_info();
 
     if pr_info.pr_number.is_none() {
@@ -647,15 +781,37 @@ fn run_monitor_only() -> i32 {
     log_info("監視のみモード (既存 PR 検出)");
 
     let push_time = utc_now_iso8601();
-    start_monitoring(&pr_info, &push_time, &monitor_config);
+    start_monitoring(&pr_info, &push_time)
+}
 
-    0
+// ─── --mark-notified モード ───
+
+fn run_mark_notified() -> i32 {
+    let state_path = state_file_path();
+    match read_state_from(&state_path) {
+        Some(mut state) => {
+            state.notified = true;
+            match write_state_to(&state_path, &state) {
+                Ok(()) => {
+                    log_info("notified フラグを true に更新しました");
+                    0
+                }
+                Err(e) => {
+                    log_info(&format!("state 更新失敗: {}", e));
+                    1
+                }
+            }
+        }
+        None => {
+            log_info("state file が見つかりません");
+            1
+        }
+    }
 }
 
 // ─── 時刻ユーティリティ ───
 
 /// epoch seconds を ISO 8601 UTC 文字列に変換する (std のみ, chrono 不要)
-/// Howard Hinnant の civil_from_days アルゴリズムを使用
 fn epoch_secs_to_iso8601(epoch: u64) -> String {
     let secs_per_day: u64 = 86400;
     let day_count = (epoch / secs_per_day) as i64;
@@ -695,6 +851,20 @@ fn utc_now_iso8601() -> String {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    if args.iter().any(|a| a == "--daemon") {
+        let state_file = args
+            .iter()
+            .position(|a| a == "--state-file")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+            .unwrap_or_else(state_file_path);
+        std::process::exit(run_daemon(&state_file));
+    }
+
+    if args.iter().any(|a| a == "--mark-notified") {
+        std::process::exit(run_mark_notified());
+    }
+
     if args.iter().any(|a| a == "--monitor-only") {
         std::process::exit(run_monitor_only());
     }
@@ -703,7 +873,6 @@ fn main() {
     let gh_args: Vec<String> = if let Some(pos) = args.iter().position(|a| a == "--") {
         args[pos + 1..].to_vec()
     } else {
-        // -- なしで引数がある場合はそのまま転送
         args[1..].to_vec()
     };
 
@@ -764,80 +933,125 @@ enabled = false
         assert_eq!(m.enabled, Some(false));
     }
 
-    // --- build_monitor_prompt ---
+    // --- state store ---
 
     #[test]
-    fn prompt_contains_cron_instruction() {
-        let pr_info = PrInfo {
-            pr_number: Some(42),
-            repo: Some("owner/repo".to_string()),
-        };
-        let config = PostPrMonitorConfig::default();
-        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
-        assert!(prompt.contains("CronCreate"));
-        assert!(prompt.contains("120秒間隔"));
-        assert!(prompt.contains("PR #42"));
-        assert!(prompt.contains("owner/repo"));
-        assert!(prompt.contains("2026-04-01T12:00:00Z"));
-        assert!(prompt.contains("pnpm check-ci"));
+    fn state_new_defaults() {
+        let state = PrMonitorState::new(Some(42), Some("owner/repo".into()), "2026-04-04T12:00:00Z".into());
+        assert_eq!(state.pr, Some(42));
+        assert_eq!(state.repo.as_deref(), Some("owner/repo"));
+        assert_eq!(state.action, "continue_monitoring");
+        assert_eq!(state.daemon_status, "running");
+        assert!(!state.notified);
+        assert!(state.ci.is_none());
+        assert!(state.coderabbit.is_none());
+        assert!(state.last_checked.is_none());
     }
 
     #[test]
-    fn prompt_with_custom_interval() {
-        let pr_info = PrInfo {
-            pr_number: Some(1),
-            repo: Some("o/r".to_string()),
+    fn state_serialize_roundtrip() {
+        let state = PrMonitorState {
+            pr: Some(123),
+            repo: Some("owner/repo".into()),
+            started_at: "2026-04-04T12:00:00Z".into(),
+            last_checked: Some("2026-04-04T12:02:00Z".into()),
+            ci: Some(CiState {
+                overall: "success".into(),
+                runs: vec![CiRunState { name: "test".into(), conclusion: "success".into() }],
+            }),
+            coderabbit: Some(CodeRabbitState {
+                review_state: "success".into(),
+                new_comments: 2,
+                actionable_comments: Some(1),
+                unresolved_threads: Some(0),
+            }),
+            action: "action_required".into(),
+            summary: "CI成功。CodeRabbit: 指摘2件".into(),
+            notified: false,
+            daemon_pid: Some(12345),
+            daemon_status: "running".into(),
         };
-        let config = PostPrMonitorConfig {
-            poll_interval_secs: Some(60),
-            max_duration_secs: Some(300),
-            ..Default::default()
-        };
-        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
-        assert!(prompt.contains("60秒間隔"));
-        assert!(prompt.contains("5分"));
+
+        let json = serde_json::to_string(&state).unwrap();
+        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
+        assert_eq!(state, deserialized);
     }
 
     #[test]
-    fn prompt_without_pr_number() {
-        let pr_info = PrInfo {
-            pr_number: None,
-            repo: Some("owner/repo".to_string()),
-        };
-        let config = PostPrMonitorConfig::default();
-        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
-        assert!(prompt.contains("PR の"));
-        assert!(!prompt.contains("PR #"));
+    fn state_write_read_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test-state-roundtrip-{}.json",
+            std::process::id()
+        ));
+        let state = PrMonitorState::new(Some(1), Some("o/r".into()), "2026-01-01T00:00:00Z".into());
+
+        write_state_to(&tmp, &state).unwrap();
+        let loaded = read_state_from(&tmp).unwrap();
+        assert_eq!(state, loaded);
+
+        let _ = std::fs::remove_file(&tmp);
     }
 
     #[test]
-    fn prompt_check_scope_ci_only() {
-        let pr_info = PrInfo {
-            pr_number: Some(1),
-            repo: Some("o/r".to_string()),
-        };
-        let config = PostPrMonitorConfig {
-            check_ci: Some(true),
-            check_coderabbit: Some(false),
-            ..Default::default()
-        };
-        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
-        assert!(prompt.contains("CI を自動監視"));
+    fn state_read_nonexistent_returns_none() {
+        let result = read_state_from(Path::new("/tmp/nonexistent-state-file-xyz.json"));
+        assert!(result.is_none());
+    }
+
+    // --- update_state_from_check_result ---
+
+    #[test]
+    fn update_state_success() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "status": "complete",
+            "action": "stop_monitoring_success",
+            "ci": { "overall": "success", "runs": [{"name": "test", "conclusion": "success"}] },
+            "coderabbit": { "review_state": "success", "new_comments": 0, "actionable_comments": null, "unresolved_threads": null },
+            "summary": "CI成功、指摘なし"
+        });
+        update_state_from_check_result(&mut state, &result);
+        assert_eq!(state.action, "stop_monitoring_success");
+        assert_eq!(state.summary, "CI成功、指摘なし");
+        assert!(state.ci.is_some());
+        assert_eq!(state.ci.as_ref().unwrap().overall, "success");
     }
 
     #[test]
-    fn prompt_check_scope_coderabbit_only() {
-        let pr_info = PrInfo {
-            pr_number: Some(1),
-            repo: Some("o/r".to_string()),
-        };
-        let config = PostPrMonitorConfig {
-            check_ci: Some(false),
-            check_coderabbit: Some(true),
-            ..Default::default()
-        };
-        let prompt = build_monitor_prompt(&pr_info, "2026-04-01T12:00:00Z", &config);
-        assert!(prompt.contains("CodeRabbit を自動監視"));
+    fn update_state_action_required() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "action": "action_required",
+            "coderabbit": { "review_state": "changes_requested", "new_comments": 3, "actionable_comments": 2, "unresolved_threads": 1 },
+            "summary": "CodeRabbit: 3件の新規コメント"
+        });
+        update_state_from_check_result(&mut state, &result);
+        assert_eq!(state.action, "action_required");
+        let cr = state.coderabbit.as_ref().unwrap();
+        assert_eq!(cr.new_comments, 3);
+        assert_eq!(cr.actionable_comments, Some(2));
+    }
+
+    #[test]
+    fn update_state_ci_failure() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "action": "stop_monitoring_failure",
+            "ci": { "overall": "failure", "runs": [{"name": "build", "conclusion": "failure"}] },
+            "summary": "CI失敗: build"
+        });
+        update_state_from_check_result(&mut state, &result);
+        assert_eq!(state.action, "stop_monitoring_failure");
+        assert_eq!(state.ci.as_ref().unwrap().overall, "failure");
+    }
+
+    #[test]
+    fn update_state_partial_json() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({ "action": "continue_monitoring" });
+        update_state_from_check_result(&mut state, &result);
+        assert_eq!(state.action, "continue_monitoring");
+        assert!(state.ci.is_none());
     }
 
     // --- epoch_secs_to_iso8601 ---
@@ -927,10 +1141,8 @@ enabled = false
         assert_eq!(result[1], "test");
         assert_eq!(result[2], "--body-file");
         assert!(temp.is_some());
-        // ファイルの中身を確認
         let content = std::fs::read_to_string(&temp.as_ref().unwrap().0).unwrap();
         assert!(content.contains("line1\nline2"));
-        // TempFile は Drop で自動削除される
     }
 
     #[test]
@@ -939,7 +1151,6 @@ enabled = false
         let (result, temp) = convert_body_to_file(&args);
         assert_eq!(result[0], "--body-file");
         assert!(temp.is_some());
-        // TempFile は Drop で自動削除される
     }
 
     #[test]
@@ -948,5 +1159,28 @@ enabled = false
         let (result, temp) = convert_body_to_file(&args);
         assert_eq!(result, args);
         assert!(temp.is_none());
+    }
+
+    // --- mark-notified ---
+
+    #[test]
+    fn mark_notified_updates_flag() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test-mark-notified-{}.json",
+            std::process::id()
+        ));
+        let state = PrMonitorState::new(Some(1), None, "t".into());
+        write_state_to(&tmp, &state).unwrap();
+
+        // Simulate mark-notified
+        let mut loaded = read_state_from(&tmp).unwrap();
+        assert!(!loaded.notified);
+        loaded.notified = true;
+        write_state_to(&tmp, &loaded).unwrap();
+
+        let final_state = read_state_from(&tmp).unwrap();
+        assert!(final_state.notified);
+
+        let _ = std::fs::remove_file(&tmp);
     }
 }

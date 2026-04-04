@@ -8,8 +8,9 @@
 # SessionStart hook がセッション ID を以下に書き出す:
 #   1. $CLAUDE_ENV_FILE → Bash ツールの環境変数 (CLAUDE_CODE_SESSION_ID)
 #   2. .claude/.session-id → 子プロセス exe から読み取り可能
-# hooks-post-pr-monitor は .session-id から ID を読み、
-# claude -p --resume <id> でメインセッションに CronCreate を注入する。
+# 同一 ID ならスキップ、異なる ID なら上書きする方式。
+# ※ hooks-post-pr-monitor は daemon + state file 方式に移行済みのため
+#   .session-id の直接参照は不要になったが、将来の拡張用に維持。
 
 # [session_start]
 # 現在設定項目なし（将来の拡張用）
@@ -113,12 +114,14 @@ name = "commit_refactor"
 type = "ai"
 prompt = "optimize_commit_structure"
 
-# ─── PostToolUse: PR モニター ───
+# ─── Post-PR Monitor: daemon + state file ───
 #
-# gh pr create / git push / jj git push / pnpm push 検出後に
-# CI + CodeRabbit の自動モニタリングを CronCreate で開始する。
-# check-ci-coderabbit.exe によるポーリングで監視し、
-# 結果の action フィールドに従って Claude が行動する。
+# pnpm pr-create / pnpm push 実行時に daemon がバックグラウンドで起動し、
+# check-ci-coderabbit.exe を定期ポーリングして結果を
+# .claude/pr-monitor-state.json に書き出す。
+# Claude は CronCreate で state file を cat し、action に従って行動する。
+# CronCreate は UX 最適化レイヤーであり、コア機能ではない。
+# フォールバック: cat .claude/pr-monitor-state.json で手動確認可能。
 
 [post_pr_monitor]
 enabled = true
