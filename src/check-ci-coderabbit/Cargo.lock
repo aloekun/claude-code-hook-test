@@ -15,7 +15,16 @@ dependencies = [
 name = "check-ci-coderabbit"
 version = "0.1.0"
 dependencies = [
+ "hooks-report-formatter",
  "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hooks-report-formatter"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
