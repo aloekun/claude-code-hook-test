@@ -20,6 +20,7 @@
 //!   0 - 正常終了
 //!   1 - gh pr create 失敗 (PR 作成モードのみ)
 
+use hooks_report_formatter::Finding;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -70,6 +71,8 @@ struct PrMonitorState {
     coderabbit: Option<CodeRabbitState>,
     action: String,
     summary: String,
+    #[serde(default)]
+    findings: Vec<Finding>,
     notified: bool,
     daemon_pid: Option<u32>,
     daemon_status: String,
@@ -106,6 +109,7 @@ impl PrMonitorState {
             coderabbit: None,
             action: "continue_monitoring".to_string(),
             summary: "監視開始...".to_string(),
+            findings: Vec::new(),
             notified: false,
             daemon_pid: None,
             daemon_status: "running".to_string(),
@@ -395,6 +399,12 @@ fn update_state_from_check_result(state: &mut PrMonitorState, result: &serde_jso
     if let Some(cr_val) = result.get("coderabbit") {
         state.coderabbit = serde_json::from_value(cr_val.clone()).ok();
     }
+    // check-ci-coderabbit が findings を返す場合、state に取り込む
+    if let Some(findings_val) = result.get("findings") {
+        if let Ok(findings) = serde_json::from_value::<Vec<Finding>>(findings_val.clone()) {
+            state.findings = findings;
+        }
+    }
 }
 
 // ─── stdout CronCreate 指示 ───
@@ -421,23 +431,17 @@ fn print_cron_instruction(state: &PrMonitorState, config: &PostPrMonitorConfig) 
         r#"
 {pr_label} の {check_scope} 監視 daemon を起動しました (PID: {pid})。
 
-以下の CronCreate ジョブを作成してください:
-- command: cat .claude/pr-monitor-state.json
-- interval: {interval}秒
-- 終了条件: daemon_status が "completed", "timed_out", "error" のいずれかなら CronDelete
+【必須】daemon 起動後は確認なしで即座に CronCreate を実行すること。
+CronCreate {{
+  cron: "*/{interval_min} * * * *",
+  prompt: "cat .claude/pr-monitor-state.json を実行し、action フィールドに従って行動:\n- continue_monitoring → 何もせず待つ\n- stop_monitoring_success → CronDelete。成功を報告\n- stop_monitoring_failure → CronDelete。summary を報告\n- action_required → CronDelete。/post-pr-create-review-check で詳細確認\ndaemon_status が completed/timed_out/error なら CronDelete。処理後は pnpm mark-notified を実行。"
+}}
 
-state file の action フィールドに従って行動:
-- continue_monitoring → 次回チェックを待つ
-- stop_monitoring_success → CronDelete。「CI・CodeRabbit 共に成功、新規指摘なし」と報告
-- stop_monitoring_failure → CronDelete。summary をユーザーに報告
-- action_required → CronDelete。/post-pr-create-review-check で詳細確認し、ユーザーに判断を仰ぐ（勝手に修正しない）
-
-処理後は pnpm mark-notified を実行して二重通知を防止してください。
 手動確認: cat .claude/pr-monitor-state.json"#,
         pr_label = pr_label,
         check_scope = check_scope,
         pid = state.daemon_pid.map(|p| p.to_string()).unwrap_or_else(|| "?".to_string()),
-        interval = interval,
+        interval_min = (interval / 60).max(1),
     );
 }
 
@@ -967,6 +971,14 @@ enabled = false
             }),
             action: "action_required".into(),
             summary: "CI成功。CodeRabbit: 指摘2件".into(),
+            findings: vec![Finding {
+                severity: "Critical".into(),
+                file: "main.rs".into(),
+                line: "641".into(),
+                issue: "race condition".into(),
+                suggestion: "write first".into(),
+                source: "CodeRabbit".into(),
+            }],
             notified: false,
             daemon_pid: Some(12345),
             daemon_status: "running".into(),

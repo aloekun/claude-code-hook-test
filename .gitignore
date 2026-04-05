@@ -32,6 +32,7 @@ src/hooks-push-pipeline/target/
 src/hooks-post-pr-monitor/target/
 src/check-ci-coderabbit/target/
 src/hooks-session-start/target/
+src/hooks-report-formatter/target/
 
 # Runtime generated files
 .claude/.session-id
