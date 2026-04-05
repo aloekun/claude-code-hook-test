@@ -55,11 +55,13 @@ Claude が "pnpm pr-create -- --title ..." を実行
 hooks-post-pr-monitor.exe (スタンドアロン)
   ├─ gh pr create を実行（引数を転送）
   ├─ PR番号・リポジトリ情報を gh CLI で取得
-  ├─ PUSH_TIME を記録 (UTC ISO 8601)
-  └─ claude -p で CronCreate 指示を送信
+  ├─ .claude/pr-monitor-state.json に初期 state 書き出し
+  ├─ daemon をスポーン (自身を --daemon で起動)
+  └─ stdout に CronCreate セットアップ指示を出力
        │
        ▼
-Claude が CronCreate で定期ジョブ作成 (120秒間隔)
+Claude が stdout を読み、CronCreate で定期ジョブ作成 (任意)
+  └─ command: cat .claude/pr-monitor-state.json
 
 【既存 PR への push 時】
 pnpm push → hooks-push-pipeline.exe (テスト + レビュー + push)
@@ -68,26 +70,26 @@ pnpm push → hooks-push-pipeline.exe (テスト + レビュー + push)
 hooks-post-pr-monitor.exe --monitor-only
   ├─ gh pr view で PR 存在確認
   ├─ PR なし → exit 0 (何もしない)
-  └─ PR あり → claude -p で CronCreate 指示を送信
+  └─ PR あり → state file 初期化 + daemon スポーン + stdout 指示
 
-【定期実行】
-check-ci-coderabbit.exe --push-time <T> --repo <R> --pr <N>
-  ├─ CI 状態チェック (gh run list)
-  ├─ CodeRabbit 状態チェック (gh api .../statuses)
-  ├─ 新規コメント取得 (gh api .../comments, created_at > push_time)
-  ├─ レビュー本文クロスチェック (Actionable comments posted: N)
-  ├─ 未解決スレッド (gh api graphql)
-  └─ 判定 JSON を stdout 出力
-       │
-       ▼
-Claude が action フィールドに従い行動
+【daemon (バックグラウンド)】
+hooks-post-pr-monitor.exe --daemon --state-file <path>
+  ├─ check-ci-coderabbit.exe を poll_interval_secs 間隔で実行
+  ├─ 結果を pr-monitor-state.json に毎回書き出し
+  ├─ 意味的終了: action != "continue_monitoring"
+  └─ 安全タイムアウト: max_duration_secs で停止
+
+【CronCreate (任意, UX 最適化レイヤー)】
+cat .claude/pr-monitor-state.json
+  ├─ Claude が action フィールドに従い行動
+  └─ フォールバック: 手動 cat で確認可能
 ```
 
 ### コンポーネント
 
 | コンポーネント | 種別 | 役割 |
 |---|---|---|
-| `hooks-post-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + CronCreate 監視開始 |
+| `hooks-post-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + daemon 起動 + state file 管理 |
 | `hooks-pre-tool-validate.exe` | PreToolUse hook (Rust) | `gh-pr-create-guard` で直接の `gh pr create` をブロック |
 | `check-ci-coderabbit.exe` | スタンドアロン CLI (Rust) | CI・CodeRabbit 状態チェック → JSON 出力 |
 | `post-pr-create-review-check` SKILL.md | Claude Skill | 監視結果の解釈・報告手順 |
@@ -143,6 +145,14 @@ check_coderabbit = true
   Claude に CronCreate を「お願い」する設計だったが、Claude が指示に従わないケースがあり
   信頼性が低かった。push-pipeline と同じ「ガード + 専用コマンド + claude -p」パターンに
   統一することで、CronCreate の実行を確実にした。
+
+- **2026-04-05**: `claude -p --resume` → daemon + state file アーキテクチャに変更。
+  VSCode 拡張では `~/.claude/sessions/` に CLI セッションのみ登録されるため、
+  `claude -p --resume <session_id>` で VSCode セッションにアクセスできないことが判明。
+  外部プロセスから Claude セッションに状態を注入する設計自体がアンチパターンであると認識。
+  新設計: daemon が外部で監視を完結させ、結果を `.claude/pr-monitor-state.json` に書き出す。
+  Claude は state file を読むだけ。CronCreate は UX 最適化レイヤーとして維持（state file の
+  cat のみ実行）し、コア機能ではない。フォールバック: 手動 `cat` で確認可能。
 
 ## 参考
 

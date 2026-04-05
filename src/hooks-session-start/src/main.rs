@@ -6,12 +6,12 @@
 //!   1. $CLAUDE_ENV_FILE に export 文を追記 → Bash ツールから参照可能
 //!   2. .claude/.session-id ファイルに書き出し → 子プロセス (exe) から参照可能
 //!
-//! これにより hooks-post-pr-monitor.exe が `claude -p --resume <session_id>`
-//! でメインセッションに確実に接続できる。
+//! .session-id ファイルは「同一 ID スキップ」方式:
+//!   - 既に同じ session_id が書かれていれば何もしない (冪等)
+//!   - 異なる ID (新セッション or サブセッション) の場合は上書きする
 //!
-//! 重要: .session-id ファイルは「先勝ち」方式。既にファイルが存在する場合は
-//! 上書きしない。これにより `claude -p` で起動されるサブセッション (review:ai 等)
-//! がメインセッションの ID を上書きするのを防ぐ。
+//! 現在 hooks-post-pr-monitor は daemon + state file 方式に移行済みのため
+//! .session-id を直接参照しないが、将来の拡張用にこの仕組みは維持する。
 
 use serde::Deserialize;
 use std::io::Read;
@@ -62,11 +62,11 @@ fn main() {
     }
 
     // 2. .claude/.session-id ファイルに書き出し (子プロセス exe 用)
-    // 先勝ち方式: 既にファイルが存在し中身が空でなければ上書きしない
-    // これにより claude -p のサブセッションがメインセッション ID を上書きするのを防ぐ
+    // 同一 ID スキップ方式: 既に同じ session_id が書き込み済みなら何もしない。
+    // 異なる ID（新セッション or サブセッション）は上書きする。
     let sid_path = session_id_file_path();
     let should_write = match std::fs::read_to_string(&sid_path) {
-        Ok(existing) => existing.trim().is_empty(),
+        Ok(existing) => existing.trim() != session_id,
         Err(_) => true, // ファイルが存在しない
     };
     if should_write {
@@ -180,5 +180,87 @@ mod tests {
     #[test]
     fn shell_quote_with_special_chars() {
         assert_eq!(shell_quote(r#"a"$b`c"#), r#"'a"$b`c'"#);
+    }
+
+    // --- .session-id 書き込みロジック (同一IDスキップ方式) ---
+
+    #[test]
+    fn session_id_file_new_file_is_written() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test-sid-new-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+
+        // ファイルが存在しない → 書き込むべき
+        let should_write = match std::fs::read_to_string(&tmp) {
+            Ok(existing) => existing.trim() != "session-A",
+            Err(_) => true,
+        };
+        assert!(should_write);
+        let _ = std::fs::write(&tmp, "session-A");
+
+        let content = std::fs::read_to_string(&tmp).unwrap();
+        assert_eq!(content, "session-A");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn session_id_file_same_id_is_skipped() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test-sid-same-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::write(&tmp, "session-A");
+
+        // 同じ ID → スキップ
+        let existing = std::fs::read_to_string(&tmp).unwrap();
+        assert_eq!(existing.trim(), "session-A");
+        let should_write = existing.trim() != "session-A";
+        assert!(!should_write);
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn session_id_file_different_id_is_overwritten() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test-sid-diff-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::write(&tmp, "session-A");
+
+        // 異なる ID → 上書き
+        let existing = std::fs::read_to_string(&tmp).unwrap();
+        let should_write = existing.trim() != "session-B";
+        assert!(should_write);
+        let _ = std::fs::write(&tmp, "session-B");
+
+        let content = std::fs::read_to_string(&tmp).unwrap();
+        assert_eq!(content, "session-B");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn session_id_file_empty_is_written() {
+        let tmp = std::env::temp_dir().join(format!(
+            "test-sid-empty-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::write(&tmp, "");
+
+        // 空ファイル → 書き込むべき ("" != "session-A")
+        let existing = std::fs::read_to_string(&tmp).unwrap();
+        let should_write = existing.trim() != "session-A";
+        assert!(should_write);
+
+        // 実際に書き込んで結果を検証
+        let _ = std::fs::write(&tmp, "session-A");
+        let content = std::fs::read_to_string(&tmp).unwrap();
+        assert_eq!(content, "session-A");
+
+        let _ = std::fs::remove_file(&tmp);
     }
 }
