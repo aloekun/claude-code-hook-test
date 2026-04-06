@@ -37,7 +37,7 @@ ADR-003 では `settings.local.json` の `command` フィールドで `%CLAUDE_P
 
 ## Decision
 
-**`settings.local.json.template` をテンプレートとして git 管理し、`pnpm build:hooks` 実行時にプロジェクトの絶対パスを埋め込んで `settings.local.json` を自動生成する。**
+**`settings.local.json.template` をテンプレートとして git 管理し、`pnpm build:all` 実行時にプロジェクトの絶対パスを埋め込んで `settings.local.json` を自動生成する。**
 
 ### テンプレート
 
@@ -55,7 +55,7 @@ ADR-003 では `settings.local.json` の `command` フィールドで `%CLAUDE_P
 node -e "...process.cwd() で {{PROJECT_DIR}} を置換..."
 ```
 
-`build:hooks` の末尾で自動実行されるため、exe ビルドとパス設定が 1 コマンドで完了する。
+`build:all` の末尾で自動実行されるため、exe ビルドとパス設定が 1 コマンドで完了する。
 
 ### バージョン管理
 
@@ -68,14 +68,14 @@ node -e "...process.cwd() で {{PROJECT_DIR}} を置換..."
 
 ### Positive
 
-- `pnpm build:hooks` を 1 回実行するだけで exe ビルド + パス設定が完了する
+- `pnpm build:all` を 1 回実行するだけで exe ビルド + パス設定が完了する
 - `%CLAUDE_PROJECT_DIR%` の不安定性に依存しない
 - テンプレートを git 管理するため、hooks 設定の変更履歴が追跡できる
-- プロジェクトをコピーしても `pnpm build:hooks` で正しいパスに自動更新される
+- プロジェクトをコピーしても `pnpm build:all` で正しいパスに自動更新される
 
 ### Negative
 
-- クローン直後に `pnpm build:hooks` を実行しないと hooks が動作しない（ADR-003 と同様）
+- クローン直後に `pnpm build:all` を実行しないと hooks が動作しない（ADR-003 と同様）
 - テンプレートと生成物の二重管理になる（ただし生成は自動なので実質的な負担は小さい）
 
 ### ADR-003 への影響

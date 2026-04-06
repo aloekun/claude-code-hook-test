@@ -9,7 +9,7 @@
 #   1. $CLAUDE_ENV_FILE → Bash ツールの環境変数 (CLAUDE_CODE_SESSION_ID)
 #   2. .claude/.session-id → 子プロセス exe から読み取り可能
 # 同一 ID ならスキップ、異なる ID なら上書きする方式。
-# ※ hooks-post-pr-monitor は daemon + state file 方式に移行済みのため
+# ※ cli-pr-monitor は daemon + state file 方式に移行済みのため
 #   .session-id の直接参照は不要になったが、将来の拡張用に維持。
 
 # [session_start]

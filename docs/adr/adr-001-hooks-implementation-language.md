@@ -42,7 +42,7 @@ Windows 環境では以下の問題が発生した。
 - Windows 環境で hooks が確実に動作する
 - PreToolUse / PostToolUse で実装パターンが統一される
 - ビルド済み exe を `.gitignore` で除外し、ソースコードだけをバージョン管理できる
-- `pnpm build:hooks` 一発で全 hooks を再ビルドできる
+- `pnpm build:all` 一発で全 hooks を再ビルドできる
 
 ### Negative
 

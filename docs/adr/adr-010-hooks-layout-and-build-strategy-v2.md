@@ -40,10 +40,10 @@ project-root/
 │   ├── hooks-stop-quality/              # Stop フックのソース
 │   │   ├── Cargo.toml
 │   │   └── src/main.rs
-│   ├── hooks-push-pipeline/             # Push Pipeline のソース
+│   ├── cli-push-pipeline/              # Push Pipeline CLI のソース
 │   │   ├── Cargo.toml
 │   │   └── src/main.rs
-│   ├── hooks-post-pr-monitor/           # Post-PR Monitor のソース
+│   ├── cli-pr-monitor/                 # PR Monitor CLI のソース
 │   │   ├── Cargo.toml
 │   │   └── src/main.rs
 │   ├── hooks-session-start/             # SessionStart フックのソース
@@ -60,8 +60,8 @@ project-root/
 │   ├── hooks-pre-tool-validate.exe      # ビルド済み exe（.gitignore）
 │   ├── hooks-post-tool-linter.exe
 │   ├── hooks-stop-quality.exe
-│   ├── hooks-push-pipeline.exe
-│   ├── hooks-post-pr-monitor.exe
+│   ├── cli-push-pipeline.exe           # CLI ツール exe
+│   ├── cli-pr-monitor.exe
 │   ├── hooks-session-start.exe
 │   └── check-ci-coderabbit.exe
 └── package.json                         # ビルドスクリプト
@@ -76,15 +76,15 @@ project-root/
 ### ビルド戦略
 
 - `package.json` に個別ビルドコマンドと一括ビルドコマンドを定義:
-  - `pnpm build:hooks-<機能名>` — 各フック単体ビルド
-  - `pnpm build:hooks` — 全フック一括ビルド
+  - `pnpm build:<フォルダ名>` — 各フック/CLI 単体ビルド
+  - `pnpm build:all` — 全フック一括ビルド
 - 各コマンドは `cd src/<dir> && cargo build --release && cp target/release/<name>.exe ../../.claude/<name>.exe` の形式
 - `pnpm deploy:hooks` で派生プロジェクトへの exe 配布（変更なし）
 
 ### バージョン管理
 
 - `.gitignore` で除外するもの:
-  - ビルド済み exe（`pnpm build:hooks` で再生成可能）
+  - ビルド済み exe（`pnpm build:all` で再生成可能）
   - `src/*/target/` ディレクトリ（Rust ビルド成果物）
 - バージョン管理するもの:
   - `src/*/Cargo.toml` と `src/*/src/` 以下のソースコード
@@ -103,16 +103,16 @@ project-root/
 ### Negative
 
 - ADR-003 と同様: フック追加時に `package.json` と `.gitignore` の両方を更新する必要がある
-- ADR-003 と同様: クローン直後は `pnpm build:hooks` を実行しないと hooks が動作しない
+- ADR-003 と同様: クローン直後は `pnpm build:all` を実行しないと hooks が動作しない
 - ビルド出力先が2階層上（`../../.claude/`）になるため、ビルドスクリプトがやや複雑
 
 ### 新しいフックを追加する手順
 
 1. `src/<機能名>/` に Cargo プロジェクトを作成
-2. `package.json` に `build:hooks-<機能名>` スクリプトを追加し、`build:hooks` にチェーン
+2. `package.json` に `build:<フォルダ名>` スクリプトを追加し、`build:all` にチェーン
 3. `.gitignore` に `.claude/<機能名>.exe` と `src/<機能名>/target/` を追加
 4. `.claude/settings.local.json.template` の該当フックイベントに exe のパスを登録
-5. `pnpm build:hooks` でビルド確認
+5. `pnpm build:all` でビルド確認
 
 ## References
 

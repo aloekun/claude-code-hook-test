@@ -23,8 +23,8 @@ const EXE_FILES = [
   "hooks-pre-tool-validate.exe",
   "hooks-post-tool-linter.exe",
   "hooks-stop-quality.exe",
-  "hooks-push-pipeline.exe",
-  "hooks-post-pr-monitor.exe",
+  "cli-push-pipeline.exe",
+  "cli-pr-monitor.exe",
   "check-ci-coderabbit.exe",
 ];
 
@@ -82,7 +82,7 @@ function deployTo(targetDir: string): boolean {
   for (const exe of EXE_FILES) {
     const src = join(CLAUDE_DIR, exe);
     if (!existsSync(src)) {
-      logger.warn(`  ${exe} not found (run pnpm build:hooks first)`);
+      logger.warn(`  ${exe} not found (run pnpm build:all first)`);
       continue;
     }
     copyFile(src, join(targetClaude, exe));

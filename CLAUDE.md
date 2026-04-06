@@ -13,10 +13,11 @@
 - [ADR-008: Push Pipeline ハーネスの実装](docs/adr/adr-008-push-pipeline-harness.md)
 - [ADR-009: Post-PR Monitor — push/PR作成後の CI・CodeRabbit 自動監視](docs/adr/adr-009-post-pr-monitor.md)
 - [ADR-011: jj の新規ブックマーク push 戦略](docs/adr/adr-011-jj-push-new-bookmark-strategy.md)
+- [ADR-012: src/ ディレクトリの命名規約](docs/adr/adr-012-src-naming-convention.md)
 
 ## Build
 
 ```sh
-pnpm build:hooks   # 全 hooks exe を一括ビルド
+pnpm build:all     # 全 hooks/CLI exe を一括ビルド
 pnpm deploy:hooks  # 派生プロジェクトに exe を配布
 ```

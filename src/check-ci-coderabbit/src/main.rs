@@ -11,7 +11,7 @@
 //!   0 - チェック完了 (結果は stdout JSON の action フィールドを参照)
 //!   1 - 引数エラーまたは致命的エラー
 
-use hooks_report_formatter::Finding;
+use lib_report_formatter::Finding;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::time::Duration;

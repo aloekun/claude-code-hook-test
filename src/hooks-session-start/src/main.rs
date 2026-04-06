@@ -10,7 +10,7 @@
 //!   - 既に同じ session_id が書かれていれば何もしない (冪等)
 //!   - 異なる ID (新セッション or サブセッション) の場合は上書きする
 //!
-//! 現在 hooks-post-pr-monitor は daemon + state file 方式に移行済みのため
+//! 現在 cli-pr-monitor は daemon + state file 方式に移行済みのため
 //! .session-id を直接参照しないが、将来の拡張用にこの仕組みは維持する。
 
 use serde::Deserialize;

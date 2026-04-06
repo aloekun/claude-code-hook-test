@@ -15,16 +15,8 @@ dependencies = [
 name = "check-ci-coderabbit"
 version = "0.1.0"
 dependencies = [
- "hooks-report-formatter",
+ "lib-report-formatter",
  "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "hooks-report-formatter"
-version = "0.1.0"
-dependencies = [
  "serde",
  "serde_json",
 ]
@@ -34,6 +26,14 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "lib-report-formatter"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "memchr"

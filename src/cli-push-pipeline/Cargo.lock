@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "cli-push-pipeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13,24 +22,6 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
-
-[[package]]
-name = "hooks-post-pr-monitor"
-version = "0.1.0"
-dependencies = [
- "hooks-report-formatter",
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "hooks-report-formatter"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "indexmap"
