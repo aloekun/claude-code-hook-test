@@ -2,17 +2,11 @@
 .claude/hook-debug.log
 .claude/post-pr-monitor-debug.log
 
-# Generated from .claude/settings.local.json.template by build:hooks
+# Generated from .claude/settings.local.json.template by build:all
 .claude/settings.local.json
 
-# Built executables (can be rebuilt with pnpm build:hooks)
-.claude/hooks-pre-tool-validate.exe
-.claude/hooks-post-tool-linter.exe
-.claude/hooks-stop-quality.exe
-.claude/hooks-push-pipeline.exe
-.claude/hooks-post-pr-monitor.exe
-.claude/check-ci-coderabbit.exe
-.claude/hooks-session-start.exe
+# Built executables (can be rebuilt with pnpm build:all)
+.claude/*.exe
 
 # Deploy targets (contains local paths; create from deploy-targets.template.json)
 scripts/deploy-targets.json
@@ -25,14 +19,7 @@ __pycache__/
 *.pyc
 
 # Rust build artifacts
-src/hooks-pre-tool-validate/target/
-src/hooks-post-tool-linter/target/
-src/hooks-stop-quality/target/
-src/hooks-push-pipeline/target/
-src/hooks-post-pr-monitor/target/
-src/check-ci-coderabbit/target/
-src/hooks-session-start/target/
-src/hooks-report-formatter/target/
+src/*/target/
 
 # Runtime generated files
 .claude/.session-id

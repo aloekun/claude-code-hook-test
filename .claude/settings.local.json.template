@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm build:hooks)",
+      "Bash(pnpm build:all)",
       "Bash(pnpm check-ci *)",
       "Bash(pnpm pr-create *)",
       "Bash(cargo test:*)"

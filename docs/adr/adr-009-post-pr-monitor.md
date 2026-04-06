@@ -52,7 +52,7 @@ PreToolUse guard (gh-pr-create-guard) がブロック
 Claude が "pnpm pr-create -- --title ..." を実行
        │
        ▼
-hooks-post-pr-monitor.exe (スタンドアロン)
+cli-pr-monitor.exe (スタンドアロン)
   ├─ gh pr create を実行（引数を転送）
   ├─ PR番号・リポジトリ情報を gh CLI で取得
   ├─ .claude/pr-monitor-state.json に初期 state 書き出し
@@ -64,16 +64,16 @@ Claude が stdout を読み、CronCreate で定期ジョブ作成 (任意)
   └─ command: cat .claude/pr-monitor-state.json
 
 【既存 PR への push 時】
-pnpm push → hooks-push-pipeline.exe (テスト + レビュー + push)
+pnpm push → cli-push-pipeline.exe (テスト + レビュー + push)
        │
        ▼ (push 成功後に && でチェイン)
-hooks-post-pr-monitor.exe --monitor-only
+cli-pr-monitor.exe --monitor-only
   ├─ gh pr view で PR 存在確認
   ├─ PR なし → exit 0 (何もしない)
   └─ PR あり → state file 初期化 + daemon スポーン + stdout 指示
 
 【daemon (バックグラウンド)】
-hooks-post-pr-monitor.exe --daemon --state-file <path>
+cli-pr-monitor.exe --daemon --state-file <path>
   ├─ check-ci-coderabbit.exe を poll_interval_secs 間隔で実行
   ├─ 結果を pr-monitor-state.json に毎回書き出し
   ├─ 意味的終了: action != "continue_monitoring"
@@ -89,7 +89,7 @@ cat .claude/pr-monitor-state.json
 
 | コンポーネント | 種別 | 役割 |
 |---|---|---|
-| `hooks-post-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + daemon 起動 + state file 管理 |
+| `cli-pr-monitor.exe` | スタンドアロン CLI (Rust) | PR 作成 + daemon 起動 + state file 管理 |
 | `hooks-pre-tool-validate.exe` | PreToolUse hook (Rust) | `gh-pr-create-guard` で直接の `gh pr create` をブロック |
 | `check-ci-coderabbit.exe` | スタンドアロン CLI (Rust) | CI・CodeRabbit 状態チェック → JSON 出力 |
 | `post-pr-create-review-check` SKILL.md | Claude Skill | 監視結果の解釈・報告手順 |
@@ -130,7 +130,7 @@ check_coderabbit = true
 
 - push/PR 作成後の CI・CodeRabbit 確認を自動化し、開発フローの摩擦を削減
 - 判定ロジックが Rust の純粋関数に分離されており、unit test で網羅可能
-- 既存のビルド・配布フロー (`pnpm build:hooks`, `pnpm deploy:hooks`) にそのまま乗る
+- 既存のビルド・配布フロー (`pnpm build:all`, `pnpm deploy:hooks`) にそのまま乗る
 - `hooks-config.toml` でプロジェクトごとにポーリング間隔・監視対象をカスタマイズ可能
 
 ### Negative

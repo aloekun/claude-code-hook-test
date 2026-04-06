@@ -20,7 +20,7 @@
 //!   0 - 正常終了
 //!   1 - gh pr create 失敗 (PR 作成モードのみ)
 
-use hooks_report_formatter::Finding;
+use lib_report_formatter::Finding;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -165,34 +165,17 @@ fn truncate_safe(s: &str, max_chars: usize) -> &str {
     }
 }
 
-// ─── パイプ排出 (push-pipeline から移植) ───
-
-const MAX_LINES: usize = 40;
+// ─── パイプ排出 ───
+// NOTE: push-pipeline 版は MAX_LINES=40 でログ表示用に切り詰めるが、
+// こちらは check-ci-coderabbit の JSON 出力全体をパースするため制限なし。
 
 fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
-        use std::io::BufRead;
+        use std::io::Read;
+        let mut output = String::new();
         let mut reader = std::io::BufReader::new(pipe);
-        let mut collected = Vec::with_capacity(MAX_LINES);
-        let mut buf = Vec::new();
-
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if collected.len() < MAX_LINES {
-                        collected.push(
-                            String::from_utf8_lossy(&buf)
-                                .trim_end_matches(&['\r', '\n'][..])
-                                .to_string(),
-                        );
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        collected.join("\n")
+        let _ = reader.read_to_string(&mut output);
+        output.trim_end().to_string()
     })
 }
 

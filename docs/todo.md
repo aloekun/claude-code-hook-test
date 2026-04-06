@@ -1,6 +1,6 @@
 # TODO
 
-## hooks-post-pr-monitor Known Issues (PR #13)
+## cli-pr-monitor Known Issues (PR #13)
 
 - [x] **改行を含む `--body` が切り詰められる**: `--body` に改行 (`\n` リテラルまたは実改行) を検出した場合、一時ファイルに書き出して `--body-file` に自動変換する方式に変更
 - [x] **PR 番号パースが失敗する (pr=None)**: `gh pr create` の stdout 出力 (PR URL) から `parse_pr_number_from_url()` で番号を直接抽出するよう修正。フォールバックとして `get_pr_info()` の多段検索 (gh pr view → jj bookmark + gh pr list --head) も追加
@@ -9,4 +9,4 @@
 
 ## CronCreate セッション問題 (PR #16 調査で発見)
 
-- [ ] **CronCreate がサブセッションに閉じ込められる**: `pnpm push` 実行時、`review:ai` (`claude -p "/pre-push-review"`) のサブセッションが「最新セッション」となり、後続の `hooks-post-pr-monitor --monitor-only` の `--continue` がサブセッションに接続してしまう。SessionStart hook でメインセッション ID を `.session-id` ファイルに記録し、`--resume <session_id>` で明示指定する方式に修正
+- [ ] **CronCreate がサブセッションに閉じ込められる**: `pnpm push` 実行時、`review:ai` (`claude -p "/pre-push-review"`) のサブセッションが「最新セッション」となり、後続の `cli-pr-monitor --monitor-only` の `--continue` がサブセッションに接続してしまう。SessionStart hook でメインセッション ID を `.session-id` ファイルに記録し、`--resume <session_id>` で明示指定する方式に修正

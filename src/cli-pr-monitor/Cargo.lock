@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "cli-pr-monitor"
+version = "0.1.0"
+dependencies = [
+ "lib-report-formatter",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13,15 +23,6 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
-
-[[package]]
-name = "hooks-push-pipeline"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "toml",
-]
 
 [[package]]
 name = "indexmap"
@@ -38,6 +39,14 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "lib-report-formatter"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "memchr"

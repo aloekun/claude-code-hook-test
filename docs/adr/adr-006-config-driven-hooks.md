@@ -31,7 +31,7 @@ hooks (Rust 製 exe 4 本) を複数の派生プロジェクト (auto-review-fix
 
 ### 配布
 
-- `pnpm build:hooks` で本家でビルド
+- `pnpm build:all` で本家でビルド
 - `pnpm deploy:hooks` で `scripts/deploy-targets.json` に登録された派生プロジェクトに exe を一括コピー
 - 派生プロジェクトは `hooks-config.toml` のみを管理
 
