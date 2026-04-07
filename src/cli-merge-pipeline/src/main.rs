@@ -455,6 +455,8 @@ fn run_pipeline() -> i32 {
         let (del_ok, del_out) = run_cmd("delete-branch", &delete_cmd, 30);
         if del_ok {
             log_info(&format!("リモートブランチ '{}' を削除しました", branch_name));
+        } else if del_out.contains("Reference does not exist") {
+            log_info(&format!("リモートブランチ '{}' は既に削除済みです（GitHub による自動削除）", branch_name));
         } else {
             let msg = if del_out.is_empty() {
                 "不明なエラー".to_string()
