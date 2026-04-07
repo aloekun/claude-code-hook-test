@@ -25,6 +25,7 @@ const EXE_FILES = [
   "hooks-stop-quality.exe",
   "cli-push-pipeline.exe",
   "cli-pr-monitor.exe",
+  "cli-merge-pipeline.exe",
   "check-ci-coderabbit.exe",
 ];
 

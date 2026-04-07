@@ -26,7 +26,7 @@
 | プレフィックス | 役割 | 呼び出し元 | 例 |
 |---|---|---|---|
 | `hooks-` | Claude Code hooks | Claude Code が自動呼び出し（stdin JSON） | `hooks-pre-tool-validate`, `hooks-session-start` |
-| `cli-` | スタンドアロン CLI | `pnpm push` 等のスクリプトから明示的に呼び出し | `cli-push-pipeline`, `cli-pr-monitor` |
+| `cli-` | スタンドアロン CLI | `pnpm push` 等のスクリプトから明示的に呼び出し | `cli-push-pipeline`, `cli-pr-monitor`, `cli-merge-pipeline` |
 | `lib-` | 共有ライブラリ | 他クレートから `[dependencies]` で参照 | `lib-report-formatter` |
 | （なし） | 補助 CLI / その他 | 状況による | `check-ci-coderabbit` |
 

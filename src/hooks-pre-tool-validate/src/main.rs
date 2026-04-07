@@ -284,6 +284,33 @@ pnpm pr-create -- --title "タイトル" --body "本文"
     ]
 }
 
+/// プリセット: gh-pr-merge-guard (gh pr merge を禁止し pnpm merge に誘導)
+fn preset_gh_pr_merge_guard() -> Vec<BlockedPattern> {
+    let msg = r#"**gh pr merge がブロックされました**
+
+PR マージは pnpm merge 経由で行ってください。
+pnpm merge は PR のマージに加え、ローカル環境の同期も自動で行います。
+
+**代わりに以下を実行してください:**
+```
+pnpm merge
+```
+
+現在のブックマークから PR を自動検出してマージします。"#;
+    vec![
+        // 直接実行パターン
+        BlockedPattern {
+            pattern: Regex::new(r#"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*gh\s+(?:.*\s+)?pr\s+merge(\s|$)"#).unwrap(),
+            message: msg,
+        },
+        // シェルラッパー経由パターン (bash -c 'gh pr merge ...')
+        BlockedPattern {
+            pattern: Regex::new(r#"(?i)\b(bash|sh)\s+-[a-zA-Z]*c[a-zA-Z]*\s+["'][^"']*\bgh\s+(?:.*\s+)?pr\s+merge"#).unwrap(),
+            message: msg,
+        },
+    ]
+}
+
 /// 設定ファイルに基づいてブロックパターンを構築
 fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
     let preset_names: Vec<String> = config
@@ -312,6 +339,7 @@ fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
             "jj-main-guard" => patterns.extend(preset_jj_main_guard()),
             "jj-push-guard" => patterns.extend(preset_jj_push_guard()),
             "gh-pr-create-guard" => patterns.extend(preset_gh_pr_create_guard()),
+            "gh-pr-merge-guard" => patterns.extend(preset_gh_pr_merge_guard()),
             "electron" => patterns.extend(preset_electron()),
             custom => {
                 // プリセット名以外はカスタム正規表現として扱う
@@ -732,6 +760,53 @@ mod tests {
     #[test]
     fn gh_pr_create_guard_allows_gh_pr_merge() {
         assert!(!is_blocked_with("gh pr merge 42", &["gh-pr-create-guard"]));
+    }
+
+    // --- gh-pr-merge-guard ---
+
+    #[test]
+    fn gh_pr_merge_guard_blocks_gh_pr_merge() {
+        assert!(is_blocked_with("gh pr merge 42", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_blocks_gh_pr_merge_squash() {
+        assert!(is_blocked_with("gh pr merge 42 --squash", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_blocks_gh_pr_merge_in_chain() {
+        assert!(is_blocked_with("cd /tmp && gh pr merge 42", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_blocks_gh_with_repo_pr_merge() {
+        assert!(is_blocked_with("gh -R owner/repo pr merge 42", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_allows_gh_pr_view() {
+        assert!(!is_blocked_with("gh pr view 42", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_allows_gh_pr_list() {
+        assert!(!is_blocked_with("gh pr list", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_allows_gh_pr_create() {
+        assert!(!is_blocked_with("gh pr create --title 'test'", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_blocks_bash_c_gh_pr_merge() {
+        assert!(is_blocked_with("bash -c 'gh pr merge 42'", &["gh-pr-merge-guard"]));
+    }
+
+    #[test]
+    fn gh_pr_merge_guard_blocks_sh_lc_gh_pr_merge() {
+        assert!(is_blocked_with("sh -lc 'gh pr merge 42 --squash'", &["gh-pr-merge-guard"]));
     }
 
     #[test]

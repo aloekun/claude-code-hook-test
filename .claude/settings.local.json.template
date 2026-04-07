@@ -4,7 +4,8 @@
       "Bash(pnpm build:all)",
       "Bash(pnpm check-ci *)",
       "Bash(pnpm pr-create *)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(pnpm merge)"
     ]
   },
   "hooks": {
