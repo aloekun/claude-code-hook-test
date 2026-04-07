@@ -14,6 +14,7 @@
 - [ADR-009: Post-PR Monitor — push/PR作成後の CI・CodeRabbit 自動監視](docs/adr/adr-009-post-pr-monitor.md)
 - [ADR-011: jj の新規ブックマーク push 戦略](docs/adr/adr-011-jj-push-new-bookmark-strategy.md)
 - [ADR-012: src/ ディレクトリの命名規約](docs/adr/adr-012-src-naming-convention.md)
+- [ADR-013: Merge Pipeline — PR マージ + ローカル同期](docs/adr/adr-013-merge-pipeline.md)
 
 ## Build
 

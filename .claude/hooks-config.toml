@@ -24,6 +24,7 @@
 #   "jj-immutable"  — jj --ignore-immutable
 #   "jj-main-guard" — jj new main / jj edit main
 #   "jj-push-guard" — jj git push / jj push 禁止 (pnpm push に誘導)
+#   "gh-pr-merge-guard" — gh pr merge ブロック (pnpm merge に誘導)
 #   "electron"      — Electron GUI 実行ブロック
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
@@ -33,6 +34,7 @@ blocked_patterns = [
   "jj-main-guard",
   "jj-push-guard",
   "gh-pr-create-guard",
+  "gh-pr-merge-guard",
   "electron",
 ]
 
@@ -113,6 +115,35 @@ cmd = "pnpm review:ai"
 name = "commit_refactor"
 type = "ai"
 prompt = "optimize_commit_structure"
+
+# ─── Merge Pipeline: PR マージ + ローカル同期 ───
+#
+# pnpm merge で起動されるパイプライン。
+# PreToolUse の "gh-pr-merge-guard" プリセットにより直接の gh pr merge はブロックされ、
+# このパイプラインを通すことが強制される。
+#
+# 処理フロー:
+#   1. jj bookmark から PR を自動検出
+#   2. pre_steps を順次実行（マージ前チェック）
+#   3. gh pr merge --squash --delete-branch を実行
+#   4. jj git fetch && jj new master でローカル同期
+#   5. post_steps を順次実行（学び提案等）
+
+[merge_pipeline]
+step_timeout = 120
+default_branch = "master"  # "main" など、リポジトリに合わせて変更
+
+# マージ前チェック
+# [[merge_pipeline.pre_steps]]
+# name = "ci_check"
+# type = "command"
+# cmd = "gh pr checks --required"
+
+# マージ後の学び提案機能（将来実装）
+# [[merge_pipeline.post_steps]]
+# name = "post_merge_learnings"
+# type = "ai"
+# prompt = "analyze_pr_learnings"
 
 # ─── Post-PR Monitor: daemon + state file ───
 #
