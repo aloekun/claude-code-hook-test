@@ -260,12 +260,25 @@ fn detect_pr_number() -> Option<u64> {
         return pr_number;
     }
 
-    // Strategy B: jj bookmark → gh pr list --head
+    // Strategy B: jj bookmark → gh pr list --head (OPEN 優先、なければ全状態)
     let bookmarks = get_jj_bookmarks();
     for bookmark in &bookmarks {
         log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
+
+        // まず OPEN な PR を検索
         let pr_number = run_gh_logged(&[
             "pr", "list", "--head", bookmark, "--json", "number", "-q", ".[0].number",
+        ])
+        .and_then(|s| s.parse::<u64>().ok());
+
+        if pr_number.is_some() {
+            return pr_number;
+        }
+
+        // OPEN がなければ全状態で検索（マージ済み PR のローカル同期用）
+        let pr_number = run_gh_logged(&[
+            "pr", "list", "--head", bookmark, "--state", "all",
+            "--json", "number", "-q", ".[0].number",
         ])
         .and_then(|s| s.parse::<u64>().ok());
 
@@ -409,9 +422,12 @@ fn run_pipeline() -> i32 {
         return code;
     }
 
-    // マージ実行
-    let merge_cmd = format!("gh pr merge {} --squash --delete-branch", pr_number);
-    log_info(&format!("マージを実行します: {}", merge_cmd));
+    // マージ実行 (gh api を使用 — jj の detached HEAD でも動作する)
+    let merge_cmd = format!(
+        "gh api repos/{{owner}}/{{repo}}/pulls/{}/merge -X PUT -f merge_method=squash",
+        pr_number
+    );
+    log_info(&format!("マージを実行します (squash): PR #{}", pr_number));
 
     let (success, output) = run_cmd("merge", &merge_cmd, DEFAULT_MERGE_TIMEOUT_SECS);
 
@@ -424,8 +440,29 @@ fn run_pipeline() -> i32 {
     }
 
     log_info("マージ完了");
-    if !output.is_empty() {
-        eprintln!("{}", output);
+
+    // リモートブランチを削除 (gh api)
+    let head_branch = run_gh_logged(&[
+        "pr", "view", &pr_number.to_string(),
+        "--json", "headRefName", "-q", ".headRefName",
+    ]);
+    if let Some(ref branch_name) = head_branch {
+        let encoded_branch = branch_name.replace('/', "%2F");
+        let delete_cmd = format!(
+            "gh api repos/{{owner}}/{{repo}}/git/refs/heads/{} -X DELETE",
+            encoded_branch
+        );
+        let (del_ok, del_out) = run_cmd("delete-branch", &delete_cmd, 30);
+        if del_ok {
+            log_info(&format!("リモートブランチ '{}' を削除しました", branch_name));
+        } else {
+            let msg = if del_out.is_empty() {
+                "不明なエラー".to_string()
+            } else {
+                del_out
+            };
+            log_info(&format!("リモートブランチ '{}' の削除失敗: {}", branch_name, msg));
+        }
     }
 
     // ローカル同期
