@@ -264,19 +264,19 @@ pnpm push
     ]
 }
 
-/// プリセット: gh-pr-create-guard (gh pr create を禁止し pnpm pr-create に誘導)
+/// プリセット: gh-pr-create-guard (gh pr create を禁止し pnpm create-pr に誘導)
 fn preset_gh_pr_create_guard() -> Vec<BlockedPattern> {
     vec![
         BlockedPattern {
             pattern: Regex::new(r#"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*gh\s+(?:.*\s+)?pr\s+create(\s|$)"#).unwrap(),
             message: r#"**gh pr create がブロックされました**
 
-PR 作成は pnpm pr-create 経由で行ってください。
-pnpm pr-create は PR 作成後に CI・CodeRabbit の自動監視も開始します。
+PR 作成は pnpm create-pr 経由で行ってください。
+pnpm create-pr は PR 作成後に CI・CodeRabbit の自動監視も開始します。
 
 **代わりに以下を実行してください:**
 ```
-pnpm pr-create -- --title "タイトル" --body "本文"
+pnpm create-pr -- --title "タイトル" --body "本文"
 ```
 
 -- 以降の引数はそのまま gh pr create に転送されます。"#,
@@ -284,16 +284,16 @@ pnpm pr-create -- --title "タイトル" --body "本文"
     ]
 }
 
-/// プリセット: gh-pr-merge-guard (gh pr merge を禁止し pnpm merge に誘導)
+/// プリセット: gh-pr-merge-guard (gh pr merge を禁止し pnpm merge-pr に誘導)
 fn preset_gh_pr_merge_guard() -> Vec<BlockedPattern> {
     let msg = r#"**gh pr merge がブロックされました**
 
-PR マージは pnpm merge 経由で行ってください。
-pnpm merge は PR のマージに加え、ローカル環境の同期も自動で行います。
+PR マージは pnpm merge-pr 経由で行ってください。
+pnpm merge-pr は PR のマージに加え、ローカル環境の同期も自動で行います。
 
 **代わりに以下を実行してください:**
 ```
-pnpm merge
+pnpm merge-pr
 ```
 
 現在のブックマークから PR を自動検出してマージします。"#;

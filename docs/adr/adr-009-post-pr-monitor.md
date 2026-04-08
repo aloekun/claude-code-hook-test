@@ -46,10 +46,10 @@ Claude が "gh pr create" を実行しようとする
        │
        ▼
 PreToolUse guard (gh-pr-create-guard) がブロック
-  └─ 「pnpm pr-create を使ってください」と誘導
+  └─ 「pnpm create-pr を使ってください」と誘導
        │
        ▼
-Claude が "pnpm pr-create -- --title ..." を実行
+Claude が "pnpm create-pr -- --title ..." を実行
        │
        ▼
 cli-pr-monitor.exe (スタンドアロン)

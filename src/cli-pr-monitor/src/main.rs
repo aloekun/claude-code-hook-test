@@ -5,7 +5,7 @@
 //!
 //! モード:
 //!   デフォルト (PR 作成): gh pr create を実行 → daemon 起動 → CronCreate 指示を stdout 出力
-//!     pnpm pr-create -- --title "..." --body "..."
+//!     pnpm create-pr -- --title "..." --body "..."
 //!
 //!   --monitor-only: PR が存在すれば daemon 起動、なければ exit 0
 //!     pnpm push 完了後にチェインで呼ばれる
