@@ -435,7 +435,7 @@ fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    const DETACHED_PROCESS: u32 = 0x00000008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
     let exe = std::env::current_exe()
         .map_err(|e| format!("exe パス取得失敗: {}", e))?;
@@ -445,7 +445,7 @@ fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+        .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map_err(|e| format!("daemon スポーン失敗: {}", e))?;
 
