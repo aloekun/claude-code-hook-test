@@ -39,10 +39,10 @@ Claude が "gh pr merge" を実行しようとする
        ▼
 PreToolUse (hooks-pre-tool-validate)
   ├─ "gh-pr-merge-guard" プリセットでブロック
-  └─ エラーメッセージ: 「pnpm merge を使用してください」
+  └─ エラーメッセージ: 「pnpm merge-pr を使用してください」
        │
        ▼
-Claude が "pnpm merge" を実行する
+Claude が "pnpm merge-pr" を実行する
        │
        ▼
 cli-merge-pipeline.exe (スタンドアロン)
@@ -59,7 +59,7 @@ cli-merge-pipeline.exe (スタンドアロン)
 | 項目 | 決定 | 理由 |
 |---|---|---|
 | マージ戦略 | squash 固定 | master の履歴を 1 PR = 1 コミットに保つ |
-| PR 検出 | jj bookmark から自動検出 | `pnpm push` / `pnpm pr-create` と同じ方式で一貫性がある |
+| PR 検出 | jj bookmark から自動検出 | `pnpm push` / `pnpm create-pr` と同じ方式で一貫性がある |
 | ブランチ削除 | `--delete-branch` で自動削除 | マージ済みブランチの残留を防ぐ |
 | ローカル同期 | `jj git fetch` + `jj new master` | マージ後すぐに master 最新から作業を開始できる |
 | ステップ分離 | `pre_steps`（マージ前）/ `post_steps`（マージ後） | 学び提案等の post-merge 処理を正しいタイミングで実行 |

@@ -1,6 +1,6 @@
 //! Merge Pipeline ランナー (スタンドアロン exe)
 //!
-//! pnpm merge から呼び出され、PR のマージとローカル同期を実行します。
+//! pnpm merge-pr から呼び出され、PR のマージとローカル同期を実行します。
 //! hooks-config.toml の [merge_pipeline] セクションから設定を読み込みます。
 //!
 //! 処理フロー:
@@ -325,7 +325,7 @@ fn run_steps(phase: &str, steps: &[PipelineStepConfig], timeout: u64) -> Result<
                         eprintln!("{}", output);
                     }
                     log_info(&format!(
-                        "パイプライン中断: {} が失敗しました。問題を修正して pnpm merge を再実行してください。",
+                        "パイプライン中断: {} が失敗しました。問題を修正して pnpm merge-pr を再実行してください。",
                         step.name
                     ));
                     return Err(1);
