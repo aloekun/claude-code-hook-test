@@ -132,8 +132,7 @@ fn write_state_to(path: &Path, state: &PrMonitorState) -> Result<(), String> {
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, &json)
         .map_err(|e| format!("state 一時ファイル書き込み失敗: {}", e))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| format!("state ファイル rename 失敗: {}", e))?;
+    std::fs::rename(&tmp_path, path).map_err(|e| format!("state ファイル rename 失敗: {}", e))?;
     Ok(())
 }
 
@@ -182,7 +181,12 @@ fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHan
 // ─── コマンド実行 (push-pipeline から移植) ───
 
 /// 引数を配列で直接渡す版（スペースを含む引数を正しくハンドリング）
-fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], timeout_secs: u64) -> (bool, String) {
+fn run_cmd_direct(
+    program: &str,
+    fixed_args: &[&str],
+    extra_args: &[String],
+    timeout_secs: u64,
+) -> (bool, String) {
     let mut child = match Command::new(program)
         .args(fixed_args)
         .args(extra_args)
@@ -191,7 +195,12 @@ fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], tim
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {} {:?}: {}", program, fixed_args, e)),
+        Err(e) => {
+            return (
+                false,
+                format!("Failed to execute {} {:?}: {}", program, fixed_args, e),
+            )
+        }
     };
 
     let stdout_handle = drain_pipe(child.stdout.take().unwrap());
@@ -218,7 +227,10 @@ fn run_cmd_direct(program: &str, fixed_args: &[&str], extra_args: &[String], tim
     let combined = format!("{}{}", stdout_text, stderr_text).trim().to_string();
 
     if timed_out {
-        return (false, format!("{}\n(timeout after {}s)", combined, timeout_secs));
+        return (
+            false,
+            format!("{}\n(timeout after {}s)", combined, timeout_secs),
+        );
     }
 
     let code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
@@ -253,7 +265,10 @@ fn load_config() -> Config {
         Err(_) => return Config::default(),
     };
     toml::from_str(&content).unwrap_or_else(|e| {
-        eprintln!("[post-pr-monitor] hooks-config.toml パースエラー (デフォルト使用): {}", e);
+        eprintln!(
+            "[post-pr-monitor] hooks-config.toml パースエラー (デフォルト使用): {}",
+            e
+        );
         Config::default()
     })
 }
@@ -270,7 +285,14 @@ struct PrInfo {
 /// Strategy A: gh pr view (標準 git ブランチ環境)
 /// Strategy B: jj bookmark → gh pr list --head (jj 環境)
 fn get_pr_info() -> PrInfo {
-    let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+    let repo = run_gh_quiet(&[
+        "repo",
+        "view",
+        "--json",
+        "nameWithOwner",
+        "-q",
+        ".nameWithOwner",
+    ]);
 
     // Strategy A: gh pr view (git ブランチが使える場合)
     let pr_number = run_gh_quiet(&["pr", "view", "--json", "number", "-q", ".number"])
@@ -285,7 +307,14 @@ fn get_pr_info() -> PrInfo {
     for bookmark in &bookmarks {
         log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
         let pr_number = run_gh_quiet(&[
-            "pr", "list", "--head", bookmark, "--json", "number", "-q", ".[0].number",
+            "pr",
+            "list",
+            "--head",
+            bookmark,
+            "--json",
+            "number",
+            "-q",
+            ".[0].number",
         ])
         .and_then(|s| s.parse::<u64>().ok());
 
@@ -294,7 +323,10 @@ fn get_pr_info() -> PrInfo {
         }
     }
 
-    PrInfo { pr_number: None, repo }
+    PrInfo {
+        pr_number: None,
+        repo,
+    }
 }
 
 /// PR URL (https://github.com/.../pull/123) から PR 番号を抽出する
@@ -315,7 +347,14 @@ fn parse_pr_number_from_url(output: &str) -> Option<u64> {
 /// 現在の jj change に紐づく全ブックマーク名を取得する
 fn get_jj_bookmarks() -> Vec<String> {
     let output = match Command::new("jj")
-        .args(["log", "-r", "@", "--no-graph", "-T", "local_bookmarks.map(|b| b.name()).join(\",\")"])
+        .args([
+            "log",
+            "-r",
+            "@",
+            "--no-graph",
+            "-T",
+            "local_bookmarks.map(|b| b.name()).join(\",\")",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output()
@@ -423,7 +462,10 @@ CronCreate {{
 手動確認: cat .claude/pr-monitor-state.json"#,
         pr_label = pr_label,
         check_scope = check_scope,
-        pid = state.daemon_pid.map(|p| p.to_string()).unwrap_or_else(|| "?".to_string()),
+        pid = state
+            .daemon_pid
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".to_string()),
         interval_min = (interval / 60).max(1),
     );
 }
@@ -437,8 +479,7 @@ fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("exe パス取得失敗: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| format!("exe パス取得失敗: {}", e))?;
 
     let child = Command::new(&exe)
         .args(["--daemon", "--state-file", &state_file.to_string_lossy()])
@@ -454,8 +495,7 @@ fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
 
 #[cfg(not(target_os = "windows"))]
 fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("exe パス取得失敗: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| format!("exe パス取得失敗: {}", e))?;
 
     let child = Command::new(&exe)
         .args(["--daemon", "--state-file", &state_file.to_string_lossy()])
@@ -473,14 +513,21 @@ fn spawn_daemon(state_file: &Path) -> Result<u32, String> {
 fn run_daemon(state_file: &Path) -> i32 {
     let config = load_config();
     let monitor_config = config.post_pr_monitor.unwrap_or_default();
-    let poll_interval = monitor_config.poll_interval_secs.unwrap_or(DEFAULT_POLL_INTERVAL);
-    let max_duration = monitor_config.max_duration_secs.unwrap_or(DEFAULT_MAX_DURATION);
+    let poll_interval = monitor_config
+        .poll_interval_secs
+        .unwrap_or(DEFAULT_POLL_INTERVAL);
+    let max_duration = monitor_config
+        .max_duration_secs
+        .unwrap_or(DEFAULT_MAX_DURATION);
     let skip_ci = !monitor_config.check_ci.unwrap_or(true);
     let skip_coderabbit = !monitor_config.check_coderabbit.unwrap_or(true);
 
     let checker = checker_exe_path();
     if !checker.exists() {
-        log_info(&format!("check-ci-coderabbit.exe が見つかりません: {}", checker.display()));
+        log_info(&format!(
+            "check-ci-coderabbit.exe が見つかりません: {}",
+            checker.display()
+        ));
         if let Some(mut state) = read_state_from(state_file) {
             state.daemon_status = "error".to_string();
             state.summary = "check-ci-coderabbit.exe が見つかりません".to_string();
@@ -502,10 +549,8 @@ fn run_daemon(state_file: &Path) -> i32 {
         };
 
         // 2. Build checker arguments
-        let mut checker_args: Vec<String> = vec![
-            "--push-time".to_string(),
-            state.started_at.clone(),
-        ];
+        let mut checker_args: Vec<String> =
+            vec!["--push-time".to_string(), state.started_at.clone()];
         if let Some(ref repo) = state.repo {
             checker_args.push("--repo".to_string());
             checker_args.push(repo.clone());
@@ -526,7 +571,10 @@ fn run_daemon(state_file: &Path) -> i32 {
         // 4. Parse output and update state (checker 失敗時はエラーを state に書き出して停止)
         if !success {
             state.daemon_status = "error".to_string();
-            state.summary = format!("check-ci-coderabbit.exe 失敗: {}", truncate_safe(&output, 200));
+            state.summary = format!(
+                "check-ci-coderabbit.exe 失敗: {}",
+                truncate_safe(&output, 200)
+            );
             state.notified = false;
             let _ = write_state_to(state_file, &state);
             log_info(&format!("checker 失敗: {}", truncate_safe(&output, 200)));
@@ -548,7 +596,10 @@ fn run_daemon(state_file: &Path) -> i32 {
 
         // check_ci=false / check_coderabbit=false の場合、スキップした側を成功扱い
         if skip_ci {
-            state.ci = Some(CiState { overall: "skipped".into(), runs: vec![] });
+            state.ci = Some(CiState {
+                overall: "skipped".into(),
+                runs: vec![],
+            });
         }
         if skip_coderabbit {
             state.coderabbit = Some(CodeRabbitState {
@@ -570,7 +621,10 @@ fn run_daemon(state_file: &Path) -> i32 {
         if state.action != "continue_monitoring" {
             state.daemon_status = "completed".to_string();
             let _ = write_state_to(state_file, &state);
-            log_info(&format!("監視完了: action={}, summary={}", state.action, state.summary));
+            log_info(&format!(
+                "監視完了: action={}, summary={}",
+                state.action, state.summary
+            ));
             return 0;
         }
 
@@ -631,7 +685,10 @@ fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
                         temp_guard = Some(TempFile(path));
                     }
                     Err(e) => {
-                        log_info(&format!("警告: body ファイル書き出し失敗: {}。--body をそのまま使用", e));
+                        log_info(&format!(
+                            "警告: body ファイル書き出し失敗: {}。--body をそのまま使用",
+                            e
+                        ));
                         result.push(args[i].clone());
                         result.push(args[i + 1].clone());
                     }
@@ -697,26 +754,105 @@ fn start_monitoring(pr_info: &PrInfo, push_time: &str) -> i32 {
 
 // ─── PR 作成モード ───
 
+/// `--head` / `--head=<non-empty>` / `-H` のいずれかが有効な値付きで引数リストに含まれるか判定する。
+/// `--head=` (空値) は無効扱いとし、自動補完の対象にする。
+fn has_head_flag(args: &[String]) -> bool {
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--head" || a == "-H" {
+            if let Some(v) = args.get(i + 1) {
+                if !v.is_empty() && !v.starts_with('-') {
+                    return true;
+                }
+            }
+        } else if let Some(v) = a.strip_prefix("--head=") {
+            if !v.is_empty() {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// `--head` 系フラグが未指定のとき、bookmarks の先頭を `--head <bookmark>` として追記する。
+/// 既に指定済みの場合は args をそのまま返す。bookmarks が空のときも変更なし。
+/// 値欠落の `--head` / `-H` / `--head=` は無効指定として除去してから補完する。
+fn ensure_head_arg(args: Vec<String>, bookmarks: &[String]) -> Vec<String> {
+    let mut normalized = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--head=" {
+            i += 1;
+            continue;
+        }
+        if a == "--head" || a == "-H" {
+            match args.get(i + 1) {
+                Some(v) if !v.is_empty() && !v.starts_with('-') => {
+                    normalized.push(a.clone());
+                    normalized.push(v.clone());
+                    i += 2;
+                }
+                _ => {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        normalized.push(a.clone());
+        i += 1;
+    }
+
+    if has_head_flag(&normalized) {
+        return normalized;
+    }
+    if let Some(bookmark) = bookmarks.first() {
+        normalized.push("--head".to_string());
+        normalized.push(bookmark.clone());
+    }
+    normalized
+}
+
 fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
 
     // --body に改行が含まれる場合、--body-file に自動変換
-    let (final_args, _body_tempfile) = convert_body_to_file(gh_args);
+    let (mut final_args, _body_tempfile) = convert_body_to_file(gh_args);
+
+    // jj 環境対応: --head 未指定時に jj bookmark から自動補完
+    // gh pr create は git の current branch を検出するが、jj 環境では
+    // "not on any branch" エラーになるため、明示的に --head を指定する
+    if !has_head_flag(&final_args) {
+        let bookmarks = get_jj_bookmarks();
+        final_args = ensure_head_arg(final_args, &bookmarks);
+        if let Some(bookmark) = bookmarks.first() {
+            log_info(&format!("jj bookmark '{}' を --head に自動補完", bookmark));
+        }
+    }
 
     log_info(&format!(
         "実行: gh pr create {}",
         final_args
             .iter()
-            .map(|a| if a.contains(' ') {
-                format!("\"{}\"", a)
-            } else {
-                a.clone()
+            .map(|a| {
+                if a.contains(' ') {
+                    format!("\"{}\"", a)
+                } else {
+                    a.clone()
+                }
             })
             .collect::<Vec<_>>()
             .join(" ")
     ));
 
-    let (success, output) = run_cmd_direct("gh", &["pr", "create"], &final_args, DEFAULT_STEP_TIMEOUT_SECS);
+    let (success, output) = run_cmd_direct(
+        "gh",
+        &["pr", "create"],
+        &final_args,
+        DEFAULT_STEP_TIMEOUT_SECS,
+    );
 
     if !success {
         log_info("PR 作成失敗:");
@@ -738,8 +874,18 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
 
     let pr_info = if pr_number_from_url.is_some() {
         log_info(&format!("PR URL から番号を取得: {:?}", pr_number_from_url));
-        let repo = run_gh_quiet(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
-        PrInfo { pr_number: pr_number_from_url, repo }
+        let repo = run_gh_quiet(&[
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "-q",
+            ".nameWithOwner",
+        ]);
+        PrInfo {
+            pr_number: pr_number_from_url,
+            repo,
+        }
     } else {
         log_info("PR URL からの番号取得失敗、gh コマンドで検索");
         get_pr_info()
@@ -924,7 +1070,11 @@ enabled = false
 
     #[test]
     fn state_new_defaults() {
-        let state = PrMonitorState::new(Some(42), Some("owner/repo".into()), "2026-04-04T12:00:00Z".into());
+        let state = PrMonitorState::new(
+            Some(42),
+            Some("owner/repo".into()),
+            "2026-04-04T12:00:00Z".into(),
+        );
         assert_eq!(state.pr, Some(42));
         assert_eq!(state.repo.as_deref(), Some("owner/repo"));
         assert_eq!(state.action, "continue_monitoring");
@@ -944,7 +1094,10 @@ enabled = false
             last_checked: Some("2026-04-04T12:02:00Z".into()),
             ci: Some(CiState {
                 overall: "success".into(),
-                runs: vec![CiRunState { name: "test".into(), conclusion: "success".into() }],
+                runs: vec![CiRunState {
+                    name: "test".into(),
+                    conclusion: "success".into(),
+                }],
             }),
             coderabbit: Some(CodeRabbitState {
                 review_state: "success".into(),
@@ -974,10 +1127,8 @@ enabled = false
 
     #[test]
     fn state_write_read_roundtrip() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-state-roundtrip-{}.json",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("test-state-roundtrip-{}.json", std::process::id()));
         let state = PrMonitorState::new(Some(1), Some("o/r".into()), "2026-01-01T00:00:00Z".into());
 
         write_state_to(&tmp, &state).unwrap();
@@ -1122,7 +1273,12 @@ enabled = false
 
     #[test]
     fn body_without_newline_unchanged() {
-        let args = vec!["--title".into(), "test".into(), "--body".into(), "simple body".into()];
+        let args = vec![
+            "--title".into(),
+            "test".into(),
+            "--body".into(),
+            "simple body".into(),
+        ];
         let (result, temp) = convert_body_to_file(&args);
         assert_eq!(result, args);
         assert!(temp.is_none());
@@ -1130,7 +1286,12 @@ enabled = false
 
     #[test]
     fn body_with_literal_newline_converted() {
-        let args = vec!["--title".into(), "test".into(), "--body".into(), "line1\\nline2".into()];
+        let args = vec![
+            "--title".into(),
+            "test".into(),
+            "--body".into(),
+            "line1\\nline2".into(),
+        ];
         let (result, temp) = convert_body_to_file(&args);
         assert_eq!(result[0], "--title");
         assert_eq!(result[1], "test");
@@ -1160,10 +1321,8 @@ enabled = false
 
     #[test]
     fn mark_notified_updates_flag() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-mark-notified-{}.json",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("test-mark-notified-{}.json", std::process::id()));
         let state = PrMonitorState::new(Some(1), None, "t".into());
         write_state_to(&tmp, &state).unwrap();
 
@@ -1177,5 +1336,108 @@ enabled = false
         assert!(final_state.notified);
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    // --- ensure_head_arg ---
+
+    fn strs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn ensure_head_arg_empty_bookmarks_unchanged() {
+        let args = strs(&["--title", "test"]);
+        let result = ensure_head_arg(args.clone(), &[]);
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn ensure_head_arg_long_flag_present_unchanged() {
+        let args = strs(&["--title", "test", "--head", "main"]);
+        let result = ensure_head_arg(args.clone(), &["other".to_string()]);
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn ensure_head_arg_long_eq_flag_present_unchanged() {
+        let args = strs(&["--head=feature/xyz"]);
+        let result = ensure_head_arg(args.clone(), &["other".to_string()]);
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn ensure_head_arg_short_flag_present_unchanged() {
+        // Regression for ARCH-NEW-cli-pr-monitor-main-L709: -H must be recognized
+        let args = strs(&["-H", "feature/branch"]);
+        let result = ensure_head_arg(args.clone(), &["other".to_string()]);
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn ensure_head_arg_no_head_single_bookmark_appended() {
+        let args = strs(&["--title", "test"]);
+        let bookmarks = vec!["my-feature".to_string()];
+        let result = ensure_head_arg(args, &bookmarks);
+        assert_eq!(result, strs(&["--title", "test", "--head", "my-feature"]));
+    }
+
+    #[test]
+    fn ensure_head_arg_no_head_multiple_bookmarks_uses_first() {
+        let args = strs(&["--title", "test"]);
+        let bookmarks = vec!["first".to_string(), "second".to_string()];
+        let result = ensure_head_arg(args, &bookmarks);
+        assert_eq!(result, strs(&["--title", "test", "--head", "first"]));
+    }
+
+    #[test]
+    fn ensure_head_arg_empty_eq_value_triggers_completion() {
+        let args = strs(&["--head="]);
+        let bookmarks = vec!["my-feature".to_string()];
+        let result = ensure_head_arg(args, &bookmarks);
+        assert_eq!(result, strs(&["--head", "my-feature"]));
+    }
+
+    #[test]
+    fn has_head_flag_empty_eq_returns_false() {
+        assert!(!has_head_flag(&strs(&["--head="])));
+    }
+
+    #[test]
+    fn has_head_flag_nonempty_eq_returns_true() {
+        assert!(has_head_flag(&strs(&["--head=feature"])));
+    }
+
+    #[test]
+    fn has_head_flag_long_with_value_returns_true() {
+        assert!(has_head_flag(&strs(&["--head", "feature"])));
+    }
+
+    #[test]
+    fn has_head_flag_long_without_value_returns_false() {
+        assert!(!has_head_flag(&strs(&["--head"])));
+    }
+
+    #[test]
+    fn ensure_head_arg_bare_head_stripped_and_bookmark_appended() {
+        let args = strs(&["--title", "test", "--head"]);
+        let bookmarks = vec!["my-feature".to_string()];
+        let result = ensure_head_arg(args, &bookmarks);
+        assert_eq!(result, strs(&["--title", "test", "--head", "my-feature"]));
+    }
+
+    #[test]
+    fn ensure_head_arg_bare_short_h_stripped_and_bookmark_appended() {
+        let args = strs(&["--title", "test", "-H"]);
+        let bookmarks = vec!["my-feature".to_string()];
+        let result = ensure_head_arg(args, &bookmarks);
+        assert_eq!(result, strs(&["--title", "test", "--head", "my-feature"]));
+    }
+
+    #[test]
+    fn ensure_head_arg_head_followed_by_flag_stripped() {
+        let args = strs(&["--head", "--title", "test"]);
+        let bookmarks = vec!["my-feature".to_string()];
+        let result = ensure_head_arg(args, &bookmarks);
+        assert_eq!(result, strs(&["--title", "test", "--head", "my-feature"]));
     }
 }
