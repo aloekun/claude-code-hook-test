@@ -701,16 +701,33 @@ fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
 
     // --body に改行が含まれる場合、--body-file に自動変換
-    let (final_args, _body_tempfile) = convert_body_to_file(gh_args);
+    let (mut final_args, _body_tempfile) = convert_body_to_file(gh_args);
+
+    // jj 環境対応: --head 未指定時に jj bookmark から自動補完
+    // gh pr create は git の current branch を検出するが、jj 環境では
+    // "not on any branch" エラーになるため、明示的に --head を指定する
+    if !final_args.iter().any(|a| a == "--head") {
+        let bookmarks = get_jj_bookmarks();
+        if let Some(bookmark) = bookmarks.first() {
+            log_info(&format!(
+                "jj bookmark '{}' を --head に自動補完",
+                bookmark
+            ));
+            final_args.push("--head".to_string());
+            final_args.push(bookmark.clone());
+        }
+    }
 
     log_info(&format!(
         "実行: gh pr create {}",
         final_args
             .iter()
-            .map(|a| if a.contains(' ') {
-                format!("\"{}\"", a)
-            } else {
-                a.clone()
+            .map(|a| {
+                if a.contains(' ') {
+                    format!("\"{}\"", a)
+                } else {
+                    a.clone()
+                }
             })
             .collect::<Vec<_>>()
             .join(" ")
