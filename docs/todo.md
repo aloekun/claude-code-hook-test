@@ -9,4 +9,8 @@
 
 ## CronCreate セッション問題 (PR #16 調査で発見)
 
-- [ ] **CronCreate がサブセッションに閉じ込められる**: `pnpm push` 実行時、`review:ai` (`claude -p "/pre-push-review"`) のサブセッションが「最新セッション」となり、後続の `cli-pr-monitor --monitor-only` の `--continue` がサブセッションに接続してしまう。SessionStart hook でメインセッション ID を `.session-id` ファイルに記録し、`--resume <session_id>` で明示指定する方式に修正
+- [x] **CronCreate がサブセッションに閉じ込められる**: ~~`pnpm push` 実行時、`review:ai` (`claude -p "/pre-push-review"`) のサブセッションが「最新セッション」となり、後続の `cli-pr-monitor --monitor-only` の `--continue` がサブセッションに接続してしまう。~~ ADR-015 で push-runner が takt ベースに移行されたため、`claude -p` 経由のサブセッション問題は解消。takt がプロセス内で AI レビューを管理するため、CronCreate のセッション分離問題は発生しない。
+
+## 次ステップ: cli-pr-monitor の takt 化
+
+- [ ] **cli-pr-monitor を takt ベースに段階的移行**: daemon ポーリング完了後に takt ワークフローで CodeRabbit 指摘の自動分析を実行。Phase 2 では fix loop による自動修正 + re-push まで一気通貫で処理する構想。push-runner と同様に「機械的ポーリングは Rust、AI 分析は takt」の分離原則を適用する (ADR-015 次ステップ参照)

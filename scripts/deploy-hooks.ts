@@ -23,7 +23,7 @@ const EXE_FILES = [
   "hooks-pre-tool-validate.exe",
   "hooks-post-tool-linter.exe",
   "hooks-stop-quality.exe",
-  "cli-push-pipeline.exe",
+  "cli-push-runner.exe",
   "cli-pr-monitor.exe",
   "cli-merge-pipeline.exe",
   "check-ci-coderabbit.exe",

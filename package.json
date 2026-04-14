@@ -10,15 +10,14 @@
     "build:hooks-pre-tool-validate": "cd src/hooks-pre-tool-validate && cargo build --release && cp target/release/hooks-pre-tool-validate.exe ../../.claude/hooks-pre-tool-validate.exe",
     "build:hooks-post-tool-linter": "cd src/hooks-post-tool-linter && cargo build --release && cp target/release/hooks-post-tool-linter.exe ../../.claude/hooks-post-tool-linter.exe",
     "build:hooks-stop-quality": "cd src/hooks-stop-quality && cargo build --release && cp target/release/hooks-stop-quality.exe ../../.claude/hooks-stop-quality.exe",
-    "build:cli-push-pipeline": "cd src/cli-push-pipeline && cargo build --release && cp target/release/cli-push-pipeline.exe ../../.claude/cli-push-pipeline.exe",
+    "build:cli-push-runner": "cd src/cli-push-runner && cargo build --release && cp target/release/cli-push-runner.exe ../../.claude/cli-push-runner.exe",
     "build:cli-pr-monitor": "cd src/cli-pr-monitor && cargo build --release && cp target/release/cli-pr-monitor.exe ../../.claude/cli-pr-monitor.exe",
     "build:check-ci-coderabbit": "cd src/check-ci-coderabbit && cargo build --release && cp target/release/check-ci-coderabbit.exe ../../.claude/check-ci-coderabbit.exe",
     "build:hooks-session-start": "cd src/hooks-session-start && cargo build --release && cp target/release/hooks-session-start.exe ../../.claude/hooks-session-start.exe",
     "build:cli-merge-pipeline": "cd src/cli-merge-pipeline && cargo build --release && cp target/release/cli-merge-pipeline.exe ../../.claude/cli-merge-pipeline.exe",
     "build:hooks-settings": "node -e \"const fs=require('fs');const t=fs.readFileSync('.claude/settings.local.json.template','utf8');const p=process.cwd().replace(/\\\\/g,'\\\\\\\\');fs.writeFileSync('.claude/settings.local.json',t.replace(/\\{\\{PROJECT_DIR\\}\\}/g,p))\" && echo settings.local.json generated",
-    "build:all": "pnpm build:hooks-session-start && pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-stop-quality && pnpm build:cli-push-pipeline && pnpm build:cli-pr-monitor && pnpm build:cli-merge-pipeline && pnpm build:check-ci-coderabbit && pnpm build:hooks-settings",
-    "review:ai": "claude -p \"/pre-push-review\"",
-    "push": ".\\.claude\\cli-push-pipeline.exe && .\\.claude\\cli-pr-monitor.exe --monitor-only",
+    "build:all": "pnpm build:hooks-session-start && pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-stop-quality && pnpm build:cli-push-runner && pnpm build:cli-pr-monitor && pnpm build:cli-merge-pipeline && pnpm build:check-ci-coderabbit && pnpm build:hooks-settings",
+    "push": ".\\.claude\\cli-push-runner.exe && .\\.claude\\cli-pr-monitor.exe --monitor-only",
     "create-pr": ".\\.claude\\cli-pr-monitor.exe",
     "merge-pr": ".\\.claude\\cli-merge-pipeline.exe",
     "check-ci": ".\\.claude\\check-ci-coderabbit.exe",
@@ -29,5 +28,8 @@
     "py-test": "python -m pytest tests/",
     "py-typecheck": "mypy src/",
     "py-test:e2e": "echo py-test:e2e placeholder && python -c \"print('E2E smoke test passed')\""
+  },
+  "devDependencies": {
+    "takt": "^0.35.4"
   }
 }

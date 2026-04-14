@@ -87,34 +87,12 @@ cmd = "pnpm test:e2e"
 name = "build"
 cmd = "pnpm build"
 
-# ─── Push Pipeline: push 前パイプライン ───
+# ─── Push Pipeline: push-runner-config.toml に移行済み (ADR-015) ───
 #
-# pnpm push で起動されるパイプライン。
+# pnpm push は cli-push-runner.exe (takt ベース) を使用。
+# 設定はリポジトリルートの push-runner-config.toml を参照。
 # PreToolUse の "jj-push-guard" プリセットにより直接の jj git push はブロックされ、
-# このパイプラインを通すことが強制される。
-#
-# ステップの type:
-#   "command" — シェルコマンドを実行。exit code 0 で成功判定
-#   "ai"     — AI 処理が必要なステップ (将来実装、現在は placeholder)
-
-[push_pipeline]
-step_timeout = 600
-push_cmd = "jj git push"
-
-[[push_pipeline.steps]]
-name = "integration_test"
-type = "command"
-cmd = "pnpm test"
-
-[[push_pipeline.steps]]
-name = "ai_review"
-type = "command"
-cmd = "pnpm review:ai"
-
-[[push_pipeline.steps]]
-name = "commit_refactor"
-type = "ai"
-prompt = "optimize_commit_structure"
+# pnpm push を通すことが強制される。
 
 # ─── Merge Pipeline: PR マージ + ローカル同期 ───
 #
