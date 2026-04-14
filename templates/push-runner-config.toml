@@ -1,0 +1,40 @@
+# push-runner-config.toml -- cli-push-runner (takt ベース) の設定テンプレート
+#
+# pnpm push で起動される push-runner.exe がこのファイルを読み込む。
+# リポジトリルートに push-runner-config.toml として配置する。
+#
+# プロジェクトに合わせて quality_gate.groups の commands を変更すること。
+
+[quality_gate]
+parallel = true
+step_timeout = 120
+
+# プロジェクトの品質チェックコマンドに置き換えてください
+[[quality_gate.groups]]
+name = "lint"
+commands = ["pnpm lint"]
+
+[[quality_gate.groups]]
+name = "test"
+commands = ["pnpm test"]
+
+[[quality_gate.groups]]
+name = "build"
+commands = ["pnpm build"]
+
+[diff]
+# jj 環境: "jj diff -r @"
+# git 環境: "git diff origin/HEAD...HEAD"
+command = "jj diff -r @"
+output_path = ".takt/review-diff.txt"
+
+[takt]
+workflow = "pre-push-review"
+task = "pre-push review"
+extra_args = ["--pipeline", "--skip-git"]
+
+[push]
+# jj 環境: "jj git push"
+# git 環境: "git push"
+command = "jj git push"
+# timeout = 300  # デフォルト 300秒。ネットワーク環境に応じて調整

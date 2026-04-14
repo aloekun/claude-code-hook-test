@@ -68,6 +68,13 @@ function copyFile(src: string, dest: string): void {
   logger.info(`  copied: ${basename(src)}`);
 }
 
+function notifyIfMissing(p: string, missing: string, hint: string): void {
+  if (!existsSync(p)) {
+    logger.info(`  NOTE: ${missing}`);
+    logger.info(`        ${hint}`);
+  }
+}
+
 function deployTo(targetDir: string): boolean {
   const targetClaude = join(targetDir, ".claude");
 
@@ -89,15 +96,17 @@ function deployTo(targetDir: string): boolean {
     copyFile(src, join(targetClaude, exe));
   }
 
-  const configDest = join(targetClaude, "hooks-config.toml");
-  if (!existsSync(configDest)) {
-    logger.info(
-      "  NOTE: hooks-config.toml not found — please create one for this project"
-    );
-    logger.info(
-      "        See templates/ directory for language-specific examples"
-    );
-  }
+  notifyIfMissing(
+    join(targetClaude, "hooks-config.toml"),
+    "hooks-config.toml not found — please create one for this project",
+    "See templates/ directory for language-specific examples"
+  );
+
+  notifyIfMissing(
+    join(targetDir, "push-runner-config.toml"),
+    "push-runner-config.toml not found — takt push-runner requires this at repo root",
+    "See templates/push-runner-config.toml for a starting point"
+  );
 
   const templateSrc = join(CLAUDE_DIR, SETTINGS_TEMPLATE);
   if (existsSync(templateSrc)) {
