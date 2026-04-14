@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       takt:
-        specifier: ^0.35.4
-        version: 0.35.4
+        specifier: 0.35.3
+        version: 0.35.3
 
 packages:
 
@@ -694,8 +694,8 @@ packages:
   stubborn-utils@1.0.2:
     resolution: {integrity: sha512-zOh9jPYI+xrNOyisSelgym4tolKTJCQd5GBhK0+0xJvcYDcwlOoxF/rnFKQ2KRZknXSG9jWAp66fwP6AxN9STg==}
 
-  takt@0.35.4:
-    resolution: {integrity: sha512-ItAoINuNE81MvkD+emfvVuumwSsj9IOyTbd9g80uYH6Y9DGyUy7Ch2MMiPiVnzJCwaVmV9u7X0sh+JCT27y8ew==}
+  takt@0.35.3:
+    resolution: {integrity: sha512-VhUyW1y1cHF013yplBLDKn62XVa3EoS9a4T+BJP7IecDwI6i4j511dLV5KdK5cq/R9a1bNMzO4Baq+llndSY9A==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -1431,7 +1431,7 @@ snapshots:
 
   stubborn-utils@1.0.2: {}
 
-  takt@0.35.4:
+  takt@0.35.3:
     dependencies:
       '@anthropic-ai/claude-agent-sdk': 0.2.105(zod@4.3.6)
       '@openai/codex-sdk': 0.114.0

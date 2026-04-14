@@ -30,6 +30,6 @@
     "py-test:e2e": "echo py-test:e2e placeholder && python -c \"print('E2E smoke test passed')\""
   },
   "devDependencies": {
-    "takt": "^0.35.4"
+    "takt": "0.35.3"
   }
 }

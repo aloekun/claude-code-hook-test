@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 pub(crate) const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
+pub(crate) const DEFAULT_PUSH_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Deserialize)]
 pub(crate) struct Config {
@@ -41,6 +42,7 @@ pub(crate) struct DiffConfig {
 #[derive(Deserialize)]
 pub(crate) struct PushConfig {
     pub(crate) command: String,
+    pub(crate) timeout: Option<u64>,
 }
 
 pub(crate) fn config_path() -> PathBuf {
@@ -64,7 +66,25 @@ pub(crate) fn load_config() -> Result<Config, String> {
     let path = config_path();
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("設定ファイルの読み込みに失敗: {} ({})", path.display(), e))?;
-    toml::from_str(&content).map_err(|e| format!("設定ファイルのパースに失敗: {}", e))
+    let config: Config =
+        toml::from_str(&content).map_err(|e| format!("設定ファイルのパースに失敗: {}", e))?;
+    validate_config(&config)?;
+    Ok(config)
+}
+
+fn validate_config(config: &Config) -> Result<(), String> {
+    if config.quality_gate.groups.is_empty() {
+        return Err("設定ファイルエラー: quality_gate.groups が空です".into());
+    }
+    for group in &config.quality_gate.groups {
+        if group.commands.is_empty() {
+            return Err(format!(
+                "設定ファイルエラー: group '{}' の commands が空です",
+                group.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -107,6 +127,54 @@ command = "jj git push"
         assert_eq!(config.takt.extra_args.as_ref().unwrap().len(), 2);
 
         assert_eq!(config.push.command, "jj git push");
+        assert!(config.push.timeout.is_none());
+    }
+
+    #[test]
+    fn config_push_timeout_explicit() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "jj git push"
+timeout = 600
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.push.timeout, Some(600));
+        assert_eq!(
+            config.push.timeout.unwrap_or(DEFAULT_PUSH_TIMEOUT_SECS),
+            600,
+        );
+    }
+
+    #[test]
+    fn config_push_timeout_defaults() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.push.timeout.is_none());
+        assert_eq!(
+            config.push.timeout.unwrap_or(DEFAULT_PUSH_TIMEOUT_SECS),
+            DEFAULT_PUSH_TIMEOUT_SECS,
+        );
     }
 
     #[test]
@@ -186,5 +254,57 @@ command = "echo push"
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.quality_gate.groups[0].pre.is_none());
         assert!(config.quality_gate.groups[1].pre.is_some());
+    }
+
+    #[test]
+    fn validate_rejects_empty_groups() {
+        let config = Config {
+            quality_gate: QualityGateConfig {
+                parallel: None,
+                step_timeout: None,
+                groups: vec![],
+            },
+            diff: None,
+            takt: TaktConfig {
+                workflow: "w".into(),
+                task: "t".into(),
+                extra_args: None,
+            },
+            push: PushConfig {
+                command: "echo".into(),
+                timeout: None,
+            },
+        };
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("groups が空"));
+    }
+
+    #[test]
+    fn validate_rejects_empty_commands() {
+        let config = Config {
+            quality_gate: QualityGateConfig {
+                parallel: None,
+                step_timeout: None,
+                groups: vec![GroupConfig {
+                    name: "empty".into(),
+                    pre: None,
+                    commands: vec![],
+                }],
+            },
+            diff: None,
+            takt: TaktConfig {
+                workflow: "w".into(),
+                task: "t".into(),
+                extra_args: None,
+            },
+            push: PushConfig {
+                command: "echo".into(),
+                timeout: None,
+            },
+        };
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("'empty'"));
     }
 }
