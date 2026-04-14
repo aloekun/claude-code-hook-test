@@ -1,0 +1,32 @@
+# push-runner-config.toml -- cli-push-runner (takt ベース) の設定
+#
+# pnpm push で起動される push-runner.exe がこのファイルを読み込む。
+# カレントディレクトリ (リポジトリルート) を優先的に検索する。
+
+[quality_gate]
+parallel = true
+step_timeout = 120
+
+[[quality_gate.groups]]
+name = "lint"
+commands = ["pnpm lint"]
+
+[[quality_gate.groups]]
+name = "test"
+commands = ["pnpm test", "pnpm test:e2e"]
+
+[[quality_gate.groups]]
+name = "build"
+commands = ["pnpm build"]
+
+[diff]
+command = "jj diff -r @"
+output_path = ".takt/review-diff.txt"
+
+[takt]
+workflow = "pre-push-review"
+task = "pre-push review"
+extra_args = ["--pipeline", "--skip-git"]
+
+[push]
+command = "jj git push"

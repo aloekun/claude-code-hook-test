@@ -1,0 +1,186 @@
+name: pre-push-review
+description: >
+  AI review-only workflow invoked by push-runner (Rust exe).
+  quality_gate and push are handled outside takt by the Rust exe.
+  Flow: (arch + security reviewers in parallel) -> fix (loop) -> supervise.
+  Each reviewer reads .takt/review-diff.txt directly.
+  Terminates with COMPLETE when reviewers approve, or ABORT on unresolvable issues.
+
+workflow_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+
+max_steps: 30
+initial_step: reviewers
+
+loop_monitors:
+  - cycle:
+      - reviewers
+      - fix
+    threshold: 2
+    judge:
+      persona: supervisor
+      instruction: loop-monitor-reviewers-fix
+      rules:
+        - condition: Healthy (progress being made)
+          next: reviewers
+        - condition: Unproductive (repeated findings, fixes not applied)
+          next: supervise
+
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1: reviewers (parallel)
+  #   Two reviewers -- architecture (simplicity) and security.
+  # ---------------------------------------------------------------------------
+  - name: reviewers
+    parallel:
+      - name: arch-review
+        edit: false
+        persona: architecture-reviewer
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-arch
+        output_contracts:
+          report:
+            - name: architecture-review.md
+              format: architecture-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+
+      - name: security-review
+        edit: false
+        persona: security-reviewer
+        policy: review
+        knowledge: security
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+              - WebSearch
+              - WebFetch
+        instruction: review-security
+        output_contracts:
+          report:
+            - name: security-review.md
+              format: security-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+
+    rules:
+      - condition: all("approved")
+        next: COMPLETE
+      - condition: any("needs_fix")
+        next: fix
+
+  # ---------------------------------------------------------------------------
+  # Step 2: fix
+  #   Applies fixes for every open finding from the reviewers.
+  #   The loop_monitor above caps iterations at 2.
+  # ---------------------------------------------------------------------------
+  - name: fix
+    edit: true
+    persona: coder
+    model: sonnet
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - architecture
+      - security
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    pass_previous_response: false
+    instruction: fix
+    rules:
+      - condition: Fixes complete
+        next: reviewers
+      - condition: Unable to proceed with fixes
+        next: supervise
+
+  # ---------------------------------------------------------------------------
+  # Step 3: supervise
+  #   Escalation handler.
+  # ---------------------------------------------------------------------------
+  - name: supervise
+    edit: false
+    persona: supervisor
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - WebSearch
+          - WebFetch
+    instruction: supervise
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: supervisor-validation.md
+          format: supervisor-validation
+        - name: summary.md
+          format: summary
+          use_judge: false
+    rules:
+      - condition: All validations complete, ready to push
+        next: COMPLETE
+      - condition: Issues detected
+        next: fix_supervisor
+
+  - name: fix_supervisor
+    edit: true
+    persona: coder
+    model: sonnet
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - architecture
+      - security
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    instruction: fix-supervisor
+    pass_previous_response: false
+    rules:
+      - condition: Fixes for supervisor findings complete
+        next: supervise
+      - condition: Unable to proceed with fixes
+        next: supervise
