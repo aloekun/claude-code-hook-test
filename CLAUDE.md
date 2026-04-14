@@ -17,6 +17,8 @@
 - [ADR-013: Merge Pipeline — PR マージ + ローカル同期](docs/adr/adr-013-merge-pipeline.md)
 - [ADR-014: Post-Merge Feedback — マージ後のフィードバックループによる再発防止](docs/adr/adr-014-post-merge-feedback.md) *(試験運用)*
 - [ADR-015: Push Pipeline を takt ベースの push-runner に移行](docs/adr/adr-015-push-runner-takt-migration.md) *(Supersedes ADR-008 の push 前パイプライン部分)*
+- [ADR-016: Claude Code Bash ツールでの長時間コマンド実行戦略](docs/adr/adr-016-long-running-command-strategy.md)
+- [ADR-017: takt バージョン固定と検証環境の維持](docs/adr/adr-017-takt-version-pinning.md)
 
 ## Build
 
