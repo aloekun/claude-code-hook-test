@@ -20,9 +20,10 @@
 - [x] **templates/ に push-runner-config.toml 追加**: 派生プロジェクトへの deploy:hooks で push-runner-config.toml が配布されない問題。テンプレート追加 + deploy-hooks.ts 更新
 - [x] **pre-push-review スキルの役割整理**: takt 導入済みプロジェクトでは不要に。takt 未導入の派生プロジェクト向けにフォールバックとして維持
 
-## 次ステップ: cli-pr-monitor の takt 化
+## cli-pr-monitor の takt 化
 
-- [ ] **cli-pr-monitor を takt ベースに段階的移行**: daemon ポーリング完了後に takt ワークフローで CodeRabbit 指摘の自動分析を実行。Phase 2 では fix loop による自動修正 + re-push まで一気通貫で処理する構想。push-runner と同様に「機械的ポーリングは Rust、AI 分析は takt」の分離原則を適用する (ADR-015 次ステップ参照)
+- [x] **Phase 1: in-process ポーリング + takt 分析** (PR #38, #39, #40): daemon spawn + CronCreate を廃止し、in-process sequential chain (poll -> collect -> takt analyze -> report) に移行。ADR-018 で決定を記録
+- [x] **Phase 2: fix loop + ハイブリッド re-push** (PR #41): takt ワークフローに fix + supervise ステップを追加。CodeRabbit 指摘のプロジェクト適合性フィルタ、Critical/Major の自動修正、深刻度別の re-push 制御 (Critical=自動, Major以下=ユーザー確認) を実装。fix.md / supervise.md は pre-push-review と共有
 
 ## プロセス改善
 

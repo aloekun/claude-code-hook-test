@@ -1,4 +1,4 @@
-# CodeRabbit Review Analysis
+# CodeRabbit Review Analysis (with Project Fitness Filter)
 
 ## Input
 
@@ -11,52 +11,76 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 
 ## Task
 
-1. Read the JSON file with the Read tool
+### Step 1: Read and parse
+1. Read `.takt/review-comments.json` with the Read tool
 2. Parse the `findings` array and `coderabbit` state
-3. Classify each finding by severity: Critical > High > Major > Medium > Minor > Low > Info
-4. Group findings by file path
-5. For each Critical/High/Major finding, provide:
-   - Root cause analysis (why this is a problem)
-   - Recommended fix approach
-   - Impact if not addressed
+
+### Step 2: Project fitness filter
+CodeRabbit sometimes raises findings that are not applicable to this project. Before classifying severity, evaluate each finding against the project context:
+
+1. Read `CLAUDE.md` to understand the project's architecture decisions and constraints
+2. For each finding, check:
+   - **Platform scope**: This project targets Windows only. Findings about cross-platform compatibility (e.g., `.exe` hardcoding) are NOT applicable -- downgrade to `Info`
+   - **Intentional design**: Check if the finding contradicts an ADR decision. If so, mark as `not_applicable`
+   - **Scope mismatch**: If the finding targets a read-only zone (`.takt/`, `docs/adr/`, `templates/`), mark as `not_applicable`
+   - **False positive**: If the finding misunderstands the code logic, mark as `not_applicable`
+
+Mark each finding as:
+- `applicable` -- genuine issue that should be addressed
+- `not_applicable` -- does not apply to this project (with reason)
+
+### Step 3: Severity classification
+For `applicable` findings only, classify by severity:
+- Critical > High > Major > Medium > Minor > Low > Info
+
+### Step 4: Produce report and verdict
 
 ## Output Format
-
-Produce a structured Markdown report:
 
 ```markdown
 ## CodeRabbit Analysis Report
 
 ### Summary
 - CI: [status]
-- CodeRabbit: [N] findings ([X] critical/high, [Y] medium, [Z] low)
-- Verdict: PASS / FAIL
+- CodeRabbit: [N] findings total, [M] applicable after filter
+- Verdict: PASS / NEEDS_FIX / USER_DECISION
 
-### Findings by Severity
+### Filtered Findings (not applicable)
+| # | File (Line) | Issue | Filter Reason |
+|---|-------------|-------|---------------|
+| 1 | path:line   | ...   | Platform scope: Windows only |
 
-#### Critical / High
+### Applicable Findings by Severity
+
+#### Critical / Major
 | # | File (Line) | Issue | Recommended Action |
 |---|-------------|-------|--------------------|
 | 1 | path:line   | ...   | ...                |
 
-#### Medium
-...
-
-#### Low / Info
-...
+#### Medium / Minor
+| # | File (Line) | Issue | Recommended Action |
+|---|-------------|-------|--------------------|
 
 ### Recommended Actions
-1. [Prioritized action items for critical/high findings]
+1. [Prioritized action items for critical/major findings]
 ```
 
-## Verdict Rules
+## Verdict Rules (3-way)
 
-- **FAIL**: Any Critical or High or Major severity finding exists
-- **PASS**: Only Medium or lower severity findings (or no findings)
+- **approved**: No applicable findings, OR all applicable findings are Info/Low severity
+  - Output: `approved` condition
+- **needs_fix**: Any applicable Critical or Major finding exists
+  - Output: `needs_fix` condition
+  - These will be automatically fixed in the next step
+- **user_decision**: Only Medium or lower applicable findings exist (no Critical/Major)
+  - Output: `user_decision` condition
+  - These are reported but NOT auto-fixed; the user decides
 
 ## Important
 
 - Do NOT modify any code. This is analysis only.
 - Do NOT fabricate findings. Report only what is in the JSON.
-- If the findings array is empty, report "No actionable findings" with verdict PASS.
+- Do NOT skip the fitness filter. Every finding must be evaluated for project applicability.
+- If the findings array is empty, report "No actionable findings" with verdict `approved`.
 - If the JSON file is missing or empty, report the error and exit.
+- When this is a re-analysis after a fix iteration, compare with previous reports to check for regression or persistence.
