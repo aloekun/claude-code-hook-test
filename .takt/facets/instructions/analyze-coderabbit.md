@@ -43,7 +43,7 @@ For `applicable` findings only, classify by severity:
 ### Summary
 - CI: [status]
 - CodeRabbit: [N] findings total, [M] applicable after filter
-- Verdict: PASS / NEEDS_FIX / USER_DECISION
+- Verdict: approved / needs_fix / user_decision
 
 ### Filtered Findings (not applicable)
 | # | File (Line) | Issue | Filter Reason |

@@ -68,7 +68,7 @@ pub(crate) struct TaktConfig {
 
 #[derive(Deserialize, Clone)]
 pub(crate) struct FixConfig {
-    /// Critical 修正は自動 re-push する。Major 以下はユーザー確認。
+    /// "critical" / "major" は自動 re-push。"none" および未知値はユーザー確認。
     #[serde(default = "default_auto_push_severity")]
     pub(crate) auto_push_severity: String,
     /// push コマンド (jj git push / git push)
