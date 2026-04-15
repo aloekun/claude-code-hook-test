@@ -102,10 +102,14 @@ pub(crate) fn update_state_from_check_result(
         state.summary = summary.to_string();
     }
     if let Some(ci_val) = result.get("ci") {
-        state.ci = serde_json::from_value(ci_val.clone()).ok();
+        if let Ok(ci) = serde_json::from_value(ci_val.clone()) {
+            state.ci = Some(ci);
+        }
     }
     if let Some(cr_val) = result.get("coderabbit") {
-        state.coderabbit = serde_json::from_value(cr_val.clone()).ok();
+        if let Ok(cr) = serde_json::from_value(cr_val.clone()) {
+            state.coderabbit = Some(cr);
+        }
     }
     if let Some(findings_val) = result.get("findings") {
         if let Ok(findings) = serde_json::from_value::<Vec<Finding>>(findings_val.clone()) {
@@ -246,6 +250,34 @@ mod tests {
         update_state_from_check_result(&mut state, &result);
         assert_eq!(state.action, "continue_monitoring");
         assert!(state.ci.is_none());
+    }
+
+    #[test]
+    fn update_state_invalid_ci_preserves_existing() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        state.ci = Some(CiState {
+            overall: "success".into(),
+            runs: vec![],
+        });
+        // "ci" キーは存在するが不正な型 (文字列) → デシリアライズ失敗
+        let result = serde_json::json!({ "ci": "invalid" });
+        update_state_from_check_result(&mut state, &result);
+        // 既存の ci が保持されること
+        assert_eq!(state.ci.as_ref().unwrap().overall, "success");
+    }
+
+    #[test]
+    fn update_state_invalid_coderabbit_preserves_existing() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        state.coderabbit = Some(CodeRabbitState {
+            review_state: "approved".into(),
+            new_comments: 0,
+            actionable_comments: None,
+            unresolved_threads: None,
+        });
+        let result = serde_json::json!({ "coderabbit": 42 });
+        update_state_from_check_result(&mut state, &result);
+        assert_eq!(state.coderabbit.as_ref().unwrap().review_state, "approved");
     }
 
     #[test]
