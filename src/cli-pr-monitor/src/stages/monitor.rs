@@ -1,94 +1,59 @@
-use crate::config::{load_config, PostPrMonitorConfig, DEFAULT_POLL_INTERVAL};
+use crate::config::load_config;
 use crate::log::log_info;
-use crate::stages::daemon::spawn_daemon;
-use crate::state::{state_file_path, write_state, PrMonitorState};
+use crate::stages::collect::collect_findings;
+use crate::stages::poll::run_poll_loop;
+use crate::stages::takt::run_takt;
 use crate::util::{get_pr_info, utc_now_iso8601, PrInfo};
 
-// ─── stdout CronCreate 指示 ───
+// ─── 監視開始 (sequential chain) ───
 
-fn print_cron_instruction(state: &PrMonitorState, config: &PostPrMonitorConfig) {
-    let pr_label = state
-        .pr
-        .map(|n| format!("PR #{}", n))
-        .unwrap_or_else(|| "PR".to_string());
-
-    let interval = config.poll_interval_secs.unwrap_or(DEFAULT_POLL_INTERVAL);
-
-    let check_scope = match (
-        config.check_ci.unwrap_or(true),
-        config.check_coderabbit.unwrap_or(true),
-    ) {
-        (true, true) => "CI + CodeRabbit",
-        (true, false) => "CI",
-        (false, true) => "CodeRabbit",
-        (false, false) => "なし",
-    };
-
-    println!(
-        r#"
-{pr_label} の {check_scope} 監視 daemon を起動しました (PID: {pid})。
-
-【必須】daemon 起動後は確認なしで即座に CronCreate を実行すること。
-CronCreate {{
-  cron: "*/{interval_min} * * * *",
-  prompt: "cat .claude/pr-monitor-state.json を実行し、action フィールドに従って行動:\n- continue_monitoring → 何もせず待つ\n- stop_monitoring_success → CronDelete。成功を報告\n- stop_monitoring_failure → CronDelete。summary を報告\n- action_required → CronDelete。/post-pr-create-review-check で詳細確認\ndaemon_status が completed/timed_out/error なら CronDelete。処理後は pnpm mark-notified を実行。"
-}}
-
-手動確認: cat .claude/pr-monitor-state.json"#,
-        pr_label = pr_label,
-        check_scope = check_scope,
-        pid = state
-            .daemon_pid
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "?".to_string()),
-        interval_min = (interval / 60).max(1),
-    );
-}
-
-// ─── 監視開始 (共通ロジック) ───
-
-pub(crate) fn start_monitoring(pr_info: &PrInfo, push_time: &str) -> i32 {
+pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     let config = load_config();
-    let monitor_config = config.post_pr_monitor.unwrap_or_default();
 
-    if !monitor_config.enabled.unwrap_or(true) {
+    if !config.monitor.enabled {
         log_info("監視は設定で無効化されています");
         return 0;
     }
 
-    let state_path = state_file_path();
+    let pr_label = pr_info
+        .pr_number
+        .map(|n| format!("PR #{}", n))
+        .unwrap_or_else(|| "PR".to_string());
 
-    // 初期 state 作成 -> 先に書き出してから daemon をスポーン
-    // (daemon は state file がないと即終了するため、書き込みを先に行う)
-    let mut state = PrMonitorState::new(
-        pr_info.pr_number,
-        pr_info.repo.clone(),
-        push_time.to_string(),
-    );
+    log_info(&format!("{} の監視を開始", pr_label));
 
-    if let Err(e) = write_state(&state) {
-        log_info(&format!("初期 state 書き込み失敗: {}", e));
-        return 1;
+    // Stage 1: poll_loop (in-process, blocking)
+    let poll_result = run_poll_loop(&config.monitor, pr_info);
+
+    log_info(&format!(
+        "ポーリング完了: action={}, summary={}",
+        poll_result.action, poll_result.summary
+    ));
+
+    // Stage 2: collect_findings -> .takt/review-comments.json
+    // takt 分析は CodeRabbit 起因のシグナルに限定する (CI-only 失敗では起動しない)
+    let has_coderabbit_findings = !poll_result.findings.is_empty()
+        || poll_result
+            .coderabbit
+            .as_ref()
+            .map(|c| c.new_comments > 0 || c.unresolved_threads.unwrap_or(0) > 0)
+            .unwrap_or(false);
+
+    if has_coderabbit_findings {
+        if !collect_findings(&poll_result) {
+            log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
+        } else if let Some(takt_config) = &config.takt {
+            // Stage 3: takt analysis
+            if !run_takt(takt_config) {
+                log_info("takt 分析失敗 (非致命的: ポーリング結果はそのまま報告)");
+            }
+        } else {
+            log_info("takt 設定なし: AI 分析をスキップ");
+        }
     }
 
-    // Daemon スポーン (state file が存在する状態で起動)
-    match spawn_daemon(&state_path) {
-        Ok(pid) => {
-            state.daemon_pid = Some(pid);
-            log_info(&format!("daemon スポーン完了 (PID: {})", pid));
-        }
-        Err(e) => {
-            state.daemon_status = "error".to_string();
-            state.summary = format!("daemon スポーン失敗: {}", e);
-            log_info(&format!("daemon スポーン失敗: {}", e));
-        }
-    }
-
-    // daemon PID を含む最終 state を書き込み
-    let _ = write_state(&state);
-
-    // stdout に CronCreate 指示を出力
-    print_cron_instruction(&state, &monitor_config);
+    // Stage 4: report to stdout
+    print_report(&poll_result, &pr_label);
 
     0
 }
@@ -97,13 +62,12 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo, push_time: &str) -> i32 {
 
 pub(crate) fn run_monitor_only() -> i32 {
     let config = load_config();
-    let monitor_config = config.post_pr_monitor.unwrap_or_default();
 
-    if !monitor_config.enabled.unwrap_or(true) {
+    if !config.monitor.enabled {
         return 0;
     }
 
-    let pr_info = get_pr_info();
+    let mut pr_info = get_pr_info();
 
     if pr_info.pr_number.is_none() {
         log_info("PR が存在しないため、監視をスキップします");
@@ -112,6 +76,48 @@ pub(crate) fn run_monitor_only() -> i32 {
 
     log_info("監視のみモード (既存 PR 検出)");
 
-    let push_time = utc_now_iso8601();
-    start_monitoring(&pr_info, &push_time)
+    pr_info.push_time = Some(utc_now_iso8601());
+    start_monitoring(&pr_info)
+}
+
+// ─── レポート出力 ───
+
+fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
+    let ci_status = result
+        .ci
+        .as_ref()
+        .map(|c| c.overall.as_str())
+        .unwrap_or("unknown");
+
+    let cr_status = result
+        .coderabbit
+        .as_ref()
+        .map(|c| {
+            format!(
+                "新規コメント{}件, 未解決スレッド{}件",
+                c.new_comments,
+                c.unresolved_threads.unwrap_or(0)
+            )
+        })
+        .unwrap_or_else(|| "unknown".into());
+
+    let findings_count = result.findings.len();
+
+    println!();
+    println!("=== {} 監視完了 ===", pr_label);
+    println!("CI: {}", ci_status);
+    println!("CodeRabbit: {}", cr_status);
+    println!("action: {}", result.action);
+    println!("summary: {}", result.summary);
+
+    if findings_count > 0 {
+        println!();
+        println!("--- findings ({} 件) ---", findings_count);
+        for f in &result.findings {
+            println!(
+                "  [{}] {}:{} - {} ({})",
+                f.severity, f.file, f.line, f.issue, f.source
+            );
+        }
+    }
 }

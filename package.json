@@ -21,8 +21,6 @@
     "create-pr": ".\\.claude\\cli-pr-monitor.exe",
     "merge-pr": ".\\.claude\\cli-merge-pipeline.exe",
     "check-ci": ".\\.claude\\check-ci-coderabbit.exe",
-    "mark-notified": ".\\.claude\\cli-pr-monitor.exe --mark-notified",
-    "check-monitor": "type .\\.claude\\pr-monitor-state.json 2>NUL || echo No active monitor",
     "deploy:hooks": "npx tsx scripts/deploy-hooks.ts",
     "py-lint": "ruff check src/",
     "py-test": "python -m pytest tests/",

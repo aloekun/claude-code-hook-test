@@ -34,6 +34,14 @@ pub(crate) fn run_diff(config: &DiffConfig) -> bool {
         }
     };
 
+    if output.is_empty() {
+        log_stage(
+            "diff",
+            "diff 出力が空です。レビュー対象の変更がありません。diff コマンドの revision 指定を確認してください。",
+        );
+        return false;
+    }
+
     let path = Path::new(&config.output_path);
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
@@ -72,6 +80,30 @@ mod tests {
             line_count > 40,
             "expected >40 lines captured, got {}; run_diff_cmd must not apply the 40-line cap",
             line_count
+        );
+    }
+
+    #[test]
+    fn run_diff_returns_false_when_output_is_empty() {
+        let out_path = std::env::temp_dir().join("test-run-diff-empty.txt");
+        // Ensure a clean slate in case a previous run left the file.
+        let _ = std::fs::remove_file(&out_path);
+
+        let config = DiffConfig {
+            // `type nul` produces zero bytes on Windows.
+            command: "type nul".to_string(),
+            output_path: out_path.to_string_lossy().into_owned(),
+        };
+
+        let result = run_diff(&config);
+
+        assert!(
+            !result,
+            "run_diff must return false when the diff command produces empty output"
+        );
+        assert!(
+            !out_path.exists(),
+            "output file must not be created for an empty diff"
         );
     }
 }

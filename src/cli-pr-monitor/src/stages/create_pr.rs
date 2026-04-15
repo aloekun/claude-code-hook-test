@@ -204,13 +204,16 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
         PrInfo {
             pr_number: pr_number_from_url,
             repo,
+            push_time: Some(push_time.clone()),
         }
     } else {
         log_info("PR URL からの番号取得失敗、gh コマンドで検索");
-        get_pr_info()
+        let mut info = get_pr_info();
+        info.push_time = Some(push_time.clone());
+        info
     };
 
-    start_monitoring(&pr_info, &push_time)
+    start_monitoring(&pr_info)
 }
 
 #[cfg(test)]

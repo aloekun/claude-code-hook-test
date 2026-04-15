@@ -1,0 +1,17 @@
+# pr-monitor-config.toml -- cli-pr-monitor (takt ベース) の設定
+#
+# pnpm create-pr / pnpm push (--monitor-only) で起動される
+# cli-pr-monitor.exe がこのファイルを読み込む。
+# カレントディレクトリ (リポジトリルート) を優先的に検索する。
+
+[monitor]
+enabled = true
+poll_interval_secs = 120
+max_duration_secs = 600
+check_ci = true
+check_coderabbit = true
+
+[takt]
+workflow = "post-pr-review"
+task = "analyze PR review comments"
+extra_args = ["--pipeline", "--skip-git"]
