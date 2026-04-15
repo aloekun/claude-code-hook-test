@@ -1,0 +1,42 @@
+name: post-pr-review
+description: >
+  CodeRabbit レビューコメントを分析し、深刻度別レポートを出力する。
+  入力: .takt/review-comments.json (Rust exe が書き出し)
+  Phase 1: 分析のみ。Phase 2 で fix loop を追加予定。
+
+workflow_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+
+max_steps: 5
+initial_step: analyze
+
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1: analyze
+  #   CodeRabbit の指摘を深刻度別に分類し、構造化レポートを出力する。
+  #   Phase 2 で fix / re-review ステップを追加予定。
+  # ---------------------------------------------------------------------------
+  - name: analyze
+    edit: false
+    persona: code-reviewer
+    policy: review
+    knowledge: architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+    instruction: analyze-coderabbit
+    output_contracts:
+      report:
+        - name: coderabbit-analysis.md
+          format: coderabbit-analysis
+    rules:
+      - condition: Analysis complete
+        next: COMPLETE

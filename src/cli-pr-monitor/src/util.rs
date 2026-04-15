@@ -6,6 +6,7 @@ use crate::runner::run_gh_quiet;
 pub(crate) struct PrInfo {
     pub(crate) pr_number: Option<u64>,
     pub(crate) repo: Option<String>,
+    pub(crate) push_time: Option<String>,
 }
 
 /// PR 情報を取得する（多段フォールバック）
@@ -27,7 +28,11 @@ pub(crate) fn get_pr_info() -> PrInfo {
         .and_then(|s| s.parse::<u64>().ok());
 
     if pr_number.is_some() {
-        return PrInfo { pr_number, repo };
+        return PrInfo {
+            pr_number,
+            repo,
+            push_time: None,
+        };
     }
 
     // Strategy B: jj bookmark -> gh pr list --head (全ブックマークを順に試す)
@@ -47,13 +52,18 @@ pub(crate) fn get_pr_info() -> PrInfo {
         .and_then(|s| s.parse::<u64>().ok());
 
         if pr_number.is_some() {
-            return PrInfo { pr_number, repo };
+            return PrInfo {
+                pr_number,
+                repo,
+                push_time: None,
+            };
         }
     }
 
     PrInfo {
         pr_number: None,
         repo,
+        push_time: None,
     }
 }
 

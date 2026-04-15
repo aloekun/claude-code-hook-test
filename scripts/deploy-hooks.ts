@@ -108,6 +108,12 @@ function deployTo(targetDir: string): boolean {
     "See templates/push-runner-config.toml for a starting point"
   );
 
+  notifyIfMissing(
+    join(targetDir, "pr-monitor-config.toml"),
+    "pr-monitor-config.toml not found — takt pr-monitor requires this at repo root",
+    "See templates/pr-monitor-config.toml for a starting point"
+  );
+
   const templateSrc = join(CLAUDE_DIR, SETTINGS_TEMPLATE);
   if (existsSync(templateSrc)) {
     const template = readFileSync(templateSrc, "utf8");

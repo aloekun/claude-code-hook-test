@@ -106,6 +106,52 @@ pub(crate) fn run_gh_quiet(args: &[&str]) -> Option<String> {
     }
 }
 
+/// takt ワークフロー実行のデフォルトタイムアウト (10 分)
+const TAKT_TIMEOUT_SECS: u64 = 600;
+
+/// stdio を継承してコマンドを実行する (takt 呼び出し用、タイムアウト付き)
+pub(crate) fn run_cmd_inherit(label: &str, program: &str, args: &[&str]) -> bool {
+    crate::log::log_info(&format!("{}: {} {}", label, program, args.join(" ")));
+    let mut child = match Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            crate::log::log_info(&format!("{} の起動に失敗: {}", label, e));
+            return false;
+        }
+    };
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(TAKT_TIMEOUT_SECS);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    crate::log::log_info(&format!(
+                        "{} タイムアウト ({}秒)",
+                        label, TAKT_TIMEOUT_SECS
+                    ));
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(e) => {
+                crate::log::log_info(&format!("{} の待機に失敗: {}", label, e));
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
 pub(crate) fn checker_exe_path() -> PathBuf {
     std::env::current_exe()
         .unwrap_or_default()

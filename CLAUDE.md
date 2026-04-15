@@ -19,6 +19,7 @@
 - [ADR-015: Push Pipeline を takt ベースの push-runner に移行](docs/adr/adr-015-push-runner-takt-migration.md) *(Supersedes ADR-008 の push 前パイプライン部分)*
 - [ADR-016: Claude Code Bash ツールでの長時間コマンド実行戦略](docs/adr/adr-016-long-running-command-strategy.md)
 - [ADR-017: takt バージョン固定と検証環境の維持](docs/adr/adr-017-takt-version-pinning.md)
+- [ADR-018: cli-pr-monitor の takt ベース移行と CronCreate 廃止](docs/adr/adr-018-pr-monitor-takt-migration.md) *(Supersedes ADR-009 の daemon + CronCreate 部分)*
 
 ## Build
 
