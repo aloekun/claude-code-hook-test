@@ -12,7 +12,4 @@ regex = "1.10"
 [dev-dependencies]
 tempfile = "3"
 
-[profile.release]
-opt-level = 3
-lto = true
-strip = true
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

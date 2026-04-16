@@ -1,0 +1,40 @@
+# Workspace root for all Rust packages (ADR-026)
+#
+# 目的:
+#   1. `cargo test` / `cargo build` を workspace 全体で一括実行可能にする
+#      (各 package で `--manifest-path` 指定が不要)
+#   2. shared `target/` で compile cache を共有し、ビルド時間を短縮
+#   3. push pipeline (push-runner-config.toml の rust-test group) で
+#      unit tests と ignored tests を 2 コマンドで網羅できる:
+#        cargo test
+#        cargo test -- --ignored --test-threads=1
+#      (ignored tests は cwd 依存のため直列実行が必須)
+#
+# 方針:
+#   - 各 member の Cargo.toml の edition / version はそのまま保持
+#   - [profile.release] は Cargo がメンバーレベルの設定を無視するため root に集約必須
+#     (YAGNI ではなく Cargo の仕様要件、ADR-026 §設計原則 2 参照)
+#   - 依存の重複解消 (`[workspace.dependencies]`) は実利が見えてから別 PR で対応
+
+[workspace]
+resolver = "2"
+members = [
+    "src/check-ci-coderabbit",
+    "src/cli-merge-pipeline",
+    "src/cli-pr-monitor",
+    "src/cli-push-pipeline",
+    "src/cli-push-runner",
+    "src/hooks-post-tool-linter",
+    "src/hooks-pre-tool-validate",
+    "src/hooks-session-start",
+    "src/hooks-stop-quality",
+    "src/lib-report-formatter",
+]
+
+# workspace 化に伴い [profile.*] は必ず root で定義する必要がある
+# (member の profile 設定は Cargo により ignore される)。
+# 各 member が持っていた同等設定を root に集約。
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

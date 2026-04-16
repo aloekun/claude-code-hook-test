@@ -27,6 +27,7 @@
 - [ADR-023: CodeRabbit false positive 対応スキル](docs/adr/adr-023-coderabbit-reject-thread-skill.md) *(試験運用)*
 - [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md) *(試験運用)*
 - [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(試験運用)*
+- [ADR-026: Cargo workspace による Rust パッケージ統合](docs/adr/adr-026-cargo-workspace.md)
 
 ## Automated actor boundary (ADR-022)
 
