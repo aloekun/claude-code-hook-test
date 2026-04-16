@@ -22,6 +22,20 @@
 - [ADR-018: cli-pr-monitor の takt ベース移行と CronCreate 廃止](docs/adr/adr-018-pr-monitor-takt-migration.md) *(Supersedes ADR-009 の daemon + CronCreate 部分)*
 - [ADR-019: CodeRabbit レビュー運用のハイブリッド構成](docs/adr/adr-019-coderabbit-review-hybrid-policy.md)
 - [ADR-020: takt facets (fix/supervise) の pre-push/post-pr 共通化戦略](docs/adr/adr-020-takt-facets-sharing.md)
+- [ADR-021: jj 変更検出ロジックの設計原則](docs/adr/adr-021-jj-change-detection-principles.md)
+- [ADR-022: 自動化コンポーネントの責務分離原則](docs/adr/adr-022-automation-responsibility-separation.md)
+- [ADR-023: CodeRabbit false positive 対応スキル](docs/adr/adr-023-coderabbit-reject-thread-skill.md) *(試験運用)*
+- [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md) *(試験運用)*
+- [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(試験運用)*
+
+## Automated actor boundary (ADR-022)
+
+takt / claude -p / cli-* の副作用は**コード修正とレポート生成**に限定する。以下は人間の責務であり、automated actor は触らない:
+
+- commit message / commit description
+- bookmark / branch 名
+- tag
+- PR title / PR body (作成時の user-supplied text をそのまま使う)
 
 ## Build
 
