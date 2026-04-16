@@ -4,7 +4,7 @@
 
 ---
 
-## 現在進行中 (2026-04-16 スナップショット)
+## 現在進行中 (2026-04-17 スナップショット)
 
 ### 1. conflicted bookmarks の棚卸し
 
@@ -136,40 +136,26 @@
   - 上記 #1 の `feat/session-start-hook` の活用方針が決まらないとセッション引継ぎ設計ができない
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 4. cli-pr-monitor の auto re-push 誤発火修正 (実装済み / PR レビュー待ち)
+### 4. Cargo workspace 化 + rust-test template 反映 (ADR-022 導入に伴う infra 整備)
 
-- **やろうとしたこと**: PR #43 作成時に観測された `[post-pr-monitor] takt fix による変更を検出` の誤判定を修正。takt verdict が `user_decision` (Minor only) で fix が走っていないのに、cli-pr-monitor が「169 insertions, 17 deletions」を検出して auto re-push を発動し、commit description が元の `docs(todo): ...` から `fix(cli-pr-monitor): CodeRabbit 指摘を自動修正` に上書きされた
-- **現在地**: 調査完了、実装方針決定済み
-  - **根本原因** (2 つの連鎖バグ):
-    - **バグ #1 (誤検出)**: `src/cli-pr-monitor/src/stages/monitor.rs:91` の `jj diff --stat` が `@` vs parent の差分を返す。jj の working-copy-is-a-commit モデルで `@` が PR の content commit そのものだと、**PR 全体の diff が常に「takt fix 後の変更」として報告される**
-    - **バグ #2 (破壊的 describe)**: `src/cli-pr-monitor/src/stages/push.rs:15-24` の `jj describe "fix(cli-pr-monitor): ..."` が元 description を無条件上書き。takt fix が `@` を amend する設計 (jj auto-snapshot) と不整合
-  - **責務衝突の観点**: takt は `@` を mutate するツール、cli-pr-monitor は監視とレポート役。にもかかわらず cli-pr-monitor が commit message を書き換えている。責務分離を崩している
-- **詰まっている箇所**: なし (実装方針まで確定)
-- **実装方針** (A' + P1 + 構造化ログ + 二段構え auto_push):
-  - **バグ #1 修正 = 案 A'**: takt 前後で `@` の commit_id を捕捉し、ID 変化 + 実 diff 非空の両方で初めて「変更あり」と判定 (ID 単独だと jj の metadata 更新で誤検知する恐れ)
-  - **バグ #2 修正 = 案 P1**: `jj describe` を完全廃止。元 description を保持し、`jj new` → push のみ実行
-  - **追加改善 #1**: ログを `[state]` (観測) / `[decision]` (判断) / `[action]` (行動) プレフィックスで構造化
-  - **追加改善 #2**: auto_push を `should_auto_push(setting) && HasChange` の二段構えに変更
-- **実装順序**:
-  - [x] Step 1: `decide_repush(pre_cid, post_cid, diff_empty_fn) -> RepushDecision` pure function + unit tests
-    - 分岐: `pre == post` → `NoChange` / `pre != post && diff 空` → `NoChange` / `pre != post && diff 非空` → `HasChange` / 取得失敗 → `IdCaptureFailed` (fail-safe)
-  - [x] Step 2: `capture_commit_id()` と `diff_is_empty(from, to)` を `runner.rs` に追加
-  - [x] Step 3: `handle_repush` 廃止 → `start_monitoring` 内に decision ベースで統合。構造化ログに切り替え
-  - [x] Step 4: `push.rs` の `jj describe` 削除 (P1)。`jj new` → push の 2 ステップに縮小
-  - [x] Step 5: auto_push 二段構えに変更 (`should_auto_push && HasChange`)
-  - [x] Step 6: 統合テスト 1 本追加 (`stages/repush.rs` 内 `#[ignore]` 付き)
-    - 内容: dummy jj repo + no-op takt mock → 「不要な push が発生しない」「commit description が保持される」を検証
-  - [x] Step 7: `cargo test` で unit 全体パス確認 (58 passed, 1 ignored)
-  - [x] Step 8: `push-runner-config.toml` の `[[quality_gate.groups]]` に Rust test group を追加 (`cargo test --workspace -- --include-ignored` を push pipeline でのみ実行)
-  - [x] Step 9: `pnpm build:cli-pr-monitor` で exe 再ビルド → PR 作成
-- **テスト戦略**:
-  - **Unit (メイン)**: `decide_repush` の 4 分岐、既存 `should_auto_push` テスト継続
-  - **統合 (最小 1 本)**: `#[ignore]` 付き。push pipeline の `cargo test -- --include-ignored` でのみ走る
-  - **PostToolUse / Stop hook では Rust test を実行しない** (イテレーション速度保護)
-- **設計的補足**:
-  - 統合テストは「外部依存の相互作用の前提が壊れていないか」の最小確認。網羅は unit で担保
-  - `jj describe` 廃止は「commit message 管理責務を cli-pr-monitor から外す」設計的意味を持つ (takt ≠ commit message 管理者)
-- **依存関係**: なし (本 task は独立完結)
+- **やろうとしたこと**: PR #44 のセッション知見を元に:
+  1. Rust test を push pipeline で一発実行できるよう Cargo workspace 化 (現状は各 package 独立で `--manifest-path` 指定が必要)
+  2. `templates/push-runner-config.toml` に `rust-test` group を反映し、派生プロジェクトへ `pnpm deploy:hooks` で配布できるようにする
+- **現在地**: PR-α (ADR-021~025) マージ後に着手予定
+  - [ ] 全 Rust package (9 個) の `Cargo.toml` 整合性調査 (edition / resolver / profile.release)
+  - [ ] ルート `Cargo.toml` 作成 (`[workspace]` + `members = [...]`)
+  - [ ] `push-runner-config.toml` の rust-test command を `cargo test` (workspace) に戻す
+  - [ ] `templates/push-runner-config.toml` に rust-test group + コメント追加
+  - [ ] 回帰テスト: `cargo test` (workspace 全体) + `pnpm build:all`
+  - [ ] ADR-026 執筆 (Cargo workspace 化の判断記録)
+  - [ ] PR-β 作成 → レビュー → マージ
+- **詰まっている箇所**: なし (方針確定済み)
+- **依存関係**:
+  - PR-α (ADR-021~025) が先行マージされていること (ADR-022 の責務分離原則を参照するため)
+- **参照 ADR**:
+  - ADR-021: jj 変更検出ロジック (本実装で確立、ライブラリ化は ADR-024 (仮) で様子見)
+  - ADR-022: 自動化コンポーネントの責務分離 (本 PR で実装完了)
+  - ADR-026 (予定): Cargo workspace 化の判断記録
 
 ---
 
@@ -219,3 +205,34 @@ ADR-019 および ADR-020 の「次ステップ」セクションで明記され
 - [x] **ADR-020: takt facets (fix/supervise) の pre-push/post-pr 共通化戦略** 執筆 — 同一 facets ファイルを 2 つの workflow で共有する方式を記録
 - [x] `CLAUDE.md` の ADR index に ADR-019 / ADR-020 リンク追加
 - [x] PR #42 として push → squash マージ (2026-04-16)
+
+### docs/todo.md inflight タスク棚卸し + pre-push-review 調査 (PR #43)
+
+- [x] 運用ルール (in-flight タスクに「やろうとしたこと / 現在地 / 詰まっている箇所」を必ず書く) を冒頭に追加
+- [x] 現在進行中タスク (conflicted bookmarks / pre-push-review 絞り込み / マージ後フィードバック定常化) のスナップショット作成
+- [x] `.takt/runs/*` 8 runs 実測による pre-push-review arch-review のボトルネック分析
+- [x] PR #43 として push → squash マージ (2026-04-16)
+- **副産物**: 本 PR 作成時に cli-pr-monitor の auto re-push 誤発火バグを観測、task #4 として記録
+
+### cli-pr-monitor の auto re-push 誤発火修正 (PR #44)
+
+- [x] **バグ #1 (誤検出) 修正**: `jj diff --stat` 単独を廃止、`decide_repush` 二段構え判定 (commit_id + diff) に置き換え
+- [x] **バグ #2 (破壊的 describe) 修正**: `push.rs` の `jj describe` を削除 (案 P1)、元 description を保持
+- [x] **構造化ログ導入**: `[state]` / `[decision]` / `[action]` プレフィックスで事実・判断・行動を分離
+- [x] **auto_push 二段構え**: `should_run_auto_push(setting, has_change)` で設定と実変更の AND 判定
+- [x] **テスト**: unit 10 本 (should_auto_push / should_run_auto_push / decide_repush の 4 分岐) + 統合 1 本 (#[ignore] 付き、dummy jj repo で no-op シナリオ検証)
+- [x] **リファクタ**: `stages/repush.rs` 新設で monitor.rs を 102 行削減
+- [x] **CwdRestore Drop guard**: CodeRabbit Minor 指摘 (panic-safe) 対応
+- [x] **push-runner-config.toml**: `rust-test` group を追加 (push pipeline でのみ実行)
+- [x] **CodeRabbit false positive 手動フォロー**: Major 指摘 (ADR-019 と矛盾) に返信 + resolve
+- [x] PR #44 として push → squash マージ (2026-04-17)
+- **知見**: 自己検証的 PR (修正対象のバグが PR の初回 push で自動検証された)
+
+### ADR-021 ～ 025 の PR 化 (セッション知見の定常化)
+
+- [x] **ADR-021**: jj 変更検出ロジックの設計原則 (二段構え判定)
+- [x] **ADR-022**: 自動化コンポーネントの責務分離原則 (takt/cli-* は commit message を触らない)
+- [x] **ADR-023 (仮)**: CodeRabbit false positive 対応スキル (試験運用、~2026-07-31 観察)
+- [x] **ADR-024 (仮)**: 共通 jj ヘルパーライブラリ (試験運用、2 つ目の使用例まで保留)
+- [x] **ADR-025 (仮)**: CwdRestore Drop guard パターン (試験運用、2 つ目の使用例まで保留)
+- [x] `CLAUDE.md` の ADR index 更新 + Automated actor boundary セクション追加
