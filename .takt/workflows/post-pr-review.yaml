@@ -1,8 +1,8 @@
 name: post-pr-review
 description: >
-  CodeRabbit レビューコメントを分析し、深刻度別レポートを出力する。
+  CodeRabbit レビューコメントを分析・フィルタし、Critical/Major を自動修正する。
   入力: .takt/review-comments.json (Rust exe が書き出し)
-  Phase 1: 分析のみ。Phase 2 で fix loop を追加予定。
+  フロー: analyze (適合性フィルタ + 深刻度分類) -> fix (Critical/Major) -> supervise
 
 workflow_config:
   provider_options:
@@ -11,14 +11,30 @@ workflow_config:
     opencode:
       network_access: true
 
-max_steps: 5
+max_steps: 30
 initial_step: analyze
+
+loop_monitors:
+  - cycle:
+      - analyze
+      - fix
+    threshold: 2
+    judge:
+      persona: supervisor
+      instruction: loop-monitor-reviewers-fix
+      rules:
+        - condition: Healthy (progress being made)
+          next: analyze
+        - condition: Unproductive (repeated findings, fixes not applied)
+          next: supervise
 
 steps:
   # ---------------------------------------------------------------------------
   # Step 1: analyze
-  #   CodeRabbit の指摘を深刻度別に分類し、構造化レポートを出力する。
-  #   Phase 2 で fix / re-review ステップを追加予定。
+  #   CodeRabbit 指摘をプロジェクト適合性でフィルタし、深刻度を再分類する。
+  #   approved: 指摘なし or 全て不適合 -> COMPLETE
+  #   needs_fix: Critical/Major あり -> fix
+  #   user_decision: Medium 以下のみ -> COMPLETE (レポート出力のみ)
   # ---------------------------------------------------------------------------
   - name: analyze
     edit: false
@@ -38,5 +54,106 @@ steps:
         - name: coderabbit-analysis.md
           format: coderabbit-analysis
     rules:
-      - condition: Analysis complete
+      - condition: approved
         next: COMPLETE
+      - condition: needs_fix
+        next: fix
+      - condition: user_decision
+        next: COMPLETE
+
+  # ---------------------------------------------------------------------------
+  # Step 2: fix
+  #   Critical/Major の自動修正。fix.md (pre-push-review と共有) をベースに、
+  #   CodeRabbit 指摘に特化した入力ソース指示を追加。
+  #   loop_monitor で最大 2 回の fix -> analyze ループを許可。
+  # ---------------------------------------------------------------------------
+  - name: fix
+    edit: true
+    persona: coder
+    model: sonnet
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - architecture
+      - security
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    pass_previous_response: false
+    instruction: fix
+    rules:
+      - condition: Fixes complete
+        next: analyze
+      - condition: Unable to proceed with fixes
+        next: supervise
+
+  # ---------------------------------------------------------------------------
+  # Step 3: supervise
+  #   エスカレーション。fix.md / supervise.md は pre-push-review と共有。
+  # ---------------------------------------------------------------------------
+  - name: supervise
+    edit: false
+    persona: supervisor
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - WebSearch
+          - WebFetch
+    instruction: supervise
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: supervisor-validation.md
+          format: supervisor-validation
+        - name: summary.md
+          format: summary
+          use_judge: false
+    rules:
+      - condition: All validations complete, ready to push
+        next: COMPLETE
+      - condition: Issues detected
+        next: fix_supervisor
+
+  - name: fix_supervisor
+    edit: true
+    persona: coder
+    model: sonnet
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - architecture
+      - security
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+          - WebSearch
+          - WebFetch
+    required_permission_mode: edit
+    instruction: fix-supervisor
+    pass_previous_response: false
+    rules:
+      - condition: Fixes for supervisor findings complete
+        next: supervise
+      - condition: Unable to proceed with fixes
+        next: supervise

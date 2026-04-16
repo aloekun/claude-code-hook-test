@@ -15,3 +15,9 @@ check_coderabbit = true
 workflow = "post-pr-review"
 task = "analyze PR review comments"
 extra_args = ["--pipeline", "--skip-git"]
+
+[fix]
+# Critical 修正は自動 re-push。Major 以下はユーザー確認後 push。
+# "critical" = Critical のみ自動, "major" = Critical+Major 自動, "none" = 全て手動
+auto_push_severity = "critical"
+push_command = "jj git push"

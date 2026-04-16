@@ -13,6 +13,8 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) monitor: MonitorConfig,
     pub(crate) takt: Option<TaktConfig>,
+    #[serde(default)]
+    pub(crate) fix: FixConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -62,6 +64,32 @@ pub(crate) struct TaktConfig {
     pub(crate) workflow: String,
     pub(crate) task: String,
     pub(crate) extra_args: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Clone)]
+pub(crate) struct FixConfig {
+    /// "critical" / "major" は自動 re-push。"none" および未知値はユーザー確認。
+    #[serde(default = "default_auto_push_severity")]
+    pub(crate) auto_push_severity: String,
+    /// push コマンド (jj git push / git push)
+    #[serde(default = "default_push_command")]
+    pub(crate) push_command: String,
+}
+
+fn default_auto_push_severity() -> String {
+    "critical".into()
+}
+fn default_push_command() -> String {
+    "jj git push".into()
+}
+
+impl Default for FixConfig {
+    fn default() -> Self {
+        Self {
+            auto_push_severity: default_auto_push_severity(),
+            push_command: default_push_command(),
+        }
+    }
 }
 
 fn config_path() -> PathBuf {
@@ -192,5 +220,27 @@ task = "t"
         let config: Config = toml::from_str(toml_str).unwrap();
         let takt = config.takt.unwrap();
         assert!(takt.extra_args.is_none());
+    }
+
+    #[test]
+    fn config_fix_defaults() {
+        let toml_str = "[monitor]\n";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.fix.auto_push_severity, "critical");
+        assert_eq!(config.fix.push_command, "jj git push");
+    }
+
+    #[test]
+    fn config_fix_custom() {
+        let toml_str = r#"
+[monitor]
+
+[fix]
+auto_push_severity = "major"
+push_command = "git push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.fix.auto_push_severity, "major");
+        assert_eq!(config.fix.push_command, "git push");
     }
 }
