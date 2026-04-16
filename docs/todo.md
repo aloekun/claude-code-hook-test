@@ -27,4 +27,13 @@
 
 ## プロセス改善
 
-- [ ] **マージ後フィードバックの定常化**: PR マージ後に毎回、セッションで得られた知見を整理し「ADR として記録すべきもの」「既存の仕組みに反映すべきもの」をフィードバックとして提示する。post-merge-feedback スキルの拡張、または独立したチェックリストとして運用化を検討
+- [ ] **マージ後フィードバックの定常化** (cli-merge-pipeline の post_steps 統合案):
+  - **現状**: `pnpm merge-pr` マージ後に毎回「ADR として記録すべきもの」「既存の仕組みに反映すべきもの」を手動で依頼している。`docs/adr/adr-014-post-merge-feedback.md` で提唱された `post-merge-feedback` スキルは存在するが、明示的トリガーでしか動かない
+  - **方針**: cli-merge-pipeline の `[merge_pipeline.post_steps]` に AI ステップを追加し、マージ完了後に自動で `post-merge-feedback` スキル相当の知見整理を実行する
+  - **作業項目**:
+    - [ ] `src/cli-merge-pipeline/src/main.rs` の `run_steps` の `"ai"` 分岐を現在の `SKIP` から実装に置き換える (takt 経由で skill を起動、または claude -p で起動)
+    - [ ] `.claude/hooks-config.toml` の `[[merge_pipeline.post_steps]]` に `type = "ai"`, `prompt = "post-merge-feedback"` を設定
+    - [ ] `post-merge-feedback` スキルが PR 番号とブランチ名を受け取れるよう、cli-merge-pipeline から環境変数または引数で渡す
+    - [ ] マージ済みセッションの会話ログを参照する手段 (Claude Code Session ID 等) を検討
+  - **依存**: ADR-016 (長時間コマンド実行) の制約を満たすため、post_steps の AI 起動も `run_in_background` 前提で設計する
+  - **検証環境**: takt-test-vc での試験運用後、本プロジェクトに反映
