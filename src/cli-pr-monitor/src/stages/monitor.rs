@@ -2,7 +2,7 @@ use crate::config::load_config;
 use crate::log::{log_info, truncate_safe};
 use crate::stages::collect::collect_findings;
 use crate::stages::poll::run_poll_loop;
-use crate::stages::push::run_push;
+use crate::stages::repush::execute_repush_flow;
 use crate::stages::takt::run_takt;
 use crate::util::{get_pr_info, utc_now_iso8601, PrInfo};
 
@@ -41,13 +41,19 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
             .unwrap_or(false);
 
     let mut takt_succeeded = false;
+    // takt 実行前の @ commit id (取れない/takt 未実行なら None)。
+    // 二段構え re-push 判定のため run_takt の前に捕捉する。
+    let mut pre_takt_cid: Option<String> = None;
 
     if has_coderabbit_findings {
         if !collect_findings(&poll_result) {
             log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
         } else if let Some(takt_config) = &config.takt {
             // Stage 3: takt analysis + fix loop
+            pre_takt_cid = crate::runner::capture_commit_id();
+            log_info(&format!("[state] pre_takt_commit_id: {:?}", pre_takt_cid));
             takt_succeeded = run_takt(takt_config);
+            log_info(&format!("[state] takt_succeeded: {}", takt_succeeded));
             if !takt_succeeded {
                 log_info("takt ワークフロー失敗 (非致命的: ポーリング結果はそのまま報告)");
             }
@@ -56,75 +62,17 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
         }
     }
 
-    // Stage 4: re-push (ハイブリッド)
-    // takt が fix を実行した場合、変更の有無を確認して re-push を判断
+    // Stage 4: re-push (二段構え判定)
+    // 1) commit id 変化 + 実 diff 非空 = HasChange のみ push 対象
+    // 2) さらに auto_push_severity 設定で自動 push 可否を判定
     if takt_succeeded && has_coderabbit_findings {
-        handle_repush(&config.fix, &pr_label);
+        execute_repush_flow(&config.fix, &pr_label, pre_takt_cid.as_deref());
     }
 
     // Stage 5: report to stdout
     print_report(&poll_result, &pr_label);
 
     0
-}
-
-// ─── re-push ハンドラ ───
-
-/// auto_push_severity 設定値から自動 push するか否かを返す。
-/// "critical" / "major" => true、"none" => false、未知値 => false (警告ログあり)
-pub(crate) fn should_auto_push(setting: &str) -> bool {
-    match setting {
-        "none" => false,
-        "critical" | "major" => true,
-        other => {
-            log_info(&format!(
-                "auto_push_severity に未知の値 '{}' が指定されています。'none' として扱い自動 push をスキップします",
-                other
-            ));
-            false
-        }
-    }
-}
-
-fn handle_repush(fix_config: &crate::config::FixConfig, pr_label: &str) {
-    // jj diff で実際のコード変更があるか確認
-    let (ok, diff_output) = crate::runner::run_cmd_direct("jj", &["diff", "--stat"], &[], 30);
-    if !ok {
-        log_info(&format!(
-            "jj diff --stat 実行失敗: re-push を中断します\n{}",
-            diff_output.trim()
-        ));
-        return;
-    }
-    if diff_output.trim().is_empty() {
-        log_info("takt fix 後の変更なし: re-push スキップ");
-        return;
-    }
-
-    log_info(&format!(
-        "takt fix による変更を検出:\n{}",
-        diff_output.trim()
-    ));
-
-    // 自動 push 判定: takt が fix を実行し jj diff に変更がある場合のみ re-push 対象
-    // NOTE: takt の fitness filter が not_applicable な指摘を除外済みのため、
-    // ここでは生 findings ではなく auto_push_severity 設定のみで判断する
-    let auto_push = should_auto_push(fix_config.auto_push_severity.as_str());
-
-    if auto_push {
-        log_info(&format!(
-            "{} の takt fix 修正を自動 re-push します",
-            pr_label
-        ));
-        if run_push(fix_config) {
-            log_info("自動 re-push 完了");
-        } else {
-            log_info("自動 re-push 失敗 (手動対応が必要です)");
-        }
-    } else {
-        log_info("修正内容はコミット済みですが、re-push はユーザー確認待ちです");
-        log_info("確認後に pnpm push を実行してください");
-    }
 }
 
 // ─── 監視のみモード ───
@@ -147,34 +95,6 @@ pub(crate) fn run_monitor_only() -> i32 {
 
     pr_info.push_time = Some(utc_now_iso8601());
     start_monitoring(&pr_info)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_auto_push_none_returns_false() {
-        assert!(!should_auto_push("none"));
-    }
-
-    #[test]
-    fn should_auto_push_critical_returns_true() {
-        assert!(should_auto_push("critical"));
-    }
-
-    #[test]
-    fn should_auto_push_major_returns_true() {
-        assert!(should_auto_push("major"));
-    }
-
-    #[test]
-    fn should_auto_push_unknown_value_returns_false() {
-        // タイポや未知値は fail-closed: 自動 push しない
-        assert!(!should_auto_push("non"));
-        assert!(!should_auto_push("Critical"));
-        assert!(!should_auto_push(""));
-    }
 }
 
 // ─── レポート出力 ───

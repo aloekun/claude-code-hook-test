@@ -19,6 +19,19 @@ commands = ["pnpm test", "pnpm test:e2e"]
 name = "build"
 commands = ["pnpm build"]
 
+# Rust test group: push pipeline でのみ実行。
+# PostToolUse / Stop hook では実行せず、イテレーション速度を保護する。
+# 本プロジェクトは Cargo workspace ではなくパッケージ毎独立のため、
+# --manifest-path で個別に指定する。
+# 1 つ目: unit tests (並列実行可、高速)
+# 2 つ目: 統合テスト (#[ignore] 付き、cwd 依存のため --test-threads=1 必須)
+[[quality_gate.groups]]
+name = "rust-test"
+commands = [
+  "cargo test --manifest-path src/cli-pr-monitor/Cargo.toml",
+  "cargo test --manifest-path src/cli-pr-monitor/Cargo.toml -- --ignored --test-threads=1",
+]
+
 [diff]
 command = "jj diff -r @"
 output_path = ".takt/review-diff.txt"

@@ -136,22 +136,40 @@
   - 上記 #1 の `feat/session-start-hook` の活用方針が決まらないとセッション引継ぎ設計ができない
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 4. cli-pr-monitor の auto re-push 誤発火調査
+### 4. cli-pr-monitor の auto re-push 誤発火修正 (実装済み / PR レビュー待ち)
 
-- **やろうとしたこと**: PR #43 作成時に観測された `[post-pr-monitor] takt fix による変更を検出` の誤判定を調査。takt verdict が `user_decision` (Minor only) で fix が走っていないのに、cli-pr-monitor が「169 insertions, 17 deletions」を検出して auto re-push を発動し、commit description が元の `docs(todo): ...` から `fix(cli-pr-monitor): CodeRabbit 指摘を自動修正` に上書きされた
-- **現在地**: 未着手 (PR #43 で初観測、この PR で task 化)
-  - **再現条件**:
-    1. `pnpm create-pr` で新規 PR を作成
-    2. CodeRabbit が Minor のみの指摘を返す (Critical/High/Major なし = `user_decision`)
-    3. takt post-pr-review 完了後、cli-pr-monitor が fix 未実行にもかかわらず「変更検出」を報告
-  - **想定原因**: 変更検出ロジックの比較対象 base が誤っている (例: `@-` vs `master` vs 前回 push commit)。あるいは takt workflow 内の snapshot が cli-pr-monitor から見て「新規変更」に見えている
-- **詰まっている箇所**:
-  - cli-pr-monitor のどこで「takt fix による変更を検出」ログを出しているかソース特定が未実施
-  - **Why**: ADR-019 Layer 2 policy では Minor=`user_decision` のときは re-push しない設計。実装がこの policy から逸脱している疑い
-  - **How to apply / 再開手順**:
-    1. `src/cli-pr-monitor/src/**/*.rs` で `"takt fix による変更を検出"` を Grep し、判定ロジックを特定
-    2. 比較 base を確認 (master? 前回 push? takt 実行前の working copy snapshot?)
-    3. `user_decision` verdict で re-push をスキップする条件分岐を追加。テストも追加
+- **やろうとしたこと**: PR #43 作成時に観測された `[post-pr-monitor] takt fix による変更を検出` の誤判定を修正。takt verdict が `user_decision` (Minor only) で fix が走っていないのに、cli-pr-monitor が「169 insertions, 17 deletions」を検出して auto re-push を発動し、commit description が元の `docs(todo): ...` から `fix(cli-pr-monitor): CodeRabbit 指摘を自動修正` に上書きされた
+- **現在地**: 調査完了、実装方針決定済み
+  - **根本原因** (2 つの連鎖バグ):
+    - **バグ #1 (誤検出)**: `src/cli-pr-monitor/src/stages/monitor.rs:91` の `jj diff --stat` が `@` vs parent の差分を返す。jj の working-copy-is-a-commit モデルで `@` が PR の content commit そのものだと、**PR 全体の diff が常に「takt fix 後の変更」として報告される**
+    - **バグ #2 (破壊的 describe)**: `src/cli-pr-monitor/src/stages/push.rs:15-24` の `jj describe "fix(cli-pr-monitor): ..."` が元 description を無条件上書き。takt fix が `@` を amend する設計 (jj auto-snapshot) と不整合
+  - **責務衝突の観点**: takt は `@` を mutate するツール、cli-pr-monitor は監視とレポート役。にもかかわらず cli-pr-monitor が commit message を書き換えている。責務分離を崩している
+- **詰まっている箇所**: なし (実装方針まで確定)
+- **実装方針** (A' + P1 + 構造化ログ + 二段構え auto_push):
+  - **バグ #1 修正 = 案 A'**: takt 前後で `@` の commit_id を捕捉し、ID 変化 + 実 diff 非空の両方で初めて「変更あり」と判定 (ID 単独だと jj の metadata 更新で誤検知する恐れ)
+  - **バグ #2 修正 = 案 P1**: `jj describe` を完全廃止。元 description を保持し、`jj new` → push のみ実行
+  - **追加改善 #1**: ログを `[state]` (観測) / `[decision]` (判断) / `[action]` (行動) プレフィックスで構造化
+  - **追加改善 #2**: auto_push を `should_auto_push(setting) && HasChange` の二段構えに変更
+- **実装順序**:
+  - [x] Step 1: `decide_repush(pre_cid, post_cid, diff_empty_fn) -> RepushDecision` pure function + unit tests
+    - 分岐: `pre == post` → `NoChange` / `pre != post && diff 空` → `NoChange` / `pre != post && diff 非空` → `HasChange` / 取得失敗 → `IdCaptureFailed` (fail-safe)
+  - [x] Step 2: `capture_commit_id()` と `diff_is_empty(from, to)` を `runner.rs` に追加
+  - [x] Step 3: `handle_repush` 廃止 → `start_monitoring` 内に decision ベースで統合。構造化ログに切り替え
+  - [x] Step 4: `push.rs` の `jj describe` 削除 (P1)。`jj new` → push の 2 ステップに縮小
+  - [x] Step 5: auto_push 二段構えに変更 (`should_auto_push && HasChange`)
+  - [x] Step 6: 統合テスト 1 本追加 (`stages/repush.rs` 内 `#[ignore]` 付き)
+    - 内容: dummy jj repo + no-op takt mock → 「不要な push が発生しない」「commit description が保持される」を検証
+  - [x] Step 7: `cargo test` で unit 全体パス確認 (58 passed, 1 ignored)
+  - [x] Step 8: `push-runner-config.toml` の `[[quality_gate.groups]]` に Rust test group を追加 (`cargo test --workspace -- --include-ignored` を push pipeline でのみ実行)
+  - [x] Step 9: `pnpm build:cli-pr-monitor` で exe 再ビルド → PR 作成
+- **テスト戦略**:
+  - **Unit (メイン)**: `decide_repush` の 4 分岐、既存 `should_auto_push` テスト継続
+  - **統合 (最小 1 本)**: `#[ignore]` 付き。push pipeline の `cargo test -- --include-ignored` でのみ走る
+  - **PostToolUse / Stop hook では Rust test を実行しない** (イテレーション速度保護)
+- **設計的補足**:
+  - 統合テストは「外部依存の相互作用の前提が壊れていないか」の最小確認。網羅は unit で担保
+  - `jj describe` 廃止は「commit message 管理責務を cli-pr-monitor から外す」設計的意味を持つ (takt ≠ commit message 管理者)
+- **依存関係**: なし (本 task は独立完結)
 
 ---
 
