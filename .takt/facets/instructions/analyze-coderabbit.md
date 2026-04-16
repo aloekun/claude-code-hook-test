@@ -52,7 +52,7 @@ For `applicable` findings only, classify by severity:
 
 ### Applicable Findings by Severity
 
-#### Critical / Major
+#### Critical / High / Major
 | # | File (Line) | Issue | Recommended Action |
 |---|-------------|-------|--------------------|
 | 1 | path:line   | ...   | ...                |
@@ -69,10 +69,10 @@ For `applicable` findings only, classify by severity:
 
 - **approved**: No applicable findings, OR all applicable findings are Info/Low severity
   - Output: `approved` condition
-- **needs_fix**: Any applicable Critical or Major finding exists
+- **needs_fix**: Any applicable Critical, High, or Major finding exists
   - Output: `needs_fix` condition
   - These will be automatically fixed in the next step
-- **user_decision**: Only Medium or lower applicable findings exist (no Critical/Major)
+- **user_decision**: Only Medium or lower applicable findings exist (no Critical/High/Major)
   - Output: `user_decision` condition
   - These are reported but NOT auto-fixed; the user decides
 
