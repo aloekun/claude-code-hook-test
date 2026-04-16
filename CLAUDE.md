@@ -20,6 +20,8 @@
 - [ADR-016: Claude Code Bash ツールでの長時間コマンド実行戦略](docs/adr/adr-016-long-running-command-strategy.md)
 - [ADR-017: takt バージョン固定と検証環境の維持](docs/adr/adr-017-takt-version-pinning.md)
 - [ADR-018: cli-pr-monitor の takt ベース移行と CronCreate 廃止](docs/adr/adr-018-pr-monitor-takt-migration.md) *(Supersedes ADR-009 の daemon + CronCreate 部分)*
+- [ADR-019: CodeRabbit レビュー運用のハイブリッド構成](docs/adr/adr-019-coderabbit-review-hybrid-policy.md)
+- [ADR-020: takt facets (fix/supervise) の pre-push/post-pr 共通化戦略](docs/adr/adr-020-takt-facets-sharing.md)
 
 ## Build
 
