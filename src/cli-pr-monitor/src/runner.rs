@@ -106,6 +106,45 @@ pub(crate) fn run_gh_quiet(args: &[&str]) -> Option<String> {
     }
 }
 
+// ─── jj CLI ヘルパー ───
+
+/// 現在の working copy (`@`) の commit id を取得する。
+/// 失敗時は `None` を返し、呼び出し側で fail-safe に扱う。
+pub(crate) fn capture_commit_id() -> Option<String> {
+    let (ok, out) = run_cmd_direct(
+        "jj",
+        &["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+        &[],
+        10,
+    );
+    if !ok {
+        crate::log::log_info(&format!("[state] capture_commit_id 失敗: {}", out.trim()));
+        return None;
+    }
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// `from` と `to` の間の diff が空か判定する。
+/// jj コマンドが失敗した場合は `true` (空扱い = NoChange = push しない) を返す。
+/// capture_commit_id と同じ fail-closed 方向に揃えることで誤 push を防ぐ。
+pub(crate) fn diff_is_empty(from: &str, to: &str) -> bool {
+    let (ok, out) =
+        run_cmd_direct("jj", &["diff", "--from", from, "--to", to, "--stat"], &[], 30);
+    if !ok {
+        crate::log::log_info(&format!(
+            "[state] diff_is_empty 判定失敗 (空として扱い push をスキップ): {}",
+            out.trim()
+        ));
+        return true;
+    }
+    out.trim().is_empty()
+}
+
 /// takt ワークフロー実行のデフォルトタイムアウト (10 分)
 const TAKT_TIMEOUT_SECS: u64 = 600;
 
