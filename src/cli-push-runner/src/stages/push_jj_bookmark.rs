@@ -10,21 +10,72 @@ pub(super) fn advance_jj_bookmarks() -> Result<(), String> {
     let bookmarks = get_bookmarks_in_range(&target)?;
 
     if bookmarks.is_empty() {
-        return Ok(()); // 前進対象なし (新規ブランチ等)
+        // Fallback: takt fix が @ を amend すると旧 commit が obsolete になり、
+        // revset ベースの検索では発見できない。`jj bookmark list` は obsolete
+        // commit 上の bookmark も返すため、こちらで再探索する。
+        return advance_bookmarks_via_list(&target);
     }
 
-    for bookmark in &bookmarks {
-        match set_bookmark(bookmark, &target) {
+    apply_bookmarks(&bookmarks, &target, "");
+    Ok(())
+}
+
+fn apply_bookmarks(bookmarks: &[String], target: &str, label: &str) {
+    for bookmark in bookmarks {
+        match set_bookmark(bookmark, target) {
             Ok(()) => log_stage(
                 "push",
-                &format!("bookmark '{}' を {} に自動更新", bookmark, target),
+                &format!("bookmark '{}' を {} に自動更新{}", bookmark, target, label),
             ),
             Err(e) => {
-                log_info(&format!("bookmark '{}' の更新失敗 (続行): {}", bookmark, e));
+                log_info(&format!(
+                    "bookmark '{}' の更新失敗{} (続行): {}",
+                    bookmark, label, e
+                ));
             }
         }
     }
+}
+
+/// `jj bookmark list` の出力から非 trunk ローカル bookmark を取得し、target に前進させる。
+/// revset ベースの `get_bookmarks_in_range` が空を返した場合のフォールバック。
+///
+/// 安全策: 非 trunk bookmark が 1 つだけの場合のみ前進させる。
+/// 複数ある場合は無関係な bookmark を誤って移動するリスクがあるためスキップする。
+fn advance_bookmarks_via_list(target: &str) -> Result<(), String> {
+    let bookmarks = get_local_bookmarks_from_list()?;
+    dispatch_bookmark_advance(&bookmarks, target, |b, t| {
+        apply_bookmarks(b, t, " (fallback)")
+    });
     Ok(())
+}
+
+fn dispatch_bookmark_advance(
+    bookmarks: &[String],
+    target: &str,
+    apply: impl FnOnce(&[String], &str),
+) {
+    match bookmarks.len() {
+        0 => {
+            log_info("ローカル bookmark が見つかりません (新規ブランチ等)");
+        }
+        1 => {
+            log_info(&format!(
+                "fallback: bookmark '{}' を {} に前進させます",
+                bookmarks[0], target
+            ));
+            apply(bookmarks, target);
+        }
+        _ => {
+            // 複数の非 trunk bookmark がある場合、無関係な bookmark を
+            // 誤って移動するリスクがあるためスキップする
+            log_info(&format!(
+                "複数の bookmark ({}) が存在するため fallback 更新をスキップします: {}",
+                bookmarks.len(),
+                bookmarks.join(", ")
+            ));
+        }
+    }
 }
 
 fn determine_target_revision() -> Result<Option<String>, String> {
@@ -100,6 +151,30 @@ fn run_jj_log(revset: &str, template: &str) -> Result<String, String> {
         &["log", "-r", revset, "--no-graph", "-T", template],
         "jj log 実行失敗",
     )
+}
+
+/// `jj bookmark list` の出力をパースし、非 trunk のローカル bookmark 名を返す。
+/// 出力形式: "name: commit_id description\n  @origin: commit_id\n"
+/// インデントで始まる行はリモート追跡情報なのでスキップする。
+fn get_local_bookmarks_from_list() -> Result<Vec<String>, String> {
+    let output = run_jj(&["bookmark", "list"], "jj bookmark list 実行失敗")?;
+    Ok(dedup(parse_bookmark_list_output(&output)))
+}
+
+fn parse_bookmark_list_output(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter(|line| !line.starts_with(' ') && !line.starts_with('\t'))
+        .filter_map(|line| line.split(':').next())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && !is_trunk_bookmark(s))
+        .collect()
+}
+
+const TRUNK_BOOKMARKS: &[&str] = &["main", "master", "trunk", "develop"];
+
+fn is_trunk_bookmark(name: &str) -> bool {
+    TRUNK_BOOKMARKS.contains(&name)
 }
 
 fn dedup(items: Vec<String>) -> Vec<String> {
@@ -192,5 +267,98 @@ mod tests {
             parse_bookmarks_from_template("a,a,b\n"),
             vec!["a", "a", "b"]
         );
+    }
+
+    // --- is_trunk_bookmark ---
+
+    #[test]
+    fn is_trunk_bookmark_matches_known_names() {
+        assert!(is_trunk_bookmark("main"));
+        assert!(is_trunk_bookmark("master"));
+        assert!(is_trunk_bookmark("trunk"));
+        assert!(is_trunk_bookmark("develop"));
+    }
+
+    #[test]
+    fn is_trunk_bookmark_rejects_feature_bookmarks() {
+        assert!(!is_trunk_bookmark("feat/xyz"));
+        assert!(!is_trunk_bookmark("fix/bug-123"));
+        assert!(!is_trunk_bookmark("main-feature"));
+    }
+
+    // --- parse_bookmark_list_output ---
+
+    #[test]
+    fn parse_bookmark_list_typical_output() {
+        let output = "\
+feat/xyz: abc1234 add feature
+  @origin: abc1234 add feature
+main: def5678 initial
+  @origin: def5678 initial
+";
+        assert_eq!(parse_bookmark_list_output(output), vec!["feat/xyz"]);
+    }
+
+    #[test]
+    fn parse_bookmark_list_multiple_feature_bookmarks() {
+        let output = "\
+feat/a: 111 desc
+feat/b: 222 desc
+main: 333 desc
+";
+        assert_eq!(parse_bookmark_list_output(output), vec!["feat/a", "feat/b"]);
+    }
+
+    #[test]
+    fn parse_bookmark_list_empty_output() {
+        assert_eq!(parse_bookmark_list_output(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn parse_bookmark_list_only_trunk() {
+        let output = "main: abc123 desc\nmaster: def456 desc\n";
+        assert_eq!(parse_bookmark_list_output(output), Vec::<String>::new());
+    }
+
+    // --- dispatch_bookmark_advance ---
+
+    #[test]
+    fn dispatch_zero_bookmarks_does_not_call_apply() {
+        let called = std::cell::Cell::new(false);
+        dispatch_bookmark_advance(&[], "abc123", |_, _| called.set(true));
+        assert!(!called.get());
+    }
+
+    #[test]
+    fn dispatch_one_bookmark_calls_apply_with_correct_args() {
+        let captured = std::cell::RefCell::new(None::<(Vec<String>, String)>);
+        dispatch_bookmark_advance(&["feat/xyz".to_string()], "abc123", |b, t| {
+            *captured.borrow_mut() = Some((b.to_vec(), t.to_string()))
+        });
+        assert_eq!(
+            *captured.borrow(),
+            Some((vec!["feat/xyz".to_string()], "abc123".to_string()))
+        );
+    }
+
+    #[test]
+    fn dispatch_multiple_bookmarks_does_not_call_apply() {
+        let called = std::cell::Cell::new(false);
+        dispatch_bookmark_advance(
+            &["feat/a".to_string(), "feat/b".to_string()],
+            "abc123",
+            |_, _| called.set(true),
+        );
+        assert!(!called.get());
+    }
+
+    #[test]
+    fn parse_bookmark_list_skips_indented_remote_lines() {
+        let output = "\
+feat/xyz: abc1234 desc
+  @origin: abc1234 desc
+  @upstream: abc1234 desc
+";
+        assert_eq!(parse_bookmark_list_output(output), vec!["feat/xyz"]);
     }
 }
