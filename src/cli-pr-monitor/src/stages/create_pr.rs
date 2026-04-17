@@ -8,6 +8,39 @@ use crate::util::{
     get_jj_bookmarks, get_pr_info, parse_pr_number_from_url, utc_now_iso8601, PrInfo,
 };
 
+// ─── --body 引数の再結合 (Windows pnpm/cmd.exe 対策) ───
+//
+// pnpm/cmd.exe 経由で引数が渡される際、改行を含む --body テキストが
+// 複数の引数に分割されることがある。
+
+fn is_long_flag(arg: &str) -> bool {
+    let bytes = arg.as_bytes();
+    bytes.len() > 2 && bytes[0] == b'-' && bytes[1] == b'-' && bytes[2].is_ascii_alphabetic()
+}
+
+fn reassemble_split_body(args: &[String]) -> Vec<String> {
+    let mut result = Vec::with_capacity(args.len());
+    let mut i = 0;
+
+    while i < args.len() {
+        if args[i] == "--body" && i + 1 < args.len() {
+            result.push(args[i].clone());
+            let mut body_parts = vec![args[i + 1].clone()];
+            i += 2;
+            while i < args.len() && !is_long_flag(&args[i]) {
+                body_parts.push(args[i].clone());
+                i += 1;
+            }
+            result.push(body_parts.join("\n"));
+            continue;
+        }
+        result.push(args[i].clone());
+        i += 1;
+    }
+
+    result
+}
+
 // ─── --body -> --body-file 変換 (issue #1) ───
 
 /// Drop 時に自動削除される一時ファイル
@@ -137,8 +170,11 @@ fn ensure_head_arg(args: Vec<String>, bookmarks: &[String]) -> Vec<String> {
 pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
 
+    // Windows の pnpm/cmd.exe 経由で --body の複数行テキストが分割される問題の対策
+    let reassembled = reassemble_split_body(gh_args);
+
     // --body に改行が含まれる場合、--body-file に自動変換
-    let (mut final_args, _body_tempfile) = convert_body_to_file(gh_args);
+    let (mut final_args, _body_tempfile) = convert_body_to_file(&reassembled);
 
     // jj 環境対応: --head 未指定時に jj bookmark から自動補完
     // gh pr create は git の current branch を検出するが、jj 環境では
@@ -222,6 +258,98 @@ mod tests {
 
     fn strs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    // --- reassemble_split_body ---
+
+    #[test]
+    fn reassemble_no_body_unchanged() {
+        let args = strs(&["--title", "test"]);
+        assert_eq!(reassemble_split_body(&args), args);
+    }
+
+    #[test]
+    fn reassemble_single_line_body_unchanged() {
+        let args = strs(&["--body", "simple body", "--title", "test"]);
+        assert_eq!(reassemble_split_body(&args), args);
+    }
+
+    #[test]
+    fn reassemble_split_body_joins_fragments() {
+        // cmd.exe が改行で分割した場合: --body "## Summary" "- point 1" "- point 2" --title "test"
+        let args = strs(&[
+            "--body", "## Summary", "- point 1", "- point 2", "--title", "test",
+        ]);
+        let result = reassemble_split_body(&args);
+        assert_eq!(
+            result,
+            strs(&["--body", "## Summary\n- point 1\n- point 2", "--title", "test"])
+        );
+    }
+
+    #[test]
+    fn reassemble_split_body_at_end_of_args() {
+        // --body が末尾で、後続フラグがない場合
+        let args = strs(&["--title", "test", "--body", "## Summary", "- detail"]);
+        let result = reassemble_split_body(&args);
+        assert_eq!(
+            result,
+            strs(&["--title", "test", "--body", "## Summary\n- detail"])
+        );
+    }
+
+    #[test]
+    fn reassemble_short_flag_in_body_not_treated_as_stop() {
+        // "-H" のようなショートフラグは body 内容として扱う
+        let args = strs(&["--body", "## Summary", "-H flag content", "--title", "test"]);
+        let result = reassemble_split_body(&args);
+        assert_eq!(
+            result,
+            strs(&["--body", "## Summary\n-H flag content", "--title", "test"])
+        );
+    }
+
+    #[test]
+    fn is_long_flag_checks() {
+        // valid long flags
+        assert!(is_long_flag("--title"));
+        assert!(is_long_flag("--body-file"));
+        assert!(is_long_flag("--head"));
+        // not flags — too short or wrong prefix
+        assert!(!is_long_flag("--"));
+        assert!(!is_long_flag("-H"));
+        assert!(!is_long_flag("-"));
+        assert!(!is_long_flag("## Summary"));
+        // not flags — third byte is non-alphabetic (regression for horizontal rule / symbols)
+        assert!(!is_long_flag("---"));
+        assert!(!is_long_flag("--1"));
+        assert!(!is_long_flag("-- "));
+        assert!(!is_long_flag("--_"));
+    }
+
+    #[test]
+    fn reassemble_body_with_horizontal_rule_mid_body() {
+        // cmd.exe splits a body that contains a Markdown horizontal rule (---) in the middle.
+        // The reassembly must NOT stop at --- and must include everything up to the real flag.
+        let args = strs(&[
+            "--body", "## Summary", "---", "details", "--title", "test",
+        ]);
+        let result = reassemble_split_body(&args);
+        assert_eq!(
+            result,
+            strs(&["--body", "## Summary\n---\ndetails", "--title", "test"])
+        );
+    }
+
+    #[test]
+    fn reassemble_body_ending_with_horizontal_rule() {
+        // --- is the last token after --body (no subsequent flag follows).
+        let args = strs(&["--title", "test", "--body", "## Summary", "---"]);
+        let result = reassemble_split_body(&args);
+        assert_eq!(
+            result,
+            strs(&["--title", "test", "--body", "## Summary\n---"])
+        );
     }
 
     // --- convert_body_to_file ---
