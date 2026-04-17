@@ -121,7 +121,43 @@
   - SessionStart hook は master に実装済み (`src/hooks-session-start/`)。セッション引継ぎ設計は session ID → jsonl transcript 紐付けの ADR が必要
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 3. Cargo workspace 化 + rust-test template 反映 (PR-β、実装済み)
+### 3. cli-pr-monitor の --body 複数行引数切り詰め修正
+
+- **やろうとしたこと**: `pnpm create-pr -- --body "複数行テキスト"` で PR body が最初の行だけに切り詰められる問題を修正する
+- **現在地**: 未着手。原因特定済み
+  - [ ] cli-pr-monitor.exe の引数転送ロジックで複数行 body のクォーティングが失われる原因を調査
+  - [ ] `--body-file` 対応の追加、または引数転送ロジックの修正
+  - [ ] 修正後に複数行 body での PR 作成テスト
+- **詰まっている箇所**: なし
+- **根拠**: PR #49 作成時に発生。`--body "$(cat <<'EOF' ... EOF)"` 形式で pnpm 経由で渡すと、シェル引数分割で body が `## Summary` だけに切り詰められた
+  - **Why**: cli-pr-monitor.exe が `--` 以降の引数を gh pr create に転送する際、pnpm のシェル経由で改行・スペースを含む body が複数の引数に分割される
+  - **How to apply / 再開手順**: `src/cli-pr-monitor/src/stages/create_pr.rs` の引数処理を確認し、`--body-file` を使う方式か、引数を結合する方式で修正
+
+### 4. push-runner の takt fix 後 bookmark 乖離問題
+
+- **やろうとしたこと**: takt fix ステップ後に @ が bookmark より先に進み、`jj git push` で "No bookmarks found" となる問題を修正する
+- **現在地**: 未着手。原因特定済み
+  - [ ] `src/cli-push-runner/src/stages/push.rs` の push ステップで、push 前に bookmark を @ に追従させるロジックを追加
+  - [ ] または takt ステップ後に `jj squash` 相当の処理を自動実行
+  - [ ] 修正後に takt fix が発火するケースでの回帰テスト
+- **詰まっている箇所**: なし
+- **根拠**: PR #49 の push pipeline で発生。takt の fix ステップがコード修正 → @ が bookmark から乖離 → push で bookmark が見つからない
+  - **Why**: takt は @ 上で直接コード修正するため、fix が入ると @ が新しい commit に進むが、bookmark は旧 commit のまま残る
+  - **How to apply / 再開手順**: push ステップ内で `push_jj_bookmark::advance_jj_bookmarks()` が既にあるが、これは trunk 以降の bookmark を target に前進させるもの。takt fix 後の bookmark 乖離は別の問題 (bookmark 自体が @ より古い位置にある)。push 前に `jj bookmark set <name> -r @` で bookmark を @ に合わせる処理を追加する
+
+### 5. push-runner の空 diff 時 pipeline 中断を正常終了に
+
+- **やろうとしたこと**: push 対象の変更がない場合 (レビュー済みコードの再 push 等)、exit code 5 で中断するのではなく skip として正常終了するオプションを追加する
+- **現在地**: 未着手。原因特定済み
+  - [ ] `src/cli-push-runner/src/stages/diff.rs` の空 diff 判定を "skip review + proceed to push" モードに変更
+  - [ ] push-runner-config.toml に `allow_empty_diff = true` 等のオプション追加を検討
+  - [ ] 修正後に空 diff ケースでの回帰テスト
+- **詰まっている箇所**: なし
+- **根拠**: PR #49 で squash 後の再 push 時に発生。jj squash で @ が空コミットになり、`jj diff -r @` が空 → push-runner が "diff 出力が空です" で exit 5
+  - **Why**: push-runner は diff が空 = レビュー対象なし = パイプライン中断と判断するが、takt fix 後の再 push や bookmark 移動後の push では「diff は空だが push は必要」なケースがある
+  - **How to apply / 再開手順**: diff が空の場合に takt レビューをスキップして push ステップに直接進むパスを追加。push-runner-config.toml で挙動を制御できるようにする
+
+### 6. Cargo workspace 化 + rust-test template 反映 (PR-β、実装済み)
 
 - **やろうとしたこと**: PR #44 のセッション知見を元に:
   1. Rust test を push pipeline で一発実行できるよう Cargo workspace 化
@@ -167,11 +203,17 @@ ADR-019 および ADR-020 の「次ステップ」セクションで明記され
 
 ## 完了履歴
 
-### conflicted bookmarks の棚卸し
+### conflicted bookmarks の棚卸し + push 前 bookmark 自動前進 (PR #49)
 
 - [x] **feat/merge-pipeline** (conflicted): `jj bookmark forget` で削除。ADR-013 は master にマージ済み、固有差分は takt 移行前の旧 push_pipeline 設定のみで価値なし
 - [x] **feat/session-start-hook** (conflicted): `jj bookmark forget` で削除。bookmark 版は旧レイアウト (.claude/) + 「先勝ち」方式。master 版 (`src/hooks-session-start/`) は新レイアウト + 「同一IDスキップ」方式 + テスト 13 本で上位互換
 - [x] **feat/push-runner-auto-bookmark** (未 push): `push_jj_bookmark.rs` (bookmark 自動前進機能) を master の `src/cli-push-runner/src/stages/` に cherry-pick 後、`jj bookmark forget` で削除。テスト 10 本 pass
+- [x] **CodeRabbit Critical**: `jj bookmark set` の引数順序修正 (`--` 後に `-r` → `-r` を `--` の前に移動) — takt 自動修正
+- [x] **CodeRabbit Major**: `main()` / `master()` を bare bookmark 名 `main` / `master` に修正 — takt 自動修正
+- [x] **CodeRabbit Minor**: `@` が root commit の場合の `@-` 不在ガード追加 (`determine_target_revision` を `Option<String>` に変更)
+- [x] **CodeRabbit Minor**: `trunk()` 成功かつ 0 件で `main`/`master` にフォールバックしない問題修正 (非空チェック追加)
+- **知見**: cherry-pick 元の bookmark 放置コードに Critical バグが潜んでいた。cherry-pick = 「レビュー済みコードの移植」ではない。push pipeline + CodeRabbit の二重レビューが有効に機能
+- **副産物**: 3 件の仕組み改善タスク (#3, #4, #5) を発見・記録
 
 ### cli-pr-monitor Known Issues (PR #13)
 

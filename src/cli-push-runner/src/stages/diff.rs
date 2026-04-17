@@ -4,6 +4,16 @@ use std::process::Command;
 use crate::config::DiffConfig;
 use crate::log::log_stage;
 
+#[derive(Debug, PartialEq)]
+pub(crate) enum DiffResult {
+    /// diff に内容があり、ファイルへの書き出しが完了した
+    HasContent,
+    /// diff 出力が空 (レビュー対象なし、push は続行可能)
+    Empty,
+    /// diff コマンドの実行またはファイル書き出しに失敗した
+    Error,
+}
+
 /// diff 取得専用: 出力を切り詰めずに全行を取得する。
 /// runner::run_cmd は MAX_LINES=40 で打ち切るため diff には使えない。
 fn run_diff_cmd(cmd: &str) -> Result<String, String> {
@@ -20,7 +30,7 @@ fn run_diff_cmd(cmd: &str) -> Result<String, String> {
     }
 }
 
-pub(crate) fn run_diff(config: &DiffConfig) -> bool {
+pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
     log_stage("diff", &format!("実行: {}", config.command));
 
     let output = match run_diff_cmd(&config.command) {
@@ -30,23 +40,23 @@ pub(crate) fn run_diff(config: &DiffConfig) -> bool {
             if !err.is_empty() {
                 eprintln!("{}", err);
             }
-            return false;
+            return DiffResult::Error;
         }
     };
 
     if output.is_empty() {
         log_stage(
             "diff",
-            "diff 出力が空です。レビュー対象の変更がありません。diff コマンドの revision 指定を確認してください。",
+            "diff 出力が空です。レビューをスキップして push に進みます。",
         );
-        return false;
+        return DiffResult::Empty;
     }
 
     let path = Path::new(&config.output_path);
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             log_stage("diff", &format!("ディレクトリ作成失敗: {}", e));
-            return false;
+            return DiffResult::Error;
         }
     }
 
@@ -57,11 +67,11 @@ pub(crate) fn run_diff(config: &DiffConfig) -> bool {
                 "diff",
                 &format!("書き出し完了: {} ({} 行)", config.output_path, line_count),
             );
-            true
+            DiffResult::HasContent
         }
         Err(e) => {
             log_stage("diff", &format!("ファイル書き出し失敗: {}", e));
-            false
+            DiffResult::Error
         }
     }
 }
@@ -84,9 +94,8 @@ mod tests {
     }
 
     #[test]
-    fn run_diff_returns_false_when_output_is_empty() {
+    fn run_diff_returns_empty_when_output_is_empty() {
         let out_path = std::env::temp_dir().join("test-run-diff-empty.txt");
-        // Ensure a clean slate in case a previous run left the file.
         let _ = std::fs::remove_file(&out_path);
 
         let config = DiffConfig {
@@ -97,9 +106,10 @@ mod tests {
 
         let result = run_diff(&config);
 
-        assert!(
-            !result,
-            "run_diff must return false when the diff command produces empty output"
+        assert_eq!(
+            result,
+            DiffResult::Empty,
+            "run_diff must return Empty when the diff command produces empty output"
         );
         assert!(
             !out_path.exists(),

@@ -1,4 +1,4 @@
-//! Push Runner — takt ベースの pre-push パイプライン
+﻿//! Push Runner — takt ベースの pre-push パイプライン
 //!
 //! pnpm push から呼び出され、以下のステージを実行する:
 //!   Stage 1:   quality_gate — TOML で定義されたコマンド群をグループ間で並列実行
@@ -25,7 +25,14 @@ use std::time::Instant;
 
 use config::load_config;
 use log::log_info;
-use stages::{run_diff, run_push, run_quality_gate, run_takt};
+use stages::{run_diff, run_push, run_quality_gate, run_takt, DiffResult};
+
+const EXIT_SUCCESS: i32 = 0;
+const EXIT_QUALITY_GATE_FAILURE: i32 = 1;
+const EXIT_TAKT_FAILURE: i32 = 2;
+const EXIT_PUSH_FAILURE: i32 = 3;
+const EXIT_CONFIG_ERROR: i32 = 4;
+const EXIT_DIFF_FAILURE: i32 = 5;
 
 fn run_pipeline() -> i32 {
     let start = Instant::now();
@@ -34,7 +41,7 @@ fn run_pipeline() -> i32 {
         Ok(c) => c,
         Err(e) => {
             log_info(&format!("設定エラー: {}", e));
-            return 4;
+            return EXIT_CONFIG_ERROR;
         }
     };
 
@@ -48,32 +55,40 @@ fn run_pipeline() -> i32 {
     // Stage 1: quality_gate
     if !run_quality_gate(&config.quality_gate) {
         log_info("パイプライン中断: quality_gate 失敗。問題を修正して再実行してください。");
-        return 1;
+        return EXIT_QUALITY_GATE_FAILURE;
     }
 
     // Stage 1.5: diff
+    let mut skip_takt = false;
     if let Some(diff_config) = &config.diff {
-        if !run_diff(diff_config) {
-            log_info("パイプライン中断: diff 取得失敗。");
-            return 5;
+        match run_diff(diff_config) {
+            DiffResult::HasContent => {}
+            DiffResult::Empty => {
+                log_info("diff が空のためレビューをスキップして push に進みます。");
+                skip_takt = true;
+            }
+            DiffResult::Error => {
+                log_info("パイプライン中断: diff 取得失敗。");
+                return EXIT_DIFF_FAILURE;
+            }
         }
     }
 
     // Stage 2: takt
-    if !run_takt(&config.takt) {
+    if !skip_takt && !run_takt(&config.takt) {
         log_info("パイプライン中断: takt ワークフロー失敗。");
-        return 2;
+        return EXIT_TAKT_FAILURE;
     }
 
     // Stage 3: push
     if !run_push(&config.push) {
         log_info("パイプライン中断: push 失敗。");
-        return 3;
+        return EXIT_PUSH_FAILURE;
     }
 
     let elapsed = start.elapsed();
     log_info(&format!("パイプライン完了 ({:.0}s)", elapsed.as_secs_f64()));
-    0
+    EXIT_SUCCESS
 }
 
 fn main() {
