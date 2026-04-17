@@ -22,6 +22,19 @@ commands = ["pnpm test"]
 name = "build"
 commands = ["pnpm build"]
 
+# Rust test group (オプション): Rust を使うプロジェクトのみ有効化してください。
+# push pipeline でのみ実行し、PostToolUse / Stop hook では走らせないことで
+# イテレーション速度を保護します。
+# 前提: ルートに Cargo workspace (Cargo.toml に [workspace] + members) があり、
+# `cargo test` で全 package が一括テストされる構成 (ADR-026)。
+# 統合テストで cwd 操作等がある場合は --test-threads=1 で直列実行してください。
+# [[quality_gate.groups]]
+# name = "rust-test"
+# commands = [
+#   "cargo test",
+#   "cargo test -- --ignored --test-threads=1",
+# ]
+
 [diff]
 # jj 環境: "jj diff -r @"
 # git 環境: "git diff origin/HEAD...HEAD"

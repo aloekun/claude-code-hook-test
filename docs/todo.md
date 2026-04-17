@@ -136,26 +136,26 @@
   - 上記 #1 の `feat/session-start-hook` の活用方針が決まらないとセッション引継ぎ設計ができない
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 4. Cargo workspace 化 + rust-test template 反映 (ADR-022 導入に伴う infra 整備)
+### 4. Cargo workspace 化 + rust-test template 反映 (PR-β、実装済み)
 
 - **やろうとしたこと**: PR #44 のセッション知見を元に:
-  1. Rust test を push pipeline で一発実行できるよう Cargo workspace 化 (現状は各 package 独立で `--manifest-path` 指定が必要)
-  2. `templates/push-runner-config.toml` に `rust-test` group を反映し、派生プロジェクトへ `pnpm deploy:hooks` で配布できるようにする
-- **現在地**: PR-α (ADR-021~025) マージ後に着手予定
-  - [ ] 全 Rust package (9 個) の `Cargo.toml` 整合性調査 (edition / resolver / profile.release)
-  - [ ] ルート `Cargo.toml` 作成 (`[workspace]` + `members = [...]`)
-  - [ ] `push-runner-config.toml` の rust-test command を `cargo test` (workspace) に戻す
-  - [ ] `templates/push-runner-config.toml` に rust-test group + コメント追加
-  - [ ] 回帰テスト: `cargo test` (workspace 全体) + `pnpm build:all`
-  - [ ] ADR-026 執筆 (Cargo workspace 化の判断記録)
+  1. Rust test を push pipeline で一発実行できるよう Cargo workspace 化
+  2. `templates/push-runner-config.toml` に `rust-test` group テンプレートを反映
+- **現在地**: 実装完了、PR-β として push 予定
+  - [x] 全 Rust package (10 個) の `Cargo.toml` 整合性調査 (edition=2021 / profile.release 統一確認)
+  - [x] ルート `Cargo.toml` 作成 (`[workspace]` + `members` + `[profile.release]` 集約)
+  - [x] 各 member Cargo.toml から `[profile.release]` を削除 (workspace で ignore される警告解消)
+  - [x] `.gitignore` に `/target/` 追加 (workspace 共有 target の無視)
+  - [x] `package.json` の build スクリプトを `cargo build --release -p <name>` 形式に統一
+  - [x] `push-runner-config.toml` の rust-test command を `cargo test` (workspace) に簡素化
+  - [x] `templates/push-runner-config.toml` に rust-test group (コメントアウト済み) を追加
+  - [x] ADR-026 執筆 (Cargo workspace 化の判断記録)
+  - [x] 回帰テスト: `cargo test` (318 passed + 1 integration) / `pnpm build:all` (警告なしで成功)
   - [ ] PR-β 作成 → レビュー → マージ
-- **詰まっている箇所**: なし (方針確定済み)
-- **依存関係**:
-  - PR-α (ADR-021~025) が先行マージされていること (ADR-022 の責務分離原則を参照するため)
+- **詰まっている箇所**: なし
 - **参照 ADR**:
-  - ADR-021: jj 変更検出ロジック (本実装で確立、ライブラリ化は ADR-024 (仮) で様子見)
-  - ADR-022: 自動化コンポーネントの責務分離 (本 PR で実装完了)
-  - ADR-026 (予定): Cargo workspace 化の判断記録
+  - ADR-021 / ADR-022 (前 PR で確立): 本 infra 整備の背景
+  - ADR-026: Cargo workspace 化の判断記録 (本 PR で執筆)
 
 ---
 

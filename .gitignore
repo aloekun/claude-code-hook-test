@@ -19,7 +19,12 @@ __pycache__/
 *.pyc
 
 # Rust build artifacts
+# Workspace shared target (ADR-026 で Cargo workspace 化)
+/target/
+# 旧レイアウト互換: 各 package ディレクトリ配下の target (残っていれば無視)
 src/*/target/
+# workspace 化後は root Cargo.lock のみが有効; 誤って再生成されても追跡しない
+src/*/Cargo.lock
 
 # Runtime generated files
 .claude/.session-id

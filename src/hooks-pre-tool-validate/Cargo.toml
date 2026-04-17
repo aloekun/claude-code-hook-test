@@ -9,7 +9,4 @@ serde_json = "1.0"
 regex = "1.10"
 toml = "0.8"
 
-[profile.release]
-opt-level = 3
-lto = true
-strip = true
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
