@@ -28,6 +28,7 @@
 - [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md) *(試験運用)*
 - [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(試験運用)*
 - [ADR-026: Cargo workspace による Rust パッケージ統合](docs/adr/adr-026-cargo-workspace.md)
+- [ADR-027: Push-time review を simplicity に限定し architectural review は post-PR に委ねる](docs/adr/adr-027-push-review-simplicity-focus.md)
 
 ## Automated actor boundary (ADR-022)
 

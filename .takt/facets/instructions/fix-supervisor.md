@@ -21,6 +21,9 @@ Fixes MUST target the **source tree under review**: files under `src/`.
 
 ## Required output
 
+## Termination reason
+- One of: **修正完了** (all supervisor findings addressed) or **修正不能（理由）** (with explanation of why fixes cannot proceed)
+
 ## Work results
 - {Summary of actions taken}
 
