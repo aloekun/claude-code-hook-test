@@ -6,22 +6,7 @@
 
 ## 現在進行中 (2026-04-17 スナップショット)
 
-### 1. conflicted bookmarks の棚卸し
-
-- **やろうとしたこと**: 未マージの先行作業用 bookmark を整理し、「PR 化して潰す」「捨てる」の判断をつける
-- **現在地**: 3 本が未処理状態
-  - `feat/merge-pipeline` (conflicted): `9ecc9a48` merge-pipeline 導入 (ADR-013 相当)。ADR-013 自体は master にマージ済みのため、この bookmark が指す commit は古いか重複の可能性が高い
-  - `feat/session-start-hook` (conflicted): `ea747b74` SessionStart hook でセッション ID を伝播。単体では動作するが、活用先 (post-merge-feedback との連携など) の設計がまだ
-  - `feat/push-runner-auto-bookmark` (未 push): `5a7de5db` push 前に jj bookmark を自動更新。ADR-015 の push-runner に本来組み込むべき機能だが、取り込みタイミングを見失っている
-- **詰まっている箇所**:
-  - 各 bookmark の commit が「master の後続マージで既に解決済みか」「まだ必要な差分か」の見分けが未実施
-  - **Why**: いずれも PR 化前の下書きとして作ってそのまま放置した。master がその後進んだ結果 conflict / 意味喪失状態になっている
-  - **How to apply / 再開手順**:
-    1. `jj log -r feat/merge-pipeline --patch` で実体 diff を確認
-    2. `jj diff --from master --to feat/<name>` で master との本質差分を見る
-    3. 本質差分がなければ `jj bookmark forget` で削除、残っていれば rebase & PR 化
-
-### 2. pre-push-review の arch-review → simplicity-review 絞り込み
+### 1. pre-push-review の arch-review → simplicity-review 絞り込み
 
 - **やろうとしたこと**: `pnpm push` のセルフレビューに時間がかかる問題 (ADR 1 本追加だけでも 5 分超) の解消。本来 push 時点では「コードのシンプルさ」を見たかったのに、現状は arch-review が architecture 全般を見ており、その重装備が遅さの主因になっている。別セッションで修正予定
 
@@ -119,7 +104,7 @@
 | 2026-04-16 07:38 | 1 | 4m 55s | 240s | 64s |
 | 2026-04-16 07:53 | 1 | 5m 18s | **270s** | 73s |
 
-### 3. マージ後フィードバックの定常化 (cli-merge-pipeline の post_steps 統合)
+### 2. マージ後フィードバックの定常化 (cli-merge-pipeline の post_steps 統合)
 
 - **やろうとしたこと**: `pnpm merge-pr` 後の「ADR 記録すべきもの」「仕組みに反映すべきもの」の手動依頼を自動化。ADR-014 で提唱された `post-merge-feedback` スキルを cli-merge-pipeline から自動起動する
 - **現在地**: 設計段階。未着手
@@ -130,13 +115,13 @@
 - **詰まっている箇所**:
   - **主要ブロッカー**: 「マージ時点のセッション会話」を post_steps 用の新セッションに引き継ぐ手段が決まっていない。会話ログがないと「何を議論した末のマージか」が失われ、フィードバック品質が下がる
     - **Why**: post-merge-feedback は ADR-014 で「セッション知見 + PR 知見の統合」を前提にしているが、merge-pipeline は別プロセスで起動されるため会話がない状態から始まる
-    - **How to apply / 再開手順**: SessionStart hook (`feat/session-start-hook` bookmark) で伝播した session ID を jsonl transcript に紐付けて読み取る方式が候補。ADR を書いてから実装
+    - **How to apply / 再開手順**: SessionStart hook (master の `src/hooks-session-start/`) で伝播した session ID を jsonl transcript に紐付けて読み取る方式が候補。ADR を書いてから実装
   - **制約**: ADR-016 (長時間コマンド) のため、post_steps の AI 起動も `run_in_background: true` + `timeout: 600000` 前提で設計する必要あり
 - **依存関係**:
-  - 上記 #1 の `feat/session-start-hook` の活用方針が決まらないとセッション引継ぎ設計ができない
+  - SessionStart hook は master に実装済み (`src/hooks-session-start/`)。セッション引継ぎ設計は session ID → jsonl transcript 紐付けの ADR が必要
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 4. Cargo workspace 化 + rust-test template 反映 (PR-β、実装済み)
+### 3. Cargo workspace 化 + rust-test template 反映 (PR-β、実装済み)
 
 - **やろうとしたこと**: PR #44 のセッション知見を元に:
   1. Rust test を push pipeline で一発実行できるよう Cargo workspace 化
@@ -181,6 +166,12 @@ ADR-019 および ADR-020 の「次ステップ」セクションで明記され
 ---
 
 ## 完了履歴
+
+### conflicted bookmarks の棚卸し
+
+- [x] **feat/merge-pipeline** (conflicted): `jj bookmark forget` で削除。ADR-013 は master にマージ済み、固有差分は takt 移行前の旧 push_pipeline 設定のみで価値なし
+- [x] **feat/session-start-hook** (conflicted): `jj bookmark forget` で削除。bookmark 版は旧レイアウト (.claude/) + 「先勝ち」方式。master 版 (`src/hooks-session-start/`) は新レイアウト + 「同一IDスキップ」方式 + テスト 13 本で上位互換
+- [x] **feat/push-runner-auto-bookmark** (未 push): `push_jj_bookmark.rs` (bookmark 自動前進機能) を master の `src/cli-push-runner/src/stages/` に cherry-pick 後、`jj bookmark forget` で削除。テスト 10 本 pass
 
 ### cli-pr-monitor Known Issues (PR #13)
 

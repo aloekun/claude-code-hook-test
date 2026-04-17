@@ -1,5 +1,6 @@
 mod diff;
 mod push;
+mod push_jj_bookmark;
 mod quality_gate;
 mod takt;
 
