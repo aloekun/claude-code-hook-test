@@ -2,9 +2,10 @@ name: pre-push-review
 description: >
   AI review-only workflow invoked by push-runner (Rust exe).
   quality_gate and push are handled outside takt by the Rust exe.
-  Flow: (arch + security reviewers in parallel) -> fix (loop) -> supervise.
+  Flow: (simplicity + security reviewers in parallel) -> fix (loop) -> supervise.
   Each reviewer reads .takt/review-diff.txt directly.
-  Terminates with COMPLETE when reviewers approve, or ABORT on unresolvable issues.
+  Terminates with COMPLETE when reviewers approve, or after a single
+  fix_supervisor adjustment when supervise flags remaining issues.
 
 workflow_config:
   provider_options:
@@ -29,33 +30,29 @@ loop_monitors:
           next: reviewers
         - condition: Unproductive (repeated findings, fixes not applied)
           next: supervise
-
 steps:
   # ---------------------------------------------------------------------------
   # Step 1: reviewers (parallel)
-  #   Two reviewers -- architecture (simplicity) and security.
+  #   Two reviewers -- simplicity (diff-local) and security.
   # ---------------------------------------------------------------------------
   - name: reviewers
     parallel:
-      - name: arch-review
+      - name: simplicity-review
         edit: false
-        persona: architecture-reviewer
+        persona: simplicity-reviewer
+        model: sonnet
         policy: review
-        knowledge: architecture
         provider_options:
           claude:
             allowed_tools:
               - Read
               - Glob
               - Grep
-              - Bash
-              - WebSearch
-              - WebFetch
-        instruction: review-arch
+        instruction: review-simplicity
         output_contracts:
           report:
-            - name: architecture-review.md
-              format: architecture-review
+            - name: simplicity-review.md
+              format: simplicity-review
         rules:
           - condition: approved
           - condition: needs_fix
@@ -63,6 +60,7 @@ steps:
       - name: security-review
         edit: false
         persona: security-reviewer
+        model: sonnet
         policy: review
         knowledge: security
         provider_options:
@@ -71,9 +69,6 @@ steps:
               - Read
               - Glob
               - Grep
-              - Bash
-              - WebSearch
-              - WebFetch
         instruction: review-security
         output_contracts:
           report:
@@ -102,7 +97,6 @@ steps:
       - coding
       - testing
     knowledge:
-      - architecture
       - security
     provider_options:
       claude:
@@ -113,8 +107,6 @@ steps:
           - Edit
           - Write
           - Bash
-          - WebSearch
-          - WebFetch
     required_permission_mode: edit
     pass_previous_response: false
     instruction: fix
@@ -126,11 +118,13 @@ steps:
 
   # ---------------------------------------------------------------------------
   # Step 3: supervise
-  #   Escalation handler.
+  #   Single-shot decision node (not a loop). Determines whether to push or
+  #   route to fix_supervisor for one final adjustment before COMPLETE.
   # ---------------------------------------------------------------------------
   - name: supervise
     edit: false
     persona: supervisor
+    model: sonnet
     policy: review
     provider_options:
       claude:
@@ -138,17 +132,12 @@ steps:
           - Read
           - Glob
           - Grep
-          - WebSearch
-          - WebFetch
     instruction: supervise
     pass_previous_response: false
     output_contracts:
       report:
         - name: supervisor-validation.md
           format: supervisor-validation
-        - name: summary.md
-          format: summary
-          use_judge: false
     rules:
       - condition: All validations complete, ready to push
         next: COMPLETE
@@ -163,7 +152,6 @@ steps:
       - coding
       - testing
     knowledge:
-      - architecture
       - security
     provider_options:
       claude:
@@ -174,13 +162,11 @@ steps:
           - Edit
           - Write
           - Bash
-          - WebSearch
-          - WebFetch
     required_permission_mode: edit
     instruction: fix-supervisor
     pass_previous_response: false
     rules:
       - condition: Fixes for supervisor findings complete
-        next: supervise
+        next: COMPLETE
       - condition: Unable to proceed with fixes
-        next: supervise
+        next: COMPLETE

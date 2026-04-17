@@ -83,29 +83,29 @@
 - **call chain drift (ADR 本文のシンボル参照が実コードから消えた等) が push 時に検知されない**
   - 代替: 専用 lint (ADR-020 "次ステップ" の *instruction 参照整合性 lint* と同じ発想で、ADR 内のコードシンボル参照の整合性 lint を追加) を push quality_gate に入れる案
 
-#### 実装時の次ステップ (別セッションで実施)
+#### 実装時の次ステップ (実施済み: ADR-027)
 
-- [ ] ADR 新規作成 (仮 ADR-021): "push-time review は simplicity に限定、architectural review は post-PR に委ねる" の決定記録
-- [ ] `.takt/facets/instructions/review-simplicity.md` 新規作成 (現 `review-arch.md` の約 1/3 の長さ、diff 局所 criteria に限定)
-- [ ] `.takt/workflows/pre-push-review.yaml` 編集:
+- [x] ADR-027 新規作成: "push-time review は simplicity に限定、architectural review は post-PR に委ねる" の決定記録
+- [x] `.takt/facets/instructions/review-simplicity.md` 新規作成 (review-arch.md の約 1/3、diff 局所 criteria に限定)
+- [x] `.takt/workflows/pre-push-review.yaml` 編集:
   - `arch-review` → `simplicity-review` rename
   - `persona: architecture-reviewer` → `simplicity-reviewer`
-  - `knowledge: architecture` → `simplicity`
+  - `knowledge: architecture` 削除 (diff 局所で完結するため不要)
   - `model: sonnet` 追加
   - `allowed_tools` から `WebSearch` / `WebFetch` / `Bash` 除外
-  - `output_contracts` を 1 本に集約
-- [ ] takt `knowledge/simplicity` ファイル新設 (現 `architecture` knowledge から simplicity 該当部分のみ抽出して軽量化)
-- [ ] `CLAUDE.md` の ADR index に新 ADR 追加
+  - `output_contracts` を 1 本に集約 (`simplicity-review.md`)
+- [x] ~~takt `knowledge/simplicity` ファイル新設~~ → knowledge 自体が不要と判断 (diff 局所の criteria は instruction に完結)
+- [x] `CLAUDE.md` の ADR index に ADR-027 追加
 - [ ] 実測: 変更前後で `.takt/runs/*/meta.json` の duration を比較し、期待値 (5m → 2m) 通りか検証
+- [x] `.takt/facets/instructions/review-arch.md` 削除
 
-#### 二次的な改善候補 (このスコープに含めるか別途判断)
+#### 二次的な改善候補 (ADR-027 と同一 PR で実施済み)
 
-上記 simplicity 化と直交する最適化で、調査で見えたもの:
-
-- [ ] `loop_monitors` に supervise ↔ fix_supervisor cycle の threshold を追加 (最悪 31m 回避)
-- [ ] supervise の `output_contracts` を 2 本 → 1 本に集約 (report 重複を解消)
-- [ ] step 間 transition の loop_monitor judge を軽量化 (閾値到達前は判定スキップ)
-- [ ] security-review にも `model: sonnet` を明示的に指定 (現状デフォルト依存)
+- [x] supervise ↔ fix_supervisor のループ構造を廃止し supervise を単発判断ノードに変更 (改善ループと収束ループの性質の違いを反映。fix_supervisor は最終調整 1 回のみ → COMPLETE)
+- [x] supervise の `output_contracts` を 2 本 → 1 本に集約 (report 重複を解消)
+- [x] security-review に `model: sonnet` を明示指定
+- [x] 全ステップから `WebSearch` / `WebFetch` を除外 (diff 検査には不要)
+- [x] fix / fix_supervisor の `knowledge` から `architecture` を削除
 
 #### 保全すべき baseline データ (修正後の比較用)
 
@@ -159,7 +159,13 @@
 
 ---
 
-## スコープ外だが将来検討 (ADR-019/020 由来)
+## スコープ外だが将来検討
+
+### ADR-027 由来
+
+- [ ] **loop_monitor judge の軽量化**: step 間 transition で毎回 AI 呼び出しされる judge を、閾値到達前はスキップする最適化。takt 本体にオプションがあるか未調査。実測で隠れオーバーヘッドが 15-70s/遷移、17-iter run では累計 ~6 分
+
+### ADR-019/020 由来
 
 ADR-019 および ADR-020 の「次ステップ」セクションで明記された未着手項目:
 
