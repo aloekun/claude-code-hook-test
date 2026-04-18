@@ -1,6 +1,12 @@
 {
   "permissions": {
     "allow": [
+    ],
+    "ask": [
+      "Bash(pnpm create-pr*)",
+      "Bash(pnpm merge-pr*)",
+      "Bash(*cli-pr-monitor.exe*)",
+      "Bash(*cli-merge-pipeline.exe*)"
     ]
   },
   "env": {

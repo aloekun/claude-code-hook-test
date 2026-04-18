@@ -3,11 +3,7 @@
     "allow": [
       "Bash(pnpm build:all)",
       "Bash(pnpm check-ci *)",
-      "Bash(pnpm create-pr)",
-      "Bash(pnpm create-pr *)",
-      "Bash(cargo test:*)",
-      "Bash(pnpm merge-pr)",
-      "Bash(pnpm merge-pr *)"
+      "Bash(cargo test:*)"
     ]
   },
   "hooks": {
