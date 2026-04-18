@@ -125,6 +125,60 @@
   - ADR-022 (責務分離): takt は commit 操作禁止、Rust 側が担当
   - PR #44 の事故事例: 元 description の破壊で得た教訓
 
+### 5. cli-pr-monitor の auto re-push に bookmark 自動前進を移植
+
+- **やろうとしたこと**: takt 自動修正後の auto re-push で「修正コミットができても bookmark が動かず remote に届かない」問題を解消。cli-push-runner には PR #50 で `push_jj_bookmark.rs` の advance ロジックが入っているが、cli-pr-monitor の `run_push` は `jj new` → `jj git push` だけで bookmark を進めない
+- **現在地**: 設計確定、未実装。PR #53 で症状を実測 (CodeRabbit 修正が local commit `466aff1d` に入ったが bookmark が動かず remote 未反映、手動で `jj bookmark set` + `jj git push --bookmark` が必要だった)
+- **実装内容**:
+  - [ ] `src/cli-pr-monitor/src/stages/push.rs:run_push` の `jj git push` 直前に bookmark advance を挿入
+  - [ ] cli-push-runner の `push_jj_bookmark::advance_jj_bookmarks` を共有化するか、まず port (copy) するかを決定
+  - [ ] unit テスト: 既存の `decide_repush` テスト群と同じスタイルで bookmark advance の挙動を検証
+  - [ ] E2E 検証: CodeRabbit Major ありの PR で takt 修正が remote まで自動到達することを確認
+- **詰まっている箇所**:
+  - **共通化方針**: ADR-024 (共通 jj helper crate、試験運用) の延長線で `jj-helpers` クレート化するのが理想だが、まず port から着手して機能等価を確認した方が安全
+  - **task 4 (コミット分離) との順序**: task 4 を先に実装すると takt fix が「明示的な子コミット」になるため bookmark advance のターゲットが安定する。task 5 → 4 の順か、4 と同時に対応するかを設計確定時に判断
+- **参照 ADR / PR**:
+  - PR #50 (cli-push-runner の bookmark fallback)
+  - ADR-024 (共通 jj helper、試験運用)
+  - 関連: task 4 (コミット分離)
+
+### 6. post-pr-review workflow の verdict に push 反映確認を追加
+
+- **やろうとしたこと**: post-pr-review workflow が local file の状態だけを見て `approved` を判定する設計のため、auto re-push が失敗していても `approved` になる gap を埋める。PR #53 で「local 修正済み + bookmark 未前進 → workflow approved」の食い違いを実測
+- **現在地**: 設計段階、未着手。task 5 (問題 A) の defense-in-depth 的位置付け
+- **実装内容案**:
+  - [ ] workflow の analyze (or 終了前) ステップで `gh api` を叩いて remote の最新 commit SHA を取得し、local の fix commit SHA と比較
+  - [ ] 一致しなければ `verdict = action_required` にダウングレードし「remote 未反映」のメッセージを出す
+- **詰まっている箇所**:
+  - **task 5 実装後の優先度再評価**: task 5 が入れば「auto re-push が失敗しない限り approved は妥当」となるため、task 6 の優先度は大きく下がる。実装可否は task 5 完了後に判断
+  - **takt workflow の YAML から外部コマンド呼び出しが可能か**: facets instruction 内でシェルが呼べるかは要調査 (ADR-019/020 の facets 設計内)
+- **参照 ADR**:
+  - ADR-018 (post-pr-monitor takt 化)
+  - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
+  - 関連: task 5 (bookmark auto-advance)
+
+### 7. cli-pr-monitor の bookmark 検出を `@-..@--` まで拡張 (cli-merge-pipeline の水平展開)
+
+- **やろうとしたこと**: [src/cli-pr-monitor/src/util.rs:86](src/cli-pr-monitor/src/util.rs#L86) の `get_jj_bookmarks` は revset `@` のみで bookmark を探しており、cli-merge-pipeline で先に解消した task 7 (旧) と同じ「`@` 空 / bookmark が `@-` 上」問題を抱えている。`pnpm create-pr` や PR 検索フェーズで同じ空振りが起きる可能性があるため、横展開して整合させる
+- **現在地**: 設計確定、未着手 (cli-merge-pipeline 側の PR で実装パターンが確定済み)
+- **実装内容**:
+  - [ ] [src/cli-pr-monitor/src/util.rs](src/cli-pr-monitor/src/util.rs) の `get_jj_bookmarks` を cli-merge-pipeline と同じ 3 層 (parse / query / select_from_revsets) に分割
+  - [ ] `BOOKMARK_SEARCH_REVSETS = &["@", "@-", "@--"]` + `TRUNK_BOOKMARKS` filter を移植
+  - [ ] unit テスト: parse と優先順位を cli-merge-pipeline のテストと同等に追加
+  - [ ] E2E: 空 `@` 状態で `pnpm create-pr` の Strategy B が成功することを確認
+- **詰まっている箇所**:
+  - **共通化するかコピーするか**: ADR-024 (共通 jj helpers crate、試験運用) の延長で `jj-helpers` クレート化するのが理想だが、まず cli-pr-monitor への port (コピー) で機能等価を確認するのが安全。共通化は 2 個目の port 完了後に判断
+  - **create_pr.rs での利用箇所**: [src/cli-pr-monitor/src/stages/create_pr.rs:183](src/cli-pr-monitor/src/stages/create_pr.rs#L183) でも `get_jj_bookmarks` を使っており、`--head` 引数に先頭の bookmark を渡している。trunk filter を入れた結果「先頭が feature bookmark」保証が強まるので挙動は改善方向だが、回帰テストで確認する
+- **参照**:
+  - 先行実装: cli-merge-pipeline の同等対応 (task 7 旧、PR で完了済み)
+  - ADR-013 (cli-merge-pipeline), ADR-024 (共通 jj helpers、試験運用)
+
+### 8. 雑務: 過去の delete-pending bookmark cleanup
+
+- **やろうとしたこと**: `jj git push --tracked` で `Refusing to push deleted bookmark fix/push-allow-new` の警告が出るため、`jj bookmark forget fix/push-allow-new` で消す
+- **現在地**: 未対応。push を block しないので緊急性なし
+- **詰まっている箇所**: なし
+
 ---
 
 ## スコープ外だが将来検討
