@@ -21,6 +21,8 @@
     "create-pr": ".\\.claude\\cli-pr-monitor.exe",
     "merge-pr": ".\\.claude\\cli-merge-pipeline.exe",
     "check-ci": ".\\.claude\\check-ci-coderabbit.exe",
+    "prepare-pr-body": "pwsh -NoProfile -File scripts/prepare-pr-body.ps1",
+    "prepare-pr-body:cleanup": "pwsh -NoProfile -File scripts/prepare-pr-body.ps1 -Cleanup",
     "deploy:hooks": "npx tsx scripts/deploy-hooks.ts",
     "py-lint": "ruff check src/",
     "py-test": "python -m pytest tests/",
