@@ -29,28 +29,99 @@
   - SessionStart hook は master に実装済み (`src/hooks-session-start/`)。セッション引継ぎ設計は session ID → jsonl transcript 紐付けの ADR が必要
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 3. PostToolUse hook に UTF-8 整合性チェック (Layer 0) を追加
+### 3. post-pr review フローの並行通知化 (観測用 BG タスク追加)
 
-- **やろうとしたこと**: takt の自動修正が日本語文字列を破壊する問題 (PR #50 で発生) を PostToolUse hook で検出する
-- **現在地**: 実装済み、ビルド+デプロイ待ち
-  - [x] `check_utf8_integrity()` 関数の実装 (`std::fs::read` + `from_utf8_lossy` で U+FFFD を検出)
-  - [x] `main()` の第0層として呼び出し追加 (カスタムルール・外部ツールより先に実行)
-  - [x] テスト 5 本 (FFFD 検出、clean file、invalid bytes、複数行、存在しないファイル)
-  - [ ] ビルド + デプロイ
-- **詰まっている箇所**: なし
+- **やろうとしたこと**: `pnpm create-pr` 実行中に CodeRabbit 指摘検出 → takt 自動修正 → re-push が BG で進行するが、ユーザーは完了通知まで状況を把握できない。Claude Code にも進捗が届かず、すでに自動修正されている指摘についてユーザーから「未対応レビューをリストアップして」と重複依頼が発生する。これを早期通知で解消する
+- **現在地**: 設計確定、未実装
+- **背景**:
+  - 現状フロー (cli-pr-monitor が一気通貫): `poll → detect → takt fix → re-push → report → exit`
+  - ユーザーは exit 時点まで中間状態を見られない
+  - 深刻度別の扱い:
+    - **Critical / Major**: 既存の `auto_push_severity` 設定で自動修正
+    - **Minor 以下**: 並行してユーザーにヒアリング。主フローの外で判断
+- **設計原則 (絶対に崩さないこと)**:
+  - **主フロー (detect → fix → re-push) は 100% 機械的**。Claude Code の判断や通知受領を gate にしない。セッション切断や AI スキップでフローが止まると、ハーネスとしての「必ず修正まで到達する」保証が崩れる
+  - **通知は side effect**。主フローの成否に影響しない観測用パス。cli-pr-monitor 自体には手を入れない
+- **実装内容 (並行タスク方式)**:
 
-### 4. exe 自己修正時のビルド手順
+  ```
+  Claude Code が 2 つの BG タスクを同時起動:
 
-- **運用ルール**: exe を修正する PR では、push 前に `pnpm build:all` で修正済み exe をビルドする。デプロイ (`pnpm deploy:hooks`) は各派生プロジェクト側の準備が必要なため別タイミングで実施
-- **根拠**: PR #50/#51 の push 時に、修正対象のバグ (#4: bookmark 乖離、#5: 空 diff 中断) がデプロイ済み exe で再現した。修正済み exe でビルドしてから push すれば回避できた
+  Task A (主フロー): pnpm create-pr
+    → cli-pr-monitor 既存フローをそのまま実行
+    → 変更不要
 
-### 5. Cargo workspace 化 + rust-test template 反映 (PR-beta、実装済み)
+  Task B (通知用): scripts/observe-pr-state (新設)
+    → .claude/pr-monitor-state.json をポーリング
+    → action=action_required を検出したら state 内容を stdout に出して exit
+    → Claude Code が完了通知を受領 → ユーザーにレポート表示 + Minor ヒアリング
+  ```
 
-- **やろうとしたこと**: PR #44 のセッション知見を元に Cargo workspace 化
-- **現在地**: 実装完了、PR 作成待ち
-  - [ ] PR 作成 → レビュー → マージ
-- **詰まっている箇所**: なし
-- **参照 ADR**: ADR-026
+- **タスク分解**:
+  - [ ] `scripts/observe-pr-state.ps1` (Windows 用) 新設
+    - `.claude/pr-monitor-state.json` を 5-10s 間隔ポーリング
+    - `action == "action_required"` または `action == "approved"` 検出で state 全文を出力して exit 0
+    - 10 分のタイムアウト (ADR-016 準拠) 後は exit 1
+    - `notified` フラグを見て、通知済みなら再通知しない
+  - [ ] `package.json` に `"observe-pr"` スクリプト追加 (PowerShell 起動)
+  - [ ] `post-pr-create-review-check` スキルを修正
+    - 現状: daemon 起動後に state file を一度読んで報告する一段構成
+    - 変更後: `pnpm create-pr` と `pnpm observe-pr` を並行 BG 起動
+    - observer exit 時に state を整形してユーザーに提示
+    - Minor 指摘があれば AskUserQuestion で対応方針をヒアリング
+  - [ ] E2E 検証: CodeRabbit Major ありの PR で通知タイミングを確認
+- **詰まっている箇所**:
+  - **Windows 依存**: Bash 経由では PowerShell 起動が二重シェルで動作不安定。pnpm script で `pwsh -File` 直接呼び出しが必要か要調査
+  - **Minor ヒアリングの UX**: observer 完了時に Claude Code に state が届くが、並行して Task A の fix も進行中。Task A が Minor を `user_decision` verdict で止めた場合と action_required で進んでいる場合の挙動差を確認
+- **考慮事項**:
+  - observer は read-only (state file 読み取りのみ)。Task A に影響しない
+  - Task A と Task B 両方タイムアウト時のクリーンアップ (observer 側は orphan OK、Task A 側は既存タイムアウト機構に委ねる)
+- **参照 ADR**:
+  - ADR-018 (post-pr-monitor takt 化): 既存フローの前提
+  - ADR-016 (長時間コマンド): observer の 10 分タイムアウト設計
+
+### 4. takt fix のレビュー修正コミット分離
+
+- **やろうとしたこと**: CodeRabbit 指摘に対する takt 自動修正が元コミットに amend されるため、PR 上は commit 1 本に見える。結果:
+  1. ユーザーがレビュー対応状況を追いにくい (「何度も未対応と誤認する」症状)
+  2. 修正前後の比較が PR diff 上で取れない
+  3. 「どの指摘にどの修正が対応したか」の辿り直しが git log に頼れない
+
+  修正内容を別コミットに分離し、レビュー対応の可視性を上げる
+- **現在地**: 設計確定、未実装
+- **背景**:
+  - 現状: takt fix は `@` を直接編集 → `cli-pr-monitor/src/stages/push.rs` の `run_push` が `jj new` してから push
+  - `jj new` で child commit は作られるが、**fix 内容自体は元コミットに入ったまま**
+  - ADR-022 により takt 側が commit message / bookmark を触ることは禁止。コミット分離は Rust 側の責務
+- **実装内容**:
+  - fix 実行前の commit ID を保持 (`pre_takt_commit_id` は既存)
+  - takt 実行後、`@` の内容が変わっていれば (`decide_repush == HasChange`)、修正差分を**新しい子コミット**として分離する
+  - 具体的な戦略候補:
+    - **案 A (簡潔)**: `jj new` で child commit を作ってから fix 差分をそこに移す
+    - **案 B (明示)**: `jj split` で元コミットから fix 差分だけを切り出して child にする
+    - 案 A の方がシンプル。元コミットは不変、子コミットに `fix(review): ...` 相当の description を付けて push
+- **タスク分解**:
+  - [ ] `src/cli-pr-monitor/src/stages/push.rs` の `run_push` 調査 + 既存の `jj new` 動作確認 (どのタイミングで走るか)
+  - [ ] コミット分離ロジック実装 (案 A ベース)
+    - takt fix 後の `@` 差分 (`pre_takt_cid..post_takt_cid`) を検出
+    - HasChange の場合のみ分離。NoChange (amend なし) は既存のスキップ動作
+  - [ ] コミット description の生成方針
+    - ADR-022 遵守: **takt は触らない**。Rust 側で固定文言または PR title 参照を使う
+    - 候補: `fix(review): apply CodeRabbit fixes for #<PR番号>`
+    - PR 番号は cli-pr-monitor が既に保持しているので流用可
+  - [ ] unit テスト: `decide_repush` の分岐別でコミット構造が期待通りか
+  - [ ] E2E 検証: CodeRabbit Major ありの PR で commit が 2 本 (original + fix) になることを確認
+- **詰まっている箇所**:
+  - **元コミット description の維持**: `jj new` 単独では元の description が保持される想定だが、過去の PR で `jj describe` による上書き事故があった (PR #44、ADR-022 の契機)。挙動を実測で再確認する必要あり
+  - **複数回 fix される場合**: 1 PR で 2 回 3 回と CodeRabbit 指摘 → takt 修正が走った場合、毎回新しい fix コミットを作るか、同じ fix コミットに積むか要検討
+- **考慮事項**:
+  - コミット分離は `decide_repush == HasChange` のみ。NoChange (takt が実質変更なし) の場合は既存 no-op
+  - `auto_push_severity = "none"` の場合は分離せずに手動 push を待つ (ユーザーが `jj describe` する余地を残す)
+  - ADR-022 (automated actor boundary) の境界をまたがないこと。コミット分離のロジックは Rust 側に閉じる
+- **参照 ADR**:
+  - ADR-018 (post-pr-monitor takt 化): 既存フローの前提
+  - ADR-022 (責務分離): takt は commit 操作禁止、Rust 側が担当
+  - PR #44 の事故事例: 元 description の破壊で得た教訓
 
 ---
 
