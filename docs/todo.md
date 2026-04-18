@@ -157,21 +157,29 @@
   - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
   - 関連: task 5 (bookmark auto-advance)
 
-### 7. cli-pr-monitor の bookmark 検出を `@-..@--` まで拡張 (cli-merge-pipeline の水平展開)
+### 7. `jj-helpers` 共通クレート抽出 (ADR-024 延長)
 
-- **やろうとしたこと**: [src/cli-pr-monitor/src/util.rs:86](src/cli-pr-monitor/src/util.rs#L86) の `get_jj_bookmarks` は revset `@` のみで bookmark を探しており、cli-merge-pipeline で先に解消した task 7 (旧) と同じ「`@` 空 / bookmark が `@-` 上」問題を抱えている。`pnpm create-pr` や PR 検索フェーズで同じ空振りが起きる可能性があるため、横展開して整合させる
-- **現在地**: 設計確定、未着手 (cli-merge-pipeline 側の PR で実装パターンが確定済み)
+- **やろうとしたこと**: PR #55 の CodeRabbit Nitpick で指摘された通り、bookmark 検出ロジック (`BOOKMARK_SEARCH_REVSETS` / `TRUNK_BOOKMARKS` / `is_trunk_bookmark` / `parse_bookmark_list_output` / `select_from_revsets` / `query_bookmarks_at`) が **cli-push-runner / cli-merge-pipeline / cli-pr-monitor の 3 クレートで重複定義** されている状態を解消
+- **現在地**: 未着手。3 回目の port で抽出するのが ADR-024 試験運用の "2 個目の port 完了後に判断" 条件を満たしたタイミング
+- **背景**:
+  - cli-push-runner: `push_jj_bookmark.rs` に `TRUNK_BOOKMARKS`, `is_trunk_bookmark`, bookmark parsing
+  - cli-merge-pipeline: PR #54 で 3 層構造 + trunk filter を実装
+  - cli-pr-monitor: PR #55 で同パターンを移植 (本 PR)
+  - 次に 4 つ目のクレート (例: hooks 系) が同パターンを必要としたら、機械的に広がる懸念
 - **実装内容**:
-  - [ ] [src/cli-pr-monitor/src/util.rs](src/cli-pr-monitor/src/util.rs) の `get_jj_bookmarks` を cli-merge-pipeline と同じ 3 層 (parse / query / select_from_revsets) に分割
-  - [ ] `BOOKMARK_SEARCH_REVSETS = &["@", "@-", "@--"]` + `TRUNK_BOOKMARKS` filter を移植
-  - [ ] unit テスト: parse と優先順位を cli-merge-pipeline のテストと同等に追加
-  - [ ] E2E: 空 `@` 状態で `pnpm create-pr` の Strategy B が成功することを確認
+  - [ ] ADR-026 workspace 構成で新クレート `jj-helpers` を追加
+  - [ ] 3 クレートの共通定数 (`BOOKMARK_SEARCH_REVSETS`, `TRUNK_BOOKMARKS`) と関数 (`is_trunk_bookmark`, `parse_bookmark_list_output`, `select_from_revsets`, `query_bookmarks_at`, `get_jj_bookmarks`) を `pub` で移動
+  - [ ] 呼び出し側 3 クレートを `jj_helpers::get_jj_bookmarks` 等に差し替え
+  - [ ] unit テストは `jj-helpers` 側に集約 (3 クレートの重複テストを削除)
+  - [ ] `stderr` ハンドリングは cli 固有なので引数化 (cli-pr-monitor は `Stdio::null`, cli-merge-pipeline は `Stdio::piped` + logging)
 - **詰まっている箇所**:
-  - **共通化するかコピーするか**: ADR-024 (共通 jj helpers crate、試験運用) の延長で `jj-helpers` クレート化するのが理想だが、まず cli-pr-monitor への port (コピー) で機能等価を確認するのが安全。共通化は 2 個目の port 完了後に判断
-  - **create_pr.rs での利用箇所**: [src/cli-pr-monitor/src/stages/create_pr.rs:183](src/cli-pr-monitor/src/stages/create_pr.rs#L183) でも `get_jj_bookmarks` を使っており、`--head` 引数に先頭の bookmark を渡している。trunk filter を入れた結果「先頭が feature bookmark」保証が強まるので挙動は改善方向だが、回帰テストで確認する
+  - **log_info の依存**: 各クレートの `log_info` が別実装 (cli-pr-monitor は prefix `[post-pr-monitor]`、cli-merge-pipeline は `[merge-pipeline]` 等)。`select_from_revsets` の「別 revset 検出」ログをどう出すか要設計 (logger インジェクションか、呼び出し側で wrap するか)
+  - **ADR-024 本格採用の判断**: 現在「試験運用」扱い。3 箇所目の port で明確な痛みが可視化された今、本採用に格上げする ADR 改訂が先か、先にコード抽出するかの順序判断
 - **参照**:
-  - 先行実装: cli-merge-pipeline の同等対応 (task 7 旧、PR で完了済み)
-  - ADR-013 (cli-merge-pipeline), ADR-024 (共通 jj helpers、試験運用)
+  - PR #54 (cli-merge-pipeline 先行実装)
+  - PR #55 (cli-pr-monitor 移植 + CodeRabbit Nitpick 指摘)
+  - ADR-024 (共通 jj helper、試験運用)
+  - ADR-026 (Cargo workspace)
 
 ### 8. 雑務: 過去の delete-pending bookmark cleanup
 
