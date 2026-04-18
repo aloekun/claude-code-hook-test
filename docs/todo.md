@@ -157,31 +157,133 @@
   - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
   - 関連: task 5 (bookmark auto-advance)
 
-### 7. `jj-helpers` 共通クレート抽出 (ADR-024 延長)
+---
 
-- **やろうとしたこと**: PR #55 の CodeRabbit Nitpick で指摘された通り、bookmark 検出ロジック (`BOOKMARK_SEARCH_REVSETS` / `TRUNK_BOOKMARKS` / `is_trunk_bookmark` / `parse_bookmark_list_output` / `select_from_revsets` / `query_bookmarks_at`) が **cli-push-runner / cli-merge-pipeline / cli-pr-monitor の 3 クレートで重複定義** されている状態を解消
-- **現在地**: 未着手。3 回目の port で抽出するのが ADR-024 試験運用の "2 個目の port 完了後に判断" 条件を満たしたタイミング
+## セッション 247510ea 由来: 整備タスク群 (PR-B〜PR-D)
+
+> **最優先ブロック**。PR #54 / #55 のマージ後に確定した ADR / 仕組みの整備作業。3 タスクは **PR 粒度で分割実施**、依存関係あり。
+>
+> **背景コンテキスト**:
+> - **発端セッション**: `247510ea-3f24-4b87-8f68-3c860e1b1b4e` (2026-04-18)
+> - **先行成果**:
+>   - PR #54 (cli-merge-pipeline の revset 拡張 `@-..@--` + trunk filter)
+>   - PR #55 (cli-pr-monitor への同パターン水平展開)
+>   - PR-A (ADR 集約 / 本 PR): ADR-028 新設、ADR-021 原則 5 追加、ADR-024 本採用、ADR-019 可換性追記
+> - **ユーザーフィードバック 3 点** (memory `feedback_bookmark_auto_naming.md` に記録済):
+>   1. auto mode は試験導入。基本は自律実行だが、**最終出力の責任をユーザーが握るため `pnpm create-pr` / `pnpm merge-pr` は事前許可必須**
+>   2. bookmark 名は Claude が自動採番して OK
+>   3. `pnpm push` は foreground 実行 OK (permission prompt がゲート)
+> - **設計的な確認事項** (ADR-028 / ADR-019 追記で明文化済):
+>   - `hooks` での `block` は許可後も効くので UX 崩壊 → 採用せず
+>   - 代わりに **settings.json の Ask ルール** で「毎回確認プロンプト」を出す
+>   - CodeRabbit 無料枠の制約 (1h 3 回、public リポジトリ限定) を許容し、rate limit 耐性の作り込みは **しない** (レビュアーロックイン回避のため)
+>
+> **PR 依存関係**:
+> ```
+> PR-A (ADR 集約, merged) ──┬── PR-B (Ask ルール + body helper) ── PR-D (prepare-pr skill)
+>                            └── PR-C (jj-helpers 抽出)
+> ```
+>
+> **推奨実行順序**: (PR-B, PR-C 並列) → PR-D
+>
+> **CodeRabbit rate limit 対策**: PR-B と PR-C の push 間に 1 時間のインターバルを入れる (無料枠は 1h 3 件制限)
+
+### 7. [PR-B] Ask ルール + PR body helper
+
+- **やろうとしたこと**: ADR-028 の二次防衛層を実装 + PR body 生成を標準化。`pnpm create-pr` 実行時の harness 強制プロンプト、および PR body を一時ファイル経由で渡す helper script を整備
+- **現在地**: 未着手。PR-A merge 後に着手可 (ADR-028 が前提)
+- **実装内容**:
+  - [ ] **`.claude/settings.json` 更新**: `permissions.ask` に 4 パターン追加
+    - `Bash(pnpm create-pr*)`
+    - `Bash(pnpm merge-pr*)`
+    - `.claude/cli-pr-monitor.exe` 直接呼び出しを捕捉するパターン
+    - `.claude/cli-merge-pipeline.exe` 直接呼び出しを捕捉するパターン
+    - パターン syntax は `https://code.claude.com/docs/en/permissions#manage-permissions` 参照
+  - [ ] **`scripts/prepare-pr-body.ps1` 新規**: stdin から body を受け取り `.tmp-pr-body.md` に書き出し、パスを stdout に返す
+    - 終了時の cleanup 選択肢を用意
+  - [ ] **`package.json` に `"prepare-pr-body"` スクリプト追加**: ps1 ラッパー
+  - [ ] **検証**:
+    - `pnpm create-pr` を Claude が実行しようとすると毎回プロンプトが出る
+    - `allow`-listed な他コマンド (`pnpm build:all` 等) は prompt なしで通る (回帰なし)
+    - 既存 `preset_gh_pr_create_guard` で `gh pr create` 直接呼び出しが block される (回帰なし)
+  - [ ] README or docs にワークフロー更新を反映 (任意)
+- **詰まっている箇所**:
+  - **Ask ルールのパターン syntax**: Claude Code ドキュメントで `Bash(pattern)` 形式と確認が必要。ワイルドカード・前方後方一致の挙動を実装時に確認
+  - **直接 exe 呼び出しパスのマッチング**: `.claude\` 区切りや絶対パス・相対パス両方を捕捉する regex か glob が必要
+- **想定サイズ**: 小 (~50-100 行、3-4 ファイル)
+- **依存**: **PR-A** (ADR-028 確定が前提)
+- **見積**: 45-90 分
+- **参照**: ADR-028, memory `feedback_bookmark_auto_naming.md`
+
+### 8. [PR-C] `jj-helpers` 共通クレート抽出 (ADR-024 本採用後)
+
+- **やろうとしたこと**: PR #55 の CodeRabbit Nitpick で指摘された通り、bookmark 検出ロジックが **cli-push-runner / cli-merge-pipeline / cli-pr-monitor の 3 クレートで重複定義** されている状態を `jj-helpers` 共通クレートに集約
+- **現在地**: 未着手。PR-A merge 後に着手可 (ADR-024 本採用が前提)
 - **背景**:
   - cli-push-runner: `push_jj_bookmark.rs` に `TRUNK_BOOKMARKS`, `is_trunk_bookmark`, bookmark parsing
   - cli-merge-pipeline: PR #54 で 3 層構造 + trunk filter を実装
-  - cli-pr-monitor: PR #55 で同パターンを移植 (本 PR)
-  - 次に 4 つ目のクレート (例: hooks 系) が同パターンを必要としたら、機械的に広がる懸念
+  - cli-pr-monitor: PR #55 で同パターンを移植
+  - ADR-024 の「試験運用」条件 = **3 箇所目の port 完了** が達成済
+  - 次に 4 箇所目のクレートが同パターンを必要とすると機械的に広がる懸念
 - **実装内容**:
-  - [ ] ADR-026 workspace 構成で新クレート `jj-helpers` を追加
-  - [ ] 3 クレートの共通定数 (`BOOKMARK_SEARCH_REVSETS`, `TRUNK_BOOKMARKS`) と関数 (`is_trunk_bookmark`, `parse_bookmark_list_output`, `select_from_revsets`, `query_bookmarks_at`, `get_jj_bookmarks`) を `pub` で移動
-  - [ ] 呼び出し側 3 クレートを `jj_helpers::get_jj_bookmarks` 等に差し替え
-  - [ ] unit テストは `jj-helpers` 側に集約 (3 クレートの重複テストを削除)
-  - [ ] `stderr` ハンドリングは cli 固有なので引数化 (cli-pr-monitor は `Stdio::null`, cli-merge-pipeline は `Stdio::piped` + logging)
+  - [ ] **新クレート `src/lib-jj-helpers/` 追加** (ADR-026 workspace 準拠)
+    - `Cargo.toml`, `src/lib.rs`
+    - Cargo workspace root の `members` に追加
+  - [ ] **共通定数と関数を `pub` で移動**:
+    - `BOOKMARK_SEARCH_REVSETS`, `TRUNK_BOOKMARKS`
+    - `is_trunk_bookmark`, `parse_bookmark_list_output`, `select_from_revsets`, `query_bookmarks_at`, `get_jj_bookmarks`
+  - [ ] **`stderr` ハンドリングを引数化**: `fn get_jj_bookmarks(stderr_mode: StderrMode)` 等
+    - cli-pr-monitor は `Stdio::null` 継続
+    - cli-merge-pipeline は `Stdio::piped` + logging 継続
+  - [ ] **`log_info` 注入**: `fn(&str) -> ()` を引数で受け取る設計
+    - 各クレート固有 prefix (`[post-pr-monitor]` / `[merge-pipeline]` 等) を崩さない
+  - [ ] **呼び出し側 3 クレート差し替え**:
+    - `src/cli-push-runner/src/stages/push_jj_bookmark.rs`
+    - `src/cli-merge-pipeline/src/main.rs`
+    - `src/cli-pr-monitor/src/util.rs`
+    - 各 `Cargo.toml` に `lib-jj-helpers` 依存追加
+  - [ ] **unit テスト集約**: `lib-jj-helpers` 側に集約、3 クレートの重複テスト削除
+  - [ ] **検証**:
+    - `cargo test --workspace` でグリーン
+    - `pnpm build:all` で全 exe がビルドされる
+    - PR #54/#55 の動作パターン (`@` 空 / `@-` = bookmark) の smoke test
 - **詰まっている箇所**:
-  - **log_info の依存**: 各クレートの `log_info` が別実装 (cli-pr-monitor は prefix `[post-pr-monitor]`、cli-merge-pipeline は `[merge-pipeline]` 等)。`select_from_revsets` の「別 revset 検出」ログをどう出すか要設計 (logger インジェクションか、呼び出し側で wrap するか)
-  - **ADR-024 本格採用の判断**: 現在「試験運用」扱い。3 箇所目の port で明確な痛みが可視化された今、本採用に格上げする ADR 改訂が先か、先にコード抽出するかの順序判断
-- **参照**:
-  - PR #54 (cli-merge-pipeline 先行実装)
-  - PR #55 (cli-pr-monitor 移植 + CodeRabbit Nitpick 指摘)
-  - ADR-024 (共通 jj helper、試験運用)
-  - ADR-026 (Cargo workspace)
+  - **log_info 注入設計**: クロージャ vs. trait vs. 呼び出し側 wrap のどれが最もエルゴノミックか要設計
+  - **stderr ハンドリング引数化**: `enum StderrMode { Silent, Piped(LogFn) }` のような型定義
+- **想定サイズ**: 中〜大 (refactor、~400-600 行差分、但し移動が主)
+- **依存**: **PR-A** (ADR-024 格上げが前提)
+- **見積**: 2-4 時間
+- **リスク**: log_info 注入の設計で躓いた場合、「各クレート固有の薄いラッパー関数を残す」フォールバック方針で進める
+- **参照**: PR #54, PR #55 (CodeRabbit Nitpick 1), ADR-024, ADR-026 (Cargo workspace)
 
-### 8. 雑務: 過去の delete-pending bookmark cleanup
+### 9. [PR-D] `prepare-pr` skill (試験運用)
+
+- **やろうとしたこと**: auto mode で安全に PR を作成するためのインタビュー型 skill を試験運用として整備。commit log と diff から PR title / body の初稿を生成し、ユーザー承認後に `pnpm create-pr` を foreground 実行するフローを標準化
+- **現在地**: 未着手。PR-B merge 後に着手 (ADR-028 の運用フローと PR-B の body helper が前提)
+- **実装内容**:
+  - [ ] **`.claude/skills/prepare-pr/SKILL.md` 新規** (試験運用ステータス)
+    - 起動条件: 「PR を作成して」等の明示依頼、または `/prepare-pr` 起動
+    - ステップ:
+      1. `jj status` + `jj log -r master..@` で差分サマリ取得
+      2. commit description から PR title 初稿生成
+      3. diff から PR body 初稿生成 (Summary / Changes / Test Plan / References セクション)
+      4. Claude が提示 → **明示承認** (AskUserQuestion 強制)
+      5. `pnpm prepare-pr-body` (PR-B 成果物) 経由で body 書き込み
+      6. `pnpm create-pr --title ... --body-file ...` foreground 実行 (Ask プロンプトで再確認)
+      7. `.tmp-pr-body.md` 削除
+  - [ ] **検証**: skill 起動テスト、PR 作成完遂確認
+- **詰まっている箇所**:
+  - **skill の既存 frontend-design/pre-push-review との連携**: 既存スキルとの衝突可否を skill-sync-check で確認
+- **想定サイズ**: 小〜中 (skill 定義 1 本、~100-200 行)
+- **依存**: **PR-A** (ADR-028), **PR-B** (M1 body helper, Ask ルール)
+- **見積**: 1-2 時間
+- **参照**: ADR-028, PR-B 成果物
+
+---
+
+## その他の進行中タスク
+
+### 10. 雑務: 過去の delete-pending bookmark cleanup
 
 - **やろうとしたこと**: `jj git push --tracked` で `Refusing to push deleted bookmark fix/push-allow-new` の警告が出るため、`jj bookmark forget fix/push-allow-new` で消す
 - **現在地**: 未対応。push を block しないので緊急性なし

@@ -83,6 +83,55 @@ pub fn decide_repush(
 
 commit_id 取得失敗時 (`IdCaptureFailed`) は「変更なし」と同じ扱いにし、push を発動しない。「判定できないから念のため push」は致命的副作用 (元 description 上書き等) を招く。
 
+### 原則 5: bookmark 検出は優先度付き revset + trunk filter を標準とする (2026-04-19 追加)
+
+PR #54 / PR #55 で cli-merge-pipeline / cli-pr-monitor の bookmark 検出を標準化した。以下をプロジェクト共通の既定値とする:
+
+```rust
+const BOOKMARK_SEARCH_REVSETS: &[&str] = &["@", "@-", "@--"];
+const TRUNK_BOOKMARKS: &[&str] = &["main", "master", "trunk", "develop"];
+```
+
+#### 問題の背景
+
+`jj new` 直後は「`@` = 空コミット / bookmark は `@-` 上」という構成になる (PR #53 実測)。`@` だけを見る実装では bookmark 検出が空振りする。
+
+単純に `@-` まで広げると、fresh checkout 直後に `@-` が trunk bookmark (`master` 等) を指してしまい、PR の head として trunk を誤検出する。
+
+#### 検討した選択肢
+
+| option | revset | 評価 | 結果 |
+|---|---|---|---|
+| A | `@` のみ | 空コミット状況で空振り (PR #53 実測の症状) | 不採用 |
+| **B** | **`@`, `@-`, `@--` の近い順** | 最大 2 階層までカバー。trunk filter 併用で false hit 回避可 | **採用** |
+| C | `ancestors(@, N)` 等の広い revset | N の決定が恣意的、遠い祖先の bookmark を誤検出するリスク | 不採用 |
+
+option B + trunk filter で、以下の両方を成立させる:
+
+- `@` 空 + bookmark が `@-` / `@--` 上にある一般的ケースをカバー
+- fresh checkout で `@-` = `master` の場合に false hit しない
+
+#### 検出ロジックの 3 層構造
+
+```text
+parse   : jj bookmark list 出力のテキスト解析 (pure function)
+query   : revset を受けて bookmark 名リストを返す (副作用: jj プロセス)
+select  : BOOKMARK_SEARCH_REVSETS を近い順に走査し、
+          最初に非空かつ trunk filter 通過する revset の結果を返す
+```
+
+`select_from_revsets(revsets, query_fn)` はクロージャを受け取る pure function 設計にし、unit test で jj プロセスなしに network / revset priority / trunk filter を検証できる (ADR-021 原則 3 と整合)。
+
+#### 実装箇所 (PR #54 / PR #55 時点)
+
+| クレート | ファイル | 用途 |
+|---|---|---|
+| cli-merge-pipeline | `src/cli-merge-pipeline/src/main.rs` | `pnpm merge-pr` の PR detection |
+| cli-pr-monitor | `src/cli-pr-monitor/src/util.rs` | `pnpm create-pr` の bookmark 検出 + `--head` 自動補完 |
+| cli-push-runner | `src/cli-push-runner/src/stages/push_jj_bookmark.rs` | `pnpm push` の bookmark fallback |
+
+3 クレートで定数・関数が重複している状態は ADR-024 の共通化対象 (PR-C / `docs/todo.md` #8 で `lib-jj-helpers` 抽出予定)。
+
 ## 影響
 
 ### 採用される構成要素
