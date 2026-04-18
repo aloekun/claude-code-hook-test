@@ -157,7 +157,7 @@ interactive session での PR 作成フロー:
 ## 次ステップ (スコープ外、PR-B 以降で対応)
 
 - **PR-B (実装済)**: `.claude/settings.json` に `permissions.ask` 4 パターンを追加して二次防衛層を実装 + `scripts/prepare-pr-body.ps1` で PR body を一時ファイル化する helper を整備
-- **PR-D (`docs/todo.md` #8)**: `prepare-pr` skill で「ドラフト提示 → 明示承認 → 実行」フローを標準化
+- **PR-D (`docs/todo.md` #7)**: `prepare-pr` skill で「ドラフト提示 → 明示承認 → 実行」フローを標準化
 - **運用レビュー**: 2026-07 に二次防衛層の発火頻度を計測。毎回 prompt 応答が形骸化していないか確認
 
 ## 参照

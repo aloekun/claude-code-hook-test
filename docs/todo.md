@@ -159,9 +159,9 @@
 
 ---
 
-## セッション 247510ea 由来: 整備タスク群 (PR-C〜PR-D)
+## セッション 247510ea 由来: 整備タスク群 (PR-D)
 
-> **最優先ブロック**。PR #54 / #55 のマージ後に確定した ADR / 仕組みの整備作業。2 タスクは **PR 粒度で分割実施**、依存関係あり。
+> **最優先ブロック**。PR #54 / #55 のマージ後に確定した ADR / 仕組みの整備作業。残 1 タスク。
 >
 > **背景コンテキスト**:
 > - **発端セッション**: `247510ea-3f24-4b87-8f68-3c860e1b1b4e` (2026-04-18)
@@ -169,7 +169,8 @@
 >   - PR #54 (cli-merge-pipeline の revset 拡張 `@-..@--` + trunk filter)
 >   - PR #55 (cli-pr-monitor への同パターン水平展開)
 >   - PR-A (ADR 集約 / PR #56 merged): ADR-028 新設、ADR-021 原則 5 追加、ADR-024 本採用、ADR-019 可換性追記
->   - PR-B (Ask ルール + body helper / 本 PR): `permissions.ask` 4 パターン追加、`scripts/prepare-pr-body.ps1` 新設
+>   - PR-B (Ask ルール + body helper / PR #57 merged): `permissions.ask` 4 パターン追加、`scripts/prepare-pr-body.ps1` 新設
+>   - PR-C (jj-helpers 抽出 / 本 PR): `src/lib-jj-helpers/` 新設、3 クレート差し替え、重複テストを lib 側に集約
 > - **ユーザーフィードバック 3 点** (memory `feedback_bookmark_auto_naming.md` に記録済):
 >   1. auto mode は試験導入。基本は自律実行だが、**最終出力の責任をユーザーが握るため `pnpm create-pr` / `pnpm merge-pr` は事前許可必須**
 >   2. bookmark 名は Claude が自動採番して OK
@@ -181,56 +182,11 @@
 >
 > **PR 依存関係**:
 > ```
-> PR-A (ADR 集約, merged) ──┬── PR-B (Ask ルール + body helper, merged/本 PR) ── PR-D (prepare-pr skill)
->                            └── PR-C (jj-helpers 抽出)
+> PR-A (ADR 集約, merged) ──┬── PR-B (Ask ルール + body helper, merged) ── PR-D (prepare-pr skill)
+>                            └── PR-C (jj-helpers 抽出, 本 PR)
 > ```
->
-> **推奨実行順序**: PR-C → PR-D (PR-B は別 PR で着手済/完了)
->
-> **CodeRabbit rate limit 対策**: PR-B と PR-C の push 間に 1 時間のインターバルを入れる (無料枠は 1h 3 件制限)
 
-### 7. [PR-C] `jj-helpers` 共通クレート抽出 (ADR-024 本採用後)
-
-- **やろうとしたこと**: PR #55 の CodeRabbit Nitpick で指摘された通り、bookmark 検出ロジックが **cli-push-runner / cli-merge-pipeline / cli-pr-monitor の 3 クレートで重複定義** されている状態を `jj-helpers` 共通クレートに集約
-- **現在地**: 未着手。PR-A merge 後に着手可 (ADR-024 本採用が前提)
-- **背景**:
-  - cli-push-runner: `push_jj_bookmark.rs` に `TRUNK_BOOKMARKS`, `is_trunk_bookmark`, bookmark parsing
-  - cli-merge-pipeline: PR #54 で 3 層構造 + trunk filter を実装
-  - cli-pr-monitor: PR #55 で同パターンを移植
-  - ADR-024 の「試験運用」条件 = **3 箇所目の port 完了** が達成済
-  - 次に 4 箇所目のクレートが同パターンを必要とすると機械的に広がる懸念
-- **実装内容**:
-  - [ ] **新クレート `src/lib-jj-helpers/` 追加** (ADR-026 workspace 準拠)
-    - `Cargo.toml`, `src/lib.rs`
-    - Cargo workspace root の `members` に追加
-  - [ ] **共通定数と関数を `pub` で移動**:
-    - `BOOKMARK_SEARCH_REVSETS`, `TRUNK_BOOKMARKS`
-    - `is_trunk_bookmark`, `parse_bookmark_list_output`, `select_from_revsets`, `query_bookmarks_at`, `get_jj_bookmarks`
-  - [ ] **`stderr` ハンドリングを引数化**: `fn get_jj_bookmarks(stderr_mode: StderrMode)` 等
-    - cli-pr-monitor は `Stdio::null` 継続
-    - cli-merge-pipeline は `Stdio::piped` + logging 継続
-  - [ ] **`log_info` 注入**: `fn(&str) -> ()` を引数で受け取る設計
-    - 各クレート固有 prefix (`[post-pr-monitor]` / `[merge-pipeline]` 等) を崩さない
-  - [ ] **呼び出し側 3 クレート差し替え**:
-    - `src/cli-push-runner/src/stages/push_jj_bookmark.rs`
-    - `src/cli-merge-pipeline/src/main.rs`
-    - `src/cli-pr-monitor/src/util.rs`
-    - 各 `Cargo.toml` に `lib-jj-helpers` 依存追加
-  - [ ] **unit テスト集約**: `lib-jj-helpers` 側に集約、3 クレートの重複テスト削除
-  - [ ] **検証**:
-    - `cargo test --workspace` でグリーン
-    - `pnpm build:all` で全 exe がビルドされる
-    - PR #54/#55 の動作パターン (`@` 空 / `@-` = bookmark) の smoke test
-- **詰まっている箇所**:
-  - **log_info 注入設計**: クロージャ vs. trait vs. 呼び出し側 wrap のどれが最もエルゴノミックか要設計
-  - **stderr ハンドリング引数化**: `enum StderrMode { Silent, Piped(LogFn) }` のような型定義
-- **想定サイズ**: 中〜大 (refactor、~400-600 行差分、但し移動が主)
-- **依存**: **PR-A** (ADR-024 格上げが前提)
-- **見積**: 2-4 時間
-- **リスク**: log_info 注入の設計で躓いた場合、「各クレート固有の薄いラッパー関数を残す」フォールバック方針で進める
-- **参照**: PR #54, PR #55 (CodeRabbit Nitpick 1), ADR-024, ADR-026 (Cargo workspace)
-
-### 8. [PR-D] `prepare-pr` skill (試験運用)
+### 7. [PR-D] `prepare-pr` skill (試験運用)
 
 - **やろうとしたこと**: auto mode で安全に PR を作成するためのインタビュー型 skill を試験運用として整備。commit log と diff から PR title / body の初稿を生成し、ユーザー承認後に `pnpm create-pr` を foreground 実行するフローを標準化
 - **現在地**: 未着手。PR-B merge 後に着手 (ADR-028 の運用フローと PR-B の body helper が前提)
@@ -257,7 +213,7 @@
 
 ## その他の進行中タスク
 
-### 9. 雑務: 過去の delete-pending bookmark cleanup
+### 8. 雑務: 過去の delete-pending bookmark cleanup
 
 - **やろうとしたこと**: `jj git push --tracked` で `Refusing to push deleted bookmark fix/push-allow-new` の警告が出るため、`jj bookmark forget fix/push-allow-new` で消す
 - **現在地**: 未対応。push を block しないので緊急性なし

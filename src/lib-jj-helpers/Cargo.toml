@@ -1,0 +1,12 @@
+[package]
+name = "lib-jj-helpers"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_jj_helpers"
+path = "src/lib.rs"
+
+[dependencies]
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

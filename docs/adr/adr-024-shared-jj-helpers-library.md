@@ -4,7 +4,7 @@
 
 本採用 (2026-04-19、試験運用期間: 2026-04-17 ～ 2026-04-19)
 
-> 観察期間中 (2026-04-17 起点、想定 3.5 ヶ月) の早い段階で正式採用条件 (3 箇所の port 完了) を達成したため繰上げ本採用。実抽出作業は PR-C (`docs/todo.md` #8) で `src/lib-jj-helpers/` を新設して実施する。
+> 観察期間中 (2026-04-17 起点、想定 3.5 ヶ月) の早い段階で正式採用条件 (3 箇所の port 完了) を達成したため繰上げ本採用。実抽出作業は PR-C で `src/lib-jj-helpers/` を新設して実施済。
 
 ## コンテキスト
 
@@ -50,19 +50,18 @@ src/lib-jj-helpers/
       └── lib.rs
 ```
 
-公開する API の初期セット:
+PR-C で公開した API の初期セット (ADR-021 原則 5 系、bookmark 検出):
 
-- ADR-021 原則 1-4 系 (変更検出):
-  - `capture_commit_id() -> Option<String>`
-  - `diff_is_empty(from: &str, to: &str) -> bool`
-- ADR-021 原則 5 系 (bookmark 検出):
-  - 定数 `BOOKMARK_SEARCH_REVSETS = ["@", "@-", "@--"]`
-  - 定数 `TRUNK_BOOKMARKS = ["main", "master", "trunk", "develop"]`
-  - `is_trunk_bookmark(name: &str) -> bool`
-  - `parse_bookmark_list_output(stdout: &str) -> Vec<String>`
-  - `select_from_revsets(...)` (クロージャ注入型 pure function)
-  - `query_bookmarks_at(revset: &str) -> Vec<String>`
-  - `get_jj_bookmarks(stderr_mode: StderrMode) -> Vec<String>`
+- 定数 `BOOKMARK_SEARCH_REVSETS = ["@", "@-", "@--"]`
+- 定数 `TRUNK_BOOKMARKS = ["main", "master", "trunk", "develop"]`
+- `is_trunk_bookmark(name: &str) -> bool`
+- `enum StderrMode { Silent, Piped(fn(&str)) }`
+- `parse_bookmark_list_output(raw: &str) -> Vec<String>`
+- `query_bookmarks_at(revset: &str, stderr_mode: &StderrMode) -> Vec<String>`
+- `select_from_revsets<F: Fn(&str) -> Vec<String>>(revsets: &[&str], query: F, fallback_log: Option<fn(&str)>) -> Vec<String>`
+- `get_jj_bookmarks(stderr_mode: StderrMode, fallback_log: Option<fn(&str)>) -> Vec<String>`
+
+ADR-021 原則 1-4 系 (変更検出: `capture_commit_id` / `diff_is_empty`) は本 PR 時点では cli-pr-monitor 内に留める。2 つ目の使用例が出現したタイミングで本 crate に移設する (下記「次ステップ」参照)。
 
 配置は ADR-012 の命名規約 `lib-*` に従い、ADR-026 の Cargo workspace の member として登録する。
 
@@ -74,21 +73,23 @@ src/lib-jj-helpers/
 - **`log_info` 注入**: `fn(&str)` クロージャを引数で受ける設計。各クレート固有 prefix (`[post-pr-monitor]` / `[merge-pipeline]` 等) を崩さない
 - **fallback 方針**: log 注入設計で詰まった場合は「各クレート固有の薄いラッパー関数を残す」方針で進める (PR-C 段階で判断)
 
-### 移行方針
+### 移行方針 (PR-C で実施済)
 
-PR-C (`docs/todo.md` #8) で以下を実施:
+PR-C で以下を実施:
 
-1. `src/lib-jj-helpers/` 新設、workspace member 登録
-2. 共通定数・関数を移動し `pub` 公開
-3. 呼び出し側 3 クレートを差し替え、各 `Cargo.toml` に依存追加
-4. unit テストを `lib-jj-helpers` 側に集約、3 クレートの重複テスト削除
-5. `cargo test --workspace` / `pnpm build:all` でグリーン確認
+1. `src/lib-jj-helpers/` 新設、workspace member 登録 (済)
+2. 共通定数・関数を移動し `pub` 公開 (済)
+3. 呼び出し側 3 クレートを差し替え、各 `Cargo.toml` に依存追加 (済)
+4. unit テストを `lib-jj-helpers` 側に集約、3 クレートの重複テスト削除 (済)
+5. `cargo test --workspace` / `pnpm build:all` でグリーン確認 (済: 363 tests PASS)
+
+なお公開 API のうち `capture_commit_id` / `diff_is_empty` は PR-C 時点では未移設。現状は cli-pr-monitor 内のみで使用されており、2 つ目の使用例が出たタイミングで本 crate に追加する (ADR-021 原則 1-4 系の共通化は将来 PR で段階的に実施)。
 
 ## 影響
 
 ### 採用される構成要素
 
-- `src/lib-jj-helpers/` (PR-C で新設予定)
+- `src/lib-jj-helpers/` (PR-C で新設済)
 - 3 呼び出し側クレート (`cli-pr-monitor` / `cli-merge-pipeline` / `cli-push-runner`) の `Cargo.toml` への依存追加
 
 ### 避けるべきアンチパターン
@@ -103,8 +104,8 @@ PR-C (`docs/todo.md` #8) で以下を実施:
 - ADR-021 (jj 変更検出): 本 ADR のヘルパーが実装する原則 (原則 1-5 すべて)
 - ADR-026 (Cargo workspace): workspace member として参照する前提
 
-## 次ステップ (スコープ外、PR-C で実施)
+## 次ステップ (スコープ外)
 
-- **PR-C (`docs/todo.md` #8)**: `src/lib-jj-helpers/` 新設と 3 クレート差し替え
 - **将来の新規クレート**: jj 連携が必要になったらまず `lib-jj-helpers` を依存に追加することから始める
 - **API 拡張**: `jj new` / `jj describe` / `jj bookmark` 系のラッパーは都度検討 (早期汎用化を避ける)
+- **`capture_commit_id` / `diff_is_empty` の移設**: cli-pr-monitor 以外に 2 つ目の使用例が出現したタイミングで実施
