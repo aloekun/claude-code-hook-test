@@ -64,6 +64,63 @@ CodeRabbit は自身の Learning システムで「この repo/path では cross
 
 これにより CodeRabbit のレビュー自体が徐々に適合していく。
 
+### CodeRabbit 無料枠の制約 (2026-04-19 追記)
+
+本プロジェクトは CodeRabbit の無料枠を前提に運用しており、以下の制約を受け入れる:
+
+| 制約 | 影響 |
+|---|---|
+| **1 時間 3 回のレビュー上限** | 連続 PR 作成時に 3 本目以降のレビューがスキップされる |
+| **public リポジトリ限定** | 本リポジトリが public である前提が崩れると CodeRabbit が利用不能 |
+| **アカウント単位の制約** | fork / 別アカウント運用すると制約が分離される (逆用可能性あり) |
+
+### レビュアー可換性の方針 (2026-04-19 追記)
+
+CodeRabbit は便利だが、無料枠制約と将来的な仕様変更リスクを踏まえて「CodeRabbit 依存を固定化しない」ことを設計方針とする。
+
+#### 「ハイブリッド」の定義 (再定義)
+
+当初 ADR-019 起草時の「ハイブリッド」は「takt 分析 + CodeRabbit review」の意味合いが強かったが、本追記で以下に再定義する:
+
+> **ハイブリッド = takt 内製レビュー + 外部 AI レビュー (plugin 可換)**
+
+外部 AI レビューは CodeRabbit に限定せず、以下を交換可能な plugin として扱う:
+
+- CodeRabbit (現行)
+- GitHub Copilot Reviews
+- Greptile
+- その他 future 候補
+
+#### Layer 構成は外部 AI 可換を前提に保つ
+
+ADR-019 の 3 レイヤー構成は外部 AI の種類に依存しない形で設計されている:
+
+- **Layer 1 (fitness filter)**: `.takt/facets/instructions/analyze-<tool>.md` を tool 別に用意する
+- **Layer 2 (severity classification)**: `needs_fix` / `user_decision` / `approved` の 3-way verdict は tool 共通
+- **Layer 3 (hybrid re-push)**: `auto_push_severity` の設定は tool 非依存
+
+切り替え時の実装コストは「Layer 1 の analyze instruction を新 tool 用に書き起こす」程度に抑える設計を維持する。
+
+#### 具体的な可換性確保策
+
+- **CodeRabbit 固有の成果物に依存しない命名**: `pr-review` / `post-pr-monitor` 等、tool 名を含まない workflow 名を優先
+- **analyze instruction は tool 別ファイル**: `analyze-coderabbit.md` / (将来) `analyze-copilot.md` のように分離
+- **Rust 側 (cli-pr-monitor) は tool 固有 API に依存しない**: PR comments API を通じて取得できる汎用フォーマットに閉じる
+
+### M5 (rate limit 耐性作り込み) を不採用とする論拠 (2026-04-19 追記)
+
+無料枠制約に対する耐性機能 (例: "3 回超過後の自動 retry"、"レビュー失敗時の claude -p fallback") を作り込まない理由:
+
+1. **レビュアーロックインの温床**: rate limit 耐性は CodeRabbit 固有挙動への依存を深め、可換性の方針と矛盾する
+2. **投資対効果が薄い**: 1h 3 回制限は日常運用でまず引っかからない。連続 PR 作成の局面は設計上避けるべきケース (CodeRabbit rate limit 対策として PR-B/PR-C の push 間に 1 時間インターバル = 運用でカバー)
+3. **無料枠に高度機能を期待しない**: 有償プラン契約の判断は別 ADR で行う。現時点では「制約を受け入れて公式経路を使う」のが最小コスト
+
+代わりに以下で運用カバーする:
+
+- PR 作成間隔の調整 (運用ルール、自動化なし)
+- レビュー空振りを検出したら「そもそも push しない」「手動で claude -p review に切り替える」 (interactive 判断)
+- ロックインが問題化した時点で plugin 可換設計の具体実装に着手 (本 ADR の方針に従う)
+
 ## 影響
 
 ### 採用される構成要素

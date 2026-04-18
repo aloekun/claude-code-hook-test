@@ -25,10 +25,11 @@
 - [ADR-021: jj 変更検出ロジックの設計原則](docs/adr/adr-021-jj-change-detection-principles.md)
 - [ADR-022: 自動化コンポーネントの責務分離原則](docs/adr/adr-022-automation-responsibility-separation.md)
 - [ADR-023: CodeRabbit false positive 対応スキル](docs/adr/adr-023-coderabbit-reject-thread-skill.md) *(試験運用)*
-- [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md) *(試験運用)*
+- [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md)
 - [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(試験運用)*
 - [ADR-026: Cargo workspace による Rust パッケージ統合](docs/adr/adr-026-cargo-workspace.md)
 - [ADR-027: Push-time review を simplicity に限定し architectural review は post-PR に委ねる](docs/adr/adr-027-push-review-simplicity-focus.md)
+- [ADR-028: 外部可視成果物の生成コマンド (PR 作成/マージ) の実行ゲート](docs/adr/adr-028-pnpm-create-pr-gate.md)
 
 ## Automated actor boundary (ADR-022)
 
