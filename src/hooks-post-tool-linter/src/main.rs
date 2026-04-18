@@ -136,17 +136,52 @@ fn default_pipelines() -> Vec<PipelineConfig> {
         PipelineConfig {
             extensions: vec!["ts".into(), "tsx".into(), "js".into(), "jsx".into()],
             steps: vec![
-                StepConfig { cmd: "npx".into(), args: vec!["--no-install".into(), "biome".into(), "format".into(), "--write".into(), "{file}".into()], fix: true },
-                StepConfig { cmd: "npx".into(), args: vec!["--no-install".into(), "oxlint".into(), "--fix".into(), "{file}".into()], fix: true },
-                StepConfig { cmd: "npx".into(), args: vec!["--no-install".into(), "oxlint".into(), "{file}".into()], fix: false },
+                StepConfig {
+                    cmd: "npx".into(),
+                    args: vec![
+                        "--no-install".into(),
+                        "biome".into(),
+                        "format".into(),
+                        "--write".into(),
+                        "{file}".into(),
+                    ],
+                    fix: true,
+                },
+                StepConfig {
+                    cmd: "npx".into(),
+                    args: vec![
+                        "--no-install".into(),
+                        "oxlint".into(),
+                        "--fix".into(),
+                        "{file}".into(),
+                    ],
+                    fix: true,
+                },
+                StepConfig {
+                    cmd: "npx".into(),
+                    args: vec!["--no-install".into(), "oxlint".into(), "{file}".into()],
+                    fix: false,
+                },
             ],
         },
         PipelineConfig {
             extensions: vec!["py".into()],
             steps: vec![
-                StepConfig { cmd: "ruff".into(), args: vec!["check".into(), "--fix".into(), "{file}".into()], fix: true },
-                StepConfig { cmd: "ruff".into(), args: vec!["format".into(), "{file}".into()], fix: true },
-                StepConfig { cmd: "ruff".into(), args: vec!["check".into(), "{file}".into()], fix: false },
+                StepConfig {
+                    cmd: "ruff".into(),
+                    args: vec!["check".into(), "--fix".into(), "{file}".into()],
+                    fix: true,
+                },
+                StepConfig {
+                    cmd: "ruff".into(),
+                    args: vec!["format".into(), "{file}".into()],
+                    fix: true,
+                },
+                StepConfig {
+                    cmd: "ruff".into(),
+                    args: vec!["check".into(), "{file}".into()],
+                    fix: false,
+                },
             ],
         },
     ]
@@ -166,7 +201,11 @@ fn load_config() -> Config {
     let path = config_path();
     match std::fs::read_to_string(&path) {
         Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
-            eprintln!("[post-tool-linter] Warning: Failed to parse {}: {}", path.display(), e);
+            eprintln!(
+                "[post-tool-linter] Warning: Failed to parse {}: {}",
+                path.display(),
+                e
+            );
             Config::default()
         }),
         Err(_) => Config::default(),
@@ -180,7 +219,9 @@ fn find_pipeline<'a>(file: &str, pipelines: &'a [PipelineConfig]) -> Option<&'a 
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())?;
 
-    pipelines.iter().find(|p| p.extensions.iter().any(|e| e.to_lowercase() == ext))
+    pipelines
+        .iter()
+        .find(|p| p.extensions.iter().any(|e| e.to_lowercase() == ext))
 }
 
 /// コマンドを実行し、(stdout, stderr) を返す
@@ -275,7 +316,11 @@ fn load_custom_rules() -> Vec<CompiledRule> {
     let rules = match std::fs::read_to_string(&path) {
         Ok(content) => {
             let config: CustomRulesConfig = toml::from_str(&content).unwrap_or_else(|e| {
-                eprintln!("[post-tool-linter] Warning: Failed to parse {}: {}", path.display(), e);
+                eprintln!(
+                    "[post-tool-linter] Warning: Failed to parse {}: {}",
+                    path.display(),
+                    e
+                );
                 CustomRulesConfig::default()
             });
             config.rules.unwrap_or_default()
@@ -288,7 +333,10 @@ fn load_custom_rules() -> Vec<CompiledRule> {
         .filter_map(|rule| match Regex::new(&rule.pattern) {
             Ok(regex) => Some(CompiledRule { rule, regex }),
             Err(e) => {
-                eprintln!("[post-tool-linter] Warning: Invalid regex in rule '{}': {}", rule.id, e);
+                eprintln!(
+                    "[post-tool-linter] Warning: Invalid regex in rule '{}': {}",
+                    rule.id, e
+                );
                 None
             }
         })
@@ -343,12 +391,21 @@ fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
                     message: rule.message.clone(),
                     why: rule.why.clone(),
                     fix: ViolationFix {
-                        strategy: rule.fix.as_ref().map_or_else(String::new, |f| f.strategy.clone()),
+                        strategy: rule
+                            .fix
+                            .as_ref()
+                            .map_or_else(String::new, |f| f.strategy.clone()),
                         steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
                     },
                     example: ViolationExample {
-                        bad: rule.example.as_ref().map_or_else(String::new, |e| e.bad.clone()),
-                        good: rule.example.as_ref().map_or_else(String::new, |e| e.good.clone()),
+                        bad: rule
+                            .example
+                            .as_ref()
+                            .map_or_else(String::new, |e| e.bad.clone()),
+                        good: rule
+                            .example
+                            .as_ref()
+                            .map_or_else(String::new, |e| e.good.clone()),
                     },
                 };
 
@@ -360,6 +417,61 @@ fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
 
         if violations.len() >= MAX_CUSTOM_VIOLATIONS {
             break;
+        }
+    }
+
+    violations
+}
+
+/// UTF-8 整合性チェック: U+FFFD (置換文字) の検出
+///
+/// AI ツールの Edit/Write でマルチバイト文字が破壊されると、
+/// U+FFFD が残るか、raw invalid bytes が生成される。
+/// `std::fs::read` + `from_utf8_lossy` で両方のケースを捕捉する。
+fn check_utf8_integrity(file: &str) -> Vec<String> {
+    let bytes = match std::fs::read(file) {
+        Ok(b) => b,
+        Err(_) => return Vec::new(),
+    };
+
+    let content = String::from_utf8_lossy(&bytes);
+
+    let mut violations = Vec::new();
+
+    for (line_idx, line) in content.lines().enumerate() {
+        if violations.len() >= MAX_CUSTOM_VIOLATIONS {
+            break;
+        }
+
+        if line.contains('\u{FFFD}') {
+            let violation = LintViolation {
+                r#type: "UTF8_INTEGRITY".to_string(),
+                severity: "error".to_string(),
+                location: ViolationLocation {
+                    file: file.to_string(),
+                    line: line_idx + 1,
+                    symbol: "\u{FFFD}".to_string(),
+                },
+                message: "U+FFFD (replacement character) detected — possible mojibake from AI edit"
+                    .to_string(),
+                why: "AI tool edits can corrupt multi-byte characters (e.g., Japanese text). Fix before commit."
+                    .to_string(),
+                fix: ViolationFix {
+                    strategy: "Restore the original text from version control history".to_string(),
+                    steps: vec![
+                        "Check the original content with `jj diff` or `git diff`".to_string(),
+                        "Restore the corrupted characters manually".to_string(),
+                    ],
+                },
+                example: ViolationExample {
+                    bad: "進みま\u{FFFD}\u{FFFD}。".to_string(),
+                    good: "進みます。".to_string(),
+                },
+            };
+
+            if let Ok(json) = serde_json::to_string(&violation) {
+                violations.push(json);
+            }
         }
     }
 
@@ -387,6 +499,18 @@ fn main() {
         .unwrap_or_default();
 
     if file.is_empty() {
+        return;
+    }
+
+    // 第0層: UTF-8 整合性チェック (全ファイル対象, ~1ms)
+    let utf8_violations = check_utf8_integrity(&file);
+    if !utf8_violations.is_empty() {
+        let feedback = format!(
+            "[utf8-integrity] {} violation(s) found:\n{}",
+            utf8_violations.len(),
+            utf8_violations.join("\n")
+        );
+        emit_feedback(&feedback);
         return;
     }
 
@@ -661,7 +785,11 @@ mod tests {
     fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
         rules
             .into_iter()
-            .filter_map(|rule| Regex::new(&rule.pattern).ok().map(|regex| CompiledRule { rule, regex }))
+            .filter_map(|rule| {
+                Regex::new(&rule.pattern)
+                    .ok()
+                    .map(|regex| CompiledRule { rule, regex })
+            })
             .collect()
     }
 
@@ -677,7 +805,11 @@ mod tests {
             writeln!(f, "const y = 2;").unwrap();
         }
 
-        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
 
         assert_eq!(violations.len(), 1);
@@ -699,7 +831,11 @@ mod tests {
             writeln!(f, "logger.info('message');").unwrap();
         }
 
-        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
 
         assert!(violations.is_empty());
@@ -715,7 +851,11 @@ mod tests {
             writeln!(f, "console.log('should be ignored');").unwrap();
         }
 
-        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
 
         assert!(violations.is_empty());
@@ -733,7 +873,11 @@ mod tests {
             writeln!(f, "console.log('second');").unwrap();
         }
 
-        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
 
         assert_eq!(violations.len(), 2);
@@ -755,7 +899,11 @@ mod tests {
             }
         }
 
-        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
 
         assert_eq!(violations.len(), MAX_CUSTOM_VIOLATIONS);
@@ -793,7 +941,11 @@ mod tests {
             writeln!(f, "console.log('x');").unwrap();
         }
 
-        let rules = compile_test_rules(vec![make_test_rule("no-console-log", r"console\.log\(", &["ts"])]);
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
 
@@ -844,6 +996,81 @@ good = "logger.debug('x');"
         assert_eq!(rules[0].extensions, vec!["ts", "tsx"]);
         assert!(rules[0].fix.is_some());
         assert!(rules[0].example.is_some());
+    }
+
+    // --- UTF-8 整合性チェック ---
+
+    #[test]
+    fn utf8_integrity_detects_fffd() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("mojibake.rs");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "let msg = \"進みま\u{FFFD}\u{FFFD}。\";").unwrap();
+        }
+
+        let violations = check_utf8_integrity(file.to_str().unwrap());
+        assert_eq!(violations.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        assert_eq!(v["type"], "UTF8_INTEGRITY");
+        assert_eq!(v["severity"], "error");
+        assert_eq!(v["location"]["line"], 1);
+        assert_eq!(v["location"]["symbol"], "\u{FFFD}");
+    }
+
+    #[test]
+    fn utf8_integrity_clean_file() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clean.rs");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "let msg = \"正常な日本語テキスト\";").unwrap();
+        }
+
+        let violations = check_utf8_integrity(file.to_str().unwrap());
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn utf8_integrity_invalid_raw_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("invalid.txt");
+        // 0xFF 0xFE は有効な UTF-8 シーケンスではない
+        std::fs::write(&file, b"hello \xFF\xFE world").unwrap();
+
+        let violations = check_utf8_integrity(file.to_str().unwrap());
+        assert_eq!(violations.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        assert_eq!(v["type"], "UTF8_INTEGRITY");
+    }
+
+    #[test]
+    fn utf8_integrity_multiple_lines() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("multi.rs");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "let a = \"正常\";").unwrap();
+            writeln!(f, "let b = \"壊れた\u{FFFD}文字\";").unwrap();
+            writeln!(f, "let c = \"正常\";").unwrap();
+            writeln!(f, "let d = \"また\u{FFFD}\u{FFFD}\";").unwrap();
+        }
+
+        let violations = check_utf8_integrity(file.to_str().unwrap());
+        assert_eq!(violations.len(), 2);
+        let v1: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&violations[1]).unwrap();
+        assert_eq!(v1["location"]["line"], 2);
+        assert_eq!(v2["location"]["line"], 4);
+    }
+
+    #[test]
+    fn utf8_integrity_nonexistent_file() {
+        let violations = check_utf8_integrity("/nonexistent/file.txt");
+        assert!(violations.is_empty());
     }
 
     #[test]
