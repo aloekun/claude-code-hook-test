@@ -52,17 +52,19 @@
     → 変更不要
 
   Task B (通知用): scripts/observe-pr-state (新設)
-    → .claude/pr-monitor-state.json をポーリング
+    → <exe_dir>/pr-monitor-state.json をポーリング（cli-pr-monitor.exe と同じディレクトリ）
     → action=action_required を検出したら state 内容を stdout に出して exit
     → Claude Code が完了通知を受領 → ユーザーにレポート表示 + Minor ヒアリング
   ```
 
 - **タスク分解**:
   - [ ] `scripts/observe-pr-state.ps1` (Windows 用) 新設
-    - `.claude/pr-monitor-state.json` を 5-10s 間隔ポーリング
+    - `<exe_dir>/pr-monitor-state.json`（cli-pr-monitor.exe と同じディレクトリ）を 5-10s 間隔ポーリング
     - `action == "action_required"` または `action == "approved"` 検出で state 全文を出力して exit 0
     - 10 分のタイムアウト (ADR-016 準拠) 後は exit 1
-    - `notified` フラグを見て、通知済みなら再通知しない
+    - 起動時に `notified` フラグを確認し、`true` であれば出力をスキップして exit 0（Claude Code 再起動時の重複レポート防止）
+      - `notified=true` への書き込みは `cli-pr-monitor` の `mark_notified` ステージ（`src/cli-pr-monitor/src/stages/mark_notified.rs`）が担う
+      - `notified=false` へのリセットは新しい監視セッション開始時に `cli-pr-monitor` 側で行う（observer は stateless/single-shot のため自身ではリセットしない）
   - [ ] `package.json` に `"observe-pr"` スクリプト追加 (PowerShell 起動)
   - [ ] `post-pr-create-review-check` スキルを修正
     - 現状: daemon 起動後に state file を一度読んで報告する一段構成
