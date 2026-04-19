@@ -278,12 +278,22 @@ mod tests {
     fn reassemble_split_body_joins_fragments() {
         // cmd.exe が改行で分割した場合: --body "## Summary" "- point 1" "- point 2" --title "test"
         let args = strs(&[
-            "--body", "## Summary", "- point 1", "- point 2", "--title", "test",
+            "--body",
+            "## Summary",
+            "- point 1",
+            "- point 2",
+            "--title",
+            "test",
         ]);
         let result = reassemble_split_body(&args);
         assert_eq!(
             result,
-            strs(&["--body", "## Summary\n- point 1\n- point 2", "--title", "test"])
+            strs(&[
+                "--body",
+                "## Summary\n- point 1\n- point 2",
+                "--title",
+                "test"
+            ])
         );
     }
 
@@ -331,9 +341,7 @@ mod tests {
     fn reassemble_body_with_horizontal_rule_mid_body() {
         // cmd.exe splits a body that contains a Markdown horizontal rule (---) in the middle.
         // The reassembly must NOT stop at --- and must include everything up to the real flag.
-        let args = strs(&[
-            "--body", "## Summary", "---", "details", "--title", "test",
-        ]);
+        let args = strs(&["--body", "## Summary", "---", "details", "--title", "test"]);
         let result = reassemble_split_body(&args);
         assert_eq!(
             result,

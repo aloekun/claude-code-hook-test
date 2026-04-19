@@ -128,15 +128,15 @@
 ### 5. cli-pr-monitor の auto re-push に bookmark 自動前進を移植
 
 - **やろうとしたこと**: takt 自動修正後の auto re-push で「修正コミットができても bookmark が動かず remote に届かない」問題を解消。cli-push-runner には PR #50 で `push_jj_bookmark.rs` の advance ロジックが入っているが、cli-pr-monitor の `run_push` は `jj new` → `jj git push` だけで bookmark を進めない
-- **現在地**: 設計確定、未実装。PR #53 で症状を実測 (CodeRabbit 修正が local commit `466aff1d` に入ったが bookmark が動かず remote 未反映、手動で `jj bookmark set` + `jj git push --bookmark` が必要だった)
-- **実装内容**:
-  - [ ] `src/cli-pr-monitor/src/stages/push.rs:run_push` の `jj git push` 直前に bookmark advance を挿入
-  - [ ] cli-push-runner の `push_jj_bookmark::advance_jj_bookmarks` を共有化するか、まず port (copy) するかを決定
-  - [ ] unit テスト: 既存の `decide_repush` テスト群と同じスタイルで bookmark advance の挙動を検証
-  - [ ] E2E 検証: CodeRabbit Major ありの PR で takt 修正が remote まで自動到達することを確認
+- **現在地**: port 完了 + 統合テストで機能等価を確認。あとは実 PR でのロールアウトのみ
+  - [x] `src/cli-pr-monitor/src/stages/push_jj_bookmark.rs` 新設 (cli-push-runner から port、log prefix は `[action]`/`[state]` に調整、`lib_jj_helpers::is_trunk_bookmark` 再利用)
+  - [x] `src/cli-pr-monitor/src/stages/push.rs:run_push` の `jj new` 後・push 前に `advance_jj_bookmarks` を挿入 (`push_command` が `jj ` で始まる場合のみ、失敗時はログして push 続行)
+  - [x] unit テスト (dedup / parse_bookmarks_from_template / parse_bookmark_list_output / dispatch_bookmark_advance)
+  - [x] 統合テスト `integration_advance_moves_bookmark_to_parent_after_jj_new` で実 jj を使い PR #53 症状の退行防止を確認 (push-runner-config の rust-test グループで自動実行される `#[ignore]` テスト、`--test-threads=1` 必須)
+  - [ ] 実 PR での E2E 検証: 次回 CodeRabbit Major 指摘が出た PR で、takt 修正 → auto re-push で bookmark が remote 反映まで自動到達することを目視確認 (本 PR マージ後にリリース)
 - **詰まっている箇所**:
-  - **共通化方針**: ADR-024 (共通 jj helper crate、試験運用) の延長線で `jj-helpers` クレート化するのが理想だが、まず port から着手して機能等価を確認した方が安全
-  - **task 4 (コミット分離) との順序**: task 4 を先に実装すると takt fix が「明示的な子コミット」になるため bookmark advance のターゲットが安定する。task 5 → 4 の順か、4 と同時に対応するかを設計確定時に判断
+  - **共通化方針**: まず port で機能等価を確認。将来 `lib-jj-helpers` へ集約する候補として `push_jj_bookmark.rs` 先頭に TODO コメントを残した (ADR-024)
+  - **task 4 との順序**: fallback path (`jj bookmark list` ベース) が amend / split 両方に耐性があるため、task 4 を先送りしても問題なし
 - **参照 ADR / PR**:
   - PR #50 (cli-push-runner の bookmark fallback)
   - ADR-024 (共通 jj helper、試験運用)
@@ -156,6 +156,26 @@
   - ADR-018 (post-pr-monitor takt 化)
   - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
   - 関連: task 5 (bookmark auto-advance)
+
+### 7. prepare-pr skill の責務分離 (試験運用フィードバック)
+
+- **やろうとしたこと**: 2026-04-19 に試験運用を始めた `prepare-pr` skill (ADR-028) を初利用したところ、1 スキル内に **draft 生成 (知的労働)** と **実行オーケストレーション (承認ゲート + 一時ファイル書き出し + create-pr + cleanup)** が同居しており、責務が散らかっている。セッション 2026-04-20 のユーザー指摘
+- **現在地**: 設計段階、未着手。`prepare-pr` の試験運用データ (PR #61 が初回利用) が 1 件貯まった時点での再設計候補
+- **再設計案**:
+  - `propose-pr-draft` skill (新設): 純粋に jj log / diff から title / body の初稿を推論する副作用なし skill。再利用可能でテスト容易
+  - `prepare-pr` skill (現行をオーケストレータ化): `propose-pr-draft` を呼び出して draft を得た後、AskUserQuestion ゲート → `pnpm prepare-pr-body` → `pnpm create-pr` → cleanup を回す薄い存在に縮退
+- **分離しきれない部分 (確認済)**:
+  - ADR-028 承認ゲートは create-pr 実行の直前で atomic に挟む必要があり、draft skill 側には移動できない
+  - PR #51 由来の body 切り詰め対策 (`--body-file` 必須) は `pnpm prepare-pr-body` helper による一時ファイル経由が必須
+  - cleanup は create-pr 成否に連動
+- **タスク分解**:
+  - [ ] `propose-pr-draft` skill を `.claude/skills/` に新設 (description に「PR draft 提案のみ、副作用なし」を明記)
+  - [ ] `prepare-pr` skill の Step 1-3 を `propose-pr-draft` 呼び出しに置き換え
+  - [ ] 試験運用期間 (2026-04-19〜、半年) のログを `.claude/skills/prepare-pr/SKILL.md` の ステータスセクションに反映
+- **参照**:
+  - ADR-028 (外部可視成果物の生成コマンドの実行ゲート)
+  - PR #57 (permissions.ask + prepare-pr-body helper)
+  - PR #61 (prepare-pr skill の初利用事例、責務分離の指摘源)
 
 ---
 

@@ -127,15 +127,31 @@ fn parse_bookmarks_from_template(raw: &str) -> Vec<String> {
         .collect()
 }
 
+const JJ_TIMEOUT_SECS: u64 = 30;
+
 fn run_jj(args: &[&str], error_prefix: &str) -> Result<String, String> {
-    let output = Command::new("jj")
+    use std::process::Stdio;
+
+    let mut child = Command::new("jj")
         .args(args)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("{}: {}", error_prefix, e))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+
+    let stdout_handle = crate::runner::drain_pipe(child.stdout.take().expect("stdout must be piped"));
+    let stderr_handle = crate::runner::drain_pipe(child.stderr.take().expect("stderr must be piped"));
+
+    let status = crate::runner::wait_with_timeout(error_prefix, &mut child, JJ_TIMEOUT_SECS)
+        .map_err(|e| format!("{}: {}", error_prefix, e))?;
+
+    let stdout_text = stdout_handle.join().unwrap_or_default();
+    let stderr_text = stderr_handle.join().unwrap_or_default();
+
+    match status {
+        None => Err(format!("{}: タイムアウト ({}s)", error_prefix, JJ_TIMEOUT_SECS)),
+        Some(s) if s.success() => Ok(stdout_text),
+        Some(_) => Err(stderr_text.trim().to_string()),
     }
 }
 
