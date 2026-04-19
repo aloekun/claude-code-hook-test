@@ -159,16 +159,6 @@
 
 ---
 
-## その他の進行中タスク
-
-### 7. 雑務: 過去の delete-pending bookmark cleanup
-
-- **やろうとしたこと**: `jj git push --tracked` で `Refusing to push deleted bookmark fix/push-allow-new` の警告が出るため、`jj bookmark forget fix/push-allow-new` で消す
-- **現在地**: 未対応。push を block しないので緊急性なし
-- **詰まっている箇所**: なし
-
----
-
 ## スコープ外だが将来検討
 
 ### ADR-027 / PR #47 由来
