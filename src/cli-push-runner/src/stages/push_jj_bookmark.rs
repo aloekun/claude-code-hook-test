@@ -1,3 +1,4 @@
+use lib_jj_helpers::is_trunk_bookmark;
 use std::process::Command;
 
 use crate::log::{log_info, log_stage};
@@ -171,12 +172,6 @@ fn parse_bookmark_list_output(output: &str) -> Vec<String> {
         .collect()
 }
 
-const TRUNK_BOOKMARKS: &[&str] = &["main", "master", "trunk", "develop"];
-
-fn is_trunk_bookmark(name: &str) -> bool {
-    TRUNK_BOOKMARKS.contains(&name)
-}
-
 fn dedup(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     items
@@ -269,22 +264,10 @@ mod tests {
         );
     }
 
-    // --- is_trunk_bookmark ---
-
-    #[test]
-    fn is_trunk_bookmark_matches_known_names() {
-        assert!(is_trunk_bookmark("main"));
-        assert!(is_trunk_bookmark("master"));
-        assert!(is_trunk_bookmark("trunk"));
-        assert!(is_trunk_bookmark("develop"));
-    }
-
-    #[test]
-    fn is_trunk_bookmark_rejects_feature_bookmarks() {
-        assert!(!is_trunk_bookmark("feat/xyz"));
-        assert!(!is_trunk_bookmark("fix/bug-123"));
-        assert!(!is_trunk_bookmark("main-feature"));
-    }
+    // --- is_trunk_bookmark / TRUNK_BOOKMARKS ---
+    //
+    // lib-jj-helpers に集約済 (ADR-024 本採用、PR-C で移設)。
+    // cli-push-runner 側からは lib_jj_helpers::is_trunk_bookmark を呼び出す。
 
     // --- parse_bookmark_list_output ---
 

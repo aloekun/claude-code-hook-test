@@ -28,6 +28,7 @@ members = [
     "src/hooks-pre-tool-validate",
     "src/hooks-session-start",
     "src/hooks-stop-quality",
+    "src/lib-jj-helpers",
     "src/lib-report-formatter",
 ]
 

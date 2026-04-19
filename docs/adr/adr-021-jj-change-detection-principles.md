@@ -130,7 +130,7 @@ select  : BOOKMARK_SEARCH_REVSETS を近い順に走査し、
 | cli-pr-monitor | `src/cli-pr-monitor/src/util.rs` | `pnpm create-pr` の bookmark 検出 + `--head` 自動補完 |
 | cli-push-runner | `src/cli-push-runner/src/stages/push_jj_bookmark.rs` | `pnpm push` の bookmark fallback |
 
-3 クレートで定数・関数が重複している状態は ADR-024 の共通化対象 (PR-C / `docs/todo.md` #8 で `lib-jj-helpers` 抽出予定)。
+3 クレートで定数・関数が重複していた状態は PR-C (ADR-024 本採用) で `src/lib-jj-helpers/` に集約済。以降の新規クレートは `lib-jj-helpers` を依存に追加して共通 API を呼び出す。
 
 ## 影響
 
@@ -152,5 +152,5 @@ select  : BOOKMARK_SEARCH_REVSETS を近い順に走査し、
 ## 次ステップ (スコープ外)
 
 - **cli-merge-pipeline の post_steps 実装時に流用**: ADR-013 の merge 後 AI ステップで、merge の副作用を検出する際も同パターン
-- **共通ライブラリ化の検討**: 2 つ目の使用例が出たら `src/lib-jj-helpers/` への切り出しを検討 (ADR-024 (仮) で観察中)
+- **lib-jj-helpers の利用徹底**: 新規 jj 連携クレートでは `src/lib-jj-helpers/` を依存に追加し、本 ADR 原則 5 の共通 API (`get_jj_bookmarks` 等) を利用する。`capture_commit_id` / `diff_is_empty` は 2 つ目の使用例出現時に段階的移設予定 (ADR-024 本採用)
 - **他の jj コマンド差異の文書化**: `jj bookmark` / `jj new` / `jj describe` も git と意味が違う箇所が多い。必要に応じて追記

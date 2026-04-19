@@ -43,6 +43,7 @@ dependencies = [
 name = "cli-merge-pipeline"
 version = "0.1.0"
 dependencies = [
+ "lib-jj-helpers",
  "serde",
  "serde_json",
  "toml",
@@ -52,6 +53,7 @@ dependencies = [
 name = "cli-pr-monitor"
 version = "0.1.0"
 dependencies = [
+ "lib-jj-helpers",
  "lib-report-formatter",
  "serde",
  "serde_json",
@@ -72,6 +74,7 @@ dependencies = [
 name = "cli-push-runner"
 version = "0.1.0"
 dependencies = [
+ "lib-jj-helpers",
  "serde",
  "toml",
 ]
@@ -205,6 +208,10 @@ name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
+
+[[package]]
+name = "lib-jj-helpers"
+version = "0.1.0"
 
 [[package]]
 name = "lib-report-formatter"

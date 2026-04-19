@@ -15,6 +15,7 @@
 //!   1 - マージ失敗 / PR 検出失敗
 //!   2 - 設定エラー
 
+use lib_jj_helpers::{StderrMode, get_jj_bookmarks as lib_get_jj_bookmarks};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -217,104 +218,15 @@ fn run_gh_logged(args: &[&str]) -> Option<String> {
     }
 }
 
-/// Bookmark 検索に使用する revset のリスト (近い順 = 優先順)。
-///
-/// `select_from_revsets` は先頭から順に試し、最初に (trunk 除外後の) bookmark が
-/// 見つかった時点で後続の revset を検索しない ("@" で見つかれば "@--" は触らない)。
-///
-/// - `@`: 標準 `git` ブランチ運用、または bookmark が現在のコミット上にある場合
-/// - `@-`: `jj new` で空 `@` を作った直後 (PR #53 で実測)
-/// - `@--`: 連続 `jj new` や中間空コミット運用向けのフォールバック
-const BOOKMARK_SEARCH_REVSETS: &[&str] = &["@", "@-", "@--"];
-
-/// PR 検出から除外する trunk 系 bookmark。
-/// cli-push-runner/push_jj_bookmark.rs と同じリストを採用。
-const TRUNK_BOOKMARKS: &[&str] = &["main", "master", "trunk", "develop"];
-
-fn is_trunk_bookmark(name: &str) -> bool {
-    TRUNK_BOOKMARKS.contains(&name)
-}
-
 /// 現在の jj change 周辺に紐づく全ブックマーク名を取得する。
 ///
-/// `BOOKMARK_SEARCH_REVSETS` の順で検索し、最初に非空の結果が得られた revset の
-/// bookmark を返す。すべての revset で空なら空 Vec。
+/// `lib_jj_helpers::BOOKMARK_SEARCH_REVSETS` の順で検索し、最初に非空の結果が
+/// 得られた revset の bookmark を返す。trunk 系 bookmark は除外される。
+///
+/// stderr は `Piped` で捕捉し、jj 失敗時の原因を `log_info` に流す
+/// (cli-merge-pipeline は merge の事前確認が主目的のため、診断情報を積極的に出す)。
 fn get_jj_bookmarks() -> Vec<String> {
-    select_from_revsets(BOOKMARK_SEARCH_REVSETS, query_bookmarks_at)
-}
-
-/// 指定 revset を優先順に試し、最初に非空の bookmark リストを得た revset の結果を返す。
-/// テスト用に `query` をクロージャで注入できる。
-fn select_from_revsets<F>(revsets: &[&str], query: F) -> Vec<String>
-where
-    F: Fn(&str) -> Vec<String>,
-{
-    for (i, revset) in revsets.iter().enumerate() {
-        let bookmarks = query(revset);
-        if !bookmarks.is_empty() {
-            if i > 0 {
-                log_info(&format!(
-                    "revset '{}' で bookmark を検出: {:?}",
-                    revset, bookmarks
-                ));
-            }
-            return bookmarks;
-        }
-    }
-    Vec::new()
-}
-
-/// 指定 revset の bookmark 名を `jj log` で取得する (I/O)。
-fn query_bookmarks_at(revset: &str) -> Vec<String> {
-    let output = match Command::new("jj")
-        .args([
-            "log",
-            "-r",
-            revset,
-            "--no-graph",
-            "-T",
-            "local_bookmarks.map(|b| b.name()).join(\",\") ++ \"\\n\"",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-    {
-        Ok(o) if o.status.success() => o,
-        Ok(o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
-            if !stderr.is_empty() {
-                log_info(&format!(
-                    "jj bookmark 取得失敗 (revset={}): {}",
-                    revset, stderr
-                ));
-            }
-            return Vec::new();
-        }
-        Err(e) => {
-            log_info(&format!("jj コマンド実行失敗: {}", e));
-            return Vec::new();
-        }
-    };
-
-    parse_bookmark_list_output(&String::from_utf8_lossy(&output.stdout))
-}
-
-/// `jj log` テンプレート出力 (カンマ区切り × 行) からユニークな bookmark 名を抽出する。
-/// trunk 系 bookmark (master/main/trunk/develop) は PR 検索対象から除外する。
-fn parse_bookmark_list_output(raw: &str) -> Vec<String> {
-    let mut seen = Vec::new();
-    for line in raw.lines() {
-        for name in line.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            if is_trunk_bookmark(name) {
-                continue;
-            }
-            let name = name.to_string();
-            if !seen.contains(&name) {
-                seen.push(name);
-            }
-        }
-    }
-    seen
+    lib_get_jj_bookmarks(StderrMode::Piped(log_info), Some(log_info))
 }
 
 /// 現在のブックマークから PR 番号を検出する
@@ -664,113 +576,10 @@ step_timeout = 60
         assert_eq!(combine_output("", ""), "");
     }
 
-    // ─── bookmark 検出ロジック ───
-
-    #[test]
-    fn parse_bookmark_list_output_empty() {
-        assert!(parse_bookmark_list_output("").is_empty());
-        assert!(parse_bookmark_list_output("\n\n").is_empty());
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_single() {
-        assert_eq!(parse_bookmark_list_output("feat/x\n"), vec!["feat/x"]);
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_csv_on_one_line() {
-        assert_eq!(
-            parse_bookmark_list_output("feat/a,feat/b\n"),
-            vec!["feat/a", "feat/b"]
-        );
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_multiple_lines() {
-        // @ と @- の両方にヒットした場合 (将来 revset を両方カバーする場合向け)
-        let raw = "feat/current\nfeat/parent\n";
-        assert_eq!(
-            parse_bookmark_list_output(raw),
-            vec!["feat/current", "feat/parent"]
-        );
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_deduplicates() {
-        let raw = "feat/x,feat/x\nfeat/x\n";
-        assert_eq!(parse_bookmark_list_output(raw), vec!["feat/x"]);
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_trims_whitespace() {
-        assert_eq!(
-            parse_bookmark_list_output("  feat/a ,  feat/b  \n"),
-            vec!["feat/a", "feat/b"]
-        );
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_excludes_trunk_bookmarks() {
-        // fresh checkout で @- が master を指すケース (option B の注意点)
-        assert!(parse_bookmark_list_output("master\n").is_empty());
-        assert_eq!(
-            parse_bookmark_list_output("master,feat/x\n"),
-            vec!["feat/x"]
-        );
-    }
-
-    #[test]
-    fn is_trunk_bookmark_known_names_rejected() {
-        assert!(is_trunk_bookmark("main"));
-        assert!(is_trunk_bookmark("master"));
-        assert!(is_trunk_bookmark("trunk"));
-        assert!(is_trunk_bookmark("develop"));
-        assert!(!is_trunk_bookmark("feat/x"));
-        assert!(!is_trunk_bookmark("main-feature"));
-    }
-
-    #[test]
-    fn select_from_revsets_returns_empty_when_all_revsets_empty() {
-        let result = select_from_revsets(&["@", "@-"], |_| Vec::new());
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn select_from_revsets_prefers_current_over_parent() {
-        // @ と @- の両方に bookmark があるとき、近い @ を優先する
-        let result = select_from_revsets(&["@", "@-"], |r| match r {
-            "@" => vec!["feat/current".to_string()],
-            "@-" => vec!["feat/parent".to_string()],
-            _ => Vec::new(),
-        });
-        assert_eq!(result, vec!["feat/current"]);
-    }
-
-    #[test]
-    fn select_from_revsets_falls_back_to_parent_when_current_empty() {
-        // PR #53 で実測した「@ 空, @- に bookmark」ケース
-        let result = select_from_revsets(&["@", "@-"], |r| match r {
-            "@" => Vec::new(),
-            "@-" => vec!["feat/parent".to_string()],
-            _ => Vec::new(),
-        });
-        assert_eq!(result, vec!["feat/parent"]);
-    }
-
-    #[test]
-    fn select_from_revsets_stops_at_first_hit() {
-        // 優先度の低い revset は検索されない (副作用が発生しないことを確認)
-        use std::cell::RefCell;
-        let calls = RefCell::new(Vec::<String>::new());
-        let result = select_from_revsets(&["@", "@-", "@--"], |r| {
-            calls.borrow_mut().push(r.to_string());
-            if r == "@-" {
-                vec!["feat/hit".to_string()]
-            } else {
-                Vec::new()
-            }
-        });
-        assert_eq!(result, vec!["feat/hit"]);
-        assert_eq!(*calls.borrow(), vec!["@".to_string(), "@-".to_string()]);
-    }
+    // ─── bookmark 検出ロジック (lib-jj-helpers に集約済) ───
+    //
+    // TRUNK_BOOKMARKS / BOOKMARK_SEARCH_REVSETS / parse_bookmark_list_output /
+    // select_from_revsets / query_bookmarks_at / get_jj_bookmarks の unit test は
+    // lib-jj-helpers/src/lib.rs#tests に集約 (ADR-024 本採用、PR-C で移設)。
+    // cli-merge-pipeline 側からは lib_jj_helpers の公開 API 経由でのみ使用する。
 }
