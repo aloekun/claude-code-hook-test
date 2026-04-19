@@ -159,61 +159,9 @@
 
 ---
 
-## セッション 247510ea 由来: 整備タスク群 (PR-D)
-
-> **最優先ブロック**。PR #54 / #55 のマージ後に確定した ADR / 仕組みの整備作業。残 1 タスク。
->
-> **背景コンテキスト**:
-> - **発端セッション**: `247510ea-3f24-4b87-8f68-3c860e1b1b4e` (2026-04-18)
-> - **先行成果**:
->   - PR #54 (cli-merge-pipeline の revset 拡張 `@-..@--` + trunk filter)
->   - PR #55 (cli-pr-monitor への同パターン水平展開)
->   - PR-A (ADR 集約 / PR #56 merged): ADR-028 新設、ADR-021 原則 5 追加、ADR-024 本採用、ADR-019 可換性追記
->   - PR-B (Ask ルール + body helper / PR #57 merged): `permissions.ask` 4 パターン追加、`scripts/prepare-pr-body.ps1` 新設
->   - PR-C (jj-helpers 抽出 / 本 PR): `src/lib-jj-helpers/` 新設、3 クレート差し替え、重複テストを lib 側に集約
-> - **ユーザーフィードバック 3 点** (memory `feedback_bookmark_auto_naming.md` に記録済):
->   1. auto mode は試験導入。基本は自律実行だが、**最終出力の責任をユーザーが握るため `pnpm create-pr` / `pnpm merge-pr` は事前許可必須**
->   2. bookmark 名は Claude が自動採番して OK
->   3. `pnpm push` は foreground 実行 OK (permission prompt がゲート)
-> - **設計的な確認事項** (ADR-028 / ADR-019 追記で明文化済):
->   - `hooks` での `block` は許可後も効くので UX 崩壊 → 採用せず
->   - 代わりに **settings.json の Ask ルール** で「毎回確認プロンプト」を出す (PR-B で実装済)
->   - CodeRabbit 無料枠の制約 (1h 3 回、public リポジトリ限定) を許容し、rate limit 耐性の作り込みは **しない** (レビュアーロックイン回避のため)
->
-> **PR 依存関係**:
-> ```
-> PR-A (ADR 集約, merged) ──┬── PR-B (Ask ルール + body helper, merged) ── PR-D (prepare-pr skill)
->                            └── PR-C (jj-helpers 抽出, 本 PR)
-> ```
-
-### 7. [PR-D] `prepare-pr` skill (試験運用)
-
-- **やろうとしたこと**: auto mode で安全に PR を作成するためのインタビュー型 skill を試験運用として整備。commit log と diff から PR title / body の初稿を生成し、ユーザー承認後に `pnpm create-pr` を foreground 実行するフローを標準化
-- **現在地**: 未着手。PR-B merge 後に着手 (ADR-028 の運用フローと PR-B の body helper が前提)
-- **実装内容**:
-  - [ ] **`.claude/skills/prepare-pr/SKILL.md` 新規** (試験運用ステータス)
-    - 起動条件: 「PR を作成して」等の明示依頼、または `/prepare-pr` 起動
-    - ステップ:
-      1. `jj status` + `jj log -r master..@` で差分サマリ取得
-      2. commit description から PR title 初稿生成
-      3. diff から PR body 初稿生成 (Summary / Changes / Test Plan / References セクション)
-      4. Claude が提示 → **明示承認** (AskUserQuestion 強制)
-      5. `pnpm prepare-pr-body` (PR-B 成果物) 経由で body 書き込み
-      6. `pnpm create-pr --title ... --body-file ...` foreground 実行 (Ask プロンプトで再確認)
-      7. `.tmp-pr-body.md` 削除
-  - [ ] **検証**: skill 起動テスト、PR 作成完遂確認
-- **詰まっている箇所**:
-  - **skill の既存 frontend-design/pre-push-review との連携**: 既存スキルとの衝突可否を skill-sync-check で確認
-- **想定サイズ**: 小〜中 (skill 定義 1 本、~100-200 行)
-- **依存**: **PR-A** (ADR-028), **PR-B** (M1 body helper, Ask ルール)
-- **見積**: 1-2 時間
-- **参照**: ADR-028, PR-B 成果物
-
----
-
 ## その他の進行中タスク
 
-### 8. 雑務: 過去の delete-pending bookmark cleanup
+### 7. 雑務: 過去の delete-pending bookmark cleanup
 
 - **やろうとしたこと**: `jj git push --tracked` で `Refusing to push deleted bookmark fix/push-allow-new` の警告が出るため、`jj bookmark forget fix/push-allow-new` で消す
 - **現在地**: 未対応。push を block しないので緊急性なし
