@@ -51,12 +51,19 @@ pub(crate) fn build_fix_commit_description(pr_number: Option<u64>, findings: &[F
     body.push_str(&header);
     body.push_str("\n\nResolved findings:\n");
     for f in findings {
+        let issue_oneline = sanitize_to_oneline(&f.issue);
         body.push_str(&format!(
             "- [{}] {}:{} {}\n",
-            f.severity, f.file, f.line, f.issue
+            f.severity, f.file, f.line, issue_oneline
         ));
     }
     body.trim_end().to_string()
+}
+
+/// CodeRabbit の `issue` フィールドは複数行になることがあるため、
+/// `build_fix_commit_description` のリスト項目に埋める前に単行化する。
+fn sanitize_to_oneline(input: &str) -> String {
+    input.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// pre-takt で fix commit を新規作成する (`jj new -m "..."`)。
@@ -64,9 +71,9 @@ pub(crate) fn build_fix_commit_description(pr_number: Option<u64>, findings: &[F
 /// 成功時: `FixCommitState::Created { commit_id }` を返す。@ は空 child を指す状態。
 /// 失敗時: `FixCommitState::None` を返す (fallback = 分離なしで元の flow へフォールバック)。
 ///
-/// 失敗要因として想定:
-/// - `jj` コマンドが見つからない / 失敗
-/// - 直後の `capture_commit_id` 失敗 (この場合は jj new の結果を追跡できないため None 扱い)
+/// `jj new` が成功したが `capture_commit_id` で commit id を追跡できない場合は、
+/// 作成済みの空 child が orphan にならないよう即座に abandon を試みる
+/// (fail-safe: 追跡不能 child を remote に残さない)。
 pub(crate) fn create_fix_commit(pr_number: Option<u64>, findings: &[Finding]) -> FixCommitState {
     let desc = build_fix_commit_description(pr_number, findings);
     let (ok, output) = run_cmd_direct("jj", &["new", "-m", &desc], &[], JJ_CMD_TIMEOUT_SECS);
@@ -83,7 +90,10 @@ pub(crate) fn create_fix_commit(pr_number: Option<u64>, findings: &[Finding]) ->
             FixCommitState::Created { commit_id: cid }
         }
         None => {
-            log_info("[state] fix commit 作成後の commit id capture 失敗 (fallback)");
+            log_info(
+                "[state] fix commit 作成後の commit id capture 失敗 (orphan child を cleanup)",
+            );
+            try_abandon_empty_fix_commit("create_fix_commit id capture 失敗:", None);
             FixCommitState::None
         }
     }
@@ -186,6 +196,110 @@ mod tests {
         let desc = build_fix_commit_description(None, &fs);
         assert!(desc.starts_with("fix(review): apply CodeRabbit fixes\n\n"));
         assert!(desc.contains("- [Major] a.rs:1 issue"));
+    }
+
+    #[test]
+    fn description_sanitizes_multiline_issue_into_single_line() {
+        let fs = vec![finding(
+            "Major",
+            "src/foo.rs",
+            "10",
+            "first line\nsecond line\r\nthird  line",
+        )];
+        let desc = build_fix_commit_description(Some(1), &fs);
+        assert!(
+            desc.contains("- [Major] src/foo.rs:10 first line second line third line"),
+            "multi-line issue が単行化されていない: {:?}",
+            desc
+        );
+        let bullet_lines: Vec<_> = desc.lines().filter(|l| l.starts_with("- ")).collect();
+        assert_eq!(bullet_lines.len(), 1, "bullet は 1 行のみ: {:?}", desc);
+    }
+
+    #[test]
+    fn sanitize_to_oneline_preserves_single_spacing_and_trims() {
+        assert_eq!(sanitize_to_oneline("a  b\nc\td"), "a b c d");
+        assert_eq!(sanitize_to_oneline("   leading   "), "leading");
+        assert_eq!(sanitize_to_oneline(""), "");
+    }
+
+    /// 統合: `create_fix_commit` の fail-safe cleanup 動作を確認する。
+    ///
+    /// `capture_commit_id` 失敗を直接 inject できないため、代わりに
+    /// `try_abandon_empty_fix_commit(_, None)` を直接呼んで「空 child が cleanup される」
+    /// 挙動 (= None 分岐が依拠する唯一の副作用) が jj で動くことを確認する。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_try_abandon_empty_fix_commit_without_id_drops_orphan_child() {
+        use std::env;
+        use std::process::Command as StdCommand;
+
+        let temp = tempfile::tempdir().expect("tempdir 作成失敗");
+        let repo_dir = temp.path();
+
+        assert!(StdCommand::new("jj")
+            .args(["git", "init"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj git init 失敗")
+            .success());
+
+        std::fs::write(repo_dir.join("a.txt"), "x\n").expect("write failed");
+        let original_msg = "feat: original";
+        assert!(StdCommand::new("jj")
+            .args(["describe", "-m", original_msg])
+            .current_dir(repo_dir)
+            .status()
+            .expect("describe")
+            .success());
+
+        assert!(StdCommand::new("jj")
+            .args(["new", "-m", "fix(review): orphan test"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj new")
+            .success());
+
+        let original_cwd = env::current_dir().expect("cwd");
+        env::set_current_dir(repo_dir).expect("cd");
+        // panic-safe cwd restore
+        struct CwdRestore {
+            original: std::path::PathBuf,
+        }
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+        let _guard = CwdRestore {
+            original: original_cwd,
+        };
+
+        try_abandon_empty_fix_commit("test:", None);
+
+        let log_out = StdCommand::new("jj")
+            .args([
+                "log",
+                "-r",
+                "::@",
+                "--no-graph",
+                "-T",
+                "description ++ \"\\n\"",
+            ])
+            .current_dir(repo_dir)
+            .output()
+            .expect("jj log");
+        let log_str = String::from_utf8_lossy(&log_out.stdout);
+        assert!(
+            !log_str.contains("fix(review): orphan test"),
+            "orphan child が abandon されていない: {:?}",
+            log_str
+        );
+        assert!(
+            log_str.contains(original_msg),
+            "元 commit が残っていること: {:?}",
+            log_str
+        );
     }
 
     #[test]

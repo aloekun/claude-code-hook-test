@@ -182,3 +182,7 @@ ADR-019 および ADR-020 の「次ステップ」セクションで明記され
 ### Skill 運用基盤由来
 
 - [ ] **skill evals の自動 runner 統合**: `E:\work\claude-code-skills` 配下 skill の `evals.json` / `trigger_eval.json` を skill-creator:skill-creator や `/skill-sync-check` に乗せて定期実行する仕組み。現状は手動実行のみ。prepare-pr の試験運用評価 (分離前後の発火頻度比較・フロー完了率・draft 初稿品質) の定量データ集計にも必要
+
+### ADR-022 例外条項 / task 4 由来
+
+- [ ] **ADR-022 に bookmark auto-advance (task 5) との境界を明記**: 現状 ADR-022 原則 1 は「bookmark 名の生成・書き換え」を禁止しているが、task 5 の bookmark **位置前進**はこれに該当しない (既存 bookmark を既存 commit へ移動するだけ)。読み手が両者を混同しないよう、例外条項または原則 1 の注記として「位置前進は許可、名前の生成/書き換えは禁止」の明示的な線引きを追加する。PR #63 CodeRabbit 指摘 (Minor) 由来
