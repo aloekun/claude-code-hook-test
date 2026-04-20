@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
 // NOTE: push-pipeline 版は MAX_LINES=40 でログ表示用に切り詰めるが、
 // こちらは check-ci-coderabbit の JSON 出力全体をパースするため制限なし。
+
+const POLL_INTERVAL_MS: u64 = 100;
 
 pub(crate) fn drain_pipe(
     pipe: impl std::io::Read + Send + 'static,
@@ -53,7 +55,7 @@ pub(crate) fn run_cmd_direct(
                     let _ = child.wait();
                     break true;
                 }
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
             }
             Err(_) => break true,
         }
@@ -82,6 +84,37 @@ pub(crate) fn combine_output(stdout: &str, stderr: &str) -> String {
         stdout.to_string()
     } else {
         format!("{}\n{}", stdout, stderr)
+    }
+}
+
+/// タイムアウト付きで子プロセスの終了を待つ。
+/// `None` はタイムアウトを意味する（プロセスは kill 済み）。
+///
+/// timeout / try_wait エラーの両経路で `child.kill()` + `child.wait()` を行い、
+/// 子プロセスと呼び出し側の drain_pipe reader スレッドが zombie 化するのを防ぐ。
+pub(crate) fn wait_with_timeout(
+    label: &str,
+    child: &mut std::process::Child,
+    timeout_secs: u64,
+) -> Result<Option<ExitStatus>, String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(Some(status)),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Failed to wait for {}: {}", label, e));
+            }
+        }
     }
 }
 
@@ -133,8 +166,12 @@ pub(crate) fn capture_commit_id() -> Option<String> {
 /// jj コマンドが失敗した場合は `true` (空扱い = NoChange = push しない) を返す。
 /// capture_commit_id と同じ fail-closed 方向に揃えることで誤 push を防ぐ。
 pub(crate) fn diff_is_empty(from: &str, to: &str) -> bool {
-    let (ok, out) =
-        run_cmd_direct("jj", &["diff", "--from", from, "--to", to, "--stat"], &[], 30);
+    let (ok, out) = run_cmd_direct(
+        "jj",
+        &["diff", "--from", from, "--to", to, "--stat"],
+        &[],
+        30,
+    );
     if !ok {
         crate::log::log_info(&format!(
             "[state] diff_is_empty 判定失敗 (空として扱い push をスキップ): {}",

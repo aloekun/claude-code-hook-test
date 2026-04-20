@@ -1,4 +1,4 @@
-use lib_jj_helpers::{StderrMode, get_jj_bookmarks as lib_get_jj_bookmarks};
+use lib_jj_helpers::{get_jj_bookmarks as lib_get_jj_bookmarks, StderrMode};
 
 use crate::log::log_info;
 use crate::runner::run_gh_quiet;
