@@ -157,26 +157,6 @@
   - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
   - 関連: task 5 (bookmark auto-advance)
 
-### 7. prepare-pr skill の責務分離 (試験運用フィードバック)
-
-- **やろうとしたこと**: 2026-04-19 に試験運用を始めた `prepare-pr` skill (ADR-028) を初利用したところ、1 スキル内に **draft 生成 (知的労働)** と **実行オーケストレーション (承認ゲート + 一時ファイル書き出し + create-pr + cleanup)** が同居しており、責務が散らかっている。セッション 2026-04-20 のユーザー指摘
-- **現在地**: 設計段階、未着手。`prepare-pr` の試験運用データ (PR #61 が初回利用) が 1 件貯まった時点での再設計候補
-- **再設計案**:
-  - `propose-pr-draft` skill (新設): 純粋に jj log / diff から title / body の初稿を推論する副作用なし skill。再利用可能でテスト容易
-  - `prepare-pr` skill (現行をオーケストレータ化): `propose-pr-draft` を呼び出して draft を得た後、AskUserQuestion ゲート → `pnpm prepare-pr-body` → `pnpm create-pr` → cleanup を回す薄い存在に縮退
-- **分離しきれない部分 (確認済)**:
-  - ADR-028 承認ゲートは create-pr 実行の直前で atomic に挟む必要があり、draft skill 側には移動できない
-  - PR #51 由来の body 切り詰め対策 (`--body-file` 必須) は `pnpm prepare-pr-body` helper による一時ファイル経由が必須
-  - cleanup は create-pr 成否に連動
-- **タスク分解**:
-  - [ ] `propose-pr-draft` skill を `.claude/skills/` に新設 (description に「PR draft 提案のみ、副作用なし」を明記)
-  - [ ] `prepare-pr` skill の Step 1-3 を `propose-pr-draft` 呼び出しに置き換え
-  - [ ] 試験運用期間 (2026-04-19〜、半年) のログを `.claude/skills/prepare-pr/SKILL.md` の ステータスセクションに反映
-- **参照**:
-  - ADR-028 (外部可視成果物の生成コマンドの実行ゲート)
-  - PR #57 (permissions.ask + prepare-pr-body helper)
-  - PR #61 (prepare-pr skill の初利用事例、責務分離の指摘源)
-
 ---
 
 ## スコープ外だが将来検討
@@ -197,3 +177,7 @@ ADR-019 および ADR-020 の「次ステップ」セクションで明記され
 - [ ] **instruction 参照整合性 lint**: workflow YAML の `instruction:` 参照先と facets 実ファイルの存在を突合
 - [ ] **verdict 値の整合性 lint**: workflow の `condition` 値と instruction の出力例の一致を検証 (PR #41 CodeRabbit Major 指摘の再発防止)
 - [ ] **takt-test-vc への還元**: 共通 facets パターンを takt のサンプルリポジトリにも反映
+
+### Skill 運用基盤由来
+
+- [ ] **skill evals の自動 runner 統合**: `E:\work\claude-code-skills` 配下 skill の `evals.json` / `trigger_eval.json` を skill-creator:skill-creator や `/skill-sync-check` に乗せて定期実行する仕組み。現状は手動実行のみ。prepare-pr の試験運用評価 (分離前後の発火頻度比較・フロー完了率・draft 初稿品質) の定量データ集計にも必要
