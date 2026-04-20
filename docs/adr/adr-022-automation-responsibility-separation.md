@@ -72,6 +72,36 @@ takt fix は `@` を amend する (jj auto-snapshot が file edit を `@` に sq
 
 `pnpm create-pr -- --title ... --body ...` で渡された title/body は automated actor が書き換えない。CodeRabbit が「PR description をもっと詳しく書け」と指摘したとしても、takt は該当する書き換えを行わない (fix step の `edit: true` はあくまで**リポジトリ内ファイル**への edit を意味する)。
 
+### 例外: 分離型 fix commit の自己記述 (2026-04-20 追記)
+
+ADR task 4 (takt fix のレビュー修正コミット分離) の実装に伴い、以下を例外として許可する:
+
+**対象**: 自動生成された修正を、既存 commit を改変せずに新規 child commit として分離する場合のみ
+
+**許可される内容**:
+
+- commit 種別を示すラベル (例: `fix(review): apply CodeRabbit fixes for #<PR>`)
+- 何を問題と捉えて修正したかの文脈 (CodeRabbit finding の severity / file / summary など)
+- 対応した指摘の列挙 (ファイル/行/issue 要約)
+
+**依然として禁止される内容**:
+
+- 既存 commit (= 人間が意図を込めた元 PR commit) の description 書き換え
+- PR title / PR body の書き換え
+- bookmark / tag への介入
+
+**根拠**:
+
+- 独立した child commit の description は「その commit 自身の自己記述」であり、原則 1 が守るべき「人間の意図表現」を侵食しない
+- automated actor の修正判断を残すことは、後のレビュー・post-merge-feedback (ADR-014) 等へのフィードバックループの情報資源になる
+- 「最初の commit の意味は保ったまま、追加 commit に自動化の痕跡を残す」という形で、人間の意思と自動化の記録を両立させる
+
+**実装上の拘束**:
+
+- description は automated actor が生成してよいが、**常に新規 commit に対してのみ**適用する (`jj new -m ...`)
+- 既存 commit への `jj describe` は引き続き禁止 (原則 3 は不変)
+- fix commit が空になる (takt no-op) 場合は abandon する — 空 description の commit を残さない
+
 ## 影響
 
 ### 採用される構成要素

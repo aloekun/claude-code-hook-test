@@ -117,9 +117,10 @@
   - **元コミット description の維持**: `jj new` 単独では元の description が保持される想定だが、過去の PR で `jj describe` による上書き事故があった (PR #44、ADR-022 の契機)。挙動を実測で再確認する必要あり
   - **複数回 fix される場合**: 1 PR で 2 回 3 回と CodeRabbit 指摘 → takt 修正が走った場合、毎回新しい fix コミットを作るか、同じ fix コミットに積むか要検討
 - **考慮事項**:
-  - コミット分離は `decide_repush == HasChange` のみ。NoChange (takt が実質変更なし) の場合は既存 no-op
-  - `auto_push_severity = "none"` の場合は分離せずに手動 push を待つ (ユーザーが `jj describe` する余地を残す)
-  - ADR-022 (automated actor boundary) の境界をまたがないこと。コミット分離のロジックは Rust 側に閉じる
+  - コミット分離は `has_coderabbit_findings` のみで判定 (auto_push と独立)。takt 実行自体の前提と同じ条件
+  - NoChange (takt が実質変更なし) の場合は事前に作った空 child を `jj abandon` で片付ける。ただし fail-safe として `jj diff -r @` で空確認してから abandon
+  - `auto_push_severity = "none"` の場合も**child commit は分離する**。分離結果をユーザーが確認してから手動 push または `jj describe` で再構成できる (fix の痕跡を可視化したまま判断材料を残す方針)
+  - ADR-022 (automated actor boundary) の境界: 既存 commit の description 改変は禁止。新規 child commit への description 生成は例外として許可 (ADR-022 追記予定)
 - **参照 ADR**:
   - ADR-018 (post-pr-monitor takt 化): 既存フローの前提
   - ADR-022 (責務分離): takt は commit 操作禁止、Rust 側が担当
@@ -181,3 +182,7 @@ ADR-019 および ADR-020 の「次ステップ」セクションで明記され
 ### Skill 運用基盤由来
 
 - [ ] **skill evals の自動 runner 統合**: `E:\work\claude-code-skills` 配下 skill の `evals.json` / `trigger_eval.json` を skill-creator:skill-creator や `/skill-sync-check` に乗せて定期実行する仕組み。現状は手動実行のみ。prepare-pr の試験運用評価 (分離前後の発火頻度比較・フロー完了率・draft 初稿品質) の定量データ集計にも必要
+
+### ADR-022 例外条項 / task 4 由来
+
+- [ ] **ADR-022 に bookmark auto-advance (task 5) との境界を明記**: 現状 ADR-022 原則 1 は「bookmark 名の生成・書き換え」を禁止しているが、task 5 の bookmark **位置前進**はこれに該当しない (既存 bookmark を既存 commit へ移動するだけ)。読み手が両者を混同しないよう、例外条項または原則 1 の注記として「位置前進は許可、名前の生成/書き換えは禁止」の明示的な線引きを追加する。PR #63 CodeRabbit 指摘 (Minor) 由来

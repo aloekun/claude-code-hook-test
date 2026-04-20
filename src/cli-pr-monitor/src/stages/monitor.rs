@@ -1,4 +1,5 @@
 use crate::config::load_config;
+use crate::fix_commit::{create_fix_commit, FixCommitState};
 use crate::log::{log_info, truncate_safe};
 use crate::stages::collect::collect_findings;
 use crate::stages::poll::run_poll_loop;
@@ -43,12 +44,18 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     let mut takt_succeeded = false;
     // takt 実行前の @ commit id (取れない/takt 未実行なら None)。
     // 二段構え re-push 判定のため run_takt の前に捕捉する。
+    // fix commit を pre-create した場合は、この cid は空 child を指す。
     let mut pre_takt_cid: Option<String> = None;
+    // ADR task 4 (2026-04-20): 分離型 fix commit の状態
+    let mut fix_state = FixCommitState::None;
 
     if has_coderabbit_findings {
         if !collect_findings(&poll_result) {
             log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
         } else if let Some(takt_config) = &config.takt {
+            // ADR task 4
+            fix_state = create_fix_commit(pr_info.pr_number, &poll_result.findings);
+
             // Stage 3: takt analysis + fix loop
             pre_takt_cid = crate::runner::capture_commit_id();
             log_info(&format!("[state] pre_takt_commit_id: {:?}", pre_takt_cid));
@@ -62,11 +69,15 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
         }
     }
 
-    // Stage 4: re-push (二段構え判定)
+    // Stage 4: re-push (fix_state ごとに分岐)
     // 1) commit id 変化 + 実 diff 非空 = HasChange のみ push 対象
     // 2) さらに auto_push_severity 設定で自動 push 可否を判定
+    // 3) fix_state::Created かつ NoChange の場合は空 child を abandon で片付ける
     if takt_succeeded && has_coderabbit_findings {
-        execute_repush_flow(&config.fix, &pr_label, pre_takt_cid.as_deref());
+        execute_repush_flow(&config.fix, &pr_label, pre_takt_cid.as_deref(), &fix_state);
+    } else if let FixCommitState::Created { commit_id } = &fix_state {
+        // takt が実行されなかった / 失敗した場合: 事前に作った fix child を片付ける。
+        crate::fix_commit::try_abandon_empty_fix_commit("takt 未完了:", Some(commit_id));
     }
 
     // Stage 5: report to stdout

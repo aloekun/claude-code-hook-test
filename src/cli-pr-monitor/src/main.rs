@@ -19,6 +19,7 @@
 //!   1 - gh pr create 失敗 (PR 作成モードのみ)
 
 mod config;
+mod fix_commit;
 mod log;
 mod runner;
 mod stages;

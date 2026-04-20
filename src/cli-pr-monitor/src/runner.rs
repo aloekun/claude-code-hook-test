@@ -6,6 +6,7 @@ use std::time::Duration;
 // こちらは check-ci-coderabbit の JSON 出力全体をパースするため制限なし。
 
 const POLL_INTERVAL_MS: u64 = 100;
+pub(crate) const JJ_CMD_TIMEOUT_SECS: u64 = 30;
 
 pub(crate) fn drain_pipe(
     pipe: impl std::io::Read + Send + 'static,
@@ -170,7 +171,7 @@ pub(crate) fn diff_is_empty(from: &str, to: &str) -> bool {
         "jj",
         &["diff", "--from", from, "--to", to, "--stat"],
         &[],
-        30,
+        JJ_CMD_TIMEOUT_SECS,
     );
     if !ok {
         crate::log::log_info(&format!(
@@ -180,6 +181,43 @@ pub(crate) fn diff_is_empty(from: &str, to: &str) -> bool {
         return true;
     }
     out.trim().is_empty()
+}
+
+/// 現在の `@` が empty commit (親との差分なし) か判定する。
+///
+/// `diff_is_empty` は re-push 判定 (fail-safe で「空扱い → push しない」方向) だが、
+/// こちらは **abandon 判定**用であり方向が逆: 失敗時は `false` (= diff あり扱い)
+/// を返して abandon を見送る。
+///
+/// 理由: jj コマンド失敗時にうっかり `jj abandon` を走らせると、takt が部分的に
+/// amend した child commit ごと消えるリスクがある。「判定不能なら何もしない」方向
+/// に倒す。
+///
+/// 実装: `jj diff --stat` は空 commit でも "0 files changed, ..." のような
+/// サマリ行を出力するため空判定に使えない。代わりに jj の `empty` テンプレート
+/// keyword を使い、"true"/"false" の明示出力で判定する。
+pub(crate) fn diff_at_is_empty() -> bool {
+    let (ok, out) = run_cmd_direct(
+        "jj",
+        &[
+            "log",
+            "-r",
+            "@",
+            "--no-graph",
+            "-T",
+            "if(empty, \"true\", \"false\")",
+        ],
+        &[],
+        JJ_CMD_TIMEOUT_SECS,
+    );
+    if !ok {
+        crate::log::log_info(&format!(
+            "[state] diff_at_is_empty 判定失敗 (diff あり扱いで abandon をスキップ): {}",
+            out.trim()
+        ));
+        return false;
+    }
+    out.trim() == "true"
 }
 
 /// takt ワークフロー実行のデフォルトタイムアウト (10 分)
