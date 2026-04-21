@@ -114,7 +114,7 @@ interactive Claude Code が使う承認ゲートの対象別対応:
 
 PR 作成フローの典型:
 
-```
+```text
 [Claude]
 Proposed commit description:
 
