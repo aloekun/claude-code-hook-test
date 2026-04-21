@@ -31,15 +31,6 @@
 - [ADR-027: Push-time review を simplicity に限定し architectural review は post-PR に委ねる](docs/adr/adr-027-push-review-simplicity-focus.md)
 - [ADR-028: 外部可視成果物の生成コマンド (PR 作成/マージ) の実行ゲート](docs/adr/adr-028-pnpm-create-pr-gate.md)
 
-## Automated actor boundary (ADR-022)
-
-takt / claude -p / cli-* の副作用は**コード修正とレポート生成**に限定する。以下は人間の責務であり、automated actor は触らない:
-
-- commit message / commit description
-- bookmark / branch 名
-- tag
-- PR title / PR body (作成時の user-supplied text をそのまま使う)
-
 ## Build
 
 ```sh
