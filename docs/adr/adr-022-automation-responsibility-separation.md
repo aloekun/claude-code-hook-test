@@ -2,7 +2,7 @@
 
 ## ステータス
 
-承認済み (2026-04-17) / 改訂 (2026-04-20: 分離型 fix commit 追記 → 2026-04-21: 原則 1 を「生成 vs 確定」軸に再構築)
+承認済み (2026-04-17) / 改訂 (2026-04-20: 分離型 fix commit 追記 → 2026-04-21: 原則 1 を「生成 vs 確定」軸に再構築 → 2026-04-21: 原則 5「PR 包含 changeset の不変性」追加)
 
 ## コンテキスト
 
@@ -78,16 +78,17 @@ let (ok, output) = run_cmd_direct(
 
 #### 緩和条項: 既存 artifact の内容更新
 
-既存 artifact への内容更新は、以下の 3 条件をすべて満たす場合に限り自律ループでも許可する:
+既存 artifact への内容更新は、以下の 4 条件をすべて満たす場合に限り自律ループでも許可する:
 
 1. **可逆**: `jj op log` / `git reflog` 等で完全に巻き戻せる
 2. **事前ポリシー許可**: `.claude/settings.json` や ADR 等で運用ポリシーとして明示されている
 3. **意図表現を破壊しない**: commit description / bookmark 名 / PR title/body / tag を変更しない
+4. **changeset が remote open PR に含まれていない**: 原則 5 と整合 (2026-04-21 追加)
 
 適用例:
 
-- takt fix の file edit → `@` amend: 内容更新・可逆・意図不変 → 許可 (原則 3 と整合)
-- (将来候補) auto-rebase / auto-squash / auto-format commit history: parent 付け替えや空白調整・可逆・意図不変 → 別 ADR で運用ポリシーを明示した後に許可
+- takt fix の file edit → `@` amend: 内容更新・可逆・意図不変・PR 外 → 許可 (原則 3 と整合。PR 内では原則 5 により child commit 分離が必須)
+- (将来候補) auto-rebase / auto-squash / auto-format commit history: parent 付け替えや空白調整・可逆・意図不変 → 別 ADR で運用ポリシーを明示した後に PR 外限定で許可
 
 #### 承認ゲート (actor 別)
 
@@ -169,6 +170,36 @@ takt fix は `@` を amend する (jj auto-snapshot が file edit を `@` に sq
 
 `pnpm create-pr -- --title ... --body ...` で渡された title/body は automated actor が書き換えない。CodeRabbit が「PR description をもっと詳しく書け」と指摘したとしても、takt は該当する書き換えを行わない (fix step の `edit: true` はあくまで**リポジトリ内ファイル**への edit を意味する)。
 
+### 原則 5: PR 包含 changeset の不変性 (2026-04-21 追加)
+
+#### 高レベル原則
+
+external reviewer が参照する対象 (PR 上の commit 履歴) は不変であるべき。amend 等の履歴書き換えは GitHub レビュー thread の outdated 化・orphan 化を招き、指摘の追跡可能性とレビュアーの信頼を損なう。
+
+#### ルール
+
+- **changeset が remote open PR に含まれている場合**: 原則 1 の緩和条項 (可逆・事前ポリシー・意図不変) を満たしていても amend を禁止
+- **修正は必ず新規 child commit として分離**: `jj new -m "fix(review): ..."` または `jj new` + 自動 description 生成
+- **changeset が PR に含まれていない場合**: 原則 1 緩和条項に従った amend は許可
+
+#### 適用対象
+
+| actor | 扱い |
+|---|---|
+| takt fix (autonomous) | task 4 (PR #63) で child commit 分離を既に実装済み。本原則は当該実装を設計原則として事後的に昇格させるもの |
+| interactive Claude Code | 本 ADR の 2026-04-21 改訂で automated actor の範囲に含めた。同じルールに従う |
+| 人間の直接操作 | 自分の意思で判断可能だが、同じ線引きを推奨 (レビュー破壊のリスクは actor を問わず同じ) |
+
+#### 判定方法
+
+- `gh pr list --head <bookmark-name> --state open --json number` で bookmark が open PR に紐付いているか確認
+- cli-pr-monitor は stage 間 state で PR 番号を保持済み (`src/cli-pr-monitor/src/stages/push.rs` 参照)
+- interactive Claude Code は `jj describe` / ファイル edit 連続実行の前に上記チェックを入れる運用に切り替える (実装タスクは docs/todo.md 参照)
+
+#### 本原則の適用開始
+
+本 ADR の改訂版 (原則 5 追加) 自体が原則 5 の自己適用例。PR #64 で原則 5 を追加する際、ADR-022 v3 基礎改訂 (`ccda6198`) への amend ではなく、新規 child commit として分離した。
+
 ### 原則 1 の適用例: 分離型 fix commit の自己記述 (2026-04-20 追記 / 2026-04-21 位置付け変更)
 
 task 4 (takt fix のレビュー修正コミット分離) の実装により、takt fix は修正を独立した child commit として分離する。この child commit への description 付与は、原則 1 改訂版の「**新規 artifact への自己記述の適用**」に該当し正面から許可される (当初は 2026-04-20 の例外条項として扱っていたが、2026-04-21 の原則 1 再構築で本流に吸収)。
@@ -205,7 +236,8 @@ task 4 (takt fix のレビュー修正コミット分離) の実装により、t
 - **承認済み PR title / body の事後改変**: CodeRabbit 指摘の「PR description 強化」を takt fix で自動適用する等 (原則 4)
 - **既存 bookmark のリネーム**: 人間が意図を込めた命名を automated actor が勝手に書き換える
 - **interactive Claude Code が AskUserQuestion を省いて `pnpm create-pr` を実行**: ADR-028 二層ゲートの一層目が抜け落ちる
-- **autonomous loop が緩和条項の 3 条件 (可逆 / 事前ポリシー / 意図不変) を満たさないまま既存 artifact を改変する**: 例えば auto-rebase を ADR なしで実装する
+- **autonomous loop が緩和条項の 4 条件 (可逆 / 事前ポリシー / 意図不変 / PR 外) を満たさないまま既存 artifact を改変する**: 例えば auto-rebase を ADR なしで実装する
+- **PR 内 changeset への amend**: open PR に紐付く commit を `jj describe` や jj auto-snapshot amend で書き換える。GitHub レビュー thread の outdated 化を招く (原則 5)
 
 ### CLAUDE.md への反映方針 (改訂 2026-04-21)
 
