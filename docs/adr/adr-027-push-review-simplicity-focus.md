@@ -143,6 +143,55 @@ takt ワークフローでループを設計する際、以下の 2 種類を混
 
 期待値 ~2m に対して安定値は 3m 23s。reviewer 単体の短縮は達成されたが、takt の 3-phase 構造 (execute → report → judge) のオーバーヘッドが固定費として ~1m 残っている。
 
+## 実測検証 (2026-04-14 〜 2026-04-20, 69 runs)
+
+`.takt/runs/*-pre-push-review/meta.json` および `trace.md` を集計し、arch-review 期 (32 runs) と simplicity-review 期 (37 runs) を比較した。reports/ 内ファイル名 (`architecture-review.md` vs `simplicity-review.md`) で期を判別。
+
+### execute phase (reviewer 単体、判定対象)
+
+trace.md の `## Iteration N: <step>` 直後の 1 本目 `Started:` と 2 本目 `Started:` の差分を execute 時間として抽出。
+
+| 指標 | arch-review (n=46) | simplicity-review (n=61) | 変化 |
+|---|---|---|---|
+| execute median | 133s | 142s | +7% |
+| execute mean | 145s | 186s | +28% |
+| execute p75 | 220s | 254s | +15% |
+
+security-review (同じ workflow 内で並列実行) の execute median は 62s → 96s (+55%)。model 指定を `sonnet` に明示しても短縮は確認できなかった。
+
+### 総時間 (1-iter ケース、fix loop なし)
+
+| 指標 | arch-review (n=18) | simplicity-review (n=16) |
+|---|---|---|
+| median | 140s (2.3m) | 197s (3.3m) |
+| mean | 179s | 254s |
+| min/max | 80/414s | 105/512s |
+
+### 多 iter ケース (fix loop あり)
+
+| 指標 | arch (n=12, 3-iter) | simplicity (n=17, 3-iter) |
+|---|---|---|
+| median | 566s (9.4m) | 508s (8.5m) |
+| mean | 593s | 606s |
+
+| 指標 | arch (n=2, 6+iter) | simplicity (n=4, 6+iter) |
+|---|---|---|
+| median | 1344s | 1073s |
+
+### 評価
+
+- **本 ADR の定量的期待 (execute 240-270s → 50-90s、1-iter 総時間 5m 18s → 2m) は達成されなかった**。arch-review 期の execute median は実際には 133s (ADR が baseline とした 240-270s は p75-p90 相当の cherry-picked 値) で、simplicity 期の 142s とほぼ同値。
+- **自己申告 (stable 3m 23s = 203s) は正直**。実測 1-iter median 197s と一致しており、simplicity-review 単独の性能特性の記述に誤りはない。誤っていたのは arch-review 側 baseline の典型値との比較。
+- **多 iter ケースでは改善**。3-iter median -10%、6+iter median -20%。self-referential false positive loop 解消と、supervise↔fix_supervisor ループ構造廃止が効いている。
+- **定性的な利得は残る**: diff 局所に責務を絞ったため reviewer の判断空間が狭くなり、cross-file 探索の揺らぎに起因する false positive が減った。ループ構造の見直し (改善ループ/収束ループの区別) は別 workflow にも適用可能な普遍原則として残る。
+- **性能問題の主因は reviewer の execute 時間ではなく、takt 3-phase (execute → report → judge) の固定コスト** と思われる。1-iter の「execute 以外」の時間は median で 55-75s (= 197s - 142s reviewers 並列 execute、ただし並列なので security の execute 分も差し引きが必要)。ここを詰めない限り 1-iter 総時間は 2m には到達しない。
+
+### 今後の方針
+
+- 本 ADR の "次ステップ" の「takt 3-phase オーバーヘッドの削減」を優先度高めで追跡。
+- security-review の slowdown は別トラックで調査 (model 指定以外に context サイズが効いている可能性)。
+- 次回のこの種の性能 ADR では、baseline/target とも **median で記述する** (p75 値を typical として扱わない)。
+
 ## 次ステップ (スコープ外)
 
 - **call chain drift lint の導入**: ADR 内のコードシンボル参照と実コードの整合性を lint で検証する仕組み
