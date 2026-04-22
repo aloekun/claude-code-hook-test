@@ -31,7 +31,7 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     let init_state = PrMonitorState::new(
         pr_info.pr_number,
         pr_info.repo.clone(),
-        pr_info.push_time.clone().unwrap_or_default(),
+        pr_info.push_time.clone().unwrap_or_else(utc_now_iso8601),
     );
     if let Err(e) = write_state(&init_state) {
         log_info(&format!("[state] 初期化書き込み失敗 (継続): {}", e));
