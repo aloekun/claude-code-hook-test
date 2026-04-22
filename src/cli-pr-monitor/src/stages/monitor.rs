@@ -25,8 +25,8 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
 
     log_info(&format!("{} の監視を開始", pr_label));
 
-    // セッション開始時の state 初期化: notified=false にリセットして
-    // observer (todo.md task 2) が過去セッションの通知履歴を引きずらないようにする。
+    // 早期 reset は run_create_pr 冒頭で実施済み (gh pr create 実行前)。
+    // ここは run_monitor_only 経路および冪等化のための最終 reset。
     // poll_loop 内では iteration を跨いで notified を preserve する。
     let init_state = PrMonitorState::new(
         pr_info.pr_number,
