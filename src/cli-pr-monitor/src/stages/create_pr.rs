@@ -4,6 +4,7 @@ use crate::config::DEFAULT_STEP_TIMEOUT_SECS;
 use crate::log::log_info;
 use crate::runner::{run_cmd_direct, run_gh_quiet};
 use crate::stages::monitor::start_monitoring;
+use crate::state::{write_state, PrMonitorState};
 use crate::util::{
     get_jj_bookmarks, get_pr_info, parse_pr_number_from_url, utc_now_iso8601, PrInfo,
 };
@@ -169,6 +170,14 @@ fn ensure_head_arg(args: Vec<String>, bookmarks: &[String]) -> Vec<String> {
 
 pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
+
+    // observer が前セッションの stale state を読まないよう、gh pr create 実行前に
+    // 早期 reset を書き込む。PR 番号・repo は未確定なので None で初期化する。
+    // action="continue_monitoring" / notified=false により observer は Continue 判定になる。
+    let early_state = PrMonitorState::new(None, None, utc_now_iso8601());
+    if let Err(e) = write_state(&early_state) {
+        log_info(&format!("[state] 早期 reset 書き込み失敗 (継続): {}", e));
+    }
 
     // Windows の pnpm/cmd.exe 経由で --body の複数行テキストが分割される問題の対策
     let reassembled = reassemble_split_body(gh_args);

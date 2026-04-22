@@ -5,7 +5,8 @@ use crate::config::{MonitorConfig, DEFAULT_CHECK_TIMEOUT_SECS};
 use crate::log::{log_info, truncate_safe};
 use crate::runner::{checker_exe_path, run_cmd_direct};
 use crate::state::{
-    update_state_from_check_result, write_state, CiState, CodeRabbitState, PrMonitorState,
+    read_state, update_state_from_check_result, write_state, CiState, CodeRabbitState,
+    PrMonitorState,
 };
 use crate::util::{utc_now_iso8601, PrInfo};
 
@@ -105,6 +106,13 @@ pub(crate) fn run_poll_loop(config: &MonitorConfig, pr_info: &PrInfo) -> PollRes
             push_time.to_string(),
         );
         update_state_from_check_result(&mut state, &result);
+
+        // `PrMonitorState::new` は毎回 notified=false で初期化するため、既存 state
+        // から runtime-updated な notified を読み戻す。新規セッションでは
+        // start_monitoring 冒頭で reset 済み。
+        if let Some(existing) = read_state() {
+            state.notified = existing.notified;
+        }
 
         // Skip handling: skipped なチェックを成功扱いにした後、action を再計算する
         if skip_ci {

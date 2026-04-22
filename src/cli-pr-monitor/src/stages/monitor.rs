@@ -5,6 +5,7 @@ use crate::stages::collect::collect_findings;
 use crate::stages::poll::run_poll_loop;
 use crate::stages::repush::execute_repush_flow;
 use crate::stages::takt::run_takt;
+use crate::state::{write_state, PrMonitorState};
 use crate::util::{get_pr_info, utc_now_iso8601, PrInfo};
 
 // ─── 監視開始 (sequential chain) ───
@@ -23,6 +24,18 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
         .unwrap_or_else(|| "PR".to_string());
 
     log_info(&format!("{} の監視を開始", pr_label));
+
+    // 早期 reset は run_create_pr 冒頭で実施済み (gh pr create 実行前)。
+    // ここは run_monitor_only 経路および冪等化のための最終 reset。
+    // poll_loop 内では iteration を跨いで notified を preserve する。
+    let init_state = PrMonitorState::new(
+        pr_info.pr_number,
+        pr_info.repo.clone(),
+        pr_info.push_time.clone().unwrap_or_else(utc_now_iso8601),
+    );
+    if let Err(e) = write_state(&init_state) {
+        log_info(&format!("[state] 初期化書き込み失敗 (継続): {}", e));
+    }
 
     // Stage 1: poll_loop (in-process, blocking)
     let poll_result = run_poll_loop(&config.monitor, pr_info);

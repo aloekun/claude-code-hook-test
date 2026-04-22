@@ -85,7 +85,6 @@ pub(crate) fn write_state(state: &PrMonitorState) -> Result<(), String> {
     write_state_to(&state_file_path(), state)
 }
 
-#[allow(dead_code)]
 pub(crate) fn read_state() -> Option<PrMonitorState> {
     read_state_from(&state_file_path())
 }
