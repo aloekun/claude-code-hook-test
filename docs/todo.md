@@ -61,7 +61,13 @@
     - 既存 pending/dispatched で skip + WARN
     - 破損 pending (parse 失敗) で削除後書き込み
     - tmp → rename の atomicity (partial file が残らない)
-- **完了基準**: `cargo test` 通過 + ローカルで `pnpm merge-pr` 手動実行 → 正しい pending file が生成される
+  - [ ] **atomic rename の環境確認と fallback 戦略** (CodeRabbit PR #69 指摘):
+    - 実装時に `std::fs::rename` のターゲット環境挙動を確認 (本プロジェクトは Windows 11 + NTFS 想定で atomic 経路に入るが、派生プロジェクトでは要再確認)
+    - `fs::rename` の Err を戻り値として伝播させ、呼び出し側でログ出力する (silent fail させない)
+    - 旧 Windows / 非対応 FS で non-atomic fallback が走ったケースの対処方針を docstring に明記: (a) 許容する (POST_MERGE_FEEDBACK_TRIGGER が 1 回発火失敗しても次マージで復帰可能)、(b) 必要なら `ReplaceFile` / `FileRenameInfoEx` の直接呼び出しを検討
+    - `owner_repo` の入力検証 (newline injection 防御、正規表現 `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$` 程度) を pending file 書き込み前に実施 (push 時の security-review で指摘済)
+  - [ ] `"ai"` 分岐のエラーハンドリング方針明文化: pending 書き込み失敗時もステップを FAIL にせず WARN + PASS とする (merge 自体は完了しているので pipeline を止めない)
+- **完了基準**: `cargo test` 通過 + ローカルで `pnpm merge-pr` 手動実行 → 正しい pending file が生成される + atomic rename の挙動確認メモが実装コードの doc コメントに残っていること
 - **詰まっている箇所**: なし
 - **依存関係**: 1-A (ADR-029) のスキーマ確定後に着手
 

@@ -155,7 +155,19 @@ hooks-stop-feedback-dispatch が pending file を読み取る際の分岐表:
 | `status == "dispatched"` | silent exit (二重通知しない) |
 | `status == "consumed"` | ファイル削除 + silent exit |
 
-**書き込み方式**: 「一時ファイルに write → `fs::rename` で atomic rename」の 2 段階を常に使う。ロックファイルは不要 (POSIX / Windows の `rename` semantics に依存)。
+**書き込み方式**: 「一時ファイルに write → `fs::rename` で atomic rename」の 2 段階を常に使う。ロックファイルは不要。
+
+ただし atomic 保証はプラットフォームとファイルシステムに依存する:
+
+| 環境 | `std::fs::rename` の atomicity |
+|---|---|
+| POSIX (Linux / macOS 等) | `rename(2)` により atomic overwrite (同一ファイルシステム内) |
+| Windows 10 1607+ / NTFS or ReFS | `FileRenameInfoEx` + `FILE_RENAME_FLAG_POSIX_SEMANTICS` 経路が成功すれば atomic overwrite。本プロジェクトのターゲット (Windows 11 + NTFS) はこの範囲 |
+| 旧 Windows / 非対応 FS | `FileRenameInfo` に fallback し **atomic 保証なし**。他プロセスが中間状態を観測する可能性がある |
+
+Rust 側の実装順序は rust-lang/rust の [#131072](https://github.com/rust-lang/rust/pull/131072) / [#138133](https://github.com/rust-lang/rust/pull/138133) で 2024-2025 に変更されており、信頼性のため non-atomic を先に試行、失敗時のみ POSIX semantics 版へ fallback する挙動になっている点にも留意。
+
+本 ADR が「atomic rename で十分、ロック不要」と結論する前提は「Windows 10 1607+ / NTFS」が成り立つ本プロジェクト環境に限る。派生プロジェクトへバックポートする際は環境を再確認すること。実装 (task 1-B) 時の action item は docs/todo.md 1-B を参照。
 
 ### additionalContext 構造化フォーマット
 
