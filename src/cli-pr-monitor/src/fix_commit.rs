@@ -106,6 +106,9 @@ pub(crate) fn create_fix_commit(pr_number: Option<u64>, findings: &[Finding]) ->
 /// `commit_id` が `None` のとき: 従来通り diff チェックのみで判定する。
 ///
 /// diff あり判定失敗時は abandon をスキップ (fail-safe: 誤 abandon 防止)。
+///
+/// abandon 成功後は `reparent_at_to_pr_tip` で `@` を PR tip 直下に戻す
+/// (task 6: cleanup 後の @ 孤児化を解消)。
 pub(crate) fn try_abandon_empty_fix_commit(context: &str, commit_id: Option<&str>) {
     if let Some(expected) = commit_id {
         match capture_commit_id().as_deref() {
@@ -139,13 +142,72 @@ pub(crate) fn try_abandon_empty_fix_commit(context: &str, commit_id: Option<&str
                 "[action] jj abandon 失敗 (手動片付け推奨): {}",
                 out
             ));
+            return;
         }
+        reparent_at_to_pr_tip(context);
     } else {
         log_info(&format!(
             "[warn] {} fix commit に diff あり、abandon を見送り",
             context
         ));
     }
+}
+
+/// `@` を PR tip (単一 local bookmark の指す commit) 直下に再配置する。
+///
+/// `jj abandon` 直後の `@` は stale な空 commit の上に残ることがあり
+/// (task 6 背景: PR #64 で 3 回発生)、次の `jj new` がそこに積まれる。
+/// これを解消するため、bookmark が指す PR tip を解決して `jj new -r <tip>` で
+/// `@` を PR tip の直接子に戻す。
+///
+/// 以下のケースは fail-safe でスキップする:
+/// - PR tip 解決失敗 (bookmark なし / 複数 bookmark で曖昧 / 取得失敗)
+/// - 既に `@-` が PR tip と一致 (redundant な空 commit を作らない)
+/// - `jj new -r <tip>` 自体の失敗 (ログのみで処理を継続)
+fn reparent_at_to_pr_tip(context: &str) {
+    let pr_tip = match crate::stages::push_jj_bookmark::resolve_pr_tip_commit_id() {
+        Some(id) => id,
+        None => {
+            log_info(&format!(
+                "[state] {} PR tip bookmark を特定できず re-parent スキップ",
+                context
+            ));
+            return;
+        }
+    };
+
+    if parent_commit_id_is(&pr_tip) {
+        log_info(&format!(
+            "[state] {} @ は既に PR tip ({}) 直下、re-parent 不要",
+            context, pr_tip
+        ));
+        return;
+    }
+
+    let (ok, out) = run_cmd_direct("jj", &["new", "-r", &pr_tip], &[], JJ_CMD_TIMEOUT_SECS);
+    if ok {
+        log_info(&format!(
+            "[action] {} @ を PR tip ({}) 直下に re-parent",
+            context, pr_tip
+        ));
+    } else {
+        log_info(&format!(
+            "[action] {} @ の re-parent 失敗 (手動対応): {}",
+            context, out
+        ));
+    }
+}
+
+/// `@-` (親 commit) の id が `expected` と一致するか判定する。
+/// 取得失敗時は `false` (= 不一致扱いで reparent を試行) を返す。
+fn parent_commit_id_is(expected: &str) -> bool {
+    let (ok, out) = run_cmd_direct(
+        "jj",
+        &["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
+        &[],
+        JJ_CMD_TIMEOUT_SECS,
+    );
+    ok && out.trim() == expected
 }
 
 #[cfg(test)]
@@ -309,5 +371,215 @@ mod tests {
             commit_id: "abc".into()
         }
         .is_created());
+    }
+
+    /// 統合: task 6 の再現 — `pnpm push` 後の空 WC の上に fix commit が
+    /// 作られた状態で cleanup すると、`@` が stale な空 commit に残らず、
+    /// PR tip (bookmark の指す commit) 直下に自動で re-parent されることを確認する。
+    ///
+    /// 検証対象シナリオ (PR #64 で 3 回発生):
+    /// - `C1 (bookmark) ← C1' (empty, from pnpm push) ← Y (fix commit, @)`
+    /// - takt が NoChange で Y を abandon した後、従来は `@- == C1'` に残っていた
+    /// - 修正後は `@- == C1` (PR tip) に戻る
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_try_abandon_reparents_at_to_pr_tip_after_cleanup() {
+        use std::env;
+        use std::process::Command as StdCommand;
+
+        let temp = tempfile::tempdir().expect("tempdir 作成失敗");
+        let repo_dir = temp.path();
+
+        assert!(StdCommand::new("jj")
+            .args(["git", "init"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj git init 失敗")
+            .success());
+
+        // 1. C1: 実コンテンツを持つ commit (PR 本体に相当)
+        std::fs::write(repo_dir.join("a.txt"), "content\n").expect("write a.txt 失敗");
+        assert!(StdCommand::new("jj")
+            .args(["describe", "-m", "feat: PR body"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("describe C1 失敗")
+            .success());
+        let c1_id = {
+            let out = StdCommand::new("jj")
+                .args(["log", "-r", "@", "--no-graph", "-T", "commit_id"])
+                .current_dir(repo_dir)
+                .output()
+                .expect("jj log C1");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        assert!(!c1_id.is_empty());
+
+        // 2. bookmark feat/task6 を C1 に作成 (PR tip として resolve される対象)
+        assert!(StdCommand::new("jj")
+            .args(["bookmark", "create", "feat/task6", "-r", "@"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("bookmark create 失敗")
+            .success());
+
+        // 3. C1': `pnpm push` 相当で @ を空 child に移す
+        assert!(StdCommand::new("jj")
+            .args(["new"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj new (C1') 失敗")
+            .success());
+
+        // 4. cwd を tempdir に切り替え (cli-pr-monitor helpers は cwd 依存)
+        let original_cwd = env::current_dir().expect("cwd 取得失敗");
+        env::set_current_dir(repo_dir).expect("cd 失敗");
+        struct CwdRestore {
+            original: std::path::PathBuf,
+        }
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+        let _guard = CwdRestore {
+            original: original_cwd,
+        };
+
+        // 5. Y: fix commit を pre-create (cli-pr-monitor の pre-takt 相当)
+        let fix_state = create_fix_commit(Some(64), &[]);
+        let fix_cid = match &fix_state {
+            FixCommitState::Created { commit_id } => commit_id.clone(),
+            _ => panic!("create_fix_commit 失敗: {:?}", fix_state),
+        };
+
+        // 6. takt no-op: ファイル変更なし → @ は空 Y のまま
+
+        // 7. cleanup 実行: abandon + reparent
+        try_abandon_empty_fix_commit("test:", Some(&fix_cid));
+
+        // 8. 検証: @- は PR tip (C1) と一致する。stale な C1' 上に残っていない。
+        let parent_id = {
+            let out = StdCommand::new("jj")
+                .args(["log", "-r", "@-", "--no-graph", "-T", "commit_id"])
+                .current_dir(repo_dir)
+                .output()
+                .expect("jj log @-");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        assert_eq!(
+            parent_id, c1_id,
+            "@- が PR tip (bookmark feat/task6) の指す commit と一致すること: got={:?}",
+            parent_id
+        );
+
+        // 9. @ は空 WC (新規作成されたもの)
+        assert!(diff_at_is_empty(), "reparent 後の @ は空 WC");
+
+        // 10. bookmark は C1 から動いていない (reparent は bookmark を触らない)
+        let bookmark_tip = {
+            let out = StdCommand::new("jj")
+                .args(["log", "-r", "feat/task6", "--no-graph", "-T", "commit_id"])
+                .current_dir(repo_dir)
+                .output()
+                .expect("jj log bookmark");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        assert_eq!(
+            bookmark_tip, c1_id,
+            "bookmark が動かされていないこと: got={:?}",
+            bookmark_tip
+        );
+    }
+
+    /// 統合: bookmark が複数ある場合 (stacked PR 等) は reparent をスキップし、
+    /// `jj abandon` のデフォルト配置 (親の上に新規 WC) に任せる fail-safe 挙動を確認する。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_try_abandon_skips_reparent_with_multiple_bookmarks() {
+        use std::env;
+        use std::process::Command as StdCommand;
+
+        let temp = tempfile::tempdir().expect("tempdir 作成失敗");
+        let repo_dir = temp.path();
+
+        assert!(StdCommand::new("jj")
+            .args(["git", "init"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj git init 失敗")
+            .success());
+
+        std::fs::write(repo_dir.join("a.txt"), "content\n").expect("write 失敗");
+        assert!(StdCommand::new("jj")
+            .args(["describe", "-m", "feat: base"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("describe 失敗")
+            .success());
+
+        // 複数の非 trunk bookmark を作成 (ambiguous な状態)
+        for name in &["feat/stack-a", "feat/stack-b"] {
+            assert!(StdCommand::new("jj")
+                .args(["bookmark", "create", name, "-r", "@"])
+                .current_dir(repo_dir)
+                .status()
+                .expect("bookmark create 失敗")
+                .success());
+        }
+
+        // 空 child (pnpm push 相当) を作成
+        assert!(StdCommand::new("jj")
+            .args(["new"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj new 失敗")
+            .success());
+        let c1_prime_id = {
+            let out = StdCommand::new("jj")
+                .args(["log", "-r", "@", "--no-graph", "-T", "commit_id"])
+                .current_dir(repo_dir)
+                .output()
+                .expect("jj log");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+
+        let original_cwd = env::current_dir().expect("cwd 取得失敗");
+        env::set_current_dir(repo_dir).expect("cd 失敗");
+        struct CwdRestore {
+            original: std::path::PathBuf,
+        }
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+        let _guard = CwdRestore {
+            original: original_cwd,
+        };
+
+        let fix_state = create_fix_commit(Some(1), &[]);
+        let fix_cid = match &fix_state {
+            FixCommitState::Created { commit_id } => commit_id.clone(),
+            _ => panic!("create_fix_commit 失敗"),
+        };
+
+        try_abandon_empty_fix_commit("test:", Some(&fix_cid));
+
+        // 複数 bookmark なので reparent スキップ。@- は stale な C1' (fix の元親) のまま
+        // = jj abandon のデフォルト配置に委ねられる。
+        let parent_id = {
+            let out = StdCommand::new("jj")
+                .args(["log", "-r", "@-", "--no-graph", "-T", "commit_id"])
+                .current_dir(repo_dir)
+                .output()
+                .expect("jj log @-");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        assert_eq!(
+            parent_id, c1_prime_id,
+            "複数 bookmark 時は reparent スキップ、@- は C1' のまま: got={:?}",
+            parent_id
+        );
     }
 }

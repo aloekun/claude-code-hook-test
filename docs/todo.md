@@ -136,29 +136,25 @@
 
 - **やろうとしたこと**: takt fix が NoChange で空 child commit を abandon した後、`@` (working copy) が孤児位置に残る問題を解消。結果として次の `jj new` が孤児 commit の上に積まれ、手動で `jj abandon` + `jj new -r <tip>` の修正が必要になる
 - **背景**:
-  - PR #64 セッション内で 3 回発生:
-    - 1 回目 (原則 5 child commit 作成時): 親が `sprrwyln a0a15f2f` (空)
-    - 2 回目 (3→4 条件修正時): 親が `pqxmuwvo ba3c0b65` (空)
-    - 3 回目 (MD040 修正時): 親が `qmxmoqnm 02e1cbf4` (空)
-  - 毎回 `jj abandon <current>` → `jj abandon <stale>` → `jj new -r <PR-tip>` の 3 ステップ手修正が必要だった
-  - `cli-pr-monitor/src/stages/` 配下で空 commit を abandon する処理はあるが、abandon 後の `@` 再配置までは実装されていない
-- **現在地**: 原因箇所特定済み。未実装
-- **作業内容**:
-  - [ ] `src/cli-pr-monitor/src/stages/` で fix_state=Created 後の `CleanupEmptyFixCommit` 分岐を特定 (本セッションログで該当メッセージ確認済)
-  - [ ] abandon 後に `jj edit <pr-tip-commit-id>` または `jj new <pr-tip>` で `@` を PR tip 直下に戻す処理を追加
-  - [ ] PR tip の commit ID は既存の state (`post_takt_commit_id` の親、または bookmark の指す先) から取得可能
-  - [ ] unit テスト: NoChange 分岐で @ が PR tip に戻ることを assert
-  - [ ] 統合テスト: takt fix NoChange → `jj log -r @` が PR tip の直接子であることを確認
-- **詰まっている箇所**:
-  - **PR tip の確定方法**: abandon 対象の空 commit の親が PR tip とは限らない (空 commit 自体が残留孤児の上にある場合もある)。bookmark の指す commit を信頼する方が堅い
-  - **interactive Claude Code との衝突**: ユーザーが skill 経由で作業中に cli-pr-monitor が @ を動かすのは違和感がある。ただし cli-pr-monitor の実行タイミングは pnpm push 後の BG 処理なので、ユーザー操作中には走らない想定
+  - PR #64 / PR #66 (docs-adr-028-axis-boundary) セッションで連続発生。毎回 `jj abandon <current>` → `jj abandon <stale>` → `jj new -r <PR-tip>` の 3 ステップ手修正が必要だった
+  - `cli-pr-monitor/src/stages/` 配下で空 commit を abandon する処理はあるが、abandon 後の `@` 再配置までは実装されていなかった
+- **現在地**: 実装 + 統合テスト完了。実 PR での E2E 検証を残すのみ
+  - [x] `fix_commit.rs::try_abandon_empty_fix_commit` の abandon 成功後に `reparent_at_to_pr_tip` を呼び出すフローを追加
+  - [x] `push_jj_bookmark.rs::resolve_pr_tip_commit_id` を新設: 単一の非 trunk local bookmark を PR tip として解決 (0 件 / 複数件は fail-safe で None)
+  - [x] 既に `@-` が PR tip と一致する場合は redundant な空 commit を作らずスキップ (`parent_commit_id_is`)
+  - [x] 統合テスト `integration_try_abandon_reparents_at_to_pr_tip_after_cleanup`: `C1 (bookmark) ← C1' (pnpm push の空) ← Y (fix)` → cleanup 後 `@-` が `C1` に戻ることを実 jj で確認
+  - [x] 統合テスト `integration_try_abandon_skips_reparent_with_multiple_bookmarks`: 複数 bookmark (stacked PR 想定) では reparent をスキップし jj default 配置に任せる fail-safe 挙動を確認
+  - [ ] 実 PR での E2E 検証: 次の CodeRabbit NoChange 修正ループで `@-` が自動で PR tip に戻ることを目視確認 (本 PR マージ後のリリース)
+- **詰まっている箇所**: 解消済
+  - **PR tip の確定方法**: `jj bookmark list` ベースで非 trunk local bookmark を解決する方式を採用。単一 bookmark 限定で stacked PR は fail-safe スキップ (task 3 の dispatch パターンに合わせた)
 - **関連ファイル**:
-  - `src/cli-pr-monitor/src/stages/push.rs` (空 commit 処理)
-  - `src/cli-pr-monitor/src/fix_commit.rs` (PR #63 で追加された fix commit 分離実装)
+  - `src/cli-pr-monitor/src/fix_commit.rs` (reparent 実装、統合テスト)
+  - `src/cli-pr-monitor/src/stages/push_jj_bookmark.rs` (`resolve_pr_tip_commit_id` 追加)
+  - `src/cli-pr-monitor/src/stages/mod.rs` (`push_jj_bookmark` を `pub(crate)` 化、fix_commit.rs から参照するため)
 - **参照**:
   - ADR-022 原則 5 (PR 包含 changeset の不変性) — 本問題は原則 5 実装の副作用の一つ
   - PR #63 (takt fix の child commit 分離) — 空 commit が出るようになった起点
-  - PR #64 の実地記録 — 3 回連続発生した事例
+  - PR #64 / PR #66 の実地記録 — 連続発生した事例
 
 ---
 

@@ -208,6 +208,29 @@ fn get_local_bookmarks_from_list() -> Result<Vec<String>, String> {
     Ok(dedup(parse_bookmark_list_output(&output)))
 }
 
+/// PR tip の commit id を、単一の非 trunk local bookmark から解決する。
+///
+/// task 6 (cleanup 後 @ の re-parent) 用。非 trunk bookmark が 1 つだけの場合
+/// のみ Some を返し、0 件や複数件 (stacked PR 等) では None を返して
+/// 呼び出し側に fallback (= reparent スキップ) を委ねる。
+///
+/// 位置に依存しない `jj bookmark list` ベースのため、`jj abandon` 直後の
+/// 孤児 WC 上からも確実に PR tip を発見できる。
+pub(crate) fn resolve_pr_tip_commit_id() -> Option<String> {
+    let bookmarks = get_local_bookmarks_from_list().ok()?;
+    if bookmarks.len() != 1 {
+        return None;
+    }
+    let name = &bookmarks[0];
+    let out = run_jj_log(name, "commit_id").ok()?;
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn parse_bookmark_list_output(output: &str) -> Vec<String> {
     output
         .lines()
