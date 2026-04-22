@@ -76,51 +76,7 @@
   - ADR-018 (post-pr-monitor takt 化): 既存フローの前提
   - ADR-016 (長時間コマンド): observer の 10 分タイムアウト設計
 
-### 3. takt fix のレビュー修正コミット分離
-
-- **やろうとしたこと**: CodeRabbit 指摘に対する takt 自動修正が元コミットに amend されるため、PR 上は commit 1 本に見える。結果:
-  1. ユーザーがレビュー対応状況を追いにくい (「何度も未対応と誤認する」症状)
-  2. 修正前後の比較が PR diff 上で取れない
-  3. 「どの指摘にどの修正が対応したか」の辿り直しが git log に頼れない
-
-  修正内容を別コミットに分離し、レビュー対応の可視性を上げる
-- **現在地**: 設計確定、未実装
-- **背景**:
-  - 現状: takt fix は `@` を直接編集 → `cli-pr-monitor/src/stages/push.rs` の `run_push` が `jj new` してから push
-  - `jj new` で child commit は作られるが、**fix 内容自体は元コミットに入ったまま**
-  - ADR-022 により takt 側が commit message / bookmark を触ることは禁止。コミット分離は Rust 側の責務
-- **実装内容**:
-  - fix 実行前の commit ID を保持 (`pre_takt_commit_id` は既存)
-  - takt 実行後、`@` の内容が変わっていれば (`decide_repush == HasChange`)、修正差分を**新しい子コミット**として分離する
-  - 具体的な戦略候補:
-    - **案 A (簡潔)**: `jj new` で child commit を作ってから fix 差分をそこに移す
-    - **案 B (明示)**: `jj split` で元コミットから fix 差分だけを切り出して child にする
-    - 案 A の方がシンプル。元コミットは不変、子コミットに `fix(review): ...` 相当の description を付けて push
-- **タスク分解**:
-  - [ ] `src/cli-pr-monitor/src/stages/push.rs` の `run_push` 調査 + 既存の `jj new` 動作確認 (どのタイミングで走るか)
-  - [ ] コミット分離ロジック実装 (案 A ベース)
-    - takt fix 後の `@` 差分 (`pre_takt_cid..post_takt_cid`) を検出
-    - HasChange の場合のみ分離。NoChange (amend なし) は既存のスキップ動作
-  - [ ] コミット description の生成方針
-    - ADR-022 遵守: **takt は触らない**。Rust 側で固定文言または PR title 参照を使う
-    - 候補: `fix(review): apply CodeRabbit fixes for #<PR番号>`
-    - PR 番号は cli-pr-monitor が既に保持しているので流用可
-  - [ ] unit テスト: `decide_repush` の分岐別でコミット構造が期待通りか
-  - [ ] E2E 検証: CodeRabbit Major ありの PR で commit が 2 本 (original + fix) になることを確認
-- **詰まっている箇所**:
-  - **元コミット description の維持**: `jj new` 単独では元の description が保持される想定だが、過去の PR で `jj describe` による上書き事故があった (PR #44、ADR-022 の契機)。挙動を実測で再確認する必要あり
-  - **複数回 fix される場合**: 1 PR で 2 回 3 回と CodeRabbit 指摘 → takt 修正が走った場合、毎回新しい fix コミットを作るか、同じ fix コミットに積むか要検討
-- **考慮事項**:
-  - コミット分離は `has_coderabbit_findings` のみで判定 (auto_push と独立)。takt 実行自体の前提と同じ条件
-  - NoChange (takt が実質変更なし) の場合は事前に作った空 child を `jj abandon` で片付ける。ただし fail-safe として `jj diff -r @` で空確認してから abandon
-  - `auto_push_severity = "none"` の場合も**child commit は分離する**。分離結果をユーザーが確認してから手動 push または `jj describe` で再構成できる (fix の痕跡を可視化したまま判断材料を残す方針)
-  - ADR-022 (automated actor boundary) の境界: 既存 commit の description 改変は禁止。新規 child commit への description 生成は例外として許可 (ADR-022 追記予定)
-- **参照 ADR**:
-  - ADR-018 (post-pr-monitor takt 化): 既存フローの前提
-  - ADR-022 (責務分離): takt は commit 操作禁止、Rust 側が担当
-  - PR #44 の事故事例: 元 description の破壊で得た教訓
-
-### 4. cli-pr-monitor の auto re-push に bookmark 自動前進を移植
+### 3. cli-pr-monitor の auto re-push に bookmark 自動前進を移植
 
 - **やろうとしたこと**: takt 自動修正後の auto re-push で「修正コミットができても bookmark が動かず remote に届かない」問題を解消。cli-push-runner には PR #50 で `push_jj_bookmark.rs` の advance ロジックが入っているが、cli-pr-monitor の `run_push` は `jj new` → `jj git push` だけで bookmark を進めない
 - **現在地**: port 完了 + 統合テストで機能等価を確認。あとは実 PR でのロールアウトのみ
@@ -131,26 +87,100 @@
   - [ ] 実 PR での E2E 検証: 次回 CodeRabbit Major 指摘が出た PR で、takt 修正 → auto re-push で bookmark が remote 反映まで自動到達することを目視確認 (本 PR マージ後にリリース)
 - **詰まっている箇所**:
   - **共通化方針**: まず port で機能等価を確認。将来 `lib-jj-helpers` へ集約する候補として `push_jj_bookmark.rs` 先頭に TODO コメントを残した (ADR-024)
-  - **task 3 との順序**: fallback path (`jj bookmark list` ベース) が amend / split 両方に耐性があるため、task 3 を先送りしても問題なし
 - **参照 ADR / PR**:
   - PR #50 (cli-push-runner の bookmark fallback)
+  - PR #63 (takt fix のコミット分離、完了済)
   - ADR-024 (共通 jj helper、試験運用)
-  - 関連: task 3 (コミット分離)
 
-### 5. post-pr-review workflow の verdict に push 反映確認を追加
+### 4. post-pr-review workflow の verdict に push 反映確認を追加
 
 - **やろうとしたこと**: post-pr-review workflow が local file の状態だけを見て `approved` を判定する設計のため、auto re-push が失敗していても `approved` になる gap を埋める。PR #53 で「local 修正済み + bookmark 未前進 → workflow approved」の食い違いを実測
-- **現在地**: 設計段階、未着手。task 4 (問題 A) の defense-in-depth 的位置付け
+- **現在地**: 設計段階、未着手。task 3 (bookmark 自動前進) の defense-in-depth 的位置付け
 - **実装内容案**:
   - [ ] workflow の analyze (or 終了前) ステップで `gh api` を叩いて remote の最新 commit SHA を取得し、local の fix commit SHA と比較
   - [ ] 一致しなければ `verdict = action_required` にダウングレードし「remote 未反映」のメッセージを出す
 - **詰まっている箇所**:
-  - **task 4 実装後の優先度再評価**: task 4 が入れば「auto re-push が失敗しない限り approved は妥当」となるため、task 5 の優先度は大きく下がる。実装可否は task 4 完了後に判断
+  - **task 3 実装後の優先度再評価**: task 3 が入れば「auto re-push が失敗しない限り approved は妥当」となるため、本タスクの優先度は大きく下がる。実装可否は task 3 完了後に判断
   - **takt workflow の YAML から外部コマンド呼び出しが可能か**: facets instruction 内でシェルが呼べるかは要調査 (ADR-019/020 の facets 設計内)
 - **参照 ADR**:
   - ADR-018 (post-pr-monitor takt 化)
   - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
-  - 関連: task 4 (bookmark auto-advance)
+  - 関連: task 3 (bookmark auto-advance)
+
+### 5. prepare-pr skill の前提条件を ADR-022 v3 に整合
+
+- **やろうとしたこと**: `prepare-pr` skill が前提不成立で停止する運用痛を解消する。現状の前提 3「jj working copy は `pnpm push` 完了済」は ADR-022 v1 時代 (Claude が commit description / bookmark / push に触れない前提) の書き方で、ADR-022 v3 で確立した「Claude が草案生成 → 承認 → 実行」フローと噛み合っていない
+- **背景**:
+  - PR #64 セッション冒頭で発生: 「PR を作成して」と依頼された際、skill が前提 3 で停止し、ユーザーに「commit description 書いて pnpm push まで先にやれ」と返した。しかし ADR-022 v3 の承認ゲート表では commit description / bookmark / pnpm push はすべて Claude に委譲される想定
+  - 結果として skill の責務境界が実運用とズレており、ADR-022 v3 を書く契機になった
+  - ADR-022 v3 側は修正済み (PR #64)。skill 側が取り残されている
+- **現在地**: 設計段階、未着手。skill の本体は global + `$CLAUDE_SKILLS_REPO` (`C:\Users\HIROKI\.claude\skills\prepare-pr\` / `E:\work\claude-code-skills` 配下)。本リポジトリ外
+- **作業内容**:
+  - [ ] `SKILL.md` の「前提条件」セクション書き換え:
+    - 旧: 前提 3「jj working copy は pnpm push 完了済」
+    - 新: 「commit description / bookmark / push が完了している。未完了なら skill 外で Claude が順次実行してから起動する」(or skill 内 Step 0 で実行)
+  - [ ] 「実行手順 > Step 1: 現状確認」のチェック項目も前提変更に合わせて書き換え。`master..@` 差分空 / bookmark なし / remote 未反映は「skill の責務外のはずだが、運用中に前提未達なら Claude に fallback を促す」方針に
+  - [ ] `draft.md` の入力セクション (`jj log -r 'master..@'` 等) が「空」を返す場合の fallback 記述を追加
+  - [ ] ADR-022 v3 承認ゲート表 への参照リンクを skill 冒頭に明記
+  - [ ] evals/evals.json の scenario 2-4 (前提未達 → 早期終了) を新設計に合わせて更新
+- **完了条件**:
+  - 「PR を作成して」依頼で skill が止まらず、PR 作成まで抜ける happy path を 1 回検証
+  - `$CLAUDE_SKILLS_REPO` と global deploy 先 (`~/.claude/skills/prepare-pr/`) の同期を `/skill-sync-check` で確認
+- **参照**:
+  - ADR-022 v3 (PR #64) — 承認ゲート表 / 原則 1 再構築
+  - PR #62 (task 7) — skill を global + skill repo に分割した経緯
+  - memory `feedback_bookmark_auto_naming.md` — Claude の権限境界
+  - PR #64 の本セッション記録 — 前提不成立で停止した実例
+
+### 6. cli-pr-monitor の空 fix commit cleanup で @ を PR tip に re-parent
+
+- **やろうとしたこと**: takt fix が NoChange で空 child commit を abandon した後、`@` (working copy) が孤児位置に残る問題を解消。結果として次の `jj new` が孤児 commit の上に積まれ、手動で `jj abandon` + `jj new -r <tip>` の修正が必要になる
+- **背景**:
+  - PR #64 セッション内で 3 回発生:
+    - 1 回目 (原則 5 child commit 作成時): 親が `sprrwyln a0a15f2f` (空)
+    - 2 回目 (3→4 条件修正時): 親が `pqxmuwvo ba3c0b65` (空)
+    - 3 回目 (MD040 修正時): 親が `qmxmoqnm 02e1cbf4` (空)
+  - 毎回 `jj abandon <current>` → `jj abandon <stale>` → `jj new -r <PR-tip>` の 3 ステップ手修正が必要だった
+  - `cli-pr-monitor/src/stages/` 配下で空 commit を abandon する処理はあるが、abandon 後の `@` 再配置までは実装されていない
+- **現在地**: 原因箇所特定済み。未実装
+- **作業内容**:
+  - [ ] `src/cli-pr-monitor/src/stages/` で fix_state=Created 後の `CleanupEmptyFixCommit` 分岐を特定 (本セッションログで該当メッセージ確認済)
+  - [ ] abandon 後に `jj edit <pr-tip-commit-id>` または `jj new <pr-tip>` で `@` を PR tip 直下に戻す処理を追加
+  - [ ] PR tip の commit ID は既存の state (`post_takt_commit_id` の親、または bookmark の指す先) から取得可能
+  - [ ] unit テスト: NoChange 分岐で @ が PR tip に戻ることを assert
+  - [ ] 統合テスト: takt fix NoChange → `jj log -r @` が PR tip の直接子であることを確認
+- **詰まっている箇所**:
+  - **PR tip の確定方法**: abandon 対象の空 commit の親が PR tip とは限らない (空 commit 自体が残留孤児の上にある場合もある)。bookmark の指す commit を信頼する方が堅い
+  - **interactive Claude Code との衝突**: ユーザーが skill 経由で作業中に cli-pr-monitor が @ を動かすのは違和感がある。ただし cli-pr-monitor の実行タイミングは pnpm push 後の BG 処理なので、ユーザー操作中には走らない想定
+- **関連ファイル**:
+  - `src/cli-pr-monitor/src/stages/push.rs` (空 commit 処理)
+  - `src/cli-pr-monitor/src/fix_commit.rs` (PR #63 で追加された fix commit 分離実装)
+- **参照**:
+  - ADR-022 原則 5 (PR 包含 changeset の不変性) — 本問題は原則 5 実装の副作用の一つ
+  - PR #63 (takt fix の child commit 分離) — 空 commit が出るようになった起点
+  - PR #64 の実地記録 — 3 回連続発生した事例
+
+### 7. ADR-028 に ADR-022 原則 5 との関係を明記
+
+- **やろうとしたこと**: ADR-028 (外部可視成果物の生成コマンドの実行ゲート) と ADR-022 原則 5 (PR 包含 changeset の不変性) が別々の観点 (作成ゲート vs 改変ゲート) から PR ライフサイクルを規律しており、両者の関係を 1 節で明記して読み手の混同を防ぐ
+- **背景**:
+  - ADR-022 原則 5 は「changeset が PR に含まれる場合 amend 禁止、修正は child commit」。一方 ADR-028 は「PR 作成/マージのような外部可視イベントは承認ゲート経由」
+  - `pnpm create-pr` と `pnpm merge-pr` 自体は履歴書き換えではないので ADR-022 原則 5 の拘束外。この線引きを ADR-028 側に 1 節書いておくと、将来「merge は amend 扱いか?」のような混乱を予防できる
+  - PR #64 セッション retrospective で拾った気付き
+- **現在地**: 設計確定、未実装 (docs only、PR 粒度は小)
+- **作業内容**:
+  - [ ] ADR-028 の「影響」または末尾に「関連 ADR との境界」セクションを追加
+  - [ ] 記述内容:
+    - ADR-028 の射程 = 外部可視 artifact (PR / release tag) の**生成**ゲート
+    - ADR-022 原則 5 の射程 = 既存 changeset の**改変**ゲート
+    - 重なり: `pnpm create-pr` / `pnpm merge-pr` 自体は履歴書き換えでないため ADR-022 原則 5 の拘束外、ADR-028 のみが適用
+    - PR 作成後の commit 追加は ADR-022 原則 5 の child commit ルール適用、ADR-028 の追加ゲートは不要
+  - [ ] ADR-022 側にも対応する cross-ref 追記を検討 (原則 5 本文か「影響」セクションに 1 行)
+- **完了条件**: ADR-028 に 1 節追加、cross-ref が双方向に張られている
+- **関連**:
+  - ADR-022 v3 (原則 5) — PR #64 で追加
+  - ADR-028 (外部可視成果物の生成コマンドの実行ゲート) — 既存
+  - PR #64 retrospective — 本タスクの起点
 
 ---
 
