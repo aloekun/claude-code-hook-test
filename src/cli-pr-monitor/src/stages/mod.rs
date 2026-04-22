@@ -4,7 +4,7 @@ mod mark_notified;
 mod monitor;
 pub(crate) mod poll;
 pub(crate) mod push;
-mod push_jj_bookmark;
+pub(crate) mod push_jj_bookmark;
 pub(crate) mod repush;
 pub(crate) mod takt;
 
