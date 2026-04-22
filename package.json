@@ -19,6 +19,8 @@
     "build:all": "pnpm build:hooks-session-start && pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-stop-quality && pnpm build:cli-push-runner && pnpm build:cli-pr-monitor && pnpm build:cli-merge-pipeline && pnpm build:check-ci-coderabbit && pnpm build:hooks-settings",
     "push": ".\\.claude\\cli-push-runner.exe && .\\.claude\\cli-pr-monitor.exe --monitor-only",
     "create-pr": ".\\.claude\\cli-pr-monitor.exe",
+    "observe-pr": ".\\.claude\\cli-pr-monitor.exe --observe",
+    "mark-notified": ".\\.claude\\cli-pr-monitor.exe --mark-notified",
     "merge-pr": ".\\.claude\\cli-merge-pipeline.exe",
     "check-ci": ".\\.claude\\check-ci-coderabbit.exe",
     "prepare-pr-body": "pwsh -NoProfile -File scripts/prepare-pr-body.ps1",

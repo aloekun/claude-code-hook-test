@@ -23,58 +23,20 @@
   - SessionStart hook は master に実装済み (`src/hooks-session-start/`)。セッション引継ぎ設計は session ID → jsonl transcript 紐付けの ADR が必要
   - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
 
-### 2. post-pr review フローの並行通知化 (観測用 BG タスク追加)
+### 2. post-pr review フローの並行通知化 (E2E 検証待ち)
 
-- **やろうとしたこと**: `pnpm create-pr` 実行中に CodeRabbit 指摘検出 → takt 自動修正 → re-push が BG で進行するが、ユーザーは完了通知まで状況を把握できない。Claude Code にも進捗が届かず、すでに自動修正されている指摘についてユーザーから「未対応レビューをリストアップして」と重複依頼が発生する。これを早期通知で解消する
-- **現在地**: 設計確定、未実装
-- **背景**:
-  - 現状フロー (cli-pr-monitor が一気通貫): `poll → detect → takt fix → re-push → report → exit`
-  - ユーザーは exit 時点まで中間状態を見られない
-  - 深刻度別の扱い:
-    - **Critical / Major**: 既存の `auto_push_severity` 設定で自動修正
-    - **Minor 以下**: 並行してユーザーにヒアリング。主フローの外で判断
-- **設計原則 (絶対に崩さないこと)**:
-  - **主フロー (detect → fix → re-push) は 100% 機械的**。Claude Code の判断や通知受領を gate にしない。セッション切断や AI スキップでフローが止まると、ハーネスとしての「必ず修正まで到達する」保証が崩れる
-  - **通知は side effect**。主フローの成否に影響しない観測用パス。cli-pr-monitor 自体には手を入れない
-- **実装内容 (並行タスク方式)**:
-
-  ```
-  Claude Code が 2 つの BG タスクを同時起動:
-
-  Task A (主フロー): pnpm create-pr
-    → cli-pr-monitor 既存フローをそのまま実行
-    → 変更不要
-
-  Task B (通知用): scripts/observe-pr-state (新設)
-    → <exe_dir>/pr-monitor-state.json をポーリング（cli-pr-monitor.exe と同じディレクトリ）
-    → action=action_required を検出したら state 内容を stdout に出して exit
-    → Claude Code が完了通知を受領 → ユーザーにレポート表示 + Minor ヒアリング
-  ```
-
-- **タスク分解**:
-  - [ ] `scripts/observe-pr-state.ps1` (Windows 用) 新設
-    - `<exe_dir>/pr-monitor-state.json`（cli-pr-monitor.exe と同じディレクトリ）を 5-10s 間隔ポーリング
-    - `action == "action_required"` または `action == "approved"` 検出で state 全文を出力して exit 0
-    - 10 分のタイムアウト (ADR-016 準拠) 後は exit 1
-    - 起動時に `notified` フラグを確認し、`true` であれば出力をスキップして exit 0（Claude Code 再起動時の重複レポート防止）
-      - `notified=true` への書き込みは `cli-pr-monitor` の `mark_notified` ステージ（`src/cli-pr-monitor/src/stages/mark_notified.rs`）が担う
-      - `notified=false` へのリセットは新しい監視セッション開始時に `cli-pr-monitor` 側で行う（observer は stateless/single-shot のため自身ではリセットしない）
-  - [ ] `package.json` に `"observe-pr"` スクリプト追加 (PowerShell 起動)
-  - [ ] `post-pr-create-review-check` スキルを修正
-    - 現状: daemon 起動後に state file を一度読んで報告する一段構成
-    - 変更後: `pnpm create-pr` と `pnpm observe-pr` を並行 BG 起動
-    - observer exit 時に state を整形してユーザーに提示
-    - Minor 指摘があれば AskUserQuestion で対応方針をヒアリング
-  - [ ] E2E 検証: CodeRabbit Major ありの PR で通知タイミングを確認
-- **詰まっている箇所**:
-  - **Windows 依存**: Bash 経由では PowerShell 起動が二重シェルで動作不安定。pnpm script で `pwsh -File` 直接呼び出しが必要か要調査
-  - **Minor ヒアリングの UX**: observer 完了時に Claude Code に state が届くが、並行して Task A の fix も進行中。Task A が Minor を `user_decision` verdict で止めた場合と action_required で進んでいる場合の挙動差を確認
-- **考慮事項**:
-  - observer は read-only (state file 読み取りのみ)。Task A に影響しない
-  - Task A と Task B 両方タイムアウト時のクリーンアップ (observer 側は orphan OK、Task A 側は既存タイムアウト機構に委ねる)
-- **参照 ADR**:
-  - ADR-018 (post-pr-monitor takt 化): 既存フローの前提
-  - ADR-016 (長時間コマンド): observer の 10 分タイムアウト設計
+- **やろうとしたこと**: `pnpm create-pr` 実行中に CodeRabbit 指摘検出 → takt 自動修正 → re-push が BG で進行する間、Claude Code が中間状態を受け取れず「未対応レビューをリストアップして」の重複依頼が発生していた。observer パスで早期通知して解消する
+- **現在地**: 実装完了 (ADR-018 追記セクションに仕組み反映済み)。残るは実 PR での E2E 観察のみ
+  - [x] `src/cli-pr-monitor/src/stages/observe.rs` 新設 (Rust exe サブコマンド、PowerShell 廃案)
+  - [x] `cli-pr-monitor --observe` ハンドラを `main.rs` に配線 + observe stage の unit test 7 件
+  - [x] `poll.rs`: iteration を跨いで `notified` flag を preserve (`PrMonitorState::new` が毎回 reset する挙動を修正)
+  - [x] `start_monitoring` 冒頭で state を明示初期化 (新セッション開始時の reset)
+  - [x] `package.json` に `observe-pr` / `mark-notified` スクリプト追加
+  - [x] `~/.claude/skills/post-pr-create-review-check/skill.md` を並行 BG 構成に更新 (stale な daemon/CronCreate 記述を除去)
+  - [ ] 実 PR での E2E 検証: CodeRabbit Major ありの PR で、Claude Code が `pnpm create-pr` と `pnpm observe-pr` を並行 BG 起動し、observer の早期通知で Minor ヒアリングが走ることを確認
+- **参照**:
+  - ADR-018 追記 (2026-04-22) — observer モードと責務分離原則
+  - ADR-022 — 「主フローは 100% 機械的 / 通知は read-only side effect」の境界
 
 ### 3. cli-pr-monitor の auto re-push に bookmark 自動前進を移植
 
@@ -91,70 +53,6 @@
   - PR #50 (cli-push-runner の bookmark fallback)
   - PR #63 (takt fix のコミット分離、完了済)
   - ADR-024 (共通 jj helper、試験運用)
-
-### 4. post-pr-review workflow の verdict に push 反映確認を追加
-
-- **やろうとしたこと**: post-pr-review workflow が local file の状態だけを見て `approved` を判定する設計のため、auto re-push が失敗していても `approved` になる gap を埋める。PR #53 で「local 修正済み + bookmark 未前進 → workflow approved」の食い違いを実測
-- **現在地**: 設計段階、未着手。task 3 (bookmark 自動前進) の defense-in-depth 的位置付け
-- **実装内容案**:
-  - [ ] workflow の analyze (or 終了前) ステップで `gh api` を叩いて remote の最新 commit SHA を取得し、local の fix commit SHA と比較
-  - [ ] 一致しなければ `verdict = action_required` にダウングレードし「remote 未反映」のメッセージを出す
-- **詰まっている箇所**:
-  - **task 3 実装後の優先度再評価**: task 3 が入れば「auto re-push が失敗しない限り approved は妥当」となるため、本タスクの優先度は大きく下がる。実装可否は task 3 完了後に判断
-  - **takt workflow の YAML から外部コマンド呼び出しが可能か**: facets instruction 内でシェルが呼べるかは要調査 (ADR-019/020 の facets 設計内)
-- **参照 ADR**:
-  - ADR-018 (post-pr-monitor takt 化)
-  - ADR-019 (CodeRabbit レビュー運用ハイブリッド)
-  - 関連: task 3 (bookmark auto-advance)
-
-### 5. prepare-pr skill の前提条件を ADR-022 v3 に整合
-
-- **やろうとしたこと**: `prepare-pr` skill が前提不成立で停止する運用痛を解消する。現状の前提 3「jj working copy は `pnpm push` 完了済」は ADR-022 v1 時代 (Claude が commit description / bookmark / push に触れない前提) の書き方で、ADR-022 v3 で確立した「Claude が草案生成 → 承認 → 実行」フローと噛み合っていない
-- **背景**:
-  - PR #64 セッション冒頭で発生: 「PR を作成して」と依頼された際、skill が前提 3 で停止し、ユーザーに「commit description 書いて pnpm push まで先にやれ」と返した。しかし ADR-022 v3 の承認ゲート表では commit description / bookmark / pnpm push はすべて Claude に委譲される想定
-  - 結果として skill の責務境界が実運用とズレており、ADR-022 v3 を書く契機になった
-  - ADR-022 v3 側は修正済み (PR #64)。skill 側が取り残されている
-- **現在地**: 設計段階、未着手。skill の本体は global + `$CLAUDE_SKILLS_REPO` (`C:\Users\HIROKI\.claude\skills\prepare-pr\` / `E:\work\claude-code-skills` 配下)。本リポジトリ外
-- **作業内容**:
-  - [ ] `SKILL.md` の「前提条件」セクション書き換え:
-    - 旧: 前提 3「jj working copy は pnpm push 完了済」
-    - 新: 「commit description / bookmark / push が完了している。未完了なら skill 外で Claude が順次実行してから起動する」(or skill 内 Step 0 で実行)
-  - [ ] 「実行手順 > Step 1: 現状確認」のチェック項目も前提変更に合わせて書き換え。`master..@` 差分空 / bookmark なし / remote 未反映は「skill の責務外のはずだが、運用中に前提未達なら Claude に fallback を促す」方針に
-  - [ ] `draft.md` の入力セクション (`jj log -r 'master..@'` 等) が「空」を返す場合の fallback 記述を追加
-  - [ ] ADR-022 v3 承認ゲート表 への参照リンクを skill 冒頭に明記
-  - [ ] evals/evals.json の scenario 2-4 (前提未達 → 早期終了) を新設計に合わせて更新
-- **完了条件**:
-  - 「PR を作成して」依頼で skill が止まらず、PR 作成まで抜ける happy path を 1 回検証
-  - `$CLAUDE_SKILLS_REPO` と global deploy 先 (`~/.claude/skills/prepare-pr/`) の同期を `/skill-sync-check` で確認
-- **参照**:
-  - ADR-022 v3 (PR #64) — 承認ゲート表 / 原則 1 再構築
-  - PR #62 (task 7) — skill を global + skill repo に分割した経緯
-  - memory `feedback_bookmark_auto_naming.md` — Claude の権限境界
-  - PR #64 の本セッション記録 — 前提不成立で停止した実例
-
-### 6. cli-pr-monitor の空 fix commit cleanup で @ を PR tip に re-parent
-
-- **やろうとしたこと**: takt fix が NoChange で空 child commit を abandon した後、`@` (working copy) が孤児位置に残る問題を解消。結果として次の `jj new` が孤児 commit の上に積まれ、手動で `jj abandon` + `jj new -r <tip>` の修正が必要になる
-- **背景**:
-  - PR #64 / PR #66 (docs-adr-028-axis-boundary) セッションで連続発生。毎回 `jj abandon <current>` → `jj abandon <stale>` → `jj new -r <PR-tip>` の 3 ステップ手修正が必要だった
-  - `cli-pr-monitor/src/stages/` 配下で空 commit を abandon する処理はあるが、abandon 後の `@` 再配置までは実装されていなかった
-- **現在地**: 実装 + 統合テスト完了。実 PR での E2E 検証を残すのみ
-  - [x] `fix_commit.rs::try_abandon_empty_fix_commit` の abandon 成功後に `reparent_at_to_pr_tip` を呼び出すフローを追加
-  - [x] `push_jj_bookmark.rs::resolve_pr_tip_commit_id` を新設: 単一の非 trunk local bookmark を PR tip として解決 (0 件 / 複数件は fail-safe で None)
-  - [x] 既に `@-` が PR tip と一致する場合は redundant な空 commit を作らずスキップ (`parent_commit_id_is`)
-  - [x] 統合テスト `integration_try_abandon_reparents_at_to_pr_tip_after_cleanup`: `C1 (bookmark) ← C1' (pnpm push の空) ← Y (fix)` → cleanup 後 `@-` が `C1` に戻ることを実 jj で確認
-  - [x] 統合テスト `integration_try_abandon_skips_reparent_with_multiple_bookmarks`: 複数 bookmark (stacked PR 想定) では reparent をスキップし jj default 配置に任せる fail-safe 挙動を確認
-  - [ ] 実 PR での E2E 検証: 次の CodeRabbit NoChange 修正ループで `@-` が自動で PR tip に戻ることを目視確認 (本 PR マージ後のリリース)
-- **詰まっている箇所**: 解消済
-  - **PR tip の確定方法**: `jj bookmark list` ベースで非 trunk local bookmark を解決する方式を採用。単一 bookmark 限定で stacked PR は fail-safe スキップ (task 3 の dispatch パターンに合わせた)
-- **関連ファイル**:
-  - `src/cli-pr-monitor/src/fix_commit.rs` (reparent 実装、統合テスト)
-  - `src/cli-pr-monitor/src/stages/push_jj_bookmark.rs` (`resolve_pr_tip_commit_id` 追加)
-  - `src/cli-pr-monitor/src/stages/mod.rs` (`push_jj_bookmark` を `pub(crate)` 化、fix_commit.rs から参照するため)
-- **参照**:
-  - ADR-022 原則 5 (PR 包含 changeset の不変性) — 本問題は原則 5 実装の副作用の一つ
-  - PR #63 (takt fix の child commit 分離) — 空 commit が出るようになった起点
-  - PR #64 / PR #66 の実地記録 — 連続発生した事例
 
 ---
 

@@ -102,3 +102,31 @@ extra_args = ["--pipeline", "--skip-git"]
 
 - **Phase 2: fix loop + re-push**: takt ワークフローに fix ステップを追加し、CodeRabbit 指摘の自動修正 + re-push まで一気通貫で処理
 - **push-runner との共通化**: fix loop / report ロジックの共通 takt instruction 化
+
+## 追記 (2026-04-22): observer モードで並行通知化
+
+### 背景
+
+takt fix の自動修正 + re-push が BG で走る間、Claude Code は state 更新を
+リアルタイムで追えず、ユーザーが「未対応レビューをリストアップして」と
+重複依頼するケースが発生した。
+
+### 追加
+
+- `cli-pr-monitor --observe` サブコマンドを新設 (read-only 観測パス)
+  - `pr-monitor-state.json` を 5 秒間隔ポーリング
+  - `action != "continue_monitoring"` を検出したら state 全文を stdout に出して exit
+  - `notified=true` はサイレント exit (Claude Code 再起動時の重複防止)
+  - 10 分タイムアウトで exit 1 (orphan OK)
+- `pnpm observe-pr` / `pnpm mark-notified` スクリプトを復活
+- `poll.rs`: iteration を跨いで `notified` フラグを preserve
+- `start_monitoring` 冒頭で state を初期化 (新セッション開始時の reset)
+
+### 設計原則 (崩さないこと)
+
+- **主フロー (cli-pr-monitor 本体) は 100% 機械的**に detect → fix → re-push を完了させる。
+  observer や Claude Code の判断を gate にしない
+- **observer は read-only な side effect**。state file を読むだけで主フローには影響しない
+
+Claude Code が Task A (`pnpm create-pr`) と Task B (`pnpm observe-pr`) を
+並行 BG 起動することで、observer は早期に終端状態を報告できる (ADR-022 責務分離原則と整合)。

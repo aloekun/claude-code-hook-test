@@ -14,9 +14,13 @@
 //!   --mark-notified: state file の notified フラグを true にする
 //!     Claude が結果を処理した後に呼ばれる
 //!
+//!   --observe: state file をポーリングし、終端状態 (action != continue_monitoring)
+//!     で state 全文を stdout に出して exit する (todo.md task 2)。
+//!     主フロー (pnpm create-pr) と並行起動される読み取り専用の観測パス。
+//!
 //! 終了コード:
 //!   0 - 正常終了
-//!   1 - gh pr create 失敗 (PR 作成モードのみ)
+//!   1 - gh pr create 失敗 (PR 作成モードのみ) / observer タイムアウト
 
 mod config;
 mod fix_commit;
@@ -26,13 +30,17 @@ mod stages;
 mod state;
 mod util;
 
-use stages::{run_create_pr, run_mark_notified, run_monitor_only};
+use stages::{run_create_pr, run_mark_notified, run_monitor_only, run_observe};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.iter().any(|a| a == "--mark-notified") {
         std::process::exit(run_mark_notified());
+    }
+
+    if args.iter().any(|a| a == "--observe") {
+        std::process::exit(run_observe());
     }
 
     if args.iter().any(|a| a == "--monitor-only") {
