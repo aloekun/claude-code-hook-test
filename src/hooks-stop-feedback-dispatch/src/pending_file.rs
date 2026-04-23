@@ -13,7 +13,6 @@
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 // ─── Re-exports from lib-pending-file ───
 
@@ -117,14 +116,6 @@ pub(crate) fn write_overwrite(path: &Path, pending: &PendingFile) -> Result<(), 
 
 // ─── Process-level dispatch lock (CodeRabbit PR #71 Major fix) ───
 
-/// 壊れた lock file を stale とみなす TTL (秒)。
-///
-/// dispatch 処理は ms オーダーで完了するため、60 秒は十分な猶予。これを超えた lock は
-/// `kill -9` 等で Drop が走らなかった crash 残骸とみなし、削除後に 1 度だけ再取得を試す。
-/// この閾値を無くすと、クラッシュした holder の残骸により以降すべての dispatch が
-/// 永続的に stuck する可能性がある (defense-in-depth としては不十分)。
-const LOCK_STALE_SECS: u64 = 60;
-
 /// pending→dispatched 遷移を process-level で排他化する RAII lock。
 ///
 /// ADR-029 の「ロックファイル不要」は `create_new` による pending file 自体の **新規作成
@@ -137,8 +128,14 @@ const LOCK_STALE_SECS: u64 = 60;
 ///
 /// **解放**: Drop で `remove_file`。panic / 早期 return でも RAII で安全に片付く。
 ///
-/// **stale 回復**: `AlreadyExists` 時に既存 lock の mtime を確認し `LOCK_STALE_SECS` を
-/// 超えていれば削除 → 1 回だけ再取得を試す (CodeRabbit 指摘の defense-in-depth)。
+/// **leak 対策 (CodeRabbit PR #71 の 2 回目 Major 指摘 + ユーザー合意による簡潔版対応)**:
+/// lock file が `kill -9` 等で残存しても本モジュールでは **stale 回復を行わない**。
+/// 代わりに pending file 自体の 24h TTL を backstop として利用し、`main.rs` の
+/// `handle_pending` が stale な pending を GC するタイミングで `{pending}.lock` も
+/// 一緒に削除する設計。stale-recovery の TOCTOU race (複数プロセスが同時に「古い
+/// lock を削除→新規作成」する際に他プロセスの新しい lock を誤削除するレース) を
+/// 根本から避けるためのトレードオフ。leak 中の最大遅延は 24h で、ユーザーは
+/// `/post-merge-feedback` を手動起動することでいつでも救済できる。
 pub(crate) struct PendingLock {
     lock_path: PathBuf,
 }
@@ -152,22 +149,10 @@ impl PendingLock {
     ///   - `Err(...)`: I/O エラー (呼び出し側は stderr WARN + fail-open で継続)
     pub(crate) fn try_acquire(pending_path: &Path) -> Result<Option<Self>, String> {
         let lock_path = pending_path.with_extension("lock");
-
         match Self::try_create(&lock_path)? {
-            Some(()) => return Ok(Some(Self { lock_path })),
-            None => {}
+            Some(()) => Ok(Some(Self { lock_path })),
+            None => Ok(None),
         }
-
-        // AlreadyExists: stale 判定で gc 試行
-        if Self::is_stale(&lock_path) {
-            let _ = std::fs::remove_file(&lock_path);
-            // 1 度だけ再取得を試す (race で別プロセスが先に取っても None で諦める)
-            return match Self::try_create(&lock_path)? {
-                Some(()) => Ok(Some(Self { lock_path })),
-                None => Ok(None),
-            };
-        }
-        Ok(None)
     }
 
     /// 低レベル create_new。`Ok(Some(()))` = 取得、`Ok(None)` = AlreadyExists、`Err` = I/O エラー。
@@ -189,28 +174,6 @@ impl PendingLock {
                 e
             )),
         }
-    }
-
-    /// lock file が `LOCK_STALE_SECS` を超えて古ければ stale とみなす。
-    /// mtime 取得不能 / 未来時刻 は stale 扱いしない (保守的)。
-    fn is_stale(lock_path: &Path) -> bool {
-        Self::is_stale_with_threshold(lock_path, LOCK_STALE_SECS)
-    }
-
-    /// テスト可能性のため閾値を引数化した下位関数。
-    fn is_stale_with_threshold(lock_path: &Path, threshold_secs: u64) -> bool {
-        let meta = match std::fs::metadata(lock_path) {
-            Ok(m) => m,
-            Err(_) => return false,
-        };
-        let modified = match meta.modified() {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
-        SystemTime::now()
-            .duration_since(modified)
-            .map(|d| d.as_secs() > threshold_secs)
-            .unwrap_or(false)
     }
 }
 
@@ -453,50 +416,19 @@ mod tests {
     }
 
     #[test]
-    fn pending_lock_recovers_from_stale_lock() {
-        let pending_path = unique_tmp("lock-stale");
+    fn pending_lock_returns_none_when_leaked() {
+        // leak シミュレーション: 手動で lock file を置くと try_acquire は None を返す
+        // (stale recovery を撤去したので、leak した lock は pending file の 24h GC で回収される)
+        let pending_path = unique_tmp("lock-leaked");
         let lock_path = pending_path.with_extension("lock");
-
-        // stale lock の残骸を手動で置く (中身は観測用メタなので任意)
         std::fs::write(&lock_path, "pid=0 at=crashed").unwrap();
 
-        // mtime を現在より 120 秒前に設定 (LOCK_STALE_SECS=60 より古い)
-        let old_time = SystemTime::now() - std::time::Duration::from_secs(120);
-        let f = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&lock_path)
-            .unwrap();
-        f.set_modified(old_time).unwrap();
-        drop(f);
+        let result = PendingLock::try_acquire(&pending_path).unwrap();
+        assert!(result.is_none(), "leaked lock should block acquisition");
 
-        // is_stale_with_threshold が stale と判定する (60 秒閾値で 120 秒前 → stale)
-        assert!(PendingLock::is_stale_with_threshold(&lock_path, 60));
-
-        // try_acquire が stale 残骸を gc して取得成功する (end-to-end 回復パスの検証)
-        let lock = PendingLock::try_acquire(&pending_path).unwrap();
-        assert!(lock.is_some(), "try_acquire should recover from stale lock");
-        drop(lock);
-        assert!(!lock_path.exists());
-    }
-
-    #[test]
-    fn pending_lock_is_stale_with_threshold_rejects_fresh_lock() {
-        let pending_path = unique_tmp("lock-fresh");
-        let lock_path = pending_path.with_extension("lock");
-        std::fs::write(&lock_path, "fresh").unwrap();
-
-        // 60 秒閾値で作成直後 → stale ではない
-        assert!(!PendingLock::is_stale_with_threshold(&lock_path, 60));
-
+        // lock file は残存する (手動 cleanup 対象 / pending GC の backstop で回収される)
+        assert!(lock_path.exists());
         let _ = std::fs::remove_file(&lock_path);
-    }
-
-    #[test]
-    fn pending_lock_is_stale_with_threshold_on_missing_file_returns_false() {
-        let pending_path = unique_tmp("lock-missing");
-        let lock_path = pending_path.with_extension("lock");
-        // ファイル不在 → stale 扱いしない (保守的)
-        assert!(!PendingLock::is_stale_with_threshold(&lock_path, 0));
     }
 
     #[test]

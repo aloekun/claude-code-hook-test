@@ -119,7 +119,10 @@ fn mark_dispatched(path: &Path, mut pending: PendingFile) {
 /// `PendingLock` を取得する。lock 取得後に再読込して status=pending を再検証することで、初回
 /// read と lock acquire の間に別プロセスが dispatched/consumed に書き換えた場合の二重発火を防ぐ。
 ///
-/// stale 判定は lock 不要 (削除のみなら任意 hook が GC できる)。
+/// **lock leak の backstop** (CodeRabbit PR #71 2 回目 Major fix 簡潔版対応):
+/// `PendingLock` は stale recovery を持たないため `kill -9` 等で leak し得るが、
+/// pending 自体の 24h TTL がここで backstop として働く。stale pending を GC する際に
+/// `{pending}.lock` も一緒に削除することで、leak した lock も最大 24h で回収される。
 fn handle_pending(path: &Path, pending: PendingFile) {
     if is_stale(&pending.created_at, utc_now_epoch_secs()) {
         eprintln!(
@@ -127,6 +130,8 @@ fn handle_pending(path: &Path, pending: PendingFile) {
             pending.created_at
         );
         let _ = std::fs::remove_file(path);
+        // leak した可能性がある lock file も backstop で削除
+        let _ = std::fs::remove_file(path.with_extension("lock"));
         return;
     }
 
@@ -304,6 +309,41 @@ mod tests {
         assert!(json.contains(r#""hookSpecificOutput""#));
         assert!(json.contains(r#""hookEventName":"Stop""#));
         assert!(json.contains(r#""additionalContext":"dummy""#));
+    }
+
+    #[test]
+    fn handle_pending_stale_branch_cleans_up_leaked_lock() {
+        // leak した lock を backstop で回収するシナリオ:
+        // 24h 超の stale pending を GC する際に {pending}.lock も削除される
+        let base_dir = std::env::temp_dir();
+        let unique = format!(
+            "test-stale-lock-cleanup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        );
+        let pending_path = base_dir.join(format!("{}.json", unique));
+        let lock_path = pending_path.with_extension("lock");
+
+        // stale pending (created_at = 1970) + leak lock を配置
+        let mut pending = sample_pending();
+        pending.created_at = "1970-01-01T00:00:00Z".to_string();
+        std::fs::write(
+            &pending_path,
+            serde_json::to_string_pretty(&pending).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(&lock_path, "pid=0 at=crashed").unwrap();
+
+        handle_pending(&pending_path, pending);
+
+        assert!(!pending_path.exists(), "stale pending should be removed");
+        assert!(
+            !lock_path.exists(),
+            "leaked lock should be removed as backstop"
+        );
     }
 
     #[test]
