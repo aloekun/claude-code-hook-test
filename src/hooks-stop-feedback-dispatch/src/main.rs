@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 mod pending_file;
 use pending_file::{
     epoch_secs_to_iso8601, read_existing, utc_now_epoch_secs, utc_now_iso8601, write_overwrite,
-    ExistingPending, PendingFile, FILE_NAME, STATUS_DISPATCHED,
+    ExistingPending, PendingFile, PendingLock, FILE_NAME, STATUS_DISPATCHED,
 };
 
 /// stale TTL (24 時間、ADR-029 §破損耐性)
@@ -114,6 +114,12 @@ fn mark_dispatched(path: &Path, mut pending: PendingFile) {
 }
 
 /// stale pending を削除し、有効な pending から additionalContext を発火して dispatched に遷移する。
+///
+/// **排他制御** (CodeRabbit PR #71 Major fix): read→emit→write を process-level で排他化するため
+/// `PendingLock` を取得する。lock 取得後に再読込して status=pending を再検証することで、初回
+/// read と lock acquire の間に別プロセスが dispatched/consumed に書き換えた場合の二重発火を防ぐ。
+///
+/// stale 判定は lock 不要 (削除のみなら任意 hook が GC できる)。
 fn handle_pending(path: &Path, pending: PendingFile) {
     if is_stale(&pending.created_at, utc_now_epoch_secs()) {
         eprintln!(
@@ -123,8 +129,34 @@ fn handle_pending(path: &Path, pending: PendingFile) {
         let _ = std::fs::remove_file(path);
         return;
     }
-    emit_trigger(&pending);
-    mark_dispatched(path, pending);
+
+    let _lock = match PendingLock::try_acquire(path) {
+        Ok(Some(lock)) => lock,
+        Ok(None) => {
+            // 他プロセスが dispatch 中 → 二重発火防止で何もしない
+            return;
+        }
+        Err(e) => {
+            eprintln!(
+                "[stop-feedback-dispatch] Warning: lock acquisition failed ({}); skip dispatch",
+                e
+            );
+            return;
+        }
+    };
+
+    // lock 保有中に再読込: read→lock の race で別プロセスが dispatched/consumed に
+    // 書き換えた可能性を排除する
+    match read_existing(path) {
+        ExistingPending::Pending(reread) => {
+            emit_trigger(&reread);
+            mark_dispatched(path, reread);
+        }
+        _ => {
+            // 別プロセスが先に処理完了 / 破損 → 何もしない (RAII で lock 解放)
+        }
+    }
+
 }
 
 fn main() {
