@@ -177,10 +177,14 @@ fn config_path() -> PathBuf {
 /// hooks-config.toml を読み込みパースする
 fn load_config() -> Result<Config, String> {
     let path = config_path();
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("hooks-config.toml の読み込みに失敗: {} ({})", path.display(), e))?;
-    toml::from_str(&content)
-        .map_err(|e| format!("hooks-config.toml のパースに失敗: {}", e))
+    let content = std::fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "hooks-config.toml の読み込みに失敗: {} ({})",
+            path.display(),
+            e
+        )
+    })?;
+    toml::from_str(&content).map_err(|e| format!("hooks-config.toml のパースに失敗: {}", e))
 }
 
 // ─── パイプライン実行 ───
@@ -217,10 +221,7 @@ fn run_pipeline() -> i32 {
         log_info("警告: パイプラインステップが定義されていません。push のみ実行します。");
     }
 
-    log_info(&format!(
-        "パイプライン開始 ({} ステップ)",
-        steps.len()
-    ));
+    log_info(&format!("パイプライン開始 ({} ステップ)", steps.len()));
 
     // ステップを順次実行
     for (i, step) in steps.iter().enumerate() {
@@ -349,7 +350,9 @@ prompt = "review_changes"
             DEFAULT_STEP_TIMEOUT_SECS
         );
         assert_eq!(
-            pipeline.push_cmd.unwrap_or_else(|| DEFAULT_PUSH_CMD.to_string()),
+            pipeline
+                .push_cmd
+                .unwrap_or_else(|| DEFAULT_PUSH_CMD.to_string()),
             DEFAULT_PUSH_CMD
         );
         assert!(pipeline.steps.unwrap_or_default().is_empty());

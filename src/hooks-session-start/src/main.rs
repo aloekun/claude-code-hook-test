@@ -186,10 +186,7 @@ mod tests {
 
     #[test]
     fn session_id_file_new_file_is_written() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-sid-new-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("test-sid-new-{}", std::process::id()));
         let _ = std::fs::remove_file(&tmp);
 
         // ファイルが存在しない → 書き込むべき
@@ -208,10 +205,7 @@ mod tests {
 
     #[test]
     fn session_id_file_same_id_is_skipped() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-sid-same-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("test-sid-same-{}", std::process::id()));
         let _ = std::fs::write(&tmp, "session-A");
 
         // 同じ ID → スキップ
@@ -225,10 +219,7 @@ mod tests {
 
     #[test]
     fn session_id_file_different_id_is_overwritten() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-sid-diff-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("test-sid-diff-{}", std::process::id()));
         let _ = std::fs::write(&tmp, "session-A");
 
         // 異なる ID → 上書き
@@ -245,10 +236,7 @@ mod tests {
 
     #[test]
     fn session_id_file_empty_is_written() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-sid-empty-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("test-sid-empty-{}", std::process::id()));
         let _ = std::fs::write(&tmp, "");
 
         // 空ファイル → 書き込むべき ("" != "session-A")

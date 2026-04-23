@@ -50,6 +50,11 @@
             "type": "command",
             "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-quality.exe\"",
             "timeout": 300
+          },
+          {
+            "type": "command",
+            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-feedback-dispatch.exe\"",
+            "timeout": 10
           }
         ]
       }

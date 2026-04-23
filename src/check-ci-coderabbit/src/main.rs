@@ -51,7 +51,11 @@ fn parse_args() -> Result<CliArgs, String> {
     }
 
     let push_time = push_time.ok_or("--push-time は必須です")?;
-    Ok(CliArgs { push_time, repo, pr })
+    Ok(CliArgs {
+        push_time,
+        repo,
+        pr,
+    })
 }
 
 // ─── gh CLI 実行 ───
@@ -212,21 +216,32 @@ fn parse_ci_runs(json: &str) -> CiStatus {
         .iter()
         .map(|item| CiRunSummary {
             name: item.name.clone(),
-            conclusion: item.conclusion.clone().unwrap_or_else(|| "pending".to_string()),
+            conclusion: item
+                .conclusion
+                .clone()
+                .unwrap_or_else(|| "pending".to_string()),
         })
         .collect();
 
     let has_pending = items.iter().any(|i| {
         matches!(
             i.conclusion.as_deref(),
-            None | Some("") | Some("pending") | Some("queued") | Some("in_progress") | Some("waiting")
+            None | Some("")
+                | Some("pending")
+                | Some("queued")
+                | Some("in_progress")
+                | Some("waiting")
         )
     });
 
     let has_failure = items.iter().any(|i| {
         matches!(
             i.conclusion.as_deref(),
-            Some("failure") | Some("cancelled") | Some("timed_out") | Some("action_required") | Some("stale")
+            Some("failure")
+                | Some("cancelled")
+                | Some("timed_out")
+                | Some("action_required")
+                | Some("stale")
         )
     });
 
@@ -314,7 +329,10 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
 /// suggestion は `<details><summary>💡 修正イメージ</summary>` ブロックから抽出。
 fn parse_findings(json: &str, push_time: &str) -> Vec<Finding> {
     let comments: Vec<GhPullComment> = serde_json::from_str(json).unwrap_or_else(|e| {
-        eprintln!("[check-ci-coderabbit] pull comments JSON パースエラー: {}", e);
+        eprintln!(
+            "[check-ci-coderabbit] pull comments JSON パースエラー: {}",
+            e
+        );
         vec![]
     });
 
@@ -447,25 +465,22 @@ fn parse_actionable_comments(json: &str, push_time: &str) -> Option<usize> {
         vec![]
     });
 
-    let latest = reviews
-        .iter()
-        .filter(|r| {
-            let is_coderabbit = r
-                .user
-                .as_ref()
-                .and_then(|u| u.login.as_deref())
-                .map(|l| l == "coderabbitai[bot]")
-                .unwrap_or(false);
+    let latest = reviews.iter().rfind(|r| {
+        let is_coderabbit = r
+            .user
+            .as_ref()
+            .and_then(|u| u.login.as_deref())
+            .map(|l| l == "coderabbitai[bot]")
+            .unwrap_or(false);
 
-            let after_push_time = r
-                .submitted_at
-                .as_deref()
-                .map(|t| t > push_time)
-                .unwrap_or(false);
+        let after_push_time = r
+            .submitted_at
+            .as_deref()
+            .map(|t| t > push_time)
+            .unwrap_or(false);
 
-            is_coderabbit && after_push_time
-        })
-        .last()?;
+        is_coderabbit && after_push_time
+    })?;
 
     let body = latest.body.as_deref()?;
 
@@ -518,10 +533,7 @@ fn decide(ci: &CiStatus, cr: &CodeRabbitStatus) -> (String, String) {
     // CodeRabbit の review_state が not_found でもコメント/スレッドがあれば対応が必要
     // (commit status は未投稿でも inline comments は先に投稿されるケースがある)
     if cr.review_state == "not_found" && has_actionable {
-        return (
-            "action_required".to_string(),
-            "action_required".to_string(),
-        );
+        return ("action_required".to_string(), "action_required".to_string());
     }
 
     // CI が pending (runs 空 = no_ci は "pending" ではなく CI チェックをスキップ)
@@ -540,14 +552,14 @@ fn decide(ci: &CiStatus, cr: &CodeRabbitStatus) -> (String, String) {
 
     // コメント/スレッドがある → 対応が必要
     if has_actionable {
-        return (
-            "action_required".to_string(),
-            "action_required".to_string(),
-        );
+        return ("action_required".to_string(), "action_required".to_string());
     }
 
     // すべて OK
-    ("complete".to_string(), "stop_monitoring_success".to_string())
+    (
+        "complete".to_string(),
+        "stop_monitoring_success".to_string(),
+    )
 }
 
 /// 人間向けサマリーを生成
@@ -615,7 +627,14 @@ fn build_summary(ci: &CiStatus, cr: &CodeRabbitStatus) -> String {
 // ─── 自動取得ヘルパー ───
 
 fn auto_detect_repo() -> Result<String, String> {
-    run_gh(&["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
+    run_gh(&[
+        "repo",
+        "view",
+        "--json",
+        "nameWithOwner",
+        "-q",
+        ".nameWithOwner",
+    ])
 }
 
 fn auto_detect_pr() -> Result<u64, String> {
@@ -665,19 +684,13 @@ fn is_valid_sha(sha: &str) -> bool {
 // ─── メインロジック ───
 
 fn run_check(args: CliArgs) -> CheckResult {
-    let repo_result = args
-        .repo
-        .map(Ok)
-        .unwrap_or_else(|| auto_detect_repo());
-    let pr_result = args
-        .pr
-        .map(Ok)
-        .unwrap_or_else(|| auto_detect_pr());
+    let repo_result = args.repo.map(Ok).unwrap_or_else(auto_detect_repo);
+    let pr_result = args.pr.map(Ok).unwrap_or_else(auto_detect_pr);
 
     // エラーメッセージを事前に抽出 (unwrap_or で move される前に)
     let repo_err = repo_result.as_ref().err().cloned();
     let pr_err = pr_result.as_ref().err().cloned();
-    let repo = repo_result.map(|r| r).unwrap_or_default();
+    let repo = repo_result.unwrap_or_default();
     let pr = pr_result.unwrap_or(0);
 
     if repo.is_empty() || pr == 0 || !is_valid_repo(&repo) {
@@ -714,7 +727,14 @@ fn run_check(args: CliArgs) -> CheckResult {
     let branch = get_current_branch().unwrap_or_default();
     let ci = if !branch.is_empty() {
         match run_gh(&[
-            "run", "list", "--branch", &branch, "--limit", "5", "--json", "name,conclusion",
+            "run",
+            "list",
+            "--branch",
+            &branch,
+            "--limit",
+            "5",
+            "--json",
+            "name,conclusion",
         ]) {
             Ok(ci_json) => parse_ci_runs(&ci_json),
             Err(e) => {
@@ -751,19 +771,13 @@ fn run_check(args: CliArgs) -> CheckResult {
 
     // 3. 新規コメント
     let pr_str = pr.to_string();
-    let comments_json = run_gh(&[
-        "api",
-        &format!("repos/{}/issues/{}/comments", repo, pr_str),
-    ])
-    .unwrap_or_else(|_| "[]".to_string());
+    let comments_json = run_gh(&["api", &format!("repos/{}/issues/{}/comments", repo, pr_str)])
+        .unwrap_or_else(|_| "[]".to_string());
     let new_comments = parse_new_comments(&comments_json, &args.push_time);
 
     // 4. Actionable comments クロスチェック
-    let reviews_json = run_gh(&[
-        "api",
-        &format!("repos/{}/pulls/{}/reviews", repo, pr_str),
-    ])
-    .unwrap_or_else(|_| "[]".to_string());
+    let reviews_json = run_gh(&["api", &format!("repos/{}/pulls/{}/reviews", repo, pr_str)])
+        .unwrap_or_else(|_| "[]".to_string());
     let actionable = parse_actionable_comments(&reviews_json, &args.push_time);
 
     // 5. 未解決スレッド (GraphQL) — 値直接埋め込み (入力は is_valid_repo で検証済み)
@@ -773,14 +787,11 @@ fn run_check(args: CliArgs) -> CheckResult {
             r#"{{ repository(owner: "{}", name: "{}") {{ pullRequest(number: {}) {{ reviewThreads(first: 100) {{ nodes {{ isResolved }} }} }} }} }}"#,
             owner, name, pr
         );
-        let graphql_json = run_gh(&[
-            "api", "graphql",
-            "-f", &format!("query={}", query),
-        ])
-        .unwrap_or_else(|e| {
-            eprintln!("[check-ci-coderabbit] GraphQL クエリ失敗: {}", e);
-            "{}".to_string()
-        });
+        let graphql_json = run_gh(&["api", "graphql", "-f", &format!("query={}", query)])
+            .unwrap_or_else(|e| {
+                eprintln!("[check-ci-coderabbit] GraphQL クエリ失敗: {}", e);
+                "{}".to_string()
+            });
         parse_unresolved_threads(&graphql_json)
     } else {
         None

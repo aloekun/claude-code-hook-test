@@ -79,7 +79,11 @@ fn load_config() -> (Config, bool) {
     match std::fs::read_to_string(&path) {
         Ok(content) => {
             let config = toml::from_str(&content).unwrap_or_else(|e| {
-                eprintln!("[stop-quality] Warning: Failed to parse {}: {}", path.display(), e);
+                eprintln!(
+                    "[stop-quality] Warning: Failed to parse {}: {}",
+                    path.display(),
+                    e
+                );
                 Config::default()
             });
             (config, true)
@@ -196,14 +200,20 @@ fn main() {
     // stdin を消費（fail-closed: エラー時は block）
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
-        emit_block(&format!("品質ゲートエラー: stdin読み込みに失敗しました: {}", e));
+        emit_block(&format!(
+            "品質ゲートエラー: stdin読み込みに失敗しました: {}",
+            e
+        ));
         return;
     }
 
     let hook_input: HookInput = match serde_json::from_str(&input) {
         Ok(v) => v,
         Err(e) => {
-            emit_block(&format!("品質ゲートエラー: 入力JSONのパースに失敗しました: {}", e));
+            emit_block(&format!(
+                "品質ゲートエラー: 入力JSONのパースに失敗しました: {}",
+                e
+            ));
             return;
         }
     };
@@ -216,15 +226,21 @@ fn main() {
     // 設定からステップとタイムアウトを取得
     let stop_config = config.stop_quality.unwrap_or_default();
     let steps = stop_config.steps.unwrap_or_default();
-    let timeout = stop_config.step_timeout.unwrap_or(DEFAULT_STEP_TIMEOUT_SECS);
+    let timeout = stop_config
+        .step_timeout
+        .unwrap_or(DEFAULT_STEP_TIMEOUT_SECS);
 
     // ステップが無い場合は警告を出して停止許可
     if steps.is_empty() {
         if !config_found {
-            eprintln!("[stop-quality] Warning: hooks-config.toml not found. Quality gate is disabled.");
+            eprintln!(
+                "[stop-quality] Warning: hooks-config.toml not found. Quality gate is disabled."
+            );
             eprintln!("[stop-quality] Place hooks-config.toml in the same directory as this exe.");
         } else {
-            eprintln!("[stop-quality] Warning: No quality steps configured. Quality gate is disabled.");
+            eprintln!(
+                "[stop-quality] Warning: No quality steps configured. Quality gate is disabled."
+            );
         }
         return;
     }
@@ -328,8 +344,8 @@ cmd = "pnpm test"
 
     #[test]
     fn step_timeout_default_is_reasonable() {
-        assert!(DEFAULT_STEP_TIMEOUT_SECS >= 30);
-        assert!(DEFAULT_STEP_TIMEOUT_SECS <= 300);
+        const { assert!(DEFAULT_STEP_TIMEOUT_SECS >= 30) };
+        const { assert!(DEFAULT_STEP_TIMEOUT_SECS <= 300) };
     }
 
     #[test]

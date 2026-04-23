@@ -106,9 +106,15 @@ pub fn format_verdict(findings: &[Finding]) -> String {
 
     if has_serious {
         let mut parts = Vec::new();
-        if counts[0] > 0 { parts.push(format!("Critical: {}", counts[0])); }
-        if counts[1] > 0 { parts.push(format!("High: {}", counts[1])); }
-        if counts[2] > 0 { parts.push(format!("Major: {}", counts[2])); }
+        if counts[0] > 0 {
+            parts.push(format!("Critical: {}", counts[0]));
+        }
+        if counts[1] > 0 {
+            parts.push(format!("High: {}", counts[1]));
+        }
+        if counts[2] > 0 {
+            parts.push(format!("Major: {}", counts[2]));
+        }
         format!("修正が必要な指摘があります ({})", parts.join(", "))
     } else {
         "重大な問題は見つかりませんでした。軽微な改善提案があります".to_string()

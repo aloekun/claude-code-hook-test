@@ -27,8 +27,10 @@ members = [
     "src/hooks-post-tool-linter",
     "src/hooks-pre-tool-validate",
     "src/hooks-session-start",
+    "src/hooks-stop-feedback-dispatch",
     "src/hooks-stop-quality",
     "src/lib-jj-helpers",
+    "src/lib-pending-file",
     "src/lib-report-formatter",
 ]
 

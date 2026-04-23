@@ -156,10 +156,7 @@ where
 ///
 /// - `stderr_mode`: `jj log` の stderr ハンドリング方針
 /// - `fallback_log`: `@` 以外の revset で hit した場合の通知 (`None` なら無通知)
-pub fn get_jj_bookmarks(
-    stderr_mode: StderrMode,
-    fallback_log: Option<fn(&str)>,
-) -> Vec<String> {
+pub fn get_jj_bookmarks(stderr_mode: StderrMode, fallback_log: Option<fn(&str)>) -> Vec<String> {
     select_from_revsets(
         BOOKMARK_SEARCH_REVSETS,
         |r| query_bookmarks_at(r, &stderr_mode),
