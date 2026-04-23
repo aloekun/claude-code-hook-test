@@ -38,7 +38,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// プロセス内で一意な tmp ファイル名を生成するためのカウンタ。
-/// 複数の writer が同時に `write_new_exclusive` を呼んでも tmp パスが衝突しない。
+/// 複数の writer が同時に `write_overwrite` を呼んでも tmp パスが衝突しない。
+/// `write_new_exclusive` は tmp path を使わないため本カウンタを参照しない。
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// pending file のスキーマバージョン。
