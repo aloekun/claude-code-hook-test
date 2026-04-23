@@ -156,7 +156,6 @@ fn handle_pending(path: &Path, pending: PendingFile) {
             // 別プロセスが先に処理完了 / 破損 → 何もしない (RAII で lock 解放)
         }
     }
-
 }
 
 fn main() {

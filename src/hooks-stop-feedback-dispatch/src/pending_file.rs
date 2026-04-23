@@ -502,29 +502,43 @@ mod tests {
     #[test]
     fn pending_lock_atomic_under_concurrent_acquirers() {
         use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-        use std::sync::Arc;
+        use std::sync::{Arc, Barrier};
+
+        const THREAD_COUNT: usize = 8;
 
         let pending_path = Arc::new(unique_tmp("lock-concurrent"));
         let success_count = Arc::new(AtomicUsize::new(0));
         let none_count = Arc::new(AtomicUsize::new(0));
 
-        let handles: Vec<_> = (0..8)
+        // Barrier で全スレッドの try_acquire を同期 (CodeRabbit PR #71 Minor fix)。
+        // 以前は「winner が 50ms 保持」だけに頼っていたため、slow CI / Windows Defender 常駐
+        // スキャン下などスレッド起動遅延が 50ms を超える環境では、winner drop 後に後発スレッドが
+        // 再取得して success_count=2 になる flaky 経路があった。Barrier で全スレッドの
+        // attempt 時刻を揃えることで、race を決定論化する。
+        let barrier = Arc::new(Barrier::new(THREAD_COUNT));
+
+        let handles: Vec<_> = (0..THREAD_COUNT)
             .map(|_| {
                 let p = Arc::clone(&pending_path);
                 let ok = Arc::clone(&success_count);
                 let ne = Arc::clone(&none_count);
-                std::thread::spawn(move || match PendingLock::try_acquire(&p) {
-                    Ok(Some(lock)) => {
-                        ok.fetch_add(1, AtomicOrdering::Relaxed);
-                        // 確実に lock を保持したまま他スレッドが None を返すのを観測できるよう
-                        // 短時間保持してから drop する
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                        drop(lock);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    b.wait();
+                    match PendingLock::try_acquire(&p) {
+                        Ok(Some(lock)) => {
+                            ok.fetch_add(1, AtomicOrdering::Relaxed);
+                            // 後発スレッドも確実にこのタイミングで attempt 済になっているが、
+                            // 保持時間を 50ms 設けて、万一スケジューリングが大きくずれても
+                            // 後発が「lock 存在」を観測できる余裕を残す。
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            drop(lock);
+                        }
+                        Ok(None) => {
+                            ne.fetch_add(1, AtomicOrdering::Relaxed);
+                        }
+                        Err(e) => panic!("unexpected error: {}", e),
                     }
-                    Ok(None) => {
-                        ne.fetch_add(1, AtomicOrdering::Relaxed);
-                    }
-                    Err(e) => panic!("unexpected error: {}", e),
                 })
             })
             .collect();
@@ -533,7 +547,7 @@ mod tests {
             h.join().unwrap();
         }
 
-        // 排他予約が効いているなら、成功は 1 スレッドのみ・残り 7 は None
+        // 排他予約が効いているなら、成功は 1 スレッドのみ・残り THREAD_COUNT-1 は None
         assert_eq!(
             success_count.load(AtomicOrdering::Relaxed),
             1,
@@ -541,8 +555,9 @@ mod tests {
         );
         assert_eq!(
             none_count.load(AtomicOrdering::Relaxed),
-            7,
-            "remaining seven threads should get None"
+            THREAD_COUNT - 1,
+            "remaining {} threads should get None",
+            THREAD_COUNT - 1
         );
 
         // lock path は drop 済みで存在しないはず
