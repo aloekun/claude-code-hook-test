@@ -1,13 +1,16 @@
 [package]
-name = "cli-merge-pipeline"
+name = "lib-pending-file"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "lib_pending_file"
+path = "src/lib.rs"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
 serde_json = "1.0"
-toml = "0.8"
-lib-jj-helpers = { path = "../lib-jj-helpers" }
-lib-pending-file = { path = "../lib-pending-file" }
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

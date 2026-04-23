@@ -220,7 +220,7 @@ task = "t"
 command = "echo push"
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.quality_gate.parallel.unwrap_or(true), true);
+        assert!(config.quality_gate.parallel.unwrap_or(true));
         assert_eq!(
             config
                 .quality_gate

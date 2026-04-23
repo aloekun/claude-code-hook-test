@@ -166,11 +166,11 @@ task = "analyze PR review comments"
 extra_args = ["--pipeline", "--skip-git"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.monitor.enabled, true);
+        assert!(config.monitor.enabled);
         assert_eq!(config.monitor.poll_interval_secs, 45);
         assert_eq!(config.monitor.max_duration_secs, 900);
-        assert_eq!(config.monitor.check_ci, true);
-        assert_eq!(config.monitor.check_coderabbit, false);
+        assert!(config.monitor.check_ci);
+        assert!(!config.monitor.check_coderabbit);
 
         let takt = config.takt.unwrap();
         assert_eq!(takt.workflow, "post-pr-review");
@@ -185,7 +185,7 @@ extra_args = ["--pipeline", "--skip-git"]
 enabled = true
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.monitor.enabled, true);
+        assert!(config.monitor.enabled);
         assert!(config.takt.is_none());
     }
 
@@ -194,7 +194,7 @@ enabled = true
         let toml_str = "[monitor]\n";
         let config: Config = toml::from_str(toml_str).unwrap();
         // serde(default) により空の [monitor] でも MonitorConfig::default() と同じ値
-        assert_eq!(config.monitor.enabled, true);
+        assert!(config.monitor.enabled);
         assert_eq!(config.monitor.poll_interval_secs, DEFAULT_POLL_INTERVAL);
     }
 
@@ -205,7 +205,7 @@ enabled = true
 enabled = false
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.monitor.enabled, false);
+        assert!(!config.monitor.enabled);
     }
 
     #[test]

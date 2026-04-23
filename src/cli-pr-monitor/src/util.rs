@@ -1,4 +1,5 @@
 use lib_jj_helpers::{get_jj_bookmarks as lib_get_jj_bookmarks, StderrMode};
+pub(crate) use lib_pending_file::utc_now_iso8601;
 
 use crate::log::log_info;
 use crate::runner::run_gh_quiet;
@@ -93,44 +94,10 @@ pub(crate) fn get_jj_bookmarks() -> Vec<String> {
     lib_get_jj_bookmarks(StderrMode::Silent, Some(log_info))
 }
 
-/// epoch seconds を ISO 8601 UTC 文字列に変換する (std のみ, chrono 不要)
-pub(crate) fn epoch_secs_to_iso8601(epoch: u64) -> String {
-    let secs_per_day: u64 = 86400;
-    let day_count = (epoch / secs_per_day) as i64;
-    let time_of_day = epoch % secs_per_day;
-
-    let z = day_count + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-
-    let hour = time_of_day / 3600;
-    let min = (time_of_day % 3600) / 60;
-    let sec = time_of_day % 60;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, hour, min, sec
-    )
-}
-
-pub(crate) fn utc_now_iso8601() -> String {
-    use std::time::SystemTime;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    epoch_secs_to_iso8601(now.as_secs())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lib_pending_file::epoch_secs_to_iso8601;
 
     #[test]
     fn epoch_zero() {

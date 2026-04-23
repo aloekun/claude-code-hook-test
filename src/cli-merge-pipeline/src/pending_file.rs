@@ -4,6 +4,9 @@
 //! cli-merge-pipeline が post-merge ステップ (`type = "ai"`) で書き込み、
 //! hooks-stop-feedback-dispatch が Stop 時に検出して Claude に skill 起動を指示する。
 //!
+//! 共有スキーマ・定数・UTC ヘルパーは `lib-pending-file` に集約。
+//! 本モジュールは cli-merge-pipeline 固有の書き込みロジックと I/O を担う。
+//!
 //! 書き込み経路は 2 種類 (ADR-029 §破損耐性):
 //!   - 新規作成: `OpenOptions::new().write(true).create_new(true).open(path)` で
 //!     最終ファイルを直接 atomic 排他作成 (O_EXCL 相当)。rename は使わない。
@@ -14,67 +17,26 @@
 //!     (ADR-029 §競合ポリシーの「skip + WARN で取りこぼしを観測可能」を実装レベルで保証)
 //!   - 上書き経路: read→write 間の race は許容 (Consumed/Corrupt は稀経路、
 //!     破損ポリシーで自己回復)
-//!
-//! 中間状態の可観測性:
-//!   - 新規作成経路は `create_new` で直接書くため、write 完了前の reader は
-//!     size=0 or 途中の JSON を観測し得る。hooks-stop-feedback-dispatch の
-//!     破損ポリシー (size=0 / parse 失敗 → 削除 → silent exit) が吸収する。
-//!     **完全性より排他性を優先する設計判断** (ADR-029 §破損耐性)。
-//!
-//! atomic 保証の前提 (ADR-029):
-//!   - POSIX: `open(O_EXCL)` / `rename(2)` により atomic (同一ファイルシステム内)
-//!   - Windows 10 1607+ / NTFS or ReFS: `CREATE_NEW` / `FileRenameInfoEx` 経路で atomic
-//!     (本プロジェクトのターゲット環境)
-//!   - 旧 Windows / 非対応 FS: atomic 保証なし (他プロセスが中間状態を観測可能)
-//!
-//! 非 atomic 環境では POST_MERGE_FEEDBACK_TRIGGER が 1 回発火失敗する可能性があるが、
-//! 次のマージで復帰可能なので本 module は fallback を許容する。失敗時の Err は
-//! 戻り値として呼び出し側へ伝播させ、呼び出し側が log を出す (silent fail させない)。
 
-use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+// ─── Re-exports from lib-pending-file ───
+
+pub(crate) use lib_pending_file::PendingFile;
+pub(crate) use lib_pending_file::{
+    is_valid_owner_repo, utc_now_iso8601, FILE_NAME, SCHEMA_VERSION, STATUS_CONSUMED,
+    STATUS_DISPATCHED, STATUS_PENDING,
+};
+
+// ─── cli-merge-pipeline-local items ───
+
 /// プロセス内で一意な tmp ファイル名を生成するためのカウンタ。
 /// 複数の writer が同時に `write_overwrite` を呼んでも tmp パスが衝突しない。
 /// `write_new_exclusive` は tmp path を使わないため本カウンタを参照しない。
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// pending file のスキーマバージョン。
-///
-/// 非互換変更時に bump する。hooks-stop-feedback-dispatch (task 1-C) は
-/// これと一致しない pending を「破損」として削除する。
-pub(crate) const SCHEMA_VERSION: u32 = 1;
-
-/// ファイル名 (`.claude/` 配下に配置)
-pub(crate) const FILE_NAME: &str = "post-merge-feedback-pending.json";
-
-/// ADR-029 で定義された status 値
-pub(crate) const STATUS_PENDING: &str = "pending";
-pub(crate) const STATUS_DISPATCHED: &str = "dispatched";
-pub(crate) const STATUS_CONSUMED: &str = "consumed";
-
-/// pending file の JSON スキーマ (ADR-029 §Pending file JSON スキーマ v1)
-///
-/// `producer` は schema v1 互換の **optional** フィールド。取りこぼし発生時に
-/// 「誰が書いた pending が消えたか」を破損残骸からも追跡可能にするための観測性補助。
-/// 既存 reader (hooks-stop-feedback-dispatch / skill Phase 0) は未知 / 欠損フィールドを
-/// 無視するため schema_version bump は不要。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct PendingFile {
-    pub(crate) schema_version: u32,
-    pub(crate) pr_number: u64,
-    pub(crate) owner_repo: String,
-    pub(crate) prompt: String,
-    pub(crate) status: String,
-    pub(crate) created_at: String,
-    pub(crate) dispatched_at: Option<String>,
-    pub(crate) consumed_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) producer: Option<String>,
-}
 
 /// producer 文字列を生成する (`cli-merge-pipeline@pid-{pid}@{iso8601}`)。
 ///
@@ -166,10 +128,6 @@ impl std::fmt::Display for WriteError {
 ///
 /// **rename は使わない** — `rename` は既存を無条件上書きするため、placeholder 方式だと
 /// 排他予約が自壊する (CodeRabbit PR #70 Major 指摘の本質)。
-///
-/// `write_all` の途中でエラー終了すると size=0 or 部分書き込みのファイルが残るが、
-/// ADR-029 §破損耐性 の Corrupt ポリシー (size=0 / parse 失敗 → 削除 → silent exit) が
-/// 吸収する。完全性より排他性を優先する設計判断。
 pub(crate) fn write_new_exclusive(path: &Path, pending: &PendingFile) -> Result<(), WriteError> {
     let json =
         serde_json::to_string_pretty(pending).map_err(|e| WriteError::Serialize(e.to_string()))?;
@@ -198,9 +156,6 @@ pub(crate) fn write_new_exclusive(path: &Path, pending: &PendingFile) -> Result<
 /// 呼び出し元は事前に `read_existing` で `Consumed` / `Corrupt` を判定し、
 /// ファイルを削除してから本関数を呼ぶことを想定。稀経路なので read→write 間の
 /// race は許容 (ADR-029 §競合ポリシー)。
-///
-/// tmp 名は `{file_name}.tmp.{pid}.{counter}` 形式で一意化、並行 writer の
-/// staging file 共有を防ぐ。失敗時は tmp 残骸を best-effort で削除。
 pub(crate) fn write_overwrite(path: &Path, pending: &PendingFile) -> Result<(), WriteError> {
     let json =
         serde_json::to_string_pretty(pending).map_err(|e| WriteError::Serialize(e.to_string()))?;
@@ -231,99 +186,12 @@ pub(crate) fn write_overwrite(path: &Path, pending: &PendingFile) -> Result<(), 
     Ok(())
 }
 
-/// `{owner}/{repo}` 形式の文字列を検証する (ADR-029 todo 1-B の security-review 反映)。
-///
-/// 許容文字: ASCII 英数字 + `_` `.` `-`。スラッシュはちょうど 1 つ、owner/repo とも非空。
-/// newline / 制御文字は弾く (pending file / additionalContext への注入防御)。
-pub(crate) fn is_valid_owner_repo(s: &str) -> bool {
-    let Some((owner, repo)) = s.split_once('/') else {
-        return false;
-    };
-    !owner.is_empty()
-        && !repo.is_empty()
-        && !repo.contains('/')
-        && owner.chars().all(is_repo_ident_char)
-        && repo.chars().all(is_repo_ident_char)
-}
-
-fn is_repo_ident_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-'
-}
-
 /// pending file のデフォルト配置先 (exe と同じディレクトリ = `.claude/`)。
 ///
 /// 本プロジェクトは `pnpm deploy:hooks` で exe を `.claude/` に配置するため、
 /// exe の親ディレクトリが pending file の正しい置き場になる。派生プロジェクトも同様。
 pub(crate) fn default_path(config_dir: &Path) -> PathBuf {
     config_dir.join(FILE_NAME)
-}
-
-// ─── UTC ISO 8601 helper ───
-//
-// cli-pr-monitor/src/util.rs にも同等の pub(crate) 関数が存在する。
-// 1-C (hooks-stop-feedback-dispatch) も同じ helper を必要とするため、
-// 3 callers になった時点で lib へ切り出すか判断する (現段階では duplicate でよい)。
-
-/// 現在時刻を ISO 8601 UTC 文字列に変換する (std のみ, chrono 不要)。
-pub(crate) fn utc_now_iso8601() -> String {
-    use std::time::SystemTime;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    epoch_secs_to_iso8601(now.as_secs())
-}
-
-// Constants for Hatcher's proleptic Gregorian civil-date algorithm.
-// Reference: https://howardhinnant.github.io/date_algorithms.html
-/// Days from the proleptic Gregorian epoch (0000-03-01) to the Unix epoch (1970-01-01).
-const CIVIL_EPOCH_OFFSET: i64 = 719_468;
-/// Days in a 400-year Gregorian era.
-const DAYS_PER_ERA: i64 = 146_097;
-/// DAYS_PER_ERA - 1; used for the era-floor sign correction.
-const DAYS_PER_ERA_M1: i64 = 146_096;
-/// Days in a 4-year cycle (excluding century boundaries).
-const DAYS_PER_4Y: u64 = 1_460;
-/// Days in a 100-year cycle.
-const DAYS_PER_100Y: u64 = 36_524;
-/// Days in an ordinary year.
-const DAYS_PER_YEAR: u64 = 365;
-/// Years per 400-year Gregorian era.
-const YEARS_PER_ERA: i64 = 400;
-/// Multiplier for the month-to-day-of-year encoding: (5*mp + 2) / 153.
-const MONTH_ENCODE_MUL: u64 = 5;
-/// Divisor for the month-to-day-of-year encoding.
-const MONTH_ENCODE_DIV: u64 = 153;
-/// Seconds per hour.
-const SECS_PER_HOUR: u64 = 3_600;
-/// Seconds per minute.
-const SECS_PER_MIN: u64 = 60;
-/// Seconds per day.
-const SECS_PER_DAY: u64 = 86_400;
-
-fn epoch_secs_to_iso8601(epoch: u64) -> String {
-    let day_count = (epoch / SECS_PER_DAY) as i64;
-    let time_of_day = epoch % SECS_PER_DAY;
-
-    let z = day_count + CIVIL_EPOCH_OFFSET;
-    let era = (if z >= 0 { z } else { z - DAYS_PER_ERA_M1 }) / DAYS_PER_ERA;
-    let doe = (z - era * DAYS_PER_ERA) as u64;
-    let yoe = (doe - doe / DAYS_PER_4Y + doe / DAYS_PER_100Y - doe / (DAYS_PER_ERA_M1 as u64))
-        / DAYS_PER_YEAR;
-    let y = yoe as i64 + era * YEARS_PER_ERA;
-    let doy = doe - (DAYS_PER_YEAR * yoe + yoe / 4 - yoe / 100);
-    let mp = (MONTH_ENCODE_MUL * doy + 2) / MONTH_ENCODE_DIV;
-    let d = doy - (MONTH_ENCODE_DIV * mp + 2) / MONTH_ENCODE_MUL + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-
-    let hour = time_of_day / SECS_PER_HOUR;
-    let min = (time_of_day % SECS_PER_HOUR) / SECS_PER_MIN;
-    let sec = time_of_day % SECS_PER_MIN;
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, hour, min, sec
-    )
 }
 
 #[cfg(test)]
@@ -386,7 +254,6 @@ mod tests {
 
         write_new_exclusive(&path, &pending).unwrap();
 
-        // 正しく書き込まれている
         let loaded: PendingFile =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded, pending);
@@ -628,17 +495,17 @@ mod tests {
     fn utc_now_iso8601_matches_expected_format() {
         let s = utc_now_iso8601();
         // YYYY-MM-DDTHH:MM:SSZ = 20 chars
-        assert_eq!(s.len(), 20, "unexpected length: {}", s);
+        assert_eq!(
+            s.len(),
+            "1970-01-01T00:00:00Z".len(),
+            "unexpected length: {}",
+            s
+        );
         assert!(s.ends_with('Z'));
         assert_eq!(s.chars().nth(4), Some('-'));
         assert_eq!(s.chars().nth(7), Some('-'));
         assert_eq!(s.chars().nth(10), Some('T'));
         assert_eq!(s.chars().nth(13), Some(':'));
         assert_eq!(s.chars().nth(16), Some(':'));
-    }
-
-    #[test]
-    fn epoch_secs_to_iso8601_epoch_zero_is_unix_epoch() {
-        assert_eq!(epoch_secs_to_iso8601(0), "1970-01-01T00:00:00Z");
     }
 }

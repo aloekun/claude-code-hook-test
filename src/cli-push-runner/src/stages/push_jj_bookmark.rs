@@ -139,8 +139,10 @@ fn run_jj(args: &[&str], error_prefix: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("{}: {}", error_prefix, e))?;
 
-    let stdout_handle = crate::runner::drain_pipe(child.stdout.take().expect("stdout must be piped"));
-    let stderr_handle = crate::runner::drain_pipe(child.stderr.take().expect("stderr must be piped"));
+    let stdout_handle =
+        crate::runner::drain_pipe(child.stdout.take().expect("stdout must be piped"));
+    let stderr_handle =
+        crate::runner::drain_pipe(child.stderr.take().expect("stderr must be piped"));
 
     let status = crate::runner::wait_with_timeout(error_prefix, &mut child, JJ_TIMEOUT_SECS)
         .map_err(|e| format!("{}: {}", error_prefix, e))?;
@@ -149,7 +151,10 @@ fn run_jj(args: &[&str], error_prefix: &str) -> Result<String, String> {
     let stderr_text = stderr_handle.join().unwrap_or_default();
 
     match status {
-        None => Err(format!("{}: タイムアウト ({}s)", error_prefix, JJ_TIMEOUT_SECS)),
+        None => Err(format!(
+            "{}: タイムアウト ({}s)",
+            error_prefix, JJ_TIMEOUT_SECS
+        )),
         Some(s) if s.success() => Ok(stdout_text),
         Some(_) => Err(stderr_text.trim().to_string()),
     }

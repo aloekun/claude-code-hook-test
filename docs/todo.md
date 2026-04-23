@@ -12,44 +12,9 @@
 >
 > **設計の核 (state file + 現セッション起動)**: cli-merge-pipeline が `.claude/post-merge-feedback-pending.json` を書き込み、新規 Stop hook が検出 → `additionalContext` で Claude に skill 起動を指示。新セッションを spawn しないので ADR-014 選択肢 3「skill はメイン会話内で実行」の原則を維持し、セッション知見の引き継ぎ問題を構造的に回避する。
 >
-> **依存関係・順序**: ADR-029 (PR #69) マージ後に `1-B (CLI)` と `1-C (hook)` を並行可。最後に `1-D (有効化 + 試験運用開始)`。`1-E (skill 更新)` は独立タスクとして切り出し済み (依存: ADR-029 マージ)。
+> **依存関係・順序**: `1-C (hook)` を先に進める。最後に `1-D (有効化 + 試験運用開始)`。`1-E (skill 更新)` は独立タスクとして切り出し済み。
 >
-> **全タスク共通の参照先**: 設計の詳細は `docs/adr/adr-029-post-merge-feedback-auto-trigger.md` (PR #69 で新規作成)。以降のタスクはこの ADR の仕様に従う。
->
-> **採否済みのフィードバック論点** (ADR-029 に反映済み):
-> 1. 多重実行耐性 → pending file に `status: "pending" | "dispatched" | "consumed"` を持たせる
-> 2. atomic write / 破損耐性 → atomic rename、読み取り時は size 0 / parse 失敗で削除、ロック不要
-> 3. 既存 pending との競合 → 既存 `status != "consumed"` なら新規書き込み skip + WARN (将来キュー化への拡張余地を Note に明記)
-> 4. `additionalContext` は構造化タグ形式 (`[POST_MERGE_FEEDBACK_TRIGGER]` 等) にする
-> 5. `run_steps` は `Option<&PipelineContext>` で後方互換を保つ
-
-#### 1-B. cli-merge-pipeline の `ai` 分岐実装 (コード + テスト、1 PR)
-
-- **やろうとしたこと**: 現状 SKIP 実装の `run_steps` の `"ai"` 分岐 ([src/cli-merge-pipeline/src/main.rs:313-322](../src/cli-merge-pipeline/src/main.rs#L313-L322)) を、ADR-029 仕様に沿った pending file 書き込みに置き換える
-- **現在地**: 未着手
-  - [ ] `PipelineContext` struct を新設 (`pr_number: u64`, `owner_repo: Option<String>`)
-  - [ ] `run_steps` シグネチャを `Option<&PipelineContext>` で拡張 (後方互換、pre_steps は `None` を渡す)
-  - [ ] `"ai"` 分岐の実装:
-    - ctx が `None` → SKIP + log
-    - 既存 pending 読み取り: `status != "consumed"` なら WARN + skip (ステップ自体は PASS 扱い)、破損ファイル (size 0 / parse 失敗 / schema_version 不一致) は削除して続行
-    - 新規 pending 書き込み (`status = "pending"`): tmp file → `fs::rename` で atomic
-    - pending file パス: `config_path().parent() / "post-merge-feedback-pending.json"`
-  - [ ] unit test 追加:
-    - 正常書き込み (ctx ありで新規作成)
-    - ctx なしで SKIP
-    - 既存 consumed 上書き成功
-    - 既存 pending/dispatched で skip + WARN
-    - 破損 pending (parse 失敗) で削除後書き込み
-    - tmp → rename の atomicity (partial file が残らない)
-  - [ ] **atomic rename の環境確認と fallback 戦略** (CodeRabbit PR #69 指摘):
-    - 実装時に `std::fs::rename` のターゲット環境挙動を確認 (本プロジェクトは Windows 11 + NTFS 想定で atomic 経路に入るが、派生プロジェクトでは要再確認)
-    - `fs::rename` の Err を戻り値として伝播させ、呼び出し側でログ出力する (silent fail させない)
-    - 旧 Windows / 非対応 FS で non-atomic fallback が走ったケースの対処方針を docstring に明記: (a) 許容する (POST_MERGE_FEEDBACK_TRIGGER が 1 回発火失敗しても次マージで復帰可能)、(b) 必要なら `ReplaceFile` / `FileRenameInfoEx` の直接呼び出しを検討
-    - `owner_repo` の入力検証 (newline injection 防御、正規表現 `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$` 程度) を pending file 書き込み前に実施 (push 時の security-review で指摘済)
-  - [ ] `"ai"` 分岐のエラーハンドリング方針明文化: pending 書き込み失敗時もステップを FAIL にせず WARN + PASS とする (merge 自体は完了しているので pipeline を止めない)
-- **完了基準**: `cargo test` 通過 + ローカルで `pnpm merge-pr` 手動実行 → 正しい pending file が生成される + atomic rename の挙動確認メモが実装コードの doc コメントに残っていること
-- **詰まっている箇所**: なし
-- **依存関係**: ADR-029 (PR #69) マージ後に着手
+> **全タスク共通の参照先**: 設計の詳細は `docs/adr/adr-029-post-merge-feedback-auto-trigger.md` (PR #69 で新規作成、PR #70 で create_new 採用 / producer フィールド追加を反映)。以降のタスクはこの ADR の仕様に従う。
 
 #### 1-C. hooks-stop-feedback-dispatch 新規 exe (コード + 配布統合、1 PR)
 
@@ -81,7 +46,6 @@
     - additionalContext 文字列フォーマット検証 (構造化タグの key 順序等)
 - **完了基準**: `cargo test` 通過 + `pnpm build:hooks-stop-feedback-dispatch` / `pnpm deploy:hooks` 成功 + hooks-stop-quality と並行動作確認
 - **詰まっている箇所**: なし
-- **依存関係**: ADR-029 (PR #69) マージ後に着手
 
 #### 1-D. post_steps 有効化 + 試験運用開始 (設定 + todo 更新、1 PR)
 
@@ -95,15 +59,15 @@
     prompt = "post-merge-feedback"
     ```
   - [ ] `templates/hooks-config.toml` にも反映 (派生プロジェクト用、デフォルト opt-in/opt-out 方針は PR 内で判断)
-  - [ ] `docs/todo.md` から本タスク群 (1-B〜1-D、および section ヘッダーと前文) を削除 (運用ルール: 完了タスクは ADR/仕組みに反映後に削除。1-A は PR #69 時点で削除済)
+  - [ ] `docs/todo.md` から本タスク群 (1-C〜1-D、および section ヘッダーと前文) を削除 (運用ルール: 完了タスクは ADR/仕組みに反映後に削除。1-A は PR #69、1-B は PR #70 で削除済)
 - **完了基準**: 実マージ (別 PR) の `pnpm merge-pr` で pending file が生成され、Stop 時に Claude が構造化 `additionalContext` を受け取って skill 起動を試みるフローが走ること (skill 未対応なら手動起動で検証)
 - **詰まっている箇所**: なし
-- **依存関係**: 1-B (CLI) + 1-C (hook) 両方の完了
+- **依存関係**: 1-C (hook) の完了
 
 #### 1-E. post-merge-feedback skill の pending file 対応 (別タスク、skill リポジトリ側で実施)
 
 - **やろうとしたこと**: skill Phase 1 の前段に「pending file 先読み (Phase 0)」を追加し、status が `"dispatched"` の場合は引数指定と同等の最優先度で採用。skill 完了時に `status = "consumed"` に更新してからファイル削除
-- **現在地**: 未着手。ADR-029 (PR #69) マージ後に仕様参照可能
+- **現在地**: 未着手
   - [ ] skill リポジトリの管理場所を特定 (`$CLAUDE_SKILLS_REPO` 経由 or `~/.claude/skills/` 直接) → `/skill-sync-check` で確認
   - [ ] `SKILL.md` に Phase 0 「pending file 先読み」を追加:
     - pending file を読み取り、`status == "dispatched"` ならその `pr_number` / `owner_repo` を採用 (引数・セッションコンテキスト・fallback より優先)
@@ -113,7 +77,7 @@
   - [ ] (任意) skill eval の追加: pending file ありのケース / 破損ケース / status 別の挙動
 - **完了基準**: skill が pending file を正しく consume し、本プロジェクトの dogfood で Claude が自動起動した skill から Feedback Report が出力される
 - **詰まっている箇所**: skill の管理場所 (本プロジェクト外) の扱いは `/skill-sync-check` の結果次第
-- **依存関係**: ADR-029 (PR #69) マージ。1-B/1-C/1-D とは並行可能だが、dogfood の完結には 1-E も必要
+- **依存関係**: 1-C/1-D とは並行可能だが、dogfood の完結には 1-E も必要
 
 #### 1-F. (追って) ADR-014 試験運用フラグ解除 + takt-test-vc 反映
 

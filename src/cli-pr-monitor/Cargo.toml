@@ -8,6 +8,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 lib-jj-helpers = { path = "../lib-jj-helpers" }
+lib-pending-file = { path = "../lib-pending-file" }
 lib-report-formatter = { path = "../lib-report-formatter" }
 
 [dev-dependencies]
