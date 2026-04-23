@@ -430,39 +430,53 @@ fn run_steps(
     Ok(())
 }
 
-/// 既存の pending file の状態をチェックし、続行可否を返す (ADR-029 §競合ポリシー)。
+/// 書き込み経路の種別 (ADR-029 §競合ポリシー)。
 ///
-/// Ok(()) → 新規書き込みを続行する。
+/// - `NewExclusive`: 既存 pending 不在 → `create_new` で atomic 排他作成 (race 検出可能)
+/// - `Overwrite`: 既存 Consumed/Corrupt を削除後の上書き (tmp → rename、race は許容)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WriteMode {
+    NewExclusive,
+    Overwrite,
+}
+
+impl WriteMode {
+    fn label(self) -> &'static str {
+        match self {
+            WriteMode::NewExclusive => "NewExclusive",
+            WriteMode::Overwrite => "Overwrite",
+        }
+    }
+}
+
+/// 既存の pending file の状態から書き込み経路を決定する (ADR-029 §競合ポリシー)。
+///
+/// Ok(mode) → 書き込みを続行する (mode に応じて write_new_exclusive / write_overwrite)。
 /// Err(()) → スキップ (ログ済み)。
-fn check_pending_preconditions(label: &str, pending_path: &Path) -> Result<(), ()> {
+fn determine_write_mode(label: &str, pending_path: &Path) -> Result<WriteMode, ()> {
     match pending_file::read_existing(pending_path) {
-        ExistingPending::None => Ok(()),
+        ExistingPending::None => Ok(WriteMode::NewExclusive),
         ExistingPending::Consumed => {
             log_info(&format!(
-                "[{}] 既存 pending は status='consumed' — 上書きします",
+                "[{}] 既存 pending は status='consumed' — 削除して上書き",
                 label
             ));
-            Ok(())
+            remove_existing_pending(label, pending_path).map(|()| WriteMode::Overwrite)
         }
         ExistingPending::Corrupt(reason) => {
+            // reason は pending file 由来で制御文字を含み得るため {:?} でエスケープ (CodeRabbit Minor)
             log_info(&format!(
-                "[{}] 既存 pending が破損 ({}) — 削除して新規書き込み",
+                "[{}] 既存 pending が破損 ({:?}) — 削除して上書き",
                 label, reason
             ));
-            std::fs::remove_file(pending_path).map_err(|e| {
-                log_step(
-                    label,
-                    "WARN",
-                    &format!("破損 pending の削除失敗: {} — 続行不可のためスキップ", e),
-                );
-            })
+            remove_existing_pending(label, pending_path).map(|()| WriteMode::Overwrite)
         }
         ExistingPending::Active(status) => {
             log_step(
                 label,
                 "WARN",
                 &format!(
-                    "既存 pending が status='{}' — 新規書き込みをスキップ (取りこぼしは ADR-029 将来拡張で対応)",
+                    "既存 pending が status={:?} — 新規書き込みをスキップ (取りこぼしは ADR-029 将来拡張で対応)",
                     status
                 ),
             );
@@ -471,17 +485,37 @@ fn check_pending_preconditions(label: &str, pending_path: &Path) -> Result<(), (
     }
 }
 
-fn write_pending_and_log(label: &str, pending: &PendingFile, pending_path: &Path) {
-    match pending_file::write_atomic(pending_path, pending) {
+fn remove_existing_pending(label: &str, path: &Path) -> Result<(), ()> {
+    std::fs::remove_file(path).map_err(|e| {
+        log_step(
+            label,
+            "WARN",
+            &format!("既存 pending の削除失敗: {} — 続行不可のためスキップ", e),
+        );
+    })
+}
+
+fn write_pending_and_log(label: &str, pending: &PendingFile, pending_path: &Path, mode: WriteMode) {
+    let result = match mode {
+        WriteMode::NewExclusive => pending_file::write_new_exclusive(pending_path, pending),
+        WriteMode::Overwrite => pending_file::write_overwrite(pending_path, pending),
+    };
+    match result {
         Ok(()) => log_step(
             label,
             "PASS",
             &format!(
-                "pending file 書き込み完了: {} (PR #{}, prompt={})",
+                "pending file 書き込み完了: {} (PR #{}, prompt={}, mode={})",
                 pending_path.display(),
                 pending.pr_number,
-                pending.prompt
+                pending.prompt,
+                mode.label()
             ),
+        ),
+        Err(pending_file::WriteError::AlreadyExists) => log_step(
+            label,
+            "WARN",
+            "別プロセスが同時に pending を書き込みました (create_new AlreadyExists) — 本プロセスの書き込みをスキップ (取りこぼしを WARN で観測)",
         ),
         // merge 本体は完了済みなので WARN にとどめ、次のマージで復帰可能とする (ADR-029 §破損耐性)
         Err(e) => log_step(
@@ -557,9 +591,9 @@ fn run_ai_step(
         return;
     };
 
-    if check_pending_preconditions(label, pending_path).is_err() {
+    let Ok(mode) = determine_write_mode(label, pending_path) else {
         return;
-    }
+    };
 
     let pending = PendingFile {
         schema_version: pending_file::SCHEMA_VERSION,
@@ -570,9 +604,10 @@ fn run_ai_step(
         created_at: pending_file::utc_now_iso8601(),
         dispatched_at: None,
         consumed_at: None,
+        producer: Some(pending_file::producer_string()),
     };
 
-    write_pending_and_log(label, &pending, pending_path);
+    write_pending_and_log(label, &pending, pending_path, mode);
 }
 
 fn delete_remote_branch(branch_name: &str) {
@@ -1077,8 +1112,9 @@ step_timeout = 60
             created_at: "2026-04-01T00:00:00Z".to_string(),
             dispatched_at: Some("2026-04-01T00:01:00Z".to_string()),
             consumed_at: Some("2026-04-01T00:02:00Z".to_string()),
+            producer: None,
         };
-        pending_file::write_atomic(&path, &consumed).unwrap();
+        pending_file::write_new_exclusive(&path, &consumed).unwrap();
 
         let ctx = PipelineContext {
             pr_number: 555,
@@ -1108,8 +1144,9 @@ step_timeout = 60
             created_at: "2026-04-22T00:00:00Z".to_string(),
             dispatched_at: None,
             consumed_at: None,
+            producer: None,
         };
-        pending_file::write_atomic(&path, &existing).unwrap();
+        pending_file::write_new_exclusive(&path, &existing).unwrap();
 
         let ctx = PipelineContext {
             pr_number: 200,
@@ -1137,8 +1174,9 @@ step_timeout = 60
             created_at: "2026-04-22T00:00:00Z".to_string(),
             dispatched_at: Some("2026-04-22T00:01:00Z".to_string()),
             consumed_at: None,
+            producer: None,
         };
-        pending_file::write_atomic(&path, &existing).unwrap();
+        pending_file::write_new_exclusive(&path, &existing).unwrap();
 
         let ctx = PipelineContext {
             pr_number: 200,
@@ -1197,8 +1235,66 @@ step_timeout = 60
         };
         run_ai_step("test", &ai_step(None), Some(&ctx), &path);
 
-        let tmp = path.with_extension("json.tmp");
-        assert!(!tmp.exists(), "tmp residue: {}", tmp.display());
+        // 新形式: tmp file 名は "{basename}.tmp.{pid}.{counter}"
+        let dir = path.parent().unwrap_or(std::path::Path::new("."));
+        let basename = path.file_name().unwrap().to_string_lossy().into_owned();
+        let tmp_prefix = format!("{}.tmp.", basename);
+        let residues: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with(&tmp_prefix) {
+                    Some(e.path())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(residues.is_empty(), "tmp residue: {:?}", residues);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_step_sets_producer_field() {
+        let path = unique_tmp_pending("producer-set");
+        let ctx = PipelineContext {
+            pr_number: 1,
+            owner_repo: Some("o/r".to_string()),
+        };
+        run_ai_step("test", &ai_step(None), Some(&ctx), &path);
+
+        let loaded = read_pending(&path);
+        let producer = loaded.producer.expect("producer should be set");
+        assert!(producer.starts_with("cli-merge-pipeline@pid-"));
+        assert!(producer.ends_with('Z'));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ai_step_warns_when_concurrent_writer_wins_new_exclusive() {
+        // 同じ path に 2 度 run_ai_step を呼ぶ: 1 度目は成功、2 度目は既存 Active で skip
+        // (read_existing が Active を返す経路なので直接の AlreadyExists ではないが、
+        //  不可視ロストが起きないことを担保する代表シナリオ)
+        let path = unique_tmp_pending("concurrent-win");
+        let ctx = PipelineContext {
+            pr_number: 1,
+            owner_repo: Some("o/r".to_string()),
+        };
+        run_ai_step("test", &ai_step(None), Some(&ctx), &path);
+        let first = read_pending(&path);
+        assert_eq!(first.pr_number, 1);
+
+        // 2 度目: 既存 pending (Active) があるため skip (上書きされない)
+        let ctx2 = PipelineContext {
+            pr_number: 2,
+            owner_repo: Some("o/r".to_string()),
+        };
+        run_ai_step("test", &ai_step(None), Some(&ctx2), &path);
+        let second = read_pending(&path);
+        assert_eq!(second.pr_number, 1, "既存 pending が上書きされてはならない");
 
         let _ = std::fs::remove_file(&path);
     }

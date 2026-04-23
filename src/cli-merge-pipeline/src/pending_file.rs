@@ -4,25 +4,41 @@
 //! cli-merge-pipeline が post-merge ステップ (`type = "ai"`) で書き込み、
 //! hooks-stop-feedback-dispatch が Stop 時に検出して Claude に skill 起動を指示する。
 //!
-//! 書き込みは常に「tmp file → `fs::rename`」の 2 段階で行う。
+//! 書き込み経路は 2 種類 (ADR-029 §破損耐性):
+//!   - 新規作成: `OpenOptions::new().write(true).create_new(true).open(path)` で
+//!     最終ファイルを直接 atomic 排他作成 (O_EXCL 相当)。rename は使わない。
+//!   - 上書き (既存 Consumed/Corrupt 削除後): tmp file → `fs::rename` の 2 段階。
+//!
+//! 排他性保証:
+//!   - 新規作成経路: `create_new` の `AlreadyExists` で TOCTOU race を atomic に検出
+//!     (ADR-029 §競合ポリシーの「skip + WARN で取りこぼしを観測可能」を実装レベルで保証)
+//!   - 上書き経路: read→write 間の race は許容 (Consumed/Corrupt は稀経路、
+//!     破損ポリシーで自己回復)
+//!
+//! 中間状態の可観測性:
+//!   - 新規作成経路は `create_new` で直接書くため、write 完了前の reader は
+//!     size=0 or 途中の JSON を観測し得る。hooks-stop-feedback-dispatch の
+//!     破損ポリシー (size=0 / parse 失敗 → 削除 → silent exit) が吸収する。
+//!     **完全性より排他性を優先する設計判断** (ADR-029 §破損耐性)。
 //!
 //! atomic 保証の前提 (ADR-029):
-//!   - Windows 10 1607+ / NTFS or ReFS: `FileRenameInfoEx` 経路で atomic overwrite
+//!   - POSIX: `open(O_EXCL)` / `rename(2)` により atomic (同一ファイルシステム内)
+//!   - Windows 10 1607+ / NTFS or ReFS: `CREATE_NEW` / `FileRenameInfoEx` 経路で atomic
 //!     (本プロジェクトのターゲット環境)
-//!   - POSIX: `rename(2)` により atomic overwrite
-//!   - 旧 Windows / 非対応 FS: non-atomic fallback (他プロセスが中間状態を観測可能)
+//!   - 旧 Windows / 非対応 FS: atomic 保証なし (他プロセスが中間状態を観測可能)
 //!
 //! 非 atomic 環境では POST_MERGE_FEEDBACK_TRIGGER が 1 回発火失敗する可能性があるが、
-//! 次のマージで復帰可能なので本 module は fallback を許容する。`fs::rename` の Err は
+//! 次のマージで復帰可能なので本 module は fallback を許容する。失敗時の Err は
 //! 戻り値として呼び出し側へ伝播させ、呼び出し側が log を出す (silent fail させない)。
-//! 必要になれば `FileRenameInfoEx` の直接呼び出しを検討する (現段階では YAGNI)。
 
 use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// プロセス内で一意な tmp ファイル名を生成するためのカウンタ。
-/// 複数の writer が同時に `write_atomic` を呼んでも tmp パスが衝突しない。
+/// 複数の writer が同時に `write_new_exclusive` を呼んでも tmp パスが衝突しない。
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// pending file のスキーマバージョン。
@@ -40,6 +56,11 @@ pub(crate) const STATUS_DISPATCHED: &str = "dispatched";
 pub(crate) const STATUS_CONSUMED: &str = "consumed";
 
 /// pending file の JSON スキーマ (ADR-029 §Pending file JSON スキーマ v1)
+///
+/// `producer` は schema v1 互換の **optional** フィールド。取りこぼし発生時に
+/// 「誰が書いた pending が消えたか」を破損残骸からも追跡可能にするための観測性補助。
+/// 既存 reader (hooks-stop-feedback-dispatch / skill Phase 0) は未知 / 欠損フィールドを
+/// 無視するため schema_version bump は不要。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PendingFile {
     pub(crate) schema_version: u32,
@@ -50,6 +71,19 @@ pub(crate) struct PendingFile {
     pub(crate) created_at: String,
     pub(crate) dispatched_at: Option<String>,
     pub(crate) consumed_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) producer: Option<String>,
+}
+
+/// producer 文字列を生成する (`cli-merge-pipeline@pid-{pid}@{iso8601}`)。
+///
+/// PID は再利用されるため timestamp を併記して時系列追跡可能にする。hostname は YAGNI で省略。
+pub(crate) fn producer_string() -> String {
+    format!(
+        "cli-merge-pipeline@pid-{}@{}",
+        std::process::id(),
+        utc_now_iso8601()
+    )
 }
 
 /// 既存 pending file の読み取り結果。
@@ -98,14 +132,77 @@ pub(crate) fn read_existing(path: &Path) -> ExistingPending {
     }
 }
 
-/// pending file を atomic に書き込む (tmp → rename)。
+/// pending file 書き込みの失敗種別。
 ///
-/// 失敗時は Err を返し、呼び出し側が log を出す。tmp ファイルは
-/// 成功時は rename によって消えるが、失敗時は残骸が残らないよう best-effort で削除する。
-pub(crate) fn write_atomic(path: &Path, pending: &PendingFile) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(pending)
-        .map_err(|e| format!("pending file のシリアライズ失敗: {}", e))?;
-    // 複数 writer が同時実行しても tmp ファイルが上書き競合しない。
+/// `AlreadyExists` は新規作成経路で TOCTOU race を atomic に検出した場合に返る
+/// (ADR-029 §競合ポリシー)。呼び出し側は `WARN + skip` でログに残すことで
+/// 「取りこぼしの可視化」を保証する。
+#[derive(Debug)]
+pub(crate) enum WriteError {
+    /// 新規作成時に既に pending file が存在した (他プロセスが先に書き込んだ)
+    AlreadyExists,
+    /// I/O エラー (書き込み / sync / rename 失敗)
+    Io(String),
+    /// serde_json シリアライズ失敗
+    Serialize(String),
+}
+
+impl std::fmt::Display for WriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WriteError::AlreadyExists => write!(f, "pending file already exists"),
+            WriteError::Io(msg) => write!(f, "I/O error: {}", msg),
+            WriteError::Serialize(msg) => write!(f, "serialize error: {}", msg),
+        }
+    }
+}
+
+/// pending file を **新規排他作成** する (ADR-029 §競合ポリシー)。
+///
+/// `OpenOptions::create_new(true)` (O_EXCL 相当) で最終ファイルを直接 atomic 排他作成する。
+/// 他プロセスが先に作成済みなら `WriteError::AlreadyExists` を返し、呼び出し側は
+/// WARN + skip で取りこぼしを観測可能にする。
+///
+/// **rename は使わない** — `rename` は既存を無条件上書きするため、placeholder 方式だと
+/// 排他予約が自壊する (CodeRabbit PR #70 Major 指摘の本質)。
+///
+/// `write_all` の途中でエラー終了すると size=0 or 部分書き込みのファイルが残るが、
+/// ADR-029 §破損耐性 の Corrupt ポリシー (size=0 / parse 失敗 → 削除 → silent exit) が
+/// 吸収する。完全性より排他性を優先する設計判断。
+pub(crate) fn write_new_exclusive(path: &Path, pending: &PendingFile) -> Result<(), WriteError> {
+    let json =
+        serde_json::to_string_pretty(pending).map_err(|e| WriteError::Serialize(e.to_string()))?;
+
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(json.as_bytes()) {
+                return Err(WriteError::Io(format!("write_all 失敗: {}", e)));
+            }
+            if let Err(e) = file.sync_all() {
+                return Err(WriteError::Io(format!("sync_all 失敗: {}", e)));
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(WriteError::AlreadyExists),
+        Err(e) => Err(WriteError::Io(format!(
+            "create_new 失敗 ({}): {}",
+            path.display(),
+            e
+        ))),
+    }
+}
+
+/// pending file を **上書き書き込み** する (tmp → rename 2 段階)。
+///
+/// 呼び出し元は事前に `read_existing` で `Consumed` / `Corrupt` を判定し、
+/// ファイルを削除してから本関数を呼ぶことを想定。稀経路なので read→write 間の
+/// race は許容 (ADR-029 §競合ポリシー)。
+///
+/// tmp 名は `{file_name}.tmp.{pid}.{counter}` 形式で一意化、並行 writer の
+/// staging file 共有を防ぐ。失敗時は tmp 残骸を best-effort で削除。
+pub(crate) fn write_overwrite(path: &Path, pending: &PendingFile) -> Result<(), WriteError> {
+    let json =
+        serde_json::to_string_pretty(pending).map_err(|e| WriteError::Serialize(e.to_string()))?;
     let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let file_name = path
         .file_name()
@@ -115,20 +212,20 @@ pub(crate) fn write_atomic(path: &Path, pending: &PendingFile) -> Result<(), Str
     let tmp_path = path.with_file_name(tmp_name);
     if let Err(e) = std::fs::write(&tmp_path, &json) {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err(format!(
-            "pending tmp file への書き込み失敗: {} ({})",
+        return Err(WriteError::Io(format!(
+            "tmp 書き込み失敗 ({}): {}",
             tmp_path.display(),
             e
-        ));
+        )));
     }
     if let Err(e) = std::fs::rename(&tmp_path, path) {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err(format!(
-            "pending file の rename 失敗 ({} → {}): {}",
+        return Err(WriteError::Io(format!(
+            "rename 失敗 ({} → {}): {}",
             tmp_path.display(),
             path.display(),
             e
-        ));
+        )));
     }
     Ok(())
 }
@@ -242,6 +339,7 @@ mod tests {
             created_at: "2026-04-23T10:00:00Z".to_string(),
             dispatched_at: None,
             consumed_at: None,
+            producer: None,
         }
     }
 
@@ -281,48 +379,66 @@ mod tests {
     }
 
     #[test]
-    fn write_atomic_creates_file_without_tmp_residue() {
-        let path = unique_tmp("write-atomic");
+    fn write_new_exclusive_creates_file() {
+        let path = unique_tmp("write-new-exclusive");
         let pending = sample_pending(STATUS_PENDING);
 
-        write_atomic(&path, &pending).unwrap();
+        write_new_exclusive(&path, &pending).unwrap();
 
         // 正しく書き込まれている
         let loaded: PendingFile =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded, pending);
 
-        // 新形式 "{basename}.tmp.{pid}.{counter}" は path.with_extension で特定できないため、
-        // 同ディレクトリ内で ".tmp." を含む残骸ファイルの有無をスキャンして確認する。
-        let dir = path.parent().unwrap_or(std::path::Path::new("."));
-        let basename = path.file_name().unwrap().to_string_lossy().into_owned();
-        let has_residue = std::fs::read_dir(dir).unwrap().flatten().any(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            name.starts_with(&basename) && name.contains(".tmp.")
-        });
-        assert!(
-            !has_residue,
-            "tmp residue left behind under {}",
-            dir.display()
-        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_new_exclusive_returns_already_exists_when_target_present() {
+        let path = unique_tmp("already-exists");
+        let pending = sample_pending(STATUS_PENDING);
+
+        // 1 回目は成功
+        write_new_exclusive(&path, &pending).unwrap();
+        // 2 回目は AlreadyExists
+        match write_new_exclusive(&path, &pending) {
+            Err(WriteError::AlreadyExists) => {}
+            other => panic!("expected AlreadyExists, got {:?}", other),
+        }
+        // 既存内容は上書きされていない
+        let loaded: PendingFile =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded, pending);
 
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn write_atomic_is_safe_under_concurrent_writers() {
+    fn write_new_exclusive_atomic_under_concurrent_writers() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering as AtomicOrdering;
         use std::sync::Arc;
 
-        let path = Arc::new(unique_tmp("concurrent"));
-        let pending = Arc::new(sample_pending(STATUS_PENDING));
+        let path = Arc::new(unique_tmp("concurrent-new-exclusive"));
+        let success_count = Arc::new(AtomicUsize::new(0));
+        let already_exists_count = Arc::new(AtomicUsize::new(0));
 
-        let handles: Vec<_> = (0..2)
-            .map(|_| {
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
                 let p = Arc::clone(&path);
-                let pf = Arc::clone(&pending);
+                let ok = Arc::clone(&success_count);
+                let ae = Arc::clone(&already_exists_count);
                 std::thread::spawn(move || {
-                    for _ in 0..10 {
-                        let _ = write_atomic(&p, &pf);
+                    let mut pf = sample_pending(STATUS_PENDING);
+                    pf.pr_number = i + 1;
+                    match write_new_exclusive(&p, &pf) {
+                        Ok(()) => {
+                            ok.fetch_add(1, AtomicOrdering::Relaxed);
+                        }
+                        Err(WriteError::AlreadyExists) => {
+                            ae.fetch_add(1, AtomicOrdering::Relaxed);
+                        }
+                        Err(other) => panic!("unexpected write error: {:?}", other),
                     }
                 })
             })
@@ -332,12 +448,89 @@ mod tests {
             h.join().unwrap();
         }
 
-        // 最終ファイルが有効な JSON であること
+        // atomic 排他予約が効いているなら、成功は 1 スレッドのみ・残りは AlreadyExists
+        assert_eq!(success_count.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(already_exists_count.load(AtomicOrdering::Relaxed), 7);
+
+        // 最終ファイルは有効な JSON
         let content = std::fs::read_to_string(path.as_ref()).unwrap();
-        let loaded: PendingFile = serde_json::from_str(&content).unwrap();
-        assert_eq!(loaded, *pending);
+        let _: PendingFile = serde_json::from_str(&content).unwrap();
 
         let _ = std::fs::remove_file(path.as_ref());
+    }
+
+    #[test]
+    fn write_overwrite_replaces_existing_file() {
+        let path = unique_tmp("overwrite");
+        let first = sample_pending(STATUS_CONSUMED);
+        let mut second = sample_pending(STATUS_PENDING);
+        second.pr_number = 999;
+
+        write_new_exclusive(&path, &first).unwrap();
+        write_overwrite(&path, &second).unwrap();
+
+        let loaded: PendingFile =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(loaded, second);
+
+        // tmp 残骸 (`{basename}.tmp.{pid}.{counter}`) が残っていないこと
+        let dir = path.parent().unwrap_or(std::path::Path::new("."));
+        let basename = path.file_name().unwrap().to_string_lossy().into_owned();
+        let tmp_prefix = format!("{}.tmp.", basename);
+        let residues: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&tmp_prefix))
+            .collect();
+        assert!(
+            residues.is_empty(),
+            "tmp residue: {} entries",
+            residues.len()
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn producer_string_contains_pid_and_timestamp() {
+        let s = producer_string();
+        assert!(s.starts_with("cli-merge-pipeline@pid-"));
+        // @{iso8601} が含まれることを "Z" で軽く確認
+        assert!(s.ends_with('Z'), "expected iso8601 suffix: {}", s);
+        // pid 部分が数値
+        let pid_part = s
+            .strip_prefix("cli-merge-pipeline@pid-")
+            .and_then(|rest| rest.split('@').next())
+            .unwrap();
+        assert!(pid_part.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn pending_file_roundtrip_with_producer() {
+        let mut pending = sample_pending(STATUS_PENDING);
+        pending.producer = Some("cli-merge-pipeline@pid-1234@2026-04-23T12:34:56Z".to_string());
+
+        let json = serde_json::to_string(&pending).unwrap();
+        let loaded: PendingFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded, pending);
+    }
+
+    #[test]
+    fn pending_file_without_producer_field_deserializes() {
+        // producer フィールド不在の JSON (schema v1 既存ファイル) が正しく読めること
+        let json = r#"{
+            "schema_version": 1,
+            "pr_number": 42,
+            "owner_repo": "o/r",
+            "prompt": "post-merge-feedback",
+            "status": "pending",
+            "created_at": "2026-04-23T10:00:00Z",
+            "dispatched_at": null,
+            "consumed_at": null
+        }"#;
+        let loaded: PendingFile = serde_json::from_str(json).unwrap();
+        assert_eq!(loaded.producer, None);
+        assert_eq!(loaded.pr_number, 42);
     }
 
     #[test]
@@ -377,7 +570,7 @@ mod tests {
         let path = unique_tmp("bad-schema");
         let mut pending = sample_pending(STATUS_PENDING);
         pending.schema_version = 99;
-        write_atomic(&path, &pending).unwrap();
+        write_new_exclusive(&path, &pending).unwrap();
 
         match read_existing(&path) {
             ExistingPending::Corrupt(reason) => {
@@ -393,7 +586,7 @@ mod tests {
     fn read_existing_returns_corrupt_for_unknown_status() {
         let path = unique_tmp("bad-status");
         let pending = sample_pending("garbage");
-        write_atomic(&path, &pending).unwrap();
+        write_new_exclusive(&path, &pending).unwrap();
 
         match read_existing(&path) {
             ExistingPending::Corrupt(reason) => assert!(reason.contains("unknown status")),
@@ -406,7 +599,7 @@ mod tests {
     #[test]
     fn read_existing_returns_active_for_pending_and_dispatched() {
         let path_p = unique_tmp("active-pending");
-        write_atomic(&path_p, &sample_pending(STATUS_PENDING)).unwrap();
+        write_new_exclusive(&path_p, &sample_pending(STATUS_PENDING)).unwrap();
         match read_existing(&path_p) {
             ExistingPending::Active(s) => assert_eq!(s, STATUS_PENDING),
             other => panic!("expected Active(pending), got {:?}", other),
@@ -414,7 +607,7 @@ mod tests {
         let _ = std::fs::remove_file(&path_p);
 
         let path_d = unique_tmp("active-dispatched");
-        write_atomic(&path_d, &sample_pending(STATUS_DISPATCHED)).unwrap();
+        write_new_exclusive(&path_d, &sample_pending(STATUS_DISPATCHED)).unwrap();
         match read_existing(&path_d) {
             ExistingPending::Active(s) => assert_eq!(s, STATUS_DISPATCHED),
             other => panic!("expected Active(dispatched), got {:?}", other),
@@ -425,7 +618,7 @@ mod tests {
     #[test]
     fn read_existing_returns_consumed_for_consumed_status() {
         let path = unique_tmp("consumed");
-        write_atomic(&path, &sample_pending(STATUS_CONSUMED)).unwrap();
+        write_new_exclusive(&path, &sample_pending(STATUS_CONSUMED)).unwrap();
         assert!(matches!(read_existing(&path), ExistingPending::Consumed));
         let _ = std::fs::remove_file(&path);
     }
