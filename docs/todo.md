@@ -6,53 +6,121 @@
 
 ## 現在進行中
 
-### 1. マージ後フィードバックの定常化 (cli-merge-pipeline の post_steps 統合)
+### マージ後フィードバックの定常化 (post-merge-feedback 自動起動)
 
-- **やろうとしたこと**: `pnpm merge-pr` 後の「ADR 記録すべきもの」「仕組みに反映すべきもの」の手動依頼を自動化。ADR-014 で提唱された `post-merge-feedback` スキルを cli-merge-pipeline から自動起動する
-- **現在地**: 設計段階。未着手
-  - [ ] `src/cli-merge-pipeline/src/main.rs` の `run_steps` の `"ai"` 分岐を現在の `SKIP` から実装に置き換える (takt 経由で skill を起動、または claude -p で起動)
-  - [ ] `.claude/hooks-config.toml` の `[[merge_pipeline.post_steps]]` に `type = "ai"`, `prompt = "post-merge-feedback"` を設定
-  - [ ] `post-merge-feedback` スキルが PR 番号とブランチ名を受け取れるよう、cli-merge-pipeline から環境変数または引数で渡す設計
-  - [ ] マージ済みセッションの会話ログを参照する手段 (Claude Code Session ID 等) の検討
-- **詰まっている箇所**:
-  - **主要ブロッカー**: 「マージ時点のセッション会話」を post_steps 用の新セッションに引き継ぐ手段が決まっていない。会話ログがないと「何を議論した末のマージか」が失われ、フィードバック品質が下がる
-    - **Why**: post-merge-feedback は ADR-014 で「セッション知見 + PR 知見の統合」を前提にしているが、merge-pipeline は別プロセスで起動されるため会話がない状態から始まる
-    - **How to apply / 再開手順**: SessionStart hook (master の `src/hooks-session-start/`) で伝播した session ID を jsonl transcript に紐付けて読み取る方式が候補。ADR を書いてから実装
-  - **制約**: ADR-016 (長時間コマンド) のため、post_steps の AI 起動も `run_in_background: true` + `timeout: 600000` 前提で設計する必要あり
-- **依存関係**:
-  - SessionStart hook は master に実装済み (`src/hooks-session-start/`)。セッション引継ぎ設計は session ID → jsonl transcript 紐付けの ADR が必要
-  - takt-test-vc での試験運用を先に行い、本プロジェクトに反映
+> **全体ゴール**: `pnpm merge-pr` 後、Stop 時に `/post-merge-feedback` skill の起動を Claude に指示する自動化を本プロジェクトで dogfood 開始できる状態にする。
+>
+> **設計の核 (state file + 現セッション起動)**: cli-merge-pipeline が `.claude/post-merge-feedback-pending.json` を書き込み、新規 Stop hook が検出 → `additionalContext` で Claude に skill 起動を指示。新セッションを spawn しないので ADR-014 選択肢 3「skill はメイン会話内で実行」の原則を維持し、セッション知見の引き継ぎ問題を構造的に回避する。
+>
+> **依存関係・順序**: ADR-029 (PR #69) マージ後に `1-B (CLI)` と `1-C (hook)` を並行可。最後に `1-D (有効化 + 試験運用開始)`。`1-E (skill 更新)` は独立タスクとして切り出し済み (依存: ADR-029 マージ)。
+>
+> **全タスク共通の参照先**: 設計の詳細は `docs/adr/adr-029-post-merge-feedback-auto-trigger.md` (PR #69 で新規作成)。以降のタスクはこの ADR の仕様に従う。
+>
+> **採否済みのフィードバック論点** (ADR-029 に反映済み):
+> 1. 多重実行耐性 → pending file に `status: "pending" | "dispatched" | "consumed"` を持たせる
+> 2. atomic write / 破損耐性 → atomic rename、読み取り時は size 0 / parse 失敗で削除、ロック不要
+> 3. 既存 pending との競合 → 既存 `status != "consumed"` なら新規書き込み skip + WARN (将来キュー化への拡張余地を Note に明記)
+> 4. `additionalContext` は構造化タグ形式 (`[POST_MERGE_FEEDBACK_TRIGGER]` 等) にする
+> 5. `run_steps` は `Option<&PipelineContext>` で後方互換を保つ
 
-### 2. post-pr review フローの並行通知化 (E2E 検証待ち)
+#### 1-B. cli-merge-pipeline の `ai` 分岐実装 (コード + テスト、1 PR)
 
-- **やろうとしたこと**: `pnpm create-pr` 実行中に CodeRabbit 指摘検出 → takt 自動修正 → re-push が BG で進行する間、Claude Code が中間状態を受け取れず「未対応レビューをリストアップして」の重複依頼が発生していた。observer パスで早期通知して解消する
-- **現在地**: 実装完了 (ADR-018 追記セクションに仕組み反映済み)。残るは実 PR での E2E 観察のみ
-  - [x] `src/cli-pr-monitor/src/stages/observe.rs` 新設 (Rust exe サブコマンド、PowerShell 廃案)
-  - [x] `cli-pr-monitor --observe` ハンドラを `main.rs` に配線 + observe stage の unit test 7 件
-  - [x] `poll.rs`: iteration を跨いで `notified` flag を preserve (`PrMonitorState::new` が毎回 reset する挙動を修正)
-  - [x] `start_monitoring` 冒頭で state を明示初期化 (新セッション開始時の reset)
-  - [x] `package.json` に `observe-pr` / `mark-notified` スクリプト追加
-  - [x] `~/.claude/skills/post-pr-create-review-check/skill.md` を並行 BG 構成に更新 (stale な daemon/CronCreate 記述を除去)
-  - [ ] 実 PR での E2E 検証: CodeRabbit Major ありの PR で、Claude Code が `pnpm create-pr` と `pnpm observe-pr` を並行 BG 起動し、observer の早期通知で Minor ヒアリングが走ることを確認
-- **参照**:
-  - ADR-018 追記 (2026-04-22) — observer モードと責務分離原則
-  - ADR-022 — 「主フローは 100% 機械的 / 通知は read-only side effect」の境界
+- **やろうとしたこと**: 現状 SKIP 実装の `run_steps` の `"ai"` 分岐 ([src/cli-merge-pipeline/src/main.rs:313-322](../src/cli-merge-pipeline/src/main.rs#L313-L322)) を、ADR-029 仕様に沿った pending file 書き込みに置き換える
+- **現在地**: 未着手
+  - [ ] `PipelineContext` struct を新設 (`pr_number: u64`, `owner_repo: Option<String>`)
+  - [ ] `run_steps` シグネチャを `Option<&PipelineContext>` で拡張 (後方互換、pre_steps は `None` を渡す)
+  - [ ] `"ai"` 分岐の実装:
+    - ctx が `None` → SKIP + log
+    - 既存 pending 読み取り: `status != "consumed"` なら WARN + skip (ステップ自体は PASS 扱い)、破損ファイル (size 0 / parse 失敗 / schema_version 不一致) は削除して続行
+    - 新規 pending 書き込み (`status = "pending"`): tmp file → `fs::rename` で atomic
+    - pending file パス: `config_path().parent() / "post-merge-feedback-pending.json"`
+  - [ ] unit test 追加:
+    - 正常書き込み (ctx ありで新規作成)
+    - ctx なしで SKIP
+    - 既存 consumed 上書き成功
+    - 既存 pending/dispatched で skip + WARN
+    - 破損 pending (parse 失敗) で削除後書き込み
+    - tmp → rename の atomicity (partial file が残らない)
+  - [ ] **atomic rename の環境確認と fallback 戦略** (CodeRabbit PR #69 指摘):
+    - 実装時に `std::fs::rename` のターゲット環境挙動を確認 (本プロジェクトは Windows 11 + NTFS 想定で atomic 経路に入るが、派生プロジェクトでは要再確認)
+    - `fs::rename` の Err を戻り値として伝播させ、呼び出し側でログ出力する (silent fail させない)
+    - 旧 Windows / 非対応 FS で non-atomic fallback が走ったケースの対処方針を docstring に明記: (a) 許容する (POST_MERGE_FEEDBACK_TRIGGER が 1 回発火失敗しても次マージで復帰可能)、(b) 必要なら `ReplaceFile` / `FileRenameInfoEx` の直接呼び出しを検討
+    - `owner_repo` の入力検証 (newline injection 防御、正規表現 `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$` 程度) を pending file 書き込み前に実施 (push 時の security-review で指摘済)
+  - [ ] `"ai"` 分岐のエラーハンドリング方針明文化: pending 書き込み失敗時もステップを FAIL にせず WARN + PASS とする (merge 自体は完了しているので pipeline を止めない)
+- **完了基準**: `cargo test` 通過 + ローカルで `pnpm merge-pr` 手動実行 → 正しい pending file が生成される + atomic rename の挙動確認メモが実装コードの doc コメントに残っていること
+- **詰まっている箇所**: なし
+- **依存関係**: ADR-029 (PR #69) マージ後に着手
 
-### 3. cli-pr-monitor の auto re-push に bookmark 自動前進を移植
+#### 1-C. hooks-stop-feedback-dispatch 新規 exe (コード + 配布統合、1 PR)
 
-- **やろうとしたこと**: takt 自動修正後の auto re-push で「修正コミットができても bookmark が動かず remote に届かない」問題を解消。cli-push-runner には PR #50 で `push_jj_bookmark.rs` の advance ロジックが入っているが、cli-pr-monitor の `run_push` は `jj new` → `jj git push` だけで bookmark を進めない
-- **現在地**: port 完了 + 統合テストで機能等価を確認。あとは実 PR でのロールアウトのみ
-  - [x] `src/cli-pr-monitor/src/stages/push_jj_bookmark.rs` 新設 (cli-push-runner から port、log prefix は `[action]`/`[state]` に調整、`lib_jj_helpers::is_trunk_bookmark` 再利用)
-  - [x] `src/cli-pr-monitor/src/stages/push.rs:run_push` の `jj new` 後・push 前に `advance_jj_bookmarks` を挿入 (`push_command` が `jj ` で始まる場合のみ、失敗時はログして push 続行)
-  - [x] unit テスト (dedup / parse_bookmarks_from_template / parse_bookmark_list_output / dispatch_bookmark_advance)
-  - [x] 統合テスト `integration_advance_moves_bookmark_to_parent_after_jj_new` で実 jj を使い PR #53 症状の退行防止を確認 (push-runner-config の rust-test グループで自動実行される `#[ignore]` テスト、`--test-threads=1` 必須)
-  - [ ] 実 PR での E2E 検証: 次回 CodeRabbit Major 指摘が出た PR で、takt 修正 → auto re-push で bookmark が remote 反映まで自動到達することを目視確認 (本 PR マージ後にリリース)
-- **詰まっている箇所**:
-  - **共通化方針**: まず port で機能等価を確認。将来 `lib-jj-helpers` へ集約する候補として `push_jj_bookmark.rs` 先頭に TODO コメントを残した (ADR-024)
-- **参照 ADR / PR**:
-  - PR #50 (cli-push-runner の bookmark fallback)
-  - PR #63 (takt fix のコミット分離、完了済)
-  - ADR-024 (共通 jj helper、試験運用)
+- **やろうとしたこと**: Stop 時に pending file を検出し、`additionalContext` で Claude に skill 起動を指示する単一責務 hook を追加。既存 `hooks-stop-quality` とは責務分離 (ADR-022 原則)
+- **現在地**: 未着手
+  - [ ] `src/hooks-stop-feedback-dispatch/` 新規 crate
+    - `Cargo.toml` を workspace member に登録 (ADR-026)
+    - `src/main.rs` を実装:
+      - stdin JSON 読み取り (`stop_hook_active` 等)
+      - `stop_hook_active == true` → silent exit (無限ループ防止、hooks-stop-quality と同じパターン)
+      - pending 不在 → silent exit
+      - 破損 (size 0 / parse 失敗 / schema_version 不一致) → 削除して silent exit
+      - stale (created_at + 24h < now) → 削除して silent exit
+      - `status == "pending"` → 構造化 `additionalContext` を stdout に出力 + pending file の `status` を `"dispatched"` に atomic 更新 (`dispatched_at` も設定)
+      - `status == "dispatched"` → silent exit (二重通知しない)
+      - `status == "consumed"` → 削除して silent exit (後片付け)
+  - [ ] `Cargo.toml` (workspace root) の `members` に追加
+  - [ ] `package.json` に `build:hooks-stop-feedback-dispatch` 追加、`deploy:hooks` に統合
+  - [ ] `.claude/settings.json` の Stop hook エントリに 2 つ目の exe を追加 (hooks-stop-quality の**後**の順序)
+  - [ ] `templates/settings.json` にも同様の設定を反映 (派生プロジェクト配布用)
+  - [ ] unit test 追加:
+    - pending 不在で正常 exit
+    - `stop_hook_active = true` で silent exit (pending を読まない)
+    - 破損 pending の削除 + silent exit
+    - stale pending の削除 + silent exit
+    - status=pending → additionalContext 生成 + status=dispatched へ更新
+    - status=dispatched → silent exit
+    - status=consumed → 削除 + silent exit
+    - additionalContext 文字列フォーマット検証 (構造化タグの key 順序等)
+- **完了基準**: `cargo test` 通過 + `pnpm build:hooks-stop-feedback-dispatch` / `pnpm deploy:hooks` 成功 + hooks-stop-quality と並行動作確認
+- **詰まっている箇所**: なし
+- **依存関係**: ADR-029 (PR #69) マージ後に着手
+
+#### 1-D. post_steps 有効化 + 試験運用開始 (設定 + todo 更新、1 PR)
+
+- **やろうとしたこと**: 設定を有効化し、本プロジェクトで dogfood を開始する
+- **現在地**: 未着手
+  - [ ] `.claude/hooks-config.toml` の `[[merge_pipeline.post_steps]]` を有効化:
+    ```toml
+    [[merge_pipeline.post_steps]]
+    name = "post_merge_feedback"
+    type = "ai"
+    prompt = "post-merge-feedback"
+    ```
+  - [ ] `templates/hooks-config.toml` にも反映 (派生プロジェクト用、デフォルト opt-in/opt-out 方針は PR 内で判断)
+  - [ ] `docs/todo.md` から本タスク群 (1-B〜1-D、および section ヘッダーと前文) を削除 (運用ルール: 完了タスクは ADR/仕組みに反映後に削除。1-A は PR #69 時点で削除済)
+- **完了基準**: 実マージ (別 PR) の `pnpm merge-pr` で pending file が生成され、Stop 時に Claude が構造化 `additionalContext` を受け取って skill 起動を試みるフローが走ること (skill 未対応なら手動起動で検証)
+- **詰まっている箇所**: なし
+- **依存関係**: 1-B (CLI) + 1-C (hook) 両方の完了
+
+#### 1-E. post-merge-feedback skill の pending file 対応 (別タスク、skill リポジトリ側で実施)
+
+- **やろうとしたこと**: skill Phase 1 の前段に「pending file 先読み (Phase 0)」を追加し、status が `"dispatched"` の場合は引数指定と同等の最優先度で採用。skill 完了時に `status = "consumed"` に更新してからファイル削除
+- **現在地**: 未着手。ADR-029 (PR #69) マージ後に仕様参照可能
+  - [ ] skill リポジトリの管理場所を特定 (`$CLAUDE_SKILLS_REPO` 経由 or `~/.claude/skills/` 直接) → `/skill-sync-check` で確認
+  - [ ] `SKILL.md` に Phase 0 「pending file 先読み」を追加:
+    - pending file を読み取り、`status == "dispatched"` ならその `pr_number` / `owner_repo` を採用 (引数・セッションコンテキスト・fallback より優先)
+    - `status == "pending"` (hook 未経由の fallback 経路) も受け入れる
+    - `status == "consumed"` なら無視してファイル削除
+  - [ ] skill 完了時の consume 処理: `status = "consumed"` + `consumed_at` 設定 (atomic 更新) → その後ファイル削除
+  - [ ] (任意) skill eval の追加: pending file ありのケース / 破損ケース / status 別の挙動
+- **完了基準**: skill が pending file を正しく consume し、本プロジェクトの dogfood で Claude が自動起動した skill から Feedback Report が出力される
+- **詰まっている箇所**: skill の管理場所 (本プロジェクト外) の扱いは `/skill-sync-check` の結果次第
+- **依存関係**: ADR-029 (PR #69) マージ。1-B/1-C/1-D とは並行可能だが、dogfood の完結には 1-E も必要
+
+#### 1-F. (追って) ADR-014 試験運用フラグ解除 + takt-test-vc 反映
+
+- **やろうとしたこと**: dogfood 1-2 週間で問題なければ ADR-014 を本採用化し、takt-test-vc へバックポート
+- **現在地**: 未着手。1-D 以降 + 運用観察が前提
+- **詰まっている箇所**: dogfood 結果に依存するため着手タイミングは未定
+- **依存関係**: 1-D 完了 + 本プロジェクトで実マージ数回の観察
 
 ---
 

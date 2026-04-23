@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-04-09)
+試験運用 (2026-04-09) / 改訂 (2026-04-23: 自動起動の具体仕様を ADR-029 に分離して参照)
 
 ## コンテキスト
 
@@ -142,10 +142,12 @@ pnpm merge-pr (既存: ADR-013)
 
 - 試験結果が良好であれば、スキルが `pnpm merge-pr` を内包する統合形態に移行
 - フィードバック提案の自動実装（Tier 1 の自動適用）も検討可能
+- **自動起動 (2026-04-23 追記)**: [ADR-029: Post-Merge Feedback の自動起動](adr-029-post-merge-feedback-auto-trigger.md) で「pending file + 現セッション起動」方式を採用。skill の呼び忘れ問題を解消する。ADR-029 は選択肢 3 の原則 (skill はメイン会話内で実行) を維持するための設計であり、選択肢 1 (exe からの AI spawn) を復活させるものではない — pending file は単なる state の受け渡し媒体で、新規 Claude Code session を spawn しないためセッション知見は維持される
 
 ## References
 
 - [ADR-013: Merge Pipeline](adr-013-merge-pipeline.md) — マージパイプラインの基盤。「Skill が exe を呼び出す形で統合可能」と言及
+- [ADR-029: Post-Merge Feedback の自動起動](adr-029-post-merge-feedback-auto-trigger.md) — 本 ADR の skill を自動発火する仕組み (2026-04-23 追加)
 - [ADR-006: hooks の設定駆動型アーキテクチャ](adr-006-config-driven-hooks.md) — hooks-config.toml による設定管理
 - [ADR-007: カスタムリンターの正規表現層/AST層の線引き](adr-007-custom-linter-layer-boundary.md) — custom-lint-rules.toml の設計
 - Plankton パターン — PostToolUse でリンター群を実行し決定論的に品質を保証するアプローチ

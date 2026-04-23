@@ -30,6 +30,7 @@
 - [ADR-026: Cargo workspace による Rust パッケージ統合](docs/adr/adr-026-cargo-workspace.md)
 - [ADR-027: Push-time review を simplicity に限定し architectural review は post-PR に委ねる](docs/adr/adr-027-push-review-simplicity-focus.md)
 - [ADR-028: 外部可視成果物の生成コマンド (PR 作成/マージ) の実行ゲート](docs/adr/adr-028-pnpm-create-pr-gate.md)
+- [ADR-029: Post-Merge Feedback の自動起動 — pending file + 現セッション起動](docs/adr/adr-029-post-merge-feedback-auto-trigger.md) *(試験運用)*
 
 ## Build
 

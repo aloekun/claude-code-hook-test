@@ -2,7 +2,7 @@
 
 ## ステータス
 
-承認済み (2026-04-06)
+承認済み (2026-04-06) / 改訂 (2026-04-23: `ai` ステップの実装方式を ADR-029 に分離して参照)
 
 ## コンテキスト
 
@@ -96,7 +96,14 @@ step_timeout = 120
 
 - 新しい exe のビルドが `build:all` に追加される（ビルド時間の微増）
 
+### 将来の展望 (2026-04-23 追加)
+
+- **`ai` ステップの実装方式 (ADR-029)**: `[[merge_pipeline.post_steps]]` の `type = "ai"` スロット (現状 [src/cli-merge-pipeline/src/main.rs:313-322](../../src/cli-merge-pipeline/src/main.rs#L313-L322) で SKIP 実装) は、[ADR-029: Post-Merge Feedback の自動起動](adr-029-post-merge-feedback-auto-trigger.md) に従って「`.claude/post-merge-feedback-pending.json` への atomic 書き込み」として実装する。新規 Stop hook が pending file を検出して `additionalContext` 経由で Claude に skill 起動を指示する構成のため、exe 自体は AI を spawn しない。ADR-022 原則 1 (新規 artifact への自己記述) の枠内で完結する
+- **pre_steps 拡張**: CI 必須チェック、コンフリクト事前検出、secret scan 等を `type = "command"` で追加可能
+
 ## References
 
 - [ADR-008: Push Pipeline ハーネスの実装](adr-008-push-pipeline-harness.md) — 同じ「ガード + CLI」パターンの先行例
 - [ADR-012: src/ ディレクトリの命名規約](adr-012-src-naming-convention.md) — `cli-` プレフィックスの命名根拠
+- [ADR-014: Post-Merge Feedback](adr-014-post-merge-feedback.md) — `ai` ステップで呼び出す skill のフロー定義
+- [ADR-029: Post-Merge Feedback の自動起動](adr-029-post-merge-feedback-auto-trigger.md) — `ai` ステップの具体実装仕様 (2026-04-23 追加)
