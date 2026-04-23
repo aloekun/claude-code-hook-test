@@ -51,6 +51,45 @@ struct PipelineStepConfig {
     prompt: Option<String>,
 }
 
+/// `gh pr view --json headRefName,isCrossRepository` のレスポンス
+///
+/// fork PR では `is_cross_repository == true` となり、upstream repo の
+/// 同名ブランチを誤削除しないようにリモートブランチ削除をスキップする。
+#[derive(Deserialize)]
+struct PrHeadInfo {
+    #[serde(rename = "headRefName")]
+    head_ref_name: String,
+    #[serde(rename = "isCrossRepository")]
+    is_cross_repository: bool,
+}
+
+/// fork PR かどうかを判定し、リモートブランチ削除をスキップすべきか返す。
+///
+/// fork PR では `isCrossRepository == true` になるため、upstream repo の
+/// 同名 ref への DELETE を防ぐ。
+fn should_skip_branch_delete(info: &PrHeadInfo) -> bool {
+    info.is_cross_repository
+}
+
+/// RFC 3986 の unreserved characters (`A-Z a-z 0-9 - _ . ~`) 以外を percent-encode する。
+///
+/// `gh api` の URL path segment に branch 名等を埋め込む際の安全弁。
+/// `replace('/', "%2F")` だけでは `?` `#` `+` 等の特殊文字が素通りするため、
+/// CodeRabbit PR #70 指摘 (Major) を受けて全特殊文字を encode する実装に置換した。
+/// 実運用では git branch 命名規則によりほとんどの特殊文字は出現しないが、
+/// defense-in-depth として汎用 helper を提供する。
+fn percent_encode_path_segment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{:02X}", b));
+        }
+    }
+    out
+}
+
 /// パイプライン実行時に post_steps へ渡すコンテキスト (ADR-029)
 ///
 /// pre_steps は PR 検出前 or 検出直後に走るため `None` を渡す (後方互換)。
@@ -487,7 +526,7 @@ fn validate_ai_step_context<'a>(
             label,
             "WARN",
             &format!(
-                "owner_repo '{}' の形式が不正 — pending file を書き込まずスキップ",
+                "owner_repo {:?} の形式が不正 — pending file を書き込まずスキップ",
                 owner_repo
             ),
         );
@@ -534,6 +573,47 @@ fn run_ai_step(
     };
 
     write_pending_and_log(label, &pending, pending_path);
+}
+
+fn delete_remote_branch(branch_name: &str) {
+    let encoded_branch = percent_encode_path_segment(branch_name);
+    let ref_path = format!("repos/{{owner}}/{{repo}}/git/refs/heads/{}", encoded_branch);
+    let gh_output = Command::new("gh")
+        .args(["api", &ref_path, "-X", "DELETE"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output();
+    let (del_ok, del_out) = match gh_output {
+        Ok(o) => {
+            let combined = combine_output(
+                String::from_utf8_lossy(&o.stdout).trim(),
+                String::from_utf8_lossy(&o.stderr).trim(),
+            );
+            (o.status.success(), combined)
+        }
+        Err(e) => (false, format!("gh コマンド実行失敗: {}", e)),
+    };
+    if del_ok {
+        log_info(&format!(
+            "リモートブランチ '{}' を削除しました",
+            branch_name
+        ));
+    } else if del_out.contains("Reference does not exist") {
+        log_info(&format!(
+            "リモートブランチ '{}' は既に削除済みです（GitHub による自動削除）",
+            branch_name
+        ));
+    } else {
+        let msg = if del_out.is_empty() {
+            "不明なエラー".to_string()
+        } else {
+            del_out
+        };
+        log_info(&format!(
+            "リモートブランチ '{}' の削除失敗: {}",
+            branch_name, msg
+        ));
+    }
 }
 
 // ─── パイプライン実行 ───
@@ -646,53 +726,25 @@ fn run_pipeline() -> i32 {
     log_info("マージ完了");
 
     // リモートブランチを削除 (gh api)
-    let head_branch = run_gh_logged(&[
+    // fork PR の場合は isCrossRepository == true になるため、upstream repo の
+    // 同名ブランチを誤削除しないようにスキップする。
+    let head_info_json = run_gh_logged(&[
         "pr",
         "view",
         &pr_number.to_string(),
         "--json",
-        "headRefName",
-        "-q",
-        ".headRefName",
+        "headRefName,isCrossRepository",
     ]);
-    if let Some(ref branch_name) = head_branch {
-        let encoded_branch = branch_name.replace('/', "%2F");
-        let ref_path = format!("repos/{{owner}}/{{repo}}/git/refs/heads/{}", encoded_branch);
-        let gh_output = Command::new("gh")
-            .args(["api", &ref_path, "-X", "DELETE"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output();
-        let (del_ok, del_out) = match gh_output {
-            Ok(o) => {
-                let combined = combine_output(
-                    String::from_utf8_lossy(&o.stdout).trim(),
-                    String::from_utf8_lossy(&o.stderr).trim(),
-                );
-                (o.status.success(), combined)
+    if let Some(ref json) = head_info_json {
+        match serde_json::from_str::<PrHeadInfo>(json) {
+            Err(e) => log_info(&format!("PR head 情報のパース失敗: {}", e)),
+            Ok(info) if should_skip_branch_delete(&info) => {
+                log_info(&format!(
+                    "fork PR のためリモートブランチ '{}' の削除をスキップします",
+                    info.head_ref_name
+                ));
             }
-            Err(e) => (false, format!("gh コマンド実行失敗: {}", e)),
-        };
-        if del_ok {
-            log_info(&format!(
-                "リモートブランチ '{}' を削除しました",
-                branch_name
-            ));
-        } else if del_out.contains("Reference does not exist") {
-            log_info(&format!(
-                "リモートブランチ '{}' は既に削除済みです（GitHub による自動削除）",
-                branch_name
-            ));
-        } else {
-            let msg = if del_out.is_empty() {
-                "不明なエラー".to_string()
-            } else {
-                del_out
-            };
-            log_info(&format!(
-                "リモートブランチ '{}' の削除失敗: {}",
-                branch_name, msg
-            ));
+            Ok(info) => delete_remote_branch(&info.head_ref_name),
         }
     }
 
@@ -804,6 +856,24 @@ prompt = "analyze_pr_learnings"
     }
 
     #[test]
+    fn should_skip_branch_delete_true_for_fork_pr() {
+        let info = PrHeadInfo {
+            head_ref_name: "feature-branch".to_string(),
+            is_cross_repository: true,
+        };
+        assert!(should_skip_branch_delete(&info));
+    }
+
+    #[test]
+    fn should_skip_branch_delete_false_for_same_repo_pr() {
+        let info = PrHeadInfo {
+            head_ref_name: "feature-branch".to_string(),
+            is_cross_repository: false,
+        };
+        assert!(!should_skip_branch_delete(&info));
+    }
+
+    #[test]
     fn config_missing_merge_pipeline_section() {
         let toml_str = r#"
 [push_pipeline]
@@ -831,6 +901,56 @@ step_timeout = 60
     #[test]
     fn combine_output_both_empty() {
         assert_eq!(combine_output("", ""), "");
+    }
+
+    // ─── percent_encode_path_segment (CodeRabbit PR #70 Major 対応) ───
+
+    #[test]
+    fn percent_encode_passes_unreserved_chars() {
+        // RFC 3986 unreserved: A-Z a-z 0-9 - _ . ~
+        assert_eq!(
+            percent_encode_path_segment("abcXYZ-_0123.~"),
+            "abcXYZ-_0123.~"
+        );
+    }
+
+    #[test]
+    fn percent_encode_slash_and_special_chars() {
+        assert_eq!(percent_encode_path_segment("feat/foo"), "feat%2Ffoo");
+        assert_eq!(percent_encode_path_segment("a?b#c"), "a%3Fb%23c");
+        assert_eq!(percent_encode_path_segment("x+y&z=w"), "x%2By%26z%3Dw");
+        assert_eq!(percent_encode_path_segment("has space"), "has%20space");
+    }
+
+    #[test]
+    fn percent_encode_multibyte_utf8() {
+        // "日" = 0xE6 0x97 0xA5 in UTF-8
+        assert_eq!(percent_encode_path_segment("日"), "%E6%97%A5");
+    }
+
+    #[test]
+    fn percent_encode_empty_string() {
+        assert_eq!(percent_encode_path_segment(""), "");
+    }
+
+    // ─── should_skip_branch_delete ───
+
+    #[test]
+    fn skip_delete_when_cross_repository() {
+        let info = PrHeadInfo {
+            head_ref_name: "feat-x".into(),
+            is_cross_repository: true,
+        };
+        assert!(should_skip_branch_delete(&info));
+    }
+
+    #[test]
+    fn delete_allowed_when_same_repository() {
+        let info = PrHeadInfo {
+            head_ref_name: "feat-x".into(),
+            is_cross_repository: false,
+        };
+        assert!(!should_skip_branch_delete(&info));
     }
 
     // ─── bookmark 検出ロジック (lib-jj-helpers に集約済) ───

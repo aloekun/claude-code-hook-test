@@ -19,6 +19,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// プロセス内で一意な tmp ファイル名を生成するためのカウンタ。
+/// 複数の writer が同時に `write_atomic` を呼んでも tmp パスが衝突しない。
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// pending file のスキーマバージョン。
 ///
@@ -100,7 +105,14 @@ pub(crate) fn read_existing(path: &Path) -> ExistingPending {
 pub(crate) fn write_atomic(path: &Path, pending: &PendingFile) -> Result<(), String> {
     let json = serde_json::to_string_pretty(pending)
         .map_err(|e| format!("pending file のシリアライズ失敗: {}", e))?;
-    let tmp_path = path.with_extension("json.tmp");
+    // 複数 writer が同時実行しても tmp ファイルが上書き競合しない。
+    let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "pending".to_string());
+    let tmp_name = format!("{}.tmp.{}.{}", file_name, std::process::id(), counter);
+    let tmp_path = path.with_file_name(tmp_name);
     if let Err(e) = std::fs::write(&tmp_path, &json) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(format!(
@@ -280,11 +292,52 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(loaded, pending);
 
-        // tmp ファイルは残っていない (atomic rename の proxy check)
-        let tmp = path.with_extension("json.tmp");
-        assert!(!tmp.exists(), "tmp residue left behind: {}", tmp.display());
+        // 新形式 "{basename}.tmp.{pid}.{counter}" は path.with_extension で特定できないため、
+        // 同ディレクトリ内で ".tmp." を含む残骸ファイルの有無をスキャンして確認する。
+        let dir = path.parent().unwrap_or(std::path::Path::new("."));
+        let basename = path.file_name().unwrap().to_string_lossy().into_owned();
+        let has_residue = std::fs::read_dir(dir).unwrap().flatten().any(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.starts_with(&basename) && name.contains(".tmp.")
+        });
+        assert!(
+            !has_residue,
+            "tmp residue left behind under {}",
+            dir.display()
+        );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_atomic_is_safe_under_concurrent_writers() {
+        use std::sync::Arc;
+
+        let path = Arc::new(unique_tmp("concurrent"));
+        let pending = Arc::new(sample_pending(STATUS_PENDING));
+
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let p = Arc::clone(&path);
+                let pf = Arc::clone(&pending);
+                std::thread::spawn(move || {
+                    for _ in 0..10 {
+                        let _ = write_atomic(&p, &pf);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // 最終ファイルが有効な JSON であること
+        let content = std::fs::read_to_string(path.as_ref()).unwrap();
+        let loaded: PendingFile = serde_json::from_str(&content).unwrap();
+        assert_eq!(loaded, *pending);
+
+        let _ = std::fs::remove_file(path.as_ref());
     }
 
     #[test]
