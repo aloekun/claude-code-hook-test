@@ -53,3 +53,16 @@ cmd = "pnpm build"
 # max_duration_secs = 600
 # check_ci = true
 # check_coderabbit = true
+
+# ─── Merge Pipeline: post_steps ───
+# pnpm merge-pr 後に post-merge-feedback skill を自動起動する (ADR-029 試験運用)。
+# 有効化には post-merge-feedback skill が deploy されている必要があります。
+
+# [merge_pipeline]
+# step_timeout = 120
+# default_branch = "master"  # リポジトリに合わせて変更
+
+# [[merge_pipeline.post_steps]]
+# name = "post_merge_feedback"
+# type = "ai"
+# prompt = "post-merge-feedback"
