@@ -6,22 +6,6 @@
 
 ## 現在進行中
 
-### post-merge-feedback skill の pending file 対応 (skill リポジトリ側で実施)
-
-> **参照**: `docs/adr/adr-029-post-merge-feedback-auto-trigger.md` — CLI / Stop hook / skill の 3 者協調設計。本タスクは skill 側の Phase 0 対応 (ADR-029 task 1-E)。
-
-- **やろうとしたこと**: skill Phase 1 の前段に「pending file 先読み (Phase 0)」を追加し、status が `"dispatched"` の場合は引数指定と同等の最優先度で採用。skill 完了時に `status = "consumed"` に更新してからファイル削除
-- **現在地**: 未着手
-  - [ ] skill リポジトリの管理場所を特定 (`$CLAUDE_SKILLS_REPO` 経由 or `~/.claude/skills/` 直接) → `/skill-sync-check` で確認
-  - [ ] `SKILL.md` に Phase 0 「pending file 先読み」を追加:
-    - pending file を読み取り、`status == "dispatched"` ならその `pr_number` / `owner_repo` を採用 (引数・セッションコンテキスト・fallback より優先)
-    - `status == "pending"` (hook 未経由の fallback 経路) も受け入れる
-    - `status == "consumed"` なら無視してファイル削除
-  - [ ] skill 完了時の consume 処理: `status = "consumed"` + `consumed_at` 設定 (atomic 更新) → その後ファイル削除
-  - [ ] (任意) skill eval の追加: pending file ありのケース / 破損ケース / status 別の挙動
-- **完了基準**: skill が pending file を正しく consume し、本プロジェクトの dogfood で Claude が自動起動した skill から Feedback Report が出力される
-- **詰まっている箇所**: skill の管理場所 (本プロジェクト外) の扱いは `/skill-sync-check` の結果次第
-
 ### (追って) ADR-014 試験運用フラグ解除 + takt-test-vc 反映
 
 > **参照**: `docs/adr/adr-029-post-merge-feedback-auto-trigger.md` — 本タスクは ADR-029 task 1-F。本プロジェクトでの dogfood が十分に回ってから着手。
