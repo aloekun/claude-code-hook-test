@@ -13,7 +13,9 @@ check_coderabbit = true
 
 [takt]
 workflow = "post-pr-review"
-task = "analyze PR review comments"
+# task は workflow 名を prefix として含める (ADR-030 §task labeling convention)。
+# takt の run dir 命名 `<ts>-<sanitized-task>` から workflow 種別を一意に逆引きするため。
+task = "post-pr-review"
 extra_args = ["--pipeline", "--skip-git"]
 
 [fix]

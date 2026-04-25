@@ -162,7 +162,7 @@ check_coderabbit = false
 
 [takt]
 workflow = "post-pr-review"
-task = "analyze PR review comments"
+task = "post-pr-review"
 extra_args = ["--pipeline", "--skip-git"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
@@ -174,7 +174,7 @@ extra_args = ["--pipeline", "--skip-git"]
 
         let takt = config.takt.unwrap();
         assert_eq!(takt.workflow, "post-pr-review");
-        assert_eq!(takt.task, "analyze PR review comments");
+        assert_eq!(takt.task, "post-pr-review");
         assert_eq!(takt.extra_args.as_ref().unwrap().len(), 2);
     }
 
