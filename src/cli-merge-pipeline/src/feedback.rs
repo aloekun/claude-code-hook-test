@@ -26,8 +26,13 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// takt workflow 名 / task ラベル
+///
+/// 命名規約 (ADR-030 §task labeling convention): task label は workflow 名を必ず prefix
+/// として含む `"<workflow-name> [<context>]"` 形式とする。これにより takt の sanitization 後の
+/// dir 名 (`<timestamp>-<sanitized-task-label>`) が必ず workflow 名を含み、`find_latest_run_dir`
+/// が `name.contains("-<workflow>")` でマッチできる。
 const TAKT_WORKFLOW: &str = "post-merge-feedback";
-const TAKT_TASK_PREFIX: &str = "post-merge feedback for #";
+const TAKT_TASK_PREFIX: &str = "post-merge-feedback for #";
 
 /// takt 実行のデフォルトタイムアウト (10 分)
 pub const TAKT_TIMEOUT_SECS: u64 = 600;
@@ -239,15 +244,28 @@ fn entry_matches_filter(line: &str, range: &PrTimeRange) -> bool {
     ts >= lower && ts <= upper
 }
 
-/// `.takt/runs/` 配下で `suffix` に一致する最新ディレクトリ (lex-sort 末尾) を返す。
-fn find_latest_run_dir(runs_dir: &Path, suffix: &str) -> Option<PathBuf> {
+/// `.takt/runs/` 配下で `workflow` 名を含む最新ディレクトリ (lex-sort 末尾) を返す。
+///
+/// takt の run dir は `<timestamp>-<sanitized-task-label>` 形式。task label が
+/// ADR-030 §task labeling convention に従い workflow 名を prefix として含む場合、
+/// dir 名にも `-<workflow>` という連続部分文字列が必ず現れる:
+///   - task = `"<workflow>"`             → dir = `<ts>-<workflow>`
+///   - task = `"<workflow> for #<pr>"`   → dir = `<ts>-<workflow>-for-<pr>`
+///
+/// どちらの形にも `name.contains(&format!("-{}", workflow))` で一律にマッチする。
+/// `ends_with` を避けることで、context suffix 付きの形にも対応する。
+///
+/// 制約: workflow 名同士が部分文字列関係になってはいけない (例: `merge` と
+/// `post-merge-feedback` は OK、`post-merge` と `post-merge-feedback` は NG)。
+fn find_latest_run_dir(runs_dir: &Path, workflow: &str) -> Option<PathBuf> {
+    let needle = format!("-{}", workflow);
     let mut candidates: Vec<PathBuf> = fs::read_dir(runs_dir)
         .ok()?
         .flatten()
         .filter_map(|e| {
             let path = e.path();
             let name = path.file_name()?.to_string_lossy().into_owned();
-            if name.ends_with(suffix) {
+            if name.contains(&needle) {
                 Some(path)
             } else {
                 None
@@ -258,10 +276,10 @@ fn find_latest_run_dir(runs_dir: &Path, suffix: &str) -> Option<PathBuf> {
     candidates.into_iter().next_back()
 }
 
-/// `.takt/runs/*-pre-push-review/reports/` のうち最新 (lex-sort 末尾) を返す。
+/// pre-push-review workflow の最新 reports ディレクトリを返す。
 pub fn find_latest_prepush_reports_dir(repo_root: &Path) -> Option<PathBuf> {
     let runs_dir = repo_root.join(".takt").join("runs");
-    let latest = find_latest_run_dir(&runs_dir, "-pre-push-review")?;
+    let latest = find_latest_run_dir(&runs_dir, "pre-push-review")?;
     let reports = latest.join("reports");
     if reports.is_dir() {
         Some(reports)
@@ -337,7 +355,7 @@ pub fn run_takt_workflow(repo_root: &Path, pr_number: u64, timeout_secs: u64) ->
 /// takt 完了後、最新 run dir の `feedback-report.md` を `.claude/feedback-reports/<pr>.md` にコピーする。
 pub fn copy_feedback_report(repo_root: &Path, pr_number: u64) -> Result<PathBuf, String> {
     let runs_dir = repo_root.join(".takt").join("runs");
-    let latest = find_latest_run_dir(&runs_dir, &format!("-{}", TAKT_WORKFLOW))
+    let latest = find_latest_run_dir(&runs_dir, TAKT_WORKFLOW)
         .ok_or("post-merge-feedback の run dir が見つかりません")?;
 
     let source = latest.join("reports").join("feedback-report.md");
@@ -652,6 +670,108 @@ mod tests {
             .contains("20260425-094925-pre-push-review"));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_latest_run_dir_matches_workflow_name_only() {
+        // task = "<workflow>" のケース: dir = "<ts>-<workflow>"
+        let root = std::env::temp_dir().join(format!(
+            "feedback-find-name-only-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ));
+        let runs = root.join(".takt").join("runs");
+        fs::create_dir_all(runs.join("20260425-100000-post-merge-feedback")).unwrap();
+        fs::create_dir_all(runs.join("20260425-110000-other-workflow")).unwrap();
+
+        let latest = find_latest_run_dir(&runs, "post-merge-feedback").unwrap();
+        assert!(latest
+            .to_string_lossy()
+            .contains("20260425-100000-post-merge-feedback"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_latest_run_dir_matches_workflow_with_context_suffix() {
+        // task = "<workflow> for #<pr>" のケース: dir = "<ts>-<workflow>-for-<pr>"
+        let root = std::env::temp_dir().join(format!(
+            "feedback-find-with-ctx-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ));
+        let runs = root.join(".takt").join("runs");
+        fs::create_dir_all(runs.join("20260425-100000-post-merge-feedback-for-77")).unwrap();
+        fs::create_dir_all(runs.join("20260425-090000-pre-push-review")).unwrap();
+
+        let latest = find_latest_run_dir(&runs, "post-merge-feedback").unwrap();
+        assert!(latest
+            .to_string_lossy()
+            .contains("20260425-100000-post-merge-feedback-for-77"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_latest_run_dir_picks_lex_max_across_mixed_forms() {
+        // task = workflow 名のみ と task = workflow + suffix の混在で、最新を正しく拾う
+        let root = std::env::temp_dir().join(format!(
+            "feedback-find-mixed-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ));
+        let runs = root.join(".takt").join("runs");
+        fs::create_dir_all(runs.join("20260425-090000-post-merge-feedback")).unwrap();
+        fs::create_dir_all(runs.join("20260425-100000-post-merge-feedback-for-77")).unwrap();
+        fs::create_dir_all(runs.join("20260425-080000-post-merge-feedback-for-50")).unwrap();
+
+        let latest = find_latest_run_dir(&runs, "post-merge-feedback").unwrap();
+        assert!(latest
+            .to_string_lossy()
+            .contains("20260425-100000-post-merge-feedback-for-77"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_latest_run_dir_returns_none_when_no_match() {
+        let root = std::env::temp_dir().join(format!(
+            "feedback-find-none-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ));
+        let runs = root.join(".takt").join("runs");
+        fs::create_dir_all(runs.join("20260425-090000-pre-push-review")).unwrap();
+        fs::create_dir_all(runs.join("20260425-100000-analyze-pr-review-comments")).unwrap();
+
+        assert!(find_latest_run_dir(&runs, "post-merge-feedback").is_none());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_latest_run_dir_returns_none_when_dir_missing() {
+        let nonexistent = std::env::temp_dir().join(format!(
+            "feedback-nonexistent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ));
+        assert!(find_latest_run_dir(&nonexistent, "post-merge-feedback").is_none());
     }
 }
 

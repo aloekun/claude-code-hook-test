@@ -15,5 +15,6 @@ check_coderabbit = true
 # takt がインストールされていない場合はコメントアウトすること。
 # [takt]
 # workflow = "post-pr-review"
-# task = "analyze PR review comments"
+# # task は workflow 名を prefix として含める (ADR-030 §task labeling convention)。
+# task = "post-pr-review"
 # extra_args = ["--pipeline", "--skip-git"]
