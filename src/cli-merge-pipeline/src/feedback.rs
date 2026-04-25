@@ -200,6 +200,22 @@ pub fn filter_transcripts(
     Ok(written)
 }
 
+/// ISO 8601 UTC タイムスタンプを lexicographic 比較用に正規化する。
+///
+/// `gh api` は秒精度 (`…:SSZ`) を返し、Claude transcript は ms 精度 (`…:SS.fffZ`) を返す。
+/// `'.'` (0x2E) < `'Z'` (0x5A) のため、精度が混在すると境界判定が狂う。
+/// `Z` 末尾かつ小数部なしの文字列を `…:SS.000Z` に揃えることで同一精度での比較を保証する。
+///
+/// 入力契約: タイムスタンプは UTC (`Z` 末尾) であること。`+09:00` 等のオフセット形式は
+/// このシステムでは現れない前提。
+fn normalize_timestamp_for_comparison(ts: &str) -> String {
+    if ts.ends_with('Z') && !ts.contains('.') {
+        format!("{}.000Z", &ts[..ts.len() - 1])
+    } else {
+        ts.to_string()
+    }
+}
+
 /// transcript の 1 行が時刻 range + type filter に該当するかを判定する。
 fn entry_matches_filter(line: &str, range: &PrTimeRange) -> bool {
     let value: serde_json::Value = match serde_json::from_str(line) {
@@ -217,7 +233,10 @@ fn entry_matches_filter(line: &str, range: &PrTimeRange) -> bool {
         None => return false,
     };
 
-    timestamp >= range.first_commit_time.as_str() && timestamp <= range.merged_at.as_str()
+    let ts = normalize_timestamp_for_comparison(timestamp);
+    let lower = normalize_timestamp_for_comparison(range.first_commit_time.as_str());
+    let upper = normalize_timestamp_for_comparison(range.merged_at.as_str());
+    ts >= lower && ts <= upper
 }
 
 /// `.takt/runs/` 配下で `suffix` に一致する最新ディレクトリ (lex-sort 末尾) を返す。
@@ -457,6 +476,32 @@ mod tests {
         assert!(entry_matches_filter(upper, &range));
     }
 
+    // gh api は秒精度 (`Z`), transcript は ms 精度 (`.000Z`) を返すため
+    // 精度が混在しても境界判定が正しく動くことを保証するリグレッションテスト。
+    #[test]
+    fn entry_includes_lower_boundary_with_mixed_precision() {
+        // first_commit_time が秒精度 (Z 末尾), entry が ms 精度 (.000Z)
+        let range = PrTimeRange {
+            first_commit_time: "2026-04-25T08:00:00Z".into(),
+            merged_at: "2026-04-25T10:00:00Z".into(),
+        };
+        // 下限境界: entry timestamp == first_commit_time (ms = 0) → 含まれるべき
+        let at_lower = r#"{"type":"user","timestamp":"2026-04-25T08:00:00.000Z"}"#;
+        assert!(entry_matches_filter(at_lower, &range));
+    }
+
+    #[test]
+    fn entry_excludes_past_upper_boundary_with_mixed_precision() {
+        // merged_at が秒精度 (Z 末尾), entry が ms 精度 (.000Z)
+        let range = PrTimeRange {
+            first_commit_time: "2026-04-25T08:00:00Z".into(),
+            merged_at: "2026-04-25T10:00:00Z".into(),
+        };
+        // 上限超過: entry timestamp > merged_at (500ms 後) → 含まれないべき
+        let past_upper = r#"{"type":"user","timestamp":"2026-04-25T10:00:00.500Z"}"#;
+        assert!(!entry_matches_filter(past_upper, &range));
+    }
+
     #[test]
     fn filter_transcripts_writes_only_in_range() {
         let dir = std::env::temp_dir().join(format!(
@@ -622,7 +667,8 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
     let transcript_path = input.repo_root.join(TRANSCRIPT_PATH);
 
     let written = match input.transcript_source_dir.as_ref() {
-        Some(dir) => filter_transcripts(dir, &range, &transcript_path).unwrap_or(0),
+        Some(dir) => filter_transcripts(dir, &range, &transcript_path)
+            .map_err(|e| format!("transcript filter 失敗: {}", e))?,
         None => {
             // ソース dir 不明: 空 jsonl を出力 (facet が「データなし」分岐に進む)
             if let Some(parent) = transcript_path.parent() {
