@@ -178,7 +178,15 @@ takt は run dir を `<timestamp>-<sanitized-task-label>` 形式で生成する 
 
 #### 制約
 
-workflow 名同士が部分文字列関係になってはいけない (例: `merge` と `post-merge-feedback` は OK、`post-merge` と `post-merge-feedback` は NG)。現存 3 workflow (`pre-push-review` / `post-pr-review` / `post-merge-feedback`) は問題なし。新 workflow 追加時はこの制約を確認する。
+workflow 名同士が部分文字列関係になってはいけない。「部分文字列関係」とは `-<workflow-A>` が `-<workflow-B>...` の中に含まれること、すなわち `name.contains(&format!("-{}", workflow))` で取り違えが起きる関係を指す (実装は [`feedback.rs`](../../src/cli-merge-pipeline/src/feedback.rs) の `find_latest_run_dir`)。
+
+例:
+
+- **NG**: `merge` ⇄ `post-merge-feedback` — workflow=`merge` の needle `-merge` は `<ts>-post-merge-feedback-...` の中央に出現するため誤マッチ
+- **NG**: `post-merge` ⇄ `post-merge-feedback` — 同様に `-post-merge` が dir 末端に出現
+- **OK**: `build` ⇄ `post-merge-feedback` — `-build` が他の dir 名のどこにも現れない
+
+現存 3 workflow (`pre-push-review` / `post-pr-review` / `post-merge-feedback`) は問題なし。新 workflow 追加時はこの制約を確認する。
 
 #### 採用根拠
 
