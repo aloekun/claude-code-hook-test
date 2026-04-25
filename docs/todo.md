@@ -81,7 +81,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 ##### transcript 抽出戦略 (Q1 = commit 時刻逆引きの具体化)
 
-```
+```text
 入力: <pr_number>
 1. gh pr view <pr> --json commits,mergedAt → first_commit_time, end_time 取得
 2. ~/.claude/projects/<project-id>/*.jsonl の全ファイルを mtime ∈ [first_commit_time, end_time + 1day buffer] でフィルタ
