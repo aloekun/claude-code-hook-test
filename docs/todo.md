@@ -103,21 +103,6 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 #### 作業計画
 
-##### Phase A: ADR-030 起案 (PR 1) — 設計のみ
-
-- [x] `docs/adr/adr-030-deterministic-post-merge-feedback.md` 新規作成
-  - **コンテキスト**: PR #74 で実証された silent loss 問題と原因分析 (4 層トリガーの後半 2 層が非決定的)
-  - **検討した選択肢**: ADR-029 の選択肢 1 (`claude -p`) を取るか / 本案 (takt 経由) を取るか の比較。takt 経由を採用する根拠 (既存 ADR-015 / 018 との整合性、Anthropic API 直接呼び出し回避)
-  - **決定**: 2 層アーキテクチャ (L1 Floor + L2 Recovery)、L3 skill enrichment は廃止
-  - **入力**: PR data (gh API) + pre-push reports (`.takt/runs/`) + transcript (`~/.claude/projects/<id>/*.jsonl`、commit 時刻 range filter)
-  - **出力**: `.claude/feedback-reports/<pr>.md` (or `.failed` marker)
-  - **失敗ポリシー**: soft
-  - **Supersede 範囲**:
-    - **ADR-029**: partial — 層 3-4 (Claude session / skill 起動) を廃止、層 1 の post_steps スロットは流用
-    - **ADR-014**: full — post-merge-feedback skill 自体が廃止されるため、ADR-014 のステータスも Superseded by ADR-030 に更新
-  - **ADR-022 との整合性**: takt 経由の決定論実行は責務分離原則に整合 (Claude 不在でも動く対称性が回復)
-  - **ADR-028 との関係**: 本タスクは内部 artifact (`.claude/feedback-reports/*.md`) のみ生成、外部可視成果物ゲートの対象外
-
 ##### Phase B: takt workflow + 4 facets — L1 Floor (PR 2)
 
 - [ ] `.takt/workflows/post-merge-feedback.yaml` 新規作成
