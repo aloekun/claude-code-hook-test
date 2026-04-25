@@ -1,0 +1,126 @@
+name: post-merge-feedback
+description: >
+  マージ済み PR のフィードバックレポートを生成する決定論的 workflow (ADR-030)。
+  入力: cli-merge-pipeline が事前に書き出すコンテキストファイル群
+    - .takt/post-merge-feedback-context.json (PR メタデータ + 時刻 range)
+    - .takt/post-merge-feedback-transcript.jsonl (filter 済みセッション履歴)
+  facets を順次 chain し、aggregate-feedback で最終レポートを生成する。
+  fix loop なし: コードではなくレポートを生成するため reviewers/fix の構造は不要。
+  出力: feedback-report.md (Report Directory に保存)
+  cli-merge-pipeline が takt 完了後に .claude/feedback-reports/<pr>.md にコピーする。
+
+workflow_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+
+max_steps: 10
+initial_step: analyze-pr
+
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1: analyze-pr
+  #   PR diff + reviews を分析し、再発防止に役立つ知見を抽出する。
+  #   旧 /analyze-pr skill から port (E:\work\claude-code-skills\analyze-pr\SKILL.md)。
+  # ---------------------------------------------------------------------------
+  - name: analyze-pr
+    edit: false
+    persona: code-reviewer
+    model: sonnet
+    policy: review
+    knowledge: architecture
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+    instruction: analyze-pr
+    output_contracts:
+      report:
+        - name: pr-analysis.md
+          format: pr-analysis
+    rules:
+      - condition: analysis complete
+        next: analyze-session
+
+  # ---------------------------------------------------------------------------
+  # Step 2: analyze-session
+  #   filter 済みセッション transcript から実装時の学び・トラブル・ユーザー指示を抽出。
+  #   ADR-030 §transcript 抽出戦略に従い、Rust 側で時刻 range filter 済の入力を読む。
+  # ---------------------------------------------------------------------------
+  - name: analyze-session
+    edit: false
+    persona: code-reviewer
+    model: sonnet
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+    instruction: analyze-session
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: session-analysis.md
+          format: session-analysis
+    rules:
+      - condition: analysis complete
+        next: analyze-prepush-reports
+
+  # ---------------------------------------------------------------------------
+  # Step 3: analyze-prepush-reports
+  #   pre-push-review の reports (.takt/runs/<latest>-pre-push-review/reports/) を集約。
+  # ---------------------------------------------------------------------------
+  - name: analyze-prepush-reports
+    edit: false
+    persona: code-reviewer
+    model: sonnet
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+    instruction: analyze-prepush-reports
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: prepush-analysis.md
+          format: prepush-analysis
+    rules:
+      - condition: analysis complete
+        next: aggregate-feedback
+
+  # ---------------------------------------------------------------------------
+  # Step 4: aggregate-feedback
+  #   3 つの分析レポートを Plankton 優先度で統合し、最終レポートを生成する。
+  #   旧 post-merge-feedback skill の Phase 4 ロジックから port。
+  #   pass_previous_response: false で、Report Directory の各 *-analysis.md を直接読む。
+  # ---------------------------------------------------------------------------
+  - name: aggregate-feedback
+    edit: false
+    persona: supervisor
+    model: sonnet
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+    instruction: aggregate-feedback
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: feedback-report.md
+          format: feedback-report
+    rules:
+      - condition: aggregation complete
+        next: COMPLETE
