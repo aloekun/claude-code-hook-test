@@ -103,24 +103,6 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 #### 作業計画
 
-##### Phase B: takt workflow + 4 facets — L1 Floor (PR 2)
-
-- [ ] `.takt/workflows/post-merge-feedback.yaml` 新規作成
-  - 入力: PR 番号 (cli-merge-pipeline から渡される)
-  - facets を順次 chain
-- [ ] facets を新設 (`.takt/facets/` 下):
-  - **`analyze-pr.md`**: PR diff + reviews を分析 (既存 `analyze-pr` skill から port。`E:\work\claude-code-skills\analyze-pr\SKILL.md` を参照)
-  - **`analyze-session.md`** (新規): transcript range filter で抽出した user/assistant 履歴から 実装時の学び・トラブル修正・ユーザー指示 を抽出。**Phase 0 調査結果の transcript 抽出戦略を参照**
-  - **`analyze-prepush-reports.md`** (新規): `.takt/runs/<latest>/reports/*.md` (pre-push-review の simplicity / security レポート) を集約
-  - **`aggregate-feedback.md`** (新規): 上記 3 facets の出力 + Plankton 優先度で統合 → ADR 提案 / 仕組み改善案を生成 (旧 post-merge-feedback skill の Phase 4 統合フィードバックロジックを port、`E:\work\claude-code-skills\post-merge-feedback\SKILL.md` を参照)
-- [ ] `src/cli-merge-pipeline/` の post_steps `type = "ai"` 分岐を変更:
-  - 旧: pending file 書き込み (ADR-029)
-  - 新: takt workflow を spawn して同期実行 (push-runner / cli-pr-monitor の takt 起動方法に倣う)
-  - 出力 `.claude/feedback-reports/<pr>.md` を生成
-  - 失敗時 `<pr>.md.failed` marker 書き込み (soft fail、merge は成功扱い)
-- [ ] `.gitignore` に `.claude/feedback-reports/` を追加 (artifact、コミット対象外)
-- [ ] テスト追加 (workflow 成功/失敗ケース、transcript 抽出正常性、cli-merge-pipeline 統合)
-
 ##### Phase C: UserPromptSubmit hook — L2 Recovery (PR 3)
 
 - [ ] `src/hooks-user-prompt-feedback-recovery/` 新規 crate
@@ -207,7 +189,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 4. `docs/adr/adr-014-post-merge-feedback.md` を読む (skill 自体の元設計)
 5. `docs/adr/adr-015-push-runner-takt-migration.md` / `docs/adr/adr-018-pr-monitor-takt-migration.md` を読む (takt 移行の先行事例として参考)
 6. `docs/adr/adr-020-takt-facets-sharing.md` を読む (facets 共通化方針の根拠)
-7. Phase A から着手: `docs/adr/adr-030-deterministic-post-merge-feedback.md` の起案
+7. Phase C から着手 (Phase A: ADR 起案 / Phase B: takt workflow + facets + cli-merge-pipeline 統合 はマージ済)
 
 #### 完了基準
 
