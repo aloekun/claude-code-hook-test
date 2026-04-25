@@ -41,3 +41,34 @@ steps = [
 [rules.example]
 bad = "console.log('user data:', userData);"
 good = "logger.debug('user data:', userData);"
+
+# ─── ルール②: 個人を特定する絶対パス禁止 (PII) ───
+#
+# 由来: PR #75 (post-merge-feedback) で 3 箇所同時発生 (ADR-030 line 143、todo.md line 35/48)、
+# PR #74 でも前例。CodeRabbit Major 指摘の頻出パターン。
+#
+# placeholder 検出回避戦略:
+# - Rust regex (1.10) は lookahead 非対応のため、character class のみで除外する
+# - 開始 `[A-Za-z]` により `<USER_NAME>` / `<USER>` / `%USERPROFILE%` は自動除外
+# - Unix 側も同様に `[a-z]` 開始で `<username>` 等を除外
+# - 残る false positive は `C:\Users\Public\` / `C:\Users\Default\` 等のシステム名のみ (md では稀)
+
+[[rules]]
+id = "no-personal-paths"
+pattern = 'C:\\Users\\[A-Za-z][A-Za-z0-9_-]+\\|/home/[a-z][a-z0-9_-]+/'
+severity = "error"
+message = "個人を特定する絶対パスが含まれています。プレースホルダ (%USERPROFILE% / ~ / $HOME / <USER_HOME>) に置換してください"
+why = "ドキュメントへの PII (実ユーザー名) 流出を防止する。PR #75 で 3 箇所、PR #74 でも類似指摘の前例あり"
+extensions = ["md", "txt"]
+
+[rules.fix]
+strategy = "プレースホルダ表記に置換"
+steps = [
+  "Windows: `C:\\Users\\<実名>\\` → `%USERPROFILE%\\` または `~\\`",
+  "Unix: `/home/<実名>/` → `~/` または `$HOME/`",
+  "ドキュメント例として残す場合: `C:\\Users\\<USER_NAME>\\` のように `<...>` を使う",
+]
+
+[rules.example]
+bad = '具体的なファイル所在: `C:\Users\alice\.claude\projects\<project-id>\` 配下'
+good = '具体的なファイル所在: `%USERPROFILE%\.claude\projects\<project-id>\` 配下'
