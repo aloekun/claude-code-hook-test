@@ -31,7 +31,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 | 層 | 機構 | 保証レベル | 失敗時 |
 |---|------|-----------|--------|
-| **L1 Floor** (決定論) | cli-merge-pipeline → takt workflow `post-merge-feedback` を **同期実行** | Exactly-once (takt の決定論実行) | soft: merge 成功、`<pr>.md.failed` marker 残存 |
+| **L1 Floor** (決定論) | cli-merge-pipeline → takt workflow `post-merge-feedback` を **同期実行** | Deterministic invocation: 成功 → at-most-once でレポート生成、失敗 → `.failed` marker で retryable (詳細は ADR-030 参照) | soft: merge 成功、`<pr>.md.failed` marker 残存 |
 | **L2 Recovery** (safety net) | UserPromptSubmit hook が `*.md.failed` を検出 → additionalContext で再実行指示 | At-least-once (ユーザーが何か入力すれば必ず発火) | hook 自体は決定論的、Claude の応答は best-effort (ただし floor は既存なので silent loss は起きない) |
 
 - **失敗ポリシー**: soft (merge 成功 + marker 残存。後続 prompt 入力で L2 が拾う)
@@ -45,7 +45,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 `~/.claude/projects/<project-id>/<session-id>.jsonl` (1 session = 1 file, UUID 命名)
 
-本プロジェクト: `C:\Users\HIROKI\.claude\projects\e--work-claude-code-hook-test\`
+本プロジェクト: `%USERPROFILE%\.claude\projects\e--work-claude-code-hook-test\`
 
 ##### transcript スキーマ (確認済)
 
