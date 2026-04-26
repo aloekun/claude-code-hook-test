@@ -24,6 +24,7 @@ const EXE_FILES = [
   "hooks-post-tool-linter.exe",
   "hooks-stop-quality.exe",
   "hooks-stop-feedback-dispatch.exe",
+  "hooks-user-prompt-feedback-recovery.exe",
   "cli-push-runner.exe",
   "cli-pr-monitor.exe",
   "cli-merge-pipeline.exe",

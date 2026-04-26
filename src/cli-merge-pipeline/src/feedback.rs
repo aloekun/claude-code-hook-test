@@ -401,12 +401,20 @@ pub fn write_failed_marker(
          ## 失敗理由\n\n{}\n\n\
          ## 復旧手順\n\n\
          1. このマーカー (`{}`) を残したまま、Claude Code セッションで何か入力する\n\
-         2. UserPromptSubmit hook (`hooks-user-prompt-feedback-recovery`) が検出し、再実行を促す\n\
-         3. または直接: `pnpm feedback-retry {}` (Phase C 以降で実装)\n",
+         2. UserPromptSubmit hook (`hooks-user-prompt-feedback-recovery`) が検出し、Claude に再実行を促す\n\
+         3. Claude セッションから手動で再実行する場合は、リポジトリルートで\n   \
+            `pnpm exec takt -w {} -t \"{}{}\"` を直接起動してください\n   \
+            注意: この再実行は `.takt/post-merge-feedback-context.json` を読み直すだけなので、\n   \
+            失敗から再実行までの間に **別 PR が `pnpm merge-pr` を実行している** と context が\n   \
+            上書きされ、誤った PR の transcript range が使われます。再実行前に\n   \
+            `.takt/post-merge-feedback-context.json` の `pr_number` が #{} と一致することを必ず確認してください。\n",
         pr_number,
         TAKT_WORKFLOW,
         reason,
         path.display(),
+        TAKT_WORKFLOW,
+        TAKT_TASK_PREFIX,
+        pr_number,
         pr_number,
     );
     fs::write(&path, body).map_err(|e| format!("failed marker 書込失敗: {}", e))?;
