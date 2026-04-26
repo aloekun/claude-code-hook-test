@@ -103,21 +103,6 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 #### 作業計画
 
-##### Phase C: UserPromptSubmit hook — L2 Recovery (PR 3)
-
-- [ ] `src/hooks-user-prompt-feedback-recovery/` 新規 crate
-  - `Cargo.toml` を workspace member に追加 (ADR-026)
-  - `src/main.rs`:
-    - stdin から UserPromptSubmit event JSON を読む
-    - `.claude/feedback-reports/*.md.failed` を検索
-    - 見つかれば additionalContext で「未完了 feedback あり、再実行: `pnpm feedback-retry <pr>`」を出力
-    - 見つからなければ silent exit
-- [ ] `Cargo.toml` (workspace root) の `members` に追加
-- [ ] `package.json` の `build:hooks-user-prompt-feedback-recovery` 追加、`deploy:hooks` に統合
-- [ ] (任意) `pnpm feedback-retry <pr>` script 追加 (cli-merge-pipeline の post_steps を単独再実行する thin wrapper)
-- [ ] settings.local.json + `templates/settings.json` の UserPromptSubmit hook エントリ登録
-- [ ] テスト追加 (failed marker 検出、additionalContext フォーマット)
-
 ##### Phase D: ❌ 廃止 (skill enrichment 不要)
 
 ##### Phase E: 旧機構廃止 (PR 4 — Phase B/C dogfood 数回後)
