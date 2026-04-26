@@ -259,17 +259,6 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 #### 作業計画
 
-##### Phase A: ADR-031 起案 (PR 1)
-
-- [ ] [docs/adr/adr-031-weekly-review-pipeline.md](docs/adr/adr-031-weekly-review-pipeline.md) 起案
-  - Status: 試験運用 (2026-04-27)
-  - Context: 既存 3 パイプラインの空白 (cross-PR / ADR 違反蓄積 / 全体俯瞰)
-  - 検討した選択肢: skill 単独 / takt 単独 / hybrid (採用)
-  - 決定: hybrid。trigger は手動 + reminder、scope は whole-tree、approval は pending JSON 経由、architecture は新 persona
-  - 既存 ADR との関係: ADR-027 補完 (post-PR architectural review の cross-PR 視点)、ADR-022 整合 (`edit: false` 統一)、ADR-030 の 3 層分離パターン継承
-- [ ] [CLAUDE.md](CLAUDE.md) の Architecture Decisions セクションに ADR-031 を追加 (リンク 1 行のみ、リンクのみ方針に従う)
-- [ ] PR 作成・マージ (ユーザーレビューを受けて修正可能性あり)
-
 ##### Phase B: takt workflow + facets + persona (PR 2)
 
 - [ ] `architecture-reviewer` persona 定義 (allowed_tools: Read/Glob/Grep のみ、knowledge: architecture)
