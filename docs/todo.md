@@ -196,6 +196,199 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 - **現在地**: 上位タスクの Phase F 完了待ち
 - **詰まっている箇所**: ADR-030 実装 + dogfood 完了に依存
 
+### 週次プロジェクト全体レビューパイプラインの導入 (ADR-031 起案 + 実装)
+
+> **動機**: 既存の3つのレビューパイプライン (pre-push-review / post-pr-review / post-merge-feedback) はすべて「**変更差分** に対する」レビューで、プロジェクト全体を俯瞰する視点が欠けている。「PR 単位では見えない cross-PR ドリフト」「ADR 違反の蓄積」「全体俯瞰のアーキテクチャ瑕疵」「無駄の累積」は今のパイプラインでは拾えない。週に1回プロジェクト全体を **simplicity / security / architecture** の3観点でレビューし、改善提案を出す自己改善ループを導入する。コードは編集せず、ユーザー採用分のみ docs/todo.md に追記する。
+>
+> **本タスクの位置づけ**: ADR-027 (push-time = simplicity 限定 / architectural review = post-PR) を補完する新 ADR-031 を起案し、週次レビュー基盤 (takt workflow + skill + SessionStart hook reminder) を実装する。試験運用フラグで導入し、1〜2 週の dogfood 観測後に本採用判断。
+>
+> **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
+
+#### 背景: 既存レビューの空白
+
+| 既存パイプライン | レビュー対象 | 主観点 | 拾えないもの |
+|---|---|---|---|
+| pre-push-review (ADR-015, ADR-027) | push 前の diff | simplicity (局所) | architectural drift, cross-PR の冗長 |
+| post-pr-review (ADR-018, ADR-019) | PR 単位の diff | CodeRabbit 由来の品質 | PR 跨ぎの ADR 違反 |
+| post-merge-feedback (ADR-030) | マージ済み PR + transcript | 再発防止 (差分起点) | 全体俯瞰 |
+
+**空白**: cross-PR な俯瞰観点 (累積複雑度 / ADR 違反蓄積 / 命名一貫性ドリフト / 循環依存)。これを週次の whole-tree レビューで埋める。
+
+#### 設計決定: hybrid アーキテクチャ (新 ADR-031)
+
+ADR-030 で確立した「機械的=Rust / AI parallel=takt / ask-based=skill」3層分離パターンの 4 例目への適用。**must-run 要件ではない** ため決定論ゲートは省略、`.failed` marker による best-effort recovery で十分という判断。
+
+```
+/weekly-review (skill, manual トリガー)
+   │  Phase 1: 7 日チェック + dry-run? 判定
+   ├─► takt run weekly-review.yaml          # parallel facets
+   │       ├─ review-simplicity-whole       # whole-tree, ADR-027 制約解除
+   │       ├─ review-security-whole         # whole-tree
+   │       └─ review-architecture-whole     # 新 persona, ADR 整合性
+   │           ↓ all complete
+   │       └─ aggregate-weekly              # findings JSON + markdown
+   │  Phase 2: pending JSON 生成 (.claude/weekly-review-pending.json)
+   │  Phase 3: AskUserQuestion で採否一括選択
+   │  Phase 4: 採用分を docs/todo.md に追記、last-run 更新
+   ▼
+.claude/weekly-reviews/<YYYY-MM-DD>.md  (履歴、gitignore)
+docs/todo.md                              (採用分のみ追記)
+
+SessionStart hook (hooks-session-start.exe 拡張)
+   └─► .claude/weekly-review-last-run.json の mtime 確認
+       7 日経過 → additionalContext で「/weekly-review 推奨」と reminder のみ (強制起動なし)
+```
+
+- **失敗ポリシー**: best-effort (ADR-030 の `.failed` marker パターンを流用、SessionStart hook が次セッションで再実行を促す)
+- **入力源**: ソースツリー全体 (主要 dir: src/, scripts/, .claude/, .takt/, docs/) を各 facet が Glob で順読
+- **出力**: `.claude/weekly-reviews/<YYYY-MM-DD>.md` (履歴) + 採用分のみ docs/todo.md 追記
+- **採否単位**: finding ごと (採用 / 却下 / 保留) の一括選択。pending JSON 経由で UI を skill 側で提供
+
+#### ユーザー判断記録 (本タスク策定時に合意済 — 2026-04-27)
+
+| 質問 | 回答 |
+|---|---|
+| トリガー方式 | **手動 `/weekly-review` + SessionStart hook reminder** (前回実行から7日経過で promote のみ。強制起動なし)。機能安定後に schedule スキル経由の自動化を将来検討 |
+| レビュー対象スコープ | **毎回ソースツリー全体**。サブツリー分割は MVP 不要 (各 facet が Glob で主要 dir 順読)。context 圧迫が観測されたら 2nd PR で facet 内分割 |
+| 承認フロー | **レポート提示 → 採否を一括選択**。pending JSON 経由 |
+| Architecture facet 実装 | **新 `architecture-reviewer` persona 作成** (既存 simplicity/security と並列、ADR 整合性 + モジュール境界 + ADR-012 命名 + 循環依存) |
+| アーキテクチャ形態 | **hybrid (takt workflow + skill)**。ADR-030 の 3 層分離パターン継承 |
+| PR 分割 | **PR 1 (ADR) → PR 2 (takt) → PR 3 (skill + hook) → PR 4 (dogfood + 本採用判断)** の 4 段階を推奨 (post-merge-feedback の分割パターンに倣う) |
+| 失敗ポリシー | **best-effort** (`.failed` marker + SessionStart hook reminder で再実行誘導。must-run ではないので決定論ゲート不要) |
+| アンチパターン | **whole-tree 用 facet を diff 用 facet と共通化しない** (ADR-027 で diff 局所が本質要件のため separation 必須) |
+
+#### 作業計画
+
+##### Phase A: ADR-031 起案 (PR 1)
+
+- [ ] [docs/adr/adr-031-weekly-review-pipeline.md](docs/adr/adr-031-weekly-review-pipeline.md) 起案
+  - Status: 試験運用 (2026-04-27)
+  - Context: 既存 3 パイプラインの空白 (cross-PR / ADR 違反蓄積 / 全体俯瞰)
+  - 検討した選択肢: skill 単独 / takt 単独 / hybrid (採用)
+  - 決定: hybrid。trigger は手動 + reminder、scope は whole-tree、approval は pending JSON 経由、architecture は新 persona
+  - 既存 ADR との関係: ADR-027 補完 (post-PR architectural review の cross-PR 視点)、ADR-022 整合 (`edit: false` 統一)、ADR-030 の 3 層分離パターン継承
+- [ ] [CLAUDE.md](CLAUDE.md) の Architecture Decisions セクションに ADR-031 を追加 (リンク 1 行のみ、リンクのみ方針に従う)
+- [ ] PR 作成・マージ (ユーザーレビューを受けて修正可能性あり)
+
+##### Phase B: takt workflow + facets + persona (PR 2)
+
+- [ ] `architecture-reviewer` persona 定義 (allowed_tools: Read/Glob/Grep のみ、knowledge: architecture)
+  - 既存 persona 定義の場所を調査して同様に追加 (`.takt/personas/` または config 内)
+- [ ] [.takt/facets/instructions/review-simplicity-whole.md](.takt/facets/instructions/review-simplicity-whole.md): 既存 `review-simplicity.md` から派生コピー、diff 局所制約を whole-tree 向けに改変 (主要 dir Glob 順読、累積複雑度視点)
+- [ ] [.takt/facets/instructions/review-security-whole.md](.takt/facets/instructions/review-security-whole.md): 既存 `review-security.md` から派生、whole-tree 版
+- [ ] [.takt/facets/instructions/review-architecture-whole.md](.takt/facets/instructions/review-architecture-whole.md): 新規。観点は ADR 整合性 / モジュール境界 / ADR-012 命名規約 / 循環依存 / レイヤ侵犯
+- [ ] [.takt/facets/instructions/aggregate-weekly.md](.takt/facets/instructions/aggregate-weekly.md): 既存 `aggregate-feedback.md` を参考に、3 レポートを統合し finding JSON + markdown を出力
+- [ ] [.takt/workflows/weekly-review.yaml](.takt/workflows/weekly-review.yaml): `parallel: [simplicity-whole, security-whole, architecture-whole]` → `aggregate-weekly` の 2 step。`post-merge-feedback.yaml` の構造をテンプレート流用
+- [ ] takt 単体 dry-run 検証: `takt run weekly-review.yaml` で 4 レポートが `.takt/runs/<ts>-weekly-review/reports/` に生成されることを確認
+- [ ] PR 作成・マージ
+
+##### Phase C: skill + SessionStart hook (PR 3)
+
+- [ ] [.claude/skills/weekly-review/SKILL.md](.claude/skills/weekly-review/SKILL.md) 定義
+  - トリガー条件: `/weekly-review` 明示呼出のみ (一般的なレビュー依頼では発動しない)
+  - 4 Phase: 起動条件チェック → takt 起動 → AskUserQuestion 採否対話 → todo.md 反映
+  - フラグ: `--dry-run` (todo.md 触らない) / `--resume` (`.failed` marker 検出時の再開)
+- [ ] pending JSON schema 確定: `.claude/weekly-review-pending.json` に finding 配列 + decision フィールド
+- [ ] todo.md 反映ロジック実装 (skill 内): 採用 finding を `## 現在進行中` の新セクション「週次レビュー採用 (YYYY-MM-DD)」にまとめて追記。各 finding を「動機 / 位置づけ / 背景 / 設計決定 / サブタスク / 完了基準」フォーマットへマッピング。重複検出は MVP 不要 (skill 側で警告のみ)
+- [ ] [src/hooks-session-start/](src/hooks-session-start/) 拡張: `.claude/weekly-review-last-run.json` の mtime チェック + 7 日経過時の reminder 出力 + `*.md.failed` 検出時の recovery context 出力 (ADR-001 = Rust 一択)
+- [ ] `.gitignore` 更新: `.claude/weekly-reviews/`, `.claude/weekly-review-pending.json`, `.claude/weekly-review-last-run.json` を除外
+- [ ] `pnpm build:all` + `pnpm deploy:hooks` で hook を派生プロジェクトに配布
+- [ ] PR 作成・マージ
+
+##### Phase D: e2e 検証 (PR 3 マージ後 / PR 4 起案前)
+
+- [ ] **dry-run smoke test**: `/weekly-review --dry-run` 実行 → reports 4 本生成確認 → `.claude/weekly-reviews/<date>.dry-run.md` 書出 → todo.md は触られないこと
+- [ ] **通常実行 + 採否選択**: `/weekly-review` → pending JSON 生成 → AskUserQuestion で finding 採否 → 採用分が docs/todo.md に追記 → last-run 更新
+- [ ] **SessionStart reminder 検証**: last-run.json mtime を 8 日前に偽装 → 新セッション起動 → additionalContext に reminder 含まれること
+- [ ] **失敗時リカバリ**: facet instruction を一時的に壊して takt fail を inject → `.md.failed` marker 残存 → 次セッション SessionStart で recovery context → `/weekly-review --resume` で再開成功
+
+##### Phase E: 試験運用 dogfood (PR 4 — Phase D 完了後)
+
+- [ ] 1〜2 週の試験運用で実際に週次レビューを実行
+- [ ] **観測項目**:
+  - 3 facets parallel の wall-clock 実行時間 (post-merge-feedback の analyze 並列 7m30s と比較)
+  - context window 圧迫 (whole-tree が 1 リクエストに収まるか)
+  - 5 分超 or context 圧迫が観測されたら facet 内サブツリー分割を 2nd PR で切り出す
+  - finding 品質: 採用率 / 既存 ADR との整合性 / false positive 率
+  - SessionStart reminder の発火頻度と無視率
+- [ ] dogfood 結果を ADR-031 に追記 (試験運用 → 本採用 / 改善 / 廃止 の判断材料)
+- [ ] 本採用判断: ADR-031 ステータスを「承認済み」に変更 or 廃止判断
+
+##### Phase F: 自動化検討 (本採用後の任意)
+
+- [ ] schedule スキル (CronCreate-based) で weekly cron 登録の検討
+  - 注意: ADR-018 で CronCreate は cli-pr-monitor では廃止済み。schedule スキル自体は別機構なので適用可
+  - 代替: `/loop 7d /weekly-review` (シンプルだがセッション跨ぎ不可)
+  - 自動化の前に「reminder で十分か / 強制実行が必要か」を Phase E の観測結果から判断
+
+#### 作業可能になるための前提情報 (新セッションで必読)
+
+##### 既存コンポーネントとの参照関係
+
+- **既存 takt workflow テンプレート元**:
+  - `.takt/workflows/post-merge-feedback.yaml`: parallel + aggregate の 2-step 構造の流用元 ([参照](.takt/workflows/post-merge-feedback.yaml))
+- **既存 facet 派生元**:
+  - `.takt/facets/instructions/review-simplicity.md`: whole-tree 版を派生 ([参照](.takt/facets/instructions/review-simplicity.md))
+  - `.takt/facets/instructions/review-security.md`: 同上 ([参照](.takt/facets/instructions/review-security.md))
+  - `.takt/facets/instructions/aggregate-feedback.md`: aggregate-weekly の参考 ([参照](.takt/facets/instructions/aggregate-feedback.md))
+- **既存 hook 拡張先**:
+  - `src/hooks-session-start/`: SessionStart hook crate (Rust)。reminder ロジックを追加 ([参照](src/hooks-session-start/))
+- **既存 skill 規約**:
+  - 他 skill (`post-merge-feedback`, `pre-push-review` 等) の SKILL.md フォーマット (frontmatter / トリガー条件 / Phase 構成 / 例外的動作) を踏襲
+
+##### 重要な既存 ADR (実装時に必ず参照)
+
+| ADR | 関係 |
+|---|---|
+| **ADR-001** | hooks 実装言語 = Rust。SessionStart hook 拡張は Rust 一択 |
+| **ADR-012** | src/ 命名規約。architecture-reviewer の観点に組み込む |
+| **ADR-022** | 自動化コンポーネントの責務分離。全 facet `edit: false` で整合 |
+| **ADR-027** | push-time = simplicity 限定 / architectural review = post-PR。**本タスクの空白特定の根拠** |
+| **ADR-030** | deterministic post-merge-feedback。**本タスクの 3 層分離パターン継承元**。must-run でないので決定論ゲートは流用しないが、`.failed` marker パターンは流用 |
+| **ADR-020** | takt facets 共通化戦略。本タスクでは「whole-tree 用は別 facet」と判断する根拠 |
+
+##### memory 参照
+
+- `feedback_todo_no_history.md`: todo.md は作業予定のみ。**採用 finding が「現在進行中」に入るのみで完了履歴セクションは作らない原則の根拠**
+- `feedback_test_dry_antipattern.md`: テストの DRY 不適用。production code の review-simplicity-whole / -security-whole 派生は OK だが、test では原則的に共通化しない
+- `feedback_side_effect_integration.md`: 副作用は新 phase ではなく既存 phase 末尾に統合。skill 内の todo.md 追記処理は新 Phase 作らず Phase 4 末尾に統合
+- `feedback_verify_edit_results.md`: 大きな Edit 後は grep で見出し検証。Phase B の facet ファイル作成時に有用
+- `project_takt_push_runner_learnings.md`: takt 導入の知見
+
+##### 設計上の重要な制約 (実装時に必ず守る)
+
+| 制約 | 根拠 | 影響 |
+|---|---|---|
+| **コードを直接書き換えない** | 本タスクのコア要件 | 全 facet `edit: false`、skill も Read + Edit on docs/todo.md のみ |
+| **採用 finding のみ todo.md へ** | ユーザー採用フロー | 却下/保留は report 内にのみ履歴 |
+| **完了履歴セクションを作らない** | feedback_todo_no_history.md | 採用 task 完了時は ADR/仕組みに反映後、todo.md から削除 |
+| **whole-tree facet を diff 用と共通化しない** | ADR-027 で diff 局所が本質要件 | review-simplicity-whole.md は派生コピー、共通化しない |
+| **must-run 扱いしない** | best-effort 設計 | SessionStart hook は reminder のみ、強制起動しない |
+| **schedule 自動化は dogfood 後** | YAGNI | Phase F で観測結果を見てから判断 |
+
+##### 新セッションで最初に確認すべきこと
+
+1. `git log --oneline -10` で master の最新状態を確認
+2. `docs/todo.md` の本セクション (本記録) を読む
+3. `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` を読む (本タスク策定時の plan)
+4. `docs/adr/adr-027-push-review-simplicity-focus.md` を読む (空白特定の根拠)
+5. `docs/adr/adr-030-deterministic-post-merge-feedback.md` を読む (3 層分離パターン参照元)
+6. `docs/adr/adr-022-automation-responsibility-separation.md` を読む (`edit: false` 方針)
+7. `.takt/workflows/post-merge-feedback.yaml` を読む (workflow テンプレート)
+8. `.takt/facets/instructions/review-simplicity.md` + `review-security.md` を読む (派生元)
+9. **どの Phase を実施するか確認**: Phase A 未完了なら ADR 起案から、Phase A 済なら Phase B (takt) から着手
+
+#### 完了基準
+
+- Phase A〜E すべて完了 (Phase F は任意、観測後判断)
+- ADR-031 の試験運用結果が docs/adr/ に追記され、本採用 / 改善 / 廃止 のいずれかが決定
+- dogfood で 1〜2 週の運用を経て finding が実際に採用 → todo.md → 改善実装 のループが少なくとも 1 周回ること
+- 本 todo.md エントリを削除 (運用ルール: 完了タスクは ADR/仕組みに反映後に削除)
+
+#### 詰まっている箇所
+
+なし (全方向確定済、Phase A から着手可能)
+
 ---
 
 ## スコープ外だが将来検討
