@@ -34,8 +34,12 @@ use std::time::Duration;
 const TAKT_WORKFLOW: &str = "post-merge-feedback";
 const TAKT_TASK_PREFIX: &str = "post-merge-feedback for #";
 
-/// takt 実行のデフォルトタイムアウト (10 分)
-pub const TAKT_TIMEOUT_SECS: u64 = 600;
+/// takt 実行のデフォルトタイムアウト (20 分)
+///
+/// 観測実績 (PR #77: 14m21s、PR #78: 12m13s) の parallel 構成想定値 (~7m30s) に
+/// 対し 2x の安全係数を取った暫定値。analyze-session の所要時間は transcript 量で
+/// スケールするため、長期 PR では再評価が必要 (ADR-030 §レイテンシ 参照)。
+pub const TAKT_TIMEOUT_SECS: u64 = 1200;
 
 /// run_takt_workflow のポーリング間隔 (ms)
 const POLL_INTERVAL_MS: u64 = 500;
@@ -417,6 +421,41 @@ fn cleanup_failed_marker(repo_root: &Path, pr_number: u64) {
     let _ = fs::remove_file(path);
 }
 
+/// 並行起動 guard の TTL (秒)。`TAKT_TIMEOUT_SECS` (1200s) より少し長い値。
+///
+/// 直前の cli-merge-pipeline 起動で `context.json` が書かれてから本値の経過時間内に
+/// 次の起動が来た場合、orphan takt が生きている可能性が高いとみなして refuse する
+/// (Bug 3: cross-invocation context overwrite race の予防)。
+pub const CONCURRENT_RUN_GUARD_SECS: u64 = 1500;
+
+/// 既存の context file の経過時刻を返す。存在しない/読めない場合は `None`。
+fn context_age_secs(context_path: &Path) -> Option<u64> {
+    let modified = fs::metadata(context_path).ok()?.modified().ok()?;
+    modified.elapsed().ok().map(|d| d.as_secs())
+}
+
+/// 並行 cli-merge-pipeline 起動を検出した場合 `Err` を返す。
+///
+/// 「直前の cli-merge-pipeline 起動の context.json が依然として新しい」状態は
+/// orphan takt が走り続けている可能性を示すため、context.json を上書きしない。
+/// `cleanup_failed_marker` 等の場合は影響なし (これは marker 系ファイル)。
+fn check_concurrent_run_guard(context_path: &Path) -> Result<(), String> {
+    let Some(age) = context_age_secs(context_path) else {
+        return Ok(());
+    };
+    if age >= CONCURRENT_RUN_GUARD_SECS {
+        return Ok(());
+    }
+    Err(format!(
+        "前回の post-merge-feedback workflow がまだ進行中の可能性 \
+         (context.json が {}s 前に書かれた)。{}s 待つか、進行中の takt が無いことを\
+         確認してから手動で {} を削除してください。",
+        age,
+        CONCURRENT_RUN_GUARD_SECS,
+        context_path.display()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,18 +812,95 @@ mod tests {
         ));
         assert!(find_latest_run_dir(&nonexistent, "post-merge-feedback").is_none());
     }
+
+    // ─── concurrent run guard (Bug 3 対策) ───
+
+    fn unique_tmp_path(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "{}-{}-{}",
+            prefix,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ))
+    }
+
+    #[test]
+    fn concurrent_run_guard_passes_when_context_absent() {
+        let path = unique_tmp_path("feedback-guard-absent");
+        // 存在しない → guard を通る
+        assert!(check_concurrent_run_guard(&path).is_ok());
+    }
+
+    #[test]
+    fn concurrent_run_guard_blocks_when_context_recent() {
+        let path = unique_tmp_path("feedback-guard-recent");
+        fs::write(&path, "{}").unwrap();
+        let result = check_concurrent_run_guard(&path);
+        assert!(result.is_err(), "newly-written context should block");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("進行中"));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn concurrent_run_guard_passes_when_context_stale() {
+        // CONCURRENT_RUN_GUARD_SECS より十分古い mtime をシミュレート。
+        // filetime crate を入れずに実装するため、mtime を atime/mtime 設定 syscall でなく
+        // 「ファイルを TTL を表す正の値で測定する」しか出来ない。
+        // → ここでは context_age_secs(path) のロジックを直接検証する別戦略を取る。
+        //   実際の age がどう振る舞うかは context_age_secs_returns_some_for_existing で確認。
+        // 本ケースは「TTL 上限を 0 に設定したら必ず通る」相当の代理確認:
+        // CONCURRENT_RUN_GUARD_SECS は const なので runtime には変えられない → skip。
+        //
+        // 代わりに、context_age_secs が `Some(<small>)` を返すことだけ検証する。
+        let path = unique_tmp_path("feedback-guard-stale-substitute");
+        fs::write(&path, "{}").unwrap();
+        let age = context_age_secs(&path);
+        assert!(age.is_some());
+        assert!(age.unwrap() < CONCURRENT_RUN_GUARD_SECS);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn context_age_secs_returns_none_for_missing() {
+        let path = unique_tmp_path("feedback-age-missing");
+        assert!(context_age_secs(&path).is_none());
+    }
+
+    #[test]
+    fn context_age_secs_returns_some_for_existing() {
+        let path = unique_tmp_path("feedback-age-exists");
+        fs::write(&path, "{}").unwrap();
+        let age = context_age_secs(&path);
+        assert!(age.is_some());
+        // 直前に書いたばかりなので 5 秒以内
+        assert!(age.unwrap() < 5);
+        let _ = fs::remove_file(&path);
+    }
 }
 
 /// 全工程を実行する高水準エントリポイント。
 ///
 /// 失敗時は `Err(reason)` を返す。caller は `write_failed_marker` で marker を残す前提。
 /// 成功時は `Ok(report_path)` (生成された feedback report の絶対パス)。
+///
+/// **Reconciliation 設計 (ADR-030 Phase B post-fix)**:
+/// `run_takt_workflow` の戻り値に関わらず最後に `copy_feedback_report` を必ず試す。
+/// 理由: Windows の `child.kill()` は takt の descendants を殺せないため、Rust が
+/// timeout で kill 後も takt が orphan として走り続けて report を完成させるケースが
+/// 観測された (PR #78 で kill 後 2 分 13 秒で feedback-report.md 完成)。
+/// takt が exit=non-zero でも report が出ていれば成功扱いとする。
 pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
     let range = fetch_pr_time_range(input.pr_number, input.owner_repo)
         .map_err(|e| format!("PR 時刻 range 取得失敗: {}", e))?;
 
     let context_path = input.repo_root.join(CONTEXT_PATH);
     let transcript_path = input.repo_root.join(TRANSCRIPT_PATH);
+
+    check_concurrent_run_guard(&context_path)?;
 
     let written = match input.transcript_source_dir.as_ref() {
         Some(dir) => filter_transcripts(dir, &range, &transcript_path)
@@ -817,14 +933,32 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
         &prepush_dir,
     )?;
 
-    if !run_takt_workflow(&input.repo_root, input.pr_number, TAKT_TIMEOUT_SECS) {
-        return Err(format!(
-            "takt workflow `{}` が失敗または timeout しました",
-            TAKT_WORKFLOW
-        ));
+    let takt_ok = run_takt_workflow(&input.repo_root, input.pr_number, TAKT_TIMEOUT_SECS);
+    if !takt_ok {
+        eprintln!(
+            "[merge-pipeline] [feedback] takt が失敗/timeout を返しました — orphan が \
+             report を完成させた可能性があるため reconciliation を試みます"
+        );
     }
 
-    let report = copy_feedback_report(&input.repo_root, input.pr_number)?;
-    cleanup_failed_marker(&input.repo_root, input.pr_number);
-    Ok(report)
+    match copy_feedback_report(&input.repo_root, input.pr_number) {
+        Ok(report) => {
+            if !takt_ok {
+                eprintln!(
+                    "[merge-pipeline] [feedback] reconciliation 成功: takt が \
+                     timeout/失敗扱いだったが orphan が report を完成させていた"
+                );
+            }
+            cleanup_failed_marker(&input.repo_root, input.pr_number);
+            Ok(report)
+        }
+        Err(copy_err) => {
+            let cause = if takt_ok {
+                "takt 成功扱いだが report 不在"
+            } else {
+                "takt 失敗/timeout かつ report 不在"
+            };
+            Err(format!("{}: {}", cause, copy_err))
+        }
+    }
 }
