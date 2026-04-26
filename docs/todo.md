@@ -103,21 +103,6 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 #### 作業計画
 
-##### Phase C: UserPromptSubmit hook — L2 Recovery (PR 3) ✅ 実装完了
-
-- [x] `src/hooks-user-prompt-feedback-recovery/` 新規 crate (workspace member 登録済)
-- [x] `package.json` の `build:hooks-user-prompt-feedback-recovery` 追加、`build:all` に統合
-- [x] `scripts/deploy-hooks.ts` の `EXE_FILES` に追加
-- [x] `.claude/settings.local.json.template` に UserPromptSubmit hook エントリ登録
-- [x] `feedback.rs` の `.failed` marker body を更新 (実装されない `pnpm feedback-retry` 参照を削除し、`pnpm exec takt -w post-merge-feedback ...` の手動再実行手順に差し替え)
-- [x] 単体テスト追加 (11 tests: parse / collect (4 ケース) / format (3 ケース) / serialize / regex 不一致除外)
-  - 仕様: marker 不在 → silent exit / `<pr>.md.failed` 形式以外は無視 / multi-marker は PR 番号昇順で列挙
-  - additionalContext は `[POST_MERGE_FEEDBACK_RECOVERY]` タグ + count + 各 marker の絶対パス
-  - exit code は常に 0 (UserPromptSubmit で `exit 2` は prompt をブロックする)
-- [x] smoke test: marker なし → silent exit / marker あり → 正しい JSON 出力を確認
-
-**未着手 (任意)**: `pnpm feedback-retry <pr>` thin wrapper (cli-merge-pipeline に `--feedback-only` フラグ追加が必要)。現状は marker 内に直接 `pnpm exec takt` の起動コマンドを書いており、Claude が marker を Read すれば手順が分かるため緊急性は低い。Phase F dogfood で再評価。
-
 ##### Phase D: ❌ 廃止 (skill enrichment 不要)
 
 ##### Phase E: 旧機構廃止 (PR 4 — Phase B/C dogfood 数回後)
