@@ -51,7 +51,7 @@ ADR-003 では `settings.local.json` の `command` フィールドで `%CLAUDE_P
 
 `package.json` に `build:hooks-settings` スクリプトを追加:
 
-```
+```sh
 node -e "...process.cwd() で {{PROJECT_DIR}} を置換..."
 ```
 

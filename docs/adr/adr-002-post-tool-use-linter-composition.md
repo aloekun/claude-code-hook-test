@@ -37,7 +37,7 @@ PostToolUse フックはミリ秒〜秒単位で完了する必要があり、
 
 実行フロー:
 
-```
+```text
 ファイル編集 (Write/Edit)
   ↓
 1. biome format --write  … フォーマット自動修正

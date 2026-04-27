@@ -31,7 +31,7 @@ ADR-008 で導入した `cli-push-pipeline.exe` は hooks-config.toml の `[push
 
 **パイプライン構成:**
 
-```
+```text
 pnpm push = cli-push-runner.exe && cli-pr-monitor.exe --monitor-only
              |                       |
              |                       +-- 現行維持: daemon spawn -> polling -> state file

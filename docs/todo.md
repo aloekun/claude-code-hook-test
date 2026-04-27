@@ -265,7 +265,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 ADR-030 で確立した「機械的=Rust / AI parallel=takt / ask-based=skill」3層分離パターンの 4 例目への適用。**must-run 要件ではない** ため決定論ゲートは省略、`.failed` marker による best-effort recovery で十分という判断。
 
-```
+```text
 /weekly-review (skill, manual トリガー)
    │  Phase 1: 7 日チェック + dry-run? 判定
    ├─► takt run weekly-review.yaml          # parallel facets
@@ -430,7 +430,7 @@ SessionStart hook (hooks-session-start.exe 拡張)
 > **動機**: PR #81 の CodeRabbit が `docs/todo.md:221` の MD040 (fenced-code-language) 違反を Nitpick で指摘。同種の違反 (Fenced code block の言語指定子不足) は過去にも度々発生しており、人間レビューでは見落としやすい。本プロジェクトでは markdownlint を意図的に外していたわけではなく、存在を認識していなかっただけと判明。post-merge-feedback (PR #81) も Tier 1 (決定論的防止) として独立に同提案を生成。
 >
 > **本タスクの位置づけ**: ADR-002 の PostToolUse linter composition (Biome + oxlint) を `.md` ファイルに拡張する。push pipeline 統合ではなく **hook 方式** を採用することで edit 時の自動 `--fix` を実現し、ユーザーに違反が見える前に修正完了させる。
-
+>
 > **参照**: `.claude/feedback-reports/81.md` の Tier 1 finding (post-merge-feedback による独立提案)
 >
 > **実行優先度**: 🚀 **Tier 1 (順位 1/20)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。**PR #82 post-merge-feedback で MD028 / MD040 / MD058 が初期 rule set として明示された** (T1-1 + T1-2 sub-task として吸収)。
