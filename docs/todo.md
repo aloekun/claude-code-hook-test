@@ -378,6 +378,100 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 なし (全方向確定済、Phase A から着手可能)
 
+### Markdown linter (markdownlint-cli2) の PostToolUse hook 統合
+
+> **動機**: PR #81 の CodeRabbit が `docs/todo.md:221` の MD040 (fenced-code-language) 違反を Nitpick で指摘。同種の違反 (Fenced code block の言語指定子不足) は過去にも度々発生しており、人間レビューでは見落としやすい。本プロジェクトでは markdownlint を意図的に外していたわけではなく、存在を認識していなかっただけと判明。post-merge-feedback (PR #81) も Tier 1 (決定論的防止) として独立に同提案を生成。
+>
+> **本タスクの位置づけ**: ADR-002 の PostToolUse linter composition (Biome + oxlint) を `.md` ファイルに拡張する。push pipeline 統合ではなく **hook 方式** を採用することで edit 時の自動 `--fix` を実現し、ユーザーに違反が見える前に修正完了させる。
+
+> **参照**: `.claude/feedback-reports/81.md` の Tier 1 finding (post-merge-feedback による独立提案)
+
+#### 背景
+
+- 過去レビューで MD040 違反が複数 PR で指摘されている
+- 既存パターン (ADR-002): TypeScript/JS は Biome + oxlint の二段階構成を PostToolUse hook 経由で自動 `--fix`
+- 本タスク以前は `.md` がこの仕組みの対象外 → 違反が CodeRabbit 段階まで残っていた
+- 行単位スキャンの custom_lint_rule では fence 開閉判定が不可能 → 専用 linter (markdownlint-cli2) が必要
+- post-merge-feedback (PR #81) が Tier 1 として独立に挙げ、当初検討した push pipeline 統合より hook 方式が既存パターンと整合する点を補強
+
+#### 設計決定 (案)
+
+- ツール: `markdownlint-cli2` (npm) を devDependencies に追加
+- 設定: `.markdownlint.json` をリポジトリルートに配置
+- ルール: MD040 (fenced-code-language) を有効、MD013 (line-length) は日本語混在のため無効、その他は実態に合わせて段階導入
+- 統合先: `.claude/hooks-config.toml` の `[post_tool_linter]` に `extensions = ["md"]` パイプラインを追加し `markdownlint-cli2 --fix "{file}"` を実行
+- 適用範囲: PostToolUse hook で edit/write 時にトリガー、対象は `*.md` 全般 (docs/, README.md, CLAUDE.md, .claude/skills/**/*.md)
+- clean baseline: lint 有効化前に別 commit で repository 全体を一括 `--fix` してから hook 統合
+
+#### 作業計画
+
+- [ ] `markdownlint-cli2` を devDependencies に追加
+- [ ] `.markdownlint.json` を作成 (MD040 有効、MD013 無効、他は段階導入)
+- [ ] `pnpm lint:md` script を追加 (CI/手動チェック用、引数なしで repository 全体)
+- [ ] 既存違反を別 commit で一括 `--fix` (clean baseline 確立)
+- [ ] `.claude/hooks-config.toml` の `[post_tool_linter]` に `markdownlint-cli2 --fix "{file}"` パイプラインを追加 (extensions = ["md"])
+- [ ] `pnpm build:all` + `pnpm deploy:hooks` で派生プロジェクトへ展開
+- [ ] dogfood: 任意の `.md` を編集して PostToolUse hook が `--fix` を走らせることを確認
+- [ ] 本 todo.md エントリを削除 (運用ルール: 完了タスクは仕組みに反映後に削除)
+
+#### 完了基準
+
+- PostToolUse hook で `.md` 編集時に `markdownlint-cli2 --fix` が走り、自動修正される
+- repository 全体で markdownlint violations = 0 (push 前に違反が残らない)
+- CodeRabbit が MD040 系の Nitpick を出さなくなる (本機構で先行修正されるため)
+- 派生プロジェクト (techbook-ledger, auto-review-fix-vc) にも展開済み
+
+#### 詰まっている箇所
+
+なし (post-merge-feedback Tier 1 finding として既に検証済み、Effort Small)
+
+### グローバルルール `git-workflow.md` の jj 運用節更新 (todo.md 完了タスク削除手順)
+
+> **動機**: 本セッション中に「ADR-031 Phase A 完了に伴う docs/todo.md 削除を独立 commit にしたい」とユーザーから明示指示を受けた (2026-04-26)。memory `feedback_todo_no_history.md` は削除自体は規定するが、jj 環境での具体手順 (`jj new` → 削除 → `jj describe`) は欠落していたため、AI が誤って単一 commit に詰め込もうとした。post-merge-feedback (PR #81) が Tier 3 (ドキュメント/ルール) として独立に同提案を生成。
+>
+> **本タスクの位置づけ**: グローバルルール (`~/.claude/rules/common/git-workflow.md`) への追記。本プロジェクトに閉じない普遍的な jj 運用規約として扱う。本タスク完了で全プロジェクトの新セッションで自動的に同じ判断ができるようになる。
+
+> **参照**: `.claude/feedback-reports/81.md` の Tier 3 finding (post-merge-feedback による独立提案)
+
+#### 背景
+
+- jj 環境では auto-snapshot により @ への編集は即座に commit に反映される (Git の staging area 概念がない)
+- 本作業 commit (機能実装 + todo.md タスク追加) と、Phase 完了に伴う todo.md タスク削除 commit を分けることで、レビューしやすく、後から `git log` で「いつ何が完了したか」を追跡しやすい
+- ユーザー指示 (2026-04-26 19:17 頃): 「タスク追加 commit と削除 commit は分離せよ」
+- memory `feedback_todo_no_history.md` は削除原則を述べるが手順は無し → 補完が必要
+- グローバルルールなので本プロジェクト以外でも適用可能
+
+#### 設計決定 (案)
+
+- 追記先: `~/.claude/rules/common/git-workflow.md` の jj 運用節 (新規セクション)
+- 内容: 「### todo.md 完了タスク削除手順 (jj 環境)」セクションを追加
+- 手順を明記:
+  1. 本作業 commit (機能実装 + todo.md 追加 等) を `jj describe` する
+  2. `jj new` で新 commit を作成
+  3. `docs/todo.md` から該当タスクを削除 (Edit)
+  4. `jj describe -m "docs(todo): <タスク名> 完了に伴い削除"` で記述
+  5. `pnpm push` で 2 commits を一括 push (PR は単一)
+- 関連: memory `feedback_todo_no_history.md` から本ルールへの参照を追加し、How to apply の補強とする
+- 適用範囲: グローバル (`~/.claude/`)、本リポジトリの commit には含まれない
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/git-workflow.md` の現状構造を確認 (既存 jj 節の有無、追記位置)
+- [ ] 「### todo.md 完了タスク削除手順 (jj 環境)」セクションを追記
+- [ ] memory `feedback_todo_no_history.md` を更新して新ルールへの参照を追加 (重複を避けるため How to apply 行のみ補強)
+- [ ] 動作確認: 次回の実 todo.md 完了タスク削除時に新ルールに従って自動的に commit を分離できるか観察
+- [ ] 本 todo.md エントリを削除 (グローバルルール反映後)
+
+#### 完了基準
+
+- `~/.claude/rules/common/git-workflow.md` に jj での todo.md 削除手順が明記され、新セッションでも同じ判断ができる
+- memory `feedback_todo_no_history.md` から git-workflow.md への参照が追加されている
+- 次回の実運用で commit 分離が自然に行われる (ユーザーからの明示指示なしで)
+
+#### 詰まっている箇所
+
+なし (Effort XS、追記のみ)
+
 ---
 
 ## スコープ外だが将来検討
