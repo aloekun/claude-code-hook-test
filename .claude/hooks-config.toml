@@ -66,6 +66,13 @@ steps = [
   { cmd = "ruff", args = ["check", "{file}"], fix = false },
 ]
 
+[[post_tool_linter.pipelines]]
+extensions = ["md"]
+steps = [
+  { cmd = "npx", args = ["--no-install", "markdownlint-cli2", "--fix", "{file}"], fix = true },
+  { cmd = "npx", args = ["--no-install", "markdownlint-cli2", "{file}"], fix = false },
+]
+
 # ─── Stop: 品質ゲート ───
 
 [stop_quality]
