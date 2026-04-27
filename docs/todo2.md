@@ -19,12 +19,12 @@
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
 > **実行優先度**: タスク全体は **🚀 Tier 1 〜 💎 Tier 3 に分散** (Phase ごとに優先度が異なる、2026-04-28 採番更新)。
-> - Phase pre (branch protection): **Tier 1 (順位 5/13)** — 設定のみ、順位 1-4 と並列可
-> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2 (順位 6/13)**
-> - Phase broken-link: **Tier 2 (順位 8/13)** — 順位 4 (markdownlint) の clean baseline 後が望ましい
-> - Phase β (実装、enabled=false): **Tier 3 (順位 9/13)** — 全前提揃ってから
-> - Phase γ (enablement): **Tier 3 (順位 10/13)** — 順位 6 dogfood 後の 1 行 flip
-> - Phase δ (dogfood): **Tier 3 (順位 11/13)** — 実 docs PR で検証
+> - Phase pre (branch protection): **Tier 1 (順位 2/10)** — 設定のみ、順位 1 と並列可
+> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2 (順位 3/10)**
+> - Phase broken-link: **Tier 2 (順位 5/10)** — 順位 1 (markdownlint) の clean baseline 後が望ましい
+> - Phase β (実装、enabled=false): **Tier 3 (順位 6/10)** — 全前提揃ってから
+> - Phase γ (enablement): **Tier 3 (順位 7/10)** — 順位 3 dogfood 後の 1 行 flip
+> - Phase δ (dogfood): **Tier 3 (順位 8/10)** — 実 docs PR で検証
 >
 > **最大 payoff**: Phase γ enable 後、docs PR 所要時間 ~15min → ~30sec (30 倍速)。daily efficiency への貢献は本リポジトリ随一だが、**前提依存が多いため近道はない**。
 
@@ -366,7 +366,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/82.md` の Tier 3 #2-4 findings (3 件を統合)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 7/13)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 6 (週次レビュー Phase B) / 順位 8 (ADR-032 PR-broken-link) と並列実施可能。Effort S × 3 = ~S。
+> **実行優先度**: 🔧 **Tier 2 (順位 4/10)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 3 (週次レビュー Phase B) / 順位 5 (ADR-032 PR-broken-link) と並列実施可能。Effort S × 3 = ~S。
 
 #### 背景
 
@@ -407,47 +407,3 @@ Phase 2 (任意、段階的緩和)
 #### 詰まっている箇所
 
 なし (Effort S、既存 instruction への追記のみ)
-
-### 却下済み変更の再適用防止グローバルルール明文化 (PR #83 T3-1)
-
-> **動機**: 2026-04-27 セッションで T3-combined を todo2.md に移動する Edit 中、AI が無意識に直前にユーザーが却下した CodeRabbit MD040 finding (` ``` ` → ` ```text `) を付随的に適用してしまった。即座に revert したが、構造的に防ぐルールがあれば防げる事案。post-merge-feedback (PR #83) が Tier 3 として独立に提案。
->
-> **本タスクの位置づけ**: グローバルルール (`~/.claude/CLAUDE.md` または `~/.claude/rules/common/coding-style.md`) への追記。Claude/AI の動作ルールとして「ユーザーが現セッションで明示却下した変更は、後続の Edit / Write 操作でも適用しない」を明文化。
->
-> **参照**: `.claude/feedback-reports/83.md` の Tier 3 #1 finding
->
-> **実行優先度**: 🚀 **Tier 1 (順位 3/13)** — 工数 XS、グローバルなので全プロジェクト即時効果。本セッションでの事実 (MD040 fence 不意追加) の恒久化。順位 1 (git-workflow.md) / 順位 2 (ブランチ保護方針) と並列実施可能 (~/.claude/ 配下のグローバルルール群)。
-
-#### 背景
-
-- 2026-04-27 セッションで PR #82 の 4 CodeRabbit findings を「全件却下」と判断
-- 直後の T3-combined 移動 Edit で、AI が old_string と new_string を組み立てる際「整合性のため」MD040 fence の修正 (` ``` ` → ` ```text `) を含めてしまった
-- 即座に revert したが、AI が「便利だから」「ついでに」と却下済み修正を再適用するリスクは構造的に存在
-- post-merge-feedback (PR #83) が同一セッション transcript から本事象を独立に検出
-- ユーザー意思決定の override に該当する重大なリスク (本来の意図と異なる変更が混入する)
-
-#### 設計決定 (案)
-
-- 配置先: 第一候補 `~/.claude/CLAUDE.md` の Personal Preferences 配下 (Decision Handling 等の新規セクション)。第二候補 `~/.claude/rules/common/coding-style.md`
-- 第一候補の根拠: Claude 自身の動作ルールに該当するため CLAUDE.md (グローバル指示) が自然
-- ルール文 (案):
-  > **却下済み変更の再適用禁止**: セッション内でユーザーが明示的に却下した変更 (CodeRabbit findings の reject、design choice の reject など) は、後続の Edit / Write 操作で **付随適用してはならない**。AI が「整合性のため」「ついでに」「ベストプラクティスだから」として再適用するのも禁止。例外: ユーザーが新たに同セッションで明示的に採用を表明した場合のみ。
-- スコープ: 全プロジェクトの全セッションに即時適用
-
-#### 作業計画
-
-- [ ] 配置先決定 (CLAUDE.md vs coding-style.md、第一候補は CLAUDE.md)
-- [ ] 該当ファイルにルール文を追記
-- [ ] memory `feedback_*.md` で関連する判断 (今回の MD040 reverted 経緯) があれば参照を追加
-- [ ] 動作確認: 次回セッションで却下済み変更の再適用が発生しないか観察
-- [ ] 本 todo2.md エントリを削除
-
-#### 完了基準
-
-- ~/.claude/ 配下に「却下済み変更の再適用禁止」ルールが明記される
-- 次回セッションで AI が却下済み変更を付随適用しない (ユーザー明示指示なしで挙動変化を確認)
-- 順位 1 / 順位 2 と並列実施で 1 セッション内に完了 (~/.claude/ 配下のグローバルルール 3 件を一括整備)
-
-#### 詰まっている箇所
-
-なし (Effort XS、追記のみ)
