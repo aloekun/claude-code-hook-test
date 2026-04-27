@@ -1,6 +1,29 @@
 # TODO
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
+>
+> **本ファイル + [docs/todo2.md](todo2.md) の使い分け**: todo.md がサイズ ~40KB に達したため新規タスクは todo2.md に記録。新セッションでは両方を確認すること。
+
+---
+
+## 推奨実行順序サマリー (2026-04-27 更新)
+
+開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
+
+| 順位 | Tier | タスク | ファイル | 工数 | 依存 |
+|---|---|---|---|---|---|
+| 1 | 🚀 Tier 1 | git-workflow.md jj 運用節更新 (Tier 3 finding) | todo.md | XS | なし |
+| 2 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 (Tier 1 finding) | todo.md | Small | なし (順位 6 の前提) |
+| 3 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (1/2 と並列可) |
+| 4 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 6 の compensating check 前提) |
+| 5 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check 統合 | todo2.md | Small-中 | 順位 2 (clean baseline) |
+| 6 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 2, 4, 3, 5 |
+| 7 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 4 dogfood + 順位 6 |
+| 8 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 7 |
+| 9 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
+| 10 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 9 Phase F |
+
+**戦略**: Tier 1 (1〜3) を 1 セッションで片付け → Tier 2 (4, 5) で D の前提を埋める → Tier 3 (6〜8) で D を land。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
 ---
 
@@ -11,6 +34,8 @@
 > **動機**: PR #74 マージ後の dogfood で、ADR-029 設計の **silent loss 問題** が顕在化した。Stop hook + skill ベースの auto-trigger は Claude のターン取得次第で機能せず、決定論的実行が成立しない。skill 機構は本質的に "ask-based" であり must-run 要件には不適合という設計上の知見が得られた。
 >
 > **本タスクの位置づけ**: ADR-029 を partial supersede する新 ADR-030 を起案し、takt 経由の決定論的フィードバック機構へ移行する。本タスク完了で post-merge-feedback skill / pending file / Stop hook (hooks-stop-feedback-dispatch) はすべて廃止される。
+>
+> **実行優先度**: 🧹 **Tier 4 (順位 9/10)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
 
 #### 背景: ADR-029 の構造的欠陥 (PR #74 dogfood で実証)
 
@@ -191,6 +216,8 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 ### (追って) ADR-030 の takt-test-vc 反映
 
 > **参照**: 上位タスク「マージ後フィードバック機構の決定論化」の Phase F 完了が前提。元の 1-F (ADR-014 本採用化 + takt-test-vc 反映) は ADR-014 が ADR-030 で Superseded されるため scope 変更。
+>
+> **実行優先度**: ⏳ **Tier 5 (順位 10/10)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 9 (ADR-030 Phase F) 完了後の任意タスク。
 
 - **やろうとしたこと**: 本プロジェクトで ADR-030 機構が安定稼働 (Phase F dogfood 完了) した後、takt-test-vc へ機構ごとバックポート
 - **現在地**: 上位タスクの Phase F 完了待ち
@@ -203,6 +230,8 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 > **本タスクの位置づけ**: ADR-027 (push-time = simplicity 限定 / architectural review = post-PR) を補完する新 ADR-031 を起案し、週次レビュー基盤 (takt workflow + skill + SessionStart hook reminder) を実装する。試験運用フラグで導入し、1〜2 週の dogfood 観測後に本採用判断。
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
+>
+> **実行優先度**: 🔧 **Tier 2 (順位 4/10)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 6 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
 
 #### 背景: 既存レビューの空白
 
@@ -377,6 +406,104 @@ SessionStart hook (hooks-session-start.exe 拡張)
 #### 詰まっている箇所
 
 なし (全方向確定済、Phase A から着手可能)
+
+### Markdown linter (markdownlint-cli2) の PostToolUse hook 統合
+
+> **動機**: PR #81 の CodeRabbit が `docs/todo.md:221` の MD040 (fenced-code-language) 違反を Nitpick で指摘。同種の違反 (Fenced code block の言語指定子不足) は過去にも度々発生しており、人間レビューでは見落としやすい。本プロジェクトでは markdownlint を意図的に外していたわけではなく、存在を認識していなかっただけと判明。post-merge-feedback (PR #81) も Tier 1 (決定論的防止) として独立に同提案を生成。
+>
+> **本タスクの位置づけ**: ADR-002 の PostToolUse linter composition (Biome + oxlint) を `.md` ファイルに拡張する。push pipeline 統合ではなく **hook 方式** を採用することで edit 時の自動 `--fix` を実現し、ユーザーに違反が見える前に修正完了させる。
+
+> **参照**: `.claude/feedback-reports/81.md` の Tier 1 finding (post-merge-feedback による独立提案)
+>
+> **実行優先度**: 🚀 **Tier 1 (順位 2/10)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。順位 1 と並列または直後に実施推奨。
+
+#### 背景
+
+- 過去レビューで MD040 違反が複数 PR で指摘されている
+- 既存パターン (ADR-002): TypeScript/JS は Biome + oxlint の二段階構成を PostToolUse hook 経由で自動 `--fix`
+- 本タスク以前は `.md` がこの仕組みの対象外 → 違反が CodeRabbit 段階まで残っていた
+- 行単位スキャンの custom_lint_rule では fence 開閉判定が不可能 → 専用 linter (markdownlint-cli2) が必要
+- post-merge-feedback (PR #81) が Tier 1 として独立に挙げ、当初検討した push pipeline 統合より hook 方式が既存パターンと整合する点を補強
+
+#### 設計決定 (案)
+
+- ツール: `markdownlint-cli2` (npm) を devDependencies に追加
+- 設定: `.markdownlint.json` をリポジトリルートに配置
+- ルール: MD040 (fenced-code-language) を有効、MD013 (line-length) は日本語混在のため無効、その他は実態に合わせて段階導入
+- 統合先: `.claude/hooks-config.toml` の `[post_tool_linter]` に `extensions = ["md"]` パイプラインを追加し `markdownlint-cli2 --fix "{file}"` を実行
+- 適用範囲: PostToolUse hook で edit/write 時にトリガー、対象は `*.md` 全般 (docs/, README.md, CLAUDE.md, .claude/skills/**/*.md)
+- clean baseline: lint 有効化前に別 commit で repository 全体を一括 `--fix` してから hook 統合
+
+#### 作業計画
+
+- [ ] `markdownlint-cli2` を devDependencies に追加
+- [ ] `.markdownlint.json` を作成 (MD040 有効、MD013 無効、他は段階導入)
+- [ ] `pnpm lint:md` script を追加 (CI/手動チェック用、引数なしで repository 全体)
+- [ ] 既存違反を別 commit で一括 `--fix` (clean baseline 確立)
+- [ ] `.claude/hooks-config.toml` の `[post_tool_linter]` に `markdownlint-cli2 --fix "{file}"` パイプラインを追加 (extensions = ["md"])
+- [ ] `pnpm build:all` + `pnpm deploy:hooks` で派生プロジェクトへ展開
+- [ ] dogfood: 任意の `.md` を編集して PostToolUse hook が `--fix` を走らせることを確認
+- [ ] 本 todo.md エントリを削除 (運用ルール: 完了タスクは仕組みに反映後に削除)
+
+#### 完了基準
+
+- PostToolUse hook で `.md` 編集時に `markdownlint-cli2 --fix` が走り、自動修正される
+- repository 全体で markdownlint violations = 0 (push 前に違反が残らない)
+- CodeRabbit が MD040 系の Nitpick を出さなくなる (本機構で先行修正されるため)
+- 派生プロジェクト (techbook-ledger, auto-review-fix-vc) にも展開済み
+
+#### 詰まっている箇所
+
+なし (post-merge-feedback Tier 1 finding として既に検証済み、Effort Small)
+
+### グローバルルール `git-workflow.md` の jj 運用節更新 (todo.md 完了タスク削除手順)
+
+> **動機**: 本セッション中に「ADR-031 Phase A 完了に伴う docs/todo.md 削除を独立 commit にしたい」とユーザーから明示指示を受けた (2026-04-26)。memory `feedback_todo_no_history.md` は削除自体は規定するが、jj 環境での具体手順 (`jj new` → 削除 → `jj describe`) は欠落していたため、AI が誤って単一 commit に詰め込もうとした。post-merge-feedback (PR #81) が Tier 3 (ドキュメント/ルール) として独立に同提案を生成。
+>
+> **本タスクの位置づけ**: グローバルルール (`~/.claude/rules/common/git-workflow.md`) への追記。本プロジェクトに閉じない普遍的な jj 運用規約として扱う。本タスク完了で全プロジェクトの新セッションで自動的に同じ判断ができるようになる。
+
+> **参照**: `.claude/feedback-reports/81.md` の Tier 3 finding (post-merge-feedback による独立提案)
+>
+> **実行優先度**: 🚀 **Tier 1 (順位 1/10)** — 工数 XS (数行追記)、グローバルルールなので **全プロジェクト** で即時効果。完了すれば AI が commit 分離を自動判断 (本セッションで実証された必要性の恒久化)。**最初に着手すべき**。
+
+#### 背景
+
+- jj 環境では auto-snapshot により @ への編集は即座に commit に反映される (Git の staging area 概念がない)
+- 本作業 commit (機能実装 + todo.md タスク追加) と、Phase 完了に伴う todo.md タスク削除 commit を分けることで、レビューしやすく、後から `git log` で「いつ何が完了したか」を追跡しやすい
+- ユーザー指示 (2026-04-26 19:17 頃): 「タスク追加 commit と削除 commit は分離せよ」
+- memory `feedback_todo_no_history.md` は削除原則を述べるが手順は無し → 補完が必要
+- グローバルルールなので本プロジェクト以外でも適用可能
+
+#### 設計決定 (案)
+
+- 追記先: `~/.claude/rules/common/git-workflow.md` の jj 運用節 (新規セクション)
+- 内容: 「### todo.md 完了タスク削除手順 (jj 環境)」セクションを追加
+- 手順を明記:
+  1. 本作業 commit (機能実装 + todo.md 追加 等) を `jj describe` する
+  2. `jj new` で新 commit を作成
+  3. `docs/todo.md` から該当タスクを削除 (Edit)
+  4. `jj describe -m "docs(todo): <タスク名> 完了に伴い削除"` で記述
+  5. `pnpm push` で 2 commits を一括 push (PR は単一)
+- 関連: memory `feedback_todo_no_history.md` から本ルールへの参照を追加し、How to apply の補強とする
+- 適用範囲: グローバル (`~/.claude/`)、本リポジトリの commit には含まれない
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/git-workflow.md` の現状構造を確認 (既存 jj 節の有無、追記位置)
+- [ ] 「### todo.md 完了タスク削除手順 (jj 環境)」セクションを追記
+- [ ] memory `feedback_todo_no_history.md` を更新して新ルールへの参照を追加 (重複を避けるため How to apply 行のみ補強)
+- [ ] 動作確認: 次回の実 todo.md 完了タスク削除時に新ルールに従って自動的に commit を分離できるか観察
+- [ ] 本 todo.md エントリを削除 (グローバルルール反映後)
+
+#### 完了基準
+
+- `~/.claude/rules/common/git-workflow.md` に jj での todo.md 削除手順が明記され、新セッションでも同じ判断ができる
+- memory `feedback_todo_no_history.md` から git-workflow.md への参照が追加されている
+- 次回の実運用で commit 分離が自然に行われる (ユーザーからの明示指示なしで)
+
+#### 詰まっている箇所
+
+なし (Effort XS、追記のみ)
 
 ---
 
