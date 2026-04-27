@@ -17,7 +17,7 @@
 | 3 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 (Tier 1 finding) | todo.md | Small | なし (順位 8 の前提) |
 | 4 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | 順位 2 |
 | 5 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 8 の compensating check 前提) |
-| 6 | 🔧 Tier 2 | **reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化、T3-combined)** | todo.md | S | なし |
+| 6 | 🔧 Tier 2 | **reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化、T3-combined)** | todo2.md | S | なし |
 | 7 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check 統合 | todo2.md | Small-中 | 順位 3 (clean baseline) |
 | 8 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 2, 3, 4, 5, 7 |
 | 9 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 5 dogfood + 順位 8 |
@@ -558,56 +558,6 @@ SessionStart hook (hooks-session-start.exe 拡張)
 #### 詰まっている箇所
 
 なし (Effort XS、追記のみ)
-
-### Reviewer facet 改善 (review-simplicity / review-security の判定軸明文化、PR #82 T3-combined)
-
-> **動機**: PR #82 の pre-push-review で simplicity-review が docs 階層化を DRY 違反と誤検出する余地を観測 (実害は出なかったが false positive 発生条件)。post-merge-feedback (PR #82) が 3 件の reviewer 改善提案を生成 (simplicity の DRY スコープ規定 / YAGNI スコープ規定 / security の docs-only 判定軸)。reviewer の精度向上は **全 PR の review 効率に直結**。
->
-> **本タスクの位置づけ**: 既存 reviewer facet (`.takt/facets/instructions/review-simplicity.md` / `review-security.md`) のガイドライン明文化。新 facet 作成ではなく既存 instruction の補強。pre-push-review のみならず ADR-031 週次レビューや ADR-032 docs-only fast path にも整合性として効く。
->
-> **参照**: `.claude/feedback-reports/82.md` の Tier 3 #2-4 findings (3 件を統合)
->
-> **実行優先度**: 🔧 **Tier 2 (順位 6/12)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 5 (週次レビュー Phase B) / 順位 7 (ADR-032 PR-broken-link) と並列実施可能。Effort S × 3 = ~S。
-
-#### 背景
-
-- 本セッションでの観測:
-  - simplicity-review が docs 階層化や YAGNI 適用範囲を誤って指摘する余地
-  - security-review が docs-only 変更で「trust boundary 不変」を正しく判定したが、判定軸が明文化されていない
-- 全て小さな issue だが、reviewer の精度は全 PR の効率に直結 (false positive iteration はコスト)
-- post-merge-feedback (PR #82) が 3 件を Tier 3 として独立に提案
-
-#### 設計決定 (案)
-
-3 つの finding を 1 タスクに統合し、2 ファイルへの追記で完結:
-
-##### `.takt/facets/instructions/review-simplicity.md` への追記
-
-- **DRY 適用範囲**: 「DRY 適用対象は **コードロジックのみ**。ドキュメントの階層化や記述の重複 (テーブル + bullet 等) は対象外」
-- **YAGNI 適用範囲**: 「YAGNI 適用対象はコード。**計画書・ドキュメント内の "将来候補" / "Phase 2 検討" 記述は対象外** (これらは設計の前提共有が目的で、実装の投機ではない)」
-
-##### `.takt/facets/instructions/review-security.md` への追記
-
-- **docs-only 変更の判定軸**: 「docs-only 変更の security 評価は **trust boundary の変化有無** で判断する。trust boundary が変化しない docs 変更 (ポリシー説明、用語定義、設計記述等) はリスクなしと即判定。trust boundary に関わる docs 変更 (認証ポリシー変更の文書化、権限境界の再定義等) は通常通り security review を実施」
-
-#### 作業計画
-
-- [ ] `.takt/facets/instructions/review-simplicity.md` に DRY スコープ + YAGNI スコープ規定を追記
-- [ ] `.takt/facets/instructions/review-security.md` に docs-only 判定軸を追記
-- [ ] takt 単体 dry-run で reviewer の判定挙動を確認 (false positive 削減)
-- [ ] 派生 facet (`review-simplicity-whole.md` / `review-security-whole.md` を作成する場合、ADR-031 Phase B で派生時) にも同じ規定を継承
-- [ ] dogfood: 次回 docs PR や docs 階層化を含む PR で reviewer の判定が安定することを観察
-- [ ] 本 todo.md エントリを削除
-
-#### 完了基準
-
-- review-simplicity / review-security の判定軸が明文化され、false positive 発生条件が縮小
-- 派生 facet (whole-tree 版を作る場合) にも同規定が継承される
-- 次回 docs PR で simplicity-review / security-review の判定が安定 (DRY false positive ゼロ、security 軸の明確化を確認)
-
-#### 詰まっている箇所
-
-なし (Effort S、既存 instruction への追記のみ)
 
 ---
 
