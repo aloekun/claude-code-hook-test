@@ -6,24 +6,28 @@
 
 ---
 
-## 推奨実行順序サマリー (2026-04-27 更新)
+## 推奨実行順序サマリー (2026-04-27 更新、PR #82 post-merge-feedback 反映後)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
 | 1 | 🚀 Tier 1 | git-workflow.md jj 運用節更新 (Tier 3 finding) | todo.md | XS | なし |
-| 2 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 (Tier 1 finding) | todo.md | Small | なし (順位 6 の前提) |
-| 3 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (1/2 と並列可) |
-| 4 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 6 の compensating check 前提) |
-| 5 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check 統合 | todo2.md | Small-中 | 順位 2 (clean baseline) |
-| 6 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 2, 4, 3, 5 |
-| 7 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 4 dogfood + 順位 6 |
-| 8 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 7 |
-| 9 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
-| 10 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 9 Phase F |
+| 2 | 🚀 Tier 1 | **個人開発ブランチ保護方針 ADR/グローバルルール明文化 (T3-1)** | todo.md | XS | なし |
+| 3 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 (Tier 1 finding) | todo.md | Small | なし (順位 8 の前提) |
+| 4 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | 順位 2 |
+| 5 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 8 の compensating check 前提) |
+| 6 | 🔧 Tier 2 | **reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化、T3-combined)** | todo.md | S | なし |
+| 7 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check 統合 | todo2.md | Small-中 | 順位 3 (clean baseline) |
+| 8 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 2, 3, 4, 5, 7 |
+| 9 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 5 dogfood + 順位 8 |
+| 10 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 9 |
+| 11 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
+| 12 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 11 Phase F |
 
-**戦略**: Tier 1 (1〜3) を 1 セッションで片付け → Tier 2 (4, 5) で D の前提を埋める → Tier 3 (6〜8) で D を land。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
+**戦略**: Tier 1 (1〜4) を 1〜2 セッションで片付け → Tier 2 (5〜7) で D の前提を埋める → Tier 3 (8〜10) で D を land。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
+
+**順位 1-2 はグローバルルール (`~/.claude/rules/common/`) 整備で並列可**。順位 6 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 5/7 と並列実施可能。
 
 ---
 
@@ -35,7 +39,7 @@
 >
 > **本タスクの位置づけ**: ADR-029 を partial supersede する新 ADR-030 を起案し、takt 経由の決定論的フィードバック機構へ移行する。本タスク完了で post-merge-feedback skill / pending file / Stop hook (hooks-stop-feedback-dispatch) はすべて廃止される。
 >
-> **実行優先度**: 🧹 **Tier 4 (順位 9/10)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
+> **実行優先度**: 🧹 **Tier 4 (順位 11/12)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
 
 #### 背景: ADR-029 の構造的欠陥 (PR #74 dogfood で実証)
 
@@ -217,7 +221,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 > **参照**: 上位タスク「マージ後フィードバック機構の決定論化」の Phase F 完了が前提。元の 1-F (ADR-014 本採用化 + takt-test-vc 反映) は ADR-014 が ADR-030 で Superseded されるため scope 変更。
 >
-> **実行優先度**: ⏳ **Tier 5 (順位 10/10)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 9 (ADR-030 Phase F) 完了後の任意タスク。
+> **実行優先度**: ⏳ **Tier 5 (順位 12/12)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 11 (ADR-030 Phase F) 完了後の任意タスク。
 
 - **やろうとしたこと**: 本プロジェクトで ADR-030 機構が安定稼働 (Phase F dogfood 完了) した後、takt-test-vc へ機構ごとバックポート
 - **現在地**: 上位タスクの Phase F 完了待ち
@@ -231,7 +235,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 4/10)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 6 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
+> **実行優先度**: 🔧 **Tier 2 (順位 5/12)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 8 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
 
 #### 背景: 既存レビューの空白
 
@@ -415,7 +419,7 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 > **参照**: `.claude/feedback-reports/81.md` の Tier 1 finding (post-merge-feedback による独立提案)
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 2/10)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。順位 1 と並列または直後に実施推奨。
+> **実行優先度**: 🚀 **Tier 1 (順位 3/12)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。順位 1-2 (グローバルルール 2 件) と並列または直後に実施推奨。**PR #82 post-merge-feedback で MD028 / MD040 / MD058 が初期 rule set として明示された** (T1-1 + T1-2 sub-task として吸収)。
 
 #### 背景
 
@@ -429,7 +433,7 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 - ツール: `markdownlint-cli2` (npm) を devDependencies に追加
 - 設定: `.markdownlint.json` をリポジトリルートに配置
-- ルール: MD040 (fenced-code-language) を有効、MD013 (line-length) は日本語混在のため無効、その他は実態に合わせて段階導入
+- ルール: **MD028 (no-blanks-blockquote)、MD040 (fenced-code-language)、MD058 (blanks-around-tables)** を初期 rule set として有効化 (PR #82 の post-merge-feedback で検出された 3 ルール)。MD013 (line-length) は日本語混在のため無効、その他は段階導入
 - 統合先: `.claude/hooks-config.toml` の `[post_tool_linter]` に `extensions = ["md"]` パイプラインを追加し `markdownlint-cli2 --fix "{file}"` を実行
 - 適用範囲: PostToolUse hook で edit/write 時にトリガー、対象は `*.md` 全般 (docs/, README.md, CLAUDE.md, .claude/skills/**/*.md)
 - clean baseline: lint 有効化前に別 commit で repository 全体を一括 `--fix` してから hook 統合
@@ -437,7 +441,7 @@ SessionStart hook (hooks-session-start.exe 拡張)
 #### 作業計画
 
 - [ ] `markdownlint-cli2` を devDependencies に追加
-- [ ] `.markdownlint.json` を作成 (MD040 有効、MD013 無効、他は段階導入)
+- [ ] `.markdownlint.json` を作成 (MD028 / MD040 / MD058 を有効化、MD013 無効、他は段階導入)
 - [ ] `pnpm lint:md` script を追加 (CI/手動チェック用、引数なしで repository 全体)
 - [ ] 既存違反を別 commit で一括 `--fix` (clean baseline 確立)
 - [ ] `.claude/hooks-config.toml` の `[post_tool_linter]` に `markdownlint-cli2 --fix "{file}"` パイプラインを追加 (extensions = ["md"])
@@ -464,7 +468,7 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 > **参照**: `.claude/feedback-reports/81.md` の Tier 3 finding (post-merge-feedback による独立提案)
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 1/10)** — 工数 XS (数行追記)、グローバルルールなので **全プロジェクト** で即時効果。完了すれば AI が commit 分離を自動判断 (本セッションで実証された必要性の恒久化)。**最初に着手すべき**。
+> **実行優先度**: 🚀 **Tier 1 (順位 1/12)** — 工数 XS (数行追記)、グローバルルールなので **全プロジェクト** で即時効果。完了すれば AI が commit 分離を自動判断 (本セッションで実証された必要性の恒久化)。**最初に着手すべき**。順位 2 (ブランチ保護方針 ADR) も同じ ~/.claude/rules/common/ への追記なので並列実施推奨。
 
 #### 背景
 
@@ -504,6 +508,106 @@ SessionStart hook (hooks-session-start.exe 拡張)
 #### 詰まっている箇所
 
 なし (Effort XS、追記のみ)
+
+### 個人開発ブランチ保護方針 ADR/グローバルルール明文化 (PR #82 T3-1)
+
+> **動機**: PR #81 / #82 の計画フェーズで「個人開発 + AI エージェント前提では Required reviewers (人間レビュー必須) は anti-pattern」という判断に到達したが、計画フェーズで 7 回のフィードバック反復を要した。次回類似設計時に同じ反復を繰り返さないため、設計原則を恒久化する。post-merge-feedback (PR #82) が Tier 3 として独立に提案。
+>
+> **本タスクの位置づけ**: グローバルルール (`~/.claude/rules/common/`) への追記。本プロジェクトに閉じない普遍的な「個人開発でのブランチ保護方針」として扱う。本タスク完了で全プロジェクトの新セッションで同じ設計判断を再現可能にする。
+>
+> **参照**: `.claude/feedback-reports/82.md` の Tier 3 #1 finding
+>
+> **実行優先度**: 🚀 **Tier 1 (順位 2/12)** — 工数 XS (数行追記)、グローバルルールなので **全プロジェクト** で即時効果。順位 1 (git-workflow.md jj 運用節更新) と同じ ~/.claude/rules/common/ への追記のため **並列実施推奨**。次回 docs-only fast path や類似の責務分離設計で 7 回反復のコストを回避できる。
+
+#### 背景
+
+- ADR-032 Phase pre 設計時、初稿は「Required reviewers: 人間 (or 自分) を最低 1」を含んでいた
+- ユーザーフィードバックで「個人開発でこれは anti-pattern (人間レビューが律速になる)」と指摘され削除
+- 同種の判断は今後の (派生プロジェクト含む) 設計でも繰り返し発生する想定
+- 既存 `~/.claude/rules/common/` には branch protection 方針の明文化なし
+- post-merge-feedback (PR #82) が「7 回のフィードバック反復」を観測し再発防止策として提案
+
+#### 設計決定 (案)
+
+- 追記先: `~/.claude/rules/common/git-workflow.md` の新規セクション、または新規ファイル `~/.claude/rules/common/branch-protection.md`
+- 配置判断: branch protection は git workflow の一部なので、**git-workflow.md 内の新セクション** が清潔。順位 1 タスクと同一ファイル編集で一括完了
+- 内容:
+  - **「Required reviewers (人間レビュー必須) は個人開発 + AI エージェント前提では anti-pattern」** という結論を明文化
+  - 理由: 実装/テスト/PR 作成が AI 自動化される中、人間レビュー必須は唯一の同期処理として律速になる
+  - 採用すべき構成:
+    - 即時 (push 時): CI / lint / test / build — ブロッキング (Required status checks)
+    - PR 時: CodeRabbit — 非ブロッキング、センサー (異常検知のみ)
+    - 遅延・包括: 週次レビュー (cross-PR drift 補完)
+    - 任意: 人間レビュー — event-driven (バグ / 大きい変更 / 設計変更時のみ)
+  - 設計の本質: **「全変更をレビューする」ではなく「リスクの高い変更だけ止める」**
+  - 適用範囲: 個人開発 + コーディングエージェント前提のリポジトリ。チーム開発では別判断
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/git-workflow.md` の現状構造を確認 (既存セクションの場所、順位 1 タスクとの統合箇所)
+- [ ] 新セクション「### Branch Protection 方針 (個人開発 + AI エージェント前提)」を追記
+- [ ] memory `feedback_*.md` で関連する判断 (Required reviewers 削除の経緯) を補強する形で参照を追加
+- [ ] 動作確認: 次回類似設計時 (派生プロジェクト等) に新ルールが自然に参照されるか観察
+- [ ] 本 todo.md エントリを削除 (グローバルルール反映後)
+
+#### 完了基準
+
+- `~/.claude/rules/common/git-workflow.md` に branch protection 方針が明記され、新セッションでも同じ判断ができる
+- 次回類似設計で「人間レビュー必須は anti-pattern」判断が即座に下せる (反復コスト削減)
+
+#### 詰まっている箇所
+
+なし (Effort XS、追記のみ)
+
+### Reviewer facet 改善 (review-simplicity / review-security の判定軸明文化、PR #82 T3-combined)
+
+> **動機**: PR #82 の pre-push-review で simplicity-review が docs 階層化を DRY 違反と誤検出する余地を観測 (実害は出なかったが false positive 発生条件)。post-merge-feedback (PR #82) が 3 件の reviewer 改善提案を生成 (simplicity の DRY スコープ規定 / YAGNI スコープ規定 / security の docs-only 判定軸)。reviewer の精度向上は **全 PR の review 効率に直結**。
+>
+> **本タスクの位置づけ**: 既存 reviewer facet (`.takt/facets/instructions/review-simplicity.md` / `review-security.md`) のガイドライン明文化。新 facet 作成ではなく既存 instruction の補強。pre-push-review のみならず ADR-031 週次レビューや ADR-032 docs-only fast path にも整合性として効く。
+>
+> **参照**: `.claude/feedback-reports/82.md` の Tier 3 #2-4 findings (3 件を統合)
+>
+> **実行優先度**: 🔧 **Tier 2 (順位 6/12)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 5 (週次レビュー Phase B) / 順位 7 (ADR-032 PR-broken-link) と並列実施可能。Effort S × 3 = ~S。
+
+#### 背景
+
+- 本セッションでの観測:
+  - simplicity-review が docs 階層化や YAGNI 適用範囲を誤って指摘する余地
+  - security-review が docs-only 変更で「trust boundary 不変」を正しく判定したが、判定軸が明文化されていない
+- 全て小さな issue だが、reviewer の精度は全 PR の効率に直結 (false positive iteration はコスト)
+- post-merge-feedback (PR #82) が 3 件を Tier 3 として独立に提案
+
+#### 設計決定 (案)
+
+3 つの finding を 1 タスクに統合し、2 ファイルへの追記で完結:
+
+##### `.takt/facets/instructions/review-simplicity.md` への追記
+
+- **DRY 適用範囲**: 「DRY 適用対象は **コードロジックのみ**。ドキュメントの階層化や記述の重複 (テーブル + bullet 等) は対象外」
+- **YAGNI 適用範囲**: 「YAGNI 適用対象はコード。**計画書・ドキュメント内の "将来候補" / "Phase 2 検討" 記述は対象外** (これらは設計の前提共有が目的で、実装の投機ではない)」
+
+##### `.takt/facets/instructions/review-security.md` への追記
+
+- **docs-only 変更の判定軸**: 「docs-only 変更の security 評価は **trust boundary の変化有無** で判断する。trust boundary が変化しない docs 変更 (ポリシー説明、用語定義、設計記述等) はリスクなしと即判定。trust boundary に関わる docs 変更 (認証ポリシー変更の文書化、権限境界の再定義等) は通常通り security review を実施」
+
+#### 作業計画
+
+- [ ] `.takt/facets/instructions/review-simplicity.md` に DRY スコープ + YAGNI スコープ規定を追記
+- [ ] `.takt/facets/instructions/review-security.md` に docs-only 判定軸を追記
+- [ ] takt 単体 dry-run で reviewer の判定挙動を確認 (false positive 削減)
+- [ ] 派生 facet (`review-simplicity-whole.md` / `review-security-whole.md` を作成する場合、ADR-031 Phase B で派生時) にも同じ規定を継承
+- [ ] dogfood: 次回 docs PR や docs 階層化を含む PR で reviewer の判定が安定することを観察
+- [ ] 本 todo.md エントリを削除
+
+#### 完了基準
+
+- review-simplicity / review-security の判定軸が明文化され、false positive 発生条件が縮小
+- 派生 facet (whole-tree 版を作る場合) にも同規定が継承される
+- 次回 docs PR で simplicity-review / security-review の判定が安定 (DRY false positive ゼロ、security 軸の明確化を確認)
+
+#### 詰まっている箇所
+
+なし (Effort S、既存 instruction への追記のみ)
 
 ---
 
