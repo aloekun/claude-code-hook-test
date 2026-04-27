@@ -3,6 +3,8 @@
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
 > **本ファイルの位置付け**: docs/todo.md がファイルサイズ約 40KB に達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する。todo.md の既存エントリは引き続き有効、相互に独立。新セッションでは両方を確認すること。
+>
+> **推奨実行順序**: 全タスク横断のサマリーは [docs/todo.md](todo.md#推奨実行順序サマリー-2026-04-27-更新) を参照。本ファイルに記録する ADR-032 は sub-phase ごとに Tier が分散するため、各 Phase の冒頭に個別の優先度を記載。
 
 ---
 
@@ -15,6 +17,16 @@
 > **本タスクの位置づけ**: ロジック変更やアーキテクチャの置き換えなど **意味のある実装** に対するレビューは残しつつ、**ドキュメント単独の変更** は high-velocity で反映できる balance を取る。skip の代償は「即時 broken-link-check」「CodeRabbit 非ブロッキングコメント」「週次レビュー (ADR-031) の docs 整合性観点追加」の三層で補償する。試験運用フラグで導入し、4-6 週の dogfood 観測後に本採用判断。
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
+>
+> **実行優先度**: タスク全体は **🚀 Tier 1 〜 💎 Tier 3 に分散** (Phase ごとに優先度が異なる)。
+> - Phase pre (branch protection): **Tier 1 (順位 3/10)** — 設定のみ、A/B と並列可
+> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2 (順位 4/10)**
+> - Phase broken-link: **Tier 2 (順位 5/10)** — 順位 2 (markdownlint) の clean baseline 後が望ましい
+> - Phase β (実装、enabled=false): **Tier 3 (順位 6/10)** — 全前提揃ってから
+> - Phase γ (enablement): **Tier 3 (順位 7/10)** — 順位 4 dogfood 後の 1 行 flip
+> - Phase δ (dogfood): **Tier 3 (順位 8/10)** — 実 docs PR で検証
+>
+> **最大 payoff**: Phase γ enable 後、docs PR 所要時間 ~15min → ~30sec (30 倍速)。daily efficiency への貢献は本リポジトリ随一だが、**前提依存が多いため近道はない**。
 
 #### 背景
 
