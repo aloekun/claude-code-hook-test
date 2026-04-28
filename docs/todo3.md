@@ -295,7 +295,7 @@ Hint:
 >
 > **本タスクの位置づけ**: post-pr-review workflow の analyze ステップに rate-limit 検出 → 自動 wait → 再トリガーを組み込む。本 PR で実証されたタイムスタンプ計算ロジック (`updated_at + remaining_minutes + 60s buffer`) をそのまま自動化する。
 >
-> **参照**: `.claude/feedback-reports/89.md` の Tier 2 #2 finding
+> **参照**: `.claude/feedback-reports/89.md` の Tier 2 #1 finding
 >
 > **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。順位 13 (cli-pr-monitor polling 延長 + 重複起動ロック) と補完関係 (本タスクは review 単位の対応、順位 13 はポーリング頻度全体の削減)。順位 4 (Polling anti-pattern 検出) も類似の rate-limit 削減ライン。
 
