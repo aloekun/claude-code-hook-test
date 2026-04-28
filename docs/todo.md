@@ -10,26 +10,34 @@
 
 ---
 
-## 推奨実行順序サマリー (2026-04-28 更新、順位 1-3 グローバルルール完了後)
+## 推奨実行順序サマリー (2026-04-28 更新、PR #85 post-merge-feedback 反映後)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 1 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 (Tier 1 finding) | todo.md | Small | なし (順位 6 の前提) |
-| 2 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
-| 3 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 6 の compensating check 前提) |
-| 4 | 🔧 Tier 2 | **reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化、T3-combined)** | todo2.md | S | なし |
-| 5 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check 統合 | todo2.md | Small-中 | 順位 1 (clean baseline) |
-| 6 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 2, 3, 5 |
-| 7 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 3 dogfood + 順位 6 |
-| 8 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 7 |
-| 9 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
-| 10 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 9 Phase F |
+| 1 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 | todo.md | Small | なし (順位 10 の前提) |
+| 2 | 🚀 Tier 1 | **push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4)** | todo2.md | Small | なし (PR #85 直接対策) |
+| 3 | 🚀 Tier 1 | **`cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3)** | todo2.md | S | なし |
+| 4 | 🚀 Tier 1 | **PowerShell swallowed error custom_lint_rule (PR #85 T1-2)** | todo2.md | XS | なし (ADR-007 拡張) |
+| 5 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
+| 6 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 10 の compensating check 前提) |
+| 7 | 🔧 Tier 2 | reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化) | todo2.md | S | なし |
+| 8 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | 順位 1 (clean baseline) |
+| 9 | 🔧 Tier 2 | **`cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2)** | todo2.md | S | なし |
+| 10 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 5, 6, 8 |
+| 11 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 6 dogfood + 順位 10 |
+| 12 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 11 |
+| 13 | 💎 Tier 3 | **日付ベース見出しアンカー更新ルールのグローバル明文化 (PR #85 T3-1)** | todo2.md | XS | なし |
+| 14 | 💎 Tier 3 | **jj conflict リカバリ手順のグローバル明文化 (PR #85 T3-2)** | todo2.md | XS | なし |
+| 15 | 💎 Tier 3 | **`__` prefix scratch file 規約のグローバル明文化 (PR #85 T3-3)** | todo2.md | XS | なし |
+| 16 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
+| 17 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 16 Phase F |
 
-**戦略**: Tier 1 (1〜2) を 1〜2 セッションで片付け → Tier 2 (3〜5) で D の前提を埋める → Tier 3 (6〜8) で D を land。Tier 4-5 (9〜10) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
+**戦略**: Tier 1 (1〜5) を 1〜2 セッションで片付け → Tier 2 (6〜9) で D の前提を埋める → Tier 3 (10〜15) で D を land + ドキュメント整備。Tier 4-5 (16〜17) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
-**順位 4 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 3/5 と並列実施可能**。
+**順位 7 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 6/8/9 と並列実施可能**。
+**順位 13-15 (PR #85 T3 グローバルルール 3 件) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
 
 ---
 
@@ -41,7 +49,7 @@
 >
 > **本タスクの位置づけ**: ADR-029 を partial supersede する新 ADR-030 を起案し、takt 経由の決定論的フィードバック機構へ移行する。本タスク完了で post-merge-feedback skill / pending file / Stop hook (hooks-stop-feedback-dispatch) はすべて廃止される。
 >
-> **実行優先度**: 🧹 **Tier 4 (順位 9/10)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
+> **実行優先度**: 🧹 **Tier 4 (順位 16/17)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
 
 #### 背景: ADR-029 の構造的欠陥 (PR #74 dogfood で実証)
 
@@ -223,7 +231,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 > **参照**: 上位タスク「マージ後フィードバック機構の決定論化」の Phase F 完了が前提。元の 1-F (ADR-014 本採用化 + takt-test-vc 反映) は ADR-014 が ADR-030 で Superseded されるため scope 変更。
 >
-> **実行優先度**: ⏳ **Tier 5 (順位 10/10)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 9 (ADR-030 Phase F) 完了後の任意タスク。
+> **実行優先度**: ⏳ **Tier 5 (順位 17/17)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 16 (ADR-030 Phase F) 完了後の任意タスク。
 
 - **やろうとしたこと**: 本プロジェクトで ADR-030 機構が安定稼働 (Phase F dogfood 完了) した後、takt-test-vc へ機構ごとバックポート
 - **現在地**: 上位タスクの Phase F 完了待ち
@@ -237,7 +245,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 3/10)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 6 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
+> **実行優先度**: 🔧 **Tier 2 (順位 6/17)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 10 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
 
 #### 背景: 既存レビューの空白
 
@@ -421,7 +429,7 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 > **参照**: `.claude/feedback-reports/81.md` の Tier 1 finding (post-merge-feedback による独立提案)
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 1/10)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。**PR #82 post-merge-feedback で MD028 / MD040 / MD058 が初期 rule set として明示された** (T1-1 + T1-2 sub-task として吸収)。
+> **実行優先度**: 🚀 **Tier 1 (順位 1/17)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。**PR #82 post-merge-feedback で MD028 / MD040 / MD058 が初期 rule set として明示された** (T1-1 + T1-2 sub-task として吸収)。
 
 #### 背景
 
