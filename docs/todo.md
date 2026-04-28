@@ -11,6 +11,7 @@
 
 ---
 
+<a id="recommended-order-summary"></a>
 ## 推奨実行順序サマリー (2026-04-28 更新、PR #88 post-merge-feedback 反映後)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
@@ -46,7 +47,7 @@
 
 **順位 9 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 8/10/11 と並列実施可能**。
 **順位 12 (cli-pr-monitor polling 改善) は rate-limit 直撃のため Tier 2 内で最優先候補**。順位 4 (Polling anti-pattern 検出) と補完関係。
-**順位 5-6 (PR #88 T1-1/T1-2) は順位 1 (markdownlint hook 統合、merged 済) の gap closure / 補完**。順位 6 は順位 1 と擦り合わせて重複/補完を判定。
+**順位 5 (Stop hook の lint:md 統合) は旧順位 1 (Markdown linter hook 統合、PR #88 で merged) の gap closure**。**順位 6 (AI 生成一時スクリプト pattern 検出) は現順位 1 (push 前 untracked `__*` hook、PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
 **順位 18-21 (T3 グローバルルール 4 件) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
 **順位 22 (採番管理簡素化 ADR) は本 table の cross-reference 維持コストを構造的に解消するメタタスク**。
 
