@@ -19,12 +19,12 @@
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
 > **実行優先度**: タスク全体は **🚀 Tier 1 〜 💎 Tier 3 に分散** (Phase ごとに優先度が異なる、2026-04-28 採番更新)。
-> - Phase pre (branch protection): **Tier 1 (順位 5/17)** — 設定のみ、順位 1 と並列可
-> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2 (順位 6/17)**
-> - Phase broken-link: **Tier 2 (順位 8/17)** — 順位 1 (markdownlint) の clean baseline 後が望ましい
-> - Phase β (実装、enabled=false): **Tier 3 (順位 10/17)** — 全前提揃ってから
-> - Phase γ (enablement): **Tier 3 (順位 11/17)** — 順位 6 dogfood 後の 1 行 flip
-> - Phase δ (dogfood): **Tier 3 (順位 12/17)** — 実 docs PR で検証
+> - Phase pre (branch protection): **Tier 1 (順位 6/20)** — 設定のみ、順位 1 と並列可
+> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2 (順位 7/20)**
+> - Phase broken-link: **Tier 2 (順位 9/20)** — 順位 1 (markdownlint) の clean baseline 後が望ましい
+> - Phase β (実装、enabled=false): **Tier 3 (順位 11/20)** — 全前提揃ってから
+> - Phase γ (enablement): **Tier 3 (順位 12/20)** — 順位 7 dogfood 後の 1 行 flip
+> - Phase δ (dogfood): **Tier 3 (順位 13/20)** — 実 docs PR で検証
 >
 > **最大 payoff**: Phase γ enable 後、docs PR 所要時間 ~15min → ~30sec (30 倍速)。daily efficiency への貢献は本リポジトリ随一だが、**前提依存が多いため近道はない**。
 
@@ -369,7 +369,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/82.md` の Tier 3 #2-4 findings (3 件を統合)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 7/17)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 6 (週次レビュー Phase B) / 順位 8 (ADR-032 PR-broken-link) / 順位 9 (cli-pr-monitor termination test) と並列実施可能。Effort S × 3 = ~S。
+> **実行優先度**: 🔧 **Tier 2 (順位 8/20)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 7 (週次レビュー Phase B) / 順位 9 (ADR-032 PR-broken-link) / 順位 10 (cli-pr-monitor termination test) と並列実施可能。Effort S × 3 = ~S。
 
 #### 背景
 
@@ -419,7 +419,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 1 #4
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 2/17)** — Small 工数、直近インシデントの直接対策。同種事故 (PR scope 外ファイル混入) の再発防止で、混入時の追加コスト (force-push + 再 review) を回避。
+> **実行優先度**: 🚀 **Tier 1 (順位 2/20)** — Small 工数、直近インシデントの直接対策。同種事故 (PR scope 外ファイル混入) の再発防止で、混入時の追加コスト (force-push + 再 review) を回避。
 
 #### 設計決定 (案)
 
@@ -453,7 +453,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 1 #3
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 3/17)** — S 工数、daily efficiency への直接効果 (失敗 push 1 回あたり 2-3 分 + takt review token 消費を節約)。
+> **実行優先度**: 🚀 **Tier 1 (順位 3/20)** — S 工数、daily efficiency への直接効果 (失敗 push 1 回あたり 2-3 分 + takt review token 消費を節約)。
 
 #### 設計決定 (案)
 
@@ -486,7 +486,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 1 #2
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 4/17)** — XS 工数、ADR-007 既存基盤の拡張のみ。発生頻度は低いが該当時の影響大 (debug 困難化)。
+> **実行優先度**: 🚀 **Tier 1 (順位 4/20)** — XS 工数、ADR-007 既存基盤の拡張のみ。発生頻度は低いが該当時の影響大 (debug 困難化)。
 
 #### 設計決定 (案)
 
@@ -521,7 +521,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 2 #2
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 9/17)** — S 工数、回帰防止が主目的。発生頻度は低いが UX への直接影響あり (手動 kill 必要)。
+> **実行優先度**: 🔧 **Tier 2 (順位 10/20)** — S 工数、回帰防止が主目的。発生頻度は低いが UX への直接影響あり (手動 kill 必要)。
 
 #### 設計決定 (案)
 
@@ -554,7 +554,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 3 #1
 >
-> **実行優先度**: 💎 **Tier 3 (順位 13/17)** — XS 工数、グローバルなので全プロジェクト即時効果。順位 8 (ADR-032 PR-broken-link) の anchor link CI チェックと補完関係 (CI = 自動検出、本ルール = 編集時の予防)。
+> **実行優先度**: 💎 **Tier 3 (順位 14/20)** — XS 工数、グローバルなので全プロジェクト即時効果。順位 9 (ADR-032 PR-broken-link) の anchor link CI チェックと補完関係 (CI = 自動検出、本ルール = 編集時の予防)。
 
 #### 設計決定 (案)
 
@@ -586,7 +586,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 3 #2
 >
-> **実行優先度**: 💎 **Tier 3 (順位 14/17)** — XS 工数、知見の恒久化のみ。発生頻度は低いが、発生時の試行錯誤コストを削減。
+> **実行優先度**: 💎 **Tier 3 (順位 15/20)** — XS 工数、知見の恒久化のみ。発生頻度は低いが、発生時の試行錯誤コストを削減。
 
 #### 設計決定 (案)
 
@@ -621,7 +621,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 3 #3
 >
-> **実行優先度**: 💎 **Tier 3 (順位 15/17)** — XS 工数、規約浸透のみ。Tier 1 #1 (`.gitignore` 追加、PR #85 で実装済) の補完。
+> **実行優先度**: 💎 **Tier 3 (順位 16/20)** — XS 工数、規約浸透のみ。Tier 1 #1 (`.gitignore` 追加、PR #85 で実装済) の補完。
 
 #### 設計決定 (案)
 
@@ -644,6 +644,116 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 
 - グローバルルールに `__` prefix 規約 + jj auto-snapshot 特性が明記される
 - 同種事故 (scratch file 混入) が再発しない
+
+#### 詰まっている箇所
+
+なし
+
+### Polling anti-pattern 検出ルール (PR #86 T1-1)
+
+> **動機**: 同一セッション内で `run_in_background: true` の Bash 起動直後に `until ... sleep` で polling する pattern が 2 回発生し、Claude Code Max (5x) のレートリミットを 1 時間で 40% 消費した。背景タスクは task-notification ベースで自走するので polling は不要だが、AI が反射的に「完了確認用 polling」を書く傾向がある。決定論的検出ルールで防止する。
+>
+> **本タスクの位置づけ**: ADR-007 (custom_lint_rule の正規表現/AST 層線引き) に従い、コマンド列の文脈検出 (file 単位ではなく Bash tool call の系列) なので PreToolUse hook 実装 or `.claude/hooks-config.toml` への新ルール追加で対応する。
+>
+> **参照**: `.claude/feedback-reports/86.md` Tier 1 #1
+>
+> **実行優先度**: 🚀 **Tier 1 (順位 5/20)** — XS 工数、daily efficiency への直接効果が極めて大 (1 セッションで rate limit 40% 浪費を防止)。順位 17 (post-pr-monitor polling 禁止 rule) と補完関係 (本タスクは決定論的防止、順位 17 はガイドライン)。
+
+#### 設計決定 (案)
+
+- 配置先候補:
+  - 第一候補: PreToolUse hook (Bash tool call の context を見られる)
+  - 第二候補: PostToolUse hook + 直近 N tool calls の履歴 buffering
+  - 第三候補: `.claude/hooks-config.toml` の新セクション (custom_lint_rule の系列検出版)
+- 検出ロジック (案):
+  - 直近の Bash tool call が `run_in_background: true` で実行された
+  - 続く Bash tool call が `until.*sleep` パターンを含む (例: `until grep -q ...; do sleep N; done`)
+  - 該当時に warning を出し、`task-notification ベースで自走するため polling 不要` と提案
+
+#### 作業計画
+
+- [ ] 配置先決定 (PreToolUse hook が最有力)
+- [ ] 検出ロジック実装 + dogfood
+- [ ] 警告メッセージで具体的な代替手段 (task-notification 待機) を提示
+- [ ] 派生プロジェクトへ deploy
+- [ ] 本 todo2.md エントリを削除
+
+#### 完了基準
+
+- `run_in_background: true` 直後の `until.*sleep` polling が検出され警告が出る
+- 同種事故 (rate limit 大量消費) が再発しない
+
+#### 詰まっている箇所
+
+なし
+
+### post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)
+
+> **動機**: PR #85 / PR #86 のセッション中、Claude が post-pr-monitor の出力を `until grep -q ...; do sleep N; done` で polling し、takt の verbose な AI 思考ログを context に取り込んで token を浪費した。ADR-018 で「post-pr-monitor は daemon として自走」原則は既述だが、Claude 向けの操作レベル指針が不足。
+>
+> **本タスクの位置づけ**: グローバルルール (`~/.claude/rules/common/development-workflow.md`) または ADR-018 補強として、Claude の操作指針を明記。
+>
+> **参照**: `.claude/feedback-reports/86.md` Tier 3 #2
+>
+> **実行優先度**: 💎 **Tier 3 (順位 17/20)** — XS 工数、ルール明文化のみ。順位 5 (polling anti-pattern 検出) と補完関係 (本ルールはガイドライン、順位 5 は決定論的防止)。
+
+#### 設計決定 (案)
+
+- 配置先: `~/.claude/rules/common/development-workflow.md` の新規セクション (ADR-018 補強)
+- ルール文 (案):
+  > **post-pr-monitor / cli-pr-monitor への polling 禁止**: PR 作成 URL を確認した後、post-pr-monitor の出力を Bash で polling しない (タスク完了通知 task-notification が自動配信される)。結果確認は単発 `gh pr view --json` 等の構造化データ取得のみ。背景タスクは daemon + state file 方式で自走する設計 (ADR-018)。
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/development-workflow.md` にルール追記
+- [ ] ADR-018 への参照追加 (任意)
+- [ ] 動作確認: 次回類似状況で polling せず単発取得に切り替えるか観察
+- [ ] 本 todo2.md エントリを削除
+
+#### 完了基準
+
+- グローバルルールに post-pr-monitor polling 禁止が明記される
+- 次回 PR 作成後に Claude が polling せず task-notification を待機する
+
+#### 詰まっている箇所
+
+なし
+
+### todo.md 採番管理の簡素化 ADR 起案 (PR #86 T3-3)
+
+> **動機**: PR #85 / PR #86 で行った推奨実行順序サマリー table の renumber 作業が、本文 `順位 N/N` 形式 cross-reference の追従更新まで含めると毎回 5+ 件の Edit を要する。タスク数増加に伴い漏れリスクが増大しており、20 件を超えた現時点で構造的負債が顕在化。
+>
+> **本タスクの位置づけ**: ADR として「優先度採番はサマリー table のみに持ち、本文の `順位 N/N` cross-reference は廃止する」ガイドラインを文書化。本タスク完了で renumber 作業が table 更新のみになり、cross-ref 追従漏れリスクが消滅。
+>
+> **参照**: `.claude/feedback-reports/86.md` Tier 3 #3
+>
+> **実行優先度**: 💎 **Tier 3 (順位 18/20)** — S 工数、構造的負債解消。タスク数 20 超に達した現時点でリターン大 (renumber 作業時の Edit 数が桁で減る)。
+
+#### 設計決定 (案)
+
+- 配置先: `docs/adr/adr-033-todo-numbering-simplification.md` (新規 ADR)
+- ガイドライン (案):
+  - 優先度の絶対番号 (`順位 N`) は **推奨実行順序サマリー table のみ** に保持
+  - 本文では絶対番号を使わず、タスク名 (`Markdown linter`, `ADR-032 PR-β` 等) で参照
+  - 「Tier N (順位 X/Y)」の `(順位 X/Y)` 部分も Tier だけ残して採番除去
+  - 依存関係表記は table の「依存」列のみで管理、本文では具体的タスク名を引用
+- 移行作業:
+  - 既存 todo.md / todo2.md の本文 cross-ref を一括変換 (regex 置換 + AI 校正)
+  - 新規エントリの template 更新 (`順位 N/Y` を含めない雛形に)
+
+#### 作業計画
+
+- [ ] 新規 ADR 起案 (動機 + ガイドライン + 移行戦略 + ADR-013, ADR-022 との整合性)
+- [ ] 既存 todo.md / todo2.md の本文 cross-ref を一括変換
+- [ ] 新規エントリ template の文書化 (`docs/CLAUDE.md` または ADR 内に記載)
+- [ ] 派生プロジェクトの todo.md 等にも展開検討
+- [ ] 本 todo2.md エントリを削除
+
+#### 完了基準
+
+- ADR が起案され承認される
+- todo.md / todo2.md の本文から `順位 N/Y` 形式 cross-ref が消える (table のみに残る)
+- 以後の PR で renumber 作業が table 更新のみで完結
 
 #### 詰まっている箇所
 
