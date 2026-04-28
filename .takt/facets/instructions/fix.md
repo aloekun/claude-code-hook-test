@@ -50,6 +50,7 @@ If you catch yourself about to run a Bash command that writes into a read-only z
 - {Test command executed and results}
 
 ## Convergence gate
+
 | Metric | Count |
 |--------|-------|
 | new (fixed in this iteration) | {N} |

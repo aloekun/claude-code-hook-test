@@ -1,0 +1,19 @@
+// markdownlint-cli2 configuration
+// Initial rule set per docs/todo.md "Markdown linter hook 統合" task.
+// See https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+{
+  "config": {
+    "default": false,
+    "MD028": true,
+    "MD040": true,
+    "MD058": true
+  },
+  "ignores": [
+    "node_modules",
+    "target",
+    ".claude/feedback-reports",
+    ".claude/skills",
+    ".takt/runs",
+    ".pytest_cache"
+  ]
+}
