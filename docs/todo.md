@@ -16,7 +16,6 @@
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 1 | 🚀 Tier 1 | Markdown linter (markdownlint-cli2) hook 統合 | todo.md | Small | なし (順位 11 の前提) |
 | 2 | 🚀 Tier 1 | push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) | todo2.md | Small | なし (PR #85 直接対策) |
 | 3 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
 | 4 | 🚀 Tier 1 | PowerShell swallowed error custom_lint_rule (PR #85 T1-2) | todo2.md | XS | なし (ADR-007 拡張) |
@@ -24,9 +23,9 @@
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
 | 7 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 11 の compensating check 前提) |
 | 8 | 🔧 Tier 2 | reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化) | todo2.md | S | なし |
-| 9 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | 順位 1 (clean baseline) |
+| 9 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (順位 1 完了済 = clean baseline 確立済) |
 | 10 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
-| 11 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 1, 6, 7, 9 |
+| 11 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 7, 9 |
 | 12 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 7 dogfood + 順位 11 |
 | 13 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 12 |
 | 14 | 💎 Tier 3 | 日付ベース見出しアンカー更新ルールのグローバル明文化 (PR #85 T3-1) | todo2.md | XS | なし |
@@ -37,7 +36,7 @@
 | 19 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
 | 20 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 19 Phase F |
 
-**戦略**: Tier 1 (1〜6) を 1〜2 セッションで片付け → Tier 2 (7〜10) で D の前提を埋める → Tier 3 (11〜18) で D を land + ドキュメント整備。Tier 4-5 (19〜20) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
+**戦略**: Tier 1 (2〜6) を 1〜2 セッションで片付け → Tier 2 (7〜10) で D の前提を埋める → Tier 3 (11〜18) で D を land + ドキュメント整備。Tier 4-5 (19〜20) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
 **順位 8 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 7/9/10 と並列実施可能**。
 **順位 14-17 (T3 グローバルルール 4 件) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
@@ -424,55 +423,6 @@ SessionStart hook (hooks-session-start.exe 拡張)
 #### 詰まっている箇所
 
 なし (全方向確定済、Phase A から着手可能)
-
-### Markdown linter (markdownlint-cli2) の PostToolUse hook 統合
-
-> **動機**: PR #81 の CodeRabbit が `docs/todo.md:221` の MD040 (fenced-code-language) 違反を Nitpick で指摘。同種の違反 (Fenced code block の言語指定子不足) は過去にも度々発生しており、人間レビューでは見落としやすい。本プロジェクトでは markdownlint を意図的に外していたわけではなく、存在を認識していなかっただけと判明。post-merge-feedback (PR #81) も Tier 1 (決定論的防止) として独立に同提案を生成。
->
-> **本タスクの位置づけ**: ADR-002 の PostToolUse linter composition (Biome + oxlint) を `.md` ファイルに拡張する。push pipeline 統合ではなく **hook 方式** を採用することで edit 時の自動 `--fix` を実現し、ユーザーに違反が見える前に修正完了させる。
->
-> **参照**: `.claude/feedback-reports/81.md` の Tier 1 finding (post-merge-feedback による独立提案)
->
-> **実行優先度**: 🚀 **Tier 1 (順位 1/20)** — daily efficiency への即効性が極大。`.md` 編集毎に自動 `--fix` で CodeRabbit Nitpick が消え、PR レビュー時間も間接短縮。**ADR-032 (docs-only fast path) の前提条件** (push 前に markdownlint 違反が解消されることが docs-only skip の前提)。**PR #82 post-merge-feedback で MD028 / MD040 / MD058 が初期 rule set として明示された** (T1-1 + T1-2 sub-task として吸収)。
-
-#### 背景
-
-- 過去レビューで MD040 違反が複数 PR で指摘されている
-- 既存パターン (ADR-002): TypeScript/JS は Biome + oxlint の二段階構成を PostToolUse hook 経由で自動 `--fix`
-- 本タスク以前は `.md` がこの仕組みの対象外 → 違反が CodeRabbit 段階まで残っていた
-- 行単位スキャンの custom_lint_rule では fence 開閉判定が不可能 → 専用 linter (markdownlint-cli2) が必要
-- post-merge-feedback (PR #81) が Tier 1 として独立に挙げ、当初検討した push pipeline 統合より hook 方式が既存パターンと整合する点を補強
-
-#### 設計決定 (案)
-
-- ツール: `markdownlint-cli2` (npm) を devDependencies に追加
-- 設定: `.markdownlint.json` をリポジトリルートに配置
-- ルール: **MD028 (no-blanks-blockquote)、MD040 (fenced-code-language)、MD058 (blanks-around-tables)** を初期 rule set として有効化 (PR #82 の post-merge-feedback で検出された 3 ルール)。MD013 (line-length) は日本語混在のため無効、その他は段階導入
-- 統合先: `.claude/hooks-config.toml` の `[post_tool_linter]` に `extensions = ["md"]` パイプラインを追加し `markdownlint-cli2 --fix "{file}"` を実行
-- 適用範囲: PostToolUse hook で edit/write 時にトリガー、対象は `*.md` 全般 (docs/, README.md, CLAUDE.md, .claude/skills/**/*.md)
-- clean baseline: lint 有効化前に別 commit で repository 全体を一括 `--fix` してから hook 統合
-
-#### 作業計画
-
-- [ ] `markdownlint-cli2` を devDependencies に追加
-- [ ] `.markdownlint.json` を作成 (MD028 / MD040 / MD058 を有効化、MD013 無効、他は段階導入)
-- [ ] `pnpm lint:md` script を追加 (CI/手動チェック用、引数なしで repository 全体)
-- [ ] 既存違反を別 commit で一括 `--fix` (clean baseline 確立)
-- [ ] `.claude/hooks-config.toml` の `[post_tool_linter]` に `markdownlint-cli2 --fix "{file}"` パイプラインを追加 (extensions = ["md"])
-- [ ] `pnpm build:all` + `pnpm deploy:hooks` で派生プロジェクトへ展開
-- [ ] dogfood: 任意の `.md` を編集して PostToolUse hook が `--fix` を走らせることを確認
-- [ ] 本 todo.md エントリを削除 (運用ルール: 完了タスクは仕組みに反映後に削除)
-
-#### 完了基準
-
-- PostToolUse hook で `.md` 編集時に `markdownlint-cli2 --fix` が走り、自動修正される
-- repository 全体で markdownlint violations = 0 (push 前に違反が残らない)
-- CodeRabbit が MD040 系の Nitpick を出さなくなる (本機構で先行修正されるため)
-- 派生プロジェクト (techbook-ledger, auto-review-fix-vc) にも展開済み
-
-#### 詰まっている箇所
-
-なし (post-merge-feedback Tier 1 finding として既に検証済み、Effort Small)
 
 ---
 
