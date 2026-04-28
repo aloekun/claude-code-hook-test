@@ -242,3 +242,94 @@ Hint:
 #### 詰まっている箇所
 
 なし (Effort Small、cli-pr-monitor 入口の arg parser 拡張のみ)
+
+---
+
+### Markdown 非 ASCII GFM アンカー検出 lint rule (PR #89 T1-1)
+
+> **動機**: PR #89 で CodeRabbit が docs/todo3.md:7 の `[docs/todo.md](todo.md#推奨実行順序サマリー)` の non-ASCII GFM anchor を Major と判定。同パターンは PR #88 の docs/todo2.md にも存在し、fix ステップの全リポジトリ grep で 3 ファイルにわたる同一パターンが発見された。プロジェクト全体で日本語見出しを多用するため、見出しテキスト変更による silent break のリスクが構造的にある。
+>
+> **本タスクの位置づけ**: ADR-007 の custom_lint_rule (`.claude/custom-lint-rules.toml`) に新規ルール `no-mutable-anchor` を追加。Markdown のリンクで non-ASCII fragment (`#` の後ろが日本語等) を検出 → 警告し、`<a id="stable-ascii-id"></a>` 明示アンカーへの誘導を提案する。
+>
+> **参照**: `.claude/feedback-reports/89.md` の Tier 1 #1 finding
+>
+> **実行優先度**: 🚀 **Tier 1** — 工数 S。発生頻度高 (本リポジトリで 3 ファイル以上で確認)、自動検出で確実な再発防止。順位 20 (日付ベース見出しアンカー更新ルールのグローバル明文化、PR #85 T3-1) と補完関係 (本タスクは決定論的防止、順位 20 はガイドライン)。
+
+#### 背景
+
+- 本セッション PR #89 で CodeRabbit が docs/todo3.md:7 の anchor 切れリスクを Major 判定
+- takt fix の family_tag sweep で全リポジトリ grep → 同パターンが docs/todo.md / docs/todo2.md / docs/todo3.md の 3 ファイルに存在することを確認
+- 根本原因: GFM の自動 anchor 生成は heading text のスラッグ化で、日本語含む heading は `#日本語テキスト` 形式の脆弱な ID を生成
+- 既存の custom_lint_rule (ADR-007) には未登録
+
+#### 設計決定 (案)
+
+- ルール名: `no-mutable-anchor`
+- 検出パターン: 正規表現 `\]\([^)#]*#[^\x00-\x7F)]+` (Markdown link の括弧内の `#` 直後に non-ASCII)
+- 警告メッセージ: 「Mutable anchor detected: `<link>`. Use `<a id="stable-ascii-id"></a>` for stable cross-reference」
+- 例外: ASCII のみで構成された anchor (`#stable-id`) は許容
+- 適用範囲: `.md` ファイル全般
+
+#### 作業計画
+
+- [ ] `.claude/custom-lint-rules.toml` に新規ルール追加
+- [ ] 既存の non-ASCII anchor がリポジトリ全体で残存していないか確認 (PR #89 で 3 ファイル fix 済だが残存検証)
+- [ ] dogfood: 試しに `[link](#日本語)` を含む `.md` を保存 → 警告が出ることを確認
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- non-ASCII anchor の Markdown link が pre-push or PostToolUse で検出され警告される
+- リポジトリの全 `.md` ファイルで non-ASCII anchor の reference が 0 件 (clean baseline)
+- CodeRabbit が同種の Major finding を出さなくなる
+
+#### 詰まっている箇所
+
+なし (Effort S、ADR-007 既存基盤の拡張)
+
+---
+
+### post-pr-review に rate-limit 自動検出 + 再トリガーロジック (PR #89 T2-1)
+
+> **動機**: PR #89 作成直後 (13:31Z) に CodeRabbit のレートリミットが発火し、post-pr-review takt workflow が CodeRabbit review を取得できなかった。手動で「rate limit comment の `updated_at` + 残り時間 + 1 分バッファ」を計算し wait → `@coderabbitai review` 投稿で再トリガーする運用で復旧したが、毎回手動判断は冗長。
+>
+> **本タスクの位置づけ**: post-pr-review workflow の analyze ステップに rate-limit 検出 → 自動 wait → 再トリガーを組み込む。本 PR で実証されたタイムスタンプ計算ロジック (`updated_at + remaining_minutes + 60s buffer`) をそのまま自動化する。
+>
+> **参照**: `.claude/feedback-reports/89.md` の Tier 2 #1 finding
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。順位 13 (cli-pr-monitor polling 延長 + 重複起動ロック) と補完関係 (本タスクは review 単位の対応、順位 13 はポーリング頻度全体の削減)。順位 4 (Polling anti-pattern 検出) も類似の rate-limit 削減ライン。
+
+#### 背景
+
+- PR #89 push 直後に CodeRabbit が `Rate limit exceeded` コメント (1 時間内 commit review 数の上限到達) を投稿
+- 手動運用: rate limit comment の `updated_at` 取得 → 残り時間パース → 解除時刻 + 1 分バッファで `gh pr comment <pr> --body "@coderabbitai review"` 再トリガー
+- 自動化のメリット: rate-limit 検出から再トリガーまでの待機時間が long-running task で完結 (ユーザー操作不要)
+- 1 分バッファは server 時計差・rate limit カウンタ reset 処理時間を吸収する経験則 (本 PR で 28 秒のシステム遅延を観測しても着地できた実績あり)
+
+#### 設計決定 (案)
+
+- post-pr-review takt workflow の analyze facet で rate-limit 判定を追加
+- 検出条件: CodeRabbit comment body に `Rate limit exceeded` 含む
+- 抽出: `Please wait <N> minutes and <M> seconds` パース → 解除時刻計算
+- 待機機構: takt の sleep ステップ または ScheduleWakeup 同等
+- 再トリガー: 解除 + 1 分後に `gh pr comment <pr> --body "@coderabbitai review"` を post
+- 失敗時: rate limit comment が再投稿されたら再検出 → 再 wait
+- 上限: 同 PR で N 回再試行したら abandon (人間判断委ね)
+
+#### 作業計画
+
+- [ ] post-pr-review workflow の analyze facet に rate-limit 検出ロジック追加
+- [ ] `updated_at` + remaining time パース実装
+- [ ] sleep + 再トリガー機構の選定 (takt 内蔵 sleep、ScheduleWakeup、外部 cron 等)
+- [ ] 上限 (N 回再試行) のポリシー決定
+- [ ] dogfood: 意図的に rate-limit を発火させて自動再トリガーが効くことを確認
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- post-pr-review が CodeRabbit rate-limit を検出した場合、解除時刻 + 1 分バッファで自動再トリガーされる
+- ユーザーは rate-limit 発生を意識せず PR review が最終的に完了する
+
+#### 詰まっている箇所
+
+- 待機機構の選定 (takt 内蔵 vs 外部) は実装着手時に検討
