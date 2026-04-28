@@ -2,45 +2,54 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo2.md](todo2.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化):
+> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加):
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクは追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
-> - **docs/todo2.md**: 新規タスクの追加先。todo.md のサイズ管理のため新規エントリは原則本ファイルへ
-> - 例外: 既存 todo.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは todo.md に追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは両方を確認すること**
+> - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
+> - **docs/todo3.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
+> - 例外: 既存 todo.md / todo2.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは三つすべてを確認すること**
 
 ---
 
-## 推奨実行順序サマリー (2026-04-28 更新、PR #86 post-merge-feedback 反映後)
+<a id="recommended-order-summary"></a>
+## 推奨実行順序サマリー (2026-04-28 更新、PR #88 post-merge-feedback 反映後)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 2 | 🚀 Tier 1 | push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) | todo2.md | Small | なし (PR #85 直接対策) |
-| 3 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
-| 4 | 🚀 Tier 1 | PowerShell swallowed error custom_lint_rule (PR #85 T1-2) | todo2.md | XS | なし (ADR-007 拡張) |
-| 5 | 🚀 Tier 1 | **Polling anti-pattern 検出ルール (PR #86 T1-1)** | todo2.md | XS | なし (PR #86 直接対策) |
-| 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
-| 7 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 11 の compensating check 前提) |
-| 8 | 🔧 Tier 2 | reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化) | todo2.md | S | なし |
-| 9 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (順位 1 完了済 = clean baseline 確立済) |
-| 10 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
-| 11 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 7, 9 |
-| 12 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 7 dogfood + 順位 11 |
-| 13 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 12 |
-| 14 | 💎 Tier 3 | 日付ベース見出しアンカー更新ルールのグローバル明文化 (PR #85 T3-1) | todo2.md | XS | なし |
-| 15 | 💎 Tier 3 | jj conflict リカバリ手順のグローバル明文化 (PR #85 T3-2) | todo2.md | XS | なし |
-| 16 | 💎 Tier 3 | `__` prefix scratch file 規約のグローバル明文化 (PR #85 T3-3) | todo2.md | XS | なし |
-| 17 | 💎 Tier 3 | **post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)** | todo2.md | XS | なし |
-| 18 | 💎 Tier 3 | **todo.md 採番管理の簡素化 ADR 起案 (PR #86 T3-3)** | todo2.md | S | なし |
-| 19 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
-| 20 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 19 Phase F |
+| 1 | 🚀 Tier 1 | push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) | todo2.md | Small | なし (PR #85 直接対策) |
+| 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
+| 3 | 🚀 Tier 1 | PowerShell swallowed error custom_lint_rule (PR #85 T1-2) | todo2.md | XS | なし (ADR-007 拡張) |
+| 4 | 🚀 Tier 1 | **Polling anti-pattern 検出ルール (PR #86 T1-1)** | todo2.md | XS | なし (PR #86 直接対策) |
+| 5 | 🚀 Tier 1 | **Stop hook の `pnpm lint:md` 統合 (PR #88 T1-1)** | todo3.md | XS | なし (PR #88 直接対策、順位 1 完了済の gap closure) |
+| 6 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
+| 7 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
+| 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 15 の compensating check 前提) |
+| 9 | 🔧 Tier 2 | reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化) | todo2.md | S | なし |
+| 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
+| 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
+| 12 | 🔧 Tier 2 | **`cli-pr-monitor` ポーリング延長 + 重複起動ロック (PR #88 T2-4)** ★ rate-limit critical | todo3.md | Medium | なし (順位 4 と補完) |
+| 13 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
+| 14 | 🔧 Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
+| 15 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 7, 8, 10 |
+| 16 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 8 dogfood + 順位 15 |
+| 17 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 16 |
+| 18 | 💎 Tier 3 | 日付ベース見出しアンカー更新ルールのグローバル明文化 (PR #85 T3-1) | todo2.md | XS | なし |
+| 19 | 💎 Tier 3 | jj conflict リカバリ手順のグローバル明文化 (PR #85 T3-2) | todo2.md | XS | なし |
+| 20 | 💎 Tier 3 | `__` prefix scratch file 規約のグローバル明文化 (PR #85 T3-3) | todo2.md | XS | なし |
+| 21 | 💎 Tier 3 | **post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)** | todo2.md | XS | なし |
+| 22 | 💎 Tier 3 | **todo.md 採番管理の簡素化 ADR 起案 (PR #86 T3-3)** | todo2.md | S | なし |
+| 23 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
+| 24 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 23 Phase F |
 
-**戦略**: Tier 1 (2〜6) を 1〜2 セッションで片付け → Tier 2 (7〜10) で D の前提を埋める → Tier 3 (11〜18) で D を land + ドキュメント整備。Tier 4-5 (19〜20) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
+**戦略**: Tier 1 (1〜7) を 2〜3 セッションで片付け → Tier 2 (8〜14) で ADR-032 の前提を埋めつつ rate-limit 改善 (順位 12) → Tier 3 (15〜22) で ADR-032 を land + ドキュメント整備。Tier 4-5 (23〜24) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
-**順位 8 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 7/9/10 と並列実施可能**。
-**順位 14-17 (T3 グローバルルール 4 件) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
-**順位 18 (採番管理簡素化 ADR) は本 table の cross-reference 維持コストを構造的に解消するメタタスク**。
+**順位 9 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 8/10/11 と並列実施可能**。
+**順位 12 (cli-pr-monitor polling 改善) は rate-limit 直撃のため Tier 2 内で最優先候補**。順位 4 (Polling anti-pattern 検出) と補完関係。
+**順位 5 (Stop hook の lint:md 統合) は旧順位 1 (Markdown linter hook 統合、PR #88 で merged) の gap closure**。**順位 6 (AI 生成一時スクリプト pattern 検出) は現順位 1 (push 前 untracked `__*` hook、PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
+**順位 18-21 (T3 グローバルルール 4 件) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
+**順位 22 (採番管理簡素化 ADR) は本 table の cross-reference 維持コストを構造的に解消するメタタスク**。
 
 ---
 
@@ -52,7 +61,7 @@
 >
 > **本タスクの位置づけ**: ADR-029 を partial supersede する新 ADR-030 を起案し、takt 経由の決定論的フィードバック機構へ移行する。本タスク完了で post-merge-feedback skill / pending file / Stop hook (hooks-stop-feedback-dispatch) はすべて廃止される。
 >
-> **実行優先度**: 🧹 **Tier 4 (順位 19/20)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
+> **実行優先度**: 🧹 **Tier 4 (順位 23/24)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
 
 #### 背景: ADR-029 の構造的欠陥 (PR #74 dogfood で実証)
 
@@ -234,7 +243,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 > **参照**: 上位タスク「マージ後フィードバック機構の決定論化」の Phase F 完了が前提。元の 1-F (ADR-014 本採用化 + takt-test-vc 反映) は ADR-014 が ADR-030 で Superseded されるため scope 変更。
 >
-> **実行優先度**: ⏳ **Tier 5 (順位 20/20)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 19 (ADR-030 Phase F) 完了後の任意タスク。
+> **実行優先度**: ⏳ **Tier 5 (順位 24/24)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 23 (ADR-030 Phase F) 完了後の任意タスク。
 
 - **やろうとしたこと**: 本プロジェクトで ADR-030 機構が安定稼働 (Phase F dogfood 完了) した後、takt-test-vc へ機構ごとバックポート
 - **現在地**: 上位タスクの Phase F 完了待ち
@@ -248,7 +257,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 7/20)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 11 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
+> **実行優先度**: 🔧 **Tier 2 (順位 8/24)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 15 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
 
 #### 背景: 既存レビューの空白
 
