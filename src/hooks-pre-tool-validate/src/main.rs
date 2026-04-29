@@ -313,8 +313,7 @@ fn preset_polling_anti_pattern() -> Vec<BlockedPattern> {
 **設計原則:** Claude Code の background task と task-notification はイベント駆動で
 完了通知を配信する。polling は token を浪費するだけで何も加速しない。
 
-詳細: ADR-018 (post-pr-monitor は daemon + state file で自走)、
-docs/todo.md の「Polling anti-pattern 検出ルール」を参照。"#;
+詳細: ADR-018 (post-pr-monitor は daemon + state file で自走) を参照。"#;
     // \bdo\b 制約により以下の false positive を排除:
     //   - echo "wait until ready"; sleep 1  (string 中の until)
     //   - git log --until=yesterday; sleep 1  (フラグ引数の until)

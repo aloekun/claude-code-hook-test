@@ -1,5 +1,5 @@
 // markdownlint-cli2 configuration
-// Initial rule set per docs/todo.md "Markdown linter hook 統合" task.
+// Initial rule set introduced in PR #88 (markdownlint-cli2 PostToolUse hook integration).
 // See https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
 {
   "config": {
