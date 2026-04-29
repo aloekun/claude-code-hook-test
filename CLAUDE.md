@@ -33,6 +33,7 @@
 - [ADR-029: Post-Merge Feedback の自動起動 — pending file + 現セッション起動](docs/adr/adr-029-post-merge-feedback-auto-trigger.md) *(試験運用)*
 - [ADR-030: 決定論的 Post-Merge Feedback — takt 経由の同期実行 + 失敗マーカーによる recovery](docs/adr/adr-030-deterministic-post-merge-feedback.md) *(試験運用 / Supersedes ADR-014 full, ADR-029 partial)*
 - [ADR-031: 週次プロジェクト全体レビューパイプライン — whole-tree review の自己改善ループ](docs/adr/adr-031-weekly-review-pipeline.md) *(試験運用)*
+- [ADR-033: todo.md 採番管理の簡素化 — 絶対番号は table のみに保持](docs/adr/adr-033-todo-numbering-simplification.md) *(試験運用)*
 
 ## Build
 
