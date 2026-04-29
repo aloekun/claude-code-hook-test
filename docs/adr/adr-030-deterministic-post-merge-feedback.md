@@ -322,7 +322,7 @@ PR #91 で実証された pathological loop:
 #### 関連 ADR
 
 - ADR-022 (責務分離) — Edit-blocked path を auto-fix 対象から除外することで、自動化と手動操作の境界が明確化
-- ADR-018 (post-pr-monitor 移行) — post-pr-review workflow が `.takt/facets/` 配下の facet で挙動制御される設計の前提
+- ADR-018 (cli-pr-monitor takt 移行) — post-pr-review workflow が `.takt/facets/` 配下の facet で挙動制御される設計の前提
 
 ## 実装タスク
 
