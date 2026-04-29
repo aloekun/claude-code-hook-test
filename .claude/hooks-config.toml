@@ -25,6 +25,8 @@
 #   "jj-main-guard" — jj new main / jj edit main
 #   "jj-push-guard" — jj git push / jj push 禁止 (pnpm push に誘導)
 #   "gh-pr-merge-guard" — gh pr merge ブロック (pnpm merge-pr に誘導)
+#   "polling-anti-pattern" — until/while ! ... sleep の polling ループをブロック
+#                              (rate-limit 浪費防止、PR #86 T1-1)
 #   "electron"      — Electron GUI 実行ブロック
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
@@ -35,6 +37,7 @@ blocked_patterns = [
   "jj-push-guard",
   "gh-pr-create-guard",
   "gh-pr-merge-guard",
+  "polling-anti-pattern",
   "electron",
 ]
 

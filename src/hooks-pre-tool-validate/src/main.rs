@@ -286,6 +286,51 @@ pnpm create-pr -- --title "タイトル" --body "本文"
     ]
 }
 
+/// プリセット: polling-anti-pattern (rate-limit 浪費を招く polling ループを禁止)
+///
+/// 検出対象:
+///   - `until <cond>; do ... sleep N ... done` (条件達成までの polling)
+///   - `while ! <cond>; do ... sleep N ... done` (条件達成までの polling、while 版)
+///
+/// 動機: 同一セッション内で `run_in_background: true` の Bash 起動直後に
+/// `until ... sleep` で polling する pattern が頻発し、Claude Code Max (5x) の
+/// レートリミットを 1 時間で 40% 浪費した実例がある (PR #86)。
+/// 背景タスクは task-notification ベースで自走するため polling は不要。
+fn preset_polling_anti_pattern() -> Vec<BlockedPattern> {
+    let msg = r#"**Polling ループがブロックされました**
+
+`until ... sleep` / `while ! ... sleep` 形式の polling は、Claude Code の
+レートリミットを大量に消費するため禁止されています (1 セッションで 40% 浪費の実例あり)。
+
+**代替手段:**
+| 用途 | 推奨方法 |
+|------|---------|
+| 背景タスクの完了待機 | `run_in_background: true` で起動 → task-notification 経由で自動通知される |
+| ログ/イベントのストリーミング | `Monitor` tool を使用 (until ループ不要) |
+| 状態の単発確認 | `gh pr view --json` 等の構造化データ取得を 1 回だけ実行 |
+| 長時間プロセス | `run_in_background: true` で起動し、完了通知を待つ |
+
+**設計原則:** Claude Code の background task と task-notification はイベント駆動で
+完了通知を配信する。polling は token を浪費するだけで何も加速しない。
+
+詳細: ADR-018 (post-pr-monitor は daemon + state file で自走)、
+docs/todo.md の「Polling anti-pattern 検出ルール」を参照。"#;
+    // \bdo\b 制約により以下の false positive を排除:
+    //   - echo "wait until ready"; sleep 1  (string 中の until)
+    //   - git log --until=yesterday; sleep 1  (フラグ引数の until)
+    //   - コメント / 文字列に until/while を含むスクリプト
+    vec![
+        BlockedPattern {
+            pattern: Regex::new(r"(?is)\buntil\b.*?\bdo\b.*?\bsleep\s+\d").unwrap(),
+            message: msg,
+        },
+        BlockedPattern {
+            pattern: Regex::new(r"(?is)\bwhile\s+!\s.*?\bdo\b.*?\bsleep\s+\d").unwrap(),
+            message: msg,
+        },
+    ]
+}
+
 /// プリセット: gh-pr-merge-guard (gh pr merge を禁止し pnpm merge-pr に誘導)
 fn preset_gh_pr_merge_guard() -> Vec<BlockedPattern> {
     let msg = r#"**gh pr merge がブロックされました**
@@ -342,6 +387,7 @@ fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
             "jj-push-guard" => patterns.extend(preset_jj_push_guard()),
             "gh-pr-create-guard" => patterns.extend(preset_gh_pr_create_guard()),
             "gh-pr-merge-guard" => patterns.extend(preset_gh_pr_merge_guard()),
+            "polling-anti-pattern" => patterns.extend(preset_polling_anti_pattern()),
             "electron" => patterns.extend(preset_electron()),
             custom => {
                 // プリセット名以外はカスタム正規表現として扱う
@@ -849,6 +895,131 @@ mod tests {
             "sh -lc 'gh pr merge 42 --squash'",
             &["gh-pr-merge-guard"]
         ));
+    }
+
+    // --- polling-anti-pattern ---
+
+    #[test]
+    fn polling_blocks_until_sleep_oneliner() {
+        // PR #86 で実証された具体的な polling pattern
+        assert!(is_blocked_with(
+            "until grep -q done /tmp/log; do sleep 5; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_blocks_until_sleep_multiline() {
+        // 複数行で書かれた polling
+        let cmd = "until grep -q ready /tmp/state\ndo\n  sleep 3\ndone";
+        assert!(is_blocked_with(cmd, &["polling-anti-pattern"]));
+    }
+
+    #[test]
+    fn polling_blocks_until_with_test_bracket() {
+        // [ ... ] 形式の条件
+        assert!(is_blocked_with(
+            "until [ -f /tmp/done ]; do sleep 2; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_blocks_while_not_sleep() {
+        // while ! 形式の polling
+        assert!(is_blocked_with(
+            "while ! grep -q done /tmp/log; do sleep 5; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_blocks_until_with_cat_state_file() {
+        // pr-monitor-state.json への polling (実際に頻発した pattern)
+        assert!(is_blocked_with(
+            "until cat .claude/pr-monitor-state.json | grep -q complete; do sleep 10; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_does_not_block_for_loop_with_sleep() {
+        // for ループ + sleep は countdown / 順次実行のため polling ではない
+        assert!(!is_blocked_with(
+            "for i in $(seq 1 3); do echo $i; sleep 1; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_does_not_block_simple_sleep() {
+        // 単純な sleep のみは polling ではない
+        assert!(!is_blocked_with("sleep 5", &["polling-anti-pattern"]));
+    }
+
+    #[test]
+    fn polling_does_not_block_until_without_sleep() {
+        // sleep を含まない until は polling 判定外 (CPU spin だが別問題)
+        assert!(!is_blocked_with(
+            "until [ -f /tmp/done ]; do echo waiting; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_does_not_block_echo_string_with_until() {
+        // 文字列リテラル中の until は誤検出しない (\bdo\b 制約により)
+        assert!(!is_blocked_with(
+            "echo 'wait until ready' && sleep 5",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_does_not_block_git_log_until_flag() {
+        // --until=DATE フラグは git log の引数で polling ではない
+        assert!(!is_blocked_with(
+            "git log --until=yesterday; sleep 1",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_does_not_block_string_with_while() {
+        // 文字列中の while を含むコマンドも誤検出しない
+        assert!(!is_blocked_with(
+            "echo 'a while later we sleep'; sleep 2",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_does_not_block_while_true_loop() {
+        // while true; do ... sleep ... done は daemon-like で polling とは別パターン
+        // (false positive を避けるため明示的に除外)
+        assert!(!is_blocked_with(
+            "while true; do work; sleep 5; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_blocks_in_chained_command() {
+        // chain の中の polling もブロック
+        assert!(is_blocked_with(
+            "echo start && until grep -q done; do sleep 3; done",
+            &["polling-anti-pattern"]
+        ));
+    }
+
+    #[test]
+    fn polling_default_config_does_not_enable() {
+        // 後方互換: デフォルトフォールバックには polling-anti-pattern を含めない
+        // (既存リポジトリへの影響を避ける、明示 opt-in)
+        let config = Config::default();
+        let patterns = build_blocked_patterns(&config);
+        // 既存リポでは polling pattern は通る (config が無い場合の挙動)
+        assert!(validate_command("until grep -q done; do sleep 5; done", &patterns).is_none());
     }
 
     #[test]
