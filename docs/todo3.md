@@ -245,50 +245,6 @@ Hint:
 
 ---
 
-### Markdown 非 ASCII GFM アンカー検出 lint rule (PR #89 T1-1)
-
-> **動機**: PR #89 で CodeRabbit が docs/todo3.md:7 の `[docs/todo.md](todo.md#推奨実行順序サマリー)` の non-ASCII GFM anchor を Major と判定。同パターンは PR #88 の docs/todo2.md にも存在し、fix ステップの全リポジトリ grep で 3 ファイルにわたる同一パターンが発見された。プロジェクト全体で日本語見出しを多用するため、見出しテキスト変更による silent break のリスクが構造的にある。
->
-> **本タスクの位置づけ**: ADR-007 の custom_lint_rule (`.claude/custom-lint-rules.toml`) に新規ルール `no-mutable-anchor` を追加。Markdown のリンクで non-ASCII fragment (`#` の後ろが日本語等) を検出 → 警告し、`<a id="stable-ascii-id"></a>` 明示アンカーへの誘導を提案する。
->
-> **参照**: `.claude/feedback-reports/89.md` の Tier 1 #1 finding
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 S。発生頻度高 (本リポジトリで 3 ファイル以上で確認)、自動検出で確実な再発防止。順位 20 (日付ベース見出しアンカー更新ルールのグローバル明文化、PR #85 T3-1) と補完関係 (本タスクは決定論的防止、順位 20 はガイドライン)。
-
-#### 背景
-
-- 本セッション PR #89 で CodeRabbit が docs/todo3.md:7 の anchor 切れリスクを Major 判定
-- takt fix の family_tag sweep で全リポジトリ grep → 同パターンが docs/todo.md / docs/todo2.md / docs/todo3.md の 3 ファイルに存在することを確認
-- 根本原因: GFM の自動 anchor 生成は heading text のスラッグ化で、日本語含む heading は `#日本語テキスト` 形式の脆弱な ID を生成
-- 既存の custom_lint_rule (ADR-007) には未登録
-
-#### 設計決定 (案)
-
-- ルール名: `no-mutable-anchor`
-- 検出パターン: 正規表現 `\]\([^)#]*#[^\x00-\x7F)]+` (Markdown link の括弧内の `#` 直後に non-ASCII)
-- 警告メッセージ: 「Mutable anchor detected: `<link>`. Use `<a id="stable-ascii-id"></a>` for stable cross-reference」
-- 例外: ASCII のみで構成された anchor (`#stable-id`) は許容
-- 適用範囲: `.md` ファイル全般
-
-#### 作業計画
-
-- [ ] `.claude/custom-lint-rules.toml` に新規ルール追加
-- [ ] 既存の non-ASCII anchor がリポジトリ全体で残存していないか確認 (PR #89 で 3 ファイル fix 済だが残存検証)
-- [ ] dogfood: 試しに `[link](#日本語)` を含む `.md` を保存 → 警告が出ることを確認
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- non-ASCII anchor の Markdown link が pre-push or PostToolUse で検出され警告される
-- リポジトリの全 `.md` ファイルで non-ASCII anchor の reference が 0 件 (clean baseline)
-- CodeRabbit が同種の Major finding を出さなくなる
-
-#### 詰まっている箇所
-
-なし (Effort S、ADR-007 既存基盤の拡張)
-
----
-
 ### post-pr-review に rate-limit 自動検出 + 再トリガーロジック (PR #89 T2-1)
 
 > **動機**: PR #89 作成直後 (13:31Z) に CodeRabbit のレートリミットが発火し、post-pr-review takt workflow が CodeRabbit review を取得できなかった。手動で「rate limit comment の `updated_at` + 残り時間 + 1 分バッファ」を計算し wait → `@coderabbitai review` 投稿で再トリガーする運用で復旧したが、毎回手動判断は冗長。
@@ -333,3 +289,81 @@ Hint:
 #### 詰まっている箇所
 
 - 待機機構の選定 (takt 内蔵 vs 外部) は実装着手時に検討
+
+---
+
+### `.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)
+
+> **動機**: ADR-030 で確立した soft-fail 機構 (`<pr>.md.failed` marker + L2 recovery) は PR #89 セッションで実際に発火し、UserPromptSubmit hook 経由で recovery が機能することが実証された。しかし現状の marker file は識別子のみで、recovery に必要な手順 (再実行コマンド、必要な引数、想定所要時間、よくある失敗原因) が外部 (ADR-030 / skill SKILL.md) を参照しないと分からない。marker 自体に手順を埋め込めば、将来 (ドキュメント所在を忘れた時 / ADR-030 が改訂された時 / 派生プロジェクトでの再現時) の recovery が省力化される。
+>
+> **本タスクの位置づけ**: ADR-030 の運用負荷削減。soft-fail 機構そのものは正しく動作しているため、UX 改善カテゴリ。marker file の content をテンプレート化し、生成側 (cli-merge-pipeline) で recovery 手順 + コマンド例 + ADR-030 への参照を含める。
+>
+> **参照**: `.claude/feedback-reports/90.md` の Tier 2 #2 finding
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。順位 13/14 (rate-limit 系) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
+
+#### 背景
+
+- ADR-030 の L1 (cli-merge-pipeline → takt workflow 同期実行) が失敗した場合、`.claude/feedback-reports/<pr>.md.failed` marker が残存する設計
+- L2 recovery (UserPromptSubmit hook) が次セッションで marker を検出し additionalContext で再実行を促す
+- PR #89 セッションで実際に soft-fail が発火し、recovery 経路が機能した実証あり
+- 課題: marker file の content が空 or 識別用の最小情報のみで、再実行手順は外部ドキュメント (ADR-030 / skill SKILL.md) を参照する必要がある
+- 将来リスク: ADR-030 改訂・派生プロジェクト展開・時間経過による参照先不明化により、recovery が高摩擦化する可能性
+
+#### 設計決定 (案)
+
+- cli-merge-pipeline (or takt workflow 失敗時の marker 書込み箇所) で marker content をテンプレート化
+- テンプレート例:
+
+~~~markdown
+# Post-Merge Feedback Failed: PR #<pr>
+
+This marker indicates the post-merge feedback workflow failed for PR #<pr>.
+The L2 recovery hook (UserPromptSubmit) will detect this file on the next
+prompt and prompt Claude to re-run the workflow.
+
+## Manual Recovery (if L2 hook does not fire)
+
+1. Check the takt run logs at `.takt/runs/<run-id>/` for the failure reason.
+2. Re-run the workflow:
+
+   ```sh
+   takt run post-merge-feedback.yaml --input pr=<pr>
+   ```
+
+3. On success this marker will be replaced by `.claude/feedback-reports/<pr>.md`.
+
+## Failure Context
+
+- Failed at: <ISO 8601 timestamp>
+- takt run id: <run-id>
+- Last error (truncated to 500 chars): <stderr tail>
+
+## Reference
+
+- ADR-030: docs/adr/adr-030-deterministic-post-merge-feedback.md
+~~~
+
+- marker 内容は ADR 改訂耐性のため「ADR-030 への参照リンク + 当時の手順」を共存させる
+- 失敗の context (timestamp / run-id / stderr tail) を含めることで、再実行前に原因切り分けがしやすくなる
+- 本タスク完了後、L2 hook の additionalContext からも marker content を読ませる構成にすれば自己完結度が上がる (本タスクの拡張、必須ではない)
+
+#### 作業計画
+
+- [ ] cli-merge-pipeline の `.failed` marker 書込みロジックを確認 (現状 content がどう生成されているか)
+- [ ] テンプレート文字列を crate 内 const として定義 or 外部 template ファイル化を判定
+- [ ] timestamp / run-id / stderr tail を marker に埋め込む実装
+- [ ] L2 hook (`hooks-user-prompt-feedback-recovery` 等) の additionalContext 出力で marker content を流用するか判定 (本タスクの scope 内 or 別タスク化)
+- [ ] dogfood: 意図的に takt fail を inject し、marker に手順 + context が含まれることを確認
+- [ ] ADR-030 を更新 (marker format の section を追記)
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- `.failed` marker file に recovery 手順 + コマンド例 + ADR-030 参照 + failure context が含まれる
+- ADR-030 の本文に marker format が明文化される
+- 派生プロジェクトでも同じ template が機能する (ADR-030 が外部 reference として読める前提)
+
+#### 詰まっている箇所
+
+なし (Effort S、cli-merge-pipeline の marker 書込み箇所のテンプレート化のみ)

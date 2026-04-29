@@ -1091,4 +1091,192 @@ extensions = ["ts", "js"]
         assert!(rules[0].example.is_none());
         assert_eq!(rules[0].why, "");
     }
+
+    // --- 新規ルール: PowerShell 空 catch ブロック (no-empty-powershell-catch) ---
+
+    fn ps_empty_catch_rule() -> CustomRule {
+        make_test_rule("no-empty-powershell-catch", r"catch\s*\{\s*\}", &["ps1"])
+    }
+
+    fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
+        use std::io::Write;
+        let file = dir.join(name);
+        let mut f = std::fs::File::create(&file).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        file
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "swallow.ps1",
+            "try { Get-Item $p } catch {}\n",
+        );
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_with_internal_whitespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "ws.ps1", "try { ... } catch {  }\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_skips_non_empty_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "ok.ps1",
+            "try { ... } catch { Write-Error $_ }\n",
+        );
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_empty_catch_only_targets_ps1() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "elsewhere.ts", "try { x() } catch {}\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    // --- 新規ルール: -ErrorAction SilentlyContinue (no-silent-error-action) ---
+
+    fn ps_silent_error_rule() -> CustomRule {
+        make_test_rule(
+            "no-silent-error-action",
+            r"-ErrorAction\s+SilentlyContinue",
+            &["ps1"],
+        )
+    }
+
+    #[test]
+    fn ps_silent_error_detects_basic_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "silent.ps1",
+            "$d = ConvertFrom-Json $r -ErrorAction SilentlyContinue\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_silent_error_skips_stop_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stop.ps1",
+            "ConvertFrom-Json $r -ErrorAction Stop\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_silent_error_skips_ignore_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "ignore.ps1",
+            "Get-Item $p -ErrorAction Ignore\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    // --- 新規ルール: Markdown 非 ASCII GFM アンカー (no-mutable-anchor) ---
+
+    fn md_mutable_anchor_rule() -> CustomRule {
+        make_test_rule(
+            "no-mutable-anchor",
+            r"\]\([^)#]*#[^\x00-\x7F)]+",
+            &["md"],
+        )
+    }
+
+    #[test]
+    fn md_mutable_anchor_detects_inline_fragment() {
+        // `[link](#日本語)` パターン (path 部空、fragment が non-ASCII)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "frag.md", "See [section](#推奨実行順序)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn md_mutable_anchor_detects_path_with_fragment() {
+        // `[link](other.md#日本語)` パターン (path 部あり、fragment が non-ASCII)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "cross.md",
+            "See [other](other.md#日本語見出し)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_ascii_fragment() {
+        // `[link](#stable-id)` パターン (ASCII fragment、許容)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "ascii.md",
+            "See [section](#stable-ascii-id)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_link_without_fragment() {
+        // `[link](https://example.com)` パターン (fragment なし、許容)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "url.md",
+            "Visit [example](https://example.com)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_path_only_link() {
+        // `[link](other.md)` パターン (path だけ、許容)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "path.md", "See [other](other.md)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_only_targets_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "other.txt", "See [section](#日本語)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
 }
