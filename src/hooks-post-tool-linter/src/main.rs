@@ -368,50 +368,50 @@ fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
 
     let mut violations = Vec::new();
 
+    // line-by-line search cannot detect multiline patterns (e.g., PowerShell `} catch {\n}`)
     for compiled in rules {
         if !rule_matches_ext(&compiled.rule, file) {
             continue;
         }
 
-        for (line_idx, line) in content.lines().enumerate() {
+        for m in compiled.regex.find_iter(&content) {
             if violations.len() >= MAX_CUSTOM_VIOLATIONS {
                 break;
             }
 
-            if let Some(m) = compiled.regex.find(line) {
-                let rule = &compiled.rule;
-                let violation = LintViolation {
-                    r#type: rule.id.to_uppercase().replace('-', "_"),
-                    severity: rule.severity.clone(),
-                    location: ViolationLocation {
-                        file: file.to_string(),
-                        line: line_idx + 1,
-                        symbol: m.as_str().to_string(),
-                    },
-                    message: rule.message.clone(),
-                    why: rule.why.clone(),
-                    fix: ViolationFix {
-                        strategy: rule
-                            .fix
-                            .as_ref()
-                            .map_or_else(String::new, |f| f.strategy.clone()),
-                        steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
-                    },
-                    example: ViolationExample {
-                        bad: rule
-                            .example
-                            .as_ref()
-                            .map_or_else(String::new, |e| e.bad.clone()),
-                        good: rule
-                            .example
-                            .as_ref()
-                            .map_or_else(String::new, |e| e.good.clone()),
-                    },
-                };
+            let line_no = content[..m.start()].bytes().filter(|b| *b == b'\n').count() + 1;
+            let rule = &compiled.rule;
+            let violation = LintViolation {
+                r#type: rule.id.to_uppercase().replace('-', "_"),
+                severity: rule.severity.clone(),
+                location: ViolationLocation {
+                    file: file.to_string(),
+                    line: line_no,
+                    symbol: m.as_str().to_string(),
+                },
+                message: rule.message.clone(),
+                why: rule.why.clone(),
+                fix: ViolationFix {
+                    strategy: rule
+                        .fix
+                        .as_ref()
+                        .map_or_else(String::new, |f| f.strategy.clone()),
+                    steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
+                },
+                example: ViolationExample {
+                    bad: rule
+                        .example
+                        .as_ref()
+                        .map_or_else(String::new, |e| e.bad.clone()),
+                    good: rule
+                        .example
+                        .as_ref()
+                        .map_or_else(String::new, |e| e.good.clone()),
+                },
+            };
 
-                if let Ok(json) = serde_json::to_string(&violation) {
-                    violations.push(json);
-                }
+            if let Ok(json) = serde_json::to_string(&violation) {
+                violations.push(json);
             }
         }
 
@@ -1167,6 +1167,23 @@ extensions = ["ts", "js"]
         let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_multiline_block() {
+        // PowerShell の慣用形: `} catch {\n}` の複数行空ブロックも検出すべき
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "multi.ps1",
+            "try {\n    Get-Item $p\n} catch {\n}\n",
+        );
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+        // catch keyword is on line 3 in the fixture
+        let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        assert_eq!(v["location"]["line"], 3);
     }
 
     // --- 新規ルール: -ErrorAction SilentlyContinue (no-silent-error-action) ---
