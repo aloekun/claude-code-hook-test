@@ -84,7 +84,8 @@ good = '具体的なファイル所在: `%USERPROFILE%\.claude\projects\<project
 
 [[rules]]
 id = "no-empty-powershell-catch"
-pattern = 'catch\s*\{\s*\}'
+# PowerShell は keyword case-insensitive (`Catch {}` も同義) なので (?i) を付与
+pattern = '(?i)catch\s*\{\s*\}'
 severity = "error"
 message = "空の catch {} ブロックでエラーを握り潰しています"
 why = "swallowed error は debug 困難化を招く Review Policy 明示的 REJECT 項目。少なくともログ出力 / 再 throw / 上位への propagate のいずれかが必要"
@@ -112,7 +113,8 @@ good = 'try { Get-Item $path } catch { Write-Verbose "expected miss: $_"; $null 
 
 [[rules]]
 id = "no-silent-error-action"
-pattern = '-ErrorAction\s+SilentlyContinue'
+# PowerShell は parameter 名 case-insensitive (`-erroraction silentlycontinue` も同義) なので (?i) を付与
+pattern = '(?i)-ErrorAction\s+SilentlyContinue'
 severity = "warning"
 message = "-ErrorAction SilentlyContinue はエラー握り潰しのリスクがあります"
 why = "存在チェックでは正当だが、結果を確認せずに使うと swallowed error。空 catch と組み合わさると二重に危険"

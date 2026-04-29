@@ -1095,7 +1095,7 @@ extensions = ["ts", "js"]
     // --- 新規ルール: PowerShell 空 catch ブロック (no-empty-powershell-catch) ---
 
     fn ps_empty_catch_rule() -> CustomRule {
-        make_test_rule("no-empty-powershell-catch", r"catch\s*\{\s*\}", &["ps1"])
+        make_test_rule("no-empty-powershell-catch", r"(?i)catch\s*\{\s*\}", &["ps1"])
     }
 
     fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
@@ -1150,12 +1150,31 @@ extensions = ["ts", "js"]
         assert!(violations.is_empty());
     }
 
+    #[test]
+    fn ps_empty_catch_detects_capitalized_keyword() {
+        // PowerShell は case-insensitive なので `Catch {}` も検出すべき
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "cap.ps1", "try { Get-Item $p } Catch {}\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_uppercase_keyword() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "upper.ps1", "try { Get-Item $p } CATCH {}\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
     // --- 新規ルール: -ErrorAction SilentlyContinue (no-silent-error-action) ---
 
     fn ps_silent_error_rule() -> CustomRule {
         make_test_rule(
             "no-silent-error-action",
-            r"-ErrorAction\s+SilentlyContinue",
+            r"(?i)-ErrorAction\s+SilentlyContinue",
             &["ps1"],
         )
     }
@@ -1197,6 +1216,33 @@ extensions = ["ts", "js"]
         let rules = compile_test_rules(vec![ps_silent_error_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_silent_error_detects_lowercase_param() {
+        // PowerShell parameter 名は case-insensitive なので `-erroraction silentlycontinue` も検出すべき
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "lc.ps1",
+            "Get-Item $p -erroraction silentlycontinue\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_silent_error_detects_mixed_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "mixed.ps1",
+            "ConvertFrom-Json $r -ErrorAction SILENTLYCONTINUE\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
     }
 
     // --- 新規ルール: Markdown 非 ASCII GFM アンカー (no-mutable-anchor) ---
