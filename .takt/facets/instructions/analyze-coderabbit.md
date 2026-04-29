@@ -32,8 +32,10 @@ Mark each finding as:
 - `not_applicable` -- does not apply to this project (with reason)
 
 ### Step 3: Severity classification
-For `applicable` findings only, classify by severity:
+For both `applicable` and `user_decision_path` findings, take the severity from CodeRabbit's `severity` field (do not reclassify):
 - Critical > High > Major > Medium > Minor > Low > Info
+
+The severity is preserved on `user_decision_path` findings so the user can prioritize their manual decision (a Critical `.claude/` finding still warrants attention even though auto-fix cannot apply it). For `not_applicable` findings, severity is irrelevant and may be omitted from the report.
 
 ### Step 4: Produce report and verdict
 

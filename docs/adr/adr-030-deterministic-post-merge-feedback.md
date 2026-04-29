@@ -312,7 +312,7 @@ PR #91 で実証された pathological loop:
 | Critical/High/Major | `needs_fix` (auto-fix) | `user_decision` (報告のみ、user に委ねる) |
 | Medium 以下 | `user_decision` | `user_decision` (同左) |
 
-`user_decision` 経路に流すことで、findings 自体は report に含まれユーザーが判断できる一方、fix loop は走らないため pathological loop が発生しない。findings の握りつぶしではなく **責任の所在を auto-fix から user に移す** 設計。
+`user_decision` 経路に流すことで、findings 自体は report に含まれユーザーが判断できる一方、fix loop は走らないため pathological loop が発生しない。findings の握りつぶしではなく **責任の所在を auto-fix から user に移す** 設計である。
 
 #### 関連 ADR
 
