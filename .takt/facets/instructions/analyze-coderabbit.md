@@ -22,11 +22,13 @@ CodeRabbit sometimes raises findings that are not applicable to this project. Be
 2. For each finding, check:
    - **Platform scope**: This project targets Windows only. Findings about cross-platform compatibility (e.g., `.exe` hardcoding) are NOT applicable -- downgrade to `Info`
    - **Intentional design**: Check if the finding contradicts an ADR decision. If so, mark as `not_applicable`
-   - **Scope mismatch**: If the finding targets a read-only zone (`.takt/`, `docs/adr/`, `templates/`), mark as `not_applicable`
+   - **Sensitive-file protection** (Edit-blocked): If the finding targets `.claude/` (Claude Code sensitive-file protected — Edit/Write tool will refuse), mark as `user_decision_path` (NOT `not_applicable` — the issue may be real, but auto-fix cannot apply it)
+   - **Scope mismatch**: If the finding targets a read-only zone (`.takt/`, `docs/adr/`, `templates/`) or a non-source path (`.git/`, `.jj/`, `node_modules/`, `target/`), mark as `not_applicable`
    - **False positive**: If the finding misunderstands the code logic, mark as `not_applicable`
 
 Mark each finding as:
 - `applicable` -- genuine issue that should be addressed
+- `user_decision_path` -- finding is real but auto-fix is blocked by sensitive-file protection (`.claude/`); user decides
 - `not_applicable` -- does not apply to this project (with reason)
 
 ### Step 3: Severity classification
@@ -50,6 +52,11 @@ For `applicable` findings only, classify by severity:
 |---|-------------|-------|---------------|
 | 1 | path:line   | ...   | Platform scope: Windows only |
 
+### User Decision Path (sensitive-file protected)
+| # | File (Line) | Severity | Issue | Path Reason |
+|---|-------------|----------|-------|-------------|
+| 1 | .claude/... | Major    | ...   | sensitive-file protection — auto-fix blocked |
+
 ### Applicable Findings by Severity
 
 #### Critical / High / Major
@@ -69,12 +76,13 @@ For `applicable` findings only, classify by severity:
 
 - **approved**: No applicable findings, OR all applicable findings are Info/Low severity
   - Output: `approved` condition
-- **needs_fix**: Any applicable Critical, High, or Major finding exists
+- **needs_fix**: Any applicable Critical, High, or Major finding exists (excluding `user_decision_path`)
   - Output: `needs_fix` condition
   - These will be automatically fixed in the next step
-- **user_decision**: Only Medium or lower applicable findings exist (no Critical/High/Major)
+- **user_decision**: Only Medium or lower applicable findings exist, OR all remaining findings are `user_decision_path` (sensitive-file protected) regardless of severity
   - Output: `user_decision` condition
   - These are reported but NOT auto-fixed; the user decides
+  - **Important**: A `.claude/` finding of any severity routes here to prevent fix loop pathology (auto-fix would attempt 4+ Edit calls all blocked by sensitive-file protection, wasting iterations)
 
 ## Important
 
