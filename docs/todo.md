@@ -25,17 +25,15 @@
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
 | 7 | 🚀 Tier 1 | **PowerShell custom-lint-rule の `(?i)` フラグ自動検証 (PR #91 T1-1)** | todo3.md | S | なし (PR #91 直接対策、code-review.md 追記も同 PR で land) |
 | 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 20 の compensating check 前提) |
-| 9 | 🔧 Tier 2 | reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化) | todo2.md | S | なし |
 | 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
 | 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
 | 12 | 🔧 Tier 2 | **`cli-pr-monitor` ポーリング延長 + 重複起動ロック (PR #88 T2-4)** ★ rate-limit critical | todo3.md | Medium | なし (Polling anti-pattern 検出 (PR #86 T1-1, 完了済) と補完) |
 | 13 | 🔧 Tier 2 | **post-pr-review に rate-limit 自動検出 + 再トリガー (PR #89 T2-1)** ★ rate-limit critical | todo3.md | Medium | なし (順位 12 と補完) |
-| 14 | 🔧 Tier 2 | **post-pr-review fix loop の `.claude/` filter + ADR-030 制約明記 (PR #91 T2-1 + T3-2 Bundle)** ★ convergence | todo3.md | S + XS | なし (PR #91 直接対策、analyze facet + ADR 追記の同 PR Bundle) |
 | 15 | 🔧 Tier 2 | **cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張)** ★ silent loss prevention | todo3.md | S/M | なし (ADR-030 L2 recovery パターンを cli-pr-monitor に適用) |
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
 | 17 | 🔧 Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
 | 18 | 🔧 Tier 2 | **`.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)** | todo3.md | S | なし |
-| 19 | 🔧 Tier 2 | **takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)** | todo3.md | M | 順位 14 (path-based 解決) land 後推奨 |
+| 19 | 🔧 Tier 2 | **takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)** | todo3.md | M | post-pr-review fix loop の `.claude/` filter (Bundle T、完了済) land 後推奨 |
 | 20 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 8, 10 |
 | 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 8 dogfood + 順位 20 |
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
@@ -45,18 +43,21 @@
 | 26 | 💎 Tier 3 | **post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)** | todo2.md | XS | なし |
 | 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
+| 29 | 🚀 Tier 1 | **非 docs ファイル `docs/todo` 参照検出 lint rule (PR #94 T1-1) ★ Bundle U** | todo3.md | S | なし (PR #94 直接対策、Cross-File Reference Lifecycle の決定論的防止層) |
+| 30 | 💎 Tier 3 | **Cross-File Reference Lifecycle ルールに具体例追記 (PR #94 T3-2) ★ Bundle U** | todo3.md | XS | なし (Bundle U で 29 と並行 land 推奨) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
 **Bundle 1 完了 + post-merge-feedback 反映 (2026-04-29)**: PR #91 (Bundle 1: PowerShell + Markdown anchor lint rules) merge 後の post-merge-feedback で **4 件の新規 task を追加** (PowerShell `(?i)` 自動検証 / `.claude/` filter + ADR-030 制約 / cli-pr-monitor 通知 Recovery 経路 / takt REJECT-ESCALATE)。**前 2 件は本 PR で実証された「fix iteration の根因」に対する決定論的防止策で最優先候補**。**日付ベース見出しアンカーのグローバル明文化 task は決定論的防止 (no-mutable-anchor rule) との二重防衛として継続有効**。
 
-**reviewer facet 改善 task は全 PR の review 精度を即時向上させ、Tier 2 内で 週次レビュー Phase B / ADR-032 PR-broken-link / cli-pr-monitor exit test と並列実施可能**。
+**reviewer facet 改善 (Bundle T で land 済)** + **post-pr-review fix loop の `.claude/` filter (Bundle T で land 済)** が完了し、reviewer 精度向上 + convergence cost 削減の二段構えが成立。残る Tier 2 では rate-limit critical 系 (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) を最優先候補とする。
 **rate-limit 系の 2 タスク (cli-pr-monitor ポーリング延長 + 重複起動ロック / post-pr-review rate-limit 自動検出 + 再トリガー) は rate-limit 直撃のため Tier 2 内で最優先候補**。前者 = ポーリング頻度全体の削減、後者 = review 単位での自動再トリガー、Polling anti-pattern 検出 (PR #86 T1-1、完了済) を含む 3 層で rate-limit を抑制する設計。
-**post-pr-review fix loop の `.claude/` filter + Recovery 経路 (SessionStart hook 拡張) は本 PR #91 の直接観測知見**。前者 = path-based filter で 8 step 空費の pathological loop を防止 / 後者 = SessionStart hook で再起動跨ぎの通知ロスト防止。
+**cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張) は PR #91 の直接観測知見**。SessionStart hook で再起動跨ぎの通知ロスト防止。post-pr-review fix loop の `.claude/` filter (path-based 解決) は Bundle T で land 済。
 **Stop hook の `pnpm lint:md` 統合 task は Markdown linter hook 統合 (PR #88 で merged) の gap closure**。**AI 生成一時スクリプト pattern 検出は push 前 untracked `__*` hook (PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
 **`.failed` marker 自己文書化 task は ADR-030 soft-fail 機構の運用負荷削減** (PR #89 セッションで recovery が機能した実証から派生、Effort S)。
-**takt REJECT-ESCALATE は post-pr-review fix loop の `.claude/` filter task の verdict-based 一般解**。path-based 解決の land 後に着手することで、補完関係になる。
+**takt REJECT-ESCALATE は post-pr-review fix loop の `.claude/` filter (Bundle T で land 済) の verdict-based 一般解**。path-based 解決が完了したので、本 task 着手で補完関係を完成させる。
 **T3 グローバルルール 4 件 (日付ベース見出しアンカー / jj conflict リカバリ / `__` prefix scratch / post-pr-monitor polling 禁止) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
+**Bundle U (Cross-File Reference Lifecycle 強化) は PR #94 post-merge-feedback 直接対策**。非 docs ファイル `docs/todo` 参照検出 lint rule (Tier 1 = 決定論的防止) と Cross-File Reference Lifecycle ルール具体例追記 (Tier 3 = preventive guidance) を 1 PR で land 推奨。両者は同一テーマ (永続成果物→ephemeral 参照禁止の二層化) で補完関係、effort 合計 S+XS。
 
 ---
 

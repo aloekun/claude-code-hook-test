@@ -416,47 +416,6 @@ prompt and prompt Claude to re-run the workflow.
 
 ---
 
-### post-pr-review fix loop の `.claude/` filter + ADR-030 制約明記 (PR #91 T2-1 + T3-2 Bundle)
-
-> **動機**: PR #91 の post-pr-review で takt fix step が `.claude/` 配下のファイル (本ケースは存在しなかったが原則として) を fix loop 対象として扱った場合、Claude Code の sensitive-file protection により `Edit` ツールが実行時にブロックされ、`fix.1` / `fix_supervisor.1-3` の 4 回すべてが適用不能となり 8 ステップが空費される pathological loop が発生する。本 PR では実害は小さかったが、`.claude/` 配下に変更がある PR で発生すると review feedback の遅延 + rate-limit の早期消費を招く。
->
-> **本タスクの位置づけ**: post-pr-review の analyze step に **path-based filter** (`.claude/` 配下を fix 対象から除外し `user_decision` に分類) を追加。同 PR で ADR-030 (または ADR-022) に制約として「`.claude/` 配下は post-pr-review fix loop の対象外」を明記 (report Tier 3 #2 を統合)。
->
-> **参照**: `.claude/feedback-reports/91.md` の Tier 2 #1 + Tier 3 #2 (Bundle 統合採用)
->
-> **実行優先度**: 🔧 **Tier 2** — 工数 S + XS。convergence cost 削減に即効。本 PR で 8 step 空費を直接観測した知見を取り込む。
-
-#### 設計決定 (案)
-
-- 配置先: `.takt/facets/instructions/analyze-coderabbit.md` (または相当する analyze step facet)
-- フィルタロジック (案):
-  - finding の対象 path が `.claude/` で始まる場合 → `verdict = user_decision`、`reason = ".claude/ is sensitive-file protected"`
-  - 同様に他の Edit-blocked path (`.git/`, `node_modules/` 等) も追加検討
-- ADR 改訂 (同 PR):
-  - ADR-030 に「post-pr-review fix loop の対象外パス」セクション追加
-  - 対象外条件: ① Claude Code sensitive-file protection 配下、② `.git/` 等の VCS 内部、③ `node_modules/` 等の依存物
-- analyze-coderabbit.md と fix.md の read-only zone 定義の齟齬 (todo.md 「スコープ外だが将来検討」内既述) も同時解決の機会
-
-#### 作業計画
-
-- [ ] analyze step facet にパスフィルタ実装
-- [ ] fix step facet との read-only zone 定義整合性を確認
-- [ ] ADR-030 (または ADR-022) に制約を追記
-- [ ] dogfood: `.claude/` 配下に変更を含む PR を意図的に作って fix loop が回らないことを確認
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- analyze step が `.claude/` 配下の finding を `user_decision` 分類し fix loop に渡さない
-- ADR-030 (または ADR-022) に制約が明文化される
-- 8 step 空費の pathological loop が再発しない
-
-#### 詰まっている箇所
-
-なし (Effort S+XS、analyze facet の path filter 追加 + ADR 追記のみ)
-
----
-
 ### cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張)
 
 > **動機**: cli-pr-monitor は `pnpm push` / `pnpm create-pr` 内で in-process 同期実行され、CodeRabbit findings の検出結果を **親プロセスの stdout** で Claude shell に渡す設計 (ADR-018)。しかし Claude Code の再起動 / parent shell の orphan 化が起きると stdout が消失し、`.claude/pr-monitor-state.json` の `notified=false` 状態のまま silent loss する。本リポジトリでも PR #91 直後に Claude Code 再起動でこの事象を実体験。
@@ -514,7 +473,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/91.md` の Tier 2 #2
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) と post-pr-review fix loop の `.claude/` filter Bundle の land 後に実施推奨**。本 task は根本解だが、path-based filter で path-related な pathological loop は先に解決できる。
+> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) の land 後に実施推奨**。本 task は根本解だが、post-pr-review fix loop の `.claude/` filter (Bundle T で land 済) で path-related な pathological loop は既に解決済み。
 
 #### 設計決定 (案)
 
@@ -547,4 +506,92 @@ prompt and prompt Claude to re-run the workflow.
 #### 詰まっている箇所
 
 - takt 本体改修のため `~/.claude/projects/takt-test-vc/` 連動も視野に入れる必要あり
-- rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) と post-pr-review fix loop の `.claude/` filter Bundle の land 後に着手することで、路径ベースの解決と verdict ベースの解決が補完関係になる
+- rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) の land 後に着手することで、verdict ベースの一般解として完成する。post-pr-review fix loop の `.claude/` filter (Bundle T、完了済) は path-based 解決の対 (補完関係)
+
+### 非 docs ファイル `docs/todo` 参照検出 lint rule (PR #94 T1-1)
+
+> **動機**: PR #93 で `~/.claude/rules/common/coding-style.md` に Cross-File Reference Lifecycle 原則 (永続成果物 → ephemeral `docs/todo*.md` セクション参照禁止) を追加し、PR #94 で 3 ファイル (`src/hooks-pre-tool-validate/src/main.rs` / `.claude/custom-lint-rules.toml` / `.markdownlint-cli2.jsonc`) の retroactive 修正を実施した。ただしルールはガイドラインのみで決定論的検出はなく、新規ファイルへの混入は再発する。
+>
+> **本タスクの位置づけ**: Cross-File Reference Lifecycle ルールの決定論的防止層。Bundle U として Cross-File Reference Lifecycle ルール具体例追記 (Tier 3) と並行 land 推奨。両者は preventive guidance (rule) + deterministic detection (lint) の補完関係。
+>
+> **参照**: `.claude/feedback-reports/94.md` の Tier 1 #1 finding
+>
+> **実行優先度**: 🚀 **Tier 1** — 工数 S。新規ファイルでの再発を確実に防ぐ決定論的検出。Cross-File Reference Lifecycle ルールが既に存在するため、lint rule は同ルールの自動 enforcement 層として整合的。
+
+#### 背景
+
+- PR #94 で 3 ファイルの stale reference を grep 経由で発見・修正
+- ガイドラインだけでは AI が新規ファイル作成時に類似 pattern を再導入しうる
+- `.claude/custom-lint-rules.toml` は既に literal 検出 + extension filter の枠組みを持つ (PowerShell `(?i)` フラグ検証等で実証済み)
+
+#### 設計決定 (案)
+
+- 配置先: `.claude/custom-lint-rules.toml` の新規 `[[rules]]` エントリ
+- 検出 pattern (案): `docs/todo[0-9]*\.md` を非 `.md` ファイルから検出
+  - `extensions = ["rs", "toml", "jsonc", "json", "ts", "tsx", "js", "jsx", "py", "ps1"]` で md 自体を除外
+  - ただし custom-lint-rules.toml 自身が `.toml` で false positive 候補になるため、ルール記述用の例外パターン or 自己除外ロジックを設計時に確認
+- 提案メッセージ (案): 「永続成果物から ephemeral な docs/todo*.md セクション参照は禁止。ADR / PR 番号 / 安定 docs/ パスを使用。詳細は `~/.claude/rules/common/coding-style.md` Cross-File Reference Lifecycle セクション参照」
+
+#### 作業計画
+
+- [ ] `extensions` 設計: md 除外 + custom-lint-rules.toml 自身の self-exclusion 検証
+- [ ] 既存ファイルへの dogfood: 全リポジトリ grep で 0 matches を確認
+- [ ] テスト追加 (custom_lint_rule pattern の正規表現テスト枠組みがあれば活用)
+- [ ] 派生プロジェクトへ deploy (Cross-File Reference Lifecycle ルールが global なのでセットで適用)
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- 非 md ファイルでの `docs/todo` literal 参照が hook で検出され警告/ブロックされる
+- custom-lint-rules.toml 自身は false positive を起こさない
+- 既存ファイル全体で 0 detection (clean baseline)
+
+#### 詰まっている箇所
+
+- custom-lint-rules.toml への self-reference をどう扱うか (rule の文書化目的での `docs/todo` 言及をどう許可するか)。ルール記述部の delimiter 設計が必要
+
+### Cross-File Reference Lifecycle ルールに具体例追記 (PR #94 T3-2)
+
+> **動機**: `~/.claude/rules/common/coding-style.md` に Cross-File Reference Lifecycle セクションを追加した (PR #93 post-merge-feedback で採用した Tier 3 #1) が、抽象的な原則のみで具体的な誤用例が乏しい。PR #94 で 3 種類の異なるファイル (Rust ソース / `.toml` config / `.jsonc` config) で同一 pattern が発生したという実証を活かし、各ファイル種における誤用例を明記することで AI が将来類似 context で警戒できるようにする。
+>
+> **本タスクの位置づけ**: Cross-File Reference Lifecycle ルールの preventive guidance 層。Bundle U として 非 docs ファイル `docs/todo` 参照検出 lint rule (Tier 1) と並行 land 推奨。両者は preventive guidance (rule) + deterministic detection (lint) の補完関係で、ルール = AI の意識化、lint = 機械的検出。
+>
+> **参照**: `.claude/feedback-reports/94.md` の Tier 3 #2 finding
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。`~/.claude/rules/` への既存セクション拡充のみ。Bundle U として Tier 1 と同 PR で land すれば、ルール文 + lint pattern の整合性を 1 review で確認できる。
+
+#### 背景
+
+- PR #93 で `~/.claude/rules/common/coding-style.md` に Cross-File Reference Lifecycle セクションを追加
+- 原則は抽象的: 「永続成果物 → ephemeral 成果物の参照禁止」
+- PR #94 で実証された 3 ファイル種の具体的誤用例:
+  - Rust raw string literal (`r#"..."#`) 内の block message
+  - TOML コメント内の引用例文字列
+  - JSONC config ファイルのヘッダーコメント
+- Boy Scout 修正 (`を参照。を参照。` 重複) も raw string 編集時の典型的注意点として補完価値あり
+
+#### 設計決定 (案)
+
+- 既存セクション (Cross-File Reference Lifecycle) に `### 具体的なアンチパターン例` サブセクションを追加
+- 例 1 (Rust): block message 内の `docs/todo.md の「<section>」を参照` 形式
+- 例 2 (TOML): コメント内の `[label](file.md#anchor)` 形式の引用 (引用すること自体が anti-pattern を再生産する構造的問題)
+- 例 3 (JSONC): `// per docs/todo.md "<task name>" task` 形式の origin 記述 → PR 番号で置換
+- raw string 編集時の補足: 編集後の重複表現 (例: `を参照。を参照。`) を grep で目視確認することを推奨手順として追記
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/coding-style.md` の Cross-File Reference Lifecycle セクションに具体例追加
+- [ ] PR #94 の 3 種類のファイル例を引用 (実証ベース)
+- [ ] raw string 編集時の重複表現確認手順を補記
+- [ ] 動作確認: 次セッションで類似編集時に AI が anti-pattern を回避するか観察
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- グローバルルール `~/.claude/rules/common/coding-style.md` Cross-File Reference Lifecycle セクションに 3 種類のファイル例が記載される
+- raw string 編集時の重複確認手順が明記される
+- Bundle U の Tier 1 lint rule と整合 (lint pattern が検出する全 case が rule 例と対応)
+
+#### 詰まっている箇所
+
+なし
