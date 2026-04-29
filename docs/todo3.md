@@ -14,7 +14,7 @@
 
 > **動機**: PR #88 で `pnpm lint:md` script を導入したが `[[stop_quality.steps]]` への登録が漏れていた。PostToolUse hook は Write/Edit ツール経由の編集にのみ発火するため、jj の auto-snapshot・他 hook 生成・bulk import 等で `.md` が変更された場合に markdownlint 違反が Stop まで未検出になる。`pnpm lint` (TS oxlint) は Stop gate 登録済みだが `pnpm lint:md` は本 PR で追加されたばかりにもかかわらず未登録のまま。
 >
-> **本タスクの位置づけ**: PR #88 で merged 済の Markdown linter hook 統合 (旧順位 1、現在 master) の補完作業。Stop gate は最後の安全網として PostToolUse 経由しない経路 (auto-snapshot など) もカバーする必要がある。
+> **本タスクの位置づけ**: PR #88 で merged 済の Markdown linter hook 統合 (現在 master) の補完作業。Stop gate は最後の安全網として PostToolUse 経由しない経路 (auto-snapshot など) もカバーする必要がある。
 >
 > **参照**: `.claude/feedback-reports/88.md` の Tier 1 #1 finding
 >
@@ -61,11 +61,11 @@ cmd = "pnpm lint:md"
 
 > **動機**: PR #85 で Claude が transcript 確認用に作成した `__parse_transcripts.ps1` が `.gitignore` 漏れにより jj auto-snapshot 経由で commit に意図せず混入。CodeRabbit が発見し除去作業が必要となった。同パターン (`__*.ps1` / `_tmp_*.ps1` / `__*.py` / `_tmp_*.py` 等の AI 生成一時スクリプト) を pre-push で機械的に検出し再発を防止する。post-merge-feedback (PR #88) が同事象を transcript から再検出。
 >
-> **本タスクの位置づけ**: **既存の 順位 1 (push 前 untracked `__*` ファイル警告 hook、PR #85 T1-4) と同一インシデントへの異なるアプローチによる補完**。順位 1 = working-tree の untracked file 検出 (hook 機構) / 本タスク = pre-push 時の lint ベース検出 (AI 命名 pattern 全体)。両機構を併用するか一方に統合するかは実装時に判断。
+> **本タスクの位置づけ**: **既存の push 前 untracked `__*` ファイル警告 hook task (PR #85 T1-4) と同一インシデントへの異なるアプローチによる補完**。前者 = working-tree の untracked file 検出 (hook 機構) / 本タスク = pre-push 時の lint ベース検出 (AI 命名 pattern 全体)。両機構を併用するか一方に統合するかは実装時に判断。
 >
 > **参照**: `.claude/feedback-reports/88.md` の Tier 1 #2 finding
 >
-> **実行優先度**: 🚀 **Tier 1** — 工数 Small。daily efficiency への影響中 (再発リスクは低いが ADR-007 拡張で確実な再発防止)。**実装前に既存の順位 1 (PR #85 T1-4) と擦り合わせて重複か補完かを判定すること**。
+> **実行優先度**: 🚀 **Tier 1** — 工数 Small。daily efficiency への影響中 (再発リスクは低いが ADR-007 拡張で確実な再発防止)。**実装前に既存の push 前 untracked `__*` ファイル警告 hook task (PR #85 T1-4) と擦り合わせて重複か補完かを判定すること**。
 
 #### 背景
 
@@ -78,17 +78,17 @@ cmd = "pnpm lint:md"
 
 - 候補機構 1: ADR-007 の custom_lint_rule (`.claude/custom-lint-rules.toml`) に AI 生成一時スクリプト pattern を追加
 - 候補機構 2: pre-push hook で `jj diff --name-only @` で staged file のうち `__*` / `_tmp_*` パターンに合致するものを検出
-- 候補機構 3: 既存の順位 1 (PR #85 T1-4) の hook を拡張し pattern を増やす
+- 候補機構 3: 既存の push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) を拡張し pattern を増やす
 - 検出パターン (初稿): `__*.ps1`, `__*.py`, `_tmp_*.ps1`, `_tmp_*.py`, `__*.sh`, `__*.js`, `__*.ts`
 - 警告メッセージ: 「AI 生成一時スクリプト pattern を検出: `<file>`. `.gitignore` 漏れの可能性。意図的な commit なら override してください。」
 
 #### 作業計画
 
-- [ ] 既存の順位 1 (PR #85 T1-4「push 前 untracked `__*` ファイル警告 hook」) の実装状況を確認
-- [ ] 重複なら本タスクは順位 1 内へ統合 (pattern を拡張するだけ)、補完なら別実装
+- [ ] 既存の push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) の実装状況を確認
+- [ ] 重複なら本タスクは前者の hook 内へ統合 (pattern を拡張するだけ)、補完なら別実装
 - [ ] 機構決定後に `.claude/custom-lint-rules.toml` または既存 hook を拡張
 - [ ] dogfood: 試しに `__test.py` を作って commit 試行 → 警告が出ることを確認
-- [ ] 本 todo3.md エントリを削除 (順位 1 に統合した場合は順位 1 の description も更新)
+- [ ] 本 todo3.md エントリを削除 (push 前 untracked hook に統合した場合は description も更新)
 
 #### 完了基準
 
@@ -148,7 +148,7 @@ cmd = "pnpm lint:md"
 
 > **動機**: PR #88 作成後の cli-pr-monitor 監視中に、Claude Code Max (5x) のレートリミットを 1 時間で 40% 消費する事象を観測。監視セッション重複起動による累積消費が推定原因。現在の `poll_interval_secs = 120` (2分) はセッション単独では問題ないが、複数セッションで監視が重複起動すると 1 分以下の頻度で polling が走り得る。
 >
-> **本タスクの位置づけ**: **既存の 順位 4 (Polling anti-pattern 検出ルール、PR #86 T1-1) と補完**。順位 4 = Claude 側の polling 禁止 (preventive)、本タスク = cli-pr-monitor (tool 側) の polling 動作改善 (corrective)。両層で rate-limit を削減する。
+> **本タスクの位置づけ**: **既存の Polling anti-pattern 検出ルール task (PR #86 T1-1) と補完**。前者 = Claude 側の polling 禁止 (preventive)、本タスク = cli-pr-monitor (tool 側) の polling 動作改善 (corrective)。両層で rate-limit を削減する。
 >
 > **参照**: `.claude/feedback-reports/88.md` の Tier 2 #4 finding
 >
@@ -253,7 +253,7 @@ Hint:
 >
 > **参照**: `.claude/feedback-reports/89.md` の Tier 2 #1 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。順位 13 (cli-pr-monitor polling 延長 + 重複起動ロック) と補完関係 (本タスクは review 単位の対応、順位 13 はポーリング頻度全体の削減)。順位 4 (Polling anti-pattern 検出) も類似の rate-limit 削減ライン。
+> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。cli-pr-monitor ポーリング延長 + 重複起動ロック task と補完関係 (本タスクは review 単位の対応、ポーリング延長 task はポーリング頻度全体の削減)。Polling anti-pattern 検出ルール task も類似の rate-limit 削減ライン。
 
 #### 背景
 
@@ -300,7 +300,7 @@ Hint:
 >
 > **参照**: `.claude/feedback-reports/90.md` の Tier 2 #2 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。順位 13/14 (rate-limit 系) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
+> **実行優先度**: 🔧 **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。rate-limit 系 task (cli-pr-monitor ポーリング延長 + post-pr-review rate-limit 自動検出) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
 
 #### 背景
 
@@ -465,7 +465,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: PR #91 セッション中のユーザー言及。post-merge-feedback report には未含、明示的に採用合意あり。
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 S/M。silent loss 防止の保険。「rate-limit critical 系 (順位 11/12) との優先度」については rate-limit 系の方が日次影響大だが、本 task は **「再起動跨ぎの確実な通知伝達」** をカバーする補完層。
+> **実行優先度**: 🔧 **Tier 2** — 工数 S/M。silent loss 防止の保険。rate-limit critical 系 (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) との優先度については rate-limit 系の方が日次影響大だが、本 task は **「再起動跨ぎの確実な通知伝達」** をカバーする補完層。
 
 #### 設計決定 (案)
 
@@ -514,7 +514,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/91.md` の Tier 2 #2
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**順位 11/12 (rate-limit) と T2-1+T3-2 Bundle の land 後に実施推奨**。本 task は根本解だが、上記の path-based filter で path-related な pathological loop は先に解決できる。
+> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) と post-pr-review fix loop の `.claude/` filter Bundle の land 後に実施推奨**。本 task は根本解だが、path-based filter で path-related な pathological loop は先に解決できる。
 
 #### 設計決定 (案)
 
@@ -547,4 +547,4 @@ prompt and prompt Claude to re-run the workflow.
 #### 詰まっている箇所
 
 - takt 本体改修のため `~/.claude/projects/takt-test-vc/` 連動も視野に入れる必要あり
-- 順位 11/12 (rate-limit) と T2-1+T3-2 Bundle の land 後に着手することで、路径ベースの解決と verdict ベースの解決が補完関係になる
+- rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) と post-pr-review fix loop の `.claude/` filter Bundle の land 後に着手することで、路径ベースの解決と verdict ベースの解決が補完関係になる

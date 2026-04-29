@@ -48,18 +48,17 @@
 | 28 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
 | 29 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 28 Phase F |
 
-**戦略**: Tier 1 (1〜7) を 2〜3 セッションで片付け → Tier 2 (8〜19) で ADR-032 の前提 + rate-limit + convergence cost 削減 (順位 12/13/14/15) → Tier 3 (20〜27) で ADR-032 を land + ドキュメント整備。Tier 4-5 (28〜29) は cleanup / 外部展開で daily efficiency への直接効果は小さい。
+**戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
-**Bundle 1 完了 + post-merge-feedback 反映 (2026-04-29)**: PR #91 (Bundle 1: PowerShell + Markdown anchor lint rules) merge 後の post-merge-feedback で **4 件の新規 task を追加** (順位 7, 14, 15, 19)。順位 7 と 14 は本 PR で実証された **「fix iteration の根因」** に対する決定論的防止策で **最優先候補**。**順位 23 (日付ベース見出しアンカー) は決定論的防止 (no-mutable-anchor rule) との二重防衛として継続有効**。
+**Bundle 1 完了 + post-merge-feedback 反映 (2026-04-29)**: PR #91 (Bundle 1: PowerShell + Markdown anchor lint rules) merge 後の post-merge-feedback で **4 件の新規 task を追加** (PowerShell `(?i)` 自動検証 / `.claude/` filter + ADR-030 制約 / cli-pr-monitor 通知 Recovery 経路 / takt REJECT-ESCALATE)。**前 2 件は本 PR で実証された「fix iteration の根因」に対する決定論的防止策で最優先候補**。**日付ベース見出しアンカーのグローバル明文化 task は決定論的防止 (no-mutable-anchor rule) との二重防衛として継続有効**。
 
-**順位 9 (reviewer facet 改善) は全 PR の review 精度を即時向上させ、Tier 2 内で順位 8/10/11 と並列実施可能**。
-**順位 12/13 (rate-limit 系の 2 タスク) は rate-limit 直撃のため Tier 2 内で最優先候補**。順位 12 = ポーリング頻度全体の削減、順位 13 = review 単位での自動再トリガー、順位 3 (Polling anti-pattern 検出) を含む 3 層で rate-limit を抑制する設計。
-**順位 14/15 (post-merge-feedback ループ収束 + silent loss 防止) は本 PR #91 の直接観測知見**。順位 14 = path-based filter で 8 step 空費の pathological loop を防止 / 順位 15 = SessionStart hook で再起動跨ぎの通知ロスト防止。
-**順位 4 (Stop hook の lint:md 統合) は旧順位 1 (Markdown linter hook 統合、PR #88 で merged) の gap closure**。**順位 5 (AI 生成一時スクリプト pattern 検出) は現順位 1 (push 前 untracked `__*` hook、PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
-**順位 18 (`.failed` marker 自己文書化) は ADR-030 soft-fail 機構の運用負荷削減** (PR #89 セッションで recovery が機能した実証から派生、Effort S)。
-**順位 19 (takt REJECT-ESCALATE) は順位 14 の verdict-based 一般解**。順位 14 (path-based) land 後に着手することで、補完関係になる。
-**順位 23-26 (T3 グローバルルール 4 件) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
-**順位 27 (採番管理簡素化 ADR) は本 table の cross-reference 維持コストを構造的に解消するメタタスク** (PR #88/#89/#90/#91/Bundle 1 で連続して 30+ 箇所の renumber が発生し負債が顕在化)。
+**reviewer facet 改善 task は全 PR の review 精度を即時向上させ、Tier 2 内で 週次レビュー Phase B / ADR-032 PR-broken-link / cli-pr-monitor exit test と並列実施可能**。
+**rate-limit 系の 2 タスク (cli-pr-monitor ポーリング延長 + 重複起動ロック / post-pr-review rate-limit 自動検出 + 再トリガー) は rate-limit 直撃のため Tier 2 内で最優先候補**。前者 = ポーリング頻度全体の削減、後者 = review 単位での自動再トリガー、Polling anti-pattern 検出 (Tier 1) を含む 3 層で rate-limit を抑制する設計。
+**post-pr-review fix loop の `.claude/` filter + Recovery 経路 (SessionStart hook 拡張) は本 PR #91 の直接観測知見**。前者 = path-based filter で 8 step 空費の pathological loop を防止 / 後者 = SessionStart hook で再起動跨ぎの通知ロスト防止。
+**Stop hook の `pnpm lint:md` 統合 task は Markdown linter hook 統合 (PR #88 で merged) の gap closure**。**AI 生成一時スクリプト pattern 検出は push 前 untracked `__*` hook (PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
+**`.failed` marker 自己文書化 task は ADR-030 soft-fail 機構の運用負荷削減** (PR #89 セッションで recovery が機能した実証から派生、Effort S)。
+**takt REJECT-ESCALATE は post-pr-review fix loop の `.claude/` filter task の verdict-based 一般解**。path-based 解決の land 後に着手することで、補完関係になる。
+**T3 グローバルルール 4 件 (日付ベース見出しアンカー / jj conflict リカバリ / `__` prefix scratch / post-pr-monitor polling 禁止) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
 
 ---
 
@@ -71,7 +70,7 @@
 >
 > **本タスクの位置づけ**: ADR-029 を partial supersede する新 ADR-030 を起案し、takt 経由の決定論的フィードバック機構へ移行する。本タスク完了で post-merge-feedback skill / pending file / Stop hook (hooks-stop-feedback-dispatch) はすべて廃止される。
 >
-> **実行優先度**: 🧹 **Tier 4 (順位 28/29)** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
+> **実行優先度**: 🧹 **Tier 4** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
 
 #### 背景: ADR-029 の構造的欠陥 (PR #74 dogfood で実証)
 
@@ -253,7 +252,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 
 > **参照**: 上位タスク「マージ後フィードバック機構の決定論化」の Phase F 完了が前提。元の 1-F (ADR-014 本採用化 + takt-test-vc 反映) は ADR-014 が ADR-030 で Superseded されるため scope 変更。
 >
-> **実行優先度**: ⏳ **Tier 5 (順位 29/29)** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。順位 28 (ADR-030 Phase F) 完了後の任意タスク。
+> **実行優先度**: ⏳ **Tier 5** — 派生プロジェクトへの展開で本リポジトリへの効果はゼロ。ADR-030 Phase F 完了後の任意タスク。
 
 - **やろうとしたこと**: 本プロジェクトで ADR-030 機構が安定稼働 (Phase F dogfood 完了) した後、takt-test-vc へ機構ごとバックポート
 - **現在地**: 上位タスクの Phase F 完了待ち
@@ -267,7 +266,7 @@ dogfood では PR #74 マージ後、pending file が `dispatched` で stuck し
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 8/29)** — ADR-032 (docs-only fast path) の compensating check 前提。順位 20 (ADR-032 PR-β) 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
+> **実行優先度**: 🔧 **Tier 2** — ADR-032 (docs-only fast path) の compensating check 前提。ADR-032 PR-β 着手前に Phase B dogfood 1 回成功が必要。architecture facet の rubric に docs 整合性観点 (ADR/symbol drift, terminology drift, docs-code 整合, docs 重複/不整合) を含めること。
 
 #### 背景: 既存レビューの空白
 

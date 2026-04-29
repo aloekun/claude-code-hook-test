@@ -18,13 +18,13 @@
 >
 > **計画ファイル参照**: `~/.claude/plans/1-docs-todo-md-askuserquestion-validated-orbit.md` (本タスク策定時の plan、新セッションでも同じ判断を再現可能)
 >
-> **実行優先度**: タスク全体は **🚀 Tier 1 〜 💎 Tier 3 に分散** (Phase ごとに優先度が異なる、2026-04-28 採番更新)。
-> - Phase pre (branch protection): **Tier 1 (順位 8/26)** — 設定のみ、依存タスクは完了済
-> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2 (順位 9/26)**
-> - Phase broken-link: **Tier 2 (順位 11/26)** — Markdown linter (PR #88 で merged) の clean baseline 確立済のため即着手可
-> - Phase β (実装、enabled=false): **Tier 3 (順位 17/26)** — 全前提揃ってから
-> - Phase γ (enablement): **Tier 3 (順位 18/26)** — 順位 9 dogfood 後の 1 行 flip
-> - Phase δ (dogfood): **Tier 3 (順位 19/26)** — 実 docs PR で検証
+> **実行優先度**: タスク全体は **🚀 Tier 1 〜 💎 Tier 3 に分散** (Phase ごとに優先度が異なる)。
+> - Phase pre (branch protection): **Tier 1** — 設定のみ、依存タスクは完了済
+> - Phase α: 既存 todo.md「週次レビュー (ADR-031)」エントリ参照 — **Tier 2**
+> - Phase broken-link: **Tier 2** — Markdown linter (PR #88 で merged) の clean baseline 確立済のため即着手可
+> - Phase β (実装、enabled=false): **Tier 3** — 全前提揃ってから
+> - Phase γ (enablement): **Tier 3** — 週次レビュー Phase B dogfood 後の 1 行 flip
+> - Phase δ (dogfood): **Tier 3** — 実 docs PR で検証
 >
 > **最大 payoff**: Phase γ enable 後、docs PR 所要時間 ~15min → ~30sec (30 倍速)。daily efficiency への貢献は本リポジトリ随一だが、**前提依存が多いため近道はない**。
 
@@ -370,7 +370,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/82.md` の Tier 3 #2-4 findings (3 件を統合)
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 10/26)** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で順位 9 (週次レビュー Phase B) / 順位 11 (ADR-032 PR-broken-link) / 順位 12 (cli-pr-monitor termination test) と並列実施可能。Effort S × 3 = ~S。
+> **実行優先度**: 🔧 **Tier 2** — 全 PR の review 精度を即時向上、false positive iteration の削減効果。Tier 2 内で 週次レビュー Phase B / ADR-032 PR-broken-link / cli-pr-monitor termination test と並列実施可能。Effort S × 3 = ~S。
 
 #### 背景
 
@@ -420,7 +420,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 1 #4
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 1/26)** — Small 工数、直近インシデントの直接対策。同種事故 (PR scope 外ファイル混入) の再発防止で、混入時の追加コスト (force-push + 再 review) を回避。
+> **実行優先度**: 🚀 **Tier 1** — Small 工数、直近インシデントの直接対策。同種事故 (PR scope 外ファイル混入) の再発防止で、混入時の追加コスト (force-push + 再 review) を回避。
 
 #### 設計決定 (案)
 
@@ -454,7 +454,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 1 #3
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 2/26)** — S 工数、daily efficiency への直接効果 (失敗 push 1 回あたり 2-3 分 + takt review token 消費を節約)。
+> **実行優先度**: 🚀 **Tier 1** — S 工数、daily efficiency への直接効果 (失敗 push 1 回あたり 2-3 分 + takt review token 消費を節約)。
 
 #### 設計決定 (案)
 
@@ -487,7 +487,7 @@ Phase 2 (任意、段階的緩和)
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 2 #2
 >
-> **実行優先度**: 🔧 **Tier 2 (順位 12/26)** — S 工数、回帰防止が主目的。発生頻度は低いが UX への直接影響あり (手動 kill 必要)。
+> **実行優先度**: 🔧 **Tier 2** — S 工数、回帰防止が主目的。発生頻度は低いが UX への直接影響あり (手動 kill 必要)。
 
 #### 設計決定 (案)
 
@@ -520,7 +520,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 3 #1
 >
-> **実行優先度**: 💎 **Tier 3 (順位 20/26)** — XS 工数、グローバルなので全プロジェクト即時効果。順位 11 (ADR-032 PR-broken-link) の anchor link CI チェックと補完関係 (CI = 自動検出、本ルール = 編集時の予防)。
+> **実行優先度**: 💎 **Tier 3** — XS 工数、グローバルなので全プロジェクト即時効果。ADR-032 PR-broken-link の anchor link CI チェックと補完関係 (CI = 自動検出、本ルール = 編集時の予防)。
 
 #### 設計決定 (案)
 
@@ -552,7 +552,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 3 #2
 >
-> **実行優先度**: 💎 **Tier 3 (順位 21/26)** — XS 工数、知見の恒久化のみ。発生頻度は低いが、発生時の試行錯誤コストを削減。
+> **実行優先度**: 💎 **Tier 3** — XS 工数、知見の恒久化のみ。発生頻度は低いが、発生時の試行錯誤コストを削減。
 
 #### 設計決定 (案)
 
@@ -587,7 +587,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/85.md` Tier 3 #3
 >
-> **実行優先度**: 💎 **Tier 3 (順位 22/26)** — XS 工数、規約浸透のみ。Tier 1 #1 (`.gitignore` 追加、PR #85 で実装済) の補完。
+> **実行優先度**: 💎 **Tier 3** — XS 工数、規約浸透のみ。Tier 1 #1 (`.gitignore` 追加、PR #85 で実装済) の補完。
 
 #### 設計決定 (案)
 
@@ -623,7 +623,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/86.md` Tier 1 #1
 >
-> **実行優先度**: 🚀 **Tier 1 (順位 4/26)** — XS 工数、daily efficiency への直接効果が極めて大 (1 セッションで rate limit 40% 浪費を防止)。順位 23 (post-pr-monitor polling 禁止 rule) と補完関係 (本タスクは決定論的防止、順位 23 はガイドライン)。
+> **実行優先度**: 🚀 **Tier 1** — XS 工数、daily efficiency への直接効果が極めて大 (1 セッションで rate limit 40% 浪費を防止)。post-pr-monitor polling 禁止のグローバル明文化 task と補完関係 (本タスクは決定論的防止、ガイドライン task はドキュメント補完)。
 
 #### 設計決定 (案)
 
@@ -661,7 +661,7 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 >
 > **参照**: `.claude/feedback-reports/86.md` Tier 3 #2
 >
-> **実行優先度**: 💎 **Tier 3 (順位 23/26)** — XS 工数、ルール明文化のみ。順位 4 (polling anti-pattern 検出) と補完関係 (本ルールはガイドライン、順位 4 は決定論的防止)。
+> **実行優先度**: 💎 **Tier 3** — XS 工数、ルール明文化のみ。Polling anti-pattern 検出ルール task と補完関係 (本ルールはガイドライン、検出ルール task は決定論的防止)。
 
 #### 設計決定 (案)
 
