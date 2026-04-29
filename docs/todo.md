@@ -20,7 +20,6 @@
 |---|---|---|---|---|---|
 | 1 | 🚀 Tier 1 | push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) | todo2.md | Small | なし (PR #85 直接対策) |
 | 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
-| 3 | 🚀 Tier 1 | **Polling anti-pattern 検出ルール (PR #86 T1-1)** | todo2.md | XS | なし (PR #86 直接対策) |
 | 4 | 🚀 Tier 1 | **Stop hook の `pnpm lint:md` 統合 (PR #88 T1-1)** | todo3.md | XS | なし (PR #88 直接対策、旧順位 1 完了済の gap closure) |
 | 5 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
@@ -29,7 +28,7 @@
 | 9 | 🔧 Tier 2 | reviewer facet 改善 (review-simplicity / review-security の DRY/YAGNI/security 軸明文化) | todo2.md | S | なし |
 | 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
 | 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
-| 12 | 🔧 Tier 2 | **`cli-pr-monitor` ポーリング延長 + 重複起動ロック (PR #88 T2-4)** ★ rate-limit critical | todo3.md | Medium | なし (順位 3 と補完) |
+| 12 | 🔧 Tier 2 | **`cli-pr-monitor` ポーリング延長 + 重複起動ロック (PR #88 T2-4)** ★ rate-limit critical | todo3.md | Medium | なし (Polling anti-pattern 検出 (PR #86 T1-1, 完了済) と補完) |
 | 13 | 🔧 Tier 2 | **post-pr-review に rate-limit 自動検出 + 再トリガー (PR #89 T2-1)** ★ rate-limit critical | todo3.md | Medium | なし (順位 12 と補完) |
 | 14 | 🔧 Tier 2 | **post-pr-review fix loop の `.claude/` filter + ADR-030 制約明記 (PR #91 T2-1 + T3-2 Bundle)** ★ convergence | todo3.md | S + XS | なし (PR #91 直接対策、analyze facet + ADR 追記の同 PR Bundle) |
 | 15 | 🔧 Tier 2 | **cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張)** ★ silent loss prevention | todo3.md | S/M | なし (ADR-030 L2 recovery パターンを cli-pr-monitor に適用) |
@@ -52,7 +51,7 @@
 **Bundle 1 完了 + post-merge-feedback 反映 (2026-04-29)**: PR #91 (Bundle 1: PowerShell + Markdown anchor lint rules) merge 後の post-merge-feedback で **4 件の新規 task を追加** (PowerShell `(?i)` 自動検証 / `.claude/` filter + ADR-030 制約 / cli-pr-monitor 通知 Recovery 経路 / takt REJECT-ESCALATE)。**前 2 件は本 PR で実証された「fix iteration の根因」に対する決定論的防止策で最優先候補**。**日付ベース見出しアンカーのグローバル明文化 task は決定論的防止 (no-mutable-anchor rule) との二重防衛として継続有効**。
 
 **reviewer facet 改善 task は全 PR の review 精度を即時向上させ、Tier 2 内で 週次レビュー Phase B / ADR-032 PR-broken-link / cli-pr-monitor exit test と並列実施可能**。
-**rate-limit 系の 2 タスク (cli-pr-monitor ポーリング延長 + 重複起動ロック / post-pr-review rate-limit 自動検出 + 再トリガー) は rate-limit 直撃のため Tier 2 内で最優先候補**。前者 = ポーリング頻度全体の削減、後者 = review 単位での自動再トリガー、Polling anti-pattern 検出 (Tier 1) を含む 3 層で rate-limit を抑制する設計。
+**rate-limit 系の 2 タスク (cli-pr-monitor ポーリング延長 + 重複起動ロック / post-pr-review rate-limit 自動検出 + 再トリガー) は rate-limit 直撃のため Tier 2 内で最優先候補**。前者 = ポーリング頻度全体の削減、後者 = review 単位での自動再トリガー、Polling anti-pattern 検出 (PR #86 T1-1、完了済) を含む 3 層で rate-limit を抑制する設計。
 **post-pr-review fix loop の `.claude/` filter + Recovery 経路 (SessionStart hook 拡張) は本 PR #91 の直接観測知見**。前者 = path-based filter で 8 step 空費の pathological loop を防止 / 後者 = SessionStart hook で再起動跨ぎの通知ロスト防止。
 **Stop hook の `pnpm lint:md` 統合 task は Markdown linter hook 統合 (PR #88 で merged) の gap closure**。**AI 生成一時スクリプト pattern 検出は push 前 untracked `__*` hook (PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
 **`.failed` marker 自己文書化 task は ADR-030 soft-fail 機構の運用負荷削減** (PR #89 セッションで recovery が機能した実証から派生、Effort S)。

@@ -615,44 +615,6 @@ termination 残留の root cause が未調査 (タスク開始時に最初に調
 
 なし
 
-### Polling anti-pattern 検出ルール (PR #86 T1-1)
-
-> **動機**: 同一セッション内で `run_in_background: true` の Bash 起動直後に `until ... sleep` で polling する pattern が 2 回発生し、Claude Code Max (5x) のレートリミットを 1 時間で 40% 消費した。背景タスクは task-notification ベースで自走するので polling は不要だが、AI が反射的に「完了確認用 polling」を書く傾向がある。決定論的検出ルールで防止する。
->
-> **本タスクの位置づけ**: ADR-007 (custom_lint_rule の正規表現/AST 層線引き) に従い、コマンド列の文脈検出 (file 単位ではなく Bash tool call の系列) なので PreToolUse hook 実装 or `.claude/hooks-config.toml` への新ルール追加で対応する。
->
-> **参照**: `.claude/feedback-reports/86.md` Tier 1 #1
->
-> **実行優先度**: 🚀 **Tier 1** — XS 工数、daily efficiency への直接効果が極めて大 (1 セッションで rate limit 40% 浪費を防止)。post-pr-monitor polling 禁止のグローバル明文化 task と補完関係 (本タスクは決定論的防止、ガイドライン task はドキュメント補完)。
-
-#### 設計決定 (案)
-
-- 配置先候補:
-  - 第一候補: PreToolUse hook (Bash tool call の context を見られる)
-  - 第二候補: PostToolUse hook + 直近 N tool calls の履歴 buffering
-  - 第三候補: `.claude/hooks-config.toml` の新セクション (custom_lint_rule の系列検出版)
-- 検出ロジック (案):
-  - 直近の Bash tool call が `run_in_background: true` で実行された
-  - 続く Bash tool call が `until.*sleep` パターンを含む (例: `until grep -q ...; do sleep N; done`)
-  - 該当時に warning を出し、`task-notification ベースで自走するため polling 不要` と提案
-
-#### 作業計画
-
-- [ ] 配置先決定 (PreToolUse hook が最有力)
-- [ ] 検出ロジック実装 + dogfood
-- [ ] 警告メッセージで具体的な代替手段 (task-notification 待機) を提示
-- [ ] 派生プロジェクトへ deploy
-- [ ] 本 todo2.md エントリを削除
-
-#### 完了基準
-
-- `run_in_background: true` 直後の `until.*sleep` polling が検出され警告が出る
-- 同種事故 (rate limit 大量消費) が再発しない
-
-#### 詰まっている箇所
-
-なし
-
 ### post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)
 
 > **動機**: PR #85 / PR #86 のセッション中、Claude が post-pr-monitor の出力を `until grep -q ...; do sleep N; done` で polling し、takt の verbose な AI 思考ログを context に取り込んで token を浪費した。ADR-018 で「post-pr-monitor は daemon として自走」原則は既述だが、Claude 向けの操作レベル指針が不足。
