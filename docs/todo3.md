@@ -508,7 +508,7 @@ prompt and prompt Claude to re-run the workflow.
 
 ### takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)
 
-> **動機**: PR #91 の post-pr-review で `supervise` step が 4 回、`fix_supervisor` step が 4 回の計 8 ステップを「修正不可能な制約あり」と繰り返し報告したにもかかわらず、takt harness はループを継続した。`.claude/` filter (順位 X = T2-1+T3-2 Bundle) が path-based に解決するのに対し、本 task は **iteration 上限到達前に「人間判断に委譲する」と AI 自身が宣言できる verdict** を提供する一般解。
+> **動機**: PR #91 の post-pr-review で `supervise` step が 4 回、`fix_supervisor` step が 4 回の計 8 ステップを「修正不可能な制約あり」と繰り返し報告したにもかかわらず、takt harness はループを継続した。`.claude/` filter + ADR-030 制約明記 task (PR #91 T2-1 + T3-2 Bundle) が path-based に解決するのに対し、本 task は **iteration 上限到達前に「人間判断に委譲する」と AI 自身が宣言できる verdict** を提供する一般解。
 >
 > **本タスクの位置づけ**: takt の condition routing に新 terminal verdict `reject-escalate` を追加。`supervise` / `fix_supervisor` step がこのシグナルを返したら harness は即終了 + ユーザー committee `.takt/runs/.../reports/escalation.md` を生成し、Claude が次セッションで読んで判断できる経路を提供。
 >
