@@ -368,50 +368,50 @@ fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
 
     let mut violations = Vec::new();
 
+    // line-by-line search cannot detect multiline patterns (e.g., PowerShell `} catch {\n}`)
     for compiled in rules {
         if !rule_matches_ext(&compiled.rule, file) {
             continue;
         }
 
-        for (line_idx, line) in content.lines().enumerate() {
+        for m in compiled.regex.find_iter(&content) {
             if violations.len() >= MAX_CUSTOM_VIOLATIONS {
                 break;
             }
 
-            if let Some(m) = compiled.regex.find(line) {
-                let rule = &compiled.rule;
-                let violation = LintViolation {
-                    r#type: rule.id.to_uppercase().replace('-', "_"),
-                    severity: rule.severity.clone(),
-                    location: ViolationLocation {
-                        file: file.to_string(),
-                        line: line_idx + 1,
-                        symbol: m.as_str().to_string(),
-                    },
-                    message: rule.message.clone(),
-                    why: rule.why.clone(),
-                    fix: ViolationFix {
-                        strategy: rule
-                            .fix
-                            .as_ref()
-                            .map_or_else(String::new, |f| f.strategy.clone()),
-                        steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
-                    },
-                    example: ViolationExample {
-                        bad: rule
-                            .example
-                            .as_ref()
-                            .map_or_else(String::new, |e| e.bad.clone()),
-                        good: rule
-                            .example
-                            .as_ref()
-                            .map_or_else(String::new, |e| e.good.clone()),
-                    },
-                };
+            let line_no = content[..m.start()].bytes().filter(|b| *b == b'\n').count() + 1;
+            let rule = &compiled.rule;
+            let violation = LintViolation {
+                r#type: rule.id.to_uppercase().replace('-', "_"),
+                severity: rule.severity.clone(),
+                location: ViolationLocation {
+                    file: file.to_string(),
+                    line: line_no,
+                    symbol: m.as_str().to_string(),
+                },
+                message: rule.message.clone(),
+                why: rule.why.clone(),
+                fix: ViolationFix {
+                    strategy: rule
+                        .fix
+                        .as_ref()
+                        .map_or_else(String::new, |f| f.strategy.clone()),
+                    steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
+                },
+                example: ViolationExample {
+                    bad: rule
+                        .example
+                        .as_ref()
+                        .map_or_else(String::new, |e| e.bad.clone()),
+                    good: rule
+                        .example
+                        .as_ref()
+                        .map_or_else(String::new, |e| e.good.clone()),
+                },
+            };
 
-                if let Ok(json) = serde_json::to_string(&violation) {
-                    violations.push(json);
-                }
+            if let Ok(json) = serde_json::to_string(&violation) {
+                violations.push(json);
             }
         }
 
@@ -1090,5 +1090,271 @@ extensions = ["ts", "js"]
         assert!(rules[0].fix.is_none());
         assert!(rules[0].example.is_none());
         assert_eq!(rules[0].why, "");
+    }
+
+    // --- 新規ルール: PowerShell 空 catch ブロック (no-empty-powershell-catch) ---
+
+    fn ps_empty_catch_rule() -> CustomRule {
+        make_test_rule("no-empty-powershell-catch", r"(?i)catch\s*\{\s*\}", &["ps1"])
+    }
+
+    fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
+        use std::io::Write;
+        let file = dir.join(name);
+        let mut f = std::fs::File::create(&file).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        file
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "swallow.ps1",
+            "try { Get-Item $p } catch {}\n",
+        );
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_with_internal_whitespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "ws.ps1", "try { ... } catch {  }\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_skips_non_empty_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "ok.ps1",
+            "try { ... } catch { Write-Error $_ }\n",
+        );
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_empty_catch_only_targets_ps1() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "elsewhere.ts", "try { x() } catch {}\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_capitalized_keyword() {
+        // PowerShell は case-insensitive なので `Catch {}` も検出すべき
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "cap.ps1", "try { Get-Item $p } Catch {}\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_uppercase_keyword() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "upper.ps1", "try { Get-Item $p } CATCH {}\n");
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_empty_catch_detects_multiline_block() {
+        // PowerShell の慣用形: `} catch {\n}` の複数行空ブロックも検出すべき
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "multi.ps1",
+            "try {\n    Get-Item $p\n} catch {\n}\n",
+        );
+        let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+        // catch keyword is on line 3 in the fixture
+        let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        assert_eq!(v["location"]["line"], 3);
+    }
+
+    // --- 新規ルール: -ErrorAction SilentlyContinue (no-silent-error-action) ---
+
+    fn ps_silent_error_rule() -> CustomRule {
+        make_test_rule(
+            "no-silent-error-action",
+            r"(?i)-ErrorAction\s+SilentlyContinue",
+            &["ps1"],
+        )
+    }
+
+    #[test]
+    fn ps_silent_error_detects_basic_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "silent.ps1",
+            "$d = ConvertFrom-Json $r -ErrorAction SilentlyContinue\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_silent_error_skips_stop_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stop.ps1",
+            "ConvertFrom-Json $r -ErrorAction Stop\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_silent_error_skips_ignore_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "ignore.ps1",
+            "Get-Item $p -ErrorAction Ignore\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn ps_silent_error_detects_lowercase_param() {
+        // PowerShell parameter 名は case-insensitive なので `-erroraction silentlycontinue` も検出すべき
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "lc.ps1",
+            "Get-Item $p -erroraction silentlycontinue\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn ps_silent_error_detects_mixed_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "mixed.ps1",
+            "ConvertFrom-Json $r -ErrorAction SILENTLYCONTINUE\n",
+        );
+        let rules = compile_test_rules(vec![ps_silent_error_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    // --- 新規ルール: Markdown 非 ASCII GFM アンカー (no-mutable-anchor) ---
+
+    fn md_mutable_anchor_rule() -> CustomRule {
+        // path 部から `:` を除外することで http(s):// など外部 URL を除外
+        make_test_rule(
+            "no-mutable-anchor",
+            r"\]\([^)#:]*#[^\x00-\x7F)]+",
+            &["md"],
+        )
+    }
+
+    #[test]
+    fn md_mutable_anchor_detects_inline_fragment() {
+        // `[link](#日本語)` パターン (path 部空、fragment が non-ASCII)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "frag.md", "See [section](#推奨実行順序)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn md_mutable_anchor_detects_path_with_fragment() {
+        // `[link](other.md#日本語)` パターン (path 部あり、fragment が non-ASCII)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "cross.md",
+            "See [other](other.md#日本語見出し)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_ascii_fragment() {
+        // `[link](#stable-id)` パターン (ASCII fragment、許容)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "ascii.md",
+            "See [section](#stable-ascii-id)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_link_without_fragment() {
+        // `[link](https://example.com)` パターン (fragment なし、許容)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "url.md",
+            "Visit [example](https://example.com)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_path_only_link() {
+        // `[link](other.md)` パターン (path だけ、許容)
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "path.md", "See [other](other.md)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_only_targets_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "other.txt", "See [section](#日本語)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_external_url_with_fragment() {
+        // 外部 URL の fragment は GFM anchor ではないため誤検知すべきでない
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "external.md",
+            "See [spec](https://example.com/#日本語)\n",
+        );
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
     }
 }

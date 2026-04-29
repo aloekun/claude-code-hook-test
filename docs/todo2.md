@@ -479,41 +479,6 @@ Phase 2 (任意、段階的緩和)
 
 なし
 
-### PowerShell `catch {}` swallowed error 検出 custom_lint_rule (PR #85 T1-2)
-
-> **動機**: PR #85 のレビューで `__parse_transcripts.ps1:8` の `ConvertFrom-Json -ErrorAction SilentlyContinue` + 空 `catch {}` が CodeRabbit Major 指摘 (Review Policy 明示的 REJECT 項目「Swallowed errors」)。同種の swallowed error は Bash / TypeScript では既存の custom_lint_rule で検出可能だが、PowerShell は対象外だった。
->
-> **本タスクの位置づけ**: ADR-007 (custom_lint_rule の正規表現/AST 層線引き) に従い、PowerShell スクリプトの空 `catch` ブロックと `-ErrorAction SilentlyContinue` を正規表現層で検出する。
->
-> **参照**: `.claude/feedback-reports/85.md` Tier 1 #2
->
-> **実行優先度**: 🚀 **Tier 1 (順位 3/26)** — XS 工数、ADR-007 既存基盤の拡張のみ。発生頻度は低いが該当時の影響大 (debug 困難化)。
-
-#### 設計決定 (案)
-
-- 配置先: `.claude/custom-lint-rules.toml` の `[powershell]` セクション (extensions: `["ps1"]`)
-- 検出ルール:
-  - 空 `catch {}` ブロック (regex: `catch\s*\{\s*\}`)
-  - `-ErrorAction SilentlyContinue` (regex: `-ErrorAction\s+SilentlyContinue`)
-- 同時検出を REJECT 扱い (片方単独は warning、組合せで error)
-
-#### 作業計画
-
-- [ ] `.claude/custom-lint-rules.toml` に PowerShell セクション追加
-- [ ] PostToolUse hook の linter pipeline で `ps1` を統合
-- [ ] dogfood: バックアップした `__parse_transcripts.ps1` で動作確認
-- [ ] 派生プロジェクトへ deploy
-- [ ] 本 todo2.md エントリを削除
-
-#### 完了基準
-
-- `.ps1` ファイル編集時に空 `catch {}` + SilentlyContinue が detect される
-- 既存 swallowed error 0 件 (clean baseline)
-
-#### 詰まっている箇所
-
-なし
-
 ### `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2)
 
 > **動機**: PR #85 の `pnpm create-pr` 完了後、`cli-pr-monitor.exe` がバックグラウンドで残留し手動 `taskkill` が必要だった。termination シグナル処理またはタイムアウトの問題の可能性があり、本セッションで初めて顕在化。回帰テストで継続的に検出できるようにする。

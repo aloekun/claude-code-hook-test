@@ -72,3 +72,98 @@ steps = [
 [rules.example]
 bad = '具体的なファイル所在: `C:\Users\alice\.claude\projects\<project-id>\` 配下'
 good = '具体的なファイル所在: `%USERPROFILE%\.claude\projects\<project-id>\` 配下'
+
+# ─── ルール③: PowerShell 空 catch ブロック禁止 (swallowed error) ───
+#
+# 由来: PR #85 で `__parse_transcripts.ps1:8` の空 `catch {}` が CodeRabbit Major 指摘。
+# Review Policy 明示的 REJECT 項目「Swallowed errors」。エラー握り潰しは debug 困難化の
+# 代表的アンチパターン。
+#
+# 対応する swallowed error 検出は Bash / TypeScript には既存 lint があるが、
+# PowerShell は ADR-007 既存ルールの空白だった。
+
+[[rules]]
+id = "no-empty-powershell-catch"
+# PowerShell は keyword case-insensitive (`Catch {}` も同義) なので (?i) を付与
+pattern = '(?i)catch\s*\{\s*\}'
+severity = "error"
+message = "空の catch {} ブロックでエラーを握り潰しています"
+why = "swallowed error は debug 困難化を招く Review Policy 明示的 REJECT 項目。少なくともログ出力 / 再 throw / 上位への propagate のいずれかが必要"
+extensions = ["ps1"]
+
+[rules.fix]
+strategy = "ログ出力 or 再 throw or 上位 propagate のいずれかを追加"
+steps = [
+  "意図的に無視する場合: catch ブロックに理由をコメントで明記し Write-Verbose / Write-Debug を追加",
+  "原因を log する場合: catch { Write-Error $_ } にする",
+  "上位に伝播する場合: catch { throw } にする",
+  "そもそも try/catch 不要なら削除する",
+]
+
+[rules.example]
+bad = 'try { Get-Item $path } catch {}'
+good = 'try { Get-Item $path } catch { Write-Verbose "expected miss: $_"; $null }'
+
+# ─── ルール④: PowerShell -ErrorAction SilentlyContinue 警告 ───
+#
+# 由来: 同 PR #85。空 catch との組合せで二重に swallowed error を生む。
+# 単独使用は一部の存在チェック (例: Get-Item -ErrorAction SilentlyContinue) で
+# 正当な場合があるため severity = "warning" に留める。
+# 空 catch (上の error) と同時に検出されたら、両方の violation が出力される。
+
+[[rules]]
+id = "no-silent-error-action"
+# PowerShell は parameter 名 case-insensitive (`-erroraction silentlycontinue` も同義) なので (?i) を付与
+pattern = '(?i)-ErrorAction\s+SilentlyContinue'
+severity = "warning"
+message = "-ErrorAction SilentlyContinue はエラー握り潰しのリスクがあります"
+why = "存在チェックでは正当だが、結果を確認せずに使うと swallowed error。空 catch と組み合わさると二重に危険"
+extensions = ["ps1"]
+
+[rules.fix]
+strategy = "戻り値を確認するか、明示的なエラーハンドリングに切替"
+steps = [
+  "存在チェックの場合: 戻り値が $null かをチェックする",
+  "より明示的にしたい場合: -ErrorAction Stop + try/catch を使う",
+  "本当にログ抑止だけ必要な場合: -ErrorAction Ignore + コメントで理由を書く",
+]
+
+[rules.example]
+bad = '$data = ConvertFrom-Json $raw -ErrorAction SilentlyContinue'
+good = 'try { $data = ConvertFrom-Json $raw -ErrorAction Stop } catch { Write-Error "Invalid JSON: $_"; throw }'
+
+# ─── ルール⑤: Markdown 非 ASCII GFM アンカー検出 (mutable anchor) ───
+#
+# 由来: PR #89 で CodeRabbit が `[docs/todo.md](todo.md#推奨実行順序サマリー)` を Major 指摘。
+# 全リポジトリ grep で 3 ファイルにわたる同一パターンを発見。GFM の自動 anchor 生成は
+# heading text のスラッグ化で日本語含む heading は脆弱な ID を生成し、heading text 変更で
+# silent break する。
+#
+# Rust regex 制約: lookbehind 非対応のため `.md` 内で backtick (inline code) に
+# 囲まれた link 例は誤検出する。本ルールを説明する文書で例を書く場合は、
+# heading 自体を ASCII にするか、コード ブロックではなく説明文として書く。
+# (本 TOML 自体は extensions = ["md"] にマッチしないため lint 対象外)
+
+[[rules]]
+id = "no-mutable-anchor"
+# path 部から `:` を除外することで http(s):// など外部 URL の fragment を除外
+# (外部 URL は GFM anchor ではないため対象外)。
+# protocol-relative URL (`//example.com/...`) は `:` を含まないため除外できないが、
+# Markdown 文書では稀なので許容する。
+pattern = '\]\([^)#:]*#[^\x00-\x7F)]+'
+severity = "warning"
+message = "非 ASCII GFM アンカー (mutable anchor) を検出しました"
+why = "GFM 自動 anchor は heading text からスラッグ化されるため、日本語見出しを参照すると heading 編集で silent break する。安定 ASCII ID を持つ <a id=\"...\"></a> 明示アンカーを使ってください"
+extensions = ["md"]
+
+[rules.fix]
+strategy = "明示的な ASCII ID アンカーへの置換"
+steps = [
+  "参照先の heading の前に <a id=\"stable-ascii-id\"></a> を追加",
+  "リンク側を [text](file.md#stable-ascii-id) に変更",
+  "或いは見出し自体を ASCII にできるならそうする",
+]
+
+[rules.example]
+bad = 'See [推奨実行順序](todo.md#推奨実行順序サマリー)'
+good = 'See [推奨実行順序](todo.md#recommended-order-summary)  <!-- with <a id="recommended-order-summary"></a> in target file -->'
