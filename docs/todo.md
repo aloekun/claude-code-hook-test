@@ -12,7 +12,7 @@
 ---
 
 <a id="recommended-order-summary"></a>
-## 推奨実行順序サマリー (2026-04-29 更新、PR #91 post-merge-feedback 反映後)
+## 推奨実行順序サマリー (2026-04-29 更新、ADR-033 採番管理簡素化 land 後)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
@@ -44,9 +44,8 @@
 | 24 | 💎 Tier 3 | jj conflict リカバリ手順のグローバル明文化 (PR #85 T3-2) | todo2.md | XS | なし |
 | 25 | 💎 Tier 3 | `__` prefix scratch file 規約のグローバル明文化 (PR #85 T3-3) | todo2.md | XS | なし |
 | 26 | 💎 Tier 3 | **post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)** | todo2.md | XS | なし |
-| 27 | 💎 Tier 3 | **todo.md 採番管理の簡素化 ADR 起案 (PR #86 T3-3)** | todo2.md | S | なし |
-| 28 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
-| 29 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 28 Phase F |
+| 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
+| 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
