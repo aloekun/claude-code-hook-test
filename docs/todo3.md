@@ -367,3 +367,184 @@ prompt and prompt Claude to re-run the workflow.
 #### 詰まっている箇所
 
 なし (Effort S、cli-merge-pipeline の marker 書込み箇所のテンプレート化のみ)
+
+---
+
+### PowerShell custom-lint-rule の `(?i)` フラグ自動検証 (PR #91 T1-1)
+
+> **動機**: PR #91 で `no-empty-powershell-catch` / `no-silent-error-action` の regex に `(?i)` が欠落し、`Catch {}` / `-erroraction silentlycontinue` 等の大文字バリアントを見逃して CodeRabbit Major 指摘を受けた。PowerShell は言語仕様として keyword + parameter 名 case-insensitive だが、AI 生成 regex はデフォルトで case-sensitive になる構造的な落とし穴がある。本 PR で fix 済 (commit a15b263) だが、次回ルール追加時に同種の漏れが起きないよう自動検証を追加する。
+>
+> **本タスクの位置づけ**: hooks-post-tool-linter の起動時 (or 専用 test) で「`extensions = ["ps1"]` を含む全ルールの `pattern` に `(?i)` が含まれる」アサーションを追加。同 PR で `~/.claude/rules/common/code-review.md` に「case-insensitive 言語向け lint rule は `(?i)` 必須」のチェックリスト項目を追記 (report Tier 3 #1 を統合)。
+>
+> **参照**: `.claude/feedback-reports/91.md` の Tier 1 #1 + Tier 3 #1 (統合採用)
+>
+> **実行優先度**: 🚀 **Tier 1** — 工数 S。決定論的な再発防止で本 PR の主要 finding に直結。Bundle 戦略の継続として code-review.md ルール追記も同 PR で land。
+
+#### 設計決定 (案)
+
+- 配置先: `src/hooks-post-tool-linter/src/main.rs` の `load_custom_rules()` か専用 unit test
+- 検証ロジック (案 A: 起動時 check):
+  ```rust
+  for rule in &rules {
+      if rule.extensions.iter().any(|e| e == "ps1") && !rule.pattern.contains("(?i)") {
+          eprintln!("[post-tool-linter] WARN: rule '{}' targets ps1 but lacks (?i) flag", rule.id);
+      }
+  }
+  ```
+- 案 B: cargo test で全 TOML rule をパースして同等検証 (CI で fail させる)
+- 推奨: 案 A + 案 B 併用 (起動時 warn は本番運用、test は CI 検出)
+- 同 PR 同梱の code-review.md ルール追記 (案):
+  > **case-insensitive 言語向け lint rule の正規表現には `(?i)` フラグ必須**: PowerShell, Bash 等の case-insensitive 言語向けルールを追加する際、regex pattern に `(?i)` を付与する。テストで小文字 / 大文字 / 混在ケースを最低 1 ずつ検証する。
+
+#### 作業計画
+
+- [ ] hooks-post-tool-linter に起動時 check 実装 (案 A)
+- [ ] cargo test に rule バリデーション test 追加 (案 B)
+- [ ] `~/.claude/rules/common/code-review.md` に case-insensitive ルール追記
+- [ ] dogfood: 意図的に `(?i)` を外したルールを TOML に追加して warn 発火を確認
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- `.claude/custom-lint-rules.toml` に新規 ps1 ルールを追加した際、`(?i)` 欠落を起動時 warn または cargo test fail で検出できる
+- code-review.md に case-insensitive 言語の lint rule 規約が明記される
+- 既存 ps1 ルール 2 件 (`no-empty-powershell-catch`, `no-silent-error-action`) が validation を pass する
+
+#### 詰まっている箇所
+
+なし (Effort S、既存 load_custom_rules 拡張のみ)
+
+---
+
+### post-pr-review fix loop の `.claude/` filter + ADR-030 制約明記 (PR #91 T2-1 + T3-2 Bundle)
+
+> **動機**: PR #91 の post-pr-review で takt fix step が `.claude/` 配下のファイル (本ケースは存在しなかったが原則として) を fix loop 対象として扱った場合、Claude Code の sensitive-file protection により `Edit` ツールが実行時にブロックされ、`fix.1` / `fix_supervisor.1-3` の 4 回すべてが適用不能となり 8 ステップが空費される pathological loop が発生する。本 PR では実害は小さかったが、`.claude/` 配下に変更がある PR で発生すると review feedback の遅延 + rate-limit の早期消費を招く。
+>
+> **本タスクの位置づけ**: post-pr-review の analyze step に **path-based filter** (`.claude/` 配下を fix 対象から除外し `user_decision` に分類) を追加。同 PR で ADR-030 (または ADR-022) に制約として「`.claude/` 配下は post-pr-review fix loop の対象外」を明記 (report Tier 3 #2 を統合)。
+>
+> **参照**: `.claude/feedback-reports/91.md` の Tier 2 #1 + Tier 3 #2 (Bundle 統合採用)
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 S + XS。convergence cost 削減に即効。本 PR で 8 step 空費を直接観測した知見を取り込む。
+
+#### 設計決定 (案)
+
+- 配置先: `.takt/facets/instructions/analyze-coderabbit.md` (または相当する analyze step facet)
+- フィルタロジック (案):
+  - finding の対象 path が `.claude/` で始まる場合 → `verdict = user_decision`、`reason = ".claude/ is sensitive-file protected"`
+  - 同様に他の Edit-blocked path (`.git/`, `node_modules/` 等) も追加検討
+- ADR 改訂 (同 PR):
+  - ADR-030 に「post-pr-review fix loop の対象外パス」セクション追加
+  - 対象外条件: ① Claude Code sensitive-file protection 配下、② `.git/` 等の VCS 内部、③ `node_modules/` 等の依存物
+- analyze-coderabbit.md と fix.md の read-only zone 定義の齟齬 (todo.md 「スコープ外だが将来検討」内既述) も同時解決の機会
+
+#### 作業計画
+
+- [ ] analyze step facet にパスフィルタ実装
+- [ ] fix step facet との read-only zone 定義整合性を確認
+- [ ] ADR-030 (または ADR-022) に制約を追記
+- [ ] dogfood: `.claude/` 配下に変更を含む PR を意図的に作って fix loop が回らないことを確認
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- analyze step が `.claude/` 配下の finding を `user_decision` 分類し fix loop に渡さない
+- ADR-030 (または ADR-022) に制約が明文化される
+- 8 step 空費の pathological loop が再発しない
+
+#### 詰まっている箇所
+
+なし (Effort S+XS、analyze facet の path filter 追加 + ADR 追記のみ)
+
+---
+
+### cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張)
+
+> **動機**: cli-pr-monitor は `pnpm push` / `pnpm create-pr` 内で in-process 同期実行され、CodeRabbit findings の検出結果を **親プロセスの stdout** で Claude shell に渡す設計 (ADR-018)。しかし Claude Code の再起動 / parent shell の orphan 化が起きると stdout が消失し、`.claude/pr-monitor-state.json` の `notified=false` 状態のまま silent loss する。本リポジトリでも PR #91 直後に Claude Code 再起動でこの事象を実体験。
+>
+> **本タスクの位置づけ**: ADR-029 → ADR-030 で確立した「`.failed` marker + L2 recovery hook (UserPromptSubmit)」と同型のパターンを cli-pr-monitor 系に適用。SessionStart hook (`hooks-session-start`) を拡張し、`.claude/pr-monitor-state.json` の `notified=false + last_checked が古い (例: > 30 分)` を検出したら additionalContext で「未通知の review findings あり、`gh pr view` で確認推奨」を出力する。
+>
+> **参照**: PR #91 セッション中のユーザー言及。post-merge-feedback report には未含、明示的に採用合意あり。
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 S/M。silent loss 防止の保険。「rate-limit critical 系 (順位 11/12) との優先度」については rate-limit 系の方が日次影響大だが、本 task は **「再起動跨ぎの確実な通知伝達」** をカバーする補完層。
+
+#### 設計決定 (案)
+
+- 配置先: `src/hooks-session-start/` (既存 SessionStart hook crate に機能追加)
+- 検出ロジック (案):
+  - `.claude/pr-monitor-state.json` を読む (なければ no-op)
+  - `notified == false` AND `last_checked` が現在時刻から 30 分以上前 → recovery 必要
+  - 該当 PR の概要 (action, summary, findings count) を additionalContext で出力
+- 出力例:
+  ```text
+  [PR_MONITOR_RECOVERY]
+  PR #N の cli-pr-monitor 結果が未通知です (last_checked: <timestamp>)。
+  action: action_required, findings: 2 件
+  詳細: cat .claude/pr-monitor-state.json または gh pr view N
+  ```
+- 設計上の選択肢:
+  - 案 A: `notified=true` への自動更新は行わない (Claude が `pnpm mark-notified` を呼ぶ既存経路を維持)
+  - 案 B: SessionStart hook が自動的に `notified=true` にする (薄い recovery、二重通知を避ける)
+  - 推奨: 案 A (Claude の判断に委ねる方が安全)
+
+#### 作業計画
+
+- [ ] hooks-session-start crate に state file 読み込み + recovery 判定ロジック追加
+- [ ] additionalContext 出力フォーマット決定
+- [ ] dogfood: state file を手動で `notified=false + last_checked が古い` 状態にして SessionStart hook 起動 → recovery context 出力確認
+- [ ] 派生プロジェクトに deploy
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- Claude Code 再起動後の SessionStart で、未通知の cli-pr-monitor 結果があれば additionalContext として届く
+- silent loss が再発しない (再起動跨ぎでも recovery 経路で必ず pickup される)
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) でも同機構が動作
+
+#### 詰まっている箇所
+
+なし (Effort S/M、ADR-030 の L2 recovery パターンを cli-pr-monitor に適用するだけ)
+
+---
+
+### takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)
+
+> **動機**: PR #91 の post-pr-review で `supervise` step が 4 回、`fix_supervisor` step が 4 回の計 8 ステップを「修正不可能な制約あり」と繰り返し報告したにもかかわらず、takt harness はループを継続した。`.claude/` filter (順位 X = T2-1+T3-2 Bundle) が path-based に解決するのに対し、本 task は **iteration 上限到達前に「人間判断に委譲する」と AI 自身が宣言できる verdict** を提供する一般解。
+>
+> **本タスクの位置づけ**: takt の condition routing に新 terminal verdict `reject-escalate` を追加。`supervise` / `fix_supervisor` step がこのシグナルを返したら harness は即終了 + ユーザー committee `.takt/runs/.../reports/escalation.md` を生成し、Claude が次セッションで読んで判断できる経路を提供。
+>
+> **参照**: `.claude/feedback-reports/91.md` の Tier 2 #2
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**順位 11/12 (rate-limit) と T2-1+T3-2 Bundle の land 後に実施推奨**。本 task は根本解だが、上記の path-based filter で path-related な pathological loop は先に解決できる。
+
+#### 設計決定 (案)
+
+- takt のループ制御ロジックに新 terminal verdict `reject-escalate` を追加
+  - 既存 verdict: `approved` / `needs_fix` / `user_decision`
+  - 新規: `reject-escalate` (= "AI 自己判断で escalate、harness 即終了")
+- supervise / fix_supervisor instruction の verdict 一覧に `reject-escalate` を追加
+  - 発火条件: 「修正不可能な制約 (sensitive file / external dependency / philosophical disagreement) を 2 iteration 連続で観測」
+- harness 側の処理:
+  - `reject-escalate` 検出時は loop break + `escalation.md` 生成 (理由 + 経緯)
+  - report phase は scoped-down で短縮実行
+- iteration 消費削減効果の測定: 既存 telemetry に `early_terminate_count` を追加
+
+#### 作業計画
+
+- [ ] takt 本体に `reject-escalate` verdict を追加
+- [ ] facets instruction (`supervise.md` / `fix_supervisor.md`) に発火条件と例文を追記
+- [ ] harness ループ制御ロジックを実装
+- [ ] `escalation.md` テンプレート作成
+- [ ] dogfood: `.claude/` filter (T2-1+T3-2 Bundle) 完了後、本実装前に意図的な reject-escalate ケースを inject して動作確認
+- [ ] takt-test-vc にも反映 (将来)
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- `supervise` / `fix_supervisor` が `reject-escalate` を返すと harness が即終了
+- iteration 上限到達による空費が削減される (定量化可能)
+- escalation.md が次セッションで読める形で生成される
+
+#### 詰まっている箇所
+
+- takt 本体改修のため `~/.claude/projects/takt-test-vc/` 連動も視野に入れる必要あり
+- 順位 11/12 (rate-limit) と T2-1+T3-2 Bundle の land 後に着手することで、路径ベースの解決と verdict ベースの解決が補完関係になる
