@@ -134,7 +134,7 @@ good = 'try { $data = ConvertFrom-Json $raw -ErrorAction Stop } catch { Write-Er
 
 # ─── ルール⑤: Markdown 非 ASCII GFM アンカー検出 (mutable anchor) ───
 #
-# 由来: PR #89 で CodeRabbit が `[docs/todo.md](todo.md#推奨実行順序サマリー)` を Major 指摘。
+# 由来: PR #89 で CodeRabbit が日本語 heading への GFM 自動 anchor link を Major 指摘。
 # 全リポジトリ grep で 3 ファイルにわたる同一パターンを発見。GFM の自動 anchor 生成は
 # heading text のスラッグ化で日本語含む heading は脆弱な ID を生成し、heading text 変更で
 # silent break する。
