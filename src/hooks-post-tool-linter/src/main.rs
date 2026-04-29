@@ -1265,9 +1265,10 @@ extensions = ["ts", "js"]
     // --- 新規ルール: Markdown 非 ASCII GFM アンカー (no-mutable-anchor) ---
 
     fn md_mutable_anchor_rule() -> CustomRule {
+        // path 部から `:` を除外することで http(s):// など外部 URL を除外
         make_test_rule(
             "no-mutable-anchor",
-            r"\]\([^)#]*#[^\x00-\x7F)]+",
+            r"\]\([^)#:]*#[^\x00-\x7F)]+",
             &["md"],
         )
     }
@@ -1338,6 +1339,20 @@ extensions = ["ts", "js"]
     fn md_mutable_anchor_only_targets_md() {
         let dir = tempfile::tempdir().unwrap();
         let file = write_file(dir.path(), "other.txt", "See [section](#日本語)\n");
+        let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_mutable_anchor_skips_external_url_with_fragment() {
+        // 外部 URL の fragment は GFM anchor ではないため誤検知すべきでない
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "external.md",
+            "See [spec](https://example.com/#日本語)\n",
+        );
         let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert!(violations.is_empty());

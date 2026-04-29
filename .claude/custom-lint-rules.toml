@@ -146,7 +146,11 @@ good = 'try { $data = ConvertFrom-Json $raw -ErrorAction Stop } catch { Write-Er
 
 [[rules]]
 id = "no-mutable-anchor"
-pattern = '\]\([^)#]*#[^\x00-\x7F)]+'
+# path 部から `:` を除外することで http(s):// など外部 URL の fragment を除外
+# (外部 URL は GFM anchor ではないため対象外)。
+# protocol-relative URL (`//example.com/...`) は `:` を含まないため除外できないが、
+# Markdown 文書では稀なので許容する。
+pattern = '\]\([^)#:]*#[^\x00-\x7F)]+'
 severity = "warning"
 message = "非 ASCII GFM アンカー (mutable anchor) を検出しました"
 why = "GFM 自動 anchor は heading text からスラッグ化されるため、日本語見出しを参照すると heading 編集で silent break する。安定 ASCII ID を持つ <a id=\"...\"></a> 明示アンカーを使ってください"
