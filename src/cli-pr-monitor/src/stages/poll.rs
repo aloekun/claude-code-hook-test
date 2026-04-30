@@ -179,7 +179,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
             } else if rate_limit_config.auto_retry_enabled
                 && state.rate_limit_retries < rate_limit_config.max_retries
             {
-                handle_rate_limit_retry(&rl, &mut state, pr_info);
+                handle_rate_limit_retry(&rl, &mut state, pr_info, rate_limit_config.max_retries);
                 state.rate_limit_last_retriggered_at = Some(rl.comment_created_at.clone());
                 let _ = write_state(&state);
                 continue; // skip 通常 sleep、次 iteration で fresh polling
@@ -228,6 +228,7 @@ fn handle_rate_limit_retry(
     rl: &crate::state::RateLimitState,
     state: &mut PrMonitorState,
     pr_info: &PrInfo,
+    max_retries: u32,
 ) {
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -242,7 +243,7 @@ fn handle_rate_limit_retry(
             rl.wait_minutes,
             rl.wait_seconds,
             state.rate_limit_retries + 1,
-            rl.until_unix_secs
+            max_retries
         ));
         std::thread::sleep(Duration::from_secs(sleep_secs));
     } else {

@@ -279,4 +279,26 @@ push_command = "git push"
         assert_eq!(config.fix.auto_push_severity, "major");
         assert_eq!(config.fix.push_command, "git push");
     }
+
+    #[test]
+    fn config_rate_limit_defaults() {
+        let toml_str = "[monitor]\n";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.rate_limit.auto_retry_enabled);
+        assert_eq!(config.rate_limit.max_retries, 3);
+    }
+
+    #[test]
+    fn config_rate_limit_custom() {
+        let toml_str = r#"
+[monitor]
+
+[rate_limit]
+auto_retry_enabled = false
+max_retries = 5
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(!config.rate_limit.auto_retry_enabled);
+        assert_eq!(config.rate_limit.max_retries, 5);
+    }
 }
