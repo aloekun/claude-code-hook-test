@@ -160,14 +160,23 @@ fn read_fresh_lock(path: &PathBuf, stale_threshold_secs: i64) -> Option<(LockFil
     }
 }
 
-/// ISO 8601 文字列から「現在からの経過秒数」を返す。parse 失敗時は None (stale 扱い)。
+/// ISO 8601 文字列から「現在からの経過秒数」を返す。
+///
+/// stale 扱いになるケース (None を返す):
+///   - parse 失敗
+///   - 未来日時 (then > now): 時計巻き戻しや破損 future timestamp の lock を
+///     永続 fresh で塩漬けにしないよう明示的に stale 化する。`saturating_sub` だと
+///     age=0 で常に fresh 扱いになり crash recovery が機能しない。
 fn parse_age_secs(iso8601: &str) -> Option<i64> {
     let then = parse_iso8601(iso8601)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_secs() as i64;
-    Some(now.saturating_sub(then))
+    if then > now {
+        return None;
+    }
+    Some(now - then)
 }
 
 /// ISO 8601 (`2026-04-30T05:00:00Z` 形式) を Unix epoch secs にパース。
@@ -253,7 +262,7 @@ mod tests {
     fn acquire_in_clean_dir_succeeds() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("pr-monitor.lock");
-        match acquire_at(path.clone(), "test", 1800) {
+        match acquire_at(path.clone(), "test", DEFAULT_STALE_THRESHOLD_SECS) {
             LockResult::Acquired(_lock) => {
                 assert!(path.exists(), "lock file should be created");
             }
@@ -272,7 +281,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("pr-monitor.lock");
         {
-            let _lock = match acquire_at(path.clone(), "test", 1800) {
+            let _lock = match acquire_at(path.clone(), "test", DEFAULT_STALE_THRESHOLD_SECS) {
                 LockResult::Acquired(l) => l,
                 LockResult::Busy { .. } => panic!("expected Acquired"),
                 LockResult::Unavailable { reason } => {
@@ -288,7 +297,7 @@ mod tests {
     fn fresh_lock_blocks_second_acquire() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("pr-monitor.lock");
-        let _first = match acquire_at(path.clone(), "first", 1800) {
+        let _first = match acquire_at(path.clone(), "first", DEFAULT_STALE_THRESHOLD_SECS) {
             LockResult::Acquired(l) => l,
             LockResult::Busy { .. } => panic!("expected Acquired for first"),
             LockResult::Unavailable { reason } => {
@@ -296,7 +305,7 @@ mod tests {
             }
         };
 
-        match acquire_at(path.clone(), "second", 1800) {
+        match acquire_at(path.clone(), "second", DEFAULT_STALE_THRESHOLD_SECS) {
             LockResult::Busy { holder_pid, .. } => {
                 assert_eq!(holder_pid, std::process::id());
             }
@@ -320,7 +329,7 @@ mod tests {
         std::fs::write(&path, toml::to_string(&stale).unwrap()).unwrap();
 
         // threshold=1800s でも 1980 は stale 判定 → takeover 成功
-        match acquire_at(path.clone(), "takeover", 1800) {
+        match acquire_at(path.clone(), "takeover", DEFAULT_STALE_THRESHOLD_SECS) {
             LockResult::Acquired(_lock) => {
                 let content = std::fs::read_to_string(&path).unwrap();
                 assert!(content.contains(&format!("pid = {}", std::process::id())));
@@ -341,19 +350,30 @@ mod tests {
         // 1 つだけが Acquired (lock 保持) で残りは Busy になることを確認。
         // create_new による atomic create が機能していない場合、複数が
         // Acquired になり test 失敗する。
+        //
+        // 2 barrier 構成の意図: `start` で全 thread 同時に acquire_at に突入させ、
+        // `finish` で全 thread が判定を終えるまで Acquired guard を保持する。
+        // 1 barrier だと先行 thread の guard が判定後に即 drop され、後続 thread が
+        // 逐次 Acquired する flaky window が生じる (CR finding E)。
         use std::sync::{Arc, Barrier};
         use std::thread;
 
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("pr-monitor.lock");
-        let barrier = Arc::new(Barrier::new(8));
+        let start = Arc::new(Barrier::new(8));
+        let finish = Arc::new(Barrier::new(8));
         let mut handles = vec![];
         for _ in 0..8 {
             let p = path.clone();
-            let b = barrier.clone();
+            let start_b = start.clone();
+            let finish_b = finish.clone();
             handles.push(thread::spawn(move || {
-                b.wait();
-                matches!(acquire_at(p, "concurrent", 1800), LockResult::Acquired(_))
+                start_b.wait();
+                let result = acquire_at(p, "concurrent", DEFAULT_STALE_THRESHOLD_SECS);
+                let acquired = matches!(result, LockResult::Acquired(_));
+                // 全 thread の判定が終わるまで result (Acquired なら guard) を保持
+                finish_b.wait();
+                acquired
             }));
         }
         let acquired_count = handles
@@ -383,13 +403,50 @@ mod tests {
     }
 
     #[test]
+    fn future_timestamp_lock_is_taken_over() {
+        // 時計巻き戻し / 破損 future timestamp の lock が永続 fresh で塩漬けに
+        // ならず、stale 扱いで takeover されることを確認 (CR finding D)。
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("pr-monitor.lock");
+        // 9999 年は確実に未来 (parse_iso8601 上限内)
+        let future = LockFile {
+            pid: 999_999,
+            start_time: "9999-01-01T00:00:00Z".into(),
+            mode: "future-test".into(),
+        };
+        std::fs::write(&path, toml::to_string(&future).unwrap()).unwrap();
+
+        match acquire_at(path.clone(), "takeover", DEFAULT_STALE_THRESHOLD_SECS) {
+            LockResult::Acquired(_lock) => {
+                let content = std::fs::read_to_string(&path).unwrap();
+                assert!(
+                    content.contains(&format!("pid = {}", std::process::id())),
+                    "lock should be overwritten with current PID"
+                );
+            }
+            LockResult::Busy {
+                holder_age_secs, ..
+            } => panic!(
+                "future timestamp should be treated as stale, got Busy with age={}s",
+                holder_age_secs
+            ),
+            LockResult::Unavailable { reason } => {
+                panic!(
+                    "future-stale takeover should succeed, got Unavailable: {}",
+                    reason
+                )
+            }
+        }
+    }
+
+    #[test]
     fn corrupt_lock_is_taken_over() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("pr-monitor.lock");
         // parse 不能な内容を仕込む
         std::fs::write(&path, "this is not valid toml :::").unwrap();
 
-        match acquire_at(path.clone(), "takeover", 1800) {
+        match acquire_at(path.clone(), "takeover", DEFAULT_STALE_THRESHOLD_SECS) {
             LockResult::Acquired(_lock) => {}
             LockResult::Busy { .. } => panic!("corrupt lock should be treated as stale"),
             LockResult::Unavailable { reason } => {
@@ -446,7 +503,7 @@ mod tests {
         let file_as_dir = tmp.path().join("notadir");
         std::fs::write(&file_as_dir, "content").unwrap();
         let path = file_as_dir.join("pr-monitor.lock");
-        match acquire_at(path, "test", 1800) {
+        match acquire_at(path, "test", DEFAULT_STALE_THRESHOLD_SECS) {
             LockResult::Unavailable { .. } => {}
             LockResult::Acquired(_) => panic!("expected Unavailable on I/O error, got Acquired"),
             LockResult::Busy { .. } => panic!("expected Unavailable on I/O error, got Busy"),
