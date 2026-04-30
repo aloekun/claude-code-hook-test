@@ -22,8 +22,8 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     // 重複起動防止 (PR #88 T2-4): 同一リポジトリで polling + takt が並走すると
     // Claude Code レートリミットを浪費するため、`.claude/pr-monitor.lock` で
     // 1 アクティブ監視 にゲートする。Drop guard が cleanup 担当。
-    let _lock_guard = match acquire_lock("start_monitoring") {
-        LockResult::Acquired(lock) => lock,
+    let _lock_guard: Option<crate::lock::MonitorLock> = match acquire_lock("start_monitoring") {
+        LockResult::Acquired(lock) => Some(lock),
         LockResult::Busy {
             holder_pid,
             holder_age_secs,
@@ -33,6 +33,13 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
                 holder_pid, holder_age_secs
             ));
             return 0;
+        }
+        LockResult::Unavailable { reason } => {
+            log_info(&format!(
+                "[lock] lock 取得不可 (lock なしで継続): {}",
+                reason
+            ));
+            None
         }
     };
 

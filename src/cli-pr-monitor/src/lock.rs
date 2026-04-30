@@ -58,6 +58,8 @@ pub(crate) enum LockResult {
         holder_pid: u32,
         holder_age_secs: i64,
     },
+    /// lock ファイルの作成に失敗 (権限不足等)。lock 機能なしで継続可能。
+    Unavailable { reason: String },
 }
 
 /// `start_monitoring` 用 lock を取得する。`mode` は debug 用の人間可読ラベル。
@@ -78,7 +80,11 @@ pub(crate) fn acquire_at(path: PathBuf, mode: &str, stale_threshold_secs: i64) -
 
     let content = match build_lock_content(mode) {
         Some(c) => c,
-        None => return LockResult::Acquired(MonitorLock { path }),
+        None => {
+            return LockResult::Unavailable {
+                reason: "lock content serialize 失敗".to_string(),
+            }
+        }
     };
 
     match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -104,9 +110,11 @@ pub(crate) fn acquire_at(path: PathBuf, mode: &str, stale_threshold_secs: i64) -
             LockResult::Acquired(MonitorLock { path })
         }
         Err(e) => {
-            // I/O エラー (権限不足等): fail-open で監視を継続。lock 機能なしで動く。
+            // I/O エラー (権限不足等): lock なしで監視は継続可能。
             log_info(&format!("[lock] create_new 失敗 (lock なしで継続): {}", e));
-            LockResult::Acquired(MonitorLock { path })
+            LockResult::Unavailable {
+                reason: e.to_string(),
+            }
         }
     }
 }
@@ -164,6 +172,7 @@ fn parse_age_secs(iso8601: &str) -> Option<i64> {
 
 /// ISO 8601 (`2026-04-30T05:00:00Z` 形式) を Unix epoch secs にパース。
 /// chrono を依存させずに済むよう手書き parse。
+/// フィールドの値域を検証し、範囲外なら None を返す (corrupt lock → stale 扱い)。
 fn parse_iso8601(s: &str) -> Option<i64> {
     let s = s.trim_end_matches('Z');
     let mut parts = s.split('T');
@@ -180,7 +189,29 @@ fn parse_iso8601(s: &str) -> Option<i64> {
     let minute: i64 = time_parts.next()?.parse().ok()?;
     let second: i64 = time_parts.next()?.parse().ok()?;
 
+    // Range checks: out-of-bounds values cause index-out-of-bounds panic in
+    // days_from_epoch. Returning None lets read_fresh_lock treat the lock as stale.
+    if !(1970..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=days_in_month(year, month)).contains(&day)
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&minute)
+        || !(0..=59).contains(&second)
+    {
+        return None;
+    }
+
     Some(unix_timestamp(year, month, day, hour, minute, second))
+}
+
+fn days_in_month(year: i64, month: i64) -> i64 {
+    let month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let base = month_days[(month - 1) as usize];
+    if month == 2 && is_leap(year) {
+        base + 1
+    } else {
+        base
+    }
 }
 
 /// 単純な Unix epoch 計算 (UTC 前提、うるう秒は無視)。
@@ -227,6 +258,12 @@ mod tests {
                 assert!(path.exists(), "lock file should be created");
             }
             LockResult::Busy { .. } => panic!("expected Acquired in clean dir"),
+            LockResult::Unavailable { reason } => {
+                panic!(
+                    "expected Acquired in clean dir, got Unavailable: {}",
+                    reason
+                )
+            }
         }
     }
 
@@ -238,6 +275,9 @@ mod tests {
             let _lock = match acquire_at(path.clone(), "test", 1800) {
                 LockResult::Acquired(l) => l,
                 LockResult::Busy { .. } => panic!("expected Acquired"),
+                LockResult::Unavailable { reason } => {
+                    panic!("expected Acquired, got Unavailable: {}", reason)
+                }
             };
             assert!(path.exists());
         }
@@ -251,6 +291,9 @@ mod tests {
         let _first = match acquire_at(path.clone(), "first", 1800) {
             LockResult::Acquired(l) => l,
             LockResult::Busy { .. } => panic!("expected Acquired for first"),
+            LockResult::Unavailable { reason } => {
+                panic!("expected Acquired for first, got Unavailable: {}", reason)
+            }
         };
 
         match acquire_at(path.clone(), "second", 1800) {
@@ -258,6 +301,9 @@ mod tests {
                 assert_eq!(holder_pid, std::process::id());
             }
             LockResult::Acquired(_) => panic!("second should be Busy while first holds"),
+            LockResult::Unavailable { reason } => {
+                panic!("second should be Busy, got Unavailable: {}", reason)
+            }
         }
     }
 
@@ -280,6 +326,12 @@ mod tests {
                 assert!(content.contains(&format!("pid = {}", std::process::id())));
             }
             LockResult::Busy { .. } => panic!("stale lock should allow takeover"),
+            LockResult::Unavailable { reason } => {
+                panic!(
+                    "stale lock should allow takeover, got Unavailable: {}",
+                    reason
+                )
+            }
         }
     }
 
@@ -340,6 +392,12 @@ mod tests {
         match acquire_at(path.clone(), "takeover", 1800) {
             LockResult::Acquired(_lock) => {}
             LockResult::Busy { .. } => panic!("corrupt lock should be treated as stale"),
+            LockResult::Unavailable { reason } => {
+                panic!(
+                    "corrupt lock should allow takeover, got Unavailable: {}",
+                    reason
+                )
+            }
         }
     }
 
@@ -359,5 +417,39 @@ mod tests {
         assert!(!is_leap(2025));
         assert!(!is_leap(1900)); // century non-leap
         assert!(is_leap(2000)); // 400-year leap
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_out_of_range_month() {
+        // month=99 would cause index-out-of-bounds in days_from_epoch without bounds check
+        assert_eq!(parse_iso8601("2026-99-30T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_out_of_range_fields() {
+        assert_eq!(parse_iso8601("1969-01-01T00:00:00Z"), None); // year < 1970
+        assert_eq!(parse_iso8601("2026-00-01T00:00:00Z"), None); // month = 0
+        assert_eq!(parse_iso8601("2026-13-01T00:00:00Z"), None); // month > 12
+        assert_eq!(parse_iso8601("2026-01-00T00:00:00Z"), None); // day = 0
+        assert_eq!(parse_iso8601("2026-01-32T00:00:00Z"), None); // day > 31
+        assert_eq!(parse_iso8601("2026-01-01T24:00:00Z"), None); // hour = 24
+        assert_eq!(parse_iso8601("2026-01-01T00:60:00Z"), None); // minute = 60
+        assert_eq!(parse_iso8601("2026-01-01T00:00:60Z"), None); // second = 60
+        assert_eq!(parse_iso8601("2026-02-29T00:00:00Z"), None); // day 29 in non-leap year
+    }
+
+    #[test]
+    fn io_error_returns_unavailable() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Create a regular file at the path that will be used as a parent directory.
+        // create_dir_all on a file path silently fails, so open() gets a non-AlreadyExists error.
+        let file_as_dir = tmp.path().join("notadir");
+        std::fs::write(&file_as_dir, "content").unwrap();
+        let path = file_as_dir.join("pr-monitor.lock");
+        match acquire_at(path, "test", 1800) {
+            LockResult::Unavailable { .. } => {}
+            LockResult::Acquired(_) => panic!("expected Unavailable on I/O error, got Acquired"),
+            LockResult::Busy { .. } => panic!("expected Unavailable on I/O error, got Busy"),
+        }
     }
 }
