@@ -179,9 +179,34 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
             } else if rate_limit_config.auto_retry_enabled
                 && state.rate_limit_retries < rate_limit_config.max_retries
             {
-                handle_rate_limit_retry(&rl, &mut state, pr_info, rate_limit_config.max_retries);
+                let elapsed = start.elapsed().as_secs();
+                let remaining_monitor_secs = max_duration.saturating_sub(elapsed);
+
+                if let Err(e) = handle_rate_limit_retry(
+                    &rl,
+                    &mut state,
+                    pr_info,
+                    rate_limit_config.max_retries,
+                    remaining_monitor_secs,
+                ) {
+                    // 失敗時は dedup を更新せず action_required で抜ける。
+                    // last_retriggered_at が未更新のため、次セッションで同 comment を
+                    // 再 trigger 試行できる (本セッションでは budget 超過/post 失敗のため停止)。
+                    log_info(&format!("[rate_limit] retrigger 失敗: {}", e));
+                    return PollResult {
+                        action: "action_required".into(),
+                        summary: format!(
+                            "rate-limit 自動 retry 失敗 ({})。手動で `@coderabbitai review` を投稿してください",
+                            e
+                        ),
+                        ci: state.ci,
+                        coderabbit: state.coderabbit,
+                        findings: state.findings,
+                        check_output: Some(result),
+                    };
+                }
                 state.rate_limit_last_retriggered_at = Some(rl.comment_created_at.clone());
-                // state 永続化失敗時は dedup と max_retries が壊れる可能性があるため、
+                // state 永続化失敗時は dedup / max_retries が壊れる可能性があるため、
                 // 自動 retry を停止し action_required で抜ける (重複投稿リスクを回避)。
                 if let Err(e) = write_state(&state) {
                     log_info(&format!(
@@ -238,21 +263,39 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
     }
 }
 
-/// rate-limit reset まで sleep し、`@coderabbitai review` を post して retry counter を進める。
+/// rate-limit reset まで sleep し、`@coderabbitai review` を post する。
 ///
-/// `until_unix_secs <= now` の場合は sleep をスキップして即時 retrigger (= 過去の rate-limit
-/// comment を発見、既にリセット済み)。
+/// 成功時のみ `Ok(())` を返し、`state.rate_limit_retries` をインクリメントする。
+/// 失敗ケース (PR 番号未確定 / sleep が監視残り予算超過 / gh post 失敗) は
+/// state を変更せず `Err` を返す。caller は `last_retriggered_at` を更新せず、
+/// 同 comment を未処理のまま残すこと。
+///
+/// `until_unix_secs <= now` の場合は sleep をスキップして即時 retrigger
+/// (= 過去の rate-limit comment を発見、既にリセット済み)。
 fn handle_rate_limit_retry(
     rl: &crate::state::RateLimitState,
     state: &mut PrMonitorState,
     pr_info: &PrInfo,
     max_retries: u32,
-) {
+    remaining_monitor_secs: u64,
+) -> Result<(), String> {
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let sleep_secs = (rl.until_unix_secs - now_unix).max(0) as u64;
+
+    // 監視残り時間を超える sleep は実施しない (max_duration を素通りさせない)
+    if sleep_secs > remaining_monitor_secs {
+        return Err(format!(
+            "rate-limit sleep ({}s) > 監視残り予算 ({}s)",
+            sleep_secs, remaining_monitor_secs
+        ));
+    }
+
+    let pr = pr_info
+        .pr_number
+        .ok_or_else(|| "PR 番号未確定のため retrigger スキップ".to_string())?;
 
     if sleep_secs > 0 {
         log_info(&format!(
@@ -271,27 +314,20 @@ fn handle_rate_limit_retry(
         ));
     }
 
-    if let Some(pr) = pr_info.pr_number {
-        let pr_str = pr.to_string();
-        let result = run_gh_quiet(&["pr", "comment", &pr_str, "--body", "@coderabbitai review"]);
-        if result.is_some() {
-            log_info(&format!(
-                "[rate_limit] @coderabbitai review を投稿 (PR #{}, retry={})",
-                pr,
-                state.rate_limit_retries + 1
-            ));
-        } else {
-            log_info(&format!(
-                "[rate_limit] gh pr comment 投稿失敗 (PR #{}) — next poll で再 detect",
-                pr
-            ));
-        }
-    } else {
-        log_info("[rate_limit] PR 番号未確定のため retrigger スキップ");
+    let pr_str = pr.to_string();
+    if run_gh_quiet(&["pr", "comment", &pr_str, "--body", "@coderabbitai review"]).is_none() {
+        return Err(format!("gh pr comment 投稿失敗 (PR #{})", pr));
     }
+
+    log_info(&format!(
+        "[rate_limit] @coderabbitai review を投稿 (PR #{}, retry={})",
+        pr,
+        state.rate_limit_retries + 1
+    ));
 
     state.rate_limit_retries += 1;
     // rate_limit field は次の polling iteration で再 detect されるためここでは clear しない。
+    Ok(())
 }
 
 /// skip 適用後に、有効なチェックだけを見て action を再導出する
@@ -469,5 +505,69 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// Finding 2 (PR #97 round 3): sleep が監視残り予算を超える場合、
+    /// `handle_rate_limit_retry` は Err を返し state を変更しない。
+    #[test]
+    fn rate_limit_retry_returns_err_when_sleep_exceeds_budget() {
+        let future_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 600; // 10 分後
+        let rl = RateLimitState {
+            until_unix_secs: future_unix,
+            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            wait_minutes: 10,
+            wait_seconds: 0,
+        };
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: None,
+        };
+
+        // remaining=60s なのに sleep=600s 必要 → Err
+        let result = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3, 60);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("監視残り予算"),
+            "Err message に budget 不足の説明が含まれるべき: {}",
+            err_msg
+        );
+        // state は変更されない (retries 0 のまま、last_retriggered_at None のまま)
+        assert_eq!(state.rate_limit_retries, 0);
+        assert!(state.rate_limit_last_retriggered_at.is_none());
+    }
+
+    /// Finding 3 (PR #97 round 3): PR 番号未確定の場合、Err を返し state を変更しない。
+    #[test]
+    fn rate_limit_retry_returns_err_when_pr_number_missing() {
+        let past_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 60; // 1 分前 (sleep_secs=0 経路)
+        let rl = RateLimitState {
+            until_unix_secs: past_unix,
+            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            wait_minutes: 0,
+            wait_seconds: 0,
+        };
+        let mut state = PrMonitorState::new(None, None, "t".into());
+        let pr_info = crate::util::PrInfo {
+            pr_number: None,
+            repo: None,
+            push_time: None,
+        };
+
+        let result = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3, 1000);
+        assert!(result.is_err());
+        // state は変更されない
+        assert_eq!(state.rate_limit_retries, 0);
+        assert!(state.rate_limit_last_retriggered_at.is_none());
     }
 }
