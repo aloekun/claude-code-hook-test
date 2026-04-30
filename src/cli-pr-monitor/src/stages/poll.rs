@@ -181,7 +181,25 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
             {
                 handle_rate_limit_retry(&rl, &mut state, pr_info, rate_limit_config.max_retries);
                 state.rate_limit_last_retriggered_at = Some(rl.comment_created_at.clone());
-                let _ = write_state(&state);
+                // state 永続化失敗時は dedup と max_retries が壊れる可能性があるため、
+                // 自動 retry を停止し action_required で抜ける (重複投稿リスクを回避)。
+                if let Err(e) = write_state(&state) {
+                    log_info(&format!(
+                        "[rate_limit] retrigger 後の state 永続化失敗、自動 retry を停止: {}",
+                        e
+                    ));
+                    return PollResult {
+                        action: "action_required".into(),
+                        summary: format!(
+                            "rate-limit retry 後の state 永続化に失敗 ({})。手動で `@coderabbitai review` の重複投稿に注意してください",
+                            e
+                        ),
+                        ci: state.ci,
+                        coderabbit: state.coderabbit,
+                        findings: state.findings,
+                        check_output: Some(result),
+                    };
+                }
                 continue; // skip 通常 sleep、次 iteration で fresh polling
             } else if state.rate_limit_retries >= rate_limit_config.max_retries {
                 log_info(&format!(

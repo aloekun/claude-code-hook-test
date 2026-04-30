@@ -218,6 +218,15 @@ struct GhPullComment {
 
 // ─── パース関数 (テスト可能な純粋関数) ───
 
+const RATE_LIMIT_MARKER: &str = "Rate limit exceeded";
+
+fn is_rate_limit_comment(c: &GhComment) -> bool {
+    c.body
+        .as_deref()
+        .map(|b| b.contains(RATE_LIMIT_MARKER))
+        .unwrap_or(false)
+}
+
 /// gh run list の JSON をパースして CI 状態を返す
 fn parse_ci_runs(json: &str) -> CiStatus {
     let items: Vec<GhRunItem> = serde_json::from_str(json).unwrap_or_else(|e| {
@@ -337,7 +346,12 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
                 .map(|b| b.contains("review in progress"))
                 .unwrap_or(false);
 
-            is_coderabbit && after_push_time && !is_review_in_progress
+            // rate-limit コメントは review 結果ではないので除外。
+            // 含めると `decide()` が action_required を早期 return し、
+            // poll.rs の rate-limit retry 経路に入らずに監視終了してしまう。
+            let is_rate_limit = is_rate_limit_comment(c);
+
+            is_coderabbit && after_push_time && !is_review_in_progress && !is_rate_limit
         })
         .count()
 }
@@ -348,11 +362,15 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
 ///   - 投稿者が `coderabbitai[bot]`
 ///   - body に `Rate limit exceeded` を含む
 ///   - body に `Please wait <N> minutes? and <M> seconds?` 表現を含む
+///   - `created_at >= push_time` (現セッション開始以降の comment のみ)
+///
+/// `push_time` フィルタは過去セッションの古い rate-limit comment が現セッションで
+/// 即時誤 retrigger される問題を防ぐ。`parse_new_comments` / `parse_findings` と同じ規則。
 ///
 /// 複数の rate-limit comment が存在する場合は **最新** (created_at 最大) を採用。
 /// 計算式: comment.created_at + N min + M sec + 60 秒 buffer = until_unix_secs。
 /// 60 秒 buffer は server 時計差・カウンタ reset 処理時間を吸収する経験則 (PR #89)。
-fn parse_rate_limit(json: &str) -> Option<RateLimitInfo> {
+fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitInfo> {
     let comments: Vec<GhComment> = serde_json::from_str(json).ok()?;
 
     let mut candidates: Vec<&GhComment> = comments
@@ -364,12 +382,13 @@ fn parse_rate_limit(json: &str) -> Option<RateLimitInfo> {
                 .and_then(|u| u.login.as_deref())
                 .map(|l| l == "coderabbitai[bot]")
                 .unwrap_or(false);
-            let has_rate_limit = c
-                .body
+            let has_rate_limit = is_rate_limit_comment(c);
+            let after_push_time = c
+                .created_at
                 .as_deref()
-                .map(|b| b.contains("Rate limit exceeded"))
+                .map(|t| t >= push_time)
                 .unwrap_or(false);
-            is_coderabbit && has_rate_limit
+            is_coderabbit && has_rate_limit && after_push_time
         })
         .collect();
     candidates.sort_by(|a, b| {
@@ -934,7 +953,7 @@ fn run_check(args: CliArgs) -> CheckResult {
     let comments_json = run_gh(&["api", &format!("repos/{}/issues/{}/comments", repo, pr_str)])
         .unwrap_or_else(|_| "[]".to_string());
     let new_comments = parse_new_comments(&comments_json, &args.push_time);
-    let rate_limit = parse_rate_limit(&comments_json);
+    let rate_limit = parse_rate_limit(&comments_json, &args.push_time);
 
     // 4. Actionable comments クロスチェック
     let reviews_json = run_gh(&["api", &format!("repos/{}/pulls/{}/reviews", repo, pr_str)])
@@ -1076,7 +1095,7 @@ mod tests {
             "body": "Rate limit exceeded\n\nPlease wait **5 minutes and 13 seconds** before requesting another review.",
             "created_at": "2026-04-30T00:00:00Z"
         }]"#;
-        let result = parse_rate_limit(json).unwrap();
+        let result = parse_rate_limit(json, "2026-04-29T00:00:00Z").unwrap();
         // 2026-04-30T00:00:00Z + 5*60 + 13 + 60 (buffer) = epoch + 313 + 60
         assert_eq!(result.wait_minutes, 5);
         assert_eq!(result.wait_seconds, 13);
@@ -1090,7 +1109,7 @@ mod tests {
             {"user": {"login": "coderabbitai[bot]"}, "body": "Rate limit exceeded\nPlease wait 5 minutes and 0 seconds", "created_at": "2026-04-29T00:00:00Z"},
             {"user": {"login": "coderabbitai[bot]"}, "body": "Rate limit exceeded\nPlease wait 1 minute and 30 seconds", "created_at": "2026-04-30T00:00:00Z"}
         ]"#;
-        let result = parse_rate_limit(json).unwrap();
+        let result = parse_rate_limit(json, "2026-04-29T00:00:00Z").unwrap();
         // 最新 (2026-04-30) が選ばれる
         assert_eq!(result.wait_minutes, 1);
         assert_eq!(result.wait_seconds, 30);
@@ -1103,7 +1122,7 @@ mod tests {
             "body": "Rate limit exceeded\nPlease wait 5 minutes and 0 seconds",
             "created_at": "2026-04-30T00:00:00Z"
         }]"#;
-        assert!(parse_rate_limit(json).is_none());
+        assert!(parse_rate_limit(json, "2026-04-29T00:00:00Z").is_none());
     }
 
     #[test]
@@ -1113,7 +1132,7 @@ mod tests {
             "body": "Review completed.",
             "created_at": "2026-04-30T00:00:00Z"
         }]"#;
-        assert!(parse_rate_limit(json).is_none());
+        assert!(parse_rate_limit(json, "2026-04-29T00:00:00Z").is_none());
     }
 
     #[test]
@@ -1123,12 +1142,37 @@ mod tests {
             "body": "Rate limit exceeded but format is unusual",
             "created_at": "2026-04-30T00:00:00Z"
         }]"#;
-        assert!(parse_rate_limit(json).is_none());
+        assert!(parse_rate_limit(json, "2026-04-29T00:00:00Z").is_none());
     }
 
     #[test]
     fn rate_limit_empty_json_returns_none() {
-        assert!(parse_rate_limit("[]").is_none());
+        assert!(parse_rate_limit("[]", "2026-04-29T00:00:00Z").is_none());
+    }
+
+    /// 過去セッションの rate-limit comment を push_time フィルタで除外
+    /// (CR review feedback PR #97 round 2)
+    #[test]
+    fn rate_limit_filters_out_past_session_comments() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Rate limit exceeded\nPlease wait 5 minutes and 13 seconds",
+            "created_at": "2026-04-29T00:00:00Z"
+        }]"#;
+        // push_time が comment より新しいので、古い comment は無視される
+        assert!(parse_rate_limit(json, "2026-04-30T00:00:00Z").is_none());
+    }
+
+    /// push_time = comment.created_at の境界ケース (>= 比較なので採用)
+    #[test]
+    fn rate_limit_includes_comment_at_exact_push_time() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Rate limit exceeded\nPlease wait 5 minutes and 13 seconds",
+            "created_at": "2026-04-30T00:00:00Z"
+        }]"#;
+        // push_time と一致する comment は含める (>= 比較)
+        assert!(parse_rate_limit(json, "2026-04-30T00:00:00Z").is_some());
     }
 
     // --- parse_ci_runs ---
@@ -1270,6 +1314,19 @@ mod tests {
             {"user":{"login":"coderabbitai[bot]"},"created_at":"2026-04-01T13:05:00Z","body":"_Actionable comments posted: 2_\nReview summary..."}
         ]"#;
         // 「処理中」コメントは除外され、レビュー結果コメントのみカウント
+        assert_eq!(parse_new_comments(json, "2026-04-01T12:00:00Z"), 1);
+    }
+
+    /// rate-limit comment は new_comments から除外する
+    /// (CR review feedback PR #97 round 2: rate-limit が new_comments を汚染すると
+    ///  decide() が action_required を早期 return して rate-limit retry 経路に入らない)
+    #[test]
+    fn comments_excludes_rate_limit() {
+        let json = r#"[
+            {"user":{"login":"coderabbitai[bot]"},"created_at":"2026-04-01T13:00:00Z","body":"Rate limit exceeded\nPlease wait 5 minutes and 0 seconds before requesting another review."},
+            {"user":{"login":"coderabbitai[bot]"},"created_at":"2026-04-01T13:05:00Z","body":"_Actionable comments posted: 2_\nReview summary..."}
+        ]"#;
+        // rate-limit comment は除外、レビュー結果のみカウント
         assert_eq!(parse_new_comments(json, "2026-04-01T12:00:00Z"), 1);
     }
 
