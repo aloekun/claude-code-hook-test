@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo2.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する。todo.md / todo2.md の既存エントリは引き続き有効、相互に独立。新セッションでは三つすべてを確認すること。
+> **本ファイルの位置付け**: docs/todo2.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #88 以降の新規エントリは本ファイルに記録した。本ファイルも PR #96 セッションで 50KB 接近のため、それ以降の新規エントリは [docs/todo4.md](todo4.md) へ。todo.md / todo2.md / todo3.md / todo4.md の既存エントリは引き続き有効、相互に独立。新セッションでは四つすべてを確認すること。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo.md](todo.md#recommended-order-summary) を参照。
 
@@ -192,53 +192,6 @@ Hint:
 #### 詰まっている箇所
 
 なし (Effort Small、cli-pr-monitor 入口の arg parser 拡張のみ)
-
----
-
-### post-pr-review に rate-limit 自動検出 + 再トリガーロジック (PR #89 T2-1)
-
-> **動機**: PR #89 作成直後 (13:31Z) に CodeRabbit のレートリミットが発火し、post-pr-review takt workflow が CodeRabbit review を取得できなかった。手動で「rate limit comment の `updated_at` + 残り時間 + 1 分バッファ」を計算し wait → `@coderabbitai review` 投稿で再トリガーする運用で復旧したが、毎回手動判断は冗長。
->
-> **本タスクの位置づけ**: post-pr-review workflow の analyze ステップに rate-limit 検出 → 自動 wait → 再トリガーを組み込む。本 PR で実証されたタイムスタンプ計算ロジック (`updated_at + remaining_minutes + 60s buffer`) をそのまま自動化する。
->
-> **参照**: `.claude/feedback-reports/89.md` の Tier 2 #1 finding
->
-> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。cli-pr-monitor ポーリング延長 + 重複起動ロック (PR #88 T2-4、完了済) と補完関係 (本タスクは review 単位の対応、ポーリング延長 task はポーリング頻度全体の削減)。Polling anti-pattern 検出ルール task も類似の rate-limit 削減ライン。
-
-#### 背景
-
-- PR #89 push 直後に CodeRabbit が `Rate limit exceeded` コメント (1 時間内 commit review 数の上限到達) を投稿
-- 手動運用: rate limit comment の `updated_at` 取得 → 残り時間パース → 解除時刻 + 1 分バッファで `gh pr comment <pr> --body "@coderabbitai review"` 再トリガー
-- 自動化のメリット: rate-limit 検出から再トリガーまでの待機時間が long-running task で完結 (ユーザー操作不要)
-- 1 分バッファは server 時計差・rate limit カウンタ reset 処理時間を吸収する経験則 (本 PR で 28 秒のシステム遅延を観測しても着地できた実績あり)
-
-#### 設計決定 (案)
-
-- post-pr-review takt workflow の analyze facet で rate-limit 判定を追加
-- 検出条件: CodeRabbit comment body に `Rate limit exceeded` 含む
-- 抽出: `Please wait <N> minutes and <M> seconds` パース → 解除時刻計算
-- 待機機構: takt の sleep ステップ または ScheduleWakeup 同等
-- 再トリガー: 解除 + 1 分後に `gh pr comment <pr> --body "@coderabbitai review"` を post
-- 失敗時: rate limit comment が再投稿されたら再検出 → 再 wait
-- 上限: 同 PR で N 回再試行したら abandon (人間判断委ね)
-
-#### 作業計画
-
-- [ ] post-pr-review workflow の analyze facet に rate-limit 検出ロジック追加
-- [ ] `updated_at` + remaining time パース実装
-- [ ] sleep + 再トリガー機構の選定 (takt 内蔵 sleep、ScheduleWakeup、外部 cron 等)
-- [ ] 上限 (N 回再試行) のポリシー決定
-- [ ] dogfood: 意図的に rate-limit を発火させて自動再トリガーが効くことを確認
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- post-pr-review が CodeRabbit rate-limit を検出した場合、解除時刻 + 1 分バッファで自動再トリガーされる
-- ユーザーは rate-limit 発生を意識せず PR review が最終的に完了する
-
-#### 詰まっている箇所
-
-- 待機機構の選定 (takt 内蔵 vs 外部) は実装着手時に検討
 
 ---
 

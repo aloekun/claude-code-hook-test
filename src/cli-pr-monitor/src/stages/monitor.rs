@@ -63,7 +63,7 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     }
 
     // Stage 1: poll_loop (in-process, blocking)
-    let poll_result = run_poll_loop(&config.monitor, pr_info);
+    let poll_result = run_poll_loop(&config, pr_info);
 
     log_info(&format!(
         "ポーリング完了: action={}, summary={}",

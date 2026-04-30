@@ -30,6 +30,7 @@ src/*/Cargo.lock
 .claude/.session-id
 .claude/pr-monitor-state.json
 .claude/pr-monitor-state.json.tmp
+.claude/pr-monitor.lock
 .claude/scheduled_tasks.lock
 # ADR-029: post-merge-feedback の pending file (cli-merge-pipeline 生成、skill が consume する一時 artifact)
 # 旧経路。Phase E で機構ごと廃止予定 (ADR-030 supersede)

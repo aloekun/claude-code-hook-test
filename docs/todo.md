@@ -2,12 +2,13 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加):
+> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加):
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクは追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
-> - **docs/todo3.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
-> - 例外: 既存 todo.md / todo2.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは三つすべてを確認すること**
+> - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、本セッション以降の新規エントリは todo4.md へ)
+> - **docs/todo4.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
+> - 例外: 既存 todo.md / todo2.md / todo3.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは四つすべてを確認すること**
 
 ---
 
@@ -27,7 +28,6 @@
 | 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 20 の compensating check 前提) |
 | 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
 | 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
-| 13 | 🔧 Tier 2 | **post-pr-review に rate-limit 自動検出 + 再トリガー (PR #89 T2-1)** ★ rate-limit critical | todo3.md | Medium | なし (`cli-pr-monitor` ポーリング延長 + 重複起動ロック (PR #88 T2-4、完了済) と補完) |
 | 15 | 🔧 Tier 2 | **cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張)** ★ silent loss prevention | todo3.md | S/M | なし (ADR-030 L2 recovery パターンを cli-pr-monitor に適用) |
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
 | 17 | 🔧 Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
@@ -47,13 +47,18 @@
 | 31 | 💎 Tier 3 | **review-security.md docs-only fast-approve から `.takt/**` と `.claude/**` を明示除外 (PR #95 T3-2) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策) |
 | 32 | 💎 Tier 3 | **docs/todo.md ヘッダの「新規タスクは追加しない」表記を実態整合 (PR #95 T3-3) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策) |
 | 33 | 💎 Tier 3 | **code-review.md に新 verdict 経路追加時の 3 点チェックリスト追記 (PR #95 T3-4) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策、verdict path 整合性) |
+| 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | 順位 19 land 後推奨 (PR #96 直接対策、AI が flaky 実装を書ける窓を spec 層で塞ぐ) |
+| 35 | 🚀 Tier 1 | **型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | S | 順位 34 と同 PR (Bundle W、PBT が型に守られて記述しやすくなる相補関係) |
+| 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W land 後推奨 (PBT properties の後付け検証層、変更 crate + 1-hop 依存 scope) |
+| 37 | 🔧 Tier 2 | **pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky) ★ Bundle X** | todo4.md | S | 順位 36 と同 PR (Bundle X、cli-push-runner に +~1 秒 step 追加) |
+| 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 Phase B (順位 8) と同 bundle 化推奨、long-tail flake と coverage 全体監査 |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
 **Bundle 1 完了 + post-merge-feedback 反映 (2026-04-29)**: PR #91 (Bundle 1: PowerShell + Markdown anchor lint rules) merge 後の post-merge-feedback で **4 件の新規 task を追加** (PowerShell `(?i)` 自動検証 / `.claude/` filter + ADR-030 制約 / cli-pr-monitor 通知 Recovery 経路 / takt REJECT-ESCALATE)。**前 2 件は本 PR で実証された「fix iteration の根因」に対する決定論的防止策で最優先候補**。**日付ベース見出しアンカーのグローバル明文化 task は決定論的防止 (no-mutable-anchor rule) との二重防衛として継続有効**。
 
-**reviewer facet 改善 (Bundle T で land 済)** + **post-pr-review fix loop の `.claude/` filter (Bundle T で land 済)** + **cli-pr-monitor ポーリング延長 + 重複起動ロック (Phase 3 で land 済)** が完了し、reviewer 精度向上 + convergence cost 削減 + ポーリング頻度削減の三段構えが成立。残る Tier 2 では rate-limit critical 系の最後の 1 つ post-pr-review rate-limit 自動検出 + 再トリガー が最優先候補。
-**rate-limit 抑制の 3 層**: (1) Polling anti-pattern 検出 (PR #86 T1-1、完了済) = Claude 側の polling 禁止 (preventive)、(2) cli-pr-monitor ポーリング延長 + 重複起動ロック (PR #88 T2-4、完了済) = tool 側のポーリング頻度削減 (corrective)、(3) post-pr-review rate-limit 自動検出 + 再トリガー (Tier 2 残) = review 単位の自動 recovery。
+**reviewer facet 改善 (Bundle T で land 済)** + **post-pr-review fix loop の `.claude/` filter (Bundle T で land 済)** + **cli-pr-monitor ポーリング延長 + 重複起動ロック (Phase 3 で land 済)** + **rate-limit 自動検出 + 再トリガー (Phase 4 で land 済)** が完了し、reviewer 精度向上 + convergence cost 削減 + ポーリング頻度削減 + rate-limit 自動 recovery の四段構えが成立。残る Tier 2 では takt REJECT-ESCALATE が最優先候補。
+**rate-limit 抑制の 3 層**: (1) Polling anti-pattern 検出 (PR #86 T1-1、完了済) = Claude 側の polling 禁止 (preventive)、(2) cli-pr-monitor ポーリング延長 + 重複起動ロック (PR #88 T2-4 / #96、完了済) = tool 側のポーリング頻度削減 (corrective)、(3) post-pr-review rate-limit 自動検出 + 再トリガー (Phase 4 / 完了済) = review 単位の自動 recovery。
 **cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張) は PR #91 の直接観測知見**。SessionStart hook で再起動跨ぎの通知ロスト防止。post-pr-review fix loop の `.claude/` filter (path-based 解決) は Bundle T で land 済。
 **Stop hook の `pnpm lint:md` 統合 task は Markdown linter hook 統合 (PR #88 で merged) の gap closure**。**AI 生成一時スクリプト pattern 検出は push 前 untracked `__*` hook (PR #85 T1-4) と関連** (実装前に擦り合わせ要)。
 **`.failed` marker 自己文書化 task は ADR-030 soft-fail 機構の運用負荷削減** (PR #89 セッションで recovery が機能した実証から派生、Effort S)。
@@ -61,6 +66,8 @@
 **T3 グローバルルール 4 件 (日付ベース見出しアンカー / jj conflict リカバリ / `__` prefix scratch / post-pr-monitor polling 禁止) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
 **Bundle U (Cross-File Reference Lifecycle 強化) は PR #94 post-merge-feedback 直接対策**。非 docs ファイル `docs/todo` 参照検出 lint rule (Tier 1 = 決定論的防止) と Cross-File Reference Lifecycle ルール具体例追記 (Tier 3 = preventive guidance) を 1 PR で land 推奨。両者は同一テーマ (永続成果物→ephemeral 参照禁止の二層化) で補完関係、effort 合計 S+XS。
 **Bundle V (verdict path 整合性 + docs-only fast-approve gap 補強) は PR #95 post-merge-feedback 直接対策**。review-security.md の `.takt/**` / `.claude/**` 除外、docs/todo.md ヘッダ整合、code-review.md の 3 点チェックリスト追記の 3 件を 1 PR で land 推奨。共通テーマは「PR #95 で実証された不整合パターンへの retroactive 対策」、effort 合計 XS×3 で完結。
+**Bundle W (PBT + 型強化) は PR #96 で実証された flaky 実装防御の最上層**。Finding D (`saturating_sub` の silent semantic mismatch) と E (concurrency test の guard 即 drop) はどちらも「Rust 的に正しいコードがドメイン的に間違う」典型例で、advisor + takt-fix の 2 layer も貫通した。**仕様を proptest properties で明文化 + `PastTime` 等の型で invalid state を unrepresentable に** することで、ルール (ask-based) では塞げない bug class を構造的に排除する。**rate-limit 自動検出 (Phase 4 で land 済) / takt REJECT-ESCALATE を先行**し、その後 Bundle W に着手する流れがユーザー指示。
+**Bundle X (cargo-mutants + stress runner) は Bundle W の後付け検証層**。L2 post-PR で変更 crate + 1-hop 依存に cargo-mutants を走らせ test の弱さを直接測定、L1 pre-push で concurrency stress N=100 を回し scheduling race を sampling。Bundle W で書いた spec / 型を後段で機械的に検証する補完関係。**L3 weekly cargo-mutants workspace 全体 + stress N=1000 は ADR-031 Phase B 週次レビューと bundle 化** することで long-tail flake と coverage 全体監査を week 単位で audit する layer に統合。
 
 ---
 
