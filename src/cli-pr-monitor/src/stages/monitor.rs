@@ -1,5 +1,6 @@
 use crate::config::load_config;
 use crate::fix_commit::{create_fix_commit, FixCommitState};
+use crate::lock::{acquire as acquire_lock, LockResult};
 use crate::log::{log_info, truncate_safe};
 use crate::stages::collect::collect_findings;
 use crate::stages::poll::run_poll_loop;
@@ -17,6 +18,23 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
         log_info("監視は設定で無効化されています");
         return 0;
     }
+
+    // 重複起動防止 (PR #88 T2-4): 同一リポジトリで polling + takt が並走すると
+    // Claude Code レートリミットを浪費するため、`.claude/pr-monitor.lock` で
+    // 1 アクティブ監視 にゲートする。Drop guard が cleanup 担当。
+    let _lock_guard = match acquire_lock("start_monitoring") {
+        LockResult::Acquired(lock) => lock,
+        LockResult::Busy {
+            holder_pid,
+            holder_age_secs,
+        } => {
+            log_info(&format!(
+                "[lock] 別の cli-pr-monitor が走行中 (pid={}, age={}s)、本セッションは skip",
+                holder_pid, holder_age_secs
+            ));
+            return 0;
+        }
+    };
 
     let pr_label = pr_info
         .pr_number

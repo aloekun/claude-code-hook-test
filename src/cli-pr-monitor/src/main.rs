@@ -24,6 +24,7 @@
 
 mod config;
 mod fix_commit;
+mod lock;
 mod log;
 mod runner;
 mod stages;

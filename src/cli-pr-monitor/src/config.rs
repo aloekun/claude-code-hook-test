@@ -3,7 +3,11 @@ use std::path::{Path, PathBuf};
 
 use crate::log::log_info;
 
-pub(crate) const DEFAULT_POLL_INTERVAL: u64 = 120;
+/// poll_interval_secs のデフォルト。
+/// 120s から 180s に延長 (PR #88 T2-4): rate-limit 浪費を抑えるため、
+/// セッション単独でも polling 回数を 5 → ~3 サイクル/監視に削減。
+/// max_duration_secs (600s) の維持と組み合わせて、polling 総数を 40% 削減する。
+pub(crate) const DEFAULT_POLL_INTERVAL: u64 = 180;
 pub(crate) const DEFAULT_MAX_DURATION: u64 = 600;
 pub(crate) const DEFAULT_STEP_TIMEOUT_SECS: u64 = 300;
 pub(crate) const DEFAULT_CHECK_TIMEOUT_SECS: u64 = 60;
