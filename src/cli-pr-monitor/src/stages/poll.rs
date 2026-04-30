@@ -163,18 +163,18 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
         // Rate-limit 自動 retry (PR #89 T2-1)
         //
         // dedup: 同一の rate-limit comment は iteration を跨いで PR コメント一覧に残るため
-        // `comment_created_at` で dedup しないと、毎回 sleep_secs=0 で即時 retrigger を繰り返し
+        // `comment_event_time` で dedup しないと、毎回 sleep_secs=0 で即時 retrigger を繰り返し
         // 数秒で max_retries を消費してしまう。CR が新たな rate-limit comment を投稿した時点で
         // created_at が変わり再度 retrigger 対象になる。
         if let Some(rl) = state.rate_limit.clone() {
             let already_handled = state.rate_limit_last_retriggered_at.as_deref()
-                == Some(rl.comment_created_at.as_str());
+                == Some(rl.comment_event_time.as_str());
 
             if already_handled {
                 log_info(&format!(
                     "[rate_limit] 同じ rate-limit comment ({}) は処理済み、retrigger スキップ",
-                    rl.comment_created_at
-                ));
+                    rl.comment_event_time
+));
                 // 通常 polling cadence で待機する (CR レビュー完了を待つ)
             } else if rate_limit_config.auto_retry_enabled
                 && state.rate_limit_retries < rate_limit_config.max_retries
@@ -205,7 +205,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                         check_output: Some(result),
                     };
                 }
-                state.rate_limit_last_retriggered_at = Some(rl.comment_created_at.clone());
+                state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
                 // state 永続化失敗時は dedup / max_retries が壊れる可能性があるため、
                 // 自動 retry を停止し action_required で抜ける (重複投稿リスクを回避)。
                 if let Err(e) = write_state(&state) {
@@ -407,7 +407,7 @@ mod tests {
         state.rate_limit_retries = 2;
         state.rate_limit = Some(RateLimitState {
             until_unix_secs: 1_735_689_600,
-            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 13,
         });
@@ -451,12 +451,12 @@ mod tests {
         let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
         let rl_a = RateLimitState {
             until_unix_secs: 0,
-            comment_created_at: comment_a.into(),
+            comment_event_time: comment_a.into(),
             wait_minutes: 5,
             wait_seconds: 0,
         };
         let already_handled_iter1 = state.rate_limit_last_retriggered_at.as_deref()
-            == Some(rl_a.comment_created_at.as_str());
+            == Some(rl_a.comment_event_time.as_str());
         assert!(
             !already_handled_iter1,
             "Iter 1: 初回 detection は handle されるべき"
@@ -468,7 +468,7 @@ mod tests {
 
         // Iter 2: 同じ comment が PR に残っている (CR レビュー再開待ち)
         let already_handled_iter2 = state.rate_limit_last_retriggered_at.as_deref()
-            == Some(rl_a.comment_created_at.as_str());
+            == Some(rl_a.comment_event_time.as_str());
         assert!(
             already_handled_iter2,
             "Iter 2: 同じ comment は dedup で skip されるべき"
@@ -477,12 +477,12 @@ mod tests {
         // Iter 3: CR が新たな rate-limit comment を投稿
         let rl_b = RateLimitState {
             until_unix_secs: 0,
-            comment_created_at: comment_b.into(),
+            comment_event_time: comment_b.into(),
             wait_minutes: 5,
             wait_seconds: 0,
         };
         let already_handled_iter3 = state.rate_limit_last_retriggered_at.as_deref()
-            == Some(rl_b.comment_created_at.as_str());
+            == Some(rl_b.comment_event_time.as_str());
         assert!(
             !already_handled_iter3,
             "Iter 3: 新 comment は再度 handle 対象"
@@ -518,7 +518,7 @@ mod tests {
             + 600; // 10 分後
         let rl = RateLimitState {
             until_unix_secs: future_unix,
-            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 10,
             wait_seconds: 0,
         };
@@ -553,7 +553,7 @@ mod tests {
             - 60; // 1 分前 (sleep_secs=0 経路)
         let rl = RateLimitState {
             until_unix_secs: past_unix,
-            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 0,
             wait_seconds: 0,
         };

@@ -144,8 +144,11 @@ struct CheckResult {
 struct RateLimitInfo {
     /// reset_at + 60s buffer を unix epoch 秒で表現
     until_unix_secs: i64,
-    /// debug 用: 元コメントのタイムスタンプ
-    comment_created_at: String,
+    /// 計算に使った event_time (updated_at が存在すればそれ、なければ created_at)。
+    /// cli-pr-monitor 側で dedup key として使用される。CR がコメントを編集すると
+    /// この値が変わるため、編集後 (新 wait 時間) も正しく retrigger できる。
+    #[serde(rename = "comment_created_at")]
+    comment_event_time: String,
     /// 元コメント body から抽出した wait 時間 (debug/log 用)
     wait_minutes: u64,
     wait_seconds: u64,
@@ -191,6 +194,9 @@ struct GhComment {
     user: Option<GhUser>,
     body: Option<String>,
     created_at: Option<String>,
+    /// CodeRabbit が rate-limit comment を編集して待機時間を更新する場合に使用。
+    /// 編集なしなら created_at と同じ値が入る。GitHub API 仕様。
+    updated_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -356,20 +362,33 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
         .count()
 }
 
+/// rate-limit comment の reset 計算に使うタイムスタンプを返す。
+///
+/// `updated_at` (CR が wait 時間を更新した編集時刻) を優先し、未設定なら `created_at`。
+/// CR は同じ rate-limit comment を編集して待機時間を延長するケースがあるため、
+/// `created_at` のみで計算すると古い基準に引きずられて premature retrigger を引き起こす
+/// (PR #97 round 3 Finding 1、2026-04-30 実観測)。
+fn rate_limit_event_time(c: &GhComment) -> Option<&str> {
+    c.updated_at.as_deref().or(c.created_at.as_deref())
+}
+
 /// CodeRabbit rate-limit comment を検出し、reset 時刻 (unix epoch) を返す
 ///
 /// 検出条件:
 ///   - 投稿者が `coderabbitai[bot]`
 ///   - body に `Rate limit exceeded` を含む
 ///   - body に `Please wait <N> minutes? and <M> seconds?` 表現を含む
-///   - `created_at >= push_time` (現セッション開始以降の comment のみ)
+///   - event_time (= updated_at fallback created_at) が `push_time` 以降
 ///
 /// `push_time` フィルタは過去セッションの古い rate-limit comment が現セッションで
 /// 即時誤 retrigger される問題を防ぐ。`parse_new_comments` / `parse_findings` と同じ規則。
 ///
-/// 複数の rate-limit comment が存在する場合は **最新** (created_at 最大) を採用。
-/// 計算式: comment.created_at + N min + M sec + 60 秒 buffer = until_unix_secs。
+/// 複数の rate-limit comment が存在する場合は **最新** (event_time 最大) を採用。
+/// 計算式: event_time + N min + M sec + 60 秒 buffer = until_unix_secs。
 /// 60 秒 buffer は server 時計差・カウンタ reset 処理時間を吸収する経験則 (PR #89)。
+///
+/// `RateLimitInfo.comment_event_time` には実際に計算に使った event_time を格納
+/// (created_at とは限らない)。cli-pr-monitor 側の dedup key に使用される。
 fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitInfo> {
     let comments: Vec<GhComment> = serde_json::from_str(json).ok()?;
 
@@ -383,32 +402,29 @@ fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitInfo> {
                 .map(|l| l == "coderabbitai[bot]")
                 .unwrap_or(false);
             let has_rate_limit = is_rate_limit_comment(c);
-            let after_push_time = c
-                .created_at
-                .as_deref()
+            let after_push_time = rate_limit_event_time(c)
                 .map(|t| t >= push_time)
                 .unwrap_or(false);
             is_coderabbit && has_rate_limit && after_push_time
         })
         .collect();
     candidates.sort_by(|a, b| {
-        b.created_at
-            .as_deref()
+        rate_limit_event_time(b)
             .unwrap_or("")
-            .cmp(a.created_at.as_deref().unwrap_or(""))
+            .cmp(rate_limit_event_time(a).unwrap_or(""))
     });
     let latest = candidates.first()?;
 
     let body = latest.body.as_deref()?;
-    let created_at = latest.created_at.as_deref()?;
+    let event_time = rate_limit_event_time(latest)?;
     let (minutes, seconds) = extract_wait_time(body)?;
-    let comment_unix = parse_iso8601_to_unix(created_at)?;
+    let comment_unix = parse_iso8601_to_unix(event_time)?;
 
     let until_unix_secs = comment_unix + (minutes as i64) * 60 + (seconds as i64) + 60;
 
     Some(RateLimitInfo {
         until_unix_secs,
-        comment_created_at: created_at.to_string(),
+        comment_event_time: event_time.to_string(),
         wait_minutes: minutes,
         wait_seconds: seconds,
     })
@@ -1173,6 +1189,65 @@ mod tests {
         }]"#;
         // push_time と一致する comment は含める (>= 比較)
         assert!(parse_rate_limit(json, "2026-04-30T00:00:00Z").is_some());
+    }
+
+    /// CR が rate-limit comment を編集して wait 時間を更新するケース。
+    /// `updated_at` が存在すれば `created_at` ではなく `updated_at` を計算基準にする
+    /// (PR #97 round 3 Finding 1、2026-04-30 実観測: created_at=11:11:51Z で
+    ///  updated_at=14:38:32Z に編集され "21 minutes" wait となった)。
+    #[test]
+    fn rate_limit_uses_updated_at_when_present() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Rate limit exceeded\nPlease wait 21 minutes before requesting another review.",
+            "created_at": "2026-04-30T11:11:51Z",
+            "updated_at": "2026-04-30T14:38:32Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-04-30T11:00:00Z").unwrap();
+        // updated_at + 21 min + 60s buffer = 14:38:32 + 21:00 + 60s = 15:00:32Z
+        let updated_unix = parse_iso8601_to_unix("2026-04-30T14:38:32Z").unwrap();
+        assert_eq!(result.until_unix_secs, updated_unix + 21 * 60 + 60);
+        // dedup key は event_time = updated_at
+        assert_eq!(result.comment_event_time, "2026-04-30T14:38:32Z");
+    }
+
+    /// `updated_at` 欠落時は `created_at` にフォールバック
+    #[test]
+    fn rate_limit_falls_back_to_created_at_when_updated_at_missing() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Rate limit exceeded\nPlease wait 5 minutes and 0 seconds",
+            "created_at": "2026-04-30T00:00:00Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-04-29T00:00:00Z").unwrap();
+        let base = parse_iso8601_to_unix("2026-04-30T00:00:00Z").unwrap();
+        assert_eq!(result.until_unix_secs, base + 5 * 60 + 60);
+        assert_eq!(result.comment_event_time, "2026-04-30T00:00:00Z");
+    }
+
+    /// edited (updated_at != created_at) は dedup key 変化により再 trigger 対象になる。
+    /// 同一 comment ID でも編集後は新しい event_time となり、cli-pr-monitor 側の
+    /// `last_retriggered_at == comment_event_time` 比較で一致せず retrigger される。
+    #[test]
+    fn rate_limit_edited_comment_yields_new_dedup_key() {
+        let json_before_edit = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Rate limit exceeded\nPlease wait 5 minutes and 0 seconds",
+            "created_at": "2026-04-30T11:00:00Z",
+            "updated_at": "2026-04-30T11:00:00Z"
+        }]"#;
+        let json_after_edit = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Rate limit exceeded\nPlease wait 21 minutes before requesting another review.",
+            "created_at": "2026-04-30T11:00:00Z",
+            "updated_at": "2026-04-30T14:38:32Z"
+        }]"#;
+        let before = parse_rate_limit(json_before_edit, "2026-04-30T10:00:00Z").unwrap();
+        let after = parse_rate_limit(json_after_edit, "2026-04-30T10:00:00Z").unwrap();
+        assert_ne!(
+            before.comment_event_time, after.comment_event_time,
+            "編集前後で dedup key が異なるべき"
+        );
     }
 
     // --- parse_ci_runs ---

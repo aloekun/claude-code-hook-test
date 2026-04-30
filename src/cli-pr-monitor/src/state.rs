@@ -25,11 +25,11 @@ pub(crate) struct PrMonitorState {
     /// 上限 (config.rate_limit.max_retries) 超過で自動 retry を停止し action_required で抜ける。
     #[serde(default)]
     pub(crate) rate_limit_retries: u32,
-    /// 直近で retrigger した rate-limit comment の created_at (dedup 用)
+    /// 直近で retrigger した rate-limit comment の event_time (dedup 用)
     ///
     /// 同一 comment が iteration 跨ぎで polling 結果に残るため、これを check しないと
     /// 同じ rate-limit comment に対して max_retries 回まで秒単位で retrigger を走らせてしまう。
-    /// CR が新たな rate-limit comment を投稿したら created_at が変わり再度 retrigger 対象になる。
+    /// CR が新たな rate-limit comment を投稿したら event_time が変わり再度 retrigger 対象になる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) rate_limit_last_retriggered_at: Option<String>,
 }
@@ -38,10 +38,17 @@ pub(crate) struct PrMonitorState {
 ///
 /// `until_unix_secs` は「rate limit reset 予測 + 60s buffer」の unix epoch 秒。
 /// poll loop はこれと現在時刻を比較し sleep 量を決定する。
+///
+/// `comment_event_time` は計算に使った event_time (CR comment の updated_at が
+/// 存在すればそれ、なければ created_at)。dedup key として使用される。CR が
+/// rate-limit comment を編集すると updated_at が変わるため、編集後の新 wait
+/// 時間で正しく retrigger できる (PR #97 round 3 Finding 1)。
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub(crate) struct RateLimitState {
     pub(crate) until_unix_secs: i64,
-    pub(crate) comment_created_at: String,
+    /// JSON キーは "comment_created_at" (check-ci-coderabbit wire format / 既存 state ファイルとの互換維持)
+    #[serde(rename = "comment_created_at")]
+    pub(crate) comment_event_time: String,
     pub(crate) wait_minutes: u64,
     pub(crate) wait_seconds: u64,
 }
@@ -340,7 +347,7 @@ mod tests {
         // 前回 iteration で rate_limit が設定された状態を再現
         state.rate_limit = Some(RateLimitState {
             until_unix_secs: 1_735_689_600,
-            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 13,
         });
