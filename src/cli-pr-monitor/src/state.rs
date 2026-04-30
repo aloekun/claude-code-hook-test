@@ -17,6 +17,33 @@ pub(crate) struct PrMonitorState {
     pub(crate) notified: bool,
     pub(crate) daemon_pid: Option<u32>,
     pub(crate) daemon_status: String,
+    /// CodeRabbit rate-limit 検出時の制御情報 (PR #89 T2-1)
+    /// 検出されない監視ターンでは None。再 trigger 後の poll で消える。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) rate_limit: Option<RateLimitState>,
+    /// rate-limit 自動再 trigger の累積回数 (PR #89 T2-1)
+    /// 上限 (config.rate_limit.max_retries) 超過で自動 retry を停止し action_required で抜ける。
+    #[serde(default)]
+    pub(crate) rate_limit_retries: u32,
+    /// 直近で retrigger した rate-limit comment の created_at (dedup 用)
+    ///
+    /// 同一 comment が iteration 跨ぎで polling 結果に残るため、これを check しないと
+    /// 同じ rate-limit comment に対して max_retries 回まで秒単位で retrigger を走らせてしまう。
+    /// CR が新たな rate-limit comment を投稿したら created_at が変わり再度 retrigger 対象になる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) rate_limit_last_retriggered_at: Option<String>,
+}
+
+/// check-ci-coderabbit から伝播する rate-limit 制御情報
+///
+/// `until_unix_secs` は「rate limit reset 予測 + 60s buffer」の unix epoch 秒。
+/// poll loop はこれと現在時刻を比較し sleep 量を決定する。
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct RateLimitState {
+    pub(crate) until_unix_secs: i64,
+    pub(crate) comment_created_at: String,
+    pub(crate) wait_minutes: u64,
+    pub(crate) wait_seconds: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -54,6 +81,9 @@ impl PrMonitorState {
             notified: false,
             daemon_pid: None,
             daemon_status: "running".to_string(),
+            rate_limit: None,
+            rate_limit_retries: 0,
+            rate_limit_last_retriggered_at: None,
         }
     }
 }
@@ -115,6 +145,9 @@ pub(crate) fn update_state_from_check_result(
             state.findings = findings;
         }
     }
+    state.rate_limit = result
+        .get("rate_limit")
+        .and_then(|v| serde_json::from_value::<RateLimitState>(v.clone()).ok());
 }
 
 #[cfg(test)]
@@ -171,6 +204,9 @@ mod tests {
             notified: false,
             daemon_pid: Some(12345),
             daemon_status: "running".into(),
+            rate_limit: None,
+            rate_limit_retries: 0,
+            rate_limit_last_retriggered_at: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();
@@ -277,6 +313,44 @@ mod tests {
         let result = serde_json::json!({ "coderabbit": 42 });
         update_state_from_check_result(&mut state, &result);
         assert_eq!(state.coderabbit.as_ref().unwrap().review_state, "approved");
+    }
+
+    #[test]
+    fn update_state_populates_rate_limit() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "action": "continue_monitoring",
+            "rate_limit": {
+                "until_unix_secs": 1735689600_i64,
+                "comment_created_at": "2026-04-30T00:00:00Z",
+                "wait_minutes": 5,
+                "wait_seconds": 13
+            }
+        });
+        update_state_from_check_result(&mut state, &result);
+        let rl = state.rate_limit.expect("rate_limit must be populated");
+        assert_eq!(rl.until_unix_secs, 1_735_689_600);
+        assert_eq!(rl.wait_minutes, 5);
+        assert_eq!(rl.wait_seconds, 13);
+    }
+
+    #[test]
+    fn update_state_clears_rate_limit_when_absent() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        // 前回 iteration で rate_limit が設定された状態を再現
+        state.rate_limit = Some(RateLimitState {
+            until_unix_secs: 1_735_689_600,
+            comment_created_at: "2026-04-30T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 13,
+        });
+        // rate_limit field を含まない正常 polling 結果
+        let result = serde_json::json!({ "action": "continue_monitoring" });
+        update_state_from_check_result(&mut state, &result);
+        assert!(
+            state.rate_limit.is_none(),
+            "rate_limit should be cleared when JSON omits the field"
+        );
     }
 
     #[test]

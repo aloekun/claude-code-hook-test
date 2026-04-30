@@ -19,6 +19,8 @@ pub(crate) struct Config {
     pub(crate) takt: Option<TaktConfig>,
     #[serde(default)]
     pub(crate) fix: FixConfig,
+    #[serde(default)]
+    pub(crate) rate_limit: RateLimitConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -92,6 +94,36 @@ impl Default for FixConfig {
         Self {
             auto_push_severity: default_auto_push_severity(),
             push_command: default_push_command(),
+        }
+    }
+}
+
+/// rate-limit 自動再 trigger の制御設定 (PR #89 T2-1)
+///
+/// CodeRabbit のレートリミット発火時、`max_retries` 回まで自動で
+/// `@coderabbitai review` を再投稿する。上限超過は `action_required` で抜ける。
+#[derive(Deserialize, Clone)]
+pub(crate) struct RateLimitConfig {
+    /// 自動 retry を行うかどうか。false の場合は rate-limit 検出しても sleep + retrigger しない。
+    #[serde(default = "default_rate_limit_enabled")]
+    pub(crate) auto_retry_enabled: bool,
+    /// 累積 retry 上限。上限到達後は通常 polling 終了 (`action_required`) に抜ける。
+    #[serde(default = "default_max_retries")]
+    pub(crate) max_retries: u32,
+}
+
+fn default_rate_limit_enabled() -> bool {
+    true
+}
+fn default_max_retries() -> u32 {
+    3
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            auto_retry_enabled: default_rate_limit_enabled(),
+            max_retries: default_max_retries(),
         }
     }
 }
