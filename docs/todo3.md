@@ -144,56 +144,6 @@ cmd = "pnpm lint:md"
 
 ---
 
-### `cli-pr-monitor` ポーリング間隔延長 + 重複起動防止ロック (PR #88 T2-4)
-
-> **動機**: PR #88 作成後の cli-pr-monitor 監視中に、Claude Code Max (5x) のレートリミットを 1 時間で 40% 消費する事象を観測。監視セッション重複起動による累積消費が推定原因。現在の `poll_interval_secs = 120` (2分) はセッション単独では問題ないが、複数セッションで監視が重複起動すると 1 分以下の頻度で polling が走り得る。
->
-> **本タスクの位置づけ**: **既存の Polling anti-pattern 検出ルール task (PR #86 T1-1) と補完**。前者 = Claude 側の polling 禁止 (preventive)、本タスク = cli-pr-monitor (tool 側) の polling 動作改善 (corrective)。両層で rate-limit を削減する。
->
-> **参照**: `.claude/feedback-reports/88.md` の Tier 2 #4 finding
->
-> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。**rate-limit 直撃のため daily efficiency への影響大**。Tier 2 内では最優先候補。実装前に重複起動の根本原因 (どこで複数セッションが立つか) を特定し、ロック方式を選定する必要あり。
-
-#### 背景
-
-- 観測: 1 セッション内で `pnpm push` → `pnpm create-pr` の流れで 2 度 cli-pr-monitor 系の処理が走った
-- post-pr-review takt workflow は内部で provider (Claude API) を呼ぶため、polling 1 サイクルが重い
-- `poll_interval_secs = 120` × 監視時間 (最大 600s) = 5 サイクル/セッション。複数セッション重複で更に増える
-- 重複起動の原因候補:
-  - VSCode 上の複数 Claude Code セッションが各々 cli-pr-monitor を起動
-  - daemon と --observe / --monitor-only の組み合わせが意図せず多重化
-  - state file の lockless な読み書きで race
-
-#### 設計決定 (案)
-
-- 改善 1: poll_interval_secs を `120` → `180` または `240` に延長 (config 値変更のみ)
-- 改善 2: 重複起動防止 file lock (`.claude/pr-monitor.lock` など、PID + start_time 記録)
-- 改善 3: lock 検出時の挙動 — 既存セッションが alive なら skip (no-op exit)、stale なら lock 奪取
-- 既存設計 (ADR-018: cli-pr-monitor takt 移行) を尊重しつつ追加
-- pr-monitor-config.toml への設定追加で柔軟性確保
-
-#### 作業計画
-
-- [ ] 重複起動の根本原因を実測で確認 (transcript から複数 cli-pr-monitor 起動を検出)
-- [ ] file lock 機構の設計 (既存 jj 環境との互換性)
-- [ ] `src/cli-pr-monitor/` の lock 取得・解放ロジック実装
-- [ ] poll_interval_secs の調整 (config 経由)
-- [ ] dogfood: 複数セッションを意図的に立てて重複起動が抑制されることを確認
-- [ ] rate-limit 消費が改善前後で測定可能なら比較
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- 重複起動時に後続セッションが skip され、polling 並走が発生しない
-- poll_interval_secs 延長で polling 総回数が減る
-- レートリミット消費が体感で改善される (測定可能なら定量化)
-
-#### 詰まっている箇所
-
-なし (Effort Medium、根本原因の調査が必要だが進路は明確)
-
----
-
 ### `pnpm create-pr` 必須引数未指定時のヘルプ改善 (PR #88 T2-5)
 
 > **動機**: 引数なしで `pnpm create-pr` を実行すると `gh pr create` が `must provide --title and --body (or --fill or fill-first or --fillverbose)` エラーのみ出力し、使用例が示されない。今回 PR 作成時に手動ワークアラウンド (`pnpm prepare-pr-body` で `.tmp-pr-body.md` 生成 → `pnpm create-pr -- --title "..." --body-file .tmp-pr-body.md`) が必要になった。`gh` のエラーをそのまま流す現設計だと、Claude や人間が次の手を察するのに余計な往復が発生する。
@@ -253,7 +203,7 @@ Hint:
 >
 > **参照**: `.claude/feedback-reports/89.md` の Tier 2 #1 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。cli-pr-monitor ポーリング延長 + 重複起動ロック task と補完関係 (本タスクは review 単位の対応、ポーリング延長 task はポーリング頻度全体の削減)。Polling anti-pattern 検出ルール task も類似の rate-limit 削減ライン。
+> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。daily efficiency への影響中-大 (rate-limit 発生率 × 手動判断時間)。cli-pr-monitor ポーリング延長 + 重複起動ロック (PR #88 T2-4、完了済) と補完関係 (本タスクは review 単位の対応、ポーリング延長 task はポーリング頻度全体の削減)。Polling anti-pattern 検出ルール task も類似の rate-limit 削減ライン。
 
 #### 背景
 
@@ -300,7 +250,7 @@ Hint:
 >
 > **参照**: `.claude/feedback-reports/90.md` の Tier 2 #2 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。rate-limit 系 task (cli-pr-monitor ポーリング延長 + post-pr-review rate-limit 自動検出) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
+> **実行優先度**: 🔧 **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。rate-limit 系 task (cli-pr-monitor ポーリング延長 PR #88 T2-4、完了済 / post-pr-review rate-limit 自動検出) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
 
 #### 背景
 
@@ -595,3 +545,106 @@ prompt and prompt Claude to re-run the workflow.
 #### 詰まっている箇所
 
 なし
+
+### review-security.md docs-only fast-approve から `.takt/**` と `.claude/**` を明示除外 (PR #95 T3-2)
+
+> **動機**: PR #95 (Bundle T) で `.takt/facets/instructions/review-security.md` に「Docs-only changes: trust boundary criterion」セクションを追加し、trust boundary 不変な docs 変更を APPROVE 即判定する fast path を定義した。CodeRabbit の outside-diff 指摘で、`.takt/**` 配下の md は AI 挙動を制御する code-equivalent (今 PR の verdict routing 変更がまさに該当) であり、`.claude/**` も同様に AI 設定を含むため、docs-only fast-approve から除外しないと security gap が生じることが判明。
+>
+> **本タスクの位置づけ**: Bundle V (PR #95 post-merge-feedback) の 3 件 retroactive 対策の 1 つ。`.takt/**` と `.claude/**` を Markdown でもツールチェーン設定として扱い、fast-approve の対象外と明記。
+>
+> **参照**: `.claude/feedback-reports/95.md` の Tier 3 #2 finding
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。既存セクション (Cross-File Reference Lifecycle と並ぶ formal-rule セクション) への追記のみ。Bundle V として 3 件並行 land 推奨。
+
+#### 設計決定 (案)
+
+- 配置先: `.takt/facets/instructions/review-security.md` の "Docs-only changes: trust boundary criterion" セクション
+- 既存「Pass criterion」「Trust boundary unchanged」「Trust boundary changed」のうち、「Pass criterion」直下に **明示除外パス** を追加:
+  > **Excluded paths (docs-only fast-approve は適用しない)**: `.takt/**` (AI 挙動制御 = code-equivalent) / `.claude/**` (Claude Code 設定 = code-equivalent)。これらの md 変更は trust boundary 評価を通常通り実施する
+- 補足理由: `.takt/facets/instructions/` の md は LLM 行動を変える instruction、`.claude/hooks-config.toml` 等は hook 挙動を変える config — 形式上は md/config だが実質 code
+
+#### 作業計画
+
+- [ ] `.takt/facets/instructions/review-security.md` の Docs-only セクションに excluded paths 追記
+- [ ] dogfood: 次回 `.takt/**` を含む docs PR で security review が APPROVE 即判定しないことを確認
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- review-security.md に `.takt/**` と `.claude/**` の明示除外が記載される
+- 次回 `.takt/**` を含む PR で security review が docs-only fast path をスキップする
+
+#### 詰まっている箇所
+
+なし (Effort XS、既存セクションへの 1 文追記のみ)
+
+### docs/todo.md ヘッダの「新規タスクは追加しない」表記を実態整合 (PR #95 T3-3)
+
+> **動機**: docs/todo.md の冒頭運用ルールに「**docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクは追加しない」と記述があるが、実態としては推奨実行順序サマリー table への新規行追加は継続的に行われている (PR #94 で順位 29/30、PR #95 で順位 31-33 を追加済)。CodeRabbit Major outside-diff 指摘でこの矛盾を指摘された。本文の詳細エントリ追加と table への行追加を区別する形で表記を整合させる。
+>
+> **本タスクの位置づけ**: Bundle V (PR #95 post-merge-feedback) の 3 件 retroactive 対策の 1 つ。同種指摘の将来再発を防止。
+>
+> **参照**: `.claude/feedback-reports/95.md` の Tier 3 #3 finding
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。docs/todo.md ヘッダの 1 行修正のみ。Bundle V として 3 件並行 land 推奨。
+
+#### 設計決定 (案)
+
+- 配置先: `docs/todo.md` の冒頭運用ルール (line 6)
+- 修正方針:
+  - 既存: `**docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクは追加しない (~50KB 閾値内に維持し...)`
+  - 修正後: `**docs/todo.md**: 既存タスクの編集・完了削除と推奨実行順序サマリー table の管理専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し...)。table への新規行追加は可 (詳細は docs/todo3.md に記録)`
+- 同様の表記を docs/todo2.md にも展開する場合は別途検討 (todo2.md は 50KB 到達済で読み専用に近い扱い)
+
+#### 作業計画
+
+- [ ] `docs/todo.md` ヘッダの該当行を修正
+- [ ] 必要に応じて docs/todo2.md / docs/todo3.md ヘッダにも整合化
+- [ ] dogfood: 次回 task 追加時に CodeRabbit が同じ指摘を出さないことを確認
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- docs/todo.md ヘッダの table 管理ポリシーが実態と整合
+- 同種 CodeRabbit 指摘が再発しない
+
+#### 詰まっている箇所
+
+なし (Effort XS、ヘッダ 1 行修正)
+
+### code-review.md に新 verdict 経路追加時の 3 点チェックリスト追記 (PR #95 T3-4)
+
+> **動機**: PR #95 (Bundle T) で `analyze-coderabbit.md` に新 verdict 経路 `user_decision_path` を追加した際、(1) Step 3 の severity 取得元の記述、(2) 出力テーブルの Severity 列、(3) Verdict 判定ロジックの 3 箇所が同一 commit で整合しておらず、CodeRabbit Major 指摘 (1 件目) を受けた。さらに ADR-030 と analyze-coderabbit.md の整合性も同様に乱れて Major 2 件目 / Minor 1 件目 / 表記揺れ 1 件目を誘発。同じ「3 点同期失敗」パターンが pre-push (advisor)、first CR round、second CR round、third CR round の 4 フェーズに渡って発生しており、慣習化が必要。
+>
+> **本タスクの位置づけ**: Bundle V (PR #95 post-merge-feedback) の 3 件 retroactive 対策の 1 つ。コードレビュー観点 (`~/.claude/rules/common/code-review.md`) に具体的なチェックリストを追記し、AI が編集時に意識化する。
+>
+> **参照**: `.claude/feedback-reports/95.md` の Tier 3 #4 finding
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。既存 code-review.md の Common Issues to Catch セクション拡充。Bundle V として 3 件並行 land 推奨。
+
+#### 設計決定 (案)
+
+- 配置先: `~/.claude/rules/common/code-review.md` (グローバルルール、全プロジェクト適用)
+- 追記内容 (案): 新規セクション or 既存「Code Quality」サブセクション拡充
+  > **新 verdict 経路 / 分類カテゴリ追加時の 3 点同期チェック**: facet 指示書 / ADR / 検証ロジックを同時編集する場合、以下 3 箇所が必ず同一 commit で整合していることを確認する:
+  > 1. **取得元の明示**: 新カテゴリの severity / 識別子がどこから来るか (CodeRabbit field / ADR の規定 / 計算結果) を Step 1 段階で明記
+  > 2. **出力フォーマットの整合**: report テーブル列・サマリー文・指示書本文が同じ取得元の同じフィールドを参照していること
+  > 3. **判定ロジックの整合**: verdict rule / routing logic が新カテゴリを正しくハンドルし、severity 参照が取得元と一致していること
+- PR #95 を実例として `>` blockquote で例示 (`user_decision_path` 追加時の 3 点同期失敗パターン)
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/code-review.md` に 3 点チェックリスト追記
+- [ ] PR #95 の実例を blockquote で例示
+- [ ] 派生プロジェクトへ deploy (グローバルルールなのでセット展開)
+- [ ] dogfood: 次回 verdict 経路追加 PR でチェックリストが有効に機能するか観察
+- [ ] 本 todo3.md エントリを削除
+
+#### 完了基準
+
+- グローバルルール `~/.claude/rules/common/code-review.md` に 3 点チェックリストが記載される
+- 同種「3 点同期失敗」パターンが将来 PR で再発しない
+
+#### 詰まっている箇所
+
+なし (Effort XS、グローバルルール 1 セクション追記のみ)
