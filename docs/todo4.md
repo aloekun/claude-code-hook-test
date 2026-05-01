@@ -259,3 +259,125 @@
 #### 詰まっている箇所
 
 - ADR-031 Phase B の実装計画 (順位 8) が未着手のため、本 task の inception は順位 8 の進捗に依存。
+
+---
+
+### takt workflow `model` フィールド必須化 lint rule (PR #98 T1-1)
+
+> **動機**: Bundle Y2 (PR #98) で post-pr-review.yaml の analyze step に `model: haiku` を明示追加した結果、post-merge-feedback で同 yaml の `supervise` step (line 106-124) に `model:` フィールドが未指定であることが指摘された。`persona:` を持つ step で `model:` 未指定は default `sonnet` に落ちるため、Bundle Y2 ゴール (analyze 系 haiku / supervise・fix は sonnet 維持) では現時点で偶然合致しているが、将来 default 変更や persona 追加で意図せぬモデル選択が混入しうる。
+>
+> **本タスクの位置づけ**: Bundle Y2 完全性 follow-up + 決定論的防止層の追加。`persona:` を持つ step に `model:` がないパターンを `.claude/custom-lint-rules.toml` の正規表現 lint rule として検出する。ADR-007 (custom-lint-rule の正規表現層 / AST 層線引き) の正規表現層に該当。
+>
+> **参照**: `.claude/feedback-reports/98.md` Tier 1 #1
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort Small。yaml 設定変更のみで lint rule 追加可能。Bundle Y2 の完全性 (post-pr-review.yaml supervise step への `model: sonnet` 明示追加) も同 PR で land する想定。
+
+#### 設計決定 (案)
+
+- **配置先**: `.claude/custom-lint-rules.toml` の新規 rule entry
+- **検出ロジック (正規表現案)**: yaml ファイル内で `persona:` 行を見つけ、その同 step block 内に `model:` がない場合を検出する。yaml の階層を厳密に解析する場合は ADR-007 の AST 層昇格を検討 (Tree-sitter / yaml-rust)
+- **適用対象**: `.takt/workflows/*.yaml` のみ (extensions: ["yaml"] + path filter)
+- **副次作業**: post-pr-review.yaml supervise step に `model: sonnet` を明示追加 (Bundle Y2 完全性)。lint rule 導入と同 commit で実施することで、新 rule が clean baseline を保つ
+- **rule 名 (案)**: `takt-workflow-persona-without-model`
+
+#### 作業計画
+
+- [ ] 既存 `.claude/custom-lint-rules.toml` の構造を確認
+- [ ] 正規表現 + path filter を新 rule として記述
+- [ ] PostToolUse hook の lint runner で post-pr-review.yaml supervise step が検出されることを確認
+- [ ] post-pr-review.yaml supervise step に `model: sonnet` を明示追加 (Bundle Y2 完全性)
+- [ ] pre-push-review.yaml / post-merge-feedback.yaml も全 step に `model:` が揃っているか確認
+- [ ] `pnpm deploy:hooks` で派生プロジェクトに rule を配布
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- `.claude/custom-lint-rules.toml` に新 rule が追加され `.takt/workflows/*.yaml` 全 step で `persona:` ⇔ `model:` 対応が確立
+- post-pr-review.yaml supervise step に `model: sonnet` 明示追加 (Bundle Y2 完全性確保)
+- lint rule が将来の workflow 編集時に欠落を検出可能
+
+#### 詰まっている箇所
+
+- yaml の階層構造を正規表現のみで完全表現するのは難しい。実 workflow ファイルで false positive がないか着手時に確認。多発する場合は ADR-007 の AST 層昇格判断。
+
+---
+
+### prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)
+
+> **動機**: PR #98 セッションで、Bundle Y2 commit の `jj describe` 後の `pnpm push` がローカル bookmark 未作成のまま実行され、`jj git push` の default revset (`remote_bookmarks(remote=origin)..@`) で対象 0 件 → "Nothing changed" warning となり実質 push 失敗。push-runner は bookmark 自動採番ロジックを持たず、prepare-pr skill の Step 1 fallback (bookmark `<type>/<summary-slug>` 自動採番) でリカバリしたが、Step 1 の state 確認コマンド一覧に `jj bookmark list` の output 確認が明示されておらず、検出が「Step 1 fallback 表の `local_bookmarks` 空判定」に依存していた。
+>
+> **本タスクの位置づけ**: prepare-pr skill Step 1 の state 確認フローに bookmark 存在チェックを明示追加し、push 失敗を事前検出。skill 自体は global (`~/.claude/skills/prepare-pr/`) なので本リポジトリの patch ではなく skill repository (`E:\work\claude-code-skills`) で更新する。
+>
+> **参照**: `.claude/feedback-reports/98.md` Tier 1 #2
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort XS。SKILL.md Step 1 に確認コマンド 1 行 + fallback 表への明示マッピング追加のみ。
+
+#### 設計決定 (案)
+
+- **追加場所**: `~/.claude/skills/prepare-pr/SKILL.md` Step 1 「現状確認 + 前提工程 fallback」セクション
+- **追加内容**: state コマンド一覧に `jj bookmark list 2>&1 | head -20` を追加し、output に `<bookmark>:` 行が含まれない場合を fallback 表「local bookmark なし」行に明示マッピング
+- **既存 fallback 表との関係**: `local_bookmarks` template での判定は引き続き primary signal。本タスクは「読み手 (Claude / 人間) の state 確認 step で見落とさない」ための明示化
+- **evals 補強**: 「bookmark 未作成 → fallback で bookmark 作成 → push 成功」の Scenario を `evals/evals.json` に追加 (feedback-report Tier 2 #1 相当、同 PR で land 推奨)
+
+#### 作業計画
+
+- [ ] `E:\work\claude-code-skills\prepare-pr\SKILL.md` の Step 1 を編集 (state コマンド + fallback 表強化)
+- [ ] `~/.claude/skills/prepare-pr/SKILL.md` に sync (claude-code-skills repo の deploy 経路に従う)
+- [ ] `~/.claude/skills/prepare-pr/evals/evals.json` に新 Scenario 追加 (bookmark 未作成正常 path)
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- prepare-pr skill Step 1 の state 確認コマンドに bookmark 存在チェックが明示
+- 新 Scenario が evals.json に追加され、bookmark 未作成 fallback の正常動作が検証される
+- 本セッション類似の push 失敗が再現した場合、Step 1 で fallback 実行が即時発火
+
+#### 詰まっている箇所
+
+- skill repository (`E:\work\claude-code-skills`) の deploy / sync 経路の確認が必要 (本リポジトリの `deploy:hooks` とは別経路)。
+
+---
+
+### Bundle Y2 効果の定量計測 — post-merge-feedback / post-pr-review の avg time 比較 (PR #98 T2-2)
+
+> **動機**: Bundle Y2 (PR #98) で analyze 系 step を sonnet → haiku に変更したが、ROI 根拠は `docs/pipeline-token-efficiency.md` の推定値 (PR #78 dogfood 12m13s → 並列化想定 7m30s) のみ。PR #98 セッション内観測 (post-pr-review takt 1m 13s / post-merge-feedback 8m 9s) は単発データで baseline (PR #97 セッション、avg 8.9 分) との比較が systematic にドキュメント化されていない。Bundle Z (#B-*) / Bundle Z2 (#D-*) の ROI 判断材料として PR #97 (sonnet baseline) vs PR #98 以降 (haiku) の実測比較を 3-5 PR 分集計し記録する。
+>
+> **本タスクの位置づけ**: Bundle Y2 効果検証層。`docs/pipeline-token-efficiency.md` の「検証方法」セクション (① jsonl セッションメトリクス + ② takt run meta.json 集計) を実行し、結果を計画書末尾に「実測検証データ」セクションとして追記。想定削減量達成時は計画書の Bundle Y2 セクションを retire し ADR 化判断の材料とする (計画書ヘッダー L5 方針)。
+>
+> **参照**: `.claude/feedback-reports/98.md` Tier 2 #2、`docs/pipeline-token-efficiency.md` 「検証方法」セクション
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort Medium。3-5 PR の merge 経過後のデータ集計タスクで、即時着手ではなく観察ベース。Bundle Z / Z2 着手前のベースライン整理として有用。
+
+#### 設計決定 (案)
+
+- **計測対象**:
+  - takt パイプライン別 avg time (post-merge-feedback / post-pr-review / pre-push-review)
+  - 一意 cache_creation tokens (jsonl usage 集計)
+  - 該当 step の billable input token 削減幅 (haiku は sonnet の約 1/3 cost 想定)
+- **比較期間**:
+  - baseline: PR #97 セッション (2026-04-30 〜 2026-05-01 JST) — `docs/pipeline-token-efficiency.md` の「観測データ」セクション既値
+  - 計測期間: PR #98 merge 後 3-5 PR (Bundle Z / Z2 着手前まで)
+- **記録先**:
+  - `docs/pipeline-token-efficiency.md` 末尾に「実測検証データ」セクションを追加 (計画書が retire される前の最終 update)
+  - 想定削減量の 70% 以上達成 → 計画書の Bundle Y2 セクション削除 → ADR 化判断材料、未達 → 原因分析を計画書末尾に追記し追加 Bundle 提案
+
+#### 作業計画
+
+- [ ] PR #98 merge 後 3-5 PR 経過するまで観察 (本タスクの inception は条件待ち)
+- [ ] 検証方法 ① (jsonl セッションメトリクス集計) を実行
+- [ ] 検証方法 ② (takt run meta.json 集計) を実行
+- [ ] baseline (PR #97) と比較し削減幅を表に記録
+- [ ] 想定削減量 (session あたり 15-20 分削減) との乖離を分析
+- [ ] 結果を `docs/pipeline-token-efficiency.md` 末尾に追記
+- [ ] 想定削減量達成判定に基づき計画書 retire / 追加 Bundle 提案
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- PR #98 merge 後 3-5 PR の実測値が `docs/pipeline-token-efficiency.md` に記録される
+- baseline (PR #97) との削減幅が Bundle Y2 の想定削減量と比較され、達成 / 未達の判定がある
+- Bundle Z / Z2 の ROI 判断材料として活用可能なデータが揃う
+
+#### 詰まっている箇所
+
+- 計測期間 3-5 PR の間に rate-limit 不安定期 / 大規模変更 PR / docs-only PR が混在すると平均値の比較ノイズが大きい。中央値での比較や PR 性質による normalization 方式を着手時に検討。
