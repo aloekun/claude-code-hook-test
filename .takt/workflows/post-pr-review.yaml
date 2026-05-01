@@ -39,6 +39,7 @@ steps:
   - name: analyze
     edit: false
     persona: code-reviewer
+    model: haiku
     policy: review
     knowledge: architecture
     provider_options:
