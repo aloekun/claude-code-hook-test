@@ -199,7 +199,7 @@ reviewers (parallel: simplicity + security) → fix → (loop, threshold 2) → 
 - 既存の **PreToolUse hooks** (`hooks-pre-tool-validate.exe` 等) とは **別エントリ** として配置 (言語別 plugin の独立性確保、ユーザー指示)
 - PostToolUse タイミング (Edit/Write 後) で発火、書かれた直後に block して即時修正させる
 - ADR-002 (PostToolUse の Biome + oxlint 二段構成) には統合せず、独立 hook entry として並列
-- ADR-007 の **AST 層** に位置づけ (正規表現層ではない)。`syn` crate or `proc_macro2::TokenStream` の lexer level で comment 抽出
+- ADR-007 の **AST 層** に位置づけ (正規表現層ではない)。`tree-sitter` / `tree-sitter-rust` で `(line_comment)` / `(block_comment)` ノードを query で抽出
 
 **期待効果**:
 
@@ -288,7 +288,7 @@ reviewers (parallel: simplicity + security) → fix → (loop, threshold 2) → 
 
 - **Phase 1 — #B-α (Rust 限定 PoC)**:
   - 新 crate `src/hooks-post-tool-comment-lint-rust/` を Cargo workspace (ADR-026) に追加
-  - `syn` / rustc lexer level で comment 抽出 + 例外マーカー判定
+  - `tree-sitter` / `tree-sitter-rust` で `(line_comment)` / `(block_comment)` ノードを抽出 + 例外マーカー判定
   - PostToolUse hook として独立配置 (既存 PreToolUse hooks とは別エントリ、ADR-006 整合)
   - dogfood 1〜2 PR: 例外マーカー漏れ / false positive を観測 → list 拡充
 - **Phase 2 — #B-β (制約付き fix)**:
