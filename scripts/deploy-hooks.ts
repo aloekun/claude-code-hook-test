@@ -22,6 +22,7 @@ const CLAUDE_DIR = join(ROOT, ".claude");
 const EXE_FILES = [
   "hooks-pre-tool-validate.exe",
   "hooks-post-tool-linter.exe",
+  "hooks-post-tool-comment-lint-rust.exe",
   "hooks-stop-quality.exe",
   "hooks-stop-feedback-dispatch.exe",
   "hooks-user-prompt-feedback-recovery.exe",
