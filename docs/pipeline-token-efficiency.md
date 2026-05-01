@@ -187,11 +187,11 @@ reviewers (parallel: simplicity + security) → fix → (loop, threshold 2) → 
 **検出ロジック**:
 
 - 原則: Rust ソース内のすべての comment (`//`, `/* */`, `///`) を count
-- 例外マーカーのみ許可:
-  - `///` で始まる行 (Rust public doc)
-  - `/// SAFETY:` / `/// # ...` 等の rustdoc セクション
-  - `// TODO:` / `// FIXME:` / `// SAFETY:` / `// NOTE:` で始まる行
-- 例外マーカー以外のコメントは **REJECT** (count > 0 で hook が block)
+- 例外マーカー (実装 `src/hooks-post-tool-comment-lint-rust/src/main.rs` の `ALLOWED_LINE_PREFIXES` / `ALLOWED_BLOCK_PREFIXES` 定数が **single source of truth**):
+  - **line comment**: `///` (rustdoc outer) / `//!` (rustdoc inner) / `// TODO:` / `// FIXME:` / `// SAFETY:` / `// NOTE:` / `// HACK:` / `// XXX:`
+  - **block comment**: `/**` (block rustdoc outer) / `/*!` (block rustdoc inner)
+- 上記以外のコメントは **REJECT** (count > 0 で hook が block)
+- マーカー追加・削除時は実装定数と本箇所を必ず同期させる (docs と実装の乖離は次フェーズの誤誘導要因)
 
 **配置 (ADR-002 / ADR-006 / ADR-007 整合)**:
 
@@ -715,8 +715,8 @@ done
 
 #### ④ pre-push-review iter 分布比較 (#B 効果検証)
 
-ベースライン: `{1×3, 3×2, 6×1}` = 6 runs (うち 6-iter outlier 1 件)
-目標: `{1×N, 2×N}` で 6-iter outlier 消失、avg iter 2.5 → 1.5 期待
+ベースライン: `{1×3, 3×2, 6×1}` = 6 runs (うち 6-iter outlier 1 件、avg iter 2.5)
+目標 (Bundle Z 再編後): `{1×N}` (1-iter 固定) で 6-iter outlier 消失 (outlier 率 33% → 0%)、avg iter 2.5 → 1.0、1-iter ALL APPROVE 率 90% 超 (L302 / L633 と統一)
 
 #### ⑤ サンプル CR review listing token 量比較 (#D-4 効果検証)
 
