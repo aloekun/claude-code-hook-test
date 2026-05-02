@@ -55,6 +55,10 @@
 | 39 | 🚀 Tier 1 | **takt workflow `model` フィールド必須化 lint rule (PR #98 T1-1)** | todo4.md | S | なし (Bundle Y2 完全性: post-pr-review.yaml supervise step の `model:` 欠落を契機に決定論的防止層を追加) |
 | 40 | 🚀 Tier 1 | **prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)** | todo4.md | XS | なし (本セッション再現の push 失敗を Step 1 fallback で早期検出。skill repo 側更新) |
 | 41 | 🔧 Tier 2 | **Bundle Y2 効果の定量計測 — post-merge-feedback / post-pr-review の avg time 比較 (PR #98 T2-2)** | todo4.md | M | なし (PR #97 sonnet baseline vs PR #98 以降 haiku の実測比較。Bundle Z / Z2 の ROI 判断材料、PR #98 merge 後 3-5 PR の観察ベース) |
+| 42 | 🔧 Tier 2 | **cli-pr-monitor の rate-limit auto-retry + `@coderabbitai review` auto-trigger 実装 (PR #99 T2-4) ★ Bundle a Sub-PR 2** | todo4.md | M | 順位 45 と同 PR (Sub-PR 2、Sub-PR 1 の `--list-findings` API を消費) |
+| 43 | 💎 Tier 3 | **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化 (PR #99 T3-5) ★ Bundle a Sub-PR 2** | todo4.md | S | 順位 42 と同 PR (Sub-PR 2 内、実装と ADR の整合確保) |
+| 44 | 💎 Tier 3 | **gh CLI 使用規則を `~/.claude/rules/common/git-workflow.md` に追記 (計画書 #D-1) ★ Bundle a Sub-PR 1** | todo4.md | XS | なし (Sub-PR 1、Sub-PR 2 でも `gh api` を使うため先行 land 推奨) |
+| 45 | 🔧 Tier 2 | **`check-ci-coderabbit --list-findings` Rust モード追加 (計画書 #D-3) ★ Bundle a Sub-PR 1** | todo4.md | M | なし (Sub-PR 1、cli-pr-monitor が消費する構造化 findings API を提供) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -72,6 +76,10 @@
 **Bundle W (PBT + 型強化) は PR #96 で実証された flaky 実装防御の最上層**。Finding D (`saturating_sub` の silent semantic mismatch) と E (concurrency test の guard 即 drop) はどちらも「Rust 的に正しいコードがドメイン的に間違う」典型例で、advisor + takt-fix の 2 layer も貫通した。**仕様を proptest properties で明文化 + `PastTime` 等の型で invalid state を unrepresentable に** することで、ルール (ask-based) では塞げない bug class を構造的に排除する。**rate-limit 自動検出 (Phase 4 で land 済) / takt REJECT-ESCALATE を先行**し、その後 Bundle W に着手する流れがユーザー指示。
 **Bundle X (cargo-mutants + stress runner) は Bundle W の後付け検証層**。L2 post-PR で変更 crate + 1-hop 依存に cargo-mutants を走らせ test の弱さを直接測定、L1 pre-push で concurrency stress N=100 を回し scheduling race を sampling。Bundle W で書いた spec / 型を後段で機械的に検証する補完関係。**L3 weekly cargo-mutants workspace 全体 + stress N=1000 は ADR-031 Phase B 週次レビューと bundle 化** することで long-tail flake と coverage 全体監査を week 単位で audit する layer に統合。
 **PR #98 (Bundle Y2) post-merge-feedback 反映 (2026-05-01)**: 3 件の follow-up task を追加。**takt workflow `model` フィールド必須化 lint rule** と **Bundle Y2 効果の定量計測** は Bundle Y2 完全性確保 + ROI 検証で同系列 (lint rule 着手時に post-pr-review.yaml supervise step への `model: sonnet` 明示追加を同 PR に含める想定)。**prepare-pr skill Step 1 bookmark 存在チェック強化** は本セッション運用痛 (bookmark 未作成 push 失敗) から派生した独立 task で skill repository 側の更新となる。
+**Bundle a (PR #99 post-merge-feedback 反映、2026-05-02 拡張)**: 4 component を **2 Sub-PR で分割** land 推奨 (設計根拠は ADR-034)。共通テーマは「PR #99 で複数回発生した手動 `@coderabbitai review` 投稿の自動化」 + 「CR review query の token bloat 削減」。Bundle Y2 効果でパイプラインが加速した結果として CR rate-limit 発生頻度が増えた逆説的副作用への対策。effort 合計 M+S+XS+M (= 2 Sub-PR で M、M+S 程度に分散)。
+
+- **Sub-PR 1 (token 削減層、先行)**: **gh CLI 使用規則** (`git-workflow.md` 追記) + **`check-ci-coderabbit --list-findings`** (Rust モード、cli-pr-monitor 連携 API 提供)。旧 Bundle Z2 の `#D-1` + `#D-3` を本 Bundle に統合 (旧 `#D-2` は `#D-3` で代替のため取り下げ、旧 `#D-4` は思考連続性懸念で保留、ADR-034 参照)
+- **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化**。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
 
 ---
 
