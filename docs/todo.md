@@ -59,6 +59,7 @@
 | 43 | 💎 Tier 3 | **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化 (PR #99 T3-5) ★ Bundle a Sub-PR 2** | todo4.md | S | 順位 42 と同 PR (Sub-PR 2 内、実装と ADR の整合確保) |
 | 44 | 💎 Tier 3 | **gh CLI 使用規則を `~/.claude/rules/common/git-workflow.md` に追記 (計画書 #D-1) ★ Bundle a Sub-PR 1** | todo4.md | XS | なし (Sub-PR 1、Sub-PR 2 でも `gh api` を使うため先行 land 推奨) |
 | 45 | 🔧 Tier 2 | **`check-ci-coderabbit --list-findings` Rust モード追加 (計画書 #D-3) ★ Bundle a Sub-PR 1** | todo4.md | M | なし (Sub-PR 1、cli-pr-monitor が消費する構造化 findings API を提供) |
+| 46 | 🔧 Tier 2 | **CodeRabbit rate-limit auto-retry の integration test (PR #100 T2-1) ★ Bundle a Sub-PR 2** | todo4.md | M | 順位 42 と同 PR (Sub-PR 2、rate-limit auto-retry 実装と一体) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -79,7 +80,7 @@
 **Bundle a (PR #99 post-merge-feedback 反映、2026-05-02 拡張)**: 4 component を **2 Sub-PR で分割** land 推奨 (設計根拠は ADR-034)。共通テーマは「PR #99 で複数回発生した手動 `@coderabbitai review` 投稿の自動化」 + 「CR review query の token bloat 削減」。Bundle Y2 効果でパイプラインが加速した結果として CR rate-limit 発生頻度が増えた逆説的副作用への対策。effort 合計 M+S+XS+M (= 2 Sub-PR で M、M+S 程度に分散)。
 
 - **Sub-PR 1 (token 削減層、先行)**: **gh CLI 使用規則** (`git-workflow.md` 追記) + **`check-ci-coderabbit --list-findings`** (Rust モード、cli-pr-monitor 連携 API 提供)。旧 Bundle Z2 の `#D-1` + `#D-3` を本 Bundle に統合 (旧 `#D-2` は `#D-3` で代替のため取り下げ、旧 `#D-4` は思考連続性懸念で保留、ADR-034 参照)
-- **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化**。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
+- **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化** + **integration test 追加** (rate-limit 検出 → backoff → retry サイクルの regression 防止、PR #100 post-merge-feedback T2-1 採用)。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
 
 ---
 
