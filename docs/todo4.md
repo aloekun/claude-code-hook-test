@@ -381,3 +381,196 @@
 #### 詰まっている箇所
 
 - 計測期間 3-5 PR の間に rate-limit 不安定期 / 大規模変更 PR / docs-only PR が混在すると平均値の比較ノイズが大きい。中央値での比較や PR 性質による normalization 方式を着手時に検討。
+
+---
+
+### cli-pr-monitor の rate-limit auto-retry + `@coderabbitai review` auto-trigger 実装 (PR #99 T2-4)
+
+> **動機**: PR #99 で CR rate-limit が **複数回** 発生し、解除後の `@coderabbitai review` 再投稿が **手動必要** だった。Bundle Y2 効果でパイプラインが加速 (pre-push + post-pr takt が 1〜2m/iter) した結果、CR への commit push 頻度が増えて rate-limit に達しやすくなった逆説的副作用。本セッションで実施した手順 (1) walkthrough comment の `updated_at` から解除時刻計算 → (2) sleep + 1 分 → (3) `@coderabbitai review` 投稿 → (4) Round N+1 review trigger 確認、を `cli-pr-monitor` 内で全自動化する。
+>
+> **本タスクの位置づけ**: Bundle a の **実装層**。ADR-018 / ADR-009 の rate-limit retry ポリシー明文化 と同 PR で land 推奨 (実装と設計判断の整合確保)。Phase 4 (PR #97) で land された `handle_rate_limit_retry` は既存だが、検出 gap (review state = `not_found` 時に rate-limit を見落とす、本セッション中盤で確認) と auto-trigger 不発の改善が必要。
+>
+> **参照**: `.claude/feedback-reports/99.md` Tier 2 #4、本セッション内のユーザー要望「全自動化したい」、PR #97 Phase 4 で land された rate-limit auto-retry の検出ロジック gap 観測
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort Medium。本セッションで明示された運用痛 (手動 `@coderabbitai review` 投稿が複数回必要) への直接対策。
+
+#### 設計決定 (案)
+
+- **検出ロジック改善** (本セッションで判明した gap):
+  - CR rate-limit は **walkthrough comment (PR の最初の CR comment) を上書き** する形で表現される (memory `project_coderabbit_rate_limit_overlay.md` 参照)
+  - 既存の `state.rate_limit` 検出は review state = `not_found` 時に rate-limit overlay を見落とす可能性
+  - 修正: walkthrough comment の body content + `updated_at` を直接 polling し、`Rate limit exceeded` パターンを検出
+- **解除時刻計算**:
+  - body 内の `Please wait N minutes and M seconds` を regex 抽出
+  - `updated_at` + N min M s = 解除予定時刻
+  - 解除 + 1 分後を auto-trigger 時刻として設定 (本セッションで実証された安全マージン)
+- **auto-trigger 実装**:
+  - `cli-pr-monitor` に sleep + retry スケジューラ追加 (Rust `tokio` or `std::thread::sleep` ベース)
+  - sleep 中に session を超えても良いように `.claude/cli-pr-monitor-state.json` に解除予定時刻を永続化
+  - 解除後 `gh api -X POST issues/N/comments -f body='@coderabbitai review' > /dev/null 2>&1` を実行
+  - state を更新して再 polling 開始
+- **Budget 管理**:
+  - 既存の `max_duration_secs` (監視残り予算) と sleep 時間の比較ロジックは継続使用
+  - sleep が予算超過する場合は `.claude/cli-pr-monitor-state.json` に「次セッションで再開」フラグを書いて exit、SessionStart hook で recovery
+
+#### 作業計画
+
+- [ ] `cli-pr-monitor` の rate-limit detection ロジックを walkthrough comment ベースに改善 (review state non-依存)
+- [ ] body 内 `Please wait N minutes and M seconds` パターン抽出ロジック追加
+- [ ] sleep + auto-trigger スケジューラ実装 (session 超え対応含む)
+- [ ] `.claude/cli-pr-monitor-state.json` schema 拡張 (rate_limit_unlock_at, scheduled_retry_post 等)
+- [ ] integration test: 模擬 rate-limit comment を walkthrough に置いて auto-trigger が発火するか確認
+- [ ] dogfood: 実 PR で rate-limit を引き起こして自動回復を観察 (1〜2 PR)
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- CR rate-limit 発生時に walkthrough comment overlay が確実に検出される (review state = not_found でも)
+- 解除予定時刻の 1 分後に `@coderabbitai review` が自動投稿される (session 超え含む)
+- 手動 `@coderabbitai review` 投稿は不要になる (PR #99 セッションで観測された運用痛の解消)
+- ADR-018 / ADR-009 (Bundle a 同 PR) で設計判断が文書化される
+
+#### 詰まっている箇所
+
+- session 超え auto-trigger の機構選定: `cli-pr-monitor` 自身が長時間 sleep して投稿するか、SessionStart hook + state file 経由で次セッション起動時に recovery するか — 運用パターンを着手時に評価。
+- 既存 `handle_rate_limit_retry` (PR #97 Phase 4) との関係整理: 既存ロジックを拡張するか、新ロジックに置き換えるか。
+
+---
+
+### ADR-018 / ADR-009 の rate-limit retry ポリシー明文化 (PR #99 T3-5)
+
+> **動機**: 現状の `cli-pr-monitor` 設計では rate-limit recovery が partial (PR #97 Phase 4 で land された `handle_rate_limit_retry` はあるが detection gap あり)、かつ設計判断が ADR に明文化されていないため、改修時の判断基準が不明瞭。本タスクで設計判断を ADR に記録し、cli-pr-monitor の rate-limit auto-retry 実装と整合させる。
+>
+> **本タスクの位置づけ**: Bundle a の **設計判断層**。cli-pr-monitor の rate-limit auto-retry 実装 と同 PR で land 推奨。実装変更時の判断軸として後続改修者が参照する。
+>
+> **参照**: `.claude/feedback-reports/99.md` Tier 3 #5、ADR-018 (cli-pr-monitor takt 化)、ADR-009 (Post-PR Monitor 旧設計、Superseded by ADR-018 部分あり)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort Small。実装 (Bundle a 実装層) と同 PR で同時 land。
+
+#### 設計決定 (案)
+
+- **記述する内容**:
+  - rate-limit detection の 2 層構造: review state ベース (既存) + walkthrough comment overlay ベース (新規追加、本タスクで明文化)
+  - backoff 戦略: 解除予定時刻 + 1 分の安全マージン (本セッションで実証)
+  - auto-trigger 投稿の冪等性確保: `state.rate_limit_last_retriggered_at` での dedup (PR #97 Phase 4 で実装済)
+  - `X-RateLimit-Remaining` ヘッダー監視は **対象外** (CR API は public ではないため)。walkthrough comment body parsing で代替
+  - session 超え recovery: `.claude/cli-pr-monitor-state.json` の `rate_limit_unlock_at` フィールドを SessionStart hook が読み、補完的に auto-trigger
+- **追記先**:
+  - 主: ADR-018 (cli-pr-monitor takt 移行、rate-limit auto-retry の主体) に追記
+  - 従: ADR-009 (Post-PR Monitor 旧設計) は Superseded 部分の補足として「rate-limit retry ポリシーは ADR-018 で明文化」と navigation コメントを追加
+- **整合確保**:
+  - 実装 PR (Bundle a 実装層) と同コミット範囲で land、ADR の記述と実コードが一致することを保証
+
+#### 作業計画
+
+- [ ] ADR-018 に「rate-limit detection / retry / auto-trigger」セクション追加
+- [ ] ADR-009 に navigation 注記追加 (rate-limit 関連は ADR-018 を参照)
+- [ ] 実装 (Bundle a 実装層) と同 PR で land、CodeRabbit / pre-push-review で整合性を check
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- ADR-018 に rate-limit retry ポリシーが明記される
+- 実装と ADR の記述が同期 (新たな乖離リスクなし)
+- 後続改修者が ADR-018 を読めば改修方針を判断できる
+
+#### 詰まっている箇所
+
+- なし (Effort Small、ADR-018 への追記のみで完結)。実装 (Bundle a 実装層) の設計確定後に着手するのが効率的。
+
+---
+
+### gh CLI 使用規則を `~/.claude/rules/common/git-workflow.md` に追記 (計画書 #D-1)
+
+> **動機**: PR #97 / #99 セッションで観測された gh tool_result の token bloat (POST 応答 24KB / GET 過剰 metadata 44KB) を rule で構造的に抑制する。具体的には (1) POST 操作の応答破棄漏れ (`gh api .../replies` で `> /dev/null 2>&1` 漏れによる 24KB context 汚染)、(2) GET 操作で `--jq` filter 不使用による生 JSON 全取得、(3) `gh pr view --json comments` の CR walkthrough base64 internal state 混入 — の 3 パターン。
+>
+> **本タスクの位置づけ**: Bundle a の **Sub-PR 1 token 削減層**。`check-ci-coderabbit --list-findings` Rust 実装 と同 PR で land 推奨。global rule (`~/.claude/rules/common/git-workflow.md`) への追記のため本リポジトリ scope 外だが、開発体験への影響は本リポジトリで主に発生。
+>
+> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、`docs/pipeline-token-efficiency.md` #D-1 セクション、PR #99 セッションで実証された rate-limit overlay (memory `project_coderabbit_rate_limit_overlay.md`)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。rule 追記のみ。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
+
+#### 設計決定 (案)
+
+- **追記先**: `~/.claude/rules/common/git-workflow.md` の既存セクションに追加 (新規ファイル作成は避け、navigation 性確保)
+- **記述する 3 規則**:
+  - **POST 操作 (作成・更新)**: 応答 body は破棄する (`gh api -X POST .../replies -f body='...' > /dev/null 2>&1`)。success/fail は exit code で判別
+  - **GET 操作 (取得)**: `--jq` で必要 field のみ抽出する (`gh api .../comments --jq '.[] | {created_at, body_first: .body[:200]}'` 等)
+  - **CR walkthrough 除外**: `gh pr view --json reviews,comments` の `comments` field に CR walkthrough の base64 internal state が含まれる (1 PR で 30KB+) ため、確認時は `--jq 'del(.comments[].body)'` 等で除外
+- **記述スタイル**: BAD / GOOD のコード例ペアを併記 (既存 git-workflow.md の他セクションと整合)
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/git-workflow.md` の既存構造を確認し追記位置を選定
+- [ ] 3 規則 (POST 応答破棄 / GET --jq / CR walkthrough 除外) を BAD/GOOD コード例つきで追記
+- [ ] 本リポジトリでの dogfood: 1〜2 PR で実際に新規則に従って `gh api` を使い、token 削減を実測
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への global rule 反映確認 (rule は global なので自動的に適用、deploy 不要)
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/git-workflow.md` に 3 規則が追記される
+- dogfood 1〜2 PR で gh tool_result avg/max chars が削減されることを実測 (現状 max 47KB → 目標 10KB 以内)
+- POST 応答 24KB の context 汚染が消失
+
+#### 詰まっている箇所
+
+- なし (Effort XS、global rule への追記のみで完結)。Sub-PR 1 の `check-ci-coderabbit --list-findings` 実装と同 PR で land する想定。
+
+---
+
+### `check-ci-coderabbit --list-findings` Rust モード追加 (計画書 #D-3)
+
+> **動機**: CR review listing で `gh api .../pulls/N/reviews` + `pulls/N/comments` の重複取得が発生し、44KB 級の生 metadata が context に乗る (cache_creation 9x で 約 400K tokens 蓄積)。Rust 側で構造化 findings JSON を一度で取得することで、`gh api` 重複呼び出しを消滅させる。加えて、Bundle a Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) が同 API を消費する設計のため、Sub-PR 1 で先行実装が必要。
+>
+> **本タスクの位置づけ**: Bundle a の **Sub-PR 1 token 削減層 (cli-pr-monitor 連携 API 提供)**。gh CLI 使用規則追記 と同 PR で land 推奨。Sub-PR 2 (rate-limit auto-retry 実装) の前提条件。
+>
+> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、`docs/pipeline-token-efficiency.md` #D-3 セクション、ADR-022 (自動化コンポーネントの責務分離原則 — Rust 側実装が ADR-022 と整合する根拠)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort Medium。Rust 実装 + テスト。`check-ci-coderabbit` crate (既存) への mode 追加で、新 crate 作成は不要 (ADR-026 Cargo workspace member 構成変更なし)。
+
+#### 設計決定 (案)
+
+- **追加先**: `src/check-ci-coderabbit/` (既存 crate)
+- **CLI**: `check-ci-coderabbit.exe --list-findings --pr <N>` で構造化 JSON を stdout 出力
+- **JSON schema (案)**:
+
+  ```json
+  {
+    "findings": [
+      {"severity": "major", "file": "src/.../main.rs", "line": 415, "summary": "...", "url": "..."}
+    ]
+  }
+  ```
+
+- **入力ソース**: `gh api .../pulls/N/comments` + `pulls/N/reviews` を内部的に呼び、重複 metadata を除去して構造化
+- **severity 抽出**: CR の `_⚠️ Potential issue_ | _🔴 Critical_` 等のパターンから抽出 (Critical / Major / Minor / Nitpick の 4 段階)
+- **outdated 解釈**: `in_reply_to_id` を辿って `resolved:` reply のあるスレッドを除外
+- **cli-pr-monitor からの消費**: Sub-PR 2 で `cli-pr-monitor` が本コマンドを spawn、構造化 findings を読んで rate-limit auto-retry のロジックに統合
+- **既存 `check-ci-coderabbit` の他モード** (CI 状態 check 等) との関係: 既存モードは保持、`--list-findings` が新規 sub-command として追加
+
+#### 作業計画
+
+- [ ] `src/check-ci-coderabbit/` の既存 CLI 構造を確認 (clap 定義、既存 sub-command の有無)
+- [ ] `--list-findings --pr <N>` sub-command を追加
+- [ ] `gh api` 呼び出しを内部実装 (既存 `runner::run_gh_quiet` 等を流用)
+- [ ] severity 抽出ロジック (regex で `Potential issue \| 🔴 Critical` 等のパターン)
+- [ ] outdated 解釈ロジック (resolved reply のスレッド除外)
+- [ ] 単体テスト (sample CR review JSON を fixture として配置、severity 抽出 / outdated 解釈の網羅)
+- [ ] `package.json` の `build:check-ci-coderabbit` で release exe 生成 (既存 script、変更不要)
+- [ ] dogfood: 1〜2 PR で `pnpm cr:findings <PR>` 相当の動作を確認 (本 PR ではなく実 PR で smoke test)
+- [ ] cli-pr-monitor (Sub-PR 2) からの消費を統合 (Sub-PR 2 のスコープだが、本 task の API 設計時に呼び出し側の interface も合わせて確定)
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- `check-ci-coderabbit.exe --list-findings --pr <N>` で JSON 出力が得られる
+- severity / file / line / summary / url の 5 field が揃う
+- 単体テストで sample fixture から正しく findings を抽出
+- Sub-PR 2 の cli-pr-monitor が本 API を呼んで rate-limit auto-retry のロジックを完成させる
+- gh api 重複取得が消滅し、CR review listing token 量が削減される (現状 4 round 計 ~20KB → 目標 ~5KB)
+
+#### 詰まっている箇所
+
+- CR の review body format が将来変わった場合の severity 抽出 fragility (regex 依存)。**個人開発向けで仕様変更時に対応する想定** (ADR-034 の方針と整合)
+- `in_reply_to_id` chain の outdated 解釈で false negative (resolved reply があるのに findings に残る) や false positive (resolved 扱いのものを未対応として出力) のチューニングが必要 — 着手時に実 CR data で評価。
