@@ -574,3 +574,50 @@
 
 - CR の review body format が将来変わった場合の severity 抽出 fragility (regex 依存)。**個人開発向けで仕様変更時に対応する想定** (ADR-034 の方針と整合)
 - `in_reply_to_id` chain の outdated 解釈で false negative (resolved reply があるのに findings に残る) や false positive (resolved 扱いのものを未対応として出力) のチューニングが必要 — 着手時に実 CR data で評価。
+
+---
+
+### CodeRabbit rate-limit auto-retry の integration test (PR #100 T2-1)
+
+> **動機**: Bundle a Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry + auto-trigger 実装) で導入する rate-limit 検出 → backoff → retry サイクルが正常動作することを継続的に保証する integration test を追加する。Sub-PR 2 のロジックは複数 actor (CR walkthrough overlay / session 超え recovery / dedup) が絡む複雑系で、unit test のみでは end-to-end の連携バグを catch しにくい。
+>
+> **本タスクの位置づけ**: Bundle a の **Sub-PR 2 実装と同 PR で land**。test 追加で実装と分離するメリットが薄い (実装変更時に test も同期改修が必要) ため、Sub-PR 2 の作業範囲に統合する。
+>
+> **参照**: `.claude/feedback-reports/100.md` Tier 2 #1、ADR-034 (CodeRabbit 監視・対話の自動化戦略)、PR #99 post-merge-feedback の Tier 2 #4 (Bundle a Sub-PR 2 設計の起源)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort Medium。Sub-PR 2 と一体実装、独立 PR として land しない。
+
+#### 設計決定 (案)
+
+- **配置先**: `src/cli-pr-monitor/tests/` (integration test 専用ディレクトリ、既存 unit test と分離)
+- **テスト対象シナリオ (4 件)**:
+  - **正常 retry**: walkthrough overlay の `Rate limit exceeded` 検出 → 解除予定時刻計算 → 解除 + 1 分マージン待機 → `@coderabbitai review` 自動投稿 → re-detection で findings 取得
+  - **dedup**: 同一 `comment_event_time` の rate-limit overlay は `rate_limit_last_retriggered_at` で重複投稿を防止
+  - **max_retries 超過**: `rate_limit_config.max_retries` 到達後は action_required で抜ける (manual fallback)
+  - **session 超え recovery**: state file の `rate_limit_unlock_at` を SessionStart hook が読んで cli-pr-monitor を recovery mode で再起動
+- **モック戦略**:
+  - GitHub API (`gh api`) のモック化: 実環境を呼ばず、固定 fixture を返す stub (HTTP mock library `mockito` or shell wrapper どちらかは Sub-PR 2 着手時の `cli-pr-monitor` 実装方針に合わせて選定)
+  - 時刻のモック化: `chrono` の time provider を test で差し替え (sleep 短縮で test 高速化)
+  - state file: `tempfile` で test 専用 dir に作成し isolation 確保
+- **既存 unit test との関係**: parse_rate_limit / parse_age_secs 等の細部ロジックは unit test で網羅。integration test は **end-to-end の連携 (detection → retry → re-detection) と state 永続化** に focus
+
+#### 作業計画
+
+- [ ] `src/cli-pr-monitor/tests/rate_limit_integration_test.rs` 等の test ファイル作成 (Cargo workspace member 既存、ファイル追加のみで OK)
+- [ ] gh API モック (stub) を `tests/fixtures/` に配置: rate-limit walkthrough overlay JSON + 通常 review JSON
+- [ ] 主要 4 シナリオ (正常 retry / dedup / max_retries 超過 / session 超え recovery) を実装
+- [ ] `cargo test --workspace` で pass を確認
+- [ ] dogfood: 実 PR で rate-limit 模擬発生時に integration test の coverage 範囲が実 path で発火することを確認
+- [ ] 本 todo4.md エントリを削除
+
+#### 完了基準
+
+- 主要 4 シナリオの integration test が pass
+- Sub-PR 2 の rate-limit auto-retry ロジック改修時にも同 test が継続的に green
+- regression catch: ロジック改修で意図せぬ挙動変化があった場合に test が fail することを再現実験で確認 (test 自体の sensitivity 検証)
+- pre-push pipeline 実行時間への影響が +5 秒以内 (integration test の重さで pre-push が肥大化しないこと)
+
+#### 詰まっている箇所
+
+- gh API モックの strategy 選定 (HTTP mock library vs shell wrapper スタブ): Sub-PR 2 着手時の `cli-pr-monitor` 実装方針 (どこまで gh CLI を直接呼ぶか) と合わせて決定
+- session 超え recovery シナリオの reproducibility: state file 永続化を test で再現する際に SessionStart hook 起動を模擬する手段が要検討 (hook を直接呼ぶか、state 直接書き込み + cli-pr-monitor recovery mode 起動で代替するか)

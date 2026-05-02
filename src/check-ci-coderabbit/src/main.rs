@@ -6,6 +6,12 @@
 //!
 //! 使い方:
 //!   check-ci-coderabbit.exe --push-time "2026-04-01T12:00:00Z" [--repo owner/repo] [--pr 42]
+//!   check-ci-coderabbit.exe --list-findings --pr 42 [--repo owner/repo]
+//!
+//! `--list-findings` モード: ADR-034 Bundle a Sub-PR 1 で追加。
+//! CodeRabbit のインラインレビューコメントを構造化 JSON `{"findings": [...]}`
+//! として stdout に出力する。CI / rate-limit / status check は実行しない。
+//! cli-pr-monitor および Claude (応答時の listing) からの呼び出しを想定。
 //!
 //! 終了コード:
 //!   0 - チェック完了 (結果は stdout JSON の action フィールドを参照)
@@ -16,12 +22,13 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::time::Duration;
 
-// ─── CLI 引数 ───
+const EPOCH_PUSH_TIME: &str = "1970-01-01T00:00:00Z";
 
 struct CliArgs {
     push_time: String,
     repo: Option<String>,
     pr: Option<u64>,
+    list_findings: bool,
 }
 
 fn parse_args() -> Result<CliArgs, String> {
@@ -29,6 +36,7 @@ fn parse_args() -> Result<CliArgs, String> {
     let mut push_time = None;
     let mut repo = None;
     let mut pr = None;
+    let mut list_findings = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -45,16 +53,25 @@ fn parse_args() -> Result<CliArgs, String> {
                 i += 1;
                 pr = args.get(i).and_then(|s| s.parse::<u64>().ok());
             }
+            "--list-findings" => {
+                list_findings = true;
+            }
             _ => {}
         }
         i += 1;
     }
 
-    let push_time = push_time.ok_or("--push-time は必須です")?;
+    let push_time = if list_findings {
+        push_time.unwrap_or_else(|| EPOCH_PUSH_TIME.to_string())
+    } else {
+        push_time.ok_or("--push-time は必須です")?
+    };
+
     Ok(CliArgs {
         push_time,
         repo,
         pr,
+        list_findings,
     })
 }
 
@@ -214,12 +231,19 @@ struct GhReview {
 /// PR インラインレビューコメント (pulls/{pr}/comments)
 #[derive(Deserialize)]
 struct GhPullComment {
+    /// thread root の identification と outdated filter で使用
+    id: Option<u64>,
     user: Option<GhUser>,
     body: Option<String>,
     path: Option<String>,
     line: Option<u64>,
     original_line: Option<u64>,
     created_at: Option<String>,
+    /// reply の場合は親 thread root の comment id を持つ。outdated filter で
+    /// `resolved:` 始まりの reply が指す parent を resolved 集合に投入する
+    in_reply_to_id: Option<u64>,
+    /// `--list-findings` モードで出力する thread への deep link
+    html_url: Option<String>,
 }
 
 // ─── パース関数 (テスト可能な純粋関数) ───
@@ -342,7 +366,7 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
             let after_push_time = c
                 .created_at
                 .as_deref()
-                .map(|t| t > push_time)
+                .map(|t| t >= push_time)
                 .unwrap_or(false);
 
             // 「処理中」通知コメントを除外 (レビュー結果ではない)
@@ -542,7 +566,7 @@ fn parse_findings(json: &str, push_time: &str) -> Vec<Finding> {
             let after_push_time = c
                 .created_at
                 .as_deref()
-                .map(|t| t > push_time)
+                .map(|t| t >= push_time)
                 .unwrap_or(false);
             is_coderabbit && after_push_time
         })
@@ -568,6 +592,125 @@ fn parse_findings(json: &str, push_time: &str) -> Vec<Finding> {
             }
         })
         .collect()
+}
+
+/// `--list-findings` モードの出力 1 件分。
+///
+/// ADR-034 の Sub-PR 1 で定義された JSON schema:
+/// `{severity, file, line, summary, url}`。
+/// 既存 `Finding` (`lib_report_formatter`) は本 exe の通常モードと local-review
+/// が共用する型なので、本モード専用に別 struct を切り出して shape 変更の影響範囲を
+/// 局所化する。
+#[derive(Serialize, Debug, PartialEq)]
+struct ListedFinding {
+    severity: String,
+    file: String,
+    line: u64,
+    summary: String,
+    url: String,
+}
+
+/// `--list-findings` モードの top-level 出力 (`{"findings": [...]}`).
+#[derive(Serialize)]
+struct ListFindingsOutput {
+    findings: Vec<ListedFinding>,
+}
+
+/// PR インラインコメント JSON から `ListedFinding` を抽出する。
+///
+/// フィルタ条件:
+///   - 投稿者が `coderabbitai[bot]` (review コメントのみ採用、reply は除外)
+///   - `created_at >= push_time` (epoch 0 で実質全件)
+///   - thread が `resolved:` reply で resolve されていない (outdated filter)
+///   - `in_reply_to_id` が None (= thread root) — reply 自体は finding ではない
+///
+/// outdated filter は MVP として `resolved:` prefix の reply が同 thread に
+/// 存在するかで判定する (memory `project_coderabbit_auto_resolve.md` 参照)。
+/// 階層 reply (reply の reply) には対応せず、in_reply_to_id が示す parent のみ
+/// resolved 集合に投入する。
+fn parse_listed_findings(json: &str, push_time: &str) -> Vec<ListedFinding> {
+    let comments: Vec<GhPullComment> = serde_json::from_str(json).unwrap_or_else(|e| {
+        eprintln!(
+            "[check-ci-coderabbit] pull comments JSON パースエラー: {}",
+            e
+        );
+        vec![]
+    });
+
+    let resolved_root_ids: std::collections::HashSet<u64> = comments
+        .iter()
+        .filter_map(|c| {
+            let parent = c.in_reply_to_id?;
+            let body = c.body.as_deref()?;
+            if is_resolve_reply(body) {
+                Some(parent)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    comments
+        .iter()
+        .filter(|c| {
+            let is_coderabbit = c
+                .user
+                .as_ref()
+                .and_then(|u| u.login.as_deref())
+                .map(|l| l == "coderabbitai[bot]")
+                .unwrap_or(false);
+            let after_push_time = c
+                .created_at
+                .as_deref()
+                .map(|t| t >= push_time)
+                .unwrap_or(false);
+            let is_thread_root = c.in_reply_to_id.is_none();
+            let is_resolved =
+                c.id.map(|id| resolved_root_ids.contains(&id))
+                    .unwrap_or(false);
+
+            is_coderabbit && after_push_time && is_thread_root && !is_resolved
+        })
+        .map(|c| {
+            let body = c.body.as_deref().unwrap_or("");
+            let severity = extract_severity(body);
+            let summary = extract_summary(body);
+            let file = c.path.clone().unwrap_or_default();
+            let line = c.line.or(c.original_line).unwrap_or(0);
+            let url = c.html_url.clone().unwrap_or_default();
+            ListedFinding {
+                severity,
+                file,
+                line,
+                summary,
+                url,
+            }
+        })
+        .collect()
+}
+
+/// reply 本文が `resolved:` (大文字小文字無視) で始まれば true。
+///
+/// memory `project_coderabbit_auto_resolve.md`: 返信本文が `resolved:` で
+/// 始まると CodeRabbit thread が auto-resolve される挙動 (PR #70 で実証)。
+fn is_resolve_reply(body: &str) -> bool {
+    body.trim_start()
+        .to_ascii_lowercase()
+        .starts_with("resolved:")
+}
+
+/// `extract_issue` をベースに 1 行サマリ (最大 120 chars) に整形する。
+///
+/// `extract_issue` は太字行を返すため大半は短いが、太字がない場合に 100 chars の
+/// truncate fallback を持つ。`--list-findings` の output は Claude が listing
+/// する想定なので改行を空白に置換し、長すぎる場合は 120 chars で切り詰める。
+fn extract_summary(body: &str) -> String {
+    let issue = extract_issue(body);
+    let single_line: String = issue
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_str(&single_line, 120)
 }
 
 /// CodeRabbit コメント本文から severity を抽出
@@ -1023,19 +1166,66 @@ fn run_check(args: CliArgs) -> CheckResult {
     }
 }
 
+/// `--list-findings` モードの実行: PR インラインコメントを取得して
+/// `ListedFinding` 配列にして返す。CI / rate-limit / status check は実行しない。
+fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
+    let repo = args
+        .repo
+        .map(Ok)
+        .unwrap_or_else(auto_detect_repo)
+        .map_err(|e| format!("リポジトリ取得失敗: {}", e))?;
+    if !is_valid_repo(&repo) {
+        return Err(format!("リポジトリ名が不正: {}", repo));
+    }
+    let pr = args
+        .pr
+        .map(Ok)
+        .unwrap_or_else(auto_detect_pr)
+        .map_err(|e| format!("PR番号取得失敗: {}", e))?;
+
+    let pull_comments_json = run_gh(&[
+        "api",
+        "--paginate",
+        &format!("repos/{}/pulls/{}/comments", repo, pr),
+    ])
+    .map_err(|e| format!("pull comments 取得失敗: {}", e))?;
+
+    Ok(ListFindingsOutput {
+        findings: parse_listed_findings(&pull_comments_json, &args.push_time),
+    })
+}
+
+fn print_json<T: serde::Serialize>(value: &T) {
+    let json = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
+    println!("{}", json);
+}
+
 fn main() {
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
             eprintln!("[check-ci-coderabbit] エラー: {}", e);
             eprintln!("使い方: check-ci-coderabbit.exe --push-time <ISO8601> [--repo owner/repo] [--pr N]");
+            eprintln!("       check-ci-coderabbit.exe --list-findings --pr N [--repo owner/repo]");
             std::process::exit(1);
         }
     };
 
+    if args.list_findings {
+        match run_list_findings(args) {
+            Ok(output) => {
+                print_json(&output);
+            }
+            Err(e) => {
+                eprintln!("[check-ci-coderabbit] --list-findings エラー: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let result = run_check(args);
-    let json = serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string());
-    println!("{}", json);
+    print_json(&result);
 }
 
 // ─── テスト ───
@@ -1767,15 +1957,160 @@ mod tests {
 
     #[test]
     fn parse_args_extracts_push_time() {
-        // parse_args reads from std::env::args, so we test the logic indirectly
-        // by testing the struct construction
+        // NOTE: parse_args reads std::env::args, so we test struct construction here.
         let args = CliArgs {
             push_time: "2026-04-01T12:00:00Z".to_string(),
             repo: Some("owner/repo".to_string()),
             pr: Some(42),
+            list_findings: false,
         };
         assert_eq!(args.push_time, "2026-04-01T12:00:00Z");
         assert_eq!(args.repo, Some("owner/repo".to_string()));
         assert_eq!(args.pr, Some(42));
+        assert!(!args.list_findings);
+    }
+
+    #[test]
+    fn is_resolve_reply_matches_lowercase_prefix() {
+        assert!(is_resolve_reply("resolved: 修正完了"));
+    }
+
+    #[test]
+    fn is_resolve_reply_matches_uppercase_prefix() {
+        assert!(is_resolve_reply("Resolved: applied the fix"));
+    }
+
+    #[test]
+    fn is_resolve_reply_matches_with_leading_whitespace() {
+        assert!(is_resolve_reply("  resolved: 反映済み"));
+    }
+
+    #[test]
+    fn is_resolve_reply_rejects_non_prefix_match() {
+        assert!(!is_resolve_reply("Not resolved: still pending"));
+    }
+
+    #[test]
+    fn is_resolve_reply_rejects_empty() {
+        assert!(!is_resolve_reply(""));
+    }
+
+    #[test]
+    fn extract_summary_collapses_whitespace_and_truncates() {
+        let body = "**short summary**\n\nbody body body";
+        assert_eq!(extract_summary(body), "short summary");
+    }
+
+    #[test]
+    fn extract_summary_normalizes_extra_whitespace() {
+        let body = "**summary   with    extra spaces**\n\nrest";
+        assert_eq!(extract_summary(body), "summary with extra spaces");
+    }
+
+    #[test]
+    fn parse_listed_findings_includes_thread_root_only() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🔴 Critical_\n\n**root finding A**", "path": "src/a.rs", "line": 10, "created_at": "2026-04-01T13:00:00Z", "html_url": "https://github.com/o/r/pull/1#discussion_r1"},
+            {"id": 2, "user": {"login": "someuser"}, "body": "ack", "path": "src/a.rs", "line": 10, "created_at": "2026-04-01T13:05:00Z", "in_reply_to_id": 1, "html_url": "https://github.com/o/r/pull/1#discussion_r2"}
+        ]"#;
+        let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].file, "src/a.rs");
+        assert_eq!(findings[0].line, 10);
+        assert_eq!(findings[0].severity, "Critical");
+        assert_eq!(findings[0].summary, "root finding A");
+        assert_eq!(
+            findings[0].url,
+            "https://github.com/o/r/pull/1#discussion_r1"
+        );
+    }
+
+    #[test]
+    fn parse_listed_findings_excludes_resolved_thread() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**finding A (resolved)**", "path": "src/a.rs", "line": 10, "created_at": "2026-04-01T13:00:00Z", "html_url": "u1"},
+            {"id": 2, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**finding B (open)**", "path": "src/b.rs", "line": 20, "created_at": "2026-04-01T13:01:00Z", "html_url": "u2"},
+            {"id": 3, "user": {"login": "human"}, "body": "resolved: 修正済み", "in_reply_to_id": 1, "created_at": "2026-04-01T13:10:00Z"}
+        ]"#;
+        let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].file, "src/b.rs");
+        assert_eq!(findings[0].severity, "Minor");
+        assert_eq!(findings[0].summary, "finding B (open)");
+    }
+
+    #[test]
+    fn parse_listed_findings_rejects_non_resolve_replies() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🔴 Critical_\n\n**still open**", "path": "src/a.rs", "line": 10, "created_at": "2026-04-01T13:00:00Z", "html_url": "u1"},
+            {"id": 2, "user": {"login": "human"}, "body": "discussing this", "in_reply_to_id": 1, "created_at": "2026-04-01T13:10:00Z"}
+        ]"#;
+        let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
+        assert_eq!(findings.len(), 1, "non-resolve reply should not hide root");
+        assert_eq!(findings[0].summary, "still open");
+    }
+
+    #[test]
+    fn parse_listed_findings_filters_by_push_time() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "**old finding**", "path": "src/a.rs", "line": 10, "created_at": "2026-04-01T10:00:00Z", "html_url": "u1"},
+            {"id": 2, "user": {"login": "coderabbitai[bot]"}, "body": "**new finding**", "path": "src/b.rs", "line": 20, "created_at": "2026-04-01T13:00:00Z", "html_url": "u2"}
+        ]"#;
+        let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].file, "src/b.rs");
+    }
+
+    #[test]
+    fn parse_listed_findings_epoch_push_time_includes_all() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "**ancient**", "path": "a.rs", "line": 1, "created_at": "2020-01-01T00:00:00Z", "html_url": "u"}
+        ]"#;
+        let findings = parse_listed_findings(json, "1970-01-01T00:00:00Z");
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn parse_listed_findings_falls_back_to_original_line() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "**outdated finding**", "path": "src/a.rs", "original_line": 42, "created_at": "2026-04-01T13:00:00Z", "html_url": "u"}
+        ]"#;
+        let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 42);
+    }
+
+    #[test]
+    fn parse_listed_findings_excludes_non_coderabbit_authors() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "human"}, "body": "**not from CR**", "path": "a.rs", "line": 1, "created_at": "2026-04-01T13:00:00Z", "html_url": "u"}
+        ]"#;
+        assert!(parse_listed_findings(json, "2026-04-01T12:00:00Z").is_empty());
+    }
+
+    #[test]
+    fn parse_listed_findings_empty_json_returns_empty() {
+        assert!(parse_listed_findings("[]", "2026-04-01T12:00:00Z").is_empty());
+    }
+
+    #[test]
+    fn parse_listed_findings_invalid_json_returns_empty() {
+        assert!(parse_listed_findings("not json", "2026-04-01T12:00:00Z").is_empty());
+    }
+
+    #[test]
+    fn parse_listed_findings_serializes_as_expected_schema() {
+        let json = r#"[
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**signature mismatch**", "path": "src/lib.rs", "line": 100, "created_at": "2026-04-01T13:00:00Z", "html_url": "https://github.com/o/r/pull/1#r1"}
+        ]"#;
+        let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
+        let output = ListFindingsOutput { findings };
+        let serialized = serde_json::to_value(&output).unwrap();
+        let item = &serialized["findings"][0];
+        assert_eq!(item["severity"], "Major");
+        assert_eq!(item["file"], "src/lib.rs");
+        assert_eq!(item["line"], 100);
+        assert_eq!(item["summary"], "signature mismatch");
+        assert_eq!(item["url"], "https://github.com/o/r/pull/1#r1");
     }
 }
