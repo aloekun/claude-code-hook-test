@@ -366,7 +366,7 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
             let after_push_time = c
                 .created_at
                 .as_deref()
-                .map(|t| t > push_time)
+                .map(|t| t >= push_time)
                 .unwrap_or(false);
 
             // 「処理中」通知コメントを除外 (レビュー結果ではない)
@@ -566,7 +566,7 @@ fn parse_findings(json: &str, push_time: &str) -> Vec<Finding> {
             let after_push_time = c
                 .created_at
                 .as_deref()
-                .map(|t| t > push_time)
+                .map(|t| t >= push_time)
                 .unwrap_or(false);
             is_coderabbit && after_push_time
         })
@@ -662,7 +662,7 @@ fn parse_listed_findings(json: &str, push_time: &str) -> Vec<ListedFinding> {
             let after_push_time = c
                 .created_at
                 .as_deref()
-                .map(|t| t > push_time)
+                .map(|t| t >= push_time)
                 .unwrap_or(false);
             let is_thread_root = c.in_reply_to_id.is_none();
             let is_resolved =
@@ -1188,13 +1188,7 @@ fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
         "--paginate",
         &format!("repos/{}/pulls/{}/comments", repo, pr),
     ])
-    .unwrap_or_else(|e| {
-        eprintln!(
-            "[check-ci-coderabbit] pull comments 取得エラー (空配列で継続): {}",
-            e
-        );
-        "[]".to_string()
-    });
+    .map_err(|e| format!("pull comments 取得失敗: {}", e))?;
 
     Ok(ListFindingsOutput {
         findings: parse_listed_findings(&pull_comments_json, &args.push_time),
