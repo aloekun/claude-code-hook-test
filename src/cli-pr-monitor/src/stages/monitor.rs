@@ -90,6 +90,11 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     if has_coderabbit_findings {
         if !collect_findings(&poll_result) {
             log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
+        } else if poll_result.rate_limit.is_some() {
+            log_info(
+                "[rate_limit] CR rate-limit が active のため post-pr-review takt invoke を skip \
+                 (stale findings の空打ち回避、#C-3)",
+            );
         } else if let Some(takt_config) = &config.takt {
             // ADR task 4
             fix_state = create_fix_commit(pr_info.pr_number, &poll_result.findings);
