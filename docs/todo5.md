@@ -50,48 +50,6 @@
 
 ---
 
-### 関数長スケーリング検出 oxlint rule (PR #101 T1-4)
-
-> **動機**: PR #101 で `parse_listed_findings` が 60 行となり、CLAUDE.md `coding-style.md` の 50 行ガイドラインを超過 (takt review が W-001 として warning)。ガイドラインは ask-based のため drift 蓄積中。96.md でも類似言及あり (関数長関連 finding)、**複数 PR で繰り返される drift**。oxlint rule で warning 40-50 行 / error 50+ 行を機械検出すれば、書いた瞬間に block されて drift しない。
->
-> **本タスクの位置づけ**: PR #101 post-merge-feedback Tier 1 #4 採用 (高頻度 finding)。Bundle Z #B-α と同じ決定論的防止層。`.oxlintrc.json` + `src/oxlint-rules/` への追加で完結。
->
-> **参照**: `.claude/feedback-reports/101.md` Tier 1 #4、`.claude/feedback-reports/96.md`、`~/.claude/rules/common/coding-style.md` (50 行ガイドライン)
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。oxlint plugin への rule 追加。
-
-#### 設計決定 (案)
-
-- **配置先**: `.oxlintrc.json` に rule 設定 + `src/oxlint-rules/` (自作 rule の配置先) に rule 実装
-- **閾値 (案)**:
-  - warning: 40 行超
-  - error: 50 行超 (block)
-- **対象**: `.rs` / `.ts` / `.js` (言語間で共通化、ただし AST 抽象差異あり)
-- **suppress**: `// oxlint-disable function-length` 行末
-- **既存 rule との関係**: 既存 `src/oxlint-rules/` の rule 構造を参照 (custom rules がすでに存在する想定)
-
-#### 作業計画
-
-- [ ] 既存 `src/oxlint-rules/` のディレクトリ構造を確認 (Rust / TS どちらの impl か)
-- [ ] 関数長計測 rule を実装 (AST node line range ベース)
-- [ ] `.oxlintrc.json` に rule 有効化設定を追加
-- [ ] 既存 codebase で 50 行超関数の数を事前調査 (段階的 rollout が必要か判断)
-- [ ] dogfood: `parse_listed_findings` (修正前なら error として detected されるはず) を synthetic test で確認
-- [ ] 派生プロジェクトへ deploy
-- [ ] 本 todo5.md エントリを削除
-
-#### 完了基準
-
-- oxlint rule が `.rs` / `.ts` で関数長 50 行超を error として block
-- 既存 codebase で false positive 多発しないこと (1〜2 PR で dogfood)
-
-#### 詰まっている箇所
-
-- 既存 codebase に 50 行超関数が多数残っている場合、段階的に warning → error のロールアウトが必要。事前調査を着手時に実施。
-- multi-language 対応の実装複雑度: Rust と TS で AST 抽象が異なるため、別実装か共通 abstraction 層を選定する必要あり。
-
----
-
 ### `parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2
 
 > **動機**: PR #101 で `run_list_findings` が `unwrap_or_else(|_| "[]")` で gh api 失敗を `[]` に潰していて CR Major finding を受けた。99.md でも `silent fail` (Windows path mismatch で early return) として類似言及あり。**`unwrap_or_else(|_| empty)` の anti-pattern が複数 PR で再発**。test 層で機械検証することで未然に塞ぐ。本タスクは Bundle a Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) で同 API を消費するので、同一 PR land で test 二重投資なし。
