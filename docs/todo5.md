@@ -136,49 +136,6 @@
 
 ---
 
-### comment-lint hook の scope を変更行に限定 (PR #102 T1-1)
-
-> **動機**: PR #99 で導入した `hooks-post-tool-comment-lint-rust` はファイル全体を scan する設計のため、変更と無関係な pre-existing violations も flag する。PR #102 実装セッション中、`poll.rs` / `monitor.rs` / `feedback.rs` / `main.rs` への 1 行追加レベルの edit でも pre-existing 20 violations が毎回 flag され、scope creep への暗黙圧力 + token 消費の浪費が発生した (hook 出力が 12.6KB を毎回繰り返し)。
->
-> **本タスクの位置づけ**: PR #102 post-merge-feedback Tier 1 #1 採用。**Rust 編集を伴う作業全般の効率改善**。`hooks-post-tool-comment-lint-rust` は `.rs` ファイルのみが対象のため Bundle Z Phase 2 / 3 (markdown / PowerShell / yaml 編集) は直接 block されないが、本タスク自体の実装 (Rust hook 改修) や他の Rust 編集 PR では引き続き 12.6KB の hook 出力が edit のたびに発生する。依存関係なし、いつでも単独着手可。
->
-> **参照**: `.claude/feedback-reports/102.md` Tier 1 #1、PR #99 (Bundle Z Phase 1 — `src/hooks-post-tool-comment-lint-rust/`)、[docs/pipeline-token-efficiency.md](pipeline-token-efficiency.md) PR 2 (#B-β 制約付き fix instruction)
->
-> **実行優先度**: 🚀 **Tier 1** — Effort M。Rust hook の violation collection ロジックに行 range filter を追加。
-
-#### 設計決定 (案)
-
-- **scope 変更方針 (2 案)**:
-  - **案 A: 変更行のみ flag** — Edit / MultiEdit の `new_string` から行 range を計算し、その範囲内の comment のみ flag
-  - **案 B: 変更ファイル全体を flag (現状維持) + pre-existing violations を baseline として ignore** — 初回 hook 起動時にファイル内の violation を baseline 化、以降は baseline 超過分のみ flag
-- **推奨**: 案 A — シンプル。「変更ファイルだけど変更していない行」も無視され意図に近い。案 B は baseline ファイルの管理 (storage / invalidation) コストが高く、複数開発者環境で baseline drift する。
-- **対象 tool**: PostToolUse の Edit / Write / MultiEdit。`Write` は新規ファイルなので全行が新規行扱い (= 全 violation flag)。
-- **既存 marker は据え置き**: `ALLOWED_LINE_PREFIXES` / `ALLOWED_BLOCK_PREFIXES` (`// SAFETY:` / `// TODO:` 等) の判定はそのまま適用、scope 限定はその上位レイヤとして実装。
-
-#### 作業計画
-
-- [ ] Claude Code の PostToolUse hook 入力 schema を確認: Edit / Write / MultiEdit の `tool_input` に何が含まれるか (old_string / new_string / file_path 等)
-- [ ] 変更行 range の計算ロジック実装 (new_string の行数 + Edit 位置から開始行特定、MultiEdit は edit list を順次適用して累積 range 計算)
-- [ ] `src/hooks-post-tool-comment-lint-rust/src/main.rs` の violation collection に行 range filter を適用
-- [ ] 単体 test 追加: 変更行外に違反コメントがあっても flag されないことを確認
-- [ ] 単体 test 追加: 変更行内の新規違反は引き続き flag されることを確認
-- [ ] dogfood: PR 1 セッションで観測した「無関係 file の 20 violations 問題」が再現しないことを確認
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) へ deploy (`pnpm build:hooks-post-tool-comment-lint-rust` + 派生側に exe コピー)
-- [ ] 本 todo5.md エントリを削除
-
-#### 完了基準
-
-- 変更行外の pre-existing violations が flag されない
-- 変更行内の新規 violations は引き続き flag される
-- Bundle Z Phase 2 (#B-β) 着手時に hook scope 起因の不要 block が発生しない
-
-#### 詰まっている箇所
-
-- Claude Code hook の入力 schema に「変更前 file content」が含まれるか未確認 (Edit の `old_string` から探索すれば変更前ファイルでの該当行を特定できる想定。要 hook spec 調査)。
-- MultiEdit の場合、複数 edit の `new_string` 行 range を順次累積する必要があり、実装複雑度がやや上がる。Phase 1 では Edit / Write のみ対応で MultiEdit は別タスクに切り出しても可。
-
----
-
 ### `.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)
 
 > **動機**: PR #103 push の実観測で takt pre-push-review が **6-iter outlier (22m 50s)** を発生させ、うち iter 3+4 の ~10 分が wasted。原因は `.takt/review-diff.txt` が push-runner 起動時 snapshot として固定され、fix step の変更が反映されないこと。reviewer は古い diff を読んで「fix されていない」と機械的 false positive (`persists`) を出し、max iter まで escalate して supervise の live Read で打開する以外に経路がない。supervisor 自身が "structural limit" として診断済 (`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md`)。
@@ -220,4 +177,38 @@
 #### 詰まっている箇所
 
 - takt workflow の `before:` / `pre-step:` hook 仕様が公式 docs に明記されていない可能性 → 着手時に takt source / 既存 workflow yaml を grep して確認。
+
+---
+
+### comment-lint hook の MultiEdit 対応 (順位 50 follow-up)
+
+> **動機**: 順位 50 で comment-lint hook の scope を変更行に限定する v1 実装を完了した。v1 は Edit (single new_string) のみフィルタ対象とし、MultiEdit は whole-file lint にフォールバックする (no-regression)。MultiEdit が頻繁に使われる場合、複数 edit の `edits[].new_string` を順次適用して累積 range を計算する拡張が望ましい。
+>
+> **本タスクの位置づけ**: 順位 50 follow-up。MultiEdit 利用頻度が低いため優先度は Tier 3。MultiEdit 由来の 12.6KB 出力が無視できない頻度になった場合、または Bundle Z Phase 3 (#B-γ) で MultiEdit ベースの大規模リファクタが日常化した場合に着手。
+>
+> **参照**: 順位 50 PR (`src/hooks-post-tool-comment-lint-rust/src/main.rs` の `compute_changed_lines`)、Claude Code MultiEdit tool spec
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。`compute_changed_lines` に MultiEdit branch を追加。
+
+#### 設計決定 (案)
+
+- **MultiEdit input schema**: `tool_input.edits: Vec<{old_string, new_string, replace_all?}>` を順次適用
+- **行 range 計算**: 各 edit の `new_string` を post-edit source 内で全件検索 → 全 edit の match 行 range の union を filter として使用
+- **空 new_string の扱い**: 個別の edit が純削除の場合、その edit はスキップ。全 edit が純削除なら filter は空 = lint skip
+- **fallback 条件**: ある edit の `new_string` が見つからない場合 → 安全側に倒し whole-file lint (現 Edit 実装と同じ動作)
+
+#### 作業計画
+
+- [ ] `ToolInput` struct に `edits: Option<Vec<EditEntry>>` を追加
+- [ ] `compute_changed_lines` に `Some("MultiEdit")` branch を追加 (各 edit の new_string を locate して union)
+- [ ] 単体テスト: 複数 edit の union が正しく計算されることを確認
+- [ ] 単体テスト: 一部 edit が純削除の場合の挙動確認
+- [ ] dogfood: MultiEdit を使った PR で hook 出力が変更行のみに絞られることを確認
+- [ ] 派生プロジェクト deploy
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- MultiEdit でも変更行外の pre-existing violations が flag されない
+- v1 (Edit) の挙動は不変
 - Phase 3 (#B-γ) で reviewer の役割が「異常検知」に縮小されると本 task の効果も部分的に縮む可能性 (criterion-based finding がそもそも reviewer から消えるため)。ただし Phase 3 完了前の中間期間 + Phase 3 後も「異常検知」自体は diff を読むので効果は残る。
