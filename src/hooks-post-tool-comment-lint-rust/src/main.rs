@@ -19,13 +19,20 @@ use tree_sitter::{Node, Parser, Query, QueryCursor, Tree};
 
 #[derive(Deserialize)]
 struct HookInput {
+    tool_name: Option<String>,
     tool_input: Option<ToolInput>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
+#[allow(dead_code)]
 struct ToolInput {
     file_path: Option<String>,
     path: Option<String>,
+    old_string: Option<String>,
+    new_string: Option<String>,
+    content: Option<String>,
+    #[serde(default)]
+    replace_all: bool,
 }
 
 #[derive(Serialize)]
@@ -104,7 +111,76 @@ fn is_allowed_comment(comment_text: &str) -> bool {
     }
 }
 
-fn find_violations(file_path: &str, source: &str) -> Vec<LintViolation> {
+/// 順位 50 (PR #102 T1-1): Edit が触れた行のみ lint 対象にするため、`new_string` の出現位置から
+/// 変更行範囲を導出する。
+///
+/// 戻り値:
+/// - `None`: フィルタなし (= ファイル全体を lint)。Write / MultiEdit / 不明 tool / `new_string` が
+///   見つからない場合 (line ending 差異等) のフォールバック。
+/// - `Some(ranges)`: 1-indexed inclusive 範囲のみ lint。
+/// - `Some(empty)`: lint をスキップ (Edit で `new_string` が空 = 純削除)。
+fn compute_changed_lines(
+    tool_name: Option<&str>,
+    tool_input: &ToolInput,
+    post_source: &str,
+) -> Option<Vec<(usize, usize)>> {
+    match tool_name {
+        Some("Edit") => {
+            let new_string = tool_input.new_string.as_deref()?;
+            if new_string.is_empty() {
+                return Some(Vec::new());
+            }
+            let ranges = locate_string_line_ranges(post_source, new_string);
+            if ranges.is_empty() {
+                None
+            } else {
+                Some(ranges)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn locate_string_line_ranges(source: &str, needle: &str) -> Vec<(usize, usize)> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut search_start = 0;
+    while search_start <= source.len() {
+        let remaining = &source[search_start..];
+        match remaining.find(needle) {
+            Some(idx) => {
+                let absolute = search_start + idx;
+                let start_line = byte_offset_to_line(source, absolute);
+                let end_line = byte_offset_to_line(source, absolute + needle.len() - 1);
+                ranges.push((start_line, end_line));
+                search_start = (absolute + needle.len()).min(source.len());
+            }
+            None => break,
+        }
+    }
+    ranges
+}
+
+fn byte_offset_to_line(source: &str, offset: usize) -> usize {
+    let clamped = offset.min(source.len());
+    source[..clamped].bytes().filter(|b| *b == b'\n').count() + 1
+}
+
+fn span_overlaps_ranges(start: usize, end: usize, ranges: &[(usize, usize)]) -> bool {
+    ranges.iter().any(|(s, e)| start <= *e && end >= *s)
+}
+
+fn line_in_ranges(line: usize, ranges: &[(usize, usize)]) -> bool {
+    span_overlaps_ranges(line, line, ranges)
+}
+
+fn find_violations(
+    file_path: &str,
+    source: &str,
+    line_filter: Option<&[(usize, usize)]>,
+) -> Vec<LintViolation> {
     let mut parser = Parser::new();
     let language = tree_sitter_rust::language();
     if parser.set_language(&language).is_err() {
@@ -140,6 +216,14 @@ fn find_violations(file_path: &str, source: &str) -> Vec<LintViolation> {
             }
 
             let start = node.start_position();
+            let line = start.row + 1;
+
+            if let Some(ranges) = line_filter {
+                if !span_overlaps_ranges(line, node.end_position().row + 1, ranges) {
+                    continue;
+                }
+            }
+
             let snippet = comment_text
                 .lines()
                 .next()
@@ -392,9 +476,14 @@ fn main() {
         Err(_) => return,
     };
 
-    let file_path = hook_input
-        .tool_input
-        .and_then(|t| t.file_path.filter(|s| !s.is_empty()).or(t.path))
+    let tool_name = hook_input.tool_name.clone();
+    let tool_input = hook_input.tool_input.unwrap_or_default();
+
+    let file_path = tool_input
+        .file_path
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| tool_input.path.clone())
         .unwrap_or_default();
 
     if file_path.is_empty() || !is_rust_file(&file_path) {
@@ -406,7 +495,13 @@ fn main() {
         Err(_) => return,
     };
 
-    let violations = find_violations(&file_path, &source);
+    let line_filter = compute_changed_lines(tool_name.as_deref(), &tool_input, &source);
+
+    if matches!(line_filter.as_deref(), Some([])) {
+        return;
+    }
+
+    let violations = find_violations(&file_path, &source, line_filter.as_deref());
     if violations.is_empty() {
         return;
     }
@@ -429,7 +524,7 @@ mod tests {
     use super::*;
 
     fn lint(source: &str) -> Vec<LintViolation> {
-        find_violations("test.rs", source)
+        find_violations("test.rs", source, None)
     }
 
     #[test]
@@ -737,5 +832,235 @@ mod tests {
             m.functions[0].max_nesting_depth >= 1,
             "closure body block contributes to depth"
         );
+    }
+
+    #[test]
+    fn locate_string_line_ranges_single_line_match() {
+        let source = "fn foo() {\n    let x = 1;\n    // new comment\n}\n";
+        let ranges = locate_string_line_ranges(source, "// new comment");
+        assert_eq!(ranges, vec![(3, 3)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_multiline_match() {
+        let source = "fn foo() {\n    let x = 1;\n    // line1\n    // line2\n}\n";
+        let ranges = locate_string_line_ranges(source, "// line1\n    // line2");
+        assert_eq!(ranges, vec![(3, 4)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_multiple_occurrences() {
+        let source = "// foo\nfn bar() {}\n// foo\n";
+        let ranges = locate_string_line_ranges(source, "// foo");
+        assert_eq!(ranges, vec![(1, 1), (3, 3)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_empty_needle_returns_empty() {
+        let ranges = locate_string_line_ranges("source", "");
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn locate_string_line_ranges_no_match_returns_empty() {
+        let ranges = locate_string_line_ranges("fn foo() {}\n", "missing");
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn locate_string_line_ranges_handles_multibyte_utf8() {
+        let source = "fn foo() {\n    let s = \"日本語\";\n    let t = \"日本語\";\n}\n";
+        let ranges = locate_string_line_ranges(source, "\"日本語\"");
+        assert_eq!(ranges, vec![(2, 2), (3, 3)]);
+    }
+
+    #[test]
+    fn byte_offset_to_line_handles_offsets_correctly() {
+        let s = "abc\ndef\nghi\n";
+        assert_eq!(byte_offset_to_line(s, 0), 1);
+        assert_eq!(byte_offset_to_line(s, 3), 1);
+        assert_eq!(byte_offset_to_line(s, 4), 2);
+        assert_eq!(byte_offset_to_line(s, 8), 3);
+    }
+
+    #[test]
+    fn line_in_ranges_inclusive_bounds() {
+        let ranges = [(2, 4), (10, 10)];
+        assert!(!line_in_ranges(1, &ranges));
+        assert!(line_in_ranges(2, &ranges));
+        assert!(line_in_ranges(3, &ranges));
+        assert!(line_in_ranges(4, &ranges));
+        assert!(!line_in_ranges(5, &ranges));
+        assert!(line_in_ranges(10, &ranges));
+    }
+
+    #[test]
+    fn span_overlaps_ranges_detects_overlap() {
+        let ranges = [(5, 10)];
+        assert!(span_overlaps_ranges(1, 5, &ranges));
+        assert!(span_overlaps_ranges(5, 15, &ranges));
+        assert!(span_overlaps_ranges(6, 8, &ranges));
+        assert!(!span_overlaps_ranges(1, 4, &ranges));
+        assert!(!span_overlaps_ranges(11, 20, &ranges));
+    }
+
+    #[test]
+    fn find_violations_multiline_block_comment_spanning_range_boundary() {
+        let source = "/* line1\n   line2\n   line3 */\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(3, 4)]));
+        assert_eq!(v.len(), 1, "block comment starting at line 1 but extending into range should be detected");
+    }
+
+    fn tool_input_with(new_string: Option<&str>) -> ToolInput {
+        ToolInput {
+            new_string: new_string.map(|s| s.to_string()),
+            ..ToolInput::default()
+        }
+    }
+
+    #[test]
+    fn compute_changed_lines_edit_with_empty_new_string_signals_skip() {
+        let t = tool_input_with(Some(""));
+        let result = compute_changed_lines(Some("Edit"), &t, "fn foo() {}\n");
+        assert_eq!(result, Some(Vec::new()));
+    }
+
+    #[test]
+    fn compute_changed_lines_edit_locates_change() {
+        let t = tool_input_with(Some("// new"));
+        let post = "fn foo() {\n    // new\n}\n";
+        let result = compute_changed_lines(Some("Edit"), &t, post);
+        assert_eq!(result, Some(vec![(2, 2)]));
+    }
+
+    #[test]
+    fn compute_changed_lines_edit_unioned_when_multiple_matches() {
+        let t = tool_input_with(Some("// dup"));
+        let post = "// dup\nfn foo() {}\n// dup\n";
+        let result = compute_changed_lines(Some("Edit"), &t, post);
+        assert_eq!(result, Some(vec![(1, 1), (3, 3)]));
+    }
+
+    #[test]
+    fn compute_changed_lines_edit_no_match_falls_back_to_no_filter() {
+        let t = tool_input_with(Some("missing"));
+        let result = compute_changed_lines(Some("Edit"), &t, "fn foo() {}\n");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn compute_changed_lines_edit_without_new_string_returns_none() {
+        let t = tool_input_with(None);
+        let result = compute_changed_lines(Some("Edit"), &t, "fn foo() {}\n");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn compute_changed_lines_write_no_filter() {
+        let t = tool_input_with(Some("// ignored for Write"));
+        let result = compute_changed_lines(Some("Write"), &t, "fn foo() {}\n");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn compute_changed_lines_multiedit_no_filter_v1() {
+        let t = tool_input_with(Some("// ignored for MultiEdit"));
+        let result = compute_changed_lines(Some("MultiEdit"), &t, "fn foo() {}\n");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn compute_changed_lines_unknown_tool_no_filter() {
+        let t = tool_input_with(Some("// any"));
+        let result = compute_changed_lines(Some("UnknownTool"), &t, "fn foo() {}\n");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn compute_changed_lines_no_tool_name_no_filter() {
+        let t = tool_input_with(Some("// any"));
+        let result = compute_changed_lines(None, &t, "fn foo() {}\n");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn find_violations_with_filter_excludes_outside_lines() {
+        let source = "// outside\nfn foo() {\n    // inside\n}\n";
+        let v = find_violations("test.rs", source, Some(&[(3, 3)]));
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].location.line, 3);
+    }
+
+    #[test]
+    fn find_violations_with_filter_keeps_multiple_in_range() {
+        let source = "// l1\n// l2\n// l3\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(1, 2)]));
+        assert_eq!(v.len(), 2);
+        assert!(v.iter().all(|x| x.location.line <= 2));
+    }
+
+    #[test]
+    fn find_violations_with_empty_filter_lints_nothing() {
+        let source = "// foo\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[]));
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn find_violations_with_no_filter_lints_all() {
+        let source = "// l1\n// l2\nfn main() {}\n";
+        let v = find_violations("test.rs", source, None);
+        assert_eq!(v.len(), 2);
+    }
+
+    #[test]
+    fn hook_input_parses_full_edit_payload() {
+        let json = r#"{
+            "session_id": "abc",
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": "/tmp/x.rs",
+                "old_string": "let x = 1;",
+                "new_string": "let x = 2; // comment",
+                "replace_all": false
+            }
+        }"#;
+        let parsed: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.tool_name.as_deref(), Some("Edit"));
+        let t = parsed.tool_input.unwrap();
+        assert_eq!(t.file_path.as_deref(), Some("/tmp/x.rs"));
+        assert_eq!(t.new_string.as_deref(), Some("let x = 2; // comment"));
+        assert_eq!(t.old_string.as_deref(), Some("let x = 1;"));
+        assert!(!t.replace_all);
+    }
+
+    #[test]
+    fn hook_input_parses_write_payload() {
+        let json = r#"{
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "/tmp/x.rs",
+                "content": "fn foo() {}\n"
+            }
+        }"#;
+        let parsed: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.tool_name.as_deref(), Some("Write"));
+        let t = parsed.tool_input.unwrap();
+        assert_eq!(t.content.as_deref(), Some("fn foo() {}\n"));
+    }
+
+    #[test]
+    fn hook_input_parses_with_extra_fields() {
+        let json = r#"{
+            "session_id": "abc",
+            "transcript_path": "/tmp/t.jsonl",
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": "/tmp/x.rs",
+                "new_string": "x"
+            }
+        }"#;
+        let parsed: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.tool_name.as_deref(), Some("Edit"));
     }
 }
