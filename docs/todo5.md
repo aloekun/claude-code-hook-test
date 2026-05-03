@@ -176,3 +176,48 @@
 
 - Claude Code hook の入力 schema に「変更前 file content」が含まれるか未確認 (Edit の `old_string` から探索すれば変更前ファイルでの該当行を特定できる想定。要 hook spec 調査)。
 - MultiEdit の場合、複数 edit の `new_string` 行 range を順次累積する必要があり、実装複雑度がやや上がる。Phase 1 では Edit / Write のみ対応で MultiEdit は別タスクに切り出しても可。
+
+---
+
+### `.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)
+
+> **動機**: PR #103 push の実観測で takt pre-push-review が **6-iter outlier (22m 50s)** を発生させ、うち iter 3+4 の ~10 分が wasted。原因は `.takt/review-diff.txt` が push-runner 起動時 snapshot として固定され、fix step の変更が反映されないこと。reviewer は古い diff を読んで「fix されていない」と機械的 false positive (`persists`) を出し、max iter まで escalate して supervise の live Read で打開する以外に経路がない。supervisor 自身が "structural limit" として診断済 (`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md`)。
+>
+> **本タスクの位置づけ**: PR #103 セッション知見 (post-merge-feedback の Tier 3 #1 = ADR 化提案を skip し、機構で塞ぐ実装層対策を採用)。Bundle Z 3 層 (#B-α / #B-β / #B-γ) では完全に塞げない独立改善。reviewer の判定精度を構造的に改善することで 6-iter outlier の発生率を 0% 近くに抑える。
+>
+> **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[docs/pipeline-token-efficiency.md](pipeline-token-efficiency.md) PR #97 / #103 の 6-iter outlier 観測データ
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。
+
+#### 設計決定 (案)
+
+- **refresh タイミング**: reviewer step 起動直前に diff を再生成 (fix step 完了直後の状態を反映)
+- **実装方針 (2 案)**:
+  - **案 A: takt workflow の reviewer step に precondition step を挟む** — `.takt/workflows/pre-push-review.yaml` で `before:` / `pre-step:` 的な hook を使い、push-runner と同一の diff 生成コマンドを呼ぶ
+  - **案 B: cli-push-runner 側で fix step の終了を検出して diff を更新** — Rust コードで takt の step 進行を監視 (実装複雑度大)
+- **推奨**: 案 A — takt config で完結、Rust 修正不要、影響範囲が pre-push-review.yaml のみ
+- **diff 生成コマンド**: 既存 push-runner と同じロジック (`jj diff` ベース) を再利用、ファイルパス `.takt/review-diff.txt` も同一に保つ
+- **冪等性**: 同 fix output から生成される diff は決定的なので複数回 refresh しても問題なし。途中失敗で diff が壊れても次 iteration の冒頭で上書きされる
+
+#### 作業計画
+
+- [ ] takt workflow の hook 仕様 (`before:` / `pre-step:`) を確認 (`.takt/workflows/*.yaml` の他 facets / takt source を grep)
+- [ ] case A 不可なら case B (cli-push-runner 改修) にフォールバック
+- [ ] `.takt/review-diff.txt` の生成ロジックを単一場所に整理 (DRY、push-runner と shared util にする等)
+- [ ] `.takt/workflows/pre-push-review.yaml` に refresh hook を追加
+- [ ] 単体動作確認: 意図的に DRY refactor 指摘 + fix を再現する synthetic シナリオで 3-iter 収束を確認
+- [ ] dogfood 1〜2 PR で実 6-iter outlier scenario が再発しないことを観測
+- [ ] Bundle Z Phase 2 (#B-β) との競合確認 (deterministic check は fix step 内部で動くため、本 task の fix→review 境界 refresh とは独立)
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 確認
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- fix step 完了後の review iteration で `.takt/review-diff.txt` が最新状態を反映
+- 6-iter outlier の発生率が **0%** に近づく (PR #103 のような scenario が 3-iter で収束)
+- supervisor の live Read 救済が不要になる (= supervisor step は workflow に残るが、false positive 救済責務が消える)
+
+#### 詰まっている箇所
+
+- takt workflow の `before:` / `pre-step:` hook 仕様が公式 docs に明記されていない可能性 → 着手時に takt source / 既存 workflow yaml を grep して確認。
+- Phase 3 (#B-γ) で reviewer の役割が「異常検知」に縮小されると本 task の効果も部分的に縮む可能性 (criterion-based finding がそもそも reviewer から消えるため)。ただし Phase 3 完了前の中間期間 + Phase 3 後も「異常検知」自体は diff を読むので効果は残る。

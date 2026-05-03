@@ -65,6 +65,7 @@
 | 48 | 🚀 Tier 1 | **関数長スケーリング検出 oxlint rule (PR #101 T1-4)** | todo5.md | S | なし (PR #96 / #101 で繰り返し言及、決定論的防止層、Bundle Z #B-α と並列で deploy) |
 | 49 | 🔧 Tier 2 | **`parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2** | todo5.md | M | 順位 42 / 43 / 46 と同 PR (Sub-PR 2、`unwrap_or_else(\|_\| empty)` silent fail 抑止 + cli-pr-monitor mock infra 流用) |
 | 50 | 🚀 Tier 1 | **comment-lint hook の scope を変更行に限定 (PR #102 T1-1)** | todo5.md | M | なし (Bundle Z Phase 2 / #B-β 着手前に解消推奨、pre-existing violations による無関係 file の不要 block を排除) |
+| 51 | 🚀 Tier 1 | **`.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)** | todo5.md | M | なし (PR #103 で stale-diff false positive による wasted iter ×2 = ~10 分浪費を実観測、6-iter outlier の構造的根因対策、Bundle Z 3 層では塞げない独立改善) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
