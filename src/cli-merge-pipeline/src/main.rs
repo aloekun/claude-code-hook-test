@@ -494,6 +494,29 @@ fn run_ai_step(label: &str, ctx: Option<&PipelineContext>) {
         }
     };
 
+    match feedback::fetch_pr_diff_summary(pr_number, owner_repo) {
+        Ok(summary) if summary.is_trivial() => {
+            log_step(
+                label,
+                "SKIP",
+                &format!(
+                    "trivial PR (commits={}, lines={}, all_md={}) — \
+                     post-merge-feedback skip (#A-2)",
+                    summary.commit_count,
+                    summary.total_lines_changed,
+                    summary.all_files_are_markdown,
+                ),
+            );
+            return;
+        }
+        Ok(_) => {}
+        Err(e) => log_step(
+            label,
+            "WARN",
+            &format!("trivial PR 判定失敗: {} — 通常 flow で続行", e),
+        ),
+    }
+
     let transcript_source_dir = feedback::project_transcript_dir(&repo_root);
     if transcript_source_dir.is_none() {
         log_step(
