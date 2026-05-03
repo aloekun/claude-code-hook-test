@@ -295,7 +295,7 @@ fn find_function_length_violations(
             continue;
         }
         if let Some(ranges) = line_filter {
-            if !span_overlaps_ranges(f.line_start, f.line_end, ranges) {
+            if !span_overlaps_ranges(f.body_line_start, f.body_line_end, ranges) {
                 continue;
             }
         }
@@ -356,6 +356,8 @@ struct FunctionMetric {
     name: String,
     line_start: usize,
     line_end: usize,
+    body_line_start: usize,
+    body_line_end: usize,
     length: usize,
     max_nesting_depth: usize,
 }
@@ -433,23 +435,22 @@ fn visit_function_nodes(
 fn function_metric(node: Node, source_bytes: &[u8]) -> Option<FunctionMetric> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source_bytes).ok()?.to_string();
-
-    let start = node.start_position();
-    let end = node.end_position();
-    let line_start = start.row + 1;
-    let line_end = end.row + 1;
+    let line_start = node.start_position().row + 1;
+    let line_end = node.end_position().row + 1;
     let length = line_end - line_start + 1;
-
-    let body = node.child_by_field_name("body");
-    let max_nesting_depth = match body {
-        Some(b) => max_block_depth_inside_body(b),
-        None => 0,
-    };
-
+    let (body_line_start, body_line_end, max_nesting_depth) = node
+        .child_by_field_name("body")
+        .map_or((line_start, line_end, 0), |b| (
+            b.start_position().row + 1,
+            b.end_position().row + 1,
+            max_block_depth_inside_body(b),
+        ));
     Some(FunctionMetric {
         name,
         line_start,
         line_end,
+        body_line_start,
+        body_line_end,
         length,
         max_nesting_depth,
     })
@@ -548,6 +549,7 @@ fn collect_all_violations(
 ) -> Vec<LintViolation> {
     let mut violations = find_violations(file_path, source, line_filter);
     violations.extend(find_function_length_violations(file_path, source, line_filter));
+    violations.truncate(MAX_VIOLATIONS);
     violations
 }
 
