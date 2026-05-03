@@ -6,7 +6,7 @@ use crate::log::{log_info, truncate_safe};
 use crate::runner::{checker_exe_path, run_cmd_direct, run_gh_quiet};
 use crate::state::{
     read_state, update_state_from_check_result, write_state, CiState, CodeRabbitState,
-    PrMonitorState,
+    PrMonitorState, RateLimitState,
 };
 use crate::util::{utc_now_iso8601, PrInfo};
 
@@ -17,6 +17,11 @@ pub(crate) struct PollResult {
     pub(crate) coderabbit: Option<CodeRabbitState>,
     pub(crate) findings: Vec<Finding>,
     pub(crate) check_output: Option<serde_json::Value>,
+    /// 終了時点で rate-limit が active なら Some。caller (monitor.rs) は
+    /// `is_some()` を見て post-pr-review takt invoke を skip する (#C-3)。
+    /// rate-limit 中は CR の fresh review が得られないため、stale な findings に
+    /// 対する takt 分析は空打ちになる。
+    pub(crate) rate_limit: Option<RateLimitState>,
 }
 
 /// in-process 同期ポーリングループ (daemon.rs の同期版)
@@ -41,6 +46,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
             coderabbit: None,
             findings: Vec::new(),
             check_output: None,
+            rate_limit: None,
         };
     }
 
@@ -83,6 +89,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                 coderabbit: None,
                 findings: Vec::new(),
                 check_output: None,
+                rate_limit: None,
             };
         }
 
@@ -97,6 +104,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                     coderabbit: None,
                     findings: Vec::new(),
                     check_output: None,
+                    rate_limit: None,
                 };
             }
         };
@@ -157,6 +165,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                 coderabbit: state.coderabbit,
                 findings: state.findings,
                 check_output: Some(result),
+                rate_limit: state.rate_limit,
             };
         }
 
@@ -203,6 +212,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                         coderabbit: state.coderabbit,
                         findings: state.findings,
                         check_output: Some(result),
+                        rate_limit: state.rate_limit,
                     };
                 }
                 state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
@@ -223,6 +233,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                         coderabbit: state.coderabbit,
                         findings: state.findings,
                         check_output: Some(result),
+                        rate_limit: state.rate_limit,
                     };
                 }
                 continue; // skip 通常 sleep、次 iteration で fresh polling
@@ -241,6 +252,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                     coderabbit: state.coderabbit,
                     findings: state.findings,
                     check_output: Some(result),
+                    rate_limit: state.rate_limit,
                 };
             }
         }
@@ -255,6 +267,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
                 coderabbit: state.coderabbit,
                 findings: state.findings,
                 check_output: Some(result),
+                rate_limit: state.rate_limit,
             };
         }
 
