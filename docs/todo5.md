@@ -358,3 +358,108 @@
 #### 詰まっている箇所
 
 - 結合文字 (`e + ́`) を `new_string` に含むケースは Edit tool が実環境で発生するか不明 (理論的検証としては有効、実際の回帰防止としては効果薄の可能性)。1 パターンで足る
+
+---
+
+### Aggregation cap integration test (PR #105 T2-1 採用)
+
+> **動機**: PR #105 の auto-fix で `collect_all_violations` に `violations.truncate(MAX_VIOLATIONS)` を追加した (CodeRabbit Minor finding 解消) が、これは contract の暗黙化に過ぎない。将来 `find_xxx_violations` を追加する PR で `extend()` の後に `truncate` を入れ忘れる regression を構造的に防ぐ test がない。
+>
+> **本タスクの位置づけ**: PR #105 post-merge-feedback Tier 2 #1 採用。後続の lint 追加 (例: 順位 56 の test 拡充 / 順位 47 の `>=` boundary lint / 将来の Rust 専用 lint) で同 contract を破る regression を test で固定化する。
+>
+> **参照**: `.claude/feedback-reports/105.md` Tier 2 #1、`src/hooks-post-tool-comment-lint-rust/src/main.rs` `collect_all_violations` (line 545)、PR #105 Finding #2 (Minor) の auto-fix
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。test 1-2 件追加で完結。
+
+#### 設計決定 (案)
+
+- **シナリオ**: `collect_all_violations(file_path, source_with_15_comments_and_15_long_functions, None)` を呼び、結果が **MAX_VIOLATIONS (= 20) 以下** であることを assert
+- **source 構築**:
+  - 15 個の禁止コメント (`// forbidden 0` 〜 `// forbidden 14`)
+  - 15 個の 60 行関数 (`fn big_0` 〜 `fn big_14`)
+  - 合計 30 件の violation 候補 → cap で 20 件に truncate
+- **test 名**: `collect_all_violations_truncates_to_max_violations` (spec を test 名に反映、PR #105 T2-3 提案は卻下したが naming-as-spec 自体は意義あり)
+- **追加検証** (任意): 個別 `find_violations` / `find_function_length_violations` がそれぞれ 20 件以上返しうることも assert (truncate なしだと 30 件返ることを示す)
+
+#### 作業計画
+
+- [ ] 30 件の violation 候補を含む synthetic source を生成する helper 関数を test module に追加
+- [ ] `collect_all_violations_truncates_to_max_violations` test を追加
+- [ ] 個別 finder の non-truncate 挙動を assert する補助 test を追加
+- [ ] cargo test pass 確認
+- [ ] 派生プロジェクト deploy は不要 (test のみ)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- 結合後の violation 件数が `MAX_VIOLATIONS` 以下であることが test で固定化
+- 将来 `find_xxx_violations` を追加した PR で truncate 削除すると test fail で検出される
+
+#### 詰まっている箇所
+
+- 順位 56 (PR #104 T2-1+T2-2 test 拡充) と同 PR で bundle するか別 PR とするか。両者とも test additions、同ファイル同 test module で scope clean、bundle 推奨。
+
+---
+
+### post-merge-feedback findings table format 拡張 (Severity / Frequency / Adoption Risk / Recommendation 必須化)
+
+> **動機**: PR #105 post-merge-feedback の評価セッションで、現フォーマット (Effort + Rationale のみ) では AI が採用判定根拠を systematically 落とすことが確認された。8 件中 1 件のみ採用 (T2-1) という評価をユーザーが下せたのは、AI が手動で各 finding の Severity / Frequency / 実装コスト / 過剰一般化リスクを補完したから。format に組み込めば AI 出力が rubric ベースで安定し、ユーザーの審査時間を削減できる。
+>
+> **本タスクの位置づけ**: PR #105 評価セッションで合意。post-merge-feedback workflow の aggregate facet を拡張し、AI に rubric を強制することで卻下根拠の言語化と採用判定の安定化を図る。
+>
+> **参照**: PR #105 評価セッション (本対話)、`.claude/feedback-reports/105.md` の現フォーマット、~/.claude/.takt/facets/ または equivalent (実際の facet 配置先は要調査)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。facet prompt 1-2 セクションの修正、派生プロジェクトへの展開も含む。
+
+#### 設計決定 (案)
+
+##### 拡張する table 列
+
+| 既存 | 拡張後 |
+|---|---|
+| `# / Type / Description / Target / Effort / Rationale` | `# / Type / Description / Target / Severity / Frequency / Effort / Adoption Risk / Recommendation / Rationale` |
+
+##### 各列の rubric (facet instructions に明記)
+
+- **Severity**:
+  - `Critical`: data loss / security / 致命的バグの再発防止
+  - `High`: 機能 bug / silent failure / data integrity
+  - `Medium`: silent degrade / UX 低下 / 開発体験劣化
+  - `Low`: style / micro-optimization / 局所改善
+- **Frequency** (再発リスク):
+  - `High`: 複数 PR で観測済 / systemic pattern
+  - `Medium`: 1 PR + 類似コードベースで再発見込み
+  - `Low`: single observation / 局所
+- **Adoption Risk** (採用時のリスク要素を 1-2 語で記述):
+  - 例: `既存ルール重複` / `過剰一般化` / `NLP 必要` / `OS 依存` / `派生プロジェクト deploy コスト` / `false positive リスク` / `None`
+- **Recommendation** (必須付記):
+  - `✅ 採用`: 高コスパ判定 (Effort=S かつ Severity Medium+ または Frequency Medium+ かつ 根本原因が適切)
+  - `🤔 様子見`: 採用根拠は弱いが将来発生時に再評価したい (一般原則 / 不確実性高)
+  - `❌ 卻下`: 頻度 Low かつ 実装コスト High、または Adoption Risk が overlap / 過剰一般化 / NLP 必要 / 重複ルール
+- **Rationale** (採用 / 卻下の根拠を必ず記述):
+  - なぜ Severity × Frequency × Effort × Adoption Risk から Recommendation に至ったかを 1-2 文で
+
+##### facet 配置の調査
+
+- post-merge-feedback の aggregate step は takt facet として実装されている想定
+- 実際の prompt 配置: `~/.claude/.takt/facets/post-merge-feedback/*.md` か `.claude/feedback-reports/` か要調査
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) は Python ベースで facet 配置が異なる可能性
+
+#### 作業計画
+
+- [ ] post-merge-feedback aggregate facet の実体を grep / find で特定 (`takt facet` / `post-merge` 等で検索)
+- [ ] facet prompt の table format 部分を改訂 (列追加 + rubric 説明文)
+- [ ] sample output (この PR の評価結果を例として facet に inline) を追加
+- [ ] dogfood: 次の post-merge-feedback で新フォーマットが出力されること確認
+- [ ] 派生プロジェクトの同 facet にも展開 (Python ベース facet があれば独立に対応)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- 次回以降の post-merge-feedback で 9 列フォーマット (Severity / Frequency / Adoption Risk / Recommendation 必須) が出力される
+- ユーザーの採用判定セッションで「AI が rubric を埋めていない」ことに起因する補完作業が消滅
+
+#### 詰まっている箇所
+
+- aggregate facet が AI prompt なのか deterministic template なのか要調査。前者なら自然言語ルール追加で済むが、後者ならコード変更が必要
+- rubric の閾値 (Severity Medium 等) が AI 判定で揺れる可能性 → sample output を facet に inline することで cluster 化を狙うが、初回 dogfood で false positive / negative の頻度を観測する必要あり

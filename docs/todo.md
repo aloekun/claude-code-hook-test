@@ -69,6 +69,8 @@
 | 54 | 🔧 Tier 2 | **review 完了待ちの CronCreate 化 + observer 廃止 (Bundle b PR-2) ★ Bundle b** | todo5.md | M | 順位 53 land 後 (Bb-1 で導入する Cron 機構を review 完了待ちにも展開、45s polling + 5s observer polling を完全排除、固定値 wakeup 化) |
 | 55 | 💎 Tier 3 | **config 拡張 + SessionStart catch-up (Bundle b PR-3) ★ Bundle b** | todo5.md | S | 順位 53 / 54 land 後 (固定値の `monitor.toml` 化 + Claude Code 不在時に発火した wakeup を SessionStart で catch-up、AI 不在時の silent loss 防止) |
 | 56 | 🔧 Tier 2 | **comment-lint hook test 拡充 (PR #104 T2-1+T2-2 bundle)** | todo5.md | S | なし (UTF-8 multi-byte 5 パターン + block comment boundary 6 パターンを `locate_string_line_ranges` / `span_overlaps_ranges` の回帰テストとして体系化、PR #104 Critical/Minor fix の固定化) |
+| 57 | 🔧 Tier 2 | **Aggregation cap integration test (PR #105 T2-1 採用)** | todo5.md | S | なし (`collect_all_violations` の MAX_VIOLATIONS contract を test 化、将来の lint 追加時に `truncate(MAX)` 削除 regression を防止する explicit 安全網) |
+| 58 | 🔧 Tier 2 | **post-merge-feedback findings table format 拡張 (Severity / Frequency / Adoption Risk / Recommendation を必須列化)** | todo5.md | S | なし (PR #105 評価で Effort + Rationale のみでは AI 採用判定が安定しないことを確認、rubric ベースの format 固定化で評価コスト削減 + 卻下根拠の言語化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
