@@ -1,4 +1,4 @@
-Focus on reviewing **code simplicity** within the changed diff only.
+Focus on **anomaly detection** in the changed diff -- patterns that look unusual, unexplained, or out of step with the surrounding codebase. Do NOT enumerate against a fixed checklist; the deterministic layer already handles structural metrics.
 
 ## Obtaining the diff
 
@@ -6,38 +6,55 @@ The diff has been pre-collected by push-runner (Rust exe) and saved to `.takt/re
 **Read this file first** using the Read tool. This is the authoritative review target.
 Do NOT run `git diff` or `jj diff` yourself -- the file already contains the correct diff scope.
 
+## Determinism layer guarantees (do NOT duplicate)
+
+The following dimensions are enforced by deterministic hooks at write time and by `fix-metrics-check.ps1` during fix iterations. Skip them — flagging them duplicates the deterministic layer and produces noise:
+
+- **Comment policy** (Bundle Z #B-α / `hooks-post-tool-comment-lint-rust`): Non-doc comments are blocked at PostToolUse. Existing comments in the diff have already passed the allowlist (`// SAFETY:` / `// TODO:` / rustdoc etc.).
+- **Function length** (順位 48, same hook): Functions >50 lines are blocked at write time (touch-trigger ratchet, grandfathered until touched). New >50 functions or growth past 50 cannot land in changed regions.
+- **Function metrics during fix** (Bundle Z #B-β / `fix-metrics-check.ps1`): non-doc comment count, function length, max nesting depth cannot increase per function during fix iterations. Pre/post comparison enforces this structurally.
+
+Reviewing these dimensions is duplicative. Skip them.
+
+## Anomaly criteria (subjective judgment required)
+
+Read the diff straight through. Note any pattern that prompted "this looks unusual / unexpected / hard to explain" — patterns deterministic checks cannot catch:
+
+- **Unexplained complexity**: Logic choices with no obvious motivation given the surrounding code; algorithm complexity that seems disproportionate to the problem
+- **Inconsistent style**: Naming or structural patterns that diverge from neighboring code without rationale
+- **Dead-on-arrival code**: Branches, parameters, or abstractions with no apparent caller or use site
+- **Hidden coupling**: Changes that silently depend on global state, environment, ordering, or undocumented invariants
+- **Missing failure paths**: Operations that can fail (I/O, parse, network, optional unwrap) with no visible error handling
+- **Non-obvious magic values**: Numeric or string literals whose meaning isn't clear from context
+
+For each anomaly, articulate **what looks unusual**, **why it caught your attention**, and **what alternative would be expected**. If you cannot articulate the "why", it likely isn't an anomaly worth flagging.
+
 ## Scope constraint
 
-Review ONLY the lines changed in the diff. Do NOT explore cross-file dependencies, call chains, or project-wide architecture. Every finding must be traceable to a specific hunk in the diff.
-
-## Review criteria (all diff-local)
-
-- **Nesting depth**: Flag blocks nested >4 levels; suggest flattening via early returns or extraction
-- **Function length**: Flag functions exceeding 50 lines
-- **Early return opportunities**: Identify guard clauses that would reduce nesting
-- **Redundant / duplicate code**: Flag copy-paste patterns or unnecessarily verbose logic within the diff
-- **Magic numbers**: Flag unexplained numeric or string literals; suggest named constants
-- **YAGNI violations**: Flag speculative abstractions, unused parameters, or over-engineered patterns that serve no current need
-- **Naming clarity**: Flag ambiguous variable/function names that obscure intent
+Review ONLY the lines changed in the diff. Do NOT explore cross-file dependencies, call chains, or project-wide architecture. Every anomaly finding must be traceable to a specific hunk in the diff.
 
 ## Scope of DRY / YAGNI (do NOT raise findings outside this scope)
 
-The DRY and YAGNI criteria above apply **only to executable code logic**.
+The DRY and YAGNI dimensions in anomaly detection apply **only to executable code logic**.
 
 - **DRY scope**: Flag duplicated *code logic* (copy-paste functions, repeated control flow, redundant computations). Do NOT flag:
   - Documentation hierarchies that intentionally restate context (e.g., a summary table followed by detailed bullet points)
   - Repetition between docs and code (docs explain, code executes — they serve different audiences)
   - Test code mirroring production code structure (test independence > test DRY)
 - **YAGNI scope**: Flag *speculative code abstractions* (unused parameters, premature interfaces, over-engineered patterns in production code). Do NOT flag:
-  - Planning documents listing "future candidates", "Phase 2 検討", or "out of scope but worth considering" sections — these capture design intent for shared understanding, not speculative implementation
-  - ADR alternatives sections describing rejected options — these document the decision rationale
-  - Comments documenting *known constraints or limitations* of the current implementation (these are not speculation; they are recorded reality)
+  - Planning documents listing "future candidates", "Phase 2 検討", or "out of scope but worth considering" sections
+  - ADR alternatives sections describing rejected options
+  - Comments documenting *known constraints or limitations* of the current implementation
 
-If a finding cannot be tied to executable code logic, it is out of scope — do not raise it.
+If a finding cannot be tied to executable code logic, it is out of scope.
+
+## Calibration: avoid over-narrowing
+
+The shift to anomaly detection is meant to remove the duplicative checklist work, not to skip review. If reading the diff leaves you with a concrete unease that you can articulate, raise it — even if it doesn't fit a named criterion. Conversely, if you can only flag something by mechanically applying a rule, the deterministic layer already handles that case.
 
 ## Judgment procedure
 
 1. Read the diff from `.takt/review-diff.txt`
-2. For each changed hunk, check against the 7 criteria above
-3. For each detected issue, classify as blocking (significantly harms readability/maintainability) or non-blocking (minor suggestion)
-4. If there is even one blocking issue, judge as REJECT
+2. Read straight through. After the first pass, list any pattern that read as "unusual / unexpected / hard to explain"
+3. For each anomaly, classify as blocking (significant unexplained risk) or non-blocking (worth raising but not a blocker)
+4. If there is even one blocking anomaly, judge as REJECT

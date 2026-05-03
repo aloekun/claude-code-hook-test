@@ -78,3 +78,24 @@ New files (post-only) are reported `metrics_check: skipped` and do not block fix
 | reopened (recurrence fixed) | {N} |
 | persists (carried over, not addressed this iteration) | {N} |
 | misdirected (suggestion pointed at a read-only zone, skipped) | {N} |
+
+## Convergence verdict (REQUIRED — Phase 3 / #C-2 fix-trust shortcut)
+
+After completing fixes, evaluate the gate above and emit one of two verdicts. The next workflow step is selected from this verdict, so it must accurately reflect the gate state.
+
+- **fully_resolved** — `persists == 0` AND `misdirected == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine.
+- **partial** — `persists > 0` OR `misdirected > 0`. Some findings carried over (still need fixing in a later iteration) or were skipped due to misdirection (and need to be reported). Re-analysis is required.
+
+Place the verdict at the **end of your report** as a single bare line in this exact form (no surrounding quotes, no trailing punctuation):
+
+```text
+convergence_verdict: fully_resolved
+```
+
+or:
+
+```text
+convergence_verdict: partial
+```
+
+**Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the build passes), emit `partial` so the analyze step can re-evaluate.

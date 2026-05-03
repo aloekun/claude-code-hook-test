@@ -454,11 +454,11 @@ docs/pipeline-token-efficiency.md の「検証方法」を実行。
 
 | 改善案 | 配置 | 状態 | 採用日 | 完了 PR | 備考 |
 |---|---|---|---|---|---|
-| #C-3 rate-limit skip | **PR 1** | 計画 | - | - | PR #97 の rate-limit 検出を流用 |
-| #A-2 trivial PR skip | **PR 1** | 計画 | - | - | 単独実施可 |
-| #B-β 制約付き fix instruction | **PR 2** (Bundle Z Phase 2) | 計画 | 2026-05-01 | - | PR #99 の例外マーカー定数と同期必須 |
-| #B-γ reviewer 役割変更 | **PR 3** (Bundle Z Phase 3) | 計画 | 2026-05-01 | - | PR 2 dogfood 完了が前提 |
-| #C-2 Iter 3 短絡 | **PR 3** (fix-trust 連帯) | 計画 | - | - | PR 3 で #B-γ と同梱 |
+| #C-3 rate-limit skip | **PR 1** | 完了 | 2026-05-03 | #102 | PR #97 の rate-limit 検出を流用 |
+| #A-2 trivial PR skip | **PR 1** | 完了 | 2026-05-03 | #102 | 単独実施可 |
+| #B-β 制約付き fix instruction | **PR 2** (Bundle Z Phase 2) | 完了 | 2026-05-03 | #103 | PR #99 の例外マーカー定数と同期必須 |
+| #B-γ reviewer 役割変更 | **PR 3** (Bundle Z Phase 3) | 実装中 | 2026-05-04 | (進行中) | PR #103/104/105 dogfood 完了、anomaly mode に転換 |
+| #C-2 Iter 3 短絡 | **PR 3** (fix-trust 連帯) | 実装中 | 2026-05-04 | (進行中) | PR 3 で #B-γ と同梱、convergence_verdict マーカー導入 |
 | #A-3 transcript filter | **番外** | 計画 | - | - | スキマ時間の単独 PR か #D-4 再評価時に同梱 |
 | #D-4 応答スタイル簡素化 | (保留) | 保留 (ADR-034) | 2026-05-02 | - | Bundle Z (PR 2 + PR 3) 完了後再評価 |
 
