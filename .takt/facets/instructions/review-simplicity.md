@@ -31,7 +31,7 @@ For each anomaly, articulate **what looks unusual**, **why it caught your attent
 
 ## Scope constraint
 
-Review ONLY the lines changed in the diff. Do NOT explore cross-file dependencies, call chains, or project-wide architecture. Every anomaly finding must be traceable to a specific hunk in the diff.
+Review primarily within the changed diff. **Limited** cross-file lookups are permitted only to *verify* an anomaly already raised by the diff (e.g., confirming a hidden coupling, checking whether a referenced symbol exists, distinguishing dead-on-arrival code from a legitimate caller elsewhere). Do NOT use this allowance to expand into project-wide architecture review, unrelated call chains, or speculative exploration. Every anomaly finding must still be traceable to a specific hunk in the diff — cross-file evidence supports the finding, it does not become its own finding.
 
 ## Scope of DRY / YAGNI (do NOT raise findings outside this scope)
 
