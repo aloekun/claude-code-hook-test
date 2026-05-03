@@ -32,6 +32,27 @@ If you catch yourself about to run a Bash command that writes into a read-only z
 
 **Important**: After fixing, run the build and tests for the affected crate(s).
 
+## Pre-completion deterministic check (Bundle Z Phase 2 / #B-β)
+
+For each `.rs` file modified in this iteration, run:
+
+    pwsh -NoProfile -File scripts/fix-metrics-check.ps1 <relative_file_path>
+
+The helper compares pre-fix (`@-`) vs post-fix (working copy) and exits non-zero if any of these increased:
+
+- file-level non-doc comment count (`///`, `//!`, `// TODO:` etc. are excluded — see `src/hooks-post-tool-comment-lint-rust/src/main.rs` `ALLOWED_LINE_PREFIXES` / `ALLOWED_BLOCK_PREFIXES`)
+- per-function length in lines
+- per-function max nesting depth (block depth inside function body)
+
+**On exit 1 (`metrics_check: fail`)**: read the violations JSON, then either:
+
+- **Refactor** (preferred): extract function, early return / `let ... else`, flatten `match` arms, guard clauses
+- **Override** (only if incidental to fix): document under `## Work results` → `### Metrics override` sub-heading with the function name, metric, pre/post values, and reasoning
+
+**On exit 2** (infrastructure error, e.g., exe missing or jj revset failure): not a fix-quality issue — surface it under `## Work results` so the user can investigate, but do not block fix completion.
+
+New files (post-only) are reported `metrics_check: skipped` and do not block fix completion. Markdown / yaml / PowerShell etc. files are not in scope (Rust-only PoC).
+
 ## Required output (include headings)
 
 ## Work results

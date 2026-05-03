@@ -2,13 +2,14 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加):
+> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) + [docs/todo5.md](todo5.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加):
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクは追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
-> - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、本セッション以降の新規エントリは todo4.md へ)
-> - **docs/todo4.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
-> - 例外: 既存 todo.md / todo2.md / todo3.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは四つすべてを確認すること**
+> - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
+> - **docs/todo4.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #101 セッション以降の新規エントリは todo5.md へ)
+> - **docs/todo5.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
+> - 例外: 既存 todo.md / todo2.md / todo3.md / todo4.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは五つすべてを確認すること**
 
 ---
 
@@ -60,6 +61,10 @@
 | 44 | 💎 Tier 3 | **gh CLI 使用規則を `~/.claude/rules/common/git-workflow.md` に追記 (計画書 #D-1) ★ Bundle a Sub-PR 1** | todo4.md | XS | なし (Sub-PR 1、Sub-PR 2 でも `gh api` を使うため先行 land 推奨) |
 | 45 | 🔧 Tier 2 | **`check-ci-coderabbit --list-findings` Rust モード追加 (計画書 #D-3) ★ Bundle a Sub-PR 1** | todo4.md | M | なし (Sub-PR 1、cli-pr-monitor が消費する構造化 findings API を提供) |
 | 46 | 🔧 Tier 2 | **CodeRabbit rate-limit auto-retry の integration test (PR #100 T2-1) ★ Bundle a Sub-PR 2** | todo4.md | M | 順位 42 と同 PR (Sub-PR 2、rate-limit auto-retry 実装と一体) |
+| 47 | 🚀 Tier 1 | **`>` vs `>=` boundary inconsistency lint rule (PR #101 T1-2)** | todo5.md | S | なし (PR #101 直接対策、同一ファイル内 3 関数で latent drift が実証済の高頻度問題) |
+| 48 | 🚀 Tier 1 | **関数長スケーリング検出 oxlint rule (PR #101 T1-4)** | todo5.md | S | なし (PR #96 / #101 で繰り返し言及、決定論的防止層、Bundle Z #B-α と並列で deploy) |
+| 49 | 🔧 Tier 2 | **`parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2** | todo5.md | M | 順位 42 / 43 / 46 と同 PR (Sub-PR 2、`unwrap_or_else(\|_\| empty)` silent fail 抑止 + cli-pr-monitor mock infra 流用) |
+| 50 | 🚀 Tier 1 | **comment-lint hook の scope を変更行に限定 (PR #102 T1-1)** | todo5.md | M | なし (Bundle Z Phase 2 / #B-β 着手前に解消推奨、pre-existing violations による無関係 file の不要 block を排除) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -80,7 +85,9 @@
 **Bundle a (PR #99 post-merge-feedback 反映、2026-05-02 拡張)**: 4 component を **2 Sub-PR で分割** land 推奨 (設計根拠は ADR-034)。共通テーマは「PR #99 で複数回発生した手動 `@coderabbitai review` 投稿の自動化」 + 「CR review query の token bloat 削減」。Bundle Y2 効果でパイプラインが加速した結果として CR rate-limit 発生頻度が増えた逆説的副作用への対策。effort 合計 M+S+XS+M (= 2 Sub-PR で M、M+S 程度に分散)。
 
 - **Sub-PR 1 (token 削減層、先行)**: **gh CLI 使用規則** (`git-workflow.md` 追記) + **`check-ci-coderabbit --list-findings`** (Rust モード、cli-pr-monitor 連携 API 提供)。旧 Bundle Z2 の `#D-1` + `#D-3` を本 Bundle に統合 (旧 `#D-2` は `#D-3` で代替のため取り下げ、旧 `#D-4` は思考連続性懸念で保留、ADR-034 参照)
-- **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化** + **integration test 追加** (rate-limit 検出 → backoff → retry サイクルの regression 防止、PR #100 post-merge-feedback T2-1 採用)。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
+- **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化** + **integration test 追加** (rate-limit 検出 → backoff → retry サイクルの regression 防止、PR #100 post-merge-feedback T2-1 採用) + **`parse_findings` 系 error-path test infra** (順位 49、PR #101 T2-1、`unwrap_or_else(\|_\| empty)` silent fallback の test 検証)。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
+
+**PR #101 (Bundle a Sub-PR 1) post-merge-feedback 反映 (2026-05-03)**: 9 件の finding を頻度評価 (過去 report 横断 + 同一 PR latent 件数) して **3 件を採用**。**順位 47 (`>` vs `>=` boundary lint)** は同一ファイル内 3 関数 (parse_listed_findings / parse_new_comments / parse_findings) で同 drift が実証済 = latent 高頻度。**順位 48 (関数長 oxlint)** は #96 / #101 で繰り返し言及 = explicit 高頻度。両者とも Bundle Z #B-α と同じ「決定論的防止層」哲学で、Bundle Z Phase 1 (Rust comment lint) の land 後に並列 deploy 可能。**順位 49 (error-path test infra)** は #99 / #101 で同型 silent fallback anti-pattern が再発、Bundle a Sub-PR 2 (順位 42 / 43 / 46) と **同一 PR で land** 推奨 (cli-pr-monitor の mock infrastructure を再利用、test 二重投資なし)。残り 6 件 (Tier 1 #1, #3, #5、Tier 2 #2、Tier 3 #1, #2) は session 1 回限りの low-frequency events として不採用。
 
 ---
 
