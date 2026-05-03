@@ -155,7 +155,7 @@ fn locate_string_line_ranges(source: &str, needle: &str) -> Vec<(usize, usize)> 
                 let start_line = byte_offset_to_line(source, absolute);
                 let end_line = byte_offset_to_line(source, absolute + needle.len() - 1);
                 ranges.push((start_line, end_line));
-                search_start = absolute + 1;
+                search_start = (absolute + needle.len()).min(source.len());
             }
             None => break,
         }
@@ -168,8 +168,12 @@ fn byte_offset_to_line(source: &str, offset: usize) -> usize {
     source[..clamped].bytes().filter(|b| *b == b'\n').count() + 1
 }
 
+fn span_overlaps_ranges(start: usize, end: usize, ranges: &[(usize, usize)]) -> bool {
+    ranges.iter().any(|(s, e)| start <= *e && end >= *s)
+}
+
 fn line_in_ranges(line: usize, ranges: &[(usize, usize)]) -> bool {
-    ranges.iter().any(|(s, e)| *s <= line && line <= *e)
+    span_overlaps_ranges(line, line, ranges)
 }
 
 fn find_violations(
@@ -215,7 +219,7 @@ fn find_violations(
             let line = start.row + 1;
 
             if let Some(ranges) = line_filter {
-                if !line_in_ranges(line, ranges) {
+                if !span_overlaps_ranges(line, node.end_position().row + 1, ranges) {
                     continue;
                 }
             }
@@ -864,6 +868,13 @@ mod tests {
     }
 
     #[test]
+    fn locate_string_line_ranges_handles_multibyte_utf8() {
+        let source = "fn foo() {\n    let s = \"日本語\";\n    let t = \"日本語\";\n}\n";
+        let ranges = locate_string_line_ranges(source, "\"日本語\"");
+        assert_eq!(ranges, vec![(2, 2), (3, 3)]);
+    }
+
+    #[test]
     fn byte_offset_to_line_handles_offsets_correctly() {
         let s = "abc\ndef\nghi\n";
         assert_eq!(byte_offset_to_line(s, 0), 1);
@@ -881,6 +892,23 @@ mod tests {
         assert!(line_in_ranges(4, &ranges));
         assert!(!line_in_ranges(5, &ranges));
         assert!(line_in_ranges(10, &ranges));
+    }
+
+    #[test]
+    fn span_overlaps_ranges_detects_overlap() {
+        let ranges = [(5, 10)];
+        assert!(span_overlaps_ranges(1, 5, &ranges));
+        assert!(span_overlaps_ranges(5, 15, &ranges));
+        assert!(span_overlaps_ranges(6, 8, &ranges));
+        assert!(!span_overlaps_ranges(1, 4, &ranges));
+        assert!(!span_overlaps_ranges(11, 20, &ranges));
+    }
+
+    #[test]
+    fn find_violations_multiline_block_comment_spanning_range_boundary() {
+        let source = "/* line1\n   line2\n   line3 */\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(3, 4)]));
+        assert_eq!(v.len(), 1, "block comment starting at line 1 but extending into range should be detected");
     }
 
     fn tool_input_with(new_string: Option<&str>) -> ToolInput {
