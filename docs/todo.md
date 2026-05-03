@@ -66,6 +66,10 @@
 | 49 | 🔧 Tier 2 | **`parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2** | todo5.md | M | 順位 42 / 43 / 46 と同 PR (Sub-PR 2、`unwrap_or_else(\|_\| empty)` silent fail 抑止 + cli-pr-monitor mock infra 流用) |
 | 51 | 🚀 Tier 1 | **`.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)** | todo5.md | M | なし (PR #103 で stale-diff false positive による wasted iter ×2 = ~10 分浪費を実観測、6-iter outlier の構造的根因対策、Bundle Z 3 層では塞げない独立改善) |
 | 52 | 💎 Tier 3 | **comment-lint hook の MultiEdit 対応 (順位 50 follow-up)** | todo5.md | S | なし (順位 50 で v1 = Edit のみ実装、MultiEdit は whole-file fallback で no-regression、利用頻度低く優先度は低) |
+| 53 | 🚀 Tier 1 | **rate-limit retry の CronCreate 化 (Bundle b PR-1) ★ Bundle b** | todo5.md | M | なし (PR #104 で 47 min rate-limit 検出 → 現状 `max_duration_secs=600s` cap でバウンス → `action_required` 通知 = auto-retry 不能。CronCreate で reset_at+60s に wakeup 仕掛けることで長時間待機を可能にする致命点解消) |
+| 54 | 🔧 Tier 2 | **review 完了待ちの CronCreate 化 + observer 廃止 (Bundle b PR-2) ★ Bundle b** | todo5.md | M | 順位 53 land 後 (Bb-1 で導入する Cron 機構を review 完了待ちにも展開、45s polling + 5s observer polling を完全排除、固定値 wakeup 化) |
+| 55 | 💎 Tier 3 | **config 拡張 + SessionStart catch-up (Bundle b PR-3) ★ Bundle b** | todo5.md | S | 順位 53 / 54 land 後 (固定値の `monitor.toml` 化 + Claude Code 不在時に発火した wakeup を SessionStart で catch-up、AI 不在時の silent loss 防止) |
+| 56 | 🔧 Tier 2 | **comment-lint hook test 拡充 (PR #104 T2-1+T2-2 bundle)** | todo5.md | S | なし (UTF-8 multi-byte 5 パターン + block comment boundary 6 パターンを `locate_string_line_ranges` / `span_overlaps_ranges` の回帰テストとして体系化、PR #104 Critical/Minor fix の固定化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

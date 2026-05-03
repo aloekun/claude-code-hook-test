@@ -212,3 +212,191 @@
 - MultiEdit でも変更行外の pre-existing violations が flag されない
 - v1 (Edit) の挙動は不変
 - Phase 3 (#B-γ) で reviewer の役割が「異常検知」に縮小されると本 task の効果も部分的に縮む可能性 (criterion-based finding がそもそも reviewer から消えるため)。ただし Phase 3 完了前の中間期間 + Phase 3 後も「異常検知」自体は diff を読むので効果は残る。
+
+---
+
+### rate-limit retry の CronCreate 化 (Bundle b PR-1) ★ Bundle b
+
+> **動機**: PR #104 で CodeRabbit の 47 分 rate-limit を実観測したが、現状の `cli-pr-monitor` は同一プロセス内で `std::thread::sleep` する設計のため `max_duration_secs=600s` (10 分) を超える待機ができず、長時間 rate-limit ではバウンスして `action_required` 通知 → ユーザー手動介入が必要になる。これは「Code Rabbit が rate-limit にかかった場合、解除後に自動的に `@coderabbitai review` を投稿する」という user vision の致命的乖離点。
+>
+> **本タスクの位置づけ**: Bundle b (CR operation 安定化) の最優先 PR。CronCreate 機構を初導入し、47 分 rate-limit を含む長時間待機を auto-retry 経路に乗せる。Bb-2 (review 完了待ちの CronCreate 化) / Bb-3 (config 拡張) は本 PR で導入する Cron 機構の上に積む。
+>
+> **参照**: 本セッションでの設計議論 (advisor 経由)、`src/cli-pr-monitor/src/stages/poll.rs:288` `handle_rate_limit_retry`、`docs/adr/adr-018-pr-monitor-takt-migration.md`、`docs/adr/adr-019-coderabbit-review-hybrid-policy.md`、PR #104 (`feat/comment-lint-changed-lines-scope` で 47 min rate-limit 観測)
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort M。Phase 3 dogfood 完了後着手推奨 (パイプライン改善が落ち着いたタイミングで Cron 機構を導入)。
+
+#### 設計決定 (案)
+
+- **CronCreate 機構**: Claude Code の Cron 機能で reset_at + 60s に one-shot wakeup を仕掛ける。session 非起動時は発火せず (= SessionStart catch-up は Bb-3 で対応)
+- **state 拡張**: `PrMonitorState` に `next_wakeup_at: Option<DateTime<Utc>>` / `wakeup_reason: Option<String>` を追加
+- **handle_rate_limit_retry の改修**:
+  - 現状: `std::thread::sleep(Duration::from_secs(sleep_secs))` で同プロセス内待機
+  - 新: `state.next_wakeup_at = reset_at + 60s` を保存 → CronCreate 仕掛け → 即 exit
+- **wakeup 発火時の処理**: 1 回だけ gh API 確認 → rate-limit 残存なら `@coderabbitai review` post → state 更新 → CronCreate 再仕掛け (recheck)
+- **`max_duration_secs > sleep_secs` 制約の撤廃**: 同プロセス常駐ではなくなるため、長時間待機の budget cap が不要に
+- **既存 `max_rate_limit_retries` cap は維持**: 無限ループ防止
+
+#### 作業計画
+
+- [ ] CronCreate API の Rust からの呼び出し方法を調査 (Claude Code の Cron 機構が外部 CLI から呼べるか / hook 経由か)
+- [ ] `PrMonitorState` に `next_wakeup_at` / `wakeup_reason` フィールド追加 + serde test
+- [ ] `handle_rate_limit_retry` を `state.next_wakeup_at` 保存 + CronCreate 仕掛けに置換 (sleep 削除)
+- [ ] wakeup 発火時の entry point 実装 (新 stage `wakeup` or 既存 `monitor` の再 entry)
+- [ ] `max_duration_secs > sleep_secs` 制約と関連 `Err` 経路を削除
+- [ ] 単体テスト: rate-limit 検出 → state.next_wakeup_at 設定 → exit が正しく行われる
+- [ ] 単体テスト: wakeup 経由再起動 → @coderabbitai review post → 次回 wakeup 仕掛け
+- [ ] integration test: 47 min 待機シナリオ (test 中はモック時刻で短縮)
+- [ ] dogfood 1-2 PR で実 rate-limit シナリオの auto-retry を確認
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) deploy 確認
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- 47 min rate-limit でも auto-retry が動作する (バウンスしない)
+- session 起動中は CronCreate で wakeup → @coderabbitai review post → review 再開
+- session 非起動時は wakeup スキップ (Bb-3 の SessionStart catch-up に依存)
+- 既存 `max_rate_limit_retries` cap が引き続き機能
+
+#### 詰まっている箇所
+
+- CronCreate を Rust 外部プロセスから呼び出せるか未確認 (hook 経由 / claude CLI 経由 / 専用 IPC)。調査結果次第で設計を組み直す可能性あり (例: Cron 仕掛けを Rust ではなく hook script で行う)
+- session 非起動中の wakeup 振る舞いは Bb-3 (SessionStart catch-up) に委ねるが、移行期 (Bb-1 land 後 Bb-3 land 前) は AI 不在時の rate-limit retry が止まる過渡期になる。Bb-3 を近接 land する想定
+
+---
+
+### review 完了待ちの CronCreate 化 + observer 廃止 (Bundle b PR-2) ★ Bundle b
+
+> **動機**: 現状 `cli-pr-monitor` は 45s 間隔で gh API を polling し CR review 完了を待つ + observer (BG) は state file を 5s 間隔で polling する二重 polling 設計。Claude Code が「常時稼働で polling」する負担を強いている。user vision は「経験則時刻 / GitHub UI 待機時刻に通知」 = polling 完全排除。
+>
+> **本タスクの位置づけ**: Bundle b PR-2。Bb-1 で導入した CronCreate 機構を review 完了待ちにも展開し、45s polling + 5s observer polling を排除。固定値 wakeup (push+5min, recheck+5min, cap=3) で代替。
+>
+> **参照**: `src/cli-pr-monitor/src/stages/poll.rs:275` (45s polling)、`src/cli-pr-monitor/src/stages/observe.rs:26` (5s polling)、本セッション設計議論
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。順位 53 (Bb-1) land 後着手。
+
+#### 設計決定 (案)
+
+- **review 完了待ちフロー** (新):
+  - push 直後: cli-pr-monitor が state init (`next_wakeup_at = now + initial_review_wait_secs`, `wakeup_reason = "review_check"`) → 即 exit
+  - wakeup 発火: 1 回だけ gh API 確認 → 分岐
+    - findings あり / APPROVE → `state.action = action_required` / `stop_monitoring_*` → AI 介入トリガ → cron 解除 → exit
+    - review なし (CR 検討中) → recheck カウンタ +1、`next_wakeup_at = now + review_recheck_wait_secs` → CronCreate 再仕掛け → exit
+    - max_review_rechecks 到達 → `action_required` で「review が想定時間内に完了していない」と通知
+- **observer 廃止**: 5s polling を完全削除。terminal state 通知は wakeup 経路の AI 介入トリガで代替 (Claude Code が wakeup で起動して state を読む)
+- **45s polling の poll loop 削除**: `poll.rs` を「1 回 check + state 更新 + exit」に短縮
+- **既存 `max_duration_secs` の意味変更**: 「single invocation の処理 timeout」に縮小 (= gh api timeout 等の安全装置)
+
+#### 作業計画
+
+- [ ] `poll.rs` の poll loop を「single check + state update + exit」に短縮
+- [ ] `observe.rs` を削除 (or stub 化、SessionStart catch-up は Bb-3 で代替)
+- [ ] CronCreate 経由の wakeup entry point を Bb-1 と統一
+- [ ] config に `initial_review_wait_secs` / `review_recheck_wait_secs` / `max_review_rechecks` を追加
+- [ ] 単体テスト: push → state init → exit、wakeup → review check → 分岐
+- [ ] integration test: review 完了 / 未完了 / max recheck 到達 の各経路
+- [ ] dogfood 数 PR で polling 排除の挙動確認 (ログから poll loop が呼ばれていないこと)
+- [ ] 派生プロジェクト deploy 確認
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `cli-pr-monitor` の poll loop が完全削除 (single check + exit のみ)
+- observer の 5s polling が削除
+- review 完了 / 未完了 / max recheck 到達 の各経路で意図通りの state 遷移
+- 派生プロジェクトでも polling 不在を確認
+
+#### 詰まっている箇所
+
+- 既存の `cli-pr-monitor` を呼ぶ caller (push-runner / pnpm create-pr) との互換性維持。caller は「monitor が完了するまで待つ」前提で呼んでいる可能性 → Bb-2 では monitor が即 exit するため caller 側の挙動再確認が必要
+- session 非起動時に wakeup が発火しないケース (= AI が長時間離席した場合の review check が止まる) は Bb-3 の SessionStart catch-up で対応
+
+---
+
+### config 拡張 + SessionStart catch-up (Bundle b PR-3) ★ Bundle b
+
+> **動機**: Bb-1 / Bb-2 で導入した固定値 (initial_review_wait_secs / review_recheck_wait_secs / rate_limit_buffer_secs / max_review_rechecks 等) は user 要望で「変更しやすい設計」が求められた。また、Claude Code session 非起動中に発火しない wakeup を SessionStart で catch-up しないと、AI 離席中の review monitoring が静かに停止する silent loss が発生する。
+>
+> **本タスクの位置づけ**: Bundle b PR-3。Bb-1 / Bb-2 で導入した内部固定値を `monitor.toml` に切り出し + SessionStart hook 拡張で AI 起動時に pending wakeup を catch-up する。
+>
+> **参照**: 本セッション user 要望「固定値は後から調整するため、変更しやすい設計にしてください」「次回ユーザー起動時にまとめて処理」、`src/hooks-session-start/`、ADR-030 L2 recovery パターン
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。順位 53 / 54 land 後着手。Bb-1 land と Bb-3 land の間は AI 離席中の rate-limit retry が止まる過渡期になるため、近接 land を推奨。
+
+#### 設計決定 (案)
+
+- **monitor.toml の拡張**:
+  ```toml
+  [monitor]
+  initial_review_wait_secs = 300     # push 直後 → 初回 review check
+  review_recheck_wait_secs = 300     # review なしの再 check 間隔
+  rate_limit_buffer_secs = 60        # reset_at に追加する余裕
+  max_review_rechecks = 3            # b) の cap
+  max_rate_limit_retries = 3         # 既存
+  ```
+- **SessionStart catch-up**:
+  - `hooks-session-start` が起動時に `state.next_wakeup_at <= now` を確認
+  - pending wakeup あり → `cli-pr-monitor wakeup` を即時 invoke (= 通常の wakeup 経路に乗せる)
+  - これにより AI 離席で逃した wakeup を起動時に消化
+- **既存設定との互換性**: 既存 `poll_interval_secs` / `max_duration_secs` は Bb-2 で意味変化済 (single invocation timeout)、deprecation 警告を出す or 自然消滅させる
+
+#### 作業計画
+
+- [ ] `monitor.toml` に新 config キーを追加 + parser 実装 + default 値テスト
+- [ ] Bb-1 / Bb-2 で内部 const として記述した固定値を config 参照に置換
+- [ ] `hooks-session-start` に `next_wakeup_at <= now` 検出 → `cli-pr-monitor wakeup` invoke ロジック追加
+- [ ] 単体テスト: SessionStart で pending wakeup があれば invoke、なければ no-op
+- [ ] integration test: AI 離席シナリオ → 起動時 catch-up
+- [ ] dogfood: 実際に Claude Code を一度閉じて再起動した時に pending が処理されること確認
+- [ ] 派生プロジェクト deploy 確認
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- 固定値が `monitor.toml` で調整可能
+- SessionStart で pending wakeup を catch-up
+- AI 離席時の silent loss が解消
+
+#### 詰まっている箇所
+
+- 既存 `poll_interval_secs` / `max_duration_secs` の deprecation 戦略 (即削除 vs 段階廃止)。Bb-2 で意味変化しているため即削除でも問題なさそうだが、派生プロジェクト config との後方互換を考慮する必要あり
+
+---
+
+### comment-lint hook test 拡充 (PR #104 T2-1+T2-2 bundle)
+
+> **動機**: PR #104 で CodeRabbit Critical (UTF-8 byte boundary) + Minor (multi-line block comment boundary) の 2 件を auto-fix で解消したが、いずれも回帰防止テストは 1 パターンのみで脆い。tree-sitter / Rust version 更新で区間交差判定や UTF-8 境界処理が壊れた場合に検出できないリスク。
+>
+> **本タスクの位置づけ**: PR #104 post-merge-feedback Tier 2-1 / Tier 2-2 の bundle。コスト低 (S effort)、test additions のみで scope clean、PR #104 の fix を体系的に固定化する。
+>
+> **参照**: `.claude/feedback-reports/104.md` Tier 2 #1, #2、PR #104 (`src/hooks-post-tool-comment-lint-rust/src/main.rs` の `locate_string_line_ranges` / `span_overlaps_ranges`)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。Bundle b と独立、いつでも単独着手可。
+
+#### 設計決定 (案)
+
+- **UTF-8 multi-byte test 拡充** (T2-1):
+  - 現状: `locate_string_line_ranges_handles_multibyte_utf8` 1 パターン
+  - 追加 5 パターン: 漢字 + ASCII 混合 / 漢字単独 / emoji / BMP 外文字 (例: 𝕊) / 結合文字 (例: é = e + ́)
+  - 各パターンで `search_start = (absolute + needle.len()).min(source.len())` の境界処理を検証
+- **Block comment boundary matrix 拡充** (T2-2):
+  - 現状: `find_violations_multiline_block_comment_spanning_range_boundary` 1 パターン
+  - 追加 6 パターン: {開始行のみ被覆, 終了行のみ被覆, 内部完全包含} × {単行 block comment, 複数行 block comment}
+  - `span_overlaps_ranges(start, end, ranges)` の区間交差判定を体系化
+
+#### 作業計画
+
+- [ ] UTF-8 multi-byte test 5 パターン追加
+- [ ] Block comment boundary test 6 パターン追加
+- [ ] 既存 1 パターンずつのテストは保持 (regression 防止のため削除しない)
+- [ ] 派生プロジェクト deploy は不要 (test のみのため)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- UTF-8 multi-byte test が 6 パターン以上
+- Block comment boundary test が 7 パターン以上
+- `cargo test -p hooks-post-tool-comment-lint-rust` 全 pass
+
+#### 詰まっている箇所
+
+- 結合文字 (`e + ́`) を `new_string` に含むケースは Edit tool が実環境で発生するか不明 (理論的検証としては有効、実際の回帰防止としては効果薄の可能性)。1 パターンで足る
