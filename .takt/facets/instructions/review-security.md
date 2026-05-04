@@ -50,7 +50,9 @@ If you cannot articulate the third bullet, the finding is speculative — downgr
 
 ## Docs-only changes: trust boundary criterion
 
-For changes that touch **only documentation** (`docs/**`, ADRs, README, comments) and no executable code or configuration:
+When the diff qualifies as **docs-only** under [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md) (path basis + diff content basis both satisfied), apply the trust boundary criterion below instead of the full security review.
+
+**Excluded paths** (do NOT treat as docs-only even if `.md` / `.yaml`): `.takt/facets/instructions/**` (LLM behavior prompts = code-equivalent), `.claude/**` (Claude Code settings = code-equivalent), `.takt/workflows/**.yaml` structural changes (step / `model` / `allowed_tools` edits). For these, run full security review even when the file extension is `.md`. See ADR-035 for the complete path basis.
 
 - **Pass criterion**: If the change does NOT alter a trust boundary, judge as APPROVE without further security analysis
 - **Trust boundary unchanged** (APPROVE immediately):
@@ -63,4 +65,4 @@ For changes that touch **only documentation** (`docs/**`, ADRs, README, comments
   - Changes to documented secret handling, credential storage, or trust assumptions
   - Specifications that other systems will rely on (API contracts, security guarantees)
 
-Rationale: documentation that does not redefine who-can-do-what cannot introduce security vulnerabilities by itself. Treating descriptive docs as security-relevant produces false-positive iterations and erodes review signal.
+Rationale: documentation that does not redefine who-can-do-what cannot introduce security vulnerabilities by itself. Treating descriptive docs as security-relevant produces false-positive iterations and erodes review signal. ADR-035 captures the full docs-only evaluation policy across reviewer facets.

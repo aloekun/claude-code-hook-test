@@ -34,11 +34,7 @@
 
 ### 🎯 HIGH IMPACT — review acceleration
 
-| 順位 | Tier | タスク概要 | 効果 | 作業詳細 |
-|---|---|---|---|---|
-| 59 | 💎 Tier 3 | ADR-035 docs 評価ポリシー (PR #107 T3-1) | **中核**。`review-simplicity.md` / `analyze-coderabbit.md` に docs-only criterion 拡張、code criteria の docs PR 誤適用を排除 | [todo5.md](todo5.md) |
-| 31 | 💎 Tier 3 | review-security.md docs-only fast-approve から `.takt/**` と `.claude/**` を明示除外 (Bundle V) | 順位 59 と同領域。fast-approve の対象を**正しく狭める** precision 向上 | [todo3.md](todo3.md) |
-| 32 | 💎 Tier 3 | docs/todo.md ヘッダ「新規タスクは追加しない」表記を実態整合 (Bundle V) | 単発 cleanup。CodeRabbit が誤指摘した根因 = 運用ルールの自己矛盾を解消 | [todo3.md](todo3.md) |
+Bundle "docs PR streamline" (順位 59 / 31 / 32) は本セッションで land 済 → [ADR-035](adr/adr-035-doc-evaluation-policy.md) として集約。残るタスクは下記 MEDIUM / LOW IMPACT のみ。
 
 ### 🛠 MEDIUM IMPACT — docs 品質 pre-write 保証
 
@@ -65,19 +61,17 @@
 
 ## 推奨 bundle
 
-### Bundle "docs PR streamline" (最優先)
+### Bundle "docs PR streamline" ✅ 完了
 
-ユーザー目的「docs-only PR を独立して早急にマージできる環境」の最短達成パス。
+ユーザー目的「docs-only PR を独立して早急にマージできる環境」の最短達成パス。本セッションで 3 件 land。
 
-| 含む順位 | 概要 | 工数 |
+| 含む順位 | 概要 | 反映先 |
 |---|---|---|
-| 59 | 中核: ADR-035 docs 評価ポリシー | M |
-| 31 | review-security.md fast-approve 精度向上 | XS |
-| 32 | todo.md ヘッダ実態整合 | XS |
+| 59 | 中核: ADR-035 docs 評価ポリシー | [ADR-035](adr/adr-035-doc-evaluation-policy.md) + `review-simplicity.md` / `review-security.md` / `analyze-coderabbit.md` 引用 |
+| 31 | review-security.md fast-approve 精度向上 | `review-security.md` Excluded paths (`.takt/**` / `.claude/**`) 追記 |
+| 32 | todo.md ヘッダ実態整合 | `docs/todo.md` 冒頭運用ルール |
 
-**合計工数**: M+ (1 セッション内完了可能)、すべて docs / facet instructions 編集で scope clean。
-
-**期待効果**:
+**期待効果** (検証は本 PR merge 後の dogfood で実施):
 
 - pre-push-review が docs-only PR に対し fast-approve → review time 1 分 30 秒〜30 秒に短縮
 - post-pr-review (analyze-coderabbit) が docs-only PR で false REJECT を出さない

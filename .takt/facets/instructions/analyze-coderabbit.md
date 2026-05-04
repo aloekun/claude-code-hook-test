@@ -19,9 +19,11 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 CodeRabbit sometimes raises findings that are not applicable to this project. Before classifying severity, evaluate each finding against the project context:
 
 1. Read `CLAUDE.md` to understand the project's architecture decisions and constraints
-2. For each finding, check:
+2. **Determine if the PR is docs-only** under [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md): inspect the diff in `.takt/review-diff.txt`. The PR is docs-only when **all** changed files are `docs/**` / `*.md` / source-code doc comments / yaml comment-only, **and** no executable code logic changes. Excluded paths (`.takt/facets/instructions/**`, `.claude/**`, `.takt/workflows/**.yaml` structural changes) disqualify docs-only treatment even when the file extension is `.md`/`.yaml`
+3. For each finding, check:
    - **Platform scope**: This project targets Windows only. Findings about cross-platform compatibility (e.g., `.exe` hardcoding) are NOT applicable -- downgrade to `Info`
    - **Intentional design**: Check if the finding contradicts an ADR decision. If so, mark as `not_applicable`
+   - **Docs-only criteria mismatch (ADR-035)**: If the PR is docs-only AND the finding targets a criterion ADR-035 excludes (mutation / error handling / test coverage / function length / nesting depth / complexity metrics / DRY or YAGNI applied to code logic), mark as `not_applicable` with reason `"ADR-035 docs-only"`. Trust boundary / cross-reference integrity / markdown lint findings remain `applicable` even on docs-only PRs
    - **Sensitive-file protection** (Edit-blocked): If the finding targets `.claude/` (Claude Code sensitive-file protected — Edit/Write tool will refuse), mark as `user_decision_path` (NOT `not_applicable` — the issue may be real, but auto-fix cannot apply it)
    - **Scope mismatch**: If the finding targets a read-only zone (`.takt/`, `docs/adr/`, `templates/`) or a non-source path (`.git/`, `.jj/`, `node_modules/`, `target/`), mark as `not_applicable`
    - **False positive**: If the finding misunderstands the code logic, mark as `not_applicable`
