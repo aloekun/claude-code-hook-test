@@ -36,14 +36,8 @@
 | 20 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 8, 10 |
 | 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 8 dogfood + 順位 20 |
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
-| 23 | 💎 Tier 3 | 日付ベース見出しアンカー更新ルールのグローバル明文化 (PR #85 T3-1) | todo2.md | XS | なし |
-| 24 | 💎 Tier 3 | jj conflict リカバリ手順のグローバル明文化 (PR #85 T3-2) | todo2.md | XS | なし |
-| 25 | 💎 Tier 3 | `__` prefix scratch file 規約のグローバル明文化 (PR #85 T3-3) | todo2.md | XS | なし |
-| 26 | 💎 Tier 3 | **post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)** | todo2.md | XS | なし |
 | 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
-| 30 | 💎 Tier 3 | **Cross-File Reference Lifecycle ルールに具体例追記 (PR #94 T3-2) ★ Bundle U** | todo3.md | XS | なし (Bundle U で 29 と並行 land 推奨) |
-| 33 | 💎 Tier 3 | **code-review.md に新 verdict 経路追加時の 3 点チェックリスト追記 (PR #95 T3-4) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策、verdict path 整合性) |
 | 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | 順位 19 land 後推奨 (PR #96 直接対策、AI が flaky 実装を書ける窓を spec 層で塞ぐ) |
 | 35 | 🚀 Tier 1 | **型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | S | 順位 34 と同 PR (Bundle W、PBT が型に守られて記述しやすくなる相補関係) |
 | 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W land 後推奨 (PBT properties の後付け検証層、変更 crate + 1-hop 依存 scope) |
@@ -74,6 +68,8 @@
 | 65 | 🚀 Tier 1 | **exe + `--help` を PreToolUse でブロックして src/ Read に誘導 (PR #109 T1-3 採用) ★ Bundle c** | todo5.md | S | なし (PR #109 SIGPIPE の直接トリガ = AI が `cli-merge-pipeline.exe --help` 実行 → exe は --help 未対応で merge 本体実行を構造的に防止、今後追加 exe にも自動適用) |
 | 66 | 💎 Tier 3 | **長時間 subprocess の pipe truncate 禁止ルールをグローバル明文化 (PR #109 T3-1 採用) ★ Bundle c** | todo5.md | XS | なし (順位 65 = 決定論層、本ルール = 判断ガイド層、`~/.claude/rules/common/development-workflow.md` 等に追加) |
 | 67 | 💎 Tier 3 | **ADR-030 に abrupt 終了時の振る舞いを spec として明記 (PR #109 T3-2 採用) ★ Bundle c** | todo5.md | XS | 順位 63 / 64 と同 PR (実装と仕様の整合性確保、L1 in-process Drop guard + L2 out-of-process reaper の責務分離 + SLA 化) |
+| 68 | 🔧 Tier 2 | **`no-ephemeral-todo-reference` self-exclusion invariant 単体テスト追加 (PR #110 T2-1 採用) ★ Bundle d** | todo5.md | S | なし (PR #110 直接対策、placeholder N 戦略の machine-enforceable 保護、TP/FP/Edge 3 軸テスト) |
+| 69 | 💎 Tier 3 | **`no-ephemeral-todo-reference` の `yaml`/`yml` extensions 追加理由をコメントで明記 (PR #110 T3-1 採用) ★ Bundle d** | todo5.md | XS | なし (rule⑥ コメント欄に 1-2 行追記、設計 doc と実装の経緯保存、git blame 不要化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -86,8 +82,7 @@
 **`.failed` marker 自己文書化 task は ADR-030 soft-fail 機構の運用負荷削減** (PR #89 セッションで recovery が機能した実証から派生、Effort S)。
 **takt REJECT-ESCALATE は post-pr-review fix loop の `.claude/` filter (Bundle T で land 済) の verdict-based 一般解**。path-based 解決が完了したので、本 task 着手で補完関係を完成させる。
 **T3 グローバルルール 4 件 (日付ベース見出しアンカー / jj conflict リカバリ / `__` prefix scratch / post-pr-monitor polling 禁止) は `~/.claude/` 配下への XS 追記なので並列実施推奨**。
-**Bundle U (Cross-File Reference Lifecycle 強化) は PR #94 post-merge-feedback 直接対策**。非 docs ファイル `docs/todo` 参照検出 lint rule (Tier 1 = 決定論的防止) と Cross-File Reference Lifecycle ルール具体例追記 (Tier 3 = preventive guidance) を 1 PR で land 推奨。両者は同一テーマ (永続成果物→ephemeral 参照禁止の二層化) で補完関係、effort 合計 S+XS。
-**Bundle V (verdict path 整合性 + docs-only fast-approve gap 補強) は PR #95 post-merge-feedback 直接対策**。review-security.md の `.takt/**` / `.claude/**` 除外、docs/todo.md ヘッダ整合、code-review.md の 3 点チェックリスト追記の 3 件を 1 PR で land 推奨。共通テーマは「PR #95 で実証された不整合パターンへの retroactive 対策」、effort 合計 XS×3 で完結。
+**Bundle U / V / e は完了** (Bundle U の 順位 29 = PR #110、順位 30 = Bundle e、Bundle V の 順位 31/32 = PR #109、順位 33 = Bundle e で全消化)。**Bundle e (convention 明文化 long-tail、2026-05-05)**: 順位 23/24/25/26 (PR #85/#86 由来) + 順位 30 (Bundle U 残) + 順位 33 (Bundle V 残) + 順位 70 (Bundle d 残) を 1 PR で集約 land、`~/.claude/rules/common/{coding-style,git-workflow,development-workflow,code-review}.md` + `~/.claude/CLAUDE.md` の global rules に convention 7 項目を codify。XS×7 で long-tail 一掃。
 **Bundle W (PBT + 型強化) は PR #96 で実証された flaky 実装防御の最上層**。Finding D (`saturating_sub` の silent semantic mismatch) と E (concurrency test の guard 即 drop) はどちらも「Rust 的に正しいコードがドメイン的に間違う」典型例で、advisor + takt-fix の 2 layer も貫通した。**仕様を proptest properties で明文化 + `PastTime` 等の型で invalid state を unrepresentable に** することで、ルール (ask-based) では塞げない bug class を構造的に排除する。**rate-limit 自動検出 (Phase 4 で land 済) / takt REJECT-ESCALATE を先行**し、その後 Bundle W に着手する流れがユーザー指示。
 **Bundle X (cargo-mutants + stress runner) は Bundle W の後付け検証層**。L2 post-PR で変更 crate + 1-hop 依存に cargo-mutants を走らせ test の弱さを直接測定、L1 pre-push で concurrency stress N=100 を回し scheduling race を sampling。Bundle W で書いた spec / 型を後段で機械的に検証する補完関係。**L3 weekly cargo-mutants workspace 全体 + stress N=1000 は ADR-031 Phase B 週次レビューと bundle 化** することで long-tail flake と coverage 全体監査を week 単位で audit する layer に統合。
 **PR #98 (Bundle Y2) post-merge-feedback 反映 (2026-05-01)**: 3 件の follow-up task を追加。**takt workflow `model` フィールド必須化 lint rule** と **Bundle Y2 効果の定量計測** は Bundle Y2 完全性確保 + ROI 検証で同系列 (lint rule 着手時に post-pr-review.yaml supervise step への `model: sonnet` 明示追加を同 PR に含める想定)。**prepare-pr skill Step 1 bookmark 存在チェック強化** は本セッション運用痛 (bookmark 未作成 push 失敗) から派生した独立 task で skill repository 側の更新となる。
@@ -99,6 +94,8 @@
 **PR #101 (Bundle a Sub-PR 1) post-merge-feedback 反映 (2026-05-03)**: 9 件の finding を頻度評価 (過去 report 横断 + 同一 PR latent 件数) して **3 件を採用**。**順位 47 (`>` vs `>=` boundary lint)** は同一ファイル内 3 関数 (parse_listed_findings / parse_new_comments / parse_findings) で同 drift が実証済 = latent 高頻度。**順位 48 (関数長 oxlint)** は #96 / #101 で繰り返し言及 = explicit 高頻度。両者とも Bundle Z #B-α と同じ「決定論的防止層」哲学で、Bundle Z Phase 1 (Rust comment lint) の land 後に並列 deploy 可能。**順位 49 (error-path test infra)** は #99 / #101 で同型 silent fallback anti-pattern が再発、Bundle a Sub-PR 2 (順位 42 / 43 / 46) と **同一 PR で land** 推奨 (cli-pr-monitor の mock infrastructure を再利用、test 二重投資なし)。残り 6 件 (Tier 1 #1, #3, #5、Tier 2 #2、Tier 3 #1, #2) は session 1 回限りの low-frequency events として不採用。
 
 **Bundle c (PR #109 post-merge-feedback 堅牢化、2026-05-04)**: PR #109 で post-merge-feedback workflow が SIGPIPE で silent 中断され `.failed` marker 未生成という ADR-030 仕様違反が実証された。5 件採用 (Tier 1 #63/#64/#65 + Tier 3 #66/#67) で **3 層防御** を構築: (1) 事前防止 = 順位 65 (exe + `--help` を PreToolUse block) + 順位 66 (グローバルルールの subprocess pipe truncate 禁止)、(2) in-process recovery = 順位 63 (Drop guard / signal trap で abrupt 終了時の `.failed` marker 保証)、(3) out-of-process backstop = 順位 64 (`meta.json status=running` 5-15 分放置 reaper)。順位 67 (ADR-030 spec 拡張) は実装と同 PR で仕様/実装の整合性確保。**Sub-PR 分割推奨**: c-1 (順位 63 + 64 + 67、Rust 実装 + ADR、Effort M+M+XS、コア層) / c-2 (順位 65 + 66、hook + global rule、Effort S+XS、trigger 防止層)。c-1 と c-2 は独立に land 可能だが c-1 land 後の dogfood で recovery 機構を実証してから c-2 を入れると順位の合理性が見える順序になる。
+
+**Bundle d (PR #110 post-merge-feedback、2026-05-04)**: PR #110 (Bundle "docs quality pre-write") merge 後の post-merge-feedback で 6 findings 中 3 件採用。共通テーマは「PR #110 で導入した `no-ephemeral-todo-reference` rule (順位 29 採用分) の robustness 強化 + 設計 doc / 実装の乖離 ガード」。**順位 68 (T2 self-exclusion test)** は placeholder N 戦略の機械的保護で OBS-3 (fragile naming convention) 対策、**順位 69 (T3 yaml/yml コメント)** は OBS-2 (spec-impl 乖離) 対策。順位 70 (code-review checklist) は Bundle e で land 済。残り順位 68 (test infra) と 順位 69 (config コメント) は scope 異なるため独立 PR 推奨。
 
 ---
 
