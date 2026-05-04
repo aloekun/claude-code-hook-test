@@ -38,11 +38,11 @@ Bundle "docs PR streamline" (順位 59 / 31 / 32) は本セッションで land 
 
 ### 🛠 MEDIUM IMPACT — docs 品質 pre-write 保証
 
+Bundle "docs quality pre-write" (順位 4 / 29) は本セッションで land 済 → `.claude/hooks-config.toml` に `lint:md` Stop step 追加 + `.claude/custom-lint-rules.toml` に `no-ephemeral-todo-reference` rule 追加。残るは下記 順位 10 のみ (ADR-032 系列待ち)。
+
 | 順位 | Tier | タスク概要 | 効果 | 作業詳細 |
 |---|---|---|---|---|
-| 4 | 🚀 Tier 1 | Stop hook の `pnpm lint:md` 統合 | Stop 時に markdown lint 自動実行 → post-write iteration 削減 (lint 違反で push 失敗 → 修正の 1 周回避) | [todo3.md](todo3.md) |
 | 10 | 🔧 Tier 2 | broken-link-check + 内部アンカー検査統合 (ADR-032 PR-broken-link) | docs/ 内 link 健全性を CI で機械検出、anchor drift を pre-merge で catch | [todo2.md](todo2.md) |
-| 29 | 🚀 Tier 1 | 非 docs ファイル `docs/todo` 参照検出 lint rule (Bundle U) | docs ⇄ code 間 reference lifecycle の決定論的防止層、永続成果物への ephemeral 参照を pre-write で block | [todo3.md](todo3.md) |
 
 ### 📋 LOW IMPACT — convention グローバル明文化
 
@@ -79,14 +79,16 @@ Bundle "docs PR streamline" (順位 59 / 31 / 32) は本セッションで land 
 
 **Bundle b との独立性**: Bundle b (順位 53/54/55, CR operation 安定化) は rate-limit 対応で別領域。並行進行可。
 
-### Bundle "docs quality pre-write" (補完、本 bundle 後または並行)
+### Bundle "docs quality pre-write" ✅ 完了
 
-| 含む順位 | 概要 | 工数 |
+write-time に docs 品質を保証する層。本セッションで 2 件 land。
+
+| 含む順位 | 概要 | 反映先 |
 |---|---|---|
-| 4 | Stop hook lint:md | XS |
-| 29 | docs/todo 参照検出 lint | S |
+| 4 | Stop hook lint:md | `.claude/hooks-config.toml` `[[stop_quality.steps]]` に `lint:md` 追加 |
+| 29 | docs/todo 参照検出 lint | `.claude/custom-lint-rules.toml` rule⑥ `no-ephemeral-todo-reference` (severity warning、`docs/todo[0-9]*\.md` を `rs` / `toml` / `jsonc` / `json` / `yaml` / `ts` / `py` / `ps1` 等で検出) |
 
-write-time に docs 品質を保証する層。docs PR が push まで到達したら **すでに lint が通っている** 状態を作る。
+**期待効果**: 本セッションでの dogfood で `docs/todo3.md` を含む `__dogfood_lint.rs` を作成 → rule が warning 2 件発火を確認済。今後 `.rs` / `.toml` / config で ephemeral todo reference を書こうとした時点で hook が警告。
 
 ### 後回し可 (low impact bundle)
 

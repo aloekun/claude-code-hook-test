@@ -86,6 +86,10 @@ name = "lint"
 cmd = "pnpm lint"
 
 [[stop_quality.steps]]
+name = "lint:md"
+cmd = "pnpm lint:md"
+
+[[stop_quality.steps]]
 name = "test"
 cmd = "pnpm test"
 

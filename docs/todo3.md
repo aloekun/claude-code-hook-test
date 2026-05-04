@@ -10,53 +10,6 @@
 
 ## 現在進行中
 
-### Stop hook の `pnpm lint:md` 統合 (PR #88 T1-1)
-
-> **動機**: PR #88 で `pnpm lint:md` script を導入したが `[[stop_quality.steps]]` への登録が漏れていた。PostToolUse hook は Write/Edit ツール経由の編集にのみ発火するため、jj の auto-snapshot・他 hook 生成・bulk import 等で `.md` が変更された場合に markdownlint 違反が Stop まで未検出になる。`pnpm lint` (TS oxlint) は Stop gate 登録済みだが `pnpm lint:md` は本 PR で追加されたばかりにもかかわらず未登録のまま。
->
-> **本タスクの位置づけ**: PR #88 で merged 済の Markdown linter hook 統合 (現在 master) の補完作業。Stop gate は最後の安全網として PostToolUse 経由しない経路 (auto-snapshot など) もカバーする必要がある。
->
-> **参照**: `.claude/feedback-reports/88.md` の Tier 1 #1 finding
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 XS (1 行追記)、daily efficiency への即効性極大。Markdown linter 統合の gap closure として最優先で実施推奨。
-
-#### 背景
-
-- PR #88 で `pnpm lint:md` script を `package.json` に追加
-- `[post_tool_linter] extensions = ["md"]` パイプラインで Write/Edit 経由の編集はカバー済
-- ただし `[[stop_quality.steps]]` への登録は漏れた → PostToolUse 経路を通らない `.md` 変更が無検査になる
-- post-merge-feedback (PR #88) が PR diff 解析で本 gap を独立検出
-
-#### 設計決定 (案)
-
-- `.claude/hooks-config.toml` の `[stop_quality.steps]` セクションに 1 行追加:
-
-```toml
-[[stop_quality.steps]]
-name = "lint:md"
-cmd = "pnpm lint:md"
-```
-
-- 既存の `pnpm lint` / `pnpm test` / `pnpm test:e2e` / `pnpm build` と並ぶ Stop gate ステップとして登録
-- 派生プロジェクト (techbook-ledger, auto-review-fix-vc) には Markdown linter 統合本体の deploy と同タイミングで反映
-
-#### 作業計画
-
-- [ ] `.claude/hooks-config.toml` に `[[stop_quality.steps]]` 追加
-- [ ] dogfood: 任意の `.md` を編集後、Stop hook で `pnpm lint:md` が走ることを確認
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- Stop hook で `pnpm lint:md` が他の lint/test/build と並列に実行され、違反があれば Stop が FAIL
-- PostToolUse 経路を通らない `.md` 変更でも Stop gate で違反検出される
-
-#### 詰まっている箇所
-
-なし (Effort XS、追記のみ)
-
----
-
 ### AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)
 
 > **動機**: PR #85 で Claude が transcript 確認用に作成した `__parse_transcripts.ps1` が `.gitignore` 漏れにより jj auto-snapshot 経由で commit に意図せず混入。CodeRabbit が発見し除去作業が必要となった。同パターン (`__*.ps1` / `_tmp_*.ps1` / `__*.py` / `_tmp_*.py` 等の AI 生成一時スクリプト) を pre-push で機械的に検出し再発を防止する。post-merge-feedback (PR #88) が同事象を transcript から再検出。
@@ -410,48 +363,6 @@ prompt and prompt Claude to re-run the workflow.
 
 - takt 本体改修のため `~/.claude/projects/takt-test-vc/` 連動も視野に入れる必要あり
 - rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) の land 後に着手することで、verdict ベースの一般解として完成する。post-pr-review fix loop の `.claude/` filter (Bundle T、完了済) は path-based 解決の対 (補完関係)
-
-### 非 docs ファイル `docs/todo` 参照検出 lint rule (PR #94 T1-1)
-
-> **動機**: PR #93 で `~/.claude/rules/common/coding-style.md` に Cross-File Reference Lifecycle 原則 (永続成果物 → ephemeral `docs/todo*.md` セクション参照禁止) を追加し、PR #94 で 3 ファイル (`src/hooks-pre-tool-validate/src/main.rs` / `.claude/custom-lint-rules.toml` / `.markdownlint-cli2.jsonc`) の retroactive 修正を実施した。ただしルールはガイドラインのみで決定論的検出はなく、新規ファイルへの混入は再発する。
->
-> **本タスクの位置づけ**: Cross-File Reference Lifecycle ルールの決定論的防止層。Bundle U として Cross-File Reference Lifecycle ルール具体例追記 (Tier 3) と並行 land 推奨。両者は preventive guidance (rule) + deterministic detection (lint) の補完関係。
->
-> **参照**: `.claude/feedback-reports/94.md` の Tier 1 #1 finding
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 S。新規ファイルでの再発を確実に防ぐ決定論的検出。Cross-File Reference Lifecycle ルールが既に存在するため、lint rule は同ルールの自動 enforcement 層として整合的。
-
-#### 背景
-
-- PR #94 で 3 ファイルの stale reference を grep 経由で発見・修正
-- ガイドラインだけでは AI が新規ファイル作成時に類似 pattern を再導入しうる
-- `.claude/custom-lint-rules.toml` は既に literal 検出 + extension filter の枠組みを持つ (PowerShell `(?i)` フラグ検証等で実証済み)
-
-#### 設計決定 (案)
-
-- 配置先: `.claude/custom-lint-rules.toml` の新規 `[[rules]]` エントリ
-- 検出 pattern (案): `docs/todo[0-9]*\.md` を非 `.md` ファイルから検出
-  - `extensions = ["rs", "toml", "jsonc", "json", "ts", "tsx", "js", "jsx", "py", "ps1"]` で md 自体を除外
-  - ただし custom-lint-rules.toml 自身が `.toml` で false positive 候補になるため、ルール記述用の例外パターン or 自己除外ロジックを設計時に確認
-- 提案メッセージ (案): 「永続成果物から ephemeral な docs/todo*.md セクション参照は禁止。ADR / PR 番号 / 安定 docs/ パスを使用。詳細は `~/.claude/rules/common/coding-style.md` Cross-File Reference Lifecycle セクション参照」
-
-#### 作業計画
-
-- [ ] `extensions` 設計: md 除外 + custom-lint-rules.toml 自身の self-exclusion 検証
-- [ ] 既存ファイルへの dogfood: 全リポジトリ grep で 0 matches を確認
-- [ ] テスト追加 (custom_lint_rule pattern の正規表現テスト枠組みがあれば活用)
-- [ ] 派生プロジェクトへ deploy (Cross-File Reference Lifecycle ルールが global なのでセットで適用)
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- 非 md ファイルでの `docs/todo` literal 参照が hook で検出され警告/ブロックされる
-- custom-lint-rules.toml 自身は false positive を起こさない
-- 既存ファイル全体で 0 detection (clean baseline)
-
-#### 詰まっている箇所
-
-- custom-lint-rules.toml への self-reference をどう扱うか (rule の文書化目的での `docs/todo` 言及をどう許可するか)。ルール記述部の delimiter 設計が必要
 
 ### Cross-File Reference Lifecycle ルールに具体例追記 (PR #94 T3-2)
 
