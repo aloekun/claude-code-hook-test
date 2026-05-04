@@ -534,3 +534,234 @@
 - 案 A vs B の選定: 専用ファイル化のメリット (navigability) vs ファイル数抑制 (locality)。Document Governance 関連項目が今後増えるかの予測に依存
 - 派生プロジェクト (Python ベース) で global rule の適用範囲がどこまで及ぶか (rule は markdown text のため自動適用想定だが念のため確認)
 
+---
+
+### cli-merge-pipeline に Drop guard / signal handler を追加し abrupt 終了時に `.failed` marker を保証 (PR #109 T1-1 採用) ★ Bundle c
+
+> **動機**: PR #109 merge 直後の post-merge-feedback workflow が SIGPIPE で silent 中断され、`.takt/runs/.../reports/` が空 + `.claude/feedback-reports/109.md` 未生成 + `.failed` marker も無いという fail mode が実証された。原因は `feedback::run()` が `Result::Err` を返した場合のみ `write_failed_marker` を書く実装で、Rust default の SIGPIPE 動作 (parent process abrupt 終了) では Result::Err 経路に到達しない。ADR-030「失敗マーカーによる recovery」仕様を構造的に違反。
+>
+> **本タスクの位置づけ**: Bundle c (PR #109 post-merge-feedback 堅牢化) の中核。Drop guard で `Result::Err` 経路に依存しない unconditional marker 書き出しを保証する。Pre-emptive marker (案 C) と signal trap (案 A) の組み合わせで abrupt 経路を多層防御。
+>
+> **参照**: `.claude/feedback-reports/109.md` Tier 1 #1、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)、`src/cli-merge-pipeline/src/feedback.rs:454-475` (`copy_feedback_report`) / `:1100-1180` (`run`) / `main.rs:555` (caller)
+>
+> **実行優先度**: 🚀 **Tier 1 Critical** — Effort M。仕様 (ADR-030) と実装の根本ギャップ閉鎖。
+
+#### 設計決定 (案)
+
+- **修正方針**: Explore agent が提示した 3 案 (A: signal trap + Drop guard / B: thread + parent timeout / C: pre-emptive marker) のうち、**A + C の組み合わせ** を採用 (agent 推奨)
+  - **C (pre-emptive marker)**: `feedback::run` 呼び出し前に `.failed` marker を先制書き込み、正常完了時のみ削除。abrupt 終了の 99% を救済 (Effort XS-S)
+  - **A (signal trap + Drop guard)**: `tokio::signal` または `nix` crate で SIGPIPE/SIGTERM を trap、RAII Drop guard で marker 書き込みを保証。panic 経路もカバー (Effort M)
+- **race 対策**: 同 PR で concurrent merge が走った場合の race は既存 `CONCURRENT_RUN_GUARD_SECS=1500s` で予防されるが、pre-emptive marker の lifecycle と整合性確認が必要
+- **OS 互換性**: signal handling は OS 依存。Windows では SIGPIPE 相当が無いため Ctrl+C / SIGTERM 経路を中心に対応。Unix と Windows のコードパス分岐は cfg gate で実装
+
+#### 作業計画
+
+- [ ] `src/cli-merge-pipeline/src/feedback.rs` に pre-emptive marker 書き出しを追加 (`run` 冒頭で `write_failed_marker(reason: "pending")`)
+- [ ] 正常完了時に marker を削除する path を追加 (`copy_feedback_report` 成功後)
+- [ ] `nix` または `tokio::signal` で SIGPIPE/SIGTERM trap を実装 (Unix) + Windows 用 cfg 分岐
+- [ ] RAII Drop guard 構造体を導入し、scope 終了時に marker 書き込みを保証 (正常時 `disarm()` で skip)
+- [ ] 既存 `Result::Err` 経路の `write_failed_marker` 呼び出しは維持 (二重書きにならないよう pre-emptive marker と統合)
+- [ ] dogfood: 本機能を有効にした状態で `cli-merge-pipeline.exe \| head -40` を実行し marker が残ることを確認 (今回事故の再現テスト)
+- [ ] 派生プロジェクトに deploy (cli-merge-pipeline.exe を再ビルド + 配布)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- SIGPIPE / SIGTERM / panic / Result::Err いずれの経路でも `.claude/feedback-reports/<PR>.md.failed` が必ず残る
+- 正常完了時には `.failed` marker が残らない (false positive ゼロ)
+- 今回の事故 (PR #109 SIGPIPE) を再現するテストで pass
+- 派生プロジェクト (`techbook-ledger` / `auto-review-fix-vc`) でも同等動作
+
+#### 詰まっている箇所
+
+- Windows での SIGPIPE 相当の挙動: Rust std はデフォルト SIGPIPE handler を install するが、Windows では pipe broken 時の挙動が異なる (CTRL_BREAK / I/O error)。整合性確保のため OS 別の signal mapping 設計が必要
+- 順位 64 (orphan reaper) との責務分離: Drop guard は process 内、reaper は process 外。両者の trigger 条件が重複しないよう設計
+
+---
+
+### orphan run reaper (post-merge-feedback の `meta.json status=running` 放置検出 + 自動再起動) (PR #109 T1-2 採用) ★ Bundle c
+
+> **動機**: 順位 63 (Drop guard) では救済できない致命系 (kill -9 / SIGKILL / power loss / OOM Killer) で post-merge-feedback workflow が中断された場合、`.failed` marker も書かれず orphan run のみが残る。仕様 (= フィードバックは必ず実行) を保証するには process 外からの監視層が必要。
+>
+> **本タスクの位置づけ**: Bundle c (PR #109 post-merge-feedback 堅牢化) の第二防衛層。Drop guard (順位 63) を内側、reaper を外側とする多層防御で「フィードバックは必ず実行する」仕様を multi-layer で保証。
+>
+> **参照**: `.claude/feedback-reports/109.md` Tier 1 #2、[ADR-029](adr/adr-029-post-merge-feedback-auto-trigger.md) (pending file 経由の再起動)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)
+>
+> **実行優先度**: 🚀 **Tier 1 Critical** — Effort M。順位 63 と組み合わせて致命系 hole を塞ぐ。
+
+#### 設計決定 (案)
+
+- **配置先候補** (着手時に決定):
+  - **案 A**: `cli-pr-monitor` 起動時に `.takt/runs/*/meta.json` を scan (既存 monitor 機構との整合性高い)
+  - **案 B**: SessionStart hook (`src/hooks-session-start*/`) で scan (Claude Code session 起動毎に走る確定的 trigger)
+  - 推奨: **案 B** (SessionStart) — cli-pr-monitor は backend daemon 廃止 (ADR-018) で takt 経由になっており trigger 機構が複雑、SessionStart は単純で確実
+- **検出条件**:
+  - `.takt/runs/*/meta.json` の `status: "running"` かつ `startTime` が現時刻から **5 分以上経過**
+  - `currentStep` が `analyze` のまま (= 1 step も完了していない極短時間で死んだケース) も含める
+- **recovery 動作**:
+  - 検出した orphan run の `meta.json` を `status: "failed"` に更新 (アトミックに)
+  - `.claude/feedback-reports/<PR>.md.failed` marker を書く (PR 番号は run slug `post-merge-feedback-for-<N>` から抽出)
+  - ADR-029 pending file (`.claude/post-merge-feedback-pending.json`) を生成し、UserPromptSubmit hook で再起動 trigger
+- **冪等性**: 同 orphan を 2 回検出しても重複 trigger しないよう既存 marker / pending file を check
+
+#### 作業計画
+
+- [ ] 配置先 (案 A / B) を grep + `.claude/hooks-config.toml` 確認のうえ決定
+- [ ] `meta.json` parser + 5 分閾値判定ロジック実装
+- [ ] `.failed` marker 書き出し + pending file 生成ロジック実装
+- [ ] 冪等性 guard (既存 marker / pending file 検出時の skip)
+- [ ] integration test: 人為的に orphan meta.json を作成して reaper が再起動 trigger することを assert
+- [ ] dogfood: 既存の orphan (`.takt/runs/20260504-101353-post-merge-feedback-for-109/`) を fixture として retroactive detection 確認
+- [ ] 派生プロジェクトに deploy
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- kill -9 / power loss シミュレート (forcibly kill) で `.failed` marker と pending file が遅延生成される
+- Drop guard (順位 63) が機能している正常 case では reaper が誤検出しない (false positive ゼロ)
+- 既存 orphan (PR #109 のもの) を retroactive に処理できる
+- 仕様レベル: 「post-merge-feedback はマージ後 5 分以内に必ず完了 or 失敗 marker 化される」が AppCenter 級の SLA で保証される
+
+#### 詰まっている箇所
+
+- SessionStart hook の発火頻度: 1 session 1 回しか走らないと、長時間 session 中に orphan が発生しても拾えない。`cli-pr-monitor` 経路と組み合わせるか、SessionStart + UserPromptSubmit の二段階検出が必要か検討
+- 5 分閾値の妥当性: takt の analyze step は最大 5-10 分かかる場合あり。閾値を 5 分にすると進行中の正常 run を誤検出するリスク。10-15 分が妥当か
+
+---
+
+### exe + `--help` を PreToolUse でブロックして `src/<exe-name>/` Read に誘導する hook (PR #109 T1-3 採用) ★ Bundle c
+
+> **動機**: PR #109 SIGPIPE 事故の **直接トリガ** が「AI が `cli-merge-pipeline.exe --help` を実行 → 当該 exe は `--help` 未対応のため merge 本体を実行 → 出力 truncate で SIGPIPE」だった。ユーザー提案: exe ごとに `--help` を実装する案は exe 数増加で漏れが出るが、`exe + --help` をセットで PreToolUse block すればソース閲覧フローに自動誘導でき、想定外実行を構造的に排除。今後追加される exe にも自動適用される一般解。
+>
+> **本タスクの位置づけ**: Bundle c (PR #109 post-merge-feedback 堅牢化) の trigger pattern 防止層。順位 63 / 64 が「中断されても recovery する」事後対策、本 task は「中断パターンを発生させない」事前対策。
+>
+> **参照**: `.claude/feedback-reports/109.md` Tier 1 #3、`.claude/hooks-config.toml` (PreToolUse block_pattern)、`src/hooks-pre-tool-validate*/`
+>
+> **実行優先度**: 🚀 **Tier 1 High** — Effort S。ユーザー提案の事前防衛策。
+
+#### 設計決定 (案)
+
+- **検出パターン** (regex):
+  - `(?:\.\\.claude\\|\\./|^|\s)(?:[\w\-]+\.exe|cli-[\w\-]+\.exe)\s+(?:--help|-h|/\?)\b`
+  - exe 名は `cli-*.exe` / `hooks-*.exe` / `check-*.exe` 等を含む全 Rust exe 想定
+  - 引数が `--help` / `-h` / `/?` の **単独実行** に限定 (`exe foo --help` のような subcommand help は対象外)
+- **ブロック時の代替誘導メッセージ**:
+  ```text
+  exe の --help は本リポジトリで未実装の可能性があります。
+  詳細を見るには次を試してください:
+    - ソースを Read: src/<exe-name>/src/main.rs (引数定義は clap struct を確認)
+    - 既存 docs を検索: grep -r "<exe-name>" docs/
+  ```
+- **配置先**: `src/hooks-pre-tool-validate*/` の Bash command validation ロジック (既存 git block と同居)
+- **適用範囲**: Bash tool での実行のみ。Read tool 等での参照は対象外
+
+#### 作業計画
+
+- [ ] 既存 `hooks-pre-tool-validate*` の構造を確認 (Rust exe か Python か)
+- [ ] regex パターン設計 + テストケース作成 (TP / FP の境界明確化)
+  - TP: `cli-merge-pipeline.exe --help`、`./.claude/foo.exe -h`
+  - FP: `cargo run --help`、`gh pr view --help`、`exe foo --help` (subcommand)
+- [ ] hook に block ロジック追加 + 代替誘導メッセージ実装
+- [ ] integration test: 上記 TP / FP ケースで block / pass を assert
+- [ ] dogfood: 本 hook 有効状態で `cli-merge-pipeline.exe --help` を実行し block されることを確認
+- [ ] 派生プロジェクトに deploy
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `exe + --help` 系コマンドが Bash tool 経由で block される
+- block メッセージで「ソースを Read」フローに誘導される
+- 既存の正規 `--help` (cargo / gh / pnpm 等) は誤検出しない
+- 今後追加される exe にも自動適用される (regex で exe 名を限定列挙しないため)
+
+#### 詰まっている箇所
+
+- regex の精度: `cli-merge-pipeline.exe` は対象だが `cargo --help` は対象外、という線引きを `.exe` suffix の有無で判定するか exe 名 prefix で判定するかで挙動が変わる。本リポジトリの全 exe を grep して命名規則を確認してから決定
+- AI 側の挙動学習: block されたとき AI が代替フロー (ソース Read) に正しく遷移するかの dogfood 観察。失敗するなら block message を強化
+
+---
+
+### 長時間 subprocess の pipe truncate 禁止ルールをグローバル明文化 (PR #109 T3-1 採用) ★ Bundle c
+
+> **動機**: PR #109 SIGPIPE 事故は「AI が長時間 subprocess (cli-merge-pipeline) の出力を `\| head -40` で truncate」したのが直接トリガ。順位 65 (PreToolUse block) が決定論層、本ルールは AI/人間の判断ガイド層。二層防御で hole を減らす。
+>
+> **本タスクの位置づけ**: Bundle c (PR #109 post-merge-feedback 堅牢化) の知識層。決定論的 block では捕捉しきれないパターン (例: `pnpm push \| tail`、`gh pr view --json reviews \| jq`) も含めて AI に教育的に指示。
+>
+> **参照**: `.claude/feedback-reports/109.md` Tier 3 #5、`~/.claude/rules/common/development-workflow.md`、`~/.claude/rules/common/git-workflow.md`
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。グローバルルール 1 セクション追加。
+
+#### 設計決定 (案)
+
+- **配置先候補** (着手時に決定):
+  - **案 A**: `~/.claude/rules/common/development-workflow.md` の "Bash 実行ガイド" として新セクション追加
+  - **案 B**: `~/.claude/rules/common/git-workflow.md` の "gh CLI 使用規則" の隣に "長時間 subprocess の出力扱い" 節を追加
+  - 推奨: **案 A** (development-workflow が development pipeline 全般を扱うため整合性高い)
+- **記述内容** (案):
+  - 長時間 subprocess (`pnpm push` / `pnpm merge-pr` / `cli-*.exe` / takt workflow) を **`\| head` / `\| tail` / `\| tee` で truncate しない**
+  - 理由: parent process の SIGPIPE で workflow が abrupt 中断され、`.failed` marker や成果物が silent loss する (PR #109 で実証)
+  - 代替策: 出力をファイルに redirect (`> out.log 2>&1`) または `run_in_background` で実行 (Bash tool のオプション) し、後から `tail out.log` 等で確認
+  - 例外: 短命な subprocess (`ls`, `cat` 等) や exit code のみが必要な場合は OK
+- **既存ルールとの関係**: gh CLI 使用規則 (token 効率) と相補。token 効率は --jq / -q による絞り込み、本ルールは長時間 process の中断回避
+
+#### 作業計画
+
+- [ ] 案 A / B のどちらを採用するか決定 (着手時に grep で類似 rule の配置を確認)
+- [ ] 配置先に「長時間 subprocess の出力扱い」セクションを追加 (規則 + 理由 + 代替策 + 例外を 1 ページに集約)
+- [ ] PR #109 SIGPIPE 事故を実例として inline 引用 (`docs/adr/adr-030-...md` 参照)
+- [ ] 派生プロジェクトで global rule 反映を確認 (rule は global、自動適用)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- グローバルルールに「長時間 subprocess の pipe truncate 禁止」が codify される
+- 次回 AI が `pnpm push \| head` 系を打とうとした時、ルール参照で自己修正できる
+- 順位 65 (block_pattern) と整合 (二層防御の上層 = ガイド、下層 = block)
+
+#### 詰まっている箇所
+
+- 「長時間」の定義 ambiguity: `gh pr view` は通常短命だが rate-limit 中は長時間化する。閾値を秒数で明文化するか、特定 exe を列挙するかの判断
+- 例外列挙の網羅性: AI が「これは例外だろう」と自己判断する余地を残すと block_pattern (順位 65) との整合性が崩れる可能性
+
+---
+
+### ADR-030 に abrupt 終了時の振る舞いを spec として明記 (PR #109 T3-2 採用) ★ Bundle c
+
+> **動機**: PR #109 で露呈した「ADR-030 の決定論性が SIGPIPE / kill -9 / power loss で破綻する」問題は、ADR 本文で abrupt 終了時の挙動が **spec として明記されていなかった** ことが根本原因。順位 63 / 64 の実装が ADR-030 の "決定論的" の真の意味を closure する形で land する以上、ADR 本文も同タイミングで spec を拡張する必要がある。
+>
+> **本タスクの位置づけ**: Bundle c (PR #109 post-merge-feedback 堅牢化) の仕様層。順位 63 / 64 の実装と同 PR で land して仕様/実装の整合性を保つ (実装単独で spec ドリフトしない)。
+>
+> **参照**: `.claude/feedback-reports/109.md` Tier 3 #6、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) (試験運用)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。ADR 本文の "失敗マーカーによる recovery" 節を拡張。
+
+#### 設計決定 (案)
+
+- **拡張する節**: ADR-030 の "失敗マーカーによる recovery" を「abrupt 終了 + reaper による多層保証」に拡張
+- **追記内容** (案):
+  - **L1 (in-process)**: Drop guard / signal trap で `Result::Err` 経路に依存せず `.failed` marker を保証 (順位 63 で実装)
+  - **L2 (out-of-process)**: orphan run reaper で `meta.json status=running` 5-15 分放置を検出し marker 補完 + 再起動 (順位 64 で実装)
+  - **致命系の挙動明記**: kill -9 / SIGKILL / power loss / OOM Killer → L1 で救済不可、L2 で救済
+  - **仕様の SLA 化**: 「post-merge-feedback はマージ後 N 分以内に必ず完了 or .failed marker 化される」を保証ステートメントとして記述
+- **試験運用フラグの扱い**: 順位 63 / 64 land 後、本 ADR の "試験運用" フラグを外すか継続するかは dogfood 結果次第。本 task では仕様明記のみ、フラグ判断は別途
+- **関連 ADR との cross-link**: ADR-029 (pending file 自動起動) との関係明記、L2 reaper が ADR-029 経路を再利用する旨
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-030-deterministic-post-merge-feedback.md` を読み、現行の "失敗マーカーによる recovery" 節を確認
+- [ ] 拡張内容を起草 (L1/L2 の責務分離 + SLA 化 + cross-link)
+- [ ] 順位 63 / 64 と同 PR で land する前提で実装と整合
+- [ ] CLAUDE.md ADR index の ADR-030 description (試験運用フラグ等) も必要なら更新
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- ADR-030 本文に L1 (in-process Drop guard) + L2 (out-of-process reaper) の責務分離が記述される
+- abrupt 終了 (SIGPIPE / kill -9 / power loss / OOM) 時の挙動が spec として明記される
+- post-merge-feedback の SLA (= マージ後 N 分以内に完了 or marker 化) がステートメントとして残る
+
+#### 詰まっている箇所
+
+- 試験運用フラグの去就: 順位 63 / 64 で実装が完成しても、dogfood 期間が必要なら試験運用フラグは残す。本 task では仕様明記のみだが、フラグ判断と整合性を取る必要あり
+- SLA の妥当性: 順位 64 の閾値 (5-15 分) と同期する必要があり、閾値が決まらないと SLA も書けない (依存関係)
+

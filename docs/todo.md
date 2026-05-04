@@ -22,7 +22,6 @@
 |---|---|---|---|---|---|
 | 1 | 🚀 Tier 1 | push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) | todo2.md | Small | なし (PR #85 直接対策) |
 | 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
-| 4 | 🚀 Tier 1 | **Stop hook の `pnpm lint:md` 統合 (PR #88 T1-1)** | todo3.md | XS | なし (PR #88 直接対策、旧順位 1 完了済の gap closure) |
 | 5 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
 | 7 | 🚀 Tier 1 | **PowerShell custom-lint-rule の `(?i)` フラグ自動検証 (PR #91 T1-1)** | todo3.md | S | なし (PR #91 直接対策、code-review.md 追記も同 PR で land) |
@@ -43,7 +42,6 @@
 | 26 | 💎 Tier 3 | **post-pr-monitor polling 禁止のグローバル明文化 (PR #86 T3-2)** | todo2.md | XS | なし |
 | 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
-| 29 | 🚀 Tier 1 | **非 docs ファイル `docs/todo` 参照検出 lint rule (PR #94 T1-1) ★ Bundle U** | todo3.md | S | なし (PR #94 直接対策、Cross-File Reference Lifecycle の決定論的防止層) |
 | 30 | 💎 Tier 3 | **Cross-File Reference Lifecycle ルールに具体例追記 (PR #94 T3-2) ★ Bundle U** | todo3.md | XS | なし (Bundle U で 29 と並行 land 推奨) |
 | 33 | 💎 Tier 3 | **code-review.md に新 verdict 経路追加時の 3 点チェックリスト追記 (PR #95 T3-4) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策、verdict path 整合性) |
 | 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | 順位 19 land 後推奨 (PR #96 直接対策、AI が flaky 実装を書ける窓を spec 層で塞ぐ) |
@@ -71,6 +69,11 @@
 | 60 | 💎 Tier 3 | **analyze-session の transcript filter 絞り込み (旧 #A-3)** | todo5.md | M | なし (旧 docs/pipeline-token-efficiency.md #A-3、ADR-036/037 化に伴い計画書削除、本 task のみ todo に移管。analyze-session の input range を PR 作成 commit〜merge に限定して input token 30-50% 削減見込み、dogfood で実測必要) |
 | 61 | 🔧 Tier 2 | **post-PR 検証フローに CR review.body 手動スキャン step 追加 (PR #108 T2-1 採用)** | todo5.md | XS | なし (PR #108 で analyze-coderabbit が review body の outside diff range comment を検出漏れし line 371/378 の修正が後追い、blind spot の暫定緩和策として手動 checklist を整備) |
 | 62 | 💎 Tier 3 | **Document Governance: docs lifecycle 区分明文化 (PR #108 T3-1 採用)** | todo5.md | XS | なし (PR #108 dogfood で本セッションが暗黙的に運用した docs/todo*.md = ephemeral / ADR / docs/ = permanent の区分を `~/.claude/rules/common/` に codify、ephemeral artifact 参照禁止 + retirement 2-step workflow を明文化) |
+| 63 | 🚀 Tier 1 | **cli-merge-pipeline に Drop guard / signal handler 追加 (PR #109 T1-1 採用) ★ Bundle c** | todo5.md | M | なし (PR #109 SIGPIPE 事故で ADR-030「失敗マーカーによる recovery」仕様の構造的違反が実証、Pre-emptive marker + signal trap で abrupt 経路を多層防御) |
+| 64 | 🚀 Tier 1 | **orphan run reaper (`meta.json status=running` 5-15 分放置検出 + 自動再起動) (PR #109 T1-2 採用) ★ Bundle c** | todo5.md | M | なし (順位 63 で救済不可の致命系 = kill -9 / SIGKILL / power loss / OOM の backstop、SessionStart hook または cli-pr-monitor 経路で実装) |
+| 65 | 🚀 Tier 1 | **exe + `--help` を PreToolUse でブロックして src/ Read に誘導 (PR #109 T1-3 採用) ★ Bundle c** | todo5.md | S | なし (PR #109 SIGPIPE の直接トリガ = AI が `cli-merge-pipeline.exe --help` 実行 → exe は --help 未対応で merge 本体実行を構造的に防止、今後追加 exe にも自動適用) |
+| 66 | 💎 Tier 3 | **長時間 subprocess の pipe truncate 禁止ルールをグローバル明文化 (PR #109 T3-1 採用) ★ Bundle c** | todo5.md | XS | なし (順位 65 = 決定論層、本ルール = 判断ガイド層、`~/.claude/rules/common/development-workflow.md` 等に追加) |
+| 67 | 💎 Tier 3 | **ADR-030 に abrupt 終了時の振る舞いを spec として明記 (PR #109 T3-2 採用) ★ Bundle c** | todo5.md | XS | 順位 63 / 64 と同 PR (実装と仕様の整合性確保、L1 in-process Drop guard + L2 out-of-process reaper の責務分離 + SLA 化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -94,6 +97,8 @@
 - **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化** + **integration test 追加** (rate-limit 検出 → backoff → retry サイクルの regression 防止、PR #100 post-merge-feedback T2-1 採用) + **`parse_findings` 系 error-path test infra** (順位 49、PR #101 T2-1、`unwrap_or_else(\|_\| empty)` silent fallback の test 検証)。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
 
 **PR #101 (Bundle a Sub-PR 1) post-merge-feedback 反映 (2026-05-03)**: 9 件の finding を頻度評価 (過去 report 横断 + 同一 PR latent 件数) して **3 件を採用**。**順位 47 (`>` vs `>=` boundary lint)** は同一ファイル内 3 関数 (parse_listed_findings / parse_new_comments / parse_findings) で同 drift が実証済 = latent 高頻度。**順位 48 (関数長 oxlint)** は #96 / #101 で繰り返し言及 = explicit 高頻度。両者とも Bundle Z #B-α と同じ「決定論的防止層」哲学で、Bundle Z Phase 1 (Rust comment lint) の land 後に並列 deploy 可能。**順位 49 (error-path test infra)** は #99 / #101 で同型 silent fallback anti-pattern が再発、Bundle a Sub-PR 2 (順位 42 / 43 / 46) と **同一 PR で land** 推奨 (cli-pr-monitor の mock infrastructure を再利用、test 二重投資なし)。残り 6 件 (Tier 1 #1, #3, #5、Tier 2 #2、Tier 3 #1, #2) は session 1 回限りの low-frequency events として不採用。
+
+**Bundle c (PR #109 post-merge-feedback 堅牢化、2026-05-04)**: PR #109 で post-merge-feedback workflow が SIGPIPE で silent 中断され `.failed` marker 未生成という ADR-030 仕様違反が実証された。5 件採用 (Tier 1 #63/#64/#65 + Tier 3 #66/#67) で **3 層防御** を構築: (1) 事前防止 = 順位 65 (exe + `--help` を PreToolUse block) + 順位 66 (グローバルルールの subprocess pipe truncate 禁止)、(2) in-process recovery = 順位 63 (Drop guard / signal trap で abrupt 終了時の `.failed` marker 保証)、(3) out-of-process backstop = 順位 64 (`meta.json status=running` 5-15 分放置 reaper)。順位 67 (ADR-030 spec 拡張) は実装と同 PR で仕様/実装の整合性確保。**Sub-PR 分割推奨**: c-1 (順位 63 + 64 + 67、Rust 実装 + ADR、Effort M+M+XS、コア層) / c-2 (順位 65 + 66、hook + global rule、Effort S+XS、trigger 防止層)。c-1 と c-2 は独立に land 可能だが c-1 land 後の dogfood で recovery 機構を実証してから c-2 を入れると順位の合理性が見える順序になる。
 
 ---
 

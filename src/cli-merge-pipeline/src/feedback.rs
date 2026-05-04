@@ -610,7 +610,7 @@ mod tests {
             "additions": 10,
             "deletions": 5,
             "files": [
-                { "path": "docs/todo.md", "additions": 10, "deletions": 5 }
+                { "path": "docs/sample.md", "additions": 10, "deletions": 5 }
             ],
         });
         let summary = parse_pr_diff_summary(&json).unwrap();
@@ -641,7 +641,7 @@ mod tests {
             "additions": 20,
             "deletions": 10,
             "files": [
-                { "path": "docs/todo.md", "additions": 10, "deletions": 5 },
+                { "path": "docs/sample.md", "additions": 10, "deletions": 5 },
                 { "path": "src/main.rs",  "additions": 10, "deletions": 5 }
             ],
         });

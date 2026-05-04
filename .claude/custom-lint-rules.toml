@@ -167,3 +167,36 @@ steps = [
 [rules.example]
 bad = 'See [推奨実行順序](todo.md#推奨実行順序サマリー)'
 good = 'See [推奨実行順序](todo.md#recommended-order-summary)  <!-- with <a id="recommended-order-summary"></a> in target file -->'
+
+# ─── ルール⑥: 非 docs ファイルからの ephemeral todo 参照禁止 ───
+#
+# 由来: PR #94 で 3 種類のファイル (Rust raw string literal / TOML config comment /
+# JSONC config header) で ephemeral 参照が発見された。
+# `~/.claude/rules/common/coding-style.md` の Cross-File Reference Lifecycle ルール
+# (永続成果物 → ephemeral artifact 参照禁止) の決定論的検出層。
+#
+# Self-exclusion 設計:
+# Rust regex は lookbehind 非対応のため負 lookahead は使用不可。本ファイル自身は
+# .toml 拡張子で対象内だが、message / why / example 内に concrete `docs/todoN.md`
+# (N = digit 形式) を書かないことで self-trigger を回避する。placeholder の N は
+# digit class `[0-9]` に matches しないため pattern が hit しない。
+
+[[rules]]
+id = "no-ephemeral-todo-reference"
+pattern = 'docs/todo[0-9]*\.md'
+severity = "warning"
+message = "永続成果物から ephemeral todo entry への literal 参照を検出。stale pointer 化リスクあり"
+why = "Cross-File Reference Lifecycle ルール (~/.claude/rules/common/coding-style.md) の決定論的防止層。todo entry が完了削除されると参照が壊れる。安定 anchor (ADR / PR 番号 / 安定 docs パス) に置き換えてください"
+extensions = ["rs", "toml", "jsonc", "json", "yaml", "yml", "ts", "tsx", "js", "jsx", "py", "ps1"]
+
+[rules.fix]
+strategy = "ADR / PR 番号 / 安定 docs パスへの置換"
+steps = [
+  "ADR がある場合: docs/adr/adr-NNN-...md へのリンクに置換",
+  "PR 由来の判断の場合: PR #NNN を参照 (具体的な行は git log / git blame で追える)",
+  "それ以外: docs/<task-list> placeholder を使うか、参照を inline で展開",
+]
+
+[rules.example]
+bad = 'BLOCK_MESSAGE: &str = "詳細: docs/todoN.md (N = 数字) の \"<section>\" 参照";'
+good = 'BLOCK_MESSAGE: &str = "詳細: docs/adr/adr-NNN-feature.md 参照";'
