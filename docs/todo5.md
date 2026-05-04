@@ -100,7 +100,7 @@
 >
 > **本タスクの位置づけ**: PR #103 セッション知見 (post-merge-feedback の Tier 3 #1 = ADR 化提案を skip し、機構で塞ぐ実装層対策を採用)。Bundle Z 3 層 (#B-α / #B-β / #B-γ) では完全に塞げない独立改善。reviewer の判定精度を構造的に改善することで 6-iter outlier の発生率を 0% 近くに抑える。
 >
-> **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[docs/pipeline-token-efficiency.md](pipeline-token-efficiency.md) PR #97 / #103 の 6-iter outlier 観測データ
+> **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[ADR-036: Bundle Z 3 層アーキテクチャ](../docs/adr/adr-036-bundle-z-three-layer-review.md) (PR #97 ベースライン observation を含む、本 task は Bundle Z 3 層では塞げない独立改善)
 >
 > **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。
 
@@ -398,4 +398,119 @@
 #### 詰まっている箇所
 
 - 順位 56 (PR #104 T2-1+T2-2 test 拡充) と同 PR で bundle するか別 PR とするか。両者とも test additions、同ファイル同 test module で scope clean、bundle 推奨。
+
+---
+
+### ADR-035: docs 評価ポリシー (PR #107 T3-1 採用)
+
+> **動機**: PR #107 (順位 58 = post-merge-feedback rubric format 拡張) の dogfood で、AI reviewer が code-specific review criteria (mutation / error handling / test coverage / function length / DRY 等) を documentation-only 変更に誤適用するパターンが確認された。これにより docs / facet instruction / planning markdown の編集 PR で false REJECT が発生しやすく、開発体験劣化 + token 浪費の原因となる。
+>
+> **本タスクの位置づけ**: PR #107 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None / ✅ 採用)。`review-security.md` には既に "Docs-only changes: trust boundary criterion" セクションがあり (Bundle Z Phase 3 で導入)、本 task は同パターンを `review-simplicity.md` / `analyze-coderabbit.md` 等の他 reviewer facet にも一貫展開し、global policy として ADR-035 で集約する。
+>
+> **参照**: `.claude/feedback-reports/107.md` Tier 3 #1、`.takt/facets/instructions/review-security.md` 既存 trust boundary criterion、PR #106 で追加した Phase 3 review facets
+>
+> **実行優先度**: 💎 **Tier 3** — Effort M。ADR 1 本 + 既存 facet 横断更新 + 派生プロジェクト展開。
+
+#### 設計決定 (案)
+
+##### ADR の位置づけ
+
+- 番号: ADR-035 (順位 58 で言及した ADR-035 Paradigm Shift Guidance は採用見送り済、再利用可能)
+- 配置: `docs/adr/adr-035-doc-evaluation-policy.md`
+- 試験運用フラグなし (定着しているパターンの formalize)
+
+##### docs-only 変更の判定基準 (ADR で明文化)
+
+- **path 基準**: 編集ファイルが以下のいずれかに完全に収まる:
+  - `docs/**`、`*.md` (root README 等を含む)
+  - `.takt/facets/instructions/**` (facet instruction = AI prompt、コードではない)
+  - `.takt/workflows/**.yaml` の comment / description フィールドのみ変更
+  - source code 内の doc comment (`///` / `//!` / `/** */` 等) のみ変更
+- **diff 内容基準**: executable code logic への変更なし (= AST 上の関数 body / 制御フロー / 変数宣言が不変)
+- 両基準を満たす PR を "docs-only" と判定
+
+##### 適用される評価ポリシー (docs-only PR の場合)
+
+- ✅ **適用する criteria**:
+  - 既存 `review-security.md` の trust boundary criterion (auth policy / permission scope / secret handling / API contract 等が変わるか)
+  - cross-reference の整合性 (リンク切れ / 廃止された path 参照 / ephemeral artifact への永続参照)
+  - markdown 構文 / lint (markdownlint で機械検出される範囲)
+- ❌ **適用しない criteria** (false REJECT 源泉):
+  - mutation / immutability check
+  - error handling / Result / panic safety
+  - test coverage / test addition 要求
+  - function length / nesting depth / complexity metrics
+  - DRY / YAGNI を code logic 視点で適用 (docs hierarchy / 計画文書例外は維持)
+
+##### facet instructions への反映
+
+- `review-simplicity.md`: 既存 "DRY / YAGNI scope" の例外列挙を ADR-035 を引用する形に圧縮
+- `review-security.md`: 既存 "Docs-only changes: trust boundary criterion" を ADR-035 を引用 + 拡張
+- `analyze-coderabbit.md`: docs-only 判定 + code criteria 除外を新規追加 (PR #107 で発生した CodeRabbit findings の AI 適合性フィルタを支える)
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-035-doc-evaluation-policy.md` を新規作成 (path / diff 内容判定基準 + 適用 / 不適用 criteria リスト + 既存 facet との関係)
+- [ ] `CLAUDE.md` の ADR index に ADR-035 を追加
+- [ ] `.takt/facets/instructions/review-simplicity.md` を ADR-035 引用に更新 (既存 DRY / YAGNI scope の docs 例外を ADR で参照)
+- [ ] `.takt/facets/instructions/review-security.md` を ADR-035 引用に更新 (既存 trust boundary criterion を ADR-035 のもとへ集約)
+- [ ] `.takt/facets/instructions/analyze-coderabbit.md` に docs-only 判定 + code criteria 除外を追加
+- [ ] dogfood: 次の docs-only PR (例: 完了タスク削除のみの PR) で false REJECT が発生しないこと確認
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) の同 facet に展開
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- ADR-035 が docs-only 評価ポリシーを single source of truth として確立
+- review-{simplicity, security} + analyze-coderabbit の 3 facets が ADR-035 を参照、code criteria の docs PR への誤適用が構造的に排除
+- docs-only PR の false REJECT 率が 0% 近くに
+
+#### 詰まっている箇所
+
+- "docs-only" の境界判定 (例: facet instruction = AI prompt は code か docs か、yaml の structural 変更 = code か docs か) で AI 解釈が揺れる可能性 → ADR で具体例を 5-10 件列挙して cluster 化を狙う
+- 既存 facet との重複削除で意味が変わらないよう注意 (review-security.md trust boundary criterion を ADR-035 に移動した結果、reviewer が docs PR を素通しするバグが発生しないか dogfood で確認)
+
+---
+
+### analyze-session の transcript filter 絞り込み (旧 #A-3)
+
+> **動機**: `cli-merge-pipeline` が生成する `.takt/post-merge-feedback-transcript.jsonl` は **session 全履歴** を含むため、analyze-session step が読み込む input token が大きい。当該 PR に直接関連する範囲のみ filter すれば input token 削減 = post-merge-feedback の cache_read 削減。
+>
+> **本タスクの位置づけ**: 旧 `docs/pipeline-token-efficiency.md` の #A-3 entry。同計画書は ADR-036 (Bundle Z 3 層) / ADR-037 (fix-trust shortcut) に主要決定を移し終了予定で、残作業として本 task のみ todo に移管。Bundle 化対象なし、独立 PR 推奨。
+>
+> **参照**: (削除済) `docs/pipeline-token-efficiency.md` #A-3 セクション、`src/cli-merge-pipeline/` の transcript 生成ロジック
+>
+> **実行優先度**: 💎 **Tier 3** — Effort M。ROI ★★★ で優先度中程度、dogfood 実測が必要。
+
+#### 設計決定 (案)
+
+- **filter 範囲**: 当該 PR の作成 commit (= cli-pr-monitor が PR を最初に検出した時刻、または `pnpm create-pr` 完了時刻) から merge 完了時刻までの jsonl 行のみ
+- **時刻判定**: jsonl の `timestamp` field を使用 (各エントリに ISO 8601 形式で記録あり)
+- **境界の扱い**:
+  - 開始時刻 *以降*: PR 作業中の Claude 対話 + tool 実行履歴
+  - 終了時刻 *まで*: merge 完了 (= post-merge-feedback 起動の直前まで)
+  - 境界外 (PR 作成前 / merge 後): 除外
+- **既存挙動との互換**: 開始時刻取得失敗時 (state file なし等) は全 session フォールバック (no-regression)
+
+#### 作業計画
+
+- [ ] `cli-merge-pipeline` の transcript 生成ロジックを特定
+- [ ] PR 作成時刻 / merge 時刻の取得経路を確定 (`.claude/cli-pr-monitor-state.json` or `gh pr view --json mergedAt` 等)
+- [ ] timestamp 比較で jsonl 行を filter する logic を実装
+- [ ] 開始時刻取得失敗時のフォールバック (全 session) を保持
+- [ ] dogfood 1-2 PR で input token 削減量を実測 (analyze-session の billable input tokens で比較)
+- [ ] 削減効果が想定 30-50% に届くか確認、届かない場合は filter 設計を見直し
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- analyze-session の input token が PR 作業範囲のみに絞り込まれる
+- dogfood で 30-50% 削減を実測 (削減未達なら filter 設計を見直し)
+- 開始時刻取得失敗時のフォールバックが機能 (regression なし)
+
+#### 詰まっている箇所
+
+- 「PR 作成前の議論 (設計判断、却下されたアイデア)」が落ちる可能性 → post-merge-feedback の知見質に影響しうる。dogfood で「重要 finding が拾えなくなった」事象が出たら filter 範囲を広げる (例: PR 作成 commit から 2 時間前まで遡る等)
+- transcript jsonl の structure 変更時に filter logic が壊れる risk → field name (`timestamp`) を assert する unit test を追加
 
