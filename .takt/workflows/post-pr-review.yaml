@@ -93,7 +93,17 @@ steps:
     pass_previous_response: false
     instruction: fix
     rules:
-      - condition: Fixes complete
+      # Phase 3 / #C-2 fix-trust shortcut: fix step が Convergence verdict
+      # `convergence_verdict: fully_resolved` を report したら analyze 再実行を
+      # skip して直接 COMPLETE。3-iter run を 2-iter に圧縮する。
+      - condition: |
+          Report ends with `convergence_verdict: fully_resolved` (Convergence
+          gate shows persists: 0 AND misdirected: 0). All findings of this
+          iteration are fully resolved with no remaining work.
+        next: COMPLETE
+      - condition: |
+          Fixes applied but `convergence_verdict: partial` (some findings
+          persist or were misdirected, re-analysis needed).
         next: analyze
       - condition: Unable to proceed with fixes
         next: supervise

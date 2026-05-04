@@ -1,10 +1,4 @@
-Review the changes from a security perspective. Check for the following vulnerabilities:
-- Injection attacks (SQL, command, XSS)
-- Authentication and authorization flaws
-- Data exposure risks (hardcoded secrets, API keys, tokens)
-- Cryptographic weaknesses
-- Unsafe code without safety comments (Rust)
-- Path traversal risks
+Focus on **security anomaly detection** in the changed diff. Categorical vulnerability classes (injection / auth flaws / data exposure / crypto weakness / unsafe code / path traversal) remain in scope, but the bar for raising a finding is the same as the simplicity facet: an articulable concern with a concrete exploit path, not a checklist tick.
 
 ## Obtaining the diff
 
@@ -21,16 +15,38 @@ Before evaluating the change, **read the following project documents** using the
 
 **Important:**
 - Do not treat documented precedence rules, extension points, or configuration override behavior as vulnerabilities by themselves.
-- To issue a blocking finding, make the exploit path concrete: who controls what input, and what newly becomes possible.
+- To raise a blocking finding, make the exploit path concrete: who controls what input, and what newly becomes possible.
 
-## Judgment Procedure
+## Vulnerability dimensions (use as memory aid, not a checklist)
 
-1. Review the change diff and extract issue candidates
-2. For each candidate, verify the concrete exploit path
-   - Which actor controls the input or configuration
-   - Whether the change enables new privilege, data access, code execution, or prompt modification
-3. For each detected issue, classify it as blocking or non-blocking
-4. If there is even one blocking issue, judge as REJECT
+The following classes remain reviewable, but flag them only when you can construct a concrete exploit path:
+
+- **Injection attacks**: SQL, command, XSS — actor-controlled input flowing into an interpreter without escaping
+- **Authentication and authorization flaws**: Missing checks, scope confusion, privilege escalation paths
+- **Data exposure risks**: Hardcoded secrets, API keys, tokens, sensitive logs
+- **Cryptographic weaknesses**: Broken algorithms, missing randomness, weak key handling
+- **Unsafe code without safety comments** (Rust): `unsafe` blocks lacking `// SAFETY:` justification
+- **Path traversal**: Unsanitized file paths reaching filesystem APIs
+
+## Anomaly mode (preferred entry point)
+
+Read the diff once, end-to-end, before consulting the dimensions list. If a pattern reads as **unusual / unexplained / hard to justify** from a security standpoint, that is your primary signal. The dimensions above are a memory aid for what to do with that signal, not a substitute for it.
+
+For each finding, articulate:
+
+- **What is unusual or risky**
+- **Who controls the relevant input or configuration**
+- **What newly becomes possible** (data access, privilege, code execution, prompt modification)
+
+If you cannot articulate the third bullet, the finding is speculative — downgrade or drop it.
+
+## Judgment procedure
+
+1. Read the diff from `.takt/review-diff.txt`
+2. Read straight through. Note any pattern that triggers a security concern
+3. For each candidate, verify the concrete exploit path (input control, what becomes possible)
+4. Classify each verified concern as blocking or non-blocking
+5. If there is even one blocking concern with a concrete exploit path, judge as REJECT
 
 ## Docs-only changes: trust boundary criterion
 
