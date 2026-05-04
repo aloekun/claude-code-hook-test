@@ -16,7 +16,7 @@ PR #99 セッションで以下の運用痛が観測された:
 
 ## 検討した選択肢
 
-`docs/pipeline-token-efficiency.md` #D セクションで 4 案を検討:
+(削除済) `docs/pipeline-token-efficiency.md` #D セクションで 4 案を検討:
 
 - **#D-1**: gh CLI 使用ルール (rule 追記)
 - **#D-2**: `pnpm cr:findings <PR>` wrapper script
@@ -39,7 +39,7 @@ PR #99 セッションで以下の運用痛が観測された:
 ### 取り下げた案
 
 - **#D-2 (pnpm cr:findings wrapper)**: ❌ 取り下げ。#D-3 が機能を内包 (Rust 構造化 findings JSON は wrapper script より widely usable、ADR-022 責務分離原則にも整合)
-- **#D-4 (応答スタイル簡素化)**: ⏸️ 保留。**思考連続性低下リスク** (中間出力削減で後段の context 再構築コストが増え、token カテゴリが入れ替わるだけで正味削減が縮む可能性) を考慮、Bundle Z Phase 2/3 完了後の副作用観測手段確立を待つ。再評価条件は「将来の検討事項」参照
+- **#D-4 (応答スタイル簡素化)**: ❌ **不採用** (2026-05-04 ユーザー判断、Bundle Z Phase 2/3 完了後の再評価で確定)。**思考連続性低下リスク** (中間出力削減で後段の context 再構築コストが増え、token カテゴリが入れ替わるだけで正味削減が縮む可能性) と **副作用観測手段の継続的不在** を考慮した最終判断。潜在 2.5-4M tokens 削減は採用見送り
 
 ## 実装方針 (2 Sub-PR 分割)
 
@@ -120,7 +120,7 @@ PR #99 セッションで以下の運用痛が観測された:
 ### Trade-off
 
 - 開発体験の質的変化 (rate-limit 手動介入消滅) を **token 削減効果より優先**
-- #D-4 (応答スタイル) の保留により、潜在 2.5-4M tokens 削減を見送り
+- #D-4 (応答スタイル) の **不採用** (2026-05-04 確定) により、潜在 2.5-4M tokens 削減は永続的に見送り
 
 ## 別セッションでの実装に必要な情報
 
@@ -174,16 +174,6 @@ PR #99 セッションで以下の運用痛が観測された:
 
 ## 将来の検討事項
 
-### #D-4 (Claude 応答スタイル簡素化) の再評価条件
-
-Bundle Z Phase 2/3 (#B-β / #B-γ) 完了後、以下が確立した時点で慎重 pilot を実施:
-
-- **副作用観測手段**: session 比較メトリクス (思考品質 proxy 指標 = 再 grep / 再 read 頻度の変化、修正回数の変化等)
-- **段階的展開**: rule を一気に書かず、1 種類ずつ (Insight ブロック → 完了報告 → 分析テーブル) 試す
-- **dogfood 比較**: 同種 PR を rule あり / なしで比較し、token 削減量と思考品質の trade-off を定量化
-
-これらが揃わない限り、#D-4 は保留継続。
-
 ### Bundle a 着手時の前提条件 reality check
 
 - CR の rate-limit 仕様が変わっていないか (memory `project_coderabbit_rate_limit_overlay.md` の挙動が再現するか) を着手前に dogfood で確認
@@ -196,6 +186,6 @@ Bundle Z Phase 2/3 (#B-β / #B-γ) 完了後、以下が確立した時点で慎
 - ADR-022: 自動化コンポーネントの責務分離原則
 - ADR-026: Cargo workspace
 - ADR-030: Deterministic post-merge-feedback
-- `docs/pipeline-token-efficiency.md` #D セクション (採用判定改訂 2026-05-02)
+- (削除済) `docs/pipeline-token-efficiency.md` #D セクション (採用判定改訂 2026-05-02、本 ADR で経緯保存)
 - memory `project_coderabbit_rate_limit_overlay.md`
 - PR #99 (本 ADR の起源、cli-pr-monitor の rate-limit detection gap が顕在化したセッション)

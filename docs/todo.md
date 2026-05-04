@@ -71,6 +71,7 @@
 | 56 | 🔧 Tier 2 | **comment-lint hook test 拡充 (PR #104 T2-1+T2-2 bundle)** | todo5.md | S | なし (UTF-8 multi-byte 5 パターン + block comment boundary 6 パターンを `locate_string_line_ranges` / `span_overlaps_ranges` の回帰テストとして体系化、PR #104 Critical/Minor fix の固定化) |
 | 57 | 🔧 Tier 2 | **Aggregation cap integration test (PR #105 T2-1 採用)** | todo5.md | S | なし (`collect_all_violations` の MAX_VIOLATIONS contract を test 化、将来の lint 追加時に `truncate(MAX)` 削除 regression を防止する explicit 安全網) |
 | 59 | 💎 Tier 3 | **ADR-035: docs 評価ポリシー (PR #107 T3-1 採用)** | todo5.md | M | なし (PR #107 dogfood で AI が code review criteria を documentation-only PR に誤適用するパターンを確認、review-security.md の trust boundary criterion を全 reviewer facet に拡張、false REJECT 削減) |
+| 60 | 💎 Tier 3 | **analyze-session の transcript filter 絞り込み (旧 #A-3)** | todo5.md | M | なし (旧 docs/pipeline-token-efficiency.md #A-3、ADR-036/037 化に伴い計画書削除、本 task のみ todo に移管。analyze-session の input range を PR 作成 commit〜merge に限定して input token 30-50% 削減見込み、dogfood で実測必要) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

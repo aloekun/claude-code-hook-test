@@ -114,8 +114,9 @@
 ## 関連ドキュメント
 
 - [docs/todo.md](todo.md) — 推奨実行順序サマリ表 (priority table)
-- [docs/pipeline-token-efficiency.md](pipeline-token-efficiency.md) — pipeline efficiency 改善計画 (関連分野: post-pr-review との接続)
 - [docs/docs-pr-iteration-efficiency.md](docs-pr-iteration-efficiency.md) — 並列の docs PR iteration 領域
+- [ADR-036: Bundle Z 3 層アーキテクチャ](adr/adr-036-bundle-z-three-layer-review.md) — pre-push-review 改善 (旧 pipeline-token-efficiency.md #B セクション)
+- [ADR-037: takt fix-trust shortcut](adr/adr-037-takt-fix-trust-shortcut.md) — post-pr-review 短縮 (旧 #C-2)
 - [ADR-009: Post-PR Monitor — push/PR作成後の CI・CodeRabbit 自動監視](adr/adr-009-post-pr-monitor.md)
 - [ADR-018: cli-pr-monitor の takt ベース移行と CronCreate 廃止](adr/adr-018-pr-monitor-takt-migration.md) — Bundle b で再導入する CronCreate の設計根拠 (廃止判断と整合)
 - [ADR-019: CodeRabbit レビュー運用のハイブリッド構成](adr/adr-019-coderabbit-review-hybrid-policy.md) — CodeRabbit 運用根拠

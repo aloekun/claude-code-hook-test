@@ -342,9 +342,9 @@
 
 > **動機**: Bundle Y2 (PR #98) で analyze 系 step を sonnet → haiku に変更したが、ROI 根拠は `docs/pipeline-token-efficiency.md` の推定値 (PR #78 dogfood 12m13s → 並列化想定 7m30s) のみ。PR #98 セッション内観測 (post-pr-review takt 1m 13s / post-merge-feedback 8m 9s) は単発データで baseline (PR #97 セッション、avg 8.9 分) との比較が systematic にドキュメント化されていない。Bundle Z (#B-*) / Bundle Z2 (#D-*) の ROI 判断材料として PR #97 (sonnet baseline) vs PR #98 以降 (haiku) の実測比較を 3-5 PR 分集計し記録する。
 >
-> **本タスクの位置づけ**: Bundle Y2 効果検証層。`docs/pipeline-token-efficiency.md` の「検証方法」セクション (① jsonl セッションメトリクス + ② takt run meta.json 集計) を実行し、結果を計画書末尾に「実測検証データ」セクションとして追記。想定削減量達成時は計画書の Bundle Y2 セクションを retire し ADR 化判断の材料とする (計画書ヘッダー L5 方針)。
+> **本タスクの位置づけ**: Bundle Y2 効果検証層。**注: 動機の主軸 (Bundle Z / Z2 ROI 判断材料) は失効** — Bundle Z は PR #99/#103/#106 で完成、Bundle Z2 = #D-4 はユーザー判断で不採用 (ADR-034 参照)。本 task は obsolete 候補だが、takt パイプライン効率の継続観測としてなら価値あり。**本格着手前にユーザー判断要 (削除 vs 縮小スコープで継続)**。検証方法は (削除済) `docs/pipeline-token-efficiency.md` 「検証方法」セクションに記載されていた jsonl セッションメトリクス + takt run meta.json 集計。
 >
-> **参照**: `.claude/feedback-reports/98.md` Tier 2 #2、`docs/pipeline-token-efficiency.md` 「検証方法」セクション
+> **参照**: `.claude/feedback-reports/98.md` Tier 2 #2、(削除済) `docs/pipeline-token-efficiency.md` 「検証方法」セクション (内容は git log で復元可能)
 >
 > **実行優先度**: 🔧 **Tier 2** — Effort Medium。3-5 PR の merge 経過後のデータ集計タスクで、即時着手ではなく観察ベース。Bundle Z / Z2 着手前のベースライン整理として有用。
 
@@ -355,11 +355,10 @@
   - 一意 cache_creation tokens (jsonl usage 集計)
   - 該当 step の billable input token 削減幅 (haiku は sonnet の約 1/3 cost 想定)
 - **比較期間**:
-  - baseline: PR #97 セッション (2026-04-30 〜 2026-05-01 JST) — `docs/pipeline-token-efficiency.md` の「観測データ」セクション既値
+  - baseline: PR #97 セッション (2026-04-30 〜 2026-05-01 JST) — (削除済) `docs/pipeline-token-efficiency.md` の「観測データ」セクション既値 (git log で復元可能)
   - 計測期間: PR #98 merge 後 3-5 PR (Bundle Z / Z2 着手前まで)
 - **記録先**:
-  - `docs/pipeline-token-efficiency.md` 末尾に「実測検証データ」セクションを追加 (計画書が retire される前の最終 update)
-  - 想定削減量の 70% 以上達成 → 計画書の Bundle Y2 セクション削除 → ADR 化判断材料、未達 → 原因分析を計画書末尾に追記し追加 Bundle 提案
+  - **(計画書 retire 済 = 2026-05-04)** 旧計画は `docs/pipeline-token-efficiency.md` 末尾に「実測検証データ」追記、想定削減量達成判定に基づく retire / Bundle 追加提案だった。計画書削除済のため、本 task を継続する場合は本 entry 内に直接記録する設計に変更すべき
 
 #### 作業計画
 
@@ -368,13 +367,13 @@
 - [ ] 検証方法 ② (takt run meta.json 集計) を実行
 - [ ] baseline (PR #97) と比較し削減幅を表に記録
 - [ ] 想定削減量 (session あたり 15-20 分削減) との乖離を分析
-- [ ] 結果を `docs/pipeline-token-efficiency.md` 末尾に追記
+- [ ] 結果を本 todo entry 内 (もしくは新規 ADR) に記録 — 旧計画は (削除済) `docs/pipeline-token-efficiency.md` 末尾追記だったが計画書 retire 済
 - [ ] 想定削減量達成判定に基づき計画書 retire / 追加 Bundle 提案
 - [ ] 本 todo4.md エントリを削除
 
 #### 完了基準
 
-- PR #98 merge 後 3-5 PR の実測値が `docs/pipeline-token-efficiency.md` に記録される
+- PR #98 merge 後 3-5 PR の実測値が本 entry または新規 ADR に記録される (旧計画は (削除済) `docs/pipeline-token-efficiency.md` 末尾追記)
 - baseline (PR #97) との削減幅が Bundle Y2 の想定削減量と比較され、達成 / 未達の判定がある
 - Bundle Z / Z2 の ROI 判断材料として活用可能なデータが揃う
 
@@ -486,7 +485,7 @@
 >
 > **本タスクの位置づけ**: Bundle a の **Sub-PR 1 token 削減層**。`check-ci-coderabbit --list-findings` Rust 実装 と同 PR で land 推奨。global rule (`~/.claude/rules/common/git-workflow.md`) への追記のため本リポジトリ scope 外だが、開発体験への影響は本リポジトリで主に発生。
 >
-> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、`docs/pipeline-token-efficiency.md` #D-1 セクション、PR #99 セッションで実証された rate-limit overlay (memory `project_coderabbit_rate_limit_overlay.md`)
+> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、(削除済) `docs/pipeline-token-efficiency.md` #D-1 セクション (経緯は ADR-034 で保存)、PR #99 セッションで実証された rate-limit overlay (memory `project_coderabbit_rate_limit_overlay.md`)
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。rule 追記のみ。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
 
@@ -525,7 +524,7 @@
 >
 > **本タスクの位置づけ**: Bundle a の **Sub-PR 1 token 削減層 (cli-pr-monitor 連携 API 提供)**。gh CLI 使用規則追記 と同 PR で land 推奨。Sub-PR 2 (rate-limit auto-retry 実装) の前提条件。
 >
-> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、`docs/pipeline-token-efficiency.md` #D-3 セクション、ADR-022 (自動化コンポーネントの責務分離原則 — Rust 側実装が ADR-022 と整合する根拠)
+> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、(削除済) `docs/pipeline-token-efficiency.md` #D-3 セクション (経緯は ADR-034 で保存)、ADR-022 (自動化コンポーネントの責務分離原則 — Rust 側実装が ADR-022 と整合する根拠)
 >
 > **実行優先度**: 🔧 **Tier 2** — Effort Medium。Rust 実装 + テスト。`check-ci-coderabbit` crate (既存) への mode 追加で、新 crate 作成は不要 (ADR-026 Cargo workspace member 構成変更なし)。
 
