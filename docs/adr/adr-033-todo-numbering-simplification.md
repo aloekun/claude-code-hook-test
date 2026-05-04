@@ -115,6 +115,59 @@ grep -nE "順位 [0-9A-Za-z_-]+" docs/todo.md docs/todo2.md docs/todo3.md \
 # ADR の本文中で「絶対番号を示唆する placeholder を本文に書かない」方針を機械検証する。
 ```
 
+## priority table 運用ルール (PR #111 post-merge-feedback で追加)
+
+本 ADR 採用後の運用で発見された 2 件の暗黙的設計を明文化する。
+
+### 「依存」列の二層追跡 — technical 依存 vs strategic 順序
+
+priority table の「依存」列 と、領域特化計画書 (例: `docs/coderabbit-monitoring-efficiency.md`) や Bundle 脚注に記録する依存関係は、**別レイヤ** を表す。両者が乖離していても矛盾ではない。
+
+| 種別 | 記録先 | 意味 | 例 |
+|---|---|---|---|
+| **technical 依存** | priority table の「依存」列 | そのタスクが land する前に **technically blocking** な前提タスク。前提が land しないと本タスクが破綻する | `順位 20 ADR-032 PR-β` の依存 = `6, 8, 10` (前提 PR がないと実装不可) |
+| **strategic 順序** | 領域特化計画書 / Bundle 脚注 | technical 依存はないが **bundle 化推奨 / 効率的な land 順** という soft な指示。違反しても破綻はしないが iteration コストが上がる | 順位 10 broken-link-check は table 上「依存なし」だが、計画書では「ADR-032 全体 (6/20/21) と bundle 化推奨」 |
+
+両者は **読み手が別** で読まれる:
+
+- priority table の「依存」列は **着手判断** に使う (依存が解けたか?)
+- 領域特化計画書は **bundle 化判断** に使う (この task だけ単独 land して efficient か?)
+
+priority table 単独で見て「依存なし」だからといって即着手できるわけではない場合がある。**領域特化計画書 (もし存在すれば) を併読して strategic 順序を確認する** のがレビュー手順。
+
+### Bundle 分割時の land 期限明記ルール
+
+Bundle を Sub-PR に分割する際 (例: Bundle d → d-1 / d-2、Bundle a → Sub-PR 1 / 2)、**残り片方の land 期限を明示する**。期限なしで分割すると、片方が long-tail に滞留しても priority table から検知しにくい。
+
+#### 期限フォーマット
+
+Bundle 脚注 / strategy テキスト内で以下のいずれかで記述する:
+
+- 具体日付: `(land 期限: 2026-05-15)`
+- 関連 PR: `(land 期限: 次 docs PR で集約)` / `(land 期限: 次セッション)`
+- 戦略保留: `(保留: <理由>)` — 期限を設けない場合は理由を明示
+
+#### 期限超過時の運用
+
+期限を過ぎても land しない残存タスクは、Bundle 名から派生命名に変えて再可視化する:
+
+- `Bundle d` (順位 70 が land、68/69 残) → 期限超過したら `Bundle d-followup` に rename
+- 「Bundle 分割の名残」ではなく「独立した task 群」として priority table 内で見える状態にする
+
+これにより priority table 脚注を見るだけで「どの Bundle が滞留中か」が把握できる。
+
+#### 保留 Bundle のケース
+
+戦略的に保留する場合 (例: 上流依存待ち、外部条件待ち) は、Bundle 脚注で保留理由を明示する。期限を設けないが「なぜ保留か」を残すことで、後日読み返した時の判断材料が消えない。
+
+#### 由来
+
+- Bundle U (順位 29 = PR #110、順位 30 = Bundle e で land) は分割消化に約 1 週間
+- Bundle V (順位 31/32 = PR #109、順位 33 = Bundle e で land) は 2 件先行 land + 1 件後追いで運用上問題なし
+- Bundle d (順位 70 = Bundle e で land、順位 68/69 残) は intermediate state を経由
+
+これら過去 split は事後的にトレース可能だが、新規分割時には「期限を書く」を default ルールとすることで滞留を可視化する。
+
 ## アンチパターン
 
 ### 「table 内まで採番除去」してはならない

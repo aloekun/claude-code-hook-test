@@ -490,52 +490,6 @@
 
 ---
 
-### Document Governance: docs lifecycle 区分明文化 (PR #108 T3-1 採用)
-
-> **動機**: PR #108 のセッションで「`docs/todo*.md` (ephemeral) と ADR / `docs/` (permanent) の lifecycle 区分」「ephemeral artifact から permanent artifact への参照禁止」「計画書 retirement 2-step workflow (entry 削除 → ファイル削除)」等の docs governance ルールが暗黙的に運用された。これらは memory ベース (例: `coding-style.md` の Cross-File Reference Lifecycle セクション) に分散して記録されているが、AI / 人間が一貫した判断を下せるよう **single source of truth** として codify が必要。
->
-> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None / ✅ 採用)。Frequency Medium = docs PR 系で繰り返し前提として参照されるため、Effort XS で codify する ROI が高い。Document Governance の集約は将来の Cross-File Reference Lifecycle 違反 / 計画書 retirement 漏れを防ぐ防御層となる。
->
-> **参照**: `.claude/feedback-reports/108.md` Tier 3 #1、`~/.claude/rules/common/coding-style.md` の "Cross-File Reference Lifecycle" セクション、PR #108 commit chain (`okwntwwy` = pipeline-token-efficiency.md retire パターン)
->
-> **実行優先度**: 💎 **Tier 3** — Effort XS。global rule への新セクション追加。
-
-#### 設計決定 (案)
-
-- **配置先**: `~/.claude/rules/common/` 配下、以下の 2 案から着手時に選定:
-  - **案 A**: 新規 `docs-governance.md` を作成 (専用ファイル、navigability 高い)
-  - **案 B**: 既存 `coding-style.md` の "Cross-File Reference Lifecycle" セクションを拡張 (関連トピック集約、ファイル数増加なし)
-  - 推奨: 案 A (Document Governance 関連項目が今後増える前提で navigability を優先)
-- **記述する 3 ルール**:
-  - **Lifecycle 区分**: `docs/todo*.md` 系列 = ephemeral (entry が完了 / 失効で削除される)、ADR / `docs/<topic>.md` (試験運用フラグなし) = permanent (削除しない、supersede のみ)
-  - **Cross-File Reference Lifecycle (既存ルール再掲 + 強化)**: permanent artifact から ephemeral artifact への参照禁止、ephemeral 同士は OK
-  - **Retirement 2-step workflow**: 計画書 (試験運用フラグ付き docs/) を retire する場合の標準手順 — (1) 重要決定を ADR 化、(2) 残作業を todo*.md に移管、(3) 参照を更新、(4) ファイル削除
-- **既存 rules との関係**:
-  - `coding-style.md` の "Cross-File Reference Lifecycle" は本ルールの根拠の一つ → 重複排除のため本ファイル新設時は cross-link
-  - 本リポジトリ固有の retirement 例 (PR #108 commit `okwntwwy`) は global rule から本リポジトリ docs/ にリンクで誘導
-
-#### 作業計画
-
-- [ ] 案 A / B のどちらを採用するか決定 (着手時 grep で類似 rule の配置を確認)
-- [ ] `~/.claude/rules/common/docs-governance.md` (案 A) または `coding-style.md` 拡張 (案 B) で 3 ルールを codify
-- [ ] 既存 `coding-style.md` の "Cross-File Reference Lifecycle" セクションから新ファイル / セクションへの cross-link を追加
-- [ ] CLAUDE.md / claude_md_rule からの参照経路を確認 (新ファイル発見可能か)
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) で global rule 反映を確認 (rule は global なので自動適用、deploy 不要)
-- [ ] 本 todo5.md エントリを削除
-
-#### 完了基準
-
-- `~/.claude/rules/common/` 配下に Document Governance の 3 ルール (lifecycle 区分 / Cross-File Reference Lifecycle / retirement 2-step) が codify される
-- 既存 `coding-style.md` Cross-File Reference Lifecycle セクションと整合
-- 次回 docs retirement / lifecycle 判断時に本ルールが参照される (= AI / 人間の判断ぶれ消滅)
-
-#### 詰まっている箇所
-
-- 案 A vs B の選定: 専用ファイル化のメリット (navigability) vs ファイル数抑制 (locality)。Document Governance 関連項目が今後増えるかの予測に依存
-- 派生プロジェクト (Python ベース) で global rule の適用範囲がどこまで及ぶか (rule は markdown text のため自動適用想定だが念のため確認)
-
----
-
 ### cli-merge-pipeline に Drop guard / signal handler を追加し abrupt 終了時に `.failed` marker を保証 (PR #109 T1-1 採用) ★ Bundle c
 
 > **動機**: PR #109 merge 直後の post-merge-feedback workflow が SIGPIPE で silent 中断され、`.takt/runs/.../reports/` が空 + `.claude/feedback-reports/109.md` 未生成 + `.failed` marker も無いという fail mode が実証された。原因は `feedback::run()` が `Result::Err` を返した場合のみ `write_failed_marker` を書く実装で、Rust default の SIGPIPE 動作 (parent process abrupt 終了) では Result::Err 経路に到達しない。ADR-030「失敗マーカーによる recovery」仕様を構造的に違反。
@@ -847,6 +801,3 @@
 #### 詰まっている箇所
 
 なし (Effort XS、コメント追記のみ)
-
----
-
