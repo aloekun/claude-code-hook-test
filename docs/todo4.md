@@ -367,15 +367,13 @@
 - [ ] 検証方法 ② (takt run meta.json 集計) を実行
 - [ ] baseline (PR #97) と比較し削減幅を表に記録
 - [ ] 想定削減量 (session あたり 15-20 分削減) との乖離を分析
-- [ ] 結果を本 todo entry 内 (もしくは新規 ADR) に記録 — 旧計画は (削除済) `docs/pipeline-token-efficiency.md` 末尾追記だったが計画書 retire 済
-- [ ] 想定削減量達成判定に基づき計画書 retire / 追加 Bundle 提案
+- [ ] 結果を本 entry または新規 ADR に記録 (= 完了)
 - [ ] 本 todo4.md エントリを削除
 
 #### 完了基準
 
-- PR #98 merge 後 3-5 PR の実測値が本 entry または新規 ADR に記録される (旧計画は (削除済) `docs/pipeline-token-efficiency.md` 末尾追記)
+- PR #98 merge 後 3-5 PR の実測値が本 entry または新規 ADR に記録される
 - baseline (PR #97) との削減幅が Bundle Y2 の想定削減量と比較され、達成 / 未達の判定がある
-- Bundle Z / Z2 の ROI 判断材料として活用可能なデータが揃う
 
 #### 詰まっている箇所
 
