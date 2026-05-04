@@ -514,3 +514,94 @@
 - 「PR 作成前の議論 (設計判断、却下されたアイデア)」が落ちる可能性 → post-merge-feedback の知見質に影響しうる。dogfood で「重要 finding が拾えなくなった」事象が出たら filter 範囲を広げる (例: PR 作成 commit から 2 時間前まで遡る等)
 - transcript jsonl の structure 変更時に filter logic が壊れる risk → field name (`timestamp`) を assert する unit test を追加
 
+---
+
+### post-PR 検証フローに CR review.body 手動スキャン step 追加 (PR #108 T2-1 採用)
+
+> **動機**: PR #108 で CodeRabbit が `Outside diff range comment` として review body 内に投稿した Minor finding (`docs/todo4.md` line 371/378 の retire 済前提と旧フロー混在) を、takt の `analyze-coderabbit` step が検出漏れした。`analyze-coderabbit` は `pulls/N/comments` (= inline review comment) ベースで動作するため、review.body 内のコメントは parse 対象外。結果、PR #108 で line 371/378 の修正が merge 後 follow-up commit (`vokyspww`) になった。
+>
+> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None / ✅ 採用)。`analyze-coderabbit` の根本解決 (review.body 解析対応) は別 task として実装複雑度が高いため、暫定緩和策として **手動 checklist** で対応する。Tier 1 の analyzer 拡張 (= 将来の根本解決) の先行策として機能する。
+>
+> **参照**: `.claude/feedback-reports/108.md` Tier 2 #1、PR #108 review (`Outside diff range comments` セクション、reviewer comment id 4217897113)、`.takt/facets/instructions/analyze-coderabbit.md`
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort XS。post-PR checklist documentation の更新のみ。
+
+#### 設計決定 (案)
+
+- **配置先候補**:
+  - `docs/workflow.md` (新規 or 既存): post-PR checklist として統一記述
+  - `~/.claude/rules/common/git-workflow.md`: 既存 PR workflow ルールに追記
+  - 着手時に既存 docs 配置を grep して整合する場所を選定
+- **追加する checklist 項目** (案):
+  - `pnpm create-pr` 完了後 / takt post-pr-review 完了後に、CodeRabbit の review (= `Outside diff range comments` 含む全 review body) を手動で目視確認する
+  - `gh api repos/{owner}/{repo}/pulls/{N}/reviews --jq '.[].body'` で review body を抽出して読む
+  - 確認対象: `Outside diff range comments` セクション、`Caution` / `Warning` セクション、行番号参照のある comment 全般
+- **検出時の対応**: 該当 finding を inline thread と同じく severity 評価 → 修正 commit を追加 → 手動で acknowledge reply
+- **将来対応**: takt analyze-coderabbit に review body parse を追加 (= Tier 1 task として別 entry が必要、本 task の dogfood で頻度が高ければ昇格)
+
+#### 作業計画
+
+- [ ] `docs/workflow.md` または `~/.claude/rules/common/git-workflow.md` の現状を確認、追記場所を選定
+- [ ] post-PR checklist 項目を追記 (gh api コマンド + 確認対象 + 検出時対応の 3 項目)
+- [ ] dogfood: 次の数 PR で本 checklist を実行、blind spot 検出頻度を観測
+- [ ] 観測結果に応じて Tier 1 へ昇格判断 (= analyzer 拡張)
+- [ ] 派生プロジェクト deploy 不要 (本リポジトリ workflow 固有)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- post-PR workflow に「CR review.body 手動スキャン」step が追記される
+- 次 1-2 PR の dogfood で本 checklist の実行が観察される
+- review body 内の actionable finding が後追い修正にならない (= merge 前に検出される)
+
+#### 詰まっている箇所
+
+- 配置先選定 (本リポジトリ docs/workflow.md vs グローバル `~/.claude/rules/`)。本タスクは本リポジトリ固有の暫定緩和策のため、本リポジトリ docs/ への追記が妥当か
+- 手動 checklist は持続性が低い (人間が忘れる) ため、Tier 1 への昇格 (= analyzer 拡張) の優先度判断が dogfood 結果に依存
+
+---
+
+### Document Governance: docs lifecycle 区分明文化 (PR #108 T3-1 採用)
+
+> **動機**: PR #108 のセッションで「`docs/todo*.md` (ephemeral) と ADR / `docs/` (permanent) の lifecycle 区分」「ephemeral artifact から permanent artifact への参照禁止」「計画書 retirement 2-step workflow (entry 削除 → ファイル削除)」等の docs governance ルールが暗黙的に運用された。これらは memory ベース (例: `coding-style.md` の Cross-File Reference Lifecycle セクション) に分散して記録されているが、AI / 人間が一貫した判断を下せるよう **single source of truth** として codify が必要。
+>
+> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None / ✅ 採用)。Frequency Medium = docs PR 系で繰り返し前提として参照されるため、Effort XS で codify する ROI が高い。Document Governance の集約は将来の Cross-File Reference Lifecycle 違反 / 計画書 retirement 漏れを防ぐ防御層となる。
+>
+> **参照**: `.claude/feedback-reports/108.md` Tier 3 #1、`~/.claude/rules/common/coding-style.md` の "Cross-File Reference Lifecycle" セクション、PR #108 commit chain (`okwntwwy` = pipeline-token-efficiency.md retire パターン)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。global rule への新セクション追加。
+
+#### 設計決定 (案)
+
+- **配置先**: `~/.claude/rules/common/` 配下、以下の 2 案から着手時に選定:
+  - **案 A**: 新規 `docs-governance.md` を作成 (専用ファイル、navigability 高い)
+  - **案 B**: 既存 `coding-style.md` の "Cross-File Reference Lifecycle" セクションを拡張 (関連トピック集約、ファイル数増加なし)
+  - 推奨: 案 A (Document Governance 関連項目が今後増える前提で navigability を優先)
+- **記述する 3 ルール**:
+  - **Lifecycle 区分**: `docs/todo*.md` 系列 = ephemeral (entry が完了 / 失効で削除される)、ADR / `docs/<topic>.md` (試験運用フラグなし) = permanent (削除しない、supersede のみ)
+  - **Cross-File Reference Lifecycle (既存ルール再掲 + 強化)**: permanent artifact から ephemeral artifact への参照禁止、ephemeral 同士は OK
+  - **Retirement 2-step workflow**: 計画書 (試験運用フラグ付き docs/) を retire する場合の標準手順 — (1) 重要決定を ADR 化、(2) 残作業を todo*.md に移管、(3) 参照を更新、(4) ファイル削除
+- **既存 rules との関係**:
+  - `coding-style.md` の "Cross-File Reference Lifecycle" は本ルールの根拠の一つ → 重複排除のため本ファイル新設時は cross-link
+  - 本リポジトリ固有の retirement 例 (PR #108 commit `okwntwwy`) は global rule から本リポジトリ docs/ にリンクで誘導
+
+#### 作業計画
+
+- [ ] 案 A / B のどちらを採用するか決定 (着手時 grep で類似 rule の配置を確認)
+- [ ] `~/.claude/rules/common/docs-governance.md` (案 A) または `coding-style.md` 拡張 (案 B) で 3 ルールを codify
+- [ ] 既存 `coding-style.md` の "Cross-File Reference Lifecycle" セクションから新ファイル / セクションへの cross-link を追加
+- [ ] CLAUDE.md / claude_md_rule からの参照経路を確認 (新ファイル発見可能か)
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) で global rule 反映を確認 (rule は global なので自動適用、deploy 不要)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/` 配下に Document Governance の 3 ルール (lifecycle 区分 / Cross-File Reference Lifecycle / retirement 2-step) が codify される
+- 既存 `coding-style.md` Cross-File Reference Lifecycle セクションと整合
+- 次回 docs retirement / lifecycle 判断時に本ルールが参照される (= AI / 人間の判断ぶれ消滅)
+
+#### 詰まっている箇所
+
+- 案 A vs B の選定: 専用ファイル化のメリット (navigability) vs ファイル数抑制 (locality)。Document Governance 関連項目が今後増えるかの予測に依存
+- 派生プロジェクト (Python ベース) で global rule の適用範囲がどこまで及ぶか (rule は markdown text のため自動適用想定だが念のため確認)
+
