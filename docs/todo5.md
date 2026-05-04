@@ -401,77 +401,6 @@
 
 ---
 
-### ADR-035: docs 評価ポリシー (PR #107 T3-1 採用)
-
-> **動機**: PR #107 (順位 58 = post-merge-feedback rubric format 拡張) の dogfood で、AI reviewer が code-specific review criteria (mutation / error handling / test coverage / function length / DRY 等) を documentation-only 変更に誤適用するパターンが確認された。これにより docs / facet instruction / planning markdown の編集 PR で false REJECT が発生しやすく、開発体験劣化 + token 浪費の原因となる。
->
-> **本タスクの位置づけ**: PR #107 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None / ✅ 採用)。`review-security.md` には既に "Docs-only changes: trust boundary criterion" セクションがあり (Bundle Z Phase 3 で導入)、本 task は同パターンを `review-simplicity.md` / `analyze-coderabbit.md` 等の他 reviewer facet にも一貫展開し、global policy として ADR-035 で集約する。
->
-> **参照**: `.claude/feedback-reports/107.md` Tier 3 #1、`.takt/facets/instructions/review-security.md` 既存 trust boundary criterion、PR #106 で追加した Phase 3 review facets
->
-> **実行優先度**: 💎 **Tier 3** — Effort M。ADR 1 本 + 既存 facet 横断更新 + 派生プロジェクト展開。
-
-#### 設計決定 (案)
-
-##### ADR の位置づけ
-
-- 番号: ADR-035 (順位 58 で言及した ADR-035 Paradigm Shift Guidance は採用見送り済、再利用可能)
-- 配置: `docs/adr/adr-035-doc-evaluation-policy.md`
-- 試験運用フラグなし (定着しているパターンの formalize)
-
-##### docs-only 変更の判定基準 (ADR で明文化)
-
-- **path 基準**: 編集ファイルが以下のいずれかに完全に収まる:
-  - `docs/**`、`*.md` (root README 等を含む)
-  - `.takt/facets/instructions/**` (facet instruction = AI prompt、コードではない)
-  - `.takt/workflows/**.yaml` の comment / description フィールドのみ変更
-  - source code 内の doc comment (`///` / `//!` / `/** */` 等) のみ変更
-- **diff 内容基準**: executable code logic への変更なし (= AST 上の関数 body / 制御フロー / 変数宣言が不変)
-- 両基準を満たす PR を "docs-only" と判定
-
-##### 適用される評価ポリシー (docs-only PR の場合)
-
-- ✅ **適用する criteria**:
-  - 既存 `review-security.md` の trust boundary criterion (auth policy / permission scope / secret handling / API contract 等が変わるか)
-  - cross-reference の整合性 (リンク切れ / 廃止された path 参照 / ephemeral artifact への永続参照)
-  - markdown 構文 / lint (markdownlint で機械検出される範囲)
-- ❌ **適用しない criteria** (false REJECT 源泉):
-  - mutation / immutability check
-  - error handling / Result / panic safety
-  - test coverage / test addition 要求
-  - function length / nesting depth / complexity metrics
-  - DRY / YAGNI を code logic 視点で適用 (docs hierarchy / 計画文書例外は維持)
-
-##### facet instructions への反映
-
-- `review-simplicity.md`: 既存 "DRY / YAGNI scope" の例外列挙を ADR-035 を引用する形に圧縮
-- `review-security.md`: 既存 "Docs-only changes: trust boundary criterion" を ADR-035 を引用 + 拡張
-- `analyze-coderabbit.md`: docs-only 判定 + code criteria 除外を新規追加 (PR #107 で発生した CodeRabbit findings の AI 適合性フィルタを支える)
-
-#### 作業計画
-
-- [ ] `docs/adr/adr-035-doc-evaluation-policy.md` を新規作成 (path / diff 内容判定基準 + 適用 / 不適用 criteria リスト + 既存 facet との関係)
-- [ ] `CLAUDE.md` の ADR index に ADR-035 を追加
-- [ ] `.takt/facets/instructions/review-simplicity.md` を ADR-035 引用に更新 (既存 DRY / YAGNI scope の docs 例外を ADR で参照)
-- [ ] `.takt/facets/instructions/review-security.md` を ADR-035 引用に更新 (既存 trust boundary criterion を ADR-035 のもとへ集約)
-- [ ] `.takt/facets/instructions/analyze-coderabbit.md` に docs-only 判定 + code criteria 除外を追加
-- [ ] dogfood: 次の docs-only PR (例: 完了タスク削除のみの PR) で false REJECT が発生しないこと確認
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) の同 facet に展開
-- [ ] 本 todo5.md エントリを削除
-
-#### 完了基準
-
-- ADR-035 が docs-only 評価ポリシーを single source of truth として確立
-- review-{simplicity, security} + analyze-coderabbit の 3 facets が ADR-035 を参照、code criteria の docs PR への誤適用が構造的に排除
-- docs-only PR の false REJECT 率が 0% 近くに
-
-#### 詰まっている箇所
-
-- "docs-only" の境界判定 (例: facet instruction = AI prompt は code か docs か、yaml の structural 変更 = code か docs か) で AI 解釈が揺れる可能性 → ADR で具体例を 5-10 件列挙して cluster 化を狙う
-- 既存 facet との重複削除で意味が変わらないよう注意 (review-security.md trust boundary criterion を ADR-035 に移動した結果、reviewer が docs PR を素通しするバグが発生しないか dogfood で確認)
-
----
-
 ### analyze-session の transcript filter 絞り込み (旧 #A-3)
 
 > **動機**: `cli-merge-pipeline` が生成する `.takt/post-merge-feedback-transcript.jsonl` は **session 全履歴** を含むため、analyze-session step が読み込む input token が大きい。当該 PR に直接関連する範囲のみ filter すれば input token 削減 = post-merge-feedback の cache_read 削減。
@@ -513,4 +442,95 @@
 
 - 「PR 作成前の議論 (設計判断、却下されたアイデア)」が落ちる可能性 → post-merge-feedback の知見質に影響しうる。dogfood で「重要 finding が拾えなくなった」事象が出たら filter 範囲を広げる (例: PR 作成 commit から 2 時間前まで遡る等)
 - transcript jsonl の structure 変更時に filter logic が壊れる risk → field name (`timestamp`) を assert する unit test を追加
+
+---
+
+### post-PR 検証フローに CR review.body 手動スキャン step 追加 (PR #108 T2-1 採用)
+
+> **動機**: PR #108 で CodeRabbit が `Outside diff range comment` として review body 内に投稿した Minor finding (`docs/todo4.md` line 371/378 の retire 済前提と旧フロー混在) を、takt の `analyze-coderabbit` step が検出漏れした。`analyze-coderabbit` は `pulls/N/comments` (= inline review comment) ベースで動作するため、review.body 内のコメントは parse 対象外。結果、PR #108 で line 371/378 の修正が merge 後 follow-up commit (`vokyspww`) になった。
+>
+> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None / ✅ 採用)。`analyze-coderabbit` の根本解決 (review.body 解析対応) は別 task として実装複雑度が高いため、暫定緩和策として **手動 checklist** で対応する。Tier 1 の analyzer 拡張 (= 将来の根本解決) の先行策として機能する。
+>
+> **参照**: `.claude/feedback-reports/108.md` Tier 2 #1、PR #108 review (`Outside diff range comments` セクション、reviewer comment id 4217897113)、`.takt/facets/instructions/analyze-coderabbit.md`
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort XS。post-PR checklist documentation の更新のみ。
+
+#### 設計決定 (案)
+
+- **配置先候補**:
+  - `docs/workflow.md` (新規 or 既存): post-PR checklist として統一記述
+  - `~/.claude/rules/common/git-workflow.md`: 既存 PR workflow ルールに追記
+  - 着手時に既存 docs 配置を grep して整合する場所を選定
+- **追加する checklist 項目** (案):
+  - `pnpm create-pr` 完了後 / takt post-pr-review 完了後に、CodeRabbit の review (= `Outside diff range comments` 含む全 review body) を手動で目視確認する
+  - `gh api repos/{owner}/{repo}/pulls/{N}/reviews --jq '.[].body'` で review body を抽出して読む
+  - 確認対象: `Outside diff range comments` セクション、`Caution` / `Warning` セクション、行番号参照のある comment 全般
+- **検出時の対応**: 該当 finding を inline thread と同じく severity 評価 → 修正 commit を追加 → 手動で acknowledge reply
+- **将来対応**: takt analyze-coderabbit に review body parse を追加 (= Tier 1 task として別 entry が必要、本 task の dogfood で頻度が高ければ昇格)
+
+#### 作業計画
+
+- [ ] `docs/workflow.md` または `~/.claude/rules/common/git-workflow.md` の現状を確認、追記場所を選定
+- [ ] post-PR checklist 項目を追記 (gh api コマンド + 確認対象 + 検出時対応の 3 項目)
+- [ ] dogfood: 次の数 PR で本 checklist を実行、blind spot 検出頻度を観測
+- [ ] 観測結果に応じて Tier 1 へ昇格判断 (= analyzer 拡張)
+- [ ] 派生プロジェクト deploy 不要 (本リポジトリ workflow 固有)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- post-PR workflow に「CR review.body 手動スキャン」step が追記される
+- 次 1-2 PR の dogfood で本 checklist の実行が観察される
+- review body 内の actionable finding が後追い修正にならない (= merge 前に検出される)
+
+#### 詰まっている箇所
+
+- 配置先選定 (本リポジトリ docs/workflow.md vs グローバル `~/.claude/rules/`)。本タスクは本リポジトリ固有の暫定緩和策のため、本リポジトリ docs/ への追記が妥当か
+- 手動 checklist は持続性が低い (人間が忘れる) ため、Tier 1 への昇格 (= analyzer 拡張) の優先度判断が dogfood 結果に依存
+
+---
+
+### Document Governance: docs lifecycle 区分明文化 (PR #108 T3-1 採用)
+
+> **動機**: PR #108 のセッションで「`docs/todo*.md` (ephemeral) と ADR / `docs/` (permanent) の lifecycle 区分」「ephemeral artifact から permanent artifact への参照禁止」「計画書 retirement 2-step workflow (entry 削除 → ファイル削除)」等の docs governance ルールが暗黙的に運用された。これらは memory ベース (例: `coding-style.md` の Cross-File Reference Lifecycle セクション) に分散して記録されているが、AI / 人間が一貫した判断を下せるよう **single source of truth** として codify が必要。
+>
+> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None / ✅ 採用)。Frequency Medium = docs PR 系で繰り返し前提として参照されるため、Effort XS で codify する ROI が高い。Document Governance の集約は将来の Cross-File Reference Lifecycle 違反 / 計画書 retirement 漏れを防ぐ防御層となる。
+>
+> **参照**: `.claude/feedback-reports/108.md` Tier 3 #1、`~/.claude/rules/common/coding-style.md` の "Cross-File Reference Lifecycle" セクション、PR #108 commit chain (`okwntwwy` = pipeline-token-efficiency.md retire パターン)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。global rule への新セクション追加。
+
+#### 設計決定 (案)
+
+- **配置先**: `~/.claude/rules/common/` 配下、以下の 2 案から着手時に選定:
+  - **案 A**: 新規 `docs-governance.md` を作成 (専用ファイル、navigability 高い)
+  - **案 B**: 既存 `coding-style.md` の "Cross-File Reference Lifecycle" セクションを拡張 (関連トピック集約、ファイル数増加なし)
+  - 推奨: 案 A (Document Governance 関連項目が今後増える前提で navigability を優先)
+- **記述する 3 ルール**:
+  - **Lifecycle 区分**: `docs/todo*.md` 系列 = ephemeral (entry が完了 / 失効で削除される)、ADR / `docs/<topic>.md` (試験運用フラグなし) = permanent (削除しない、supersede のみ)
+  - **Cross-File Reference Lifecycle (既存ルール再掲 + 強化)**: permanent artifact から ephemeral artifact への参照禁止、ephemeral 同士は OK
+  - **Retirement 2-step workflow**: 計画書 (試験運用フラグ付き docs/) を retire する場合の標準手順 — (1) 重要決定を ADR 化、(2) 残作業を todo*.md に移管、(3) 参照を更新、(4) ファイル削除
+- **既存 rules との関係**:
+  - `coding-style.md` の "Cross-File Reference Lifecycle" は本ルールの根拠の一つ → 重複排除のため本ファイル新設時は cross-link
+  - 本リポジトリ固有の retirement 例 (PR #108 commit `okwntwwy`) は global rule から本リポジトリ docs/ にリンクで誘導
+
+#### 作業計画
+
+- [ ] 案 A / B のどちらを採用するか決定 (着手時 grep で類似 rule の配置を確認)
+- [ ] `~/.claude/rules/common/docs-governance.md` (案 A) または `coding-style.md` 拡張 (案 B) で 3 ルールを codify
+- [ ] 既存 `coding-style.md` の "Cross-File Reference Lifecycle" セクションから新ファイル / セクションへの cross-link を追加
+- [ ] CLAUDE.md / claude_md_rule からの参照経路を確認 (新ファイル発見可能か)
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) で global rule 反映を確認 (rule は global なので自動適用、deploy 不要)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/` 配下に Document Governance の 3 ルール (lifecycle 区分 / Cross-File Reference Lifecycle / retirement 2-step) が codify される
+- 既存 `coding-style.md` Cross-File Reference Lifecycle セクションと整合
+- 次回 docs retirement / lifecycle 判断時に本ルールが参照される (= AI / 人間の判断ぶれ消滅)
+
+#### 詰まっている箇所
+
+- 案 A vs B の選定: 専用ファイル化のメリット (navigability) vs ファイル数抑制 (locality)。Document Governance 関連項目が今後増えるかの予測に依存
+- 派生プロジェクト (Python ベース) で global rule の適用範囲がどこまで及ぶか (rule は markdown text のため自動適用想定だが念のため確認)
 

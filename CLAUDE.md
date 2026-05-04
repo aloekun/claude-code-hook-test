@@ -35,6 +35,7 @@
 - [ADR-031: 週次プロジェクト全体レビューパイプライン — whole-tree review の自己改善ループ](docs/adr/adr-031-weekly-review-pipeline.md) *(試験運用)*
 - [ADR-033: todo.md 採番管理の簡素化 — 絶対番号は table のみに保持](docs/adr/adr-033-todo-numbering-simplification.md) *(試験運用)*
 - [ADR-034: CodeRabbit 監視・対話の自動化戦略 — Bundle a 設計根拠](docs/adr/adr-034-coderabbit-auto-monitoring.md) *(試験運用)*
+- [ADR-035: docs-only PR 評価ポリシー](docs/adr/adr-035-doc-evaluation-policy.md)
 - [ADR-036: Bundle Z — 決定論層 + 制約付き修正 + 異常検知レビュアーの 3 層アーキテクチャ](docs/adr/adr-036-bundle-z-three-layer-review.md) *(試験運用)*
 - [ADR-037: takt fix-trust shortcut — convergence_verdict による Iter 3 短絡](docs/adr/adr-037-takt-fix-trust-shortcut.md) *(試験運用)*
 

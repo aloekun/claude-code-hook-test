@@ -37,16 +37,10 @@ Review primarily within the changed diff. **Limited** cross-file lookups are per
 
 The DRY and YAGNI dimensions in anomaly detection apply **only to executable code logic**.
 
-- **DRY scope**: Flag duplicated *code logic* (copy-paste functions, repeated control flow, redundant computations). Do NOT flag:
-  - Documentation hierarchies that intentionally restate context (e.g., a summary table followed by detailed bullet points)
-  - Repetition between docs and code (docs explain, code executes — they serve different audiences)
-  - Test code mirroring production code structure (test independence > test DRY)
-- **YAGNI scope**: Flag *speculative code abstractions* (unused parameters, premature interfaces, over-engineered patterns in production code). Do NOT flag:
-  - Planning documents listing "future candidates", "Phase 2 検討", or "out of scope but worth considering" sections
-  - ADR alternatives sections describing rejected options
-  - Comments documenting *known constraints or limitations* of the current implementation
+- **DRY scope**: Flag duplicated *code logic* (copy-paste functions, repeated control flow, redundant computations). Do NOT flag duplication that is documentation, doc-vs-code restatement, or test independence.
+- **YAGNI scope**: Flag *speculative code abstractions* (unused parameters, premature interfaces, over-engineered patterns in production code). Do NOT flag planning-document "future candidates" / "Phase 2 検討" / ADR rejected-alternative sections, or comments documenting known constraints.
 
-If a finding cannot be tied to executable code logic, it is out of scope.
+If a finding cannot be tied to executable code logic, it is out of scope. See [ADR-035: docs-only PR 評価ポリシー](../../../docs/adr/adr-035-doc-evaluation-policy.md) for the full list of criteria that do NOT apply to docs-only diffs (mutation / error handling / test coverage / function length / DRY / YAGNI all fall under this).
 
 ## Calibration: avoid over-narrowing
 

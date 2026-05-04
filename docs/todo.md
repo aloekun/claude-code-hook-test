@@ -3,7 +3,7 @@
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
 > **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) + [docs/todo5.md](todo5.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加):
-> - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクは追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
+> - **docs/todo.md**: 既存タスクの編集・完了削除と推奨実行順序サマリー table の管理専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)。table への新規行追加は可 (詳細エントリは現行の追加先ファイル = docs/todo5.md に記録)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
 > - **docs/todo4.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #101 セッション以降の新規エントリは todo5.md へ)
@@ -45,8 +45,6 @@
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
 | 29 | 🚀 Tier 1 | **非 docs ファイル `docs/todo` 参照検出 lint rule (PR #94 T1-1) ★ Bundle U** | todo3.md | S | なし (PR #94 直接対策、Cross-File Reference Lifecycle の決定論的防止層) |
 | 30 | 💎 Tier 3 | **Cross-File Reference Lifecycle ルールに具体例追記 (PR #94 T3-2) ★ Bundle U** | todo3.md | XS | なし (Bundle U で 29 と並行 land 推奨) |
-| 31 | 💎 Tier 3 | **review-security.md docs-only fast-approve から `.takt/**` と `.claude/**` を明示除外 (PR #95 T3-2) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策) |
-| 32 | 💎 Tier 3 | **docs/todo.md ヘッダの「新規タスクは追加しない」表記を実態整合 (PR #95 T3-3) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策) |
 | 33 | 💎 Tier 3 | **code-review.md に新 verdict 経路追加時の 3 点チェックリスト追記 (PR #95 T3-4) ★ Bundle V** | todo3.md | XS | なし (PR #95 直接対策、verdict path 整合性) |
 | 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | 順位 19 land 後推奨 (PR #96 直接対策、AI が flaky 実装を書ける窓を spec 層で塞ぐ) |
 | 35 | 🚀 Tier 1 | **型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | S | 順位 34 と同 PR (Bundle W、PBT が型に守られて記述しやすくなる相補関係) |
@@ -70,8 +68,9 @@
 | 55 | 💎 Tier 3 | **config 拡張 + SessionStart catch-up (Bundle b PR-3) ★ Bundle b** | todo5.md | S | 順位 53 / 54 land 後 (固定値の `monitor.toml` 化 + Claude Code 不在時に発火した wakeup を SessionStart で catch-up、AI 不在時の silent loss 防止) |
 | 56 | 🔧 Tier 2 | **comment-lint hook test 拡充 (PR #104 T2-1+T2-2 bundle)** | todo5.md | S | なし (UTF-8 multi-byte 5 パターン + block comment boundary 6 パターンを `locate_string_line_ranges` / `span_overlaps_ranges` の回帰テストとして体系化、PR #104 Critical/Minor fix の固定化) |
 | 57 | 🔧 Tier 2 | **Aggregation cap integration test (PR #105 T2-1 採用)** | todo5.md | S | なし (`collect_all_violations` の MAX_VIOLATIONS contract を test 化、将来の lint 追加時に `truncate(MAX)` 削除 regression を防止する explicit 安全網) |
-| 59 | 💎 Tier 3 | **ADR-035: docs 評価ポリシー (PR #107 T3-1 採用)** | todo5.md | M | なし (PR #107 dogfood で AI が code review criteria を documentation-only PR に誤適用するパターンを確認、review-security.md の trust boundary criterion を全 reviewer facet に拡張、false REJECT 削減) |
 | 60 | 💎 Tier 3 | **analyze-session の transcript filter 絞り込み (旧 #A-3)** | todo5.md | M | なし (旧 docs/pipeline-token-efficiency.md #A-3、ADR-036/037 化に伴い計画書削除、本 task のみ todo に移管。analyze-session の input range を PR 作成 commit〜merge に限定して input token 30-50% 削減見込み、dogfood で実測必要) |
+| 61 | 🔧 Tier 2 | **post-PR 検証フローに CR review.body 手動スキャン step 追加 (PR #108 T2-1 採用)** | todo5.md | XS | なし (PR #108 で analyze-coderabbit が review body の outside diff range comment を検出漏れし line 371/378 の修正が後追い、blind spot の暫定緩和策として手動 checklist を整備) |
+| 62 | 💎 Tier 3 | **Document Governance: docs lifecycle 区分明文化 (PR #108 T3-1 採用)** | todo5.md | XS | なし (PR #108 dogfood で本セッションが暗黙的に運用した docs/todo*.md = ephemeral / ADR / docs/ = permanent の区分を `~/.claude/rules/common/` に codify、ephemeral artifact 参照禁止 + retirement 2-step workflow を明文化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
