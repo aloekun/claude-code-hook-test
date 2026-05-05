@@ -345,7 +345,8 @@ fn finalize_parked(
         rl.wait_minutes, rl.wait_seconds
     );
     if let Err(e) = write_state(state) {
-        log_info(&format!("[rate_limit] park state 永続化失敗: {}", e));
+        let msg = format!("park state 永続化失敗のため PARK signal を中止 ({})。手動で `@coderabbitai review` を投稿してください", e);
+        return make_action_required_result(state, result, &msg);
     }
     let signal = format_park_signal(state, rl, pr_info, max_retries);
     println!("{}", signal);
@@ -467,8 +468,8 @@ fn post_review_immediately(pr: u64, state: &mut PrMonitorState) -> RateLimitOutc
 ///
 /// Claude Code が stdout を読み、含まれる `CronCreate(...)` 呼び出しテンプレートに
 /// 従って `durable: true` で wakeup を予約する想定。`reset_at_iso_utc` は UTC な
-/// ため、cron 式は Claude が local timezone に変換して計算する (chrono 依存を
-/// 避けるため Rust 側では cron 式を組まない)。
+/// ため、CronCreate の cron 値は Claude が local timezone に変換した ISO 8601 形式で
+/// 設定する (chrono 依存を避けるため Rust 側では変換しない)。
 pub(crate) fn format_park_signal(
     state: &PrMonitorState,
     rl: &crate::state::RateLimitState,
@@ -509,10 +510,10 @@ cwd: {cwd}
 ACTION REQUIRED: please schedule one-shot wakeup using CronCreate.
 
 CronCreate({{
-  cron: <compute from reset_at_iso_utc in your local timezone, format \"M H DoM Mon DoW\">,
+  cron: \"<reset_at_iso_utc を local timezone の ISO 8601 形式に変換, e.g. 2024-01-15T09:30:00>\",
   recurring: false,
   durable: true,
-  prompt: \"Wakeup: rate-limit retry for PR #{pr} ({repo}). cd {cwd} && {exe} --monitor-only\"
+  prompt: \"Wakeup: rate-limit retry for PR #{pr} ({repo}). cd \\\"{cwd}\\\" && \\\"{exe}\\\" --monitor-only\"
 }})
 [/PR_MONITOR_PARK]",
         until = rl.until_unix_secs,
