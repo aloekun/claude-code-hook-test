@@ -42,17 +42,28 @@ ADR-018 が廃止したのは「同一プロセス内で 4 段間接連携 (daem
 
 ### 進捗
 
-- ✅ **Bb-1 (順位 53) — 実装完了 (未 PR / 未マージ、2026-05-05)**: `cli-pr-monitor` の rate-limit retry を CronCreate park モデルに切り替え。
-  - `PrMonitorState` に `next_wakeup_at_unix` / `wakeup_reason` を追加
-  - `handle_rate_limit_retry` を `RateLimitOutcome` enum 返却に refactor (Posted / Parked / Failed)
-  - reset 時刻が未来の場合は sleep せず park: state を更新し PARK signal (CronCreate 呼び出しテンプレート + repo / pr / reset_at_unix / reset_at_iso_utc / wait_total_seconds / exe / cwd を含む) を stdout に emit して `parked_rate_limit` action で early return
-  - reset 時刻が過去の場合は従来通り即時 `@coderabbitai review` 投稿 (Posted)
-  - `max_duration_secs > sleep_secs` の予算チェックを撤廃 (sleep そのものが廃止)
-  - `print_report` を parked 対応 verdict に拡張
-  - 副次的 refactor (touch-trigger ratchet 適用): `run_poll_loop` を `PollContext` + `run_one_iteration` 等の helper に分割、`print_report` を `compute_verdict` + `print_findings_table` に分割
-  - 全 125 テスト pass、clippy clean、release ビルド済 (`.claude/cli-pr-monitor.exe` 配置済)
-- ⏳ **Bb-2 (順位 54)** — 未着手 (Bb-1 land 後)
-- ⏳ **Bb-3 (順位 55)** — 未着手 (Bb-1 / Bb-2 land 後)
+- ✅ **Bb-1 (順位 53) — マージ済 (PR #113、2026-05-05)**: `cli-pr-monitor` の rate-limit retry を CronCreate park モデルに切り替え (詳細 PR description 参照)。post-merge-feedback で T2-2 のみ採用 (順位 75)、T3-1/T3-2 はユーザー判断で却下 (memory: feedback_no_unenforced_rules)。
+- 🚧 **Bb-2 (順位 54) + 順位 75 (T2-2 Bb-1 follow-up) — 実装完了 (未 PR / 未マージ、2026-05-05)**: review 完了待ちを CronCreate park モデルに展開し、polling 完全排除 + 二重 polling (45s gh API + 5s observer) を撤廃。T2-2 の sibling parity 回帰テストを同 PR で bundled。
+  - `PrMonitorState` に `review_recheck_count` を追加、wakeup 跨ぎで `build_state_for_iteration` が値を保持
+  - `wakeup_reason` 値に `"review_recheck"` を追加 (Bb-1 の `"rate_limit_retry"` と sibling)
+  - `run_poll_loop(is_wakeup: bool)` を single-iteration model に書き換え:
+    - `is_wakeup=false` (fresh push): checker 未呼び出し → `finalize_initial_review_park` で `INITIAL_REVIEW_WAIT_SECS=300s` 後の wakeup 予約 + park signal emit + early return (todo5.md spec 準拠、CR review 開始前の wasteful API call 回避)
+    - `is_wakeup=true` (CronCreate wakeup): `run_one_iteration` で 1 回 check → terminal / rate-limit park (Bb-1) / `finalize_review_recheck_park` (Bb-2) のいずれか
+  - `finalize_review_recheck_park` / `schedule_next_review_recheck_park`: `review_recheck_count` をインクリメント、`MAX_REVIEW_RECHECKS=3` 到達なら `action_required` で抜ける (review が想定時間内に未完了通知)
+  - `format_review_park_signal`: `[PR_MONITOR_PARK]` envelope に `reason: review_recheck` discriminator 付き、Bb-1 と同一 format で Claude Code 側パーサが両 signal を統一処理可能
+  - 既存 `format_park_signal` (Bb-1) にも `reason: rate_limit_retry` 追加で uniformity
+  - `run_monitor_only` に `detect_wakeup_resume`: 既存 state の `pr` / `repo` 一致 + `next_wakeup_at_unix <= now` で wakeup 判定、該当時は state.started_at を push_time として継続 + `start_monitoring_wakeup` で reset skip
+  - `state_file_path()` に env 変数 `PR_MONITOR_STATE_FILE_OVERRIDE` 経路追加 (T2-2 fault injection 用、本番コードは env 設定なしで挙動変化なし)
+  - `observe.rs` 削除 + `pnpm observe-pr` script 削除 + `--observe` 引数削除 (single-iteration 化で polling 自体が消えたため observer も不要、ADR-018 addendum を実質 supersede)
+  - `MonitorConfig::poll_interval_secs` を `#[allow(dead_code)]` で marker (Bb-3 で削除予定、後方互換のため保持)
+  - `print_report` を `parked_review_recheck` verdict 対応に拡張
+  - 副次的 refactor (touch-trigger ratchet 適用): `start_monitoring_inner` を `try_acquire_monitor_lock` + `init_or_resume_state` + `run_takt_stage` (+ `invoke_takt_into_outcome`) + `finalize_repush` に分割、`format_review_park_signal` を `collect_review_park_fields` + format に分割、`finalize_review_recheck_park` を `finalize_review_recheck_max_reached` + `schedule_next_review_recheck_park` に分割
+  - **T2-2 (順位 75 follow-up)** ★: 3 件の write_state 失敗時 fail-safe 回帰テスト追加
+    - `finalize_parked_returns_action_required_when_write_state_fails`: rate-limit park の fail-safe 確認
+    - `schedule_next_review_recheck_park_returns_action_required_when_write_state_fails`: review park の fail-safe 確認 (sibling parity)
+    - `finalize_park_siblings_have_symmetric_write_state_handling`: 両 sibling とも write 失敗で `action_required` に収束する invariant を 1 テストで machine-enforce (Bb-3 で新 `finalize_*` 追加時に invariant 違反を test 失敗で検出)
+  - 全 123 テスト pass、clippy clean、release ビルド済 (`.claude/cli-pr-monitor.exe` 配置済)
+- ⏳ **Bb-3 (順位 55)** — 未着手 (Bb-2 land 後、`monitor.toml` 設定外出し + SessionStart catch-up)
 
 ---
 

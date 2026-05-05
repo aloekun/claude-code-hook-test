@@ -801,3 +801,45 @@
 #### 詰まっている箇所
 
 なし (Effort XS、コメント追記のみ)
+
+---
+
+### `finalize_parked` write_state 失敗時 fail-safe の回帰テスト追加 (PR #113 T2-2 採用) ★ Bb-1 follow-up
+
+> **動機**: PR #113 (Bb-1) で `finalize_parked` の write_state 失敗時に PARK signal を emit し続ける非対称性 (sibling の `finalize_posted_retrigger` は失敗時に `action_required` で抜ける fail-safe を持つ) を pre-push-review が OBS-1 として検出 → CodeRabbit が Major Finding #1 として再検出 → takt fix loop が auto-fix で対称ガードを追加して land。本 task は **その fix を回帰テストで固定化** し、Bb-2 / Bb-3 で同種の `finalize_*` 拡張が予定されている際に対称性崩れの再発を検知できるようにする。
+>
+> **本タスクの位置づけ**: PR #113 post-merge-feedback Tier 2 #2 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None / ✅ 採用)。3 ソース (PR diff / Session / Pre-push) で独立指摘された原本バグ。`finalize_posted_retrigger` との error handling 対称性が崩れていた箇所への regression test が現状存在しない。Bb-2 / Bb-3 で類似 `finalize_*` 拡張予定 → Frequency Medium 評価。
+>
+> **参照**: `.claude/feedback-reports/113.md` Tier 2 #2、`src/cli-pr-monitor/src/stages/poll.rs` の `finalize_parked` / `finalize_posted_retrigger`、CodeRabbit PR #113 Finding #1、pre-push-review OBS-1
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。Bb-1 land 済 (PR #113)、Bb-2 着手前に入れて parity invariant を保護する想定。
+
+#### 設計決定 (案)
+
+- **テスト配置**: `src/cli-pr-monitor/src/stages/poll.rs` の `#[cfg(test)] mod tests` (既存 `format_park_signal_*` テスト群の隣)
+- **テストシナリオ** (`finalize_parked_returns_action_required_when_write_state_fails`):
+  - `state_file_path()` が書き込めない条件を構築 (e.g. パス先を read-only にする、または `write_state_to(&Path)` が呼ばれる前提を破壊する経路を mock)
+  - `finalize_parked(&mut state, &rl, &pr_info, wakeup_at, max_retries, &result)` を呼ぶ
+  - 戻り値の `PollResult.action == "action_required"` を assert (PARK signal を emit し続けず fail-safe で抜けること)
+  - state.action / next_wakeup_at_unix / wakeup_reason が parked_rate_limit ではなく action_required 経路の値になっていること
+- **副次テスト** (`finalize_posted_retrigger_and_finalize_parked_have_symmetric_write_state_handling`):
+  - 両関数とも write_state 失敗で `action_required` を返すことを assert (parity invariant の machine-enforceable 保護)
+  - これにより Bb-2 / Bb-3 で新 `finalize_*` 関数を追加する際、同 invariant に従わないと test が落ちて気づける
+
+#### 作業計画
+
+- [ ] `state_file_path()` 書き込み失敗を強制する mock または fault-injection 機構を調査 (現状 `pub(crate) fn state_file_path() -> PathBuf` を直接差し替える経路がない可能性 → trait or env var で injectable にする小 refactor が必要かも)
+- [ ] `finalize_parked_returns_action_required_when_write_state_fails` を追加
+- [ ] `finalize_posted_retrigger_and_finalize_parked_have_symmetric_write_state_handling` で parity invariant を assert
+- [ ] cargo clippy / cargo test で 127+ tests pass
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `finalize_parked` の write_state 失敗時 fail-safe が回帰テストで保護される
+- `finalize_*` sibling parity が test レベルで invariant 化される (新 finalize_* 追加時に test が落ちて気づける)
+- 全テスト pass、clippy clean
+
+#### 詰まっている箇所
+
+- `state_file_path()` の write 失敗を test から強制する経路が現状不明。candidates: (a) `write_state_to(&Path, &state)` を直接呼んで read-only path を渡す (関数は pub(crate)、tmp dir に read-only を作るのが Windows でやや厄介) / (b) `state_file_path()` を環境変数で override 可能にする小 refactor / (c) `finalize_*` 関数群を `WriteState` trait DI 化する大 refactor (over-engineered) → (a) or (b) を優先。fault-injection は Bb-2 で同種テストを追加する際にも再利用可能

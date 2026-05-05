@@ -12,8 +12,8 @@
 //!   - Drop: lock file を削除。プロセス crash 時は file が残るが、stale 判定で
 //!     `stale_threshold_secs` 経過後に次インスタンスが takeover できる。
 //!
-//! `--observe` / `--mark-notified` は read-only / one-shot mutation のため guard 対象外。
-//! polling + takt を回す `start_monitoring` のみ guard する。
+//! `--mark-notified` は one-shot mutation のため guard 対象外。
+//! single-iteration check + takt を回す `start_monitoring` のみ guard する。
 
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;

@@ -6,24 +6,63 @@ use crate::stages::collect::collect_findings;
 use crate::stages::poll::run_poll_loop;
 use crate::stages::repush::execute_repush_flow;
 use crate::stages::takt::run_takt;
-use crate::state::{write_state, PrMonitorState};
+use crate::state::{read_state, write_state, PrMonitorState};
 use crate::util::{get_pr_info, utc_now_iso8601, PrInfo};
 
 // ─── 監視開始 (sequential chain) ───
 
 pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
-    let config = load_config();
+    start_monitoring_inner(pr_info, false)
+}
 
+/// Bb-2: wakeup invocation 用 (state リセットを skip し前回の next_wakeup_at_unix /
+/// review_recheck_count を保持したまま single-iteration check を実行する)。
+pub(crate) fn start_monitoring_wakeup(pr_info: &PrInfo) -> i32 {
+    start_monitoring_inner(pr_info, true)
+}
+
+fn start_monitoring_inner(pr_info: &PrInfo, is_wakeup: bool) -> i32 {
+    let config = load_config();
     if !config.monitor.enabled {
         log_info("監視は設定で無効化されています");
         return 0;
     }
 
-    // 重複起動防止 (PR #88 T2-4): 同一リポジトリで polling + takt が並走すると
-    // Claude Code レートリミットを浪費するため、`.claude/pr-monitor.lock` で
-    // 1 アクティブ監視 にゲートする。Drop guard が cleanup 担当。
-    let _lock_guard: Option<crate::lock::MonitorLock> = match acquire_lock("start_monitoring") {
-        LockResult::Acquired(lock) => Some(lock),
+    let lock_guard = match try_acquire_monitor_lock() {
+        AcquireResult::Acquired(g) => g,
+        AcquireResult::Skip => return 0,
+    };
+
+    let pr_label = pr_info
+        .pr_number
+        .map(|n| format!("PR #{}", n))
+        .unwrap_or_else(|| "PR".to_string());
+
+    init_or_resume_state(pr_info, is_wakeup, &pr_label);
+
+    let poll_result = run_poll_loop(&config, pr_info, is_wakeup);
+    log_info(&format!(
+        "ポーリング完了: action={}, summary={}",
+        poll_result.action, poll_result.summary
+    ));
+
+    let takt_outcome = run_takt_stage(&poll_result, pr_info, &config);
+    finalize_repush(&takt_outcome, &config, &pr_label);
+
+    print_report(&poll_result, &pr_label);
+
+    drop(lock_guard);
+    0
+}
+
+enum AcquireResult {
+    Acquired(Option<crate::lock::MonitorLock>),
+    Skip,
+}
+
+fn try_acquire_monitor_lock() -> AcquireResult {
+    match acquire_lock("start_monitoring") {
+        LockResult::Acquired(lock) => AcquireResult::Acquired(Some(lock)),
         LockResult::Busy {
             holder_pid,
             holder_age_secs,
@@ -32,27 +71,24 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
                 "[lock] 別の cli-pr-monitor が走行中 (pid={}, age={}s)、本セッションは skip",
                 holder_pid, holder_age_secs
             ));
-            return 0;
+            AcquireResult::Skip
         }
         LockResult::Unavailable { reason } => {
             log_info(&format!(
                 "[lock] lock 取得不可 (lock なしで継続): {}",
                 reason
             ));
-            None
+            AcquireResult::Acquired(None)
         }
-    };
+    }
+}
 
-    let pr_label = pr_info
-        .pr_number
-        .map(|n| format!("PR #{}", n))
-        .unwrap_or_else(|| "PR".to_string());
-
+fn init_or_resume_state(pr_info: &PrInfo, is_wakeup: bool, pr_label: &str) {
+    if is_wakeup {
+        log_info(&format!("{} の監視を再開 (wakeup)", pr_label));
+        return;
+    }
     log_info(&format!("{} の監視を開始", pr_label));
-
-    // 早期 reset は run_create_pr 冒頭で実施済み (gh pr create 実行前)。
-    // ここは run_monitor_only 経路および冪等化のための最終 reset。
-    // poll_loop 内では iteration を跨いで notified を preserve する。
     let init_state = PrMonitorState::new(
         pr_info.pr_number,
         pr_info.repo.clone(),
@@ -61,17 +97,20 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     if let Err(e) = write_state(&init_state) {
         log_info(&format!("[state] 初期化書き込み失敗 (継続): {}", e));
     }
+}
 
-    // Stage 1: poll_loop (in-process, blocking)
-    let poll_result = run_poll_loop(&config, pr_info);
+struct TaktOutcome {
+    takt_succeeded: bool,
+    has_coderabbit_findings: bool,
+    pre_takt_cid: Option<String>,
+    fix_state: FixCommitState,
+}
 
-    log_info(&format!(
-        "ポーリング完了: action={}, summary={}",
-        poll_result.action, poll_result.summary
-    ));
-
-    // Stage 2: collect_findings -> .takt/review-comments.json
-    // takt 分析は CodeRabbit 起因のシグナルに限定する (CI-only 失敗では起動しない)
+fn run_takt_stage(
+    poll_result: &crate::stages::poll::PollResult,
+    pr_info: &PrInfo,
+    config: &crate::config::Config,
+) -> TaktOutcome {
     let has_coderabbit_findings = !poll_result.findings.is_empty()
         || poll_result
             .coderabbit
@@ -79,67 +118,80 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
             .map(|c| c.new_comments > 0 || c.unresolved_threads.unwrap_or(0) > 0)
             .unwrap_or(false);
 
-    let mut takt_succeeded = false;
-    // takt 実行前の @ commit id (取れない/takt 未実行なら None)。
-    // 二段構え re-push 判定のため run_takt の前に捕捉する。
-    // fix commit を pre-create した場合は、この cid は空 child を指す。
-    let mut pre_takt_cid: Option<String> = None;
-    // ADR task 4 (2026-04-20): 分離型 fix commit の状態
-    let mut fix_state = FixCommitState::None;
+    let mut outcome = TaktOutcome {
+        takt_succeeded: false,
+        has_coderabbit_findings,
+        pre_takt_cid: None,
+        fix_state: FixCommitState::None,
+    };
 
-    if has_coderabbit_findings {
-        if !collect_findings(&poll_result) {
-            log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
-        } else if poll_result.rate_limit.is_some() {
-            log_info(
-                "[rate_limit] CR rate-limit が active のため post-pr-review takt invoke を skip \
-                 (stale findings の空打ち回避、#C-3)",
-            );
-        } else if let Some(takt_config) = &config.takt {
-            // ADR task 4
-            fix_state = create_fix_commit(pr_info.pr_number, &poll_result.findings);
-
-            // Stage 3: takt analysis + fix loop
-            pre_takt_cid = crate::runner::capture_commit_id();
-            log_info(&format!("[state] pre_takt_commit_id: {:?}", pre_takt_cid));
-            takt_succeeded = run_takt(takt_config);
-            log_info(&format!("[state] takt_succeeded: {}", takt_succeeded));
-            if !takt_succeeded {
-                log_info("takt ワークフロー失敗 (非致命的: ポーリング結果はそのまま報告)");
-            }
-        } else {
-            log_info("takt 設定なし: AI 分析をスキップ");
-        }
+    if !has_coderabbit_findings {
+        return outcome;
     }
+    if !collect_findings(poll_result) {
+        log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
+        return outcome;
+    }
+    if poll_result.rate_limit.is_some() {
+        log_info(
+            "[rate_limit] CR rate-limit が active のため post-pr-review takt invoke を skip \
+             (stale findings の空打ち回避、#C-3)",
+        );
+        return outcome;
+    }
+    let Some(takt_config) = &config.takt else {
+        log_info("takt 設定なし: AI 分析をスキップ");
+        return outcome;
+    };
 
-    // Stage 4: re-push (fix_state ごとに分岐)
-    // 1) commit id 変化 + 実 diff 非空 = HasChange のみ push 対象
-    // 2) さらに auto_push_severity 設定で自動 push 可否を判定
-    // 3) fix_state::Created かつ NoChange の場合は空 child を abandon で片付ける
-    if takt_succeeded && has_coderabbit_findings {
-        execute_repush_flow(&config.fix, &pr_label, pre_takt_cid.as_deref(), &fix_state);
-    } else if let FixCommitState::Created { commit_id } = &fix_state {
-        // takt が実行されなかった / 失敗した場合: 事前に作った fix child を片付ける。
+    invoke_takt_into_outcome(&mut outcome, takt_config, pr_info, &poll_result.findings);
+    outcome
+}
+
+fn invoke_takt_into_outcome(
+    outcome: &mut TaktOutcome,
+    takt_config: &crate::config::TaktConfig,
+    pr_info: &PrInfo,
+    findings: &[lib_report_formatter::Finding],
+) {
+    outcome.fix_state = create_fix_commit(pr_info.pr_number, findings);
+    outcome.pre_takt_cid = crate::runner::capture_commit_id();
+    log_info(&format!(
+        "[state] pre_takt_commit_id: {:?}",
+        outcome.pre_takt_cid
+    ));
+    outcome.takt_succeeded = run_takt(takt_config);
+    log_info(&format!(
+        "[state] takt_succeeded: {}",
+        outcome.takt_succeeded
+    ));
+    if !outcome.takt_succeeded {
+        log_info("takt ワークフロー失敗 (非致命的: ポーリング結果はそのまま報告)");
+    }
+}
+
+fn finalize_repush(outcome: &TaktOutcome, config: &crate::config::Config, pr_label: &str) {
+    if outcome.takt_succeeded && outcome.has_coderabbit_findings {
+        execute_repush_flow(
+            &config.fix,
+            pr_label,
+            outcome.pre_takt_cid.as_deref(),
+            &outcome.fix_state,
+        );
+    } else if let FixCommitState::Created { commit_id } = &outcome.fix_state {
         crate::fix_commit::try_abandon_empty_fix_commit("takt 未完了:", Some(commit_id));
     }
-
-    // Stage 5: report to stdout
-    print_report(&poll_result, &pr_label);
-
-    0
 }
 
 // ─── 監視のみモード ───
 
 pub(crate) fn run_monitor_only() -> i32 {
     let config = load_config();
-
     if !config.monitor.enabled {
         return 0;
     }
 
     let mut pr_info = get_pr_info();
-
     if pr_info.pr_number.is_none() {
         log_info("PR が存在しないため、監視をスキップします");
         return 0;
@@ -147,8 +199,59 @@ pub(crate) fn run_monitor_only() -> i32 {
 
     log_info("監視のみモード (既存 PR 検出)");
 
-    pr_info.push_time = Some(utc_now_iso8601());
-    start_monitoring(&pr_info)
+    if let Some(resume_push_time) = detect_wakeup_resume(&pr_info) {
+        log_info(&format!(
+            "[wakeup] 前回 park の next_wakeup_at_unix が経過 → state を継続 (started_at={})",
+            resume_push_time
+        ));
+        pr_info.push_time = Some(resume_push_time);
+        start_monitoring_wakeup(&pr_info)
+    } else {
+        pr_info.push_time = Some(utc_now_iso8601());
+        start_monitoring(&pr_info)
+    }
+}
+
+/// Bb-2: 既存 state file が「自分の PR / repo / head commit の wakeup 待ち」かを判定し、
+/// 該当すれば push_time として継続用 ISO 8601 (state.started_at) を返す。
+///
+/// CR Major #1 fix (Bb-2 PR #114 review): 同一 PR でも新 commit が push されれば head_commit
+/// が変わるため、stored vs current head 一致も check する。head 不一致なら fresh push 扱い。
+fn detect_wakeup_resume(pr_info: &PrInfo) -> Option<String> {
+    let state = read_state()?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if !should_resume_wakeup(&state, pr_info, now_unix) {
+        return None;
+    }
+    Some(state.started_at)
+}
+
+/// CR Major #1 fix: detect_wakeup_resume の判定 invariant を pure に分離してテスト可能にする。
+///
+/// resume 条件 (全て true):
+///   1. state.pr == pr_info.pr_number AND state.repo == pr_info.repo
+///   2. state.next_wakeup_at_unix が Some かつ now を経過
+///   3. state.head_commit が Some かつ pr_info.head_commit と一致
+///
+/// 1 つでも不一致なら resume せず fresh push 経路に倒す。legacy state (head_commit None) は
+/// 自動的に 3 で False になり安全側 (fresh push) に倒れる。
+fn should_resume_wakeup(state: &PrMonitorState, pr_info: &PrInfo, now_unix: i64) -> bool {
+    if state.pr != pr_info.pr_number || state.repo != pr_info.repo {
+        return false;
+    }
+    let Some(wakeup_at) = state.next_wakeup_at_unix else {
+        return false;
+    };
+    if wakeup_at > now_unix {
+        return false;
+    }
+    match (state.head_commit.as_deref(), pr_info.head_commit.as_deref()) {
+        (Some(stored), Some(current)) => stored == current,
+        _ => false,
+    }
 }
 
 // ─── レポート出力 ───
@@ -187,8 +290,14 @@ fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
 }
 
 fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
-    if result.action == "parked_rate_limit" {
-        return "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)";
+    match result.action.as_str() {
+        "parked_rate_limit" => {
+            return "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)";
+        }
+        "parked_review_recheck" => {
+            return "review 完了待ちのため wakeup を予約 (上記 PARK signal 参照)";
+        }
+        _ => {}
     }
 
     let critical_major = result
@@ -229,5 +338,91 @@ fn print_findings_table(findings: &[lib_report_formatter::Finding]) {
             f.issue,
             suggestion
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_pr_info(pr: u64, repo: &str, head: Option<&str>) -> PrInfo {
+        PrInfo {
+            pr_number: Some(pr),
+            repo: Some(repo.into()),
+            push_time: None,
+            head_commit: head.map(String::from),
+        }
+    }
+
+    fn make_park_state(pr: u64, repo: &str, wakeup_at: i64, head: Option<&str>) -> PrMonitorState {
+        let mut s = PrMonitorState::new(Some(pr), Some(repo.into()), "t".into());
+        s.next_wakeup_at_unix = Some(wakeup_at);
+        s.wakeup_reason = Some("review_recheck".into());
+        s.head_commit = head.map(String::from);
+        s
+    }
+
+    #[test]
+    fn should_resume_wakeup_true_when_pr_repo_head_match_and_due() {
+        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
+        assert!(should_resume_wakeup(&state, &pr_info, 200));
+    }
+
+    #[test]
+    fn should_resume_wakeup_false_when_head_differs() {
+        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+        let pr_info = make_pr_info(42, "o/r", Some("def5678"));
+        assert!(
+            !should_resume_wakeup(&state, &pr_info, 200),
+            "CR Major #1: head 不一致なら fresh push 経路に倒す"
+        );
+    }
+
+    #[test]
+    fn should_resume_wakeup_false_when_state_head_missing() {
+        let state = make_park_state(42, "o/r", 100, None);
+        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
+        assert!(
+            !should_resume_wakeup(&state, &pr_info, 200),
+            "legacy state (head_commit None) は安全側で fresh push 扱い"
+        );
+    }
+
+    #[test]
+    fn should_resume_wakeup_false_when_pr_info_head_missing() {
+        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+        let pr_info = make_pr_info(42, "o/r", None);
+        assert!(
+            !should_resume_wakeup(&state, &pr_info, 200),
+            "current head 取得失敗時は安全側で fresh push 扱い"
+        );
+    }
+
+    #[test]
+    fn should_resume_wakeup_false_when_pr_or_repo_differs() {
+        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+        let other_pr = make_pr_info(99, "o/r", Some("abc1234"));
+        let other_repo = make_pr_info(42, "x/y", Some("abc1234"));
+        assert!(!should_resume_wakeup(&state, &other_pr, 200));
+        assert!(!should_resume_wakeup(&state, &other_repo, 200));
+    }
+
+    #[test]
+    fn should_resume_wakeup_false_when_wakeup_in_future() {
+        let state = make_park_state(42, "o/r", 1000, Some("abc1234"));
+        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
+        assert!(
+            !should_resume_wakeup(&state, &pr_info, 100),
+            "next_wakeup_at_unix が未来ならまだ resume しない"
+        );
+    }
+
+    #[test]
+    fn should_resume_wakeup_false_when_next_wakeup_unset() {
+        let mut state = make_park_state(42, "o/r", 100, Some("abc1234"));
+        state.next_wakeup_at_unix = None;
+        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
+        assert!(!should_resume_wakeup(&state, &pr_info, 200));
     }
 }

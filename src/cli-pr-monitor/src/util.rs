@@ -8,6 +8,12 @@ pub(crate) struct PrInfo {
     pub(crate) pr_number: Option<u64>,
     pub(crate) repo: Option<String>,
     pub(crate) push_time: Option<String>,
+    /// 現在の PR head commit OID (CR Major #1 fix, Bb-2 PR #114 review)。
+    ///
+    /// `gh pr view --json headRefOid` で取得した SHA。`detect_wakeup_resume` が
+    /// state の head_commit と比較し、新 commit が push されていれば fresh push
+    /// 経路に分岐させる。`pr_number` が None の段階では None。
+    pub(crate) head_commit: Option<String>,
 }
 
 /// PR 情報を取得する（多段フォールバック）
@@ -24,19 +30,21 @@ pub(crate) fn get_pr_info() -> PrInfo {
         ".nameWithOwner",
     ]);
 
-    // Strategy A: gh pr view (git ブランチが使える場合)
     let pr_number = run_gh_quiet(&["pr", "view", "--json", "number", "-q", ".number"])
-        .and_then(|s| s.parse::<u64>().ok());
+        .and_then(|s| s.parse::<u64>().ok())
+        .or_else(find_pr_via_jj_bookmarks);
 
-    if pr_number.is_some() {
-        return PrInfo {
-            pr_number,
-            repo,
-            push_time: None,
-        };
+    let head_commit = pr_number.and_then(|n| get_pr_head_commit(n, repo.as_deref()));
+
+    PrInfo {
+        pr_number,
+        repo,
+        push_time: None,
+        head_commit,
     }
+}
 
-    // Strategy B: jj bookmark -> gh pr list --head (全ブックマークを順に試す)
+fn find_pr_via_jj_bookmarks() -> Option<u64> {
     let bookmarks = get_jj_bookmarks();
     for bookmark in &bookmarks {
         log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
@@ -51,21 +59,34 @@ pub(crate) fn get_pr_info() -> PrInfo {
             ".[0].number",
         ])
         .and_then(|s| s.parse::<u64>().ok());
-
         if pr_number.is_some() {
-            return PrInfo {
-                pr_number,
-                repo,
-                push_time: None,
-            };
+            return pr_number;
         }
     }
+    None
+}
 
-    PrInfo {
-        pr_number: None,
-        repo,
-        push_time: None,
+/// CR Major #1 fix (Bb-2 PR #114 review): PR の現在 head commit OID を `gh pr view`
+/// で取得する。失敗時は None を返す (caller は head_commit None を「不明」として扱い、
+/// detect_wakeup_resume 側で fresh push 経路に倒す)。
+pub(crate) fn get_pr_head_commit(pr_number: u64, repo: Option<&str>) -> Option<String> {
+    let pr_str = pr_number.to_string();
+    let mut args: Vec<&str> = vec![
+        "pr",
+        "view",
+        &pr_str,
+        "--json",
+        "headRefOid",
+        "-q",
+        ".headRefOid",
+    ];
+    if let Some(r) = repo {
+        args.push("--repo");
+        args.push(r);
     }
+    run_gh_quiet(&args)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// PR URL (https://github.com/.../pull/123) から PR 番号を抽出する
