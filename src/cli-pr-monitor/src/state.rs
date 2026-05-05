@@ -32,6 +32,20 @@ pub(crate) struct PrMonitorState {
     /// CR が新たな rate-limit comment を投稿したら event_time が変わり再度 retrigger 対象になる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) rate_limit_last_retriggered_at: Option<String>,
+    /// 次回 wakeup の予定時刻 (unix epoch 秒)。Bb-1 (Bundle b PR-1) で導入。
+    ///
+    /// rate-limit 等で長時間待機が必要な場合、cli-pr-monitor は同プロセス内で sleep せず
+    /// この field に reset 時刻を保存して exit する。Claude Code 側が stdout の
+    /// PARK signal を読み、CronCreate (`durable: true`) で wakeup を予約する。
+    /// wakeup 発火時に `cli-pr-monitor.exe --monitor-only` が再 invoke される。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) next_wakeup_at_unix: Option<i64>,
+    /// wakeup の理由ラベル (e.g. "rate_limit_retry"). Bb-1 で導入。
+    ///
+    /// 将来 Bb-2 (review 完了待ち) や Bb-3 (SessionStart catch-up) で複数の wakeup
+    /// 経路を識別するための discriminator。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) wakeup_reason: Option<String>,
 }
 
 /// check-ci-coderabbit から伝播する rate-limit 制御情報
@@ -91,6 +105,8 @@ impl PrMonitorState {
             rate_limit: None,
             rate_limit_retries: 0,
             rate_limit_last_retriggered_at: None,
+            next_wakeup_at_unix: None,
+            wakeup_reason: None,
         }
     }
 }
@@ -214,11 +230,48 @@ mod tests {
             rate_limit: None,
             rate_limit_retries: 0,
             rate_limit_last_retriggered_at: None,
+            next_wakeup_at_unix: None,
+            wakeup_reason: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
         assert_eq!(state, deserialized);
+    }
+
+    #[test]
+    fn state_serialize_roundtrip_with_wakeup_fields() {
+        let mut state =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-05T12:00:00Z".into());
+        state.next_wakeup_at_unix = Some(1_775_088_000);
+        state.wakeup_reason = Some("rate_limit_retry".into());
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("next_wakeup_at_unix"));
+        assert!(json.contains("rate_limit_retry"));
+
+        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
+        assert_eq!(state, deserialized);
+        assert_eq!(deserialized.next_wakeup_at_unix, Some(1_775_088_000));
+        assert_eq!(
+            deserialized.wakeup_reason.as_deref(),
+            Some("rate_limit_retry")
+        );
+    }
+
+    #[test]
+    fn state_omits_wakeup_fields_when_none() {
+        let state = PrMonitorState::new(Some(1), None, "t".into());
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(!json.contains("next_wakeup_at_unix"));
+        assert!(!json.contains("wakeup_reason"));
+    }
+
+    #[test]
+    fn state_default_wakeup_fields_are_none() {
+        let state = PrMonitorState::new(Some(1), None, "t".into());
+        assert!(state.next_wakeup_at_unix.is_none());
+        assert!(state.wakeup_reason.is_none());
     }
 
     #[test]

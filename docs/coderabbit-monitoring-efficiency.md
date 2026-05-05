@@ -10,6 +10,52 @@
 
 ---
 
+## 着手決定 (2026-05-05)
+
+### 採用案
+
+**Bundle b (CR auto-monitoring core、3 PR 構成) を採用**。`max_duration_secs` 拡大による sleep 延長案 (案 C) は **却下**。
+
+### 着手順 / 設計方針
+
+- **着手は Bb-1 (順位 53) から**
+- **CronCreate は `durable: true` で利用** — `.claude/scheduled_tasks.json` に永続化され、Claude Code session 再起動を跨ぐ
+- **PR description で ADR-030 の責務分離パターン (L1 floor + L2 recovery) を引用** — post-merge-feedback で実証済の「機械的 Rust + Claude Code 定期チェック」分離原則を CR rate-limit に適用 (3 例目)。新 ADR で本パターン適用を明文化する想定
+
+### 設計判断時に確認した CronCreate の重要事実 (今後の再分析を防ぐため記録)
+
+- 標準 5 フィールド cron 構文 (`MM HH DoM Mon DoW`) — **時間制約なし**。「60 分上限」は **別ツール `ScheduleWakeup` (`/loop` 動的モード) の `clamped to [60, 3600]` 制約** であり、CronCreate には適用されない
+- One-shot (`recurring: false`) で任意の reset 時刻に 1 度だけ wakeup 可能 → 47 分でも 90 分でも cron で直接予約可能
+- `durable: true` で session 跨ぎが native サポート — 旧 ADR-009 設計の「session 終了で wakeup 発火しない」問題は durable 化で解消可能 (Bb-3 SessionStart catch-up は補完層として位置づけ)
+- recurring task は 7 日 auto-expire (rate-limit context では十分長い)
+
+### ADR-018 との整合性
+
+ADR-018 が廃止したのは「同一プロセス内で 4 段間接連携 (daemon → state file → CronCreate → Claude → skill) する旧設計」であり、**プロセス分離 + 責務分離原則そのものは ADR-018 流儀と整合**。Bundle b は ADR-030 の L1+L2 パターン (機械的 Rust 状態管理 + Claude Code 定期チェックの分離) を踏襲する。
+
+### 案 C を却下した理由
+
+- **`max_duration_secs` 1h cap 延長は短期的には有効だが、Claude Code session 終了時の silent loss を解消できない** — cli-pr-monitor は Claude Code Bash tool の child process として動作するため、session 終了で sleep 中の subprocess が kill される
+- **CronCreate `durable: true` は session 跨ぎを native サポート** — 案 C 単体より UX が確実に良い
+- 90+ 分 rate-limit に対する構造的限界 (案 C は cap 超過で fail、案 A は cron で任意時刻予約可能)
+- 「30 分ごとに確認 → 残時間再計算で reschedule」chain pattern は CronCreate native 機能で実現可能 (ユーザー指摘、本決定の根拠の一つ)
+
+### 進捗
+
+- ✅ **Bb-1 (順位 53) — 実装完了 (未 PR / 未マージ、2026-05-05)**: `cli-pr-monitor` の rate-limit retry を CronCreate park モデルに切り替え。
+  - `PrMonitorState` に `next_wakeup_at_unix` / `wakeup_reason` を追加
+  - `handle_rate_limit_retry` を `RateLimitOutcome` enum 返却に refactor (Posted / Parked / Failed)
+  - reset 時刻が未来の場合は sleep せず park: state を更新し PARK signal (CronCreate 呼び出しテンプレート + repo / pr / reset_at_unix / reset_at_iso_utc / wait_total_seconds / exe / cwd を含む) を stdout に emit して `parked_rate_limit` action で early return
+  - reset 時刻が過去の場合は従来通り即時 `@coderabbitai review` 投稿 (Posted)
+  - `max_duration_secs > sleep_secs` の予算チェックを撤廃 (sleep そのものが廃止)
+  - `print_report` を parked 対応 verdict に拡張
+  - 副次的 refactor (touch-trigger ratchet 適用): `run_poll_loop` を `PollContext` + `run_one_iteration` 等の helper に分割、`print_report` を `compute_verdict` + `print_findings_table` に分割
+  - 全 125 テスト pass、clippy clean、release ビルド済 (`.claude/cli-pr-monitor.exe` 配置済)
+- ⏳ **Bb-2 (順位 54)** — 未着手 (Bb-1 land 後)
+- ⏳ **Bb-3 (順位 55)** — 未着手 (Bb-1 / Bb-2 land 後)
+
+---
+
 ## 現状の課題
 
 - **CodeRabbit 無課金**: 1 時間あたり 3 reviews 上限

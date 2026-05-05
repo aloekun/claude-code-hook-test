@@ -159,7 +159,6 @@ fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
         .as_ref()
         .map(|c| c.overall.as_str())
         .unwrap_or("unknown");
-
     let cr_comments = result
         .coderabbit
         .as_ref()
@@ -171,26 +170,6 @@ fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
         .and_then(|c| c.unresolved_threads)
         .unwrap_or(0);
 
-    let findings_count = result.findings.len();
-    let critical_major = result
-        .findings
-        .iter()
-        .filter(|f| {
-            let s = f.severity.to_lowercase();
-            s == "critical" || s == "high" || s == "major"
-        })
-        .count();
-
-    // 判定
-    let verdict = if critical_major > 0 {
-        "修正が必要な指摘があります"
-    } else if findings_count > 0 {
-        "重大な問題は見つかりませんでした。軽微な改善提案があります"
-    } else {
-        "問題は見つかりませんでした"
-    };
-
-    // 統合レポート形式 (post-pr-create-review-check スキルと同一フォーマット)
     println!();
     println!("## Review Report ({})", pr_label);
     println!();
@@ -200,29 +179,55 @@ fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
     );
     println!("action: {} | summary: {}", result.action, result.summary);
     println!();
-    println!("**判定**: {}", verdict);
+    println!("**判定**: {}", compute_verdict(result));
 
-    if findings_count > 0 {
-        println!();
-        println!("| # | Source | Severity | File (Line) | Issue | Suggestion |");
-        println!("|---|--------|----------|-------------|-------|------------|");
-        for (i, f) in result.findings.iter().enumerate() {
-            // suggestion を 80 文字 (char 単位) で切り詰め (UTF-8 安全)
-            let suggestion = if f.suggestion.chars().count() > 80 {
-                format!("{}...", truncate_safe(&f.suggestion, 77))
-            } else {
-                f.suggestion.clone()
-            };
-            println!(
-                "| {} | {} | {} | {} ({}) | {} | {} |",
-                i + 1,
-                f.source,
-                f.severity,
-                f.file,
-                f.line,
-                f.issue,
-                suggestion
-            );
-        }
+    if !result.findings.is_empty() {
+        print_findings_table(&result.findings);
+    }
+}
+
+fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
+    if result.action == "parked_rate_limit" {
+        return "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)";
+    }
+
+    let critical_major = result
+        .findings
+        .iter()
+        .filter(|f| {
+            let s = f.severity.to_lowercase();
+            s == "critical" || s == "high" || s == "major"
+        })
+        .count();
+
+    if critical_major > 0 {
+        "修正が必要な指摘があります"
+    } else if !result.findings.is_empty() {
+        "重大な問題は見つかりませんでした。軽微な改善提案があります"
+    } else {
+        "問題は見つかりませんでした"
+    }
+}
+
+fn print_findings_table(findings: &[lib_report_formatter::Finding]) {
+    println!();
+    println!("| # | Source | Severity | File (Line) | Issue | Suggestion |");
+    println!("|---|--------|----------|-------------|-------|------------|");
+    for (i, f) in findings.iter().enumerate() {
+        let suggestion = if f.suggestion.chars().count() > 80 {
+            format!("{}...", truncate_safe(&f.suggestion, 77))
+        } else {
+            f.suggestion.clone()
+        };
+        println!(
+            "| {} | {} | {} | {} ({}) | {} | {} |",
+            i + 1,
+            f.source,
+            f.severity,
+            f.file,
+            f.line,
+            f.issue,
+            suggestion
+        );
     }
 }
