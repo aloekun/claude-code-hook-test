@@ -49,7 +49,7 @@ pub(crate) struct PrMonitorState {
     /// review 完了待ちの recheck 回数 (Bb-2 で導入)。
     ///
     /// `parked_review_recheck` 経路で wakeup が発火するたびにインクリメントされる。
-    /// `MAX_REVIEW_RECHECKS` 到達で `action_required` 経路に抜ける (review が想定時間内に
+    /// `max_review_rechecks` (config) 到達で `action_required` 経路に抜ける (review が想定時間内に
     /// 完了していない通知)。新規 push で `PrMonitorState::new` により 0 にリセット、wakeup 経路で
     /// は build_state_for_iteration が既存値を保持する。
     #[serde(default)]

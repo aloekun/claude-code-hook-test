@@ -6,10 +6,17 @@
 
 [monitor]
 enabled = true
-poll_interval_secs = 120
 max_duration_secs = 600
 check_ci = true
 check_coderabbit = true
+
+# review 完了待ち park 制御 (Bb-3 順位 55)。
+# CodeRabbit walkthrough 確認後、review 完了をポーリングする CronCreate 経路の
+# 待機秒数と最大再チェック回数。コメントアウトで全てデフォルト (5 分 / 5 分 / 3 回) を使用。
+# [review_recheck]
+# initial_review_wait_secs = 300
+# review_recheck_wait_secs = 300
+# max_review_rechecks = 3
 
 [takt]
 workflow = "post-pr-review"

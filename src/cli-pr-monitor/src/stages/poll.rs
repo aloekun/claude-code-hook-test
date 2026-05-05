@@ -33,19 +33,17 @@ struct PollContext<'a> {
     max_duration: u64,
     skip_ci: bool,
     skip_coderabbit: bool,
+    /// fresh push 経路 (initial park) の wait 秒数 (Bb-3 順位 55: config 由来)
+    initial_review_wait_secs: u64,
+    /// wakeup 経路で次回 wakeup までの wait 秒数 (Bb-3 順位 55: config 由来)
+    review_recheck_wait_secs: u64,
+    /// recheck 上限 (Bb-3 順位 55: config 由来)
+    max_review_rechecks: u32,
 }
-
-/// 初回 push 後の review check までの park 期間 (Bb-2)。
-/// CR が review を完了するまでの待機を CronCreate に委譲し polling を完全排除する。
-pub(crate) const INITIAL_REVIEW_WAIT_SECS: u64 = 300;
-/// review が未完了だった場合の recheck 間隔 (Bb-2)。
-pub(crate) const REVIEW_RECHECK_WAIT_SECS: u64 = 300;
-/// review_recheck の累積上限 (Bb-2)。到達時は action_required で抜ける。
-pub(crate) const MAX_REVIEW_RECHECKS: u32 = 3;
 
 /// single-iteration check + park-or-terminate モデル (Bb-2)。
 ///
-/// `is_wakeup=false` (fresh push): checker は呼ばず、即 INITIAL_REVIEW_WAIT_SECS 後の
+/// `is_wakeup=false` (fresh push): checker は呼ばず、即 `initial_review_wait_secs` 後の
 /// wakeup を予約して exit する (CR review 開始前の wasteful API call を回避、todo5.md spec)。
 ///
 /// `is_wakeup=true` (CronCreate からの再 invoke): 1 回 checker を呼び、結果に応じて
@@ -75,6 +73,9 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo, is_wakeup: b
         max_duration: config.max_duration_secs,
         skip_ci: !config.check_ci,
         skip_coderabbit: !config.check_coderabbit,
+        initial_review_wait_secs: full_config.review_recheck.initial_review_wait_secs,
+        review_recheck_wait_secs: full_config.review_recheck.review_recheck_wait_secs,
+        max_review_rechecks: full_config.review_recheck.max_review_rechecks,
     };
 
     if !is_wakeup {
@@ -549,6 +550,7 @@ struct ReviewParkSignalFields {
     exe: String,
     cwd: String,
     recheck: u32,
+    max_rechecks: u32,
 }
 
 fn collect_review_park_fields(
@@ -588,6 +590,7 @@ fn collect_review_park_fields(
         exe,
         cwd,
         recheck: state.review_recheck_count,
+        max_rechecks: ctx.max_review_rechecks,
     }
 }
 
@@ -626,7 +629,7 @@ CronCreate({{
         wakeup_iso = f.wakeup_iso,
         wait_secs = f.wait_secs,
         recheck = f.recheck,
-        max = MAX_REVIEW_RECHECKS,
+        max = f.max_rechecks,
         exe = f.exe,
         cwd = f.cwd,
     )
@@ -635,7 +638,7 @@ CronCreate({{
 /// Bb-2: fresh push 経路で review_recheck park を行う (checker 呼び出しなし)。
 ///
 /// 動機: push 直後は CR がまだ review を開始していない可能性が高く、即 check は wasteful。
-/// INITIAL_REVIEW_WAIT_SECS 後に wakeup を予約 → 1 回 check という 2-step フローに分離する。
+/// `initial_review_wait_secs` 後に wakeup を予約 → 1 回 check という 2-step フローに分離する。
 ///
 /// CR Major #2 fix (Bb-2 PR #114 review): 既存 state に残った `review_recheck_count` を
 /// fresh push では 0 に明示リセット (前サイクルが MAX 到達等で残った count が新 push に
@@ -656,12 +659,12 @@ fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    state.next_wakeup_at_unix = Some(now_unix + INITIAL_REVIEW_WAIT_SECS as i64);
+    state.next_wakeup_at_unix = Some(now_unix + ctx.initial_review_wait_secs as i64);
     state.wakeup_reason = Some("review_recheck".into());
     state.action = "parked_review_recheck".into();
     state.summary = format!(
         "review check を {}s 後に予約 (initial wait, recheck=0/{})",
-        INITIAL_REVIEW_WAIT_SECS, MAX_REVIEW_RECHECKS
+        ctx.initial_review_wait_secs, ctx.max_review_rechecks
     );
 
     if let Err(e) = write_state(&state) {
@@ -682,9 +685,9 @@ fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult {
 
 /// Bb-2: wakeup 経路の review_recheck park (checker check 後に continue_monitoring の場合)。
 ///
-/// `review_recheck_count` をインクリメントし、`MAX_REVIEW_RECHECKS` 到達なら
+/// `review_recheck_count` をインクリメントし、`max_review_rechecks` 到達なら
 /// `action_required` で抜ける (review が想定時間内に未完了を通知)。
-/// 未到達なら REVIEW_RECHECK_WAIT_SECS 後の wakeup を予約して return。
+/// 未到達なら `review_recheck_wait_secs` 後の wakeup を予約して return。
 fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult {
     let mut state = read_state().unwrap_or_else(|| {
         PrMonitorState::new(
@@ -695,17 +698,20 @@ fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult {
     });
     state.review_recheck_count += 1;
 
-    if state.review_recheck_count >= MAX_REVIEW_RECHECKS {
-        return finalize_review_recheck_max_reached(&mut state);
+    if state.review_recheck_count >= ctx.max_review_rechecks {
+        return finalize_review_recheck_max_reached(&mut state, ctx.max_review_rechecks);
     }
 
     schedule_next_review_recheck_park(&mut state, ctx)
 }
 
-fn finalize_review_recheck_max_reached(state: &mut PrMonitorState) -> PollResult {
+fn finalize_review_recheck_max_reached(
+    state: &mut PrMonitorState,
+    max_review_rechecks: u32,
+) -> PollResult {
     log_info(&format!(
         "[review_recheck] max {} 回到達、action_required で抜ける",
-        MAX_REVIEW_RECHECKS
+        max_review_rechecks
     ));
     let summary = format!(
         "review が想定時間内に完了せず ({} recheck 後)。手動で PR を確認してください",
@@ -725,13 +731,13 @@ fn schedule_next_review_recheck_park(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    state.next_wakeup_at_unix = Some(now_unix + REVIEW_RECHECK_WAIT_SECS as i64);
+    state.next_wakeup_at_unix = Some(now_unix + ctx.review_recheck_wait_secs as i64);
     state.wakeup_reason = Some("review_recheck".into());
     state.action = "parked_review_recheck".into();
     state.head_commit = ctx.pr_info.head_commit.clone();
     state.summary = format!(
         "review check を {}s 後に予約 (recheck={}/{})",
-        REVIEW_RECHECK_WAIT_SECS, state.review_recheck_count, MAX_REVIEW_RECHECKS
+        ctx.review_recheck_wait_secs, state.review_recheck_count, ctx.max_review_rechecks
     );
 
     if let Err(e) = write_state(state) {
@@ -1142,6 +1148,9 @@ mod tests {
             max_duration: 600,
             skip_ci: false,
             skip_coderabbit: false,
+            initial_review_wait_secs: 300,
+            review_recheck_wait_secs: 300,
+            max_review_rechecks: 3,
         };
 
         let outcome = schedule_next_review_recheck_park(&mut state, &ctx);
@@ -1181,8 +1190,32 @@ mod tests {
             max_duration: 600,
             skip_ci: false,
             skip_coderabbit: false,
+            initial_review_wait_secs: 300,
+            review_recheck_wait_secs: 300,
+            max_review_rechecks: 3,
         };
         schedule_next_review_recheck_park(&mut state, &ctx)
+    }
+
+    fn invoke_finalize_initial_review_park_with_bad_path(
+        pr_info: &crate::util::PrInfo,
+    ) -> PollResult {
+        let checker_path = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let ctx = PollContext {
+            checker: &checker_path,
+            push_time: "2026-05-01T00:00:00Z",
+            pr_info,
+            rate_limit_config: &rate_limit_config,
+            start: std::time::Instant::now(),
+            max_duration: 600,
+            skip_ci: false,
+            skip_coderabbit: false,
+            initial_review_wait_secs: 300,
+            review_recheck_wait_secs: 300,
+            max_review_rechecks: 3,
+        };
+        finalize_initial_review_park(&ctx)
     }
 
     fn seed_stale_recheck_state(tmp_path: &std::path::Path) {
@@ -1191,6 +1224,48 @@ mod tests {
         stale_state.review_recheck_count = 3;
         stale_state.action = "action_required".into();
         crate::state::write_state_to(tmp_path, &stale_state).unwrap();
+    }
+
+    /// Bb-3 (順位 55): `max_review_rechecks` の config 化が実際に PARK signal に
+    /// 反映されることを machine-enforce する (default 3 ではなく custom 値が出力されること)。
+    #[test]
+    fn format_review_park_signal_uses_configured_max_rechecks() {
+        let state =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: None,
+        };
+        let checker = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let ctx = PollContext {
+            checker: &checker,
+            push_time: "2026-05-01T00:00:00Z",
+            pr_info: &pr_info,
+            rate_limit_config: &rate_limit_config,
+            start: std::time::Instant::now(),
+            max_duration: 600,
+            skip_ci: false,
+            skip_coderabbit: false,
+            initial_review_wait_secs: 120,
+            review_recheck_wait_secs: 240,
+            max_review_rechecks: 7,
+        };
+
+        let signal = format_review_park_signal(&state, &ctx);
+
+        assert!(
+            signal.contains("max_rechecks: 7"),
+            "PARK signal に config 値 (max_rechecks: 7) が反映されること: {}",
+            signal
+        );
+        assert!(
+            !signal.contains("max_rechecks: 3"),
+            "default 値 3 が hard-coded で残っていないこと: {}",
+            signal
+        );
     }
 
     /// CR Major #2 fix (Bb-2 PR #114 review): fresh push 経路では `finalize_initial_review_park`
@@ -1223,6 +1298,9 @@ mod tests {
             max_duration: 600,
             skip_ci: false,
             skip_coderabbit: false,
+            initial_review_wait_secs: 300,
+            review_recheck_wait_secs: 300,
+            max_review_rechecks: 3,
         };
 
         let outcome = finalize_initial_review_park(&ctx);
@@ -1243,9 +1321,11 @@ mod tests {
         );
     }
 
-    /// Bb-2 (T2-2): finalize_parked と schedule_next_review_recheck_park の sibling parity
-    /// (共に write_state 失敗で action_required を返す) を 1 テストで machine-enforce する。
-    /// 新 finalize_* 関数を追加する際、本テストが落ちて invariant 維持を強制する。
+    /// Bb-2 (T2-2) + Bb-3 follow-up: 3 つの finalize_* park sibling
+    /// (`finalize_parked` / `schedule_next_review_recheck_park` / `finalize_initial_review_park`)
+    /// は全て write_state 失敗で `action_required` を返す invariant を 1 テストで
+    /// machine-enforce する。新 finalize_* 関数を追加する際、本テストが落ちて
+    /// invariant 維持を強制する。
     #[test]
     fn finalize_park_siblings_have_symmetric_write_state_handling() {
         let _guard = env_override_lock();
@@ -1261,16 +1341,29 @@ mod tests {
 
         let outcome_rate_limit = invoke_finalize_parked_with_bad_path(&pr_info);
         let outcome_review = invoke_review_park_with_bad_path(&pr_info);
+        let outcome_initial = invoke_finalize_initial_review_park_with_bad_path(&pr_info);
 
         std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
 
         assert_eq!(
-            outcome_rate_limit.action, outcome_review.action,
-            "sibling parity: finalize_parked と schedule_next_review_recheck_park は同じ action を返すこと"
+            outcome_rate_limit.action, "action_required",
+            "finalize_parked: write_state 失敗 → action_required"
         );
         assert_eq!(
-            outcome_rate_limit.action, "action_required",
-            "両 sibling とも write_state 失敗 → action_required へ収束する fail-safe"
+            outcome_review.action, "action_required",
+            "schedule_next_review_recheck_park: write_state 失敗 → action_required"
+        );
+        assert_eq!(
+            outcome_initial.action, "action_required",
+            "finalize_initial_review_park: write_state 失敗 → action_required"
+        );
+        assert_eq!(
+            outcome_rate_limit.action, outcome_review.action,
+            "sibling parity (rate_limit ↔ review_recheck)"
+        );
+        assert_eq!(
+            outcome_review.action, outcome_initial.action,
+            "sibling parity (review_recheck ↔ initial_review)"
         );
     }
 }
