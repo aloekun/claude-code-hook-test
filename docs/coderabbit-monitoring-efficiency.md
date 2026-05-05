@@ -114,7 +114,7 @@
 ## 関連ドキュメント
 
 - [docs/todo.md](todo.md) — 推奨実行順序サマリ表 (priority table)
-- [docs/docs-pr-iteration-efficiency.md](docs-pr-iteration-efficiency.md) — 並列の docs PR iteration 領域
+- [ADR-035: docs-only PR 評価ポリシー](adr/adr-035-doc-evaluation-policy.md) — docs PR iteration 改善の核 (旧 docs-pr-iteration-efficiency.md は retire 済、本 ADR に集約)
 - [ADR-036: Bundle Z 3 層アーキテクチャ](adr/adr-036-bundle-z-three-layer-review.md) — pre-push-review 改善 (旧 pipeline-token-efficiency.md #B セクション)
 - [ADR-037: takt fix-trust shortcut](adr/adr-037-takt-fix-trust-shortcut.md) — post-pr-review 短縮 (旧 #C-2)
 - [ADR-009: Post-PR Monitor — push/PR作成後の CI・CodeRabbit 自動監視](adr/adr-009-post-pr-monitor.md)
