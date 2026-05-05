@@ -40,12 +40,30 @@ pub(crate) struct PrMonitorState {
     /// wakeup 発火時に `cli-pr-monitor.exe --monitor-only` が再 invoke される。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) next_wakeup_at_unix: Option<i64>,
-    /// wakeup の理由ラベル (e.g. "rate_limit_retry"). Bb-1 で導入。
+    /// wakeup の理由ラベル (e.g. "rate_limit_retry" / "review_recheck"). Bb-1 で導入、Bb-2 で値追加。
     ///
-    /// 将来 Bb-2 (review 完了待ち) や Bb-3 (SessionStart catch-up) で複数の wakeup
-    /// 経路を識別するための discriminator。
+    /// Bb-2 (review 完了待ち) で `"review_recheck"` 経路を追加。Bb-3 (SessionStart catch-up) で
+    /// 複数の wakeup 経路を識別するための discriminator。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) wakeup_reason: Option<String>,
+    /// review 完了待ちの recheck 回数 (Bb-2 で導入)。
+    ///
+    /// `parked_review_recheck` 経路で wakeup が発火するたびにインクリメントされる。
+    /// `MAX_REVIEW_RECHECKS` 到達で `action_required` 経路に抜ける (review が想定時間内に
+    /// 完了していない通知)。新規 push で `PrMonitorState::new` により 0 にリセット、wakeup 経路で
+    /// は build_state_for_iteration が既存値を保持する。
+    #[serde(default)]
+    pub(crate) review_recheck_count: u32,
+    /// park 時点の PR head commit OID (CR Major #1 fix, Bb-2 PR #114 review)。
+    ///
+    /// `detect_wakeup_resume` が wakeup 判定時に「同 PR への新 push で head が変わって
+    /// いないか」を検証するために使う。state の pr / repo / next_wakeup_at_unix が
+    /// 一致しても head が変われば fresh push として扱い、stale state (started_at /
+    /// review_recheck_count) を新 commit に持ち込まない。値は `gh pr view --json
+    /// headRefOid` で取得した SHA。legacy state (本フィールド未設定) は wakeup 不一致
+    /// 扱い (= fresh push 経路) で安全側に倒す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) head_commit: Option<String>,
 }
 
 /// check-ci-coderabbit から伝播する rate-limit 制御情報
@@ -107,11 +125,21 @@ impl PrMonitorState {
             rate_limit_last_retriggered_at: None,
             next_wakeup_at_unix: None,
             wakeup_reason: None,
+            review_recheck_count: 0,
+            head_commit: None,
         }
     }
 }
 
+/// state file の保存パスを返す。
+///
+/// 通常は `<exe>/pr-monitor-state.json`。
+/// 環境変数 `PR_MONITOR_STATE_FILE_OVERRIDE` がセットされていればそのパスを優先する
+/// (T2-2 / fault injection test 用)。本番コードは env を設定しないため挙動変化なし。
 pub(crate) fn state_file_path() -> PathBuf {
+    if let Ok(path) = std::env::var("PR_MONITOR_STATE_FILE_OVERRIDE") {
+        return PathBuf::from(path);
+    }
     std::env::current_exe()
         .unwrap_or_default()
         .parent()
@@ -232,11 +260,75 @@ mod tests {
             rate_limit_last_retriggered_at: None,
             next_wakeup_at_unix: None,
             wakeup_reason: None,
+            review_recheck_count: 0,
+            head_commit: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
         assert_eq!(state, deserialized);
+    }
+
+    #[test]
+    fn state_serialize_roundtrip_with_head_commit() {
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        state.head_commit = Some("abc1234deadbeef".into());
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("head_commit"));
+
+        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.head_commit.as_deref(), Some("abc1234deadbeef"));
+    }
+
+    #[test]
+    fn state_legacy_json_without_new_fields_deserializes_with_defaults() {
+        let legacy_json = r#"{
+            "pr": 42,
+            "repo": "owner/repo",
+            "started_at": "2026-04-01T00:00:00Z",
+            "last_checked": null,
+            "ci": null,
+            "coderabbit": null,
+            "action": "continue_monitoring",
+            "summary": "legacy",
+            "findings": [],
+            "notified": false,
+            "daemon_pid": null,
+            "daemon_status": "running"
+        }"#;
+
+        let state: PrMonitorState = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(state.review_recheck_count, 0);
+        assert!(state.head_commit.is_none());
+        assert!(state.next_wakeup_at_unix.is_none());
+        assert!(state.wakeup_reason.is_none());
+        assert_eq!(state.rate_limit_retries, 0);
+    }
+
+    #[test]
+    fn state_serialize_roundtrip_with_review_recheck_count() {
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        state.review_recheck_count = 2;
+        state.next_wakeup_at_unix = Some(1_775_088_000);
+        state.wakeup_reason = Some("review_recheck".into());
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("review_recheck_count"));
+        assert!(json.contains("review_recheck"));
+
+        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.review_recheck_count, 2);
+        assert_eq!(
+            deserialized.wakeup_reason.as_deref(),
+            Some("review_recheck")
+        );
+    }
+
+    #[test]
+    fn state_default_review_recheck_count_is_zero() {
+        let state = PrMonitorState::new(Some(1), None, "t".into());
+        assert_eq!(state.review_recheck_count, 0);
     }
 
     #[test]

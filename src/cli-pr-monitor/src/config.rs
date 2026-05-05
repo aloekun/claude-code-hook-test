@@ -27,7 +27,11 @@ pub(crate) struct Config {
 pub(crate) struct MonitorConfig {
     #[serde(default = "default_enabled")]
     pub(crate) enabled: bool,
+    /// Bb-2 で polling loop を廃止 (single-iteration + CronCreate park モデル) したため
+    /// 本フィールドは現状未使用。既存 `pr-monitor-config.toml` との後方互換のため保持。
+    /// Bb-3 (config 整理) で削除予定。
     #[serde(default = "default_poll_interval")]
+    #[allow(dead_code)]
     pub(crate) poll_interval_secs: u64,
     #[serde(default = "default_max_duration")]
     pub(crate) max_duration_secs: u64,

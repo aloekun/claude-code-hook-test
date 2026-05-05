@@ -69,6 +69,7 @@
 | 67 | 💎 Tier 3 | **ADR-030 に abrupt 終了時の振る舞いを spec として明記 (PR #109 T3-2 採用) ★ Bundle c** | todo5.md | XS | 順位 63 / 64 と同 PR (実装と仕様の整合性確保、L1 in-process Drop guard + L2 out-of-process reaper の責務分離 + SLA 化) |
 | 68 | 🔧 Tier 2 | **`no-ephemeral-todo-reference` self-exclusion invariant 単体テスト追加 (PR #110 T2-1 採用) ★ Bundle d** | todo5.md | S | なし (PR #110 直接対策、placeholder N 戦略の machine-enforceable 保護、TP/FP/Edge 3 軸テスト) |
 | 69 | 💎 Tier 3 | **`no-ephemeral-todo-reference` の `yaml`/`yml` extensions 追加理由をコメントで明記 (PR #110 T3-1 採用) ★ Bundle d** | todo5.md | XS | なし (rule⑥ コメント欄に 1-2 行追記、設計 doc と実装の経緯保存、git blame 不要化) |
+| 75 | 🔧 Tier 2 | **`finalize_parked` write_state 失敗時 fail-safe の回帰テスト追加 (PR #113 T2-2 採用) ★ Bb-1 follow-up** | todo5.md | S | なし (PR #113 で `finalize_posted_retrigger` との error path 対称性を後付け修正、本 task は test 固定化。durable な re-park ループ regression を防止、`finalize_*` sibling parity の machine-enforceable 保護) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -97,6 +98,8 @@
 **Bundle d (PR #110 post-merge-feedback、2026-05-04)**: PR #110 (Bundle "docs quality pre-write") merge 後の post-merge-feedback で 6 findings 中 3 件採用。共通テーマは「PR #110 で導入した `no-ephemeral-todo-reference` rule (順位 29 採用分) の robustness 強化 + 設計 doc / 実装の乖離 ガード」。**順位 68 (T2 self-exclusion test)** は placeholder N 戦略の機械的保護で OBS-3 (fragile naming convention) 対策、**順位 69 (T3 yaml/yml コメント)** は OBS-2 (spec-impl 乖離) 対策。順位 70 (code-review checklist) は Bundle e で land 済。残り順位 68 (test infra) と 順位 69 (config コメント) は scope 異なるため独立 PR 推奨。
 
 **Bundle f + retirement (PR #111 post-merge-feedback + 計画書 retire、2026-05-05)** ✅ 完了: PR #111 (Bundle e) merge 後の post-merge-feedback で 10 findings 中 4 件採用 (順位 71/72/73/74 = Tier 3 XS×4) + 順位 62 (Document Governance) + `docs/docs-pr-iteration-efficiency.md` retirement を **1 PR で集約 land**。Sub-PR 分割推奨ルール (順位 73 自身が codify する内容) を本 PR で **dogfood**: 順位 73 が land する PR 自身が「分割 vs 統合」判断対象 → ファイル削除 + 順位 62 + Bundle f を統合した結果、scope は 5 ファイル touch (global rules 2 + ADR 2 + 削除 1) + cleanup で clean、Bundle 分割で得られる review 容易性より統合 PR の atomic な lifecycle 完結性が勝った。共通テーマ: 「PR #111 自己違反事例 → self-application 強化」 + 「Document Governance を global rule に codify」 + 「計画書 retirement を実例化」の 3 layer 同時 land。
+
+**PR #113 (Bb-1 = Bundle b PR-1) post-merge-feedback (2026-05-05)**: 9 findings に対して **1 件のみ採用** (順位 75 = T2-2 の `finalize_parked` write_state 失敗時 fail-safe 回帰テスト)。T1 #1/#2 (lint rule 案) は NLP 必要 / FP リスクで却下、T2-1 (Windows path test) / T2-3 (state cycle integration) / T2-4 (CronCreate format lint) は ROI 不見合いで不採用、**T3-1 / T3-2 (`~/.claude/rules/common/coding-style.md` への ルール追記)** は **ユーザー判断で却下** — 「強制力のないルール追加は却下: 機械検知できなければ何もしない方がマシ。ルール乱立は重要ルール埋没の害悪」(memory: feedback_no_unenforced_rules.md として codify 済)、T3-3 (PARK signal 設計 ADR) は premature で 🤔 様子見保留。**本 PR 含意**: Bb-1 の sibling parity invariant (`finalize_*` 群の error path 対称性) は Bb-2 / Bb-3 で同種関数を追加する際に再発確度が高いため、**test レベルで machine-enforceable に保護** することを Bb-2 着手前の前提条件とする。
 
 ---
 

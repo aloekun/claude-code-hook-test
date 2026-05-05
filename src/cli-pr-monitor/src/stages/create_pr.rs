@@ -6,7 +6,8 @@ use crate::runner::{run_cmd_direct, run_gh_quiet};
 use crate::stages::monitor::start_monitoring;
 use crate::state::{write_state, PrMonitorState};
 use crate::util::{
-    get_jj_bookmarks, get_pr_info, parse_pr_number_from_url, utc_now_iso8601, PrInfo,
+    get_jj_bookmarks, get_pr_head_commit, get_pr_info, parse_pr_number_from_url, utc_now_iso8601,
+    PrInfo,
 };
 
 // ─── --body 引数の再結合 (Windows pnpm/cmd.exe 対策) ───
@@ -170,46 +171,12 @@ fn ensure_head_arg(args: Vec<String>, bookmarks: &[String]) -> Vec<String> {
 
 pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
     log_info("PR 作成モード");
+    write_early_reset_state();
 
-    // observer が前セッションの stale state を読まないよう、gh pr create 実行前に
-    // 早期 reset を書き込む。PR 番号・repo は未確定なので None で初期化する。
-    // action="continue_monitoring" / notified=false により observer は Continue 判定になる。
-    let early_state = PrMonitorState::new(None, None, utc_now_iso8601());
-    if let Err(e) = write_state(&early_state) {
-        log_info(&format!("[state] 早期 reset 書き込み失敗 (継続): {}", e));
-    }
-
-    // Windows の pnpm/cmd.exe 経由で --body の複数行テキストが分割される問題の対策
-    let reassembled = reassemble_split_body(gh_args);
-
-    // --body に改行が含まれる場合、--body-file に自動変換
-    let (mut final_args, _body_tempfile) = convert_body_to_file(&reassembled);
-
-    // jj 環境対応: --head 未指定時に jj bookmark から自動補完
-    // gh pr create は git の current branch を検出するが、jj 環境では
-    // "not on any branch" エラーになるため、明示的に --head を指定する
-    if !has_head_flag(&final_args) {
-        let bookmarks = get_jj_bookmarks();
-        final_args = ensure_head_arg(final_args, &bookmarks);
-        if let Some(bookmark) = bookmarks.first() {
-            log_info(&format!("jj bookmark '{}' を --head に自動補完", bookmark));
-        }
-    }
-
-    log_info(&format!(
-        "実行: gh pr create {}",
-        final_args
-            .iter()
-            .map(|a| {
-                if a.contains(' ') {
-                    format!("\"{}\"", a)
-                } else {
-                    a.clone()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    ));
+    let final_args = prepare_gh_pr_create_args(gh_args);
+    let _body_tempfile = final_args.1;
+    let final_args = final_args.0;
+    log_gh_pr_create_invocation(&final_args);
 
     let (success, output) = run_cmd_direct(
         "gh",
@@ -217,7 +184,6 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
         &final_args,
         DEFAULT_STEP_TIMEOUT_SECS,
     );
-
     if !success {
         log_info("PR 作成失敗:");
         if !output.is_empty() {
@@ -227,16 +193,55 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
     }
 
     log_info("PR 作成完了");
-    // PR URL を表示 (Claude が読める stdout に出力)
     if !output.is_empty() {
         println!("{}", output);
     }
 
-    // PR 情報取得: gh pr create の出力から PR 番号を直接パース
-    let pr_number_from_url = parse_pr_number_from_url(&output);
+    let pr_info = build_pr_info_from_gh_output(&output);
+    start_monitoring(&pr_info)
+}
+
+fn write_early_reset_state() {
+    let early_state = PrMonitorState::new(None, None, utc_now_iso8601());
+    if let Err(e) = write_state(&early_state) {
+        log_info(&format!("[state] 早期 reset 書き込み失敗 (継続): {}", e));
+    }
+}
+
+fn prepare_gh_pr_create_args(gh_args: &[String]) -> (Vec<String>, Option<TempFile>) {
+    let reassembled = reassemble_split_body(gh_args);
+    let (mut final_args, body_tempfile) = convert_body_to_file(&reassembled);
+
+    if !has_head_flag(&final_args) {
+        let bookmarks = get_jj_bookmarks();
+        final_args = ensure_head_arg(final_args, &bookmarks);
+        if let Some(bookmark) = bookmarks.first() {
+            log_info(&format!("jj bookmark '{}' を --head に自動補完", bookmark));
+        }
+    }
+    (final_args, body_tempfile)
+}
+
+fn log_gh_pr_create_invocation(final_args: &[String]) {
+    let pretty = final_args
+        .iter()
+        .map(|a| {
+            if a.contains(' ') {
+                format!("\"{}\"", a)
+            } else {
+                a.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    log_info(&format!("実行: gh pr create {}", pretty));
+}
+
+fn build_pr_info_from_gh_output(output: &str) -> PrInfo {
+    let pr_number_from_url = parse_pr_number_from_url(output);
     let push_time = utc_now_iso8601();
 
-    let pr_info = if pr_number_from_url.is_some() {
+    if let Some(n) = pr_number_from_url {
         log_info(&format!("PR URL から番号を取得: {:?}", pr_number_from_url));
         let repo = run_gh_quiet(&[
             "repo",
@@ -246,19 +251,19 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
             "-q",
             ".nameWithOwner",
         ]);
-        PrInfo {
+        let head_commit = get_pr_head_commit(n, repo.as_deref());
+        return PrInfo {
             pr_number: pr_number_from_url,
             repo,
-            push_time: Some(push_time.clone()),
-        }
-    } else {
-        log_info("PR URL からの番号取得失敗、gh コマンドで検索");
-        let mut info = get_pr_info();
-        info.push_time = Some(push_time.clone());
-        info
-    };
+            push_time: Some(push_time),
+            head_commit,
+        };
+    }
 
-    start_monitoring(&pr_info)
+    log_info("PR URL からの番号取得失敗、gh コマンドで検索");
+    let mut info = get_pr_info();
+    info.push_time = Some(push_time);
+    info
 }
 
 #[cfg(test)]

@@ -35,10 +35,24 @@ struct PollContext<'a> {
     skip_coderabbit: bool,
 }
 
-/// in-process 同期ポーリングループ (daemon.rs の同期版)
-pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResult {
+/// 初回 push 後の review check までの park 期間 (Bb-2)。
+/// CR が review を完了するまでの待機を CronCreate に委譲し polling を完全排除する。
+pub(crate) const INITIAL_REVIEW_WAIT_SECS: u64 = 300;
+/// review が未完了だった場合の recheck 間隔 (Bb-2)。
+pub(crate) const REVIEW_RECHECK_WAIT_SECS: u64 = 300;
+/// review_recheck の累積上限 (Bb-2)。到達時は action_required で抜ける。
+pub(crate) const MAX_REVIEW_RECHECKS: u32 = 3;
+
+/// single-iteration check + park-or-terminate モデル (Bb-2)。
+///
+/// `is_wakeup=false` (fresh push): checker は呼ばず、即 INITIAL_REVIEW_WAIT_SECS 後の
+/// wakeup を予約して exit する (CR review 開始前の wasteful API call を回避、todo5.md spec)。
+///
+/// `is_wakeup=true` (CronCreate からの再 invoke): 1 回 checker を呼び、結果に応じて
+/// (a) terminal action / (b) rate-limit park (Bb-1) / (c) review_recheck park (Bb-2)
+/// のいずれかで return する。
+pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo, is_wakeup: bool) -> PollResult {
     let config: &MonitorConfig = &full_config.monitor;
-    let poll_interval = config.poll_interval_secs;
 
     let checker = checker_exe_path();
     if !checker.exists() {
@@ -63,12 +77,14 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
         skip_coderabbit: !config.check_coderabbit,
     };
 
-    loop {
-        if let Some(terminal) = run_one_iteration(&ctx) {
-            return terminal;
-        }
-        std::thread::sleep(Duration::from_secs(poll_interval));
+    if !is_wakeup {
+        return finalize_initial_review_park(&ctx);
     }
+
+    if let Some(terminal) = run_one_iteration(&ctx) {
+        return terminal;
+    }
+    finalize_review_recheck_park(&ctx)
 }
 
 fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
@@ -180,6 +196,8 @@ fn build_state_for_iteration(
         state.notified = existing.notified;
         state.rate_limit_retries = existing.rate_limit_retries;
         state.rate_limit_last_retriggered_at = existing.rate_limit_last_retriggered_at;
+        state.review_recheck_count = existing.review_recheck_count;
+        state.head_commit = existing.head_commit;
     }
 
     apply_skip_handling(&mut state, skip_ci, skip_coderabbit);
@@ -340,6 +358,7 @@ fn finalize_parked(
     state.action = "parked_rate_limit".into();
     state.next_wakeup_at_unix = Some(wakeup_at_unix);
     state.wakeup_reason = Some("rate_limit_retry".into());
+    state.head_commit = pr_info.head_commit.clone();
     state.summary = format!(
         "CodeRabbit rate-limit: wakeup を {}m{}s 後に予約 (PARK signal 参照)",
         rl.wait_minutes, rl.wait_seconds
@@ -497,6 +516,7 @@ pub(crate) fn format_park_signal(
 
     format!(
         "[PR_MONITOR_PARK]
+reason: rate_limit_retry
 pr: {pr}
 repo: {repo}
 reset_at_unix: {until}
@@ -518,6 +538,229 @@ CronCreate({{
 [/PR_MONITOR_PARK]",
         until = rl.until_unix_secs,
     )
+}
+
+struct ReviewParkSignalFields {
+    pr: String,
+    repo: String,
+    wakeup_unix: i64,
+    wakeup_iso: String,
+    wait_secs: i64,
+    exe: String,
+    cwd: String,
+    recheck: u32,
+}
+
+fn collect_review_park_fields(
+    state: &PrMonitorState,
+    ctx: &PollContext<'_>,
+) -> ReviewParkSignalFields {
+    let pr = ctx
+        .pr_info
+        .pr_number
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "?".into());
+    let repo = ctx.pr_info.repo.clone().unwrap_or_else(|| "?".into());
+    let wakeup_unix = state.next_wakeup_at_unix.unwrap_or(0);
+    let wakeup_iso = if wakeup_unix > 0 {
+        lib_pending_file::epoch_secs_to_iso8601(wakeup_unix as u64)
+    } else {
+        "?".into()
+    };
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let wait_secs = (wakeup_unix - now_unix).max(0);
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".into());
+
+    ReviewParkSignalFields {
+        pr,
+        repo,
+        wakeup_unix,
+        wakeup_iso,
+        wait_secs,
+        exe,
+        cwd,
+        recheck: state.review_recheck_count,
+    }
+}
+
+/// Bb-2: 初回 push 後の review_recheck park signal を生成する。
+///
+/// `format_park_signal` (rate_limit_retry) と同じ envelope `[PR_MONITOR_PARK]` を使い、
+/// `reason: review_recheck` で discriminate する。Claude Code 側のパーサは両 signal を
+/// 同じ format で読める。
+fn format_review_park_signal(state: &PrMonitorState, ctx: &PollContext<'_>) -> String {
+    let f = collect_review_park_fields(state, ctx);
+    format!(
+        "[PR_MONITOR_PARK]
+reason: review_recheck
+pr: {pr}
+repo: {repo}
+next_wakeup_at_unix: {wakeup_unix}
+next_wakeup_at_iso_utc: {wakeup_iso}
+wait_total_seconds: {wait_secs}
+recheck_count: {recheck}
+max_rechecks: {max}
+exe: {exe}
+cwd: {cwd}
+
+ACTION REQUIRED: please schedule one-shot wakeup using CronCreate.
+
+CronCreate({{
+  cron: \"<next_wakeup_at_iso_utc を local timezone の ISO 8601 形式に変換, e.g. 2024-01-15T09:30:00>\",
+  recurring: false,
+  durable: true,
+  prompt: \"Wakeup: review recheck for PR #{pr} ({repo}). cd \\\"{cwd}\\\" && \\\"{exe}\\\" --monitor-only\"
+}})
+[/PR_MONITOR_PARK]",
+        pr = f.pr,
+        repo = f.repo,
+        wakeup_unix = f.wakeup_unix,
+        wakeup_iso = f.wakeup_iso,
+        wait_secs = f.wait_secs,
+        recheck = f.recheck,
+        max = MAX_REVIEW_RECHECKS,
+        exe = f.exe,
+        cwd = f.cwd,
+    )
+}
+
+/// Bb-2: fresh push 経路で review_recheck park を行う (checker 呼び出しなし)。
+///
+/// 動機: push 直後は CR がまだ review を開始していない可能性が高く、即 check は wasteful。
+/// INITIAL_REVIEW_WAIT_SECS 後に wakeup を予約 → 1 回 check という 2-step フローに分離する。
+///
+/// CR Major #2 fix (Bb-2 PR #114 review): 既存 state に残った `review_recheck_count` を
+/// fresh push では 0 に明示リセット (前サイクルが MAX 到達等で残った count が新 push に
+/// 持ち越されると summary "(initial wait, recheck=0/N)" と PARK signal の recheck_count が
+/// 食い違い、最悪 max 到達状態で park される)。
+/// CR Major #1 fix: head_commit を state に保存し detect_wakeup_resume の比較対象とする。
+fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult {
+    let mut state = read_state().unwrap_or_else(|| {
+        PrMonitorState::new(
+            ctx.pr_info.pr_number,
+            ctx.pr_info.repo.clone(),
+            ctx.push_time.to_string(),
+        )
+    });
+    state.review_recheck_count = 0;
+    state.head_commit = ctx.pr_info.head_commit.clone();
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    state.next_wakeup_at_unix = Some(now_unix + INITIAL_REVIEW_WAIT_SECS as i64);
+    state.wakeup_reason = Some("review_recheck".into());
+    state.action = "parked_review_recheck".into();
+    state.summary = format!(
+        "review check を {}s 後に予約 (initial wait, recheck=0/{})",
+        INITIAL_REVIEW_WAIT_SECS, MAX_REVIEW_RECHECKS
+    );
+
+    if let Err(e) = write_state(&state) {
+        log_info(&format!(
+            "[review_recheck] initial park state 永続化失敗、action_required で抜ける: {}",
+            e
+        ));
+        return make_action_required_result(
+            &state,
+            &serde_json::Value::Null,
+            &format!("review park の state 永続化失敗 ({})。手動確認が必要", e),
+        );
+    }
+
+    println!("{}", format_review_park_signal(&state, ctx));
+    make_park_poll_result(state)
+}
+
+/// Bb-2: wakeup 経路の review_recheck park (checker check 後に continue_monitoring の場合)。
+///
+/// `review_recheck_count` をインクリメントし、`MAX_REVIEW_RECHECKS` 到達なら
+/// `action_required` で抜ける (review が想定時間内に未完了を通知)。
+/// 未到達なら REVIEW_RECHECK_WAIT_SECS 後の wakeup を予約して return。
+fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult {
+    let mut state = read_state().unwrap_or_else(|| {
+        PrMonitorState::new(
+            ctx.pr_info.pr_number,
+            ctx.pr_info.repo.clone(),
+            ctx.push_time.to_string(),
+        )
+    });
+    state.review_recheck_count += 1;
+
+    if state.review_recheck_count >= MAX_REVIEW_RECHECKS {
+        return finalize_review_recheck_max_reached(&mut state);
+    }
+
+    schedule_next_review_recheck_park(&mut state, ctx)
+}
+
+fn finalize_review_recheck_max_reached(state: &mut PrMonitorState) -> PollResult {
+    log_info(&format!(
+        "[review_recheck] max {} 回到達、action_required で抜ける",
+        MAX_REVIEW_RECHECKS
+    ));
+    let summary = format!(
+        "review が想定時間内に完了せず ({} recheck 後)。手動で PR を確認してください",
+        state.review_recheck_count
+    );
+    state.action = "action_required".into();
+    state.summary = summary.clone();
+    let _ = write_state(state);
+    make_action_required_result(state, &serde_json::Value::Null, &summary)
+}
+
+fn schedule_next_review_recheck_park(
+    state: &mut PrMonitorState,
+    ctx: &PollContext<'_>,
+) -> PollResult {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    state.next_wakeup_at_unix = Some(now_unix + REVIEW_RECHECK_WAIT_SECS as i64);
+    state.wakeup_reason = Some("review_recheck".into());
+    state.action = "parked_review_recheck".into();
+    state.head_commit = ctx.pr_info.head_commit.clone();
+    state.summary = format!(
+        "review check を {}s 後に予約 (recheck={}/{})",
+        REVIEW_RECHECK_WAIT_SECS, state.review_recheck_count, MAX_REVIEW_RECHECKS
+    );
+
+    if let Err(e) = write_state(state) {
+        log_info(&format!(
+            "[review_recheck] park state 永続化失敗、action_required で抜ける: {}",
+            e
+        ));
+        return make_action_required_result(
+            state,
+            &serde_json::Value::Null,
+            &format!("review park の state 永続化失敗 ({})。手動確認が必要", e),
+        );
+    }
+
+    println!("{}", format_review_park_signal(state, ctx));
+    make_park_poll_result(state.clone())
+}
+
+/// review_recheck park / initial park の戻り値生成 helper (check_output=None)。
+fn make_park_poll_result(state: PrMonitorState) -> PollResult {
+    PollResult {
+        action: state.action,
+        summary: state.summary,
+        ci: state.ci,
+        coderabbit: state.coderabbit,
+        findings: state.findings,
+        check_output: None,
+        rate_limit: state.rate_limit,
+    }
 }
 
 /// skip 適用後に、有効なチェックだけを見て action を再導出する
@@ -717,6 +960,7 @@ mod tests {
             pr_number: Some(42),
             repo: Some("o/r".into()),
             push_time: None,
+            head_commit: None,
         };
 
         let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
@@ -750,6 +994,7 @@ mod tests {
             pr_number: None,
             repo: None,
             push_time: None,
+            head_commit: None,
         };
 
         let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
@@ -773,6 +1018,7 @@ mod tests {
             pr_number: Some(42),
             repo: Some("o/r".into()),
             push_time: None,
+            head_commit: None,
         };
 
         let signal = format_park_signal(&state, &rl, &pr_info, 3);
@@ -804,11 +1050,227 @@ mod tests {
             pr_number: None,
             repo: None,
             push_time: None,
+            head_commit: None,
         };
 
         let signal = format_park_signal(&state, &rl, &pr_info, 3);
         assert!(signal.contains("pr: ?"));
         assert!(signal.contains("repo: ?"));
         assert!(signal.contains("wait_total_seconds: 330"));
+    }
+
+    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
+    /// override 設定 / 解除を test 並行実行で race させない serial guard。
+    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    /// 書き込み先がディレクトリ不在のため write が必ず失敗する override path を返す。
+    fn unwritable_state_path() -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join(format!("pr-monitor-T2-2-{}", std::process::id()))
+            .join("nonexistent-dir")
+            .join("state.json")
+    }
+
+    /// Bb-1 (T2-2): `finalize_parked` は write_state 失敗時に PARK signal emit を中止し
+    /// `action_required` を返却する fail-safe 経路を持つ (CodeRabbit Major #1 fix の固定化)。
+    #[test]
+    fn finalize_parked_returns_action_required_when_write_state_fails() {
+        let _guard = env_override_lock();
+        let bad_path = unwritable_state_path();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
+
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        let rl = RateLimitState {
+            until_unix_secs: 1_775_088_000,
+            comment_event_time: "2026-05-01T00:00:00Z".into(),
+            wait_minutes: 47,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: None,
+            head_commit: None,
+        };
+        let result = serde_json::json!({});
+
+        let outcome = finalize_parked(&mut state, &rl, &pr_info, 1_775_088_000, 3, &result);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert_eq!(
+            outcome.action, "action_required",
+            "T2-2: write_state 失敗 → action_required で抜ける fail-safe が必要"
+        );
+        assert!(
+            outcome.summary.contains("PARK signal を中止")
+                || outcome.summary.contains("永続化失敗"),
+            "summary に永続化失敗の説明が含まれること: {}",
+            outcome.summary
+        );
+    }
+
+    /// Bb-2 (T2-2): `schedule_next_review_recheck_park` は write_state 失敗時に
+    /// PARK signal emit を中止し `action_required` を返却する (sibling parity)。
+    #[test]
+    fn schedule_next_review_recheck_park_returns_action_required_when_write_state_fails() {
+        let _guard = env_override_lock();
+        let bad_path = unwritable_state_path();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
+
+        let mut state =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        state.review_recheck_count = 1;
+        let checker_path = std::path::PathBuf::from("dummy-checker");
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: None,
+        };
+        let rate_limit_config = RateLimitConfig::default();
+        let ctx = PollContext {
+            checker: &checker_path,
+            push_time: "2026-05-01T00:00:00Z",
+            pr_info: &pr_info,
+            rate_limit_config: &rate_limit_config,
+            start: std::time::Instant::now(),
+            max_duration: 600,
+            skip_ci: false,
+            skip_coderabbit: false,
+        };
+
+        let outcome = schedule_next_review_recheck_park(&mut state, &ctx);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert_eq!(
+            outcome.action, "action_required",
+            "T2-2 sibling parity: review park も write_state 失敗 → action_required で抜けること"
+        );
+    }
+
+    fn invoke_finalize_parked_with_bad_path(pr_info: &crate::util::PrInfo) -> PollResult {
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        let rl = RateLimitState {
+            until_unix_secs: 1_775_088_000,
+            comment_event_time: "x".into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let result = serde_json::json!({});
+        finalize_parked(&mut state, &rl, pr_info, 1_775_088_000, 3, &result)
+    }
+
+    fn invoke_review_park_with_bad_path(pr_info: &crate::util::PrInfo) -> PollResult {
+        let mut state =
+            PrMonitorState::new(Some(1), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        state.review_recheck_count = 1;
+        let checker_path = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let ctx = PollContext {
+            checker: &checker_path,
+            push_time: "2026-05-01T00:00:00Z",
+            pr_info,
+            rate_limit_config: &rate_limit_config,
+            start: std::time::Instant::now(),
+            max_duration: 600,
+            skip_ci: false,
+            skip_coderabbit: false,
+        };
+        schedule_next_review_recheck_park(&mut state, &ctx)
+    }
+
+    fn seed_stale_recheck_state(tmp_path: &std::path::Path) {
+        let mut stale_state =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        stale_state.review_recheck_count = 3;
+        stale_state.action = "action_required".into();
+        crate::state::write_state_to(tmp_path, &stale_state).unwrap();
+    }
+
+    /// CR Major #2 fix (Bb-2 PR #114 review): fresh push 経路では `finalize_initial_review_park`
+    /// が `review_recheck_count` を 0 に明示リセットすること。前サイクルが MAX 到達 (count=3)
+    /// で残った state を持ち越さないことを machine-enforce する。
+    #[test]
+    fn finalize_initial_review_park_resets_recheck_count() {
+        let _guard = env_override_lock();
+        let tmp_path = std::env::temp_dir().join(format!(
+            "pr-monitor-CR-M2-{}-state.json",
+            std::process::id()
+        ));
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &tmp_path);
+        seed_stale_recheck_state(&tmp_path);
+
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+        };
+        let checker = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let ctx = PollContext {
+            checker: &checker,
+            push_time: "2026-05-01T00:00:00Z",
+            pr_info: &pr_info,
+            rate_limit_config: &rate_limit_config,
+            start: std::time::Instant::now(),
+            max_duration: 600,
+            skip_ci: false,
+            skip_coderabbit: false,
+        };
+
+        let outcome = finalize_initial_review_park(&ctx);
+        let persisted = crate::state::read_state_from(&tmp_path).unwrap();
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        let _ = std::fs::remove_file(&tmp_path);
+
+        assert_eq!(outcome.action, "parked_review_recheck");
+        assert_eq!(
+            persisted.review_recheck_count, 0,
+            "CR Major #2: fresh push 経路で count=3 が残らず 0 にリセットされること"
+        );
+        assert_eq!(
+            persisted.head_commit.as_deref(),
+            Some("abc1234"),
+            "CR Major #1: fresh push 経路で head_commit が pr_info から保存されること"
+        );
+    }
+
+    /// Bb-2 (T2-2): finalize_parked と schedule_next_review_recheck_park の sibling parity
+    /// (共に write_state 失敗で action_required を返す) を 1 テストで machine-enforce する。
+    /// 新 finalize_* 関数を追加する際、本テストが落ちて invariant 維持を強制する。
+    #[test]
+    fn finalize_park_siblings_have_symmetric_write_state_handling() {
+        let _guard = env_override_lock();
+        let bad_path = unwritable_state_path();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
+
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: None,
+        };
+
+        let outcome_rate_limit = invoke_finalize_parked_with_bad_path(&pr_info);
+        let outcome_review = invoke_review_park_with_bad_path(&pr_info);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert_eq!(
+            outcome_rate_limit.action, outcome_review.action,
+            "sibling parity: finalize_parked と schedule_next_review_recheck_park は同じ action を返すこと"
+        );
+        assert_eq!(
+            outcome_rate_limit.action, "action_required",
+            "両 sibling とも write_state 失敗 → action_required へ収束する fail-safe"
+        );
     }
 }
