@@ -24,14 +24,21 @@ pub(crate) struct PollResult {
     pub(crate) rate_limit: Option<RateLimitState>,
 }
 
+struct PollContext<'a> {
+    checker: &'a std::path::Path,
+    push_time: &'a str,
+    pr_info: &'a PrInfo,
+    rate_limit_config: &'a RateLimitConfig,
+    start: std::time::Instant,
+    max_duration: u64,
+    skip_ci: bool,
+    skip_coderabbit: bool,
+}
+
 /// in-process 同期ポーリングループ (daemon.rs の同期版)
 pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResult {
     let config: &MonitorConfig = &full_config.monitor;
-    let rate_limit_config: &RateLimitConfig = &full_config.rate_limit;
     let poll_interval = config.poll_interval_secs;
-    let max_duration = config.max_duration_secs;
-    let skip_ci = !config.check_ci;
-    let skip_coderabbit = !config.check_coderabbit;
 
     let checker = checker_exe_path();
     if !checker.exists() {
@@ -39,297 +46,412 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
             "check-ci-coderabbit.exe が見つかりません: {}",
             checker.display()
         ));
-        return PollResult {
-            action: "error".into(),
-            summary: "check-ci-coderabbit.exe が見つかりません".into(),
-            ci: None,
-            coderabbit: None,
-            findings: Vec::new(),
-            check_output: None,
-            rate_limit: None,
-        };
+        return error_poll_result("check-ci-coderabbit.exe が見つかりません");
     }
 
-    let push_time = pr_info
-        .push_time
-        .as_deref()
-        .unwrap_or("1970-01-01T00:00:00Z");
-
-    let start = std::time::Instant::now();
+    let ctx = PollContext {
+        checker: &checker,
+        push_time: pr_info
+            .push_time
+            .as_deref()
+            .unwrap_or("1970-01-01T00:00:00Z"),
+        pr_info,
+        rate_limit_config: &full_config.rate_limit,
+        start: std::time::Instant::now(),
+        max_duration: config.max_duration_secs,
+        skip_ci: !config.check_ci,
+        skip_coderabbit: !config.check_coderabbit,
+    };
 
     loop {
-        // Build checker arguments
-        let mut checker_args: Vec<String> = vec!["--push-time".to_string(), push_time.to_string()];
-        if let Some(ref repo) = pr_info.repo {
-            checker_args.push("--repo".to_string());
-            checker_args.push(repo.clone());
+        if let Some(terminal) = run_one_iteration(&ctx) {
+            return terminal;
         }
-        if let Some(pr) = pr_info.pr_number {
-            checker_args.push("--pr".to_string());
-            checker_args.push(pr.to_string());
-        }
-
-        // Run check-ci-coderabbit.exe
-        let (success, output) = run_cmd_direct(
-            &checker.to_string_lossy(),
-            &[],
-            &checker_args,
-            DEFAULT_CHECK_TIMEOUT_SECS,
-        );
-
-        if !success {
-            log_info(&format!("checker 失敗: {}", truncate_safe(&output, 200)));
-            return PollResult {
-                action: "error".into(),
-                summary: format!(
-                    "check-ci-coderabbit.exe 失敗: {}",
-                    truncate_safe(&output, 200)
-                ),
-                ci: None,
-                coderabbit: None,
-                findings: Vec::new(),
-                check_output: None,
-                rate_limit: None,
-            };
-        }
-
-        let result = match serde_json::from_str::<serde_json::Value>(&output) {
-            Ok(r) => r,
-            Err(e) => {
-                log_info(&format!("JSON パース失敗: {}", e));
-                return PollResult {
-                    action: "error".into(),
-                    summary: format!("checker 出力の JSON パース失敗: {}", e),
-                    ci: None,
-                    coderabbit: None,
-                    findings: Vec::new(),
-                    check_output: None,
-                    rate_limit: None,
-                };
-            }
-        };
-
-        // Update state from check result
-        let mut state = PrMonitorState::new(
-            pr_info.pr_number,
-            pr_info.repo.clone(),
-            push_time.to_string(),
-        );
-        update_state_from_check_result(&mut state, &result);
-
-        // `PrMonitorState::new` は毎回 notified=false / rate_limit_retries=0 で初期化するため、
-        // 既存 state から runtime-updated な値を読み戻す。新規セッションでは
-        // start_monitoring 冒頭で init_state により reset 済み。
-        if let Some(existing) = read_state() {
-            state.notified = existing.notified;
-            state.rate_limit_retries = existing.rate_limit_retries;
-            state.rate_limit_last_retriggered_at = existing.rate_limit_last_retriggered_at;
-        }
-
-        // Skip handling: skipped なチェックを成功扱いにした後、action を再計算する
-        if skip_ci {
-            state.ci = Some(CiState {
-                overall: "skipped".into(),
-                runs: vec![],
-            });
-        }
-        if skip_coderabbit {
-            state.coderabbit = Some(CodeRabbitState {
-                review_state: "skipped".into(),
-                new_comments: 0,
-                actionable_comments: None,
-                unresolved_threads: None,
-            });
-            state.findings = Vec::new();
-        }
-        if skip_ci || skip_coderabbit {
-            state.action = recompute_action(&state, skip_ci, skip_coderabbit);
-        }
-
-        state.last_checked = Some(utc_now_iso8601());
-
-        // Write state for debug/observability
-        let _ = write_state(&state);
-
-        log_info(&format!(
-            "ポーリング: action={}, summary={}",
-            state.action, state.summary
-        ));
-
-        // Terminal action -> return result
-        if state.action != "continue_monitoring" {
-            return PollResult {
-                action: state.action,
-                summary: state.summary,
-                ci: state.ci,
-                coderabbit: state.coderabbit,
-                findings: state.findings,
-                check_output: Some(result),
-                rate_limit: state.rate_limit,
-            };
-        }
-
-        // Rate-limit 自動 retry (PR #89 T2-1)
-        //
-        // dedup: 同一の rate-limit comment は iteration を跨いで PR コメント一覧に残るため
-        // `comment_event_time` で dedup しないと、毎回 sleep_secs=0 で即時 retrigger を繰り返し
-        // 数秒で max_retries を消費してしまう。CR が新たな rate-limit comment を投稿した時点で
-        // created_at が変わり再度 retrigger 対象になる。
-        if let Some(rl) = state.rate_limit.clone() {
-            let already_handled = state.rate_limit_last_retriggered_at.as_deref()
-                == Some(rl.comment_event_time.as_str());
-
-            if already_handled {
-                log_info(&format!(
-                    "[rate_limit] 同じ rate-limit comment ({}) は処理済み、retrigger スキップ",
-                    rl.comment_event_time
-));
-                // 通常 polling cadence で待機する (CR レビュー完了を待つ)
-            } else if rate_limit_config.auto_retry_enabled
-                && state.rate_limit_retries < rate_limit_config.max_retries
-            {
-                let elapsed = start.elapsed().as_secs();
-                let remaining_monitor_secs = max_duration.saturating_sub(elapsed);
-
-                if let Err(e) = handle_rate_limit_retry(
-                    &rl,
-                    &mut state,
-                    pr_info,
-                    rate_limit_config.max_retries,
-                    remaining_monitor_secs,
-                ) {
-                    // 失敗時は dedup を更新せず action_required で抜ける。
-                    // last_retriggered_at が未更新のため、次セッションで同 comment を
-                    // 再 trigger 試行できる (本セッションでは budget 超過/post 失敗のため停止)。
-                    log_info(&format!("[rate_limit] retrigger 失敗: {}", e));
-                    return PollResult {
-                        action: "action_required".into(),
-                        summary: format!(
-                            "rate-limit 自動 retry 失敗 ({})。手動で `@coderabbitai review` を投稿してください",
-                            e
-                        ),
-                        ci: state.ci,
-                        coderabbit: state.coderabbit,
-                        findings: state.findings,
-                        check_output: Some(result),
-                        rate_limit: state.rate_limit,
-                    };
-                }
-                state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
-                // state 永続化失敗時は dedup / max_retries が壊れる可能性があるため、
-                // 自動 retry を停止し action_required で抜ける (重複投稿リスクを回避)。
-                if let Err(e) = write_state(&state) {
-                    log_info(&format!(
-                        "[rate_limit] retrigger 後の state 永続化失敗、自動 retry を停止: {}",
-                        e
-                    ));
-                    return PollResult {
-                        action: "action_required".into(),
-                        summary: format!(
-                            "rate-limit retry 後の state 永続化に失敗 ({})。手動で `@coderabbitai review` の重複投稿に注意してください",
-                            e
-                        ),
-                        ci: state.ci,
-                        coderabbit: state.coderabbit,
-                        findings: state.findings,
-                        check_output: Some(result),
-                        rate_limit: state.rate_limit,
-                    };
-                }
-                continue; // skip 通常 sleep、次 iteration で fresh polling
-            } else if state.rate_limit_retries >= rate_limit_config.max_retries {
-                log_info(&format!(
-                    "[rate_limit] max_retries={} 到達、自動 retry を停止 (action_required で抜ける)",
-                    rate_limit_config.max_retries
-                ));
-                return PollResult {
-                    action: "action_required".into(),
-                    summary: format!(
-                        "CodeRabbit rate-limit が {} 回再試行後も継続。手動で `@coderabbitai review` を投稿してください",
-                        state.rate_limit_retries
-                    ),
-                    ci: state.ci,
-                    coderabbit: state.coderabbit,
-                    findings: state.findings,
-                    check_output: Some(result),
-                    rate_limit: state.rate_limit,
-                };
-            }
-        }
-
-        // Timeout check
-        if start.elapsed() >= Duration::from_secs(max_duration) {
-            log_info(&format!("監視タイムアウト ({}秒)", max_duration));
-            return PollResult {
-                action: "timed_out".into(),
-                summary: format!("監視タイムアウト ({}秒)", max_duration),
-                ci: state.ci,
-                coderabbit: state.coderabbit,
-                findings: state.findings,
-                check_output: Some(result),
-                rate_limit: state.rate_limit,
-            };
-        }
-
-        // Sleep before next poll
         std::thread::sleep(Duration::from_secs(poll_interval));
     }
 }
 
-/// rate-limit reset まで sleep し、`@coderabbitai review` を post する。
+fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
+    let args = build_checker_args(ctx.push_time, ctx.pr_info);
+    let result = match invoke_checker(ctx.checker, &args) {
+        Ok(r) => r,
+        Err(pr) => return Some(*pr),
+    };
+    let mut state = build_state_for_iteration(
+        ctx.pr_info,
+        ctx.push_time,
+        &result,
+        ctx.skip_ci,
+        ctx.skip_coderabbit,
+    );
+    log_info(&format!(
+        "ポーリング: action={}, summary={}",
+        state.action, state.summary
+    ));
+
+    if state.action != "continue_monitoring" {
+        return Some(make_terminal_result(state, result));
+    }
+
+    if let Some(terminal) =
+        handle_rate_limit_branch(&mut state, ctx.rate_limit_config, ctx.pr_info, &result)
+    {
+        return Some(terminal);
+    }
+
+    if ctx.start.elapsed() >= Duration::from_secs(ctx.max_duration) {
+        log_info(&format!("監視タイムアウト ({}秒)", ctx.max_duration));
+        return Some(make_timeout_result(state, ctx.max_duration, result));
+    }
+
+    None
+}
+
+fn build_checker_args(push_time: &str, pr_info: &PrInfo) -> Vec<String> {
+    let mut args: Vec<String> = vec!["--push-time".into(), push_time.into()];
+    if let Some(ref repo) = pr_info.repo {
+        args.push("--repo".into());
+        args.push(repo.clone());
+    }
+    if let Some(pr) = pr_info.pr_number {
+        args.push("--pr".into());
+        args.push(pr.to_string());
+    }
+    args
+}
+
+fn invoke_checker(
+    checker: &std::path::Path,
+    args: &[String],
+) -> Result<serde_json::Value, Box<PollResult>> {
+    let (success, output) = run_cmd_direct(
+        &checker.to_string_lossy(),
+        &[],
+        args,
+        DEFAULT_CHECK_TIMEOUT_SECS,
+    );
+
+    if !success {
+        log_info(&format!("checker 失敗: {}", truncate_safe(&output, 200)));
+        return Err(Box::new(error_poll_result(&format!(
+            "check-ci-coderabbit.exe 失敗: {}",
+            truncate_safe(&output, 200)
+        ))));
+    }
+
+    serde_json::from_str::<serde_json::Value>(&output).map_err(|e| {
+        log_info(&format!("JSON パース失敗: {}", e));
+        Box::new(error_poll_result(&format!(
+            "checker 出力の JSON パース失敗: {}",
+            e
+        )))
+    })
+}
+
+fn error_poll_result(summary: &str) -> PollResult {
+    PollResult {
+        action: "error".into(),
+        summary: summary.into(),
+        ci: None,
+        coderabbit: None,
+        findings: Vec::new(),
+        check_output: None,
+        rate_limit: None,
+    }
+}
+
+/// `PrMonitorState::new` は毎回 notified / rate_limit_retries を 0 リセットするため、
+/// 既存 state から runtime-updated な値を読み戻して 1 iteration の base state を組む。
+fn build_state_for_iteration(
+    pr_info: &PrInfo,
+    push_time: &str,
+    result: &serde_json::Value,
+    skip_ci: bool,
+    skip_coderabbit: bool,
+) -> PrMonitorState {
+    let mut state = PrMonitorState::new(
+        pr_info.pr_number,
+        pr_info.repo.clone(),
+        push_time.to_string(),
+    );
+    update_state_from_check_result(&mut state, result);
+
+    if let Some(existing) = read_state() {
+        state.notified = existing.notified;
+        state.rate_limit_retries = existing.rate_limit_retries;
+        state.rate_limit_last_retriggered_at = existing.rate_limit_last_retriggered_at;
+    }
+
+    apply_skip_handling(&mut state, skip_ci, skip_coderabbit);
+    state.last_checked = Some(utc_now_iso8601());
+    let _ = write_state(&state);
+    state
+}
+
+fn apply_skip_handling(state: &mut PrMonitorState, skip_ci: bool, skip_coderabbit: bool) {
+    if skip_ci {
+        state.ci = Some(CiState {
+            overall: "skipped".into(),
+            runs: vec![],
+        });
+    }
+    if skip_coderabbit {
+        state.coderabbit = Some(CodeRabbitState {
+            review_state: "skipped".into(),
+            new_comments: 0,
+            actionable_comments: None,
+            unresolved_threads: None,
+        });
+        state.findings = Vec::new();
+    }
+    if skip_ci || skip_coderabbit {
+        state.action = recompute_action(state, skip_ci, skip_coderabbit);
+    }
+}
+
+fn make_terminal_result(state: PrMonitorState, result: serde_json::Value) -> PollResult {
+    PollResult {
+        action: state.action,
+        summary: state.summary,
+        ci: state.ci,
+        coderabbit: state.coderabbit,
+        findings: state.findings,
+        check_output: Some(result),
+        rate_limit: state.rate_limit,
+    }
+}
+
+fn make_timeout_result(
+    state: PrMonitorState,
+    max_duration: u64,
+    result: serde_json::Value,
+) -> PollResult {
+    PollResult {
+        action: "timed_out".into(),
+        summary: format!("監視タイムアウト ({}秒)", max_duration),
+        ci: state.ci,
+        coderabbit: state.coderabbit,
+        findings: state.findings,
+        check_output: Some(result),
+        rate_limit: state.rate_limit,
+    }
+}
+
+/// rate-limit 検出 branch を集約する。
 ///
-/// 成功時のみ `Ok(())` を返し、`state.rate_limit_retries` をインクリメントする。
-/// 失敗ケース (PR 番号未確定 / sleep が監視残り予算超過 / gh post 失敗) は
-/// state を変更せず `Err` を返す。caller は `last_retriggered_at` を更新せず、
-/// 同 comment を未処理のまま残すこと。
+/// dedup: 同一 rate-limit comment は iteration を跨いで残るため `comment_event_time`
+/// で dedup する。dedup なしでは即時 retrigger を秒単位で繰り返し max_retries を浪費する。
+/// CR が新たな rate-limit comment を投稿すると event_time が変わり再 handle 対象になる。
+fn handle_rate_limit_branch(
+    state: &mut PrMonitorState,
+    rate_limit_config: &RateLimitConfig,
+    pr_info: &PrInfo,
+    result: &serde_json::Value,
+) -> Option<PollResult> {
+    let rl = state.rate_limit.clone()?;
+    let already_handled =
+        state.rate_limit_last_retriggered_at.as_deref() == Some(rl.comment_event_time.as_str());
+
+    if already_handled {
+        log_info(&format!(
+            "[rate_limit] 同じ rate-limit comment ({}) は処理済み、retrigger スキップ",
+            rl.comment_event_time
+        ));
+        return None;
+    }
+
+    if state.rate_limit_retries >= rate_limit_config.max_retries {
+        log_info(&format!(
+            "[rate_limit] max_retries={} 到達、自動 retry を停止",
+            rate_limit_config.max_retries
+        ));
+        return Some(make_max_retries_result(state, result));
+    }
+
+    if !rate_limit_config.auto_retry_enabled {
+        return None;
+    }
+
+    dispatch_rate_limit_outcome(state, &rl, pr_info, rate_limit_config.max_retries, result)
+}
+
+fn dispatch_rate_limit_outcome(
+    state: &mut PrMonitorState,
+    rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+    max_retries: u32,
+    result: &serde_json::Value,
+) -> Option<PollResult> {
+    match handle_rate_limit_retry(rl, state, pr_info, max_retries) {
+        RateLimitOutcome::Posted => finalize_posted_retrigger(state, rl, result),
+        RateLimitOutcome::Parked { wakeup_at_unix } => Some(finalize_parked(
+            state,
+            rl,
+            pr_info,
+            wakeup_at_unix,
+            max_retries,
+            result,
+        )),
+        RateLimitOutcome::Failed(e) => {
+            log_info(&format!("[rate_limit] retrigger 失敗: {}", e));
+            Some(make_action_required_result(
+                state,
+                result,
+                &format!(
+                    "rate-limit 自動 retry 失敗 ({})。手動で `@coderabbitai review` を投稿してください",
+                    e
+                ),
+            ))
+        }
+    }
+}
+
+fn finalize_posted_retrigger(
+    state: &mut PrMonitorState,
+    rl: &crate::state::RateLimitState,
+    result: &serde_json::Value,
+) -> Option<PollResult> {
+    state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
+    if let Err(e) = write_state(state) {
+        log_info(&format!(
+            "[rate_limit] retrigger 後の state 永続化失敗、自動 retry を停止: {}",
+            e
+        ));
+        return Some(make_action_required_result(
+            state,
+            result,
+            &format!(
+                "rate-limit retry 後の state 永続化に失敗 ({})。手動で `@coderabbitai review` の重複投稿に注意してください",
+                e
+            ),
+        ));
+    }
+    None
+}
+
+fn finalize_parked(
+    state: &mut PrMonitorState,
+    rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+    wakeup_at_unix: i64,
+    max_retries: u32,
+    result: &serde_json::Value,
+) -> PollResult {
+    state.action = "parked_rate_limit".into();
+    state.next_wakeup_at_unix = Some(wakeup_at_unix);
+    state.wakeup_reason = Some("rate_limit_retry".into());
+    state.summary = format!(
+        "CodeRabbit rate-limit: wakeup を {}m{}s 後に予約 (PARK signal 参照)",
+        rl.wait_minutes, rl.wait_seconds
+    );
+    if let Err(e) = write_state(state) {
+        let msg = format!("park state 永続化失敗のため PARK signal を中止 ({})。手動で `@coderabbitai review` を投稿してください", e);
+        return make_action_required_result(state, result, &msg);
+    }
+    let signal = format_park_signal(state, rl, pr_info, max_retries);
+    println!("{}", signal);
+
+    PollResult {
+        action: state.action.clone(),
+        summary: state.summary.clone(),
+        ci: state.ci.clone(),
+        coderabbit: state.coderabbit.clone(),
+        findings: state.findings.clone(),
+        check_output: Some(result.clone()),
+        rate_limit: state.rate_limit.clone(),
+    }
+}
+
+fn make_max_retries_result(state: &PrMonitorState, result: &serde_json::Value) -> PollResult {
+    let summary = format!(
+        "CodeRabbit rate-limit が {} 回再試行後も継続。手動で `@coderabbitai review` を投稿してください",
+        state.rate_limit_retries
+    );
+    make_action_required_result(state, result, &summary)
+}
+
+fn make_action_required_result(
+    state: &PrMonitorState,
+    result: &serde_json::Value,
+    summary: &str,
+) -> PollResult {
+    PollResult {
+        action: "action_required".into(),
+        summary: summary.into(),
+        ci: state.ci.clone(),
+        coderabbit: state.coderabbit.clone(),
+        findings: state.findings.clone(),
+        check_output: Some(result.clone()),
+        rate_limit: state.rate_limit.clone(),
+    }
+}
+
+/// `handle_rate_limit_retry` の outcome 種別 (Bb-1, Bundle b PR-1)。
 ///
-/// `until_unix_secs <= now` の場合は sleep をスキップして即時 retrigger
-/// (= 過去の rate-limit comment を発見、既にリセット済み)。
+/// rate-limit 検出時の振る舞いは sleep 廃止 + park 化に切り替わった:
+///
+/// - `Posted`: reset 時刻が既に過去 (`sleep_secs <= 0`) のため、その場で
+///   `@coderabbitai review` を投稿し `rate_limit_retries` をインクリメント。
+///   caller は polling を継続する (現状挙動と同じ)。
+/// - `Parked`: reset 時刻が未来。同プロセス内で sleep せず、caller に「state に
+///   `next_wakeup_at_unix` を保存し PARK signal を stdout に出して終端 action で
+///   exit せよ」と通知する。実 wakeup は CronCreate (`durable: true`) 経由で
+///   `cli-pr-monitor.exe --monitor-only` を再 invoke する流れ (ADR-030 L1+L2 を踏襲)。
+/// - `Failed`: PR 番号未確定 / gh post 失敗。caller は state を更新せず
+///   action_required で抜ける。
+pub(crate) enum RateLimitOutcome {
+    Posted,
+    Parked { wakeup_at_unix: i64 },
+    Failed(String),
+}
+
+/// rate-limit 検出時の outcome を返す。
+///
+/// `until_unix_secs > now`: park (sleep しない、caller が wakeup 予約を依頼)
+/// `until_unix_secs <= now`: その場で `@coderabbitai review` を投稿
 fn handle_rate_limit_retry(
     rl: &crate::state::RateLimitState,
     state: &mut PrMonitorState,
     pr_info: &PrInfo,
     max_retries: u32,
-    remaining_monitor_secs: u64,
-) -> Result<(), String> {
+) -> RateLimitOutcome {
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let sleep_secs = (rl.until_unix_secs - now_unix).max(0) as u64;
 
-    // 監視残り時間を超える sleep は実施しない (max_duration を素通りさせない)
-    if sleep_secs > remaining_monitor_secs {
-        return Err(format!(
-            "rate-limit sleep ({}s) > 監視残り予算 ({}s)",
-            sleep_secs, remaining_monitor_secs
-        ));
-    }
-
-    let pr = pr_info
-        .pr_number
-        .ok_or_else(|| "PR 番号未確定のため retrigger スキップ".to_string())?;
+    let Some(pr) = pr_info.pr_number else {
+        return RateLimitOutcome::Failed("PR 番号未確定のため retrigger スキップ".into());
+    };
 
     if sleep_secs > 0 {
         log_info(&format!(
-            "[rate_limit] reset まで sleep {}秒 (wait={}m{}s + 60s buffer、retry={}/{})",
+            "[rate_limit] reset まで {}秒 (wait={}m{}s + 60s buffer)、Park で wakeup 要求 (retry 候補={}/{})",
             sleep_secs,
             rl.wait_minutes,
             rl.wait_seconds,
             state.rate_limit_retries + 1,
             max_retries
         ));
-        std::thread::sleep(Duration::from_secs(sleep_secs));
-    } else {
-        log_info(&format!(
-            "[rate_limit] reset 時刻は既に過去、即時 retrigger (retry={})",
-            state.rate_limit_retries + 1
-        ));
+        return RateLimitOutcome::Parked {
+            wakeup_at_unix: rl.until_unix_secs,
+        };
     }
+
+    post_review_immediately(pr, state)
+}
+
+/// `sleep_secs <= 0` 経路の即時 `@coderabbitai review` 投稿を担う helper。
+fn post_review_immediately(pr: u64, state: &mut PrMonitorState) -> RateLimitOutcome {
+    log_info(&format!(
+        "[rate_limit] reset 時刻は既に過去、即時 retrigger (retry={})",
+        state.rate_limit_retries + 1
+    ));
 
     let pr_str = pr.to_string();
     if run_gh_quiet(&["pr", "comment", &pr_str, "--body", "@coderabbitai review"]).is_none() {
-        return Err(format!("gh pr comment 投稿失敗 (PR #{})", pr));
+        return RateLimitOutcome::Failed(format!("gh pr comment 投稿失敗 (PR #{})", pr));
     }
 
     log_info(&format!(
@@ -339,8 +461,63 @@ fn handle_rate_limit_retry(
     ));
 
     state.rate_limit_retries += 1;
-    // rate_limit field は次の polling iteration で再 detect されるためここでは clear しない。
-    Ok(())
+    RateLimitOutcome::Posted
+}
+
+/// PARK signal を stdout に書き出すための pure 関数 (Bb-1)。
+///
+/// Claude Code が stdout を読み、含まれる `CronCreate(...)` 呼び出しテンプレートに
+/// 従って `durable: true` で wakeup を予約する想定。`reset_at_iso_utc` は UTC な
+/// ため、CronCreate の cron 値は Claude が local timezone に変換した ISO 8601 形式で
+/// 設定する (chrono 依存を避けるため Rust 側では変換しない)。
+pub(crate) fn format_park_signal(
+    state: &PrMonitorState,
+    rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+    max_retries: u32,
+) -> String {
+    let pr = pr_info
+        .pr_number
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "?".into());
+    let repo = pr_info.repo.as_deref().unwrap_or("?");
+    let reset_iso = if rl.until_unix_secs > 0 {
+        lib_pending_file::epoch_secs_to_iso8601(rl.until_unix_secs as u64)
+    } else {
+        "?".into()
+    };
+    let wait_total_secs = rl.wait_minutes * 60 + rl.wait_seconds;
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".into());
+    let retry_attempt = state.rate_limit_retries + 1;
+
+    format!(
+        "[PR_MONITOR_PARK]
+pr: {pr}
+repo: {repo}
+reset_at_unix: {until}
+reset_at_iso_utc: {reset_iso}
+wait_total_seconds: {wait_total_secs}
+retry_count: {retry_attempt}
+max_retries: {max_retries}
+exe: {exe}
+cwd: {cwd}
+
+ACTION REQUIRED: please schedule one-shot wakeup using CronCreate.
+
+CronCreate({{
+  cron: \"<reset_at_iso_utc を local timezone の ISO 8601 形式に変換, e.g. 2024-01-15T09:30:00>\",
+  recurring: false,
+  durable: true,
+  prompt: \"Wakeup: rate-limit retry for PR #{pr} ({repo}). cd \\\"{cwd}\\\" && \\\"{exe}\\\" --monitor-only\"
+}})
+[/PR_MONITOR_PARK]",
+        until = rl.until_unix_secs,
+    )
 }
 
 /// skip 適用後に、有効なチェックだけを見て action を再導出する
@@ -520,15 +697,15 @@ mod tests {
         let _ = std::fs::remove_file(&tmp);
     }
 
-    /// Finding 2 (PR #97 round 3): sleep が監視残り予算を超える場合、
-    /// `handle_rate_limit_retry` は Err を返し state を変更しない。
+    /// Bb-1: reset 時刻が未来の場合、`handle_rate_limit_retry` は Parked を返し
+    /// state.rate_limit_retries を変更しない (実 retry 計上は wakeup 経由で post 投稿後)。
     #[test]
-    fn rate_limit_retry_returns_err_when_sleep_exceeds_budget() {
+    fn rate_limit_retry_returns_parked_when_reset_in_future() {
         let future_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64
-            + 600; // 10 分後
+            + 600;
         let rl = RateLimitState {
             until_unix_secs: future_unix,
             comment_event_time: "2026-04-30T00:00:00Z".into(),
@@ -542,28 +719,26 @@ mod tests {
             push_time: None,
         };
 
-        // remaining=60s なのに sleep=600s 必要 → Err
-        let result = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3, 60);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err();
-        assert!(
-            err_msg.contains("監視残り予算"),
-            "Err message に budget 不足の説明が含まれるべき: {}",
-            err_msg
-        );
-        // state は変更されない (retries 0 のまま、last_retriggered_at None のまま)
+        let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
+        match outcome {
+            RateLimitOutcome::Parked { wakeup_at_unix } => {
+                assert_eq!(wakeup_at_unix, future_unix);
+            }
+            _ => panic!("expected Parked outcome for future reset, got other variant"),
+        }
         assert_eq!(state.rate_limit_retries, 0);
         assert!(state.rate_limit_last_retriggered_at.is_none());
     }
 
-    /// Finding 3 (PR #97 round 3): PR 番号未確定の場合、Err を返し state を変更しない。
+    /// Bb-1: PR 番号未確定の場合、`handle_rate_limit_retry` は Failed を返し
+    /// state を変更しない (caller は action_required で抜ける)。
     #[test]
-    fn rate_limit_retry_returns_err_when_pr_number_missing() {
+    fn rate_limit_retry_returns_failed_when_pr_number_missing() {
         let past_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64
-            - 60; // 1 分前 (sleep_secs=0 経路)
+            - 60;
         let rl = RateLimitState {
             until_unix_secs: past_unix,
             comment_event_time: "2026-04-30T00:00:00Z".into(),
@@ -577,10 +752,63 @@ mod tests {
             push_time: None,
         };
 
-        let result = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3, 1000);
-        assert!(result.is_err());
-        // state は変更されない
+        let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
+        assert!(matches!(outcome, RateLimitOutcome::Failed(_)));
         assert_eq!(state.rate_limit_retries, 0);
         assert!(state.rate_limit_last_retriggered_at.is_none());
+    }
+
+    /// Bb-1: PARK signal は CronCreate 呼び出しに必要な構造化情報を含む。
+    #[test]
+    fn format_park_signal_includes_required_fields() {
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        state.rate_limit_retries = 0;
+        let rl = RateLimitState {
+            until_unix_secs: 1_775_088_000,
+            comment_event_time: "2026-05-01T00:00:00Z".into(),
+            wait_minutes: 47,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: None,
+        };
+
+        let signal = format_park_signal(&state, &rl, &pr_info, 3);
+        assert!(signal.starts_with("[PR_MONITOR_PARK]"));
+        assert!(signal.contains("[/PR_MONITOR_PARK]"));
+        assert!(signal.contains("pr: 42"));
+        assert!(signal.contains("repo: o/r"));
+        assert!(signal.contains("reset_at_unix: 1775088000"));
+        assert!(signal.contains("wait_total_seconds: 2820"));
+        assert!(signal.contains("retry_count: 1"));
+        assert!(signal.contains("max_retries: 3"));
+        assert!(signal.contains("CronCreate("));
+        assert!(signal.contains("durable: true"));
+        assert!(signal.contains("recurring: false"));
+        assert!(signal.contains("--monitor-only"));
+    }
+
+    /// Bb-1: PR 番号 / repo が None でも format_park_signal は panic せず "?" を出す。
+    #[test]
+    fn format_park_signal_handles_missing_pr_info() {
+        let state = PrMonitorState::new(None, None, "t".into());
+        let rl = RateLimitState {
+            until_unix_secs: 1_775_088_000,
+            comment_event_time: "2026-05-01T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 30,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: None,
+            repo: None,
+            push_time: None,
+        };
+
+        let signal = format_park_signal(&state, &rl, &pr_info, 3);
+        assert!(signal.contains("pr: ?"));
+        assert!(signal.contains("repo: ?"));
+        assert!(signal.contains("wait_total_seconds: 330"));
     }
 }
