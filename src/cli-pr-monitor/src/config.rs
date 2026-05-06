@@ -3,11 +3,6 @@ use std::path::{Path, PathBuf};
 
 use crate::log::log_info;
 
-/// poll_interval_secs のデフォルト。
-/// 120s から 180s に延長 (PR #88 T2-4): rate-limit 浪費を抑えるため、
-/// セッション単独でも polling 回数を 5 → ~3 サイクル/監視に削減。
-/// max_duration_secs (600s) の維持と組み合わせて、polling 総数を 40% 削減する。
-pub(crate) const DEFAULT_POLL_INTERVAL: u64 = 180;
 pub(crate) const DEFAULT_MAX_DURATION: u64 = 600;
 pub(crate) const DEFAULT_STEP_TIMEOUT_SECS: u64 = 300;
 pub(crate) const DEFAULT_CHECK_TIMEOUT_SECS: u64 = 60;
@@ -21,18 +16,14 @@ pub(crate) struct Config {
     pub(crate) fix: FixConfig,
     #[serde(default)]
     pub(crate) rate_limit: RateLimitConfig,
+    #[serde(default)]
+    pub(crate) review_recheck: ReviewRecheckConfig,
 }
 
 #[derive(Deserialize, Clone)]
 pub(crate) struct MonitorConfig {
     #[serde(default = "default_enabled")]
     pub(crate) enabled: bool,
-    /// Bb-2 で polling loop を廃止 (single-iteration + CronCreate park モデル) したため
-    /// 本フィールドは現状未使用。既存 `pr-monitor-config.toml` との後方互換のため保持。
-    /// Bb-3 (config 整理) で削除予定。
-    #[serde(default = "default_poll_interval")]
-    #[allow(dead_code)]
-    pub(crate) poll_interval_secs: u64,
     #[serde(default = "default_max_duration")]
     pub(crate) max_duration_secs: u64,
     #[serde(default = "default_check_ci")]
@@ -43,9 +34,6 @@ pub(crate) struct MonitorConfig {
 
 fn default_enabled() -> bool {
     true
-}
-fn default_poll_interval() -> u64 {
-    DEFAULT_POLL_INTERVAL
 }
 fn default_max_duration() -> u64 {
     DEFAULT_MAX_DURATION
@@ -61,7 +49,6 @@ impl Default for MonitorConfig {
     fn default() -> Self {
         Self {
             enabled: default_enabled(),
-            poll_interval_secs: default_poll_interval(),
             max_duration_secs: default_max_duration(),
             check_ci: default_check_ci(),
             check_coderabbit: default_check_coderabbit(),
@@ -132,6 +119,80 @@ impl Default for RateLimitConfig {
     }
 }
 
+/// review 完了待ち park 制御 (Bb-3 順位 55)
+///
+/// CodeRabbit walkthrough 確認後、review 完了をポーリングする CronCreate 経路の
+/// 待機秒数と最大再チェック回数を制御する。
+/// 旧 hard-coded const (poll.rs INITIAL_REVIEW_WAIT_SECS / REVIEW_RECHECK_WAIT_SECS /
+/// MAX_REVIEW_RECHECKS) を config 化したもの。
+#[derive(Deserialize, Clone)]
+pub(crate) struct ReviewRecheckConfig {
+    /// fresh push 経路 (initial park) の wait 秒数
+    #[serde(default = "default_initial_review_wait_secs")]
+    pub(crate) initial_review_wait_secs: u64,
+    /// wakeup 経路 (continue_monitoring) で次回 wakeup までの wait 秒数
+    #[serde(default = "default_review_recheck_wait_secs")]
+    pub(crate) review_recheck_wait_secs: u64,
+    /// recheck 上限。到達後は action_required で抜ける
+    #[serde(default = "default_max_review_rechecks")]
+    pub(crate) max_review_rechecks: u32,
+}
+
+fn default_initial_review_wait_secs() -> u64 {
+    300
+}
+fn default_review_recheck_wait_secs() -> u64 {
+    300
+}
+fn default_max_review_rechecks() -> u32 {
+    3
+}
+
+impl Default for ReviewRecheckConfig {
+    fn default() -> Self {
+        Self {
+            initial_review_wait_secs: default_initial_review_wait_secs(),
+            review_recheck_wait_secs: default_review_recheck_wait_secs(),
+            max_review_rechecks: default_max_review_rechecks(),
+        }
+    }
+}
+
+/// `wait_secs` の実用的な上限 (1 年 = 31,536,000 秒)。
+///
+/// PR #115 CR Major #2 採用: poll.rs が `now_unix + wait_secs as i64` を計算するため、
+/// `wait_secs` を `i64::MAX` ぎりぎりまで許容すると `now_unix (~1.78e9 in 2026)` との
+/// 加算で確実に算術 overflow し、release build では負の wakeup_at にラップする。
+/// 1 年 = 3.15e7 << i64::MAX = 9.22e18 で `now_unix + 1年` は overflow しない。
+/// CronCreate の auto-expire は 7 日のため、1 年は user 編集の上限として十分な余裕を持つ。
+const MAX_SAFE_WAIT_SECS: u64 = 365 * 24 * 60 * 60;
+
+impl ReviewRecheckConfig {
+    /// 異常値 (0 / 実用域超過) をデフォルト値にフォールバックする。
+    ///
+    /// PR #115 CR Major #1 / #2 採用: 防御的 input validation。
+    /// poll.rs が `wait_secs as i64` を `now_unix + wait` に加算するため、`wait_secs == 0`
+    /// は wakeup を即時化、`max_review_rechecks == 0` は recheck を瞬時に max 到達させる、
+    /// `wait_secs > MAX_SAFE_WAIT_SECS` (1 年) は `now_unix + wait` の i64 加算で overflow して
+    /// wakeup_at が破損する。これらを `load_config` 経路で defensively 修正する
+    /// (config が user 編集可能な system boundary のため、CLAUDE.md
+    /// "ALWAYS validate at system boundaries" 原則に従う)。
+    fn sanitize(mut self) -> Self {
+        if self.initial_review_wait_secs == 0 || self.initial_review_wait_secs > MAX_SAFE_WAIT_SECS
+        {
+            self.initial_review_wait_secs = default_initial_review_wait_secs();
+        }
+        if self.review_recheck_wait_secs == 0 || self.review_recheck_wait_secs > MAX_SAFE_WAIT_SECS
+        {
+            self.review_recheck_wait_secs = default_review_recheck_wait_secs();
+        }
+        if self.max_review_rechecks == 0 {
+            self.max_review_rechecks = default_max_review_rechecks();
+        }
+        self
+    }
+}
+
 fn config_path() -> PathBuf {
     let filename = "pr-monitor-config.toml";
 
@@ -174,8 +235,11 @@ pub(crate) fn load_config() -> Config {
             return Config::default();
         }
     };
-    match toml::from_str(&content) {
-        Ok(config) => config,
+    match toml::from_str::<Config>(&content) {
+        Ok(mut config) => {
+            config.review_recheck = config.review_recheck.sanitize();
+            config
+        }
         Err(e) => {
             log_info(&format!(
                 "pr-monitor-config.toml パースエラー (デフォルト使用): {}",
@@ -195,7 +259,6 @@ mod tests {
         let toml_str = r#"
 [monitor]
 enabled = true
-poll_interval_secs = 45
 max_duration_secs = 900
 check_ci = true
 check_coderabbit = false
@@ -207,7 +270,6 @@ extra_args = ["--pipeline", "--skip-git"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.monitor.enabled);
-        assert_eq!(config.monitor.poll_interval_secs, 45);
         assert_eq!(config.monitor.max_duration_secs, 900);
         assert!(config.monitor.check_ci);
         assert!(!config.monitor.check_coderabbit);
@@ -216,6 +278,22 @@ extra_args = ["--pipeline", "--skip-git"]
         assert_eq!(takt.workflow, "post-pr-review");
         assert_eq!(takt.task, "post-pr-review");
         assert_eq!(takt.extra_args.as_ref().unwrap().len(), 2);
+    }
+
+    /// Bb-3: 旧 `poll_interval_secs` フィールド (Bb-2 で未使用化、Bb-3 で削除)
+    /// が残った既存 config を読み込む際に、unknown field でパースエラーにならず
+    /// 無視されることを確認する後方互換テスト。
+    #[test]
+    fn config_ignores_legacy_poll_interval_secs() {
+        let toml_str = r#"
+[monitor]
+enabled = true
+poll_interval_secs = 45
+max_duration_secs = 900
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.monitor.enabled);
+        assert_eq!(config.monitor.max_duration_secs, 900);
     }
 
     #[test]
@@ -233,9 +311,8 @@ enabled = true
     fn config_defaults_when_empty_monitor() {
         let toml_str = "[monitor]\n";
         let config: Config = toml::from_str(toml_str).unwrap();
-        // serde(default) により空の [monitor] でも MonitorConfig::default() と同じ値
         assert!(config.monitor.enabled);
-        assert_eq!(config.monitor.poll_interval_secs, DEFAULT_POLL_INTERVAL);
+        assert_eq!(config.monitor.max_duration_secs, DEFAULT_MAX_DURATION);
     }
 
     #[test]
@@ -304,5 +381,126 @@ max_retries = 5
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(!config.rate_limit.auto_retry_enabled);
         assert_eq!(config.rate_limit.max_retries, 5);
+    }
+
+    #[test]
+    fn config_review_recheck_defaults() {
+        let toml_str = "[monitor]\n";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.review_recheck.initial_review_wait_secs, 300);
+        assert_eq!(config.review_recheck.review_recheck_wait_secs, 300);
+        assert_eq!(config.review_recheck.max_review_rechecks, 3);
+    }
+
+    #[test]
+    fn config_review_recheck_custom() {
+        let toml_str = r#"
+[monitor]
+
+[review_recheck]
+initial_review_wait_secs = 600
+review_recheck_wait_secs = 900
+max_review_rechecks = 5
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.review_recheck.initial_review_wait_secs, 600);
+        assert_eq!(config.review_recheck.review_recheck_wait_secs, 900);
+        assert_eq!(config.review_recheck.max_review_rechecks, 5);
+    }
+
+    /// PR #115 CR Major #1: `max_review_rechecks=0` は recheck を瞬時に max 到達させ
+    /// 機能を無効化するため、デフォルト値にフォールバックする。
+    #[test]
+    fn review_recheck_sanitize_replaces_zero_max_review_rechecks() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: 100,
+            review_recheck_wait_secs: 200,
+            max_review_rechecks: 0,
+        }
+        .sanitize();
+        assert_eq!(
+            cfg.max_review_rechecks, 3,
+            "0 はデフォルト 3 にフォールバック"
+        );
+        assert_eq!(cfg.initial_review_wait_secs, 100, "他フィールドは不変");
+        assert_eq!(cfg.review_recheck_wait_secs, 200, "他フィールドは不変");
+    }
+
+    /// PR #115 CR Major #1: `wait_secs=0` は wakeup を即時化しスケジューリング意図を失うため、
+    /// デフォルト値にフォールバックする。
+    #[test]
+    fn review_recheck_sanitize_replaces_zero_wait_secs() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: 0,
+            review_recheck_wait_secs: 0,
+            max_review_rechecks: 5,
+        }
+        .sanitize();
+        assert_eq!(cfg.initial_review_wait_secs, 300);
+        assert_eq!(cfg.review_recheck_wait_secs, 300);
+        assert_eq!(cfg.max_review_rechecks, 5, "他フィールドは不変");
+    }
+
+    /// PR #115 CR Major #2: `wait_secs > MAX_SAFE_WAIT_SECS` (1 年) は poll.rs の
+    /// `now_unix + wait as i64` 加算で算術 overflow するため、デフォルト値に
+    /// フォールバックする。`u64::MAX` / `i64::MAX as u64` 等の極端値も対象。
+    #[test]
+    fn review_recheck_sanitize_replaces_unrealistic_wait_secs() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: u64::MAX,
+            review_recheck_wait_secs: i64::MAX as u64,
+            max_review_rechecks: 3,
+        }
+        .sanitize();
+        assert_eq!(cfg.initial_review_wait_secs, 300);
+        assert_eq!(cfg.review_recheck_wait_secs, 300);
+    }
+
+    #[test]
+    fn review_recheck_sanitize_keeps_valid_values_unchanged() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: 600,
+            review_recheck_wait_secs: 900,
+            max_review_rechecks: 5,
+        }
+        .sanitize();
+        assert_eq!(cfg.initial_review_wait_secs, 600);
+        assert_eq!(cfg.review_recheck_wait_secs, 900);
+        assert_eq!(cfg.max_review_rechecks, 5);
+    }
+
+    /// PR #115 CR Major #2: 1 年 (MAX_SAFE_WAIT_SECS) ぎりぎりは valid、
+    /// 1 年 + 1 秒は default に置換される境界値を machine-enforce する。
+    /// 加えて、`now_unix + sanitize 後の値 < i64::MAX` invariant が成立することを assert。
+    #[test]
+    fn review_recheck_sanitize_max_safe_boundary() {
+        let cfg_at_limit = ReviewRecheckConfig {
+            initial_review_wait_secs: MAX_SAFE_WAIT_SECS,
+            review_recheck_wait_secs: MAX_SAFE_WAIT_SECS,
+            max_review_rechecks: 1,
+        }
+        .sanitize();
+        assert_eq!(
+            cfg_at_limit.initial_review_wait_secs, MAX_SAFE_WAIT_SECS,
+            "1 年ジャストは valid"
+        );
+
+        let cfg_over_limit = ReviewRecheckConfig {
+            initial_review_wait_secs: MAX_SAFE_WAIT_SECS + 1,
+            review_recheck_wait_secs: MAX_SAFE_WAIT_SECS + 1,
+            max_review_rechecks: 1,
+        }
+        .sanitize();
+        assert_eq!(
+            cfg_over_limit.initial_review_wait_secs, 300,
+            "1 年 + 1 秒は default にフォールバック"
+        );
+
+        let now_unix_2026: i64 = 1_800_000_000;
+        let safe_sum = now_unix_2026.checked_add(cfg_at_limit.initial_review_wait_secs as i64);
+        assert!(
+            safe_sum.is_some(),
+            "sanitize 後の値は now_unix + wait で overflow しない (CR Major #2 invariant)"
+        );
     }
 }
