@@ -179,30 +179,22 @@ fn parse_classifier_output(output: &Output) -> Vec<ClassifiedFinding> {
 }
 
 /// child process を timeout 付きで待機する。
-/// timeout 到達時は kill して None を返す。
-fn wait_with_timeout(
-    mut child: std::process::Child,
-    timeout: Duration,
-) -> Option<Output> {
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                return child.wait_with_output().ok();
-            }
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => {
-                let _ = child.kill();
-                return None;
-            }
-        }
+/// timeout 到達時は None を返す。
+///
+/// `wait_with_output()` をスレッド内で呼び出すことで stdout/stderr パイプを
+/// 並行にドレインする。`try_wait()` のスピンループは OS パイプバッファ
+/// (~64 KB) を超える出力でデッドロックするため使用しない。
+///
+/// タイムアウト時に child を kill できないのは child がスレッド内へ move されるため。
+/// classifier exe は `--timeout-secs` で自己終了するため、スレッドは自然に終了する。
+fn wait_with_timeout(child: std::process::Child, timeout: Duration) -> Option<Output> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result.ok(),
+        Err(_) => None,
     }
 }
 
@@ -269,5 +261,37 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].action, "human_review");
         assert_eq!(parsed[0].finding.severity, "Critical");
+    }
+
+    /// `wait_with_timeout` success path: a fast process completes within a generous timeout.
+    #[test]
+    fn wait_with_timeout_returns_some_when_process_completes() {
+        let child = Command::new("cmd")
+            .arg("/c")
+            .arg("echo ok")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn cmd");
+        let result = wait_with_timeout(child, Duration::from_secs(5));
+        assert!(result.is_some(), "process should complete within 5-second timeout");
+    }
+
+    /// `wait_with_timeout` timeout path: a long-running process exceeds a short timeout.
+    ///
+    /// Note: the child process (ping) continues running in a background thread until it
+    /// terminates naturally (~2 s). This is intentional — the thread-based design cannot
+    /// kill the child after the timeout (child is moved into the thread). Acceptable in tests.
+    #[test]
+    fn wait_with_timeout_returns_none_on_timeout() {
+        let child = Command::new("cmd")
+            .arg("/c")
+            .arg("ping 127.0.0.1 -n 3")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn cmd");
+        let result = wait_with_timeout(child, Duration::from_millis(50));
+        assert!(result.is_none(), "process should not complete within 50 ms timeout");
     }
 }

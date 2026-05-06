@@ -220,7 +220,7 @@ fn build_state_for_iteration(
 /// 実行成功時は state.classified_findings を populate して state file を再書き出す。
 /// 失敗時は state.classified_findings は空のまま (caller は findings をそのまま使えばよい)。
 fn enrich_with_classifier(state: &mut PrMonitorState, config: &ClassifierConfig) {
-    if !config.enabled || state.findings.is_empty() || !state.classified_findings.is_empty() {
+    if !config.enabled || state.findings.is_empty() {
         return;
     }
     let classified = classify_findings(config, &state.findings);
@@ -1356,6 +1356,31 @@ mod tests {
             persisted.head_commit.as_deref(),
             Some("abc1234"),
             "CR Major #1: fresh push 経路で head_commit が pr_info から保存されること"
+        );
+    }
+
+    /// `enabled = false` のとき `enrich_with_classifier` は early return し
+    /// `classified_findings` を変更しない。
+    ///
+    /// `classified_findings` を空のまま渡すことで `!config.enabled` ガードのみを純粋に分離する。
+    #[test]
+    fn enrich_with_classifier_skips_when_disabled() {
+        use lib_report_formatter::Finding;
+
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.findings = vec![Finding {
+            severity: "Major".into(),
+            file: "f.rs".into(),
+            line: "1".into(),
+            issue: "issue".into(),
+            suggestion: "fix".into(),
+            source: "coderabbit".into(),
+        }];
+        let disabled = ClassifierConfig { enabled: false, ..ClassifierConfig::default() };
+        enrich_with_classifier(&mut state, &disabled);
+        assert!(
+            state.classified_findings.is_empty(),
+            "disabled guard should prevent classification from running"
         );
     }
 
