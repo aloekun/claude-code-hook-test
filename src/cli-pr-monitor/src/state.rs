@@ -1,3 +1,4 @@
+use crate::classifier_runner::ClassifiedFinding;
 use lib_report_formatter::Finding;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -14,6 +15,13 @@ pub(crate) struct PrMonitorState {
     pub(crate) summary: String,
     #[serde(default)]
     pub(crate) findings: Vec<Finding>,
+    /// classifier (ADR-038, Phase 5) で enrich した findings。
+    ///
+    /// `config.classifier.enabled = false` または classifier 失敗時は空 Vec で残る。
+    /// 既存 consumers (takt facets / Claude) が `findings` のみ参照する経路を破壊しない
+    /// よう、独立 field として保持する。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) classified_findings: Vec<ClassifiedFinding>,
     pub(crate) notified: bool,
     pub(crate) daemon_pid: Option<u32>,
     pub(crate) daemon_status: String,
@@ -117,6 +125,7 @@ impl PrMonitorState {
             action: "continue_monitoring".to_string(),
             summary: "監視開始...".to_string(),
             findings: Vec::new(),
+            classified_findings: Vec::new(),
             notified: false,
             daemon_pid: None,
             daemon_status: "running".to_string(),
@@ -252,6 +261,7 @@ mod tests {
                 suggestion: "write first".into(),
                 source: "CodeRabbit".into(),
             }],
+            classified_findings: Vec::new(),
             notified: false,
             daemon_pid: Some(12345),
             daemon_status: "running".into(),

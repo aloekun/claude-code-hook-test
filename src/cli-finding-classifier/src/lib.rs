@@ -73,6 +73,12 @@ const VALID_ACTIONS: &[&str] = &[
     "informational",
 ];
 
+/// `normalized_issue` の長さ上限 (characters)。
+///
+/// `prompts/classify.txt` の出力契約 ("max 80 characters") と一致させる。
+/// 上限超過は LLM 出力契約違反として fallback に倒す。
+const NORMALIZED_ISSUE_MAX_CHARS: usize = 80;
+
 /// LLM 出力を ClassifiedFinding に変換 + バリデーション
 fn from_llm_output(finding: &Finding, llm: LlmClassification) -> ClassifiedFinding {
     let action = if VALID_ACTIONS.contains(&llm.action.as_str()) {
@@ -84,9 +90,27 @@ fn from_llm_output(finding: &Finding, llm: LlmClassification) -> ClassifiedFindi
         );
     };
     let confidence = llm.action_confidence.clamp(0.0, 1.0);
-    let normalized = llm.normalized_issue
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let normalized = match llm.normalized_issue.map(|s| s.trim().to_string()) {
+        None => None,
+        Some(s) if s.is_empty() => None,
+        Some(s) if s.lines().count() > 1 => {
+            return fallback(
+                finding,
+                "normalized_issue contract violation: multi-line",
+            );
+        }
+        Some(s) if s.chars().count() > NORMALIZED_ISSUE_MAX_CHARS => {
+            return fallback(
+                finding,
+                format!(
+                    "normalized_issue contract violation: length {} > {}",
+                    s.chars().count(),
+                    NORMALIZED_ISSUE_MAX_CHARS
+                ),
+            );
+        }
+        Some(s) => Some(s),
+    };
 
     ClassifiedFinding {
         finding: finding.clone(),
@@ -278,6 +302,51 @@ mod tests {
         )]);
         let result = classify_one(&stub, "T", &sample_finding());
         assert!(result.normalized_issue.is_none());
+    }
+
+    #[test]
+    fn classify_one_falls_back_when_normalized_issue_is_multiline() {
+        let stub = StubOllama::new(vec![Ok(
+            r#"{"action":"auto_fix","action_confidence":0.9,"normalized_issue":"line one\nline two"}"#.to_string(),
+        )]);
+        let result = classify_one(&stub, "T", &sample_finding());
+        assert_eq!(result.action, "human_review");
+        assert_eq!(result.action_confidence, 0.0);
+        assert!(result
+            .fallback_reason
+            .as_deref()
+            .unwrap()
+            .contains("multi-line"));
+    }
+
+    #[test]
+    fn classify_one_falls_back_when_normalized_issue_exceeds_80_chars() {
+        let long = "a".repeat(81);
+        let payload = format!(
+            r#"{{"action":"auto_fix","action_confidence":0.9,"normalized_issue":"{}"}}"#,
+            long
+        );
+        let stub = StubOllama::new(vec![Ok(payload)]);
+        let result = classify_one(&stub, "T", &sample_finding());
+        assert_eq!(result.action, "human_review");
+        assert!(result
+            .fallback_reason
+            .as_deref()
+            .unwrap()
+            .contains("length 81 > 80"));
+    }
+
+    #[test]
+    fn classify_one_accepts_normalized_issue_at_80_chars_boundary() {
+        let exact_80 = "a".repeat(80);
+        let payload = format!(
+            r#"{{"action":"auto_fix","action_confidence":0.9,"normalized_issue":"{}"}}"#,
+            exact_80
+        );
+        let stub = StubOllama::new(vec![Ok(payload)]);
+        let result = classify_one(&stub, "T", &sample_finding());
+        assert_eq!(result.action, "auto_fix");
+        assert_eq!(result.normalized_issue.as_deref(), Some(exact_80.as_str()));
     }
 
     #[test]

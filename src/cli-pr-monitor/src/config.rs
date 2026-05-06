@@ -18,6 +18,8 @@ pub(crate) struct Config {
     pub(crate) rate_limit: RateLimitConfig,
     #[serde(default)]
     pub(crate) review_recheck: ReviewRecheckConfig,
+    #[serde(default)]
+    pub(crate) classifier: ClassifierConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -190,6 +192,52 @@ impl ReviewRecheckConfig {
             self.max_review_rechecks = default_max_review_rechecks();
         }
         self
+    }
+}
+
+/// CodeRabbit findings をローカル LLM (Ollama) で classify する設定 (ADR-038、Phase 5)。
+///
+/// `cli-finding-classifier.exe` を subprocess invoke し、`Vec<Finding>` を
+/// `Vec<ClassifiedFinding>` に enrich する。デフォルトは無効 (`enabled = false`、
+/// 試験運用)。Ollama 不在 / 失敗時は classifier 側 fallback で全件 `human_review`
+/// に倒れるため、有効化しても polling が block しない。
+#[derive(Deserialize, Clone)]
+pub(crate) struct ClassifierConfig {
+    /// classifier を invoke するかどうか
+    #[serde(default = "default_classifier_enabled")]
+    pub(crate) enabled: bool,
+    /// Ollama モデル名 (`--model` に渡す)
+    #[serde(default = "default_classifier_model")]
+    pub(crate) model: String,
+    /// Ollama HTTP endpoint (`--endpoint` に渡す)
+    #[serde(default = "default_classifier_endpoint")]
+    pub(crate) endpoint: String,
+    /// 1 リクエストあたりタイムアウト秒 (`--timeout-secs` に渡す)
+    #[serde(default = "default_classifier_timeout_secs")]
+    pub(crate) timeout_secs: u64,
+}
+
+fn default_classifier_enabled() -> bool {
+    false
+}
+fn default_classifier_model() -> String {
+    "mistral:7b".into()
+}
+fn default_classifier_endpoint() -> String {
+    "http://localhost:11434".into()
+}
+fn default_classifier_timeout_secs() -> u64 {
+    30
+}
+
+impl Default for ClassifierConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_classifier_enabled(),
+            model: default_classifier_model(),
+            endpoint: default_classifier_endpoint(),
+            timeout_secs: default_classifier_timeout_secs(),
+        }
     }
 }
 
@@ -467,6 +515,34 @@ max_review_rechecks = 5
         assert_eq!(cfg.initial_review_wait_secs, 600);
         assert_eq!(cfg.review_recheck_wait_secs, 900);
         assert_eq!(cfg.max_review_rechecks, 5);
+    }
+
+    #[test]
+    fn config_classifier_defaults() {
+        let toml_str = "[monitor]\n";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(!config.classifier.enabled, "デフォルトは無効 (試験運用)");
+        assert_eq!(config.classifier.model, "mistral:7b");
+        assert_eq!(config.classifier.endpoint, "http://localhost:11434");
+        assert_eq!(config.classifier.timeout_secs, 30);
+    }
+
+    #[test]
+    fn config_classifier_custom() {
+        let toml_str = r#"
+[monitor]
+
+[classifier]
+enabled = true
+model = "llama2:13b"
+endpoint = "http://192.168.1.10:11434"
+timeout_secs = 60
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.classifier.enabled);
+        assert_eq!(config.classifier.model, "llama2:13b");
+        assert_eq!(config.classifier.endpoint, "http://192.168.1.10:11434");
+        assert_eq!(config.classifier.timeout_secs, 60);
     }
 
     /// PR #115 CR Major #2: 1 年 (MAX_SAFE_WAIT_SECS) ぎりぎりは valid、
