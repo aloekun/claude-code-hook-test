@@ -20,6 +20,7 @@
 resolver = "2"
 members = [
     "src/check-ci-coderabbit",
+    "src/cli-finding-classifier",
     "src/cli-merge-pipeline",
     "src/cli-pr-monitor",
     "src/cli-push-pipeline",
@@ -32,6 +33,7 @@ members = [
     "src/hooks-stop-quality",
     "src/hooks-user-prompt-feedback-recovery",
     "src/lib-jj-helpers",
+    "src/lib-ollama-client",
     "src/lib-pending-file",
     "src/lib-report-formatter",
 ]
