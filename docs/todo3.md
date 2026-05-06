@@ -272,55 +272,6 @@ prompt and prompt Claude to re-run the workflow.
 
 ---
 
-### cli-pr-monitor 通知 Recovery 経路 (SessionStart hook 拡張)
-
-> **動機**: cli-pr-monitor は `pnpm push` / `pnpm create-pr` 内で in-process 同期実行され、CodeRabbit findings の検出結果を **親プロセスの stdout** で Claude shell に渡す設計 (ADR-018)。しかし Claude Code の再起動 / parent shell の orphan 化が起きると stdout が消失し、`.claude/pr-monitor-state.json` の `notified=false` 状態のまま silent loss する。本リポジトリでも PR #91 直後に Claude Code 再起動でこの事象を実体験。
->
-> **本タスクの位置づけ**: ADR-029 → ADR-030 で確立した「`.failed` marker + L2 recovery hook (UserPromptSubmit)」と同型のパターンを cli-pr-monitor 系に適用。SessionStart hook (`hooks-session-start`) を拡張し、`.claude/pr-monitor-state.json` の `notified=false + last_checked が古い (例: > 30 分)` を検出したら additionalContext で「未通知の review findings あり、`gh pr view` で確認推奨」を出力する。
->
-> **参照**: PR #91 セッション中のユーザー言及。post-merge-feedback report には未含、明示的に採用合意あり。
->
-> **実行優先度**: 🔧 **Tier 2** — 工数 S/M。silent loss 防止の保険。rate-limit critical 系 (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) との優先度については rate-limit 系の方が日次影響大だが、本 task は **「再起動跨ぎの確実な通知伝達」** をカバーする補完層。
-
-#### 設計決定 (案)
-
-- 配置先: `src/hooks-session-start/` (既存 SessionStart hook crate に機能追加)
-- 検出ロジック (案):
-  - `.claude/pr-monitor-state.json` を読む (なければ no-op)
-  - `notified == false` AND `last_checked` が現在時刻から 30 分以上前 → recovery 必要
-  - 該当 PR の概要 (action, summary, findings count) を additionalContext で出力
-- 出力例:
-  ```text
-  [PR_MONITOR_RECOVERY]
-  PR #N の cli-pr-monitor 結果が未通知です (last_checked: <timestamp>)。
-  action: action_required, findings: 2 件
-  詳細: cat .claude/pr-monitor-state.json または gh pr view N
-  ```
-- 設計上の選択肢:
-  - 案 A: `notified=true` への自動更新は行わない (Claude が `pnpm mark-notified` を呼ぶ既存経路を維持)
-  - 案 B: SessionStart hook が自動的に `notified=true` にする (薄い recovery、二重通知を避ける)
-  - 推奨: 案 A (Claude の判断に委ねる方が安全)
-
-#### 作業計画
-
-- [ ] hooks-session-start crate に state file 読み込み + recovery 判定ロジック追加
-- [ ] additionalContext 出力フォーマット決定
-- [ ] dogfood: state file を手動で `notified=false + last_checked が古い` 状態にして SessionStart hook 起動 → recovery context 出力確認
-- [ ] 派生プロジェクトに deploy
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- Claude Code 再起動後の SessionStart で、未通知の cli-pr-monitor 結果があれば additionalContext として届く
-- silent loss が再発しない (再起動跨ぎでも recovery 経路で必ず pickup される)
-- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) でも同機構が動作
-
-#### 詰まっている箇所
-
-なし (Effort S/M、ADR-030 の L2 recovery パターンを cli-pr-monitor に適用するだけ)
-
----
-
 ### takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)
 
 > **動機**: PR #91 の post-pr-review で `supervise` step が 4 回、`fix_supervisor` step が 4 回の計 8 ステップを「修正不可能な制約あり」と繰り返し報告したにもかかわらず、takt harness はループを継続した。`.claude/` filter + ADR-030 制約明記 task (PR #91 T2-1 + T3-2 Bundle) が path-based に解決するのに対し、本 task は **iteration 上限到達前に「人間判断に委譲する」と AI 自身が宣言できる verdict** を提供する一般解。

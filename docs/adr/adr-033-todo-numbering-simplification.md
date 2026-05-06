@@ -121,7 +121,7 @@ grep -nE "順位 [0-9A-Za-z_-]+" docs/todo.md docs/todo2.md docs/todo3.md \
 
 ### 「依存」列の二層追跡 — technical 依存 vs strategic 順序
 
-priority table の「依存」列 と、領域特化計画書 (例: `docs/coderabbit-monitoring-efficiency.md`) や Bundle 脚注に記録する依存関係は、**別レイヤ** を表す。両者が乖離していても矛盾ではない。
+priority table の「依存」列 と、領域特化計画書 (試験運用 doc / Bundle 脚注) に記録する依存関係は、**別レイヤ** を表す。両者が乖離していても矛盾ではない。
 
 | 種別 | 記録先 | 意味 | 例 |
 |---|---|---|---|
