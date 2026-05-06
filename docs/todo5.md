@@ -781,3 +781,44 @@
 - 順位 76/77 land 前後の順番: ADR で test layer に言及するため、test 実装が先のほうが自然。ただし ADR を先 land して「test を ADR-038 に従って実装する」流れも可能。実装時に ROI で判断 (test PR と ADR PR を分けるか、まとめるか)
 - `~/.claude/` 配下の global rule 編集は本 repo 外への影響あり、慎重に (memory `feedback_no_unenforced_rules.md` 「強制力のないルール追加は却下」原則を踏まえる必要あり = 機械検知できないルールは却下されうる)。本 task は ADR + 既存 rule 拡充で「機械検知の根拠」を提供する形なので OK だが、CLAUDE.md security.md の追記内容が「ルールだけ増やす」と評価されないよう、順位 76/77 の test との連携を明示する
 
+---
+
+### docs-governance.md § Retirement Workflow に「残タスクの lifecycle 整合」要件明記 (PR #117 T3-1 採用)
+
+> **動機**: PR #117 (`docs/coderabbit-monitoring-efficiency.md` retirement) で順位 15 (cli-pr-monitor 通知 Recovery 経路) を「Bb-3 SessionStart catch-up nudge で吸収済」として priority table から削除した際、現 `~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2「残タスクを priority table に登録」は **priority table から除外するケース (= 完了/意図的 deprioritize/defer) を未定義**。reviewer (post-merge-feedback agent) は私の commit message に「Bb-3 で吸収済」と書かれていることは認識したが、rule として 3 値分類が明文化されていない点を指摘。
+>
+> **本タスクの位置づけ**: PR #117 post-merge-feedback Tier 3 #1 採用。retirement workflow 自体を強化する meta-task で、将来の同型 ambiguity を構造的に防止。
+>
+> **参照**: PR #117 retirement の経緯 (`docs/coderabbit-monitoring-efficiency.md` 削除)、`.claude/feedback-reports/117.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。1 セクションに 5-10 行追記。
+
+#### 設計決定 (案)
+
+- **配置先**: `~/.claude/rules/common/docs-governance.md` の `## Retirement Workflow (planning markdowns)` セクション内、Step 2「Migrate residual tasks」を拡充
+- **追記内容案** (Step 2 改訂):
+  - 現状: 「Migrate residual tasks — register any remaining work to `docs/todo*.md` priority table」
+  - 改訂: priority table から除外する場合は commit/PR description で 3 値のいずれかを明示する要件を追加
+    - **完了 (subsumed)**: 別タスクで実質達成済 (例: 順位 15 → Bb-3 で吸収)。subsuming task / PR を引用
+    - **意図的 deprioritize**: 優先度を下げて当面着手しない。理由を引用
+    - **defer**: 後続 bundle で扱う。次の bundle context を引用
+  - 「分類なしの単純削除は禁止」と明記し、`grep` 等での検証可能性を担保
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2 に 3 値分類要件を追記 (5-10 行)
+- [ ] PR #117 を retroactive example として引用 (順位 15 = subsumed by Bb-3 のケース)
+- [ ] 派生プロジェクト deploy には影響なし (global rule のみ)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `docs-governance.md` § Retirement Workflow Step 2 に 3 値分類要件が明記される
+- 将来の retirement PR で「priority table 削除時の理由を 3 値のどれか明示」が rule として参照可能になる
+- 順位 15 のような subsumed なタスクが「単純削除」として誤解されないよう、convention で守られる
+
+#### 詰まっている箇所
+
+- ルール追加自体は機械検知不可だが、本 task は **既存の retirement workflow の Step 2 を拡充するもの** (新規 rule の追加ではなく既存 rule の精緻化) なので、memory `feedback_no_unenforced_rules.md` の「強制力のないルール追加は却下」原則とは性質が異なる。retirement workflow を実行する commit/PR で `grep -E "完了|deprioritize|defer"` 等の機械検知を後付け可能 (ただし本 task の scope 外)
+- 3 値分類が実用的な粒度か、より細かい分類が必要か (例: `subsumed` を `merged into bundle` / `replaced by ADR` 等に分割) は実装時に dogfood で判断
+
