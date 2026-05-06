@@ -656,3 +656,128 @@
 
 なし (Effort XS、コメント追記のみ)
 
+---
+
+### config sanitize → poll arithmetic の cross-module overflow 統合テスト (PR #115 T2-1 採用) ★ Bb-3 follow-up
+
+> **動機**: PR #115 の sanitize() 実装後、CR から Major #2 として「`review_recheck_sanitize_keeps_i64_max_boundary` テストが `i64::MAX as u64` を valid として通すが、poll.rs の `now_unix + wait_secs as i64` で確実に overflow する」という **unit test isolation 起因の自己矛盾**を指摘された。即修正で `MAX_SAFE_WAIT_SECS = 1 年` に上限を変更したが、原因は **「config layer の単体テストが downstream arithmetic の overflow safety を確認していなかった」**こと。同類の cross-module integrity 問題は今後も sanitize() に新フィールド追加・既存値の境界変更で再発しうる。
+>
+> **本タスクの位置づけ**: Bb-3 完成 (PR #115 マージ済) 後の follow-up。post-merge-feedback Tier 2 #1 採用。
+>
+> **参照**: PR #115 CR Major #2 (id 3192783887)、`.claude/feedback-reports/115.md` Tier 2 #1、`src/cli-pr-monitor/src/config.rs` (sanitize)、`src/cli-pr-monitor/src/stages/poll.rs` line 662 / 734 (cast points)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。順位 77 (境界値テスト matrix) と同一 PR で land すると DRY (両方とも `wait_secs` boundary を扱う)。
+
+#### 設計決定 (案)
+
+- **テストの配置**: `src/cli-pr-monitor/src/stages/poll.rs` の `#[cfg(test)] mod tests` 内に integration test 風のセクションを追加 (config + poll を貫通させる)
+- **テストの形**: 以下 3 経路を verify
+  1. `MAX_SAFE_WAIT_SECS` を sanitize() 通過後、`finalize_initial_review_park` / `schedule_next_review_recheck_park` 経由で書き込まれる `state.next_wakeup_at_unix` が `i64::MAX` 以下 (= overflow しない)
+  2. `0` を sanitize() で default に置換後、書き込まれる `state.next_wakeup_at_unix` が `now_unix + 300` (default fallback 動作)
+  3. `u64::MAX` を sanitize() で default に置換後、書き込まれる `state.next_wakeup_at_unix` が `i64::MAX` 以下 (= overflow しない)
+- **invariant assertion**: `state.next_wakeup_at_unix > now_unix && state.next_wakeup_at_unix < i64::MAX` を全 path で assert
+- **test fault injection**: 既存の `PR_MONITOR_STATE_FILE_OVERRIDE` env var + `env_override_lock` Mutex を再利用 (T2-2 で確立済の pattern)
+
+#### 作業計画
+
+- [ ] `poll.rs` test module に `cross_module_overflow_safety_<シナリオ>` テスト 3 件追加
+- [ ] 全 path で `state.next_wakeup_at_unix` の値域 invariant を assert
+- [ ] `sanitize() を経由しない直接 inject 経路` (= テスト用 helper で異常値を直接書く) も対象に追加し、sanitize layer がない場合の overflow を **negative test** で確認 (sanitize の保護が機能していることの裏付け)
+- [ ] cargo test 全 pass を確認、CI 統合
+- [ ] 派生プロジェクト deploy には影響なし (test only)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- 統合テスト 3-4 件追加 (positive + negative)
+- `now_unix + sanitize 後の wait_secs` が i64 overflow しないことを machine-enforce
+- 将来 `MAX_SAFE_WAIT_SECS` を変更したり sanitize() に新フィールド追加した際、テストが落ちて invariant 違反を検知
+
+#### 詰まっている箇所
+
+- `now_unix` の取得を test 環境で固定する仕組み (現実装は `SystemTime::now()` で test 不安定要因)。最低限「`SystemTime::now() + sanitize 後の値 < i64::MAX`」が常に成立することを assert する形で済ます (実環境の `now_unix` は ~1.78e9 << i64::MAX なので、sanitize 後の値が `MAX_SAFE_WAIT_SECS = 1 年 = 3.15e7` 以下なら確実に safe)
+
+---
+
+### Unix timestamp baseline での境界値テスト matrix (PR #115 T2-2 採用) ★ Bb-3 follow-up
+
+> **動機**: `MAX_SAFE_WAIT_SECS = 365 * 24 * 60 * 60` の根拠 (i64 overflow safety) は **現在の Unix timestamp が ~1.78e9 (2026 年)** に依存する time-dependent な前提。例えば 2100 年の時点では `now_unix` が ~4.1e9 に達し、`now_unix + MAX_SAFE_WAIT_SECS` が i64::MAX に対する safety margin が縮む (= 計算上は安全だが、根拠の説明性が弱まる)。境界値を明示的にテストすることで `MAX_SAFE_WAIT_SECS` の妥当性を future-proof に保証。
+>
+> **本タスクの位置づけ**: 順位 76 と同一 PR で land 推奨 (両方とも boundary を扱う)。post-merge-feedback Tier 2 #2 採用。
+>
+> **参照**: PR #115 `MAX_SAFE_WAIT_SECS` 定数 (config.rs)、`.claude/feedback-reports/115.md` Tier 2 #2
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。順位 76 と統合 PR で land。
+
+#### 設計決定 (案)
+
+- **テストの形**: `MAX_SAFE_WAIT_SECS` の境界値 matrix を `config.rs` test module に追加
+  - `now_2026 = 1_800_000_000_i64` (~ 2026 年) baseline
+  - `now_2100 = 4_100_000_000_i64` (~ 2100 年) baseline (future-proof check)
+  - 各 baseline で `now + MAX_SAFE_WAIT_SECS` / `now + MAX_SAFE_WAIT_SECS + 1` の i64 overflow safety を `checked_add` で assert
+- **既存 `review_recheck_sanitize_max_safe_boundary` テストを拡張**: 現実装は `now_unix_2026` 単体だが、`now_2100` も追加して未来の Unix timestamp でも safe であることを machine-enforce
+- **コメント補強**: `MAX_SAFE_WAIT_SECS` 定数の doc comment に「now_2100 + 1 年 < i64::MAX で safety margin あり」を明記
+
+#### 作業計画
+
+- [ ] `config.rs` test module の `review_recheck_sanitize_max_safe_boundary` を拡張 (now_2026 + now_2100 の 2 baseline)
+- [ ] `MAX_SAFE_WAIT_SECS` doc comment に future-proof の根拠 (year 2100 でも safe) を追記
+- [ ] cargo test 全 pass を確認
+- [ ] 順位 76 と同 PR で land
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- `now_2100 + MAX_SAFE_WAIT_SECS` が `checked_add` で `Some(_)` を返すこと (= overflow しない) を assert
+- `MAX_SAFE_WAIT_SECS` 定数 doc に future-proof 根拠が記述される
+
+#### 詰まっている箇所
+
+なし (Effort S、test 拡張 + doc コメント追加のみ)
+
+---
+
+### ADR-038 (Rust timestamp arithmetic safety) + CLAUDE.md security 拡充 (PR #115 T3-1 採用) ★ Bb-3 follow-up
+
+> **動機**: PR #115 で「config が user-editable system boundary のとき、sanitize() で値域検証 + 下流 arithmetic で安全範囲保証」というパターンが実証された (CR Major #1 + #2 が両方とも同型の「config 値→arithmetic 入力」cross-layer integrity 問題)。同型の bug class は今後も Rust + config 駆動の component で発生しうるため、組織的 learning として codify。
+>
+> **本タスクの位置づけ**: 順位 76 / 77 (test 層) の補完層 = ドキュメント / ADR 層。3 つを別 PR で land すると依存関係が読みやすい (test 層先 → 後で ADR が test を参照)。post-merge-feedback Tier 3 #1 採用。
+>
+> **参照**: PR #115 CR Major #1+#2 解消経緯、`.claude/feedback-reports/115.md` Tier 3 #1、CLAUDE.md `security.md` (input validation)、ADR-022 (責務分離原則) の延長
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。順位 76 / 77 が land した後の codification PR。
+
+#### 設計決定 (案)
+
+- **ADR-038 (新規)**: `docs/adr/adr-038-timestamp-arithmetic-safety.md` を作成
+  - **タイトル**: Rust timestamp arithmetic の overflow safety pattern
+  - **Context**: PR #115 で sanitize() が `i64::MAX as u64` を valid として通したが downstream の `now_unix + wait as i64` で overflow した CR Major #2 を引用
+  - **Decision**: 以下 3 層で overflow を構造的に防ぐ
+    1. **Sanitize layer**: config に `MAX_SAFE_WAIT_SECS` 等の上限を設定し、`sanitize()` で値域違反を default fallback
+    2. **Arithmetic layer**: `now_unix + wait as i64` のような cast point に `// SAFETY: <sanitize-fn> が <const> 以下を保証` コメント (人間レビュー時の手がかり)
+    3. **Test layer**: `now + sanitize 後の値 < i64::MAX` invariant を `checked_add` で machine-enforce (順位 76/77 で実装)
+  - **Consequences**: cross-module overflow を test layer で構造的に検知。`MAX_SAFE_WAIT_SECS` の根拠が future-proof (2100 年でも safe)
+- **CLAUDE.md `security.md` (`~/.claude/rules/common/security.md`) 拡充**: 「config は user-editable system boundary、必ず sanitize() で値域検証」+ 「Rust の `as` cast は overflow check しない、`checked_add` を併用」を追加。global rule なので全 Rust project に適用される
+- **本 PR の効果**: ADR + CLAUDE.md で codified 後、将来同型 bug が発生したら「ADR-038 違反」として一発で指摘可能
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-038-timestamp-arithmetic-safety.md` を新規作成 (Context / Decision / Consequences)
+- [ ] CLAUDE.md (project) Architecture Decisions リストに ADR-038 を追加
+- [ ] `~/.claude/rules/common/security.md` に「config sanitize + Rust arithmetic safety」セクション追加
+- [ ] (任意) `~/.claude/rules/rust/coding-style.md` に `// SAFETY:` コメント pattern を補足
+- [ ] 順位 76/77 が land 済の前提で「Test layer で検証する」を ADR で言及 (前後関係を明示)
+- [ ] 派生プロジェクト deploy には影響なし (docs / global rule のみ)
+- [ ] 本 todo5.md エントリを削除
+
+#### 完了基準
+
+- ADR-038 が land し、CLAUDE.md からリンクされる
+- `~/.claude/rules/common/security.md` に Rust arithmetic safety pattern が追加される
+- 将来「config 値が arithmetic で overflow」という形の bug が出たら、ADR-038 を引用して一発で指摘できる
+
+#### 詰まっている箇所
+
+- 順位 76/77 land 前後の順番: ADR で test layer に言及するため、test 実装が先のほうが自然。ただし ADR を先 land して「test を ADR-038 に従って実装する」流れも可能。実装時に ROI で判断 (test PR と ADR PR を分けるか、まとめるか)
+- `~/.claude/` 配下の global rule 編集は本 repo 外への影響あり、慎重に (memory `feedback_no_unenforced_rules.md` 「強制力のないルール追加は却下」原則を踏まえる必要あり = 機械検知できないルールは却下されうる)。本 task は ADR + 既存 rule 拡充で「機械検知の根拠」を提供する形なので OK だが、CLAUDE.md security.md の追記内容が「ルールだけ増やす」と評価されないよう、順位 76/77 の test との連携を明示する
+
