@@ -1,7 +1,10 @@
 use lib_report_formatter::Finding;
 use std::time::Duration;
 
-use crate::config::{Config, MonitorConfig, RateLimitConfig, DEFAULT_CHECK_TIMEOUT_SECS};
+use crate::classifier_runner::classify_findings;
+use crate::config::{
+    ClassifierConfig, Config, MonitorConfig, RateLimitConfig, DEFAULT_CHECK_TIMEOUT_SECS,
+};
 use crate::log::{log_info, truncate_safe};
 use crate::runner::{checker_exe_path, run_cmd_direct, run_gh_quiet};
 use crate::state::{
@@ -29,6 +32,7 @@ struct PollContext<'a> {
     push_time: &'a str,
     pr_info: &'a PrInfo,
     rate_limit_config: &'a RateLimitConfig,
+    classifier_config: &'a ClassifierConfig,
     start: std::time::Instant,
     max_duration: u64,
     skip_ci: bool,
@@ -69,6 +73,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo, is_wakeup: b
             .unwrap_or("1970-01-01T00:00:00Z"),
         pr_info,
         rate_limit_config: &full_config.rate_limit,
+        classifier_config: &full_config.classifier,
         start: std::time::Instant::now(),
         max_duration: config.max_duration_secs,
         skip_ci: !config.check_ci,
@@ -101,6 +106,7 @@ fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
         ctx.skip_ci,
         ctx.skip_coderabbit,
     );
+    enrich_with_classifier(&mut state, ctx.classifier_config);
     log_info(&format!(
         "ポーリング: action={}, summary={}",
         state.action, state.summary
@@ -199,12 +205,34 @@ fn build_state_for_iteration(
         state.rate_limit_last_retriggered_at = existing.rate_limit_last_retriggered_at;
         state.review_recheck_count = existing.review_recheck_count;
         state.head_commit = existing.head_commit;
+        state.classified_findings = existing.classified_findings;
     }
 
     apply_skip_handling(&mut state, skip_ci, skip_coderabbit);
     state.last_checked = Some(utc_now_iso8601());
     let _ = write_state(&state);
     state
+}
+
+/// classifier (ADR-038, Phase 5) で findings を enrich する。
+///
+/// `config.classifier.enabled = false` または findings が空のときは何もしない。
+/// 実行成功時は state.classified_findings を populate して state file を再書き出す。
+/// 失敗時は state.classified_findings は空のまま (caller は findings をそのまま使えばよい)。
+fn enrich_with_classifier(state: &mut PrMonitorState, config: &ClassifierConfig) {
+    if !config.enabled || state.findings.is_empty() || !state.classified_findings.is_empty() {
+        return;
+    }
+    let classified = classify_findings(config, &state.findings);
+    if classified.is_empty() {
+        return;
+    }
+    log_info(&format!(
+        "classifier: {} findings を分類完了",
+        classified.len()
+    ));
+    state.classified_findings = classified;
+    let _ = write_state(state);
 }
 
 fn apply_skip_handling(state: &mut PrMonitorState, skip_ci: bool, skip_coderabbit: bool) {
@@ -1139,11 +1167,13 @@ mod tests {
             head_commit: None,
         };
         let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
             push_time: "2026-05-01T00:00:00Z",
             pr_info: &pr_info,
             rate_limit_config: &rate_limit_config,
+            classifier_config: &classifier_config,
             start: std::time::Instant::now(),
             max_duration: 600,
             skip_ci: false,
@@ -1181,11 +1211,13 @@ mod tests {
         state.review_recheck_count = 1;
         let checker_path = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
             push_time: "2026-05-01T00:00:00Z",
             pr_info,
             rate_limit_config: &rate_limit_config,
+            classifier_config: &classifier_config,
             start: std::time::Instant::now(),
             max_duration: 600,
             skip_ci: false,
@@ -1202,11 +1234,13 @@ mod tests {
     ) -> PollResult {
         let checker_path = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
             push_time: "2026-05-01T00:00:00Z",
             pr_info,
             rate_limit_config: &rate_limit_config,
+            classifier_config: &classifier_config,
             start: std::time::Instant::now(),
             max_duration: 600,
             skip_ci: false,
@@ -1240,11 +1274,13 @@ mod tests {
         };
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker,
             push_time: "2026-05-01T00:00:00Z",
             pr_info: &pr_info,
             rate_limit_config: &rate_limit_config,
+            classifier_config: &classifier_config,
             start: std::time::Instant::now(),
             max_duration: 600,
             skip_ci: false,
@@ -1289,11 +1325,13 @@ mod tests {
         };
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker,
             push_time: "2026-05-01T00:00:00Z",
             pr_info: &pr_info,
             rate_limit_config: &rate_limit_config,
+            classifier_config: &classifier_config,
             start: std::time::Instant::now(),
             max_duration: 600,
             skip_ci: false,

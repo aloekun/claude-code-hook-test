@@ -17,6 +17,7 @@
 //!   0 - 正常終了 (park 含む、PARK signal は stdout に出力済)
 //!   1 - gh pr create 失敗 (PR 作成モードのみ)
 
+mod classifier_runner;
 mod config;
 mod fix_commit;
 mod lock;
