@@ -179,6 +179,34 @@ PR #99 セッションで以下の運用痛が観測された:
 - CR の rate-limit 仕様が変わっていないか (memory `project_coderabbit_rate_limit_overlay.md` の挙動が再現するか) を着手前に dogfood で確認
 - `gh api` の rate-limit (CR とは別、GitHub API 側) が干渉しないか観察
 
+## Bundle b との関係 (2026-05-06 追記、`docs/coderabbit-monitoring-efficiency.md` retire 時に集約)
+
+Bundle b (Bb-1/Bb-2/Bb-3、PR #113-115、2026-05-05〜06 land) は本 ADR とは別領域 (Cron 機構 vs structured findings 消費) を扱うが、**Sub-PR 2 の主機能 = cli-pr-monitor rate-limit auto-retry + `@coderabbitai review` auto-trigger は Bb-1 で実質達成済**。Bundle a Sub-PR 2 の scope を再整理する。
+
+### Sub-PR 2 の構成変化 (Bundle b land 後)
+
+| component | 旧 (本 ADR 当初) | 新 (Bundle b land 後) |
+|---|---|---|
+| rate-limit auto-retry 実装 (順位 42) | Sub-PR 2 で着手予定 | ✅ **Bb-1 (PR #113) で land 済**。CronCreate park モデルで `[rate_limit] reset 後の即時 retrigger → @coderabbitai review 自動投稿` が PR #115 dogfood で実証 |
+| ADR-018 / ADR-009 retry policy 明文化 (順位 43) | Sub-PR 2 で着手予定 | ✅ **ADR-018 追記 (2026-05-06) で部分達成**。CronCreate 特性 + park モデル + Bundle b で再導入された経緯を記載済。残作業は ADR-009 navigation 注記 (Superseded by ADR-018 partial の link) |
+| integration test (順位 46) | Sub-PR 2 で着手予定 | 未着手。Bb-1/Bb-2 の unit test (poll.rs / state.rs sibling parity) は存在するが、CR rate-limit 検出 → backoff → retry サイクルの **end-to-end test** はまだない |
+| `parse_findings` error-path test infra (順位 49) | Sub-PR 2 で着手予定 | 未着手。Bundle b は `parse_findings` を touch していない別 area |
+
+### Sub-PR 2 着手時の推奨 scope
+
+旧 4 component → 残 3 component に縮小:
+
+- 順位 43 残 (ADR-009 navigation 注記、XS)
+- 順位 46 (integration test、M)
+- 順位 49 (parse_findings error-path test infra、M)
+
+順位 42 は Bb-1 で達成済のため Sub-PR 2 から除外、structured findings 駆動化 (= `check-ci-coderabbit --list-findings` 消費に切り替え) は残課題として 順位 46 の integration test 設計時に併せて検討する。
+
+### Bundle b との並行進行性 (旧 `coderabbit-monitoring-efficiency.md` から引き継ぎ)
+
+- Bundle b と Bundle a Sub-PR 2 は **別領域** (Cron 機構 vs structured findings 消費) で並行進行可能と当初設計されたが、結果的に Bundle b 先行 land で Sub-PR 2 scope が縮小した
+- 今後同種の bundle 並行設計を行う際の教訓: **「別領域」と判断した bundle が実装段階で重なる可能性がある** (Bb-1 の rate-limit auto-retry と Sub-PR 2 の rate-limit auto-retry が同 cli-pr-monitor を touch するため)。bundle 設計時に touched modules ベースで重複可能性を確認すべき
+
 ## References
 
 - ADR-018: cli-pr-monitor takt 化
