@@ -87,7 +87,7 @@ Ollama 不在 / timeout / parse 失敗 / invalid action は **fallback として
 - mistral:7b の structured output は `format: "json"` で安定するが、prompt 違反 (action enum 外の文字列) を返す可能性ゼロではない → enum 外は fallback で吸収
 - VRAM 8GB では `mistral:7b` 常駐 + `llama2:13b` swap 構成。同時起動は不可
 - `normalized_issue` が日本語指示でも英語混じりで返る場合がある (実 dogfood で観測)。実害は小さいが prompt v2 の改善余地
-- Windows shell 経由で日本語含む JSON を Ollama に渡すと CP932 漏れで壊れる事例あり ([docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) ベンチで実証)。Rust 実装は reqwest/ureq の UTF-8 シリアライズで影響なし
+- Windows shell 経由で日本語含む JSON を Ollama に渡すと CP932 漏れで壊れる事例あり ([docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) ベンチで実証)。Rust 実装は ureq の UTF-8 シリアライズで影響なし
 - **プロンプトインジェクション**: `{issue}` / `{suggestion}` placeholder には CodeRabbit コメントの生テキストが展開されるため、adversarial な finding 内容により LLM 出力が操作される可能性がある (例: `false_positive_likely` への誤分類強制)。fallback で異常出力は `human_review` に倒れるため実害は限定的だが、Phase 5 (cli-pr-monitor 統合時) でサニタイズ or プレースホルダのブラケット化を検討する
 
 ### 試験運用 → 本採用への昇格条件

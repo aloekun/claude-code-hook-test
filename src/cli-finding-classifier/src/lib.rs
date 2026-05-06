@@ -31,13 +31,39 @@ struct LlmClassification {
 }
 
 /// プロンプトテンプレートに finding を埋め込む
+///
+/// 単方向スキャンで置換するため、placeholder の値に別の placeholder 文字列が
+/// 含まれていても二重展開しない (例: issue の値が `{suggestion}` を含む場合)。
 pub fn build_prompt(template: &str, finding: &Finding) -> String {
-    template
-        .replace("{severity}", &finding.severity)
-        .replace("{file}", &finding.file)
-        .replace("{line}", &finding.line)
-        .replace("{issue}", &finding.issue)
-        .replace("{suggestion}", &finding.suggestion)
+    let vars: &[(&str, &str)] = &[
+        ("{severity}", finding.severity.as_str()),
+        ("{file}", finding.file.as_str()),
+        ("{line}", finding.line.as_str()),
+        ("{issue}", finding.issue.as_str()),
+        ("{suggestion}", finding.suggestion.as_str()),
+    ];
+
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+
+    while !rest.is_empty() {
+        let mut matched = false;
+        for &(placeholder, value) in vars {
+            if rest.starts_with(placeholder) {
+                out.push_str(value);
+                rest = &rest[placeholder.len()..];
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            let mut chars = rest.chars();
+            out.push(chars.next().unwrap());
+            rest = chars.as_str();
+        }
+    }
+
+    out
 }
 
 const VALID_ACTIONS: &[&str] = &[
@@ -58,7 +84,9 @@ fn from_llm_output(finding: &Finding, llm: LlmClassification) -> ClassifiedFindi
         );
     };
     let confidence = llm.action_confidence.clamp(0.0, 1.0);
-    let normalized = llm.normalized_issue.filter(|s| !s.trim().is_empty());
+    let normalized = llm.normalized_issue
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     ClassifiedFinding {
         finding: finding.clone(),
@@ -167,6 +195,21 @@ mod tests {
     }
 
     #[test]
+    fn build_prompt_does_not_expand_placeholders_in_values() {
+        let template = "I={issue} G={suggestion}";
+        let finding = Finding {
+            severity: "Critical".into(),
+            file: "f".into(),
+            line: "1".into(),
+            issue: "see {suggestion}".into(),
+            suggestion: "foo".into(),
+            source: "CR".into(),
+        };
+        let result = build_prompt(template, &finding);
+        assert_eq!(result, "I=see {suggestion} G=foo");
+    }
+
+    #[test]
     fn classify_one_passes_through_valid_llm_output() {
         let stub = StubOllama::new(vec![Ok(
             r#"{"action":"human_review","action_confidence":0.9,"normalized_issue":"daemon spawn 順序"}"#
@@ -235,6 +278,16 @@ mod tests {
         )]);
         let result = classify_one(&stub, "T", &sample_finding());
         assert!(result.normalized_issue.is_none());
+    }
+
+    #[test]
+    fn classify_one_trims_whitespace_from_normalized_issue() {
+        let stub = StubOllama::new(vec![Ok(
+            r#"{"action":"auto_fix","action_confidence":0.5,"normalized_issue":"  daemon spawn  "}"#
+                .to_string(),
+        )]);
+        let result = classify_one(&stub, "T", &sample_finding());
+        assert_eq!(result.normalized_issue.as_deref(), Some("daemon spawn"));
     }
 
     #[test]
