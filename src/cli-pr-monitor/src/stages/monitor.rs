@@ -300,6 +300,12 @@ fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
         _ => {}
     }
 
+    if let Some(cr) = &result.coderabbit {
+        if cr.review_state == "not_found" || cr.review_state == "pending" {
+            return "CodeRabbit review が未完了のため、判定を保留します";
+        }
+    }
+
     let critical_major = result
         .findings
         .iter()
@@ -424,5 +430,141 @@ mod tests {
         state.next_wakeup_at_unix = None;
         let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
         assert!(!should_resume_wakeup(&state, &pr_info, 200));
+    }
+
+    use crate::stages::poll::PollResult;
+    use crate::state::CodeRabbitState;
+    use lib_report_formatter::Finding;
+
+    fn poll_result(
+        action: &str,
+        review_state: Option<&str>,
+        findings: Vec<Finding>,
+    ) -> PollResult {
+        PollResult {
+            action: action.into(),
+            summary: "test".into(),
+            ci: None,
+            coderabbit: review_state.map(|rs| CodeRabbitState {
+                review_state: rs.into(),
+                new_comments: 0,
+                actionable_comments: None,
+                unresolved_threads: None,
+            }),
+            findings,
+            check_output: None,
+            rate_limit: None,
+        }
+    }
+
+    fn finding(severity: &str) -> Finding {
+        Finding {
+            severity: severity.into(),
+            file: "f.rs".into(),
+            line: "1".into(),
+            issue: "test issue".into(),
+            suggestion: "test suggestion".into(),
+            source: "test".into(),
+        }
+    }
+
+    const VERDICT_PARK_RATE_LIMIT: &str =
+        "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)";
+    const VERDICT_PARK_REVIEW: &str = "review 完了待ちのため wakeup を予約 (上記 PARK signal 参照)";
+    const VERDICT_REVIEW_PENDING: &str = "CodeRabbit review が未完了のため、判定を保留します";
+    const VERDICT_NO_PROBLEMS: &str = "問題は見つかりませんでした";
+    const VERDICT_MINOR: &str = "重大な問題は見つかりませんでした。軽微な改善提案があります";
+    const VERDICT_CRITICAL: &str = "修正が必要な指摘があります";
+
+    #[test]
+    fn verdict_park_rate_limit_takes_precedence_over_review_state() {
+        let r = poll_result("parked_rate_limit", Some("not_found"), vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_PARK_RATE_LIMIT);
+    }
+
+    #[test]
+    fn verdict_park_review_recheck_takes_precedence_over_findings() {
+        let r = poll_result("parked_review_recheck", Some("not_found"), vec![finding("critical")]);
+        assert_eq!(compute_verdict(&r), VERDICT_PARK_REVIEW);
+    }
+
+    #[test]
+    fn verdict_pending_when_review_not_found_with_no_findings() {
+        let r = poll_result("continue_monitoring", Some("not_found"), vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
+    }
+
+    #[test]
+    fn verdict_pending_when_review_pending_with_no_findings() {
+        let r = poll_result("continue_monitoring", Some("pending"), vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
+    }
+
+    #[test]
+    fn verdict_pending_when_review_not_found_even_with_findings() {
+        let r = poll_result(
+            "continue_monitoring",
+            Some("not_found"),
+            vec![finding("major")],
+        );
+        assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
+    }
+
+    #[test]
+    fn verdict_no_problems_when_review_success_with_no_findings() {
+        let r = poll_result("stop_monitoring_success", Some("success"), vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
+    }
+
+    #[test]
+    fn verdict_minor_when_review_success_with_low_severity_findings() {
+        let r = poll_result(
+            "stop_monitoring_success",
+            Some("success"),
+            vec![finding("minor")],
+        );
+        assert_eq!(compute_verdict(&r), VERDICT_MINOR);
+    }
+
+    #[test]
+    fn verdict_critical_when_review_success_with_critical_findings() {
+        let r = poll_result(
+            "stop_monitoring_success",
+            Some("success"),
+            vec![finding("critical")],
+        );
+        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
+    }
+
+    #[test]
+    fn verdict_critical_when_severity_is_high() {
+        let r = poll_result(
+            "stop_monitoring_success",
+            Some("success"),
+            vec![finding("high")],
+        );
+        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
+    }
+
+    #[test]
+    fn verdict_critical_when_severity_is_major() {
+        let r = poll_result(
+            "stop_monitoring_success",
+            Some("success"),
+            vec![finding("major")],
+        );
+        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
+    }
+
+    #[test]
+    fn verdict_no_problems_when_review_skipped() {
+        let r = poll_result("stop_monitoring_success", Some("skipped"), vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
+    }
+
+    #[test]
+    fn verdict_no_problems_when_coderabbit_state_absent() {
+        let r = poll_result("stop_monitoring_success", None, vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
     }
 }
