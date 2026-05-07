@@ -8,6 +8,8 @@
 > - 6 ヶ月経過しても提案 1 / 3 の採否が決まらない場合 → 採用見込みなしとみなして削除
 >
 > **由来**: セッション ID `5ca01479-6d71-4328-91d0-861343120c3f` (2026-05-05〜2026-05-06, Bundle b 関連) の作業ログ分析
+>
+> **検証ブランチ**: §A-2 Phase 5 dogfood を含む本ファイルの未着手作業 (§8.A-2 / §8.D / §8.E / §8.F) は **jj bookmark `feature/local-llm-dogfood`** で実施。master には反映しない。詳細運用は §10 ブランチ分離運用。
 
 ## 1. 背景・目的
 
@@ -277,7 +279,12 @@ grep -A5 "^\[classifier\]" pr-monitor-config.toml
 
 #### Setup 手順 (別セッション開始時の確認チェックリスト)
 
+> **前提**: §10 ブランチ分離運用に従い、**検証ブランチ `feature/local-llm-dogfood` に切替済**であること。手順 0 として `jj edit feature/local-llm-dogfood` を実行。詳細は §10.4 / §10.7。
+
 ```bash
+# 0. 検証ブランチに切替 (§10.4 参照)
+jj edit feature/local-llm-dogfood
+
 # 1. Ollama 起動確認
 curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
 # 期待: mistral:7b が含まれる
@@ -452,6 +459,191 @@ P-5 (Bundle f-1):    PR #___, merged ___, findings: __, agreement: __/__, token 
 - **action category (Finding C 関連)**: KISS で `trim + non-empty filter` のみ採用、改行/長さ check は Phase 5 で実装するという保留判断
 - **architecture decision (Finding 3 関連)**: `OllamaApi` trait は dyn-compatible にするため `generate_raw_json -> Result<String, _>` シグネチャ。型付き convert は trait 外の自由関数 `generate_json::<T>` で提供
 - **input sanitization (PR #119 WARN 関連)**: prompt injection 対策は本 PR では skip (`auto_fix` を実行する経路がない)。Phase 5 で auto_fix execution を実装するタイミングで input sanitize / プレースホルダのブラケット化を導入予定
+
+## 10. 検証作業のブランチ分離運用
+
+> **状態**: 試験運用 (本 §10 は 2026-05-07 セッションで追加。§A-2 dogfood の前提運用ガイド)
+>
+> **目的**: 本 §10 だけ参照すれば、ローカル LLM 検証 (Phase 5 dogfood + §8.D / §8.E / §8.F の追加実装) を別セッションで再開・完了できる状態にする。
+
+### 10.1 方針: Option B (隔離ベース)
+
+ローカル LLM 統合の実装 (`lib-ollama-client` / `cli-finding-classifier` / `cli-pr-monitor` 統合 / ADR-038 / `pr-monitor-config.toml` の `[classifier]` section) は **既に master に land 済 (PR #119 / #120 / #121 / #122)**。これを引き抜く (revert) のではなく、**default OFF のまま master に残し、検証で必要となる追加変更のみ feature 枝で進める**。
+
+判断の根拠:
+
+1. master 上の classifier は `ClassifierConfig::default().enabled = false` で実 review サイクルでは起動しない (§7 効果実測の現状)。実害はゼロ
+2. revert は workspace `Cargo.toml` / `package.json` の `build:all` / 配備 exe / `pr-monitor-config.toml` / ADR-038 / 関連 todo 構造まで波及し、Option A (revert) と Option B (隔離) で touchpoint コストが非対称
+3. グローバル設定 (`~/.claude/CLAUDE.md` / `~/.claude/skills/` 等) への既往変更は「戻せないことを許容」というユーザー stance と整合 (= 戻せないものは戻さない、危険な拡張のみ枝で隔離)
+
+### 10.2 ブランチ構成
+
+| 名前 | 種別 | 役割 |
+|---|---|---|
+| `master` | jj bookmark (push 対象) | 既存の LLM 実装一式を default OFF で保持。非 LLM 機能の PR (Bundle f / g / 単発 lint rule 等) はすべて master に land |
+| `feature/local-llm-dogfood` | jj bookmark (ローカル保持、push しない) | 検証作業専用枝。base = master tip (`a32a3465`、PR #122 直後)。寿命は §10.6 判定処理で確定 |
+
+### 10.3 master と feature 枝の責務分担
+
+| 種類 | 行先 | 理由 |
+|---|---|---|
+| 非 LLM 機能 (hook / takt / rule / docs) | **master** | LLM 検証に依存しない通常開発 |
+| classifier の有効化 (`pr-monitor-config.toml` で `enabled = true`) | **feature 枝のみ** | master が dogfood で予期せぬ behavior を踏まないように |
+| §8.D prompt v2 (`prompts/classify.txt` 改訂) | **feature 枝のみ** | 検証で agreement rate が基準未達だった場合の改善ループ |
+| §8.E lint screen facet (takt の新 facet `ollama-lint-screen`) | **feature 枝のみ** | 検証成功後に master へ抜き出し PR |
+| §8.F PR body draft (`prepare-pr` skill の Ollama 前処理) | **feature 枝のみ** | 同上 |
+| 計測ログ (P-1〜P-5 結果)、検証で得た知見追記 | **feature 枝の本ファイル §A-2 計測ログ** | 検証結果が判定材料として残る |
+| dogfood の試験台となる PR (Bundle g-1 / 順位 47 等) | **master** に merge | これらは LLM とは独立した機能 PR。dogfood は枝側で起動させる (§10.4) |
+| LLM crate の bug fix (検証で判明したもの) | 状況依存: feature 枝で再現 → master へ抜き出し PR | 既に master 上にある機能のバグ修正経路 |
+
+### 10.4 dogfood 実行時のブランチ切替手順 (Phase 5 用)
+
+§A-2 の P-1〜P-5 で `cli-pr-monitor` の post-pr stage に classifier を起動させるには、`enabled = true` の設定が必要。これを feature 枝に閉じ込める運用:
+
+```bash
+# 1. 現在の master 作業を commit (jj は auto-snapshot のため未 describe な変更があると枝切替時に持ち越される)
+jj describe -m "<現在の作業内容>"
+
+# 2. 検証枝に切替 (config の enabled=true が working tree に展開される)
+jj edit feature/local-llm-dogfood
+grep -A5 "^\[classifier\]" pr-monitor-config.toml  # enabled = true を確認
+
+# 3. その状態で post-pr-monitor を起動
+#    PR は master ベースで作成・merge する。枝の checkout は monitor 起動時のみ
+
+# 4. 計測完了後、本ファイル §A-2 計測ログに追記 + finding 一覧を保存
+jq '.classified_findings' .claude/pr-monitor-state.json > .takt/dogfood-pr-NNN-classified.json
+
+# 5. 計測コミット (枝に積む、master へは push しない)
+jj describe -m "docs(local-llm): P-N dogfood 結果追記 (PR #NNN)"
+```
+
+#### 注意点
+
+- jj は auto-snapshot のため、**枝を切替えた瞬間に working tree が枝の最新状態に同期する**。master の作業中に「ちょっと枝で計測したい」を挟む場合は、必ず先に `jj describe` で現状を commit してから `jj edit` する
+- master tip が進んだら定期的に rebase: `jj rebase -d master -r 'bookmarks(feature/local-llm-dogfood)..'`
+- `cli-pr-monitor` が `pr-monitor-config.toml` をどの commit から読むか (working copy / PR commit) は P-0 setup 時の動作確認で要検証 (P-0 完了基準に含める)
+
+### 10.5 グローバル設定バックアップ規約
+
+ユーザー方針: **「グローバルスキル・CLAUDE.md に影響する変更は、バックアップを取ってから実施する」** (本 §10 追加と同セッションで提示された運用ルール)。
+
+#### 対象
+
+- `~/.claude/CLAUDE.md`
+- `~/.claude/skills/`
+- `~/.claude/rules/`
+- `~/.claude/agents/`
+- `~/.claude/settings.json`
+
+#### バックアップ手順
+
+リポジトリ内に `__backup-claude-config/` を置く (`__` prefix で `.gitignore` 対象、scratch 命名規約準拠)。スナップショットは `__backup-claude-config/<YYYYMMDD-HHMMSS>/` に格納。
+
+```powershell
+# PowerShell 例
+$ts = Get-Date -Format "yyyyMMdd-HHmmss"
+$dst = "__backup-claude-config/$ts"
+New-Item -ItemType Directory -Force -Path $dst | Out-Null
+Copy-Item -Recurse "$env:USERPROFILE\.claude\CLAUDE.md" $dst
+Copy-Item -Recurse "$env:USERPROFILE\.claude\skills"   "$dst/skills"
+Copy-Item -Recurse "$env:USERPROFILE\.claude\rules"    "$dst/rules"
+Copy-Item -Recurse "$env:USERPROFILE\.claude\agents"   "$dst/agents"
+Copy-Item -Recurse "$env:USERPROFILE\.claude\settings.json" $dst
+```
+
+#### 規約
+
+1. 検証作業中にグローバル設定を変更する **直前に** snapshot を取る
+2. 変更内容を本 §10.5 配下に追記 (どのファイルに何を加えたか / rollback 不能なら明示)
+3. 検証完了後 (採用 / 却下) に snapshot 処理:
+   - 採用 → snapshot は不要 (現状が正)
+   - 却下 → snapshot から rollback を試行 (best-effort、不能ケースは記録のみ)
+
+#### 強制力なし (意図的)
+
+本規約は **手動運用** であり hook 等で強制しない。mechanical 検知不能なルールを hook 化しない方針 (CLAUDE.md feedback "強制力のないルール追加は却下" / "ドキュメント lint を hook で強制しない" と整合)。
+
+#### 変更履歴 (検証作業中に埋める)
+
+(実際にグローバル設定を触ったタイミングで追記)
+
+```text
+- YYYY-MM-DD HH:MM: <ファイル> に <変更内容>。snapshot: __backup-claude-config/<ts>/
+```
+
+### 10.6 採用 / 却下判断後の処理
+
+§A-2 dogfood 完了後、判定別に以下を実施。
+
+#### A. 採用 (基準達成)
+
+1. feature 枝の追加分 (§8.D / §8.E / §8.F の実装) を整理し、master へ PR 化
+2. `pr-monitor-config.toml` の `[classifier] enabled = true` を master へ反映する PR
+3. ADR-038 を「試験運用」→「採用」に昇格 (条件 1, 3 達成を ADR 本体に明記)
+4. §7 効果実測の現状を「測定済」に更新、具体値を記載
+5. §A-2 を ✅ LANDED にマーク
+6. feature 枝を `jj bookmark forget feature/local-llm-dogfood` で破棄
+7. 本ファイル retirement 条件 1 (提案 1〜3 すべて land) の達成度を再評価し、必要なら本ファイル削除 (`docs-governance.md` retirement workflow 準拠)
+
+#### B. §8.D 先行で再 dogfood
+
+1. feature 枝で `prompts/classify.txt` を改訂 (言語固定指示 + few-shot)
+2. P-1〜P-5 を再実行 (枝寿命延長)
+
+#### C. 却下 (基準未達 + 改善見込みなし) — kill-switch
+
+master から LLM 関連実装を物理削除する PR を起こす。touchpoint チェックリスト:
+
+- [ ] `Cargo.toml` workspace member から `src/lib-ollama-client` と `src/cli-finding-classifier` を削除
+- [ ] `src/cli-pr-monitor/` から `classifier_runner.rs` / `ClassifierConfig` / `enrich_with_classifier` step / `state.classified_findings` field を削除
+- [ ] `src/cli-pr-monitor/` のテストから classifier 関連テストを削除
+- [ ] `package.json` の `build:cli-finding-classifier` 等の script を削除
+- [ ] `pnpm deploy:hooks` 経路から `.claude/cli-finding-classifier.exe` 配備を外す
+- [ ] `.claude/cli-finding-classifier.exe` を削除 (gitignore 済なので git 管理対象外、配備先の物理削除のみ)
+- [ ] `pr-monitor-config.toml` の `[classifier]` section を削除
+- [ ] `docs/adr/adr-038-local-llm-finding-classification.md` を「却下」ステータスに更新 (ADR 本体は履歴として残す)
+- [ ] プロジェクトルートの `CLAUDE.md` の ADR-038 リンクに「却下」アノテーションを追加
+- [ ] feature 枝を `jj bookmark forget` で破棄
+- [ ] 本ファイル retirement 条件「却下」を発動 (`docs-governance.md` retirement workflow に従って permanent value 移管 → 削除)
+
+#### D. 6 ヶ月経過判断未達
+
+本ファイル冒頭 retirement 条件「採用見込みなし」を発動。
+
+### 10.7 検証作業の再開チェックリスト (別セッション開始時)
+
+```bash
+# 1. ブランチ存在確認
+jj bookmark list -r feature/local-llm-dogfood
+jj log -r 'bookmarks(feature/local-llm-dogfood)' --no-graph
+
+# 2. master 最新化 (枝が遅れていれば rebase)
+jj git fetch
+# 必要なら: jj rebase -d master -r 'bookmarks(feature/local-llm-dogfood)..'
+
+# 3. 検証枝に切替
+jj edit feature/local-llm-dogfood
+
+# 4. §A-2 P-0 が land 済か確認 (config opt-in)
+grep -A5 "^\[classifier\]" pr-monitor-config.toml
+
+# 5. Ollama 起動確認
+curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
+
+# 6. classifier exe 配備確認
+ls -la .claude/cli-finding-classifier.exe
+
+# 7. 過去計測ログ確認
+ls .takt/dogfood-pr-*.json 2>/dev/null
+grep -A20 "計測ログ" docs/local-llm-offload-analysis.md
+```
+
+### 10.8 関連 ADR / 規約
+
+- ADR-022 (自動化コンポーネントの責務分離) — 本ファイル提案 1〜3 が依存する 3 層構造の根拠
+- ADR-038 (ローカル LLM による CodeRabbit findings classification) — 本ファイル提案 2 の land 結果。試験運用 → 採用 / 却下 の判定は本 §10.6 経由
+- `docs-governance.md` (グローバル rule) — 本ファイル retirement workflow の準拠先
 
 ## 関連リンク
 
