@@ -328,6 +328,13 @@ fn load_custom_rules() -> Vec<CompiledRule> {
         Err(_) => return Vec::new(),
     };
 
+    for missing_id in find_powershell_rules_missing_case_insensitive_flag(&rules) {
+        eprintln!(
+            "[post-tool-linter] Warning: rule '{}' targets ps1 but lacks (?i) flag (PowerShell is case-insensitive — see ~/.claude/rules/common/code-review.md)",
+            missing_id
+        );
+    }
+
     rules
         .into_iter()
         .filter_map(|rule| match Regex::new(&rule.pattern) {
@@ -340,6 +347,15 @@ fn load_custom_rules() -> Vec<CompiledRule> {
                 None
             }
         })
+        .collect()
+}
+
+fn find_powershell_rules_missing_case_insensitive_flag(rules: &[CustomRule]) -> Vec<String> {
+    rules
+        .iter()
+        .filter(|r| r.extensions.iter().any(|e| e.eq_ignore_ascii_case("ps1")))
+        .filter(|r| !r.pattern.contains("(?i)"))
+        .map(|r| r.id.clone())
         .collect()
 }
 
@@ -1518,5 +1534,79 @@ extensions = ["ts", "js"]
         let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert!(violations.is_empty());
+    }
+
+    fn ps_rule_with_pattern(id: &str, pattern: &str) -> CustomRule {
+        make_test_rule(id, pattern, &["ps1"])
+    }
+
+    #[test]
+    fn powershell_validation_flags_rule_without_case_insensitive_flag() {
+        let rules = vec![ps_rule_with_pattern("ps-bad", r"\bcatch\s*\{\s*\}")];
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
+        assert_eq!(missing, vec!["ps-bad".to_string()]);
+    }
+
+    #[test]
+    fn powershell_validation_passes_rule_with_case_insensitive_flag() {
+        let rules = vec![ps_rule_with_pattern("ps-good", r"(?i)\bcatch\s*\{\s*\}")];
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn powershell_validation_ignores_non_ps1_rules() {
+        let rule = make_test_rule("rs-rule", r"\bfn\s+main", &["rs"]);
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&[rule]);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn powershell_validation_handles_mixed_extension_list() {
+        let rule = make_test_rule(
+            "mixed-rule",
+            r"\bcatch\s*\{\s*\}",
+            &["js", "ps1", "ts"],
+        );
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&[rule]);
+        assert_eq!(missing, vec!["mixed-rule".to_string()]);
+    }
+
+    #[test]
+    fn powershell_validation_treats_extension_case_insensitively() {
+        let rule = make_test_rule("upper-ext", r"\bcatch\s*\{\s*\}", &["PS1"]);
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&[rule]);
+        assert_eq!(missing, vec!["upper-ext".to_string()]);
+    }
+
+    #[test]
+    fn powershell_validation_returns_multiple_violators() {
+        let rules = vec![
+            ps_rule_with_pattern("ps-a", r"\bcatch"),
+            ps_rule_with_pattern("ps-b", r"\berroraction"),
+            ps_rule_with_pattern("ps-c-ok", r"(?i)\bwrite-host"),
+        ];
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
+        assert_eq!(missing, vec!["ps-a".to_string(), "ps-b".to_string()]);
+    }
+
+    #[test]
+    fn deployed_custom_rules_pass_powershell_case_insensitive_validation() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join(".claude")
+            .join("custom-lint-rules.toml");
+        let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("failed to read deployed custom-lint-rules.toml: {e}")
+        });
+        let config: CustomRulesConfig = toml::from_str(&content).unwrap();
+        let rules = config.rules.unwrap_or_default();
+        let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
+        assert!(
+            missing.is_empty(),
+            "PowerShell rules without (?i) flag detected: {:?}",
+            missing
+        );
     }
 }
