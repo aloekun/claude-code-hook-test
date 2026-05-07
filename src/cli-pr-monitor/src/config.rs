@@ -167,6 +167,11 @@ impl Default for ReviewRecheckConfig {
 /// 加算で確実に算術 overflow し、release build では負の wakeup_at にラップする。
 /// 1 年 = 3.15e7 << i64::MAX = 9.22e18 で `now_unix + 1年` は overflow しない。
 /// CronCreate の auto-expire は 7 日のため、1 年は user 編集の上限として十分な余裕を持つ。
+///
+/// Future-proof 根拠 (順位 77): year 2100 baseline (`now_unix ~ 4.1e9`) でも
+/// `4.1e9 + 3.15e7` = 4.13e9 << i64::MAX (9.22e18) で safety margin が
+/// 約 9 桁 (2.2e9 倍) ある。`review_recheck_sanitize_max_safe_boundary` test
+/// で 2026 + 2100 baseline 両方を machine-enforce。
 const MAX_SAFE_WAIT_SECS: u64 = 365 * 24 * 60 * 60;
 
 impl ReviewRecheckConfig {
@@ -577,6 +582,123 @@ timeout_secs = 60
         assert!(
             safe_sum.is_some(),
             "sanitize 後の値は now_unix + wait で overflow しない (CR Major #2 invariant)"
+        );
+
+        let now_unix_2100: i64 = 4_100_000_000;
+        let safe_sum_2100 =
+            now_unix_2100.checked_add(cfg_at_limit.initial_review_wait_secs as i64);
+        assert!(
+            safe_sum_2100.is_some(),
+            "year 2100 baseline でも overflow しない (順位 77: future-proof)"
+        );
+        assert!(
+            safe_sum_2100.unwrap() < i64::MAX,
+            "year 2100 baseline で safety margin が残る"
+        );
+    }
+
+    #[test]
+    fn cross_module_overflow_safety_at_max_boundary() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: MAX_SAFE_WAIT_SECS,
+            review_recheck_wait_secs: MAX_SAFE_WAIT_SECS,
+            max_review_rechecks: 1,
+        }
+        .sanitize();
+
+        let now_unix: i64 = 1_800_000_000;
+        let initial_park_sum = now_unix.checked_add(cfg.initial_review_wait_secs as i64);
+        let recheck_park_sum = now_unix.checked_add(cfg.review_recheck_wait_secs as i64);
+
+        assert!(
+            initial_park_sum.is_some(),
+            "finalize_initial_review_park の next_wakeup_at_unix 加算が overflow しない"
+        );
+        assert!(
+            recheck_park_sum.is_some(),
+            "schedule_next_review_recheck_park の next_wakeup_at_unix 加算が overflow しない"
+        );
+        assert!(
+            initial_park_sum.unwrap() > now_unix,
+            "next_wakeup_at_unix が past に巻き戻らない"
+        );
+        assert!(
+            recheck_park_sum.unwrap() > now_unix,
+            "next_wakeup_at_unix が past に巻き戻らない"
+        );
+    }
+
+    #[test]
+    fn cross_module_overflow_safety_with_zero_input_uses_default() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: 0,
+            review_recheck_wait_secs: 0,
+            max_review_rechecks: 1,
+        }
+        .sanitize();
+
+        assert_eq!(
+            cfg.initial_review_wait_secs, 300,
+            "0 入力は sanitize で default 300s に置換"
+        );
+        assert_eq!(cfg.review_recheck_wait_secs, 300);
+
+        let now_unix: i64 = 1_800_000_000;
+        let park_sum = now_unix
+            .checked_add(cfg.initial_review_wait_secs as i64)
+            .unwrap();
+        assert_eq!(park_sum, now_unix + 300);
+    }
+
+    #[test]
+    fn cross_module_overflow_safety_with_u64_max_input_uses_default() {
+        let cfg = ReviewRecheckConfig {
+            initial_review_wait_secs: u64::MAX,
+            review_recheck_wait_secs: u64::MAX,
+            max_review_rechecks: 1,
+        }
+        .sanitize();
+
+        assert_eq!(
+            cfg.initial_review_wait_secs, 300,
+            "u64::MAX 入力は sanitize で default 300s に置換"
+        );
+        assert_eq!(cfg.review_recheck_wait_secs, 300);
+
+        let now_unix: i64 = 1_800_000_000;
+        let park_sum = now_unix
+            .checked_add(cfg.initial_review_wait_secs as i64)
+            .unwrap();
+        assert!(park_sum < i64::MAX);
+    }
+
+    #[test]
+    fn cross_module_overflow_safety_negative_test_large_unsanitized_value_overflows() {
+        let unsanitized_wait: u64 = i64::MAX as u64;
+        let now_unix: i64 = 1_800_000_000;
+        let unsafe_sum = now_unix.checked_add(unsanitized_wait as i64);
+
+        assert!(
+            unsafe_sum.is_none(),
+            "sanitize なしで i64::MAX 近傍の wait を直接 cast すると positive overflow する (sanitize の必要性の裏付け、PR #115 CR Major #2 の再現)"
+        );
+    }
+
+    #[test]
+    fn cross_module_overflow_safety_negative_test_u64_max_wraps_to_minus_one() {
+        let unsanitized_wait: u64 = u64::MAX;
+        let now_unix: i64 = 1_800_000_000;
+        let wrapped = unsanitized_wait as i64;
+
+        assert_eq!(
+            wrapped, -1,
+            "u64::MAX as i64 は -1 (two's complement)、checked_add は overflow しないが過去時刻になる"
+        );
+
+        let result = now_unix.checked_add(wrapped).unwrap();
+        assert!(
+            result < now_unix,
+            "u64::MAX を経由した wakeup_at は過去にずれる (= silent corruption、sanitize で防止)"
         );
     }
 }
