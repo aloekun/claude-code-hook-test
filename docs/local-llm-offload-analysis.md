@@ -9,7 +9,7 @@
 >
 > **由来**: セッション ID `5ca01479-6d71-4328-91d0-861343120c3f` (2026-05-05〜2026-05-06, Bundle b 関連) の作業ログ分析
 >
-> **検証ブランチ**: §A-2 Phase 5 dogfood を含む本ファイルの未着手作業 (§8.A-2 / §8.D / §8.E / §8.F) は **jj bookmark `feature/local-llm-dogfood`** で実施。master には反映しない。詳細運用は §10 ブランチ分離運用。
+> **検証ブランチ運用**: §8.D / §8.E / §8.F の **追加実装作業**は **jj bookmark `feature/local-llm-dogfood`** で隔離 (新規 LLM コードは検証完了まで master に流さない)。一方 §A-2 Phase 5 dogfood の **P-0 (config opt-in) と P-1〜P-5 は通常 master PR フロー** (個別 PR で land、classifier は master 上で起動)。詳細は §10 ブランチ分離運用。
 
 ## 1. 背景・目的
 
@@ -279,12 +279,9 @@ grep -A5 "^\[classifier\]" pr-monitor-config.toml
 
 #### Setup 手順 (別セッション開始時の確認チェックリスト)
 
-> **前提**: §10 ブランチ分離運用に従い、**検証ブランチ `feature/local-llm-dogfood` に切替済**であること。手順 0 として `jj edit feature/local-llm-dogfood` を実行。詳細は §10.4 / §10.7。
+> **前提**: §A-2 P-0 (config opt-in) が master に land 済であること。P-1〜P-5 は **master ベースの個別 PR** で進行 (詳細は §10.4)。`feature/local-llm-dogfood` 枝への切替は §A-2 dogfood では不要 (枝は §8.D / §8.E / §8.F の追加実装専用)。
 
 ```bash
-# 0. 検証ブランチに切替 (§10.4 参照)
-jj edit feature/local-llm-dogfood
-
 # 1. Ollama 起動確認
 curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
 # 期待: mistral:7b が含まれる
@@ -411,10 +408,12 @@ jq '[.classified_findings[] | select(.normalized_issue) | .normalized_issue | te
 
 #### 計測ログ (実施時に追記)
 
-(別セッションで P-0 着手時、各 PR 完了ごとに以下を埋める)
+(各 PR 完了ごとに以下を埋める。全て master ベース個別 PR 記法)
 
 ```text
-P-0 (config opt-in): PR #___, merged ___
+P-0 (config opt-in): PR #___ (本セッション land), merged ___ ✅ (本ファイル §10 governance + [classifier] enabled=true 同梱)
+  - smoke test: mistral:7b で `unused import` finding → action=auto_fix / confidence=1.0
+  - cli-pr-monitor は [classifier] section を読み込み可、compile 通過
 P-1 (Bundle g-1):    PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
 P-2 (順位 47):       PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
 P-3 (順位 7):        PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
@@ -468,61 +467,60 @@ P-5 (Bundle f-1):    PR #___, merged ___, findings: __, agreement: __/__, token 
 
 ### 10.1 方針: Option B (隔離ベース)
 
-ローカル LLM 統合の実装 (`lib-ollama-client` / `cli-finding-classifier` / `cli-pr-monitor` 統合 / ADR-038 / `pr-monitor-config.toml` の `[classifier]` section) は **既に master に land 済 (PR #119 / #120 / #121 / #122)**。これを引き抜く (revert) のではなく、**default OFF のまま master に残し、検証で必要となる追加変更のみ feature 枝で進める**。
+ローカル LLM 統合の実装 (`lib-ollama-client` / `cli-finding-classifier` / `cli-pr-monitor` 統合 / ADR-038 / `pr-monitor-config.toml` の `[classifier]` section) は **既に master に land 済 (PR #119 / #120 / #121 / #122)**。これを引き抜く (revert) のではなく、master 上で動かしながら検証する。隔離スコープは **「未実装かつ動作の不確実性が高い新コード」のみ**:
+
+- **master で進める** — §A-2 P-0 (config opt-in) / P-1〜P-5 (master ベース個別 PR で dogfood)。既存実装の有効化と試験運用
+- **feature/local-llm-dogfood 枝で進める** — §8.D prompt v2 / §8.E lint screen facet / §8.F PR body draft。新規コードであり、検証完了 (採用判定) まで master に流さない
 
 判断の根拠:
 
-1. master 上の classifier は `ClassifierConfig::default().enabled = false` で実 review サイクルでは起動しない (§7 効果実測の現状)。実害はゼロ
-2. revert は workspace `Cargo.toml` / `package.json` の `build:all` / 配備 exe / `pr-monitor-config.toml` / ADR-038 / 関連 todo 構造まで波及し、Option A (revert) と Option B (隔離) で touchpoint コストが非対称
-3. グローバル設定 (`~/.claude/CLAUDE.md` / `~/.claude/skills/` 等) への既往変更は「戻せないことを許容」というユーザー stance と整合 (= 戻せないものは戻さない、危険な拡張のみ枝で隔離)
+1. master 上の classifier は smoke test で動作確認済 (P-0 完了時、§A-2 計測ログ参照)。enabled = true 後の dogfood で問題が出れば `[classifier] enabled = false` に戻す revert PR (§10.6 C の kill-switch 簡易版) が即時 fallback 可
+2. revert は workspace `Cargo.toml` / `package.json` の `build:all` / 配備 exe / ADR-038 / 関連 todo 構造まで波及し、Option A (revert) と Option B (隔離) で touchpoint コストが非対称
+3. グローバル設定 (`~/.claude/CLAUDE.md` / `~/.claude/skills/` 等) への既往変更は「戻せないことを許容」というユーザー stance と整合 (= 戻せないものは戻さない、本当に危険な拡張のみ枝で隔離)
 
 ### 10.2 ブランチ構成
 
 | 名前 | 種別 | 役割 |
 |---|---|---|
-| `master` | jj bookmark (push 対象) | 既存の LLM 実装一式を default OFF で保持。非 LLM 機能の PR (Bundle f / g / 単発 lint rule 等) はすべて master に land |
-| `feature/local-llm-dogfood` | jj bookmark (ローカル保持、push しない) | 検証作業専用枝。base = master tip (`a32a3465`、PR #122 直後)。寿命は §10.6 判定処理で確定 |
+| `master` | jj bookmark (push 対象) | 既存の LLM 実装 + P-0 で classifier 有効化後の運用枝。非 LLM 機能 (Bundle f / g / 単発 lint rule) と §A-2 P-0 / P-1〜P-5 の PR はすべて master に land |
+| `feature/local-llm-dogfood` | jj bookmark (push 可、PR は base = master) | §8.D / §8.E / §8.F の追加実装作業枝。base = master tip。寿命は §10.6 判定処理で確定 |
 
 ### 10.3 master と feature 枝の責務分担
 
 | 種類 | 行先 | 理由 |
 |---|---|---|
-| 非 LLM 機能 (hook / takt / rule / docs) | **master** | LLM 検証に依存しない通常開発 |
-| classifier の有効化 (`pr-monitor-config.toml` で `enabled = true`) | **feature 枝のみ** | master が dogfood で予期せぬ behavior を踏まないように |
-| §8.D prompt v2 (`prompts/classify.txt` 改訂) | **feature 枝のみ** | 検証で agreement rate が基準未達だった場合の改善ループ |
-| §8.E lint screen facet (takt の新 facet `ollama-lint-screen`) | **feature 枝のみ** | 検証成功後に master へ抜き出し PR |
-| §8.F PR body draft (`prepare-pr` skill の Ollama 前処理) | **feature 枝のみ** | 同上 |
-| 計測ログ (P-1〜P-5 結果)、検証で得た知見追記 | **feature 枝の本ファイル §A-2 計測ログ** | 検証結果が判定材料として残る |
-| dogfood の試験台となる PR (Bundle g-1 / 順位 47 等) | **master** に merge | これらは LLM とは独立した機能 PR。dogfood は枝側で起動させる (§10.4) |
-| LLM crate の bug fix (検証で判明したもの) | 状況依存: feature 枝で再現 → master へ抜き出し PR | 既に master 上にある機能のバグ修正経路 |
+| 非 LLM 機能 (hook / takt / rule / docs) | **master** (個別 PR) | LLM 検証に依存しない通常開発 |
+| §A-2 P-0 (`pr-monitor-config.toml` で classifier `enabled = true`) | **master** (個別 PR) | classifier を master 上で起動可能にする。問題発生時は revert PR で即 fallback (§10.6 C 簡易版) |
+| §A-2 P-1〜P-5 (dogfood の試験台 PR: Bundle g-1 / 順位 47 等) | **master** (個別 PR) | 通常 PR フローで classifier が自動起動。計測ログは §A-2 にマージ後追記 |
+| §8.D prompt v2 (`prompts/classify.txt` 改訂) | **feature/local-llm-dogfood 枝のみ** | 検証で agreement rate が基準未達だった場合の改善ループ。新規コード |
+| §8.E lint screen facet (takt の新 facet `ollama-lint-screen`) | **feature/local-llm-dogfood 枝のみ** | 検証成功後に master へ抜き出し PR。新規 facet |
+| §8.F PR body draft (`prepare-pr` skill の Ollama 前処理) | **feature/local-llm-dogfood 枝のみ** | 同上 |
+| LLM crate の bug fix (検証で判明したもの) | **master** (個別 PR) | 既に master 上にある機能のバグ修正経路 |
 
-### 10.4 dogfood 実行時のブランチ切替手順 (Phase 5 用)
+### 10.4 dogfood 実行 (Phase 5 用)
 
-§A-2 の P-1〜P-5 で `cli-pr-monitor` の post-pr stage に classifier を起動させるには、`enabled = true` の設定が必要。これを feature 枝に閉じ込める運用:
+§A-2 P-0 が master に land すると `[classifier] enabled = true` が master の working tree に存在し、以降の master ベース PR の post-pr-monitor で classifier が自動起動する。**ブランチ切替は不要** (P-1〜P-5 は通常 PR フロー)。
 
 ```bash
-# 1. 現在の master 作業を commit (jj は auto-snapshot のため未 describe な変更があると枝切替時に持ち越される)
-jj describe -m "<現在の作業内容>"
+# P-N 着手 (master ベース、通常 PR フロー):
+jj edit master
+jj new -m "<P-N の機能内容>"
+# ... 実装 ...
+pnpm push                                                 # cli-push-runner
+pnpm create-pr                                            # PR 作成
 
-# 2. 検証枝に切替 (config の enabled=true が working tree に展開される)
-jj edit feature/local-llm-dogfood
-grep -A5 "^\[classifier\]" pr-monitor-config.toml  # enabled = true を確認
-
-# 3. その状態で post-pr-monitor を起動
-#    PR は master ベースで作成・merge する。枝の checkout は monitor 起動時のみ
-
-# 4. 計測完了後、本ファイル §A-2 計測ログに追記 + finding 一覧を保存
+# post-pr-monitor が自動起動し、classifier が走る
+# 完了後、findings + classified_findings を取得:
 jq '.classified_findings' .claude/pr-monitor-state.json > .takt/dogfood-pr-NNN-classified.json
 
-# 5. 計測コミット (枝に積む、master へは push しない)
-jj describe -m "docs(local-llm): P-N dogfood 結果追記 (PR #NNN)"
+# 本ファイル §A-2 計測ログに追記 (master の master 系 docs PR か、対象 PR の最終 commit に同梱)
 ```
 
 #### 注意点
 
-- jj は auto-snapshot のため、**枝を切替えた瞬間に working tree が枝の最新状態に同期する**。master の作業中に「ちょっと枝で計測したい」を挟む場合は、必ず先に `jj describe` で現状を commit してから `jj edit` する
-- master tip が進んだら定期的に rebase: `jj rebase -d master -r 'bookmarks(feature/local-llm-dogfood)..'`
-- `cli-pr-monitor` が `pr-monitor-config.toml` をどの commit から読むか (working copy / PR commit) は P-0 setup 時の動作確認で要検証 (P-0 完了基準に含める)
+- §A-2 P-0 land 前の PR で classifier は起動しない (config が default OFF)。P-0 を最初に必ず land する
+- classifier 起動が予期せぬ問題を起こした場合は **revert PR で `[classifier] enabled = false` に戻す** のが kill-switch (§10.6 C の最小版)。crate 削除等の物理削除は dogfood 失敗判定後にまとめて実施
+- §8.D / §8.E / §8.F の追加実装は feature/local-llm-dogfood 枝で進める。詳細手順は §10.7 (再開チェックリスト) 後半
 
 ### 10.5 グローバル設定バックアップ規約
 
@@ -613,30 +611,50 @@ master から LLM 関連実装を物理削除する PR を起こす。touchpoint
 
 ### 10.7 検証作業の再開チェックリスト (別セッション開始時)
 
+#### 共通: 環境前提の確認
+
 ```bash
-# 1. ブランチ存在確認
+# 1. master 最新化
+jj git fetch
+jj edit master  # working tree を master 最新に揃える
+
+# 2. P-0 land 済か確認 (master の pr-monitor-config.toml に [classifier] enabled=true)
+grep -A5 "^\[classifier\]" pr-monitor-config.toml
+
+# 3. Ollama 起動確認
+curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
+
+# 4. classifier exe 配備確認
+ls -la .claude/cli-finding-classifier.exe
+
+# 5. 過去計測ログ確認
+ls .takt/dogfood-pr-*.json 2>/dev/null
+grep -A20 "計測ログ" docs/local-llm-offload-analysis.md
+```
+
+#### A. P-N (P-1〜P-5) 着手の場合 — master ベース個別 PR
+
+```bash
+# master 上で新規変更を作成 (jj new で空 commit、その後実装)
+jj new master -m "<P-N feature 説明>"
+# ... 実装 ...
+pnpm push
+pnpm create-pr
+# post-pr-monitor が classifier を自動起動 (P-0 の enabled=true 効果)
+```
+
+#### B. §8.D / §8.E / §8.F 追加実装の場合 — feature/local-llm-dogfood 枝
+
+```bash
+# 1. ブランチ存在確認 (push 済なら origin にもある)
 jj bookmark list -r feature/local-llm-dogfood
 jj log -r 'bookmarks(feature/local-llm-dogfood)' --no-graph
 
-# 2. master 最新化 (枝が遅れていれば rebase)
-jj git fetch
+# 2. 検証枝に切替 (なければ jj new master でベースから派生)
+jj edit feature/local-llm-dogfood
 # 必要なら: jj rebase -d master -r 'bookmarks(feature/local-llm-dogfood)..'
 
-# 3. 検証枝に切替
-jj edit feature/local-llm-dogfood
-
-# 4. §A-2 P-0 が land 済か確認 (config opt-in)
-grep -A5 "^\[classifier\]" pr-monitor-config.toml
-
-# 5. Ollama 起動確認
-curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
-
-# 6. classifier exe 配備確認
-ls -la .claude/cli-finding-classifier.exe
-
-# 7. 過去計測ログ確認
-ls .takt/dogfood-pr-*.json 2>/dev/null
-grep -A20 "計測ログ" docs/local-llm-offload-analysis.md
+# 3. 実装 → push → 採用判定後 master へ抜き出し PR (§10.6 A 経路)
 ```
 
 ### 10.8 関連 ADR / 規約
