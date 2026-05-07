@@ -418,7 +418,7 @@ P-1 (Bundle g-1):    PR #125, merged 2026-05-07, findings: 0 (CR APPROVE no comm
 P-2 (順位 47):       PR #126, merged 2026-05-07, findings: 1 (Nitpick, CR review body 内 `<details>` block), agreement: 1/1 (100%, 私評価=human_review と一致), latency: 6.4s/件 (>5s 目標), fallback: 1/1 (normalized_issue length 100>80)
   - 既知 gap: check-ci-coderabbit が review body の `<details>` block 内 Nitpick を抽出しない (post-pr-monitor が classifier に渡せず、手動で synthetic finding 構築して classifier 実行)
 P-3 (順位 7):        PR #127, merged 2026-05-08, findings: rate-limit blocked (CR が 27 min wait の rate-limit overlay で formal review 投稿不可)、classifier 未起動、計測 N/A — dogfood 不発 (但し CR rate-limit 経路が dogfood の阻害要因として観測された、§A-2 §6 注意事項 #1 を実証)
-P-4 (順位 76+77):    PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
+P-4 (順位 76+77):    PR #128, merged 2026-05-08, findings: 1 (CR Nitpick: cross_module_* 命名 misleading)、手動 synthetic finding で classifier 実行 → action=human_review / action_confidence=**0.9** (P-2 の 0.0 から大幅改善、length contract pass)、latency: 6.6s/件、fallback: **0/1** (P-2 の 1/1 から改善、normalized_issue 50 chars Japanese で contract pass)、agreement: 1/1 (100%、私評価=human_review と一致)
 P-5 (Bundle f-1):    PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
 
 集計:

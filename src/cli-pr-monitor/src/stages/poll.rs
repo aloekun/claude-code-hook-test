@@ -116,9 +116,13 @@ fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
         return Some(make_terminal_result(state, result));
     }
 
-    if let Some(terminal) =
-        handle_rate_limit_branch(&mut state, ctx.rate_limit_config, ctx.pr_info, &result)
-    {
+    if let Some(terminal) = handle_rate_limit_branch(
+        &mut state,
+        ctx.rate_limit_config,
+        ctx.pr_info,
+        ctx.review_recheck_wait_secs,
+        &result,
+    ) {
         return Some(terminal);
     }
 
@@ -293,6 +297,7 @@ fn handle_rate_limit_branch(
     state: &mut PrMonitorState,
     rate_limit_config: &RateLimitConfig,
     pr_info: &PrInfo,
+    review_recheck_wait_secs: u64,
     result: &serde_json::Value,
 ) -> Option<PollResult> {
     let rl = state.rate_limit.clone()?;
@@ -319,7 +324,14 @@ fn handle_rate_limit_branch(
         return None;
     }
 
-    dispatch_rate_limit_outcome(state, &rl, pr_info, rate_limit_config.max_retries, result)
+    dispatch_rate_limit_outcome(
+        state,
+        &rl,
+        pr_info,
+        rate_limit_config.max_retries,
+        review_recheck_wait_secs,
+        result,
+    )
 }
 
 fn dispatch_rate_limit_outcome(
@@ -327,10 +339,18 @@ fn dispatch_rate_limit_outcome(
     rl: &crate::state::RateLimitState,
     pr_info: &PrInfo,
     max_retries: u32,
+    review_recheck_wait_secs: u64,
     result: &serde_json::Value,
 ) -> Option<PollResult> {
     match handle_rate_limit_retry(rl, state, pr_info, max_retries) {
-        RateLimitOutcome::Posted => finalize_posted_retrigger(state, rl, result),
+        RateLimitOutcome::Posted => finalize_posted_retrigger(
+            state,
+            rl,
+            pr_info,
+            review_recheck_wait_secs,
+            max_retries,
+            result,
+        ),
         RateLimitOutcome::Parked { wakeup_at_unix } => Some(finalize_parked(
             state,
             rl,
@@ -356,9 +376,28 @@ fn dispatch_rate_limit_outcome(
 fn finalize_posted_retrigger(
     state: &mut PrMonitorState,
     rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+    review_recheck_wait_secs: u64,
+    max_retries: u32,
     result: &serde_json::Value,
 ) -> Option<PollResult> {
     state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
+
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let park_at_unix = now_unix + review_recheck_wait_secs as i64;
+
+    state.action = "parked_review_recheck".into();
+    state.next_wakeup_at_unix = Some(park_at_unix);
+    state.wakeup_reason = Some("rate_limit_post_retrigger".into());
+    state.head_commit = pr_info.head_commit.clone();
+    state.summary = format!(
+        "rate-limit retrigger 後の review 完了待ちを {}s 後に予約 (順位 80 fix: silent exit 防止)",
+        review_recheck_wait_secs
+    );
+
     if let Err(e) = write_state(state) {
         log_info(&format!(
             "[rate_limit] retrigger 後の state 永続化失敗、自動 retry を停止: {}",
@@ -373,7 +412,11 @@ fn finalize_posted_retrigger(
             ),
         ));
     }
-    None
+
+    let signal = format_park_signal(state, rl, pr_info, max_retries);
+    println!("{}", signal);
+
+    Some(make_park_poll_result(state.clone()))
 }
 
 fn finalize_parked(
@@ -1427,6 +1470,82 @@ mod tests {
         assert_eq!(
             outcome_review.action, outcome_initial.action,
             "sibling parity (review_recheck ↔ initial_review)"
+        );
+    }
+
+    fn setup_posted_retrigger_fixture() -> (PrMonitorState, RateLimitState, crate::util::PrInfo) {
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.action = "continue_monitoring".into();
+        state.rate_limit_retries = 1;
+        let rl = RateLimitState {
+            until_unix_secs: 0,
+            comment_event_time: "2026-05-08T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+        };
+        (state, rl, pr_info)
+    }
+
+    #[test]
+    fn finalize_posted_retrigger_schedules_park_after_post() {
+        let _guard = env_override_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
+
+        let (mut state, rl, pr_info) = setup_posted_retrigger_fixture();
+        let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, 3, &serde_json::Value::Null);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        let park_result = result.expect("順位 80 fix: Posted 後は必ず park を返し silent exit を防ぐ");
+        assert_eq!(park_result.action, "parked_review_recheck");
+        assert_eq!(state.wakeup_reason.as_deref(), Some("rate_limit_post_retrigger"));
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let wakeup = state.next_wakeup_at_unix.expect("next_wakeup_at_unix が設定される");
+        assert!(wakeup > now_unix && wakeup <= now_unix + 301);
+        assert_eq!(state.rate_limit_last_retriggered_at.as_deref(), Some("2026-05-08T00:00:00Z"));
+    }
+
+    #[test]
+    fn finalize_posted_retrigger_action_required_when_write_state_fails() {
+        let _guard = env_override_lock();
+        let bad_path = unwritable_state_path();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
+
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.action = "continue_monitoring".into();
+        let rl = RateLimitState {
+            until_unix_secs: 0,
+            comment_event_time: "2026-05-08T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: None,
+        };
+
+        let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, 3, &serde_json::Value::Null);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap().action,
+            "action_required",
+            "write_state 失敗時は action_required で抜ける (sibling parity with finalize_parked)"
         );
     }
 }

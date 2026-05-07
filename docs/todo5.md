@@ -745,66 +745,27 @@
 
 ---
 
-### cli-pr-monitor: rate-limit auto-retry wakeup 予約ロジックの整理 (PR #120 T1-1 採用) ★ Bundle f
-
-> **動機**: PR #120 dogfood で「`rate_limit_config.auto_retry_enabled = true / max_retries = 3` でも rate-limit 検出後に wakeup park が予約されず exit する」事象を観測。手動 `@coderabbitai review` + `CronCreate` 投入でリカバリ。ADR-018 で設計された auto-retry に実装落ちが疑われる。
->
-> **参照**: PR #120 dogfood 観測、`.claude/feedback-reports/120.md` Tier 1 #1
->
-> **実行優先度**: 🚀 **Tier 1** — Effort M。`cli-pr-monitor/src/stages/poll.rs::handle_rate_limit_branch` 周辺と state.rate_limit_retries 制御の整合性確認。
-
-#### 作業計画
-
-- [ ] `auto_retry_enabled = true` 経路で rate-limit 検出時に確実に `parked_review_recheck` (or 専用 reason) で park signal を emit する
-- [ ] `rate_limit_retries` がインクリメントされない / 上限到達後の挙動を test infra で再現
-- [ ] 順位 81 / 82 と同 PR で land (Bundle f コア実装)
-
-#### 完了基準
-
-- rate-limit 検出時に常に PARK signal が emit される (silent exit が消える)
-- regression test (auto_retry_enabled=true で rate-limit 注入 → park 予約) が green
-
----
-
-### cli-pr-monitor: CR 投稿エラー (`Failed to post review comments`) auto-retry 拡張 (PR #120 T1-2 採用) ★ Bundle f
+### cli-pr-monitor: CR 投稿エラー (`Failed to post review comments`) auto-retry 拡張 (PR #120 T1-2 採用) ★ Bundle f (defer)
 
 > **動機**: PR #120 dogfood で CR walkthrough overlay が `Failed to post review comments` (rate-limit ではない transient failure) を表示するも `parse_rate_limit_status` が detected せず、auto-retry が発火しなかった。1 観測だが auto-retry の silent failure として機能不全。
 >
-> **参照**: PR #120 walkthrough comment (16:41Z 投稿)、`.claude/feedback-reports/120.md` Tier 1 #2
+> **参照**: PR #120 walkthrough comment (16:41Z 投稿)、`.claude/feedback-reports/120.md` Tier 1 #2、[ADR-018 §追記 2026-05-08](adr/adr-018-pr-monitor-takt-migration.md)
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort M。`check-ci-coderabbit/src/main.rs` の failure detection 拡張 + cli-pr-monitor の retry path 共通化。
+> **実行優先度**: 🚀 **Tier 1 (defer)** — §A-2 P-5 PR (2026-05-08) で Defer 判定。1 観測のみで systemic 性未確認のため、ユーザー方針 `feedback_no_unenforced_rules` (機械検知不可なら何もしない方がマシ) と整合させて 3 PR 観測閾値到達まで待つ。
+>
+> **Re-trigger 条件**: `Failed to post review comments` (またはそれに類する rate-limit 以外の CR transient failure) が他の PR で 1 件以上追加観測 (合計 2 件以上) されたら本タスクを再活性化、実装に着手。
 
-#### 作業計画
+#### 作業計画 (defer 中、参考)
 
 - [ ] `Review failed` / `Failed to post review comments` 等の transient failure pattern を detection に追加
 - [ ] rate-limit 系と統合する場合は state field を `transient_failure: Option<TransientFailureKind>` に一般化検討
-- [ ] 順位 80 と同 PR で land (Bundle f)
+- [ ] ADR-018 §追記 2026-05-08 の「対象 transient failure 分類」表を「⏳ 未実装」→「✅ 実装済」に更新
 
 #### 完了基準
 
 - `Failed to post review comments` を含む walkthrough overlay 検出時に auto-retry が発火する
 - regression test (failure pattern 注入 → auto-retry 発火) が green
-
----
-
-### ADR-018 update: rate-limit 以外の transient failure auto-retry 設計の明文化 (PR #120 T3-2 採用) ★ Bundle f
-
-> **動機**: 順位 80 / 81 で実装する設計方針 (rate-limit 以外の transient failure も auto-retry 範囲) を ADR-018 に明記しないと、将来の同型実装落ちが構造的に再発するリスク。
->
-> **参照**: PR #120 T1-1 / T1-2 観測、`.claude/feedback-reports/120.md` Tier 3 #2、[ADR-018](adr/adr-018-pr-monitor-takt-migration.md)
->
-> **実行優先度**: 💎 **Tier 3** — Effort S。順位 80 / 81 と同 PR で同時更新 (実装と仕様の整合確保)。
-
-#### 作業計画
-
-- [ ] ADR-018 に「auto-retry の対象 transient failure pattern」セクション追加
-- [ ] rate-limit + 投稿エラー + (将来候補) wakeup 未予約を列挙
-- [ ] 順位 80 / 81 と同 PR で land
-
-#### 完了基準
-
-- ADR-018 に対象 failure pattern が enumerable 形式で列挙される
-- 順位 80 / 81 の実装が ADR-018 から逆引き可能
+- ADR-018 §追記 2026-05-08 と整合
 
 ---
 
