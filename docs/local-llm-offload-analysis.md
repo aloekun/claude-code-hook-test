@@ -189,14 +189,25 @@ PR #120 の dogfood で post-pr-monitor の wakeup state 遷移と auto-retry pa
 
 詳細エントリは [docs/todo5.md](todo5.md) 末尾。Bundle f land は本 doc の retirement に必須ではない。本セッション 1 回限りの観測で頻度が未確定のため、**優先度は再観測を経て判断**する (新規フィードバックは頻度が確認できるまで優先しない方針)。
 
+#### 2026-05-07: §8.C land (PR #121) — ADR-038 textual fix + Bundle f task registration
+
+- **§8.C 実施**: ADR-038 line 61 の `confidence=0.0` → `action_confidence=0.0` に統一 (実装 schema 名称との整合)
+- **Bundle f 登録**: 順位 80-84 を `docs/todo.md` priority table + `docs/todo5.md` 詳細エントリに記録 (頻度確認後に優先度判断する方針を明記)
+- **PR #121**: docs-only PR → CR 「No actionable comments」 → squash merge `6640dc7b` (2026-05-07T04:47:56Z、master)
+- **post-merge-feedback (PR #121)** で Bundle g (順位 85-88) を新規追加: `(review_state, findings) → verdict` 評価ロジックの edge case を 3 PR (#119/#120/#121) 連続観測で頻度確認 → Tier 1 妥当性確定。詳細は [docs/todo5.md](todo5.md) 順位 85-88、bundle commentary は [docs/todo.md](todo.md) Bundle g 段落
+
 ### 効果実測の現状
 
-未測定。次回 Claude Code session で:
+**未測定** (PR #120 で統合は完了したが、`ClassifierConfig::default().enabled = false` のため classifier は実 review サイクルで一度も起動していない)。
 
-1. cli-finding-classifier を post-pr-review フローに統合した後の token 消費を比較
-2. CodeRabbit triage タスクが Claude を経由しなくなった分の体感計測
+計測計画は **§8.A-2 (Phase 5 dogfood 計測)** に集約。P-0 (config opt-in) → P-1〜P-5 (5 PR dogfood) の流れで以下を計測予定:
 
-統合 (Phase 5) 完了までは「効果見込み 15-25%」は推定値のまま。
+1. classifier の classification 妥当性 (agreement rate)
+2. Claude session の入力 token 削減効果
+3. classifier latency / fallback rate
+4. `normalized_issue` 言語制約違反率 (§8.D 着手判断材料)
+
+dogfood 完了までは「効果見込み 15-25%」は推定値のまま。
 
 ## 8. 次の作業候補 (Phase 5 + 残作業)
 
@@ -212,13 +223,206 @@ PR #120 の dogfood で post-pr-monitor の wakeup state 遷移と auto-retry pa
 
 `from_llm_output` で `normalized_issue` の改行・80 chars 超を検出して fallback。`NORMALIZED_ISSUE_MAX_CHARS=80` const 化。回帰テスト 3 件追加。
 
-### C. Finding D: ADR-038 line 61 textual fix (low priority)
+### C. ✅ Finding D: ADR-038 line 61 textual fix (LANDED in PR #121, 2026-05-07)
 
-- **目的**: ADR-038 line 61 の `confidence=0.0` を `action_confidence=0.0` に統一 (実装の schema 名称と整合)
-- **作業**: 1 単語修正
-- **依存**: なし
-- **見積**: 5 分 (他の Phase 5 PR に bundle 可)
-- **ROI**: ★ (永続 doc の整合は重要だが単独 PR を立てるほどではない)
+ADR-038 line 61 の `confidence=0.0` を `action_confidence=0.0` に修正、実装の `ClassifiedFinding.action_confidence` schema 名称と整合。同 PR で Bundle f task registration (順位 80-84) も land。詳細は §7 実装進捗ログ参照。
+
+### A-2. ★ Phase 5 dogfood 計測 (E/F 着手前の必須前提)
+
+> **状態**: **未着手** (本計画は 2026-05-07 セッションで策定、別セッションで実施想定)
+>
+> **位置づけ**: §8.A (Phase 5 統合) は完了したが、ADR-038 §試験運用→本採用の昇格条件のうち **条件 1 (5 PR 以上 dogfood)** と **条件 3 (token 削減効果体感)** は未達。§8.E (lint screen facet) の「実効果見極め後」依存を満たすため、本計画で実 dogfood を行う。
+
+#### 目的
+
+ADR-038 試験運用 → 本採用の **未達 2 条件** を充足:
+
+1. **条件 1**: 5 PR 以上の実 review サイクルで dogfood、classification 妥当性目視確認
+2. **条件 3**: Claude session の入力 token 削減効果が体感で確認できる
+
+#### 構成: P-0 (前提セットアップ) + 5 PR
+
+##### P-0: classifier opt-in (config 1 行変更、独立 PR)
+
+**変更内容**: `pr-monitor-config.toml` に classifier section を追加 (現状ファイルに section 不在の場合は新規追記、存在する場合は `enabled = true` に変更)
+
+```toml
+[classifier]
+enabled = true
+# 以下は default 値、明示しなくてもよいが、config の意図を残すなら明示推奨
+model = "mistral:7b"
+endpoint = "http://localhost:11434"
+timeout_secs = 30
+```
+
+**確認方法**:
+
+```bash
+grep -A5 "^\[classifier\]" pr-monitor-config.toml
+```
+
+**意義**: P-0 land 後、後続 5 PR で `cli-pr-monitor` の poll stage が自動的に `cli-finding-classifier.exe` を invoke する。
+
+##### P-1〜P-5: dogfood 本体 (頻度確認済 Tier 1 を優先、findings 多様性確保)
+
+| PR | タスク | 順位 | Effort | 期待 findings | 選定理由 |
+|---|---|---|---|---|---|
+| P-1 | Bundle g-1 (monitor state guard + test) | 85 + 86 | S+S | 中 (3-5 件) | 頻度確認済 Tier 1 (3 PR 観測)、ユーザー方針 (頻度確認後優先) と整合、Rust 実装層 |
+| P-2 | `> vs >=` boundary inconsistency lint rule | 47 | S | 中 (3-5 件) | Tier 1、独立、Rust + lint rule (異種 PR で多様性) |
+| P-3 | PowerShell `(?i)` フラグ自動検証 lint rule | 7 | S | 中 (3-5 件) | Tier 1、独立、別言語 lint で多様性 |
+| P-4 | overflow 統合テスト + 境界値 matrix (Bb-3) | 76 + 77 | M+S | 中 (3-5 件) | Tier 2、Rust test 集中、test カバレッジ系の findings |
+| P-5 | Bundle f-1 (retry logic + ADR) | 80+81+82 | M+M+S | 高 (5-10 件) | P-1〜P-4 中の dogfood で順位 80 が再観測されれば頻度確認達成、最終 PR で大規模 finding 負荷確認 |
+
+**Bundle g-2** (順位 87+88、global rule codify、XS+XS) は docs-only で classifier dogfood 対象外。Phase 5 dogfood と並列で別 PR (例: P-2.5 として挟む) に land 可。
+
+#### Setup 手順 (別セッション開始時の確認チェックリスト)
+
+```bash
+# 1. Ollama 起動確認
+curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
+# 期待: mistral:7b が含まれる
+
+# 2. classifier exe deploy 確認
+ls -la .claude/cli-finding-classifier.exe
+# 期待: ファイル存在、~2.2MB
+
+# 3. config opt-in 確認
+grep -A5 "^\[classifier\]" pr-monitor-config.toml
+# 期待: enabled = true
+
+# 4. 過去 dogfood 実行 (PR #119) 動作確認
+echo '[{"severity":"Major","file":"f.rs","line":"1","issue":"test","suggestion":"fix","source":"CodeRabbit"}]' | \
+  .claude/cli-finding-classifier.exe --timeout-secs 30
+# 期待: action / action_confidence / normalized_issue を含む JSON
+```
+
+#### 計測手順 (各 PR で実施)
+
+**1. classifier 出力の取得** (post-pr-monitor 実行後):
+
+```bash
+jq '.classified_findings // []' .claude/pr-monitor-state.json
+```
+
+各 finding は以下の field を持つ:
+
+```json
+{
+  "severity": "Major",
+  "file": "src/...",
+  "line": "42",
+  "issue": "...",
+  "suggestion": "...",
+  "source": "CodeRabbit",
+  "action": "auto_fix | human_review | false_positive_likely | informational",
+  "action_confidence": 0.0-1.0,
+  "normalized_issue": "..." | null,
+  "fallback_reason": "..." | null
+}
+```
+
+**2. classification 妥当性 (agreement rate) 評価**:
+
+各 finding に対して、私 (Claude) が action/confidence を独立評価し一致率を測定。記録形式:
+
+```text
+P-1: 4/5 agreement (80%)、disagree 1 件は <理由>
+```
+
+**3. session token 集計**:
+
+Claude Code 側で session statistics を `/cost` 等で取得可能なら、各 PR session 開始 → merge までの input token を記録。比較対象は本セッションの PR #119/#120/#121 (classifier OFF)。
+
+**4. classifier latency**:
+
+`cli-pr-monitor` の log で「classifier: N findings を分類完了」の前後で経過秒数を測定。本 doc §1 dogfood 実測 (PR #119) では **3.6s/件**。
+
+**5. fallback rate**:
+
+```bash
+jq '[.classified_findings[] | select(.fallback_reason != null)] | length' .claude/pr-monitor-state.json
+# /
+jq '.classified_findings | length' .claude/pr-monitor-state.json
+```
+
+**6. `normalized_issue` 言語制約違反率** (§8.D 着手判断材料):
+
+```bash
+jq '[.classified_findings[] | select(.normalized_issue) | .normalized_issue | test("[a-zA-Z]{8,}"))]' .claude/pr-monitor-state.json
+```
+
+英単語が 8 文字以上連続する箇所を検知 (簡易ベンチ、誤検出許容)。
+
+#### 判定基準
+
+各 PR 完了後に追記、5 PR 終了で集計。本採用昇格条件への対応:
+
+| 指標 | 目標 | ADR-038 昇格条件 |
+|---|---|---|
+| **agreement rate** | ≥80% (action 一致) | 条件 1 (5 PR dogfood + 妥当性確認) |
+| **session token 削減** | ≥10% (見込み 15-25%) | 条件 3 (体感確認) |
+| **classifier latency** | ≤5s/件 | (補助指標、運用許容ライン) |
+| **fallback rate** | ≤20% | (Ollama 安定性、運用許容ライン) |
+| **言語制約違反率** | ≤10% | §8.D 着手判断 (>10% なら D 先行) |
+
+#### 既知の注意事項 (本セッションで観測した dogfood 阻害要因)
+
+1. **CR rate-limit 再発リスク**: 本セッション PR #120 / #121 で観測 (1 hour あたり commits 制限)。5 PR 連続作成は無料枠を圧迫。Bundle g-2 (XS docs) を間に挟む等で stretch すれば緩和。`comment_created_at` から 41 分待つと clear
+2. **post-pr-monitor wakeup edge case** (Bundle f #80 / Bundle g #85): 本 dogfood 中に再観測された場合、Bundle f / g の頻度カウントを進める副次目的にもなる。手動 `@coderabbitai review` 投入や CronCreate 手動予約で迂回可
+3. **Ollama 不安定**: 落ちた場合 fallback で human_review に倒れて block しないが計測 noise になる。各 PR 着手前に `curl /api/tags` で確認推奨
+4. **Windows shell の CP932 漏れ**: 日本語 finding が含まれる場合、cli-pr-monitor → classifier の subprocess は Rust 実装で UTF-8 安全 (PR #119 で検証済)。bash 経由のデバッグでは `--data-binary @file.json` 形式必須 (§6 注意点参照)
+5. **takt 600s timeout**: 本セッション PR #120 で observed、auto-fix iteration 中に timeout。dogfood 中に再観測される可能性あり、その場合 takt の fix step が不完全終了するため `state.classified_findings` の最終形を確認
+
+#### session 跨ぎ運用ガイド
+
+**dogfood 中断・再開時**:
+- `pr-monitor-config.toml` の `[classifier] enabled` 状態は repo に commit されているため再 clone でも引き継がれる
+- 各 PR 完了後に `state.classified_findings` を export してテキスト保存しておくと session 跨ぎでも参照可:
+  ```bash
+  jq '.classified_findings' .claude/pr-monitor-state.json > .takt/dogfood-pr-NNN-classified.json
+  ```
+- 計測 log は本 doc の §A-2.x に追記して history 化 (例: §A-2.measurements として後続セッションで埋める)
+
+**dogfood 完了 → 本採用判断時**:
+- §7 § 効果実測の現状 を「測定済」に更新 (具体値を記載)
+- ADR-038 §試験運用→本採用の昇格条件 1 / 3 を達成した旨を ADR 本体に追記 (試験運用 flag を外す)
+- §8.A-2 を「✅ LANDED」にマーク、§8.E (lint screen facet) の依存条件解除
+
+**dogfood 完了 → 却下判断時** (基準未達):
+- agreement rate <80% → §8.D (prompt v2) 先行で再 dogfood
+- session token 削減 <10% → 提案 1 / 3 の ROI 再評価、本 doc retirement の引退条件「却下」経路を検討
+- 却下時は ADR-038 を **「却下」ステータス** に更新、`lib-ollama-client` / `cli-finding-classifier` 両 crate の削除可否判断
+
+#### 完了基準
+
+- [ ] P-0 land (config opt-in)
+- [ ] P-1〜P-5 land (5 PR で classifier 実起動経験)
+- [ ] 各 PR で `state.classified_findings` を保存
+- [ ] 5 PR 集計で agreement rate / token / latency / fallback / 言語制約違反率 を本 §A-2 内に記録
+- [ ] 判定基準 4/5 以上達成 → §7 効果実測の現状を「測定済」に更新、ADR-038 昇格条件 1/3 達成を明記
+- [ ] §8.A-2 を ✅ LANDED にマーク、§8.E の dependency 解除
+
+#### 計測ログ (実施時に追記)
+
+(別セッションで P-0 着手時、各 PR 完了ごとに以下を埋める)
+
+```text
+P-0 (config opt-in): PR #___, merged ___
+P-1 (Bundle g-1):    PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
+P-2 (順位 47):       PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
+P-3 (順位 7):        PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
+P-4 (順位 76+77):    PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
+P-5 (Bundle f-1):    PR #___, merged ___, findings: __, agreement: __/__, token Δ: __, latency: __s/件, fallback: __/__
+
+集計:
+- 総 findings: __
+- 総 agreement rate: __/__ = __%
+- 平均 session token Δ: __%
+- 平均 classifier latency: __s/件
+- 総 fallback rate: __/__ = __%
+- 言語制約違反率: __/__ = __%
+- 判定: ✅ 本採用 / 🔄 §8.D 先行 / ❌ 却下
+```
 
 ### D. プロンプト v2: `normalized_issue` 言語制約強化 (low priority)
 
@@ -228,12 +432,12 @@ PR #120 の dogfood で post-pr-monitor の wakeup state 遷移と auto-retry pa
 - **見積**: 半日 (prompt 変更 + 簡易ベンチで安定性検証)
 - **ROI**: ★ (実害は小、UX 微改善)
 
-### E. 提案 1 (lint screen facet) — 実効果見極め後
+### E. 提案 1 (lint screen facet) — §8.A-2 dogfood 完了後
 
 - **目的**: takt の新 facet `ollama-lint-screen` で pre-push 時に diff の lint 一次フィルタを mistral:7b に逃す
-- **依存**: Phase 5 で classifier の実効果が確認できた後
+- **依存**: **§8.A-2 (Phase 5 dogfood 計測) 完了 + 判定基準達成** (agreement rate ≥80% かつ session token 削減 ≥10%)
 - **見積**: 1〜2 日
-- **ROI**: 提案 1 として中程度。Phase 5 の効果次第で優先度が変動
+- **ROI**: 提案 1 として中程度。§8.A-2 の集計結果次第で優先度が変動 (基準未達なら §8.D prompt v2 先行 → 再 dogfood の経路あり)
 
 ### F. 提案 3 (PR body draft) — 提案 1 採用後
 
