@@ -2,14 +2,15 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) + [docs/todo5.md](todo5.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加):
-> - **docs/todo.md**: 既存タスクの編集・完了削除と推奨実行順序サマリー table の管理専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)。table への新規行追加は可 (詳細エントリは現行の追加先ファイル = docs/todo5.md に記録)
+> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) + [docs/todo5.md](todo5.md) + [docs/todo6.md](todo6.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加):
+> - **docs/todo.md**: 既存タスクの編集・完了削除と推奨実行順序サマリー table の管理専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)。table への新規行追加は可 (詳細エントリは現行の追加先ファイル = docs/todo6.md に記録)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
 > - **docs/todo4.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #101 セッション以降の新規エントリは todo5.md へ)
-> - **docs/todo5.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
-> - 例外: 既存 todo.md / todo2.md / todo3.md / todo4.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは五つすべてを確認すること**
+> - **docs/todo5.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB を超過したため、PR #123 セッション以降の新規エントリは todo6.md へ)
+> - **docs/todo6.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
+> - 例外: 既存 todo.md / todo2.md / todo3.md / todo4.md / todo5.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは六つすべてを確認すること**
 
 ---
 
@@ -78,6 +79,8 @@
 | 86 | 🔧 Tier 2 | **cli-pr-monitor: state transition test の網羅追加 (順位 85 の回帰テスト) (PR #121 T2-4 採用) ★ Bundle g** | todo5.md | S | 順位 85 と同 PR (Bundle g、`(review_state, findings) → verdict` transition matrix を表形式テストで定義、`src/cli-pr-monitor/tests/` 新規作成) |
 | 87 | 💎 Tier 3 | **グローバルルール: Multi-PR chaining ベストプラクティスを codify (PR #121 T3-7 採用)** | todo5.md | XS | なし (PR #119→#120→#121 連鎖の dogfood 知見を `~/.claude/rules/common/git-workflow.md` に codify、独立並列実施可、順位 88 と同 PR で land 推奨) |
 | 88 | 💎 Tier 3 | **グローバルルール: edge case 観測頻度 3 = Tier 1 昇格基準を codify (PR #121 T3-8 採用)** | todo5.md | XS | なし (post-merge-feedback workflow の暗黙ルール明文化 + ユーザー方針との収束、`~/.claude/rules/common/development-workflow.md` 等、順位 87 と同 PR で land 推奨) |
+| 89 | 💎 Tier 3 | **Experimental feature 標準パターン codify (config opt-in + kill-switch + bounded lifetime) (PR #123 T3-1 採用) ★ Bundle h** | todo6.md | XS | なし (ADR-031 / 036 / 038 等の試験運用 ADR で systemic に反復、CLAUDE.md or 別 ADR で codify、順位 90 と同 PR で land 推奨) |
+| 90 | 💎 Tier 3 | **グローバルルール: ephemeral 大規模コンテンツの ADR 昇格 + config コメント lifecycle (PR #123 T3-2 採用) ★ Bundle h** | todo6.md | S | 順位 89 と同 PR (Bundle h、`~/.claude/rules/common/{docs-governance,coding-style}.md` の 2 ファイル更新、PR #94 / #110 / #111 系列の lifecycle 違反予防層を強化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
@@ -100,6 +103,8 @@
 - **Sub-PR 2 (rate-limit 自動化層、主軸)**: **cli-pr-monitor の rate-limit auto-retry** (Sub-PR 1 の `--list-findings` API を消費) + **ADR-018 / ADR-009 の rate-limit retry ポリシー明文化** + **integration test 追加** (rate-limit 検出 → backoff → retry サイクルの regression 防止、PR #100 post-merge-feedback T2-1 採用) + **`parse_findings` 系 error-path test infra** (順位 49、PR #101 T2-1、`unwrap_or_else(\|_\| empty)` silent fallback の test 検証)。session 超え recovery / walkthrough overlay 検出 / 解除 + 1 分マージン投稿の設計詳細は ADR-034
 
 **PR #101 (Bundle a Sub-PR 1) post-merge-feedback 反映 (2026-05-03)**: 9 件の finding を頻度評価 (過去 report 横断 + 同一 PR latent 件数) して **3 件を採用**。**順位 47 (`>` vs `>=` boundary lint)** は同一ファイル内 3 関数 (parse_listed_findings / parse_new_comments / parse_findings) で同 drift が実証済 = latent 高頻度。**順位 48 (関数長 oxlint)** は #96 / #101 で繰り返し言及 = explicit 高頻度。両者とも Bundle Z #B-α と同じ「決定論的防止層」哲学で、Bundle Z Phase 1 (Rust comment lint) の land 後に並列 deploy 可能。**順位 49 (error-path test infra)** は #99 / #101 で同型 silent fallback anti-pattern が再発、Bundle a Sub-PR 2 (順位 42 / 43 / 46) と **同一 PR で land** 推奨 (cli-pr-monitor の mock infrastructure を再利用、test 二重投資なし)。残り 6 件 (Tier 1 #1, #3, #5、Tier 2 #2、Tier 3 #1, #2) は session 1 回限りの low-frequency events として不採用。
+
+**Bundle h (PR #123 post-merge-feedback、experimental feature 標準パターン + ephemeral lifecycle 強化、2026-05-07)**: PR #123 (ADR-038 Phase 5: P-0 classifier opt-in + §10 ブランチ分離運用) merge 後の post-merge-feedback で 10 findings 中 **2 件採用** (Tier 3 #1, #2)。共通テーマは「ephemeral / experimental の運用パターンを global rule に codify」。**順位 89** (Tier 3 #1、Experimental feature 標準パターン = config opt-in + kill-switch + bounded lifetime) は ADR-031 / 036 / 038 で systemic 反復、本 PR が kill-switch 経路を PR body に明記した模範例から派生。**順位 90** (Tier 3 #2、ephemeral 大規模コンテンツの ADR 昇格基準 + config コメント lifecycle) は §10 (約 200 行) を ephemeral 計画書に追加した自己違反 + `pr-monitor-config.toml` のコメントが ephemeral 参照する cross-file reference lifecycle 違反の 2 観測から派生。**Sub-PR 分割不要** (Bundle h 全体で XS+S = 同 PR で land 推奨、両者とも `~/.claude/rules/common/*` および `CLAUDE.md` 系の global rule 追記で副作用最小、Adoption Risk None)。**却下** (4 件): T1 #3 (`enabled = true` 検出 lint、誤検出確実) / T1 #4 (見出し参照誤り検出 hook、NLP 必要) / T2 #2 (env var override、ROI 不成立) / T3 #4 (ADR-039 config hardcode policy、ADR-038 でカバー済)。**様子見** (4 件): T1 #1 (ephemeral 計画書参照 lint、命名規則 codify 先行) / T1 #2 (jq 括弧不均衡 lint、再発頻度低) / T2 #1 (classifier endpoint fallback integration test、takt test infra 調査依存) / T3 #3 (config コメント ADR 参照修正、XS opportunistic)。
 
 **Bundle g (PR #121 post-merge-feedback、monitor verdict logic + session pattern codify、2026-05-07)**: PR #121 (ADR-038 textual fix + Bundle f registration) の dogfood で post-pr-monitor の **verdict 評価ロジック** に edge case を再観測 (PR #119/#120/#121 で計 3 PR 連続)。**4 件採用** (Tier 1 #85、Tier 2 #86、Tier 3 #87/#88) で **2 軸対策**: (1) **monitor verdict guard 層** = 順位 85 (`review_state: not_found && findings: []` を pending 据置) + 順位 86 (state transition matrix の表形式テスト)、(2) **session pattern codify 層** = 順位 87 (Multi-PR chaining ベストプラクティス) + 順位 88 (edge case 3 観測 = Tier 1 昇格基準)。**Sub-PR 分割推奨**: g-1 (順位 85 + 86、Rust 実装 + test、Effort S+S、`src/cli-pr-monitor/tests/` 新規作成) / g-2 (順位 87 + 88、global rule 追記、Effort XS+XS、独立並列可)。**Bundle f との関係**: Bundle f は retry logic (rate-limit + 投稿エラー)、Bundle g は verdict logic (review_state 評価) で別軸。両者を land すると post-pr-monitor の robustness が retry/verdict/state 全方向で堅牢化。**頻度評価**: 順位 85 は 3 PR 観測済で Tier 1 妥当性確認済、順位 86 は 85 の dependent、順位 87/88 は global rule 追記で副作用最小なので並列実施可。
 
