@@ -183,7 +183,7 @@ good = 'See [推奨実行順序](todo.md#recommended-order-summary)  <!-- with <
 
 [[rules]]
 id = "no-ephemeral-todo-reference"
-pattern = 'docs/todo[0-9]*\.md'
+pattern = '(?i)docs/todo[0-9]*\.md'
 severity = "warning"
 message = "永続成果物から ephemeral todo entry への literal 参照を検出。stale pointer 化リスクあり"
 why = "Cross-File Reference Lifecycle ルール (~/.claude/rules/common/coding-style.md) の決定論的防止層。todo entry が完了削除されると参照が壊れる。安定 anchor (ADR / PR 番号 / 安定 docs パス) に置き換えてください"
