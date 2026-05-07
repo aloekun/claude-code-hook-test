@@ -58,7 +58,7 @@ pub struct ClassifiedFinding {
 
 ### 失敗時の振る舞い (ブロックしない設計)
 
-Ollama 不在 / timeout / parse 失敗 / invalid action は **fallback として `human_review` + `confidence=0.0` + `fallback_reason` を返す**。consumer (Claude / takt 等) は finding を失わず、後段で人間/Claude が判断できる。
+Ollama 不在 / timeout / parse 失敗 / invalid action は **fallback として `human_review` + `action_confidence=0.0` + `fallback_reason` を返す**。consumer (Claude / takt 等) は finding を失わず、後段で人間/Claude が判断できる。
 
 これは [docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) §6 の方針 (「失敗してもリトライ可能 / Claude が後段で検証」) と整合する。
 
