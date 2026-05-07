@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "purpose": "mistral:7b の lint 一次フィルタ判定を Claude Code baseline と突合するための eval セット (Phase a infrastructure / docs/local-llm-offload-analysis.md §11.6)。",
+  "agreement_threshold": 0.8,
+  "evals": [
+    {
+      "id": 1,
+      "name": "unused-import-detection",
+      "input_diff": "evals/files/eval1-unused-import.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/foo.rs",
+            "line": 1,
+            "issue": "use std::collections::HashMap; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/foo.rs",
+            "line": 3,
+            "issue": "use std::path::Path; が未使用",
+            "suggestion": "import を削除"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 1 件以上含まれる",
+        "rule 名が unused-import 系 (unused_imports / unused-import / dead_code 等) を含む",
+        "screen_decision が 'auto_fix'",
+        "false positive (実在しない issue) の出力なし",
+        "JSON parse 成功 (fallback rate 0)"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "deep-nesting-flagging",
+      "input_diff": "evals/files/eval2-deep-nesting.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3",
+        "lint_findings": [
+          {
+            "severity": "major",
+            "rule": "deep-nesting",
+            "file": "src/permission.rs",
+            "line": 2,
+            "issue": "if 文のネストが 5 階層 (>4 levels) に達しており、可読性と保守性が低下",
+            "suggestion": "early return / guard clause で平坦化、または small functions に抽出"
+          }
+        ],
+        "screen_decision": "human_review"
+      },
+      "expectations": [
+        "lint_findings が 1 件以上含まれる",
+        "rule または issue が nesting / complexity / readability 系の語彙を含む",
+        "screen_decision が 'human_review' (リファクタは設計判断を伴う)",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "magic-number-detection",
+      "input_diff": "evals/files/eval3-magic-number.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/retry.rs",
+            "line": 6,
+            "issue": "リトライ回数 5 がハードコード",
+            "suggestion": "const MAX_RETRIES: u32 = 5; に切り出す"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/retry.rs",
+            "line": 10,
+            "issue": "バックオフ閾値 30000 がハードコード",
+            "suggestion": "const MAX_BACKOFF_MS: u64 = 30000; に切り出す"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 1 件以上含まれる",
+        "rule または issue が magic-number / hardcoded / constant 系の語彙を含む",
+        "screen_decision が 'auto_fix'",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "clean-diff-no-false-positive",
+      "input_diff": "evals/files/eval4-clean.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3",
+        "lint_findings": [],
+        "screen_decision": "informational"
+      },
+      "expectations": [
+        "lint_findings が 0 件 (false positive 検知)",
+        "screen_decision が 'informational' (指摘なしのため lint screen 判定不要)",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "multi-issue-coverage",
+      "input_diff": "evals/files/eval5-multi-issue.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/upload.rs",
+            "line": 1,
+            "issue": "use std::collections::BTreeMap; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/upload.rs",
+            "line": 4,
+            "issue": "use serde_json::Value; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/upload.rs",
+            "line": 15,
+            "issue": "サイズ閾値 1048576 がハードコード",
+            "suggestion": "const MAX_INLINE_SIZE: usize = 1024 * 1024; に切り出す"
+          },
+          {
+            "severity": "major",
+            "rule": "deep-nesting",
+            "file": "src/upload.rs",
+            "line": 12,
+            "issue": "if 文のネストが 3 階層に達し、guard clause で平坦化可能",
+            "suggestion": "early return で平坦化"
+          }
+        ],
+        "screen_decision": "human_review"
+      },
+      "expectations": [
+        "lint_findings が 2 件以上 (複数 issue を取りこぼさない)",
+        "rule の種類が 2 種以上 (unused-import / magic-number / deep-nesting のいずれかを混在検出)",
+        "screen_decision が 'human_review' (deep-nesting を含むため、リファクタ判断が必要)",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "existing-lint-overlap-measurement",
+      "input_diff": "evals/files/eval6-existing-lint-overlap.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "no-var",
+            "file": "web/src/components/Greeting.tsx",
+            "line": 9,
+            "issue": "var を let / const に置き換えるべき (oxlint/biome の no-var で既出範囲)",
+            "suggestion": "const greeting = ... に変更"
+          },
+          {
+            "severity": "minor",
+            "rule": "no-unused-vars",
+            "file": "web/src/components/Greeting.tsx",
+            "line": 10,
+            "issue": "ローカル変数 unused が未使用 (oxlint/biome の no-unused-vars で既出範囲)",
+            "suggestion": "削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "no-unused-vars",
+            "file": "web/src/components/Greeting.tsx",
+            "line": 14,
+            "issue": "エクスポート関数 _unused_helper が未使用 (oxlint/biome の no-unused-vars で既出範囲)",
+            "suggestion": "削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "web/src/components/Greeting.tsx",
+            "line": 2,
+            "issue": "import { useState } from 'react'; が未使用 (oxlint/biome の no-unused-imports で既出範囲)",
+            "suggestion": "import を削除"
+          }
+        ],
+        "screen_decision": "informational",
+        "overlap_note": "全 finding が oxlint/biome の既存ルール範囲。lint screen で人間に提示する必要なし (既存 linter で auto-fix 可能)"
+      },
+      "expectations": [
+        "lint_findings が 1 件以上含まれる",
+        "screen_decision が 'informational' (既存 linter 範囲のため lint screen の付加価値なし)",
+        "overlap 率測定用: oxlint/biome ルール名 (no-var / no-unused-vars / no-unused-imports) との一致を計算可能",
+        "JSON parse 成功"
+      ]
+    }
+  ]
+}

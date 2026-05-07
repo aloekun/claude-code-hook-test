@@ -84,20 +84,14 @@ fn from_llm_output(finding: &Finding, llm: LlmClassification) -> ClassifiedFindi
     let action = if VALID_ACTIONS.contains(&llm.action.as_str()) {
         llm.action
     } else {
-        return fallback(
-            finding,
-            format!("invalid action from LLM: {}", llm.action),
-        );
+        return fallback(finding, format!("invalid action from LLM: {}", llm.action));
     };
     let confidence = llm.action_confidence.clamp(0.0, 1.0);
     let normalized = match llm.normalized_issue.map(|s| s.trim().to_string()) {
         None => None,
         Some(s) if s.is_empty() => None,
         Some(s) if s.lines().count() > 1 => {
-            return fallback(
-                finding,
-                "normalized_issue contract violation: multi-line",
-            );
+            return fallback(finding, "normalized_issue contract violation: multi-line");
         }
         Some(s) if s.chars().count() > NORMALIZED_ISSUE_MAX_CHARS => {
             return fallback(
@@ -144,7 +138,10 @@ pub fn classify_one(
     let prompt = build_prompt(template, finding);
     match generate_json::<LlmClassification>(client, &prompt) {
         Ok(llm) => from_llm_output(finding, llm),
-        Err(e) => fallback(finding, format!("ollama error: {}: {}", llm_err_kind(&e), e)),
+        Err(e) => fallback(
+            finding,
+            format!("ollama error: {}: {}", llm_err_kind(&e), e),
+        ),
     }
 }
 
@@ -167,6 +164,84 @@ fn llm_err_kind(e: &OllamaError) -> &'static str {
         OllamaError::Parse(_) => "parse",
         OllamaError::EmptyResponse => "empty",
         OllamaError::Io(_) => "io",
+    }
+}
+
+/// lint screen 1 件分の検出結果 (1 つの diff 内の 1 finding)
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LintFinding {
+    pub severity: String,
+    pub rule: String,
+    pub file: String,
+    pub line: u32,
+    pub issue: String,
+    pub suggestion: String,
+}
+
+/// lint screen の最終出力 (1 つの diff に対する LLM 判定)
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LintScreenResult {
+    pub lint_findings: Vec<LintFinding>,
+    pub screen_decision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+}
+
+/// LLM raw output schema (prompts/lint-screen.txt の出力契約と一致)
+#[derive(Deserialize, Debug)]
+struct LlmLintScreen {
+    #[serde(default)]
+    lint_findings: Vec<LintFinding>,
+    screen_decision: String,
+}
+
+const VALID_SCREEN_DECISIONS: &[&str] = &["auto_fix", "human_review", "informational"];
+const VALID_LINT_SEVERITIES: &[&str] = &["minor", "major", "critical"];
+
+/// lint-screen prompt template に diff を埋め込む
+///
+/// `{diff}` placeholder を 1 度だけ置換する。 placeholder が複数現れた場合の
+/// 二重展開や、 placeholder が無い場合の panic を避けるため `replacen(..., 1)` を使う。
+pub fn build_lint_screen_prompt(template: &str, diff: &str) -> String {
+    template.replacen("{diff}", diff, 1)
+}
+
+fn from_llm_lint_screen(llm: LlmLintScreen) -> Result<LintScreenResult, String> {
+    if !VALID_SCREEN_DECISIONS.contains(&llm.screen_decision.as_str()) {
+        return Err(format!("invalid screen_decision: {}", llm.screen_decision));
+    }
+    for f in &llm.lint_findings {
+        if !VALID_LINT_SEVERITIES.contains(&f.severity.as_str()) {
+            return Err(format!("invalid severity: {}", f.severity));
+        }
+    }
+    Ok(LintScreenResult {
+        lint_findings: llm.lint_findings,
+        screen_decision: llm.screen_decision,
+        fallback_reason: None,
+    })
+}
+
+fn lint_screen_fallback(reason: impl Into<String>) -> LintScreenResult {
+    LintScreenResult {
+        lint_findings: Vec::new(),
+        screen_decision: "human_review".to_string(),
+        fallback_reason: Some(reason.into()),
+    }
+}
+
+/// 1 つの diff に対する lint screen を実行 (公開 API)
+///
+/// LLM 失敗時 / 出力契約違反時は `human_review` + `fallback_reason` を埋めて返す
+/// (block しない: 上流は LLM 不確定と判定し Claude にフォールバック可能)。
+pub fn screen_diff(client: &dyn OllamaApi, template: &str, diff: &str) -> LintScreenResult {
+    let prompt = build_lint_screen_prompt(template, diff);
+    match generate_json::<LlmLintScreen>(client, &prompt) {
+        Ok(llm) => match from_llm_lint_screen(llm) {
+            Ok(result) => result,
+            Err(e) => lint_screen_fallback(format!("contract violation: {e}")),
+        },
+        Err(e) => lint_screen_fallback(format!("ollama error: {}: {}", llm_err_kind(&e), e)),
     }
 }
 
@@ -242,7 +317,10 @@ mod tests {
         let result = classify_one(&stub, "T={severity}", &sample_finding());
         assert_eq!(result.action, "human_review");
         assert!((result.action_confidence - 0.9).abs() < f32::EPSILON);
-        assert_eq!(result.normalized_issue.as_deref(), Some("daemon spawn 順序"));
+        assert_eq!(
+            result.normalized_issue.as_deref(),
+            Some("daemon spawn 順序")
+        );
         assert!(result.fallback_reason.is_none());
     }
 
@@ -267,11 +345,7 @@ mod tests {
         let stub = StubOllama::new(vec![Err(OllamaError::EmptyResponse)]);
         let result = classify_one(&stub, "T", &sample_finding());
         assert_eq!(result.action, "human_review");
-        assert!(result
-            .fallback_reason
-            .as_deref()
-            .unwrap()
-            .contains("empty"));
+        assert!(result.fallback_reason.as_deref().unwrap().contains("empty"));
     }
 
     #[test]
@@ -279,17 +353,13 @@ mod tests {
         let stub = StubOllama::new(vec![Ok("not json".to_string())]);
         let result = classify_one(&stub, "T", &sample_finding());
         assert_eq!(result.action, "human_review");
-        assert!(result
-            .fallback_reason
-            .as_deref()
-            .unwrap()
-            .contains("parse"));
+        assert!(result.fallback_reason.as_deref().unwrap().contains("parse"));
     }
 
     #[test]
     fn classify_one_clamps_confidence_to_unit_range() {
         let stub = StubOllama::new(vec![Ok(
-            r#"{"action":"auto_fix","action_confidence":2.5}"#.to_string(),
+            r#"{"action":"auto_fix","action_confidence":2.5}"#.to_string()
         )]);
         let result = classify_one(&stub, "T", &sample_finding());
         assert_eq!(result.action_confidence, 1.0);
@@ -362,7 +432,7 @@ mod tests {
     #[test]
     fn classified_finding_serializes_with_flattened_finding_fields() {
         let stub = StubOllama::new(vec![Ok(
-            r#"{"action":"auto_fix","action_confidence":0.9}"#.to_string(),
+            r#"{"action":"auto_fix","action_confidence":0.9}"#.to_string()
         )]);
         let result = classify_one(&stub, "T", &sample_finding());
         let json = serde_json::to_value(&result).unwrap();
@@ -383,6 +453,118 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].action, "auto_fix");
         assert_eq!(results[1].action, "informational");
+    }
+
+    fn sample_diff() -> &'static str {
+        "diff --git a/src/x.rs b/src/x.rs\n+use std::fs;\n+pub fn read() {}\n"
+    }
+
+    #[test]
+    fn build_lint_screen_prompt_substitutes_diff_placeholder_once() {
+        let template = "INPUT:\n{diff}\nEND";
+        let result = build_lint_screen_prompt(template, "DIFF_BODY");
+        assert_eq!(result, "INPUT:\nDIFF_BODY\nEND");
+    }
+
+    #[test]
+    fn build_lint_screen_prompt_only_replaces_first_occurrence() {
+        let template = "{diff} and {diff}";
+        let result = build_lint_screen_prompt(template, "X");
+        assert_eq!(result, "X and {diff}");
+    }
+
+    #[test]
+    fn build_lint_screen_prompt_returns_template_when_placeholder_missing() {
+        let template = "no placeholder here";
+        let result = build_lint_screen_prompt(template, "ignored");
+        assert_eq!(result, "no placeholder here");
+    }
+
+    #[test]
+    fn screen_diff_returns_parsed_result_on_valid_llm_output() {
+        let stub = StubOllama::new(vec![Ok(r#"{
+            "lint_findings": [
+                {"severity":"minor","rule":"unused-import","file":"src/x.rs","line":1,
+                 "issue":"use std::fs が未使用","suggestion":"削除"}
+            ],
+            "screen_decision": "auto_fix"
+        }"#
+        .to_string())]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        assert_eq!(result.screen_decision, "auto_fix");
+        assert_eq!(result.lint_findings.len(), 1);
+        assert_eq!(result.lint_findings[0].rule, "unused-import");
+        assert!(result.fallback_reason.is_none());
+    }
+
+    #[test]
+    fn screen_diff_accepts_empty_findings_with_informational_decision() {
+        let stub = StubOllama::new(vec![Ok(
+            r#"{"lint_findings":[],"screen_decision":"informational"}"#.to_string(),
+        )]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        assert_eq!(result.screen_decision, "informational");
+        assert_eq!(result.lint_findings.len(), 0);
+        assert!(result.fallback_reason.is_none());
+    }
+
+    #[test]
+    fn screen_diff_falls_back_on_invalid_screen_decision() {
+        let stub = StubOllama::new(vec![Ok(
+            r#"{"lint_findings":[],"screen_decision":"delete_file"}"#.to_string(),
+        )]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        assert_eq!(result.screen_decision, "human_review");
+        assert!(result
+            .fallback_reason
+            .as_deref()
+            .unwrap()
+            .contains("invalid screen_decision"));
+    }
+
+    #[test]
+    fn screen_diff_falls_back_on_invalid_severity() {
+        let stub = StubOllama::new(vec![Ok(r#"{
+            "lint_findings": [
+                {"severity":"BLOCKER","rule":"x","file":"a","line":1,"issue":"i","suggestion":"s"}
+            ],
+            "screen_decision":"auto_fix"
+        }"#
+        .to_string())]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        assert_eq!(result.screen_decision, "human_review");
+        assert!(result
+            .fallback_reason
+            .as_deref()
+            .unwrap()
+            .contains("invalid severity"));
+    }
+
+    #[test]
+    fn screen_diff_falls_back_on_ollama_error() {
+        let stub = StubOllama::new(vec![Err(OllamaError::EmptyResponse)]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        assert_eq!(result.screen_decision, "human_review");
+        assert!(result.fallback_reason.as_deref().unwrap().contains("empty"));
+    }
+
+    #[test]
+    fn screen_diff_falls_back_on_parse_error() {
+        let stub = StubOllama::new(vec![Ok("not json".to_string())]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        assert_eq!(result.screen_decision, "human_review");
+        assert!(result.fallback_reason.as_deref().unwrap().contains("parse"));
+    }
+
+    #[test]
+    fn lint_screen_result_serializes_without_fallback_reason_field() {
+        let stub = StubOllama::new(vec![Ok(
+            r#"{"lint_findings":[],"screen_decision":"informational"}"#.to_string(),
+        )]);
+        let result = screen_diff(&stub, "T={diff}", sample_diff());
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(json.get("fallback_reason").is_none());
+        assert_eq!(json["screen_decision"], "informational");
     }
 
     #[test]

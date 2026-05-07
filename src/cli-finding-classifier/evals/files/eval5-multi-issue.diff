@@ -1,0 +1,32 @@
+diff --git a/src/upload.rs b/src/upload.rs
+index 9999999..aaaaaaa 100644
+--- a/src/upload.rs
++++ b/src/upload.rs
+@@ -1,5 +1,7 @@
++use std::collections::BTreeMap;
+ use std::fs;
+ use std::path::Path;
++use serde_json::Value;
+
+ pub fn upload(file: &Path, dest: &str) -> Result<(), String> {
+     let bytes = fs::read(file).map_err(|e| e.to_string())?;
+@@ -7,11 +9,17 @@ pub fn upload(file: &Path, dest: &str) -> Result<(), String> {
+         return Err("file too large".into());
+     }
+
+-    let payload = build_payload(&bytes);
+-    transmit(payload, dest)
++    if !dest.is_empty() {
++        if dest.starts_with("https://") {
++            if bytes.len() < 1048576 {
++                let payload = build_payload(&bytes);
++                return transmit(payload, dest);
++            }
++        }
++    }
++    Err("invalid destination or file size".into())
+ }
+
+ fn build_payload(bytes: &[u8]) -> Vec<u8> {
+     bytes.to_vec()
+ }

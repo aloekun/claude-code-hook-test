@@ -1,0 +1,16 @@
+diff --git a/src/foo.rs b/src/foo.rs
+index 1111111..2222222 100644
+--- a/src/foo.rs
++++ b/src/foo.rs
+@@ -1,8 +1,10 @@
++use std::collections::HashMap;
+ use std::fs;
++use std::path::Path;
+
+ pub fn read_text(path: &str) -> std::io::Result<String> {
+     fs::read_to_string(path)
+ }
+
+ pub fn count_lines(s: &str) -> usize {
+     s.lines().count()
+ }
