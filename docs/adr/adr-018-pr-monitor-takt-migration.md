@@ -173,3 +173,37 @@ Bundle b 設計時に再分析して判明した CronCreate の特性:
 - PR #114 (Bb-2): review_recheck CronCreate park + observer 撤廃
 - PR #115 (Bb-3): config 拡張 + SessionStart catch-up nudge + sanitize() (CR Major #1+#2 fold-in)
 - PR #116: Bb-3 post-merge-feedback 採用 3 件 (順位 76/77/78) を todo に登録
+
+## 追記 (2026-05-08): 順位 80 — auto-retry の transient failure scope 明文化
+
+PR #120 (cli-finding-classifier 統合) の dogfood で観測された **「rate-limit auto-retry が `RateLimitOutcome::Posted` 経路で park 予約せず silent exit する」** 事象を契機に、auto-retry の対象 transient failure pattern を本 ADR で明文化。
+
+### 対象 transient failure の分類
+
+| Pattern | Detection 基準 | Auto-retry 状態 | Notes |
+|---|---|---|---|
+| **Rate limit (待機型)** | `Rate limit exceeded` + 未来 reset_time | ✅ 実装済 (`RateLimitOutcome::Parked`) | reset まで `until_unix_secs` で park、再投稿不要 |
+| **Rate limit (即時型)** | `Rate limit exceeded` + 過去 reset_time | ✅ 実装済 (`RateLimitOutcome::Posted` + 順位 80 fix) | `@coderabbitai review` 投稿後、`review_recheck_wait_secs` で park (順位 80 fix で導入、silent exit 防止) |
+| **CR 投稿エラー** (`Failed to post review comments`) | walkthrough overlay の error message | ⏳ 未実装 (順位 81、1 観測のみ低頻度) | 頻度が確認できるまで実装を defer (memory: `feedback_no_unenforced_rules` 系の判断) |
+| **Wakeup 未予約 fallback** | rate-limit 検出ありで polling 終端時に next_wakeup_at_unix 未設定 | ⏳ 将来候補 | 順位 80 fix で `Posted` 経路は塞がれた、他経路の同型 silent exit が再観測されたら追加 |
+
+### 順位 80 fix の実装ポイント (PR #129 / 2026-05-08)
+
+`finalize_posted_retrigger` (poll.rs) を以下のように変更:
+
+- **Before**: 投稿後 `write_state` のみして `None` を返す → polling 継続 → max_duration timeout で `make_timeout_result` (silent exit)
+- **After**: 投稿後 `state.action = "parked_review_recheck"` + `next_wakeup_at_unix = now + review_recheck_wait_secs` を設定し、`format_park_signal` で PARK signal を stdout 出力、`Some(park_poll_result)` を返す → CronCreate wakeup で再開
+
+これにより、rate-limit detection 後の **全経路で必ず PARK signal が emit される** ことが構造的に保証される。
+
+### 順位 81 (CR 投稿エラー) を defer した理由
+
+- **Frequency**: 1 観測 (PR #120 のみ) で systemic 性が未確認
+- **Risk**: detection 拡張は false positive リスク (`Failed to post review comments` が本当に transient か、permanent failure かの判別が難しい)
+- **Decision**: ユーザー方針 `feedback_no_unenforced_rules` (機械検知不可なら何もしない方がマシ) と整合、**3 PR 観測** の閾値到達まで実装を defer
+- **Re-trigger 条件**: 同型の error message が別 PR で 2 件以上観測されたら順位 81 を再活性化
+
+### 関連 PR / commit (本追記)
+
+- PR #120 (Phase 5 land): rate-limit auto-retry の Posted 経路 silent exit 観測の根拠
+- 本 PR (順位 80 fix + 順位 82 ADR update + §A-2 P-4 ledger): 本 ADR 追記の land
