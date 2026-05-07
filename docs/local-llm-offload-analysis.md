@@ -664,6 +664,191 @@ jj edit feature/local-llm-dogfood
 - ADR-038 (ローカル LLM による CodeRabbit findings classification) — 本ファイル提案 2 の land 結果。試験運用 → 採用 / 却下 の判定は本 §10.6 経由
 - `docs-governance.md` (グローバル rule) — 本ファイル retirement workflow の準拠先
 
+## 11. §A-2 dogfood retrospective + evals 形式への検証方式切替 (2026-05-08)
+
+> **状態**: 試験運用 (本 §11 は §A-2 5 PR シリーズ完了後の振り返りで策定、2026-05-08)
+>
+> **目的**: §A-2 PR-based dogfood で実証された阻害要因を踏まえ、§8.D / §8.E / §8.F の妥当性検証を **evals 形式** (固定 diff fixture + 期待出力との突合) で進められるよう方針整備。今後の検証作業 (LLM / hook / lint rule 等) で再利用可能な検証パターンとして codify。
+
+### 11.1 §A-2 PR-based dogfood の振り返り
+
+5 PR (P-1〜P-5、PR #125〜#129) で classifier を実 review サイクルにかける dogfood を実施。集計結果 (§A-2 計測ログ詳細):
+
+| 項目 | 値 |
+|---|---|
+| classifier 起動率 | 2/5 = **40%** |
+| 阻害要因観測数 | **3 種** (findings ゼロ / review body 抽出漏れ / rate-limit) |
+| agreement rate | 2/2 = 100% (但し N=2 で statistically limited) |
+| 平均 latency | 6.5s/件 (目標 5s 超過 30%) |
+| dogfood 結論 | classifier 妥当性検証は不十分、阻害要因の発見が主成果 |
+
+### 11.2 PR-based dogfood の構造的限界
+
+実 PR review サイクルに依存する dogfood は以下を制御できない:
+
+| 阻害要因 | 影響 PR | 構造的原因 |
+|---|---|---|
+| **findings ゼロ** | P-1 (#125) | CR が APPROVE で終了 → classifier 入力なし。設計通りだが dogfood では noise |
+| **review body 抽出漏れ** | P-2 (#126), P-4 (#128) | `check-ci-coderabbit` が CR review body の `<details>` block 内 Nitpick を inline comment として抽出しない (parser の scope 限界)。手動 synthetic finding 構築で迂回したが本来は post-pr-monitor が自動でやるべき |
+| **CR rate-limit** | P-3 (#127), P-5 (#129) | per-hour commit quota 超過で review が blocked、classifier は CR 出力に依存するため連動 |
+
+これらは「実環境で実走させる」ことの benefit として一見良いが、**classifier の妥当性検証** という主目的に対しては noise / blocker として機能した。N=5 で実 classification データが取れたのは N=2 のみ。
+
+### 11.3 evals 形式の検証方式 (新提案)
+
+ユーザー提案 (本セッション 2026-05-08): `E:\work\claude-code-skills\analyze-pr\evals\evals.json` の構造を参考に、**固定 diff fixture + 期待出力 + 突合**で検証する。
+
+#### 参照: `analyze-pr` skill の evals 構造
+
+```text
+analyze-pr/
+├── SKILL.md
+├── evals/
+│   ├── evals.json           # eval ケース定義
+│   ├── trigger_eval.json    # skill 起動条件 (positive/negative)
+│   └── files/               # 固定 fixture
+│       ├── eval1-good-pr.diff
+│       ├── eval1-review-comments.json
+│       ├── eval1-reviews.json
+│       ├── eval2-clean-pr.diff
+│       └── ...
+```
+
+各 eval の構造:
+
+- **id**: ID
+- **prompt**: 入力 prompt (fixture file 参照を含む)
+- **expected_output**: prose 形式の期待出力サマリ
+- **files**: 補助 fixture files
+- **expectations**: 個別検証可能な assertion list (例: "Markdown レポートが '## PR Analysis Report' ヘッダーで始まる")
+
+### 11.4 §8.E (lint screen facet) への適用設計
+
+#### 目的
+
+takt の新 facet `ollama-lint-screen` で pre-push 時に diff の lint 一次フィルタを mistral:7b に逃す前に、**mistral:7b の lint 判定が Claude Code (gold standard) と同等の結果を安定して出すか**を検証。
+
+#### evals 構造案
+
+```text
+src/cli-finding-classifier/  (or 新 crate cli-lint-screener)
+└── evals/
+    ├── lint-screen-evals.json
+    └── files/
+        ├── eval1-unused-import.diff       # Rust unused import の典型
+        ├── eval2-deep-nesting.diff        # nesting > 4 levels
+        ├── eval3-magic-number.diff        # 未定数化数値
+        ├── eval4-clean.diff               # 問題なし (false positive 検知用)
+        ├── eval5-multi-issue.diff         # 複数 issue 混在
+        ├── eval6-existing-lint-overlap.diff # 既存 oxlint/biome が拾える系 (overlap 率測定用)
+        ├── eval7-style-only.diff          # style のみ (lint screen の対象外想定)
+        └── eval8-large-refactor.diff      # 大規模変更 (LLM の文脈長限界テスト)
+```
+
+#### eval 1 件の構造案
+
+```json
+{
+  "id": 1,
+  "name": "unused-import-detection",
+  "input_diff": "evals/files/eval1-unused-import.diff",
+  "claude_code_baseline": {
+    "model": "claude-sonnet-4-7",
+    "captured_at": "2026-05-08T...",
+    "lint_findings": [
+      {"severity": "minor", "rule": "unused-import", "file": "src/foo.rs", "line": 3,
+       "issue": "use std::collections::HashMap; が未使用", "suggestion": "削除"}
+    ],
+    "screen_decision": "auto_fix"
+  },
+  "expectations": [
+    "mistral:7b 出力の lint_findings 配列に unused-import 系 finding が 1 件含まれる",
+    "screen_decision が 'auto_fix' (Claude baseline と一致)",
+    "false positive (実在しない issue) の出力なし",
+    "latency ≤ 10s/件",
+    "JSON parse 成功 (fallback rate 0)"
+  ]
+}
+```
+
+#### 検証手順
+
+1. **claude_code_baseline 収集 (人間 + Claude Code)**: 各 diff を Claude Code 自身に読ませて lint findings を生成し、人間が確認して固定保存 (eval JSON 内に永続化)
+2. **mistral:7b runner 構築**: 既存 cli-finding-classifier を再利用 or 拡張 (`--mode lint-screen` を追加して diff 入力 + lint 出力 prompt を実装)
+3. **mistral:7b run**: 全 eval に対して runner 実行、output 取得
+4. **突合**: structured field (severity / rule / line) で agreement rate 計算、prose field (issue / suggestion) で string similarity / contains 判定
+5. **判定**: agreement rate ≥ 閾値 (例 80%) で「§8.E 着手 GO」、未達なら §8.D prompt v2 先行で再 evals
+
+### 11.5 evals 形式の利点 (PR-based との比較)
+
+| 観点 | PR-based dogfood (§A-2) | evals 形式 (§11) |
+|---|---|---|
+| 入力制御 | ❌ CR / GitHub / rate-limit に依存 | ✅ 完全制御 (固定 fixture) |
+| 再現性 | ❌ 同じ PR でも CR 出力が変動 | ✅ 同じ diff で同じ expected_output |
+| 速度 | ❌ wakeup ループで PR あたり 5-30 分 | ✅ 1 eval 数秒、5-10 件で 1 分以内 |
+| 統計的有意性 | ❌ 5 PR で実データ N=2 | ✅ 任意の N を確保可能 (10-30 件) |
+| 阻害要因 | ❌ 3 種の noise が混入 | ✅ noise なし、classifier 妥当性に focus |
+| 失敗 mode の分離 | ❌ 「classifier 不妥当」と「投入経路 broken」が混ざる | ✅ classifier 妥当性のみ純粋検証 |
+| 実環境 fidelity | ✅ 本番 review サイクルそのもの | ❌ 実 CR 挙動を 100% 模倣はできない |
+| 品質定義 | ⚠ post-hoc (実走後に評価) | ✅ ex-ante (expected_output で品質を定義) |
+| 範囲制御 | ❌ 全部入りで時間がかかる | ✅ 必要な範囲に絞れる |
+
+→ **classifier 妥当性検証 phase は evals 形式が圧倒的に優位**。実環境 fidelity が必要な phase (採用後の運用試験) は別途 PR-based dogfood で補う **2 段階アプローチ** が適切。
+
+### 11.6 §8.E 着手の進め方 (見直し版)
+
+旧計画 (§8.E 元の依存): 「§A-2 dogfood 完了 + 判定基準達成」 → §A-2 で判定不能となったため block。
+
+#### 新計画 (§A-2 retrospective を反映)
+
+1. **Phase a — evals infrastructure 整備** ✅ **本セッション (2026-05-08) で land**:
+   - 配置: 既存 `src/cli-finding-classifier/` を再利用 (新 crate は不要、`--mode lint-screen` 追加で対応)
+   - fixtures: `src/cli-finding-classifier/evals/files/` に 6 件 (initial scope) — unused-import / deep-nesting / magic-number / clean (FP 検知) / multi-issue / existing-lint-overlap
+   - eval JSON: `src/cli-finding-classifier/evals/lint-screen-evals.json` に Claude Code baseline + expectations を固定
+   - prompt: `src/cli-finding-classifier/prompts/lint-screen.txt` (出力契約 = `{ lint_findings, screen_decision }`)
+   - runner: `cli-finding-classifier --mode lint-screen` で diff stdin → LintScreenResult JSON stdout (fallback 経路は classify mode と同じ `human_review + fallback_reason`)
+   - compare: `tests/lint_screen_evals.rs` integration test (常時実行 schema/structure validation 12 件 + `#[ignore]` 付き Phase b 用 end-to-end runner)
+   - **追加サブタスクの先送り**: style-only / large-refactor 系 fixture (§11.4 の eval7-8) は Phase b 結果を見てから追加判断
+2. **Phase b — 判定 GO/NO-GO**:
+   - 実行: `cargo test -p cli-finding-classifier --test lint_screen_evals -- --ignored --nocapture run_lint_screen_against_all_fixtures`
+   - agreement ≥ 80% → §8.E 着手 GO
+   - 未達 → §8.D prompt v2 先行で再 evals → 改善後再判定
+3. **Phase c — §8.E 実装**: takt facet `ollama-lint-screen` 追加、初期 dogfood で実 PR の lint 一次フィルタ動作確認
+4. **Phase d — PR-based 実環境 dogfood**: §A-2 形式で 3-5 PR で token 削減 / latency 累積を計測 (この phase は evals で妥当性確保済のため short)
+
+### 11.7 進め方の総括 — 「いっぺんに進めすぎず、検証→計測→拡張のサイクル」
+
+#### §A-2 dogfood の反省 (本セッションでユーザーから指摘)
+
+> 「いっぺんに進めすぎて、結果を制御できていないように見えます」
+
+1 セッションで 5 PR を連続 land する負荷を取ってしまったため、阻害要因 3 種に振り回されて主目的 (classifier 妥当性検証 → §8.E 着手 GO/NO-GO 判定) を見失った。
+
+#### 新しい検証作業の運用原則
+
+1. **目的に最短 reach する検証手段を選ぶ**: 検証目的によって手段を分ける
+   - **「妥当性確認」**: evals 形式 (固定入力 + 期待出力 + 突合)
+   - **「実運用効果計測」**: PR-based dogfood (token / latency / 累積影響)
+2. **小さく早いサイクルから**: evals 5-10 件 → 結果評価 → 改善 or 拡張
+3. **阻害要因は副産物として記録**: §A-2 で発見した「review body 抽出漏れ」「rate-limit」「findings ゼロ」は §8.E の運用 phase で改めて対処、検証 phase では noise として除外
+4. **evals は組織資産**: §8.D / §8.F でも再利用可能 (各 facet/skill 用の eval セットを段階的に整備)
+5. **dogfood と evals は補完関係**: どちらか一方ではなく目的に応じた使い分け、検証は evals 先行 + 運用は dogfood 補完
+
+#### 結論: §8.E 着手の前提条件 (改訂版)
+
+| 旧 | 新 |
+|---|---|
+| §A-2 dogfood 完了 + 判定基準達成 | §11 evals (Phase a) で agreement rate ≥80% 達成 |
+| classifier 起動率の制約あり | classifier 起動率 100% (固定入力で必ず起動) |
+| 期間: 数日 (5 PR の land サイクル) | 期間: 半日〜1 日 (evals + 突合) |
+
+### 11.8 関連リンク
+
+- `analyze-pr` skill evals (参照モデル): `E:\work\claude-code-skills\analyze-pr\evals\evals.json` + `trigger_eval.json` + `files/eval*.diff`
+- `cli-finding-classifier` (ADR-038): mistral:7b runner として再利用可能
+- §A-2 計測ログ: PR-based dogfood の実測値、本 §11 の retrospective ベース
+- §8.E (本ファイル §8): lint screen facet の元計画、本 §11 で着手 phasing を改訂
+
 ## 関連リンク
 
 - [ADR-018: cli-pr-monitor の takt ベース移行と CronCreate 廃止](adr/adr-018-pr-monitor-takt-migration.md)
