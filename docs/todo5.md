@@ -927,3 +927,91 @@
 - code-review.md にチェックリスト項目が追加される
 - 次回複合 guard を持つ関数を含む PR でレビュー時に参照可能になる
 
+---
+
+### cli-pr-monitor: monitor state machine guard 強化 (`review_state: not_found && findings: []` を pending 据置) (PR #121 T1-1 採用) ★ Bundle g
+
+> **動機**: PR #119 / #120 / #121 で **3 PR 連続観測**: `review_state: "not_found"` (CR 未投稿) + `findings: []` のとき、monitor が "no findings = approved" と同一視して誤 approved 判定を出す。CodeRabbit review が後から到着しても見逃される潜在 risk。Frequency Medium 閾値到達済み (`.claude/feedback-reports/121.md` Tier 1 #1)。
+>
+> **参照**: PR #119 round 3 / PR #120 multiple wakeups / PR #121 multiple wakeups の dogfood 観測、`.claude/feedback-reports/121.md` Tier 1 #1
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity High (誤 approved リスク)、Effort S (state machine に条件分岐追加)、Adoption Risk なし (additive guard)。Bundle f #80 と関連するが別側面 (Bundle f は retry logic、本件は verdict logic)。
+
+#### 作業計画
+
+- [ ] `cli-pr-monitor/src/stages/monitor.rs` (or 関連 verdict 評価箇所) に `(review_state == "not_found", findings.is_empty())` を pending 据置にするガードを追加
+- [ ] 順位 86 と同 PR で land (回帰テスト同時整備)
+
+#### 完了基準
+
+- `review_state: "not_found" + findings: []` のケースで verdict が "approved" にならず "pending" 据置になる
+- 順位 86 の state transition test で本動作が machine-enforce される
+
+---
+
+### cli-pr-monitor: state transition test の網羅追加 (順位 85 の回帰テスト) (PR #121 T2-4 採用) ★ Bundle g
+
+> **動機**: 順位 85 の修正に対する regression 防止網。`(review_state, findings) → verdict` の transition matrix を表形式で定義。現状 `src/cli-pr-monitor/tests/` が 0 件なので新規作成。
+>
+> **参照**: `.claude/feedback-reports/121.md` Tier 2 #4
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium、Effort S、Frequency Medium (monitor edge case は複数 PR で再観測)。
+
+#### 作業計画
+
+- [ ] `src/cli-pr-monitor/tests/pr_monitor_state_test.rs` を新規作成
+- [ ] `(not_found, empty)` / `(not_found, populated)` / `(success, empty)` / `(success, populated)` 等の transition matrix を表形式テストで定義
+- [ ] 順位 85 と同 PR で land
+
+#### 完了基準
+
+- transition matrix 全 cell に対する verdict の expected/actual が assertion で検証される
+- 順位 85 のガード追加が test の 1 cell で fix されることを確認
+
+---
+
+### グローバルルール: Multi-PR chaining ベストプラクティスを codify (PR #121 T3-7 採用)
+
+> **動機**: PR #119 (init) → #120 (integrate) → #121 (organize) の 3 連鎖が dogfood で有効に機能。「各 PR は論理的ユニット (init/integrate/organize) を担当し、diff サイズは 250–800 lines を推奨」を再利用可能なガイドラインとして codify。
+>
+> **参照**: PR #119 / #120 / #121 セッション、`.claude/feedback-reports/121.md` Tier 3 #7
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS、Frequency Medium (3 PR で実証)、Adoption Risk なし。
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/git-workflow.md` の PR Workflow セクションに 3-5 行追記:
+  - 「複数 PR 連鎖時は init / integrate / organize 等の論理ユニットで分割」
+  - 「1 PR あたり diff size 目安: 250-800 lines」
+  - 「(参照) PR #119/#120/#121 で実証された 3 連鎖パターン」
+- [ ] 順位 88 と同 PR で land 可能 (どちらも XS、独立性高)
+
+#### 完了基準
+
+- git-workflow.md にガイドラインが記載される
+- 次回複数 PR 連鎖時にレビュー基準として参照可能になる
+
+---
+
+### グローバルルール: edge case 観測頻度 3 = Tier 1 昇格基準を codify (PR #121 T3-8 採用)
+
+> **動機**: post-merge-feedback workflow が暗黙的に適用している「同じ edge case が 3 PR 観測されたら Tier 1 に昇格」基準を明文化。ユーザーが直前で示した「新規フィードバックは頻度が確認できるまで優先しない」方針と同根、両者の収束で frequency 判定の再現性が向上。
+>
+> **参照**: 本セッション (PR #119/#120/#121) で発生した Bundle f #80 の 3 観測昇格判定、`.claude/feedback-reports/121.md` Tier 3 #8
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS、Frequency Medium (繰り返し適用される暗黙ルール)、Adoption Risk なし。
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/development-workflow.md` または `docs-governance.md` 等に 3-5 行追記:
+  - 「edge case が 3 観測に達したらタスクを Tier 1 に昇格して優先実装」
+  - 「観測カウントは feedback report で `Frequency Medium 閾値到達` と明示」
+  - (参照) Bundle f 順位 80 の昇格事例
+- [ ] 順位 87 と同 PR で land 可能
+
+#### 完了基準
+
+- 該当 rule に頻度閾値が明記される
+- 次回 post-merge-feedback workflow が報告した「Frequency Medium 到達」が rule 側から逆引き可能になる
+
+
