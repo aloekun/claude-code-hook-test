@@ -822,3 +822,108 @@
 - ルール追加自体は機械検知不可だが、本 task は **既存の retirement workflow の Step 2 を拡充するもの** (新規 rule の追加ではなく既存 rule の精緻化) なので、memory `feedback_no_unenforced_rules.md` の「強制力のないルール追加は却下」原則とは性質が異なる。retirement workflow を実行する commit/PR で `grep -E "完了|deprioritize|defer"` 等の機械検知を後付け可能 (ただし本 task の scope 外)
 - 3 値分類が実用的な粒度か、より細かい分類が必要か (例: `subsumed` を `merged into bundle` / `replaced by ADR` 等に分割) は実装時に dogfood で判断
 
+---
+
+### cli-pr-monitor: rate-limit auto-retry wakeup 予約ロジックの整理 (PR #120 T1-1 採用) ★ Bundle f
+
+> **動機**: PR #120 dogfood で「`rate_limit_config.auto_retry_enabled = true / max_retries = 3` でも rate-limit 検出後に wakeup park が予約されず exit する」事象を観測。手動 `@coderabbitai review` + `CronCreate` 投入でリカバリ。ADR-018 で設計された auto-retry に実装落ちが疑われる。
+>
+> **参照**: PR #120 dogfood 観測、`.claude/feedback-reports/120.md` Tier 1 #1
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort M。`cli-pr-monitor/src/stages/poll.rs::handle_rate_limit_branch` 周辺と state.rate_limit_retries 制御の整合性確認。
+
+#### 作業計画
+
+- [ ] `auto_retry_enabled = true` 経路で rate-limit 検出時に確実に `parked_review_recheck` (or 専用 reason) で park signal を emit する
+- [ ] `rate_limit_retries` がインクリメントされない / 上限到達後の挙動を test infra で再現
+- [ ] 順位 81 / 82 と同 PR で land (Bundle f コア実装)
+
+#### 完了基準
+
+- rate-limit 検出時に常に PARK signal が emit される (silent exit が消える)
+- regression test (auto_retry_enabled=true で rate-limit 注入 → park 予約) が green
+
+---
+
+### cli-pr-monitor: CR 投稿エラー (`Failed to post review comments`) auto-retry 拡張 (PR #120 T1-2 採用) ★ Bundle f
+
+> **動機**: PR #120 dogfood で CR walkthrough overlay が `Failed to post review comments` (rate-limit ではない transient failure) を表示するも `parse_rate_limit_status` が detected せず、auto-retry が発火しなかった。1 観測だが auto-retry の silent failure として機能不全。
+>
+> **参照**: PR #120 walkthrough comment (16:41Z 投稿)、`.claude/feedback-reports/120.md` Tier 1 #2
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort M。`check-ci-coderabbit/src/main.rs` の failure detection 拡張 + cli-pr-monitor の retry path 共通化。
+
+#### 作業計画
+
+- [ ] `Review failed` / `Failed to post review comments` 等の transient failure pattern を detection に追加
+- [ ] rate-limit 系と統合する場合は state field を `transient_failure: Option<TransientFailureKind>` に一般化検討
+- [ ] 順位 80 と同 PR で land (Bundle f)
+
+#### 完了基準
+
+- `Failed to post review comments` を含む walkthrough overlay 検出時に auto-retry が発火する
+- regression test (failure pattern 注入 → auto-retry 発火) が green
+
+---
+
+### ADR-018 update: rate-limit 以外の transient failure auto-retry 設計の明文化 (PR #120 T3-2 採用) ★ Bundle f
+
+> **動機**: 順位 80 / 81 で実装する設計方針 (rate-limit 以外の transient failure も auto-retry 範囲) を ADR-018 に明記しないと、将来の同型実装落ちが構造的に再発するリスク。
+>
+> **参照**: PR #120 T1-1 / T1-2 観測、`.claude/feedback-reports/120.md` Tier 3 #2、[ADR-018](adr/adr-018-pr-monitor-takt-migration.md)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。順位 80 / 81 と同 PR で同時更新 (実装と仕様の整合確保)。
+
+#### 作業計画
+
+- [ ] ADR-018 に「auto-retry の対象 transient failure pattern」セクション追加
+- [ ] rate-limit + 投稿エラー + (将来候補) wakeup 未予約を列挙
+- [ ] 順位 80 / 81 と同 PR で land
+
+#### 完了基準
+
+- ADR-018 に対象 failure pattern が enumerable 形式で列挙される
+- 順位 80 / 81 の実装が ADR-018 から逆引き可能
+
+---
+
+### cli-pr-monitor: 複合 AND guard の各条件を独立テストで検証 (PR #120 T2-1 採用)
+
+> **動機**: PR #120 で `enrich_with_classifier_skips_when_disabled` テストが `enabled=false` と `classified_findings.is_empty()` を同時に真にする setup で書かれており、`enabled=false` パスを純粋に分離できなかった。複合 guard は今後も発生しうるため独立 variant test で各条件を分離する。
+>
+> **参照**: PR #120 W-001、`.claude/feedback-reports/120.md` Tier 2 #1
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。`cli-pr-monitor/src/stages/poll.rs::tests` の `enrich_with_classifier_*` テスト群拡充。
+
+#### 作業計画
+
+- [ ] `enabled=false` 単独 variant (findings 非空、classified_findings 非空) を追加
+- [ ] `findings.is_empty()` 単独 variant も同様に分離
+- [ ] 既存テストとの責務分担をコメントで明示
+
+#### 完了基準
+
+- 各 early-return 条件を単独で検証する test variant が存在
+- 1 つの条件を変更したとき該当 variant のみ落ちる (= 責務分離が機械的に確認可能)
+
+---
+
+### グローバルルール: code-review.md に「early-return guard テスト分離」チェックリスト追記 (PR #120 T3-1 採用)
+
+> **動機**: PR #120 W-001 (複合 AND guard テストの責務混在) の知見を `~/.claude/rules/common/code-review.md` の review checklist に codify、次回 PR レビューで活用。
+>
+> **参照**: PR #120 W-001、`.claude/feedback-reports/120.md` Tier 3 #1、`~/.claude/rules/common/code-review.md`
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。1 行追記。順位 83 と独立に並列実施可。
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/code-review.md` の review checklist セクションに 1 行追記:
+  - 「複合 AND の early-return guard を持つ関数のテストは、各条件を独立 variant で検証すること」
+- [ ] 派生プロジェクト deploy には影響なし (global rule のみ)
+
+#### 完了基準
+
+- code-review.md にチェックリスト項目が追加される
+- 次回複合 guard を持つ関数を含む PR でレビュー時に参照可能になる
+
