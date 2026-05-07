@@ -1346,7 +1346,6 @@ extensions = ["ts", "js"]
 
     #[test]
     fn md_mutable_anchor_skips_external_url_with_fragment() {
-        // 外部 URL の fragment は GFM anchor ではないため誤検知すべきでない
         let dir = tempfile::tempdir().unwrap();
         let file = write_file(
             dir.path(),
@@ -1354,6 +1353,169 @@ extensions = ["ts", "js"]
             "See [spec](https://example.com/#日本語)\n",
         );
         let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    fn rs_time_field_strict_greater_rule() -> CustomRule {
+        make_test_rule(
+            "no-time-field-strict-greater",
+            r"\b(created_at|submitted_at|updated_at|comment_event_time|event_time|comment_created_at|published_at|posted_at|commented_at)\s*>\s*[a-zA-Z_]",
+            &["rs"],
+        )
+    }
+
+    fn build_rs_source_with_op(field_lhs: &str, op: &str, rhs: &str) -> String {
+        format!("fn f() {{ items.iter().filter(|c| c.{field_lhs} {op} {rhs}); }}\n")
+    }
+
+    fn build_doc_comment_source(field_lhs: &str, op: &str, rhs: &str) -> String {
+        format!("/// `{field_lhs} {op} {rhs}` (epoch 0 で実質全件)\nfn f() {{}}\n")
+    }
+
+    fn build_toml_with_field(field_lhs: &str, op: &str, rhs: &str) -> String {
+        format!("comment = \"{field_lhs} {op} {rhs}\"\n")
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_detects_created_at_gt_push_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("created_at", ">", "push_time"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_detects_submitted_at_gt_since() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("submitted_at", ">", "since"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_detects_updated_at_gt_threshold() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("updated_at", ">", "threshold"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_detects_comment_event_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("comment_event_time", ">", "now"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_skips_inclusive_comparison() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("created_at", ">=", "push_time"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_skips_strict_less_than() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stale.rs",
+            &build_rs_source_with_op("created_at", "<", "threshold"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_skips_le_inclusive() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("created_at", "<=", "cutoff"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_skips_numeric_rhs() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("created_at", ">", "0"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_skips_doc_comment_with_inclusive() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "doc.rs",
+            &build_doc_comment_source("created_at", ">=", "push_time"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_skips_unrelated_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "parse.rs",
+            &build_rs_source_with_op("count", ">", "limit"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn rs_time_field_strict_greater_only_targets_rs() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "config.toml",
+            &build_toml_with_field("created_at", ">", "push_time"),
+        );
+        let rules = compile_test_rules(vec![rs_time_field_strict_greater_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert!(violations.is_empty());
     }

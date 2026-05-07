@@ -200,3 +200,40 @@ steps = [
 [rules.example]
 bad = 'BLOCK_MESSAGE: &str = "詳細: docs/todoN.md (N = 数字) の \"<section>\" 参照";'
 good = 'BLOCK_MESSAGE: &str = "詳細: docs/adr/adr-NNN-feature.md 参照";'
+
+# ─── ルール⑦: Rust 時刻フィールドの strict `>` 比較禁止 (boundary inconsistency 防止) ───
+#
+# 由来: PR #101 で `parse_listed_findings` の `c.created_at > push_time` が CodeRabbit
+# Minor 指摘 → 同一ファイル内 3 関数 (parse_listed_findings / parse_new_comments /
+# parse_findings) で `>` vs `>=` の latent drift が判明 (parse_rate_limit のみ既に `>=`)。
+# 時刻フィールドの strict `>` は境界 (push_time と同時刻のイベント) を silently 除外
+# するため、`>=` への揃えを構造的に強制する。
+#
+# 由来: PR #101 post-merge-feedback Tier 1 #2 採用、Bundle Z #B-α と同じ
+# 「決定論的防止層」哲学 (ADR-007 の正規表現層)。
+#
+# Direction-specific 設計 (`>` のみ flag):
+# `<` の strict 比較は別文脈 (例: is_stale の `created_at < threshold` =
+# TTL 内/外判定) で意図的な exclusive 境界として正しいケースが多いため
+# false positive 回避のため scope を `>` に限定。`<` 側の boundary 問題は
+# 観測されたら別 rule で対応する。
+
+[[rules]]
+id = "no-time-field-strict-greater"
+pattern = '\b(created_at|submitted_at|updated_at|comment_event_time|event_time|comment_created_at|published_at|posted_at|commented_at)\s*>\s*[a-zA-Z_]'
+severity = "warning"
+message = "時刻フィールドの strict `>` 比較を検出。境界 (同時刻イベント) を silently 除外するため `>=` 比較への揃えを推奨"
+why = "PR #101 で同一ファイル内 3 関数で `>` vs `>=` の latent drift が判明 (parse_listed_findings の `c.created_at > push_time` が CR Minor 指摘 → 揃え修正)。時刻フィールドの strict inequality は境界の inclusive/exclusive choice を不可視にし、bug class を生む。`>=` への揃えで boundary を明示する"
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "`>=` への置き換え (境界 inclusive)"
+steps = [
+  "`field > rhs` を `field >= rhs` に変更 (同時刻のイベントを含める)",
+  "意図的に exclusive にする場合: 比較対象を 1 単位ずらす (`field >= rhs.checked_add(1)?` 等) かコメントで意図を明示",
+  "false positive (時刻でない `created_at` 等) の場合: 変数名を時刻と紛らわしくない名前にリネーム",
+]
+
+[rules.example]
+bad = "comments.iter().filter(|c| c.created_at > push_time)"
+good = "comments.iter().filter(|c| c.created_at >= push_time)"
