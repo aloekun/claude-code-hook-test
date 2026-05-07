@@ -25,7 +25,6 @@
 | 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
 | 5 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
-| 7 | 🚀 Tier 1 | **PowerShell custom-lint-rule の `(?i)` フラグ自動検証 (PR #91 T1-1)** | todo3.md | S | なし (PR #91 直接対策、code-review.md 追記も同 PR で land) |
 | 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 20 の compensating check 前提) |
 | 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
 | 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |

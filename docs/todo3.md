@@ -226,52 +226,6 @@ prompt and prompt Claude to re-run the workflow.
 
 ---
 
-### PowerShell custom-lint-rule の `(?i)` フラグ自動検証 (PR #91 T1-1)
-
-> **動機**: PR #91 で `no-empty-powershell-catch` / `no-silent-error-action` の regex に `(?i)` が欠落し、`Catch {}` / `-erroraction silentlycontinue` 等の大文字バリアントを見逃して CodeRabbit Major 指摘を受けた。PowerShell は言語仕様として keyword + parameter 名 case-insensitive だが、AI 生成 regex はデフォルトで case-sensitive になる構造的な落とし穴がある。本 PR で fix 済 (commit a15b263) だが、次回ルール追加時に同種の漏れが起きないよう自動検証を追加する。
->
-> **本タスクの位置づけ**: hooks-post-tool-linter の起動時 (or 専用 test) で「`extensions = ["ps1"]` を含む全ルールの `pattern` に `(?i)` が含まれる」アサーションを追加。同 PR で `~/.claude/rules/common/code-review.md` に「case-insensitive 言語向け lint rule は `(?i)` 必須」のチェックリスト項目を追記 (report Tier 3 #1 を統合)。
->
-> **参照**: `.claude/feedback-reports/91.md` の Tier 1 #1 + Tier 3 #1 (統合採用)
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 S。決定論的な再発防止で本 PR の主要 finding に直結。Bundle 戦略の継続として code-review.md ルール追記も同 PR で land。
-
-#### 設計決定 (案)
-
-- 配置先: `src/hooks-post-tool-linter/src/main.rs` の `load_custom_rules()` か専用 unit test
-- 検証ロジック (案 A: 起動時 check):
-  ```rust
-  for rule in &rules {
-      if rule.extensions.iter().any(|e| e == "ps1") && !rule.pattern.contains("(?i)") {
-          eprintln!("[post-tool-linter] WARN: rule '{}' targets ps1 but lacks (?i) flag", rule.id);
-      }
-  }
-  ```
-- 案 B: cargo test で全 TOML rule をパースして同等検証 (CI で fail させる)
-- 推奨: 案 A + 案 B 併用 (起動時 warn は本番運用、test は CI 検出)
-- 同 PR 同梱の code-review.md ルール追記 (案):
-  > **case-insensitive 言語向け lint rule の正規表現には `(?i)` フラグ必須**: PowerShell, Bash 等の case-insensitive 言語向けルールを追加する際、regex pattern に `(?i)` を付与する。テストで小文字 / 大文字 / 混在ケースを最低 1 ずつ検証する。
-
-#### 作業計画
-
-- [ ] hooks-post-tool-linter に起動時 check 実装 (案 A)
-- [ ] cargo test に rule バリデーション test 追加 (案 B)
-- [ ] `~/.claude/rules/common/code-review.md` に case-insensitive ルール追記
-- [ ] dogfood: 意図的に `(?i)` を外したルールを TOML に追加して warn 発火を確認
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- `.claude/custom-lint-rules.toml` に新規 ps1 ルールを追加した際、`(?i)` 欠落を起動時 warn または cargo test fail で検出できる
-- code-review.md に case-insensitive 言語の lint rule 規約が明記される
-- 既存 ps1 ルール 2 件 (`no-empty-powershell-catch`, `no-silent-error-action`) が validation を pass する
-
-#### 詰まっている箇所
-
-なし (Effort S、既存 load_custom_rules 拡張のみ)
-
----
-
 ### takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)
 
 > **動機**: PR #91 の post-pr-review で `supervise` step が 4 回、`fix_supervisor` step が 4 回の計 8 ステップを「修正不可能な制約あり」と繰り返し報告したにもかかわらず、takt harness はループを継続した。`.claude/` filter + ADR-030 制約明記 task (PR #91 T2-1 + T3-2 Bundle) が path-based に解決するのに対し、本 task は **iteration 上限到達前に「人間判断に委譲する」と AI 自身が宣言できる verdict** を提供する一般解。
