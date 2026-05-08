@@ -3,13 +3,36 @@ use std::path::{Path, PathBuf};
 
 pub(crate) const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
 pub(crate) const DEFAULT_PUSH_TIMEOUT_SECS: u64 = 300;
+pub(crate) const DEFAULT_LINT_SCREEN_TIMEOUT_SECS: u64 = 60;
+pub(crate) const DEFAULT_LINT_SCREEN_MAX_DIFF_LINES: usize = 5000;
+pub(crate) const DEFAULT_LINT_SCREEN_MODEL: &str = "mistral:7b";
+pub(crate) const DEFAULT_LINT_SCREEN_ENDPOINT: &str = "http://localhost:11434";
+pub(crate) const DEFAULT_LINT_SCREEN_EXE_PATH: &str = ".claude/cli-finding-classifier.exe";
+pub(crate) const DEFAULT_LINT_SCREEN_OUTPUT_PATH: &str = ".takt/lint-screen-report.md";
 
 #[derive(Deserialize)]
 pub(crate) struct Config {
     pub(crate) quality_gate: QualityGateConfig,
     pub(crate) diff: Option<DiffConfig>,
+    pub(crate) lint_screen: Option<LintScreenConfig>,
     pub(crate) takt: TaktConfig,
     pub(crate) push: PushConfig,
+}
+
+/// Phase c (§8.E lint screen facet) — pre-push 時に diff を mistral:7b に流して
+/// lint 一次フィルタの所見を `.takt/lint-screen-report.md` として出力する。
+///
+/// `enabled = false` の場合は完全 no-op (default OFF, 試験運用)。
+/// Ollama down / timeout / diff 過大時は skip + warn (push を block しない)。
+#[derive(Deserialize)]
+pub(crate) struct LintScreenConfig {
+    pub(crate) enabled: bool,
+    pub(crate) exe_path: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) endpoint: Option<String>,
+    pub(crate) timeout_secs: Option<u64>,
+    pub(crate) max_diff_lines: Option<usize>,
+    pub(crate) output_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -265,6 +288,7 @@ command = "echo push"
                 groups: vec![],
             },
             diff: None,
+            lint_screen: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
@@ -293,6 +317,7 @@ command = "echo push"
                 }],
             },
             diff: None,
+            lint_screen: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
