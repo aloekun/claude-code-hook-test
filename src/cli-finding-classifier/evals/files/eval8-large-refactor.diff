@@ -1,0 +1,67 @@
+# SYNTHETIC FIXTURE: eval8-large-refactor
+# issue_pattern: 3 file / 60+ 行の architectural addition + magic-number 1 件 (3600)
+# expected_screen_decision: auto_fix
+# verification_purpose: 大規模 context 内で magic-number を取りこぼさず拾えるか
+diff --git a/src/auth/mod.rs b/src/auth/mod.rs
+index aaaaaaa..bbbbbbb 100644
+--- a/src/auth/mod.rs
++++ b/src/auth/mod.rs
+@@ -1,5 +1,15 @@
++pub mod session;
++pub mod token;
++
+ pub struct Auth { /* ... */ }
++
++impl Auth {
++    pub fn authenticate(&self, user: &str, pass: &str) -> Result<token::Token, AuthError> {
++        let session = self.create_session(user, pass)?;
++        let issued = self.issue_token(session.id())?;
++        Ok(issued)
++    }
++}
+diff --git a/src/auth/session.rs b/src/auth/session.rs
+new file mode 100644
+index 0000000..ccccccc
+--- /dev/null
++++ b/src/auth/session.rs
+@@ -0,0 +1,23 @@
++use std::time::Duration;
++
++pub struct Session {
++    id: String,
++    ttl: Duration,
++}
++
++impl Session {
++    pub fn new(id: String) -> Self {
++        Self {
++            id,
++            ttl: Duration::from_secs(3600),
++        }
++    }
++
++    pub fn id(&self) -> &str {
++        &self.id
++    }
++
++    pub fn ttl(&self) -> Duration {
++        self.ttl
++    }
++}
+diff --git a/src/auth/token.rs b/src/auth/token.rs
+new file mode 100644
+index 0000000..ddddddd
+--- /dev/null
++++ b/src/auth/token.rs
+@@ -0,0 +1,12 @@
++pub struct Token(String);
++
++impl Token {
++    pub fn new(value: String) -> Self {
++        Self(value)
++    }
++
++    pub fn value(&self) -> &str {
++        &self.0
++    }
++}

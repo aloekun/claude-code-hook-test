@@ -1,0 +1,27 @@
+# SYNTHETIC FIXTURE: eval12-test-cfg
+# issue_pattern: #[cfg(test)] 内の dead code (test 慣用、意図的に未使用 helper を含む)
+# expected_screen_decision: informational
+# verification_purpose: prompt template の "test-only patterns inside #[cfg(test)]" 指示を LLM が遵守するか
+diff --git a/src/widget.rs b/src/widget.rs
+index 5555555..6666666 100644
+--- a/src/widget.rs
++++ b/src/widget.rs
+@@ -10,6 +10,18 @@ impl Widget {
+         self.size
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn unused_helper() -> Widget {
++        Widget::new(0)
++    }
++
++    #[test]
++    fn computes_size() {
++        let w = Widget::new(42);
++        assert_eq!(w.size(), 42);
++    }
++}

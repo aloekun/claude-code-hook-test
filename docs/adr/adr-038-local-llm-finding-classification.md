@@ -111,6 +111,38 @@ Ollama 不在 / timeout / parse 失敗 / invalid action は **fallback として
 - `effort` / `cross-finding clustering` field の実装
 - 他用途 (PR description draft, lint screen) への `lib-ollama-client` 流用
 
+## eval fixture 設計の 3 軸
+
+`src/cli-finding-classifier/evals/files/eval*.diff` は LLM の挙動を測定するための **合成 fixture** であり、現実のコードではない。fixture 追加・編集時は以下の 3 軸を file 先頭コメントで明示すること (PR #130 → Phase b' 拡張で codify):
+
+| 軸 | 内容 | 例 |
+|---|---|---|
+| **issue_pattern** | この fixture が含む lint 観点 | `unused-import` / `deep-nesting` / `magic-number` / `clean (FP 検知)` / `multi-issue mixed` / `existing-lint-overlap` |
+| **expected_screen_decision** | baseline で期待される screen_decision | `auto_fix` / `human_review` / `informational` |
+| **verification_purpose** | 何を測りたいか (recall / precision / boundary / context-handling 等) | 「4 levels 境界でも flag しないか」「N=4 unused-import の取りこぼし測定」 |
+
+### 標準コメントヘッダ
+
+各 `eval*.diff` の先頭に以下フォーマットでコメントブロックを置く (diff の `diff --git` 行より前):
+
+```text
+# SYNTHETIC FIXTURE: eval3-magic-number
+# issue_pattern: magic-number 検出
+# expected_screen_decision: auto_fix
+# verification_purpose: 複数 magic-number (5 と 30000) の取りこぼし検証
+# Note: dead-code (delay_ms > 30000 unreachable guard) は意図的、検出対象外
+```
+
+LLM 入力時には runner が `#` で始まる leading 行を skip し `diff --git` 以降のみを LLM に渡す (= コメントは LLM の挙動に影響しない、reviewer 用ドキュメント)。
+
+**適用範囲**: Phase b' 以降に追加する新規 fixture には必須。Phase a 既存 6 件 (eval1-6) は backfill 任意 (LLM 挙動への影響はないが、reviewer 視認性向上には寄与)。
+
+### 由来
+
+- PR #130 review で eval3 の `delay_ms > 30000` unreachable guard が「dead-code 観点で fixture 品質低い」と CodeRabbit に指摘された。意図 (`magic-number` 検出専用 fixture) を comment header で明示すれば reviewer の往復が減る
+- post-merge-feedback T3-2 (Frequency Medium / Effort S / Adoption Risk None) として採用
+- Phase b/c/d で fixture 追加が継続するため、設計意図のドリフトを構造的に防ぐ
+
 ## 関連
 
 - [docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) — 本 ADR の origin 調査レポート

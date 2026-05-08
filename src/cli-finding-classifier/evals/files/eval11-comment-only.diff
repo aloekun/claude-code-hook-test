@@ -1,0 +1,20 @@
+# SYNTHETIC FIXTURE: eval11-comment-only
+# issue_pattern: コメント追加のみ (コードロジック不変)
+# expected_screen_decision: informational
+# verification_purpose: コメント追加を modification として誤検知しない (false-positive 抑制)
+diff --git a/src/utils.rs b/src/utils.rs
+index 3333333..4444444 100644
+--- a/src/utils.rs
++++ b/src/utils.rs
+@@ -1,8 +1,12 @@
++/// Trims whitespace from both ends of `s`.
++///
++/// Returns a String, since &str cannot own data.
+ pub fn trim(s: &str) -> String {
+     s.trim().to_string()
+ }
+
+ pub fn lines(s: &str) -> Vec<&str> {
++    // Split on newlines, preserving empty lines
+     s.lines().collect()
+ }

@@ -1,0 +1,21 @@
+# SYNTHETIC FIXTURE: eval10-nesting-boundary
+# issue_pattern: nesting がちょうど 4 levels (閾値 'deeper than 4' を超えない)
+# expected_screen_decision: informational
+# verification_purpose: prompt template の 4 levels 閾値を厳密に解釈するか (boundary case)
+diff --git a/src/check.rs b/src/check.rs
+index 1111111..2222222 100644
+--- a/src/check.rs
++++ b/src/check.rs
+@@ -1,3 +1,15 @@
+ pub fn approve(req: &Request) -> bool {
++    if req.user.is_active() {
++        if req.user.has_role("admin") {
++            if req.resource.is_visible() {
++                if req.resource.is_published() {
++                    return true;
++                }
++            }
++        }
++    }
++    false
+ }
