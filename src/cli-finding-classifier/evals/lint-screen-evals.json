@@ -211,14 +211,163 @@
             "suggestion": "import を削除"
           }
         ],
-        "screen_decision": "informational",
-        "overlap_note": "全 finding が oxlint/biome の既存ルール範囲。lint screen で人間に提示する必要なし (既存 linter で auto-fix 可能)"
+        "screen_decision": "auto_fix",
+        "design_note": "Phase b' v3 採用時に baseline を informational → auto_fix へ修正 (2026-05-08)。lint screen の責務は『mechanical findings の検出』に統一し、『oxlint 既知範囲なら informational』というメタ判定は LLM への要求過剰として削除。informational は実体として findings ゼロの時のみ。"
       },
       "expectations": [
         "lint_findings が 1 件以上含まれる",
-        "screen_decision が 'informational' (既存 linter 範囲のため lint screen の付加価値なし)",
+        "screen_decision が 'auto_fix' (mechanical findings: var / unused-vars / unused-import)",
         "overlap 率測定用: oxlint/biome ルール名 (no-var / no-unused-vars / no-unused-imports) との一致を計算可能",
         "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "style-only-no-false-positive",
+      "input_diff": "evals/files/eval7-style-only.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3 / Phase b' 拡張",
+        "lint_findings": [],
+        "screen_decision": "informational"
+      },
+      "expectations": [
+        "lint_findings が 0 件 (whitespace のみの変更を flag しない)",
+        "screen_decision が 'informational'",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "large-refactor-context-stress",
+      "input_diff": "evals/files/eval8-large-refactor.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3 / Phase b' 拡張",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/auth/session.rs",
+            "line": 13,
+            "issue": "TTL のリテラル 3600 がハードコード",
+            "suggestion": "const DEFAULT_TTL_SECS: u64 = 3600; に切り出す"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 1 件以上",
+        "rule または issue が magic-number を含む",
+        "screen_decision が 'auto_fix' (architectural 追加だが lint 軸では magic-number のみ)",
+        "JSON parse 成功",
+        "context 限界テスト: 3 file / 80+ 行を読み終える"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "multi-import-recall-stress",
+      "input_diff": "evals/files/eval9-multi-import-leak.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3 / Phase b' 拡張",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 1,
+            "issue": "use std::collections::HashMap; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 2,
+            "issue": "use std::collections::BTreeMap; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 3,
+            "issue": "use std::path::Path; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 4,
+            "issue": "use serde_json::Value; が未使用",
+            "suggestion": "import を削除"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 3 件以上 (4 件 unused-import を取りこぼさない recall stress)",
+        "全 finding の rule が unused-import 系",
+        "screen_decision が 'auto_fix'",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "nesting-boundary-strict-threshold",
+      "input_diff": "evals/files/eval10-nesting-boundary.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3 / Phase b' 拡張",
+        "lint_findings": [],
+        "screen_decision": "informational"
+      },
+      "expectations": [
+        "lint_findings が 0 件 (4 levels は閾値 'deeper than 4' を超えていない)",
+        "screen_decision が 'informational'",
+        "JSON parse 成功",
+        "境界判定テスト: prompt template の '4 levels' 閾値を厳密に解釈するか"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "comment-only-no-false-positive",
+      "input_diff": "evals/files/eval11-comment-only.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3 / Phase b' 拡張",
+        "lint_findings": [],
+        "screen_decision": "informational"
+      },
+      "expectations": [
+        "lint_findings が 0 件 (コメント追加のみ、コードロジック不変)",
+        "screen_decision が 'informational'",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "test-cfg-respects-test-only-code",
+      "input_diff": "evals/files/eval12-test-cfg.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-08",
+        "captured_by": "claude-code-session-f21fb1a3 / Phase b' 拡張",
+        "lint_findings": [],
+        "screen_decision": "informational"
+      },
+      "expectations": [
+        "lint_findings が 0 件 (#[cfg(test)] 内の unused_helper は test 慣用、過剰指摘抑制)",
+        "screen_decision が 'informational'",
+        "JSON parse 成功",
+        "prompt template の 'test-only patterns inside #[cfg(test)] / describe( / test( blocks' 指示を LLM が遵守するか"
       ]
     }
   ]

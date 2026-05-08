@@ -1,0 +1,19 @@
+# SYNTHETIC FIXTURE: eval7-style-only
+# issue_pattern: whitespace-only changes (no semantic diff)
+# expected_screen_decision: informational
+# verification_purpose: LLM が style-only 変更を flag しない (false-positive 抑制)
+diff --git a/src/format.rs b/src/format.rs
+index aaaaaaa..bbbbbbb 100644
+--- a/src/format.rs
++++ b/src/format.rs
+@@ -1,7 +1,7 @@
+-pub fn format_value(v: &str) -> String {
+-    v.trim().to_string()
+-}
++pub fn format_value( v: &str ) -> String {
++    v.trim( ).to_string( )
++}
+
+ pub fn count(s: &str) -> usize {
+     s.len()
+ }

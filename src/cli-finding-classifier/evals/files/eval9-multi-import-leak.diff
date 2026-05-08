@@ -1,0 +1,18 @@
+# SYNTHETIC FIXTURE: eval9-multi-import-leak
+# issue_pattern: unused-import × 4 (HashMap / BTreeMap / Path / Value)
+# expected_screen_decision: auto_fix
+# verification_purpose: 複数 issue 取りこぼし stress test (recall 軸)
+diff --git a/src/parser.rs b/src/parser.rs
+index eeeeeee..fffffff 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -1,5 +1,9 @@
++use std::collections::HashMap;
++use std::collections::BTreeMap;
++use std::path::Path;
++use serde_json::Value;
+ use std::fs;
+
+ pub fn parse(path: &str) -> std::io::Result<String> {
+     fs::read_to_string(path)
+ }
