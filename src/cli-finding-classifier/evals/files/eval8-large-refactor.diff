@@ -1,5 +1,5 @@
 # SYNTHETIC FIXTURE: eval8-large-refactor
-# issue_pattern: 3 file / 80+ 行の architectural addition + magic-number 1 件 (3600)
+# issue_pattern: 3 file / 60+ 行の architectural addition + magic-number 1 件 (3600)
 # expected_screen_decision: auto_fix
 # verification_purpose: 大規模 context 内で magic-number を取りこぼさず拾えるか
 diff --git a/src/auth/mod.rs b/src/auth/mod.rs
