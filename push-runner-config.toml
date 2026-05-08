@@ -5,7 +5,9 @@
 
 [quality_gate]
 parallel = true
-step_timeout = 120
+# step_timeout = 180s (Phase b' end-to-end test の `cargo test -- --ignored` が
+# mistral:7b への 12 件 invoke で 120s 境界に達するため拡大、PR #132 で実証)
+step_timeout = 180
 
 [[quality_gate.groups]]
 name = "lint"
@@ -34,6 +36,24 @@ commands = [
 [diff]
 command = "jj diff -r @"
 output_path = ".takt/review-diff.txt"
+
+# ---------------------------------------------------------------------------
+# [lint_screen] — Phase c (§8.E lint screen facet) — ADR-038 試験運用配下。
+# diff を mistral:7b に流して lint 一次フィルタの所見を markdown として出力する。
+# 詳細: docs/adr/adr-038-local-llm-finding-classification.md
+# default OFF。手動で enabled = true にしたうえで Ollama 起動 + cli-finding-classifier.exe 配備を確認する。
+# Phase b' agreement 75% (conditional GO) のため gating はせず report のみ出力。
+# Ollama down / timeout / diff 過大時は skip + warn (push を block しない)。
+# ---------------------------------------------------------------------------
+[lint_screen]
+enabled = false
+# 以下は default 値、明示しなくてもよいが意図を残すなら明示推奨
+exe_path = ".claude/cli-finding-classifier.exe"
+model = "mistral:7b"
+endpoint = "http://localhost:11434"
+timeout_secs = 60
+max_diff_lines = 5000
+output_path = ".takt/lint-screen-report.md"
 
 [takt]
 workflow = "pre-push-review"
