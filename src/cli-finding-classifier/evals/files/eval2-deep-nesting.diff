@@ -1,0 +1,26 @@
+diff --git a/src/permission.rs b/src/permission.rs
+index 3333333..4444444 100644
+--- a/src/permission.rs
++++ b/src/permission.rs
+@@ -1,10 +1,28 @@
+ pub fn check(user: &User, resource: &Resource) -> bool {
+-    user.is_active() && resource.is_visible_to(user)
++    if user.is_active() {
++        if let Some(role) = user.role() {
++            if role.has_permission("read") {
++                if resource.is_published() {
++                    if !resource.is_archived() {
++                        if resource.owner_id() == user.id() {
++                            return true;
++                        } else {
++                            if resource.is_public() {
++                                return true;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++    false
+ }

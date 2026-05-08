@@ -36,7 +36,7 @@ push_command = "jj git push"
 # §A-2 P-0 (config opt-in) でこのセクションを追加し、master 上で classifier を
 # 有効化する。dogfood で問題が出た場合は revert PR で `enabled = false` に
 # 戻すのが kill-switch (§10.6 C 簡易版)。
-# 詳細: docs/local-llm-offload-analysis.md §A-2 / §10
+# 詳細: docs/local-llm-offload-history.md §A-2 / §10 (PR #130 で history へ分離)
 # ---------------------------------------------------------------------------
 [classifier]
 enabled = true

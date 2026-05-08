@@ -1,0 +1,25 @@
+diff --git a/src/retry.rs b/src/retry.rs
+index 5555555..6666666 100644
+--- a/src/retry.rs
++++ b/src/retry.rs
+@@ -1,12 +1,18 @@
+ use std::time::Duration;
+ use std::thread::sleep;
+
+ pub fn retry_with_backoff<F: FnMut() -> bool>(mut op: F) -> bool {
+-    for attempt in 0..MAX_RETRIES {
+-        if op() {
+-            return true;
++    for attempt in 0..5 {
++        if op() {
++            return true;
++        }
++        let delay_ms = 100 * (1 << attempt);
++        if delay_ms > 30000 {
++            return false;
+         }
+-        sleep(BACKOFF.pow(attempt));
++        sleep(Duration::from_millis(delay_ms));
+     }
+     false
+ }
