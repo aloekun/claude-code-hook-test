@@ -351,7 +351,7 @@ jq '.classified_findings | length' .claude/pr-monitor-state.json
 **6. `normalized_issue` 言語制約違反率** (§8.D 着手判断材料):
 
 ```bash
-jq '[.classified_findings[] | select(.normalized_issue) | .normalized_issue | test("[a-zA-Z]{8,}"))]' .claude/pr-monitor-state.json
+jq '[.classified_findings[] | select(.normalized_issue) | .normalized_issue | test("[a-zA-Z]{8,}")]' .claude/pr-monitor-state.json
 ```
 
 英単語が 8 文字以上連続する箇所を検知 (簡易ベンチ、誤検出許容)。
