@@ -208,3 +208,133 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 - coding-style.md に「変更差分外への partial fix 再発」例が codify される
 - 既存 lint rule⑥ (`no-ephemeral-todo-reference` 系) と組み合わせで教育効果が強化される
+
+---
+
+### `docs/` 内 Markdown の `../docs/` 相対パストラップ検出 lint rule (PR #133 T1-1 採用) ★ Bundle j
+
+> **動機**: PR #133 (todo5.md 分割) で `docs/todo7.md` L103 に `[ADR-036](../docs/adr/adr-036-...)` 形式の壊れ link が混入。`docs/` 配下のファイルから `../docs/` を辿ると `docs/docs/` を指すため directory nesting mismatch で必ず broken link になる。todo5.md 時代から存在した pre-existing bug が分割で表面化した経緯で、CodeRabbit Minor finding として検出。custom lint rule で書いた瞬間に block すれば bug class が排除される。
+>
+> **本タスクの位置づけ**: PR #133 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Bundle Z #B-α と同じ「決定論的防止層」哲学。AST 解析ではなく正規表現層 (ADR-007) で対応可能。
+>
+> **参照**: `.claude/feedback-reports/133.md` Tier 1 #1、ADR-007 (custom lint rule の正規表現 / AST 層線引き)、CodeRabbit PR #133 review #3
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。`.claude/custom-lint-rules.toml` への regex rule 追加。
+
+#### 設計決定 (案)
+
+- **配置先**: `.claude/custom-lint-rules.toml` に新規 rule entry
+- **検出パターン (正規表現案)**: `(?i)\]\(\.\./docs/`
+  - case-insensitive flag は `.claude/rules/common/code-review.md` の Custom lint rule patterns 規約に従う (PowerShell 等向けだが安全側に倒す)
+- **適用対象**: `docs/**/*.md` (rule の `paths` filter で限定。他 path 配下からは正当な `../docs/` 参照があり得るため)
+- **rule 名 (案)**: `no-docs-relative-back-to-docs`
+- **suppress マーカー**: 該当行末に `<!-- lint-ignore: no-docs-relative-back-to-docs -->` 等
+
+#### 作業計画
+
+- [ ] 既存 `.claude/custom-lint-rules.toml` の rule 構造を確認
+- [ ] regex + path filter を新 rule として記述
+- [ ] PostToolUse hook の lint runner で synthetic test (PR #133 で混入した `../docs/adr/...` パターンを再現してマッチ確認)
+- [ ] 既存 `docs/` 配下を grep して false positive 影響範囲を確認 (`grep -rn '\]\(\.\./docs/' docs/`)
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 確認
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- `.claude/custom-lint-rules.toml` に新 rule が追加され `docs/**/*.md` 内の `\]\(\.\./docs/` を検出
+- 1〜2 PR で dogfood し false positive がないこと
+- PR #133 と同型の broken link 混入が新 PR で構造的に防止される
+
+#### 詰まっている箇所
+
+- 派生プロジェクト (techbook-ledger 等) で同 rule が適用された際、各 repo の `docs/` 構造が異なる可能性 — 着手時に各派生 repo の `docs/` レイアウトを確認
+
+---
+
+### `docs/todo*.md` preamble file count 自動照合スクリプト (PR #133 T2-#4 採用) ★ Bundle j
+
+> **動機**: PR #133 で `docs/todo6.md` L5 (「六つすべてを確認すること」) と `docs/todo7.md` L5 (「七つすべて」) が実 8 ファイル (todo.md / todo2-7.md / todo-summary.md) と乖離。CodeRabbit Minor finding として 2 件検出され、fix commit (`4889413`) で修正したが、`todo*.md` 分割が今後も繰り返される pattern (todo3 → 4 → 5 → 6 → 7) のため CI 層で自動検証する価値がある。Tier 1 #1 (custom lint) と相補で防御層を構築。
+>
+> **本タスクの位置づけ**: PR #133 post-merge-feedback Tier 2 #4 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。shell script のみで実装可能、機械検知が容易な低リスク CI step。
+>
+> **参照**: `.claude/feedback-reports/133.md` Tier 2 #4、PR #133 fix commit `4889413`、CodeRabbit PR #133 review #1/#2
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。`.github/workflows/lint.yml` (現状未存在のため新規作成も視野) または PostToolUse hook + Stop hook での実装も検討可能。
+
+#### 設計決定 (案)
+
+- **配置先**: `.github/workflows/lint.yml` の docs check job に追加 (本リポジトリは現状 GitHub Actions 未設定なので、最初の workflow 作成を含む)。代替案として PostToolUse / Stop hook で local 段階で検出も可
+- **検出ロジック (shell)**:
+  ```bash
+  EXPECTED=$(find docs -maxdepth 1 -name "todo*.md" | wc -l)
+  for f in docs/todo*.md; do
+    # preamble 内の "X つ" 数詞を抽出、期待値と照合
+    PREAMBLE=$(sed -n '5p' "$f")
+    # 「八つ」(8) / 「七つ」(7) 等の漢数字 → 数値変換で照合
+    ...
+  done
+  ```
+- **数詞 → 数値マッピング**: 一/二/三/四/五/六/七/八/九/十 を hash で持つ
+- **対象範囲**: `docs/todo*.md` のみ (todo-summary.md の preamble 別仕様は scope 外)
+
+#### 作業計画
+
+- [ ] 現状 `.github/workflows/` が無いことを確認 (PR #133 で確認済) し、新規 lint.yml の足場を作るか PostToolUse hook 拡張で代替するか判定
+- [ ] shell script (or Rust hook) で count 検証ロジックを実装
+- [ ] 漢数字 → 数値マッピングと preamble grep の正規表現を定義
+- [ ] PR #133 の修正前状態 (todo6.md「六つ」/ todo7.md「七つ」) を re-introduce した synthetic test で fail することを確認
+- [ ] 採用後の dogfood で false positive がないことを 2-3 PR で確認
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- preamble count と実 file 数の乖離が CI / hook で検出される
+- PR #133 fix commit で修正した同型問題が機械的に再発防止される
+
+#### 詰まっている箇所
+
+- **GitHub Actions 未設定 repo であること**: workflows 新設は本タスク scope を超える可能性。代替として PostToolUse hook (Rust) での検証が低コスト。Tier 2 #3 (Markdown cross-reference validator) と同 PR で `.github/workflows/lint.yml` 新設を検討する形がまとまりよい
+- **数詞表記の揺れ**: 「八つ」「8 つ」「8つ」等の異表記許容範囲を着手時に確定する必要
+
+---
+
+### Markdown cross-reference validator CI step (PR #133 T2-#3 採用) ★ Bundle j
+
+> **動機**: PR #133 で `docs/todo7.md` L103 の壊れ ADR link (`../docs/adr/...`) が pre-push lint で早期検知できなかった (CodeRabbit Minor finding で post-PR 検出)。既存 `markdown-link-check` 系 tool は `docs/` 内 relative path を起点 file の directory レベルで正規化しないため broken link を見逃す。custom validator で directory-aware に解決する CI step が必要。Tier 1 #1 (custom lint で `../docs/` パターンを規約レベルで block) と Tier 2 #4 (preamble count 照合) と組み合わせて、docs/ 全体の構造的一貫性を多層検証する。
+>
+> **本タスクの位置づけ**: PR #133 post-merge-feedback Tier 2 #3 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk: 実装工数中)。
+>
+> **参照**: `.claude/feedback-reports/133.md` Tier 2 #3、PR #133 fix commit `4889413` (todo7.md L103 修正)、関連 task: 順位 10 (ADR-032 PR-broken-link)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。validator 実装 + CI 統合。
+
+#### 設計決定 (案)
+
+- **配置先**: `.github/workflows/lint.yml` に validator step 追加 (順位 95 と同 PR で workflows 新設するのが効率的)
+- **実装方針候補**:
+  - **A**: 既存 `markdown-link-check` を fork or wrapper で directory-aware 化
+  - **B**: custom Rust binary (cli-markdown-link-validator 等、既存 cli-* と同 workspace) で書き起こし
+  - **C**: 軽量 shell + ripgrep ベースの解析 (`rg '\]\([^http][^\)]*\)' docs/` → 各 link を file path 起点で resolve)
+- **検証範囲**: `docs/**/*.md` 内の relative link (`./`, `../`, または anchor 付きの内部 link) すべて
+- **既存タスクとの関係**: 順位 10 (ADR-032 PR-broken-link) と方向性が近接。同タスクとして fold-in 検討の余地あり
+
+#### 作業計画
+
+- [ ] 既存 `markdown-link-check` 系 tool の機能調査 (directory-aware resolution の有無)
+- [ ] 順位 10 (ADR-032 PR-broken-link) との重複排除判定: 同タスクで包含するか、独立 task として残すか
+- [ ] 実装方針 A/B/C の比較評価 (Effort vs maintainability)
+- [ ] PR #133 で混入した `../docs/adr/...` パターンを synthetic test で検出
+- [ ] PR #133 で正常な相対 link (例: `[docs/todo-summary.md](todo-summary.md)`) を false positive 検出しないことを確認
+- [ ] 採用後の dogfood で 3-5 PR の false positive 率測定
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- `docs/` 内 broken relative link が CI で検出される
+- PR #133 と同型の `../docs/` トラップを Tier 1 #1 と Tier 2 #3 の二重防御で抑止
+- 既存正常 link で false positive 率 < 5%
+
+#### 詰まっている箇所
+
+- **順位 10 (ADR-032 PR-broken-link) との関係整理**: 設計上 fold-in が妥当か、独立 task が妥当か着手時に判断必要
+- **GitHub Actions 未設定**: 順位 95 (Tier 2 #4) と同様、workflows 新設の判断を含む。この場合 95 + 96 + (将来の lint workflow 整備) を 1 PR の Bundle として land する案も検討余地
