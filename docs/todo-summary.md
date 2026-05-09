@@ -5,7 +5,7 @@
 > **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo6.md`) に記録する。
 
 <a id="recommended-order-summary"></a>
-## 推奨実行順序サマリー (2026-04-29 更新、ADR-033 採番管理簡素化 land 後)
+## 推奨実行順序サマリー (2026-05-10 更新、ADR-033 採番管理簡素化 land 後)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
@@ -72,6 +72,7 @@
 | 94 | 🚀 Tier 1 | **`docs/` 内 Markdown の `../docs/` 相対パストラップ検出 lint rule (PR #133 T1-1 採用) ★ Bundle j** | todo6.md | S | なし (PR #133 で `docs/todo7.md` L103 が `../docs/adr/...` で broken link 化した実例。`docs/` 配下から `../docs/` は常に誤りで FP 極小、`(?i)\]\(\.\./docs/` の regex 1 行で決定論的に防止) |
 | 95 | 🔧 Tier 2 | **`docs/todo*.md` preamble file count 自動照合スクリプト (PR #133 T2-#4 採用) ★ Bundle j** | todo6.md | S | なし (PR #133 で todo6.md「六つ」/ todo7.md「七つ」が実 8 ファイルと乖離した実例。todo*.md 分割が今後も繰り返す pattern (todo3 → 4 → 5 → 6 → 7) のため CI 層で自動検証) |
 | 96 | 🔧 Tier 2 | **Markdown cross-reference validator CI step (PR #133 T2-#3 採用) ★ Bundle j** | todo6.md | M | 順位 10 (ADR-032 PR-broken-link) と方向性が近接、fold-in 検討の余地あり。順位 94 (regex 規約) + 順位 95 (count 照合) と組み合わせて docs/ 整合性の多層検証 |
+| 97 | 🔧 Tier 2 | **`with_num_ctx(X)` override 値 serialization 検証テスト (PR #136 T2-#1 採用)** | todo6.md | S | なし (PR #136 で追加した builder method の wiring を mockito で seal、Phase d で num_ctx tweak する局面の silent degrade 防止、CodeRabbit が見逃した test gap を post-merge-feedback agent が独立発見) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
