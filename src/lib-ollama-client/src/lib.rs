@@ -84,7 +84,13 @@ impl OllamaClient {
     ///
     /// 本ライブラリの default ([`DEFAULT_NUM_CTX`]) で大半の用途に十分。
     /// prompt をさらに長く扱う特殊用途のみ使う想定。
+    ///
+    /// # Panics
+    ///
+    /// `num_ctx == 0` を与えると panic する (Ollama API は 0 を invalid として
+    /// 処理時に error を返すため、build 段階で fail-fast させる)。
     pub fn with_num_ctx(mut self, num_ctx: u32) -> Self {
+        assert!(num_ctx > 0, "num_ctx must be greater than 0");
         self.num_ctx = num_ctx;
         self
     }
@@ -301,6 +307,12 @@ mod tests {
         let overridden = OllamaClient::new("http://localhost:11434", "mistral:7b")
             .with_num_ctx(16384);
         assert_eq!(overridden.num_ctx, 16384);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_ctx must be greater than 0")]
+    fn with_num_ctx_panics_on_zero() {
+        let _ = OllamaClient::new("http://localhost:11434", "mistral:7b").with_num_ctx(0);
     }
 
     #[test]
