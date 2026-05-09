@@ -237,8 +237,8 @@ fn eval_set_loads_and_has_at_least_phase_b_prime_baseline_count() {
     assert_eq!(set.schema_version, 1);
     assert!(set.agreement_threshold >= 0.5 && set.agreement_threshold <= 1.0);
     assert!(
-        set.evals.len() >= 12,
-        "Phase b' baseline is 12 fixtures; Bundle i 拡張 (eval13/14/15 — 200+ 行 scale-aware) で 15+ 件想定 (現状 {})",
+        set.evals.len() >= 15,
+        "Bundle i baseline は 15 fixtures 以上を維持する必要があります (現状 {})",
         set.evals.len()
     );
 }
