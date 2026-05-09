@@ -165,8 +165,8 @@ steps = [
 ]
 
 [rules.example]
-bad = 'See [推奨実行順序](todo.md#推奨実行順序サマリー)'
-good = 'See [推奨実行順序](todo.md#recommended-order-summary)  <!-- with <a id="recommended-order-summary"></a> in target file -->'
+bad = 'See [推奨実行順序](todo-summary.md#推奨実行順序サマリー)'
+good = 'See [推奨実行順序](todo-summary.md#recommended-order-summary)  <!-- with <a id="recommended-order-summary"></a> in target file -->'
 
 # ─── ルール⑥: 非 docs ファイルからの ephemeral todo 参照禁止 ───
 #

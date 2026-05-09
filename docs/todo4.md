@@ -4,7 +4,7 @@
 >
 > **本ファイルの位置付け**: docs/todo3.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録していた。**本ファイルも 50KB に到達したため、PR #101 セッション以降の新規エントリは [docs/todo5.md](todo5.md) へ**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2.md / todo3.md / todo5.md の既存エントリは引き続き有効、相互に独立。新セッションでは五つすべてを確認すること。
 >
-> **推奨実行順序**: 全タスク横断のサマリーは [docs/todo.md](todo.md#recommended-order-summary) を参照。
+> **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
 
