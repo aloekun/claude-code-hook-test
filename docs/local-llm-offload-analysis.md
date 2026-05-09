@@ -2,7 +2,7 @@
 
 > **位置づけ**: 本ファイルは「残作業の **次に何をするか** だけ」を持つ実行計画。完了済みの分析・実装・dogfood 計測・retrospective は [local-llm-offload-history.md](local-llm-offload-history.md) に切り出した。
 >
-> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08、Phase d は未着手)。
+> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08 / **Phase c+ Bundle i 完了 = PR #135 land 2026-05-09**、Phase d は未着手で §8.D v4 prompt 改訂が最終 gate)。
 >
 > **引退条件**: 以下のいずれかで本ファイルを削除する (docs-governance.md retirement workflow 準拠)。`local-llm-offload-history.md` も同タイミングで判断する。
 > - 残作業 (§8.D / §8.E / §8.F, §1 Phase b/c/d) が **すべて land または却下** された場合 → permanent value (採用された設計判断、却下理由) を ADR-038 に migrate して両ファイルを削除
@@ -87,15 +87,46 @@
 
 = mistral:7b は大規模 diff で **structured output schema を欠落** させがち。Phase b' eval fixtures (10-30 行/件) では出ない failure mode。fallback path が graceful に処理し push pipeline をブロックしない設計が機能した一方、**Phase d 投入前に scale-aware fixture (200+ 行) で改善ループを回す必要** が判明。
 
-#### Phase c+ (Phase d 着手前の必須 follow-up、Bundle i)
+#### Phase c+ (Phase d 着手前の必須 follow-up、Bundle i) ✅ **land in PR #135 (2026-05-09)**
 
-PR #132 post-merge-feedback で採用された 2 件 + 1 件:
+PR #132 post-merge-feedback で採用された 3 件をすべて land:
 
-- **順位 91 (`[lint_screen]` config parse テスト)**: `config.rs` test module に `[lint_screen]` section の deserialize 検証を追加 (silent field rename 防止) — Effort S
-- **順位 92 (scale-aware eval fixtures 200+ 行)**: 大規模 diff fixture を 3 件以上追加し、mistral:7b の JSON 完全性を Phase d 投入前に測定 — Effort M
-- **順位 93 (coding-style.md partial fix 例追記)**: 反復観測された anti-pattern を global rule に codify — Effort XS
+- **順位 91 (`[lint_screen]` config parse テスト)** ✅ — `src/cli-push-runner/src/config.rs` に 5 tests 追加 (full fields / minimal only enabled / absent yields None / numeric defaults / string defaults)。silent field rename 時に compile/test 段階で気付ける構造に
+- **順位 92 (scale-aware eval fixtures 200+ 行)** ✅ — eval13 (5 file / 280 行) / eval14 (3 file / 153 行) / eval15 (1 file / 208 行) の 3 fixture を追加。`lint-screen-evals.json` に baseline (auto_fix lane × 13 findings 計) を登録、count test を rename + 上限緩和 (`>=15` floor)、Bundle i 実体スモーク test を追加
+- **順位 93 (coding-style.md partial fix 例追記)** ✅ — `~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle に「変更差分外への partial fix 再発」anti-pattern を追加 (PR #94 / #111 / #132 を inline cite)
 
-詳細は [docs/todo6.md](todo6.md) Bundle i 参照。
+##### Bundle i dogfood 結果 (mistral:7b / temperature=0)
+
+| 指標 | 値 |
+|---|---|
+| **decision agreement rate** | **11/15 = 73.3%** (Phase b' 75% から marginal 劣化、ただし fixture が設計通り failure mode を再現) |
+| aggregate precision / recall | 76.2% / 51.6% |
+| latency p50 / p95 | 4591ms / 8370ms |
+| verdict | CONDITIONAL-GO (§8.E auto_fix lane に限定) |
+
+**Bundle i fixtures が捕捉した failure mode** (Phase d 投入前に reproducible 化できた点が本 bundle の中核成果):
+
+| eval | scale | observed failure | 設計意図との一致 |
+|---|---|---|---|
+| 13 | 5 file / 280 行 | `missing field 'screen_decision'` → fallback (human_review) | ✅ PR #132 smoke (868 行 diff) と同型の top-level field omission を再現 |
+| 15 | 1 file / 208 行 | `missing field 'severity' at line 38` → fallback | ✅ 単 file 長尺での nested field omission を新規捕捉 |
+| 14 | 3 file / 153 行 | JSON 完全だが recall 33% (1/3 TP) | mid-scale で findings 取りこぼし顕在化 |
+
+**73.3% < 75% 解釈**: regression ではなく fixture が設計した stress test の成功。todo6.md L164 「未達理由が文書化される」branch を満たす形で land。Phase d 投入前の data 確保により「mistral:7b は scale で JSON schema を壊す」という事実が定量化された。
+
+##### CodeRabbit Major fix (PR #135 review)
+
+- `eval_set_loads_and_has_at_least_phase_b_prime_baseline_count` の floor を `>= 12` → `>= 15` に変更 (Bundle i baseline = 15 fixtures を下限固定、既存 fixture 削除を regression として検出)
+
+##### Phase d 着手前提条件の充足状況
+
+Bundle i land で以下が揃った:
+
+- (a) `[lint_screen]` config silent failure 防止 (順位 91)
+- (b) scale-aware fixtures による failure mode の reproducible measurement (順位 92)
+- (c) cross-file partial fix anti-pattern の global rule 化 (順位 93)
+
+**残る最終 gate**: §8.D v4 prompt 改訂で eval13/15 の JSON 完全性問題に一次対策。改善完了後に Phase d 着手判定。詳細は [docs/todo6.md](todo6.md) Bundle i 参照。
 
 ### Phase d — PR-based 実環境 dogfood
 
@@ -113,13 +144,13 @@ PR #132 post-merge-feedback で採用された 2 件 + 1 件:
 - **見積**: 半日 (prompt 変更 + 簡易ベンチで安定性検証)
 - **ROI**: ★ (実害は小、UX 微改善)
 
-### §8.E — 提案 1 (lint screen facet) ✅ MVP land 済 (PR #132、2026-05-08)
+### §8.E — 提案 1 (lint screen facet) ✅ MVP land 済 (PR #132、2026-05-08) + Phase c+ Bundle i land (PR #135、2026-05-09)
 
 - **当初目的**: takt の新 facet `ollama-lint-screen` で pre-push 時に diff の lint 一次フィルタを mistral:7b に逃す
 - **実装方針の変更**: takt facet (Sonnet 動作) ではなく **`cli-push-runner` の Rust stage** として実装 (Claude tokens 節約という主目的との整合)。詳細は §1 Phase c 参照
 - **MVP scope**: report 出力のみ (gating なし、auto-fix なし、default OFF)。conditional GO (75%) を反映した安全 scope
-- **Phase c+ (Bundle i)**: scale-aware fixture (順位 92) / config parse test (順位 91) / coding-style anti-pattern 追記 (順位 93) を Phase d 投入前に処理
-- **Phase d 着手前提**: Bundle i land + 大規模 diff の JSON 不完全問題への一次対策 (現状 fallback graceful、頻度測定がなければ判断不能)
+- **Phase c+ (Bundle i)** ✅: scale-aware fixture (順位 92 / eval13/14/15) / config parse test (順位 91 / 5 tests) / coding-style anti-pattern 追記 (順位 93) を land 済。dogfood で 73.3% agreement / fallback 2/15 観測 (eval13: `missing field 'screen_decision'` / eval15: `missing field 'severity'`)
+- **Phase d 着手前提**: 大規模 diff の JSON 不完全問題への一次対策 = **§8.D v4 prompt 改訂**。Bundle i fixtures は改善ループの reference point として固定済み
 
 ### §8.F — 提案 3 (PR body draft) — §8.E 採用後
 
@@ -139,21 +170,25 @@ PR #132 post-merge-feedback で採用された 2 件 + 1 件:
 ## 4. 別セッションでの再開チェックリスト
 
 ```bash
-# 1. master 最新化 (Phase a/b/c MVP まで land 済)
+# 1. master 最新化 (Phase a/b/c MVP / Phase c+ Bundle i まで land 済)
 jj git fetch && jj edit master
 
-# 2. Phase a/c infrastructure が master に反映済か確認
+# 2. Phase a/c/c+ infrastructure が master に反映済か確認
 ls src/cli-finding-classifier/evals/lint-screen-evals.json
 ls src/cli-push-runner/src/stages/lint_screen.rs
-cargo test -p cli-finding-classifier --test lint_screen_evals    # schema validation 12 件 pass
-cargo test -p cli-push-runner                                    # 47+ 件 pass
+ls src/cli-finding-classifier/evals/files/eval13-large-refactor-real.diff  # Bundle i
+ls src/cli-finding-classifier/evals/files/eval14-mid-mixed.diff            # Bundle i
+ls src/cli-finding-classifier/evals/files/eval15-syntax-stress.diff        # Bundle i
+cargo test -p cli-finding-classifier --test lint_screen_evals    # schema validation 20 件 pass (Bundle i で 12→20)
+cargo test -p cli-push-runner                                    # 53+ 件 pass (Bundle i で +5 lint_screen config tests)
 
-# 3. Ollama 起動確認 (Phase b 再走 / Phase c smoke / Phase d で必要)
+# 3. Ollama 起動確認 (Phase b 再走 / Phase c smoke / §8.D v4 改訂ループ / Phase d で必要)
 curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
 
-# 4. Phase b 再現確認 (75% agreement deterministic、Bundle i 着手前に baseline 確認)
+# 4. agreement 再現確認 (Bundle i 後の baseline = 73.3% deterministic)
 cargo test -p cli-finding-classifier --test lint_screen_evals -- \
   --ignored --nocapture run_lint_screen_against_all_fixtures
+# 期待: agreement 11/15 = 73.3% / fallback 2/15 (eval13 + eval15) / verdict CONDITIONAL-GO
 
 # 5. Phase c MVP smoke (lint_screen step を一時的に enabled=true で起動)
 # push-runner-config.toml [lint_screen] enabled = true に設定 (commit しない)
@@ -162,9 +197,8 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
 #### 次に何をするか (優先度順)
 
-1. **Bundle i 着手** ([docs/todo6.md](todo6.md) 順位 91 + 92): `[lint_screen]` config parse test + scale-aware fixture (200+ 行) を Phase d 投入前に整備
-2. **順位 93 (coding-style.md partial fix 例追記)**: 独立並列実施可、global rule 強化
-3. **Phase d 着手** (Bundle i land 後): PR-based 実環境 dogfood で token 削減 / latency / 大規模 diff の JSON 完全性を 3-5 PR で計測
+1. **§8.D v4 prompt 改訂ループ**: Bundle i dogfood で再現可能化された JSON 完全性問題 (eval13: `missing field 'screen_decision'` / eval15: `missing field 'severity'`) に対する prompt v4 を起案 → `cargo test --ignored` で 75%+ agreement を取りに行く。Phase d 着手の最終 gate
+2. **Phase d 着手** (§8.D v4 land 後): PR-based 実環境 dogfood で token 削減 / latency / 大規模 diff の JSON 完全性を 3-5 PR で計測
 
 §8.D / §8.E / §8.F の実装に着手する場合は、本ファイル該当節 + history §10.6/§10.7 を参照。
 
