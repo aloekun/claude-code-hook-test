@@ -39,6 +39,12 @@ pub fn generate_json<T: DeserializeOwned>(
     Ok(parsed)
 }
 
+/// Ollama 既定の `num_ctx` (2048) は本リポジトリの lint-screen prompt
+/// (~4000-5000 tokens) に対して不足し、prompt が silently truncate される
+/// (PR #135 dogfood で eval13/15 に対して `prompt_eval_count: 4096` の上限到達を実証)。
+/// mistral:7b は理論上 32K まで対応するが、安全マージンと推論コストの兼合いで 8192 を default とする。
+pub const DEFAULT_NUM_CTX: u32 = 8192;
+
 /// Ollama client 設定
 #[derive(Debug, Clone)]
 pub struct OllamaClient {
@@ -46,6 +52,7 @@ pub struct OllamaClient {
     model: String,
     timeout: Duration,
     temperature: f32,
+    num_ctx: u32,
 }
 
 impl OllamaClient {
@@ -59,6 +66,7 @@ impl OllamaClient {
             model: model.into(),
             timeout: Duration::from_secs(30),
             temperature: 0.1,
+            num_ctx: DEFAULT_NUM_CTX,
         }
     }
 
@@ -69,6 +77,21 @@ impl OllamaClient {
 
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
+        self
+    }
+
+    /// Ollama の `num_ctx` (= context window in tokens) を上書きする。
+    ///
+    /// 本ライブラリの default ([`DEFAULT_NUM_CTX`]) で大半の用途に十分。
+    /// prompt をさらに長く扱う特殊用途のみ使う想定。
+    ///
+    /// # Panics
+    ///
+    /// `num_ctx == 0` を与えると panic する (Ollama API は 0 を invalid として
+    /// 処理時に error を返すため、build 段階で fail-fast させる)。
+    pub fn with_num_ctx(mut self, num_ctx: u32) -> Self {
+        assert!(num_ctx > 0, "num_ctx must be greater than 0");
+        self.num_ctx = num_ctx;
         self
     }
 }
@@ -85,6 +108,7 @@ struct GenerateRequest<'a> {
 #[derive(Serialize)]
 struct GenerateOptions {
     temperature: f32,
+    num_ctx: u32,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +128,7 @@ impl OllamaApi for OllamaClient {
             stream: false,
             options: GenerateOptions {
                 temperature: self.temperature,
+                num_ctx: self.num_ctx,
             },
         };
 
@@ -272,5 +297,45 @@ mod tests {
             .with_temperature(0.5);
         assert_eq!(client.timeout, Duration::from_secs(60));
         assert!((client.temperature - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn num_ctx_defaults_and_overrides_apply() {
+        let default_client = OllamaClient::new("http://localhost:11434", "mistral:7b");
+        assert_eq!(default_client.num_ctx, DEFAULT_NUM_CTX);
+
+        let overridden = OllamaClient::new("http://localhost:11434", "mistral:7b")
+            .with_num_ctx(16384);
+        assert_eq!(overridden.num_ctx, 16384);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_ctx must be greater than 0")]
+    fn with_num_ctx_panics_on_zero() {
+        let _ = OllamaClient::new("http://localhost:11434", "mistral:7b").with_num_ctx(0);
+    }
+
+    #[test]
+    fn num_ctx_is_serialized_into_request_body() {
+        let mut server = Server::new();
+        let inner_json = r#"{"action":"auto_fix","confidence":0.9}"#;
+        let envelope = format!(
+            r#"{{"model":"mistral:7b","response":{},"done":true}}"#,
+            serde_json::to_string(inner_json).unwrap()
+        );
+        let mock = server
+            .mock("POST", "/api/generate")
+            .match_body(mockito::Matcher::PartialJsonString(
+                r#"{"options":{"num_ctx":8192}}"#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(envelope)
+            .create();
+
+        let client = OllamaClient::new(server.url(), "mistral:7b");
+        let _: TestPayload = generate_json(&client, "test prompt").unwrap();
+
+        mock.assert();
     }
 }
