@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 67KB に到達して Claude Code の読み取り安定性 (50KB 超で不安定化) を損なったため、2026-05-09 に **PR #101〜#109 由来の古い半分のタスクを本ファイルへ分離** した。todo5.md には PR #110 以降のタスクが残存。本ファイルは既存タスクの編集・完了削除専用、新規タスクは追加しない (新規エントリは [docs/todo6.md](todo6.md) へ)。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md の既存エントリは引き続き有効、相互に独立。新セッションでは七つすべてを確認すること。
+> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 67KB に到達して Claude Code の読み取り安定性 (50KB 超で不安定化) を損なったため、2026-05-09 に **PR #101〜#109 由来の古い半分のタスクを本ファイルへ分離** した。todo5.md には PR #110 以降のタスクが残存。本ファイルは既存タスクの編集・完了削除専用、新規タスクは追加しない (新規エントリは [docs/todo6.md](todo6.md) へ)。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md の既存エントリは引き続き有効、相互に独立。新セッションでは八つすべてを確認すること (todo.md / todo2-7.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -100,7 +100,7 @@
 >
 > **本タスクの位置づけ**: PR #103 セッション知見 (post-merge-feedback の Tier 3 #1 = ADR 化提案を skip し、機構で塞ぐ実装層対策を採用)。Bundle Z 3 層 (#B-α / #B-β / #B-γ) では完全に塞げない独立改善。reviewer の判定精度を構造的に改善することで 6-iter outlier の発生率を 0% 近くに抑える。
 >
-> **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[ADR-036: Bundle Z 3 層アーキテクチャ](../docs/adr/adr-036-bundle-z-three-layer-review.md) (PR #97 ベースライン observation を含む、本 task は Bundle Z 3 層では塞げない独立改善)
+> **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[ADR-036: Bundle Z 3 層アーキテクチャ](adr/adr-036-bundle-z-three-layer-review.md) (PR #97 ベースライン observation を含む、本 task は Bundle Z 3 層では塞げない独立改善)
 >
 > **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。
 
