@@ -2,7 +2,7 @@
 
 > **位置づけ**: 本ファイルは「残作業の **次に何をするか** だけ」を持つ実行計画。完了済みの分析・実装・dogfood 計測・retrospective は [local-llm-offload-history.md](local-llm-offload-history.md) に切り出した。
 >
-> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = GO 達成 2026-05-08, PR #131、Phase c/d は未着手)。
+> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08、Phase d は未着手)。
 >
 > **引退条件**: 以下のいずれかで本ファイルを削除する (docs-governance.md retirement workflow 準拠)。`local-llm-offload-history.md` も同タイミングで判断する。
 > - 残作業 (§8.D / §8.E / §8.F, §1 Phase b/c/d) が **すべて land または却下** された場合 → permanent value (採用された設計判断、却下理由) を ADR-038 に migrate して両ファイルを削除
@@ -57,11 +57,45 @@
 - **実行**: `cargo test -p cli-finding-classifier --test lint_screen_evals -- --ignored --nocapture run_lint_screen_against_all_fixtures`
 - **出力**: per-eval の precision / recall / F1 / 正規化 P/R / TP/FP/FN + aggregate metrics + decision confusion matrix (3x3) + GO/NO-GO 判定
 
-### Phase c — §8.E 実装 (lint screen facet)
+### Phase c — §8.E 実装 (lint screen facet) ✅ **MVP land in PR #132 (2026-05-08)**
 
-- takt facet `ollama-lint-screen` を追加し、pre-push 時に diff の lint 一次フィルタを mistral:7b に逃す
-- 初期 dogfood で実 PR の lint 一次フィルタ動作確認
-- 詳細仕様は §8.E 参照
+最終的に「takt facet」ではなく **`cli-push-runner` の Rust stage** として実装 (理由: takt facet は Sonnet で動くため Claude tokens 節約という主目的と矛盾、push-runner step なら mistral:7b 直接呼出で目的達成)。
+
+#### 実装したもの (PR #132)
+
+- 配置: `src/cli-push-runner/src/stages/lint_screen.rs` (新 stage)
+- 起動: `cli-finding-classifier.exe --mode lint-screen` を subprocess で呼び出し、stdin に diff、stdout に LintScreenResult JSON
+- 出力: `.takt/lint-screen-report.md` (markdown table 形式、`severity / rule / file / line / issue / suggestion` を pipe escape 付きで出力)
+- パイプライン位置: `quality_gate → diff → lint_screen → takt → push` (gating なし、report のみ)
+- config: `[lint_screen]` section を `push-runner-config.toml` に追加 (default `enabled = false`、試験運用 opt-in)
+- fallback: exe 不在 / diff 空 / diff 過大 (`max_diff_lines = 5000` default) / timeout (`timeout_secs = 60` default) / Ollama down / JSON parse 失敗 → すべて skip + warn (push を block しない)
+- reviewer 連携: `.takt/facets/instructions/review-simplicity.md` に「lint-screen-report.md があれば advisory として読む」instruction 追加
+
+#### Phase c MVP の意図的 scope 制限 (Phase b' conditional GO 反映)
+
+- **gating しない**: lint-screen の決定 (`screen_decision`) を根拠に既存 reviewers をスキップしたり model を切替えたりしない (Phase b' 75% agreement なので誤指摘リスク回避)
+- **auto-fix 経路なし**: `auto_fix` 判定でも実コードに自動 patch を当てない。reviewer の context 補強のみ
+- **default OFF**: 手動 opt-in を踏まないと起動しない (ADR-038 試験運用配下)
+
+#### Phase c MVP smoke で観測した重要事象
+
+868 行の現実 PR diff (Phase c 自身) を流したところ、mistral:7b の JSON 出力が壊れた:
+
+```json
+{"lint_findings":[],"screen_decision":"human_review","fallback_reason":"ollama error: parse: JSON parse error: missing field `screen_decision`"}
+```
+
+= mistral:7b は大規模 diff で **structured output schema を欠落** させがち。Phase b' eval fixtures (10-30 行/件) では出ない failure mode。fallback path が graceful に処理し push pipeline をブロックしない設計が機能した一方、**Phase d 投入前に scale-aware fixture (200+ 行) で改善ループを回す必要** が判明。
+
+#### Phase c+ (Phase d 着手前の必須 follow-up、Bundle i)
+
+PR #132 post-merge-feedback で採用された 2 件 + 1 件:
+
+- **順位 91 (`[lint_screen]` config parse テスト)**: `config.rs` test module に `[lint_screen]` section の deserialize 検証を追加 (silent field rename 防止) — Effort S
+- **順位 92 (scale-aware eval fixtures 200+ 行)**: 大規模 diff fixture を 3 件以上追加し、mistral:7b の JSON 完全性を Phase d 投入前に測定 — Effort M
+- **順位 93 (coding-style.md partial fix 例追記)**: 反復観測された anti-pattern を global rule に codify — Effort XS
+
+詳細は [docs/todo6.md](todo6.md) Bundle i 参照。
 
 ### Phase d — PR-based 実環境 dogfood
 
@@ -79,12 +113,13 @@
 - **見積**: 半日 (prompt 変更 + 簡易ベンチで安定性検証)
 - **ROI**: ★ (実害は小、UX 微改善)
 
-### §8.E — 提案 1 (lint screen facet) — Phase b GO 後
+### §8.E — 提案 1 (lint screen facet) ✅ MVP land 済 (PR #132、2026-05-08)
 
-- **目的**: takt の新 facet `ollama-lint-screen` で pre-push 時に diff の lint 一次フィルタを mistral:7b に逃す
-- **依存**: **Phase b で agreement rate ≥ 80% 達成** (旧依存の §A-2 dogfood は無効化、Phase a evals に置換)
-- **見積**: 1〜2 日
-- **ROI**: 提案 1 として中程度。Phase b 集計次第で優先度変動 (基準未達なら §8.D 先行 → 再 evals 経路)
+- **当初目的**: takt の新 facet `ollama-lint-screen` で pre-push 時に diff の lint 一次フィルタを mistral:7b に逃す
+- **実装方針の変更**: takt facet (Sonnet 動作) ではなく **`cli-push-runner` の Rust stage** として実装 (Claude tokens 節約という主目的との整合)。詳細は §1 Phase c 参照
+- **MVP scope**: report 出力のみ (gating なし、auto-fix なし、default OFF)。conditional GO (75%) を反映した安全 scope
+- **Phase c+ (Bundle i)**: scale-aware fixture (順位 92) / config parse test (順位 91) / coding-style anti-pattern 追記 (順位 93) を Phase d 投入前に処理
+- **Phase d 着手前提**: Bundle i land + 大規模 diff の JSON 不完全問題への一次対策 (現状 fallback graceful、頻度測定がなければ判断不能)
 
 ### §8.F — 提案 3 (PR body draft) — §8.E 採用後
 
@@ -104,20 +139,32 @@
 ## 4. 別セッションでの再開チェックリスト
 
 ```bash
-# 1. master 最新化
+# 1. master 最新化 (Phase a/b/c MVP まで land 済)
 jj git fetch && jj edit master
 
-# 2. Phase a infrastructure が master に反映済か確認
+# 2. Phase a/c infrastructure が master に反映済か確認
 ls src/cli-finding-classifier/evals/lint-screen-evals.json
+ls src/cli-push-runner/src/stages/lint_screen.rs
 cargo test -p cli-finding-classifier --test lint_screen_evals    # schema validation 12 件 pass
+cargo test -p cli-push-runner                                    # 47+ 件 pass
 
-# 3. Ollama 起動確認 (Phase b 用)
+# 3. Ollama 起動確認 (Phase b 再走 / Phase c smoke / Phase d で必要)
 curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
 
-# 4. Phase b 実行 (実 LLM agreement rate 計測)
+# 4. Phase b 再現確認 (75% agreement deterministic、Bundle i 着手前に baseline 確認)
 cargo test -p cli-finding-classifier --test lint_screen_evals -- \
   --ignored --nocapture run_lint_screen_against_all_fixtures
+
+# 5. Phase c MVP smoke (lint_screen step を一時的に enabled=true で起動)
+# push-runner-config.toml [lint_screen] enabled = true に設定 (commit しない)
+# 任意の小さい diff で pnpm push して .takt/lint-screen-report.md が生成されるか確認
 ```
+
+#### 次に何をするか (優先度順)
+
+1. **Bundle i 着手** ([docs/todo6.md](todo6.md) 順位 91 + 92): `[lint_screen]` config parse test + scale-aware fixture (200+ 行) を Phase d 投入前に整備
+2. **順位 93 (coding-style.md partial fix 例追記)**: 独立並列実施可、global rule 強化
+3. **Phase d 着手** (Bundle i land 後): PR-based 実環境 dogfood で token 削減 / latency / 大規模 diff の JSON 完全性を 3-5 PR で計測
 
 §8.D / §8.E / §8.F の実装に着手する場合は、本ファイル該当節 + history §10.6/§10.7 を参照。
 
