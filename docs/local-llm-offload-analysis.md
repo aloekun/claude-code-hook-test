@@ -2,7 +2,7 @@
 
 > **位置づけ**: 本ファイルは「残作業の **次に何をするか** だけ」を持つ実行計画。完了済みの分析・実装・dogfood 計測・retrospective は [local-llm-offload-history.md](local-llm-offload-history.md) に切り出した。
 >
-> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08 / **Phase c+ Bundle i 完了 = PR #135 land 2026-05-09**、Phase d は未着手で §8.D v4 prompt 改訂が最終 gate)。
+> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08 / **Phase c+ Bundle i 完了 = PR #135 land 2026-05-09 / §8.D 完了 = PR #136 land 2026-05-09 (num_ctx 8192、agreement 86.7% / verdict GO)**、Phase d 着手前提条件は全て充足済、kickoff 待機)。
 >
 > **引退条件**: 以下のいずれかで本ファイルを削除する (docs-governance.md retirement workflow 準拠)。`local-llm-offload-history.md` も同タイミングで判断する。
 > - 残作業 (§8.D / §8.E / §8.F, §1 Phase b/c/d) が **すべて land または却下** された場合 → permanent value (採用された設計判断、却下理由) を ADR-038 に migrate して両ファイルを削除
@@ -126,7 +126,7 @@ Bundle i land で以下が揃った:
 - (b) scale-aware fixtures による failure mode の reproducible measurement (順位 92)
 - (c) cross-file partial fix anti-pattern の global rule 化 (順位 93)
 
-**残る最終 gate**: §8.D v4 prompt 改訂で eval13/15 の JSON 完全性問題に一次対策。改善完了後に Phase d 着手判定。詳細は [docs/todo6.md](todo6.md) Bundle i 参照。
+**残る最終 gate** (PR #136 で land 完了): JSON 完全性問題への一次対策は当初 §8.D 'v4 prompt 改訂ループ' と命名されていたが、root cause 検証 (raw Ollama output dump) で prompt 設計ではなく `num_ctx` default (4096) 超過と確定し、`lib-ollama-client` の `num_ctx` を 8192 に拡張する形で解決。dogfood で agreement 73.3% → 86.7% (verdict CONDITIONAL-GO → GO) に昇格。詳細は [docs/todo6.md](todo6.md) Bundle i 参照。
 
 ### Phase d — PR-based 実環境 dogfood
 
@@ -150,7 +150,7 @@ Bundle i land で以下が揃った:
 - **実装方針の変更**: takt facet (Sonnet 動作) ではなく **`cli-push-runner` の Rust stage** として実装 (Claude tokens 節約という主目的との整合)。詳細は §1 Phase c 参照
 - **MVP scope**: report 出力のみ (gating なし、auto-fix なし、default OFF)。conditional GO (75%) を反映した安全 scope
 - **Phase c+ (Bundle i)** ✅: scale-aware fixture (順位 92 / eval13/14/15) / config parse test (順位 91 / 5 tests) / coding-style anti-pattern 追記 (順位 93) を land 済。dogfood で 73.3% agreement / fallback 2/15 観測 (eval13: `missing field 'screen_decision'` / eval15: `missing field 'severity'`)
-- **Phase d 着手前提**: 大規模 diff の JSON 不完全問題への一次対策 = **§8.D v4 prompt 改訂**。Bundle i fixtures は改善ループの reference point として固定済み
+- **Phase d 着手前提**: 大規模 diff の JSON 不完全問題への一次対策 ✅ PR #136 で land 完了 (当初 'v4 prompt 改訂' と命名されていたが root cause 検証で `num_ctx` default 超過と確定、`lib-ollama-client` 側の修正に pivot)。Bundle i fixtures は改善ループの reference point として固定済み
 
 ### §8.F — 提案 3 (PR body draft) — §8.E 採用後
 
@@ -182,7 +182,7 @@ ls src/cli-finding-classifier/evals/files/eval15-syntax-stress.diff        # Bun
 cargo test -p cli-finding-classifier --test lint_screen_evals    # schema validation 20 件 pass (Bundle i で 12→20)
 cargo test -p cli-push-runner                                    # 53+ 件 pass (Bundle i で +5 lint_screen config tests)
 
-# 3. Ollama 起動確認 (Phase b 再走 / Phase c smoke / §8.D v4 改訂ループ / Phase d で必要)
+# 3. Ollama 起動確認 (Phase b 再走 / Phase c smoke / Phase d dogfood で必要)
 curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
 
 # 4. agreement 再現確認 (Bundle i 後の baseline = 73.3% deterministic)
@@ -197,8 +197,14 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
 #### 次に何をするか (優先度順)
 
-1. **§8.D v4 prompt 改訂ループ**: Bundle i dogfood で再現可能化された JSON 完全性問題 (eval13: `missing field 'screen_decision'` / eval15: `missing field 'severity'`) に対する prompt v4 を起案 → `cargo test --ignored` で 75%+ agreement を取りに行く。Phase d 着手の最終 gate
-2. **Phase d 着手** (§8.D v4 land 後): PR-based 実環境 dogfood で token 削減 / latency / 大規模 diff の JSON 完全性を 3-5 PR で計測
+1. **Phase d kickoff prep** (session 内で完結可能): `push-runner-config.toml [lint_screen] enabled = true` への切替判断、metrics 計測スクリプト整備、dogfood 運用ガイド作成、過去 dogfood 阻害要因 3 種 (findings ゼロ / review body 抽出漏れ / rate-limit) への対処設計。**前提条件 (a)-(d) は PR #135 + PR #136 で全充足済**
+2. **Phase d 実 dogfood** (long-running、数日〜数週間): kickoff 後の通常 PR 3-5 件で lint_screen の token 削減 / latency / 大規模 diff JSON 完全性を実観測。`feedback_dogfood_evals_two_phase` (evals → dogfood の 2 段階) の dogfood 段階に該当
+3. **Phase d 結果集約**: 計測結果から §8.E 採用 / §8.F 着手 / kill-switch を判定。dogfood 完了後
+
+優先度低の独立 task (Phase d を block しない):
+- **§8.D**: classify mode の `normalized_issue` 言語制約強化 (low priority、ROI ★)
+- **§8.F**: PR body draft (§8.E 採用 = Phase d 完了 後)
+- **順位 97** (todo): `with_num_ctx(X)` override serialization 検証 test (PR #136 T2-#1、Phase d で num_ctx tweak する局面に入る前の安全網)
 
 §8.D / §8.E / §8.F の実装に着手する場合は、本ファイル該当節 + history §10.6/§10.7 を参照。
 

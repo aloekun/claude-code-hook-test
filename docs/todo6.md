@@ -338,3 +338,38 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 - **順位 10 (ADR-032 PR-broken-link) との関係整理**: 設計上 fold-in が妥当か、独立 task が妥当か着手時に判断必要
 - **GitHub Actions 未設定**: 順位 95 (Tier 2 #4) と同様、workflows 新設の判断を含む。この場合 95 + 96 + (将来の lint workflow 整備) を 1 PR の Bundle として land する案も検討余地
+
+---
+
+### `with_num_ctx(X)` override 値 serialization 検証テスト (PR #136 T2-#1 採用)
+
+> **動機**: PR #136 (§8.D / num_ctx 8192 land) で `OllamaClient::with_num_ctx` builder method を追加した際、test として `num_ctx_is_serialized_into_request_body` を入れたが、これは default 値 (8192) のみを mockito で assert する。`with_num_ctx(X)` を経由した override (例: 16384) が実際に request body に反映されるかは未検証で、builder chaining が壊れた場合 (例: `with_num_ctx` body の typo `self.num_ctx = num_ctx` → `self.num_ctx = self.num_ctx`) に **silent degrade** = default 値が常に送信されて override が無視される、を test で捕捉できない。
+>
+> **本タスクの位置づけ**: PR #136 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。CodeRabbit nitpick 起点ではなく post-merge-feedback agent が独立に発見した test gap (CodeRabbit は同 method の `0` guard は指摘したが override-serialization wiring までは見抜かなかった)。
+>
+> **参照**: `.claude/feedback-reports/136.md` Tier 2 #1、`src/lib-ollama-client/src/lib.rs` の既存 test `num_ctx_is_serialized_into_request_body` (default 値検証) と `num_ctx_defaults_and_overrides_apply` (struct field 検証) の合間にある wire-level wiring gap
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。Phase d (PR-based 実環境 dogfood) で num_ctx tweak (16384 / 32768 等) する局面に入る前の安全網。
+
+#### 設計決定 (案)
+
+- **配置先**: `src/lib-ollama-client/src/lib.rs` の `#[cfg(test)] mod tests`
+- **test 名 (案)**: `with_num_ctx_override_is_serialized_into_request_body`
+- **実装方針**: 既存 `num_ctx_is_serialized_into_request_body` の mockito pattern を踏襲し、`OllamaClient::new(...).with_num_ctx(16384)` で構築 → request body に `num_ctx:16384` が含まれることを `Matcher::PartialJsonString` で assert
+- **代替案**: `with_num_ctx(8192)` (= default 同値) でも builder chain が走ることを assert する pure unit test (mockito 不要) を追加し、wire-level test と組み合わせる二層構造も可
+
+#### 作業計画
+
+- [ ] 既存 `num_ctx_is_serialized_into_request_body` test を template に override 値検証 test を追加
+- [ ] `with_num_ctx(16384)` を builder chain 経由で適用 → mockito の `Matcher::PartialJsonString` で `{"options":{"num_ctx":16384}}` を assert
+- [ ] cargo test -p lib-ollama-client で 12 tests pass を確認 (現状 11 + 新 1)
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- `with_num_ctx(X)` の builder chain が壊れた場合 (e.g. body の self-assign 化、struct field rename) に test が即 fail する
+- Phase d で num_ctx を tweak する局面で、override 値が実際に Ollama に伝わっているかを test 層で seal できる
+
+#### 詰まっている箇所
+
+なし。Effort S / 既存 test の duplicate 風で実装容易。
