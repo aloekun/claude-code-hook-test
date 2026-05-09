@@ -1,0 +1,153 @@
+# SYNTHETIC FIXTURE: eval14-mid-mixed
+# issue_pattern: 3 file / ~150 行 / unused-import 1 + magic-number 2 (mid-scale recall stress)
+# expected_screen_decision: auto_fix
+# verification_purpose: scale 中域 (Phase b' fixture の ~5x) で recall が崩れないか
+diff --git a/src/errors/mod.rs b/src/errors/mod.rs
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/errors/mod.rs
+@@ -0,0 +1,49 @@
++pub mod context;
++pub mod retry;
++
++use std::fmt;
++use std::sync::Arc;
++
++#[derive(Debug)]
++pub enum AppError {
++    NotFound(String),
++    Validation(String),
++    Internal(String),
++    Timeout,
++}
++
++impl fmt::Display for AppError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            AppError::NotFound(what) => write!(f, "not found: {what}"),
++            AppError::Validation(msg) => write!(f, "validation error: {msg}"),
++            AppError::Internal(msg) => write!(f, "internal error: {msg}"),
++            AppError::Timeout => write!(f, "timeout"),
++        }
++    }
++}
++
++impl std::error::Error for AppError {}
++
++pub type AppResult<T> = Result<T, AppError>;
++
++pub fn into_validation<E: fmt::Display>(e: E) -> AppError {
++    AppError::Validation(e.to_string())
++}
++
++pub fn into_internal<E: fmt::Display>(e: E) -> AppError {
++    AppError::Internal(e.to_string())
++}
++
++pub fn classify_io_error(e: &std::io::Error) -> AppError {
++    match e.kind() {
++        std::io::ErrorKind::NotFound => AppError::NotFound(e.to_string()),
++        std::io::ErrorKind::TimedOut => AppError::Timeout,
++        _ => AppError::Internal(e.to_string()),
++    }
++}
++
++pub fn is_recoverable(err: &AppError) -> bool {
++    matches!(err, AppError::Timeout | AppError::Internal(_))
++}
+diff --git a/src/errors/context.rs b/src/errors/context.rs
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/src/errors/context.rs
+@@ -0,0 +1,38 @@
++use std::collections::HashMap;
++use std::fmt::Write;
++
++pub struct ErrorContext {
++    fields: HashMap<String, String>,
++    message: String,
++}
++
++impl ErrorContext {
++    pub fn new(message: impl Into<String>) -> Self {
++        Self {
++            fields: HashMap::new(),
++            message: message.into(),
++        }
++    }
++
++    pub fn with(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
++        self.fields.insert(key.into(), value.into());
++        self
++    }
++
++    pub fn render(&self) -> String {
++        let mut out = self.message.clone();
++        if !self.fields.is_empty() {
++            out.push_str(" (");
++            let mut first = true;
++            for (k, v) in &self.fields {
++                if !first {
++                    out.push_str(", ");
++                }
++                let _ = write!(&mut out, "{k}={v}");
++                first = false;
++            }
++            out.push(')');
++        }
++        out
++    }
++}
+diff --git a/src/errors/retry.rs b/src/errors/retry.rs
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/src/errors/retry.rs
+@@ -0,0 +1,46 @@
++use std::path::Path;
++use std::thread::sleep;
++use std::time::Duration;
++
++use super::{AppError, AppResult};
++
++pub struct RetryPolicy {
++    pub max_attempts: u32,
++    pub backoff_ms: u64,
++}
++
++impl RetryPolicy {
++    pub fn default_policy() -> Self {
++        Self {
++            max_attempts: 5,
++            backoff_ms: 250,
++        }
++    }
++}
++
++pub fn run_with_retry<F, T>(policy: &RetryPolicy, mut op: F) -> AppResult<T>
++where
++    F: FnMut() -> AppResult<T>,
++{
++    let mut attempt = 0u32;
++    loop {
++        attempt += 1;
++        match op() {
++            Ok(v) => return Ok(v),
++            Err(e) if attempt >= policy.max_attempts => return Err(e),
++            Err(_) => {
++                let backoff = policy.backoff_ms * (2u64.pow(attempt - 1));
++                sleep(Duration::from_millis(backoff.min(60000)));
++            }
++        }
++    }
++}
++
++pub fn audit_retry_log(_path: &Path) -> AppResult<()> {
++    Ok(())
++}
++
++pub fn fixed_timeout_ms() -> u64 {
++    30000
++}

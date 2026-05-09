@@ -1,0 +1,208 @@
+# SYNTHETIC FIXTURE: eval15-syntax-stress
+# issue_pattern: 1 file / ~200 行 / unused-import 3 + magic-number 2 (single file long diff)
+# expected_screen_decision: auto_fix
+# verification_purpose: 単 file 長尺 diff で JSON 出力 schema が完全に保たれるか
+diff --git a/src/parser.rs b/src/parser.rs
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/src/parser.rs
+@@ -0,0 +1,201 @@
++use std::collections::BTreeMap;
++use std::collections::HashMap;
++use std::fmt;
++use std::path::PathBuf;
++use std::str::FromStr;
++
++pub struct ParsedDocument {
++    pub title: String,
++    pub sections: Vec<Section>,
++    pub metadata: HashMap<String, String>,
++}
++
++pub struct Section {
++    pub heading: String,
++    pub level: u8,
++    pub body: String,
++    pub anchors: Vec<String>,
++}
++
++#[derive(Debug)]
++pub enum ParseError {
++    EmptyInput,
++    UnterminatedFence(usize),
++    InvalidHeading(usize),
++    TooLarge(usize),
++}
++
++impl fmt::Display for ParseError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            ParseError::EmptyInput => write!(f, "empty input"),
++            ParseError::UnterminatedFence(line) => {
++                write!(f, "unterminated code fence at line {line}")
++            }
++            ParseError::InvalidHeading(line) => write!(f, "invalid heading at line {line}"),
++            ParseError::TooLarge(size) => write!(f, "input too large: {size} bytes"),
++        }
++    }
++}
++
++impl std::error::Error for ParseError {}
++
++pub fn parse_document(input: &str) -> Result<ParsedDocument, ParseError> {
++    if input.is_empty() {
++        return Err(ParseError::EmptyInput);
++    }
++    if input.len() > 1048576 {
++        return Err(ParseError::TooLarge(input.len()));
++    }
++
++    let mut sections = Vec::new();
++    let mut metadata = HashMap::new();
++    let mut title = String::new();
++    let mut in_fence = false;
++    let mut fence_start = 0usize;
++    let mut current_heading: Option<(String, u8, Vec<String>)> = None;
++    let mut current_body = String::new();
++
++    for (idx, line) in input.lines().enumerate() {
++        let line_no = idx + 1;
++
++        if line.starts_with("```") {
++            in_fence = !in_fence;
++            if in_fence {
++                fence_start = line_no;
++            }
++            current_body.push_str(line);
++            current_body.push('\n');
++            continue;
++        }
++
++        if in_fence {
++            current_body.push_str(line);
++            current_body.push('\n');
++            continue;
++        }
++
++        if let Some(stripped) = line.strip_prefix("# ") {
++            if title.is_empty() {
++                title = stripped.to_string();
++                continue;
++            }
++        }
++
++        if let Some(level) = leading_hash_count(line) {
++            if level == 0 || level > 6 {
++                return Err(ParseError::InvalidHeading(line_no));
++            }
++
++            if let Some((heading, lvl, anchors)) = current_heading.take() {
++                sections.push(Section {
++                    heading,
++                    level: lvl,
++                    body: std::mem::take(&mut current_body),
++                    anchors,
++                });
++            }
++
++            let heading_text = line
++                .trim_start_matches('#')
++                .trim()
++                .to_string();
++            current_heading = Some((heading_text, level as u8, Vec::new()));
++            continue;
++        }
++
++        if let Some(meta_value) = line.strip_prefix("---") {
++            if let Some((k, v)) = meta_value.trim().split_once(':') {
++                metadata.insert(k.trim().to_string(), v.trim().to_string());
++            }
++            continue;
++        }
++
++        current_body.push_str(line);
++        current_body.push('\n');
++    }
++
++    if in_fence {
++        return Err(ParseError::UnterminatedFence(fence_start));
++    }
++
++    if let Some((heading, lvl, anchors)) = current_heading.take() {
++        sections.push(Section {
++            heading,
++            level: lvl,
++            body: current_body,
++            anchors,
++        });
++    }
++
++    Ok(ParsedDocument {
++        title,
++        sections,
++        metadata,
++    })
++}
++
++fn leading_hash_count(line: &str) -> Option<usize> {
++    let mut count = 0usize;
++    for ch in line.chars() {
++        if ch == '#' {
++            count += 1;
++        } else if ch == ' ' {
++            return Some(count);
++        } else {
++            return None;
++        }
++    }
++    None
++}
++
++pub fn extract_anchors(body: &str) -> Vec<String> {
++    let mut anchors = Vec::new();
++    let mut depth = 0u32;
++    let mut buf = String::new();
++    for ch in body.chars() {
++        if ch == '[' {
++            depth += 1;
++            continue;
++        }
++        if ch == ']' && depth > 0 {
++            depth -= 1;
++            if !buf.is_empty() {
++                anchors.push(std::mem::take(&mut buf));
++            }
++            continue;
++        }
++        if depth > 0 {
++            buf.push(ch);
++        }
++    }
++    anchors
++}
++
++pub fn render_outline(doc: &ParsedDocument) -> String {
++    let mut out = String::new();
++    out.push_str(&doc.title);
++    out.push('\n');
++    for section in &doc.sections {
++        for _ in 0..section.level {
++            out.push(' ');
++        }
++        out.push_str(&section.heading);
++        out.push('\n');
++    }
++    out
++}
++
++pub fn count_sections_at_level(doc: &ParsedDocument, level: u8) -> usize {
++    doc.sections.iter().filter(|s| s.level == level).count()
++}
++
++pub fn truncate_to_max_sections(mut doc: ParsedDocument) -> ParsedDocument {
++    if doc.sections.len() > 256 {
++        doc.sections.truncate(256);
++    }
++    doc
++}

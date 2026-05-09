@@ -369,6 +369,168 @@
         "JSON parse 成功",
         "prompt template の 'test-only patterns inside #[cfg(test)] / describe( / test( blocks' 指示を LLM が遵守するか"
       ]
+    },
+    {
+      "id": 13,
+      "name": "large-refactor-real-context-stress",
+      "input_diff": "evals/files/eval13-large-refactor-real.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-09",
+        "captured_by": "claude-code-session-e153c056 / Bundle i 拡張",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/auth/password.rs",
+            "line": 1,
+            "issue": "use std::convert::TryFrom; が未使用 (Rust 2021 edition では prelude に含まれるため明示 import 不要)",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/auth/session.rs",
+            "line": 1,
+            "issue": "use std::collections::HashMap; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/auth/session.rs",
+            "line": 18,
+            "issue": "TTL のリテラル 86400 (1 日 = 24*60*60) がハードコード",
+            "suggestion": "const DEFAULT_SESSION_TTL_SECS: u64 = 86400; に切り出す"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/auth/token.rs",
+            "line": 16,
+            "issue": "トークン長 32 がハードコード (validate_token_format でも 32 を再記述)",
+            "suggestion": "const TOKEN_LENGTH: usize = 32; に切り出す"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/auth/password.rs",
+            "line": 48,
+            "issue": "PasswordPolicy のデフォルト min_length = 12 がハードコード",
+            "suggestion": "const DEFAULT_MIN_PASSWORD_LENGTH: usize = 12; に切り出す"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 3 件以上 (5 baseline 中 recall stress、context 限界で取りこぼしが起きないか)",
+        "rule の種類が 2 種以上 (unused-import / magic-number 双方を carry)",
+        "screen_decision が 'auto_fix' (mechanical only、deep-nesting なし)",
+        "JSON parse 成功 (Phase c MVP smoke で観測した 868 行 diff の screen_decision 欠落と同型 failure mode の再現確認)",
+        "context 限界テスト: 5 file / 280+ 行 を読み終え schema が完全である"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "mid-mixed-recall-stability",
+      "input_diff": "evals/files/eval14-mid-mixed.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-09",
+        "captured_by": "claude-code-session-e153c056 / Bundle i 拡張",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/errors/mod.rs",
+            "line": 5,
+            "issue": "use std::sync::Arc; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/errors/retry.rs",
+            "line": 15,
+            "issue": "RetryPolicy::default_policy の max_attempts = 5 がハードコード",
+            "suggestion": "const DEFAULT_MAX_ATTEMPTS: u32 = 5; に切り出す"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/errors/retry.rs",
+            "line": 44,
+            "issue": "fixed_timeout_ms 内の 30000 がハードコード",
+            "suggestion": "const FIXED_TIMEOUT_MS: u64 = 30000; に切り出す"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 2 件以上 (mid-scale で recall が崩れないか)",
+        "rule の種類が 2 種 (unused-import + magic-number)",
+        "screen_decision が 'auto_fix'",
+        "JSON parse 成功"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "syntax-stress-single-file",
+      "input_diff": "evals/files/eval15-syntax-stress.diff",
+      "claude_code_baseline": {
+        "model": "claude-opus-4-7",
+        "captured_at": "2026-05-09",
+        "captured_by": "claude-code-session-e153c056 / Bundle i 拡張",
+        "lint_findings": [
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 1,
+            "issue": "use std::collections::BTreeMap; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 4,
+            "issue": "use std::path::PathBuf; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "unused-import",
+            "file": "src/parser.rs",
+            "line": 5,
+            "issue": "use std::str::FromStr; が未使用",
+            "suggestion": "import を削除"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/parser.rs",
+            "line": 46,
+            "issue": "parse_document の入力サイズ閾値 1048576 (= 1 MiB) がハードコード",
+            "suggestion": "const MAX_INPUT_BYTES: usize = 1024 * 1024; に切り出す"
+          },
+          {
+            "severity": "minor",
+            "rule": "magic-number",
+            "file": "src/parser.rs",
+            "line": 194,
+            "issue": "truncate_to_max_sections の閾値 256 がハードコード",
+            "suggestion": "const MAX_SECTIONS: usize = 256; に切り出す"
+          }
+        ],
+        "screen_decision": "auto_fix"
+      },
+      "expectations": [
+        "lint_findings が 4 件以上 (5 baseline 中、単 file 長尺で recall が安定)",
+        "全 finding の rule が unused-import / magic-number のいずれか",
+        "screen_decision が 'auto_fix'",
+        "JSON parse 成功 (200+ 行の単 file diff で schema 完全性確認)"
+      ]
     }
   ]
 }

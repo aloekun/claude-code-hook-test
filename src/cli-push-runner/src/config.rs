@@ -227,6 +227,164 @@ command = "jj git push"
     }
 
     #[test]
+    fn config_parses_with_lint_screen_section_full_fields() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[lint_screen]
+enabled = true
+exe_path = ".claude/cli-finding-classifier.exe"
+model = "mistral:7b"
+endpoint = "http://localhost:11434"
+timeout_secs = 90
+max_diff_lines = 4000
+output_path = ".takt/lint-screen-report.md"
+
+[takt]
+workflow = "pre-push-review"
+task = "pre-push review"
+
+[push]
+command = "jj git push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        let lint = config
+            .lint_screen
+            .expect("[lint_screen] section should produce Some(LintScreenConfig)");
+        assert!(lint.enabled);
+        assert_eq!(
+            lint.exe_path.as_deref(),
+            Some(".claude/cli-finding-classifier.exe")
+        );
+        assert_eq!(lint.model.as_deref(), Some("mistral:7b"));
+        assert_eq!(lint.endpoint.as_deref(), Some("http://localhost:11434"));
+        assert_eq!(lint.timeout_secs, Some(90));
+        assert_eq!(lint.max_diff_lines, Some(4000));
+        assert_eq!(
+            lint.output_path.as_deref(),
+            Some(".takt/lint-screen-report.md")
+        );
+    }
+
+    #[test]
+    fn config_parses_with_lint_screen_section_minimal_only_enabled() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[lint_screen]
+enabled = false
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        let lint = config
+            .lint_screen
+            .expect("section present even with only `enabled` should produce Some");
+        assert!(!lint.enabled);
+        assert!(lint.exe_path.is_none());
+        assert!(lint.model.is_none());
+        assert!(lint.endpoint.is_none());
+        assert!(lint.timeout_secs.is_none());
+        assert!(lint.max_diff_lines.is_none());
+        assert!(lint.output_path.is_none());
+    }
+
+    #[test]
+    fn config_lint_screen_section_absent_yields_none() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(
+            config.lint_screen.is_none(),
+            "absent [lint_screen] should yield None (default OFF lane)"
+        );
+    }
+
+    const LINT_SCREEN_ONLY_ENABLED_TOML: &str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[lint_screen]
+enabled = true
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+
+    #[test]
+    fn config_lint_screen_numeric_defaults_resolve_via_constants() {
+        let config: Config = toml::from_str(LINT_SCREEN_ONLY_ENABLED_TOML).unwrap();
+        let lint = config.lint_screen.unwrap();
+        assert_eq!(
+            lint.timeout_secs.unwrap_or(DEFAULT_LINT_SCREEN_TIMEOUT_SECS),
+            DEFAULT_LINT_SCREEN_TIMEOUT_SECS,
+        );
+        assert_eq!(
+            lint.max_diff_lines
+                .unwrap_or(DEFAULT_LINT_SCREEN_MAX_DIFF_LINES),
+            DEFAULT_LINT_SCREEN_MAX_DIFF_LINES,
+        );
+    }
+
+    #[test]
+    fn config_lint_screen_string_defaults_resolve_via_constants() {
+        let config: Config = toml::from_str(LINT_SCREEN_ONLY_ENABLED_TOML).unwrap();
+        let lint = config.lint_screen.unwrap();
+        assert_eq!(
+            lint.model.as_deref().unwrap_or(DEFAULT_LINT_SCREEN_MODEL),
+            DEFAULT_LINT_SCREEN_MODEL,
+        );
+        assert_eq!(
+            lint.endpoint
+                .as_deref()
+                .unwrap_or(DEFAULT_LINT_SCREEN_ENDPOINT),
+            DEFAULT_LINT_SCREEN_ENDPOINT,
+        );
+        assert_eq!(
+            lint.exe_path
+                .as_deref()
+                .unwrap_or(DEFAULT_LINT_SCREEN_EXE_PATH),
+            DEFAULT_LINT_SCREEN_EXE_PATH,
+        );
+        assert_eq!(
+            lint.output_path
+                .as_deref()
+                .unwrap_or(DEFAULT_LINT_SCREEN_OUTPUT_PATH),
+            DEFAULT_LINT_SCREEN_OUTPUT_PATH,
+        );
+    }
+
+    #[test]
     fn config_quality_gate_defaults() {
         let toml_str = r#"
 [quality_gate]
