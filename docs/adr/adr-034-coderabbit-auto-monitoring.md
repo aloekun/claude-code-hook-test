@@ -147,9 +147,9 @@ PR #99 セッションで以下の運用痛が観測された:
 - `project_coderabbit_rate_limit_overlay.md`: rate-limit 検出ロジックの根拠 (PR #99 で実証された walkthrough overlay 仕様)
 - `project_coderabbit_auto_resolve.md`: `resolved:` reply での auto-resolve 挙動
 
-### todo.md / todo4.md エントリ
+### todo-summary.md / todo4.md エントリ
 
-- `docs/todo.md` 推奨実行順序サマリー: 順位 42-45 (Bundle a 4 component)
+- `docs/todo-summary.md` 推奨実行順序サマリー: 順位 42-45 (Bundle a 4 component)
 - `docs/todo4.md`:
   - cli-pr-monitor の rate-limit auto-retry + `@coderabbitai review` auto-trigger 実装 (PR #99 T2-4)
   - ADR-018 / ADR-009 の rate-limit retry ポリシー明文化 (PR #99 T3-5)
@@ -158,7 +158,7 @@ PR #99 セッションで以下の運用痛が観測された:
 ### 新セッションで最初に確認すべきこと
 
 1. `git log --oneline -5` で master の最新状態を確認 (Bundle Z Phase 2/3 が land 済か等)
-2. `docs/todo.md` の Bundle a 関連 entry (順位 42-45) を読む
+2. `docs/todo-summary.md` の Bundle a 関連 entry (順位 42-45) を読む
 3. `docs/todo4.md` の Bundle a 詳細 entry を読む
 4. 本 ADR (ADR-034) を読む
 5. memory `project_coderabbit_rate_limit_overlay.md` を読む
