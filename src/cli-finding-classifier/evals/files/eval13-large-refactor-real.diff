@@ -1,0 +1,280 @@
+# SYNTHETIC FIXTURE: eval13-large-refactor-real
+# issue_pattern: 5 file / ~280 行 / unused-import 2 + magic-number 3 (mechanical only / large refactor real-world scale)
+# expected_screen_decision: auto_fix
+# verification_purpose: mistral:7b の context 限界、JSON 完全性、fallback 頻度 (PR #132 smoke で 868 行 diff の screen_decision 欠落観測の再現)
+diff --git a/src/auth/mod.rs b/src/auth/mod.rs
+new file mode 100644
+index 0000000..a1a1a1a
+--- /dev/null
++++ b/src/auth/mod.rs
+@@ -0,0 +1,52 @@
++pub mod password;
++pub mod session;
++pub mod token;
++
++use std::collections::HashSet;
++use std::sync::Mutex;
++use std::time::Instant;
++
++pub struct AuthService {
++    revoked: Mutex<HashSet<String>>,
++    started: Instant,
++}
++
++impl AuthService {
++    pub fn new() -> Self {
++        Self {
++            revoked: Mutex::new(HashSet::new()),
++            started: Instant::now(),
++        }
++    }
++
++    pub fn revoke(&self, token: String) {
++        if let Ok(mut guard) = self.revoked.lock() {
++            guard.insert(token);
++        }
++    }
++
++    pub fn is_revoked(&self, token: &str) -> bool {
++        self.revoked
++            .lock()
++            .map(|g| g.contains(token))
++            .unwrap_or(false)
++    }
++
++    pub fn uptime_seconds(&self) -> u64 {
++        self.started.elapsed().as_secs()
++    }
++}
++
++impl Default for AuthService {
++    fn default() -> Self {
++        Self::new()
++    }
++}
++
++#[derive(Debug)]
++pub enum AuthError {
++    InvalidCredentials,
++    SessionExpired,
++    TokenRevoked,
++    InternalError(String),
++}
+diff --git a/src/auth/password.rs b/src/auth/password.rs
+new file mode 100644
+index 0000000..b2b2b2b
+--- /dev/null
++++ b/src/auth/password.rs
+@@ -0,0 +1,68 @@
++use std::convert::TryFrom;
++
++use super::AuthError;
++
++pub struct PasswordHash(String);
++
++impl PasswordHash {
++    pub fn from_plaintext(plaintext: &str) -> Result<Self, AuthError> {
++        if plaintext.len() < 8 {
++            return Err(AuthError::InvalidCredentials);
++        }
++        if plaintext.len() > 128 {
++            return Err(AuthError::InvalidCredentials);
++        }
++        let salted = format!("v1:{plaintext}");
++        let hashed = simple_hash(&salted);
++        Ok(Self(hashed))
++    }
++
++    pub fn verify(&self, plaintext: &str) -> bool {
++        let salted = format!("v1:{plaintext}");
++        let hashed = simple_hash(&salted);
++        hashed == self.0
++    }
++
++    pub fn as_str(&self) -> &str {
++        &self.0
++    }
++}
++
++fn simple_hash(input: &str) -> String {
++    let mut acc = 0u64;
++    for byte in input.bytes() {
++        acc = acc.wrapping_mul(131).wrapping_add(byte as u64);
++    }
++    format!("{acc:016x}")
++}
++
++pub struct PasswordPolicy {
++    pub min_length: usize,
++    pub require_digit: bool,
++    pub require_symbol: bool,
++}
++
++impl Default for PasswordPolicy {
++    fn default() -> Self {
++        Self {
++            min_length: 12,
++            require_digit: true,
++            require_symbol: false,
++        }
++    }
++}
++
++impl PasswordPolicy {
++    pub fn check(&self, plaintext: &str) -> Result<(), AuthError> {
++        if plaintext.len() < self.min_length {
++            return Err(AuthError::InvalidCredentials);
++        }
++        if self.require_digit && !plaintext.chars().any(|c| c.is_ascii_digit()) {
++            return Err(AuthError::InvalidCredentials);
++        }
++        if self.require_symbol && !plaintext.chars().any(|c| !c.is_alphanumeric()) {
++            return Err(AuthError::InvalidCredentials);
++        }
++        Ok(())
++    }
++}
+diff --git a/src/auth/session.rs b/src/auth/session.rs
+new file mode 100644
+index 0000000..c3c3c3c
+--- /dev/null
++++ b/src/auth/session.rs
+@@ -0,0 +1,59 @@
++use std::collections::HashMap;
++use std::path::Path;
++use std::time::{Duration, SystemTime};
++
++use super::AuthError;
++
++pub struct Session {
++    user_id: String,
++    issued_at: SystemTime,
++    ttl: Duration,
++}
++
++impl Session {
++    pub fn new(user_id: impl Into<String>) -> Self {
++        Self {
++            user_id: user_id.into(),
++            issued_at: SystemTime::now(),
++            ttl: Duration::from_secs(86400),
++        }
++    }
++
++    pub fn with_ttl(user_id: impl Into<String>, ttl_secs: u64) -> Self {
++        Self {
++            user_id: user_id.into(),
++            issued_at: SystemTime::now(),
++            ttl: Duration::from_secs(ttl_secs),
++        }
++    }
++
++    pub fn user_id(&self) -> &str {
++        &self.user_id
++    }
++
++    pub fn is_expired(&self) -> bool {
++        match SystemTime::now().duration_since(self.issued_at) {
++            Ok(elapsed) => elapsed > self.ttl,
++            Err(_) => true,
++        }
++    }
++
++    pub fn remaining(&self) -> Option<Duration> {
++        let elapsed = SystemTime::now().duration_since(self.issued_at).ok()?;
++        if elapsed > self.ttl {
++            None
++        } else {
++            Some(self.ttl - elapsed)
++        }
++    }
++
++    pub fn extend(&mut self, additional_secs: u64) -> Result<(), AuthError> {
++        if additional_secs == 0 {
++            return Err(AuthError::InternalError("zero extension".into()));
++        }
++        self.ttl += Duration::from_secs(additional_secs);
++        Ok(())
++    }
++}
++
++pub fn audit_log_path() -> &'static Path {
++    Path::new("/var/log/auth/sessions.log")
++}
+diff --git a/src/auth/token.rs b/src/auth/token.rs
+new file mode 100644
+index 0000000..d4d4d4d
+--- /dev/null
++++ b/src/auth/token.rs
+@@ -0,0 +1,52 @@
++use std::fmt;
++
++use super::AuthError;
++
++pub struct Token {
++    value: String,
++    user_id: String,
++}
++
++impl Token {
++    pub fn issue(user_id: impl Into<String>) -> Result<Self, AuthError> {
++        let user_id = user_id.into();
++        if user_id.is_empty() {
++            return Err(AuthError::InvalidCredentials);
++        }
++        let value = generate_token_string(32);
++        Ok(Self { value, user_id })
++    }
++
++    pub fn value(&self) -> &str {
++        &self.value
++    }
++
++    pub fn user_id(&self) -> &str {
++        &self.user_id
++    }
++}
++
++impl fmt::Display for Token {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(f, "Token({}...)", &self.value[..8.min(self.value.len())])
++    }
++}
++
++fn generate_token_string(length: usize) -> String {
++    let alphabet = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
++    let mut out = String::with_capacity(length);
++    let mut seed = 0xDEADBEEFu64;
++    for _ in 0..length {
++        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
++        let idx = (seed >> 33) as usize % alphabet.len();
++        out.push(alphabet[idx] as char);
++    }
++    out
++}
++
++pub fn validate_token_format(value: &str) -> bool {
++    value.len() == 32
++        && value
++            .chars()
++            .all(|c| c.is_ascii_alphanumeric())
++}
+diff --git a/src/lib.rs b/src/lib.rs
+index e5e5e5e..f6f6f6f 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,3 +1,15 @@
++pub mod auth;
++
+ pub mod errors;
+ pub mod parser;
+ pub mod retry;
++
++pub use auth::{AuthError, AuthService};
++pub use auth::password::{PasswordHash, PasswordPolicy};
++pub use auth::session::Session;
++pub use auth::token::Token;
++
++pub fn library_name() -> &'static str {
++    "myapp"
++}

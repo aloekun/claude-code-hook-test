@@ -232,14 +232,38 @@ fn build_confusion_matrix(pairs: &[(String, String)]) -> [[u32; 3]; 3] {
 }
 
 #[test]
-fn eval_set_loads_and_has_phase_b_prime_twelve_entries() {
+fn eval_set_loads_and_has_at_least_phase_b_prime_baseline_count() {
     let set = load_eval_set();
     assert_eq!(set.schema_version, 1);
     assert!(set.agreement_threshold >= 0.5 && set.agreement_threshold <= 1.0);
-    assert_eq!(
-        set.evals.len(),
-        12,
-        "Phase b' scope is 12 fixtures (Phase a 6 件 + Phase b' 拡張 6 件)"
+    assert!(
+        set.evals.len() >= 12,
+        "Phase b' baseline is 12 fixtures; Bundle i 拡張 (eval13/14/15 — 200+ 行 scale-aware) で 15+ 件想定 (現状 {})",
+        set.evals.len()
+    );
+}
+
+/// Bundle i (Phase d 着手前必須) で eval13/14/15 を追加し 15 件に到達したことを検証。
+///
+/// docs/local-llm-offload-analysis.md §1 Phase c+ で要求された scale-aware fixture
+/// (200+ 行 / 3 件) が実体として存在することを最低限の重複スモークでガードする。
+#[test]
+fn eval_set_includes_bundle_i_scale_aware_fixtures() {
+    let set = load_eval_set();
+    let names: Vec<&str> = set.evals.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        names
+            .iter()
+            .any(|n| n.contains("large-refactor-real")),
+        "eval13 (large-refactor-real-context-stress) が必要 (現状: {names:?})"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("mid-mixed")),
+        "eval14 (mid-mixed-recall-stability) が必要 (現状: {names:?})"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("syntax-stress")),
+        "eval15 (syntax-stress-single-file) が必要 (現状: {names:?})"
     );
 }
 
@@ -734,7 +758,7 @@ fn run_lint_screen_against_all_fixtures() {
     )
     .unwrap();
 
-    println!("\n=== Phase b' evals: lint-screen end-to-end ===");
+    println!("\n=== Phase b'/Bundle i evals: lint-screen end-to-end ===");
     let outcomes: Vec<EvalRunOutcome> = set
         .evals
         .iter()
