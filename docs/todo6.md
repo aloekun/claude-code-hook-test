@@ -427,3 +427,53 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 - **派生プロジェクト deploy 戦略**: `lib-ollama-client` が本リポ専用なら deploy なし、共有 crate 化するなら別 repo への copy / git submodule / cargo registry の判断が必要。Phase d 着手判定と合わせて検討
 - **log destination**: `eprintln!` (cli 用途で十分) vs `tracing` / `log` crate 統合 (既存の cli-* との一貫性)。本 lib は現状 ureq + serde_json のみで logging crate なし、初期は `eprintln!` で warn 接頭辞付け、将来必要なら crate 統合という段階導入が自然
+
+---
+
+### ADR-038 に PR #138 learning 2 件を追記 (cost-aware 実装層選択 + attention dilution pitfall) (PR #138 T3-#1+#2 採用)
+
+> **動機**: PR #138 (Phase d kickoff prep) 関連セッションで観測された 2 件の重要 learning が ADR-038 未記録。両者とも次回 LLM/Ollama 系 feature 開発時に再発可能性が高く、ADR に codify することで以下を構造的に防ぐ:
+>
+> 1. **cost-aware 実装層選択**: lint_screen を当初 `takt facet` (Sonnet 動作) として ADR-038 に記述していたが、実装段階で「Sonnet 動作はコスト削減という主目的と矛盾」と判明し `cli-push-runner` の Rust stage (mistral 直呼び) へ pivot。判断根拠が ADR-038 に未記録のため、後続の §8.F (PR body draft) 等で同型の選択を再検討する際に学習が再現されない
+> 2. **attention dilution pitfall**: Phase b' v2 で eval prompt example に diff header (`--- a/<path>` `+++ b/<path>`) を full に追加した結果、agreement rate が **75% → 50% に 33pt 低下** した実証データ。anti-hallucination preamble の効果が context scarcity で打ち消される pattern で、再発すると prompt tuning コストが大きい
+>
+> **本タスクの位置づけ**: PR #138 post-merge-feedback Tier 3 #1 + #2 採用 (Tier 3 #1: Severity Low / Frequency Medium / Effort S / Adoption Risk None / Tier 3 #2: Severity Medium / Frequency Low / Effort S / Adoption Risk None)。両者とも ADR-038 への追記で 1 ファイル編集、bundle land 推奨。
+>
+> **参照**: `.claude/feedback-reports/138.md` Tier 3 #1 + #2、`docs/adr/adr-038-local-llm-finding-classification.md`、`docs/local-llm-offload-history.md` (Phase b' v2 の attention dilution 観測)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。次の LLM 系 feature (§8.F PR body draft 等) 着手前 or Phase d 完了集約 PR と同 timing で land 推奨。
+
+#### 設計決定 (案)
+
+- **配置先**: `docs/adr/adr-038-local-llm-finding-classification.md` 内に 2 つの新 section を追加
+- **#1 cost-aware 実装層選択**: `## Architecture decision: takt facet vs Rust stage trade-off` (or 既存 §architecture を拡張)
+  - takt facet (Sonnet) を選ぶ条件: 意味的判断が必要、コスト感度低
+  - Rust stage (local mistral) を選ぶ条件: コスト削減が主目的、決定論的判定が可能、latency 許容範囲
+  - lint_screen の実例: 当初 takt facet → コスト矛盾検出 → Rust stage に pivot
+- **#2 attention dilution pitfall**: `## Prompt engineering: attention dilution case study` (or §prompt engineering 拡張)
+  - 観測: Phase b' v2 で diff header full 追加 → agreement 75% → 50% (33pt 低下)
+  - 根因: anti-hallucination preamble の効果が context scarcity で打ち消される
+  - 教訓: prompt examples は最小 viable diff snippet で記述、metadata は省略
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-038-local-llm-finding-classification.md` の構造確認 (既存 section header の慣習に合わせる)
+- [ ] #1 architecture decision section を追加 (lint_screen pivot 根拠 + 一般化)
+- [ ] #2 prompt engineering pitfall section を追加 (Phase b' v2 観測値 + 教訓)
+- [ ] 既存 section との整合性確認 (重複説明の有無)
+- [ ] markdownlint clean 確認
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- ADR-038 に 2 つの learning が permanent record として codify される
+- 後続 LLM 系 feature 開発時に「過去の選択根拠 / pitfall」を git log でなく ADR で参照可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort S、ADR への追記のみで副作用最小。
+
+#### 参考: 不採用理由 (Tier 3 #4)
+
+`~/.claude/rules/common/coding-style.md` §Markdown に「重複表現 grep チェック手順」を追加する提案 (#3-4) は **ユーザー判断で見送り**。理由: 重複ワードのバリエーションが多すぎて grep pattern 列挙では網羅できないため、`feedback_no_unenforced_rules.md` 方針 (機械検知不可なルールは追加しない) と整合的に却下相当。週次レビュー (ADR-031) や reviewer の主観判断で対処する位置づけを維持。

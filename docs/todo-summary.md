@@ -74,6 +74,7 @@
 | 96 | 🔧 Tier 2 | **Markdown cross-reference validator CI step (PR #133 T2-#3 採用) ★ Bundle j** | todo6.md | M | 順位 10 (ADR-032 PR-broken-link) と方向性が近接、fold-in 検討の余地あり。順位 94 (regex 規約) + 順位 95 (count 照合) と組み合わせて docs/ 整合性の多層検証 |
 | 97 | 🔧 Tier 2 | **`with_num_ctx(X)` override 値 serialization 検証テスト (PR #136 T2-#1 採用)** | todo6.md | S | なし (PR #136 で追加した builder method の wiring を mockito で seal、Phase d で num_ctx tweak する局面の silent degrade 防止、CodeRabbit が見逃した test gap を post-merge-feedback agent が独立発見) |
 | 98 | 🚀 Tier 1 | **`num_ctx` overflow detection — JSON parse error 検知時の context window 診断ログ (PR #137 T1-#1 採用)** | todo6.md | M | なし (PR #136 で誤診 pivot を発生させた blind spot を decisive に塞ぐ runtime hint、`lib-ollama-client` の response validation 層に warn log 追加、`prompt_eval_count` ≈ `num_ctx` cap で truncation を即診断) |
+| 99 | 💎 Tier 3 | **ADR-038 に PR #138 learning 2 件を追記 (cost-aware 実装層選択 + attention dilution pitfall) (PR #138 T3-#1+#2 採用)** | todo6.md | S | なし (lint_screen が takt facet → Rust stage に pivot した cost 根拠 + Phase b' v2 の diff header full 追加で agreement 75%→50% 33pt 低下した attention dilution 観測の 2 件を ADR に codify、次回 LLM 系 feature 開発時の prior assumption に) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
