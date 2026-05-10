@@ -206,9 +206,9 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
    |---|---|---|---|---|
    | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) ✅ **完了 (PR #139、2026-05-10)** | M | global rules markdown 4 file (project diff は ADR-039 + cross-link + todo cleanup のみ) | classifier preview のみ取得 (real pipeline 未実行)。詳細は本 table 直後の **P-1 dogfood outcome** 参照 |
    | P-2 | Bundle j-1 (順位 94 — `../docs/` 相対パス detect lint rule) ✅ **完了 (PR #140、2026-05-10)** | S | TOML config + 軽い Rust regex (203 行 mixed diff) | classifier preview のみ取得 (real pipeline 未実行)。詳細は本 table 直後の **P-2 dogfood outcome** 参照 |
-   | P-3 | Bundle g-1 (順位 85+86 — cli-pr-monitor verdict guard + transition test) | M | Rust impl + Rust test | 中規模 Rust、`auto_fix` 期待 |
-   | P-4 | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) | S | Rust test only | 狭 scope test diff |
-   | P-5 | Bundle c-1 (順位 63+64+67 — cli-merge-pipeline Drop guard + reaper + ADR) | L | Rust impl ×2 + ADR | 大規模 Rust (PR #132 868 行 stress 再現候補) |
+   | ~~P-3~~ | ~~Bundle g-1 (順位 85+86)~~ ⚠️ **roster から除外** — PR #125 で land 済を P-3 着手時に発見、stale todo 削除のみで実装作業なし | — | — | — |
+   | P-3 (繰上げ) | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) | S | Rust test only | 狭 scope test diff (旧 P-4) |
+   | P-4 (繰上げ) | Bundle c-1 (順位 63+64+67 — cli-merge-pipeline Drop guard + reaper + ADR) | L | Rust impl ×2 + ADR | 大規模 Rust (PR #132 868 行 stress 再現候補) (旧 P-5) |
 
    **P-1 dogfood outcome (PR #139、2026-05-10)**:
 
@@ -235,7 +235,7 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
    - **real pipeline 経由 P-2 metric**: P-3 移行時に再検討 (P-1 → P-2 で本 trade-off 判断は共通結論で固定化、P-3 で改めて見直しの必要性は低いが kill-switch 100% trend を踏まえ再評価)
 
    **設計判断のポイント**:
-   - **Effort 分布 M→S→M→S→L**: 前半小規模 / 後半大規模で kill-switch (fallback > 50%) signal の質を切り分け可能 (小規模で発動 = 設計 issue / 大規模で発動 = num_ctx 再到達)
+   - **Effort 分布 (旧 M→S→M→S→L → 実 M→S→S→L)**: ~~前半小規模 / 後半大規模で kill-switch (fallback > 50%) signal の質を切り分け~~ 旧 P-3 (M = Bundle g-1) が PR #125 で land 済発見により roster から除外、4 PR roster に縮小。Effort 分布は M→S→S→L に変化、size ramp-up の中段で M が抜けたため小規模 (P-3) → 大規模 (P-4) の jump がやや大きい。kill-switch signal の切り分けは P-4 (L) で num_ctx 再到達検証として有効
    - **Bundle h + g-2 を 1 PR に統合**: 共通テーマ「global rules consolidation (process/lifecycle codification)」、reviewer も「rule 追加 4 件まとめ」として認識しやすい
    - **Bundle f 除外**: `(defer)` 表記 = systemic 性未確認のため Phase d で push 圧力を加えない
 3. **Phase d 結果集約**: 計測結果から §8.E 採用 / §8.F 着手 / kill-switch を判定。dogfood 完了後
