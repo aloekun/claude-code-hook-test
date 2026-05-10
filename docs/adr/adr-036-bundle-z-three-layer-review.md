@@ -4,6 +4,8 @@
 
 試験運用 (2026-05-04)
 
+> 本 ADR の運用パターンは [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) で標準化された 3 点セット (config opt-in / kill-switch / bounded lifetime) の対象。本採用判定または却下時に ADR-039 の retirement workflow に従う。
+
 ## コンテキスト
 
 PR #97 セッション (2026-04-30 〜 2026-05-01) で `pre-push-review` パイプラインに **6 iter / 17-18 分の outlier** が 2 回観測された。総時間 36 分 (47.9 分中 75% を消費)。両 run の root cause 分析より、3 つの構造的根因が判明:

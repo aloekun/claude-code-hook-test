@@ -10,95 +10,6 @@
 
 ## 現在進行中
 
-### Experimental feature の標準パターン codify (PR #123 T3-1 採用) ★ Bundle h
-
-> **動機**: PR #123 (ADR-038 Phase 5: P-0 classifier opt-in + §10 ブランチ分離運用) で採用された運用 pattern が、既存の試験運用 ADR (ADR-031 週次レビュー / ADR-036 Bundle Z / ADR-038 ローカル LLM 等) と systemic に反復するパターンであることを post-merge-feedback で観測。3 点セット (config opt-in + kill-switch + bounded lifetime) を標準化することで、今後の試験運用導入で再利用可能なテンプレートとなる。
->
-> **本タスクの位置づけ**: PR #123 post-merge-feedback Tier 3 #1 採用 (Frequency Medium / Effort XS / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/123.md` Tier 3 #1、ADR-031 (週次レビュー、試験運用)、ADR-036 (Bundle Z、試験運用)、ADR-038 (ローカル LLM、試験運用、本 PR の対象)、PR #123 PR body (kill-switch 経路の模範記述)
->
-> **実行優先度**: 💎 **Tier 3** — Effort XS。Experimental Feature の 3 点セットを 1 箇所に codify。
-
-#### 標準パターン (3 点セット)
-
-1. **Config opt-in**: `enabled = false` をデフォルトとし、明示有効化 (`enabled = true`) で機能発動。env var / config 値での切り替えを必ず提供
-2. **Kill-switch**: revert PR で `enabled = false` に戻す経路を PR body / ADR で明文化。crate 削除等の物理削除は dogfood 失敗判定後にまとめて実施 (本 PR の §10.6 C 採用 / 簡易版 / 完全版の階層化が参考)
-3. **Bounded lifetime**: 試験期限を ADR 冒頭または計画書冒頭に明記 (例: 「6 ヶ月経過しても採用判断未達なら却下とみなす」)。retirement workflow (`docs-governance.md`) との接続を明示
-
-#### 設計決定の余地 (実装時に検討)
-
-- **配置先**:
-  - **case 1**: project root の `CLAUDE.md` または global `~/.claude/CLAUDE.md` に「Experimental Features」section を直接追加 (post-merge-feedback の原案)
-  - **case 2**: 別 ADR (例: ADR-039 experimental-feature-standard-pattern) で codify + CLAUDE.md からリンク
-- **memory `feedback_claude_md_link_only.md` ("CLAUDE.md はリンクのみ") との整合**: case 2 が memory rule に整合的。case 1 は本タスク承認で memory を override する形になるため、実装時に再確認推奨
-
-#### 作業計画
-
-- [ ] 配置先 (case 1 / case 2) を決定
-- [ ] 該当ファイルに Experimental Features の 3 点セットを XS で追記
-- [ ] (任意) 既存試験運用 ADR (ADR-031 / 036 / 038) から本 section へのリンク追加
-- [ ] 順位 90 と同 PR で land 推奨 (Bundle h コア、両者 XS+S)
-
-#### 完了基準
-
-- 試験運用 ADR を新規策定する際の参考点が明文化される
-- 既存試験運用 ADR (031/036/038) と新規 section の整合がとれる
-
----
-
-### グローバルルール: ephemeral 大規模コンテンツの ADR 昇格 + config コメント lifecycle (PR #123 T3-2 採用) ★ Bundle h
-
-> **動機**: PR #123 で `docs/local-llm-offload-analysis.md` (ephemeral 試験運用計画書) に §10 (約 200 行の governance / procedure content) を追加した行為は、systemic に発生しているパターン。本来は ADR 化を検討すべき「永続的に参照される運用ルール」が ephemeral 内に閉じ込められると、retirement 時に dead pointer / 知識ロスのリスクが顕在化する。同 PR で `pr-monitor-config.toml` のコメントが ephemeral 計画書 (`local-llm-offload-analysis.md §A-2 / §10`) を参照する cross-file reference lifecycle 違反も発生 (post-merge-feedback で T3 #3 として "🤔 様子見" verdict、本タスクとは別件)。両事例を予防するグローバルルールを 2 ファイルに追加する。
->
-> **本タスクの位置づけ**: PR #123 post-merge-feedback Tier 3 #2 採用 (Frequency Medium / Effort S / Adoption Risk None)。PR #94 / #110 / #111 で続いている ephemeral ↔ permanent lifecycle 違反シリーズの予防層を強化。
->
-> **参照**: `.claude/feedback-reports/123.md` Tier 3 #2、`~/.claude/rules/common/docs-governance.md` 既存 § Retirement Workflow、`~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle、PR #94 / #110 / #111 (関連事例)、PR #123 §10 大規模追加 (本ルールのトリガ事例)
->
-> **実行優先度**: 💎 **Tier 3** — Effort S。global rule 2 ファイル更新。
-
-#### 追加する 2 ルール
-
-##### (a) `~/.claude/rules/common/docs-governance.md`: Ephemeral 大規模コンテンツの ADR 昇格基準
-
-Ephemeral artifact (`docs/*-analysis.md` 等の試験運用計画書) 内に **50 行超の governance / procedure content** を追加する場合、廃棄時に ADR (`docs/adr/adr-NNN-*.md`) への昇格を検討する判断基準を明文化:
-
-- **50 行超 + 「他箇所から参照される運用ルール」性格** → ADR 昇格を検討
-- **50 行超でも「1 つの試験運用 case の固有手順」** → ephemeral 内のままでよい
-- **廃棄時の判断**: retirement workflow Step 1 (permanent value 移管) で ADR 昇格判断を必ず実施
-
-書き先候補: 既存 § Retirement Workflow の Step 1 詳細化、または新規 § "Ephemeral 大規模コンテンツの ADR 昇格基準"。
-
-##### (b) `~/.claude/rules/common/coding-style.md`: Config コメントの reference lifecycle
-
-設定ファイル (`*.toml` / `*.json` / `*.yaml`) のコメントから ephemeral 計画書 (`docs/*-analysis.md` / `docs/todo*.md` 等) へリンクするのは anti-pattern。理由:
-
-- 計画書は ephemeral lifecycle で削除される
-- 設定ファイルは permanent lifecycle で長期保持される
-- 永続 → ephemeral リンクは時間経過で dead pointer になる
-
-代替案:
-
-- **ADR 参照** (`# 詳細: docs/adr/adr-NNN-feature.md`)
-- **インライン説明** (1-2 行で意図を直接記述)
-
-書き先候補: 既存 § Cross-File Reference Lifecycle の anti-pattern 例として「config コメント → ephemeral 計画書」を追加。PR #123 `pr-monitor-config.toml` の事例を inline cite。
-
-#### 作業計画
-
-- [ ] `~/.claude/rules/common/docs-governance.md` に (a) を追記 (Step 1 詳細化 or 新規 §)
-- [ ] `~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle に (b) を追記
-- [ ] PR #123 `pr-monitor-config.toml` の `local-llm-offload-analysis.md` 参照を cite (anti-pattern 例)
-- [ ] 順位 89 と同 PR で land 推奨
-
-#### 完了基準
-
-- ephemeral 計画書に大規模 content を追加する際の判断基準が明文化される
-- config コメント → ephemeral 参照の anti-pattern が global rule に明記される
-- 順位 89 と同 PR で land (Bundle h コア)
-
----
-
 ### `[lint_screen]` config parse テスト (PR #132 T2-#4 採用) ★ Bundle i
 
 > **動機**: PR #132 (Phase c MVP) で `push-runner-config.toml` に新 section `[lint_screen]` を追加したが、`config.rs` の test module には parse テストが不在。CodeRabbit nitpick で指摘 (`config_parses_with_diff` 相当が `[lint_screen]` には未存在)。serde TOML は field name の完全一致を要求するため、parse テストがないと将来の field rename / 追加で silent `None` fallback が発生し、機能が無音で停止するリスクがある。
@@ -427,3 +338,53 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 - **派生プロジェクト deploy 戦略**: `lib-ollama-client` が本リポ専用なら deploy なし、共有 crate 化するなら別 repo への copy / git submodule / cargo registry の判断が必要。Phase d 着手判定と合わせて検討
 - **log destination**: `eprintln!` (cli 用途で十分) vs `tracing` / `log` crate 統合 (既存の cli-* との一貫性)。本 lib は現状 ureq + serde_json のみで logging crate なし、初期は `eprintln!` で warn 接頭辞付け、将来必要なら crate 統合という段階導入が自然
+
+---
+
+### ADR-038 に PR #138 learning 2 件を追記 (cost-aware 実装層選択 + attention dilution pitfall) (PR #138 T3-#1+#2 採用)
+
+> **動機**: PR #138 (Phase d kickoff prep) 関連セッションで観測された 2 件の重要 learning が ADR-038 未記録。両者とも次回 LLM/Ollama 系 feature 開発時に再発可能性が高く、ADR に codify することで以下を構造的に防ぐ:
+>
+> 1. **cost-aware 実装層選択**: lint_screen を当初 `takt facet` (Sonnet 動作) として ADR-038 に記述していたが、実装段階で「Sonnet 動作はコスト削減という主目的と矛盾」と判明し `cli-push-runner` の Rust stage (mistral 直呼び) へ pivot。判断根拠が ADR-038 に未記録のため、後続の §8.F (PR body draft) 等で同型の選択を再検討する際に学習が再現されない
+> 2. **attention dilution pitfall**: Phase b' v2 で eval prompt example に diff header (`--- a/<path>` `+++ b/<path>`) を full に追加した結果、agreement rate が **75% → 50% に 33pt 低下** した実証データ。anti-hallucination preamble の効果が context scarcity で打ち消される pattern で、再発すると prompt tuning コストが大きい
+>
+> **本タスクの位置づけ**: PR #138 post-merge-feedback Tier 3 #1 + #2 採用 (Tier 3 #1: Severity Low / Frequency Medium / Effort S / Adoption Risk None / Tier 3 #2: Severity Medium / Frequency Low / Effort S / Adoption Risk None)。両者とも ADR-038 への追記で 1 ファイル編集、bundle land 推奨。
+>
+> **参照**: `.claude/feedback-reports/138.md` Tier 3 #1 + #2、`docs/adr/adr-038-local-llm-finding-classification.md`、`docs/local-llm-offload-history.md` (Phase b' v2 の attention dilution 観測)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。次の LLM 系 feature (§8.F PR body draft 等) 着手前 or Phase d 完了集約 PR と同 timing で land 推奨。
+
+#### 設計決定 (案)
+
+- **配置先**: `docs/adr/adr-038-local-llm-finding-classification.md` 内に 2 つの新 section を追加
+- **#1 cost-aware 実装層選択**: `## Architecture decision: takt facet vs Rust stage trade-off` (or 既存 §architecture を拡張)
+  - takt facet (Sonnet) を選ぶ条件: 意味的判断が必要、コスト感度低
+  - Rust stage (local mistral) を選ぶ条件: コスト削減が主目的、決定論的判定が可能、latency 許容範囲
+  - lint_screen の実例: 当初 takt facet → コスト矛盾検出 → Rust stage に pivot
+- **#2 attention dilution pitfall**: `## Prompt engineering: attention dilution case study` (or §prompt engineering 拡張)
+  - 観測: Phase b' v2 で diff header full 追加 → agreement 75% → 50% (33pt 低下)
+  - 根因: anti-hallucination preamble の効果が context scarcity で打ち消される
+  - 教訓: prompt examples は最小 viable diff snippet で記述、metadata は省略
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-038-local-llm-finding-classification.md` の構造確認 (既存 section header の慣習に合わせる)
+- [ ] #1 architecture decision section を追加 (lint_screen pivot 根拠 + 一般化)
+- [ ] #2 prompt engineering pitfall section を追加 (Phase b' v2 観測値 + 教訓)
+- [ ] 既存 section との整合性確認 (重複説明の有無)
+- [ ] markdownlint clean 確認
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- ADR-038 に 2 つの learning が permanent record として codify される
+- 後続 LLM 系 feature 開発時に「過去の選択根拠 / pitfall」を git log でなく ADR で参照可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort S、ADR への追記のみで副作用最小。
+
+#### 参考: 不採用理由 (Tier 3 #4)
+
+`~/.claude/rules/common/coding-style.md` §Markdown に「重複表現 grep チェック手順」を追加する提案 (#3-4) は **ユーザー判断で見送り**。理由: 重複ワードのバリエーションが多すぎて grep pattern 列挙では網羅できないため、`feedback_no_unenforced_rules.md` 方針 (機械検知不可なルールは追加しない) と整合的に却下相当。週次レビュー (ADR-031) や reviewer の主観判断で対処する位置づけを維持。

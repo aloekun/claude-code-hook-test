@@ -39,6 +39,7 @@
 - [ADR-036: Bundle Z — 決定論層 + 制約付き修正 + 異常検知レビュアーの 3 層アーキテクチャ](docs/adr/adr-036-bundle-z-three-layer-review.md) *(試験運用)*
 - [ADR-037: takt fix-trust shortcut — convergence_verdict による Iter 3 短絡](docs/adr/adr-037-takt-fix-trust-shortcut.md) *(試験運用)*
 - [ADR-038: ローカル LLM による CodeRabbit findings classification](docs/adr/adr-038-local-llm-finding-classification.md) *(試験運用)*
+- [ADR-039: Experimental feature 標準パターン (config opt-in + kill-switch + bounded lifetime)](docs/adr/adr-039-experimental-feature-standard-pattern.md) *(試験運用)*
 
 ## Build
 

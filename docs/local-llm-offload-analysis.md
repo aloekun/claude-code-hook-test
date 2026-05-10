@@ -204,7 +204,7 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
    | Order | 構成 | Effort | Diff Profile | dogfood signal |
    |---|---|---|---|---|
-   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) | M | global rules markdown 4 file | docs-only で `informational` 期待、false-positive 検証 baseline |
+   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) | M | global rules markdown 4 file (うち project diff には ADR-039 + cross-link + todo cleanup のみ) | docs-only で `informational` 期待、false-positive 検証 baseline。**本 PR では config switch を commit に乗せない方針 (Phase d guide §1) のため pipeline 経由の lint_screen は未実行、cli-finding-classifier 直叩きでの classifier preview のみ取得**: latency 23s / findings 0 / fallback (JSON parse error: missing field `screen_decision`) — 順位 98 (`num_ctx` overflow detection) の必要性を再確認する signal。real pipeline 経由の P-1 metric は後続 dogfood で取得 (P-2 移行時に再検討) |
    | P-2 | Bundle j-1 (順位 94 — `../docs/` 相対パス detect lint rule) | S | TOML config + 軽い Rust regex | 小規模 mixed diff |
    | P-3 | Bundle g-1 (順位 85+86 — cli-pr-monitor verdict guard + transition test) | M | Rust impl + Rust test | 中規模 Rust、`auto_fix` 期待 |
    | P-4 | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) | S | Rust test only | 狭 scope test diff |
