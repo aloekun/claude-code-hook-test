@@ -1536,6 +1536,79 @@ extensions = ["ts", "js"]
         assert!(violations.is_empty());
     }
 
+    fn md_no_docs_relative_back_to_docs_rule() -> CustomRule {
+        make_test_rule(
+            "no-docs-relative-back-to-docs",
+            r"(?i)\]\(\.\./docs/",
+            &["md"],
+        )
+    }
+
+    #[test]
+    fn md_no_docs_relative_detects_pr133_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "todo7.md",
+            "See [ADR-036](../docs/adr/adr-036-bundle-z-three-layer-review.md) for details.\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn md_no_docs_relative_detects_uppercase_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "note.md",
+            "Reference [Spec](../DOCS/feature.md).\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn md_no_docs_relative_skips_same_directory_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "todo7.md",
+            "See [ADR-036](adr/adr-036-bundle-z-three-layer-review.md) for details.\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_no_docs_relative_skips_parent_to_other_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "page.md",
+            "See [README](../README.md) and [src](../src/main.rs).\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn md_no_docs_relative_only_targets_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "config.toml",
+            "doc = \"](../docs/adr/foo.md)\"\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
     fn ps_rule_with_pattern(id: &str, pattern: &str) -> CustomRule {
         make_test_rule(id, pattern, &["ps1"])
     }

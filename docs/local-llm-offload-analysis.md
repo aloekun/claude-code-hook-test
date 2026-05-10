@@ -204,11 +204,23 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
    | Order | 構成 | Effort | Diff Profile | dogfood signal |
    |---|---|---|---|---|
-   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) | M | global rules markdown 4 file (うち project diff には ADR-039 + cross-link + todo cleanup のみ) | docs-only で `informational` 期待、false-positive 検証 baseline。**本 PR では config switch を commit に乗せない方針 (Phase d guide §1) のため pipeline 経由の lint_screen は未実行、cli-finding-classifier 直叩きでの classifier preview のみ取得**: latency 23s / findings 0 / fallback (JSON parse error: missing field `screen_decision`) — 順位 98 (`num_ctx` overflow detection) の必要性を再確認する signal。real pipeline 経由の P-1 metric は後続 dogfood で取得 (P-2 移行時に再検討) |
+   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) ✅ **完了 (PR #139、2026-05-10)** | M | global rules markdown 4 file (project diff は ADR-039 + cross-link + todo cleanup のみ) | classifier preview のみ取得 (real pipeline 未実行)。詳細は本 table 直後の **P-1 dogfood outcome** 参照 |
    | P-2 | Bundle j-1 (順位 94 — `../docs/` 相対パス detect lint rule) | S | TOML config + 軽い Rust regex | 小規模 mixed diff |
    | P-3 | Bundle g-1 (順位 85+86 — cli-pr-monitor verdict guard + transition test) | M | Rust impl + Rust test | 中規模 Rust、`auto_fix` 期待 |
    | P-4 | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) | S | Rust test only | 狭 scope test diff |
    | P-5 | Bundle c-1 (順位 63+64+67 — cli-merge-pipeline Drop guard + reaper + ADR) | L | Rust impl ×2 + ADR | 大規模 Rust (PR #132 868 行 stress 再現候補) |
+
+   **P-1 dogfood outcome (PR #139、2026-05-10)**:
+
+   - **classifier preview metrics** (cli-finding-classifier 直叩き、real pipeline 経由ではない):
+     - latency: 23s (eval baseline p95=8.4s の ~3x、337-line diff サイズ起因の推定)
+     - findings: 0 (空配列)
+     - screen_decision: `human_review` (fallback path activated)
+     - fallback_reason: `JSON parse error: missing field 'screen_decision'` — num_ctx=8192 でも 337-line diff で出力 truncate の可能性
+   - **Phase d 学習**: 順位 98 (`num_ctx` overflow detection diagnostic warn log) の必要性を再確認 = mistral:7b 出力崩壊を runtime hint で即診断する優先度が確定
+   - **post-merge-feedback (10 findings → 1 件採用)**: T3 #1 (development-workflow.md に 「同一ファイル複数編集の 1 task 統合」 + 「partial completion + 後続 PR 追補明記」 の 2 pattern 追補) を採用 → **順位 100** として登録済。様子見 3 件 / 却下 5 件 (詳細は `.claude/feedback-reports/139.md`)
+   - **観測 caveat**: post-merge-feedback agent が PR #139 で初観測した `baselinebaseline` (table cell 内連続単語重複) は session/prepush 間で観測が矛盾 (jj cache stale 疑い、未確定)。Frequency Low 単独で T1 #1 連続重複単語 lint / T1 #2 jj cache validation は様子見 / 却下。3 PR 観測閾値で再評価
+   - **real pipeline 経由 P-1 metric**: P-2 (Bundle j-1) 移行時に再検討 = lint_screen を session-only opt-in で動かす機会を改めて作る (commit pollution 回避と integration test の trade-off は P-2 で再判断)
 
    **設計判断のポイント**:
    - **Effort 分布 M→S→M→S→L**: 前半小規模 / 後半大規模で kill-switch (fallback > 50%) signal の質を切り分け可能 (小規模で発動 = 設計 issue / 大規模で発動 = num_ctx 再到達)

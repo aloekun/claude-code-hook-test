@@ -237,3 +237,45 @@ steps = [
 [rules.example]
 bad = "comments.iter().filter(|c| c.created_at > push_time)"
 good = "comments.iter().filter(|c| c.created_at >= push_time)"
+
+# ─── ルール⑧: docs/ 内 Markdown の `../docs/` 相対パストラップ検出 ───
+#
+# 由来: PR #133 (50KB 分割系列、Bundle j-1 = 順位 94 採用) で
+# `[ADR-036](../docs/adr/adr-036-...)` 形式の壊れ link が docs/ 配下で混入し
+# CodeRabbit Minor 指摘。docs/ 配下のファイルから `../docs/` を辿ると `docs/docs/` を
+# 指すため directory nesting mismatch で必ず broken link。pre-existing bug が分割で
+# 表面化した経緯。Custom lint rule で書いた瞬間に block すれば本 bug class が排除される。
+#
+# Bundle Z #B-α と同じ「決定論的防止層」哲学 (ADR-007 の正規表現層)。
+#
+# 自己限定設計 (extensions = ["md"] のみ、`paths` filter なし):
+# pattern `](../docs/` は parent-directory 参照を伴う `docs/` への back-link で、
+# 文書 が docs/ 配下 (または同等位置) にある場合のみ意味を持つ。root-level README.md
+# 等の通常 Markdown では `](docs/...)` 形式が自然で `](../docs/...)` は出現しない
+# ため、pattern semantics で自己限定される。
+#
+# Self-exclusion: 本 TOML の message / why / example で説明文として `](../docs/`
+# 形式を直接記述しないこと (lint 対象は extensions = ["md"] のみで .toml は対象外
+# だが、説明用に書く場合も backtick code 内の同パターンが他文書に流れる事故を予防)。
+
+[[rules]]
+id = "no-docs-relative-back-to-docs"
+# case-insensitive で safety margin (URL fragment / Windows path 大文字違い等)
+pattern = '(?i)\]\(\.\./docs/'
+severity = "error"
+message = "`docs/` 配下から `../docs/` への相対参照は directory nesting mismatch で必ず broken link になります"
+why = "PR #133 で同パターンの壊れ link が混入し CodeRabbit Minor 指摘 (docs/ 内 file から `../docs/` を辿ると `docs/docs/` を指すため必ず not found)。`(filename.md)` (同階層) または `adr/file.md` (sub-dir) で書く"
+extensions = ["md"]
+
+[rules.fix]
+strategy = "相対パスを正しい階層に置き換え"
+steps = [
+  "同階層の場合: `[text](filename.md)` (相対参照なし)",
+  "サブディレクトリの場合: `[text](adr/filename.md)` 等の forward path",
+  "親ディレクトリ (docs/ の外) を参照したい場合: `../<外側>/` (docs/ を再参照しない)",
+]
+
+[rules.example]
+# 説明文中で実際の trap pattern を直接書かないため、placeholder 形式で示す
+bad = "[ADR-036](DOTDOT/docs/adr/adr-036-...)  <!-- DOTDOT は ../ の意。実際は `..` 2 文字 -->"
+good = "[ADR-036](adr/adr-036-...)"

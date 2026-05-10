@@ -122,46 +122,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### `docs/` 内 Markdown の `../docs/` 相対パストラップ検出 lint rule (PR #133 T1-1 採用) ★ Bundle j
-
-> **動機**: PR #133 (todo5.md 分割) で `docs/todo7.md` L103 に `[ADR-036](../docs/adr/adr-036-...)` 形式の壊れ link が混入。`docs/` 配下のファイルから `../docs/` を辿ると `docs/docs/` を指すため directory nesting mismatch で必ず broken link になる。todo5.md 時代から存在した pre-existing bug が分割で表面化した経緯で、CodeRabbit Minor finding として検出。custom lint rule で書いた瞬間に block すれば bug class が排除される。
->
-> **本タスクの位置づけ**: PR #133 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Bundle Z #B-α と同じ「決定論的防止層」哲学。AST 解析ではなく正規表現層 (ADR-007) で対応可能。
->
-> **参照**: `.claude/feedback-reports/133.md` Tier 1 #1、ADR-007 (custom lint rule の正規表現 / AST 層線引き)、CodeRabbit PR #133 review #3
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。`.claude/custom-lint-rules.toml` への regex rule 追加。
-
-#### 設計決定 (案)
-
-- **配置先**: `.claude/custom-lint-rules.toml` に新規 rule entry
-- **検出パターン (正規表現案)**: `(?i)\]\(\.\./docs/`
-  - case-insensitive flag は `.claude/rules/common/code-review.md` の Custom lint rule patterns 規約に従う (PowerShell 等向けだが安全側に倒す)
-- **適用対象**: `docs/**/*.md` (rule の `paths` filter で限定。他 path 配下からは正当な `../docs/` 参照があり得るため)
-- **rule 名 (案)**: `no-docs-relative-back-to-docs`
-- **suppress マーカー**: 該当行末に `<!-- lint-ignore: no-docs-relative-back-to-docs -->` 等
-
-#### 作業計画
-
-- [ ] 既存 `.claude/custom-lint-rules.toml` の rule 構造を確認
-- [ ] regex + path filter を新 rule として記述
-- [ ] PostToolUse hook の lint runner で synthetic test (PR #133 で混入した `../docs/adr/...` パターンを再現してマッチ確認)
-- [ ] 既存 `docs/` 配下を grep して false positive 影響範囲を確認 (`grep -rn '\]\(\.\./docs/' docs/`)
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 確認
-- [ ] 本 todo6.md エントリを削除
-
-#### 完了基準
-
-- `.claude/custom-lint-rules.toml` に新 rule が追加され `docs/**/*.md` 内の `\]\(\.\./docs/` を検出
-- 1〜2 PR で dogfood し false positive がないこと
-- PR #133 と同型の broken link 混入が新 PR で構造的に防止される
-
-#### 詰まっている箇所
-
-- 派生プロジェクト (techbook-ledger 等) で同 rule が適用された際、各 repo の `docs/` 構造が異なる可能性 — 着手時に各派生 repo の `docs/` レイアウトを確認
-
----
-
 ### `docs/todo*.md` preamble file count 自動照合スクリプト (PR #133 T2-#4 採用) ★ Bundle j
 
 > **動機**: PR #133 で `docs/todo6.md` L5 (「六つすべてを確認すること」) と `docs/todo7.md` L5 (「七つすべて」) が実 8 ファイル (todo.md / todo2-7.md / todo-summary.md) と乖離。CodeRabbit Minor finding として 2 件検出され、fix commit (`4889413`) で修正したが、`todo*.md` 分割が今後も繰り返される pattern (todo3 → 4 → 5 → 6 → 7) のため CI 層で自動検証する価値がある。Tier 1 #1 (custom lint) と相補で防御層を構築。
@@ -388,3 +348,35 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 参考: 不採用理由 (Tier 3 #4)
 
 `~/.claude/rules/common/coding-style.md` §Markdown に「重複表現 grep チェック手順」を追加する提案 (#3-4) は **ユーザー判断で見送り**。理由: 重複ワードのバリエーションが多すぎて grep pattern 列挙では網羅できないため、`feedback_no_unenforced_rules.md` 方針 (機械検知不可なルールは追加しない) と整合的に却下相当。週次レビュー (ADR-031) や reviewer の主観判断で対処する位置づけを維持。
+
+---
+
+### `development-workflow.md` に 「同一ファイル複数編集の 1 task 統合」 + 「partial completion + 後続 PR 追補明記」 を追補 (PR #139 T3-#1 採用)
+
+> **動機**: PR #139 (Bundle h+g-2 land) の post-merge-feedback で 2 つの暗黙知が systemic に観測された:
+>
+> 1. **同一ファイル複数編集の 1 task 統合**: PR #119/#120/#121 の sub-PR 分割では同一ファイル (`~/.claude/rules/common/*`) の複数編集を 1 task に統合した方が review 重複を回避できた。明文化されていないため次回類似 sub-PR で再発する余地
+> 2. **partial completion + 後続 PR 追補明記**: PR #139 で Bundle g-2 (順位 87+88) を land したが Bundle g-1 (順位 85+86) は未着手という partial completion を PR body / analysis.md で明記する pattern。Bundle h でも同様 (8 試験運用 ADR への back-link は本 PR 範囲外と明示)。明文化されていないと「全部やった」誤認や曖昧 review が生じる
+>
+> **本タスクの位置づけ**: PR #139 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。`feedback_no_unenforced_rules.md` 方針との整合: 本提案は「既存実践の明文化」であり機械検知不可なルール追加ではない (review/PR body 記述で人間の意識付けに用いる目安) ため例外的に採用相当。
+>
+> **参照**: `.claude/feedback-reports/139.md` Tier 3 #1、`~/.claude/rules/common/development-workflow.md`、PR #119/#120/#121 (sub-PR 分割実例)、PR #139 (partial completion 実例)
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/development-workflow.md` の Feature Implementation Workflow 直後 (現 § Edge case 観測頻度の前後 etc.) に新 section を追加
+  - **(a) 同一ファイル複数編集の 1 task 統合**: 「sub-PR 分割時、同一ファイルへの複数 task 編集は 1 commit / 1 task に統合する。理由: review 重複回避 + diff の局所化」
+  - **(b) partial completion + 後続 PR 追補明記**: 「bundle / scope を全消化できない場合、PR body の "Out of scope" や planning doc に未消化分を明示。理由: 「全部やった」誤認の防止 + 後続 PR の起点として trackable」
+- [ ] 既存 § Edge case 観測頻度との接続 (相互参照 or 配置順序検討)
+- [ ] markdownlint clean 確認
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 上記 2 pattern が rule として codify される
+- 次回 sub-PR 分割時 / partial completion 時に reviewer/Claude が rule から逆引き可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rule への追記のみで副作用最小。配置先 (Feature Implementation Workflow 直後 vs 別 § で独立) は実装時の判断。
