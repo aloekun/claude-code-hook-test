@@ -10,49 +10,6 @@
 
 ## 現在進行中
 
-### `no-ephemeral-todo-reference` self-exclusion invariant の単体テスト追加 (PR #110 T2-1 採用) ★ Bundle d
-
-> **動機**: PR #110 で導入した `.claude/custom-lint-rules.toml` rule⑥ (`no-ephemeral-todo-reference`) は、ルール定義ファイル自身が `.toml` 拡張子で対象内になるため、message / why / example 内に concrete `docs/todoN.md` (N = digit) を書かない placeholder 戦略で self-trigger を回避している。この invariant は **naming convention 依存** で、将来の例文追記時に concrete digit を含む文字列を入れると self-trigger が発生して silent regression を起こすリスク (PR #110 pre-push reviewer OBS-3 で documented)。
->
-> **本タスクの位置づけ**: PR #110 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None / ✅ 採用)。machine-enforceable な invariant 保護で、将来の例文追加で self-exclusion が壊れた時に CI で即検出。
->
-> **参照**: `.claude/feedback-reports/110.md` Tier 2 #1、`.claude/custom-lint-rules.toml` rule⑥ の self-exclusion 設計コメント、PR #110 pre-push reviewer OBS-3
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。self-exclusion テストインフラの新設。
-
-#### 設計決定 (案)
-
-- **配置先候補** (着手時に決定):
-  - **案 A**: `tests/custom-lint-rules/` に独立 test crate を新設し、`hooks-post-tool-comment-lint-rust` の lint engine を呼び出して assert
-  - **案 B**: `src/hooks-post-tool-comment-lint-rust/tests/` 配下に integration test を追加 (既存 hook crate に同居)
-  - 推奨: **案 B** (既存 crate の lint engine を直接 invoke でき、テスト infra 二重投資を避ける)
-- **テスト内容**:
-  - **TP test**: 任意の `.rs` / `.toml` ファイルに `docs/todo3.md` 等の concrete digit reference を含む input → rule⑥ が warning を 1 件生成することを assert
-  - **FP test (self-exclusion invariant)**: `.claude/custom-lint-rules.toml` の rule⑥ 部分 (placeholder `N` を含む example.bad / message / why) を input として渡し、rule⑥ が warning を **生成しない** ことを assert
-  - **Edge case test**: `docs/todoN.md` (N = letter) / `docs/todo*.md` (literal asterisk) / `docs/todo[0-9]*.md` (regex source の literal) いずれも warning を生成しないこと
-
-#### 作業計画
-
-- [ ] 配置先 (案 A / B) を `src/hooks-post-tool-comment-lint-rust/` の構造を確認のうえ決定
-- [ ] lint engine を test 経由で呼び出す API を確認 (既存 unit test があれば流用)
-- [ ] 上記 3 種類のテストケースを実装
-- [ ] cargo test で 全 pass を確認
-- [ ] 派生プロジェクト (`techbook-ledger` / `auto-review-fix-vc`) で同 hook を deploy する場合のテスト追従も検討
-- [ ] 本 todo5.md エントリを削除
-
-#### 完了基準
-
-- self-exclusion invariant が test で機械的に保護される (将来 concrete digit を rule⑥ 内に書くと CI で fail)
-- TP / FP / Edge case の 3 軸でカバー
-- 既存テストとの統合が破綻しない (cargo test 全 pass)
-
-#### 詰まっている箇所
-
-- lint engine の test 用 API 公開状況: hooks-post-tool-comment-lint-rust crate が library crate を expose していない場合、test infra 整備自体に追加 effort が発生する可能性
-- self-exclusion invariant の future-proof 性: rule⑥ の設計が変わって新しい extension が追加された場合、test fixtures の更新も必要
-
----
-
 ### `no-ephemeral-todo-reference` の `yaml`/`yml` extensions 追加理由をコメントで明記 (PR #110 T3-1 採用) ★ Bundle d
 
 > **動機**: PR #110 で `no-ephemeral-todo-reference` rule の `extensions` に `yaml` / `yml` を追加したが、`docs/todo3.md` の設計 doc には `["rs", "toml", "jsonc", "json", "ts", "tsx", "js", "jsx", "py", "ps1"]` のみ記載されていた。実装時に「YAML config もファイルパス参照を含みうる」判断で `yaml` / `yml` を含めたが、その理由が `.claude/custom-lint-rules.toml` rule⑥ コメントに残っていない。将来の rule 参照者が「なぜ yaml/yml が含まれているか」を git blame で追う必要が出る。
