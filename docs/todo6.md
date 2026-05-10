@@ -388,3 +388,35 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 参考: 不採用理由 (Tier 3 #4)
 
 `~/.claude/rules/common/coding-style.md` §Markdown に「重複表現 grep チェック手順」を追加する提案 (#3-4) は **ユーザー判断で見送り**。理由: 重複ワードのバリエーションが多すぎて grep pattern 列挙では網羅できないため、`feedback_no_unenforced_rules.md` 方針 (機械検知不可なルールは追加しない) と整合的に却下相当。週次レビュー (ADR-031) や reviewer の主観判断で対処する位置づけを維持。
+
+---
+
+### `development-workflow.md` に 「同一ファイル複数編集の 1 task 統合」 + 「partial completion + 後続 PR 追補明記」 を追補 (PR #139 T3-#1 採用)
+
+> **動機**: PR #139 (Bundle h+g-2 land) の post-merge-feedback で 2 つの暗黙知が systemic に観測された:
+>
+> 1. **同一ファイル複数編集の 1 task 統合**: PR #119/#120/#121 の sub-PR 分割では同一ファイル (`~/.claude/rules/common/*`) の複数編集を 1 task に統合した方が review 重複を回避できた。明文化されていないため次回類似 sub-PR で再発する余地
+> 2. **partial completion + 後続 PR 追補明記**: PR #139 で Bundle g-2 (順位 87+88) を land したが Bundle g-1 (順位 85+86) は未着手という partial completion を PR body / analysis.md で明記する pattern。Bundle h でも同様 (8 試験運用 ADR への back-link は本 PR 範囲外と明示)。明文化されていないと「全部やった」誤認や曖昧 review が生じる
+>
+> **本タスクの位置づけ**: PR #139 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。`feedback_no_unenforced_rules.md` 方針との整合: 本提案は「既存実践の明文化」であり機械検知不可なルール追加ではない (review/PR body 記述で人間の意識付けに用いる目安) ため例外的に採用相当。
+>
+> **参照**: `.claude/feedback-reports/139.md` Tier 3 #1、`~/.claude/rules/common/development-workflow.md`、PR #119/#120/#121 (sub-PR 分割実例)、PR #139 (partial completion 実例)
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/development-workflow.md` の Feature Implementation Workflow 直後 (現 § Edge case 観測頻度の前後 etc.) に新 section を追加
+  - **(a) 同一ファイル複数編集の 1 task 統合**: 「sub-PR 分割時、同一ファイルへの複数 task 編集は 1 commit / 1 task に統合する。理由: review 重複回避 + diff の局所化」
+  - **(b) partial completion + 後続 PR 追補明記**: 「bundle / scope を全消化できない場合、PR body の "Out of scope" や planning doc に未消化分を明示。理由: 「全部やった」誤認の防止 + 後続 PR の起点として trackable」
+- [ ] 既存 § Edge case 観測頻度との接続 (相互参照 or 配置順序検討)
+- [ ] markdownlint clean 確認
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 上記 2 pattern が rule として codify される
+- 次回 sub-PR 分割時 / partial completion 時に reviewer/Claude が rule から逆引き可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rule への追記のみで副作用最小。配置先 (Feature Implementation Workflow 直後 vs 別 § で独立) は実装時の判断。
