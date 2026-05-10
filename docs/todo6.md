@@ -373,3 +373,57 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 詰まっている箇所
 
 なし。Effort S / 既存 test の duplicate 風で実装容易。
+
+---
+
+### `num_ctx` overflow detection — JSON parse error 検知時の context window 診断ログ (PR #137 T1-#1 採用)
+
+> **動機**: PR #136 セッションで「mistral:7b の JSON schema breakdown」を観測した際、Claude は当初「prompt 設計の問題」と誤診し `§8.D v4 prompt 改訂ループ` という名前の誤った means に向かいかけた (実 root cause は `num_ctx` default 4096 超過)。advisor の指摘 + raw Ollama output dump で軌道修正されたが、**runtime layer に診断 hint が出ていれば pivot 時間を短縮できる** ことが判明。`lib-ollama-client` の response validation 層で JSON parse error 検知時に `num_ctx` / `prompt_eval_count` / response length を warn log で auto-emit することで、将来の同型事故 (LLM dogfood 全般で systemic に再発し得る) を decisive に診断できる。
+>
+> **本タスクの位置づけ**: PR #137 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk: 派生プロジェクト deploy コストのみ、低)。ADR-038 試験運用配下の infrastructure 強化、Phase d で num_ctx tweak する局面に入る前の安全網としても機能。
+>
+> **参照**: `.claude/feedback-reports/137.md` Tier 1 #1、PR #136 で `__dump_raw_ollama.sh` で確認した `prompt_eval_count: 4096` 上限到達 (現在は scratch ファイル削除済、`docs/local-llm-offload-history.md` に経緯記録)、`src/lib-ollama-client/src/lib.rs` の `generate_raw_json` / `OllamaResponse` 構造体
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort M。Phase d kickoff 前か実 dogfood 中に整備するのが理想 (dogfood で実際に context overflow を起こした PR があれば即診断できる layer になる)。
+
+#### 設計決定 (案)
+
+- **配置先**: `src/lib-ollama-client/src/lib.rs` の `generate_json::<T>` ヘルパー (型付き parse 失敗時) または raw response 検証層
+- **emit 条件 (案)**:
+  - **A (主軸)**: `serde_json::from_str` が `missing field` 系 error を返した場合 → `prompt_eval_count` が response の `eval_count` field と比較して context cap に近接していれば warn log
+  - **B (補助)**: response length が threshold (例: 100 chars) 未満で truncate を疑える場合
+  - **C (簡易)**: 常に `prompt_eval_count` / `eval_count` を debug log で emit (low-noise、auto OFF default)
+- **emit 内容 (案)**:
+  ```text
+  [lib-ollama-client] WARN: Ollama JSON output may be truncated.
+    parse_error: <serde error message>
+    prompt_eval_count: <N> (vs num_ctx: <M>)
+    eval_count: <K>, response_length: <L> chars
+    hint: 大規模 prompt は num_ctx を増やすことで解決可能 (with_num_ctx で override)。
+  ```
+- **fallback 経路への副作用**: 既存 fallback (block しない、`human_review` + `fallback_reason` を埋める) は維持、log は副次的な diagnostic 出力のみ
+
+#### 作業計画
+
+- [ ] `OllamaResponse` 構造体に `eval_count` / `prompt_eval_count` フィールドを追加 (現状 `response` / `error` のみ deserialize)
+- [ ] `generate_json::<T>` ヘルパー (型付き parse) で error 時に上記情報を warn log emit (`log::warn!` または `eprintln!`)
+- [ ] threshold ベースの判定ロジック (主軸 A) を実装、補助 B はオプション
+- [ ] tests:
+  - `warn_log_emitted_on_truncated_response_when_prompt_eval_count_high` (mockito + log capture)
+  - `no_warn_emitted_for_parse_errors_unrelated_to_truncation` (e.g., format-违反 JSON)
+- [ ] PR #136 で観測した eval13/15 fixture の `prompt_eval_count: 4096` 状況を dogfood で再現し、log が emit されることを確認
+- [ ] cli-finding-classifier 経由でも log が表面化することを smoke 確認 (push-runner step ログに乗るか)
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) 向け deploy 判断 (lib-ollama-client は本リポ専用なら deploy 不要、共有なら別途配布計画)
+- [ ] 本 todo6.md エントリを削除
+
+#### 完了基準
+
+- JSON parse error + context cap 近接の併発時に warn log が emit される
+- 既存 fallback 経路 (block しない、graceful degradation) を破壊しない
+- LLM dogfood セッションで「context window 起因か prompt 起因か」を log だけで切り分けられる構造
+- 単体テストで diagnostic log の emit 条件 + non-emit 条件の両方を seal
+
+#### 詰まっている箇所
+
+- **派生プロジェクト deploy 戦略**: `lib-ollama-client` が本リポ専用なら deploy なし、共有 crate 化するなら別 repo への copy / git submodule / cargo registry の判断が必要。Phase d 着手判定と合わせて検討
+- **log destination**: `eprintln!` (cli 用途で十分) vs `tracing` / `log` crate 統合 (既存の cli-* との一貫性)。本 lib は現状 ureq + serde_json のみで logging crate なし、初期は `eprintln!` で warn 接頭辞付け、将来必要なら crate 統合という段階導入が自然

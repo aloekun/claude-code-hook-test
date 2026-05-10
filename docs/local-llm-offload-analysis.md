@@ -2,7 +2,7 @@
 
 > **位置づけ**: 本ファイルは「残作業の **次に何をするか** だけ」を持つ実行計画。完了済みの分析・実装・dogfood 計測・retrospective は [local-llm-offload-history.md](local-llm-offload-history.md) に切り出した。
 >
-> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08 / **Phase c+ Bundle i 完了 = PR #135 land 2026-05-09 / §8.D 完了 = PR #136 land 2026-05-09 (num_ctx 8192、agreement 86.7% / verdict GO)**、Phase d 着手前提条件は全て充足済、kickoff 待機)。
+> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08 / **Phase c+ Bundle i 完了 = PR #135 land 2026-05-09 / §8.D 完了 = PR #136 land 2026-05-09 (num_ctx 8192、agreement 86.7% / verdict GO) / Phase d kickoff prep 完了 = 2026-05-10 ([docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) 参照)**、実 dogfood (3-5 PR、long-running) 待機)。
 >
 > **引退条件**: 以下のいずれかで本ファイルを削除する (docs-governance.md retirement workflow 準拠)。`local-llm-offload-history.md` も同タイミングで判断する。
 > - 残作業 (§8.D / §8.E / §8.F, §1 Phase b/c/d) が **すべて land または却下** された場合 → permanent value (採用された設計判断、却下理由) を ADR-038 に migrate して両ファイルを削除
@@ -197,8 +197,23 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
 #### 次に何をするか (優先度順)
 
-1. **Phase d kickoff prep** (session 内で完結可能): `push-runner-config.toml [lint_screen] enabled = true` への切替判断、metrics 計測スクリプト整備、dogfood 運用ガイド作成、過去 dogfood 阻害要因 3 種 (findings ゼロ / review body 抽出漏れ / rate-limit) への対処設計。**前提条件 (a)-(d) は PR #135 + PR #136 で全充足済**
-2. **Phase d 実 dogfood** (long-running、数日〜数週間): kickoff 後の通常 PR 3-5 件で lint_screen の token 削減 / latency / 大規模 diff JSON 完全性を実観測。`feedback_dogfood_evals_two_phase` (evals → dogfood の 2 段階) の dogfood 段階に該当
+1. **Phase d kickoff prep** ✅ **完了 (2026-05-10)**: 運用ガイド = [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) として独立 doc 化。決定事項: (a) **session-only opt-in** (config commit せず session 内のみ enable / kill-switch 即可)、(b) metrics = **latency p50/p95 + fallback rate + Claude session input token 削減効果 (質的傾向)**、(c) kill-switch = **fallback rate > 50% で停止**。過去 dogfood の 3 obstacles (findings ゼロ / review body 抽出漏れ / rate-limit) は classifier 専用で lint_screen は CR 非依存のため scope 外と確定。**前提条件 (a)-(d) は PR #135 + PR #136 で全充足済**
+2. **Phase d 実 dogfood** (long-running、数日〜数週間): kickoff 後の通常 PR 5 件で lint_screen の token 削減 / latency / 大規模 diff JSON 完全性を実観測。`feedback_dogfood_evals_two_phase` (evals → dogfood の 2 段階) の dogfood 段階に該当。具体運用は [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) §1-3 に従う
+
+   **dogfood 対象 PR roster** (`docs/todo-summary.md` から選定、size ramp-up 順序):
+
+   | Order | 構成 | Effort | Diff Profile | dogfood signal |
+   |---|---|---|---|---|
+   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) | M | global rules markdown 4 file | docs-only で `informational` 期待、false-positive 検証 baseline |
+   | P-2 | Bundle j-1 (順位 94 — `../docs/` 相対パス detect lint rule) | S | TOML config + 軽い Rust regex | 小規模 mixed diff |
+   | P-3 | Bundle g-1 (順位 85+86 — cli-pr-monitor verdict guard + transition test) | M | Rust impl + Rust test | 中規模 Rust、`auto_fix` 期待 |
+   | P-4 | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) | S | Rust test only | 狭 scope test diff |
+   | P-5 | Bundle c-1 (順位 63+64+67 — cli-merge-pipeline Drop guard + reaper + ADR) | L | Rust impl ×2 + ADR | 大規模 Rust (PR #132 868 行 stress 再現候補) |
+
+   **設計判断のポイント**:
+   - **Effort 分布 M→S→M→S→L**: 前半小規模 / 後半大規模で kill-switch (fallback > 50%) signal の質を切り分け可能 (小規模で発動 = 設計 issue / 大規模で発動 = num_ctx 再到達)
+   - **Bundle h + g-2 を 1 PR に統合**: 共通テーマ「global rules consolidation (process/lifecycle codification)」、reviewer も「rule 追加 4 件まとめ」として認識しやすい
+   - **Bundle f 除外**: `(defer)` 表記 = systemic 性未確認のため Phase d で push 圧力を加えない
 3. **Phase d 結果集約**: 計測結果から §8.E 採用 / §8.F 着手 / kill-switch を判定。dogfood 完了後
 
 優先度低の独立 task (Phase d を block しない):
