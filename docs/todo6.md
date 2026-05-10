@@ -122,46 +122,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### `docs/` 内 Markdown の `../docs/` 相対パストラップ検出 lint rule (PR #133 T1-1 採用) ★ Bundle j
-
-> **動機**: PR #133 (todo5.md 分割) で `docs/todo7.md` L103 に `[ADR-036](../docs/adr/adr-036-...)` 形式の壊れ link が混入。`docs/` 配下のファイルから `../docs/` を辿ると `docs/docs/` を指すため directory nesting mismatch で必ず broken link になる。todo5.md 時代から存在した pre-existing bug が分割で表面化した経緯で、CodeRabbit Minor finding として検出。custom lint rule で書いた瞬間に block すれば bug class が排除される。
->
-> **本タスクの位置づけ**: PR #133 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Bundle Z #B-α と同じ「決定論的防止層」哲学。AST 解析ではなく正規表現層 (ADR-007) で対応可能。
->
-> **参照**: `.claude/feedback-reports/133.md` Tier 1 #1、ADR-007 (custom lint rule の正規表現 / AST 層線引き)、CodeRabbit PR #133 review #3
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。`.claude/custom-lint-rules.toml` への regex rule 追加。
-
-#### 設計決定 (案)
-
-- **配置先**: `.claude/custom-lint-rules.toml` に新規 rule entry
-- **検出パターン (正規表現案)**: `(?i)\]\(\.\./docs/`
-  - case-insensitive flag は `.claude/rules/common/code-review.md` の Custom lint rule patterns 規約に従う (PowerShell 等向けだが安全側に倒す)
-- **適用対象**: `docs/**/*.md` (rule の `paths` filter で限定。他 path 配下からは正当な `../docs/` 参照があり得るため)
-- **rule 名 (案)**: `no-docs-relative-back-to-docs`
-- **suppress マーカー**: 該当行末に `<!-- lint-ignore: no-docs-relative-back-to-docs -->` 等
-
-#### 作業計画
-
-- [ ] 既存 `.claude/custom-lint-rules.toml` の rule 構造を確認
-- [ ] regex + path filter を新 rule として記述
-- [ ] PostToolUse hook の lint runner で synthetic test (PR #133 で混入した `../docs/adr/...` パターンを再現してマッチ確認)
-- [ ] 既存 `docs/` 配下を grep して false positive 影響範囲を確認 (`grep -rn '\]\(\.\./docs/' docs/`)
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 確認
-- [ ] 本 todo6.md エントリを削除
-
-#### 完了基準
-
-- `.claude/custom-lint-rules.toml` に新 rule が追加され `docs/**/*.md` 内の `\]\(\.\./docs/` を検出
-- 1〜2 PR で dogfood し false positive がないこと
-- PR #133 と同型の broken link 混入が新 PR で構造的に防止される
-
-#### 詰まっている箇所
-
-- 派生プロジェクト (techbook-ledger 等) で同 rule が適用された際、各 repo の `docs/` 構造が異なる可能性 — 着手時に各派生 repo の `docs/` レイアウトを確認
-
----
-
 ### `docs/todo*.md` preamble file count 自動照合スクリプト (PR #133 T2-#4 採用) ★ Bundle j
 
 > **動機**: PR #133 で `docs/todo6.md` L5 (「六つすべてを確認すること」) と `docs/todo7.md` L5 (「七つすべて」) が実 8 ファイル (todo.md / todo2-7.md / todo-summary.md) と乖離。CodeRabbit Minor finding として 2 件検出され、fix commit (`4889413`) で修正したが、`todo*.md` 分割が今後も繰り返される pattern (todo3 → 4 → 5 → 6 → 7) のため CI 層で自動検証する価値がある。Tier 1 #1 (custom lint) と相補で防御層を構築。
