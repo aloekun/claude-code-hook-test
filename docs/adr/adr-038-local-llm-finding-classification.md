@@ -4,6 +4,8 @@
 
 試験運用 (2026-05-06)
 
+> 本 ADR の運用パターンは [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) で標準化された 3 点セット (config opt-in / kill-switch / bounded lifetime) の対象。本採用判定または却下時に ADR-039 の retirement workflow に従う。
+
 ## コンテキスト
 
 Claude Code セッションにおける反復作業の token 消費を抑える目的で、[docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) で 3 層構造 (思考層 / 実行層 / 制御層) のオフロード戦略を提案した。GTX 3070 + Ollama (mistral:7b) でローカル推論可能な範囲を切り出す。

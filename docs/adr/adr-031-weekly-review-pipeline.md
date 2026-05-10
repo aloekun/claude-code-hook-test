@@ -4,6 +4,8 @@
 
 試験運用 (2026-04-27)
 
+> 本 ADR の運用パターンは [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) で標準化された 3 点セット (config opt-in / kill-switch / bounded lifetime) の対象。本採用判定または却下時に ADR-039 の retirement workflow に従う。
+
 ## コンテキスト
 
 ### 問題: 既存 3 パイプラインの review scope の空白
