@@ -198,7 +198,22 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 #### 次に何をするか (優先度順)
 
 1. **Phase d kickoff prep** ✅ **完了 (2026-05-10)**: 運用ガイド = [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) として独立 doc 化。決定事項: (a) **session-only opt-in** (config commit せず session 内のみ enable / kill-switch 即可)、(b) metrics = **latency p50/p95 + fallback rate + Claude session input token 削減効果 (質的傾向)**、(c) kill-switch = **fallback rate > 50% で停止**。過去 dogfood の 3 obstacles (findings ゼロ / review body 抽出漏れ / rate-limit) は classifier 専用で lint_screen は CR 非依存のため scope 外と確定。**前提条件 (a)-(d) は PR #135 + PR #136 で全充足済**
-2. **Phase d 実 dogfood** (long-running、数日〜数週間): kickoff 後の通常 PR 3-5 件で lint_screen の token 削減 / latency / 大規模 diff JSON 完全性を実観測。`feedback_dogfood_evals_two_phase` (evals → dogfood の 2 段階) の dogfood 段階に該当
+2. **Phase d 実 dogfood** (long-running、数日〜数週間): kickoff 後の通常 PR 5 件で lint_screen の token 削減 / latency / 大規模 diff JSON 完全性を実観測。`feedback_dogfood_evals_two_phase` (evals → dogfood の 2 段階) の dogfood 段階に該当。具体運用は [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) §1-3 に従う
+
+   **dogfood 対象 PR roster** (`docs/todo-summary.md` から選定、size ramp-up 順序):
+
+   | Order | 構成 | Effort | Diff Profile | dogfood signal |
+   |---|---|---|---|---|
+   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) | M | global rules markdown 4 file | docs-only で `informational` 期待、false-positive 検証 baseline |
+   | P-2 | Bundle j-1 (順位 94 — `../docs/` 相対パス detect lint rule) | S | TOML config + 軽い Rust regex | 小規模 mixed diff |
+   | P-3 | Bundle g-1 (順位 85+86 — cli-pr-monitor verdict guard + transition test) | M | Rust impl + Rust test | 中規模 Rust、`auto_fix` 期待 |
+   | P-4 | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) | S | Rust test only | 狭 scope test diff |
+   | P-5 | Bundle c-1 (順位 63+64+67 — cli-merge-pipeline Drop guard + reaper + ADR) | L | Rust impl ×2 + ADR | 大規模 Rust (PR #132 868 行 stress 再現候補) |
+
+   **設計判断のポイント**:
+   - **Effort 分布 M→S→M→S→L**: 前半小規模 / 後半大規模で kill-switch (fallback > 50%) signal の質を切り分け可能 (小規模で発動 = 設計 issue / 大規模で発動 = num_ctx 再到達)
+   - **Bundle h + g-2 を 1 PR に統合**: 共通テーマ「global rules consolidation (process/lifecycle codification)」、reviewer も「rule 追加 4 件まとめ」として認識しやすい
+   - **Bundle f 除外**: `(defer)` 表記 = systemic 性未確認のため Phase d で push 圧力を加えない
 3. **Phase d 結果集約**: 計測結果から §8.E 採用 / §8.F 着手 / kill-switch を判定。dogfood 完了後
 
 優先度低の独立 task (Phase d を block しない):
