@@ -201,18 +201,18 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 >
 > **進行方針 (2026-05-11、kill-switch 100% trend を踏まえた pivot)**: dogfood を一度止めて broken signal の repair (順位 98 = `num_ctx` overflow detection 診断) を最優先。診断 → root cause 特定 → fix → clean dogfood の順で進む。Bundle c-1 (旧 P-4) や Bundle c の他項目は **本 critical path 外** として通常 Tier 1 優先度で別途処理。
 
-##### 🚀 Phase A: Diagnostic (1 PR、M、現在の next action)
+##### 🚀 Phase A: Diagnostic ✅ **完了 (本 PR、2026-05-11)**
 
-**順位 98 実装** = `lib-ollama-client` の response validation 層に `prompt_eval_count ≈ num_ctx cap` 検知時の warn log 追加。これにより JSON parse error の真因が **num_ctx overflow か別問題か** を decisive に判別可能になる。先行する 3 PR の dogfood preview (下記 dogfood signal log 参照) ですべて `JSON parse error: missing field 'screen_decision'` が観測されており、原因仮説の 2 候補 (num_ctx truncation / mistral 出力崩壊) を切り分ける必要がある。
+**順位 98 実装完了** = `lib-ollama-client` の `generate_json` に `OllamaMetadata` (`prompt_eval_count` / `eval_count` / `num_ctx`) を組み込み、serde parse error 時に stderr へ warn log を emit する診断層を追加。`OllamaApi` trait の `generate_with_metadata` (default fallback あり、StubOllama は変更不要)、`emit_overflow_diagnostic` 関数で 90% 以上時に「num_ctx を増やす hint」を含める。16 unit test pass、cli-finding-classifier 経由でも warn log が stderr に出ることを smoke 確認。
 
-##### 🔍 Phase B: Root cause identification (no PR、data 収集のみ)
+##### 🔍 Phase B: Root cause identification ✅ **完了 (Phase A 即時 dogfood、2026-05-11)**
 
-Phase A land 後、既存 3 PRs (#139/#140/#141) の diff を classifier に再流入 → `prompt_eval_count` を観測。num_ctx truncation が真因なら Phase C-1 へ、別問題なら Phase C-2 へ分岐。
+Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_eval_count: 8192 (vs num_ctx: 8192)` = 100% 到達を実機確認**。**真因 = num_ctx truncation で確定**。mistral の prompt が完全に context cap で truncate されて JSON output が完成せず `screen_decision` field 欠落の症状を引き起こしていた。仮説 2 候補 (num_ctx truncation / mistral 出力崩壊) のうち前者が真因と decisive 判定。
 
-##### 🔧 Phase C: Root cause fix (1 PR、XS-S、Phase B 依存)
+##### 🔧 Phase C: Root cause fix (1 PR、XS-S、次の next action) — C-1 経路で確定
 
-- **C-1 (num_ctx 起因の場合)**: `DEFAULT_NUM_CTX = 8192 → 16384 (or 32768)` への増加 (`lib-ollama-client` の定数変更 + test 調整 + RAM 影響評価)
-- **C-2 (mistral 出力崩壊起因の場合)**: model swap (llama2:13b 等) / prompt revision / structured output schema 強化 等の別アプローチ
+- **C-1 (確定経路)**: `DEFAULT_NUM_CTX = 8192 → 16384 (or 32768)` への増加。mistral:7b の theoretical max は 32K、本リポの prompt サイズ (~4-5K) + 大規模 diff (~3-4K) で 16384 が安全マージン込みで妥当。RAM 影響評価 + lint-screen evals の regression test (15 件 fixtures が pass し続けるか) + smoke dogfood で fallback rate が下がることを確認
+- **(参考、不採用)** ~~C-2 (mistral 出力崩壊起因の場合)~~: Phase B で num_ctx 確定のため scope 外
 
 ##### ✅ Phase D: Clean dogfood validation (2-3 通常 PR、real pipeline 経由)
 
