@@ -68,8 +68,8 @@ pub(crate) fn run_lint_screen(config: &LintScreenConfig, diff_path: &str) {
     };
 
     let params = resolve_invoke_params(config);
-    let json = match invoke_classifier(&params, &diff) {
-        Ok(j) => j,
+    let output = match invoke_classifier(&params, &diff) {
+        Ok(o) => o,
         Err(reason) => {
             log_stage(STAGE, &format!("skip: classifier {}", reason));
             return;
@@ -80,7 +80,7 @@ pub(crate) fn run_lint_screen(config: &LintScreenConfig, diff_path: &str) {
         .output_path
         .as_deref()
         .unwrap_or(DEFAULT_LINT_SCREEN_OUTPUT_PATH);
-    match write_report(output_path, &json) {
+    match write_report(output_path, &output.stdout, &output.stderr) {
         Ok(()) => log_stage(
             STAGE,
             &format!(
@@ -109,7 +109,12 @@ fn read_diff(diff_path: &str, config: &LintScreenConfig) -> Result<String, Strin
     Ok(raw)
 }
 
-fn invoke_classifier(params: &InvokeParams<'_>, diff: &str) -> Result<String, String> {
+struct ClassifierOutput {
+    stdout: String,
+    stderr: String,
+}
+
+fn invoke_classifier(params: &InvokeParams<'_>, diff: &str) -> Result<ClassifierOutput, String> {
     if !Path::new(params.exe).exists() {
         return Err(format!("exe 不在 ({})", params.exe));
     }
@@ -150,16 +155,16 @@ fn invoke_classifier(params: &InvokeParams<'_>, diff: &str) -> Result<String, St
         None => Err(format!("timeout ({}s)", params.timeout_secs + 5)),
         Some(status) if !status.success() => Err(format!("非 0 終了: {}", stderr)),
         Some(_) if stdout.trim().is_empty() => Err("stdout 空".to_string()),
-        Some(_) => Ok(stdout),
+        Some(_) => Ok(ClassifierOutput { stdout, stderr }),
     }
 }
 
-fn write_report(output_path: &str, classifier_json: &str) -> Result<(), String> {
+fn write_report(output_path: &str, classifier_json: &str, stderr: &str) -> Result<(), String> {
     let path = Path::new(output_path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("ディレクトリ作成失敗: {}", e))?;
     }
-    let markdown = format_report(classifier_json);
+    let markdown = format_report(classifier_json, stderr);
     std::fs::write(path, markdown).map_err(|e| format!("write: {}", e))
 }
 
@@ -218,10 +223,14 @@ fn render_findings_table(findings: &[serde_json::Value]) -> String {
     out
 }
 
-fn format_report(classifier_json: &str) -> String {
+fn format_report(classifier_json: &str, stderr: &str) -> String {
     let value: serde_json::Value = match serde_json::from_str(classifier_json) {
         Ok(v) => v,
-        Err(e) => return render_parse_error(&e, classifier_json),
+        Err(e) => {
+            let mut out = render_parse_error(&e, classifier_json);
+            out.push_str(&render_diagnostic(stderr));
+            return out;
+        }
     };
     let decision = value
         .get("screen_decision")
@@ -240,6 +249,20 @@ fn format_report(classifier_json: &str) -> String {
     let mut out = String::from(REPORT_PREAMBLE);
     out.push_str(&render_summary(decision, findings.len(), fallback_reason));
     out.push_str(&render_findings_table(&findings));
+    out.push_str(&render_diagnostic(stderr));
+    out
+}
+
+fn render_diagnostic(stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("\n## Diagnostic\n\n");
+    out.push_str("classifier exe からの stderr 出力 (Phase A 順位 98 の num_ctx overflow 診断 log 等):\n\n");
+    out.push_str("```text\n");
+    out.push_str(trimmed);
+    out.push_str("\n```\n");
     out
 }
 
@@ -260,7 +283,7 @@ mod tests {
             ],
             "screen_decision":"auto_fix"
         }"#;
-        let md = format_report(json);
+        let md = format_report(json, "");
         assert!(md.contains("auto_fix"));
         assert!(md.contains("unused-import"));
         assert!(md.contains("src/a.rs"));
@@ -270,16 +293,60 @@ mod tests {
     #[test]
     fn format_report_handles_empty_findings() {
         let json = r#"{"lint_findings":[],"screen_decision":"informational"}"#;
-        let md = format_report(json);
+        let md = format_report(json, "");
         assert!(md.contains("informational"));
         assert!(md.contains("(なし)"));
     }
 
     #[test]
     fn format_report_recovers_from_invalid_json() {
-        let md = format_report("not json");
+        let md = format_report("not json", "");
         assert!(md.contains("JSON parse 失敗"));
         assert!(md.contains("not json"));
+    }
+
+    #[test]
+    fn format_report_includes_diagnostic_section_when_stderr_non_empty() {
+        let json = r#"{
+            "lint_findings": [],
+            "screen_decision": "human_review",
+            "fallback_reason": "ollama error: JSON parse error"
+        }"#;
+        let stderr = "[lib-ollama-client] WARN: Ollama JSON output may be truncated.\n  prompt_eval_count: 8192 (vs num_ctx: 8192)";
+        let md = format_report(json, stderr);
+        assert!(md.contains("## Diagnostic"));
+        assert!(md.contains("prompt_eval_count: 8192"));
+        assert!(md.contains("num_ctx: 8192"));
+    }
+
+    #[test]
+    fn format_report_skips_diagnostic_section_when_stderr_empty() {
+        let json = r#"{
+            "lint_findings": [],
+            "screen_decision": "informational"
+        }"#;
+        let md = format_report(json, "");
+        assert!(!md.contains("## Diagnostic"));
+        assert!(!md.contains("classifier exe からの stderr"));
+    }
+
+    #[test]
+    fn format_report_skips_diagnostic_section_when_stderr_whitespace_only() {
+        let json = r#"{
+            "lint_findings": [],
+            "screen_decision": "informational"
+        }"#;
+        let md = format_report(json, "   \n\n  ");
+        assert!(!md.contains("## Diagnostic"));
+    }
+
+    #[test]
+    fn format_report_appends_diagnostic_to_parse_error_path() {
+        let stderr = "[lib-ollama-client] WARN: truncated";
+        let md = format_report("not json", stderr);
+        assert!(md.contains("JSON parse 失敗"));
+        assert!(md.contains("## Diagnostic"));
+        assert!(md.contains("[lib-ollama-client] WARN"));
     }
 
     #[test]
@@ -289,7 +356,7 @@ mod tests {
             "screen_decision":"human_review",
             "fallback_reason":"ollama error: empty"
         }"#;
-        let md = format_report(json);
+        let md = format_report(json, "");
         assert!(md.contains("fallback_reason"));
         assert!(md.contains("ollama error"));
     }
@@ -308,7 +375,7 @@ mod tests {
             ],
             "screen_decision":"auto_fix"
         }"#;
-        let md = format_report(json);
+        let md = format_report(json, "");
         assert!(!md.contains("mi|nor"), "severity must be sanitized");
         assert!(md.contains("mi\\|nor"));
         assert!(!md.contains("un|used"), "rule must be sanitized");
