@@ -197,7 +197,7 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
 #### 次に何をするか (analysis.md 削除条件への critical path、2026-05-11 更新)
 
-> **本ファイル削除条件**: Phase d 採否判定完了 (採用 or 却下) → ADR-038 を「採用」or「却下」に昇格 → follow-up タスクを permanent artifact (ADR / global rule / todo) に移管 → retirement workflow ([docs-governance.md](https://github.com/aloekun/claude-code-hook-test/blob/master/docs/adr/) §) を実行 → 本ファイル削除。
+> **本ファイル削除条件**: Phase d 採否判定完了 (採用 or 却下) → ADR-038 を「採用」or「却下」に昇格 → follow-up タスクを permanent artifact (ADR / global rule / todo) に移管 → retirement workflow (`~/.claude/rules/common/docs-governance.md` §Retirement Workflow を参照、global config のため URL link なし) を実行 → 本ファイル削除。
 >
 > **進行方針 (2026-05-11、kill-switch 100% trend を踏まえた pivot)**: dogfood を一度止めて broken signal の repair (順位 98 = `num_ctx` overflow detection 診断) を最優先。診断 → root cause 特定 → fix → clean dogfood の順で進む。Bundle c-1 (旧 P-4) や Bundle c の他項目は **本 critical path 外** として通常 Tier 1 優先度で別途処理。
 
