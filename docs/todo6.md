@@ -380,3 +380,171 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 詰まっている箇所
 
 なし。Effort XS、global rule への追記のみで副作用最小。配置先 (Feature Implementation Workflow 直後 vs 別 § で独立) は実装時の判断。
+
+---
+
+### rule⑧ depth-1 非-docs MD edge case test 追加 (PR #140 T1-#1 採用)
+
+> **動機**: PR #140 で追加した rule⑧ (`no-docs-relative-back-to-docs`) は `extensions = ["md"]` のみで pattern semantics に依存して self-limit する設計。**depth-1 非-docs MD ファイル** (例: project root の `CLAUDE.md` / `README.md` / `.claude/README.md` 等) から `../docs/` を参照するケースが false positive にならないかが未検証で、3 ソース (PR diff / prepush takt review / post-merge-feedback session) で同一の test gap が独立指摘された。
+>
+> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium = 3 ソース観測 / Effort S / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/140.md` Tier 1 #1、`src/hooks-post-tool-linter/src/main.rs` の `md_no_docs_relative_*` test group、ADR-007 (custom lint rule layer 線引き)
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。md_no_docs_relative_* test group に edge case を 1-2 件追加。
+
+#### 設計決定の余地
+
+- **意図する挙動の確定が先**: depth-1 root MD (例: `./CLAUDE.md`) から `../docs/` を参照するケースは現実には稀だが、もし発生したら **fire (false positive)** になるか、それとも skip すべきか?
+- **判断基準案**: pattern `(?i)\]\(\.\./docs/` は path semantics で「現在 file が docs 配下にいる前提」だが、root file から参照すると `../docs/` = repo の親階層 (= リポジトリ外) を指すため **常に broken link**。よって **fire = 正解** と整理可能 (false positive ではなく true positive、ユーザーが意図しても broken link になる)
+- 上記整理を test 名に反映 (`md_no_docs_relative_detects_root_level_back_reference` 等)
+
+#### 作業計画
+
+- [ ] depth-1 root MD ファイル fixture (`CLAUDE.md` / `.claude/README.md` 等) からの `../docs/` 参照を test に追加
+- [ ] 「fire = true positive」整理を test 名と comment で明示
+- [ ] 既存 5 test と合わせて 6-7 test 構成に整理
+- [ ] markdownlint / cargo test pass 確認
+- [ ] 順位 102 (`paths` filter 実装) と組み合わせると本 test の意図が変わる可能性、land 順序を確認
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- depth-1 非-docs MD からの `../docs/` 参照が test で明示的に扱われる (fire = true positive 整理込み)
+- 全 cargo test pass
+
+---
+
+### `paths` filter を lint runner に実装 (PR #140 T1-#2 採用)
+
+> **動機**: rule⑧ (PR #140) の TOML コメントで「`paths` filter は lint runner 未実装、`extensions` のみ」と明記し pattern semantics で self-limit したが、これは設計-実装 gap の workaround。今後 path-sensitive な lint rule (例: `tests/` 内のみ / `src/cli-*/` のみ等) を追加するたびに同じ workaround を強いる systemic pattern が予測される。`src/hooks-post-tool-linter/src/filter.rs` (or 等価な path filter モジュール) で `paths = [...]` glob filter をサポートする。
+>
+> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 1 #2 採用 (Severity Medium / Frequency Medium = systemic / Effort M / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/140.md` Tier 1 #2、`src/hooks-post-tool-linter/src/main.rs` の `CustomRule` struct (line ~76-87)、PR #140 rule⑧ TOML コメント、ADR-007 (custom lint rule の正規表現/AST 層線引き)
+
+#### 設計決定の余地
+
+- **glob 構文**: `**/*.md` 形式で十分か / `regex` ベースの方が柔軟か → 既存 `extensions` が単純 string match なので glob で平仄を取る方が自然
+- **AND vs OR**: `extensions` と `paths` 両方指定時の filter 結合 (両方 match を要求 = AND が直感的)
+- **test 規模**: 単体 test を同 commit に含める (PR #140 教訓: rule 追加と同 PR で test 不在を防ぐ)
+
+#### 作業計画
+
+- [ ] 設計決定 (glob 構文 / AND-OR / test 戦略) を確定
+- [ ] `CustomRule` struct に `paths: Option<Vec<String>>` を追加 (Optional で既存 rule に影響なし)
+- [ ] glob match 実装 (例: `globset` crate or 既存 `glob` 機能で代替)
+- [ ] `extensions` × `paths` の組合せ test (path match / 不一致 / 未指定で AND fallback の各ケース)
+- [ ] rule⑧ を `paths = ["docs/**/*.md"]` で書き換え (semantic self-limit から explicit filter へ)
+- [ ] 順位 101 の test 整理と整合性確認 (本実装後に depth-1 root MD は paths filter で skip される設計に変わる可能性)
+- [ ] ADR-007 amendment (順位 104) と同 PR で land 推奨 (rationale 同期)
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `paths` filter が動作 (test 検証)
+- rule⑧ の TOML コメントから「paths filter 未実装」記述が消え、explicit filter に置き換わる
+- 後続 path-sensitive rule 追加時の動線が確立
+
+---
+
+### lint runner サポートフィールドを code comment で明示化 (PR #140 T1-#3 採用)
+
+> **動機**: PR #140 で rule⑧ を実装する際、lint runner の `CustomRule` struct がサポートする field 一覧 (現状: `extensions`, `pattern`, `severity`, `message`, `why`, `fix`, `example`) は `src/hooks-post-tool-linter/src/main.rs` のソースを読まないと分からない。TOML コメント (custom-lint-rules.toml の冒頭) のみだと **rule author が lint runner 実装を参照する動線がない**。code comment で明示すると次の rule 追加時に同じ設計-実装 gap を構造的に予防できる。
+>
+> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 1 #3 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/140.md` Tier 1 #3、`src/hooks-post-tool-linter/src/main.rs` `CustomRule` struct 定義 (line ~76-87)、PR #140 rule⑧ TOML コメント
+
+#### 設計決定の余地
+
+- **配置先**: `CustomRule` struct 直前の doc comment (`///`) で「サポート field の semantics と将来 planned field」を一覧化
+- **記述粒度**: 各 field の serde attribute 表記 + 要旨 1 行ずつ。`paths` (planned) も含めて next-author が動線を辿れるように
+
+#### 作業計画
+
+- [ ] `CustomRule` struct 直前に doc comment を追加 (現サポート field 一覧 + planned: `paths`)
+- [ ] custom-lint-rules.toml 冒頭コメントから「ソース main.rs 参照」のリンク (line 番号 or symbol 名) を追加
+- [ ] 順位 102 (`paths` filter 実装) と同 PR で land すると `planned: paths` を `supported: paths` に書き換える単一 commit で完結
+- [ ] markdownlint / cargo doc 確認
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `CustomRule` struct の doc comment にサポート field 一覧が記載される
+- TOML コメント側からも main.rs への動線が明示される
+
+---
+
+### ADR-007 amendment: semantic self-limitation 安全条件 + lint rule 最小テストチェックリスト (PR #140 T3-#1 採用)
+
+> **動機**: rule⑧ (PR #140) で `paths` filter 不在を pattern semantics で代替した判断は妥当だったが、**どんな条件下で semantic self-limitation が安全か** / **explicit filter が必須な条件は何か** が ADR-007 に明文化されていない。3 ソース (PR diff / prepush / session) でこの documentation 不足を独立指摘。同時に lint rule 最小テストチェックリスト (pattern detection / case-insensitive / false positive skip の 3 項目) も ADR レベルで確立すると future rule author の prior が安定化する。
+>
+> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Low = 3 ソース観測 / Effort S / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/140.md` Tier 3 #1、`docs/adr/adr-007-custom-linter-layer-boundary.md`、PR #140 rule⑧ 設計判断
+
+#### 追加する 2 section (ADR-007 への amendment)
+
+##### (a) Semantic self-limitation の安全条件 vs explicit filter 必須条件
+
+- **OK**: pattern が path-context を含意する場合 (例: `](../docs/` は parent-dir 経由で docs/ を再参照 → docs/ 配下以外では自然な記述形式と区別される)
+- **NG**: pattern が path-agnostic で paths filter 必須 (例: `eprintln!` は src/ 全体で頻出、特定 crate のみに限定したい場合は path filter が必要)
+- **判断 flow chart**: 「pattern semantics で false positive が <X% (X 値は実測 grep 結果) 以下なら OK / 超えるなら paths filter 必須」
+
+##### (b) Lint rule 最小テストチェックリスト
+
+新規 lint rule 追加時の必須 test 構成:
+
+1. **Pattern detection test**: 想定するアンチパターン入力で fire することを確認
+2. **Case-insensitive test** (該当する場合): 大文字バリアント / 小文字バリアントで fire することを確認 (PR #91 PowerShell `(?i)` 教訓)
+3. **False positive skip test**: 似て非なる正当パターンで fire しないことを確認
+
+#### 作業計画
+
+- [ ] ADR-007 既存 section 構造を確認
+- [ ] (a) Semantic self-limitation 判断基準を新 section として追加
+- [ ] (b) 最小テストチェックリストを新 section として追加 (もしくは既存 § 拡張)
+- [ ] 順位 102 (`paths` filter 実装) と同 PR で land 推奨 (実装と documentation の同期)
+- [ ] 順位 105 (グローバル CLAUDE.md table) との内容重複を確認 (ADR は判断基準、CLAUDE.md は field reference で補完関係)
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-007 に「semantic self-limit OK 条件」と「最小 test checklist」が明記される
+- 次回 lint rule 追加時に rule author が ADR-007 から判断基準を逆引きできる
+
+---
+
+### グローバル CLAUDE.md に lint runner サポートフィールド一覧表 (PR #140 T3-#2 採用)
+
+> **動機**: 派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) で hooks を porting する際、lint runner がサポートするフィールド (`pattern` / `extensions` / `severity` / `message` / `why`、planned: `paths`) を一目で把握できる reference が グローバル CLAUDE.md に存在しない。順位 103 (code comment) と相補的で、cross-project 可視性を即時向上。
+>
+> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/140.md` Tier 3 #2、`~/.claude/CLAUDE.md` (global、リンクのみ方針 = `feedback_claude_md_link_only.md`)、`src/hooks-post-tool-linter/src/main.rs` `CustomRule` struct
+
+#### 設計決定の余地
+
+- **`feedback_claude_md_link_only.md` との整合**: グローバル CLAUDE.md は「リンクのみ」方針。table 形式で field 一覧を inline すると memory rule に違反する可能性
+- **代替案 1**: グローバル CLAUDE.md には「lint runner field reference は `~/.claude/rules/...` 配下に独立 doc」とリンクのみ書き、本体 doc は `~/.claude/rules/<topic>/lint-runner-fields.md` 等に配置
+- **代替案 2**: project 内 ADR-007 amendment (順位 104) で field 一覧を含めて、グローバル CLAUDE.md は ADR-007 へのリンクのみ
+- **判断**: 順位 104 land 後に決定。重複が無いように lifecycle 整合性を取る
+
+#### 作業計画
+
+- [ ] 順位 104 (ADR-007 amendment) の land 後、配置案 1 / 2 / 別案を決定
+- [ ] `feedback_claude_md_link_only.md` 方針を再確認
+- [ ] 配置先に table 追加 (現サポート field + planned + 派生プロジェクト porting 時の参照点)
+- [ ] グローバル CLAUDE.md にリンク追加 (memory rule 遵守)
+- [ ] 派生プロジェクト 2 つ (techbook-ledger / auto-review-fix-vc) に本変更を伝播する deploy step を確認
+- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 派生プロジェクトの rule porting 時に field reference を 1 hop で参照可能
+- `feedback_claude_md_link_only.md` 違反なし
+
+#### 詰まっている箇所
+
+- 配置先決定が順位 104 (ADR-007 amendment) の land と依存。順位 104 で field 一覧を inline するなら本タスクはリンク追加のみで済むが、ADR は判断基準中心であれば独立 reference doc が必要

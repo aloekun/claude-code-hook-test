@@ -1609,6 +1609,107 @@ extensions = ["ts", "js"]
         assert!(violations.is_empty());
     }
 
+    fn no_ephemeral_todo_reference_rule() -> CustomRule {
+        let stem = "todo";
+        let pattern = format!(r"(?i)docs/{stem}[0-9]*\.md");
+        make_test_rule(
+            "no-ephemeral-todo-reference",
+            &pattern,
+            &[
+                "rs", "toml", "jsonc", "json", "yaml", "yml", "ts", "tsx", "js", "jsx", "py",
+                "ps1",
+            ],
+        )
+    }
+
+    fn build_concrete_digit_fixture(digit: u32) -> String {
+        let stem = "todo";
+        format!("const MSG: &str = \"see docs/{stem}{digit}.md\";\n")
+    }
+
+    fn build_zero_digit_fixture() -> String {
+        let stem = "todo";
+        format!("pub const NOTE: &str = \"linked from docs/{stem}.md baseline\";\n")
+    }
+
+    fn build_letter_placeholder_fixture() -> String {
+        let stem = "todo";
+        let placeholder = "N";
+        format!(
+            "/// example: \"docs/{stem}{placeholder}.md\" ({placeholder} = digit) is the placeholder form\n"
+        )
+    }
+
+    fn build_asterisk_literal_fixture() -> String {
+        let stem = "todo";
+        let glob = "*";
+        format!("pub const GLOB: &str = \"docs/{stem}{glob}.md\";\n")
+    }
+
+    #[test]
+    fn no_ephemeral_todo_detects_concrete_digit_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "config.rs", &build_concrete_digit_fixture(3));
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_ephemeral_todo_detects_zero_digit_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "lib.rs", &build_zero_digit_fixture());
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_ephemeral_todo_skips_letter_placeholder() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "explainer.rs",
+            &build_letter_placeholder_fixture(),
+        );
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn no_ephemeral_todo_skips_asterisk_literal() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "doc_glob.rs", &build_asterisk_literal_fixture());
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn no_ephemeral_todo_only_targets_listed_extensions_md_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "note.md", &build_concrete_digit_fixture(3));
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join(".claude")
+            .join("custom-lint-rules.toml");
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(path.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "self-exclusion invariant broken: rule⑥ self-triggered on deployed custom-lint-rules.toml"
+        );
+    }
+
     fn ps_rule_with_pattern(id: &str, pattern: &str) -> CustomRule {
         make_test_rule(id, pattern, &["ps1"])
     }
