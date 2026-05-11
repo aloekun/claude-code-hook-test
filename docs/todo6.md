@@ -578,3 +578,102 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 - 新セッション AI が CLAUDE.md → link → table の動線で Tier 2 偽装判定を逆引き可能になる
 - `feedback_claude_md_link_only` 違反なし
 
+---
+
+### push-runner 経由 cli-finding-classifier stderr の `.takt/lint-screen-report.md` 取込 smoke test (PR #142 T2-#1 採用)
+
+> **動機**: Phase A (PR #142) で実装した診断 warn log は manual 呼出で stderr に出るが、real pipeline (`src/cli-push-runner/src/stages/lint_screen.rs:147-151`) 経由では classifier exit 非 0 時のみ Err message に含まれる = exit 0 (graceful fallback) では捨てられる。Phase C/D dogfood validation の前提条件。
+>
+> **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk: takt test infra 未調査)。
+>
+> **参照**: `.claude/feedback-reports/142.md` Tier 2 #1、`src/cli-push-runner/src/stages/lint_screen.rs`、PR #142 PR body OBS-2
+
+#### 作業計画
+
+- [ ] lint_screen.rs の stderr handle 経路を改修、graceful fallback (exit 0) でも stderr を `.takt/lint-screen-report.md` の `## Diagnostic` section に転載
+- [ ] smoke test (`src/cli-push-runner/tests/` 新設 or `#[cfg(test)]` integration): stub Ollama で truncated response → stderr の warn log が report に取込されることを assert
+- [ ] real Ollama dogfood で manual 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- Phase C/D dogfood で real pipeline 経由でも warn log が `.takt/lint-screen-report.md` で visible
+
+---
+
+### pure function test pattern template を `testing.md` に追記 (PR #142 T2-#3 採用)
+
+> **動機**: Phase A (PR #142) の `overflow_hint()` は副作用なしの純粋関数で、境界値 (90%) / None (metadata 欠落) / 閾値未満 (90% 未満) の 3 パターンで test 化できる構造になっていた。このパターンを `~/.knee/rules/common/testing.md` にテンプレ化することで、Rust lib 全般で副作用分離と test 容易性が促進される。
+>
+> **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 2 #3 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/142.md` Tier 2 #3、`~/.claude/rules/common/testing.md`、`src/lib-ollama-client/src/lib.rs` の `overflow_hint()` (PR #142)
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/testing.md` に「Pure function test pattern」section を追加 (境界値 / None / 閾値未満 の 3 パターン例)
+- [ ] `overflow_hint()` (PR #142) をモデル例として cite
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- testing.md に template が記載され、次回 Rust lib で副作用分離する局面で参照可能になる
+
+---
+
+### `docs-governance.md` に todo5/todo6 routing rule 明文化 (PR #142 T3-#1 採用)
+
+> **動機**: PR #142 で CR Minor #2 として「todo-summary.md 順位 106-108 が todo5.md を指すが intro policy は todo6.md」の bifurcation 指摘あり、本 PR 内で修正済。しかし routing rule が文書化されておらず次回も同型 bifurcation の再発リスクがある。docs-governance.md に「新規詳細は todo6.md」routing rule + 50KB 超過時の対応方針を明文化することで構造的予防。
+>
+> **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/142.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md`、PR #142 CR Minor #2
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/docs-governance.md` に「todo*.md 新規詳細 routing rule」section を追加: 新規詳細は最新の todoN.md (現在 = todo6.md)、50KB 超過時は todo(N+1).md を新設
+- [ ] todo*.md 既存 file の preamble との整合確認 (todo6.md / todo7.md の冒頭文と矛盾しないか)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 次回 todo*.md 50KB 超過時に routing 判断が明確になり、CR Minor #2 と同型の bifurcation が再発しない
+
+---
+
+### ADR-038 に eprintln scope + 90% 閾値 rationale 追記 (PR #142 T3-#3 採用)
+
+> **動機**: PR #142 で実装した diagnostic log は (a) `eprintln!` で stderr 出力する設計で CLI 前提、lib として他 process から呼ばれる場合に structured logging (log/tracing) への移行が必要。(b) 90% 閾値は保守的設定で、Phase C/D dogfood データに基づきチューニングするべき。両者を ADR-038 に追記しないと将来の根拠なき早期変更 / 設計迷走を招く。
+>
+> **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 3 #3 採用 (Severity Low / Frequency Low / Effort XS / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/142.md` Tier 3 #3、`docs/adr/adr-038-local-llm-finding-classification.md`
+
+#### 作業計画
+
+- [ ] ADR-038 に 2 点追記 (a) eprintln scope / structured logging 移行条件、(b) 90% 閾値 rationale + Phase C/D dogfood 後の tuning 方針
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-038 に 2 点が permanent record として記録、将来の lib 拡張時 / 閾値変更時の判断 prior になる
+
+---
+
+### ADR-027 に metrics override 判断基準追記 (PR #142 T3-#4 採用)
+
+> **動機**: PR #142 の simplicity-review で `cargo fmt` 整形による 1-2 行 diff 増加が metrics override 判定対象になった事例があり、incidental change (PR 副作用 / cargo fmt 等) と responsibility change (fix 本体) の線引きが不明瞭。ADR-027 に判断基準と override 記述様式を codify することで一貫性確保。
+>
+> **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 3 #4 採用 (Severity Low / Frequency Low / Effort XS / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/142.md` Tier 3 #4、`docs/adr/adr-027-push-review-simplicity-focus.md`
+
+#### 作業計画
+
+- [ ] ADR-027 に「metrics override 判断基準」section を追加: incidental vs responsibility の線引き + override 記述様式 example
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- simplicity-review 運用で override 判断の一貫性と transparency が確保される
+

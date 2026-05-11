@@ -126,10 +126,17 @@ fn emit_overflow_diagnostic(parse_error: &serde_json::Error, raw: &str, metadata
 }
 
 /// Ollama 既定の `num_ctx` (2048) は本リポジトリの lint-screen prompt
-/// (~4000-5000 tokens) に対して不足し、prompt が silently truncate される
-/// (PR #135 dogfood で eval13/15 に対して `prompt_eval_count: 4096` の上限到達を実証)。
-/// mistral:7b は理論上 32K まで対応するが、安全マージンと推論コストの兼合いで 8192 を default とする。
-pub const DEFAULT_NUM_CTX: u32 = 8192;
+/// (~7700 chars = ~3000 tokens) + diff (実 PR で 24KB+ = ~10K+ tokens) に対して不足し、
+/// prompt が silently truncate される (Ollama は overflow 時に prompt_eval_count を num_ctx に clamp して報告)。
+///
+/// dogfood の進化:
+/// - 2048 (Ollama default) → 評価不可、PR #135 で 8192 へ
+/// - 8192 → PR #141 (P-3) で `prompt_eval_count: 8192` = 100% 到達確認
+/// - **16384** → PR #142 (Phase A 診断 log 実装) + Phase B 真因確定で増加、しかし dogfood 再計測でも 100% 到達
+/// - **32768 (現値)** → mistral:7b の theoretical max、Phase C で増加
+///
+/// 32768 でも overflow する場合は、diff truncation を classifier 側で実装する次の Phase へ進む。
+pub const DEFAULT_NUM_CTX: u32 = 32768;
 
 /// Ollama client 設定
 #[derive(Debug, Clone)]
@@ -436,7 +443,7 @@ mod tests {
         let mock = server
             .mock("POST", "/api/generate")
             .match_body(mockito::Matcher::PartialJsonString(
-                r#"{"options":{"num_ctx":8192}}"#.to_string(),
+                r#"{"options":{"num_ctx":32768}}"#.to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")

@@ -5,9 +5,10 @@
 
 [quality_gate]
 parallel = true
-# step_timeout = 180s (Phase b' end-to-end test の `cargo test -- --ignored` が
-# mistral:7b への 12 件 invoke で 120s 境界に達するため拡大、PR #132 で実証)
-step_timeout = 180
+# step_timeout 履歴: 120s (Phase b 当初) → 180s (PR #132、Phase b' で 12 件 mistral invoke が 120s 境界) →
+# 600s (Phase C、num_ctx 8192 → 32768 で 1 件あたり latency が 5-20s → 30-90s に増加、`cargo test -- --ignored`
+# 全体で local 269s 観測のため 180s 超過。32768 入れることで context overflow 解消するが per-invoke latency は cost)
+step_timeout = 600
 
 [[quality_gate.groups]]
 name = "lint"
