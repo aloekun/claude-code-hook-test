@@ -64,6 +64,31 @@ Ollama 不在 / timeout / parse 失敗 / invalid action は **fallback として
 
 これは [docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) §6 の方針 (「失敗してもリトライ可能 / Claude が後段で検証」) と整合する。
 
+### Diagnostic logging の scope と移行条件 (PR #142 / Phase A)
+
+JSON parse error 時の context overflow 診断 log は **`eprintln!` で stderr に出力する** 設計 (`src/lib-ollama-client/src/lib.rs` の `emit_overflow_diagnostic`)。これは現状の consumer (`cli-finding-classifier` / `cli-push-runner` lint_screen stage) がすべて CLI 起動で stderr を report に取り込む前提に基づく。
+
+**structured logging (log / tracing crate) への移行条件**:
+
+- `lib-ollama-client` が CLI 以外 (例: 長期常駐 daemon / web service) から呼ばれるようになった場合
+- 複数 consumer が log level / target filter で diagnostic 出力を制御したいニーズが生じた場合
+- log aggregation (Loki / Datadog 等) への連携を求める要件が出た場合
+
+これらが揃うまでは `eprintln!` で十分。早期の structured logging 導入は依存追加 (log + env_logger / tracing + subscriber) のコストに対して得られる柔軟性が見合わない。
+
+### 90% 閾値の rationale + tuning 方針 (PR #142 / Phase A)
+
+`overflow_hint()` は `prompt_eval_count >= num_ctx * 0.90` で hint を emit する保守設計。**90% 採用根拠**:
+
+- mistral:7b の prompt_eval_count は num_ctx の cap で clamp される (Ollama の internal 仕様、Phase B で実測確認)。100% 到達 = 確定 overflow だが、90% 到達 = overflow 寸前で同一症状を予兆できる
+- false positive の負担は warn log 1 件のみ (block しない)、false negative (= overflow を見逃す) の方が debug cost が高い
+
+**tuning 方針**:
+
+- **Phase C/D dogfood で得た data が蓄積するまで本閾値を変更しない**。根拠なき早期変更で false positive 増加 / false negative 増加のいずれかに振れるリスクが高い
+- Phase D 完了時 (3-5 PR 観測) に hint emit 件数と実 overflow 件数を突合し、precision / recall を確認して再評価
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) で diff 規模 / prompt 構造が異なる場合は、本リポジトリ baseline と別系統で再 calibration を検討
+
 ### プロンプト
 
 `src/cli-finding-classifier/prompts/classify.txt` に同梱 (`include_str!`)。`--prompt-file` で差し替え可能。テンプレート placeholders は `{severity}` `{file}` `{line}` `{issue}` `{suggestion}`。
