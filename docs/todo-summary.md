@@ -2,7 +2,7 @@
 
 > **本ファイルの位置付け**: `docs/todo.md` から「推奨実行順序サマリー」section を切り出した index 専用ファイル。各タスクの詳細は「ファイル」列に示された `docs/todoN.md` を参照する。`docs/todo.md` のサイズが 50KB を超え Claude Code 読み取り安定性に影響したため分離 (2026-05-09)。
 >
-> **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo6.md`) に記録する。
+> **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo8.md`、2026-05-11 PR #143 T3-#1 採用時に todo6.md が 50KB 到達したため todo8.md に移行) に記録する。
 
 <a id="recommended-order-summary"></a>
 ## 推奨実行順序サマリー (2026-05-10 更新、ADR-033 採番管理簡素化 land 後)
@@ -80,6 +80,7 @@
 | 111 | 💎 Tier 3 | **`docs-governance.md` に todo5/todo6 routing rule 明文化 (PR #142 T3-#1 採用)** | todo6.md | S | なし (Phase/bundle 関連 → todo6、global rules/lint → todo5 等の routing rule を `~/.claude/rules/common/docs-governance.md` に追記、PR #142 で実証された file pointer bifurcation の構造的予防、CR Minor #2 と同根) |
 | 112 | 💎 Tier 3 | **ADR-038 に eprintln scope + 90% 閾値 rationale 追記 (PR #142 T3-#3 採用)** | todo6.md | XS | なし (a) eprintln は CLI 前提、lib 拡張時は structured logging 移行が必要 (b) 90% 閾値は保守的設定で Phase C/D dogfood データに基づきチューニング、根拠なき早期変更を防止 |
 | 113 | 💎 Tier 3 | **ADR-027 に metrics override 判断基準追記 (PR #142 T3-#4 採用)** | todo6.md | XS | なし (incidental change = PR 副作用 / cargo fmt 整形 vs responsibility change = fix 本体 の線引きと override 記述様式を ADR-027 に codify、simplicity-review 運用の一貫性確保) |
+| 114 | 💎 Tier 3 | **新規 ADR: Local LLM Context Size と Resource Trade-off (PR #143 T3-#1 採用)** | todo8.md | S | なし (Phase C で取得した empirical data = mistral:7b 8K/512MB/20s ↔ 32K/2GB/90s + step_timeout 比例係数 3.33x を permanent record 化、lib.rs の dogfood evolution comment を ADR に移管、将来 num_ctx 再選定時の判断 prior) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
