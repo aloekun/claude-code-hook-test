@@ -548,3 +548,4 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 詰まっている箇所
 
 - 配置先決定が順位 104 (ADR-007 amendment) の land と依存。順位 104 で field 一覧を inline するなら本タスクはリンク追加のみで済むが、ADR は判断基準中心であれば独立 reference doc が必要
+
