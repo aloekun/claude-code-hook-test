@@ -209,10 +209,21 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 
 Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_eval_count: 8192 (vs num_ctx: 8192)` = 100% 到達を実機確認**。**真因 = num_ctx truncation で確定**。mistral の prompt が完全に context cap で truncate されて JSON output が完成せず `screen_decision` field 欠落の症状を引き起こしていた。仮説 2 候補 (num_ctx truncation / mistral 出力崩壊) のうち前者が真因と decisive 判定。
 
-##### 🔧 Phase C: Root cause fix (1 PR、XS-S、次の next action) — C-1 経路で確定
+##### 🔧 Phase C: Root cause fix ✅ **完了 (本 PR、2026-05-11)**
 
-- **C-1 (確定経路)**: `DEFAULT_NUM_CTX = 8192 → 16384 (or 32768)` への増加。mistral:7b の theoretical max は 32K、本リポの prompt サイズ (~4-5K) + 大規模 diff (~3-4K) で 16384 が安全マージン込みで妥当。RAM 影響評価 + lint-screen evals の regression test (15 件 fixtures が pass し続けるか) + smoke dogfood で fallback rate が下がることを確認
-- **(参考、不採用)** ~~C-2 (mistral 出力崩壊起因の場合)~~: Phase B で num_ctx 確定のため scope 外
+`DEFAULT_NUM_CTX = 8192 → 16384` (initial) → 16384 でも 100% overflow を再観測 → `DEFAULT_NUM_CTX = 16384 → 32768` (mistral:7b theoretical max) に再増加。`lib_ollama_client` の lint test 17 件 pass、`cli-finding-classifier` evals 20 件 pass。
+
+**Phase C smoke dogfood** (32768 で 3 PRs replay):
+
+| PR | Lines | Latency | Old (8192) | **New (32768)** |
+|---|---|---|---|---|
+| P-1 (#139) | 414 | 48s | fallback (truncation) | ✅ `auto_fix` (real classification) |
+| P-2 (#140) | 275 | 50s | fallback (truncation) | ⚠️ fallback (`invalid severity: error` = contract violation、num_ctx ではなく mistral semantic 精度の別問題) |
+| P-3 (#141) | 487 | 55s | fallback (truncation) | ✅ `auto_fix` (real classification) |
+
+- **num_ctx truncation 起因 fallback: 3/3 → 0/3 (100% 解消)** ← Phase C 主目的を達成
+- **総合 fallback rate: 3/3 (100%) → 1/3 (33%)** ← **Phase D 基準 (<50%) を達成**
+- 残り 1/3 は mistral 出力の contract violation (Phase b' agreement 75% で説明可能な semantic 精度問題、別 phase で対応 / Phase D scope 外)
 
 ##### ✅ Phase D: Clean dogfood validation (2-3 通常 PR、real pipeline 経由)
 
