@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 50KB を超過したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo7.md の既存エントリは引き続き有効、相互に独立。新セッションでは八つすべてを確認すること (todo.md / todo2-7.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo5.md / 本ファイルが 50KB に到達 (PR #143 T3-#1) のため **新規エントリは [docs/todo8.md](todo8.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2-7.md / todo8.md の既存エントリは引き続き有効、相互に独立。新セッションでは九つすべてを確認 (todo.md / todo2-8.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -580,26 +580,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### push-runner 経由 cli-finding-classifier stderr の `.takt/lint-screen-report.md` 取込 smoke test (PR #142 T2-#1 採用)
-
-> **動機**: Phase A (PR #142) で実装した診断 warn log は manual 呼出で stderr に出るが、real pipeline (`src/cli-push-runner/src/stages/lint_screen.rs:147-151`) 経由では classifier exit 非 0 時のみ Err message に含まれる = exit 0 (graceful fallback) では捨てられる。Phase C/D dogfood validation の前提条件。
->
-> **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk: takt test infra 未調査)。
->
-> **参照**: `.claude/feedback-reports/142.md` Tier 2 #1、`src/cli-push-runner/src/stages/lint_screen.rs`、PR #142 PR body OBS-2
-
-#### 作業計画
-
-- [ ] lint_screen.rs の stderr handle 経路を改修、graceful fallback (exit 0) でも stderr を `.takt/lint-screen-report.md` の `## Diagnostic` section に転載
-- [ ] smoke test (`src/cli-push-runner/tests/` 新設 or `#[cfg(test)]` integration): stub Ollama で truncated response → stderr の warn log が report に取込されることを assert
-- [ ] real Ollama dogfood で manual 確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- Phase C/D dogfood で real pipeline 経由でも warn log が `.takt/lint-screen-report.md` で visible
-
----
 
 ### pure function test pattern template を `testing.md` に追記 (PR #142 T2-#3 採用)
 
