@@ -24,19 +24,105 @@ pub use error::OllamaError;
 pub trait OllamaApi {
     /// プロンプトを送り、`format: "json"` で得られた JSON 文字列を返す
     fn generate_raw_json(&self, prompt: &str) -> Result<String, OllamaError>;
+
+    /// プロンプトを送り、JSON 文字列と Ollama 側 metadata を返す。
+    ///
+    /// metadata は `prompt_eval_count` / `eval_count` / `num_ctx` を含み、
+    /// JSON parse error 発生時の context overflow 診断に使う ([`generate_json`] 内で消費)。
+    /// stub 実装は default の空 metadata で十分 (= diagnostic 不要)。
+    fn generate_with_metadata(
+        &self,
+        prompt: &str,
+    ) -> Result<(String, OllamaMetadata), OllamaError> {
+        let raw = self.generate_raw_json(prompt)?;
+        Ok((raw, OllamaMetadata::default()))
+    }
+}
+
+/// Ollama generate API の metadata (context overflow 診断用)
+///
+/// `OllamaApi::generate_with_metadata` が返す。`generate_json` が parse error 検知時に
+/// stderr へ warn log emit する材料 (PR #136 で「mistral:7b の JSON schema breakdown」を
+/// `num_ctx` overflow と誤診せず別アプローチに pivot しかけた事故の構造的予防、
+/// [docs/local-llm-offload-history.md] §A-2 参照)。
+#[derive(Debug, Clone, Default)]
+pub struct OllamaMetadata {
+    /// prompt の token 数 (Ollama API の `prompt_eval_count`)
+    pub prompt_eval_count: Option<u32>,
+    /// response の token 数 (Ollama API の `eval_count`)
+    pub eval_count: Option<u32>,
+    /// 呼出時の `num_ctx` setting (overflow 判定の base line)
+    pub num_ctx: Option<u32>,
 }
 
 /// `OllamaApi::generate_raw_json` を呼んで `T` にデコードする無料関数。
 ///
 /// trait に generic を持たせると dyn-compatible でなくなるため、
 /// 型付き API は trait の外で提供する。
+///
+/// `T` のデシリアライズに失敗した場合は stderr に warn log を出力する
+/// ([`OllamaMetadata`] 参照、context overflow 起因の truncation を decisive に診断する目的)。
 pub fn generate_json<T: DeserializeOwned>(
     api: &dyn OllamaApi,
     prompt: &str,
 ) -> Result<T, OllamaError> {
-    let raw = api.generate_raw_json(prompt)?;
-    let parsed: T = serde_json::from_str(&raw)?;
-    Ok(parsed)
+    let (raw, metadata) = api.generate_with_metadata(prompt)?;
+    serde_json::from_str::<T>(&raw).map_err(|err| {
+        emit_overflow_diagnostic(&err, &raw, &metadata);
+        OllamaError::from(err)
+    })
+}
+
+/// `prompt_eval_count` が `num_ctx` の 90% 以上に達している場合に hint 文字列を返す純粋関数。
+///
+/// テスタブルに分離されており、`emit_overflow_diagnostic` はこれを呼び出すだけにする。
+fn overflow_hint(metadata: &OllamaMetadata) -> Option<String> {
+    let (pec, ctx) = (metadata.prompt_eval_count?, metadata.num_ctx?);
+    let ratio_pct = (u64::from(pec) * 100) / u64::from(ctx.max(1));
+    if ratio_pct >= 90 {
+        Some(format!(
+            "prompt_eval_count が num_ctx の {}% に達しています。\
+             num_ctx を増やすことで解決可能 (`with_num_ctx` で override)",
+            ratio_pct
+        ))
+    } else {
+        None
+    }
+}
+
+/// JSON parse error 検知時の context overflow 診断 log を stderr に emit する。
+///
+/// metadata が `prompt_eval_count` を持ち、かつ `num_ctx` cap の 90% 以上に達している場合は
+/// "context overflow 起因の可能性" を明示する hint も含める。
+fn emit_overflow_diagnostic(parse_error: &serde_json::Error, raw: &str, metadata: &OllamaMetadata) {
+    let prompt_eval = metadata
+        .prompt_eval_count
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let eval = metadata
+        .eval_count
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let num_ctx_disp = metadata
+        .num_ctx
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "unknown".into());
+
+    eprintln!("[lib-ollama-client] WARN: Ollama JSON output may be truncated.");
+    eprintln!("  parse_error: {}", parse_error);
+    eprintln!(
+        "  prompt_eval_count: {} (vs num_ctx: {})",
+        prompt_eval, num_ctx_disp
+    );
+    eprintln!(
+        "  eval_count: {}, response_length: {} chars",
+        eval,
+        raw.len()
+    );
+
+    if let Some(hint) = overflow_hint(metadata) {
+        eprintln!("  hint: {}", hint);
+    }
 }
 
 /// Ollama 既定の `num_ctx` (2048) は本リポジトリの lint-screen prompt
@@ -116,10 +202,14 @@ struct GenerateResponse {
     response: String,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(default)]
+    eval_count: Option<u32>,
 }
 
-impl OllamaApi for OllamaClient {
-    fn generate_raw_json(&self, prompt: &str) -> Result<String, OllamaError> {
+impl OllamaClient {
+    fn request_envelope(&self, prompt: &str) -> Result<GenerateResponse, OllamaError> {
         let url = format!("{}/api/generate", self.endpoint.trim_end_matches('/'));
         let body = GenerateRequest {
             model: &self.model,
@@ -148,7 +238,26 @@ impl OllamaApi for OllamaClient {
         if envelope.response.is_empty() {
             return Err(OllamaError::EmptyResponse);
         }
-        Ok(envelope.response)
+        Ok(envelope)
+    }
+}
+
+impl OllamaApi for OllamaClient {
+    fn generate_raw_json(&self, prompt: &str) -> Result<String, OllamaError> {
+        Ok(self.request_envelope(prompt)?.response)
+    }
+
+    fn generate_with_metadata(
+        &self,
+        prompt: &str,
+    ) -> Result<(String, OllamaMetadata), OllamaError> {
+        let envelope = self.request_envelope(prompt)?;
+        let metadata = OllamaMetadata {
+            prompt_eval_count: envelope.prompt_eval_count,
+            eval_count: envelope.eval_count,
+            num_ctx: Some(self.num_ctx),
+        };
+        Ok((envelope.response, metadata))
     }
 }
 
@@ -214,7 +323,8 @@ mod tests {
     #[test]
     fn returns_api_error_when_ollama_returns_error_field() {
         let mut server = Server::new();
-        let envelope = r#"{"model":"mistral:7b","response":"","error":"model not found","done":true}"#;
+        let envelope =
+            r#"{"model":"mistral:7b","response":"","error":"model not found","done":true}"#;
         server
             .mock("POST", "/api/generate")
             .with_status(200)
@@ -304,8 +414,8 @@ mod tests {
         let default_client = OllamaClient::new("http://localhost:11434", "mistral:7b");
         assert_eq!(default_client.num_ctx, DEFAULT_NUM_CTX);
 
-        let overridden = OllamaClient::new("http://localhost:11434", "mistral:7b")
-            .with_num_ctx(16384);
+        let overridden =
+            OllamaClient::new("http://localhost:11434", "mistral:7b").with_num_ctx(16384);
         assert_eq!(overridden.num_ctx, 16384);
     }
 
@@ -337,5 +447,102 @@ mod tests {
         let _: TestPayload = generate_json(&client, "test prompt").unwrap();
 
         mock.assert();
+    }
+
+    #[test]
+    fn metadata_carries_prompt_eval_count_when_provided() {
+        let mut server = Server::new();
+        let inner_json = r#"{"action":"auto_fix","confidence":0.9}"#;
+        let envelope = format!(
+            r#"{{"model":"mistral:7b","response":{},"done":true,"prompt_eval_count":1234,"eval_count":56}}"#,
+            serde_json::to_string(inner_json).unwrap()
+        );
+        let mock = server
+            .mock("POST", "/api/generate")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(envelope)
+            .create();
+
+        let client = OllamaClient::new(server.url(), "mistral:7b");
+        let (_raw, metadata) = client.generate_with_metadata("test prompt").unwrap();
+
+        assert_eq!(metadata.prompt_eval_count, Some(1234));
+        assert_eq!(metadata.eval_count, Some(56));
+        assert_eq!(metadata.num_ctx, Some(DEFAULT_NUM_CTX));
+        mock.assert();
+    }
+
+    #[test]
+    fn metadata_handles_missing_eval_counts_gracefully() {
+        let mut server = Server::new();
+        let inner_json = r#"{"action":"auto_fix","confidence":0.9}"#;
+        let envelope = format!(
+            r#"{{"model":"mistral:7b","response":{},"done":true}}"#,
+            serde_json::to_string(inner_json).unwrap()
+        );
+        let mock = server
+            .mock("POST", "/api/generate")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(envelope)
+            .create();
+
+        let client = OllamaClient::new(server.url(), "mistral:7b").with_num_ctx(4096);
+        let (_raw, metadata) = client.generate_with_metadata("test prompt").unwrap();
+
+        assert_eq!(metadata.prompt_eval_count, None);
+        assert_eq!(metadata.eval_count, None);
+        assert_eq!(metadata.num_ctx, Some(4096));
+        mock.assert();
+    }
+
+    #[test]
+    fn stub_trait_default_returns_empty_metadata() {
+        struct StubOllama {
+            response: String,
+        }
+        impl OllamaApi for StubOllama {
+            fn generate_raw_json(&self, _prompt: &str) -> Result<String, OllamaError> {
+                Ok(self.response.clone())
+            }
+        }
+
+        let stub = StubOllama {
+            response: r#"{"action":"informational","confidence":0.1}"#.to_string(),
+        };
+        let (raw, metadata) = stub.generate_with_metadata("prompt").unwrap();
+
+        assert_eq!(raw, r#"{"action":"informational","confidence":0.1}"#);
+        assert_eq!(metadata.prompt_eval_count, None);
+        assert_eq!(metadata.eval_count, None);
+        assert_eq!(metadata.num_ctx, None);
+    }
+
+    #[test]
+    fn overflow_hint_present_when_prompt_eval_count_near_cap() {
+        let metadata = OllamaMetadata {
+            prompt_eval_count: Some(7400),
+            eval_count: Some(50),
+            num_ctx: Some(8192),
+        };
+        let hint = overflow_hint(&metadata);
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("90%"));
+    }
+
+    #[test]
+    fn overflow_hint_absent_when_metadata_absent() {
+        assert!(overflow_hint(&OllamaMetadata::default()).is_none());
+    }
+
+    #[test]
+    fn overflow_hint_absent_below_threshold() {
+        let metadata = OllamaMetadata {
+            prompt_eval_count: Some(7000),
+            eval_count: Some(50),
+            num_ctx: Some(8192),
+        };
+        assert!(overflow_hint(&metadata).is_none());
     }
 }

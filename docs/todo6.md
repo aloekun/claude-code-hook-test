@@ -247,60 +247,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### `num_ctx` overflow detection — JSON parse error 検知時の context window 診断ログ (PR #137 T1-#1 採用)
-
-> **動機**: PR #136 セッションで「mistral:7b の JSON schema breakdown」を観測した際、Claude は当初「prompt 設計の問題」と誤診し `§8.D v4 prompt 改訂ループ` という名前の誤った means に向かいかけた (実 root cause は `num_ctx` default 4096 超過)。advisor の指摘 + raw Ollama output dump で軌道修正されたが、**runtime layer に診断 hint が出ていれば pivot 時間を短縮できる** ことが判明。`lib-ollama-client` の response validation 層で JSON parse error 検知時に `num_ctx` / `prompt_eval_count` / response length を warn log で auto-emit することで、将来の同型事故 (LLM dogfood 全般で systemic に再発し得る) を decisive に診断できる。
->
-> **本タスクの位置づけ**: PR #137 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk: 派生プロジェクト deploy コストのみ、低)。ADR-038 試験運用配下の infrastructure 強化、Phase d で num_ctx tweak する局面に入る前の安全網としても機能。
->
-> **参照**: `.claude/feedback-reports/137.md` Tier 1 #1、PR #136 で `__dump_raw_ollama.sh` で確認した `prompt_eval_count: 4096` 上限到達 (現在は scratch ファイル削除済、`docs/local-llm-offload-history.md` に経緯記録)、`src/lib-ollama-client/src/lib.rs` の `generate_raw_json` / `OllamaResponse` 構造体
->
-> **実行優先度**: 🚀 **Tier 1** — Effort M。Phase d kickoff 前か実 dogfood 中に整備するのが理想 (dogfood で実際に context overflow を起こした PR があれば即診断できる layer になる)。
-
-#### 設計決定 (案)
-
-- **配置先**: `src/lib-ollama-client/src/lib.rs` の `generate_json::<T>` ヘルパー (型付き parse 失敗時) または raw response 検証層
-- **emit 条件 (案)**:
-  - **A (主軸)**: `serde_json::from_str` が `missing field` 系 error を返した場合 → `prompt_eval_count` が response の `eval_count` field と比較して context cap に近接していれば warn log
-  - **B (補助)**: response length が threshold (例: 100 chars) 未満で truncate を疑える場合
-  - **C (簡易)**: 常に `prompt_eval_count` / `eval_count` を debug log で emit (low-noise、auto OFF default)
-- **emit 内容 (案)**:
-  ```text
-  [lib-ollama-client] WARN: Ollama JSON output may be truncated.
-    parse_error: <serde error message>
-    prompt_eval_count: <N> (vs num_ctx: <M>)
-    eval_count: <K>, response_length: <L> chars
-    hint: 大規模 prompt は num_ctx を増やすことで解決可能 (with_num_ctx で override)。
-  ```
-- **fallback 経路への副作用**: 既存 fallback (block しない、`human_review` + `fallback_reason` を埋める) は維持、log は副次的な diagnostic 出力のみ
-
-#### 作業計画
-
-- [ ] `OllamaResponse` 構造体に `eval_count` / `prompt_eval_count` フィールドを追加 (現状 `response` / `error` のみ deserialize)
-- [ ] `generate_json::<T>` ヘルパー (型付き parse) で error 時に上記情報を warn log emit (`log::warn!` または `eprintln!`)
-- [ ] threshold ベースの判定ロジック (主軸 A) を実装、補助 B はオプション
-- [ ] tests:
-  - `warn_log_emitted_on_truncated_response_when_prompt_eval_count_high` (mockito + log capture)
-  - `no_warn_emitted_for_parse_errors_unrelated_to_truncation` (e.g., format-违反 JSON)
-- [ ] PR #136 で観測した eval13/15 fixture の `prompt_eval_count: 4096` 状況を dogfood で再現し、log が emit されることを確認
-- [ ] cli-finding-classifier 経由でも log が表面化することを smoke 確認 (push-runner step ログに乗るか)
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) 向け deploy 判断 (lib-ollama-client は本リポ専用なら deploy 不要、共有なら別途配布計画)
-- [ ] 本 todo6.md エントリを削除
-
-#### 完了基準
-
-- JSON parse error + context cap 近接の併発時に warn log が emit される
-- 既存 fallback 経路 (block しない、graceful degradation) を破壊しない
-- LLM dogfood セッションで「context window 起因か prompt 起因か」を log だけで切り分けられる構造
-- 単体テストで diagnostic log の emit 条件 + non-emit 条件の両方を seal
-
-#### 詰まっている箇所
-
-- **派生プロジェクト deploy 戦略**: `lib-ollama-client` が本リポ専用なら deploy なし、共有 crate 化するなら別 repo への copy / git submodule / cargo registry の判断が必要。Phase d 着手判定と合わせて検討
-- **log destination**: `eprintln!` (cli 用途で十分) vs `tracing` / `log` crate 統合 (既存の cli-* との一貫性)。本 lib は現状 ureq + serde_json のみで logging crate なし、初期は `eprintln!` で warn 接頭辞付け、将来必要なら crate 統合という段階導入が自然
-
----
-
 ### ADR-038 に PR #138 learning 2 件を追記 (cost-aware 実装層選択 + attention dilution pitfall) (PR #138 T3-#1+#2 採用)
 
 > **動機**: PR #138 (Phase d kickoff prep) 関連セッションで観測された 2 件の重要 learning が ADR-038 未記録。両者とも次回 LLM/Ollama 系 feature 開発時に再発可能性が高く、ADR に codify することで以下を構造的に防ぐ:
@@ -548,3 +494,87 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 詰まっている箇所
 
 - 配置先決定が順位 104 (ADR-007 amendment) の land と依存。順位 104 で field 一覧を inline するなら本タスクはリンク追加のみで済むが、ADR は判断基準中心であれば独立 reference doc が必要
+
+---
+
+### self-exclusion test に `path.exists()` ガード + extensions assertion 追加 (PR #141 T2-#1 採用)
+
+> **動機**: PR #141 で land した `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` test は、(a) `.claude/custom-lint-rules.toml` の path が存在することと (b) rule の `extensions` に `"toml"` が含まれることに **暗黙的に依存** している。どちらかが将来の変更で壊れると、`run_custom_rules` は空 Vec を返してテスト pass = silent false-green になり、self-exclusion invariant の保護が無効化される。CR Nitpick (PR #141) では (b) のみ指摘 (ユーザー判断で本 PR では不採用)、post-merge-feedback agent は 3 ソース (PR diff / Session / Prepush:simplicity) 独立指摘で (a)+(b) 両方を Medium Severity で再提案。
+>
+> **本タスクの位置づけ**: PR #141 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。CR Nitpick の **拡張版** (path.exists ガード追加で完全性向上)。
+>
+> **参照**: `.claude/feedback-reports/141.md` Tier 2 #1、`src/hooks-post-tool-linter/src/main.rs` の `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` test (PR #141 で追加)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。2 assertion を test 冒頭に追加。
+
+#### 作業計画
+
+- [ ] test 冒頭に `assert!(path.exists(), ...)` + `assert!(rule.extensions.contains(&"toml".to_string()), ...)` を追加
+- [ ] エラーメッセージで silent degradation のリスクを説明
+- [ ] cargo test 全 pass を確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- path 不在 / extensions に "toml" 不在のどちらでも test が fail で停止する
+- 既存 6 件の rule⑥ test と互換性維持
+
+---
+
+### `development-workflow.md` に PR #125→#141 anti-pattern 事例補強 (PR #141 T3-#2 採用)
+
+> **動機**: memory `feedback_verify_task_not_already_done.md` (PR #141 セッションで追加) は session-scoped で「PR #125 → #141 で 4 日間 stale todo 残存 → P-3 起動時に手動発見」事例を含むが、`~/.claude/rules/common/development-workflow.md` の central rule 側には反映されていない。`feedback_todo_no_history.md` と合わせて central 化することで、memory file 閉鎖の structural risk を軽減する。
+>
+> **本タスクの位置づけ**: PR #141 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium = 2 観測 / Effort XS / Adoption Risk None)。memory rule の central reference への昇格パターン。
+>
+> **参照**: `.claude/feedback-reports/141.md` Tier 3 #2、`~/.claude/rules/common/development-workflow.md`、memory `feedback_verify_task_not_already_done.md` / `feedback_todo_no_history.md`、PR #125 / PR #141
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/development-workflow.md` の「タスク完了削除手順」に 2-3 行追記:
+  - 「マージ後 N 日間 stale entry 残存 → 後続 phase で手動発見」anti-pattern 事例 (PR #125 → #141)
+  - 「マージ → 即削除」サイクル強調 (memory `feedback_todo_no_history` central 化)
+  - 「task 着手時に jj log + 既存 test で land 済確認」recovery layer (memory `feedback_verify_task_not_already_done` central 化)
+- [ ] central rule から両 memory file への双方向参照を追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- central rule に PR #125→#141 anti-pattern が anchor として記録される
+- 新セッションでも両 memory rule の趣旨を central から逆引き可能になる
+
+---
+
+### CLAUDE.md に「Tier 2 偽装検知 + 却下パターン」table (PR #141 T3-#3 採用)
+
+> **動機**: PR #140 / PR #141 で post-merge-feedback agent が Tier 2 (テスト/自動化) と称した提案を出したが、中身は ルール追加 / checklist 必須化 等の **unenforced rule** で、ユーザー判断で却下相当 (memory `feedback_no_unenforced_rules.md` で codify 済)。memory ファイルは session-scoped で新セッション AI からは見えにくく「Tier 2 = 採用必須」と誤解する構造的リスクがある。グローバル CLAUDE.md に signal + 却下パターン table を可視化し、policy をユーザー可視 + 新セッション AI からも逆引き可能にする。
+>
+> **本タスクの位置づけ**: PR #141 post-merge-feedback Tier 3 #3 採用 (Severity Low / Frequency Medium = 複数 session 観測 / Effort S / Adoption Risk None)。memory policy の central reference への昇格パターン。
+>
+> **参照**: `.claude/feedback-reports/141.md` Tier 3 #3、`~/.claude/CLAUDE.md`、memory `feedback_no_unenforced_rules.md` (PR #140 / #141 で追記済)
+
+#### 設計決定
+
+- **`feedback_claude_md_link_only.md` との整合**: CLAUDE.md は「リンクのみ」方針。table を inline すると memory rule に違反するため、別 stable doc (`~/.claude/rules/common/post-merge-feedback-policy.md` 等) に table を移し、CLAUDE.md からリンクする運用を推奨
+
+#### 検知 signal table 案
+
+| Signal | 例 | 判定 |
+|---|---|---|
+| target field に `*.md` / `test convention` 等 **文書 path** | "lint rule テスト checklist に <条件> を必須化" | ⚠️ Tier 2 偽装疑い |
+| description に「**必須化**」「**標準化**」「**チェックリスト追加**」 | "lint rule テストで大文字バリアント必須化" | ⚠️ unenforced rule 強い signal |
+| 機械強制 (CI / lint / test 存在検証) なし | "verbal checklist", "guideline 追記" | ❌ 却下相当 |
+
+#### 作業計画
+
+- [ ] 配置先 (新 doc / 既存 doc) を決定
+- [ ] 上記 signal table を新 doc or 既存 doc に追加
+- [ ] CLAUDE.md に link 追加 (memory rule 遵守)
+- [ ] 派生プロジェクトへの伝播も検討
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 新セッション AI が CLAUDE.md → link → table の動線で Tier 2 偽装判定を逆引き可能になる
+- `feedback_claude_md_link_only` 違反なし
+

@@ -195,61 +195,57 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 # 任意の小さい diff で pnpm push して .takt/lint-screen-report.md が生成されるか確認
 ```
 
-#### 次に何をするか (優先度順)
+#### 次に何をするか (analysis.md 削除条件への critical path、2026-05-11 更新)
 
-1. **Phase d kickoff prep** ✅ **完了 (2026-05-10)**: 運用ガイド = [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) として独立 doc 化。決定事項: (a) **session-only opt-in** (config commit せず session 内のみ enable / kill-switch 即可)、(b) metrics = **latency p50/p95 + fallback rate + Claude session input token 削減効果 (質的傾向)**、(c) kill-switch = **fallback rate > 50% で停止**。過去 dogfood の 3 obstacles (findings ゼロ / review body 抽出漏れ / rate-limit) は classifier 専用で lint_screen は CR 非依存のため scope 外と確定。**前提条件 (a)-(d) は PR #135 + PR #136 で全充足済**
-2. **Phase d 実 dogfood** (long-running、数日〜数週間): kickoff 後の通常 PR 5 件で lint_screen の token 削減 / latency / 大規模 diff JSON 完全性を実観測。`feedback_dogfood_evals_two_phase` (evals → dogfood の 2 段階) の dogfood 段階に該当。具体運用は [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) §1-3 に従う
+> **本ファイル削除条件**: Phase d 採否判定完了 (採用 or 却下) → ADR-038 を「採用」or「却下」に昇格 → follow-up タスクを permanent artifact (ADR / global rule / todo) に移管 → retirement workflow (`~/.claude/rules/common/docs-governance.md` §Retirement Workflow を参照、global config のため URL link なし) を実行 → 本ファイル削除。
+>
+> **進行方針 (2026-05-11、kill-switch 100% trend を踏まえた pivot)**: dogfood を一度止めて broken signal の repair (順位 98 = `num_ctx` overflow detection 診断) を最優先。診断 → root cause 特定 → fix → clean dogfood の順で進む。Bundle c-1 (旧 P-4) や Bundle c の他項目は **本 critical path 外** として通常 Tier 1 優先度で別途処理。
 
-   **dogfood 対象 PR roster** (`docs/todo-summary.md` から選定、size ramp-up 順序):
+##### 🚀 Phase A: Diagnostic ✅ **完了 (本 PR、2026-05-11)**
 
-   | Order | 構成 | Effort | Diff Profile | dogfood signal |
-   |---|---|---|---|---|
-   | P-1 | Bundle h (順位 89+90) + Bundle g-2 (順位 87+88) ✅ **完了 (PR #139、2026-05-10)** | M | global rules markdown 4 file (project diff は ADR-039 + cross-link + todo cleanup のみ) | classifier preview のみ取得 (real pipeline 未実行)。詳細は本 table 直後の **P-1 dogfood outcome** 参照 |
-   | P-2 | Bundle j-1 (順位 94 — `../docs/` 相対パス detect lint rule) ✅ **完了 (PR #140、2026-05-10)** | S | TOML config + 軽い Rust regex (203 行 mixed diff) | classifier preview のみ取得 (real pipeline 未実行)。詳細は本 table 直後の **P-2 dogfood outcome** 参照 |
-   | ~~P-3~~ | ~~Bundle g-1 (順位 85+86)~~ ⚠️ **roster から除外** — PR #125 で land 済を P-3 着手時に発見、stale todo 削除のみで実装作業なし | — | — | — |
-   | P-3 (繰上げ) | Bundle d (順位 68 — no-ephemeral-todo-reference self-exclusion test) ✅ **完了 (PR、2026-05-11)** | S | Rust test only (187 行) | classifier preview のみ取得 (real pipeline 未実行)。詳細は本 table 直後の **P-3 dogfood outcome** 参照 |
-   | P-4 (繰上げ) | Bundle c-1 (順位 63+64+67 — cli-merge-pipeline Drop guard + reaper + ADR) | L | Rust impl ×2 + ADR | 大規模 Rust (PR #132 868 行 stress 再現候補) (旧 P-5) |
+**順位 98 実装完了** = `lib-ollama-client` の `generate_json` に `OllamaMetadata` (`prompt_eval_count` / `eval_count` / `num_ctx`) を組み込み、serde parse error 時に stderr へ warn log を emit する診断層を追加。`OllamaApi` trait の `generate_with_metadata` (default fallback あり、StubOllama は変更不要)、`emit_overflow_diagnostic` 関数で 90% 以上時に「num_ctx を増やす hint」を含める。16 unit test pass、cli-finding-classifier 経由でも warn log が stderr に出ることを smoke 確認。
 
-   **P-1 dogfood outcome (PR #139、2026-05-10)**:
+##### 🔍 Phase B: Root cause identification ✅ **完了 (Phase A 即時 dogfood、2026-05-11)**
 
-   - **classifier preview metrics** (cli-finding-classifier 直叩き、real pipeline 経由ではない):
-     - latency: 23s (eval baseline p95=8.4s の ~3x、337-line diff サイズ起因の推定)
-     - findings: 0 (空配列)
-     - screen_decision: `human_review` (fallback path activated)
-     - fallback_reason: `JSON parse error: missing field 'screen_decision'` — num_ctx=8192 でも 337-line diff で出力 truncate の可能性
-   - **Phase d 学習**: 順位 98 (`num_ctx` overflow detection diagnostic warn log) の必要性を再確認 = mistral:7b 出力崩壊を runtime hint で即診断する優先度が確定
-   - **post-merge-feedback (10 findings → 1 件採用)**: T3 #1 (development-workflow.md に 「同一ファイル複数編集の 1 task 統合」 + 「partial completion + 後続 PR 追補明記」 の 2 pattern 追補) を採用 → **順位 100** として登録済。様子見 3 件 / 却下 5 件 (詳細は `.claude/feedback-reports/139.md`)
-   - **観測 caveat**: post-merge-feedback agent が PR #139 で初観測した `baselinebaseline` (table cell 内連続単語重複) は session/prepush 間で観測が矛盾 (jj cache stale 疑い、未確定)。Frequency Low 単独で T1 #1 連続重複単語 lint / T1 #2 jj cache validation は様子見 / 却下。3 PR 観測閾値で再評価
-   - **real pipeline 経由 P-1 metric**: P-2 (Bundle j-1) 移行時に再検討 = lint_screen を session-only opt-in で動かす機会を改めて作る (commit pollution 回避と integration test の trade-off は P-2 で再判断)
+Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_eval_count: 8192 (vs num_ctx: 8192)` = 100% 到達を実機確認**。**真因 = num_ctx truncation で確定**。mistral の prompt が完全に context cap で truncate されて JSON output が完成せず `screen_decision` field 欠落の症状を引き起こしていた。仮説 2 候補 (num_ctx truncation / mistral 出力崩壊) のうち前者が真因と decisive 判定。
 
-   **P-2 dogfood outcome (PR #140、2026-05-10)**:
+##### 🔧 Phase C: Root cause fix (1 PR、XS-S、次の next action) — C-1 経路で確定
 
-   - **classifier preview metrics** (cli-finding-classifier 直叩き、real pipeline 経由ではない、P-1 と同方針 = commit pollution 回避):
-     - latency: 46s (P-1 = 23s の ~2x、203-line diff にも関わらず latency 増。入力依存性 + mistral 内部状態の variance (cold/warm) 両候補)
-     - findings: 0 (空配列)
-     - screen_decision: `human_review` (fallback path activated)
-     - fallback_reason: 同 P-1 (`JSON parse error: missing field 'screen_decision'`、line 94 column 1)
-   - **Fallback rate trend (累積)**: 2/2 = 100%。Phase d guide §3 の kill-switch criteria (3/5 PR で fallback = 60% で停止) は real pipeline 経由なら **既に発動相当**。classifier preview ベースの観測で参考値、P-3 移行時に kill-switch 厳密判定の必要性を再評価
-   - **Phase d 学習**: 順位 98 (`num_ctx` overflow detection diagnostic warn log) の優先度を再々確認 = Rust+TOML+MD 混合 diff (203 行) でも崩壊で diff size 起因単独ではない signal、P-3 着手前の優先実装を強く推奨
-   - **post-merge-feedback (8 findings → 5 件採用)**: T1 #1/#2/#3 + T3 #1/#2 を採用 → **順位 101-105** として登録済。T2 #1 (大文字バリアント test 必須化) は不採用 = 「Tier 2 偽装の必須化ルール = unenforced rule pattern」として `feedback_no_unenforced_rules.md` に検知 signal 3 項目を追記。T2 #2 (mistral fallback 率監視) は様子見 (Phase d 3 PR 観測閾値で Tier 1 昇格再検討)。詳細は `.claude/feedback-reports/140.md`
-   - **real pipeline 経由 P-2 metric**: P-3 移行時に再検討 (P-1 → P-2 で本 trade-off 判断は共通結論で固定化、P-3 で改めて見直しの必要性は低いが kill-switch 100% trend を踏まえ再評価)
+- **C-1 (確定経路)**: `DEFAULT_NUM_CTX = 8192 → 16384 (or 32768)` への増加。mistral:7b の theoretical max は 32K、本リポの prompt サイズ (~4-5K) + 大規模 diff (~3-4K) で 16384 が安全マージン込みで妥当。RAM 影響評価 + lint-screen evals の regression test (15 件 fixtures が pass し続けるか) + smoke dogfood で fallback rate が下がることを確認
+- **(参考、不採用)** ~~C-2 (mistral 出力崩壊起因の場合)~~: Phase B で num_ctx 確定のため scope 外
 
-   **P-3 (繰上げ) dogfood outcome (PR、2026-05-11)**:
+##### ✅ Phase D: Clean dogfood validation (2-3 通常 PR、real pipeline 経由)
 
-   - **classifier preview metrics** (cli-finding-classifier 直叩き、real pipeline 経由ではない、P-1/P-2 と同方針):
-     - latency: **11s** (P-1=23s / P-2=46s から大幅短縮、187-line diff の input + warm context 推定)
-     - findings: 0 (空配列)
-     - screen_decision: `human_review` (fallback path activated)
-     - fallback_reason: `JSON parse error: missing field 'screen_decision'` (line 1 column 692)
-   - **Fallback rate trend (累積)**: **3/3 = 100%**。Phase d guide §3 の kill-switch criteria (3/5 PR で fallback = 60% で停止) は real pipeline 経由なら **既に発動超過**。classifier preview ベースで全 3 回失敗 → 順位 98 (`num_ctx` overflow detection) を **Phase d 結果集約より先に実装** することを強く推奨 (kill-switch 厳密判定の前提整備)
-   - **Latency variance signal**: P-1=23s / P-2=46s / P-3=11s の振れ幅は input size と弱相関 (P-2 が最短入力で最長 latency)、**mistral 内部状態 (cold/warm context)** が支配的要因の仮説を強化。real pipeline 計測時は cold start を避ける warmup 戦略の設計が必要
-   - **post-merge-feedback**: 本 PR merge 後に取得 (現時点で未実施)
+Phase C fix 入りで real pipeline 経由 dogfood。fallback rate が許容範囲 (< 50%) に落ちることを確認。既存 P-1/P-2/P-3 の preview data は Phase C 前の構成なので **不要、新 PR data で代替**。本 phase の通常 PR は Phase d roster から再選定 (Bundle f-1/f-2 / Bundle j-2 / 順位 100-108 docs bundle 等の通常 Tier 1〜3 タスクで代替可能)。
 
-   **設計判断のポイント**:
-   - **Effort 分布 (旧 M→S→M→S→L → 実 M→S→S→L)**: ~~前半小規模 / 後半大規模で kill-switch (fallback > 50%) signal の質を切り分け~~ 旧 P-3 (M = Bundle g-1) が PR #125 で land 済発見により roster から除外、4 PR roster に縮小。Effort 分布は M→S→S→L に変化、size ramp-up の中段で M が抜けたため小規模 (P-3) → 大規模 (P-4) の jump がやや大きい。kill-switch signal の切り分けは P-4 (L) で num_ctx 再到達検証として有効
-   - **Bundle h + g-2 を 1 PR に統合**: 共通テーマ「global rules consolidation (process/lifecycle codification)」、reviewer も「rule 追加 4 件まとめ」として認識しやすい
-   - **Bundle f 除外**: `(defer)` 表記 = systemic 性未確認のため Phase d で push 圧力を加えない
-3. **Phase d 結果集約**: 計測結果から §8.E 採用 / §8.F 着手 / kill-switch を判定。dogfood 完了後
+##### 🎯 Phase E: 採否判定 + retirement (1 PR、analysis.md 削除を含む)
+
+- **採用 case**: ADR-038 を「採用」に昇格 + [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) を削除 (試験運用ガイド役目終了) + 本 analysis.md を削除 + history.md は permanent record として保持判断
+- **却下 case**: cli-finding-classifier crate revert + ADR-038 を「却下」に更新 + Phase d guide 削除 + 本 analysis.md 削除
+- **継続 case**: Phase C が unresolved (Phase B で別問題判明等) なら判定延期 + 本 §「次に何をするか」を再 pivot
+
+##### Critical path 外 (並行 land 可、本 phase 完了を block しない)
+
+| Task | Effort | 関連 |
+|---|---|---|
+| 順位 100-108 docs PR (8 entries の todo registration、bundle 1 PR で消化) | S | Phase A〜C と並行 land 可、commit chain 整理 |
+| Bundle c-1 (順位 63+64+67、c-1a/c-1b 分割推奨) | L (M+M+XS、split 推奨) | Phase d とは独立、通常 Tier 1 として後で対応 |
+| Bundle j-2 (順位 95+96、`.github/workflows/lint.yml` 新設) | M (S+M) | 独立 |
+| Bundle f-1/f-2 (PR #120 feedback) | S+M | 独立 |
+
+##### Dogfood signal log (旧 PR roster の preview 結果、Phase B/D の比較対象として保持)
+
+| PR | 構成 | Diff 行 | Latency | findings | fallback_reason | Cumulative fallback |
+|---|---|---|---|---|---|---|
+| #139 (旧 P-1) | Bundle h + g-2 (docs-only) | 337 | 23s | 0 | `JSON parse error: missing field 'screen_decision'` (line 94) | 1/1 = 100% |
+| #140 (旧 P-2) | Bundle j-1 (TOML + Rust regex) | 203 | 46s | 0 | 同 (line 94 column 1) | 2/2 = 100% |
+| #141 (旧 P-3) | Bundle d (Rust test only) | 187 | 11s | 0 | 同 (line 1 column 692) | **3/3 = 100%** |
+
+**観測**: (a) fallback rate 100% が 3 PR 連続 = 既に kill-switch 60% 超過、(b) latency variance (23s/46s/11s) は input size と弱相関 = mistral 内部状態 (cold/warm context) が支配的要因の仮説、(c) すべて同一 fallback_reason = 単一 root cause の可能性大。
+
+**Phase d guide §3 kill-switch との関係**: ガイドは「real pipeline 経由で 3/5 fallback 観測 = 停止」と規定。本 preview は cli-finding-classifier 直叩きで pipeline 経由ではないが、3 連続 100% fallback は **厳密 kill-switch 超過に相当する severity**。Phase A〜C で repair しない限り Phase D に進めない判断。
+
+**Out-of-roster dropouts**: 旧 P-3 = Bundle g-1 (順位 85+86) は PR #125 で land 済を P-3 着手時に発見 → roster 除外 + stale todo 削除。経緯詳細は `feedback_verify_task_not_already_done.md` 参照。
 
 優先度低の独立 task (Phase d を block しない):
 - **§8.D**: classify mode の `normalized_issue` 言語制約強化 (low priority、ROI ★)
