@@ -291,3 +291,49 @@ steps = [
 # 説明文中で実際の trap pattern を直接書かないため、placeholder 形式で示す
 bad = "[ADR-036](DOTDOT/docs/adr/adr-036-...)  <!-- DOTDOT は ../ の意。実際は `..` 2 文字 -->"
 good = "[ADR-036](adr/adr-036-...)"
+
+# ─── ルール⑨: takt workflow yaml で persona: を持つ step に model: 必須 ───
+#
+# 由来: Bundle Y2 (PR #98) で post-pr-review.yaml supervise step に model: が
+# 未指定であることが post-merge-feedback で指摘された。persona: を持つ step で
+# model: 未指定は default に落ちるため、Bundle Y2 ゴール (analyze 系 haiku /
+# supervise・fix は sonnet) では現時点で偶然合致しているが、将来 default 変更や
+# persona 追加で意図せぬモデル選択が混入しうる。custom-lint-rule で書いた瞬間に
+# block すれば bug class が排除される。
+#
+# Bundle Z #B-α と同じ「決定論的防止層」哲学 (ADR-007 の正規表現層)。
+#
+# 検出ロジック (multi-line regex):
+# persona: 行の直後の indented field 行が「model: 以外」の場合に flag する。
+# field 名 enumeration 方式で takt yaml の sibling field を列挙し、新規 field が
+# 増えた際は明示的に rule 拡張する形を取る (= 学習機会化)。Rust regex は lookahead
+# 非対応のため negation by enumeration が pragmatic。
+#
+# Path filter (.takt/workflows/*.yaml 限定):
+# 順位 102 (PR #148) で実装した paths filter で範囲を絞り、.github/workflows/
+# 等の他 yaml への誤発火を防ぐ。
+
+[[rules]]
+id = "takt-workflow-persona-without-model"
+pattern = '(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools):'
+severity = "error"
+message = "takt workflow で persona: の直後に model: が指定されていません。default 落ち防止のため model: <sonnet|haiku|opus> を明示してください"
+why = "PR #98 post-merge-feedback で post-pr-review.yaml supervise step の model: 未指定が指摘された。default 落ちは将来 default 変更や persona 追加で意図せぬモデル選択を生む。Bundle Z #B-α と同じ決定論的防止層 (ADR-007 の正規表現層)"
+extensions = ["yaml"]
+paths = [".takt/workflows/*.yaml"]
+
+[rules.fix]
+strategy = "persona: の直後に model: <sonnet|haiku|opus> を追加"
+steps = [
+  "supervisor 系 step: model: sonnet を追加 (deep reasoning が必要)",
+  "code-reviewer 系 analyze step: model: haiku を追加 (低 cost で十分)",
+  "coder 系 fix step: model: sonnet を追加 (Bundle Y2 既定)",
+  "judge / loop_monitor block の persona: にも明示推奨 (clean baseline 維持)",
+]
+
+[rules.example]
+bad = '''      persona: supervisor
+      instruction: loop-monitor-reviewers-fix'''
+good = '''      persona: supervisor
+      model: sonnet
+      instruction: loop-monitor-reviewers-fix'''
