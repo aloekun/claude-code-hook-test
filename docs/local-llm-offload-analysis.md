@@ -231,25 +231,26 @@ Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_
 
 ##### 🔄 Phase D: Clean dogfood validation (real pipeline 経由、進行中)
 
-Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。**しかし D-1 着手時に session-only opt-in workflow が jj auto-snapshot と本質的に衝突する gap が判明** (順位 115 として env var override を backlog 登録、post-merge-feedback Tier 1 #1 で再 validate)。次の 3 通常 PR を **env var override (`LINT_SCREEN_ENABLED=true`) 経由 (順位 115 land 後)** で dogfood、`.takt/lint-screen-report.md` の `## Summary` + `## Diagnostic` で metrics を実観測。fallback rate < 50% / num_ctx 起因 0% を real pipeline で再確認できれば Phase E に進む。
+Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。D-1 着手時に session-only opt-in workflow が jj auto-snapshot と本質的に衝突する gap が判明したが、**順位 115 (`LINT_SCREEN_ENABLED` env var override) land で解消**。env var 経路 (`$env:LINT_SCREEN_ENABLED = "true"`) で `push-runner-config.toml` を編集せずに lint_screen を有効化できるため、D-3 で初の実 dogfood が成立する。`.takt/lint-screen-report.md` の `## Summary` + `## Diagnostic` で metrics を実観測、fallback rate < 50% / num_ctx 起因 0% を real pipeline で再確認できれば Phase E に進む。
 
-**Phase D 対象 PR 構成 (2026-05-12 確定 / D-1 land 後更新)**:
+**Phase D 対象 PR 構成 (2026-05-12 確定 / D-2 land + 順位 115 land 後更新)**:
 
-| Order | 構成 (todo-summary.md priority list より) | Effort | 推定 diff 行 | Diff Profile | 状態 |
+| Order | 構成 (todo-summary.md priority list より) | Effort | 推定 / 実 diff 行 | Diff Profile | 状態 |
 |---|---|---|---|---|---|
 | **D-1** ✅ | 順位 112 + 113 + 114 = ADR amendments bundle (ADR-038 eprintln scope / ADR-027 metrics override / 新規 ADR Local LLM context size) + 順位 115 backlog 化 | S+ | 298 (insert 228 / delete 70) | docs + 1 Rust comment | **PR #145 land 済 (2026-05-12)**、lint_screen dogfood は skip (workflow gap) |
-| **115** ⏳ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | ~80-120 (Rust impl + test) | Rust impl | **D-2 着手前に land 必須**、post-merge-feedback Tier 1 #1 |
-| **D-2** | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | ~150-200 | Rust test/comment mix | 順位 115 land 後、env var workflow で初の実 dogfood |
-| **D-3** | 順位 102 = `paths` filter を lint runner に実装 (impl + test + 既存 rule migration) | M | ~250-350 | Rust impl + test | D-2 完了後、num_ctx 32768 上限テスト |
+| **D-2** ✅ | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | 172 (insert 84 / delete 88) | Rust test/comment mix | **PR #146 land 済 (2026-05-12)**、lint_screen dogfood は skip (順位 115 未 land 時点) |
+| **115** ✅ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | 想定通り (Rust impl + test 10 件) | Rust impl + Phase D guide rewrite | **PR #147 想定で land 中**、D-3 着手 unblock |
+| **D-3** ⏳ | 順位 102 = `paths` filter を lint runner に実装 (impl + test + 既存 rule migration) | M | ~250-350 | Rust impl + test | **順位 115 land 後すぐ着手可、初の real dogfood + num_ctx 32768 上限テスト** |
 
-**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**ただし D-1 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-2 / D-3 の 2 PR**。
+**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**D-1 / D-2 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-3 のみ**。3 PR 観測予定だったが kill-switch 基準 (3/5 で停止) を踏まえて D-3 単独でも判定可能 (採用昇格 / 継続観測 / 却下) と位置付ける。
 
-**D-1 dogfood outcome (skip 理由 + 副産物)**:
+**D-1 / D-2 dogfood outcome (skip 理由 + 副産物)**:
 
-- lint_screen dogfood は実施せず (workflow gap)
-- 副産物として **workflow gap を systemic に発見 + 順位 115 を Tier 1 backlog 登録 + post-merge-feedback Tier 1 #1 で再 validate**
-- ADR-040 内部不整合 (3.33x label vs `(num_ctx/8192)*180s` formula = 4x) は takt review 1 iter で検出 → fix で解消、post-merge-feedback Tier 3 #1 で sublinear clarification 採用 (順位 116)
-- lib.rs L128-139 → ADR-040 移管 edit order を post-merge-feedback Tier 3 #3 で codify 採用 (順位 117)
+- lint_screen dogfood は実施せず (D-1 着手時の workflow gap が両 PR で持続)
+- 副産物 (D-1): **workflow gap を systemic に発見 + 順位 115 を Tier 1 backlog 登録 + post-merge-feedback Tier 1 #1 で再 validate**
+- 副産物 (D-1): ADR-040 内部不整合 (3.33x label vs `(num_ctx/8192)*180s` formula = 4x) は takt review 1 iter で検出 → fix で解消、post-merge-feedback Tier 3 #1 で sublinear clarification 採用 (順位 116)
+- 副産物 (D-1): lib.rs L128-139 → ADR-040 移管 edit order を post-merge-feedback Tier 3 #3 で codify 採用 (順位 117)
+- 副産物 (D-2): clean merge (post-merge-feedback 0 件採用)、feedback loop 正常動作を再確認
 
 **Phase D 計測手順** (各 PR 共通):
 
