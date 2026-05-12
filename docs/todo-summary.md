@@ -40,7 +40,6 @@
 | 44 | 💎 Tier 3 | **gh CLI 使用規則を `~/.claude/rules/common/git-workflow.md` に追記 (計画書 #D-1) ★ Bundle a Sub-PR 1** | todo4.md | XS | なし (Sub-PR 1、Sub-PR 2 でも `gh api` を使うため先行 land 推奨) |
 | 45 | 🔧 Tier 2 | **`check-ci-coderabbit --list-findings` Rust モード追加 (計画書 #D-3) ★ Bundle a Sub-PR 1** | todo4.md | M | なし (Sub-PR 1、cli-pr-monitor が消費する構造化 findings API を提供) |
 | 46 | 🔧 Tier 2 | **CodeRabbit rate-limit auto-retry の integration test (PR #100 T2-1) ★ Bundle a Sub-PR 2** | todo4.md | M | 順位 42 と同 PR (Sub-PR 2、rate-limit auto-retry 実装と一体) |
-| 47 | 🚀 Tier 1 | **`>` vs `>=` boundary inconsistency lint rule (PR #101 T1-2)** | todo7.md | S | なし (PR #101 直接対策、同一ファイル内 3 関数で latent drift が実証済の高頻度問題) |
 | 49 | 🔧 Tier 2 | **`parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2** | todo7.md | M | 順位 42 / 43 / 46 と同 PR (Sub-PR 2、`unwrap_or_else(\|_\| empty)` silent fail 抑止 + cli-pr-monitor mock infra 流用) |
 | 51 | 🚀 Tier 1 | **`.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)** | todo7.md | M | なし (PR #103 で stale-diff false positive による wasted iter ×2 = ~10 分浪費を実観測、6-iter outlier の構造的根因対策、Bundle Z 3 層では塞げない独立改善) |
 | 52 | 💎 Tier 3 | **comment-lint hook の MultiEdit 対応 (順位 50 follow-up)** | todo7.md | S | なし (順位 50 で v1 = Edit のみ実装、MultiEdit は whole-file fallback で no-regression、利用頻度低く優先度は低) |
