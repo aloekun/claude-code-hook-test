@@ -10,28 +10,34 @@
 
 ## 現在進行中
 
-### 新規 ADR: Local LLM Context Size と Resource Trade-off (PR #143 T3-#1 採用)
+### `LINT_SCREEN_ENABLED` env var override を cli-push-runner に追加 (Phase D D-1 着手時の workflow gap、2026-05-12 発見)
 
-> **動機**: PR #143 (Phase C = `DEFAULT_NUM_CTX 8192 → 32768`) で取得した empirical data — 8K で 512MB / latency 5-20s、32K で 2GB / latency 30-90s、`step_timeout` の比例係数 3.33x (180s → 600s) — は permanent record として ADR に codify する価値が高い。Phase D/E 進行中で num_ctx 再選定の機会は高い + 将来の lib-ollama-client 利用拡大時の判断 prior になる。`src/lib-ollama-client/src/lib.rs` L128-139 の dogfood evolution コメント (CR Low nitpick で言及あり) を ADR に移管することで code comment 肥大化も同時解消。
+> **動機**: Phase D guide §1 / analysis.md Phase D 計測手順 は「session-only opt-in」 (`[lint_screen] enabled = true` を commit せず runtime のみ反映) を前提に記述されていたが、jj の auto-snapshot 性質と本質的に衝突する。`push-runner-config.toml` を編集すると即座に @ にスナップショットされ、`pnpm push` がその commit を remote に push してしまうため、「local enable / remote disable」が成立しない。`cli-push-runner` の config 読み取り経路に env var override (`LINT_SCREEN_ENABLED=true` 等で TOML の `[lint_screen] enabled` を上書き) を追加することで、commit-free な session opt-in が成立する。
 >
-> **本タスクの位置づけ**: PR #143 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
+> **本タスクの位置づけ**: Phase D D-1 (PR #145 想定) 着手時に systemic に発見された **workflow blocker**。D-2 着手前に land しないと D-2 / D-3 の dogfood も同様にスキップせざるを得ない。Effort S (~30-50 行 Rust + test 2-3 件)。
 >
-> **参照**: `.claude/feedback-reports/143.md` Tier 3 #1、`src/lib-ollama-client/src/lib.rs` L128-139 (移管対象 comment)、`push-runner-config.toml` の step_timeout 履歴 comment
+> **参照**: `docs/local-llm-offload-analysis.md` Phase D 計測手順 (D-1 時点で gap が明文化済)、`src/cli-push-runner/src/config.rs` (LintScreenConfig 読み取り箇所)、`docs/local-llm-offload-phase-d-guide.md` §1 (旧 workflow 記述)
+
+#### 設計決定の余地
+
+- **env var 名**: `LINT_SCREEN_ENABLED` (TOML field 名と揃える) / `PUSH_RUNNER_LINT_SCREEN` (prefix で namespace) / 別案
+- **値 semantics**: `true` / `1` / `yes` で有効、空文字列 / 未設定 / `false` で TOML 値を尊重
+- **TOML override 方向**: env var を **TOML より優先** (現状 TOML default OFF を env で強制 ON にする運用) / TOML を優先で env は fallback (現実装では TOML 必須なのでこちらは意味なし)
+- **将来拡張**: 他フィールド (model / endpoint / timeout_secs) も env var で override する一般化 → 当面は `enabled` のみ
+- **type 安全**: bool parse 失敗時の fallback (FALSE 扱い vs 警告 emit) → 警告 emit + FALSE 扱い
 
 #### 作業計画
 
-- [ ] `docs/adr/adr-04X-local-llm-context-size.md` を次の連番 (現在 040 が次) で新規作成
-- [ ] content:
-  - mistral:7b × 8K (512MB, latency 5-20s) vs 32K (2GB, latency 30-90s) の実測値記録
-  - step_timeout の比例係数設計 (180s → 600s = 3.33x) の根拠
-  - context 選定時の判断基準 (latency / memory / accuracy / timeout trade-off)
-  - lib.rs L128-139 の evolution history コメントを本 ADR に移管 + 参照 link 化
-- [ ] CLAUDE.md の ADR index に追加
+- [ ] `src/cli-push-runner/src/config.rs` の `LintScreenConfig::enabled` を env var override 対応に変更 (TOML 読み取り後に env を merge)
+- [ ] env var parse helper 関数を追加 (bool 解釈 + warning emit)
+- [ ] unit test 3 件: env unset で TOML 尊重 / env=true で override / env=invalid で警告 + FALSE
+- [ ] `docs/local-llm-offload-phase-d-guide.md` §1 Setup を env var ベースに rewrite (旧「config を編集」記述を削除)
+- [ ] `docs/local-llm-offload-analysis.md` Phase D 計測手順は D-1 PR で既に env var ベースに更新済、整合性を確認
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- 将来の num_ctx 再選定 (Phase D/E 進行中) で本 ADR が判断 prior として参照可能になる
-- lib.rs の dogfood evolution コメントが ADR へ移管され、code comment 肥大化が解消される
+- env var 経由で lint_screen を有効化でき、`push-runner-config.toml` を編集せずに dogfood 実施可能になる
+- D-2 / D-3 で session-only opt-in workflow が成立する
 
 ---

@@ -192,6 +192,36 @@ security-review (同じ workflow 内で並列実行) の execute median は 62s 
 - security-review の slowdown は別トラックで調査 (model 指定以外に context サイズが効いている可能性)。
 - 次回のこの種の性能 ADR では、baseline/target とも **median で記述する** (p75 値を typical として扱わない)。
 
+## Metrics override 判断基準 (PR #142 追記)
+
+simplicity-review が複雑度 metrics (関数長 / ネスト深さ / 重複等) で flag した行が、PR の本質的責務と独立した **incidental change** であった場合、reviewer は明示的に override 判定を下す。本 ADR では override の判断境界と記述様式を以下に codify する。
+
+### Incidental change vs Responsibility change の線引き
+
+| 種類 | 例 | metrics 判定の扱い |
+|---|---|---|
+| **Incidental change** | `cargo fmt` による空白/改行整形、import 整理、無関係な未使用コード除去 (`cargo fix --allow-dirty`)、エディタ自動 trailing whitespace 除去 | override OK (本 PR の責務外) |
+| **Responsibility change** | 本 PR の fix 本体、新 function 追加、API 変更、bug fix のための ネスト改修 | metrics 判定を尊重 (override 禁止、改善 or 受け入れ rationale 必須) |
+
+判断境界の essential rule: **「diff の hunk を消したら PR の主目的が達成不能になるか」** で判定。Yes → responsibility / No → incidental。
+
+### Override 記述様式
+
+reviewer report で incidental override を行う場合は、以下の 3 項目を明示:
+
+```markdown
+- **Override**: <metrics 違反項目>
+- **Reason**: incidental (e.g., cargo fmt による 2 行整形 / 既存 import の alphabetize)
+- **Rationale**: 本 PR の主責務 (<PR title 引用>) と独立しており、削除しても主目的を阻害しない
+```
+
+理由を残さない silent override は禁止 (将来の review で「なぜ flag が消えたか」を逆引きできなくなる)。
+
+### 由来
+
+- PR #142 (Phase A 診断 log 実装) の simplicity-review で `cargo fmt` 整形による 1-2 行 diff 増加が metrics override 判定対象になった事例があり、incidental / responsibility の線引きが不明瞭だった
+- post-merge-feedback T3-#4 採用、Frequency Low / Severity Low / Effort XS
+
 ## 次ステップ (スコープ外)
 
 - **call chain drift lint の導入**: ADR 内のコードシンボル参照と実コードの整合性を lint で検証する仕組み
