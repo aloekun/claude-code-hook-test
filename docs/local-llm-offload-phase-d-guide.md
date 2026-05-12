@@ -8,30 +8,38 @@
 >
 > **引退条件**: Phase d 完了 (3-5 PR で実観測) → §8.E 採否判定 → ADR-038 を「採用」or「却下」に昇格 → 本ファイル削除 + analysis.md / history.md も同タイミングで再評価。
 
-## 1. Setup (session-only opt-in)
+## 1. Setup (session-only opt-in via env var)
 
-`push-runner-config.toml` は default OFF のまま。dogfood する session で **手動で `enabled = true` に切り替え (commit しない)**。
+`push-runner-config.toml` は default OFF のまま **編集しない**。dogfood する session で **env var `LINT_SCREEN_ENABLED=true` を set** することで TOML 値を override する (順位 115、Phase D D-1 で発見した jj auto-snapshot vs session-only opt-in workflow gap を解消した経路)。
 
-```bash
+```powershell
 # 1. Ollama 起動確認
 curl -s http://localhost:11434/api/tags | jq '.models | map({name, size})'
 # 期待: mistral:7b が含まれる
 
-# 2. config 切替 (commit しない、session 内のみ)
-# push-runner-config.toml の [lint_screen] section で
-#   enabled = false → enabled = true
-# 編集後、jj diff で確認 (push 時に意図せず commit に乗らないよう注意)
+# 2. env var で lint_screen を session-only で有効化 (config 編集しない)
+$env:LINT_SCREEN_ENABLED = "true"
+# 受容値 (case-insensitive、空白 trim): true / 1 / yes / on → force enable
+# false / 0 / no / off / "" / 未設定 → TOML 値を尊重 (= default OFF)
+# それ以外 → warning emit + TOML 値を尊重
 
 # 3. cli-finding-classifier.exe deploy 確認
 ls -la .claude/cli-finding-classifier.exe
 # 期待: ファイル存在、~2.2MB
 
-# 4. dogfood 完了後、必ず enabled = false に戻す (revert)
-jj diff push-runner-config.toml  # 確認
-# 編集して enabled = false に戻す、または jj restore push-runner-config.toml
+# 4. dogfood 完了後、env var を unset (session 終了で自動消滅、commit には影響なし)
+Remove-Item env:LINT_SCREEN_ENABLED -ErrorAction Ignore
 ```
 
-**意義**: kill-switch が即可能、他人 / 派生プロジェクトの push に影響なし、設計 (default OFF, 試験運用 opt-in) との整合性。
+Bash / WSL 環境では `export LINT_SCREEN_ENABLED=true` / `unset LINT_SCREEN_ENABLED` で同等。
+
+**意義**:
+
+- jj auto-snapshot 環境でも config を編集せずに済む = 誤って commit する事故を構造的に排除
+- kill-switch が即可能 (env unset で TOML default OFF に自然復帰)
+- 他人 / 派生プロジェクトの push に影響なし
+- 設計 (default OFF, 試験運用 opt-in) との整合性 + ADR-039 試験運用標準パターン (config opt-in + kill-switch + bounded lifetime) との整合
+- env override の片方向設計 (true → force enable / false → TOML 尊重) で「誤って enable した状態が PR / master に流れる」リスクが二重防御
 
 ## 2. 計測 (各 dogfood PR で実施)
 
