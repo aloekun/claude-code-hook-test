@@ -33,6 +33,34 @@
 
 ---
 
+### `MAX_CUSTOM_VIOLATIONS` outer/inner loop break scope を explicit test で seal (PR #148 T2-1 採用)
+
+> **動機**: PR #148 (Phase D D-3、順位 102) の `run_custom_rules` refactor で発見した bug fix = inner `for m` loop の break のみで outer `for compiled in rules` loop に break が伝播しない問題。新コードでは `collect_violations_for_rule` 呼出後に `violations.len() >= MAX_CUSTOM_VIOLATIONS` を outer loop でチェックして break する設計に修正された (takt reviewer が "Behavioral change in `MAX_CUSTOM_VIOLATIONS`: improvement" として明示的に評価)。本タスクでは **複数ルール実行時に violation cap が正確に機能する** ことを explicit test で seal し、loop 構造を再 refactor する将来時の regression を防止する。
+>
+> **本タスクの位置づけ**: PR #148 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Phase D D-3 で発見済 bug fix の test net 補強。
+>
+> **参照**: `.claude/feedback-reports/148.md` Tier 2-1、`src/hooks-post-tool-linter/src/main.rs` の `run_custom_rules` + `collect_violations_for_rule` (PR #148 で extract)
+
+#### 設計決定の余地
+
+- **test fixture 設計**: violation cap (`MAX_CUSTOM_VIOLATIONS = 20`) を超える数の違反を 1 fixture で生成、複数 rule を同時に実行
+- **scope 検証**: (a) inner loop break (1 rule で 20 件で打ち切り)、(b) outer loop break (rule A で 20 件達成後、rule B が呼ばれない)、(c) 上限未達時に複数 rule 全実行
+- **既存テスト整合**: `run_custom_rules_respects_max_violations` test が単一 rule の cap 動作を test 済。本 task はそれを multi-rule scenario に拡張
+
+#### 作業計画
+
+- [ ] test fixture 設計: 20+ 違反を含む test file + 2 rules (例: `rule_a` + `rule_b` の異なる pattern)
+- [ ] test ケース追加: (a) `rule_a` 単独で 20 件 → outer break、`rule_b` が実行されないこと assert (b) `rule_a` で 19 件、`rule_b` で 1 件 → 両方実行されて合計 20 件
+- [ ] cargo test 全 pass を確認 (既存 102 tests + 新規 2 tests 程度 = 104 tests)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `MAX_CUSTOM_VIOLATIONS` の outer/inner loop break scope が test で明示化される
+- 将来 `run_custom_rules` を再 refactor した際、cap 動作の regression が即 fail で検出される
+
+---
+
 ### rule⑧ への paths filter 適用範囲検討 (順位 102 land 時に意図的保留、follow-up)
 
 > **動機**: 順位 102 (PR #148 想定で land 中、Phase D D-3) で paths filter が lint runner に実装されたが、当初計画した rule⑧ への `paths = ["docs/**/*.md"]` migration は **意図的に保留**。理由: D-2 (PR #146、順位 101) で追加した「root-level MD (CLAUDE.md / README.md) からの `../docs/` 参照を fire = true positive で扱う」design intent が、`paths = ["docs/**/*.md"]` 適用で scope narrow されて壊れる (root-level MD の実 path が docs/ 配下ではないため rule 対象外になり、broken link 検出を失う)。本タスクで以下のいずれを採用するか検討する:

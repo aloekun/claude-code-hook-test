@@ -229,20 +229,20 @@ Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_
 
 `src/cli-push-runner/src/stages/lint_screen.rs` 改修: graceful fallback (exit 0) 時にも classifier stderr を `.takt/lint-screen-report.md` の `## Diagnostic` section に取込。Phase A 診断 warn log が **real pipeline 経由で visible** になる状態を確保。新 struct `ClassifierOutput { stdout, stderr }`、新 helper `render_diagnostic`、新規 smoke test 4 件 (TP / FP / edge case / parse-error path) で contract を seal。lint_screen tests 14/14 pass + workspace 全 cargo test pass。
 
-##### 🔄 Phase D: Clean dogfood validation (real pipeline 経由、進行中)
+##### ✅ Phase D: Clean dogfood validation (real pipeline 経由、計画完遂 2026-05-12)
 
-Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。D-1 着手時に session-only opt-in workflow が jj auto-snapshot と本質的に衝突する gap が判明したが、**順位 115 (`LINT_SCREEN_ENABLED` env var override) land で解消**。env var 経路 (`$env:LINT_SCREEN_ENABLED = "true"`) で `push-runner-config.toml` を編集せずに lint_screen を有効化できるため、D-3 で初の実 dogfood が成立する。`.takt/lint-screen-report.md` の `## Summary` + `## Diagnostic` で metrics を実観測、fallback rate < 50% / num_ctx 起因 0% を real pipeline で再確認できれば Phase E に進む。
+Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。D-1 着手時に session-only opt-in workflow が jj auto-snapshot と本質的に衝突する gap が判明したが、**順位 115 (`LINT_SCREEN_ENABLED` env var override) land で解消**。env var 経路 (`$env:LINT_SCREEN_ENABLED = "true"`) で `push-runner-config.toml` を編集せずに lint_screen を有効化できるため、D-3 で初の実 dogfood が成立し、計画 3 PR + prereq 1 PR がすべて land 完了。
 
-**Phase D 対象 PR 構成 (2026-05-12 確定 / D-2 land + 順位 115 land 後更新)**:
+**Phase D 対象 PR 構成 (2026-05-12 完遂)**:
 
-| Order | 構成 (todo-summary.md priority list より) | Effort | 推定 / 実 diff 行 | Diff Profile | 状態 |
+| Order | 構成 (todo-summary.md priority list より) | Effort | 実 diff 行 | Diff Profile | 状態 |
 |---|---|---|---|---|---|
 | **D-1** ✅ | 順位 112 + 113 + 114 = ADR amendments bundle (ADR-038 eprintln scope / ADR-027 metrics override / 新規 ADR Local LLM context size) + 順位 115 backlog 化 | S+ | 298 (insert 228 / delete 70) | docs + 1 Rust comment | **PR #145 land 済 (2026-05-12)**、lint_screen dogfood は skip (workflow gap) |
 | **D-2** ✅ | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | 172 (insert 84 / delete 88) | Rust test/comment mix | **PR #146 land 済 (2026-05-12)**、lint_screen dogfood は skip (順位 115 未 land 時点) |
-| **115** ✅ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | 想定通り (Rust impl + test 10 件) | Rust impl + Phase D guide rewrite | **PR #147 想定で land 中**、D-3 着手 unblock |
-| **D-3** ⏳ | 順位 102 = `paths` filter を lint runner に実装 (impl + test、既存 rule⑧ migration は 順位 118 で trade-off 検討に保留) | M | 実 ~270 (insert) | Rust impl + 7 unit tests + glob filter helper | **PR #148 想定で land 中、初の real lint_screen dogfood (`$env:LINT_SCREEN_ENABLED=true` 経路) + num_ctx 32768 上限テスト** |
+| **115** ✅ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | 325 (insert 268 / delete 57) | Rust impl + 10 tests + Phase D guide rewrite | **PR #147 land 済 (2026-05-12)**、D-3 着手 unblock |
+| **D-3** ✅ | 順位 102 = `paths` filter を lint runner に実装 (impl + test、既存 rule⑧ migration は 順位 118 で trade-off 検討に保留) | M | 496 (insert 375 / delete 121) | Rust impl + 7 unit tests + globset 依存追加 + glob filter helper | **PR #148 land 済 (2026-05-12)、初の real lint_screen dogfood 観測** |
 
-**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**D-1 / D-2 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-3 のみ**。3 PR 観測予定だったが kill-switch 基準 (3/5 で停止) を踏まえて D-3 単独でも判定可能 (採用昇格 / 継続観測 / 却下) と位置付ける。
+**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**D-1 / D-2 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-3 のみ**。3 PR 観測予定だったが kill-switch 基準 (3/5 で停止) を踏まえて D-3 単独で 1 dogfood data point を取得済。Phase E 採否判定は次回以降の通常 PR 累積で確定する設計に変更。
 
 **D-1 / D-2 dogfood outcome (skip 理由 + 副産物)**:
 
@@ -251,6 +251,37 @@ Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由
 - 副産物 (D-1): ADR-040 内部不整合 (3.33x label vs `(num_ctx/8192)*180s` formula = 4x) は takt review 1 iter で検出 → fix で解消、post-merge-feedback Tier 3 #1 で sublinear clarification 採用 (順位 116)
 - 副産物 (D-1): lib.rs L128-139 → ADR-040 移管 edit order を post-merge-feedback Tier 3 #3 で codify 採用 (順位 117)
 - 副産物 (D-2): clean merge (post-merge-feedback 0 件採用)、feedback loop 正常動作を再確認
+
+**D-3 dogfood outcome (Phase D 初の real lint_screen 観測、PR #148)**:
+
+| Metric | 観測値 |
+|---|---|
+| screen_decision | `auto_fix` |
+| findings 件数 | 1 (minor severity) |
+| finding 内容 | `unused-import` rule、`src/hooks-post-tool-linter/Cargo.toml:12` で `globset` を誤検出 |
+| finding accuracy | **false positive** (takt reviewer が main.rs での import 使用済を diff verify で dismiss) |
+| fallback_reason | なし (clean run、JSON parse error 無し) |
+| `## Diagnostic` section | 不在 = num_ctx 32768 で overflow 発生せず (Phase A 診断 log emit せず) |
+| lint_screen latency | 推定 ~80-120s (pipeline 総 628s − takt 248s − その他) |
+| kill-switch (fallback > 50%) | fallback 0/1 = 0% → 基準内 |
+
+**D-3 観測の意義**:
+
+1. **env override 経路の実証**: PR #147 で実装した `LINT_SCREEN_ENABLED` env var で `[lint_screen] enabled = false` (TOML default) を override し、commit-free な session opt-in が成立
+2. **num_ctx 32768 の容量実証**: ~270 line Rust diff (Cargo.toml + main.rs + Cargo.lock + docs) を overflow せず完走、Phase A 診断 log も emit せず
+3. **lint_screen が takt reviewer の context として活用**: reviewer 出力に「Lint-screen finding: false positive」と明示的に評価あり = advisory consumption が成立
+4. **1 false positive は Phase b' agreement 75% (= 25% disagreement) と整合**: 想定範囲内、複数 PR 累積評価が前提
+5. **副産物 (D-3 post-merge-feedback)**: `MAX_CUSTOM_VIOLATIONS` outer/inner loop break scope の explicit test 必要性を発見 (Tier 2-1 採用、順位 119)、rule⑧ への paths filter 適用範囲検討を順位 118 として backlog 化
+
+**Phase D 計画完遂後の Phase E 判定材料**:
+
+- ✅ pipeline integration works end-to-end (D-1 #144 smoke test + D-3 real diff 完走)
+- ✅ num_ctx 32768 で 270 行 Rust diff overflow なし (Phase C reference values と整合)
+- ✅ fallback rate < 50% (D-3 で 0/1)
+- ⚠️ agreement: 1 false positive 観測 (Phase b' 75% 想定範囲内、単発観測)
+- ⏳ **複数 PR 累積必要** (Phase E 採否判定は次回以降の通常 PR で dogfood data を蓄積)
+
+Phase E 着手の前提条件は **3-5 PR 累積 dogfood**。D-3 で 1 PR データを取得済 = あと 2-4 PR 観測すれば判定可能。当面は通常 PR の push 時に `$env:LINT_SCREEN_ENABLED=true` を opt-in で set し、`.takt/lint-screen-report.md` を post-push で記録する運用に移行する (本 § Phase D row への追記は dogfood data 蓄積継続中の暫定方針、判定時に Phase E section へ統合)。
 
 **Phase D 計測手順** (各 PR 共通):
 
