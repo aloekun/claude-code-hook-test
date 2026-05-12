@@ -6,6 +6,7 @@
 //! .claude/hooks-config.toml の [post_tool_linter] セクションから
 //! 拡張子ごとのパイプラインを読み込みます。
 
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
@@ -85,14 +86,20 @@ struct CustomRulesConfig {
 /// | `message` | ✅ | 違反時のメッセージ |
 /// | `extensions` | ✅ | 対象拡張子の list (例: `["rs", "toml"]`)。空配列を使うと全 file が対象になる anti-pattern なので避ける |
 /// | `why` | optional | ルールの根拠 (ADR 参照 / PR 由来等)。省略可だが post-merge-feedback 由来は明記推奨 |
+/// | `paths` | optional | glob pattern による file path filter (順位 102 land 済)。指定時は `extensions` との **AND** 結合で評価。例: `paths = ["docs/**/*.md"]` で docs/ 配下のみ対象。未指定 (None) または空配列は「path filter なし」(= `extensions` のみで判定) |
 /// | `fix` | optional | `CustomRuleFix` (strategy + steps) |
 /// | `example` | optional | `CustomRuleExample` (bad + good) |
 ///
-/// **planned field** (実装時に本コメントも併せて更新する):
+/// **glob syntax** (`globset` crate 準拠):
 ///
-/// - `paths` (順位 102): glob pattern による file path filter。現状は `extensions` のみで file scope を絞り、
-///   path semantics は pattern 自体で self-limit する設計 (ADR-007 amendment 参照、順位 104)。
-///   `paths` 実装時には `extensions` × `paths` の AND 結合で評価する。
+/// - `*` = 同階層の 0+ 文字 (path separator は含まない)
+/// - `**` = 任意階層の recursive match (`docs/**/*.md` は `docs/a.md` / `docs/adr/b.md` 両方マッチ)
+/// - `?` = 単一文字
+/// - `[abc]` = 文字 class
+///
+/// **`extensions` × `paths` の AND 結合の意義**: `extensions` は file 種別 (rust / toml / md) を絞る軸、
+/// `paths` は file 位置 (docs/ 配下 / tests/ 配下) を絞る軸で直交。両方マッチで初めて rule 対象とすることで、
+/// rule scope を明示的に二次元で表現できる (ADR-007 amendment 順位 104 で codify 予定)。
 #[derive(Deserialize, Clone)]
 struct CustomRule {
     id: String,
@@ -102,6 +109,8 @@ struct CustomRule {
     #[serde(default)]
     why: String,
     extensions: Vec<String>,
+    #[serde(default)]
+    paths: Option<Vec<String>>,
     fix: Option<CustomRuleFix>,
     example: Option<CustomRuleExample>,
 }
@@ -324,10 +333,69 @@ fn custom_rules_path() -> PathBuf {
         .join("custom-lint-rules.toml")
 }
 
-/// コンパイル済み正規表現を持つルール
+/// コンパイル済み正規表現と paths glob set を持つルール。
+///
+/// `paths_glob` は `rule.paths` が `Some(non-empty)` の場合のみ compiled GlobSet を保持し、
+/// `None` (path filter なし) では `None` を保持する。Empty Vec は **filter なし** として扱う
+/// (= `None` と同等) ことで「[]` と `None` の semantic 差を排除し、`Option<Vec<String>>` の意味を
+/// 「未指定 or 明示空 = 全 path 受容」に統一する。
 struct CompiledRule {
     rule: CustomRule,
     regex: Regex,
+    paths_glob: Option<GlobSet>,
+}
+
+/// `CustomRule::paths` を GlobSet に compile する。
+///
+/// - `None` または `Some(empty Vec)` → `Ok(None)` (filter なし)
+/// - `Some(non-empty)` で全 glob valid → `Ok(Some(GlobSet))`
+/// - 1 つでも glob が invalid → `Err(error message)` (rule 全体を破棄)
+fn compile_paths_glob(paths: &Option<Vec<String>>) -> Result<Option<GlobSet>, String> {
+    let Some(pattern_list) = paths else {
+        return Ok(None);
+    };
+    if pattern_list.is_empty() {
+        return Ok(None);
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pattern in pattern_list {
+        let glob = Glob::new(pattern)
+            .map_err(|e| format!("invalid glob '{}': {}", pattern, e))?;
+        builder.add(glob);
+    }
+    builder
+        .build()
+        .map(Some)
+        .map_err(|e| format!("failed to build GlobSet: {}", e))
+}
+
+/// `CustomRule` 単体を compile し、`CompiledRule` を返す。失敗時は warn log + None。
+fn compile_rule(rule: CustomRule) -> Option<CompiledRule> {
+    let regex = match Regex::new(&rule.pattern) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[post-tool-linter] Warning: Invalid regex in rule '{}': {}",
+                rule.id, e
+            );
+            return None;
+        }
+    };
+    let paths_glob = match compile_paths_glob(&rule.paths) {
+        Ok(g) => g,
+        Err(msg) => {
+            eprintln!(
+                "[post-tool-linter] Warning: rule '{}' paths filter compile failed, dropping rule: {}",
+                rule.id, msg
+            );
+            return None;
+        }
+    };
+    Some(CompiledRule {
+        rule,
+        regex,
+        paths_glob,
+    })
 }
 
 /// カスタムルール設定を読み込み、正規表現をプリコンパイルする
@@ -355,19 +423,7 @@ fn load_custom_rules() -> Vec<CompiledRule> {
         );
     }
 
-    rules
-        .into_iter()
-        .filter_map(|rule| match Regex::new(&rule.pattern) {
-            Ok(regex) => Some(CompiledRule { rule, regex }),
-            Err(e) => {
-                eprintln!(
-                    "[post-tool-linter] Warning: Invalid regex in rule '{}': {}",
-                    rule.id, e
-                );
-                None
-            }
-        })
-        .collect()
+    rules.into_iter().filter_map(compile_rule).collect()
 }
 
 fn find_powershell_rules_missing_case_insensitive_flag(rules: &[CustomRule]) -> Vec<String> {
@@ -395,7 +451,65 @@ fn rule_matches_ext(rule: &CustomRule, file: &str) -> bool {
     }
 }
 
-/// カスタムルールをファイルに適用し、構造化された違反 JSON を返す
+/// `compiled.paths_glob` が `None` (filter なし) または `Some(GlobSet)` で file path がマッチする場合 true。
+///
+/// 順位 102 (PR #140 T1-#2 採用、Phase D D-3): `extensions` filter と AND 結合で評価する path filter。
+/// 比較対象は **path 全体** で、Unix-style separator (`/`) のみで matching する。Windows path 入力
+/// (`\` 含む) は事前に normalize しておく必要があるが、本 hook の入力 (`tool_input.file_path` /
+/// `tool_input.path`) は Claude Code が POSIX-style で渡すため通常は問題なし。
+fn rule_matches_path(compiled: &CompiledRule, file: &str) -> bool {
+    let Some(globset) = compiled.paths_glob.as_ref() else {
+        return true;
+    };
+    let normalized = file.replace('\\', "/");
+    globset.is_match(&normalized)
+}
+
+/// 1 件の regex match と rule 定義から `LintViolation` の JSON 文字列を構築する。
+///
+/// `m.start()` 以前の `\n` 数 + 1 を 1-indexed line number として算出 (`find_iter` の byte
+/// offset を line 番号に変換するため line-by-line search では捕捉できない multiline pattern
+/// = 例: PowerShell `} catch {\n}` にも対応)。
+fn build_violation_json(file: &str, rule: &CustomRule, m: regex::Match, content: &str) -> Option<String> {
+    let line_no = content[..m.start()].bytes().filter(|b| *b == b'\n').count() + 1;
+    let violation = LintViolation {
+        r#type: rule.id.to_uppercase().replace('-', "_"),
+        severity: rule.severity.clone(),
+        location: ViolationLocation {
+            file: file.to_string(),
+            line: line_no,
+            symbol: m.as_str().to_string(),
+        },
+        message: rule.message.clone(),
+        why: rule.why.clone(),
+        fix: ViolationFix {
+            strategy: rule.fix.as_ref().map_or_else(String::new, |f| f.strategy.clone()),
+            steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
+        },
+        example: ViolationExample {
+            bad: rule.example.as_ref().map_or_else(String::new, |e| e.bad.clone()),
+            good: rule.example.as_ref().map_or_else(String::new, |e| e.good.clone()),
+        },
+    };
+    serde_json::to_string(&violation).ok()
+}
+
+fn collect_violations_for_rule(
+    file: &str,
+    content: &str,
+    compiled: &CompiledRule,
+    violations: &mut Vec<String>,
+) {
+    for m in compiled.regex.find_iter(content) {
+        if violations.len() >= MAX_CUSTOM_VIOLATIONS {
+            return;
+        }
+        if let Some(json) = build_violation_json(file, &compiled.rule, m, content) {
+            violations.push(json);
+        }
+    }
+}
+
 fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
     let content = match std::fs::read_to_string(file) {
         Ok(c) => c,
@@ -404,53 +518,14 @@ fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String> {
 
     let mut violations = Vec::new();
 
-    // line-by-line search cannot detect multiline patterns (e.g., PowerShell `} catch {\n}`)
     for compiled in rules {
         if !rule_matches_ext(&compiled.rule, file) {
             continue;
         }
-
-        for m in compiled.regex.find_iter(&content) {
-            if violations.len() >= MAX_CUSTOM_VIOLATIONS {
-                break;
-            }
-
-            let line_no = content[..m.start()].bytes().filter(|b| *b == b'\n').count() + 1;
-            let rule = &compiled.rule;
-            let violation = LintViolation {
-                r#type: rule.id.to_uppercase().replace('-', "_"),
-                severity: rule.severity.clone(),
-                location: ViolationLocation {
-                    file: file.to_string(),
-                    line: line_no,
-                    symbol: m.as_str().to_string(),
-                },
-                message: rule.message.clone(),
-                why: rule.why.clone(),
-                fix: ViolationFix {
-                    strategy: rule
-                        .fix
-                        .as_ref()
-                        .map_or_else(String::new, |f| f.strategy.clone()),
-                    steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
-                },
-                example: ViolationExample {
-                    bad: rule
-                        .example
-                        .as_ref()
-                        .map_or_else(String::new, |e| e.bad.clone()),
-                    good: rule
-                        .example
-                        .as_ref()
-                        .map_or_else(String::new, |e| e.good.clone()),
-                },
-            };
-
-            if let Ok(json) = serde_json::to_string(&violation) {
-                violations.push(json);
-            }
+        if !rule_matches_path(compiled, file) {
+            continue;
         }
-
+        collect_violations_for_rule(file, &content, compiled, &mut violations);
         if violations.len() >= MAX_CUSTOM_VIOLATIONS {
             break;
         }
@@ -770,6 +845,7 @@ mod tests {
             message: "test message".into(),
             why: "test reason".into(),
             extensions: extensions.iter().map(|e| e.to_string()).collect(),
+            paths: None,
             fix: Some(CustomRuleFix {
                 strategy: "test strategy".into(),
                 steps: vec!["step1".into()],
@@ -779,6 +855,17 @@ mod tests {
                 good: "good code".into(),
             }),
         }
+    }
+
+    fn make_test_rule_with_paths(
+        id: &str,
+        pattern: &str,
+        extensions: &[&str],
+        paths: &[&str],
+    ) -> CustomRule {
+        let mut rule = make_test_rule(id, pattern, extensions);
+        rule.paths = Some(paths.iter().map(|p| p.to_string()).collect());
+        rule
     }
 
     #[test]
@@ -815,18 +902,101 @@ mod tests {
         assert!(rule_matches_ext(&rule, r"e:\work\project\src\app.ts"));
     }
 
-    // --- カスタムルール: 違反検出 ---
+    /// 順位 102 (PR #140 T1-#2 採用): paths filter 未指定 (None) → 全 path 受容 (filter なし扱い)
+    #[test]
+    fn paths_filter_none_accepts_any_path() {
+        let rule = make_test_rule("test", "x", &["md"]);
+        let compiled = compile_rule(rule).expect("rule must compile");
+        assert!(rule_matches_path(&compiled, "any/file.md"));
+        assert!(rule_matches_path(&compiled, "docs/adr/foo.md"));
+        assert!(rule_matches_path(&compiled, "README.md"));
+    }
+
+    /// 順位 102: paths filter empty (Some(vec![])) → None と同等扱い (全 path 受容)
+    #[test]
+    fn paths_filter_empty_vec_accepts_any_path() {
+        let rule = make_test_rule_with_paths("test", "x", &["md"], &[]);
+        let compiled = compile_rule(rule).expect("rule must compile");
+        assert!(rule_matches_path(&compiled, "any/file.md"));
+    }
+
+    /// 順位 102: paths filter `docs/**/*.md` で docs 配下のみ match (rule⑧ の migration target)
+    #[test]
+    fn paths_filter_recursive_glob_matches_docs_only() {
+        let rule = make_test_rule_with_paths("test", "x", &["md"], &["docs/**/*.md"]);
+        let compiled = compile_rule(rule).expect("rule must compile");
+        assert!(rule_matches_path(&compiled, "docs/spec.md"));
+        assert!(rule_matches_path(&compiled, "docs/adr/adr-001.md"));
+        assert!(rule_matches_path(&compiled, "docs/a/b/c/deep.md"));
+        assert!(!rule_matches_path(&compiled, "README.md"));
+        assert!(!rule_matches_path(&compiled, "CLAUDE.md"));
+    }
+
+    /// 順位 102: Windows-style backslash path も normalize して match できる (Claude Code hook 実環境想定)
+    #[test]
+    fn paths_filter_normalizes_windows_separators() {
+        let rule = make_test_rule_with_paths("test", "x", &["md"], &["docs/**/*.md"]);
+        let compiled = compile_rule(rule).expect("rule must compile");
+        assert!(rule_matches_path(&compiled, r"docs\adr\adr-001.md"));
+    }
+
+    /// 順位 102: paths filter は複数 glob を OR で評価 (= いずれか 1 つに match で受容)
+    #[test]
+    fn paths_filter_multiple_globs_or_semantics() {
+        let rule =
+            make_test_rule_with_paths("test", "x", &["md"], &["docs/**/*.md", "tests/**/*.md"]);
+        let compiled = compile_rule(rule).expect("rule must compile");
+        assert!(rule_matches_path(&compiled, "docs/foo.md"));
+        assert!(rule_matches_path(&compiled, "tests/integration.md"));
+        assert!(!rule_matches_path(&compiled, "src/main.md"));
+    }
+
+    /// 順位 102: invalid glob は compile_rule 段階で reject されて rule 自体が drop される
+    #[test]
+    fn paths_filter_invalid_glob_drops_rule() {
+        let rule = make_test_rule_with_paths("test", "x", &["md"], &["docs/[unclosed"]);
+        assert!(
+            compile_rule(rule).is_none(),
+            "invalid glob in paths should cause compile_rule to drop the rule"
+        );
+    }
+
+    /// 順位 102: extensions × paths AND 結合 = 拡張子マッチ AND path マッチ 両方を要求
+    #[test]
+    fn run_custom_rules_extensions_and_paths_are_anded() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let docs_dir = dir.path().join("docs");
+        std::fs::create_dir(&docs_dir).unwrap();
+        let in_docs = docs_dir.join("foo.md");
+        let mut f = std::fs::File::create(&in_docs).unwrap();
+        f.write_all(b"FORBIDDEN\n").unwrap();
+
+        let outside = dir.path().join("README.md");
+        let mut f2 = std::fs::File::create(&outside).unwrap();
+        f2.write_all(b"FORBIDDEN\n").unwrap();
+
+        let rule = make_test_rule_with_paths("test", "FORBIDDEN", &["md"], &["**/docs/**/*.md"]);
+        let compiled = compile_test_rules(vec![rule]);
+
+        let in_docs_violations = run_custom_rules(in_docs.to_str().unwrap(), &compiled);
+        let outside_violations = run_custom_rules(outside.to_str().unwrap(), &compiled);
+
+        assert_eq!(
+            in_docs_violations.len(),
+            1,
+            "docs 配下 + .md = 両方マッチで violation 検出"
+        );
+        assert!(
+            outside_violations.is_empty(),
+            "root-level README.md は paths filter で除外 (= AND の片方が false)"
+        );
+    }
+
 
     /// テスト用: CustomRule からコンパイル済みルールを生成するヘルパー
     fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
-        rules
-            .into_iter()
-            .filter_map(|rule| {
-                Regex::new(&rule.pattern)
-                    .ok()
-                    .map(|regex| CompiledRule { rule, regex })
-            })
-            .collect()
+        rules.into_iter().filter_map(compile_rule).collect()
     }
 
     #[test]

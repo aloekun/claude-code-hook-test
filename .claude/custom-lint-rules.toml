@@ -252,11 +252,19 @@ good = "comments.iter().filter(|c| c.created_at >= push_time)"
 #
 # Bundle Z #B-α と同じ「決定論的防止層」哲学 (ADR-007 の正規表現層)。
 #
-# 自己限定設計 (extensions = ["md"] のみ、`paths` filter なし):
+# 自己限定設計 (extensions = ["md"] のみ、`paths` filter 未適用):
 # pattern `](../docs/` は parent-directory 参照を伴う `docs/` への back-link で、
 # 文書 が docs/ 配下 (または同等位置) にある場合のみ意味を持つ。root-level README.md
 # 等の通常 Markdown では `](docs/...)` 形式が自然で `](../docs/...)` は出現しない
 # ため、pattern semantics で自己限定される。
+#
+# Phase D D-3 (順位 102) で `paths` filter は実装済 だが、本 rule への適用は
+# **意図的に保留** (2026-05-12)。理由: D-2 (順位 101) で追加した root-level MD
+# (CLAUDE.md / README.md) からの `../docs/` 参照を fire = true positive で扱う
+# design intent が、production レベルで `paths = ["docs/**/*.md"]` 適用により
+# scope narrow されて壊れる (root-level MD の実 path は docs/ 配下ではないため
+# rule 対象外になり、broken link が検出できなくなる)。順位 102 land 後の trade-off
+# 検討は別 PR で行う (todo: 順位 102 follow-up「rule⑧ への paths 適用範囲検討」)。
 #
 # Self-exclusion: 本 TOML の message / why / example で説明文として `](../docs/`
 # 形式を直接記述しないこと (lint 対象は extensions = ["md"] のみで .toml は対象外

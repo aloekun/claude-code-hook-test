@@ -329,39 +329,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### `paths` filter を lint runner に実装 (PR #140 T1-#2 採用)
-
-> **動機**: rule⑧ (PR #140) の TOML コメントで「`paths` filter は lint runner 未実装、`extensions` のみ」と明記し pattern semantics で self-limit したが、これは設計-実装 gap の workaround。今後 path-sensitive な lint rule (例: `tests/` 内のみ / `src/cli-*/` のみ等) を追加するたびに同じ workaround を強いる systemic pattern が予測される。`src/hooks-post-tool-linter/src/filter.rs` (or 等価な path filter モジュール) で `paths = [...]` glob filter をサポートする。
->
-> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 1 #2 採用 (Severity Medium / Frequency Medium = systemic / Effort M / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/140.md` Tier 1 #2、`src/hooks-post-tool-linter/src/main.rs` の `CustomRule` struct (line ~76-87)、PR #140 rule⑧ TOML コメント、ADR-007 (custom lint rule の正規表現/AST 層線引き)
-
-#### 設計決定の余地
-
-- **glob 構文**: `**/*.md` 形式で十分か / `regex` ベースの方が柔軟か → 既存 `extensions` が単純 string match なので glob で平仄を取る方が自然
-- **AND vs OR**: `extensions` と `paths` 両方指定時の filter 結合 (両方 match を要求 = AND が直感的)
-- **test 規模**: 単体 test を同 commit に含める (PR #140 教訓: rule 追加と同 PR で test 不在を防ぐ)
-
-#### 作業計画
-
-- [ ] 設計決定 (glob 構文 / AND-OR / test 戦略) を確定
-- [ ] `CustomRule` struct に `paths: Option<Vec<String>>` を追加 (Optional で既存 rule に影響なし)
-- [ ] glob match 実装 (例: `globset` crate or 既存 `glob` 機能で代替)
-- [ ] `extensions` × `paths` の組合せ test (path match / 不一致 / 未指定で AND fallback の各ケース)
-- [ ] rule⑧ を `paths = ["docs/**/*.md"]` で書き換え (semantic self-limit から explicit filter へ)
-- [ ] 順位 101 の test 整理と整合性確認 (本実装後に depth-1 root MD は paths filter で skip される設計に変わる可能性)
-- [ ] ADR-007 amendment (順位 104) と同 PR で land 推奨 (rationale 同期)
-- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `paths` filter が動作 (test 検証)
-- rule⑧ の TOML コメントから「paths filter 未実装」記述が消え、explicit filter に置き換わる
-- 後続 path-sensitive rule 追加時の動線が確立
-
----
-
 ### ADR-007 amendment: semantic self-limitation 安全条件 + lint rule 最小テストチェックリスト (PR #140 T3-#1 採用)
 
 > **動機**: rule⑧ (PR #140) で `paths` filter 不在を pattern semantics で代替した判断は妥当だったが、**どんな条件下で semantic self-limitation が安全か** / **explicit filter が必須な条件は何か** が ADR-007 に明文化されていない。3 ソース (PR diff / prepush / session) でこの documentation 不足を独立指摘。同時に lint rule 最小テストチェックリスト (pattern detection / case-insensitive / false positive skip の 3 項目) も ADR レベルで確立すると future rule author の prior が安定化する。
