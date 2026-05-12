@@ -240,7 +240,7 @@ Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由
 | **D-1** ✅ | 順位 112 + 113 + 114 = ADR amendments bundle (ADR-038 eprintln scope / ADR-027 metrics override / 新規 ADR Local LLM context size) + 順位 115 backlog 化 | S+ | 298 (insert 228 / delete 70) | docs + 1 Rust comment | **PR #145 land 済 (2026-05-12)**、lint_screen dogfood は skip (workflow gap) |
 | **D-2** ✅ | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | 172 (insert 84 / delete 88) | Rust test/comment mix | **PR #146 land 済 (2026-05-12)**、lint_screen dogfood は skip (順位 115 未 land 時点) |
 | **115** ✅ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | 想定通り (Rust impl + test 10 件) | Rust impl + Phase D guide rewrite | **PR #147 想定で land 中**、D-3 着手 unblock |
-| **D-3** ⏳ | 順位 102 = `paths` filter を lint runner に実装 (impl + test + 既存 rule migration) | M | ~250-350 | Rust impl + test | **順位 115 land 後すぐ着手可、初の real dogfood + num_ctx 32768 上限テスト** |
+| **D-3** ⏳ | 順位 102 = `paths` filter を lint runner に実装 (impl + test、既存 rule⑧ migration は 順位 118 で trade-off 検討に保留) | M | 実 ~270 (insert) | Rust impl + 7 unit tests + glob filter helper | **PR #148 想定で land 中、初の real lint_screen dogfood (`$env:LINT_SCREEN_ENABLED=true` 経路) + num_ctx 32768 上限テスト** |
 
 **size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**D-1 / D-2 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-3 のみ**。3 PR 観測予定だったが kill-switch 基準 (3/5 で停止) を踏まえて D-3 単独でも判定可能 (採用昇格 / 継続観測 / 却下) と位置付ける。
 
