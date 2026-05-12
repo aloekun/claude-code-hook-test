@@ -329,38 +329,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### rule⑧ depth-1 非-docs MD edge case test 追加 (PR #140 T1-#1 採用)
-
-> **動機**: PR #140 で追加した rule⑧ (`no-docs-relative-back-to-docs`) は `extensions = ["md"]` のみで pattern semantics に依存して self-limit する設計。**depth-1 非-docs MD ファイル** (例: project root の `CLAUDE.md` / `README.md` / `.claude/README.md` 等) から `../docs/` を参照するケースが false positive にならないかが未検証で、3 ソース (PR diff / prepush takt review / post-merge-feedback session) で同一の test gap が独立指摘された。
->
-> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium = 3 ソース観測 / Effort S / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/140.md` Tier 1 #1、`src/hooks-post-tool-linter/src/main.rs` の `md_no_docs_relative_*` test group、ADR-007 (custom lint rule layer 線引き)
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。md_no_docs_relative_* test group に edge case を 1-2 件追加。
-
-#### 設計決定の余地
-
-- **意図する挙動の確定が先**: depth-1 root MD (例: `./CLAUDE.md`) から `../docs/` を参照するケースは現実には稀だが、もし発生したら **fire (false positive)** になるか、それとも skip すべきか?
-- **判断基準案**: pattern `(?i)\]\(\.\./docs/` は path semantics で「現在 file が docs 配下にいる前提」だが、root file から参照すると `../docs/` = repo の親階層 (= リポジトリ外) を指すため **常に broken link**。よって **fire = 正解** と整理可能 (false positive ではなく true positive、ユーザーが意図しても broken link になる)
-- 上記整理を test 名に反映 (`md_no_docs_relative_detects_root_level_back_reference` 等)
-
-#### 作業計画
-
-- [ ] depth-1 root MD ファイル fixture (`CLAUDE.md` / `.claude/README.md` 等) からの `../docs/` 参照を test に追加
-- [ ] 「fire = true positive」整理を test 名と comment で明示
-- [ ] 既存 5 test と合わせて 6-7 test 構成に整理
-- [ ] markdownlint / cargo test pass 確認
-- [ ] 順位 102 (`paths` filter 実装) と組み合わせると本 test の意図が変わる可能性、land 順序を確認
-- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- depth-1 非-docs MD からの `../docs/` 参照が test で明示的に扱われる (fire = true positive 整理込み)
-- 全 cargo test pass
-
----
-
 ### `paths` filter を lint runner に実装 (PR #140 T1-#2 採用)
 
 > **動機**: rule⑧ (PR #140) の TOML コメントで「`paths` filter は lint runner 未実装、`extensions` のみ」と明記し pattern semantics で self-limit したが、これは設計-実装 gap の workaround。今後 path-sensitive な lint rule (例: `tests/` 内のみ / `src/cli-*/` のみ等) を追加するたびに同じ workaround を強いる systemic pattern が予測される。`src/hooks-post-tool-linter/src/filter.rs` (or 等価な path filter モジュール) で `paths = [...]` glob filter をサポートする。
@@ -391,34 +359,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 - `paths` filter が動作 (test 検証)
 - rule⑧ の TOML コメントから「paths filter 未実装」記述が消え、explicit filter に置き換わる
 - 後続 path-sensitive rule 追加時の動線が確立
-
----
-
-### lint runner サポートフィールドを code comment で明示化 (PR #140 T1-#3 採用)
-
-> **動機**: PR #140 で rule⑧ を実装する際、lint runner の `CustomRule` struct がサポートする field 一覧 (現状: `extensions`, `pattern`, `severity`, `message`, `why`, `fix`, `example`) は `src/hooks-post-tool-linter/src/main.rs` のソースを読まないと分からない。TOML コメント (custom-lint-rules.toml の冒頭) のみだと **rule author が lint runner 実装を参照する動線がない**。code comment で明示すると次の rule 追加時に同じ設計-実装 gap を構造的に予防できる。
->
-> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 1 #3 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/140.md` Tier 1 #3、`src/hooks-post-tool-linter/src/main.rs` `CustomRule` struct 定義 (line ~76-87)、PR #140 rule⑧ TOML コメント
-
-#### 設計決定の余地
-
-- **配置先**: `CustomRule` struct 直前の doc comment (`///`) で「サポート field の semantics と将来 planned field」を一覧化
-- **記述粒度**: 各 field の serde attribute 表記 + 要旨 1 行ずつ。`paths` (planned) も含めて next-author が動線を辿れるように
-
-#### 作業計画
-
-- [ ] `CustomRule` struct 直前に doc comment を追加 (現サポート field 一覧 + planned: `paths`)
-- [ ] custom-lint-rules.toml 冒頭コメントから「ソース main.rs 参照」のリンク (line 番号 or symbol 名) を追加
-- [ ] 順位 102 (`paths` filter 実装) と同 PR で land すると `planned: paths` を `supported: paths` に書き換える単一 commit で完結
-- [ ] markdownlint / cargo doc 確認
-- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `CustomRule` struct の doc comment にサポート field 一覧が記載される
-- TOML コメント側からも main.rs への動線が明示される
 
 ---
 
@@ -494,30 +434,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 #### 詰まっている箇所
 
 - 配置先決定が順位 104 (ADR-007 amendment) の land と依存。順位 104 で field 一覧を inline するなら本タスクはリンク追加のみで済むが、ADR は判断基準中心であれば独立 reference doc が必要
-
----
-
-### self-exclusion test に `path.exists()` ガード + extensions assertion 追加 (PR #141 T2-#1 採用)
-
-> **動機**: PR #141 で land した `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` test は、(a) `.claude/custom-lint-rules.toml` の path が存在することと (b) rule の `extensions` に `"toml"` が含まれることに **暗黙的に依存** している。どちらかが将来の変更で壊れると、`run_custom_rules` は空 Vec を返してテスト pass = silent false-green になり、self-exclusion invariant の保護が無効化される。CR Nitpick (PR #141) では (b) のみ指摘 (ユーザー判断で本 PR では不採用)、post-merge-feedback agent は 3 ソース (PR diff / Session / Prepush:simplicity) 独立指摘で (a)+(b) 両方を Medium Severity で再提案。
->
-> **本タスクの位置づけ**: PR #141 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。CR Nitpick の **拡張版** (path.exists ガード追加で完全性向上)。
->
-> **参照**: `.claude/feedback-reports/141.md` Tier 2 #1、`src/hooks-post-tool-linter/src/main.rs` の `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` test (PR #141 で追加)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。2 assertion を test 冒頭に追加。
-
-#### 作業計画
-
-- [ ] test 冒頭に `assert!(path.exists(), ...)` + `assert!(rule.extensions.contains(&"toml".to_string()), ...)` を追加
-- [ ] エラーメッセージで silent degradation のリスクを説明
-- [ ] cargo test 全 pass を確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- path 不在 / extensions に "toml" 不在のどちらでも test が fail で停止する
-- 既存 6 件の rule⑥ test と互換性維持
 
 ---
 

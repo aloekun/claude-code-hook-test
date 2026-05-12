@@ -3,6 +3,10 @@
 # このファイルは .claude/ 直下に配置し、hooks-post-tool-linter が読み込みます。
 # プロジェクトごとに異なるルールセットを定義できます。
 #
+# サポート field の semantic / parse 仕様は lint runner 側 (`src/hooks-post-tool-linter/src/main.rs`)
+# の `CustomRule` struct の doc comment を参照してください (順位 103 で追加された rule author 向け
+# reference)。planned field (`paths` 等) も同 doc comment に記載されています。
+#
 # ── ルール定義 ──
 #
 # [[rules]]

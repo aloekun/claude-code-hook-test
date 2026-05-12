@@ -73,6 +73,26 @@ struct CustomRulesConfig {
     rules: Option<Vec<CustomRule>>,
 }
 
+/// `custom-lint-rules.toml` の `[[rules]]` エントリ。
+///
+/// **サポート field 一覧** (rule author 向け reference、`.claude/custom-lint-rules.toml` 冒頭コメントと整合):
+///
+/// | field | 必須 | semantics |
+/// |---|---|---|
+/// | `id` | ✅ | ルール一意 identifier |
+/// | `pattern` | ✅ | 検出する正規表現 (case-insensitive にしたい場合は `(?i)` prefix を pattern 内に明示) |
+/// | `severity` | ✅ | `"error"` or `"warning"` |
+/// | `message` | ✅ | 違反時のメッセージ |
+/// | `extensions` | ✅ | 対象拡張子の list (例: `["rs", "toml"]`)。空配列を使うと全 file が対象になる anti-pattern なので避ける |
+/// | `why` | optional | ルールの根拠 (ADR 参照 / PR 由来等)。省略可だが post-merge-feedback 由来は明記推奨 |
+/// | `fix` | optional | `CustomRuleFix` (strategy + steps) |
+/// | `example` | optional | `CustomRuleExample` (bad + good) |
+///
+/// **planned field** (実装時に本コメントも併せて更新する):
+///
+/// - `paths` (順位 102): glob pattern による file path filter。現状は `extensions` のみで file scope を絞り、
+///   path semantics は pattern 自体で self-limit する設計 (ADR-007 amendment 参照、順位 104)。
+///   `paths` 実装時には `extensions` × `paths` の AND 結合で評価する。
 #[derive(Deserialize, Clone)]
 struct CustomRule {
     id: String,
@@ -1609,6 +1629,43 @@ extensions = ["ts", "js"]
         assert!(violations.is_empty());
     }
 
+    /// 順位 101 (PR #140 T1-#1 採用): depth-1 root MD ファイル (例: `./CLAUDE.md`、`./README.md`) から
+    /// `../docs/` を参照すると、リポジトリの親ディレクトリ (= リポジトリ外) を指してしまい必ず broken link になる。
+    /// pattern `(?i)\]\(\.\./docs/` は path-aware ではないが、root-level MD では `../docs/` が
+    /// 必然的に意味を持たない参照になるため **fire = true positive** として正しい挙動。
+    #[test]
+    fn md_no_docs_relative_detects_root_level_back_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "CLAUDE.md",
+            "See [Phase D plan](../docs/local-llm-offload-analysis.md) for context.\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "rule⑧ should fire on root-level MD `../docs/` reference (= reaches outside repo, broken link)"
+        );
+    }
+
+    /// 順位 101 (PR #140 T1-#1 採用) 補強: README.md 等の root-level fixture でも同じ挙動が成立することを確認。
+    /// 上の `_detects_root_level_back_reference` は CLAUDE.md fixture でカバー、本テストは別 fixture 名で
+    /// 「root-level MD 全般で fire」が安定することを assert する (false negative 防止)。
+    #[test]
+    fn md_no_docs_relative_detects_root_readme_back_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "README.md",
+            "Project setup guide: [setup](../docs/setup.md)\n",
+        );
+        let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
     fn no_ephemeral_todo_reference_rule() -> CustomRule {
         let stem = "todo";
         let pattern = format!(r"(?i)docs/{stem}[0-9]*\.md");
@@ -1702,7 +1759,29 @@ extensions = ["ts", "js"]
             .join("..")
             .join(".claude")
             .join("custom-lint-rules.toml");
-        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+
+        assert!(
+            path.exists(),
+            "deployed custom-lint-rules.toml not found at {:?} — \
+             self-exclusion invariant test would silent-pass on missing file \
+             (run_custom_rules returns empty Vec when path is missing). \
+             check if `.claude/custom-lint-rules.toml` was moved / deleted. \
+             (順位 106 PR #141 T2-#1 false-green guard 1)",
+            path
+        );
+
+        let rule = no_ephemeral_todo_reference_rule();
+        assert!(
+            rule.extensions.iter().any(|e| e == "toml"),
+            "rule⑥ extensions list does not contain \"toml\" — \
+             self-exclusion invariant test would silent-pass on rule scope change \
+             (run_custom_rules early-returns when extension is not listed). \
+             extensions actual: {:?}. \
+             (順位 106 PR #141 T2-#1 false-green guard 2)",
+            rule.extensions
+        );
+
+        let rules = compile_test_rules(vec![rule]);
         let violations = run_custom_rules(path.to_str().unwrap(), &rules);
         assert!(
             violations.is_empty(),
