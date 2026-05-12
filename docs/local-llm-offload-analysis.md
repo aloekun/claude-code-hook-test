@@ -229,19 +229,27 @@ Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_
 
 `src/cli-push-runner/src/stages/lint_screen.rs` 改修: graceful fallback (exit 0) 時にも classifier stderr を `.takt/lint-screen-report.md` の `## Diagnostic` section に取込。Phase A 診断 warn log が **real pipeline 経由で visible** になる状態を確保。新 struct `ClassifierOutput { stdout, stderr }`、新 helper `render_diagnostic`、新規 smoke test 4 件 (TP / FP / edge case / parse-error path) で contract を seal。lint_screen tests 14/14 pass + workspace 全 cargo test pass。
 
-##### 🔄 Phase D: Clean dogfood validation (real pipeline 経由、未着手、計画 land 済)
+##### 🔄 Phase D: Clean dogfood validation (real pipeline 経由、進行中)
 
-Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。次の 3 通常 PR を **session-only opt-in (b) (`push-runner-config.toml` の `[lint_screen] enabled = true` を session 内で manual 切替、commit しない)** で dogfood、`.takt/lint-screen-report.md` の `## Summary` + `## Diagnostic` で metrics を実観測。fallback rate < 50% / num_ctx 起因 0% を real pipeline で再確認できれば Phase E に進む。
+Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。**しかし D-1 着手時に session-only opt-in workflow が jj auto-snapshot と本質的に衝突する gap が判明** (順位 115 として env var override を backlog 登録、post-merge-feedback Tier 1 #1 で再 validate)。次の 3 通常 PR を **env var override (`LINT_SCREEN_ENABLED=true`) 経由 (順位 115 land 後)** で dogfood、`.takt/lint-screen-report.md` の `## Summary` + `## Diagnostic` で metrics を実観測。fallback rate < 50% / num_ctx 起因 0% を real pipeline で再確認できれば Phase E に進む。
 
-**Phase D 対象 PR 構成 (2026-05-12 確定)**:
+**Phase D 対象 PR 構成 (2026-05-12 確定 / D-1 land 後更新)**:
 
-| Order | 構成 (todo-summary.md priority list より) | Effort | 推定 diff 行 | Diff Profile | Phase C 既存 PR との対比 |
+| Order | 構成 (todo-summary.md priority list より) | Effort | 推定 diff 行 | Diff Profile | 状態 |
 |---|---|---|---|---|---|
-| **D-1** | 順位 112 + 113 + 114 = ADR amendments bundle (ADR-038 eprintln scope / ADR-027 metrics override / 新規 ADR Local LLM context size) | S+ | ~180-200 | docs only | #139 (414 行 docs-only) と類似 |
-| **D-2** | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | ~150-200 | Rust test/comment mix | #141 (487 行 Rust test) と類似 |
-| **D-3** | 順位 102 = `paths` filter を lint runner に実装 (impl + test + 既存 rule migration) | M | ~250-350 | Rust impl + test | #141 を超える規模、num_ctx 32768 上限テスト |
+| **D-1** ✅ | 順位 112 + 113 + 114 = ADR amendments bundle (ADR-038 eprintln scope / ADR-027 metrics override / 新規 ADR Local LLM context size) + 順位 115 backlog 化 | S+ | 298 (insert 228 / delete 70) | docs + 1 Rust comment | **PR #145 land 済 (2026-05-12)**、lint_screen dogfood は skip (workflow gap) |
+| **115** ⏳ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | ~80-120 (Rust impl + test) | Rust impl | **D-2 着手前に land 必須**、post-merge-feedback Tier 1 #1 |
+| **D-2** | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | ~150-200 | Rust test/comment mix | 順位 115 land 後、env var workflow で初の実 dogfood |
+| **D-3** | 順位 102 = `paths` filter を lint runner に実装 (impl + test + 既存 rule migration) | M | ~250-350 | Rust impl + test | D-2 完了後、num_ctx 32768 上限テスト |
 
-**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。
+**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**ただし D-1 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-2 / D-3 の 2 PR**。
+
+**D-1 dogfood outcome (skip 理由 + 副産物)**:
+
+- lint_screen dogfood は実施せず (workflow gap)
+- 副産物として **workflow gap を systemic に発見 + 順位 115 を Tier 1 backlog 登録 + post-merge-feedback Tier 1 #1 で再 validate**
+- ADR-040 内部不整合 (3.33x label vs `(num_ctx/8192)*180s` formula = 4x) は takt review 1 iter で検出 → fix で解消、post-merge-feedback Tier 3 #1 で sublinear clarification 採用 (順位 116)
+- lib.rs L128-139 → ADR-040 移管 edit order を post-merge-feedback Tier 3 #3 で codify 採用 (順位 117)
 
 **Phase D 計測手順** (各 PR 共通):
 
