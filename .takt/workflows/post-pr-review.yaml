@@ -21,6 +21,7 @@ loop_monitors:
     threshold: 2
     judge:
       persona: supervisor
+      model: sonnet
       instruction: loop-monitor-reviewers-fix
       rules:
         - condition: Healthy (progress being made)
@@ -115,6 +116,7 @@ steps:
   - name: supervise
     edit: false
     persona: supervisor
+    model: sonnet
     policy: review
     provider_options:
       claude:

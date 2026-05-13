@@ -2032,4 +2032,140 @@ extensions = ["ts", "js"]
             missing
         );
     }
+
+    fn takt_workflow_persona_without_model_rule() -> CustomRule {
+        make_test_rule(
+            "takt-workflow-persona-without-model",
+            r"(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools|output_contracts|pass_previous_response|required_permission_mode|parallel):",
+            &["yaml"],
+        )
+    }
+
+    /// judge / loop_monitor block で persona: → instruction: が違反として検出される。
+    /// PR #98 post-merge-feedback で post-pr-review.yaml loop_monitor の persona: 後続
+    /// に model: が不在で指摘された pattern を再現。
+    #[test]
+    fn takt_workflow_persona_detects_judge_block_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "loop_monitors:\n  - cycle:\n      - analyze\n      - fix\n    judge:\n      persona: supervisor\n      instruction: loop-monitor-reviewers-fix\n";
+        let file = write_file(dir.path(), "post-pr-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "judge block persona: + instruction: は violation として 1 件検出されるべき"
+        );
+    }
+
+    /// steps の supervise step で persona: → policy: が違反として検出される。
+    /// PR #98 で実際に指摘された post-pr-review.yaml supervise step の構造を再現。
+    #[test]
+    fn takt_workflow_persona_detects_supervise_step_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: supervise\n    edit: false\n    persona: supervisor\n    policy: review\n";
+        let file = write_file(dir.path(), "post-pr-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "supervise step の persona: + policy: は violation として 1 件検出されるべき"
+        );
+    }
+
+    /// persona: の直後に model: がある場合は clean (violation 0 件)。
+    /// PR #98 fix 後の post-pr-review.yaml supervise step の構造を再現。
+    #[test]
+    fn takt_workflow_persona_skips_when_model_directly_follows() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: supervise\n    edit: false\n    persona: supervisor\n    model: sonnet\n    policy: review\n";
+        let file = write_file(dir.path(), "post-pr-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "persona: → model: 構造は clean、violation 0 件であるべき。実際: {:?}",
+            violations
+        );
+    }
+
+    /// 複数 violation が同 file 内にある場合、すべて検出される (judge block + supervise step)。
+    #[test]
+    fn takt_workflow_persona_detects_multiple_violations_in_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "loop_monitors:\n  - cycle:\n      - analyze\n    judge:\n      persona: supervisor\n      instruction: monitor\nsteps:\n  - name: supervise\n    persona: supervisor\n    policy: review\n";
+        let file = write_file(dir.path(), "post-pr-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            2,
+            "判定ブロック + supervise step の両方が violation として検出されるべき"
+        );
+    }
+
+    /// PR #150 CR Major 採用: persona: 直後に `output_contracts` / `pass_previous_response` /
+    /// `required_permission_mode` / `parallel` が来た場合も violation として検出される。
+    /// 当初列挙から漏れていた 4 fields の regression test。
+    #[test]
+    fn takt_workflow_persona_detects_required_permission_mode_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: fix\n    persona: coder\n    required_permission_mode: edit\n    pass_previous_response: false\n";
+        let file = write_file(dir.path(), "pre-push-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "persona: + required_permission_mode: は violation として 1 件検出されるべき (PR #150 CR Major fix)"
+        );
+    }
+
+    /// extensions filter で yaml 以外 (md など) はスキップされる。
+    /// rule の `extensions = ["yaml"]` 制約を検証 (paths filter は別途 PR #148 D-3 で検証済)。
+    #[test]
+    fn takt_workflow_persona_skips_non_yaml_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "persona: supervisor\ninstruction: loop\n";
+        let file = write_file(dir.path(), "fake.md", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "yaml 以外の extension では rule は fire しないべき"
+        );
+    }
+
+    /// 配布済 `.takt/workflows/*.yaml` が clean baseline を維持していることを assert。
+    /// PR #126 の `deployed_custom_rules_pass_powershell_case_insensitive_validation` と
+    /// 同パターン: rule 追加と clean baseline 確保を同 commit で land した後、後続編集での
+    /// regression を test 層で防ぐ。
+    #[test]
+    fn deployed_takt_workflows_have_clean_baseline_for_persona_model_rule() {
+        let workflows_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join(".takt")
+            .join("workflows");
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let mut total_violations: Vec<String> = Vec::new();
+        for entry in std::fs::read_dir(&workflows_dir)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", workflows_dir.display()))
+        {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
+                let violations = run_custom_rules(path.to_str().unwrap(), &rules);
+                for v in violations {
+                    total_violations.push(format!("{}: {}", path.display(), v));
+                }
+            }
+        }
+        assert!(
+            total_violations.is_empty(),
+            ".takt/workflows/*.yaml で persona: → model: 不在 violation が検出されました。`model:` 行を追加してください。違反内容: {:?}",
+            total_violations
+        );
+    }
 }
