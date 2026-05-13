@@ -2036,7 +2036,7 @@ extensions = ["ts", "js"]
     fn takt_workflow_persona_without_model_rule() -> CustomRule {
         make_test_rule(
             "takt-workflow-persona-without-model",
-            r"(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools):",
+            r"(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools|output_contracts|pass_previous_response|required_permission_mode|parallel):",
             &["yaml"],
         )
     }
@@ -2102,6 +2102,23 @@ extensions = ["ts", "js"]
             violations.len(),
             2,
             "判定ブロック + supervise step の両方が violation として検出されるべき"
+        );
+    }
+
+    /// PR #150 CR Major 採用: persona: 直後に `output_contracts` / `pass_previous_response` /
+    /// `required_permission_mode` / `parallel` が来た場合も violation として検出される。
+    /// 当初列挙から漏れていた 4 fields の regression test。
+    #[test]
+    fn takt_workflow_persona_detects_required_permission_mode_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: fix\n    persona: coder\n    required_permission_mode: edit\n    pass_previous_response: false\n";
+        let file = write_file(dir.path(), "pre-push-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "persona: + required_permission_mode: は violation として 1 件検出されるべき (PR #150 CR Major fix)"
         );
     }
 

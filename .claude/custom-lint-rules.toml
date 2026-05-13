@@ -315,7 +315,7 @@ good = "[ADR-036](adr/adr-036-...)"
 
 [[rules]]
 id = "takt-workflow-persona-without-model"
-pattern = '(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools):'
+pattern = '(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools|output_contracts|pass_previous_response|required_permission_mode|parallel):'
 severity = "error"
 message = "takt workflow で persona: の直後に model: が指定されていません。default 落ち防止のため model: <sonnet|haiku|opus> を明示してください"
 why = "PR #98 post-merge-feedback で post-pr-review.yaml supervise step の model: 未指定が指摘された。default 落ちは将来 default 変更や persona 追加で意図せぬモデル選択を生む。Bundle Z #B-α と同じ決定論的防止層 (ADR-007 の正規表現層)"
