@@ -64,27 +64,27 @@
 >
 > **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。
 
-#### 設計決定 (案)
+#### 設計決定 (D-6 セッションで確定、2026-05-13)
 
-- **refresh タイミング**: reviewer step 起動直前に diff を再生成 (fix step 完了直後の状態を反映)
-- **実装方針 (2 案)**:
-  - **案 A: takt workflow の reviewer step に precondition step を挟む** — `.takt/workflows/pre-push-review.yaml` で `before:` / `pre-step:` 的な hook を使い、push-runner と同一の diff 生成コマンドを呼ぶ
-  - **案 B: cli-push-runner 側で fix step の終了を検出して diff を更新** — Rust コードで takt の step 進行を監視 (実装複雑度大)
-- **推奨**: 案 A — takt config で完結、Rust 修正不要、影響範囲が pre-push-review.yaml のみ
-- **diff 生成コマンド**: 既存 push-runner と同じロジック (`jj diff` ベース) を再利用、ファイルパス `.takt/review-diff.txt` も同一に保つ
-- **冪等性**: 同 fix output から生成される diff は決定的なので複数回 refresh しても問題なし。途中失敗で diff が壊れても次 iteration の冒頭で上書きされる
+- **refresh タイミング**: fix step が `convergence_verdict` を emit する直前に refresh (= 次 reviewer iteration が読み始める時点で post-fix 状態)
+- **実装方針 (3 案を評価)**:
+  - **案 A: takt workflow の reviewer step に precondition step を挟む** — ❌ **不可**。takt v0.35.3 schema (`PieceMovement` / `PieceConfig`) を確認した結果、per-step `before:` / `pre-step:` / `hooks:` field は存在しない。piece レベルの `runtime.prepare` は workflow 開始時 1 回のみ実行され、step 間に挟まらない (`node_modules/.pnpm/takt@0.35.3/node_modules/takt/dist/core/models/piece-types.d.ts` Line 74-98 / `runtime-environment.js` Line 171-191)
+  - **案 B: cli-push-runner 側で fix step の終了を検出して diff を更新** — ❌ **scope 不適合**。`stages/takt.rs` は `run_cmd_inherit` で takt を spawn-and-wait するのみ。filesystem watcher で `.takt/runs/<latest>/reports/*.md` の生成を監視する案は ~100-200 行の Rust + race condition 対応が必要で、AI-driven 案で塞げる範囲を超える複雑度
+  - **案 C: fix.md instruction に "Pre-completion diff refresh" section を追加** — ✅ **採用**。既存の Bundle Z #B-β `Pre-completion deterministic check (Bundle Z Phase 2 / #B-β)` と同形の precedent あり (`scripts/fix-metrics-check.ps1` を Bash 呼び出しする pattern)。失敗 mode (= AI が refresh を skip) は現状と同等 (no regression)
+- **採用案 C の実装**: `.takt/facets/instructions/fix.md` に「Pre-completion diff refresh (REQUIRED)」section を追加 (advisor 推奨)。`jj diff -r @ > .takt/review-diff.txt` を `convergence_verdict` emit 直前に必須実行
+- **共有 instruction の影響**: `fix.md` は pre-push-review.yaml と post-pr-review.yaml の両方で使用される。post-pr-review は `.takt/review-diff.txt` を読まないが、refresh は冪等で副作用なし (~1s 程度の `jj diff` invocation cost のみ)
+- **派生プロジェクト deploy**: `scripts/deploy-hooks.ts` は exe + `settings.local.json` のみ転送し、`.takt/facets/instructions/*` は派生 (techbook-ledger / auto-review-fix-vc) 各自が管理。よって本変更の自動 propagate は不要 (手動 port が必要だが scope 外、follow-up task)
 
 #### 作業計画
 
-- [ ] takt workflow の hook 仕様 (`before:` / `pre-step:`) を確認 (`.takt/workflows/*.yaml` の他 facets / takt source を grep)
-- [ ] case A 不可なら case B (cli-push-runner 改修) にフォールバック
-- [ ] `.takt/review-diff.txt` の生成ロジックを単一場所に整理 (DRY、push-runner と shared util にする等)
-- [ ] `.takt/workflows/pre-push-review.yaml` に refresh hook を追加
-- [ ] 単体動作確認: 意図的に DRY refactor 指摘 + fix を再現する synthetic シナリオで 3-iter 収束を確認
+- [x] takt workflow の hook 仕様を確認 → 案 A 不可と確定
+- [x] cli-push-runner の takt invocation 構造を確認 → 案 B も scope 不適合と確定
+- [x] advisor に方針相談 → 案 C (instruction-level) 採用 + 共有 instruction 影響 / deploy 経路を検証
+- [x] `.takt/facets/instructions/fix.md` に「Pre-completion diff refresh (REQUIRED)」section を追加
+- [ ] dogfood: D-6 PR push 自体で本 instruction が機能するかを観察 (fix step が refresh を実行 → 次 reviewer iter が post-fix 状態を読むか)
 - [ ] dogfood 1〜2 PR で実 6-iter outlier scenario が再発しないことを観測
-- [ ] Bundle Z Phase 2 (#B-β) との競合確認 (deterministic check は fix step 内部で動くため、本 task の fix→review 境界 refresh とは独立)
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 確認
-- [ ] 本 todo7.md エントリを削除
+- [x] Bundle Z #B-β との競合確認: `fix-metrics-check.ps1` invocation は fix step 内部の Bash 実行で完結し、本 task の diff refresh は同 fix step の最終段 Bash 実行で独立。両者は時系列で順序通り走り競合なし
+- [ ] 本 todo7.md エントリを削除 (PR D-6 merge + 1-2 PR の dogfood 完了後)
 
 #### 完了基準
 
@@ -92,9 +92,10 @@
 - 6-iter outlier の発生率が **0%** に近づく (PR #103 のような scenario が 3-iter で収束)
 - supervisor の live Read 救済が不要になる (= supervisor step は workflow に残るが、false positive 救済責務が消える)
 
-#### 詰まっている箇所
+#### 残課題 / dogfood リスク
 
-- takt workflow の `before:` / `pre-step:` hook 仕様が公式 docs に明記されていない可能性 → 着手時に takt source / 既存 workflow yaml を grep して確認。
+- AI-driven 案の弱点: fix step の AI が refresh 命令を skip する可能性。Bundle Z #B-β `metrics_check` invocation の実行率を baseline として比較し、refresh 実行率 > 90% を初期目標とする。dogfood で実行率 < 90% なら **案 D (PostToolUse hook ベースの決定論層)** へ escalate を検討
+- 派生プロジェクト port: `~/.takt/facets/instructions/fix.md` (global) や techbook-ledger / auto-review-fix-vc の同等ファイルへの転載が follow-up task (本 task scope 外)
 
 ---
 
