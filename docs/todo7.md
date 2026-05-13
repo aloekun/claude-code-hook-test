@@ -133,48 +133,6 @@
 
 ---
 
-
-### comment-lint hook test 拡充 (PR #104 T2-1+T2-2 bundle)
-
-> **動機**: PR #104 で CodeRabbit Critical (UTF-8 byte boundary) + Minor (multi-line block comment boundary) の 2 件を auto-fix で解消したが、いずれも回帰防止テストは 1 パターンのみで脆い。tree-sitter / Rust version 更新で区間交差判定や UTF-8 境界処理が壊れた場合に検出できないリスク。
->
-> **本タスクの位置づけ**: PR #104 post-merge-feedback Tier 2-1 / Tier 2-2 の bundle。コスト低 (S effort)、test additions のみで scope clean、PR #104 の fix を体系的に固定化する。
->
-> **参照**: `.claude/feedback-reports/104.md` Tier 2 #1, #2、PR #104 (`src/hooks-post-tool-comment-lint-rust/src/main.rs` の `locate_string_line_ranges` / `span_overlaps_ranges`)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。Bundle b と独立、いつでも単独着手可。
-
-#### 設計決定 (案)
-
-- **UTF-8 multi-byte test 拡充** (T2-1):
-  - 現状: `locate_string_line_ranges_handles_multibyte_utf8` 1 パターン
-  - 追加 5 パターン: 漢字 + ASCII 混合 / 漢字単独 / emoji / BMP 外文字 (例: 𝕊) / 結合文字 (例: é = e + ́)
-  - 各パターンで `search_start = (absolute + needle.len()).min(source.len())` の境界処理を検証
-- **Block comment boundary matrix 拡充** (T2-2):
-  - 現状: `find_violations_multiline_block_comment_spanning_range_boundary` 1 パターン
-  - 追加 6 パターン: {開始行のみ被覆, 終了行のみ被覆, 内部完全包含} × {単行 block comment, 複数行 block comment}
-  - `span_overlaps_ranges(start, end, ranges)` の区間交差判定を体系化
-
-#### 作業計画
-
-- [ ] UTF-8 multi-byte test 5 パターン追加
-- [ ] Block comment boundary test 6 パターン追加
-- [ ] 既存 1 パターンずつのテストは保持 (regression 防止のため削除しない)
-- [ ] 派生プロジェクト deploy は不要 (test のみのため)
-- [ ] 本 todo7.md エントリを削除
-
-#### 完了基準
-
-- UTF-8 multi-byte test が 6 パターン以上
-- Block comment boundary test が 7 パターン以上
-- `cargo test -p hooks-post-tool-comment-lint-rust` 全 pass
-
-#### 詰まっている箇所
-
-- 結合文字 (`e + ́`) を `new_string` に含むケースは Edit tool が実環境で発生するか不明 (理論的検証としては有効、実際の回帰防止としては効果薄の可能性)。1 パターンで足る
-
----
-
 ### Aggregation cap integration test (PR #105 T2-1 採用)
 
 > **動機**: PR #105 の auto-fix で `collect_all_violations` に `violations.truncate(MAX_VIOLATIONS)` を追加した (CodeRabbit Minor finding 解消) が、これは contract の暗黙化に過ぎない。将来 `find_xxx_violations` を追加する PR で `extend()` の後に `truncate` を入れ忘れる regression を構造的に防ぐ test がない。

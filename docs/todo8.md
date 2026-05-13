@@ -10,6 +10,78 @@
 
 ## 現在進行中
 
+### `takt-workflow-persona-without-model` rule コメント拡張 + ADR-007 case study 追記 (PR #150 T1-#1 採用、実体 Tier 3)
+
+> **動機**: PR #150 の Major fix (4 fields 追加) で「enumeration 方式は新規 field 追加時に明示的拡張が必要」という設計判断が再確認された。custom-lint-rules.toml ルール⑨ のコメントに field 拡張手順 (どの workflow を grep して enumeration に追加するかの手順) を明記すれば、次回 takt yaml schema 拡張時の rule 更新漏れリスクを低減できる。同 PR で ADR-007 にも「enumeration-based 正規表現層の好例」として case study 追記すれば、次回 lint rule 設計判断の prior assumption として再利用可能。
+>
+> **本タスクの位置づけ**: PR #150 post-merge-feedback で **Tier 1 #1 として採用** されたが、実体は「コメント追記 + ADR docs 修正」のみで mechanical enforcement なし。**ユーザー判断で Tier 3 に reclassify** (rule 追加 / docs 修正 は judgment-required で機械強制力がないため Tier 1 ではない)。analyzer 分類器に Tier 定義の誤解がある (`feedback_no_unenforced_rules.md` と関連)。Severity Medium / Frequency Low (1 PR) / Effort XS / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/150.md` Tier 1 #1、`docs/adr/adr-007-custom-linter-layer-boundary.md`、`.claude/custom-lint-rules.toml` ルール⑨ (line 295-)
+
+#### 作業計画
+
+- [ ] ルール⑨ のコメントに「field 拡張手順 (1) `.takt/workflows/*.yaml` を grep / (2) `persona:` 直後に出現する未列挙 field を pattern alternation に追加 / (3) regression test 追加」を 4-5 行追記
+- [ ] `docs/adr/adr-007-custom-linter-layer-boundary.md` に「Case study: takt-workflow-persona-without-model (enumeration-based 正規表現層、Rust regex lookahead 非対応の pragmatic 対処)」section を追記
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ルール⑨ コメントに field 拡張手順が記載され、次回 takt yaml schema 拡張時の rule 更新フローが文書化される
+- ADR-007 に enumeration-based pattern の case study が記録される
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 経由でも同更新が反映される
+
+---
+
+### `takt_workflow_persona_detects_required_permission_mode_violation` doc 修正 + 残り 3 fields 個別 fixture test 追加 (PR #150 T2-#1 採用)
+
+> **動機**: PR #150 CR Major fix で 4 fields (`output_contracts` / `pass_previous_response` / `required_permission_mode` / `parallel`) を pattern に追加したが、regression test は `required_permission_mode` の 1 case のみ。doc comment は「4 fields regression test」と主張しているが実態と乖離 (`pass_previous_response` は非トリガー位置にあり、`output_contracts` / `parallel` は不在)。将来 regex 変更時に test 漏れに気付けない保守債が累積する。
+>
+> **本タスクの位置づけ**: PR #150 post-merge-feedback Tier 2 #1 採用。Severity Low / Frequency Medium (3 独立分析ソースが同一 finding) / Effort S / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/150.md` Tier 2 #1、`src/hooks-post-tool-linter/src/main.rs` L2108-2123
+
+#### 作業計画
+
+- [ ] `takt_workflow_persona_detects_required_permission_mode_violation` の doc comment を「`required_permission_mode` のみの代表 case (PR #150 CR Major 採用) を assert」に修正
+- [ ] `pass_previous_response` 個別 fixture test 追加 (例: `persona: code-reviewer\n    pass_previous_response: false`)
+- [ ] `output_contracts` 個別 fixture test 追加 (例: `persona: simplicity-reviewer\n        output_contracts:`)
+- [ ] `parallel` 個別 fixture test 追加 (例: `persona: code-reviewer\n    parallel:` または該当箇所の構造に応じて)
+- [ ] `cargo test` 全 pass + clean baseline test (`deployed_takt_workflows_have_clean_baseline_for_persona_model_rule`) も pass を確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 4 fields すべてに対応する individual fixture test が存在し、各 field の regex alternation 動作が機械検証される
+- doc comment が test 実態と整合する
+- 将来 alternation から 1 field を誤って削除した場合に test fail で検出される
+
+---
+
+### `development-workflow.md` Step 0 に「新 todo 着手前の既実装確認」チェックステップ追加 (PR #150 T3-#1 採用、補足: ユーザー判断採用)
+
+> **動機**: PR #150 着手時に「順位 47 は PR #126 で既 land 済」という stale todo entry を memory rule `feedback_verify_task_not_already_done.md` 適用で発見・回避できた。memory にとどまる限り read 漏れリスクが残るため、canonical workflow doc (`~/.claude/rules/common/development-workflow.md`) Step 0 (Research & Reuse) に「新 todo 着手前に `jj log --limit 20 <keyword>` で既実装確認」step を正式追加すれば、AI エージェントの workflow 読込時の visibility が向上する。
+>
+> **本タスクの位置づけ**: PR #150 post-merge-feedback Tier 3 #1 採用。rule 追加は本来 `feedback_no_unenforced_rules.md` 適用で却下 zone だが、本 case は「stale entry 発見の具体的 grep コマンドが workflow 内で機械的に実行可能 (`jj log` は決定的)」+「memory rule の昇格 path 実例」としてユーザー判断で採用。Severity Medium / Frequency Medium (memory 既存 + 本 PR で再発) / Effort XS / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/150.md` Tier 3 #1、`~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse)、memory `feedback_verify_task_not_already_done.md`
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse) 末尾または直後に「Stale task verification」サブステップ追加:
+  - `jj log --limit 20 <keyword>` で既実装の有無を確認
+  - 既 land を発見した場合は stale todo entry を docs/todo*.md / todo-summary.md から削除する形に re-purpose
+- [ ] 既存 memory `feedback_verify_task_not_already_done.md` の content を canonical rule へ昇格させた旨を memory に追記 (or memory を削除して rule に統合)
+- [ ] グローバル設定変更前に `~/.claude/` バックアップ取得 (memory `feedback_global_config_backup.md` 適用)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `development-workflow.md` Step 0 で「stale entry 確認」が canonical workflow として読まれる
+- memory ファイルとの責任分離が明確 (rule = 公式手順、memory = session-specific 補足) または memory が rule に統合される
+- 次回 todo 着手時に AI エージェントが自然に `jj log` 確認を行う
+
+---
+
 ### ADR-040 `step_timeout` 説明に sublinear / KV cache locality clarification 追記 (PR #145 T3-#1 採用)
 
 > **動機**: ADR-040 L42-48 の `step_timeout` 説明は「sublinear (3.33x)」と記述したが、本文中に「per-invoke latency が num_ctx に対して概ね線形に拡大する経験則」も併記しており、両者の関係が不明瞭。派生プロジェクトが reference table から 32K = 600s を読む際、なぜ formula `(num_ctx/8192)*180` で導出される 720s と乖離するかが直感的に分からない。clarification として「実測値 600s を正規値として採択、computed 720s は保守上限の目安、sublinear 性の根拠は KV cache locality 効果 (大規模 context で per-token efficiency 向上)」の 2-3 行追記が必要。
@@ -30,34 +102,6 @@
 
 - ADR-040 の reference table と本文の formula が矛盾なく解釈可能になる
 - 派生プロジェクトの porting 時に sublinear の根拠が永続記録から逆引きできる
-
----
-
-### `MAX_CUSTOM_VIOLATIONS` outer/inner loop break scope を explicit test で seal (PR #148 T2-1 採用)
-
-> **動機**: PR #148 (Phase D D-3、順位 102) の `run_custom_rules` refactor で発見した bug fix = inner `for m` loop の break のみで outer `for compiled in rules` loop に break が伝播しない問題。新コードでは `collect_violations_for_rule` 呼出後に `violations.len() >= MAX_CUSTOM_VIOLATIONS` を outer loop でチェックして break する設計に修正された (takt reviewer が "Behavioral change in `MAX_CUSTOM_VIOLATIONS`: improvement" として明示的に評価)。本タスクでは **複数ルール実行時に violation cap が正確に機能する** ことを explicit test で seal し、loop 構造を再 refactor する将来時の regression を防止する。
->
-> **本タスクの位置づけ**: PR #148 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Phase D D-3 で発見済 bug fix の test net 補強。
->
-> **参照**: `.claude/feedback-reports/148.md` Tier 2-1、`src/hooks-post-tool-linter/src/main.rs` の `run_custom_rules` + `collect_violations_for_rule` (PR #148 で extract)
-
-#### 設計決定の余地
-
-- **test fixture 設計**: violation cap (`MAX_CUSTOM_VIOLATIONS = 20`) を超える数の違反を 1 fixture で生成、複数 rule を同時に実行
-- **scope 検証**: (a) inner loop break (1 rule で 20 件で打ち切り)、(b) outer loop break (rule A で 20 件達成後、rule B が呼ばれない)、(c) 上限未達時に複数 rule 全実行
-- **既存テスト整合**: `run_custom_rules_respects_max_violations` test が単一 rule の cap 動作を test 済。本 task はそれを multi-rule scenario に拡張
-
-#### 作業計画
-
-- [ ] test fixture 設計: 20+ 違反を含む test file + 2 rules (例: `rule_a` + `rule_b` の異なる pattern)
-- [ ] test ケース追加: (a) `rule_a` 単独で 20 件 → outer break、`rule_b` が実行されないこと assert (b) `rule_a` で 19 件、`rule_b` で 1 件 → 両方実行されて合計 20 件
-- [ ] cargo test 全 pass を確認 (既存 102 tests + 新規 2 tests 程度 = 104 tests)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `MAX_CUSTOM_VIOLATIONS` の outer/inner loop break scope が test で明示化される
-- 将来 `run_custom_rules` を再 refactor した際、cap 動作の regression が即 fail で検出される
 
 ---
 

@@ -176,7 +176,11 @@ fn locate_string_line_ranges(source: &str, needle: &str) -> Vec<(usize, usize)> 
 
 fn byte_offset_to_line(source: &str, offset: usize) -> usize {
     let clamped = offset.min(source.len());
-    source[..clamped].bytes().filter(|b| *b == b'\n').count() + 1
+    source.as_bytes()[..clamped]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1
 }
 
 fn span_overlaps_ranges(start: usize, end: usize, ranges: &[(usize, usize)]) -> bool {
@@ -440,11 +444,13 @@ fn function_metric(node: Node, source_bytes: &[u8]) -> Option<FunctionMetric> {
     let length = line_end - line_start + 1;
     let (body_line_start, body_line_end, max_nesting_depth) = node
         .child_by_field_name("body")
-        .map_or((line_start, line_end, 0), |b| (
-            b.start_position().row + 1,
-            b.end_position().row + 1,
-            max_block_depth_inside_body(b),
-        ));
+        .map_or((line_start, line_end, 0), |b| {
+            (
+                b.start_position().row + 1,
+                b.end_position().row + 1,
+                max_block_depth_inside_body(b),
+            )
+        });
     Some(FunctionMetric {
         name,
         line_start,
@@ -548,7 +554,11 @@ fn collect_all_violations(
     line_filter: Option<&[(usize, usize)]>,
 ) -> Vec<LintViolation> {
     let mut violations = find_violations(file_path, source, line_filter);
-    violations.extend(find_function_length_violations(file_path, source, line_filter));
+    violations.extend(find_function_length_violations(
+        file_path,
+        source,
+        line_filter,
+    ));
     violations.truncate(MAX_VIOLATIONS);
     violations
 }
@@ -962,12 +972,56 @@ mod tests {
     }
 
     #[test]
+    fn locate_string_line_ranges_handles_mixed_ascii_and_kanji() {
+        let source =
+            "fn main() {\n    let msg = \"hello 世界\";\n    let bye = \"hello 世界\";\n}\n";
+        let ranges = locate_string_line_ranges(source, "\"hello 世界\"");
+        assert_eq!(ranges, vec![(2, 2), (3, 3)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_handles_kanji_only() {
+        let source = "// 漢字のみのコメント\nfn foo() {}\n// 漢字のみのコメント\n";
+        let ranges = locate_string_line_ranges(source, "漢字のみのコメント");
+        assert_eq!(ranges, vec![(1, 1), (3, 3)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_handles_emoji() {
+        let source = "fn foo() {\n    let r = \"🎉\";\n    let s = \"🎉\";\n}\n";
+        let ranges = locate_string_line_ranges(source, "\"🎉\"");
+        assert_eq!(ranges, vec![(2, 2), (3, 3)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_handles_supplementary_plane_char() {
+        let source = "fn foo() {\n    let s = \"𝕊\";\n    let t = \"𝕊\";\n}\n";
+        let ranges = locate_string_line_ranges(source, "\"𝕊\"");
+        assert_eq!(ranges, vec![(2, 2), (3, 3)]);
+    }
+
+    #[test]
+    fn locate_string_line_ranges_handles_combining_character() {
+        let source = "fn foo() {\n    let s = \"e\u{0301}\";\n    let t = \"e\u{0301}\";\n}\n";
+        let ranges = locate_string_line_ranges(source, "\"e\u{0301}\"");
+        assert_eq!(ranges, vec![(2, 2), (3, 3)]);
+    }
+
+    #[test]
     fn byte_offset_to_line_handles_offsets_correctly() {
         let s = "abc\ndef\nghi\n";
         assert_eq!(byte_offset_to_line(s, 0), 1);
         assert_eq!(byte_offset_to_line(s, 3), 1);
         assert_eq!(byte_offset_to_line(s, 4), 2);
         assert_eq!(byte_offset_to_line(s, 8), 3);
+    }
+
+    #[test]
+    fn byte_offset_to_line_handles_mid_multibyte_offset() {
+        let s = "漢字\nfn foo() {}\n";
+        assert_eq!(byte_offset_to_line(s, 5), 1);
+        assert_eq!(byte_offset_to_line(s, 6), 1);
+        assert_eq!(byte_offset_to_line(s, 7), 2);
     }
 
     #[test]
@@ -995,7 +1049,80 @@ mod tests {
     fn find_violations_multiline_block_comment_spanning_range_boundary() {
         let source = "/* line1\n   line2\n   line3 */\nfn main() {}\n";
         let v = find_violations("test.rs", source, Some(&[(3, 4)]));
-        assert_eq!(v.len(), 1, "block comment starting at line 1 but extending into range should be detected");
+        assert_eq!(
+            v.len(),
+            1,
+            "block comment starting at line 1 but extending into range should be detected"
+        );
+    }
+
+    #[test]
+    fn find_violations_multiline_block_comment_range_covers_start_line_only() {
+        let source = "/* line1\n   line2\n   line3 */\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(1, 1)]));
+        assert_eq!(
+            v.len(),
+            1,
+            "range covering only the start line of a multiline block comment should detect"
+        );
+    }
+
+    #[test]
+    fn find_violations_multiline_block_comment_range_covers_end_line_only() {
+        let source = "/* line1\n   line2\n   line3 */\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(3, 3)]));
+        assert_eq!(
+            v.len(),
+            1,
+            "range covering only the end line of a multiline block comment should detect"
+        );
+    }
+
+    #[test]
+    fn find_violations_multiline_block_comment_range_covers_middle_line_only() {
+        let source = "/* line1\n   line2\n   line3 */\nfn main() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(2, 2)]));
+        assert_eq!(
+            v.len(),
+            1,
+            "range covering only an internal line of a multiline block comment should detect"
+        );
+    }
+
+    #[test]
+    fn find_violations_inline_block_comment_range_exact_match() {
+        let source =
+            "fn foo() {}\nfn bar() {}\nfn baz() {}\nfn qux() {}\n/* inline */\nfn end() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(5, 5)]));
+        assert_eq!(
+            v.len(),
+            1,
+            "single-line range exactly on inline block comment line should detect"
+        );
+    }
+
+    #[test]
+    fn find_violations_inline_block_comment_range_starts_at_comment_line() {
+        let source =
+            "fn foo() {}\nfn bar() {}\nfn baz() {}\nfn qux() {}\n/* inline */\nfn end() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(5, 7)]));
+        assert_eq!(
+            v.len(),
+            1,
+            "range whose start equals inline block comment line should detect"
+        );
+    }
+
+    #[test]
+    fn find_violations_inline_block_comment_range_ends_at_comment_line() {
+        let source =
+            "fn foo() {}\nfn bar() {}\nfn baz() {}\nfn qux() {}\n/* inline */\nfn end() {}\n";
+        let v = find_violations("test.rs", source, Some(&[(3, 5)]));
+        assert_eq!(
+            v.len(),
+            1,
+            "range whose end equals inline block comment line should detect"
+        );
     }
 
     fn tool_input_with(new_string: Option<&str>) -> ToolInput {

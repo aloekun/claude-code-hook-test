@@ -359,8 +359,7 @@ fn compile_paths_glob(paths: &Option<Vec<String>>) -> Result<Option<GlobSet>, St
     }
     let mut builder = GlobSetBuilder::new();
     for pattern in pattern_list {
-        let glob = Glob::new(pattern)
-            .map_err(|e| format!("invalid glob '{}': {}", pattern, e))?;
+        let glob = Glob::new(pattern).map_err(|e| format!("invalid glob '{}': {}", pattern, e))?;
         builder.add(glob);
     }
     builder
@@ -470,7 +469,12 @@ fn rule_matches_path(compiled: &CompiledRule, file: &str) -> bool {
 /// `m.start()` 以前の `\n` 数 + 1 を 1-indexed line number として算出 (`find_iter` の byte
 /// offset を line 番号に変換するため line-by-line search では捕捉できない multiline pattern
 /// = 例: PowerShell `} catch {\n}` にも対応)。
-fn build_violation_json(file: &str, rule: &CustomRule, m: regex::Match, content: &str) -> Option<String> {
+fn build_violation_json(
+    file: &str,
+    rule: &CustomRule,
+    m: regex::Match,
+    content: &str,
+) -> Option<String> {
     let line_no = content[..m.start()].bytes().filter(|b| *b == b'\n').count() + 1;
     let violation = LintViolation {
         r#type: rule.id.to_uppercase().replace('-', "_"),
@@ -483,12 +487,21 @@ fn build_violation_json(file: &str, rule: &CustomRule, m: regex::Match, content:
         message: rule.message.clone(),
         why: rule.why.clone(),
         fix: ViolationFix {
-            strategy: rule.fix.as_ref().map_or_else(String::new, |f| f.strategy.clone()),
+            strategy: rule
+                .fix
+                .as_ref()
+                .map_or_else(String::new, |f| f.strategy.clone()),
             steps: rule.fix.as_ref().map_or_else(Vec::new, |f| f.steps.clone()),
         },
         example: ViolationExample {
-            bad: rule.example.as_ref().map_or_else(String::new, |e| e.bad.clone()),
-            good: rule.example.as_ref().map_or_else(String::new, |e| e.good.clone()),
+            bad: rule
+                .example
+                .as_ref()
+                .map_or_else(String::new, |e| e.bad.clone()),
+            good: rule
+                .example
+                .as_ref()
+                .map_or_else(String::new, |e| e.good.clone()),
         },
     };
     serde_json::to_string(&violation).ok()
@@ -993,7 +1006,6 @@ mod tests {
         );
     }
 
-
     /// テスト用: CustomRule からコンパイル済みルールを生成するヘルパー
     fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
         rules.into_iter().filter_map(compile_rule).collect()
@@ -1113,6 +1125,73 @@ mod tests {
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
 
         assert_eq!(violations.len(), MAX_CUSTOM_VIOLATIONS);
+    }
+
+    #[test]
+    fn run_custom_rules_outer_break_skips_subsequent_rules() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("outer_break.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            for i in 0..21 {
+                writeln!(f, "console.log('cl {}');", i).unwrap();
+            }
+            for i in 0..5 {
+                writeln!(f, "alert('al {}');", i).unwrap();
+            }
+        }
+
+        let rules = compile_test_rules(vec![
+            make_test_rule("rule-a", r"console\.log\(", &["ts"]),
+            make_test_rule("rule-b", r"alert\(", &["ts"]),
+        ]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert_eq!(violations.len(), MAX_CUSTOM_VIOLATIONS);
+        for raw in &violations {
+            let v: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(
+                v["type"], "RULE_A",
+                "rule-b must not run once rule-a exhausts the cap"
+            );
+        }
+    }
+
+    #[test]
+    fn run_custom_rules_inner_cap_after_partial_first_rule() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("inner_cap.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            for i in 0..19 {
+                writeln!(f, "console.log('cl {}');", i).unwrap();
+            }
+            for i in 0..5 {
+                writeln!(f, "alert('al {}');", i).unwrap();
+            }
+        }
+
+        let rules = compile_test_rules(vec![
+            make_test_rule("rule-a", r"console\.log\(", &["ts"]),
+            make_test_rule("rule-b", r"alert\(", &["ts"]),
+        ]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert_eq!(violations.len(), MAX_CUSTOM_VIOLATIONS);
+        let mut rule_a_count = 0;
+        let mut rule_b_count = 0;
+        for raw in &violations {
+            let v: serde_json::Value = serde_json::from_str(raw).unwrap();
+            match v["type"].as_str() {
+                Some("RULE_A") => rule_a_count += 1,
+                Some("RULE_B") => rule_b_count += 1,
+                other => panic!("unexpected violation type: {other:?}"),
+            }
+        }
+        assert_eq!(rule_a_count, 19);
+        assert_eq!(rule_b_count, 1);
     }
 
     #[test]
@@ -1301,7 +1380,11 @@ extensions = ["ts", "js"]
     // --- 新規ルール: PowerShell 空 catch ブロック (no-empty-powershell-catch) ---
 
     fn ps_empty_catch_rule() -> CustomRule {
-        make_test_rule("no-empty-powershell-catch", r"(?i)catch\s*\{\s*\}", &["ps1"])
+        make_test_rule(
+            "no-empty-powershell-catch",
+            r"(?i)catch\s*\{\s*\}",
+            &["ps1"],
+        )
     }
 
     fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
@@ -1315,11 +1398,7 @@ extensions = ["ts", "js"]
     #[test]
     fn ps_empty_catch_detects_violation() {
         let dir = tempfile::tempdir().unwrap();
-        let file = write_file(
-            dir.path(),
-            "swallow.ps1",
-            "try { Get-Item $p } catch {}\n",
-        );
+        let file = write_file(dir.path(), "swallow.ps1", "try { Get-Item $p } catch {}\n");
         let rules = compile_test_rules(vec![ps_empty_catch_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert_eq!(violations.len(), 1);
@@ -1472,11 +1551,7 @@ extensions = ["ts", "js"]
 
     fn md_mutable_anchor_rule() -> CustomRule {
         // path 部から `:` を除外することで http(s):// など外部 URL を除外
-        make_test_rule(
-            "no-mutable-anchor",
-            r"\]\([^)#:]*#[^\x00-\x7F)]+",
-            &["md"],
-        )
+        make_test_rule("no-mutable-anchor", r"\]\([^)#:]*#[^\x00-\x7F)]+", &["md"])
     }
 
     #[test]
@@ -1507,11 +1582,7 @@ extensions = ["ts", "js"]
     fn md_mutable_anchor_skips_ascii_fragment() {
         // `[link](#stable-id)` パターン (ASCII fragment、許容)
         let dir = tempfile::tempdir().unwrap();
-        let file = write_file(
-            dir.path(),
-            "ascii.md",
-            "See [section](#stable-ascii-id)\n",
-        );
+        let file = write_file(dir.path(), "ascii.md", "See [section](#stable-ascii-id)\n");
         let rules = compile_test_rules(vec![md_mutable_anchor_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
         assert!(violations.is_empty());
@@ -1843,8 +1914,7 @@ extensions = ["ts", "js"]
             "no-ephemeral-todo-reference",
             &pattern,
             &[
-                "rs", "toml", "jsonc", "json", "yaml", "yml", "ts", "tsx", "js", "jsx", "py",
-                "ps1",
+                "rs", "toml", "jsonc", "json", "yaml", "yml", "ts", "tsx", "js", "jsx", "py", "ps1",
             ],
         )
     }
@@ -1986,11 +2056,7 @@ extensions = ["ts", "js"]
 
     #[test]
     fn powershell_validation_handles_mixed_extension_list() {
-        let rule = make_test_rule(
-            "mixed-rule",
-            r"\bcatch\s*\{\s*\}",
-            &["js", "ps1", "ts"],
-        );
+        let rule = make_test_rule("mixed-rule", r"\bcatch\s*\{\s*\}", &["js", "ps1", "ts"]);
         let missing = find_powershell_rules_missing_case_insensitive_flag(&[rule]);
         assert_eq!(missing, vec!["mixed-rule".to_string()]);
     }
@@ -2020,9 +2086,8 @@ extensions = ["ts", "js"]
             .join("..")
             .join(".claude")
             .join("custom-lint-rules.toml");
-        let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-            panic!("failed to read deployed custom-lint-rules.toml: {e}")
-        });
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read deployed custom-lint-rules.toml: {e}"));
         let config: CustomRulesConfig = toml::from_str(&content).unwrap();
         let rules = config.rules.unwrap_or_default();
         let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
