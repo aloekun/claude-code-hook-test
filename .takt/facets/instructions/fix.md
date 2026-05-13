@@ -53,6 +53,19 @@ The helper compares pre-fix (`@-`) vs post-fix (working copy) and exits non-zero
 
 New files (post-only) are reported `metrics_check: skipped` and do not block fix completion. Markdown / yaml / PowerShell etc. files are not in scope (Rust-only PoC).
 
+## Pre-completion diff refresh (REQUIRED — fix→review iteration freshness)
+
+After completing all fixes (Edit/Write operations) AND before emitting the `convergence_verdict` line, refresh `.takt/review-diff.txt` so the next reviewer iteration (if `convergence_verdict: partial`) sees the post-fix state:
+
+    jj diff -r @ > .takt/review-diff.txt
+
+This refresh is **unconditional**:
+
+- **`convergence_verdict: partial`** — critical. Without refresh, reviewers in the next iteration read the pre-fix snapshot taken by `cli-push-runner` Stage 1.5 and produce false-positive `persists` findings on already-fixed code, escalating the loop to 6-iter outliers (PR #103 observation).
+- **`convergence_verdict: fully_resolved`** — harmless. The next workflow step is COMPLETE, so the refreshed file is not consumed; the ~1s `jj diff` cost is negligible.
+
+`.takt/review-diff.txt` is **not** in any read-only zone (the read-only list at the top of this instruction covers `.takt/runs/**`, `.takt/facets/**`, `.takt/workflows/**`, `.takt/config.yaml` — `.takt/review-diff.txt` lives at the `.takt/` root and is an explicitly allowed write target for this step).
+
 ## Required output (include headings)
 
 ## Work results

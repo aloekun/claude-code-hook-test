@@ -159,3 +159,124 @@
 - ephemeral 計画書 retire 時の permanent value 移管プロセスが checklist 化される
 
 ---
+
+### lint-screen の Markdown ファイル除外フィルター追加 (PR #151 T1-#2 採用、Bundle k)
+
+> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5) の 3 PR で「mistral:7b が docs-only diff や `.md` ファイルに対して Rust の `unused-import` を hallucinate する」false positive pattern が一貫して観測。特に PR #151 では docs-only diff (analysis.md 67 行) でも同じ FP を再現し、reviewer が "the report documents its own false positive" と評価。**diff 内容ではなく hook source 周辺の context を見て hallucinate している強い証拠**。拡張子ベースの mechanical フィルタで diff 段階から `.md` ハンクを除外すれば、reviewer cross-check の負荷も軽減できる。
+>
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #2 採用 (Severity Medium / Frequency High / Effort M / Adoption Risk None)。Phase D dogfood 観測から導かれた最も価値ある決定論的防止策。Bundle k のコア。
+>
+> **参照**: `.claude/feedback-reports/151.md` Tier 1 #2、`src/cli-push-runner/src/stages/lint_screen.rs`、D-3/D-4/D-5 outcome (`docs/local-llm-offload-analysis.md`)
+
+#### 設計決定の余地
+
+- **filter 適用箇所**: (a) `.takt/review-diff.txt` 生成時に `.md` ハンクを drop / (b) lint_screen stage で diff parse 後にハンクを skip / (c) prompt 内で「.md は無視せよ」と instruct (= LLM 信頼、危険)
+- **推奨は (b)**: diff 段階で `.md` 以外のハンクのみを mistral:7b に渡す。Rust 側で diff hunk header (`+++ b/path`) を parse して拡張子を判定、`.md` / `.markdown` を skip
+- **fallback 経路**: 全 diff が `.md` のみだった場合は lint_screen 自体を skip + report に「`docs-only diff のため lint_screen はスキップしました`」を出力
+
+#### 作業計画
+
+- [ ] `src/cli-push-runner/src/stages/lint_screen.rs` に diff hunk filter 関数を追加
+- [ ] filter は `extensions_to_exclude = ["md", "markdown"]` を hardcode (将来 config 化検討)
+- [ ] unit test: 純 .md diff / mixed (Rust + .md) diff / 純 Rust diff の 3 ケースで filter 動作 assert
+- [ ] integration test: docs-only PR の dogfood シナリオで lint_screen が skip + warn を出すこと
+- [ ] `.takt/lint-screen-report.md` 出力に skip 理由を明示
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 純 `.md` diff の lint_screen 起動時に Rust hallucinate FP が 0 件になる
+- mixed diff でも `.md` 部分は無視され、Rust hunks のみが mistral:7b に渡る
+- 既存 5 観測のうち D-4 CR fix (TOML)、D-5 ×2 (Markdown FP) は本フィルタで構造的に消滅 (D-3 globset FP は Rust scope なので残る = 期待動作)
+
+---
+
+### `no-ephemeral-todo-reference` rule の TOML positive test 追加 (PR #151 T1-#1 採用)
+
+> **動機**: PR #151 の CodeRabbit nitpick (および本 PR で発見されなかった latent gap) で、`no-ephemeral-todo-reference` rule が TOML ファイルを extensions に持つ場合の positive test (= 実際に violation を検出することの assertion) が不在と判明。既存テスト `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` は self-exclusion 確認のみで、検出力の test ではない。
+>
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。extensions 拡張が複数 PR にわたって反復する pattern (yaml/yml = PR #110、toml = PR #129?) があり、test gap が累積するリスクを構造的に防ぐ。
+>
+> **参照**: `.claude/feedback-reports/151.md` Tier 1 #1、`src/hooks-post-tool-linter/src/main.rs` test module
+
+#### 作業計画
+
+- [ ] test fixture: `.toml` 拡張子ファイルに `docs/todo3.md` 等の ephemeral 参照を含む 2-3 行 fixture を作成
+- [ ] test ケース: `run_custom_rules` が 1 件以上の violation を返し、`type == "NO_EPHEMERAL_TODO_REFERENCE"` を確認
+- [ ] negative test: 同じ TOML fixture で `docs/adr/adr-007.md` 等の permanent 参照は violation 0 件であることを確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- TOML 拡張子で rule が機能することが explicit test で seal される
+- 将来 extensions から TOML を誤削除した場合に test fail で検出される
+
+---
+
+### UTF-8 マルチバイト boundary test を他の string-processing hooks に横展開 (PR #151 T2-#1 採用)
+
+> **動機**: PR #151 で `byte_offset_to_line` の char-boundary panic bug を test 拡充 (UTF-8 漢字単独 needle) で発見した。同型関数 (byte offset から行番号変換 / needle 検索 + slice 操作) は他の string-processing hooks にも存在する可能性が高く、横展開 test で systemic 防御を確保すべき。
+>
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None)。test 拡充は単なるカバレッジ追加ではなく fault detection に直結することが実証済 (本 PR で副産物として 1 production bug 修正)。
+>
+> **参照**: `.claude/feedback-reports/151.md` Tier 2 #1、`src/hooks-post-tool-comment-lint-rust/src/main.rs:byte_offset_to_line` (PR #151 で修正済)、対象は `src/hooks-*` で string offset 操作を行う関数
+
+#### 作業計画
+
+- [ ] `grep -rn "as_bytes\|byte\|offset" src/hooks-*/src/` で類似処理を持つ hooks を列挙
+- [ ] 各 hook で multi-byte boundary に晒される operation を識別 (byte slice / needle search / offset → line 変換 等)
+- [ ] 対象 hook 毎に test fixture 追加: 漢字単独 / emoji / 結合文字 / BMP 外文字 のうち最低 1 パターン
+- [ ] 検出された production bug は 1 行 fix で resolve (PR #151 と同じ pattern)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 全 string-processing hook が multi-byte boundary の panic に対して test で防御されている
+- 横展開 test 実施過程で発見された production bug が修正される
+
+---
+
+### ADR-038 に mistral:7b 「diff 外 context hallucinate」failure mode を追記 (PR #151 T3-#1 採用、順位 123 と同 PR 推奨)
+
+> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5 ×2) の 3 PR で観測された FP pattern = 「mistral:7b が diff 内容に関わらず hook source 周辺の context を見て `unused-import` を hallucinate する」を ADR-038 に codify。Phase b' fixture では再現しない failure mode のため、将来の prompt 改善や別モデル評価時の prior assumption として永続記録する価値あり。
+>
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency High = 3 PR 観測 / Effort XS / Adoption Risk None)。順位 123 (lint-screen MD フィルタ実装) と同 PR で land 効率的 (実装と仕様の整合性確保)。
+>
+> **参照**: `.claude/feedback-reports/151.md` Tier 3 #1、`docs/adr/adr-038-local-llm-finding-classification.md`、D-3/D-4/D-5 outcome (`docs/local-llm-offload-analysis.md`)
+
+#### 作業計画
+
+- [ ] ADR-038 に「Known failure mode: docs-only diff Rust context hallucinate」section 追加
+- [ ] 3 PR 観測の事実 (#148/#150/#151) を inline cite
+- [ ] 根本原因の推定 (context window 内に hook source が含まれる → past commit の `use` 文を current diff として誤認) を記録
+- [ ] 対策として順位 123 (拡張子フィルタ) を citation
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-038 から「なぜ Markdown 除外フィルタが必要か」が逆引きできる
+- 将来別モデル評価 (LLaMa / phi 等) で同 failure mode を検証する出発点になる
+
+---
+
+### extensions 拡張時の test 追加 pattern をコード comment で明文化 (PR #151 T3-#2 採用、順位 124 と同 PR 推奨)
+
+> **動機**: 順位 124 (TOML positive test) の根因である「extensions 配列を変更しても対応する test が追加されない」pattern を、`custom-lint-rules.toml` または `no_ephemeral_todo_reference_rule()` 関数の近傍コメントに明記。「extensions を変更した際は対応する positive/negative test を追加すること」のリマインダを次回 rule 変更時に目に入る位置に置く。
+>
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。memory rule `feedback_no_unenforced_rules.md` に抵触するように見えるが、本 case は **既存実践の明文化 + 機械強制ではなく guide 効果** のため例外採用 (順位 122 と同じロジック)。
+>
+> **参照**: `.claude/feedback-reports/151.md` Tier 3 #2、`.claude/custom-lint-rules.toml`、`src/hooks-post-tool-linter/src/main.rs`
+
+#### 作業計画
+
+- [ ] `.claude/custom-lint-rules.toml` の `no-ephemeral-todo-reference` rule entry の上に 2-3 行 comment 追加: 「⚠️ extensions を変更する場合: 同 PR で positive + negative test を `src/hooks-post-tool-linter/src/main.rs` に追加すること」
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 要否を検討 (`.claude/custom-lint-rules.toml` は project 個別なので deploy 不要)
+- [ ] 順位 124 (TOML test 追加) の作業中に test の location を確認して、comment 内の path 参照を正確に書く
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 次回 extensions 変更時に rule 編集者が test 追加を忘れにくくなる
+- comment が機械強制ではなく guide として機能する (PR review 時の checklist としても再利用可)
+
+---
