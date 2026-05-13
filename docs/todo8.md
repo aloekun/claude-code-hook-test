@@ -160,11 +160,11 @@
 
 ---
 
-### lint-screen の Markdown ファイル除外フィルター追加 (PR #151 T1-#2 採用、Bundle k)
+### lint-screen の Markdown ファイル除外フィルター追加 (PR #151 T1-#2 採用、Bundle k、**PR #152 で再観測**)
 
-> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5) の 3 PR で「mistral:7b が docs-only diff や `.md` ファイルに対して Rust の `unused-import` を hallucinate する」false positive pattern が一貫して観測。特に PR #151 では docs-only diff (analysis.md 67 行) でも同じ FP を再現し、reviewer が "the report documents its own false positive" と評価。**diff 内容ではなく hook source 周辺の context を見て hallucinate している強い証拠**。拡張子ベースの mechanical フィルタで diff 段階から `.md` ハンクを除外すれば、reviewer cross-check の負荷も軽減できる。
+> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5) / **PR #152 (D-6 docs-only)** の 4 PR で「mistral:7b が docs-only diff や `.md` ファイルに対して Rust の `unused-import` を hallucinate する」false positive pattern が一貫して観測。特に PR #151 / PR #152 では docs-only diff でも同じ FP を再現 (PR #152 では `docs/local-llm-offload-analysis.md` 行 1 を `use std::io::Write;` と誤認)。**diff 内容ではなく hook source 周辺の context を見て hallucinate している強い証拠**。拡張子ベースの mechanical フィルタで diff 段階から `.md` ハンクを除外すれば、reviewer cross-check の負荷も軽減できる。
 >
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #2 採用 (Severity Medium / Frequency High / Effort M / Adoption Risk None)。Phase D dogfood 観測から導かれた最も価値ある決定論的防止策。Bundle k のコア。
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #2 採用 → PR #152 post-merge-feedback で Frequency High 閾値到達を再確認 (Severity Medium / Frequency High / Effort S / Adoption Risk None)。Phase D dogfood 観測から導かれた最も価値ある決定論的防止策。Bundle k のコア。
 >
 > **参照**: `.claude/feedback-reports/151.md` Tier 1 #2、`src/cli-push-runner/src/stages/lint_screen.rs`、D-3/D-4/D-5 outcome (`docs/local-llm-offload-analysis.md`)
 
@@ -191,11 +191,11 @@
 
 ---
 
-### `no-ephemeral-todo-reference` rule の TOML positive test 追加 (PR #151 T1-#1 採用)
+### `no-ephemeral-todo-reference` rule の TOML positive test 追加 (PR #151 T1-#1 採用、**PR #152 で再観測**)
 
 > **動機**: PR #151 の CodeRabbit nitpick (および本 PR で発見されなかった latent gap) で、`no-ephemeral-todo-reference` rule が TOML ファイルを extensions に持つ場合の positive test (= 実際に violation を検出することの assertion) が不在と判明。既存テスト `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` は self-exclusion 確認のみで、検出力の test ではない。
 >
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。extensions 拡張が複数 PR にわたって反復する pattern (yaml/yml = PR #110、toml = PR #129?) があり、test gap が累積するリスクを構造的に防ぐ。
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #1 採用 → PR #152 post-merge-feedback で再確認 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。extensions 拡張が複数 PR にわたって反復する pattern (yaml/yml = PR #110、toml = PR #129?) があり、test gap が累積するリスクを構造的に防ぐ。PR #152 post-merge-feedback でも「yaml/yml test gap (PR #110) + TOML test gap (PR #151) の 2 PR 連続観測」と同根の指摘あり。
 >
 > **参照**: `.claude/feedback-reports/151.md` Tier 1 #1、`src/hooks-post-tool-linter/src/main.rs` test module
 
@@ -236,11 +236,11 @@
 
 ---
 
-### ADR-038 に mistral:7b 「diff 外 context hallucinate」failure mode を追記 (PR #151 T3-#1 採用、順位 123 と同 PR 推奨)
+### ADR-038 に mistral:7b 「diff 外 context hallucinate」failure mode を追記 (PR #151 T3-#1 採用、順位 123 と同 PR 推奨、**PR #152 で再観測**)
 
-> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5 ×2) の 3 PR で観測された FP pattern = 「mistral:7b が diff 内容に関わらず hook source 周辺の context を見て `unused-import` を hallucinate する」を ADR-038 に codify。Phase b' fixture では再現しない failure mode のため、将来の prompt 改善や別モデル評価時の prior assumption として永続記録する価値あり。
+> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5 ×2) / **PR #152 (D-6 docs-only)** の 4 PR で観測された FP pattern = 「mistral:7b が diff 内容に関わらず hook source 周辺の context を見て `unused-import` を hallucinate する」を ADR-038 に codify。Phase b' fixture では再現しない failure mode のため、将来の prompt 改善や別モデル評価時の prior assumption として永続記録する価値あり。
 >
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency High = 3 PR 観測 / Effort XS / Adoption Risk None)。順位 123 (lint-screen MD フィルタ実装) と同 PR で land 効率的 (実装と仕様の整合性確保)。
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #1 採用 → PR #152 post-merge-feedback で 4 PR 観測に拡大 (Severity Low / Frequency High / Effort XS / Adoption Risk None)。順位 123 (lint-screen MD フィルタ実装) と同 PR で land 効率的 (実装と仕様の整合性確保)。
 >
 > **参照**: `.claude/feedback-reports/151.md` Tier 3 #1、`docs/adr/adr-038-local-llm-finding-classification.md`、D-3/D-4/D-5 outcome (`docs/local-llm-offload-analysis.md`)
 
@@ -259,11 +259,11 @@
 
 ---
 
-### extensions 拡張時の test 追加 pattern をコード comment で明文化 (PR #151 T3-#2 採用、順位 124 と同 PR 推奨)
+### extensions 拡張時の test 追加 pattern をコード comment で明文化 (PR #151 T3-#2 採用、順位 124 と同 PR 推奨、**PR #152 で再観測**)
 
 > **動機**: 順位 124 (TOML positive test) の根因である「extensions 配列を変更しても対応する test が追加されない」pattern を、`custom-lint-rules.toml` または `no_ephemeral_todo_reference_rule()` 関数の近傍コメントに明記。「extensions を変更した際は対応する positive/negative test を追加すること」のリマインダを次回 rule 変更時に目に入る位置に置く。
 >
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。memory rule `feedback_no_unenforced_rules.md` に抵触するように見えるが、本 case は **既存実践の明文化 + 機械強制ではなく guide 効果** のため例外採用 (順位 122 と同じロジック)。
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #2 採用 → PR #152 post-merge-feedback で再確認 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。memory rule `feedback_no_unenforced_rules.md` に抵触するように見えるが、本 case は **既存実践の明文化 + 機械強制ではなく guide 効果** のため例外採用 (順位 122 と同じロジック)。PR #152 post-merge-feedback でも「point-of-edit reminder は enforcement ゼロでも omission 抑止効果あり」と同様の判断で再採用された。
 >
 > **参照**: `.claude/feedback-reports/151.md` Tier 3 #2、`.claude/custom-lint-rules.toml`、`src/hooks-post-tool-linter/src/main.rs`
 
