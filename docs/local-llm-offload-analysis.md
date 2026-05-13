@@ -1,14 +1,16 @@
 # ローカル LLM オフロード — 残作業計画 (Phase b 以降)
 
-> **位置づけ**: 本ファイルは「残作業の **次に何をするか** だけ」を持つ実行計画。完了済みの分析・実装・dogfood 計測・retrospective は [local-llm-offload-history.md](local-llm-offload-history.md) に切り出した。
+> **位置づけ**: 本ファイルは「残作業の **次に何をするか** だけ」を持つ実行計画。完了済みの分析・実装は以下に切り出し済:
+> - [local-llm-offload-history.md](local-llm-offload-history.md) — 旧計画 (§A-2 dogfood 等) + Phase a-c 以前の retrospective
+> - [local-llm-offload-phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) — Phase A〜D 各 PR の詳細 dogfood outcome / Phase E 判定材料 / Dogfood signal log (2026-05-13 分離)
 >
-> **状態**: 試験運用 (Phase a 完了 = PR #130 land / Phase b 完了 = conditional GO 2026-05-08, PR #131 / Phase c MVP 完了 = PR #132 land 2026-05-08 / **Phase c+ Bundle i 完了 = PR #135 land 2026-05-09 / §8.D 完了 = PR #136 land 2026-05-09 (num_ctx 8192、agreement 86.7% / verdict GO) / Phase d kickoff prep 完了 = 2026-05-10 / Phase d Round 1 完遂 = 2026-05-12 (D-1〜D-3、実 dogfood は D-3 単独 1 data point) / Phase d Round 2 進行中 = 2026-05-13 (D-4 完遂 → PR #150 merged、累積 3 data points / 5 PR 計画、残 D-5/D-6/D-7)** ([docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) 参照))。
+> **状態**: 試験運用 (Phase a〜c 完了 / Phase c+ Bundle i + §8.D 完了 = PR #135/#136 / **Phase d Round 1 完遂 = 2026-05-12 (D-1〜D-3) / Phase d Round 2 進行中 = 2026-05-13 (D-4/D-5/D-6 完遂 → 累積 6 data points / 4 PR、残 D-7)** — 詳細は outcomes ファイル参照)。Phase d 運用ガイドは [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md)。
 >
-> **引退条件**: 以下のいずれかで本ファイルを削除する (docs-governance.md retirement workflow 準拠)。`local-llm-offload-history.md` も同タイミングで判断する。
-> - 残作業 (§8.D / §8.E / §8.F, §1 Phase b/c/d) が **すべて land または却下** された場合 → permanent value (採用された設計判断、却下理由) を ADR-038 に migrate して両ファイルを削除
-> - **6 ヶ月経過** (= 2026-11-08) しても §8.E (lint screen facet) の採否が決まらない場合 → 採用見込みなしとみなして両ファイルを削除
+> **引退条件**: 以下のいずれかで **3 ファイル (analysis.md / history.md / phase-d-outcomes.md) を同時削除** する (docs-governance.md retirement workflow 準拠):
+> - 残作業 (§8.D / §8.E / §8.F, §1 Phase b/c/d) が **すべて land または却下** → permanent value を ADR-038 に migrate
+> - **6 ヶ月経過** (= 2026-11-08) しても §8.E 採否未決 → 採用見込みなしとみなして削除
 >
-> **本ファイルだけで Phase b 以降を再開できることを目的とする**。背景 (なぜこの構造に至ったか) は history ファイル参照。
+> **本ファイルだけで Phase b 以降を再開できることを目的とする**。完了詳細は outcomes ファイル、背景は history ファイル参照。
 
 ## 1. Phase a-d 実行計画 (§11.6 から継承、Phase a 完了)
 
@@ -201,149 +203,31 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 >
 > **進行方針 (2026-05-11、kill-switch 100% trend を踏まえた pivot)**: dogfood を一度止めて broken signal の repair (順位 98 = `num_ctx` overflow detection 診断) を最優先。診断 → root cause 特定 → fix → clean dogfood の順で進む。Bundle c-1 (旧 P-4) や Bundle c の他項目は **本 critical path 外** として通常 Tier 1 優先度で別途処理。
 
-##### 🚀 Phase A: Diagnostic ✅ **完了 (PR #142、2026-05-11)**
+##### 📊 Phase A〜D 経過サマリー (完了済み詳細は [phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) 参照)
 
-**順位 98 実装完了** = `lib-ollama-client` の `generate_json` に `OllamaMetadata` (`prompt_eval_count` / `eval_count` / `num_ctx`) を組み込み、serde parse error 時に stderr へ warn log を emit する診断層を追加。`OllamaApi` trait の `generate_with_metadata` (default fallback あり、StubOllama は変更不要)、`emit_overflow_diagnostic` 関数で 90% 以上時に「num_ctx を増やす hint」を含める。16 unit test pass、cli-finding-classifier 経由でも warn log が stderr に出ることを smoke 確認。
+| Phase | 状態 | PR | 主成果 |
+|---|---|---|---|
+| 🚀 A: Diagnostic | ✅ 完了 | #142 (2026-05-11) | `lib-ollama-client` に `OllamaMetadata` (num_ctx overflow 診断) を実装 |
+| 🔍 B: Root cause id | ✅ 完了 | (A 即時 dogfood) | `prompt_eval_count: 8192 / num_ctx: 8192` = num_ctx truncation が真因と確定 |
+| 🔧 C: Root cause fix | ✅ 完了 | #143 (2026-05-11) | `DEFAULT_NUM_CTX 8192 → 32768`、smoke 3 PR で fallback 100% → 33% に解消 |
+| 🛠️ D 前提整備 (順位 109) | ✅ 完了 | #144 (2026-05-11) | `.takt/lint-screen-report.md` に `## Diagnostic` section、real pipeline 経由で warn log が visible |
+| 🔄 D Round 1 (D-1〜D-3) | ✅ 完遂 | #145/#146/#147/#148 (2026-05-12) | env var override (順位 115) 解消、D-3 で初の real lint_screen 観測 = 1 data point |
+| 🔄 D Round 2 (D-4〜D-6) | ✅ 完遂 | #150/#151/#152 (2026-05-13) | size ramp-up + verdict variance 観測、累積 6 data points / 4 PR |
+| 🔄 D Round 2 (D-7) | 未着手 | (Bundle c-1) | cli-merge-pipeline Drop guard / orphan reaper / ADR-030 spec |
 
-##### 🔍 Phase B: Root cause identification ✅ **完了 (Phase A 即時 dogfood、2026-05-11)**
+**Phase E 着手前提条件 = 3-5 PR 累積 dogfood は D-6 完遂時点で既に充足** (4 PR / 6 data points)。D-7 完遂後に Phase E (採否判定) 移行可能。Round 1/2 で観測した **false positive 5 件中 5 件が file-type / scope 混同型** (mistral:7b の context window 内 hook source 周辺 hallucinate) → Bundle k 順位 123 (MD 除外フィルター) の構造的解消対象。詳細 metrics・観測の意義・各 PR の dogfood outcome は [phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) 参照。
 
-Phase A 実装後、PR #141 (P-3 = 187 行 mixed diff) を replay → **`prompt_eval_count: 8192 (vs num_ctx: 8192)` = 100% 到達を実機確認**。**真因 = num_ctx truncation で確定**。mistral の prompt が完全に context cap で truncate されて JSON output が完成せず `screen_decision` field 欠落の症状を引き起こしていた。仮説 2 候補 (num_ctx truncation / mistral 出力崩壊) のうち前者が真因と decisive 判定。
+##### 🔄 Phase D Round 2 残: D-7 (Bundle c-1)
 
-##### 🔧 Phase C: Root cause fix ✅ **完了 (PR #143、2026-05-11)**
-
-`DEFAULT_NUM_CTX = 8192 → 16384` (initial) → 16384 でも 100% overflow を再観測 → `DEFAULT_NUM_CTX = 16384 → 32768` (mistral:7b theoretical max) に再増加。`lib_ollama_client` の lint test 17 件 pass、`cli-finding-classifier` evals 20 件 pass。副次的に `push-runner-config.toml` の `step_timeout = 180 → 600` に拡大 (num_ctx 増加で `cargo test -- --ignored` の 12 件 mistral invoke が long-running 化)。
-
-**Phase C smoke dogfood** (32768 で 3 PRs replay):
-
-| PR | Lines | Latency | Old (8192) | **New (32768)** |
+| Order | 構成 | Tier / Effort | 推定 diff 行 | Diff Profile |
 |---|---|---|---|---|
-| P-1 (#139) | 414 | 48s | fallback (truncation) | ✅ `auto_fix` (real classification) |
-| P-2 (#140) | 275 | 50s | fallback (truncation) | ⚠️ fallback (`invalid severity: error` = contract violation、num_ctx ではなく mistral semantic 精度の別問題) |
-| P-3 (#141) | 487 | 55s | fallback (truncation) | ✅ `auto_fix` (real classification) |
+| **D-7** | Bundle c-1 (順位 63 + 64 + 67) = cli-merge-pipeline Drop guard / signal handler + orphan run reaper + ADR-030 spec amendment | T1×2 + T3 / M+M+XS | ~600-800 | Rust impl + signal trap + reaper logic + ADR markdown |
 
-- **num_ctx truncation 起因 fallback: 3/3 → 0/3 (100% 解消)** ← Phase C 主目的を達成
-- **総合 fallback rate: 3/3 (100%) → 1/3 (33%)** ← **Phase D 基準 (<50%) を classifier preview で達成**
-- 残り 1/3 は mistral 出力の contract violation (Phase b' agreement 75% で説明可能な semantic 精度問題、別 phase で対応 / Phase D scope 外)
+**想定リスク (D-7)**:
 
-##### 🛠️ Phase D 前提整備 (順位 109) ✅ **完了 (PR #144、2026-05-11)**
-
-`src/cli-push-runner/src/stages/lint_screen.rs` 改修: graceful fallback (exit 0) 時にも classifier stderr を `.takt/lint-screen-report.md` の `## Diagnostic` section に取込。Phase A 診断 warn log が **real pipeline 経由で visible** になる状態を確保。新 struct `ClassifierOutput { stdout, stderr }`、新 helper `render_diagnostic`、新規 smoke test 4 件 (TP / FP / edge case / parse-error path) で contract を seal。lint_screen tests 14/14 pass + workspace 全 cargo test pass。
-
-##### 🔄 Phase D: Clean dogfood validation (real pipeline 経由、Round 1 完遂 2026-05-12 / Round 2 進行中 = D-4 完遂 2026-05-13 / 残 D-5/D-6/D-7)
-
-Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由 dogfood の必要十分条件が揃った**。D-1 着手時に session-only opt-in workflow が jj auto-snapshot と本質的に衝突する gap が判明したが、**順位 115 (`LINT_SCREEN_ENABLED` env var override) land で解消**。env var 経路 (`$env:LINT_SCREEN_ENABLED = "true"`) で `push-runner-config.toml` を編集せずに lint_screen を有効化できるため、D-3 で初の実 dogfood が成立し、計画 3 PR + prereq 1 PR がすべて land 完了。
-
-**Phase D Round 1 対象 PR 構成 (D-1〜D-3、2026-05-12 完遂)**:
-
-| Order | 構成 (todo-summary.md priority list より) | Effort | 実 diff 行 | Diff Profile | 状態 |
-|---|---|---|---|---|---|
-| **D-1** ✅ | 順位 112 + 113 + 114 = ADR amendments bundle (ADR-038 eprintln scope / ADR-027 metrics override / 新規 ADR Local LLM context size) + 順位 115 backlog 化 | S+ | 298 (insert 228 / delete 70) | docs + 1 Rust comment | **PR #145 land 済 (2026-05-12)**、lint_screen dogfood は skip (workflow gap) |
-| **D-2** ✅ | 順位 101 + 106 + 103 = lint rule code touch (rule⑧ edge case test / self-exclusion assertion / lint runner field comment) | S+S+S | 172 (insert 84 / delete 88) | Rust test/comment mix | **PR #146 land 済 (2026-05-12)**、lint_screen dogfood は skip (順位 115 未 land 時点) |
-| **115** ✅ | `LINT_SCREEN_ENABLED` env var override (D-1 で発見した workflow gap 解消) | S | 325 (insert 268 / delete 57) | Rust impl + 10 tests + Phase D guide rewrite | **PR #147 land 済 (2026-05-12)**、D-3 着手 unblock |
-| **D-3** ✅ | 順位 102 = `paths` filter を lint runner に実装 (impl + test、既存 rule⑧ migration は 順位 118 で trade-off 検討に保留) | M | 496 (insert 375 / delete 121) | Rust impl + 7 unit tests + globset 依存追加 + glob filter helper | **PR #148 land 済 (2026-05-12)、初の real lint_screen dogfood 観測** |
-
-**size ramp-up 設計**: small → mid → mid-large の漸増で、small PR 単体での fallback 観測と large PR で num_ctx 限界に近づく挙動を両方カバー。**D-1 / D-2 は workflow gap により lint_screen dogfood をスキップ、実質 metrics 観測は D-3 のみ**。3 PR 観測予定だったが kill-switch 基準 (3/5 で停止) を踏まえて D-3 単独で 1 dogfood data point を取得済。Phase E 採否判定は次回以降の通常 PR 累積で確定する設計に変更。
-
-**D-1 / D-2 dogfood outcome (skip 理由 + 副産物)**:
-
-- lint_screen dogfood は実施せず (D-1 着手時の workflow gap が両 PR で持続)
-- 副産物 (D-1): **workflow gap を systemic に発見 + 順位 115 を Tier 1 backlog 登録 + post-merge-feedback Tier 1 #1 で再 validate**
-- 副産物 (D-1): ADR-040 内部不整合 (3.33x label vs `(num_ctx/8192)*180s` formula = 4x) は takt review 1 iter で検出 → fix で解消、post-merge-feedback Tier 3 #1 で sublinear clarification 採用 (順位 116)
-- 副産物 (D-1): lib.rs L128-139 → ADR-040 移管 edit order を post-merge-feedback Tier 3 #3 で codify 採用 (順位 117)
-- 副産物 (D-2): clean merge (post-merge-feedback 0 件採用)、feedback loop 正常動作を再確認
-
-**D-3 dogfood outcome (Phase D 初の real lint_screen 観測、PR #148)**:
-
-| Metric | 観測値 |
-|---|---|
-| screen_decision | `auto_fix` |
-| findings 件数 | 1 (minor severity) |
-| finding 内容 | `unused-import` rule、`src/hooks-post-tool-linter/Cargo.toml:12` で `globset` を誤検出 |
-| finding accuracy | **false positive** (takt reviewer が main.rs での import 使用済を diff verify で dismiss) |
-| fallback_reason | なし (clean run、JSON parse error 無し) |
-| `## Diagnostic` section | 不在 = num_ctx 32768 で overflow 発生せず (Phase A 診断 log emit せず) |
-| lint_screen latency | 推定 ~80-120s (pipeline 総 628s − takt 248s − その他) |
-| kill-switch (fallback > 50%) | fallback 0/1 = 0% → 基準内 |
-
-**D-3 観測の意義**:
-
-1. **env override 経路の実証**: PR #147 で実装した `LINT_SCREEN_ENABLED` env var で `[lint_screen] enabled = false` (TOML default) を override し、commit-free な session opt-in が成立
-2. **num_ctx 32768 の容量実証**: ~270 line Rust diff (Cargo.toml + main.rs + Cargo.lock + docs) を overflow せず完走、Phase A 診断 log も emit せず
-3. **lint_screen が takt reviewer の context として活用**: reviewer 出力に「Lint-screen finding: false positive」と明示的に評価あり = advisory consumption が成立
-4. **1 false positive は Phase b' agreement 75% (= 25% disagreement) と整合**: 想定範囲内、複数 PR 累積評価が前提
-5. **副産物 (D-3 post-merge-feedback)**: `MAX_CUSTOM_VIOLATIONS` outer/inner loop break scope の explicit test 必要性を発見 (Tier 2-1 採用、順位 119)、rule⑧ への paths filter 適用範囲検討を順位 118 として backlog 化
-
-**Phase D Round 2 対象 PR 構成 (D-4〜D-7、2026-05-13 追加)**:
-
-Round 1 で実 dogfood data point が **1 件のみ** (D-3) に留まり、ADR-038 採用条件「5 PR 以上」+ analysis.md「3-5 PR 累積」前提との乖離が判明。D-1 反省 (docs-only は lint_screen findings 0 件で metrics 価値低) + workflow gap 解消済 (順位 115 = `LINT_SCREEN_ENABLED` env var override land、PR #147) を踏まえ、**残 4 PR で Rust code 中心 + size ramp-up + 累積 5 PR (D-3 + D-4〜D-7) 達成** を狙う延長計画を策定。
-
-| Order | 構成 (todo-summary.md priority list より) | Tier / Effort | 推定 diff 行 | Diff Profile | 状態 |
-|---|---|---|---|---|---|
-| **D-4** ✅ | 順位 39 単独 = takt workflow `model` 必須化 lint rule + 副次作業 (`.takt/workflows/*.yaml` の `persona:` 行 3 件に `model:` 明示追加で clean baseline 確保) + CR Major fix で 4 fields 追加 | T1 / S | 実 ~340 行 (commit 0c2cc07d + 1ec15686) | Rust lint rule (yaml multi-line regex、enumeration 方式) + 6+1 unit tests + custom-lint-rules.toml entry + 3 yaml site touch + CR Major fix | **PR #150 merged 2026-05-13、初 real lint_screen 観測 2 data points (initial + CR fix push)** |
-| **D-5** ✅ | 順位 56 + 119 bundle = comment-lint hook test 拡充 + `MAX_CUSTOM_VIOLATIONS` outer/inner loop break scope explicit test + 副産物として `byte_offset_to_line` の char-boundary panic bug fix | T2+T2 / S+S | 実 ~120 行 (test 12 件追加 + production fix 1 行) | hooks-post-tool-comment-lint-rust + hooks-post-tool-linter test infra (UTF-8 multi-byte 5 + block boundary 6 + multi-rule MAX cap 2 + direct unit test 1) | **着手済** |
-| **D-6** | 順位 51 単独 = `.takt/review-diff.txt` を fix→review iteration 間で refresh (案 A takt hook 不可と判明 → 案 C fix.md instruction-level refresh に pivot) | T1 / M→S | 実 ~80 行 (fix.md 追記 + todo7.md / analysis.md 更新) | takt facet instruction (markdown) + design docs | **着手済 (本 PR、impl 完了 / dogfood pending)** |
-| **D-7** | Bundle c-1 (順位 63 + 64 + 67) = cli-merge-pipeline Drop guard / signal handler + orphan run reaper + ADR-030 spec amendment | T1×2 + T3 / M+M+XS | ~600-800 | Rust impl + signal trap + reaper logic + ADR markdown | 未着手 |
-
-**size ramp-up 設計 (Round 2)**: small → small-mid → mid → mid-large で num_ctx 32768 容量限界に向け漸増、各 size 帯で fallback 発生率 / Phase A diagnostic warn log 出力有無を観測。D-3 (mid, 496 行) と組合せて 5 size 帯をカバー。
-
-**D-1 反省の適用 (Round 2)**:
-
-- ❌ **docs-only PR を回避**: D-4〜D-7 すべて Rust impl/test 中心 (D-7 で ADR markdown 1 つを bundle 内で同梱するのみ、主成分は Rust)
-- ✅ **workflow gap 解消済**: 順位 115 (`LINT_SCREEN_ENABLED` env var) で session-only opt-in が成立、`push-runner-config.toml` 編集不要
-- ✅ **dogfood 実施可否を事前確認**: 各 PR 着手時に (a) env var set 確認 / (b) Ollama 起動確認 / (c) PR が code change を含むこと を check
-
-**想定リスク (Round 2)**:
-
-- **D-7 (Bundle c-1) size 上限超過リスク**: M+M+XS が 800 行を超えた場合、c-1a (順位 63 単独) / c-1b (順位 64+67) の 2 PR 分割に switch。その場合は D-7 → D-7a/D-7b で 5 PR に拡張 (Phase E 判定材料が 1 件増える方向で副次的に valid)
-- **D-4 size の下振れリスク**: 順位 39 単独 + 3 yaml site touch + tests は ~150-280 行を見込むが、focused single-purpose PR として 250 lower bound 未達も許容
-- **detail 見積もりの精度**: 各 todo`N`.md の詳細 (実装方針 / acceptance criteria) を未参照、着手時に scope 修正の必要あり
-- **D-4 の re-pivot 経緯 (2026-05-13)**: 当初 D-4 = 順位 47 (`>` vs `>=` boundary lint) を予定していたが、着手直前 (memory rule `feedback_verify_task_not_already_done.md` 適用) で **PR #126 (commit `b677b9d4f54d`) で既に land 済 (`no-time-field-strict-greater` rule、custom-lint-rules.toml line 208-243)** を発見。D-5 から 順位 39 を D-4 に繰上げ、D-5 を 順位 56 + 119 bundle に再構成。stale todo7.md 順位 47 entry は同 PR の docs commit で削除
-
-**D-4 dogfood outcome (Phase D Round 2 初の real lint_screen 観測、PR #150)**:
-
-PR #150 は同一 PR 内で **2 push event** が発生し、それぞれ独立した lint_screen dogfood data point を生成した:
-
-| Push event | commit | screen_decision | findings | fallback | num_ctx overflow | latency 推定 |
-|---|---|---|---|---|---|---|
-| 初回 push (D-4 impl) | `0c2cc07d` | **`informational`** | 0 | なし | なし | ~10-15s (pipeline 総 645s) |
-| CR Major fix re-push | `1ec15686` | **`auto_fix`** | 1 (FP: TOML に Rust `unused-import` 誤検出) | なし | なし | ~10-15s (pipeline 総 583s) |
-
-**D-4 観測の意義**:
-
-1. **`informational` verdict の初観測**: D-3 (`auto_fix` + 1 FP) と異なる「指摘なし」経路を実証。lint_screen の判定空間 2 経路 (auto_fix / informational) を D-3 + D-4 で本セッション内にカバー、特定 verdict への偏りバイアスが無いことを確認
-2. **same-PR 2 push の independent dogfood**: CR Major fix re-push でも pipeline が独立に走り、新 data point を生成。Phase E 累積カウントへの直接寄与は 1 PR = 1 と数えるが、verdict variance 観測材料としては 2 data points として有効
-3. **CR Major auto-fix の構造的成功**: persona 直後の field 列挙不足 (`output_contracts` / `pass_previous_response` / `required_permission_mode` / `parallel`) を CR が指摘 → memory rule `feedback_review_severity_auto_fix.md` 適用で auto-fix → regression test 同梱 land。CR Minor は `resolved:` reply で auto-resolve (memory `project_coderabbit_auto_resolve.md`)
-4. **post-merge-feedback 採用 3 件**: 順位 120 (rule comment + ADR-007 case study、Tier 1→3 reclassify) / 順位 121 (3 fields の individual fixture test 追加、Tier 2) / 順位 122 (`development-workflow.md` Step 0 への stale-entry 確認 step 追加、Tier 3) を `docs/todo8.md` に登録 + `docs/todo-summary.md` table 反映済 (commit 0c2cc07d-merged → 39ae2cd1)
-5. **副産物 (D-4 セッション知見)**: post-merge-feedback analyzer の Tier 分類が誤りやすい構造を発見 (rule コメント追記を Tier 1 と分類) → memory `feedback_tier_classification.md` に正しい Tier 定義 (mechanical enforcement = T1 / docs 修正 = T3) を codify
-
-**D-5 dogfood outcome (Phase D Round 2 二件目の real lint_screen 観測、PR #TBD)**:
-
-D-4 と同様、D-5 も同一 PR 内で **2 push event** が発生し、それぞれ独立した lint_screen dogfood data point を生成:
-
-| Push event | commit | screen_decision | findings | fallback | num_ctx overflow | lint_screen latency | pipeline 総時間 |
-|---|---|---|---|---|---|---|---|
-| 初回 push (D-5 impl、~649 行 Rust diff) | `5cbed3c3` | **`auto_fix`** | 1 (FP: comment-lint-rust line 1 を `use std::io::Write;` 誤認、実 line 1 は `//!` doc comment) | なし | なし | 54s | 679s (takt review 5m 23s) |
-| 2 回目 push (docs-only outcome record、~67 行 analysis.md 更新) | `9458660b` | **`auto_fix`** | 1 (同 FP 再現: docs-only diff にも関わらず Rust file hallucinate、構造的 root cause) | なし | なし | ~推定 30-50s | 522s (takt review 2m 44s、docs-only scope で executable criteria waived) |
-
-**D-5 観測の意義**:
-
-1. **`auto_fix` verdict 4 件目**: D-3 + D-4 CR fix + D-5 (2 push events) と同じ verdict 経路、false positive pattern も file/scope 混同で共通 (mistral:7b の構造的特徴)
-2. **reviewer による cross-check の構造的成功**: simplicity-review が "Lint Screen Cross-Check" section で初回 finding を **明示的に false positive と判定** + 根拠 (line 1 直接読取 + use 文の実 location 特定 = `hooks-post-tool-linter` 側 line 1131/1163) を report に記載。Phase b' agreement 75% 設計通りに reviewer が独立判断する advisory consumption が functional
-3. **docs-only diff でも同 FP 再現**: 2 回目 push は analysis.md ~67 行のみで Rust file の変更ゼロにも関わらず、mistral:7b が同じ FP を出力。**lint_screen の FP は diff 内容ではなく hook のソース全文を見て hallucinate している強い証拠** → mistral:7b の context window 内に hook source の周辺コードが含まれ、過去 commit の `use std::io::Write;` (test fn 内) を unused と推論。Phase b' scale-aware fixture では捕捉できない failure mode
-4. **副産物 (D-5 セッション知見、production bug fix)**: UTF-8 漢字単独 test 着手時に `byte_offset_to_line` の char-boundary panic bug を発見 → 1-line fix で resolve、direct unit test も追加。AI 編集で multi-byte 文字で終わる `new_string` (例: 「漢字のみのコメント」末尾改行なし) を渡すと従来 hook が panic していたのを構造的に修正。test 拡充が production fault detection に直結した事例
-5. **lint_screen agreement の累積観測 (5 観測中 4 FP)**: D-3 / D-4 CR fix / D-5 (×2) はいずれも file-type / scope 混同型 FP で同 root cause 推定。Phase b' agreement 75% 想定からは過大な FP 率 (~80%) だが、severity が全て `minor` で reviewer cross-check による blocking なし → 運用 viable
-6. **副産物 (D-5 push workflow 知見)**: 初回 push 後の outcome record 追記を「local @ in-place edit → split」で扱うと force-push 必要になる jj workflow gap を発見。代替策として `jj new <bookmark>@origin` で remote bookmark の child commit を直接作成 → FF push で advance する手順を実証。本 PR の 2 push 構成自体がこの workflow validation の dogfood
-
-**Phase D Round 1 完遂 + Round 2 D-4 + D-5 完遂後の Phase E 判定材料**:
-
-- ✅ pipeline integration works end-to-end (D-1 #144 smoke test + D-3 #148 + D-4 #150 + D-5 ×2 で計 5 real diff 完走)
-- ✅ num_ctx 32768 で 67-649 行 diff overflow なし (Phase C reference values と整合、D-5 docs-only 67 行 〜 D-5 impl 649 行で size 帯拡大)
-- ✅ fallback rate < 50% (D-3 0/1、D-4 initial 0/1、D-4 CR fix 0/1、D-5 ×2 0/2 = 累積 0/5 = 0%)
-- ⚠️ agreement: 累積 false positive 4 件観測 (D-3 / D-4 CR fix / D-5 ×2) — いずれも `minor` severity で reviewer cross-check 通過、blocking なし。D-5 観測で「diff 外 context から hallucinate する failure mode」を新発見
-- ✅ verdict variance: `auto_fix` (D-3 + D-4 CR fix + D-5 ×2) と `informational` (D-4 initial) の 2 経路を観測
-- 🔄 **累積 PR data 充足中**: Round 1 (D-3) + Round 2 (D-4 + D-5) で **5 data points (3 PR)** 取得済、累積 5 PR (= ADR-038 採用条件) は **3 PR 段階で先行充足**。残 D-6/D-7 で更に観測予定
-
-Phase E 着手の前提条件は **3-5 PR 累積 dogfood**。D-3 (1) + D-4 (1) + 残 D-5/D-6/D-7 (3 PR 計画) で計画上 **累積 5 PR** に到達する見込み。D-4 で「2 push event = 2 data points」が同 PR で発生する pattern を実証したため、Round 2 の残 PR でも CR fix 経由の追加観測が見込まれる。各 PR push 時に `$env:LINT_SCREEN_ENABLED=true` を opt-in で set し、`.takt/lint-screen-report.md` を post-push で記録する運用を継続。
+- **size 上限超過リスク**: M+M+XS が 800 行を超えた場合、c-1a (順位 63 単独) / c-1b (順位 64+67) の 2 PR 分割に switch (D-7 → D-7a/D-7b で 5 PR 拡張、Phase E 判定材料が 1 件増える方向で副次的に valid)
+- **detail 見積もりの精度**: todo7.md (順位 63/64/67) の詳細を未参照、着手時に scope 修正の必要あり
+- **num_ctx 32768 再 overflow**: D-3 (496 行) より大きい diff のため可能性あり、Phase A diagnostic log (`## Diagnostic` section) で即検知
 
 **Phase D 計測手順** (各 PR 共通):
 
@@ -361,45 +245,21 @@ Phase E 着手の前提条件は **3-5 PR 累積 dogfood**。D-3 (1) + D-4 (1) +
 5. **post-push cleanup**: env var を unset (session 終了で自動消滅、commit には影響なし)、PR 作成 → CR review → merge
 6. **3 PR 完了後**: 累積 fallback rate を集計 (num_ctx truncation / contract violation / 別問題 / 成功 で分類)、Phase D 基準 (<50% fallback) 達成判定、本 § Phase D row に dogfood outcome table 追加、Phase E 移行判断
 
-**想定リスク**:
+##### 🎯 Phase E: 採否判定 + retirement (1 PR、**Phase D Round 2 完遂後着手**)
 
-- **D-1 dogfood 不実施**: D-1 は ADR markdown のみで lint_screen が code lint findings を検出しない予測 (informational 0 件)。Phase D 前提整備 PR #144 で pipeline integration は smoke test 4 件で seal 済のため、D-1 skip による metrics ロスは限定的
-- **env var override 実装の D-2 への前出し**: D-2 (Rust test/comment mix) の scope に env var override (~30-50 行 Rust) が加わる。D-2 effort が S+S+S+S → S+S+S+M 程度に増加するが、PR sizing rule (250-800 行) 内に収まる予測
-- **D-3 (順位 102) のサイズ**: 250-350 行を超える可能性。L effort 化しても PR sizing rule (250-800 行) 内
-- **contract violation の再観測**: Phase C P-2 で `invalid severity: "error"` を観測した型崩壊系が Rust diff (D-2/D-3) で再発する可能性、Phase D scope 外として metrics 記録のみ
-- **num_ctx 32768 再 overflow**: D-3 は P-3 (487 行) より小さいため発生しないはずだが、prompt の token 効率次第。Phase A diagnostic log (`## Diagnostic` section) で即検知
-
-**別案 (棚上げ)**: D-1 を順位 110+111+104 (testing.md + docs-governance routing rule + ADR-007 amendment、mixed) に変更する案もあったが、ADR codify 優先で 112+113+114 を採用。
-
-##### 🎯 Phase E: 採否判定 + retirement (1 PR、analysis.md 削除を含む、**Phase D Round 2 完遂後着手**)
-
-- **着手前提**: Phase D Round 2 (D-4〜D-7) 完遂 + 累積 5 PR 分の dogfood data 揃い + 各 PR の metrics (latency p50/p95 / fallback rate / classification 妥当性) 集計済
-- **採用 case**: ADR-038 を「採用」に昇格 + [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) を削除 (試験運用ガイド役目終了) + 本 analysis.md を削除 + history.md は permanent record として保持判断
-- **却下 case**: cli-finding-classifier crate revert + ADR-038 を「却下」に更新 + Phase d guide 削除 + 本 analysis.md 削除
+- **着手前提**: D-7 完遂 + 累積 5 PR 分の dogfood data 揃い (D-6 時点で 4 PR / 6 data points 充足済)
+- **採用 case**: ADR-038 を「採用」に昇格 + [docs/local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) を削除 (試験運用ガイド役目終了) + 3 ファイル (`analysis.md` / `history.md` / `phase-d-outcomes.md`) を削除 (permanent value は ADR-038 へ migrate)
+- **却下 case**: cli-finding-classifier crate revert + ADR-038 を「却下」に更新 + 同 3 ファイル + Phase d guide 削除
 - **継続 case**: Phase D で別問題判明等 (例: real pipeline で classifier preview と異なる挙動) なら判定延期 + 本 §「次に何をするか」を再 pivot
 
 ##### Critical path 外 (並行 land 可、本 phase 完了を block しない)
 
 | Task | Effort | 関連 |
 |---|---|---|
-| 順位 100-108 docs PR (8 entries の todo registration、bundle 1 PR で消化) | S | Phase A〜C と並行 land 可、commit chain 整理 |
+| Bundle k 全 entry (順位 123-127、Phase D dogfood 由来の lint-screen FP 対策 + ADR-038 codify 等) | S+S+M+XS+XS | Phase D Round 2 で 4 PR 観測の構造的解消、優先実装 |
 | Bundle j-2 (順位 95+96、`.github/workflows/lint.yml` 新設) | M (S+M) | 独立 |
 | Bundle f-1/f-2 (PR #120 feedback) | S+M | 独立 |
 | 順位 110-114 (PR #142/#143 post-merge-feedback 採用分) | XS-S 各 | Phase D の対象 PR 候補としても活用可能 |
-
-##### Dogfood signal log (旧 PR roster の preview 結果、Phase B/D の比較対象として保持)
-
-| PR | 構成 | Diff 行 | Latency | findings | fallback_reason | Cumulative fallback |
-|---|---|---|---|---|---|---|
-| #139 (旧 P-1) | Bundle h + g-2 (docs-only) | 337 | 23s | 0 | `JSON parse error: missing field 'screen_decision'` (line 94) | 1/1 = 100% |
-| #140 (旧 P-2) | Bundle j-1 (TOML + Rust regex) | 203 | 46s | 0 | 同 (line 94 column 1) | 2/2 = 100% |
-| #141 (旧 P-3) | Bundle d (Rust test only) | 187 | 11s | 0 | 同 (line 1 column 692) | **3/3 = 100%** |
-
-**観測**: (a) fallback rate 100% が 3 PR 連続 = 既に kill-switch 60% 超過、(b) latency variance (23s/46s/11s) は input size と弱相関 = mistral 内部状態 (cold/warm context) が支配的要因の仮説、(c) すべて同一 fallback_reason = 単一 root cause の可能性大。
-
-**Phase d guide §3 kill-switch との関係**: ガイドは「real pipeline 経由で 3/5 fallback 観測 = 停止」と規定。本 preview は cli-finding-classifier 直叩きで pipeline 経由ではないが、3 連続 100% fallback は **厳密 kill-switch 超過に相当する severity**。Phase A〜C で repair しない限り Phase D に進めない判断。
-
-**Out-of-roster dropouts**: 旧 P-3 = Bundle g-1 (順位 85+86) は PR #125 で land 済を P-3 着手時に発見 → roster 除外 + stale todo 削除。経緯詳細は `feedback_verify_task_not_already_done.md` 参照。
 
 優先度低の独立 task (Phase d を block しない):
 - **§8.D**: classify mode の `normalized_issue` 言語制約強化 (low priority、ROI ★)
@@ -410,8 +270,11 @@ Phase E 着手の前提条件は **3-5 PR 累積 dogfood**。D-3 (1) + D-4 (1) +
 
 ## 関連リンク
 
-- [local-llm-offload-history.md](local-llm-offload-history.md) — 完了済みの分析・実装・dogfood 計測・retrospective
+- [local-llm-offload-phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) — **Phase A〜D 各 PR の dogfood outcome / Phase E 判定材料 / Dogfood signal log** (本ファイルから 2026-05-13 分離)
+- [local-llm-offload-history.md](local-llm-offload-history.md) — 旧計画 (§A-2 dogfood 等) + Phase a-c 以前の retrospective
+- [local-llm-offload-phase-d-guide.md](local-llm-offload-phase-d-guide.md) — Phase D 着手時の運用ガイド
 - [ADR-038: ローカル LLM による CodeRabbit findings classification](adr/adr-038-local-llm-finding-classification.md) — 提案 2 (cli-finding-classifier) の land 結果、Phase a evals infrastructure の re-use 対象
+- [ADR-040: Local LLM Context Size と Resource Trade-off](adr/adr-040-local-llm-context-size.md) — Phase C `num_ctx 32768` の根拠
 - [ADR-018: cli-pr-monitor の takt ベース移行と CronCreate 廃止](adr/adr-018-pr-monitor-takt-migration.md)
 - [ADR-020: takt facets (fix/supervise) の pre-push/post-pr 共通化戦略](adr/adr-020-takt-facets-sharing.md)
 - [ADR-034: CodeRabbit 監視・対話の自動化戦略 — Bundle a 設計根拠](adr/adr-034-coderabbit-auto-monitoring.md)
