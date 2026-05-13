@@ -193,6 +193,68 @@ PR #78 dogfood で発覚した **Windows の `child.kill()` が takt の descend
 - takt が timeout で kill されたが、orphan が後から report を書き終えた
 - takt が exit=non-zero を返したが、aggregate-feedback は完了していた
 
+#### Abrupt 終了の多層 recovery (Bundle c-1 で追加)
+
+PR #109 マージ直後の post-merge-feedback workflow が SIGPIPE で silent 中断され `.failed` marker 未生成という failure mode が実証された。原因は `feedback::run` が `Result::Err` を返した場合のみ `write_failed_marker` を呼ぶ設計で、Rust default の SIGPIPE 動作 (`SIG_DFL` = unwind せず process 終了) では `Result::Err` 経路にも Drop 経路にも到達しないため。本節は ADR-030 "失敗マーカーによる recovery" の決定論性を **abrupt 終了系 (SIGPIPE / SIGTERM / kill -9 / SIGKILL / power loss / OOM Killer / panic) でも担保するための多層構造** を spec として明記する。
+
+##### L1: in-process recovery
+
+`cli-merge-pipeline::feedback::run` 内で **pre-emptive `.failed` marker** + **RAII Drop guard** の 2 機構で marker 存在を保証する:
+
+| 機構 | 動作 | カバー範囲 |
+|---|---|---|
+| pre-emptive marker | `feedback::run` の `check_concurrent_run_guard` 直後に `write_pending_marker` で `.failed` marker を先制書込み。正常完了時のみ `cleanup_failed_marker` で削除 | **SIGPIPE / SIGTERM / kill -9 / SIGKILL** など unwind せず即時 process 終了する経路 (Rust default では Drop は走らない) |
+| RAII Drop guard (`FailedMarkerGuard`) | `armed = true` で生成。Drop 時に marker 存在を idempotent check し、欠落していれば backup marker を書込み。`disarm()` 呼出で no-op 化 | **panic / 早期 return** など Drop が走る経路。caller が detailed marker を書いた後でも idempotent (既存 marker は overwrite しない) |
+
+正常 path:
+1. `write_pending_marker` で marker 書込み + `FailedMarkerGuard::new(armed=true)`
+2. 全 step 成功
+3. `cleanup_failed_marker` で marker 削除
+4. `marker_guard.disarm()` → armed=false
+5. scope 終了、Drop は no-op
+
+abnormal path (panic / 早期 return):
+1. `write_pending_marker` で marker 書込み (armed=true)
+2. 途中で panic or `?` で早期 return
+3. scope 巻き戻し、Drop が `marker.exists() = true` を確認 → no-op (pre-emptive marker が既に在る)
+
+abrupt path (SIGPIPE / SIGKILL 等):
+1. `write_pending_marker` で marker 書込み (armed=true)
+2. process が **unwind せず即時終了**
+3. Drop は走らない → しかし pre-emptive marker は既にディスクに残存
+
+##### L2: out-of-process recovery (orphan run reaper)
+
+L1 の pre-emptive marker 書込み **直前** に process が死んだ場合 (例: `feedback::run` を呼び出す直前で OOM Killer 発火、power loss、`std::fs::write` 自体が完了する前の kill -9) は L1 の救済対象外。この極致 case 用に `hooks-session-start` が SessionStart hook で **out-of-process reaper** を走らせる:
+
+- **scan 対象**: `.takt/runs/*/meta.json` の `status: "running"` AND `task` が `"post-merge-feedback for #"` で始まる run
+- **orphan 判定閾値**: `ORPHAN_THRESHOLD_SECS = TAKT_TIMEOUT_SECS + 300 (= 1500s)`。`TAKT_TIMEOUT_SECS` 経過後も `running` のまま放置されている run は abrupt termination で死んだとみなす
+- **reap 動作**: `.claude/feedback-reports/<pr>.md.failed` marker を生成 + `meta.json` の `status` を `"failed"` に更新 (`reaped_by: "hooks-session-start"` field も追加)
+- **冪等性 / false-positive 抑止**: 以下のいずれかに該当する run は reap を skip する:
+  1. 既存の `.failed` marker がある (L1 もしくは前回 reaper pass で処理済み)
+  2. **`.claude/feedback-reports/<pr>.md` 成功レポートが存在する** — 上記 Reconciliation 節で記述した「takt parent kill 後に descendants が report 完成」path では meta.json が `status: "running"` のまま残るが、実際には成功している。reap せず stale meta.json を放置する方が、false-positive の `.failed` marker で `hooks-user-prompt-feedback-recovery` が毎 prompt nag するより害が少ない
+- **nudge**: 検出時は SessionStart の `additionalContext` に `[POST_MERGE_FEEDBACK_REAPER]` tag 付きで通知
+
+##### 責務分離
+
+| 層 | 場所 | 救済対象 |
+|---|---|---|
+| **L1 floor** (in-process pre-emptive marker) | `cli-merge-pipeline::feedback::run` | SIGPIPE / SIGTERM / kill -9 / SIGKILL / panic / `Result::Err` (= 大半の経路) |
+| **L1 backstop** (in-process Drop guard) | 同上 (`FailedMarkerGuard`) | panic / 早期 return での marker 消失防止 (idempotent backup) |
+| **L2 reaper** (out-of-process) | `hooks-session-start::compute_reaper_nudge` | pre-emptive write 完了前の OOM Killer / power loss / kill -9。Drop guard で救済不可な致命系の backstop |
+| **L2 recovery** (UserPromptSubmit hook) | `hooks-user-prompt-feedback-recovery` | 上記いずれかで生成された `.failed` marker を Claude に通知 |
+
+L1 と L2 は **重複動作しない**: L1 が marker を書いていれば L2 reaper は `marker.exists()` で skip。L2 が走るのは L1 が完全に効かなかった致命系のみ。
+
+##### SLA (post-merge-feedback の完了/失敗保証)
+
+「post-merge-feedback はマージ後、次のいずれかの状態に **必ず** 遷移する」をステートメントとして規定:
+
+- **完了 (`.claude/feedback-reports/<pr>.md` 生成)**: `pnpm merge-pr` 同期実行内、`TAKT_TIMEOUT_SECS` 以内
+- **失敗 marker 化 (`.failed` marker 残存)**: L1 経路は `feedback::run` の return 時点で確定。L2 経路は **次回 Claude Code SessionStart 時** で確定 (orphan が `ORPHAN_THRESHOLD_SECS` 経過後)
+
+つまり、L1 のみであれば「マージ後 `TAKT_TIMEOUT_SECS` 以内に完了 or marker 化」が保証される。L2 (致命系の backstop) を含めても「次回 SessionStart 時には必ず marker 化」が保証される。実数値は `cli-merge-pipeline::feedback::TAKT_TIMEOUT_SECS` / `ORPHAN_THRESHOLD_SECS` を参照のこと (本 ADR で数値固定するとコード変更時に drift する)。
+
 #### 並行起動 guard (Phase B post-fix で追加)
 
 cross-invocation context overwrite race の予防として、`feedback::run` の冒頭で `.takt/post-merge-feedback-context.json` の経過時間を確認:
