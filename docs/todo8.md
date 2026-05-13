@@ -236,25 +236,25 @@
 
 ---
 
-### ADR-038 に mistral:7b 「diff 外 context hallucinate」failure mode を追記 (PR #151 T3-#1 採用、順位 123 と同 PR 推奨、**PR #152 で再観測**)
+### ADR-038 に mistral:7b 「diff 外 context hallucinate」failure mode を追記 (PR #151 T3-#1 採用、順位 123 と同 PR 推奨、**PR #152 / PR #153 で再観測 = 5 PR 連続**)
 
-> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5 ×2) / **PR #152 (D-6 docs-only)** の 4 PR で観測された FP pattern = 「mistral:7b が diff 内容に関わらず hook source 周辺の context を見て `unused-import` を hallucinate する」を ADR-038 に codify。Phase b' fixture では再現しない failure mode のため、将来の prompt 改善や別モデル評価時の prior assumption として永続記録する価値あり。
+> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5 ×2) / **PR #152 (D-6 docs-only)** / **PR #153 (analysis.md split)** の **5 PR 連続** で観測された FP pattern = 「mistral:7b が diff 内容に関わらず hook source 周辺の context を見て `unused-import` を hallucinate する」を ADR-038 に codify。Phase b' fixture では再現しない failure mode のため、将来の prompt 改善や別モデル評価時の prior assumption として永続記録する価値あり。
 >
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #1 採用 → PR #152 post-merge-feedback で 4 PR 観測に拡大 (Severity Low / Frequency High / Effort XS / Adoption Risk None)。順位 123 (lint-screen MD フィルタ実装) と同 PR で land 効率的 (実装と仕様の整合性確保)。
+> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #1 採用 → PR #152 post-merge-feedback で 4 PR 観測に拡大 → **PR #153 post-merge-feedback で Frequency High 閾値到達** (Severity Low / Frequency High / Effort XS / Adoption Risk None)。順位 123 (lint-screen MD フィルタ実装) と同 PR で land 効率的 (実装と仕様の整合性確保)。
 >
-> **参照**: `.claude/feedback-reports/151.md` Tier 3 #1、`docs/adr/adr-038-local-llm-finding-classification.md`、D-3/D-4/D-5 outcome (`docs/local-llm-offload-analysis.md`)
+> **参照**: `.claude/feedback-reports/151.md` Tier 3 #1 / `.claude/feedback-reports/152.md` T3 #1 / `.claude/feedback-reports/153.md` T3 #1、`docs/adr/adr-038-local-llm-finding-classification.md`、D-3/D-4/D-5/D-6 outcome (`docs/local-llm-offload-phase-d-outcomes.md`)
 
 #### 作業計画
 
 - [ ] ADR-038 に「Known failure mode: docs-only diff Rust context hallucinate」section 追加
-- [ ] 3 PR 観測の事実 (#148/#150/#151) を inline cite
-- [ ] 根本原因の推定 (context window 内に hook source が含まれる → past commit の `use` 文を current diff として誤認) を記録
-- [ ] 対策として順位 123 (拡張子フィルタ) を citation
+- [ ] 5 PR 観測の事実 (#148/#150/#151/#152/#153) を inline cite
+- [ ] **Root cause を明記**: LLM context window に hook source コードが混入 → 過去 commit の `use` 文 (test fn 内 等) を current diff として hallucinate → `unused-import` FP を生成 (PR #153 post-merge-feedback T3 #1 で specifically 要求された記述)
+- [ ] **Structural fix の cross-link を明記**: 対策 = Bundle k 順位 123 (拡張子フィルタで `.md` ハンクを diff 段階から除外) を ADR 本文から explicit 引用 (root cause と fix の両方を一箇所で逆引き可能にする、PR #153 post-merge-feedback T3 #1 で specifically 要求された記述)
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- ADR-038 から「なぜ Markdown 除外フィルタが必要か」が逆引きできる
+- ADR-038 から「なぜ Markdown 除外フィルタが必要か」が逆引きできる (root cause + fix path が同一 section で記述)
 - 将来別モデル評価 (LLaMa / phi 等) で同 failure mode を検証する出発点になる
 
 ---
@@ -278,5 +278,31 @@
 
 - 次回 extensions 変更時に rule 編集者が test 追加を忘れにくくなる
 - comment が機械強制ではなく guide として機能する (PR review 時の checklist としても再利用可)
+
+---
+
+### CLAUDE.md § Cross-File Reference Lifecycle に多ファイル同時削除 retirement condition checklist を追加 (PR #153 T3-#2 採用)
+
+> **動機**: PR #153 で `docs/local-llm-offload-analysis.md` を `phase-d-outcomes.md` に分割した際、retirement clause を **3 ファイル (analysis.md / history.md / phase-d-outcomes.md) 同時削除** に統一する作業が developer/AI の手動 review でしか担保されていなかった。advisor 指摘で明示的に「3 ファイルすべてに同じ retirement clause を書く」ステップを踏んだが、これは structural pattern として再利用可能 (今後の docs/* 50KB 分割でも同じ checklist が必要)。同パターンが drift すると ephemeral artifact の lifecycle 整合が崩れ、stale pointer が増殖するリスクあり。
+>
+> **本タスクの位置づけ**: PR #153 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。**既存実践 (PR #133 todo.md 分割 + PR #153 analysis.md 分割) の明文化 + 機械強制ではなく guide 効果** のため、`feedback_no_unenforced_rules.md` の例外条件 (順位 122 / 127 と同じロジック) を満たす。
+>
+> **参照**: `.claude/feedback-reports/153.md` Tier 3 #2、`~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle、`~/.claude/rules/common/docs-governance.md` § Retirement Workflow
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle に「多ファイル同時削除時の retirement condition consistency checklist」section を追加 (3-5 項目程度の bullet list)
+  - 「N ファイルを同時削除する設計の場合、全 N ファイルの header に同一の retirement clause が記載されているか」
+  - 「retirement workflow の Step 3 (参照更新) で `grep -rn '<filename>'` を全ファイル分実施したか」
+  - 「新ファイル追加時に既存ファイルの retirement clause にも追記したか」
+  - 「参照先 (ADR / docs-governance.md) が permanent artifact であることを確認」
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) は `~/.claude/` global 配下なので自動波及
+- [ ] グローバル設定変更前に `~/.claude/` snapshot 取得 (memory rule `feedback_global_config_backup.md` 適用)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 次回多ファイル分割 (例: history.md 50KB 接近時) で同 checklist を踏むことで drift が構造的に防止される
+- PR #133 (todo.md 分割) / PR #153 (analysis.md 分割) の successful pattern が明文化され、3 例目以降の reproducibility が確保される
 
 ---

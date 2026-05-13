@@ -31,8 +31,13 @@ use std::time::Duration;
 /// として含む `"<workflow-name> [<context>]"` 形式とする。これにより takt の sanitization 後の
 /// dir 名 (`<timestamp>-<sanitized-task-label>`) が必ず workflow 名を含み、`find_latest_run_dir`
 /// が `name.contains("-<workflow>")` でマッチできる。
-const TAKT_WORKFLOW: &str = "post-merge-feedback";
-const TAKT_TASK_PREFIX: &str = "post-merge-feedback for #";
+pub const TAKT_WORKFLOW: &str = "post-merge-feedback";
+
+/// post-merge-feedback の task label prefix。`hooks-session-start` の orphan reaper
+/// (ADR-030 §L2 out-of-process) も meta.json `task` field を本値で discriminate する。
+/// 値を変更する場合は両 crate を同 PR で更新する (Drift 検出用 test は
+/// `hooks-session-start` 側で literal を assertion している)。
+pub const TAKT_TASK_PREFIX: &str = "post-merge-feedback for #";
 
 /// takt 実行のデフォルトタイムアウト (20 分)
 ///
@@ -40,6 +45,19 @@ const TAKT_TASK_PREFIX: &str = "post-merge-feedback for #";
 /// 対し 2x の安全係数を取った暫定値。analyze-session の所要時間は transcript 量で
 /// スケールするため、長期 PR では再評価が必要 (ADR-030 §レイテンシ 参照)。
 pub const TAKT_TIMEOUT_SECS: u64 = 1200;
+
+/// orphan run reaper (ADR-030 §L2) の閾値秒数。`TAKT_TIMEOUT_SECS` + 余裕 5 分。
+///
+/// 正常 run は `TAKT_TIMEOUT_SECS` (1200s) 以内に completed / failed のいずれかに
+/// 遷移するため、本値 (1500s) を超えても `status: "running"` のまま放置されている
+/// run は abrupt 終了 (kill -9 / SIGKILL / power loss / OOM Killer) で in-process Drop
+/// guard を経由せず死んだとみなす。`TAKT_TIMEOUT_SECS` 変更時に本値も自動追随する。
+///
+/// 本 const は canonical 参照値として保持し、out-of-process reaper 実装の
+/// `hooks-session-start::ORPHAN_THRESHOLD_SECS` は同 literal `1500` を pin する
+/// (両 crate の test で drift 検出)。
+#[allow(dead_code)]
+pub const ORPHAN_THRESHOLD_SECS: u64 = TAKT_TIMEOUT_SECS + 300;
 
 /// run_takt_workflow のポーリング間隔 (ms)
 const POLL_INTERVAL_MS: u64 = 500;
@@ -518,10 +536,83 @@ pub fn write_failed_marker(
 
 /// 成功時に `.failed` marker が残っていたら削除する。
 fn cleanup_failed_marker(repo_root: &Path, pr_number: u64) {
-    let path = repo_root
-        .join(FEEDBACK_DIR)
-        .join(format!("{}.md.failed", pr_number));
+    let path = failed_marker_path(repo_root, pr_number);
     let _ = fs::remove_file(path);
+}
+
+/// `.claude/feedback-reports/<pr>.md.failed` の絶対パスを返す (純粋関数)。
+pub fn failed_marker_path(repo_root: &Path, pr_number: u64) -> PathBuf {
+    repo_root
+        .join(FEEDBACK_DIR)
+        .join(format!("{}.md.failed", pr_number))
+}
+
+/// pre-emptive `.failed` marker (Drop guard 用)。
+///
+/// ADR-030 §L1 in-process recovery の中核。`feedback::run` の早期段階で marker を
+/// 書き出し、正常完了時のみ `cleanup_failed_marker` で削除する。SIGPIPE / kill -9 等で
+/// process が abrupt 終了しても marker がディスクに残るため L2 recovery (UserPromptSubmit
+/// hook) が拾える。
+///
+/// 詳細 reason (例: takt timeout、report 不在) は caller (main.rs) が Err 経路で
+/// `write_failed_marker` を再呼び出しして上書きするため、本関数は最小限の
+/// "pending" 状態のみ書き出す。
+fn write_pending_marker(repo_root: &Path, pr_number: u64) -> Result<PathBuf, String> {
+    write_failed_marker(
+        repo_root,
+        pr_number,
+        "pending: takt workflow が完了する前に process が終了した可能性あり \
+         (pre-emptive marker, ADR-030 §L1)",
+    )
+}
+
+/// RAII guard: scope 終了時に `.failed` marker が残っていることを保証する。
+///
+/// ADR-030 §L1 in-process Drop guard。`feedback::run` 内で armed 状態の guard を
+/// 作成し、正常完了時のみ `disarm()` で抑止する。abnormal 経路 (panic / 早期 return)
+/// では Drop が marker 存在を check し、欠落していれば backup として書き直す
+/// (idempotent: 既存 marker (例: caller の detailed marker) は overwrite しない)。
+///
+/// **Rust default SIGPIPE の制約**: `SIG_DFL` で process が abrupt 終了するため
+/// Drop は呼ばれない。SIGPIPE 経路は `write_pending_marker` の **pre-emptive 書込み**
+/// で marker をディスクに先置きすることで救済する。本 guard は panic / 早期 return
+/// のような Drop が走る経路の backup として機能する。
+struct FailedMarkerGuard<'a> {
+    repo_root: &'a Path,
+    pr_number: u64,
+    armed: bool,
+}
+
+impl<'a> FailedMarkerGuard<'a> {
+    fn new(repo_root: &'a Path, pr_number: u64) -> Self {
+        Self {
+            repo_root,
+            pr_number,
+            armed: true,
+        }
+    }
+
+    /// 正常完了時に guard を解除する。Drop は no-op になる。
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for FailedMarkerGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if failed_marker_path(self.repo_root, self.pr_number).exists() {
+            return;
+        }
+        let _ = write_failed_marker(
+            self.repo_root,
+            self.pr_number,
+            "pending: workflow が unexpected に終了した \
+             (FailedMarkerGuard Drop, ADR-030 §L1)",
+        );
+    }
 }
 
 /// 並行起動 guard の TTL (秒)。`TAKT_TIMEOUT_SECS` (1200s) より少し長い値。
@@ -901,6 +992,115 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    fn unique_temp_root(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "{}-{}-{}",
+            prefix,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ))
+    }
+
+    #[test]
+    fn failed_marker_path_uses_feedback_dir_layout() {
+        let path = failed_marker_path(Path::new("/repo"), 42);
+        let suffix = format!("{}{}42.md.failed", FEEDBACK_DIR, std::path::MAIN_SEPARATOR);
+        assert!(path.to_string_lossy().ends_with(&suffix));
+    }
+
+    #[test]
+    fn orphan_threshold_exceeds_takt_timeout() {
+        assert!(
+            ORPHAN_THRESHOLD_SECS > TAKT_TIMEOUT_SECS,
+            "orphan threshold ({}s) must exceed TAKT_TIMEOUT_SECS ({}s) to avoid \
+             false-positive reaping of legitimately-running takt workflows",
+            ORPHAN_THRESHOLD_SECS,
+            TAKT_TIMEOUT_SECS,
+        );
+        assert_eq!(
+            ORPHAN_THRESHOLD_SECS,
+            TAKT_TIMEOUT_SECS + 300,
+            "ORPHAN_THRESHOLD_SECS must track TAKT_TIMEOUT_SECS + 300s margin \
+             (ADR-030 §L2 reaper threshold)"
+        );
+    }
+
+    #[test]
+    fn write_pending_marker_creates_marker_with_pending_reason() {
+        let root = unique_temp_root("feedback-pending");
+        fs::create_dir_all(&root).unwrap();
+        let path = write_pending_marker(&root, 9).unwrap();
+        assert!(path.exists());
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("PR #9"));
+        assert!(body.contains("pending"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn marker_guard_disarmed_does_not_create_marker() {
+        let root = unique_temp_root("feedback-guard-disarmed");
+        fs::create_dir_all(&root).unwrap();
+        {
+            let mut guard = FailedMarkerGuard::new(&root, 11);
+            guard.disarm();
+        }
+        assert!(!failed_marker_path(&root, 11).exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn marker_guard_armed_writes_backup_when_missing() {
+        let root = unique_temp_root("feedback-guard-armed");
+        fs::create_dir_all(&root).unwrap();
+        {
+            let _guard = FailedMarkerGuard::new(&root, 12);
+        }
+        let path = failed_marker_path(&root, 12);
+        assert!(path.exists());
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("FailedMarkerGuard Drop"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn marker_guard_armed_preserves_existing_detailed_marker() {
+        let root = unique_temp_root("feedback-guard-preserve");
+        fs::create_dir_all(&root).unwrap();
+        let existing = write_failed_marker(&root, 13, "takt timeout 1200s").unwrap();
+        let original_body = fs::read_to_string(&existing).unwrap();
+        {
+            let _guard = FailedMarkerGuard::new(&root, 13);
+        }
+        let after_body = fs::read_to_string(&existing).unwrap();
+        assert_eq!(
+            original_body, after_body,
+            "Drop guard must not overwrite an existing detailed marker (idempotent backup)"
+        );
+        assert!(after_body.contains("takt timeout 1200s"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn marker_guard_disarmed_preserves_existing_marker() {
+        let root = unique_temp_root("feedback-guard-disarm-preserve");
+        fs::create_dir_all(&root).unwrap();
+        write_failed_marker(&root, 14, "leftover").unwrap();
+        let path = failed_marker_path(&root, 14);
+        {
+            let mut guard = FailedMarkerGuard::new(&root, 14);
+            guard.disarm();
+        }
+        assert!(
+            path.exists(),
+            "disarm must not delete an existing marker (only the Ok-path cleanup_failed_marker does)"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn find_latest_prepush_picks_lexicographic_max() {
         let root = std::env::temp_dir().join(format!(
@@ -1107,26 +1307,22 @@ mod tests {
 /// 観測された (PR #78 で kill 後 2 分 13 秒で feedback-report.md 完成)。
 /// takt が exit=non-zero でも report が出ていれば成功扱いとする。
 pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
-    let range = fetch_pr_time_range(input.pr_number, input.owner_repo)
-        .map_err(|e| format!("PR 時刻 range 取得失敗: {}", e))?;
-
     let context_path = input.repo_root.join(CONTEXT_PATH);
     let transcript_path = input.repo_root.join(TRANSCRIPT_PATH);
 
     check_concurrent_run_guard(&context_path)?;
 
-    let written = match input.transcript_source_dir.as_ref() {
-        Some(dir) => filter_transcripts(dir, &range, &transcript_path)
-            .map_err(|e| format!("transcript filter 失敗: {}", e))?,
-        None => {
-            // ソース dir 不明: 空 jsonl を出力 (facet が「データなし」分岐に進む)
-            if let Some(parent) = transcript_path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let _ = fs::write(&transcript_path, "");
-            0
-        }
-    };
+    let _ = write_pending_marker(&input.repo_root, input.pr_number);
+    let mut marker_guard = FailedMarkerGuard::new(&input.repo_root, input.pr_number);
+
+    let range = fetch_pr_time_range(input.pr_number, input.owner_repo)
+        .map_err(|e| format!("PR 時刻 range 取得失敗: {}", e))?;
+
+    let written = prepare_transcript(
+        input.transcript_source_dir.as_deref(),
+        &range,
+        &transcript_path,
+    )?;
     eprintln!(
         "[merge-pipeline] [feedback] transcript filter 完了 ({} entries → {})",
         written,
@@ -1154,7 +1350,45 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
         );
     }
 
-    match copy_feedback_report(&input.repo_root, input.pr_number) {
+    let result = reconcile_takt_output(&input.repo_root, input.pr_number, takt_ok);
+    if result.is_ok() {
+        marker_guard.disarm();
+    }
+    result
+}
+
+/// transcript jsonl を filter (source dir 既知時) または空ファイル書込 (source dir 不在時) する。
+///
+/// 戻り値は書き込んだ行数 (空ファイル時は 0)。source dir 不在のケースは facet 側の
+/// 「データなし」分岐に流すため、エラーではなく 0 行で成功扱いとする。
+fn prepare_transcript(
+    transcript_source_dir: Option<&Path>,
+    range: &PrTimeRange,
+    transcript_path: &Path,
+) -> Result<usize, String> {
+    match transcript_source_dir {
+        Some(dir) => filter_transcripts(dir, range, transcript_path)
+            .map_err(|e| format!("transcript filter 失敗: {}", e)),
+        None => {
+            if let Some(parent) = transcript_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(transcript_path, "");
+            Ok(0)
+        }
+    }
+}
+
+/// takt 完了後の report コピーと reconciliation。
+///
+/// `takt_ok = false` でも orphan takt が report を完成させた可能性があるため必ず copy を
+/// 試す。成功時に `.failed` marker を cleanup、失敗時は cause prefix 付きで Err を返す。
+fn reconcile_takt_output(
+    repo_root: &Path,
+    pr_number: u64,
+    takt_ok: bool,
+) -> Result<PathBuf, String> {
+    match copy_feedback_report(repo_root, pr_number) {
         Ok(report) => {
             if !takt_ok {
                 eprintln!(
@@ -1162,7 +1396,7 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
                      timeout/失敗扱いだったが orphan が report を完成させていた"
                 );
             }
-            cleanup_failed_marker(&input.repo_root, input.pr_number);
+            cleanup_failed_marker(repo_root, pr_number);
             Ok(report)
         }
         Err(copy_err) => {

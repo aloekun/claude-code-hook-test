@@ -213,7 +213,7 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 | 🛠️ D 前提整備 (順位 109) | ✅ 完了 | #144 (2026-05-11) | `.takt/lint-screen-report.md` に `## Diagnostic` section、real pipeline 経由で warn log が visible |
 | 🔄 D Round 1 (D-1〜D-3) | ✅ 完遂 | #145/#146/#147/#148 (2026-05-12) | env var override (順位 115) 解消、D-3 で初の real lint_screen 観測 = 1 data point |
 | 🔄 D Round 2 (D-4〜D-6) | ✅ 完遂 | #150/#151/#152 (2026-05-13) | size ramp-up + verdict variance 観測、累積 6 data points / 4 PR |
-| 🔄 D Round 2 (D-7) | 未着手 | (Bundle c-1) | cli-merge-pipeline Drop guard / orphan reaper / ADR-030 spec |
+| 🔄 D Round 2 (D-7) | 🚧 進行中 | (Bundle c-1) | cli-merge-pipeline pre-emptive marker + Drop guard / orphan reaper / ADR-030 spec |
 
 **Phase E 着手前提条件 = 3-5 PR 累積 dogfood は D-6 完遂時点で既に充足** (4 PR / 6 data points)。D-7 完遂後に Phase E (採否判定) 移行可能。Round 1/2 で観測した **false positive 5 件中 5 件が file-type / scope 混同型** (mistral:7b の context window 内 hook source 周辺 hallucinate) → Bundle k 順位 123 (MD 除外フィルター) の構造的解消対象。詳細 metrics・観測の意義・各 PR の dogfood outcome は [phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) 参照。
 
