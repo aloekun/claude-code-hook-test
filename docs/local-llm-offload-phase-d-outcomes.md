@@ -85,9 +85,9 @@ Phase C fix + Phase D 前提整備 (順位 109) 完了で **real pipeline 経由
 4. **1 false positive は Phase b' agreement 75% (= 25% disagreement) と整合**: 想定範囲内、複数 PR 累積評価が前提
 5. **副産物 (D-3 post-merge-feedback)**: `MAX_CUSTOM_VIOLATIONS` outer/inner loop break scope の explicit test 必要性を発見 (Tier 2-1 採用、順位 119)、rule⑧ への paths filter 適用範囲検討を順位 118 として backlog 化
 
-## 🔄 Phase D Round 2 進行中 (D-4〜D-7、2026-05-13〜)
+## ✅ Phase D Round 2 完遂 (D-4〜D-7、2026-05-13〜2026-05-14)
 
-Round 1 で実 dogfood data point が **1 件のみ** (D-3) に留まり、ADR-038 採用条件「5 PR 以上」+ analysis.md「3-5 PR 累積」前提との乖離が判明。**残 4 PR で Rust code 中心 + size ramp-up + 累積 5 PR (D-3 + D-4〜D-7) 達成** を狙う延長計画を策定 (D-1 反省 = docs-only 回避 / workflow gap 解消済確認)。
+Round 1 で実 dogfood data point が **1 件のみ** (D-3) に留まり、ADR-038 採用条件「5 PR 以上」+ analysis.md「3-5 PR 累積」前提との乖離が判明。**残 4 PR で Rust code 中心 + size ramp-up + 累積 5 PR (D-3 + D-4〜D-7) 達成** を狙う延長計画を策定 (D-1 反省 = docs-only 回避 / workflow gap 解消済確認)。**全 4 PR (D-4〜D-7) が land し、累積 7 data points / 5 PR で ADR-038 採用条件を完全充足**。
 
 ### Round 2 対象 PR 構成
 
@@ -96,7 +96,7 @@ Round 1 で実 dogfood data point が **1 件のみ** (D-3) に留まり、ADR-0
 | **D-4** ✅ | 順位 39 単独 = takt workflow `model` 必須化 lint rule + 副次作業 + CR Major fix で 4 fields 追加 | T1 / S | 実 ~340 行 (commit 0c2cc07d + 1ec15686) | Rust lint rule (yaml multi-line regex) + 6+1 unit tests + custom-lint-rules.toml entry + 3 yaml site touch | **PR #150 merged 2026-05-13、初 real lint_screen 観測 2 data points** |
 | **D-5** ✅ | 順位 56 + 119 bundle = comment-lint hook test 拡充 + `MAX_CUSTOM_VIOLATIONS` test + 副産物 `byte_offset_to_line` char-boundary panic bug fix | T2+T2 / S+S | 実 ~120 行 | comment-lint-rust + post-tool-linter test infra (UTF-8 5 + block boundary 6 + multi-rule MAX cap 2 + direct unit 1) | **PR #151 merged 2026-05-13、2 push events で 2 data points** |
 | **D-6** ✅ | 順位 51 単独 = `.takt/review-diff.txt` を fix→review iteration 間で refresh (案 A takt hook 不可と判明 → 案 C fix.md instruction-level refresh に pivot) + Bundle k 順位 123-127 entry 登録 combined PR | T1 / M→S | 実 ~80 行 D-6 + Bundle k entry ~130 行 | takt facet instruction (markdown) + design docs (docs-only PR) | **PR #152 merged 2026-05-13、real lint_screen 1 data point** |
-| **D-7** | Bundle c-1 (順位 63 + 64 + 67) = cli-merge-pipeline Drop guard / signal handler + orphan run reaper + ADR-030 spec amendment | T1×2 + T3 / M+M+XS | ~600-800 | Rust impl + signal trap + reaper logic + ADR markdown | 未着手 |
+| **D-7** ✅ | Bundle c-1 (順位 63 + 64 + 67) = cli-merge-pipeline pre-emptive marker + RAII Drop guard + orphan run reaper + ADR-030 §L1/L2 spec amendment | T1×2 + T3 / M+M+XS | 実 845 ins / 175 del | Rust impl (cli-merge-pipeline pre-emptive marker + FailedMarkerGuard + hooks-session-start ISO 8601 parser + orphan reaper + meta.json mutator) + ADR markdown amendment | **PR #154 merged 2026-05-14、self-dogfood で L1 recovery 機構が実証 + 新 failure mode (Ollama timeout) 観測** |
 
 **size ramp-up 設計 (Round 2)**: small → small-mid → mid → mid-large で num_ctx 32768 容量限界に向け漸増、各 size 帯で fallback 発生率 / Phase A diagnostic warn log 出力有無を観測。D-3 (mid, 496 行) と組合せて 5 size 帯をカバー。
 
@@ -154,16 +154,41 @@ D-6 は当初想定 (案 A = takt workflow hook) から **案 C = fix.md instruc
 5. **設計判断 pivot (案 A→案 C) のメタ知見**: takt v0.35.3 schema を直接参照 (`piece-types.d.ts` / `runtime-environment.js`) して案 A 不可と確定 → advisor 相談で案 C 採用 (既存 Bundle Z #B-β `fix-metrics-check.ps1` invocation と同形 precedent)。framework capability の不確実性は **実装前の schema/source 直接確認** で解消可能
 6. **副産物 (push workflow 知見)**: 2 つの独立タスク (Bundle k entry 登録 + D-6 impl) が working copy に混在した状態から `jj split` で 2 commit に分離 + 1 PR で push という pattern を実証 (PR 分割せず commit のみ分離)
 
-## 📊 Phase D Round 1 + Round 2 (D-4/D-5/D-6) 完遂後の Phase E 判定材料
+### D-7 dogfood outcome (PR #154)
 
-- ✅ pipeline integration works end-to-end (D-1 #144 smoke test + D-3 #148 + D-4 #150 + D-5 ×2 + **D-6 #152** で計 6 real diff 完走)
-- ✅ num_ctx 32768 で 67-649 行 diff overflow なし (Phase C reference values と整合、D-5 docs-only 67 行 〜 D-5 impl 649 行で size 帯拡大、D-6 docs-only 210 行で再確認)
-- ✅ fallback rate < 50% (D-3 0/1、D-4 initial 0/1、D-4 CR fix 0/1、D-5 ×2 0/2、**D-6 0/1** = 累積 0/6 = 0%)
-- ⚠️ agreement: 累積 false positive **5 件観測** (D-3 / D-4 CR fix / D-5 ×2 / **D-6**) — いずれも `minor` severity で reviewer cross-check 通過、blocking なし。D-5 / D-6 観測で「diff 外 context から hallucinate する failure mode」が docs-only diff でも reproducible と確定 = Bundle k 順位 123 (MD 除外フィルター) の構造的解消対象
-- ✅ verdict variance: `auto_fix` (D-3 + D-4 CR fix + D-5 ×2 + D-6) と `informational` (D-4 initial) の 2 経路を観測
-- ✅ **累積 PR data 充足完了**: Round 1 (D-3) + Round 2 (D-4 + D-5 + D-6) で **6 data points (4 PR)** 取得済、累積 5 PR (= ADR-038 採用条件) は **4 PR 段階で先行充足**。残 D-7 で 5+ PR に到達予定
+D-7 は Bundle c-1 = post-merge-feedback workflow の abrupt termination 対策 3 件 (順位 63 pre-emptive marker + Drop guard / 順位 64 orphan reaper / 順位 67 ADR-030 §L1/L2 spec) を集約した Rust impl + ADR PR。pre-push-review APPROVE で 1 iter 完了、push event は 1 回のみ。**Round 2 最終 PR + 累積 5 PR 達成**:
 
-Phase E 着手の前提条件 **3-5 PR 累積 dogfood** は D-6 完遂時点で **既に充足** (4 PR / 6 data points)。D-7 (Bundle c-1) 完遂後に Phase E (採否判定) に移行可能な状態。
+| Push event | commit | screen_decision | findings | fallback | num_ctx overflow | lint_screen latency | pipeline 総時間 |
+|---|---|---|---|---|---|---|---|
+| 初回 push (Bundle c-1 impl + ADR、~845 ins / 175 del = 実 net +710 行) | `da5d8ae2` | **`human_review`** (fallback path) | 0 | **あり (新 failure mode)** | なし (mistral:7b 到達前) | 測定不可 (HTTP timeout) | 757s (pre-push-review 6m 19s、1 iter で APPROVE) |
+
+**Fallback 詳細**:
+
+- `fallback_reason`: `ollama error: http: HTTP error: http://localhost:11434/api/generate: Network Error: ... (os error 10060)`
+- 失敗層: HTTP 接続 (mistral:7b inference に到達せず)
+- `## Diagnostic` section: 不在 (Phase A 診断 metadata は Ollama 応答から抽出するため、HTTP 失敗時は emit 不可)
+- 設計通りの soft-fail: lint_screen が `human_review` で fallback、push pipeline は block せず完走
+
+**D-7 観測の意義**:
+
+1. **新 failure mode 観測 (Ollama サーバ可用性)**: D-3〜D-6 で観測した 5 件はいずれも mistral:7b context window 内 hallucinate (file/scope 混同 FP) で同 root cause だったが、D-7 は **mistral:7b 到達前の HTTP 層 timeout** で異なる軸。Phase E 採否判定で「Ollama 可用性」という新軸を考慮する必要が顕在化
+2. **fallback path の運用 viability 実証**: pipeline がブロックされず completes (757s = D-6 と同等の所要時間)、reviewer (simplicity-review) も lint_screen 不在で独立に APPROVE 判定。soft-fail 設計が機能
+3. **Bundle c-1 self-dogfood 成功**: 本 PR がマージされた直後の post-merge-feedback workflow で **L1 pre-emptive marker が `.failed` として ~13 分間ディスクに visible**、UserPromptSubmit hook が正しく検出。workflow 完了 (`Workflow completed (2 iterations, 13m 22s)`) で `cleanup_failed_marker` により marker 削除 → Bundle c-1 の L1 floor が単体 test では捕捉できない full lifecycle で動作することを実証
+4. **post-merge-feedback 採用ゼロ + 5 件様子見 + 2 件却下**: aggregate-feedback agent が「PR #154 は L1 Drop guard + L2 orphan reaper の多層 recovery architecture を高品質な実装と十分なテストカバレッジを伴って land」と総評、提案項目 (panic unwind test / Ollama timeout test / ADR-024 amendment / global rule mirror / e2e integration test) はすべて即時実装義務なし
+5. **累積 verdict variance の 3 経路化**: D-3〜D-6 で `auto_fix` (5) + `informational` (1) の 2 経路だったが、D-7 で `human_review` (via fallback) を追加観測 = lint_screen の判定空間 3 経路すべてカバー
+6. **副産物 (workflow 知見)**: `pnpm merge-pr` を bash `&` で background 化したとき、bash subshell が即 exit 0 を返すため Claude Code 側の task 完了通知は merge 終了より早く来る。長時間 subprocess の正確な完了検知には Monitor + tail -f + meta.json status 監視を併用する pattern が有効
+
+## 📊 Phase D Round 1 + Round 2 (D-4〜D-7) 完遂後の Phase E 判定材料
+
+- ✅ pipeline integration works end-to-end (D-1 #144 smoke test + D-3 #148 + D-4 #150 + D-5 ×2 + D-6 #152 + **D-7 #154** で計 7 real diff 完走)
+- ✅ num_ctx 32768 で 67-649 行 diff overflow なし (Phase C reference values と整合、D-5 docs-only 67 行 〜 D-5 impl 649 行で size 帯拡大、D-6 docs-only 210 行で再確認、D-7 は HTTP 層失敗で mistral:7b 未到達のため num_ctx 軸の観測対象外)
+- ⚠️ fallback rate: D-3 0/1、D-4 initial 0/1、D-4 CR fix 0/1、D-5 ×2 0/2、D-6 0/1、**D-7 1/1 (新 failure mode = Ollama HTTP timeout)** = 累積 **1/7 ≈ 14%**。kill-switch 50% 閾値との距離は十分確保、ただし新軸 (サーバ可用性) を Phase E で評価する必要あり
+- ⚠️ agreement: 累積 false positive **5 件観測** (D-3 / D-4 CR fix / D-5 ×2 / D-6) — いずれも `minor` severity で reviewer cross-check 通過、blocking なし。D-5 / D-6 観測で「diff 外 context から hallucinate する failure mode」が docs-only diff でも reproducible と確定 = Bundle k 順位 123 (MD 除外フィルター) の構造的解消対象。D-7 は fallback path のため FP 観測機会なし (findings 0)
+- ✅ verdict variance: `auto_fix` (D-3 + D-4 CR fix + D-5 ×2 + D-6) + `informational` (D-4 initial) + **`human_review` via fallback (D-7)** の **3 経路すべて**を観測、判定空間カバレッジ完成
+- ✅ **累積 PR data 充足完了**: Round 1 (D-3) + Round 2 (D-4 + D-5 + D-6 + **D-7**) で **7 data points (5 PR)** 取得済、累積 5 PR (= ADR-038 採用条件) を **完全充足**
+- ✅ **Bundle c-1 self-dogfood 成功**: D-7 自身のマージ過程で post-merge-feedback workflow の L1 pre-emptive marker + Drop guard が機能 (`Workflow completed (2 iterations, 13m 22s)` + 正常 path で marker cleanup) → 単体 test では捕捉できない full lifecycle で recovery 機構を実証
+
+Phase E 着手の前提条件 **3-5 PR 累積 dogfood** は **完全充足** (5 PR / 7 data points)。Phase E (採否判定) に移行可能な状態。判定時の主要観察軸: (a) pipeline 機能性 ✅、(b) FP rate / 構造的解消可能性 ⚠️ (Bundle k 順位 123 で対処予定)、(c) verdict variance / fallback 設計 ✅、(d) **新軸 Ollama 可用性** ⚠️ (D-7 で 14% 観測、運用上の許容範囲評価が必要)。
 
 ## 📝 Dogfood signal log (旧 PR roster の preview 結果、Phase B/D 比較対象)
 

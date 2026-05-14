@@ -213,21 +213,18 @@ cargo test -p cli-finding-classifier --test lint_screen_evals -- \
 | 🛠️ D 前提整備 (順位 109) | ✅ 完了 | #144 (2026-05-11) | `.takt/lint-screen-report.md` に `## Diagnostic` section、real pipeline 経由で warn log が visible |
 | 🔄 D Round 1 (D-1〜D-3) | ✅ 完遂 | #145/#146/#147/#148 (2026-05-12) | env var override (順位 115) 解消、D-3 で初の real lint_screen 観測 = 1 data point |
 | 🔄 D Round 2 (D-4〜D-6) | ✅ 完遂 | #150/#151/#152 (2026-05-13) | size ramp-up + verdict variance 観測、累積 6 data points / 4 PR |
-| 🔄 D Round 2 (D-7) | 🚧 進行中 | (Bundle c-1) | cli-merge-pipeline pre-emptive marker + Drop guard / orphan reaper / ADR-030 spec |
+| 🔄 D Round 2 (D-7) | ✅ 完遂 | #154 (2026-05-14) | Bundle c-1 (順位 63/64/67): pre-emptive marker + RAII Drop guard + orphan reaper + ADR-030 §L1/L2 spec (self-dogfood で recovery 実証) |
 
-**Phase E 着手前提条件 = 3-5 PR 累積 dogfood は D-6 完遂時点で既に充足** (4 PR / 6 data points)。D-7 完遂後に Phase E (採否判定) 移行可能。Round 1/2 で観測した **false positive 5 件中 5 件が file-type / scope 混同型** (mistral:7b の context window 内 hook source 周辺 hallucinate) → Bundle k 順位 123 (MD 除外フィルター) の構造的解消対象。詳細 metrics・観測の意義・各 PR の dogfood outcome は [phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) 参照。
+**Phase E 着手前提条件 = 3-5 PR 累積 dogfood は完全充足** (5 PR / 7 data points、Round 1: D-3 + Round 2: D-4〜D-7)。Round 1/2 で観測した **false positive 5 件中 5 件が file-type / scope 混同型** (mistral:7b の context window 内 hook source 周辺 hallucinate) → Bundle k 順位 123 (MD 除外フィルター) の構造的解消対象。D-7 で新たに **Ollama サーバ可用性軸の fallback** を観測 (1/7 = 14%、kill-switch 50% との距離は確保)。詳細 metrics・観測の意義・各 PR の dogfood outcome は [phase-d-outcomes.md](local-llm-offload-phase-d-outcomes.md) 参照。
 
-##### 🔄 Phase D Round 2 残: D-7 (Bundle c-1)
+##### ✅ Phase D Round 2 完遂: D-4〜D-7 すべて land 済
 
-| Order | 構成 | Tier / Effort | 推定 diff 行 | Diff Profile |
-|---|---|---|---|---|
-| **D-7** | Bundle c-1 (順位 63 + 64 + 67) = cli-merge-pipeline Drop guard / signal handler + orphan run reaper + ADR-030 spec amendment | T1×2 + T3 / M+M+XS | ~600-800 | Rust impl + signal trap + reaper logic + ADR markdown |
-
-**想定リスク (D-7)**:
-
-- **size 上限超過リスク**: M+M+XS が 800 行を超えた場合、c-1a (順位 63 単独) / c-1b (順位 64+67) の 2 PR 分割に switch (D-7 → D-7a/D-7b で 5 PR 拡張、Phase E 判定材料が 1 件増える方向で副次的に valid)
-- **detail 見積もりの精度**: todo7.md (順位 63/64/67) の詳細を未参照、着手時に scope 修正の必要あり
-- **num_ctx 32768 再 overflow**: D-3 (496 行) より大きい diff のため可能性あり、Phase A diagnostic log (`## Diagnostic` section) で即検知
+| Order | 構成 | Tier / Effort | 実 diff 行 | Diff Profile | PR |
+|---|---|---|---|---|---|
+| **D-4** ✅ | 順位 39 = takt workflow `model` 必須化 lint rule + CR Major fix 4 fields | T1 / S | ~340 行 | Rust lint rule + yaml multi-line regex + test infra | #150 |
+| **D-5** ✅ | 順位 56 + 119 bundle = comment-lint test 拡充 + MAX cap test + UTF-8 boundary bug fix | T2+T2 / S+S | ~120 行 | Rust hook test infra + production bug fix | #151 |
+| **D-6** ✅ | 順位 51 = `.takt/review-diff.txt` を fix→review iteration 間で refresh (案 C pivot) + Bundle k entry 登録 | T1 / M→S | ~80 + ~130 行 | takt facet instruction + design docs | #152 |
+| **D-7** ✅ | Bundle c-1 (順位 63 + 64 + 67) = pre-emptive marker + Drop guard + orphan reaper + ADR-030 spec | T1×2 + T3 / M+M+XS | 実 845 ins / 175 del | Rust impl (cli-merge-pipeline + hooks-session-start) + ADR markdown | #154 |
 
 **Phase D 計測手順** (各 PR 共通):
 
