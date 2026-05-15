@@ -357,16 +357,20 @@ fn split_into_file_diffs(raw_diff: &str) -> Vec<&str> {
     chunks
 }
 
-/// chunk 内の最初の `+++ b/<path>` または `--- a/<path>` から拡張子を抽出し、
-/// `EXCLUDED_EXTENSIONS` に該当すれば true を返す。
+/// chunk 内の `+++ b/<path>` (new path) を優先して拡張子を抽出する。
+/// new path が無い場合 (= delete 操作で `+++ /dev/null` のケース) のみ
+/// `--- a/<path>` (old path) にフォールバック。`EXCLUDED_EXTENSIONS` に
+/// 該当すれば true を返す。
+///
+/// 新パス優先の根拠 (CR #155 Major 指摘): unified diff の慣例では `--- a/<path>`
+/// が `+++ b/<path>` より先に出現するため、単純な `find_map` で両者を OR にすると
+/// 旧パスが優先されてしまう。これだと `*.rs → *.md` の rename で **新パス側が `.md`
+/// にも関わらず旧 `.rs` 拡張子で判定**され、Markdown 除外が機能しない bug が生じる。
+/// new path を chunk 全体から先に探し、無い場合のみ old path に落とす。
 fn chunk_has_excluded_extension(chunk: &str) -> bool {
-    let path = chunk
-        .lines()
-        .find_map(|line| {
-            line.strip_prefix("+++ b/")
-                .or_else(|| line.strip_prefix("--- a/"))
-        })
-        .unwrap_or("");
+    let new_path = chunk.lines().find_map(|line| line.strip_prefix("+++ b/"));
+    let old_path = chunk.lines().find_map(|line| line.strip_prefix("--- a/"));
+    let path = new_path.or(old_path).unwrap_or("");
     if path.is_empty() {
         return false;
     }
@@ -679,6 +683,43 @@ mod tests {
                     +pub fn x() {}\n";
         let kept = assert_kept(filter_excluded_hunks(diff));
         assert!(kept.contains("src/new.rs"));
+    }
+
+    #[test]
+    fn filter_excluded_hunks_prefers_b_path_on_rename_to_markdown() {
+        let diff = "diff --git a/src/a.rs b/docs/a.md\n\
+                    similarity index 100%\n\
+                    rename from src/a.rs\n\
+                    rename to docs/a.md\n\
+                    --- a/src/a.rs\n\
+                    +++ b/docs/a.md\n\
+                    @@ -1,1 +1,1 @@\n\
+                    -old\n\
+                    +new\n";
+        match filter_excluded_hunks(diff) {
+            FilterResult::AllExcluded => {}
+            FilterResult::Kept(_) => panic!(
+                "rename .rs -> .md must be excluded based on new path (CR #155 Major)"
+            ),
+        }
+    }
+
+    #[test]
+    fn filter_excluded_hunks_keeps_rename_from_md_to_rust() {
+        let diff = "diff --git a/docs/old.md b/src/new.rs\n\
+                    similarity index 100%\n\
+                    rename from docs/old.md\n\
+                    rename to src/new.rs\n\
+                    --- a/docs/old.md\n\
+                    +++ b/src/new.rs\n\
+                    @@ -1,1 +1,1 @@\n\
+                    -old\n\
+                    +new\n";
+        let kept = assert_kept(filter_excluded_hunks(diff));
+        assert!(
+            kept.contains("src/new.rs"),
+            "rename .md -> .rs must be kept based on new path (symmetric to rename-to-md test)"
+        );
     }
 
     #[test]
