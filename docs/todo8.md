@@ -160,37 +160,6 @@
 
 ---
 
-### lint-screen の Markdown ファイル除外フィルター追加 (PR #151 T1-#2 採用、Bundle k、**PR #152 で再観測**)
-
-> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5) / **PR #152 (D-6 docs-only)** の 4 PR で「mistral:7b が docs-only diff や `.md` ファイルに対して Rust の `unused-import` を hallucinate する」false positive pattern が一貫して観測。特に PR #151 / PR #152 では docs-only diff でも同じ FP を再現 (PR #152 では `docs/local-llm-offload-analysis.md` 行 1 を `use std::io::Write;` と誤認)。**diff 内容ではなく hook source 周辺の context を見て hallucinate している強い証拠**。拡張子ベースの mechanical フィルタで diff 段階から `.md` ハンクを除外すれば、reviewer cross-check の負荷も軽減できる。
->
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 1 #2 採用 → PR #152 post-merge-feedback で Frequency High 閾値到達を再確認 (Severity Medium / Frequency High / Effort S / Adoption Risk None)。Phase D dogfood 観測から導かれた最も価値ある決定論的防止策。Bundle k のコア。
->
-> **参照**: `.claude/feedback-reports/151.md` Tier 1 #2、`src/cli-push-runner/src/stages/lint_screen.rs`、D-3/D-4/D-5 outcome (`docs/local-llm-offload-analysis.md`)
-
-#### 設計決定の余地
-
-- **filter 適用箇所**: (a) `.takt/review-diff.txt` 生成時に `.md` ハンクを drop / (b) lint_screen stage で diff parse 後にハンクを skip / (c) prompt 内で「.md は無視せよ」と instruct (= LLM 信頼、危険)
-- **推奨は (b)**: diff 段階で `.md` 以外のハンクのみを mistral:7b に渡す。Rust 側で diff hunk header (`+++ b/path`) を parse して拡張子を判定、`.md` / `.markdown` を skip
-- **fallback 経路**: 全 diff が `.md` のみだった場合は lint_screen 自体を skip + report に「`docs-only diff のため lint_screen はスキップしました`」を出力
-
-#### 作業計画
-
-- [ ] `src/cli-push-runner/src/stages/lint_screen.rs` に diff hunk filter 関数を追加
-- [ ] filter は `extensions_to_exclude = ["md", "markdown"]` を hardcode (将来 config 化検討)
-- [ ] unit test: 純 .md diff / mixed (Rust + .md) diff / 純 Rust diff の 3 ケースで filter 動作 assert
-- [ ] integration test: docs-only PR の dogfood シナリオで lint_screen が skip + warn を出すこと
-- [ ] `.takt/lint-screen-report.md` 出力に skip 理由を明示
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 純 `.md` diff の lint_screen 起動時に Rust hallucinate FP が 0 件になる
-- mixed diff でも `.md` 部分は無視され、Rust hunks のみが mistral:7b に渡る
-- 既存 5 観測のうち D-4 CR fix (TOML)、D-5 ×2 (Markdown FP) は本フィルタで構造的に消滅 (D-3 globset FP は Rust scope なので残る = 期待動作)
-
----
-
 ### `no-ephemeral-todo-reference` rule の TOML positive test 追加 (PR #151 T1-#1 採用、**PR #152 で再観測**)
 
 > **動機**: PR #151 の CodeRabbit nitpick (および本 PR で発見されなかった latent gap) で、`no-ephemeral-todo-reference` rule が TOML ファイルを extensions に持つ場合の positive test (= 実際に violation を検出することの assertion) が不在と判明。既存テスト `no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml` は self-exclusion 確認のみで、検出力の test ではない。
