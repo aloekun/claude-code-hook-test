@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "mistral:7b の lint 一次フィルタ判定を Claude Code baseline と突合するための eval セット (Phase a infrastructure / docs/local-llm-offload-analysis.md §11.6)。",
+  "purpose": "mistral:7b の lint 一次フィルタ判定を Claude Code baseline と突合するための eval セット (ADR-038 Phase a evals infrastructure)。",
   "agreement_threshold": 0.8,
   "evals": [
     {

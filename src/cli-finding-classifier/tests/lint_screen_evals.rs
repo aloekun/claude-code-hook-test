@@ -1,8 +1,8 @@
 //! Phase a evals integration test
 //!
 //! `evals/lint-screen-evals.json` を読み込み、各 fixture の Claude Code baseline と
-//! mistral:7b 出力を突合する。docs/local-llm-offload-analysis.md §11.6 Phase a の
-//! deliverable D5 に対応。
+//! mistral:7b 出力を突合する。ADR-038 Phase a evals infrastructure の
+//! deliverable D5 に対応 (旧 docs/local-llm-offload-analysis.md §11.6、retire 済)。
 //!
 //! 構成:
 //! - JSON / fixture の構造を検証する schema test (常時実行)
@@ -245,8 +245,8 @@ fn eval_set_loads_and_has_at_least_phase_b_prime_baseline_count() {
 
 /// Bundle i (Phase d 着手前必須) で eval13/14/15 を追加し 15 件に到達したことを検証。
 ///
-/// docs/local-llm-offload-analysis.md §1 Phase c+ で要求された scale-aware fixture
-/// (200+ 行 / 3 件) が実体として存在することを最低限の重複スモークでガードする。
+/// ADR-038 Phase c+ で要求された scale-aware fixture (200+ 行 / 3 件、Bundle i 由来)
+/// が実体として存在することを最低限の重複スモークでガードする。
 #[test]
 fn eval_set_includes_bundle_i_scale_aware_fixtures() {
     let set = load_eval_set();
