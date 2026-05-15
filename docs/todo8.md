@@ -361,6 +361,115 @@
 
 ---
 
+### lint_screen.rs magic-number 検出ルールで `similarity index NN%` を FP 除外 (PR #156 T1 #1 採用)
+
+> **動機**: PR #155 (Bundle k-1) self-dogfood + PR #156 (Phase E) で `lint_screen` の magic-number 検出ロジックが git diff format の `similarity index 100%` / `similarity index 75%` 等の数値を magic-number FP として報告する事象を 2 PR 連続観測。git diff ヘッダー (`similarity index`, `@@ ...`, `index ...`) は file rename / move を含む PR で必ず出現するため Frequency Medium の構造的 FP。Effort S 程度の除外ルール追加で signal/noise 比を改善できる。
+>
+> **本タスクの位置づけ**: PR #156 post-merge-feedback Tier 1 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。既存の **順位 130 (lint-screen LLM への git diff format 文字列 magic-number 除外)** と root cause / target が同一だが、本エントリは「**実装側の除外設定追加**」という具体策にフォーカス。順位 130 が「prompt 改修 or 前処理 filter のいずれか」を選択肢として持つのに対し、本エントリは **前処理 filter** に確定して着手する位置づけ。順位 130 を本エントリで supersede する形で land 可能。
+>
+> **参照**: `.claude/feedback-reports/156.md` Tier 1 #1、`src/cli-push-runner/src/stages/lint_screen.rs`、`src/cli-finding-classifier/prompts/lint-screen.txt`、順位 130 (関連 entry)
+
+#### 設計決定 (案)
+
+- **配置**: `cli-push-runner` lint-screen stage の前処理 layer (LLM 呼出前に diff を sanitize)
+- **除外対象 (Phase 1)**: `similarity index NN%` 行を `cli-push-runner/src/stages/lint_screen.rs` の diff 整形段階で削除
+- **除外対象 (Phase 2 候補)**: `@@ -N,M +N,M @@`、`index abc..def NNNNNN`、`new file mode NNNNNN`、`rename from ...` / `rename to ...` 等の git diff metadata 行も同様に除外
+- **テスト**: diff fixture を追加 (file rename を含む synthetic diff) → lint_screen 経由で magic-number FP が 0 件であることを検証
+- **派生プロジェクト deploy**: `cli-push-runner` exe は本リポジトリ専用、deploy 不要
+
+#### 作業計画
+
+- [ ] `src/cli-push-runner/src/stages/lint_screen.rs` の diff 取得部分で `similarity index NN%` 行を正規表現で除外する filter を追加
+- [ ] eval fixture に rename 含む 1 件追加 (例: `eval16-file-rename.diff`)、`lint-screen-evals.json` に baseline 登録
+- [ ] integration test: 該当 fixture で magic-number finding 0 件を assert
+- [ ] 順位 130 entry に「順位 132 で superseded」note を追加 (または 順位 130 を本エントリに統合する形で削除)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `similarity index NN%` を含む diff で magic-number FP が報告されない
+- file rename を含む現実 PR で lint_screen-report.md に該当 FP が出ない
+- eval fixture が CI / cargo test で常時検証される
+
+#### 詰まっている箇所
+
+- 順位 130 との重複処理方針 (supersede vs merge) は実装着手時に判断。両 entry が登録されている状態で先に本エントリを着手すると 順位 130 を削除する流れが自然
+
+---
+
+### docs-governance §Retirement Workflow に「diff context 由来 false alarm 防止 = 必ず grep で実ファイル確認」を明記 (PR #156 T3 #1 採用)
+
+> **動機**: PR #156 で ephemeral 4 ファイル retire を実施した際、`grep` 結果に含まれる **diff context 行が実ファイルの最新内容ではなく PR 直前の状態を反映する** ため、削除対象ファイルへの参照が「残存」と誤検出される false alarm が 5 件以上発生。fact-check の grep 実行に時間を要した。XS の文言追加で将来セッションの reviewer / Claude が同一の確認コストを繰り返すことを防止できる。ephemeral 退役ワークフローは今後も繰り返されるため Frequency Medium。
+>
+> **本タスクの位置づけ**: PR #156 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。`feedback_no_unenforced_rules.md` 例外条件 = 既存実践の明文化 + guide 効果のため採用 (順位 122 / 127 と同じロジック)。
+>
+> **参照**: `.claude/feedback-reports/156.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md` §Retirement Workflow
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/docs-governance.md` §Retirement Workflow の Step 3 (参照更新) に「diff context 由来 false alarm 防止」note 追加 (2-3 行)
+  - 「`grep -rn '<filename>'` で hit した参照は **必ず該当ファイルを Read で開き、最新内容に対象参照が実在することを確認** する。diff context は PR 直前の旧状態を反映するため、retire 対象ファイルへの参照が context として残存しているように見えても、現行 working copy では既に削除されている場合がある」
+  - 具体例: PR #156 (4 ファイル同時 retire) で 5 件以上の false alarm が発生
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) は `~/.claude/` global 配下なので自動波及
+- [ ] グローバル設定変更前に `~/.claude/` snapshot 取得 (memory rule `feedback_global_config_backup.md` 適用)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 次回 ephemeral 退役 workflow で同 false alarm が発生しても、明文化された手順により fact-check の認知コストが低減する
+- guide として PR review / Claude session 双方で参照可能
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rule への追記のみで副作用最小。
+
+---
+
+### ADR-035 に docs-only PR 評価の明示的な適用外基準リストを追加 (PR #156 T3 #2 採用)
+
+> **動機**: ADR-035 は docs-only PR の **分類基準** (どの PR が docs-only か) は定義しているが、**除外される評価観点** (docs-only PR で適用すべきでない code-logic 系評価項目) が明示されていない。PR #156 (Phase E、docs-only) で reviewer が mutation / error handling / test coverage 等の code-logic criteria を docs-only PR に適用しかけて unnecessary review overhead が発生する潜在リスクが観測された。明示することで将来セッションでの reviewer による criteria 誤適用を防止できる。
+>
+> **本タスクの位置づけ**: PR #156 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Severity Medium の根拠 = 誤適用による unnecessary review overhead / 開発体験劣化。`feedback_no_unenforced_rules.md` 例外条件 = ADR (= 設計判断 doc) への追加で機械強制ではなく reviewer / Claude の judgment 補助。
+>
+> **参照**: `.claude/feedback-reports/156.md` Tier 3 #2、`docs/adr/adr-035-doc-evaluation-policy.md`
+
+#### 設計決定 (案)
+
+- **配置先**: `docs/adr/adr-035-doc-evaluation-policy.md` 内に新 section 「docs-only PR で適用しない評価観点」を追加
+- **適用外基準リスト (案)**:
+  - **Mutation / immutability**: docs に code mutation は存在しないため適用しない
+  - **Error handling**: docs に error path は存在しないため適用しない
+  - **Test coverage**: docs に test は不要なため適用しない (test 文言の追加自体は除く)
+  - **Function length / complexity**: docs に関数は存在しないため適用しない
+  - **DRY / YAGNI**: docs では intentional な重複・冗長な記述が reader にとって有益な場合があるため適用しない (例: 同じ概念を複数 section で説明する)
+  - **Magic number / hardcoded value**: docs 中の数値は説明的記述で magic ではないため適用しない
+- **適用される評価観点** (既存 ADR-035 で定義済みのものを再確認):
+  - Cross-reference lifecycle (permanent → ephemeral 禁止)
+  - Markdown syntax / lint
+  - Anchor link validity
+  - Retirement workflow 整合
+  - 内容の正確性 / typo
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-035-doc-evaluation-policy.md` の構造確認 (既存 section header の慣習)
+- [ ] 「適用外基準リスト」section を追加
+- [ ] 既存 ADR の評価観点 section との整合性確認 (重複説明の有無、cross-reference の追加)
+- [ ] markdownlint clean 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- docs-only PR の reviewer / Claude が「mutation / DRY 等は適用しない」を ADR から逆引きできる
+- 将来の docs-only PR 評価で criteria 誤適用が systemic に発生しなくなる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort S、ADR への追記のみで副作用最小。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
