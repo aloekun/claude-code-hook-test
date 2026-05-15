@@ -32,7 +32,7 @@
 |---|---|---|---|
 | **Config opt-in** | 週次トリガはデフォルト disabled | gate を flag で制御 | `[lint_screen] enabled = false` (default OFF) |
 | **Kill-switch** | レビューパイプ停止可能 | gate 経路を revert で停止 | revert PR で `enabled = false` |
-| **Bounded lifetime** | 「採用判定で本採用に昇格」 | dogfood 完了で判定 | `local-llm-offload-phase-d-guide.md` で 3-5 PR 後に採否判定 |
+| **Bounded lifetime** | 「採用判定で本採用に昇格」 | dogfood 完了で判定 | ADR-038 採用昇格 = 2026-05-15 (Phase D 6 PR / 9 data points で採用条件充足) |
 
 3 点とも個別 ADR で都度設計されてきたが、**新規試験運用 ADR を策定するたびに同じ判断を再発明している**。
 

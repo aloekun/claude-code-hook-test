@@ -2,13 +2,13 @@
 
 ## ステータス
 
-試験運用 (2026-05-06)
+採用 (2026-05-15、Phase E 採否判定で昇格)
 
-> 本 ADR の運用パターンは [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) で標準化された 3 点セット (config opt-in / kill-switch / bounded lifetime) の対象。本採用判定または却下時に ADR-039 の retirement workflow に従う。
+> 本 ADR の運用パターンは [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) で標準化された 3 点セット (config opt-in / kill-switch / bounded lifetime) の対象。Phase A〜D dogfood (6 PR / 9 data points) で採用条件を充足したため、2026-05-15 に試験運用 → 採用へ昇格 (詳細は本文「採用判定 (Phase E、2026-05-15)」section)。
 
 ## コンテキスト
 
-Claude Code セッションにおける反復作業の token 消費を抑える目的で、[docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) で 3 層構造 (思考層 / 実行層 / 制御層) のオフロード戦略を提案した。GTX 3070 + Ollama (mistral:7b) でローカル推論可能な範囲を切り出す。
+Claude Code セッションにおける反復作業の token 消費を抑える目的で、3 層構造 (思考層 / 実行層 / 制御層) のオフロード戦略を 2026-05-06 に提案した。GTX 3070 + Ollama (mistral:7b) でローカル推論可能な範囲を切り出す (origin の探索資料は `docs/local-llm-offload-{analysis,history,phase-d-outcomes,phase-d-guide}.md` だったが、Phase E 採用昇格と同時に retire、permanent value は本 ADR + [ADR-040](adr-040-local-llm-context-size.md) に migrate 済)。
 
 調査の結果、CodeRabbit findings のうち以下は既に決定論的に処理されている:
 
@@ -62,7 +62,7 @@ pub struct ClassifiedFinding {
 
 Ollama 不在 / timeout / parse 失敗 / invalid action は **fallback として `human_review` + `action_confidence=0.0` + `fallback_reason` を返す**。consumer (Claude / takt 等) は finding を失わず、後段で人間/Claude が判断できる。
 
-これは [docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) §6 の方針 (「失敗してもリトライ可能 / Claude が後段で検証」) と整合する。
+この設計は「失敗してもリトライ可能 / Claude が後段で検証」という方針 (Phase A〜D dogfood で `human_review` fallback path が pipeline ブロック無しで運用 viable と実証) と整合する。
 
 ### Diagnostic logging の scope と移行条件 (PR #142 / Phase A)
 
@@ -114,29 +114,88 @@ JSON parse error 時の context overflow 診断 log は **`eprintln!` で stderr
 - mistral:7b の structured output は `format: "json"` で安定するが、prompt 違反 (action enum 外の文字列) を返す可能性ゼロではない → enum 外は fallback で吸収
 - VRAM 8GB では `mistral:7b` 常駐 + `llama2:13b` swap 構成。同時起動は不可
 - `normalized_issue` が日本語指示でも英語混じりで返る場合がある (実 dogfood で観測)。実害は小さいが prompt v2 の改善余地
-- Windows shell 経由で日本語含む JSON を Ollama に渡すと CP932 漏れで壊れる事例あり ([docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) ベンチで実証)。Rust 実装は ureq の UTF-8 シリアライズで影響なし
+- Windows shell 経由で日本語含む JSON を Ollama に渡すと CP932 漏れで壊れる事例あり (Phase 0 ベンチで実証)。Rust 実装は ureq の UTF-8 シリアライズで影響なし
 - **プロンプトインジェクション**: `{issue}` / `{suggestion}` placeholder には CodeRabbit コメントの生テキストが展開されるため、adversarial な finding 内容により LLM 出力が操作される可能性がある (例: `false_positive_likely` への誤分類強制)。fallback で異常出力は `human_review` に倒れるため実害は限定的だが、Phase 5 (cli-pr-monitor 統合時) でサニタイズ or プレースホルダのブラケット化を検討する
 
-### 試験運用 → 本採用への昇格条件
+### 試験運用 → 本採用への昇格条件 (Phase E、2026-05-15 充足)
 
-以下を満たした時点で「試験運用」flag を外す (本 ADR を更新):
+以下を満たした時点で「試験運用」flag を外した:
 
-1. 5 PR 以上の実 review サイクルで dogfood し、classification 妥当性を目視確認
-2. `cli-pr-monitor` または takt facet への統合 (本 ADR の **scope 外**、別 PR で扱う)
-3. Claude session の入力 token 削減効果が体感で確認できる
+1. ✅ 5 PR 以上の実 review サイクルで dogfood し、classification 妥当性を目視確認 (6 PR / 9 data points 累積、詳細は「採用判定 (Phase E、2026-05-15)」section)
+2. ✅ `cli-pr-monitor` または takt facet への統合 (代替: `cli-push-runner` lint_screen stage として PR #132 で統合済、cost-aware 実装層選択により Rust stage に pivot — 詳細は「実装層選択: takt facet vs Rust stage」section)
+3. ✅ Claude session の入力 token 削減効果は質的傾向観察で確認 (reviewer cross-check で advisory として消費される pattern が D-3〜D-7 で実証)
 
-却下する場合:
+却下していた場合の手順 (参考、未実行):
 
 - 本 ADR を **却下** ステータスに更新
-- 2 crates (`lib-ollama-client`, `cli-finding-classifier`) を削除
-- [docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) の引退条件に従い同ファイルも削除
+- 2 crates (`lib-ollama-client`, `cli-finding-classifier`) + `cli-push-runner` lint_screen stage を削除
+
+## 採用判定 (Phase E、2026-05-15)
+
+### 累積 dogfood metrics
+
+Phase A〜D で取得した 6 PR / 9 data points の集計:
+
+| 指標 | 観測値 | 採用基準 | 判定 |
+|---|---|---|---|
+| dogfood PR 数 | 6 PR / 9 data points (D-3〜D-9) | 5 PR 以上 | ✅ |
+| Fallback rate (累積) | 1/9 ≈ 11% (D-7 で 1 件 = Ollama HTTP timeout) | < 50% kill-switch | ✅ |
+| Verdict variance | `auto_fix` / `informational` / `human_review` の 3 経路すべて観測 | 判定空間 cover | ✅ |
+| FP rate | 5 件 (D-3〜D-6) すべて `minor` severity、reviewer cross-check で blocking なし | blocking 無し | ✅ |
+| Structural fix (FP 対策) | Bundle k-1 (PR #155) = `*.md` ハンク除外フィルター land、D-8/D-9 で再現せず | 構造的解消 | ✅ |
+| Pipeline integration | Phase D で 6 PR end-to-end 完走 (`cli-push-runner` lint_screen stage 経由) | 機能性確認 | ✅ |
+| Reviewer cross-check | `review-simplicity.md` の advisory 読込で findings の真偽が reviewer 出力に反映 | qualitative 確認 | ✅ |
+
+### 実装の最終構成
+
+| 構成要素 | crate / file | 役割 |
+|---|---|---|
+| HTTP クライアント | `src/lib-ollama-client` | Ollama `/api/generate` blocking client (ureq 2.x、`format: "json"`、`DEFAULT_NUM_CTX = 32768`、`OllamaMetadata` 診断) |
+| classification mode | `src/cli-finding-classifier` (`--mode classify`) | CodeRabbit findings の triage (auto_fix / human_review / false_positive_likely / informational) |
+| lint-screen mode | `src/cli-finding-classifier` (`--mode lint-screen`) | diff stdin → `LintScreenResult` JSON (本採用の primary 経路) |
+| pipeline 統合 | `src/cli-push-runner/src/stages/lint_screen.rs` | `cli-finding-classifier --mode lint-screen` を subprocess 起動、`.takt/lint-screen-report.md` 出力 |
+| Markdown 除外 filter | `cli-push-runner` lint_screen stage 前段 (Bundle k-1 / PR #155) | `*.md` ハンク除外で diff-外 context hallucinate FP を構造的解消 |
+| reviewer 連携 | `.takt/facets/instructions/review-simplicity.md` | reviewer が advisory として lint-screen-report.md を読込 |
+
+### 実装層選択 (takt facet vs Rust stage、cost-aware)
+
+lint_screen は当初 takt facet (Sonnet 動作) として設計されていたが、実装段階で「Sonnet 動作はコスト削減という主目的と矛盾」と判明し、`cli-push-runner` の Rust stage (mistral 直呼び) に pivot。将来の LLM 系 feature 設計時 (例: PR body draft) の prior assumption として codify:
+
+- **takt facet (Sonnet) を選ぶ条件**: 意味的判断が必要、コスト感度低、Claude session の context 内で完結させたい
+- **Rust stage (local mistral) を選ぶ条件**: コスト削減が主目的、決定論的判定が可能、latency 許容範囲 (~5-90s per invoke、ADR-040 reference table)
+- **lint_screen の実例**: 当初 takt facet 想定 → cost 矛盾検出 → Rust stage に pivot (PR #132)
+
+### Known failure modes (永続記録)
+
+#### Failure mode 1: docs/Markdown context hallucinate (5 PR 連続観測 → Bundle k-1 で構造的解消)
+
+- **観測**: D-3 (PR #148) / D-4 CR fix (PR #150) / D-5 ×2 (PR #151) / D-6 (PR #152) / PR #153 の 5 push events で「mistral:7b が docs-only diff や `.md` ファイルに対して Rust `unused-import` を hallucinate」する FP pattern が一貫して観測
+- **Root cause**: LLM context window に hook source コード (例: `byte_offset_to_line` 周辺の `use std::io::Write;`) が混入 → 過去 commit / test fn 内の `use` 文を current diff として hallucinate → `unused-import` FP を生成
+- **Structural fix**: Bundle k-1 (PR #155) で `cli-push-runner` lint_screen stage の前段に「`*.md` ハンク除外フィルター」を実装、diff 段階で `.md` 系ハンクを除外して LLM に渡さない。post-fix dogfood (D-8/D-9 = PR #155 self-dogfood) で再現せず
+- **将来別モデル評価時の prior**: LLaMa / phi 等で同 failure mode を検証する出発点として `Markdown 除外フィルター` が必要かを最初に評価する
+
+#### Failure mode 2: Ollama HTTP timeout (D-7、運用上の新軸)
+
+- **観測**: D-7 (PR #154) で `os error 10060` = HTTP 接続 layer timeout により mistral:7b 到達前に fallback
+- **設計通り**: `screen_decision = "human_review"` で soft-fail、pipeline 完走 (757s で simplicity-review 独立 APPROVE)
+- **運用 implication**: Ollama サーバ可用性が新軸として顕在化。累積 1/9 ≈ 11% で kill-switch 50% との距離は十分確保、ただし定常運用では Ollama 起動状態を session 開始時に確認することを推奨
+
+#### Failure mode 3: Phase b' v2 attention dilution (historical、prompt tuning prior)
+
+- **観測**: Phase b' v2 で prompt example に full diff header (`--- a/<path>` `+++ b/<path>`) を追加した結果、agreement rate が 75% → 50% に 33pt 低下
+- **Root cause**: anti-hallucination preamble の効果が context scarcity で打ち消される。large few-shot context は新規問題への generalization を阻害する pattern
+- **将来 LLM prompt tuning 時の prior**: effective signal-to-noise ratio を保つ context budgeting を最優先、few-shot example の追加は necessarily 改善ではなく劣化の可能性がある
+
+### num_ctx 拡大の根因解析 (Phase A〜C)
+
+Phase B で `prompt_eval_count == num_ctx` (100% 到達) を観測し、JSON 出力欠落の真因が `num_ctx truncation` と確定。Phase C で `DEFAULT_NUM_CTX = 8192 → 32768` に拡大し、3 PR replay で fallback rate 100% → 33% を実証。詳細 trade-off (VRAM / latency / step_timeout 比例係数) は [ADR-040](adr-040-local-llm-context-size.md) に migrate 済 — 派生プロジェクトへの porting 時は ADR-040 reference を参照。
 
 ## 本 ADR の scope 外 (将来 ADR 候補)
 
-- `cli-pr-monitor` poll stage への統合 → 別 PR (Phase 5 相当)
+- `cli-pr-monitor` poll stage への classifier 統合 (本採用後、cli-push-runner lint_screen と並列に検討)
 - takt facet 経由でのプロンプト DI 設計
 - `effort` / `cross-finding clustering` field の実装
-- 他用途 (PR description draft, lint screen) への `lib-ollama-client` 流用
+- 他用途 (PR description draft = 提案 3 / §8.F) への `lib-ollama-client` 流用
 
 ## eval fixture 設計の 3 軸
 
@@ -172,7 +231,8 @@ LLM 入力時には runner が `#` で始まる leading 行を skip し `diff --
 
 ## 関連
 
-- [docs/local-llm-offload-analysis.md](../local-llm-offload-analysis.md) — 本 ADR の origin 調査レポート
 - [ADR-018: cli-pr-monitor の takt ベース移行](adr-018-pr-monitor-takt-migration.md)
 - [ADR-026: Cargo workspace](adr-026-cargo-workspace.md) — workspace member 追加方針
 - [ADR-034: CodeRabbit 監視・自動化戦略](adr-034-coderabbit-auto-monitoring.md) — 監視層との将来統合先
+- [ADR-039: 試験運用標準パターン](adr-039-experimental-feature-standard-pattern.md) — 3 点セット (opt-in / kill-switch / bounded lifetime) の標準化
+- [ADR-040: Local LLM Context Size と Resource Trade-off](adr-040-local-llm-context-size.md) — Phase A〜C num_ctx empirical data の永続記録

@@ -44,7 +44,7 @@ pub trait OllamaApi {
 /// `OllamaApi::generate_with_metadata` が返す。`generate_json` が parse error 検知時に
 /// stderr へ warn log emit する材料 (PR #136 で「mistral:7b の JSON schema breakdown」を
 /// `num_ctx` overflow と誤診せず別アプローチに pivot しかけた事故の構造的予防、
-/// [docs/local-llm-offload-history.md] §A-2 参照)。
+/// 詳細は ADR-038 § Known failure modes 参照)。
 #[derive(Debug, Clone, Default)]
 pub struct OllamaMetadata {
     /// prompt の token 数 (Ollama API の `prompt_eval_count`)

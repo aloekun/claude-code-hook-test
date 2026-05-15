@@ -205,29 +205,6 @@
 
 ---
 
-### ADR-038 に mistral:7b 「diff 外 context hallucinate」failure mode を追記 (PR #151 T3-#1 採用、順位 123 と同 PR 推奨、**PR #152 / PR #153 で再観測 = 5 PR 連続**)
-
-> **動機**: PR #148 (D-3) / PR #150 (D-4 CR fix) / PR #151 (D-5 ×2) / **PR #152 (D-6 docs-only)** / **PR #153 (analysis.md split)** の **5 PR 連続** で観測された FP pattern = 「mistral:7b が diff 内容に関わらず hook source 周辺の context を見て `unused-import` を hallucinate する」を ADR-038 に codify。Phase b' fixture では再現しない failure mode のため、将来の prompt 改善や別モデル評価時の prior assumption として永続記録する価値あり。
->
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 3 #1 採用 → PR #152 post-merge-feedback で 4 PR 観測に拡大 → **PR #153 post-merge-feedback で Frequency High 閾値到達** (Severity Low / Frequency High / Effort XS / Adoption Risk None)。順位 123 (lint-screen MD フィルタ実装) と同 PR で land 効率的 (実装と仕様の整合性確保)。
->
-> **参照**: `.claude/feedback-reports/151.md` Tier 3 #1 / `.claude/feedback-reports/152.md` T3 #1 / `.claude/feedback-reports/153.md` T3 #1、`docs/adr/adr-038-local-llm-finding-classification.md`、D-3/D-4/D-5/D-6 outcome (`docs/local-llm-offload-phase-d-outcomes.md`)
-
-#### 作業計画
-
-- [ ] ADR-038 に「Known failure mode: docs-only diff Rust context hallucinate」section 追加
-- [ ] 5 PR 観測の事実 (#148/#150/#151/#152/#153) を inline cite
-- [ ] **Root cause を明記**: LLM context window に hook source コードが混入 → 過去 commit の `use` 文 (test fn 内 等) を current diff として hallucinate → `unused-import` FP を生成 (PR #153 post-merge-feedback T3 #1 で specifically 要求された記述)
-- [ ] **Structural fix の cross-link を明記**: 対策 = Bundle k 順位 123 (拡張子フィルタで `.md` ハンクを diff 段階から除外) を ADR 本文から explicit 引用 (root cause と fix の両方を一箇所で逆引き可能にする、PR #153 post-merge-feedback T3 #1 で specifically 要求された記述)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-038 から「なぜ Markdown 除外フィルタが必要か」が逆引きできる (root cause + fix path が同一 section で記述)
-- 将来別モデル評価 (LLaMa / phi 等) で同 failure mode を検証する出発点になる
-
----
-
 ### extensions 拡張時の test 追加 pattern をコード comment で明文化 (PR #151 T3-#2 採用、順位 124 と同 PR 推奨、**PR #152 で再観測**)
 
 > **動機**: 順位 124 (TOML positive test) の根因である「extensions 配列を変更しても対応する test が追加されない」pattern を、`custom-lint-rules.toml` または `no_ephemeral_todo_reference_rule()` 関数の近傍コメントに明記。「extensions を変更した際は対応する positive/negative test を追加すること」のリマインダを次回 rule 変更時に目に入る位置に置く。
@@ -252,7 +229,7 @@
 
 ### CLAUDE.md § Cross-File Reference Lifecycle に多ファイル同時削除 retirement condition checklist を追加 (PR #153 T3-#2 採用)
 
-> **動機**: PR #153 で `docs/local-llm-offload-analysis.md` を `phase-d-outcomes.md` に分割した際、retirement clause を **3 ファイル (analysis.md / history.md / phase-d-outcomes.md) 同時削除** に統一する作業が developer/AI の手動 review でしか担保されていなかった。advisor 指摘で明示的に「3 ファイルすべてに同じ retirement clause を書く」ステップを踏んだが、これは structural pattern として再利用可能 (今後の docs/* 50KB 分割でも同じ checklist が必要)。同パターンが drift すると ephemeral artifact の lifecycle 整合が崩れ、stale pointer が増殖するリスクあり。
+> **動機**: PR #153 で旧 `docs/local-llm-offload-analysis.md` を `phase-d-outcomes.md` に分割した際 (3 ファイルは Phase E 採用昇格 = 2026-05-15 に retire 済)、retirement clause を **3 ファイル (analysis.md / history.md / phase-d-outcomes.md) 同時削除** に統一する作業が developer/AI の手動 review でしか担保されていなかった。advisor 指摘で明示的に「3 ファイルすべてに同じ retirement clause を書く」ステップを踏んだが、これは structural pattern として再利用可能 (今後の docs/* 50KB 分割でも同じ checklist が必要)。同パターンが drift すると ephemeral artifact の lifecycle 整合が崩れ、stale pointer が増殖するリスクあり。
 >
 > **本タスクの位置づけ**: PR #153 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。**既存実践 (PR #133 todo.md 分割 + PR #153 analysis.md 分割) の明文化 + 機械強制ではなく guide 効果** のため、`feedback_no_unenforced_rules.md` の例外条件 (順位 122 / 127 と同じロジック) を満たす。
 >
@@ -273,5 +250,133 @@
 
 - 次回多ファイル分割 (例: history.md 50KB 接近時) で同 checklist を踏むことで drift が構造的に防止される
 - PR #133 (todo.md 分割) / PR #153 (analysis.md 分割) の successful pattern が明文化され、3 例目以降の reproducibility が確保される
+
+---
+
+### `let _ = write_*` swallowed error 検出 custom lint rule (PR #155 T1-#1 採用) ★ Bundle l
+
+> **動機**: PR #155 simplicity-review が BLOCKING 指摘した `write_skip_report` の Result を `let _ =` で silent drop していた問題の **構造的防止層**。同 PR の `write_report` 経路 (line 108-117) では `if let Err(e) { log_stage(...) }` pattern が確立されていたにもかかわらず、新規追加された I/O write 関数で reuse されず再発した。今後の I/O 関数追加で同 anti-pattern が混入することを機械的に防ぐ。
+>
+> **本タスクの位置づけ**: PR #155 post-merge-feedback Tier 1 #1 採用 (Severity High / Frequency Medium / Effort S / Adoption Risk None)。Bundle l (PR #155 由来の再発防止策バンドル) のコア。
+>
+> **参照**: `.claude/feedback-reports/155.md` Tier 1 #1、`src/cli-push-runner/src/stages/lint_screen.rs:381-385` (`write_skip_report_logged` 抽出例)、`.claude/custom-lint-rules.toml`
+
+#### 設計決定
+
+- **regex pattern**: `let\s+_\s*=\s+write_\w+\(`
+- **extensions**: `["rs"]`
+- **severity**: `error` (BLOCKING の再発を機械的に防止)
+- **scope 限定**: `write_` prefix で I/O 書込関数のみを対象 → 他の `let _ = expression` (e.g. `let _ = stream.flush()`) は false positive にしない設計
+- **fix 指示**: 「`if let Err(e) = write_*(...) { log_stage(STAGE, &format!(...)); }` または既存の `*_logged` ヘルパー抽出パターンを使用」
+
+#### 作業計画
+
+- [ ] `.claude/custom-lint-rules.toml` に rule⑩ として entry 追加 (pattern / extensions / severity / fix message)
+- [ ] `src/hooks-post-tool-linter/src/main.rs` に positive / negative unit test を追加:
+  - positive: `let _ = write_foo(...);` で violation 検出
+  - positive: `let _ = write_skip_report(path);` で violation 検出
+  - negative: `if let Err(e) = write_foo(...) { ... }` で violation 検出なし
+  - negative: `let _ = stream.flush();` (write_ 以外) で violation 検出なし
+- [ ] deployed self-exclusion test: 派生プロジェクトの `.claude/custom-lint-rules.toml` 自身が rule⑩ に違反しないことを assert
+- [ ] dogfood: 既存 codebase で本 rule を実行し new violations が現状ゼロであることを確認 (PR #155 land 後の baseline)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `let _ = write_<anything>(...);` が機械検出される
+- 既存 codebase (Bundle k-1 land 後の master) で本 rule の violation 数がゼロ (= silent failure 経路が現状クリーン)
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) deploy 経由でも同更新が反映される
+
+---
+
+### lint-screen LLM への git diff format 文字列 magic-number 除外 (PR #155 T2-#1 採用) ★ Bundle l
+
+> **動機**: PR #155 self-dogfood で simplicity-review が `similarity index 100%\n` の `100%` を mistral:7b が **magic-number として false positive 検出**した事例を観測。`similarity index` / `index ` (hex hash) / `@@ -1,1 +1,1 @@` 等の git diff format 文字列は **push ごとに出現**し、mistral:7b が無効な signal として混入させる。lint-screen の signal-to-noise 比を下げ、reviewer cross-check の負荷も増やす。
+>
+> **本タスクの位置づけ**: PR #155 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。Bundle l の review 精度改善層。Phase E 採否判定の前提となる FP rate 低減に直接寄与。
+>
+> **参照**: `.claude/feedback-reports/155.md` Tier 2 #1、PR #155 lint-screen-report.md 行 360 / 369 (FP 観測)、`src/cli-push-runner` lint-screen 前処理 or LLM prompt
+
+#### 設計決定の余地
+
+- **修正箇所候補**:
+  - (a) `cli-push-runner` の lint-screen diff 送信前処理 — Rust 側で diff hunk parsing 時に `similarity index` / `index ` / `@@` 行を strip して mistral:7b に渡す
+  - (b) `cli-finding-classifier` の `prompts/lint-screen.txt` — LLM プロンプトに「git diff format strings (similarity index, index, @@) の数値は magic-number ではない」と明示
+- **推奨は (a)** — 決定論的 (regex で strip)、LLM 信頼に依存しない。(b) は agreement rate の variance を増やすリスク
+- **副次効果**: filter で `.md` ハンクを drop した Bundle k-1 順位 123 と同型の前処理層拡張、設計の一貫性
+
+#### 作業計画
+
+- [ ] `src/cli-push-runner/src/stages/lint_screen.rs` の `filter_excluded_hunks` の隣に、または別関数として diff format meta-line stripping を実装
+- [ ] strip 対象 (regex): `^similarity index \d+%$` / `^index [0-9a-f]+\.\.[0-9a-f]+( \d+)?$` / `^@@ .* @@.*$` (@ 行は hunk header だが LLM 解釈で magic-number 化されやすい)
+- [ ] unit test: 各 meta-line が strip されること / 通常の `+`/`-` 行は保持されること
+- [ ] Phase D dogfood で再走 (LINT_SCREEN_ENABLED=true で 1-2 PR) して FP rate が下がることを観測
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `similarity index 100%` 由来の magic-number FP が消滅
+- 累積 dogfood data points で signal-to-noise 比が改善 (mistral:7b の findings 数 / FP 数の比率で測定)
+- reviewer cross-check の負荷低減 (review iteration 数の減少傾向で間接観測)
+
+#### 詰まっている箇所
+
+- 修正箇所 (a) vs (b) の判断は dogfood 観測の蓄積が必要かもしれない。先に (a) を実装して残存 FP を見てから (b) 判断する 2 段階アプローチも valid
+
+---
+
+### `write_skip_report_logged` error path regression test (PR #155 T2-#2 採用)
+
+> **動機**: PR #155 simplicity-review BLOCKING 修正後の `write_skip_report_logged()` 関数に error path の regression test が存在しない。`fs::write` 失敗時に `log_stage` が呼ばれることを assert する明示的 test がないと、将来の refactor で再度 silent failure に逆戻りするリスクがある。Bundle k-1 self-dogfood で実証された「log_stage 経路を test で seal する」pattern を正式化。
+>
+> **本タスクの位置づけ**: PR #155 post-merge-feedback Tier 2 #2 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk None)。Severity Medium 単独で rubric ✅ 条件を満たす。
+>
+> **参照**: `.claude/feedback-reports/155.md` Tier 2 #2、`src/cli-push-runner/src/stages/lint_screen.rs:381-385` (`write_skip_report_logged`)
+
+#### 設計決定の余地
+
+- **error injection 方法**:
+  - (a) tempdir を作成し `chmod 000` (Unix) または read-only attribute (Windows) で書込不可化
+  - (b) 既存ファイルを output_path として渡し、それを別プロセスで握って lock を取る (cross-platform に難しい)
+  - (c) `output_path` を存在しない深い path (例: `/nonexistent/dir/that/cannot/be/created/report.md`) にして `create_dir_all` 失敗を誘発
+  - 推奨: **(c)** — cross-platform、追加 dep なし、Windows でも reliable
+- **assert 対象**: `log_stage` が「skip: skip-report 書き出し失敗」を含む message で呼ばれること。`log_stage` は副作用 (stdout への line) のため、test harness で stdout capture が必要 or `log_stage` 自体を test mock 化する
+
+#### 作業計画
+
+- [ ] `log_stage` の test mock 化を検討 — `STAGE` 引数 + format string をキャプチャできる test helper の有無を確認
+- [ ] error injection 方式 (c) で test を実装: `write_skip_report_logged("/nonexistent/.../report.md")` 呼出が panic せず log_stage 経由で報告すること
+- [ ] integration 経路の test も検討: full `run_lint_screen` flow で skip-report 書込失敗時のログ確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `write_skip_report_logged()` の error path で `log_stage` 呼出が機械検証される
+- 将来の refactor で silent drop に戻った場合に test fail で検出
+- Bundle k-1 self-dogfood で得た「log_stage 経路を test で seal する」pattern が cli-push-runner 全体に展開可能な reference 化
+
+#### 詰まっている箇所
+
+- `log_stage` の現行 API が test friendly でない可能性 (現在は直接 stdout への println / eprintln 系の可能性)。test 友好化のための小 refactor が effort M に含まれる可能性あり
+
+---
+
+## 既知課題 (記録のみ、本セッションで未対応)
+
+### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
+
+> **観測**: 2026-05-15 セッション開始時、`.claude/feedback-reports/119.md.failed` marker が **606,269 秒 (約 7 日)** 経過した状態で UserPromptSubmit hook により検出。PR #119 (ADR-038 Phase 5: cli-finding-classifier 統合) のマージ後に起動した post-merge-feedback workflow (run id `20260506-141736-post-merge-feedback-for-119`) が abrupt 終了 (kill -9 / SIGKILL / power loss / OOM 等) で中断され、Drop guard 経路を経由せず orphan reaper の 1500 秒閾値も大幅に超過した state で marker が残存。
+>
+> **解釈**: 単発事象として記録のみ留め、即時手動 recovery (`pnpm exec takt -w post-merge-feedback -t 'post-merge-feedback for #119'`) は実施しない (PR #119 は 7 日前 land 済で、対応するレビュー知見は後続 PR で既に消化済の可能性が高い)。次回 stale marker の自然 cleanup 機構 (ADR-030 §L2 orphan reaper / D-7 / 順位 64) の dogfood で本 marker も同時に reap されるかを観察する材料として残す。
+>
+> **本タスクの位置づけ**: **既知課題のみ、todo 着手は予定なし**。merge pipeline の長期化 / abrupt 終了が原因と推定されるが、systemic な再発 (Frequency Medium 以上) を確認するまで実装側の改修は scope 外。Bundle c-1 (PR #154、L1 Drop guard + L2 reaper) で recovery 機構自体は実装済のため、本 marker は単に「reaper 投入前に取り残された artifact」として扱う。
+>
+> **参照**: `.claude/feedback-reports/119.md.failed`、ADR-030 §L1/L2 spec、Bundle c-1 (PR #154、L2 orphan reaper の本セッションでの初回完全 dogfood)
+
+#### 想定される追加観察項目 (Frequency が上がった場合に着手)
+
+- abrupt 終了 (Drop guard 不発) の root cause: takt subprocess 階層のどこで SIGKILL が起きたか (cli-merge-pipeline / takt 本体 / Claude Code session 終了 etc.) の事後 forensic
+- L2 orphan reaper が古い marker をどう扱うか (immediate cleanup vs warn-only vs leave alone) の policy 評価
+- 7 日経過 marker を Claude Code セッション開始時に毎回提示するべきか (UserPromptSubmit hook の signal-to-noise) の検討
 
 ---

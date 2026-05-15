@@ -32,11 +32,10 @@ auto_push_severity = "critical"
 push_command = "jj git push"
 
 # ---------------------------------------------------------------------------
-# [classifier] — ADR-038 (試験運用) 経由のローカル LLM finding classifier。
-# §A-2 P-0 (config opt-in) でこのセクションを追加し、master 上で classifier を
-# 有効化する。dogfood で問題が出た場合は revert PR で `enabled = false` に
-# 戻すのが kill-switch (§10.6 C 簡易版)。
-# 詳細: docs/local-llm-offload-history.md §A-2 / §10 (PR #130 で history へ分離)
+# [classifier] — ADR-038 (採用、2026-05-15) 経由のローカル LLM finding classifier。
+# このセクションを追加すると master 上で classifier が有効化される。問題が
+# 発生した場合は revert PR で `enabled = false` に戻すのが kill-switch。
+# 詳細: docs/adr/adr-038-local-llm-finding-classification.md
 # ---------------------------------------------------------------------------
 [classifier]
 enabled = true

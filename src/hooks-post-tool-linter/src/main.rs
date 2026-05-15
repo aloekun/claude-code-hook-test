@@ -1880,7 +1880,7 @@ extensions = ["ts", "js"]
         let file = write_file(
             dir.path(),
             "CLAUDE.md",
-            "See [Phase D plan](../docs/local-llm-offload-analysis.md) for context.\n",
+            "See [TODO summary](../docs/todo-summary.md) for context.\n",
         );
         let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
