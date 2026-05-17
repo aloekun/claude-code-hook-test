@@ -84,6 +84,8 @@ pub(crate) fn run_lint_screen(config: &LintScreenConfig, diff_path: &str) {
         }
     };
 
+    let diff = strip_diff_metadata_lines(&diff);
+
     invoke_and_write_report(config, output_path, &diff, started);
 }
 
@@ -376,6 +378,53 @@ fn chunk_has_excluded_extension(chunk: &str) -> bool {
     }
     let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     EXCLUDED_EXTENSIONS.contains(&ext.as_str())
+}
+
+/// git diff の metadata 行を strip して LLM 入力の signal/noise 比を改善する。
+///
+/// 由来 (Bundle l 順位 132): mistral:7b が `similarity index 100%` の `100%` を
+/// magic-number として false positive 検出する事象が PR #155 (Bundle k-1) /
+/// PR #156 (Phase E) で観測された。git diff metadata 行は file rename / move を含む
+/// PR で必ず出現するため、LLM 入力前に決定論的に除去することで構造的 FP を解消する。
+///
+/// 除去対象 (lossless: 各行を空行に置き換えずに完全削除):
+/// - `similarity index NN%` — rename / copy 時の similarity ratio (magic-number FP の主因)
+/// - `dissimilarity index NN%` — 同上 (git 1.6.5+ 形式)
+/// - `index <hex>..<hex>[ <mode>]` — blob hash + file mode (hex の連続が magic 化されやすい)
+/// - `new file mode NNNNNN` / `deleted file mode NNNNNN` / `old mode NNNNNN` /
+///   `new mode NNNNNN` — Unix mode の 6 桁数値も magic 化されやすい
+/// - `rename from <path>` / `rename to <path>` — rename target は filter_excluded_hunks
+///   が `+++ b/<path>` で既に判定済 (情報量ゼロ)
+/// - `copy from <path>` / `copy to <path>` — 同上
+///
+/// 保持: `diff --git ` (ハンク境界、file 識別) / `--- a/` / `+++ b/` (path 識別) /
+/// `@@ ... @@` (hunk header、line range 情報は LLM が file 位置を理解するのに必要) /
+/// `+` / `-` / ` ` (content 行)。
+fn strip_diff_metadata_lines(diff: &str) -> String {
+    diff.lines()
+        .filter(|line| !is_diff_metadata_line(line))
+        .map(|line| {
+            let mut s = String::with_capacity(line.len() + 1);
+            s.push_str(line);
+            s.push('\n');
+            s
+        })
+        .collect()
+}
+
+/// `strip_diff_metadata_lines` の per-line 判定。除去対象なら true。
+fn is_diff_metadata_line(line: &str) -> bool {
+    line.starts_with("similarity index ")
+        || line.starts_with("dissimilarity index ")
+        || line.starts_with("index ")
+        || line.starts_with("new file mode ")
+        || line.starts_with("deleted file mode ")
+        || line.starts_with("old mode ")
+        || line.starts_with("new mode ")
+        || line.starts_with("rename from ")
+        || line.starts_with("rename to ")
+        || line.starts_with("copy from ")
+        || line.starts_with("copy to ")
 }
 
 /// `write_skip_report` を呼び出し、失敗時はステージログに記録する。
@@ -753,6 +802,161 @@ mod tests {
         assert!(kept.contains("src/c.rs"));
         let lines: Vec<&str> = kept.lines().filter(|l| l.starts_with("diff --git ")).collect();
         assert_eq!(lines.len(), 2, "exactly 2 diff --git boundaries must remain");
+    }
+
+    #[test]
+    fn strip_diff_metadata_drops_similarity_index_line() {
+        let diff = "diff --git a/src/a.rs b/src/b.rs\n\
+                    similarity index 100%\n\
+                    rename from src/a.rs\n\
+                    rename to src/b.rs\n\
+                    --- a/src/a.rs\n\
+                    +++ b/src/b.rs\n\
+                    @@ -1,1 +1,1 @@\n\
+                    -old\n\
+                    +new\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(
+            !stripped.contains("similarity index"),
+            "similarity index line must be stripped, got: {}",
+            stripped
+        );
+        assert!(!stripped.contains("100%"));
+        assert!(!stripped.contains("rename from"));
+        assert!(!stripped.contains("rename to"));
+    }
+
+    #[test]
+    fn strip_diff_metadata_preserves_hunk_boundaries_and_content() {
+        let diff = "diff --git a/src/x.rs b/src/x.rs\nindex abc1234..def5678 100644\n--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1,2 +1,2 @@\n-fn old() {}\n+fn new() {}\n // unchanged context line\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(stripped.contains("diff --git "));
+        assert!(stripped.contains("--- a/src/x.rs"));
+        assert!(stripped.contains("+++ b/src/x.rs"));
+        assert!(stripped.contains("@@ -1,2 +1,2 @@"));
+        assert!(stripped.contains("-fn old() {}"));
+        assert!(stripped.contains("+fn new() {}"));
+        assert!(stripped.contains(" // unchanged context line"));
+        assert!(!stripped.contains("index abc1234"));
+    }
+
+    #[test]
+    fn strip_diff_metadata_drops_file_mode_lines() {
+        let diff = "diff --git a/script.sh b/script.sh\n\
+                    old mode 100644\n\
+                    new mode 100755\n\
+                    --- a/script.sh\n\
+                    +++ b/script.sh\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(!stripped.contains("old mode"));
+        assert!(!stripped.contains("new mode"));
+        assert!(!stripped.contains("100755"));
+        assert!(stripped.contains("--- a/script.sh"));
+    }
+
+    #[test]
+    fn strip_diff_metadata_drops_new_and_deleted_file_mode() {
+        let diff = "diff --git a/created.rs b/created.rs\n\
+                    new file mode 100644\n\
+                    index 0000000..1234567\n\
+                    --- /dev/null\n\
+                    +++ b/created.rs\n\
+                    diff --git a/removed.rs b/removed.rs\n\
+                    deleted file mode 100644\n\
+                    index 7654321..0000000\n\
+                    --- a/removed.rs\n\
+                    +++ /dev/null\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(!stripped.contains("new file mode"));
+        assert!(!stripped.contains("deleted file mode"));
+        assert!(!stripped.contains("100644"));
+        assert!(stripped.contains("--- /dev/null"));
+        assert!(stripped.contains("+++ /dev/null"));
+    }
+
+    #[test]
+    fn strip_diff_metadata_drops_copy_lines() {
+        let diff = "diff --git a/orig.rs b/copy.rs\n\
+                    similarity index 95%\n\
+                    copy from orig.rs\n\
+                    copy to copy.rs\n\
+                    --- a/orig.rs\n\
+                    +++ b/copy.rs\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(!stripped.contains("copy from"));
+        assert!(!stripped.contains("copy to"));
+        assert!(!stripped.contains("similarity index"));
+        assert!(stripped.contains("+++ b/copy.rs"));
+    }
+
+    #[test]
+    fn strip_diff_metadata_drops_dissimilarity_index() {
+        let diff = "dissimilarity index 30%\n+changed\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(!stripped.contains("dissimilarity index"));
+        assert!(stripped.contains("+changed"));
+    }
+
+    #[test]
+    fn strip_diff_metadata_keeps_content_lines_with_metadata_keywords_as_substring() {
+        let diff = "+let index = 0;\n\
+                    -println!(\"similarity index ratio\");\n\
+                    + // index of array\n";
+        let stripped = strip_diff_metadata_lines(diff);
+        assert!(stripped.contains("+let index = 0;"));
+        assert!(stripped.contains("-println!(\"similarity index ratio\");"));
+        assert!(stripped.contains("+ // index of array"));
+    }
+
+    #[test]
+    fn write_skip_report_errors_when_parent_is_a_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocking_file = dir.path().join("blocking-as-dir-name");
+        std::fs::write(&blocking_file, "existing regular file").unwrap();
+
+        let bad_path = blocking_file.join("nested-report.md");
+        let result = write_skip_report(bad_path.to_str().unwrap());
+        assert!(
+            result.is_err(),
+            "regular file 配下への create_dir_all は err になるべき: {:?}",
+            result
+        );
+        assert!(
+            !bad_path.exists(),
+            "err path で report が書き込まれないことを確認"
+        );
+    }
+
+    #[test]
+    fn write_skip_report_logged_does_not_panic_on_write_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocking_file = dir.path().join("blocking-regular-file");
+        std::fs::write(&blocking_file, "existing regular file").unwrap();
+
+        let bad_path = blocking_file.join("nested-report.md");
+        write_skip_report_logged(bad_path.to_str().unwrap());
+
+        assert!(
+            blocking_file.is_file(),
+            "blocking file が regular file のまま保持されていること (副作用なし)"
+        );
+        assert!(
+            !bad_path.exists(),
+            "err path で report が書き込まれないこと (silent fallback 再発防止 = Bundle l 順位 131)"
+        );
+    }
+
+    #[test]
+    fn write_skip_report_logged_succeeds_on_writable_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested_path = dir.path().join("sub").join("report.md");
+        write_skip_report_logged(nested_path.to_str().unwrap());
+        assert!(
+            nested_path.exists(),
+            "writable path では report が生成され、log path に流れていないこと"
+        );
+        let body = std::fs::read_to_string(&nested_path).unwrap();
+        assert!(body.contains("skipped"));
     }
 
     #[test]

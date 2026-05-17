@@ -566,6 +566,21 @@ fn write_pending_marker(repo_root: &Path, pr_number: u64) -> Result<PathBuf, Str
     )
 }
 
+/// `write_pending_marker` を呼び出し、失敗時はステージログに記録する。
+///
+/// silent drop ではなく log 残存 (Bundle l 順位 129、lint_screen.rs の
+/// `write_skip_report_logged` と同パターン)。fail-fast せずに継続するのは、
+/// pending marker は best-effort observability の補助で、本体 workflow の
+/// 進行を block すべきではないため。
+fn write_pending_marker_logged(repo_root: &Path, pr_number: u64) {
+    if let Err(e) = write_pending_marker(repo_root, pr_number) {
+        eprintln!(
+            "[merge-pipeline] [feedback] pending marker 書き込み失敗 (PR #{}, 続行): {}",
+            pr_number, e
+        );
+    }
+}
+
 /// RAII guard: scope 終了時に `.failed` marker が残っていることを保証する。
 ///
 /// ADR-030 §L1 in-process Drop guard。`feedback::run` 内で armed 状態の guard を
@@ -606,12 +621,18 @@ impl Drop for FailedMarkerGuard<'_> {
         if failed_marker_path(self.repo_root, self.pr_number).exists() {
             return;
         }
-        let _ = write_failed_marker(
+        if let Err(e) = write_failed_marker(
             self.repo_root,
             self.pr_number,
             "pending: workflow が unexpected に終了した \
              (FailedMarkerGuard Drop, ADR-030 §L1)",
-        );
+        ) {
+            eprintln!(
+                "[merge-pipeline] [feedback] FailedMarkerGuard Drop で marker 書き込み失敗 \
+                 (PR #{}): {}",
+                self.pr_number, e
+            );
+        }
     }
 }
 
@@ -1312,7 +1333,7 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
 
     check_concurrent_run_guard(&context_path)?;
 
-    let _ = write_pending_marker(&input.repo_root, input.pr_number);
+    write_pending_marker_logged(&input.repo_root, input.pr_number);
     let mut marker_guard = FailedMarkerGuard::new(&input.repo_root, input.pr_number);
 
     let range = fetch_pr_time_range(input.pr_number, input.owner_repo)

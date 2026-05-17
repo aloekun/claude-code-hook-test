@@ -2202,6 +2202,194 @@ extensions = ["ts", "js"]
         );
     }
 
+    fn no_write_result_discard_rule() -> CustomRule {
+        make_test_rule(
+            "no-write-result-discard",
+            r"let\s+_\s*=\s+write_\w+\(",
+            &["rs"],
+        )
+    }
+
+    fn build_write_discard_fixture(callee: &str) -> String {
+        format!("fn run() {{ let _ = {}(arg); }}\n", callee)
+    }
+
+    fn build_drop_write_discard_fixture(callee: &str) -> String {
+        format!(
+            "impl Drop for G {{ fn drop(&mut self) {{ let _ = {}(self.path); }} }}\n",
+            callee
+        )
+    }
+
+    fn build_if_let_err_fixture(callee: &str) -> String {
+        format!(
+            "fn run() {{ if let Err(e) = {}(arg) {{ log_warn(&e.to_string()); }} }}\n",
+            callee
+        )
+    }
+
+    fn build_non_write_prefix_fixture() -> String {
+        let prefix = "let _";
+        format!("fn run() {{ {prefix} = stream.flush(); {prefix} = drop(handle); {prefix} = sender.send(msg); }}\n")
+    }
+
+    fn build_named_binding_fixture(callee: &str) -> String {
+        format!(
+            "fn run() {{ let _result = {}(arg); println!(\"{{:?}}\", _result); }}\n",
+            callee
+        )
+    }
+
+    #[test]
+    fn no_write_result_discard_detects_simple_let_underscore() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stage.rs",
+            &build_write_discard_fixture("write_state"),
+        );
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_write_result_discard_detects_write_skip_report_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stage.rs",
+            &build_write_discard_fixture("write_skip_report"),
+        );
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_write_result_discard_detects_write_failed_marker_in_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "guard.rs",
+            &build_drop_write_discard_fixture("write_failed_marker"),
+        );
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_write_result_discard_skips_proper_if_let_err_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stage.rs",
+            &build_if_let_err_fixture("write_state"),
+        );
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "if let Err(e) = write_*() pattern は violation 0 件であるべき。実際: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn no_write_result_discard_skips_non_write_prefix_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(dir.path(), "stage.rs", &build_non_write_prefix_fixture());
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "write_ prefix を持たない関数は violation 対象外であるべき。実際: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn no_write_result_discard_skips_named_binding_starting_with_underscore() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "stage.rs",
+            &build_named_binding_fixture("write_state"),
+        );
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "let _foo = ... (named binding) は violation 対象外であるべき。実際: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn no_write_result_discard_only_targets_rust_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "doc.md",
+            &build_write_discard_fixture("write_state"),
+        );
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "extensions = [rs] により .md は対象外であるべき。実際: {:?}",
+            violations
+        );
+    }
+
+    fn collect_rust_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let entries = match std::fs::read_dir(root) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if file_name == "target" || file_name == "node_modules" || file_name.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                collect_rust_files(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn deployed_src_rust_passes_no_write_result_discard_rule() {
+        let src_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..");
+        let rules = compile_test_rules(vec![no_write_result_discard_rule()]);
+        let mut rust_files: Vec<std::path::PathBuf> = Vec::new();
+        collect_rust_files(&src_root, &mut rust_files);
+        assert!(
+            !rust_files.is_empty(),
+            "src/ 配下の .rs file が 0 件 — false-green guard (path resolution mistake?). \
+             searched: {}",
+            src_root.display()
+        );
+        let mut total_violations: Vec<String> = Vec::new();
+        for path in &rust_files {
+            let violations = run_custom_rules(path.to_str().unwrap(), &rules);
+            for v in violations {
+                total_violations.push(format!("{}: {}", path.display(), v));
+            }
+        }
+        assert!(
+            total_violations.is_empty(),
+            "src/**/*.rs に let _ = write_*(...) swallowed error が残存。\
+             if let Err(e) = ... {{ log_*(...) }} 形式に書き換えてください。違反内容: {:#?}",
+            total_violations
+        );
+    }
+
     /// 配布済 `.takt/workflows/*.yaml` が clean baseline を維持していることを assert。
     /// PR #126 の `deployed_custom_rules_pass_powershell_case_insensitive_validation` と
     /// 同パターン: rule 追加と clean baseline 確保を同 commit で land した後、後続編集での
