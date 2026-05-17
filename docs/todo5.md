@@ -50,7 +50,7 @@
 
 ---
 
-### ADR-038 (Rust timestamp arithmetic safety) + CLAUDE.md security 拡充 (PR #115 T3-1 採用) ★ Bb-3 follow-up
+### ADR-041 (Rust timestamp arithmetic safety) + CLAUDE.md security 拡充 (PR #115 T3-1 採用) ★ Bb-3 follow-up
 
 > **動機**: PR #115 で「config が user-editable system boundary のとき、sanitize() で値域検証 + 下流 arithmetic で安全範囲保証」というパターンが実証された (CR Major #1 + #2 が両方とも同型の「config 値→arithmetic 入力」cross-layer integrity 問題)。同型の bug class は今後も Rust + config 駆動の component で発生しうるため、組織的 learning として codify。
 >
@@ -62,7 +62,7 @@
 
 #### 設計決定 (案)
 
-- **ADR-038 (新規)**: `docs/adr/adr-038-timestamp-arithmetic-safety.md` を作成
+- **ADR-041 (新規)**: `docs/adr/adr-041-timestamp-arithmetic-safety.md` を作成
   - **タイトル**: Rust timestamp arithmetic の overflow safety pattern
   - **Context**: PR #115 で sanitize() が `i64::MAX as u64` を valid として通したが downstream の `now_unix + wait as i64` で overflow した CR Major #2 を引用
   - **Decision**: 以下 3 層で overflow を構造的に防ぐ
@@ -71,12 +71,12 @@
     3. **Test layer**: `now + sanitize 後の値 < i64::MAX` invariant を `checked_add` で machine-enforce (順位 76/77 で実装)
   - **Consequences**: cross-module overflow を test layer で構造的に検知。`MAX_SAFE_WAIT_SECS` の根拠が future-proof (2100 年でも safe)
 - **CLAUDE.md `security.md` (`~/.claude/rules/common/security.md`) 拡充**: 「config は user-editable system boundary、必ず sanitize() で値域検証」+ 「Rust の `as` cast は overflow check しない、`checked_add` を併用」を追加。global rule なので全 Rust project に適用される
-- **本 PR の効果**: ADR + CLAUDE.md で codified 後、将来同型 bug が発生したら「ADR-038 違反」として一発で指摘可能
+- **本 PR の効果**: ADR + CLAUDE.md で codified 後、将来同型 bug が発生したら「ADR-041 違反」として一発で指摘可能
 
 #### 作業計画
 
-- [ ] `docs/adr/adr-038-timestamp-arithmetic-safety.md` を新規作成 (Context / Decision / Consequences)
-- [ ] CLAUDE.md (project) Architecture Decisions リストに ADR-038 を追加
+- [ ] `docs/adr/adr-041-timestamp-arithmetic-safety.md` を新規作成 (Context / Decision / Consequences)
+- [ ] CLAUDE.md (project) Architecture Decisions リストに ADR-041 を追加
 - [ ] `~/.claude/rules/common/security.md` に「config sanitize + Rust arithmetic safety」セクション追加
 - [ ] (任意) `~/.claude/rules/rust/coding-style.md` に `// SAFETY:` コメント pattern を補足
 - [ ] 順位 76/77 が land 済の前提で「Test layer で検証する」を ADR で言及 (前後関係を明示)
@@ -85,13 +85,13 @@
 
 #### 完了基準
 
-- ADR-038 が land し、CLAUDE.md からリンクされる
+- ADR-041 が land し、CLAUDE.md からリンクされる
 - `~/.claude/rules/common/security.md` に Rust arithmetic safety pattern が追加される
-- 将来「config 値が arithmetic で overflow」という形の bug が出たら、ADR-038 を引用して一発で指摘できる
+- 将来「config 値が arithmetic で overflow」という形の bug が出たら、ADR-041 を引用して一発で指摘できる
 
 #### 詰まっている箇所
 
-- 順位 76/77 land 前後の順番: ADR で test layer に言及するため、test 実装が先のほうが自然。ただし ADR を先 land して「test を ADR-038 に従って実装する」流れも可能。実装時に ROI で判断 (test PR と ADR PR を分けるか、まとめるか)
+- 順位 76/77 land 前後の順番: ADR で test layer に言及するため、test 実装が先のほうが自然。ただし ADR を先 land して「test を ADR-041 に従って実装する」流れも可能。実装時に ROI で判断 (test PR と ADR PR を分けるか、まとめるか)
 - `~/.claude/` 配下の global rule 編集は本 repo 外への影響あり、慎重に (memory `feedback_no_unenforced_rules.md` 「強制力のないルール追加は却下」原則を踏まえる必要あり = 機械検知できないルールは却下されうる)。本 task は ADR + 既存 rule 拡充で「機械検知の根拠」を提供する形なので OK だが、CLAUDE.md security.md の追記内容が「ルールだけ増やす」と評価されないよう、順位 76/77 の test との連携を明示する
 
 ---
