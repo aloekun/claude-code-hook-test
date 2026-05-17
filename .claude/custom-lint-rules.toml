@@ -337,3 +337,41 @@ bad = '''      persona: supervisor
 good = '''      persona: supervisor
       model: sonnet
       instruction: loop-monitor-reviewers-fix'''
+
+# ─── ルール⑩: `let _ = write_*` swallowed error 検出 (silent failure 防止) ───
+#
+# 由来: PR #155 simplicity-review が BLOCKING 指摘した `write_skip_report` の Result を
+# `let _ =` で silent drop していた問題の構造的防止層 (Bundle l 順位 129)。同 PR の
+# `write_report` 経路 (lint_screen.rs) では `if let Err(e) { log_stage(...) }` pattern が
+# 確立されていたにもかかわらず、新規追加された I/O write 関数で reuse されず再発した。
+# 今後の I/O 関数追加で同 anti-pattern が混入することを機械的に防ぐ。
+#
+# Scope 限定 (extensions = ["rs"]、prefix scope = "write_"):
+# `let _ = write_<name>(` の形だけを flag。`let _ = stream.flush()` や
+# `let _ = drop(handle)` 等の non-write 関数は false positive にしない。
+# 「write_」prefix は本リポジトリの I/O 書込関数命名規約 (write_state /
+# write_failed_marker / write_pending_marker / write_skip_report / write_report 等) と整合。
+#
+# Self-exclusion: 本 TOML は extensions = ["rs"] により対象外。example.bad / good は
+# literal で書ける。
+
+[[rules]]
+id = "no-write-result-discard"
+pattern = 'let\s+_\s*=\s+write_\w+\('
+severity = "error"
+message = "`let _ = write_*` で I/O 書込関数の Result を silent drop しています"
+why = "silent failure は debug 困難化を招く。`write_` 関数は I/O 失敗 (権限/ディスク容量/lock) を返すため、最低でも log_stage / log_warn / eprintln! 等で観測可能にする必要がある。PR #155 simplicity-review BLOCKING の再発を機械的に防止 (Bundle l 順位 129)"
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "`if let Err(e) = write_*(...) { log_stage(STAGE, &format!(...)); }` または `*_logged` ヘルパー抽出"
+steps = [
+  "stage 内なら: `if let Err(e) = write_foo(...) { log_stage(STAGE, &format!(\"skip: ...: {}\", e)); }`",
+  "Drop 実装内なら: `if let Err(e) = write_foo(...) { eprintln!(\"[component] ...: {}\", e); }` (log macro が panic 安全でない場合)",
+  "意図的に drop が必要な場合: コメントで理由を明記し `// SAFETY:` 風のマーカーを付ける",
+  "再利用される pattern なら lint_screen.rs の `write_skip_report_logged` のような helper を抽出",
+]
+
+[rules.example]
+bad = "let _ = write_state(&state);"
+good = "if let Err(e) = write_state(&state) { log_warn(&format!(\"state write failed: {}\", e)); }"

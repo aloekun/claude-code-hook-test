@@ -214,7 +214,9 @@ fn build_state_for_iteration(
 
     apply_skip_handling(&mut state, skip_ci, skip_coderabbit);
     state.last_checked = Some(utc_now_iso8601());
-    let _ = write_state(&state);
+    if let Err(e) = write_state(&state) {
+        log_info(&format!("state 書き込み失敗 (skip 反映後、続行): {}", e));
+    }
     state
 }
 
@@ -236,7 +238,12 @@ fn enrich_with_classifier(state: &mut PrMonitorState, config: &ClassifierConfig)
         classified.len()
     ));
     state.classified_findings = classified;
-    let _ = write_state(state);
+    if let Err(e) = write_state(state) {
+        log_info(&format!(
+            "state 書き込み失敗 (classifier enrich 後、続行): {}",
+            e
+        ));
+    }
 }
 
 fn apply_skip_handling(state: &mut PrMonitorState, skip_ci: bool, skip_coderabbit: bool) {
@@ -790,7 +797,12 @@ fn finalize_review_recheck_max_reached(
     );
     state.action = "action_required".into();
     state.summary = summary.clone();
-    let _ = write_state(state);
+    if let Err(e) = write_state(state) {
+        log_info(&format!(
+            "state 書き込み失敗 (action_required 確定後、続行): {}",
+            e
+        ));
+    }
     make_action_required_result(state, &serde_json::Value::Null, &summary)
 }
 
