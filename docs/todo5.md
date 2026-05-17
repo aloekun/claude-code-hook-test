@@ -10,46 +10,6 @@
 
 ## 現在進行中
 
-### `no-ephemeral-todo-reference` の `yaml`/`yml` extensions 追加理由をコメントで明記 (PR #110 T3-1 採用) ★ Bundle d
-
-> **動機**: PR #110 で `no-ephemeral-todo-reference` rule の `extensions` に `yaml` / `yml` を追加したが、`docs/todo3.md` の設計 doc には `["rs", "toml", "jsonc", "json", "ts", "tsx", "js", "jsx", "py", "ps1"]` のみ記載されていた。実装時に「YAML config もファイルパス参照を含みうる」判断で `yaml` / `yml` を含めたが、その理由が `.claude/custom-lint-rules.toml` rule⑥ コメントに残っていない。将来の rule 参照者が「なぜ yaml/yml が含まれているか」を git blame で追う必要が出る。
->
-> **本タスクの位置づけ**: PR #110 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None / ✅ 採用)。Frequency Medium = spec-impl 乖離パターンは反復しがちなため、コメント追記で経緯保存することが ROI 高い。
->
-> **参照**: `.claude/feedback-reports/110.md` Tier 3 #1、`.claude/custom-lint-rules.toml` rule⑥ コメント欄、PR #110 pre-push reviewer OBS-2
->
-> **実行優先度**: 💎 **Tier 3** — Effort XS。コメント 1-2 行追記のみ。
-
-#### 設計決定 (案)
-
-- **配置先**: `.claude/custom-lint-rules.toml` rule⑥ の既存コメント欄 (Self-exclusion 設計の上または下)
-- **追記文** (案):
-  ```toml
-  # extensions の選定:
-  # - 設計 doc (docs/todo3.md PR #94 T1-1) では rs/toml/jsonc/json/ts/tsx/js/jsx/py/ps1 のみ
-  # - 実装で yaml/yml を追加: takt workflow yaml / GitHub Actions yaml 等で
-  #   docs/todoN.md への参照を含む permanent artifact として扱う必要があるため
-  ```
-- 既存コメント (Self-exclusion 設計) との整合性確保。順序は「Why このルール」→「extensions 選定」→「Self-exclusion 設計」が読みやすい
-
-#### 作業計画
-
-- [ ] `.claude/custom-lint-rules.toml` rule⑥ コメント欄に extensions 選定理由を 2-3 行追記
-- [ ] 既存 Self-exclusion コメントとの読み順整合 (どちらが先か検討)
-- [ ] 派生プロジェクト deploy 時に同 rule をコピーする場合、コメントも一緒にコピーされることを確認
-- [ ] 本 todo5.md エントリを削除
-
-#### 完了基準
-
-- rule⑥ コメント欄に「yaml/yml は YAML config も permanent artifact として扱う」旨が 1-2 行で記述される
-- git blame せずとも extensions の選定根拠が rule 定義の隣で読める
-
-#### 詰まっている箇所
-
-なし (Effort XS、コメント追記のみ)
-
----
-
 ### ADR-041 (Rust timestamp arithmetic safety) + CLAUDE.md security 拡充 (PR #115 T3-1 採用) ★ Bb-3 follow-up
 
 > **動機**: PR #115 で「config が user-editable system boundary のとき、sanitize() で値域検証 + 下流 arithmetic で安全範囲保証」というパターンが実証された (CR Major #1 + #2 が両方とも同型の「config 値→arithmetic 入力」cross-layer integrity 問題)。同型の bug class は今後も Rust + config 駆動の component で発生しうるため、組織的 learning として codify。

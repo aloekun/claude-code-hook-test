@@ -16,7 +16,6 @@
 
 | 順位 | Tier | 内容 | 編集ファイル | 工数 |
 |---|---|---|---|---|
-| 69 | T3 | `no-ephemeral-todo-reference` rule の `yaml`/`yml` extensions 追加理由をコメント 1-2 行で明記 (PR #110 T3-1) | [.claude/custom-lint-rules.toml](../.claude/custom-lint-rules.toml) rule⑥ コメント欄 | XS |
 | 104 | T3 | ADR-007 amendment: semantic self-limitation 安全条件 + lint rule 最小テストチェックリスト (pattern detection / case-insensitive / false positive skip の 3 項目) (PR #140 T3-#1) | [docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) | S |
 | 116 | T3 | ADR-040 `step_timeout` 説明に sublinear / KV cache locality clarification を 2-3 行追記し、reference table 600s と formula 720s の数値整合化 (PR #145 T3-#1) | [docs/adr/adr-040-local-llm-context-size.md](adr/adr-040-local-llm-context-size.md) | XS |
 | 120 | T3 | `takt-workflow-persona-without-model` rule コメント拡張（field 拡張手順 4-5 行）+ ADR-007 case study 追記（enumeration-based 正規表現層、Rust regex lookahead 非対応の pragmatic 対処）(PR #150 T1-#1、実体 Tier 3) | [.claude/custom-lint-rules.toml](../.claude/custom-lint-rules.toml) ルール⑨ + [docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) | XS |
