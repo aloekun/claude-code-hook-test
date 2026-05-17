@@ -279,46 +279,6 @@ config.rs + push-runner-config.toml + review-simplicity.md + ADR で family_tag 
 
 ---
 
-### ADR-007 amendment: semantic self-limitation 安全条件 + lint rule 最小テストチェックリスト (PR #140 T3-#1 採用)
-
-> **動機**: rule⑧ (PR #140) で `paths` filter 不在を pattern semantics で代替した判断は妥当だったが、**どんな条件下で semantic self-limitation が安全か** / **explicit filter が必須な条件は何か** が ADR-007 に明文化されていない。3 ソース (PR diff / prepush / session) でこの documentation 不足を独立指摘。同時に lint rule 最小テストチェックリスト (pattern detection / case-insensitive / false positive skip の 3 項目) も ADR レベルで確立すると future rule author の prior が安定化する。
->
-> **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Low = 3 ソース観測 / Effort S / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/140.md` Tier 3 #1、`docs/adr/adr-007-custom-linter-layer-boundary.md`、PR #140 rule⑧ 設計判断
-
-#### 追加する 2 section (ADR-007 への amendment)
-
-##### (a) Semantic self-limitation の安全条件 vs explicit filter 必須条件
-
-- **OK**: pattern が path-context を含意する場合 (例: `](../docs/` は parent-dir 経由で docs/ を再参照 → docs/ 配下以外では自然な記述形式と区別される)
-- **NG**: pattern が path-agnostic で paths filter 必須 (例: `eprintln!` は src/ 全体で頻出、特定 crate のみに限定したい場合は path filter が必要)
-- **判断 flow chart**: 「pattern semantics で false positive が <X% (X 値は実測 grep 結果) 以下なら OK / 超えるなら paths filter 必須」
-
-##### (b) Lint rule 最小テストチェックリスト
-
-新規 lint rule 追加時の必須 test 構成:
-
-1. **Pattern detection test**: 想定するアンチパターン入力で fire することを確認
-2. **Case-insensitive test** (該当する場合): 大文字バリアント / 小文字バリアントで fire することを確認 (PR #91 PowerShell `(?i)` 教訓)
-3. **False positive skip test**: 似て非なる正当パターンで fire しないことを確認
-
-#### 作業計画
-
-- [ ] ADR-007 既存 section 構造を確認
-- [ ] (a) Semantic self-limitation 判断基準を新 section として追加
-- [ ] (b) 最小テストチェックリストを新 section として追加 (もしくは既存 § 拡張)
-- [ ] 順位 102 (`paths` filter 実装) と同 PR で land 推奨 (実装と documentation の同期)
-- [ ] 順位 105 (グローバル CLAUDE.md table) との内容重複を確認 (ADR は判断基準、CLAUDE.md は field reference で補完関係)
-- [ ] 本 todo6.md エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-007 に「semantic self-limit OK 条件」と「最小 test checklist」が明記される
-- 次回 lint rule 追加時に rule author が ADR-007 から判断基準を逆引きできる
-
----
-
 ### グローバル CLAUDE.md に lint runner サポートフィールド一覧表 (PR #140 T3-#2 採用)
 
 > **動機**: 派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) で hooks を porting する際、lint runner がサポートするフィールド (`pattern` / `extensions` / `severity` / `message` / `why`、planned: `paths`) を一目で把握できる reference が グローバル CLAUDE.md に存在しない。順位 103 (code comment) と相補的で、cross-project 可視性を即時向上。
