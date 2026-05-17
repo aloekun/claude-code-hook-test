@@ -179,6 +179,11 @@ good = 'See [推奨実行順序](todo-summary.md#recommended-order-summary)  <!-
 # `~/.claude/rules/common/coding-style.md` の Cross-File Reference Lifecycle ルール
 # (永続成果物 → ephemeral artifact 参照禁止) の決定論的検出層。
 #
+# extensions の選定:
+# - 当初設計 (PR #94) では rs/toml/jsonc/json/ts/tsx/js/jsx/py/ps1 のみを対象に列挙
+# - PR #110 で yaml/yml を追加: takt workflow yaml / GitHub Actions yaml 等の
+#   YAML config も permanent artifact として ephemeral 参照を含み得るため
+#
 # Self-exclusion 設計:
 # Rust regex は lookbehind 非対応のため負 lookahead は使用不可。本ファイル自身は
 # .toml 拡張子で対象内だが、message / why / example 内に concrete `docs/todoN.md`
