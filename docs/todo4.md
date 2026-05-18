@@ -262,46 +262,6 @@
 
 ---
 
-### takt workflow `model` フィールド必須化 lint rule (PR #98 T1-1)
-
-> **動機**: Bundle Y2 (PR #98) で post-pr-review.yaml の analyze step に `model: haiku` を明示追加した結果、post-merge-feedback で同 yaml の `supervise` step (line 106-124) に `model:` フィールドが未指定であることが指摘された。`persona:` を持つ step で `model:` 未指定は default `sonnet` に落ちるため、Bundle Y2 ゴール (analyze 系 haiku / supervise・fix は sonnet 維持) では現時点で偶然合致しているが、将来 default 変更や persona 追加で意図せぬモデル選択が混入しうる。
->
-> **本タスクの位置づけ**: Bundle Y2 完全性 follow-up + 決定論的防止層の追加。`persona:` を持つ step に `model:` がないパターンを `.claude/custom-lint-rules.toml` の正規表現 lint rule として検出する。ADR-007 (custom-lint-rule の正規表現層 / AST 層線引き) の正規表現層に該当。
->
-> **参照**: `.claude/feedback-reports/98.md` Tier 1 #1
->
-> **実行優先度**: 🚀 **Tier 1** — Effort Small。yaml 設定変更のみで lint rule 追加可能。Bundle Y2 の完全性 (post-pr-review.yaml supervise step への `model: sonnet` 明示追加) も同 PR で land する想定。
-
-#### 設計決定 (案)
-
-- **配置先**: `.claude/custom-lint-rules.toml` の新規 rule entry
-- **検出ロジック (正規表現案)**: yaml ファイル内で `persona:` 行を見つけ、その同 step block 内に `model:` がない場合を検出する。yaml の階層を厳密に解析する場合は ADR-007 の AST 層昇格を検討 (Tree-sitter / yaml-rust)
-- **適用対象**: `.takt/workflows/*.yaml` のみ (extensions: ["yaml"] + path filter)
-- **副次作業**: post-pr-review.yaml supervise step に `model: sonnet` を明示追加 (Bundle Y2 完全性)。lint rule 導入と同 commit で実施することで、新 rule が clean baseline を保つ
-- **rule 名 (案)**: `takt-workflow-persona-without-model`
-
-#### 作業計画
-
-- [ ] 既存 `.claude/custom-lint-rules.toml` の構造を確認
-- [ ] 正規表現 + path filter を新 rule として記述
-- [ ] PostToolUse hook の lint runner で post-pr-review.yaml supervise step が検出されることを確認
-- [ ] post-pr-review.yaml supervise step に `model: sonnet` を明示追加 (Bundle Y2 完全性)
-- [ ] pre-push-review.yaml / post-merge-feedback.yaml も全 step に `model:` が揃っているか確認
-- [ ] `pnpm deploy:hooks` で派生プロジェクトに rule を配布
-- [ ] 本 todo4.md エントリを削除
-
-#### 完了基準
-
-- `.claude/custom-lint-rules.toml` に新 rule が追加され `.takt/workflows/*.yaml` 全 step で `persona:` ⇔ `model:` 対応が確立
-- post-pr-review.yaml supervise step に `model: sonnet` 明示追加 (Bundle Y2 完全性確保)
-- lint rule が将来の workflow 編集時に欠落を検出可能
-
-#### 詰まっている箇所
-
-- yaml の階層構造を正規表現のみで完全表現するのは難しい。実 workflow ファイルで false positive がないか着手時に確認。多発する場合は ADR-007 の AST 層昇格判断。
-
----
-
 ### prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)
 
 > **動機**: PR #98 セッションで、Bundle Y2 commit の `jj describe` 後の `pnpm push` がローカル bookmark 未作成のまま実行され、`jj git push` の default revset (`remote_bookmarks(remote=origin)..@`) で対象 0 件 → "Nothing changed" warning となり実質 push 失敗。push-runner は bookmark 自動採番ロジックを持たず、prepare-pr skill の Step 1 fallback (bookmark `<type>/<summary-slug>` 自動採番) でリカバリしたが、Step 1 の state 確認コマンド一覧に `jj bookmark list` の output 確認が明示されておらず、検出が「Step 1 fallback 表の `local_bookmarks` 空判定」に依存していた。

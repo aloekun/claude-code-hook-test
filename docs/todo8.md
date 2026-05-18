@@ -364,6 +364,74 @@
 
 ---
 
+### working copy staleness 検出 hook 2 段構え: SessionStart + PreToolUse (本セッション cleanup-stale-rank-39 由来)
+
+> **動機**: 本セッション (PR cleanup-stale-rank-39 作業中) で「local working copy が stale parent (master と sibling) のまま docs/todo*.md を読み込み、master 上で既に削除済の entry 2 件 (順位 104 / 126) を『stale entry として削除する』と誤判定」failure mode を実証した (実 stale entry は 1 件のみだった)。memory rule `feedback_verify_task_not_already_done.md` (todo 着手前に既実装検証 → stale entry 削除に再目的化) は強制力ゼロで再発確実 = memory rule 全般の限界 (`feedback_no_unenforced_rules.md` 原則の自己事例)。Claude Code Web との並列セッション運用前提下では構造的に同 mode が発生する。
+>
+> **本タスクの位置づけ**: 本セッション post-merge-feedback 相当の structural defense。`feedback_no_unenforced_rules.md` 例外条件 = **2 つの hook で機械強制可能**。案 A (予防層 = session 起動時に状況認識) + 案 B (最終 backstop = stale 状態での編集を hard block) のセット二段構え。
+>
+> **参照**: 本セッション (2026-05-18) PR cleanup-stale-rank-39 root cause 分析 (ユーザー対話)、memory `feedback_verify_task_not_already_done.md`、ADR-039 (Experimental feature 標準パターン)
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort Medium (案 A ~80 行 + 案 B ~30 行)。本セッションの実観測 failure mode に対する直接対策で、並列セッション運用が常態化している現状で再発確率が高い。
+
+#### 設計決定 (案 A + B)
+
+**案 A: SessionStart hook で `jj git fetch` + lineage 報告**
+
+- 配置: `src/hooks-session-start/` (既存があれば拡張、なければ新設)
+- 動作:
+  1. `jj git fetch --quiet` を timeout 付き (3 秒) で実行
+  2. `master..@-` / `@-..master` の commit 数を比較
+  3. additional context として AI に出力 (例):
+     ```text
+     [working-copy-freshness]
+     @: lmzvnwlu (parent: #159)
+     master: #161 (2 commits ahead of @-)
+     warning: working copy is behind master; recommend `jj rebase -d master`
+     ```
+- kill-switch: `hooks-config.toml` の `[session_start]` section に `enabled` flag
+- 最適化: `.git/FETCH_HEAD` mtime を確認して「5 分以内なら fetch skip」 (network cost 抑制)
+- fail-open: fetch timeout / 失敗時は warning なしで pass-through (block しない、AI 操作は継続可能)
+
+**案 B: PreToolUse hook で stale 時の `docs/todo*.md` edit を block**
+
+- 配置: 既存 `src/hooks-pre-tool-validate/` に統合 (~30 行追加)
+- 動作: Edit / Write の対象が `docs/todo*.md` 系列のとき、master と @- の lineage 確認 → master が ahead なら hard block
+- block message:
+  ```text
+  ❌ working copy parent (#X) is N commits behind master (#Y).
+  docs/todo*.md は state を反映する artifact のため、master と同期した状態で編集すること。
+  修正手順: `jj git fetch && jj new master`
+  ```
+- scope 限定: `docs/todo*.md` のみ block (コード / config までは過剰、false positive リスク)
+- 案 A と異なり、本 hook は fail-closed (lineage 判定不能なら block) で安全側に倒す
+
+#### 作業計画
+
+- [ ] 既存 SessionStart hook の有無確認 (`src/hooks-session-start/` または settings.json の `SessionStart` entry)
+- [ ] `jj git fetch` の timeout / kill-switch / network 例外処理設計
+- [ ] `master..@-` の lineage 計算ロジック実装 (`jj log -r "master..@-" --no-graph -T 'description'` 等)
+- [ ] additional context 出力フォーマット決定 (一行 vs 複数行、AI 読み飛ばし耐性検証)
+- [ ] `hooks-pre-tool-validate.exe` に `docs/todo*.md` edit block ロジック追加
+- [ ] ADR 起案 (新 hook 設計 + ADR-039 experimental pattern 適用、land 時採番確定)
+- [ ] dogfood 期間設定 (試験運用 flag で N 週間運用後採否決定)
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) deploy 検討
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- session 開始時に working copy が master より遅れている場合、AI が context 出力で即座に状況を認識する
+- stale parent 状態で `docs/todo*.md` を編集しようとすると hard block + 修正手順 (`jj git fetch && jj new master`) 表示
+- ADR-039 experimental pattern に従い kill-switch 装備 (network 異常 / feature branch 運用への退避経路)
+- 派生プロジェクトでの動作確認
+
+#### 詰まっている箇所
+
+- `jj git fetch` の timeout が低速 network で頻発した場合の UX → 案 A は fail-open で warning なし pass-through、案 B は fail-closed (lineage 不能 = stale 扱い) で安全側に倒す trade-off
+- master 判定ロジック: 現状 trunk-based 前提で master を正と扱う。feature branch 運用が始まると assumption が破綻するが、本リポジトリは当面 trunk-based のため問題なし。trunk 名 (master / main) は config 可能にしておく
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)

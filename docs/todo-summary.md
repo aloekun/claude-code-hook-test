@@ -32,7 +32,6 @@
 | 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W land 後推奨 (PBT properties の後付け検証層、変更 crate + 1-hop 依存 scope) |
 | 37 | 🔧 Tier 2 | **pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky) ★ Bundle X** | todo4.md | S | 順位 36 と同 PR (Bundle X、cli-push-runner に +~1 秒 step 追加) |
 | 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 Phase B (順位 8) と同 bundle 化推奨、long-tail flake と coverage 全体監査 |
-| 39 | 🚀 Tier 1 | **takt workflow `model` フィールド必須化 lint rule (PR #98 T1-1)** | todo4.md | S | なし (Bundle Y2 完全性: post-pr-review.yaml supervise step の `model:` 欠落を契機に決定論的防止層を追加) |
 | 40 | 🚀 Tier 1 | **prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)** | todo4.md | XS | なし (本セッション再現の push 失敗を Step 1 fallback で早期検出。skill repo 側更新) |
 | 41 | 🔧 Tier 2 | **Bundle Y2 効果の定量計測 — post-merge-feedback / post-pr-review の avg time 比較 (PR #98 T2-2)** | todo4.md | M | なし (PR #97 sonnet baseline vs PR #98 以降 haiku の実測比較。Bundle Z / Z2 の ROI 判断材料、PR #98 merge 後 3-5 PR の観察ベース) |
 | 42 | 🔧 Tier 2 | **cli-pr-monitor の rate-limit auto-retry + `@coderabbitai review` auto-trigger 実装 (PR #99 T2-4) ★ Bundle a Sub-PR 2** | todo4.md | M | 順位 45 と同 PR (Sub-PR 2、Sub-PR 1 の `--list-findings` API を消費) |
@@ -78,6 +77,7 @@
 | 133 | 💎 Tier 3 | **docs-governance §Retirement Workflow に「diff context 由来 false alarm 防止 = grep hit は実ファイル Read で確認」明記 (PR #156 T3 #1 採用)** | todo8.md | XS | なし (PR #156 で 5 件以上の false alarm 発生、`feedback_no_unenforced_rules.md` 例外 = 既存実践の明文化 + guide 効果、順位 122 / 127 と同じロジック、`~/.claude/` global 配下で派生プロジェクトに自動波及) |
 | 134 | 💎 Tier 3 | **ADR-035 に docs-only PR 評価の適用外基準リスト追加 (mutation / error handling / DRY / YAGNI / function length / test coverage / magic-number 等) (PR #156 T3 #2 採用)** | todo8.md | S | なし (Severity Medium = reviewer の criteria 誤適用による unnecessary review overhead / 開発体験劣化、ADR-035 は分類基準のみ定義済で適用外基準が未明示、`feedback_no_unenforced_rules.md` 例外 = ADR への追加で機械強制ではなく reviewer / Claude の judgment 補助) |
 | 135 | 💎 Tier 3 | **todo entry の ADR 番号 hardcode 撤廃 — 「ADR-NNN (採番未確定、land 時に確定)」placeholder 採用 (順位 78 番号 conflict 2026-05-16 観測由来)** | todo8.md | XS | なし (順位 78 (旧 ADR-038 → ADR-041) で番号 conflict が顕在化、queue 滞留 entry の hardcode が後発 PR の採番と衝突する構造リスクを convention で予防、`~/.claude/rules/common/docs-governance.md` に 2-3 行追記。採番予約簿は管理コスト過剰のため見送り、land 時 PR で空き番号確定の軽量運用に統一) |
+| 136 | 🚀 Tier 1 | **working copy staleness 検出 hook 2 段構え: SessionStart (jj git fetch + lineage 報告) + PreToolUse (stale 時 docs/todo*.md edit block) — 本セッション cleanup-stale-rank-39 由来** | todo8.md | M | なし (本セッションで実証された「stale parent で docs/todo*.md 読込 → 既削除 entry を再度削除提案」failure mode の structural enforcement。Claude Code Web 並列セッション運用前提下で再発確実。`feedback_no_unenforced_rules.md` 例外 = 2 つの hook で機械強制可能、案 A 予防層 + 案 B 最終 backstop の二段構え、ADR-039 experimental pattern 適用) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
