@@ -184,6 +184,15 @@ good = 'See [推奨実行順序](todo-summary.md#recommended-order-summary)  <!-
 # - PR #110 で yaml/yml を追加: takt workflow yaml / GitHub Actions yaml 等の
 #   YAML config も permanent artifact として ephemeral 参照を含み得るため
 #
+# ⚠️ extensions 変更時の test 追加義務 (順位 127, PR #151/#152 で観測の test gap 対策):
+# extensions に新規拡張子を追加 / 削除する場合、同 PR で対応する positive test
+# (= 新拡張子ファイルで rule が fire することの assertion) と negative test (= 同
+# 拡張子で permanent 参照は fire しないこと) を
+# `src/hooks-post-tool-linter/src/main.rs` テストモジュールの
+# `no_ephemeral_todo_detects_*` / `no_ephemeral_todo_skips_*` / `no_ephemeral_todo_<ext>_*`
+# 系列に追加すること。test 不在のまま extensions を変更すると検出力 regression が
+# silent に発生する (yaml/yml = PR #110、toml = PR #151 で実観測の gap)。
+#
 # Self-exclusion 設計:
 # Rust regex は lookbehind 非対応のため負 lookahead は使用不可。本ファイル自身は
 # .toml 拡張子で対象内だが、message / why / example 内に concrete `docs/todoN.md`
