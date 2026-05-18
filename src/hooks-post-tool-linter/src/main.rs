@@ -1992,6 +1992,47 @@ extensions = ["ts", "js"]
         assert!(violations.is_empty());
     }
 
+    /// 順位 124 (PR #151 T1-#1 採用、PR #152 で再観測): TOML 拡張子で rule⑥ が機能することを
+    /// explicit に seal する positive test。既存の self-exclusion invariant test
+    /// (`no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml`) は
+    /// "self-trigger しない" 方向の test であり、検出力の test ではない。本 test は将来
+    /// extensions から "toml" を誤削除した場合に test fail で検出する safety net。
+    #[test]
+    fn no_ephemeral_todo_detects_toml_ephemeral_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "config.toml",
+            &build_concrete_digit_fixture(3),
+        );
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "rule⑥ should fire on TOML file with ephemeral todo reference"
+        );
+    }
+
+    /// 順位 124 補完: TOML 拡張子でも `docs/adr/...` 等の permanent 参照は fire しないことを
+    /// assert する negative test。拡張子だけでなく pattern の正確性も seal する。
+    #[test]
+    fn no_ephemeral_todo_toml_skips_permanent_adr_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "config.toml",
+            "doc_link = \"see docs/adr/adr-007-foo.md for context\"\n",
+        );
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "rule⑥ should NOT fire on TOML file with permanent ADR reference (got {} violations)",
+            violations.len()
+        );
+    }
+
     #[test]
     fn no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
