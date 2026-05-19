@@ -89,6 +89,7 @@ struct CustomRulesConfig {
 /// | `paths` | optional | glob pattern による file path filter (順位 102 land 済)。指定時は `extensions` との **AND** 結合で評価。例: `paths = ["docs/**/*.md"]` で docs/ 配下のみ対象。未指定 (None) または空配列は「path filter なし」(= `extensions` のみで判定) |
 /// | `fix` | optional | `CustomRuleFix` (strategy + steps) |
 /// | `example` | optional | `CustomRuleExample` (bad + good) |
+/// | `test_coverage` | optional | `CustomRuleTestCoverage`。rule が targets する main ext (`rs` / `toml` / `yaml` / `yml`) ごとに対応 test 関数名を明示宣言する meta field (順位 137 land 済)。`rule_test_coverage_check` cargo test が deploy 済 TOML を読み、宣言された test 関数の存在 + 必須カバレッジ (main ext ごとに 1+ test、非 main 専用 rule には other_ext_tests 1+) を機械検証する |
 ///
 /// **glob syntax** (`globset` crate 準拠):
 ///
@@ -113,6 +114,9 @@ struct CustomRule {
     paths: Option<Vec<String>>,
     fix: Option<CustomRuleFix>,
     example: Option<CustomRuleExample>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    test_coverage: Option<CustomRuleTestCoverage>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -125,6 +129,30 @@ struct CustomRuleFix {
 struct CustomRuleExample {
     bad: String,
     good: String,
+}
+
+/// `[rules.test_coverage]` meta field。順位 137 (PR #163 T1-#1 採用) で導入。
+///
+/// 各 rule が「主要拡張子 (`rs` / `toml` / `yaml` / `yml`) のうち targets するもの」に対して
+/// **少なくとも 1 個の対応 test 関数** を明示宣言する。`rule_test_coverage_check` cargo test が
+/// deploy 済 `.claude/custom-lint-rules.toml` を読んで、宣言された test 関数が `main.rs` に
+/// 存在することと、必須カバレッジ (main ext ごとに 1+ test、非 main 専用 rule には
+/// `other_ext_tests` 1+) を機械検証する。
+///
+/// 命名規約に依存しない明示的 mapping を採用 (= 案 b、TOML meta field 方式) することで、
+/// `ps_empty_catch_*` / `md_mutable_anchor_*` / `no_ephemeral_todo_*` 等の **異なる命名
+/// 規約が混在する既存テスト** を rule_id とは独立に対応付けできる。
+#[derive(Deserialize, Clone, Default, Debug)]
+#[allow(dead_code)]
+struct CustomRuleTestCoverage {
+    /// 主要拡張子 (`rs` / `toml` / `yaml` / `yml`) → 対応 test 関数名の list。
+    /// rule の `extensions` に含まれる主要拡張子について、各 ext に 1 件以上の test を必須化。
+    #[serde(default)]
+    main_ext_tests: std::collections::BTreeMap<String, Vec<String>>,
+    /// 主要拡張子以外 (`md` / `txt` / `ts` / `js` / `py` / `ps1` 等) の対応 test 関数名 list。
+    /// rule が主要拡張子を targets しない場合に限り、1 件以上の positive test を必須化。
+    #[serde(default)]
+    other_ext_tests: Vec<String>,
 }
 
 // --- カスタムルール構造化出力 (additionalContext 用) ---
@@ -867,6 +895,7 @@ mod tests {
                 bad: "bad code".into(),
                 good: "good code".into(),
             }),
+            test_coverage: None,
         }
     }
 
@@ -1375,6 +1404,63 @@ extensions = ["ts", "js"]
         assert!(rules[0].fix.is_none());
         assert!(rules[0].example.is_none());
         assert_eq!(rules[0].why, "");
+    }
+
+    fn no_personal_paths_rule() -> CustomRule {
+        make_test_rule(
+            "no-personal-paths",
+            r"C:\\Users\\[A-Za-z][A-Za-z0-9_-]+\\|/home/[a-z][a-z0-9_-]+/",
+            &["md", "txt"],
+        )
+    }
+
+    /// 順位 137 (PR #163 T1-#1 採用、test gap 補填): rule② に対する positive test が
+    /// 不在だった (= 配布後 1 度も検証されていない rule)。Windows path で fire することを seal。
+    #[test]
+    fn no_personal_paths_detects_windows_user_path_in_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "guide.md",
+            "Path: `C:\\Users\\alice\\.claude\\projects\\foo` is the location\n",
+        );
+        let rules = compile_test_rules(vec![no_personal_paths_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    /// 順位 137 (PR #163 T1-#1 採用、test gap 補填): rule② が Unix 側 (/home/<user>/) でも fire し、
+    /// .txt ファイルでも機能することを seal。
+    #[test]
+    fn no_personal_paths_detects_unix_home_path_in_txt() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "notes.txt",
+            "Run from /home/bob/projects/foo to start\n",
+        );
+        let rules = compile_test_rules(vec![no_personal_paths_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    /// 順位 137 補完: placeholder 表記 (`%USERPROFILE%` / `<USER_HOME>` / `~`) は fire しない
+    /// negative test。placeholder 検出回避戦略 (TOML rule② コメント参照: 開始文字 class で除外) を seal。
+    #[test]
+    fn no_personal_paths_skips_placeholder_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "doc.md",
+            "Use `%USERPROFILE%\\.claude\\` or `<USER_HOME>/.claude/` or `~/.claude/` paths\n",
+        );
+        let rules = compile_test_rules(vec![no_personal_paths_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "rule② should NOT fire on placeholder paths (got {} violations)",
+            violations.len()
+        );
     }
 
     // --- 新規ルール: PowerShell 空 catch ブロック (no-empty-powershell-catch) ---
@@ -2033,6 +2119,65 @@ extensions = ["ts", "js"]
         );
     }
 
+    /// 順位 137 (PR #163 T1-#1 採用、test gap 補填): YAML 拡張子で rule⑥ が機能することを seal。
+    /// extensions = [..., "yaml", ...] は PR #110 で追加されたが対応する positive test は
+    /// 不在だった (= 主要拡張子に対する test gap)。本 test で将来 extensions から "yaml" を
+    /// 誤削除した場合に test fail で検出する safety net を確保。
+    #[test]
+    fn no_ephemeral_todo_detects_yaml_ephemeral_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "workflow.yaml",
+            &build_concrete_digit_fixture(3),
+        );
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "rule⑥ should fire on YAML file with ephemeral todo reference"
+        );
+    }
+
+    /// 順位 137 補完: YAML 拡張子でも permanent ADR 参照は fire しない negative test。
+    #[test]
+    fn no_ephemeral_todo_yaml_skips_permanent_adr_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "workflow.yaml",
+            "description: see docs/adr/adr-007-foo.md for context\n",
+        );
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "rule⑥ should NOT fire on YAML file with permanent ADR reference (got {} violations)",
+            violations.len()
+        );
+    }
+
+    /// 順位 137 (PR #163 T1-#1 採用、test gap 補填): YML 拡張子で rule⑥ が機能することを seal。
+    /// extensions に "yml" を含む rule が "yaml" と独立に test されていなかったため、
+    /// 主要拡張子のカバレッジ網羅としての positive test を確保。
+    #[test]
+    fn no_ephemeral_todo_detects_yml_ephemeral_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "config.yml",
+            &build_concrete_digit_fixture(7),
+        );
+        let rules = compile_test_rules(vec![no_ephemeral_todo_reference_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "rule⑥ should fire on YML file with ephemeral todo reference"
+        );
+    }
+
     #[test]
     fn no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2460,6 +2605,192 @@ extensions = ["ts", "js"]
             total_violations.is_empty(),
             ".takt/workflows/*.yaml で persona: → model: 不在 violation が検出されました。`model:` 行を追加してください。違反内容: {:?}",
             total_violations
+        );
+    }
+
+    const MAIN_EXTENSIONS: &[&str] = &["rs", "toml", "yaml", "yml"];
+
+    fn load_deployed_custom_rules() -> Vec<CustomRule> {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let toml_path = manifest_dir
+            .join("..")
+            .join("..")
+            .join(".claude")
+            .join("custom-lint-rules.toml");
+        let toml_content = std::fs::read_to_string(&toml_path).unwrap_or_else(|e| {
+            panic!(
+                "failed to read deployed custom-lint-rules.toml at {}: {e} \
+                 (false-green guard: this test would silent-pass on missing file)",
+                toml_path.display()
+            )
+        });
+        let config: CustomRulesConfig = toml::from_str(&toml_content)
+            .expect("custom-lint-rules.toml must parse");
+        let rules = config.rules.unwrap_or_default();
+        assert!(
+            !rules.is_empty(),
+            "no rules found in deployed custom-lint-rules.toml — false-green guard"
+        );
+        rules
+    }
+
+    fn extract_existing_test_fn_names() -> std::collections::HashSet<String> {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let main_rs_path = manifest_dir.join("src").join("main.rs");
+        let main_rs_content = std::fs::read_to_string(&main_rs_path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", main_rs_path.display()));
+        let fn_regex = regex::Regex::new(r"(?m)\bfn\s+([a-zA-Z_][a-zA-Z_0-9]*)\s*\(").unwrap();
+        let existing_fns: std::collections::HashSet<String> = fn_regex
+            .captures_iter(&main_rs_content)
+            .map(|cap| cap[1].to_string())
+            .collect();
+        assert!(
+            existing_fns.contains("rule_test_coverage_check"),
+            "false-green guard: fn_regex must find this test itself in main.rs source. \
+             existing_fns count = {}",
+            existing_fns.len()
+        );
+        existing_fns
+    }
+
+    fn classify_rule_extensions(rule: &CustomRule) -> (Vec<&'static str>, bool) {
+        let targets_main: Vec<&'static str> = MAIN_EXTENSIONS
+            .iter()
+            .filter(|m| rule.extensions.iter().any(|e| e.eq_ignore_ascii_case(m)))
+            .copied()
+            .collect();
+        let has_non_main_ext = rule
+            .extensions
+            .iter()
+            .any(|e| !MAIN_EXTENSIONS.iter().any(|m| e.eq_ignore_ascii_case(m)));
+        (targets_main, has_non_main_ext)
+    }
+
+    fn check_main_ext_coverage(
+        rule: &CustomRule,
+        coverage: &CustomRuleTestCoverage,
+        targets_main: &[&str],
+        existing_fns: &std::collections::HashSet<String>,
+    ) -> Vec<String> {
+        let mut gaps: Vec<String> = Vec::new();
+        for main_ext in targets_main {
+            let tests = coverage.main_ext_tests.get(*main_ext);
+            let is_empty = tests.map(|v| v.is_empty()).unwrap_or(true);
+            if is_empty {
+                gaps.push(format!(
+                    "rule `{}` targets main ext `{}` but `[rules.test_coverage.main_ext_tests].{}` is missing or empty (at least 1 positive test required)",
+                    rule.id, main_ext, main_ext
+                ));
+                continue;
+            }
+            for test_name in tests.unwrap() {
+                if !existing_fns.contains(test_name) {
+                    gaps.push(format!(
+                        "rule `{}` declares test `{}` for ext `{}` but no such function exists in main.rs",
+                        rule.id, test_name, main_ext
+                    ));
+                }
+            }
+        }
+        gaps
+    }
+
+    fn check_other_ext_coverage(
+        rule: &CustomRule,
+        coverage: &CustomRuleTestCoverage,
+        targets_main_empty: bool,
+        has_non_main_ext: bool,
+        existing_fns: &std::collections::HashSet<String>,
+    ) -> Vec<String> {
+        let mut gaps: Vec<String> = Vec::new();
+        if targets_main_empty && has_non_main_ext && coverage.other_ext_tests.is_empty() {
+            gaps.push(format!(
+                "rule `{}` targets only non-main extensions {:?} but `test_coverage.other_ext_tests` is empty (at least 1 positive test required)",
+                rule.id, rule.extensions
+            ));
+        }
+        for test_name in &coverage.other_ext_tests {
+            if !existing_fns.contains(test_name) {
+                gaps.push(format!(
+                    "rule `{}` declares other-ext test `{}` but no such function exists in main.rs",
+                    rule.id, test_name
+                ));
+            }
+        }
+        gaps
+    }
+
+    fn check_main_ext_keys_sanity(
+        rule: &CustomRule,
+        coverage: &CustomRuleTestCoverage,
+    ) -> Vec<String> {
+        let mut gaps: Vec<String> = Vec::new();
+        for declared_ext in coverage.main_ext_tests.keys() {
+            if !MAIN_EXTENSIONS.contains(&declared_ext.as_str()) {
+                gaps.push(format!(
+                    "rule `{}` declares `main_ext_tests.{}` but `{}` is not in MAIN_EXTENSIONS ({:?}) — use `other_ext_tests` for non-main extensions",
+                    rule.id, declared_ext, declared_ext, MAIN_EXTENSIONS
+                ));
+            }
+            if !rule.extensions.iter().any(|e| e.eq_ignore_ascii_case(declared_ext)) {
+                gaps.push(format!(
+                    "rule `{}` declares `main_ext_tests.{}` but `{}` is not in rule.extensions {:?}",
+                    rule.id, declared_ext, declared_ext, rule.extensions
+                ));
+            }
+        }
+        gaps
+    }
+
+    fn collect_rule_coverage_gaps(
+        rule: &CustomRule,
+        existing_fns: &std::collections::HashSet<String>,
+    ) -> Vec<String> {
+        let coverage = rule.test_coverage.clone().unwrap_or_default();
+        let (targets_main, has_non_main_ext) = classify_rule_extensions(rule);
+        let mut gaps = check_main_ext_coverage(rule, &coverage, &targets_main, existing_fns);
+        gaps.extend(check_other_ext_coverage(
+            rule,
+            &coverage,
+            targets_main.is_empty(),
+            has_non_main_ext,
+            existing_fns,
+        ));
+        gaps.extend(check_main_ext_keys_sanity(rule, &coverage));
+        gaps
+    }
+
+    /// 順位 137 (PR #163 T1-#1 採用): `.claude/custom-lint-rules.toml` の各 rule に対して、
+    /// `[rules.test_coverage]` meta field で宣言された対応 test 関数が `main.rs` に存在し、
+    /// かつ必須カバレッジ (主要拡張子 ごとに 1+ test、非主要専用 rule には `other_ext_tests`
+    /// 1+) が満たされていることを機械検証する。
+    ///
+    /// 命名規約に依存しない明示的 mapping (案 b) を採用したため、rule_id と test 関数名の
+    /// 規約一致は要求しない。代わりに「TOML で宣言された名前が main.rs に実在するか」のみ
+    /// 検証する (= TOML 内の test 名 typo / test 削除時の orphan mapping も検出される)。
+    #[test]
+    fn rule_test_coverage_check() {
+        let rules = load_deployed_custom_rules();
+        let existing_fns = extract_existing_test_fn_names();
+        let rules_with_declared_coverage =
+            rules.iter().filter(|r| r.test_coverage.is_some()).count();
+        let mut gaps: Vec<String> = Vec::new();
+        for rule in &rules {
+            gaps.extend(collect_rule_coverage_gaps(rule, &existing_fns));
+        }
+        assert_eq!(
+            rules_with_declared_coverage,
+            rules.len(),
+            "rules without `[rules.test_coverage]` meta field: {} of {} rules missing — \
+             add the meta field to every rule to seal test coverage contract (順位 137)",
+            rules.len() - rules_with_declared_coverage,
+            rules.len()
+        );
+        assert!(
+            gaps.is_empty(),
+            "rule test coverage gaps detected ({} issue(s)):\n  - {}",
+            gaps.len(),
+            gaps.join("\n  - ")
         );
     }
 }

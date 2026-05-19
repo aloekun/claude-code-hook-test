@@ -46,6 +46,11 @@ steps = [
 bad = "console.log('user data:', userData);"
 good = "logger.debug('user data:', userData);"
 
+[rules.test_coverage]
+# rule① は ts/tsx/js/jsx (= 全て非主要拡張子) のため other_ext_tests のみ。
+# 順位 137 の必須カバレッジは「rule あたり 1+ positive test」(主要拡張子 = rs/toml/yaml/yml)。
+other_ext_tests = ["run_custom_rules_detects_console_log"]
+
 # ─── ルール②: 個人を特定する絶対パス禁止 (PII) ───
 #
 # 由来: PR #75 (post-merge-feedback) で 3 箇所同時発生 (ADR-030 line 143、todo.md line 35/48)、
@@ -76,6 +81,14 @@ steps = [
 [rules.example]
 bad = '具体的なファイル所在: `C:\Users\alice\.claude\projects\<project-id>\` 配下'
 good = '具体的なファイル所在: `%USERPROFILE%\.claude\projects\<project-id>\` 配下'
+
+[rules.test_coverage]
+# rule② は md/txt (= 全て非主要拡張子)。順位 137 PR で test gap 補填 (3 tests 新規追加)。
+other_ext_tests = [
+  "no_personal_paths_detects_windows_user_path_in_md",
+  "no_personal_paths_detects_unix_home_path_in_txt",
+  "no_personal_paths_skips_placeholder_paths",
+]
 
 # ─── ルール③: PowerShell 空 catch ブロック禁止 (swallowed error) ───
 #
@@ -108,6 +121,18 @@ steps = [
 bad = 'try { Get-Item $path } catch {}'
 good = 'try { Get-Item $path } catch { Write-Verbose "expected miss: $_"; $null }'
 
+[rules.test_coverage]
+# rule③ は ps1 のみ (非主要拡張子)。複数 case-variant の安定性 seal。
+other_ext_tests = [
+  "ps_empty_catch_detects_violation",
+  "ps_empty_catch_detects_with_internal_whitespace",
+  "ps_empty_catch_skips_non_empty_block",
+  "ps_empty_catch_only_targets_ps1",
+  "ps_empty_catch_detects_capitalized_keyword",
+  "ps_empty_catch_detects_uppercase_keyword",
+  "ps_empty_catch_detects_multiline_block",
+]
+
 # ─── ルール④: PowerShell -ErrorAction SilentlyContinue 警告 ───
 #
 # 由来: 同 PR #85。空 catch との組合せで二重に swallowed error を生む。
@@ -135,6 +160,16 @@ steps = [
 [rules.example]
 bad = '$data = ConvertFrom-Json $raw -ErrorAction SilentlyContinue'
 good = 'try { $data = ConvertFrom-Json $raw -ErrorAction Stop } catch { Write-Error "Invalid JSON: $_"; throw }'
+
+[rules.test_coverage]
+# rule④ は ps1 のみ (非主要拡張子)。PowerShell case-insensitive variant の安定性 seal。
+other_ext_tests = [
+  "ps_silent_error_detects_basic_form",
+  "ps_silent_error_skips_stop_action",
+  "ps_silent_error_skips_ignore_action",
+  "ps_silent_error_detects_lowercase_param",
+  "ps_silent_error_detects_mixed_case",
+]
 
 # ─── ルール⑤: Markdown 非 ASCII GFM アンカー検出 (mutable anchor) ───
 #
@@ -171,6 +206,17 @@ steps = [
 [rules.example]
 bad = 'See [推奨実行順序](todo-summary.md#推奨実行順序サマリー)'
 good = 'See [推奨実行順序](todo-summary.md#recommended-order-summary)  <!-- with <a id="recommended-order-summary"></a> in target file -->'
+
+[rules.test_coverage]
+# rule⑤ は md のみ (非主要拡張子)。GFM anchor の positive / negative variant を網羅。
+other_ext_tests = [
+  "md_mutable_anchor_detects_inline_fragment",
+  "md_mutable_anchor_detects_path_with_fragment",
+  "md_mutable_anchor_skips_ascii_fragment",
+  "md_mutable_anchor_skips_link_without_fragment",
+  "md_mutable_anchor_skips_path_only_link",
+  "md_mutable_anchor_skips_external_url_with_fragment",
+]
 
 # ─── ルール⑥: 非 docs ファイルからの ephemeral todo 参照禁止 ───
 #
@@ -219,6 +265,29 @@ steps = [
 bad = 'BLOCK_MESSAGE: &str = "詳細: docs/todoN.md (N = 数字) の \"<section>\" 参照";'
 good = 'BLOCK_MESSAGE: &str = "詳細: docs/adr/adr-NNN-feature.md 参照";'
 
+[rules.test_coverage]
+# rule⑥ は主要拡張子 4 つ (rs/toml/yaml/yml) + 非主要 8 つを extensions に含む。
+# 順位 137 PR で yaml/yml の test gap を補填 (positive 2 + negative 1 新規追加)。
+other_ext_tests = ["no_ephemeral_todo_only_targets_listed_extensions_md_skipped"]
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_ephemeral_todo_detects_concrete_digit_reference",
+  "no_ephemeral_todo_detects_zero_digit_form",
+  "no_ephemeral_todo_skips_letter_placeholder",
+  "no_ephemeral_todo_skips_asterisk_literal",
+]
+toml = [
+  "no_ephemeral_todo_detects_toml_ephemeral_reference",
+  "no_ephemeral_todo_toml_skips_permanent_adr_reference",
+  "no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml",
+]
+yaml = [
+  "no_ephemeral_todo_detects_yaml_ephemeral_reference",
+  "no_ephemeral_todo_yaml_skips_permanent_adr_reference",
+]
+yml = ["no_ephemeral_todo_detects_yml_ephemeral_reference"]
+
 # ─── ルール⑦: Rust 時刻フィールドの strict `>` 比較禁止 (boundary inconsistency 防止) ───
 #
 # 由来: PR #101 で `parse_listed_findings` の `c.created_at > push_time` が CodeRabbit
@@ -255,6 +324,23 @@ steps = [
 [rules.example]
 bad = "comments.iter().filter(|c| c.created_at > push_time)"
 good = "comments.iter().filter(|c| c.created_at >= push_time)"
+
+[rules.test_coverage]
+# rule⑦ は rs のみ (主要拡張子)。時刻フィールド variant + 境界 case の網羅的 seal。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "rs_time_field_strict_greater_detects_created_at_gt_push_time",
+  "rs_time_field_strict_greater_detects_submitted_at_gt_since",
+  "rs_time_field_strict_greater_detects_updated_at_gt_threshold",
+  "rs_time_field_strict_greater_detects_comment_event_time",
+  "rs_time_field_strict_greater_skips_inclusive_comparison",
+  "rs_time_field_strict_greater_skips_strict_less_than",
+  "rs_time_field_strict_greater_skips_le_inclusive",
+  "rs_time_field_strict_greater_skips_numeric_rhs",
+  "rs_time_field_strict_greater_skips_doc_comment_with_inclusive",
+  "rs_time_field_strict_greater_skips_unrelated_field",
+]
 
 # ─── ルール⑧: docs/ 内 Markdown の `../docs/` 相対パストラップ検出 ───
 #
@@ -306,6 +392,17 @@ steps = [
 bad = "[ADR-036](DOTDOT/docs/adr/adr-036-...)  <!-- DOTDOT は ../ の意。実際は `..` 2 文字 -->"
 good = "[ADR-036](adr/adr-036-...)"
 
+[rules.test_coverage]
+# rule⑧ は md のみ (非主要拡張子)。docs 配下 + root-level 両方の back-reference を網羅。
+other_ext_tests = [
+  "md_no_docs_relative_detects_pr133_pattern",
+  "md_no_docs_relative_detects_uppercase_path",
+  "md_no_docs_relative_skips_same_directory_link",
+  "md_no_docs_relative_skips_parent_to_other_dir",
+  "md_no_docs_relative_detects_root_level_back_reference",
+  "md_no_docs_relative_detects_root_readme_back_reference",
+]
+
 # ─── ルール⑨: takt workflow yaml で persona: を持つ step に model: 必須 ───
 #
 # 由来: Bundle Y2 (PR #98) で post-pr-review.yaml supervise step に model: が
@@ -352,6 +449,19 @@ good = '''      persona: supervisor
       model: sonnet
       instruction: loop-monitor-reviewers-fix'''
 
+[rules.test_coverage]
+# rule⑨ は yaml のみ (主要拡張子)。multi-line regex variant + paths filter は別 test で網羅。
+
+[rules.test_coverage.main_ext_tests]
+yaml = [
+  "takt_workflow_persona_detects_judge_block_violation",
+  "takt_workflow_persona_detects_supervise_step_violation",
+  "takt_workflow_persona_skips_when_model_directly_follows",
+  "takt_workflow_persona_detects_multiple_violations_in_same_file",
+  "takt_workflow_persona_detects_required_permission_mode_violation",
+  "takt_workflow_persona_skips_non_yaml_extension",
+]
+
 # ─── ルール⑩: `let _ = write_*` swallowed error 検出 (silent failure 防止) ───
 #
 # 由来: PR #155 simplicity-review が BLOCKING 指摘した `write_skip_report` の Result を
@@ -389,3 +499,17 @@ steps = [
 [rules.example]
 bad = "let _ = write_state(&state);"
 good = "if let Err(e) = write_state(&state) { log_warn(&format!(\"state write failed: {}\", e)); }"
+
+[rules.test_coverage]
+# rule⑩ は rs のみ (主要拡張子)。Drop / if-let-Err / named-binding 等の variant を網羅。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_write_result_discard_detects_simple_let_underscore",
+  "no_write_result_discard_detects_write_skip_report_pattern",
+  "no_write_result_discard_detects_write_failed_marker_in_drop",
+  "no_write_result_discard_skips_proper_if_let_err_pattern",
+  "no_write_result_discard_skips_non_write_prefix_calls",
+  "no_write_result_discard_skips_named_binding_starting_with_underscore",
+  "no_write_result_discard_only_targets_rust_extension",
+]
