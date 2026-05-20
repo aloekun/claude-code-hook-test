@@ -363,7 +363,7 @@ fn preset_exe_help_block() -> Vec<BlockedPattern> {
 詳細: ADR-030 (SIGPIPE 事故の根因と Drop guard / reaper による recovery 機構)。"#;
     vec![BlockedPattern {
         pattern: Regex::new(
-            r#"(?im)(^|&&|;|\|\||\||&|\n)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:\S*?[/\\])?[\w-]+\.exe\s+(?:--help|-h|/\?)(\s|$)"#,
+            r#"(?im)(^|&&|;|\|\||\||&|\n)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:\S*?[/\\])?(?:cli-[\w-]+|hooks-[\w-]+|check-ci-[\w-]+)\.exe\s+(?:--help|-h|/\?)(\s|$)"#,
         )
         .unwrap(),
         message: msg,
@@ -1179,6 +1179,11 @@ mod tests {
             "cli-merge-pipeline.exe --version",
             &["exe-help-block"]
         ));
+    }
+
+    #[test]
+    fn exe_help_block_allows_unrelated_exe() {
+        assert!(!is_blocked_with("foo.exe --help", &["exe-help-block"]));
     }
 
     #[test]
