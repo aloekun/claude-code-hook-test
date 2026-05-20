@@ -27,6 +27,9 @@
 #   "gh-pr-merge-guard" — gh pr merge ブロック (pnpm merge-pr に誘導)
 #   "polling-anti-pattern" — until/while ! ... sleep の polling ループをブロック
 #                              (rate-limit 浪費防止、PR #86 T1-1)
+#   "exe-help-block" — 本リポジトリの Rust 製 exe (.claude/*.exe) + 単独 --help/-h/?
+#                              をブロックして src/<exe-name>/src/main.rs Read に誘導
+#                              (PR #109 SIGPIPE 事故の直接 trigger を構造的に防止、順位 65 / Bundle c)
 #   "electron"      — Electron GUI 実行ブロック
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
@@ -38,6 +41,7 @@ blocked_patterns = [
   "gh-pr-create-guard",
   "gh-pr-merge-guard",
   "polling-anti-pattern",
+  "exe-help-block",
   "electron",
 ]
 
