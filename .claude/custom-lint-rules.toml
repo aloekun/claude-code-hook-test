@@ -423,6 +423,20 @@ other_ext_tests = [
 # Path filter (.takt/workflows/*.yaml 限定):
 # 順位 102 (PR #148) で実装した paths filter で範囲を絞り、.github/workflows/
 # 等の他 yaml への誤発火を防ぐ。
+#
+# Field 拡張手順 (takt yaml schema 拡張時に本 rule を保守する手順):
+# 1. `grep -rn '^[ \t]\+persona:' .takt/workflows/` で persona: を含む step を列挙し、
+#    その直後に出現する未列挙 field 名を `grep -A1 'persona:' .takt/workflows/*.yaml`
+#    等で抽出する。
+# 2. 抽出した field 名 を上記 pattern の alternation
+#    `(?:policy|instruction|...)` 末尾に追加する。
+# 3. 同 field を `src/hooks-post-tool-linter/src/main.rs` の
+#    `takt_workflow_persona_without_model_rule()` test helper にも追加 (clone-and-edit 防止)。
+# 4. `takt_workflow_persona_detects_<field>_violation` 命名で個別 fixture test を 1 件追加し、
+#    本 TOML の `[rules.test_coverage.main_ext_tests.yaml]` に test 名を登録する
+#    (rule_test_coverage_check が機械強制)。
+# 5. `cargo test -p hooks-post-tool-linter takt_workflow_persona` で pass 確認。
+# 由来: 順位 120 (PR #150 T1-#1 採用、analyzer 誤分類で Tier 3 reclassify)。
 
 [[rules]]
 id = "takt-workflow-persona-without-model"
@@ -459,6 +473,9 @@ yaml = [
   "takt_workflow_persona_skips_when_model_directly_follows",
   "takt_workflow_persona_detects_multiple_violations_in_same_file",
   "takt_workflow_persona_detects_required_permission_mode_violation",
+  "takt_workflow_persona_detects_pass_previous_response_violation",
+  "takt_workflow_persona_detects_output_contracts_violation",
+  "takt_workflow_persona_detects_parallel_violation",
   "takt_workflow_persona_skips_non_yaml_extension",
 ]
 
