@@ -1414,13 +1414,17 @@ mod tests {
         );
     }
 
-    /// `enabled = false` のとき `enrich_with_classifier` は early return し
-    /// `classified_findings` を変更しない。
+    /// PR #120 W-001 follow-up (順位 83): `enrich_with_classifier` の `!config.enabled`
+    /// guard を **単独で** 検証する。`findings` を非空 (= `findings.is_empty()` guard
+    /// 不発)、`enabled = false` (= 本 guard 発火) にして 2 つの OR guard を直交させる。
     ///
-    /// `classified_findings` を空のまま渡すことで `!config.enabled` ガードのみを純粋に分離する。
+    /// 検証対象 field `state.classified_findings` を sentinel で pre-populate し、
+    /// 早期 return しなかった場合の代入 (`state.classified_findings = classified;`)
+    /// を sentinel 消失として検出する設計。空のまま渡すと「不変=空」が早期 return
+    /// 由来か他経路由来か判別できないため sentinel 必須。
     #[test]
     fn enrich_with_classifier_skips_when_disabled() {
-        use lib_report_formatter::Finding;
+        use crate::classifier_runner::ClassifiedFinding;
 
         let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
         state.findings = vec![Finding {
@@ -1431,11 +1435,67 @@ mod tests {
             suggestion: "fix".into(),
             source: "coderabbit".into(),
         }];
+        let sentinel = ClassifiedFinding {
+            finding: Finding {
+                severity: "Minor".into(),
+                file: "sentinel.rs".into(),
+                line: "1".into(),
+                issue: "sentinel".into(),
+                suggestion: "must not be overwritten".into(),
+                source: "test".into(),
+            },
+            action: "auto_fix".into(),
+            action_confidence: 0.99,
+            normalized_issue: None,
+            fallback_reason: None,
+        };
+        state.classified_findings = vec![sentinel.clone()];
         let disabled = ClassifierConfig { enabled: false, ..ClassifierConfig::default() };
+
         enrich_with_classifier(&mut state, &disabled);
+
+        assert_eq!(
+            state.classified_findings,
+            vec![sentinel],
+            "!config.enabled guard should early return before any mutation"
+        );
+    }
+
+    /// `state.findings.is_empty()` guard (`enrich_with_classifier` 2 番目の早期 return)
+    /// を単独で検証する。`enabled = true` (明示、= `!config.enabled` guard 不発)、
+    /// `findings` 空 (= 本 guard 発火) にして他条件と直交させる。
+    #[test]
+    fn enrich_with_classifier_skips_when_findings_empty() {
+        use crate::classifier_runner::ClassifiedFinding;
+
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
         assert!(
-            state.classified_findings.is_empty(),
-            "disabled guard should prevent classification from running"
+            state.findings.is_empty(),
+            "test precondition: findings must be empty so `!enabled` guard stays unfired"
+        );
+        let sentinel = ClassifiedFinding {
+            finding: Finding {
+                severity: "Minor".into(),
+                file: "sentinel.rs".into(),
+                line: "1".into(),
+                issue: "sentinel".into(),
+                suggestion: "must not be overwritten".into(),
+                source: "test".into(),
+            },
+            action: "auto_fix".into(),
+            action_confidence: 0.99,
+            normalized_issue: None,
+            fallback_reason: None,
+        };
+        state.classified_findings = vec![sentinel.clone()];
+        let enabled = ClassifierConfig { enabled: true, ..ClassifierConfig::default() };
+
+        enrich_with_classifier(&mut state, &enabled);
+
+        assert_eq!(
+            state.classified_findings,
+            vec![sentinel],
+            "findings.is_empty() guard should early return before any mutation"
         );
     }
 
