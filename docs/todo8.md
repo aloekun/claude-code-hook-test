@@ -10,53 +10,6 @@
 
 ## 現在進行中
 
-### `takt-workflow-persona-without-model` rule コメント拡張 + ADR-007 case study 追記 (PR #150 T1-#1 採用、実体 Tier 3)
-
-> **動機**: PR #150 の Major fix (4 fields 追加) で「enumeration 方式は新規 field 追加時に明示的拡張が必要」という設計判断が再確認された。custom-lint-rules.toml ルール⑨ のコメントに field 拡張手順 (どの workflow を grep して enumeration に追加するかの手順) を明記すれば、次回 takt yaml schema 拡張時の rule 更新漏れリスクを低減できる。同 PR で ADR-007 にも「enumeration-based 正規表現層の好例」として case study 追記すれば、次回 lint rule 設計判断の prior assumption として再利用可能。
->
-> **本タスクの位置づけ**: PR #150 post-merge-feedback で **Tier 1 #1 として採用** されたが、実体は「コメント追記 + ADR docs 修正」のみで mechanical enforcement なし。**ユーザー判断で Tier 3 に reclassify** (rule 追加 / docs 修正 は judgment-required で機械強制力がないため Tier 1 ではない)。analyzer 分類器に Tier 定義の誤解がある (`feedback_no_unenforced_rules.md` と関連)。Severity Medium / Frequency Low (1 PR) / Effort XS / Adoption Risk None。
->
-> **参照**: `.claude/feedback-reports/150.md` Tier 1 #1、`docs/adr/adr-007-custom-linter-layer-boundary.md`、`.claude/custom-lint-rules.toml` ルール⑨ (line 295-)
-
-#### 作業計画
-
-- [ ] ルール⑨ のコメントに「field 拡張手順 (1) `.takt/workflows/*.yaml` を grep / (2) `persona:` 直後に出現する未列挙 field を pattern alternation に追加 / (3) regression test 追加」を 4-5 行追記
-- [ ] `docs/adr/adr-007-custom-linter-layer-boundary.md` に「Case study: takt-workflow-persona-without-model (enumeration-based 正規表現層、Rust regex lookahead 非対応の pragmatic 対処)」section を追記
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ルール⑨ コメントに field 拡張手順が記載され、次回 takt yaml schema 拡張時の rule 更新フローが文書化される
-- ADR-007 に enumeration-based pattern の case study が記録される
-- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への deploy 経由でも同更新が反映される
-
----
-
-### `takt_workflow_persona_detects_required_permission_mode_violation` doc 修正 + 残り 3 fields 個別 fixture test 追加 (PR #150 T2-#1 採用)
-
-> **動機**: PR #150 CR Major fix で 4 fields (`output_contracts` / `pass_previous_response` / `required_permission_mode` / `parallel`) を pattern に追加したが、regression test は `required_permission_mode` の 1 case のみ。doc comment は「4 fields regression test」と主張しているが実態と乖離 (`pass_previous_response` は非トリガー位置にあり、`output_contracts` / `parallel` は不在)。将来 regex 変更時に test 漏れに気付けない保守債が累積する。
->
-> **本タスクの位置づけ**: PR #150 post-merge-feedback Tier 2 #1 採用。Severity Low / Frequency Medium (3 独立分析ソースが同一 finding) / Effort S / Adoption Risk None。
->
-> **参照**: `.claude/feedback-reports/150.md` Tier 2 #1、`src/hooks-post-tool-linter/src/main.rs` L2108-2123
-
-#### 作業計画
-
-- [ ] `takt_workflow_persona_detects_required_permission_mode_violation` の doc comment を「`required_permission_mode` のみの代表 case (PR #150 CR Major 採用) を assert」に修正
-- [ ] `pass_previous_response` 個別 fixture test 追加 (例: `persona: code-reviewer\n    pass_previous_response: false`)
-- [ ] `output_contracts` 個別 fixture test 追加 (例: `persona: simplicity-reviewer\n        output_contracts:`)
-- [ ] `parallel` 個別 fixture test 追加 (例: `persona: code-reviewer\n    parallel:` または該当箇所の構造に応じて)
-- [ ] `cargo test` 全 pass + clean baseline test (`deployed_takt_workflows_have_clean_baseline_for_persona_model_rule`) も pass を確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 4 fields すべてに対応する individual fixture test が存在し、各 field の regex alternation 動作が機械検証される
-- doc comment が test 実態と整合する
-- 将来 alternation から 1 field を誤って削除した場合に test fail で検出される
-
----
-
 ### `development-workflow.md` Step 0 に「新 todo 着手前の既実装確認」チェックステップ追加 (PR #150 T3-#1 採用、補足: ユーザー判断採用)
 
 > **動機**: PR #150 着手時に「順位 47 は PR #126 で既 land 済」という stale todo entry を memory rule `feedback_verify_task_not_already_done.md` 適用で発見・回避できた。memory にとどまる限り read 漏れリスクが残るため、canonical workflow doc (`~/.claude/rules/common/development-workflow.md`) Step 0 (Research & Reuse) に「新 todo 着手前に `jj log --limit 20 <keyword>` で既実装確認」step を正式追加すれば、AI エージェントの workflow 読込時の visibility が向上する。
@@ -385,49 +338,6 @@
 
 - `jj git fetch` の timeout が低速 network で頻発した場合の UX → 案 A は fail-open で warning なし pass-through、案 B は fail-closed (lineage 不能 = stale 扱い) で安全側に倒す trade-off
 - master 判定ロジック: 現状 trunk-based 前提で master を正と扱う。feature branch 運用が始まると assumption が破綻するが、本リポジトリは当面 trunk-based のため問題なし。trunk 名 (master / main) は config 可能にしておく
-
----
-
-### exe-help-block の system exe FP テスト追加 (`cargo.exe`/`python.exe`/`git.exe` --help 等の negative test) (PR #166 T2-#1 採用)
-
-> **動機**: PR #166 (Bundle c c-2) で `exe-help-block` preset を追加した際、初期実装の regex `[\w-]+\.exe` は本リポジトリの Rust exe 限定の意図に反して **任意の `.exe` を match する scope drift** を起こしていた。CodeRabbit Major / Pre-push reviewer W-1 / Session 分析の **3 独立ソース** で同時指摘され、takt-fix で `(?:cli-[\w-]+|hooks-[\w-]+|check-ci-[\w-]+)\.exe` に narrow 修正済。
->
-> **本タスクの位置づけ**: PR #166 post-merge-feedback で **systemic pattern (3 観測)** として採用された Tier 2 補強。現存 test `exe_help_block_allows_unrelated_exe` は `foo.exe` という架空 exe のみで実在 system exe (`cargo.exe` / `python.exe` / `git.exe` / `node.exe` / `notepad.exe` 等) を未検証。将来の regex 変更時に scope drift が再発しても test では検知できない silent regression リスクを残している。
->
-> **参照**: `.claude/feedback-reports/166.md` Tier 2 #1、[src/hooks-pre-tool-validate/src/main.rs](../src/hooks-pre-tool-validate/src/main.rs) (preset_exe_help_block / test module)、PR #166 takt-fix commit `bd8ff967`
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S (3-5 件の negative test 追加、純粋 unit test なので副作用なし)。Frequency High = 3 独立ソース同時指摘で systemic 確定。
-
-#### 設計決定 (案)
-
-- **追加する negative test ケース** (3-5 件):
-  - `cargo.exe --help` → 通る (Rust toolchain)
-  - `python.exe --help` → 通る (Python interpreter)
-  - `git.exe --help` → 通る (gh-pr-merge-guard との重複ブロックを除き、git は別 preset の責務)
-  - `node.exe --help` → 通る (Node.js)
-  - `notepad.exe --help` → 通る (Windows system)
-- **配置先**: 既存 `exe_help_block_allows_unrelated_exe` の隣に並べる (test mod 末尾の exe-help-block section)
-- **命名規約**: `exe_help_block_allows_<system-exe>_help` パターン (1 test = 1 system exe)
-- **assertion**: `assert!(!is_blocked_with("<exe>.exe --help", &["exe-help-block"]))`
-- **dogfood (任意)**: 実機で `cargo --help` / `python --help` 等を直接実行して block されないことを確認 (Bash tool 経由なら自然に検証される)
-
-#### 作業計画
-
-- [ ] 既存 `exe_help_block_allows_unrelated_exe` の位置を確認
-- [ ] 上記 negative test を 3-5 件追加 (まずは `cargo.exe` / `python.exe` / `node.exe` / `notepad.exe` の 4 件で十分、`git.exe` は gh-pr-merge-guard との責務境界を整理する必要があるため別途検討)
-- [ ] `cargo test -p hooks-pre-tool-validate` で全 test pass (既存 140 件 + 新規 3-5 件)
-- [ ] `pnpm build:hooks-pre-tool-validate` で exe 再ビルド (本 PR の挙動変更はないため必須ではないが習慣的に実施)
-- [ ] todo-summary.md / todo8.md から本エントリを削除
-
-#### 完了基準
-
-- 実在 system exe (`cargo` / `python` / `node` / `notepad` 等) に対する negative test が test mod に存在
-- 将来 regex を edit して scope drift を再導入しても test で検知される
-- Test mod 内の exe-help-block セクションが「実装と意図の乖離防止」layer として self-documenting
-
-#### 詰まっている箇所
-
-- `git.exe --help` の扱い: `git` 系コマンドは `git` preset で別途 block されるため、`exe-help-block` の責務とは交差する。test を入れる場合は「`exe-help-block` のみ enable した状態で block されない」ことを assert する形になるが、責務境界の明示が必要。本タスクではまず非競合の 4 exe (`cargo`/`python`/`node`/`notepad`) を入れて、`git.exe` は follow-up とする
 
 ## 既知課題 (記録のみ、本セッションで未対応)
 
