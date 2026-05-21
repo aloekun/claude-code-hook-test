@@ -1187,6 +1187,26 @@ mod tests {
     }
 
     #[test]
+    fn exe_help_block_allows_cargo_exe_help() {
+        assert!(!is_blocked_with("cargo.exe --help", &["exe-help-block"]));
+    }
+
+    #[test]
+    fn exe_help_block_allows_python_exe_help() {
+        assert!(!is_blocked_with("python.exe --help", &["exe-help-block"]));
+    }
+
+    #[test]
+    fn exe_help_block_allows_node_exe_help() {
+        assert!(!is_blocked_with("node.exe --help", &["exe-help-block"]));
+    }
+
+    #[test]
+    fn exe_help_block_allows_notepad_exe_help() {
+        assert!(!is_blocked_with("notepad.exe --help", &["exe-help-block"]));
+    }
+
+    #[test]
     fn exe_help_block_default_config_does_not_enable() {
         let config = Config::default();
         let patterns = build_blocked_patterns(&config);
