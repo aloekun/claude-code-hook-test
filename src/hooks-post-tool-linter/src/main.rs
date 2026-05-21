@@ -2356,13 +2356,13 @@ extensions = ["ts", "js"]
         );
     }
 
-    /// PR #150 CR Major 採用: persona: 直後に `output_contracts` / `pass_previous_response` /
-    /// `required_permission_mode` / `parallel` が来た場合も violation として検出される。
-    /// 当初列挙から漏れていた 4 fields の regression test。
+    /// PR #150 CR Major 採用: persona: 直後に `required_permission_mode` が来た代表 case を assert。
+    /// 残り 3 fields (`pass_previous_response` / `output_contracts` / `parallel`) は
+    /// 順位 121 (PR #150 T2-#1) で追加した個別 fixture test で個別に検証する。
     #[test]
     fn takt_workflow_persona_detects_required_permission_mode_violation() {
         let dir = tempfile::tempdir().unwrap();
-        let fixture = "steps:\n  - name: fix\n    persona: coder\n    required_permission_mode: edit\n    pass_previous_response: false\n";
+        let fixture = "steps:\n  - name: fix\n    persona: coder\n    required_permission_mode: edit\n";
         let file = write_file(dir.path(), "pre-push-review.yaml", fixture);
         let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
         let violations = run_custom_rules(file.to_str().unwrap(), &rules);
@@ -2370,6 +2370,54 @@ extensions = ["ts", "js"]
             violations.len(),
             1,
             "persona: + required_permission_mode: は violation として 1 件検出されるべき (PR #150 CR Major fix)"
+        );
+    }
+
+    /// 順位 121 (PR #150 T2-#1 採用): persona: 直後に `pass_previous_response` が来た場合の個別 fixture test。
+    /// 将来 alternation から `pass_previous_response` を誤って削除した場合に test fail で検出される。
+    #[test]
+    fn takt_workflow_persona_detects_pass_previous_response_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: review\n    persona: code-reviewer\n    pass_previous_response: false\n";
+        let file = write_file(dir.path(), "pre-push-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "persona: + pass_previous_response: は violation として 1 件検出されるべき"
+        );
+    }
+
+    /// 順位 121 (PR #150 T2-#1 採用): persona: 直後に `output_contracts` が来た場合の個別 fixture test。
+    /// 将来 alternation から `output_contracts` を誤って削除した場合に test fail で検出される。
+    #[test]
+    fn takt_workflow_persona_detects_output_contracts_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: review\n    persona: simplicity-reviewer\n    output_contracts:\n      - approve\n";
+        let file = write_file(dir.path(), "pre-push-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "persona: + output_contracts: は violation として 1 件検出されるべき"
+        );
+    }
+
+    /// 順位 121 (PR #150 T2-#1 採用): persona: 直後に `parallel` が来た場合の個別 fixture test。
+    /// 将来 alternation から `parallel` を誤って削除した場合に test fail で検出される。
+    #[test]
+    fn takt_workflow_persona_detects_parallel_violation() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = "steps:\n  - name: review\n    persona: code-reviewer\n    parallel: true\n";
+        let file = write_file(dir.path(), "pre-push-review.yaml", fixture);
+        let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(
+            violations.len(),
+            1,
+            "persona: + parallel: は violation として 1 件検出されるべき"
         );
     }
 

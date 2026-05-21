@@ -459,6 +459,9 @@ yaml = [
   "takt_workflow_persona_skips_when_model_directly_follows",
   "takt_workflow_persona_detects_multiple_violations_in_same_file",
   "takt_workflow_persona_detects_required_permission_mode_violation",
+  "takt_workflow_persona_detects_pass_previous_response_violation",
+  "takt_workflow_persona_detects_output_contracts_violation",
+  "takt_workflow_persona_detects_parallel_violation",
   "takt_workflow_persona_skips_non_yaml_extension",
 ]
 
