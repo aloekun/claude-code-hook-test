@@ -379,6 +379,53 @@
 
 ---
 
+### ADR-NNN (採番未確定、land 時に確定): ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment (PR #169 T3-#2 採用)
+
+> **動機**: 順位 135 で codify された「ADR 番号は entry 登録時に hardcode せず `ADR-NNN (採番未確定)` placeholder で記述し、land 時 PR で空き番号を確定する」運用が、PR #111 / PR #132 / PR #169 の **3+ PR で適用実証済**になった。特に PR #169 では同一 entry (順位 78) が `ADR-038 → 041 → NNN` の **3 段振り直し** を経た live dogfood が完了し、queue 滞留 entry と後発 PR の採番衝突を convention 層で完全予防できる状態が確立された。現在 policy は `~/.claude/rules/common/docs-governance.md` の 2-3 行追記として ephemeral todo (順位 135) 内で codify されているが、ephemeral artifact 限りでは派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) への transferability に欠ける。正式 ADR に昇格して永続化する。
+>
+> **本タスクの位置づけ**: PR #169 post-merge-feedback Tier 3 #2 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (3 PR で実証済) の明文化 + multi-PR race-freedom rationale + history の codify。Severity Low / **Frequency Medium (PR #111/#132/#169 の 3+ PR で適用実証)** / Effort S / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/169.md` Tier 3 #2、順位 135 entry (`docs/todo8.md` 内、本 ADR 昇格後に retire 候補)、`~/.claude/rules/common/docs-governance.md` (現状 codify 先)、PR #111 / PR #132 / PR #169 history
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記 + 順位 135 entry retire (= todo8.md から削除)。
+
+#### ADR 番号
+
+順位 135 codified policy 自身に従い、本 entry では番号を `ADR-NNN (採番未確定)` placeholder とする (= dogfood 自己適用)。**land 時 PR で空き番号を確定**する (現時点既存: ADR-041 まで確定、ADR-NNN slot は順位 78 で「Rust timestamp arithmetic safety」用に予約中)。本 entry が順位 78 より先に land する場合は次の空き番号を本件に割り当て、順位 78 の placeholder は維持。
+
+#### 設計決定 (案)
+
+- **ADR タイトル候補**: `ADR-NNN: ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment` (内容を反映、派生プロジェクトでも理解可能な英文タイトル)
+- **内容構成**:
+  - **コンテキスト**: queue 滞留 entry の ADR 番号 hardcode が後発 PR の採番と衝突する構造リスク。PR #111/#132/#169 の history (順位 78 が `ADR-038 → 041 → NNN` の 3 段振り直しを経た live dogfood)
+  - **決定**: ① entry 登録時は `ADR-NNN (採番未確定、land 時に確定)` placeholder で記述、② land 時 PR で `docs/adr/` の空き番号を確定、③ 同一 PR で当該 entry / markdown / table 内 placeholder を実番号に同時置換、④ 採番予約簿 (`RESERVED.md` 等) は導入しない (queue 滞留 entry の管理コストが回収可能性に見合わない)
+  - **帰結**: queue 滞留期間と queue 深度の積に比例する番号衝突リスクが convention 層で予防される。派生プロジェクトでも同 policy を採用すれば multi-PR race-freedom が確保される。コスト: entry 著者は placeholder を維持する規律が必要、land 時 PR では multi-point sync (todo + ADR + CLAUDE.md) を同 commit で揃える必要
+  - **適用範囲**: 全 ADR (試験運用 / 永続採用問わず)。既存 ADR (ADR-001〜ADR-041) には遡及適用しない
+  - **既存資料との関係**: `~/.claude/rules/common/docs-governance.md` の 2-3 行追記 (順位 135 で codified 予定) を ADR で補完する layer。global rule は entry author への 1-line guidance、ADR は派生プロジェクトを含む reference layer
+- **CLAUDE.md ADR list 追加**: project-local の Architecture Decisions list に link 追記
+- **順位 135 entry retire**: 本 ADR で内容を完全 codify した時点で順位 135 を todo8.md から削除 (ephemeral → permanent への migration、`feedback_todo_no_history` 適用)
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-NNN-adr-numbering-strategy.md` を新規作成 (番号は land 時 PR で確定)
+- [ ] 内容構成 (上記 5 項目) を記述
+- [ ] CLAUDE.md (project) Architecture Decisions リストに該当 ADR を追加 (番号確定時)
+- [ ] 順位 135 entry を todo8.md から削除 (本 ADR が retire 先になる)
+- [ ] PR description で `docs/adr/adr-NNN-adr-numbering-strategy.md` への link と「順位 135 内容を permanent ADR に migrate、派生プロジェクト transferability 確保」要約を明記 (PR 作成時)
+
+#### 完了基準
+
+- ADR ファイルが新規作成され、PR #111/#132/#169 の history + placeholder policy + multi-PR race-freedom rationale が記述される
+- CLAUDE.md の ADR リストに該当 entry が追加される
+- 順位 135 entry が todo8.md から削除される
+- 次回 ADR 採番が必要な entry を書く際の reference として global rule (docs-governance.md) から本 ADR にリンク可能になる
+
+#### 詰まっている箇所
+
+なし。記述のみで実装変更不要。順位 135 と内容重複しないよう「global rule = 1-line entry author guidance / ADR = full rationale + history + transferability」で役割分離を明示する。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
