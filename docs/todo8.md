@@ -237,11 +237,11 @@
 
 ### todo entry の ADR 番号 hardcode 撤廃 — 「ADR-NNN (採番未確定、land 時に確定)」placeholder 採用 (順位 78 番号 conflict 2026-05-16 観測由来)
 
-> **動機**: 順位 78 (旧 ADR-038 Rust timestamp arithmetic safety、PR #115 T3-1) は entry 登録時 (2026 年序盤) に新規 ADR として ADR-038 を予約のつもりで hardcode していたが、queue 滞留中に Bundle Z 系列の連続採用で `ADR-037 / 038 / 039 / 040` がすべて占有され、2026-05-16 セッションで番号 conflict が顕在化。順位 78 は ADR-041 への振り直しで個別対応済だが、queue 深度と滞留期間の積に比例して同型 conflict が再発する構造リスクが残る。
+> **動機**: 順位 78 (旧 ADR-038 Rust timestamp arithmetic safety、PR #115 T3-1) は entry 登録時 (2026 年序盤) に新規 ADR として ADR-038 を予約のつもりで hardcode していたが、queue 滞留中に Bundle Z 系列の連続採用で `ADR-037 / 038 / 039 / 040` がすべて占有され、2026-05-16 セッションで番号 conflict が顕在化 (ADR-041 へ振り直し)。さらに 2026-05-22 に順位 139 (PR #168 follow-up) が ADR-041 を取得したため順位 78 を再 placeholder 化 = **同一 entry が 3 回 (038 → 041 → NNN) 番号変更を経た実証ベース**で、queue 深度と滞留期間の積に比例して同型 conflict が再発する構造リスクを convention で予防する必要がある。
 >
 > **本タスクの位置づけ**: 順位 78 振り直し対応の **再発防止 convention**。採番予約簿 (`docs/adr/RESERVED.md` 等) は管理コストが過剰なため見送り、entry 登録時は placeholder で済ませて land 時の PR で空き番号を確定する運用に統一する (作業着手時に採番するだけの軽量運用、ユーザー判断 2026-05-16)。
 >
-> **参照**: 順位 78 entry ([docs/todo5.md](todo5.md) § ADR-041 Rust timestamp arithmetic safety + CLAUDE.md security 拡充)、`~/.claude/rules/common/docs-governance.md`
+> **参照**: 順位 78 entry ([docs/todo5.md](todo5.md) § ADR-NNN Rust timestamp arithmetic safety + CLAUDE.md security 拡充)、`~/.claude/rules/common/docs-governance.md`
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。global rule に 2-3 行追記。
 
@@ -338,6 +338,46 @@
 
 - `jj git fetch` の timeout が低速 network で頻発した場合の UX → 案 A は fail-open で warning なし pass-through、案 B は fail-closed (lineage 不能 = stale 扱い) で安全側に倒す trade-off
 - master 判定ロジック: 現状 trunk-based 前提で master を正と扱う。feature branch 運用が始まると assumption が破綻するが、本リポジトリは当面 trunk-based のため問題なし。trunk 名 (master / main) は config 可能にしておく
+
+---
+
+### ADR-041: Test Isolation Patterns for Multi-Condition Guards (PR #168 T3-#2 採用) — 本 PR で land
+
+> **動機**: PR #120 W-001 で `enrich_with_classifier_skips_when_disabled` テストが OR-guard `if !config.enabled || state.findings.is_empty() { return; }` の責務混在 (vacuous assertion: 空 `classified_findings` → 空 `classified_findings` で早期 return 由来か他経路由来か判別不能) で書かれていた問題、および PR #168 で sentinel pattern + 直交 precondition setup により構造的解決した実装を、project-level ADR として永続化する。`~/.claude/rules/common/code-review.md` (global rule、順位 84 で追加済) の checklist entry を補完する形で、project ADR には rationale・具体実装例 (poll.rs)・PR #120 W-001 history を codify し、将来の複合 guard テスト実装者が独立して参照できるようにする。
+>
+> **本タスクの位置づけ**: PR #168 post-merge-feedback Tier 3 #2 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (PR #168 で実装済) の明文化 + project-specific context の補完。Severity Low / **Frequency Medium (PR #120 W-001 初発見 + PR #168 sentinel pattern 実装の 2 PR 横断)** / Effort M / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/168.md` Tier 3 #2、`src/cli-pr-monitor/src/stages/poll.rs` (`enrich_with_classifier_skips_when_disabled` / `enrich_with_classifier_skips_when_findings_empty`)、`~/.claude/rules/common/code-review.md` (順位 84 land 済 checklist entry)、PR #120 W-001 / PR #168 history
+>
+> **実行優先度**: 💎 **Tier 3** — Effort M。新規 ADR 1 件作成 (記述のみ、コード変更なし)。
+
+#### ADR 番号 (本 PR で確定)
+
+順位 135 codified policy (`~/.claude/rules/common/docs-governance.md`) に従い、本 entry は当初 `ADR-NNN (採番未確定)` placeholder で登録した。**本 PR で `ADR-041` を本件に確定取得**し、順位 78 (旧 ADR-041 予約 = Rust timestamp arithmetic safety) を `ADR-NNN` に再 placeholder 化した (順位 78 は今後 land 時 PR で空き番号を取得する運用)。本 entry は本 PR land 後に post-merge-feedback サイクルで削除される予定 (memory: feedback_todo_no_history)。
+
+#### 作業計画 (本 PR で完了)
+
+- [x] `docs/adr/adr-041-test-isolation-patterns.md` を新規作成
+- [x] 内容構成:
+  - **問題**: PR #120 W-001 の vacuous assertion (検証対象 field が空のまま → 早期 return 由来か他経路由来か判別不能) で OR-guard test の責務混在が顕在化した経緯
+  - **設計原則**: sentinel pattern (検証対象 field を pre-populate → survival assert で mutation 不発を明示) + OR-guard precondition assertion (短絡発火条件を test 内で明示し直交性を保証)
+  - **実装例**: `enrich_with_classifier_skips_when_disabled` (左 arm = `!enabled` 単独) / `enrich_with_classifier_skips_when_findings_empty` (右 arm = `findings.is_empty()` 単独) の 2 variant 抜粋コード
+  - **適用範囲**: 2+ 条件の OR/AND 早期 return を持つ pure function 系 test (副作用検証は別パターン、本 ADR の scope 外)
+  - **既存資料との関係**: `~/.claude/rules/common/code-review.md` checklist entry (順位 84 land 済) を project-level rationale + 具体実装例で補完する layer
+- [x] `CLAUDE.md` の ADR リストに 1 行追加
+- [x] PR description で `docs/adr/adr-041-test-isolation-patterns.md` への link と「sentinel pattern + OR-guard test orthogonality を project codify」要約を明記 (PR #169 description に反映済 = "Summary" / "Background" / "Files changed" 3 箇所で言及)
+
+#### 完了基準 (本 PR で達成)
+
+- ADR-041 ファイルが新規作成され、PR #120 W-001 history + sentinel pattern + 2 variant 実装例が記述される ✅
+- CLAUDE.md の ADR リストに ADR-041 entry が追加される ✅
+- 次回複合 guard test を含む PR を書く際の reference として poll.rs の doc comment などから ADR-041 へリンク可能になる ✅
+
+#### 詰まっている箇所
+
+なし。記述のみで実装変更不要。
+
+---
 
 ## 既知課題 (記録のみ、本セッションで未対応)
 

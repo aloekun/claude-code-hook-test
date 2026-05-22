@@ -41,6 +41,7 @@
 - [ADR-038: ローカル LLM による CodeRabbit findings classification](docs/adr/adr-038-local-llm-finding-classification.md) *(試験運用)*
 - [ADR-039: Experimental feature 標準パターン (config opt-in + kill-switch + bounded lifetime)](docs/adr/adr-039-experimental-feature-standard-pattern.md) *(試験運用)*
 - [ADR-040: Local LLM Context Size と Resource Trade-off](docs/adr/adr-040-local-llm-context-size.md) *(試験運用)*
+- [ADR-041: Test Isolation Patterns for Multi-Condition Guards](docs/adr/adr-041-test-isolation-patterns.md) *(試験運用)*
 
 ## Build
 
