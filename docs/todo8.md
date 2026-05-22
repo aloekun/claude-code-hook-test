@@ -365,7 +365,7 @@
   - **適用範囲**: 2+ 条件の OR/AND 早期 return を持つ pure function 系 test (副作用検証は別パターン、本 ADR の scope 外)
   - **既存資料との関係**: `~/.claude/rules/common/code-review.md` checklist entry (順位 84 land 済) を project-level rationale + 具体実装例で補完する layer
 - [x] `CLAUDE.md` の ADR リストに 1 行追加
-- [ ] PR description で `docs/adr/adr-041-test-isolation-patterns.md` への link と「sentinel pattern + OR-guard test orthogonality を project codify」要約を明記 (PR 作成時)
+- [x] PR description で `docs/adr/adr-041-test-isolation-patterns.md` への link と「sentinel pattern + OR-guard test orthogonality を project codify」要約を明記 (PR #169 description に反映済 = "Summary" / "Background" / "Files changed" 3 箇所で言及)
 
 #### 完了基準 (本 PR で達成)
 
