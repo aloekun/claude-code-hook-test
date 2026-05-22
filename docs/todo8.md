@@ -339,6 +339,46 @@
 - `jj git fetch` の timeout が低速 network で頻発した場合の UX → 案 A は fail-open で warning なし pass-through、案 B は fail-closed (lineage 不能 = stale 扱い) で安全側に倒す trade-off
 - master 判定ロジック: 現状 trunk-based 前提で master を正と扱う。feature branch 運用が始まると assumption が破綻するが、本リポジトリは当面 trunk-based のため問題なし。trunk 名 (master / main) は config 可能にしておく
 
+---
+
+### ADR-NNN (採番未確定、land 時に確定): Test Isolation Patterns for Multi-Condition Guards (PR #168 T3-#2 採用)
+
+> **動機**: PR #120 W-001 で `enrich_with_classifier_skips_when_disabled` テストが OR-guard `if !config.enabled || state.findings.is_empty() { return; }` の責務混在 (vacuous assertion: 空 `classified_findings` → 空 `classified_findings` で早期 return 由来か他経路由来か判別不能) で書かれていた問題、および PR #168 で sentinel pattern + 直交 precondition setup により構造的解決した実装を、project-level ADR として永続化する。`~/.claude/rules/common/code-review.md` (global rule、順位 84 で追加済) の checklist entry を補完する形で、project ADR には rationale・具体実装例 (poll.rs)・PR #120 W-001 history を codify し、将来の複合 guard テスト実装者が独立して参照できるようにする。
+>
+> **本タスクの位置づけ**: PR #168 post-merge-feedback Tier 3 #2 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (PR #168 で実装済) の明文化 + project-specific context の補完。Severity Low / **Frequency Medium (PR #120 W-001 初発見 + PR #168 sentinel pattern 実装の 2 PR 横断)** / Effort M / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/168.md` Tier 3 #2、`src/cli-pr-monitor/src/stages/poll.rs` (`enrich_with_classifier_skips_when_disabled` / `enrich_with_classifier_skips_when_findings_empty`)、`~/.claude/rules/common/code-review.md` (順位 84 land 済 checklist entry)、PR #120 W-001 / PR #168 history
+>
+> **実行優先度**: 💎 **Tier 3** — Effort M。新規 ADR 1 件作成 (記述のみ、コード変更なし)。
+
+#### ADR 番号
+
+順位 135 codified policy (`~/.claude/rules/common/docs-governance.md`) に従い、本 entry では番号を `ADR-NNN (採番未確定)` placeholder とする。**land 時 PR で空き番号を確定**する (現時点既存: ADR-040 まで確定、ADR-041 は順位 78 で「Rust timestamp arithmetic safety」用に予約中)。本 entry が順位 78 より先に land する場合は ADR-041 を本件に割り当て、順位 78 を ADR-042 candidate に振り直す。逆に順位 78 が先に land する場合は本件を ADR-042 候補とする。
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-NNN-test-isolation-patterns.md` を新規作成 (番号は land 時確定)
+- [ ] 内容構成:
+  - **問題**: PR #120 W-001 の vacuous assertion (検証対象 field が空のまま → 早期 return 由来か他経路由来か判別不能) で OR-guard test の責務混在が顕在化した経緯
+  - **設計原則**: sentinel pattern (検証対象 field を pre-populate → survival assert で mutation 不発を明示) + OR-guard precondition assertion (短絡発火条件を test 内で明示し直交性を保証)
+  - **実装例**: `enrich_with_classifier_skips_when_disabled` (左 arm = `!enabled` 単独) / `enrich_with_classifier_skips_when_findings_empty` (右 arm = `findings.is_empty()` 単独) の 2 variant 抜粋コード
+  - **適用範囲**: 2+ 条件の OR/AND 早期 return を持つ pure function 系 test (副作用検証は別パターン、本 ADR の scope 外)
+  - **既存資料との関係**: `~/.claude/rules/common/code-review.md` checklist entry (順位 84 land 済) を project-level rationale + 具体実装例で補完する layer
+- [ ] `CLAUDE.md` の ADR リストに 1 行追加 (番号確定時)
+- [ ] PR description で `docs/adr/adr-NNN-test-isolation-patterns.md` への link と「sentinel pattern + OR-guard test orthogonality を project codify」要約を明記
+
+#### 完了基準
+
+- ADR ファイルが新規作成され、PR #120 W-001 history + sentinel pattern + 2 variant 実装例が記述される
+- CLAUDE.md の ADR リストに該当 entry が追加される
+- 次回複合 guard test を含む PR を書く際の reference として poll.rs の doc comment などから ADR へリンク可能になる
+
+#### 詰まっている箇所
+
+なし。記述のみで実装変更不要。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
