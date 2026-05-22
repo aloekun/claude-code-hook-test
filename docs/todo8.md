@@ -426,6 +426,99 @@
 
 ---
 
+### CR rate-limit detection bug 修正 — fix_push_time 固定 + 早期 merge 判断 signal (PR #169 観測由来)
+
+> **動機**: PR #169 セッション (2026-05-22) で `cli-pr-monitor` の CR rate-limit 検出機構が、再 push 後の wakeup recheck 経路で **構造的に動作不能** な状態が systemic 観測された。`check-ci-coderabbit` の `parse_rate_limit` は `event_time >= push_time` filter で「過去 session の古い rate-limit comment」を除外する safety guard を持つが、`push_time` が `state.started_at` (wakeup ごとに現在時刻に更新される値) を再利用するため、CR の walkthrough overlay の `updated_at` が push_time より過去になると検出対象から外れる。今回 PR #169 で CR が overlay (`2026-05-22T06:08:02Z`) を投稿したが、wakeup 4 回目の started_at = `06:27:14Z` で filter 除外 → `rate_limit: null` → auto-retry path に乗らず手動介入で merge へ進んだ。
+>
+> **本タスクの位置づけ**: `feedback_pipeline_over_rules.md` 適用 = 「動作の不確実さはパイプラインで吸収、ルール codify では対処しない」原則の実装事例。「Claude が gh CLI で手動確認すればよい」式の運用ルール codify は次セッションで AI が守らない可能性が構造的に残るため不採用 (本 PR セッションでユーザー明示却下)。代わりにパイプライン側 (Rust 実装) で機械的に検出を堅牢化し、Claude 判断介入を排除する。CR 仕様変更時は graceful degradation (検出失敗 = pipeline が静かに止まるだけ、誤判定はしない) で受容、発生時に再考。
+>
+> **wall clock 配慮 (shortcut 追加案、ユーザー要件で原案から縮小)**: rate-limit 検出後に「reset まで 38 分自然待ち + CR 2 回目 review 待ち」の通常 flow に直行すると、最悪 `max_retries=3` で 2.5 時間消費する可能性がある (1 日がかりではないが許容外)。本タスクでは **rate-limit 検出時に同 process 内で mergeable status を併せて確認し、即 merge 可能なら 5-10 分の人間判断で済む shortcut signal を出力** する。既存 auto-retry path は維持 = ユーザーが「reset を待つ」を選んだ場合は通常 flow に合流する。これにより手間軽減 + wall clock 短縮の両立を図る。
+>
+> **参照**: PR #169 session log (本 entry 由来)、`src/check-ci-coderabbit/src/main.rs` L416 `parse_rate_limit` (push_time filter)、`src/cli-pr-monitor/src/stages/monitor.rs` L202-211 + L220-230 (`detect_wakeup_resume` / push_time 算出経路)、`src/cli-pr-monitor/src/state.rs` (`PrMonitorState` schema)、memory: `feedback_pipeline_over_rules.md` / `project_coderabbit_rate_limit_overlay.md` / `feedback_coderabbit_no_actionable_merge_signal.md`、Bundle a Sub-PR 2 (順位 42/43/46) / Bundle f (順位 80-82) は別 layer (retry path / 投稿エラー対応) で本タスク scope 外
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。PR #169 で systemic 観測 + ユーザー判断で priority elevated。原案 (defense-in-depth + 4 test) から縮小し、主軸 C + shortcut signal の 2 機能に絞った最小実装。
+
+#### 設計方針
+
+「**検出は機械化、判断は人間に短期で渡す**」 = pipeline で検出までは確実に動かし、reset 待ちの長時間 wall clock を許容するか即 merge 判断に進むかは **人間 (= ユーザー) が 5-10 分以内に決める**。Claude 判断介入は介在させない (signal を読んでユーザーに AskUserQuestion で問うのみ、AI 独断で merge / wait を決めない)。
+
+CR 仕様変更時は graceful degradation: 検出が壊れたら shortcut signal も出ない → 従来通り手動 workflow に倒れるだけで誤判定はしない。
+
+#### 設計決定 (案)
+
+**主軸 C: state.json に fix push 時刻を別 field で保存**
+
+- `PrMonitorState` schema に **`fix_push_time: Option<String>`** field を追加 (Option = legacy state 互換、None なら fallback to started_at)
+- `monitor.rs` の fresh 起動経路 (`detect_wakeup_resume` が None) で `fix_push_time = Some(utc_now_iso8601())` を設定
+- wakeup resume 経路では state の `fix_push_time` を **そのまま再利用** (wakeup ごとに上書きしない)
+- `poll.rs` の state 書き込み箇所で `fix_push_time` を保持
+- `check-ci-coderabbit` への引数 `--push-time` には **`fix_push_time`** を渡す
+- 効果: 「fix push 直後の overlay は `updated_at` >= `fix_push_time` で確実に検出」、「過去 session の古い rate-limit comment は依然 filter で除外」 の両立
+
+**早期 merge 判断 signal (本タスクの核)**
+
+- `poll.rs` の `handle_rate_limit_branch` で `state.rate_limit = Some(_)` を検出した時点で、**同 process 内で 1 回だけ** mergeable status を `gh pr view --json mergeable,mergeStateStatus` 経由で取得
+- 以下の **全 condition** を満たす場合、`PARK signal` の代わりに **`[RATE_LIMIT_BUT_MERGEABLE]` signal** を stdout に出力:
+  - `mergeable == "MERGEABLE"`
+  - `mergeStateStatus == "CLEAN"`
+  - `state.coderabbit.unresolved_threads == Some(0)` または `None` (初回 review の actionable が resolve 済 or 検出なし)
+- signal 例:
+  ```text
+  [RATE_LIMIT_BUT_MERGEABLE]
+  pr: 169
+  repo: aloekun/claude-code-hook-test
+  rate_limit_reset_at_iso_utc: 2026-05-22T06:46:32Z
+  rate_limit_wait_seconds: 2310
+  mergeable: MERGEABLE
+  merge_state: CLEAN
+  unresolved_threads: 0
+
+  ACTION REQUIRED: ユーザーに以下 2 択を AskUserQuestion で問うこと:
+    A: 今すぐ merge する (rate-limit reset を待たない、CR 2 回目 review なしで進める)
+    B: reset (38 分) を待って通常 auto-retry flow に乗る
+  [/RATE_LIMIT_BUT_MERGEABLE]
+  ```
+- 条件不一致 (mergeable: BLOCKED、unresolved 1+ 件 等) の場合は **従来通り通常 PARK signal を出す** (= 既存 auto-retry path がそのまま動く)
+- Claude 側の対応: signal を検出したら **AskUserQuestion で A/B 選択を問う**、回答に応じて merge 実行 / wakeup 予約継続
+
+#### 作業計画
+
+- [ ] **PrMonitorState schema 拡張**:
+  - `src/cli-pr-monitor/src/state.rs` に `fix_push_time: Option<String>` field を追加 (`#[serde(default)]` で legacy state 互換)
+- [ ] **`monitor.rs` の push_time 算出経路修正**:
+  - L202-211 の fresh / resume 分岐で `pr_info.fix_push_time` を設定
+  - fresh 経路: `state.fix_push_time = Some(utc_now_iso8601())` で state 書き込み
+  - resume 経路: `state.fix_push_time` を読んで `pr_info.push_time` に渡す (未設定なら fallback to `state.started_at` で legacy 互換)
+- [ ] **`poll.rs` の state 書き込み箇所**:
+  - `build_state_for_iteration` / `finalize_*_park` 等で `fix_push_time` を新 state に保持 (上書きしない)
+- [ ] **`poll.rs` に早期 merge 判断 signal 追加**:
+  - `handle_rate_limit_branch` で rate_limit 検出後、mergeable status 取得 + 条件評価
+  - 全条件一致時に `[RATE_LIMIT_BUT_MERGEABLE]` signal を `println!` で出力、PARK signal は skip
+  - 条件不一致時は既存 PARK signal flow に合流
+  - mergeable 取得失敗 (gh エラー / timeout) 時は安全側に倒して既存 flow に合流
+- [ ] **test 追加** (2 シナリオに絞る):
+  - シナリオ 1 (主軸 C): fresh push 経路で `fix_push_time` が設定され、wakeup 経路で同値が維持される (state round-trip test)
+  - シナリオ 2 (検出 + signal): mockable な gh 応答 (mergeable CLEAN 固定) を注入し、`[RATE_LIMIT_BUT_MERGEABLE]` signal が出力されることを assert
+- [ ] **dogfood**: 派生 test PR で再 push → CR rate-limit 強制発火 → signal 出力 → AskUserQuestion 経由でユーザー判断 → merge / wait 分岐が機能することを観測
+- [ ] **削除した原案要素**: 補助 B (overlay marker bypass) は削除 = 主軸 C 単独で十分、CR 仕様変更時は graceful degradation で受容
+- [ ] **削除した原案要素**: ADR-018 注記追記は scope 外 (本修正は spec drift fix なので ADR-018 spec 自体は変更不要)
+
+#### 完了基準
+
+- `cargo test -p cli-pr-monitor -p check-ci-coderabbit` で 2 シナリオ test が pass
+- PR #169 で観測した overlay 除外現象が再現できなくなる (主軸 C による回帰防止)
+- 次回 CR rate-limit 観測時に **5-10 分以内** にユーザーが merge / wait を判断できる (shortcut signal 経由)
+- ユーザーが「待つ」を選んだ場合は既存 auto-retry path がそのまま動く (回帰なし)
+- Claude 判断介入 (AI 独断で merge or wait) は介在しない (signal → AskUserQuestion → ユーザー判断 → action の構造)
+
+#### 詰まっている箇所
+
+- **mergeable 取得の遅延 / 失敗時の挙動**: `gh pr view` が rate-limit に当たる (GitHub API 側の rate-limit、CR とは別軸) ケースは稀だが存在する。safety: 取得失敗時は signal を出さず既存 PARK flow に倒す = 「shortcut が出ない = 通常 flow」で誤動作なし
+- **同 process 内 1 回限り の制約**: wakeup 経路で再度 rate-limit が観測された場合、毎回 mergeable status を取得しに行く設計。retry 回数が増えると gh 呼び出しも増えるが、`max_retries=3` で頭打ちなので影響軽微
+- **派生プロジェクトへの transferability**: 本修正は本リポジトリの cli-pr-monitor 固有実装に依存。techbook-ledger / auto-review-fix-vc 等の派生プロジェクトに展開する場合は同型 schema 拡張 + signal 追加が必要 (porting 時に検討)
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
