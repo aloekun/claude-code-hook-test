@@ -255,14 +255,16 @@ fn build_pr_info_from_gh_output(output: &str) -> PrInfo {
         return PrInfo {
             pr_number: pr_number_from_url,
             repo,
-            push_time: Some(push_time),
+            push_time: Some(push_time.clone()),
             head_commit,
+            fix_push_time: Some(push_time),
         };
     }
 
     log_info("PR URL からの番号取得失敗、gh コマンドで検索");
     let mut info = get_pr_info();
-    info.push_time = Some(push_time);
+    info.push_time = Some(push_time.clone());
+    info.fix_push_time = Some(push_time);
     info
 }
 

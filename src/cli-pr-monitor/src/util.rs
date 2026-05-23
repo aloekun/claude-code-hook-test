@@ -14,6 +14,13 @@ pub(crate) struct PrInfo {
     /// state の head_commit と比較し、新 commit が push されていれば fresh push
     /// 経路に分岐させる。`pr_number` が None の段階では None。
     pub(crate) head_commit: Option<String>,
+    /// fresh push 時の固定 push_time (順位 141 実装、CR rate-limit detection bug 修正)。
+    ///
+    /// `push_time` は wakeup 経路で `state.started_at` を再利用するため CR overlay の
+    /// `updated_at` が「過去扱い」で除外される構造バグがあった。本 field は fresh push
+    /// 時刻を固定保持し、`check-ci-coderabbit` への `--push-time` 引数として優先される。
+    /// None の場合は `push_time` に fallback (legacy 互換)。
+    pub(crate) fix_push_time: Option<String>,
 }
 
 /// PR 情報を取得する（多段フォールバック）
@@ -41,6 +48,7 @@ pub(crate) fn get_pr_info() -> PrInfo {
         repo,
         push_time: None,
         head_commit,
+        fix_push_time: None,
     }
 }
 

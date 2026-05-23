@@ -30,6 +30,10 @@ pub(crate) struct PollResult {
 struct PollContext<'a> {
     checker: &'a std::path::Path,
     push_time: &'a str,
+    /// 順位 141: fresh push 時刻の固定値 (CR rate-limit detection bug 修正)。
+    /// 設定されていれば `build_checker_args` で `--push-time` に優先採用される。
+    /// None なら `push_time` (= state.started_at fallback) を使う legacy 互換。
+    fix_push_time: Option<&'a str>,
     pr_info: &'a PrInfo,
     rate_limit_config: &'a RateLimitConfig,
     classifier_config: &'a ClassifierConfig,
@@ -71,6 +75,7 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo, is_wakeup: b
             .push_time
             .as_deref()
             .unwrap_or("1970-01-01T00:00:00Z"),
+        fix_push_time: pr_info.fix_push_time.as_deref(),
         pr_info,
         rate_limit_config: &full_config.rate_limit,
         classifier_config: &full_config.classifier,
@@ -94,7 +99,8 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo, is_wakeup: b
 }
 
 fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
-    let args = build_checker_args(ctx.push_time, ctx.pr_info);
+    let effective_push_time = ctx.fix_push_time.unwrap_or(ctx.push_time);
+    let args = build_checker_args(effective_push_time, ctx.pr_info);
     let result = match invoke_checker(ctx.checker, &args) {
         Ok(r) => r,
         Err(pr) => return Some(*pr),
@@ -210,6 +216,7 @@ fn build_state_for_iteration(
         state.review_recheck_count = existing.review_recheck_count;
         state.head_commit = existing.head_commit;
         state.classified_findings = existing.classified_findings;
+        state.fix_push_time = existing.fix_push_time;
     }
 
     apply_skip_handling(&mut state, skip_ci, skip_coderabbit);
@@ -449,6 +456,8 @@ fn finalize_parked(
     let signal = format_park_signal(state, rl, pr_info, max_retries);
     println!("{}", signal);
 
+    emit_shortcut_signal_if_eligible(state, rl, pr_info);
+
     PollResult {
         action: state.action.clone(),
         summary: state.summary.clone(),
@@ -458,6 +467,102 @@ fn finalize_parked(
         check_output: Some(result.clone()),
         rate_limit: state.rate_limit.clone(),
     }
+}
+
+/// 順位 141: rate-limit 検出 + mergeable CLEAN + 未解決 thread なしの 3 条件が揃ったとき
+/// `[RATE_LIMIT_BUT_MERGEABLE]` signal を stdout に出力する shortcut path。
+///
+/// reset まで 38 分以上の待ち時間を抑え、Claude が AskUserQuestion でユーザーに
+/// 「今すぐ merge する / reset を待つ」を 5-10 分以内に判断させる導線として機能する。
+/// gh 呼びが失敗した場合は signal を出さず、既存 PARK signal flow に倒す (safety)。
+fn emit_shortcut_signal_if_eligible(
+    state: &PrMonitorState,
+    rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+) {
+    let Some(mergeable) = fetch_mergeable_status(pr_info) else {
+        return;
+    };
+    if !evaluate_rate_limit_shortcut(state.coderabbit.as_ref(), &mergeable) {
+        return;
+    }
+    println!("{}", format_shortcut_signal(rl, pr_info, &mergeable));
+}
+
+/// 順位 141: PR の mergeable / mergeStateStatus を gh で取得。失敗時は None。
+fn fetch_mergeable_status(pr_info: &PrInfo) -> Option<MergeableStatus> {
+    let pr = pr_info.pr_number?;
+    let pr_str = pr.to_string();
+    let mut args: Vec<&str> = vec![
+        "pr",
+        "view",
+        &pr_str,
+        "--json",
+        "mergeable,mergeStateStatus",
+    ];
+    if let Some(repo) = pr_info.repo.as_deref() {
+        args.push("--repo");
+        args.push(repo);
+    }
+    let json_str = run_gh_quiet(&args)?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).ok()?;
+    Some(MergeableStatus {
+        mergeable: parsed.get("mergeable")?.as_str()?.to_string(),
+        merge_state: parsed.get("mergeStateStatus")?.as_str()?.to_string(),
+    })
+}
+
+/// 順位 141: mergeable + 未解決 thread の 3 条件評価を pure 関数化 (test 容易性)。
+fn evaluate_rate_limit_shortcut(
+    coderabbit: Option<&crate::state::CodeRabbitState>,
+    mergeable: &MergeableStatus,
+) -> bool {
+    let cr_clean = coderabbit
+        .map(|c| c.unresolved_threads.unwrap_or(0) == 0)
+        .unwrap_or(true);
+    mergeable.mergeable == "MERGEABLE" && mergeable.merge_state == "CLEAN" && cr_clean
+}
+
+/// 順位 141: `[RATE_LIMIT_BUT_MERGEABLE]` signal を構築 (pure)。
+fn format_shortcut_signal(
+    rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+    mergeable: &MergeableStatus,
+) -> String {
+    let pr = pr_info
+        .pr_number
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "?".into());
+    let repo = pr_info.repo.as_deref().unwrap_or("?");
+    let reset_iso = if rl.until_unix_secs > 0 {
+        lib_pending_file::epoch_secs_to_iso8601(rl.until_unix_secs as u64)
+    } else {
+        "?".into()
+    };
+    let wait_total_secs = rl.wait_minutes * 60 + rl.wait_seconds;
+    format!(
+        "[RATE_LIMIT_BUT_MERGEABLE]
+pr: {pr}
+repo: {repo}
+rate_limit_reset_at_iso_utc: {reset_iso}
+rate_limit_wait_seconds: {wait_total_secs}
+mergeable: {merge}
+merge_state: {state}
+
+ACTION REQUIRED: ユーザーに以下 2 択を AskUserQuestion で問うこと:
+  A: 今すぐ merge する (rate-limit reset を待たない、CR 2 回目 review なしで進める)
+  B: reset を待って通常 auto-retry flow に乗る
+[/RATE_LIMIT_BUT_MERGEABLE]",
+        merge = mergeable.mergeable,
+        state = mergeable.merge_state,
+    )
+}
+
+/// 順位 141: gh `pr view --json mergeable,mergeStateStatus` の結果を保持する DTO。
+#[derive(Debug, Clone)]
+pub(crate) struct MergeableStatus {
+    pub(crate) mergeable: String,
+    pub(crate) merge_state: String,
 }
 
 fn make_max_retries_result(state: &PrMonitorState, result: &serde_json::Value) -> PollResult {
@@ -733,6 +838,9 @@ fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult {
     });
     state.review_recheck_count = 0;
     state.head_commit = ctx.pr_info.head_commit.clone();
+    state.fix_push_time = state
+        .fix_push_time
+        .or_else(|| ctx.fix_push_time.map(String::from));
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -775,6 +883,9 @@ fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult {
         )
     });
     state.review_recheck_count += 1;
+    state.fix_push_time = state
+        .fix_push_time
+        .or_else(|| ctx.fix_push_time.map(String::from));
 
     if state.review_recheck_count >= ctx.max_review_rechecks {
         return finalize_review_recheck_max_reached(&mut state, ctx.max_review_rechecks);
@@ -1050,6 +1161,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: None,
             head_commit: None,
+            fix_push_time: None,
         };
 
         let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
@@ -1084,6 +1196,7 @@ mod tests {
             repo: None,
             push_time: None,
             head_commit: None,
+            fix_push_time: None,
         };
 
         let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
@@ -1108,6 +1221,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: None,
             head_commit: None,
+            fix_push_time: None,
         };
 
         let signal = format_park_signal(&state, &rl, &pr_info, 3);
@@ -1140,6 +1254,7 @@ mod tests {
             repo: None,
             push_time: None,
             head_commit: None,
+            fix_push_time: None,
         };
 
         let signal = format_park_signal(&state, &rl, &pr_info, 3);
@@ -1184,6 +1299,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: None,
             head_commit: None,
+            fix_push_time: None,
         };
         let result = serde_json::json!({});
 
@@ -1220,12 +1336,14 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: Some("2026-05-01T00:00:00Z".into()),
             head_commit: None,
+            fix_push_time: None,
         };
         let rate_limit_config = RateLimitConfig::default();
         let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
             push_time: "2026-05-01T00:00:00Z",
+            fix_push_time: None,
             pr_info: &pr_info,
             rate_limit_config: &rate_limit_config,
             classifier_config: &classifier_config,
@@ -1270,6 +1388,7 @@ mod tests {
         let ctx = PollContext {
             checker: &checker_path,
             push_time: "2026-05-01T00:00:00Z",
+            fix_push_time: None,
             pr_info,
             rate_limit_config: &rate_limit_config,
             classifier_config: &classifier_config,
@@ -1293,6 +1412,7 @@ mod tests {
         let ctx = PollContext {
             checker: &checker_path,
             push_time: "2026-05-01T00:00:00Z",
+            fix_push_time: None,
             pr_info,
             rate_limit_config: &rate_limit_config,
             classifier_config: &classifier_config,
@@ -1326,6 +1446,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: Some("2026-05-01T00:00:00Z".into()),
             head_commit: None,
+            fix_push_time: None,
         };
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
@@ -1333,6 +1454,7 @@ mod tests {
         let ctx = PollContext {
             checker: &checker,
             push_time: "2026-05-01T00:00:00Z",
+            fix_push_time: None,
             pr_info: &pr_info,
             rate_limit_config: &rate_limit_config,
             classifier_config: &classifier_config,
@@ -1372,29 +1494,11 @@ mod tests {
         std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &tmp_path);
         seed_stale_recheck_state(&tmp_path);
 
-        let pr_info = crate::util::PrInfo {
-            pr_number: Some(42),
-            repo: Some("o/r".into()),
-            push_time: Some("2026-05-01T00:00:00Z".into()),
-            head_commit: Some("abc1234".into()),
-        };
+        let pr_info = pr_info_for_initial_review_park_test();
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
         let classifier_config = ClassifierConfig::default();
-        let ctx = PollContext {
-            checker: &checker,
-            push_time: "2026-05-01T00:00:00Z",
-            pr_info: &pr_info,
-            rate_limit_config: &rate_limit_config,
-            classifier_config: &classifier_config,
-            start: std::time::Instant::now(),
-            max_duration: 600,
-            skip_ci: false,
-            skip_coderabbit: false,
-            initial_review_wait_secs: 300,
-            review_recheck_wait_secs: 300,
-            max_review_rechecks: 3,
-        };
+        let ctx = make_default_test_ctx(&checker, &pr_info, &rate_limit_config, &classifier_config);
 
         let outcome = finalize_initial_review_park(&ctx);
         let persisted = crate::state::read_state_from(&tmp_path).unwrap();
@@ -1412,6 +1516,39 @@ mod tests {
             Some("abc1234"),
             "CR Major #1: fresh push 経路で head_commit が pr_info から保存されること"
         );
+    }
+
+    fn pr_info_for_initial_review_park_test() -> crate::util::PrInfo {
+        crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+            fix_push_time: None,
+        }
+    }
+
+    fn make_default_test_ctx<'a>(
+        checker: &'a std::path::Path,
+        pr_info: &'a crate::util::PrInfo,
+        rate_limit_config: &'a RateLimitConfig,
+        classifier_config: &'a ClassifierConfig,
+    ) -> PollContext<'a> {
+        PollContext {
+            checker,
+            push_time: "2026-05-01T00:00:00Z",
+            fix_push_time: None,
+            pr_info,
+            rate_limit_config,
+            classifier_config,
+            start: std::time::Instant::now(),
+            max_duration: 600,
+            skip_ci: false,
+            skip_coderabbit: false,
+            initial_review_wait_secs: 300,
+            review_recheck_wait_secs: 300,
+            max_review_rechecks: 3,
+        }
     }
 
     /// PR #120 W-001 follow-up (順位 83): `enrich_with_classifier` の `!config.enabled`
@@ -1515,6 +1652,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: Some("2026-05-01T00:00:00Z".into()),
             head_commit: None,
+            fix_push_time: None,
         };
 
         let outcome_rate_limit = invoke_finalize_parked_with_bad_path(&pr_info);
@@ -1560,6 +1698,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: Some("2026-05-01T00:00:00Z".into()),
             head_commit: Some("abc1234".into()),
+            fix_push_time: None,
         };
         (state, rl, pr_info)
     }
@@ -1607,6 +1746,7 @@ mod tests {
             repo: Some("o/r".into()),
             push_time: Some("2026-05-01T00:00:00Z".into()),
             head_commit: None,
+            fix_push_time: None,
         };
 
         let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, 3, &serde_json::Value::Null);
@@ -1618,6 +1758,175 @@ mod tests {
             result.unwrap().action,
             "action_required",
             "write_state 失敗時は action_required で抜ける (sibling parity with finalize_parked)"
+        );
+    }
+
+    /// 順位 141: shortcut signal の trigger 条件 (mergeable CLEAN + unresolved 0) で true。
+    #[test]
+    fn evaluate_rate_limit_shortcut_when_all_conditions_met() {
+        let m = MergeableStatus {
+            mergeable: "MERGEABLE".into(),
+            merge_state: "CLEAN".into(),
+        };
+        let cr = crate::state::CodeRabbitState {
+            review_state: "approved".into(),
+            new_comments: 0,
+            actionable_comments: Some(0),
+            unresolved_threads: Some(0),
+        };
+        assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
+    }
+
+    /// 順位 141: unresolved thread が残っていれば shortcut を抑止 (CR の指摘が未対応)。
+    #[test]
+    fn evaluate_rate_limit_shortcut_blocks_when_unresolved_threads_exist() {
+        let m = MergeableStatus {
+            mergeable: "MERGEABLE".into(),
+            merge_state: "CLEAN".into(),
+        };
+        let cr = crate::state::CodeRabbitState {
+            review_state: "commented".into(),
+            new_comments: 1,
+            actionable_comments: Some(1),
+            unresolved_threads: Some(1),
+        };
+        assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
+    }
+
+    /// 順位 141: mergeable が BLOCKED なら shortcut を抑止 (GitHub 側で merge 不可)。
+    #[test]
+    fn evaluate_rate_limit_shortcut_blocks_when_not_mergeable() {
+        let m = MergeableStatus {
+            mergeable: "BLOCKED".into(),
+            merge_state: "BLOCKED".into(),
+        };
+        assert!(!evaluate_rate_limit_shortcut(None, &m));
+    }
+
+    /// 順位 141: CR state が None (初回 review なし) でも mergeable CLEAN なら shortcut 可。
+    #[test]
+    fn evaluate_rate_limit_shortcut_passes_when_coderabbit_none() {
+        let m = MergeableStatus {
+            mergeable: "MERGEABLE".into(),
+            merge_state: "CLEAN".into(),
+        };
+        assert!(evaluate_rate_limit_shortcut(None, &m));
+    }
+
+    /// 順位 141: signal format に必須 field が全て含まれ、Claude が AskUserQuestion 化できる。
+    #[test]
+    fn format_shortcut_signal_includes_required_fields() {
+        let rl = crate::state::RateLimitState {
+            until_unix_secs: 1_779_432_672,
+            comment_event_time: "2026-05-22T06:08:02Z".into(),
+            wait_minutes: 38,
+            wait_seconds: 30,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(169),
+            repo: Some("aloekun/claude-code-hook-test".into()),
+            push_time: None,
+            head_commit: None,
+            fix_push_time: None,
+        };
+        let m = MergeableStatus {
+            mergeable: "MERGEABLE".into(),
+            merge_state: "CLEAN".into(),
+        };
+        let sig = format_shortcut_signal(&rl, &pr_info, &m);
+        assert!(sig.starts_with("[RATE_LIMIT_BUT_MERGEABLE]"));
+        assert!(sig.contains("[/RATE_LIMIT_BUT_MERGEABLE]"));
+        assert!(sig.contains("pr: 169"));
+        assert!(sig.contains("repo: aloekun/claude-code-hook-test"));
+        assert!(sig.contains("rate_limit_wait_seconds: 2310"));
+        assert!(sig.contains("mergeable: MERGEABLE"));
+        assert!(sig.contains("merge_state: CLEAN"));
+        assert!(sig.contains("AskUserQuestion"));
+    }
+
+    /// 順位 141: `fix_push_time` の write-once 不変条件 —
+    /// `finalize_initial_review_park` が state に既存の `fix_push_time` がある場合に
+    /// `ctx.fix_push_time` の値で上書きしないことを検証する。
+    ///
+    /// `ctx.fix_push_time = Some("new_time")` (= None ではなく非 None) を使うことで、
+    /// or_else 被演算子の入れ替えバグを discriminate できる。
+    #[test]
+    fn finalize_initial_review_park_preserves_existing_fix_push_time() {
+        let _guard = env_override_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
+
+        let mut seeded =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        seeded.fix_push_time = Some("2026-05-22T06:06:00Z".into());
+        crate::state::write_state_to(&state_path, &seeded).unwrap();
+
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+            fix_push_time: None,
+        };
+        let checker = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
+        let mut ctx =
+            make_default_test_ctx(&checker, &pr_info, &rate_limit_config, &classifier_config);
+        let ctx_fix_push_time_must_lose = "2026-05-22T06:10:00Z";
+        ctx.fix_push_time = Some(ctx_fix_push_time_must_lose);
+
+        finalize_initial_review_park(&ctx);
+        let persisted = crate::state::read_state_from(&state_path).unwrap();
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert_eq!(
+            persisted.fix_push_time.as_deref(),
+            Some("2026-05-22T06:06:00Z"),
+            "write-once: state に既存 fix_push_time がある場合、ctx の値で上書きしない"
+        );
+    }
+
+    /// 順位 141: `fix_push_time` の write-once 不変条件 —
+    /// `finalize_review_recheck_park` が state に既存の `fix_push_time` がある場合に
+    /// `ctx.fix_push_time` の値で上書きしないことを検証する。
+    #[test]
+    fn finalize_review_recheck_park_preserves_existing_fix_push_time() {
+        let _guard = env_override_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
+
+        let mut seeded =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        seeded.fix_push_time = Some("2026-05-22T06:06:00Z".into());
+        seeded.review_recheck_count = 0;
+        crate::state::write_state_to(&state_path, &seeded).unwrap();
+
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+            fix_push_time: None,
+        };
+        let checker = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
+        let mut ctx =
+            make_default_test_ctx(&checker, &pr_info, &rate_limit_config, &classifier_config);
+        let ctx_fix_push_time_must_lose = "2026-05-22T06:10:00Z";
+        ctx.fix_push_time = Some(ctx_fix_push_time_must_lose);
+
+        finalize_review_recheck_park(&ctx);
+        let persisted = crate::state::read_state_from(&state_path).unwrap();
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert_eq!(
+            persisted.fix_push_time.as_deref(),
+            Some("2026-05-22T06:06:00Z"),
+            "write-once: state に既存 fix_push_time がある場合、ctx の値で上書きしない"
         );
     }
 }
