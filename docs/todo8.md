@@ -519,6 +519,49 @@ CR 仕様変更時は graceful degradation: 検出が壊れたら shortcut signa
 
 ---
 
+### ADR-041 補強 — "State Preservation Invariant" pattern section 追加 (PR #170 T3-#1 採用)
+
+> **動機**: PR #170 post-merge-feedback analyzer が **PR #168/169/170 で write-once 不変式 (once-set-never-overwritten) のテストカバレッジ漏れが連続観測** されたことを Frequency Medium で識別。ADR-041 (Test Isolation Patterns for Multi-Condition Guards) の既存 section は early-return guard (sentinel pattern + 直交 precondition) のみで、`state.fix_push_time.or_else(...)` のような **write-once 不変式は別 pattern class** として未収録。順位 141 で takt-fix が自動追加した 3 件の preservation test (poll.rs `finalize_*_preserves_existing_fix_push_time` / monitor.rs `resume_returns_fix_push_time_from_state_when_set`) が、ADR-041 の延長として補強される自然な pattern であることが post-merge analyzer により独立識別された。
+>
+> **本タスクの位置づけ**: PR #170 post-merge-feedback Tier 3 #1 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (3 PR で実証) + project-specific 参照実装の明文化 + 派生プロジェクト transferability 確保。Severity Low / **Frequency Medium (PR #168/169/170 の 3 PR 横断)** / Effort S / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/170.md` Tier 3 #1、`docs/adr/adr-041-test-isolation-patterns.md` (本セッション順位 139 で land 済、本 task で補強)、`src/cli-pr-monitor/src/stages/poll.rs` (preservation test 2 件)、`src/cli-pr-monitor/src/stages/monitor.rs` (preservation test 1 件)、PR #168/169/170 history
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。既存 ADR への追記のみ (新規 ADR / コード変更なし)。
+
+#### 設計決定 (案)
+
+analyzer report の `[ADR-041 追加 section 案]` をベースに、`docs/adr/adr-041-test-isolation-patterns.md` の「## 適用範囲」セクションの前に新 section `## 補足: State Preservation Invariant パターン (once-set-never-overwritten)` を挿入する。内容構成:
+
+- **パターン定義**: `state.fix_push_time = state.fix_push_time.or_else(|| ctx.fix_push_time.map(String::from));` 形式の write-once 不変式コード例
+- **3 点セット test**:
+  1. `state.fix_push_time = Some("old_time")` — 既存値あり (preservation される側)
+  2. `ctx.fix_push_time = Some("new_time")` — 新値を提供 (上書きを試みる側)
+  3. `assert_eq!(state.fix_push_time, Some("old_time"))` — old value が retain されたことを確認
+- **Anti-pattern**: 全テスト fixture を `fix_push_time: None` で統一すると "don't overwrite" branch (preservation path) が実行されず coverage = 0
+- **適用タイミング**: 新 field を追加し、その field が `or_else` / `if existing.is_none() { ... }` 等の write-once 意味論を持つ場合、**field 追加と同一 PR で** 上記 3 点セット test を追加する
+- **参照実装**: PR #170 で land された 3 件 (`finalize_initial_review_park_preserves_existing_fix_push_time` / `finalize_review_recheck_park_preserves_existing_fix_push_time` / `resume_returns_fix_push_time_from_state_when_set`)
+- **由来**: PR #170 simplicity-review F-2 + post-merge analyzer session で観測
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-041-test-isolation-patterns.md` に新 section `## 補足: State Preservation Invariant パターン (once-set-never-overwritten)` を挿入 (上記 6 項目)
+- [ ] `## 適用範囲` セクション内の対象記述に「write-once 不変式を持つ pure function 系 state 更新」を追記 (既存 = 2+ 条件の OR/AND 早期 return を持つ pure function 系 test、追加 = write-once 不変式パターン)
+- [ ] `## 改訂履歴` に「2026-05-23: PR #170 T3-#1 採用、State Preservation Invariant section 追加」を追記
+- [ ] 本 todo8.md entry を削除 (本 ADR 補強で内容が ADR に migrate されるため、`feedback_todo_no_history` 適用)
+
+#### 完了基準
+
+- ADR-041 に State Preservation Invariant section が追加され、3 点セット test pattern + 参照実装 + Anti-pattern + 適用タイミングが記述される
+- 次回 write-once 不変式 field を追加する PR で、本 ADR section を直接 cite して 3 点セット test を実装できる
+- 順位 142 entry が todo8.md から削除される
+
+#### 詰まっている箇所
+
+なし。記述のみで実装変更不要。順位 141 と異なり ADR 本体への追記のみで完結する。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
