@@ -89,11 +89,12 @@ fn init_or_resume_state(pr_info: &PrInfo, is_wakeup: bool, pr_label: &str) {
         return;
     }
     log_info(&format!("{} の監視を開始", pr_label));
-    let init_state = PrMonitorState::new(
+    let mut init_state = PrMonitorState::new(
         pr_info.pr_number,
         pr_info.repo.clone(),
         pr_info.push_time.clone().unwrap_or_else(utc_now_iso8601),
     );
+    init_state.fix_push_time = pr_info.fix_push_time.clone();
     if let Err(e) = write_state(&init_state) {
         log_info(&format!("[state] 初期化書き込み失敗 (継続): {}", e));
     }
@@ -204,12 +205,23 @@ pub(crate) fn run_monitor_only() -> i32 {
             "[wakeup] 前回 park の next_wakeup_at_unix が経過 → state を継続 (started_at={})",
             resume_push_time
         ));
-        pr_info.push_time = Some(resume_push_time);
+        pr_info.push_time = Some(resume_push_time.clone());
+        pr_info.fix_push_time = resume_fix_push_time_or_started_at(&resume_push_time);
         start_monitoring_wakeup(&pr_info)
     } else {
-        pr_info.push_time = Some(utc_now_iso8601());
+        let now = utc_now_iso8601();
+        pr_info.push_time = Some(now.clone());
+        pr_info.fix_push_time = Some(now);
         start_monitoring(&pr_info)
     }
+}
+
+/// 順位 141: wakeup resume 経路で state から `fix_push_time` を取り出す。
+/// legacy state (本フィールド未設定) では `started_at` に fallback して挙動を維持する。
+fn resume_fix_push_time_or_started_at(started_at_fallback: &str) -> Option<String> {
+    read_state()
+        .and_then(|s| s.fix_push_time)
+        .or_else(|| Some(started_at_fallback.to_string()))
 }
 
 /// Bb-2: 既存 state file が「自分の PR / repo / head commit の wakeup 待ち」かを判定し、
@@ -357,6 +369,7 @@ mod tests {
             repo: Some(repo.into()),
             push_time: None,
             head_commit: head.map(String::from),
+            fix_push_time: None,
         }
     }
 
@@ -566,5 +579,33 @@ mod tests {
     fn verdict_no_problems_when_coderabbit_state_absent() {
         let r = poll_result("stop_monitoring_success", None, vec![]);
         assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
+    }
+
+    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
+    /// override 設定 / 解除を test 並行実行で race させない serial guard。
+    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    /// 順位 141: `resume_fix_push_time_or_started_at` Case A —
+    /// state に `fix_push_time` が設定済みの場合、fallback の `started_at` ではなく
+    /// state の値が返されることを検証する。
+    #[test]
+    fn resume_returns_fix_push_time_from_state_when_set() {
+        let _guard = env_override_lock();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut s = PrMonitorState::new(Some(1), None, "t".into());
+        s.fix_push_time = Some("2026-05-22T06:06:00Z".into());
+        std::fs::write(tmp.path(), serde_json::to_string(&s).unwrap()).unwrap();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", tmp.path());
+        let result = resume_fix_push_time_or_started_at("2026-05-22T06:00:00Z");
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        assert_eq!(
+            result.as_deref(),
+            Some("2026-05-22T06:06:00Z"),
+            "state に fix_push_time がある場合、fallback の started_at ではなく state の値が返る"
+        );
     }
 }

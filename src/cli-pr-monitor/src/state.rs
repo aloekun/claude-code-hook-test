@@ -72,6 +72,18 @@ pub(crate) struct PrMonitorState {
     /// 扱い (= fresh push 経路) で安全側に倒す。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) head_commit: Option<String>,
+    /// fresh push 時の固定 push_time (順位 141 実装、CR rate-limit detection bug 修正)。
+    ///
+    /// `started_at` は wakeup ごとに更新されるため、CR walkthrough overlay の `updated_at`
+    /// が `started_at` より過去になると `parse_rate_limit` の `event_time >= push_time`
+    /// filter で除外され検出失敗する。本 field は fresh push (= head_commit 確定時) の
+    /// 時刻で固定し、wakeup recheck 経路でも上書きしないことで「fix push 直後の overlay
+    /// は確実に検出」される invariant を保証する。
+    /// 値は ISO 8601 UTC (`utc_now_iso8601()` で生成)。`check-ci-coderabbit` への
+    /// `--push-time` 引数として渡される。legacy state (本フィールド未設定) は `started_at`
+    /// に fallback して挙動を維持する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) fix_push_time: Option<String>,
 }
 
 /// check-ci-coderabbit から伝播する rate-limit 制御情報
@@ -136,6 +148,7 @@ impl PrMonitorState {
             wakeup_reason: None,
             review_recheck_count: 0,
             head_commit: None,
+            fix_push_time: None,
         }
     }
 }
@@ -272,6 +285,7 @@ mod tests {
             wakeup_reason: None,
             review_recheck_count: 0,
             head_commit: None,
+            fix_push_time: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();
@@ -314,6 +328,38 @@ mod tests {
         assert!(state.next_wakeup_at_unix.is_none());
         assert!(state.wakeup_reason.is_none());
         assert_eq!(state.rate_limit_retries, 0);
+        assert!(
+            state.fix_push_time.is_none(),
+            "legacy state without fix_push_time field falls back to None (順位 141)"
+        );
+    }
+
+    /// 順位 141 (PR #169 follow-up): `fix_push_time` field の round-trip 検証。
+    /// JSON への serialize / deserialize で値が保持されることを machine-enforce する。
+    #[test]
+    fn state_serialize_roundtrip_with_fix_push_time() {
+        let mut state =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-22T06:00:00Z".into());
+        state.fix_push_time = Some("2026-05-22T06:06:00Z".into());
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("fix_push_time"));
+        assert!(json.contains("2026-05-22T06:06:00Z"));
+
+        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            deserialized.fix_push_time.as_deref(),
+            Some("2026-05-22T06:06:00Z"),
+            "fix_push_time round-trip: fresh push 時の固定値が wakeup 経路で再利用される"
+        );
+    }
+
+    /// 順位 141: fix_push_time が None なら JSON に出力されない (legacy 互換)。
+    #[test]
+    fn state_omits_fix_push_time_when_none() {
+        let state = PrMonitorState::new(Some(1), None, "t".into());
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(!json.contains("fix_push_time"));
     }
 
     #[test]

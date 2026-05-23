@@ -379,6 +379,146 @@
 
 ---
 
+### ADR-NNN (採番未確定、land 時に確定): ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment (PR #169 T3-#2 採用)
+
+> **動機**: 順位 135 で codify された「ADR 番号は entry 登録時に hardcode せず `ADR-NNN (採番未確定)` placeholder で記述し、land 時 PR で空き番号を確定する」運用が、PR #111 / PR #132 / PR #169 の **3+ PR で適用実証済**になった。特に PR #169 では同一 entry (順位 78) が `ADR-038 → 041 → NNN` の **3 段振り直し** を経た live dogfood が完了し、queue 滞留 entry と後発 PR の採番衝突を convention 層で完全予防できる状態が確立された。現在 policy は `~/.claude/rules/common/docs-governance.md` の 2-3 行追記として ephemeral todo (順位 135) 内で codify されているが、ephemeral artifact 限りでは派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) への transferability に欠ける。正式 ADR に昇格して永続化する。
+>
+> **本タスクの位置づけ**: PR #169 post-merge-feedback Tier 3 #2 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (3 PR で実証済) の明文化 + multi-PR race-freedom rationale + history の codify。Severity Low / **Frequency Medium (PR #111/#132/#169 の 3+ PR で適用実証)** / Effort S / Adoption Risk None。
+>
+> **参照**: `.claude/feedback-reports/169.md` Tier 3 #2、順位 135 entry (`docs/todo8.md` 内、本 ADR 昇格後に retire 候補)、`~/.claude/rules/common/docs-governance.md` (現状 codify 先)、PR #111 / PR #132 / PR #169 history
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記 + 順位 135 entry retire (= todo8.md から削除)。
+
+#### ADR 番号
+
+順位 135 codified policy 自身に従い、本 entry では番号を `ADR-NNN (採番未確定)` placeholder とする (= dogfood 自己適用)。**land 時 PR で空き番号を確定**する (現時点既存: ADR-041 まで確定、ADR-NNN slot は順位 78 で「Rust timestamp arithmetic safety」用に予約中)。本 entry が順位 78 より先に land する場合は次の空き番号を本件に割り当て、順位 78 の placeholder は維持。
+
+#### 設計決定 (案)
+
+- **ADR タイトル候補**: `ADR-NNN: ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment` (内容を反映、派生プロジェクトでも理解可能な英文タイトル)
+- **内容構成**:
+  - **コンテキスト**: queue 滞留 entry の ADR 番号 hardcode が後発 PR の採番と衝突する構造リスク。PR #111/#132/#169 の history (順位 78 が `ADR-038 → 041 → NNN` の 3 段振り直しを経た live dogfood)
+  - **決定**: ① entry 登録時は `ADR-NNN (採番未確定、land 時に確定)` placeholder で記述、② land 時 PR で `docs/adr/` の空き番号を確定、③ 同一 PR で当該 entry / markdown / table 内 placeholder を実番号に同時置換、④ 採番予約簿 (`RESERVED.md` 等) は導入しない (queue 滞留 entry の管理コストが回収可能性に見合わない)
+  - **帰結**: queue 滞留期間と queue 深度の積に比例する番号衝突リスクが convention 層で予防される。派生プロジェクトでも同 policy を採用すれば multi-PR race-freedom が確保される。コスト: entry 著者は placeholder を維持する規律が必要、land 時 PR では multi-point sync (todo + ADR + CLAUDE.md) を同 commit で揃える必要
+  - **適用範囲**: 全 ADR (試験運用 / 永続採用問わず)。既存 ADR (ADR-001〜ADR-041) には遡及適用しない
+  - **既存資料との関係**: `~/.claude/rules/common/docs-governance.md` の 2-3 行追記 (順位 135 で codified 予定) を ADR で補完する layer。global rule は entry author への 1-line guidance、ADR は派生プロジェクトを含む reference layer
+- **CLAUDE.md ADR list 追加**: project-local の Architecture Decisions list に link 追記
+- **順位 135 entry retire**: 本 ADR で内容を完全 codify した時点で順位 135 を todo8.md から削除 (ephemeral → permanent への migration、`feedback_todo_no_history` 適用)
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-NNN-adr-numbering-strategy.md` を新規作成 (番号は land 時 PR で確定)
+- [ ] 内容構成 (上記 5 項目) を記述
+- [ ] CLAUDE.md (project) Architecture Decisions リストに該当 ADR を追加 (番号確定時)
+- [ ] 順位 135 entry を todo8.md から削除 (本 ADR が retire 先になる)
+- [ ] PR description で `docs/adr/adr-NNN-adr-numbering-strategy.md` への link と「順位 135 内容を permanent ADR に migrate、派生プロジェクト transferability 確保」要約を明記 (PR 作成時)
+
+#### 完了基準
+
+- ADR ファイルが新規作成され、PR #111/#132/#169 の history + placeholder policy + multi-PR race-freedom rationale が記述される
+- CLAUDE.md の ADR リストに該当 entry が追加される
+- 順位 135 entry が todo8.md から削除される
+- 次回 ADR 採番が必要な entry を書く際の reference として global rule (docs-governance.md) から本 ADR にリンク可能になる
+
+#### 詰まっている箇所
+
+なし。記述のみで実装変更不要。順位 135 と内容重複しないよう「global rule = 1-line entry author guidance / ADR = full rationale + history + transferability」で役割分離を明示する。
+
+---
+
+### CR rate-limit detection bug 修正 — fix_push_time 固定 + 早期 merge 判断 signal (PR #169 観測由来)
+
+> **動機**: PR #169 セッション (2026-05-22) で `cli-pr-monitor` の CR rate-limit 検出機構が、再 push 後の wakeup recheck 経路で **構造的に動作不能** な状態が systemic 観測された。`check-ci-coderabbit` の `parse_rate_limit` は `event_time >= push_time` filter で「過去 session の古い rate-limit comment」を除外する safety guard を持つが、`push_time` が `state.started_at` (wakeup ごとに現在時刻に更新される値) を再利用するため、CR の walkthrough overlay の `updated_at` が push_time より過去になると検出対象から外れる。今回 PR #169 で CR が overlay (`2026-05-22T06:08:02Z`) を投稿したが、wakeup 4 回目の started_at = `06:27:14Z` で filter 除外 → `rate_limit: null` → auto-retry path に乗らず手動介入で merge へ進んだ。
+>
+> **本タスクの位置づけ**: `feedback_pipeline_over_rules.md` 適用 = 「動作の不確実さはパイプラインで吸収、ルール codify では対処しない」原則の実装事例。「Claude が gh CLI で手動確認すればよい」式の運用ルール codify は次セッションで AI が守らない可能性が構造的に残るため不採用 (本 PR セッションでユーザー明示却下)。代わりにパイプライン側 (Rust 実装) で機械的に検出を堅牢化し、Claude 判断介入を排除する。CR 仕様変更時は graceful degradation (検出失敗 = pipeline が静かに止まるだけ、誤判定はしない) で受容、発生時に再考。
+>
+> **wall clock 配慮 (shortcut 追加案、ユーザー要件で原案から縮小)**: rate-limit 検出後に「reset まで 38 分自然待ち + CR 2 回目 review 待ち」の通常 flow に直行すると、最悪 `max_retries=3` で 2.5 時間消費する可能性がある (1 日がかりではないが許容外)。本タスクでは **rate-limit 検出時に同 process 内で mergeable status を併せて確認し、即 merge 可能なら 5-10 分の人間判断で済む shortcut signal を出力** する。既存 auto-retry path は維持 = ユーザーが「reset を待つ」を選んだ場合は通常 flow に合流する。これにより手間軽減 + wall clock 短縮の両立を図る。
+>
+> **参照**: PR #169 session log (本 entry 由来)、`src/check-ci-coderabbit/src/main.rs` L416 `parse_rate_limit` (push_time filter)、`src/cli-pr-monitor/src/stages/monitor.rs` L202-211 + L220-230 (`detect_wakeup_resume` / push_time 算出経路)、`src/cli-pr-monitor/src/state.rs` (`PrMonitorState` schema)、memory: `feedback_pipeline_over_rules.md` / `project_coderabbit_rate_limit_overlay.md` / `feedback_coderabbit_no_actionable_merge_signal.md`、Bundle a Sub-PR 2 (順位 42/43/46) / Bundle f (順位 80-82) は別 layer (retry path / 投稿エラー対応) で本タスク scope 外
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。PR #169 で systemic 観測 + ユーザー判断で priority elevated。原案 (defense-in-depth + 4 test) から縮小し、主軸 C + shortcut signal の 2 機能に絞った最小実装。
+
+#### 設計方針
+
+「**検出は機械化、判断は人間に短期で渡す**」 = pipeline で検出までは確実に動かし、reset 待ちの長時間 wall clock を許容するか即 merge 判断に進むかは **人間 (= ユーザー) が 5-10 分以内に決める**。Claude 判断介入は介在させない (signal を読んでユーザーに AskUserQuestion で問うのみ、AI 独断で merge / wait を決めない)。
+
+CR 仕様変更時は graceful degradation: 検出が壊れたら shortcut signal も出ない → 従来通り手動 workflow に倒れるだけで誤判定はしない。
+
+#### 設計決定 (案)
+
+**主軸 C: state.json に fix push 時刻を別 field で保存**
+
+- `PrMonitorState` schema に **`fix_push_time: Option<String>`** field を追加 (Option = legacy state 互換、None なら fallback to started_at)
+- `monitor.rs` の fresh 起動経路 (`detect_wakeup_resume` が None) で `fix_push_time = Some(utc_now_iso8601())` を設定
+- wakeup resume 経路では state の `fix_push_time` を **そのまま再利用** (wakeup ごとに上書きしない)
+- `poll.rs` の state 書き込み箇所で `fix_push_time` を保持
+- `check-ci-coderabbit` への引数 `--push-time` には **`fix_push_time`** を渡す
+- 効果: 「fix push 直後の overlay は `updated_at` >= `fix_push_time` で確実に検出」、「過去 session の古い rate-limit comment は依然 filter で除外」 の両立
+
+**早期 merge 判断 signal (本タスクの核)**
+
+- `poll.rs` の `handle_rate_limit_branch` で `state.rate_limit = Some(_)` を検出した時点で、**同 process 内で 1 回だけ** mergeable status を `gh pr view --json mergeable,mergeStateStatus` 経由で取得
+- 以下の **全 condition** を満たす場合、`PARK signal` の代わりに **`[RATE_LIMIT_BUT_MERGEABLE]` signal** を stdout に出力:
+  - `mergeable == "MERGEABLE"`
+  - `mergeStateStatus == "CLEAN"`
+  - `state.coderabbit.unresolved_threads == Some(0)` または `None` (初回 review の actionable が resolve 済 or 検出なし)
+- signal 例:
+  ```text
+  [RATE_LIMIT_BUT_MERGEABLE]
+  pr: 169
+  repo: aloekun/claude-code-hook-test
+  rate_limit_reset_at_iso_utc: 2026-05-22T06:46:32Z
+  rate_limit_wait_seconds: 2310
+  mergeable: MERGEABLE
+  merge_state: CLEAN
+  unresolved_threads: 0
+
+  ACTION REQUIRED: ユーザーに以下 2 択を AskUserQuestion で問うこと:
+    A: 今すぐ merge する (rate-limit reset を待たない、CR 2 回目 review なしで進める)
+    B: reset (38 分) を待って通常 auto-retry flow に乗る
+  [/RATE_LIMIT_BUT_MERGEABLE]
+  ```
+- 条件不一致 (mergeable: BLOCKED、unresolved 1+ 件 等) の場合は **従来通り通常 PARK signal を出す** (= 既存 auto-retry path がそのまま動く)
+- Claude 側の対応: signal を検出したら **AskUserQuestion で A/B 選択を問う**、回答に応じて merge 実行 / wakeup 予約継続
+
+#### 作業計画
+
+- [ ] **PrMonitorState schema 拡張**:
+  - `src/cli-pr-monitor/src/state.rs` に `fix_push_time: Option<String>` field を追加 (`#[serde(default)]` で legacy state 互換)
+- [ ] **`monitor.rs` の push_time 算出経路修正**:
+  - L202-211 の fresh / resume 分岐で `pr_info.fix_push_time` を設定
+  - fresh 経路: `state.fix_push_time = Some(utc_now_iso8601())` で state 書き込み
+  - resume 経路: `state.fix_push_time` を読んで `pr_info.push_time` に渡す (未設定なら fallback to `state.started_at` で legacy 互換)
+- [ ] **`poll.rs` の state 書き込み箇所**:
+  - `build_state_for_iteration` / `finalize_*_park` 等で `fix_push_time` を新 state に保持 (上書きしない)
+- [ ] **`poll.rs` に早期 merge 判断 signal 追加**:
+  - `handle_rate_limit_branch` で rate_limit 検出後、mergeable status 取得 + 条件評価
+  - 全条件一致時に `[RATE_LIMIT_BUT_MERGEABLE]` signal を `println!` で出力、PARK signal は skip
+  - 条件不一致時は既存 PARK signal flow に合流
+  - mergeable 取得失敗 (gh エラー / timeout) 時は安全側に倒して既存 flow に合流
+- [ ] **test 追加** (2 シナリオに絞る):
+  - シナリオ 1 (主軸 C): fresh push 経路で `fix_push_time` が設定され、wakeup 経路で同値が維持される (state round-trip test)
+  - シナリオ 2 (検出 + signal): mockable な gh 応答 (mergeable CLEAN 固定) を注入し、`[RATE_LIMIT_BUT_MERGEABLE]` signal が出力されることを assert
+- [ ] **dogfood**: 派生 test PR で再 push → CR rate-limit 強制発火 → signal 出力 → AskUserQuestion 経由でユーザー判断 → merge / wait 分岐が機能することを観測
+- [ ] **削除した原案要素**: 補助 B (overlay marker bypass) は削除 = 主軸 C 単独で十分、CR 仕様変更時は graceful degradation で受容
+- [ ] **削除した原案要素**: ADR-018 注記追記は scope 外 (本修正は spec drift fix なので ADR-018 spec 自体は変更不要)
+
+#### 完了基準
+
+- `cargo test -p cli-pr-monitor -p check-ci-coderabbit` で 2 シナリオ test が pass
+- PR #169 で観測した overlay 除外現象が再現できなくなる (主軸 C による回帰防止)
+- 次回 CR rate-limit 観測時に **5-10 分以内** にユーザーが merge / wait を判断できる (shortcut signal 経由)
+- ユーザーが「待つ」を選んだ場合は既存 auto-retry path がそのまま動く (回帰なし)
+- Claude 判断介入 (AI 独断で merge or wait) は介在しない (signal → AskUserQuestion → ユーザー判断 → action の構造)
+
+#### 詰まっている箇所
+
+- **mergeable 取得の遅延 / 失敗時の挙動**: `gh pr view` が rate-limit に当たる (GitHub API 側の rate-limit、CR とは別軸) ケースは稀だが存在する。safety: 取得失敗時は signal を出さず既存 PARK flow に倒す = 「shortcut が出ない = 通常 flow」で誤動作なし
+- **同 process 内 1 回限り の制約**: wakeup 経路で再度 rate-limit が観測された場合、毎回 mergeable status を取得しに行く設計。retry 回数が増えると gh 呼び出しも増えるが、`max_retries=3` で頭打ちなので影響軽微
+- **派生プロジェクトへの transferability**: 本修正は本リポジトリの cli-pr-monitor 固有実装に依存。techbook-ledger / auto-review-fix-vc 等の派生プロジェクトに展開する場合は同型 schema 拡張 + signal 追加が必要 (porting 時に検討)
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
