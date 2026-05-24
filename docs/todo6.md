@@ -10,34 +10,6 @@
 
 ## 現在進行中
 
-### `[lint_screen]` config parse テスト (PR #132 T2-#4 採用) ★ Bundle i
-
-> **動機**: PR #132 (Phase c MVP) で `push-runner-config.toml` に新 section `[lint_screen]` を追加したが、`config.rs` の test module には parse テストが不在。CodeRabbit nitpick で指摘 (`config_parses_with_diff` 相当が `[lint_screen]` には未存在)。serde TOML は field name の完全一致を要求するため、parse テストがないと将来の field rename / 追加で silent `None` fallback が発生し、機能が無音で停止するリスクがある。
->
-> **本タスクの位置づけ**: PR #132 post-merge-feedback Tier 2 #4 採用 (Frequency Medium / Effort S / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/132.md` Tier 2 #4、`src/cli-push-runner/src/config.rs` (テスト module の `config_parses_with_diff` を template に踏襲)、PR #132 commit `73903d72` (lint_screen config 追加)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。順位 92 と同 PR (Bundle i) 推奨。
-
-#### 作業計画
-
-- [ ] `src/cli-push-runner/src/config.rs` の `#[cfg(test)] mod tests` に `config_parses_with_lint_screen_section` を追加
-- [ ] 全 7 field (`enabled`, `exe_path`, `model`, `endpoint`, `timeout_secs`, `max_diff_lines`, `output_path`) の deserialize 検証
-- [ ] `enabled = false` でも `Option<LintScreenConfig>` が `Some(...)` で構築されることを assert (= section があれば parse される、なくなれば None)
-- [ ] 一部 field 省略時に default (`None`) になることを assert (`config.lint_screen.unwrap().exe_path.is_none()` 等)
-
-#### 完了基準
-
-- 上記テストが pass
-- 将来 `LintScreenConfig` に field 追加 / rename した時に test 側で気付ける構造になる
-
-#### 詰まっている箇所
-
-なし
-
----
-
 ### scale-aware eval fixtures (200+ 行) — Phase d 投入前の必須 infrastructure (PR #132 T2-#5 採用) ★ Bundle i
 
 > **動機**: PR #132 smoke dogfood で 868 行の現実 PR diff を mistral:7b に流したところ、JSON 出力が不完全 (`missing field 'screen_decision'`) になり fallback path が作動した。Phase b' eval fixtures (10-30 行/件) では出ない failure mode で、Phase d 本番 PR 投入時に頻発するリスクが顕在化していた。fixture 化することで再現可能化し、 §8.D prompt v3 / v4 改善ループの reference point として固定する。

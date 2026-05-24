@@ -1156,6 +1156,59 @@ mod tests {
         assert_eq!(violations.len(), MAX_CUSTOM_VIOLATIONS);
     }
 
+    /// 順位 125 (PR #151 T2-#1 横展開) defensive seal: `build_violation_json` の
+    /// `content[..m.start()]` は `regex::Match::start()` が char boundary を保証するため
+    /// panic 安全だが、multi-byte content でも line 算出
+    /// (`.bytes().filter(|b| *b == b'\n').count() + 1`) が正しく動作することを
+    /// empirical に seal する。
+    ///
+    /// fixture lines (1-indexed):
+    /// - L1: Japanese text (3 bytes/char) — non-match
+    /// - L2: emoji (4 bytes) — non-match
+    /// - L3: ASCII match (expect line=3)
+    /// - L4: combining character (e + U+0301) — non-match
+    /// - L5: ASCII match (expect line=5)
+    ///
+    /// 将来 `content[..m.start()]` を `char_indices()` 等に書き換えた際の line off-by-one
+    /// regression を catch する。
+    #[test]
+    fn run_custom_rules_line_number_correct_with_multibyte_content() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("multibyte_fixture.ts");
+        {
+            let mut f = std::fs::File::create(&file).unwrap();
+            writeln!(f, "// 日本語コメント").unwrap();
+            writeln!(f, "// 🦀 rust").unwrap();
+            writeln!(f, "console.log('after multibyte');").unwrap();
+            writeln!(f, "// caf\u{00e9}").unwrap();
+            writeln!(f, "console.log('second');").unwrap();
+        }
+
+        let rules = compile_test_rules(vec![make_test_rule(
+            "no-console-log",
+            r"console\.log\(",
+            &["ts"],
+        )]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+
+        assert_eq!(
+            violations.len(),
+            2,
+            "two console.log violations expected after multi-byte content"
+        );
+        let v1: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&violations[1]).unwrap();
+        assert_eq!(
+            v1["location"]["line"], 3,
+            "first violation should be on line 3 (after multi-byte L1 + L2)"
+        );
+        assert_eq!(
+            v2["location"]["line"], 5,
+            "second violation should be on line 5 (after combining char L4)"
+        );
+    }
+
     #[test]
     fn run_custom_rules_outer_break_skips_subsequent_rules() {
         use std::io::Write;

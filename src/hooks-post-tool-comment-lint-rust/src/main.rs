@@ -763,6 +763,38 @@ mod tests {
         assert_eq!(violations.len(), MAX_VIOLATIONS);
     }
 
+    /// 順位 57 (PR #105 T2-1 採用): `collect_all_violations` の `truncate(MAX_VIOLATIONS)`
+    /// contract test。`find_violations` (comment-forbidden 系) と
+    /// `find_function_length_violations` (function-too-long 系) の **両 source 混在** で
+    /// 合計が MAX_VIOLATIONS を超えるとき、最終 vec が MAX_VIOLATIONS に cap されることを
+    /// 機械強制する。
+    ///
+    /// 既存 cap test (`max_violations_capped` / `function_length_violations_capped`) は
+    /// 各 source 単体の cap のみを検証しており、`collect_all_violations` で
+    /// `truncate(MAX_VIOLATIONS)` を削除した場合 (= 両 source 合算が cap を超える regression)
+    /// は検知できない gap がある。本 test は将来の lint 追加時にもこの contract を seal する。
+    #[test]
+    fn collect_all_violations_truncates_combined_total_to_max() {
+        let mut source = String::new();
+        source.push_str("fn long_function() {\n");
+        for i in 0..(MAX_FUNCTION_LINES + 5) {
+            source.push_str(&format!("    let _x{} = {};\n", i, i));
+        }
+        source.push_str("}\n");
+        for i in 0..(MAX_VIOLATIONS + 5) {
+            source.push_str(&format!("// trailing comment {}\n", i));
+        }
+
+        let violations = collect_all_violations("test.rs", &source, None);
+
+        assert_eq!(
+            violations.len(),
+            MAX_VIOLATIONS,
+            "combined violations from both sources must be truncated to MAX_VIOLATIONS (= {})",
+            MAX_VIOLATIONS
+        );
+    }
+
     #[test]
     fn is_rust_file_accepts_rs() {
         assert!(is_rust_file("main.rs"));
