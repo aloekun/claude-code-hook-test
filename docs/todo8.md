@@ -233,6 +233,8 @@
 >
 > **本タスクの位置づけ**: 本セッション post-merge-feedback 相当の structural defense + 旧 順位 122 機能統合。`feedback_no_unenforced_rules.md` 例外条件 = **2 つの hook で機械強制可能**。案 A (予防層 = session 起動時に状況認識) + 案 B (最終 backstop = stale 状態での編集を hard block + 既実装 grep 提示) のセット二段構え。
 >
+> **週次レビュー (ADR-031) 観点 ⑤ Todo 妥当性 との責務分離 (2026-05-26 ユーザー合意)**: **本 hook = 編集時 immediate guard / 週次 = 全 entry 横断 batch 棚卸し**。本 hook land 後の週次レビュー Phase B+1 (順位 154 `review-todo-whole` facet) は hook が拾えない broad な観点 (経年劣化 entry / cross-file 重複 / preamble drift) に focus する設計。順位 8 entry の「7 観点責務 mapping」表参照。
+>
 > **参照**: 本セッション (2026-05-18) PR cleanup-stale-rank-39 root cause 分析 (ユーザー対話)、PR #150 post-merge-feedback Tier 3 #1 (旧 順位 122 由来)、memory `feedback_verify_task_not_already_done.md`、ADR-039 (Experimental feature 標準パターン)、PR #172 (順位 144 hook 化 dogfood 事例)
 >
 > **実行優先度**: 🚀 **Tier 1** — Effort Medium-Large (案 A ~80 行 + 案 B ~50 行 = 既実装 grep 拡張で +~20 行)。本セッションの実観測 failure mode に対する直接対策で、並列セッション運用が常態化している現状で再発確率が高い。

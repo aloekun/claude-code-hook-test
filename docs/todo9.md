@@ -305,6 +305,148 @@
 
 ---
 
+### todo entry 削除時の事前 land 確認手順 — 順位 136 hook 拡張 or 独立 follow-up (PR #173 T2-1 採用、2026-05-26)
+
+> **動機**: PR #173 で land 済 entry (順位 125 / 139 / 141) を todo8.md から削除した際、削除前の land 状態確認は実装 grep ベースの「事後 verify」で実施し全て land 確認できたが、「事前確認」の機械強制はなかった。post-merge-feedback analyzer (T2-1) で「rank 125 / 141 の actual land status を `jj log` で確認、未実装なら todo に復帰」採用判定が成立 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None)。今回 false alarm (実装は全 land 済) だったが、将来「削除前に land 確認」を機械強制すれば誤削除を構造的に防止できる。
+>
+> **本タスクの位置づけ**: 順位 136 (working copy staleness hook + stale todo entry 既実装 grep 提示) と **同型の機械強制タスク**、lifecycle 補完関係:
+>
+> - 順位 136: **add / edit 時**に既実装の commit を grep 提示 (= 「既に実装済では?」warning)
+> - **本タスク (順位 152)**: **delete 時** に対応 land commit を grep 検証 (= 「本当に land 済?」warning)
+>
+> 順位 136 hook 実装時に統合検討 (= 同一 PreToolUse hook で add/edit/delete の edit 種別を判定して分岐)、または独立 hook (= shared utility 経由) で別 task 化のいずれか。ADR-042 § Decision matrix 適用 = **mechanizable + FP 低 + Adoption Risk None** で仕組み化 zone。
+>
+> **参照**: `.claude/feedback-reports/173.md` Tier 2 #1、順位 136 entry (本ファイル内)、PR #173 セッションで実施した実装 grep 検証 (rank 125 = `run_custom_rules_line_number_correct_with_multibyte_content` test 存在 / rank 139 = `docs/adr/adr-041-test-isolation-patterns.md` 存在 / rank 141 = `fix_push_time` + `RATE_LIMIT_BUT_MERGEABLE` シグナル存在)、ADR-042 (rule vs mechanism boundary)、memory `feedback_pipeline_over_rules.md`
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort XS-S。順位 136 に統合する場合は追加 ~15 行 (edit 種別判定 + delete branch)、独立 hook の場合は ~40 行 (構造的に分離)。
+
+#### 設計決定 (案)
+
+- **検出条件**: `docs/todo*.md` への Edit/Write で `### 順位 N ` セクション (or `### <title>` headed entry) が削除されたパターン
+  - Edit tool の `old_string` に `### ` で始まる entry header が含まれ、`new_string` に含まれない場合 = 削除と判定
+  - Write tool で全文書き換えの場合は old/new file の `### ` header 数を比較
+- **動作**: 削除対象 entry の keyword (見出し title から抽出、順位 prefix / 句読点 除去) を `jj log --limit 30` で grep
+- **判定**:
+  - 関連 commit (= 「順位 N land」「PR #XXX」「<keyword> land 済」等の description) を検出 → 削除を **allow** + 検出 commit を additional context に出力 (削除証跡として残る)
+  - 関連 commit なし → **warning** (block ではなく feedback) + 「削除前に land 確認推奨。defer / withdraw の場合は commit message に明記推奨」を出力
+- **scope**: 順位 136 hook (PreToolUse on docs/todo*.md edit) に統合する case が推奨。共通の `jj log` grep utility を共有
+- **block vs warning 設計判断**: AI が大量 land 済 entry を一括削除するケース (本 PR #173 でも 3 件削除) を考慮し、warning にとどめる。block にすると mass cleanup PR で UX 阻害
+
+#### 作業計画
+
+- [ ] 順位 136 hook 実装時に edit 種別判定ロジック (add / edit / delete) を含める設計検討
+- [ ] delete 検出: `old_string` に `### ` entry header あり / `new_string` になし pattern
+- [ ] keyword 抽出 (順位 prefix / 句読点 除去) + `jj log --limit 30` grep
+- [ ] 結果出力フォーマット (land 確認時 = additional context に commit 列挙 / 未確認時 = warning)
+- [ ] test fixture (4 ケース): delete + land あり / delete + land なし / add + 既実装あり / add + 既実装なし
+- [ ] 派生プロジェクト deploy 検討 (順位 136 と同タイミング)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `docs/todo*.md` への delete 操作時、対応 land commit が grep で検出されれば allow + 証跡 output
+- land commit なし時は warning (block しない) で AI に再確認を促す
+- 順位 136 (add/edit 時 既実装 grep) と統合 or 独立で lifecycle カバレッジ完成
+- 派生プロジェクト transferability
+
+#### 詰まっている箇所
+
+- **edit 種別判定の複雑性**: Edit tool の old/new 比較で削除を判定可能だが、部分削除 + 他箇所改修の混在 edit で false negative リスク。最小単位は「順位 N entry 全体の削除」のみ対象とする MVP が現実的
+- **keyword 抽出の精度**: 順位 prefix 除去後の title 残りで grep するが、title に表記揺れ (例: "ADR-041 Test Isolation Patterns" vs "Test Isolation Patterns ADR") があると false negative。順位 N をそのまま grep する case も併用検討
+- **mass cleanup PR との両立**: 本 PR #173 のように 3 件以上の land 済 entry を一括削除する PR では各削除で warning が累積し UX 阻害。1 PR 内で同 file の delete N 件目以降は output 抑制 等の noise 軽減策必要
+
+---
+
+### `review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意)
+
+> **動機**: 順位 8 (週次レビュー Phase B) の MVP は 3 facets (simplicity / security / architecture) 構成で start し、観点 ① ハーネス遵守 (rule < pipeline < hook 重複検出) は architecture-whole facet の prompt 重点 criteria として組込。Phase B dogfood で「① 観点が architecture-whole の他 criteria (ADR 整合性 / モジュール境界 / 命名規約 / 循環依存) と context 圧迫」が観測されたら、独立 facet `review-harness-whole` に extract する。
+>
+> **本タスクの位置づけ**: 順位 8 の follow-up、Phase B+1。Phase B dogfood 結果を見てから着手判断 (extract 不要なら本 entry close)。順位 146-151 (Bundle 既存ルール仕組み化) の **継続的発見源** として機能し、新 rule → hook 昇格候補を週次で systemic に拾う構造を強化する。
+>
+> **参照**: 順位 8 entry (todo.md 「7 観点責務 mapping」表)、順位 146-151 Bundle 既存ルール仕組み化、`feedback_no_unenforced_rules.md`、`feedback_pipeline_over_rules.md`、ADR-031 (週次レビュー設計)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。順位 8 Phase B land + 2-3 週 dogfood 後に着手判断。
+
+#### 設計決定 (案)
+
+- 配置: `.takt/facets/instructions/review-harness-whole.md` 新規 facet (allowed_tools: Read/Glob/Grep のみ)
+- 観点: `~/.claude/rules/common/*.md` の各 rule を全文走査 + `.claude/custom-lint-rules.toml` / `.claude/hooks-config.toml` / `push-runner-config.toml` と突き合わせ → rule docs に記載があるが hook / pipeline 未実装の項目を finding として抽出
+- aggregate-weekly 側で finding category `harness-rule-coverage-gap` として独立 group 化
+- Phase B+1 着手判断条件: Phase B dogfood で architecture-whole の output から ① 観点 finding 数が多く他 criteria の finding 質が劣化、または ① 観点が見落とされていると観測された場合
+
+#### 作業計画
+
+- [ ] Phase B (順位 8) land + 2-3 週 dogfood 運用 → ① 観点 finding の context 圧迫 / 見落としを観測
+- [ ] facet extract 判断 (extract 不要なら本 entry close)
+- [ ] `review-harness-whole.md` instruction 設計 (順位 146-151 land 済 / 未済の状況を踏まえた rule-vs-hook gap 検出ロジック)
+- [ ] takt workflow weekly-review.yaml に facet 追加 + `parallel:` block 拡張
+- [ ] aggregate-weekly facet 拡張 (新 category) + pending JSON schema 拡張
+- [ ] dogfood + 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ① ハーネス遵守 観点が独立 facet で週次検出される
+- architecture-whole は ADR 整合性 / モジュール境界 / 命名規約 / 循環依存 に集中
+- 新規 rule 追加時の hook 昇格候補が systemic に提案される
+
+#### 詰まっている箇所
+
+- Phase B dogfood 結果次第 (extract 不要なら本 entry close)
+- ① 観点と ② docs 内整合性の境界判断 (rule docs 整合 vs その他 docs 整合の cross-cut)
+
+---
+
+### `review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意)
+
+> **動機**: 順位 8 (週次レビュー Phase B) の MVP では観点 ⑤ Todo 妥当性 は順位 136 (todo hook 2 段構え) に委譲し、観点 ⑦ ファイルサイズ も対象外とした。順位 136 hook land 後、hook が拾えない broad な観点 (全 todo entry 横断の dead pattern 検出 / cross-todo file の重複 entry / docs/todo*.md preamble drift) を週次の `review-todo-whole` facet で補完する。並行して観点 ⑦ ファイルサイズ (50KB / 800 行) は aggregate-weekly facet 直前の Rust 機械 pre-step で計測し、LLM context を浪費せず ADR-031 の 3 層分離 (Rust 機械 / takt AI / skill ask) に整合させる。
+>
+> **本タスクの位置づけ**: 順位 8 の follow-up、Phase B+1。順位 136 hook land 後に着手判断 (= hook の immediate guard が機能している前提で、週次は batch 棚卸しに focus)。`feedback_pipeline_over_rules.md` 適用で、機械検査可能な観点 (file size) を LLM facet に乗せず分離する設計。
+>
+> **参照**: 順位 8 entry (todo.md 「7 観点責務 mapping」表)、順位 136 entry (todo8.md、todo hook 2 段構え)、順位 95 (preamble file count CI 自動照合)、順位 147 (file length lint 800 行)、ADR-031 (3 層分離 = Rust 機械 / takt AI / skill ask)、`feedback_pipeline_over_rules.md`
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M (facet 新規 + Rust pre-step ~80 行)。順位 136 land + Phase B 2-3 週 dogfood 完了後に着手。
+
+#### 設計決定 (案)
+
+**`review-todo-whole` facet (観点 ⑤ 補完):**
+
+- 配置: `.takt/facets/instructions/review-todo-whole.md` 新規 facet (allowed_tools: Read/Glob/Grep のみ)
+- 観点: 全 todo*.md entry を横断走査 → dead pattern (= 半年以上 stale + 関連 commit なし + 依存 task land 済) / cross-file 重複 entry / preamble routing drift を finding として抽出
+- 順位 136 hook が拾えない範囲: 編集していない entry の経年劣化 / file 跨ぎの重複 / preamble file count drift
+
+**aggregate 前 Rust 機械 pre-step (観点 ⑦):**
+
+- 配置: takt workflow weekly-review.yaml の aggregate-weekly facet 直前に新 step 追加 (or aggregate facet 自身が呼び出す Rust binary)
+- 計測対象:
+  - `docs/todo*.md` の file size (50KB 閾値、PR #88 / #96 / #101 / #123 / #172 で実証された分割 trigger)
+  - `src/**/*.rs` の line count (800 行閾値、順位 147 file length lint と整合)
+- 出力: 閾値超過 / 接近 (90% 等) のファイル一覧を aggregate facet の入力として渡す
+- 機械検査のため LLM context を浪費しない (ADR-031 3 層分離原則)
+
+#### 作業計画
+
+- [ ] 順位 136 hook land 待ち
+- [ ] Phase B 2-3 週 dogfood 完了 + 観点 ⑤ ⑦ の必要性再評価 (順位 95 / 147 land 状況も確認)
+- [ ] `review-todo-whole.md` instruction 設計 (順位 136 hook が拾える範囲との境界明示)
+- [ ] aggregate 前 Rust pre-step 実装 (新 binary `cli-weekly-review-prep` or aggregate facet 内 step)
+- [ ] takt workflow weekly-review.yaml に facet + pre-step 追加
+- [ ] aggregate-weekly facet 拡張 (新 category) + pending JSON schema 拡張
+- [ ] dogfood + 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 全 todo*.md entry の dead pattern / cross-file 重複 / preamble drift が週次検出される
+- file size 閾値超過 / 接近が aggregate facet input として通知される
+- 順位 136 hook と責務分離 (hook = 編集時 immediate / 週次 = batch 棚卸し) が機能
+
+#### 詰まっている箇所
+
+- 順位 136 hook 実装次第 (hook が拾える範囲が確定後に週次の補完範囲を確定)
+- Phase B dogfood 結果次第 (有用な finding が出るかは運用観察)
+- 順位 95 (preamble count CI 自動照合) との scope 重複整理: CI = 機械検査即時 / 週次 pre-step = aggregate 入力、両立可能だが integration 検討
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)

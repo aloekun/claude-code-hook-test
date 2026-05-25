@@ -15,7 +15,7 @@
 | 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
 | 5 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
-| 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 | todo.md | 中-高 | なし (順位 20 の compensating check 前提) |
+| 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 — 7 観点責務 mapping 確定 (① ハーネス遵守 + ⑥ テストロジック を MVP 優先、2026-05-26 ユーザー合意) | todo.md | 中-高 | 順位 20 compensating check 前提 + 順位 136 land 先行推奨 (観点 ⑤ 責務分離) |
 | 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
 | 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
@@ -77,6 +77,9 @@
 | 149 | 🔧 Tier 2 | **Long-running subprocess pipe truncate hook 拡張 — `development-workflow.md` § subprocess pipe truncate 禁止 移管 (PR #172 仕組み化方針切替由来) ★ Bundle 既存ルール仕組み化** | todo9.md | S | なし (既存 `exe-help-block` preset を `cli-*.exe ... \| (head\|tail\|awk)` 等の副作用ある subprocess 出力 truncate にも拡張 or 新 `subprocess-pipe-truncate-block` preset 追加、PR #109 SIGPIPE 事故 root cause の構造化、順位 44 (gh-token-efficiency) との scope 境界整理必要、development-workflow.md § 該当 section 縮小) |
 | 150 | 🔧 Tier 2 | **Magic number lint 追加 — `coding-style.md` § Magic Numbers 移管 (PR #172 仕組み化方針切替由来、ユーザー判断 2026-05-25 = source folder 限定) ★ Bundle 既存ルール仕組み化** | todo9.md | M | なし (`.claude/custom-lint-rules.toml` に `no-magic-number` rule 追加、source folder paths filter で test/config 除外、時間定数 / リトライ回数 / threshold の 3 category MVP、severity warning で reviewer 判断補助、順位 102 paths filter + 順位 118 適用範囲検討と整合、coding-style.md § Magic Numbers 削除可否は dogfood 後判断) |
 | 151 | 🔧 Tier 2 | **PR diff lines check 追加 — `git-workflow.md` § Multi-PR chaining 移管 (PR #172 仕組み化方針切替由来、ユーザー判断 2026-05-25 = 条件付き block 3 段階) ★ Bundle 既存ルール仕組み化** | todo9.md | S | なし (`src/cli-push-runner/src/stages/pr_size_check.rs` 新 stage 追加、`push-runner-config.toml` `[pr_size_check]` section で threshold 設定可能化 (default: block 1500 / warning 800)、jj diff stat 計測、大型 refactoring 時の override は config 編集、git-workflow.md § Multi-PR chaining 縮小) |
+| 152 | 🔧 Tier 2 | **todo entry 削除時の事前 land 確認手順 — 順位 136 hook 拡張 or 独立 follow-up (PR #173 T2-1 採用、2026-05-26)** | todo9.md | XS-S | 順位 136 (working copy staleness + 既実装 grep) と同型機械強制、lifecycle 補完 = 順位 136 (add/edit 時) + 本タスク (delete 時)。PreToolUse hook で `docs/todo*.md` 削除時に対応 land commit を `jj log` で grep 検証、land 確認なら allow + 証跡出力、未確認なら warning (block しない)。順位 136 hook 統合 (~+15 行) or 独立 (~40 行) のいずれか、ADR-042 § Decision matrix 適用 (mechanizable + FP 低 + Adoption Risk None) |
+| 153 | 🔧 Tier 2 | **`review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | S | 順位 8 Phase B land + 2-3 週 dogfood 後に着手判断 (extract 不要なら close)、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源、architecture-whole から ① 観点を extract して context 圧迫回避 |
+| 154 | 🔧 Tier 2 | **`review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | M | 順位 136 land + Phase B 2-3 週 dogfood 完了後着手、順位 95 / 147 と scope 整理必要 (CI 即時 vs 週次 batch)、ADR-031 3 層分離原則で file size は LLM 不要の Rust pre-step に分離 |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
