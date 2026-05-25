@@ -437,42 +437,58 @@
 
 ---
 
-### gh CLI 使用規則を `~/.claude/rules/common/git-workflow.md` に追記 (計画書 #D-1)
+### PreToolUse hook で `gh` CLI の token-bloat パターンを検出する `gh-token-efficiency` preset 追加 (計画書 #D-1、PR #172 仕組み化方針切替 2026-05-25)
 
-> **動機**: PR #97 / #99 セッションで観測された gh tool_result の token bloat (POST 応答 24KB / GET 過剰 metadata 44KB) を rule で構造的に抑制する。具体的には (1) POST 操作の応答破棄漏れ (`gh api .../replies` で `> /dev/null 2>&1` 漏れによる 24KB context 汚染)、(2) GET 操作で `--jq` filter 不使用による生 JSON 全取得、(3) `gh pr view --json comments` の CR walkthrough base64 internal state 混入 — の 3 パターン。
+> **動機**: PR #97 / #99 セッションで観測された gh tool_result の token bloat (POST 応答 24KB / GET 過剰 metadata 44KB) を、当初 rule 追加 (`~/.claude/rules/common/git-workflow.md`) で抑制する計画だった。しかし PR #172 で 順位 144 (`jj-message-required` preset) の dogfood が成功し、「rule 化は session 毎に読み込みコストがかかり、別セッションでも結果が一定にならない」課題が顕在化。仕組み化 (PreToolUse hook) に方針切替する (`feedback_pipeline_over_rules.md` 適用)。
 >
-> **本タスクの位置づけ**: Bundle a の **Sub-PR 1 token 削減層**。`check-ci-coderabbit --list-findings` Rust 実装 と同 PR で land 推奨。global rule (`~/.claude/rules/common/git-workflow.md`) への追記のため本リポジトリ scope 外だが、開発体験への影響は本リポジトリで主に発生。
+> 抑制対象 3 パターン (rule 設計時点で確定済):
 >
-> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、(削除済) `docs/pipeline-token-efficiency.md` #D-1 セクション (経緯は ADR-034 で保存)、PR #99 セッションで実証された rate-limit overlay (memory `project_coderabbit_rate_limit_overlay.md`)
+> 1. **POST 操作 (作成・更新)** の応答破棄漏れ: `gh api .../replies` 等で `> /dev/null 2>&1` がない → 24KB の reply body が context 汚染
+> 2. **GET 操作 (取得)** で `--jq` filter 不使用: `gh api .../comments` 等で生 JSON 全取得 → 44KB の不要 metadata 流入
+> 3. **CR walkthrough internal state 混入**: `gh pr view --json comments` で CR walkthrough の base64 encoded state が含まれる (1 PR で 30KB+) → 確認時は `--jq 'del(.comments[].body)'` 等で除外必須
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。rule 追記のみ。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
+> **本タスクの位置づけ**: 順位 144 (jj-message-required hook) の同型実装パターン。`feedback_pipeline_over_rules.md` 適用 = パイプライン側機械的修正で Claude 判断介入を排除、session 毎の rule load コスト不要、別セッションでも結果が一定。Bundle a の **Sub-PR 1 token 削減層** だが docs 化 → hook 化への切替に伴い Bundle a との結合は緩む。
+>
+> **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、PR #99 / #97 session log (token bloat 実観測)、PR #172 (順位 144 = `jj-message-required` preset 実装事例)、`src/hooks-pre-tool-validate/src/main.rs` の `preset_jj_message_required` を template に追加
+>
+> **実行優先度**: 💎 **Tier 3** — Effort M (順位 144 と同型実装で工数把握済、~90 分見込み)。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
 
-#### 設計決定 (案)
+#### 設計決定 (案、順位 144 hook 実装を template に踏襲)
 
-- **追記先**: `~/.claude/rules/common/git-workflow.md` の既存セクションに追加 (新規ファイル作成は避け、navigation 性確保)
-- **記述する 3 規則**:
-  - **POST 操作 (作成・更新)**: 応答 body は破棄する (`gh api -X POST .../replies -f body='...' > /dev/null 2>&1`)。success/fail は exit code で判別
-  - **GET 操作 (取得)**: `--jq` で必要 field のみ抽出する (`gh api .../comments --jq '.[] | {created_at, body_first: .body[:200]}'` 等)
-  - **CR walkthrough 除外**: `gh pr view --json reviews,comments` の `comments` field に CR walkthrough の base64 internal state が含まれる (1 PR で 30KB+) ため、確認時は `--jq 'del(.comments[].body)'` 等で除外
-- **記述スタイル**: BAD / GOOD のコード例ペアを併記 (既存 git-workflow.md の他セクションと整合)
+- **配置**: `src/hooks-pre-tool-validate/src/main.rs` に新 preset `gh-token-efficiency` 追加
+- **`BlockedPattern.exception` を活用** (順位 144 で導入済、再利用)
+- **block 対象 3 種類** (個別 BlockedPattern として実装):
+  - (1) **POST 応答破棄漏れ**: pattern = `gh\s+(api\s+-X\s+POST|api\s+(?!.*-X\s+GET)[^|]*-f\s+)`、exception = `>\s*/dev/null|>\s*NUL`、message = 「`> /dev/null 2>&1` で応答 body 破棄を推奨 (24KB context 汚染防止)」
+  - (2) **`gh api` の `--jq` 不使用**: pattern = `gh\s+api\s+[^|]*`、exception = `--jq\b|\|\s*jq\b|>\s*/dev/null`、message = 「`--jq` で必要 field のみ抽出を推奨 (生 JSON 過剰流入防止)」
+  - (3) **CR walkthrough state 混入**: pattern = `gh\s+pr\s+view\s+[^|]*--json\s+[^|]*comments`、exception = `del\(\.comments|--jq.*comments.*\|\s*map`、message = 「CR walkthrough base64 internal state を含むため `--jq 'del(.comments[].body)'` 等で除外を推奨」
+- **hooks-config.toml**: `blocked_patterns` に `"gh-token-efficiency"` を追加 (opt-in preset、派生プロジェクト breaking change リスク軽減)
+- **opt-in 設計**: `default_preset_names()` の fallback には含めない (`gh-pr-create-guard` 等と同じ classification)
 
-#### 作業計画
+#### 作業計画 (順位 144 と同 phase 構造)
 
-- [ ] `~/.claude/rules/common/git-workflow.md` の既存構造を確認し追記位置を選定
-- [ ] 3 規則 (POST 応答破棄 / GET --jq / CR walkthrough 除外) を BAD/GOOD コード例つきで追記
-- [ ] 本リポジトリでの dogfood: 1〜2 PR で実際に新規則に従って `gh api` を使い、token 削減を実測
-- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への global rule 反映確認 (rule は global なので自動的に適用、deploy 不要)
-- [ ] 本 todo4.md エントリを削除
+- [ ] **Phase 1**: 既存 preset 構造を理解し、`preset_gh_token_efficiency()` 関数を実装 (3 BlockedPattern を vec で返す)
+- [ ] **Phase 2**: `build_blocked_patterns` の `resolve_preset_or_custom` dispatch に登録 + `.claude/hooks-config.toml` の `blocked_patterns` に `"gh-token-efficiency"` 追加 + コメント section に説明追加
+- [ ] **Phase 3**: test 拡充 — block ケース (応答破棄漏れ POST / `--jq` なし GET / walkthrough exclusion なし) × 3 + allow ケース (3 規則すべて遵守) × 3 + non-regression (既存 preset との干渉なし)
+- [ ] **Phase 4**: `pnpm build:hooks-pre-tool-validate` で exe deploy + dogfood (本 todo を読んだ後の `gh api` 呼び出しで block 動作確認)
+- [ ] **Phase 5**: `pnpm push` (AI review) + `pnpm create-pr`
+- [ ] **post-merge**: 本リポジトリ 1-2 PR の dogfood で false positive 観測 → 派生プロジェクト deploy 判断
+- [ ] 本 todo4.md エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- `~/.claude/rules/common/git-workflow.md` に 3 規則が追記される
-- dogfood 1〜2 PR で gh tool_result avg/max chars が削減されることを実測 (現状 max 47KB → 目標 10KB 以内)
-- POST 応答 24KB の context 汚染が消失
+- `jj-message-required` と同型の `gh-token-efficiency` preset が稼働 (3 BlockedPattern が block + exception 機能で正規パターン allow)
+- `gh api .../replies -f body='...'` (応答破棄なし) → block + 修正手順 feedback
+- `gh api .../comments` (`--jq` なし) → block + 修正手順 feedback
+- `gh pr view 171 --json comments` (walkthrough 除外なし) → block + 修正手順 feedback
+- 規則遵守版 (`> /dev/null 2>&1` 付き POST / `--jq` 抽出 / `del(.comments[].body)` 除外) は通過
+- 既存 preset との non-regression (jj-main-guard / git push block 等は継続動作)
+- `cargo test -p hooks-pre-tool-validate` pass
 
 #### 詰まっている箇所
 
-- なし (Effort XS、global rule への追記のみで完結)。Sub-PR 1 の `check-ci-coderabbit --list-findings` 実装と同 PR で land する想定。
+- 順位 144 実装パターンを踏襲することで設計判断は最小化される
+- false positive リスク: `gh api ... | jq` のような piped jq は exception regex で吸収可能 (`\|\s*jq\b` を含める)
+- 派生プロジェクト deploy timing: 本リポジトリ先行 dogfood (1-2 PR) → 観測後判断 (`feedback_dogfood_evals_two_phase.md` 適用)
 
 ---
 

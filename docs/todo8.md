@@ -2,38 +2,13 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo6.md がファイルサイズ 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する (PR #143 T3-#1 採用時 = 2026-05-11)。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md / todo7.md の既存エントリは引き続き有効、相互に独立。新セッションでは九つすべてを確認すること (todo.md / todo2-8.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo6.md がファイルサイズ 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #143 T3-#1 採用時 = 2026-05-11 から新規エントリは本ファイルに記録していた。**本ファイルも 60KB に到達したため、PR #172 仕組み化方針切替セッション = 2026-05-25 以降の新規エントリは [docs/todo9.md](todo9.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md / todo7.md / todo9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十つすべてを確認すること (todo.md / todo2-9.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
 
 ## 現在進行中
-
-### `development-workflow.md` Step 0 に「新 todo 着手前の既実装確認」チェックステップ追加 (PR #150 T3-#1 採用、補足: ユーザー判断採用)
-
-> **動機**: PR #150 着手時に「順位 47 は PR #126 で既 land 済」という stale todo entry を memory rule `feedback_verify_task_not_already_done.md` 適用で発見・回避できた。memory にとどまる限り read 漏れリスクが残るため、canonical workflow doc (`~/.claude/rules/common/development-workflow.md`) Step 0 (Research & Reuse) に「新 todo 着手前に `jj log --limit 20 <keyword>` で既実装確認」step を正式追加すれば、AI エージェントの workflow 読込時の visibility が向上する。
->
-> **本タスクの位置づけ**: PR #150 post-merge-feedback Tier 3 #1 採用。rule 追加は本来 `feedback_no_unenforced_rules.md` 適用で却下 zone だが、本 case は「stale entry 発見の具体的 grep コマンドが workflow 内で機械的に実行可能 (`jj log` は決定的)」+「memory rule の昇格 path 実例」としてユーザー判断で採用。Severity Medium / Frequency Medium (memory 既存 + 本 PR で再発) / Effort XS / Adoption Risk None。
->
-> **参照**: `.claude/feedback-reports/150.md` Tier 3 #1、`~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse)、memory `feedback_verify_task_not_already_done.md`
-
-#### 作業計画
-
-- [ ] `~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse) 末尾または直後に「Stale task verification」サブステップ追加:
-  - `jj log --limit 20 <keyword>` で既実装の有無を確認
-  - 既 land を発見した場合は stale todo entry を docs/todo*.md / todo-summary.md から削除する形に re-purpose
-- [ ] 既存 memory `feedback_verify_task_not_already_done.md` の content を canonical rule へ昇格させた旨を memory に追記 (or memory を削除して rule に統合)
-- [ ] グローバル設定変更前に `~/.claude/` バックアップ取得 (memory `feedback_global_config_backup.md` 適用)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `development-workflow.md` Step 0 で「stale entry 確認」が canonical workflow として読まれる
-- memory ファイルとの責任分離が明確 (rule = 公式手順、memory = session-specific 補足) または memory が rule に統合される
-- 次回 todo 着手時に AI エージェントが自然に `jj log` 確認を行う
-
----
 
 ### ADR-040 `step_timeout` 説明に sublinear / KV cache locality clarification 追記 (PR #145 T3-#1 採用)
 
@@ -273,15 +248,17 @@
 
 ---
 
-### working copy staleness 検出 hook 2 段構え: SessionStart + PreToolUse (本セッション cleanup-stale-rank-39 由来)
+### working copy staleness 検出 hook 2 段構え + stale todo entry 既実装 grep 提示 (PR cleanup-stale-rank-39 由来 + PR #150 T3-#1 統合 2026-05-25)
 
 > **動機**: 本セッション (PR cleanup-stale-rank-39 作業中) で「local working copy が stale parent (master と sibling) のまま docs/todo*.md を読み込み、master 上で既に削除済の entry 2 件 (順位 104 / 126) を『stale entry として削除する』と誤判定」failure mode を実証した (実 stale entry は 1 件のみだった)。memory rule `feedback_verify_task_not_already_done.md` (todo 着手前に既実装検証 → stale entry 削除に再目的化) は強制力ゼロで再発確実 = memory rule 全般の限界 (`feedback_no_unenforced_rules.md` 原則の自己事例)。Claude Code Web との並列セッション運用前提下では構造的に同 mode が発生する。
 >
-> **本タスクの位置づけ**: 本セッション post-merge-feedback 相当の structural defense。`feedback_no_unenforced_rules.md` 例外条件 = **2 つの hook で機械強制可能**。案 A (予防層 = session 起動時に状況認識) + 案 B (最終 backstop = stale 状態での編集を hard block) のセット二段構え。
+> **統合履歴 (2026-05-25)**: 旧 順位 122 (`development-workflow.md` Step 0 に「新 todo 着手前の既実装確認 `jj log --limit 20 <keyword>`」step 追加 = PR #150 T3-#1 採用) を本 task に統合。rule 化 (= docs 追加) では session 毎に読み込みコストがかかり別セッションで結果が一定にならない課題が PR #172 (順位 144 hook 化成功事例) で明確化、仕組み化に方針切替。stale 検出 hook が `docs/todo*.md` edit 時に発火する際、合わせて既実装の有無を grep して結果を提示する形で 順位 122 の機能を吸収する (`feedback_pipeline_over_rules.md` 適用)。
 >
-> **参照**: 本セッション (2026-05-18) PR cleanup-stale-rank-39 root cause 分析 (ユーザー対話)、memory `feedback_verify_task_not_already_done.md`、ADR-039 (Experimental feature 標準パターン)
+> **本タスクの位置づけ**: 本セッション post-merge-feedback 相当の structural defense + 旧 順位 122 機能統合。`feedback_no_unenforced_rules.md` 例外条件 = **2 つの hook で機械強制可能**。案 A (予防層 = session 起動時に状況認識) + 案 B (最終 backstop = stale 状態での編集を hard block + 既実装 grep 提示) のセット二段構え。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort Medium (案 A ~80 行 + 案 B ~30 行)。本セッションの実観測 failure mode に対する直接対策で、並列セッション運用が常態化している現状で再発確率が高い。
+> **参照**: 本セッション (2026-05-18) PR cleanup-stale-rank-39 root cause 分析 (ユーザー対話)、PR #150 post-merge-feedback Tier 3 #1 (旧 順位 122 由来)、memory `feedback_verify_task_not_already_done.md`、ADR-039 (Experimental feature 標準パターン)、PR #172 (順位 144 hook 化 dogfood 事例)
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort Medium-Large (案 A ~80 行 + 案 B ~50 行 = 既実装 grep 拡張で +~20 行)。本セッションの実観測 failure mode に対する直接対策で、並列セッション運用が常態化している現状で再発確率が高い。
 
 #### 設計決定 (案 A + B)
 
@@ -302,18 +279,22 @@
 - 最適化: `.git/FETCH_HEAD` mtime を確認して「5 分以内なら fetch skip」 (network cost 抑制)
 - fail-open: fetch timeout / 失敗時は warning なしで pass-through (block しない、AI 操作は継続可能)
 
-**案 B: PreToolUse hook で stale 時の `docs/todo*.md` edit を block**
+**案 B: PreToolUse hook で stale 時の `docs/todo*.md` edit を block + 既実装 grep 提示 (旧 順位 122 統合)**
 
-- 配置: 既存 `src/hooks-pre-tool-validate/` に統合 (~30 行追加)
-- 動作: Edit / Write の対象が `docs/todo*.md` 系列のとき、master と @- の lineage 確認 → master が ahead なら hard block
-- block message:
+- 配置: 既存 `src/hooks-pre-tool-validate/` に統合 (~50 行追加 = 30 行 stale 検知 + ~20 行既実装 grep 拡張)
+- 動作 1 (stale 検知): Edit / Write の対象が `docs/todo*.md` 系列のとき、master と @- の lineage 確認 → master が ahead なら hard block
+- 動作 2 (既実装 grep 提示、旧 順位 122 機能統合): stale でない場合も `docs/todo*.md` への Edit/Write 時に対象 entry の keyword (= 直近の `### ` 見出し title から抽出) を `jj log --limit 20` で grep し、既実装らしき commit があれば warning として additional context に表示
+- block / warning message:
   ```text
-  ❌ working copy parent (#X) is N commits behind master (#Y).
-  docs/todo*.md は state を反映する artifact のため、master と同期した状態で編集すること。
-  修正手順: `jj git fetch && jj new master`
+  [docs/todo edit context]
+  @: lmzvnwlu (parent: #159, master: #161 = 2 ahead)
+  stale parent detected → block
+  関連既実装の可能性: <jj log --limit 20 "<keyword>" の上位 3 件>
+  修正手順: `jj git fetch && jj new master -m "WIP: <description>"`
   ```
-- scope 限定: `docs/todo*.md` のみ block (コード / config までは過剰、false positive リスク)
+- scope 限定: `docs/todo*.md` のみ block / grep 対象 (コード / config までは過剰、false positive リスク)
 - 案 A と異なり、本 hook は fail-closed (lineage 判定不能なら block) で安全側に倒す
+- 既実装 grep の keyword 抽出ロジック: `### ` で始まる見出しから「順位 N」prefix を除いた title を取得、句読点 / 括弧を除外して 2-3 語の noun phrase を抽出 (NLP 不要、簡易 regex で実装可能)
 
 #### 作業計画
 
@@ -322,15 +303,19 @@
 - [ ] `master..@-` の lineage 計算ロジック実装 (`jj log -r "master..@-" --no-graph -T 'description'` 等)
 - [ ] additional context 出力フォーマット決定 (一行 vs 複数行、AI 読み飛ばし耐性検証)
 - [ ] `hooks-pre-tool-validate.exe` に `docs/todo*.md` edit block ロジック追加
+- [ ] **既実装 grep ロジック実装 (旧 順位 122 統合)**: Edit/Write の old_string or new_string から `### ` 見出し title を抽出 → keyword 抽出 (順位 prefix / 句読点除去) → `jj log --limit 20` 実行 → 上位 3 件を additional context に追記
+- [ ] `~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse) の手動 grep step 追加は **不要** (hook が自動実行するため rule 化スキップ、`feedback_pipeline_over_rules.md` 適用)
+- [ ] memory rule `feedback_verify_task_not_already_done.md` の closure 検討 (hook 化で機能吸収後、memory entry を削除して責任を hook に集約)
 - [ ] ADR 起案 (新 hook 設計 + ADR-039 experimental pattern 適用、land 時採番確定)
 - [ ] dogfood 期間設定 (試験運用 flag で N 週間運用後採否決定)
 - [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) deploy 検討
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary.md 行削除 (順位 122 行は本 entry 統合時に削除済 2026-05-25)
 
 #### 完了基準
 
 - session 開始時に working copy が master より遅れている場合、AI が context 出力で即座に状況を認識する
-- stale parent 状態で `docs/todo*.md` を編集しようとすると hard block + 修正手順 (`jj git fetch && jj new master`) 表示
+- stale parent 状態で `docs/todo*.md` を編集しようとすると hard block + 修正手順 (`jj git fetch && jj new master -m "WIP: <description>"`) 表示
+- **`docs/todo*.md` への Edit/Write 時に既実装 grep が自動実行され、関連 commit が warning として提示される (旧 順位 122 機能、hook 化で session 跨ぎ品質一定化)**
 - ADR-039 experimental pattern に従い kill-switch 装備 (network 異常 / feature branch 運用への退避経路)
 - 派生プロジェクトでの動作確認
 
@@ -598,6 +583,53 @@ analyzer report の `[ADR-041 追加 section 案]` をベースに、`docs/adr/a
 #### 詰まっている箇所
 
 なし。Effort S、Bundle 171 内で 順位 142 + 順位 144 と並列実施可能。
+
+---
+
+### preset matrix test 追加 — default fallback vs config-selectable の 2 軸 classification 検証 (PR #172 T2-#1 採用)
+
+> **動機**: PR #172 で `jj-message-required` preset 実装の Phase 3 において、当初 `is_blocked("jj new")` (default config 使用) で block を assert する test を書いたが、`jj-message-required` が `default_preset_names()` の fallback list に含まれない opt-in preset であることを前提とせず、test rewrite が必要になった。preset architecture の implicit assumption (always-enabled vs config-selectable) を test 設計レベルで codify することで、将来の新 preset 追加時の design misalignment を構造的に防止する。
+>
+> **本タスクの位置づけ**: PR #172 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk None)。matrix test で preset 分類を明示する mechanical enforcement 層を追加。
+>
+> **参照**: `.claude/feedback-reports/172.md` Tier 2 #1、`src/hooks-pre-tool-validate/src/main.rs` の `default_preset_names()` + test module、PR #172 Phase 3 (test rewrite 経緯)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。Bundle 171 残タスク (順位 142 + 143) との並列実施可能。
+
+#### 設計決定 (案)
+
+- **配置先**: `src/hooks-pre-tool-validate/src/main.rs` の test module (feedback report は lib.rs と記載するが本 crate は binary crate のため main.rs を採用)
+- **matrix 構成** (2 軸):
+  - axis 1: `default fallback (always-enabled)` vs `config-selectable (opt-in)`
+  - axis 2: 各 preset 名
+- **classification 期待値** (本セッション時点):
+  - always-enabled (`default_preset_names()` 内): `default` / `git` / `jj-immutable` / `jj-main-guard` / `jj-push-guard` / `electron`
+  - config-selectable: `gh-pr-create-guard` / `gh-pr-merge-guard` / `polling-anti-pattern` / `exe-help-block` / `jj-message-required`
+- **test 案**:
+  - `preset_default_fallback_classification`: 各 always-enabled preset 名が `default_preset_names()` の return に含まれることを assert
+  - `preset_config_selectable_opt_in_classification`: 各 config-selectable preset 名が `default_preset_names()` に含まれないことを assert
+  - `preset_matrix_full_coverage`: 既知 preset 名の全集合が classification 表 (always-enabled ∪ config-selectable) と一致することを assert (= 新 preset 追加時に matrix 更新を強制)
+
+#### 作業計画
+
+- [ ] preset 分類表を const として定義 (`ALWAYS_ENABLED_PRESETS` + `CONFIG_SELECTABLE_PRESETS`)
+- [ ] matrix test 関数 3 件追加 (default fallback / config-selectable / full coverage)
+- [ ] 既存 test (`default_config_enables_all_presets` / `jj_message_required_not_in_default_fallback_is_opt_in` 等) との重複整理 (削除 or matrix への移行)
+- [ ] `resolve_preset_or_custom` の dispatch arm 列挙との整合性確認 (matrix の preset 名 = dispatch arm 名)
+- [ ] 派生プロジェクト transferability 考慮 (porting 時に preset 分類を即把握できる)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- preset の分類 (always-enabled vs config-selectable) が test レベルで codify される
+- 将来の新 preset 追加時に classification 表を更新せざるを得ない構造になり、design misalignment が構造的に検出される
+- 既存 test (158 件) との regression なし
+- `resolve_preset_or_custom` の arm 列挙との不整合 (preset 追加忘れ等) が test で catch される
+
+#### 詰まっている箇所
+
+- feedback report は target を `src/hooks-pre-tool-validate/src/lib.rs` と記載するが、本 crate は binary crate (main.rs のみ) で lib.rs は存在しない → main.rs を採用 (target 是正)
+- 「config-selectable preset 名が default に含まれない」test は `jj_message_required_not_in_default_fallback_is_opt_in` で 1 件既存。matrix 化で全 5 preset に拡張する
 
 ---
 
