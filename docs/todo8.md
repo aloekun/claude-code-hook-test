@@ -562,6 +562,45 @@ analyzer report の `[ADR-041 追加 section 案]` をベースに、`docs/adr/a
 
 ---
 
+### 複言語 fixture helper 標準化 (hooks-post-tool-linter-tests) (PR #171 T2-#4 採用) ★ Bundle 171
+
+> **動機**: PR #151 (`byte_offset_to_line` char-boundary panic 発見) + PR #171 (`build_violation_json` defensive test 追加) の 2 PR 横断で multi-byte content fixture を手動で組み立てるコストが顕在化。Japanese / emoji / combining chars の各 sample を helper として標準化することで、新規 string-processing 関数追加時の boundary test 実装コストを低減し silent regression を early detection できる。
+>
+> **本タスクの位置づけ**: PR #171 post-merge-feedback Tier 2 #4 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。Bundle 171 のコア (順位 142 ADR-041 補強 + 順位 144 jj hook と同 PR で land 推奨)。
+>
+> **参照**: `.claude/feedback-reports/171.md` Tier 2 #4、`src/hooks-post-tool-linter/src/main.rs` (`run_custom_rules_line_number_correct_with_multibyte_content` を helper 化対象)、PR #151 / PR #171
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。Bundle 171 ペアタスク。
+
+#### 設計決定 (案)
+
+- **helper API** (3 関数):
+  - `multibyte_fixture_japanese() -> &'static str` — 3 bytes/char (例: `// 日本語コメント`)
+  - `multibyte_fixture_emoji() -> &'static str` — 4 bytes/char (例: `// 🦀 rust`)
+  - `multibyte_fixture_combining() -> &'static str` — e + U+0301 結合文字 (例: `// caf\u{00e9}`)
+- **配置先候補**: `src/hooks-post-tool-linter/src/main.rs` の test mod 内 (in-crate) vs 共有 test util crate (cross-crate 再利用)。本タスクでは前者を採用し、再利用ニーズが顕在化したタイミングで後者へ migrate
+- **既存 test refactor**: PR #171 で追加した `run_custom_rules_line_number_correct_with_multibyte_content` を helper を呼ぶ形に書き換え
+
+#### 作業計画
+
+- [ ] helper 配置先決定 (in-crate test mod を優先採用)
+- [ ] 3 helper 関数を実装 (Japanese / emoji / combining)
+- [ ] PR #171 で追加した既存 test を helper を使う形に refactor
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability 考慮 (in-crate なら porting 容易)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 3 helper 関数が公開され、test mod 内から呼べる
+- 既存 test の refactor 完了 (動作不変、`cargo test` pass)
+- 新規 string-processing 関数追加時に 1 行で multi-byte boundary test を書ける状態になる
+
+#### 詰まっている箇所
+
+なし。Effort S、Bundle 171 内で 順位 142 + 順位 144 と並列実施可能。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)
