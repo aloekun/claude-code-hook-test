@@ -218,48 +218,63 @@
 
 ---
 
-### post-PR 検証フローに CR review.body 手動スキャン step 追加 (PR #108 T2-1 採用)
+### `check-ci-coderabbit` に CR review.body parse 機能追加 — outside-diff-range finding の programmatic 検出 (PR #108 T2-1 採用、PR #172 仕組み化方針切替 2026-05-25)
 
 > **動機**: PR #108 で CodeRabbit が `Outside diff range comment` として review body 内に投稿した Minor finding (`docs/todo4.md` line 371/378 の retire 済前提と旧フロー混在) を、takt の `analyze-coderabbit` step が検出漏れした。`analyze-coderabbit` は `pulls/N/comments` (= inline review comment) ベースで動作するため、review.body 内のコメントは parse 対象外。結果、PR #108 で line 371/378 の修正が merge 後 follow-up commit (`vokyspww`) になった。
 >
-> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None / ✅ 採用)。`analyze-coderabbit` の根本解決 (review.body 解析対応) は別 task として実装複雑度が高いため、暫定緩和策として **手動 checklist** で対応する。Tier 1 の analyzer 拡張 (= 将来の根本解決) の先行策として機能する。
+> 当初計画では暫定緩和策として **手動 checklist** (post-PR フローに目視確認 step) を追加する rule 化方針だったが、PR #172 で「rule 化は session 毎に読み込みコストがかかり、人間が忘れる」課題が顕在化。仕組み化 (`check-ci-coderabbit` 拡張で programmatic 検出) に方針切替する (`feedback_pipeline_over_rules.md` 適用)。当初 Tier 1 として位置づけていた analyzer 拡張を本 task で先行実施する形。
 >
-> **参照**: `.claude/feedback-reports/108.md` Tier 2 #1、PR #108 review (`Outside diff range comments` セクション、reviewer comment id 4217897113)、`.takt/facets/instructions/analyze-coderabbit.md`
+> **本タスクの位置づけ**: PR #108 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk None)。手動 checklist の根本解決 = 検出漏れを programmatic に消滅させる。手動 step が持続性低い (= 人間が忘れる) ため、CLI 拡張で session 跨いだ品質一定化が確保される。
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort XS。post-PR checklist documentation の更新のみ。
+> **参照**: `.claude/feedback-reports/108.md` Tier 2 #1、PR #108 review (`Outside diff range comments` セクション、reviewer comment id 4217897113)、`src/check-ci-coderabbit/src/main.rs` (`parse_findings` 系 + `--list-findings` mode = 順位 45)、`.takt/facets/instructions/analyze-coderabbit.md`、PR #172 (順位 144 hook 化の dogfood 成功事例)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。`check-ci-coderabbit` 既存 crate への parse 機能追加 + analyze-coderabbit 連携。
 
 #### 設計決定 (案)
 
-- **配置先候補**:
-  - `docs/workflow.md` (新規 or 既存): post-PR checklist として統一記述
-  - `~/.claude/rules/common/git-workflow.md`: 既存 PR workflow ルールに追記
-  - 着手時に既存 docs 配置を grep して整合する場所を選定
-- **追加する checklist 項目** (案):
-  - `pnpm create-pr` 完了後 / takt post-pr-review 完了後に、CodeRabbit の review (= `Outside diff range comments` 含む全 review body) を手動で目視確認する
-  - `gh api repos/{owner}/{repo}/pulls/{N}/reviews --jq '.[].body'` で review body を抽出して読む
-  - 確認対象: `Outside diff range comments` セクション、`Caution` / `Warning` セクション、行番号参照のある comment 全般
-- **検出時の対応**: 該当 finding を inline thread と同じく severity 評価 → 修正 commit を追加 → 手動で acknowledge reply
-- **将来対応**: takt analyze-coderabbit に review body parse を追加 (= Tier 1 task として別 entry が必要、本 task の dogfood で頻度が高ければ昇格)
+- **対象 source**: `gh api repos/{owner}/{repo}/pulls/{N}/reviews --jq '.[].body'` で取得する review.body markdown 文字列
+- **parse 対象セクション** (CR の出力フォーマットに準拠):
+  - `## Outside diff range comments` セクション内の bullet list (file:line 参照 + comment body)
+  - `## Caution` / `## Warning` セクション内の bullet (severity-marked findings)
+  - 行番号参照のある generic comment (regex: `\b(file|line)\s*[:=]\s*\d+|`L\d+`|`<file>:<line>`)
+- **JSON schema 拡張**: 既存 `--list-findings` mode (順位 45) の出力に `source: "inline" | "review_body"` field を追加して同型 findings として扱う:
+
+  ```json
+  {
+    "findings": [
+      {"severity": "minor", "file": "docs/todo4.md", "line": 371, "summary": "...", "source": "review_body"}
+    ]
+  }
+  ```
+
+- **analyze-coderabbit 連携**: 既存 `analyze-coderabbit` step が `--list-findings` 出力を取得する形になっていれば、source field を追加するだけで本 task の出力が自動的に下流に流れる
+- **検出時の挙動**: inline findings と同じく severity 評価 → fix commit 追加 → resolve reply の通常 flow に乗る (本 task で flow 自体は変更しない)
 
 #### 作業計画
 
-- [ ] `docs/workflow.md` または `~/.claude/rules/common/git-workflow.md` の現状を確認、追記場所を選定
-- [ ] post-PR checklist 項目を追記 (gh api コマンド + 確認対象 + 検出時対応の 3 項目)
-- [ ] dogfood: 次の数 PR で本 checklist を実行、blind spot 検出頻度を観測
-- [ ] 観測結果に応じて Tier 1 へ昇格判断 (= analyzer 拡張)
-- [ ] 派生プロジェクト deploy 不要 (本リポジトリ workflow 固有)
-- [ ] 本 todo7.md エントリを削除
+- [ ] `check-ci-coderabbit` 現状確認 (`--list-findings` mode が 順位 45 として実装済か、未実装なら本 task 着手前に 順位 45 を land)
+- [ ] review.body 取得 API (`gh api .../pulls/{N}/reviews`) wrapper 実装 (既存の gh CLI wrapper が `src/check-ci-coderabbit/src/` にあれば再利用)
+- [ ] markdown parser: `## Outside diff range comments` / `## Caution` / `## Warning` セクション抽出 + bullet 毎の file:line + body 抽出
+- [ ] JSON schema 拡張: `source` field 追加 (既存 schema は inline 想定なので default 値 `"inline"` で後方互換)
+- [ ] test 拡充: 実 PR #108 の review.body を fixture 化 + parse 結果が期待 finding を返す test
+- [ ] `analyze-coderabbit` 連携検証: source 別の handling が必要か (`outside-diff-range` の重み付けは inline と同等で進める想定)
+- [ ] dogfood: 次 1-2 PR の post-pr-review で review.body finding が自動検出されることを観測
+- [ ] 派生プロジェクト deploy 検討 (`check-ci-coderabbit.exe` は本リポジトリ exe なので deploy で配布、scope 内)
+- [ ] 本 todo7.md エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- post-PR workflow に「CR review.body 手動スキャン」step が追記される
-- 次 1-2 PR の dogfood で本 checklist の実行が観察される
-- review body 内の actionable finding が後追い修正にならない (= merge 前に検出される)
+- `check-ci-coderabbit --list-findings --pr 108` が PR #108 の outside-diff-range finding (line 371/378) を構造化 JSON で返す
+- `source` field で inline vs review_body の区別が可能
+- `analyze-coderabbit` 連携で merge 前に outside-diff-range finding が actionable として扱われる
+- 既存 inline finding 検出に regression なし
+- `cargo test -p check-ci-coderabbit` pass
 
 #### 詰まっている箇所
 
-- 配置先選定 (本リポジトリ docs/workflow.md vs グローバル `~/.claude/rules/`)。本タスクは本リポジトリ固有の暫定緩和策のため、本リポジトリ docs/ への追記が妥当か
-- 手動 checklist は持続性が低い (人間が忘れる) ため、Tier 1 への昇格 (= analyzer 拡張) の優先度判断が dogfood 結果に依存
+- 順位 45 (`check-ci-coderabbit --list-findings` Rust モード) の land 状況確認が前提。未 land なら本 task 着手前に 順位 45 を先に進める
+- CR 側 review.body フォーマットの変更耐性: section header (`## Outside diff range comments`) が CR の出力変更で変わる可能性がある。fail-soft 設計 (parse 失敗時は空 findings で続行 + warn log) で運用継続性を確保
+- false positive リスク: 行番号らしき文字列 (`L42` 等) が誤検出される可能性。CR 公式フォーマット section に限定した parse でリスク軽減
 
 ---
 

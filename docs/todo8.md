@@ -2,38 +2,13 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo6.md がファイルサイズ 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する (PR #143 T3-#1 採用時 = 2026-05-11)。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md / todo7.md の既存エントリは引き続き有効、相互に独立。新セッションでは九つすべてを確認すること (todo.md / todo2-8.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo6.md がファイルサイズ 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #143 T3-#1 採用時 = 2026-05-11 から新規エントリは本ファイルに記録していた。**本ファイルも 60KB に到達したため、PR #172 仕組み化方針切替セッション = 2026-05-25 以降の新規エントリは [docs/todo9.md](todo9.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md / todo7.md / todo9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十つすべてを確認すること (todo.md / todo2-9.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
 
 ## 現在進行中
-
-### `development-workflow.md` Step 0 に「新 todo 着手前の既実装確認」チェックステップ追加 (PR #150 T3-#1 採用、補足: ユーザー判断採用)
-
-> **動機**: PR #150 着手時に「順位 47 は PR #126 で既 land 済」という stale todo entry を memory rule `feedback_verify_task_not_already_done.md` 適用で発見・回避できた。memory にとどまる限り read 漏れリスクが残るため、canonical workflow doc (`~/.claude/rules/common/development-workflow.md`) Step 0 (Research & Reuse) に「新 todo 着手前に `jj log --limit 20 <keyword>` で既実装確認」step を正式追加すれば、AI エージェントの workflow 読込時の visibility が向上する。
->
-> **本タスクの位置づけ**: PR #150 post-merge-feedback Tier 3 #1 採用。rule 追加は本来 `feedback_no_unenforced_rules.md` 適用で却下 zone だが、本 case は「stale entry 発見の具体的 grep コマンドが workflow 内で機械的に実行可能 (`jj log` は決定的)」+「memory rule の昇格 path 実例」としてユーザー判断で採用。Severity Medium / Frequency Medium (memory 既存 + 本 PR で再発) / Effort XS / Adoption Risk None。
->
-> **参照**: `.claude/feedback-reports/150.md` Tier 3 #1、`~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse)、memory `feedback_verify_task_not_already_done.md`
-
-#### 作業計画
-
-- [ ] `~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse) 末尾または直後に「Stale task verification」サブステップ追加:
-  - `jj log --limit 20 <keyword>` で既実装の有無を確認
-  - 既 land を発見した場合は stale todo entry を docs/todo*.md / todo-summary.md から削除する形に re-purpose
-- [ ] 既存 memory `feedback_verify_task_not_already_done.md` の content を canonical rule へ昇格させた旨を memory に追記 (or memory を削除して rule に統合)
-- [ ] グローバル設定変更前に `~/.claude/` バックアップ取得 (memory `feedback_global_config_backup.md` 適用)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `development-workflow.md` Step 0 で「stale entry 確認」が canonical workflow として読まれる
-- memory ファイルとの責任分離が明確 (rule = 公式手順、memory = session-specific 補足) または memory が rule に統合される
-- 次回 todo 着手時に AI エージェントが自然に `jj log` 確認を行う
-
----
 
 ### ADR-040 `step_timeout` 説明に sublinear / KV cache locality clarification 追記 (PR #145 T3-#1 採用)
 
@@ -110,29 +85,6 @@
 
 - 次回 permanent 化作業時に edit order が決定論的に決まる
 - ephemeral 計画書 retire 時の permanent value 移管プロセスが checklist 化される
-
----
-
-### UTF-8 マルチバイト boundary test を他の string-processing hooks に横展開 (PR #151 T2-#1 採用)
-
-> **動機**: PR #151 で `byte_offset_to_line` の char-boundary panic bug を test 拡充 (UTF-8 漢字単独 needle) で発見した。同型関数 (byte offset から行番号変換 / needle 検索 + slice 操作) は他の string-processing hooks にも存在する可能性が高く、横展開 test で systemic 防御を確保すべき。
->
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None)。test 拡充は単なるカバレッジ追加ではなく fault detection に直結することが実証済 (本 PR で副産物として 1 production bug 修正)。
->
-> **参照**: `.claude/feedback-reports/151.md` Tier 2 #1、`src/hooks-post-tool-comment-lint-rust/src/main.rs:byte_offset_to_line` (PR #151 で修正済)、対象は `src/hooks-*` で string offset 操作を行う関数
-
-#### 作業計画
-
-- [ ] `grep -rn "as_bytes\|byte\|offset" src/hooks-*/src/` で類似処理を持つ hooks を列挙
-- [ ] 各 hook で multi-byte boundary に晒される operation を識別 (byte slice / needle search / offset → line 変換 等)
-- [ ] 対象 hook 毎に test fixture 追加: 漢字単独 / emoji / 結合文字 / BMP 外文字 のうち最低 1 パターン
-- [ ] 検出された production bug は 1 行 fix で resolve (PR #151 と同じ pattern)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 全 string-processing hook が multi-byte boundary の panic に対して test で防御されている
-- 横展開 test 実施過程で発見された production bug が修正される
 
 ---
 
@@ -273,15 +225,17 @@
 
 ---
 
-### working copy staleness 検出 hook 2 段構え: SessionStart + PreToolUse (本セッション cleanup-stale-rank-39 由来)
+### working copy staleness 検出 hook 2 段構え + stale todo entry 既実装 grep 提示 (PR cleanup-stale-rank-39 由来 + PR #150 T3-#1 統合 2026-05-25)
 
 > **動機**: 本セッション (PR cleanup-stale-rank-39 作業中) で「local working copy が stale parent (master と sibling) のまま docs/todo*.md を読み込み、master 上で既に削除済の entry 2 件 (順位 104 / 126) を『stale entry として削除する』と誤判定」failure mode を実証した (実 stale entry は 1 件のみだった)。memory rule `feedback_verify_task_not_already_done.md` (todo 着手前に既実装検証 → stale entry 削除に再目的化) は強制力ゼロで再発確実 = memory rule 全般の限界 (`feedback_no_unenforced_rules.md` 原則の自己事例)。Claude Code Web との並列セッション運用前提下では構造的に同 mode が発生する。
 >
-> **本タスクの位置づけ**: 本セッション post-merge-feedback 相当の structural defense。`feedback_no_unenforced_rules.md` 例外条件 = **2 つの hook で機械強制可能**。案 A (予防層 = session 起動時に状況認識) + 案 B (最終 backstop = stale 状態での編集を hard block) のセット二段構え。
+> **統合履歴 (2026-05-25)**: 旧 順位 122 (`development-workflow.md` Step 0 に「新 todo 着手前の既実装確認 `jj log --limit 20 <keyword>`」step 追加 = PR #150 T3-#1 採用) を本 task に統合。rule 化 (= docs 追加) では session 毎に読み込みコストがかかり別セッションで結果が一定にならない課題が PR #172 (順位 144 hook 化成功事例) で明確化、仕組み化に方針切替。stale 検出 hook が `docs/todo*.md` edit 時に発火する際、合わせて既実装の有無を grep して結果を提示する形で 順位 122 の機能を吸収する (`feedback_pipeline_over_rules.md` 適用)。
 >
-> **参照**: 本セッション (2026-05-18) PR cleanup-stale-rank-39 root cause 分析 (ユーザー対話)、memory `feedback_verify_task_not_already_done.md`、ADR-039 (Experimental feature 標準パターン)
+> **本タスクの位置づけ**: 本セッション post-merge-feedback 相当の structural defense + 旧 順位 122 機能統合。`feedback_no_unenforced_rules.md` 例外条件 = **2 つの hook で機械強制可能**。案 A (予防層 = session 起動時に状況認識) + 案 B (最終 backstop = stale 状態での編集を hard block + 既実装 grep 提示) のセット二段構え。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort Medium (案 A ~80 行 + 案 B ~30 行)。本セッションの実観測 failure mode に対する直接対策で、並列セッション運用が常態化している現状で再発確率が高い。
+> **参照**: 本セッション (2026-05-18) PR cleanup-stale-rank-39 root cause 分析 (ユーザー対話)、PR #150 post-merge-feedback Tier 3 #1 (旧 順位 122 由来)、memory `feedback_verify_task_not_already_done.md`、ADR-039 (Experimental feature 標準パターン)、PR #172 (順位 144 hook 化 dogfood 事例)
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort Medium-Large (案 A ~80 行 + 案 B ~50 行 = 既実装 grep 拡張で +~20 行)。本セッションの実観測 failure mode に対する直接対策で、並列セッション運用が常態化している現状で再発確率が高い。
 
 #### 設計決定 (案 A + B)
 
@@ -302,18 +256,22 @@
 - 最適化: `.git/FETCH_HEAD` mtime を確認して「5 分以内なら fetch skip」 (network cost 抑制)
 - fail-open: fetch timeout / 失敗時は warning なしで pass-through (block しない、AI 操作は継続可能)
 
-**案 B: PreToolUse hook で stale 時の `docs/todo*.md` edit を block**
+**案 B: PreToolUse hook で stale 時の `docs/todo*.md` edit を block + 既実装 grep 提示 (旧 順位 122 統合)**
 
-- 配置: 既存 `src/hooks-pre-tool-validate/` に統合 (~30 行追加)
-- 動作: Edit / Write の対象が `docs/todo*.md` 系列のとき、master と @- の lineage 確認 → master が ahead なら hard block
-- block message:
+- 配置: 既存 `src/hooks-pre-tool-validate/` に統合 (~50 行追加 = 30 行 stale 検知 + ~20 行既実装 grep 拡張)
+- 動作 1 (stale 検知): Edit / Write の対象が `docs/todo*.md` 系列のとき、master と @- の lineage 確認 → master が ahead なら hard block
+- 動作 2 (既実装 grep 提示、旧 順位 122 機能統合): stale でない場合も `docs/todo*.md` への Edit/Write 時に対象 entry の keyword (= 直近の `### ` 見出し title から抽出) を `jj log --limit 20` で grep し、既実装らしき commit があれば warning として additional context に表示
+- block / warning message:
   ```text
-  ❌ working copy parent (#X) is N commits behind master (#Y).
-  docs/todo*.md は state を反映する artifact のため、master と同期した状態で編集すること。
-  修正手順: `jj git fetch && jj new master`
+  [docs/todo edit context]
+  @: lmzvnwlu (parent: #159, master: #161 = 2 ahead)
+  stale parent detected → block
+  関連既実装の可能性: <jj log --limit 20 "<keyword>" の上位 3 件>
+  修正手順: `jj git fetch && jj new master -m "WIP: <description>"`
   ```
-- scope 限定: `docs/todo*.md` のみ block (コード / config までは過剰、false positive リスク)
+- scope 限定: `docs/todo*.md` のみ block / grep 対象 (コード / config までは過剰、false positive リスク)
 - 案 A と異なり、本 hook は fail-closed (lineage 判定不能なら block) で安全側に倒す
+- 既実装 grep の keyword 抽出ロジック: `### ` で始まる見出しから「順位 N」prefix を除いた title を取得、句読点 / 括弧を除外して 2-3 語の noun phrase を抽出 (NLP 不要、簡易 regex で実装可能)
 
 #### 作業計画
 
@@ -322,15 +280,19 @@
 - [ ] `master..@-` の lineage 計算ロジック実装 (`jj log -r "master..@-" --no-graph -T 'description'` 等)
 - [ ] additional context 出力フォーマット決定 (一行 vs 複数行、AI 読み飛ばし耐性検証)
 - [ ] `hooks-pre-tool-validate.exe` に `docs/todo*.md` edit block ロジック追加
+- [ ] **既実装 grep ロジック実装 (旧 順位 122 統合)**: Edit/Write の old_string or new_string から `### ` 見出し title を抽出 → keyword 抽出 (順位 prefix / 句読点除去) → `jj log --limit 20` 実行 → 上位 3 件を additional context に追記
+- [ ] `~/.claude/rules/common/development-workflow.md` Step 0 (Research & Reuse) の手動 grep step 追加は **不要** (hook が自動実行するため rule 化スキップ、`feedback_pipeline_over_rules.md` 適用)
+- [ ] memory rule `feedback_verify_task_not_already_done.md` の closure 検討 (hook 化で機能吸収後、memory entry を削除して責任を hook に集約)
 - [ ] ADR 起案 (新 hook 設計 + ADR-039 experimental pattern 適用、land 時採番確定)
 - [ ] dogfood 期間設定 (試験運用 flag で N 週間運用後採否決定)
 - [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) deploy 検討
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary.md 行削除 (順位 122 行は本 entry 統合時に削除済 2026-05-25)
 
 #### 完了基準
 
 - session 開始時に working copy が master より遅れている場合、AI が context 出力で即座に状況を認識する
-- stale parent 状態で `docs/todo*.md` を編集しようとすると hard block + 修正手順 (`jj git fetch && jj new master`) 表示
+- stale parent 状態で `docs/todo*.md` を編集しようとすると hard block + 修正手順 (`jj git fetch && jj new master -m "WIP: <description>"`) 表示
+- **`docs/todo*.md` への Edit/Write 時に既実装 grep が自動実行され、関連 commit が warning として提示される (旧 順位 122 機能、hook 化で session 跨ぎ品質一定化)**
 - ADR-039 experimental pattern に従い kill-switch 装備 (network 異常 / feature branch 運用への退避経路)
 - 派生プロジェクトでの動作確認
 
@@ -338,44 +300,6 @@
 
 - `jj git fetch` の timeout が低速 network で頻発した場合の UX → 案 A は fail-open で warning なし pass-through、案 B は fail-closed (lineage 不能 = stale 扱い) で安全側に倒す trade-off
 - master 判定ロジック: 現状 trunk-based 前提で master を正と扱う。feature branch 運用が始まると assumption が破綻するが、本リポジトリは当面 trunk-based のため問題なし。trunk 名 (master / main) は config 可能にしておく
-
----
-
-### ADR-041: Test Isolation Patterns for Multi-Condition Guards (PR #168 T3-#2 採用) — 本 PR で land
-
-> **動機**: PR #120 W-001 で `enrich_with_classifier_skips_when_disabled` テストが OR-guard `if !config.enabled || state.findings.is_empty() { return; }` の責務混在 (vacuous assertion: 空 `classified_findings` → 空 `classified_findings` で早期 return 由来か他経路由来か判別不能) で書かれていた問題、および PR #168 で sentinel pattern + 直交 precondition setup により構造的解決した実装を、project-level ADR として永続化する。`~/.claude/rules/common/code-review.md` (global rule、順位 84 で追加済) の checklist entry を補完する形で、project ADR には rationale・具体実装例 (poll.rs)・PR #120 W-001 history を codify し、将来の複合 guard テスト実装者が独立して参照できるようにする。
->
-> **本タスクの位置づけ**: PR #168 post-merge-feedback Tier 3 #2 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (PR #168 で実装済) の明文化 + project-specific context の補完。Severity Low / **Frequency Medium (PR #120 W-001 初発見 + PR #168 sentinel pattern 実装の 2 PR 横断)** / Effort M / Adoption Risk None。
->
-> **参照**: `.claude/feedback-reports/168.md` Tier 3 #2、`src/cli-pr-monitor/src/stages/poll.rs` (`enrich_with_classifier_skips_when_disabled` / `enrich_with_classifier_skips_when_findings_empty`)、`~/.claude/rules/common/code-review.md` (順位 84 land 済 checklist entry)、PR #120 W-001 / PR #168 history
->
-> **実行優先度**: 💎 **Tier 3** — Effort M。新規 ADR 1 件作成 (記述のみ、コード変更なし)。
-
-#### ADR 番号 (本 PR で確定)
-
-順位 135 codified policy (`~/.claude/rules/common/docs-governance.md`) に従い、本 entry は当初 `ADR-NNN (採番未確定)` placeholder で登録した。**本 PR で `ADR-041` を本件に確定取得**し、順位 78 (旧 ADR-041 予約 = Rust timestamp arithmetic safety) を `ADR-NNN` に再 placeholder 化した (順位 78 は今後 land 時 PR で空き番号を取得する運用)。本 entry は本 PR land 後に post-merge-feedback サイクルで削除される予定 (memory: feedback_todo_no_history)。
-
-#### 作業計画 (本 PR で完了)
-
-- [x] `docs/adr/adr-041-test-isolation-patterns.md` を新規作成
-- [x] 内容構成:
-  - **問題**: PR #120 W-001 の vacuous assertion (検証対象 field が空のまま → 早期 return 由来か他経路由来か判別不能) で OR-guard test の責務混在が顕在化した経緯
-  - **設計原則**: sentinel pattern (検証対象 field を pre-populate → survival assert で mutation 不発を明示) + OR-guard precondition assertion (短絡発火条件を test 内で明示し直交性を保証)
-  - **実装例**: `enrich_with_classifier_skips_when_disabled` (左 arm = `!enabled` 単独) / `enrich_with_classifier_skips_when_findings_empty` (右 arm = `findings.is_empty()` 単独) の 2 variant 抜粋コード
-  - **適用範囲**: 2+ 条件の OR/AND 早期 return を持つ pure function 系 test (副作用検証は別パターン、本 ADR の scope 外)
-  - **既存資料との関係**: `~/.claude/rules/common/code-review.md` checklist entry (順位 84 land 済) を project-level rationale + 具体実装例で補完する layer
-- [x] `CLAUDE.md` の ADR リストに 1 行追加
-- [x] PR description で `docs/adr/adr-041-test-isolation-patterns.md` への link と「sentinel pattern + OR-guard test orthogonality を project codify」要約を明記 (PR #169 description に反映済 = "Summary" / "Background" / "Files changed" 3 箇所で言及)
-
-#### 完了基準 (本 PR で達成)
-
-- ADR-041 ファイルが新規作成され、PR #120 W-001 history + sentinel pattern + 2 variant 実装例が記述される ✅
-- CLAUDE.md の ADR リストに ADR-041 entry が追加される ✅
-- 次回複合 guard test を含む PR を書く際の reference として poll.rs の doc comment などから ADR-041 へリンク可能になる ✅
-
-#### 詰まっている箇所
-
-なし。記述のみで実装変更不要。
 
 ---
 
@@ -426,98 +350,6 @@
 
 ---
 
-### CR rate-limit detection bug 修正 — fix_push_time 固定 + 早期 merge 判断 signal (PR #169 観測由来)
-
-> **動機**: PR #169 セッション (2026-05-22) で `cli-pr-monitor` の CR rate-limit 検出機構が、再 push 後の wakeup recheck 経路で **構造的に動作不能** な状態が systemic 観測された。`check-ci-coderabbit` の `parse_rate_limit` は `event_time >= push_time` filter で「過去 session の古い rate-limit comment」を除外する safety guard を持つが、`push_time` が `state.started_at` (wakeup ごとに現在時刻に更新される値) を再利用するため、CR の walkthrough overlay の `updated_at` が push_time より過去になると検出対象から外れる。今回 PR #169 で CR が overlay (`2026-05-22T06:08:02Z`) を投稿したが、wakeup 4 回目の started_at = `06:27:14Z` で filter 除外 → `rate_limit: null` → auto-retry path に乗らず手動介入で merge へ進んだ。
->
-> **本タスクの位置づけ**: `feedback_pipeline_over_rules.md` 適用 = 「動作の不確実さはパイプラインで吸収、ルール codify では対処しない」原則の実装事例。「Claude が gh CLI で手動確認すればよい」式の運用ルール codify は次セッションで AI が守らない可能性が構造的に残るため不採用 (本 PR セッションでユーザー明示却下)。代わりにパイプライン側 (Rust 実装) で機械的に検出を堅牢化し、Claude 判断介入を排除する。CR 仕様変更時は graceful degradation (検出失敗 = pipeline が静かに止まるだけ、誤判定はしない) で受容、発生時に再考。
->
-> **wall clock 配慮 (shortcut 追加案、ユーザー要件で原案から縮小)**: rate-limit 検出後に「reset まで 38 分自然待ち + CR 2 回目 review 待ち」の通常 flow に直行すると、最悪 `max_retries=3` で 2.5 時間消費する可能性がある (1 日がかりではないが許容外)。本タスクでは **rate-limit 検出時に同 process 内で mergeable status を併せて確認し、即 merge 可能なら 5-10 分の人間判断で済む shortcut signal を出力** する。既存 auto-retry path は維持 = ユーザーが「reset を待つ」を選んだ場合は通常 flow に合流する。これにより手間軽減 + wall clock 短縮の両立を図る。
->
-> **参照**: PR #169 session log (本 entry 由来)、`src/check-ci-coderabbit/src/main.rs` L416 `parse_rate_limit` (push_time filter)、`src/cli-pr-monitor/src/stages/monitor.rs` L202-211 + L220-230 (`detect_wakeup_resume` / push_time 算出経路)、`src/cli-pr-monitor/src/state.rs` (`PrMonitorState` schema)、memory: `feedback_pipeline_over_rules.md` / `project_coderabbit_rate_limit_overlay.md` / `feedback_coderabbit_no_actionable_merge_signal.md`、Bundle a Sub-PR 2 (順位 42/43/46) / Bundle f (順位 80-82) は別 layer (retry path / 投稿エラー対応) で本タスク scope 外
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。PR #169 で systemic 観測 + ユーザー判断で priority elevated。原案 (defense-in-depth + 4 test) から縮小し、主軸 C + shortcut signal の 2 機能に絞った最小実装。
-
-#### 設計方針
-
-「**検出は機械化、判断は人間に短期で渡す**」 = pipeline で検出までは確実に動かし、reset 待ちの長時間 wall clock を許容するか即 merge 判断に進むかは **人間 (= ユーザー) が 5-10 分以内に決める**。Claude 判断介入は介在させない (signal を読んでユーザーに AskUserQuestion で問うのみ、AI 独断で merge / wait を決めない)。
-
-CR 仕様変更時は graceful degradation: 検出が壊れたら shortcut signal も出ない → 従来通り手動 workflow に倒れるだけで誤判定はしない。
-
-#### 設計決定 (案)
-
-**主軸 C: state.json に fix push 時刻を別 field で保存**
-
-- `PrMonitorState` schema に **`fix_push_time: Option<String>`** field を追加 (Option = legacy state 互換、None なら fallback to started_at)
-- `monitor.rs` の fresh 起動経路 (`detect_wakeup_resume` が None) で `fix_push_time = Some(utc_now_iso8601())` を設定
-- wakeup resume 経路では state の `fix_push_time` を **そのまま再利用** (wakeup ごとに上書きしない)
-- `poll.rs` の state 書き込み箇所で `fix_push_time` を保持
-- `check-ci-coderabbit` への引数 `--push-time` には **`fix_push_time`** を渡す
-- 効果: 「fix push 直後の overlay は `updated_at` >= `fix_push_time` で確実に検出」、「過去 session の古い rate-limit comment は依然 filter で除外」 の両立
-
-**早期 merge 判断 signal (本タスクの核)**
-
-- `poll.rs` の `handle_rate_limit_branch` で `state.rate_limit = Some(_)` を検出した時点で、**同 process 内で 1 回だけ** mergeable status を `gh pr view --json mergeable,mergeStateStatus` 経由で取得
-- 以下の **全 condition** を満たす場合、`PARK signal` の代わりに **`[RATE_LIMIT_BUT_MERGEABLE]` signal** を stdout に出力:
-  - `mergeable == "MERGEABLE"`
-  - `mergeStateStatus == "CLEAN"`
-  - `state.coderabbit.unresolved_threads == Some(0)` または `None` (初回 review の actionable が resolve 済 or 検出なし)
-- signal 例:
-  ```text
-  [RATE_LIMIT_BUT_MERGEABLE]
-  pr: 169
-  repo: aloekun/claude-code-hook-test
-  rate_limit_reset_at_iso_utc: 2026-05-22T06:46:32Z
-  rate_limit_wait_seconds: 2310
-  mergeable: MERGEABLE
-  merge_state: CLEAN
-  unresolved_threads: 0
-
-  ACTION REQUIRED: ユーザーに以下 2 択を AskUserQuestion で問うこと:
-    A: 今すぐ merge する (rate-limit reset を待たない、CR 2 回目 review なしで進める)
-    B: reset (38 分) を待って通常 auto-retry flow に乗る
-  [/RATE_LIMIT_BUT_MERGEABLE]
-  ```
-- 条件不一致 (mergeable: BLOCKED、unresolved 1+ 件 等) の場合は **従来通り通常 PARK signal を出す** (= 既存 auto-retry path がそのまま動く)
-- Claude 側の対応: signal を検出したら **AskUserQuestion で A/B 選択を問う**、回答に応じて merge 実行 / wakeup 予約継続
-
-#### 作業計画
-
-- [ ] **PrMonitorState schema 拡張**:
-  - `src/cli-pr-monitor/src/state.rs` に `fix_push_time: Option<String>` field を追加 (`#[serde(default)]` で legacy state 互換)
-- [ ] **`monitor.rs` の push_time 算出経路修正**:
-  - L202-211 の fresh / resume 分岐で `pr_info.fix_push_time` を設定
-  - fresh 経路: `state.fix_push_time = Some(utc_now_iso8601())` で state 書き込み
-  - resume 経路: `state.fix_push_time` を読んで `pr_info.push_time` に渡す (未設定なら fallback to `state.started_at` で legacy 互換)
-- [ ] **`poll.rs` の state 書き込み箇所**:
-  - `build_state_for_iteration` / `finalize_*_park` 等で `fix_push_time` を新 state に保持 (上書きしない)
-- [ ] **`poll.rs` に早期 merge 判断 signal 追加**:
-  - `handle_rate_limit_branch` で rate_limit 検出後、mergeable status 取得 + 条件評価
-  - 全条件一致時に `[RATE_LIMIT_BUT_MERGEABLE]` signal を `println!` で出力、PARK signal は skip
-  - 条件不一致時は既存 PARK signal flow に合流
-  - mergeable 取得失敗 (gh エラー / timeout) 時は安全側に倒して既存 flow に合流
-- [ ] **test 追加** (2 シナリオに絞る):
-  - シナリオ 1 (主軸 C): fresh push 経路で `fix_push_time` が設定され、wakeup 経路で同値が維持される (state round-trip test)
-  - シナリオ 2 (検出 + signal): mockable な gh 応答 (mergeable CLEAN 固定) を注入し、`[RATE_LIMIT_BUT_MERGEABLE]` signal が出力されることを assert
-- [ ] **dogfood**: 派生 test PR で再 push → CR rate-limit 強制発火 → signal 出力 → AskUserQuestion 経由でユーザー判断 → merge / wait 分岐が機能することを観測
-- [ ] **削除した原案要素**: 補助 B (overlay marker bypass) は削除 = 主軸 C 単独で十分、CR 仕様変更時は graceful degradation で受容
-- [ ] **削除した原案要素**: ADR-018 注記追記は scope 外 (本修正は spec drift fix なので ADR-018 spec 自体は変更不要)
-
-#### 完了基準
-
-- `cargo test -p cli-pr-monitor -p check-ci-coderabbit` で 2 シナリオ test が pass
-- PR #169 で観測した overlay 除外現象が再現できなくなる (主軸 C による回帰防止)
-- 次回 CR rate-limit 観測時に **5-10 分以内** にユーザーが merge / wait を判断できる (shortcut signal 経由)
-- ユーザーが「待つ」を選んだ場合は既存 auto-retry path がそのまま動く (回帰なし)
-- Claude 判断介入 (AI 独断で merge or wait) は介在しない (signal → AskUserQuestion → ユーザー判断 → action の構造)
-
-#### 詰まっている箇所
-
-- **mergeable 取得の遅延 / 失敗時の挙動**: `gh pr view` が rate-limit に当たる (GitHub API 側の rate-limit、CR とは別軸) ケースは稀だが存在する。safety: 取得失敗時は signal を出さず既存 PARK flow に倒す = 「shortcut が出ない = 通常 flow」で誤動作なし
-- **同 process 内 1 回限り の制約**: wakeup 経路で再度 rate-limit が観測された場合、毎回 mergeable status を取得しに行く設計。retry 回数が増えると gh 呼び出しも増えるが、`max_retries=3` で頭打ちなので影響軽微
-- **派生プロジェクトへの transferability**: 本修正は本リポジトリの cli-pr-monitor 固有実装に依存。techbook-ledger / auto-review-fix-vc 等の派生プロジェクトに展開する場合は同型 schema 拡張 + signal 追加が必要 (porting 時に検討)
-
----
 
 ### ADR-041 補強 — "State Preservation Invariant" pattern section 追加 (PR #170 T3-#1 採用)
 
@@ -598,6 +430,53 @@ analyzer report の `[ADR-041 追加 section 案]` をベースに、`docs/adr/a
 #### 詰まっている箇所
 
 なし。Effort S、Bundle 171 内で 順位 142 + 順位 144 と並列実施可能。
+
+---
+
+### preset matrix test 追加 — default fallback vs config-selectable の 2 軸 classification 検証 (PR #172 T2-#1 採用)
+
+> **動機**: PR #172 で `jj-message-required` preset 実装の Phase 3 において、当初 `is_blocked("jj new")` (default config 使用) で block を assert する test を書いたが、`jj-message-required` が `default_preset_names()` の fallback list に含まれない opt-in preset であることを前提とせず、test rewrite が必要になった。preset architecture の implicit assumption (always-enabled vs config-selectable) を test 設計レベルで codify することで、将来の新 preset 追加時の design misalignment を構造的に防止する。
+>
+> **本タスクの位置づけ**: PR #172 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk None)。matrix test で preset 分類を明示する mechanical enforcement 層を追加。
+>
+> **参照**: `.claude/feedback-reports/172.md` Tier 2 #1、`src/hooks-pre-tool-validate/src/main.rs` の `default_preset_names()` + test module、PR #172 Phase 3 (test rewrite 経緯)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。Bundle 171 残タスク (順位 142 + 143) との並列実施可能。
+
+#### 設計決定 (案)
+
+- **配置先**: `src/hooks-pre-tool-validate/src/main.rs` の test module (feedback report は lib.rs と記載するが本 crate は binary crate のため main.rs を採用)
+- **matrix 構成** (2 軸):
+  - axis 1: `default fallback (always-enabled)` vs `config-selectable (opt-in)`
+  - axis 2: 各 preset 名
+- **classification 期待値** (本セッション時点):
+  - always-enabled (`default_preset_names()` 内): `default` / `git` / `jj-immutable` / `jj-main-guard` / `jj-push-guard` / `electron`
+  - config-selectable: `gh-pr-create-guard` / `gh-pr-merge-guard` / `polling-anti-pattern` / `exe-help-block` / `jj-message-required`
+- **test 案**:
+  - `preset_default_fallback_classification`: 各 always-enabled preset 名が `default_preset_names()` の return に含まれることを assert
+  - `preset_config_selectable_opt_in_classification`: 各 config-selectable preset 名が `default_preset_names()` に含まれないことを assert
+  - `preset_matrix_full_coverage`: 既知 preset 名の全集合が classification 表 (always-enabled ∪ config-selectable) と一致することを assert (= 新 preset 追加時に matrix 更新を強制)
+
+#### 作業計画
+
+- [ ] preset 分類表を const として定義 (`ALWAYS_ENABLED_PRESETS` + `CONFIG_SELECTABLE_PRESETS`)
+- [ ] matrix test 関数 3 件追加 (default fallback / config-selectable / full coverage)
+- [ ] 既存 test (`default_config_enables_all_presets` / `jj_message_required_not_in_default_fallback_is_opt_in` 等) との重複整理 (削除 or matrix への移行)
+- [ ] `resolve_preset_or_custom` の dispatch arm 列挙との整合性確認 (matrix の preset 名 = dispatch arm 名)
+- [ ] 派生プロジェクト transferability 考慮 (porting 時に preset 分類を即把握できる)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- preset の分類 (always-enabled vs config-selectable) が test レベルで codify される
+- 将来の新 preset 追加時に classification 表を更新せざるを得ない構造になり、design misalignment が構造的に検出される
+- 既存 test (158 件) との regression なし
+- `resolve_preset_or_custom` の arm 列挙との不整合 (preset 追加忘れ等) が test で catch される
+
+#### 詰まっている箇所
+
+- feedback report は target を `src/hooks-pre-tool-validate/src/lib.rs` と記載するが、本 crate は binary crate (main.rs のみ) で lib.rs は存在しない → main.rs を採用 (target 是正)
+- 「config-selectable preset 名が default に含まれない」test は `jj_message_required_not_in_default_fallback_is_opt_in` で 1 件既存。matrix 化で全 5 preset に拡張する
 
 ---
 
