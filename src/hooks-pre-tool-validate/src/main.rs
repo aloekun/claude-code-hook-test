@@ -798,12 +798,105 @@ mod tests {
 
     #[test]
     fn custom_regex_pattern() {
-        // カスタム正規表現パターン
         assert!(is_blocked_with("docker rm -f container", &[r"docker\s+rm"]));
         assert!(!is_blocked_with("docker ps", &[r"docker\s+rm"]));
     }
 
-    // --- git: direct commands (should block) ---
+    const JJ_MSG_REQ: &[&str] = &["jj-message-required"];
+
+    #[test]
+    fn jj_message_required_blocks_bare_jj_new() {
+        assert!(is_blocked_with("jj new", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_blocks_jj_new_with_revision() {
+        assert!(is_blocked_with("jj new master", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_blocks_jj_split_without_message() {
+        assert!(is_blocked_with("jj split file.rs", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_blocks_jj_new_after_double_ampersand() {
+        assert!(is_blocked_with("cd /tmp && jj new", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_blocks_jj_split_after_newline() {
+        assert!(is_blocked_with("echo ok\njj split src/main.rs", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_allows_jj_new_with_m_flag() {
+        assert!(!is_blocked_with("jj new -m \"WIP: foo\"", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_allows_jj_new_with_revision_and_m_flag() {
+        assert!(!is_blocked_with(
+            "jj new master -m \"WIP: foo\"",
+            JJ_MSG_REQ
+        ));
+    }
+
+    #[test]
+    fn jj_message_required_allows_jj_new_with_long_message_flag() {
+        assert!(!is_blocked_with(
+            "jj new --message \"WIP: foo\"",
+            JJ_MSG_REQ
+        ));
+    }
+
+    #[test]
+    fn jj_message_required_allows_jj_split_with_m_flag() {
+        assert!(!is_blocked_with(
+            "jj split -m \"split message\" file.rs",
+            JJ_MSG_REQ
+        ));
+    }
+
+    #[test]
+    fn jj_message_required_allows_jj_split_with_long_message_flag() {
+        assert!(!is_blocked_with(
+            "jj split --message \"split message\" file.rs",
+            JJ_MSG_REQ
+        ));
+    }
+
+    #[test]
+    fn jj_message_required_with_main_guard_still_blocks_jj_new_main_even_with_m() {
+        assert!(is_blocked_with(
+            "jj new main -m \"WIP\"",
+            &["jj-main-guard", "jj-message-required"]
+        ));
+    }
+
+    #[test]
+    fn jj_message_required_does_not_affect_other_jj_subcommands() {
+        assert!(!is_blocked_with("jj status", JJ_MSG_REQ));
+        assert!(!is_blocked_with("jj log", JJ_MSG_REQ));
+        assert!(!is_blocked_with("jj describe -m \"x\"", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_scope_excludes_pnpm_wrappers() {
+        assert!(!is_blocked_with("pnpm jj-new", JJ_MSG_REQ));
+        assert!(!is_blocked_with("pnpm jj-start-change", JJ_MSG_REQ));
+    }
+
+    #[test]
+    fn jj_message_required_not_in_default_fallback_is_opt_in() {
+        let patterns = build_blocked_patterns(&Config::default());
+        assert!(
+            validate_command("jj new", &patterns).is_none(),
+            "default fallback should NOT include jj-message-required (opt-in via hooks-config.toml)"
+        );
+    }
+
+
 
     #[test]
     fn blocks_git_at_start() {
