@@ -420,56 +420,101 @@ pnpm merge-pr
     ]
 }
 
-/// 設定ファイルに基づいてブロックパターンを構築
+/// プリセット: jj-message-required (jj new / jj split を `-m` / `--message` なしで block)
+///
+/// 順位 144 (PR #171 T3-#8 採用): PR #171 セッションで `jj new` 忘れによる混合 commit 事故を
+/// 実観測したのを契機に、message 必須化を機械強制する mechanical enforcement 層を導入。
+/// memory rule `feedback_pipeline_over_rules.md` 適用 = パイプライン側機械的修正で
+/// Claude 判断介入を排除。
+///
+/// 設計判断 (2026-05-24 ユーザー承認済):
+/// - A: `jj new` 引数なしも block (= `-m` を強制)
+/// - B: `jj new <revision>` (例: `jj new master`) で `-m` なしも block
+/// - C: `jj split` interactive (= `-m` なし) は editor hang issue があるため strong block
+/// - D: scope は `jj` 直接呼び出しのみ (`pnpm jj-new` 等のラッパーは scope 外)
+///
+/// `BlockedPattern.exception` を活用し「pattern match + exception 不一致」の 2 段判定で
+/// `-m`/`--message` 存在時の allow を実現する (Rust 標準 regex crate は negative lookahead 非対応)。
+fn preset_jj_message_required() -> Vec<BlockedPattern> {
+    let msg = r#"**jj new / jj split に -m 引数なしがブロックされました**
+
+理由:
+- `jj new` (引数なし or revision 指定) で message を省略すると description 未設定の commit が作成され、
+  後続の編集が意図しない commit に混入する事故が起こる (PR #171 で実観測)
+- `jj split` を `-m` なしで実行すると interactive editor が起動し、Claude セッションが hang する
+
+**正しい使い方:**
+```
+jj new -m "WIP: <description>"               # 新 commit 開始
+jj new master -m "WIP: <description>"        # revision 指定
+jj split -m "<message>" <files>              # commit 分離
+```
+
+設計判断 (順位 144、PR #171 T3-#8): `pnpm jj-new` 等の wrapper は scope 外。"#;
+    let exception = Regex::new(r"\s(-m|--message)\b").unwrap();
+    vec![BlockedPattern {
+        pattern: Regex::new(r"(?im)(^|&&|;|\|\||\||&|\n)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*jj\s+(new|split)\b").unwrap(),
+        exception: Some(exception),
+        message: msg,
+    }]
+}
+
+fn default_preset_names() -> Vec<String> {
+    vec![
+        "default".to_string(),
+        "git".to_string(),
+        "jj-immutable".to_string(),
+        "jj-main-guard".to_string(),
+        "jj-push-guard".to_string(),
+        "electron".to_string(),
+    ]
+}
+
+fn resolve_preset_or_custom(name: &str) -> Vec<BlockedPattern> {
+    match name {
+        "default" => preset_default(),
+        "git" => preset_git(),
+        "jj-immutable" => preset_jj_immutable(),
+        "jj-main-guard" => preset_jj_main_guard(),
+        "jj-push-guard" => preset_jj_push_guard(),
+        "gh-pr-create-guard" => preset_gh_pr_create_guard(),
+        "gh-pr-merge-guard" => preset_gh_pr_merge_guard(),
+        "jj-message-required" => preset_jj_message_required(),
+        "polling-anti-pattern" => preset_polling_anti_pattern(),
+        "exe-help-block" => preset_exe_help_block(),
+        "electron" => preset_electron(),
+        custom => custom_regex_pattern(custom),
+    }
+}
+
+fn custom_regex_pattern(custom: &str) -> Vec<BlockedPattern> {
+    match Regex::new(custom) {
+        Ok(re) => vec![BlockedPattern {
+            pattern: re,
+            exception: None,
+            message: "**カスタムパターンによりブロックされました**\n\nこのコマンドは hooks-config.toml のカスタムルールによりブロックされています。",
+        }],
+        Err(_) => {
+            eprintln!(
+                "[validate-command] Warning: Invalid regex in blocked_patterns: {}",
+                custom
+            );
+            Vec::new()
+        }
+    }
+}
+
 fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
     let preset_names: Vec<String> = config
         .pre_tool_validate
         .as_ref()
         .and_then(|c| c.blocked_patterns.as_ref())
         .cloned()
-        .unwrap_or_else(|| {
-            // 設定が無い場合: 全プリセット有効 (後方互換)
-            vec![
-                "default".to_string(),
-                "git".to_string(),
-                "jj-immutable".to_string(),
-                "jj-main-guard".to_string(),
-                "jj-push-guard".to_string(),
-                "electron".to_string(),
-            ]
-        });
-
-    let mut patterns = Vec::new();
-    for name in &preset_names {
-        match name.as_str() {
-            "default" => patterns.extend(preset_default()),
-            "git" => patterns.extend(preset_git()),
-            "jj-immutable" => patterns.extend(preset_jj_immutable()),
-            "jj-main-guard" => patterns.extend(preset_jj_main_guard()),
-            "jj-push-guard" => patterns.extend(preset_jj_push_guard()),
-            "gh-pr-create-guard" => patterns.extend(preset_gh_pr_create_guard()),
-            "gh-pr-merge-guard" => patterns.extend(preset_gh_pr_merge_guard()),
-            "polling-anti-pattern" => patterns.extend(preset_polling_anti_pattern()),
-            "exe-help-block" => patterns.extend(preset_exe_help_block()),
-            "electron" => patterns.extend(preset_electron()),
-            custom => {
-                // プリセット名以外はカスタム正規表現として扱う
-                if let Ok(re) = Regex::new(custom) {
-                    patterns.push(BlockedPattern {
-                        pattern: re,
-                        exception: None,
-                        message: "**カスタムパターンによりブロックされました**\n\nこのコマンドは hooks-config.toml のカスタムルールによりブロックされています。",
-                    });
-                } else {
-                    eprintln!(
-                        "[validate-command] Warning: Invalid regex in blocked_patterns: {}",
-                        custom
-                    );
-                }
-            }
-        }
-    }
-    patterns
+        .unwrap_or_else(default_preset_names);
+    preset_names
+        .iter()
+        .flat_map(|name| resolve_preset_or_custom(name.as_str()))
+        .collect()
 }
 
 fn validate_command(command: &str, patterns: &[BlockedPattern]) -> Option<&'static str> {

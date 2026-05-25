@@ -31,6 +31,9 @@
 #                              をブロックして src/<exe-name>/src/main.rs Read に誘導
 #                              (PR #109 SIGPIPE 事故の直接 trigger を構造的に防止、順位 65 / Bundle c)
 #   "electron"      — Electron GUI 実行ブロック
+#   "jj-message-required" — jj new / jj split を -m / --message なしでブロック
+#                              (混合 commit 事故 + jj split editor hang を構造的に防止、
+#                               順位 144 / PR #171 T3-#8 採用)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -43,6 +46,7 @@ blocked_patterns = [
   "polling-anti-pattern",
   "exe-help-block",
   "electron",
+  "jj-message-required",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)
