@@ -88,29 +88,6 @@
 
 ---
 
-### UTF-8 マルチバイト boundary test を他の string-processing hooks に横展開 (PR #151 T2-#1 採用)
-
-> **動機**: PR #151 で `byte_offset_to_line` の char-boundary panic bug を test 拡充 (UTF-8 漢字単独 needle) で発見した。同型関数 (byte offset から行番号変換 / needle 検索 + slice 操作) は他の string-processing hooks にも存在する可能性が高く、横展開 test で systemic 防御を確保すべき。
->
-> **本タスクの位置づけ**: PR #151 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None)。test 拡充は単なるカバレッジ追加ではなく fault detection に直結することが実証済 (本 PR で副産物として 1 production bug 修正)。
->
-> **参照**: `.claude/feedback-reports/151.md` Tier 2 #1、`src/hooks-post-tool-comment-lint-rust/src/main.rs:byte_offset_to_line` (PR #151 で修正済)、対象は `src/hooks-*` で string offset 操作を行う関数
-
-#### 作業計画
-
-- [ ] `grep -rn "as_bytes\|byte\|offset" src/hooks-*/src/` で類似処理を持つ hooks を列挙
-- [ ] 各 hook で multi-byte boundary に晒される operation を識別 (byte slice / needle search / offset → line 変換 等)
-- [ ] 対象 hook 毎に test fixture 追加: 漢字単独 / emoji / 結合文字 / BMP 外文字 のうち最低 1 パターン
-- [ ] 検出された production bug は 1 行 fix で resolve (PR #151 と同じ pattern)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 全 string-processing hook が multi-byte boundary の panic に対して test で防御されている
-- 横展開 test 実施過程で発見された production bug が修正される
-
----
-
 ### CLAUDE.md § Cross-File Reference Lifecycle に多ファイル同時削除 retirement condition checklist を追加 (PR #153 T3-#2 採用)
 
 > **動機**: PR #153 で旧 `docs/local-llm-offload-analysis.md` を `phase-d-outcomes.md` に分割した際 (3 ファイルは Phase E 採用昇格 = 2026-05-15 に retire 済)、retirement clause を **3 ファイル (analysis.md / history.md / phase-d-outcomes.md) 同時削除** に統一する作業が developer/AI の手動 review でしか担保されていなかった。advisor 指摘で明示的に「3 ファイルすべてに同じ retirement clause を書く」ステップを踏んだが、これは structural pattern として再利用可能 (今後の docs/* 50KB 分割でも同じ checklist が必要)。同パターンが drift すると ephemeral artifact の lifecycle 整合が崩れ、stale pointer が増殖するリスクあり。
@@ -326,44 +303,6 @@
 
 ---
 
-### ADR-041: Test Isolation Patterns for Multi-Condition Guards (PR #168 T3-#2 採用) — 本 PR で land
-
-> **動機**: PR #120 W-001 で `enrich_with_classifier_skips_when_disabled` テストが OR-guard `if !config.enabled || state.findings.is_empty() { return; }` の責務混在 (vacuous assertion: 空 `classified_findings` → 空 `classified_findings` で早期 return 由来か他経路由来か判別不能) で書かれていた問題、および PR #168 で sentinel pattern + 直交 precondition setup により構造的解決した実装を、project-level ADR として永続化する。`~/.claude/rules/common/code-review.md` (global rule、順位 84 で追加済) の checklist entry を補完する形で、project ADR には rationale・具体実装例 (poll.rs)・PR #120 W-001 history を codify し、将来の複合 guard テスト実装者が独立して参照できるようにする。
->
-> **本タスクの位置づけ**: PR #168 post-merge-feedback Tier 3 #2 採用。`feedback_no_unenforced_rules.md` の例外 = 既存実践 (PR #168 で実装済) の明文化 + project-specific context の補完。Severity Low / **Frequency Medium (PR #120 W-001 初発見 + PR #168 sentinel pattern 実装の 2 PR 横断)** / Effort M / Adoption Risk None。
->
-> **参照**: `.claude/feedback-reports/168.md` Tier 3 #2、`src/cli-pr-monitor/src/stages/poll.rs` (`enrich_with_classifier_skips_when_disabled` / `enrich_with_classifier_skips_when_findings_empty`)、`~/.claude/rules/common/code-review.md` (順位 84 land 済 checklist entry)、PR #120 W-001 / PR #168 history
->
-> **実行優先度**: 💎 **Tier 3** — Effort M。新規 ADR 1 件作成 (記述のみ、コード変更なし)。
-
-#### ADR 番号 (本 PR で確定)
-
-順位 135 codified policy (`~/.claude/rules/common/docs-governance.md`) に従い、本 entry は当初 `ADR-NNN (採番未確定)` placeholder で登録した。**本 PR で `ADR-041` を本件に確定取得**し、順位 78 (旧 ADR-041 予約 = Rust timestamp arithmetic safety) を `ADR-NNN` に再 placeholder 化した (順位 78 は今後 land 時 PR で空き番号を取得する運用)。本 entry は本 PR land 後に post-merge-feedback サイクルで削除される予定 (memory: feedback_todo_no_history)。
-
-#### 作業計画 (本 PR で完了)
-
-- [x] `docs/adr/adr-041-test-isolation-patterns.md` を新規作成
-- [x] 内容構成:
-  - **問題**: PR #120 W-001 の vacuous assertion (検証対象 field が空のまま → 早期 return 由来か他経路由来か判別不能) で OR-guard test の責務混在が顕在化した経緯
-  - **設計原則**: sentinel pattern (検証対象 field を pre-populate → survival assert で mutation 不発を明示) + OR-guard precondition assertion (短絡発火条件を test 内で明示し直交性を保証)
-  - **実装例**: `enrich_with_classifier_skips_when_disabled` (左 arm = `!enabled` 単独) / `enrich_with_classifier_skips_when_findings_empty` (右 arm = `findings.is_empty()` 単独) の 2 variant 抜粋コード
-  - **適用範囲**: 2+ 条件の OR/AND 早期 return を持つ pure function 系 test (副作用検証は別パターン、本 ADR の scope 外)
-  - **既存資料との関係**: `~/.claude/rules/common/code-review.md` checklist entry (順位 84 land 済) を project-level rationale + 具体実装例で補完する layer
-- [x] `CLAUDE.md` の ADR リストに 1 行追加
-- [x] PR description で `docs/adr/adr-041-test-isolation-patterns.md` への link と「sentinel pattern + OR-guard test orthogonality を project codify」要約を明記 (PR #169 description に反映済 = "Summary" / "Background" / "Files changed" 3 箇所で言及)
-
-#### 完了基準 (本 PR で達成)
-
-- ADR-041 ファイルが新規作成され、PR #120 W-001 history + sentinel pattern + 2 variant 実装例が記述される ✅
-- CLAUDE.md の ADR リストに ADR-041 entry が追加される ✅
-- 次回複合 guard test を含む PR を書く際の reference として poll.rs の doc comment などから ADR-041 へリンク可能になる ✅
-
-#### 詰まっている箇所
-
-なし。記述のみで実装変更不要。
-
----
-
 ### ADR-NNN (採番未確定、land 時に確定): ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment (PR #169 T3-#2 採用)
 
 > **動機**: 順位 135 で codify された「ADR 番号は entry 登録時に hardcode せず `ADR-NNN (採番未確定)` placeholder で記述し、land 時 PR で空き番号を確定する」運用が、PR #111 / PR #132 / PR #169 の **3+ PR で適用実証済**になった。特に PR #169 では同一 entry (順位 78) が `ADR-038 → 041 → NNN` の **3 段振り直し** を経た live dogfood が完了し、queue 滞留 entry と後発 PR の採番衝突を convention 層で完全予防できる状態が確立された。現在 policy は `~/.claude/rules/common/docs-governance.md` の 2-3 行追記として ephemeral todo (順位 135) 内で codify されているが、ephemeral artifact 限りでは派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) への transferability に欠ける。正式 ADR に昇格して永続化する。
@@ -411,98 +350,6 @@
 
 ---
 
-### CR rate-limit detection bug 修正 — fix_push_time 固定 + 早期 merge 判断 signal (PR #169 観測由来)
-
-> **動機**: PR #169 セッション (2026-05-22) で `cli-pr-monitor` の CR rate-limit 検出機構が、再 push 後の wakeup recheck 経路で **構造的に動作不能** な状態が systemic 観測された。`check-ci-coderabbit` の `parse_rate_limit` は `event_time >= push_time` filter で「過去 session の古い rate-limit comment」を除外する safety guard を持つが、`push_time` が `state.started_at` (wakeup ごとに現在時刻に更新される値) を再利用するため、CR の walkthrough overlay の `updated_at` が push_time より過去になると検出対象から外れる。今回 PR #169 で CR が overlay (`2026-05-22T06:08:02Z`) を投稿したが、wakeup 4 回目の started_at = `06:27:14Z` で filter 除外 → `rate_limit: null` → auto-retry path に乗らず手動介入で merge へ進んだ。
->
-> **本タスクの位置づけ**: `feedback_pipeline_over_rules.md` 適用 = 「動作の不確実さはパイプラインで吸収、ルール codify では対処しない」原則の実装事例。「Claude が gh CLI で手動確認すればよい」式の運用ルール codify は次セッションで AI が守らない可能性が構造的に残るため不採用 (本 PR セッションでユーザー明示却下)。代わりにパイプライン側 (Rust 実装) で機械的に検出を堅牢化し、Claude 判断介入を排除する。CR 仕様変更時は graceful degradation (検出失敗 = pipeline が静かに止まるだけ、誤判定はしない) で受容、発生時に再考。
->
-> **wall clock 配慮 (shortcut 追加案、ユーザー要件で原案から縮小)**: rate-limit 検出後に「reset まで 38 分自然待ち + CR 2 回目 review 待ち」の通常 flow に直行すると、最悪 `max_retries=3` で 2.5 時間消費する可能性がある (1 日がかりではないが許容外)。本タスクでは **rate-limit 検出時に同 process 内で mergeable status を併せて確認し、即 merge 可能なら 5-10 分の人間判断で済む shortcut signal を出力** する。既存 auto-retry path は維持 = ユーザーが「reset を待つ」を選んだ場合は通常 flow に合流する。これにより手間軽減 + wall clock 短縮の両立を図る。
->
-> **参照**: PR #169 session log (本 entry 由来)、`src/check-ci-coderabbit/src/main.rs` L416 `parse_rate_limit` (push_time filter)、`src/cli-pr-monitor/src/stages/monitor.rs` L202-211 + L220-230 (`detect_wakeup_resume` / push_time 算出経路)、`src/cli-pr-monitor/src/state.rs` (`PrMonitorState` schema)、memory: `feedback_pipeline_over_rules.md` / `project_coderabbit_rate_limit_overlay.md` / `feedback_coderabbit_no_actionable_merge_signal.md`、Bundle a Sub-PR 2 (順位 42/43/46) / Bundle f (順位 80-82) は別 layer (retry path / 投稿エラー対応) で本タスク scope 外
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。PR #169 で systemic 観測 + ユーザー判断で priority elevated。原案 (defense-in-depth + 4 test) から縮小し、主軸 C + shortcut signal の 2 機能に絞った最小実装。
-
-#### 設計方針
-
-「**検出は機械化、判断は人間に短期で渡す**」 = pipeline で検出までは確実に動かし、reset 待ちの長時間 wall clock を許容するか即 merge 判断に進むかは **人間 (= ユーザー) が 5-10 分以内に決める**。Claude 判断介入は介在させない (signal を読んでユーザーに AskUserQuestion で問うのみ、AI 独断で merge / wait を決めない)。
-
-CR 仕様変更時は graceful degradation: 検出が壊れたら shortcut signal も出ない → 従来通り手動 workflow に倒れるだけで誤判定はしない。
-
-#### 設計決定 (案)
-
-**主軸 C: state.json に fix push 時刻を別 field で保存**
-
-- `PrMonitorState` schema に **`fix_push_time: Option<String>`** field を追加 (Option = legacy state 互換、None なら fallback to started_at)
-- `monitor.rs` の fresh 起動経路 (`detect_wakeup_resume` が None) で `fix_push_time = Some(utc_now_iso8601())` を設定
-- wakeup resume 経路では state の `fix_push_time` を **そのまま再利用** (wakeup ごとに上書きしない)
-- `poll.rs` の state 書き込み箇所で `fix_push_time` を保持
-- `check-ci-coderabbit` への引数 `--push-time` には **`fix_push_time`** を渡す
-- 効果: 「fix push 直後の overlay は `updated_at` >= `fix_push_time` で確実に検出」、「過去 session の古い rate-limit comment は依然 filter で除外」 の両立
-
-**早期 merge 判断 signal (本タスクの核)**
-
-- `poll.rs` の `handle_rate_limit_branch` で `state.rate_limit = Some(_)` を検出した時点で、**同 process 内で 1 回だけ** mergeable status を `gh pr view --json mergeable,mergeStateStatus` 経由で取得
-- 以下の **全 condition** を満たす場合、`PARK signal` の代わりに **`[RATE_LIMIT_BUT_MERGEABLE]` signal** を stdout に出力:
-  - `mergeable == "MERGEABLE"`
-  - `mergeStateStatus == "CLEAN"`
-  - `state.coderabbit.unresolved_threads == Some(0)` または `None` (初回 review の actionable が resolve 済 or 検出なし)
-- signal 例:
-  ```text
-  [RATE_LIMIT_BUT_MERGEABLE]
-  pr: 169
-  repo: aloekun/claude-code-hook-test
-  rate_limit_reset_at_iso_utc: 2026-05-22T06:46:32Z
-  rate_limit_wait_seconds: 2310
-  mergeable: MERGEABLE
-  merge_state: CLEAN
-  unresolved_threads: 0
-
-  ACTION REQUIRED: ユーザーに以下 2 択を AskUserQuestion で問うこと:
-    A: 今すぐ merge する (rate-limit reset を待たない、CR 2 回目 review なしで進める)
-    B: reset (38 分) を待って通常 auto-retry flow に乗る
-  [/RATE_LIMIT_BUT_MERGEABLE]
-  ```
-- 条件不一致 (mergeable: BLOCKED、unresolved 1+ 件 等) の場合は **従来通り通常 PARK signal を出す** (= 既存 auto-retry path がそのまま動く)
-- Claude 側の対応: signal を検出したら **AskUserQuestion で A/B 選択を問う**、回答に応じて merge 実行 / wakeup 予約継続
-
-#### 作業計画
-
-- [ ] **PrMonitorState schema 拡張**:
-  - `src/cli-pr-monitor/src/state.rs` に `fix_push_time: Option<String>` field を追加 (`#[serde(default)]` で legacy state 互換)
-- [ ] **`monitor.rs` の push_time 算出経路修正**:
-  - L202-211 の fresh / resume 分岐で `pr_info.fix_push_time` を設定
-  - fresh 経路: `state.fix_push_time = Some(utc_now_iso8601())` で state 書き込み
-  - resume 経路: `state.fix_push_time` を読んで `pr_info.push_time` に渡す (未設定なら fallback to `state.started_at` で legacy 互換)
-- [ ] **`poll.rs` の state 書き込み箇所**:
-  - `build_state_for_iteration` / `finalize_*_park` 等で `fix_push_time` を新 state に保持 (上書きしない)
-- [ ] **`poll.rs` に早期 merge 判断 signal 追加**:
-  - `handle_rate_limit_branch` で rate_limit 検出後、mergeable status 取得 + 条件評価
-  - 全条件一致時に `[RATE_LIMIT_BUT_MERGEABLE]` signal を `println!` で出力、PARK signal は skip
-  - 条件不一致時は既存 PARK signal flow に合流
-  - mergeable 取得失敗 (gh エラー / timeout) 時は安全側に倒して既存 flow に合流
-- [ ] **test 追加** (2 シナリオに絞る):
-  - シナリオ 1 (主軸 C): fresh push 経路で `fix_push_time` が設定され、wakeup 経路で同値が維持される (state round-trip test)
-  - シナリオ 2 (検出 + signal): mockable な gh 応答 (mergeable CLEAN 固定) を注入し、`[RATE_LIMIT_BUT_MERGEABLE]` signal が出力されることを assert
-- [ ] **dogfood**: 派生 test PR で再 push → CR rate-limit 強制発火 → signal 出力 → AskUserQuestion 経由でユーザー判断 → merge / wait 分岐が機能することを観測
-- [ ] **削除した原案要素**: 補助 B (overlay marker bypass) は削除 = 主軸 C 単独で十分、CR 仕様変更時は graceful degradation で受容
-- [ ] **削除した原案要素**: ADR-018 注記追記は scope 外 (本修正は spec drift fix なので ADR-018 spec 自体は変更不要)
-
-#### 完了基準
-
-- `cargo test -p cli-pr-monitor -p check-ci-coderabbit` で 2 シナリオ test が pass
-- PR #169 で観測した overlay 除外現象が再現できなくなる (主軸 C による回帰防止)
-- 次回 CR rate-limit 観測時に **5-10 分以内** にユーザーが merge / wait を判断できる (shortcut signal 経由)
-- ユーザーが「待つ」を選んだ場合は既存 auto-retry path がそのまま動く (回帰なし)
-- Claude 判断介入 (AI 独断で merge or wait) は介在しない (signal → AskUserQuestion → ユーザー判断 → action の構造)
-
-#### 詰まっている箇所
-
-- **mergeable 取得の遅延 / 失敗時の挙動**: `gh pr view` が rate-limit に当たる (GitHub API 側の rate-limit、CR とは別軸) ケースは稀だが存在する。safety: 取得失敗時は signal を出さず既存 PARK flow に倒す = 「shortcut が出ない = 通常 flow」で誤動作なし
-- **同 process 内 1 回限り の制約**: wakeup 経路で再度 rate-limit が観測された場合、毎回 mergeable status を取得しに行く設計。retry 回数が増えると gh 呼び出しも増えるが、`max_retries=3` で頭打ちなので影響軽微
-- **派生プロジェクトへの transferability**: 本修正は本リポジトリの cli-pr-monitor 固有実装に依存。techbook-ledger / auto-review-fix-vc 等の派生プロジェクトに展開する場合は同型 schema 拡張 + signal 追加が必要 (porting 時に検討)
-
----
 
 ### ADR-041 補強 — "State Preservation Invariant" pattern section 追加 (PR #170 T3-#1 採用)
 
