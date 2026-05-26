@@ -1,6 +1,7 @@
 ﻿//! Push Runner — takt ベースの pre-push パイプライン
 //!
 //! pnpm push から呼び出され、以下のステージを実行する:
+//!   Stage -1:  bookmark_check — 非 trunk bookmark の存在を確認 (順位 2)
 //!   Stage 0:   scratch_file_warning — `__*` 等の scratch ファイル混入を検査 (順位 1)
 //!   Stage 1:   quality_gate — TOML で定義されたコマンド群をグループ間で並列実行
 //!   Stage 1.5: diff         — jj diff を取得しファイルに書き出し（reviewers が Read で参照）
@@ -17,6 +18,7 @@
 //!   4 - 設定エラー
 //!   5 - diff 取得失敗
 //!   6 - scratch_file_warning 検出 (override env で bypass 可能)
+//!   7 - bookmark_check 非 trunk bookmark 未設定
 
 mod config;
 mod log;
@@ -28,8 +30,8 @@ use std::time::Instant;
 use config::load_config;
 use log::log_info;
 use stages::{
-    run_diff, run_lint_screen, run_push, run_quality_gate, run_scratch_file_warning, run_takt,
-    DiffResult,
+    run_bookmark_check, run_diff, run_lint_screen, run_push, run_quality_gate,
+    run_scratch_file_warning, run_takt, DiffResult,
 };
 
 const EXIT_SUCCESS: i32 = 0;
@@ -39,6 +41,7 @@ const EXIT_PUSH_FAILURE: i32 = 3;
 const EXIT_CONFIG_ERROR: i32 = 4;
 const EXIT_DIFF_FAILURE: i32 = 5;
 const EXIT_SCRATCH_FILE_WARNING: i32 = 6;
+const EXIT_BOOKMARK_MISSING: i32 = 7;
 
 /// diff stage を実行し lint-screen を呼び出す。
 /// Ok(skip_takt) で成功、 Err(exit_code) で pipeline 中断。
@@ -63,6 +66,26 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<bool, i32> {
     Ok(false)
 }
 
+/// quality_gate より前の事前チェック (bookmark / scratch file) を実行する。
+/// 失敗時は exit code を Err で返し、pipeline を中断する。
+fn run_pre_checks(config: &config::Config) -> Result<(), i32> {
+    if !run_bookmark_check() {
+        log_info(
+            "パイプライン中断: 非 trunk bookmark が見つかりません。\
+             `jj bookmark create <name> -r @` で bookmark を作成して再実行してください。",
+        );
+        return Err(EXIT_BOOKMARK_MISSING);
+    }
+    if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {
+        log_info(
+            "パイプライン中断: scratch ファイル検出。`.gitignore` 修正 / ファイル削除 / \
+             `SCRATCH_FILE_WARNING_OVERRIDE=1` のいずれかで再実行してください。",
+        );
+        return Err(EXIT_SCRATCH_FILE_WARNING);
+    }
+    Ok(())
+}
+
 fn run_pipeline() -> i32 {
     let start = Instant::now();
 
@@ -76,17 +99,13 @@ fn run_pipeline() -> i32 {
 
     let has_diff = config.diff.is_some();
     log_info(&format!(
-        "パイプライン開始: scratch → quality_gate → {} takt ({}) → push",
+        "パイプライン開始: bookmark → scratch → quality_gate → {} takt ({}) → push",
         if has_diff { "diff →" } else { "" },
         config.takt.workflow,
     ));
 
-    if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {
-        log_info(
-            "パイプライン中断: scratch ファイル検出。.gitignore 修正 / ファイル削除 / \
-             SCRATCH_FILE_WARNING_OVERRIDE=1 のいずれかで再実行してください。",
-        );
-        return EXIT_SCRATCH_FILE_WARNING;
+    if let Err(code) = run_pre_checks(&config) {
+        return code;
     }
 
     if !run_quality_gate(&config.quality_gate) {

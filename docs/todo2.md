@@ -362,39 +362,6 @@ Phase 観測 (4-6 週)
 Phase 2 (任意、段階的緩和)
 ```
 
-### `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3)
-
-> **動機**: PR #85 の初回 `pnpm push` で bookmark 未設定 → `jj git push` が `Nothing changed` で終了し、158s かけて走った Quality Gate + takt review がすべて無駄になった。jj 環境特有の落とし穴で、決定論的に防止可能。
->
-> **本タスクの位置づけ**: `cli-push-runner` でパイプライン開始時 (quality_gate より前) に bookmark 存在チェックを追加し、未設定なら early-exit で Quality Gate を回避する。
->
-> **参照**: `.claude/feedback-reports/85.md` Tier 1 #3
->
-> **実行優先度**: 🚀 **Tier 1** — S 工数、daily efficiency への直接効果 (失敗 push 1 回あたり 2-3 分 + takt review token 消費を節約)。
-
-#### 設計決定 (案)
-
-- 検出位置: `cli-push-runner` の早期 stage (quality_gate より前、ADR-022 の責務分離原則に従う)
-- 検出方法: `jj bookmark list` で現在の `@` に紐付く bookmark の有無を確認
-- 失敗時挙動: bookmark 未設定なら error 終了 + 推奨コマンド (`jj bookmark create <name> -r @`) を提示
-
-#### 作業計画
-
-- [ ] `src/cli-push-runner/src/main.rs` または stages/ に bookmark check stage 追加
-- [ ] エラーメッセージで具体的な解決手順を提示
-- [ ] dogfood: 意図的に bookmark なし状態で `pnpm push` し、early-exit を確認
-- [ ] 派生プロジェクトへ deploy
-- [ ] 本 todo2.md エントリを削除
-
-#### 完了基準
-
-- bookmark 未設定で `pnpm push` が即座に error 終了 (Quality Gate 不実行)
-- 解決手順がエラーメッセージに含まれる
-
-#### 詰まっている箇所
-
-なし
-
 ### `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2)
 
 > **動機**: PR #85 の `pnpm create-pr` 完了後、`cli-pr-monitor.exe` がバックグラウンドで残留し手動 `taskkill` が必要だった。termination シグナル処理またはタイムアウトの問題の可能性があり、本セッションで初めて顕在化。回帰テストで継続的に検出できるようにする。

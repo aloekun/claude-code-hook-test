@@ -1,3 +1,4 @@
+mod bookmark_check;
 mod diff;
 mod lint_screen;
 mod push;
@@ -6,6 +7,7 @@ mod quality_gate;
 mod scratch_file_warning;
 mod takt;
 
+pub(crate) use bookmark_check::run_bookmark_check;
 pub(crate) use diff::{run_diff, DiffResult};
 pub(crate) use lint_screen::run_lint_screen;
 pub(crate) use push::run_push;

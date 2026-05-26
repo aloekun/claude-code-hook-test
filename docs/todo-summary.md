@@ -11,7 +11,6 @@
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
 | 5 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
 | 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 — 7 観点責務 mapping 確定 (① ハーネス遵守 + ⑥ テストロジック を MVP 優先、2026-05-26 ユーザー合意) | todo.md | 中-高 | 順位 20 compensating check 前提 + 順位 136 land 先行推奨 (観点 ⑤ 責務分離) |
@@ -77,6 +76,8 @@
 | 152 | 🔧 Tier 2 | **todo entry 削除時の事前 land 確認手順 — 順位 136 hook 拡張 or 独立 follow-up (PR #173 T2-1 採用、2026-05-26)** | todo9.md | XS-S | 順位 136 (working copy staleness + 既実装 grep) と同型機械強制、lifecycle 補完 = 順位 136 (add/edit 時) + 本タスク (delete 時)。PreToolUse hook で `docs/todo*.md` 削除時に対応 land commit を `jj log` で grep 検証、land 確認なら allow + 証跡出力、未確認なら warning (block しない)。順位 136 hook 統合 (~+15 行) or 独立 (~40 行) のいずれか、ADR-042 § Decision matrix 適用 (mechanizable + FP 低 + Adoption Risk None) |
 | 153 | 🔧 Tier 2 | **`review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | S | 順位 8 Phase B land + 2-3 週 dogfood 後に着手判断 (extract 不要なら close)、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源、architecture-whole から ① 観点を extract して context 圧迫回避 |
 | 154 | 🔧 Tier 2 | **`review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | M | 順位 136 land + Phase B 2-3 週 dogfood 完了後着手、順位 95 / 147 と scope 整理必要 (CI 即時 vs 週次 batch)、ADR-031 3 層分離原則で file size は LLM 不要の Rust pre-step に分離 |
+| 155 | 🚀 Tier 1 | **cli-pr-monitor fix chain 末尾に空 commit 検査 + `jj abandon` step 追加 (PR #174 T1-#1 採用)** | todo9.md | S | なし (PR #174 で `kqvluqyv` 空 commit が PR diff 汚染した実証ベース、`master..@` 範囲を `jj log` で sweep して機械強制、既存 `CleanupEmptyFixCommit` action の補完層) |
+| 157 | 🔧 Tier 2 | **Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)** | todo9.md | XS | なし (PR #174 PR body の未消化 dogfood、Bundle 2 PR merge 前の前提条件として消化、結果は Bundle 2 PR body に記録) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

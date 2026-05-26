@@ -478,16 +478,16 @@ mod tests {
     }
 
     #[test]
-    fn effective_patterns_default_when_only_blank_entries() {
+    fn effective_patterns_all_blank_falls_back_to_default() {
         let config = ScratchFileWarningConfig {
             enabled: Some(true),
-            patterns: Some(vec!["".to_string(), "   ".to_string()]),
+            patterns: Some(vec!["".to_string(), "  ".to_string(), "\t".to_string()]),
         };
         assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
     }
 
     #[test]
-    fn effective_patterns_filters_blank_entries_and_keeps_valid_ones() {
+    fn effective_patterns_mixed_blank_and_valid_keeps_only_valid() {
         let config = ScratchFileWarningConfig {
             enabled: Some(true),
             patterns: Some(vec![
@@ -504,10 +504,19 @@ mod tests {
     }
 
     #[test]
-    fn effective_patterns_trims_whitespace_in_pattern_values() {
+    fn effective_patterns_whitespace_padded_is_trimmed() {
         let config = ScratchFileWarningConfig {
             enabled: Some(true),
             patterns: Some(vec!["  __*  ".to_string()]),
+        };
+        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
+    }
+
+    #[test]
+    fn effective_patterns_mixed_filter_to_empty_falls_back_to_default() {
+        let config = ScratchFileWarningConfig {
+            enabled: Some(true),
+            patterns: Some(vec!["  ".to_string(), "\t".to_string()]),
         };
         assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
     }
