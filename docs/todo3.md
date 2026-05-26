@@ -10,50 +10,6 @@
 
 ## 現在進行中
 
-### AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)
-
-> **動機**: PR #85 で Claude が transcript 確認用に作成した `__parse_transcripts.ps1` が `.gitignore` 漏れにより jj auto-snapshot 経由で commit に意図せず混入。CodeRabbit が発見し除去作業が必要となった。同パターン (`__*.ps1` / `_tmp_*.ps1` / `__*.py` / `_tmp_*.py` 等の AI 生成一時スクリプト) を pre-push で機械的に検出し再発を防止する。post-merge-feedback (PR #88) が同事象を transcript から再検出。
->
-> **本タスクの位置づけ**: **既存の push 前 untracked `__*` ファイル警告 hook task (PR #85 T1-4) と同一インシデントへの異なるアプローチによる補完**。前者 = working-tree の untracked file 検出 (hook 機構) / 本タスク = pre-push 時の lint ベース検出 (AI 命名 pattern 全体)。両機構を併用するか一方に統合するかは実装時に判断。
->
-> **参照**: `.claude/feedback-reports/88.md` の Tier 1 #2 finding
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 Small。daily efficiency への影響中 (再発リスクは低いが ADR-007 拡張で確実な再発防止)。**実装前に既存の push 前 untracked `__*` ファイル警告 hook task (PR #85 T1-4) と擦り合わせて重複か補完かを判定すること**。
-
-#### 背景
-
-- PR #85 で `__parse_transcripts.ps1` が混入 (Claude が transcript 解析用に作成、`.gitignore` 漏れ)
-- `.gitignore` への `__*` 追加で当面の再発は防止済
-- ただし `_tmp_*` 等の他 prefix や、`.gitignore` の管理漏れ自体への保険として機械的検出が望ましい
-- post-merge-feedback (PR #88) が PR #85 の transcript を解析し、本提案を独立に再生成 → 提案の妥当性が複数 source で corroborate された
-
-#### 設計決定 (案)
-
-- 候補機構 1: ADR-007 の custom_lint_rule (`.claude/custom-lint-rules.toml`) に AI 生成一時スクリプト pattern を追加
-- 候補機構 2: pre-push hook で `jj diff --name-only @` で staged file のうち `__*` / `_tmp_*` パターンに合致するものを検出
-- 候補機構 3: 既存の push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) を拡張し pattern を増やす
-- 検出パターン (初稿): `__*.ps1`, `__*.py`, `_tmp_*.ps1`, `_tmp_*.py`, `__*.sh`, `__*.js`, `__*.ts`
-- 警告メッセージ: 「AI 生成一時スクリプト pattern を検出: `<file>`. `.gitignore` 漏れの可能性。意図的な commit なら override してください。」
-
-#### 作業計画
-
-- [ ] 既存の push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4) の実装状況を確認
-- [ ] 重複なら本タスクは前者の hook 内へ統合 (pattern を拡張するだけ)、補完なら別実装
-- [ ] 機構決定後に `.claude/custom-lint-rules.toml` または既存 hook を拡張
-- [ ] dogfood: 試しに `__test.py` を作って commit 試行 → 警告が出ることを確認
-- [ ] 本 todo3.md エントリを削除 (push 前 untracked hook に統合した場合は description も更新)
-
-#### 完了基準
-
-- AI 生成一時スクリプト pattern が pre-push で検出され警告が出る
-- 既存の `__*` ファイル検出 hook と整合性が取れている (重複なし or 明示的補完)
-
-#### 詰まっている箇所
-
-なし (Effort Small、ADR-007 既存パターンを拡張)
-
----
-
 ### `vitest` を devDependencies に固定 (PR #88 T2-3)
 
 > **動機**: Stop hook の `pnpm test` → `npx vitest run` が `pnpm-lock.yaml` に vitest なしのため npx がネット DL を試みて偽陽性 FAIL する事象を観測。ネット環境・キャッシュ依存の不確実性を排除し、Stop gate を deterministic にする。

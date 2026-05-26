@@ -532,52 +532,6 @@
 
 ---
 
-### jj template 内で脆弱な `description.first_line()` パターンを lint で禁止 (PR #175 T1-#1 採用)
-
-> **動機**: PR #175 で 順位 155 entry の設計を書いた際、`jj log` template 内の `description.first_line()` と filter logic `description = ""` を組み合わせたが、両者は意味的に整合せず CR Minor finding で「全 description 空」vs「複数行 description で 1 行目だけ空」を区別できない曖昧性を指摘された。fix では `empty` keyword + `\u{1f}` Unit Separator 設計に変更したが、ad-hoc な修正に留まり今後別の場所で同型ミスを書く可能性が残る。`description.first_line()` パターン自体を lint で禁止し、`empty` keyword 利用を促進する構造化予防が必要。
->
-> **本タスクの位置づけ**: PR #175 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None)。jj template 固有 pattern で false positive 極小、Effort XS で機械強制可能、rubric 充足。ad-hoc fix を構造的予防に格上げする「PR 自身の経験を直接 codify する自己強化パターン」(Bundle 1 順位 155 / Bundle 2 順位 156, 158 と同系統)。
->
-> **参照**: `.claude/feedback-reports/175.md` Tier 1 #1、PR #175 CR Minor finding (id 3303489656、`docs/todo9.md` line 465 周辺、現 fix 適用済)、PR #175 Minor fix commit (`b10a83ba` / `lnxmoxoz`)、`.claude/custom-lint-rules.toml` (rule ⑪ 新規追加先)、`~/.claude/rules/common/testing.md` § Custom Lint Rule Test Coverage
->
-> **実行優先度**: 🚀 **Tier 1** — Effort XS。custom lint rule 1 件追加 (~20 行) + test 拡充。
-
-#### 設計決定 (案)
-
-- **配置**: `.claude/custom-lint-rules.toml` に rule ⑪ (rule 番号は既存 lint rule 数に基づき確定) として追加
-- **検出 pattern**: `description\.first_line\(\)` (regex literal、jj template DSL 固有のため false positive 極小)
-- **extensions**: `toml`, `yaml`, `md` (jj template が記述されうる主要 file 形式)
-- **severity**: `error` (= block、ad-hoc を許容しない厳格運用)
-- **block message**: 「jj template で `description.first_line()` は曖昧 (= 「全 description 空」と「複数行 description で 1 行目だけ空」を区別不可)。`empty` keyword (= commit が file change を含まないか) または `if(description, "DESCRIBED", "UNDESCRIBED")` を使用してください。詳細: PR #175 Minor finding 由来」
-- **test_coverage** (`~/.claude/rules/common/testing.md` § Custom Lint Rule Test Coverage 準拠):
-  - `main_ext_tests.toml`: 1+ positive test (`description.first_line()` を含む toml fixture が fire する)
-  - `main_ext_tests.yaml`: 1+ positive test
-  - `other_ext_tests`: 1+ positive test (md ext での fire 確認)
-  - 各 ext で `empty` keyword fixture が fire しない negative test も推奨
-
-#### 作業計画
-
-- [ ] `.claude/custom-lint-rules.toml` の既存 rule 番号を確認 (`grep -c '^\[\[rules\]\]' .claude/custom-lint-rules.toml` 等で連番判定)
-- [ ] rule ⑪ を新規追加 (`id` / `pattern` / `extensions` / `severity` / `message` / `test_coverage` meta field)
-- [ ] test fixture を 3 ext × (positive + negative) = 6 件追加
-- [ ] `cargo test rule_test_coverage_check` で meta field 整合性確認 (testing.md 機械強制レイヤ)
-- [ ] dogfood: 既存の 順位 155 entry を読み込み、現在の clarified 記述が rule に fire しないことを確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `.claude/custom-lint-rules.toml` の rule ⑪ で `description.first_line()` 使用が機械検出される
-- toml / yaml / md 各 ext で positive + negative test が pass
-- `cargo test rule_test_coverage_check` で meta field 整合性確認
-- 既存 docs (順位 155 entry を含む) で false positive 0 件
-- PR #175 Minor finding 同型再発が構造的に予防される
-
-#### 詰まっている箇所
-
-なし。Effort XS、既存 lint rule infrastructure (`.claude/custom-lint-rules.toml` + `hooks-post-tool-linter`) への純追加で副作用最小。jj template DSL 固有 pattern のため false positive リスクは低い。
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
