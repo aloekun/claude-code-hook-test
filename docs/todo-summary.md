@@ -11,7 +11,6 @@
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 2 | 🚀 Tier 1 | `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3) | todo2.md | S | なし |
 | 5 | 🚀 Tier 1 | **AI 生成一時スクリプト pattern の pre-push 検出 (PR #88 T1-2)** | todo3.md | Small | 順位 1 と関連 (要擦り合わせ) |
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
 | 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 — 7 観点責務 mapping 確定 (① ハーネス遵守 + ⑥ テストロジック を MVP 優先、2026-05-26 ユーザー合意) | todo.md | 中-高 | 順位 20 compensating check 前提 + 順位 136 land 先行推奨 (観点 ⑤ 責務分離) |
@@ -78,9 +77,7 @@
 | 153 | 🔧 Tier 2 | **`review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | S | 順位 8 Phase B land + 2-3 週 dogfood 後に着手判断 (extract 不要なら close)、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源、architecture-whole から ① 観点を extract して context 圧迫回避 |
 | 154 | 🔧 Tier 2 | **`review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | M | 順位 136 land + Phase B 2-3 週 dogfood 完了後着手、順位 95 / 147 と scope 整理必要 (CI 即時 vs 週次 batch)、ADR-031 3 層分離原則で file size は LLM 不要の Rust pre-step に分離 |
 | 155 | 🚀 Tier 1 | **cli-pr-monitor fix chain 末尾に空 commit 検査 + `jj abandon` step 追加 (PR #174 T1-#1 採用)** | todo9.md | S | なし (PR #174 で `kqvluqyv` 空 commit が PR diff 汚染した実証ベース、`master..@` 範囲を `jj log` で sweep して機械強制、既存 `CleanupEmptyFixCommit` action の補完層) |
-| 156 | 🔧 Tier 2 | **`effective_patterns()` の空 variant test 4 件直交化 (PR #174 T2-#1 採用)** | todo9.md | S | なし (4 filter path = element-level trim / element-level empty / collection-level empty / valid set retention を独立 test 化、1 path regression で 1 test failed の早期切り分け、`feedback_test_dry_antipattern.md` 適用) |
 | 157 | 🔧 Tier 2 | **Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)** | todo9.md | XS | なし (PR #174 PR body の未消化 dogfood、Bundle 2 PR merge 前の前提条件として消化、結果は Bundle 2 PR body に記録) |
-| 158 | 💎 Tier 3 | **ADR-039 に「bounded lifetime に明示的 decision trigger (PR 数 / 日付 / 条件) 必須化」パターン追記 (PR #174 T3-#1 採用)** | todo9.md | S | なし (PR #174 が "3-5 PR の dogfood 後に判定" を code + config + PR body で明示した実例の reusable rule 化、formless な「未来の判定」を ADR レベルで禁止、PR #174 を実例 cite) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
