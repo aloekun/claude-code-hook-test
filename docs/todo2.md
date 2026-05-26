@@ -362,40 +362,6 @@ Phase 観測 (4-6 週)
 Phase 2 (任意、段階的緩和)
 ```
 
-### push 前 untracked `__*` ファイル警告 hook (PR #85 T1-4)
-
-> **動機**: PR #85 で `__parse_transcripts.ps1` が jj auto-snapshot 経由で commit に意図せず混入。`.gitignore` への `__*` 追加で当面の再発は防止できたが、将来 `.gitignore` 漏れの可能性は残る。push 前に `__*` 命名の untracked file が working directory に残っていないか機械的に検出する安全網が必要。
->
-> **本タスクの位置づけ**: jj 環境では staging area が無く `.gitignore` が唯一のフィルタ。push 前 hook で `__*` パターンの untracked file を検出し警告すれば、`.gitignore` 漏れがあっても気付ける。
->
-> **参照**: `.claude/feedback-reports/85.md` Tier 1 #4
->
-> **実行優先度**: 🚀 **Tier 1** — Small 工数、直近インシデントの直接対策。同種事故 (PR scope 外ファイル混入) の再発防止で、混入時の追加コスト (force-push + 再 review) を回避。
-
-#### 設計決定 (案)
-
-- 配置先: `cli-push-runner` の早期段階 (bookmark check の隣)、または独立 hooks binary
-- 検出方法: `jj status` 出力から `Untracked` セクションを parse、`__*` パターンとマッチング
-- 失敗時挙動: warning + ユーザー確認待ち (本人が意図的に scratch を残している場合の override を許容)
-- config: `[scratch_file_warning] patterns = ["__*"]` で将来の拡張性確保
-
-#### 作業計画
-
-- [ ] 検出ロジックを `cli-push-runner` または共通ライブラリに実装
-- [ ] config に `[scratch_file_warning]` セクション追加
-- [ ] dogfood: `__test.ps1` を意図的に作って push し、警告を確認
-- [ ] 派生プロジェクトへ deploy
-- [ ] 本 todo2.md エントリを削除
-
-#### 完了基準
-
-- push 前に `__*` 命名の untracked file が存在すると警告が出る
-- override コマンド (env var or flag) で意図的バイパスが可能
-
-#### 詰まっている箇所
-
-なし
-
 ### `cli-push-runner` jj bookmark 未設定 early-exit (PR #85 T1-3)
 
 > **動機**: PR #85 の初回 `pnpm push` で bookmark 未設定 → `jj git push` が `Nothing changed` で終了し、158s かけて走った Quality Gate + takt review がすべて無駄になった。jj 環境特有の落とし穴で、決定論的に防止可能。

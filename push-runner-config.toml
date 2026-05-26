@@ -3,6 +3,29 @@
 # pnpm push で起動される push-runner.exe がこのファイルを読み込む。
 # カレントディレクトリ (リポジトリルート) を優先的に検索する。
 
+# ---------------------------------------------------------------------------
+# [scratch_file_warning] — 順位 1 (PR #85 T1-4): scratch ファイル混入の防御層。
+# `@` commit に `__*` 等の scratch ファイルが含まれていないか push 前に検査し、
+# 検出時は push を block する。jj auto-snapshot 環境で .gitignore 漏れがあると
+# scratch ファイルが PR に混入する事故 (PR #85 で実証) の構造的予防。
+#
+# ADR-039 (Experimental feature 標準パターン) 3 点セット:
+# - **Config opt-in**: 試験運用のため default OFF。本リポジトリでは明示的に
+#   `enabled = true` で dogfood を開始。section 不在 / enabled 未設定では完全 skip。
+# - **Kill-switch**: `enabled = false` で完全停止。env `SCRATCH_FILE_WARNING_OVERRIDE=1`
+#   で個別 push の意図的バイパスも可能。
+# - **Bounded lifetime**: 本リポジトリで 3-5 PR の dogfood 後 (false positive 観測 /
+#   検出効果 / override 使用頻度) に default-ON 昇格 or 却下を判定。判定結果は
+#   `src/cli-push-runner/src/stages/scratch_file_warning.rs` module doc + 本 section
+#   コメントに反映する。
+#
+# 順位 5 (AI 生成一時スクリプト pattern) で `_tmp_*` 等の追加 pattern を本 section
+# の `patterns` に追加して拡張する (補完アプローチ、別 PR Bundle 3 で実施)。
+# ---------------------------------------------------------------------------
+[scratch_file_warning]
+enabled = true
+patterns = ["__*"]
+
 [quality_gate]
 parallel = true
 # step_timeout 履歴: 120s (Phase b 当初) → 180s (PR #132、Phase b' で 12 件 mistral invoke が 120s 境界) →

@@ -73,6 +73,7 @@ executable code logic への変更が **無い** こと (= AST 上の関数 body
 | function length / nesting depth / complexity metrics | docs に関数は無い |
 | DRY (code logic 視点) | docs hierarchy は意図的な再記述 (summary + detail) を含む。例外列挙は本 ADR で集約 |
 | YAGNI (code logic 視点) | 計画文書の "future candidates" / "Phase 2 検討" / "rejected alternatives" セクションは speculative ではなく **保管すべき意思決定履歴** |
+| Magic number / hardcoded value | docs 中の数値 (閾値説明 / Phase 番号 / バージョン / 行番号引用等) は説明的記述であり code 内の magic value とは性質が異なるため適用しない。code 例として埋め込まれた数値が `const` 化推奨に該当するか否かは、対応する実 code 側 PR で判定する |
 
 ### facet instructions への反映方針
 

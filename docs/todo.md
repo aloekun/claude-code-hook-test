@@ -279,6 +279,22 @@ SessionStart hook (hooks-session-start.exe 拡張)
 | 失敗ポリシー | **best-effort** (`.failed` marker + SessionStart hook reminder で再実行誘導。must-run ではないので決定論ゲート不要) |
 | アンチパターン | **whole-tree 用 facet を diff 用 facet と共通化しない** (ADR-027 で diff 局所が本質要件のため separation 必須) |
 
+#### 7 観点責務 mapping (2026-05-26 ユーザー合意、AskUserQuestion 経由)
+
+ユーザー希望 7 観点を ADR-031 設計の 3 facets に **prompt 重点配分** で対応。facet 数は増やさず YAGNI + context 圧迫リスク回避 (MVP 維持)。MVP 優先観点は **① ハーネス遵守 + ⑥ テストロジック** で、各 facet prompt の筆頭 criteria に組み込む。
+
+| 観点 | 担当 facet | prompt 重点 |
+|---|---|---|
+| ① ハーネス遵守 (rule < pipeline < hook 重複) | architecture-whole | **MVP 最優先** — facet criteria の筆頭、rule/pipeline/hook 重複検出、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源 |
+| ② docs 内整合性 | architecture-whole の sub criterion | ADR 間 supersedes / cross-reference / todo routing、順位 10 / 95 / 96 と補完 |
+| ③ docs-source 矛盾 | architecture-whole の sub criterion | 重要 ADR 限定リスト (ADR-007 / 012 / 021 / 022 等) で context 圧迫回避 |
+| ④ セキュリティ | security-whole | ADR-031 設計通り、変更なし |
+| ⑤ Todo 妥当性 | **MVP 対象外** (順位 136 hook へ委譲) | hook = 編集時 immediate guard / 週次 = batch 棚卸し で責務分離、Phase B+1 で順位 154 facet として再評価 |
+| ⑥ テストロジック (振る舞い vs 実装詳細、境界) | simplicity-whole | **MVP 最優先** — facet criteria の筆頭、TDD anti-pattern + 境界欠落、順位 38 (cargo-mutants L3 weekly) と cross-validate |
+| ⑦ ファイルサイズ (50KB) | aggregate 前の Rust 機械 pre-step (Phase B+1) | facet 不要、機械検査で十分。順位 154 で順位 95 / 147 と scope 整理 |
+
+**Bundle 戦略**: **Phase B 単体で land** (順位 38 / 95 / 96 は別 PR、PR diff 250-800 行に収める方針)。Phase B+1 で観点 ① ⑤ ⑦ を独立 facet / pre-step に extract する余地を残す (順位 153 / 154 を follow-up 登録済)。
+
 #### 作業計画
 
 ##### Phase B: takt workflow + facets + persona (PR 2)
