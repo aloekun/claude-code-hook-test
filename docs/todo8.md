@@ -10,29 +10,6 @@
 
 ## 現在進行中
 
-### ADR-040 `step_timeout` 説明に sublinear / KV cache locality clarification 追記 (PR #145 T3-#1 採用)
-
-> **動機**: ADR-040 L42-48 の `step_timeout` 説明は「sublinear (3.33x)」と記述したが、本文中に「per-invoke latency が num_ctx に対して概ね線形に拡大する経験則」も併記しており、両者の関係が不明瞭。派生プロジェクトが reference table から 32K = 600s を読む際、なぜ formula `(num_ctx/8192)*180` で導出される 720s と乖離するかが直感的に分からない。clarification として「実測値 600s を正規値として採択、computed 720s は保守上限の目安、sublinear 性の根拠は KV cache locality 効果 (大規模 context で per-token efficiency 向上)」の 2-3 行追記が必要。
->
-> **本タスクの位置づけ**: PR #145 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Low / Effort XS / Adoption Risk None)。永続 ADR の数値整合性確保。
->
-> **参照**: `.claude/feedback-reports/145.md` Tier 3 #1、`docs/adr/adr-040-local-llm-context-size.md` L42-48
-
-#### 作業計画
-
-- [ ] ADR-040 § `step_timeout` 比例係数の根拠 に 2-3 行追記:
-  - 実測値 600s を正規採択、computed 720s は保守上限見積もり
-  - sublinear 性 (3.33x vs context 4x) の根拠 = KV cache locality 効果 (推定)
-  - 派生プロジェクトでの derivation 時は実測 cargo test 経過時間の 2x margin を採用
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-040 の reference table と本文の formula が矛盾なく解釈可能になる
-- 派生プロジェクトの porting 時に sublinear の根拠が永続記録から逆引きできる
-
----
-
 ### rule⑧ への paths filter 適用範囲検討 (順位 102 land 時に意図的保留、follow-up)
 
 > **動機**: 順位 102 (PR #148 想定で land 中、Phase D D-3) で paths filter が lint runner に実装されたが、当初計画した rule⑧ への `paths = ["docs/**/*.md"]` migration は **意図的に保留**。理由: D-2 (PR #146、順位 101) で追加した「root-level MD (CLAUDE.md / README.md) からの `../docs/` 参照を fire = true positive で扱う」design intent が、`paths = ["docs/**/*.md"]` 適用で scope narrow されて壊れる (root-level MD の実 path が docs/ 配下ではないため rule 対象外になり、broken link 検出を失う)。本タスクで以下のいずれを採用するか検討する:
@@ -139,51 +116,6 @@
 #### 詰まっている箇所
 
 なし。Effort XS、global rule への追記のみで副作用最小。
-
----
-
-### ADR-035 に docs-only PR 評価の明示的な適用外基準リストを追加 (PR #156 T3 #2 採用)
-
-> **動機**: ADR-035 は docs-only PR の **分類基準** (どの PR が docs-only か) は定義しているが、**除外される評価観点** (docs-only PR で適用すべきでない code-logic 系評価項目) が明示されていない。PR #156 (Phase E、docs-only) で reviewer が mutation / error handling / test coverage 等の code-logic criteria を docs-only PR に適用しかけて unnecessary review overhead が発生する潜在リスクが観測された。明示することで将来セッションでの reviewer による criteria 誤適用を防止できる。
->
-> **本タスクの位置づけ**: PR #156 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。Severity Medium の根拠 = 誤適用による unnecessary review overhead / 開発体験劣化。`feedback_no_unenforced_rules.md` 例外条件 = ADR (= 設計判断 doc) への追加で機械強制ではなく reviewer / Claude の judgment 補助。
->
-> **参照**: `.claude/feedback-reports/156.md` Tier 3 #2、`docs/adr/adr-035-doc-evaluation-policy.md`
-
-#### 設計決定 (案)
-
-- **配置先**: `docs/adr/adr-035-doc-evaluation-policy.md` 内に新 section 「docs-only PR で適用しない評価観点」を追加
-- **適用外基準リスト (案)**:
-  - **Mutation / immutability**: docs に code mutation は存在しないため適用しない
-  - **Error handling**: docs に error path は存在しないため適用しない
-  - **Test coverage**: docs に test は不要なため適用しない (test 文言の追加自体は除く)
-  - **Function length / complexity**: docs に関数は存在しないため適用しない
-  - **DRY / YAGNI**: docs では intentional な重複・冗長な記述が reader にとって有益な場合があるため適用しない (例: 同じ概念を複数 section で説明する)
-  - **Magic number / hardcoded value**: docs 中の数値は説明的記述で magic ではないため適用しない
-- **適用される評価観点** (既存 ADR-035 で定義済みのものを再確認):
-  - Cross-reference lifecycle (permanent → ephemeral 禁止)
-  - Markdown syntax / lint
-  - Anchor link validity
-  - Retirement workflow 整合
-  - 内容の正確性 / typo
-
-#### 作業計画
-
-- [ ] `docs/adr/adr-035-doc-evaluation-policy.md` の構造確認 (既存 section header の慣習)
-- [ ] 「適用外基準リスト」section を追加
-- [ ] 既存 ADR の評価観点 section との整合性確認 (重複説明の有無、cross-reference の追加)
-- [ ] markdownlint clean 確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- docs-only PR の reviewer / Claude が「mutation / DRY 等は適用しない」を ADR から逆引きできる
-- 将来の docs-only PR 評価で criteria 誤適用が systemic に発生しなくなる
-- markdownlint clean
-
-#### 詰まっている箇所
-
-なし。Effort S、ADR への追記のみで副作用最小。
 
 ---
 
