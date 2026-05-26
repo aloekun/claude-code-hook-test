@@ -461,9 +461,10 @@
 
 - 配置: `src/cli-pr-monitor/src/` の fix chain cleanup phase 末尾 (既存 `CleanupEmptyFixCommit` の後)
 - 動作:
-  1. `jj log -r 'master..@' --no-graph -T 'change_id ++ "\n" ++ description.first_line() ++ "\n---\n"'` で PR 範囲 commit を列挙
-  2. `description = ""` (空) の commit を filter
+  1. `jj log -r 'master..@' --no-graph -T 'change_id ++ "\u{1f}" ++ if(empty, "EMPTY", "CONTENT") ++ "\n"'` で PR 範囲 commit を列挙 (`empty` は jj template の commit 自体が空か判定する keyword)
+  2. 各行を `\u{1f}` (Unit Separator) で分割し、2 列目が `EMPTY` の commit を filter
   3. 該当 commit を `jj abandon <change_id>` で順次 abandon
+  - 注意: `description.first_line()` は description の 1 行目を返すため「全 description 空」と「複数行 description で 1 行目だけ空」を区別できない。実装では jj template の `empty` keyword (= commit が file change を含まないか) を直接使うか、`if(description, "DESCRIBED", "UNDESCRIBED")` で description 有無を判定する設計に固定する
 - scope 限定: `master..@` 範囲のみ (= PR に含まれる範囲)。master 以下は対象外
 - 既存 `CleanupEmptyFixCommit` との関係: 既存は直近 fix commit のみ対象、本 step は全範囲 sweep の補完層
 - fail-open: jj log / abandon の失敗時は warning ログのみで cleanup を継続 (push を block しない)

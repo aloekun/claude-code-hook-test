@@ -78,8 +78,8 @@ fn run_pre_checks(config: &config::Config) -> Result<(), i32> {
     }
     if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {
         log_info(
-            "パイプライン中断: scratch ファイル検出。.gitignore 修正 / ファイル削除 / \
-             SCRATCH_FILE_WARNING_OVERRIDE=1 のいずれかで再実行してください。",
+            "パイプライン中断: scratch ファイル検出。`.gitignore` 修正 / ファイル削除 / \
+             `SCRATCH_FILE_WARNING_OVERRIDE=1` のいずれかで再実行してください。",
         );
         return Err(EXIT_SCRATCH_FILE_WARNING);
     }
