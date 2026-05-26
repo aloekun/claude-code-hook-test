@@ -32,6 +32,22 @@ pub(crate) struct Config {
     pub(crate) lint_screen: Option<LintScreenConfig>,
     pub(crate) takt: TaktConfig,
     pub(crate) push: PushConfig,
+    pub(crate) scratch_file_warning: Option<ScratchFileWarningConfig>,
+}
+
+/// 順位 1 (PR #85 T1-4) — scratch ファイル (`__*` 等) が `@` commit に
+/// 混入していないか push 前に検査する stage の config。
+///
+/// `[scratch_file_warning]` section が TOML に**不在**の場合は default-ON 動作
+/// (= `enabled = true`, `patterns = ["__*"]`)。security-critical かつ漏洩観測前の
+/// preventive 層のため、明示的な opt-out が無い限り検査する。
+///
+/// `patterns` は順位 5 (AI 生成一時スクリプト pattern の pre-push 検出) で
+/// `_tmp_*` 等の追加 pattern を config-driven で拡張可能 (= 補完アプローチ)。
+#[derive(Deserialize)]
+pub(crate) struct ScratchFileWarningConfig {
+    pub(crate) enabled: Option<bool>,
+    pub(crate) patterns: Option<Vec<String>>,
 }
 
 /// Phase c (§8.E lint screen facet) — pre-push 時に diff を mistral:7b に流して
@@ -543,6 +559,7 @@ command = "echo push"
             },
             diff: None,
             lint_screen: None,
+            scratch_file_warning: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
@@ -615,6 +632,7 @@ command = "echo push"
             },
             diff: None,
             lint_screen: None,
+            scratch_file_warning: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
@@ -698,6 +716,82 @@ command = "echo push"
     }
 
     #[test]
+    fn config_parses_with_scratch_file_warning_full() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[scratch_file_warning]
+enabled = true
+patterns = ["__*", "_tmp_*"]
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        let s = config
+            .scratch_file_warning
+            .expect("[scratch_file_warning] should parse to Some");
+        assert_eq!(s.enabled, Some(true));
+        assert_eq!(
+            s.patterns.unwrap(),
+            vec!["__*".to_string(), "_tmp_*".to_string()]
+        );
+    }
+
+    #[test]
+    fn config_parses_with_scratch_file_warning_only_enabled_false() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[scratch_file_warning]
+enabled = false
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        let s = config.scratch_file_warning.unwrap();
+        assert_eq!(s.enabled, Some(false));
+        assert!(s.patterns.is_none());
+    }
+
+    #[test]
+    fn config_scratch_file_warning_absent_yields_none() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(
+            config.scratch_file_warning.is_none(),
+            "absent [scratch_file_warning] should yield None (default-ON 動作は stage 側で解決)"
+        );
+    }
+
+    #[test]
     fn validate_rejects_empty_commands() {
         let config = Config {
             quality_gate: QualityGateConfig {
@@ -711,6 +805,7 @@ command = "echo push"
             },
             diff: None,
             lint_screen: None,
+            scratch_file_warning: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),

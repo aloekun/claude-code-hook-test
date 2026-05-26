@@ -1,6 +1,7 @@
 ﻿//! Push Runner — takt ベースの pre-push パイプライン
 //!
 //! pnpm push から呼び出され、以下のステージを実行する:
+//!   Stage 0:   scratch_file_warning — `__*` 等の scratch ファイル混入を検査 (順位 1)
 //!   Stage 1:   quality_gate — TOML で定義されたコマンド群をグループ間で並列実行
 //!   Stage 1.5: diff         — jj diff を取得しファイルに書き出し（reviewers が Read で参照）
 //!   Stage 2:   takt         — AI レビュー（reviewers → fix loop）
@@ -15,6 +16,7 @@
 //!   3 - push 失敗
 //!   4 - 設定エラー
 //!   5 - diff 取得失敗
+//!   6 - scratch_file_warning 検出 (override env で bypass 可能)
 
 mod config;
 mod log;
@@ -25,7 +27,10 @@ use std::time::Instant;
 
 use config::load_config;
 use log::log_info;
-use stages::{run_diff, run_lint_screen, run_push, run_quality_gate, run_takt, DiffResult};
+use stages::{
+    run_diff, run_lint_screen, run_push, run_quality_gate, run_scratch_file_warning, run_takt,
+    DiffResult,
+};
 
 const EXIT_SUCCESS: i32 = 0;
 const EXIT_QUALITY_GATE_FAILURE: i32 = 1;
@@ -33,6 +38,7 @@ const EXIT_TAKT_FAILURE: i32 = 2;
 const EXIT_PUSH_FAILURE: i32 = 3;
 const EXIT_CONFIG_ERROR: i32 = 4;
 const EXIT_DIFF_FAILURE: i32 = 5;
+const EXIT_SCRATCH_FILE_WARNING: i32 = 6;
 
 /// diff stage を実行し lint-screen を呼び出す。
 /// Ok(skip_takt) で成功、 Err(exit_code) で pipeline 中断。
@@ -70,10 +76,18 @@ fn run_pipeline() -> i32 {
 
     let has_diff = config.diff.is_some();
     log_info(&format!(
-        "パイプライン開始: quality_gate → {} takt ({}) → push",
+        "パイプライン開始: scratch → quality_gate → {} takt ({}) → push",
         if has_diff { "diff →" } else { "" },
         config.takt.workflow,
     ));
+
+    if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {
+        log_info(
+            "パイプライン中断: scratch ファイル検出。.gitignore 修正 / ファイル削除 / \
+             SCRATCH_FILE_WARNING_OVERRIDE=1 のいずれかで再実行してください。",
+        );
+        return EXIT_SCRATCH_FILE_WARNING;
+    }
 
     if !run_quality_gate(&config.quality_gate) {
         log_info("パイプライン中断: quality_gate 失敗。問題を修正して再実行してください。");

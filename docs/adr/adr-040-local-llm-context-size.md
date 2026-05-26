@@ -45,7 +45,13 @@ ephemeral artifact (旧 analysis.md) には permanent data を残さない原則
 
 - Phase b' (8K): 180s で 12 件 mistral invoke (`cargo test --ignored`) を完走
 - Phase C (32K): 269s 観測 (= 180s 超過、cargo test 全体) → 600s に拡大
-- per-invoke latency が num_ctx に対して概ね線形に拡大する経験則 (overflow 解消後の純粋な inference time)
+- per-invoke latency は num_ctx に対して**ほぼ線形**だが、KV cache locality 効果でわずかに sublinear (`22 ms/token` → `18.3 ms/token`、17% 改善)
+
+**実測値 vs 線形 derivation の使い分け** (派生プロジェクトでの porting 時の判断指針):
+
+- **実測値 (600s) を正規採択**: Phase C cargo test で 269s 観測 → 2x safety margin で 600s。本 ADR が定義する canonical 値。
+- **線形 derivation (= 720s) は保守上限見積もり**: per-token 不変仮定 (`22 ms/token × 32768 = 721s`) は KV cache locality を無視するため過大評価。新規 model / 未測定環境での fallback ceiling として使う。
+- sublinear 性の根拠は KV cache locality 効果 (推定) で model-specific。別 model (llama2:13b 等) では再 calibration 必須。
 
 **reference 値** (派生プロジェクトでの derivation 用):
 

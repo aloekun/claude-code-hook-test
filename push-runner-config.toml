@@ -3,6 +3,19 @@
 # pnpm push で起動される push-runner.exe がこのファイルを読み込む。
 # カレントディレクトリ (リポジトリルート) を優先的に検索する。
 
+# ---------------------------------------------------------------------------
+# [scratch_file_warning] — 順位 1 (PR #85 T1-4): scratch ファイル混入の防御層。
+# `@` commit に `__*` 等の scratch ファイルが含まれていないか push 前に検査し、
+# 検出時は push を block する。jj auto-snapshot 環境で .gitignore 漏れがあると
+# scratch ファイルが PR に混入する事故 (PR #85 で実証) の構造的予防。
+# section 不在時は default-ON 動作 (enabled=true, patterns=["__*"])。
+# Override: env SCRATCH_FILE_WARNING_OVERRIDE=1 で意図的バイパス可能。
+# 順位 5 で _tmp_* 等の追加 pattern を本 section の patterns に追加して拡張する。
+# ---------------------------------------------------------------------------
+[scratch_file_warning]
+enabled = true
+patterns = ["__*"]
+
 [quality_gate]
 parallel = true
 # step_timeout 履歴: 120s (Phase b 当初) → 180s (PR #132、Phase b' で 12 件 mistral invoke が 120s 境界) →
