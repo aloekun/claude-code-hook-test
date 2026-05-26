@@ -65,6 +65,20 @@
   - **継続**: 期限内に判定が出ない場合、計画書側に新たな期限と判定基準を記述 (1 回まで延長可)
 - bounded lifetime を欠いた試験運用は「永遠の試験運用」化し、累積複雑度の温床になる
 
+#### 明示的 decision trigger の必須化 (PR #174 採用、Bundle 1 実例)
+
+試験期限は「期限 OR 条件 OR PR 数」のいずれかで **明示的 decision trigger 化** する。任意の "未来の判定" (= 形式不明の「いずれ判断する」記述) は禁止し、reviewer / 後継 Claude session が判定タイミングを一意に決定できる構造にする:
+
+- **PR 数ベース**: 「N-M PR の dogfood 後に判定」 (例: PR #174 `scratch_file_warning` = 「3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定」)
+- **期限ベース**: 「YYYY-MM-DD 経過で却下とみなす」「6 ヶ月経過しても採用判定未達なら却下」
+- **条件ベース**: 「false positive 5 件以上で却下」「latency p95 が X ms 超で却下」
+
+decision trigger は **config (TOML コメント) / code comment (module doc) / PR body** のいずれかで永続記録する。ephemeral 計画書 (`docs/<topic>-analysis.md` 等) だけに記述すると retire 時に dead pointer 化するため不可 ([coding-style.md § Cross-File Reference Lifecycle](../../CLAUDE.md) 参照)。
+
+参考実装: PR #174 では `push-runner-config.toml` の `[scratch_file_warning]` section コメント + `scratch_file_warning.rs` module doc の 2 箇所で trigger を明示 (永続性確保 + 検索容易性)。
+
+既存試験運用 ADR (014/023/025/029/030/031/033/034/036/037/038) の bounded lifetime 記述に formless な箇所があれば、後続 PR で個別に追補する。
+
 ## 帰結
 
 ### 利点
