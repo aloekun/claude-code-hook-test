@@ -447,6 +447,171 @@
 
 ---
 
+### cli-pr-monitor fix chain 末尾に空 commit 検査 + `jj abandon` step を追加 (PR #174 T1-#1 採用)
+
+> **動機**: PR #174 で post-pr-monitor の `CleanupEmptyFixCommit` action 後に、別の空 commit (`kqvluqyv`) が祖父コミット位置に残存し、後続の Bundle 1 Minor fix push 時に PR diff を汚染する事象を観測。cleanup ロジックが「fix chain で直近 create された空 commit」のみ対象にしており、過去の空 commit を見逃す構造的欠陥が明らかになった。手動 `jj abandon` で 1 件解消したが、機械強制すべき。
+>
+> **本タスクの位置づけ**: PR #174 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。cli-pr-monitor の cleanup phase に「`jj log --no-graph` で空 description の commit を検出 → 全て abandon」step を追加し、空 commit による PR diff 汚染を構造的に予防する。
+>
+> **参照**: `.claude/feedback-reports/174.md` Tier 1 #1、PR #174 で観測した `kqvluqyv` 事例 (Bundle 1 fix loop 中に手動 abandon)、`src/cli-pr-monitor/src/`
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。cli-pr-monitor fix chain への追加 step 1 件、機械強制で重複事故を防止。
+
+#### 設計決定 (案)
+
+- 配置: `src/cli-pr-monitor/src/` の fix chain cleanup phase 末尾 (既存 `CleanupEmptyFixCommit` の後)
+- 動作:
+  1. `jj log -r 'master..@' --no-graph -T 'change_id ++ "\n" ++ description.first_line() ++ "\n---\n"'` で PR 範囲 commit を列挙
+  2. `description = ""` (空) の commit を filter
+  3. 該当 commit を `jj abandon <change_id>` で順次 abandon
+- scope 限定: `master..@` 範囲のみ (= PR に含まれる範囲)。master 以下は対象外
+- 既存 `CleanupEmptyFixCommit` との関係: 既存は直近 fix commit のみ対象、本 step は全範囲 sweep の補完層
+- fail-open: jj log / abandon の失敗時は warning ログのみで cleanup を継続 (push を block しない)
+
+#### 作業計画
+
+- [ ] cli-pr-monitor の cleanup phase 実装箇所を特定 (`CleanupEmptyFixCommit` action の呼び出し元)
+- [ ] 空 commit 列挙ロジック (jj log + description filter) を追加
+- [ ] abandon ループ + error handling 実装
+- [ ] test 拡充: 空 commit 0 件 / 1 件 / 複数件 / 非空 commit のみ / mixed
+- [ ] `pnpm build:cli-pr-monitor` で release 生成 + dogfood (次の PR で同様の状況を作って動作確認)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- post-pr-monitor の cleanup phase 完了時に PR 範囲内の空 commit が全て abandon される
+- 既存 `CleanupEmptyFixCommit` action と non-regression
+- dogfood で空 commit 自動 cleanup が動作確認される
+
+#### 詰まっている箇所
+
+なし。Effort S、既存 cleanup phase への追加 step で副作用最小。
+
+---
+
+### `effective_patterns()` の空 variant test 4 件を直交化 (PR #174 T2-#1 採用)
+
+> **動機**: PR #174 で CR Minor finding (outside-diff-range) で「空文字要素を含む patterns で default fallback しない edge case」が指摘され、Minor fix push で `trim + filter blank` を追加した。fix 時に追加した test 3 件 (`only_blank_entries` / `filters_blank_entries_and_keeps_valid_ones` / `trims_whitespace_in_pattern_values`) は機能網羅しているが、各 filter path (element-level trim / element-level empty filter / collection-level empty filter) の直交検証が部分的。将来の `effective_patterns()` 変更時に 1 path だけ regression した場合、複数 test が同時失敗して原因切り分けが困難になる懸念。
+>
+> **本タスクの位置づけ**: PR #174 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。4 variant (`all_blank` / `mixed_blank_and_valid` / `whitespace_padded` / `mixed_filter_to_empty`) を独立 test として直交化し、各 filter path の単独失敗で原因が即特定できる構造にする。memory `feedback_test_dry_antipattern.md` (テストで DRY を適用しない) の実例運用。
+>
+> **参照**: `.claude/feedback-reports/174.md` Tier 2 #1、PR #174 CR Minor finding (outside-diff-range)、`src/cli-push-runner/src/stages/scratch_file_warning.rs` (現状の 3 test)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。test 拡充 1 ファイル、~30 行追加。
+
+#### 設計決定 (案)
+
+- 配置: `src/cli-push-runner/src/stages/scratch_file_warning.rs` の `#[cfg(test)] mod tests` 内
+- 4 variant の直交 test:
+  1. **all_blank**: `patterns = ["", "  ", "\t"]` → 全要素 blank、collection-level empty filter で default fallback
+  2. **mixed_blank_and_valid**: `patterns = ["", "__*", "  ", "_tmp_*"]` → element-level filter で blank 除去、残りが valid set
+  3. **whitespace_padded**: `patterns = ["  __*  "]` → element-level trim で whitespace 除去、残った "__*" が valid
+  4. **mixed_filter_to_empty**: `patterns = ["  ", "\t"]` → element-level filter で全消去、collection-level empty で default
+- 既存 3 test との関係: 既存 test の一部 (例: `only_blank_entries`, `filters_blank_entries_and_keeps_valid_ones`) は variant 1, 2 と機能重複するが、命名を「filter path 直交」に揃えるリネーム or 統合を判断
+- DRY anti-pattern を避け、各 variant は独立 fixture で記述 (memory `feedback_test_dry_antipattern.md`)
+
+#### 作業計画
+
+- [ ] 既存 3 test の filter path カバレッジを確認 (どの path を test しているか map)
+- [ ] 4 直交 variant の test 関数を追加 (既存と命名衝突しないよう調整)
+- [ ] 既存 test と新規 test の重複検出 → 既存を残しつつ補完 or 既存をリネーム
+- [ ] cargo test で 4 件 pass 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 4 filter path を各 1 test で独立検証
+- 1 path のみ regression した場合に 1 test だけ failed する構造 (memory rule 「early-return guard test 分離」と同思想)
+- 既存 test と non-regression
+
+#### 詰まっている箇所
+
+なし。Effort S、test 拡充のみで実装変更不要。
+
+---
+
+### Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)
+
+> **動機**: PR #174 で実装した `scratch_file_warning` stage は ADR-039 § 3 Bounded lifetime 準拠で「3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定」する設計。PR #174 の PR body に未消化の dogfood checklist が残っており (`__test.ps1` を意図的に作って push し block 動作確認 / override env でバイパス確認)、これが ADR-039 bounded lifetime の初回データポイント。次の PR (Bundle 2 等) merge 前の前提条件として消化が必要。
+>
+> **本タスクの位置づけ**: PR #174 post-merge-feedback Tier 2 #2 採用 (Severity Low / Frequency Low / Effort XS / Adoption Risk None)。manual operation で完結、Bundle 1 自身の運用検証 + ADR-039 bounded lifetime 体系の初回稼働確認。
+>
+> **参照**: `.claude/feedback-reports/174.md` Tier 2 #2、PR #174 PR body の Test Plan unchecked items、`docs/adr/adr-039-experimental-feature-standard-pattern.md` § 3 Bounded lifetime、`src/cli-push-runner/src/stages/scratch_file_warning.rs` (`SCRATCH_FILE_WARNING_OVERRIDE` env)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort XS。手動 dogfood 1 セット、~10 分。
+
+#### 設計決定 (案)
+
+- 手順:
+  1. ローカル working dir に `__test_dummy.ps1` (or `.txt`) を作成 (中身は無害な dummy)
+  2. `jj describe -m "test: scratch hook dogfood"` 等で commit
+  3. `pnpm push` を実行 → scratch_file_warning stage が block する (EXIT_SCRATCH_FILE_WARNING = 6) を確認
+  4. `$env:SCRATCH_FILE_WARNING_OVERRIDE = "1"; pnpm push` で override → 通過確認
+  5. dogfood 完了後、`__test_dummy.ps1` ファイル削除 + commit abandon で working dir clean
+- 記録: dogfood 結果 (block message / override 動作 / false positive 有無) を Bundle 2 PR body に「ADR-039 bounded lifetime data point #1」として記載
+- 注意: 本 dogfood は本リポジトリで実施。派生プロジェクトへの deploy 後の dogfood は別タスク (派生プロジェクト側の bounded lifetime data point として記録)
+
+#### 作業計画
+
+- [ ] `__test_dummy.ps1` を working dir に作成
+- [ ] `jj describe + pnpm push` で block 動作確認
+- [ ] `$env:SCRATCH_FILE_WARNING_OVERRIDE = "1"; pnpm push` で override 動作確認
+- [ ] cleanup: `__test_dummy.ps1` 削除 + commit abandon
+- [ ] 結果を Bundle 2 PR body に記録
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- block 動作: scratch_file_warning stage が `__test_dummy.ps1` を検出し EXIT 6 で push を block する
+- override 動作: env var 設定後に同 stage を通過、push が成功する
+- ADR-039 bounded lifetime data point #1 が記録される
+
+#### 詰まっている箇所
+
+なし。Effort XS、manual operation で完結。
+
+---
+
+### ADR-039 に「bounded lifetime に明示的 decision trigger 必須化」パターンを追記 (PR #174 T3-#1 採用)
+
+> **動機**: PR #174 で `scratch_file_warning` stage の bounded lifetime を「3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定」と code comment + config TOML + PR body で明示した。この「明示的 decision trigger (PR 数 / 日付 / 条件)」を ADR-039 § 3 Bounded lifetime に reusable pattern として codify することで、将来の experimental feature 実装時にも同型の trigger 明文化が確実になる (現状は ADR-039 既存 text が trigger 形式を任意としており、formless な「未来の判定」で永遠の試験運用化リスク残存)。
+>
+> **本タスクの位置づけ**: PR #174 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。Frequency Medium = 実験的機能は複数 PR にまたがって登場する性質。`feedback_no_unenforced_rules.md` 例外 = ADR (= 設計判断 doc) への追加で機械強制ではなく reviewer / Claude の judgment 補助、PR #174 で実装実例あり (= 既存実践の明文化)。
+>
+> **参照**: `.claude/feedback-reports/174.md` Tier 3 #1、PR #174 (`push-runner-config.toml` の `[scratch_file_warning]` section コメント + `scratch_file_warning.rs` module doc の "3-5 PR dogfood" 記述)、`docs/adr/adr-039-experimental-feature-standard-pattern.md` § 3 Bounded lifetime
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。ADR への 1 paragraph 追記。
+
+#### 設計決定 (案)
+
+- 配置: `docs/adr/adr-039-experimental-feature-standard-pattern.md` § 3 Bounded lifetime の既存 bullet list 末尾に「decision trigger の明示化要件」を追加
+- 追記内容案 (3-5 行):
+  - 試験期限を「期限 OR 条件 OR PR 数」のいずれかで明示的 trigger 化する (任意の "未来" 判定は禁止)
+  - 例: 「3-5 PR の dogfood 後に判定」(PR #174 `scratch_file_warning` の実例)、「6 ヶ月経過で却下とみなす」(既存 text)、「false positive 5 件以上で却下」等
+  - decision trigger は config / code comment / PR body のいずれかで永続記録 (ephemeral 計画書だけでは retire 時に dead pointer 化リスク)
+  - 既存試験運用 ADR (014/023/025/029/030/031/033/034/036/037/038) の bounded lifetime も再評価し、formless な記述があれば後続 PR で追補
+- PR #174 を実例参照として ADR-039 内に 1-line cite 推奨
+
+#### 作業計画
+
+- [ ] ADR-039 § 3 Bounded lifetime の現行 text を確認
+- [ ] 「decision trigger 明示化要件」3-5 行を追記
+- [ ] PR #174 を実例として 1-line 引用
+- [ ] markdownlint clean 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-039 § 3 Bounded lifetime に「明示的 decision trigger 必須化」要件が明文化される
+- 将来の experimental feature 実装時に formless な bounded lifetime 記述を ADR 違反として指摘可能になる
+- PR #174 が実例として ADR から逆引きできる
+
+#### 詰まっている箇所
+
+なし。Effort S、ADR への追記のみで副作用最小。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
