@@ -94,8 +94,14 @@ pub(crate) fn run_scratch_file_warning(config: Option<&ScratchFileWarningConfig>
 fn effective_patterns(config: Option<&ScratchFileWarningConfig>) -> Vec<String> {
     config
         .and_then(|c| c.patterns.as_ref())
-        .filter(|p| !p.is_empty())
-        .cloned()
+        .map(|patterns| {
+            patterns
+                .iter()
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|patterns| !patterns.is_empty())
         .unwrap_or_else(|| vec![DEFAULT_PATTERN.to_string()])
 }
 
@@ -469,5 +475,40 @@ mod tests {
             effective_patterns(Some(&config)),
             vec!["__*".to_string(), "_tmp_*".to_string()]
         );
+    }
+
+    #[test]
+    fn effective_patterns_default_when_only_blank_entries() {
+        let config = ScratchFileWarningConfig {
+            enabled: Some(true),
+            patterns: Some(vec!["".to_string(), "   ".to_string()]),
+        };
+        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
+    }
+
+    #[test]
+    fn effective_patterns_filters_blank_entries_and_keeps_valid_ones() {
+        let config = ScratchFileWarningConfig {
+            enabled: Some(true),
+            patterns: Some(vec![
+                "".to_string(),
+                "__*".to_string(),
+                "   ".to_string(),
+                "_tmp_*".to_string(),
+            ]),
+        };
+        assert_eq!(
+            effective_patterns(Some(&config)),
+            vec!["__*".to_string(), "_tmp_*".to_string()]
+        );
+    }
+
+    #[test]
+    fn effective_patterns_trims_whitespace_in_pattern_values() {
+        let config = ScratchFileWarningConfig {
+            enabled: Some(true),
+            patterns: Some(vec!["  __*  ".to_string()]),
+        };
+        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
     }
 }
