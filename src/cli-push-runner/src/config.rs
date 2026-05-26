@@ -38,12 +38,14 @@ pub(crate) struct Config {
 /// 順位 1 (PR #85 T1-4) — scratch ファイル (`__*` 等) が `@` commit に
 /// 混入していないか push 前に検査する stage の config。
 ///
-/// `[scratch_file_warning]` section が TOML に**不在**の場合は default-ON 動作
-/// (= `enabled = true`, `patterns = ["__*"]`)。security-critical かつ漏洩観測前の
-/// preventive 層のため、明示的な opt-out が無い限り検査する。
+/// ADR-039 (Experimental feature 標準パターン) § 1 Config opt-in 準拠:
+/// `[scratch_file_warning]` section 不在 / `enabled` 未設定 / `enabled = false`
+/// のいずれも検査を **skip** (= default `enabled = false`)。明示的に `enabled = true`
+/// にしたときのみ検査実行 (3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定)。
 ///
 /// `patterns` は順位 5 (AI 生成一時スクリプト pattern の pre-push 検出) で
 /// `_tmp_*` 等の追加 pattern を config-driven で拡張可能 (= 補完アプローチ)。
+/// `patterns` 未設定時の default は `["__*"]` (= stage 側 `DEFAULT_PATTERN`)。
 #[derive(Deserialize)]
 pub(crate) struct ScratchFileWarningConfig {
     pub(crate) enabled: Option<bool>,

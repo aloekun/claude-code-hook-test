@@ -1,11 +1,19 @@
 //! Scratch file warning stage — 順位 1 (PR #85 T1-4)
 //!
-//! `@` commit に scratch-pattern ファイル (default: `__*`) が含まれていないか検査し、
-//! 検出時は warning + block で push を停止する。jj は auto-snapshot で working tree
-//! を即 commit に取り込むため、`.gitignore` 漏れがあると scratch ファイルが PR に
-//! 意図せず混入する (PR #85 で `__parse_transcripts.ps1` 実例)。
+//! `@` commit に scratch-pattern ファイル (default pattern: `__*`) が含まれていないか
+//! 検査し、検出時は warning + block で push を停止する。jj は auto-snapshot で
+//! working tree を即 commit に取り込むため、`.gitignore` 漏れがあると scratch
+//! ファイルが PR に意図せず混入する (PR #85 で `__parse_transcripts.ps1` 実例)。
 //!
-//! Override: env var `SCRATCH_FILE_WARNING_OVERRIDE=1` で意図的バイパス可能。
+//! ADR-039 (Experimental feature 標準パターン) 準拠の 3 点セット:
+//! - **Config opt-in**: 試験運用のため default `enabled = false`、`[scratch_file_warning]`
+//!   section で明示的に `enabled = true` にしないと検査は走らない。section 不在 /
+//!   enabled 未指定の場合も skip (= 完全 no-op)。
+//! - **Kill-switch**: `enabled = false` (TOML) または env override
+//!   `SCRATCH_FILE_WARNING_OVERRIDE=1` で意図的バイパス可能。
+//! - **Bounded lifetime**: 3-5 PR の dogfood で false positive / 検出効果を観測後、
+//!   default-ON 昇格 or 却下を判定 (詳細は push-runner-config.toml の
+//!   `[scratch_file_warning]` section コメント参照)。
 //!
 //! Stage 配置: `run_pipeline` の最早期 (quality_gate より前)。検出時は quality_gate
 //! や takt review を無駄に走らせず即停止する。
@@ -26,13 +34,14 @@ const DEFAULT_PATTERN: &str = "__*";
 /// `[scratch_file_warning]` config の有無に応じて検査を実行し、
 /// push を続行してよいか (= violation なし or override active) を返す。
 ///
-/// `None` は section 不在を意味し、default-ON 動作 (= 検査を実行、patterns=["__*"])。
-/// `Some(c)` で `c.enabled = Some(false)` の場合のみ完全 skip。
+/// ADR-039 § 1 Config opt-in 準拠: default `enabled = false` (試験運用)。
+/// section 不在 / `c.enabled = None` / `c.enabled = Some(false)` のいずれも skip。
+/// 明示的に `c.enabled = Some(true)` のときのみ検査を実行。
 ///
 /// fail-open: jj 不調 (timeout / 起動失敗) 時は warning ログのみで true を返し、
 /// push 自体は止めない。
 pub(crate) fn run_scratch_file_warning(config: Option<&ScratchFileWarningConfig>) -> bool {
-    let enabled = config.and_then(|c| c.enabled).unwrap_or(true);
+    let enabled = config.and_then(|c| c.enabled).unwrap_or(false);
     if !enabled {
         return true;
     }
