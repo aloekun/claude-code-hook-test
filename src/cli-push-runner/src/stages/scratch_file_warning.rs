@@ -20,7 +20,16 @@
 //!
 //! Config-driven pattern: `[scratch_file_warning]` section で `patterns` を拡張可能。
 //! 順位 5 (AI 生成一時スクリプト pattern の pre-push 検出) は本 stage の patterns
-//! 拡張 (例: `_tmp_*`) + ADR-007 連携で補完的に実装する。
+//! 拡張で補完的に実装する設計 (Bundle 3 で `_tmp_*` 追加済)。
+//!
+//! ADR-007 (custom linter layer boundary) との関係:
+//! - 本 stage = pre-push 時点で `@` commit 内の file path を `jj file list -r @` で
+//!   列挙して basename match で検査 (= push 直前の最終防衛層)
+//! - ADR-007 § custom_lint_rule = PostToolUse hook で AI が edit/write した瞬間に
+//!   text 内容を regex で検査 (= 編集時の即時検出層)
+//! 両者は異なる timing / 検査対象で動作し、scratch file 検出は本 stage に集約。
+//! scratch file は通常 .gitignore 対象で text content 検査の対象外のため、
+//! file existence 検査である本 stage に責務を分離している。
 
 use std::process::Command;
 
@@ -418,6 +427,45 @@ mod tests {
         let files = vec!["__src/main.rs".to_string()];
         let patterns = vec!["__*".to_string()];
         assert!(find_violations(&files, &patterns).is_empty());
+    }
+
+    #[test]
+    fn find_violations_detects_tmp_prefix_pattern() {
+        let files = vec![
+            "_tmp_dump.txt".to_string(),
+            "_tmp_log.ps1".to_string(),
+            "_tmp_script.py".to_string(),
+            "src/main.rs".to_string(),
+        ];
+        let patterns = vec!["_tmp_*".to_string()];
+        let violations = find_violations(&files, &patterns);
+        assert_eq!(violations.len(), 3);
+        assert!(violations.contains(&"_tmp_dump.txt".to_string()));
+        assert!(violations.contains(&"_tmp_log.ps1".to_string()));
+        assert!(violations.contains(&"_tmp_script.py".to_string()));
+    }
+
+    #[test]
+    fn find_violations_with_dunder_and_tmp_patterns_combined() {
+        let files = vec![
+            "__scratch.ps1".to_string(),
+            "_tmp_dump.txt".to_string(),
+            "src/main.rs".to_string(),
+            "Cargo.toml".to_string(),
+        ];
+        let patterns = vec!["__*".to_string(), "_tmp_*".to_string()];
+        let violations = find_violations(&files, &patterns);
+        assert_eq!(violations.len(), 2);
+        assert!(violations.contains(&"__scratch.ps1".to_string()));
+        assert!(violations.contains(&"_tmp_dump.txt".to_string()));
+    }
+
+    #[test]
+    fn find_violations_tmp_pattern_does_not_match_underscore_only() {
+        let files = vec!["_underscore_var.txt".to_string(), "_tmp.txt".to_string()];
+        let patterns = vec!["_tmp_*".to_string()];
+        let violations = find_violations(&files, &patterns);
+        assert!(violations.is_empty());
     }
 
     #[test]

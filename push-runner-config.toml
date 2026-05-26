@@ -20,11 +20,19 @@
 #   コメントに反映する。
 #
 # 順位 5 (AI 生成一時スクリプト pattern) で `_tmp_*` 等の追加 pattern を本 section
-# の `patterns` に追加して拡張する (補完アプローチ、別 PR Bundle 3 で実施)。
+# の `patterns` に追加する (補完アプローチ)。Bundle 3 で `_tmp_*` を追加済。
+#
+# ADR-007 (custom linter layer boundary) との関係:
+# - 本 stage (`scratch_file_warning`) = pre-push 時点で `@` commit に含まれる
+#   ファイルを `jj file list -r @` で列挙し検査 (= push 直前の最終防衛層)
+# - ADR-007 § custom_lint_rule = PostToolUse hook で AI が edit/write した瞬間に
+#   text 内容を regex で検査 (= 編集時の即時検出層)
+# 両者は異なる timing で動作し、scratch file 検出は本 stage に集約する設計
+# (scratch file は通常 .gitignore 対象で text content 検査の対象外のため)。
 # ---------------------------------------------------------------------------
 [scratch_file_warning]
 enabled = true
-patterns = ["__*"]
+patterns = ["__*", "_tmp_*"]
 
 [quality_gate]
 parallel = true
