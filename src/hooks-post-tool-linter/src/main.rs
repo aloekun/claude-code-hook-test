@@ -2630,6 +2630,91 @@ extensions = ["ts", "js"]
         );
     }
 
+    fn no_jj_template_first_line_rule() -> CustomRule {
+        make_test_rule(
+            "no-jj-template-first-line",
+            r"description\.first_line\(\)",
+            &["toml", "yaml", "md"],
+        )
+    }
+
+    fn build_first_line_fixture(label: &str) -> String {
+        let bad_method = format!("description{}{}", ".", "first_line()");
+        format!("{} = \"jj log -T 'change_id ++ {}'\"\n", label, bad_method)
+    }
+
+    fn build_empty_keyword_fixture(label: &str) -> String {
+        format!(
+            "{} = \"jj log -T 'change_id ++ if(empty, EMPTY, CONTENT)'\"\n",
+            label
+        )
+    }
+
+    #[test]
+    fn no_jj_template_first_line_detects_toml_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "rule.toml",
+            &build_first_line_fixture("command"),
+        );
+        let rules = compile_test_rules(vec![no_jj_template_first_line_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_jj_template_first_line_toml_skips_empty_keyword() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "rule.toml",
+            &build_empty_keyword_fixture("command"),
+        );
+        let rules = compile_test_rules(vec![no_jj_template_first_line_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn no_jj_template_first_line_detects_yaml_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "workflow.yaml",
+            &build_first_line_fixture("template"),
+        );
+        let rules = compile_test_rules(vec![no_jj_template_first_line_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_jj_template_first_line_yaml_skips_empty_keyword() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "workflow.yaml",
+            &build_empty_keyword_fixture("template"),
+        );
+        let rules = compile_test_rules(vec![no_jj_template_first_line_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn no_jj_template_first_line_detects_md_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "doc.md",
+            &build_first_line_fixture("snippet"),
+        );
+        let rules = compile_test_rules(vec![no_jj_template_first_line_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
     fn collect_rust_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let entries = match std::fs::read_dir(root) {
             Ok(e) => e,

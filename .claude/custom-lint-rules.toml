@@ -530,3 +530,60 @@ rs = [
   "no_write_result_discard_skips_named_binding_starting_with_underscore",
   "no_write_result_discard_only_targets_rust_extension",
 ]
+
+# ─── ルール⑪: jj template の `first_line()` メソッド使用禁止 (曖昧性防止) ───
+#
+# 由来: PR #175 で 順位 155 entry の design を書いた際、`jj log` template に
+# `description` の `first_line()` メソッドと filter `description = ""` を組合せたが、
+# 両者は意味的に整合せず CR Minor finding で「全 description 空」vs「複数行 description で
+# 1 行目だけ空」を区別できない曖昧性を指摘された。ad-hoc fix で `empty` keyword +
+# `\u{1f}` Unit Separator 設計に変更したが、別の場所で同型ミスを書く可能性が残る。
+# 同パターン自体を lint で禁止し、`empty` keyword 利用を促進する構造化予防
+# (Bundle 3 順位 159 = PR #175 T1-#1 採用)。
+#
+# Bundle Z #B-α と同じ「決定論的防止層」哲学 (ADR-007 の正規表現層)。
+#
+# Pattern scope: jj template DSL 固有のため false positive 極小。Rust code 中の
+# 同名メソッド呼出は理論上 hit するが、extensions = ["toml", "yaml", "md"]
+# (= jj template 記述場所) に限定するため .rs file は対象外。
+#
+# Self-exclusion (重要): 本 TOML は extensions = ["toml"] により対象内のため、
+# message / why / example / コメント内で pattern 文字列 (description ドット
+# first_line 括弧) を**連続して**書かないこと。「description の first_line()」
+# のように間に文字を挟む形で記述する (placeholder 形式は使わない、Rust regex は
+# 単純 literal match のため間に何かあれば trigger しない)。
+
+[[rules]]
+id = "no-jj-template-first-line"
+pattern = 'description\.first_line\(\)'
+severity = "error"
+message = "jj template で `description` の `first_line` メソッドは曖昧性を生みます (= 「全 description 空」と「複数行 description で 1 行目だけ空」を区別不可)"
+why = "PR #175 で order 155 entry 内の jj template / filter logic 不整合が CodeRabbit Minor 指摘で発覚。`empty` keyword (= commit が file change を含まないか) または `if(description, \"DESCRIBED\", \"UNDESCRIBED\")` で意味を明示してください"
+extensions = ["toml", "yaml", "md"]
+
+[rules.fix]
+strategy = "`empty` keyword または `if(description, ...)` への置換"
+steps = [
+  "commit が file change を含むかで判定したい場合: jj template の `empty` keyword を使う (例: `if(empty, \"EMPTY\", \"CONTENT\")`)",
+  "commit が description を持つかで判定したい場合: `if(description, \"DESCRIBED\", \"UNDESCRIBED\")` を使う",
+  "あえて 1 行目のみ抽出が必要な場合 (display 用途等): コメントで意図を明記し、filter logic 側で同じ抽象を使う",
+]
+
+[rules.example]
+bad = "jj log -T 'change_id ++ DESC_DOT_FIRSTLINE'  # placeholder: 実コードでは description . first_line() = 曖昧性"
+good = "jj log -T 'change_id ++ if(empty, \"EMPTY\", \"CONTENT\")'  # commit 自体が file change を含むかで判定"
+
+[rules.test_coverage]
+# rule⑪ は jj template が書かれうる主要 file 形式 (toml/yaml/md) を対象。
+# toml/yaml は主要拡張子のため main_ext_tests、md は非主要のため other_ext_tests。
+other_ext_tests = ["no_jj_template_first_line_detects_md_pattern"]
+
+[rules.test_coverage.main_ext_tests]
+toml = [
+  "no_jj_template_first_line_detects_toml_pattern",
+  "no_jj_template_first_line_toml_skips_empty_keyword",
+]
+yaml = [
+  "no_jj_template_first_line_detects_yaml_pattern",
+  "no_jj_template_first_line_yaml_skips_empty_keyword",
+]

@@ -105,6 +105,38 @@ fn enrich_with_classifier_skips_when_findings_empty() {
 - **右 arm test**: `PrMonitorState::new()` の自然な初期値 (`findings` 空) を使うが、**precondition assert** で「左 arm が確実に不発になる」ことを test 内で文書化 + 機械検証
 - 両 variant とも `classified_findings` を sentinel で pre-populate し、mutation 不発を survival assert で検出
 
+## 関連 pattern: State Preservation Invariant (write-once 不変式)
+
+ADR-041 本体の Multi-Condition Guards とは **別 pattern class** として、`cli-pr-monitor` の state preservation 設計でも類似の test isolation 問題が発生する。本 section は PR #168/169/170 の連続観測で抽出された pattern を codify し、派生プロジェクトへの transferability を確保する (順位 142 採用、本 PR で land)。
+
+### Context (PR #168/169/170 連続観測)
+
+`state.fix_push_time` 等の **write-once field** (= 「一度 set されたら上書きしない」不変式) を持つ field は、`state.fix_push_time.or_else(|| Some(new))` 形式でパス内の任意の地点で代入されうる。test で「既存値が preservation される」「新値が provision される」両方を検証する必要があるが、両方を 1 test で混ぜると validation 軸が混在し、preservation 失敗時に「新 path 経由で書き換わったのか / preservation guard が失敗したのか」を切り分けられない。
+
+Multi-Condition Guards (本体) との違い:
+
+| 観点 | Multi-Condition Guards | State Preservation Invariant |
+|---|---|---|
+| 検証対象 | OR/AND 早期 return guard の独立発火 | 一度 set した値の不変性 (write-once) |
+| 検出 anti-pattern | guard を消した mutant が test を落とさない | preservation 失敗が新 path 由来か preservation guard 由来か判別不能 |
+| 解決 idiom | sentinel pre-populate + 直交 precondition | 3 variant 直交 (既存値 / 値なし / 新値提供時の preservation) |
+
+### 原則: 3 variant 直交 test
+
+write-once field の test は以下 3 variant で直交化する:
+
+1. **既存値 preservation** (既存値あり、関数は値なし pass): state に既存値を pre-set した state で関数を呼び、関数が新値を提供しない場合に既存値が保たれることを assert
+2. **新値 provision** (既存値なし、関数が新値 set): state に値なし (`None`) で関数を呼び、新値が set されることを assert
+3. **書き換え不可 (preservation 強化)** (既存値あり、関数が新値提供): 既存値を pre-set 状態で「新値を提供しようとする」関数呼び出しでも既存値が変わらないことを assert (= write-once 不変式の本質)
+
+variant 3 が特に重要: variant 1 だけでは「関数が新値を提供しなかったから既存値が保たれた」と解釈の余地が残り、preservation guard が真に機能しているかが test できない。
+
+### 参照実装
+
+- `src/cli-pr-monitor/src/stages/poll.rs` の `finalize_*_preserves_existing_fix_push_time` (variant 1 + 3 を兼ねる)
+- `src/cli-pr-monitor/src/monitor.rs` の `resume_returns_fix_push_time_from_state_when_set` (variant 1 の resume path 版)
+- 実装側の不変式: `state.fix_push_time.or_else(|| Some(new))` (= `or_else` clause で値なし時のみ新値 set、= variant 2 の path)
+
 ## 帰結
 
 ### Pros
@@ -135,3 +167,4 @@ fn enrich_with_classifier_skips_when_findings_empty() {
 ## 改訂履歴
 
 - 2026-05-22: 初版 (順位 139 採用 PR で land、PR #120 W-001 + PR #168 の 2 PR 横断観測ベース)
+- 2026-05-27: § 関連 pattern: State Preservation Invariant 追加 (順位 142 採用、PR #168/169/170 連続観測ベース、cli-pr-monitor の write-once field 設計 + 3 variant 直交 test pattern を codify)
