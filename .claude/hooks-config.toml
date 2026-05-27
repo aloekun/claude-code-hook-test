@@ -13,7 +13,16 @@
 #   .session-id の直接参照は不要になったが、将来の拡張用に維持。
 
 # [session_start]
-# 現在設定項目なし（将来の拡張用）
+# - staleness: 順位 136 案 A (試験運用、ADR-039 experimental pattern 準拠)。
+#   `jj git fetch` で master を最新化し、`@-..master` の commit 数 (working copy
+#   が遅れている分) を additionalContext に出力する。
+#   3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定 (bounded lifetime)。
+#   Kill-switch: `enabled = false` で完全停止。
+[session_start.staleness]
+enabled = true
+fetch_timeout_secs = 3        # jj git fetch 全体の timeout (network 異常で session 起動を阻害しない)
+fetch_cache_secs = 300        # FETCH_HEAD mtime が N 秒以内なら fetch をスキップ (network cost 抑制)
+default_branch = "master"     # trunk-based 前提、feature branch 運用では変更
 
 # ─── PreToolUse: コマンド検証 ───
 
@@ -51,6 +60,16 @@ blocked_patterns = [
 
 # 追加の保護ファイル (デフォルトリストに追加)
 extra_protected_files = []
+
+# 順位 136 案 B (試験運用、ADR-039 experimental pattern 準拠)。
+# Edit/Write の対象が docs/todo*.md 系列のとき、master と @- の lineage 確認
+# (stale 検知) + ### 見出し title からの keyword grep (既実装 commit 提示)。
+# stale 検知時は exit 2 で block、grep のみ hit は exit 0 + stderr 出力 (warn-only)。
+# 3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定 (bounded lifetime)。
+[pre_tool_validate.todo_staleness]
+enabled = true
+default_branch = "master"       # trunk-based 前提、feature branch 運用では変更
+grep_recent_limit = 20          # jj log で参照する直近 commit 数
 
 # ─── PostToolUse: カスタムリンター ───
 # プロジェクト固有のカスタムルールは custom-lint-rules.toml に定義。
