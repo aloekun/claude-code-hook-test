@@ -690,21 +690,41 @@ fn extract_heading_keywords(text: &str) -> Vec<String> {
 }
 
 fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
-    use std::process::Command;
-    use std::sync::mpsc;
+    use std::io::Read as _;
+    use std::process::{Command, Stdio};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let result = Command::new("jj").args(&args_owned).output();
-        let _ = tx.send(result);
-    });
-
-    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
-        Ok(Ok(output)) if output.status.success() => String::from_utf8(output.stdout).ok(),
-        _ => None,
+    let mut child = Command::new("jj")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut buf = Vec::new();
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = out.read_to_end(&mut buf);
+                }
+                return if status.success() {
+                    String::from_utf8(buf).ok()
+                } else {
+                    None
+                };
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
     }
 }
 
@@ -823,6 +843,9 @@ fn check_todo_staleness(
         .unwrap_or(TODO_STALENESS_DEFAULT_GREP_LIMIT);
 
     let behind = count_commits_branch_ahead(branch);
+    if behind.is_none() {
+        return None;
+    }
     let stale = behind.unwrap_or(0) > 0;
 
     let keywords = extract_heading_keywords(text_for_keywords);
