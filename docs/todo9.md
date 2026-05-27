@@ -532,6 +532,48 @@
 
 ---
 
+### docs-governance.md に「ADR multi-variant pattern section 追加時の checklist」を codify (PR #176 T3-#1 採用)
+
+> **動機**: PR #175 (Minor: variant 網羅性不足) + PR #176 (Nitpick: 擬似コード vs 実コード齟齬) の 2 連続観測で、ADR の multi-variant pattern section を追加する際の「参照実装リスト完全性」「実装コード例の表記精度」取りこぼしが pattern 化された。本 PR #176 で追加した ADR-041 § State Preservation Invariant section が CR Nitpick を受けた事例も同パターン。Frequency Medium (2 観測) + Effort XS で採用条件成立。
+>
+> **本タスクの位置づけ**: PR #176 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。`~/.claude/rules/common/docs-governance.md` に 5-8 行 checklist を追記、ADR 拡張 PR の reviewer / Claude が逆引きで参照できる reusable rule に昇格。`feedback_no_unenforced_rules.md` 例外 = 2 PR で実証 + ADR 形式 (= 設計判断 doc) への追加で機械強制不要、reviewer の judgment 補助。
+>
+> **参照**: `.claude/feedback-reports/176.md` Tier 3 #1、PR #175 CR Minor finding 1 件、PR #176 CR Nitpick 1 件、`~/.claude/rules/common/docs-governance.md` (global rule、本リポジトリ外)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。global rule への 5-8 行追記、本リポジトリ外 (`~/.claude/`) ファイル編集。
+
+#### 設計決定 (案)
+
+- **配置**: `~/.claude/rules/common/docs-governance.md` の document lifecycle classification 周辺、もしくは新 section "ADR Multi-Variant Pattern Authoring Checklist"
+- **追記内容案** (5-8 行 checklist):
+  - ADR に multi-variant pattern (variant 1/2/3 等の列挙) section を追加する場合:
+    1. **参照実装リストの完全性**: 各 variant に対応する参照実装 (test 関数 or 実装関数) を 1 件以上 cite。variant が言及されているのに参照実装が無い (例: variant 2 だけ書いて test が無い) ことを避ける
+    2. **実装コード例の表記精度**: コード例が擬似コード (簡略化) か実コード (literal copy) かを明示。擬似コードなら「(概念)」「(簡略化)」等のマーカーを付け、実コードならパスと行番号を cite (`poll.rs:839-842` 等)
+    3. **既存資料との関係**: 該当 ADR の「既存資料との関係」section に cross-link を追加
+  - 由来: PR #175 (variant 網羅性不足、Minor) + PR #176 (擬似コード vs 実コード齟齬、Nitpick) の 2 連続観測
+- **派生プロジェクト transferability**: global rule のため本リポジトリで合意した内容は派生プロジェクトにも自動波及 (本 PR で `~/.claude/` 配下を直接編集する必要がある制約)
+
+#### 作業計画
+
+- [ ] memory `feedback_global_config_backup` 適用でバックアップ取得 (`~/.claude/rules/common/docs-governance.md` を `.backup-YYYYMMDD` 等で snapshot)
+- [ ] `~/.claude/rules/common/docs-governance.md` に checklist 5-8 行を新 section "ADR Multi-Variant Pattern Authoring Checklist" として追記
+- [ ] PR #175 / PR #176 を実例 cite として 1-line 引用
+- [ ] markdownlint clean 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `docs-governance.md` に ADR multi-variant pattern checklist が明文化される
+- 将来の ADR 拡張 PR で variant 網羅性 + 表記精度の取りこぼしが reviewer 視点で防止される
+- PR #175 / PR #176 が実例として reverse-lookup 可能
+
+#### 詰まっている箇所
+
+- 本タスクは `~/.claude/` 配下 (本リポジトリ外) のため、repo PR には含められない。実装は別途グローバル設定編集として実施
+- バックアップ要 (memory `feedback_global_config_backup` 適用)
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
