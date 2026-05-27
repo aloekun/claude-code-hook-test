@@ -76,6 +76,8 @@
 | 155 | 🚀 Tier 1 | **cli-pr-monitor fix chain 末尾に空 commit 検査 + `jj abandon` step 追加 (PR #174 T1-#1 採用)** | todo9.md | S | なし (PR #174 で `kqvluqyv` 空 commit が PR diff 汚染した実証ベース、`master..@` 範囲を `jj log` で sweep して機械強制、既存 `CleanupEmptyFixCommit` action の補完層) |
 | 157 | 🔧 Tier 2 | **Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)** | todo9.md | XS | なし (PR #174 PR body の未消化 dogfood、Bundle 2 PR merge 前の前提条件として消化、結果は Bundle 2 PR body に記録) |
 | 160 | 💎 Tier 3 | **`docs-governance.md` に「ADR multi-variant pattern section 追加時の checklist」codify (PR #176 T3-#1 採用)** | todo9.md | XS | なし (PR #175 Minor + PR #176 Nitpick の 2 連続観測 = Frequency Medium で採用条件成立、ADR 拡張時の variant 網羅性 + 擬似コード vs 実コード齟齬を reviewer / Claude 視点で防止する checklist、global file `~/.claude/rules/common/docs-governance.md` 編集のため本リポジトリ外で実施、`feedback_global_config_backup` 適用) |
+| 161 | 🔧 Tier 2 | **Subprocess timeout+kill lifecycle 検証テスト追加 (PR #177 T2-#1 採用)** | todo9.md | M | なし (PR #177 Major #2 「jj kill on timeout 漏れ」fix の回帰テスト、`Child::is_finished` で 2 hook の `run_jj_with_timeout` lifecycle 検証、Severity High + Frequency Medium、ADR-024 shared lib 統合候補との関係明示) |
+| 162 | 🔧 Tier 2 | **fail-closed error path (Option::None) 個別テスト追加 (PR #177 T2-#2 採用)** | todo9.md | S | なし (PR #177 Major #1 「`behind.unwrap_or(0)` fail-closed 漏れ」fix の回帰テスト、`check_todo_staleness` / `build_todo_staleness_message` の None ケース独立検証、Severity High + Frequency Medium、security gate + Option return pattern の reference) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
