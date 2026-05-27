@@ -30,6 +30,7 @@ const EXE_FILES = [
   "cli-pr-monitor.exe",
   "cli-merge-pipeline.exe",
   "check-ci-coderabbit.exe",
+  "cli-docs-lint.exe",
 ];
 
 const SETTINGS_TEMPLATE = "settings.local.json.template";

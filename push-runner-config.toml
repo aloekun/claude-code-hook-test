@@ -43,7 +43,7 @@ step_timeout = 600
 
 [[quality_gate.groups]]
 name = "lint"
-commands = ["pnpm lint"]
+commands = ["pnpm lint", "pnpm lint:docs"]
 
 [[quality_gate.groups]]
 name = "test"

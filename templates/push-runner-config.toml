@@ -10,9 +10,12 @@ parallel = true
 step_timeout = 120
 
 # プロジェクトの品質チェックコマンドに置き換えてください
+# `pnpm lint:docs` は cli-docs-lint.exe (deploy:hooks で配布) を呼び出します。
+# docs/todo*.md preamble + docs/ relative cross-ref を機械検証します。
+# cli-docs-lint を配備していない場合は "pnpm lint:docs" を commands から外してください。
 [[quality_gate.groups]]
 name = "lint"
-commands = ["pnpm lint"]
+commands = ["pnpm lint", "pnpm lint:docs"]
 
 [[quality_gate.groups]]
 name = "test"
