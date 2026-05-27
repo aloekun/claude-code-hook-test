@@ -286,14 +286,14 @@ SessionStart hook (hooks-session-start.exe 拡張)
 | 観点 | 担当 facet | prompt 重点 |
 |---|---|---|
 | ① ハーネス遵守 (rule < pipeline < hook 重複) | architecture-whole | **MVP 最優先** — facet criteria の筆頭、rule/pipeline/hook 重複検出、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源 |
-| ② docs 内整合性 | architecture-whole の sub criterion | ADR 間 supersedes / cross-reference / todo routing、順位 10 / 95 / 96 と補完 |
+| ② docs 内整合性 | architecture-whole の sub criterion | ADR 間 supersedes / cross-reference / todo routing、cli-docs-lint (preamble + cross-ref、push-runner lint group 統合済) / 順位 10 と補完 |
 | ③ docs-source 矛盾 | architecture-whole の sub criterion | 重要 ADR 限定リスト (ADR-007 / 012 / 021 / 022 等) で context 圧迫回避 |
 | ④ セキュリティ | security-whole | ADR-031 設計通り、変更なし |
 | ⑤ Todo 妥当性 | **MVP 対象外** (順位 136 hook へ委譲) | hook = 編集時 immediate guard / 週次 = batch 棚卸し で責務分離、Phase B+1 で順位 154 facet として再評価 |
 | ⑥ テストロジック (振る舞い vs 実装詳細、境界) | simplicity-whole | **MVP 最優先** — facet criteria の筆頭、TDD anti-pattern + 境界欠落、順位 38 (cargo-mutants L3 weekly) と cross-validate |
-| ⑦ ファイルサイズ (50KB) | aggregate 前の Rust 機械 pre-step (Phase B+1) | facet 不要、機械検査で十分。順位 154 で順位 95 / 147 と scope 整理 |
+| ⑦ ファイルサイズ (50KB) | aggregate 前の Rust 機械 pre-step (Phase B+1) | facet 不要、機械検査で十分。順位 154 で cli-docs-lint (preamble check) / 順位 147 と scope 整理 |
 
-**Bundle 戦略**: **Phase B 単体で land** (順位 38 / 95 / 96 は別 PR、PR diff 250-800 行に収める方針)。Phase B+1 で観点 ① ⑤ ⑦ を独立 facet / pre-step に extract する余地を残す (順位 153 / 154 を follow-up 登録済)。
+**Bundle 戦略**: **Phase B 単体で land** (順位 38 は別 PR、cli-docs-lint = preamble + cross-ref check は別 PR で先行 land 済、PR diff 250-800 行に収める方針)。Phase B+1 で観点 ① ⑤ ⑦ を独立 facet / pre-step に extract する余地を残す (順位 153 / 154 を follow-up 登録済)。
 
 #### 作業計画
 
