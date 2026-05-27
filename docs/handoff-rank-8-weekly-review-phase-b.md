@@ -1,6 +1,6 @@
 # 順位 8 (週次レビュー Phase B) 着手用 引き継ぎ資料
 
-> **本ファイルの位置付け**: 試験運用 ephemeral 計画書。順位 8 の Phase B 〜 Phase C land 完了で役割を終え、retire 時に永続価値 (= reusable rationale / pattern 等) は ADR-031 本体 / `docs/adr/` / `~/.claude/rules/common/` に移管する ([docs-governance.md § Retirement Workflow](adr/) 適用)。
+> **本ファイルの位置付け**: 試験運用 ephemeral 計画書。順位 8 の Phase B 〜 Phase C land 完了で役割を終え、retire 時に永続価値 (= reusable rationale / pattern 等) は ADR-031 本体 / `docs/adr/` / `~/.claude/rules/common/` に移管する (グローバル `docs-governance.md` § Retirement Workflow 適用)。
 >
 > **作成日**: 2026-05-27 (PR #177 land 直後、コンテキスト圧迫により別セッション引き継ぎのため作成)。
 >
