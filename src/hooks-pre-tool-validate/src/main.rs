@@ -28,9 +28,10 @@ struct ToolInput {
     command: Option<String>,
     file_path: Option<String>,
     path: Option<String>,
+    old_string: Option<String>,
+    new_string: Option<String>,
+    content: Option<String>,
 }
-
-// --- 設定 ---
 
 #[derive(Deserialize, Default)]
 struct Config {
@@ -41,7 +42,22 @@ struct Config {
 struct PreToolValidateConfig {
     blocked_patterns: Option<Vec<String>>,
     extra_protected_files: Option<Vec<String>>,
+    todo_staleness: Option<TodoStalenessConfig>,
 }
+
+/// 順位 136 案 B: `docs/todo*.md` Edit/Write 時の staleness 検知 + 既実装 grep 提示。
+/// ADR-039 experimental pattern 準拠 (default-OFF in source、repo config で明示 enable)。
+/// fail-closed (lineage 判定不能 = stale 扱いで安全側) per entry 設計決定。
+#[derive(Deserialize, Default)]
+struct TodoStalenessConfig {
+    enabled: Option<bool>,
+    default_branch: Option<String>,
+    grep_recent_limit: Option<u64>,
+}
+
+const TODO_STALENESS_DEFAULT_BRANCH: &str = "master";
+const TODO_STALENESS_DEFAULT_GREP_LIMIT: u64 = 20;
+const TODO_STALENESS_JJ_TIMEOUT_SECS: u64 = 5;
 
 // --- ブロックパターン ---
 
@@ -640,34 +656,269 @@ fn load_config() -> Config {
             );
             Config::default()
         }),
-        Err(_) => Config::default(), // ファイル無し → デフォルト
+        Err(_) => Config::default(),
     }
 }
 
-fn main() -> ExitCode {
-    let config = load_config();
+fn is_docs_todo_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/").to_lowercase();
+    let re = match Regex::new(r"(^|/)docs/todo[\w-]*\.md$") {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    re.is_match(&normalized)
+}
 
-    // stdinからJSONを読み込む
+fn extract_heading_keywords(text: &str) -> Vec<String> {
+    let prefix_re = Regex::new(r"^順位\s*\d+\s*[:：]?\s*").ok();
+    text.lines()
+        .filter_map(|line| line.strip_prefix("### "))
+        .map(|heading| {
+            let stripped = match &prefix_re {
+                Some(re) => re.replace(heading.trim(), "").to_string(),
+                None => heading.trim().to_string(),
+            };
+            stripped
+                .split(['(', '（', '['])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .filter(|s| s.len() >= 3)
+        .collect()
+}
+
+fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
+    use std::io::Read as _;
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    let mut child = Command::new("jj")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut buf = Vec::new();
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = out.read_to_end(&mut buf);
+                }
+                return if status.success() {
+                    String::from_utf8(buf).ok()
+                } else {
+                    None
+                };
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+fn count_commits_branch_ahead(branch: &str) -> Option<usize> {
+    let revset = format!("@-..{}", branch);
+    let output = run_jj_with_timeout(
+        &[
+            "log",
+            "-r",
+            &revset,
+            "--no-graph",
+            "-T",
+            "commit_id ++ \"\\n\"",
+        ],
+        TODO_STALENESS_JJ_TIMEOUT_SECS,
+    )?;
+    Some(output.lines().filter(|l| !l.trim().is_empty()).count())
+}
+
+fn parse_jj_log_records(raw: &str) -> Vec<(String, String)> {
+    raw.split('\x1e')
+        .filter_map(|record| {
+            let mut parts = record.splitn(2, '\x1f');
+            let commit_id = parts.next()?.trim().to_string();
+            let description = parts.next()?.trim().to_string();
+            if commit_id.is_empty() || description.is_empty() {
+                None
+            } else {
+                Some((commit_id, description))
+            }
+        })
+        .collect()
+}
+
+fn jj_log_recent_descriptions(limit: u64) -> Vec<(String, String)> {
+    let limit_str = limit.to_string();
+    let template = "commit_id.shortest(8) ++ \"\\x1f\" ++ description ++ \"\\x1e\"";
+    match run_jj_with_timeout(
+        &["log", "--limit", &limit_str, "--no-graph", "-T", template],
+        TODO_STALENESS_JJ_TIMEOUT_SECS,
+    ) {
+        Some(raw) => parse_jj_log_records(&raw),
+        None => Vec::new(),
+    }
+}
+
+fn first_line(s: &str) -> &str {
+    s.split('\n').next().unwrap_or("").trim()
+}
+
+fn find_matching_commits<'a>(
+    keyword: &str,
+    commits: &'a [(String, String)],
+) -> Vec<&'a (String, String)> {
+    let needle = keyword.to_lowercase();
+    commits
+        .iter()
+        .filter(|(_, desc)| desc.to_lowercase().contains(&needle))
+        .take(3)
+        .collect()
+}
+
+fn build_todo_staleness_message(
+    file_path: &str,
+    behind: Option<usize>,
+    keyword_matches: &[(String, Vec<(String, String)>)],
+    branch: &str,
+) -> Option<String> {
+    let stale = behind.unwrap_or(0) > 0;
+    let any_matches = keyword_matches.iter().any(|(_, m)| !m.is_empty());
+    if !stale && !any_matches {
+        return None;
+    }
+    let mut lines = vec![format!("[docs/todo edit context] {}", file_path)];
+    if let Some(b) = behind {
+        if b > 0 {
+            lines.push(format!(
+                "stale parent detected: {} は @- より {} commits ahead",
+                branch, b
+            ));
+            lines.push(format!(
+                "修正手順: `jj git fetch && jj new {} -m \"WIP: <description>\"`",
+                branch
+            ));
+        }
+    }
+    for (keyword, matches) in keyword_matches {
+        if matches.is_empty() {
+            continue;
+        }
+        lines.push(format!("関連既実装の可能性 (keyword: \"{}\"):", keyword));
+        for (commit_id, desc) in matches {
+            lines.push(format!("  {} {}", commit_id, first_line(desc)));
+        }
+    }
+    Some(lines.join("\n"))
+}
+
+fn check_todo_staleness(
+    file_path: &str,
+    text_for_keywords: &str,
+    config: &TodoStalenessConfig,
+) -> Option<TodoStalenessResult> {
+    if !config.enabled.unwrap_or(false) {
+        return None;
+    }
+    if !is_docs_todo_path(file_path) {
+        return None;
+    }
+    let branch = config
+        .default_branch
+        .as_deref()
+        .unwrap_or(TODO_STALENESS_DEFAULT_BRANCH);
+    let limit = config
+        .grep_recent_limit
+        .unwrap_or(TODO_STALENESS_DEFAULT_GREP_LIMIT);
+
+    let behind = count_commits_branch_ahead(branch);
+    if behind.is_none() {
+        return None;
+    }
+    let stale = behind.unwrap_or(0) > 0;
+
+    let keywords = extract_heading_keywords(text_for_keywords);
+    let keyword_matches: Vec<(String, Vec<(String, String)>)> = if keywords.is_empty() {
+        Vec::new()
+    } else {
+        let commits = jj_log_recent_descriptions(limit);
+        keywords
+            .iter()
+            .take(3)
+            .map(|kw| {
+                let matches: Vec<(String, String)> =
+                    find_matching_commits(kw, &commits).into_iter().cloned().collect();
+                (kw.clone(), matches)
+            })
+            .collect()
+    };
+
+    let message = build_todo_staleness_message(file_path, behind, &keyword_matches, branch)?;
+    Some(TodoStalenessResult { message, stale })
+}
+
+struct TodoStalenessResult {
+    message: String,
+    stale: bool,
+}
+
+fn collect_text_for_keywords(tool_input: &ToolInput) -> String {
+    let mut parts = Vec::new();
+    if let Some(old) = &tool_input.old_string {
+        parts.push(old.as_str());
+    }
+    if let Some(new_s) = &tool_input.new_string {
+        parts.push(new_s.as_str());
+    }
+    if let Some(content) = &tool_input.content {
+        parts.push(content.as_str());
+    }
+    parts.join("\n")
+}
+
+fn read_hook_input() -> Result<HookInput, ExitCode> {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
         eprintln!("[validate-command] Error: Failed to read stdin: {}", e);
-        return ExitCode::FAILURE;
+        return Err(ExitCode::FAILURE);
     }
+    serde_json::from_str(&input).map_err(|e| {
+        eprintln!("[validate-command] Error: Failed to parse JSON: {}", e);
+        ExitCode::FAILURE
+    })
+}
 
-    let hook_input: HookInput = match serde_json::from_str(&input) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[validate-command] Error: Failed to parse JSON: {}", e);
-            return ExitCode::FAILURE;
-        }
-    };
+fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
+    let command = tool_input.command.clone().unwrap_or_default();
+    if command.trim().is_empty() {
+        return ExitCode::SUCCESS;
+    }
+    let patterns = build_blocked_patterns(config);
+    if let Some(message) = validate_command(&command, &patterns) {
+        let _ = io::stderr().write_all(message.as_bytes());
+        return ExitCode::from(2);
+    }
+    ExitCode::SUCCESS
+}
 
-    let tool_name = hook_input.tool_name.unwrap_or_default();
-    let tool_input = hook_input.tool_input.unwrap_or(ToolInput {
-        command: None,
-        file_path: None,
-        path: None,
-    });
+fn handle_write_edit_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
+    let file_path = tool_input
+        .file_path
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| tool_input.path.clone())
+        .unwrap_or_default();
 
     let extra_protected = config
         .pre_tool_validate
@@ -676,45 +927,56 @@ fn main() -> ExitCode {
         .cloned()
         .unwrap_or_default();
 
-    match tool_name.as_str() {
-        "Bash" => {
-            let command = tool_input.command.unwrap_or_default();
-            if command.trim().is_empty() {
-                return ExitCode::SUCCESS;
-            }
+    if !file_path.is_empty() && is_protected_config(&file_path, &extra_protected) {
+        let msg = format!(
+            "**保護されたファイルの編集がブロックされました**\n\n\
+             `{}` は保護対象ファイル（設定ファイル/機密ファイル）のため、編集が禁止されています。\n\n\
+             リンター設定の場合: 設定を変更するのではなく **コード側を修正** してください。\n\
+             機密ファイルの場合: 秘密情報の漏洩を防ぐため、編集できません。\n\n\
+             変更が本当に必要な場合は、ユーザーに確認を取ってください。",
+            file_path.rsplit(['/', '\\']).next().unwrap_or(&file_path)
+        );
+        let _ = io::stderr().write_all(msg.as_bytes());
+        return ExitCode::from(2);
+    }
 
-            let patterns = build_blocked_patterns(&config);
-            if let Some(message) = validate_command(&command, &patterns) {
-                let _ = io::stderr().write_all(message.as_bytes());
+    if let Some(staleness_config) = config
+        .pre_tool_validate
+        .as_ref()
+        .and_then(|c| c.todo_staleness.as_ref())
+    {
+        let text = collect_text_for_keywords(tool_input);
+        if let Some(result) = check_todo_staleness(&file_path, &text, staleness_config) {
+            let _ = io::stderr().write_all(result.message.as_bytes());
+            if result.stale {
                 return ExitCode::from(2);
             }
         }
-        "Write" | "Edit" | "Replace" => {
-            let file_path = tool_input
-                .file_path
-                .filter(|s| !s.is_empty())
-                .or(tool_input.path)
-                .unwrap_or_default();
-            if !file_path.is_empty() && is_protected_config(&file_path, &extra_protected) {
-                let msg = format!(
-                    "**保護されたファイルの編集がブロックされました**\n\n\
-                     `{}` は保護対象ファイル（設定ファイル/機密ファイル）のため、編集が禁止されています。\n\n\
-                     リンター設定の場合: 設定を変更するのではなく **コード側を修正** してください。\n\
-                     機密ファイルの場合: 秘密情報の漏洩を防ぐため、編集できません。\n\n\
-                     変更が本当に必要な場合は、ユーザーに確認を取ってください。",
-                    file_path
-                        .rsplit(['/', '\\'])
-                        .next()
-                        .unwrap_or(&file_path)
-                );
-                let _ = io::stderr().write_all(msg.as_bytes());
-                return ExitCode::from(2);
-            }
-        }
-        _ => {}
     }
 
     ExitCode::SUCCESS
+}
+
+fn main() -> ExitCode {
+    let config = load_config();
+    let hook_input = match read_hook_input() {
+        Ok(v) => v,
+        Err(code) => return code,
+    };
+    let tool_name = hook_input.tool_name.unwrap_or_default();
+    let tool_input = hook_input.tool_input.unwrap_or(ToolInput {
+        command: None,
+        file_path: None,
+        path: None,
+        old_string: None,
+        new_string: None,
+        content: None,
+    });
+    match tool_name.as_str() {
+        "Bash" => handle_bash_tool(&config, &tool_input),
+        "Write" | "Edit" | "Replace" => handle_write_edit_tool(&config, &tool_input),
+        _ => ExitCode::SUCCESS,
+    }
 }
 
 #[cfg(test)]
@@ -732,6 +994,7 @@ mod tests {
             pre_tool_validate: Some(PreToolValidateConfig {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),
                 extra_protected_files: None,
+                todo_staleness: None,
             }),
         };
         build_blocked_patterns(&config)
@@ -1787,7 +2050,6 @@ mod tests {
 
     #[test]
     fn extra_protected_basename_still_works() {
-        // ベースネーム指定は従来通りどこでもマッチ
         let extra = vec!["hooks-config.toml".to_string()];
         assert!(is_protected_config("hooks-config.toml", &extra));
         assert!(is_protected_config(
@@ -1795,5 +2057,224 @@ mod tests {
             &extra
         ));
         assert!(is_protected_config("other/hooks-config.toml", &extra));
+    }
+
+    fn build_todo_path(suffix: &str) -> String {
+        format!("docs/todo{}.md", suffix)
+    }
+
+    fn build_todo_path_with_prefix(prefix: &str, suffix: &str) -> String {
+        format!("{}/docs/todo{}.md", prefix, suffix)
+    }
+
+    fn build_windows_todo_path(suffix: &str) -> String {
+        format!("docs\\todo{}.md", suffix)
+    }
+
+    #[test]
+    fn is_docs_todo_path_detects_repo_layout() {
+        assert!(is_docs_todo_path(&build_todo_path("")));
+        assert!(is_docs_todo_path(&build_todo_path("2")));
+        assert!(is_docs_todo_path(&build_todo_path("-summary")));
+        assert!(is_docs_todo_path(&build_todo_path_with_prefix(
+            "e:/work/repo",
+            "9"
+        )));
+    }
+
+    #[test]
+    fn is_docs_todo_path_handles_windows_separators() {
+        assert!(is_docs_todo_path(&build_windows_todo_path("")));
+        assert!(is_docs_todo_path(&format!(
+            r"e:\work\repo\docs\todo{}.md",
+            "8"
+        )));
+    }
+
+    #[test]
+    fn is_docs_todo_path_rejects_unrelated_paths() {
+        assert!(!is_docs_todo_path("README.md"));
+        assert!(!is_docs_todo_path("docs/adr/adr-041.md"));
+        assert!(!is_docs_todo_path(&format!("notes/todo{}.md", "")));
+        assert!(!is_docs_todo_path("src/main.rs"));
+    }
+
+    #[test]
+    fn extract_heading_keywords_strips_rank_prefix() {
+        let text = "### 順位 136 working copy staleness 検出 hook\n\n本文";
+        let keywords = extract_heading_keywords(text);
+        assert_eq!(keywords.len(), 1);
+        assert!(
+            keywords[0].contains("working copy staleness"),
+            "got: {:?}",
+            keywords
+        );
+        assert!(!keywords[0].contains("順位 136"));
+    }
+
+    #[test]
+    fn extract_heading_keywords_handles_multiple_headings() {
+        let text = "### 順位 1 first heading\n\n### 順位 2 second heading\n";
+        let keywords = extract_heading_keywords(text);
+        assert_eq!(keywords.len(), 2);
+        assert!(keywords[0].contains("first heading"));
+        assert!(keywords[1].contains("second heading"));
+    }
+
+    #[test]
+    fn extract_heading_keywords_returns_empty_when_no_headings() {
+        let text = "## sub heading\nplain text without ### prefix";
+        assert!(extract_heading_keywords(text).is_empty());
+    }
+
+    #[test]
+    fn extract_heading_keywords_filters_too_short() {
+        let text = "### \n### ab\n### 順位 1 longer title";
+        let keywords = extract_heading_keywords(text);
+        assert_eq!(keywords.len(), 1);
+        assert!(keywords[0].contains("longer title"));
+    }
+
+    #[test]
+    fn parse_jj_log_records_basic() {
+        let raw = "abc1234\x1ffirst commit description\x1edef5678\x1fsecond commit\x1e";
+        let records = parse_jj_log_records(raw);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].0, "abc1234");
+        assert_eq!(records[0].1, "first commit description");
+        assert_eq!(records[1].0, "def5678");
+        assert_eq!(records[1].1, "second commit");
+    }
+
+    #[test]
+    fn parse_jj_log_records_skips_malformed() {
+        let raw = "abc\x1fdesc1\x1eonlyid_no_separator\x1exyz\x1fdesc2\x1e";
+        let records = parse_jj_log_records(raw);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].0, "abc");
+        assert_eq!(records[1].0, "xyz");
+    }
+
+    #[test]
+    fn find_matching_commits_case_insensitive() {
+        let commits = vec![
+            ("abc1".to_string(), "feat: ADD STALENESS hook".to_string()),
+            ("abc2".to_string(), "unrelated change".to_string()),
+            ("abc3".to_string(), "fix(staleness): tweak".to_string()),
+        ];
+        let matches = find_matching_commits("staleness", &commits);
+        assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
+    fn find_matching_commits_limits_to_three() {
+        let commits: Vec<_> = (0..5)
+            .map(|i| (format!("c{}", i), format!("feat: keyword #{}", i)))
+            .collect();
+        let matches = find_matching_commits("keyword", &commits);
+        assert_eq!(matches.len(), 3);
+    }
+
+    #[test]
+    fn first_line_extracts_first_line() {
+        assert_eq!(first_line("first\nsecond\nthird"), "first");
+        assert_eq!(first_line("single"), "single");
+        assert_eq!(first_line(""), "");
+        assert_eq!(first_line("  spaced  \nrest"), "spaced");
+    }
+
+    #[test]
+    fn build_todo_staleness_message_stale_with_matches() {
+        let path = build_todo_path("");
+        let matches = vec![(
+            "test keyword".to_string(),
+            vec![("abc1234".to_string(), "feat: implement test".to_string())],
+        )];
+        let msg = build_todo_staleness_message(&path, Some(3), &matches, "master");
+        let msg = msg.expect("message should be generated");
+        assert!(msg.contains(&path));
+        assert!(msg.contains("3 commits ahead"));
+        assert!(msg.contains("関連既実装の可能性"));
+        assert!(msg.contains("test keyword"));
+        assert!(msg.contains("abc1234"));
+    }
+
+    #[test]
+    fn build_todo_staleness_message_stale_only() {
+        let path = build_todo_path("");
+        let msg = build_todo_staleness_message(&path, Some(2), &[], "main");
+        let msg = msg.expect("stale should produce message");
+        assert!(msg.contains("main"));
+        assert!(msg.contains("2 commits ahead"));
+        assert!(!msg.contains("関連既実装の可能性"));
+    }
+
+    #[test]
+    fn build_todo_staleness_message_grep_only() {
+        let path = build_todo_path("");
+        let matches = vec![(
+            "kw".to_string(),
+            vec![("abc1234".to_string(), "feat: kw impl".to_string())],
+        )];
+        let msg = build_todo_staleness_message(&path, Some(0), &matches, "master");
+        let msg = msg.expect("grep match alone should produce message");
+        assert!(msg.contains("関連既実装の可能性"));
+        assert!(!msg.contains("stale parent detected"));
+    }
+
+    #[test]
+    fn build_todo_staleness_message_neither_returns_none() {
+        let path = build_todo_path("");
+        let msg = build_todo_staleness_message(&path, Some(0), &[], "master");
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn collect_text_for_keywords_combines_fields() {
+        let input = ToolInput {
+            command: None,
+            file_path: Some(build_todo_path("")),
+            path: None,
+            old_string: Some("old text".to_string()),
+            new_string: Some("new text".to_string()),
+            content: Some("full content".to_string()),
+        };
+        let text = collect_text_for_keywords(&input);
+        assert!(text.contains("old text"));
+        assert!(text.contains("new text"));
+        assert!(text.contains("full content"));
+    }
+
+    #[test]
+    fn check_todo_staleness_skip_when_disabled() {
+        let config = TodoStalenessConfig {
+            enabled: Some(false),
+            default_branch: None,
+            grep_recent_limit: None,
+        };
+        let result = check_todo_staleness(&build_todo_path(""), "### something", &config);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_todo_staleness_skip_when_enabled_field_missing() {
+        let config = TodoStalenessConfig {
+            enabled: None,
+            default_branch: None,
+            grep_recent_limit: None,
+        };
+        let result = check_todo_staleness(&build_todo_path(""), "### something", &config);
+        assert!(result.is_none(), "ADR-039 § 1 準拠で default-OFF");
+    }
+
+    #[test]
+    fn check_todo_staleness_skip_when_not_todo_path() {
+        let config = TodoStalenessConfig {
+            enabled: Some(true),
+            default_branch: None,
+            grep_recent_limit: None,
+        };
+        let result = check_todo_staleness("docs/adr/adr-041.md", "### test", &config);
+        assert!(result.is_none());
     }
 }

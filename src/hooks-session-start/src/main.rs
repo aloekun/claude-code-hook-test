@@ -24,12 +24,43 @@
 use serde::Deserialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// SessionStart hook の stdin JSON (必要なフィールドのみ)
 #[derive(Deserialize)]
 struct HookInput {
     session_id: Option<String>,
 }
+
+/// 順位 136 案 A: working copy staleness 検出設定 (ADR-039 experimental pattern)。
+///
+/// `[session_start.staleness]` section 不在 / `enabled` 未設定 / `enabled = false`
+/// では完全 skip (default-OFF in source、repo config で明示 enable する)。
+///
+/// fail-open: `jj git fetch` / `jj log` の失敗時は warning ログを出さず通過する
+/// (network 異常 / fetch timeout で session 起動を阻害しない)。
+#[derive(Deserialize)]
+struct StalenessConfig {
+    enabled: Option<bool>,
+    fetch_timeout_secs: Option<u64>,
+    fetch_cache_secs: Option<u64>,
+    default_branch: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct SessionStartConfig {
+    staleness: Option<StalenessConfig>,
+}
+
+#[derive(Deserialize, Default)]
+struct HooksConfig {
+    session_start: Option<SessionStartConfig>,
+}
+
+const STALENESS_DEFAULT_FETCH_TIMEOUT_SECS: u64 = 3;
+const STALENESS_DEFAULT_FETCH_CACHE_SECS: u64 = 300;
+const STALENESS_DEFAULT_BRANCH: &str = "master";
+const STALENESS_JJ_LOG_TIMEOUT_SECS: u64 = 5;
 
 /// catch-up nudge で案内する手動再開コマンド。
 /// pre-push-review (PR #115) 指摘 [B]: nudge 文字列のうちスクリプト名は const に切り出して
@@ -366,6 +397,122 @@ fn read_parked_state(path: &Path) -> Option<ParkedStatePartial> {
     serde_json::from_str(&content).ok()
 }
 
+fn hooks_config_path(repo_root: &Path) -> PathBuf {
+    repo_root.join(".claude").join("hooks-config.toml")
+}
+
+fn read_hooks_config(repo_root: &Path) -> HooksConfig {
+    match std::fs::read_to_string(hooks_config_path(repo_root)) {
+        Ok(content) => toml::from_str(&content).unwrap_or_default(),
+        Err(_) => HooksConfig::default(),
+    }
+}
+
+fn fetch_head_is_recent(repo_root: &Path, cache_secs: u64) -> bool {
+    let fetch_head = repo_root.join(".git").join("FETCH_HEAD");
+    let metadata = match std::fs::metadata(&fetch_head) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    match metadata.modified().and_then(|t| {
+        t.elapsed()
+            .map_err(|e| std::io::Error::other(e.to_string()))
+    }) {
+        Ok(elapsed) => elapsed.as_secs() < cache_secs,
+        Err(_) => false,
+    }
+}
+
+fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    let mut child = Command::new("jj")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut buf = Vec::new();
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = out.read_to_end(&mut buf);
+                }
+                return if status.success() {
+                    String::from_utf8(buf).ok()
+                } else {
+                    None
+                };
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+fn count_commits_in_revset(revset: &str) -> Option<usize> {
+    let output = run_jj_with_timeout(
+        &[
+            "log",
+            "-r",
+            revset,
+            "--no-graph",
+            "-T",
+            "commit_id ++ \"\\n\"",
+        ],
+        STALENESS_JJ_LOG_TIMEOUT_SECS,
+    )?;
+    Some(output.lines().filter(|l| !l.trim().is_empty()).count())
+}
+
+fn build_staleness_nudge_message(default_branch: &str, behind: usize) -> String {
+    format!(
+        "[working-copy-freshness]\n\
+         {0} は @- より {1} commits ahead です (working copy が {0} に遅れています)。\n\
+         推奨: `jj git fetch && jj rebase -d {0}` で最新化、または `jj new {0} -m \"WIP: <description>\"` で新規 commit を {0} 直下に作成",
+        default_branch, behind
+    )
+}
+
+fn compute_staleness_nudge(repo_root: &Path, config: &StalenessConfig) -> Option<String> {
+    if !config.enabled.unwrap_or(false) {
+        return None;
+    }
+    let default_branch = config
+        .default_branch
+        .as_deref()
+        .unwrap_or(STALENESS_DEFAULT_BRANCH);
+    let fetch_timeout = config
+        .fetch_timeout_secs
+        .unwrap_or(STALENESS_DEFAULT_FETCH_TIMEOUT_SECS);
+    let fetch_cache = config
+        .fetch_cache_secs
+        .unwrap_or(STALENESS_DEFAULT_FETCH_CACHE_SECS);
+
+    if !fetch_head_is_recent(repo_root, fetch_cache) {
+        let _ = run_jj_with_timeout(&["git", "fetch", "--quiet"], fetch_timeout);
+    }
+
+    let revset = format!("@-..{}", default_branch);
+    let behind = count_commits_in_revset(&revset)?;
+    if behind == 0 {
+        return None;
+    }
+    Some(build_staleness_nudge_message(default_branch, behind))
+}
+
 fn main() {
     // stdin から JSON を読み取り
     let mut input = String::new();
@@ -426,6 +573,17 @@ fn emit_session_start_output(session_id: &str) {
         if let Some(reaper_nudge) = compute_reaper_nudge(&cwd, now_unix) {
             context.push_str("\n\n");
             context.push_str(&reaper_nudge);
+        }
+        let hooks_config = read_hooks_config(&cwd);
+        if let Some(staleness_config) = hooks_config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.staleness.as_ref())
+        {
+            if let Some(staleness_nudge) = compute_staleness_nudge(&cwd, staleness_config) {
+                context.push_str("\n\n");
+                context.push_str(&staleness_nudge);
+            }
         }
     }
     let output = serde_json::json!({
@@ -1019,6 +1177,104 @@ mod tests {
         assert!(nudge.contains("[POST_MERGE_FEEDBACK_REAPER]"));
         assert!(nudge.contains("1 件"));
         assert!(nudge.contains("PR #300"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn staleness_nudge_message_includes_branch_and_count() {
+        let msg = build_staleness_nudge_message("master", 3);
+        assert!(msg.contains("[working-copy-freshness]"));
+        assert!(msg.contains("master"));
+        assert!(msg.contains("3 commits ahead"));
+        assert!(msg.contains("jj git fetch"));
+        assert!(msg.contains("jj rebase -d master"));
+    }
+
+    #[test]
+    fn staleness_nudge_message_supports_main_branch_alias() {
+        let msg = build_staleness_nudge_message("main", 1);
+        assert!(msg.contains("main"));
+        assert!(msg.contains("1 commits ahead"));
+        assert!(!msg.contains("master"));
+    }
+
+    #[test]
+    fn compute_staleness_nudge_returns_none_when_disabled() {
+        let config = StalenessConfig {
+            enabled: Some(false),
+            fetch_timeout_secs: None,
+            fetch_cache_secs: None,
+            default_branch: None,
+        };
+        let root = unique_temp_root("staleness-disabled");
+        let result = compute_staleness_nudge(&root, &config);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn compute_staleness_nudge_returns_none_when_enabled_field_missing() {
+        let config = StalenessConfig {
+            enabled: None,
+            fetch_timeout_secs: None,
+            fetch_cache_secs: None,
+            default_branch: None,
+        };
+        let root = unique_temp_root("staleness-default-off");
+        let result = compute_staleness_nudge(&root, &config);
+        assert!(result.is_none(), "ADR-039 § 1 準拠で default-OFF 動作");
+    }
+
+    #[test]
+    fn fetch_head_is_recent_returns_false_when_file_missing() {
+        let root = unique_temp_root("fetch-head-missing");
+        assert!(!fetch_head_is_recent(&root, 300));
+    }
+
+    #[test]
+    fn fetch_head_is_recent_returns_true_for_fresh_file() {
+        use std::io::Write;
+        let root = unique_temp_root("fetch-head-fresh");
+        let git_dir = root.join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        let fetch_head = git_dir.join("FETCH_HEAD");
+        let mut f = std::fs::File::create(&fetch_head).unwrap();
+        writeln!(f, "fake content").unwrap();
+        drop(f);
+        assert!(fetch_head_is_recent(&root, 3600));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hooks_config_returns_default_when_file_missing() {
+        let root = unique_temp_root("hooks-config-missing");
+        let config = read_hooks_config(&root);
+        assert!(config.session_start.is_none());
+    }
+
+    #[test]
+    fn hooks_config_parses_session_start_staleness_section() {
+        use std::io::Write;
+        let root = unique_temp_root("hooks-config-staleness");
+        let claude_dir = root.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let toml_str = r#"
+[session_start.staleness]
+enabled = true
+fetch_timeout_secs = 5
+default_branch = "main"
+"#;
+        let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+        drop(f);
+        let config = read_hooks_config(&root);
+        let staleness = config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.staleness.as_ref())
+            .expect("staleness section should parse");
+        assert_eq!(staleness.enabled, Some(true));
+        assert_eq!(staleness.fetch_timeout_secs, Some(5));
+        assert_eq!(staleness.default_branch.as_deref(), Some("main"));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
