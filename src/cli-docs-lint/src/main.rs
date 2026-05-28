@@ -7,9 +7,26 @@
 //!   cli-docs-lint --docs-dir <path>         検査対象 docs/ ディレクトリ (default: ./docs)
 //!
 //! 終了コード:
-//!   0 - 違反なし
+//!   0 - 違反なし (または kill-switch 発動で skip)
 //!   1 - 違反あり (stderr に詳細出力)
 //!   2 - 引数エラーまたは I/O エラー
+//!
+//! # 試験運用ステータス (ADR-039 標準パターン適用)
+//!
+//! 本 binary は新規 lint として導入されたため、ADR-039 の試験運用標準パターン
+//! (config opt-in + kill-switch + bounded lifetime) を適用する。
+//!
+//! - **Config opt-in**: 派生 repo の `templates/push-runner-config.toml` では
+//!   `pnpm lint:docs` を `quality_gate.lint` commands から除外 (= default OFF)。
+//!   本リポジトリの `push-runner-config.toml` で明示的に追加して dogfood を開始。
+//! - **Kill-switch**: 環境変数 `CLI_DOCS_LINT_DISABLE=1` を設定すると検査を
+//!   skip して exit code 0 で終了する (= 個別 push の意図的バイパス)。永続的な
+//!   無効化は `push-runner-config.toml` の `quality_gate.lint` commands から
+//!   `pnpm lint:docs` を削除する revert PR で行う。
+//! - **Bounded lifetime**: 本リポジトリで 3-5 PR の dogfood (false positive 観測 /
+//!   検出効果 / override 使用頻度) 後に、`templates/push-runner-config.toml` への
+//!   default-ON 昇格 or 却下を判定する。判定結果は本 module doc と
+//!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
 use cli_docs_lint::{cross_ref, preamble, Violation};
 use std::path::PathBuf;
@@ -86,7 +103,28 @@ fn run(args: &CliArgs) -> Result<Vec<Violation>, String> {
     Ok(violations)
 }
 
+const KILL_SWITCH_ENV: &str = "CLI_DOCS_LINT_DISABLE";
+
+fn is_kill_switch_value(raw: Option<&str>) -> bool {
+    match raw {
+        Some(v) => v == "1" || v.eq_ignore_ascii_case("true"),
+        None => false,
+    }
+}
+
+fn is_kill_switch_enabled() -> bool {
+    is_kill_switch_value(std::env::var(KILL_SWITCH_ENV).ok().as_deref())
+}
+
 fn main() -> ExitCode {
+    if is_kill_switch_enabled() {
+        eprintln!(
+            "[cli-docs-lint] SKIP — kill-switch env var {}=1 detected (ADR-039 試験運用 bypass)",
+            KILL_SWITCH_ENV
+        );
+        return ExitCode::from(0);
+    }
+
     let args: Vec<String> = std::env::args().collect();
     let parsed = match parse_args(&args) {
         Ok(p) => p,
@@ -182,5 +220,29 @@ mod tests {
     fn help_is_signaled_separately() {
         let err = parse_args(&args(&["--help"])).unwrap_err();
         assert_eq!(err, "HELP");
+    }
+
+    #[test]
+    fn kill_switch_value_one_enables() {
+        assert!(is_kill_switch_value(Some("1")));
+    }
+
+    #[test]
+    fn kill_switch_value_true_case_insensitive() {
+        assert!(is_kill_switch_value(Some("true")));
+        assert!(is_kill_switch_value(Some("TRUE")));
+        assert!(is_kill_switch_value(Some("True")));
+    }
+
+    #[test]
+    fn kill_switch_value_unset_means_disabled() {
+        assert!(!is_kill_switch_value(None));
+    }
+
+    #[test]
+    fn kill_switch_value_empty_or_zero_means_disabled() {
+        assert!(!is_kill_switch_value(Some("")));
+        assert!(!is_kill_switch_value(Some("0")));
+        assert!(!is_kill_switch_value(Some("false")));
     }
 }

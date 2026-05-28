@@ -17,7 +17,12 @@ const TODO_SUMMARY_FILE: &str = "todo-summary.md";
 pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
     let todo_files = list_todo_files(docs_dir)?;
     let expected_total = todo_files.len();
-    let expected_without_summary = expected_total.saturating_sub(1);
+    let has_summary = todo_files.iter().any(|p| is_todo_summary(p));
+    let expected_without_summary = if has_summary {
+        expected_total.saturating_sub(1)
+    } else {
+        expected_total
+    };
 
     let mut violations = Vec::new();
     for path in &todo_files {
@@ -273,5 +278,24 @@ mod tests {
         write(&tmp.path().join("todo2.md"), "# TODO\n");
         let v = check(tmp.path()).unwrap();
         assert!(v.is_empty(), "expected no violations, got {:?}", v);
+    }
+
+    #[test]
+    fn check_without_summary_does_not_undercount() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            &tmp.path().join("todo.md"),
+            "# TODO\n\n> stuff\n>\n> 新セッションでは二つすべてを確認すること。\n",
+        );
+        write(
+            &tmp.path().join("todo2.md"),
+            "# TODO\n\n> stuff\n>\n> 新セッションでは二つすべてを確認すること。\n",
+        );
+        let v = check(tmp.path()).unwrap();
+        assert!(
+            v.is_empty(),
+            "expected no violations when summary absent (2 files = 二つ), got {:?}",
+            v
+        );
     }
 }
