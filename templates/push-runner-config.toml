@@ -10,6 +10,14 @@ parallel = true
 step_timeout = 120
 
 # プロジェクトの品質チェックコマンドに置き換えてください
+#
+# `pnpm lint:docs` (cli-docs-lint.exe、deploy:hooks で配布) は ADR-039 試験運用
+# 標準パターン適用中のため、本テンプレートでは **default OFF** (commands array
+# から除外済)。dogfood する派生 repo は明示的に commands に追加してください:
+#   commands = ["pnpm lint", "pnpm lint:docs"]
+# Kill-switch: 環境変数 CLI_DOCS_LINT_DISABLE=1 で個別 push の意図的バイパス可能。
+# 本リポジトリ (claude-code-hook-test) で 3-5 PR dogfood 後に default-ON 昇格 or
+# 却下を判定。判定結果は src/cli-docs-lint/src/main.rs の module doc に反映する。
 [[quality_gate.groups]]
 name = "lint"
 commands = ["pnpm lint"]

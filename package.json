@@ -5,6 +5,7 @@
   "scripts": {
     "lint": "npx oxlint src/",
     "lint:md": "npx --no-install markdownlint-cli2 \"**/*.md\"",
+    "lint:docs": ".\\.claude\\cli-docs-lint.exe",
     "test": "npx vitest run",
     "test:e2e": "npx tsx scripts/e2e.ts",
     "build": "npx tsc --noEmit --pretty || true",
@@ -20,8 +21,9 @@
     "build:cli-finding-classifier": "cargo build --release -p cli-finding-classifier && cp target/release/cli-finding-classifier.exe .claude/cli-finding-classifier.exe",
     "build:hooks-session-start": "cargo build --release -p hooks-session-start && cp target/release/hooks-session-start.exe .claude/hooks-session-start.exe",
     "build:cli-merge-pipeline": "cargo build --release -p cli-merge-pipeline && cp target/release/cli-merge-pipeline.exe .claude/cli-merge-pipeline.exe",
+    "build:cli-docs-lint": "cargo build --release -p cli-docs-lint && cp target/release/cli-docs-lint.exe .claude/cli-docs-lint.exe",
     "build:hooks-settings": "node -e \"const fs=require('fs');const t=fs.readFileSync('.claude/settings.local.json.template','utf8');const p=process.cwd().replace(/\\\\/g,'\\\\\\\\');fs.writeFileSync('.claude/settings.local.json',t.replace(/\\{\\{PROJECT_DIR\\}\\}/g,p))\" && echo settings.local.json generated",
-    "build:all": "pnpm build:hooks-session-start && pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-post-tool-comment-lint-rust && pnpm build:hooks-stop-quality && pnpm build:hooks-stop-feedback-dispatch && pnpm build:hooks-user-prompt-feedback-recovery && pnpm build:cli-push-runner && pnpm build:cli-pr-monitor && pnpm build:cli-merge-pipeline && pnpm build:check-ci-coderabbit && pnpm build:cli-finding-classifier && pnpm build:hooks-settings",
+    "build:all": "pnpm build:hooks-session-start && pnpm build:hooks-pre-tool-validate && pnpm build:hooks-post-tool-linter && pnpm build:hooks-post-tool-comment-lint-rust && pnpm build:hooks-stop-quality && pnpm build:hooks-stop-feedback-dispatch && pnpm build:hooks-user-prompt-feedback-recovery && pnpm build:cli-push-runner && pnpm build:cli-pr-monitor && pnpm build:cli-merge-pipeline && pnpm build:check-ci-coderabbit && pnpm build:cli-finding-classifier && pnpm build:cli-docs-lint && pnpm build:hooks-settings",
     "push": ".\\.claude\\cli-push-runner.exe && .\\.claude\\cli-pr-monitor.exe --monitor-only",
     "create-pr": ".\\.claude\\cli-pr-monitor.exe",
     "mark-notified": ".\\.claude\\cli-pr-monitor.exe --mark-notified",

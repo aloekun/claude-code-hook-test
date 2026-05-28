@@ -20,6 +20,7 @@
 resolver = "2"
 members = [
     "src/check-ci-coderabbit",
+    "src/cli-docs-lint",
     "src/cli-finding-classifier",
     "src/cli-merge-pipeline",
     "src/cli-pr-monitor",

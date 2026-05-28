@@ -286,14 +286,14 @@ SessionStart hook (hooks-session-start.exe 拡張)
 | 観点 | 担当 facet | prompt 重点 |
 |---|---|---|
 | ① ハーネス遵守 (rule < pipeline < hook 重複) | architecture-whole | **MVP 最優先** — facet criteria の筆頭、rule/pipeline/hook 重複検出、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源 |
-| ② docs 内整合性 | architecture-whole の sub criterion | ADR 間 supersedes / cross-reference / todo routing、順位 10 / 95 / 96 と補完 |
+| ② docs 内整合性 | architecture-whole の sub criterion | ADR 間 supersedes / cross-reference / todo routing、cli-docs-lint (preamble + cross-ref、push-runner lint group 統合済) / 順位 10 と補完 |
 | ③ docs-source 矛盾 | architecture-whole の sub criterion | 重要 ADR 限定リスト (ADR-007 / 012 / 021 / 022 等) で context 圧迫回避 |
 | ④ セキュリティ | security-whole | ADR-031 設計通り、変更なし |
 | ⑤ Todo 妥当性 | **MVP 対象外** (順位 136 hook へ委譲) | hook = 編集時 immediate guard / 週次 = batch 棚卸し で責務分離、Phase B+1 で順位 154 facet として再評価 |
 | ⑥ テストロジック (振る舞い vs 実装詳細、境界) | simplicity-whole | **MVP 最優先** — facet criteria の筆頭、TDD anti-pattern + 境界欠落、順位 38 (cargo-mutants L3 weekly) と cross-validate |
-| ⑦ ファイルサイズ (50KB) | aggregate 前の Rust 機械 pre-step (Phase B+1) | facet 不要、機械検査で十分。順位 154 で順位 95 / 147 と scope 整理 |
+| ⑦ ファイルサイズ (50KB) | aggregate 前の Rust 機械 pre-step (Phase B+1) | facet 不要、機械検査で十分。順位 154 で cli-docs-lint (preamble check) / 順位 147 と scope 整理 |
 
-**Bundle 戦略**: **Phase B 単体で land** (順位 38 / 95 / 96 は別 PR、PR diff 250-800 行に収める方針)。Phase B+1 で観点 ① ⑤ ⑦ を独立 facet / pre-step に extract する余地を残す (順位 153 / 154 を follow-up 登録済)。
+**Bundle 戦略**: **Phase B 単体で land** (順位 38 は別 PR、cli-docs-lint = preamble + cross-ref check は別 PR で先行 land 済、PR diff 250-800 行に収める方針)。Phase B+1 で観点 ① ⑤ ⑦ を独立 facet / pre-step に extract する余地を残す (順位 153 / 154 を follow-up 登録済)。
 
 #### 作業計画
 
@@ -301,23 +301,23 @@ SessionStart hook (hooks-session-start.exe 拡張)
 
 - [ ] `architecture-reviewer` persona 定義 (allowed_tools: Read/Glob/Grep のみ、knowledge: architecture)
   - 既存 persona 定義の場所を調査して同様に追加 (`.takt/personas/` または config 内)
-- [ ] [.takt/facets/instructions/review-simplicity-whole.md](.takt/facets/instructions/review-simplicity-whole.md): 既存 `review-simplicity.md` から派生コピー、diff 局所制約を whole-tree 向けに改変 (主要 dir Glob 順読、累積複雑度視点)
-- [ ] [.takt/facets/instructions/review-security-whole.md](.takt/facets/instructions/review-security-whole.md): 既存 `review-security.md` から派生、whole-tree 版
-- [ ] [.takt/facets/instructions/review-architecture-whole.md](.takt/facets/instructions/review-architecture-whole.md): 新規。観点は ADR 整合性 / モジュール境界 / ADR-012 命名規約 / 循環依存 / レイヤ侵犯
-- [ ] [.takt/facets/instructions/aggregate-weekly.md](.takt/facets/instructions/aggregate-weekly.md): 既存 `aggregate-feedback.md` を参考に、3 レポートを統合し finding JSON + markdown を出力
-- [ ] [.takt/workflows/weekly-review.yaml](.takt/workflows/weekly-review.yaml): `parallel: [simplicity-whole, security-whole, architecture-whole]` → `aggregate-weekly` の 2 step。`post-merge-feedback.yaml` の構造をテンプレート流用
+- [ ] `.takt/facets/instructions/review-simplicity-whole.md` (新規): 既存 `review-simplicity.md` から派生コピー、diff 局所制約を whole-tree 向けに改変 (主要 dir Glob 順読、累積複雑度視点)
+- [ ] `.takt/facets/instructions/review-security-whole.md` (新規): 既存 `review-security.md` から派生、whole-tree 版
+- [ ] `.takt/facets/instructions/review-architecture-whole.md` (新規): 観点は ADR 整合性 / モジュール境界 / ADR-012 命名規約 / 循環依存 / レイヤ侵犯
+- [ ] `.takt/facets/instructions/aggregate-weekly.md` (新規): 既存 `aggregate-feedback.md` を参考に、3 レポートを統合し finding JSON + markdown を出力
+- [ ] `.takt/workflows/weekly-review.yaml` (新規): `parallel: [simplicity-whole, security-whole, architecture-whole]` → `aggregate-weekly` の 2 step。`post-merge-feedback.yaml` の構造をテンプレート流用
 - [ ] takt 単体 dry-run 検証: `takt run weekly-review.yaml` で 4 レポートが `.takt/runs/<ts>-weekly-review/reports/` に生成されることを確認
 - [ ] PR 作成・マージ
 
 ##### Phase C: skill + SessionStart hook (PR 3)
 
-- [ ] [.claude/skills/weekly-review/SKILL.md](.claude/skills/weekly-review/SKILL.md) 定義
+- [ ] `.claude/skills/weekly-review/SKILL.md` (新規) 定義
   - トリガー条件: `/weekly-review` 明示呼出のみ (一般的なレビュー依頼では発動しない)
   - 4 Phase: 起動条件チェック → takt 起動 → AskUserQuestion 採否対話 → todo.md 反映
   - フラグ: `--dry-run` (todo.md 触らない) / `--resume` (`.failed` marker 検出時の再開)
 - [ ] pending JSON schema 確定: `.claude/weekly-review-pending.json` に finding 配列 + decision フィールド
 - [ ] todo.md 反映ロジック実装 (skill 内): 採用 finding を `## 現在進行中` の新セクション「週次レビュー採用 (YYYY-MM-DD)」にまとめて追記。各 finding を「動機 / 位置づけ / 背景 / 設計決定 / サブタスク / 完了基準」フォーマットへマッピング。重複検出は MVP 不要 (skill 側で警告のみ)
-- [ ] [src/hooks-session-start/](src/hooks-session-start/) 拡張: `.claude/weekly-review-last-run.json` の mtime チェック + 7 日経過時の reminder 出力 + `*.md.failed` 検出時の recovery context 出力 (ADR-001 = Rust 一択)
+- [ ] [src/hooks-session-start/](../src/hooks-session-start/) 拡張: `.claude/weekly-review-last-run.json` の mtime チェック + 7 日経過時の reminder 出力 + `*.md.failed` 検出時の recovery context 出力 (ADR-001 = Rust 一択)
 - [ ] `.gitignore` 更新: `.claude/weekly-reviews/`, `.claude/weekly-review-pending.json`, `.claude/weekly-review-last-run.json` を除外
 - [ ] `pnpm build:all` + `pnpm deploy:hooks` で hook を派生プロジェクトに配布
 - [ ] PR 作成・マージ
@@ -353,13 +353,13 @@ SessionStart hook (hooks-session-start.exe 拡張)
 ##### 既存コンポーネントとの参照関係
 
 - **既存 takt workflow テンプレート元**:
-  - `.takt/workflows/post-merge-feedback.yaml`: parallel + aggregate の 2-step 構造の流用元 ([参照](.takt/workflows/post-merge-feedback.yaml))
+  - `.takt/workflows/post-merge-feedback.yaml`: parallel + aggregate の 2-step 構造の流用元 ([参照](../.takt/workflows/post-merge-feedback.yaml))
 - **既存 facet 派生元**:
-  - `.takt/facets/instructions/review-simplicity.md`: whole-tree 版を派生 ([参照](.takt/facets/instructions/review-simplicity.md))
-  - `.takt/facets/instructions/review-security.md`: 同上 ([参照](.takt/facets/instructions/review-security.md))
-  - `.takt/facets/instructions/aggregate-feedback.md`: aggregate-weekly の参考 ([参照](.takt/facets/instructions/aggregate-feedback.md))
+  - `.takt/facets/instructions/review-simplicity.md`: whole-tree 版を派生 ([参照](../.takt/facets/instructions/review-simplicity.md))
+  - `.takt/facets/instructions/review-security.md`: 同上 ([参照](../.takt/facets/instructions/review-security.md))
+  - `.takt/facets/instructions/aggregate-feedback.md`: aggregate-weekly の参考 ([参照](../.takt/facets/instructions/aggregate-feedback.md))
 - **既存 hook 拡張先**:
-  - `src/hooks-session-start/`: SessionStart hook crate (Rust)。reminder ロジックを追加 ([参照](src/hooks-session-start/))
+  - `src/hooks-session-start/`: SessionStart hook crate (Rust)。reminder ロジックを追加 ([参照](../src/hooks-session-start/))
 - **既存 skill 規約**:
   - 他 skill (`post-merge-feedback`, `pre-push-review` 等) の SKILL.md フォーマット (frontmatter / トリガー条件 / Phase 構成 / 例外的動作) を踏襲
 

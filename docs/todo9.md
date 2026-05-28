@@ -125,7 +125,7 @@
 - **配置方式の選択** (実装時判断):
   - 案 A: `push-runner-config.toml` の `[quality_gate]` に coverage step 追加 (pre-push 時に gate)
   - 案 B: `.github/workflows/coverage.yml` 新設 (CI 時に gate)
-  - 推奨: 案 A (本リポジトリは takt ベース push-runner で gate 統一済、`.github/workflows/` は未存在で順位 96 で初導入予定)
+  - 推奨: 案 A (本リポジトリは takt ベース push-runner で gate 統一済、`.github/workflows/` は未存在、docs 整合性も cli-docs-lint で push-runner 配下に統合済)
 - **ツール**: `cargo llvm-cov --fail-under-lines 80` (workspace 全体)
 - **段階導入**: 現状実測カバレッジが 80% 未満の crate がある場合、crate 別閾値設定 or temporary exception
 - **rule docs 縮小**: testing.md § 「Minimum Test Coverage: 80%」は実行時 gate 化により「ガイドライン」記述を削除可能
@@ -402,7 +402,7 @@
 >
 > **本タスクの位置づけ**: 順位 8 の follow-up、Phase B+1。順位 136 hook land 後に着手判断 (= hook の immediate guard が機能している前提で、週次は batch 棚卸しに focus)。`feedback_pipeline_over_rules.md` 適用で、機械検査可能な観点 (file size) を LLM facet に乗せず分離する設計。
 >
-> **参照**: 順位 8 entry (todo.md 「7 観点責務 mapping」表)、順位 136 entry (todo8.md、todo hook 2 段構え)、順位 95 (preamble file count CI 自動照合)、順位 147 (file length lint 800 行)、ADR-031 (3 層分離 = Rust 機械 / takt AI / skill ask)、`feedback_pipeline_over_rules.md`
+> **参照**: 順位 8 entry (todo.md 「7 観点責務 mapping」表)、順位 136 entry (todo8.md、todo hook 2 段構え)、cli-docs-lint (preamble file count + cross-ref、push-runner lint group 統合済)、順位 147 (file length lint 800 行)、ADR-031 (3 層分離 = Rust 機械 / takt AI / skill ask)、`feedback_pipeline_over_rules.md`
 >
 > **実行優先度**: 🔧 **Tier 2** — Effort M (facet 新規 + Rust pre-step ~80 行)。順位 136 land + Phase B 2-3 週 dogfood 完了後に着手。
 
@@ -426,7 +426,7 @@
 #### 作業計画
 
 - [ ] 順位 136 hook land 待ち
-- [ ] Phase B 2-3 週 dogfood 完了 + 観点 ⑤ ⑦ の必要性再評価 (順位 95 / 147 land 状況も確認)
+- [ ] Phase B 2-3 週 dogfood 完了 + 観点 ⑤ ⑦ の必要性再評価 (cli-docs-lint / 順位 147 land 状況も確認)
 - [ ] `review-todo-whole.md` instruction 設計 (順位 136 hook が拾える範囲との境界明示)
 - [ ] aggregate 前 Rust pre-step 実装 (新 binary `cli-weekly-review-prep` or aggregate facet 内 step)
 - [ ] takt workflow weekly-review.yaml に facet + pre-step 追加
@@ -443,7 +443,7 @@
 
 - 順位 136 hook 実装次第 (hook が拾える範囲が確定後に週次の補完範囲を確定)
 - Phase B dogfood 結果次第 (有用な finding が出るかは運用観察)
-- 順位 95 (preamble count CI 自動照合) との scope 重複整理: CI = 機械検査即時 / 週次 pre-step = aggregate 入力、両立可能だが integration 検討
+- cli-docs-lint (preamble count、push-runner lint group 統合済) との scope 重複整理: push-runner = 機械検査即時 / 週次 pre-step = aggregate 入力、両立可能だが integration 検討
 
 ---
 

@@ -41,9 +41,16 @@ parallel = true
 # 全体で local 269s 観測のため 180s 超過。32768 入れることで context overflow 解消するが per-invoke latency は cost)
 step_timeout = 600
 
+# `pnpm lint:docs` (cli-docs-lint) は ADR-039 試験運用標準パターンを適用:
+# - Config opt-in: 派生 repo の templates/push-runner-config.toml では本コマンドを除外。
+#   本リポジトリで明示的に追加して dogfood を開始。
+# - Kill-switch: 環境変数 CLI_DOCS_LINT_DISABLE=1 で個別 push の意図的バイパス。
+#   永続的な無効化は本 commands array から "pnpm lint:docs" を削除する revert PR。
+# - Bounded lifetime: 3-5 PR の dogfood (false positive 観測 / 検出効果 /
+#   override 使用頻度) 後に templates への default-ON 昇格 or 却下を判定。
 [[quality_gate.groups]]
 name = "lint"
-commands = ["pnpm lint"]
+commands = ["pnpm lint", "pnpm lint:docs"]
 
 [[quality_gate.groups]]
 name = "test"

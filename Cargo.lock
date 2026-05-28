@@ -94,6 +94,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-docs-lint"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tempfile",
+]
+
+[[package]]
 name = "cli-finding-classifier"
 version = "0.1.0"
 dependencies = [
