@@ -574,6 +574,96 @@
 
 ---
 
+### Subprocess timeout+kill lifecycle 検証テスト追加 (PR #177 T2-#1 採用)
+
+> **動機**: PR #177 で CR Major #2 「`run_jj_with_timeout` が timeout 後に jj 子プロセスを kill しない」を fix push したが、修正の正当性 (child process が timeout 到達時に確実に terminate される) を OS レベルで assert する回帰テストが現在ゼロ。fix は `spawn()` + `try_wait()` polling + timeout 時 `kill()` + `wait()` に書き換えたが、テストなしでは将来の変更で同型 leak 再導入が silent regression する。
+>
+> **本タスクの位置づけ**: PR #177 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None)。Major fix の回帰テスト + 今後の hook 実装で subprocess timeout pattern を使う際の reference test。Severity High = subprocess リーク (resource leak) は debug 困難な silent failure mode。Frequency Medium = 2 hook ファイル (hooks-session-start / hooks-pre-tool-validate) で同一 pattern 確認済、今後の hook 実装でも反復見込み。
+>
+> **参照**: `.claude/feedback-reports/177.md` Tier 2 #1、PR #177 CR Major finding (id 3309140888 hooks-session-start / 関連 fix in hooks-pre-tool-validate)、`src/hooks-session-start/src/main.rs` `run_jj_with_timeout` / `src/hooks-pre-tool-validate/src/main.rs` `run_jj_with_timeout` (両方が同一 pattern)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。両 hook test module で integration test 風の subprocess lifecycle 検証 (~80-120 行 + helper)。
+
+#### 設計決定 (案)
+
+- **対象 helper**: `run_jj_with_timeout` (両 hook で実装、ADR-024 で shared lib 統合候補)
+- **検証内容**:
+  1. **正常完了 case**: jj コマンドが timeout 内に完了 → output が返る、child は `try_wait` で reaped 済
+  2. **timeout case**: 意図的に slow command (例: `jj log` で巨大 revset / 存在しない remote への `git fetch`) → timeout 到達 → kill 発火 → child が is_finished 状態に遷移していることを assert
+  3. **kill 後の resource cleanup**: kill 後 `wait()` で zombie 化していないことを assert (Unix では `waitpid` で確認、Windows では `Child::id()` の OS handle が closed か)
+- **テスト fixture**:
+  - `Child::is_finished()` (Rust 1.18+) で kill 後の状態確認
+  - `Command::new("sleep")` or `Command::new("cmd")` `/c "ping -n 100 127.0.0.1 > NUL"` (Windows) で意図的 slow command
+  - timeout は短く (~500ms) して test 全体を 1-2 秒で完結
+- **OS 依存性**: Windows / Linux 両対応のため `#[cfg(target_os = ...)]` で fixture を分ける、または `jj log` で確実に時間がかかる revset を使う方式に統一
+- **配置**: 両 hook の `#[cfg(test)] mod tests` 内 + 共通 helper を `tests/common/mod.rs` 等に切り出す検討
+- **memory `feedback_test_dry_antipattern.md`**: 各 test は独立 fixture で記述 (DRY 適用しない)
+
+#### 作業計画
+
+- [ ] `Child::is_finished` (or `wait_timeout`) で lifecycle 検証手段を確定
+- [ ] hooks-session-start / hooks-pre-tool-validate の `run_jj_with_timeout` test module に 3 case 追加
+- [ ] OS 依存 fixture (slow command) を Windows / Linux で動作確認
+- [ ] dogfood: 意図的に timeout を踏ませる test を CI で安定して走らせられるか確認 (flaky test 回避)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 両 hook の `run_jj_with_timeout` で timeout 後の child kill + cleanup が OS レベルで検証される
+- 同型 leak の silent regression が future PR で検出可能
+- ADR-024 (shared jj helpers library) 統合時に test も統合対象として再評価可能な構造
+
+#### 詰まっている箇所
+
+- OS 依存性: Windows の subprocess lifecycle API (`is_finished`) と Linux の `waitpid` で挙動差異あり。`Child::is_finished` (stable 1.78+) が両 OS 対応で推奨
+- flaky test 回避: timeout を踏ませる test は CI 環境の jitter で flaky 化リスク、500ms ~ 1s の余裕を持つ調整必要
+
+---
+
+### fail-closed error path (Option::None) 個別テスト追加 (PR #177 T2-#2 採用)
+
+> **動機**: PR #177 の CR Major #1 「`check_todo_staleness` / `build_todo_staleness_message` が `behind.unwrap_or(0) > 0` で None を non-stale 扱いし fail-closed をバイパス」については現状コード (`src/hooks-pre-tool-validate/src/main.rs:796, 846-849`) で `check_todo_staleness` 側が依然 `behind.unwrap_or(0) > 0` のまま gate バイパスの可能性が残り、`build_todo_staleness_message` 側は `if behind.is_none() { return None; }` で early return しているが回帰テスト不在。本タスクは **実装側 fix (unwrap_or → map_or(true, ...) への修正)** + **回帰テスト追加** の両方を scope に含める。security gate 関数 (Option 返値 + jj 呼び出し) の error path 検証は今後の hook でも反復必要。
+>
+> **本タスクの位置づけ**: PR #177 post-merge-feedback Tier 2 #2 採用 (Severity High / Frequency Medium / Effort S / Adoption Risk None)。Major fix の回帰テスト + security gate pattern の standard reference。Severity High = fail-closed バイパスは silent security 退化。Frequency Medium = security gate + Option return pattern は今後の hooks でも反復適用見込み。
+>
+> **参照**: `.claude/feedback-reports/177.md` Tier 2 #2、PR #177 CR Major finding (id 3309140878)、`src/hooks-pre-tool-validate/src/main.rs` の `check_todo_staleness` / `build_todo_staleness_message` / `count_commits_branch_ahead`
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。test module への追加 ~30-50 行、unit test で独立検証可能。
+
+#### 設計決定 (案)
+
+- **対象 function**: `check_todo_staleness` (fail-closed 判定)、`build_todo_staleness_message` (None ケース message 出力)
+- **実装側 fix (本 PR で同時に land)**:
+  - `check_todo_staleness` line 796: `behind.unwrap_or(0) > 0` → `behind.map_or(true, |n| n > 0)` (None を stale=true として fail-closed 化)
+  - `build_todo_staleness_message` line 846-849: 現状 `if behind.is_none() { return None; }` で early return しているが、明示的な fail-closed message を返す形に変更検討 (caller が None を「メッセージ無し」と非 stale 解釈しないよう調整)
+- **検証 case** (memory `feedback_test_dry_antipattern.md` 適用、各 variant 独立 fixture):
+  1. **`check_todo_staleness_returns_stale_when_lineage_none`**: `count_commits_branch_ahead` mock で None を返すよう注入 → result.stale = true、message に「lineage 判定不能」を含む
+  2. **`build_todo_staleness_message_none_behind_marks_stale`**: `behind = None` で msg を生成 → "fail-closed で block" 文言を含む
+  3. **`check_todo_staleness_normal_paths_unchanged`**: behind = Some(0) / Some(3) で従来通り動作 (regression 防止)
+- **mock 戦略**: `count_commits_branch_ahead` は jj 実行依存のため、function を引数で受け取る形に refactor or test 専用 stub を導入。簡易には `count_commits_branch_ahead` を `pub(crate)` で公開し、test で別ロジック (constant None / Some(n) を返す closure) を builder で渡す pattern
+- **回帰検出**: 将来 `map_or(true, ...)` を `unwrap_or(0)` 等に戻す変更で test が failing する構造を確保
+- **memory `feedback_test_dry_antipattern.md`**: 各 case は独立 setup (mock 値別)、共通 helper 化しない
+
+#### 作業計画
+
+- [ ] `check_todo_staleness` を mock 注入可能な形に minor refactor (or test 専用 stub 追加)
+- [ ] 3 case の unit test 追加
+- [ ] cargo test で pass 確認 + 意図的に fail-closed 削除して test が落ちることを手動検証
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `check_todo_staleness` / `build_todo_staleness_message` の None ケース挙動 (fail-closed) が unit test で independent 検証
+- 将来 `map_or(true, ...)` を逆向きに変更した時に 1 test が落ちる構造
+- security gate + Option return pattern の test reference として hook 実装者が参照可能
+
+#### 詰まっている箇所
+
+- mock 注入 vs 簡易 stub の trade-off: dependency injection で全 hook で reusable にするか、test 専用 closure で local 化するか。後者 (local stub) のが Effort S で確実
+- function signature 変更の影響範囲: `check_todo_staleness` を refactor すると call site (main.rs handle_write_edit_tool) も追従必要。最小 diff 優先で stub closure 内 mock 推奨
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
