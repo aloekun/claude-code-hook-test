@@ -948,6 +948,134 @@ ADR-018 lines 185-186 については、旧 marker 記述を「順位 167 で mu
 
 ---
 
+### `git-workflow.md § Multi-PR chaining` を「1 PR 内 multi-commit + intent 明記」パターンに拡張 (PR #183 T3-#1 採用)
+
+> **動機**: PR #119/#120/#121 + 本 PR #183 で **4 回観測された** multi-commit single-PR bundling パターンを `~/.claude/rules/common/git-workflow.md` § Multi-PR chaining に codify する。現状の同 section は「複数 PR の分割」を扱うが、「1 PR 内で commit を分離する判断基準」「各 commit message での intent 明記の重要性」が未記載。reviewer (CodeRabbit / 人間) が PR diff を読む際、commit description 単位の intent が明確だと review 効率が向上する。Frequency High に到達したため Tier 3 codify 条件成立。
+>
+> **本タスクの位置づけ**: PR #183 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency High / Effort S / Adoption Risk None、2026-05-29 ユーザー承認)。`~/.claude/` global 配下のため派生プロジェクト (techbook-ledger / auto-review-fix-vc) へ自動波及。
+>
+> **参照**: `.claude/feedback-reports/183.md` Tier 3 #1、`~/.claude/rules/common/git-workflow.md` § Multi-PR chaining ベストプラクティス (既存 section、拡張対象)、観測 PR: #119/#120/#121/#183
+
+#### 設計決定 (案)
+
+`git-workflow.md § Multi-PR chaining ベストプラクティス` に以下を追記:
+
+- **「1 PR 内の multi-commit 分離」の判断基準**: 異なる論理単位 (例: docs update + feature impl) は **commit を分けて 1 PR で land** することで、reviewer が論理単位ごとに review focus を切り替えられる
+- **commit message の intent 明記**: 各 commit description は単独で「何を / なぜ」を理解できる形で記述。`docs(todo): X 採用` / `feat(takt): Y 実装` 等の Conventional Commits + intent suffix のパターンを推奨
+- **典型例**: PR #181 (handoff doc + post-merge-feedback adoption の 2 commit)、PR #183 (Bundle CR-RL todo + A01 ADR fix の 2 commit) を実例として cite
+- **single-commit vs multi-commit の境界**: 同一論理単位は 1 commit (例: 単一 facet の implementation + test)。**論理単位が異なる** ときに分離する (例: docs update commit + impl commit)
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/git-workflow.md` § Multi-PR chaining ベストプラクティス に新 sub-section 「1 PR 内 multi-commit の判断基準」を追加 (~10-15 行)
+- [ ] PR #181 / #183 の commit 構成を実例として inline cite
+- [ ] **`feedback_global_config_backup`** 適用: ~/.claude/* を触る前に snapshot 取得 (`cp -r ~/.claude ~/__claude-backup-YYYYMMDD`)
+- [ ] markdownlint clean 確認
+- [ ] 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への展開は別タスク
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/git-workflow.md` に「1 PR 内 multi-commit 分離」と「intent 明記」のガイドが codify される
+- 将来の AI / 人間セッションで commit 分割判断と intent 記述が一貫した形で適用される
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort S、既存 section への追記のみで scope 明確。
+
+---
+
+### `docs-governance.md` に「Operational reference vs Pointer reference」区別 section を追加 (PR #183 T3-#2 採用) ★ Bundle DG-RULES
+
+> **動機**: PR #183 で A01 修正 (8 ADR の ephemeral todo 参照を permanent reference に置換) を実施する際、各 reference が以下のどちらに該当するか判定する作業が発生した:
+> - **operational reference**: workflow / behavior が ephemeral artifact をどう扱うかを記述するもの (例: 「ADR-031 workflow が `docs/todo.md` に追記する」)。dead-pointer リスクなし、保持可能
+> - **pointer reference**: 特定の section 名 / 順位 N / Phase A-F 等を指すもの (例: 「Phase A-F section を参照」)。dead-pointer リスクあり、置換必要
+>
+> 現状の `~/.claude/rules/common/docs-governance.md` § Cross-File Reference Lifecycle は「permanent → ephemeral 参照は dead-pointer 化する」を codify しているが、**「operational reference は除外」という重要な判定基準が未記載**。本 PR の修正で ADR-031 lines 79-302 の中で line 270 のみが真の pointer reference だった実例が示すように、operational reference を pointer と誤認すると過剰修正で workflow 記述自体を壊す可能性がある。
+>
+> **本タスクの位置づけ**: PR #183 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None、2026-05-29 ユーザー承認)。`~/.claude/` global 配下のため派生プロジェクトへ自動波及。Bundle DG-RULES (本 entry + 順位 172) で同 PR land 推奨。
+>
+> **参照**: `.claude/feedback-reports/183.md` Tier 3 #2、`~/.claude/rules/common/docs-governance.md` § Cross-File Reference Lifecycle (既存 section、拡張対象)、PR #183 の 8 ADR 修正 commit (実例として cite)
+
+#### 設計決定 (案)
+
+`docs-governance.md` § Cross-File Reference Lifecycle に新 sub-section「Operational vs Pointer Reference」を追加:
+
+- **Operational reference の定義**: workflow / 仕様 / behavior が ephemeral artifact (todo.md 等) を「どう扱うか」を記述するもの。**保持可能**。dead-pointer 化しない理由 = ephemeral artifact の特定 entry を指していないため。
+  - 例: 「skill `/weekly-review` は採用 finding を `docs/todo.md` の新セクションに追記する」(動作記述、section 名は workflow が生成するため stale 化しない)
+  - 例: 「reviewer は `docs/todo.md` を作業計画ファイルとして扱う」(classification、特定 entry を指さない)
+- **Pointer reference の定義**: 特定の section 名 / 順位 N / Phase A-F 等を指すもの。**dead-pointer 化リスクあり = 置換必要**。
+  - 例: 「Phase B-F は `docs/todo.md` の section X を参照」(stale 化)
+  - 例: 「順位 42 を読む」(entry 削除で dead pointer)
+- **判定基準**: reference が指す対象が「現在存在する specific entry / section」なら pointer、「workflow が描く general behavior」なら operational
+- **実例**: PR #183 の ADR-031 line 270 (pointer、置換) vs lines 79-302 内の workflow 記述 (operational、保持)。ADR-034 の 順位 N + PR # pair (PR # 側が permanent reference として fallback、ephemeral 単独参照ではない) も example として cite
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/docs-governance.md` § Cross-File Reference Lifecycle に新 sub-section 「Operational vs Pointer Reference」を追加 (~15-20 行)
+- [ ] PR #183 の修正例を inline cite (8 ADR の修正と「operational reference として保持」の判断根拠)
+- [ ] **`feedback_global_config_backup`** 適用: ~/.claude/* を触る前に snapshot 取得
+- [ ] markdownlint clean 確認
+- [ ] 順位 172 (memory 追加) と同 PR で land 推奨 (Bundle DG-RULES、docs/rule + memory の 2 層)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/docs-governance.md` に operational vs pointer の区別が codify される
+- 将来の reviewer / AI が ADR 修正時に過剰修正 (operational reference の誤置換) を回避できる
+- 派生プロジェクトへの自動波及で一貫した判定基準が確立
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort S、既存 section への sub-section 追加で scope 明確。
+
+---
+
+### CR ephemeral artifact Nitpick の統一 skip 基準を memory に codify (PR #183 T3-#3 採用) ★ Bundle DG-RULES
+
+> **動機**: PR #183 で CodeRabbit が docs/todo9.md (= ephemeral artifact) 内の行番号参照 (`lines 1298-1370` 等) を Nitpick として指摘した。これは「行番号は将来 drift する」という general principle としては正しいが、**ephemeral artifact (todo entry) は完了時に削除される設計** のため、永続化を求めるルールを適用するのは over-engineering。本 PR では skip 判断したが、同パターンが構造的に recurring と予想される (CR は ephemeral artifact を permanent doc と同等に扱う傾向)。判断基準を memory entry に codify することで、将来のセッションで一貫した skip 判断が可能になる。
+>
+> **本タスクの位置づけ**: PR #183 post-merge-feedback Tier 3 #3 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-05-29 ユーザー承認)。`~/.claude/projects/.../memory/` 配下のため**派生プロジェクトには波及しない** (本リポジトリ専用)。Bundle DG-RULES (順位 171 + 本 entry) で同 PR land 推奨。
+>
+> **参照**: `.claude/feedback-reports/183.md` Tier 3 #3、既存 memory `feedback_coderabbit_no_actionable_merge_signal.md` (補完関係)、PR #183 の Nitpick 2 件 (CR-N1: 順位 168 line 1298-1370 / CR-N2: 順位 169 line 64/185-186)
+
+#### 設計決定 (案)
+
+新 memory ファイル `feedback_coderabbit_ephemeral_nitpick.md` を作成:
+
+- **rule 名**: `feedback_coderabbit_ephemeral_nitpick`
+- **type**: feedback
+- **description**: CR が ephemeral artifact (`docs/todo*.md` 等) 内の行番号参照を Nitpick (💤 Low value) として指摘した場合は skip 推奨
+- **content**:
+  - **why**: ephemeral artifact (todo entry) は完了時に削除される設計のため、永続化を求めるルール (line drift 防止 = symbol/section 参照推奨) の適用は over-engineering
+  - **how to apply**: CR Nitpick が `docs/todo*.md` 系 ephemeral artifact に対する line/symbol drift を指摘した場合、skip + merge 判断を維持。既存 memory `feedback_coderabbit_no_actionable_merge_signal` の「Nitpick 💤 Low value は skip 推奨」の補完。entry 実装着手時には自然に symbol 参照に置き換わる流れになるため、todo entry レベルで先取り fix する価値は低い
+  - **境界**: permanent artifact (ADR / coding-style.md 等) への同種指摘は通常通り対応する。判定基準 = 対象 file の lifecycle (ephemeral or permanent)。本 rule は ephemeral artifact 専用
+  - **実例**: PR #183 の CR-N1 / CR-N2 (docs/todo9.md の行番号参照を skip した実例)
+
+#### 作業計画
+
+- [ ] `~/.claude/projects/E--work-claude-code-hook-test/memory/feedback_coderabbit_ephemeral_nitpick.md` を新規作成 (~30-50 行、frontmatter 含む)
+- [ ] `~/.claude/projects/E--work-claude-code-hook-test/memory/MEMORY.md` index に 1 行追加 (`- [CR ephemeral artifact nitpick skip](feedback_coderabbit_ephemeral_nitpick.md) — ephemeral entry 内 Nitpick は skip 推奨`)
+- [ ] **`feedback_global_config_backup`** 適用: 念のため memory ディレクトリの snapshot 取得 (`cp -r ~/.claude/projects/.../memory ~/__memory-backup-YYYYMMDD`)
+- [ ] markdownlint clean 確認 (memory ファイル + MEMORY.md の両方)
+- [ ] 順位 171 (docs-governance.md 拡張) と同 PR で land 推奨 (Bundle DG-RULES、docs/rule + memory の 2 層補強)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 新 memory ファイル `feedback_coderabbit_ephemeral_nitpick.md` が作成される
+- MEMORY.md index に登録される
+- 将来のセッションで CR が ephemeral artifact 内 Nitpick を出した場合、本 rule から逆引き可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort XS、新規 memory ファイル + index 1 行追加のみ。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
