@@ -664,6 +664,80 @@
 
 ---
 
+### Cross-ref edge case test coverage 追加 (PR #179 T2-#1 採用)
+
+> **動機**: PR #179 で cli-docs-lint の cross_ref validator を新規実装し push-runner quality_gate に統合したが、percent-encode (`%20` / `%23`)、GFM heading slug、relative path normalize (`../`) の各 variant が fixture テストで明示的に保護されていない。validator のロジック劣化を silent regression として放置するリスクがある。
+>
+> **本タスクの位置づけ**: PR #179 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None、2026-05-28 ユーザー承認)。cross_ref validator の edge case coverage 拡充による silent regression 防止。
+>
+> **参照**: `.claude/feedback-reports/179.md` Tier 2 #1、`src/cli-docs-lint/src/cross_ref.rs` (既存 9 tests に追加)、PR #179 (cli-docs-lint 本体 land)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 tests と同 pattern で fixture 追加。
+
+#### 設計決定 (案)
+
+- **対象 edge case**:
+  1. **percent-encode**: 日本語 file name の percent-encode (例: `%20` 空白、`%E3...` UTF-8) を含む link を resolve できるか
+  2. **GFM heading slug**: heading anchor (`#section-with-spaces` 等) の小文字化 / 空白→`-` 変換が GFM 仕様に従うか
+  3. **relative path normalize**: 多段 `../` を含む link (例: docs/ から 2 階層上 root → 別 path) を正しく resolve できるか (現状の base_dir.join + canonicalize 経路)
+- **fixture pattern**: 既存 cross_ref.rs の `#[cfg(test)]` mod 内の tempdir + 動的 fixture 生成 pattern を踏襲
+- **memory `feedback_test_dry_antipattern`**: 各 variant 独立 setup、共通 helper 化しない
+
+> NOTE: 本 entry の編集時に edge case の link 例を Markdown link 形式 (角括弧 + 丸括弧) で書くと、cli-docs-lint の cross_ref validator が backtick 内 link も誤検出する (= 本 entry land 時に発覚した false positive)。validator 自体の backtick-aware 化も本 entry 着手時に検討余地あり (現状は description + 拡張子のみで回避)。
+
+#### 作業計画
+
+- [ ] `src/cli-docs-lint/src/cross_ref.rs` の `#[cfg(test)]` mod に 3 case の fixture test を追加
+- [ ] cargo test で pass 確認 + 意図的に validator から正規化ロジックを抜いて test が落ちるか手動検証
+- [ ] (任意) validator の backtick-aware 化 (inline code 内の link を無視) を本 entry に同梱検討
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 3 edge case (percent-encode / GFM heading slug / relative path normalize) が unit test で independent 検証
+- silent regression を test で 1 件以上検出できる構造
+- 既存 9 tests と整合性を保つ
+
+#### 詰まっている箇所
+
+なし。Effort S、cli-docs-lint 内のみで完結。
+
+---
+
+### ADR-039 kill-switch standard pattern に「診断メッセージは実装の受理値を網羅」原則追記 (PR #179 T3-#1 採用)
+
+> **動機**: PR #179 で `cli-docs-lint` の kill-switch を実装した際、`is_kill_switch_value` は `"1"` / `"true"` / `"TRUE"` / `"True"` の 4 受理値を持つが、SKIP 時の診断メッセージは `"{}=1 detected"` 固定で実受理値を反映しなかった (spec-impl drift)。pre-push simplicity reviewer から non-blocking finding として指摘。ADR-039 は全 experimental feature の kill-switch 実装テンプレートとして参照されるため、原則を明文化しないと次の experimental feature 実装で同パターンが再発する systemic reach がある。
+>
+> **本タスクの位置づけ**: PR #179 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-05-28 ユーザー承認)。ADR-039 を全 experimental feature の参照 source にする方針のため、Frequency Medium 判定で採用条件成立。
+>
+> **参照**: `.claude/feedback-reports/179.md` Tier 3 #1、`docs/adr/adr-039-experimental-feature-standard-pattern.md` (§ 決定 2. Kill-switch)、PR #179 の `src/cli-docs-lint/src/main.rs` の `is_kill_switch_value` + SKIP message 実装例、PR #179 simplicity reviewer の non-blocking finding
+
+#### 設計決定 (案)
+
+ADR-039 § 決定 2 (Kill-switch) に以下の原則を追記:
+
+- **診断メッセージは受理値を網羅**: kill-switch 発動時の出力メッセージは、`is_*_value` 等の判定関数が受理する全 value variant を反映する。固定文字列 (例: `"=1 detected"`) ではなく、(a) 全受理値を列挙 (例: `"=1 (or =true) detected"`) または (b) 実際の env var 値を動的取得して表示 (例: `format!("{}={} detected", env_name, raw_value)`) のいずれかを採用する
+- **理由**: spec-impl drift (判定ロジックは複数値受理、メッセージは 1 値のみ表記) は user が誤解する診断 UX 低下、かつ ADR-039 はテンプレートとして参照されるため全 experimental feature に波及する
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-039-experimental-feature-standard-pattern.md` の § 決定 2 (Kill-switch) に上記原則を 2-3 行追記
+- [ ] PR #179 を実例として inline cite (「`CLI_DOCS_LINT_DISABLE` で発生した spec-impl drift」)
+- [ ] markdownlint clean 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-039 § Kill-switch に診断メッセージ網羅原則が codify される
+- 次の experimental feature 実装時に reviewer / Claude が原則から逆引き可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort XS、ADR の section 追記のみで副作用最小。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
