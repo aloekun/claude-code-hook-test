@@ -738,6 +738,81 @@ ADR-039 § 決定 2 (Kill-switch) に以下の原則を追記:
 
 ---
 
+### `pnpm create-pr` PR body truncation 回避を検証する e2e/integration test 追加 (PR #181 T2-#1 採用)
+
+> **動機**: PR #134 + #181 で 2 回観測された `pnpm create-pr` (= `cli-pr-monitor.exe` の PR 作成モード) における PR body 切り詰め問題。複数 section・複数行の body を `--body "..."` で渡すと shell argument 解釈で改行が delimiter 処理されて body が途中で切れる silent UX 劣化が発生する。memory `feedback_pnpm_create_pr_body` で `--body-file <path>` workaround を採用済だが、回避策が正常動作することを担保する自動 regression gate が存在しない。
+>
+> **本タスクの位置づけ**: PR #181 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-05-29 ユーザー承認)。PR #134・#181 の 2 回観測で Medium frequency に昇格、`--body-file` workaround の regression gate として採用条件成立。
+>
+> **参照**: `.claude/feedback-reports/181.md` Tier 2 #1、memory `feedback_pnpm_create_pr_body`、`src/cli-pr-monitor/src/main.rs` (PR 作成モード本体)、`src/cli-pr-monitor/src/stages/` 周辺の `run_create_pr` 実装、PR #134 / #181 の create-pr 実行例
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 cli-pr-monitor test infra の流用、shell argument truncation 境界の fixture 測定。
+
+#### 設計決定 (案)
+
+- **検証対象**: `pnpm create-pr -- --title "..." --body-file <path>` 経由で PR を作成した際、body 内容が source file と一致すること (truncation なし、改行保持)
+- **境界測定**: PR body 文字数 (行数 / バイト数) を段階的に増やし、shell 直渡し `--body "..."` パスが切り詰める閾値と `--body-file` が切り詰めない閾値の境界を fixture で測定、regression gate として記録
+- **test 方式**: `gh pr create` の dry-run option がないため、cli-pr-monitor の argv 組み立て層を unit test 対象にする (実 PR 作成は行わない)、または integration test で mock gh CLI を介して argv の最終 shape を assert
+- **memory `feedback_test_dry_antipattern`**: 各 variant 独立 setup、共通 helper 化しない
+
+#### 作業計画
+
+- [ ] cli-pr-monitor の PR 作成モードで argv 組み立て層を関数化 (test 可能な shape に refactor、必要なら)
+- [ ] `#[cfg(test)]` mod に 3 fixture を追加: (a) 短い single-line body、(b) 複数行 body 経由 `--body-file`、(c) 直接 `--body` を渡した場合の truncation 再現
+- [ ] cargo test で pass 確認 + 既存 cli-pr-monitor test との独立性確認
+- [ ] truncation 境界の測定結果を test コメントに記録 (将来の閾値変更時の reference)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `--body-file` 経由が複数行 body で truncation なしに動作することが unit test で保護
+- shell 直渡し `--body "..."` で truncation が起こる境界が fixture で測定済
+- silent regression を test で 1 件以上検出できる構造
+- 既存 cli-pr-monitor test との独立性 (mock 設定の交差なし)
+
+#### 詰まっている箇所
+
+`gh pr create` 自体に dry-run option がないため、実 PR 作成を伴わない検証戦略を要設計 (argv 組み立て層の関数化 or mock gh CLI)。Effort S 想定だが test 戦略次第で M に膨らむ可能性あり。
+
+---
+
+### ADR-028 に PR body 複数行時の `--body-file` 推奨 + shell argument truncation の why/how 補足追記 (PR #181 T3-#1 採用)
+
+> **動機**: PR #134 + #181 で 2 回観測された `pnpm create-pr` の PR body 切り詰め問題 (順位 165 と同根)。memory `feedback_pnpm_create_pr_body` で recurring issue として記録されているが、ADR-028 (pnpm create-pr gate) には why (改行が shell delimiter として処理される) / how (`--body-file` または `gh pr edit --body-file` を使う) が codify されていない。順位 165 が test で防御層を作るのに対し、本タスクは ADR で permanent reference 層を作って後発の AI / reviewer が逆引き可能な状態にする構造的予防策。
+>
+> **本タスクの位置づけ**: PR #181 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort XS / Adoption Risk None、2026-05-29 ユーザー承認)。順位 165 が test 層、本タスクが docs 層で同根を別レイヤで補強する関係。
+>
+> **参照**: `.claude/feedback-reports/181.md` Tier 3 #1、memory `feedback_pnpm_create_pr_body`、`docs/adr/adr-028-pnpm-create-pr-gate.md` (補足追記対象)、PR #134 / #181 の create-pr 観測
+
+#### 設計決定 (案)
+
+ADR-028 に以下を補足セクションとして追記:
+
+- **PR body が複数行/長文の場合は `--body-file <path>` を使う**: shell argument 直渡し (`--body "..."`) は OS / シェル / `gh` CLI の引数解釈で改行が delimiter 処理され body が途中で切れるケースが PR #134・#181 で観測されている
+- **why**: shell が改行を区切りとして解釈、`gh` CLI が受け取る argv に改行が含まれた時点で body が partial 化
+- **how**: (a) PR 作成時は `pnpm create-pr -- --title "..." --body-file <path>` で file 経由、(b) 既存 PR の body 修正は `gh pr edit <N> --body-file <path>`、(c) scratch file は `__pr-body.md` (gitignore 対象、CLAUDE.md scratch 命名規約)
+- **配置**: ADR-028 の決定セクションまたは「実装上の注意」セクションに 1-2 段落で追記、メモリ entry `feedback_pnpm_create_pr_body` への back-link
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-028-pnpm-create-pr-gate.md` の適切な section (決定 / 実装注意点) に上記補足を 2-3 段落で追記
+- [ ] PR #134 / #181 を実例として inline cite
+- [ ] markdownlint clean 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-028 に PR body 複数行ケースの why / how が codify される
+- 後発の AI / reviewer が ADR から逆引き可能になる
+- memory `feedback_pnpm_create_pr_body` との整合 (memory が ADR 参照を持つ or vice versa)
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort XS、ADR の section 追記のみで副作用最小。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
