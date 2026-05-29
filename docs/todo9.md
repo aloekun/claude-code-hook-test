@@ -1118,6 +1118,51 @@ extract 先の crate 選定: 既存 lib-* に追加するか新規 `lib-runner-u
 
 ---
 
+### ADR-039 experimental feature lifecycle checklist 拡張 — 新規 feature 追加時 4 点整合確認 (PR #184 T3-#2 採用)
+
+> **動機**: PR #184 で CR Major M-2 (`weekly_review_reminder` の `enabled = true` が ADR-039 opt-in 契約に違反) が CR re-review で検出された。本 finding は self-review の段階で捕捉可能だったはずだが、ADR-039 は「3 点原則 (config opt-in + kill-switch + bounded lifetime)」を記述しているのみで、**新規 feature 追加時の具体的確認手順 (checklist)** が未整備だった。本タスクは ADR-039 に「新規 experimental feature 追加時の self-review checklist」を追加し、**config schema ↔ feature flag ↔ docs ↔ test の 4 点整合** を mechanical に確認できる手順を codify する。
+>
+> **本タスクの位置づけ**: PR #184 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None、2026-05-29 ユーザー承認)。**T3-1 不採用根拠との対比** (2026-05-29 ユーザー判断): 「analyzer rubric は推奨でしかなく user 判断と完全一致は構造的に困難」のため、discretionary 部分を含む rule は不採用、本 T3-2 は mechanical な 4 点整合 checklist のため採用条件成立。
+>
+> **参照**: `.claude/feedback-reports/184.md` Tier 3 #2、`docs/adr/adr-039-experimental-feature-standard-pattern.md` (既存 3 点原則、checklist 追加対象)、PR #184 CR M-2 thread (id 3323337089) の実例、本 PR で実施した M-2 fix commit (= `enabled = false` 化)
+
+#### 設計決定 (案)
+
+ADR-039 に新 section「新規 experimental feature 追加時の self-review checklist」を追加。以下 4 点の整合を確認する:
+
+- **1. config schema**: 該当 hook / module の config struct (例: `WeeklyReviewReminderConfig`) で `enabled: Option<bool>` を持つ
+- **2. feature flag default**: 該当 config の `enabled` field の default が **OFF** (= `unwrap_or(false)`) になっている。`unwrap_or(true)` は ADR-039 違反 (PR #184 M-2 の症状)
+- **3. docs / config example**: `.claude/hooks-config.toml` 等の repo config example で `enabled = false` を明示しつつ、enable した場合の挙動説明をコメントで添える (= opt-in 運用の guidance)
+- **4. test coverage**: `enabled = false` (= disabled state) の test case が含まれ、feature が完全 skip されることを assert する (= kill-switch が機能することの regression gate)
+
+実例の cite:
+
+- **OK** (PR #184 fix 後の `weekly_review_reminder`): `WeeklyReviewReminderConfig::enabled` Option + `unwrap_or(false)` + `.claude/hooks-config.toml` で `enabled = false` + `compute_weekly_review_reminder_nudge_returns_none_when_disabled` test
+- **NG** (PR #184 fix 前): `enabled = true` で 4 点整合の (2) と (3) が違反、CR Major で検出
+- **既存 grandfathered case** (`[session_start.staleness]`): pre-existing で `enabled = true` だが本 PR scope 外、別 PR で cleanup 候補
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-039-experimental-feature-standard-pattern.md` に新 section「新規 experimental feature 追加時の self-review checklist」を追加 (~15-20 行)
+- [ ] 4 点整合の確認手順を箇条書きで明文化
+- [ ] OK / NG 実例を inline cite (PR #184 M-2 fix の前後)
+- [ ] 既存 grandfathered case の扱いを補足記述 (本 ADR は新規 feature 追加時の checklist であり、既存 feature の retro-cleanup は別判断)
+- [ ] markdownlint clean 確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-039 に新 section が codify される
+- 将来の新規 experimental feature 実装時、self-review で 4 点整合を mechanical に確認可能
+- PR #184 M-2 と同型の config opt-in 違反が self-review で捕捉可能になる
+- markdownlint clean
+
+#### 詰まっている箇所
+
+なし。Effort S、ADR の section 追加のみで副作用最小。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
