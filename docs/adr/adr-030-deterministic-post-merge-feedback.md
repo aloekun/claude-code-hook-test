@@ -414,14 +414,15 @@ PR #91 で実証された pathological loop:
 
 ## 実装タスク
 
-詳細な実装手順は [`docs/todo.md`](../todo.md) の「マージ後フィードバック機構の決定論化」セクション Phase B-F を参照。本 ADR は仕様のみを規定する。
+本 ADR は仕様のみを規定し、各 Phase の実装は以下の PR で land 済:
 
-- **Phase A**: 本 ADR 起案 (PR 1) — 設計のみ
-- **Phase B**: takt workflow + 4 facets — L1 Floor (PR 2)
-- **Phase C**: UserPromptSubmit hook — L2 Recovery (PR 3)
+- **Phase A**: 本 ADR 起案 — 設計のみ (PR #75 で land)
+- **Phase B**: takt workflow + 4 facets — L1 Floor (PR #77 で land)
+- **Phase C**: UserPromptSubmit hook — L2 Recovery (PR #80 で land)
 - **Phase D**: 廃止 (skill enrichment 不要、本 ADR 「検討した選択肢 D」参照)
-- **Phase E**: 旧機構廃止 (PR 4 — Phase B/C dogfood 数回後)
-- **Phase F**: dogfood 検証 (PR 4 マージ後 / 継続観察)
+- **Phase D-7 (補完)**: L1 Drop guard + L2 orphan reaper + ADR-030 spec (PR #154 で land、Bundle c-1)
+- **Phase E**: 旧機構廃止 (Phase B/C dogfood 数回後の判断) — 進捗は `docs/todo-summary.md` の priority table で trackable
+- **Phase F**: dogfood 検証 — Phase E land 後の継続観察として priority table で trackable
 
 ## 影響
 

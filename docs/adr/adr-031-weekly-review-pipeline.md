@@ -267,13 +267,13 @@ ADR-030 で確立した「機械的 = Rust / AI 並列 = takt / ask-based = skil
 
 ## 実装タスク
 
-詳細な実装手順は [`docs/todo.md`](../todo.md) の「週次プロジェクト全体レビューパイプラインの導入」セクション Phase A-F を参照。本 ADR は仕様のみを規定する。
+本 ADR は仕様のみを規定し、各 Phase の land 状況は以下:
 
-- **Phase A**: 本 ADR 起案 (PR 1) — 設計のみ
-- **Phase B**: takt workflow + 4 facets + architecture-reviewer persona (PR 2)
-- **Phase C**: skill + SessionStart hook 拡張 (PR 3)
-- **Phase D**: e2e 検証 (PR 3 マージ後 / PR 4 起案前)
-- **Phase E**: 試験運用 dogfood (PR 4 — 1〜2 週運用 + ADR-031 ステータス更新)
+- **Phase A**: 本 ADR 起案 — 設計のみ (PR #177 を起源とする bundle、ADR 本体 land)
+- **Phase B**: takt workflow + 4 facets + architecture-reviewer persona (PR #182 で land、persona は既存 `persona_sessions.json` 登録分を再利用)
+- **Phase C**: skill + SessionStart hook 拡張 — 未着手 (Phase B dogfood 後の判断、todo-summary 順位 8 で trackable)
+- **Phase D**: e2e 検証 — Phase C land 後 (todo-summary 順位 8 entry に内包)
+- **Phase E**: 試験運用 dogfood (1〜2 週運用 + ADR-031 ステータス更新) — Phase D 後
 - **Phase F**: 自動化検討 (本採用後の任意 — schedule スキル経由の cron 化)
 
 ## アンチパターン

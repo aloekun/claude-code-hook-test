@@ -147,22 +147,27 @@ PR #99 セッションで以下の運用痛が観測された:
 - `project_coderabbit_rate_limit_overlay.md`: rate-limit 検出ロジックの根拠 (PR #99 で実証された walkthrough overlay 仕様)
 - `project_coderabbit_auto_resolve.md`: `resolved:` reply での auto-resolve 挙動
 
-### todo-summary.md / todo4.md エントリ
+### Bundle a component の land 状況 (2026-05-29 update)
 
-- `docs/todo-summary.md` 推奨実行順序サマリー: 順位 42-45 (Bundle a 4 component)
-- `docs/todo4.md`:
-  - cli-pr-monitor の rate-limit auto-retry + `@coderabbitai review` auto-trigger 実装 (PR #99 T2-4)
-  - ADR-018 / ADR-009 の rate-limit retry ポリシー明文化 (PR #99 T3-5)
-  - 本 ADR で追加される #D-1 / #D-3 entry も別セッションで todo4.md に追記が必要
+Bundle a の 4 component は以下のように消化された:
+
+| component | 状態 | land 経路 |
+|---|---|---|
+| rate-limit auto-retry 実装 (旧 順位 42) | ✅ land 済 | **PR #113 (Bb-1)** で実装、PR #115 dogfood で実証 |
+| ADR-018 / ADR-009 retry policy 明文化 (旧 順位 43) | ✅ 部分達成 | ADR-018 追記 (2026-05-06)、残作業は ADR-009 navigation 注記 |
+| #D-1 (gh CLI 規則を `~/.claude/rules/common/git-workflow.md` に追記) | 別経路で完了 | 計画書消化、本 ADR 当初 entry は retire 済 |
+| #D-3 (`check-ci-coderabbit --list-findings` Rust モード) | 状況依存 | todo entry 化されている場合 land 状況を確認 (本 ADR では trackable な PR # を直接保持しない方針) |
+
+詳細な進捗 trackable な permanent reference は本 ADR § "Bundle b との関係" 表 (line 188+) を参照。`docs/todo*.md` の `順位 N` entry は ephemeral artifact であり、entry 削除時に本セクションの言及が dead-pointer 化しないよう PR # primary 引用を優先する。
 
 ### 新セッションで最初に確認すべきこと
 
-1. `git log --oneline -5` で master の最新状態を確認 (Bundle Z Phase 2/3 が land 済か等)
-2. `docs/todo-summary.md` の Bundle a 関連 entry (順位 42-45) を読む
-3. `docs/todo4.md` の Bundle a 詳細 entry を読む
-4. 本 ADR (ADR-034) を読む
-5. memory `project_coderabbit_rate_limit_overlay.md` を読む
-6. **どの Sub-PR を実施するか確認**: Sub-PR 1 (#D-1 + #D-3) と Sub-PR 2 (rate-limit auto-retry + ADR-018 改訂) のどちらから着手か (推奨は Sub-PR 1 先行)
+1. `git log --oneline -5` で master の最新状態を確認 (Bundle Z Phase 2/3 / Bundle b / Bundle CR-RL 等の land 済 PR を把握)
+2. 本 ADR (ADR-034) を読む — 特に "Bundle b との関係" 表で Bundle a の現状を把握
+3. ADR-018 (cli-pr-monitor takt 移行) を読む — rate-limit retry policy の現状実装
+4. memory `project_coderabbit_rate_limit_overlay.md` を読む
+5. **未着手 component** を確認: 旧 順位 46 (integration test) / 旧 順位 49 (parse_findings error-path test infra) が `docs/todo*.md` 系列に entry を持つか `grep "整合性 test\|parse_findings" docs/todo*.md` で確認
+6. **どの Sub-PR を実施するか確認**: Bundle a 残作業 (Sub-PR 2 縮小版) または Bundle CR-RL (順位 167-169、本 ADR 採用ロジックと隣接領域) のどちらから着手か (Bundle CR-RL は format drift 修正の優先度が高い)
 
 ### 完了条件
 
