@@ -1076,6 +1076,48 @@ ADR-018 lines 185-186 については、旧 marker 記述を「順位 167 で mu
 
 ---
 
+### `combine_output` 5 crate 重複を `lib-runner-utils` (or 既存 lib-*) に extract (PR #182 dry-run S01 採用)
+
+> **動機**: PR #182 Phase B dry-run で検出された finding WR-2026-05-29-S01。`src/cli-pr-monitor/src/runner.rs:80-89` の `combine_output(stdout, stderr)` 8 行関数が `#[allow(dead_code)]` 付与され生産コードから呼ばれていない (cli-pr-monitor 内では test 4 件のみが参照)。同一 8 行関数が **4 他 crate にも複製** されている (`cli-push-runner`, `cli-push-pipeline`, `cli-merge-pipeline`, `hooks-post-tool-linter`)、それぞれが同じ test を持つ = **5 crate 横断の systemic duplication** で 5 倍の保守面。ADR-026 Cargo workspace + ADR-012 lib-* naming の既存パターンで解決コスト低。
+>
+> **本タスクの位置づけ**: PR #182 post-merge-feedback の dry-run finding S01 採用 (Severity High / Frequency High / Effort S-M / Adoption Risk None、2026-05-29 ユーザー承認)。Phase B dogfood の最初の実体ベース finding (A01 と並ぶ)。A01 (Cross-File Reference Lifecycle 違反) は PR #183 で fix 済、本タスクは Phase B dogfood で発見された残 1 件の構造対策。
+>
+> **参照**: PR #182 dry-run report (`.takt/runs/20260529-030546-weekly-review-dry-run-2026-05-29/reports/architecture-whole-review.md` および dry-run feedback report)、`src/cli-pr-monitor/src/runner.rs:80-89` (function) + `:282-298` (tests)、`src/cli-push-runner/`, `src/cli-push-pipeline/`, `src/cli-merge-pipeline/`, `src/hooks-post-tool-linter/` (他 4 crate の重複)、ADR-024 (shared jj-helpers library パターン)、ADR-026 (Cargo workspace)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S-M。Cargo workspace 内の単純な lib extract、5 crate を順次差し替え。
+
+#### 設計決定 (案)
+
+- **採用 strategy** (analyzer Option A 推奨): `lib-runner-utils` 新 crate (or `lib-process-helpers` 等の既存 lib-* crate を選定) に `combine_output(stdout, stderr) -> String` を移管。5 crate (`cli-*` 4 件 + `hooks-post-tool-linter`) から `pub use lib_runner_utils::combine_output;` で再 export
+- **不採用 strategy** (analyzer Option B): cli-pr-monitor からのみ削除する最小修正案 → 他 4 crate に同じ未使用問題が残るため不採用、Option A の方が systemic 解決
+- **crate 名選定**: 既存 lib-* 一覧を `cargo metadata` で確認、`lib-runner-utils` / `lib-process-helpers` / `lib-subprocess` 等の候補から選定。新規作成より既存 lib-* (例: shared-jj-helpers) への追加が好ましい (ADR-024 の流れ)
+- **test 移管**: 既存 4 test の集約版を新 crate の `#[cfg(test)]` に 1 set のみ配置、各 cli-* / hooks-* 側の test は削除
+- **memory `feedback_test_dry_antipattern`**: test は移管後も独立 variant を維持 (helper で共通化しない)
+
+#### 作業計画
+
+- [ ] `cargo metadata --no-deps` で既存 lib-* crate を列挙、`combine_output` の論理 location として最も自然な crate を選定
+- [ ] 選定 crate (新規 or 既存) に `combine_output` を pub 関数として追加 + 集約 test を 1 set 配置
+- [ ] cli-pr-monitor / cli-push-runner / cli-push-pipeline / cli-merge-pipeline / hooks-post-tool-linter の 5 crate の各 `Cargo.toml` に新 dep を追加 (新規 lib の場合)
+- [ ] 各 crate の `combine_output` impl + tests を削除、`use <crate>::combine_output;` に置換
+- [ ] cargo test で 5 crate 全 pass 確認
+- [ ] cargo clippy で `#[allow(dead_code)]` が消えることを確認 (extract により生産 path に乗る、または未使用なら別 PR で削除判断)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `combine_output` 関数の単一 source of truth が新 crate (または選定 lib-*) に確立
+- 5 cli-*/hooks-* crate が再 export 経由で同 impl を共有
+- 既存 test が集約版 1 set + 各 crate での 4 set 削除で計 4 set 削減
+- `#[allow(dead_code)]` 付与が不要になる (extract 後の lib では pub function として正規 export 経路)
+- cargo workspace 全体で cargo test + cargo clippy が pass
+
+#### 詰まっている箇所
+
+extract 先の crate 選定: 既存 lib-* に追加するか新規 `lib-runner-utils` を作るかの判断。新規 crate は Cargo workspace に 1 line 追加で済むが、既存 lib-* (例: lib-pr-monitor-common 等の既存 shared crate) への追加の方が **Effort S** 寄り、新規作成だと **Effort M** に近づく。`cargo metadata` 結果次第。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo8.md 末尾の post-merge-feedback workflow stale marker 問題を参照。)
