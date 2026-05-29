@@ -1,6 +1,6 @@
 Focus on **whole-tree anomaly detection** for simplicity — patterns that read as cumulative complexity, dead-on-arrival abstractions, or test design that does not protect behavior. This facet is invoked by the weekly-review workflow (ADR-031) and reviews the entire source tree, not a diff.
 
-The diff-local `review-simplicity.md` is a **separate facet** with different scope; this file MUST NOT be merged with it (ADR-031 アンチパターン § 281). Their concerns are orthogonal: diff-local guards "is the change locally readable", whole-tree guards "has accumulated complexity outgrown the reader's capacity".
+The diff-local `review-simplicity.md` is a **separate facet** with different scope; this file MUST NOT be merged with it (ADR-031 § アンチパターン: `review-simplicity.md` を whole-tree 用と共有してはならない). Their concerns are orthogonal: diff-local guards "is the change locally readable", whole-tree guards "has accumulated complexity outgrown the reader's capacity".
 
 ## Reading the source tree
 

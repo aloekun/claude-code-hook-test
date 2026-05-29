@@ -14,6 +14,8 @@ description: >
 
 workflow_config:
   provider_options:
+    claude:
+      network_access: false
     codex:
       network_access: false
     opencode:

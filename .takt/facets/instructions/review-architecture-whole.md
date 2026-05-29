@@ -72,12 +72,14 @@ Do NOT chase low-level style drift that the deterministic layer (`hooks-post-too
 
 Whole-tree patterns the diff-local facet cannot see:
 
-- **Cyclic dependencies** between crates / modules (`cargo tree` or `cargo modules` for verification)
+- **Cyclic dependencies** between crates / modules: cross-grep `[dependencies]` blocks in `src/*/Cargo.toml` with `Grep` to find A→B→A patterns. Symptom-level: `use crate::` imports forming round trips
 - **Layer violations**: e.g. a `stages/` module reaching into another crate's private impl, or a `cli-*` crate calling another `cli-*` crate directly instead of via a shared lib (ADR-024)
 - **God modules**: single modules that absorb responsibilities from 3+ unrelated concerns
 - **ADR-012 violations**: directory names that do not match the ADR-012 naming convention
 
 For each finding, name the specific files / crates and propose the smallest restructuring (`extract this trait`, `move X to lib Y`, etc.). Do NOT recommend large refactors without estimating effort and dependency depth.
+
+> **任意の追加検証**: `cargo tree` / `cargo modules` で循環依存を構造的に確認したい場合は、本 facet の `allowed_tools` (`Read` / `Glob` / `Grep`) では実行できないため、finding として上げる際に「reviewer が手動で `cargo tree -d` を実行して確認すること」と proposal で明示する。本 facet 単独で完結する判定は Grep ベースで行う。
 
 ## Scope constraints
 

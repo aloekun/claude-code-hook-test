@@ -1,13 +1,13 @@
 Focus on **whole-tree security anomaly detection**. Categorical vulnerability classes (injection / auth / data exposure / crypto / unsafe code / path traversal) remain in scope, but applied at tree level: look for **patterns that span multiple files** or **invariants that the whole codebase silently relies on**, not single-line vulnerabilities the diff-local facet already covers.
 
-The diff-local `review-security.md` is a separate facet with diff scope; this file is NOT a derivative for shared use. ADR-031 アンチパターン § 281 prohibits common-izing whole-tree review with diff-local review.
+The diff-local `review-security.md` is a separate facet with diff scope; this file is NOT a derivative for shared use. ADR-031 § アンチパターン: `review-simplicity.md` を whole-tree 用と共有してはならない (security 版でも同原則) prohibits common-izing whole-tree review with diff-local review.
 
 ## Reading the source tree
 
 Read selectively rather than end-to-end:
 
 1. `src/**/*.rs` — Rust crates, with priority on:
-   - Anything containing `unsafe` blocks (`grep -l "unsafe " src/`)
+   - Anything containing `unsafe` blocks (use `Grep` on `src/**/*.rs` for the literal `unsafe` keyword to enumerate hotspots recursively)
    - Anything reading env vars / arguments / external input (`std::env::var` / `clap` argument structs / `serde_json::from_str` on untrusted input)
    - Anything writing files / spawning processes (`std::fs::write` / `std::process::Command`)
 2. `scripts/**/*.{ps1,sh}` — shell scripts, with priority on commands that take user input or call subprocesses
