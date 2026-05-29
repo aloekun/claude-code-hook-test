@@ -47,9 +47,29 @@ struct StalenessConfig {
     default_branch: Option<String>,
 }
 
+/// ADR-031 Phase C: `/weekly-review` skill 起動 promote 設定 (試験運用、ADR-039 experimental pattern)。
+///
+/// `[session_start.weekly_review_reminder]` section 不在 / `enabled` 未設定 /
+/// `enabled = false` では完全 skip (default-OFF in source、repo config で明示 enable する)。
+///
+/// 2 種類の reminder を発火:
+///   - last-run staleness: `.claude/weekly-review-last-run.json` の mtime が
+///     `reminder_threshold_days` を超えていれば「`/weekly-review` の実行を検討」を nudge
+///   - failed marker: `.claude/weekly-reviews/*.md.failed` が 1 件以上存在すれば
+///     「前回 weekly-review が失敗、`/weekly-review` で resume」を nudge
+///
+/// fail-open: ファイル読込失敗時は warning なしで通過する (session 起動阻害しない)。
+#[derive(Deserialize)]
+struct WeeklyReviewReminderConfig {
+    enabled: Option<bool>,
+    reminder_threshold_days: Option<u64>,
+    failed_marker_check_enabled: Option<bool>,
+}
+
 #[derive(Deserialize, Default)]
 struct SessionStartConfig {
     staleness: Option<StalenessConfig>,
+    weekly_review_reminder: Option<WeeklyReviewReminderConfig>,
 }
 
 #[derive(Deserialize, Default)]
@@ -60,6 +80,11 @@ struct HooksConfig {
 const STALENESS_DEFAULT_FETCH_TIMEOUT_SECS: u64 = 3;
 const STALENESS_DEFAULT_FETCH_CACHE_SECS: u64 = 300;
 const STALENESS_DEFAULT_BRANCH: &str = "master";
+
+/// weekly review reminder の threshold (default 7 日、ADR-031 § トリガー方式 と整合)。
+const WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS: u64 = 7;
+const WEEKLY_REVIEW_LAST_RUN_PATH: &str = ".claude/weekly-review-last-run.json";
+const WEEKLY_REVIEW_REVIEWS_DIR: &str = ".claude/weekly-reviews";
 const STALENESS_JJ_LOG_TIMEOUT_SECS: u64 = 5;
 
 /// catch-up nudge で案内する手動再開コマンド。
@@ -477,6 +502,116 @@ fn count_commits_in_revset(revset: &str) -> Option<usize> {
     Some(output.lines().filter(|l| !l.trim().is_empty()).count())
 }
 
+/// `.claude/weekly-review-last-run.json` の mtime からの経過日数を返す。
+/// ファイル不在 / mtime 取得失敗時は None (= reminder 非発火)。
+fn weekly_review_days_since_last_run(repo_root: &Path) -> Option<u64> {
+    let path = repo_root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+    let metadata = std::fs::metadata(&path).ok()?;
+    let mtime = metadata.modified().ok()?;
+    let elapsed = mtime.elapsed().ok()?;
+    Some(elapsed.as_secs() / 86_400)
+}
+
+/// `.claude/weekly-reviews/*.md.failed` を列挙する。
+/// ディレクトリ不在 / read_dir 失敗時は空 Vec (= failed reminder 非発火)。
+fn weekly_review_failed_markers(repo_root: &Path) -> Vec<String> {
+    let dir = repo_root.join(WEEKLY_REVIEW_REVIEWS_DIR);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut markers = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = match name.to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if name_str.ends_with(".md.failed") {
+            markers.push(name_str.to_string());
+        }
+    }
+    markers.sort();
+    markers
+}
+
+fn weekly_review_staleness_label(days_since: Option<u64>) -> String {
+    match days_since {
+        Some(d) => format!("{} 日経過", d),
+        None => "未実行".to_string(),
+    }
+}
+
+fn weekly_review_staleness_hits(days_since: Option<u64>, threshold_days: u64) -> bool {
+    days_since.map(|d| d >= threshold_days).unwrap_or(true)
+}
+
+fn build_weekly_review_staleness_lines(
+    days_since: Option<u64>,
+    threshold_days: u64,
+) -> Vec<String> {
+    if !weekly_review_staleness_hits(days_since, threshold_days) {
+        return Vec::new();
+    }
+    vec![
+        "[WEEKLY_REVIEW_REMINDER]".to_string(),
+        format!(
+            "週次プロジェクト全体レビュー (ADR-031) が threshold ({} 日) を超えました (前回からの経過: {})。\n\
+             推奨: `/weekly-review` skill を起動して whole-tree レビューを実施 (push-runner / post-PR / post-merge の 3 パイプラインが見ない累積複雑度・横断的 ADR 整合性・ハーネス遵守 観点を補完)",
+            threshold_days, weekly_review_staleness_label(days_since),
+        ),
+    ]
+}
+
+fn build_weekly_review_failed_marker_lines(markers: &[String]) -> Vec<String> {
+    let mut lines = vec![format!(
+        "前回 weekly-review の `.failed` marker が {} 件残存しています (best-effort 失敗ポリシー、ADR-031 § 失敗ポリシー)。\n\
+         推奨: `/weekly-review` skill で resume を選択するか、不要なら手動で marker を削除:",
+        markers.len(),
+    )];
+    for marker in markers {
+        lines.push(format!("  - `.claude/weekly-reviews/{}`", marker));
+    }
+    lines
+}
+
+/// ADR-031 Phase C: weekly review reminder の nudge を組み立てる。
+///
+/// 2 経路 (staleness + failed marker) は独立して評価し、両方該当する場合は 1 nudge にまとめる。
+/// 該当なし (= last-run が threshold 内 + failed marker なし) は None を返す。
+fn compute_weekly_review_reminder_nudge(
+    repo_root: &Path,
+    config: &WeeklyReviewReminderConfig,
+) -> Option<String> {
+    if !config.enabled.unwrap_or(false) {
+        return None;
+    }
+    let threshold_days = config
+        .reminder_threshold_days
+        .unwrap_or(WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS);
+    let failed_check_enabled = config.failed_marker_check_enabled.unwrap_or(true);
+    let days_since = weekly_review_days_since_last_run(repo_root);
+    let staleness_lines = build_weekly_review_staleness_lines(days_since, threshold_days);
+    let failed_markers = if failed_check_enabled {
+        weekly_review_failed_markers(repo_root)
+    } else {
+        Vec::new()
+    };
+    if staleness_lines.is_empty() && failed_markers.is_empty() {
+        return None;
+    }
+    let mut lines = staleness_lines;
+    if !failed_markers.is_empty() {
+        if lines.is_empty() {
+            lines.push("[WEEKLY_REVIEW_REMINDER]".to_string());
+        } else {
+            lines.push(String::new());
+        }
+        lines.extend(build_weekly_review_failed_marker_lines(&failed_markers));
+    }
+    Some(lines.join("\n"))
+}
+
 fn build_staleness_nudge_message(default_branch: &str, behind: usize) -> String {
     format!(
         "[working-copy-freshness]\n\
@@ -583,6 +718,16 @@ fn emit_session_start_output(session_id: &str) {
             if let Some(staleness_nudge) = compute_staleness_nudge(&cwd, staleness_config) {
                 context.push_str("\n\n");
                 context.push_str(&staleness_nudge);
+            }
+        }
+        if let Some(weekly_config) = hooks_config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.weekly_review_reminder.as_ref())
+        {
+            if let Some(weekly_nudge) = compute_weekly_review_reminder_nudge(&cwd, weekly_config) {
+                context.push_str("\n\n");
+                context.push_str(&weekly_nudge);
             }
         }
     }
@@ -1275,6 +1420,112 @@ default_branch = "main"
         assert_eq!(staleness.enabled, Some(true));
         assert_eq!(staleness.fetch_timeout_secs, Some(5));
         assert_eq!(staleness.default_branch.as_deref(), Some("main"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compute_weekly_review_reminder_nudge_returns_none_when_disabled() {
+        let root = unique_temp_root("weekly-disabled");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(false),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(true),
+        };
+        assert!(compute_weekly_review_reminder_nudge(&root, &config).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn weekly_review_failed_markers_returns_empty_when_dir_missing() {
+        let root = unique_temp_root("weekly-no-dir");
+        std::fs::create_dir_all(&root).unwrap();
+        let markers = weekly_review_failed_markers(&root);
+        assert!(markers.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn weekly_review_failed_markers_lists_failed_md_files_only() {
+        let root = unique_temp_root("weekly-markers");
+        let reviews_dir = root.join(".claude/weekly-reviews");
+        std::fs::create_dir_all(&reviews_dir).unwrap();
+        std::fs::write(reviews_dir.join("2026-05-22.md.failed"), "fail1").unwrap();
+        std::fs::write(reviews_dir.join("2026-05-29.md.failed"), "fail2").unwrap();
+        std::fs::write(reviews_dir.join("2026-05-29.md"), "report").unwrap();
+        let markers = weekly_review_failed_markers(&root);
+        assert_eq!(markers.len(), 2);
+        assert!(markers.contains(&"2026-05-22.md.failed".to_string()));
+        assert!(markers.contains(&"2026-05-29.md.failed".to_string()));
+        assert!(!markers.contains(&"2026-05-29.md".to_string()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compute_weekly_review_reminder_nudge_emits_staleness_when_never_run() {
+        let root = unique_temp_root("weekly-staleness-never");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config)
+            .expect("staleness nudge must be emitted when last-run file missing");
+        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.contains("threshold (7 日)"));
+        assert!(nudge.contains("未実行"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compute_weekly_review_reminder_nudge_emits_failed_marker_when_present() {
+        use std::io::Write;
+        let root = unique_temp_root("weekly-failed-only");
+        let reviews_dir = root.join(".claude/weekly-reviews");
+        std::fs::create_dir_all(&reviews_dir).unwrap();
+        std::fs::write(reviews_dir.join("2026-05-15.md.failed"), "fail").unwrap();
+        let last_run_path = root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+        let mut last_run_file = std::fs::File::create(&last_run_path).unwrap();
+        last_run_file.write_all(b"{}").unwrap();
+        drop(last_run_file);
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(365),
+            failed_marker_check_enabled: Some(true),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config)
+            .expect("failed marker nudge must be emitted");
+        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.contains(".failed` marker が 1 件残存"));
+        assert!(nudge.contains("2026-05-15.md.failed"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hooks_config_parses_session_start_weekly_review_reminder_section() {
+        use std::io::Write;
+        let root = unique_temp_root("hooks-config-weekly");
+        let claude_dir = root.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let toml_str = r#"
+[session_start.weekly_review_reminder]
+enabled = true
+reminder_threshold_days = 14
+failed_marker_check_enabled = false
+"#;
+        let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+        drop(f);
+        let config = read_hooks_config(&root);
+        let weekly = config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.weekly_review_reminder.as_ref())
+            .expect("weekly_review_reminder section should parse");
+        assert_eq!(weekly.enabled, Some(true));
+        assert_eq!(weekly.reminder_threshold_days, Some(14));
+        assert_eq!(weekly.failed_marker_check_enabled, Some(false));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
