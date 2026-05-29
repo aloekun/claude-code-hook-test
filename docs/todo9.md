@@ -828,7 +828,7 @@ ADR-028 に以下を補足セクションとして追記:
 >
 > **本タスクの位置づけ**: PR #182 post-merge-feedback Tier 1 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-05-29 ユーザー承認)。Tier 1 機械強制層の修正、Bundle CR-RL (本 entry + 順位 168 + 順位 169) で同一 PR land 推奨。
 >
-> **参照**: `.claude/feedback-reports/182.md` Tier 1 #1、`src/check-ci-coderabbit/src/main.rs:251` (現状コード)、`src/check-ci-coderabbit/src/main.rs:1298-1370` 周辺 (既存 fixture は旧フォーマットのみ)、`docs/adr/adr-018-pr-monitor-takt-migration.md` (rate-limit 経路の設計根拠、旧 marker 前提で記載)、`docs/adr/adr-034-coderabbit-auto-monitoring.md` line 64 (旧 marker regex 検出記述)、PR #182 セッションでの 30+ 分 polling 観測 (`docs/handoff-rank-8-weekly-review-phase-b.md` 関連 transcript)
+> **参照**: `.claude/feedback-reports/182.md` Tier 1 #1、`src/check-ci-coderabbit/src/main.rs:251` (現状コード)、`src/check-ci-coderabbit/src/main.rs:1298-1370` 周辺 (既存 fixture は旧フォーマットのみ)、`docs/adr/adr-018-pr-monitor-takt-migration.md` (rate-limit 経路の設計根拠、旧 marker 前提で記載)、`docs/adr/adr-034-coderabbit-auto-monitoring.md` line 64 (旧 marker regex 検出記述)、PR #182 セッションでの 30+ 分 polling 観測 (PR #182 / #183 land 時の transcript)
 >
 > **実行優先度**: 🚀 **Tier 1** — Effort M。CR rate-limit 検出が常時無効化されている critical bug 修正。
 
@@ -1057,7 +1057,7 @@ ADR-018 lines 185-186 については、旧 marker 記述を「順位 167 で mu
 #### 作業計画
 
 - [ ] `~/.claude/projects/E--work-claude-code-hook-test/memory/feedback_coderabbit_ephemeral_nitpick.md` を新規作成 (~30-50 行、frontmatter 含む)
-- [ ] `~/.claude/projects/E--work-claude-code-hook-test/memory/MEMORY.md` index に 1 行追加 (`- [CR ephemeral artifact nitpick skip](feedback_coderabbit_ephemeral_nitpick.md) — ephemeral entry 内 Nitpick は skip 推奨`)
+- [ ] `~/.claude/projects/E--work-claude-code-hook-test/memory/MEMORY.md` index に 1 行追加 (各 entry が「タイトル + 1 行 hook」の MEMORY.md 規約に従い、新 memory `feedback_coderabbit_ephemeral_nitpick.md` への 1 行 link を追加)
 - [ ] **`feedback_global_config_backup`** 適用: 念のため memory ディレクトリの snapshot 取得 (`cp -r ~/.claude/projects/.../memory ~/__memory-backup-YYYYMMDD`)
 - [ ] markdownlint clean 確認 (memory ファイル + MEMORY.md の両方)
 - [ ] 順位 171 (docs-governance.md 拡張) と同 PR で land 推奨 (Bundle DG-RULES、docs/rule + memory の 2 層補強)
