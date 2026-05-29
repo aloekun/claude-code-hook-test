@@ -248,12 +248,22 @@ struct GhPullComment {
 
 // ─── パース関数 (テスト可能な純粋関数) ───
 
-const RATE_LIMIT_MARKER: &str = "Rate limit exceeded";
+/// CodeRabbit rate-limit body markers。complete list of known formats.
+///
+/// CR は format を時間経過で変更するため multi-variant 配列で対応する
+/// (PR #182/#184 で silent regression を実体観測)。新 format 検出時は本配列に
+/// append + extract_wait_time() に対応する regex を追加することで対応する。
+/// 詳細な進化と更新手順は ADR-034 § CR rate-limit format evolution 参照。
+///
+/// 既知 format (発見時期昇順):
+///   - "Rate limit exceeded" (旧 format、~2026 年初頃まで)
+///   - "rate limited by coderabbit.ai" (新 format、HTML マーカー、2026-05 観測)
+const RATE_LIMIT_MARKERS: &[&str] = &["Rate limit exceeded", "rate limited by coderabbit.ai"];
 
 fn is_rate_limit_comment(c: &GhComment) -> bool {
     c.body
         .as_deref()
-        .map(|b| b.contains(RATE_LIMIT_MARKER))
+        .map(|b| RATE_LIMIT_MARKERS.iter().any(|m| b.contains(m)))
         .unwrap_or(false)
 }
 
@@ -400,8 +410,8 @@ fn rate_limit_event_time(c: &GhComment) -> Option<&str> {
 ///
 /// 検出条件:
 ///   - 投稿者が `coderabbitai[bot]`
-///   - body に `Rate limit exceeded` を含む
-///   - body に `Please wait <N> minutes? and <M> seconds?` 表現を含む
+///   - body に `RATE_LIMIT_MARKERS` のいずれかを含む (旧: `Rate limit exceeded` / 新: `rate limited by coderabbit.ai`)
+///   - body に wait time 表現を含む (旧: `Please wait <N> minutes? and <M> seconds?` / 新: `More reviews will be available in <N> minutes? and <M> seconds?`)
 ///   - event_time (= updated_at fallback created_at) が `push_time` 以降
 ///
 /// `push_time` フィルタは過去セッションの古い rate-limit comment が現セッションで
@@ -454,29 +464,45 @@ fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitInfo> {
     })
 }
 
-/// `Please wait **N minutes? and M seconds?**` から (minutes, seconds) を抽出
+/// 旧 format (`Please wait **N minutes? and M seconds?**` / 短縮形 `Please wait **N minutes?**`) を抽出。
 ///
-/// CodeRabbit の rate-limit メッセージは複数のフォーマット variant がある:
+/// 受理する具体例:
 ///   - `Please wait **5 minutes and 13 seconds**`
 ///   - `Please wait 1 minute and 7 seconds`
 ///   - `Please wait **30 minutes**` (seconds 省略)
-fn extract_wait_time(body: &str) -> Option<(u64, u64)> {
-    // 標準形: "Please wait **N minutes? and M seconds?**"
+fn extract_old_format_wait_time(body: &str) -> Option<(u64, u64)> {
     let re_full = regex::Regex::new(r"Please wait \*?\*?(\d+) minutes? and (\d+) seconds?").ok()?;
     if let Some(caps) = re_full.captures(body) {
         let m: u64 = caps.get(1)?.as_str().parse().ok()?;
         let s: u64 = caps.get(2)?.as_str().parse().ok()?;
         return Some((m, s));
     }
-
-    // フォーマット2: "Please wait **N minutes?**" (seconds 省略)
     let re_min = regex::Regex::new(r"Please wait \*?\*?(\d+) minutes?").ok()?;
-    if let Some(caps) = re_min.captures(body) {
-        let m: u64 = caps.get(1)?.as_str().parse().ok()?;
-        return Some((m, 0));
-    }
+    let caps = re_min.captures(body)?;
+    let m: u64 = caps.get(1)?.as_str().parse().ok()?;
+    Some((m, 0))
+}
 
-    None
+/// 新 format (`More reviews will be available in N minutes? and M seconds?` /
+/// 短縮形 `More reviews will be available in N minutes?`) を抽出。
+/// PR #182/#184 で実観測した CR 新フォーマット。
+fn extract_new_format_wait_time(body: &str) -> Option<(u64, u64)> {
+    let re_full =
+        regex::Regex::new(r"More reviews will be available in (\d+) minutes? and (\d+) seconds?")
+            .ok()?;
+    if let Some(caps) = re_full.captures(body) {
+        let m: u64 = caps.get(1)?.as_str().parse().ok()?;
+        let s: u64 = caps.get(2)?.as_str().parse().ok()?;
+        return Some((m, s));
+    }
+    let re_min = regex::Regex::new(r"More reviews will be available in (\d+) minutes?").ok()?;
+    let caps = re_min.captures(body)?;
+    let m: u64 = caps.get(1)?.as_str().parse().ok()?;
+    Some((m, 0))
+}
+
+fn extract_wait_time(body: &str) -> Option<(u64, u64)> {
+    extract_old_format_wait_time(body).or_else(|| extract_new_format_wait_time(body))
 }
 
 /// ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ` 形式) を unix epoch 秒に変換
@@ -2112,5 +2138,45 @@ mod tests {
         assert_eq!(item["line"], 100);
         assert_eq!(item["summary"], "signature mismatch");
         assert_eq!(item["url"], "https://github.com/o/r/pull/1#r1");
+    }
+
+    #[test]
+    fn rate_limit_detected_from_new_format_with_html_marker_and_full_wait_time() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n> \n> More reviews will be available in 36 minutes and 52 seconds. [Learn more](https://docs.coderabbit.ai/management/plans).",
+            "created_at": "2026-05-29T08:16:12Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-05-29T00:00:00Z")
+            .expect("new format with HTML marker + full wait time must be detected");
+        assert_eq!(result.wait_minutes, 36);
+        assert_eq!(result.wait_seconds, 52);
+        let base = parse_iso8601_to_unix("2026-05-29T08:16:12Z").unwrap();
+        assert_eq!(result.until_unix_secs, base + 36 * 60 + 52 + 60);
+    }
+
+    #[test]
+    fn rate_limit_detected_from_new_format_with_minutes_only() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\nMore reviews will be available in 30 minutes.",
+            "created_at": "2026-05-29T08:00:00Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-05-29T00:00:00Z")
+            .expect("new format minutes-only variant must be detected");
+        assert_eq!(result.wait_minutes, 30);
+        assert_eq!(result.wait_seconds, 0);
+    }
+
+    #[test]
+    fn rate_limit_picks_latest_when_mixed_old_and_new_formats() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"}, "body": "Rate limit exceeded\nPlease wait 5 minutes and 0 seconds", "created_at": "2026-05-28T00:00:00Z"},
+            {"user": {"login": "coderabbitai[bot]"}, "body": "<!-- rate limited by coderabbit.ai -->\nMore reviews will be available in 15 minutes and 30 seconds.", "created_at": "2026-05-29T00:00:00Z"}
+        ]"#;
+        let result = parse_rate_limit(json, "2026-05-28T00:00:00Z")
+            .expect("mixed old/new formats must resolve to newest comment");
+        assert_eq!(result.wait_minutes, 15);
+        assert_eq!(result.wait_seconds, 30);
     }
 }

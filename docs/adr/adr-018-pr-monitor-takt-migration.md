@@ -182,8 +182,8 @@ PR #120 (cli-finding-classifier 統合) の dogfood で観測された **「rate
 
 | Pattern | Detection 基準 | Auto-retry 状態 | Notes |
 |---|---|---|---|
-| **Rate limit (待機型)** | `Rate limit exceeded` + 未来 reset_time | ✅ 実装済 (`RateLimitOutcome::Parked`) | reset まで `until_unix_secs` で park、再投稿不要 |
-| **Rate limit (即時型)** | `Rate limit exceeded` + 過去 reset_time | ✅ 実装済 (`RateLimitOutcome::Posted` + 順位 80 fix) | `@coderabbitai review` 投稿後、`review_recheck_wait_secs` で park (順位 80 fix で導入、silent exit 防止) |
+| **Rate limit (待機型)** | `RATE_LIMIT_MARKERS` のいずれか + 未来 reset_time | ✅ 実装済 (`RateLimitOutcome::Parked`、順位 167-169 で multi-variant 対応) | reset まで `until_unix_secs` で park、再投稿不要。format detection 詳細は ADR-034 § 既知 CR rate-limit format 一覧 参照 |
+| **Rate limit (即時型)** | `RATE_LIMIT_MARKERS` のいずれか + 過去 reset_time | ✅ 実装済 (`RateLimitOutcome::Posted` + 順位 80 fix) | `@coderabbitai review` 投稿後、`review_recheck_wait_secs` で park (順位 80 fix で導入、silent exit 防止)。format detection 詳細は ADR-034 § 既知 CR rate-limit format 一覧 参照 |
 | **CR 投稿エラー** (`Failed to post review comments`) | walkthrough overlay の error message | ⏳ 未実装 (順位 81、1 観測のみ低頻度) | 頻度が確認できるまで実装を defer (memory: `feedback_no_unenforced_rules` 系の判断) |
 | **Wakeup 未予約 fallback** | rate-limit 検出ありで polling 終端時に next_wakeup_at_unix 未設定 | ⏳ 将来候補 | 順位 80 fix で `Posted` 経路は塞がれた、他経路の同型 silent exit が再観測されたら追加 |
 

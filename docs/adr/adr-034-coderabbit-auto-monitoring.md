@@ -61,13 +61,35 @@ PR #99 セッションで以下の運用痛が観測された:
 
 既存の `state.rate_limit` 検出は review state ベースで、`not_found` 時に rate-limit overlay を見逃す gap がある。
 
-**改善**: walkthrough comment (PR の最初の CR comment) の `body` + `updated_at` を直接 polling し、`Rate limit exceeded` パターンを regex 検出する。
+**改善**: walkthrough comment (PR の最初の CR comment) の `body` + `updated_at` を直接 polling し、`RATE_LIMIT_MARKERS` (multi-variant) のいずれかに match するかで rate-limit を判定する (実装: `src/check-ci-coderabbit/src/main.rs` の `is_rate_limit_comment` + `extract_wait_time`、順位 167-169 で multi-variant 対応済)。
 
-参照: memory `project_coderabbit_rate_limit_overlay.md` (PR #99 で実証された CR の rate-limit overlay 仕様)
+参照: memory `project_coderabbit_rate_limit_overlay.md` (PR #99 で実証された CR の rate-limit overlay 仕様) + 下記 § 既知 CR rate-limit format 一覧
+
+### 既知 CR rate-limit format 一覧 (順位 169 採用、2026-05-29 追加)
+
+CR は format を時間経過で変更するため、本リポジトリの実装は multi-variant marker 配列 + 複数 regex pattern で対応する。発見時期昇順:
+
+| 発見時期 | body marker | wait time regex |
+|---|---|---|
+| ~2026 年初頃 (旧 format) | `Rate limit exceeded` (本文先頭、heading なし) | `Please wait \*?\*?(\d+) minutes? and (\d+) seconds?` / 短縮形 `Please wait \*?\*?(\d+) minutes?` |
+| 2026-05 観測 (新 format) | `rate limited by coderabbit.ai` (HTML コメント `<!-- ... -->` 内、`## Review limit reached` heading 併設) | `More reviews will be available in (\d+) minutes? and (\d+) seconds?` / 短縮形 `More reviews will be available in (\d+) minutes?` |
+
+**HTML マーカー優先**: walkthrough body の HTML コメント (`<!-- ... rate limited by coderabbit.ai -->`) は heading 文言や本文より stable な可能性が高いため、新 format 検出の優先 source とする (CR 側で UI 文言は変えても internal marker は維持する傾向、本リポジトリ未検証だが post-merge-feedback で再評価)。
+
+### 検出 logic 更新手順 (CR が format を変更した場合)
+
+format drift で `is_rate_limit_comment` が常時 false を返す symptom (= 30+ 分 polling 継続、`RateLimitOutcome::Parked` 経路に乗らない、PR #182 で実観測) を発見した場合の標準対応:
+
+1. **観測**: 該当 PR で `gh api repos/.../issues/<N>/comments --jq '.[] | select(.user.login == "coderabbitai[bot]")' | head` で walkthrough body を確認
+2. **grep**: 新 marker 候補 (HTML コメント / heading / 本文文言) を特定
+3. **marker 配列 append**: `src/check-ci-coderabbit/src/main.rs` の `RATE_LIMIT_MARKERS` 配列に新 marker を追加
+4. **regex 追加**: 同 main.rs の `extract_wait_time` から呼ばれる `extract_<format-name>_format_wait_time` ヘルパーを新規追加 (旧 + 新の共存パターン)
+5. **fixture 追加**: 同 `#[cfg(test)]` mod に新 format fixture を 2-3 variant 追加 (順位 168 と同 pattern)。既存 fixture は backward compat のため維持
+6. **ADR-034 update**: 本 ADR の § 既知 CR rate-limit format 一覧 table に新 format 行を append
 
 ### auto-trigger 投稿
 
-- body 内 `Please wait N minutes and M seconds` を regex 抽出
+- body 内 wait time 表現を regex 抽出 (`extract_wait_time` が multi-variant 自動判定)
 - `updated_at` + N min M s = 解除予定時刻
 - 解除 + **1 分** の安全マージン後 `gh api -X POST issues/N/comments -f body='@coderabbitai review' > /dev/null 2>&1` を投稿
 - 1 分マージンは PR #99 セッション末で実証済 (本セッション内手動再現で確認)
