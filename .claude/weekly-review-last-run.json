@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "last_run_at": "2026-05-30T00:50:00Z",
+  "report_path": ".claude/weekly-reviews/2026-05-30.md",
+  "findings_total": 12,
+  "findings_adopted": 5,
+  "findings_rejected": 7,
+  "findings_deferred": 0
+}
