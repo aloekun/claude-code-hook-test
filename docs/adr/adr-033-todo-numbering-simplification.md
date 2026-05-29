@@ -108,11 +108,13 @@ migration 完了の判定:
 
 ```sh
 # 推奨実行順序サマリー table の外側で `順位 X` (数値・英字 placeholder 含む) が使われていないこと
-grep -nE "順位 [0-9A-Za-z_-]+" docs/todo.md docs/todo2.md docs/todo3.md \
+grep -nE "順位 [0-9A-Za-z_-]+" docs/todo*.md \
   | grep -vE "推奨実行順序サマリー|^[^:]+:[0-9]+:\| [0-9]+ \|"
 # 期待: 0 行 (table 列以外で `順位 X` が使われていない)
 # 注: 数値だけでなく英字 placeholder (例: `順位 X`、`順位 N`) も検出対象。
 # ADR の本文中で「絶対番号を示唆する placeholder を本文に書かない」方針を機械検証する。
+# todo*.md は今後追加されうるため glob で全件対象 (本 ADR land 時は todo.md/2/3 のみだったが、
+# todo4-9 等が後から追加されており、hardcode list は stale 化する構造的問題を回避)。
 ```
 
 ## priority table 運用ルール (PR #111 post-merge-feedback で追加)

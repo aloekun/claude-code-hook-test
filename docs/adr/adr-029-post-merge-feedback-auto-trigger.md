@@ -188,7 +188,7 @@ hooks-stop-feedback-dispatch が pending file を読み取る際の分岐表:
 
 Rust 側の実装順序は rust-lang/rust の [#131072](https://github.com/rust-lang/rust/pull/131072) / [#138133](https://github.com/rust-lang/rust/pull/138133) で 2024-2025 に変更されており、信頼性のため non-atomic を先に試行、失敗時のみ POSIX semantics 版へ fallback する挙動になっている点にも留意。
 
-本 ADR が「atomic rename で十分、ロック不要」と結論する前提は「Windows 10 1607+ / NTFS」が成り立つ本プロジェクト環境に限る。派生プロジェクトへバックポートする際は環境を再確認すること。実装 (task 1-B) 時の action item は docs/todo.md 1-B を参照。
+本 ADR が「atomic rename で十分、ロック不要」と結論する前提は「Windows 10 1607+ / NTFS」が成り立つ本プロジェクト環境に限る。派生プロジェクトへバックポートする際は環境を再確認すること。
 
 ### additionalContext 構造化フォーマット
 
@@ -237,7 +237,7 @@ commit description / bookmark 名 / PR title/body への介入は一切発生し
 
 ## 実装タスク
 
-詳細な実装手順は `docs/todo.md` の「マージ後フィードバックの定常化」セクションを参照。本 ADR は仕様のみを規定する。
+本 ADR の実装は ADR-030 (Supersedes ADR-029 partial) で再設計され、最終形は同 ADR § 実装タスクおよび cli-merge-pipeline / takt facets 関連 PR を参照。本 ADR の当初の task 内訳は以下:
 
 - **1-B**: cli-merge-pipeline の `"ai"` 分岐を pending file 書き込みに置き換え
 - **1-C**: `hooks-stop-feedback-dispatch` 新規 exe の追加 + Stop hook 登録
@@ -263,7 +263,7 @@ commit description / bookmark 名 / PR title/body への介入は一切発生し
 ### 将来の展望
 
 - 取りこぼしが問題化したらディレクトリベースのキュー (`.claude/post-merge-feedback/<pr>.json`) へ移行 (schema_version bump を伴う)
-- dogfood で問題なければ ADR-014 の試験運用ステータスを本採用化 (docs/todo.md の 1-F タスク)
+- dogfood で問題なければ ADR-014 の試験運用ステータスを本採用化 (ADR-030 が ADR-014 を full supersede したことで本 line item は実質完了済)
 - 派生プロジェクト (takt-test-vc 等) へバックポート
 
 ## References
