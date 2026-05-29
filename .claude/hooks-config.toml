@@ -33,7 +33,7 @@ default_branch = "master"     # trunk-based 前提、feature branch 運用では
 #   3-5 週の dogfood 後に default-ON 昇格 or 却下を判定 (bounded lifetime)。
 #   Kill-switch: `enabled = false` で完全停止。
 [session_start.weekly_review_reminder]
-enabled = true
+enabled = false                    # ADR-039 experimental feature standard pattern: opt-in 契約 (default OFF、repo config で明示 enable する運用)
 reminder_threshold_days = 7        # ADR-031 § トリガー方式: 「前回実行から 7 日経過で promote」と整合
 failed_marker_check_enabled = true # 前回失敗 marker 検出 → resume promote。false で staleness のみに限定可
 

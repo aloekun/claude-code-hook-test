@@ -52,8 +52,10 @@ skill `/weekly-review` + SessionStart hook reminder の実装:
 
 - skill が `findings.json` を Read → AskUserQuestion で採否一括選択
 - 採用分のみ `docs/todo*.md` に追記 (ADR-031 § 採否フロー仕様)
-- SessionStart hook で前回実行から 7 日経過なら promote (前任 doc § 5 ユーザー判断: 強制起動なし、event-driven のみ)
-- 詳細は ADR-031 § 採否フロー (pending JSON 経由) 参照
+- SessionStart hook の 2 経路で promote (どちらも nudge を additionalContext に注入、強制起動なし、前任 doc § 5 ユーザー判断: event-driven のみ):
+  1. **last-run staleness**: `.claude/weekly-review-last-run.json` の mtime が `reminder_threshold_days` (default 7 日) を超えていれば「`/weekly-review` 実行を検討」を nudge
+  2. **failed marker 検出**: `.claude/weekly-reviews/*.md.failed` が 1 件以上存在すれば「前回 weekly-review が失敗、`/weekly-review` で resume」を nudge
+- 詳細は ADR-031 § 採否フロー (pending JSON 経由) + § 失敗ポリシー 参照
 
 ### Phase D 工程 (PR として、Phase C 後)
 
