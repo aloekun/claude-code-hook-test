@@ -1,0 +1,133 @@
+name: weekly-review
+description: >
+  プロジェクト全体を対象にした週次レビュー workflow (ADR-031)。
+  既存 3 パイプライン (pre-push-review / post-pr-review / post-merge-feedback)
+  が見ない whole-tree 観点 (累積複雑度 / 横断的 ADR 整合性 / ハーネス遵守 /
+  test 設計) を補完する。
+  3 つの whole-tree review facet を parallel で走らせて aggregate-weekly が
+  findings JSON + markdown を生成する。post-merge-feedback.yaml の構造を流用。
+  fix loop なし: コードではなく findings レポートを生成するため
+  reviewers/fix の構造は不要。
+  出力: weekly-review.md + findings.json (Report Directory に保存)
+  Phase C skill `/weekly-review` が findings.json を読んで AskUserQuestion で
+  採否を確認、採用分を docs/todo*.md に展開する。
+
+workflow_config:
+  provider_options:
+    codex:
+      network_access: false
+    opencode:
+      network_access: false
+
+max_steps: 10
+initial_step: reviewers
+
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1: reviewers (parallel)
+  #   3 つの whole-tree review facet を並列実行する。各 facet は独立した観点で
+  #   ソースツリー全体を Glob/Read/Grep し、findings を articulate する。
+  #   Report Directory には simplicity-whole-review.md /
+  #   security-whole-review.md / architecture-whole-review.md が並ぶ。
+  # ---------------------------------------------------------------------------
+  - name: reviewers
+    parallel:
+      # 観点 ⑥ テストロジック (TDD anti-pattern + 境界欠落) を criteria 筆頭、
+      # 累積複雑度 / dead code / overspec'd abstraction を補助観点。
+      - name: simplicity-whole-review
+        edit: false
+        persona: simplicity-reviewer
+        model: haiku
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+        instruction: review-simplicity-whole
+        output_contracts:
+          report:
+            - name: simplicity-whole-review.md
+              format: simplicity-whole-review
+        rules:
+          - condition: analysis complete
+
+      # 観点 ④ セキュリティ。whole-tree 限定の発見 = 機密漏出 pattern /
+      # 横断的 prompt injection surface / asymmetric guard coverage。
+      - name: security-whole-review
+        edit: false
+        persona: security-reviewer
+        model: haiku
+        policy: review
+        knowledge: security
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+        instruction: review-security-whole
+        output_contracts:
+          report:
+            - name: security-whole-review.md
+              format: security-whole-review
+        rules:
+          - condition: analysis complete
+
+      # 観点 ① ハーネス遵守 (rule/pipeline/hook 重複) を criteria 筆頭、
+      # 観点 ② docs 内整合性 + ③ docs-source 矛盾 を sub criterion で組込。
+      # ADR 整合性 / モジュール境界 / ADR-012 命名 / 循環依存 / レイヤ侵犯。
+      - name: architecture-whole-review
+        edit: false
+        persona: architecture-reviewer
+        model: haiku
+        policy: review
+        knowledge: architecture
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+        instruction: review-architecture-whole
+        output_contracts:
+          report:
+            - name: architecture-whole-review.md
+              format: architecture-whole-review
+        rules:
+          - condition: analysis complete
+
+    rules:
+      - condition: all("analysis complete")
+        next: aggregate-weekly
+
+  # ---------------------------------------------------------------------------
+  # Step 2: aggregate-weekly
+  #   3 つの whole-tree review reports を統合し、severity 順に並べた
+  #   findings JSON + markdown を生成する。
+  #   pass_previous_response: false で、Report Directory の各 *-review.md を
+  #   直接読む。post-merge-feedback の aggregate-feedback と同パターン。
+  # ---------------------------------------------------------------------------
+  - name: aggregate-weekly
+    edit: false
+    persona: supervisor
+    model: sonnet
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+    instruction: aggregate-weekly
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: weekly-review.md
+          format: weekly-review
+        - name: findings.json
+          format: findings-json
+    rules:
+      - condition: aggregation complete
+        next: COMPLETE
