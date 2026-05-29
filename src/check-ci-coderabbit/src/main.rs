@@ -2139,4 +2139,44 @@ mod tests {
         assert_eq!(item["summary"], "signature mismatch");
         assert_eq!(item["url"], "https://github.com/o/r/pull/1#r1");
     }
+
+    #[test]
+    fn rate_limit_detected_from_new_format_with_html_marker_and_full_wait_time() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n> \n> More reviews will be available in 36 minutes and 52 seconds. [Learn more](https://docs.coderabbit.ai/management/plans).",
+            "created_at": "2026-05-29T08:16:12Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-05-29T00:00:00Z")
+            .expect("new format with HTML marker + full wait time must be detected");
+        assert_eq!(result.wait_minutes, 36);
+        assert_eq!(result.wait_seconds, 52);
+        let base = parse_iso8601_to_unix("2026-05-29T08:16:12Z").unwrap();
+        assert_eq!(result.until_unix_secs, base + 36 * 60 + 52 + 60);
+    }
+
+    #[test]
+    fn rate_limit_detected_from_new_format_with_minutes_only() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\nMore reviews will be available in 30 minutes.",
+            "created_at": "2026-05-29T08:00:00Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-05-29T00:00:00Z")
+            .expect("new format minutes-only variant must be detected");
+        assert_eq!(result.wait_minutes, 30);
+        assert_eq!(result.wait_seconds, 0);
+    }
+
+    #[test]
+    fn rate_limit_picks_latest_when_mixed_old_and_new_formats() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"}, "body": "Rate limit exceeded\nPlease wait 5 minutes and 0 seconds", "created_at": "2026-05-28T00:00:00Z"},
+            {"user": {"login": "coderabbitai[bot]"}, "body": "<!-- rate limited by coderabbit.ai -->\nMore reviews will be available in 15 minutes and 30 seconds.", "created_at": "2026-05-29T00:00:00Z"}
+        ]"#;
+        let result = parse_rate_limit(json, "2026-05-28T00:00:00Z")
+            .expect("mixed old/new formats must resolve to newest comment");
+        assert_eq!(result.wait_minutes, 15);
+        assert_eq!(result.wait_seconds, 30);
+    }
 }
