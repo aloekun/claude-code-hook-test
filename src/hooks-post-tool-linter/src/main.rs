@@ -142,6 +142,24 @@ struct CustomRuleExample {
 /// 命名規約に依存しない明示的 mapping を採用 (= 案 b、TOML meta field 方式) することで、
 /// `ps_empty_catch_*` / `md_mutable_anchor_*` / `no_ephemeral_todo_*` 等の **異なる命名
 /// 規約が混在する既存テスト** を rule_id とは独立に対応付けできる。
+///
+/// ## `extensions` 拡張時の test 追加 pattern (順位 127)
+///
+/// 既存 rule の `extensions` list に拡張子を追加する際は、`rule_test_coverage_check`
+/// (本 file の `#[cfg(test)] mod tests` 内、`tests::rule_test_coverage_check`) が要求する
+/// カバレッジ契約を併せて満たすこと。同 test の分類ロジックは `tests::classify_rule_extensions`
+/// が `tests::MAIN_EXTENSIONS` (`rs` / `toml` / `yaml` / `yml`) を基準に判定する。
+///
+/// 1. **追加 ext が主要拡張子の場合** (`rs` / `toml` / `yaml` / `yml`):
+///    `[rules.test_coverage.main_ext_tests.<ext>]` に対応 test 関数名を 1 件以上宣言する。
+///    未宣言だと `tests::check_main_ext_coverage` が gap を報告し `rule_test_coverage_check`
+///    が fail する。test 関数を `mod tests` に追加し、その名前を TOML に登録する。
+/// 2. **追加 ext が非主要拡張子の場合** (`md` / `txt` / `ts` 等):
+///    rule が主要拡張子を 1 つも targets しなくなる場合に限り、`other_ext_tests` に
+///    1 件以上の positive test を宣言する (`tests::check_other_ext_coverage` が検証)。
+///    主要拡張子を併せて targets するなら 1 の main_ext_tests 宣言で契約を満たす。
+/// 3. TOML に宣言した test 名は `tests::extract_existing_test_fn_names` が `main.rs` を走査して
+///    実在確認するため、typo / 削除した test を宣言に残すと orphan として検出される。
 #[derive(Deserialize, Clone, Default, Debug)]
 #[allow(dead_code)]
 struct CustomRuleTestCoverage {

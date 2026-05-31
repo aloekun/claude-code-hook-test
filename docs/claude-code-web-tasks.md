@@ -17,7 +17,6 @@
 | 順位 | Tier | 内容 | 編集ファイル | 工数 |
 |---|---|---|---|---|
 | 120 | T3 | `takt-workflow-persona-without-model` rule コメント拡張（field 拡張手順 4-5 行）+ ADR-007 case study 追記（enumeration-based 正規表現層、Rust regex lookahead 非対応の pragmatic 対処）(PR #150 T1-#1、実体 Tier 3) | [.claude/custom-lint-rules.toml](../.claude/custom-lint-rules.toml) ルール⑨ + [docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) | XS |
-| 127 | T3 | extensions 拡張時の test 追加 pattern を Rust ソース内コメントで明文化 (PR #151 T3-#2、順位 124 と同 PR 推奨) | Rust ソース内コメント（test location を正確に参照） | XS |
 | 134 | T3 | ADR-035 に docs-only PR 評価の適用外基準リスト追加（mutation / error handling / DRY / YAGNI / function length / test coverage / magic-number 等）(PR #156 T3 #2) | [docs/adr/adr-035-doc-evaluation-policy.md](adr/adr-035-doc-evaluation-policy.md) | S |
 
 ### 着手フロー
