@@ -704,40 +704,6 @@
 
 ---
 
-### ADR-039 kill-switch standard pattern に「診断メッセージは実装の受理値を網羅」原則追記 (PR #179 T3-#1 採用)
-
-> **動機**: PR #179 で `cli-docs-lint` の kill-switch を実装した際、`is_kill_switch_value` は `"1"` / `"true"` / `"TRUE"` / `"True"` の 4 受理値を持つが、SKIP 時の診断メッセージは `"{}=1 detected"` 固定で実受理値を反映しなかった (spec-impl drift)。pre-push simplicity reviewer から non-blocking finding として指摘。ADR-039 は全 experimental feature の kill-switch 実装テンプレートとして参照されるため、原則を明文化しないと次の experimental feature 実装で同パターンが再発する systemic reach がある。
->
-> **本タスクの位置づけ**: PR #179 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-05-28 ユーザー承認)。ADR-039 を全 experimental feature の参照 source にする方針のため、Frequency Medium 判定で採用条件成立。
->
-> **参照**: `.claude/feedback-reports/179.md` Tier 3 #1、`docs/adr/adr-039-experimental-feature-standard-pattern.md` (§ 決定 2. Kill-switch)、PR #179 の `src/cli-docs-lint/src/main.rs` の `is_kill_switch_value` + SKIP message 実装例、PR #179 simplicity reviewer の non-blocking finding
-
-#### 設計決定 (案)
-
-ADR-039 § 決定 2 (Kill-switch) に以下の原則を追記:
-
-- **診断メッセージは受理値を網羅**: kill-switch 発動時の出力メッセージは、`is_*_value` 等の判定関数が受理する全 value variant を反映する。固定文字列 (例: `"=1 detected"`) ではなく、(a) 全受理値を列挙 (例: `"=1 (or =true) detected"`) または (b) 実際の env var 値を動的取得して表示 (例: `format!("{}={} detected", env_name, raw_value)`) のいずれかを採用する
-- **理由**: spec-impl drift (判定ロジックは複数値受理、メッセージは 1 値のみ表記) は user が誤解する診断 UX 低下、かつ ADR-039 はテンプレートとして参照されるため全 experimental feature に波及する
-
-#### 作業計画
-
-- [ ] `docs/adr/adr-039-experimental-feature-standard-pattern.md` の § 決定 2 (Kill-switch) に上記原則を 2-3 行追記
-- [ ] PR #179 を実例として inline cite (「`CLI_DOCS_LINT_DISABLE` で発生した spec-impl drift」)
-- [ ] markdownlint clean 確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-039 § Kill-switch に診断メッセージ網羅原則が codify される
-- 次の experimental feature 実装時に reviewer / Claude が原則から逆引き可能になる
-- markdownlint clean
-
-#### 詰まっている箇所
-
-なし。Effort XS、ADR の section 追記のみで副作用最小。
-
----
-
 ### `pnpm create-pr` PR body truncation 回避を検証する e2e/integration test 追加 (PR #181 T2-#1 採用)
 
 > **動機**: PR #134 + #181 で 2 回観測された `pnpm create-pr` (= `cli-pr-monitor.exe` の PR 作成モード) における PR body 切り詰め問題。複数 section・複数行の body を `--body "..."` で渡すと shell argument 解釈で改行が delimiter 処理されて body が途中で切れる silent UX 劣化が発生する。memory `feedback_pnpm_create_pr_body` で `--body-file <path>` workaround を採用済だが、回避策が正常動作することを担保する自動 regression gate が存在しない。
@@ -1078,51 +1044,6 @@ ADR-018 lines 185-186 については、旧 marker 記述を「順位 167 で mu
 #### 詰まっている箇所
 
 extract 先の crate 選定: 既存 lib-* に追加するか新規 `lib-runner-utils` を作るかの判断。新規 crate は Cargo workspace に 1 line 追加で済むが、既存 lib-* (例: lib-pr-monitor-common 等の既存 shared crate) への追加の方が **Effort S** 寄り、新規作成だと **Effort M** に近づく。`cargo metadata` 結果次第。
-
----
-
-### ADR-039 experimental feature lifecycle checklist 拡張 — 新規 feature 追加時 4 点整合確認 (PR #184 T3-#2 採用)
-
-> **動機**: PR #184 で CR Major M-2 (`weekly_review_reminder` の `enabled = true` が ADR-039 opt-in 契約に違反) が CR re-review で検出された。本 finding は self-review の段階で捕捉可能だったはずだが、ADR-039 は「3 点原則 (config opt-in + kill-switch + bounded lifetime)」を記述しているのみで、**新規 feature 追加時の具体的確認手順 (checklist)** が未整備だった。本タスクは ADR-039 に「新規 experimental feature 追加時の self-review checklist」を追加し、**config schema ↔ feature flag ↔ docs ↔ test の 4 点整合** を mechanical に確認できる手順を codify する。
->
-> **本タスクの位置づけ**: PR #184 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None、2026-05-29 ユーザー承認)。**T3-1 不採用根拠との対比** (2026-05-29 ユーザー判断): 「analyzer rubric は推奨でしかなく user 判断と完全一致は構造的に困難」のため、discretionary 部分を含む rule は不採用、本 T3-2 は mechanical な 4 点整合 checklist のため採用条件成立。
->
-> **参照**: `.claude/feedback-reports/184.md` Tier 3 #2、`docs/adr/adr-039-experimental-feature-standard-pattern.md` (既存 3 点原則、checklist 追加対象)、PR #184 CR M-2 thread (id 3323337089) の実例、本 PR で実施した M-2 fix commit (= `enabled = false` 化)
-
-#### 設計決定 (案)
-
-ADR-039 に新 section「新規 experimental feature 追加時の self-review checklist」を追加。以下 4 点の整合を確認する:
-
-- **1. config schema**: 該当 hook / module の config struct (例: `WeeklyReviewReminderConfig`) で `enabled: Option<bool>` を持つ
-- **2. feature flag default**: 該当 config の `enabled` field の default が **OFF** (= `unwrap_or(false)`) になっている。`unwrap_or(true)` は ADR-039 違反 (PR #184 M-2 の症状)
-- **3. docs / config example**: `.claude/hooks-config.toml` 等の repo config example で `enabled = false` を明示しつつ、enable した場合の挙動説明をコメントで添える (= opt-in 運用の guidance)
-- **4. test coverage**: `enabled = false` (= disabled state) の test case が含まれ、feature が完全 skip されることを assert する (= kill-switch が機能することの regression gate)
-
-実例の cite:
-
-- **OK** (PR #184 fix 後の `weekly_review_reminder`): `WeeklyReviewReminderConfig::enabled` Option + `unwrap_or(false)` + `.claude/hooks-config.toml` で `enabled = false` + `compute_weekly_review_reminder_nudge_returns_none_when_disabled` test
-- **NG** (PR #184 fix 前): `enabled = true` で 4 点整合の (2) と (3) が違反、CR Major で検出
-- **既存 grandfathered case** (`[session_start.staleness]`): pre-existing で `enabled = true` だが本 PR scope 外、別 PR で cleanup 候補
-
-#### 作業計画
-
-- [ ] `docs/adr/adr-039-experimental-feature-standard-pattern.md` に新 section「新規 experimental feature 追加時の self-review checklist」を追加 (~15-20 行)
-- [ ] 4 点整合の確認手順を箇条書きで明文化
-- [ ] OK / NG 実例を inline cite (PR #184 M-2 fix の前後)
-- [ ] 既存 grandfathered case の扱いを補足記述 (本 ADR は新規 feature 追加時の checklist であり、既存 feature の retro-cleanup は別判断)
-- [ ] markdownlint clean 確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-039 に新 section が codify される
-- 将来の新規 experimental feature 実装時、self-review で 4 点整合を mechanical に確認可能
-- PR #184 M-2 と同型の config opt-in 違反が self-review で捕捉可能になる
-- markdownlint clean
-
-#### 詰まっている箇所
-
-なし。Effort S、ADR の section 追加のみで副作用最小。
 
 ---
 
