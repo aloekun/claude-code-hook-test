@@ -50,17 +50,17 @@ ephemeral artifact (旧 analysis.md) には permanent data を残さない原則
 **実測値 vs 線形 derivation の使い分け** (派生プロジェクトでの porting 時の判断指針):
 
 - **実測値 (600s) を正規採択**: Phase C cargo test で 269s 観測 → 2x safety margin で 600s。本 ADR が定義する canonical 値。
-- **線形 derivation (= 720s) は保守上限見積もり**: per-token 不変仮定 (`22 ms/token × 32768 = 721s`) は KV cache locality を無視するため過大評価。新規 model / 未測定環境での fallback ceiling として使う。
-- sublinear 性の根拠は KV cache locality 効果 (推定) で model-specific。別 model (llama2:13b 等) では再 calibration 必須。
+- **線形 derivation (= 720s) は保守上限見積もり**: per-token 不変を仮定した線形スケール (`180s × (32768 / 8192) = 180s × 4 = 720s`) は KV cache locality を無視するため過大評価。新規 model / 未測定環境での fallback ceiling として使う (per-token 表示 `22 ms/token × 32768 ≈ 721s` は丸め由来の誤差、canonical な係数は線形式の 720s)。
+- **canonical 600s が線形 ceiling 720s を下回る差 (= 120s, 17%) が sublinear 性の定量表現**: 大規模 context ほど KV cache の locality により per-token 推論コストが下がるため (`≈22 ms/token → ≈18.3 ms/token`、同じく 17% 改善で reference table の 600s と整合)。この gap は model-specific で、別 model (llama2:13b 等) では sublinear 係数が変わるため再 calibration 必須。
 
 **reference 値** (派生プロジェクトでの derivation 用):
 
 | num_ctx | 採用 step_timeout | 根拠 |
 |---|---|---|
 | 8192 | 180s | Phase b' 実測 (12 件 mistral invoke、cargo test --ignored 完走) |
-| 32768 | 600s | Phase C 実測 (269s 超過観測 → 2x margin で確定) |
+| 32768 | 600s | Phase C 実測 (269s 超過観測 → 2x margin で確定、線形 ceiling 720s を sublinear 効果で 17% 下回る) |
 
-派生プロジェクトでは上記 reference 値を最初の見積もりに使い、実測 cargo test 経過時間の **2x margin** で補正する (例: 観測 250s → 500s に設定)。
+reference table の **600s (canonical / 実測由来)** と上記係数 section の **720s (線形 ceiling / `180s × 4`)** の差 120s は KV cache locality による sublinear 効果分。未測定環境では安全側の 720s を初期 ceiling に置き、実測 cargo test が取れ次第 600s 系の sublinear 補正に寄せる。派生プロジェクトでは上記 reference 値を最初の見積もりに使い、実測 cargo test 経過時間の **2x margin** で補正する (例: 観測 250s → 500s に設定)。
 
 ### Context 選定の判断 flow
 
