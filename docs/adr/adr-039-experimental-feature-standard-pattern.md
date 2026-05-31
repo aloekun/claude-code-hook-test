@@ -53,6 +53,7 @@
 - crate / module の物理削除は **dogfood 失敗判定後にまとめて実施**。途中段階での部分削除は機械的損傷の risk が高い
 - ADR-038 §10.6 の C 案 (採用 / 簡易版 / 完全版の階層化) が良いテンプレ
 - kill-switch 経路の table を ADR / PR body に必ず含める (項目: 起動経路 / 停止コマンド / 影響範囲)
+- **診断メッセージは実装の受理値を網羅する**: kill-switch 発動時 (SKIP / 停止) の診断メッセージは、判定関数 (`is_*_value` 等) が受理する全 value variant を反映する。判定ロジックが複数値 (`1` / `true` / `TRUE` / `True` 等) を受理するのに固定文字列 (例: `"{}=1 detected"`) で 1 値のみ表記すると spec-impl drift となり、user が受理値を誤解する診断 UX 低下を招く。(a) 全受理値を列挙 (例: `"{}=1 (or =true) detected"`) するか、(b) 実際の env var 値を動的取得して表示 (例: `format!("{}={} detected", env_name, raw_value)`) のいずれかを採用する。本 ADR はテンプレートとして参照されるため、原則の欠落は全 experimental feature に波及する (PR #179 で `CLI_DOCS_LINT_DISABLE` の kill-switch message が `=1` 固定で実受理値 `true` / `TRUE` / `True` を反映しなかった spec-impl drift を pre-push simplicity reviewer が指摘した実例)
 
 ### 3. Bounded lifetime (試験期限と採否判定基準)
 
@@ -78,6 +79,22 @@ decision trigger は **config (TOML コメント) / code comment (module doc) / 
 参考実装: PR #174 では `push-runner-config.toml` の `[scratch_file_warning]` section コメント + `scratch_file_warning.rs` module doc の 2 箇所で trigger を明示 (永続性確保 + 検索容易性)。
 
 既存試験運用 ADR (014/023/025/029/030/031/033/034/036/037/038) の bounded lifetime 記述に formless な箇所があれば、後続 PR で個別に追補する。
+
+### 新規 experimental feature 追加時の self-review checklist
+
+新規 experimental feature を追加する PR では、push 前 self-review で以下 4 点の整合を **mechanical に** 確認する。各点は discretionary 判断を含まず、config / code / docs / test の差分を機械的に照合できる:
+
+1. **config schema**: 該当 hook / module の config struct (例: `WeeklyReviewReminderConfig`) が `enabled: Option<bool>` field を持つ
+2. **feature flag default OFF**: 該当 config の `enabled` の default が **OFF** (= `unwrap_or(false)`) になっている。`unwrap_or(true)` は § 決定 1 (Config opt-in) 違反
+3. **docs / config example**: `.claude/hooks-config.toml` 等の repo config example で `enabled = false` を明示し、enable 時の挙動をコメントで添える (= opt-in 運用 guidance)
+4. **test coverage**: `enabled = false` (disabled state) の test case があり、feature が完全 skip されることを assert する (= kill-switch が機能することの regression gate)
+
+実例 (PR #184 CR Major M-2 = `weekly_review_reminder` の `enabled = true` が opt-in 契約違反として CR re-review で検出された事例):
+
+- **NG** (fix 前): `enabled = true` で (2) と (3) が違反、CR Major finding で検出
+- **OK** (fix 後): `WeeklyReviewReminderConfig::enabled` Option + `unwrap_or(false)` + `.claude/hooks-config.toml` で `enabled = false` + `compute_weekly_review_reminder_nudge_returns_none_when_disabled` test
+
+本 checklist は **新規 feature 追加時** の self-review 手順であり、既存 grandfathered case (例: `[session_start.staleness]` の pre-existing な `enabled = true`) の retro-cleanup は scope 外 (別 PR で個別判断)。
 
 ## 帰結
 
