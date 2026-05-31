@@ -2,7 +2,7 @@
 
 ## ステータス
 
-承認済み (2026-04-19) / 改訂 (2026-04-22: 原則 5 に軸別境界サブセクション追加 — ADR-022 原則 5 との生成/改変の区分を明示)
+承認済み (2026-04-19) / 改訂 (2026-04-22: 原則 5 に軸別境界サブセクション追加 — ADR-022 原則 5 との生成/改変の区分を明示) / 改訂 (2026-05-30: 原則 6 を追加 — PR body 複数行時の `--body-file` 推奨を codify)
 
 ## コンテキスト
 
@@ -144,6 +144,15 @@ actor 軸 (上記表) とは別の切り口として、**イベント種別軸**
            └── no  → どちらの射程外 (例: ローカル作業のみ)
 ```
 
+### 原則 6: PR body が複数行/長文の場合は `--body-file` で渡す (2026-05-30 追記)
+
+実行ゲート (原則 1) を通った後の `pnpm create-pr` / `gh pr edit` 呼び出しで、PR body をシェル引数として直渡しする (`--body "..."`) と、body が途中で切り詰められる silent UX 劣化が PR #134・PR #181 の 2 回で観測された。原則 1 が「**いつ実行するか**」のゲートであるのに対し、本原則は「**どう引数を渡すか**」の codify であり、ゲート通過後の正常系を保護する。
+
+- **why**: 複数行 body をシェル引数で渡すと、シェルおよび `gh` CLI が受け取る argv の段階で改行が delimiter として解釈され、body が最初の改行近辺で partial 化する。truncation はエラーにならず PR が作成されてしまうため、後から body 欠落に気付く検出遅延コスト (= 取り消しコスト) が発生する。
+- **how**: PR body は常に scratch file 経由で渡す。(a) PR 作成時は `pnpm create-pr -- --title "..." --body-file <path>`、(b) 既存 PR の body 修正は `gh pr edit <N> --body-file <path>`、(c) scratch file は `__pr-body.md` (gitignore 対象、CLAUDE.md の scratch 命名規約に従う)。一次防衛として Claude auto-memory `feedback_pnpm_create_pr_body` が同 workaround を記録しており、本原則はその構造的予防層 (ADR からの逆引き reference) に当たる。
+
+なお本原則は規範 (how) の codify に閉じ、自動 regression gate (`--body-file` が複数行 body で truncation しないことを担保する unit test) は別途 `cli-pr-monitor` の argv 組み立て層で test 化する (docs 層 = 本原則、test 層 = 別タスクの相補関係)。
+
 ## 影響
 
 ### 採用される構成要素
@@ -192,6 +201,8 @@ interactive session での PR 作成フロー:
 - ADR-022 原則 5 (PR 包含 changeset の不変性): 本 ADR 原則 5「軸別境界サブセクション」で生成 vs 改変の区分を明示
 - ADR-019 (CodeRabbit ハイブリッド): 無料枠 1h 3 回制約が「取り消しコスト」を増幅する根拠
 - memory `feedback_bookmark_auto_naming.md`: 一次防衛層
+- memory `feedback_pnpm_create_pr_body`: 原則 6 の一次防衛層 (PR body truncation の `--body-file` workaround)
+- PR #134 / PR #181: 原則 6 の根拠となった PR body truncation の観測元
 - `src/hooks-pre-tool-validate/src/main.rs::preset_gh_pr_create_guard`: traffic cop 層
 - セッション 247510ea-3f24-4b87-8f68-3c860e1b1b4e (2026-04-18): 事故発生源
 - PR #54 / PR #55: 事故後の水平展開作業

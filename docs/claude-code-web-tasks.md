@@ -21,7 +21,6 @@
 | 127 | T3 | extensions 拡張時の test 追加 pattern を Rust ソース内コメントで明文化 (PR #151 T3-#2、順位 124 と同 PR 推奨) | Rust ソース内コメント（test location を正確に参照） | XS |
 | 134 | T3 | ADR-035 に docs-only PR 評価の適用外基準リスト追加（mutation / error handling / DRY / YAGNI / function length / test coverage / magic-number 等）(PR #156 T3 #2) | [docs/adr/adr-035-doc-evaluation-policy.md](adr/adr-035-doc-evaluation-policy.md) | S |
 | 164 | T3 | ADR-039 kill-switch standard pattern に「診断メッセージは実装の受理値を網羅」原則追記（`CLI_DOCS_LINT_DISABLE` の `=1` 固定 vs 実受理値 `true`/`TRUE`/`True` の spec-impl drift 由来、PR #179 T3-#1）※順位 174 と同 PR 推奨（同一 ADR-039 編集） | [docs/adr/adr-039-experimental-feature-standard-pattern.md](adr/adr-039-experimental-feature-standard-pattern.md) | XS |
-| 166 | T3 | ADR-028 に PR body 複数行時の `--body-file` 推奨 + shell argument truncation の why/how 補足追記（PR #181 T3-#1） | [docs/adr/adr-028-pnpm-create-pr-gate.md](adr/adr-028-pnpm-create-pr-gate.md) | XS |
 | 174 | T3 | ADR-039 experimental feature lifecycle checklist 拡張 — 新規 feature 追加時の 4 点整合確認（config schema ↔ feature flag default OFF ↔ docs/config example ↔ test coverage、PR #184 T3-#2）※順位 164 と同 PR 推奨（同一 ADR-039 編集） | [docs/adr/adr-039-experimental-feature-standard-pattern.md](adr/adr-039-experimental-feature-standard-pattern.md) | S |
 
 ### 着手フロー

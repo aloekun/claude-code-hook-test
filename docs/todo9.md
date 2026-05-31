@@ -785,43 +785,6 @@ ADR-039 § 決定 2 (Kill-switch) に以下の原則を追記:
 
 ---
 
-### ADR-028 に PR body 複数行時の `--body-file` 推奨 + shell argument truncation の why/how 補足追記 (PR #181 T3-#1 採用)
-
-> **動機**: PR #134 + #181 で 2 回観測された `pnpm create-pr` の PR body 切り詰め問題 (順位 165 と同根)。memory `feedback_pnpm_create_pr_body` で recurring issue として記録されているが、ADR-028 (pnpm create-pr gate) には why (改行が shell delimiter として処理される) / how (`--body-file` または `gh pr edit --body-file` を使う) が codify されていない。順位 165 が test で防御層を作るのに対し、本タスクは ADR で permanent reference 層を作って後発の AI / reviewer が逆引き可能な状態にする構造的予防策。
->
-> **本タスクの位置づけ**: PR #181 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort XS / Adoption Risk None、2026-05-29 ユーザー承認)。順位 165 が test 層、本タスクが docs 層で同根を別レイヤで補強する関係。
->
-> **参照**: `.claude/feedback-reports/181.md` Tier 3 #1、memory `feedback_pnpm_create_pr_body`、`docs/adr/adr-028-pnpm-create-pr-gate.md` (補足追記対象)、PR #134 / #181 の create-pr 観測
-
-#### 設計決定 (案)
-
-ADR-028 に以下を補足セクションとして追記:
-
-- **PR body が複数行/長文の場合は `--body-file <path>` を使う**: shell argument 直渡し (`--body "..."`) は OS / シェル / `gh` CLI の引数解釈で改行が delimiter 処理され body が途中で切れるケースが PR #134・#181 で観測されている
-- **why**: shell が改行を区切りとして解釈、`gh` CLI が受け取る argv に改行が含まれた時点で body が partial 化
-- **how**: (a) PR 作成時は `pnpm create-pr -- --title "..." --body-file <path>` で file 経由、(b) 既存 PR の body 修正は `gh pr edit <N> --body-file <path>`、(c) scratch file は `__pr-body.md` (gitignore 対象、CLAUDE.md scratch 命名規約)
-- **配置**: ADR-028 の決定セクションまたは「実装上の注意」セクションに 1-2 段落で追記、メモリ entry `feedback_pnpm_create_pr_body` への back-link
-
-#### 作業計画
-
-- [ ] `docs/adr/adr-028-pnpm-create-pr-gate.md` の適切な section (決定 / 実装注意点) に上記補足を 2-3 段落で追記
-- [ ] PR #134 / #181 を実例として inline cite
-- [ ] markdownlint clean 確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-028 に PR body 複数行ケースの why / how が codify される
-- 後発の AI / reviewer が ADR から逆引き可能になる
-- memory `feedback_pnpm_create_pr_body` との整合 (memory が ADR 参照を持つ or vice versa)
-- markdownlint clean
-
-#### 詰まっている箇所
-
-なし。Effort XS、ADR の section 追記のみで副作用最小。
-
----
-
 ### `check-ci-coderabbit` の `RATE_LIMIT_MARKER` を新フォーマット対応に更新 (PR #182 T1-#1 採用) ★ Bundle CR-RL
 
 > **動機**: PR #182 セッションで CR の rate-limit が 30+ 分間検出されず、`cli-pr-monitor` が無効な polling を継続した実観測ベース。`src/check-ci-coderabbit/src/main.rs:251` の `RATE_LIMIT_MARKER = "Rate limit exceeded"` は CR の旧フォーマット時代の固定値で、現行 CR は `<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->` HTML マーカー + `## Review limit reached` heading + `you've reached your PR review rate limit` 本文を使用。format drift により `is_rate_limit_comment()` が常に false を返し、`RateLimitOutcome::Parked` 経路 (ADR-018 設計) が完全に無効化されている silent regression。
