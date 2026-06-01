@@ -12,7 +12,6 @@
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
 | 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
-| 8 | 🔧 Tier 2 | 週次レビュー (ADR-031) Phase B 実装 — 7 観点責務 mapping 確定 (① ハーネス遵守 + ⑥ テストロジック を MVP 優先、2026-05-26 ユーザー合意) | todo.md | 中-高 | 順位 20 compensating check 前提 + 順位 136 land 先行推奨 (観点 ⑤ 責務分離) |
 | 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
 | 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし |
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
@@ -20,7 +19,7 @@
 | 18 | 🔧 Tier 2 | **`.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)** | todo3.md | S | なし |
 | 19 | 🔧 Tier 2 | **takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)** | todo3.md | M | post-pr-review fix loop の `.claude/` filter (Bundle T、完了済) land 後推奨 |
 | 20 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 8, 10 |
-| 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | 順位 8 dogfood + 順位 20 |
+| 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | ADR-031 dogfood (本採用済 2026-06-01) + 順位 20 |
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
 | 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup) |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
@@ -28,7 +27,7 @@
 | 35 | 🚀 Tier 1 | **型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | S | 順位 34 と同 PR (Bundle W、PBT が型に守られて記述しやすくなる相補関係) |
 | 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W land 後推奨 (PBT properties の後付け検証層、変更 crate + 1-hop 依存 scope) |
 | 37 | 🔧 Tier 2 | **pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky) ★ Bundle X** | todo4.md | S | 順位 36 と同 PR (Bundle X、cli-push-runner に +~1 秒 step 追加) |
-| 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 Phase B (順位 8) と同 bundle 化推奨、long-tail flake と coverage 全体監査 |
+| 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 (本採用 2026-06-01) の facet 追加 or aggregate 前 Rust pre-step として組込、long-tail flake と coverage 全体監査 |
 | 40 | 🚀 Tier 1 | **prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)** | todo4.md | XS | なし (本セッション再現の push 失敗を Step 1 fallback で早期検出。skill repo 側更新) |
 | 41 | 🔧 Tier 2 | **Bundle Y2 効果の定量計測 — post-merge-feedback / post-pr-review の avg time 比較 (PR #98 T2-2)** | todo4.md | M | なし (PR #97 sonnet baseline vs PR #98 以降 haiku の実測比較。Bundle Z / Z2 の ROI 判断材料、PR #98 merge 後 3-5 PR の観察ベース) |
 | 42 | 🔧 Tier 2 | **cli-pr-monitor の rate-limit auto-retry + `@coderabbitai review` auto-trigger 実装 (PR #99 T2-4) ★ Bundle a Sub-PR 2** | todo4.md | M | 順位 45 と同 PR (Sub-PR 2、Sub-PR 1 の `--list-findings` API を消費) |
@@ -69,8 +68,8 @@
 | 150 | 🔧 Tier 2 | **Magic number lint 追加 — `coding-style.md` § Magic Numbers 移管 (PR #172 仕組み化方針切替由来、ユーザー判断 2026-05-25 = source folder 限定) ★ Bundle 既存ルール仕組み化** | todo9.md | M | なし (`.claude/custom-lint-rules.toml` に `no-magic-number` rule 追加、source folder paths filter で test/config 除外、時間定数 / リトライ回数 / threshold の 3 category MVP、severity warning で reviewer 判断補助、順位 102 paths filter + 順位 118 適用範囲検討と整合、coding-style.md § Magic Numbers 削除可否は dogfood 後判断) |
 | 151 | 🔧 Tier 2 | **PR diff lines check 追加 — `git-workflow.md` § Multi-PR chaining 移管 (PR #172 仕組み化方針切替由来、ユーザー判断 2026-05-25 = 条件付き block 3 段階) ★ Bundle 既存ルール仕組み化** | todo9.md | S | なし (`src/cli-push-runner/src/stages/pr_size_check.rs` 新 stage 追加、`push-runner-config.toml` `[pr_size_check]` section で threshold 設定可能化 (default: block 1500 / warning 800)、jj diff stat 計測、大型 refactoring 時の override は config 編集、git-workflow.md § Multi-PR chaining 縮小) |
 | 152 | 🔧 Tier 2 | **todo entry 削除時の事前 land 確認手順 — 順位 136 hook 拡張 or 独立 follow-up (PR #173 T2-1 採用、2026-05-26)** | todo9.md | XS-S | 順位 136 (working copy staleness + 既実装 grep) と同型機械強制、lifecycle 補完 = 順位 136 (add/edit 時) + 本タスク (delete 時)。PreToolUse hook で `docs/todo*.md` 削除時に対応 land commit を `jj log` で grep 検証、land 確認なら allow + 証跡出力、未確認なら warning (block しない)。順位 136 hook 統合 (~+15 行) or 独立 (~40 行) のいずれか、ADR-042 § Decision matrix 適用 (mechanizable + FP 低 + Adoption Risk None) |
-| 153 | 🔧 Tier 2 | **`review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | S | 順位 8 Phase B land + 2-3 週 dogfood 後に着手判断 (extract 不要なら close)、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源、architecture-whole から ① 観点を extract して context 圧迫回避 |
-| 154 | 🔧 Tier 2 | **`review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | M | 順位 136 land + Phase B 2-3 週 dogfood 完了後着手、cli-docs-lint (preamble) / 順位 147 (file length) と scope 整理必要 (CI 即時 vs 週次 batch)、ADR-031 3 層分離原則で file size は LLM 不要の Rust pre-step に分離 |
+| 153 | 🔧 Tier 2 | **`review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (ADR-031 weekly-review 拡張、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | S | ADR-031 本採用後 (2026-06-01) の Phase B+1 拡張、extract 不要と判明したら close、順位 146-151 Bundle 既存ルール仕組み化の継続的発見源、architecture-whole から ① 観点を extract して context 圧迫回避 |
+| 154 | 🔧 Tier 2 | **`review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (ADR-031 weekly-review 拡張、2026-05-26 ユーザー合意) ★ 週次拡張** | todo9.md | M | 順位 136 land + ADR-031 本採用 (2026-06-01) 後着手、cli-docs-lint (preamble) / 順位 147 (file length) と scope 整理必要 (CI 即時 vs 週次 batch)、ADR-031 3 層分離原則で file size は LLM 不要の Rust pre-step に分離 |
 | 155 | 🚀 Tier 1 | **cli-pr-monitor fix chain 末尾に空 commit 検査 + `jj abandon` step 追加 (PR #174 T1-#1 採用)** | todo9.md | S | なし (PR #174 で `kqvluqyv` 空 commit が PR diff 汚染した実証ベース、`master..@` 範囲を `jj log` で sweep して機械強制、既存 `CleanupEmptyFixCommit` action の補完層) |
 | 157 | 🔧 Tier 2 | **Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)** | todo9.md | XS | なし (PR #174 PR body の未消化 dogfood、Bundle 2 PR merge 前の前提条件として消化、結果は Bundle 2 PR body に記録) |
 | 160 | 💎 Tier 3 | **`docs-governance.md` に「ADR multi-variant pattern section 追加時の checklist」codify (PR #176 T3-#1 採用)** | todo9.md | XS | なし (PR #175 Minor + PR #176 Nitpick の 2 連続観測 = Frequency Medium で採用条件成立、ADR 拡張時の variant 網羅性 + 擬似コード vs 実コード齟齬を reviewer / Claude 視点で防止する checklist、global file `~/.claude/rules/common/docs-governance.md` 編集のため本リポジトリ外で実施、`feedback_global_config_backup` 適用) |
