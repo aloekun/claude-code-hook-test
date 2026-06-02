@@ -22,6 +22,24 @@ Phase E dogfood は 2 回実施 (2026-05-30 / 2026-06-01) で計 18 findings (12
 
 **判断**: 試験運用 → **承認済み**。本 ADR の設計 (3 facets parallel + aggregate + skill + reminder hook) は dogfood で機能、改善余地 (重複検出 MVP+1 = todo10.md:368) は別 task として trackable。Phase F (自動化 cron 化) は本採用後の任意拡張のまま継続。
 
+### 採用判定の閾値 (本採用化条件)
+
+> 上記「採用判定の根拠」は Phase E dogfood の **観測値の記録** であり、本 section は「次に試験運用 ADR が本採用判定に到達したとき、どこを閾値とみなすか」を一意化するための **判定基準** を規定する。観測値と閾値を分離することで、将来 trial ADR (例: ADR-040 / ADR-041 等) の採用判定で「ADR-031 § 採用判定の閾値 を参照」で再利用可能にする。
+
+本 ADR で本採用判定に達したと判断するために満たす必要があった 5 閾値:
+
+| # | 閾値項目 | 基準値 | 設計上の意義 |
+|---|---|---|---|
+| 1 | **採用率** | ≥ 40% | low-quality findings が多すぎる pipeline は機能していない signal。観測 44% (= 8/18) で受容 |
+| 2 | **wall-clock** | ≤ 10 分 | 作業 flow への侵襲性。context warm cache (5 分 TTL) を破壊しない範囲。観測 ~5 分で受容 |
+| 3 | **false positive** | ≤ 5% | alert fatigue 防止、user 判断コスト線形成長を抑制。観測 0% で受容 |
+| 4 | **context window 圧迫** | なし | LLM facet が 1 リクエストに収まる、whole-tree review 自体の構造制約。観測なしで受容 |
+| 5 | **systemic finding 検出力** | 実検出ありで scope 軸の空白埋め | cross-PR drift / dead-pointer / partial overlap 等の whole-tree 特有 finding を実検出することで「軸の空白埋め」目的を達成。観測 S05↔順位 173 完全重複 / S01 4-5 crate 横断 / A01 ADR-032 dead-pointer 等で受容 |
+
+5 項目全てを充足した場合に本採用昇格と判断する。**1 項目でも未達なら継続 (試験運用延長) または却下** を選択する (継続は 1 回まで、[ADR-039 § Bounded lifetime](adr-039-experimental-feature-standard-pattern.md#3-bounded-lifetime-試験期限と採否判定基準) の 3 値 = 採用 / 却下 / 継続に対応する具体化例として参照可能)。
+
+閾値値 (40% / 10 分 / 5%) は Phase D + E の 2 回観測ベースの暫定値。将来の trial ADR 採用判定で dogfood data point が追加されたら、本 ADR の本 section を改訂して再校正する余地を残す。
+
 ## コンテキスト
 
 ### 問題: 既存 3 パイプラインの review scope の空白

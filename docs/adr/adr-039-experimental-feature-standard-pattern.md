@@ -126,7 +126,7 @@ PR body にも kill-switch table を含める (起動経路 / 停止コマンド
 
 ## 関連
 
-- [ADR-031](adr-031-weekly-review-pipeline.md) — 試験運用、3 点セット部分適合
+- [ADR-031](adr-031-weekly-review-pipeline.md) — 承認済み (2026-06-01 本採用昇格)。§ 採用判定の閾値 (本採用化条件) が本 ADR § 3 (Bounded lifetime) の「採用 / 却下 / 継続」3 値判定基準の具体化例として参照可能 (5 閾値: 採用率 / wall-clock / FP / context 圧迫 / systemic 検出力)
 - [ADR-036](adr-036-bundle-z-three-layer-review.md) — 試験運用、3 点セット部分適合
 - [ADR-038](adr-038-local-llm-finding-classification.md) — 試験運用、3 点セット完全適合 (本 ADR の trigger 事例)
 - `~/.claude/rules/common/docs-governance.md` — Document Lifecycle Classification / Retirement Workflow
