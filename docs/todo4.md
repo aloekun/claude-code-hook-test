@@ -221,18 +221,18 @@
 
 ### L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)
 
-> **動機**: Bundle W (PBT + 型) と Bundle X (mutants + stress) は per-PR / per-push の防御層だが、long-tail flake (N=100 では catch されないが N=1000 で出る) と workspace 全体の coverage gap (PR で触らない crate の test 弱さ) は別途 audit が必要。ADR-031 (週次レビュー) Phase B 実装と bundle 化することで、週次の人間不在時間に 30-60 分の audit を回す。
+> **動機**: Bundle W (PBT + 型) と Bundle X (mutants + stress) は per-PR / per-push の防御層だが、long-tail flake (N=100 では catch されないが N=1000 で出る) と workspace 全体の coverage gap (PR で触らない crate の test 弱さ) は別途 audit が必要。ADR-031 (週次レビュー、本採用 2026-06-01) に facet 拡張 / aggregate 前 pre-step として組込むことで、週次の人間不在時間に 30-60 分の audit を回す。
 >
-> **本タスクの位置づけ**: Bundle W / X の **L3 layer (weekly)**。ADR-031 Phase B (順位 8) と同 bundle 化推奨。daily efficiency への直接効果は小さいが、long-term の test debt 蓄積を防ぐ。
+> **本タスクの位置づけ**: Bundle W / X の **L3 layer (weekly)**。ADR-031 (本採用 2026-06-01) の facet 拡張 / aggregate 前 Rust pre-step として組込。daily efficiency への直接効果は小さいが、long-term の test debt 蓄積を防ぐ。
 >
-> **参照**: PR #96 セッション内議論、ADR-031 (週次レビューパイプライン)。
+> **参照**: PR #96 セッション内議論、ADR-031 (週次レビューパイプライン、本採用 2026-06-01)。
 >
 > **実行優先度**: 💎 **Tier 3** — 工数 Small (ADR-031 への追加扱い)。Bundle W / X land 後に着手。
 
 #### 背景
 
-- ADR-031 Phase B (順位 8) は週次レビュー本体の実装が未着手
-- L3 を独立 task にせず、ADR-031 Phase B と同 PR で land すれば pipeline duplication なし
+- ADR-031 (本採用 2026-06-01) は weekly-review 本体が land 済、本タスクは facet 拡張 / pre-step 追加として独立着手可能
+- L3 を独立 task にせず、ADR-031 facet 拡張として load すれば pipeline duplication なし
 
 #### 設計決定 (案)
 
@@ -244,7 +244,7 @@
 
 #### 作業計画
 
-- [ ] ADR-031 Phase B の実装計画 (順位 8) と統合した設計書作成
+- [ ] ADR-031 (本採用 2026-06-01) の facet 拡張 / aggregate 前 pre-step として設計書作成
 - [ ] 週次 schedule に cargo-mutants workspace 全体 + stress N=1000 を追加
 - [ ] survivor / flake の自動 todo 登録ロジック (post-merge-feedback と同型 takt workflow)
 - [ ] dogfood: 1 週間運用して week 1/2/3 の survivor 数推移を観察
@@ -258,7 +258,7 @@
 
 #### 詰まっている箇所
 
-- ADR-031 Phase B の実装計画 (順位 8) が未着手のため、本 task の inception は順位 8 の進捗に依存。
+- ADR-031 (本採用 2026-06-01) は land 済、本 task は独立着手可能 (Bundle W / X land 完了が前提)。
 
 ---
 

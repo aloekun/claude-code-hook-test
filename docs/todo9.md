@@ -357,15 +357,15 @@
 
 ---
 
-### `review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意)
+### `review-harness-whole` facet 追加 — 観点 ① 独立 facet 化 (ADR-031 weekly-review 拡張、Phase B+1、2026-05-26 ユーザー合意)
 
-> **動機**: 順位 8 (週次レビュー Phase B) の MVP は 3 facets (simplicity / security / architecture) 構成で start し、観点 ① ハーネス遵守 (rule < pipeline < hook 重複検出) は architecture-whole facet の prompt 重点 criteria として組込。Phase B dogfood で「① 観点が architecture-whole の他 criteria (ADR 整合性 / モジュール境界 / 命名規約 / 循環依存) と context 圧迫」が観測されたら、独立 facet `review-harness-whole` に extract する。
+> **動機**: ADR-031 weekly-review (本採用 2026-06-01) の MVP は 3 facets (simplicity / security / architecture) 構成で start し、観点 ① ハーネス遵守 (rule < pipeline < hook 重複検出) は architecture-whole facet の prompt 重点 criteria として組込。dogfood で「① 観点が architecture-whole の他 criteria (ADR 整合性 / モジュール境界 / 命名規約 / 循環依存) と context 圧迫」が観測されたら、独立 facet `review-harness-whole` に extract する。
 >
-> **本タスクの位置づけ**: 順位 8 の follow-up、Phase B+1。Phase B dogfood 結果を見てから着手判断 (extract 不要なら本 entry close)。順位 146-151 (Bundle 既存ルール仕組み化) の **継続的発見源** として機能し、新 rule → hook 昇格候補を週次で systemic に拾う構造を強化する。
+> **本タスクの位置づけ**: ADR-031 weekly-review 拡張、Phase B+1。本採用後の dogfood 結果 (2026-05-30 + 2026-06-01 観測時点で context 圧迫は未観測) を見てから着手判断 (extract 不要なら本 entry close)。順位 146-151 (Bundle 既存ルール仕組み化) の **継続的発見源** として機能し、新 rule → hook 昇格候補を週次で systemic に拾う構造を強化する。
 >
-> **参照**: 順位 8 entry (todo.md 「7 観点責務 mapping」表)、順位 146-151 Bundle 既存ルール仕組み化、`feedback_no_unenforced_rules.md`、`feedback_pipeline_over_rules.md`、ADR-031 (週次レビュー設計)
+> **参照**: ADR-031 (週次レビュー設計、本採用 2026-06-01)、順位 146-151 Bundle 既存ルール仕組み化、`feedback_no_unenforced_rules.md`、`feedback_pipeline_over_rules.md`
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S。順位 8 Phase B land + 2-3 週 dogfood 後に着手判断。
+> **実行優先度**: 🔧 **Tier 2** — Effort S。ADR-031 本採用後 (2026-06-01) のさらに 2-3 週 dogfood 後に着手判断。
 
 #### 設計決定 (案)
 
@@ -376,7 +376,7 @@
 
 #### 作業計画
 
-- [ ] Phase B (順位 8) land + 2-3 週 dogfood 運用 → ① 観点 finding の context 圧迫 / 見落としを観測
+- [ ] ADR-031 本採用 (2026-06-01) 後の 2-3 週 dogfood 運用 → ① 観点 finding の context 圧迫 / 見落としを観測
 - [ ] facet extract 判断 (extract 不要なら本 entry close)
 - [ ] `review-harness-whole.md` instruction 設計 (順位 146-151 land 済 / 未済の状況を踏まえた rule-vs-hook gap 検出ロジック)
 - [ ] takt workflow weekly-review.yaml に facet 追加 + `parallel:` block 拡張
@@ -396,15 +396,15 @@
 
 ---
 
-### `review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (順位 8 follow-up、Phase B+1、2026-05-26 ユーザー合意)
+### `review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (ADR-031 weekly-review 拡張、Phase B+1、2026-05-26 ユーザー合意)
 
-> **動機**: 順位 8 (週次レビュー Phase B) の MVP では観点 ⑤ Todo 妥当性 は順位 136 (todo hook 2 段構え) に委譲し、観点 ⑦ ファイルサイズ も対象外とした。順位 136 hook land 後、hook が拾えない broad な観点 (全 todo entry 横断の dead pattern 検出 / cross-todo file の重複 entry / docs/todo*.md preamble drift) を週次の `review-todo-whole` facet で補完する。並行して観点 ⑦ ファイルサイズ (50KB / 800 行) は aggregate-weekly facet 直前の Rust 機械 pre-step で計測し、LLM context を浪費せず ADR-031 の 3 層分離 (Rust 機械 / takt AI / skill ask) に整合させる。
+> **動機**: ADR-031 weekly-review (本採用 2026-06-01) の MVP では観点 ⑤ Todo 妥当性 は順位 136 (todo hook 2 段構え) に委譲し、観点 ⑦ ファイルサイズ も対象外とした。順位 136 hook land 後、hook が拾えない broad な観点 (全 todo entry 横断の dead pattern 検出 / cross-todo file の重複 entry / docs/todo*.md preamble drift) を週次の `review-todo-whole` facet で補完する。並行して観点 ⑦ ファイルサイズ (50KB / 800 行) は aggregate-weekly facet 直前の Rust 機械 pre-step で計測し、LLM context を浪費せず ADR-031 の 3 層分離 (Rust 機械 / takt AI / skill ask) に整合させる。
 >
-> **本タスクの位置づけ**: 順位 8 の follow-up、Phase B+1。順位 136 hook land 後に着手判断 (= hook の immediate guard が機能している前提で、週次は batch 棚卸しに focus)。`feedback_pipeline_over_rules.md` 適用で、機械検査可能な観点 (file size) を LLM facet に乗せず分離する設計。
+> **本タスクの位置づけ**: ADR-031 weekly-review 拡張、Phase B+1。順位 136 hook land 後に着手判断 (= hook の immediate guard が機能している前提で、週次は batch 棚卸しに focus)。`feedback_pipeline_over_rules.md` 適用で、機械検査可能な観点 (file size) を LLM facet に乗せず分離する設計。
 >
-> **参照**: 順位 8 entry (todo.md 「7 観点責務 mapping」表)、順位 136 entry (todo8.md、todo hook 2 段構え)、cli-docs-lint (preamble file count + cross-ref、push-runner lint group 統合済)、順位 147 (file length lint 800 行)、ADR-031 (3 層分離 = Rust 機械 / takt AI / skill ask)、`feedback_pipeline_over_rules.md`
+> **参照**: ADR-031 (週次レビュー設計、本採用 2026-06-01、3 層分離 = Rust 機械 / takt AI / skill ask)、順位 136 entry (todo8.md、todo hook 2 段構え)、cli-docs-lint (preamble file count + cross-ref、push-runner lint group 統合済)、順位 147 (file length lint 800 行)、`feedback_pipeline_over_rules.md`
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M (facet 新規 + Rust pre-step ~80 行)。順位 136 land + Phase B 2-3 週 dogfood 完了後に着手。
+> **実行優先度**: 🔧 **Tier 2** — Effort M (facet 新規 + Rust pre-step ~80 行)。順位 136 land + ADR-031 本採用 (2026-06-01) 後の 2-3 週 dogfood 完了後に着手。
 
 #### 設計決定 (案)
 
@@ -1005,15 +1005,22 @@ ADR-018 lines 185-186 については、旧 marker 記述を「順位 167 で mu
 
 ---
 
-### `combine_output` 5 crate 重複を `lib-runner-utils` (or 既存 lib-*) に extract (PR #182 dry-run S01 採用)
+### subprocess utils 5 crate 重複 (combine_output + drain_pipe + wait_with_timeout + run_cmd) を `lib-subprocess-utils` に extract (PR #182 dry-run S01 + Phase E dogfood WR-2026-06-01-S01 採用)
 
-> **動機**: PR #182 Phase B dry-run で検出された finding WR-2026-05-29-S01。`src/cli-pr-monitor/src/runner.rs:80-89` の `combine_output(stdout, stderr)` 8 行関数が `#[allow(dead_code)]` 付与され生産コードから呼ばれていない (cli-pr-monitor 内では test 4 件のみが参照)。同一 8 行関数が **4 他 crate にも複製** されている (`cli-push-runner`, `cli-push-pipeline`, `cli-merge-pipeline`, `hooks-post-tool-linter`)、それぞれが同じ test を持つ = **5 crate 横断の systemic duplication** で 5 倍の保守面。ADR-026 Cargo workspace + ADR-012 lib-* naming の既存パターンで解決コスト低。
+> **動機**: PR #182 Phase B dry-run で検出された finding WR-2026-05-29-S01 に加え、**Phase E dogfood (2026-06-01) で WR-2026-06-01-S01 (High) として scope が拡大**: subprocess 管理 utility 群が 4-5 crate 横断で重複している。
 >
-> **本タスクの位置づけ**: PR #182 post-merge-feedback の dry-run finding S01 採用 (Severity High / Frequency High / Effort S-M / Adoption Risk None、2026-05-29 ユーザー承認)。Phase B dogfood の最初の実体ベース finding (A01 と並ぶ)。A01 (Cross-File Reference Lifecycle 違反) は PR #183 で fix 済、本タスクは Phase B dogfood で発見された残 1 件の構造対策。
+> **重複対象 (scope 拡大版)**:
+> - `combine_output(stdout, stderr)` 8 行関数: 5 crate (`cli-pr-monitor` / `cli-push-runner` / `cli-push-pipeline` / `cli-merge-pipeline` / `hooks-post-tool-linter`) で重複 (cli-pr-monitor では `#[allow(dead_code)]` 付与で生産 path 未到達)
+> - `drain_pipe` / `wait_with_timeout` / `run_cmd`: 4 crate (`cli-push-runner/src/runner.rs` / `cli-pr-monitor/src/runner.rs` / `cli-merge-pipeline/src/main.rs` / `cli-push-pipeline/src/main.rs`) で重複
+> - `MAX_LINES` 定数: 4 crate 間で不整合 (40 / 200 / なし) — callsite 設定可能パラメータとして公開する
 >
-> **参照**: PR #182 dry-run report (`.takt/runs/20260529-030546-weekly-review-dry-run-2026-05-29/reports/architecture-whole-review.md` および dry-run feedback report)、`src/cli-pr-monitor/src/runner.rs:80-89` (function) + `:282-298` (tests)、`src/cli-push-runner/`, `src/cli-push-pipeline/`, `src/cli-merge-pipeline/`, `src/hooks-post-tool-linter/` (他 4 crate の重複)、ADR-024 (shared jj-helpers library パターン)、ADR-026 (Cargo workspace)
+> ADR-026 Cargo workspace + ADR-012 lib-* naming の既存パターンで解決コスト低、保守リスクが各 PR で蓄積中。
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S-M。Cargo workspace 内の単純な lib extract、5 crate を順次差し替え。
+> **本タスクの位置づけ**: PR #182 dry-run S01 採用 (2026-05-29 ユーザー承認) + Phase E dogfood (2026-06-01) WR-2026-06-01-S01 (Severity High) で augment 採用。ADR-031 § Phase 4 「重複検出は MVP では実装しない」運用の partial overlap 検出 → augment 判断のフローが機能した実例 (skill 重複検出 → 3 択 → user augment 選択)。
+>
+> **参照**: PR #182 dry-run report、Phase E dogfood report (`.claude/weekly-reviews/2026-06-01.md` および `.takt/runs/20260601-095710-weekly-review-2026-06-01/reports/`)、`src/cli-pr-monitor/src/runner.rs:80-89` (function) + `:282-298` (tests)、`src/cli-push-runner/src/runner.rs` / `src/cli-merge-pipeline/src/main.rs` / `src/cli-push-pipeline/src/main.rs` (drain_pipe 等の重複)、`src/hooks-post-tool-linter/` (他 4 crate の重複)、ADR-024 (shared jj-helpers library パターン)、ADR-026 (Cargo workspace)
+>
+> **実行優先度**: 🔧 **Tier 2** → 🚀 **Tier 1 検討余地** — Effort S-M。Phase E dogfood で High severity 再確認、4-5 crate 横断で更新コスト線形成長中。Cargo workspace 内の単純な lib extract、5 crate を順次差し替え。
 
 #### 設計決定 (案)
 
