@@ -111,6 +111,36 @@ pub(crate) fn should_auto_push(setting: &str) -> bool {
     }
 }
 
+fn execute_repush_action(
+    fix_config: &crate::config::FixConfig,
+    pr_label: &str,
+    action: RepushAction,
+) {
+    match action {
+        RepushAction::AutoPush => run_auto_push(fix_config, pr_label),
+        RepushAction::UserConfirmWithSeparatedFix { commit_id } => {
+            log_info(&format!(
+                "[action] auto_push スキップ: ユーザー確認待ち (fix commit 分離済み: {})",
+                commit_id
+            ));
+            log_info("[action] 確認後に pnpm push するか、jj describe で再構成してください");
+        }
+        RepushAction::UserConfirmNoSeparation => {
+            log_info("[action] auto_push スキップ: ユーザー確認待ち");
+            log_info("[action] 確認後に pnpm push を実行してください");
+        }
+        RepushAction::CleanupEmptyFixCommit { commit_id } => {
+            crate::fix_commit::try_abandon_empty_fix_commit("fix_state=Created:", Some(&commit_id));
+        }
+        RepushAction::SkipNoChange => {
+            log_info("[action] re-push スキップ: takt は実質変更を加えていない");
+        }
+        RepushAction::FailSafeCaptureFailed => {
+            log_info("[action] re-push スキップ: commit id 取得失敗 (fail-safe)");
+        }
+    }
+}
+
 /// takt 実行後の re-push フロー。
 ///
 /// 1. post_takt_cid を捕捉し、pre / post を比較して `decide_repush` で判定
@@ -142,28 +172,10 @@ pub(crate) fn execute_repush_flow(
     let action = decide_repush_action(&decision, fix_state, allow_auto);
     log_info(&format!("[decision] action: {:?}", action));
 
-    match action {
-        RepushAction::AutoPush => run_auto_push(fix_config, pr_label),
-        RepushAction::UserConfirmWithSeparatedFix { commit_id } => {
-            log_info(&format!(
-                "[action] auto_push スキップ: ユーザー確認待ち (fix commit 分離済み: {})",
-                commit_id
-            ));
-            log_info("[action] 確認後に pnpm push するか、jj describe で再構成してください");
-        }
-        RepushAction::UserConfirmNoSeparation => {
-            log_info("[action] auto_push スキップ: ユーザー確認待ち");
-            log_info("[action] 確認後に pnpm push を実行してください");
-        }
-        RepushAction::CleanupEmptyFixCommit { commit_id } => {
-            crate::fix_commit::try_abandon_empty_fix_commit("fix_state=Created:", Some(&commit_id));
-        }
-        RepushAction::SkipNoChange => {
-            log_info("[action] re-push スキップ: takt は実質変更を加えていない");
-        }
-        RepushAction::FailSafeCaptureFailed => {
-            log_info("[action] re-push スキップ: commit id 取得失敗 (fail-safe)");
-        }
+    execute_repush_action(fix_config, pr_label, action);
+
+    if fix_config.sweep.enabled {
+        crate::fix_commit::sweep_empty_commits_in_pr_range(&fix_config.sweep.default_branch);
     }
 }
 

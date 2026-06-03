@@ -10,47 +10,6 @@
 
 ## 現在進行中
 
-### `cargo clippy` を stop_quality ステップに追加 — Rust lint structural gap 補填 (PR #185 T1-#1 採用)
-
-> **動機**: 本リポジトリの quality_gate / stop_quality は `pnpm lint` (oxlint / JS) / `pnpm lint:md` (markdownlint) / `pnpm test` (vitest) / `pnpm build` (tsc) の 4 step 構成だが **Rust の cargo clippy が完全に欠落**している。本セッション PR #185 (Bundle CR-RL) 開発時に `doc_lazy_continuation` clippy error が手動 `cargo clippy --release -- -D warnings` 実行まで検出されず、もし pre-push-review に押し込んでいたら reviewer が detect → fix iteration が増えていた structural gap として顕在化した。stop_quality に cargo clippy が存在しない以上、同種 Rust lint エラーは同じ window を通り続ける systemic 問題。
->
-> **本タスクの位置づけ**: PR #185 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk = `実行速度増加` だが incremental 後は高速、2026-05-29 ユーザー承認)。stop_quality の Rust lint 空白を埋める structural fix。
->
-> **参照**: `.claude/feedback-reports/185.md` Tier 1 #1、`.claude/hooks-config.toml` の stop_quality steps 配列 (拡張対象)、PR #185 開発時の `doc_lazy_continuation` 手動 clippy 発見 (commit chain: 順位 167 実装 → clippy → docstring 修正の循環)
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。stop_quality config の 1 step 追加で structural gap が塞がれる。
-
-#### 設計決定 (案)
-
-- **追加 step**: `cargo clippy --workspace -- -D warnings`
-  - `--workspace`: 全 crate を対象 (cli-* + hooks-* + lib-* 横断、本リポジトリの Cargo workspace 構成に整合、ADR-026 準拠)
-  - `-- -D warnings`: warning を error 化 (`-D` = deny。`feedback_pnpm_create_pr_body` 同様の strict mode)
-- **配置場所**: `.claude/hooks-config.toml` `[stop_quality]` または `[quality_gate]` の steps 配列に追加 (実装時に既存 step 並びと整合する位置に挿入)
-- **代替案**: 直接 cargo clippy を steps に書くか、`pnpm lint:rust` スクリプトを新設して参照するか。後者は package.json の script naming 一貫性 (`lint` / `lint:md` / 新 `lint:rust`) で他 pnpm script と並びが綺麗
-- **incremental build cost**: cargo は incremental 後は高速。初回 clean state では Rust 全 build を伴うため数分かかる可能性あり、その場合は `cargo clippy --no-deps -- -D warnings` で dependency rebuild を回避する option を検討
-
-#### 作業計画
-
-- [ ] `.claude/hooks-config.toml` の `[stop_quality]` (または `[quality_gate]`) steps を Read で確認、既存 step 並びを把握
-- [ ] (option A) 直接 `cargo clippy --workspace -- -D warnings` を steps 配列に追加
-- [ ] (option B) `package.json` に `lint:rust` script を新設 (`"lint:rust": "cargo clippy --workspace -- -D warnings"`) し、steps では `pnpm lint:rust` を参照
-- [ ] dogfood: 本タスク実装 commit 自身を `pnpm push` で通して新 clippy step が pre-push pipeline で発火することを確認
-- [ ] 既存 cargo clippy エラーが存在しないか全 crate で確認 (`cargo clippy --workspace -- -D warnings` を手動実行、warning ゼロを baseline 化)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- stop_quality / quality_gate に Rust lint step が追加され、`doc_lazy_continuation` 等の clippy error が pre-push pipeline で自動検出される
-- 全 crate の cargo clippy が clean state を baseline として確立
-- 本タスク実装 commit 自身が新 step を通過する dogfood で機能を確認
-- `pnpm test` / `pnpm build` 等の既存 step と並列実行可能性を維持 (実行速度劣化なし or 許容範囲内)
-
-#### 詰まっている箇所
-
-なし。Effort S、config 1 行追加で structural gap が塞がれる。実装時の判断点は option A (直接 cargo clippy) vs option B (`pnpm lint:rust` 新設) のみ。
-
----
-
 ### check-ci-coderabbit format extraction 関数への variant fixture 追加 (PR #185 T2-#4 採用)
 
 > **動機**: PR #185 (Bundle CR-RL) で `extract_old_format_wait_time` / `extract_new_format_wait_time` の 2 helper 関数に分離し 3 新規 fixture (full / minutes-only / 旧新混在) を追加したが、analyzer (post-merge-feedback) は **bold-wrapper variant** (例: `**More reviews will be available in N minutes and S seconds**`) や **その他の組合せ variant** の coverage gap を指摘。PR #182 (30+ 分 polling 浪費の実観測) + PR #185 (format 多様性対応) の 2 PR 連続観測で、CR の format は引き続き variants を生む可能性が高く、防御的 fixture coverage 追加が systemic 価値あり。

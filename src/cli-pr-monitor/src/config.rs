@@ -73,6 +73,8 @@ pub(crate) struct FixConfig {
     /// push コマンド (jj git push / git push)
     #[serde(default = "default_push_command")]
     pub(crate) push_command: String,
+    #[serde(default)]
+    pub(crate) sweep: SweepConfig,
 }
 
 fn default_auto_push_severity() -> String {
@@ -87,6 +89,32 @@ impl Default for FixConfig {
         Self {
             auto_push_severity: default_auto_push_severity(),
             push_command: default_push_command(),
+            sweep: SweepConfig::default(),
+        }
+    }
+}
+
+/// PR 範囲内の `fix(review):` 空 commit を自動 abandon する sweep 設定。
+///
+/// デフォルトは `enabled = false` (opt-in)。有効化後は `default_branch..@` 範囲の
+/// `fix(review):` 空 commit を `execute_repush_flow` 末尾で自動 abandon する。
+#[derive(Deserialize, Clone)]
+pub(crate) struct SweepConfig {
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    #[serde(default = "default_sweep_branch")]
+    pub(crate) default_branch: String,
+}
+
+fn default_sweep_branch() -> String {
+    "master".into()
+}
+
+impl Default for SweepConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_branch: default_sweep_branch(),
         }
     }
 }
@@ -398,6 +426,8 @@ task = "t"
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.fix.auto_push_severity, "critical");
         assert_eq!(config.fix.push_command, "jj git push");
+        assert!(!config.fix.sweep.enabled, "sweep はデフォルト無効 (opt-in)");
+        assert_eq!(config.fix.sweep.default_branch, "master");
     }
 
     #[test]
@@ -412,6 +442,28 @@ push_command = "git push"
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.fix.auto_push_severity, "major");
         assert_eq!(config.fix.push_command, "git push");
+    }
+
+    #[test]
+    fn config_fix_sweep_defaults() {
+        let toml_str = "[monitor]\n";
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(!config.fix.sweep.enabled, "sweep はデフォルト無効 (opt-in)");
+        assert_eq!(config.fix.sweep.default_branch, "master");
+    }
+
+    #[test]
+    fn config_fix_sweep_custom() {
+        let toml_str = r#"
+[monitor]
+
+[fix.sweep]
+enabled = true
+default_branch = "main"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.fix.sweep.enabled);
+        assert_eq!(config.fix.sweep.default_branch, "main");
     }
 
     #[test]

@@ -447,49 +447,6 @@
 
 ---
 
-### cli-pr-monitor fix chain 末尾に空 commit 検査 + `jj abandon` step を追加 (PR #174 T1-#1 採用)
-
-> **動機**: PR #174 で post-pr-monitor の `CleanupEmptyFixCommit` action 後に、別の空 commit (`kqvluqyv`) が祖父コミット位置に残存し、後続の Bundle 1 Minor fix push 時に PR diff を汚染する事象を観測。cleanup ロジックが「fix chain で直近 create された空 commit」のみ対象にしており、過去の空 commit を見逃す構造的欠陥が明らかになった。手動 `jj abandon` で 1 件解消したが、機械強制すべき。
->
-> **本タスクの位置づけ**: PR #174 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None)。cli-pr-monitor の cleanup phase に「`jj log --no-graph` で空 description の commit を検出 → 全て abandon」step を追加し、空 commit による PR diff 汚染を構造的に予防する。
->
-> **参照**: `.claude/feedback-reports/174.md` Tier 1 #1、PR #174 で観測した `kqvluqyv` 事例 (Bundle 1 fix loop 中に手動 abandon)、`src/cli-pr-monitor/src/`
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。cli-pr-monitor fix chain への追加 step 1 件、機械強制で重複事故を防止。
-
-#### 設計決定 (案)
-
-- 配置: `src/cli-pr-monitor/src/` の fix chain cleanup phase 末尾 (既存 `CleanupEmptyFixCommit` の後)
-- 動作:
-  1. `jj log -r 'master..@' --no-graph -T 'change_id ++ "\u{1f}" ++ if(empty, "EMPTY", "CONTENT") ++ "\n"'` で PR 範囲 commit を列挙 (`empty` は jj template の commit 自体が空か判定する keyword)
-  2. 各行を `\u{1f}` (Unit Separator) で分割し、2 列目が `EMPTY` の commit を filter
-  3. 該当 commit を `jj abandon <change_id>` で順次 abandon
-  - 注意: `description.first_line()` は description の 1 行目を返すため「全 description 空」と「複数行 description で 1 行目だけ空」を区別できない。実装では jj template の `empty` keyword (= commit が file change を含まないか) を直接使うか、`if(description, "DESCRIBED", "UNDESCRIBED")` で description 有無を判定する設計に固定する
-- scope 限定: `master..@` 範囲のみ (= PR に含まれる範囲)。master 以下は対象外
-- 既存 `CleanupEmptyFixCommit` との関係: 既存は直近 fix commit のみ対象、本 step は全範囲 sweep の補完層
-- fail-open: jj log / abandon の失敗時は warning ログのみで cleanup を継続 (push を block しない)
-
-#### 作業計画
-
-- [ ] cli-pr-monitor の cleanup phase 実装箇所を特定 (`CleanupEmptyFixCommit` action の呼び出し元)
-- [ ] 空 commit 列挙ロジック (jj log + description filter) を追加
-- [ ] abandon ループ + error handling 実装
-- [ ] test 拡充: 空 commit 0 件 / 1 件 / 複数件 / 非空 commit のみ / mixed
-- [ ] `pnpm build:cli-pr-monitor` で release 生成 + dogfood (次の PR で同様の状況を作って動作確認)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- post-pr-monitor の cleanup phase 完了時に PR 範囲内の空 commit が全て abandon される
-- 既存 `CleanupEmptyFixCommit` action と non-regression
-- dogfood で空 commit 自動 cleanup が動作確認される
-
-#### 詰まっている箇所
-
-なし。Effort S、既存 cleanup phase への追加 step で副作用最小。
-
----
-
 ### Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)
 
 > **動機**: PR #174 で実装した `scratch_file_warning` stage は ADR-039 § 3 Bounded lifetime 準拠で「3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定」する設計。PR #174 の PR body に未消化の dogfood checklist が残っており (`__test.ps1` を意図的に作って push し block 動作確認 / override env でバイパス確認)、これが ADR-039 bounded lifetime の初回データポイント。次の PR (Bundle 2 等) merge 前の前提条件として消化が必要。
