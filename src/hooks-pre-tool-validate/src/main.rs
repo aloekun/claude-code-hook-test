@@ -793,7 +793,7 @@ fn build_todo_staleness_message(
     keyword_matches: &[(String, Vec<(String, String)>)],
     branch: &str,
 ) -> Option<String> {
-    let stale = behind.unwrap_or(0) > 0;
+    let stale = behind.is_none_or(|n| n > 0);
     let any_matches = keyword_matches.iter().any(|(_, m)| !m.is_empty());
     if !stale && !any_matches {
         return None;
@@ -810,6 +810,10 @@ fn build_todo_staleness_message(
                 branch
             ));
         }
+    } else {
+        lines.push(
+            "stale parent detected: lineage 判定不能のため fail-closed で block".to_string(),
+        );
     }
     for (keyword, matches) in keyword_matches {
         if matches.is_empty() {
@@ -843,8 +847,7 @@ fn check_todo_staleness(
         .unwrap_or(TODO_STALENESS_DEFAULT_GREP_LIMIT);
 
     let behind = count_commits_branch_ahead(branch);
-    behind?;
-    let stale = behind.unwrap_or(0) > 0;
+    let stale = behind.is_none_or(|n| n > 0);
 
     let keywords = extract_heading_keywords(text_for_keywords);
     let keyword_matches: Vec<(String, Vec<(String, String)>)> = if keywords.is_empty() {

@@ -198,7 +198,7 @@ fn reparent_at_to_pr_tip(context: &str) {
     }
 }
 
-/// `default_branch..@` 範囲の空 commit を sweep して全て abandon する (順位 155、PR #174 T1-#1)。
+/// `default_branch..@` 範囲の `fix(review):` 空 commit を sweep して全て abandon する (順位 155、PR #174 T1-#1)。
 ///
 /// 既存 `try_abandon_empty_fix_commit` が tracked な単一 fix commit (= 直近 `create_fix_commit`
 /// の戻り値) のみを対象とするのに対し、本関数は PR 範囲全体を sweep して
@@ -206,14 +206,18 @@ fn reparent_at_to_pr_tip(context: &str) {
 /// (過去 fix loop で取りこぼされた granduncle 位置の空 commit が後続 push で PR diff 汚染) の
 /// 構造的予防層。
 ///
-/// 実装: jj revset `empty() & (default_branch..@)` で範囲内の空 commit を 1 step で列挙し、
-/// change_id ベースで順次 `jj abandon` する。change_id は jj の永続識別子のため、複数 abandon で
-/// graph が rebase されても残りの id 参照は invariant。
+/// 実装: jj revset `empty() & description("fix(review):") & (default_branch..@)` で範囲内の
+/// fix(review): 空 commit を 1 step で列挙し、change_id ベースで順次 `jj abandon` する。
+/// change_id は jj の永続識別子のため、複数 abandon で graph が rebase されても残りの id 参照は invariant。
+/// description フィルタにより `create_fix_commit` 由来のコミットのみを対象とし、他の空コミットは除外する。
 ///
 /// fail-open: jj log / abandon の失敗時は warn ログのみで cleanup を継続する
 /// (push を block すると fix loop 全体が止まるため、ローカル副作用は次回再走で吸収する方針)。
 pub(crate) fn sweep_empty_commits_in_pr_range(default_branch: &str) {
-    let revset = format!("empty() & ({}..@)", default_branch);
+    let revset = format!(
+        "empty() & description(substring:\"fix(review):\") & ({}..@)",
+        default_branch
+    );
     let (ok, out) = run_cmd_direct(
         "jj",
         &[
@@ -240,7 +244,7 @@ pub(crate) fn sweep_empty_commits_in_pr_range(default_branch: &str) {
         return;
     }
     log_info(&format!(
-        "[action] sweep_empty_commits: {}..@ 範囲に空 commit {} 件を検出 → abandon",
+        "[action] sweep_empty_commits: {}..@ 範囲に fix(review): 空 commit {} 件を検出 → abandon",
         default_branch,
         change_ids.len()
     ));
