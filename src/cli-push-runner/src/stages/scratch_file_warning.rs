@@ -27,6 +27,7 @@
 //!   列挙して basename match で検査 (= push 直前の最終防衛層)
 //! - ADR-007 § custom_lint_rule = PostToolUse hook で AI が edit/write した瞬間に
 //!   text 内容を regex で検査 (= 編集時の即時検出層)
+//!
 //! 両者は異なる timing / 検査対象で動作し、scratch file 検出は本 stage に集約。
 //! scratch file は通常 .gitignore 対象で text content 検査の対象外のため、
 //! file existence 検査である本 stage に責務を分離している。
@@ -170,10 +171,8 @@ fn pattern_middle_slice<'a>(parts: &'a [&'a str]) -> &'a [&'a str] {
 fn consume_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
     if prefix.is_empty() {
         Some(name)
-    } else if name.starts_with(prefix) {
-        Some(&name[prefix.len()..])
     } else {
-        None
+        name.strip_prefix(prefix)
     }
 }
 

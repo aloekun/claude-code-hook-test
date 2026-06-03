@@ -119,6 +119,9 @@ steps = [
 # ─── Stop: 品質ゲート ───
 
 [stop_quality]
+# 順位 175 (PR #185 T1-#1): cargo clippy 追加で Rust lint structural gap を補填。
+# incremental cache が効く限り 5-15s で完了するため step_timeout=60 内に収まる。
+# cold cache の初回のみ超過リスクあり (workspace 全 crate compile)。
 step_timeout = 60
 
 [[stop_quality.steps]]
@@ -128,6 +131,10 @@ cmd = "pnpm lint"
 [[stop_quality.steps]]
 name = "lint:md"
 cmd = "pnpm lint:md"
+
+[[stop_quality.steps]]
+name = "lint:rust"
+cmd = "cargo clippy --workspace -- -D warnings"
 
 [[stop_quality.steps]]
 name = "test"

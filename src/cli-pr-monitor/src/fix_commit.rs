@@ -198,6 +198,75 @@ fn reparent_at_to_pr_tip(context: &str) {
     }
 }
 
+/// `default_branch..@` 範囲の空 commit を sweep して全て abandon する (順位 155、PR #174 T1-#1)。
+///
+/// 既存 `try_abandon_empty_fix_commit` が tracked な単一 fix commit (= 直近 `create_fix_commit`
+/// の戻り値) のみを対象とするのに対し、本関数は PR 範囲全体を sweep して
+/// **untracked な空 commit** を網羅的に拾う。PR #174 で観測した `kqvluqyv` 事例
+/// (過去 fix loop で取りこぼされた granduncle 位置の空 commit が後続 push で PR diff 汚染) の
+/// 構造的予防層。
+///
+/// 実装: jj revset `empty() & (default_branch..@)` で範囲内の空 commit を 1 step で列挙し、
+/// change_id ベースで順次 `jj abandon` する。change_id は jj の永続識別子のため、複数 abandon で
+/// graph が rebase されても残りの id 参照は invariant。
+///
+/// fail-open: jj log / abandon の失敗時は warn ログのみで cleanup を継続する
+/// (push を block すると fix loop 全体が止まるため、ローカル副作用は次回再走で吸収する方針)。
+pub(crate) fn sweep_empty_commits_in_pr_range(default_branch: &str) {
+    let revset = format!("empty() & ({}..@)", default_branch);
+    let (ok, out) = run_cmd_direct(
+        "jj",
+        &[
+            "log",
+            "-r",
+            &revset,
+            "--no-graph",
+            "-T",
+            "change_id ++ \"\\n\"",
+        ],
+        &[],
+        JJ_CMD_TIMEOUT_SECS,
+    );
+    if !ok {
+        log_info(&format!(
+            "[warn] sweep_empty_commits: jj log 失敗 (sweep skip): {}",
+            out.trim()
+        ));
+        return;
+    }
+
+    let change_ids = parse_empty_change_ids(&out);
+    if change_ids.is_empty() {
+        return;
+    }
+    log_info(&format!(
+        "[action] sweep_empty_commits: {}..@ 範囲に空 commit {} 件を検出 → abandon",
+        default_branch,
+        change_ids.len()
+    ));
+    for cid in &change_ids {
+        let (ok, out) = run_cmd_direct("jj", &["abandon", cid], &[], JJ_CMD_TIMEOUT_SECS);
+        if !ok {
+            log_info(&format!(
+                "[warn] sweep_empty_commits: jj abandon {} 失敗 (継続): {}",
+                cid,
+                out.trim()
+            ));
+            continue;
+        }
+        log_info(&format!("[action] sweep_empty_commits: abandoned {}", cid));
+    }
+}
+
+/// `jj log` 出力 (1 行 1 change_id) を parse する純関数。空行と前後空白を除去する。
+fn parse_empty_change_ids(log_output: &str) -> Vec<String> {
+    log_output
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// `@-` (親 commit) の id が `expected` と一致するか判定する。
 /// 取得失敗時は `false` (= 不一致扱いで reparent を試行) を返す。
 fn parent_commit_id_is(expected: &str) -> bool {
@@ -361,6 +430,188 @@ mod tests {
             log_str.contains(original_msg),
             "元 commit が残っていること: {:?}",
             log_str
+        );
+    }
+
+    #[test]
+    fn parse_empty_change_ids_handles_empty_input() {
+        assert!(parse_empty_change_ids("").is_empty());
+    }
+
+    #[test]
+    fn parse_empty_change_ids_extracts_single_id() {
+        let out = "abc123def\n";
+        assert_eq!(parse_empty_change_ids(out), vec!["abc123def".to_string()]);
+    }
+
+    #[test]
+    fn parse_empty_change_ids_extracts_multiple_ids() {
+        let out = "abc\ndef\nghi\n";
+        assert_eq!(
+            parse_empty_change_ids(out),
+            vec!["abc".to_string(), "def".to_string(), "ghi".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_empty_change_ids_skips_blank_lines_and_whitespace() {
+        let out = "  abc  \n\n   \ndef\n\n";
+        assert_eq!(
+            parse_empty_change_ids(out),
+            vec!["abc".to_string(), "def".to_string()]
+        );
+    }
+
+    fn setup_jj_repo_with_master_at_base(base_msg: &str) -> tempfile::TempDir {
+        use std::process::Command as StdCommand;
+        let temp = tempfile::tempdir().expect("tempdir 作成失敗");
+        let repo_dir = temp.path();
+        assert!(StdCommand::new("jj")
+            .args(["git", "init"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj git init")
+            .success());
+        std::fs::write(repo_dir.join("base.txt"), "content\n").expect("write base");
+        assert!(StdCommand::new("jj")
+            .args(["describe", "-m", base_msg])
+            .current_dir(repo_dir)
+            .status()
+            .expect("describe base")
+            .success());
+        assert!(StdCommand::new("jj")
+            .args(["bookmark", "create", "master", "-r", "@"])
+            .current_dir(repo_dir)
+            .status()
+            .expect("bookmark master")
+            .success());
+        temp
+    }
+
+    struct CwdGuard {
+        original: std::path::PathBuf,
+    }
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original);
+        }
+    }
+
+    fn enter_repo(repo_dir: &std::path::Path) -> CwdGuard {
+        let original = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(repo_dir).expect("cd");
+        CwdGuard { original }
+    }
+
+    fn assert_descriptions_absent_in_pr_range(
+        repo_dir: &std::path::Path,
+        descriptions: &[&str],
+    ) {
+        let out = std::process::Command::new("jj")
+            .args([
+                "log",
+                "-r",
+                "master..@",
+                "--no-graph",
+                "-T",
+                "description ++ \"\\n\"",
+            ])
+            .current_dir(repo_dir)
+            .output()
+            .expect("jj log master..@");
+        let log_str = String::from_utf8_lossy(&out.stdout);
+        for d in descriptions {
+            assert!(
+                !log_str.contains(d),
+                "{:?} が abandon されている前提だが残存: {:?}",
+                d,
+                log_str
+            );
+        }
+    }
+
+    fn count_empty_in_pr_range(repo_dir: &std::path::Path) -> usize {
+        let out = std::process::Command::new("jj")
+            .args([
+                "log",
+                "-r",
+                "empty() & (master..@)",
+                "--no-graph",
+                "-T",
+                "change_id ++ \"\\n\"",
+            ])
+            .current_dir(repo_dir)
+            .output()
+            .expect("jj log");
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count()
+    }
+
+    /// 統合: `master..@` 範囲に空 commit が無いとき sweep は no-op (非空 commit を保持)。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_sweep_empty_commits_no_op_when_no_empty_in_range() {
+        let temp = setup_jj_repo_with_master_at_base("feat: real change");
+        let repo_dir = temp.path();
+        let _guard = enter_repo(repo_dir);
+
+        sweep_empty_commits_in_pr_range("master");
+
+        let log_out = std::process::Command::new("jj")
+            .args(["log", "-r", "::@", "--no-graph", "-T", "description"])
+            .current_dir(repo_dir)
+            .output()
+            .expect("jj log");
+        let log_str = String::from_utf8_lossy(&log_out.stdout);
+        assert!(
+            log_str.contains("feat: real change"),
+            "non-empty commit が保持されていること: {:?}",
+            log_str
+        );
+    }
+
+    /// 統合: `master..@` 範囲の複数空 commit を sweep が全て abandon する。
+    /// PR #174 `kqvluqyv` 事例の最小再現。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_sweep_empty_commits_abandons_multiple_in_range() {
+        use std::process::Command as StdCommand;
+        let temp = setup_jj_repo_with_master_at_base("feat: base");
+        let repo_dir = temp.path();
+
+        for label in &["fix(review): empty 1", "fix(review): empty 2"] {
+            assert!(StdCommand::new("jj")
+                .args(["new", "-m", label])
+                .current_dir(repo_dir)
+                .status()
+                .expect("jj new")
+                .success());
+        }
+        assert!(
+            count_empty_in_pr_range(repo_dir) >= 2,
+            "前提: sweep 前に空 commit が 2 件以上"
+        );
+
+        let _guard = enter_repo(repo_dir);
+        sweep_empty_commits_in_pr_range("master");
+
+        assert_descriptions_absent_in_pr_range(
+            repo_dir,
+            &["fix(review): empty 1", "fix(review): empty 2"],
+        );
+
+        let master_out = StdCommand::new("jj")
+            .args(["log", "-r", "master", "--no-graph", "-T", "description"])
+            .current_dir(repo_dir)
+            .output()
+            .expect("jj log master");
+        let master_desc = String::from_utf8_lossy(&master_out.stdout);
+        assert!(
+            master_desc.contains("feat: base"),
+            "master commit (非空) は abandon されない: {:?}",
+            master_desc
         );
     }
 

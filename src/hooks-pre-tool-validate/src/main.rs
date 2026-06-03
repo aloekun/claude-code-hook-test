@@ -843,9 +843,7 @@ fn check_todo_staleness(
         .unwrap_or(TODO_STALENESS_DEFAULT_GREP_LIMIT);
 
     let behind = count_commits_branch_ahead(branch);
-    if behind.is_none() {
-        return None;
-    }
+    behind?;
     let stale = behind.unwrap_or(0) > 0;
 
     let keywords = extract_heading_keywords(text_for_keywords);

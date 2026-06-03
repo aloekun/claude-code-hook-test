@@ -165,6 +165,8 @@ pub(crate) fn execute_repush_flow(
             log_info("[action] re-push スキップ: commit id 取得失敗 (fail-safe)");
         }
     }
+
+    crate::fix_commit::sweep_empty_commits_in_pr_range("master");
 }
 
 #[cfg(test)]
