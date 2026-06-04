@@ -285,6 +285,16 @@ fn parent_commit_id_is(expected: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    //! jj integration test の不変式パターン (PR #194 T2-#3 codified、
+    //! `~/.claude/rules/common/testing.md` § "jj 操作コードの integration test pattern" と対):
+    //!
+    //!   - NG: `count_empty_in_pr_range(repo_dir) == 0` 等の count-based assert
+    //!     → jj は abandon 後に空 WC を自動生成するため、count は意図通り減らず false failure を起こす
+    //!   - OK: `assert_descriptions_absent_in_pr_range(repo_dir, &[target_desc])` の description-based assert
+    //!     → 明示的に投入した description は auto-generated WC と区別できる
+    //!   - sentinel 事前投入: 「mutation が発生していない」を assert する場合、本来残るべき commit を
+    //!     `assert_descriptions_present_in_pr_range` で生存確認すると no-op vs no-mutation の偽陽性を防げる
+
     use super::*;
 
     fn finding(severity: &str, file: &str, line: &str, issue: &str) -> Finding {
