@@ -43,6 +43,7 @@
 - [ADR-040: Local LLM Context Size と Resource Trade-off](docs/adr/adr-040-local-llm-context-size.md) *(試験運用)*
 - [ADR-041: Test Isolation Patterns for Multi-Condition Guards](docs/adr/adr-041-test-isolation-patterns.md) *(試験運用)*
 - [ADR-042: ルール vs 仕組み化の境界基準](docs/adr/adr-042-rule-vs-mechanism-boundary.md) *(試験運用)*
+- [ADR-043: Security/Quality Gate での Fail-Closed 原則](docs/adr/adr-043-security-gates-fail-closed.md) *(試験運用)*
 
 ## Build
 
