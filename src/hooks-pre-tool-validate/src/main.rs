@@ -2231,6 +2231,32 @@ mod tests {
     }
 
     #[test]
+    fn build_todo_staleness_message_returns_some_when_behind_is_none() {
+        let path = build_todo_path("");
+        let msg = build_todo_staleness_message(&path, None, &[], "master");
+        let msg = msg.expect("None behind should fail-closed and produce message");
+        assert!(msg.contains(&path));
+        assert!(msg.contains("判定不能"));
+        assert!(msg.contains("fail-closed"));
+        assert!(!msg.contains("commits ahead"));
+    }
+
+    #[test]
+    fn build_todo_staleness_message_behind_none_with_matches_includes_both_sections() {
+        let path = build_todo_path("");
+        let matches = vec![(
+            "kw".to_string(),
+            vec![("abc1234".to_string(), "feat: kw impl".to_string())],
+        )];
+        let msg = build_todo_staleness_message(&path, None, &matches, "master");
+        let msg = msg.expect("None behind always produces message regardless of matches");
+        assert!(msg.contains("判定不能"));
+        assert!(msg.contains("fail-closed"));
+        assert!(msg.contains("関連既実装の可能性"));
+        assert!(msg.contains("abc1234"));
+    }
+
+    #[test]
     fn collect_text_for_keywords_combines_fields() {
         let input = ToolInput {
             command: None,
