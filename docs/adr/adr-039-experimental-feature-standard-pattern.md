@@ -96,6 +96,26 @@ decision trigger は **config (TOML コメント) / code comment (module doc) / 
 
 本 checklist は **新規 feature 追加時** の self-review 手順であり、既存 grandfathered case (例: `[session_start.staleness]` の pre-existing な `enabled = true`) の retro-cleanup は scope 外 (別 PR で個別判断)。
 
+### 設計段階 pre-check: config struct 設計時の 6 点 (PR #194 T3-#1 採用、2026-06-04)
+
+PR #194 で `SweepConfig` の初版が 3 点セット (config opt-in / kill-switch / bounded lifetime) のうち kill-switch + bounded lifetime の **設計時考慮** を欠いた状態で実装され、CodeRabbit Major #4 で指摘 → takt-fix で `enabled = false` default + config-driven gate を追加して修正された。前 section の self-review checklist (4 点) は code 完成後の整合確認だが、本 section は **config struct を書く前** に確認する設計段階チェックリスト。両者の関係は「設計時 6 点 (本 section)」→「実装後 4 点 (前 section)」の sequential gate。
+
+新規 experimental feature の config struct を書く前に以下 6 点を確認する:
+
+1. **`enabled: bool` field の存在**: feature 有効化フラグ。`#[serde(default)]` で default = false に明示。型は `Option<bool>` か `bool` のどちらでも可だが、`Option` は「未指定 = OFF」の意図を明示できて self-review 4 点目との整合が取りやすい
+2. **`Default` impl の明示**: `Default::default()` で `enabled = false` が確実に出ることを `impl Default` で書く。`#[derive(Default)]` だと bool default が false なので結果は同じだが、`impl Default` の方が後の field 追加時に明示性が保たれる
+3. **kill-switch 経路**: 即時停止が必要なとき、(a) config の `enabled = false` toggle で停止できるか、(b) feature を呼び出す上位 module で early-return できるか、(c) 別 process (daemon 等) なら kill signal で停止できるか — のいずれかを ADR / PR body で **明文化**。新規 config field (`kill_switch: bool`) を追加する代わりに既存 `enabled = false` toggle を kill-switch として併用する場合は、その明示が必要
+4. **bounded lifetime decision trigger**: 「N PR 後 / YYYY-MM-DD / 条件 X」のいずれかで採否判定タイミングを明文化。形式不明の「いずれ判断する」は不可 (§ 3 § "明示的 decision trigger の必須化" 参照)
+5. **3 段 gate の単一箇所集約**: 実行経路で `config.enabled && !is_kill_switched() && !is_expired(&config)` のような 3 段 check を **単一関数** に集約。call site で 3 段をバラバラに書くと条件追加時に漏れる risk あり。SweepConfig の場合は call site が 1 箇所のみのため `if !config.enabled { return; }` で十分だが、複数 call site がある feature は `fn should_run(config: &Self) -> bool` 関数を生やす
+6. **off-state integration test の事前計画**: `enabled = false` でのバイパス test を **config struct 実装と同 commit** で書く。後追いで test を書くと、disable path の絶縁が確認されずに 本採用昇格 PR で初めて気づく risk あり
+
+実例 (PR #194 SweepConfig):
+
+- **NG** (初版): `enabled` field 不在 → 常時 run → CodeRabbit Major #4 指摘
+- **OK** (takt-fix 後): `pub(crate) enabled: bool` with `#[serde(default)]` + `impl Default { enabled: false }` + `if !config.enabled { return; }` 単一 gate + integration test (本 PR 同梱の `integration_sweep_*` 系で `enabled = false` skip を assert する追加 test は PR #194 T2-#2 で完了)
+
+本 6 点は **設計段階の** 確認手順であり、code 完成後は前 section の 4 点 self-review に進む。両 section が「設計 → 実装」の 2 段 gate を成す。
+
 ## 帰結
 
 ### 利点
