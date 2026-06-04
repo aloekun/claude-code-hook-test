@@ -290,7 +290,7 @@ mod tests {
     //!
     //!   - NG: `count_empty_in_pr_range(repo_dir) == 0` 等の count-based assert
     //!     → jj は abandon 後に空 WC を自動生成するため、count は意図通り減らず false failure を起こす
-    //!   - OK: `assert_descriptions_absent_in_pr_range(repo_dir, &[target_desc])` の description-based assert
+    //!   - OK: `assert_descriptions_absent_in_pr_range(repo_dir, default_branch, &[target_desc])` の description-based assert
     //!     → 明示的に投入した description は auto-generated WC と区別できる
     //!   - sentinel 事前投入: 「mutation が発生していない」を assert する場合、本来残るべき commit を
     //!     `assert_descriptions_present_in_pr_range` で生存確認すると no-op vs no-mutation の偽陽性を防げる
@@ -572,20 +572,22 @@ mod tests {
 
     fn assert_descriptions_absent_in_pr_range(
         repo_dir: &std::path::Path,
+        default_branch: &str,
         descriptions: &[&str],
     ) {
+        let revset = format!("{}..@", default_branch);
         let out = std::process::Command::new("jj")
             .args([
                 "log",
                 "-r",
-                "master..@",
+                &revset,
                 "--no-graph",
                 "-T",
                 "description ++ \"\\n\"",
             ])
             .current_dir(repo_dir)
             .output()
-            .expect("jj log master..@");
+            .expect("jj log");
         let log_str = String::from_utf8_lossy(&out.stdout);
         for d in descriptions {
             assert!(
@@ -661,6 +663,7 @@ mod tests {
 
         assert_descriptions_absent_in_pr_range(
             repo_dir,
+            "master",
             &["fix(review): empty 1", "fix(review): empty 2"],
         );
 
@@ -699,7 +702,7 @@ mod tests {
             "master",
             &["feat: empty 1", "docs: empty 2", "chore: empty 3"],
         );
-        assert_descriptions_absent_in_pr_range(repo_dir, &["fix(review): empty matched"]);
+        assert_descriptions_absent_in_pr_range(repo_dir, "master", &["fix(review): empty matched"]);
     }
 
     /// 統合 (PR #194 T2-#2 variant 2): default_branch を `main` 等の alternative 名で
@@ -717,7 +720,7 @@ mod tests {
         let _guard = enter_repo(repo_dir);
         sweep_empty_commits_in_pr_range("main");
 
-        assert_descriptions_absent_in_pr_range(repo_dir, &["fix(review): empty under main"]);
+        assert_descriptions_absent_in_pr_range(repo_dir, "main", &["fix(review): empty under main"]);
     }
 
     /// 統合 (PR #194 T2-#2 variant 3): `fix(review):` 空 commit が 0 件のとき、
