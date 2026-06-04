@@ -154,3 +154,72 @@ select  : BOOKMARK_SEARCH_REVSETS を近い順に走査し、
 - **cli-merge-pipeline の post_steps 実装時に流用**: ADR-013 の merge 後 AI ステップで、merge の副作用を検出する際も同パターン
 - **lib-jj-helpers の利用徹底**: 新規 jj 連携クレートでは `src/lib-jj-helpers/` を依存に追加し、本 ADR 原則 5 の共通 API (`get_jj_bookmarks` 等) を利用する。`capture_commit_id` / `diff_is_empty` は 2 つ目の使用例出現時に段階的移設予定 (ADR-024 本採用)
 - **他の jj コマンド差異の文書化**: `jj bookmark` / `jj new` / `jj describe` も git と意味が違う箇所が多い。必要に応じて追記
+
+## Revset Composability (PR #194 T3-#3 追記、2026-06-04)
+
+PR #194 で `sweep_empty_commits_in_pr_range` の初版が「全 empty commit を Rust 側で取得 → for ループで `description` を check」という generate-then-filter 設計だったが、`description(substring:"fix(review):")` を **revset 側で filter** することで output が最初から絞られる方が efficient + reviewer cost 低 + scope 明確という改善が takt-fix iteration で観測された。本 section は jj revset の composability 原則と設計チェックリストを codify する。
+
+### 原則: revset で「何を取得するか」を最小化
+
+jj の revset は AND / OR / 範囲 / metadata filter を表現できる小さな DSL。**「Rust に返す前に revset で絞れるものは全て絞る」** ことで、以下が同時に実現する:
+
+- **token / IO 効率**: 出力量が最小化され、後続 processing コストが下がる
+- **review cost 低**: revset 自体が「何を対象にするか」の宣言になり、Rust 側の filter ロジックを読まなくても scope が読み取れる
+- **scope drift 防止**: filter を Rust の for ループに書くと、後の修正で条件追加が漏れる risk があるが、revset で 1 箇所にまとまっていれば変更追跡が容易
+
+### 典型 filter 関数
+
+| revset 関数 | 用途 |
+|---|---|
+| `empty()` | file change なし (`jj diff --stat` 空相当) |
+| `description(substring:"...")` | description 部分一致 (parens / 記号を含む文字列も safe) |
+| `description(exact:"...")` | description 完全一致 |
+| `description(regex:"...")` | description 正規表現 |
+| `(branch..@)` | branch を除いた `@` までの範囲 |
+| `author(...)` / `mine()` | author 絞り込み |
+| `bookmarks()` | bookmark がついている commit のみ |
+| `<expr1> & <expr2>` | AND (両方満たす) |
+| <code>&lt;expr1&gt; \| &lt;expr2&gt;</code> | OR (どちらかを満たす) |
+| `~<expr>` | NOT |
+
+### 設計チェックリスト (新規 jj 操作コードを書く前に)
+
+- [ ] **取得目的は明示**: revset が何を表現しているかコメント / 関数名で書く (例: "fix(review): empty commits in PR range")
+- [ ] **各条件を revset で表現できないか検討**: Rust の for ループに filter を書く前に revset operators で代替できないか確認
+- [ ] **`&` / `|` で組合せ可能か**: 複数条件は revset 内で AND/OR 結合する
+- [ ] **description マッチは `substring:` 修飾子を必須化**: parens / 記号を含む文字列で default `exact:` が 0 hit する bug を防ぐ (例: `description("fix(review):")` は完全一致になり失敗、`description(substring:"fix(review):")` が正解)
+- [ ] **fail-open に注意**: jj log 失敗時の警告ログのみで継続するか、副作用処理を block するかは ADR-043 § 適用範囲 で判断 (sweep 系は fail-open、gate 系は fail-closed)
+- [ ] **integration test の不変式は description ベース**: `~/.claude/rules/common/testing.md` § "jj 操作コードの integration test pattern" の `assert_descriptions_absent_in_pr_range` パターンを使う (count NG / description OK)
+
+### Anti-pattern: generate-then-filter
+
+```rust
+// BAD: 全 empty を取得して Rust で filter
+let all_empty_change_ids = jj_log("empty() & (master..@)");
+for cid in all_empty_change_ids {
+    let desc = jj_log_description(&cid);
+    if desc.starts_with("fix(review):") {
+        jj_abandon(&cid);
+    }
+}
+
+// GOOD: revset 側で filter 済
+let target_change_ids = jj_log("empty() & description(substring:\"fix(review):\") & (master..@)");
+for cid in target_change_ids {
+    jj_abandon(&cid);
+}
+```
+
+### 実装事例
+
+PR #194 の `sweep_empty_commits_in_pr_range` (`src/cli-pr-monitor/src/fix_commit.rs:217-218`) で本原則を適用済。
+
+### 試験運用判断基準
+
+本 section は試験運用とする。今後の jj 操作コード PR で本チェックリストが reviewer / Claude の判断 anchor として参照されるかを観測。3 PR 以上で「revset filter で書き直し」の review iteration が発生しなければ stable 昇格、再発があれば原則に不足がないか分析。
+
+### 参照
+
+- `~/.claude/rules/common/testing.md` § "jj 操作コードの integration test pattern": 本 section と相補関係 (revset 設計 + test 設計の対)
+- ADR-043 (Security/Quality Gate Fail-Closed 原則): gate 系の fail-closed と sweep 系の fail-open の使い分け
+- PR #194 commit (`src/cli-pr-monitor/src/fix_commit.rs:217-218`): 実装事例
