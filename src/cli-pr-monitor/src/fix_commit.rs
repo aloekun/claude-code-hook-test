@@ -507,6 +507,59 @@ mod tests {
         CwdGuard { original }
     }
 
+    /// `jj new -m <description>` で空 commit を作成する test helper。
+    /// integration test での空 commit 列挙を 1 行で書けるようにする。
+    fn build_jj_empty_with_description(repo_dir: &std::path::Path, description: &str) {
+        let status = std::process::Command::new("jj")
+            .args(["new", "-m", description])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj new");
+        assert!(status.success(), "jj new failed for: {}", description);
+    }
+
+    /// `master` bookmark を `branch_name` にリネームする test helper。
+    /// alternative default_branch test の前処理として利用。
+    fn rename_master_bookmark(repo_dir: &std::path::Path, branch_name: &str) {
+        let status = std::process::Command::new("jj")
+            .args(["bookmark", "rename", "master", branch_name])
+            .current_dir(repo_dir)
+            .status()
+            .expect("jj bookmark rename");
+        assert!(status.success(), "rename master -> {}", branch_name);
+    }
+
+    /// 指定 description を持つ commit が PR 範囲に残存していることを assert する。
+    /// (negative case 用 = abandon されてはいけない sentinel commit の生存確認)
+    fn assert_descriptions_present_in_pr_range(
+        repo_dir: &std::path::Path,
+        default_branch: &str,
+        descriptions: &[&str],
+    ) {
+        let revset = format!("{}..@", default_branch);
+        let out = std::process::Command::new("jj")
+            .args([
+                "log",
+                "-r",
+                &revset,
+                "--no-graph",
+                "-T",
+                "description ++ \"\\n\"",
+            ])
+            .current_dir(repo_dir)
+            .output()
+            .expect("jj log");
+        let log_str = String::from_utf8_lossy(&out.stdout);
+        for d in descriptions {
+            assert!(
+                log_str.contains(d),
+                "{:?} が残存している前提だが消えている: {:?}",
+                d,
+                log_str
+            );
+        }
+    }
+
     fn assert_descriptions_absent_in_pr_range(
         repo_dir: &std::path::Path,
         descriptions: &[&str],
@@ -586,12 +639,7 @@ mod tests {
         let repo_dir = temp.path();
 
         for label in &["fix(review): empty 1", "fix(review): empty 2"] {
-            assert!(StdCommand::new("jj")
-                .args(["new", "-m", label])
-                .current_dir(repo_dir)
-                .status()
-                .expect("jj new")
-                .success());
+            build_jj_empty_with_description(repo_dir, label);
         }
         assert!(
             count_empty_in_pr_range(repo_dir) >= 2,
@@ -616,6 +664,71 @@ mod tests {
             master_desc.contains("feat: base"),
             "master commit (非空) は abandon されない: {:?}",
             master_desc
+        );
+    }
+
+    /// 統合 (PR #194 T2-#2 variant 1): non-`fix(review):` 系の空 commit (`feat:` / `docs:` / `chore:` 等)
+    /// は sweep 対象外であることを assert (description filter の negative case)。
+    /// fix(review): empty が混在しても誤 abandon されないことが保証される。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_sweep_skips_non_fix_review_empty_commits() {
+        let temp = setup_jj_repo_with_master_at_base("feat: base");
+        let repo_dir = temp.path();
+
+        build_jj_empty_with_description(repo_dir, "feat: empty 1");
+        build_jj_empty_with_description(repo_dir, "docs: empty 2");
+        build_jj_empty_with_description(repo_dir, "chore: empty 3");
+        build_jj_empty_with_description(repo_dir, "fix(review): empty matched");
+
+        let _guard = enter_repo(repo_dir);
+        sweep_empty_commits_in_pr_range("master");
+
+        assert_descriptions_present_in_pr_range(
+            repo_dir,
+            "master",
+            &["feat: empty 1", "docs: empty 2", "chore: empty 3"],
+        );
+        assert_descriptions_absent_in_pr_range(repo_dir, &["fix(review): empty matched"]);
+    }
+
+    /// 統合 (PR #194 T2-#2 variant 2): default_branch を `main` 等の alternative 名で
+    /// 指定したとき、revset がパラメータ化されて該当範囲のみ対象になることを assert。
+    /// `SweepConfig.default_branch` 設定可能化の dogfood。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_sweep_respects_alternative_default_branch() {
+        let temp = setup_jj_repo_with_master_at_base("feat: base");
+        let repo_dir = temp.path();
+        rename_master_bookmark(repo_dir, "main");
+
+        build_jj_empty_with_description(repo_dir, "fix(review): empty under main");
+
+        let _guard = enter_repo(repo_dir);
+        sweep_empty_commits_in_pr_range("main");
+
+        assert_descriptions_absent_in_pr_range(repo_dir, &["fix(review): empty under main"]);
+    }
+
+    /// 統合 (PR #194 T2-#2 variant 3): `fix(review):` 空 commit が 0 件のとき、
+    /// 他 description の空 commit が範囲内に存在しても sweep が abandon を 1 件も発行しない
+    /// (description filter の早期 return path)。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_sweep_no_op_when_only_non_fix_review_empties_present() {
+        let temp = setup_jj_repo_with_master_at_base("feat: base");
+        let repo_dir = temp.path();
+
+        build_jj_empty_with_description(repo_dir, "feat: only feat empty");
+        build_jj_empty_with_description(repo_dir, "docs: only docs empty");
+
+        let _guard = enter_repo(repo_dir);
+        sweep_empty_commits_in_pr_range("master");
+
+        assert_descriptions_present_in_pr_range(
+            repo_dir,
+            "master",
+            &["feat: only feat empty", "docs: only docs empty"],
         );
     }
 
