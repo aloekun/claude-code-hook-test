@@ -70,6 +70,8 @@
 >
 > **本タスクの位置づけ**: ADR-029 を partial supersede する新 ADR-030 を起案し、takt 経由の決定論的フィードバック機構へ移行する。本タスク完了で post-merge-feedback skill / pending file / Stop hook (hooks-stop-feedback-dispatch) はすべて廃止される。
 >
+> **Status update (2026-06-06)**: Phase D-7 (Drop guard + orphan reaper + ADR-030 spec) は **PR #154 (`c872da229df3`) で land 済**。L1 Floor / L2 Recovery / Drop guard / orphan reaper の決定論層は本採用昇格相当で運用中。残るは **Phase E (旧機構廃止 = post-merge-feedback skill + hooks-stop-feedback-dispatch crate + lib-pending-file + ADR-029/014 ステータス更新)** と **Phase F (dogfood 検証)**。Phase E 着手前提条件 (Phase D-7 land) は満たされた。
+>
 > **実行優先度**: 🧹 **Tier 4** — Phase A〜D は merged 済で workflow は機能。残る Phase E (旧機構廃止) / Phase F (dogfood) は cleanup 中心で daily efficiency への直接効果は小。Tier 1〜3 完了後の片付けタイミングで実施推奨。
 
 #### 背景: ADR-029 の構造的欠陥 (PR #74 dogfood で実証)

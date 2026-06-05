@@ -368,9 +368,11 @@ Phase 2 (任意、段階的緩和)
 >
 > **本タスクの位置づけ**: `cli-pr-monitor` の正常終了パスに smoke test または integration test を追加。`pnpm create-pr` 完了後にプロセスが exit するかを timeout 付きで検証する。
 >
-> **参照**: `.claude/feedback-reports/85.md` Tier 2 #2
+> **Status update (2026-06-06)**: PR #85 当時の cli-pr-monitor は **daemon 永続常駐モデル** だった。ADR-018 (PR #113 land) で **CronCreate park モデル + ADR-030 (PR #154) で短命プロセス + state file 再起動** に移行し、終了経路自体の構造が変わった。PR #85 で観測された「termination 残留」は park 移行後に再現するか不明。**着手前の root cause 再調査が必要** (現状の park モデルでも問題が残っているかを smoke で確認 → 残っていれば smoke を test 化、解消済なら本 entry 削除候補)。
 >
-> **実行優先度**: 🔧 **Tier 2** — S 工数、回帰防止が主目的。発生頻度は低いが UX への直接影響あり (手動 kill 必要)。
+> **参照**: `.claude/feedback-reports/85.md` Tier 2 #2、ADR-018 (CronCreate park モデル移行)、ADR-030 (deterministic post-merge feedback)
+>
+> **実行優先度**: 🔧 **Tier 2** — S 工数、回帰防止が主目的。発生頻度は低いが UX への直接影響あり (手動 kill 必要)。Status update により、まず再現確認が前段に必要。
 
 #### 設計決定 (案)
 
