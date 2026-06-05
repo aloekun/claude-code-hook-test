@@ -599,12 +599,13 @@ mod tests {
         }
     }
 
-    fn count_empty_in_pr_range(repo_dir: &std::path::Path) -> usize {
+    fn count_empty_in_pr_range(repo_dir: &std::path::Path, default_branch: &str) -> usize {
+        let revset = format!("empty() & ({}..@)", default_branch);
         let out = std::process::Command::new("jj")
             .args([
                 "log",
                 "-r",
-                "empty() & (master..@)",
+                &revset,
                 "--no-graph",
                 "-T",
                 "change_id ++ \"\\n\"",
@@ -618,7 +619,7 @@ mod tests {
             .count()
     }
 
-    /// 統合: `master..@` 範囲に空 commit が無いとき sweep は no-op (非空 commit を保持)。
+    /// 統合: PR 範囲 (`<default_branch>..@`) に空 commit が無いとき sweep は no-op (非空 commit を保持)。
     #[test]
     #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
     fn integration_sweep_empty_commits_no_op_when_no_empty_in_range() {
@@ -641,7 +642,7 @@ mod tests {
         );
     }
 
-    /// 統合: `master..@` 範囲の複数空 commit を sweep が全て abandon する。
+    /// 統合: PR 範囲 (`<default_branch>..@`) の複数空 commit を sweep が全て abandon する。
     /// PR #174 `kqvluqyv` 事例の最小再現。
     #[test]
     #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
@@ -654,7 +655,7 @@ mod tests {
             build_jj_empty_with_description(repo_dir, label);
         }
         assert!(
-            count_empty_in_pr_range(repo_dir) >= 2,
+            count_empty_in_pr_range(repo_dir, "master") >= 2,
             "前提: sweep 前に空 commit が 2 件以上"
         );
 
@@ -716,6 +717,11 @@ mod tests {
         rename_master_bookmark(repo_dir, "main");
 
         build_jj_empty_with_description(repo_dir, "fix(review): empty under main");
+
+        assert!(
+            count_empty_in_pr_range(repo_dir, "main") >= 1,
+            "前提: sweep 前に 'main' 範囲で空 commit が 1 件以上 (helper の default_branch 引数が main で機能していること)"
+        );
 
         let _guard = enter_repo(repo_dir);
         sweep_empty_commits_in_pr_range("main");
