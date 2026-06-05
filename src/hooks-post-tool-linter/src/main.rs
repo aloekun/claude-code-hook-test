@@ -2733,6 +2733,90 @@ extensions = ["ts", "js"]
         assert_eq!(violations.len(), 1);
     }
 
+    fn no_hardcoded_jj_revset_range_rule() -> CustomRule {
+        make_test_rule(
+            "no-hardcoded-jj-revset-range",
+            r"master\.\.@",
+            &["rs"],
+        )
+    }
+
+    fn build_hardcoded_revset_fixture(branch: &str) -> String {
+        format!(
+            "fn count() {{ let revset = \"{}..@\"; let _ = revset; }}\n",
+            branch
+        )
+    }
+
+    fn build_empty_filter_revset_fixture(branch: &str) -> String {
+        format!(
+            "fn count() {{ let revset = \"empty() & ({}..@)\"; let _ = revset; }}\n",
+            branch
+        )
+    }
+
+    fn build_parameterized_revset_fixture() -> String {
+        "fn count(default_branch: &str) { let revset = format!(\"{}..@\", default_branch); let _ = revset; }\n"
+            .to_string()
+    }
+
+    #[test]
+    fn no_hardcoded_jj_revset_range_detects_simple_hardcode() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "fix_commit.rs",
+            &build_hardcoded_revset_fixture("master"),
+        );
+        let rules = compile_test_rules(vec![no_hardcoded_jj_revset_range_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_hardcoded_jj_revset_range_detects_within_empty_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "fix_commit.rs",
+            &build_empty_filter_revset_fixture("master"),
+        );
+        let rules = compile_test_rules(vec![no_hardcoded_jj_revset_range_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn no_hardcoded_jj_revset_range_skips_parameterized_format() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(), "fix_commit.rs", &build_parameterized_revset_fixture());
+        let rules = compile_test_rules(vec![no_hardcoded_jj_revset_range_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "format!(\"{{}}..@\", default_branch) の parameterized 形式は violation 対象外であるべき。実際: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn no_hardcoded_jj_revset_range_skips_other_branch_literal() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = write_file(
+            dir.path(),
+            "fix_commit.rs",
+            &build_hardcoded_revset_fixture("main"),
+        );
+        let rules = compile_test_rules(vec![no_hardcoded_jj_revset_range_rule()]);
+        let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+        assert!(
+            violations.is_empty(),
+            "default branch 以外 (本 case: 'main') の hardcode は narrow scope 設計により対象外。実際: {:?}",
+            violations
+        );
+    }
+
     fn collect_rust_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let entries = match std::fs::read_dir(root) {
             Ok(e) => e,

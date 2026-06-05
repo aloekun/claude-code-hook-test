@@ -587,3 +587,54 @@ yaml = [
   "no_jj_template_first_line_detects_yaml_pattern",
   "no_jj_template_first_line_yaml_skips_empty_keyword",
 ]
+
+# ─── ルール⑫: jj revset で `"master..@"` literal の hardcode 禁止 ───
+#
+# 由来: PR #195 で `assert_descriptions_absent_in_pr_range` / `assert_descriptions_present_in_pr_range`
+# helper が `"master..@"` を hardcode しており、alternative branch ("main" 等) test の追加時に
+# silent breakage となる問題が CR Major 指摘 (commit 9663dd68 で前 2 関数を default_branch 引数化済)。
+# 同型 hardcode が `count_empty_in_pr_range` にも残留し、pre-push simplicity reviewer F-1 で
+# non-blocking 観測。手動 grep / reviewer 判断で塞ぐと再発するため、決定論的防止層
+# (ADR-007 の正規表現層) として機械検出する。
+#
+# Pattern scope: jj revset 固有構文のため false positive 極小。`"master..@"` literal は
+# 通常の Rust 文脈 (path / URL / 通常文字列) には出現しない。
+#
+# Self-exclusion (重要): 本 TOML は extensions = ["rs"] により対象外。
+# `src/hooks-post-tool-linter/src/main.rs` の test fixture は build_*_fixture helper で
+# `format!("\"{}..@\"", branch)` のように runtime 組立 (existing build_write_discard_fixture
+# pattern を踏襲)、main.rs source 内に literal `master..@` を書かないこと。
+# verify: `grep -n 'master\.\.@' src/hooks-post-tool-linter/src/main.rs` → 0 hit が期待値。
+
+[[rules]]
+id = "no-hardcoded-jj-revset-range"
+pattern = 'master\.\.@'
+severity = "warning"
+message = "jj revset の `master..@` literal が hardcode されています。default branch 引数化を検討してください"
+why = "PR #195 で test helper 3 関数のうち 2 関数が `master..@` hardcode → CR Major 指摘で default_branch 引数化済、残 1 関数 (count_empty_in_pr_range) は `\"empty() & (master..@)\"` 形式で non-blocking 観測。alternative branch (`main` 等) variant test 追加時の silent breakage 防止 (ADR-021 § Revset Composability)。決定論的防止層 (ADR-007)。FP リスクは Bundle Z #B-α (comment-lint-rust) で非 doc comments が既に禁止されているため軽微 (jj revset 固有 token)"
+
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "default_branch 引数を受けて `format!(\"{}..@\", default_branch)` で組立"
+steps = [
+  "対象関数の signature に `default_branch: &str` を追加",
+  "revset literal を `format!(\"{}..@\", default_branch)` または `format!(\"empty() & ({}..@)\", default_branch)` 形式に変更",
+  "caller を `\"master\"` 引数で更新 (既存挙動を保持)",
+  "alternative branch (`\"main\"`) variant の sanity check test を companion helper group 全関数に対して追加",
+]
+
+[rules.example]
+bad = 'let revset = "master..@";'
+good = 'let revset = format!("{}..@", default_branch);'
+
+[rules.test_coverage]
+# rule⑫ は rs のみ (主要拡張子)。positive (hardcode 検出) + negative (parameterized 形式 skip) の variant を網羅。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_hardcoded_jj_revset_range_detects_simple_hardcode",
+  "no_hardcoded_jj_revset_range_detects_within_empty_filter",
+  "no_hardcoded_jj_revset_range_skips_parameterized_format",
+  "no_hardcoded_jj_revset_range_skips_other_branch_literal",
+]
