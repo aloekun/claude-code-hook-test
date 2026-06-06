@@ -89,6 +89,24 @@ grep_recent_limit = 20          # jj log で参照する直近 commit 数
 # 正規表現ベースのリテラルマッチのみ。AST解析が必要なルールは
 # ast-grep を下記パイプラインのステップとして追加する (ADR-007)。
 
+# ─── PostToolUse: ファイルサイズチェック ───
+# 順位 177 (PR #197 で Tier 1 (優先実装) 格上げ) で実装。
+# PostToolUse Edit/Write 直後にファイルサイズを確認し、threshold (50KB) 超過時に
+# additionalContext でファイル分割を促す。Claude Code 読み取り安定性閾値 (50KB) を
+# 機械強制する Layer 0.5。
+#
+# ADR-039 § 3 opt-in pattern: default OFF (enabled = false)、明示有効化で発火。
+# touch-trigger ratchet (default true): 触られたファイルのみチェック = 既存超過
+# ファイルは未編集なら grandfather。strict mode (touch_trigger=false で全 enabled
+# paths を scan) は MVP では受理のみ、3-5 PR の dogfood 後に判定 (bounded lifetime)。
+#
+# Kill-switch: enabled = false で完全停止。
+[post_tool_use.file_size_check]
+enabled = false                                  # opt-in (明示有効化で発火、ADR-039 § 3 bounded lifetime: 3-5 PR dogfood 後に default-ON 昇格判定)
+threshold_bytes = 51200                          # 50KB (= 50 * 1024)
+paths = ["docs/**/*.md", "src/**/*.rs"]          # default 対象 glob
+touch_trigger = true                             # 触られたファイルのみ check (ratchet)
+
 # ─── PostToolUse: リンター ───
 
 [post_tool_linter]

@@ -47,11 +47,62 @@ struct HookSpecificOutput {
 #[derive(Deserialize, Default)]
 struct Config {
     post_tool_linter: Option<PostToolLinterConfig>,
+    post_tool_use: Option<PostToolUseConfig>,
 }
 
 #[derive(Deserialize, Default)]
 struct PostToolLinterConfig {
     pipelines: Option<Vec<PipelineConfig>>,
+}
+
+/// `[post_tool_use]` section: PostToolUse hook の non-linter sub-features.
+///
+/// 順位 177 (PR #197 で Tier 1 (優先実装) に格上げ済) で「ファイルサイズ閾値検出」を追加。
+/// 既存 `[post_tool_linter]` (Layer 1 = custom-rules / Layer 2 = pipeline) とは独立した
+/// Layer 0.5 として動作する。ADR-039 opt-in pattern 準拠で default OFF。
+#[derive(Deserialize, Default)]
+struct PostToolUseConfig {
+    file_size_check: Option<FileSizeCheckConfig>,
+}
+
+/// `[post_tool_use.file_size_check]` section.
+///
+/// PostToolUse Edit / Write 直後にファイルサイズを確認し、threshold 超過時に
+/// additionalContext で分割を促す。touch-trigger ratchet (default true) で
+/// 既存超過ファイルは触られるまで grandfather される。
+///
+/// 由来: 4 PR 観測 (#133 / #172 / #186 / #197) で systemic risk = Very High frequency。
+/// ADR-039 § 3 Bounded lifetime: 3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定。
+#[derive(Deserialize, Clone)]
+struct FileSizeCheckConfig {
+    /// ADR-039 § kill-switch: `false` で完全停止 (default false = opt-in)。
+    #[serde(default)]
+    enabled: bool,
+    /// Threshold (bytes). Default 51200 = 50KB (Claude Code 読み取り安定性閾値)。
+    #[serde(default = "default_file_size_threshold_bytes")]
+    threshold_bytes: u64,
+    /// 対象ファイルの glob list。default は markdown + Rust source。
+    /// glob syntax は `compile_paths_glob()` ドキュメント参照。
+    #[serde(default = "default_file_size_paths")]
+    paths: Vec<String>,
+    /// touch-trigger ratchet: `true` (default) なら触られたファイルのみチェック =
+    /// 既存超過ファイルは未編集なら grandfather。`false` (strict) は将来の拡張で
+    /// 「全 enabled paths を毎回スキャン」を予定 (MVP では受理のみ、挙動は true と同じ)。
+    #[serde(default = "default_file_size_touch_trigger")]
+    #[allow(dead_code)]
+    touch_trigger: bool,
+}
+
+fn default_file_size_threshold_bytes() -> u64 {
+    51200
+}
+
+fn default_file_size_paths() -> Vec<String> {
+    vec!["docs/**/*.md".to_string(), "src/**/*.rs".to_string()]
+}
+
+fn default_file_size_touch_trigger() -> bool {
+    true
 }
 
 #[derive(Deserialize, Clone)]
@@ -322,6 +373,63 @@ fn combine_output(stdout: &str, stderr: &str) -> String {
     } else {
         format!("{}\n{}", stdout, stderr)
     }
+}
+
+/// 順位 177 (PR #197 で Tier 1 (優先実装) 格上げ済):
+/// PostToolUse Edit / Write 直後にファイルサイズ閾値超過を検出して分割を促す。
+///
+/// 戻り値:
+/// - `Some(message)`: feedback として emit する内容 (size 超過時)
+/// - `None`: 無効化 / glob 不一致 / size 閾値内 / ファイル読込失敗のいずれか (no-op)
+///
+/// touch-trigger ratchet: MVP では `touch_trigger` フィールドは受理のみ、true/false いずれも
+/// 「触られたファイルのみチェック」(= true の挙動) に統一。strict mode (= 全 enabled paths を
+/// 毎回スキャン) は ADR-039 bounded lifetime dogfood 後に拡張予定。
+fn check_file_size_threshold(
+    file: &str,
+    size_bytes: u64,
+    config: &FileSizeCheckConfig,
+) -> Option<String> {
+    if !config.enabled {
+        return None;
+    }
+
+    let glob_set = match compile_paths_glob(&Some(config.paths.clone())) {
+        Ok(Some(g)) => g,
+        Ok(None) => return None,
+        Err(msg) => {
+            eprintln!(
+                "[post-tool-linter] Warning: file_size_check paths glob compile failed: {}",
+                msg
+            );
+            return None;
+        }
+    };
+    let normalized = file.replace('\\', "/");
+    if !glob_set.is_match(&normalized) {
+        return None;
+    }
+
+    if size_bytes <= config.threshold_bytes {
+        return None;
+    }
+
+    let recovery_hint = if normalized.contains("docs/todo") && normalized.ends_with(".md") {
+        " (docs/todo*.md の場合は新 todo<N+1>.md を新設して entry を移管)"
+    } else if normalized.ends_with(".rs") {
+        " (Rust source の場合は module 分割を検討)"
+    } else {
+        ""
+    };
+
+    Some(format!(
+        "[file-size-check] {}: ファイルサイズ {} bytes が threshold {} bytes (= {:.1} KB) を超過しています。ファイル分割を推奨します{}.",
+        file,
+        size_bytes,
+        config.threshold_bytes,
+        config.threshold_bytes as f64 / 1024.0,
+        recovery_hint
+    ))
 }
 
 /// フィードバック JSON を stdout に出力
@@ -648,63 +756,89 @@ fn check_utf8_integrity(file: &str) -> Vec<String> {
     violations
 }
 
-fn main() {
-    let config = load_config();
-
-    // stdin を消費（フックの仕様上必須）
+fn read_hook_input_file() -> Option<String> {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
         eprintln!("[post-tool-linter] Warning: Failed to read stdin: {}", e);
-        return;
+        return None;
     }
-
-    let hook_input: HookInput = match serde_json::from_str(&input) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-
+    let hook_input: HookInput = serde_json::from_str(&input).ok()?;
     let file = hook_input
         .tool_input
         .and_then(|t| t.file_path.filter(|s| !s.is_empty()).or(t.path))
         .unwrap_or_default();
-
     if file.is_empty() {
-        return;
+        None
+    } else {
+        Some(file)
     }
+}
 
-    // 第0層: UTF-8 整合性チェック (全ファイル対象, ~1ms)
-    let utf8_violations = check_utf8_integrity(&file);
-    if !utf8_violations.is_empty() {
-        let feedback = format!(
-            "[utf8-integrity] {} violation(s) found:\n{}",
-            utf8_violations.len(),
-            utf8_violations.join("\n")
-        );
-        emit_feedback(&feedback);
-        return;
+fn run_utf8_layer(file: &str) -> bool {
+    let utf8_violations = check_utf8_integrity(file);
+    if utf8_violations.is_empty() {
+        return false;
     }
+    let feedback = format!(
+        "[utf8-integrity] {} violation(s) found:\n{}",
+        utf8_violations.len(),
+        utf8_violations.join("\n")
+    );
+    emit_feedback(&feedback);
+    true
+}
 
-    // 第1層: カスタムルール (正規表現ベース, ~1ms)
+fn run_file_size_layer(file: &str, config: &Config) {
+    let Some(size_config) = config
+        .post_tool_use
+        .as_ref()
+        .and_then(|c| c.file_size_check.as_ref())
+    else {
+        return;
+    };
+    let Ok(metadata) = std::fs::metadata(file) else {
+        return;
+    };
+    if let Some(message) = check_file_size_threshold(file, metadata.len(), size_config) {
+        emit_feedback(&message);
+    }
+}
+
+fn run_custom_rules_layer(file: &str) {
     let compiled_rules = load_custom_rules();
-    let violations = run_custom_rules(&file, &compiled_rules);
-    if !violations.is_empty() {
-        let feedback = format!(
-            "[custom-lint] {} violation(s) found:\n{}",
-            violations.len(),
-            violations.join("\n")
-        );
-        emit_feedback(&feedback);
+    let violations = run_custom_rules(file, &compiled_rules);
+    if violations.is_empty() {
+        return;
     }
+    let feedback = format!(
+        "[custom-lint] {} violation(s) found:\n{}",
+        violations.len(),
+        violations.join("\n")
+    );
+    emit_feedback(&feedback);
+}
 
-    // 第2層: 外部ツールパイプライン (biome, oxlint, ruff 等)
+fn run_pipeline_layer(file: &str, config: Config) {
     let pipelines = config
         .post_tool_linter
         .and_then(|c| c.pipelines)
         .unwrap_or_else(default_pipelines);
-
-    if let Some(pipeline) = find_pipeline(&file, &pipelines) {
-        run_pipeline(&file, pipeline);
+    if let Some(pipeline) = find_pipeline(file, &pipelines) {
+        run_pipeline(file, pipeline);
     }
+}
+
+fn main() {
+    let config = load_config();
+    let Some(file) = read_hook_input_file() else {
+        return;
+    };
+    if run_utf8_layer(&file) {
+        return;
+    }
+    run_file_size_layer(&file, &config);
+    run_custom_rules_layer(&file);
+    run_pipeline_layer(&file, config);
 }
 
 #[cfg(test)]
@@ -3079,6 +3213,139 @@ extensions = ["ts", "js"]
             "rule test coverage gaps detected ({} issue(s)):\n  - {}",
             gaps.len(),
             gaps.join("\n  - ")
+        );
+    }
+
+    #[test]
+    fn file_size_check_skips_when_disabled() {
+        let config = FileSizeCheckConfig {
+            enabled: false,
+            threshold_bytes: 1_000,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold("docs/sample.md", 100_000, &config);
+        assert!(
+            result.is_none(),
+            "enabled=false must short-circuit even when size exceeds threshold"
+        );
+    }
+
+    #[test]
+    fn file_size_check_skips_when_path_does_not_match_glob() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 1_000,
+            paths: vec!["docs/**/*.md".to_string(), "src/**/*.rs".to_string()],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold("scripts/build.sh", 100_000, &config);
+        assert!(
+            result.is_none(),
+            "path not matching glob must skip even when size exceeds threshold"
+        );
+    }
+
+    #[test]
+    fn file_size_check_skips_when_size_within_threshold() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 1_000,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold("docs/small.md", 500, &config);
+        assert!(
+            result.is_none(),
+            "size within threshold (500 <= 1000) must skip"
+        );
+    }
+
+    #[test]
+    fn file_size_check_emits_message_when_size_exceeds_threshold() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 1_000,
+            paths: vec!["src/**/*.rs".to_string()],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold("src/big.rs", 5_000, &config);
+        let message = result.expect("size 5000 > threshold 1000 must emit feedback message");
+        assert!(message.contains("file-size-check"));
+        assert!(message.contains("5000"));
+        assert!(message.contains("1000"));
+        assert!(message.contains("module 分割"));
+    }
+
+    #[test]
+    fn file_size_check_emits_todo_recovery_hint_for_docs_todo_files() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 51_200,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold("docs/todoXYZ.md", 60_000, &config);
+        let message = result.expect("60KB > 50KB threshold must emit");
+        assert!(
+            message.contains("todo<N+1>.md"),
+            "docs/todo* prefix path should get the todo split hint, got: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn file_size_check_returns_none_when_paths_glob_is_empty() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 1_000,
+            paths: vec![],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold("docs/anything.md", 100_000, &config);
+        assert!(
+            result.is_none(),
+            "empty paths glob must skip (no targets configured)"
+        );
+    }
+
+    #[test]
+    fn file_size_check_treats_touch_trigger_false_same_as_true_in_mvp() {
+        let mut cfg_strict = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 51_200,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: false,
+        };
+        let result_strict = check_file_size_threshold("docs/oversized.md", 60_000, &cfg_strict);
+        cfg_strict.touch_trigger = true;
+        let result_ratchet = check_file_size_threshold("docs/oversized.md", 60_000, &cfg_strict);
+        assert!(
+            result_strict.is_some(),
+            "touch_trigger=false (MVP) must still emit for touched file"
+        );
+        assert!(
+            result_ratchet.is_some(),
+            "touch_trigger=true must emit for touched file"
+        );
+        assert_eq!(
+            result_strict, result_ratchet,
+            "MVP: touch_trigger=false behaves identically to true (strict mode = future work)"
+        );
+    }
+
+    #[test]
+    fn file_size_check_normalizes_windows_backslash_path() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 1_000,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: true,
+        };
+        let result = check_file_size_threshold(r"docs\win.md", 60_000, &config);
+        assert!(
+            result.is_some(),
+            "Windows backslash path must be normalized to forward slash for glob match"
         );
     }
 }

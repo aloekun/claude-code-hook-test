@@ -153,3 +153,7 @@ PR #98 (Bundle Y2) post-merge-feedback で `post-pr-review.yaml` supervise step 
 - TOML rule コメントに field 拡張手順を 4 ステップで記述（grep → alternation 追加 → test helper 追加 → fixture test + TOML test 宣言追加）
 - 各 field について `<rule>_detects_<field>_violation` 命名規約で個別 fixture test を確保（一括 test では削除回帰が検知不可能）
 - `[rules.test_coverage.main_ext_tests]` 宣言で test 名を機械強制レイヤに接続する
+
+## Layer 0.5 追記: file_size_check (2026-06-07、順位 177 由来)
+
+`[post_tool_use.file_size_check]` (PR #197 land、`hooks-post-tool-linter` 統合) は本 ADR の Q1/Q2/Q3 判断フロー対象外。ファイル content を読まず metadata (`std::fs::metadata.len()`) のみで判定する **正規表現層未満の Layer 0.5** に位置し、Layer 0 (UTF-8 整合性) と Layer 1 (正規表現 custom-rules) の間で発火する。`paths` glob filter (順位 102 / Phase D D-3 と同 helper 共有) で対象を絞り、ADR-039 opt-in pattern (default OFF + bounded lifetime dogfood) で導入リスクを抑制する。同型 (metadata-only、content 非依存) の future check は同 Layer 0.5 に追加することで regex/AST 層との責務分離が維持される。
