@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 67KB に到達して Claude Code の読み取り安定性 (50KB 超で不安定化) を損なったため、2026-05-09 に **PR #101〜#109 由来の古い半分のタスクを本ファイルへ分離** した。todo5.md には PR #110 以降のタスクが残存。本ファイルは既存タスクの編集・完了削除専用、新規タスクは追加しない (新規エントリは [docs/todo6.md](todo6.md) へ)。todo.md / todo2-9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十一つすべてを確認すること (todo.md / todo2-10.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 67KB に到達して Claude Code の読み取り安定性 (50KB 超で不安定化) を損なったため、2026-05-09 に **PR #101〜#109 由来の古い半分のタスクを本ファイルへ分離** した。todo5.md には PR #110 以降のタスクが残存。本ファイルは既存タスクの編集・完了削除専用、新規タスクは追加しない (新規エントリは [docs/todo6.md](todo6.md) へ)。todo.md / todo2-9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十二つすべてを確認すること (todo.md / todo2-11.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -60,9 +60,11 @@
 >
 > **本タスクの位置づけ**: PR #103 セッション知見 (post-merge-feedback の Tier 3 #1 = ADR 化提案を skip し、機構で塞ぐ実装層対策を採用)。Bundle Z 3 層 (#B-α / #B-β / #B-γ) では完全に塞げない独立改善。reviewer の判定精度を構造的に改善することで 6-iter outlier の発生率を 0% 近くに抑える。
 >
+> **Status update (2026-06-06)**: **採用案 C (`.takt/facets/instructions/fix.md` に refresh section 追加) は既に land 済** — entry 内 checklist `[x]` で完了表示 + `fix.md` に「Pre-completion diff refresh (REQUIRED)」section 確認。残るは **dogfood 観測** (PR D-6 merge + 1-2 PR の 6-iter outlier 非再発確認 + AI 実行率 > 90%) のみ。継続観測なら本 entry は **削除候補に近接**。次セッションで dogfood log を確認後、6-iter outlier が解消していれば即削除可。
+>
 > **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[ADR-036: Bundle Z 3 層アーキテクチャ](adr/adr-036-bundle-z-three-layer-review.md) (PR #97 ベースライン observation を含む、本 task は Bundle Z 3 層では塞げない独立改善)
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。
+> **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。Status update により実装は完了、残作業は dogfood 観測のみ。
 
 #### 設計決定 (D-6 セッションで確定、2026-05-13)
 
@@ -131,46 +133,6 @@
 - MultiEdit でも変更行外の pre-existing violations が flag されない
 - v1 (Edit) の挙動は不変
 - Phase 3 (#B-γ) で reviewer の役割が「異常検知」に縮小されると本 task の効果も部分的に縮む可能性 (criterion-based finding がそもそも reviewer から消えるため)。ただし Phase 3 完了前の中間期間 + Phase 3 後も「異常検知」自体は diff を読むので効果は残る。
-
----
-
-### Aggregation cap integration test (PR #105 T2-1 採用)
-
-> **動機**: PR #105 の auto-fix で `collect_all_violations` に `violations.truncate(MAX_VIOLATIONS)` を追加した (CodeRabbit Minor finding 解消) が、これは contract の暗黙化に過ぎない。将来 `find_xxx_violations` を追加する PR で `extend()` の後に `truncate` を入れ忘れる regression を構造的に防ぐ test がない。
->
-> **本タスクの位置づけ**: PR #105 post-merge-feedback Tier 2 #1 採用。後続の lint 追加 (例: 順位 56 の test 拡充 / 順位 47 の `>=` boundary lint / 将来の Rust 専用 lint) で同 contract を破る regression を test で固定化する。
->
-> **参照**: `.claude/feedback-reports/105.md` Tier 2 #1、`src/hooks-post-tool-comment-lint-rust/src/main.rs` `collect_all_violations` (line 545)、PR #105 Finding #2 (Minor) の auto-fix
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。test 1-2 件追加で完結。
-
-#### 設計決定 (案)
-
-- **シナリオ**: `collect_all_violations(file_path, source_with_15_comments_and_15_long_functions, None)` を呼び、結果が **MAX_VIOLATIONS (= 20) 以下** であることを assert
-- **source 構築**:
-  - 15 個の禁止コメント (`// forbidden 0` 〜 `// forbidden 14`)
-  - 15 個の 60 行関数 (`fn big_0` 〜 `fn big_14`)
-  - 合計 30 件の violation 候補 → cap で 20 件に truncate
-- **test 名**: `collect_all_violations_truncates_to_max_violations` (spec を test 名に反映、PR #105 T2-3 提案は卻下したが naming-as-spec 自体は意義あり)
-- **追加検証** (任意): 個別 `find_violations` / `find_function_length_violations` がそれぞれ 20 件以上返しうることも assert (truncate なしだと 30 件返ることを示す)
-
-#### 作業計画
-
-- [ ] 30 件の violation 候補を含む synthetic source を生成する helper 関数を test module に追加
-- [ ] `collect_all_violations_truncates_to_max_violations` test を追加
-- [ ] 個別 finder の non-truncate 挙動を assert する補助 test を追加
-- [ ] cargo test pass 確認
-- [ ] 派生プロジェクト deploy は不要 (test のみ)
-- [ ] 本 todo7.md エントリを削除
-
-#### 完了基準
-
-- 結合後の violation 件数が `MAX_VIOLATIONS` 以下であることが test で固定化
-- 将来 `find_xxx_violations` を追加した PR で truncate 削除すると test fail で検出される
-
-#### 詰まっている箇所
-
-- 順位 56 (PR #104 T2-1+T2-2 test 拡充) と同 PR で bundle するか別 PR とするか。両者とも test additions、同ファイル同 test module で scope clean、bundle 推奨。
 
 ---
 

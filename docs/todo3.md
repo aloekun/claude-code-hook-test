@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo2.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #88 以降の新規エントリは本ファイルに記録した。本ファイルも PR #96 セッションで 50KB 接近のため、それ以降の新規エントリは [docs/todo4.md](todo4.md) へ。todo.md / todo2-9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十一つすべてを確認すること (todo.md / todo2-10.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo2.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #88 以降の新規エントリは本ファイルに記録した。本ファイルも PR #96 セッションで 50KB 接近のため、それ以降の新規エントリは [docs/todo4.md](todo4.md) へ。todo.md / todo2-9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十二つすべてを確認すること (todo.md / todo2-11.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -188,9 +188,11 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **本タスクの位置づけ**: takt の condition routing に新 terminal verdict `reject-escalate` を追加。`supervise` / `fix_supervisor` step がこのシグナルを返したら harness は即終了 + ユーザー committee `.takt/runs/.../reports/escalation.md` を生成し、Claude が次セッションで読んで判断できる経路を提供。
 >
-> **参照**: `.claude/feedback-reports/91.md` の Tier 2 #2
+> **Status update (2026-06-06)**: 本タスク起案後に **複数の構造的対策が land 済**: (1) **ADR-037 fix-trust shortcut (試験運用)** — `convergence_verdict` による Iter 3 短絡で wasted iteration が減少、(2) **ADR-043 fail-closed (試験運用)** — Security/Quality Gate の fail-closed 原則明文化、(3) **PR #194 merge 前 mechanical gate 強化** — clippy + 空 commit sweep で iteration 上限前に block。これらと組合せた **残余 case** (pathological loop が依然発生する状況) で reject-escalate が必要かを再評価する必要あり。実装着手前に「2026-06-06 以降の 5-10 PR で iteration 上限到達が観測されるか」の baseline 観測を推奨。
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) の land 後に実施推奨**。本 task は根本解だが、post-pr-review fix loop の `.claude/` filter (Bundle T で land 済) で path-related な pathological loop は既に解決済み。
+> **参照**: `.claude/feedback-reports/91.md` の Tier 2 #2、ADR-037 (fix-trust shortcut)、ADR-043 (fail-closed 原則)、PR #194 (mechanical gate 強化)
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 M (数日)。takt 本体改修なので大きい。**rate-limit 系 task (cli-pr-monitor ポーリング延長 / post-pr-review rate-limit 自動検出) の land 後に実施推奨**。本 task は根本解だが、post-pr-review fix loop の `.claude/` filter (Bundle T で land 済) で path-related な pathological loop は既に解決済み。Status update により残余 case の baseline 観測を実装前に先行。
 
 #### 設計決定 (案)
 
