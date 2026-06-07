@@ -18,7 +18,7 @@
 >
 > **参照**: PR #96 セッション内議論 (本セッション)、CR finding D / E 実例。
 >
-> **実行優先度**: 🚀 **Tier 1** — 工数 Medium。AI が flaky 実装を書ける窓を spec 層で塞ぐ最大 ROI 対策。順位 13 (rate-limit 自動検出) / 順位 19 (REJECT-ESCALATE) land 後着手をユーザー指示。
+> **実行優先度**: 🚀 **Tier 1** — 工数 Medium。AI が flaky 実装を書ける窓を spec 層で塞ぐ最大 ROI 対策。**依存解除 (2026-06-07)**: 旧 sequencing 「順位 13 (rate-limit 自動検出) / 順位 19 (REJECT-ESCALATE) land 後」は obsolete。理由 = ADR-037 (fix-trust shortcut: `convergence_verdict: fully_resolved` で COMPLETE 直行 → iteration 有限化) / ADR-043 (fail-closed 原則) / PR #194 (mechanical gate 強化) の land により、PBT で書かれた tests が CI で fail しても fix loop が無限処理する経路は別経路で塞がれた。順位 19 自身は Status update 2026-06-06 で「5-10 PR baseline 観測フェーズ」に移行しており、待機解除の判定タイミングが未定 = 順位 34 を gate し続けるとデッドロックに近い扱いになるため独立化。
 
 #### 背景
 

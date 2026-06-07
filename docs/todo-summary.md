@@ -23,7 +23,7 @@
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
 | 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup、Status update 2026-06-06: Phase D-7 = PR #154 land 済、残 Phase E 旧機構廃止 + Phase F dogfood) |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
-| 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | 順位 19 land 後推奨 (PR #96 直接対策、AI が flaky 実装を書ける窓を spec 層で塞ぐ) |
+| 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | なし (順位 19 依存は 2026-06-07 解除、ADR-037/043/PR #194 land により escalation 経路代替実現済、todo4.md 参照) |
 | 35 | 🚀 Tier 1 | **型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | S | 順位 34 と同 PR (Bundle W、PBT が型に守られて記述しやすくなる相補関係) |
 | 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W land 後推奨 (PBT properties の後付け検証層、変更 crate + 1-hop 依存 scope) |
 | 37 | 🔧 Tier 2 | **pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky) ★ Bundle X** | todo4.md | S | 順位 36 と同 PR (Bundle X、cli-push-runner に +~1 秒 step 追加) |
