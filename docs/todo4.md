@@ -10,129 +10,11 @@
 
 ## 現在進行中
 
-### property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky)
-
-> **動機**: PR #96 (cli-pr-monitor lock + poll 延長) で 2 件の flaky bug (Finding D: `saturating_sub` の silent semantic mismatch / Finding E: concurrency test の guard 即 drop) が advisor + takt-fix の 2 layer を貫通して CodeRabbit に到達した。両者とも「Rust 的に正しいコードがドメイン的に間違う」典型例で、test と code が「整合」していても **spec が test に articulate されていなければ bug が漏れる**。proptest による property-based testing で「未来日時の lock は fresh ではない」「8 thread concurrent acquire で Acquired は exactly 1」等の invariant を executable contract として記述する。
->
-> **本タスクの位置づけ**: Bundle W (PBT + 型強化) の **L0 layer**。順位 35 (型で意味を表現) と同 PR で land 推奨 (PBT が型に守られて記述しやすくなる相補関係)。Bundle X (cargo-mutants + stress runner) の前提となる「PBT で書かれた property を後付け検証する」階層構造の最上層。
->
-> **参照**: PR #96 セッション内議論 (本セッション)、CR finding D / E 実例。
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 Medium。AI が flaky 実装を書ける窓を spec 層で塞ぐ最大 ROI 対策。**依存解除 (2026-06-07)**: 旧 sequencing 「順位 13 (rate-limit 自動検出) / 順位 19 (REJECT-ESCALATE) land 後」は obsolete。理由 = ADR-037 (fix-trust shortcut: `convergence_verdict: fully_resolved` で COMPLETE 直行 → iteration 有限化) / ADR-043 (fail-closed 原則) / PR #194 (mechanical gate 強化) の land により、PBT で書かれた tests が CI で fail しても fix loop が無限処理する経路は別経路で塞がれた。順位 19 自身は Status update 2026-06-06 で「5-10 PR baseline 観測フェーズ」に移行しており、待機解除の判定タイミングが未定 = 順位 34 を gate し続けるとデッドロックに近い扱いになるため独立化。
-
-#### 背景
-
-- PR #96 で実証された bug class:
-  - **Finding D**: `parse_age_secs` の `saturating_sub` が future timestamp で 0 (= "fresh") を返す → crash recovery が機能しない
-  - **Finding E**: concurrent test が `matches!(acquire_at(...), Acquired(_))` で guard 即 drop → 8 thread が逐次的に Acquired を取れる race window
-- 両者とも compile 通過、clippy 警告なし、idiomatic Rust。**code surface には bug が「ない」が、code が「言わなかったこと」が bug**
-- ガイドライン (claude_md_rule) は ask-based のため、AI が認識から漏れた edge case を強制的に列挙させる仕組みが必要
-
-#### 設計決定 (案)
-
-- **配置先**: `cli-pr-monitor` を pilot crate として `proptest` を `[dev-dependencies]` に追加
-- **記述する properties (案、順位 35 の型導入と相補)**:
-  - `parse_age_secs_never_negative`: `prop_assert!(age >= 0)` で常識的不変条件
-  - `future_timestamp_returns_none`: `prop_assert!(parse_age_secs(future) == None)` で Finding D 直接対応
-  - `acquire_then_drop_leaves_no_file`: lock 取得→ drop 後に file 残存しないこと
-  - `concurrent_acquire_invariant`: 8 thread sampling で Acquired count == 1 (loom と併用)
-- **既存 unit test との関係**: 置換ではなく並走 (proptest は input space sampling、unit test は specific assertion)
-- **派生プロジェクト展開**: pilot 後 takt-test-vc / techbook-ledger / auto-review-fix-vc にも横展開
-
-#### 作業計画
-
-- [ ] `cli-pr-monitor/Cargo.toml` に `proptest = "1"` を `[dev-dependencies]` 追加
-- [ ] `lock.rs` に proptest properties 5-10 件記述
-- [ ] CI で全 properties が pass することを確認 (case 数は default 256)
-- [ ] 派生プロジェクト deploy 計画策定 (Bundle W land 後の別 task として todo 登録)
-- [ ] 本 todo4.md エントリを削除
-
-#### 完了基準
-
-- `cli-pr-monitor` の主要関数 (`parse_age_secs` / `acquire_at`) に proptest properties が記述される
-- Finding D / E 相当の bug を proptest が検出することを再現実験で確認 (regression test として保持)
-- pre-push pipeline での実行時間影響が +1 秒以内
-
-#### 詰まっている箇所
-
-- proptest による concurrency test は data generation には強いが thread interleaving の網羅は苦手。loom 併用 or stress runner との役割分担を Bundle W 着手時に再検討する。
-
----
-
-### 型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky)
-
-> **動機**: PR #96 Finding D の根本原因は `saturating_sub(now, then)` が future timestamp で 0 を返す semantic mismatch だが、より深い root cause は **「時間の意味」が型に乗っていない** こと。`now: i64` と `then: i64` は型上区別できないため、saturating_sub の「負値クランプ」と「過去経過秒」を取り違える bug が書ける。`PastTime(SystemTime)` / `FutureTime(SystemTime)` のような newtype を導入し、`parse_age_secs(t: PastTime) -> i64` に signature 変更すると、未来 timestamp は **コンパイル時に書けなくなる**。
->
-> **本タスクの位置づけ**: Bundle W (PBT + 型強化) の **横断 layer**。順位 34 (PBT) と同 PR で land 推奨。proptest が record する property を、型レベルでは impossible-to-misexpress に格上げする本質対応。
->
-> **参照**: PR #96 セッション内議論 (本セッション)、ユーザーフィードバック「型で意味を表現する (本質対応)」。
->
-> **実行優先度**: 🚀 **Tier 1** — 工数 Small。`lock.rs` 内のみで閉じた refactor として開始可能。Bundle W の 2 task のうち効果範囲が広い側。
-
-#### 背景
-
-- 現状の `parse_age_secs` signature: `fn parse_age_secs(iso8601: &str) -> Option<i64>`
-- 内部で `then: i64` と `now: i64` を直接比較し subtract する設計が saturating_sub bug を許容する温床
-- `Result<Duration, SystemTimeError>` を返す `SystemTime::duration_since` は標準 lib 級の防御だが、ドメイン的な「過去 / 現在 / 未来」の区別を呼び出し側に強制しない
-
-#### 設計決定 (案)
-
-選択肢を 2 つ用意。Bundle W 着手時にどちらか 1 つを採用 (or hybrid):
-
-- **選択肢 A: newtype 構造体**
-
-  ```rust
-  struct PastTime(SystemTime);
-  impl PastTime {
-      fn parse(iso8601: &str) -> Result<Self, ParseError> { /* future なら Err */ }
-  }
-  fn parse_age_secs(t: PastTime) -> i64 { /* future が来ないので safe */ }
-  ```
-
-- **選択肢 B: enum 分類**
-
-  ```rust
-  enum Timestamp { Past(SystemTime), Future(SystemTime) }
-  impl Timestamp {
-      fn parse(iso8601: &str) -> Self { /* SystemTime::now() と比較 */ }
-  }
-  match Timestamp::parse(...) {
-      Past(t) => parse_age_secs(t),  // 通常経路
-      Future(_) => return None,       // stale 扱い
-  }
-  ```
-
-- **比較**:
-  - A は parse 時点で「ここから先は Past 確定」を保証する単純さ
-  - B は呼び出し側に Past/Future 両方の処理を強制する exhaustive さ
-  - 本ケースでは Past のみ扱う関数なので A が cleaner、B は将来 future timestamp を扱う場面が出たら拡張容易
-
-#### 作業計画
-
-- [ ] 選択肢 A / B のどちらを採用するか決定 (Bundle W 着手時、proptest との相性で評価)
-- [ ] `lock.rs` 内に PastTime / Timestamp 型を導入
-- [ ] `parse_age_secs` の signature を新型に変更
-- [ ] 既存 test を新 signature に追従
-- [ ] 派生プロジェクト展開時の互換性検討 (lib export しているなら API 変更)
-- [ ] 本 todo4.md エントリを削除
-
-#### 完了基準
-
-- `parse_age_secs` 内で saturating_sub bug が **コンパイル時に書けない** 状態
-- 既存 unit test + proptest properties が新型で pass
-- bug class (silent semantic mismatch in time arithmetic) が type 層で排除されたことを Bundle W PR description で明記
-
-#### 詰まっている箇所
-
-- なし (Effort Small、`lock.rs` 局所 refactor で閉じる)。派生プロジェクトへの API 互換性は Bundle W land 時に別 task で扱う。
-
----
-
 ### cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky)
 
 > **動機**: Bundle W (PBT + 型) で書かれた properties が「実装を本当に制約しているか」を後段で機械的に測定する layer。`cargo mutants` は production code に微小変異を注入し、全 mutant が少なくとも 1 つの test で fail することを要求する。survivor mutant は「test がこのコードを制約していない」の直接的証拠で、PBT の弱さや coverage gap を mechanical に暴く。Bundle W で「仕様を articulate」、Bundle X で「articulate された仕様の強さを測定」の二層構造を完成させる。
 >
-> **本タスクの位置づけ**: Bundle X の **L2 layer (post-PR)**。順位 37 (pre-push stress runner) と同 PR で land 推奨。Bundle W land 後に着手 (PBT が書かれていない状態で mutants を回しても弱い test と弱い PBT の区別がつかない)。
+> **本タスクの位置づけ**: Bundle X の **L2 layer (post-PR)**。順位 37 (pre-push stress runner) と同 PR で land 推奨。Bundle W land 済 (2026-06-07、PR で `cli-pr-monitor::lock` の PastTime newtype + proptest properties 5 件 land) → mutants 投入の前提整備完了。
 >
 > **参照**: PR #96 セッション内議論、ユーザーフィードバック「mutation scope を 変更ファイル + 依存モジュール 1 層 に拡大」。
 >
@@ -225,11 +107,11 @@
 >
 > **本タスクの位置づけ**: Bundle W / X の **L3 layer (weekly)**。ADR-031 (本採用 2026-06-01) の facet 拡張 / aggregate 前 Rust pre-step として組込。daily efficiency への直接効果は小さいが、long-term の test debt 蓄積を防ぐ。
 >
-> **Status update (2026-06-06)**: ADR-031 は **2026-06-01 本採用昇格済 (PR #192)** で weekly-review pipeline は安定運用入り。本タスクの依存は **Bundle W / X (順位 34/35/36/37) の land のみ** に減縮 (旧依存「ADR-031 dogfood 完了」は満たされた)。Bundle W/X が land したら即着手可能。
+> **Status update (2026-06-07)**: ADR-031 は **2026-06-01 本採用昇格済 (PR #192)** で weekly-review pipeline は安定運用入り。**Bundle W (順位 34/35) は 2026-06-07 land 済** (`cli-pr-monitor::lock` の PastTime newtype + proptest properties 5 件)。本タスクの依存は **Bundle X (順位 36/37) の land のみ** に減縮。
 >
 > **参照**: PR #96 セッション内議論、ADR-031 (週次レビューパイプライン、本採用 2026-06-01、PR #192)。
 >
-> **実行優先度**: 💎 **Tier 3** — 工数 Small (ADR-031 への追加扱い)。Bundle W / X land 後に着手。
+> **実行優先度**: 💎 **Tier 3** — 工数 Small (ADR-031 への追加扱い)。Bundle X land 後に着手。
 
 #### 背景
 
@@ -260,7 +142,7 @@
 
 #### 詰まっている箇所
 
-- ADR-031 (本採用 2026-06-01) は land 済、本 task は独立着手可能 (Bundle W / X land 完了が前提)。
+- ADR-031 (本採用 2026-06-01) は land 済、Bundle W (順位 34/35) は 2026-06-07 land 済。本 task は独立着手可能 (残依存 = Bundle X 順位 36/37 land 完了)。
 
 ---
 
