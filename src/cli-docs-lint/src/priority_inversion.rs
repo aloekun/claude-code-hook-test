@@ -40,6 +40,8 @@ const SUMMARY_FILE: &str = "todo-summary.md";
 /// チェックから除外)。
 const RESOLVED_MARKERS: &[&str] = &["land 済", "完了", "retired", "retire 済", "採用昇格済"];
 
+/// 順位参照の **直後** から数えた **文字数** (バイト数ではない)。日本語などの
+/// multi-byte 文字でも spec 通りの 80 文字 window を保証する。
 const RESOLUTION_WINDOW_CHARS: usize = 80;
 
 /// `docs/` 配下の todo-summary.md を読み inversion を検査する。
@@ -177,21 +179,18 @@ fn has_resolved_marker_after(haystack: &str, needle: &str) -> bool {
             search_from = after;
             continue;
         }
-        let window_end = next_char_boundary(haystack, (abs_pos + RESOLUTION_WINDOW_CHARS).min(haystack.len()));
-        let window = &haystack[abs_pos..window_end];
+        let window_end = haystack[after..]
+            .char_indices()
+            .nth(RESOLUTION_WINDOW_CHARS)
+            .map(|(i, _)| after + i)
+            .unwrap_or(haystack.len());
+        let window = &haystack[after..window_end];
         if RESOLVED_MARKERS.iter().any(|m| window.contains(m)) {
             return true;
         }
         search_from = after;
     }
     false
-}
-
-fn next_char_boundary(s: &str, mut pos: usize) -> usize {
-    while pos < s.len() && !s.is_char_boundary(pos) {
-        pos += 1;
-    }
-    pos
 }
 
 fn make_violation(path: &Path, row: &TableRow, dep_rank: u32, dep_tier: u32) -> Violation {
@@ -274,6 +273,23 @@ mod tests {
     fn is_resolved_returns_false_when_unresolved() {
         let dep = "順位 19 land 後推奨";
         assert!(!is_rank_resolved(dep, 19));
+    }
+
+    /// 順位参照と resolved marker の間に multi-byte 文字 (日本語等) が大量に挟まる
+    /// ケースで、window がバイト数ではなく文字数で評価されることを保証する
+    /// (CodeRabbit Major #1 / PR #200)。
+    ///
+    /// 例: 「順位 19」と「land 済」の間に 40 個の「あ」(= 120 bytes / 40 chars) が挟まる。
+    /// byte-based の旧実装では 80 bytes window で marker を見落として false negative
+    /// (= inversion 誤検出)。char-based の新実装では 80 chars window で marker を捕捉する。
+    #[test]
+    fn is_resolved_detects_marker_across_multibyte_gap() {
+        let gap: String = "あ".repeat(40);
+        let dep = format!("順位 19{} land 済", gap);
+        assert!(
+            is_rank_resolved(&dep, 19),
+            "multibyte gap でも 80 chars window 内の marker は resolved 扱いになるべき"
+        );
     }
 
     #[test]
