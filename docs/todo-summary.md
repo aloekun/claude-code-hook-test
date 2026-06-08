@@ -17,7 +17,6 @@
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
 | 17 | 🔧 Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
 | 18 | 🔧 Tier 2 | **`.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)** | todo3.md | S | なし |
-| 19 | 🔧 Tier 2 | **takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)** | todo3.md | M | post-pr-review fix loop の `.claude/` filter (Bundle T、完了済) land 後推奨 (Status update 2026-06-06: ADR-037 fix-trust shortcut / ADR-043 fail-closed / PR #194 mechanical gate land 後の残余 case baseline 観測が前段、5-10 PR で iteration 上限到達確認後に着手判断) |
 | 20 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 8, 10 |
 | 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | ADR-031 dogfood (本採用済 2026-06-01) + 順位 20 |
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
