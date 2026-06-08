@@ -148,7 +148,8 @@ fn read_fresh_lock(path: &PathBuf, stale_threshold_secs: i64) -> Option<(LockFil
             return None;
         }
     };
-    let age_secs = parse_age_secs(&lock.start_time)?;
+    let past_time = PastTime::from_iso8601_now(&lock.start_time)?;
+    let age_secs = past_time.age_secs();
     if age_secs < stale_threshold_secs {
         Some((lock, age_secs))
     } else {
@@ -160,23 +161,61 @@ fn read_fresh_lock(path: &PathBuf, stale_threshold_secs: i64) -> Option<(LockFil
     }
 }
 
-/// ISO 8601 文字列から「現在からの経過秒数」を返す。
+/// 過去性が型レベルで保証された timestamp。
 ///
-/// stale 扱いになるケース (None を返す):
-///   - parse 失敗
-///   - 未来日時 (then > now): 時計巻き戻しや破損 future timestamp の lock を
-///     永続 fresh で塩漬けにしないよう明示的に stale 化する。`saturating_sub` だと
-///     age=0 で常に fresh 扱いになり crash recovery が機能しない。
-fn parse_age_secs(iso8601: &str) -> Option<i64> {
-    let then = parse_iso8601(iso8601)?;
-    let now = std::time::SystemTime::now()
+/// 「parse 成功 + (then <= now) を確認」の 2 ステップを `from_iso8601_now` /
+/// `from_parts` に閉じ込めることで、`age_secs()` の戻り値が常に非負である
+/// invariant を構造的に保証する。
+///
+/// この型導入の動機は `saturating_sub` 系の silent semantic mismatch を排除
+/// すること。過去の bug class:
+///   - `parse_age_secs` が future timestamp に対し `saturating_sub` で 0 を返し、
+///     破損 future-dated lock が永続 fresh 扱いとなり crash recovery が機能しなかった。
+///
+/// PastTime は construction 時に future timestamp を `None` で reject するため、
+/// 同型の silent fresh bug を型層で再発不能化する (Bundle W / PR #96 follow-up)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PastTime {
+    epoch_secs: i64,
+    captured_now: i64,
+}
+
+impl PastTime {
+    /// ISO 8601 文字列を parse し、system clock の現在と比較して past-ness を検証する。
+    /// parse 失敗 / future timestamp / system clock 取得失敗のいずれでも `None`。
+    fn from_iso8601_now(iso8601: &str) -> Option<Self> {
+        let then = parse_iso8601(iso8601)?;
+        let now = current_unix_secs()?;
+        Self::from_parts(then, now)
+    }
+
+    /// テスト注入 / proptest 用: `now` を引数で受ける variant。
+    /// `then > now` (future) の場合 `None`。それ以外は invariant を満たす PastTime を返す。
+    fn from_parts(then_epoch_secs: i64, now_epoch_secs: i64) -> Option<Self> {
+        if then_epoch_secs > now_epoch_secs {
+            return None;
+        }
+        Some(Self {
+            epoch_secs: then_epoch_secs,
+            captured_now: now_epoch_secs,
+        })
+    }
+
+    /// 経過秒数 (construction 時点の `captured_now - epoch_secs`)。
+    /// invariant により常に非負。
+    fn age_secs(&self) -> i64 {
+        debug_assert!(self.captured_now >= self.epoch_secs);
+        self.captured_now - self.epoch_secs
+    }
+}
+
+fn current_unix_secs() -> Option<i64> {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
-        .as_secs() as i64;
-    if then > now {
-        return None;
-    }
-    Some(now - then)
+        .as_secs()
+        .try_into()
+        .ok()
 }
 
 /// ISO 8601 (`2026-04-30T05:00:00Z` 形式) を Unix epoch secs にパース。
@@ -495,11 +534,12 @@ mod tests {
         assert_eq!(parse_iso8601("2026-02-29T00:00:00Z"), None); // day 29 in non-leap year
     }
 
+    /// 親に「ディレクトリではなく通常ファイル」を仕込むと、`create_dir_all` は
+    /// silent fail、後続の `open()` が AlreadyExists 以外の I/O error を返し
+    /// `Unavailable` 経路に入る、というシナリオを構築する。
     #[test]
     fn io_error_returns_unavailable() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // Create a regular file at the path that will be used as a parent directory.
-        // create_dir_all on a file path silently fails, so open() gets a non-AlreadyExists error.
         let file_as_dir = tmp.path().join("notadir");
         std::fs::write(&file_as_dir, "content").unwrap();
         let path = file_as_dir.join("pr-monitor.lock");
@@ -507,6 +547,120 @@ mod tests {
             LockResult::Unavailable { .. } => {}
             LockResult::Acquired(_) => panic!("expected Unavailable on I/O error, got Acquired"),
             LockResult::Busy { .. } => panic!("expected Unavailable on I/O error, got Busy"),
+        }
+    }
+
+    #[test]
+    fn past_time_from_parts_accepts_past() {
+        let pt = PastTime::from_parts(100, 200).expect("then < now should succeed");
+        assert_eq!(pt.age_secs(), 100);
+    }
+
+    #[test]
+    fn past_time_from_parts_accepts_equal() {
+        let pt = PastTime::from_parts(100, 100).expect("then == now should succeed");
+        assert_eq!(pt.age_secs(), 0);
+    }
+
+    #[test]
+    fn past_time_from_parts_rejects_future() {
+        assert_eq!(
+            PastTime::from_parts(200, 100),
+            None,
+            "then > now must be rejected (silent fresh bug 防止)"
+        );
+    }
+
+    #[test]
+    fn past_time_from_iso8601_now_rejects_far_future_year_9999() {
+        assert_eq!(PastTime::from_iso8601_now("9999-01-01T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn past_time_from_iso8601_now_accepts_unix_epoch_origin() {
+        let pt = PastTime::from_iso8601_now("1970-01-01T00:00:00Z").expect("epoch is past");
+        assert!(pt.age_secs() >= 0);
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    //! Bundle W (順位 34): proptest properties for `parse_iso8601` / `PastTime::from_parts`.
+    //!
+    //! 本 module は spec 層で AI が flaky 実装を書ける窓を塞ぐ regression net。
+    //! 主要 property:
+    //!   - P1: from_parts(then, now) で then <= now → age_secs == now - then
+    //!   - P2: from_parts(then, now) で then > now → None (silent fresh 防止 / Finding D)
+    //!   - P3: parse_iso8601 は任意 string 入力で panic しない
+    //!   - P4: parse_iso8601 は pre-epoch year を必ず reject
+    //!   - P5: parse_iso8601 は有効範囲内の date を必ず accept
+    //!
+    //! proptest case 数は default 256。実行時間は数百 ms 程度 (pre-push pipeline
+    //! 完了基準 +1 秒以内に収まる)。
+
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// P1: from_parts(then, now) で then <= now のとき age_secs == now - then が成立。
+        /// `saturating_sub` 系の silent semantic mismatch (CR finding D) が混入したら
+        /// このプロパティが落ちる regression net。
+        #[test]
+        fn past_time_age_is_correct_when_in_past(
+            then in -1_000_000_000_000_i64..=1_000_000_000_000_i64,
+            offset in 0_i64..=1_000_000_000_i64,
+        ) {
+            let now = then + offset;
+            let pt = PastTime::from_parts(then, now).expect("then <= now");
+            prop_assert_eq!(pt.age_secs(), offset);
+        }
+
+        /// P2: from_parts(then, now) で then > now のとき必ず None。
+        /// Finding D を直接 encode: future timestamp が fresh 値を生むことは構造的に不可能。
+        #[test]
+        fn past_time_rejects_future(
+            now in -1_000_000_000_i64..=1_000_000_000_i64,
+            future_offset in 1_i64..=1_000_000_i64,
+        ) {
+            let then = now + future_offset;
+            prop_assert_eq!(PastTime::from_parts(then, now), None);
+        }
+
+        /// P3: parse_iso8601 は任意 string で panic しない (corrupt input は None)。
+        /// 過去に `days_from_epoch` の index out-of-bounds panic が発生した
+        /// regression: range check が抜けると proptest がこれを再検出する。
+        #[test]
+        fn parse_iso8601_never_panics(s in ".*") {
+            let _ = parse_iso8601(&s);
+        }
+
+        /// P4: pre-epoch year (< 1970) は必ず reject。
+        #[test]
+        fn parse_iso8601_rejects_pre_epoch_year(
+            year in 0_u32..1970,
+            month in 1_u32..=12,
+            day in 1_u32..=28,
+        ) {
+            let s = format!("{:04}-{:02}-{:02}T00:00:00Z", year, month, day);
+            prop_assert_eq!(parse_iso8601(&s), None);
+        }
+
+        /// P5: 有効範囲内の正規 ISO 8601 は必ず accept (round-trip 基本性質)。
+        /// day を 1..=28 に絞ることで全月で有効な日付に限定 (うるう年判定を回避)。
+        #[test]
+        fn parse_iso8601_accepts_well_formed(
+            year in 1970_u32..=9999,
+            month in 1_u32..=12,
+            day in 1_u32..=28,
+            hour in 0_u32..=23,
+            minute in 0_u32..=59,
+            second in 0_u32..=59,
+        ) {
+            let s = format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+                year, month, day, hour, minute, second
+            );
+            prop_assert!(parse_iso8601(&s).is_some(), "should accept: {}", s);
         }
     }
 }

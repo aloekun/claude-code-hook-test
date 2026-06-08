@@ -13,5 +13,6 @@ lib-report-formatter = { path = "../lib-report-formatter" }
 
 [dev-dependencies]
 tempfile = "3"
+proptest = "1"
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

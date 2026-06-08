@@ -23,11 +23,9 @@
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
 | 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup、Status update 2026-06-06: Phase D-7 = PR #154 land 済、残 Phase E 旧機構廃止 + Phase F dogfood) |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
-| 34 | 🚀 Tier 1 | **property-based testing (proptest) 導入 — 仕様を executable contract で明文化 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | M | 順位 19 land 後推奨 (PR #96 直接対策、AI が flaky 実装を書ける窓を spec 層で塞ぐ) |
-| 35 | 🚀 Tier 1 | **型で意味を表現 (PastTime newtype 等) — saturating_sub 系 silent semantic mismatch を構造的に排除 (PR #96 T1-flaky) ★ Bundle W** | todo4.md | S | 順位 34 と同 PR (Bundle W、PBT が型に守られて記述しやすくなる相補関係) |
-| 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W land 後推奨 (PBT properties の後付け検証層、変更 crate + 1-hop 依存 scope) |
+| 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W (順位 34/35) land 済 (2026-06-07) → 後付け検証層として着手可能、変更 crate + 1-hop 依存 scope |
 | 37 | 🔧 Tier 2 | **pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky) ★ Bundle X** | todo4.md | S | 順位 36 と同 PR (Bundle X、cli-push-runner に +~1 秒 step 追加) |
-| 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 採用昇格済 (PR #192) → Bundle W/X (順位 34/35/36/37) land のみ残依存、facet 追加 or aggregate 前 Rust pre-step として組込 |
+| 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 採用昇格済 (PR #192) + Bundle W land 済 (2026-06-07) → Bundle X (順位 36/37) land のみ残依存、facet 追加 or aggregate 前 Rust pre-step として組込 |
 | 40 | 🚀 Tier 1 | **prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)** | todo4.md | XS | なし (Status update 2026-06-06: PR #175 で push-runner 側 `bookmark_check.rs` stage 実装済 → skill 側は二重防御 + 派生プロジェクト未 deploy 環境向け knowledge transfer に縮小) |
 | 44 | 💎 Tier 3 | **PreToolUse hook で `gh` CLI の token-bloat パターンを検出する `gh-token-efficiency` preset 追加 (計画書 #D-1、PR #172 仕組み化方針切替 2026-05-25)** | todo4.md | M | なし (順位 144 hook 化 dogfood 成功事例を踏襲、3 BlockedPattern = 応答破棄漏れ POST / `--jq` なし GET / CR walkthrough state 混入 を `exception` field 付きで実装、`feedback_pipeline_over_rules.md` 適用で rule → hook 切替、session 毎の rule load コスト不要) |
 | 49 | 🔧 Tier 2 | **`parse_findings` 系の error-path test infrastructure (PR #101 T2-1)** | todo7.md | M | なし (Status update 2026-06-06: 元 Bundle a Sub-PR 2 (順位 42/43/46) は段階 land 完了で消滅、本 task は単独で `unwrap_or_else(\|_\| empty)` silent fail 抑止 + cli-pr-monitor mock infra として独立着手可) |
