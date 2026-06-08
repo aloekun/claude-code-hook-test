@@ -388,6 +388,117 @@ fn companion_helpers_share_default_branch_signature() {
 
 ---
 
+### `hooks-session-start` orphan age 計算に proptest 追加 (PR #199 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #199 で `cli-pr-monitor::lock` に PastTime newtype + proptest properties を導入し、`saturating_sub` silent semantic mismatch (Finding D) を構造的に排除した。同じ bug class が `src/hooks-session-start/src/main.rs:236` の `now_unix.saturating_sub(start_unix)` にも存在し、clock rewind / future timestamp で `age=0` を返すと orphan reaper が「young」判定でスキップ → `.failed` marker 未生成 → ADR-030 L2 recovery 停止という具体的 failure chain が確認済。Bundle W の pattern (PastTime newtype or proptest properties) を `hooks-session-start` に展開し、同型 silent failure を防ぐ。
+>
+> **本タスクの位置づけ**: PR #199 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-08 ユーザー承認)。Bundle W の派生プロジェクト deploy 計画 (PR #199 PR description で「別 task として todo 登録予定」と明記済) のうち、本リポジトリ内の即時 deploy 先として最優先。
+>
+> **参照**: `.claude/feedback-reports/199.md` Tier 2 #1、PR #199 (Bundle W = `cli-pr-monitor::lock` の PastTime + proptest land)、`src/hooks-session-start/src/main.rs:236` (saturating_sub orphan age 計算)、ADR-030 (orphan reaper L2 recovery)、proptest 1.x ([dev-dependencies] 既存)
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。PastTime newtype 導入 + `parse_iso8601_to_unix` の proptest properties を Bundle W と同等構成で実装。proptest 依存は `cli-pr-monitor/Cargo.toml` 既存、新規 crate 依存追加は `hooks-session-start/Cargo.toml` のみ。
+
+#### 背景
+
+- `src/hooks-session-start/src/main.rs:236` で orphan age = `now_unix.saturating_sub(start_unix)` を計算しており、`start_unix > now_unix` (clock rewind / 破損 future timestamp) で age=0 を返す
+- ADR-030 L2 recovery は orphan age が threshold を超えた場合に `.failed` marker を生成する設計。age=0 = "young" 扱いで marker 未生成 = recovery が機能しない silent failure
+- Bundle W で `cli-pr-monitor::lock` に同型 fix を land 済 = pattern 移植コスト低
+- proptest properties (P1-P5 と同等構成):
+  - past_time_age_is_correct_when_in_past
+  - past_time_rejects_future
+  - parse_iso8601_to_unix_never_panics (任意 string で panic しない、cli-pr-monitor::lock との parser 共通化検討も別 task で)
+  - parse_iso8601_to_unix_rejects_pre_epoch_year
+  - parse_iso8601_to_unix_accepts_well_formed
+
+#### 設計決定 (案)
+
+- **アプローチ A**: PastTime newtype + proptest の **完全移植** (Bundle W と同等構成)
+  - 利点: 設計一貫性、両 crate で同じ pattern
+  - 欠点: hooks-session-start の orphan reaper 周辺 refactor scope が広がる
+- **アプローチ B**: proptest properties **のみ追加** (saturating_sub は維持、bug を proptest で検出するだけ)
+  - 利点: scope 最小、test 追加のみ
+  - 欠点: silent fallback の型層防御は得られない (= properties が落ちたら手動で fix が必要、構造的防止にはならない)
+- **アプローチ C**: hybrid (parse_iso8601_to_unix を共通 lib に extract + 両 crate で proptest + PastTime newtype は hooks-session-start にも導入)
+  - 利点: parser 重複 (hooks-session-start / check-ci-coderabbit / cli-pr-monitor の 3 箇所) を解消し DRY 化、全 caller に防御
+  - 欠点: lib crate 作成 + 派生プロジェクト deploy への影響範囲が大きい
+- **MVP**: アプローチ A (Bundle W 完全移植) で 1 crate に閉じる。共通 lib 化 (アプローチ C) は別 task として todo 登録
+- **派生プロジェクト deploy**: 本 task land 後、Bundle W deploy 計画と統合して techbook-ledger / auto-review-fix-vc に展開
+
+#### 作業計画
+
+- [ ] `src/hooks-session-start/Cargo.toml` の `[dev-dependencies]` に `proptest = "1"` を追加
+- [ ] `src/hooks-session-start/src/main.rs` に PastTime newtype (Bundle W から portion 移植 or 共通設計を hooks-session-start に複製) を導入
+- [ ] orphan age 計算経路 (line 236 周辺) を PastTime ベースに refactor、`saturating_sub` を排除
+- [ ] proptest module を `#[cfg(test)]` に追加 (P1-P5 相当 5 件)
+- [ ] 既存 orphan reaper test (`L1180` 周辺) との回帰確認
+- [ ] cargo test + clippy clean を確認
+- [ ] 本 todo10.md エントリを削除
+
+#### 完了基準
+
+- `hooks-session-start` の orphan age 計算経路で `saturating_sub` が排除され、future timestamp が age=0 にならない invariant が型/proptest で保証される
+- proptest properties が CI で pass、実行時間 +1 秒以内
+- ADR-030 L2 recovery の failure chain (age=0 silent skip) が再発不可能であることを Bundle W PR description と同様に明記
+
+#### 詰まっている箇所
+
+- アプローチ C (parser 共通 lib 化) は `parse_iso8601_to_unix` が 3 crate で微妙に異なる実装 (`check-ci-coderabbit` は fractional seconds 対応、`cli-pr-monitor` は対応なし) のため統合コストが見えない。MVP (アプローチ A) で 1 crate に閉じ、共通 lib 化は別 task。
+
+---
+
+### ADR-NNN (採番未確定、land 時に確定): Timestamp invariant safety — 時刻計算 silent failure class の codify (PR #199 post-merge-feedback T3-2 採用)
+
+> **動機**: PR #96 Finding D (`cli-pr-monitor::lock` の `parse_age_secs` で `saturating_sub` silent semantic mismatch) と PR #199 Bundle W (PastTime newtype + proptest で構造的予防) で同型 bug class が 2 件観測 (Frequency Medium)。本 ADR は「時刻計算における silent failure class と型レベル防御」を永続化し、派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability を確保する。
+>
+> **本タスクの位置づけ**: PR #199 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None、2026-06-08 ユーザー承認)。順位 135 codified placeholder policy を適用し ADR 番号は land 時 PR で空き番号を確定する (本 entry 登録時点で ADR-038/039/040/041/042/043 占有済、044 が最有力候補だが land 時に再確認)。
+>
+> **参照**: `.claude/feedback-reports/199.md` Tier 3 #2、PR #96 Finding D、PR #199 Bundle W (PastTime newtype 実装 + proptest properties 5 件)、`~/.claude/rules/rust/patterns.md` § Newtype Pattern (extension 候補)、順位 135 (ADR 番号 hardcode 撤廃 policy)、順位 78 (旧 ADR-038 → 041 → NNN の 3 段振り直し実証)
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 Medium。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記。
+
+#### 背景
+
+- **Bug class の定義**: `saturating_sub(now, then)` 等の silent fallback が dominate ドメイン的に誤った値 (age=0) を返し、後段の判定で「fresh」「young」等の誤判定を生む
+- **発生条件**: clock rewind (NTP 巻き戻し / VM snapshot restore) / 破損 future timestamp (corrupted lock file / 不正 input) / 時刻取得失敗 → silent fallback
+- **防御原則**: 業務ロジック的に不可能な状態 (future timestamp の存在) を型層で unrepresentable にする。construction 時に invariant 検証、`age_secs()` 等の derived 値は invariant により安全に計算
+- **実証パターン**: PR #199 Bundle W で `PastTime { epoch_secs, captured_now }` newtype + `from_iso8601_now` / `from_parts` 2 経路 + `age_secs()` non-negative invariant + proptest 5 properties で構造化
+
+#### 設計決定 (案)
+
+- **ADR title (案)**: 「Timestamp invariant safety — 時刻計算 silent failure class と型レベル防御」
+- **ADR sections (案)**:
+  1. **コンテキスト**: bug class 定義 + 観測実例 (PR #96 Finding D / PR #199 Bundle W)
+  2. **決定**:
+     - 原則 1: `saturating_sub` を時刻計算で使用しない (silent fallback 禁止)
+     - 原則 2: 「過去性」を型で表現する (newtype + construction 時 invariant)
+     - 原則 3: proptest properties で type invariant を executable contract として記述
+  3. **設計哲学**: 「業務ロジック的に impossible な状態を型層で unrepresentable にする」(parse, don't validate 派生)
+  4. **派生プロジェクト適用**: cli-pr-monitor (実装済) / hooks-session-start (順位 197 で実装予定) / 派生プロジェクトの時刻計算箇所 (検出→展開計画)
+  5. **完了状態 / 関連 ADR**: PR #199 (実証)、ADR-021 / ADR-024 等の参照
+- **CLAUDE.md ADR list**: 「ADR-NNN: Timestamp invariant safety + saturating_sub による silent fallback 禁止 *(試験運用)*」として追記
+
+#### 作業計画
+
+- [ ] land 時 PR で ADR 空き番号を確定 (現状最有力は ADR-044)
+- [ ] `docs/adr/adr-NNN-timestamp-invariant-safety.md` を新規作成 (試験運用)
+- [ ] CLAUDE.md ADR list に追記
+- [ ] PR #96 Finding D / PR #199 Bundle W を実例として inline cite
+- [ ] (任意) `~/.claude/rules/rust/patterns.md` § Newtype Pattern に link back を追記 (順位 T3-1 様子見と連動で判断)
+- [ ] 本 todo10.md エントリを削除
+
+#### 完了基準
+
+- ADR-NNN が docs/adr/ に存在し試験運用 status で 1 PR で land
+- CLAUDE.md ADR list に追記され ADR タイトル + 試験運用 marker が表示される
+- bug class が以降の reviewer (人間 / CodeRabbit / takt facet) から ADR 参照で言及可能になる
+
+#### 詰まっている箇所
+
+- ADR 番号確定タイミング (land 時 PR) と他並走 entry (順位 78 等) の競合可能性。順位 135 placeholder policy に従い land 時 PR で grep 確認すれば構造的に解決
+- `~/.claude/rules/rust/patterns.md` への展開 (順位 T3-1 が 様子見) との順序関係。本 ADR が land してから patterns.md 拡張を再評価する流れで矛盾なし
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
