@@ -14,6 +14,7 @@
 
 pub mod cross_ref;
 pub mod preamble;
+pub mod priority_inversion;
 
 use std::fmt;
 
