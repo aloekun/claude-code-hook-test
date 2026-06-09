@@ -475,6 +475,69 @@ jj split -m "<message>" <files>              # commit 分離
     }]
 }
 
+/// プリセット: secret-detection (AWS / OpenAI / GitHub / Anthropic 等の hardcoded secret 検出)
+///
+/// 順位 146 (PR #200 follow-up、`~/.claude/rules/common/security.md` § Secret Management 移管):
+/// 「NEVER hardcode secrets in source code」を機械強制する mechanical enforcement 層。
+/// session 毎の rule load コスト排除 + 漏洩観測前の preventive 層として Tier 1 採用。
+/// memory `feedback_pipeline_over_rules.md` 適用 = パイプライン側機械的修正で
+/// Claude 判断介入を排除、session 毎の rule load コスト不要。
+///
+/// 設計判断 (順位 146、PR #200 follow-up):
+/// - Bash command + Edit/Write の new_string/content の両方をスキャン (handle_write_edit_tool で呼び出し)
+/// - false positive 軽減: AWS Secret Key は env-var-assignment 形式 (`aws_secret_access_key = "..."`) に限定
+/// - OpenAI `sk-` 系は Anthropic の `sk-ant-` を `exception` field で除外 (Rust regex は negative lookahead 非対応)
+/// - 漏洩の非対称性 (= 1 度漏れたら手遅れ) のため `default_preset_names()` に含め、config 不在環境でも default-on
+fn preset_secret_detection() -> Vec<BlockedPattern> {
+    vec![
+        BlockedPattern {
+            pattern: Regex::new(r"\bAKIA[0-9A-Z]{16}\b").unwrap(),
+            exception: None,
+            message: SECRET_DETECTION_MSG,
+        },
+        BlockedPattern {
+            pattern: Regex::new(
+                r#"(?i)aws_secret_access_key\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}["']?"#,
+            )
+            .unwrap(),
+            exception: None,
+            message: SECRET_DETECTION_MSG,
+        },
+        BlockedPattern {
+            pattern: Regex::new(r"\bsk-[A-Za-z0-9_-]{40,}\b").unwrap(),
+            exception: Some(Regex::new(r"\bsk-ant-").unwrap()),
+            message: SECRET_DETECTION_MSG,
+        },
+        BlockedPattern {
+            pattern: Regex::new(r"\b(ghp|github_pat)_[A-Za-z0-9_]{20,}\b").unwrap(),
+            exception: None,
+            message: SECRET_DETECTION_MSG,
+        },
+        BlockedPattern {
+            pattern: Regex::new(r"\b(gho|ghs|ghu|ghr)_[A-Za-z0-9]{36}\b").unwrap(),
+            exception: None,
+            message: SECRET_DETECTION_MSG,
+        },
+        BlockedPattern {
+            pattern: Regex::new(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b").unwrap(),
+            exception: None,
+            message: SECRET_DETECTION_MSG,
+        },
+    ]
+}
+
+const SECRET_DETECTION_MSG: &str = r#"**機密情報 (secret) が検出されました**
+
+ハードコードされた API key / token / credential を検出しました。漏洩は重大なセキュリティ事故に繋がり、git history から完全除去するには force push が必要になります。
+
+**対応方法:**
+- 環境変数に移管: Rust なら `std::env::var("API_KEY")`、Node.js なら `process.env.API_KEY`
+- Secret manager (1Password / Doppler / AWS Secrets Manager / GitHub Actions Secrets 等) を使用
+- `.env` ファイル + `.gitignore` で local-only 管理 (本番は別途)
+- test fixture でも、regex に match する形式 (16 chars 以上の AKIA... 等) は避け、`AKIATEST` 等の明らかに無効な短い形を使う
+
+設計判断 (順位 146、PR #200 follow-up): `~/.claude/rules/common/security.md` § Secret Management の機械強制層。"#;
+
 fn default_preset_names() -> Vec<String> {
     vec![
         "default".to_string(),
@@ -483,6 +546,7 @@ fn default_preset_names() -> Vec<String> {
         "jj-main-guard".to_string(),
         "jj-push-guard".to_string(),
         "electron".to_string(),
+        "secret-detection".to_string(),
     ]
 }
 
@@ -496,6 +560,7 @@ fn resolve_preset_or_custom(name: &str) -> Vec<BlockedPattern> {
         "gh-pr-create-guard" => preset_gh_pr_create_guard(),
         "gh-pr-merge-guard" => preset_gh_pr_merge_guard(),
         "jj-message-required" => preset_jj_message_required(),
+        "secret-detection" => preset_secret_detection(),
         "polling-anti-pattern" => preset_polling_anti_pattern(),
         "exe-help-block" => preset_exe_help_block(),
         "electron" => preset_electron(),
@@ -888,6 +953,30 @@ fn collect_text_for_keywords(tool_input: &ToolInput) -> String {
     parts.join("\n")
 }
 
+/// Edit/Write 時の secret scan 対象テキスト (new_string + content のみ、old_string は除外)。
+/// 順位 146 (PR #200 follow-up): old_string は「既存ファイル内の文字列 = 削除対象 or 置換元」
+/// であり、ここを scan すると「secret を削除する Edit」までも block してしまうため除外する。
+fn collect_text_for_secret_scan(tool_input: &ToolInput) -> String {
+    let mut parts = Vec::new();
+    if let Some(new_s) = &tool_input.new_string {
+        parts.push(new_s.as_str());
+    }
+    if let Some(content) = &tool_input.content {
+        parts.push(content.as_str());
+    }
+    parts.join("\n")
+}
+
+fn is_secret_detection_enabled(config: &Config) -> bool {
+    let preset_names: Vec<String> = config
+        .pre_tool_validate
+        .as_ref()
+        .and_then(|c| c.blocked_patterns.as_ref())
+        .cloned()
+        .unwrap_or_else(default_preset_names);
+    preset_names.iter().any(|n| n == "secret-detection")
+}
+
 fn read_hook_input() -> Result<HookInput, ExitCode> {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
@@ -913,48 +1002,81 @@ fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn handle_write_edit_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
-    let file_path = tool_input
+fn resolve_edit_file_path(tool_input: &ToolInput) -> String {
+    tool_input
         .file_path
         .clone()
         .filter(|s| !s.is_empty())
         .or_else(|| tool_input.path.clone())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
 
+fn check_protected_file(config: &Config, file_path: &str) -> Option<ExitCode> {
     let extra_protected = config
         .pre_tool_validate
         .as_ref()
         .and_then(|c| c.extra_protected_files.as_ref())
         .cloned()
         .unwrap_or_default();
-
-    if !file_path.is_empty() && is_protected_config(&file_path, &extra_protected) {
-        let msg = format!(
-            "**保護されたファイルの編集がブロックされました**\n\n\
-             `{}` は保護対象ファイル（設定ファイル/機密ファイル）のため、編集が禁止されています。\n\n\
-             リンター設定の場合: 設定を変更するのではなく **コード側を修正** してください。\n\
-             機密ファイルの場合: 秘密情報の漏洩を防ぐため、編集できません。\n\n\
-             変更が本当に必要な場合は、ユーザーに確認を取ってください。",
-            file_path.rsplit(['/', '\\']).next().unwrap_or(&file_path)
-        );
-        let _ = io::stderr().write_all(msg.as_bytes());
-        return ExitCode::from(2);
+    if file_path.is_empty() || !is_protected_config(file_path, &extra_protected) {
+        return None;
     }
+    let msg = format!(
+        "**保護されたファイルの編集がブロックされました**\n\n\
+         `{}` は保護対象ファイル（設定ファイル/機密ファイル）のため、編集が禁止されています。\n\n\
+         リンター設定の場合: 設定を変更するのではなく **コード側を修正** してください。\n\
+         機密ファイルの場合: 秘密情報の漏洩を防ぐため、編集できません。\n\n\
+         変更が本当に必要な場合は、ユーザーに確認を取ってください。",
+        file_path.rsplit(['/', '\\']).next().unwrap_or(file_path)
+    );
+    let _ = io::stderr().write_all(msg.as_bytes());
+    Some(ExitCode::from(2))
+}
 
-    if let Some(staleness_config) = config
+fn check_secret_in_content(config: &Config, tool_input: &ToolInput) -> Option<ExitCode> {
+    if !is_secret_detection_enabled(config) {
+        return None;
+    }
+    let scan_text = collect_text_for_secret_scan(tool_input);
+    if scan_text.is_empty() {
+        return None;
+    }
+    let secret_patterns = preset_secret_detection();
+    let message = validate_command(&scan_text, &secret_patterns)?;
+    let _ = io::stderr().write_all(message.as_bytes());
+    Some(ExitCode::from(2))
+}
+
+fn check_todo_staleness_for_edit(
+    config: &Config,
+    tool_input: &ToolInput,
+    file_path: &str,
+) -> Option<ExitCode> {
+    let staleness_config = config
         .pre_tool_validate
         .as_ref()
-        .and_then(|c| c.todo_staleness.as_ref())
-    {
-        let text = collect_text_for_keywords(tool_input);
-        if let Some(result) = check_todo_staleness(&file_path, &text, staleness_config) {
-            let _ = io::stderr().write_all(result.message.as_bytes());
-            if result.stale {
-                return ExitCode::from(2);
-            }
-        }
+        .and_then(|c| c.todo_staleness.as_ref())?;
+    let text = collect_text_for_keywords(tool_input);
+    let result = check_todo_staleness(file_path, &text, staleness_config)?;
+    let _ = io::stderr().write_all(result.message.as_bytes());
+    if result.stale {
+        Some(ExitCode::from(2))
+    } else {
+        None
     }
+}
 
+fn handle_write_edit_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
+    let file_path = resolve_edit_file_path(tool_input);
+    if let Some(code) = check_protected_file(config, &file_path) {
+        return code;
+    }
+    if let Some(code) = check_secret_in_content(config, tool_input) {
+        return code;
+    }
+    if let Some(code) = check_todo_staleness_for_edit(config, tool_input, &file_path) {
+        return code;
+    }
     ExitCode::SUCCESS
 }
 
@@ -1160,7 +1282,198 @@ mod tests {
         );
     }
 
+    const SECRET_DETECT: &[&str] = &["secret-detection"];
 
+    #[test]
+    fn secret_detection_blocks_aws_access_key() {
+        assert!(is_blocked_with(
+            "let aws = \"AKIAIOSFODNN7EXAMPLE\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_aws_secret_assignment() {
+        assert!(is_blocked_with(
+            r#"aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY""#,
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_openai_api_key() {
+        assert!(is_blocked_with(
+            "const key = \"sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX_-\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_github_pat_classic() {
+        assert!(is_blocked_with(
+            "let token = \"ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_github_pat_finegrained() {
+        assert!(is_blocked_with(
+            "let token = \"github_pat_11AAAAAAA0abcdefghijK\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_github_oauth_token() {
+        assert!(is_blocked_with(
+            "let token = \"gho_abcdefghijklmnopqrstuvwxyz0123456789\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_github_server_token() {
+        assert!(is_blocked_with(
+            "let token = \"ghs_abcdefghijklmnopqrstuvwxyz0123456789\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_anthropic_api_key() {
+        assert!(is_blocked_with(
+            "let key = \"sk-ant-api03-AAAAAAAA_BBBBBBBB_CCCCCCCC\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_blocks_in_bash_command_via_echo() {
+        assert!(is_blocked_with(
+            "echo \"AKIAIOSFODNN7EXAMPLE\" > .env",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_allows_short_test_fixture_value_below_threshold() {
+        assert!(!is_blocked_with("let key = \"AKIATEST\";", SECRET_DETECT));
+    }
+
+    #[test]
+    fn secret_detection_allows_short_sk_prefix_below_threshold() {
+        assert!(!is_blocked_with("let x = \"sk-test\";", SECRET_DETECT));
+    }
+
+    #[test]
+    fn secret_detection_allows_short_ghp_prefix_below_threshold() {
+        assert!(!is_blocked_with("let x = \"ghp_short\";", SECRET_DETECT));
+    }
+
+    #[test]
+    fn secret_detection_allows_variable_name_secret_or_key() {
+        assert!(!is_blocked_with(
+            "let api_key = config.api_key;",
+            SECRET_DETECT
+        ));
+        assert!(!is_blocked_with("self.secret = None;", SECRET_DETECT));
+    }
+
+    #[test]
+    fn secret_detection_allows_env_var_reference() {
+        assert!(!is_blocked_with(
+            "std::env::var(\"AWS_SECRET_ACCESS_KEY\")",
+            SECRET_DETECT
+        ));
+        assert!(!is_blocked_with("process.env.GITHUB_TOKEN", SECRET_DETECT));
+    }
+
+    #[test]
+    fn secret_detection_aws_secret_pattern_requires_assignment_form_for_fp_reduction() {
+        assert!(!is_blocked_with(
+            "let blob = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\";",
+            SECRET_DETECT
+        ));
+    }
+
+    #[test]
+    fn secret_detection_in_default_fallback_is_default_on_security_critical() {
+        let patterns = build_blocked_patterns(&Config::default());
+        assert!(
+            validate_command("let k = \"AKIAIOSFODNN7EXAMPLE\";", &patterns).is_some(),
+            "default fallback should include secret-detection (Tier 1 security-critical default-on, 漏洩の非対称性のため)"
+        );
+    }
+
+    #[test]
+    fn is_secret_detection_enabled_returns_true_when_listed_in_blocked_patterns() {
+        let config = Config {
+            pre_tool_validate: Some(PreToolValidateConfig {
+                blocked_patterns: Some(vec!["secret-detection".to_string()]),
+                extra_protected_files: None,
+                todo_staleness: None,
+            }),
+        };
+        assert!(is_secret_detection_enabled(&config));
+    }
+
+    #[test]
+    fn is_secret_detection_enabled_returns_false_when_excluded_from_blocked_patterns() {
+        let config = Config {
+            pre_tool_validate: Some(PreToolValidateConfig {
+                blocked_patterns: Some(vec!["default".to_string(), "git".to_string()]),
+                extra_protected_files: None,
+                todo_staleness: None,
+            }),
+        };
+        assert!(!is_secret_detection_enabled(&config));
+    }
+
+    #[test]
+    fn is_secret_detection_enabled_returns_true_for_default_config_default_on() {
+        assert!(is_secret_detection_enabled(&Config::default()));
+    }
+
+    #[test]
+    fn collect_text_for_secret_scan_excludes_old_string_to_allow_secret_removal() {
+        let tool_input = ToolInput {
+            command: None,
+            file_path: Some("foo.rs".to_string()),
+            path: None,
+            old_string: Some("AKIAIOSFODNN7EXAMPLE".to_string()),
+            new_string: Some("AKIATEST".to_string()),
+            content: None,
+        };
+        let scanned = collect_text_for_secret_scan(&tool_input);
+        assert!(!scanned.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(scanned.contains("AKIATEST"));
+    }
+
+    #[test]
+    fn collect_text_for_secret_scan_includes_both_new_string_and_content() {
+        let tool_input = ToolInput {
+            command: None,
+            file_path: Some("foo.rs".to_string()),
+            path: None,
+            old_string: None,
+            new_string: Some("new-text".to_string()),
+            content: Some("full-content".to_string()),
+        };
+        let scanned = collect_text_for_secret_scan(&tool_input);
+        assert!(scanned.contains("new-text"));
+        assert!(scanned.contains("full-content"));
+    }
+
+    #[test]
+    fn secret_detection_does_not_affect_other_presets_non_regression() {
+        assert!(is_blocked_with("git push", &["git", "secret-detection"]));
+        assert!(is_blocked_with(
+            "rm -rf /tmp",
+            &["default", "secret-detection"]
+        ));
+        assert!(!is_blocked_with("git status", &["default", "secret-detection"]));
+    }
 
     #[test]
     fn blocks_git_at_start() {

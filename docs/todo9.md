@@ -18,56 +18,6 @@
 
 ---
 
-### Secret detection PreToolUse hook 追加 — AWS/OpenAI/GitHub token 等の hardcoded secret 検出 (PR #172 仕組み化方針切替由来、`security.md` § Secret Management 移管)
-
-> **動機**: `~/.claude/rules/common/security.md` § Secret Management の「NEVER hardcode secrets in source code」は現在 rule docs 記載のみで機械強制なし。session 毎に security.md を読み込まないと AI が rule を解釈しない構造的脆弱性が残る。PreToolUse hook で Edit/Write 時に AWS key / OpenAI key / GitHub token 等の regex 検出を行い、即 block + feedback を返すことで漏洩を構造的に防止する (ユーザー判断 2026-05-25 = PreToolUse hook 方式採用)。
->
-> **本タスクの位置づけ**: 既存ルール仕組み化バンドルの第 1 件。順位 144 (`jj-message-required`) と同型実装パターン。`feedback_pipeline_over_rules.md` 適用 = パイプライン側機械的修正で Claude 判断介入を排除。
->
-> **参照**: `~/.claude/rules/common/security.md` § Secret Management、`src/hooks-pre-tool-validate/src/main.rs` (`preset_jj_message_required` を template に追加)、`.claude/hooks-config.toml`、PR #172 (順位 144 hook 化 dogfood)
->
-> **実行優先度**: 🚀 **Tier 1** — Effort M。security-critical かつ漏洩観測前の preventive 層。
-
-#### 設計決定 (案)
-
-- **配置**: `src/hooks-pre-tool-validate/src/main.rs` に新 preset `secret-detection` 追加
-- **検出対象 regex** (高頻度 secret pattern):
-  - AWS Access Key: `AKIA[0-9A-Z]{16}`
-  - AWS Secret Key: `aws_secret_access_key\s*=\s*[A-Za-z0-9/+=]{40}`
-  - OpenAI API Key: `sk-[A-Za-z0-9]{20,}` (現 sk-proj 系を含む形式)
-  - GitHub Personal Access Token: `ghp_[A-Za-z0-9]{36}` / `github_pat_[A-Za-z0-9_]{20,}`
-  - GitHub OAuth Token: `gho_[A-Za-z0-9]{36}` / `ghs_[A-Za-z0-9]{36}`
-  - Anthropic API Key: `sk-ant-[A-Za-z0-9_-]{20,}`
-  - 汎用高エントロピー string (要 false positive 評価): `[A-Za-z0-9+/]{40,}={0,2}` (base64-like) は対象外とする (汎用過ぎる)
-- **exception field 不使用**: secret pattern に正当な使用例はない (test fixture は dummy で十分)
-- **block message**: 「機密情報が検出されました。環境変数 / secret manager に移管してください」+ 検出 pattern type
-- **hooks-config.toml**: `blocked_patterns` に `"secret-detection"` 追加 (opt-in 設計だが Tier 1 のため default 推奨)
-
-#### 作業計画 (順位 144 と同 phase 構造)
-
-- [ ] Phase 1: `preset_secret_detection()` 関数を実装 (6-8 種の BlockedPattern を vec で返す)
-- [ ] Phase 2: `build_blocked_patterns` の `resolve_preset_or_custom` dispatch に登録 + `.claude/hooks-config.toml` の `blocked_patterns` に追加 + コメント section 説明追加
-- [ ] Phase 3: test 拡充 — block ケース (6+ 種類の secret pattern) × allow ケース (regular code) × non-regression
-- [ ] Phase 4: `pnpm build:hooks-pre-tool-validate` で exe deploy + dogfood (dummy AWS key 等で block 動作確認)
-- [ ] Phase 5: `pnpm push` + `pnpm create-pr`
-- [ ] post-merge: 派生プロジェクト deploy + `~/.claude/rules/common/security.md` § Secret Management の hook 化記述追加 (rule docs 縮小は別 follow-up)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 6+ 種類の高頻度 secret pattern が Edit/Write 時に block される
-- regular code (variable name "key" / "secret" の使用、test fixture の dummy "AKIATEST...") は通過
-- 既存 preset と non-regression
-- `cargo test -p hooks-pre-tool-validate` pass
-- security.md § Secret Management から具体 pattern 列挙を hook block message に移管 (docs 縮小)
-
-#### 詰まっている箇所
-
-- false positive リスク: API key 形式の文字列が test fixture / 説明文に登場する可能性。test fixture は paths filter 除外で対応 (順位 150 magic number lint と同 pattern)
-- pattern 漏れ: 検出対象 6-8 種類は主要のみ。Anthropic API key 形式変更 / 新 service token 追加時は手動更新が必要 (feedback loop)
-
----
-
 ### File length lint (800 行 max) 追加 — `coding-style.md` § File Organization 移管 (PR #172 仕組み化方針切替由来)
 
 > **動機**: `~/.claude/rules/common/coding-style.md` § File Organization の「200-400 lines typical, 800 max per file」ガイドラインは現在 rule docs 記載のみで、機械強制されていない。順位 48 (関数長 50 行) は `hooks-post-tool-comment-lint-rust` で touch-trigger ratchet 方式により既に機械強制済の前例があり、ファイルサイズも同 pattern で実装可能。session 毎の rule load コスト削減 + 800 行突破時の編集時即 block を実現する。

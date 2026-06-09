@@ -56,6 +56,10 @@ failed_marker_check_enabled = true # 前回失敗 marker 検出 → resume promo
 #   "jj-message-required" — jj new / jj split を -m / --message なしでブロック
 #                              (混合 commit 事故 + jj split editor hang を構造的に防止、
 #                               順位 144 / PR #171 T3-#8 採用)
+#   "secret-detection" — AWS / OpenAI / GitHub / Anthropic 等の hardcoded secret を
+#                              Bash command + Edit/Write content 双方で検出してブロック
+#                              (~/.claude/rules/common/security.md § Secret Management 移管、
+#                               順位 146 / PR #200 follow-up 採用、Tier 1 default-on)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -69,6 +73,7 @@ blocked_patterns = [
   "exe-help-block",
   "electron",
   "jj-message-required",
+  "secret-detection",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)
