@@ -17,7 +17,6 @@
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
 | 17 | 🔧 Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
 | 18 | 🔧 Tier 2 | **`.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)** | todo3.md | S | なし |
-| 19 | 🔧 Tier 2 | **takt ハーネスの `REJECT-ESCALATE` terminal verdict 実装 (PR #91 T2-2)** | todo3.md | M | post-pr-review fix loop の `.claude/` filter (Bundle T、完了済) land 後推奨 (Status update 2026-06-06: ADR-037 fix-trust shortcut / ADR-043 fail-closed / PR #194 mechanical gate land 後の残余 case baseline 観測が前段、5-10 PR で iteration 上限到達確認後に着手判断) |
 | 20 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 8, 10 |
 | 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | ADR-031 dogfood (本採用済 2026-06-01) + 順位 20 |
 | 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
@@ -79,6 +78,8 @@
 
 | 193 | 🔧 Tier 2 | **Companion helper group 署名整合 compile-time validation test (PR #196 T2-1 採用) ★ Bundle 195-FB follow-up** | todo10.md | S | なし (Bundle 195-FB で 3 関数目の signature drift が CR Major + pre-push F-1 で systemic 観測、rule⑫ は literal hardcode 層、本タスクは API signature 整合性層、関数ポインタ cast による compile-time witness で signature drift を test 不通過に。`code-review.md` § Review Checklist に reviewer 注意 1 項目追加で 3 層防御 = rule⑫ + compile-time test + reviewer 注意、`feedback_global_config_backup` 適用必須) |
 | 194 | 💎 Tier 3 | **`development-workflow.md` 「1. Plan First」に「task 着手前に grep で既存 section 確認」step 追記 (PR #196 T3-5 採用)** | todo10.md | XS | なし (PR #123 + #196 で「既実装 section の重複計画」事象を Frequency Medium で観測、`~/.claude/rules/common/development-workflow.md` "1. Plan First" に Codification 重複確認 step を 1-2 行追記、`grep -rn` 手順 + 由来 cite (PR #123, #196)、派生プロジェクト (techbook-ledger / auto-review-fix-vc) に global rule として自動波及、`feedback_global_config_backup` 適用必須) |
+| 197 | 🔧 Tier 2 | **`hooks-session-start` orphan age 計算に proptest 追加 (PR #199 post-merge-feedback T2-1 採用)** | todo10.md | M | なし (Bundle W の PastTime newtype + proptest pattern を `src/hooks-session-start/src/main.rs:236` の `saturating_sub` orphan age 計算に展開、clock rewind で age=0 → orphan reaper sleep → ADR-030 L2 recovery 沈黙の failure chain を構造的に防ぐ、Severity High + Frequency Medium、proptest 依存追加のみ) |
+| 198 | 💎 Tier 3 | **ADR-NNN (採番未確定、land 時に確定): Timestamp invariant safety — 時刻計算 silent failure class の codify (PR #199 post-merge-feedback T3-2 採用)** | todo10.md | M | なし (PR #96 Finding D + PR #199 Bundle W で同型 bug class 2 件観測 = Frequency Medium、PastTime newtype + proptest が実証した型層防御原則を ADR で永続化、派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability 確保、順位 135 placeholder policy 適用、CLAUDE.md ADR list 追記) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

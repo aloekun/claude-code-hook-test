@@ -28,7 +28,7 @@
 //!   default-ON 昇格 or 却下を判定する。判定結果は本 module doc と
 //!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
-use cli_docs_lint::{cross_ref, preamble, Violation};
+use cli_docs_lint::{cross_ref, preamble, priority_inversion, Violation};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -37,6 +37,7 @@ enum CheckMode {
     All,
     Preamble,
     CrossRef,
+    PriorityInversion,
 }
 
 #[derive(Debug)]
@@ -57,10 +58,11 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                 mode = match raw.as_str() {
                     "preamble" => CheckMode::Preamble,
                     "cross-ref" => CheckMode::CrossRef,
+                    "priority-inversion" => CheckMode::PriorityInversion,
                     "all" => CheckMode::All,
                     other => {
                         return Err(format!(
-                            "--check は preamble / cross-ref / all のいずれか (got: {})",
+                            "--check は preamble / cross-ref / priority-inversion / all のいずれか (got: {})",
                             other
                         ))
                     }
@@ -85,10 +87,11 @@ fn print_help() {
     eprintln!(
         "cli-docs-lint — docs/ 整合性チェッカー\n\n\
          Usage:\n  \
-           cli-docs-lint [--check preamble|cross-ref|all] [--docs-dir <path>]\n\n\
+           cli-docs-lint [--check preamble|cross-ref|priority-inversion|all] [--docs-dir <path>]\n\n\
          Checks:\n  \
-           preamble   TODO 系 markdown の preamble 数詞 vs 実ファイル数\n  \
-           cross-ref  docs/**/*.md の relative link validator (directory-aware)"
+           preamble            TODO 系 markdown の preamble 数詞 vs 実ファイル数\n  \
+           cross-ref           docs/**/*.md の relative link validator (directory-aware)\n  \
+           priority-inversion  todo-summary.md table の Tier N→Tier N+k 依存を検知"
     );
 }
 
@@ -99,6 +102,9 @@ fn run(args: &CliArgs) -> Result<Vec<Violation>, String> {
     }
     if matches!(args.mode, CheckMode::All | CheckMode::CrossRef) {
         violations.extend(cross_ref::check(&args.docs_dir)?);
+    }
+    if matches!(args.mode, CheckMode::All | CheckMode::PriorityInversion) {
+        violations.extend(priority_inversion::check(&args.docs_dir)?);
     }
     Ok(violations)
 }
@@ -163,9 +169,10 @@ fn main() -> ExitCode {
 
 fn describe_mode(mode: &CheckMode) -> &'static str {
     match mode {
-        CheckMode::All => "preamble + cross-ref",
+        CheckMode::All => "preamble + cross-ref + priority-inversion",
         CheckMode::Preamble => "preamble only",
         CheckMode::CrossRef => "cross-ref only",
+        CheckMode::PriorityInversion => "priority-inversion only",
     }
 }
 
