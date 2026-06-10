@@ -655,6 +655,119 @@ fn companion_helpers_share_default_branch_signature() {
 
 ---
 
+### GitHub token alternation の variant test 完成 — `ghu_` / `ghr_` (PR #201 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #201 で `(gho|ghs|ghu|ghr)_[A-Za-z0-9]{36}` の regex alternation に `ghu_` (user-to-server) / `ghr_` (refresh) の専用テストが欠落していることを 3 ソース (PR diff + pre-push NB-2 + CR NB-2) が独立検出。alternation グループは全 variant に 1+ test が原則で、将来 regex 簡略化時の silent drop regression を防止する。
+>
+> **本タスクの位置づけ**: PR #201 post-merge-feedback Tier 2 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-10 ユーザー承認)。順位 145 preset matrix test と同根の test matrix mechanical 強化。Bundle-201-FB-A 候補 (T3-1 と同 PR で land 可能だが T3-1 は今回未採用のため単独 land でも可)。
+>
+> **参照**: `.claude/feedback-reports/201.md` Tier 2 #1、`src/hooks-pre-tool-validate/src/main.rs` の `secret_detection_blocks_github_oauth_token` (gho_) / `secret_detection_blocks_github_server_token` (ghs_) test (既存テンプレート)
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort XS。2 テストケース追加のみ (~10 行)。
+
+#### 設計決定 (案)
+
+- 既存 `secret_detection_blocks_github_oauth_token` (gho_) / `secret_detection_blocks_github_server_token` (ghs_) と同パターンで `ghu_` / `ghr_` 用 test を追加
+- `is_blocked_with("let token = \"ghu_<36 chars>\";", SECRET_DETECT)` 形式
+- helper 共通化なし (memory `feedback_test_dry_antipattern` 適用)、independent setup
+
+#### 作業計画
+
+- [ ] `secret_detection_blocks_github_user_to_server_token` test 関数追加 (ghu_ + 36 chars fixture)
+- [ ] `secret_detection_blocks_github_refresh_token` test 関数追加 (ghr_ + 36 chars fixture)
+- [ ] `cargo test -p hooks-pre-tool-validate` で全 pass 確認 (現 202 + 2 = 204)
+- [ ] 本 todo10.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 4 variant (`gho_` / `ghs_` / `ghu_` / `ghr_`) すべてが専用 test で block 検証される
+- 将来の regex 簡略化時の silent drop が test で検出される
+
+#### 詰まっている箇所
+
+なし。Effort XS、test 追加のみ。
+
+---
+
+### ADR-007 に exception field + 専用 pattern の設計方針 codify (PR #201 post-merge-feedback T3-2 採用)
+
+> **動機**: Rust 標準 regex crate は negative lookahead 非対応のため、相互排他的な regex pattern を扱う際は `BlockedPattern.exception` field + 専用 pattern の 2 段判定が canonical solution。順位 144 `jj-message-required` (PR #171) で導入され、順位 146 `secret-detection` (PR #201) で Anthropic `sk-ant-` を OpenAI `sk-` から除外するのに再利用。2 PR で再利用 = Frequency Medium で ADR codify 妥当。将来の custom linter 実装者が negative lookahead を試みて iteration を浪費するのを防ぐ。
+>
+> **本タスクの位置づけ**: PR #201 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-10 ユーザー承認)。ADR-007 への section 追加で、本リポジトリの lint runner サポートと整合。
+>
+> **参照**: `.claude/feedback-reports/201.md` Tier 3 #2、[docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) (拡張先)、`src/hooks-pre-tool-validate/src/main.rs` の `preset_jj_message_required` / `preset_secret_detection` (参照実装)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。ADR-007 に 1 sub-section (10-15 行) 追記のみ。
+
+#### 設計決定 (案)
+
+- **配置**: `docs/adr/adr-007-custom-linter-layer-boundary.md` の「正規表現層」section に新 sub-section「Mutual exclusion via `exception` field + dedicated pattern」を追加
+- **記述内容**:
+  - **原則**: 相互排他的な regex pattern (例: OpenAI `sk-` ⊃ Anthropic `sk-ant-`) を扱う際は negative lookahead ではなく `exception` field を使う
+  - **canonical pattern**: BlockedPattern { pattern: ..., exception: Some(...), message: ... } の 2 段判定
+  - **defense in depth**: exception で除外した側を専用 pattern で別途検出 (Anthropic 専用 `\bsk-ant-[A-Za-z0-9_-]{20,}\b`)
+  - **由来**: PR #171 順位 144 (`jj-message-required` 導入) + PR #201 順位 146 (`secret-detection` 再利用)
+  - **関連**: 順位 201 ADR-007 LazyLock guideline と相補的に「正規表現層」section 内で 2 つの canonical pattern として共存
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-007-custom-linter-layer-boundary.md` を Read で確認 (現状の section 構成)
+- [ ] 「正規表現層」section に新 sub-section を追加
+- [ ] BAD (negative lookahead を試みる anti-pattern) / GOOD (exception field + 専用 pattern) code sample + PR #171 / #201 引用を記述
+- [ ] 本 todo10.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-007 に exception field + 専用 pattern 設計方針が codify される
+- 順位 144 / 146 の実装が参照実装として cite される
+
+#### 詰まっている箇所
+
+なし。Effort XS、ADR への docs 追記のみ。
+
+---
+
+### `~/.claude/rules/common/git-workflow.md` に jj auto-snapshot onboarding rule 追記 (PR #201 post-merge-feedback T3-4 採用)
+
+> **動機**: jj は git の staging-area モデルと異なり working tree 全体を即座に @ commit に取り込む (auto-snapshot)。この挙動を知らない agent / ユーザーが「prior session の docs commit (順位 199-202)」と「本セッションの impl 変更 (順位 146 secret-detection)」を同 @ commit に混入させ、結果として bundle PR にせざるを得ない事象が PR #201 で発生 (advisor 助言で bundle 化に収束)。
+>
+> **本タスクの位置づけ**: PR #201 post-merge-feedback Tier 3 #4 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-10 ユーザー承認)。global `~/.claude/rules/common/git-workflow.md` への追記で派生プロジェクト (techbook-ledger / auto-review-fix-vc) へ自動波及。`feedback_global_config_backup` 適用必須。
+>
+> **参照**: `.claude/feedback-reports/201.md` Tier 3 #4、`~/.claude/rules/common/git-workflow.md` (拡張先、既存「jj Operations」section に追記)、PR #201 session log (auto-snapshot 由来の bundle 化事例、advisor consult)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。`~/.claude/rules/common/git-workflow.md` に 1 sub-section (10-15 行) 追記のみ。
+
+#### 設計決定 (案)
+
+- **配置**: `~/.claude/rules/common/git-workflow.md` の「jj Operations」section 直下に新 sub-section「Auto-snapshot の理解と logical separation」を追加
+- **記述内容**:
+  - **原則**: jj は staging area を持たず、working tree 全体を即座に @ commit に取り込む (auto-snapshot)
+  - **anti-pattern**: 異なる論理ユニットの作業を同 @ commit に混在させる (prior session commit に impl を後追いで足す等)
+  - **正しいフロー**: 新しい論理作業を始める前に必ず `jj new -m "<description>"` で空の @ を作る (memory `feedback_no_empty_change_before_push` の補完: push 直前ではなく **作業開始時** に作る、これにより auto-snapshot で混入しても commit 説明と整合)
+  - **トラブル時**: bundle 化が唯一の分離手段 (multi-unit same-file edit は jj path-level split で分離不能、本リポジトリ PR #201 実証)
+  - **由来**: PR #201 session で順位 199-202 docs と順位 146 impl の auto-snapshot 混入事象を実観測、advisor 助言で redescribe + bundle 化に収束
+  - **関連**: 既存「todo.md 完了タスク削除手順 (jj 環境)」と相補
+
+#### 作業計画
+
+- [ ] `~/.claude/` snapshot 取得 (`feedback_global_config_backup` 適用)
+- [ ] `~/.claude/rules/common/git-workflow.md` の「jj Operations」section を Read で確認
+- [ ] 新 sub-section「Auto-snapshot の理解と logical separation」を追加
+- [ ] 「正しいフロー」記述 + PR #201 cite を記述
+- [ ] 本 todo10.md エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/git-workflow.md` に auto-snapshot section が追加される
+- PR #201 の bundle 化事例が cite される
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) で同 rule が global 配下から自動波及
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rules への docs 追記のみ。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
