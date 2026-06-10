@@ -34,6 +34,36 @@
 enabled = true
 patterns = ["__*", "_tmp_*"]
 
+# ---------------------------------------------------------------------------
+# [pr_size_check] — 順位 151 (Bundle "既存ルール仕組み化"): PR diff サイズ検査。
+# `jj diff --stat -r '<default_branch>..@'` で PR 範囲の insertions + deletions を計測し、
+# `~/.claude/rules/common/git-workflow.md` § Multi-PR chaining の「1 PR あたり 250-800 lines」
+# 目安を決定論的に維持する。large PR は review iteration cost を増大させる構造リスク。
+#
+# ADR-039 (Experimental feature 標準パターン) 3 点セット:
+# - **Config opt-in**: 試験運用のため default OFF。本リポジトリでは明示的に
+#   `enabled = true` で dogfood を開始。section 不在 / enabled 未設定では完全 skip。
+# - **Kill-switch**: `enabled = false` で完全停止。env `PR_SIZE_CHECK_OVERRIDE=1` で
+#   個別 push の意図的バイパス可能 (大型 refactoring 時)。
+# - **Bounded lifetime**: 本リポジトリで 3-5 PR の dogfood 後 (false positive 観測 /
+#   検出効果 / override 使用頻度) に default-ON 昇格 or 却下を判定。判定結果は
+#   `src/cli-push-runner/src/stages/pr_size_check.rs` module doc + 本 section コメント
+#   に反映する。
+#
+# 2 段階閾値:
+# - `warning_threshold` (default 800): 超過時は警告ログのみ (push 続行)
+# - `block_threshold`   (default 1500): 超過時は push を block (override で bypass 可能)
+#
+# revset は `format!("{}..@", default_branch)` 形式で組立 (rule⑫
+# `no-hardcoded-jj-revset-range` 適用)。alternative branch (`main` 等) は本 section
+# で `default_branch = "main"` を明示すれば切替可能。
+# ---------------------------------------------------------------------------
+[pr_size_check]
+enabled = true
+default_branch = "master"
+warning_threshold = 800
+block_threshold = 1500
+
 [quality_gate]
 parallel = true
 # step_timeout 履歴: 120s (Phase b 当初) → 180s (PR #132、Phase b' で 12 件 mistral invoke が 120s 境界) →

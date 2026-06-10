@@ -19,6 +19,7 @@
 //!   5 - diff 取得失敗
 //!   6 - scratch_file_warning 検出 (override env で bypass 可能)
 //!   7 - bookmark_check 非 trunk bookmark 未設定
+//!   8 - pr_size_check が block_threshold 超過 (override env で bypass 可能)
 
 mod config;
 mod log;
@@ -30,7 +31,7 @@ use std::time::Instant;
 use config::load_config;
 use log::log_info;
 use stages::{
-    run_bookmark_check, run_diff, run_lint_screen, run_push, run_quality_gate,
+    run_bookmark_check, run_diff, run_lint_screen, run_pr_size_check, run_push, run_quality_gate,
     run_scratch_file_warning, run_takt, DiffResult,
 };
 
@@ -42,6 +43,7 @@ const EXIT_CONFIG_ERROR: i32 = 4;
 const EXIT_DIFF_FAILURE: i32 = 5;
 const EXIT_SCRATCH_FILE_WARNING: i32 = 6;
 const EXIT_BOOKMARK_MISSING: i32 = 7;
+const EXIT_PR_SIZE_EXCEEDED: i32 = 8;
 
 /// diff stage を実行し lint-screen を呼び出す。
 /// Ok(skip_takt) で成功、 Err(exit_code) で pipeline 中断。
@@ -66,7 +68,7 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<bool, i32> {
     Ok(false)
 }
 
-/// quality_gate より前の事前チェック (bookmark / scratch file) を実行する。
+/// quality_gate より前の事前チェック (bookmark / scratch file / pr size) を実行する。
 /// 失敗時は exit code を Err で返し、pipeline を中断する。
 fn run_pre_checks(config: &config::Config) -> Result<(), i32> {
     if !run_bookmark_check() {
@@ -82,6 +84,13 @@ fn run_pre_checks(config: &config::Config) -> Result<(), i32> {
              `SCRATCH_FILE_WARNING_OVERRIDE=1` のいずれかで再実行してください。",
         );
         return Err(EXIT_SCRATCH_FILE_WARNING);
+    }
+    if !run_pr_size_check(config.pr_size_check.as_ref()) {
+        log_info(
+            "パイプライン中断: PR diff サイズが block_threshold を超過。\
+             PR 分割 / 閾値調整 / `PR_SIZE_CHECK_OVERRIDE=1` のいずれかで再実行してください。",
+        );
+        return Err(EXIT_PR_SIZE_EXCEEDED);
     }
     Ok(())
 }
