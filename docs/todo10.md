@@ -499,6 +499,162 @@ fn companion_helpers_share_default_branch_signature() {
 
 ---
 
+### multi-byte 文字を含む string window test の標準 coverage requirement 化 (PR #200 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #200 で `priority_inversion::has_resolved_marker_after` の window 計算が **byte 演算** で、日本語 1 文字 = 3 bytes のため「80 文字」のつもりが実質 ~27 文字に縮退する Major bug が発生 (CR が指摘、char-based に修正済)。PR #199 でも `parse_age_secs` 周辺で byte/char 混乱があり、Frequency Medium (2 観測) で systemic。char-based fix と regression test (`is_resolved_detects_marker_across_multibyte_gap`) は PR #200 で完了済だが、**将来の新規 validator が同パターンで実装されたとき multi-byte test が無指定で欠落するリスク** を構造的に塞ぐ。
+>
+> **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort S / Adoption Risk None、2026-06-09 ユーザー承認)。`is_resolved_detects_marker_across_multibyte_gap` スタイルを **coverage requirement** として位置付け、新規 validator 追加 PR で同パターンの test を必須化する。
+>
+> **参照**: `.claude/feedback-reports/200.md` Tier 2 #1、`src/cli-docs-lint/src/priority_inversion.rs:469-473` (char-based window fix)、`is_resolved_detects_marker_across_multibyte_gap` test (regression)、PR #199 PastTime newtype + proptest (parse_age_secs 周辺の byte 演算)。
+>
+> **実行優先度**: 🔧 **Tier 2** — 工数 Small。Coverage requirement 化のみで実装作業は新 validator 追加時の test 追記 (チェックリスト + テストテンプレート)。
+
+#### 設計決定 (案)
+
+- **配置**: `~/.claude/rules/common/testing.md` (multi-path test fixture 拡張と同じ section) または `src/cli-docs-lint/README.md` (validator 追加 checklist)
+- **要求項目**:
+  - 文字列 window 演算 (`str::find` + byte offset / `[start..end]` slice) を行う validator は、**30 bytes 超 multi-byte 文字を含む regression test を 1 件以上保持** する
+  - 推奨 fixture: CJK 40 文字 (= 120 bytes) gap + 末尾に marker
+  - assertion で window 内検出を verify
+- **enforcement layer**:
+  - 案 A: docs (manual checklist、reviewer に頼る)
+  - 案 B: custom-lint-rules.toml で `str::find` + `[..]` slice 使用 file に対応 multi-byte test の存在を grep ベースで弱検出 (FP リスク高、要検討)
+- **MVP**: 案 A (docs/checklist) で開始、3-5 validator land 後に案 B 化を再評価
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/testing.md` の sentinel pattern section 末尾に「multi-byte string window test 必須」を追記
+- [ ] `src/cli-docs-lint/README.md` (or 該当 doc) に validator 追加 checklist として記載
+- [ ] PR #200 の `is_resolved_detects_marker_across_multibyte_gap` を参照テンプレートとして cite
+- [ ] 派生プロジェクト deploy 計画 (techbook-ledger / auto-review-fix-vc) を別 task として todo 登録
+- [ ] 本 todo10.md エントリを削除
+
+#### 完了基準
+
+- testing.md に「multi-byte string window test 必須」requirement が追記され、参照テンプレートとして PR #200 test が cite される
+- 派生プロジェクトでも同 rule が global 配下から自動波及
+
+#### 詰まっている箇所
+
+- 案 B (mechanical enforcement) は FP リスクが見えるため MVP では docs のみで開始。dogfood で test 漏れ実例が観測されたら案 B を再検討。
+
+---
+
+### `~/.claude/rules/rust/patterns.md` に「String Indexing with Multi-byte Characters」section 追加 (PR #200 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #200 で `priority_inversion::has_resolved_marker_after` の byte/char 混同 Major bug を fix した際、`char_indices().nth(N)` パターンが Rust の canonical solution として有効と判明。同パターンは現在 `~/.claude/rules/rust/` に未記述で、将来の lint rule 著者が同型 bug を再生産するリスクあり。PR #199 (parse_age_secs 周辺) + PR #200 (priority_inversion) で 2 観測 = Frequency Medium。
+>
+> **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-09 ユーザー承認)。global `~/.claude/rules/rust/patterns.md` への section 追加で、派生プロジェクト (techbook-ledger / auto-review-fix-vc) へも自動波及。
+>
+> **参照**: `.claude/feedback-reports/200.md` Tier 3 #1、`src/cli-docs-lint/src/priority_inversion.rs:178-184` (char_indices() pattern)、PR #199 (parse_age_secs byte/char 観測)。
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。`~/.claude/rules/rust/patterns.md` に 1 section (10-20 行) 追加のみ。
+
+#### 設計決定 (案)
+
+- **配置**: `~/.claude/rules/rust/patterns.md` の Newtype Pattern section 近傍に新 section「String Indexing with Multi-byte Characters」を追加
+- **記述内容**:
+  - **BAD**: `&haystack[start..start + N]` で N が byte offset の場合 → multi-byte で off-by-N bytes
+  - **GOOD**: `haystack[start..].char_indices().nth(N).map(|(i, _)| start + i).unwrap_or(haystack.len())` で N 文字目の byte offset を取得
+  - **由来**: PR #200 priority_inversion `has_resolved_marker_after` (cite 必須)
+  - **関連**: rust/security.md § Input Validation の「Parse, don't validate」原則と相補
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/rust/patterns.md` を Read で確認 (現状の section 構成)
+- [ ] 新 section「String Indexing with Multi-byte Characters」を Newtype Pattern 近傍に追加
+- [ ] BAD/GOOD code sample + PR #200 引用 + 関連参照を記述
+- [ ] `feedback_global_config_backup` を適用して snapshot 取得
+- [ ] 本 todo10.md エントリを削除
+
+#### 完了基準
+
+- `~/.claude/rules/rust/patterns.md` に新 section が追加され、char_indices().nth() pattern が canonical reference として記述される
+- PR #200 の修正箇所 (src/cli-docs-lint/src/priority_inversion.rs:178-184) が cite される
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rules への docs 追記のみ。
+
+---
+
+### ADR-007 に「Regex は loop 内で `LazyLock<Regex>` 必須」guideline 追記 (PR #200 post-merge-feedback T3-2 採用)
+
+> **動機**: PR #200 で `priority_inversion::parse_tier` / `extract_referenced_ranks` が per-row `Regex::new()` 再 compile していた問題を `LazyLock<Regex>` で module 初期化時の 1 回 compile に修正 (F-2)。同パターンの guideline は ADR-007 (custom linter regex/AST 層の線引き) に未記述で、将来の custom lint rule 著者が同型 bug を再生産するリスクあり。小規模 table では無害だが 1000+ 行 table では顕著な遅延。
+>
+> **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None、2026-06-09 ユーザー承認)。ADR-007 への guideline 追記で、本リポジトリの lint runner サポートと整合。
+>
+> **参照**: `.claude/feedback-reports/200.md` Tier 3 #2、`src/cli-docs-lint/src/priority_inversion.rs:29-34` (TIER_REGEX / RANK_REGEX の LazyLock 定義)、ADR-007 (custom-linter-layer-boundary)。
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。ADR-007 に 1 guideline (5-10 行) 追記のみ。
+
+#### 設計決定 (案)
+
+- **配置**: `docs/adr/adr-007-custom-linter-layer-boundary.md` の「正規表現層」section に新 guideline 「Regex は loop / repeated call 内では `LazyLock<Regex>` 必須」を追記
+- **記述内容**:
+  - **原則**: `Regex::new()` は重い処理 (regex compilation)。loop 内 / per-row call で繰り返すと累積コストが顕在化
+  - **GOOD**: `static MY_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"...").unwrap());`
+  - **由来**: PR #200 priority_inversion の `TIER_REGEX` / `RANK_REGEX` (cite 必須)
+  - **関連**: `~/.claude/rules/rust/coding-style.md` § Iterators Over Loops と相補
+
+#### 作業計画
+
+- [ ] `docs/adr/adr-007-custom-linter-layer-boundary.md` を Read で確認 (現状の section 構成)
+- [ ] 「正規表現層」section に新 guideline を追記
+- [ ] LazyLock 利用例 + PR #200 引用を記述
+- [ ] 本 todo10.md エントリを削除
+
+#### 完了基準
+
+- ADR-007 に「Regex は loop / repeated call 内で LazyLock<Regex> 必須」guideline が追記される
+- PR #200 の TIER_REGEX / RANK_REGEX が参照実装として cite される
+
+#### 詰まっている箇所
+
+なし。Effort XS、ADR への docs 追記のみ。
+
+---
+
+### `~/.claude/rules/common/testing.md` に「multi-path test fixture isolation」section 追記 (PR #200 post-merge-feedback T3-3 採用)
+
+> **動機**: PR #200 pre-push reviewer non-blocking finding F-3 で、test fixture が **意図せず複数 path をカバー** していると、将来 fixture 変更時に test 経路が silent shift する fragility が指摘された。修正は fixture を resolved-marker 非含有に変更し missing-rank 経路を厳密に exercise する形にした。この設計手法は sentinel pattern (`feedback_test_dry_antipattern` 起源、testing.md 既記述) と独立な「Path A を exercise する場合は Path B トリガー条件を意図的に除外」 pattern として汎用化できる。
+>
+> **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 3 #3 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None、2026-06-09 ユーザー承認)。sentinel section 直下に「multi-path test fixture isolation」変種として追加することで、test robustness パターンを補完。
+>
+> **参照**: `.claude/feedback-reports/200.md` Tier 3 #3、`src/cli-docs-lint/src/priority_inversion.rs:633-637` (F-3 fix のテストコメント、fixture 設計意図)、PR #200 pre-push reviewer F-3 finding。
+>
+> **実行優先度**: 💎 **Tier 3** — 工数 XS。`~/.claude/rules/common/testing.md` の sentinel section に 1 sub-section (10-15 行) 追記のみ。
+
+#### 設計決定 (案)
+
+- **配置**: `~/.claude/rules/common/testing.md` の sentinel 事前投入 section 直下
+- **記述内容**:
+  - **原則**: 複数 path をカバーしうる fixture では、Path A を exercise する意図なら Path B トリガー条件を fixture から **明示除外** する。silent shift (= 将来 fixture 変更で test 経路が無告知に変わる) を防ぐ
+  - **BAD**: missing-rank 経路を exercise する test で fixture に resolved-marker (`(retire 済)`) を含める → 別経路でも skip するため意図 path が test されない
+  - **GOOD**: missing-rank 経路には resolved-marker 非含有 fixture (`順位 19 land 後推奨`) を使う → 純粋に missing-rank skip のみが exercise される
+  - **由来**: PR #200 F-3 fix (`is_rank_resolved` test fixture redesign)
+  - **関連**: sentinel 事前投入 (mutation 不在 assert) と相補的 — sentinel は「mutation が起こらないことを観測可能化」、本パターンは「意図 path を path-shift から保護」
+
+#### 作業計画
+
+- [ ] `~/.claude/rules/common/testing.md` を Read で確認 (sentinel section の現状)
+- [ ] sentinel section 直下に新 sub-section「multi-path test fixture isolation」を追加
+- [ ] BAD/GOOD example + PR #200 F-3 cite を記述
+- [ ] `feedback_global_config_backup` を適用して snapshot 取得
+- [ ] 本 todo10.md エントリを削除
+
+#### 完了基準
+
+- testing.md に新 sub-section が追加され、PR #200 F-3 fix が参照例として cite される
+- sentinel pattern と相補的な独立パターンとして区別が明示される
+- 派生プロジェクトでも同 rule が global 配下から自動波及
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rules への docs 追記のみ。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
