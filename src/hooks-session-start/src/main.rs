@@ -26,6 +26,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod past_time;
+use past_time::PastTime;
+
 /// SessionStart hook の stdin JSON (必要なフィールドのみ)
 #[derive(Deserialize)]
 struct HookInput {
@@ -136,7 +139,7 @@ struct OrphanRun {
 /// 失敗 (invalid date / non-ASCII / 月日範囲外) 時は `None`。fractional 秒は
 /// truncate (整数秒精度で十分)。実装は `check-ci-coderabbit::parse_iso8601_to_unix`
 /// と同型 (no chrono dep policy)。
-fn parse_iso8601_to_unix(s: &str) -> Option<i64> {
+pub(crate) fn parse_iso8601_to_unix(s: &str) -> Option<i64> {
     let no_frac = s.split('.').next()?.trim_end_matches('Z');
     let mut parts = no_frac.split('T');
     let date = parts.next()?;
@@ -233,7 +236,10 @@ fn find_orphan_post_merge_feedback_runs(runs_dir: &Path, now_unix: i64) -> Vec<O
         let Some((pr_number, start_unix)) = meta_to_orphan_inputs(&meta) else {
             continue;
         };
-        let age = now_unix.saturating_sub(start_unix);
+        let Some(past) = PastTime::from_parts(start_unix, now_unix) else {
+            continue;
+        };
+        let age = past.age_secs();
         if age < ORPHAN_THRESHOLD_SECS as i64 {
             continue;
         }
@@ -1234,6 +1240,23 @@ mod tests {
         std::fs::write(run.join("meta.json"), "not-valid-json{").unwrap();
         let orphans = find_orphan_post_merge_feedback_runs(&runs, 9_999_999_999);
         assert!(orphans.is_empty(), "malformed meta.json must be skipped defensively");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_orphans_skips_future_start_time_without_silent_age_zero() {
+        let root = unique_temp_root("future-start");
+        let runs = root.join(".takt/runs");
+        let run = runs.join("20260513-100000-post-merge-feedback-for-161");
+        let start_iso = "2027-01-01T00:00:00Z";
+        let start_unix = parse_iso8601_to_unix(start_iso).unwrap();
+        write_meta(&run, "post-merge-feedback for #161", "running", start_iso);
+        let now = start_unix - 3600;
+        let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
+        assert!(
+            orphans.is_empty(),
+            "future startTime must be rejected by PastTime, not silently age=0 (順位 197 / Bundle W)"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
