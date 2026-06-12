@@ -77,17 +77,6 @@ pub(crate) fn run_cmd_direct(
     (code == 0, combined)
 }
 
-#[allow(dead_code)]
-pub(crate) fn combine_output(stdout: &str, stderr: &str) -> String {
-    if stdout.is_empty() {
-        stderr.to_string()
-    } else if stderr.is_empty() {
-        stdout.to_string()
-    } else {
-        format!("{}\n{}", stdout, stderr)
-    }
-}
-
 /// タイムアウト付きで子プロセスの終了を待つ。
 /// `None` はタイムアウトを意味する（プロセスは kill 済み）。
 ///
@@ -274,27 +263,3 @@ pub(crate) fn checker_exe_path() -> PathBuf {
         .join("check-ci-coderabbit.exe")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn combine_output_both() {
-        assert_eq!(combine_output("a", "b"), "a\nb");
-    }
-
-    #[test]
-    fn combine_output_stdout_only() {
-        assert_eq!(combine_output("a", ""), "a");
-    }
-
-    #[test]
-    fn combine_output_stderr_only() {
-        assert_eq!(combine_output("", "b"), "b");
-    }
-
-    #[test]
-    fn combine_output_empty() {
-        assert_eq!(combine_output("", ""), "");
-    }
-}

@@ -13,6 +13,7 @@
 //!   1 - パイプライン失敗（テスト失敗等）
 //!   2 - 設定エラー
 
+use lib_subprocess::combine_output;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -151,19 +152,6 @@ fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
 
     (success, combined)
 }
-
-/// stdout と stderr を結合する
-fn combine_output(stdout: &str, stderr: &str) -> String {
-    if stdout.is_empty() {
-        stderr.to_string()
-    } else if stderr.is_empty() {
-        stdout.to_string()
-    } else {
-        format!("{}\n{}", stdout, stderr)
-    }
-}
-
-// ─── 設定ファイル読み込み ───
 
 /// exe と同じディレクトリにある hooks-config.toml のパスを返す
 fn config_path() -> PathBuf {

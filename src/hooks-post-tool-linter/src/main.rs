@@ -7,6 +7,7 @@
 //! 拡張子ごとのパイプラインを読み込みます。
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use lib_subprocess::combine_output;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
@@ -362,18 +363,6 @@ fn run_command(program: &str, args: &[String]) -> (String, String) {
     }
 }
 
-/// stdout と stderr を適切に結合する
-fn combine_output(stdout: &str, stderr: &str) -> String {
-    if stdout.is_empty() {
-        stderr.to_string()
-    } else if stderr.is_empty() {
-        stdout.to_string()
-    } else if stdout.ends_with('\n') {
-        format!("{}{}", stdout, stderr)
-    } else {
-        format!("{}\n{}", stdout, stderr)
-    }
-}
 
 /// 順位 177 (PR #197 で Tier 1 (優先実装) 格上げ済):
 /// PostToolUse Edit / Write 直後にファイルサイズ閾値超過を検出して分割を促す。
@@ -926,30 +915,6 @@ mod tests {
         assert!(find_pipeline("file.TS", &pipelines).is_some());
         assert!(find_pipeline("file.Tsx", &pipelines).is_some());
     }
-
-    // --- 出力結合 ---
-
-    #[test]
-    fn combine_empty_stdout() {
-        assert_eq!(combine_output("", "error"), "error");
-    }
-
-    #[test]
-    fn combine_empty_stderr() {
-        assert_eq!(combine_output("output", ""), "output");
-    }
-
-    #[test]
-    fn combine_both_with_trailing_newline() {
-        assert_eq!(combine_output("output\n", "error"), "output\nerror");
-    }
-
-    #[test]
-    fn combine_both_without_trailing_newline() {
-        assert_eq!(combine_output("output", "error"), "output\nerror");
-    }
-
-    // --- フィードバック JSON ---
 
     #[test]
     fn feedback_json_has_correct_structure() {

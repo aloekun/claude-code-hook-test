@@ -1,6 +1,8 @@
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 
+use lib_subprocess::combine_output;
+
 use crate::log::log_info;
 
 const MAX_LINES: usize = 40;
@@ -31,16 +33,6 @@ pub(crate) fn drain_pipe(
         }
         collected.join("\n")
     })
-}
-
-pub(crate) fn combine_output(stdout: &str, stderr: &str) -> String {
-    if stdout.is_empty() {
-        stderr.to_string()
-    } else if stderr.is_empty() {
-        stdout.to_string()
-    } else {
-        format!("{}\n{}", stdout, stderr)
-    }
 }
 
 /// タイムアウト付きで子プロセスの終了を待つ。
@@ -132,26 +124,6 @@ pub(crate) fn run_cmd_inherit(label: &str, program: &str, args: &[&str]) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn combine_output_both_present() {
-        assert_eq!(combine_output("out", "err"), "out\nerr");
-    }
-
-    #[test]
-    fn combine_output_only_stdout() {
-        assert_eq!(combine_output("out", ""), "out");
-    }
-
-    #[test]
-    fn combine_output_only_stderr() {
-        assert_eq!(combine_output("", "err"), "err");
-    }
-
-    #[test]
-    fn combine_output_both_empty() {
-        assert_eq!(combine_output("", ""), "");
-    }
 
     #[test]
     fn run_stage_cmd_returns_ok_on_success() {
