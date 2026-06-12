@@ -98,17 +98,23 @@ grep_recent_limit = 20          # jj log で参照する直近 commit 数
 # 順位 177 (PR #197 で Tier 1 (優先実装) 格上げ) で実装。
 # PostToolUse Edit/Write 直後にファイルサイズを確認し、threshold (50KB) 超過時に
 # additionalContext でファイル分割を促す。Claude Code 読み取り安定性閾値 (50KB) を
-# 機械強制する Layer 0.5。
+# 機械強制する custom linter。
 #
-# ADR-039 § 3 opt-in pattern: default OFF (enabled = false)、明示有効化で発火。
+# ADR-039 § 1.b mechanical lint 例外で default ON (PR #203 で訂正、本 PR で適用):
+#   - 失敗 mode が non-blocking (additionalContext warning のみ、ブロックしない)
+#   - 判定が決定論的 (50KB 固定閾値、discretionary 判断なし)
+#   - 適用 scope が宣言的に限定 (paths glob)
+#   - recovery hint が明確 (todo*.md なら新 todo<N+1>.md を新設して移管)
+# 同類例: 順位 147 file_length lint (hooks-post-tool-comment-lint-rust) も default ON 固定。
+#
 # touch-trigger ratchet (default true): 触られたファイルのみチェック = 既存超過
 # ファイルは未編集なら grandfather。strict mode (touch_trigger=false で全 enabled
-# paths を scan) は MVP では受理のみ、3-5 PR の dogfood 後に判定 (bounded lifetime)。
+# paths を scan) は MVP では受理のみ。
 #
 # Kill-switch: enabled = false で完全停止。
 [post_tool_use.file_size_check]
-enabled = false                                  # opt-in (明示有効化で発火、ADR-039 § 3 bounded lifetime: 3-5 PR dogfood 後に default-ON 昇格判定)
-threshold_bytes = 51200                          # 50KB (= 50 * 1024)
+enabled = true                                   # ADR-039 § 1.b mechanical lint 例外 (non-blocking + 決定論 + scope 限定 + recovery hint 明確)
+threshold_bytes = 51200                          # 50KB (= 50 * 1024)、Claude Code 読み取り安定性閾値
 paths = ["docs/**/*.md", "src/**/*.rs"]          # default 対象 glob
 touch_trigger = true                             # 触られたファイルのみ check (ratchet)
 
