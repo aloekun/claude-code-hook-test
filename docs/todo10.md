@@ -388,35 +388,36 @@ fn companion_helpers_share_default_branch_signature() {
 
 ---
 
-### ADR-NNN (採番未確定、land 時に確定): Timestamp invariant safety — 時刻計算 silent failure class の codify (PR #199 post-merge-feedback T3-2 採用)
+### ADR-NNN (採番未確定、land 時に確定): Timestamp invariant safety — 時刻計算 silent failure class の codify (PR #199 post-merge-feedback T3-2 採用、PR #203 T3-1 で 3 観測目に昇格)
 
-> **動機**: PR #96 Finding D (`cli-pr-monitor::lock` の `parse_age_secs` で `saturating_sub` silent semantic mismatch) と PR #199 Bundle W (PastTime newtype + proptest で構造的予防) で同型 bug class が 2 件観測 (Frequency Medium)。本 ADR は「時刻計算における silent failure class と型レベル防御」を永続化し、派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability を確保する。
+> **動機**: PR #96 Finding D (`cli-pr-monitor::lock` の `parse_age_secs` で `saturating_sub` silent semantic mismatch)、PR #199 Bundle W (`cli-pr-monitor::lock` に PastTime newtype + proptest で構造的予防)、PR #203 (`hooks-session-start` に PastTime + proptest 移植) で同型 bug class が **3 件観測 (Frequency High)**。本 ADR は「時刻計算における silent failure class と型レベル防御」を永続化し、派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability を確保する。
 >
-> **本タスクの位置づけ**: PR #199 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None、2026-06-08 ユーザー承認)。順位 135 codified placeholder policy を適用し ADR 番号は land 時 PR で空き番号を確定する (本 entry 登録時点で ADR-038/039/040/041/042/043 占有済、044 が最有力候補だが land 時に再確認)。
+> **本タスクの位置づけ**: PR #199 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None、2026-06-08 ユーザー承認)。PR #203 post-merge-feedback Tier 3 #1 で 3 観測目として再確認、2026-06-11 ユーザー承認 (analyzer は新規 entry を提案したが既存 entry 強化として merge、`feedback_post_merge_feedback_adoption_requires_user_approval` + 順位 194「task 着手前に grep」適用)。順位 135 codified placeholder policy を適用し ADR 番号は land 時 PR で空き番号を確定する (本 entry 登録時点で ADR-038/039/040/041/042/043 占有済、044 が最有力候補だが land 時に再確認)。
 >
-> **参照**: `.claude/feedback-reports/199.md` Tier 3 #2、PR #96 Finding D、PR #199 Bundle W (PastTime newtype 実装 + proptest properties 5 件)、`~/.claude/rules/rust/patterns.md` § Newtype Pattern (extension 候補)、順位 135 (ADR 番号 hardcode 撤廃 policy)、順位 78 (旧 ADR-038 → 041 → NNN の 3 段振り直し実証)
+> **参照**: `.claude/feedback-reports/199.md` Tier 3 #2、`.claude/feedback-reports/203.md` Tier 3 #1、PR #96 Finding D、PR #199 Bundle W (PastTime newtype 実装 + proptest properties 5 件)、PR #203 (hooks-session-start への port + integration test 追加)、`~/.claude/rules/rust/patterns.md` § Newtype Pattern (extension 候補)、順位 135 (ADR 番号 hardcode 撤廃 policy)、順位 78 (旧 ADR-038 → 041 → NNN の 3 段振り直し実証)
 >
-> **実行優先度**: 💎 **Tier 3** — 工数 Medium。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記。
+> **実行優先度**: 💎 **Tier 3** — 工数 Medium。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記。Frequency High (3 PR) に昇格したため優先度内で着手順を引き上げる余地あり。
 
 #### 背景
 
 - **Bug class の定義**: `saturating_sub(now, then)` 等の silent fallback が dominate ドメイン的に誤った値 (age=0) を返し、後段の判定で「fresh」「young」等の誤判定を生む
 - **発生条件**: clock rewind (NTP 巻き戻し / VM snapshot restore) / 破損 future timestamp (corrupted lock file / 不正 input) / 時刻取得失敗 → silent fallback
 - **防御原則**: 業務ロジック的に不可能な状態 (future timestamp の存在) を型層で unrepresentable にする。construction 時に invariant 検証、`age_secs()` 等の derived 値は invariant により安全に計算
-- **実証パターン**: PR #199 Bundle W で `PastTime { epoch_secs, captured_now }` newtype + `from_iso8601_now` / `from_parts` 2 経路 + `age_secs()` non-negative invariant + proptest 5 properties で構造化
+- **実証パターン**: PR #199 Bundle W で `PastTime { epoch_secs, captured_now }` newtype + `from_iso8601_now` / `from_parts` 2 経路 + `age_secs()` non-negative invariant + proptest 5 properties で構造化、PR #203 で同 pattern を `hooks-session-start` の orphan reaper に展開 (`saturating_sub` 排除 + integration test `find_orphans_skips_future_start_time_without_silent_age_zero` 追加)
 
 #### 設計決定 (案)
 
 - **ADR title (案)**: 「Timestamp invariant safety — 時刻計算 silent failure class と型レベル防御」
 - **ADR sections (案)**:
-  1. **コンテキスト**: bug class 定義 + 観測実例 (PR #96 Finding D / PR #199 Bundle W)
+  1. **コンテキスト**: bug class 定義 + 観測実例 (PR #96 Finding D / PR #199 Bundle W / PR #203 hooks-session-start port)
   2. **決定**:
      - 原則 1: `saturating_sub` を時刻計算で使用しない (silent fallback 禁止)
      - 原則 2: 「過去性」を型で表現する (newtype + construction 時 invariant)
      - 原則 3: proptest properties で type invariant を executable contract として記述
   3. **設計哲学**: 「業務ロジック的に impossible な状態を型層で unrepresentable にする」(parse, don't validate 派生)
-  4. **派生プロジェクト適用**: cli-pr-monitor (実装済) / hooks-session-start (順位 197 で実装予定) / 派生プロジェクトの時刻計算箇所 (検出→展開計画)
-  5. **完了状態 / 関連 ADR**: PR #199 (実証)、ADR-021 / ADR-024 等の参照
+  4. **派生プロジェクト適用**: cli-pr-monitor (PR #199 で実装済) / hooks-session-start (PR #203 で実装済、共通 lib 化は順位 T2-1 で別 task) / 派生プロジェクトの時刻計算箇所 (検出→展開計画)
+  5. **完了状態 / 関連 ADR**: PR #199 (実証)、PR #203 (port 実証)、ADR-021 / ADR-024 等の参照
+
 - **CLAUDE.md ADR list**: 「ADR-NNN: Timestamp invariant safety + saturating_sub による silent fallback 禁止 *(試験運用)*」として追記
 
 #### 作業計画
@@ -424,7 +425,7 @@ fn companion_helpers_share_default_branch_signature() {
 - [ ] land 時 PR で ADR 空き番号を確定 (現状最有力は ADR-044)
 - [ ] `docs/adr/adr-NNN-timestamp-invariant-safety.md` を新規作成 (試験運用)
 - [ ] CLAUDE.md ADR list に追記
-- [ ] PR #96 Finding D / PR #199 Bundle W を実例として inline cite
+- [ ] PR #96 Finding D / PR #199 Bundle W / PR #203 hooks-session-start port を実例として inline cite
 - [ ] (任意) `~/.claude/rules/rust/patterns.md` § Newtype Pattern に link back を追記 (順位 T3-1 様子見と連動で判断)
 - [ ] 本 todo10.md エントリを削除
 
