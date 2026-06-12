@@ -40,12 +40,42 @@
 
 試験運用 feature を導入する際の **標準パターン** として 3 点セットを以下の通り規定する。新規試験運用 ADR は本 ADR を **参照** し、3 点を満たすことを default とする。
 
-### 1. Config opt-in (デフォルト無効)
+### 1. Config opt-in (デフォルト無効) — 適用対象を明示
+
+本 § は **behavior の妥当性が不確定な** experimental feature に適用する。具体的には:
+
+- 挙動が後の dogfood で「失敗 / 却下 / 方向転換」されうるもの
+- false positive 発生時に多数 user / session に影響するもの
+- 採否判定 (採用 / 却下 / 継続) のフェーズが必要なもの
+
+該当する場合:
 
 - 設定ファイル (`*.toml`) または env var で `enabled = false` をデフォルトとする
 - 明示有効化 (`enabled = true`) で feature 発動
 - env var / config 値での切り替えを必ず提供 (config-only より env override 可能な方が望ましい)
 - 派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) への deploy 時にも default OFF が継承されるよう、`[feature]` section の追加を必須化
+
+### 1.b 適用対象外: 決定論的 mechanical lint (default ON 許容、PR #203 post-merge-feedback 由来)
+
+以下条件をすべて満たす機能は § 1 (default OFF) の対象外とし、**default ON で配布してよい**:
+
+1. **失敗 mode が non-blocking**: block ではなく additionalContext / warning のみ (ユーザー操作を妨げない)
+2. **判定が決定論的**: 閾値 (例: 50KB) / 文字列 match (例: regex) / metadata 演算で discretionary 判断を含まない
+3. **影響範囲が宣言的に限定**: scope filter (`paths` glob / extension match 等) で適用箇所が config or const で限定済み
+4. **recovery hint が明確**: 違反検出時に「次にやるべきこと」が message に含まれる
+
+該当する例 (本リポジトリで既に default ON 稼働中):
+
+- **順位 147 file_length lint** (`hooks-post-tool-comment-lint-rust`、Rust source 800 行 max): `const MAX_FILE_LINES = 800` で固定、config 不在 = ON 固定
+- **順位 177 file_size_check** (`hooks-post-tool-linter` § Layer 0.5、metadata-only 50KB threshold): touch-trigger ratchet で grandfather + paths glob で scope 限定
+
+該当**しない**例 (default OFF が正しい):
+
+- post-merge-feedback (ADR-014/030): 挙動が dogfood で確定する experimental
+- weekly-review (ADR-031): 採否判定要、reminder 頻度や observation rubric が dogfood で進化
+- local-llm-finding-classification (ADR-038): classification 精度が dogfood で判定
+
+**過去の誤適用**: PR #197 で順位 177 file_size_check を ADR-039 § 1 機械適用で default OFF にしたが、本 PR (PR #203 post-merge-feedback 由来) で「決定論的 mechanical lint = § 1.b 例外で default ON」へ訂正。順位 147 と同様の扱いに統一。
 
 ### 2. Kill-switch (停止経路の事前明文化)
 
@@ -82,7 +112,20 @@ decision trigger は **config (TOML コメント) / code comment (module doc) / 
 
 ### 新規 experimental feature 追加時の self-review checklist
 
-新規 experimental feature を追加する PR では、push 前 self-review で以下 4 点の整合を **mechanical に** 確認する。各点は discretionary 判断を含まず、config / code / docs / test の差分を機械的に照合できる:
+新規 feature を追加する PR では、push 前 self-review で以下 5 点 (上位 1 件 + mechanical 4 件) の整合を確認する。**上位判定で「§ 1.b 例外」に該当した場合は 4 点 checklist を skip し、default ON で配布**する:
+
+#### 0. 上位判定: そもそも § 1 適用対象か? (PR #203 post-merge-feedback 由来)
+
+§ 1.b の 4 条件 (non-blocking / 決定論 / scope 限定 / recovery hint 明確) をすべて満たすか self-check する:
+
+- **すべて満たす** → § 1.b 例外、default ON で配布 (順位 147 file_length lint / 順位 177 file_size_check と同 pattern)
+- **1 つでも欠ける** → § 1 適用、以下 4 点 checklist を実施
+
+判断に迷う場合は 4 点 checklist を実施する側 (default OFF) を選択 (= conservative default)。本判定を skip して機械的に 4 点 checklist を実施すると、決定論的 mechanical lint を誤って opt-in 化する over-application が発生する (PR #197 順位 177 で実観測、PR #203 で訂正)。
+
+#### 1-4. § 1 適用時の mechanical 4 点 (config / code / docs / test)
+
+各点は discretionary 判断を含まず、config / code / docs / test の差分を機械的に照合できる:
 
 1. **config schema**: 該当 hook / module の config struct (例: `WeeklyReviewReminderConfig`) が `enabled: Option<bool>` field を持つ
 2. **feature flag default OFF**: 該当 config の `enabled` の default が **OFF** (= `unwrap_or(false)`) になっている。`unwrap_or(true)` は § 決定 1 (Config opt-in) 違反
