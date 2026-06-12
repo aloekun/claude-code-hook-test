@@ -333,6 +333,105 @@
 
 ---
 
+### `~/.claude/rules/common/development-workflow.md` § 1. Plan First に「todo*.md 分割時の todo-summary.md 同一 commit 更新」checklist 追加 (PR #204 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #133 (`todo.md` → `todo.md` + `todo2.md` 分割)、PR #153 (`*-analysis.md` 3-way split)、PR #204 (本 PR、`todo10.md` → `todo10.md` + `todo12.md` 分割) の **3 PR 連続観測** で「multi-file artifact split 時に `docs/todo-summary.md` の file-column pointer 更新が漏れて pre-push reviewer / CR に指摘される」事象が systemic 化 (Frequency Medium 閾値到達)。`~/.claude/rules/common/development-workflow.md` § 1. Plan First に「分割時の cross-file reference 更新手順」を 3 step checklist として追記し、後続の split 作業で reviewer iteration を構造的に削減する。
+>
+> **本タスクの位置づけ**: PR #204 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None、2026-06-12 ユーザー承認)。3 PR 連続観測で `feedback_no_unenforced_rules.md` 例外 = 既存実践 (3 PR で実証) の明文化 + guide 効果。永続 artifact (todo-summary.md) が ephemeral entries を参照する pattern は `~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle の具体化事例として cite 可能。
+>
+> **参照**: `.claude/feedback-reports/204.md` Tier 3 #1、PR #133 (todo.md split)、PR #153 (analysis.md 3-way split)、PR #204 (todo10.md split、本 PR)、`~/.claude/rules/common/development-workflow.md` § 1. Plan First、`~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle (相補)、memory `feedback_global_config_backup` (snapshot 必須)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。`~/.claude/rules/common/development-workflow.md` への 5-10 行追記。
+
+#### 設計決定 (案)
+
+`~/.claude/rules/common/development-workflow.md` の "1. Plan First" sub-step (既存「Codification 重複の事前確認」step の直後) に以下を追記:
+
+```markdown
+- **Multi-file artifact split 時の cross-file reference 更新**: `docs/todo*.md` / `docs/<topic>*.md` 等を分割する場合、永続 index (`docs/todo-summary.md` 等) の file-column pointer / 番号参照を **同一 commit で必ず更新**する。3 step checklist:
+  1. 分割元のエントリを特定 (= 新ファイルに移動するエントリの順位 / 識別子を列挙)
+  2. `docs/todo-summary.md` 等の永続 index で当該行の file 列を新ファイル名に sed 一括更新
+  3. 両方の変更を同一 commit に含める (split + reference 更新を分離すると pre-push reviewer から outdated pointer 指摘 = iteration cost)
+- 由来: PR #133 (todo.md → todo2.md)、PR #153 (analysis.md 3-way split)、PR #204 (todo10.md → todo12.md) の 3 PR で pre-push reviewer / CR 指摘 = Frequency Medium 閾値到達
+```
+
+- **適用範囲**: `docs/todo*.md` / `docs/*analysis*.md` / その他 split 対象になりうる multi-file artifact
+- **派生プロジェクト波及**: `~/.claude/rules/common/` 配下のため techbook-ledger / auto-review-fix-vc に自動
+
+#### 作業計画
+
+- [ ] `~/.claude` snapshot 取得 (memory `feedback_global_config_backup` per)
+- [ ] `~/.claude/rules/common/development-workflow.md` § 1. Plan First に上記 checklist を追記 (既存「Codification 重複の事前確認」step の直後配置)
+- [ ] PR #133 / #153 / #204 を inline cite として明記
+- [ ] markdownlint clean
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/development-workflow.md` § 1. Plan First に「Multi-file artifact split 時の cross-file reference 更新」3 step checklist が追記される
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) に global rule として自動波及
+- 由来 cite (PR #133, #153, #204) で reviewer / Claude が rule 背景を理解可能
+
+#### 詰まっている箇所
+
+なし。Effort S、global rules への docs 追記のみ、`feedback_global_config_backup` snapshot を忘れない。
+
+---
+
+### `~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 に「mechanical lint は ADR-039 scope 外」境界 case 追加 (PR #204 post-merge-feedback T3-2 採用)
+
+> **動機**: PR #204 で project-local `docs/adr/adr-039-experimental-feature-standard-pattern.md` に § 1.b (mechanical lint 例外) を追加したが、global rules (`~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須) には mechanical lint 境界 case の記述がない。派生プロジェクト (techbook-ledger / auto-review-fix-vc) で同型の ADR-039 over-application (= 順位 177 file_size_check が default OFF にされた事象) が再発する構造リスク。global rules に boundary case を投影することで派生プロジェクト全体に予防効果を波及。
+>
+> **本タスクの位置づけ**: PR #204 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-06-12 ユーザー承認)。本セッション中で順位 200 (rust/patterns.md multi-byte indexing) / 202 (testing.md multi-path fixture) / 205 (git-workflow.md jj auto-snapshot) と同 pattern = 「project-local 知見を global rules に投影して派生プロジェクトに自動波及」。
+>
+> **参照**: `.claude/feedback-reports/204.md` Tier 3 #2、PR #204 (project-local ADR-039 § 1.b 追加)、`~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須、PR #197 (順位 177 file_size_check の誤適用観測点)、順位 200/202/205 (同 pattern の global codification 事例)、memory `feedback_global_config_backup` (snapshot 必須)
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。`~/.claude/rules/common/patterns.md` への 6-10 行追記。
+
+#### 設計決定 (案)
+
+`~/.claude/rules/common/patterns.md` § "Experimental Feature 設計時の参照必須" に以下を追記:
+
+```markdown
+### Mechanical lint は ADR-039 scope 外 (default ON 許容)
+
+ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が不確定な experimental feature」が適用対象で、以下 4 条件をすべて満たす **決定論的 mechanical lint** は scope 外として **default ON 配布を許容** する:
+
+1. **失敗 mode が non-blocking** (additionalContext warning のみ、block しない)
+2. **判定が決定論的** (閾値 / regex / metadata、discretionary 判断なし)
+3. **影響範囲が宣言的に限定** (`paths` glob / extension match で declared)
+4. **recovery hint が明確** (違反検出時の次アクションが message に含まれる)
+
+該当例: file-length lint (Rust source 行数 max)、file-size check (50KB threshold)、todo*.md preamble drift detector。
+該当しない例: post-merge-feedback / weekly-review / local-llm classification (= 挙動 dogfood で確定する experimental)。
+
+由来: PR #197 で project-local 順位 177 file_size_check が ADR-039 § 1 機械適用で default OFF にされ、user 期待と乖離した事象を PR #204 で訂正 (project-local ADR-039 § 1.b 追加)。本 boundary case は派生プロジェクトでも反復する構造的 over-application の防止策。
+```
+
+- **適用範囲**: 派生プロジェクト全般での新規 lint / hook 追加時の判断補助
+- **派生プロジェクト波及**: `~/.claude/rules/common/` 配下のため techbook-ledger / auto-review-fix-vc に自動
+
+#### 作業計画
+
+- [ ] `~/.claude` snapshot 取得 (memory `feedback_global_config_backup` per)
+- [ ] `~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 に上記 sub-section を追記 (既存 6 点設計チェックリスト + 4 点 self-review checklist の直後配置)
+- [ ] PR #197 (誤適用観測) / PR #204 (訂正 + § 1.b 追加) / 順位 147 file_length lint (同類例) を inline cite
+- [ ] markdownlint clean
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 に「Mechanical lint は ADR-039 scope 外」sub-section が追記される
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) に global rule として自動波及
+- 由来 cite (PR #197, #204) で reviewer / Claude が rule 背景を理解可能
+- 順位 200/202/205 と同 pattern (project-local 知見を global rules に投影) が継続稼働
+
+#### 詰まっている箇所
+
+なし。Effort S、global rules への docs 追記のみ、`feedback_global_config_backup` snapshot を忘れない。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
