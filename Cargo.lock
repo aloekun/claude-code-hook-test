@@ -152,6 +152,7 @@ dependencies = [
  "lib-jj-helpers",
  "lib-pending-file",
  "lib-report-formatter",
+ "lib-subprocess",
  "proptest",
  "serde",
  "serde_json",

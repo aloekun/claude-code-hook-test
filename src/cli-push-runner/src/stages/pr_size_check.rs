@@ -157,8 +157,9 @@ fn run_jj_diff_stat(revset: &str) -> Result<String, String> {
     let stdout_handle = crate::runner::drain_pipe(child.stdout.take().expect("stdout must be piped"));
     let stderr_handle = crate::runner::drain_pipe(child.stderr.take().expect("stderr must be piped"));
 
-    let status = crate::runner::wait_with_timeout("jj diff --stat", &mut child, JJ_TIMEOUT_SECS)
-        .map_err(|e| format!("jj diff --stat wait 失敗: {}", e))?;
+    let status =
+        lib_subprocess::wait_with_timeout_basic("jj diff --stat", &mut child, JJ_TIMEOUT_SECS)
+            .map_err(|e| format!("jj diff --stat wait 失敗: {}", e))?;
 
     let stdout = stdout_handle.join().unwrap_or_default();
     let stderr = stderr_handle.join().unwrap_or_default();

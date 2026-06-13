@@ -23,7 +23,7 @@ use crate::config::{
     DEFAULT_LINT_SCREEN_TIMEOUT_SECS,
 };
 use crate::log::log_stage;
-use crate::runner::wait_with_timeout;
+use lib_subprocess::wait_with_timeout_basic;
 
 const STAGE: &str = "lint-screen";
 
@@ -173,7 +173,7 @@ fn invoke_classifier(params: &InvokeParams<'_>, diff: &str) -> Result<Classifier
     let stdout_handle = crate::runner::drain_pipe(child.stdout.take().expect("stdout piped"));
     let stderr_handle = crate::runner::drain_pipe(child.stderr.take().expect("stderr piped"));
 
-    let exit = wait_with_timeout(STAGE, &mut child, params.timeout_secs + 5)
+    let exit = wait_with_timeout_basic(STAGE, &mut child, params.timeout_secs + 5)
         .map_err(|e| format!("wait 失敗: {}", e))?;
     let stdout = stdout_handle.join().unwrap_or_default();
     let stderr = stderr_handle.join().unwrap_or_default();

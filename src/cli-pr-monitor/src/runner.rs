@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 use std::time::Duration;
 
 // NOTE: push-pipeline 版は MAX_LINES=40 でログ表示用に切り詰めるが、
@@ -75,37 +75,6 @@ pub(crate) fn run_cmd_direct(
 
     let code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
     (code == 0, combined)
-}
-
-/// タイムアウト付きで子プロセスの終了を待つ。
-/// `None` はタイムアウトを意味する（プロセスは kill 済み）。
-///
-/// timeout / try_wait エラーの両経路で `child.kill()` + `child.wait()` を行い、
-/// 子プロセスと呼び出し側の drain_pipe reader スレッドが zombie 化するのを防ぐ。
-pub(crate) fn wait_with_timeout(
-    label: &str,
-    child: &mut std::process::Child,
-    timeout_secs: u64,
-) -> Result<Option<ExitStatus>, String> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(Some(status)),
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(None);
-                }
-                std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
-            }
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("Failed to wait for {}: {}", label, e));
-            }
-        }
-    }
 }
 
 /// gh コマンドを静かに実行 (stderr 抑制)
