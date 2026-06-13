@@ -399,52 +399,89 @@
 
 ---
 
-### subprocess utils 5 crate 重複 (combine_output + drain_pipe + wait_with_timeout + run_cmd) を `lib-subprocess-utils` に extract (PR #182 dry-run S01 + Phase E dogfood WR-2026-06-01-S01 採用)
+### subprocess utils 5 crate 重複を `lib-subprocess` に extract (PR #182 dry-run S01 + Phase E dogfood WR-2026-06-01-S01 採用、2026-06-14 挙動保存型 sub-PR 分割)
 
 > **動機**: PR #182 Phase B dry-run で検出された finding WR-2026-05-29-S01 に加え、**Phase E dogfood (2026-06-01) で WR-2026-06-01-S01 (High) として scope が拡大**: subprocess 管理 utility 群が 4-5 crate 横断で重複している。
 >
-> **重複対象 (scope 拡大版)**:
+> **重複対象**:
 > - `combine_output(stdout, stderr)` 8 行関数: 5 crate (`cli-pr-monitor` / `cli-push-runner` / `cli-push-pipeline` / `cli-merge-pipeline` / `hooks-post-tool-linter`) で重複 (cli-pr-monitor では `#[allow(dead_code)]` 付与で生産 path 未到達)
-> - `drain_pipe` / `wait_with_timeout` / `run_cmd`: 4 crate (`cli-push-runner/src/runner.rs` / `cli-pr-monitor/src/runner.rs` / `cli-merge-pipeline/src/main.rs` / `cli-push-pipeline/src/main.rs`) で重複
-> - `MAX_LINES` 定数: 4 crate 間で不整合 (40 / 200 / なし) — callsite 設定可能パラメータとして公開する
+> - `drain_pipe` / `wait_with_timeout` / `run_cmd`: 4-5 crate (`cli-push-runner/src/runner.rs` / `cli-pr-monitor/src/runner.rs` / `cli-merge-pipeline/src/main.rs` / `cli-push-pipeline/src/main.rs` / `hooks-stop-quality/src/main.rs`) で重複かつ挙動 variant あり
+> - `MAX_LINES` 定数: 4 crate 間で不整合 (20 / 40 / 200 / 無制限) — callsite 設定可能パラメータとして公開する
 >
 > ADR-026 Cargo workspace + ADR-012 lib-* naming の既存パターンで解決コスト低、保守リスクが各 PR で蓄積中。
 >
 > **本タスクの位置づけ**: PR #182 dry-run S01 採用 (2026-05-29 ユーザー承認) + Phase E dogfood (2026-06-01) WR-2026-06-01-S01 (Severity High) で augment 採用。ADR-031 § Phase 4 「重複検出は MVP では実装しない」運用の partial overlap 検出 → augment 判断のフローが機能した実例 (skill 重複検出 → 3 択 → user augment 選択)。
 >
-> **参照**: PR #182 dry-run report、Phase E dogfood report (`.claude/weekly-reviews/2026-06-01.md` および `.takt/runs/20260601-095710-weekly-review-2026-06-01/reports/`)、`src/cli-pr-monitor/src/runner.rs:80-89` (function) + `:282-298` (tests)、`src/cli-push-runner/src/runner.rs` / `src/cli-merge-pipeline/src/main.rs` / `src/cli-push-pipeline/src/main.rs` (drain_pipe 等の重複)、`src/hooks-post-tool-linter/` (他 4 crate の重複)、ADR-024 (shared jj-helpers library パターン)、ADR-026 (Cargo workspace)
+> **参照**: PR #182 dry-run report、Phase E dogfood report (`.claude/weekly-reviews/2026-06-01.md` および `.takt/runs/20260601-095710-weekly-review-2026-06-01/reports/`)、`src/cli-pr-monitor/src/runner.rs:80-89` (function) + `:282-298` (tests)、`src/cli-push-runner/src/runner.rs` / `src/cli-merge-pipeline/src/main.rs` / `src/cli-push-pipeline/src/main.rs` (drain_pipe 等の重複)、`src/hooks-post-tool-linter/` (combine_output の `\n` suffix 吸収版実装)、ADR-024 (shared jj-helpers library パターン)、ADR-026 (Cargo workspace)
 >
-> **実行優先度**: 🔧 **Tier 2** → 🚀 **Tier 1 検討余地** — Effort S-M。Phase E dogfood で High severity 再確認、4-5 crate 横断で更新コスト線形成長中。Cargo workspace 内の単純な lib extract、5 crate を順次差し替え。
+> **実行優先度**: 🔧 **Tier 2** → 🚀 **Tier 1 検討余地** — Effort S-M (sub-PR 分割で各 ~150-250 行)。Phase E dogfood で High severity 再確認、4-5 crate 横断で更新コスト線形成長中。
 
-#### 設計決定 (案)
+#### 挙動保存型 sub-PR 分割方針 (2026-06-14 ユーザー合意)
 
-- **採用 strategy** (analyzer Option A 推奨): `lib-runner-utils` 新 crate (or `lib-process-helpers` 等の既存 lib-* crate を選定) に `combine_output(stdout, stderr) -> String` を移管。5 crate (`cli-*` 4 件 + `hooks-post-tool-linter`) から `pub use lib_runner_utils::combine_output;` で再 export
-- **不採用 strategy** (analyzer Option B): cli-pr-monitor からのみ削除する最小修正案 → 他 4 crate に同じ未使用問題が残るため不採用、Option A の方が systemic 解決
-- **crate 名選定**: 既存 lib-* 一覧を `cargo metadata` で確認、`lib-runner-utils` / `lib-process-helpers` / `lib-subprocess` 等の候補から選定。新規作成より既存 lib-* (例: shared-jj-helpers) への追加が好ましい (ADR-024 の流れ)
-- **test 移管**: 既存 4 test の集約版を新 crate の `#[cfg(test)]` に 1 set のみ配置、各 cli-* / hooks-* 側の test は削除
-- **memory `feedback_test_dry_antipattern`**: test は移管後も独立 variant を維持 (helper で共通化しない)
+scope 確認の結果、`drain_pipe` / `wait_with_timeout` / `run_cmd` は **crate ごとに挙動 variant が存在** することが判明。1 PR で全部やると挙動統一の意思決定が混入して PR が肥大化 + リスク増大するため、以下原則で分割:
 
-#### 作業計画
+- **原則**: 挙動保存。`lib-subprocess` に複数 variant 関数を export し、各 callsite はこれまでと同じ挙動の variant を呼ぶだけにする
+- **variant merge 検討は最終 sub-PR (173e) に分離**: 「実装上ほぼ同じ variant を 1 つに統合できるか」は dogfood 後判断
+- ADR-024 (`lib-jj-helpers`) の異なる semantics の helper を別関数として export する pattern に倣う
 
-- [ ] `cargo metadata --no-deps` で既存 lib-* crate を列挙、`combine_output` の論理 location として最も自然な crate を選定
-- [ ] 選定 crate (新規 or 既存) に `combine_output` を pub 関数として追加 + 集約 test を 1 set 配置
-- [ ] cli-pr-monitor / cli-push-runner / cli-push-pipeline / cli-merge-pipeline / hooks-post-tool-linter の 5 crate の各 `Cargo.toml` に新 dep を追加 (新規 lib の場合)
-- [ ] 各 crate の `combine_output` impl + tests を削除、`use <crate>::combine_output;` に置換
-- [ ] cargo test で 5 crate 全 pass 確認
-- [ ] cargo clippy で `#[allow(dead_code)]` が消えることを確認 (extract により生産 path に乗る、または未使用なら別 PR で削除判断)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+#### sub-PR 一覧
 
-#### 完了基準
+| sub | 対象 | 推定 diff | リスク | 依存 |
+|---|---|---|---|---|
+| **173a** | `combine_output` 抽出 + `lib-subprocess` crate 新設 | ~150 行 | 低 (pure 関数、`hooks-post-tool-linter` の `\n` suffix 吸収版に統一しても既存 test 全 13 件 pass) | なし |
+| 173b | `wait_with_timeout` 2 variant 抽出 | ~150 行 | 中 (subprocess lifecycle、integration test 望ましい) | 173a |
+| 173c | `drain_pipe` 3 variant 抽出 | ~200 行 | 中 (API 形状変更、MAX_LINES の callsite parameter 化) | 173a |
+| 173d | `run_cmd` variant 抽出 | ~250 行 | 中-高 (173a/b/c に依存) | 173a/b/c |
+| 173e (optional) | variant merge 検討 (dogfood 後判断) | 〜 | 〜 | 173a-d 完了後 |
 
-- `combine_output` 関数の単一 source of truth が新 crate (または選定 lib-*) に確立
-- 5 cli-*/hooks-* crate が再 export 経由で同 impl を共有
-- 既存 test が集約版 1 set + 各 crate での 4 set 削除で計 4 set 削減
-- `#[allow(dead_code)]` 付与が不要になる (extract 後の lib では pub function として正規 export 経路)
+##### 173a: `combine_output` 抽出 (本 PR scope) ✅ 実装完了 (2026-06-14)
+
+- **採用 variant**: `hooks-post-tool-linter` の `\n` suffix 吸収版 (4 crate の basic 版が既存 test で全 case pass するため後方互換)
+- **抽出先**: `src/lib-subprocess/` 新規 crate (`lib-subprocess` 名称、ADR-026 workspace + ADR-012 lib-* naming に整合、既存 lib-jj-helpers / lib-ollama-client / lib-pending-file / lib-report-formatter のいずれも subprocess utility の自然な home ではないため新規)
+- **作業計画**:
+  - [x] `src/lib-subprocess/Cargo.toml` + `src/lib-subprocess/src/lib.rs` 作成 (`combine_output(stdout: &str, stderr: &str) -> String` pub 関数 + 5 variant test)
+  - [x] ルート `Cargo.toml` workspace members に `src/lib-subprocess` 追加
+  - [x] 4 crate (cli-push-runner / cli-push-pipeline / cli-merge-pipeline / hooks-post-tool-linter) の `Cargo.toml` に `lib-subprocess = { path = "../lib-subprocess" }` dep 追加。cli-pr-monitor は dead-code (`#[allow(dead_code)]`) のため関数 + test 削除のみで dep 不要
+  - [x] 各 crate の `combine_output` impl + duplicate test 削除、`use lib_subprocess::combine_output;` に置換
+  - [x] `cargo test --workspace` で全 pass 確認 (lib-subprocess 5 test + 5 crate 含む workspace 全体 pass)
+  - [x] `cargo clippy --workspace -- -D warnings` production code clean (cli-pr-monitor の `#[allow(dead_code)]` 削除確認)。NOTE: `--all-targets` 付与時に `cli-merge-pipeline/src/feedback.rs` に PR #159 (Bundle l) 以来の事前 clippy 違反 2 件 (`items-after-test-module` / `assertions-on-constants`) が残存。本 PR の編集対象外のため別 entry として follow-up 候補
+  - [x] 173a 完了マーク (本 sub section)、173b-e は本 entry 内に未着手として残置
+
+##### 173b: `wait_with_timeout` 2 variant 抽出
+
+- **variant A `wait_with_timeout_safe`**: Err 経路で `child.kill()` + `child.wait()` 実施 — cli-pr-monitor `runner.rs` (1 callsite) で使用
+- **variant B `wait_with_timeout_basic`**: Err 経路でそのまま `Err` 返却 — cli-push-runner / cli-pr-monitor `classifier_runner.rs` (2 callsites) で使用
+- variant 統一は本 sub では行わない (173e 判断)
+- 作業計画: 173a 完了後に詳細展開
+
+##### 173c: `drain_pipe` 3 variant 抽出
+
+- **variant A `drain_pipe_unlimited`**: `read_to_string` 全読み — cli-pr-monitor (1 callsite)
+- **variant B `drain_pipe_capped(pipe, max_lines)`**: `read_until` + silent truncate — cli-push-runner / cli-push-pipeline / hooks-stop-quality (3 callsites、MAX_LINES 20/40 を callsite parameter として渡す)
+- **variant C `drain_pipe_capped_reporting(pipe, max_lines)`**: 上記 + `"... (N lines truncated)"` 末尾報告 — cli-merge-pipeline (1 callsite、MAX_LINES=200)
+- 作業計画: 173a 完了後に詳細展開
+
+##### 173d: `run_cmd` variant 抽出
+
+- 173a/b/c に依存。`run_cmd` / `run_cmd_direct` / `run_cmd_inherit` 系の variant を別々に抽出
+- 作業計画: 173a-c 完了後に詳細展開
+
+##### 173e (optional): variant merge 検討
+
+- 173a-d 完了後の dogfood 観測で「variant 共存に意味があるか/merge 可能か」を判断
+- 例: `wait_with_timeout_safe` と `_basic` の 2 variant は「Err 経路で child を kill すべきか」の policy 違い。dogfood で `_basic` 側で zombie process 顕在化したら `_safe` に統合
+- 判断時点まで延期 (= 現時点で merge 計画を立てない)
+
+#### 完了基準 (本 entry 全体)
+
+- 173a-d 全 sub-PR が land し、subprocess utility の単一 source of truth が `lib-subprocess` に確立
+- 5 cli-*/hooks-* crate が `lib_subprocess::*` 経由で utility を共有
+- `#[allow(dead_code)]` 付与が不要になる
 - cargo workspace 全体で cargo test + cargo clippy が pass
 
 #### 詰まっている箇所
 
-extract 先の crate 選定: 既存 lib-* に追加するか新規 `lib-runner-utils` を作るかの判断。新規 crate は Cargo workspace に 1 line 追加で済むが、既存 lib-* (例: lib-pr-monitor-common 等の既存 shared crate) への追加の方が **Effort S** 寄り、新規作成だと **Effort M** に近づく。`cargo metadata` 結果次第。
+なし。挙動保存型分割で各 sub-PR が独立着手可能。173a 着手中。
 
 ---
 

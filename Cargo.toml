@@ -37,6 +37,7 @@ members = [
     "src/lib-ollama-client",
     "src/lib-pending-file",
     "src/lib-report-formatter",
+    "src/lib-subprocess",
 ]
 
 # workspace 化に伴い [profile.*] は必ず root で定義する必要がある

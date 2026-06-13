@@ -18,6 +18,7 @@
 mod feedback;
 
 use lib_jj_helpers::{get_jj_bookmarks as lib_get_jj_bookmarks, StderrMode};
+use lib_subprocess::combine_output;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -216,15 +217,6 @@ fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
     (success, combined)
 }
 
-fn combine_output(stdout: &str, stderr: &str) -> String {
-    if stdout.is_empty() {
-        stderr.to_string()
-    } else if stderr.is_empty() {
-        stdout.to_string()
-    } else {
-        format!("{}\n{}", stdout, stderr)
-    }
-}
 
 // ─── 設定ファイル読み込み ───
 
@@ -883,27 +875,6 @@ step_timeout = 60
         assert!(config.merge_pipeline.is_none());
     }
 
-    #[test]
-    fn combine_output_both_present() {
-        assert_eq!(combine_output("out", "err"), "out\nerr");
-    }
-
-    #[test]
-    fn combine_output_only_stdout() {
-        assert_eq!(combine_output("out", ""), "out");
-    }
-
-    #[test]
-    fn combine_output_only_stderr() {
-        assert_eq!(combine_output("", "err"), "err");
-    }
-
-    #[test]
-    fn combine_output_both_empty() {
-        assert_eq!(combine_output("", ""), "");
-    }
-
-    // ─── percent_encode_path_segment (CodeRabbit PR #70 Major 対応) ───
 
     #[test]
     fn percent_encode_passes_unreserved_chars() {
