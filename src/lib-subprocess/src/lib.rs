@@ -2,14 +2,17 @@
 //!
 //! 順位 173a (todo11.md): combine_output extract — 5 crate horizontal duplication 解消の最初の sub-PR。
 //! 順位 173b: wait_with_timeout を polling 系 2 variant (`_safe` / `_basic`) として抽出。
+//! 順位 173c: drain_pipe を 3 variant (`_unlimited` / `_capped` / `_capped_reporting`) として抽出。
 //! ADR-026 Cargo workspace + ADR-012 lib-* naming に整合。
 //!
-//! 後続 sub-PR (173c/d) で `drain_pipe` / `run_cmd` を variant 単位で抽出予定。
+//! 後続 sub-PR (173d) で `run_cmd` を variant 単位で抽出予定。
 //! `cli-pr-monitor/src/classifier_runner.rs` の channel-based wait_with_timeout は
 //! signature と設計意図 (pipe buffer overflow 対策) が異なるため本 lib では別 variant
 //! として扱わず、必要なら 173e で評価する。
 
+use std::io::{BufRead, BufReader, Read};
 use std::process::ExitStatus;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 /// stdout と stderr を結合する。
@@ -108,6 +111,97 @@ pub fn wait_with_timeout_basic(
     }
 }
 
+/// 子プロセスの stdout / stderr パイプを別スレッドで全量読込し、行末空白を trim した
+/// 文字列を返す **unlimited** variant。
+///
+/// `read_to_string` で全データを単一バッファに読み込むため出力サイズ制限なし。
+/// JSON 等の構造化出力を pipe 経由で完全パースする callsite (例: check-ci-coderabbit
+/// の JSON 受け取り) で使用する。出力過大時にメモリ消費が線形成長する点に注意。
+pub fn drain_pipe_unlimited(
+    pipe: impl Read + Send + 'static,
+) -> JoinHandle<String> {
+    thread::spawn(move || {
+        let mut output = String::new();
+        let mut reader = BufReader::new(pipe);
+        let _ = reader.read_to_string(&mut output);
+        output.trim_end().to_string()
+    })
+}
+
+/// 子プロセスの stdout / stderr パイプを別スレッドで最大 `max_lines` 行まで読込し、
+/// 改行で結合した文字列を返す **capped** variant (silent truncate)。
+///
+/// `max_lines` 超過分は読み捨て (パイプバッファの排出は継続) されるため、超過行数は
+/// 戻り値に反映されない。ログ表示用の callsite で使用する (cli-push-runner /
+/// cli-push-pipeline / hooks-stop-quality 等)。
+pub fn drain_pipe_capped(
+    pipe: impl Read + Send + 'static,
+    max_lines: usize,
+) -> JoinHandle<String> {
+    thread::spawn(move || {
+        let mut reader = BufReader::new(pipe);
+        let mut collected = Vec::with_capacity(max_lines);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if collected.len() < max_lines {
+                        collected.push(
+                            String::from_utf8_lossy(&buf)
+                                .trim_end_matches(&['\r', '\n'][..])
+                                .to_string(),
+                        );
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        collected.join("\n")
+    })
+}
+
+/// 子プロセスの stdout / stderr パイプを別スレッドで最大 `max_lines` 行まで読込し、
+/// 超過があれば末尾に `"... (N lines truncated)"` を付与する **reporting capped** variant。
+///
+/// `drain_pipe_capped` と同じく行毎読込 + truncate だが、切り捨て行数を最終出力に反映する。
+/// マージパイプライン等で「ログは確認したいが過大化は避けたい」 callsite で使用する
+/// (cli-merge-pipeline、MAX_LINES=200)。
+pub fn drain_pipe_capped_reporting(
+    pipe: impl Read + Send + 'static,
+    max_lines: usize,
+) -> JoinHandle<String> {
+    thread::spawn(move || {
+        let mut reader = BufReader::new(pipe);
+        let mut collected = Vec::with_capacity(max_lines);
+        let mut buf = Vec::new();
+        let mut truncated = 0usize;
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if collected.len() < max_lines {
+                        collected.push(
+                            String::from_utf8_lossy(&buf)
+                                .trim_end_matches(&['\r', '\n'][..])
+                                .to_string(),
+                        );
+                    } else {
+                        truncated += 1;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        if truncated > 0 {
+            collected.push(format!("... ({} lines truncated)", truncated));
+        }
+        collected.join("\n")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +287,53 @@ mod tests {
             child.try_wait().expect("try_wait after kill failed").is_some(),
             "child should be reaped after basic-variant timeout",
         );
+    }
+
+    use std::io::Cursor;
+
+    #[test]
+    fn drain_pipe_unlimited_reads_entire_input_and_trims_trailing_whitespace() {
+        let input = Cursor::new(b"line1\nline2\nline3\n".to_vec());
+        let handle = drain_pipe_unlimited(input);
+        assert_eq!(handle.join().unwrap(), "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn drain_pipe_unlimited_preserves_long_output_without_truncation() {
+        let input: String = (0..500).map(|i| format!("line{}\n", i)).collect();
+        let expected: String = (0..500)
+            .map(|i| format!("line{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let handle = drain_pipe_unlimited(Cursor::new(input.into_bytes()));
+        assert_eq!(handle.join().unwrap(), expected);
+    }
+
+    #[test]
+    fn drain_pipe_capped_truncates_silently_at_max_lines() {
+        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
+        let handle = drain_pipe_capped(input, 3);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc");
+    }
+
+    #[test]
+    fn drain_pipe_capped_returns_all_lines_when_under_cap() {
+        let input = Cursor::new(b"only\ntwo\n".to_vec());
+        let handle = drain_pipe_capped(input, 100);
+        assert_eq!(handle.join().unwrap(), "only\ntwo");
+    }
+
+    #[test]
+    fn drain_pipe_capped_reporting_appends_truncation_summary_when_over_cap() {
+        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
+        let handle = drain_pipe_capped_reporting(input, 3);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc\n... (2 lines truncated)");
+    }
+
+    #[test]
+    fn drain_pipe_capped_reporting_omits_summary_when_within_cap() {
+        let input = Cursor::new(b"a\nb\n".to_vec());
+        let handle = drain_pipe_capped_reporting(input, 10);
+        assert_eq!(handle.join().unwrap(), "a\nb");
     }
 }

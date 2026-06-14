@@ -464,12 +464,22 @@ scope 確認の結果、`drain_pipe` / `wait_with_timeout` / `run_cmd` は **cra
   - [x] `cargo clippy --workspace -- -D warnings` clean
   - [x] 173b 完了マーク (本 sub section)、173c/d/e は本 entry 内に未着手として残置
 
-##### 173c: `drain_pipe` 3 variant 抽出
+##### 173c: `drain_pipe` 3 variant 抽出 ✅ 実装完了 (2026-06-14)
 
-- **variant A `drain_pipe_unlimited`**: `read_to_string` 全読み — cli-pr-monitor (1 callsite)
-- **variant B `drain_pipe_capped(pipe, max_lines)`**: `read_until` + silent truncate — cli-push-runner / cli-push-pipeline / hooks-stop-quality (3 callsites、MAX_LINES 20/40 を callsite parameter として渡す)
-- **variant C `drain_pipe_capped_reporting(pipe, max_lines)`**: 上記 + `"... (N lines truncated)"` 末尾報告 — cli-merge-pipeline (1 callsite、MAX_LINES=200)
-- 作業計画: 173a 完了後に詳細展開
+- **variant A `drain_pipe_unlimited`**: `read_to_string` 全読み — cli-pr-monitor (`runner.rs` 内部 2 callsites + `stages/push_jj_bookmark.rs` 2 callsites = 計 4 callsites)
+- **variant B `drain_pipe_capped(pipe, max_lines)`**: `read_until` + silent truncate — cli-push-runner (`runner.rs` 2 callsites + `stages/{scratch_file_warning, push_jj_bookmark, pr_size_check, lint_screen, bookmark_check}.rs` 10 callsites = 計 12 callsites)、cli-push-pipeline (2 callsites)、hooks-stop-quality (2 callsites)
+- **variant C `drain_pipe_capped_reporting(pipe, max_lines)`**: variant B + `"... (N lines truncated)"` 末尾報告 — cli-merge-pipeline (2 callsites、MAX_LINES=200)
+- 計 22 callsites を 5 crate 横断で migration、`MAX_LINES` 定数は各 crate に保持して callsite で parameter として渡す形に変更 (挙動保存、crate 別の設計意図 = ログ用なら 40、メモリ保護なら 200、stop hook なら 20 を維持)
+- **作業計画**:
+  - [x] `lib-subprocess/src/lib.rs` に 3 variant + 6 test (各 variant の代表 case: 短/長/over-cap/under-cap/reporting on/off) 追加
+  - [x] cli-pr-monitor `runner.rs` の `drain_pipe` impl + NOTE コメント削除、4 callsite を `lib_subprocess::drain_pipe_unlimited` に置換
+  - [x] cli-push-runner `runner.rs` の `drain_pipe` impl 削除、`MAX_LINES` を `pub(crate) const` 化して stage から参照可能に、12 callsite を `drain_pipe_capped(pipe, MAX_LINES)` に置換
+  - [x] cli-push-pipeline `main.rs` の `drain_pipe` impl 削除、2 callsite を `drain_pipe_capped(pipe, MAX_LINES)` に置換 (lib-subprocess は 173a で dep 追加済)
+  - [x] hooks-stop-quality `Cargo.toml` に `lib-subprocess` dep 追加、`drain_pipe` impl 削除、2 callsite を `drain_pipe_capped(pipe, MAX_LINES)` に置換
+  - [x] cli-merge-pipeline `main.rs` の `drain_pipe` impl 削除、2 callsite を `drain_pipe_capped_reporting(pipe, MAX_LINES)` に置換 (lib-subprocess は 173a で dep 追加済)
+  - [x] `cargo test --workspace` で全 pass 確認 (lib-subprocess 15 test + 6 影響 crate 含む workspace 全体 pass)
+  - [x] `cargo clippy --workspace -- -D warnings` clean
+  - [x] 173c 完了マーク (本 sub section)、173d/e は本 entry 内に未着手として残置
 
 ##### 173d: `run_cmd` variant 抽出
 

@@ -139,10 +139,14 @@ fn run_jj(args: &[&str], error_prefix: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("{}: {}", error_prefix, e))?;
 
-    let stdout_handle =
-        crate::runner::drain_pipe(child.stdout.take().expect("stdout must be piped"));
-    let stderr_handle =
-        crate::runner::drain_pipe(child.stderr.take().expect("stderr must be piped"));
+    let stdout_handle = lib_subprocess::drain_pipe_capped(
+        child.stdout.take().expect("stdout must be piped"),
+        crate::runner::MAX_LINES,
+    );
+    let stderr_handle = lib_subprocess::drain_pipe_capped(
+        child.stderr.take().expect("stderr must be piped"),
+        crate::runner::MAX_LINES,
+    );
 
     let status =
         lib_subprocess::wait_with_timeout_basic(error_prefix, &mut child, JJ_TIMEOUT_SECS)

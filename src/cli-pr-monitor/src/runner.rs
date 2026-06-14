@@ -2,23 +2,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-// NOTE: push-pipeline 版は MAX_LINES=40 でログ表示用に切り詰めるが、
-// こちらは check-ci-coderabbit の JSON 出力全体をパースするため制限なし。
+use lib_subprocess::drain_pipe_unlimited;
 
 const POLL_INTERVAL_MS: u64 = 100;
 pub(crate) const JJ_CMD_TIMEOUT_SECS: u64 = 30;
-
-pub(crate) fn drain_pipe(
-    pipe: impl std::io::Read + Send + 'static,
-) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        use std::io::Read;
-        let mut output = String::new();
-        let mut reader = std::io::BufReader::new(pipe);
-        let _ = reader.read_to_string(&mut output);
-        output.trim_end().to_string()
-    })
-}
 
 /// 引数を配列で直接渡す版（スペースを含む引数を正しくハンドリング）
 pub(crate) fn run_cmd_direct(
@@ -43,8 +30,8 @@ pub(crate) fn run_cmd_direct(
         }
     };
 
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+    let stdout_handle = drain_pipe_unlimited(child.stdout.take().unwrap());
+    let stderr_handle = drain_pipe_unlimited(child.stderr.take().unwrap());
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
     let timed_out = loop {
