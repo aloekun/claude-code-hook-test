@@ -447,12 +447,22 @@ scope 確認の結果、`drain_pipe` / `wait_with_timeout` / `run_cmd` は **cra
   - [x] `cargo clippy --workspace -- -D warnings` production code clean (cli-pr-monitor の `#[allow(dead_code)]` 削除確認)。NOTE: `--all-targets` 付与時に `cli-merge-pipeline/src/feedback.rs` に PR #159 (Bundle l) 以来の事前 clippy 違反 2 件 (`items-after-test-module` / `assertions-on-constants`) が残存。本 PR の編集対象外のため別 entry として follow-up 候補
   - [x] 173a 完了マーク (本 sub section)、173b-e は本 entry 内に未着手として残置
 
-##### 173b: `wait_with_timeout` 2 variant 抽出
+##### 173b: `wait_with_timeout` 2 variant 抽出 ✅ 実装完了 (2026-06-14)
 
-- **variant A `wait_with_timeout_safe`**: Err 経路で `child.kill()` + `child.wait()` 実施 — cli-pr-monitor `runner.rs` (1 callsite) で使用
-- **variant B `wait_with_timeout_basic`**: Err 経路でそのまま `Err` 返却 — cli-push-runner / cli-pr-monitor `classifier_runner.rs` (2 callsites) で使用
+- **variant A `wait_with_timeout_safe`**: Err 経路で `child.kill()` + `child.wait()` 実施 — cli-pr-monitor (`runner.rs` 内 def → `stages/push_jj_bookmark.rs` で 1 callsite) で使用
+- **variant B `wait_with_timeout_basic`**: Err 経路でそのまま `Err` 返却 — cli-push-runner (`runner.rs` 内部 1 callsite + `stages/` 5 callsite = 計 6 callsite) で使用
 - variant 統一は本 sub では行わない (173e 判断)
-- 作業計画: 173a 完了後に詳細展開
+- **scope 調整 (2026-06-14)**: 当初 plan で「cli-pr-monitor `classifier_runner.rs` (2 callsites)」が `_basic` を共用すると想定していたが、実コード確認の結果 channel-based + Child move + `wait_with_output()` 同時 drain の **completely 異なる設計** (signature: `fn(Child, Duration) -> Option<Output>`、pipe buffer overflow 対策の意図的構造) であることが判明。signature 互換性なし + 設計意図が独立のため本 sub では touch せず、必要なら 173e で別 variant として再評価
+- **作業計画**:
+  - [x] `lib-subprocess/src/lib.rs` に `wait_with_timeout_safe` / `wait_with_timeout_basic` 2 関数 + 各 variant 2 test (success/timeout) 追加
+  - [x] cli-pr-monitor `Cargo.toml` に `lib-subprocess` dep 復活 (173a で removed)
+  - [x] cli-pr-monitor `runner.rs` の `wait_with_timeout` impl + `use ExitStatus` 削除
+  - [x] cli-pr-monitor `stages/push_jj_bookmark.rs:172` callsite を `lib_subprocess::wait_with_timeout_safe` に置換
+  - [x] cli-push-runner `runner.rs` の `wait_with_timeout` impl + 1 test (`wait_with_timeout_returns_exit_status_directly`) + `use ExitStatus/Instant` 削除
+  - [x] cli-push-runner `runner.rs` 内 1 callsite + `stages/{scratch_file_warning, push_jj_bookmark, pr_size_check, lint_screen, bookmark_check}.rs` 5 callsite を `lib_subprocess::wait_with_timeout_basic` に置換
+  - [x] `cargo test --workspace` で全 pass 確認 (lib-subprocess 9 test + workspace 全体 pass)
+  - [x] `cargo clippy --workspace -- -D warnings` clean
+  - [x] 173b 完了マーク (本 sub section)、173c/d/e は本 entry 内に未着手として残置
 
 ##### 173c: `drain_pipe` 3 variant 抽出
 

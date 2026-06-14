@@ -1,7 +1,6 @@
-use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant};
+use std::process::Command;
 
-use lib_subprocess::combine_output;
+use lib_subprocess::{combine_output, wait_with_timeout_basic};
 
 use crate::log::log_info;
 
@@ -35,30 +34,6 @@ pub(crate) fn drain_pipe(
     })
 }
 
-/// タイムアウト付きで子プロセスの終了を待つ。
-/// `None` はタイムアウトを意味する（プロセスは kill 済み）。
-pub(crate) fn wait_with_timeout(
-    label: &str,
-    child: &mut std::process::Child,
-    timeout_secs: u64,
-) -> Result<Option<ExitStatus>, String> {
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(Some(status)),
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(None);
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return Err(format!("Failed to wait for {}: {}", label, e)),
-        }
-    }
-}
-
 pub(crate) fn run_cmd(label: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
     let mut child = match Command::new("cmd")
         .args(["/c", cmd])
@@ -73,7 +48,7 @@ pub(crate) fn run_cmd(label: &str, cmd: &str, timeout_secs: u64) -> (bool, Strin
     let stdout_handle = drain_pipe(child.stdout.take().expect("stdout must be piped"));
     let stderr_handle = drain_pipe(child.stderr.take().expect("stderr must be piped"));
 
-    let exit_status = match wait_with_timeout(label, &mut child, timeout_secs) {
+    let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
         Ok(status) => status,
         Err(e) => return (false, e),
     };
@@ -137,20 +112,4 @@ mod tests {
         assert!(result.is_err(), "failed command should return Err");
     }
 
-    #[test]
-    fn wait_with_timeout_returns_exit_status_directly() {
-        let mut child = Command::new("cmd")
-            .args(["/c", "exit 0"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("failed to spawn test process");
-
-        let result = wait_with_timeout("test", &mut child, 10).expect("wait_with_timeout failed");
-        assert!(
-            result.is_some(),
-            "process should have exited, not timed out"
-        );
-        assert!(result.unwrap().success(), "exit 0 should be success");
-    }
 }
