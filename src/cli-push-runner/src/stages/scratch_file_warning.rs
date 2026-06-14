@@ -226,10 +226,14 @@ fn run_jj_file_list_at() -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("jj file list 起動失敗: {}", e))?;
 
-    let stdout_handle =
-        crate::runner::drain_pipe(child.stdout.take().expect("stdout must be piped"));
-    let stderr_handle =
-        crate::runner::drain_pipe(child.stderr.take().expect("stderr must be piped"));
+    let stdout_handle = lib_subprocess::drain_pipe_capped(
+        child.stdout.take().expect("stdout must be piped"),
+        crate::runner::MAX_LINES,
+    );
+    let stderr_handle = lib_subprocess::drain_pipe_capped(
+        child.stderr.take().expect("stderr must be piped"),
+        crate::runner::MAX_LINES,
+    );
 
     let status =
         lib_subprocess::wait_with_timeout_basic("jj file list", &mut child, JJ_TIMEOUT_SECS)

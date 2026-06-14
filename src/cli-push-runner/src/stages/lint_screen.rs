@@ -170,8 +170,14 @@ fn invoke_classifier(params: &InvokeParams<'_>, diff: &str) -> Result<Classifier
             .map_err(|e| format!("stdin 書き込み失敗: {}", e))?;
     }
 
-    let stdout_handle = crate::runner::drain_pipe(child.stdout.take().expect("stdout piped"));
-    let stderr_handle = crate::runner::drain_pipe(child.stderr.take().expect("stderr piped"));
+    let stdout_handle = lib_subprocess::drain_pipe_capped(
+        child.stdout.take().expect("stdout piped"),
+        crate::runner::MAX_LINES,
+    );
+    let stderr_handle = lib_subprocess::drain_pipe_capped(
+        child.stderr.take().expect("stderr piped"),
+        crate::runner::MAX_LINES,
+    );
 
     let exit = wait_with_timeout_basic(STAGE, &mut child, params.timeout_secs + 5)
         .map_err(|e| format!("wait 失敗: {}", e))?;

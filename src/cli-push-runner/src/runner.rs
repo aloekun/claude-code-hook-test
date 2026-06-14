@@ -1,38 +1,10 @@
 use std::process::Command;
 
-use lib_subprocess::{combine_output, wait_with_timeout_basic};
+use lib_subprocess::{combine_output, drain_pipe_capped, wait_with_timeout_basic};
 
 use crate::log::log_info;
 
-const MAX_LINES: usize = 40;
-
-pub(crate) fn drain_pipe(
-    pipe: impl std::io::Read + Send + 'static,
-) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let mut reader = std::io::BufReader::new(pipe);
-        let mut collected = Vec::with_capacity(MAX_LINES);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if collected.len() < MAX_LINES {
-                        collected.push(
-                            String::from_utf8_lossy(&buf)
-                                .trim_end_matches(&['\r', '\n'][..])
-                                .to_string(),
-                        );
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        collected.join("\n")
-    })
-}
+pub(crate) const MAX_LINES: usize = 40;
 
 pub(crate) fn run_cmd(label: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
     let mut child = match Command::new("cmd")
@@ -45,8 +17,8 @@ pub(crate) fn run_cmd(label: &str, cmd: &str, timeout_secs: u64) -> (bool, Strin
         Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
     };
 
-    let stdout_handle = drain_pipe(child.stdout.take().expect("stdout must be piped"));
-    let stderr_handle = drain_pipe(child.stderr.take().expect("stderr must be piped"));
+    let stdout_handle = drain_pipe_capped(child.stdout.take().expect("stdout must be piped"), MAX_LINES);
+    let stderr_handle = drain_pipe_capped(child.stderr.take().expect("stderr must be piped"), MAX_LINES);
 
     let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
         Ok(status) => status,

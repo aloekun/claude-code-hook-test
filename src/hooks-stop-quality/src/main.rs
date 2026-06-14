@@ -10,6 +10,7 @@
 //!   stop_hook_active が true の場合、品質ゲートをスキップして停止を許可します。
 //!   これにより最大1回のリトライで収束します。
 
+use lib_subprocess::drain_pipe_capped;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -92,37 +93,8 @@ fn load_config() -> (Config, bool) {
     }
 }
 
-/// パイプから最大 MAX_LINES 行を読み出すヘルパー
-/// 残りの行は読み捨てる（パイプバッファの排出を継続するため）
+/// パイプから最大 MAX_LINES 行を読み出すための上限値。超過分は読み捨てる。
 const MAX_LINES: usize = 20;
-
-fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let mut reader = std::io::BufReader::new(pipe);
-        let mut collected = Vec::with_capacity(MAX_LINES);
-        let mut buf = Vec::new();
-
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break, // EOF
-                Ok(_) => {
-                    if collected.len() < MAX_LINES {
-                        collected.push(
-                            String::from_utf8_lossy(&buf)
-                                .trim_end_matches(&['\r', '\n'][..])
-                                .to_string(),
-                        );
-                    }
-                    // MAX_LINES 超過分も読み捨てて排出を継続
-                }
-                Err(_) => break,
-            }
-        }
-        collected.join("\n")
-    })
-}
 
 /// cmd /c 経由でコマンドを実行し、(成功, 出力) を返す
 /// stdout/stderr を別スレッドで排出し、パイプデッドロックを防止する
@@ -139,8 +111,8 @@ fn run_step(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
     };
 
     // パイプを別スレッドで排出（デッドロック防止）
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+    let stdout_handle = drain_pipe_capped(child.stdout.take().unwrap(), MAX_LINES);
+    let stderr_handle = drain_pipe_capped(child.stderr.take().unwrap(), MAX_LINES);
 
     // タイムアウト付きでプロセス終了を待つ
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);

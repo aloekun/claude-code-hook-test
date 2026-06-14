@@ -13,7 +13,7 @@
 //!   1 - パイプライン失敗（テスト失敗等）
 //!   2 - 設定エラー
 
-use lib_subprocess::combine_output;
+use lib_subprocess::{combine_output, drain_pipe_capped};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -67,40 +67,8 @@ fn log_info(message: &str) {
     eprintln!("[push-pipeline] {}", message);
 }
 
-// ─── パイプ排出 (hooks-stop-quality から移植) ───
-
 /// サブプロセス出力の最大収集行数
 const MAX_LINES: usize = 40;
-
-/// サブプロセスの stdout/stderr を別スレッドで収集する（最大 MAX_LINES 行）
-fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let mut reader = std::io::BufReader::new(pipe);
-        let mut collected = Vec::with_capacity(MAX_LINES);
-        let mut buf = Vec::new();
-
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if collected.len() < MAX_LINES {
-                        collected.push(
-                            String::from_utf8_lossy(&buf)
-                                .trim_end_matches(&['\r', '\n'][..])
-                                .to_string(),
-                        );
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        collected.join("\n")
-    })
-}
-
-// ─── コマンド実行 (hooks-stop-quality から移植) ───
 
 /// シェルコマンドを実行し、タイムアウト付きで結果を返す
 fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
@@ -114,8 +82,8 @@ fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
         Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
     };
 
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+    let stdout_handle = drain_pipe_capped(child.stdout.take().unwrap(), MAX_LINES);
+    let stderr_handle = drain_pipe_capped(child.stderr.take().unwrap(), MAX_LINES);
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
     let timed_out = loop {

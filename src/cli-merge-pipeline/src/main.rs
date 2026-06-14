@@ -18,7 +18,7 @@
 mod feedback;
 
 use lib_jj_helpers::{get_jj_bookmarks as lib_get_jj_bookmarks, StderrMode};
-use lib_subprocess::combine_output;
+use lib_subprocess::{combine_output, drain_pipe_capped_reporting};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -127,45 +127,8 @@ fn log_info(message: &str) {
     eprintln!("[merge-pipeline] {}", message);
 }
 
-// ─── パイプ排出 ───
-
 /// サブプロセス出力の最大収集行数（メモリ保護）
 const MAX_LINES: usize = 200;
-
-fn drain_pipe(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let mut reader = std::io::BufReader::new(pipe);
-        let mut collected = Vec::with_capacity(MAX_LINES);
-        let mut buf = Vec::new();
-        let mut truncated = 0usize;
-
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    if collected.len() < MAX_LINES {
-                        collected.push(
-                            String::from_utf8_lossy(&buf)
-                                .trim_end_matches(&['\r', '\n'][..])
-                                .to_string(),
-                        );
-                    } else {
-                        truncated += 1;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        if truncated > 0 {
-            collected.push(format!("... ({} lines truncated)", truncated));
-        }
-        collected.join("\n")
-    })
-}
-
-// ─── コマンド実行 ───
 
 fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
     let mut child = match Command::new("cmd")
@@ -178,8 +141,8 @@ fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
         Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
     };
 
-    let stdout_handle = drain_pipe(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe(child.stderr.take().unwrap());
+    let stdout_handle = drain_pipe_capped_reporting(child.stdout.take().unwrap(), MAX_LINES);
+    let stderr_handle = drain_pipe_capped_reporting(child.stderr.take().unwrap(), MAX_LINES);
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
     let timed_out = loop {
