@@ -1,49 +1,14 @@
 use std::process::Command;
 
-use lib_subprocess::{combine_output, drain_pipe_capped, wait_with_timeout_basic};
+use lib_subprocess::run_cmd_shell_capped;
 
 use crate::log::log_info;
 
 pub(crate) const MAX_LINES: usize = 40;
 
-pub(crate) fn run_cmd(label: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
-
-    let stdout_handle = drain_pipe_capped(child.stdout.take().expect("stdout must be piped"), MAX_LINES);
-    let stderr_handle = drain_pipe_capped(child.stderr.take().expect("stderr must be piped"), MAX_LINES);
-
-    let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
-        Ok(status) => status,
-        Err(e) => return (false, e),
-    };
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    match exit_status {
-        None => {
-            let mut msg = format!("timed out after {}s", timeout_secs);
-            if !combined.is_empty() {
-                msg = format!("{}\n{}", msg, combined);
-            }
-            (false, msg)
-        }
-        Some(status) => (status.success(), combined),
-    }
-}
-
 /// コマンドを実行し、成功時は出力を `Ok`、失敗時はエラー出力を `Err` で返す。
 pub(crate) fn run_stage_cmd(label: &str, cmd: &str, timeout: u64) -> Result<String, String> {
-    let (success, output) = run_cmd(label, cmd, timeout);
+    let (success, output) = run_cmd_shell_capped(label, cmd, timeout, MAX_LINES);
     if success {
         Ok(output)
     } else {

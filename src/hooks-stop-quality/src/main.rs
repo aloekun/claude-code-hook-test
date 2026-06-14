@@ -10,12 +10,10 @@
 //!   stop_hook_active が true の場合、品質ゲートをスキップして停止を許可します。
 //!   これにより最大1回のリトライで収束します。
 
-use lib_subprocess::drain_pipe_capped;
+use lib_subprocess::run_cmd_shell_capped;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
 
 // --- 入力 ---
 
@@ -96,76 +94,6 @@ fn load_config() -> (Config, bool) {
 /// パイプから最大 MAX_LINES 行を読み出すための上限値。超過分は読み捨てる。
 const MAX_LINES: usize = 20;
 
-/// cmd /c 経由でコマンドを実行し、(成功, 出力) を返す
-/// stdout/stderr を別スレッドで排出し、パイプデッドロックを防止する
-/// タイムアウト超過時はプロセスを kill して失敗扱いにする
-fn run_step(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
-
-    // パイプを別スレッドで排出（デッドロック防止）
-    let stdout_handle = drain_pipe_capped(child.stdout.take().unwrap(), MAX_LINES);
-    let stderr_handle = drain_pipe_capped(child.stderr.take().unwrap(), MAX_LINES);
-
-    // タイムアウト付きでプロセス終了を待つ
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return (false, format!("Failed to wait for {}: {}", cmd, e)),
-        }
-    };
-
-    if timed_out {
-        // スレッドから出力を回収してタイムアウトメッセージに含める
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        let mut msg = format!("{} timed out after {}s", name, timeout_secs);
-        if !stdout.is_empty() || !stderr.is_empty() {
-            let combined = if stdout.is_empty() {
-                stderr
-            } else if stderr.is_empty() {
-                stdout
-            } else {
-                format!("{}\n{}", stdout, stderr)
-            };
-            msg = format!("{}\n{}", msg, combined);
-        }
-        return (false, msg);
-    }
-
-    // 終了ステータスを取得
-    let success = child.wait().map(|s| s.success()).unwrap_or(false);
-
-    // スレッドから出力を回収
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = if stdout.is_empty() {
-        stderr
-    } else if stderr.is_empty() {
-        stdout
-    } else {
-        format!("{}\n{}", stdout, stderr)
-    };
-
-    (success, combined)
-}
-
 fn main() {
     let (config, config_found) = load_config();
 
@@ -221,7 +149,8 @@ fn main() {
     let mut failures: Vec<String> = Vec::new();
 
     for step in &steps {
-        let (success, output) = run_step(&step.name, &step.cmd, timeout);
+        let (success, output) =
+            run_cmd_shell_capped(&step.name, &step.cmd, timeout, MAX_LINES);
         if !success {
             failures.push(format!("**{}** failed:\n```\n{}\n```", step.name, output));
         }

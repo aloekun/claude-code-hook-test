@@ -3,15 +3,17 @@
 //! 順位 173a (todo11.md): combine_output extract — 5 crate horizontal duplication 解消の最初の sub-PR。
 //! 順位 173b: wait_with_timeout を polling 系 2 variant (`_safe` / `_basic`) として抽出。
 //! 順位 173c: drain_pipe を 3 variant (`_unlimited` / `_capped` / `_capped_reporting`) として抽出。
+//! 順位 173d: run_cmd_shell を 2 variant (`_capped` / `_capped_reporting`) として抽出。
 //! ADR-026 Cargo workspace + ADR-012 lib-* naming に整合。
 //!
-//! 後続 sub-PR (173d) で `run_cmd` を variant 単位で抽出予定。
-//! `cli-pr-monitor/src/classifier_runner.rs` の channel-based wait_with_timeout は
-//! signature と設計意図 (pipe buffer overflow 対策) が異なるため本 lib では別 variant
-//! として扱わず、必要なら 173e で評価する。
+//! 順位 173e で variant merge を検討予定。
+//! `cli-pr-monitor/src/classifier_runner.rs` の channel-based wait_with_timeout と
+//! `cli-pr-monitor/src/runner.rs` の `run_cmd_direct` (direct args / variant B) は
+//! signature と設計意図が異なるため本 lib では別 variant として扱わず、必要なら 173e
+//! で評価する。
 
 use std::io::{BufRead, BufReader, Read};
-use std::process::ExitStatus;
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -202,6 +204,135 @@ pub fn drain_pipe_capped_reporting(
     })
 }
 
+/// Kills `child`, waits for it to be reaped, joins `stdout_handle` and `stderr_handle`,
+/// then returns `(false, error)`.
+///
+/// Joining threads without first killing the child would block indefinitely if the child is
+/// still running (the reader threads only break on pipe EOF, which arrives when the child
+/// exits). Always kill before joining to avoid that deadlock.
+fn kill_and_join_err(
+    child: &mut std::process::Child,
+    stdout_handle: JoinHandle<String>,
+    stderr_handle: JoinHandle<String>,
+    error: String,
+) -> (bool, String) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = stdout_handle.join();
+    let _ = stderr_handle.join();
+    (false, error)
+}
+
+/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **silent capped** variant。
+///
+/// 戻り値: `(success, combined_output)`。
+/// - 起動失敗 / try_wait 失敗 → `(false, error_message)`
+/// - timeout → `(false, "timed out after Ns\n<combined>")`
+/// - exit 正常 → `(status.success(), combined)`
+///
+/// 内部で `drain_pipe_capped(max_lines)` を使用するため stdout / stderr は `max_lines` 行で
+/// silent truncate。control flow 判定に出力を使う callsite では別途 `drain_pipe_unlimited`
+/// を直接組み立てるか、`max_lines` を十分大きく取ること。
+///
+/// 内部で `wait_with_timeout_basic` を使用 (= Err 経路で child を kill しない basic semantics)。
+pub fn run_cmd_shell_capped(
+    label: &str,
+    cmd: &str,
+    timeout_secs: u64,
+    max_lines: usize,
+) -> (bool, String) {
+    let mut child = match Command::new("cmd")
+        .args(["/c", cmd])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
+    };
+
+    let stdout_handle = drain_pipe_capped(
+        child.stdout.take().expect("stdout must be piped"),
+        max_lines,
+    );
+    let stderr_handle = drain_pipe_capped(
+        child.stderr.take().expect("stderr must be piped"),
+        max_lines,
+    );
+
+    let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
+        Ok(status) => status,
+        Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
+    };
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    let combined = combine_output(&stdout, &stderr);
+
+    match exit_status {
+        None => {
+            let mut msg = format!("timed out after {}s", timeout_secs);
+            if !combined.is_empty() {
+                msg = format!("{}\n{}", msg, combined);
+            }
+            (false, msg)
+        }
+        Some(status) => (status.success(), combined),
+    }
+}
+
+/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **reporting capped** variant。
+///
+/// `run_cmd_shell_capped` と同 signature だが内部で `drain_pipe_capped_reporting(max_lines)`
+/// を使用、stdout / stderr 超過時は末尾に `"... (N lines truncated)"` が追加される。
+/// merge log 等で truncate されたか reviewer に明示したい callsite で使用する
+/// (cli-merge-pipeline、MAX_LINES=200)。
+pub fn run_cmd_shell_capped_reporting(
+    label: &str,
+    cmd: &str,
+    timeout_secs: u64,
+    max_lines: usize,
+) -> (bool, String) {
+    let mut child = match Command::new("cmd")
+        .args(["/c", cmd])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
+    };
+
+    let stdout_handle = drain_pipe_capped_reporting(
+        child.stdout.take().expect("stdout must be piped"),
+        max_lines,
+    );
+    let stderr_handle = drain_pipe_capped_reporting(
+        child.stderr.take().expect("stderr must be piped"),
+        max_lines,
+    );
+
+    let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
+        Ok(status) => status,
+        Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
+    };
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+    let combined = combine_output(&stdout, &stderr);
+
+    match exit_status {
+        None => {
+            let mut msg = format!("timed out after {}s", timeout_secs);
+            if !combined.is_empty() {
+                msg = format!("{}\n{}", msg, combined);
+            }
+            (false, msg)
+        }
+        Some(status) => (status.success(), combined),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +466,57 @@ mod tests {
         let input = Cursor::new(b"a\nb\n".to_vec());
         let handle = drain_pipe_capped_reporting(input, 10);
         assert_eq!(handle.join().unwrap(), "a\nb");
+    }
+
+    #[test]
+    fn run_cmd_shell_capped_returns_true_on_exit_zero() {
+        let (ok, _output) = run_cmd_shell_capped("test", "exit 0", 10, 40);
+        assert!(ok, "exit 0 should report success");
+    }
+
+    #[test]
+    fn run_cmd_shell_capped_returns_false_on_exit_nonzero() {
+        let (ok, _output) = run_cmd_shell_capped("test", "exit 1", 10, 40);
+        assert!(!ok, "exit 1 should report failure");
+    }
+
+    #[test]
+    fn run_cmd_shell_capped_captures_stdout_within_cap() {
+        let (ok, output) = run_cmd_shell_capped("test", "echo hello", 10, 40);
+        assert!(ok);
+        assert!(
+            output.contains("hello"),
+            "stdout should be captured: {:?}",
+            output,
+        );
+    }
+
+    #[test]
+    fn run_cmd_shell_capped_reports_timeout_with_message() {
+        let (ok, output) = run_cmd_shell_capped("test", "ping 127.0.0.1 -n 10", 1, 40);
+        assert!(!ok, "timeout should report failure");
+        assert!(
+            output.starts_with("timed out after 1s"),
+            "timeout message expected: {:?}",
+            output,
+        );
+    }
+
+    #[test]
+    fn run_cmd_shell_capped_reporting_returns_true_on_exit_zero() {
+        let (ok, _output) = run_cmd_shell_capped_reporting("test", "exit 0", 10, 40);
+        assert!(ok, "exit 0 should report success");
+    }
+
+    #[test]
+    fn run_cmd_shell_capped_reporting_reports_timeout_with_message() {
+        let (ok, output) =
+            run_cmd_shell_capped_reporting("test", "ping 127.0.0.1 -n 10", 1, 40);
+        assert!(!ok, "timeout should report failure");
+        assert!(
+            output.starts_with("timed out after 1s"),
+            "timeout message expected: {:?}",
+            output,
+        );
     }
 }

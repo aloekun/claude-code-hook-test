@@ -1,15 +1,17 @@
 use std::time::{Duration, Instant};
 
+use lib_subprocess::run_cmd_shell_capped;
+
 use crate::config::{GroupConfig, QualityGateConfig, DEFAULT_STEP_TIMEOUT_SECS};
 use crate::log::{log_stage, log_step};
-use crate::runner::run_cmd;
+use crate::runner::MAX_LINES;
 
 pub(crate) fn run_group(group: &GroupConfig, timeout: u64) -> (String, bool, Duration) {
     let start = Instant::now();
 
     if let Some(pre) = &group.pre {
         log_step(&group.name, "PRE", pre);
-        let (ok, output) = run_cmd(&group.name, pre, timeout);
+        let (ok, output) = run_cmd_shell_capped(&group.name, pre, timeout, MAX_LINES);
         if !ok {
             log_step(&group.name, "FAIL", "pre コマンド失敗");
             if !output.is_empty() {
@@ -21,7 +23,7 @@ pub(crate) fn run_group(group: &GroupConfig, timeout: u64) -> (String, bool, Dur
 
     for cmd in &group.commands {
         log_step(&group.name, "RUN", cmd);
-        let (ok, output) = run_cmd(&group.name, cmd, timeout);
+        let (ok, output) = run_cmd_shell_capped(&group.name, cmd, timeout, MAX_LINES);
         if ok {
             log_step(&group.name, "PASS", "");
         } else {
