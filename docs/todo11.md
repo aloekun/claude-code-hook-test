@@ -481,10 +481,27 @@ scope 確認の結果、`drain_pipe` / `wait_with_timeout` / `run_cmd` は **cra
   - [x] `cargo clippy --workspace -- -D warnings` clean
   - [x] 173c 完了マーク (本 sub section)、173d/e は本 entry 内に未着手として残置
 
-##### 173d: `run_cmd` variant 抽出
+##### 173d: `run_cmd_shell` 2 variant 抽出 ✅ 実装完了 (2026-06-14)
 
-- 173a/b/c に依存。`run_cmd` / `run_cmd_direct` / `run_cmd_inherit` 系の variant を別々に抽出
-- 作業計画: 173a-c 完了後に詳細展開
+- **variant A `run_cmd_shell_capped`**: `cmd /c` shell + `drain_pipe_capped` + `wait_with_timeout_basic` + `combine_output` を内部組み立て、silent truncate semantics — cli-push-runner (`runner.rs` 内部経由 + `stages/quality_gate.rs` 2 callsites)、cli-push-pipeline (2 callsites)、hooks-stop-quality (1 callsite) = 計 6 callsites
+- **variant B `run_cmd_shell_capped_reporting`**: 上記 + `drain_pipe_capped_reporting` で truncation 行数を末尾報告 — cli-merge-pipeline (4 callsites)
+- 計 10 callsites を 4 crate 横断で migration。`MAX_LINES` 定数は各 crate に保持 (push-runner/pipeline=40、merge-pipeline=200、stop-quality=20)
+- **scope 調整 (2026-06-14)**:
+  - `cli-pr-monitor/runner.rs` の `run_cmd_direct` (direct args + drain_pipe_unlimited + wait_with_timeout_safe variant) は signature と設計意図 (Windows shell escape を避けるため direct args) が異なるため本 sub では touch せず、173e で評価する
+  - `run_cmd_inherit` 系 (cli-pr-monitor + cli-push-runner、stdio inherit) も touch せず、173e で評価
+- **挙動の minor 変更** (PR description で明示):
+  - hooks-stop-quality の timeout message format: 旧 `"{cmd} timed out after Ns"` → 新 `"timed out after Ns"` (cmd prefix 削除)
+  - hooks-stop-quality の inline combine: 旧 `"out\nerr"` 結合 → 新 `combine_output` (`\n` suffix 吸収版、production callsite で挙動差は顕在化しない)
+  - cli-push-pipeline / cli-merge-pipeline / hooks-stop-quality の wait: 旧 inline loop → 新 `wait_with_timeout_basic` (try_wait Err 経路で child を kill しない basic semantics、production で try_wait Err は unreachable のため挙動変化なし)
+- **作業計画**:
+  - [x] `lib-subprocess/src/lib.rs` に `run_cmd_shell_capped` / `_reporting` 2 関数 + 6 test (success / timeout / nonzero exit / 各 variant) 追加
+  - [x] cli-push-runner: `runner.rs` 内 `run_cmd` impl 削除 (`run_stage_cmd` のみ残し lib 経由に置換)、`stages/quality_gate.rs` 2 callsite を `run_cmd_shell_capped` に
+  - [x] cli-push-pipeline: `run_cmd` impl 削除、2 callsite を `run_cmd_shell_capped` に、不要 import (Command, Duration) 削除、test 4 件 (combine_output 系、lib に存在) 削除
+  - [x] cli-merge-pipeline: `run_cmd` impl 削除、4 callsite を `run_cmd_shell_capped_reporting` に、`combine_output` は他箇所 (`gh` output 結合) で利用継続のため import 保持
+  - [x] hooks-stop-quality: `run_step` impl 削除、1 callsite を `run_cmd_shell_capped` に、不要 import (Command, Duration) 削除
+  - [x] `cargo test --workspace` で全 pass 確認 (lib-subprocess 21 test + workspace 全体 pass)
+  - [x] `cargo clippy --workspace -- -D warnings` clean
+  - [x] 173d 完了マーク (本 sub section)、173e は本 entry 内に未着手として残置
 
 ##### 173e (optional): variant merge 検討
 

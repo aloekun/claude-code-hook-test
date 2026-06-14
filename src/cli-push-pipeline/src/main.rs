@@ -13,11 +13,9 @@
 //!   1 - パイプライン失敗（テスト失敗等）
 //!   2 - 設定エラー
 
-use lib_subprocess::{combine_output, drain_pipe_capped};
+use lib_subprocess::run_cmd_shell_capped;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
 
 // ─── 設定 ───
 
@@ -69,57 +67,6 @@ fn log_info(message: &str) {
 
 /// サブプロセス出力の最大収集行数
 const MAX_LINES: usize = 40;
-
-/// シェルコマンドを実行し、タイムアウト付きで結果を返す
-fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
-
-    let stdout_handle = drain_pipe_capped(child.stdout.take().unwrap(), MAX_LINES);
-    let stderr_handle = drain_pipe_capped(child.stderr.take().unwrap(), MAX_LINES);
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return (false, format!("Failed to wait for {}: {}", name, e)),
-        }
-    };
-
-    if timed_out {
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        let combined = combine_output(&stdout, &stderr);
-        let mut msg = format!("timed out after {}s", timeout_secs);
-        if !combined.is_empty() {
-            msg = format!("{}\n{}", msg, combined);
-        }
-        return (false, msg);
-    }
-
-    let success = child.wait().map(|s| s.success()).unwrap_or(false);
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    (success, combined)
-}
 
 /// exe と同じディレクトリにある hooks-config.toml のパスを返す
 fn config_path() -> PathBuf {
@@ -196,7 +143,7 @@ fn run_pipeline() -> i32 {
 
                 log_step(&label, "RUN", cmd);
 
-                let (success, output) = run_cmd(&step.name, cmd, timeout);
+                let (success, output) = run_cmd_shell_capped(&step.name, cmd, timeout, MAX_LINES);
 
                 if success {
                     log_step(&label, "PASS", "");
@@ -237,7 +184,7 @@ fn run_pipeline() -> i32 {
     // 全ステップ成功 → push 実行
     log_info(&format!("全ステップ成功。push を実行します: {}", push_cmd));
 
-    let (success, output) = run_cmd("push", &push_cmd, timeout);
+    let (success, output) = run_cmd_shell_capped("push", &push_cmd, timeout, MAX_LINES);
 
     if success {
         log_info("push 完了");
@@ -322,30 +269,6 @@ step_timeout = 60
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.push_pipeline.is_none());
-    }
-
-    #[test]
-    fn combine_output_both_present() {
-        let result = combine_output("stdout line", "stderr line");
-        assert_eq!(result, "stdout line\nstderr line");
-    }
-
-    #[test]
-    fn combine_output_only_stdout() {
-        let result = combine_output("stdout line", "");
-        assert_eq!(result, "stdout line");
-    }
-
-    #[test]
-    fn combine_output_only_stderr() {
-        let result = combine_output("", "stderr line");
-        assert_eq!(result, "stderr line");
-    }
-
-    #[test]
-    fn combine_output_both_empty() {
-        let result = combine_output("", "");
-        assert_eq!(result, "");
     }
 
     #[test]

@@ -18,11 +18,10 @@
 mod feedback;
 
 use lib_jj_helpers::{get_jj_bookmarks as lib_get_jj_bookmarks, StderrMode};
-use lib_subprocess::{combine_output, drain_pipe_capped_reporting};
+use lib_subprocess::{combine_output, run_cmd_shell_capped_reporting};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 // ─── 設定 ───
 
@@ -129,59 +128,6 @@ fn log_info(message: &str) {
 
 /// サブプロセス出力の最大収集行数（メモリ保護）
 const MAX_LINES: usize = 200;
-
-fn run_cmd(name: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
-
-    let stdout_handle = drain_pipe_capped_reporting(child.stdout.take().unwrap(), MAX_LINES);
-    let stderr_handle = drain_pipe_capped_reporting(child.stderr.take().unwrap(), MAX_LINES);
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => return (false, format!("Failed to wait for {}: {}", name, e)),
-        }
-    };
-
-    if timed_out {
-        let stdout = stdout_handle.join().unwrap_or_default();
-        let stderr = stderr_handle.join().unwrap_or_default();
-        let combined = combine_output(&stdout, &stderr);
-        let mut msg = format!("timed out after {}s", timeout_secs);
-        if !combined.is_empty() {
-            msg = format!("{}\n{}", msg, combined);
-        }
-        return (false, msg);
-    }
-
-    let success = child.wait().map(|s| s.success()).unwrap_or(false);
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    (success, combined)
-}
-
-
-// ─── 設定ファイル読み込み ───
 
 fn config_path() -> PathBuf {
     config_dir().join("hooks-config.toml")
@@ -352,7 +298,8 @@ fn run_steps(
                 };
 
                 log_step(&label, "RUN", cmd);
-                let (success, output) = run_cmd(&step.name, cmd, timeout);
+                let (success, output) =
+                    run_cmd_shell_capped_reporting(&step.name, cmd, timeout, MAX_LINES);
 
                 if success {
                     log_step(&label, "PASS", "");
@@ -668,7 +615,8 @@ fn run_pipeline() -> i32 {
     );
     log_info(&format!("マージを実行します (squash): PR #{}", pr_number));
 
-    let (success, output) = run_cmd("merge", &merge_cmd, DEFAULT_MERGE_TIMEOUT_SECS);
+    let (success, output) =
+        run_cmd_shell_capped_reporting("merge", &merge_cmd, DEFAULT_MERGE_TIMEOUT_SECS, MAX_LINES);
 
     if !success {
         log_info("マージ失敗:");
@@ -720,7 +668,12 @@ fn run_pipeline() -> i32 {
 /// jj git fetch → jj new <branch> でローカルを最新に同期する
 fn sync_local(branch: &str) -> i32 {
     log_info("ローカル同期中: jj git fetch");
-    let (success, output) = run_cmd("fetch", "jj git fetch", DEFAULT_STEP_TIMEOUT_SECS);
+    let (success, output) = run_cmd_shell_capped_reporting(
+        "fetch",
+        "jj git fetch",
+        DEFAULT_STEP_TIMEOUT_SECS,
+        MAX_LINES,
+    );
     if !success {
         log_info("jj git fetch 失敗:");
         if !output.is_empty() {
@@ -731,7 +684,8 @@ fn sync_local(branch: &str) -> i32 {
 
     let new_cmd = format!("jj new {}", branch);
     log_info(&format!("ローカル同期中: {}", new_cmd));
-    let (success, output) = run_cmd("new-branch", &new_cmd, DEFAULT_STEP_TIMEOUT_SECS);
+    let (success, output) =
+        run_cmd_shell_capped_reporting("new-branch", &new_cmd, DEFAULT_STEP_TIMEOUT_SECS, MAX_LINES);
     if !success {
         log_info(&format!("{} 失敗:", new_cmd));
         if !output.is_empty() {
