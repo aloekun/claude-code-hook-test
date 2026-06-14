@@ -80,13 +80,11 @@ fn run_jj_bookmark_list() -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("jj bookmark list 起動失敗: {}", e))?;
 
-    let stdout_handle = lib_subprocess::drain_pipe_capped(
+    let stdout_handle = lib_subprocess::drain_pipe_unlimited(
         child.stdout.take().expect("stdout must be piped"),
-        crate::runner::MAX_LINES,
     );
-    let stderr_handle = lib_subprocess::drain_pipe_capped(
+    let stderr_handle = lib_subprocess::drain_pipe_unlimited(
         child.stderr.take().expect("stderr must be piped"),
-        crate::runner::MAX_LINES,
     );
 
     let status =
