@@ -204,6 +204,25 @@ pub fn drain_pipe_capped_reporting(
     })
 }
 
+/// Kills `child`, waits for it to be reaped, joins `stdout_handle` and `stderr_handle`,
+/// then returns `(false, error)`.
+///
+/// Joining threads without first killing the child would block indefinitely if the child is
+/// still running (the reader threads only break on pipe EOF, which arrives when the child
+/// exits). Always kill before joining to avoid that deadlock.
+fn kill_and_join_err(
+    child: &mut std::process::Child,
+    stdout_handle: JoinHandle<String>,
+    stderr_handle: JoinHandle<String>,
+    error: String,
+) -> (bool, String) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = stdout_handle.join();
+    let _ = stderr_handle.join();
+    (false, error)
+}
+
 /// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **silent capped** variant。
 ///
 /// 戻り値: `(success, combined_output)`。
@@ -243,7 +262,7 @@ pub fn run_cmd_shell_capped(
 
     let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
         Ok(status) => status,
-        Err(e) => return (false, e),
+        Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
     };
 
     let stdout = stdout_handle.join().unwrap_or_default();
@@ -295,7 +314,7 @@ pub fn run_cmd_shell_capped_reporting(
 
     let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
         Ok(status) => status,
-        Err(e) => return (false, e),
+        Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
     };
 
     let stdout = stdout_handle.join().unwrap_or_default();
