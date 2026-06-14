@@ -464,7 +464,7 @@ scope 確認の結果、`drain_pipe` / `wait_with_timeout` / `run_cmd` は **cra
   - [x] `cargo clippy --workspace -- -D warnings` clean
   - [x] 173b 完了マーク (本 sub section)、173c/d/e は本 entry 内に未着手として残置
 
-##### 173c: `drain_pipe` 3 variant 抽出 ✅ 実装完了 (2026-06-14)
+##### 173c: `drain_pipe` 3 variant 抽出 ✅ 実装完了 (2026-06-14、CR Major fix 含む)
 
 - **variant A `drain_pipe_unlimited`**: `read_to_string` 全読み — cli-pr-monitor (`runner.rs` 内部 2 callsites + `stages/push_jj_bookmark.rs` 2 callsites = 計 4 callsites)
 - **variant B `drain_pipe_capped(pipe, max_lines)`**: `read_until` + silent truncate — cli-push-runner (`runner.rs` 2 callsites + `stages/{scratch_file_warning, push_jj_bookmark, pr_size_check, lint_screen, bookmark_check}.rs` 10 callsites = 計 12 callsites)、cli-push-pipeline (2 callsites)、hooks-stop-quality (2 callsites)
