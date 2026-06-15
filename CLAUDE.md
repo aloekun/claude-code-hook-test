@@ -44,6 +44,7 @@
 - [ADR-041: Test Isolation Patterns for Multi-Condition Guards](docs/adr/adr-041-test-isolation-patterns.md) *(試験運用)*
 - [ADR-042: ルール vs 仕組み化の境界基準](docs/adr/adr-042-rule-vs-mechanism-boundary.md) *(試験運用)*
 - [ADR-043: Security/Quality Gate での Fail-Closed 原則](docs/adr/adr-043-security-gates-fail-closed.md) *(試験運用)*
+- [ADR-044: subprocess utility extraction の境界判定 — 共通化と分離の線引き](docs/adr/adr-044-subprocess-utility-extraction-boundary.md) *(試験運用)*
 
 ## Build
 
