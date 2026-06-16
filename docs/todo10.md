@@ -432,6 +432,157 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
+### `cli-pr-monitor` の CR walkthrough body parse で "No actionable comments" 検出 (PR #210 post-merge-feedback T1-1 採用)
+
+> **動機**: PR #210 セッションで実観測した検出 gap = CodeRabbit が "No actionable comments were generated in the recent review. 🎉" を walkthrough comment body にのみ出力し、formal Review object を投稿しない場合、monitor の `parse_actionable_comments` ([src/check-ci-coderabbit/src/main.rs:825-852](../src/check-ci-coderabbit/src/main.rs#L825-L852)) は reviews 配列が空のため None を返し、`coderabbit = null` のまま recheck loop に入る。memory `feedback_coderabbit_no_actionable_merge_signal.md` で「AI 判断で walkthrough body を手動確認」と手当てしていたが、機械化可能。
+>
+> **本タスクの位置づけ**: PR #210 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-06-16 ユーザー承認)。analyzer rationale: 「memory file が既に存在 = 過去 PR でも同症状。Effort S かつ Adoption Risk None のため採用候補。現状のワークアラウンド (手動 body 確認) を機械化できる」。
+>
+> **参照**: `.claude/feedback-reports/210.md` Tier 1 #1、memory `feedback_coderabbit_no_actionable_merge_signal.md`、PR #210 セッションログ (12:00-12:13 JST の wakeup loop 観測)。
+
+#### 設計決定 (案)
+
+- **検出対象**: PR の `issues/N/comments` から CodeRabbit walkthrough comment (= `coderabbitai[bot]` 投稿 + body 先頭が `<!-- This is an auto-generated comment: summarize by coderabbit.ai -->`) を取得し、body 内 substring `"No actionable comments were generated in the recent review."` を検出
+- **判定統合**: `check-ci-coderabbit` の `decide()` (`src/check-ci-coderabbit/src/main.rs:881`) で `cr.review_state == "not_found"` かつ walkthrough body に clean marker 検出時は新 review_state `"clean"` で `(success, stop_monitoring_success)` を返す
+- **rate-limit overlay との整合**: memory `project_coderabbit_rate_limit_overlay` の通り walkthrough body は rate-limit 中も書き換わるため、clean marker と rate-limit marker の **両方** を check し前者を優先する設計
+- **fixture test**: 3 variant fixture を testing.md pattern で追加 (clean marker あり / rate-limit overlay 状態 / 通常 review 投稿状態)
+
+#### 作業計画
+
+- [ ] `check-ci-coderabbit` に `parse_walkthrough_clean_marker(comments_json) -> bool` helper 追加
+- [ ] `decide()` に「review_state == "not_found" && walkthrough_clean」分岐追加で `(success, stop_monitoring_success)`
+- [ ] 3 fixture test 追加 (memory `feedback_test_dry_antipattern` 準拠で独立 setup)
+- [ ] `cli-pr-monitor` の poll/monitor stage で新分岐の statename を park signal summary に伝播
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- monitor が CR clean 状態を walkthrough body から自動検出し、recheck loop を終了
+- memory `feedback_coderabbit_no_actionable_merge_signal.md` を「機械化済 (順位 208 land)」として更新 or 削除
+- 3 fixture test (clean / rate-limit / formal review) が独立 setup で pass
+
+#### 詰まっている箇所
+
+なし。Effort S、既存 `decide()` の分岐追加 + fixture test、PR diff < 200 行見込み。
+
+---
+
+### PARK signal 出力を分単位 round-UP に変更 — Cron 秒解像度ミスマッチ修正 (PR #210 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #210 セッションで実観測した cron timing race = monitor が `next_wakeup_at_unix` を **秒解像度** で出力 (例: `2026-06-16T03:03:19Z`) するが、CronCreate は **5-field 分解像度** + 最大 30s jitter という制約。Claude / AI agent が `12:03:19` を round-DOWN して `cron: "3 12"` と指定すると 12:03:00 ± jitter で発火 → state.next_wakeup_at_unix (12:03:19) より早期 → `should_resume_wakeup` ([src/cli-pr-monitor/src/stages/monitor.rs:253-267](../src/cli-pr-monitor/src/stages/monitor.rs#L253-L267)) が `false` → fresh path → recheck_count 0 のまま空回り。本 PR では 2 回連続の無駄 wakeup が発生した。
+>
+> **本タスクの位置づけ**: PR #210 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-06-16 ユーザー承認)。analyzer rationale: 「CronCreate cron は分単位 + 最大 30s jitter という制約を Signal 側が明示していなかったことが根本原因。post-pr-monitor が動くすべての PR で再発しうる」。
+>
+> **参照**: `.claude/feedback-reports/210.md` Tier 2 #1、PR #210 セッションログ (12:00-12:13 JST、2 回の無駄 wakeup 実観測)、順位 210 (round-UP rule codify) と相補。
+
+#### 設計決定 (案)
+
+- **PARK signal format 変更**: 既存
+  ```text
+  next_wakeup_at_unix: 1781578999
+  next_wakeup_at_iso_utc: 2026-06-16T03:03:19Z
+  ```
+  に加えて新 field を追加:
+  ```text
+  next_wakeup_safe_minute_local: 2026-06-16T12:04 (= round-UP to next full minute)
+  cron_spec_recommended: "4 12 16 6 *"
+  ```
+- **round-UP ロジック**: `next_wakeup_at_unix` を local timezone の `HH:MM` に変換し、秒部分が `00` でなければ次の分にインクリメント。`00` ちょうどなら現分のまま (jitter -90s 前倒し制約があるが許容範囲)
+- **PARK signal の指示文も更新**: `ACTION REQUIRED` block の例示を round-UP 後の値で書き換え (現在は「`<next_wakeup_at_iso_utc を local timezone の ISO 8601 形式に変換>`」と曖昧)
+- **後方互換**: 既存 field は維持、新 field は追加のみ。AI agent が新 field を優先使用する想定
+
+#### 作業計画
+
+- [ ] `cli-pr-monitor` の PARK signal 生成箇所 (`format_review_park_signal` 等) を特定し新 field 追加
+- [ ] `next_minute_round_up(unix_seconds) -> (year, month, day, hour, minute)` pure helper 関数を切り出し test
+- [ ] PARK signal の "ACTION REQUIRED" 例示文を「`cron_spec_recommended` を直接コピペで使用してください」に書き換え
+- [ ] 統合 test で 03:03:19Z → "12:04 JST" 変換、03:03:00Z → "12:03 JST" 維持を検証
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- AI agent が PARK signal から直接 cron spec を取得でき、round-DOWN 罠が構造的に防げる
+- timezone 跨ぎ + 月跨ぎ + うるう年含む test が pass
+- 順位 210 (round-UP rule codify) との重複は補完 (signal 側 + rule 側の二重防御) を許容
+
+#### 詰まっている箇所
+
+なし。Effort S、pure 変換 helper + signal format 追加のみ、PR diff < 150 行見込み。
+
+---
+
+### `~/.claude/rules/common/development-workflow.md` + MEMORY.md に「Cron 秒 → 分 round-UP」ルール codify (PR #210 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #210 セッションで実観測した cron timing race の **即効ワークアラウンド** を rule として codify。順位 209 (PARK signal 改善) が land するまでのブリッジ、land 後も補完ルールとして残る。秒単位 timestamp から cron spec を生成する場面は post-pr-monitor だけでなく ScheduleWakeup や手動 cron 設定でも発生しうるため、global rule として横展開価値あり。
+>
+> **本タスクの位置づけ**: PR #210 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort XS / Adoption Risk None、2026-06-16 ユーザー承認)。analyzer rationale: 「Cron タイミング競合の即効ワークアラウンド。T2-1 (signal 出力改善) が採用されるまでのブリッジルールとして機能し、採用後は補完ルールとして残る」。
+>
+> **参照**: `.claude/feedback-reports/210.md` Tier 3 #1、PR #210 セッションログ、順位 209 (PARK signal round-UP) と相補。
+
+#### 設計決定 (案)
+
+- **追加先 1**: `~/.claude/rules/common/development-workflow.md` § 背景タスクの待機方針 (polling 禁止) の直後に新 sub-section「Cron スケジューリングの秒 → 分 round-UP」を追加
+- **追加先 2**: `MEMORY.md` の Feedback section に `feedback_cron_round_up_for_second_timestamps.md` ポインター 1 行を追加
+- **rule 内容例**: 「秒単位 unix timestamp / ISO 8601 を CronCreate の `cron` field に変換するときは、秒部分が `00` でなければ **次の完全な分** に round-UP する。例: `12:03:19` → `cron: "4 12 ..."` (`"3 12"` は早期発火で race 条件発生)」
+- **由来 cite**: PR #210 セッション (2026-06-16) の実観測 (2 回の無駄 wakeup)
+- **派生プロジェクト波及**: `~/.claude/rules/common/` 配下のため techbook-ledger / auto-review-fix-vc に自動
+
+#### 作業計画
+
+- [ ] `~/.claude/` snapshot 取得 (memory `feedback_global_config_backup` per)
+- [ ] `~/.claude/rules/common/development-workflow.md` に新 sub-section 追記 (10 行程度)
+- [ ] `feedback_cron_round_up_for_second_timestamps.md` 作成 (memory file)
+- [ ] `MEMORY.md` Feedback section に 1 行ポインター追加
+- [ ] markdownlint clean
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- AI agent が秒単位 timestamp から cron spec を生成する際、round-UP ルールが MEMORY.md / development-workflow.md 双方で参照可能
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) に global rule として自動波及
+- 順位 209 (PARK signal 改善) が land したら本 rule を「補完層 (signal 側が一次防御)」と位置付け更新
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rules + memory への docs 追記のみ、`feedback_global_config_backup` snapshot を忘れない。
+
+---
+
+### `~/.claude/rules/common/testing.md` に「単複・閾値・時制で出力形式が変わる関数は N=0 / N=1 / N≥2 の 3 境界 variant 必須」guideline 追加 (PR #210 post-merge-feedback T3-2 採用)
+
+> **動機**: PR #210 で `drain_pipe_capped_reporting_n_plus_1_truncates_one_appends_summary` test が当初 `"1 lines truncated"` (= 単数で複数形を使用) を期待値として誤って書いてしまい、takt-fix iter 1 → iter 2 で auto-fix された実観測。境界値テスト (N=N+1) を書いたが「N=1 のとき出力形式が変わる」 (single → no `s`) という単複境界を忘れた。一般化すれば「数値に応じて出力形式が変化する関数」全般に共通する盲点。
+>
+> **本タスクの位置づけ**: PR #210 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Medium / Effort XS / Adoption Risk None、2026-06-16 ユーザー承認)。analyzer rationale: 「`drain_pipe_capped_reporting` が N=1 境界テストで誤った期待値を「正当化」したパターンの再発防止。テスト guideline への追記のみで Effort XS、Adoption Risk None のため採用候補」。pre-push simplicity reviewer + session 観測の 2 ソース independent 検出。
+>
+> **参照**: `.claude/feedback-reports/210.md` Tier 3 #2、PR #210 takt-fix iter 1→2 ログ (`.takt/runs/20260616-024836-pre-push-review/`)。
+
+#### 設計決定 (案)
+
+- **追加先**: `~/.claude/rules/common/testing.md` § Test Structure (AAA Pattern) の直後に新 sub-section「数値依存出力の境界テスト」を追加
+- **rule 内容**: 「関数の出力形式が数値に応じて変化する場合 (単複形 `1 line` vs `2 lines` / 閾値分岐 `low` / `medium` / `high` / 時制 `1 day ago` vs `2 days ago` 等) は、N=0 / N=1 / N≥2 の **少なくとも 3 境界 variant** をテストに含める。境界値テスト (N-1/N/N+1) と直交する次元」
+- **N=1 の重要性明記**: 「N=1 は単複境界 + ゼロ近傍境界の両方を兼ねる定番見落とし point」
+- **由来 cite**: PR #210 で `drain_pipe_capped_reporting` の単複処理 `truncated == 1` 分岐が takt-fix で auto-fix された実証 (test 期待値も同時に修正された)
+- **派生プロジェクト波及**: `~/.claude/rules/common/` 配下のため techbook-ledger / auto-review-fix-vc に自動
+
+#### 作業計画
+
+- [ ] `~/.claude/` snapshot 取得 (memory `feedback_global_config_backup` per)
+- [ ] `~/.claude/rules/common/testing.md` に新 sub-section 追記 (15 行程度、`drain_pipe_capped_reporting` を inline 例として使用)
+- [ ] markdownlint clean
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 数値依存出力関数のテストに「N=0/N=1/N≥2 の 3 variant」原則が global rule として参照可能
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) に global rule として自動波及
+- 順位 110 (pure function test pattern template) と相補的なポジショニング (boundary 値 vs 数値依存出力)
+
+#### 詰まっている箇所
+
+なし。Effort XS、global rules への docs 追記のみ、`feedback_global_config_backup` snapshot を忘れない。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
