@@ -432,49 +432,6 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
-### `drain_pipe_capped` 境界値テスト (N-1 / N / N+1 行) を lib-subprocess に追加 (PR #207 post-merge-feedback T2-1 採用)
-
-> **動機**: PR #207 (順位 173c) で CR が 🟠 Major として発見した pre-existing bug の root cause = `pr_size_check.rs` の `drain_pipe_capped(MAX_LINES=40)` が `jj diff --stat` の summary line (40 行目以降) を silent truncate し、`extract_summary_line()` が空文字を返して `pr_size_check` が silent disable (fail-open、ADR-043 violation) する事象。PR #207 で追加した 6 テストは各 variant の代表 case を網羅するが、**MAX_LINES の boundary behavior (N-1 行 = 全件保持 / N 行 = 境界 / N+1 行 = 切り捨て初発生)** の直接検証は未実装。境界値の regression test を追加することで「定数を変えても挙動が読み取れる」「callsite で MAX_LINES を渡し間違えると test で検出」状態を確立する。
->
-> **本タスクの位置づけ**: PR #207 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None、2026-06-14 ユーザー承認)。analyzer rationale: 「CR が指摘した pre-existing bug の root cause を test レベルで予防、Effort S で Adoption Risk None」。順位 173e (variant merge 検討) の前段として実装することで variant 判断の test ベース根拠が強化される。
->
-> **参照**: `.claude/feedback-reports/207.md` Tier 2 #1、PR #207 CR Major comment (`drain_pipe_capped` silent truncate of control flow stdout)、`src/lib-subprocess/src/lib.rs` (3 variant 実装)、ADR-043 (Security/Quality Gate での Fail-Closed 原則 — silent disable は違反)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 test の延長で 3-6 case 追加、PR diff < 100 行見込み。
-
-#### 設計決定 (案)
-
-- **対象 variant**: `drain_pipe_capped` と `drain_pipe_capped_reporting` の両方 (truncate semantics が boundary を跨ぐ)
-- **boundary 値 set** (各 variant): max_lines = 5 として:
-  - N-1 = 4 行 → 全件保持 (truncate 発生せず)
-  - N = 5 行 → 全件保持 (= cap と一致、truncate 発生せず)
-  - N+1 = 6 行 → 5 行保持 + 1 行切り捨て
-- **`drain_pipe_capped_reporting` 特有**:
-  - N 行: truncated 報告なし (`"... (N lines truncated)"` 不在)
-  - N+1 行: truncated 報告あり (`"... (1 lines truncated)"` 末尾付与)
-- **既存 test との関係**: 既存 6 test は短い (3-5 行) input で代表挙動を確認、新規 6 test は boundary 値で境界条件を pin
-- **memory `feedback_test_dry_antipattern`**: 各 boundary case は独立 setup で記述、helper 関数で共通化しない
-
-#### 作業計画
-
-- [ ] `src/lib-subprocess/src/lib.rs` の `#[cfg(test)] mod tests` 末尾に 6 boundary test を追加 (`drain_pipe_capped_N_minus_1_keeps_all` / `_N_keeps_all` / `_N_plus_1_truncates_one` + `drain_pipe_capped_reporting_*` 3 件)
-- [ ] `cargo test -p lib-subprocess` で全 pass 確認 (既存 15 test + 新規 6 = 21 test)
-- [ ] mutation regression check: 意図的に `< max_lines` を `<= max_lines` (off-by-one) に変えて新 test が落ちることを手動検証
-- [ ] cargo clippy clean
-- [ ] 本エントリ削除 + docs/todo-summary.md 行削除
-
-#### 完了基準
-
-- 6 boundary test が追加され全 pass
-- off-by-one regression (`< max_lines` ↔ `<= max_lines` mutation) で新 test が落ちる構造
-- `drain_pipe_capped_reporting` の truncated 報告 on/off boundary が test で明示的に確認
-
-#### 詰まっている箇所
-
-なし。Effort S、既存 test pattern (Cursor input + 直接 assertion) の延長で完結。
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)

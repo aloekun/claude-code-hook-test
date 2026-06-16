@@ -198,7 +198,8 @@ pub fn drain_pipe_capped_reporting(
             }
         }
         if truncated > 0 {
-            collected.push(format!("... ({} lines truncated)", truncated));
+            let suffix = if truncated == 1 { "" } else { "s" };
+            collected.push(format!("... ({} line{} truncated)", truncated, suffix));
         }
         collected.join("\n")
     })
@@ -466,6 +467,51 @@ mod tests {
         let input = Cursor::new(b"a\nb\n".to_vec());
         let handle = drain_pipe_capped_reporting(input, 10);
         assert_eq!(handle.join().unwrap(), "a\nb");
+    }
+
+    #[test]
+    fn drain_pipe_capped_n_minus_1_keeps_all() {
+        let input = Cursor::new(b"a\nb\nc\nd\n".to_vec());
+        let handle = drain_pipe_capped(input, 5);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd");
+    }
+
+    #[test]
+    fn drain_pipe_capped_n_keeps_all() {
+        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
+        let handle = drain_pipe_capped(input, 5);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd\ne");
+    }
+
+    #[test]
+    fn drain_pipe_capped_n_plus_1_truncates_one() {
+        let input = Cursor::new(b"a\nb\nc\nd\ne\nf\n".to_vec());
+        let handle = drain_pipe_capped(input, 5);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd\ne");
+    }
+
+    #[test]
+    fn drain_pipe_capped_reporting_n_minus_1_keeps_all_omits_summary() {
+        let input = Cursor::new(b"a\nb\nc\nd\n".to_vec());
+        let handle = drain_pipe_capped_reporting(input, 5);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd");
+    }
+
+    #[test]
+    fn drain_pipe_capped_reporting_n_keeps_all_omits_summary() {
+        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
+        let handle = drain_pipe_capped_reporting(input, 5);
+        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd\ne");
+    }
+
+    #[test]
+    fn drain_pipe_capped_reporting_n_plus_1_truncates_one_appends_summary() {
+        let input = Cursor::new(b"a\nb\nc\nd\ne\nf\n".to_vec());
+        let handle = drain_pipe_capped_reporting(input, 5);
+        assert_eq!(
+            handle.join().unwrap(),
+            "a\nb\nc\nd\ne\n... (1 line truncated)",
+        );
     }
 
     #[test]
