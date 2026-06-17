@@ -1685,6 +1685,19 @@ mod tests {
     }
 
     #[test]
+    fn walkthrough_clean_skipped_when_coderabbitai_post_lacks_header_marker() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"},
+             "body": "Plain text without header.\nNo actionable comments were generated in the recent review.",
+             "created_at": "2026-04-01T12:30:00Z"}
+        ]"#;
+        assert!(!parse_walkthrough_clean_marker(
+            json,
+            "2026-04-01T12:00:00Z"
+        ));
+    }
+
+    #[test]
     fn walkthrough_clean_skipped_when_event_time_before_push_time() {
         let json = r#"[
             {"user": {"login": "coderabbitai[bot]"},
