@@ -189,6 +189,11 @@ struct CodeRabbitStatus {
     new_comments: usize,
     actionable_comments: Option<usize>,
     unresolved_threads: Option<usize>,
+    /// 順位 208: CR walkthrough comment body に `WALKTHROUGH_CLEAN_MARKER`
+    /// (= "No actionable comments were generated in the recent review.") を検出した場合 true。
+    /// formal Review object が無い場合でも clean 判定を可能にし、recheck loop を終了させる。
+    #[serde(default)]
+    walkthrough_clean: bool,
 }
 
 // ─── gh CLI 出力パースモデル ───
@@ -259,6 +264,15 @@ struct GhPullComment {
 ///   - "Rate limit exceeded" (旧 format、~2026 年初頃まで)
 ///   - "rate limited by coderabbit.ai" (新 format、HTML マーカー、2026-05 観測)
 const RATE_LIMIT_MARKERS: &[&str] = &["Rate limit exceeded", "rate limited by coderabbit.ai"];
+
+/// 順位 208: CR walkthrough comment が clean 判定を示すときに body 内に出力する marker。
+const WALKTHROUGH_CLEAN_MARKER: &str =
+    "No actionable comments were generated in the recent review.";
+
+/// 順位 208: CR walkthrough comment body の先頭 marker。auto-generated header の
+/// 識別に使い、PR ユーザーが手動投稿した類似コメントを誤検出しないようにする。
+const WALKTHROUGH_HEADER_MARKER: &str =
+    "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->";
 
 fn is_rate_limit_comment(c: &GhComment) -> bool {
     c.body
@@ -394,6 +408,59 @@ fn parse_new_comments(json: &str, push_time: &str) -> usize {
             is_coderabbit && after_push_time && !is_review_in_progress && !is_rate_limit
         })
         .count()
+}
+
+/// 順位 208: CR walkthrough comment body から clean marker
+/// (= `WALKTHROUGH_CLEAN_MARKER`) を検出する。
+///
+/// 検出条件 (全て満たすときのみ true):
+///   - 投稿者が `coderabbitai[bot]`
+///   - body 先頭付近に `WALKTHROUGH_HEADER_MARKER` を含む (= auto-generated walkthrough header)
+///   - body が rate-limit comment ではない (rate-limit overlay 時は body が書き換わるため
+///     project memory `project_coderabbit_rate_limit_overlay.md` 参照)
+///   - body に `WALKTHROUGH_CLEAN_MARKER` を含む
+///   - event_time (= updated_at fallback created_at) が `push_time` 以降
+///
+/// formal Review object が無い (= `review_state == "not_found"`) 場合でも本シグナルが
+/// true なら `decide()` で `(complete, stop_monitoring_success)` を返し、PR #210/#211 で
+/// 発生した recheck loop を構造的に終了させる (= memory `feedback_coderabbit_no_actionable_merge_signal.md`
+/// の手動 workaround を機械化)。
+fn parse_walkthrough_clean_marker(json: &str, push_time: &str) -> bool {
+    let comments: Vec<GhComment> = serde_json::from_str(json).unwrap_or_else(|e| {
+        eprintln!(
+            "[check-ci-coderabbit] walkthrough JSON パースエラー: {}",
+            e
+        );
+        vec![]
+    });
+
+    comments.iter().any(|c| is_clean_walkthrough_comment(c, push_time))
+}
+
+/// 順位 208: 単一 comment が CR walkthrough の clean marker を持つか判定する pure helper。
+/// `parse_walkthrough_clean_marker` を decompose し、`collect_review_park_fields` 等の
+/// 関数長 50 行ガイドライン (順位 48) を維持する。
+fn is_clean_walkthrough_comment(c: &GhComment, push_time: &str) -> bool {
+    let is_coderabbit = c
+        .user
+        .as_ref()
+        .and_then(|u| u.login.as_deref())
+        .map(|l| l == "coderabbitai[bot]")
+        .unwrap_or(false);
+    if !is_coderabbit {
+        return false;
+    }
+    let after_push_time = rate_limit_event_time(c)
+        .map(|t| t >= push_time)
+        .unwrap_or(false);
+    if !after_push_time {
+        return false;
+    }
+    if is_rate_limit_comment(c) {
+        return false;
+    }
+    let body = c.body.as_deref().unwrap_or("");
+    body.contains(WALKTHROUGH_HEADER_MARKER) && body.contains(WALKTHROUGH_CLEAN_MARKER)
 }
 
 /// rate-limit comment の reset 計算に使うタイムスタンプを返す。
@@ -877,14 +944,21 @@ fn parse_unresolved_threads(json: &str) -> Option<usize> {
 
 // ─── 判定ロジック ───
 
-/// CI と CodeRabbit の状態から (status, action) を決定する
+/// CI と CodeRabbit の状態から `(status, action)` を決定する。
+///
+/// 判定優先順位 (上から):
+///   1. CI failure → error / stop_monitoring_failure
+///   2. walkthrough_clean かつ unresolved_threads 無し → complete / stop_monitoring_success
+///      (順位 208: formal Review object 不在でも walkthrough body の clean marker を信頼)
+///   3. review_state == not_found かつ has_actionable → action_required
+///   4. CI pending or CR pending → continue_monitoring
+///   5. review_state failure/error → stop_monitoring_failure
+///   6. has_actionable → action_required
+///   7. それ以外 → complete / stop_monitoring_success
 fn decide(ci: &CiStatus, cr: &CodeRabbitStatus) -> (String, String) {
-    // CI が失敗 → 即座に報告
     if ci.overall == "failure" {
         return ("error".to_string(), "stop_monitoring_failure".to_string());
     }
-
-    // コメント/スレッドの集計 (review_state に関わらず先に計算)
     let has_unresolved = cr.unresolved_threads.map(|n| n > 0).unwrap_or(false);
     let effective_new = if let Some(actionable) = cr.actionable_comments {
         std::cmp::max(cr.new_comments, actionable)
@@ -892,33 +966,26 @@ fn decide(ci: &CiStatus, cr: &CodeRabbitStatus) -> (String, String) {
         cr.new_comments
     };
     let has_actionable = effective_new > 0 || has_unresolved;
-
-    // CodeRabbit の review_state が not_found でもコメント/スレッドがあれば対応が必要
-    // (commit status は未投稿でも inline comments は先に投稿されるケースがある)
+    if cr.walkthrough_clean && !has_unresolved {
+        return (
+            "complete".to_string(),
+            "stop_monitoring_success".to_string(),
+        );
+    }
     if cr.review_state == "not_found" && has_actionable {
         return ("action_required".to_string(), "action_required".to_string());
     }
-
-    // CI が pending (runs 空 = no_ci は "pending" ではなく CI チェックをスキップ)
     let ci_pending = ci.overall == "pending" && !ci.runs.is_empty();
-    // CodeRabbit がまだレビュー中 or 未検出 (コメントもない)
     let cr_pending = cr.review_state == "pending" || cr.review_state == "not_found";
-
     if ci_pending || cr_pending {
         return ("pending".to_string(), "continue_monitoring".to_string());
     }
-
-    // CodeRabbit がエラー
     if cr.review_state == "failure" || cr.review_state == "error" {
         return ("error".to_string(), "stop_monitoring_failure".to_string());
     }
-
-    // コメント/スレッドがある → 対応が必要
     if has_actionable {
         return ("action_required".to_string(), "action_required".to_string());
     }
-
-    // すべて OK
     (
         "complete".to_string(),
         "stop_monitoring_success".to_string(),
@@ -1138,6 +1205,7 @@ fn run_check(args: CliArgs) -> CheckResult {
     let comments_json = run_gh(&["api", &format!("repos/{}/issues/{}/comments", repo, pr_str)])
         .unwrap_or_else(|_| "[]".to_string());
     let new_comments = parse_new_comments(&comments_json, &args.push_time);
+    let walkthrough_clean = parse_walkthrough_clean_marker(&comments_json, &args.push_time);
     let rate_limit = parse_rate_limit(&comments_json, &args.push_time);
 
     // 4. Actionable comments クロスチェック
@@ -1167,6 +1235,7 @@ fn run_check(args: CliArgs) -> CheckResult {
         new_comments,
         actionable_comments: actionable,
         unresolved_threads: unresolved,
+        walkthrough_clean,
     };
 
     // 6. インラインレビューコメントを Finding に変換
@@ -1563,7 +1632,70 @@ mod tests {
         assert_eq!(parse_coderabbit_status(json), "success");
     }
 
-    // --- parse_new_comments ---
+    #[test]
+    fn walkthrough_clean_detected_when_marker_present_with_header() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"},
+             "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\nNo actionable comments were generated in the recent review. 🎉",
+             "created_at": "2026-04-01T12:30:00Z"}
+        ]"#;
+        assert!(parse_walkthrough_clean_marker(
+            json,
+            "2026-04-01T12:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn walkthrough_clean_skipped_when_rate_limit_overlay_present() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"},
+             "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\nrate limited by coderabbit.ai\nMore reviews will be available in 1 minute and 30 seconds.\nNo actionable comments were generated in the recent review.",
+             "created_at": "2026-04-01T12:30:00Z"}
+        ]"#;
+        assert!(!parse_walkthrough_clean_marker(
+            json,
+            "2026-04-01T12:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn walkthrough_clean_skipped_when_marker_missing() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"},
+             "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\nReview summary: 3 changes detected.\n## Walkthrough\n...",
+             "created_at": "2026-04-01T12:30:00Z"}
+        ]"#;
+        assert!(!parse_walkthrough_clean_marker(
+            json,
+            "2026-04-01T12:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn walkthrough_clean_skipped_when_header_missing_to_avoid_user_post_false_positive() {
+        let json = r#"[
+            {"user": {"login": "humanreviewer"},
+             "body": "Quoting CR: No actionable comments were generated in the recent review.",
+             "created_at": "2026-04-01T12:30:00Z"}
+        ]"#;
+        assert!(!parse_walkthrough_clean_marker(
+            json,
+            "2026-04-01T12:00:00Z"
+        ));
+    }
+
+    #[test]
+    fn walkthrough_clean_skipped_when_event_time_before_push_time() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"},
+             "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\nNo actionable comments were generated in the recent review.",
+             "created_at": "2026-04-01T11:00:00Z"}
+        ]"#;
+        assert!(!parse_walkthrough_clean_marker(
+            json,
+            "2026-04-01T12:00:00Z"
+        ));
+    }
 
     #[test]
     fn comments_filters_by_time() {
@@ -1804,6 +1936,7 @@ mod tests {
             new_comments: 2,
             actionable_comments: None,
             unresolved_threads: Some(0),
+            walkthrough_clean: false,
         };
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "action_required");
@@ -1821,6 +1954,7 @@ mod tests {
             new_comments: 0,
             actionable_comments: None,
             unresolved_threads: Some(3),
+            walkthrough_clean: false,
         };
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "action_required");
@@ -1838,6 +1972,7 @@ mod tests {
             new_comments: 0,
             actionable_comments: Some(3), // レビュー本文では3件、コメントAPIでは0件
             unresolved_threads: Some(0),
+            walkthrough_clean: false,
         };
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "action_required");
@@ -1855,6 +1990,7 @@ mod tests {
             new_comments: 0,
             actionable_comments: Some(0),
             unresolved_threads: Some(0),
+            walkthrough_clean: false,
         };
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "complete");
@@ -1888,6 +2024,7 @@ mod tests {
             new_comments: 0,
             actionable_comments: Some(3),
             unresolved_threads: Some(3),
+            walkthrough_clean: false,
         };
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "action_required");
@@ -1906,6 +2043,7 @@ mod tests {
             new_comments: 0,
             actionable_comments: Some(0),
             unresolved_threads: Some(0),
+            walkthrough_clean: false,
         };
         let (status, action) = decide(&ci, &cr);
         assert_eq!(status, "complete");
@@ -1928,7 +2066,41 @@ mod tests {
         assert_eq!(action, "continue_monitoring");
     }
 
-    // --- build_summary ---
+    #[test]
+    fn decide_walkthrough_clean_returns_complete_when_no_unresolved_threads() {
+        let ci = CiStatus {
+            overall: "success".to_string(),
+            runs: vec![],
+        };
+        let cr = CodeRabbitStatus {
+            review_state: "not_found".to_string(),
+            new_comments: 1,
+            walkthrough_clean: true,
+            unresolved_threads: Some(0),
+            ..Default::default()
+        };
+        let (status, action) = decide(&ci, &cr);
+        assert_eq!(status, "complete");
+        assert_eq!(action, "stop_monitoring_success");
+    }
+
+    #[test]
+    fn decide_walkthrough_clean_does_not_override_unresolved_threads() {
+        let ci = CiStatus {
+            overall: "success".to_string(),
+            runs: vec![],
+        };
+        let cr = CodeRabbitStatus {
+            review_state: "not_found".to_string(),
+            new_comments: 1,
+            walkthrough_clean: true,
+            unresolved_threads: Some(2),
+            ..Default::default()
+        };
+        let (status, action) = decide(&ci, &cr);
+        assert_eq!(status, "action_required");
+        assert_eq!(action, "action_required");
+    }
 
     #[test]
     fn summary_all_clean() {
@@ -1941,6 +2113,7 @@ mod tests {
             new_comments: 0,
             actionable_comments: Some(0),
             unresolved_threads: Some(0),
+            walkthrough_clean: false,
         };
         let summary = build_summary(&ci, &cr);
         assert!(summary.contains("CI成功"));
@@ -1973,6 +2146,7 @@ mod tests {
             new_comments: 2,
             actionable_comments: Some(3),
             unresolved_threads: Some(1),
+            walkthrough_clean: false,
         };
         let summary = build_summary(&ci, &cr);
         assert!(summary.contains("新規指摘3件"));
