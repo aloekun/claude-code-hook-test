@@ -16,6 +16,7 @@ use crate::runner::run_gh_quiet;
 use crate::state::{write_state, PrMonitorState};
 use crate::util::PrInfo;
 
+use super::review_recheck::round_up_to_next_minute;
 use super::{make_park_poll_result, PollResult};
 
 /// rate-limit 検出 branch を集約する。
@@ -78,7 +79,6 @@ fn dispatch_rate_limit_outcome(
             rl,
             pr_info,
             review_recheck_wait_secs,
-            max_retries,
             result,
         ),
         RateLimitOutcome::Parked { wakeup_at_unix } => Some(finalize_parked(
@@ -108,7 +108,6 @@ pub(super) fn finalize_posted_retrigger(
     rl: &crate::state::RateLimitState,
     pr_info: &PrInfo,
     review_recheck_wait_secs: u64,
-    max_retries: u32,
     result: &serde_json::Value,
 ) -> Option<PollResult> {
     state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
@@ -143,7 +142,7 @@ pub(super) fn finalize_posted_retrigger(
         ));
     }
 
-    let signal = format_park_signal(state, rl, pr_info, max_retries);
+    let signal = format_posted_retrigger_review_park_signal(state, pr_info);
     println!("{}", signal);
 
     Some(make_park_poll_result(state.clone()))
@@ -364,6 +363,104 @@ fn post_review_immediately(pr: u64, state: &mut PrMonitorState) -> RateLimitOutc
     RateLimitOutcome::Posted
 }
 
+struct PostedRetriggerParkFields {
+    pr: String,
+    repo: String,
+    wakeup_unix: i64,
+    wakeup_iso: String,
+    safe_unix: i64,
+    safe_iso: String,
+    wait_secs: i64,
+    recheck: u32,
+    exe: String,
+    cwd: String,
+}
+
+fn collect_posted_retrigger_park_fields(
+    state: &PrMonitorState,
+    pr_info: &PrInfo,
+) -> PostedRetriggerParkFields {
+    let pr = pr_info
+        .pr_number
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "?".into());
+    let repo = pr_info.repo.as_deref().unwrap_or("?").to_string();
+    let wakeup_unix = state.next_wakeup_at_unix.unwrap_or(0);
+    let wakeup_iso = if wakeup_unix > 0 {
+        lib_pending_file::epoch_secs_to_iso8601(wakeup_unix as u64)
+    } else {
+        "?".into()
+    };
+    let safe_unix = if wakeup_unix > 0 { round_up_to_next_minute(wakeup_unix) } else { 0 };
+    let safe_iso = if safe_unix > 0 {
+        lib_pending_file::epoch_secs_to_iso8601(safe_unix as u64)
+    } else {
+        "?".into()
+    };
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let wait_secs = (wakeup_unix - now_unix).max(0);
+    let exe = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".into());
+    PostedRetriggerParkFields {
+        pr, repo, wakeup_unix, wakeup_iso, safe_unix, safe_iso,
+        wait_secs, recheck: state.review_recheck_count, exe, cwd,
+    }
+}
+
+/// rate-limit 解消後の `@coderabbitai review` 投稿完了 → review 待ち PARK signal を生成する。
+///
+/// `format_park_signal` (reason: rate_limit_retry, reset_at_unix 基準) とは異なり、
+/// `state.next_wakeup_at_unix` の review 待ち wakeup を基準に `reason: review_recheck` で
+/// discriminate する。過去 timestamp (`rl.until_unix_secs`) を CronCreate に誤使用しない。
+pub(super) fn format_posted_retrigger_review_park_signal(
+    state: &PrMonitorState,
+    pr_info: &PrInfo,
+) -> String {
+    let PostedRetriggerParkFields {
+        pr, repo, wakeup_unix, wakeup_iso, safe_unix, safe_iso, wait_secs, recheck, exe, cwd,
+    } = collect_posted_retrigger_park_fields(state, pr_info);
+    format!(
+        "[PR_MONITOR_PARK]
+reason: review_recheck
+pr: {pr}
+repo: {repo}
+next_wakeup_at_unix: {wakeup_unix}
+next_wakeup_at_iso_utc: {wakeup_iso}
+safe_minute_at_unix: {safe_unix}
+safe_minute_at_iso_utc: {safe_iso}
+wait_total_seconds: {wait_secs}
+recheck_count: {recheck}
+exe: {exe}
+cwd: {cwd}
+
+ACTION REQUIRED: please schedule one-shot wakeup using CronCreate.
+
+Cron spec derivation (apply 2 orthogonal constraints sequentially):
+  Step 1 (round-UP, already applied at the source): use `safe_minute_at_iso_utc`
+         (= next_wakeup_at_iso_utc with seconds rounded UP to next full minute).
+  Step 2 (avoid :00 / :30 minute due to 90s pre-fire jitter): convert
+         `safe_minute_at_iso_utc` to LOCAL TZ, then bump the minute by +1 if it
+         lands on :00 or :30. Use the resulting `HH:MM` as the cron field.
+  Reference: ~/.claude/rules/common/development-workflow.md
+             § Cron スケジューリングの秒 → 分 round-UP
+
+CronCreate({{
+  cron: \"<see Step 1 + Step 2 above>\",
+  recurring: false,
+  durable: true,
+  prompt: \"Wakeup: review recheck for PR #{pr} ({repo}). cd \\\"{cwd}\\\" && \\\"{exe}\\\" --monitor-only\"
+}})
+[/PR_MONITOR_PARK]"
+    )
+}
+
 /// PARK signal を stdout に書き出すための pure 関数 (Bb-1)。
 pub(crate) fn format_park_signal(
     state: &PrMonitorState,
@@ -414,4 +511,49 @@ CronCreate({{
 [/PR_MONITOR_PARK]",
         until = rl.until_unix_secs,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_posted_retrigger_review_park_signal;
+    use crate::state::PrMonitorState;
+
+    /// Finding #3: rate-limit retrigger 後の PARK signal が `reason: review_recheck` を使い、
+    /// 過去 timestamp (`rl.until_unix_secs`) ではなく `state.next_wakeup_at_unix` を参照する。
+    #[test]
+    fn format_posted_retrigger_review_park_signal_uses_review_recheck_reason() {
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        state.next_wakeup_at_unix = Some(1_775_044_800);
+        state.review_recheck_count = 1;
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: None,
+            head_commit: None,
+            fix_push_time: None,
+        };
+
+        let signal = format_posted_retrigger_review_park_signal(&state, &pr_info);
+
+        assert!(
+            signal.starts_with("[PR_MONITOR_PARK]"),
+            "PARK signal ヘッダが正しい形式でない: {}",
+            signal
+        );
+        assert!(
+            signal.contains("reason: review_recheck"),
+            "Finding #3: rate-limit retrigger 後も reason は review_recheck であるべき。実際: {}",
+            signal
+        );
+        assert!(
+            !signal.contains("reason: rate_limit_retry"),
+            "Finding #3: rate_limit_retry は誤った reason (rate-limit PARK と混同)。実際: {}",
+            signal
+        );
+        assert!(
+            signal.contains("next_wakeup_at_unix: 1775044800"),
+            "state.next_wakeup_at_unix を参照すべき (rl.until_unix_secs の過去 timestamp ではない)。実際: {}",
+            signal
+        );
+    }
 }

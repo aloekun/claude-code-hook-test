@@ -1183,7 +1183,7 @@ mod tests {
         std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
 
         let (mut state, rl, pr_info) = setup_posted_retrigger_fixture();
-        let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, 3, &serde_json::Value::Null);
+        let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, &serde_json::Value::Null);
 
         std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
 
@@ -1221,7 +1221,7 @@ mod tests {
             fix_push_time: None,
         };
 
-        let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, 3, &serde_json::Value::Null);
+        let result = finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, &serde_json::Value::Null);
 
         std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
 

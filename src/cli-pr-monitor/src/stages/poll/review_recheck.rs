@@ -254,6 +254,8 @@ fn finalize_review_recheck_max_reached(
     );
     state.action = "action_required".into();
     state.summary = summary.clone();
+    state.next_wakeup_at_unix = None;
+    state.wakeup_reason = None;
     if let Err(e) = write_state(state) {
         log_info(&format!(
             "state 書き込み失敗 (action_required 確定後、続行): {}",
@@ -294,4 +296,56 @@ pub(super) fn schedule_next_review_recheck_park(
 
     println!("{}", format_review_park_signal(state, ctx));
     make_park_poll_result(state.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::finalize_review_recheck_max_reached;
+    use crate::state::PrMonitorState;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Finding #5: `finalize_review_recheck_max_reached` は `action_required` 確定後に
+    /// 残留 wakeup fields を None にクリアする。ADR-030 invariant:
+    /// "wakeup は parked_* action のときのみスケジュールされる"。
+    #[test]
+    fn finalize_review_recheck_max_reached_clears_wakeup_fields() {
+        let _guard = env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
+
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        let stale_wakeup_unix: i64 = 9_999_999_999;
+        let stale_wakeup_reason = "review_recheck";
+        state.next_wakeup_at_unix = Some(stale_wakeup_unix);
+        state.wakeup_reason = Some(stale_wakeup_reason.into());
+        state.review_recheck_count = 3;
+        state.action = "parked_review_recheck".into();
+
+        finalize_review_recheck_max_reached(&mut state, 3);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert!(
+            state.next_wakeup_at_unix.is_none(),
+            "Finding #5: action_required 確定時に next_wakeup_at_unix が None にクリアされること。実際: {:?}",
+            state.next_wakeup_at_unix
+        );
+        assert!(
+            state.wakeup_reason.is_none(),
+            "Finding #5: action_required 確定時に wakeup_reason が None にクリアされること。実際: {:?}",
+            state.wakeup_reason
+        );
+        assert_eq!(
+            state.action, "action_required",
+            "Finding #5: action が action_required に確定されること"
+        );
+    }
 }

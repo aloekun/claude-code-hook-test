@@ -467,13 +467,13 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
-### `hooks-pre-tool-validate` に PowerShell dispatch + `powershell-destructive-write-block` preset 追加 (PR #213 post-merge-feedback T1-1 + session 派生統合採用)
+### `hooks-pre-tool-validate` に PowerShell dispatch + `powershell-destructive-write-block` preset 追加 (PR #213 post-merge-feedback feedback-T1-1 + session 派生統合採用)
 
 > **動機**: PR #213 (refactor PR A) 作業中、PowerShell スクリプトで `check-ci-coderabbit/src/main.rs` (2369 行) を **0 byte に消去** する事故が発生。連鎖失敗: ① `IndexOf` の検索 marker に CRLF (`` `r`n ``) を埋め込んだが file は LF only → ② `IndexOf` が `-1` を返すも `Substring(0, -1)` 直接呼び出し → `MethodInvocationException` → ③ PowerShell default `$ErrorActionPreference = Continue` で script 続行 → ④ `$newContent = $null` のまま `[System.IO.File]::WriteAllText($path, $null)` → `.NET` 仕様で空文字書き込み → ファイル消失。`jj op restore` で復旧後、conversation 履歴から module ファイル群を再 Write した手戻り発生。
 >
 > memory `feedback_no_powershell_inplace_edit.md` で人間 / AI 規範として codify 済だが、memory は揮発する懸念があり mechanical defense を併設する。
 >
-> **本タスクの位置づけ**: PR #213 post-merge-feedback Tier 1 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-19 ユーザー承認) + session 派生提案を統合 (analyzer T1-1 と session 派生の独立収束により高い妥当性)。本タスクは現行 `hooks-pre-tool-validate` の **dispatch table が `Bash` / `Write` / `Edit` / `Replace` のみで PowerShell 未対応** という構造的盲点を埋める。
+> **本タスクの位置づけ**: PR #213 post-merge-feedback feedback-T1-1 採用 (feedback report 分類: Tier 1 #1、実行 tier は下記 **Tier 2**。Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-19 ユーザー承認) + session 派生提案を統合 (analyzer feedback-T1-1 と session 派生の独立収束により高い妥当性)。本タスクは現行 `hooks-pre-tool-validate` の **dispatch table が `Bash` / `Write` / `Edit` / `Replace` のみで PowerShell 未対応** という構造的盲点を埋める。
 >
 > **参照**: `.claude/feedback-reports/213.md` Tier 1 #1、memory `feedback_no_powershell_inplace_edit.md`、PR #213 session log (PowerShell 事故と復旧経緯)、[src/hooks-pre-tool-validate/src/main.rs:1098-1102](../src/hooks-pre-tool-validate/src/main.rs#L1098-L1102) (現行 dispatch table)。
 >
