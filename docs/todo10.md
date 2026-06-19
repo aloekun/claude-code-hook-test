@@ -622,6 +622,48 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
+### `~/.claude/rules/common/coding-style.md` に「Defensive State Reset in State Machines」section 追加 (PR #214 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #214 round 2 で CR Major #4 (`既存 state 再利用時も現在の push 情報に更新してください`) の fix として `finalize_initial_review_park` 内で `read_state()` 後に `state.pr` / `state.repo` / `state.started_at` を `ctx` 値で **無条件上書き** する pattern を land した。この pattern は同 function 内の既存 reset と同型 (CR Major #1 fix で `head_commit` 上書き、CR Major #2 fix で `review_recheck_count = 0`) で、現時点で 3 field に適用済の確立された defensive pattern。
+>
+> ただしこの「無条件上書き」は新規 reader / reviewer から見ると一見「冗長 (= `unwrap_or_else(|| ::new(...))` で既に同値を設定済だから不要)」に見える危険性がある。同型コードを future PR で reviewer (人間 / AI 両方) が「redundant resets は削除すべき」と誤判定して削除した場合、prior cycle の stale state (古い PR 番号 / repo / 開始時刻) が混入する silent bug を導入するリスクが顕在化する。
+>
+> **本タスクの位置づけ**: PR #214 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-06-20 ユーザー承認)。analyzer rationale: 「PR #214 の `review_recheck.rs` で positive pattern として land (lines 185–187)。同型コード (`review_recheck_count`, `head_commit` 上書き) との一貫性がある確立されたパターン。Frequency Medium = cli-pr-monitor には複数の state machine があり再発確実。Effort S、Adoption Risk None → ✅ 採用候補と判定」。pre-push:simplicity + pre-push:security の独立 2 ソース検出。
+>
+> **参照**: `.claude/feedback-reports/214.md` Tier 3 #1、[src/cli-pr-monitor/src/stages/poll/review_recheck.rs:177-193](../src/cli-pr-monitor/src/stages/poll/review_recheck.rs#L177-L193) (現行 `finalize_initial_review_park` の defensive reset block)、memory `feedback_no_unenforced_rules.md` (enforcement 要件)、memory `feedback_global_config_backup.md` (snapshot 必須)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。global rules への docs 追記 ~30 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+
+#### 設計決定 (案)
+
+- **追加先**: `~/.claude/rules/common/coding-style.md` の末尾 (`## Code Quality Checklist` の直前) または `## Error Handling` 直後に新 section「Defensive State Reset in State Machines」を追加
+- **rule 内容**: 「State machine 内で `read_state()` / `load_state()` 等の persisted state を再利用する場合、`new()` で設定される identity field と同等の **無条件上書き reset** を `read_state()` 後に明示的に書く。これは『冗長』に見えるが、prior cycle の stale state (古い PR 番号 / repo / session ID 等) が再利用 path で混入する silent bug を防ぐ defensive pattern。reviewer (人間 / AI) は redundant 削除を提案しないこと」
+- **anti-pattern 警告**: `let state = read_state().unwrap_or_else(|| State::new(id, repo, time));` だけで identity field を `ctx` で上書きしないと、prior cycle の値が残留する
+- **good pattern 例**: PR #214 `review_recheck.rs:177-193` を inline cite (`state.pr` / `state.repo` / `state.started_at` / `state.review_recheck_count` / `state.head_commit` の 5 field reset)
+- **由来 cite**: PR #214 の CR Major #4 が「既存 state 再利用時も現在の push 情報に更新してください」として独立検出した実証
+- **enforcement layer**: 機械 lint は困難 (`read_state` pattern の構文認識 + identity field 列挙が必要) だが、simplicity-review LLM が `coding-style.md` を読むため "enforced via review" として機能、memory `feedback_no_unenforced_rules` 例外を満たす
+- **派生プロジェクト波及**: `~/.claude/rules/common/` 配下のため techbook-ledger / auto-review-fix-vc に自動
+
+#### 作業計画
+
+- [ ] `~/.claude/` snapshot 取得 (memory `feedback_global_config_backup` per)
+- [ ] `~/.claude/rules/common/coding-style.md` に新 section「Defensive State Reset in State Machines」追記 (anti-pattern + good pattern + PR #214 由来 cite、約 30 行)
+- [ ] markdownlint clean
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/rules/common/coding-style.md` に「Defensive State Reset in State Machines」section が追加される
+- 派生プロジェクト (techbook-ledger / auto-review-fix-vc) に global rule として自動波及
+- 由来 cite (PR #214 CR Major #4 + `review_recheck.rs:177-193`) で reviewer / Claude が rule 背景を理解可能
+- simplicity-review LLM が future PR で同型 `read_state()` を含む state machine 編集を review する際、本 section の anti-pattern 警告を参照可能
+
+#### 詰まっている箇所
+
+なし。Effort S、global rules への docs 追記のみ、`feedback_global_config_backup` snapshot を忘れない。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
