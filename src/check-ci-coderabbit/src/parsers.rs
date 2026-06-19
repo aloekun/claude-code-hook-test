@@ -88,7 +88,7 @@ pub(crate) fn parse_coderabbit_status(json: &str) -> String {
     }
 
     cr_statuses
-        .last()
+        .first()
         .and_then(|s| s.state.clone())
         .unwrap_or_else(|| "not_found".to_string())
 }
@@ -171,7 +171,7 @@ pub(crate) fn parse_actionable_comments(json: &str, push_time: &str) -> Option<u
         let after_push_time = r
             .submitted_at
             .as_deref()
-            .map(|t| t > push_time)
+            .map(|t| t >= push_time)
             .unwrap_or(false);
 
         is_coderabbit && after_push_time
@@ -294,10 +294,10 @@ mod tests {
     }
 
     #[test]
-    fn cr_status_multiple_takes_last() {
+    fn cr_status_multiple_takes_first() {
         let json = r#"[
-            {"context": "CodeRabbit", "state": "pending"},
-            {"context": "CodeRabbit", "state": "success"}
+            {"context": "CodeRabbit", "state": "success"},
+            {"context": "CodeRabbit", "state": "pending"}
         ]"#;
         assert_eq!(parse_coderabbit_status(json), "success");
     }
