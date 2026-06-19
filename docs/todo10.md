@@ -467,6 +467,159 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
+### `hooks-pre-tool-validate` に PowerShell dispatch + `powershell-destructive-write-block` preset 追加 (PR #213 post-merge-feedback T1-1 + session 派生統合採用)
+
+> **動機**: PR #213 (refactor PR A) 作業中、PowerShell スクリプトで `check-ci-coderabbit/src/main.rs` (2369 行) を **0 byte に消去** する事故が発生。連鎖失敗: ① `IndexOf` の検索 marker に CRLF (`` `r`n ``) を埋め込んだが file は LF only → ② `IndexOf` が `-1` を返すも `Substring(0, -1)` 直接呼び出し → `MethodInvocationException` → ③ PowerShell default `$ErrorActionPreference = Continue` で script 続行 → ④ `$newContent = $null` のまま `[System.IO.File]::WriteAllText($path, $null)` → `.NET` 仕様で空文字書き込み → ファイル消失。`jj op restore` で復旧後、conversation 履歴から module ファイル群を再 Write した手戻り発生。
+>
+> memory `feedback_no_powershell_inplace_edit.md` で人間 / AI 規範として codify 済だが、memory は揮発する懸念があり mechanical defense を併設する。
+>
+> **本タスクの位置づけ**: PR #213 post-merge-feedback Tier 1 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-19 ユーザー承認) + session 派生提案を統合 (analyzer T1-1 と session 派生の独立収束により高い妥当性)。本タスクは現行 `hooks-pre-tool-validate` の **dispatch table が `Bash` / `Write` / `Edit` / `Replace` のみで PowerShell 未対応** という構造的盲点を埋める。
+>
+> **参照**: `.claude/feedback-reports/213.md` Tier 1 #1、memory `feedback_no_powershell_inplace_edit.md`、PR #213 session log (PowerShell 事故と復旧経緯)、[src/hooks-pre-tool-validate/src/main.rs:1098-1102](../src/hooks-pre-tool-validate/src/main.rs#L1098-L1102) (現行 dispatch table)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。dispatch 追加 (~20 行) + preset 追加 (~50 行) + tests (~30 行) で約 100 行、PR diff < 200 行見込み。
+
+#### 設計決定 (案)
+
+- **dispatch 追加**: [src/hooks-pre-tool-validate/src/main.rs](../src/hooks-pre-tool-validate/src/main.rs) の `main` 内 match に `"PowerShell" => handle_powershell_tool(&config, &tool_input)` を追加。`handle_powershell_tool` は `handle_bash_tool` と同形 (`tool_input.command` を `validate_command` で照合)
+- **新 preset `powershell-destructive-write-block`**: 以下の正規表現を BlockedPattern として登録
+  - `\[System\.IO\.File\]::WriteAllText\s*\(` (今回事故の直接因)
+  - `\[System\.IO\.File\]::WriteAllBytes\s*\(`
+  - `\[System\.IO\.File\]::WriteAllLines\s*\(`
+  - `(?i)\bOut-File\b` (redirect 系 cmdlet)
+  - `(?i)\bSet-Content\b\s+(-Path\s+)?[^|]+\s+-Value` (cmdlet 版書き込み)
+- **Exception**: `__*` (scratch prefix) への書き込みは allow (`exception: Some(Regex::new(r#"['"]__[^'"]*['"]"#).unwrap())`)
+- **Block message**: 事故の経緯 + 代替手段 (`Edit` tool / Bash `sed -i` / `Write` tool) を明記
+- **Default preset 化**: `Config::default()` でも有効になるよう全 preset 配列に組み込み
+- **tests**: positive (destructive write block) / negative (scratch allow / legit cmdlet not block) の 3 case 以上
+
+#### 作業計画
+
+- [ ] `hooks-pre-tool-validate/src/main.rs` の `main` dispatch に PowerShell 行追加
+- [ ] `handle_powershell_tool` 関数追加 (`handle_bash_tool` を template に)
+- [ ] `preset_powershell_destructive_write` 関数追加 + BlockedPattern 5 つ
+- [ ] `build_blocked_patterns` / `Config::default()` で本 preset を default-on に組込
+- [ ] tests 追加 (positive + negative + scratch exception)
+- [ ] hook 自前 dogfood: 本 PR 内で意図的に `[System.IO.File]::WriteAllText` を PowerShell tool で叩いて block されることを確認
+- [ ] `pnpm deploy:hooks` または `pnpm build:hooks-pre-tool-validate` でデプロイ確認
+- [ ] 本エントリ削除 + docs/todo-summary.md 行削除
+
+#### 完了基準
+
+- PowerShell tool での `WriteAllText` / `WriteAllBytes` / `WriteAllLines` / `Out-File` / `Set-Content -Value` 呼び出しが PreToolUse hook で block
+- scratch ファイル (`__*` prefix) への書き込みは allow (false positive 抑制)
+- 通常の PowerShell cmdlet (`Get-ChildItem` / `Where-Object` 等) は block されない
+- 既存 Bash / Edit / Write preset の挙動に regression なし
+
+#### 詰まっている箇所
+
+なし。Effort M、既存 hook アーキ準拠で additive な変更のみ。
+
+---
+
+### `parse_coderabbit_status` の API ordering テスト追加 (PR #213 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #213 で takt-fix iter 2 が `parse_coderabbit_status` の `.last()` → `.first()` を「GitHub statuses API は reverse-chronological 返却 (最新→古い順) なので `.first()` が最新」として修正した。元 production code (main.rs 時代) は `.last()` を「最新エントリ」コメントと共に書いていたが、GitHub API ordering の implicit assumption が単体テストとして表現されていなかった (ordering を test fixture で固定していなかった) ため、refactor 時に意味を失った。
+>
+> **本タスクの位置づけ**: PR #213 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Low / Effort S / Adoption Risk None、2026-06-19 ユーザー承認)。analyzer rationale: 「Bug 1 の根本は GitHub statuses API が reverse-chronological 返却であるという implicit assumption が単体で表現されていなかったこと。テストで ordering semantics を explicit 化すれば将来の refactor が defensive になる」。
+>
+> **参照**: `.claude/feedback-reports/213.md` Tier 2 #1、PR #213 takt-fix iter 2 ログ、[src/check-ci-coderabbit/src/parsers.rs:70-94](../src/check-ci-coderabbit/src/parsers.rs#L70-L94) (現行 `parse_coderabbit_status`)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 test mod に 1-2 test 追加で完結。
+
+#### 設計決定 (案)
+
+- **追加 test**: `cr_status_reverse_chronological_picks_first` (= `.first()` が最新 entry を返すことを explicit に assert)
+
+  ```rust
+  #[test]
+  fn cr_status_reverse_chronological_picks_first() {
+      // GitHub commit statuses API は reverse-chronological 返却 (最新→古い順)
+      let json = r#"[
+          {"context": "CodeRabbit", "state": "success"},  // 最新
+          {"context": "CodeRabbit", "state": "pending"}   // 古い
+      ]"#;
+      assert_eq!(
+          parse_coderabbit_status(json),
+          "success",
+          "GitHub statuses API は reverse-chronological 返却のため `.first()` が最新 state を返すべき"
+      );
+  }
+  ```
+
+- **既存 `cr_status_multiple_takes_first` との関係**: takt-fix で既に rename + fixture 順序入れ替え済だが、test 名と fixture の意図が機械的にしか伝わらない。新 test では doc comment + assert message で **API ordering の semantics** を明示
+- **memory `feedback_test_dry_antipattern.md`** 適用: 独立 setup で記述、既存 fixture と共有しない
+
+#### 作業計画
+
+- [ ] `src/check-ci-coderabbit/src/parsers.rs` の `mod tests` に `cr_status_reverse_chronological_picks_first` 追加
+- [ ] doc comment と assert message で GitHub API ordering の semantics を明示
+- [ ] `cargo test -p check-ci-coderabbit` で pass 確認
+- [ ] 本エントリ削除 + docs/todo-summary.md 行削除
+
+#### 完了基準
+
+- 新 test が pass、`.first()` が `.last()` に意図せず戻された際に test が落ちる
+- doc comment と assert message から GitHub statuses API ordering の semantics が読み取れる
+
+#### 詰まっている箇所
+
+なし。Effort S、test 1 件追加で完結。
+
+---
+
+### `parse_actionable_comments` の境界条件テスト追加 (PR #213 post-merge-feedback T2-2 採用)
+
+> **動機**: PR #213 で takt-fix iter 2 が `parse_actionable_comments` の `t > push_time` → `t >= push_time` を境界条件 fix として修正した。`push_time` と完全に一致する submitted_at の review (= 直前 push と同時刻イベント) が exclusive 比較で取りこぼされていた。既存 rule⑦ (`no-time-field-strict-greater`) は `submitted_at` フィールド名直接使用のケースを catch するが、変数名 `t` に抽出された後は catch 不可。テストによる second defense layer が必要。
+>
+> **本タスクの位置づけ**: PR #213 post-merge-feedback Tier 2 #2 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None、2026-06-19 ユーザー承認)。analyzer rationale: 「rule⑦ catch 不可なケースのテスト補完、Effort S + Severity Medium で採用候補」。
+>
+> **参照**: `.claude/feedback-reports/213.md` Tier 2 #2、PR #213 takt-fix iter 2 ログ、[src/check-ci-coderabbit/src/parsers.rs:157-182](../src/check-ci-coderabbit/src/parsers.rs#L157-L182) (現行 `parse_actionable_comments`)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort S。test 1-2 件で完結。
+
+#### 設計決定 (案)
+
+- **境界 test**: `actionable_includes_review_at_exact_push_time` (= `submitted_at == push_time` の review が含まれることを assert)
+
+  ```rust
+  #[test]
+  fn actionable_includes_review_at_exact_push_time() {
+      // push_time と submitted_at が完全一致するケース (同時刻イベント) で `>=` の inclusive 比較を保証
+      let json = r#"[
+          {"user": {"login": "coderabbitai[bot]"}, "body": "Actionable comments posted: 3", "submitted_at": "2026-04-01T12:00:00Z"}
+      ]"#;
+      assert_eq!(
+          parse_actionable_comments(json, "2026-04-01T12:00:00Z"),
+          Some(3),
+          "submitted_at == push_time の review は inclusive 比較で含むべき (>= ではなく > だと取りこぼす)"
+      );
+  }
+  ```
+
+- **negative 境界 test**: `actionable_excludes_review_before_push_time` (= `submitted_at < push_time` が除外されることを sentinel pre-populate で確認)
+- **memory `feedback_test_dry_antipattern.md`**: 独立 setup、既存 `actionable_filters_by_time` (push_time より前を除外) を尊重しつつ、`==` 境界を新規 test で補完
+- **memory `feedback_no_unenforced_rules.md` 例外**: 機械 enforce 可能 (cargo test) のため採用相当
+
+#### 作業計画
+
+- [ ] `src/check-ci-coderabbit/src/parsers.rs` の `mod tests` に 2 件 test 追加 (`actionable_includes_review_at_exact_push_time` + `actionable_excludes_review_before_push_time`)
+- [ ] doc comment と assert message で `>=` inclusive 比較の意図を明示
+- [ ] `cargo test -p check-ci-coderabbit` で pass 確認
+- [ ] 本エントリ削除 + docs/todo-summary.md 行削除
+
+#### 完了基準
+
+- 新 test が pass、`>=` が `>` に戻された際に `actionable_includes_review_at_exact_push_time` が落ちる
+- 既存 `actionable_filters_by_time` と相補的に boundary behavior が pin される
+- rule⑦ (`no-time-field-strict-greater`) を補完する second defense layer として機能
+
+#### 詰まっている箇所
+
+なし。Effort S、test 2 件追加で完結。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
