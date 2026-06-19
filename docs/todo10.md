@@ -473,11 +473,13 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 >
 > memory `feedback_no_powershell_inplace_edit.md` で人間 / AI 規範として codify 済だが、memory は揮発する懸念があり mechanical defense を併設する。
 >
-> **本タスクの位置づけ**: PR #213 post-merge-feedback feedback-T1-1 採用 (feedback report 分類: Tier 1 #1、実行 tier は下記 **Tier 2**。Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-19 ユーザー承認) + session 派生提案を統合 (analyzer feedback-T1-1 と session 派生の独立収束により高い妥当性)。本タスクは現行 `hooks-pre-tool-validate` の **dispatch table が `Bash` / `Write` / `Edit` / `Replace` のみで PowerShell 未対応** という構造的盲点を埋める。
+> **本タスクの位置づけ**: PR #213 post-merge-feedback feedback-T1-1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-19 ユーザー承認) + session 派生提案を統合 (analyzer feedback-T1-1 と session 派生の独立収束により高い妥当性)。本タスクは現行 `hooks-pre-tool-validate` の **dispatch table が `Bash` / `Write` / `Edit` / `Replace` のみで PowerShell 未対応** という構造的盲点を埋める。
 >
-> **参照**: `.claude/feedback-reports/213.md` Tier 1 #1、memory `feedback_no_powershell_inplace_edit.md`、PR #213 session log (PowerShell 事故と復旧経緯)、[src/hooks-pre-tool-validate/src/main.rs:1098-1102](../src/hooks-pre-tool-validate/src/main.rs#L1098-L1102) (現行 dispatch table)。
+> **Tier 分類の補足**: analyzer feedback report (`.claude/feedback-reports/213.md`) では `Tier 1: Hooks/Linter 改善` カテゴリに分類されているが、本 todo entry の Tier 列および「実行優先度」行では **🔧 Tier 2** に再分類している。これは memory `feedback_tier_classification` の re-classification rule (= analyzer の Tier 1/3 分類は鵜呑みにせず実体ベース ⟨mechanical enforcement = T1 / docs 修正 = T3⟩ で再分類) に従い、project tier 定義 (🚀 Tier 1 = high-impact urgent / 🔧 Tier 2 = tooling improvements) と整合させたもの。analyzer 分類 feedback-T1-1 の `T1` と project Tier 2 の `2` の食い違いは本 re-classification の意図的な結果であり、表記揺れではない。
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。dispatch 追加 (~20 行) + preset 追加 (~50 行) + tests (~30 行) で約 100 行、PR diff < 200 行見込み。
+> **参照**: `.claude/feedback-reports/213.md` Tier 1 #1 (analyzer 分類)、memory `feedback_no_powershell_inplace_edit.md`、memory `feedback_tier_classification.md` (re-classification rule)、PR #213 session log (PowerShell 事故と復旧経緯)、[src/hooks-pre-tool-validate/src/main.rs:1098-1102](../src/hooks-pre-tool-validate/src/main.rs#L1098-L1102) (現行 dispatch table)。
+>
+> **実行優先度**: 🔧 **Tier 2** (project 分類、上記 re-classification 後) — Effort M。dispatch 追加 (~20 行) + preset 追加 (~50 行) + tests (~30 行) で約 100 行、PR diff < 200 行見込み。
 
 #### 設計決定 (案)
 
