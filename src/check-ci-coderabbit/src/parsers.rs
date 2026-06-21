@@ -302,6 +302,28 @@ mod tests {
         assert_eq!(parse_coderabbit_status(json), "success");
     }
 
+    /// 順位 213 (PR #213 post-merge-feedback T2-1 採用): GitHub commit statuses API は
+    /// reverse-chronological 返却 (新しい→古い順) であり、`parse_coderabbit_status` は
+    /// `.first()` で「最新 state」を取得する。この semantics を test 名 + doc comment +
+    /// assert message で explicit に固定し、refactor 時 (例: `.first()` → `.last()`) に
+    /// 意図しない意味変更を機械的に検出する。
+    ///
+    /// 由来: PR #213 takt-fix iter 2 で `.last()` (= 最古 state を選んでいた) → `.first()`
+    /// の semantic fix が行われたが、元 production code (main.rs 時代) のコメントが
+    /// 「最新エントリ」と書きながら `.last()` を使っていた drift 事例。test 表現で固定する。
+    #[test]
+    fn cr_status_reverse_chronological_picks_first() {
+        let json = r#"[
+            {"context": "CodeRabbit", "state": "success"},
+            {"context": "CodeRabbit", "state": "pending"}
+        ]"#;
+        assert_eq!(
+            parse_coderabbit_status(json),
+            "success",
+            "GitHub statuses API は reverse-chronological 返却のため、配列先頭 (`.first()`) が最新 state。`.last()` (古い state) を返すと CR レビュー終了を見逃す"
+        );
+    }
+
     #[test]
     fn walkthrough_clean_detected_when_marker_present_with_header() {
         let json = r#"[
@@ -463,6 +485,45 @@ mod tests {
         assert_eq!(
             parse_actionable_comments(json, "2026-04-01T12:00:00Z"),
             None
+        );
+    }
+
+    /// 順位 214 (PR #213 post-merge-feedback T2-2 採用): `parse_actionable_comments` の
+    /// `submitted_at >= push_time` inclusive 比較を境界で固定する。`>` (exclusive) に
+    /// 戻された際にこの test が落ちる構造で、direct push 直後の CR review が同時刻
+    /// イベントとして報告される edge case の retest 取りこぼしを機械的に防ぐ。
+    ///
+    /// 由来: PR #213 takt-fix iter 2 で `t > push_time` → `t >= push_time` の境界 fix。
+    /// 既存 rule⑦ `no-time-field-strict-greater` は `submitted_at` 名直接使用 ケースのみ
+    /// catch し、変数名 `t` に抽出された後は static lint 不能。test による second defense layer。
+    #[test]
+    fn actionable_includes_review_at_exact_push_time() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"}, "body": "Actionable comments posted: 3", "submitted_at": "2026-04-01T12:00:00Z"}
+        ]"#;
+        assert_eq!(
+            parse_actionable_comments(json, "2026-04-01T12:00:00Z"),
+            Some(3),
+            "submitted_at == push_time の review は inclusive 比較で含むべき (`>=` が `>` に戻されると取りこぼす)"
+        );
+    }
+
+    /// 順位 214 (negative sentinel): 配列 latest 位置に「push 以前の sentinel 99」を
+    /// 置き、time filter が壊れた場合 `rfind` がそれを先に返す構造にする。time filter が
+    /// 正しく動くと sentinel は除外され、配列前方の `>=` 適合 review (= 5) が選ばれる。
+    /// 既存 `actionable_filters_by_time` は単一 review のみで test するが、本 test は
+    /// 「複数 review 中で boundary 適合のみを選ぶ」exclusion 挙動を sentinel pre-populate
+    /// で固定する (memory `feedback_test_dry_antipattern.md` 適用、独立 setup)。
+    #[test]
+    fn actionable_excludes_review_before_push_time() {
+        let json = r#"[
+            {"user": {"login": "coderabbitai[bot]"}, "body": "Actionable comments posted: 5", "submitted_at": "2026-04-01T12:30:00Z"},
+            {"user": {"login": "coderabbitai[bot]"}, "body": "Actionable comments posted: 99", "submitted_at": "2026-04-01T11:00:00Z"}
+        ]"#;
+        assert_eq!(
+            parse_actionable_comments(json, "2026-04-01T12:00:00Z"),
+            Some(5),
+            "submitted_at < push_time の sentinel review (Actionable: 99) は time filter で除外され、push_time 以降の review (Actionable: 5) が選ばれるべき。99 が返れば time filter が機能していない"
         );
     }
 
