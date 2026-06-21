@@ -531,7 +531,7 @@ fn preset_powershell_destructive_write() -> Vec<BlockedPattern> {
             pattern: Regex::new(r"(?i)\bSet-Content\b[^|]*-Value").unwrap(),
             exception: Some(
                 Regex::new(
-                    r#"(?i)\bSet-Content\b\s+(?:-(?:Literal)?Path\s+)?['"]?__"#,
+                    r#"(?i)\bSet-Content\b(?:\s+['"]?__|[^|]*\s-(?:Literal)?Path\s+['"]?__)"#,
                 )
                 .unwrap(),
             ),
@@ -1664,6 +1664,20 @@ mod tests {
                 PS_DESTRUCTIVE
             ),
             "scratch path で positional argument 指定は allow"
+        );
+        assert!(
+            !is_blocked_with(
+                r#"Set-Content -Value $x -Path "__file.txt""#,
+                PS_DESTRUCTIVE
+            ),
+            "-Value が -Path より先でも scratch path は allow (PR #215 CR Minor #1 fix: exception の order-independence を main pattern と整合)"
+        );
+        assert!(
+            !is_blocked_with(
+                r#"Set-Content -Value $x -LiteralPath "__file.txt""#,
+                PS_DESTRUCTIVE
+            ),
+            "-Value 先行 + -LiteralPath でも scratch path は allow"
         );
     }
 
