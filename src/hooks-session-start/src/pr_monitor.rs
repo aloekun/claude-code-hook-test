@@ -51,10 +51,7 @@ pub(crate) fn pr_monitor_state_path() -> PathBuf {
 /// 抑制条件: action が `"parked_*"` でない (= terminal 状態) 場合、`next_wakeup_at_unix`
 /// が残っていても false-positive nudge を出さない。terminal 経路では cli-pr-monitor が
 /// `next_wakeup_at_unix` を明示クリアしないため、action ベースの guard が必要。
-pub(crate) fn compute_catchup_nudge(
-    state: &ParkedStatePartial,
-    now_unix: i64,
-) -> Option<String> {
+pub(crate) fn compute_catchup_nudge(state: &ParkedStatePartial, now_unix: i64) -> Option<String> {
     if !state.action.starts_with("parked_") {
         return None;
     }
@@ -203,20 +200,16 @@ mod tests {
 
     #[test]
     fn read_parked_state_returns_none_when_file_missing() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-parked-state-missing-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("test-parked-state-missing-{}", std::process::id()));
         let _ = std::fs::remove_file(&tmp);
         assert!(read_parked_state(&tmp).is_none());
     }
 
     #[test]
     fn read_parked_state_parses_partial_fields() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-parked-state-partial-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("test-parked-state-partial-{}", std::process::id()));
         let json = r#"{
             "pr": 42,
             "repo": "owner/repo",

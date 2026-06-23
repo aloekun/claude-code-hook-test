@@ -75,7 +75,10 @@ fn weekly_review_staleness_label(state: &WeeklyLastRunState) -> &'static str {
     }
 }
 
-pub(crate) fn weekly_review_staleness_hits(state: &WeeklyLastRunState, threshold_days: u64) -> bool {
+pub(crate) fn weekly_review_staleness_hits(
+    state: &WeeklyLastRunState,
+    threshold_days: u64,
+) -> bool {
     match state {
         WeeklyLastRunState::Missing => true,
         WeeklyLastRunState::ElapsedDays(d) => *d >= threshold_days,
@@ -252,7 +255,10 @@ mod tests {
 
     #[test]
     fn weekly_review_staleness_hits_for_missing_state() {
-        assert!(weekly_review_staleness_hits(&WeeklyLastRunState::Missing, 7));
+        assert!(weekly_review_staleness_hits(
+            &WeeklyLastRunState::Missing,
+            7
+        ));
     }
 
     #[test]

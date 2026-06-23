@@ -56,7 +56,7 @@ pub(crate) struct OrphanRun {
 /// truncate (整数秒精度で十分)。実装は `check-ci-coderabbit::parse_iso8601_to_unix`
 /// と同型 (no chrono dep policy)。
 pub(crate) fn parse_iso8601_to_unix(s: &str) -> Option<i64> {
-    let no_frac = s.split('.').next()?.trim_end_matches('Z');
+    let no_frac = s.strip_suffix('Z')?.split('.').next()?;
     let mut parts = no_frac.split('T');
     let date = parts.next()?;
     let time = parts.next()?;
@@ -215,6 +215,18 @@ fn build_reaper_failed_marker_body(orphan: &OrphanRun) -> String {
 
 /// 検出された orphan run に対し `.failed` marker と meta.json `status=failed` を書く。
 ///
+fn write_new_marker_file(path: &std::path::Path, body: &str) -> bool {
+    use std::io::Write as _;
+    let Ok(mut f) = std::fs::File::create_new(path) else {
+        return false;
+    };
+    if f.write_all(body.as_bytes()).is_err() {
+        let _ = std::fs::remove_file(path);
+        return false;
+    }
+    true
+}
+
 /// 冪等性:
 /// - 既存 `.failed` marker がある → skip (L1 / 前回 reaper pass による処理済み)
 /// - 既存 `<pr>.md` 成功レポートがある → skip (ADR-030 §Reconciliation で documented されている
@@ -236,7 +248,7 @@ pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> Vec<(u64,
             let _ = std::fs::create_dir_all(parent);
         }
         let body = build_reaper_failed_marker_body(orphan);
-        if std::fs::write(&marker, body).is_err() {
+        if !write_new_marker_file(&marker, &body) {
             continue;
         }
         let _ = mark_meta_failed(&orphan.meta_path);
@@ -325,7 +337,10 @@ mod tests {
     fn parse_iso8601_handles_fractional_seconds() {
         let t = parse_iso8601_to_unix("2026-05-13T12:33:23.908Z").unwrap();
         let t_no_frac = parse_iso8601_to_unix("2026-05-13T12:33:23Z").unwrap();
-        assert_eq!(t, t_no_frac, "fractional seconds must be truncated, not rejected");
+        assert_eq!(
+            t, t_no_frac,
+            "fractional seconds must be truncated, not rejected"
+        );
     }
 
     #[test]
@@ -359,7 +374,10 @@ mod tests {
     #[test]
     fn find_orphans_returns_empty_when_runs_dir_missing() {
         let root = unique_temp_root("missing-runs");
-        assert!(find_orphan_post_merge_feedback_runs(&root.join(".takt/runs"), 9_999_999_999).is_empty());
+        assert!(
+            find_orphan_post_merge_feedback_runs(&root.join(".takt/runs"), 9_999_999_999)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -400,7 +418,12 @@ mod tests {
         let root = unique_temp_root("completed");
         let runs = root.join(".takt/runs");
         let run = runs.join("20260513-100000-post-merge-feedback-for-151");
-        write_meta(&run, "post-merge-feedback for #151", "completed", "2026-05-13T03:26:40Z");
+        write_meta(
+            &run,
+            "post-merge-feedback for #151",
+            "completed",
+            "2026-05-13T03:26:40Z",
+        );
         let orphans = find_orphan_post_merge_feedback_runs(&runs, 9_999_999_999);
         assert!(orphans.is_empty(), "completed runs must not be reaped");
         let _ = std::fs::remove_dir_all(&root);
@@ -411,9 +434,19 @@ mod tests {
         let root = unique_temp_root("non-pmf");
         let runs = root.join(".takt/runs");
         let pre_push = runs.join("20260513-100000-pre-push-review");
-        write_meta(&pre_push, "pre-push-review", "running", "2026-05-13T03:26:40Z");
+        write_meta(
+            &pre_push,
+            "pre-push-review",
+            "running",
+            "2026-05-13T03:26:40Z",
+        );
         let post_pr = runs.join("20260513-100001-post-pr-review");
-        write_meta(&post_pr, "post-pr-review", "running", "2026-05-13T03:26:40Z");
+        write_meta(
+            &post_pr,
+            "post-pr-review",
+            "running",
+            "2026-05-13T03:26:40Z",
+        );
         let orphans = find_orphan_post_merge_feedback_runs(&runs, 9_999_999_999);
         assert!(
             orphans.is_empty(),
@@ -479,7 +512,10 @@ mod tests {
 
         let updated_meta: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(run.join("meta.json")).unwrap()).unwrap();
-        assert_eq!(updated_meta.get("status").and_then(|v| v.as_str()), Some("failed"));
+        assert_eq!(
+            updated_meta.get("status").and_then(|v| v.as_str()),
+            Some("failed")
+        );
         assert_eq!(
             updated_meta.get("reaped_by").and_then(|v| v.as_str()),
             Some("hooks-session-start")
@@ -538,7 +574,10 @@ mod tests {
 
         let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
         let reaped = reap_orphans(&root, &orphans);
-        assert!(reaped.is_empty(), "must not re-reap when marker already exists");
+        assert!(
+            reaped.is_empty(),
+            "must not re-reap when marker already exists"
+        );
 
         let body = std::fs::read_to_string(&marker).unwrap();
         assert_eq!(body, "pre-existing detailed marker from L1");

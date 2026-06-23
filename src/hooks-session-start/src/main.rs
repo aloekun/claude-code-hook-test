@@ -219,10 +219,7 @@ mod tests {
 
     #[test]
     fn write_to_env_file_skips_second_write_for_same_marker() {
-        let tmp = std::env::temp_dir().join(format!(
-            "test-env-file-skip-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("test-env-file-skip-{}", std::process::id()));
         let _ = std::fs::remove_file(&tmp);
 
         write_to_env_file(tmp.to_str().unwrap(), "first");

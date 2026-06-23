@@ -3,6 +3,7 @@
 //! staleness / その他 jj 依存処理が共有する低レイヤ。failure mode は fail-open
 //! (network 異常 / fetch timeout / parse 失敗等で session 起動を阻害しない)。
 
+use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_basic};
 use std::path::Path;
 use std::process::Command;
 
@@ -24,10 +25,7 @@ pub(crate) fn fetch_head_is_recent(repo_root: &Path, cache_secs: u64) -> bool {
 }
 
 pub(crate) fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
-    use std::io::Read as _;
     use std::process::Stdio;
-    use std::thread;
-    use std::time::{Duration, Instant};
 
     let mut child = Command::new("jj")
         .args(args)
@@ -35,31 +33,18 @@ pub(crate) fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<St
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut buf = Vec::new();
-                if let Some(mut out) = child.stdout.take() {
-                    let _ = out.read_to_end(&mut buf);
-                }
-                return if status.success() {
-                    String::from_utf8(buf).ok()
-                } else {
-                    None
-                };
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => return None,
-        }
-    }
+
+    let Some(out) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let stdout_handle = drain_pipe_unlimited(out);
+    let status = wait_with_timeout_basic("jj", &mut child, timeout_secs)
+        .ok()
+        .flatten();
+    let output = stdout_handle.join().ok()?;
+    status.filter(|s| s.success()).map(|_| output)
 }
 
 pub(crate) fn count_commits_in_revset(revset: &str) -> Option<usize> {

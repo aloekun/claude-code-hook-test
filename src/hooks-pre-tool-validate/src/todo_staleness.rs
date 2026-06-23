@@ -8,6 +8,7 @@ use crate::config::{
     TodoStalenessConfig, TODO_STALENESS_DEFAULT_BRANCH, TODO_STALENESS_DEFAULT_GREP_LIMIT,
     TODO_STALENESS_JJ_TIMEOUT_SECS,
 };
+use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_basic};
 use regex::Regex;
 
 pub(crate) struct TodoStalenessResult {
@@ -45,10 +46,7 @@ pub(crate) fn extract_heading_keywords(text: &str) -> Vec<String> {
 }
 
 fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
-    use std::io::Read as _;
     use std::process::{Command, Stdio};
-    use std::thread;
-    use std::time::{Duration, Instant};
 
     let mut child = Command::new("jj")
         .args(args)
@@ -56,31 +54,18 @@ fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut buf = Vec::new();
-                if let Some(mut out) = child.stdout.take() {
-                    let _ = out.read_to_end(&mut buf);
-                }
-                return if status.success() {
-                    String::from_utf8(buf).ok()
-                } else {
-                    None
-                };
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => return None,
-        }
-    }
+
+    let Some(out) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let stdout_handle = drain_pipe_unlimited(out);
+    let status = wait_with_timeout_basic("jj", &mut child, timeout_secs)
+        .ok()
+        .flatten();
+    let output = stdout_handle.join().ok()?;
+    status.filter(|s| s.success()).map(|_| output)
 }
 
 fn count_commits_branch_ahead(branch: &str) -> Option<usize> {
