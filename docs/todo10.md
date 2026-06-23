@@ -730,6 +730,110 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
+### subprocess stress test (>64KB stdout) を ADR-031 weekly-review pipeline 経由で週次実行 (PR #217 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #217 (refactor PR-3a) の post-pr-review iter 2 で 2 module (`hooks-session-start/src/jj_helpers.rs` + `hooks-pre-tool-validate/src/todo_staleness.rs`) に同型の subprocess deadlock 脆弱性が independent 観測された。具体的な脆弱性は、`Command::new("jj")` を `.stdout(Stdio::piped())` で spawn したあと parent process が `try_wait` ループで wait しつつ child の stdout を drain せず終了後にまとめて read するため、jj log の出力が pipe buffer (Linux default 64KB / Windows 4-64KB) を超えると child が write block → 親が wait block → deadlock。
+>
+> CR Major fix として `spawn_stdout_drainer` + `poll_child_with_deadline` 関数を抽出して background drain に変更 (takt-fix iter 2)、さらに iter 3 で `lib_subprocess::drain_pipe_unlimited` + `wait_with_timeout_basic` の既存共通 helper への統合に refactor。本 fix で deadlock は構造的に防止されたが、**実際に >64KB を pipe させる regression test が存在しない** ため future refactor で再発する盲点が残る。
+>
+> **本タスクの位置づけ**: PR #217 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort M / Adoption Risk None、2026-06-23 ユーザー承認)。analyzer rationale: 「2 モジュールで deadlock パターン確認、High severity + Medium frequency で M effort を正当化、deadlock は大 buffer 時のみ顕在化するため手動検証が困難でテスト化が最も確実な防止手段」。
+>
+> **ユーザー判断 (2026-06-23)**: 「毎回走るタイプ (hooks など) のテストに組み込むのは適切ではない、週に 1 回程度に頻度を落として通常の開発速度に影響が出ない形で CI に組み込みたい」。Stop hook quality gate (`cargo test`) や pre-push pipeline (`cargo test`) は毎 push 実行のため stress test のような高コスト・低頻度検証は不適切。ADR-031 weekly-review pipeline (週次 cron / 手動 `/weekly-review`) で `cargo test -- --ignored --test-threads=1` 系の追加 step として実行する方針。
+>
+> **参照**: `.claude/feedback-reports/217.md` Tier 2 #1、PR #217 takt-fix iter 2 / iter 3 (`lib-subprocess` 統合)、ADR-031 § Phase B (takt workflow + facets)、`#[ignore]` test 慣習 (例: cli-pr-monitor の integration test、ADR-021)、`docs/adr/adr-044-subprocess-utility-extraction-boundary.md` (lib-subprocess の extraction 境界判定)、順位 221 (ADR docs codification、bundle 推奨)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。stress fixture 作成 (~50 行 × 2 module) + ADR-031 weekly workflow への step 追加 + `cargo test -- --ignored` 経由の動作確認。
+
+#### 設計決定 (案)
+
+- **test 配置**: 各 module の既存 `mod tests` に `#[ignore = "stress test, requires explicit --ignored flag (PR #217 T2-1)"]` 付きで追加
+- **fixture 方針**: 実 `jj log` を呼び出すと環境依存になるため、`Command::new("yes")` 系 (Linux) や `Command::new("cmd").args(["/c", "for /L %i in (1,1,N) do @echo ..."])` (Windows) で >64KB の決定論的出力を生成。あるいは `jj log` を repo 内の真の commit history で呼ぶ場合は test 前提として大型 repo を必要とせず、std::process::Command 単体で test 可能な形に
+- **検証項目**:
+  - `> 64KB` の stdout を吐く child を spawn し、`drain_pipe_unlimited` 経由で完全 read できる (`output.len() > 64 * 1024`)
+  - timeout 内に child が exit する (`child.wait().is_ok()` 系 assert)
+  - parent が wait 完了する (deadlock していたら test 自体がハングして CI timeout で fail)
+- **CI 統合**: ADR-031 weekly-review workflow に新 step `rust-stress` を追加 (`cargo test --workspace -- --ignored --test-threads=1`)。既存 rust-test group (`cargo test --workspace`) とは分離 (前者は毎回、後者は週次)
+- **派生プロジェクト transferability**: `lib-subprocess` を採用する他 crate (cli-merge-pipeline / cli-pr-monitor / cli-push-pipeline / cli-push-runner / hooks-post-tool-linter) へも同型 stress test を transfer 可能。本 task の MVP は 2 module 限定、3+ module で同 pattern 観測時に拡張判断
+- **memory `feedback_test_dry_antipattern.md`** 適用: 各 module の test 内に独立 helper (`spawn_large_output_child` / `assert_no_deadlock_within`) を duplicate、共有 test module は抽出しない
+
+#### 作業計画
+
+- [ ] hooks-session-start/src/jj_helpers.rs の `mod tests` に `stress_drain_large_stdout_does_not_deadlock` 追加 (~50 行、`#[ignore]` 付き)
+- [ ] hooks-pre-tool-validate/src/todo_staleness.rs の `mod tests` に同型 test 追加 (~50 行)
+- [ ] `cargo test -p hooks-session-start -- --ignored --test-threads=1` でローカル動作確認
+- [ ] `cargo test -p hooks-pre-tool-validate -- --ignored --test-threads=1` でローカル動作確認
+- [ ] ADR-031 weekly-review workflow (`.takt/workflows/weekly-review.yaml` 等) に rust-stress step 追加
+- [ ] 次回 `/weekly-review` で実発火確認、本 task entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 各 module で `>64KB stdout` を pipe する stress test が `#[ignore]` 付きで存在
+- `cargo test -- --ignored --test-threads=1` で test が pass、deadlock していないこと (timeout しないこと) を確認
+- ADR-031 weekly-review workflow に新 step が追加され、次回 weekly 実行で stress test が走る
+- 順位 221 (ADR docs) と合わせ、test 層 (本 task) + docs 層 (221) の 2 層防御が確立
+
+#### 詰まっている箇所
+
+- Windows での大出力 fixture コマンド: `yes` は Windows に存在しない。`cmd /c for /L` で代替可能だが PowerShell / bash 等の環境差を test 内で吸収する設計が必要 (cross-platform test fixture)
+- ADR-031 workflow への step 追加: 既存 weekly-review yaml の構造を確認、rust-stress step の独立 facet 化が必要か、aggregate-weekly facet の pre-step として組み込むかは実装時判断
+
+---
+
+### ADR-NNN (採番未確定、land 時に確定): Safe Subprocess Stdout Pattern を ADR-016 appendix or 新 ADR で codify (PR #217 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #217 takt-fix iter 2 で 2 module 同型の subprocess deadlock を fix した実例 (順位 220 参照) から、`Stdio::piped()` を伴う child process の安全な扱い方を ADR で永続化する必要が判明した。同 pattern は本 PR 以前にも `lib-subprocess` 内部で `drain_pipe_unlimited` + `wait_with_timeout_basic` として codify されていたが、**新規 subprocess spawn を書く著者が pipe buffer 制約を知らない場合の防御層が欠落** していた。
+>
+> ADR で pattern を明文化することで:
+>
+> - 機械検知 (T1-1 lint rule、🤔 様子見) より低 risk な代替防止層として機能
+> - 派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability を確保 (ADR は global 参照可能)
+> - reviewer (人間 / AI) が PR review 時に「Stdio::piped() を見たらこの ADR を確認」する mental check が成立
+> - ADR-025 (CwdRestore Drop guard pattern) の precedent と整合: 「pattern の codify は test/lint に先行する低コスト防止層」
+>
+> **本タスクの位置づけ**: PR #217 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None、2026-06-23 ユーザー承認)。analyzer rationale: 「2 モジュールで同一パターン違反、Medium frequency + S effort + None risk、pattern を明文化することで T1-1 の lint rule 化より低 risk な代替防止層として機能、ADR-025 の precedent あり」。
+>
+> **参照**: `.claude/feedback-reports/217.md` Tier 3 #1、PR #217 takt-fix iter 2 (`spawn_stdout_drainer` + `poll_child_with_deadline` 初版抽出) / iter 3 (`lib-subprocess` 統合)、`docs/adr/adr-016-long-running-command-strategy.md` (append 候補)、`docs/adr/adr-025-cwd-restore-drop-guard.md` (precedent: pattern codify ADR)、`docs/adr/adr-044-subprocess-utility-extraction-boundary.md` (lib-subprocess 境界判定)、`src/lib-subprocess/src/lib.rs` (`drain_pipe_unlimited` / `wait_with_timeout_basic` 実装)、順位 220 (test 層、bundle 推奨)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。ADR appendix or 新 ADR 作成 (~150 行)、3 pattern (background drain / `Command::output()` / `Stdio::null()`) の説明 + lib-subprocess utility cite + anti-pattern 例 (本 PR の deadlock fix 経緯を inline cite)。
+
+#### 設計決定 (案)
+
+- **配置選択**: 2 案あり、ADR 起案時にユーザー判断:
+  - **Option A** (append): `docs/adr/adr-016-long-running-command-strategy.md` に新 section「Safe Subprocess Stdout Pattern」を追加。ADR-016 が既に subprocess 戦略を扱うため整合的、ADR 数を増やさない
+  - **Option B** (new): `docs/adr/adr-NNN-safe-subprocess-stdout-pattern.md` として新規 ADR (採番は land 時に確定、順位 135 placeholder policy per)。pattern が ADR-016 の長時間コマンド扱いとは別関心 (= pipe buffer 制約は短時間 subprocess でも発生) のため scope 分離する根拠あり
+- **本 task の MVP 推奨**: Option A (append) — ADR 数増加を抑え、ADR-016 § 長時間コマンド戦略 直後の new section として組み込む。実装時の dogfood で B 化判断
+- **記述項目** (3 pattern + anti-pattern):
+  1. **Background drain pattern**: `spawn(...)` + `std::thread::spawn(move \|\| out.read_to_end(...))` で stdout を別 thread で drain、parent は `try_wait` ループ。本 PR で `lib_subprocess::drain_pipe_unlimited` + `wait_with_timeout_basic` として codify 済
+  2. **`Command::output()` pattern**: 短時間 subprocess で stdout/stderr を一括 capture する標準慣習。pipe buffer 問題を回避するが timeout 制御不可
+  3. **`Stdio::null()` pattern**: stdout を完全に捨てる場合 (= 副作用のみ目的)。pipe buffer 問題なし、最も simple
+  4. **Anti-pattern**: `Stdio::piped()` + drain なしで `try_wait` ループ。pipe buffer 枯渇で deadlock (本 PR の修正前 state、inline cite)
+- **由来 cite**: PR #217 takt-fix iter 2 の deadlock 修正経緯と iter 3 の lib-subprocess 統合 refactor を inline 引用
+- **派生プロジェクト波及**: ADR は global 参照可能、本 ADR を `~/.claude/rules/common/` に link することで techbook-ledger / auto-review-fix-vc 等に reference 提供
+- **enforcement layer**: 機械 lint (T1-1) は false positive リスクで 様子見、本 ADR が author 教育 + reviewer 確認の文書層、順位 220 (stress test) が test 層、3 層構成 (docs / test / lint defer) で防御
+
+#### 作業計画
+
+- [ ] ADR 配置の Option A/B 判断 (Option A = ADR-016 append が MVP 推奨)
+- [ ] ADR section / 新 ADR を作成 (~150 行、3 pattern + anti-pattern + cite)
+- [ ] CLAUDE.md ADR list 追記 (Option B の場合のみ)
+- [ ] ADR-025 precedent との相補性を ADR 内で明示
+- [ ] `~/.claude/rules/common/coding-style.md` (or rust/patterns.md) から本 ADR への link を追加 (派生プロジェクト transferability)
+- [ ] 本 task entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR (appendix or new) が land、3 pattern + anti-pattern + 由来 cite を含む
+- ADR-016 / ADR-025 / ADR-044 / lib-subprocess との関係性が明確
+- `~/.claude/rules/common/` から本 ADR への参照が追加され、派生プロジェクトで future PR 著者が `Stdio::piped()` を書く際の reference として機能
+- 順位 220 (stress test) と相補的に、docs + test の 2 層防御確立
+
+#### 詰まっている箇所
+
+- Option A vs B の判断: ADR-016 § 長時間コマンド戦略 が「長時間 = timeout 制御」に focus している場合、本 pattern (pipe buffer = 短時間でも発生) との scope mismatch で別 ADR が綺麗。実装着手時に既存 ADR-016 を read して判断
+- `~/.claude/rules/common/` への link 追加先: `coding-style.md` か `rust/patterns.md` かは Option A/B の結論と整合させる必要あり
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
