@@ -408,6 +408,7 @@ dependencies = [
 name = "hooks-pre-tool-validate"
 version = "0.1.0"
 dependencies = [
+ "lib-subprocess",
  "regex",
  "serde",
  "serde_json",
@@ -418,6 +419,7 @@ dependencies = [
 name = "hooks-session-start"
 version = "0.1.0"
 dependencies = [
+ "lib-subprocess",
  "proptest",
  "serde",
  "serde_json",

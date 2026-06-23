@@ -83,7 +83,7 @@ pub(crate) fn extract_wait_time(body: &str) -> Option<(u64, u64)> {
 
 /// ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ` 形式) を unix epoch 秒に変換する。
 pub(crate) fn parse_iso8601_to_unix(s: &str) -> Option<i64> {
-    let s = s.trim_end_matches('Z');
+    let s = s.strip_suffix('Z')?;
     let mut parts = s.split('T');
     let date = parts.next()?;
     let time = parts.next()?;
