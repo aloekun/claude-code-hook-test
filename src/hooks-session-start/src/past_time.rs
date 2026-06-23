@@ -90,7 +90,7 @@ mod proptests {
     //! proptest case 数は default 256。実行時間は数百 ms 程度。
 
     use super::*;
-    use crate::parse_iso8601_to_unix;
+    use crate::reaper::parse_iso8601_to_unix;
     use proptest::prelude::*;
 
     proptest! {
