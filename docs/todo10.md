@@ -527,7 +527,7 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 - **rule id**: `no-workstream-seq-names-in-config`
 - **pattern**: `(?i)\bPR-[0-9]+\b`
-- **extensions**: `["toml", "yaml", "yml", "jsonc", "json"]` (主要 config formats)
+- **extensions**: `["toml", "yaml", "yml", "jsonc"]` (config formats、plain `json` は comment 構文を持たず rule 対象外なので除外)
 - **検出範囲**: comment 行のみ (TOML `#`、YAML `#`、JSONC `//` 等)。**実装注**: 多くの project-local lint rule は file 全体に regex match している。本 rule は comment 行検出が本質だが、初期実装は file 全体マッチで MVP として開始し、false positive 観測後に comment 行限定への絞り込みを判断する (= 同 pattern の rule⑥/⑫ と整合的な段階導入)
 - **exception**: GitHub PR number `#[0-9]+` 形式は対象外。実装上は positive pattern `(?i)\bPR-[0-9]+\b` が `#NNN` を match しない (`#` prefix 形式は別) ため exception 不要。ただし test で「`#216`」「`PR #216`」のようなケースが fire しないことを negative test で固定
 - **severity**: `warning` (block しない、author への hint 機能優先、rule⑫ と同 pattern)
