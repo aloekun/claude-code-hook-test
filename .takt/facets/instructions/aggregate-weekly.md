@@ -18,11 +18,12 @@ ADR-031 § Findings スキーマ + § 採否フロー の input source として
 
 ### Report Directory (takt が提供)
 
-本 step (`pass_previous_response: false`) は前 step の response を受け取らない。代わりに Report Directory に保存された 3 reports を Read で読み取る:
+本 step (`pass_previous_response: false`) は前 step の response を受け取らない。代わりに Report Directory に保存された 4 reports を Read で読み取る:
 
 - `simplicity-whole-review.md` — review-simplicity-whole facet の出力
 - `security-whole-review.md` — review-security-whole facet の出力
 - `architecture-whole-review.md` — review-architecture-whole facet の出力
+- `file-length-watchlist.md` — file-length-watchlist facet の出力 (PR-W0、deterministic 800 行超 file scan)。本 watchlist は LLM 判断による findings ではなく機械的観測のため、Phase 1 統合では findings には含めず、Phase 2 の "file_length watchlist" 専用 section として weekly report に転載する
 
 ### Context
 
@@ -135,7 +136,14 @@ Markdown は人間 / Claude が読む summary 層。findings table を severity 
 ### スコープ
 - 対象ツリー: `src/` / `scripts/` / `.claude/` / `.takt/` / `docs/`
 - レビューファセット: simplicity-whole / security-whole / architecture-whole
+- 決定論的観測: file-length-watchlist (PR-W0)
 - 採否方針: Phase C skill `/weekly-review` で AskUserQuestion 経由
+
+### File Length Watchlist (機械的観測)
+
+`file-length-watchlist.md` の内容を本 section に転載する (header 行は省略、件数表示 + table 部分を再現)。0 件 (clean state) の場合は「現時点で 800 行超 file は存在しない (clean state)」を表示。
+
+詳細は Report Directory の `file-length-watchlist.md` を参照。
 
 ### 統合 findings
 
@@ -181,6 +189,11 @@ findings 全体がゼロの場合は以下を出力:
 ### スコープ
 - 対象ツリー: `src/` / `scripts/` / `.claude/` / `.takt/` / `docs/`
 - レビューファセット: simplicity-whole / security-whole / architecture-whole
+- 決定論的観測: file-length-watchlist (PR-W0)
+
+### File Length Watchlist (機械的観測)
+
+`file-length-watchlist.md` の内容を本 section に転載する (件数表示 + table 部分)。0 件 (clean state) の場合は「現時点で 800 行超 file は存在しない (clean state)」を表示。
 
 特筆すべき findings なし。3 facet いずれも whole-tree レビューで blocking concern を発見しませんでした。
 

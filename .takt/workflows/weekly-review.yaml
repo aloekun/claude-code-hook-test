@@ -100,6 +100,30 @@ steps:
         rules:
           - condition: analysis complete
 
+      # 観点 ⑦ file_length watchlist (PR-W0、docs/file-length-enforcement-plan.md)。
+      # 順位 147 file_length lint は touch-trigger ratchet で「触られた file の
+      # 編集時のみ警告」設計のため、未触り state の violation を可視化できない。
+      # 本 facet は週次 1 回 master HEAD を deterministic に scan して 800 行超
+      # file を全件列挙、aggregate-weekly が watchlist として weekly report に
+      # 統合する。LLM 判断の余地なし (Bash の find/wc/awk 出力を整形するだけ)。
+      - name: file-length-watchlist
+        edit: false
+        persona: simplicity-reviewer
+        model: haiku
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Bash
+              - Read
+        instruction: file-length-watchlist
+        output_contracts:
+          report:
+            - name: file-length-watchlist.md
+              format: file-length-watchlist
+        rules:
+          - condition: analysis complete
+
     rules:
       - condition: all("analysis complete")
         next: aggregate-weekly

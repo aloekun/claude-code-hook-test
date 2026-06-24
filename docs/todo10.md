@@ -834,6 +834,74 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
+### `~/.claude/CLAUDE.md` に「複数セッション跨ぎの計画文書作成時は AI が先走らずユーザー確認後に方針報告し GO/NO-GO を得る」ルール追加 (PR #218 post-merge-feedback #5 採用)
+
+> **動機**: PR #218 (docs PR、ファイルサイズチェックフロー改善計画 + 順位 220/221 採用) のセッション内で、Plan file (`docs/file-length-enforcement-plan.md`) 作成完了報告後、AI (Claude) が **ユーザー承認なしに PR-W0 (weekly audit step 追加) の実装着手を開始** し、ユーザーが `[Request interrupted by user]` で停止 + 「勝手に作業を進めないでください」と明示的に course correction する事案が発生した。Auto mode 下でも「計画書 / planning doc 作成のような **大きな task 完了時** は GO/NO-GO の確認待ちが必須」という規範を CLAUDE.md に明文化することで、本セッション内の事例を後続セッションで再発防止する。
+>
+> **本タスクの位置づけ**: PR #218 post-merge-feedback #5 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None、2026-06-23 ユーザー承認)。analyzer rationale: 「AI がユーザー確認なしに計画書作成を開始し `[Request interrupted by user]` で停止させた事例。Severity Medium (AI 暴走 = UX 劣化)・Effort XS・Adoption Risk None → ✅ 条件を満たす。Frequency Low だが Effort が極小なため採用コストが低い」。
+>
+> **参照**: `.claude/feedback-reports/218.md` Tier 3 #5、PR #218 session transcript (Plan file 作成完了 → AI 先走り → ユーザー停止 → "勝手に作業を進めないでください" の course correction)、memory `feedback_no_unauthorized_reorder.md` (推奨実行順序の上位タスクが blocked された時点で停止し、ユーザーに pivot 可否を確認する、の補強)、memory `feedback_global_config_backup.md` (snapshot 必須)、`~/.claude/CLAUDE.md` (編集対象 global config)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。global config への 1 段落追記で完結、`feedback_global_config_backup` snapshot を忘れない。
+
+#### 設計決定 (案)
+
+- **追加先**: `~/.claude/CLAUDE.md` の `## Personal Preferences` section 直後 (もしくは `## Doing tasks` 配下の sub-section)
+- **rule 内容**:
+
+  ```markdown
+  ### AI 先走り防止 — 計画文書作成完了時の GO/NO-GO ゲート
+
+  複数セッション跨ぎの計画文書 (planning doc / 設計ドキュメント) の作成完了時は、
+  Auto mode の最中であっても **次の実装着手を一時停止し、ユーザーに方針報告 +
+  GO/NO-GO 確認を待つ**。
+
+  対象となる "大きな task" の例:
+
+  - 新規 planning doc (`docs/<topic>-plan.md` / `docs/<topic>-analysis.md` 等) の作成完了
+  - ADR 起案
+  - 複数 PR にまたがる作業計画の決定
+  - 既存 planning doc への大規模追記 (Tier 1/2 構成変更等)
+
+  対象外 (= 通常 task として継続して問題ない):
+
+  - 単一 PR scope 内の段階的 commit
+  - 既存計画通りの逐次実装 step
+
+  GO/NO-GO 確認のフォーマット例:
+
+  > Plan file 作成完了。次の step は PR-W0 (...) への着手です。進めて OK か?
+
+  Auto mode の「prefer action over planning」原則の例外として、planning doc
+  レベルの完了点では明示承認待ちが必須。
+  ```
+
+- **由来 cite**: PR #218 session transcript で実観測した「Plan file 完了報告 → AI が PR-W0 着手 → ユーザー停止 + 'AI 先走り' 指摘」の流れを inline cite
+- **memory `feedback_no_unauthorized_reorder` との関係**: 既存 memory は「task が blocked された時点で停止」を扱うが、本 rule は「task 完了時 (= 自然な区切り) で停止」を扱う = lifecycle の異なる stage を扱う相補的 rule
+- **派生プロジェクト波及**: `~/.claude/CLAUDE.md` 編集のため全 project に自動波及、planning doc の頻度が高い大型 refactor PR で効果を発揮
+- **Auto mode との関係**: Auto mode 仕様の「prefer action over planning」と本 rule の「planning 完了時は停止」は scope 分離 (前者は通常作業の AI 自律性、後者は planning doc レベルの mile stone 確認) で衝突しない
+
+#### 作業計画
+
+- [ ] `~/.claude/` snapshot 取得 (memory `feedback_global_config_backup` per)
+- [ ] `~/.claude/CLAUDE.md` に新 sub-section「AI 先走り防止 — 計画文書作成完了時の GO/NO-GO ゲート」を追加 (上記設計決定の rule 内容、~30 行)
+- [ ] markdownlint clean
+- [ ] 本エントリ削除 + docs/todo-summary.md 行削除
+
+#### 完了基準
+
+- `~/.claude/CLAUDE.md` に新 sub-section が追加される (対象 task 例 / 対象外 / フォーマット例 含む)
+- PR #218 事例が inline cite として記録される
+- 全プロジェクト (techbook-ledger / auto-review-fix-vc 含む) に global rule として自動波及
+- Auto mode 下でも planning doc 完了時点で AI が明示承認待ちに転じることが、次回以降の planning task で確認可能
+
+#### 詰まっている箇所
+
+- 対象範囲の境界定義: 「計画文書」「設計ドキュメント」「大きな task」の判定基準が author に依存する余地あり。MVP は上記「対象 task の例」「対象外」リストで運用、3+ 回の dogfood で境界明確化を判断 (順位 207 mechanical lint scope 外 boundary case 追加の pattern と同様)
+- Auto mode 仕様との関係明示: `~/.claude/CLAUDE.md` の Auto mode セクションが追加 or 改訂されている場合、本 rule の例外条項 (「prefer action over planning」との関係) を Auto mode セクション側にも cross-reference するか判断
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
