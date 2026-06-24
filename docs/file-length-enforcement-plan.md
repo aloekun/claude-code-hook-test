@@ -424,7 +424,7 @@ batch mode 実装 (~50 行) + tests (~30 行) + config schema 更新。Agent 委
 各 PR の status は 1 セッション内では更新可能、跨ぐ場合は本 file の status 欄を更新して残す。
 
 ```text
-PR-W0  [in progress] @session-2026-06-24-pr-w0
+PR-W0  [x] #219 (merged at 2026-06-24T16:07:42Z)
 PR-W1  [ ] not started
 PR-W2  [ ] not started
 PR-W3  [ ] not started
