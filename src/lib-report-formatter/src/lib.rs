@@ -36,7 +36,7 @@ fn severity_order(s: &str) -> u8 {
 
 /// Findings を severity 順にソート（Critical が先頭）
 pub fn sort_by_severity(findings: &mut [Finding]) {
-    findings.sort_by(|a, b| severity_order(&a.severity).cmp(&severity_order(&b.severity)));
+    findings.sort_by_key(|a| severity_order(&a.severity));
 }
 
 /// Markdown テーブルとして整形する
