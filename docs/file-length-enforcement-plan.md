@@ -225,7 +225,7 @@ PR_SIZE_CHECK_OVERRIDE=1 pnpm push
 
 ### PR-W0: Weekly audit (E) を ADR-031 workflow に追加
 
-- **status**: not started
+- **status**: ✅ land 済 (#219, merged 2026-06-24T16:07:42Z)
 - **owner**: -
 - **effort**: XS
 - **依存**: なし (最序盤に land 推奨、進捗 dashboard として機能)
@@ -250,7 +250,7 @@ ADR-031 weekly-review workflow に deterministic Rust pre-step として file_le
 
 ### PR-W1: hooks-post-tool-comment-lint-rust 分割 (1606 行)
 
-- **status**: not started
+- **status**: ✅ land 済 (#220, merged 2026-06-24T18:04:56Z)
 - **owner**: -
 - **effort**: M
 - **依存**: PR-W0 land 後推奨 (進捗 visualize のため)
@@ -271,6 +271,22 @@ ADR-031 weekly-review workflow に deterministic Rust pre-step として file_le
 | `line_filter.rs` | ~150 | Edit/Write の line range 解釈、touch-trigger ratchet |
 
 (test は各 module に co-locate、helper は per-module duplicate per `feedback_test_dry_antipattern`)
+
+#### 実績 (land 済、#220)
+
+実際の分割は **7 module** (候補表の 5-6 から `metrics.rs` を追加分離):
+
+| module | 行数 |
+|---|---|
+| `comment_lint.rs` | 429 |
+| `line_filter.rs` | 379 |
+| `metrics.rs` | 286 |
+| `main.rs` | 197 |
+| `file_length.rs` | 197 |
+| `function_length.rs` | 183 |
+| `violations.rs` | 38 |
+
+全 file ≤ 800 行 (最大 429)。merge 後 master で `find src/hooks-post-tool-comment-lint-rust/src -name '*.rs' -exec wc -l {} +` により検証済 (test pass / clippy clean は #220 の CI で確認)。
 
 #### 完了基準
 
@@ -425,7 +441,7 @@ batch mode 実装 (~50 行) + tests (~30 行) + config schema 更新。Agent 委
 
 ```text
 PR-W0  [x] #219 (merged at 2026-06-24T16:07:42Z)
-PR-W1  [ ] not started
+PR-W1  [x] #220 (merged at 2026-06-24T18:04:56Z)
 PR-W2  [ ] not started
 PR-W3  [ ] not started
 PR-W4  [ ] not started
