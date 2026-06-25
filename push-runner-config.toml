@@ -134,4 +134,7 @@ task = "pre-push review"
 extra_args = ["--pipeline", "--skip-git"]
 
 [push]
-command = "jj git push"
+# --all: jj の bare `jj git push` は tracking 済み bookmark のみ push するため、
+# 新規 bookmark (未 tracking) は push されない。--all は新規 bookmark を含む全 bookmark を
+# push する (jj 0.42 には --allow-new は無い)。
+command = "jj git push --all"
