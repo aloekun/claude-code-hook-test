@@ -902,6 +902,108 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
+### `ACTIVE_RUN_FRESH_THRESHOLD_SECS` と `ORPHAN_THRESHOLD_SECS` の compile-time 同期 (PR #222 post-merge-feedback T1-1 採用)
+
+> **動機**: PR #222 で hooks-stop-quality に追加した `ACTIVE_RUN_FRESH_THRESHOLD_SECS = 1500` は、hooks-session-start reaper の `ORPHAN_THRESHOLD_SECS = 1500` と **同値である必要がある** (Stop hook が「active」と判定する window と、reaper が「orphan」と判定する threshold が非対称になると、その隙間に挟まった run が両方の防御層から漏れる)。現状は `hooks-stop-quality/src/main.rs:67` のコメント (「reaper の `ORPHAN_THRESHOLD_SECS` (= 1500s) と同値」) で同期を「人間が読んで覚える」契約に留まり、片方を変更したときに他方を追従する mechanical enforcement が欠落している。
+>
+> 同型の precedent として `cli-merge-pipeline/src/feedback.rs:60` の `pub const ORPHAN_THRESHOLD_SECS: u64 = TAKT_TIMEOUT_SECS + 300;` が存在し、derived value として上流定数 (`TAKT_TIMEOUT_SECS`) との関係を compile-time で保証している。本 task は同じ pattern を hooks-stop-quality / hooks-session-start の magic number 同期にも適用する。
+>
+> **本タスクの位置づけ**: PR #222 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None、2026-06-27 ユーザー承認)。analyzer rationale: 「3 reports 全てで threshold alignment を言及。`cli-merge-pipeline` の precedent (const + assert 方式) が参照実装として存在、実装コスト低。drift 発生時に orphan detection window と quality gate skip window が非対称になるリスクが明確。Effort M かつ Frequency Medium で採用候補」。`feedback_tier_classification` per analyzer Tier 1 (= mechanical enforcement) → project Tier 2 (🔧) に再分類。
+>
+> **参照**: `.claude/feedback-reports/222.md` Tier 1 #1、`src/hooks-stop-quality/src/main.rs:67` (現状のコメント契約 + 定数定義)、`src/hooks-session-start/src/reaper.rs:29` (source of truth = `pub(crate) const ORPHAN_THRESHOLD_SECS: u64 = 1500`)、`src/cli-merge-pipeline/src/feedback.rs:60` (precedent: derived const + 上流定数 reference)、ADR-043 (Security/Quality Gate Fail-Closed) — fail-closed threshold の同期が崩れた場合のリスクを ADR で論じる経路、ADR-030 (決定論的 Post-Merge Feedback) § L2 reaper — `ORPHAN_THRESHOLD_SECS` の出処、順位 224 (ADR-043 amendment、bundle 推奨)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。lib 抽出 (shared crate / lib module) vs cross-crate const re-export + compile-time assert の選択 + test 追加。
+
+#### 設計決定 (案、land 時に判断)
+
+3 案を比較し、本 task 着手時に Option 選択:
+
+- **Option A** (shared lib crate 新設): `src/lib-takt-constants/` 等の新 crate を作成し `ORPHAN_THRESHOLD_SECS` / `ACTIVE_RUN_FRESH_THRESHOLD_SECS` を pub const として公開。reaper と stop-hook 双方が dep として import。**Pros**: 単一の source of truth、将来 takt 関連の magic number 追加に scale。**Cons**: 新 crate のため Cargo workspace への追加 + build graph 拡張、ADR-026 (Cargo workspace) との整合確認、過剰一般化のリスク (Effort M の上限)
+- **Option B** (cross-crate const re-export): hooks-session-start の `reaper::ORPHAN_THRESHOLD_SECS` を `pub` に昇格、hooks-stop-quality が `[dependencies] hooks-session-start = { path = "..." }` で依存し `use hooks_session_start::reaper::ORPHAN_THRESHOLD_SECS;` で参照。**Pros**: 新 crate 不要、変更最小。**Cons**: hooks crate 間の依存方向が逆 (本来は SessionStart hook と Stop hook は独立だが、これで一方向 dependency が発生)、cargo workspace の循環依存リスク (現状は問題なくとも将来制約に)
+- **Option C** (compile-time assert via `const _: () = assert!(...)`): 各 hook crate で独立に const を定義しつつ、片方の crate 内で `const _: () = assert!(REAPER_ORPHAN_THRESHOLD_SECS == ACTIVE_RUN_FRESH_THRESHOLD_SECS);` 系の compile-time 検証を入れる。**Pros**: dep 依存 0、各 hook crate の autonomy 維持。**Cons**: 検証側 crate に「他 crate の値を埋め込む」必要があり、結局参照経路が必要 (= Option B と同等の依存になる)
+- **MVP 推奨**: **Option B と C の hybrid** で、stop-hook 内に `const _: () = assert!(...)` を追加して const 同期を保証 (C 側のメリット) しつつ、`hooks-session-start::reaper::ORPHAN_THRESHOLD_SECS` を pub 昇格して hooks-stop-quality が dep として参照 (B 側のメリット)。Option A (新 crate) は将来同型 magic number が 3+ 出てきた時に再評価
+- **`cli-merge-pipeline/src/feedback.rs:60` の precedent を inline cite**: 上流定数 (`TAKT_TIMEOUT_SECS`) + derived const + 同 crate 内 const equality assert の構成例。本 task は cross-crate 版に拡張
+- **test 追加**: compile-time assert は失敗時 compile error なので runtime test は不要、ただし「片方の const を変更したら compile error になる」ことを確認する手順を README / コメントに記録 (PR description で dogfood)
+- **派生プロジェクト transferability**: 本 pattern (cross-crate const sync) は派生プロジェクト (techbook-ledger / auto-review-fix-vc) でも同型ニーズが発生しうるが、現状は本 repo 固有のため transferability は ADR-016 / ADR-043 等への documentation 経由
+
+#### 作業計画
+
+- [ ] Option A / B / C 判断 (MVP 推奨 = Option B+C hybrid: assert で同期保証 + pub 昇格して dep 参照)
+- [ ] `hooks-session-start::reaper::ORPHAN_THRESHOLD_SECS` を `pub` 昇格 (現状 `pub(crate)`)、必要なら module path の整理
+- [ ] hooks-stop-quality の `Cargo.toml` に `hooks-session-start` dep を追加 (Option B 側のアプローチ)
+- [ ] hooks-stop-quality `main.rs` に `const _: () = assert!(ACTIVE_RUN_FRESH_THRESHOLD_SECS == hooks_session_start::reaper::ORPHAN_THRESHOLD_SECS);` を追加
+- [ ] `cargo build --workspace` で compile-time assert が通ることを確認、片方を変更して compile error を観測 (PR description に貼付)
+- [ ] hooks-stop-quality の既存コメント (line 67) を「compile-time assert で同期保証」 に更新
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 片方の const を変更すると `cargo build` が compile error で失敗する
+- hooks-stop-quality / hooks-session-start の magic number 同期が compile-time 契約として codified
+- `cli-merge-pipeline/src/feedback.rs:60` precedent と同 pattern が確立、将来同型 magic number 追加時の参照実装になる
+- ADR-030 §L2 と本 task の関係性が ADR 内で明示される (順位 224 と相補 = T1 mechanical + T3 docs)
+
+#### 詰まっている箇所
+
+- Option A/B/C 判断: 新 crate 追加 vs 既存 dep 追加 vs assert macro のいずれも trade-off あり、ADR-026 (Cargo workspace) との整合性を実装時に確認
+- hooks crate 間の依存方向: SessionStart と Stop は本来独立な lifecycle stage だが、const 共有のため一方向 dep が必要 (Option B/C)。将来 hooks 共通 lib (= 順位 224 関連で hook_stop_quality の `meta_is_fresh` 抽出が浮上した場合) が出てきた際に再整理判断
+
+---
+
+### ADR-043 (Security/Quality Gate Fail-Closed) に hooks-stop-quality の error handling を具体例として追記 (PR #222 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #222 で hooks-stop-quality に追加した `meta_is_fresh()` / `meta_is_active_run()` / `takt_subsession_active()` は、すべての error path で `false` を返却することで「gate が effective (= skip しない)」状態に倒す **fail-closed pattern** を踏襲している。具体的には mtime 取得失敗 / system clock skew (future timestamp) / malformed JSON / file read error すべてが「active subsession ではないと判定」→「quality gate を skip しない」= 安全側に倒れる。
+>
+> ADR-043 (Security/Quality Gate での Fail-Closed 原則) は **試験運用 ADR** として既に存在するが、現状は abstract な原則記述に留まる。PR #222 の `meta_is_fresh` 実装は ADR-043 の **concrete instantiation** として価値があり、ADR 内の具体例 list に追記することで:
+>
+> - ADR が「概念定義 + 具体例 list」型に進化、将来同型 fail-closed pattern を実装する author の参照実装になる
+> - 派生プロジェクト (techbook-ledger / auto-review-fix-vc) で hook / lint / pipeline を fail-closed で書く際の transferability 向上 (ADR は global 参照可能)
+> - 順位 223 (mechanical enforcement) と相補的に、docs 層で fail-closed pattern を author 教育として codify
+>
+> **本タスクの位置づけ**: PR #222 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-27 ユーザー承認)。analyzer rationale: 「ADR-043 は永続 artifact で既存。追記は XS Effort で ADR の具体例を充実。fail-closed pattern は本 PR 以外でも発生する (Frequency Medium)。Effort XS + None risk で採用候補」。
+>
+> **参照**: `.claude/feedback-reports/222.md` Tier 3 #1、`docs/adr/adr-043-security-gates-fail-closed.md` (追記対象、試験運用 ADR)、`src/hooks-stop-quality/src/main.rs` の `meta_is_fresh()` / `meta_is_active_run()` (具体例として cite)、PR #222 (`b0b91978`) (由来 cite)、順位 223 (T1 mechanical、bundle 推奨)、`feedback_global_config_backup` 適用は本リポジトリ docs/ のため不要 (グローバル CLAUDE.md / rules は触らない)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。ADR-043 の既存 § 「concrete examples」 or 末尾に新 sub-section を追加 (~30 行)、mtime 取得失敗 / clock skew / malformed JSON / read error の 4 error path を列挙し、各 path で `false` 返却 → gate effective 維持を inline 説明。
+
+#### 設計決定 (案)
+
+- **追記位置**: ADR-043 に既存「concrete examples」section があればそこへ追加。無ければ末尾 (References 直前) に新 sub-section 「Concrete instantiation: hooks-stop-quality の subsession freshness check (PR #222)」を追加
+- **記述項目**:
+  - 4 error path 各々で何が起き `false` 返却に倒れるか
+    - **mtime 取得失敗** (`std::fs::metadata()` error / `metadata.modified()` error): `Err(_) => return false`
+    - **system clock skew (future timestamp)**: `mtime.elapsed()` が `Err` を返した場合 `Err(_) => false` で skip 不可、orphan 扱いになる
+    - **malformed JSON**: `serde_json::from_str::<TaktMetaPartial>` が `Err` → `Ok(_)` 以外は `false`
+    - **file read error**: 同上、`fs::read_to_string` が `Err` → `false`
+  - 全ての error path が「subsession active ではない」= 「Stop hook の quality gate を skip しない」に倒れる構造 = fail-closed
+  - 反対 pattern (fail-open = error path で `true` 返却) の anti-example: orphan 1 件が残るだけで全 session の quality gate が永続 skip → ADR-004 §「freshness check の必要性」で詳細解説
+- **由来 cite**: PR #222 で CR Major 指摘 (orphan 永続 skip リスク) に対応した freshness check 実装、ADR-004 amendment と本 ADR-043 追記の 2 ADR を同時更新した経緯を inline 引用
+- **派生プロジェクト transferability**: ADR は global 参照可能、本 ADR を `~/.claude/rules/common/` から link することで techbook-ledger / auto-review-fix-vc 等に reference 提供
+- **順位 223 との bundle**: 1 PR でまとめて land 推奨 (T1 mechanical layer + T3 docs layer の 2 層防御を 1 PR で確立)
+
+#### 作業計画
+
+- [ ] ADR-043 現状を read、追記位置 (既存 concrete examples or 新 sub-section) を判断
+- [ ] 「Concrete instantiation: hooks-stop-quality の subsession freshness check (PR #222)」sub-section を追加 (~30 行)
+- [ ] 4 error path の inline 説明 + anti-example (fail-open) の論理対比
+- [ ] PR #222 + ADR-004 § freshness check との cross-reference 追加
+- [ ] markdownlint clean
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-043 に hooks-stop-quality の error handling が concrete example として追記される
+- 4 error path 各々の `false` 返却 logic と「gate effective」状態への倒し方が明示される
+- PR #222 / ADR-004 / ADR-043 の 3 文書間の cross-reference が成立、reader が 1 example から原則 → 適用 → 反対例を辿れる
+- 順位 223 と合わせ、mechanical (T2) + docs (T3) の 2 層防御確立
+
+#### 詰まっている箇所
+
+- ADR-043 が現時点で試験運用 (= ephemeral 性質を残す) のため、concrete example 追記が本採用昇格のトリガーになりうるかは現状 ADR 内容を read してから判断
+- ADR-043 と ADR-004 の責務境界: 「fail-closed 原則の汎用論」(043) vs 「freshness check の必要性」(004) を ambiguous にせず、043 が「why fail-closed」、004 が「how freshness check works」と明確に分業する記述
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo9.md 末尾を参照。)
