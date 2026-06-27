@@ -311,7 +311,7 @@ Agent 委譲 (general-purpose) を活用、PR-3a の hooks-session-start 分割 
 #### スコープ
 
 - [`src/cli-pr-monitor/src/stages/poll/mod.rs`](../src/cli-pr-monitor/src/stages/poll/mod.rs) (1404 行)
-- [`src/cli-pr-monitor/src/fix_commit.rs`](../src/cli-pr-monitor/src/fix_commit.rs) (972 行)
+- [`src/cli-pr-monitor/src/fix_commit/`](../src/cli-pr-monitor/src/fix_commit/mod.rs) (972 行)
 
 `stages/poll/` は既に sub-module 化されているが `mod.rs` 自身が 1404 行。さらに sub-split が必要 (例: `poll/state_handlers.rs` / `poll/transitions.rs` 等)。
 
