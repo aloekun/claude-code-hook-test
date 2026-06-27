@@ -921,16 +921,16 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 - **Option A** (shared lib crate 新設): `src/lib-takt-constants/` 等の新 crate を作成し `ORPHAN_THRESHOLD_SECS` / `ACTIVE_RUN_FRESH_THRESHOLD_SECS` を pub const として公開。reaper と stop-hook 双方が dep として import。**Pros**: 単一の source of truth、将来 takt 関連の magic number 追加に scale。**Cons**: 新 crate のため Cargo workspace への追加 + build graph 拡張、ADR-026 (Cargo workspace) との整合確認、過剰一般化のリスク (Effort M の上限)
 - **Option B** (cross-crate const re-export): hooks-session-start の `reaper::ORPHAN_THRESHOLD_SECS` を `pub` に昇格、hooks-stop-quality が `[dependencies] hooks-session-start = { path = "..." }` で依存し `use hooks_session_start::reaper::ORPHAN_THRESHOLD_SECS;` で参照。**Pros**: 新 crate 不要、変更最小。**Cons**: hooks crate 間の依存方向が逆 (本来は SessionStart hook と Stop hook は独立だが、これで一方向 dependency が発生)、cargo workspace の循環依存リスク (現状は問題なくとも将来制約に)
 - **Option C** (compile-time assert via `const _: () = assert!(...)`): 各 hook crate で独立に const を定義しつつ、片方の crate 内で `const _: () = assert!(REAPER_ORPHAN_THRESHOLD_SECS == ACTIVE_RUN_FRESH_THRESHOLD_SECS);` 系の compile-time 検証を入れる。**Pros**: dep 依存 0、各 hook crate の autonomy 維持。**Cons**: 検証側 crate に「他 crate の値を埋め込む」必要があり、結局参照経路が必要 (= Option B と同等の依存になる)
-- **MVP 推奨**: **Option C ベース** で、stop-hook 内に `const_eq` 系 macro / `const _: () = assert!(...)` を追加し、`hooks-session-start::reaper::ORPHAN_THRESHOLD_SECS` を pub 昇格して dep + use。Option A (新 crate) は将来同型 magic number が 3+ 出てきた時に再評価
+- **MVP 推奨**: **Option B と C の hybrid** で、stop-hook 内に `const _: () = assert!(...)` を追加して const 同期を保証 (C 側のメリット) しつつ、`hooks-session-start::reaper::ORPHAN_THRESHOLD_SECS` を pub 昇格して hooks-stop-quality が dep として参照 (B 側のメリット)。Option A (新 crate) は将来同型 magic number が 3+ 出てきた時に再評価
 - **`cli-merge-pipeline/src/feedback.rs:60` の precedent を inline cite**: 上流定数 (`TAKT_TIMEOUT_SECS`) + derived const + 同 crate 内 const equality assert の構成例。本 task は cross-crate 版に拡張
 - **test 追加**: compile-time assert は失敗時 compile error なので runtime test は不要、ただし「片方の const を変更したら compile error になる」ことを確認する手順を README / コメントに記録 (PR description で dogfood)
 - **派生プロジェクト transferability**: 本 pattern (cross-crate const sync) は派生プロジェクト (techbook-ledger / auto-review-fix-vc) でも同型ニーズが発生しうるが、現状は本 repo 固有のため transferability は ADR-016 / ADR-043 等への documentation 経由
 
 #### 作業計画
 
-- [ ] Option A / B / C 判断 (MVP 推奨 = Option C ベース + 必要なら dep 追加)
+- [ ] Option A / B / C 判断 (MVP 推奨 = Option B+C hybrid: assert で同期保証 + pub 昇格して dep 参照)
 - [ ] `hooks-session-start::reaper::ORPHAN_THRESHOLD_SECS` を `pub` 昇格 (現状 `pub(crate)`)、必要なら module path の整理
-- [ ] hooks-stop-quality の `Cargo.toml` に `hooks-session-start` dep を追加 (Option C の場合)
+- [ ] hooks-stop-quality の `Cargo.toml` に `hooks-session-start` dep を追加 (Option B 側のアプローチ)
 - [ ] hooks-stop-quality `main.rs` に `const _: () = assert!(ACTIVE_RUN_FRESH_THRESHOLD_SECS == hooks_session_start::reaper::ORPHAN_THRESHOLD_SECS);` を追加
 - [ ] `cargo build --workspace` で compile-time assert が通ることを確認、片方を変更して compile error を観測 (PR description に貼付)
 - [ ] hooks-stop-quality の既存コメント (line 67) を「compile-time assert で同期保証」 に更新
