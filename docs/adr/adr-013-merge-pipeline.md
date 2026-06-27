@@ -61,7 +61,7 @@ cli-merge-pipeline.exe (スタンドアロン)
 | マージ戦略 | squash 固定 | master の履歴を 1 PR = 1 コミットに保つ |
 | PR 検出 | jj bookmark から自動検出 | `pnpm push` / `pnpm create-pr` と同じ方式で一貫性がある |
 | ブランチ削除 | `--delete-branch` で自動削除 | マージ済みブランチの残留を防ぐ |
-| ローカル同期 | `jj git fetch` + `jj new master` | マージ後すぐに master 最新から作業を開始できる |
+| ローカル同期 | `jj git fetch` + `jj new master@origin` | マージ後すぐに master 最新から作業を開始できる。`master@origin` (= remote tracking ref) を直接参照することで local master bookmark の状態に依存しない (詳細: 後述「§ sync_local の前提条件」) |
 | ステップ分離 | `pre_steps`（マージ前）/ `post_steps`（マージ後） | 学び提案等の post-merge 処理を正しいタイミングで実行 |
 | 学び提案機能 | 将来実装（`post_steps` に `type = "ai"` ステップ） | config に追加するだけで拡張可能 |
 
@@ -83,6 +83,23 @@ step_timeout = 120
 # type = "ai"
 # prompt = "analyze_pr_learnings"
 ```
+
+### sync_local の前提条件 (2026-06-26 追加、PR-W1 follow-up)
+
+`sync_local()` は **squash マージで origin に新コミット (= マージ済 tip) が出来た直後** に、その新 tip を base にした空の作業コピーを置くことが責務。実装は以下の 2 ステップ:
+
+1. `jj git fetch` で `master@origin` を最新化
+2. `jj new master@origin` で remote tracking ref を base に新 commit を切る
+
+`master@origin` (= remote tracking ref) を直接参照する設計上の理由:
+
+- **local bookmark `master` の状態に依存しない**: jj は `jj git fetch` 時に local bookmark を自動 fast-forward させるかどうかが `.jj/repo/config.toml` の `[remotes.origin] auto-track-bookmarks` 設定に依存する。設定が無いと local master は古い tip に固定され、`jj new master` (= local bookmark 参照) は stale な base に着地してしまう
+- **`master@origin` は jj clone 直後から自動生成される**: 設定なしで必ず存在する ref のため、新 PC / fresh clone でも前提条件を満たす
+- **ADR-011 (push 戦略) との分離**: ADR-011 が確立した `auto-track-bookmarks = "*"` 設定は push の関心領域 (新規 bookmark の auto-track) のためのもの。merge-pipeline は同設定の副作用 (= local bookmark の fast-forward) に偶発的に依存していたが、本設計でその依存を解消した
+
+#### 過去の不具合 (2026-06-26 観測)
+
+新 PC で `.jj/repo/config.toml` に `auto-track-bookmarks` 設定が無い状態で merge-pipeline を実行したところ、stale local master に作業コピーが乗り、`post_steps` の post-merge-feedback subsession が古い lint warning (`unnecessary_sort_by`) を「fix」しようとして `src/lib-report-formatter/src/lib.rs` を stray 編集する事故が発生した。原因連鎖の半分が本 sync_local 設計のバグであり、本 ADR 改訂と [src/cli-merge-pipeline/src/main.rs](../../src/cli-merge-pipeline/src/main.rs) の修正で根本解消した。残り半分の連鎖 (Stop hook の subsession 無差別発火) は [ADR-004](adr-004-stop-hook-quality-gate.md) § takt subsession skip で多層防御を入れている。
 
 ## 影響
 
