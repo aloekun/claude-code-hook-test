@@ -665,7 +665,14 @@ fn run_pipeline() -> i32 {
     0
 }
 
-/// jj git fetch → jj new <branch> でローカルを最新に同期する
+/// jj git fetch → jj new <branch>@origin でローカルを最新に同期する。
+///
+/// `<branch>@origin` は remote tracking ref への直接参照で、local bookmark の
+/// 状態に依存しない。`<branch>` のみ (= local bookmark) を渡すと
+/// `.jj/repo/config.toml` の `[remotes.origin] auto-track-bookmarks = "*"` 設定が
+/// 無い環境で `jj git fetch` 後も local bookmark が古い tip に固定され、
+/// stale code に working copy が乗る (= post-merge-feedback subsession が
+/// 古い lint warning を「fix」しようとして stray edit する事故、ADR-013 参照)。
 fn sync_local(branch: &str) -> i32 {
     log_info("ローカル同期中: jj git fetch");
     let (success, output) = run_cmd_shell_capped_reporting(
@@ -682,7 +689,7 @@ fn sync_local(branch: &str) -> i32 {
         return 1;
     }
 
-    let new_cmd = format!("jj new {}", branch);
+    let new_cmd = sync_local_new_command(branch);
     log_info(&format!("ローカル同期中: {}", new_cmd));
     let (success, output) =
         run_cmd_shell_capped_reporting("new-branch", &new_cmd, DEFAULT_STEP_TIMEOUT_SECS, MAX_LINES);
@@ -695,10 +702,15 @@ fn sync_local(branch: &str) -> i32 {
     }
 
     log_info(&format!(
-        "ローカル同期完了。{} の最新状態で作業を開始できます。",
+        "ローカル同期完了。{}@origin の最新状態で作業を開始できます。",
         branch
     ));
     0
+}
+
+/// `jj new <branch>@origin` の command 文字列を組み立てる (test 用に切り出し)。
+fn sync_local_new_command(branch: &str) -> String {
+    format!("jj new {}@origin", branch)
 }
 
 fn main() {
@@ -761,6 +773,25 @@ prompt = "analyze_pr_learnings"
                 .default_branch
                 .unwrap_or_else(|| DEFAULT_BRANCH.to_string()),
             DEFAULT_BRANCH
+        );
+    }
+
+    #[test]
+    fn sync_local_new_command_references_remote_tracking_ref_for_master() {
+        assert_eq!(sync_local_new_command("master"), "jj new master@origin");
+    }
+
+    #[test]
+    fn sync_local_new_command_references_remote_tracking_ref_for_main() {
+        assert_eq!(sync_local_new_command("main"), "jj new main@origin");
+    }
+
+    #[test]
+    fn sync_local_new_command_never_references_bare_local_bookmark() {
+        let cmd = sync_local_new_command("master");
+        assert!(
+            cmd.contains("@origin"),
+            "sync_local must use remote tracking ref (master@origin), never bare local bookmark — ADR-013 § sync_local 設計"
         );
     }
 
