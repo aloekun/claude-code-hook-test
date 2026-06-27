@@ -48,9 +48,17 @@ takt workflow が起動する subsession (例: weekly-review の whole-tree revi
 
 そもそも品質ゲートの趣旨は **本対話セッションの品質担保** であり、takt subsession に適用すべきではない (= 本 ADR の責務範囲外)。よって以下の条件で品質ゲートを skip する:
 
-- `.takt/runs/*/meta.json` を scan し、いずれかが **`status: "running"` であれば skip**
+- `.takt/runs/*/meta.json` を scan し、いずれかが **`status: "running"` かつ mtime が `ACTIVE_RUN_FRESH_THRESHOLD_SECS` (= 1500s) 以内** であれば skip
 - 1 件目が見つかった時点で短絡 return (= I/O 最小化)
-- malformed JSON / read error は defensive に skip (`status == "running"` と誤判定しない fail-closed)
+- malformed JSON / read error / mtime 取得失敗 / 未来時刻 (clock skew) は defensive に skip (= active 扱いしない、fail-closed)
+
+#### freshness check の必要性 (CR PR #222 Major 指摘対応)
+
+`status: "running"` は **abrupt termination (kill -9 / SIGKILL / power loss / OOM)** で残った orphan run でも残り続ける。hooks-session-start の reaper module (ADR-030 §L2) は SessionStart 時のみ scan するため、reaper 発火前の Stop event では古い orphan run が `.takt/runs/` に残存している可能性がある。
+
+orphan を fresh subsession と同一視すると、**1 つの orphan が残っているだけで以降の全ての通常セッションの品質ゲートが永続的に skip される** 致命的な regression が発生する (= ADR-004 の趣旨「本対話セッションの品質担保」が完全に崩れる)。
+
+mtime ベースの freshness check (= takt の TAKT_TIMEOUT_SECS 1200s + 5 分余裕 = 1500s 以内) を AND 条件として追加することで、orphan の永続 skip 問題を構造的に防ぐ。1500s 閾値は reaper の `ORPHAN_THRESHOLD_SECS` と同値で、**両者が「これ以上の age は abrupt termination」と判定する共通契約** を形成する。
 
 #### 同 marker の他用途
 
