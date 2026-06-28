@@ -2,13 +2,13 @@
 //!
 //! - `handle_rate_limit_branch` + `dispatch_rate_limit_outcome` (branch entry)
 //! - `finalize_posted_retrigger` / `finalize_parked` (state finalize)
-//! - `emit_shortcut_signal_if_eligible` / `fetch_mergeable_status` /
-//!   `evaluate_rate_limit_shortcut` / `format_shortcut_signal` (順位 141 shortcut)
 //! - `handle_rate_limit_retry` / `post_review_immediately` (retry logic)
-//! - `format_park_signal` (rate_limit_retry PARK signal)
-//! - `MergeableStatus` / `RateLimitOutcome` (DTO/enum)
+//! - `RateLimitOutcome` (enum)
 //! - `make_max_retries_result` / `make_action_required_result` (general result builders、
 //!   review_recheck.rs からも参照される)
+//!
+//! signal 整形部分 (`format_park_signal` / shortcut signal /
+//! `format_posted_retrigger_review_park_signal`) は `rate_limit_signal.rs` に分離。
 
 use crate::config::RateLimitConfig;
 use crate::log::log_info;
@@ -16,7 +16,10 @@ use crate::runner::run_gh_quiet;
 use crate::state::{write_state, PrMonitorState};
 use crate::util::PrInfo;
 
-use super::review_recheck::round_up_to_next_minute;
+use super::rate_limit_signal::{
+    emit_shortcut_signal_if_eligible, format_park_signal,
+    format_posted_retrigger_review_park_signal,
+};
 use super::{make_park_poll_result, PollResult};
 
 /// rate-limit 検出 branch を集約する。
@@ -74,13 +77,9 @@ fn dispatch_rate_limit_outcome(
     result: &serde_json::Value,
 ) -> Option<PollResult> {
     match handle_rate_limit_retry(rl, state, pr_info, max_retries) {
-        RateLimitOutcome::Posted => finalize_posted_retrigger(
-            state,
-            rl,
-            pr_info,
-            review_recheck_wait_secs,
-            result,
-        ),
+        RateLimitOutcome::Posted => {
+            finalize_posted_retrigger(state, rl, pr_info, review_recheck_wait_secs, result)
+        }
         RateLimitOutcome::Parked { wakeup_at_unix } => Some(finalize_parked(
             state,
             rl,
@@ -184,98 +183,6 @@ pub(super) fn finalize_parked(
     }
 }
 
-/// 順位 141: rate-limit 検出 + mergeable CLEAN + 未解決 thread なしの 3 条件が揃ったとき
-/// `[RATE_LIMIT_BUT_MERGEABLE]` signal を stdout に出力する shortcut path。
-fn emit_shortcut_signal_if_eligible(
-    state: &PrMonitorState,
-    rl: &crate::state::RateLimitState,
-    pr_info: &PrInfo,
-) {
-    let Some(mergeable) = fetch_mergeable_status(pr_info) else {
-        return;
-    };
-    if !evaluate_rate_limit_shortcut(state.coderabbit.as_ref(), &mergeable) {
-        return;
-    }
-    println!("{}", format_shortcut_signal(rl, pr_info, &mergeable));
-}
-
-/// 順位 141: PR の mergeable / mergeStateStatus を gh で取得。失敗時は None。
-fn fetch_mergeable_status(pr_info: &PrInfo) -> Option<MergeableStatus> {
-    let pr = pr_info.pr_number?;
-    let pr_str = pr.to_string();
-    let mut args: Vec<&str> = vec![
-        "pr",
-        "view",
-        &pr_str,
-        "--json",
-        "mergeable,mergeStateStatus",
-    ];
-    if let Some(repo) = pr_info.repo.as_deref() {
-        args.push("--repo");
-        args.push(repo);
-    }
-    let json_str = run_gh_quiet(&args)?;
-    let parsed: serde_json::Value = serde_json::from_str(&json_str).ok()?;
-    Some(MergeableStatus {
-        mergeable: parsed.get("mergeable")?.as_str()?.to_string(),
-        merge_state: parsed.get("mergeStateStatus")?.as_str()?.to_string(),
-    })
-}
-
-/// 順位 141: mergeable + 未解決 thread の 3 条件評価を pure 関数化 (test 容易性)。
-pub(super) fn evaluate_rate_limit_shortcut(
-    coderabbit: Option<&crate::state::CodeRabbitState>,
-    mergeable: &MergeableStatus,
-) -> bool {
-    let cr_clean = coderabbit
-        .map(|c| c.unresolved_threads.unwrap_or(0) == 0)
-        .unwrap_or(true);
-    mergeable.mergeable == "MERGEABLE" && mergeable.merge_state == "CLEAN" && cr_clean
-}
-
-/// 順位 141: `[RATE_LIMIT_BUT_MERGEABLE]` signal を構築 (pure)。
-pub(super) fn format_shortcut_signal(
-    rl: &crate::state::RateLimitState,
-    pr_info: &PrInfo,
-    mergeable: &MergeableStatus,
-) -> String {
-    let pr = pr_info
-        .pr_number
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "?".into());
-    let repo = pr_info.repo.as_deref().unwrap_or("?");
-    let reset_iso = if rl.until_unix_secs > 0 {
-        lib_pending_file::epoch_secs_to_iso8601(rl.until_unix_secs as u64)
-    } else {
-        "?".into()
-    };
-    let wait_total_secs = rl.wait_minutes * 60 + rl.wait_seconds;
-    format!(
-        "[RATE_LIMIT_BUT_MERGEABLE]
-pr: {pr}
-repo: {repo}
-rate_limit_reset_at_iso_utc: {reset_iso}
-rate_limit_wait_seconds: {wait_total_secs}
-mergeable: {merge}
-merge_state: {state}
-
-ACTION REQUIRED: ユーザーに以下 2 択を AskUserQuestion で問うこと:
-  A: 今すぐ merge する (rate-limit reset を待たない、CR 2 回目 review なしで進める)
-  B: reset を待って通常 auto-retry flow に乗る
-[/RATE_LIMIT_BUT_MERGEABLE]",
-        merge = mergeable.mergeable,
-        state = mergeable.merge_state,
-    )
-}
-
-/// 順位 141: gh `pr view --json mergeable,mergeStateStatus` の結果を保持する DTO。
-#[derive(Debug, Clone)]
-pub(crate) struct MergeableStatus {
-    pub(crate) mergeable: String,
-    pub(crate) merge_state: String,
-}
-
 fn make_max_retries_result(state: &PrMonitorState, result: &serde_json::Value) -> PollResult {
     let summary = format!(
         "CodeRabbit rate-limit が {} 回再試行後も継続。手動で `@coderabbitai review` を投稿してください",
@@ -363,168 +270,128 @@ fn post_review_immediately(pr: u64, state: &mut PrMonitorState) -> RateLimitOutc
     RateLimitOutcome::Posted
 }
 
-struct PostedRetriggerParkFields {
-    pr: String,
-    repo: String,
-    wakeup_unix: i64,
-    wakeup_iso: String,
-    safe_unix: i64,
-    safe_iso: String,
-    wait_secs: i64,
-    recheck: u32,
-    exe: String,
-    cwd: String,
-}
-
-fn collect_posted_retrigger_park_fields(
-    state: &PrMonitorState,
-    pr_info: &PrInfo,
-) -> PostedRetriggerParkFields {
-    let pr = pr_info
-        .pr_number
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "?".into());
-    let repo = pr_info.repo.as_deref().unwrap_or("?").to_string();
-    let wakeup_unix = state.next_wakeup_at_unix.unwrap_or(0);
-    let wakeup_iso = if wakeup_unix > 0 {
-        lib_pending_file::epoch_secs_to_iso8601(wakeup_unix as u64)
-    } else {
-        "?".into()
-    };
-    let safe_unix = if wakeup_unix > 0 { round_up_to_next_minute(wakeup_unix) } else { 0 };
-    let safe_iso = if safe_unix > 0 {
-        lib_pending_file::epoch_secs_to_iso8601(safe_unix as u64)
-    } else {
-        "?".into()
-    };
-    let now_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let wait_secs = (wakeup_unix - now_unix).max(0);
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
-    let cwd = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| ".".into());
-    PostedRetriggerParkFields {
-        pr, repo, wakeup_unix, wakeup_iso, safe_unix, safe_iso,
-        wait_secs, recheck: state.review_recheck_count, exe, cwd,
-    }
-}
-
-/// rate-limit 解消後の `@coderabbitai review` 投稿完了 → review 待ち PARK signal を生成する。
-///
-/// `format_park_signal` (reason: rate_limit_retry, reset_at_unix 基準) とは異なり、
-/// `state.next_wakeup_at_unix` の review 待ち wakeup を基準に `reason: review_recheck` で
-/// discriminate する。過去 timestamp (`rl.until_unix_secs`) を CronCreate に誤使用しない。
-pub(super) fn format_posted_retrigger_review_park_signal(
-    state: &PrMonitorState,
-    pr_info: &PrInfo,
-) -> String {
-    let PostedRetriggerParkFields {
-        pr, repo, wakeup_unix, wakeup_iso, safe_unix, safe_iso, wait_secs, recheck, exe, cwd,
-    } = collect_posted_retrigger_park_fields(state, pr_info);
-    format!(
-        "[PR_MONITOR_PARK]
-reason: review_recheck
-pr: {pr}
-repo: {repo}
-next_wakeup_at_unix: {wakeup_unix}
-next_wakeup_at_iso_utc: {wakeup_iso}
-safe_minute_at_unix: {safe_unix}
-safe_minute_at_iso_utc: {safe_iso}
-wait_total_seconds: {wait_secs}
-recheck_count: {recheck}
-exe: {exe}
-cwd: {cwd}
-
-ACTION REQUIRED: please schedule one-shot wakeup using CronCreate.
-
-Cron spec derivation (apply 2 orthogonal constraints sequentially):
-  Step 1 (round-UP, already applied at the source): use `safe_minute_at_iso_utc`
-         (= next_wakeup_at_iso_utc with seconds rounded UP to next full minute).
-  Step 2 (avoid :00 / :30 minute due to 90s pre-fire jitter): convert
-         `safe_minute_at_iso_utc` to LOCAL TZ, then bump the minute by +1 if it
-         lands on :00 or :30. Use the resulting `HH:MM` as the cron field.
-  Reference: ~/.claude/rules/common/development-workflow.md
-             § Cron スケジューリングの秒 → 分 round-UP
-
-CronCreate({{
-  cron: \"<see Step 1 + Step 2 above>\",
-  recurring: false,
-  durable: true,
-  prompt: \"Wakeup: review recheck for PR #{pr} ({repo}). cd \\\"{cwd}\\\" && \\\"{exe}\\\" --monitor-only\"
-}})
-[/PR_MONITOR_PARK]"
-    )
-}
-
-/// PARK signal を stdout に書き出すための pure 関数 (Bb-1)。
-pub(crate) fn format_park_signal(
-    state: &PrMonitorState,
-    rl: &crate::state::RateLimitState,
-    pr_info: &PrInfo,
-    max_retries: u32,
-) -> String {
-    let pr = pr_info
-        .pr_number
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "?".into());
-    let repo = pr_info.repo.as_deref().unwrap_or("?");
-    let reset_iso = if rl.until_unix_secs > 0 {
-        lib_pending_file::epoch_secs_to_iso8601(rl.until_unix_secs as u64)
-    } else {
-        "?".into()
-    };
-    let wait_total_secs = rl.wait_minutes * 60 + rl.wait_seconds;
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
-    let cwd = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| ".".into());
-    let retry_attempt = state.rate_limit_retries + 1;
-
-    format!(
-        "[PR_MONITOR_PARK]
-reason: rate_limit_retry
-pr: {pr}
-repo: {repo}
-reset_at_unix: {until}
-reset_at_iso_utc: {reset_iso}
-wait_total_seconds: {wait_total_secs}
-retry_count: {retry_attempt}
-max_retries: {max_retries}
-exe: {exe}
-cwd: {cwd}
-
-ACTION REQUIRED: please schedule one-shot wakeup using CronCreate.
-
-CronCreate({{
-  cron: \"<reset_at_iso_utc を local timezone の ISO 8601 形式に変換, e.g. 2024-01-15T09:30:00>\",
-  recurring: false,
-  durable: true,
-  prompt: \"Wakeup: rate-limit retry for PR #{pr} ({repo}). cd \\\"{cwd}\\\" && \\\"{exe}\\\" --monitor-only\"
-}})
-[/PR_MONITOR_PARK]",
-        until = rl.until_unix_secs,
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::format_posted_retrigger_review_park_signal;
-    use crate::state::PrMonitorState;
+    use super::*;
+    use crate::state::RateLimitState;
 
-    /// Finding #3: rate-limit retrigger 後の PARK signal が `reason: review_recheck` を使い、
-    /// 過去 timestamp (`rl.until_unix_secs`) ではなく `state.next_wakeup_at_unix` を参照する。
     #[test]
-    fn format_posted_retrigger_review_park_signal_uses_review_recheck_reason() {
+    fn rate_limit_state_persists_retries_across_polls() {
+        let tmp = std::env::temp_dir().join(format!("test-rl-retries-{}.json", std::process::id()));
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.rate_limit_retries = 2;
+        state.rate_limit = Some(RateLimitState {
+            until_unix_secs: 1_735_689_600,
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 13,
+        });
+        crate::state::write_state_to(&tmp, &state).unwrap();
+
+        let loaded = crate::state::read_state_from(&tmp).unwrap();
+        assert_eq!(loaded.rate_limit_retries, 2);
+        assert_eq!(
+            loaded.rate_limit.as_ref().unwrap().until_unix_secs,
+            1_735_689_600
+        );
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn rate_limit_default_config_allows_retry_within_limit() {
+        let cfg = RateLimitConfig::default();
+        assert!(cfg.auto_retry_enabled);
+        assert_eq!(cfg.max_retries, 3);
+        assert!(2 < cfg.max_retries);
+        assert!(3 >= cfg.max_retries);
+    }
+
+    /// 同じ rate-limit comment が iteration 跨ぎで残った場合に dedup が働くことを検証する。
+    ///
+    /// シナリオ (advisor 発見のバグ):
+    /// - Iter 1: comment A, retries=0, last_retriggered=None → handle 対象
+    /// - Iter 2: 同じ comment A still in PR, last_retriggered=A → 即時 retrigger を skip
+    /// - Iter 3: CR が新たな rate-limit comment B を投稿, last_retriggered=A != B → 再 handle 対象
+    ///
+    /// dedup なしだと Iter 2/3 で sleep_secs=0 となり数秒で max_retries を消費する。
+    #[test]
+    fn rate_limit_dedup_skips_repeated_comment() {
+        let comment_a = "2026-04-30T00:00:00Z";
+        let comment_b = "2026-04-30T00:30:00Z";
+
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        let rl_a = RateLimitState {
+            until_unix_secs: 0,
+            comment_event_time: comment_a.into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let already_handled_iter1 = state.rate_limit_last_retriggered_at.as_deref()
+            == Some(rl_a.comment_event_time.as_str());
+        assert!(
+            !already_handled_iter1,
+            "Iter 1: 初回 detection は handle されるべき"
+        );
+
+        state.rate_limit_retries = 1;
+        state.rate_limit_last_retriggered_at = Some(comment_a.into());
+
+        let already_handled_iter2 = state.rate_limit_last_retriggered_at.as_deref()
+            == Some(rl_a.comment_event_time.as_str());
+        assert!(
+            already_handled_iter2,
+            "Iter 2: 同じ comment は dedup で skip されるべき"
+        );
+
+        let rl_b = RateLimitState {
+            until_unix_secs: 0,
+            comment_event_time: comment_b.into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let already_handled_iter3 = state.rate_limit_last_retriggered_at.as_deref()
+            == Some(rl_b.comment_event_time.as_str());
+        assert!(
+            !already_handled_iter3,
+            "Iter 3: 新 comment は再度 handle 対象"
+        );
+    }
+
+    /// state.json round-trip で rate_limit_last_retriggered_at が persistence される。
+    #[test]
+    fn rate_limit_last_retriggered_at_persists_across_polls() {
+        let tmp =
+            std::env::temp_dir().join(format!("test-rl-last-handled-{}.json", std::process::id()));
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.rate_limit_last_retriggered_at = Some("2026-04-30T00:00:00Z".into());
+        crate::state::write_state_to(&tmp, &state).unwrap();
+
+        let loaded = crate::state::read_state_from(&tmp).unwrap();
+        assert_eq!(
+            loaded.rate_limit_last_retriggered_at.as_deref(),
+            Some("2026-04-30T00:00:00Z")
+        );
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// Bb-1: reset 時刻が未来の場合、`handle_rate_limit_retry` は Parked を返し
+    /// state.rate_limit_retries を変更しない (実 retry 計上は wakeup 経由で post 投稿後)。
+    #[test]
+    fn rate_limit_retry_returns_parked_when_reset_in_future() {
+        let future_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 600;
+        let rl = RateLimitState {
+            until_unix_secs: future_unix,
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
+            wait_minutes: 10,
+            wait_seconds: 0,
+        };
         let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
-        state.next_wakeup_at_unix = Some(1_775_044_800);
-        state.review_recheck_count = 1;
         let pr_info = crate::util::PrInfo {
             pr_number: Some(42),
             repo: Some("o/r".into()),
@@ -533,27 +400,189 @@ mod tests {
             fix_push_time: None,
         };
 
-        let signal = format_posted_retrigger_review_park_signal(&state, &pr_info);
+        let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
+        match outcome {
+            RateLimitOutcome::Parked { wakeup_at_unix } => {
+                assert_eq!(wakeup_at_unix, future_unix);
+            }
+            _ => panic!("expected Parked outcome for future reset, got other variant"),
+        }
+        assert_eq!(state.rate_limit_retries, 0);
+        assert!(state.rate_limit_last_retriggered_at.is_none());
+    }
 
-        assert!(
-            signal.starts_with("[PR_MONITOR_PARK]"),
-            "PARK signal ヘッダが正しい形式でない: {}",
-            signal
+    /// Bb-1: PR 番号未確定の場合、`handle_rate_limit_retry` は Failed を返し
+    /// state を変更しない (caller は action_required で抜ける)。
+    #[test]
+    fn rate_limit_retry_returns_failed_when_pr_number_missing() {
+        let past_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 60;
+        let rl = RateLimitState {
+            until_unix_secs: past_unix,
+            comment_event_time: "2026-04-30T00:00:00Z".into(),
+            wait_minutes: 0,
+            wait_seconds: 0,
+        };
+        let mut state = PrMonitorState::new(None, None, "t".into());
+        let pr_info = crate::util::PrInfo {
+            pr_number: None,
+            repo: None,
+            push_time: None,
+            head_commit: None,
+            fix_push_time: None,
+        };
+
+        let outcome = handle_rate_limit_retry(&rl, &mut state, &pr_info, 3);
+        assert!(matches!(outcome, RateLimitOutcome::Failed(_)));
+        assert_eq!(state.rate_limit_retries, 0);
+        assert!(state.rate_limit_last_retriggered_at.is_none());
+    }
+
+    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
+    /// override 設定 / 解除を test 並行実行で race させない serial guard。
+    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    /// 書き込み先がディレクトリ不在のため write が必ず失敗する override path を返す。
+    fn unwritable_state_path() -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join(format!("pr-monitor-T2-2-{}", std::process::id()))
+            .join("nonexistent-dir")
+            .join("state.json")
+    }
+
+    /// Bb-1 (T2-2): `finalize_parked` は write_state 失敗時に PARK signal emit を中止し
+    /// `action_required` を返却する fail-safe 経路を持つ (CodeRabbit Major #1 fix の固定化)。
+    #[test]
+    fn finalize_parked_returns_action_required_when_write_state_fails() {
+        let _guard = env_override_lock();
+        let bad_path = unwritable_state_path();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
+
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        let rl = RateLimitState {
+            until_unix_secs: 1_775_088_000,
+            comment_event_time: "2026-05-01T00:00:00Z".into(),
+            wait_minutes: 47,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: None,
+            head_commit: None,
+            fix_push_time: None,
+        };
+        let result = serde_json::json!({});
+
+        let outcome = finalize_parked(&mut state, &rl, &pr_info, 1_775_088_000, 3, &result);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert_eq!(
+            outcome.action, "action_required",
+            "T2-2: write_state 失敗 → action_required で抜ける fail-safe が必要"
         );
         assert!(
-            signal.contains("reason: review_recheck"),
-            "Finding #3: rate-limit retrigger 後も reason は review_recheck であるべき。実際: {}",
-            signal
+            outcome.summary.contains("PARK signal を中止")
+                || outcome.summary.contains("永続化失敗"),
+            "summary に永続化失敗の説明が含まれること: {}",
+            outcome.summary
         );
-        assert!(
-            !signal.contains("reason: rate_limit_retry"),
-            "Finding #3: rate_limit_retry は誤った reason (rate-limit PARK と混同)。実際: {}",
-            signal
+    }
+
+    fn setup_posted_retrigger_fixture() -> (PrMonitorState, RateLimitState, crate::util::PrInfo) {
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.action = "continue_monitoring".into();
+        state.rate_limit_retries = 1;
+        let rl = RateLimitState {
+            until_unix_secs: 0,
+            comment_event_time: "2026-05-08T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+            fix_push_time: None,
+        };
+        (state, rl, pr_info)
+    }
+
+    #[test]
+    fn finalize_posted_retrigger_schedules_park_after_post() {
+        let _guard = env_override_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
+
+        let (mut state, rl, pr_info) = setup_posted_retrigger_fixture();
+        let result =
+            finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, &serde_json::Value::Null);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        let park_result =
+            result.expect("順位 80 fix: Posted 後は必ず park を返し silent exit を防ぐ");
+        assert_eq!(park_result.action, "parked_review_recheck");
+        assert_eq!(
+            state.wakeup_reason.as_deref(),
+            Some("rate_limit_post_retrigger")
         );
-        assert!(
-            signal.contains("next_wakeup_at_unix: 1775044800"),
-            "state.next_wakeup_at_unix を参照すべき (rl.until_unix_secs の過去 timestamp ではない)。実際: {}",
-            signal
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let wakeup = state
+            .next_wakeup_at_unix
+            .expect("next_wakeup_at_unix が設定される");
+        assert!(wakeup > now_unix && wakeup <= now_unix + 301);
+        assert_eq!(
+            state.rate_limit_last_retriggered_at.as_deref(),
+            Some("2026-05-08T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn finalize_posted_retrigger_action_required_when_write_state_fails() {
+        let _guard = env_override_lock();
+        let bad_path = unwritable_state_path();
+        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
+
+        let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        state.action = "continue_monitoring".into();
+        let rl = RateLimitState {
+            until_unix_secs: 0,
+            comment_event_time: "2026-05-08T00:00:00Z".into(),
+            wait_minutes: 5,
+            wait_seconds: 0,
+        };
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(1),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: None,
+            fix_push_time: None,
+        };
+
+        let result =
+            finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, &serde_json::Value::Null);
+
+        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+
+        assert!(result.is_some());
+        assert_eq!(
+            result.unwrap().action,
+            "action_required",
+            "write_state 失敗時は action_required で抜ける (sibling parity with finalize_parked)"
         );
     }
 }
