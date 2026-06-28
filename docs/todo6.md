@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo5.md / 本ファイルが 50KB に到達 (PR #143 T3-#1) のため **新規エントリは [docs/todo8.md](todo8.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2-9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十三つすべてを確認すること (todo.md / todo2-12.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo5.md / 本ファイルが 50KB に到達 (PR #143 T3-#1) のため **新規エントリは [docs/todo8.md](todo8.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2-9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十四つすべてを確認すること (todo.md / todo2-13.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
