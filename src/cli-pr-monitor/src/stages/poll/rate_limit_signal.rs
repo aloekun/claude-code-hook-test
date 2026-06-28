@@ -15,7 +15,7 @@ use crate::runner::run_gh_quiet;
 
 use super::review_recheck_signal::round_up_to_next_minute;
 
-/// 順位 141: rate-limit 検出 + mergeable CLEAN + 未解決 thread なしの 3 条件が揃ったとき
+/// 順位 141: rate-limit 検出 + mergeable CLEAN + CR 全フィールドクリーンの条件が揃ったとき
 /// `[RATE_LIMIT_BUT_MERGEABLE]` signal を stdout に出力する shortcut path。
 pub(super) fn emit_shortcut_signal_if_eligible(
     state: &PrMonitorState,
@@ -54,13 +54,17 @@ fn fetch_mergeable_status(pr_info: &PrInfo) -> Option<MergeableStatus> {
     })
 }
 
-/// 順位 141: mergeable + 未解決 thread の 3 条件評価を pure 関数化 (test 容易性)。
+/// 順位 141: mergeable + CR 全フィールドクリーンの条件評価を pure 関数化 (test 容易性)。
 pub(super) fn evaluate_rate_limit_shortcut(
     coderabbit: Option<&crate::state::CodeRabbitState>,
     mergeable: &MergeableStatus,
 ) -> bool {
     let cr_clean = coderabbit
-        .map(|c| c.unresolved_threads.unwrap_or(0) == 0)
+        .map(|c| {
+            c.new_comments == 0
+                && c.actionable_comments.unwrap_or(0) == 0
+                && c.unresolved_threads.unwrap_or(0) == 0
+        })
         .unwrap_or(true);
     mergeable.mergeable == "MERGEABLE" && mergeable.merge_state == "CLEAN" && cr_clean
 }
@@ -407,6 +411,23 @@ mod tests {
             new_comments: 1,
             actionable_comments: Some(1),
             unresolved_threads: Some(1),
+        };
+        assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
+    }
+
+    /// 順位 141: new_comments > 0 のとき unresolved_threads が 0 でも shortcut を抑止。
+    /// CR がまだコメントを処理中の状態で merge 判定を通過させない。
+    #[test]
+    fn evaluate_rate_limit_shortcut_blocks_when_new_comments_exist() {
+        let m = MergeableStatus {
+            mergeable: "MERGEABLE".into(),
+            merge_state: "CLEAN".into(),
+        };
+        let cr = crate::state::CodeRabbitState {
+            review_state: "commented".into(),
+            new_comments: 1,
+            actionable_comments: Some(0),
+            unresolved_threads: Some(0),
         };
         assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
     }

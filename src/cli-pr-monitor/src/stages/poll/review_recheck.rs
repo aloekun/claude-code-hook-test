@@ -37,7 +37,9 @@ pub(super) fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult 
     state.started_at = ctx.push_time.to_string();
     state.review_recheck_count = 0;
     state.head_commit = ctx.pr_info.head_commit.clone();
-    state.fix_push_time = ctx.fix_push_time.map(String::from).or(state.fix_push_time);
+    state.fix_push_time = state
+        .fix_push_time
+        .or_else(|| ctx.fix_push_time.map(String::from));
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
