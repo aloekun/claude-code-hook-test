@@ -194,6 +194,102 @@
 
 ---
 
+### post-pr-review (takt) の diff scope を PR 全体に修正 — `@` コミット限定による docs-only 誤判定の解消 (PR #227 観測)
+
+> **動機**: PR #227 (cli-pr-monitor flaky 修正 2 件 + docs 整理、3 commit) の post-pr monitor で、takt `post-pr-review` の analyze が PR を **docs-only と誤判定**した。実際は spvtqwor (create_pr.rs の tempfile 化) / qzpwsyzr (state path DI) の Rust 変更を含むが、analyze が見た diff は `@` コミット (`docs/todo*.md` のみ) だった。その結果、CodeRabbit が PR 全体 (`create_pr.rs:208`) を見て出した finding を ADR-035 docs-only filter で「適用外」と**誤フィルタ**した。今回は finding 自体も false positive (composition root のため DI 不要) だったため実害はなかったが、**有効な finding を見逃すリスク**がある。
+>
+> **本タスクの位置づけ**: PR #227 セッション観測 (2026-06-30)、ユーザー判断で todo 登録。CodeRabbit が PR 全体 (base..head) を見るのに対し takt の判定 diff が `@` 限定で、findings と local diff scope が構造的に不整合になる点が核心。
+>
+> **参照**: PR #227、`.takt/review-comments.json` (findings = `create_pr.rs:208`)、push runner ログ `[diff] 実行: jj diff -r @` / `review-diff.txt (68 行)`、ADR-027 (push-time review は `@` の simplicity 限定、architectural review は post-PR CodeRabbit に委ねる)、ADR-035 (docs-only 評価ポリシー — classify の入力 diff scope を誤ると誤適用)、cli-pr-monitor の `post-pr-review` 起動箇所 (`stages/takt.rs` 周辺)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。診断 (diff scope の生成箇所特定) + 修正。実害は CodeRabbit がフル PR を見るため現状限定的だが、自動フィルタの信頼性に関わる。
+
+#### 設計決定 (案)
+
+- **(A)** post-pr-review の analyze に渡す diff を PR 全体 (`master..@` または PR base..head) に変更する。`@` 限定の pre-push-review (ADR-027) とは射程が異なる (post-PR は PR 全体を評価すべき) ことを明示。
+- **(B)** または docs-only 分類を local diff でなく **CodeRabbit findings の file path 基準** に切り替える (findings が code file を指すなら docs-only にしない)。
+- pre-push-review (ADR-027 = `@` 限定 simplicity) と diff 生成を共有しているなら、post-pr-review 専用に分離する。
+
+#### 作業計画
+
+- [ ] post-pr-review が docs-only 判定に使う diff の生成箇所を特定 (`review-diff.txt` 流用 or 独自生成)
+- [ ] diff scope を PR 全体に修正、or 分類基準を findings file path に変更
+- [ ] dogfood: code + docs 混在 PR で docs-only 誤判定しないことを確認
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- code 変更を含む PR が post-pr-review で docs-only と誤判定されず、code file を指す CodeRabbit finding が ADR-035 filter で誤って適用外にされない。
+
+#### 詰まっている箇所
+
+- diff scope を PR 全体にする際、pre-push-review (ADR-027 = `@` 限定 simplicity) との設定/生成共有部分に影響しないか。post-pr-review 専用に diff 生成を分離する必要があるか。
+
+---
+
+### memory `feedback-di-over-ambient-global-tests` に serialization primitive 例外境界 + PR #227 具体例を追記 (PR #227 post-merge-feedback T3-1 採用)
+
+> **動機**: PR #227 (cli-pr-monitor 並列テスト flaky 修正) の post-merge-feedback で採用候補 (T3-1) として浮上。既存 memory `feedback-di-over-ambient-global-tests` の「DI over ambient global」原則が、直感的には「通常 test helper は複製推奨」原則と矛盾するように見える問題を解消する。PR #227 は本原則の 2 例目 (PR #224 の env_override_lock 関連も同根)。
+>
+> **本タスクの位置づけ**: PR #227 post-merge-feedback Tier 3 #1 採用候補 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。ユーザー承認で todo 登録 (2026-06-30)。
+>
+> **参照**: `.claude/feedback-reports/227.md` Tier 3 #1、memory `~/.claude/projects/C--Users-owner-work-ccht-improve/memory/feedback-di-over-ambient-global-tests.md`、PR #227 (state path DI)、PR #224 (env_override_lock)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。memory への数行追記。
+
+#### 設計決定 (案)
+
+- (a) `PR_MONITOR_STATE_FILE_OVERRIDE` race → `state_path: &Path` DI での解消を具体例として列挙。
+- (b) 「serialization primitive (`static LOCK: OnceLock<Mutex<()>>`) は複製禁止、通常 test helper は複製推奨」という例外境界を明示。
+
+#### 作業計画
+
+- [ ] memory `feedback-di-over-ambient-global-tests.md` に (a) 具体例 + (b) 例外境界を追記
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- memory に PR #227 の DI 具体例と serialization primitive 例外境界が明記され、「DI over ambient global」と「test helper 複製推奨」の見かけの矛盾が解消される。
+
+#### 詰まっている箇所
+
+- 特になし (memory 編集のみ)。順位 235 (ADR-022 Appendix) と内容が相補的なので同時着手が効率的。
+
+---
+
+### ADR-022 に Serialization Primitive Single-Instance Rule の Appendix 追加 (PR #227 post-merge-feedback T3-2 採用)
+
+> **動機**: PR #227 と PR #224 T2-2 (共有 env_override_lock helper 抽出) で同根の serialization primitive 単一化問題が 2 PR 観測 (Frequency Medium)。`OnceLock<Mutex<()>>` 等の serialization primitive をプロセス内で複製すると各々が独立した Mutex になり競合排除機能が破壊される。通常の helper function 複製推奨 (DRY) との例外境界が ADR-022 に未明文化。
+>
+> **本タスクの位置づけ**: PR #227 post-merge-feedback Tier 3 #2 採用候補 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。ユーザー承認で todo 登録 (2026-06-30)。
+>
+> **参照**: `.claude/feedback-reports/227.md` Tier 3 #2、`docs/adr/adr-022-automation-responsibility-separation.md`、PR #224 T2-2 (env_override_lock)、PR #227 (state path DI)、順位 234 (memory 拡張、相補)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。ADR-022 への Appendix 追加。
+
+#### 設計決定 (案)
+
+- ADR-022 に Appendix「Serialization Primitive Single-Instance Rule」を追加:
+  - `OnceLock<Mutex<()>>` 等の serialization primitive はプロセス内で単一化必須。
+  - 複製すると各々が独立した Mutex になり競合排除機能が破壊される特殊ケース。
+  - 通常の helper function 複製推奨 (DRY) との例外境界を明文化。
+
+#### 作業計画
+
+- [ ] ADR-022 に Serialization Primitive Single-Instance Rule の Appendix 追加
+- [ ] 順位 234 (memory) と cross-reference
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-022 に serialization primitive 単一化原則が明文化され、PR #224/#227 で観測された複製による競合排除破壊が構造的に予防される。
+
+#### 詰まっている箇所
+
+- ADR-022 (自動化コンポーネントの責務分離) の主題と serialization primitive (test isolation) がやや別軸。Appendix として追加するか、ADR-046 (feedback-reports T3-3 様子見) として独立させるかは着手時判断。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
