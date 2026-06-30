@@ -311,7 +311,7 @@ takt は run dir を `<timestamp>-<sanitized-task-label>` 形式で生成する 
 
 #### 制約
 
-workflow 名同士が部分文字列関係になってはいけない。「部分文字列関係」とは `-<workflow-A>` が `-<workflow-B>...` の中に含まれること、すなわち `name.contains(&format!("-{}", workflow))` で取り違えが起きる関係を指す (実装は [`feedback.rs`](../../src/cli-merge-pipeline/src/feedback.rs) の `find_latest_run_dir`)。
+workflow 名同士が部分文字列関係になってはいけない。「部分文字列関係」とは `-<workflow-A>` が `-<workflow-B>...` の中に含まれること、すなわち `name.contains(&format!("-{}", workflow))` で取り違えが起きる関係を指す (実装は [`feedback/context.rs`](../../src/cli-merge-pipeline/src/feedback/context.rs) の `find_latest_run_dir`)。
 
 例:
 
