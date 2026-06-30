@@ -1,11 +1,11 @@
 {
   "permissions": {
     "allow": [
+      "Bash(*cli-pr-monitor.exe* --monitor-only)"
     ],
     "ask": [
       "Bash(pnpm create-pr*)",
       "Bash(pnpm merge-pr*)",
-      "Bash(*cli-pr-monitor.exe*)",
       "Bash(*cli-merge-pipeline.exe*)"
     ]
   },
