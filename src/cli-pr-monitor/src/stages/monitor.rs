@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::config::load_config;
 use crate::fix_commit::{create_fix_commit, FixCommitState};
 use crate::lock::{acquire as acquire_lock, LockResult};
@@ -6,7 +8,7 @@ use crate::stages::collect::collect_findings;
 use crate::stages::poll::run_poll_loop;
 use crate::stages::repush::execute_repush_flow;
 use crate::stages::takt::run_takt;
-use crate::state::{read_state, write_state, PrMonitorState};
+use crate::state::{read_state_from, state_file_path, write_state_to, PrMonitorState};
 use crate::util::{get_pr_info, utc_now_iso8601, PrInfo};
 
 // ─── 監視開始 (sequential chain) ───
@@ -95,7 +97,7 @@ fn init_or_resume_state(pr_info: &PrInfo, is_wakeup: bool, pr_label: &str) {
         pr_info.push_time.clone().unwrap_or_else(utc_now_iso8601),
     );
     init_state.fix_push_time = pr_info.fix_push_time.clone();
-    if let Err(e) = write_state(&init_state) {
+    if let Err(e) = write_state_to(&state_file_path(), &init_state) {
         log_info(&format!("[state] 初期化書き込み失敗 (継続): {}", e));
     }
 }
@@ -206,7 +208,8 @@ pub(crate) fn run_monitor_only() -> i32 {
             resume_push_time
         ));
         pr_info.push_time = Some(resume_push_time.clone());
-        pr_info.fix_push_time = resume_fix_push_time_or_started_at(&resume_push_time);
+        pr_info.fix_push_time =
+            resume_fix_push_time_or_started_at(&resume_push_time, &state_file_path());
         start_monitoring_wakeup(&pr_info)
     } else {
         let now = utc_now_iso8601();
@@ -218,8 +221,11 @@ pub(crate) fn run_monitor_only() -> i32 {
 
 /// 順位 141: wakeup resume 経路で state から `fix_push_time` を取り出す。
 /// legacy state (本フィールド未設定) では `started_at` に fallback して挙動を維持する。
-fn resume_fix_push_time_or_started_at(started_at_fallback: &str) -> Option<String> {
-    read_state()
+fn resume_fix_push_time_or_started_at(
+    started_at_fallback: &str,
+    state_path: &Path,
+) -> Option<String> {
+    read_state_from(state_path)
         .and_then(|s| s.fix_push_time)
         .or_else(|| Some(started_at_fallback.to_string()))
 }
@@ -230,7 +236,7 @@ fn resume_fix_push_time_or_started_at(started_at_fallback: &str) -> Option<Strin
 /// CR Major #1 fix (Bb-2 PR #114 review): 同一 PR でも新 commit が push されれば head_commit
 /// が変わるため、stored vs current head 一致も check する。head 不一致なら fresh push 扱い。
 fn detect_wakeup_resume(pr_info: &PrInfo) -> Option<String> {
-    let state = read_state()?;
+    let state = read_state_from(&state_file_path())?;
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -581,27 +587,16 @@ mod tests {
         assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
     }
 
-    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
-    /// override 設定 / 解除を test 並行実行で race させない serial guard。
-    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
-
     /// 順位 141: `resume_fix_push_time_or_started_at` Case A —
     /// state に `fix_push_time` が設定済みの場合、fallback の `started_at` ではなく
     /// state の値が返されることを検証する。
     #[test]
     fn resume_returns_fix_push_time_from_state_when_set() {
-        let _guard = env_override_lock();
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut s = PrMonitorState::new(Some(1), None, "t".into());
         s.fix_push_time = Some("2026-05-22T06:06:00Z".into());
         std::fs::write(tmp.path(), serde_json::to_string(&s).unwrap()).unwrap();
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", tmp.path());
-        let result = resume_fix_push_time_or_started_at("2026-05-22T06:00:00Z");
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        let result = resume_fix_push_time_or_started_at("2026-05-22T06:00:00Z", tmp.path());
         assert_eq!(
             result.as_deref(),
             Some("2026-05-22T06:06:00Z"),

@@ -7,8 +7,10 @@
 //! signal 整形部分 (`round_up_to_next_minute` / `compute_safe_minute_for_park_signal` /
 //! `format_review_park_signal`) は `review_recheck_signal.rs` に分離。
 
+use std::path::Path;
+
 use crate::log::log_info;
-use crate::state::{read_state, write_state, PrMonitorState};
+use crate::state::{read_state_from, write_state_to, PrMonitorState};
 
 use super::rate_limit::make_action_required_result;
 use super::review_recheck_signal::format_review_park_signal;
@@ -25,7 +27,7 @@ use super::{make_park_poll_result, PollContext, PollResult};
 /// 食い違い、最悪 max 到達状態で park される)。
 /// CR Major #1 fix: head_commit を state に保存し detect_wakeup_resume の比較対象とする。
 pub(super) fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult {
-    let mut state = read_state().unwrap_or_else(|| {
+    let mut state = read_state_from(ctx.state_path).unwrap_or_else(|| {
         PrMonitorState::new(
             ctx.pr_info.pr_number,
             ctx.pr_info.repo.clone(),
@@ -52,7 +54,7 @@ pub(super) fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult 
         ctx.initial_review_wait_secs, ctx.max_review_rechecks
     );
 
-    if let Err(e) = write_state(&state) {
+    if let Err(e) = write_state_to(ctx.state_path, &state) {
         log_info(&format!(
             "[review_recheck] initial park state 永続化失敗、action_required で抜ける: {}",
             e
@@ -74,7 +76,7 @@ pub(super) fn finalize_initial_review_park(ctx: &PollContext<'_>) -> PollResult 
 /// `action_required` で抜ける (review が想定時間内に未完了を通知)。
 /// 未到達なら `review_recheck_wait_secs` 後の wakeup を予約して return。
 pub(super) fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult {
-    let mut state = read_state().unwrap_or_else(|| {
+    let mut state = read_state_from(ctx.state_path).unwrap_or_else(|| {
         PrMonitorState::new(
             ctx.pr_info.pr_number,
             ctx.pr_info.repo.clone(),
@@ -87,7 +89,11 @@ pub(super) fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult 
         .or_else(|| ctx.fix_push_time.map(String::from));
 
     if state.review_recheck_count >= ctx.max_review_rechecks {
-        return finalize_review_recheck_max_reached(&mut state, ctx.max_review_rechecks);
+        return finalize_review_recheck_max_reached(
+            &mut state,
+            ctx.state_path,
+            ctx.max_review_rechecks,
+        );
     }
 
     schedule_next_review_recheck_park(&mut state, ctx)
@@ -95,6 +101,7 @@ pub(super) fn finalize_review_recheck_park(ctx: &PollContext<'_>) -> PollResult 
 
 fn finalize_review_recheck_max_reached(
     state: &mut PrMonitorState,
+    state_path: &Path,
     max_review_rechecks: u32,
 ) -> PollResult {
     log_info(&format!(
@@ -109,7 +116,7 @@ fn finalize_review_recheck_max_reached(
     state.summary = summary.clone();
     state.next_wakeup_at_unix = None;
     state.wakeup_reason = None;
-    if let Err(e) = write_state(state) {
+    if let Err(e) = write_state_to(state_path, state) {
         log_info(&format!(
             "state 書き込み失敗 (action_required 確定後、続行): {}",
             e
@@ -135,7 +142,7 @@ pub(super) fn schedule_next_review_recheck_park(
         ctx.review_recheck_wait_secs, state.review_recheck_count, ctx.max_review_rechecks
     );
 
-    if let Err(e) = write_state(state) {
+    if let Err(e) = write_state_to(ctx.state_path, state) {
         log_info(&format!(
             "[review_recheck] park state 永続化失敗、action_required で抜ける: {}",
             e
@@ -155,23 +162,8 @@ pub(super) fn schedule_next_review_recheck_park(
 mod tests {
     use super::*;
     use crate::config::{ClassifierConfig, RateLimitConfig};
-    use std::sync::{Mutex, OnceLock};
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-    }
-
-    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
-    /// override 設定 / 解除を test 並行実行で race させない serial guard。
-    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
-
-    /// 書き込み先がディレクトリ不在のため write が必ず失敗する override path を返す。
+    /// 書き込み先がディレクトリ不在のため write が必ず失敗する path を返す。
     fn unwritable_state_path() -> std::path::PathBuf {
         std::env::temp_dir()
             .join(format!("pr-monitor-T2-2-{}", std::process::id()))
@@ -199,12 +191,14 @@ mod tests {
 
     fn make_default_test_ctx<'a>(
         checker: &'a std::path::Path,
+        state_path: &'a std::path::Path,
         pr_info: &'a crate::util::PrInfo,
         rate_limit_config: &'a RateLimitConfig,
         classifier_config: &'a ClassifierConfig,
     ) -> PollContext<'a> {
         PollContext {
             checker,
+            state_path,
             push_time: "2026-05-01T00:00:00Z",
             fix_push_time: None,
             pr_info,
@@ -225,10 +219,8 @@ mod tests {
     /// "wakeup は parked_* action のときのみスケジュールされる"。
     #[test]
     fn finalize_review_recheck_max_reached_clears_wakeup_fields() {
-        let _guard = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let state_path = tmp.path().join("state.json");
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
 
         let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
         let stale_wakeup_unix: i64 = 9_999_999_999;
@@ -238,9 +230,7 @@ mod tests {
         state.review_recheck_count = 3;
         state.action = "parked_review_recheck".into();
 
-        finalize_review_recheck_max_reached(&mut state, 3);
-
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        finalize_review_recheck_max_reached(&mut state, &state_path, 3);
 
         assert!(
             state.next_wakeup_at_unix.is_none(),
@@ -262,9 +252,7 @@ mod tests {
     /// PARK signal emit を中止し `action_required` を返却する (sibling parity)。
     #[test]
     fn schedule_next_review_recheck_park_returns_action_required_when_write_state_fails() {
-        let _guard = env_override_lock();
         let bad_path = unwritable_state_path();
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
 
         let mut state =
             PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
@@ -281,6 +269,7 @@ mod tests {
         let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
+            state_path: &bad_path,
             push_time: "2026-05-01T00:00:00Z",
             fix_push_time: None,
             pr_info: &pr_info,
@@ -297,8 +286,6 @@ mod tests {
 
         let outcome = schedule_next_review_recheck_park(&mut state, &ctx);
 
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
-
         assert_eq!(
             outcome.action, "action_required",
             "T2-2 sibling parity: review park も write_state 失敗 → action_required で抜けること"
@@ -310,25 +297,24 @@ mod tests {
     /// で残った state を持ち越さないことを machine-enforce する。
     #[test]
     fn finalize_initial_review_park_resets_recheck_count() {
-        let _guard = env_override_lock();
-        let tmp_path = std::env::temp_dir().join(format!(
-            "pr-monitor-CR-M2-{}-state.json",
-            std::process::id()
-        ));
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &tmp_path);
-        seed_stale_recheck_state(&tmp_path);
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        seed_stale_recheck_state(&state_path);
 
         let pr_info = pr_info_for_initial_review_park_test();
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
         let classifier_config = ClassifierConfig::default();
-        let ctx = make_default_test_ctx(&checker, &pr_info, &rate_limit_config, &classifier_config);
+        let ctx = make_default_test_ctx(
+            &checker,
+            &state_path,
+            &pr_info,
+            &rate_limit_config,
+            &classifier_config,
+        );
 
         let outcome = finalize_initial_review_park(&ctx);
-        let persisted = crate::state::read_state_from(&tmp_path).unwrap();
-
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
-        let _ = std::fs::remove_file(&tmp_path);
+        let persisted = crate::state::read_state_from(&state_path).unwrap();
 
         assert_eq!(outcome.action, "parked_review_recheck");
         assert_eq!(
@@ -350,10 +336,8 @@ mod tests {
     /// or_else 被演算子の入れ替えバグを discriminate できる。
     #[test]
     fn finalize_initial_review_park_preserves_existing_fix_push_time() {
-        let _guard = env_override_lock();
         let tmp = tempfile::tempdir().unwrap();
         let state_path = tmp.path().join("state.json");
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
 
         let mut seeded =
             PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
@@ -370,14 +354,18 @@ mod tests {
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
         let classifier_config = ClassifierConfig::default();
-        let mut ctx =
-            make_default_test_ctx(&checker, &pr_info, &rate_limit_config, &classifier_config);
+        let mut ctx = make_default_test_ctx(
+            &checker,
+            &state_path,
+            &pr_info,
+            &rate_limit_config,
+            &classifier_config,
+        );
         let ctx_fix_push_time_must_lose = "2026-05-22T06:10:00Z";
         ctx.fix_push_time = Some(ctx_fix_push_time_must_lose);
 
         finalize_initial_review_park(&ctx);
         let persisted = crate::state::read_state_from(&state_path).unwrap();
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
 
         assert_eq!(
             persisted.fix_push_time.as_deref(),
@@ -391,10 +379,8 @@ mod tests {
     /// `ctx.fix_push_time` の値で上書きしないことを検証する。
     #[test]
     fn finalize_review_recheck_park_preserves_existing_fix_push_time() {
-        let _guard = env_override_lock();
         let tmp = tempfile::tempdir().unwrap();
         let state_path = tmp.path().join("state.json");
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
 
         let mut seeded =
             PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
@@ -412,14 +398,18 @@ mod tests {
         let checker = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
         let classifier_config = ClassifierConfig::default();
-        let mut ctx =
-            make_default_test_ctx(&checker, &pr_info, &rate_limit_config, &classifier_config);
+        let mut ctx = make_default_test_ctx(
+            &checker,
+            &state_path,
+            &pr_info,
+            &rate_limit_config,
+            &classifier_config,
+        );
         let ctx_fix_push_time_must_lose = "2026-05-22T06:10:00Z";
         ctx.fix_push_time = Some(ctx_fix_push_time_must_lose);
 
         finalize_review_recheck_park(&ctx);
         let persisted = crate::state::read_state_from(&state_path).unwrap();
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
 
         assert_eq!(
             persisted.fix_push_time.as_deref(),

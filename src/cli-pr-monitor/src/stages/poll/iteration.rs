@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Duration;
 
 use crate::classifier_runner::classify_findings;
@@ -5,7 +6,7 @@ use crate::config::{ClassifierConfig, DEFAULT_CHECK_TIMEOUT_SECS};
 use crate::log::{log_info, truncate_safe};
 use crate::runner::run_cmd_direct;
 use crate::state::{
-    read_state, update_state_from_check_result, write_state, CiState, CodeRabbitState,
+    read_state_from, update_state_from_check_result, write_state_to, CiState, CodeRabbitState,
     PrMonitorState,
 };
 use crate::util::{utc_now_iso8601, PrInfo};
@@ -26,8 +27,9 @@ pub(super) fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
         &result,
         ctx.skip_ci,
         ctx.skip_coderabbit,
+        ctx.state_path,
     );
-    enrich_with_classifier(&mut state, ctx.classifier_config);
+    enrich_with_classifier(&mut state, ctx.classifier_config, ctx.state_path);
     log_info(&format!(
         "ポーリング: action={}, summary={}",
         state.action, state.summary
@@ -43,6 +45,7 @@ pub(super) fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
         ctx.pr_info,
         ctx.review_recheck_wait_secs,
         &result,
+        ctx.state_path,
     ) {
         return Some(terminal);
     }
@@ -104,6 +107,7 @@ fn build_state_for_iteration(
     result: &serde_json::Value,
     skip_ci: bool,
     skip_coderabbit: bool,
+    state_path: &Path,
 ) -> PrMonitorState {
     let mut state = PrMonitorState::new(
         pr_info.pr_number,
@@ -112,7 +116,7 @@ fn build_state_for_iteration(
     );
     update_state_from_check_result(&mut state, result);
 
-    if let Some(existing) = read_state() {
+    if let Some(existing) = read_state_from(state_path) {
         state.notified = existing.notified;
         state.rate_limit_retries = existing.rate_limit_retries;
         state.rate_limit_last_retriggered_at = existing.rate_limit_last_retriggered_at;
@@ -124,7 +128,7 @@ fn build_state_for_iteration(
 
     apply_skip_handling(&mut state, skip_ci, skip_coderabbit);
     state.last_checked = Some(utc_now_iso8601());
-    if let Err(e) = write_state(&state) {
+    if let Err(e) = write_state_to(state_path, &state) {
         log_info(&format!("state 書き込み失敗 (skip 反映後、続行): {}", e));
     }
     state
@@ -135,7 +139,11 @@ fn build_state_for_iteration(
 /// `config.classifier.enabled = false` または findings が空のときは何もしない。
 /// 実行成功時は state.classified_findings を populate して state file を再書き出す。
 /// 失敗時は state.classified_findings は空のまま (caller は findings をそのまま使えばよい)。
-fn enrich_with_classifier(state: &mut PrMonitorState, config: &ClassifierConfig) {
+fn enrich_with_classifier(
+    state: &mut PrMonitorState,
+    config: &ClassifierConfig,
+    state_path: &Path,
+) {
     if !config.enabled || state.findings.is_empty() {
         return;
     }
@@ -148,7 +156,7 @@ fn enrich_with_classifier(state: &mut PrMonitorState, config: &ClassifierConfig)
         classified.len()
     ));
     state.classified_findings = classified;
-    if let Err(e) = write_state(state) {
+    if let Err(e) = write_state_to(state_path, state) {
         log_info(&format!(
             "state 書き込み失敗 (classifier enrich 後、続行): {}",
             e
@@ -312,8 +320,9 @@ mod tests {
             enabled: false,
             ..ClassifierConfig::default()
         };
+        let dir = tempfile::tempdir().unwrap();
 
-        enrich_with_classifier(&mut state, &disabled);
+        enrich_with_classifier(&mut state, &disabled, &dir.path().join("state.json"));
 
         assert_eq!(
             state.classified_findings,
@@ -353,8 +362,9 @@ mod tests {
             enabled: true,
             ..ClassifierConfig::default()
         };
+        let dir = tempfile::tempdir().unwrap();
 
-        enrich_with_classifier(&mut state, &enabled);
+        enrich_with_classifier(&mut state, &enabled, &dir.path().join("state.json"));
 
         assert_eq!(
             state.classified_findings,

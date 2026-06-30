@@ -1,10 +1,12 @@
-use std::path::PathBuf;
+use std::path::Path;
+
+use tempfile::TempPath;
 
 use crate::config::DEFAULT_STEP_TIMEOUT_SECS;
 use crate::log::log_info;
 use crate::runner::{run_cmd_direct, run_gh_quiet};
 use crate::stages::monitor::start_monitoring;
-use crate::state::{write_state, PrMonitorState};
+use crate::state::{state_file_path, write_state_to, PrMonitorState};
 use crate::util::{
     get_jj_bookmarks, get_pr_head_commit, get_pr_info, parse_pr_number_from_url, utc_now_iso8601,
     PrInfo,
@@ -43,46 +45,45 @@ fn reassemble_split_body(args: &[String]) -> Vec<String> {
     result
 }
 
-// ─── --body -> --body-file 変換 (issue #1) ───
-
-/// Drop 時に自動削除される一時ファイル
-struct TempFile(PathBuf);
-
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
+/// `dir` 配下に一意な一時ファイルを作成し `content` を書き出す。
+///
+/// 返り値の `TempPath` は Drop 時に自動削除される (旧 `TempFile` struct の役割)。
+/// `tempfile` は `O_EXCL` + ランダム名 + 衝突時リトライでファイルを作るため、
+/// 並列 `cargo test` (同一プロセス・同一 ms) でも本番の並列実行 (別セッション /
+/// サブエージェント) でも名前が構造的に衝突しない (順位 230 flaky 修正)。
+fn write_body_tempfile(dir: &Path, content: &str) -> std::io::Result<TempPath> {
+    let path = tempfile::Builder::new()
+        .prefix("gh-pr-body-")
+        .suffix(".md")
+        .tempfile_in(dir)?
+        .into_temp_path();
+    std::fs::write(&path, content)?;
+    Ok(path)
 }
 
 /// --body 引数に改行が含まれる場合、一時ファイルに書き出して --body-file に差し替える。
-fn convert_body_to_file(args: &[String]) -> (Vec<String>, Option<TempFile>) {
+///
+/// `temp_dir` は生成先ディレクトリ。本番は `std::env::temp_dir()` を渡し、テストは
+/// 各 test 専用の `tempfile::tempdir()` を注入して本番 namespace から分離する。
+fn convert_body_to_file(args: &[String], temp_dir: &Path) -> (Vec<String>, Option<TempPath>) {
     let mut result = Vec::with_capacity(args.len());
     let mut i = 0;
-    let mut temp_guard: Option<TempFile> = None;
+    let mut temp_guard: Option<TempPath> = None;
 
     while i < args.len() {
         if args[i] == "--body" && i + 1 < args.len() {
             let body = &args[i + 1];
             if body.contains('\n') || body.contains("\\n") {
-                let filename = format!(
-                    "gh-pr-body-{}-{}.md",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis()
-                );
-                let path = std::env::temp_dir().join(filename);
                 let resolved = body.replace("\\n", "\n");
-                match std::fs::write(&path, &resolved) {
-                    Ok(()) => {
+                match write_body_tempfile(temp_dir, &resolved) {
+                    Ok(path) => {
                         log_info(&format!(
                             "--body に改行を検出 → --body-file に変換 ({})",
                             path.display()
                         ));
                         result.push("--body-file".to_string());
                         result.push(path.to_string_lossy().to_string());
-                        temp_guard = Some(TempFile(path));
+                        temp_guard = Some(path);
                     }
                     Err(e) => {
                         log_info(&format!(
@@ -203,14 +204,14 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
 
 fn write_early_reset_state() {
     let early_state = PrMonitorState::new(None, None, utc_now_iso8601());
-    if let Err(e) = write_state(&early_state) {
+    if let Err(e) = write_state_to(&state_file_path(), &early_state) {
         log_info(&format!("[state] 早期 reset 書き込み失敗 (継続): {}", e));
     }
 }
 
-fn prepare_gh_pr_create_args(gh_args: &[String]) -> (Vec<String>, Option<TempFile>) {
+fn prepare_gh_pr_create_args(gh_args: &[String]) -> (Vec<String>, Option<TempPath>) {
     let reassembled = reassemble_split_body(gh_args);
-    let (mut final_args, body_tempfile) = convert_body_to_file(&reassembled);
+    let (mut final_args, body_tempfile) = convert_body_to_file(&reassembled, &std::env::temp_dir());
 
     if !has_head_flag(&final_args) {
         let bookmarks = get_jj_bookmarks();
@@ -380,46 +381,50 @@ mod tests {
 
     #[test]
     fn body_without_newline_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
         let args = vec![
             "--title".into(),
             "test".into(),
             "--body".into(),
             "simple body".into(),
         ];
-        let (result, temp) = convert_body_to_file(&args);
+        let (result, temp) = convert_body_to_file(&args, dir.path());
         assert_eq!(result, args);
         assert!(temp.is_none());
     }
 
     #[test]
     fn body_with_literal_newline_converted() {
+        let dir = tempfile::tempdir().unwrap();
         let args = vec![
             "--title".into(),
             "test".into(),
             "--body".into(),
             "line1\\nline2".into(),
         ];
-        let (result, temp) = convert_body_to_file(&args);
+        let (result, temp) = convert_body_to_file(&args, dir.path());
         assert_eq!(result[0], "--title");
         assert_eq!(result[1], "test");
         assert_eq!(result[2], "--body-file");
         assert!(temp.is_some());
-        let content = std::fs::read_to_string(&temp.as_ref().unwrap().0).unwrap();
+        let content = std::fs::read_to_string(temp.as_ref().unwrap()).unwrap();
         assert!(content.contains("line1\nline2"));
     }
 
     #[test]
     fn body_with_real_newline_converted() {
+        let dir = tempfile::tempdir().unwrap();
         let args = vec!["--body".into(), "line1\nline2".into()];
-        let (result, temp) = convert_body_to_file(&args);
+        let (result, temp) = convert_body_to_file(&args, dir.path());
         assert_eq!(result[0], "--body-file");
         assert!(temp.is_some());
     }
 
     #[test]
     fn no_body_arg_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
         let args = vec!["--title".into(), "test".into()];
-        let (result, temp) = convert_body_to_file(&args);
+        let (result, temp) = convert_body_to_file(&args, dir.path());
         assert_eq!(result, args);
         assert!(temp.is_none());
     }

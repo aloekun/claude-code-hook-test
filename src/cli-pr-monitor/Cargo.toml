@@ -7,13 +7,15 @@ edition = "2021"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
+# tempfile は本番の convert_body_to_file が --body-file 用一時ファイルを
+# 一意名 (O_EXCL + ランダム名) で生成するために使用 (順位 230 flaky 修正)。
+tempfile = "3"
 lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-pending-file = { path = "../lib-pending-file" }
 lib-report-formatter = { path = "../lib-report-formatter" }
 lib-subprocess = { path = "../lib-subprocess" }
 
 [dev-dependencies]
-tempfile = "3"
 proptest = "1"
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

@@ -153,15 +153,11 @@ impl PrMonitorState {
     }
 }
 
-/// state file の保存パスを返す。
+/// state file の保存パスを返す (本番デフォルト = `<exe>/pr-monitor-state.json`)。
 ///
-/// 通常は `<exe>/pr-monitor-state.json`。
-/// 環境変数 `PR_MONITOR_STATE_FILE_OVERRIDE` がセットされていればそのパスを優先する
-/// (T2-2 / fault injection test 用)。本番コードは env を設定しないため挙動変化なし。
+/// テストは override の env var ではなく、各関数に state path を直接注入する
+/// (順位 229: 共有グローバル可変状態を排し並列テスト間の競合を構造的に解消)。
 pub(crate) fn state_file_path() -> PathBuf {
-    if let Ok(path) = std::env::var("PR_MONITOR_STATE_FILE_OVERRIDE") {
-        return PathBuf::from(path);
-    }
     std::env::current_exe()
         .unwrap_or_default()
         .parent()
@@ -182,14 +178,6 @@ pub(crate) fn write_state_to(path: &Path, state: &PrMonitorState) -> Result<(), 
 pub(crate) fn read_state_from(path: &Path) -> Option<PrMonitorState> {
     let content = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
-}
-
-pub(crate) fn write_state(state: &PrMonitorState) -> Result<(), String> {
-    write_state_to(&state_file_path(), state)
-}
-
-pub(crate) fn read_state() -> Option<PrMonitorState> {
-    read_state_from(&state_file_path())
 }
 
 /// check-ci-coderabbit の JSON 出力から state を更新する
