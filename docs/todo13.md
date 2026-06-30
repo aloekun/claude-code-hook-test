@@ -137,54 +137,6 @@
 
 ---
 
-### 共有 `env_override_lock` helper 抽出 — 並列 test の state file override 競合解消 (PR #224 post-merge-feedback T2-2 採用)
-
-> **動機**: `PR_MONITOR_STATE_FILE_OVERRIDE` (process-global env var) 用の `static LOCK` を複数の test module (poll/mod.rs, rate_limit.rs, review_recheck.rs 等) が独立定義しており、並列 `cargo test` で state file override が競合するリスク。CodeRabbit outside-diff comment でも指摘。
->
-> **本タスクの位置づけ**: PR #224 post-merge-feedback Tier 2 #2 採用 (Effort S / Frequency Medium)。
->
-> **参照**: `.claude/feedback-reports/224.md` Tier 2 #2、各 test module の `env_override_lock()` / `static LOCK`、memory `feedback_test_dry_antipattern` (※下記の境界判断あり)。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。
->
-> **重要 (規約整合)**: memory `feedback_test_dry_antipattern` は「test helper は共有 module 抽出せず per-module 複製」を原則とする。一方 env override LOCK は **process-global な serialization 用 static** で、複製すると各々が別 Mutex になり並列競合を防げない (= 複製が機能を壊す特殊ケース)。本タスクは「複製が正しい通常 helper」と「単一 static が必須な lock」を区別し、後者のみ共有化する。着手前にこの境界をユーザー確認。
-
-#### 作業計画
-
-- [ ] env override 用の単一 `static LOCK` を 1 箇所に集約し各 test module から参照
-- [ ] `feedback_test_dry_antipattern` との整合を明文化 (serialization primitive = 単一必須 / 通常 helper = 複製、の区別)
-- [ ] 並列 `cargo test` で state file override 競合が起きないことを確認
-- [ ] 本 entry 削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- env override の serialization が単一 LOCK で保証され並列 test で競合しない。per-module 複製原則との境界がドキュメント化される。
-
----
-
-### `create_pr::tests` temp file collision 修正 (flaky test) — `tempfile` 移行 (PR #224 post-merge-feedback T2-4 採用)
-
-> **動機**: 並列 `cargo test` で `create_pr::tests::body_with_literal_newline_converted` が稀に fail する (temp file 名が PID+ms timestamp で衝突)。PR-W2 分割以前から存在する pre-existing flaky で、PR #224 セッション中に実観測。flaky の常態化は test 全体の信頼性 (グリーンの価値) を損なう。
->
-> **本タスクの位置づけ**: PR #224 post-merge-feedback Tier 2 #4 採用 + セッション実観測。
->
-> **参照**: `.claude/feedback-reports/224.md` Tier 2 #4、`src/cli-pr-monitor/src/stages/create_pr.rs` `convert_body_to_file` (temp file 名生成。※ report の target `src/cli-github/...` は誤りで、実際は cli-pr-monitor)、`tempfile` crate (既に依存)。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。CI 信頼性。
-
-#### 作業計画
-
-- [ ] `convert_body_to_file` の temp file 名生成を PID+ms timestamp から `tempfile::NamedTempFile` (一意保証) に移行
-- [ ] 繰り返し並列実行で衝突しないことを確認
-- [ ] `cargo test -p cli-pr-monitor` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- `body_with_literal_newline_converted` 等が並列実行でも安定 pass、temp file 名衝突が構造的に解消。
-
----
-
 ### ADR-022 拡張 — pre-create cleanup flow の具体例 + agent fmt スコープ指針 (PR #224 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #224 で CodeRabbit が `create_fix_commit` の「空 findings でも commit 作成」を bug と誤判定した (ADR-022 の意図的な pre-create 設計を知らなかったため、却下した CR#2)。また分割 agent が無差別 `cargo fmt` を実行した事象も ADR-022 の責務分離原則で説明可能。両事象とも将来再発が見込まれる。
