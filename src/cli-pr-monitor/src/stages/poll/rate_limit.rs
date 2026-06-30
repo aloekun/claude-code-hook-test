@@ -10,10 +10,12 @@
 //! signal 整形部分 (`format_park_signal` / shortcut signal /
 //! `format_posted_retrigger_review_park_signal`) は `rate_limit_signal.rs` に分離。
 
+use std::path::Path;
+
 use crate::config::RateLimitConfig;
 use crate::log::log_info;
 use crate::runner::run_gh_quiet;
-use crate::state::{write_state, PrMonitorState};
+use crate::state::{write_state_to, PrMonitorState};
 use crate::util::PrInfo;
 
 use super::rate_limit_signal::{
@@ -33,6 +35,7 @@ pub(super) fn handle_rate_limit_branch(
     pr_info: &PrInfo,
     review_recheck_wait_secs: u64,
     result: &serde_json::Value,
+    state_path: &Path,
 ) -> Option<PollResult> {
     let rl = state.rate_limit.clone()?;
     let already_handled =
@@ -65,6 +68,7 @@ pub(super) fn handle_rate_limit_branch(
         rate_limit_config.max_retries,
         review_recheck_wait_secs,
         result,
+        state_path,
     )
 }
 
@@ -75,11 +79,17 @@ fn dispatch_rate_limit_outcome(
     max_retries: u32,
     review_recheck_wait_secs: u64,
     result: &serde_json::Value,
+    state_path: &Path,
 ) -> Option<PollResult> {
     match handle_rate_limit_retry(rl, state, pr_info, max_retries) {
-        RateLimitOutcome::Posted => {
-            finalize_posted_retrigger(state, rl, pr_info, review_recheck_wait_secs, result)
-        }
+        RateLimitOutcome::Posted => finalize_posted_retrigger(
+            state,
+            rl,
+            pr_info,
+            review_recheck_wait_secs,
+            result,
+            state_path,
+        ),
         RateLimitOutcome::Parked { wakeup_at_unix } => Some(finalize_parked(
             state,
             rl,
@@ -87,6 +97,7 @@ fn dispatch_rate_limit_outcome(
             wakeup_at_unix,
             max_retries,
             result,
+            state_path,
         )),
         RateLimitOutcome::Failed(e) => {
             log_info(&format!("[rate_limit] retrigger 失敗: {}", e));
@@ -108,6 +119,7 @@ pub(super) fn finalize_posted_retrigger(
     pr_info: &PrInfo,
     review_recheck_wait_secs: u64,
     result: &serde_json::Value,
+    state_path: &Path,
 ) -> Option<PollResult> {
     state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
 
@@ -126,7 +138,7 @@ pub(super) fn finalize_posted_retrigger(
         review_recheck_wait_secs
     );
 
-    if let Err(e) = write_state(state) {
+    if let Err(e) = write_state_to(state_path, state) {
         log_info(&format!(
             "[rate_limit] retrigger 後の state 永続化失敗、自動 retry を停止: {}",
             e
@@ -154,6 +166,7 @@ pub(super) fn finalize_parked(
     wakeup_at_unix: i64,
     max_retries: u32,
     result: &serde_json::Value,
+    state_path: &Path,
 ) -> PollResult {
     state.action = "parked_rate_limit".into();
     state.next_wakeup_at_unix = Some(wakeup_at_unix);
@@ -163,7 +176,7 @@ pub(super) fn finalize_parked(
         "CodeRabbit rate-limit: wakeup を {}m{}s 後に予約 (PARK signal 参照)",
         rl.wait_minutes, rl.wait_seconds
     );
-    if let Err(e) = write_state(state) {
+    if let Err(e) = write_state_to(state_path, state) {
         let msg = format!("park state 永続化失敗のため PARK signal を中止 ({})。手動で `@coderabbitai review` を投稿してください", e);
         return make_action_required_result(state, result, &msg);
     }
@@ -441,15 +454,7 @@ mod tests {
         assert!(state.rate_limit_last_retriggered_at.is_none());
     }
 
-    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
-    /// override 設定 / 解除を test 並行実行で race させない serial guard。
-    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
-
-    /// 書き込み先がディレクトリ不在のため write が必ず失敗する override path を返す。
+    /// 書き込み先がディレクトリ不在のため write が必ず失敗する path を返す。
     fn unwritable_state_path() -> std::path::PathBuf {
         std::env::temp_dir()
             .join(format!("pr-monitor-T2-2-{}", std::process::id()))
@@ -461,9 +466,7 @@ mod tests {
     /// `action_required` を返却する fail-safe 経路を持つ (CodeRabbit Major #1 fix の固定化)。
     #[test]
     fn finalize_parked_returns_action_required_when_write_state_fails() {
-        let _guard = env_override_lock();
         let bad_path = unwritable_state_path();
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
 
         let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
         let rl = RateLimitState {
@@ -481,9 +484,15 @@ mod tests {
         };
         let result = serde_json::json!({});
 
-        let outcome = finalize_parked(&mut state, &rl, &pr_info, 1_775_088_000, 3, &result);
-
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        let outcome = finalize_parked(
+            &mut state,
+            &rl,
+            &pr_info,
+            1_775_088_000,
+            3,
+            &result,
+            &bad_path,
+        );
 
         assert_eq!(
             outcome.action, "action_required",
@@ -519,16 +528,18 @@ mod tests {
 
     #[test]
     fn finalize_posted_retrigger_schedules_park_after_post() {
-        let _guard = env_override_lock();
         let tmp = tempfile::tempdir().unwrap();
         let state_path = tmp.path().join("state.json");
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &state_path);
 
         let (mut state, rl, pr_info) = setup_posted_retrigger_fixture();
-        let result =
-            finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, &serde_json::Value::Null);
-
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        let result = finalize_posted_retrigger(
+            &mut state,
+            &rl,
+            &pr_info,
+            300,
+            &serde_json::Value::Null,
+            &state_path,
+        );
 
         let park_result =
             result.expect("順位 80 fix: Posted 後は必ず park を返し silent exit を防ぐ");
@@ -553,9 +564,7 @@ mod tests {
 
     #[test]
     fn finalize_posted_retrigger_action_required_when_write_state_fails() {
-        let _guard = env_override_lock();
         let bad_path = unwritable_state_path();
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
 
         let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
         state.action = "continue_monitoring".into();
@@ -573,10 +582,14 @@ mod tests {
             fix_push_time: None,
         };
 
-        let result =
-            finalize_posted_retrigger(&mut state, &rl, &pr_info, 300, &serde_json::Value::Null);
-
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        let result = finalize_posted_retrigger(
+            &mut state,
+            &rl,
+            &pr_info,
+            300,
+            &serde_json::Value::Null,
+            &bad_path,
+        );
 
         assert!(result.is_some());
         assert_eq!(

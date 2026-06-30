@@ -238,6 +238,7 @@ mod tests {
         let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker,
+            state_path: std::path::Path::new("unused"),
             push_time: "2026-05-01T00:00:00Z",
             fix_push_time: None,
             pr_info: &pr_info,
@@ -283,6 +284,7 @@ mod tests {
         let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker,
+            state_path: std::path::Path::new("unused"),
             push_time: "2026-04-01T00:00:00Z",
             fix_push_time: None,
             pr_info: &pr_info,

@@ -30,6 +30,8 @@ pub(crate) struct PollResult {
 
 pub(super) struct PollContext<'a> {
     pub(super) checker: &'a std::path::Path,
+    /// state file の保存先 (順位 229: テストは自前 path を注入し env var 競合を排除)。
+    pub(super) state_path: &'a std::path::Path,
     pub(super) push_time: &'a str,
     /// 順位 141: fresh push 時刻の固定値 (CR rate-limit detection bug 修正)。
     /// 設定されていれば `build_checker_args` で `--push-time` に優先採用される。
@@ -70,8 +72,10 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo, is_wakeup: b
         return error_poll_result("check-ci-coderabbit.exe が見つかりません");
     }
 
+    let state_path = crate::state::state_file_path();
     let ctx = PollContext {
         checker: &checker,
+        state_path: &state_path,
         push_time: pr_info
             .push_time
             .as_deref()
@@ -131,15 +135,7 @@ mod tests {
     use rate_limit::finalize_parked;
     use review_recheck::{finalize_initial_review_park, schedule_next_review_recheck_park};
 
-    /// PR_MONITOR_STATE_FILE_OVERRIDE は process-global env var のため、
-    /// override 設定 / 解除を test 並行実行で race させない serial guard。
-    fn env_override_lock() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
-
-    /// 書き込み先がディレクトリ不在のため write が必ず失敗する override path を返す。
+    /// 書き込み先がディレクトリ不在のため write が必ず失敗する path を返す。
     fn unwritable_state_path() -> std::path::PathBuf {
         std::env::temp_dir()
             .join(format!("pr-monitor-T2-2-{}", std::process::id()))
@@ -147,7 +143,10 @@ mod tests {
             .join("state.json")
     }
 
-    fn invoke_finalize_parked_with_bad_path(pr_info: &crate::util::PrInfo) -> PollResult {
+    fn invoke_finalize_parked_with_bad_path(
+        pr_info: &crate::util::PrInfo,
+        state_path: &std::path::Path,
+    ) -> PollResult {
         let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
         let rl = RateLimitState {
             until_unix_secs: 1_775_088_000,
@@ -156,10 +155,21 @@ mod tests {
             wait_seconds: 0,
         };
         let result = serde_json::json!({});
-        finalize_parked(&mut state, &rl, pr_info, 1_775_088_000, 3, &result)
+        finalize_parked(
+            &mut state,
+            &rl,
+            pr_info,
+            1_775_088_000,
+            3,
+            &result,
+            state_path,
+        )
     }
 
-    fn invoke_review_park_with_bad_path(pr_info: &crate::util::PrInfo) -> PollResult {
+    fn invoke_review_park_with_bad_path(
+        pr_info: &crate::util::PrInfo,
+        state_path: &std::path::Path,
+    ) -> PollResult {
         let mut state =
             PrMonitorState::new(Some(1), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
         state.review_recheck_count = 1;
@@ -168,6 +178,7 @@ mod tests {
         let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
+            state_path,
             push_time: "2026-05-01T00:00:00Z",
             fix_push_time: None,
             pr_info,
@@ -186,12 +197,14 @@ mod tests {
 
     fn invoke_finalize_initial_review_park_with_bad_path(
         pr_info: &crate::util::PrInfo,
+        state_path: &std::path::Path,
     ) -> PollResult {
         let checker_path = std::path::PathBuf::from("dummy");
         let rate_limit_config = RateLimitConfig::default();
         let classifier_config = ClassifierConfig::default();
         let ctx = PollContext {
             checker: &checker_path,
+            state_path,
             push_time: "2026-05-01T00:00:00Z",
             fix_push_time: None,
             pr_info,
@@ -215,9 +228,7 @@ mod tests {
     /// invariant 維持を強制する。
     #[test]
     fn finalize_park_siblings_have_symmetric_write_state_handling() {
-        let _guard = env_override_lock();
         let bad_path = unwritable_state_path();
-        std::env::set_var("PR_MONITOR_STATE_FILE_OVERRIDE", &bad_path);
 
         let pr_info = crate::util::PrInfo {
             pr_number: Some(1),
@@ -227,11 +238,10 @@ mod tests {
             fix_push_time: None,
         };
 
-        let outcome_rate_limit = invoke_finalize_parked_with_bad_path(&pr_info);
-        let outcome_review = invoke_review_park_with_bad_path(&pr_info);
-        let outcome_initial = invoke_finalize_initial_review_park_with_bad_path(&pr_info);
-
-        std::env::remove_var("PR_MONITOR_STATE_FILE_OVERRIDE");
+        let outcome_rate_limit = invoke_finalize_parked_with_bad_path(&pr_info, &bad_path);
+        let outcome_review = invoke_review_park_with_bad_path(&pr_info, &bad_path);
+        let outcome_initial =
+            invoke_finalize_initial_review_park_with_bad_path(&pr_info, &bad_path);
 
         assert_eq!(
             outcome_rate_limit.action, "action_required",
