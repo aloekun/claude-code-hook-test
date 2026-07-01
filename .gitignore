@@ -39,6 +39,14 @@ src/*/Cargo.lock
 # ADR-030: post-merge-feedback の出力レポート + 失敗マーカー (内部 artifact)
 .claude/feedback-reports/
 
+# ADR-031: weekly-review のローカル状態 (skill / SessionStart hook が読み書きする内部 artifact)。
+# jj tracked にすると checkout / workspace materialization (ADR-045) で mtime がリセットされ、
+# SessionStart hook の staleness 判定が「fresh に見える」silent-fresh バグを踏むため必ず ignore。
+.claude/weekly-reviews/
+.claude/weekly-review-last-run.json
+.claude/weekly-review-pending.json
+.claude/weekly-review-deferred.json
+
 # ADR-030: takt workflow への入力 (cli-merge-pipeline が生成、workflow が読む)
 .takt/post-merge-feedback-context.json
 .takt/post-merge-feedback-transcript.jsonl
