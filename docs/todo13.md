@@ -447,6 +447,95 @@
 
 ---
 
+### `invoke_classifier` の stdin write → drain 順序修正で pipe deadlock 解消 (PR #231 CodeRabbit Major、pre-existing、別 PR 対応合意)
+
+> **動機**: PR #231 (PR-W4) の CodeRabbit が [`src/cli-push-runner/src/stages/lint_screen/classifier.rs`](../src/cli-push-runner/src/stages/lint_screen/classifier.rs) の `invoke_classifier` で `stdin.write_all(diff)` を完了してから stdout/stderr の `drain_pipe_capped` thread を spawn する順序を Major 指摘。diff が大きく子プロセス (cli-finding-classifier.exe) が stdin 読込中に大量の stdout/stderr を出力すると、パイプバッファ (~64KB) が満杯になり子は書込ブロック・親は stdin 書込ブロックで相互デッドロック → push pipeline hang。
+>
+> **本タスクの位置づけ**: PR #231 CodeRabbit finding (Major) をユーザー合意で別 PR に切り出したもの。順序は分割前の単一 `lint_screen.rs` 時代と同一 = **pre-existing** であり、PR-W4 (mechanical refactor / behavior 不変) では ordering を変更せず、CR thread は「妥当だが pre-existing、別 PR 対応」で resolve 済。順位 220 (subprocess stress test) / 221 (Safe Subprocess Stdout Pattern ADR) と同型の subprocess lifecycle 問題。
+>
+> **参照**: PR #231 (`bf6977c8`)、CR thread `PRRT_kwDORGBRx86NgG1o`、`classifier.rs` の `invoke_classifier` / `spawn_classifier`、`lib_subprocess::drain_pipe_capped` / `wait_with_timeout_basic`、順位 220/221 (同型 pattern)、`.claude/feedback-reports/231.md` T1-1 (lint 化は 🤔 様子見で別枠)。
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。実 deadlock リスク (Severity High)。
+
+#### 作業計画
+
+- [ ] `invoke_classifier` を drain-first に変更 (`spawn_classifier` 後、stdin write より前に `stdout_handle` / `stderr_handle` を spawn)
+- [ ] `cargo test -p cli-push-runner` pass (168 baseline) + `cargo clippy` clean
+- [ ] 大 stdout を出す子プロセス相当の regression test を検討 (順位 220 の `--ignored` stress test 方式を踏襲可)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- stdin write 中に子プロセスが大量出力しても deadlock せず、classifier 呼び出しが完了する。順位 221 の Safe Subprocess Stdout Pattern に準拠。
+
+---
+
+### `pub(crate)` vs `pub` 可視性チェックリストを module split 手順に追加 (PR #231 post-merge-feedback T3-1 採用)
+
+> **動機**: W-series (file-length enforcement Phase 1) の module split で cross-module visibility の判断が都度必要になる。crate 内で他 module から参照する共有シンボルは `pub(crate)`、`pub` は同一 crate 内の他 module からは有効だが (binary crate では `pub(crate)` と実質同等の可視性)、library target がある場合にのみ公開 API surface になる — この違いを具体例付きのチェックリストとして明示する。
+>
+> **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #1 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。file-length 強制が継続する限り split は今後も発生。順位 241 (binary crate の pub(crate) 方針 + CLAUDE.md 明文化) と相補。
+>
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、`docs/file-length-enforcement-plan.md` § 制約条件 (既存の「Cross-module visibility は pub(crate)」)、順位 241。**注意**: 追記先候補の `file-length-enforcement-plan.md` は PR-W5 land 後に削除予定のため、`~/.claude/rules/common/coding-style.md` または `CLAUDE.md` への恒久配置を着手時に判断する。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。
+
+#### 作業計画
+
+- [ ] `pub(crate)` (cross-module 共有) / module-private / `pub` (library API のみ) の判断チェックリストを具体例付きで作成
+- [ ] 恒久配置先を決定 (coding-style.md / CLAUDE.md、file-length-enforcement-plan.md は暫定)
+- [ ] 順位 241 との重複を統合 (bundle 検討)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- module split 時に visibility scoping を迷わず判断できるチェックリストが恒久 doc に存在する。
+
+---
+
+### per-module test helper 複製方針を coding-style.md に明文化 (PR #231 post-merge-feedback T3-2 採用)
+
+> **動機**: `unique_temp_root` / `write_meta` / `parked_state` 等の test helper は各 test module に独立複製し、共有 util module を抽出しない方針 (memory `feedback_test_dry_antipattern`) が前提知識化しておらず、module split の度に混乱が再発する。coupling vs isolation のトレードオフ根拠と split レビュー時の確認項目を coding-style に追記する。
+>
+> **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。memory `feedback_test_dry_antipattern` の恒久 codify。
+>
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、`docs/file-length-enforcement-plan.md` § test helper は per-module duplicate。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。
+
+#### 作業計画
+
+- [ ] coding-style.md に「test helper は各 module 複製、shared util module は anti-pattern」を根拠 (coupling < isolation) 付きで追記
+- [ ] split レビュー時の確認項目 (helper が複製されているか) を明示
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- test helper 複製方針が coding-style.md に明文化され、split の度の混乱が解消される。
+
+---
+
+### `PR_SIZE_CHECK_OVERRIDE=1` 適用ポリシーを push-runner-config.toml に明文化 (PR #231 post-merge-feedback T3-3 採用)
+
+> **動機**: `PR_SIZE_CHECK_OVERRIDE=1` の使い方が「知っている人だけが知る」暗黙知になっており、機械的 refactor のたびに手探りが再発する。mechanical refactor (削除≒追加の line-neutral) の定義と override 判断基準を push-runner-config.toml の `[pr_size_check]` コメントまたは docs に明記する。
+>
+> **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #3 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。file-length 強制が続く限り機械 refactor の override 判断は今後も発生。
+>
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、`docs/file-length-enforcement-plan.md` § push 手順 (override use case)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort XS。
+
+#### 作業計画
+
+- [ ] push-runner-config.toml `[pr_size_check]` コメントに override 適用基準 (mechanical refactor 定義 + PR description 明記事項) を追記
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- override の適用基準が config コメントに明文化され、機械 refactor 時の判断が暗黙知でなくなる。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
