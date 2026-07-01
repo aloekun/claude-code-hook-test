@@ -290,6 +290,64 @@
 
 ---
 
+### tempfile mandate + PID+ms 命名 block の custom lint (PR #229 post-merge-feedback T1-1 採用)
+
+> **動機**: PR #227 で temp file collision flaky (`body_with_literal_newline_converted`) を `tempfile` 一意化で修正したが、将来同型の PID+ms カスタム命名 (`gh-pr-body-{PID}-{ms}.md` 等) が再導入されると flaky が再発する。実際 PR #229 で本 flaky が push pipeline の `cargo test` を **3 回ブロックした実害**あり (push retry 3 回)。custom lint で `tempfile::NamedTempFile` / `tempfile::Builder` を mandate し、手動 PID+ms temp 命名を block して構造的に予防する。
+>
+> **本タスクの位置づけ**: PR #229 post-merge-feedback Tier 1 #1 採用 (High / Effort S / Adoption Risk None)。順位 230 (flaky 修正、#227 land) の予防層。順位 237 (regression test = 検出層) と二層防御。
+>
+> **参照**: `.claude/feedback-reports/229.md` Tier 1 #1、PR #227 (`3d8e2aac`、flaky fix)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/cli-pr-monitor/src/stages/create_pr.rs` (tempfile 移行の実例)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-007 (正規表現層)。
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
+
+#### 設計決定 (案)
+
+- **pattern**: temp file path を PID+ms で手動生成するパターン (例: `format!("...{}-{}...", std::process::id(), ...as_millis())` 系の temp 命名) を検出。`tempfile` crate (O_EXCL + ランダム名 + 衝突リトライ = industry standard、FP 極小) の使用を促す。
+- **severity**: warning (reviewer 判断補助)。block 化も検討。
+- **scope**: extensions=["rs"]。test code を含めるかは着手時判断。
+- **必須**: `rule_test_coverage_check` 用の positive (PID+ms 命名検出) / negative (tempfile 使用は skip) test を main.rs に追加。
+
+#### 作業計画
+
+- [ ] PID+ms temp 命名パターンを検出する rule を custom-lint-rules.toml に追加
+- [ ] main.rs に positive/negative test 追加
+- [ ] 既存 `.rs` の PID+ms temp 命名を grep して false positive 計測
+- [ ] `cargo test -p hooks-post-tool-linter` pass
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- PID+ms カスタム temp 命名が Write 時 (PostToolUse) に検出され `tempfile` crate 使用が促される。順位 237 (regression test) と二層防御を構成。
+
+#### 詰まっている箇所
+
+- PID+ms 命名パターンの regex 表現 (false positive を抑えつつ手動 temp 命名を捕捉)。`process::id()` + `as_millis()` の組合せを近傍で検出する multiline pattern が要検討。
+
+---
+
+### create_pr flaky の高並列 regression test (PR #229 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #227 で temp file collision flaky を `tempfile` + per-test `tempfile::tempdir()` 注入で修正したが、将来 collision-prone な命名が再導入された場合の**検出網がない**。`body_with_literal_newline_converted` 系を高並列 (`--test-threads` 高 / concurrent run) で回す regression test を追加し、collision を恒常的に trap する。順位 236 (lint = 予防) と本タスク (test = 検出) の二層防御。
+>
+> **本タスクの位置づけ**: PR #229 post-merge-feedback Tier 2 #1 採用 (Medium / Effort M / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/229.md` Tier 2 #1、PR #227 (`3d8e2aac`)、`src/cli-pr-monitor/src/stages/create_pr.rs` test module。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。
+
+#### 作業計画
+
+- [ ] `convert_body_to_file` を per-test tempdir 注入 + 高並列 concurrent で実行し temp file collision が起きないことを assert する regression test 追加
+- [ ] 意図的に PID+ms 命名へ戻すと test が落ちることを確認 (検出網の有効性検証)
+- [ ] `cargo test -p cli-pr-monitor` pass
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- collision-prone な temp 命名の再導入が regression test で検出される。順位 236 (予防層) と二層防御を構成。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
