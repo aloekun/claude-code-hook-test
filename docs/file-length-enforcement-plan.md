@@ -303,7 +303,7 @@ Agent 委譲 (general-purpose) を活用、PR-3a の hooks-session-start 分割 
 
 ### PR-W2: cli-pr-monitor 分割 (2 file、計 2376 行)
 
-- **status**: not started
+- **status**: [x] land 済 (#224, merged 2026-06-28T13:15:36Z)
 - **owner**: -
 - **effort**: M
 - **依存**: PR-W1 と並列可 (別 crate、merge conflict リスク低)
@@ -352,7 +352,7 @@ Agent 委譲。ADR-018 (cli-pr-monitor の takt 移行) を参照させる必要
 
 ### PR-W4: cli-push-runner 分割 (2 file、計 1928 行)
 
-- **status**: not started
+- **status**: [x] land 済 (#231, merged 2026-07-01T08:42:27Z)
 - **owner**: -
 - **effort**: M
 - **依存**: PR-W1 / W2 / W3 と並列可
@@ -442,9 +442,9 @@ batch mode 実装 (~50 行) + tests (~30 行) + config schema 更新。Agent 委
 ```text
 PR-W0  [x] #219 (merged at 2026-06-24T16:07:42Z)
 PR-W1  [x] #220 (merged at 2026-06-24T18:04:56Z)
-PR-W2  [ ] not started
+PR-W2  [x] #224 (merged at 2026-06-28T13:15:36Z)
 PR-W3  [x] #230 (merged at 2026-07-01T05:27:34Z)
-PR-W4  [ ] not started
+PR-W4  [x] #231 (merged at 2026-07-01T08:42:27Z)
 PR-W5  [ ] not started
 ```
 
