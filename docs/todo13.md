@@ -348,6 +348,105 @@
 
 ---
 
+### `Command::new("gh")` 直叩き禁止 + timeout wrapper 必須の custom lint (PR #230 post-merge-feedback T1-#1 採用)
+
+> **動機**: PR-W3 (cli-merge-pipeline 分割) で移動した `fetch_pr_time_range` / `fetch_pr_diff_summary` (pr_metadata.rs) と `run_gh_logged` / `delete_remote_branch` (github.rs) の計 4 箇所が `Command::new("gh").output()` を timeout なしで同期実行しており、ネットワーク不調や gh 側停止時に merge pipeline を無期限にハングさせる (CodeRabbit Major #2/#3、ADR-016 long-running command strategy 違反)。同 crate の pipeline.rs は既に `run_cmd_shell_capped_reporting` (timeout ラッパー) を使用しているため、直叩きを custom lint で検出して timeout 経路へ寄せる。
+>
+> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 1 #1 採用 (High / Frequency High / Effort M / Adoption Risk = false positive リスク、`.rs` 限定で軽減)。PR-W3 で deferred した CodeRabbit findings #2/#3 の恒久対策層。
+>
+> **参照**: `.claude/feedback-reports/230.md` Tier 1 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/pr_metadata.rs` / `src/cli-merge-pipeline/src/github.rs` (対象)、`src/lib-subprocess/` `run_cmd_shell_capped_reporting` (推奨 wrapper)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-016。
+>
+> **実行優先度**: 🚀 **Tier 1** — Effort M。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。順位 240 と同 crate、1 PR bundle 検討可。
+
+#### 設計決定 (案)
+
+- **pattern**: `Command::new("gh")` の直叩き (特に `.output()` / `.spawn()` を timeout 制御なしで呼ぶ経路) を検出。`run_cmd_shell_capped_reporting` 相当の timeout wrapper 使用を促す。
+- **severity**: warning (reviewer 判断補助)。block 化は着手時判断。
+- **scope**: extensions=["rs"]。false positive 軽減のため直叩き pattern を絞る (test code の扱いは着手時判断)。
+- **必須**: `rule_test_coverage_check` 用の positive (`Command::new("gh")` 直叩き検出) / negative (wrapper 経由は skip) test を main.rs に追加。
+
+#### 作業計画
+
+- [ ] `Command::new("gh")` 直叩きを検出する rule を custom-lint-rules.toml に追加
+- [ ] main.rs に positive/negative test 追加
+- [ ] 既存 `.rs` の直叩き箇所を grep して false positive 計測
+- [ ] `cargo test -p hooks-post-tool-linter` pass
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `gh` の timeout なし直叩きが Write 時 (PostToolUse) に検出され timeout wrapper 使用が促される。将来同型の無期限ハング混入を構造的に予防。
+
+---
+
+### `filter_transcripts` の複数 jsonl 走査を timestamp ソートで deterministic 化 + regression test (PR #230 post-merge-feedback T2-#1 採用)
+
+> **動機**: `filter_transcripts` (transcript.rs) が `fs::read_dir` の非決定的走査順で複数 `.jsonl` を処理しており、複数 Claude セッションが並存する場合にファイル間の時系列順が保証されない。downstream の takt workflow (analyze-session) が受け取る context の順序品質が低下し、ADR-030 の determinism 目標と乖離する (CodeRabbit findings)。走査結果を timestamp ソートして決定論化し、regression test で保護する。
+>
+> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 2 #1 採用 (Medium / Frequency Low / Effort M / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/230.md` Tier 2 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/transcript.rs` (対象)、ADR-030 (determinism 目標)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort M。
+
+#### 作業計画
+
+- [ ] `filter_transcripts` の `fs::read_dir` 結果を timestamp (または名前) で sort してから処理するよう変更
+- [ ] 複数 jsonl の順序が入力順に依らず決定論になることを assert する regression test 追加
+- [ ] `cargo test -p cli-merge-pipeline` pass
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 複数 `.jsonl` 入力時の filter 出力が決定論的順序になり regression test で保護される。
+
+---
+
+### `takt.rs` の spawn/try_wait `Err(_)` 分岐に eprintln 追加 — 原因握り潰し解消 (PR #230 post-merge-feedback T3-#1 採用)
+
+> **動機**: `takt.rs` の `spawn()` / `try_wait()` の `Err(_) =>` 分岐がエラー詳細を握り潰しており、失敗時に `.failed` marker へ実際の原因 (`pnpm` 未検出 / 権限エラー等) が残らず L2 recovery の debugging が困難 (CodeRabbit findings)。同 crate に確立済の `write_pending_marker_logged` 等の `eprintln!` パターンを踏襲して原因を記録する。
+>
+> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #1 採用 (Medium / Frequency Low / Effort XS / Adoption Risk None)。
+>
+> **参照**: `.claude/feedback-reports/230.md` Tier 3 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/takt.rs` (対象)、同 crate `write_pending_marker_logged` (踏襲する eprintln パターン)。
+>
+> **実行優先度**: 🔧 **Tier 2** — Effort XS。順位 238 と同 crate、1 PR bundle 検討可。
+
+#### 作業計画
+
+- [ ] `takt.rs` の `spawn()` / `try_wait()` の `Err(e)` を `eprintln!` で記録するよう変更 (握り潰しを解消)
+- [ ] `cargo test -p cli-merge-pipeline` pass + `cargo clippy` clean
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- takt spawn/try_wait 失敗時に原因が stderr に記録され `.failed` marker からの debug が可能になる。
+
+---
+
+### binary crate の module symbol を `pub(crate)` 限定 + CLAUDE.md 明文化 (PR #230 post-merge-feedback T3-#2 採用)
+
+> **動機**: PR-W3 の feedback module 分割で `write_failed_marker` / `fetch_pr_diff_summary` / `FeedbackInput` / `run` 等、external consumer が存在しない binary crate 内シンボルが `pub` export されており、`pub(crate)` 方針と乖離している (CodeRabbit findings)。file split refactor PR ごとに繰り返す systemic pattern (Frequency Medium) のため、CLAUDE.md に方針を明文化し、既存 `pub` を `pub(crate)` に揃える。
+>
+> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort S / Adoption Risk None)。file-length-enforcement-plan.md の分割制約「Cross-module visibility は pub(crate)」の恒久 codify に相当。
+>
+> **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、docs/file-length-enforcement-plan.md § 制約条件 (既存の pub(crate) ガイド)。
+>
+> **実行優先度**: 💎 **Tier 3** — Effort S。
+
+#### 作業計画
+
+- [ ] binary crate (cli-merge-pipeline) 内で external consumer 不在の `pub` シンボルを `pub(crate)` に変更
+- [ ] `cargo build` / `cargo clippy --workspace -- -D warnings` clean を確認 (未使用 pub 警告含む)
+- [ ] CLAUDE.md に「binary crate では cross-module 共有シンボルは pub(crate)、pub は使わない」方針を明文化
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- cli-merge-pipeline の module 間シンボルが `pub(crate)` に統一され、CLAUDE.md に方針が明文化される。将来の file split refactor で同型指摘が再発しない。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
