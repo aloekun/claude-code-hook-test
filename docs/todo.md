@@ -22,6 +22,30 @@
 
 ## 現在進行中
 
+### 週次レビュー採用 (2026-07-01)
+
+#### Stop hook `[stop_quality]` と push-runner `[quality_gate]` の lint/test 重複を解消 (週次レビュー WR-2026-07-01-A01 採用)
+
+> **動機**: `.claude/hooks-config.toml` `[stop_quality]` と `push-runner-config.toml` `[quality_gate]` が同一チェック (pnpm lint / cargo clippy --workspace -- -D warnings / pnpm test / pnpm test:e2e / pnpm build) を重複実行している。`push-runner-config.toml` は「Rust lint + test group: push pipeline でのみ実行。PostToolUse / Stop hook では実行せず」と明記しているにもかかわらず `[stop_quality]` が cargo clippy 等を実行しており、コメントで宣言した責務境界と実態が乖離している。ADR-015 が push-time 品質ゲートを push-runner-config に移行した際の Stop hook cleanup 漏れ (systemic harness-duplication)。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-01-A01 で採用 (severity=high, facet=architecture, category=harness-duplication)
+>
+> **⚠ 計画書 PR-W5 との整合 (競合注意)**: `docs/file-length-enforcement-plan.md` PR-W5 は `[stop_quality.steps]` に **file-length step を追加**する予定。analyzer 推奨の Option A (`[stop_quality]` 全削除) をそのまま採ると PR-W5 の追加先が消えて競合する。**Option A' (整合版)**: 重複する lint/clippy/test step のみ削除し、session 固有チェック (file-length gate 等) の受け皿として `[stop_quality]` セクション自体は残す。着手は PR-W5 の file-length gate 確定後が安全。
+>
+> **参照**: `.claude/weekly-reviews/2026-07-01.md` WR-2026-07-01-A01、`.claude/hooks-config.toml` `[stop_quality]` (修正対象)、`push-runner-config.toml` `[quality_gate]` (lint/test single authority 候補)、`docs/file-length-enforcement-plan.md` PR-W5 (整合先)、ADR-004 (Stop hook 品質ゲート)、ADR-015 (push-runner 移行)、ADR-022 (責務分離)
+
+##### 背景: ADR-015 で push-time quality gate を push-runner-config.toml に集約した際、ADR-004 由来の Stop hook `[stop_quality]` の lint/test step が削除されず残存。push-runner-config.toml 自身のコメントが「Stop hook では実行しない」と意図を明記しているため意図と実装の乖離が明白。ただし `[stop_quality]` は PR-W5 の file-length gate 受け皿としての将来用途があるため、セクション全削除ではなく重複 step の選択的除去が必要。
+
+##### 設計決定: Option A' (推奨、PR-W5 整合版) — `[stop_quality]` から push-runner `[quality_gate]` と重複する lint/clippy/test step のみを削除し、session 固有チェック (PR-W5 の file-length step 等) の受け皿としてセクションは維持。quality_gate を lint/test の single authority とする。ADR-004 と ADR-015 に責務境界 (Stop hook = session 固有 / push gate = lint/test authority) を明記。Option B (意図的 defense-in-depth として両 ADR にコスト試算コメント追記) は代替案。
+
+- [ ] PR-W5 (file-length gate) land 後に着手 or 並行時は `[stop_quality.steps]` 追加先の整合を確認
+- [ ] `[stop_quality]` の重複 lint/test step を特定し選択的削除 (file-length step は残す)
+- [ ] ADR-004 + ADR-015 に責務境界を明記 (Stop hook = session 固有チェック限定)
+- [ ] Stop hook / push gate の dogfood で lint/test が push 側のみで走ることを確認
+- [ ] 本エントリ削除 + todo-summary.md 行追加削除
+
+##### 完了基準: lint/clippy/test が push-runner `[quality_gate]` のみで実行され `[stop_quality]` からは重複除去、PR-W5 の file-length gate と非競合 (`[stop_quality]` セクションは session 固有チェック用に存続)、ADR-004/015 に責務境界が明文化
+
 ### 週次レビュー採用 (2026-06-01)
 
 #### `cli-merge-pipeline/feedback.rs` で `owner_repo` 検証を追加 (Phase E dogfood WR-2026-06-01-C02 採用)
@@ -50,7 +74,9 @@
 >
 > **本タスクの位置づけ**: 週次レビュー WR-2026-06-01-A01 で採用 (severity=medium, facet=architecture, category=docs-internal)
 >
-> **参照**: `.claude/weekly-reviews/2026-06-01.md` WR-2026-06-01-A01、`CLAUDE.md:5-45` (ADR index、修正対象)、`docs/adr/adr-033-todo-numbering-simplification.md:40-42, 81, 95, 130` (`ADR-032 PR-β` 参照 4 箇所、修正対象)、`docs/todo2.md:232` (ADR-032 reserved 文脈)
+> **⚠ 再検出 (2026-07-01)**: 本タスクは 2026-06-01 採用後 **1 か月未着手**のため、2026-07-01 週次レビューで同一問題が WR-2026-07-01-A02 (severity=**high** に昇格) として再検出された。ADR-031 重複検出方針により重複エントリは作らず本タスクに集約。優先度の引き上げを推奨。
+>
+> **参照**: `.claude/weekly-reviews/2026-06-01.md` WR-2026-06-01-A01、`.claude/weekly-reviews/2026-07-01.md` WR-2026-07-01-A02 (再検出)、`CLAUDE.md:5-45` (ADR index、修正対象)、`docs/adr/adr-033-todo-numbering-simplification.md:40-42, 81, 95, 130` (`ADR-032 PR-β` 参照 4 箇所、修正対象)、`docs/todo2.md:232` (ADR-032 reserved 文脈)
 
 ##### 背景: ADR-032 は「docs-only fast-path」関連の試験運用 ADR として `docs/todo2.md` 順位 20 で起案予定だが未作成。一方 ADR-033 は task naming 例示として `ADR-032 PR-β` を使用済みで、CLAUDE.md は ADR-031 → ADR-033 へジャンプする状態。reader が CLAUDE.md から ADR-032 を辿ろうとすると broken-link、ADR-033 から ADR-032 を辿ろうとしても dead-pointer。
 
