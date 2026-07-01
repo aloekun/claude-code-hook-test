@@ -359,8 +359,8 @@ Agent 委譲。ADR-018 (cli-pr-monitor の takt 移行) を参照させる必要
 
 #### スコープ
 
-- [`src/cli-push-runner/src/stages/lint_screen.rs`](../src/cli-push-runner/src/stages/lint_screen.rs) (982 行) — ADR-038 試験運用 (local LLM lint screen)
-- [`src/cli-push-runner/src/config.rs`](../src/cli-push-runner/src/config.rs) (946 行) — 各 stage の config struct 集約
+- [`src/cli-push-runner/src/stages/lint_screen/`](../src/cli-push-runner/src/stages/lint_screen/) (旧 lint_screen.rs 982 行 → 4 module に分割) — ADR-038 試験運用 (local LLM lint screen)
+- [`src/cli-push-runner/src/config/`](../src/cli-push-runner/src/config/) (旧 config.rs 946 行 → 4 module に分割) — 各 stage の config struct 集約
 
 `config.rs` は struct 集約のため、stage 別 module (`config/lint_screen.rs` / `config/pr_size_check.rs` 等) への分割が素直。
 
