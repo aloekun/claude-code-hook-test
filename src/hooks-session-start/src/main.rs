@@ -135,7 +135,9 @@ fn emit_session_start_output(session_id: &str) {
             .as_ref()
             .and_then(|s| s.weekly_review_reminder.as_ref())
         {
-            if let Some(weekly_nudge) = compute_weekly_review_reminder_nudge(&cwd, weekly_config) {
+            if let Some(weekly_nudge) =
+                compute_weekly_review_reminder_nudge(&cwd, weekly_config, now_unix)
+            {
                 context.push_str("\n\n");
                 context.push_str(&weekly_nudge);
             }
