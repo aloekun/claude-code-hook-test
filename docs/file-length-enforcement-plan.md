@@ -329,7 +329,7 @@ Agent 委譲。ADR-018 (cli-pr-monitor の takt 移行) を参照させる必要
 
 ### PR-W3: cli-merge-pipeline 分割 (2 file、計 2322 行)
 
-- **status**: [in progress] @c392417a (refactor + local 検証 pass、push 済)
+- **status**: [x] land 済 (#230, merged 2026-07-01T05:27:34Z)
 - **owner**: -
 - **effort**: M
 - **依存**: PR-W1 / W2 と並列可
@@ -443,7 +443,7 @@ batch mode 実装 (~50 行) + tests (~30 行) + config schema 更新。Agent 委
 PR-W0  [x] #219 (merged at 2026-06-24T16:07:42Z)
 PR-W1  [x] #220 (merged at 2026-06-24T18:04:56Z)
 PR-W2  [ ] not started
-PR-W3  [~] in progress @c392417a (refactor 完了・push 済、PR land 待ち)
+PR-W3  [x] #230 (merged at 2026-07-01T05:27:34Z)
 PR-W4  [ ] not started
 PR-W5  [ ] not started
 ```
