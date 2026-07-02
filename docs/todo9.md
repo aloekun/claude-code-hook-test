@@ -249,57 +249,6 @@
 
 ---
 
-### `review-todo-whole` facet + aggregate 前 file size pre-step — 観点 ⑤ ⑦ 拡張 (ADR-031 weekly-review 拡張、Phase B+1、2026-05-26 ユーザー合意)
-
-> **動機**: ADR-031 weekly-review (本採用 2026-06-01) の MVP では観点 ⑤ Todo 妥当性 は順位 136 (todo hook 2 段構え) に委譲し、観点 ⑦ ファイルサイズ も対象外とした。順位 136 hook land 後、hook が拾えない broad な観点 (全 todo entry 横断の dead pattern 検出 / cross-todo file の重複 entry / docs/todo*.md preamble drift) を週次の `review-todo-whole` facet で補完する。並行して観点 ⑦ ファイルサイズ (50KB / 800 行) は aggregate-weekly facet 直前の Rust 機械 pre-step で計測し、LLM context を浪費せず ADR-031 の 3 層分離 (Rust 機械 / takt AI / skill ask) に整合させる。
->
-> **本タスクの位置づけ**: ADR-031 weekly-review 拡張、Phase B+1。順位 136 hook land 後に着手判断 (= hook の immediate guard が機能している前提で、週次は batch 棚卸しに focus)。`feedback_pipeline_over_rules.md` 適用で、機械検査可能な観点 (file size) を LLM facet に乗せず分離する設計。
->
-> **参照**: ADR-031 (週次レビュー設計、本採用 2026-06-01、3 層分離 = Rust 機械 / takt AI / skill ask)、順位 136 entry (todo8.md、todo hook 2 段構え)、cli-docs-lint (preamble file count + cross-ref、push-runner lint group 統合済)、順位 147 (file length lint 800 行)、`feedback_pipeline_over_rules.md`
->
-> **実行優先度**: 🔧 **Tier 2** — Effort M (facet 新規 + Rust pre-step ~80 行)。順位 136 land + ADR-031 本採用 (2026-06-01) 後の 2-3 週 dogfood 完了後に着手。
-
-#### 設計決定 (案)
-
-**`review-todo-whole` facet (観点 ⑤ 補完):**
-
-- 配置: `.takt/facets/instructions/review-todo-whole.md` 新規 facet (allowed_tools: Read/Glob/Grep のみ)
-- 観点: 全 todo*.md entry を横断走査 → dead pattern (= 半年以上 stale + 関連 commit なし + 依存 task land 済) / cross-file 重複 entry / preamble routing drift を finding として抽出
-- 順位 136 hook が拾えない範囲: 編集していない entry の経年劣化 / file 跨ぎの重複 / preamble file count drift
-
-**aggregate 前 Rust 機械 pre-step (観点 ⑦):**
-
-- 配置: takt workflow weekly-review.yaml の aggregate-weekly facet 直前に新 step 追加 (or aggregate facet 自身が呼び出す Rust binary)
-- 計測対象:
-  - `docs/todo*.md` の file size (50KB 閾値、PR #88 / #96 / #101 / #123 / #172 で実証された分割 trigger)
-  - `src/**/*.rs` の line count (800 行閾値、順位 147 file length lint と整合)
-- 出力: 閾値超過 / 接近 (90% 等) のファイル一覧を aggregate facet の入力として渡す
-- 機械検査のため LLM context を浪費しない (ADR-031 3 層分離原則)
-
-#### 作業計画
-
-- [ ] 順位 136 hook land 待ち
-- [ ] Phase B 2-3 週 dogfood 完了 + 観点 ⑤ ⑦ の必要性再評価 (cli-docs-lint / 順位 147 land 状況も確認)
-- [ ] `review-todo-whole.md` instruction 設計 (順位 136 hook が拾える範囲との境界明示)
-- [ ] aggregate 前 Rust pre-step 実装 (新 binary `cli-weekly-review-prep` or aggregate facet 内 step)
-- [ ] takt workflow weekly-review.yaml に facet + pre-step 追加
-- [ ] aggregate-weekly facet 拡張 (新 category) + pending JSON schema 拡張
-- [ ] dogfood + 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 全 todo*.md entry の dead pattern / cross-file 重複 / preamble drift が週次検出される
-- file size 閾値超過 / 接近が aggregate facet input として通知される
-- 順位 136 hook と責務分離 (hook = 編集時 immediate / 週次 = batch 棚卸し) が機能
-
-#### 詰まっている箇所
-
-- 順位 136 hook 実装次第 (hook が拾える範囲が確定後に週次の補完範囲を確定)
-- Phase B dogfood 結果次第 (有用な finding が出るかは運用観察)
-- cli-docs-lint (preamble count、push-runner lint group 統合済) との scope 重複整理: push-runner = 機械検査即時 / 週次 pre-step = aggregate 入力、両立可能だが integration 検討
-
----
-
 > **2026-06-06 分割**: 順位 157, 160, 161, 162, 163, 165, 170, 171, 172, 173 は [docs/todo11.md](todo11.md) を参照。
 
 ## 既知課題 (記録のみ、本セッションで未対応)
