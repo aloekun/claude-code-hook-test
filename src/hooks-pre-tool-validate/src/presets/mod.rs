@@ -13,7 +13,7 @@ pub(crate) mod jj;
 pub(crate) mod safety;
 
 pub(crate) use basic::{preset_default, preset_electron, preset_git};
-pub(crate) use gh::{preset_gh_pr_create_guard, preset_gh_pr_merge_guard};
+pub(crate) use gh::{preset_gh_pr_create_guard, preset_gh_pr_merge_guard, preset_gh_repo_env_guard};
 pub(crate) use jj::{
     preset_jj_immutable, preset_jj_main_guard, preset_jj_message_required, preset_jj_push_guard,
 };
@@ -44,6 +44,7 @@ pub(crate) fn resolve_preset_or_custom(name: &str) -> Vec<BlockedPattern> {
         "jj-push-guard" => preset_jj_push_guard(),
         "gh-pr-create-guard" => preset_gh_pr_create_guard(),
         "gh-pr-merge-guard" => preset_gh_pr_merge_guard(),
+        "gh-repo-env-guard" => preset_gh_repo_env_guard(),
         "jj-message-required" => preset_jj_message_required(),
         "secret-detection" => preset_secret_detection(),
         "polling-anti-pattern" => preset_polling_anti_pattern(),

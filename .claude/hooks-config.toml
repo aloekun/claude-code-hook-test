@@ -65,6 +65,10 @@ failed_marker_check_enabled = true # 前回失敗 marker 検出 → resume promo
 #                              Bash command + Edit/Write content 双方で検出してブロック
 #                              (~/.claude/rules/common/security.md § Secret Management 移管、
 #                               順位 146 / PR #200 follow-up 採用、Tier 1 default-on)
+#   "gh-repo-env-guard" — GH_REPO 環境変数の場当たり使用をブロックし GIT_DIR /
+#                              自動注入 / --repo フラグに誘導 (GH_REPO は引数なし
+#                              gh repo view に効かず非 colocated jj workspace で
+#                              silent 部分故障を招く、PR #238 実例 / ADR-045)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -79,6 +83,7 @@ blocked_patterns = [
   "electron",
   "jj-message-required",
   "secret-detection",
+  "gh-repo-env-guard",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)

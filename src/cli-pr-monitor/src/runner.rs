@@ -7,13 +7,24 @@ use lib_subprocess::drain_pipe_unlimited;
 const POLL_INTERVAL_MS: u64 = 100;
 pub(crate) const JJ_CMD_TIMEOUT_SECS: u64 = 30;
 
-/// 引数を配列で直接渡す版（スペースを含む引数を正しくハンドリング）
-pub(crate) fn run_cmd_direct(
+/// [`run_cmd_capture`] の結果。stdout / stderr を分離して保持する。
+///
+/// stdout を機械可読出力 (JSON 等) としてパースする呼び出しは本構造体を使い、
+/// stderr の警告ログ混入でパースが壊れる事故 (PR #238 実観測) を構造的に防ぐ。
+pub(crate) struct CmdCapture {
+    pub(crate) ok: bool,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) timed_out: bool,
+}
+
+/// 引数を配列で直接渡し、stdout / stderr を分離キャプチャして返す。
+pub(crate) fn run_cmd_capture(
     program: &str,
     fixed_args: &[&str],
     extra_args: &[String],
     timeout_secs: u64,
-) -> (bool, String) {
+) -> CmdCapture {
     let mut child = match Command::new(program)
         .args(fixed_args)
         .args(extra_args)
@@ -23,18 +34,46 @@ pub(crate) fn run_cmd_direct(
     {
         Ok(c) => c,
         Err(e) => {
-            return (
-                false,
-                format!("Failed to execute {} {:?}: {}", program, fixed_args, e),
-            )
+            return CmdCapture {
+                ok: false,
+                stdout: String::new(),
+                stderr: format!("Failed to execute {} {:?}: {}", program, fixed_args, e),
+                timed_out: false,
+            }
         }
     };
 
     let stdout_handle = drain_pipe_unlimited(child.stdout.take().unwrap());
     let stderr_handle = drain_pipe_unlimited(child.stderr.take().unwrap());
 
+    let timed_out = wait_child_with_deadline(&mut child, timeout_secs);
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+
+    if timed_out {
+        return CmdCapture {
+            ok: false,
+            stdout,
+            stderr,
+            timed_out: true,
+        };
+    }
+
+    let code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
+    CmdCapture {
+        ok: code == 0,
+        stdout,
+        stderr,
+        timed_out: false,
+    }
+}
+
+/// 子プロセスを deadline 付きで待機する。timeout 到達時は kill して `true` を返す。
+/// try_wait の失敗も timeout 扱い (fail-safe 方向) に倒す。
+fn wait_child_with_deadline(child: &mut std::process::Child, timeout_secs: u64) -> bool {
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    let timed_out = loop {
+    loop {
         match child.try_wait() {
             Ok(Some(_)) => break false,
             Ok(None) => {
@@ -47,21 +86,29 @@ pub(crate) fn run_cmd_direct(
             }
             Err(_) => break true,
         }
-    };
+    }
+}
 
-    let stdout_text = stdout_handle.join().unwrap_or_default();
-    let stderr_text = stderr_handle.join().unwrap_or_default();
-    let combined = format!("{}{}", stdout_text, stderr_text).trim().to_string();
+/// 引数を配列で直接渡す版（スペースを含む引数を正しくハンドリング）。
+///
+/// stdout / stderr を結合した文字列を返す従来 API。機械可読出力をパースする
+/// 用途には [`run_cmd_capture`] を使うこと (stderr 混入でパースが壊れるため)。
+pub(crate) fn run_cmd_direct(
+    program: &str,
+    fixed_args: &[&str],
+    extra_args: &[String],
+    timeout_secs: u64,
+) -> (bool, String) {
+    let cap = run_cmd_capture(program, fixed_args, extra_args, timeout_secs);
+    let combined = format!("{}{}", cap.stdout, cap.stderr).trim().to_string();
 
-    if timed_out {
+    if cap.timed_out {
         return (
             false,
             format!("{}\n(timeout after {}s)", combined, timeout_secs),
         );
     }
-
-    let code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
-    (code == 0, combined)
+    (cap.ok, combined)
 }
 
 /// gh コマンドを静かに実行 (stderr 抑制)
@@ -217,5 +264,41 @@ pub(crate) fn checker_exe_path() -> PathBuf {
         .parent()
         .unwrap_or(Path::new("."))
         .join("check-ci-coderabbit.exe")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// PR #238 regression: stderr の警告ログが stdout の機械可読出力に
+    /// 混入しないことを分離キャプチャで保証する。
+    #[test]
+    #[cfg(windows)]
+    fn run_cmd_capture_separates_stdout_and_stderr() {
+        let cap = run_cmd_capture("cmd", &["/C", "echo OUT& echo ERR 1>&2"], &[], 30);
+        assert!(cap.ok, "stderr: {}", cap.stderr);
+        assert!(!cap.timed_out);
+        assert!(cap.stdout.contains("OUT"), "stdout: {:?}", cap.stdout);
+        assert!(!cap.stdout.contains("ERR"), "stdout: {:?}", cap.stdout);
+        assert!(cap.stderr.contains("ERR"), "stderr: {:?}", cap.stderr);
+    }
+
+    #[test]
+    fn run_cmd_capture_spawn_failure_reports_via_stderr_field() {
+        let cap = run_cmd_capture("no-such-program-gitdir-251", &[], &[], 5);
+        assert!(!cap.ok);
+        assert!(!cap.timed_out);
+        assert!(cap.stdout.is_empty());
+        assert!(cap.stderr.contains("Failed to execute"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn run_cmd_direct_keeps_combined_output_compatibility() {
+        let (ok, combined) = run_cmd_direct("cmd", &["/C", "echo OUT& echo ERR 1>&2"], &[], 30);
+        assert!(ok);
+        assert!(combined.contains("OUT"));
+        assert!(combined.contains("ERR"));
+    }
 }
 

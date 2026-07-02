@@ -21,6 +21,8 @@
 //! - [`query_bookmarks_at`]: 指定 revset の bookmark 取得 (I/O)
 //! - [`select_from_revsets`]: revset リストを優先順に試す pure function
 //! - [`get_jj_bookmarks`]: 上記を組み合わせた high-level エントリポイント
+//! - [`resolve_git_dir`] / [`inject_git_dir_for_gh`]: 非 colocated jj workspace
+//!   での gh 用 `GIT_DIR` 導出と自動注入 (ADR-045 恒久対策候補 1)
 
 use std::process::{Command, Stdio};
 
@@ -162,6 +164,127 @@ pub fn get_jj_bookmarks(stderr_mode: StderrMode, fallback_log: Option<fn(&str)>)
         |r| query_bookmarks_at(r, &stderr_mode),
         fallback_log,
     )
+}
+
+/// [`resolve_git_dir`] の結果。
+pub enum GitDirResolution {
+    /// cwd に `.git` が存在する (colocated) — 注入不要
+    NotNeeded,
+    /// 非 colocated jj workspace — 導出した git dir
+    Resolved(std::path::PathBuf),
+    /// 導出失敗 (jj リポジトリ外 / layout 不整合 / fs エラー)
+    Unresolved(String),
+}
+
+/// workspace root から gh 用の git dir を導出する (I/O は fs 読み取りのみ)。
+///
+/// jj の secondary workspace (`jj workspace add` で作成) は colocated 化されず
+/// `.git` を持たないため、gh がリポジトリを解決できない (ADR-045)。
+/// jj の on-disk layout を辿って main リポジトリの git dir を求める:
+///
+/// 1. `<root>/.git` があれば [`GitDirResolution::NotNeeded`]
+/// 2. `<root>/.jj/repo` がファイルなら内容が main repo store へのパス
+///    (相対なら `<root>/.jj/` 基準)。ディレクトリなら自身が main workspace
+/// 3. `<store>/store/git_target` の内容 (相対なら `<store>/store/` 基準) が
+///    colocated git dir。git_target が無ければ jj 内部 store の `store/git`
+pub fn resolve_git_dir(workspace_root: &std::path::Path) -> GitDirResolution {
+    if workspace_root.join(".git").exists() {
+        return GitDirResolution::NotNeeded;
+    }
+
+    let repo_entry = workspace_root.join(".jj").join("repo");
+    let repo_store = if repo_entry.is_file() {
+        match std::fs::read_to_string(&repo_entry) {
+            Ok(content) => resolve_relative_to(content.trim(), &workspace_root.join(".jj")),
+            Err(e) => {
+                return GitDirResolution::Unresolved(format!(".jj/repo 読み取り失敗: {}", e))
+            }
+        }
+    } else if repo_entry.is_dir() {
+        repo_entry
+    } else {
+        return GitDirResolution::Unresolved(
+            ".jj/repo が見つかりません (jj リポジトリ外?)".to_string(),
+        );
+    };
+
+    let store = repo_store.join("store");
+    let git_target = store.join("git_target");
+    let git_dir = if git_target.is_file() {
+        match std::fs::read_to_string(&git_target) {
+            Ok(content) => resolve_relative_to(content.trim(), &store),
+            Err(e) => {
+                return GitDirResolution::Unresolved(format!("git_target 読み取り失敗: {}", e))
+            }
+        }
+    } else {
+        store.join("git")
+    };
+
+    match git_dir.canonicalize() {
+        Ok(p) => GitDirResolution::Resolved(strip_windows_verbatim_prefix(&p)),
+        Err(e) => GitDirResolution::Unresolved(format!(
+            "導出した git dir が存在しません ({}): {}",
+            git_dir.display(),
+            e
+        )),
+    }
+}
+
+/// パス文字列を解決する: 絶対ならそのまま、相対なら `base` 基準で連結。
+fn resolve_relative_to(path_str: &str, base: &std::path::Path) -> std::path::PathBuf {
+    let p = std::path::PathBuf::from(path_str);
+    if p.is_absolute() {
+        p
+    } else {
+        base.join(p)
+    }
+}
+
+/// Windows の `canonicalize` が付ける verbatim prefix (`\\?\`) を剥がす。
+/// git / gh は素のパスで動作し、`\\?\` 付きは外部ツールで問題を起こしやすい。
+fn strip_windows_verbatim_prefix(p: &std::path::Path) -> std::path::PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(stripped) => std::path::PathBuf::from(stripped),
+        None => p.to_path_buf(),
+    }
+}
+
+/// 非 colocated jj workspace で `GIT_DIR` を自動注入する (ADR-045 恒久対策候補 1)。
+///
+/// exe の main() 冒頭で 1 回呼ぶ。プロセス env に設定するため、以降に spawn する
+/// gh 子プロセス全体へ伝播する。jj 自身は `GIT_DIR` を無視するため jj 操作には
+/// 影響しない (ADR-045 で確認済み)。
+///
+/// - 既に `GIT_DIR` が設定済み → 尊重して no-op (手動指定・CI 環境を壊さない)
+/// - cwd に `.git` がある colocated 環境 → no-op
+/// - 導出失敗 → warning ログのみで続行 (fail-soft — colocated では本機能自体が
+///   不要であり、失敗時の挙動は従来と同じ「gh が repo 解決に失敗」に留まるため)
+pub fn inject_git_dir_for_gh(log_info: fn(&str)) {
+    if std::env::var_os("GIT_DIR").is_some() {
+        return;
+    }
+    let cwd = match std::env::current_dir() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    match resolve_git_dir(&cwd) {
+        GitDirResolution::NotNeeded => {}
+        GitDirResolution::Resolved(git_dir) => {
+            std::env::set_var("GIT_DIR", &git_dir);
+            log_info(&format!(
+                "[env] GIT_DIR 自動注入 (非 colocated jj workspace): {}",
+                git_dir.display()
+            ));
+        }
+        GitDirResolution::Unresolved(reason) => {
+            log_info(&format!(
+                "[env] GIT_DIR 導出失敗 (gh の repo 解決は失敗する可能性): {}",
+                reason
+            ));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -334,5 +457,159 @@ mod tests {
         );
         assert_eq!(result, vec!["feat/current"]);
         LOGGED.with(|l| assert!(l.borrow().is_empty()));
+    }
+
+    /// tempdir に jj の on-disk layout を模擬構築する (jj バイナリ不要の unit test 用)。
+    /// 実レイアウトは 2026-07-03 に実機確認: secondary の `.jj/repo` はファイルで
+    /// main store への相対パス、colocated main の `store/git_target` は `../../../.git`。
+    mod git_dir {
+        use super::super::*;
+        use std::fs;
+
+        fn make_colocated_main(root: &std::path::Path) {
+            fs::create_dir_all(root.join(".git")).unwrap();
+            fs::create_dir_all(root.join(".jj/repo/store")).unwrap();
+            fs::write(root.join(".jj/repo/store/git_target"), "../../../.git").unwrap();
+        }
+
+        fn make_secondary_workspace(ws: &std::path::Path, main_store_rel: &str) {
+            fs::create_dir_all(ws.join(".jj")).unwrap();
+            fs::write(ws.join(".jj/repo"), main_store_rel).unwrap();
+        }
+
+        #[test]
+        fn colocated_root_is_not_needed() {
+            let tmp = tempfile::tempdir().unwrap();
+            make_colocated_main(tmp.path());
+            assert!(matches!(
+                resolve_git_dir(tmp.path()),
+                GitDirResolution::NotNeeded
+            ));
+        }
+
+        #[test]
+        fn secondary_workspace_resolves_to_main_git_dir() {
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            let ws = tmp.path().join("ws");
+            make_colocated_main(&main);
+            make_secondary_workspace(&ws, "../../main/.jj/repo");
+
+            match resolve_git_dir(&ws) {
+                GitDirResolution::Resolved(p) => {
+                    let expected = main.join(".git").canonicalize().unwrap();
+                    assert_eq!(p.canonicalize().unwrap(), expected);
+                    assert!(
+                        !p.to_string_lossy().starts_with(r"\\?\"),
+                        "verbatim prefix は剥がされていること: {:?}",
+                        p
+                    );
+                }
+                other => panic!("Resolved を期待: {:?}", debug_name(&other)),
+            }
+        }
+
+        #[test]
+        fn secondary_workspace_with_absolute_store_path_resolves() {
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            let ws = tmp.path().join("ws");
+            make_colocated_main(&main);
+            let abs = main.join(".jj").join("repo");
+            make_secondary_workspace(&ws, &abs.to_string_lossy());
+
+            assert!(matches!(
+                resolve_git_dir(&ws),
+                GitDirResolution::Resolved(_)
+            ));
+        }
+
+        #[test]
+        fn main_workspace_without_git_target_falls_back_to_internal_store() {
+            let tmp = tempfile::tempdir().unwrap();
+            fs::create_dir_all(tmp.path().join(".jj/repo/store/git")).unwrap();
+
+            match resolve_git_dir(tmp.path()) {
+                GitDirResolution::Resolved(p) => {
+                    assert!(p.ends_with("git"), "内部 git store を指すこと: {:?}", p);
+                }
+                other => panic!("Resolved を期待: {:?}", debug_name(&other)),
+            }
+        }
+
+        #[test]
+        fn non_jj_directory_is_unresolved() {
+            let tmp = tempfile::tempdir().unwrap();
+            assert!(matches!(
+                resolve_git_dir(tmp.path()),
+                GitDirResolution::Unresolved(_)
+            ));
+        }
+
+        #[test]
+        fn dangling_git_target_is_unresolved() {
+            let tmp = tempfile::tempdir().unwrap();
+            fs::create_dir_all(tmp.path().join(".jj/repo/store")).unwrap();
+            fs::write(
+                tmp.path().join(".jj/repo/store/git_target"),
+                "../../../no-such-dir/.git",
+            )
+            .unwrap();
+
+            assert!(matches!(
+                resolve_git_dir(tmp.path()),
+                GitDirResolution::Unresolved(_)
+            ));
+        }
+
+        fn debug_name(r: &GitDirResolution) -> &'static str {
+            match r {
+                GitDirResolution::NotNeeded => "NotNeeded",
+                GitDirResolution::Resolved(_) => "Resolved",
+                GitDirResolution::Unresolved(_) => "Unresolved",
+            }
+        }
+
+        /// 実 jj で colocated repo + secondary workspace を組み、実レイアウトとの
+        /// 齟齬 (jj バージョン更新による layout 変更) を検出する統合テスト。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn real_jj_secondary_workspace_resolves_to_main_git() {
+            use std::process::Command as StdCommand;
+
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            fs::create_dir_all(&main).unwrap();
+
+            let init_ok = StdCommand::new("jj")
+                .args(["git", "init", "--colocate"])
+                .current_dir(&main)
+                .status()
+                .expect("jj git init 実行失敗")
+                .success();
+            assert!(init_ok, "jj git init --colocate が失敗");
+
+            let ws = tmp.path().join("ws");
+            let add_ok = StdCommand::new("jj")
+                .args(["workspace", "add", ws.to_string_lossy().as_ref()])
+                .current_dir(&main)
+                .status()
+                .expect("jj workspace add 実行失敗")
+                .success();
+            assert!(add_ok, "jj workspace add が失敗");
+
+            assert!(
+                !ws.join(".git").exists(),
+                "secondary workspace は .git を持たない前提 (持つなら本機能は不要になる)"
+            );
+
+            match resolve_git_dir(&ws) {
+                GitDirResolution::Resolved(p) => {
+                    let expected = main.join(".git").canonicalize().unwrap();
+                    assert_eq!(p.canonicalize().unwrap(), expected);
+                }
+                other => panic!("Resolved を期待: {}", debug_name(&other)),
+            }
+        }
     }
 }
