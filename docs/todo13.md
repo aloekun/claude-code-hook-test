@@ -26,21 +26,21 @@
 - **B1-loop**: 監視の auto-push を `jj git push` 直ではなく、push 前に quality_gate 相当 (clippy + `cargo test` + `cargo test -- --ignored`) を実行。FAIL なら (i) takt convergence ループに差し戻して再 analyze→再 fix (= `convergence_verdict` に `--ignored` 結果を反映)、(ii) N 回で収束しなければ fail-closed で `action_required` に倒し人間へ escalation。
 - **人間ボトルネック回避**: B1-loop により自己修復可能な回帰 (sibling テスト忘れ等) は機械で完結、本当に詰まった時のみ人間。今日の「壊れたまま push → 後で人間が後始末」より前倒し + 良いシグナル。
 
-#### 作業計画
+#### 作業計画 (Status update 2026-07-03: 2 PR 構成に再編、PR-1 = A1+B1 実装済)
 
-- [ ] A1: `fix.md` 完了ゲートに `--ignored` 必須条件を追記
-- [ ] B1: auto-push (`repush.rs`) に push 前 quality_gate (`--ignored` 含む) を挿入
-- [ ] B1-loop: gate FAIL を convergence ループに差し戻す経路 + N 回上限 → `action_required` (fail-closed)
-- [ ] dogfood: 意図的に #[ignore] テストを壊す fix を作り、(a) A1 で fix 時捕捉、(b) B1 で push 前捕捉、(c) loop で自動修復を確認
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [x] A1: `fix.md` 完了ゲートに `--ignored` 必須条件を追記 (PR-1、条件 = test ファイル変更 or `pub`/`pub(crate)` 関数の挙動・signature 変更時)
+- [x] B1: auto-push (`repush.rs`) に push 前 quality_gate (`--ignored` 含む) を挿入 (PR-1、`stages/gate.rs` 新設。push-runner-config.toml の quality_gate group を単一ソース参照、docs-only fix diff は ADR-035 path 基準で gate skip、FAIL は `action_required` 即 escalation)
+- [ ] dogfood: [docs/auto-push-gate-dogfood.md](auto-push-gate-dogfood.md) の観測ログ + GO/NO-GO 判断基準に従い B1-loop 要否を判定 (期限: PR-1 merge + 6 週間 / gate FAIL 2 件 / auto-push 発火 10 回 のいずれか先)
+- [ ] (GO 判定時のみ) B1-loop: gate FAIL を convergence ループに差し戻す経路 + N 回上限 → `action_required` (fail-closed) — 設計案・不採用案は dogfood doc §5 に保存済み
+- [ ] 本 entry 削除 + todo-summary.md 行削除 + dogfood doc 削除 (同一 commit、NO-GO の場合は ADR-043 amendment に知見移管後)
 
 #### 完了基準
 
-- takt fix が #[ignore] テストを壊す変更をしても fix 時 (A1) または auto-push 前 (B1) に必ず検出され、自己修復可能なら機械収束・不能なら `action_required` で人間へ。`jj git push` 直 push で gate を迂回する経路が解消。
+- takt fix が #[ignore] テストを壊す変更をしても fix 時 (A1) または auto-push 前 (B1) に必ず検出され、`jj git push` 直 push で gate を迂回する経路が解消 (PR-1 で達成)。B1-loop の要否が dogfood 観測で判定され、GO なら機械収束・NO-GO なら即 escalation 恒久化として決着していること。
 
 #### 詰まっている箇所
 
-- B1-loop の「convergence ループ差し戻し」を takt 既存の analyze→fix 反復にどう接続するか (`convergence_verdict` に `--ignored` 結果を含める形が素直)、N 回上限の妥当値。
+- (解消済 2026-07-03) B1-loop の接続方式と N 値は dogfood doc §5 に設計案として確定 (専用 `gate-fix.yaml` + N=2)。残る不確定要素は dogfood 観測結果のみ。
 
 ---
 

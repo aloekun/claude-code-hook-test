@@ -83,7 +83,20 @@ pub(crate) fn decide_repush(
 
 // ─── re-push フロー ───
 
-fn run_auto_push(config: &crate::config::FixConfig, pr_label: &str) {
+/// auto-push の実行。push 前に品質 gate (`stages/gate.rs`、PR #224 対策 B1) を
+/// 評価し、FAIL なら push せず `action_required` に倒す (fail-closed、ADR-043)。
+fn run_auto_push(config: &crate::config::FixConfig, pr_label: &str, pre_cid: Option<&str>) {
+    let gate_outcome = crate::stages::gate::evaluate_gate(&config.gate, pre_cid);
+    log_info(&format!("[decision] gate: {:?}", gate_outcome));
+    if let crate::stages::gate::GateOutcome::Failed { reason } = &gate_outcome {
+        log_info(&format!(
+            "[action] auto_push 中止 (gate FAIL、fail-closed): {}",
+            reason
+        ));
+        mark_gate_failure_action_required(pr_label, reason);
+        return;
+    }
+
     log_info(&format!(
         "[action] auto_push: {} の takt 修正を自動 re-push",
         pr_label
@@ -92,6 +105,26 @@ fn run_auto_push(config: &crate::config::FixConfig, pr_label: &str) {
         log_info("[action] auto_push: 成功");
     } else {
         log_info("[action] auto_push: 失敗 (手動対応が必要)");
+    }
+}
+
+/// gate FAIL を state に反映する (`action_required`)。
+/// state 読み書き失敗は log のみ残して続行する (push は既に中止済みで安全側)。
+fn mark_gate_failure_action_required(pr_label: &str, reason: &str) {
+    use crate::state::{read_state_from, state_file_path, write_state_to};
+
+    let path = state_file_path();
+    let Some(mut state) = read_state_from(&path) else {
+        log_info("[gate] state 読み込み不可のため action_required の永続化を skip (log のみ)");
+        return;
+    };
+    state.action = "action_required".into();
+    state.summary = format!(
+        "{}: auto-push gate FAIL — push は実行されていません。修正後に pnpm push してください。原因: {}",
+        pr_label, reason
+    );
+    if let Err(e) = write_state_to(&path, &state) {
+        log_info(&format!("[gate] state 書き込み失敗 (継続): {}", e));
     }
 }
 
@@ -114,10 +147,11 @@ pub(crate) fn should_auto_push(setting: &str) -> bool {
 fn execute_repush_action(
     fix_config: &crate::config::FixConfig,
     pr_label: &str,
+    pre_cid: Option<&str>,
     action: RepushAction,
 ) {
     match action {
-        RepushAction::AutoPush => run_auto_push(fix_config, pr_label),
+        RepushAction::AutoPush => run_auto_push(fix_config, pr_label, pre_cid),
         RepushAction::UserConfirmWithSeparatedFix { commit_id } => {
             log_info(&format!(
                 "[action] auto_push スキップ: ユーザー確認待ち (fix commit 分離済み: {})",
@@ -172,7 +206,7 @@ pub(crate) fn execute_repush_flow(
     let action = decide_repush_action(&decision, fix_state, allow_auto);
     log_info(&format!("[decision] action: {:?}", action));
 
-    execute_repush_action(fix_config, pr_label, action);
+    execute_repush_action(fix_config, pr_label, pre_cid, action);
 
     if fix_config.sweep.enabled {
         crate::fix_commit::sweep_empty_commits_in_pr_range(&fix_config.sweep.default_branch);

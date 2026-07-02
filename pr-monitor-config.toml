@@ -31,6 +31,15 @@ extra_args = ["--pipeline", "--skip-git"]
 auto_push_severity = "critical"
 push_command = "jj git push"
 
+# auto-push 前の品質 gate (PR #224 gate-bypass 対策 B1、fail-closed = ADR-043)。
+# push-runner-config.toml の [[quality_gate.groups]] name=group を push 前に実行し、
+# FAIL なら push せず action_required に倒す。fix diff が docs-only
+# (ADR-035 path 基準) の場合は gate を skip する。
+# 緊急バイパス (kill-switch): 環境変数 PR_MONITOR_GATE_DISABLE=1
+[fix.gate]
+enabled = true
+group = "rust-lint-test"
+
 # ---------------------------------------------------------------------------
 # [classifier] — ADR-038 (採用、2026-05-15) 経由のローカル LLM finding classifier。
 # このセクションを追加すると master 上で classifier が有効化される。問題が

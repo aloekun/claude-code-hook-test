@@ -32,6 +32,19 @@ If you catch yourself about to run a Bash command that writes into a read-only z
 
 **Important**: After fixing, run the build and tests for the affected crate(s).
 
+## `--ignored` integration test gate (conditional — REQUIRED when triggered)
+
+If the fixes in this iteration did **either** of the following:
+
+- modified any test file (any `.rs` file containing `#[test]` / `#[ignore]` attributes, or files under a `tests/` directory), or
+- changed the behavior or signature of any `pub` / `pub(crate)` function,
+
+you MUST also run the ignored integration tests and confirm PASS **before** emitting `convergence_verdict: fully_resolved`:
+
+    cargo test -- --ignored --test-threads=1
+
+Rationale: plain `cargo test` does NOT execute `#[ignore]` integration tests, and the automated push paths after this workflow may not re-run them before your changes reach the PR (PR #224: a fix to `create_fix_commit` broke 2 `#[ignore]` repush integration tests and landed on the PR unverified). If the trigger condition applies and the run failed — or you did not run it — emit `convergence_verdict: partial` instead.
+
 ## Pre-completion deterministic check (Bundle Z Phase 2 / #B-β)
 
 For each `.rs` file modified in this iteration, run:
@@ -81,7 +94,7 @@ This refresh is **unconditional**:
 - {Build execution results}
 
 ## Test results
-- {Test command executed and results}
+- {Test commands executed and results — list each command line explicitly, including `cargo test -- --ignored --test-threads=1` when the conditional gate above applies}
 
 ## Convergence gate
 
@@ -96,7 +109,7 @@ This refresh is **unconditional**:
 
 After completing fixes, evaluate the gate above and emit one of two verdicts. The next workflow step is selected from this verdict, so it must accurately reflect the gate state.
 
-- **fully_resolved** — `persists == 0` AND `misdirected == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine.
+- **fully_resolved** — `persists == 0` AND `misdirected == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine. When the "`--ignored` integration test gate" trigger condition applies, a PASS of `cargo test -- --ignored --test-threads=1` is an additional precondition for this verdict.
 - **partial** — `persists > 0` OR `misdirected > 0`. Some findings carried over (still need fixing in a later iteration) or were skipped due to misdirection (and need to be reported). Re-analysis is required.
 
 Place the verdict at the **end of your report** as a single bare line in this exact form (no surrounding quotes, no trailing punctuation):
@@ -111,4 +124,4 @@ or:
 convergence_verdict: partial
 ```
 
-**Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the build passes), emit `partial` so the analyze step can re-evaluate.
+**Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the build passes), emit `partial` so the analyze step can re-evaluate. The same applies to the `--ignored` integration test gate: if its trigger condition applies and you did not run it (or it failed), emit `partial`.

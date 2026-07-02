@@ -1,5 +1,6 @@
 pub(crate) mod collect;
 mod create_pr;
+pub(crate) mod gate;
 mod mark_notified;
 mod monitor;
 pub(crate) mod poll;
