@@ -26,6 +26,7 @@ mod file_length;
 mod function_length;
 mod line_filter;
 mod metrics;
+mod modified_files_check;
 mod violations;
 
 use line_filter::{
@@ -104,6 +105,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 3 && args[1] == "--metrics" {
         std::process::exit(run_metrics_mode(&args[2]));
+    }
+    if args.len() >= 2 && args[1] == "--check-modified-files" {
+        std::process::exit(modified_files_check::run_check_modified_files());
     }
 
     let mut input = String::new();

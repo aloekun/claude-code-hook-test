@@ -374,10 +374,10 @@ Agent 委譲。ADR-018 (cli-pr-monitor の takt 移行) を参照させる必要
 
 ### PR-W5: Stop hook gate (C) 追加
 
-- **status**: not started
+- **status**: 実装完了 (dogfood pass、PR 未作成) @5cfcfb5a
 - **owner**: -
 - **effort**: S
-- **依存**: PR-W1 + W2 + W3 + W4 が **全て land 済** (clean state 必須、未 land 状態で C を入れると Stop が常に block)
+- **依存**: PR-W1 + W2 + W3 + W4 が **全て land 済** (clean state 必須、未 land 状態で C を入れると Stop が常に block) — 4 件とも land 済 (#220/#224/#230/#231)
 
 #### スコープ
 
@@ -405,6 +405,44 @@ Stop hook quality_gate に file_length check を追加。Phase 1 完了後の cl
 - override env で skip 可能を確認 (kill-switch test)
 - ADR-039 § 4 self-review checklist (config schema / default OFF / docs / kill-switch test の 4 点) を満たす
 - dogfood: 意図的に 800 行超 file を作って block されることを確認 + override で通過することを確認
+
+#### 実績 (実装完了、PR 未作成)
+
+実装構成:
+
+| 対象 | 内容 |
+|---|---|
+| `src/hooks-post-tool-comment-lint-rust/src/modified_files_check.rs` (新規、~345 行) | `--check-modified-files` batch mode 本体 + 17 tests |
+| `src/hooks-post-tool-comment-lint-rust/src/main.rs` | dispatch 追加 (`--metrics` の隣) + `mod modified_files_check` |
+| `src/hooks-post-tool-comment-lint-rust/Cargo.toml` | `toml = "0.8"` 依存追加 (config parse 用) |
+| `.claude/hooks-config.toml` | `[[stop_quality.steps]]` "file-length" step + `[file_length_gate] enabled = true` section |
+
+設計上の判断:
+
+- **jj 変更検出**: `jj diff -r '<base>..@' --name-only` で PR 範囲 (working copy 含む) の `.rs` を取得。`base` は config 引数化 (default `master`、ADR-021 § Revset Composability — custom lint `NO_HARDCODED_JJ_REVSET_RANGE` の指摘に対応)
+- **cmd path**: `[[stop_quality.steps]]` は `cmd /c` 経由で実行されるため forward-slash (`./`) 始まりは cmd.exe で `'.' is not recognized` エラー。backslash 相対パス (`.\.claude\...exe`) を TOML literal string で指定 (実測で判明)
+- **fail-closed (ADR-043)**: jj 失敗時は判定不能として exit 1 (block 側)。`stop_hook_active` retry-skip (ADR-004) が永続 lock を防ぐ
+- **templates**: `templates/hooks-config-{typescript,python}.toml` は Rust 非対象 (comment-lint-rust は Rust 限定) のため本 gate を追加せず
+
+ADR-039 § 4 self-review checklist (4 点) 充足:
+
+1. **config schema**: `FileLengthGateConfig { enabled: Option<bool>, base: Option<String> }`
+2. **default OFF**: `gate_enabled()` が `unwrap_or(false)` (code default)。本 repo のみ dogfood で `enabled = true`
+3. **docs / config example**: `.claude/hooks-config.toml` の `[file_length_gate]` section に 3 点セット + kill-switch を comment 明記 (plan doc 削除後も永続、ADR-039 § "明示的 decision trigger の必須化")
+4. **kill-switch test**: unit test `gate_disabled_when_enabled_false` + dogfood で `enabled = false` 実機 no-op を確認
+
+dogfood 結果 (deploy 済 exe で実機確認):
+
+| シナリオ | 結果 |
+|---|---|
+| clean state (enabled=true、超過なし) | exit 0 ✅ |
+| 850 行 file を作成 | exit 1 + 該当 file 列挙で block ✅ |
+| `FILE_LENGTH_CHECK_OVERRIDE=1` | exit 0 + 実受理値表示で bypass ✅ |
+| `FILE_LENGTH_CHECK_OVERRIDE=true` (truthy variant) | exit 0 + `=true` 表示で bypass ✅ (ADR-039 § 2) |
+| `enabled = false` (超過 file 残存) | exit 0 + 無出力の no-op ✅ |
+| 本 PR 自身の変更に対する self-host | exit 0 (self-consistent) ✅ |
+
+削除条件 3 (`FILE_LENGTH_CHECK_OVERRIDE=1` 未使用で 1-2 セッション通過) の観測は **land 後** に開始する。
 
 #### 進め方
 
@@ -445,7 +483,7 @@ PR-W1  [x] #220 (merged at 2026-06-24T18:04:56Z)
 PR-W2  [x] #224 (merged at 2026-06-28T13:15:36Z)
 PR-W3  [x] #230 (merged at 2026-07-01T05:27:34Z)
 PR-W4  [x] #231 (merged at 2026-07-01T08:42:27Z)
-PR-W5  [ ] not started
+PR-W5  [~] 実装完了 (dogfood pass、PR 未作成) @5cfcfb5a
 ```
 
 land 後は `[x]` + PR 番号を記入し、最終的に 6 件全て `[x]` で本 file を削除。

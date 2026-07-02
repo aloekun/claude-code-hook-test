@@ -182,6 +182,33 @@ cmd = "pnpm test:e2e"
 name = "build"
 cmd = "pnpm build"
 
+# 順位 147 / PR-W5 (file-length-enforcement-plan.md): file-length Stop gate。
+# PR 範囲 (base branch..@) の .rs file が 800 行超なら Stop を block する強制層。
+# cmd は cmd.exe (`cmd /c`) 経由で実行されるため forward-slash (`./`) 始まりは不可。
+# backslash 相対パスを TOML literal string (single quote、escape 不要) で指定する。
+# gate の有効化は下記 [file_length_gate] enabled で制御 (この step があっても
+# enabled = false なら exe は即 exit 0 で no-op)。
+[[stop_quality.steps]]
+name = "file-length"
+cmd = '.\.claude\hooks-post-tool-comment-lint-rust.exe --check-modified-files'
+
+# ─── PR-W5: file-length Stop gate 設定 (ADR-039 experimental feature 標準パターン) ───
+#
+# hooks-post-tool-comment-lint-rust.exe --check-modified-files が参照する opt-in gate。
+# 上の [[stop_quality.steps]] "file-length" step から起動される。
+#
+# ADR-039 3 点セット:
+#   - Config opt-in (default OFF): code default は enabled = false (unwrap_or(false))。
+#     本 repo は Phase 1 (PR-W1〜W4) の clean state を dogfood するため enabled = true。
+#   - Kill-switch: 恒久停止は enabled = false。緊急バイパスは env
+#     FILE_LENGTH_CHECK_OVERRIDE=1 (truthy 値、順位 151 pr_size_check と同 pattern)。
+#   - Bounded lifetime: 採否判定は file-length-enforcement-plan.md 削除条件 3
+#     (override 未使用で 1-2 セッション通過) を trigger とする。
+#
+# base: PR 範囲算出の base branch (省略時 "master"、ADR-021 § Revset Composability で引数化)。
+[file_length_gate]
+enabled = true
+
 # ─── Push Pipeline: push-runner-config.toml に移行済み (ADR-015) ───
 #
 # pnpm push は cli-push-runner.exe (takt ベース) を使用。

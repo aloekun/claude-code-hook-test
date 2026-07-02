@@ -387,6 +387,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "toml",
  "tree-sitter",
  "tree-sitter-rust",
 ]
