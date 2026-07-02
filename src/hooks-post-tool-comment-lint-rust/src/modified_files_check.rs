@@ -29,7 +29,7 @@
 use crate::file_length::{count_source_lines, MAX_FILE_LINES};
 use crate::line_filter::is_rust_file;
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// 緊急バイパス用 env var (kill-switch)。truthy 値で検査を skip する。
@@ -69,18 +69,17 @@ pub(crate) fn run_check_modified_files() -> i32 {
         return 0;
     }
     let base = effective_base(&config);
-    let files = match list_changed_rust_files(&base) {
-        Ok(files) => files,
+    let violations = match find_violations(&base) {
+        Ok(v) => v,
         Err(e) => {
             println!(
-                "[file-length-gate] jj による変更 file 検出に失敗しました (fail-closed / ADR-043): {}\n\
-                 jj repo 状態を確認するか、緊急時は {}=1 で bypass してください。",
+                "[file-length-gate] {} (fail-closed / ADR-043)\n\
+                 緊急時は {}=1 で bypass してください。",
                 e, OVERRIDE_ENV_VAR
             );
             return 1;
         }
     };
-    let violations = collect_oversize_files(&files);
     if violations.is_empty() {
         return 0;
     }
@@ -173,17 +172,31 @@ fn parse_changed_rust_files(stdout: &str) -> Vec<String> {
         .collect()
 }
 
+/// 変更 file を検出しサイズ違反を収集する。jj 失敗 / file 読み取り失敗は `Err` (fail-closed)。
+fn find_violations(base: &str) -> Result<Vec<(String, usize)>, String> {
+    let files = list_changed_rust_files(base)?;
+    collect_oversize_files(&files)
+}
+
 /// 各 file の行数を数え、`MAX_FILE_LINES` 超を `(path, line_count)` で列挙する。
-/// 読み取り不能 (削除済 file 等) は skip する。
-fn collect_oversize_files(files: &[String]) -> Vec<(String, usize)> {
+///
+/// 削除された file は検査対象外 (skip): `jj diff --name-only` は削除 file も列挙するが、
+/// file split refactor で元 file が消えるのは正常であり、存在しない path を block すると
+/// 本 plan が促進する分割作業自体を誤 block してしまう。存在するのに読み取り不能な file
+/// のみ fail-closed で `Err` を返す (ADR-043 § 原則1 / CodeRabbit #234-1 は「読み取り不能な
+/// *既存* `.rs`」を対象と明記)。
+fn collect_oversize_files(files: &[String]) -> Result<Vec<(String, usize)>, String> {
     files
         .iter()
-        .filter_map(|path| {
-            let source = std::fs::read_to_string(path).ok()?;
+        .filter(|path| Path::new(path).exists())
+        .map(|path| {
+            let source = std::fs::read_to_string(path)
+                .map_err(|e| format!("既存 .rs の読み取り失敗 {}: {}", path, e))?;
             let lines = count_source_lines(&source);
-            (lines > MAX_FILE_LINES).then_some((path.clone(), lines))
+            Ok((lines > MAX_FILE_LINES).then_some((path.clone(), lines)))
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()
+        .map(|v| v.into_iter().flatten().collect())
 }
 
 /// block 時に stdout へ出力する診断メッセージを組み立てる (pure)。
@@ -313,7 +326,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let big = write_rs_file(dir.path(), "big.rs", MAX_FILE_LINES + 5);
         let small = write_rs_file(dir.path(), "small.rs", 10);
-        let violations = collect_oversize_files(&[big.clone(), small]);
+        let violations = collect_oversize_files(&[big.clone(), small]).unwrap();
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].0, big);
         assert_eq!(violations[0].1, MAX_FILE_LINES + 5);
@@ -323,14 +336,27 @@ mod tests {
     fn collect_oversize_files_at_threshold_is_ok() {
         let dir = tempfile::tempdir().unwrap();
         let exact = write_rs_file(dir.path(), "exact.rs", MAX_FILE_LINES);
-        assert!(collect_oversize_files(&[exact]).is_empty());
+        assert!(collect_oversize_files(&[exact]).unwrap().is_empty());
     }
 
     #[test]
-    fn collect_oversize_files_skips_missing_file() {
+    fn collect_oversize_files_skips_deleted_file() {
         let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("gone.rs").to_string_lossy().to_string();
-        assert!(collect_oversize_files(&[missing]).is_empty());
+        let deleted = dir.path().join("gone.rs").to_string_lossy().to_string();
+        assert!(
+            collect_oversize_files(&[deleted]).unwrap().is_empty(),
+            "削除 file (非存在) は検査対象外 = skip (file split refactor を誤 block しない)"
+        );
+    }
+
+    #[test]
+    fn collect_oversize_files_errors_on_present_but_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let unreadable = dir.path().to_string_lossy().to_string();
+        assert!(
+            collect_oversize_files(&[unreadable]).is_err(),
+            "存在するのに読み取り不能 (directory 等) は fail-closed で Err (ADR-043 / CodeRabbit #234-1)"
+        );
     }
 
     #[test]
