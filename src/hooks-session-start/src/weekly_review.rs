@@ -1,14 +1,24 @@
 //! ADR-031 Phase C: `/weekly-review` skill 起動 reminder。
 //!
 //! 2 種類の reminder を発火:
-//!   - last-run staleness: `.claude/weekly-review-last-run.json` の mtime が
-//!     `reminder_threshold_days` を超えていれば「`/weekly-review` の実行を検討」を nudge
+//!   - last-run staleness: `.claude/weekly-review-last-run.json` の `last_run_at` が
+//!     `reminder_threshold_days` を超えていれば「`/weekly-review` の実行を検討」を nudge。
+//!     `last_run_at` が欠落/不正な旧・破損データは stale 扱い (= 発火) にする。
 //!   - failed marker: `.claude/weekly-reviews/*.md.failed` が 1 件以上存在すれば
 //!     「前回 weekly-review が失敗、`/weekly-review` で resume」を nudge
+//!
+//! staleness の情報源を mtime にしない (欠落時も mtime にフォールバックしない) のは、状態ファイルが
+//! jj checkout / workspace materialization (ADR-045) のたびに再マテリアライズされ mtime が
+//! リセットされるため。mtime に依存すると「実際は 1 か月前の実行なのに fresh」に見え、reminder が
+//! 永久に発火しない silent-fresh バグ (past_time / reaper と同クラス) を踏む。`last_run_at` は
+//! skill が書き込む workspace 不変の値で、欠落データは次回実行で backfill される (self-healing)。
 
+use serde::Deserialize;
 use std::path::Path;
 
 use crate::hooks_config::WeeklyReviewReminderConfig;
+use crate::past_time::PastTime;
+use crate::reaper::parse_iso8601_to_unix;
 
 /// weekly review reminder の threshold (default 7 日、ADR-031 § トリガー方式 と整合)。
 const WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS: u64 = 7;
@@ -17,31 +27,59 @@ const WEEKLY_REVIEW_REVIEWS_DIR: &str = ".claude/weekly-reviews";
 
 /// `.claude/weekly-review-last-run.json` の last-run 状態。
 ///
-/// `Missing` (= 未実行 / 初回) と `Unreadable` (= 権限エラー等の読込失敗) を区別することで
-/// fail-open 方針を正しく適用する: Missing は reminder 発火 (= 初回利用ナビ)、Unreadable は
-/// reminder 抑制 (= ユーザーを誤通知で煩わせない)。
+/// `Missing` (= 未実行 / 初回) / `Stale` (= last_run_at 欠落・不正) / `Unreadable` (= 読込失敗) を
+/// 区別することで fail-open 方針を正しく適用する: Missing / Stale は reminder 発火 (= 初回利用ナビ /
+/// 旧データ移行促し)、Unreadable は reminder 抑制 (= ユーザーを誤通知で煩わせない)。
 pub(crate) enum WeeklyLastRunState {
     Missing,
+    Stale,
     ElapsedDays(u64),
     Unreadable,
 }
 
+/// `.claude/weekly-review-last-run.json` の必要フィールドのみ。
+///
+/// `last_run_at` は skill Phase 4 が実行完了時刻を RFC 3339 (UTC) で書き込む authoritative
+/// timestamp。jj checkout / workspace materialization で書き換わる mtime と違い workspace 不変
+/// なので、staleness 判定の第一情報源とする。
+#[derive(Deserialize)]
+struct WeeklyLastRunFile {
+    last_run_at: Option<String>,
+}
+
 /// `.claude/weekly-review-last-run.json` の状態を判定する。
-fn weekly_review_last_run_state(repo_root: &Path) -> WeeklyLastRunState {
+///
+/// 判定順:
+///   1. ファイル不在 → `Missing` (初回利用ナビとして reminder 発火)
+///   2. 読込失敗 → `Unreadable` (誤通知抑制)
+///   3. `last_run_at` が parse 可能かつ過去 → その経過日数 (mtime 非依存、jj workspace 耐性)
+///   4. `last_run_at` 欠落 / parse 不能 / 未来値 → `Stale` (発火)。mtime にはフォールバックしない
+///      (mtime は jj workspace で reset され silent-fresh を再導入するため)。欠落データは次回
+///      skill 実行で `last_run_at` が書かれて backfill される (self-healing)。
+fn weekly_review_last_run_state(repo_root: &Path, now_unix: i64) -> WeeklyLastRunState {
     let path = repo_root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
-    let metadata = match std::fs::metadata(&path) {
-        Ok(m) => m,
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return WeeklyLastRunState::Missing,
         Err(_) => return WeeklyLastRunState::Unreadable,
     };
-    let mtime = match metadata.modified() {
-        Ok(t) => t,
-        Err(_) => return WeeklyLastRunState::Unreadable,
-    };
-    match mtime.elapsed() {
-        Ok(elapsed) => WeeklyLastRunState::ElapsedDays(elapsed.as_secs() / 86_400),
-        Err(_) => WeeklyLastRunState::Unreadable,
-    }
+    last_run_state_from_content(&content, now_unix).unwrap_or(WeeklyLastRunState::Stale)
+}
+
+/// `last_run_at` フィールドから経過日数を導出する。
+///
+/// `None` を返すのは「フィールド欠落 / RFC3339 parse 不能 / 未来 timestamp」の場合で、
+/// caller はこれを `Stale` (発火) 扱いにする (mtime にはフォールバックしない)。未来 timestamp を
+/// silent に fresh 扱いしないよう `PastTime::from_parts` で past invariant を型検証する
+/// ([past_time] と同方針)。
+fn last_run_state_from_content(content: &str, now_unix: i64) -> Option<WeeklyLastRunState> {
+    let parsed: WeeklyLastRunFile = serde_json::from_str(content).ok()?;
+    let last_run_at = parsed.last_run_at?;
+    let epoch = parse_iso8601_to_unix(&last_run_at)?;
+    let past = PastTime::from_parts(epoch, now_unix)?;
+    Some(WeeklyLastRunState::ElapsedDays(
+        (past.age_secs() / 86_400) as u64,
+    ))
 }
 
 /// `.claude/weekly-reviews/*.md.failed` を列挙する。
@@ -70,6 +108,7 @@ pub(crate) fn weekly_review_failed_markers(repo_root: &Path) -> Vec<String> {
 fn weekly_review_staleness_label(state: &WeeklyLastRunState) -> &'static str {
     match state {
         WeeklyLastRunState::Missing => "未実行",
+        WeeklyLastRunState::Stale => "last_run_at 欠落/不正/未来 (stale 扱い)",
         WeeklyLastRunState::ElapsedDays(_) => "",
         WeeklyLastRunState::Unreadable => "読込失敗",
     }
@@ -81,6 +120,7 @@ pub(crate) fn weekly_review_staleness_hits(
 ) -> bool {
     match state {
         WeeklyLastRunState::Missing => true,
+        WeeklyLastRunState::Stale => true,
         WeeklyLastRunState::ElapsedDays(d) => *d >= threshold_days,
         WeeklyLastRunState::Unreadable => false,
     }
@@ -126,6 +166,7 @@ fn build_weekly_review_failed_marker_lines(markers: &[String]) -> Vec<String> {
 pub(crate) fn compute_weekly_review_reminder_nudge(
     repo_root: &Path,
     config: &WeeklyReviewReminderConfig,
+    now_unix: i64,
 ) -> Option<String> {
     if !config.enabled.unwrap_or(false) {
         return None;
@@ -134,7 +175,7 @@ pub(crate) fn compute_weekly_review_reminder_nudge(
         .reminder_threshold_days
         .unwrap_or(WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS);
     let failed_check_enabled = config.failed_marker_check_enabled.unwrap_or(true);
-    let last_run_state = weekly_review_last_run_state(repo_root);
+    let last_run_state = weekly_review_last_run_state(repo_root, now_unix);
     let staleness_lines = build_weekly_review_staleness_lines(&last_run_state, threshold_days);
     let failed_markers = if failed_check_enabled {
         weekly_review_failed_markers(repo_root)
@@ -183,7 +224,7 @@ mod tests {
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(true),
         };
-        assert!(compute_weekly_review_reminder_nudge(&root, &config).is_none());
+        assert!(compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000).is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -221,7 +262,7 @@ mod tests {
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(false),
         };
-        let nudge = compute_weekly_review_reminder_nudge(&root, &config)
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000)
             .expect("staleness nudge must be emitted when last-run file missing");
         assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
         assert!(nudge.contains("threshold (7 日)"));
@@ -231,25 +272,131 @@ mod tests {
 
     #[test]
     fn compute_weekly_review_reminder_nudge_emits_failed_marker_when_present() {
-        use std::io::Write;
         let root = unique_temp_root("failed-only");
         let reviews_dir = root.join(".claude/weekly-reviews");
         std::fs::create_dir_all(&reviews_dir).unwrap();
         std::fs::write(reviews_dir.join("2026-05-15.md.failed"), "fail").unwrap();
-        let last_run_path = root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
-        let mut last_run_file = std::fs::File::create(&last_run_path).unwrap();
-        last_run_file.write_all(b"{}").unwrap();
-        drop(last_run_file);
+        let last_run_str = "2026-06-01T00:00:00Z";
+        let then = parse_iso8601_to_unix(last_run_str).unwrap();
+        let now = then + 2 * 86_400;
+        std::fs::write(
+            root.join(WEEKLY_REVIEW_LAST_RUN_PATH),
+            format!("{{\"last_run_at\": \"{}\"}}", last_run_str),
+        )
+        .unwrap();
         let config = WeeklyReviewReminderConfig {
             enabled: Some(true),
-            reminder_threshold_days: Some(365),
+            reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(true),
         };
-        let nudge = compute_weekly_review_reminder_nudge(&root, &config)
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, now)
             .expect("failed marker nudge must be emitted");
         assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
         assert!(nudge.contains(".failed` marker が 1 件残存"));
         assert!(nudge.contains("2026-05-15.md.failed"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compute_weekly_review_reminder_nudge_uses_last_run_at_over_fresh_mtime() {
+        let root = unique_temp_root("last-run-at-stale");
+        let last_run_path = root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+        std::fs::create_dir_all(last_run_path.parent().unwrap()).unwrap();
+        let last_run_str = "2026-06-01T00:00:00Z";
+        let then = parse_iso8601_to_unix(last_run_str).unwrap();
+        let now = then + 40 * 86_400;
+        std::fs::write(
+            &last_run_path,
+            format!("{{\"last_run_at\": \"{}\"}}", last_run_str),
+        )
+        .unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, now)
+            .expect("40 日前の last_run_at は fresh な mtime に関わらず staleness を発火させる");
+        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.contains("40 日経過"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compute_weekly_review_reminder_nudge_recent_last_run_at_skips_staleness() {
+        let root = unique_temp_root("last-run-at-recent");
+        let last_run_path = root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+        std::fs::create_dir_all(last_run_path.parent().unwrap()).unwrap();
+        let last_run_str = "2026-06-01T00:00:00Z";
+        let then = parse_iso8601_to_unix(last_run_str).unwrap();
+        let now = then + 2 * 86_400;
+        std::fs::write(
+            &last_run_path,
+            format!("{{\"last_run_at\": \"{}\"}}", last_run_str),
+        )
+        .unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+        };
+        assert!(
+            compute_weekly_review_reminder_nudge(&root, &config, now).is_none(),
+            "2 日前の last_run_at は threshold (7 日) 未満なので発火しない"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn last_run_state_from_content_prefers_last_run_at() {
+        let then = parse_iso8601_to_unix("2026-06-01T00:00:00Z").unwrap();
+        let now = then + 10 * 86_400;
+        let content = "{\"last_run_at\": \"2026-06-01T00:00:00Z\"}";
+        match last_run_state_from_content(content, now) {
+            Some(WeeklyLastRunState::ElapsedDays(d)) => assert_eq!(d, 10),
+            _ => panic!("expected ElapsedDays(10) derived from last_run_at"),
+        }
+    }
+
+    #[test]
+    fn last_run_state_from_content_none_when_field_absent() {
+        assert!(last_run_state_from_content("{}", 2_000_000_000).is_none());
+    }
+
+    #[test]
+    fn last_run_state_from_content_none_when_unparseable() {
+        assert!(
+            last_run_state_from_content("{\"last_run_at\": \"not-a-date\"}", 2_000_000_000)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn last_run_state_from_content_none_when_future() {
+        let now = parse_iso8601_to_unix("2026-06-01T00:00:00Z").unwrap();
+        let content = "{\"last_run_at\": \"2026-06-02T00:00:00Z\"}";
+        assert!(
+            last_run_state_from_content(content, now).is_none(),
+            "未来 timestamp は None を返し caller が Stale 扱いにする (silent-fresh 防止)"
+        );
+    }
+
+    #[test]
+    fn compute_weekly_review_reminder_nudge_treats_missing_last_run_at_as_stale() {
+        let root = unique_temp_root("missing-last-run-at");
+        let last_run_path = root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+        std::fs::create_dir_all(last_run_path.parent().unwrap()).unwrap();
+        std::fs::write(&last_run_path, "{}").unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000).expect(
+            "last_run_at 欠落は mtime にフォールバックせず stale 扱いで発火する (CR #233 Major)",
+        );
+        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.contains("stale 扱い"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -259,6 +406,11 @@ mod tests {
             &WeeklyLastRunState::Missing,
             7
         ));
+    }
+
+    #[test]
+    fn weekly_review_staleness_hits_for_stale_state() {
+        assert!(weekly_review_staleness_hits(&WeeklyLastRunState::Stale, 7));
     }
 
     #[test]
