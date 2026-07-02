@@ -564,6 +564,26 @@
 
 ---
 
+### review-jj-robustness-whole facet (観点⑧) の dogfood + bounded-lifetime 評価 (ADR-031 拡張、順位247)
+
+> **動機**: PR-2 で ADR-031 週次レビューに観点⑧ (jj-workspace robustness) の facet を新規追加した。非 colocated / 並列 jj workspace (ADR-045) 特有の silent bug 4 class (mtime staleness / `CARGO_MANIFEST_DIR` 実行時読み / `--repo` 無し gh / colocated `.git` 前提) を whole-tree で検出する。新規実験 facet のため ADR-039 § Bounded Lifetime に従い有効性を dogfood で観測して採否を判定する。
+>
+> **本タスクの位置づけ**: ADR-031 拡張 (観点⑧)、ADR-039 experimental pattern の bounded-lifetime 評価枠。2-3 週 dogfood で「既知 4 bug class を実検出できるか」「false positive 率」を観測し、有用なら定着、低品質なら facet を retire (ADR-031 § 採用判定の閾値 を参照)。
+>
+> **参照**: ADR-031 § 将来の展望 (観点⑧)、`.takt/facets/instructions/review-jj-robustness-whole.md`、ADR-045 (jj workspace 並列運用)、ADR-039 (bounded lifetime)、2026-07 セッションで実観測した 4 bug class (weekly-review staleness / stale `CARGO_MANIFEST_DIR` / untracked state 消失 / 非 colocated gh 失敗)
+
+#### 作業計画
+
+- [ ] 次回 `/weekly-review` で observability 観測 (既知 4 bug class 相当を実検出できるか、context 圧迫の有無)
+- [ ] 2-3 週 dogfood で採用率 / false positive を ADR-031 § 採用判定の閾値 で評価
+- [ ] 有用 → 定着 (本 entry 削除 + todo-summary 行削除) / 低品質 → facet retire (weekly-review.yaml + aggregate から除去)
+
+#### 完了基準
+
+- 観点⑧ facet が既知 bug class を再現検出でき、false positive ≤ 5% で定着判定。または retire 判定で facet を除去し軸の空白を記録。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
