@@ -4,8 +4,8 @@ description: >
   既存 3 パイプライン (pre-push-review / post-pr-review / post-merge-feedback)
   が見ない whole-tree 観点 (累積複雑度 / 横断的 ADR 整合性 / ハーネス遵守 /
   test 設計) を補完する。
-  4 つの whole-tree review facet (simplicity / security / architecture / todo) と
-  決定論的 file-size scan を parallel で走らせて aggregate-weekly が findings JSON +
+  5 つの whole-tree review facet (simplicity / security / architecture / todo / jj-robustness)
+  と決定論的 file-size scan を parallel で走らせて aggregate-weekly が findings JSON +
   markdown を生成する。post-merge-feedback.yaml の構造を流用。
   fix loop なし: コードではなく findings レポートを生成するため
   reviewers/fix の構造は不要。
@@ -28,11 +28,12 @@ initial_step: reviewers
 steps:
   # ---------------------------------------------------------------------------
   # Step 1: reviewers (parallel)
-  #   4 つの whole-tree review facet (simplicity / security / architecture / todo) と
-  #   決定論的 file-size scan を並列実行する。各 review facet は独立した観点で
-  #   ソースツリー / todo corpus を Glob/Read/Grep し、findings を articulate する。
+  #   5 つの whole-tree review facet (simplicity / security / architecture / todo /
+  #   jj-robustness) と決定論的 file-size scan を並列実行する。各 review facet は独立した
+  #   観点でソースツリー / todo corpus を Glob/Read/Grep し、findings を articulate する。
   #   Report Directory には simplicity-whole-review.md / security-whole-review.md /
-  #   architecture-whole-review.md / review-todo-whole.md / file-length-watchlist.md が並ぶ。
+  #   architecture-whole-review.md / review-todo-whole.md / review-jj-robustness-whole.md /
+  #   file-length-watchlist.md が並ぶ。
   # ---------------------------------------------------------------------------
   - name: reviewers
     parallel:
@@ -147,6 +148,30 @@ steps:
           report:
             - name: review-todo-whole.md
               format: review-todo-whole
+        rules:
+          - condition: analysis complete
+
+      # 観点 ⑧ jj-workspace robustness (ADR-031 拡張、順位247)。非 colocated / 並列 jj
+      # workspace (ADR-045) で silent に壊れる mtime staleness / CARGO_MANIFEST_DIR 実行時
+      # 読み / --repo 無し gh / colocated .git 前提 を whole-tree で検出。diff-local review
+      # では見えない環境 fragility を補完 (2026-07 セッションで 4 bug class を実観測)。
+      - name: review-jj-robustness-whole
+        edit: false
+        persona: architecture-reviewer
+        model: haiku
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+              - Bash
+        instruction: review-jj-robustness-whole
+        output_contracts:
+          report:
+            - name: review-jj-robustness-whole.md
+              format: review-jj-robustness-whole
         rules:
           - condition: analysis complete
 
