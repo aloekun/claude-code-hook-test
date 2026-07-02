@@ -374,7 +374,7 @@ Agent 委譲。ADR-018 (cli-pr-monitor の takt 移行) を参照させる必要
 
 ### PR-W5: Stop hook gate (C) 追加
 
-- **status**: 実装完了 (dogfood pass、PR 未作成) @5cfcfb5a
+- **status**: [x] land 済 (#234, merged 2026-07-02T12:06:37Z)
 - **owner**: -
 - **effort**: S
 - **依存**: PR-W1 + W2 + W3 + W4 が **全て land 済** (clean state 必須、未 land 状態で C を入れると Stop が常に block) — 4 件とも land 済 (#220/#224/#230/#231)
@@ -483,10 +483,18 @@ PR-W1  [x] #220 (merged at 2026-06-24T18:04:56Z)
 PR-W2  [x] #224 (merged at 2026-06-28T13:15:36Z)
 PR-W3  [x] #230 (merged at 2026-07-01T05:27:34Z)
 PR-W4  [x] #231 (merged at 2026-07-01T08:42:27Z)
-PR-W5  [~] 実装完了 (dogfood pass、PR 未作成) @5cfcfb5a
+PR-W5  [x] #234 (merged at 2026-07-02T12:06:37Z)
 ```
 
 land 後は `[x]` + PR 番号を記入し、最終的に 6 件全て `[x]` で本 file を削除。
+
+**削除条件の進捗 (2026-07-02、PR-W5 land 後)**:
+
+1. ✅ PR-W0 〜 PR-W5 が全て master に land 済 (#219/#220/#224/#230/#231/#234)
+2. ⏳ `find src -name "*.rs" ... $1 > 800` = 0 件 — 次回 weekly audit (PR-W0/ADR-031) で確認
+3. ⏳ PR-W5 land 後の Stop hook gate dogfood で `FILE_LENGTH_CHECK_OVERRIDE=1` を使わず 1-2 セッション通過 — 観測開始
+
+条件 ② ③ 充足を確認したら本 file を削除する。W5 land 後に恒久配置が必要な知見 (順位 243 の pub(crate) チェックリスト等、本 file を参照先にしているもの) は削除前に coding-style.md / CLAUDE.md へ移設する。
 
 ---
 
