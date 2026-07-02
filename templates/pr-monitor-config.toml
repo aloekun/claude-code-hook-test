@@ -18,3 +18,11 @@ check_coderabbit = true
 # # task は workflow 名を prefix として含める (ADR-030 §task labeling convention)。
 # task = "post-pr-review"
 # extra_args = ["--pipeline", "--skip-git"]
+
+# auto-push 前の品質 gate (fail-closed = ADR-043)。default は enabled = true で、
+# push-runner-config.toml の [[quality_gate.groups]] name="rust-lint-test" を push 前に実行する。
+# Rust workspace を持たない派生プロジェクトでは group が見つからず fail-closed で
+# auto-push が常に中止されるため、enabled = false にするか対応する group 名を指定すること。
+# 緊急バイパス (kill-switch): 環境変数 PR_MONITOR_GATE_DISABLE=1
+# [fix.gate]
+# enabled = false

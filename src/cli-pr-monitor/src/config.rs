@@ -75,6 +75,8 @@ pub(crate) struct FixConfig {
     pub(crate) push_command: String,
     #[serde(default)]
     pub(crate) sweep: SweepConfig,
+    #[serde(default)]
+    pub(crate) gate: crate::stages::gate::GateConfig,
 }
 
 fn default_auto_push_severity() -> String {
@@ -90,6 +92,7 @@ impl Default for FixConfig {
             auto_push_severity: default_auto_push_severity(),
             push_command: default_push_command(),
             sweep: SweepConfig::default(),
+            gate: crate::stages::gate::GateConfig::default(),
         }
     }
 }
@@ -428,6 +431,25 @@ task = "t"
         assert_eq!(config.fix.push_command, "jj git push");
         assert!(!config.fix.sweep.enabled, "sweep はデフォルト無効 (opt-in)");
         assert_eq!(config.fix.sweep.default_branch, "master");
+        assert!(
+            config.fix.gate.enabled,
+            "gate はデフォルト有効 (fail-closed、ADR-043)"
+        );
+        assert_eq!(config.fix.gate.group, "rust-lint-test");
+    }
+
+    #[test]
+    fn config_fix_gate_override() {
+        let toml_str = r#"
+[monitor]
+
+[fix.gate]
+enabled = false
+group = "custom-group"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(!config.fix.gate.enabled);
+        assert_eq!(config.fix.gate.group, "custom-group");
     }
 
     #[test]

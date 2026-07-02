@@ -238,6 +238,7 @@ task 4 (takt fix のレビュー修正コミット分離) の実装により、t
 - `src/cli-pr-monitor/src/stages/push.rs::run_push()` が `jj new` + push の 2 ステップに縮小 (`jj describe` を廃止)
 - takt workflow (`post-pr-review.yaml`, `pre-push-review.yaml`) の `edit: true` step はリポジトリ内ファイルのみ修正し、VCS metadata を触らない
 - 構造化ログ `[state] / [decision] / [action]` (repush.rs / push.rs の `log_info` プレフィックス)
+- (2026-07-03 追加、PR #224 対策) auto-push は push 前に品質 gate (`src/cli-pr-monitor/src/stages/gate.rs`、push-runner-config.toml の quality_gate group を参照実行) を通過する。FAIL 時は push せず `action_required` に倒す (fail-closed、ADR-043)。「監視役は検証されていない changeset を外部反映しない」という責務境界の機械的強制で、gate コマンド定義は cli-push-runner 側 config を単一ソースとして参照し drift を防ぐ
 
 ### 避けるべきアンチパターン
 

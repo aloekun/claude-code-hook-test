@@ -96,6 +96,7 @@ ADR-036 の Bundle Z 3 層アーキテクチャと同じ思想:
 - **Honesty constraint** で安全網 bypass リスクを fix step に明示
 - 不確実な場合は `partial` を選ぶデフォルトを推奨
 - dogfood で虚偽 fully_resolved が観測されたら順位 53 系列の post-merge-feedback follow-up (T1-1: convergence_verdict gate validator) を採用検討
+- **(2026-07-03 追記) auto-push 前の決定論 gate による機械的 backstop**: PR #224 で「虚偽ではないが検証不足の `fully_resolved`」(`cargo test` のみで `#[ignore]` 統合テスト未実行) が回帰を素通しさせた実害を受け、cli-pr-monitor の auto-push 経路に決定論 gate (`src/cli-pr-monitor/src/stages/gate.rs`、push-runner-config.toml の quality_gate group を push 前に実行) を導入。誤った `fully_resolved` が emit されても、`cargo test -- --ignored` を含む gate が remote 到達前に遮断する (fail-closed、ADR-043)。fix.md 側にも `--ignored` 条件付き必須ゲートを追加済み
 
 ## 完了状態
 
