@@ -447,29 +447,6 @@
 
 ---
 
-### `invoke_classifier` の stdin write → drain 順序修正で pipe deadlock 解消 (PR #231 CodeRabbit Major、pre-existing、別 PR 対応合意)
-
-> **動機**: PR #231 (PR-W4) の CodeRabbit が [`src/cli-push-runner/src/stages/lint_screen/classifier.rs`](../src/cli-push-runner/src/stages/lint_screen/classifier.rs) の `invoke_classifier` で `stdin.write_all(diff)` を完了してから stdout/stderr の `drain_pipe_capped` thread を spawn する順序を Major 指摘。diff が大きく子プロセス (cli-finding-classifier.exe) が stdin 読込中に大量の stdout/stderr を出力すると、パイプバッファ (~64KB) が満杯になり子は書込ブロック・親は stdin 書込ブロックで相互デッドロック → push pipeline hang。
->
-> **本タスクの位置づけ**: PR #231 CodeRabbit finding (Major) をユーザー合意で別 PR に切り出したもの。順序は分割前の単一 `lint_screen.rs` 時代と同一 = **pre-existing** であり、PR-W4 (mechanical refactor / behavior 不変) では ordering を変更せず、CR thread は「妥当だが pre-existing、別 PR 対応」で resolve 済。順位 220 (subprocess stress test) / 221 (Safe Subprocess Stdout Pattern ADR) と同型の subprocess lifecycle 問題。
->
-> **参照**: PR #231 (`bf6977c8`)、CR thread `PRRT_kwDORGBRx86NgG1o`、`classifier.rs` の `invoke_classifier` / `spawn_classifier`、`lib_subprocess::drain_pipe_capped` / `wait_with_timeout_basic`、順位 220/221 (同型 pattern)、`.claude/feedback-reports/231.md` T1-1 (lint 化は 🤔 様子見で別枠)。
->
-> **実行優先度**: 🚀 **Tier 1** — Effort S。実 deadlock リスク (Severity High)。
-
-#### 作業計画
-
-- [ ] `invoke_classifier` を drain-first に変更 (`spawn_classifier` 後、stdin write より前に `stdout_handle` / `stderr_handle` を spawn)
-- [ ] `cargo test -p cli-push-runner` pass (168 baseline) + `cargo clippy` clean
-- [ ] 大 stdout を出す子プロセス相当の regression test を検討 (順位 220 の `--ignored` stress test 方式を踏襲可)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- stdin write 中に子プロセスが大量出力しても deadlock せず、classifier 呼び出しが完了する。順位 221 の Safe Subprocess Stdout Pattern に準拠。
-
----
-
 ### `pub(crate)` vs `pub` 可視性チェックリストを module split 手順に追加 (PR #231 post-merge-feedback T3-1 採用)
 
 > **動機**: W-series (file-length enforcement Phase 1) の module split で cross-module visibility の判断が都度必要になる。crate 内で他 module から参照する共有シンボルは `pub(crate)`、`pub` は同一 crate 内の他 module からは有効だが (binary crate では `pub(crate)` と実質同等の可視性)、library target がある場合にのみ公開 API surface になる — この違いを具体例付きのチェックリストとして明示する。
@@ -692,6 +669,30 @@
 #### 詰まっている箇所
 
 - なし。
+
+---
+
+### pr_size_check の base を remote tracking ref に変更 — 並列 workspace のローカル master 遅延による誤計測解消 (順位242 push で実観測)
+
+> **動機**: `push-runner-config.toml` `[pr_size_check]` の `default_branch = "master"` が revset `master..@` のローカル bookmark 基準のため、ADR-045 並列 workspace 運用でローカル `master` (workspace 間共有) が誰にも advance されず遅延していると、過去の merge 済み PR 分を合算して誤計測する。順位 242 の push で実害: 実 diff +123/-35 (~160 行) が「1604 行 > block_threshold 1500」と誤 block され、直前の PR #239/#240 push でも warning 閾値 (800) を静かに誤超過していた。ADR-013 では `sync_local` が「remote tracking ref (`master@origin`) を使い bare local bookmark を使わない」を test で固定済みで、同じ原則を pr_size_check にも適用すべき。
+>
+> **参照**: `push-runner-config.toml` `[pr_size_check]`、`src/cli-push-runner` の pr_size_check stage、ADR-013 (sync_local の master@origin 原則 + 固定 test)、ADR-021 / 順位 250 (base branch config/arg 化の明文化、相補)、ADR-045 調整ポイント 2 (ローカル master 共有と遅延の前提)。
+>
+> **実行優先度**: 🔧 Tier 2 — Effort XS-S。並列 workspace 運用が続く限り再発する (今回は手動 `jj bookmark set master -r master@origin` で復旧)。
+
+#### 作業計画
+
+- [ ] `[pr_size_check] default_branch` を `master@origin` に変更 (config 1 行) または pr_size_check 側で remote tracking ref を優先解決する fallback を実装 (着手時に判断、`[file_length_gate] base` も同点検)
+- [ ] ローカル master 遅延状態を模した test (revset 解決の単体レベル) を検討
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ローカル `master` が遅延していても pr_size_check が「master@origin 以降の実 diff」だけを計測すること。
+
+#### 詰まっている箇所
+
+- なし (根因・復旧手順・実測値あり)。
 
 ---
 
