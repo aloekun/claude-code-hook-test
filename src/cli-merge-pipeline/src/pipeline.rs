@@ -103,45 +103,81 @@ fn run_command_step(label: &str, step: &PipelineStepConfig, timeout: u64) -> Res
     }
 }
 
+/// [`validate_ai_step_context`] の判定結果。
+#[derive(Debug, PartialEq)]
+enum AiStepContext<'a> {
+    /// workflow を続行できる
+    Ready { pr_number: u64, owner_repo: &'a str },
+    /// pre_steps 経路 (PipelineContext 未指定) — marker 不要の正当な skip
+    SkipSilent,
+    /// owner_repo 欠落/不正 — feedback は実行できないが PR は特定できているため
+    /// `.failed` marker を残して L2 recovery (ADR-030) の対象にする
+    SkipWithMarker { pr_number: u64, reason: String },
+}
+
 /// `run_ai_step` の入力ガード: PipelineContext の存在・owner_repo の存在・形式を確認する。
-///
-/// Ok((pr_number, owner_repo)) → workflow を続行できる。
-/// Err(()) → スキップ (ログ済み)。
 fn validate_ai_step_context<'a>(
     label: &str,
     ctx: Option<&'a PipelineContext>,
-) -> Result<(u64, &'a str), ()> {
+) -> AiStepContext<'a> {
     let Some(ctx) = ctx else {
         log_step(
             label,
             "SKIP",
             "PipelineContext 未指定 (pre_steps 経路) — AI ステップは post_steps 専用です",
         );
-        return Err(());
+        return AiStepContext::SkipSilent;
     };
 
     let Some(owner_repo) = ctx.owner_repo.as_deref() else {
-        log_step(
-            label,
-            "WARN",
-            "owner_repo を取得できませんでした (gh repo view 失敗?) — feedback workflow をスキップ",
-        );
-        return Err(());
+        return AiStepContext::SkipWithMarker {
+            pr_number: ctx.pr_number,
+            reason: "owner_repo を取得できませんでした (gh repo view 失敗?)".to_string(),
+        };
     };
 
     if !lib_pending_file::is_valid_owner_repo(owner_repo) {
-        log_step(
-            label,
-            "WARN",
-            &format!(
-                "owner_repo {:?} の形式が不正 — feedback workflow をスキップ",
-                owner_repo
-            ),
-        );
-        return Err(());
+        return AiStepContext::SkipWithMarker {
+            pr_number: ctx.pr_number,
+            reason: format!("owner_repo {:?} の形式が不正", owner_repo),
+        };
     }
 
-    Ok((ctx.pr_number, owner_repo))
+    AiStepContext::Ready {
+        pr_number: ctx.pr_number,
+        owner_repo,
+    }
+}
+
+/// feedback を実行せず skip する場合も `.failed` marker を残す。
+///
+/// PR #238 で owner_repo 検出失敗の skip が marker なしに抜け、post-merge feedback
+/// が L2 recovery (ADR-030) の対象にならず silent 消失した実観測への対策。
+fn skip_with_failed_marker(label: &str, pr_number: u64, reason: &str) {
+    log_step(
+        label,
+        "WARN",
+        &format!("{} — feedback workflow をスキップ", reason),
+    );
+    let repo_root = match std::env::current_dir() {
+        Ok(p) => p,
+        Err(e) => {
+            log_step(
+                label,
+                "WARN",
+                &format!("current_dir 取得失敗: {} — marker 書込を断念", e),
+            );
+            return;
+        }
+    };
+    match feedback::write_failed_marker(&repo_root, pr_number, reason) {
+        Ok(marker) => log_step(
+            label,
+            "WARN",
+            &format!("marker: {} (L2 recovery が拾います)", marker.display()),
+        ),
+        Err(e) => log_step(label, "WARN", &format!("marker 書込も失敗: {}", e)),
+    }
 }
 
 /// post-merge の `type = "ai"` ステップを実行する (ADR-030 L1 Floor)。
@@ -150,10 +186,20 @@ fn validate_ai_step_context<'a>(
 /// 失敗時は `.failed` marker を残し、L2 recovery (UserPromptSubmit hook, Phase C で実装)
 /// が後続 prompt 入力時に再実行を促す。
 fn run_ai_step(label: &str, ctx: Option<&PipelineContext>) {
-    let Ok((pr_number, owner_repo)) = validate_ai_step_context(label, ctx) else {
-        return;
-    };
+    match validate_ai_step_context(label, ctx) {
+        AiStepContext::Ready {
+            pr_number,
+            owner_repo,
+        } => run_ai_step_for(label, pr_number, owner_repo),
+        AiStepContext::SkipSilent => {}
+        AiStepContext::SkipWithMarker { pr_number, reason } => {
+            skip_with_failed_marker(label, pr_number, &reason);
+        }
+    }
+}
 
+/// 検証済みコンテキストで feedback workflow を実行する ([`run_ai_step`] の本体)。
+fn run_ai_step_for(label: &str, pr_number: u64, owner_repo: &str) {
     let repo_root = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -523,26 +569,41 @@ mod tests {
     }
 
     #[test]
-    fn validate_ai_step_skips_when_ctx_none() {
-        assert!(validate_ai_step_context("test", None).is_err());
+    fn validate_ai_step_skips_silently_when_ctx_none() {
+        assert_eq!(
+            validate_ai_step_context("test", None),
+            AiStepContext::SkipSilent,
+            "pre_steps 経路は正当な skip なので marker 不要"
+        );
     }
 
+    /// PR #238 regression: owner_repo 欠落は marker 付き skip に分類され、
+    /// pr_number が L2 recovery 用に保持されること。
     #[test]
-    fn validate_ai_step_skips_when_owner_repo_none() {
+    fn validate_ai_step_requests_marker_when_owner_repo_none() {
         let ctx = PipelineContext {
             pr_number: 42,
             owner_repo: None,
         };
-        assert!(validate_ai_step_context("test", Some(&ctx)).is_err());
+        match validate_ai_step_context("test", Some(&ctx)) {
+            AiStepContext::SkipWithMarker { pr_number, reason } => {
+                assert_eq!(pr_number, 42);
+                assert!(reason.contains("owner_repo"), "reason: {}", reason);
+            }
+            other => panic!("SkipWithMarker を期待: {:?}", other),
+        }
     }
 
     #[test]
-    fn validate_ai_step_skips_when_owner_repo_invalid() {
+    fn validate_ai_step_requests_marker_when_owner_repo_invalid() {
         let ctx = PipelineContext {
             pr_number: 42,
             owner_repo: Some("has space/repo".to_string()),
         };
-        assert!(validate_ai_step_context("test", Some(&ctx)).is_err());
+        match validate_ai_step_context("test", Some(&ctx)) {
+            AiStepContext::SkipWithMarker { pr_number, .. } => assert_eq!(pr_number, 42),
+            other => panic!("SkipWithMarker を期待: {:?}", other),
+        }
     }
 
     #[test]
@@ -551,8 +612,12 @@ mod tests {
             pr_number: 7,
             owner_repo: Some("aloekun/claude-code-hook-test".to_string()),
         };
-        let (pr, repo) = validate_ai_step_context("test", Some(&ctx)).unwrap();
-        assert_eq!(pr, 7);
-        assert_eq!(repo, "aloekun/claude-code-hook-test");
+        assert_eq!(
+            validate_ai_step_context("test", Some(&ctx)),
+            AiStepContext::Ready {
+                pr_number: 7,
+                owner_repo: "aloekun/claude-code-hook-test",
+            }
+        );
     }
 }

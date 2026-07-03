@@ -21,5 +21,6 @@ mod github;
 mod pipeline;
 
 fn main() {
+    lib_jj_helpers::inject_git_dir_for_gh(pipeline::log_info);
     std::process::exit(pipeline::run_pipeline());
 }

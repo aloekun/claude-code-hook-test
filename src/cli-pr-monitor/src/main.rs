@@ -30,6 +30,8 @@ mod util;
 use stages::{run_create_pr, run_mark_notified, run_monitor_only};
 
 fn main() {
+    lib_jj_helpers::inject_git_dir_for_gh(log::log_info);
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.iter().any(|a| a == "--mark-notified") {

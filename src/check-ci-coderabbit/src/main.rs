@@ -430,7 +430,14 @@ fn print_json<T: serde::Serialize>(value: &T) {
     println!("{}", json);
 }
 
+/// GIT_DIR 注入時のログ adapter。stdout は機械可読 JSON 専用のため必ず stderr へ出す。
+fn log_env_to_stderr(msg: &str) {
+    eprintln!("[check-ci-coderabbit] {}", msg);
+}
+
 fn main() {
+    lib_jj_helpers::inject_git_dir_for_gh(log_env_to_stderr);
+
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {

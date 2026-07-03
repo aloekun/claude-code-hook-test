@@ -9,4 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 
+[dev-dependencies]
+tempfile = "3"
+
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

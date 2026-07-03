@@ -26,7 +26,7 @@ B1 は **即 escalation 方式** (ループなし)。gate FAIL 時は人間が `
 
 ## 3. dogfood 運用
 
-- **観測開始日 (PR-1 merge 日)**: (merge 時に記入)
+- **観測開始日 (PR-1 merge 日)**: 2026-07-03 (PR #238 squash merge)
 - **観測対象イベント**: auto-push 発火 (cli-pr-monitor の `[decision] gate:` ログが出た監視ターン)。
 - **記録方法**: イベント発生ごとに下表へ 1 行追記する。gate の実行経路・結果は `[gate]` プレフィックスの stdout ログから転記できる。
 

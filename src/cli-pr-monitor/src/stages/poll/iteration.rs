@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::classifier_runner::classify_findings;
 use crate::config::{ClassifierConfig, DEFAULT_CHECK_TIMEOUT_SECS};
 use crate::log::{log_info, truncate_safe};
-use crate::runner::run_cmd_direct;
+use crate::runner::run_cmd_capture;
 use crate::state::{
     read_state_from, update_state_from_check_result, write_state_to, CiState, CodeRabbitState,
     PrMonitorState,
@@ -71,26 +71,43 @@ fn build_checker_args(push_time: &str, pr_info: &PrInfo) -> Vec<String> {
     args
 }
 
+/// checker を起動し stdout のみを JSON としてパースする。
+///
+/// stderr は log 転送に留める: checker は repo 検出失敗等を stderr に警告しつつ
+/// exit 0 で fail-soft JSON を返すことがあり、結合出力をパースすると正常な JSON
+/// の後ろに stderr が連結され「trailing characters」で監視が停止する (PR #238 実観測)。
 fn invoke_checker(
     checker: &std::path::Path,
     args: &[String],
 ) -> Result<serde_json::Value, Box<PollResult>> {
-    let (success, output) = run_cmd_direct(
+    let cap = run_cmd_capture(
         &checker.to_string_lossy(),
         &[],
         args,
         DEFAULT_CHECK_TIMEOUT_SECS,
     );
 
-    if !success {
-        log_info(&format!("checker 失敗: {}", truncate_safe(&output, 200)));
+    let stderr_trimmed = cap.stderr.trim();
+    if !stderr_trimmed.is_empty() {
+        log_info(&format!(
+            "checker stderr (JSON パース対象から分離): {}",
+            truncate_safe(stderr_trimmed, 300)
+        ));
+    }
+
+    if !cap.ok {
+        let mut detail = format!("{}{}", cap.stdout, cap.stderr).trim().to_string();
+        if cap.timed_out {
+            detail = format!("{} (timeout {}s)", detail, DEFAULT_CHECK_TIMEOUT_SECS);
+        }
+        log_info(&format!("checker 失敗: {}", truncate_safe(&detail, 200)));
         return Err(Box::new(error_poll_result(&format!(
             "check-ci-coderabbit.exe 失敗: {}",
-            truncate_safe(&output, 200)
+            truncate_safe(&detail, 200)
         ))));
     }
 
-    serde_json::from_str::<serde_json::Value>(&output).map_err(|e| {
+    serde_json::from_str::<serde_json::Value>(cap.stdout.trim()).map_err(|e| {
         log_info(&format!("JSON パース失敗: {}", e));
         Box::new(error_poll_result(&format!(
             "checker 出力の JSON パース失敗: {}",
@@ -279,6 +296,28 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
 mod tests {
     use super::*;
     use lib_report_formatter::Finding;
+
+    /// PR #238 regression: checker が stderr に警告 (repo 検出失敗等の fail-soft ログ)
+    /// を出しても、stdout の JSON パースが壊れないこと。修正前は stdout+stderr の
+    /// 結合テキストをパースしており「trailing characters」で監視が停止した。
+    #[test]
+    #[cfg(windows)]
+    fn invoke_checker_parses_stdout_json_despite_stderr_noise() {
+        let result = invoke_checker(
+            std::path::Path::new("cmd"),
+            &[
+                "/C".to_string(),
+                "echo [1,2]& echo [checker] repo detect failed 1>&2".to_string(),
+            ],
+        );
+        let value = result.unwrap_or_else(|pr| {
+            panic!(
+                "stderr ノイズ入りでもパース成功すべき: action={}, summary={}",
+                pr.action, pr.summary
+            )
+        });
+        assert_eq!(value, serde_json::json!([1, 2]));
+    }
 
     /// PR #120 W-001 follow-up (順位 83): `enrich_with_classifier` の `!config.enabled`
     /// guard を **単独で** 検証する。`findings` を非空 (= `findings.is_empty()` guard
