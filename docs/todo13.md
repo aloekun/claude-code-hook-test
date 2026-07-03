@@ -648,41 +648,50 @@
 
 ---
 
-### cli-pr-monitor / cli-merge-pipeline の非 colocated jj workspace 対応 — repo 解決 fallback + checker 出力の stdout/stderr 分離 (PR #238 監視・マージで実観測)
+### ADR-NNN (採番未確定、land 時に確定): 部分効果 env var anti-pattern の文書化 (PR #239 post-merge-feedback T3-1 採用)
 
-> **動機**: PR #238 (auto-push gate PR-1) の監視とマージで 3 箇所の欠陥が連鎖して観測された (2026-07-03)。(a) `get_pr_info` の repo 解決が引数なし `gh repo view` 依存で、非 colocated jj workspace (.git なし) では GH_REPO 環境変数を設定しても "failed to run git" で常に失敗し `PrInfo.repo = None` になる (gh は pr サブコマンドでは GH_REPO を尊重するが、引数なし repo view では git remote を直接参照する)。(b) repo が None のため checker (`check-ci-coderabbit`) に `--repo` が渡らず、checker 自身の repo 検出も同様に失敗して stderr に初期化エラーを出力する (exit 0 の fail-soft)。`invoke_checker` は `run_cmd_direct` の stdout+stderr **結合**テキストを `serde_json::from_str` にかけるため、正常な JSON の後ろに stderr が連結され「trailing characters」で parse 失敗 → `action=error` で監視停止 (park も wakeup 予約もされない)。(c) `cli-merge-pipeline` も同型の `gh repo view` 失敗で owner_repo を検出できず、**post_steps の post-merge feedback (ADR-030) が pending file 未書込のまま skip** された (マージ自体は bookmark fallback で成功)。
+> **動機**: サブコマンドによって効果が異なる env var は「一部のコマンドが成功する」ことで全体が動いていると誤認させ、silent 部分故障を招く。実例 = `GH_REPO` は `gh pr create/merge` には効くが引数なし `gh repo view` には効かず、PR #238 で「マージ成功 / post-merge feedback silent 消失」の部分故障が発生した。`gh-repo-env-guard` preset (PR #239) が GH_REPO 個別には機械防御するが、「なぜ partial coverage が危険か」の原則が未文書化で、同型のショートカット提案 (例: `GH_HOST` 系 env var) を reviewer / implementer が即認識できない。
 >
-> **参照**: `src/cli-pr-monitor/src/util.rs` `get_pr_info` / `src/cli-pr-monitor/src/stages/poll/iteration.rs` `invoke_checker` / `src/cli-pr-monitor/src/runner.rs` `run_cmd_direct` (combined 出力仕様) / `src/cli-merge-pipeline/src/github.rs` `detect_owner_repo` (ADR-029 由来、PR #230 の module 分割は移動のみで挙動不変)。順位 247 (観点⑧ jj-workspace robustness) の既知 bug class「`--repo` 無し gh」の新実例 3 件 + parse 層の新規欠陥。
+> **参照**: PR #238 (実害) / PR #239 (preset 実装 + feedback 提案 #1)、ADR-045 § PR 運用時の追加設定、`.claude/hooks-config.toml` gh-repo-env-guard preset。
 >
-> **原因の切り分け (2026-07-03 調査確定)**: コード回帰でも flaky でもなく決定論的。ADR-045 § PR 運用時の追加設定 (2026-06-30、PR #228) が本問題と回避策 `GIT_DIR="$HOME/work/claude-code-hook-test/.git"` 前置を既に文書化しており、PR #227/#228 は本 workspace から `GIT_DIR` 付きで成功していた (`.takt/runs/2026063*-post-merge-feedback-for-227/228` が本 workspace に存在)。PR #238 セッションでは文書化された `GIT_DIR` でなく `GH_REPO` を使ったため、`gh pr create/merge/view` (GH_REPO を尊重) は成功し、引数なし `gh repo view` (git remote 直接参照、GH_REPO 無視) に依存する repo 検出だけが失敗する**部分故障**になった。`GIT_DIR` 併用で全 gh 呼び出しが成功することを実証済み。
->
-> **実行優先度**: 🔧 Tier 2 — Effort M。ADR-045 並列 workspace 運用では手動 `GIT_DIR` 前置忘れで PR 監視自動化と post-merge feedback が silent に全損するため、ADR-045 §恒久対策の候補 1 の実装を優先。
+> **実行優先度**: 💎 Tier 3 — Effort S。Severity Medium + Frequency Medium + Adoption Risk None (PR #239 post-merge-feedback T3-1、ユーザー採用 2026-07-03)。
 
-#### 設計決定 (ユーザー合意 2026-07-03: (a) GIT_DIR 自動注入を本命 + (d) GH_REPO guard preset を恒久追加、同一 PR。「PR 操作コマンド + .git 不在 + GIT_DIR なしを block する案」は不採用 = (a) land 後に前提が崩れるため)
+#### 作業計画
 
-- **(a) GIT_DIR 自動注入** (ADR-045 §恒久対策の候補 1 の実装): lib-jj-helpers に共通 helper を追加し、cli-pr-monitor / cli-merge-pipeline / check-ci-coderabbit の main() 冒頭で 1 回呼ぶ。`.git` 不在 + `GIT_DIR` 未設定のとき、`.jj/repo` (secondary workspace ではファイル = main store への相対パス、実測 `../../claude-code-hook-test/.jj/repo`) → `store/git_target` (実測 `../../../.git`) の順に解決して `std::env::set_var("GIT_DIR", ...)` = 子プロセス gh 全体に伝播。既存 env 尊重・導出失敗は warning + 続行 (colocated では no-op の fail-soft)。check-ci-coderabbit に lib-jj-helpers dep 追加。
-- **(b) stdout/stderr 分離パース**: `invoke_checker` は stdout のみを JSON パース対象にする (結合出力の `run_cmd_direct` をやめ、分離キャプチャ版 helper を追加)。stderr は非空なら log 転送。
-- **(c) skip 時の marker 書込**: owner_repo 検出失敗の skip path は `.failed` marker を書かずに抜けるため L2 recovery (ADR-030) が発火しない (PR #238 の feedback は silent 消失、marker 無しを実確認)。skip でも marker を書き、(a) 修正後の recovery 再実行を可能にする。
-- **(d) `gh-repo-env-guard` preset (恒久)**: hooks-pre-tool-validate に `GH_REPO=` (Bash) / `$env:GH_REPO` (PowerShell) 検出 preset を追加。GH_REPO は公式 env だが本リポジトリでは部分カバー (引数なし `gh repo view` に効かない) で silent 部分故障を招くため、GIT_DIR / 自動注入 / `--repo` フラグへ誘導する block メッセージ。hooks-config.toml の blocked_patterns + preset 一覧コメント更新、positive/negative test (既存 preset と同型)。
-- **regression test**: stderr にノイズを含む fail-soft checker 出力で parse が成功することを検証 (a が直っても b は独立の防御層として必要)。
-
-#### 作業計画 (1 PR、push 時に squash)
-
-- [x] (a) lib-jj-helpers に GIT_DIR 導出 helper (純関数 + unit test + jj workspace 実組みの #[ignore] 統合テスト) + 3 exe main() へ注入 + `[env]` ログ
-- [x] (d) `gh-repo-env-guard` preset + hooks-config.toml 更新 + positive/negative test (templates 展開は見送り = 派生プロジェクトの gh 運用は別途判断)
-- [x] (b) `invoke_checker` の stdout 限定パース + stderr ノイズ regression test (`run_cmd_capture` 分離キャプチャ新設)
-- [x] (c) owner_repo 失敗 path の `.failed` marker 書込 + unit test (`AiStepContext::SkipWithMarker`)
-- [x] docs: ADR-045 改訂 (恒久対策候補 1 実装済み化、手動 GIT_DIR 前置を fallback に格下げ、preset 追記)
-- [ ] dogfood: 本 PR 自体を **env 前置なしの素のコマンド**で本 workspace から push → create-pr → monitor → merge し、repo 検出成功 / checker parse 成功 / post-merge feedback 発火を確認。GH_REPO guard は意図的 `GH_REPO=x` 実行で block 確認 (PR body に記録)
-- [ ] 本 entry 削除 + todo-summary.md 行削除 (dogfood 確認後の後続 docs PR で実施)
+- [ ] 新 ADR (順位 135 placeholder policy 適用) に「部分効果 env var」anti-pattern を codify: 定義 / PR #238 実例 / 判定基準 (env var による回避策採用時は対象コマンド全系統でのカバレッジ確認を必須化) / 推奨代替 (全系統に効く機構 = GIT_DIR 自動注入型、または明示フラグ)
+- [ ] CLAUDE.md の ADR 一覧にリンク追加 (ADR-022 の「CLAUDE.md はリンクに留める」方針に従い本文は ADR 側へ)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- 非 colocated jj workspace から `cli-pr-monitor.exe --monitor-only` と `pnpm merge-pr` を実行して、gh 系呼び出しが repo 解決に成功し、監視 (park / findings 対応 / merge-ready 判定) と post-merge feedback が自動で完走すること。
+- 将来の env var ベースの回避策提案に対し、reviewer / implementer がカバレッジ確認を求める根拠文書が ADR として存在し、CLAUDE.md から辿れること。
 
 #### 詰まっている箇所
 
-- なし (3 観測とも根因特定済み、再現手順あり)。PR #238 の post-merge feedback が skip されたため、本 PR 分の feedback 分析は修正後に手動 or 次 PR 分から再開。
+- なし。
+
+---
+
+### ADR-030 に PR #239 の feedback silent skip 実装記録を追記 (PR #239 post-merge-feedback T3-2 採用)
+
+> **動機**: 非 colocated jj workspace での owner_repo 検出失敗 → `.failed` marker 未書込 → L2 recovery 未発動という silent skip シナリオ (PR #238 実観測、feedback が recovery 不能なまま消失) と、その対処 (`AiStepContext` enum 化 + `SkipWithMarker` variant + `skip_with_failed_marker()`) を ADR-030 に実装記録として残し、次回同類問題の参照点にする。
+>
+> **参照**: PR #238 (実害) / PR #239 (`src/cli-merge-pipeline/src/pipeline.rs` の `AiStepContext::SkipWithMarker`)、ADR-030 (失敗マーカーによる recovery)。
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。Severity Low (既修正) + Frequency Low (PR #239 post-merge-feedback T3-2、ユーザー採用 2026-07-03)。次回 ADR-030 を参照・編集する PR への同乗で消化可。
+
+#### 作業計画
+
+- [ ] ADR-030 に「owner_repo 検出失敗などの実行前 skip も marker 付き skip とし L2 recovery 対象にする (`AiStepContext::SkipWithMarker`)」の実装記録 sub-section を数行追記 (PR #238 シナリオを inline cite)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-030 を読んだ実装者が「feedback の skip 経路はすべて marker を残す」規約を実装記録から把握できること。
+
+#### 詰まっている箇所
+
+- なし。
 
 ---
 
