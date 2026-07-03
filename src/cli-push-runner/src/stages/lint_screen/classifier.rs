@@ -160,6 +160,22 @@ mod tests {
         assert!(err.contains("stdout 空"), "err: {}", err);
     }
 
+    /// タイムアウト経路 (`None` 分岐) の regression test。
+    /// 子プロセスが `timeout_secs + 5` 秒以内に終了しない場合に `Err("timeout (Ns)")`
+    /// を返すことを確認する。`timeout_secs=1` を渡すと内部で 6s タイムアウトが発火する。
+    #[test]
+    #[cfg(windows)]
+    #[ignore = "integration: tests timeout behavior (~6s actual wait); run via `cargo test -- --ignored --test-threads=1`"]
+    fn pump_child_io_reports_timeout_when_child_exceeds_deadline() {
+        let child = spawn_piped(
+            "powershell",
+            &["-NoProfile", "-Command", "Start-Sleep -Seconds 10"],
+        );
+        let err = pump_child_io(child, "", 1).expect_err("タイムアウトは Err のはず");
+        assert!(err.contains("timeout"), "err: {}", err);
+        assert!(err.contains("6s"), "err: {}", err);
+    }
+
     /// PR #231 CodeRabbit Major の regression test: 子プロセスが stdin を読む前に
     /// パイプバッファ (~64KB) を大きく超える stdout (~256KB) を吐いても deadlock
     /// しないこと (drain-first の検証)。修正前の順序 (stdin write → drain spawn)
