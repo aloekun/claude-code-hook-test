@@ -696,6 +696,31 @@
 
 ---
 
+### ADR-040 の実測値を新 GPU (RTX PRO 5000 48GB) で再 calibration (ADR-046 WP-01 スパイクで陳腐化を観測)
+
+> **動機**: ADR-038 / ADR-040 は Local LLM の実行環境を **RTX 3070 8GB** として実測値を固定しているが、実機は **NVIDIA RTX PRO 5000 Blackwell 48GB** に更新済み (2026-07-04 に `nvidia-smi` で確認)。この結果、(1) ADR-040 の VRAM/latency trade-off 表 (例: mistral:7b ~2GB at 32K ctx) と (2)「VRAM scarcity → 同時起動不可 / model swap 制約 / KV cache budgeting」という framing が陳腐化した。27-31B Q4 モデルが 100% GPU で動き (qwen3-coder:30b ~21.8GB / gemma4:31b ~20.9GB / gemma4:26b ~17.6GB at num_ctx 32768)、VRAM ではなく latency が実効制約になった。
+>
+> **参照**: ADR-040 (Local LLM Context Size、実測値元)、ADR-046 (WP-01 スパイク、4 モデルの VRAM・latency 実測を保持)、ADR-038 (現行 classifier、RTX 3070 前提の記述)、memory `gpu-upgrade-rtx-pro-5000`。
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。実装変更を伴わず ADR amendment 中心。分類層 (ADR-038) の運用に直接の不具合はないが、num_ctx 再選定や派生プロジェクト porting 時に誤った RTX 3070 前提を引き継ぐリスクを解消する。
+
+#### 作業計画
+
+- [ ] ADR-040 に amendment: RTX 3070 8GB の実測表は「旧環境 (historical)」と明示し、新 GPU での再測定値 (ADR-046 の VRAM 実測 + 代表 diff の latency) を追記
+- [ ] 「Context 選定の判断 flow」の memory 軸 (同時起動可否 / swap) を latency 軸へ再重み付け
+- [ ] ADR-038 の RTX 3070 前提記述 (§コンテキスト / §帰結の VRAM 8GB 制約) に更新環境への参照を付す
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-040 を読んだ実装者が、現行 GPU では VRAM が制約でなく latency が実効制約であることを把握でき、RTX 3070 8GB の数値を現行前提と誤認しないこと。
+
+#### 詰まっている箇所
+
+- なし (GPU 更新の事実・ADR-046 の実測値あり)。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
