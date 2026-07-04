@@ -721,6 +721,31 @@
 
 ---
 
+### classifier FP 検出強化プロンプトで格上げ候補を再評価 (WP-04 見送りの follow-up、ADR-038 amendment 由来)
+
+> **動機**: WP-04 (classifier モデル格上げ) の実測で、mistral:7b からの格上げ候補 (gemma4:12b/26b/31b, qwen3-coder:30b) は **いずれも `false_positive_likely` 検出を改善しなかった** (gold FP 6 件中、正検出は最良 qwen3-coder でも 1 件、全モデルが 3〜4 件を有害な auto_fix に誤分類)。ただし eval で使った `classify.txt` は mistral:7b 向けに tune 済みのため、「FP 検出が能力限界なのか、プロンプト不適合なのか」が未分離。FP 検出を明示的に強化したプロンプト版で候補を再測し、切り分ける。
+>
+> **参照**: ADR-038 § classify モデル格上げの評価と見送り (2026-07-05 追記、WP-04)、`src/cli-finding-classifier/prompts/classify.txt`、`src/cli-finding-classifier/src/main.rs` (`--prompt-file` で差し替え可)、WP-04 scratchpad の eval セット (Opus gold 35 件) + ハーネス。ADR-019 § 既知 CodeRabbit FP パターン (キュレート FP 例の出典)。
+>
+> **実行優先度**: ⏳ Tier 5 — Effort M。現行 mistral:7b は安全軸完璧・最軽量で運用に支障なく、優先度は低い。materially better な新 local モデル出現時も再評価トリガー。
+
+#### 作業計画
+
+- [ ] FP 検出強化版 `classify.txt` を作成 (false_positive_likely の positive signal をより明示、Windows 専用/test mock/合成 fixture 等の既知 FP パターンを few-shot 化)
+- [ ] WP-04 の Opus gold eval セット (35 件) で qwen3-coder:30b 等を再測、FP recall と human_review 安全軸を確認
+- [ ] 能力限界と確認できれば恒久見送りとして本 entry 削除。プロンプト不適合なら該当モデル + 専用プロンプトで格上げ (ADR-038 の model default 変更 + amendment)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- FP 検出が「モデル能力限界」か「プロンプト不適合」かが実測で切り分けられ、格上げ採否が結論付けられていること。
+
+#### 詰まっている箇所
+
+- なし (WP-04 の eval 資産・gold セットあり、プロンプト改訂のみ)。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)

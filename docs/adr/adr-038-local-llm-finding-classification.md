@@ -229,6 +229,44 @@ LLM 入力時には runner が `#` で始まる leading 行を skip し `diff --
 - post-merge-feedback T3-2 (Frequency Medium / Effort S / Adoption Risk None) として採用
 - Phase b/c/d で fixture 追加が継続するため、設計意図のドリフトを構造的に防ぐ
 
+## classify モデル格上げの評価と見送り (2026-07-05 追記、WP-04)
+
+### 動機と方法
+
+classify モードの精度向上 (特に `false_positive_likely` 判定改善による下流の無駄 fix 削減) を狙い、`mistral:7b` からの格上げ候補を実測評価した。方法は本 ADR Phase a の lint-screen eval と同じく **Claude (Opus) 出力を gold baseline** とする:
+
+- eval セット: real CodeRabbit findings 30 件 (過去 PR harvest) + キュレート FP 例 5 件 = **35 件**。各 finding に Opus が gold action (`auto_fix` / `human_review` / `false_positive_likely` / `informational`) を付与。
+- 候補: `mistral:7b` (現行 baseline) / `gemma4:12b` (中 dense) / `gemma4:26b` / `gemma4:31b` / `qwen3-coder:30b`。
+- 指標: gold 一致率 (accuracy) / FP 処理 / human_review 安全軸 / latency / VRAM。
+
+### 実測結果 (RTX PRO 5000 48GB、num_ctx 8192)
+
+| モデル | accuracy | FP→auto_fix (有害) | human_review 誤送 auto_fix (危険) | invalid | latency 中央 | VRAM |
+|---|---|---|---|---|---|---|
+| **mistral:7b** | 0.63 | 4/6 | **0/14 (完璧)** | 0 | 0.35s | 5.6GB |
+| gemma4:12b | 0.57 | 4/6 | 0/14 | 3 | 0.75s | 8.4GB |
+| gemma4:26b | 0.20 | — | — | **27 (破綻)** | 1.46s | 17.6GB |
+| gemma4:31b | 0.57 | 3/6 | 0/14 | 0 | 1.49s | 20.9GB |
+| qwen3-coder:30b | 0.69 | 3/6 | **1/14 (安全後退)** | 0 | 0.34s | 19.4GB |
+
+### 決定: 格上げを見送り、`mistral:7b` を維持
+
+- **FP 検出は全モデルで未達**: gold FP 6 件のうち正しく `false_positive_likely` にできたのは最良 (qwen3-coder) でも 1 件、全モデルが 3〜4 件を有害な `auto_fix` に誤分類。計画の主目的 (FP 判定改善) を満たす候補が無い。→ これは mistral 固有ではなく、この規模の局所 LLM の **能力上の限界**。
+- **mistral:7b は安全軸で完璧**: 人間判断を要する finding (design / state / concurrency / security) を一度も `auto_fix` に倒さない。プロンプトの保守バイアス (「迷ったら human_review」) が正しく機能。accuracy が僅かに上 (+0.06) の qwen3-coder は逆に human_review を 1 件 auto_fix に誤送する **安全後退**を起こす。分類器の目的 (安全な triage) では、accuracy より「人間判断案件を auto_fix に倒さない」保守性が優先される。
+- **中型 dense は劣化・破綻**: gemma4:12b / 31b は mistral より accuracy が低く、gemma4:26b は 35 件中 27 件で invalid action を返し破綻 ([ADR-046](adr-046-local-llm-review-spike.md) WP-01 で観測した gemma4:26b の大入力破綻と同系)。
+- accuracy 差 (0.63 vs 0.69) は temperature 0.1 のばらつき (±0.03) と同程度で有意でない。mistral:7b は最軽量 (5.6GB) ・最速 (0.34s) ・安全軸完璧のため、格上げを正当化する候補が無い。
+
+### 再利用可能な知見
+
+- **classify モードの eval 手法**: Opus gold baseline との action 一致率 + FP 処理 + 安全軸 (human_review→auto_fix 誤送) の 3 軸評価は、将来のモデル/プロンプト再評価に再利用できる (`cli-finding-classifier` の lint-screen eval と同型)。
+- **保守バイアスは分類器の安全機能**: 「迷ったら human_review」は accuracy を下げるが、誤自動修正リスクを構造的に抑える。格上げ候補は accuracy だけでなく安全軸で評価すべき。
+- **FP 検出はプロンプト再調整の余地**: `classify.txt` は mistral 向けに tune 済み。FP 検出強化プロンプトで能力限界かプロンプト不適合かを切り分ける follow-up は順位 256。候補の VRAM/latency 実測は [ADR-040](adr-040-local-llm-context-size.md) の新 GPU 再 calibration (順位 255) にも供する。
+
+### 妥当性の脅威
+
+- gold は Opus 判断で `auto_fix` にやや寛容な一方、`classify.txt` は保守設計 (迷ったら human_review) のため、auto_fix/human_review 軸の一致率は過小評価気味。ただし結論を支える 2 軸 (FP 全滅・human_review 安全軸) はこの較正差に頑健。
+- N=35 (FP 6 件) と小さい。ただし 5 モデルで一貫した傾向。
+
 ## 関連
 
 - [ADR-018: cli-pr-monitor の takt ベース移行](adr-018-pr-monitor-takt-migration.md)
