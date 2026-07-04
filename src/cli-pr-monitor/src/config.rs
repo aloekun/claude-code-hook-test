@@ -77,6 +77,15 @@ pub(crate) struct FixConfig {
     pub(crate) sweep: SweepConfig,
     #[serde(default)]
     pub(crate) gate: crate::stages::gate::GateConfig,
+    /// auto-push 成功後に `@coderabbitai review` を投稿して再レビューを明示発火するか。
+    ///
+    /// `.coderabbit.yaml` の `reviews.auto_review.auto_incremental_review = false`
+    /// と結合する (WP-03 / ADR-019 amendment)。増分レビュー抑止時は push だけでは
+    /// CodeRabbit が再レビューしないため、監視側から明示トリガーする必要がある。
+    /// デフォルト false (opt-in): auto_incremental_review が有効な環境で有効化すると
+    /// 二重レビューになるため、`.coderabbit.yaml` 側と揃えて明示的に true にする。
+    #[serde(default)]
+    pub(crate) trigger_review_after_push: bool,
 }
 
 fn default_auto_push_severity() -> String {
@@ -93,6 +102,7 @@ impl Default for FixConfig {
             push_command: default_push_command(),
             sweep: SweepConfig::default(),
             gate: crate::stages::gate::GateConfig::default(),
+            trigger_review_after_push: false,
         }
     }
 }
@@ -436,6 +446,10 @@ task = "t"
             "gate はデフォルト有効 (fail-closed、ADR-043)"
         );
         assert_eq!(config.fix.gate.group, "rust-lint-test");
+        assert!(
+            !config.fix.trigger_review_after_push,
+            "trigger_review_after_push はデフォルト無効 (opt-in、.coderabbit.yaml と結合)"
+        );
     }
 
     #[test]
@@ -460,10 +474,15 @@ group = "custom-group"
 [fix]
 auto_push_severity = "major"
 push_command = "git push"
+trigger_review_after_push = true
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.fix.auto_push_severity, "major");
         assert_eq!(config.fix.push_command, "git push");
+        assert!(
+            config.fix.trigger_review_after_push,
+            "trigger_review_after_push = true が parse されること"
+        );
     }
 
     #[test]
