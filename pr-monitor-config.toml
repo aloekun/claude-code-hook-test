@@ -31,6 +31,13 @@ extra_args = ["--pipeline", "--skip-git"]
 auto_push_severity = "critical"
 push_command = "jj git push"
 
+# auto-push 成功後に `@coderabbitai review` を明示投稿して再レビューを 1 回発火する
+# (WP-03 / ADR-019 amendment)。.coderabbit.yaml の
+# reviews.auto_review.auto_incremental_review = false と結合する。増分レビューを抑止
+# すると fix push だけでは CodeRabbit が再レビューしないため、監視側から明示トリガーする。
+# auto_incremental_review が有効な環境で true にすると二重レビューになる (両者を揃える)。
+trigger_review_after_push = true
+
 # auto-push 前の品質 gate (PR #224 gate-bypass 対策 B1、fail-closed = ADR-043)。
 # push-runner-config.toml の [[quality_gate.groups]] name=group を push 前に実行し、
 # FAIL なら push せず action_required に倒す。fix diff が docs-only

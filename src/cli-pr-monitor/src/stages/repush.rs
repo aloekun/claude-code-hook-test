@@ -101,10 +101,18 @@ fn run_auto_push(config: &crate::config::FixConfig, pr_label: &str, pre_cid: Opt
         "[action] auto_push: {} の takt 修正を自動 re-push",
         pr_label
     ));
-    if run_push(config) {
+    let push_ok = run_push(config);
+    if push_ok {
         log_info("[action] auto_push: 成功");
     } else {
         log_info("[action] auto_push: 失敗 (手動対応が必要)");
+    }
+
+    if crate::stages::review_trigger::should_trigger_review_after_push(
+        push_ok,
+        config.trigger_review_after_push,
+    ) {
+        crate::stages::review_trigger::trigger_coderabbit_review();
     }
 }
 

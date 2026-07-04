@@ -19,6 +19,14 @@ check_coderabbit = true
 # task = "post-pr-review"
 # extra_args = ["--pipeline", "--skip-git"]
 
+# auto-push 成功後に `@coderabbitai review` を明示投稿して再レビューを 1 回発火する
+# (WP-03 / ADR-019 amendment)。default は false。有効化するのは、この派生プロジェクトにも
+# .coderabbit.yaml (reviews.auto_review.auto_incremental_review = false) を置いて
+# 増分レビューを抑止する場合のみ。auto_incremental_review が有効なまま true にすると
+# 二重レビューになるため、必ず .coderabbit.yaml 側と揃えること。
+# [fix]
+# trigger_review_after_push = true
+
 # auto-push 前の品質 gate (fail-closed = ADR-043)。default は enabled = true で、
 # push-runner-config.toml の [[quality_gate.groups]] name="rust-lint-test" を push 前に実行する。
 # Rust workspace を持たない派生プロジェクトでは group が見つからず fail-closed で

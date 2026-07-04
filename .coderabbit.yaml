@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration — WP-03 CodeRabbit クォータ設計 (ADR-019 amendment)
+#
+# 目的: 無料枠レートリミット (3〜4 レビュー/時) の解除待ちを構造的に削減する。
+# 方針 (balanced): 初回 PR は自動レビューを維持し、fix push での自動増分レビューだけを
+#   抑止する。修正を 1 push に束ねた後、監視 (cli-pr-monitor) が `@coderabbitai review` を
+#   1 回だけ明示投稿して再レビューを発火する
+#   (pr-monitor-config.toml [fix] trigger_review_after_push = true と結合)。
+#
+# 注意: .coderabbit.yaml はダッシュボード設定を上書きし、未指定キーは CodeRabbit の
+#   既定値になる。language を明示しないと既定 en-US に戻るため ja-JP を固定する。
+
+language: "ja-JP"
+
+reviews:
+  auto_review:
+    # 初回 PR (open) は自動レビュー。false にすると初回も手動トリガーが必要になる。
+    enabled: true
+    # draft PR は自動レビュー対象外 (既定 false だが意図を明示)。
+    drafts: false
+    # fix push ごとの自動再レビューを抑止 (レート消費の主因)。
+    # 再レビューは修正束ね後の明示 `@coderabbitai review` で 1 回だけ発火する。
+    auto_incremental_review: false
+    # レビュー済みコミットが N を超えたら自動レビューを一時停止する暴走ガード。
+    auto_pause_after_reviewed_commits: 5
+    # WIP タイトルの PR は自動レビュー対象外 (手動 WIP push でのレート消費を防ぐ)。
+    ignore_title_keywords:
+      - "WIP"
+      - "wip"
+      - "[skip review]"
