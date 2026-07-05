@@ -276,12 +276,42 @@ fn warn_no_steps_configured(config_found: bool) {
     }
 }
 
+/// 各ステップを並列に実行し、失敗を step 定義順で集約する (WP-05)。
+///
+/// 逐次実行では合計時間が全ステップの和になり Stop hook が肥大化していた
+/// (実測 ~8s、うち大半は互いに独立な lint / test / build / clippy)。ステップは
+/// 別ツールで共有 build lock を持たない (cargo を使うのは 1 step のみ) ため thread で
+/// 並列化し、総時間を最遅ステップまで短縮する。網羅性は全ステップ実行で維持。
+///
+/// 失敗集約は spawn 順 (= step 定義順) を保つため決定論的。worker が panic した場合は
+/// fail-closed で failure 扱いにして block する (品質ゲートを黙って通さない)。
 fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<String> {
+    let handles: Vec<(String, std::thread::JoinHandle<(bool, String)>)> = steps
+        .iter()
+        .cloned()
+        .map(|step| {
+            let step_name = step.name.clone();
+            let handle = std::thread::spawn(move || {
+                run_cmd_shell_capped(&step.name, &step.cmd, timeout, MAX_LINES)
+            });
+            (step_name, handle)
+        })
+        .collect();
+
     let mut failures: Vec<String> = Vec::new();
-    for step in steps {
-        let (success, output) = run_cmd_shell_capped(&step.name, &step.cmd, timeout, MAX_LINES);
-        if !success {
-            failures.push(format!("**{}** failed:\n```\n{}\n```", step.name, output));
+    for (name, handle) in handles {
+        match handle.join() {
+            Ok((success, output)) => {
+                if !success {
+                    failures.push(format!("**{}** failed:\n```\n{}\n```", name, output));
+                }
+            }
+            Err(_) => {
+                failures.push(format!(
+                    "**{}** failed: worker thread が panic しました (fail-closed)",
+                    name
+                ));
+            }
         }
     }
     failures
@@ -379,6 +409,51 @@ cmd = "pnpm test"
     fn step_timeout_default_is_reasonable() {
         const { assert!(DEFAULT_STEP_TIMEOUT_SECS >= 30) };
         const { assert!(DEFAULT_STEP_TIMEOUT_SECS <= 300) };
+    }
+
+    /// WP-05 並列化: 複数ステップを並列実行しても、失敗が step 定義順で集約され、
+    /// 成功ステップは failure に含まれないこと。`run_cmd_shell_capped` は `cmd /c` 依存
+    /// のため Windows でのみ実行する (WP-16 CI matrix の非 Windows leg では skip)。
+    #[cfg(windows)]
+    #[test]
+    fn run_quality_steps_parallel_collects_failures_in_step_order() {
+        let steps = vec![
+            QualityStepConfig {
+                name: "pass-a".into(),
+                cmd: "exit 0".into(),
+            },
+            QualityStepConfig {
+                name: "fail-b".into(),
+                cmd: "exit 1".into(),
+            },
+            QualityStepConfig {
+                name: "pass-c".into(),
+                cmd: "exit 0".into(),
+            },
+            QualityStepConfig {
+                name: "fail-d".into(),
+                cmd: "exit 1".into(),
+            },
+        ];
+
+        let failures = run_quality_steps(&steps, 30);
+
+        assert_eq!(failures.len(), 2, "失敗した 2 ステップのみ集約される");
+        assert!(
+            failures[0].contains("fail-b"),
+            "spawn 順 = step 定義順を保つ (fail-b が先): {:?}",
+            failures
+        );
+        assert!(
+            failures[1].contains("fail-d"),
+            "spawn 順 = step 定義順を保つ (fail-d が後): {:?}",
+            failures
+        );
+        assert!(
+            !failures.iter().any(|f| f.contains("pass-")),
+            "成功ステップは failure に含まれない: {:?}",
+            failures
+        );
     }
 
     #[test]

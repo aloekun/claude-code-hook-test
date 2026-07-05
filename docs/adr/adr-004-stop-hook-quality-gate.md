@@ -112,9 +112,31 @@ TypeScript 版と共通の設計:
 
 ### Negative
 
-- 全品質チェックの実行に数十秒〜数分かかる（timeout: 300秒に設定）
+- 全品質チェックの実行に数十秒〜数分かかる（timeout: 300秒に設定。**2026-07-05 WP-05 でステップ並列化により warm cache 時 ~8s → ~2s に短縮、下記追記参照**）
 - `stop_hook_active: true` の2回目はチェックをスキップするため、修正が不完全でも停止を許可してしまう
 - npx の初回ダウンロードで追加の遅延が発生する可能性がある
+
+## ステップ並列実行による高速化 (2026-07-05 追記、WP-05)
+
+### 動機と実測によるボトルネックの再特定
+
+Stop hook の実行時間短縮を検討した際、当初計画は「Rust テスト実行を cargo-nextest に置換」「変更 crate 限定モード (clippy -p + 逆依存)」を想定していた。しかし実測でこれらが**本 hook には無効**と判明した:
+
+- Stop hook は `cargo test` を実行しない (テストは push pipeline 側)。実行するのは `cargo clippy --workspace` のみで、cargo incremental compilation により **warm cache では 0.4〜0.8s** (広く依存される lib 変更後でも 0.8s)。変更 crate 限定にしても逆依存を含めれば同じ crate 群を回すため上積みは ~0.3s と僅少。nextest は cargo test 不在のため適用外。
+- **真のボトルネックは 7 ステップの逐次実行**だった。`run_quality_steps` が step を `for` ループで順に実行するため、総時間 = 全ステップの和 (実測 ~8.1s: lint 1.3s / lint:md 1.6s / clippy 0.8s / test 1.7s / e2e 1.5s / build 1.4s)。
+
+### 決定: ステップを並列実行する
+
+`run_quality_steps` を逐次から `std::thread` による並列実行に変更する (新規依存なし)。
+
+- **総時間が全ステップの和 → 最遅ステップに短縮**: 実測 **~8.1s → ~2.0s (中央値、約 75% 削減)**。受け入れ基準「中央値半減」を満たす。
+- **網羅性は不変**: 全ステップを実行する。実行方法 (逐次→並列) のみ変更で、ゲートが見るチェックの集合は同一。
+- **競合しない**: cargo を使う step は `lint:rust` (clippy) の 1 つだけで、他は node (oxlint/markdownlint/vitest/tsx/tsc) のため共有 build lock を持たない。CWD は各 subprocess が継承のみで変更しない (`run_cmd_shell_capped` は set_current_dir を行わない)。push-runner の quality_gate が既に並列実行済みで、同パターンの実績がある。
+- **決定論的な失敗集約**: spawn 順 (= step 定義順) で join して failure を集約するため、block メッセージの順序は安定。worker thread の panic は fail-closed で failure 扱いにして block する (品質ゲートを黙って通さない)。
+
+### scope 外 (follow-up)
+
+- 計画の nextest 案は Stop hook では無効だが、**push pipeline の `cargo test` (実測 ~80s) には有効な可能性**がある。ただしツール依存追加 (ADR-017 pinning + 派生プロジェクト配布) のコストと、push が Stop より低頻度な点を踏まえた費用対効果評価が必要。順位 257 に follow-up として登録。
 
 ## References
 

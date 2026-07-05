@@ -746,6 +746,32 @@
 
 ---
 
+### push pipeline の `cargo test` を cargo-nextest 化 (WP-05 で Stop hook には無効と判明、push 側 follow-up)
+
+> **動機**: WP-05 (Stop hook 高速化) の実測で、当初計画の nextest 案は **Stop hook には無効**と判明した (Stop hook は cargo test を実行せず、真因は 7 ステップの逐次実行 → 並列化で解決済、ADR-004 amendment)。一方、**push pipeline (cli-push-runner の quality_gate) は `cargo test -- --ignored --test-threads=1` を実行**しており、実測で ~80s を要する (WP-03 push で観測)。ここは nextest による並列テスト実行で高速化の余地がある。push は Stop hook より低頻度だが、fix→push サイクルの待ち時間に直結する。
+>
+> **参照**: `push-runner-config.toml` の `[[quality_gate.groups]]` name=`rust-lint-test`、`src/cli-push-runner` の quality_gate stage、ADR-004 § ステップ並列実行による高速化 (2026-07-05 追記) の scope 外 note、ADR-017 (takt バージョン固定哲学 = nextest 固定の根拠)。
+>
+> **実行優先度**: ⏳ Tier 5 — Effort S-M。現行 push は機能上支障なく、優先度は低い。ツール依存追加の費用対効果を要評価。
+
+#### 作業計画
+
+- [ ] cargo-nextest の導入判断: ツール依存追加 (ADR-017 pinning + `pnpm deploy:hooks` 派生プロジェクト配布) のコスト vs push 高速化の便益を評価
+- [ ] 採用時: `push-runner-config.toml` の `cargo test` step を `cargo nextest run` に置換。**nextest は doctest を実行しないため `cargo test --doc` を併走**させる (doctest 有無を確認: `///` の ` ``` ` を持つ crate)
+- [ ] `--ignored` 統合テスト (repush 等) が nextest で正しく実行されることを確認 (nextest の `--run-ignored` フラグ)
+- [ ] before/after 実測で push pipeline 時間短縮を確認
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- push pipeline の test 実行時間が短縮され、doctest / `--ignored` 統合テストの網羅性が維持されていること。または費用対効果が見合わないと判断し見送りが記録されていること。
+
+#### 詰まっている箇所
+
+- なし (WP-05 で Stop 側は完了、push 側の nextest 適用余地とコスト構造は明確)。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
