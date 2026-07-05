@@ -155,6 +155,13 @@ WP-03 は 2026-04-19 で却下した「rate-limit 耐性 (超過後の auto-retr
 - **手動 fix push は手動トリガーが必要**: 明示トリガーは監視の auto-push 経路 (`auto_push_severity` = critical/major) のみ。ユーザー手動 push (severity=none / minor) 後は `@coderabbitai review` を手動投稿する (fail-open のログが誘導する)。
 - **設定の二重管理**: `.coderabbit.yaml` の `auto_incremental_review` と `pr-monitor-config.toml` の `trigger_review_after_push` は必ず揃える (前者 false ⇔ 後者 true)。揃わないと再レビュー欠落 (両 off) or 二重レビュー (両誤設定) になる。派生プロジェクトの template では default false + コメント例で明示。
 
+#### 再トリガー抑止ガード (2026-07-05 追記、WP-05 follow-up)
+
+CodeRabbit は「**既にレビュー済みのコミットは再レビューしない**」incremental 仕様のため、同一 HEAD への `@coderabbitai review` 再投稿は**レート枠を消費するだけの無駄**になる。加えて OSS/public リポのレビュー枠は有償 Pro (5 レビュー/時) より低くプロジェクトの人気度依存のため、無駄消費を構造的に避ける必要がある。
+
+- **決定論層 (機構)**: 監視の明示トリガー (`src/cli-pr-monitor/src/stages/review_trigger.rs`) は投稿前に `head_already_reviewed(pr, repo)` で「現 HEAD がいずれかの CodeRabbit review の `commit_id` と一致するか」を gh 照会し、一致 (= レビュー済み) なら `@coderabbitai review` を skip する。判定不能 (gh 照会失敗 / repo 未確定) は fail-open で投稿し、再レビュー欠落を招かない (確証がある `Some(true)` のときだけ skip)。
+- **運用層 (規律)**: 手動で `@coderabbitai review` を投げる場合も**同一 HEAD に再投稿しない**。2026-07-05 セッションで、fix の手動 push 後に同一 HEAD へ複数回 `@coderabbitai review` を投稿し (CodeRabbit は毎回「already reviewed, nothing to do」を返すだけ)、レート枠を無駄消費した実例に由来する。新規コミット (別 SHA) への 1 回の明示トリガーは意図した消費であり抑止対象ではない (新しい修正はレビューされるべき)。
+
 #### 受け入れ基準 (dogfood)
 
 rate 解除待ちの発生が 1 回/日未満になること。導入後の実績で確認する。未達なら `auto_pause` 値 / トリガー条件を調整、または `enabled = false` (フル手動トリガー) への切替を再検討する。
