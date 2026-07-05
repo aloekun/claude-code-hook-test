@@ -772,6 +772,163 @@
 
 ---
 
+### CodeRabbit「指摘ゼロ再レビュー」検知ギャップ解消 — commit status を「レビュー済み」判定に追加 + fail-open 分岐テスト (PR #247 post-merge-feedback T2-2 + 2026-07-05 セッション実測採用)
+
+> **動機**: 2026-07-05 の PR #247 運用で実測した検知ギャップ。CodeRabbit は「指摘ゼロ」で完了した (再) レビューでは **formal review object (REST `pulls/{pr}/reviews`) を提出しない**。完了通知は (a) summary comment の in-place 更新 (「No actionable comments were generated in the recent review」+ 対象 commit range 記載) と (b) **commit status** (`repos/{owner}/{repo}/commits/{sha}/status` の `statuses[]` に context `CodeRabbit` / state `success` / description `Review completed`) のみ。この結果 2 つの実害が出る:
+>
+> 1. `head_already_reviewed()` (review_trigger.rs) は reviews API の `commit_id` 照合**だけ**で判定するため、指摘ゼロでレビュー済みの HEAD を `Some(false)` (未レビュー) と誤判定 → fail-open で `@coderabbitai review` を再投稿し得る。CodeRabbit は incremental 仕様で「already reviewed」を返すだけなので、**ADR-019 再トリガー抑止ガードが守るはずのレート枠 (WP-03) をこのケースでは守れない**。
+> 2. cli-pr-monitor の review_recheck もレビュー完了を検知できず、max_rechecks (3) まで park を繰り返して人手対応になる (PR #247 で recheck 0→2 まで完了検知できないことを実測。新 HEAD の完了は summary comment 更新 + commit status success のみで通知され、reviews API には旧 HEAD の review しか存在しなかった)。
+>
+> **参照**: `src/cli-pr-monitor/src/stages/review_trigger.rs` (`head_already_reviewed` / `is_head_in_reviewed`)、`src/cli-pr-monitor/src/stages/poll/review_recheck.rs`、ADR-019 § 再トリガー抑止ガード (2026-07-05 追記)、ADR-022 (責務分離)、ADR-043 (fail-open は助言層に適用)。commit status の実測形状: `gh api` で `state: success` / `statuses[].context: "CodeRabbit"` / `statuses[].description: "Review completed"` (PR #247 の merge 前 HEAD で確認)。
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S-M。ガードの本来目的 (quota 保護) の完成 + park ループ解消で監視の自律性が上がる。
+
+#### 作業計画
+
+- [ ] `head_already_reviewed()` に第 2 判定ソースを追加: `gh api repos/{repo}/commits/{head_sha}/status` を照会し、`statuses[]` に context `CodeRabbit` かつ state `success` があれば「レビュー済み」。既存の reviews API 照合と OR で `Some(true)` に倒す
+- [ ] fail-open 原則を維持: gh 照会失敗・parse 不能は従来どおり `None` (= 投稿続行)。確証がある場合のみ skip (ADR-019 の設計思想を変えない)
+- [ ] 判定ロジックを純関数に切り出し (I/O と分離)、三値 (`Some(true)` = skip / `Some(false)` = 投稿 / `None` = 投稿) の分岐テストを追加。**特に fail-open 分岐 (`None` → 投稿) の反転テスト** (PR #247 post-merge-feedback T2-2 採用分。順位 162 = hooks-stop-quality の `Option::None` path テストと同型パターン)。commit status JSON の parse も純関数化してテスト
+- [ ] review_recheck のレビュー完了検知にも同じ commit status シグナルを追加し、指摘ゼロ完了で park ループが終了するようにする (ADR-022 の責務分離に注意: 判定ヘルパーは共有し、stage 間の状態は共有しない)
+- [ ] ADR-019 § 再トリガー抑止ガードを amendment (判定ソースが reviews API 単独 → reviews API + commit status の 2 系統になる旨と実測根拠)
+- [ ] `pnpm build:cli-pr-monitor` で exe 更新 (ビルドには Git for Windows usr/bin の cp が PATH に必要)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 指摘ゼロで再レビュー済みの HEAD への `@coderabbitai review` 再投稿が skip されること (commit status 由来の `Some(true)`)。
+- review_recheck が指摘ゼロ完了を検知して park ループを終了すること。
+- fail-open 分岐 (`None` → 投稿) を含む三値判定のユニットテストが存在すること。
+
+#### 詰まっている箇所
+
+- なし (2026-07-05 の実測ログ・commit status の実データ形状あり)。
+
+---
+
+### quality_gate の clippy を `--all-targets --all-features` 化 — test コード lint gap 解消 (PR #247 post-merge-feedback T2-1 採用)
+
+> **動機**: 現行 `cargo clippy --workspace -- -D warnings` は lib/bin ターゲットのみを `cfg(test)` なしで検査するため、`#[cfg(test)]` ユニットテスト・integration test のコードが一切 lint されない。PR #247 で `useless_format` が cargo test 段階まで顕在化せず手戻りが発生した。`--all-targets` (= `--lib --bins --tests --benches --examples`) でテストコードも clippy 対象になる。
+>
+> **実測 (2026-07-05)**: 追加の実行時間コストはウォーム +1〜3s。rust-lint-test group は `cargo test -- --ignored` 支配 (~80s 実測) のため誤差レベル、かつ quality_gate は 4 group 並列なので総時間への影響なし。`--all-features` は全 crate に `[features]` 定義がなく現時点 no-op (将来の保険)。**既存違反 1 件あり**: `src/cli-merge-pipeline/src/feedback/takt.rs` (109 行目付近) の `assert!(ORPHAN_THRESHOLD_SECS > TAKT_TIMEOUT_SECS, ...)` が `clippy::assertions_on_constants` に該当し、現行 master は `--all-targets` だと FAIL する。
+>
+> **参照**: `push-runner-config.toml` の `[[quality_gate.groups]]` name=`rust-lint-test`、`templates/push-runner-config.toml` (派生プロジェクト向け、同期必要)、ADR-015 (push-runner takt 移行)、ADR-026 (Cargo workspace)。
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S。設定 1 行 + 既存違反 1 件の修正 + ADR amendment のみ。
+
+#### 作業計画
+
+- [ ] takt.rs の定数 assert を `const _: () = assert!(...)` に変換してコンパイル時検証化 (test 実行時 assert より強い保証)。const context では format 引数付き message が使えないため message は文字列リテラルに単純化する。const 化が不都合なら理由コメント付き `#[allow(clippy::assertions_on_constants)]` でも可
+- [ ] `push-runner-config.toml` の rust-lint-test group を `cargo clippy --workspace --all-targets --all-features -- -D warnings` に変更
+- [ ] `templates/push-runner-config.toml` に同 group があれば同期
+- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` が workspace 全体で PASS することを確認
+- [ ] ADR-015 amendment: quality_gate の lint スコープが test コードを含むこと (lint gap 解消の経緯 = PR #247 の useless_format) を明文化
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- push pipeline の clippy step がテストコードの warnings を検出すること (workspace 全体 PASS 状態で land)。
+
+#### 詰まっている箇所
+
+- なし (違反の全量 = 1 件を実測済み)。
+
+---
+
+### ADR-038 × ADR-043 の「accuracy 向上 ≠ 安全性維持」tension を cross-reference で明文化 (PR #245 post-merge-feedback T3-1 採用)
+
+> **動機**: WP-04 (classifier モデル格上げ評価) の実測で、qwen3-coder:30b は accuracy +0.06 を達成した一方、**human_review 案件 1 件を auto_fix に誤分類**した (= 有害な自動修正が走るリスク)。downstream 安全性を優先して mistral:7b 維持と判断したが、「精度指標の改善が安全性後退を隠しうる」という tension が ADR レベルで恒久化されていないため、将来の model evaluation spike で同じ議論を繰り返すリスクがある。
+>
+> **参照**: ADR-038 § classify モデル格上げの評価と見送り (2026-07-05 追記、WP-04)、ADR-043 (Security/Quality Gate での Fail-Closed 原則)。
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。順位 261/262 と 1 docs PR に bundle 推奨。
+
+#### 作業計画
+
+- [ ] ADR-038 に「model evaluation では accuracy と安全軸 (human_review → auto_fix への誤送ゼロ) を独立に評価し、trade-off 時は安全軸を優先する」旨を追記し、ADR-043 へ cross-reference
+- [ ] ADR-043 側にも助言層/分類層における安全軸優先の具体例 (WP-04 の qwen3-coder 判断) として back-reference を追記
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-038 と ADR-043 が相互参照され、model evaluation の安全軸優先原則が明文で確認できること。
+
+#### 詰まっている箇所
+
+- なし (WP-04 の実測データは ADR-038 amendment に記録済み)。
+
+---
+
+### spike 見送り (negative result) の永続化 convention を明文化 (PR #245 post-merge-feedback T3-2 採用)
+
+> **動機**: WP-01 (ローカル LLM レビュアー選定 → ADR-046 で却下記録 + follow-up を順位 255 に todo 化) と WP-04 (classifier 格上げ → ADR-038 amendment で見送り記録 + follow-up を順位 256 に todo 化) の 2 例で、「見送り判断 → ① ADR に結論と実測根拠を記録、② 計画文書の状態列を更新、③ 再評価トリガー付き follow-up を Tier 5 todo 化」という 3 点セットのパターンが確立した。convention が成文化されていないため、3 例目以降の spike が同型で処理される保証がない (negative result の知見が散逸するリスク)。
+>
+> **参照**: ADR-046 (WP-01 却下の記録例)、ADR-038 § classify モデル格上げの評価と見送り (WP-04 の記録例)、順位 255/256 (follow-up todo 化の例)。
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。順位 260/262 と 1 docs PR に bundle 推奨。
+
+#### 作業計画
+
+- [ ] CLAUDE.md に spike/実験タスクの見送り時 convention (上記 3 点セット) を簡潔に追記する。CLAUDE.md が index 構造のため肥大化する場合は docs/ 配下の guide ファイルに本文を置き CLAUDE.md からリンクする形でも可 (ADR-022 の方針に整合)
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 見送り時の 3 点セット (ADR 記録 / 計画状態更新 / Tier 5 todo 化) が永続文書で確認でき、次回 spike の見送り処理が本 convention を参照して実行できること。
+
+#### 詰まっている箇所
+
+- なし (確立済みパターンの成文化のみ)。
+
+---
+
+### SaaS 無料枠の制限種別チェックリストを CLAUDE.md に追加 (PR #243 post-merge-feedback T3-1 採用)
+
+> **動機**: WP-03 (CodeRabbit クォータ設計) で「public リポジトリ向け Pro 機能無償提供」を「レートリミット撤廃」と誤解しかけた。実際には**月間上限と時間単位 rate limit は別次元**で、時間単位上限 (3〜4 回/時) は残存していた (ユーザー確認で判明)。公式ドキュメントの曖昧な「free tier」表現に対して、確認すべき制限の次元を明示しておかないと、LLM API・CI/CD 等の他 SaaS 統合でも同じ誤解が再発する。
+>
+> **参照**: ADR-019 (CodeRabbit レビュー運用、WP-03 の amendment 含む)、docs/harness-improvement-plan.md § WP-03 (誤解の経緯。ただし ephemeral 文書のため参照は本 entry 消化時点の存否に依存)。
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。順位 260/261 と 1 docs PR に bundle 推奨。
+
+#### 作業計画
+
+- [ ] CLAUDE.md に「外部サービスの無料枠/制限を調査する際の確認チェックリスト」を追加: ① 月間上限、② 時間単位 rate limit、③ per-user / per-org / per-repo の適用単位、④ plan tier による差、⑤ public リポ特典の適用範囲 (どの制限が緩和されるのか)。「free tier」の一語で判断せず制限の各次元を個別に確認する原則を明記
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- チェックリストが CLAUDE.md (または CLAUDE.md からリンクされた guide) に存在し、次回の外部 SaaS 調査で参照可能なこと。
+
+#### 詰まっている箇所
+
+- なし。
+
+---
+
+### クロスシステム設定 coupling パターンの汎化 ADR 起票 (PR #243 post-merge-feedback T3-2 採用)
+
+> **動機**: `.coderabbit.yaml` (外部 SaaS 側設定、CodeRabbit が server-side で読む) と `pr-monitor-config.toml` の `[fix] trigger_review_after_push` (内部 CLI 設定) は論理的に coupled しており、**片方だけを変更すると re-review 欠落または二重投稿が発生する**構造になっている。SaaS 側が YAML を server-side で読むため、ランタイムでの cross-validation は原理的に不可能 = 文書化・期待値組み合わせ表・変更手順の規律が mitigation の中心になる。ADR-019 には CodeRabbit 固有の組み合わせ表が記録済みだが、この構造は今後の外部 SaaS 統合 (LLM service、CI provider 等) で繰り返される汎用パターンのため、汎化 ADR として横展開する。
+>
+> **参照**: ADR-019 (CodeRabbit 固有事例と期待値組み合わせ表)、ADR-022 (責務分離)、ADR-039 (experimental feature 標準パターン)。ADR 採番は placeholder 方式 (「ADR-NNN、land 時に確定」)。**注意: post-merge report 原文は ADR-046 を提案していたが、ADR-046 は WP-01 却下記録で使用済みのため使わない**。
+>
+> **実行優先度**: 💎 Tier 3 — Effort M。新規 ADR 1 本のため docs bundle とは別 PR 可。
+
+#### 作業計画
+
+- [ ] ADR-NNN「クロスシステム設定 coupling パターン」を起票: ① coupling の定義と実例 (ADR-019 の `.coderabbit.yaml` × `pr-monitor-config.toml` を代表例として参照)、② 設計ガイドライン (両設定ファイルに相互参照コメントを置く / 期待値の組み合わせ表を ADR に必須記載 / 変更時は両側を同一 PR で扱う原則)、③ ランタイム cross-validation の限界 (SaaS server-side 読取) の明記
+- [ ] ADR-019 から新 ADR へ cross-reference を追加
+- [ ] CLAUDE.md の ADR index に追記
+- [ ] 本 entry 削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 汎化 ADR が land し、次回の外部 SaaS 統合設計時に参照できる状態になっていること。
+
+#### 詰まっている箇所
+
+- なし (ADR-019 に事例・組み合わせ表の下敷きあり)。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
