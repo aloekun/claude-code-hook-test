@@ -50,6 +50,10 @@
 - [ADR-047: pre-push review の反証（refute）facet](docs/adr/adr-047-prepush-refute-facet.md) *(試験運用)*
 - [ADR-048: reviewers→fix findings handoff の output-contract 標準化（markdown 統一・JSON 却下）](docs/adr/adr-048-facet-findings-handoff-markdown-contract.md) *(試験運用)*
 
+## 開発 convention / チェックリスト
+
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)
+
 ## Build
 
 ```sh
