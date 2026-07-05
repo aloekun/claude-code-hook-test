@@ -30,6 +30,15 @@ pub const TAKT_TIMEOUT_SECS: u64 = 1200;
 #[allow(dead_code)]
 pub const ORPHAN_THRESHOLD_SECS: u64 = TAKT_TIMEOUT_SECS + 300;
 
+const _: () = assert!(
+    ORPHAN_THRESHOLD_SECS > TAKT_TIMEOUT_SECS,
+    "orphan threshold must exceed TAKT_TIMEOUT_SECS to avoid false-positive reaping of legitimately-running takt workflows"
+);
+const _: () = assert!(
+    ORPHAN_THRESHOLD_SECS == TAKT_TIMEOUT_SECS + 300,
+    "ORPHAN_THRESHOLD_SECS must track TAKT_TIMEOUT_SECS + 300s margin (ADR-030 §L2 reaper threshold)"
+);
+
 /// run_takt_workflow のポーリング間隔 (ms)
 const POLL_INTERVAL_MS: u64 = 500;
 
@@ -98,26 +107,4 @@ pub fn copy_feedback_report(repo_root: &Path, pr_number: u64) -> Result<PathBuf,
         )
     })?;
     Ok(target)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn orphan_threshold_exceeds_takt_timeout() {
-        assert!(
-            ORPHAN_THRESHOLD_SECS > TAKT_TIMEOUT_SECS,
-            "orphan threshold ({}s) must exceed TAKT_TIMEOUT_SECS ({}s) to avoid \
-             false-positive reaping of legitimately-running takt workflows",
-            ORPHAN_THRESHOLD_SECS,
-            TAKT_TIMEOUT_SECS,
-        );
-        assert_eq!(
-            ORPHAN_THRESHOLD_SECS,
-            TAKT_TIMEOUT_SECS + 300,
-            "ORPHAN_THRESHOLD_SECS must track TAKT_TIMEOUT_SECS + 300s margin \
-             (ADR-030 §L2 reaper threshold)"
-        );
-    }
 }

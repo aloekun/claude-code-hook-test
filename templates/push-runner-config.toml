@@ -30,15 +30,18 @@ commands = ["pnpm test"]
 name = "build"
 commands = ["pnpm build"]
 
-# Rust test group (オプション): Rust を使うプロジェクトのみ有効化してください。
+# Rust lint + test group (オプション): Rust を使うプロジェクトのみ有効化してください。
 # push pipeline でのみ実行し、PostToolUse / Stop hook では走らせないことで
 # イテレーション速度を保護します。
 # 前提: ルートに Cargo workspace (Cargo.toml に [workspace] + members) があり、
 # `cargo test` で全 package が一括テストされる構成 (ADR-026)。
+# clippy は --all-targets で test コードも lint 対象に含める (#[cfg(test)] / integration
+# test の lint gap 解消、順位259)。--all-features は将来の feature-gated コード用の保険。
 # 統合テストで cwd 操作等がある場合は --test-threads=1 で直列実行してください。
 # [[quality_gate.groups]]
-# name = "rust-test"
+# name = "rust-lint-test"
 # commands = [
+#   "cargo clippy --workspace --all-targets --all-features -- -D warnings",
 #   "cargo test",
 #   "cargo test -- --ignored --test-threads=1",
 # ]

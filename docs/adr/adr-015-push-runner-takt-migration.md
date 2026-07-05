@@ -53,6 +53,16 @@ pnpm push = cli-push-runner.exe && cli-pr-monitor.exe --monitor-only
 
 `push-runner-config.toml` で lint / test / build を独立グループとして定義し、`parallel = true` で同時実行する。PostToolUse hooks で lint が随時修正されるため、構文レベルの壊滅的エラーが test/build に波及するケースはほぼ発生しない。並列実行により1つでも失敗した場合は全結果が同時に得られ、修正 → 再実行のイテレーションが高速化される。
 
+### clippy の lint スコープ (2026-07-06 追記、順位259 / PR #247 post-merge-feedback T2-1 採用)
+
+`rust-lint-test` グループの clippy は当初 `cargo clippy --workspace -- -D warnings` で lib/bin ターゲットのみを検査しており、`#[cfg(test)]` ユニットテスト・integration test のコードが lint 対象外になる gap があった。PR #247 で `useless_format` が clippy を素通りして `cargo test` 段階まで顕在化し手戻りが発生したことを受け、`cargo clippy --workspace --all-targets --all-features -- -D warnings` に変更する。
+
+- `--all-targets` (= `--lib --bins --tests --benches --examples`) でテストコードも clippy 対象にする。
+- `--all-features` は現時点で全 crate に `[features]` 定義がなく no-op だが、将来の feature-gated コードを取りこぼさないための保険。
+- 実測コスト (2026-07-05): ウォームで +1〜3s。`rust-lint-test` グループは `cargo test -- --ignored` (~80s) 支配で誤差、かつ 4 グループ並列のため総時間への影響なし。
+- 移行に伴い既存違反 1 件 (`cli-merge-pipeline` の `ORPHAN_THRESHOLD_SECS` 不変条件を検証する runtime test の `clippy::assertions_on_constants`) を `const _: () = assert!(...)` のコンパイル時検証へ移行した (定数条件は test 実行時 assert より compile-time assert の方が強い保証)。
+- 派生プロジェクト向け `templates/push-runner-config.toml` の Rust グループ例も同スコープに同期。
+
 ### 設定ファイルの分離
 
 push-runner の設定は `push-runner-config.toml` (リポジトリルート) に配置し、hooks-config.toml の `[push_pipeline]` セクションは削除する。理由:
