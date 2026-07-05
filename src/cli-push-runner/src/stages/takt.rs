@@ -2,13 +2,13 @@ use crate::config::TaktConfig;
 use crate::log::log_stage;
 use crate::runner::run_cmd_inherit;
 
-pub(crate) fn run_takt(config: &TaktConfig) -> bool {
+pub(crate) fn run_takt(config: &TaktConfig, workflow: &str) -> bool {
     log_stage(
         "takt",
-        &format!("ワークフロー '{}' を起動", config.workflow),
+        &format!("ワークフロー '{}' を起動", workflow),
     );
 
-    let mut args = vec!["exec", "takt", "-w", &config.workflow, "-t", &config.task];
+    let mut args = vec!["exec", "takt", "-w", workflow, "-t", &config.task];
 
     let extra: Vec<&str> = config
         .extra_args

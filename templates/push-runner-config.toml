@@ -49,6 +49,21 @@ commands = ["pnpm build"]
 command = "jj diff -r @"
 output_path = ".takt/review-diff.txt"
 
+# ---------------------------------------------------------------------------
+# [pre_push_review] — WP-06 / ADR-047 (試験運用): 反証 (refute) facet。
+# reviewers と fix の間に verify(refute, haiku) step を挟み、reviewer の
+# false positive を fix 前に反証・却下して無駄な fix iteration を削減する試み。
+# 本テンプレートでは **default OFF** (ADR-039)。有効化するには verify 入り
+# workflow (.takt/workflows/pre-push-review-refute.yaml) と refute facet 群
+# (refute-finding.md instruction + refutation-report.md output-contract) を
+# 配布したうえで以下を設定:
+#   refute_enabled = true
+#   refute_workflow = "pre-push-review-refute"
+# Kill-switch: refute_enabled = false で現行 pre-push-review へ即戻し。
+# ---------------------------------------------------------------------------
+[pre_push_review]
+refute_enabled = false
+
 [takt]
 workflow = "pre-push-review"
 task = "pre-push review"
