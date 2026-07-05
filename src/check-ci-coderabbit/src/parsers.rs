@@ -324,6 +324,28 @@ mod tests {
         );
     }
 
+    /// 順位258 harm #2 回帰: PR #247 head の実測 commit statuses (reverse-chronological,
+    /// pending/success 混在の 6 件) を与え、`.first()` = 最新 "Review completed" success を
+    /// 返すことを固定する。正しい head SHA さえ `fetch_coderabbit_commit_state` に渡れば
+    /// この list から "success" を読み取り `decide()` が park ループを止められることを示す
+    /// (harm #2 の真因は SHA 取得経路 `get_head_sha` であり、parse 側ではないことの根拠)。
+    #[test]
+    fn cr_status_pr247_real_shape_picks_latest_success() {
+        let json = r#"[
+            {"context": "CodeRabbit", "description": "Review completed", "state": "success"},
+            {"context": "CodeRabbit", "description": "Review in progress", "state": "pending"},
+            {"context": "CodeRabbit", "description": "Review completed", "state": "success"},
+            {"context": "CodeRabbit", "description": "Review in progress", "state": "pending"},
+            {"context": "CodeRabbit", "description": "Review skipped: incremental reviews are disabled", "state": "success"},
+            {"context": "CodeRabbit", "description": "Review queued", "state": "pending"}
+        ]"#;
+        assert_eq!(
+            parse_coderabbit_status(json),
+            "success",
+            "指摘ゼロ完了の実測 status list 先頭は success。正しい SHA を渡せば完了検知できる"
+        );
+    }
+
     #[test]
     fn walkthrough_clean_detected_when_marker_present_with_header() {
         let json = r#"[

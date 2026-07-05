@@ -198,8 +198,22 @@ fn get_current_branch() -> Result<String, String> {
     }
 }
 
-fn get_head_sha() -> Result<String, String> {
-    run_gh(&["pr", "view", "--json", "headRefOid", "-q", ".headRefOid"])
+/// 解決済み repo/PR から head SHA を取得する (順位258 harm #2 fix)。
+///
+/// 旧実装は無指定 `gh pr view` で cwd の branch auto-detection に依存していたが、
+/// monitor は auto-detection が不安定なため checker に `--repo`/`--pr` を明示的に渡す。
+/// jj workspace 等で cwd の branch が PR branch と食い違うと `gh pr view` は
+/// `fatal: not a git repository` 等で SHA を取得できず、`fetch_coderabbit_commit_state`
+/// が `not_found` に倒れて「指摘ゼロで commit status success 完了」の park ループが
+/// 終了しなくなる (PR #247 実測)。解決済み repo/PR で `repos/{repo}/pulls/{pr}` の
+/// `.head.sha` を直接照会して確実化する。
+fn get_head_sha(repo: &str, pr: u64) -> Result<String, String> {
+    run_gh(&[
+        "api",
+        &format!("repos/{}/pulls/{}", repo, pr),
+        "--jq",
+        ".head.sha",
+    ])
 }
 
 // ─── 入力値検証 ───
@@ -224,7 +238,7 @@ fn run_check(args: CliArgs) -> CheckResult {
     };
 
     let ci = fetch_ci(&get_current_branch().unwrap_or_default());
-    let cr_state = fetch_coderabbit_commit_state(&repo);
+    let cr_state = fetch_coderabbit_commit_state(&repo, pr);
 
     let comments_json = fetch_issue_comments_json(&repo, pr);
     let new_comments = parse_new_comments(&comments_json, &args.push_time);
@@ -339,8 +353,8 @@ fn fetch_ci(branch: &str) -> CiStatus {
     }
 }
 
-fn fetch_coderabbit_commit_state(repo: &str) -> String {
-    let head_sha = get_head_sha().unwrap_or_default();
+fn fetch_coderabbit_commit_state(repo: &str, pr: u64) -> String {
+    let head_sha = get_head_sha(repo, pr).unwrap_or_default();
     if head_sha.is_empty() || !is_valid_sha(&head_sha) {
         return "not_found".to_string();
     }
