@@ -28,6 +28,7 @@ pub(super) fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> Cu
             good: "good code".into(),
         }),
         test_coverage: None,
+        incident: None,
     }
 }
 

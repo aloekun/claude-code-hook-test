@@ -235,3 +235,74 @@ fn rule_test_coverage_check() {
         gaps.join("\n  - ")
     );
 }
+
+/// WP-08 (ADR-049): incident 由来でない汎用ルール (現状 no-console-log = サンプル) を
+/// fixture 要求から免除する allowlist。新規ルールは [rules.incident] + fixture を用意するか
+/// ここに追加するかの二択を強制する (= 学習機会化)。
+#[cfg(test)]
+const NON_INCIDENT_RULES: &[&str] = &["no-console-log"];
+
+#[cfg(test)]
+fn incident_fixtures_dir(kind: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("fixtures")
+        .join("incidents")
+        .join(kind)
+}
+
+#[cfg(test)]
+fn collect_incident_gaps(rule: &CustomRule) -> Vec<String> {
+    let is_exempt = NON_INCIDENT_RULES.contains(&rule.id.as_str());
+    let mut gaps: Vec<String> = Vec::new();
+    match (&rule.incident, is_exempt) {
+        (None, true) => {}
+        (None, false) => gaps.push(format!(
+            "rule `{}` has no `[rules.incident]` — every incident-derived rule must record its \
+             originating PR + bad/good fixtures (or be added to NON_INCIDENT_RULES with justification)",
+            rule.id
+        )),
+        (Some(_), true) => gaps.push(format!(
+            "rule `{}` is listed in NON_INCIDENT_RULES yet declares `[rules.incident]` — remove one",
+            rule.id
+        )),
+        (Some(incident), false) => {
+            for (kind, name) in [("bad", &incident.bad_fixture), ("good", &incident.good_fixture)] {
+                let path = incident_fixtures_dir(kind).join(name);
+                if !path.exists() {
+                    gaps.push(format!(
+                        "rule `{}` (PR #{}) declares {}_fixture `{}` but no file exists at {}",
+                        rule.id,
+                        incident.pr,
+                        kind,
+                        name,
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+    gaps
+}
+
+/// WP-08 (ADR-049) incident→fixture ゲート: 各 incident 由来ルールが [rules.incident] で
+/// 実 incident (PR) と bad/good fixture を宣言し、その fixture ファイルが実在することを
+/// fail-closed で強制する。incident_eval.rs E2E test はその fixture を実 exe に食わせて
+/// 検出/誤検知ゼロを検証し、両者で「ルール ⇔ incident ⇔ fixture ⇔ 回帰 test」の鎖を閉じる。
+#[cfg(test)]
+#[test]
+fn incident_fixture_coverage_check() {
+    let rules = load_deployed_custom_rules();
+    let mut gaps: Vec<String> = Vec::new();
+    for rule in &rules {
+        gaps.extend(collect_incident_gaps(rule));
+    }
+    assert!(
+        gaps.is_empty(),
+        "incident-eval fixture coverage gaps detected ({} issue(s)):\n  - {}",
+        gaps.len(),
+        gaps.join("\n  - ")
+    );
+}

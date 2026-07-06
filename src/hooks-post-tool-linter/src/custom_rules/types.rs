@@ -51,6 +51,9 @@ pub(crate) struct CustomRule {
     #[serde(default)]
     #[allow(dead_code)]
     pub(crate) test_coverage: Option<CustomRuleTestCoverage>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub(crate) incident: Option<CustomRuleIncident>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -63,6 +66,31 @@ pub(crate) struct CustomRuleFix {
 pub(crate) struct CustomRuleExample {
     pub(crate) bad: String,
     pub(crate) good: String,
+}
+
+/// `[rules.incident]` meta field。WP-08 (ADR-049) で導入。
+///
+/// ルールを生んだ実 incident (PR 番号) と、その incident を再現する回帰 fixture
+/// (bad = ルールが fire すべき入力 / good = fire してはいけない clean 入力) を
+/// 機械可読に記録する。`incident_fixture_coverage_check` cargo test が
+/// 「incident 由来ルール ⇒ bad/good fixture が実在」を fail-closed で強制し、
+/// `tests/incident_eval.rs` E2E test が fixture を実 exe に stdin JSON で食わせて
+/// 検出 (severity/type/line) と誤検知ゼロ (good) を検証する。
+///
+/// この section を持たないルール (例: no-console-log = 汎用サンプルで incident 由来
+/// でない) は fixture 要求から免除される (coverage check の NON_INCIDENT_RULES allowlist)。
+#[derive(Deserialize, Clone, Debug)]
+#[allow(dead_code)]
+pub(crate) struct CustomRuleIncident {
+    /// ルールを生んだ実 incident の PR 番号。
+    pub(crate) pr: u64,
+    /// tests/fixtures/incidents/bad/ 配下の fixture ファイル名 (ルールが fire すべき入力)。
+    pub(crate) bad_fixture: String,
+    /// tests/fixtures/incidents/good/ 配下の fixture ファイル名 (fire してはいけない clean 入力)。
+    pub(crate) good_fixture: String,
+    /// 設計根拠となる ADR (例: "adr-007" = custom-lint 正規表現層)。任意。
+    #[serde(default)]
+    pub(crate) adr: Option<String>,
 }
 
 /// `[rules.test_coverage]` meta field。順位 137 (PR #163 T1-#1 採用) で導入。

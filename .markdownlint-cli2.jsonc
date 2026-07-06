@@ -15,6 +15,11 @@
     ".claude/skills",
     ".takt/runs",
     ".pytest_cache",
+    // WP-08: incident-eval fixtures are synthetic test data (intentionally reproduce
+    // past incidents) — quarantined from markdownlint so their deliberate "bad" content
+    // does not trip style gates. See docs/adr/adr-049-incident-eval-regression-suite.md.
+    "tests/fixtures/incidents",
+    "tests/fixtures/incidents/**",
     "__*",
     "__*/**"
   ]
