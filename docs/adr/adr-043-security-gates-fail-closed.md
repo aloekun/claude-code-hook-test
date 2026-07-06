@@ -110,6 +110,14 @@ fn is_stale(behind: Option<usize>) -> bool {
 
 ただし **non-gate な計算関数** (純粋に数値を計算 / 表示用文字列を作る等) は本原則の対象外。`?` は通常通り使ってよい。
 
+### 原則 5: 助言/分類層への安全思想の一般化 (2026-07-06 追記、順位260)
+
+原則 1〜4 は block/allow を決める **gate 関数** を対象とするが、その根底にある「**不確実・trade-off 時は楽観でなく安全側にデフォルトする**」思想は、block しない **助言/分類層** の設計にも一般化できる。
+
+具体例 ([ADR-038](adr-038-local-llm-finding-classification.md) § classify モデル格上げの評価と見送り、WP-04 / 2026-07-05): CodeRabbit findings classifier のモデル格上げ評価で、accuracy 最上位 (0.69) の `qwen3-coder:30b` は human_review 案件 1 件を `auto_fix` に誤送する **安全後退** を起こした。accuracy 下位 (0.63) だが「人間判断案件を一度も `auto_fix` に倒さない」`mistral:7b` を維持したのは、gate でなく助言層であっても「不確実性は保守 (`human_review`) に倒す」= 本 ADR の fail-closed 思想を優先した判断である。
+
+一般原則として、model/heuristic の評価では **accuracy と安全軸 (安全側デフォルトを破らないこと) を独立指標として測り、両者が trade-off するときは安全軸を優先**する。accuracy 改善が安全後退を隠しうる (WP-04 の qwen3-coder) 点に注意する。gate 関数における「判定不能 → block」と、助言層における「不確実 → 保守側 (human_review)」は同一の設計思想の別レイヤーへの適用である。
+
 ## 反例の判別ヒント
 
 関数が gate 関数か non-gate 関数かは、以下の質問で判別する:
@@ -137,5 +145,6 @@ PR #194 commit `dfad56ff` で `build_todo_staleness_message` 内の `let stale =
 - PR #194 (`feat(hooks): merge 前 mechanical gate 強化 (clippy + 空 commit sweep)`) commit `dfad56ff`: `behind?` → `is_none_or` 修正
 - CodeRabbit Major #5 (PR #194 review): 「security gate は判定不能時 fail-closed であるべき」
 - ADR-021 (`jj 変更検出ロジックの設計原則`) § Revset Composability: jj 操作の fail-safe 方向との対比
+- [ADR-038: ローカル LLM による CodeRabbit findings classification](adr-038-local-llm-finding-classification.md) § classify モデル格上げの評価と見送り: 原則 5 の助言/分類層一般化の具体例 (WP-04 の accuracy vs 安全軸 trade-off、順位260)
 - `~/.claude/rules/common/security.md` § Mandatory Security Checks: 本 ADR が補完する global checklist
 - Rust 公式 doc: [`Option::is_none_or`](https://doc.rust-lang.org/std/option/enum.Option.html#method.is_none_or) (1.82+ stable)
