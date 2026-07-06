@@ -95,13 +95,16 @@ commands = ["pnpm build"]
 # ADR-026 により Cargo workspace 化したため、workspace 全体を 1 コマンドで回せる。
 # 順位 175 (PR #185 T1-#1): cargo clippy を先頭に追加。Rust lint structural gap を補填。
 #   cargo test と同 group に置くことで target dir のロック衝突 (並列 cargo invocation) を回避。
-# 1 つ目: clippy (lint、cargo test より高速で fail fast)
+# 1 つ目: clippy (lint、cargo test より高速で fail fast)。--all-targets で test コードも
+#   lint 対象にし (#[cfg(test)] / integration test の lint gap 解消、順位259 = PR #247 の
+#   useless_format が cargo test 段階まで顕在化した手戻り由来)、--all-features で将来の
+#   feature-gated コードも検査する (現時点は全 crate [features] 未定義で no-op、将来の保険)。
 # 2 つ目: unit tests (並列実行可、高速)
 # 3 つ目: 統合テスト (#[ignore] 付き、cwd 依存のため --test-threads=1 必須)
 [[quality_gate.groups]]
 name = "rust-lint-test"
 commands = [
-  "cargo clippy --workspace -- -D warnings",
+  "cargo clippy --workspace --all-targets --all-features -- -D warnings",
   "cargo test",
   "cargo test -- --ignored --test-threads=1",
 ]

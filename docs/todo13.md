@@ -772,35 +772,6 @@
 
 ---
 
-### quality_gate の clippy を `--all-targets --all-features` 化 — test コード lint gap 解消 (PR #247 post-merge-feedback T2-1 採用)
-
-> **動機**: 現行 `cargo clippy --workspace -- -D warnings` は lib/bin ターゲットのみを `cfg(test)` なしで検査するため、`#[cfg(test)]` ユニットテスト・integration test のコードが一切 lint されない。PR #247 で `useless_format` が cargo test 段階まで顕在化せず手戻りが発生した。`--all-targets` (= `--lib --bins --tests --benches --examples`) でテストコードも clippy 対象になる。
->
-> **実測 (2026-07-05)**: 追加の実行時間コストはウォーム +1〜3s。rust-lint-test group は `cargo test -- --ignored` 支配 (~80s 実測) のため誤差レベル、かつ quality_gate は 4 group 並列なので総時間への影響なし。`--all-features` は全 crate に `[features]` 定義がなく現時点 no-op (将来の保険)。**既存違反 1 件あり**: `src/cli-merge-pipeline/src/feedback/takt.rs` (109 行目付近) の `assert!(ORPHAN_THRESHOLD_SECS > TAKT_TIMEOUT_SECS, ...)` が `clippy::assertions_on_constants` に該当し、現行 master は `--all-targets` だと FAIL する。
->
-> **参照**: `push-runner-config.toml` の `[[quality_gate.groups]]` name=`rust-lint-test`、`templates/push-runner-config.toml` (派生プロジェクト向け、同期必要)、ADR-015 (push-runner takt 移行)、ADR-026 (Cargo workspace)。
->
-> **実行優先度**: 🔧 Tier 2 — Effort S。設定 1 行 + 既存違反 1 件の修正 + ADR amendment のみ。
-
-#### 作業計画
-
-- [ ] takt.rs の定数 assert を `const _: () = assert!(...)` に変換してコンパイル時検証化 (test 実行時 assert より強い保証)。const context では format 引数付き message が使えないため message は文字列リテラルに単純化する。const 化が不都合なら理由コメント付き `#[allow(clippy::assertions_on_constants)]` でも可
-- [ ] `push-runner-config.toml` の rust-lint-test group を `cargo clippy --workspace --all-targets --all-features -- -D warnings` に変更
-- [ ] `templates/push-runner-config.toml` に同 group があれば同期
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` が workspace 全体で PASS することを確認
-- [ ] ADR-015 amendment: quality_gate の lint スコープが test コードを含むこと (lint gap 解消の経緯 = PR #247 の useless_format) を明文化
-- [ ] 本 entry 削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- push pipeline の clippy step がテストコードの warnings を検出すること (workspace 全体 PASS 状態で land)。
-
-#### 詰まっている箇所
-
-- なし (違反の全量 = 1 件を実測済み)。
-
----
-
 ### ADR-038 × ADR-043 の「accuracy 向上 ≠ 安全性維持」tension を cross-reference で明文化 (PR #245 post-merge-feedback T3-1 採用)
 
 > **動機**: WP-04 (classifier モデル格上げ評価) の実測で、qwen3-coder:30b は accuracy +0.06 を達成した一方、**human_review 案件 1 件を auto_fix に誤分類**した (= 有害な自動修正が走るリスク)。downstream 安全性を優先して mistral:7b 維持と判断したが、「精度指標の改善が安全性後退を隠しうる」という tension が ADR レベルで恒久化されていないため、将来の model evaluation spike で同じ議論を繰り返すリスクがある。
