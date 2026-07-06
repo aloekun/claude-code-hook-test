@@ -1,0 +1,5 @@
+# WP-08 incident-eval fixture (synthetic test data). Reproduces PR #98 (takt-workflow-persona-without-model).
+steps:
+  - name: supervise
+    persona: supervisor
+    instruction: loop-monitor-reviewers-fix

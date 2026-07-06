@@ -1,0 +1,2 @@
+# WP-08 incident-eval fixture (synthetic test data). Reproduces PR #175 (no-jj-template-first-line).
+template = "change_id ++ description.first_line()"

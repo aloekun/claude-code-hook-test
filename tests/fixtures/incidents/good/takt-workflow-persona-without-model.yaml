@@ -1,0 +1,6 @@
+# WP-08 incident-eval fixture (synthetic test data). Clean counterpart for takt-workflow-persona-without-model (must NOT fire).
+steps:
+  - name: supervise
+    persona: supervisor
+    model: sonnet
+    instruction: loop-monitor-reviewers-fix

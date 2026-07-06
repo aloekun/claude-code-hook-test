@@ -15,5 +15,9 @@ lib-subprocess = { path = "../lib-subprocess" }
 
 [dev-dependencies]
 tempfile = "3"
+# serde_json: WP-08 incident-eval E2E test (tests/incident_eval.rs) parses the hook's
+# stdout HookOutput/LintViolation JSON. serde_json is also a [dependencies] entry but
+# integration tests only see [dev-dependencies], so it is re-declared here.
+serde_json = "1.0"
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

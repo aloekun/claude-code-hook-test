@@ -82,6 +82,12 @@ steps = [
 bad = '具体的なファイル所在: `C:\Users\alice\.claude\projects\<project-id>\` 配下'
 good = '具体的なファイル所在: `%USERPROFILE%\.claude\projects\<project-id>\` 配下'
 
+[rules.incident]
+pr = 75
+bad_fixture = "no-personal-paths.md"
+good_fixture = "no-personal-paths.md"
+adr = "adr-007"
+
 [rules.test_coverage]
 # rule② は md/txt (= 全て非主要拡張子)。順位 137 PR で test gap 補填 (3 tests 新規追加)。
 other_ext_tests = [
@@ -120,6 +126,12 @@ steps = [
 [rules.example]
 bad = 'try { Get-Item $path } catch {}'
 good = 'try { Get-Item $path } catch { Write-Verbose "expected miss: $_"; $null }'
+
+[rules.incident]
+pr = 85
+bad_fixture = "no-empty-powershell-catch.ps1"
+good_fixture = "no-empty-powershell-catch.ps1"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule③ は ps1 のみ (非主要拡張子)。複数 case-variant の安定性 seal。
@@ -160,6 +172,12 @@ steps = [
 [rules.example]
 bad = '$data = ConvertFrom-Json $raw -ErrorAction SilentlyContinue'
 good = 'try { $data = ConvertFrom-Json $raw -ErrorAction Stop } catch { Write-Error "Invalid JSON: $_"; throw }'
+
+[rules.incident]
+pr = 85
+bad_fixture = "no-silent-error-action.ps1"
+good_fixture = "no-silent-error-action.ps1"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule④ は ps1 のみ (非主要拡張子)。PowerShell case-insensitive variant の安定性 seal。
@@ -206,6 +224,12 @@ steps = [
 [rules.example]
 bad = 'See [推奨実行順序](todo-summary.md#推奨実行順序サマリー)'
 good = 'See [推奨実行順序](todo-summary.md#recommended-order-summary)  <!-- with <a id="recommended-order-summary"></a> in target file -->'
+
+[rules.incident]
+pr = 89
+bad_fixture = "no-mutable-anchor.md"
+good_fixture = "no-mutable-anchor.md"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule⑤ は md のみ (非主要拡張子)。GFM anchor の positive / negative variant を網羅。
@@ -264,6 +288,12 @@ steps = [
 [rules.example]
 bad = 'BLOCK_MESSAGE: &str = "詳細: docs/todoN.md (N = 数字) の \"<section>\" 参照";'
 good = 'BLOCK_MESSAGE: &str = "詳細: docs/adr/adr-NNN-feature.md 参照";'
+
+[rules.incident]
+pr = 94
+bad_fixture = "no-ephemeral-todo-reference.rs"
+good_fixture = "no-ephemeral-todo-reference.rs"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule⑥ は主要拡張子 4 つ (rs/toml/yaml/yml) + 非主要 8 つを extensions に含む。
@@ -324,6 +354,12 @@ steps = [
 [rules.example]
 bad = "comments.iter().filter(|c| c.created_at > push_time)"
 good = "comments.iter().filter(|c| c.created_at >= push_time)"
+
+[rules.incident]
+pr = 101
+bad_fixture = "no-time-field-strict-greater.rs"
+good_fixture = "no-time-field-strict-greater.rs"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule⑦ は rs のみ (主要拡張子)。時刻フィールド variant + 境界 case の網羅的 seal。
@@ -391,6 +427,12 @@ steps = [
 # 説明文中で実際の trap pattern を直接書かないため、placeholder 形式で示す
 bad = "[ADR-036](DOTDOT/docs/adr/adr-036-...)  <!-- DOTDOT は ../ の意。実際は `..` 2 文字 -->"
 good = "[ADR-036](adr/adr-036-...)"
+
+[rules.incident]
+pr = 133
+bad_fixture = "no-docs-relative-back-to-docs.md"
+good_fixture = "no-docs-relative-back-to-docs.md"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule⑧ は md のみ (非主要拡張子)。docs 配下 + root-level 両方の back-reference を網羅。
@@ -463,6 +505,12 @@ good = '''      persona: supervisor
       model: sonnet
       instruction: loop-monitor-reviewers-fix'''
 
+[rules.incident]
+pr = 98
+bad_fixture = "takt-workflow-persona-without-model.yaml"
+good_fixture = "takt-workflow-persona-without-model.yaml"
+adr = "adr-007"
+
 [rules.test_coverage]
 # rule⑨ は yaml のみ (主要拡張子)。multi-line regex variant + paths filter は別 test で網羅。
 
@@ -516,6 +564,12 @@ steps = [
 [rules.example]
 bad = "let _ = write_state(&state);"
 good = "if let Err(e) = write_state(&state) { log_warn(&format!(\"state write failed: {}\", e)); }"
+
+[rules.incident]
+pr = 155
+bad_fixture = "no-write-result-discard.rs"
+good_fixture = "no-write-result-discard.rs"
+adr = "adr-007"
 
 [rules.test_coverage]
 # rule⑩ は rs のみ (主要拡張子)。Drop / if-let-Err / named-binding 等の variant を網羅。
@@ -573,6 +627,12 @@ steps = [
 bad = "jj log -T 'change_id ++ DESC_DOT_FIRSTLINE'  # placeholder: 実コードでは description . first_line() = 曖昧性"
 good = "jj log -T 'change_id ++ if(empty, \"EMPTY\", \"CONTENT\")'  # commit 自体が file change を含むかで判定"
 
+[rules.incident]
+pr = 175
+bad_fixture = "no-jj-template-first-line.toml"
+good_fixture = "no-jj-template-first-line.toml"
+adr = "adr-007"
+
 [rules.test_coverage]
 # rule⑪ は jj template が書かれうる主要 file 形式 (toml/yaml/md) を対象。
 # toml/yaml は主要拡張子のため main_ext_tests、md は非主要のため other_ext_tests。
@@ -627,6 +687,12 @@ steps = [
 [rules.example]
 bad = 'let revset = "master..@";'
 good = 'let revset = format!("{}..@", default_branch);'
+
+[rules.incident]
+pr = 195
+bad_fixture = "no-hardcoded-jj-revset-range.rs"
+good_fixture = "no-hardcoded-jj-revset-range.rs"
+adr = "adr-021"
 
 [rules.test_coverage]
 # rule⑫ は rs のみ (主要拡張子)。positive (hardcode 検出) + negative (parameterized 形式 skip) の variant を網羅。

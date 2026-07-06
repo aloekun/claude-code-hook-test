@@ -1,0 +1,2 @@
+# WP-08 incident-eval fixture (synthetic test data). Clean counterpart for no-jj-template-first-line (must NOT fire).
+template = "change_id ++ if(empty, \"EMPTY\", \"CONTENT\")"

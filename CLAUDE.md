@@ -49,6 +49,7 @@
 - [ADR-046: ローカル LLM pre-push レビュアー — 選定スパイクと不採用判断](docs/adr/adr-046-local-llm-review-spike.md) *(却下)*
 - [ADR-047: pre-push review の反証（refute）facet](docs/adr/adr-047-prepush-refute-facet.md) *(試験運用)*
 - [ADR-048: reviewers→fix findings handoff の output-contract 標準化（markdown 統一・JSON 却下）](docs/adr/adr-048-facet-findings-handoff-markdown-contract.md) *(試験運用)*
+- [ADR-049: incident→eval 回帰スイート（カスタムルールの由来 incident 再現テスト）](docs/adr/adr-049-incident-eval-regression-suite.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
