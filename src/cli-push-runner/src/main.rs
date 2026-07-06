@@ -28,7 +28,7 @@ mod stages;
 
 use std::time::Instant;
 
-use config::load_config;
+use config::{load_config, resolve_takt_workflow};
 use log::log_info;
 use stages::{
     run_bookmark_check, run_diff, run_lint_screen, run_pr_size_check, run_push, run_quality_gate,
@@ -107,10 +107,11 @@ fn run_pipeline() -> i32 {
     };
 
     let has_diff = config.diff.is_some();
+    let workflow = resolve_takt_workflow(&config);
     log_info(&format!(
         "パイプライン開始: bookmark → scratch → quality_gate → {} takt ({}) → push",
         if has_diff { "diff →" } else { "" },
-        config.takt.workflow,
+        workflow,
     ));
 
     if let Err(code) = run_pre_checks(&config) {
@@ -127,7 +128,7 @@ fn run_pipeline() -> i32 {
         Err(code) => return code,
     };
 
-    if !skip_takt && !run_takt(&config.takt) {
+    if !skip_takt && !run_takt(&config.takt, &workflow) {
         log_info("パイプライン中断: takt ワークフロー失敗。");
         return EXIT_TAKT_FAILURE;
     }

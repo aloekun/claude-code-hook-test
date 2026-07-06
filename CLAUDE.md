@@ -47,6 +47,7 @@
 - [ADR-044: subprocess utility extraction の境界判定 — 共通化と分離の線引き](docs/adr/adr-044-subprocess-utility-extraction-boundary.md) *(試験運用)*
 - [ADR-045: jj workspace による並列セッション運用 — メイン作業と細粒度改善の分離](docs/adr/adr-045-jj-workspace-parallel-sessions.md) *(試験運用)*
 - [ADR-046: ローカル LLM pre-push レビュアー — 選定スパイクと不採用判断](docs/adr/adr-046-local-llm-review-spike.md) *(却下)*
+- [ADR-047: pre-push review の反証（refute）facet](docs/adr/adr-047-prepush-refute-facet.md) *(試験運用)*
 
 ## Build
 

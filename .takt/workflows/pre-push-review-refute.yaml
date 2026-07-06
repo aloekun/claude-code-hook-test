@@ -1,0 +1,228 @@
+name: pre-push-review-refute
+description: >
+  AI review workflow (refute variant, WP-06 / ADR-047 experimental) invoked by
+  push-runner when [pre_push_review] refute_enabled = true.
+  quality_gate and push are handled outside takt by the Rust exe.
+  Flow: (simplicity + security reviewers in parallel) -> verify (refute, haiku)
+  -> fix (loop) -> supervise.
+  The verify step adversarially refutes reviewer findings so false positives do
+  not reach the expensive fix step. Wrongly-rejected findings are recaught by the
+  post-pr CodeRabbit layer (safety net). fix / supervise / fix_supervisor facets
+  are shared with pre-push-review.yaml (ADR-020).
+
+workflow_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+
+max_steps: 30
+initial_step: reviewers
+
+loop_monitors:
+  # NOTE: cycle MUST list the real repeated unit [reviewers, verify, fix].
+  # With verify inserted, [reviewers, fix] would never match (the trailing pair
+  # is always [verify, fix]), so the stall-detection judge would never fire and
+  # the run could spin to max_steps. See ADR-047 / takt cycle-detector.
+  - cycle:
+      - reviewers
+      - verify
+      - fix
+    threshold: 2
+    judge:
+      persona: supervisor
+      model: sonnet
+      instruction: loop-monitor-reviewers-fix
+      rules:
+        - condition: Healthy (progress being made)
+          next: reviewers
+        - condition: Unproductive (repeated findings, fixes not applied)
+          next: supervise
+steps:
+  # ---------------------------------------------------------------------------
+  # Step 1: reviewers (parallel)
+  #   Two reviewers -- simplicity (diff-local) and security.
+  # ---------------------------------------------------------------------------
+  - name: reviewers
+    parallel:
+      - name: simplicity-review
+        edit: false
+        persona: simplicity-reviewer
+        model: sonnet
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+        instruction: review-simplicity
+        output_contracts:
+          report:
+            - name: simplicity-review.md
+              format: simplicity-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+
+      - name: security-review
+        edit: false
+        persona: security-reviewer
+        model: sonnet
+        policy: review
+        knowledge: security
+        provider_options:
+          claude:
+            allowed_tools:
+              - Read
+              - Glob
+              - Grep
+        instruction: review-security
+        output_contracts:
+          report:
+            - name: security-review.md
+              format: security-review
+        rules:
+          - condition: approved
+          - condition: needs_fix
+
+    rules:
+      - condition: all("approved")
+        next: COMPLETE
+      - condition: any("needs_fix")
+        next: verify
+
+  # ---------------------------------------------------------------------------
+  # Step 2: verify (refute)  -- WP-06 / ADR-047
+  #   Adversarially refutes the reviewers' blocking findings on a cheap model.
+  #   Reads simplicity-review.md + security-review.md from the Report Directory,
+  #   re-reads the code, and rejects findings that do not reproduce (tie goes to
+  #   reject). Only surviving findings reach fix.
+  #   - SOME_SURVIVE -> fix (surviving findings only)
+  #   - ALL_REFUTED  -> supervise (no code change; sonnet confirms push-readiness)
+  # ---------------------------------------------------------------------------
+  - name: verify
+    edit: false
+    persona: code-reviewer
+    model: haiku
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+    instruction: refute-finding
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: refutation-report.md
+          format: refutation-report
+    rules:
+      - condition: |
+          At least one finding survived refutation (refutation-report Verdict:
+          SOME_SURVIVE, Survived Findings table has >= 1 row). Surviving findings
+          must be fixed.
+        next: fix
+      - condition: |
+          All reviewer findings were refuted (Verdict: ALL_REFUTED, Survived
+          Findings table empty). No finding survives to fix.
+        next: supervise
+
+  # ---------------------------------------------------------------------------
+  # Step 3: fix
+  #   Applies fixes for every SURVIVING finding (refutation-report.md filters out
+  #   rejected findings; see fix.md). The loop_monitor above caps iterations at 2.
+  # ---------------------------------------------------------------------------
+  - name: fix
+    edit: true
+    persona: coder
+    model: sonnet
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - security
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+    required_permission_mode: edit
+    pass_previous_response: false
+    instruction: fix
+    rules:
+      # Phase 3 / #C-2 fix-trust shortcut: fix step が Convergence verdict
+      # `convergence_verdict: fully_resolved` を report したら reviewers 再実行を
+      # skip して直接 COMPLETE。multi-iter の review-fix loop を圧縮する。
+      - condition: |
+          Report ends with `convergence_verdict: fully_resolved` (Convergence
+          gate shows persists: 0 AND misdirected: 0). All findings of this
+          iteration are fully resolved with no remaining work.
+        next: COMPLETE
+      - condition: |
+          Fixes applied but `convergence_verdict: partial` (some findings
+          persist or were misdirected, re-review needed).
+        next: reviewers
+      - condition: Unable to proceed with fixes
+        next: supervise
+
+  # ---------------------------------------------------------------------------
+  # Step 4: supervise
+  #   Single-shot decision node (not a loop). Determines whether to push or
+  #   route to fix_supervisor for one final adjustment before COMPLETE.
+  # ---------------------------------------------------------------------------
+  - name: supervise
+    edit: false
+    persona: supervisor
+    model: sonnet
+    policy: review
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+    instruction: supervise
+    pass_previous_response: false
+    output_contracts:
+      report:
+        - name: supervisor-validation.md
+          format: supervisor-validation
+    rules:
+      - condition: All validations complete, ready to push
+        next: COMPLETE
+      - condition: Issues detected
+        next: fix_supervisor
+
+  - name: fix_supervisor
+    edit: true
+    persona: coder
+    model: sonnet
+    policy:
+      - coding
+      - testing
+    knowledge:
+      - security
+    provider_options:
+      claude:
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Edit
+          - Write
+          - Bash
+    required_permission_mode: edit
+    instruction: fix-supervisor
+    pass_previous_response: false
+    rules:
+      - condition: Fixes for supervisor findings complete
+        next: COMPLETE
+      - condition: Unable to proceed with fixes
+        next: COMPLETE

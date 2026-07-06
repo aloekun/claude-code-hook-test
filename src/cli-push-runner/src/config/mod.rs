@@ -30,6 +30,7 @@ pub(crate) struct Config {
     pub(crate) push: PushConfig,
     pub(crate) scratch_file_warning: Option<ScratchFileWarningConfig>,
     pub(crate) pr_size_check: Option<PrSizeCheckConfig>,
+    pub(crate) pre_push_review: Option<PrePushReviewConfig>,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +52,19 @@ pub(crate) struct TaktConfig {
     pub(crate) workflow: String,
     pub(crate) task: String,
     pub(crate) extra_args: Option<Vec<String>>,
+}
+
+/// pre-push review の refute variant 制御 (WP-06 / ADR-047, 試験運用)。
+///
+/// ADR-039 (config opt-in): section 不在 / `refute_enabled != Some(true)` /
+/// `refute_workflow` 未指定 のいずれでも現行 `[takt] workflow` を使う (default OFF)。
+/// 明示的に `refute_enabled = true` かつ `refute_workflow` 指定時のみ refute
+/// variant workflow に切り替わる。派生プロジェクトの templates は section を
+/// 置かない or `refute_enabled = false` で default OFF を継承する。
+#[derive(Deserialize)]
+pub(crate) struct PrePushReviewConfig {
+    pub(crate) refute_enabled: Option<bool>,
+    pub(crate) refute_workflow: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +109,23 @@ pub(crate) fn load_config() -> Result<Config, String> {
     apply_lint_screen_env_override(&mut config, std::env::var(ENV_LINT_SCREEN_ENABLED).ok());
     validate_config(&config)?;
     Ok(config)
+}
+
+/// takt に渡す workflow 名を解決する (WP-06 / ADR-047)。
+///
+/// 切替判定を本関数 1 箇所に集約する (ADR-039 §設計6点 #5: 3 段 gate の単一化)。
+/// `[pre_push_review] refute_enabled = true` かつ `refute_workflow` 指定時のみ
+/// refute variant を返し、それ以外は現行 `[takt] workflow` を返す (fail-safe で
+/// 現行フロー)。
+pub(crate) fn resolve_takt_workflow(config: &Config) -> String {
+    if let Some(pre_push) = &config.pre_push_review {
+        if pre_push.refute_enabled == Some(true) {
+            if let Some(workflow) = &pre_push.refute_workflow {
+                return workflow.clone();
+            }
+        }
+    }
+    config.takt.workflow.clone()
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
@@ -293,6 +324,7 @@ command = "echo push"
             lint_screen: None,
             scratch_file_warning: None,
             pr_size_check: None,
+            pre_push_review: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
@@ -324,6 +356,7 @@ command = "echo push"
             lint_screen: None,
             scratch_file_warning: None,
             pr_size_check: None,
+            pre_push_review: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
@@ -337,5 +370,55 @@ command = "echo push"
         let result = validate_config(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("'empty'"));
+    }
+
+    /// resolve_takt_workflow テスト用に base config + 任意の [pre_push_review]
+    /// section を組み立てる。base workflow は "pre-push-review"。
+    fn config_with_optional_pre_push(pre_push_section: &str) -> Config {
+        let toml_str = format!(
+            r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[takt]
+workflow = "pre-push-review"
+task = "pre-push review"
+
+[push]
+command = "echo push"
+{pre_push_section}
+"#
+        );
+        toml::from_str(&toml_str).unwrap()
+    }
+
+    #[test]
+    fn resolve_workflow_base_when_section_absent() {
+        let config = config_with_optional_pre_push("");
+        assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
+    }
+
+    #[test]
+    fn resolve_workflow_base_when_refute_disabled() {
+        let config = config_with_optional_pre_push(
+            "[pre_push_review]\nrefute_enabled = false\nrefute_workflow = \"pre-push-review-refute\"",
+        );
+        assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
+    }
+
+    #[test]
+    fn resolve_workflow_refute_when_enabled() {
+        let config = config_with_optional_pre_push(
+            "[pre_push_review]\nrefute_enabled = true\nrefute_workflow = \"pre-push-review-refute\"",
+        );
+        assert_eq!(resolve_takt_workflow(&config), "pre-push-review-refute");
+    }
+
+    #[test]
+    fn resolve_workflow_base_when_enabled_but_no_refute_workflow() {
+        let config = config_with_optional_pre_push("[pre_push_review]\nrefute_enabled = true");
+        assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
     }
 }
