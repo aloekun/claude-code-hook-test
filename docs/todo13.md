@@ -772,39 +772,6 @@
 
 ---
 
-### CodeRabbit「指摘ゼロ再レビュー」検知ギャップ解消 — commit status を「レビュー済み」判定に追加 + fail-open 分岐テスト (PR #247 post-merge-feedback T2-2 + 2026-07-05 セッション実測採用)
-
-> **動機**: 2026-07-05 の PR #247 運用で実測した検知ギャップ。CodeRabbit は「指摘ゼロ」で完了した (再) レビューでは **formal review object (REST `pulls/{pr}/reviews`) を提出しない**。完了通知は (a) summary comment の in-place 更新 (「No actionable comments were generated in the recent review」+ 対象 commit range 記載) と (b) **commit status** (`repos/{owner}/{repo}/commits/{sha}/status` の `statuses[]` に context `CodeRabbit` / state `success` / description `Review completed`) のみ。この結果 2 つの実害が出る:
->
-> 1. `head_already_reviewed()` (review_trigger.rs) は reviews API の `commit_id` 照合**だけ**で判定するため、指摘ゼロでレビュー済みの HEAD を `Some(false)` (未レビュー) と誤判定 → fail-open で `@coderabbitai review` を再投稿し得る。CodeRabbit は incremental 仕様で「already reviewed」を返すだけなので、**ADR-019 再トリガー抑止ガードが守るはずのレート枠 (WP-03) をこのケースでは守れない**。
-> 2. cli-pr-monitor の review_recheck もレビュー完了を検知できず、max_rechecks (3) まで park を繰り返して人手対応になる (PR #247 で recheck 0→2 まで完了検知できないことを実測。新 HEAD の完了は summary comment 更新 + commit status success のみで通知され、reviews API には旧 HEAD の review しか存在しなかった)。
->
-> **参照**: `src/cli-pr-monitor/src/stages/review_trigger.rs` (`head_already_reviewed` / `is_head_in_reviewed`)、`src/cli-pr-monitor/src/stages/poll/review_recheck.rs`、ADR-019 § 再トリガー抑止ガード (2026-07-05 追記)、ADR-022 (責務分離)、ADR-043 (fail-open は助言層に適用)。commit status の実測形状: `gh api` で `state: success` / `statuses[].context: "CodeRabbit"` / `statuses[].description: "Review completed"` (PR #247 の merge 前 HEAD で確認)。
->
-> **実行優先度**: 🔧 Tier 2 — Effort S-M。ガードの本来目的 (quota 保護) の完成 + park ループ解消で監視の自律性が上がる。
-
-#### 作業計画
-
-- [ ] `head_already_reviewed()` に第 2 判定ソースを追加: `gh api repos/{repo}/commits/{head_sha}/status` を照会し、`statuses[]` に context `CodeRabbit` かつ state `success` があれば「レビュー済み」。既存の reviews API 照合と OR で `Some(true)` に倒す
-- [ ] fail-open 原則を維持: gh 照会失敗・parse 不能は従来どおり `None` (= 投稿続行)。確証がある場合のみ skip (ADR-019 の設計思想を変えない)
-- [ ] 判定ロジックを純関数に切り出し (I/O と分離)、三値 (`Some(true)` = skip / `Some(false)` = 投稿 / `None` = 投稿) の分岐テストを追加。**特に fail-open 分岐 (`None` → 投稿) の反転テスト** (PR #247 post-merge-feedback T2-2 採用分。順位 162 = hooks-stop-quality の `Option::None` path テストと同型パターン)。commit status JSON の parse も純関数化してテスト
-- [ ] review_recheck のレビュー完了検知にも同じ commit status シグナルを追加し、指摘ゼロ完了で park ループが終了するようにする (ADR-022 の責務分離に注意: 判定ヘルパーは共有し、stage 間の状態は共有しない)
-- [ ] ADR-019 § 再トリガー抑止ガードを amendment (判定ソースが reviews API 単独 → reviews API + commit status の 2 系統になる旨と実測根拠)
-- [ ] `pnpm build:cli-pr-monitor` で exe 更新 (ビルドには Git for Windows usr/bin の cp が PATH に必要)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 指摘ゼロで再レビュー済みの HEAD への `@coderabbitai review` 再投稿が skip されること (commit status 由来の `Some(true)`)。
-- review_recheck が指摘ゼロ完了を検知して park ループを終了すること。
-- fail-open 分岐 (`None` → 投稿) を含む三値判定のユニットテストが存在すること。
-
-#### 詰まっている箇所
-
-- なし (2026-07-05 の実測ログ・commit status の実データ形状あり)。
-
----
-
 ### quality_gate の clippy を `--all-targets --all-features` 化 — test コード lint gap 解消 (PR #247 post-merge-feedback T2-1 採用)
 
 > **動機**: 現行 `cargo clippy --workspace -- -D warnings` は lib/bin ターゲットのみを `cfg(test)` なしで検査するため、`#[cfg(test)]` ユニットテスト・integration test のコードが一切 lint されない。PR #247 で `useless_format` が cargo test 段階まで顕在化せず手戻りが発生した。`--all-targets` (= `--lib --bins --tests --benches --examples`) でテストコードも clippy 対象になる。
