@@ -4,9 +4,9 @@
 ## Verdict: ALL_REFUTED / SOME_SURVIVE
 
 ## Survived Findings (passed to fix)
-| # | finding_id | Source | Severity | Location | Issue | Fix Suggestion | Evidence it reproduces |
-|---|------------|--------|----------|----------|-------|----------------|------------------------|
-| 1 | SEC-NEW-src-db-L42 | security | High | `src/db.ts:42` | Raw query string | Use a parameterized query | Confirmed by reading line 42: user input is interpolated into the SQL string |
+| # | finding_id | family_tag | Source | Severity | Location | Issue | Fix Suggestion | Evidence it reproduces |
+|---|------------|------------|--------|----------|----------|-------|----------------|------------------------|
+| 1 | SEC-NEW-src-db-L42 | injection-risk | security | High | `src/db.ts:42` | Raw query string | Use a parameterized query | Confirmed by reading line 42: user input is interpolated into the SQL string |
 
 ## Rejected Findings (refuted -- audit log)
 | # | finding_id | Source | Location | Original Issue | Rejection reason |
