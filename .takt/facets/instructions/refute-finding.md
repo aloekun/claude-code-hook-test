@@ -39,7 +39,7 @@ Therefore **the tie goes to reject**: only let a finding survive when you have p
 
 Write `refutation-report.md` following its output contract:
 
-- **Survived Findings** -- carry over the original `finding_id`, source, severity, location, issue, **and the reviewer's original fix suggestion**, and add the code-level **evidence it reproduces**. These are the only findings `fix` acts on, and `fix` reads this table as its work list, so make each row **self-contained**: a reader must be able to fix from the row alone (the `finding_id` lets them pull extra context from the reviewer report if needed).
+- **Survived Findings** -- carry over the original `finding_id`, `family_tag`, source, severity, location, issue, **and the reviewer's original fix suggestion**, and add the code-level **evidence it reproduces**. These are the only findings `fix` acts on, and `fix` reads this table as its work list, so make each row **self-contained**: a reader must be able to fix from the row alone (the `finding_id` lets them pull extra context from the reviewer report if needed).
 - **Rejected Findings** -- carry over `finding_id`, source, location, and original issue, plus a concrete **rejection reason** (what you read that disproves it). This table is the audit log for dogfood measurement (reject rate / reject-error rate vs. later CodeRabbit re-findings), so make each reason specific and checkable.
 - **Verdict**: `ALL_REFUTED` when the Survived table is empty, otherwise `SOME_SURVIVE`.
 
