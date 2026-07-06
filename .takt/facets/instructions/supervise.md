@@ -7,7 +7,7 @@ You are the supervisor. The review-fix cycle has either completed or been escala
 3. Check that fixes did not introduce new issues
 4. Verify read-only zone compliance (no writes to .takt/, docs/adr/, templates/, .claude/hooks-config.toml)
 
-## Optional: refutation-report.md (pre-push-review-refute only)
+## Optional: refutation-report.md (applies whenever refutation-report.md is present)
 
 If the Report Directory contains `refutation-report.md` with Verdict `ALL_REFUTED` and there is no fix report, the verify (refute) step rejected every reviewer finding as a false positive, so there is intentionally no code change. Confirm the rejection reasons are sound (each should cite concrete code-level evidence). If they are, this is **ready to push** -- any wrongly-rejected finding is recaught by the post-pr CodeRabbit layer. If a rejection reason looks unsound, treat it as **issues detected**.
 

@@ -76,6 +76,13 @@ takt に同梱の公式スタイルガイド・スキーマ・builtins を精査
 4. 契約は公式スタイルガイド準拠 (` ```markdown ` ブロック + 認知負荷軽減ルール + `finding_id` 必須の
    Rejection Gate)。
 
+### output-contract 設計原則 (次回 contract 追加・編集時の参照基準、2026-07-07 追記 / WP-07 feedback)
+
+新規 output-contract を追加・編集する際は以下の 2 原則を守る (WP-07 で列不整合が CodeRabbit Major 指摘となった再発防止):
+
+1. **全 finding セクションで同一列セット**: 1 contract 内の Current Iteration / Carry-over / Reopened 等の finding テーブルは同じ finding 列 (`finding_id` / `family_tag` / ...) を共有する。セクション間で列が漂流すると下流の fix / refute facet の parse を壊す。
+2. **builtin `security-review` を mirror**: reviewer contract は takt builtin `security-review` の列構造・casing を踏襲する。casing の混在 (snake_case の field id `finding_id`/`family_tag` + Title Case の表示ラベル `Severity`/`Type`/...) は builtin 由来の**意図的な区別**であり「不整合」ではない (PR #252 で CodeRabbit が誤指摘)。意図的に mirror しない contract を作る場合は、その設計意図を contract 冒頭コメントに明記する。
+
 適用範囲は **pre-push review の reviewers** (通常 `pre-push-review.yaml` と refute variant
 `pre-push-review-refute.yaml` の両方が同じ `format:` 名を共有するため自動的に裨益)。post-pr-review は
 simplicity/security reviewer を持たず (CodeRabbit findings 駆動の analyze/fix 構成) 対象外。

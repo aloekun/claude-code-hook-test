@@ -25,7 +25,7 @@ If you catch yourself about to run a Bash command that writes into a read-only z
 - Use the latest review reports in the Report Directory as primary evidence.
 - Past iteration reports are saved as `{filename}.{timestamp}` in the same directory. For each report, run Glob with a `{report-name}.*` pattern, read up to 2 files in descending timestamp order, and understand persists / reopened trends before starting fixes.
 
-### Optional: refutation-report.md filter (pre-push-review-refute only)
+### Optional: refutation-report.md filter (applies whenever refutation-report.md is present)
 
 If the Report Directory contains `refutation-report.md`, a verify (refute) step has already adversarially filtered the reviewer findings. In that case:
 
