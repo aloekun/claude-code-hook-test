@@ -772,6 +772,39 @@
 
 ---
 
+### pre-push review-diff.txt の生成形式を jj diff --git に切替 — LLM レビュアーの add/delete 誤読解消 (PR #256 post-merge-feedback Tier1 #1 採用)
+
+> **動機**: `push-runner-config.toml:113` の `[diff] command = "jj diff -r @"`（jj デフォルト形式）で生成される `.takt/review-diff.txt` は、追加/削除を色 + 行番号2列（`NNN     :` = 削除 / `     NNN:` = 追加）で表現する。ファイル化で色が落ちると `-`/`+` マーカーが無くなり、削除が「左列のみ行番号」でしか区別できず、pre-push の LLM レビュアー（simplicity-review 等）が削除ブロックを「追加」と誤読しうる。`--git`（標準 unified diff）は色非依存で `+`/`-` を明示するため誤読しない。PR #256（ADR-051 起票 PR）で todo エントリ25行の**削除**を simplicity-review が「追加」と誤読し stale-tracking-entry として false positive REJECT を出し、レビュー約19分を浪費した実害が発生した。
+>
+> **本タスクの位置づけ**: PR #256 post-merge-feedback Tier1 #1 で採用（他6提案は over-engineering として却下）。fix ステップの「hunk-polarity bug」という診断は不正確で、真因は色を落とした平文 diff の LLM 可読性問題。
+>
+> **参照**: `push-runner-config.toml:113`（`command = "jj diff -r @"` → `"jj diff --git -r @"`、修正対象）、`templates/push-runner-config.toml:52`（同様の変更、`pnpm deploy:hooks` で派生プロジェクトに配布されるため**両方修正必須**）、memory `prepush-review-diff-plain-format-misread.md`、PR #256 feedback report (`.claude/feedback-reports/256.md`) Tier1 #1
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S。false positive で約19分浪費した実害が既に発生しており、config + template 各1箇所の軽微な修正で再発を防止できる。
+
+#### 設計決定 (案)
+
+- `[diff] command` を `jj diff --git -r @` に変更。本番 config と template の2箇所を同一 PR で修正（template 未修正だと派生プロジェクトに同じ false positive が横展開）。
+- review-diff.txt を format-sensitive に parse する `.rs` 箇所は存在せず（LLM facet が読むのみ）、Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `push-runner-config.toml:113` を `command = "jj diff --git -r @"` に変更
+- [ ] `templates/push-runner-config.toml:52` も同様に変更
+- [ ] review-diff.txt を参照する箇所（facet instruction / `.rs`）が `--git` 形式で問題ないか確認
+- [ ] dogfood: 削除を含む diff で pre-push review が正しく削除を認識することを確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- pre-push review が削除ブロックを「追加」と誤読しなくなり、config + template 両方が `--git` 形式、派生プロジェクトへの横展開も解消。
+
+#### 詰まっている箇所
+
+- なし（変更箇所・影響範囲とも確定済み、PR #256 feedback report で cross-validation 済み）。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
