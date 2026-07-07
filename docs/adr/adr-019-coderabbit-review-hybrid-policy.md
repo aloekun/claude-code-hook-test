@@ -153,7 +153,7 @@ WP-03 は 2026-04-19 で却下した「rate-limit 耐性 (超過後の auto-retr
 #### 既知の制約
 
 - **手動 fix push は手動トリガーが必要**: 明示トリガーは監視の auto-push 経路 (`auto_push_severity` = critical/major) のみ。ユーザー手動 push (severity=none / minor) 後は `@coderabbitai review` を手動投稿する (fail-open のログが誘導する)。
-- **設定の二重管理**: `.coderabbit.yaml` の `auto_incremental_review` と `pr-monitor-config.toml` の `trigger_review_after_push` は必ず揃える (前者 false ⇔ 後者 true)。揃わないと再レビュー欠落 (両 off) or 二重レビュー (両誤設定) になる。派生プロジェクトの template では default false + コメント例で明示。
+- **設定の二重管理**: `.coderabbit.yaml` の `auto_incremental_review` と `pr-monitor-config.toml` の `trigger_review_after_push` は必ず揃える (前者 false ⇔ 後者 true)。揃わないと再レビュー欠落 (両 off) or 二重レビュー (両誤設定) になる。派生プロジェクトの template では default false + コメント例で明示。この「内部設定 × 外部 SaaS server-side 設定」の論理結合は今後の SaaS 統合で繰り返される汎用パターンであり、設計規律 (相互参照コメント / 期待値組み合わせ表 / 両側同一 PR / ランタイム検証の限界) を [ADR-051](adr-051-cross-system-config-coupling.md) に汎化した。
 
 #### 再トリガー抑止ガード (2026-07-05 追記、WP-05 follow-up)
 

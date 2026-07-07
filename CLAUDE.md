@@ -51,6 +51,7 @@
 - [ADR-048: reviewers→fix findings handoff の output-contract 標準化（markdown 統一・JSON 却下）](docs/adr/adr-048-facet-findings-handoff-markdown-contract.md) *(試験運用)*
 - [ADR-049: incident→eval 回帰スイート（カスタムルールの由来 incident 再現テスト）](docs/adr/adr-049-incident-eval-regression-suite.md) *(試験運用)*
 - [ADR-050: multi-iteration workflow の decision criteria scope 明示](docs/adr/adr-050-iteration-aware-decision-criteria.md) *(試験運用)*
+- [ADR-051: クロスシステム設定 coupling パターン — 内部設定と外部 SaaS 設定の論理結合の設計規律](docs/adr/adr-051-cross-system-config-coupling.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

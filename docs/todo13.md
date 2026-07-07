@@ -772,31 +772,6 @@
 
 ---
 
-### クロスシステム設定 coupling パターンの汎化 ADR 起票 (PR #243 post-merge-feedback T3-2 採用)
-
-> **動機**: `.coderabbit.yaml` (外部 SaaS 側設定、CodeRabbit が server-side で読む) と `pr-monitor-config.toml` の `[fix] trigger_review_after_push` (内部 CLI 設定) は論理的に coupled しており、**片方だけを変更すると re-review 欠落または二重投稿が発生する**構造になっている。SaaS 側が YAML を server-side で読むため、ランタイムでの cross-validation は原理的に不可能 = 文書化・期待値組み合わせ表・変更手順の規律が mitigation の中心になる。ADR-019 には CodeRabbit 固有の組み合わせ表が記録済みだが、この構造は今後の外部 SaaS 統合 (LLM service、CI provider 等) で繰り返される汎用パターンのため、汎化 ADR として横展開する。
->
-> **参照**: ADR-019 (CodeRabbit 固有事例と期待値組み合わせ表)、ADR-022 (責務分離)、ADR-039 (experimental feature 標準パターン)。ADR 採番は placeholder 方式 (「ADR-NNN、land 時に確定」)。**注意: post-merge report 原文は ADR-046 を提案していたが、ADR-046 は WP-01 却下記録で使用済みのため使わない**。
->
-> **実行優先度**: 💎 Tier 3 — Effort M。新規 ADR 1 本のため docs bundle とは別 PR 可。
-
-#### 作業計画
-
-- [ ] ADR-NNN「クロスシステム設定 coupling パターン」を起票: ① coupling の定義と実例 (ADR-019 の `.coderabbit.yaml` × `pr-monitor-config.toml` を代表例として参照)、② 設計ガイドライン (両設定ファイルに相互参照コメントを置く / 期待値の組み合わせ表を ADR に必須記載 / 変更時は両側を同一 PR で扱う原則)、③ ランタイム cross-validation の限界 (SaaS server-side 読取) の明記
-- [ ] ADR-019 から新 ADR へ cross-reference を追加
-- [ ] CLAUDE.md の ADR index に追記
-- [ ] 本 entry 削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 汎化 ADR が land し、次回の外部 SaaS 統合設計時に参照できる状態になっていること。
-
-#### 詰まっている箇所
-
-- なし (ADR-019 に事例・組み合わせ表の下敷きあり)。
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
