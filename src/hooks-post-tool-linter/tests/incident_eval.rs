@@ -14,9 +14,14 @@
 //! data reproducing the real incident each rule was created for (see the fixture
 //! headers and `[rules.incident]` in `.claude/custom-lint-rules.toml`).
 
+use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+/// Bounded wait for the spawned linter exe (dev-conventions.md § bounded wait): a hung
+/// child is killed and the test fails rather than blocking CI indefinitely.
+const LINTER_TIMEOUT_SECS: u64 = 30;
 
 /// One incident-derived rule's E2E expectation.
 struct Case {
@@ -119,14 +124,22 @@ fn run_linter(cwd: &Path, invoke_path: &str) -> Vec<serde_json::Value> {
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn hooks-post-tool-linter");
+    let stdout_drain = drain_pipe_unlimited(child.stdout.take().expect("child stdout"));
+    let stderr_drain = drain_pipe_unlimited(child.stderr.take().expect("child stderr"));
     child
         .stdin
         .take()
         .expect("child stdin")
         .write_all(payload.as_bytes())
         .expect("write stdin payload");
-    let out = child.wait_with_output().expect("wait for linter exe");
-    let stdout = String::from_utf8_lossy(&out.stdout);
+    let status = wait_with_timeout_safe("hooks-post-tool-linter", &mut child, LINTER_TIMEOUT_SECS)
+        .expect("wait_with_timeout_safe errored");
+    let stdout = stdout_drain.join().expect("stdout drain thread panicked");
+    let _stderr = stderr_drain.join().expect("stderr drain thread panicked");
+    assert!(
+        status.is_some(),
+        "hooks-post-tool-linter hung > {LINTER_TIMEOUT_SECS}s on {invoke_path} (killed) — investigate",
+    );
     parse_custom_lint_violations(&stdout)
 }
 
@@ -221,4 +234,32 @@ fn incident_eval_all_incident_rules() {
         assert_bad_fixture_fires(case);
         assert_good_fixture_clean(case);
     }
+}
+
+/// fail-closed: `CASES` must have one entry per incident-derived rule. This closes the
+/// asymmetry where `incident_fixture_coverage_check` gates the *fixture* dimension
+/// dynamically but the E2E `CASES` array was manually synced — a new `[rules.incident]`
+/// rule added without a CASES entry would silently skip E2E coverage (ADR-043 / ADR-049).
+#[test]
+fn cases_cover_every_incident_rule() {
+    let toml = std::fs::read_to_string(
+        repo_root().join(".claude").join("custom-lint-rules.toml"),
+    )
+    .expect("read deployed custom-lint-rules.toml");
+    let incident_rule_count = toml
+        .lines()
+        .filter(|l| l.trim() == "[rules.incident]")
+        .count();
+    assert!(
+        incident_rule_count > 0,
+        "false-green guard: no `[rules.incident]` sections found in deployed toml"
+    );
+    assert_eq!(
+        CASES.len(),
+        incident_rule_count,
+        "CASES ({}) must have one entry per `[rules.incident]` rule ({}) — a new incident \
+         rule was added without an E2E case (fail-closed)",
+        CASES.len(),
+        incident_rule_count
+    );
 }

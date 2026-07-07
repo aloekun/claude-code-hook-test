@@ -19,5 +19,8 @@ tempfile = "3"
 # stdout HookOutput/LintViolation JSON. serde_json is also a [dependencies] entry but
 # integration tests only see [dev-dependencies], so it is re-declared here.
 serde_json = "1.0"
+# lib-subprocess: bounded-wait + pipe drain for the exe-spawn E2E test (dev-conventions.md
+# § bounded wait). Re-declared here because integration tests only see [dev-dependencies].
+lib-subprocess = { path = "../lib-subprocess" }
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

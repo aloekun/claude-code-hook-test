@@ -118,6 +118,12 @@ fn is_stale(behind: Option<usize>) -> bool {
 
 一般原則として、model/heuristic の評価では **accuracy と安全軸 (安全側デフォルトを破らないこと) を独立指標として測り、両者が trade-off するときは安全軸を優先**する。accuracy 改善が安全後退を隠しうる (WP-04 の qwen3-coder) 点に注意する。gate 関数における「判定不能 → block」と、助言層における「不確実 → 保守側 (human_review)」は同一の設計思想の別レイヤーへの適用である。
 
+### 原則 6: read-only zone への reviewer 提案は silently skip せず escalate (2026-07-07 追記、WP-06/07 feedback)
+
+レビュアー (CodeRabbit 等) の提案が read-only zone (`.takt/facets/**` / `docs/adr/**` / `templates/**` 等、fix step が編集不可の領域) を対象とする場合、fix step はそれを適用できない。このとき **silently skip せず、misdirected として明示 escalate** する (fix report の `### Misdirected finding` 記載 + analyze step での `not_applicable` 明示分類)。silently drop は valid finding の取りこぼし = 「自動対応不能 → 楽観的にスルー」であり、原則 5 の逆で fail-open 的リスクだからである。read-only zone の対応は human (project owner) が直接編集するか、analyze が理由付きで `not_applicable` に分類して監査可能な形で残す。
+
+**観測事例**: PR #250 (supervise.md への CodeRabbit Major) / PR #252 (simplicity-review.md への CodeRabbit Major) の 2 件で、`.takt/facets/**` への提案が fix step で read-only zone として misdirected 分類された。両件とも post-pr-review pipeline が misdirected → not_applicable → approved と正しく escalate/分類し silently drop しなかった。この既存の望ましい挙動を原則として明文化する。
+
 ## 反例の判別ヒント
 
 関数が gate 関数か non-gate 関数かは、以下の質問で判別する:
