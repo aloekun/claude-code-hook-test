@@ -148,7 +148,7 @@ jobs:
                - severity はレビュアーの申告値を維持する (再分類しない)。
                - レビュー指摘がまだ 1 件も無い場合は、CI 状態と diff 概要 (変更ファイル・行数・変更の性質) のみの軽量サマリーにする。CodeRabbit のレビュー未着はその旨を 1 行記すだけでよい (待たない)。
 
-            4. 分析結果を日本語の markdown で、下記のコメントフォーマットに従って最終応答としてそのまま出力する。あなた自身はコメントを投稿しない — 投稿はこの workflow の後続 step (エージェント外) が、あなたの最終応答テキストをそのまま `--body-file` として渡して行う。
+            4. 分析結果を日本語の markdown で、下記のコメントフォーマットに従って最終応答として出力する。**最終応答は前置き・後書き・思考過程を一切含めず、必ず見出し行 `## 🤖 PR Monitor 分析 (GitHub Actions バックストップ)` から書き始めること** (この最終応答テキストがそのままコメント本文として投稿されるため、前置きがあるとコメントに混入し重複ガードの見出し検出も乱す)。あなた自身はコメントを投稿しない — 投稿はこの workflow の後続 step (エージェント外) が、あなたの最終応答テキストをそのまま `--body-file` として渡して行う。
 
             ## コメントフォーマット
 
@@ -203,11 +203,23 @@ jobs:
           echo "analysis_file=$ANALYSIS_FILE" >> "$GITHUB_OUTPUT"
 
           TRIMMED=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$ANALYSIS_FILE")
-          if [ "$TRIMMED" = "SKIP: no new information" ]; then
+          # 空出力 (エージェント異常終了・抽出失敗等) と明示 SKIP マーカーは投稿しない。
+          # 空を skip 扱いにしないと空コメントが投稿されうる (CodeRabbit Minor #258-2)。
+          if [ -z "$TRIMMED" ] || [ "$TRIMMED" = "SKIP: no new information" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # エージェントが前置き (会話文・思考過程) を付けた場合に備え、見出し行以降のみを
+          # 採用してコメント本文を正規化する (初回 run で前置き混入を実観測)。見出しが
+          # 無い異常時は原文を維持し空投稿を避ける。
+          HEADING='## 🤖 PR Monitor 分析'
+          if grep -qF "$HEADING" "$ANALYSIS_FILE"; then
+            awk -v h="$HEADING" 'index($0, h) { found = 1 } found' \
+              "$ANALYSIS_FILE" > "$ANALYSIS_FILE.norm"
+            mv "$ANALYSIS_FILE.norm" "$ANALYSIS_FILE"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Post analysis as PR comment (workflow-authored, not agent-authored)
         # 投稿コマンドの引数はファイル内容 (--body-file) として渡るため、
