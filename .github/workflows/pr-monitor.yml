@@ -126,6 +126,20 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # claude-code-action は既定でトリガー元 actor の権限を検査し bot actor を
+          # 拒否する ("Workflow initiated by non-human actor" エラー)。本 backstop の
+          # 本命トリガー (CodeRabbit のレビュー = pull_request_review / CodeRabbit の
+          # walkthrough = issue_comment、いずれも actor が coderabbitai[bot]) を通すため
+          # この bot のみを allowlist する ("*" は使わない = 任意 bot トリガーは禁止)。
+          # 副次効果: 本 workflow 自身の投稿は github-actions[bot] だが allowlist 外の
+          # ため bot トリガーは弾かれ、自己トリガーが二重に防止される。
+          # 【重要・セキュリティ】allowlist した bot は権限チェックを完全にバイパスする
+          # (公式 docs/security.md: "Allowed bots are not checked for repository
+          # permissions")。GitHub の権限ゲートが効かないため、本 job の安全性は下段の
+          # 読み取り専用多層防御 (permissions: contents: read / allowedTools scope /
+          # エージェント無 write / persist-credentials: false) が唯一の担保となる
+          # (ADR-022 原則 6 の 2 不変条件)。
+          allowed_bots: "coderabbitai[bot]"
           prompt: |
             あなたはリポジトリ ${{ github.repository }} の PR #${{ github.event.pull_request.number || github.event.issue.number }} に対する読み取り専用の監視バックストップです (ADR-022 原則 6 の GitHub Actions 経路)。
             起動イベント: ${{ github.event_name }} (${{ github.event.action }})
