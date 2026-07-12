@@ -39,10 +39,7 @@ fn ensure_config_beside_exe() {
         let src = repo_root().join(".claude").join("hooks-config.toml");
         let content = std::fs::read_to_string(&src)
             .unwrap_or_else(|e| panic!("repo hooks-config.toml read failed: {e}"));
-        assert!(
-            content.contains("[stop_tool_call_leak]"),
-            "repo config に [stop_tool_call_leak] section が必要 (false-green guard)"
-        );
+        assert_leak_config_matches_test_assumptions(&content);
         let dst = exe_path()
             .parent()
             .expect("exe has a parent dir")
@@ -50,6 +47,33 @@ fn ensure_config_beside_exe() {
         std::fs::write(&dst, content)
             .unwrap_or_else(|e| panic!("copy config beside exe failed: {e}"));
     });
+}
+
+/// E2E fixture (実 config) が本テスト群の前提とする具体値と一致することを検証する。
+/// section 存在だけでなく `enabled` / `max_consecutive_blocks` の値まで assert し、
+/// config retuning や kill-switch flip (`enabled = false`) が cap 境界テストを原因の
+/// 見えない形で silent break させるのを防ぐ (ADR-041、dev-conventions.md § 外部 fixture
+/// 参照テストは値まで assert)。値を変えたら assert メッセージが更新箇所を指し示す。
+fn assert_leak_config_matches_test_assumptions(content: &str) {
+    let config: toml::Value = toml::from_str(content)
+        .unwrap_or_else(|e| panic!("repo hooks-config.toml parse failed: {e}"));
+    let leak = config.get("stop_tool_call_leak").unwrap_or_else(|| {
+        panic!("repo config に [stop_tool_call_leak] section が必要 (false-green guard)")
+    });
+    assert_eq!(
+        leak.get("enabled").and_then(toml::Value::as_bool),
+        Some(true),
+        "E2E は [stop_tool_call_leak] enabled = true を前提とする。config で無効化するなら \
+         本テスト群 (leak_transcript_blocks_with_reason 等) の期待値も同時に更新すること"
+    );
+    assert_eq!(
+        leak.get("max_consecutive_blocks")
+            .and_then(toml::Value::as_integer),
+        Some(3),
+        "E2E は max_consecutive_blocks = 3 を前提とする。値を変えたら cap 境界テスト \
+         (consecutive_leaks_at_cap_fail_open / second_consecutive_leak_still_blocks) の \
+         leak 件数も同時に更新すること"
+    );
 }
 
 fn assistant_text_entry(text: &str) -> Value {

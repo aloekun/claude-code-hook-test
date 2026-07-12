@@ -55,3 +55,13 @@ integration test で外部バイナリを spawn する場合、**無期限 wait 
 2. **出力捕捉との両立** — 出力が必要なら stdout/stderr を `lib-subprocess::drain_pipe_unlimited` で別スレッド drain してから timeout wait する (pipe バッファ充填による deadlock 回避)。
 
 **由来** (PR #254 / WP-08、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)): codebase 初の exe-spawn E2E テスト (`incident_eval.rs`) パターンを確立したが timeout 境界が欠落し CodeRabbit nitpick。WP-16 CI smoke test 等で同パターン流用が見込まれるため convention 化する。
+
+## 外部 fixture 参照テストは値まで assert (順位274)
+
+テストが外部ファイル (実 config / 共有 fixture 等) を fixture として参照する場合、「section / キーの存在」だけでなく **テストの前提とする具体値まで assert** する:
+
+1. **存在チェックだけでは silent break する** — 「section がある」だけを assert すると、外部ファイル側で値が変わってもテストは緑のまま、前提の乖離が別テストの原因の見えない失敗として遅れて表面化する (ADR-041 Test Isolation の該当パターン)。
+2. **値ずれ時に更新箇所を指し示す** — assert メッセージに「この値を変えたらどのテストの期待値を更新すべきか」を明記し、外部ファイル側の変更が即座に「値まで assert したテスト」の失敗として表面化するようにする。
+3. **lint ではなく convention** — fixture ごとにスキーマが異なり regex での自動検知は非現実的なため、機械 lint 化せず convention として運用する (ADR-042 の役割分担)。
+
+**由来** (PR #261 T3-#2、[ADR-041](adr/adr-041-test-isolation-patterns.md)): `hooks-stop-tool-call-leak` の E2E (`tests/e2e.rs`) が実 config を隣にコピーする際、`[stop_tool_call_leak]` section の存在しか assert しておらず、`enabled = true` / `max_consecutive_blocks = 3` の値変更が cap 境界テスト (`consecutive_leaks_at_cap_fail_open` 等) を原因の見えない形で silent break させるリスクを CodeRabbit / session / pre-push simplicity の 3 ソースが独立指摘した。順位 273 で実例側 (値まで assert) を修正し、本 convention でパターンを一般化した。
