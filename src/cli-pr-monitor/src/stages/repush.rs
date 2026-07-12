@@ -1,3 +1,5 @@
+use lib_report_formatter::Finding;
+
 use crate::fix_commit::FixCommitState;
 use crate::log::log_info;
 use crate::stages::push::run_push;
@@ -83,9 +85,32 @@ pub(crate) fn decide_repush(
 
 // ─── re-push フロー ───
 
-/// auto-push の実行。push 前に品質 gate (`stages/gate.rs`、PR #224 対策 B1) を
-/// 評価し、FAIL なら push せず `action_required` に倒す (fail-closed、ADR-043)。
-fn run_auto_push(config: &crate::config::FixConfig, pr_label: &str, pre_cid: Option<&str>) {
+/// auto-push の実行。push 前に 2 段の gate を評価する:
+/// 1. scope guard (`stages/scope_guard.rs`、WP-11 / ADR-054): fix diff が finding 対象外の
+///    ファイルを変更していれば block (prompt injection 防御、default OFF opt-in)。
+/// 2. 品質 gate (`stages/gate.rs`、PR #224 対策 B1): テスト等の FAIL で block。
+///
+/// どちらの block も push せず `action_required` に倒す (fail-closed、ADR-043)。
+fn run_auto_push(
+    config: &crate::config::FixConfig,
+    findings: &[Finding],
+    pr_label: &str,
+    pre_cid: Option<&str>,
+) {
+    let scope_outcome =
+        crate::stages::scope_guard::evaluate_scope_guard(&config.scope_guard, pre_cid, findings);
+    log_info(&format!("[decision] scope_guard: {:?}", scope_outcome));
+    if let crate::stages::scope_guard::ScopeGuardOutcome::BlockedViolation { reason } =
+        &scope_outcome
+    {
+        log_info(&format!(
+            "[action] auto_push 中止 (scope guard BLOCK、fail-closed): {}",
+            reason
+        ));
+        mark_scope_guard_action_required(pr_label, reason);
+        return;
+    }
+
     let gate_outcome = crate::stages::gate::evaluate_gate(&config.gate, pre_cid);
     log_info(&format!("[decision] gate: {:?}", gate_outcome));
     if let crate::stages::gate::GateOutcome::Failed { reason } = &gate_outcome {
@@ -116,24 +141,37 @@ fn run_auto_push(config: &crate::config::FixConfig, pr_label: &str, pre_cid: Opt
     }
 }
 
-/// gate FAIL を state に反映する (`action_required`)。
+/// auto-push を中止した理由を state の `action_required` として永続化する。
 /// state 読み書き失敗は log のみ残して続行する (push は既に中止済みで安全側)。
-fn mark_gate_failure_action_required(pr_label: &str, reason: &str) {
+fn mark_action_required(summary: String) {
     use crate::state::{read_state_from, state_file_path, write_state_to};
 
     let path = state_file_path();
     let Some(mut state) = read_state_from(&path) else {
-        log_info("[gate] state 読み込み不可のため action_required の永続化を skip (log のみ)");
+        log_info("[action_required] state 読み込み不可のため永続化を skip (log のみ)");
         return;
     };
     state.action = "action_required".into();
-    state.summary = format!(
+    state.summary = summary;
+    if let Err(e) = write_state_to(&path, &state) {
+        log_info(&format!("[action_required] state 書き込み失敗 (継続): {}", e));
+    }
+}
+
+/// gate FAIL を state に反映する。
+fn mark_gate_failure_action_required(pr_label: &str, reason: &str) {
+    mark_action_required(format!(
         "{}: auto-push gate FAIL — push は実行されていません。修正後に pnpm push してください。原因: {}",
         pr_label, reason
-    );
-    if let Err(e) = write_state_to(&path, &state) {
-        log_info(&format!("[gate] state 書き込み失敗 (継続): {}", e));
-    }
+    ));
+}
+
+/// scope guard BLOCK (finding 対象外ファイルへの変更 = injection の疑い) を state に反映する。
+fn mark_scope_guard_action_required(pr_label: &str, reason: &str) {
+    mark_action_required(format!(
+        "{}: auto-push scope guard BLOCK — finding 対象外ファイルへの変更を検知したため push を中止しました (prompt injection の疑い、ADR-054)。fix commit を確認してください。原因: {}",
+        pr_label, reason
+    ));
 }
 
 /// auto_push_severity 設定値から自動 push するか否かを返す。
@@ -154,12 +192,13 @@ pub(crate) fn should_auto_push(setting: &str) -> bool {
 
 fn execute_repush_action(
     fix_config: &crate::config::FixConfig,
+    findings: &[Finding],
     pr_label: &str,
     pre_cid: Option<&str>,
     action: RepushAction,
 ) {
     match action {
-        RepushAction::AutoPush => run_auto_push(fix_config, pr_label, pre_cid),
+        RepushAction::AutoPush => run_auto_push(fix_config, findings, pr_label, pre_cid),
         RepushAction::UserConfirmWithSeparatedFix { commit_id } => {
             log_info(&format!(
                 "[action] auto_push スキップ: ユーザー確認待ち (fix commit 分離済み: {})",
@@ -193,6 +232,7 @@ fn execute_repush_action(
 /// 事後に「なぜ push した/しなかったか」を追跡できるようにする。
 pub(crate) fn execute_repush_flow(
     fix_config: &crate::config::FixConfig,
+    findings: &[Finding],
     pr_label: &str,
     pre_cid: Option<&str>,
     fix_state: &FixCommitState,
@@ -214,7 +254,7 @@ pub(crate) fn execute_repush_flow(
     let action = decide_repush_action(&decision, fix_state, allow_auto);
     log_info(&format!("[decision] action: {:?}", action));
 
-    execute_repush_action(fix_config, pr_label, pre_cid, action);
+    execute_repush_action(fix_config, findings, pr_label, pre_cid, action);
 
     if fix_config.sweep.enabled {
         crate::fix_commit::sweep_empty_commits_in_pr_range(&fix_config.sweep.default_branch);

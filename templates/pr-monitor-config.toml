@@ -34,3 +34,13 @@ check_coderabbit = true
 # 緊急バイパス (kill-switch): 環境変数 PR_MONITOR_GATE_DISABLE=1
 # [fix.gate]
 # enabled = false
+
+# WP-11 決定論層 (ADR-054): fix diff の scope 検証 gate。default OFF (opt-in)。
+# 有効化すると、fix が finding 対象外ファイルを変更した場合に auto-push を block する
+# (CodeRabbit コメント経由の prompt injection 防御)。派生プロジェクトでは default OFF の
+# ままでよい。有効化する場合は mode = "observe" (記録のみ) で誤検知率を確認してから
+# "enforce" (violation で push 中止) に上げること。
+# 緊急バイパス (kill-switch): 環境変数 PR_MONITOR_SCOPE_GUARD_DISABLE=1
+# [fix.scope_guard]
+# enabled = false
+# mode = "enforce"

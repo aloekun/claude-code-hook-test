@@ -49,7 +49,7 @@ fn start_monitoring_inner(pr_info: &PrInfo, is_wakeup: bool) -> i32 {
     ));
 
     let takt_outcome = run_takt_stage(&poll_result, pr_info, &config);
-    finalize_repush(&takt_outcome, &config, &pr_label);
+    finalize_repush(&takt_outcome, &poll_result.findings, &config, &pr_label);
 
     print_report(&poll_result, &pr_label);
 
@@ -173,10 +173,16 @@ fn invoke_takt_into_outcome(
     }
 }
 
-fn finalize_repush(outcome: &TaktOutcome, config: &crate::config::Config, pr_label: &str) {
+fn finalize_repush(
+    outcome: &TaktOutcome,
+    findings: &[lib_report_formatter::Finding],
+    config: &crate::config::Config,
+    pr_label: &str,
+) {
     if outcome.takt_succeeded && outcome.has_coderabbit_findings {
         execute_repush_flow(
             &config.fix,
+            findings,
             pr_label,
             outcome.pre_takt_cid.as_deref(),
             &outcome.fix_state,

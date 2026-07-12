@@ -77,6 +77,8 @@ pub(crate) struct FixConfig {
     pub(crate) sweep: SweepConfig,
     #[serde(default)]
     pub(crate) gate: crate::stages::gate::GateConfig,
+    #[serde(default)]
+    pub(crate) scope_guard: crate::stages::scope_guard::ScopeGuardConfig,
     /// auto-push 成功後に `@coderabbitai review` を投稿して再レビューを明示発火するか。
     ///
     /// `.coderabbit.yaml` の `reviews.auto_review.auto_incremental_review = false`
@@ -102,6 +104,7 @@ impl Default for FixConfig {
             push_command: default_push_command(),
             sweep: SweepConfig::default(),
             gate: crate::stages::gate::GateConfig::default(),
+            scope_guard: crate::stages::scope_guard::ScopeGuardConfig::default(),
             trigger_review_after_push: false,
         }
     }
