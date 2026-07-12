@@ -831,6 +831,106 @@
 
 ---
 
+### 層別テストテンプレート (StubOllama パターン・integration 独立性) の共有化 (PR #265 post-merge-feedback T2-1 採用)
+
+> **動機**: WP-11 (PR #265、ADR-054) の多層防御実装で、層別テスト戦略の設計に時間を要した。具体的には (a) 空 responses の `StubOllama` で「LLM が呼ばれていないこと」を証明する短絡検証パターン、(b) tempdir + `jj git init` + CwdRestore で実 jj repo を立てる integration テストの独立性パターン、の 2 つを都度設計した。WP-17 (自律化) で classifier / scope guard 層を拡張する際に同種の設計判断が再発する見込み。
+>
+> **参照**: `.claude/feedback-reports/265.md` Tier 2 #1、`src/cli-finding-classifier/src/lib.rs` (StubOllama)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (integration パターン)、ADR-041 (test isolation patterns)、ADR-025 (CwdRestore)、ADR-044 (共通化と分離の線引き — shared crate 化の境界判定に適用)
+>
+> **実行優先度**: 🔧 Tier 2 — Effort M。WP-17 着手前の実施が効果的。
+
+#### 作業計画
+
+- [ ] 対象パターンの棚卸し (StubOllama / tempdir+jj init+CwdRestore / 層別テストの構成方針)
+- [ ] ADR-044 の境界判定で shared test crate 化 or fixture + doc 化を判断
+- [ ] 切り出し + 既存呼び出し側 (cli-finding-classifier / cli-pr-monitor) の移行
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 新しい LLM 系 / jj 統合系のテストが共有テンプレートを参照して層別テストを組める状態になっていること。
+
+---
+
+### ADR-007 に「コメント配置の意思決定フロー」を追加 (PR #265 post-merge-feedback T3-2 採用)
+
+> **動機**: PR #265 実装中に `classify_one` (cli-finding-classifier) と `config.rs` (cli-pr-monitor) の 2 箇所で非 doc コメントを書き、Bundle Z comment-lint (#B-α) に block された (同種ミス 2 回 = パターン化の価値あり)。「この説明は doc コメント (`///`) に書くべきか、識別子名 / 関数分割で表現して削除すべきか」の判断フローが未文書化。linter 自動化 (feedback Tier 1 #2) は意味論的判定 = NLP が必要なため却下済みで、本エントリは人間 / AI の判断補助ドキュメントとしての補完。
+>
+> **参照**: `.claude/feedback-reports/265.md` Tier 3 #2、`docs/adr/adr-007-custom-linter-layer-boundary.md` (既存 Q1-Q3 判断フロー形式で拡張)、`src/hooks-post-tool-comment-lint-rust` (Bundle Z #B-α)
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。doc のみ、バッチ PR で消化可。
+
+#### 作業計画
+
+- [ ] ADR-007 に Q 形式の「コメントを書きたくなったときの配置判断フロー」を追記 (doc コメント / 識別子名 / マーカー付き Why コメントの 3 分岐)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- コメント配置の判断が ADR-007 の判断フローで一意に決まり、Bundle Z block の手戻りが減ること。
+
+---
+
+### PR body 配置タイミング規約を dev-conventions に明記 (PR #265 post-merge-feedback T3-3 採用)
+
+> **動機**: PR #265 の push パイプライン実行中に working copy へ `__pr-body.md` を作成し、jj snapshot 直前の退避で commit 混入をかろうじて回避したヒヤリハットが実発生。混入すると repo 履歴に残る。「PR body は push 完了後に scratchpad で準備し、`pnpm create-pr -- --body-file` に絶対パスで渡す (push 実行中の working copy に置かない)」というタイミング規約が未文書化。
+>
+> **参照**: `.claude/feedback-reports/265.md` Tier 3 #3、`docs/dev-conventions.md` (追記先)、ADR-028 (external-output 実行フロー)、`src/cli-pr-monitor/src/stages/create_pr.rs` (--body-file パススルー実装)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。doc のみ、バッチ PR で消化可 (並列安全化 PR の docs への相乗りも可)。
+
+#### 作業計画
+
+- [ ] dev-conventions.md に PR body 配置タイミング規約を追記 (scratchpad + 絶対パス推奨 / repo 直下 `__` ファイルは push 完了後のみ)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- PR body ファイルが push パイプラインの snapshot に混入しない手順が規約として参照可能になっていること。
+
+---
+
+### ADR-015 に「push 戦略は hook ブロックと exe 実装の両層で管理する」原則を追記 (PR #265 post-merge-feedback T3-4 採用)
+
+> **動機**: PR #265 の push 実行ログで、`pnpm push` (cli-push-runner) が `jj git push --all` を無条件実行していることを確認 (`push-runner-config.toml:169`、L166-168 のコメントで new-bookmark 対応のための意図的選択と判明)。hook 層 (hooks-pre-tool-validate) の block は対話操作にしか効かず、自動化経路 (exe) の push 戦略は exe/config 側で管理する必要がある — この 2 層原則が未記録。並列セッション lost-update incident の一因 (`--all` push が他 workspace の bookmark を巻き込む) の背景記録でもある。
+>
+> **参照**: `.claude/feedback-reports/265.md` Tier 3 #4、`push-runner-config.toml:169`、`docs/adr/adr-015-push-runner-takt-migration.md` (追記先)、ADR-042 (ルール vs 仕組みの境界)、ADR-045 (並列 workspace 運用)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。並列安全化 PR (push の `-b` 明示化 = feedback Tier 1 #1) と同一 PR での消化を推奨 (同変更の背景 docs のため)。
+
+#### 作業計画
+
+- [ ] ADR-015 に 2 層管理原則 (hook 層 = 対話操作の block / exe 層 = 自動化経路の push 戦略) を追記
+- [ ] 並列安全化 PR (cli-push-runner の `-b` 化) と同時に消化する場合は、その PR の変更理由として本原則を参照
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 「hook で block したから安全」という誤認を防ぐ 2 層管理原則が ADR-015 に記録され、push 戦略変更時の確認箇所 (hook + exe/config) が明示されていること。
+
+---
+
+### ADR-045 に「Known operational risks」「運用ルール」「Operation Verification Checklist」の 3 セクションを追加 (PR #265 post-merge-feedback T3-1 採用)
+
+> **動機**: ADR-045 (`docs/adr/adr-045-jj-workspace-parallel-sessions.md:95`) は「op log は共有だが、並行操作は jj が安全にマージする」と記載しているが、PR #265 のセッション内で実際に workspace 間の concurrent 操作により 2 コミットが lost update した (op log に期待した operation ID が記録されず消失、手動再構築で復旧)。この実観測は ADR-045 § 再評価 trigger #3「jj workspace 間の op log 競合や bookmark 衝突が dogfood で顕在化する」に該当し、既存の安全性記述と矛盾するため是正が必要。
+>
+> **参照**: `.claude/feedback-reports/265.md` Tier 3 #1、`docs/adr/adr-045-jj-workspace-parallel-sessions.md:95`（追記先）、Tier 1 #3 (`.claude/feedback-reports/265.md` L16 — post-tool-use での op log 検証 hook 追加、本 PR では未登録。Operation Verification Checklist は同 hook 実装までの暫定策)
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。doc のみ。Supervisor 検証で Tier1 #3 と並び最優先 2 件の一つと指摘されているため優先的に消化を推奨。
+
+#### 作業計画
+
+- [ ] ADR-045 に「Known operational risks」section を追加 (L95 の「並行操作は jj が安全にマージする」記述を是正し、本セッションの lost-update incident を実例として記録)
+- [ ] 「運用ルール」section を追加 (1 terminal = 1 session 等の並行運用ルールを明文化)
+- [ ] 「Operation Verification Checklist」section を追加 (`jj op log --limit 1` による手動確認手順。Tier1 #3 hook 実装までの暫定策として明記)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-045 の op log 安全性記述が実際の運用リスクと整合し、並行 workspace 運用時の手動確認手順が参照可能になっていること。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
