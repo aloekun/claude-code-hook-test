@@ -28,7 +28,7 @@ mod weekly_review;
 use hooks_config::read_hooks_config;
 use pr_monitor::{compute_catchup_nudge, pr_monitor_state_path, read_parked_state};
 use reaper::compute_reaper_nudge;
-use staleness::compute_staleness_nudge;
+use staleness::{compute_staleness_nudge, compute_workspace_stale_nudge};
 use weekly_review::compute_weekly_review_reminder_nudge;
 
 /// SessionStart hook の stdin JSON (必要なフィールドのみ)
@@ -128,6 +128,10 @@ fn emit_session_start_output(session_id: &str) {
             if let Some(staleness_nudge) = compute_staleness_nudge(&cwd, staleness_config) {
                 context.push_str("\n\n");
                 context.push_str(&staleness_nudge);
+            }
+            if let Some(stale_nudge) = compute_workspace_stale_nudge(staleness_config) {
+                context.push_str("\n\n");
+                context.push_str(&stale_nudge);
             }
         }
         if let Some(weekly_config) = hooks_config

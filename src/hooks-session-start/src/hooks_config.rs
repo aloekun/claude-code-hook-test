@@ -20,6 +20,8 @@ pub(crate) struct StalenessConfig {
     pub(crate) fetch_timeout_secs: Option<u64>,
     pub(crate) fetch_cache_secs: Option<u64>,
     pub(crate) default_branch: Option<String>,
+    /// workspace stale 検知 nudge (ADR-045 事故 follow-up、C2)。default-OFF (ADR-039 § 1)。
+    pub(crate) stale_check_enabled: Option<bool>,
 }
 
 /// ADR-031 Phase C: `/weekly-review` skill 起動 promote 設定 (試験運用、ADR-039 experimental pattern)。

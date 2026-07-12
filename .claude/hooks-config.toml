@@ -23,6 +23,10 @@ enabled = true
 fetch_timeout_secs = 3        # jj git fetch 全体の timeout (network 異常で session 起動を阻害しない)
 fetch_cache_secs = 300        # FETCH_HEAD mtime が N 秒以内なら fetch をスキップ (network cost 抑制)
 default_branch = "master"     # trunk-based 前提、feature branch 運用では変更
+# workspace stale 検知 nudge (ADR-045 § Known operational risks、C2)。並列 workspace の操作で
+# working copy が stale になったら `jj workspace update-stale` を促す (自動実行はしない)。
+# default-OFF (ADR-039 § 1)、本リポジトリは並列 workspace 運用のため有効化して dogfood。
+stale_check_enabled = true
 
 # [session_start.weekly_review_reminder]
 # - ADR-031 Phase C: `/weekly-review` skill 起動の reminder (試験運用、ADR-039 experimental pattern 準拠)。
