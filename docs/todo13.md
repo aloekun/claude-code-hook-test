@@ -890,26 +890,6 @@
 
 ---
 
-### ADR-015 に「push 戦略は hook ブロックと exe 実装の両層で管理する」原則を追記 (PR #265 post-merge-feedback T3-4 採用)
-
-> **動機**: PR #265 の push 実行ログで、`pnpm push` (cli-push-runner) が `jj git push --all` を無条件実行していることを確認 (`push-runner-config.toml:169`、L166-168 のコメントで new-bookmark 対応のための意図的選択と判明)。hook 層 (hooks-pre-tool-validate) の block は対話操作にしか効かず、自動化経路 (exe) の push 戦略は exe/config 側で管理する必要がある — この 2 層原則が未記録。並列セッション lost-update incident の一因 (`--all` push が他 workspace の bookmark を巻き込む) の背景記録でもある。
->
-> **参照**: `.claude/feedback-reports/265.md` Tier 3 #4、`push-runner-config.toml:169`、`docs/adr/adr-015-push-runner-takt-migration.md` (追記先)、ADR-042 (ルール vs 仕組みの境界)、ADR-045 (並列 workspace 運用)
->
-> **実行優先度**: 💎 Tier 3 — Effort XS。並列安全化 PR (push の `-b` 明示化 = feedback Tier 1 #1) と同一 PR での消化を推奨 (同変更の背景 docs のため)。
-
-#### 作業計画
-
-- [ ] ADR-015 に 2 層管理原則 (hook 層 = 対話操作の block / exe 層 = 自動化経路の push 戦略) を追記
-- [ ] 並列安全化 PR (cli-push-runner の `-b` 化) と同時に消化する場合は、その PR の変更理由として本原則を参照
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 「hook で block したから安全」という誤認を防ぐ 2 層管理原則が ADR-015 に記録され、push 戦略変更時の確認箇所 (hook + exe/config) が明示されていること。
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
