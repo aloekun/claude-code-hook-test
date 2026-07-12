@@ -132,6 +132,16 @@ threshold_bytes = 51200                          # 50KB (= 50 * 1024)、Claude C
 paths = ["docs/**/*.md", "src/**/*.rs"]          # default 対象 glob
 touch_trigger = true                             # 触られたファイルのみ check (ratchet)
 
+# jj operation 検証 (ADR-045 § Operation Verification Checklist の自動化、G案)。
+# Bash tool で変更系 jj コマンド (new/describe/abandon/rebase/squash/bookmark 変更系) を
+# 実行した直後に `jj op log --limit 1` で operation の記録を確認し、無ければ
+# 「operation not recorded」警告を additionalContext で返す (non-blocking 助言層)。
+# 2026-07-12/13 の並列 workspace lost-update incident の検出網。
+# default-OFF (ADR-039 § 1)、本リポジトリは並列 workspace 運用のため有効化して dogfood。
+# Kill-switch: enabled = false で完全停止。
+[post_tool_use.jj_op_verify]
+enabled = true
+
 # ─── PostToolUse: リンター ───
 
 [post_tool_linter]

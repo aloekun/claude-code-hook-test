@@ -27,6 +27,7 @@ members = [
     "src/cli-push-pipeline",
     "src/cli-push-runner",
     "src/hooks-post-tool-comment-lint-rust",
+    "src/hooks-post-tool-jj-op-verify",
     "src/hooks-post-tool-linter",
     "src/hooks-pre-tool-validate",
     "src/hooks-session-start",

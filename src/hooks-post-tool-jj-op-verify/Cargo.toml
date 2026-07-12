@@ -1,0 +1,12 @@
+[package]
+name = "hooks-post-tool-jj-op-verify"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+lib-subprocess = { path = "../lib-subprocess" }
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
