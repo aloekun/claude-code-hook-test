@@ -47,6 +47,19 @@ trigger_review_after_push = true
 enabled = true
 group = "rust-lint-test"
 
+# WP-11 決定論層 (ADR-054): fix diff の scope 検証 gate。CodeRabbit コメント (外部非信頼
+# テキスト) 起点の fix が finding 対象外ファイルを改変する prompt injection を block する。
+# default OFF (opt-in)。本リポジトリでは dogfood のため有効化する (派生プロジェクトには
+# templates 側のコメントアウトで default OFF が継承される)。
+# mode: "observe" = violation を記録するが push は続行 (誤検知率の計測用)。
+#       "enforce" = violation で auto-push を中止し action_required に倒す (fail-closed)。
+# bounded lifetime (ADR-054): dogfood 初期は observe で誤検知ゼロを確認し、その後 enforce に
+# 上げる。enforce で 3-5 PR 誤検知ゼロなら本採用、誤検知頻発なら enabled = false で kill。
+# 緊急バイパス (kill-switch): 環境変数 PR_MONITOR_SCOPE_GUARD_DISABLE=1
+[fix.scope_guard]
+enabled = true
+mode = "observe"
+
 # ---------------------------------------------------------------------------
 # [classifier] — ADR-038 (採用、2026-05-15) 経由のローカル LLM finding classifier。
 # このセクションを追加すると master 上で classifier が有効化される。問題が
