@@ -155,6 +155,25 @@ steps = [
   { cmd = "npx", args = ["--no-install", "markdownlint-cli2", "{file}"], fix = false },
 ]
 
+# ─── Stop: tool call leak 検知 (ADR-053、試験運用) ───
+#
+# ツール呼び出しが tool_use block ではなくテキスト領域に `<invoke ...>` XML として
+# 出力され、実行されないまま turn が終了する不具合を検知し、block で再実行を促す。
+#
+# ADR-039 3 点セット:
+#   - Config opt-in (default OFF): code default は enabled = false (unwrap_or(false))。
+#     本 repo は dogfood のため enabled = true。派生プロジェクト deploy 時は default OFF。
+#   - Kill-switch: 恒久停止は enabled = false。緊急バイパスは env
+#     STOP_TOOL_CALL_LEAK_OVERRIDE=1 (truthy 値、FILE_LENGTH_CHECK_OVERRIDE と同 pattern)。
+#   - Bounded lifetime: 根本原因は上流 (Claude Code / モデルのシリアライズ) の不具合。
+#     上流修正の確認、または leak 4 週間非観測で撤去を判定する。
+#
+# ループ防止: stop_hook_active skip ではなく連続 leak カウント上限で fail-open
+# (ADR-004 からの意図的逸脱、再 leak 実績があるため。詳細は ADR-053)。
+[stop_tool_call_leak]
+enabled = true
+max_consecutive_blocks = 3    # 連続 block 上限 (到達で fail-open)
+
 # ─── Stop: 品質ゲート ───
 
 [stop_quality]
