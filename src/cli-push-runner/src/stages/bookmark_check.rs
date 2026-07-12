@@ -26,10 +26,14 @@ use crate::log::{log_info, log_stage};
 const JJ_TIMEOUT_SECS: u64 = 30;
 
 /// `jj bookmark list` で非 trunk なローカル bookmark の存在を確認し、
-/// push を続行してよいか (= 非 trunk bookmark が 1 件以上存在) を返す。
+/// 検出した bookmark 名を返す。`None` = 非 trunk bookmark が無く push 不可 (pipeline 中断)。
 ///
-/// fail-open: jj 実行失敗時は warning ログのみで true を返し、push 自体は止めない。
-pub(crate) fn run_bookmark_check() -> bool {
+/// 検出した名前は push stage の `-b <name>` 組み立てに使う (ADR-045 事故 follow-up:
+/// `--all` push が他 workspace の bookmark を巻き込む問題の対策)。
+///
+/// fail-open: jj 実行失敗時は warning ログのみで `Some(空)` を返し、push 自体は止めない
+/// (push stage は空リストなら base コマンドをそのまま実行する)。
+pub(crate) fn run_bookmark_check() -> Option<Vec<String>> {
     let raw = match run_jj_bookmark_list() {
         Ok(output) => output,
         Err(e) => {
@@ -37,7 +41,7 @@ pub(crate) fn run_bookmark_check() -> bool {
                 "bookmark_check: jj bookmark list 失敗、検査を skip して push を続行します: {}",
                 e
             ));
-            return true;
+            return Some(Vec::new());
         }
     };
     let bookmarks = parse_non_trunk_bookmarks(&raw);
@@ -48,7 +52,7 @@ pub(crate) fn run_bookmark_check() -> bool {
              対処: `jj bookmark create <name> -r @` で bookmark を作成して再実行してください\n  \
              例: `jj bookmark create feat/my-feature -r @`",
         );
-        return false;
+        return None;
     }
     log_stage(
         "bookmark",
@@ -58,7 +62,7 @@ pub(crate) fn run_bookmark_check() -> bool {
             bookmarks.join(", ")
         ),
     );
-    true
+    Some(bookmarks)
 }
 
 fn parse_non_trunk_bookmarks(raw: &str) -> Vec<String> {

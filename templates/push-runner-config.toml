@@ -73,12 +73,13 @@ task = "pre-push review"
 extra_args = ["--pipeline", "--skip-git"]
 
 [push]
-# jj 環境: "jj git push --all"
-#   --all: bare `jj git push` は tracking 済み bookmark のみ push するため、新規 bookmark の
-#   初回 push には不十分。--all は新規 bookmark を含む全 bookmark を push する。
-#   (jj 0.42 には --allow-new フラグは無い。新規 bookmark 拒否時 jj は exit 0 のまま
-#   "Refusing to create new remote bookmark" を出力するため、push-runner は出力内容で
-#   失敗を検知する: stages/push.rs)
+# jj 環境: "jj git push"
+#   push-runner が bookmark_check stage の検出結果から `-b <name>` を自動付与する
+#   (ADR-045 事故 follow-up: `--all` は並列 workspace の他 bookmark を巻き込むため非推奨)。
+#   jj 0.42 の `-b` は未 tracking の新規 bookmark を自動 track して push する。
+#   `--all` 等の対象明示を含む command はそのまま実行される (後方互換)。
+#   新規 bookmark 拒否時 jj は exit 0 のまま "Refusing to create new remote bookmark" を
+#   出力するため、push-runner は出力内容でも失敗を検知する (stages/push.rs)。
 # git 環境: "git push"
-command = "jj git push --all"
+command = "jj git push"
 # timeout = 300  # デフォルト 300秒。ネットワーク環境に応じて調整
