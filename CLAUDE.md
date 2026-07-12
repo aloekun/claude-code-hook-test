@@ -53,6 +53,7 @@
 - [ADR-050: multi-iteration workflow の decision criteria scope 明示](docs/adr/adr-050-iteration-aware-decision-criteria.md) *(試験運用)*
 - [ADR-051: クロスシステム設定 coupling パターン — 内部設定と外部 SaaS 設定の論理結合の設計規律](docs/adr/adr-051-cross-system-config-coupling.md) *(試験運用)*
 - [ADR-052: 自律実行境界の 2 クラス分類（ADR-028 の 2 段化）](docs/adr/adr-052-autonomy-execution-boundary-classes.md) *(試験運用)*
+- [ADR-053: Stop hook による tool call leak 検知](docs/adr/adr-053-stop-tool-call-leak-detection.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
