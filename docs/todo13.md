@@ -910,27 +910,6 @@
 
 ---
 
-### ADR-045 に「Known operational risks」「運用ルール」「Operation Verification Checklist」の 3 セクションを追加 (PR #265 post-merge-feedback T3-1 採用)
-
-> **動機**: ADR-045 (`docs/adr/adr-045-jj-workspace-parallel-sessions.md:95`) は「op log は共有だが、並行操作は jj が安全にマージする」と記載しているが、PR #265 のセッション内で実際に workspace 間の concurrent 操作により 2 コミットが lost update した (op log に期待した operation ID が記録されず消失、手動再構築で復旧)。この実観測は ADR-045 § 再評価 trigger #3「jj workspace 間の op log 競合や bookmark 衝突が dogfood で顕在化する」に該当し、既存の安全性記述と矛盾するため是正が必要。
->
-> **参照**: `.claude/feedback-reports/265.md` Tier 3 #1、`docs/adr/adr-045-jj-workspace-parallel-sessions.md:95`（追記先）、Tier 1 #3 (`.claude/feedback-reports/265.md` L16 — post-tool-use での op log 検証 hook 追加、本 PR では未登録。Operation Verification Checklist は同 hook 実装までの暫定策)
->
-> **実行優先度**: 💎 Tier 3 — Effort S。doc のみ。Supervisor 検証で Tier1 #3 と並び最優先 2 件の一つと指摘されているため優先的に消化を推奨。
-
-#### 作業計画
-
-- [ ] ADR-045 に「Known operational risks」section を追加 (L95 の「並行操作は jj が安全にマージする」記述を是正し、本セッションの lost-update incident を実例として記録)
-- [ ] 「運用ルール」section を追加 (1 terminal = 1 session 等の並行運用ルールを明文化)
-- [ ] 「Operation Verification Checklist」section を追加 (`jj op log --limit 1` による手動確認手順。Tier1 #3 hook 実装までの暫定策として明記)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-045 の op log 安全性記述が実際の運用リスクと整合し、並行 workspace 運用時の手動確認手順が参照可能になっていること。
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
