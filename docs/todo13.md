@@ -805,25 +805,6 @@
 
 ---
 
-### hooks-stop-tool-call-leak `emit_block` serialize 失敗時の stderr 診断追加 (PR #261 post-merge-feedback T1-#1 採用)
-
-> **動機**: `emit_block` が `serde_json::to_string` 失敗時に何も出力せず終了し、block 判定の失敗が完全に不可視になる (fail-open の停止許可という挙動は変わらないが observability がゼロ)。CodeRabbit 指摘。
->
-> **参照**: `.claude/feedback-reports/261.md` Tier 1 #1、`src/hooks-stop-tool-call-leak/src/main.rs` の `emit_block` (Err arm 不在)、ADR-053 (fail-open 設計 — stderr 明示が設計上の可視性担保手段)。
->
-> **実行優先度**: 🚀 **Tier 1** — Effort XS。1 行修正 (Err arm に `eprintln!` 追加)。順位 273 と同 PR で処理可。
-
-#### 作業計画
-
-- [ ] `emit_block` の `serde_json::to_string` を match 化し、Err で `[stop-tool-call-leak]` prefix の stderr 診断を出力
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- block JSON serialize 失敗時に stderr へ診断が出て、fail-open の発生が transcript / hook ログから追跡可能になっていること。
-
----
-
 ### cli-docs-lint に ADR 重複採番 + CLAUDE.md 索引整合チェック追加 (PR #261 post-merge-feedback T1-#2 採用)
 
 > **動機**: PR #261 で当方が ADR-052 として起草した ADR が、並行 land した PR #260 の ADR-052 (自律実行境界) と採番衝突し、rebase 時にファイル名 + 本文タイトル + ソース内参照 10+ 箇所の置換が発生した実例。ADR は既に 53 件、並行 PR 開発が常態化しており再発頻度 Medium。現状この衝突を機械検知する層が存在しない (発見は rebase 時の CLAUDE.md conflict 頼み)。
@@ -847,45 +828,6 @@
 #### 完了基準
 
 - ADR 採番衝突・索引不整合・ファイル名/タイトル番号不一致が push 前に決定論的に検出され、PR #261 型の rebase 時大量置換が再発しない構造になっていること。
-
----
-
-### hooks-stop-tool-call-leak E2E の config 具体値 assert (PR #261 post-merge-feedback T2-#1 採用)
-
-> **動機**: `tests/e2e.rs` は実 config (`.claude/hooks-config.toml`) を exe の隣にコピーするが、`[stop_tool_call_leak]` section の存在しか assert しておらず、`enabled = true` / `max_consecutive_blocks = 3` の具体値を検証していない。config retuning や kill-switch flip (`enabled = false`) が入ると、上限 3 前提のテスト (`consecutive_leaks_at_cap_fail_open` 等) が原因の見えない形で silent break する (ADR-041 該当パターン)。CodeRabbit / session / pre-push simplicity の **3 ソース独立指摘**。
->
-> **参照**: `.claude/feedback-reports/261.md` Tier 2 #1、`src/hooks-stop-tool-call-leak/tests/e2e.rs` (`ensure_config_beside_exe` と cap 境界テスト)、ADR-041 (Test Isolation Patterns)。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。既存テストへの assert 追加のみ。順位 271 と同 PR で処理可、順位 274 の convention 追記と同時 land 推奨。
-
-#### 作業計画
-
-- [ ] `ensure_config_beside_exe` で config を parse し `enabled == true` / `max_consecutive_blocks == 3` を assert (値が変わったらテスト側の期待値も同時更新を強制する明示メッセージ付き)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- config の値変更が E2E テストの明示的な assert 失敗として即座に表面化し、cap 境界テストの前提と config の乖離が silent に進行しない構造になっていること。
-
----
-
-### dev-conventions に「外部 fixture 参照テストは値まで assert」convention 追記 (PR #261 post-merge-feedback T3-#2 採用)
-
-> **動機**: 順位 273 の一般化。テストが外部ファイル (実 config 等) を fixture として参照する場合、「section / キーの存在」だけでなく「テストの前提とする具体値」まで assert しないと、外部ファイル側の変更でテストが silent break する (ADR-041 パターンの convention 化)。fixture ごとにスキーマが異なり regex での自動検知は非現実的なため、lint ではなく convention として文書化する (ADR-042 準拠、feedback report の fact-check 済み判断)。
->
-> **参照**: `.claude/feedback-reports/261.md` Tier 3 #2、`docs/dev-conventions.md` (追記先)、ADR-041、順位 273 (実例側の修正)。
->
-> **実行優先度**: 💎 **Tier 3** — Effort S。順位 273 と同 PR での land を推奨 (実例修正 + convention 化をセットで)。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に本 convention を追記 (順位 273 の before/after を実例として引用)
-- [ ] CLAUDE.md の dev-conventions 索引行に項目名を追加
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 外部 fixture 参照テストを書く際の値 assert 要件が dev-conventions で参照可能になり、順位 273 型の指摘が review 前に自己防止できること。
 
 ---
 

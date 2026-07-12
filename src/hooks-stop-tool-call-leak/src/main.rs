@@ -189,8 +189,12 @@ fn emit_block(reason: &str) {
         decision: "block".to_string(),
         reason: reason.to_string(),
     };
-    if let Ok(json) = serde_json::to_string(&decision) {
-        println!("{}", json);
+    match serde_json::to_string(&decision) {
+        Ok(json) => println!("{}", json),
+        Err(e) => eprintln!(
+            "[stop-tool-call-leak] block 判定の JSON serialize 失敗 (fail-open): {}",
+            e
+        ),
     }
 }
 

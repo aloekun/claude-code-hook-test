@@ -10,10 +10,12 @@ toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
-# serde_json / lib-subprocess: exe-spawn E2E test (tests/e2e.rs) 用。
+# serde_json / toml / lib-subprocess: exe-spawn E2E test (tests/e2e.rs) 用。
 # integration tests は [dev-dependencies] のみ参照するため再宣言する
 # (hooks-post-tool-linter の incident_eval と同 pattern)。
+# toml は実 config の具体値 assert (ADR-041、順位273) 用。
 serde_json = "1.0"
+toml = "0.8"
 lib-subprocess = { path = "../lib-subprocess" }
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
