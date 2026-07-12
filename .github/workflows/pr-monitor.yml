@@ -29,37 +29,51 @@
 #       平文で .git/config に書き込まれることを防ぐ (token exfiltration 対策)。
 #   指示層 (プロンプト) が破られても、この多層によりコメント投稿を含む
 #   書き込み・既存コメントの改変・secrets 漏洩は実行できない。
-# - トリガーはレビュアー非依存 (pull_request_review は全レビュアー対象)。
-#   特定レビューツール (CodeRabbit) 固有の条件は issue_comment の 1 条件のみに
-#   閉じ込める — ツールを外す/差し替える場合はそこだけ変更すればよい。
-# - CodeRabbit がレートリミット等でレビューを返さなくても何も待たない
-#   (イベント駆動でありポーリングしない)。required check にも登録しないため
-#   マージ・他ツールのレビューを一切ブロックしない。
-# - fork PR は secrets の有無に関わらず対象外とする。pull_request イベントは
-#   フォーク由来だと secrets が渡らないため head.repo.full_name の比較で
-#   対象外化するだけで十分だが、pull_request_review / issue_comment は
-#   ベースリポジトリのコンテキストで実行され secrets が渡るため、いずれも
-#   明示的な fork チェックで対象外化する。issue_comment は job の if: だけでは
-#   PR の head repo を判定できないため、先行 step で `gh pr view` により解決する。
-#   pull_request_target は権限昇格リスクがあるため使わない。
-# - 自己トリガー防止: 本 workflow の投稿は github-actions[bot] 名義の
-#   issue_comment になるが、issue_comment 条件が coderabbitai[bot] 限定のため
-#   構造的に再発火しない (pull_request_review 側の bot 除外は防御的措置)。
-# - Max 枠の暴走ガード: concurrency で PR 単位に集約 + pull_request の
-#   synchronize (毎 push 発火) は意図的に含めない + プロンプト内の重複ガード。
+# - 監視 ≠ CI (トリガー分離): 本 workflow は「状態監視 (CodeRabbit 補助)」であり
+#   build/test/lint のような CI ではない。CI 用トリガー (pull_request / push) は
+#   使わない。理由: check_suite / check_run はイベントごとに異なる対象 SHA へ発行
+#   されるため、pull_request 起点の run だけが PR head SHA に紐づき PR の Status
+#   Check になる。一方 pull_request_review / issue_comment / workflow_dispatch 起点
+#   の run は default branch 側の SHA を対象とするため PR チェックにならない
+#   (Actions タブには出る)。監視 run を PR チェックに載せると、concurrency cancel や
+#   bot-actor 失敗が「CI 失敗 (赤×)」に見え、本物の失敗との区別を毀損する。よって
+#   起動は pull_request_review (レビュー完了) / issue_comment (CodeRabbit walkthrough)
+#   / workflow_dispatch (手動スモークテスト + 障害調査、input pr_number) のみ。
+# - トリガーはレビュアー非依存 (pull_request_review は全レビュアー対象)。特定
+#   レビューツール (CodeRabbit) 固有の条件は issue_comment の 1 条件のみに閉じ込める
+#   — ツールを外す/差し替える場合はそこだけ変更すればよい。
+# - CodeRabbit がレートリミット等でレビューを返さなくても何も待たない (イベント
+#   駆動でありポーリングしない)。required check に登録せず、上記のとおり PR チェック
+#   自体を汚さないため、マージ・他ツールのレビューを一切ブロックしない。
+# - fork PR は secrets の有無に関わらず対象外とする。pull_request_review /
+#   issue_comment はベースリポジトリのコンテキストで実行され secrets が渡るため、
+#   明示的な fork チェックで対象外化する。pull_request_review は job の if: で
+#   head.repo.full_name を比較。issue_comment は payload に PR head repo が無いため
+#   先行 step で `gh pr view` により解決する。workflow_dispatch は write 権限者のみ
+#   起動できる trusted human 経路のため fork チェックは不要。pull_request_target は
+#   権限昇格リスクがあるため使わない。
+# - 自己トリガー防止: 本 workflow の投稿は github-actions[bot] 名義の issue_comment に
+#   なるが、(a) issue_comment 条件が coderabbitai[bot] 限定、かつ (b) allowed_bots が
+#   coderabbitai[bot] のみ許可のため github-actions[bot] トリガーは弾かれ、二重に防止。
+# - Max 枠の暴走ガード: concurrency で PR 単位に集約 (最新イベントのみ処理) +
+#   プロンプト内の重複ガード。
 
 name: pr-monitor
 
 on:
-  pull_request:
-    types: [opened, ready_for_review]
   pull_request_review:
     types: [submitted]
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 分析対象の PR 番号
+        required: true
+        type: string
 
 concurrency:
-  group: pr-monitor-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: pr-monitor-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
   cancel-in-progress: true
 
 permissions:
@@ -71,16 +85,14 @@ permissions:
   # 投稿失敗するため、初回 rollout では両方を保持し、実 run で使用 scope を
   # 確認してから follow-up で不要な方を削る
   # (security-review の非ブロッキング警告に対する意図的な保留)。
-  pull-requests: write   # gh pr comment (pull_request / pull_request_review 経路)
+  pull-requests: write   # gh pr comment (pull_request_review / workflow_dispatch 経路)
   issues: write   # gh pr comment (issue_comment 経路)
   actions: read   # gh run view / gh run list による CI 状態取得に必要 (エージェント)
 
 jobs:
   analyze:
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.draft == false) ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_review' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.review.user.login != 'github-actions[bot]' &&
@@ -107,8 +119,8 @@ jobs:
       - name: Resolve PR head repo (fork check for issue_comment path)
         # issue_comment イベントの payload には PR の head repo 情報が無く、
         # job の if: (github context のみ参照可能) では fork 判定ができない。
-        # pull_request / pull_request_review と同じ「fork 対象外」を issue_comment
-        # 経路でも成立させるため、ここで API 解決してから次 step を条件分岐する。
+        # pull_request_review と同じ「fork 対象外」を issue_comment 経路でも
+        # 成立させるため、ここで API 解決してから次 step を条件分岐する。
         if: github.event_name == 'issue_comment'
         id: pr_head
         env:
@@ -126,9 +138,23 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # claude-code-action は既定でトリガー元 actor の権限を検査し bot actor を
+          # 拒否する ("Workflow initiated by non-human actor" エラー)。本 backstop の
+          # 本命トリガー (CodeRabbit のレビュー = pull_request_review / CodeRabbit の
+          # walkthrough = issue_comment、いずれも actor が coderabbitai[bot]) を通すため
+          # この bot のみを allowlist する ("*" は使わない = 任意 bot トリガーは禁止)。
+          # 副次効果: 本 workflow 自身の投稿は github-actions[bot] だが allowlist 外の
+          # ため bot トリガーは弾かれ、自己トリガーが二重に防止される。
+          # 【重要・セキュリティ】allowlist した bot は権限チェックを完全にバイパスする
+          # (公式 docs/security.md: "Allowed bots are not checked for repository
+          # permissions")。GitHub の権限ゲートが効かないため、本 job の安全性は下段の
+          # 読み取り専用多層防御 (permissions: contents: read / allowedTools scope /
+          # エージェント無 write / persist-credentials: false) が唯一の担保となる
+          # (ADR-022 原則 6 の 2 不変条件)。
+          allowed_bots: "coderabbitai[bot]"
           prompt: |
-            あなたはリポジトリ ${{ github.repository }} の PR #${{ github.event.pull_request.number || github.event.issue.number }} に対する読み取り専用の監視バックストップです (ADR-022 原則 6 の GitHub Actions 経路)。
-            起動イベント: ${{ github.event_name }} (${{ github.event.action }})
+            あなたはリポジトリ ${{ github.repository }} の PR #${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }} に対する読み取り専用の監視バックストップです (ADR-022 原則 6 の GitHub Actions 経路)。
+            起動イベント: ${{ github.event_name }} (${{ github.event.action || 'manual' }})
             実行 run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
             ## 手順
@@ -229,7 +255,7 @@ jobs:
         if: steps.analyze.outcome == 'success' && steps.extract.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ steps.analyze.outputs.github_token || secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
           ANALYSIS_FILE: ${{ steps.extract.outputs.analysis_file }}
         run: |
           gh pr comment "$PR_NUMBER" \
