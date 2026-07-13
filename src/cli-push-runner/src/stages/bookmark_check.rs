@@ -25,6 +25,16 @@ use crate::log::{log_info, log_stage};
 
 const JJ_TIMEOUT_SECS: u64 = 30;
 
+/// bookmark 検出の対象 revset: 自 workspace の @ の祖先のうち trunk の祖先を除いた範囲
+/// (= 自分のブランチ線上のみ、順位 290 / PR #269 feedback T1-1)。
+///
+/// `jj bookmark list` を無条件に使うとリポジトリ全体の bookmark (並行 workspace の
+/// 作業中 bookmark を含む) を拾い、push stage の `-b` 付与対象に混入する。`::@` 単独では
+/// 「共有祖先上の他 workspace の bookmark」も含まれる (CodeRabbit 指摘) ため、
+/// `~ ::trunk()` で共有履歴を除外する。この revset に含まれる bookmark は構造上
+/// 自分のブランチ線上のコミットを指すものに限られる。
+const OWN_BRANCH_BOOKMARKS_REVSET: &str = "::@ ~ ::trunk()";
+
 /// `jj bookmark list` で非 trunk なローカル bookmark の存在を確認し、
 /// 検出した bookmark 名を返す。`None` = 非 trunk bookmark が無く push 不可 (pipeline 中断)。
 ///
@@ -78,7 +88,7 @@ fn run_jj_bookmark_list() -> Result<String, String> {
     use std::process::Stdio;
 
     let mut child = Command::new("jj")
-        .args(["bookmark", "list"])
+        .args(["bookmark", "list", "-r", OWN_BRANCH_BOOKMARKS_REVSET])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
