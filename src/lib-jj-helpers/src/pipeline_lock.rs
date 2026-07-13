@@ -28,17 +28,39 @@ pub const PIPELINE_LOCK_FILENAME: &str = "pipeline.lock";
 /// stale 判定 threshold。pipeline の実測最長 (push ~15 分) の 2x で安全マージン。
 pub const PIPELINE_LOCK_STALE_SECS: i64 = 1800;
 
-/// lock 取得成功時に保持する RAII guard。Drop で lock ファイルを削除する。
+/// lock 取得成功時に保持する RAII guard。Drop で **自分が書いた** lock ファイルのみ削除する。
 pub struct PipelineLock {
     path: PathBuf,
+    /// 取得インスタンスを一意識別するランダムトークン (PR #271 CodeRabbit Major 対応)。
+    token: String,
 }
 
 impl Drop for PipelineLock {
+    /// **所有権確認付き削除**: lock ファイルの token が自分のものと一致した場合のみ削除する。
+    ///
+    /// 無条件削除だと、stale takeover 後 (別プロセス B が同じパスに B の lock を書いた後) に
+    /// 旧プロセス A の Drop が **B の lock を消してしまう** (CodeRabbit Major、典型的な
+    /// stale-lock-takeover + unconditional-unlock 問題)。token 一致確認で「他人の lock を
+    /// 消さない」ことを保証する。
+    ///
+    /// 残余 TOCTOU (read → remove 間の takeover): fresh な lock は takeover されない
+    /// (stale threshold 到達が takeover の必要条件) ため、自分の token を read できた時点で
+    /// 他プロセスは未 takeover。よって「read で自分の token → その直後に他プロセスが
+    /// takeover」は fresh 中は起きず、実用上安全。pid/start_unix ではなく token を使うのは
+    /// PID 再利用による誤一致を避けるため。
     fn drop(&mut self) {
-        if let Err(e) = std::fs::remove_file(&self.path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("[pipeline-lock] cleanup 失敗: {}", e);
+        match std::fs::read_to_string(&self.path) {
+            Ok(content) => {
+                if parse_field(&content, "token") == Some(self.token.as_str()) {
+                    if let Err(e) = std::fs::remove_file(&self.path) {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!("[pipeline-lock] cleanup 失敗: {}", e);
+                        }
+                    }
+                }
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("[pipeline-lock] cleanup 時の read 失敗: {}", e),
         }
     }
 }
@@ -71,14 +93,15 @@ pub fn acquire_pipeline_lock_at(
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let content = build_lock_content(std::process::id(), now_unix, label);
+    let token = generate_token();
+    let content = build_lock_content(&token, std::process::id(), now_unix, label);
 
     match OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(mut f) => {
             if let Err(e) = f.write_all(content.as_bytes()) {
                 eprintln!("[pipeline-lock] 書き込み失敗 (継続): {}", e);
             }
-            PipelineLockResult::Acquired(PipelineLock { path })
+            PipelineLockResult::Acquired(PipelineLock { path, token })
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             if let Some((pid, age_secs)) =
@@ -92,12 +115,29 @@ pub fn acquire_pipeline_lock_at(
             if let Err(e) = std::fs::write(&path, content) {
                 eprintln!("[pipeline-lock] takeover 書き込み失敗 (継続): {}", e);
             }
-            PipelineLockResult::Acquired(PipelineLock { path })
+            PipelineLockResult::Acquired(PipelineLock { path, token })
         }
         Err(e) => PipelineLockResult::Unavailable {
             reason: e.to_string(),
         },
     }
+}
+
+/// 取得インスタンスを一意識別する 128bit ランダムトークン (hex)。
+///
+/// `uuid` crate を追加せず std のみで生成する (本 crate は依存ゼロ方針)。
+/// `RandomState` は生成ごとに OS エントロピー由来のハッシュキーで初期化されるため、
+/// 空状態の `finish()` は毎回異なる値を返す。2 つ連結して 128bit の識別子とする。
+/// 暗号用途ではなく「lock インスタンスの衝突しない識別」が目的。
+fn generate_token() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let a = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    let b = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!("{a:016x}{b:016x}")
 }
 
 /// fresh な pipeline lock が存在するか (Stop hook 用の読み取り専用チェック)。
@@ -110,9 +150,10 @@ pub fn pipeline_lock_holder(claude_dir: &Path) -> Option<(u32, i64)> {
     )
 }
 
-fn build_lock_content(pid: u32, start_unix: i64, label: &str) -> String {
+fn build_lock_content(token: &str, pid: u32, start_unix: i64, label: &str) -> String {
     format!(
-        "pid={}\nstart_unix={}\nlabel={}\n",
+        "token={}\npid={}\nstart_unix={}\nlabel={}\n",
+        token,
         pid,
         start_unix,
         label.replace(['\r', '\n'], " ")
@@ -281,5 +322,54 @@ mod tests {
     fn missing_lock_reads_as_not_held() {
         let path = temp_lock_path("missing");
         assert_eq!(read_fresh_lock(&path, 1800, 1_000_000), None);
+    }
+
+    #[test]
+    fn acquire_writes_a_token() {
+        let path = temp_lock_path("token");
+        let _guard = acquire_pipeline_lock_at(path.clone(), "push", 1800, 1_000_000);
+        let content = std::fs::read_to_string(&path).unwrap();
+        let token = parse_field(&content, "token").expect("token が書かれる");
+        assert_eq!(token.len(), 32, "128bit hex");
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn generate_token_is_unique_per_call() {
+        assert_ne!(generate_token(), generate_token(), "取得ごとに異なる token");
+    }
+
+    /// CodeRabbit Major #271 の regression guard: stale takeover 後に旧プロセスの Drop が
+    /// **新プロセスの lock を消さない**。A の guard を保持したまま同じパスを B が takeover
+    /// (別 token を上書き) し、A を drop しても B の lock ファイルが残ることを確認する。
+    #[test]
+    fn drop_does_not_remove_lock_after_takeover() {
+        let path = temp_lock_path("takeover-guard");
+        let a_guard = acquire_pipeline_lock_at(path.clone(), "A", 1800, 1_000_000);
+        assert!(matches!(a_guard, PipelineLockResult::Acquired(_)));
+
+        let b_takeover_content =
+            build_lock_content("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 55555, 1_000_100, "B");
+        std::fs::write(&path, &b_takeover_content).unwrap();
+
+        drop(a_guard);
+
+        assert!(path.exists(), "A の Drop が B の lock を消してはならない");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after.contains("token=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            "B の lock がそのまま残る"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 通常ケース: 自分の token が残っていれば Drop で削除される。
+    #[test]
+    fn drop_removes_lock_when_token_matches() {
+        let path = temp_lock_path("self-remove");
+        let guard = acquire_pipeline_lock_at(path.clone(), "push", 1800, 1_000_000);
+        assert!(path.exists());
+        drop(guard);
+        assert!(!path.exists(), "自分の token の lock は削除される");
     }
 }

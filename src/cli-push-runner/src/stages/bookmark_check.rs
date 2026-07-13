@@ -21,19 +21,49 @@ use std::process::Command;
 
 use lib_jj_helpers::is_trunk_bookmark;
 
+use super::push_jj_bookmark::advance_jj_bookmarks;
 use crate::log::{log_info, log_stage};
 
 const JJ_TIMEOUT_SECS: u64 = 30;
 
-/// bookmark 検出の対象 revset: 自 workspace の @ の祖先のうち trunk の祖先を除いた範囲
-/// (= 自分のブランチ線上のみ、順位 290 / PR #269 feedback T1-1)。
+/// bookmark 検出の対象 revset: **現在の workspace の `@` が指す bookmark のみ**
+/// (順位 290 / PR #269・#271 CodeRabbit Major)。
 ///
-/// `jj bookmark list` を無条件に使うとリポジトリ全体の bookmark (並行 workspace の
-/// 作業中 bookmark を含む) を拾い、push stage の `-b` 付与対象に混入する。`::@` 単独では
-/// 「共有祖先上の他 workspace の bookmark」も含まれる (CodeRabbit 指摘) ため、
-/// `~ ::trunk()` で共有履歴を除外する。この revset に含まれる bookmark は構造上
-/// 自分のブランチ線上のコミットを指すものに限られる。
-const OWN_BRANCH_BOOKMARKS_REVSET: &str = "::@ ~ ::trunk()";
+/// 設計判断 (PR #271 で確定): bookmark の「所有権 (どの workspace のものか)」は
+/// **履歴 (revset) から復元できない**。`::@ ~ ::trunk()` (自ブランチ線) を試みたが、
+/// 他 workspace が作った trunk 未マージのコミットの上で作業すると、そのコミットを指す
+/// 他 workspace の bookmark が `::@` に混入する (CodeRabbit Major)。revset での所有権推定を
+/// 諦め、push stage の `-b` 付与対象を「今 push したい作業 = `@` に付いた bookmark」に
+/// 限定する。これにより他 workspace の bookmark 混入を構造的に排除する (安全側)。
+///
+/// トレードオフ: stacked bookmark (feature/base → feature/api → feature/ui を `@` 先頭で
+/// 一括 push) の運用では `@` の bookmark だけでは不足する。ただし現状その運用実績はなく、
+/// 必要になった時点で明示オプトインの stack push モード (`[push] stack_push` 等) を追加する
+/// 拡張余地を残す (todo 登録済み)。所有権を厳密に扱うには bookmark/workspace の別 metadata
+/// 管理が必要だが、現用途では過剰。
+const OWN_WORKSPACE_BOOKMARKS_REVSET: &str = "@";
+
+/// `OWN_WORKSPACE_BOOKMARKS_REVSET` (`@` 厳密一致) で bookmark 存在を検査する前に、
+/// `advance_jj_bookmarks()` (push stage が使う既存の前進処理と同一) で `@` より手前に
+/// 残っている bookmark を前進させる (simplicity review 指摘対応: takt fix / 手動
+/// `jj describe` で `@` が bookmark より先に進んだ状態のまま `pnpm push` を再実行すると、
+/// advance 前に厳密一致で検査してしまい push stage の自動修復が走る前に pipeline が
+/// 中断していた)。`None` = 非 trunk bookmark が無く push 不可 (pipeline 中断)。
+pub(crate) fn run_bookmark_check() -> Option<Vec<String>> {
+    advance_lagging_bookmark();
+    detect_own_workspace_bookmarks()
+}
+
+/// `advance_jj_bookmarks()` を実行し、失敗時は fail-open で警告ログのみ出す
+/// (advance はあくまで検査精度を上げるための前処理で、失敗しても検査自体は続行する)。
+fn advance_lagging_bookmark() {
+    if let Err(e) = advance_jj_bookmarks() {
+        log_info(&format!(
+            "bookmark_check: bookmark 自動更新失敗、検査を続行します: {}",
+            e
+        ));
+    }
+}
 
 /// `jj bookmark list` で非 trunk なローカル bookmark の存在を確認し、
 /// 検出した bookmark 名を返す。`None` = 非 trunk bookmark が無く push 不可 (pipeline 中断)。
@@ -43,7 +73,7 @@ const OWN_BRANCH_BOOKMARKS_REVSET: &str = "::@ ~ ::trunk()";
 ///
 /// fail-open: jj 実行失敗時は warning ログのみで `Some(空)` を返し、push 自体は止めない
 /// (push stage は空リストなら base コマンドをそのまま実行する)。
-pub(crate) fn run_bookmark_check() -> Option<Vec<String>> {
+fn detect_own_workspace_bookmarks() -> Option<Vec<String>> {
     let raw = match run_jj_bookmark_list() {
         Ok(output) => output,
         Err(e) => {
@@ -88,7 +118,7 @@ fn run_jj_bookmark_list() -> Result<String, String> {
     use std::process::Stdio;
 
     let mut child = Command::new("jj")
-        .args(["bookmark", "list", "-r", OWN_BRANCH_BOOKMARKS_REVSET])
+        .args(["bookmark", "list", "-r", OWN_WORKSPACE_BOOKMARKS_REVSET])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
