@@ -890,6 +890,164 @@
 
 ---
 
+### pipeline lock + Stop hook 品質ゲート skip 機構 (PR #267 マージ事故の根本解決)
+
+> **動機**: PR #267 のマージで「background の merge pipeline がローカル同期の checkout を実行中に、ターン終了で発火した Stop hook 品質ゲート (cargo/jj) が同じ working copy 上で競合」し、jj が「Concurrent checkout」で中断・working copy が旧状態に取り残される事故が実発生 (jj 側の保護と自動解決で損失ゼロ、復旧 3 コマンド)。実施済みの `--feedback-only` (PR #268) は結果の一つ (feedback 未実行) の回復手段にすぎず、競合自体は防げていない。post-merge feedback の transcript window (first_commit〜merged_at) はマージ処理中の事故を構造的に見えないため、feedback からの提案も期待できない。
+>
+> **設計案**: (1) cli-merge-pipeline / cli-push-runner が実行中に lock ファイル (PID + timestamp、`cli-pr-monitor/src/lock.rs` の stale takeover パターンを lib 化して流用) を保持、(2) hooks-stop-quality が開始時に lock を確認し、生きている pipeline 保持中は品質ゲートを skip (ログ + fail-open。Stop 時点のゲートは助言層で、本物のゲートは push 側)、(3) ADR-045 運用ルールに「lock 機構実装までは merge-pr を foreground 実行」の暫定ルールを追記済み → 実装後に撤去。
+>
+> **参照**: ADR-045 § Known operational risks、ADR-030 (feedback recovery)、ADR-043 (skip は助言層ゲートの fail-open で整合)、`src/cli-pr-monitor/src/lock.rs` (流用元)、PR #268 (`--feedback-only` = 対症療法側)
+>
+> **実行優先度**: 🚀 Tier 1 — Effort S-M。**PR #268 の次の PR で対応予定 (ユーザー合意済み 2026-07-13)**。
+
+#### 作業計画
+
+- [ ] lock を lib (lib-jj-helpers or 新 lib) に一般化 (PID + timestamp + stale takeover)
+- [ ] cli-merge-pipeline / cli-push-runner の実行区間で lock 保持
+- [ ] hooks-stop-quality に lock 検知 → skip (fail-open) を追加 + off/stale ケースのテスト
+- [ ] ADR-045 の「merge は foreground」暫定ルールを撤去し本機構に置換
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- background の merge/push pipeline 実行中にターンを終了しても Stop hook 品質ゲートが working copy に触れず、Concurrent checkout 事故が構造的に再発しないこと。
+
+---
+
+### config-reading hook の `current_dir()` 解決を検出する lint rule (PR #267 post-merge-feedback T1-1 採用)
+
+> **動機**: PR #267 で新規 hook (jj-op-verify) が既存 3 hook と異なる `current_dir()` ベースの config 解決を実装し、pre-push simplicity-review が REJECT (`SIM-NEW-jjopverify-cwd-config-L179`、High) → fix step が `current_exe().parent()` へ修正した実例。Bash の cwd drift による silent fail-open (`enabled=false` 扱い) は新規 hook 追加のたびに再発しうる。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 1 #1、`.claude/custom-lint-rules.toml` (新規ルール)、順位 287 (convention 明文化、同一 PR bundle 推奨)
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High / Effort S。
+
+#### 作業計画
+
+- [ ] custom-lint-rules.toml に「hooks-* の .rs で `current_dir()` + `hooks-config.toml` の組合せ」を検出するルール追加 (bad/good fixture + incident 構造)
+- [ ] 順位 287 (convention 明文化) を同一 PR で bundle
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- config を cwd 基準で解決する新規 hook が push 前に決定論的に検出されること。
+
+---
+
+### jj-op-verify の変更系 verb 網羅拡大 (PR #267 post-merge-feedback T1-2 採用)
+
+> **動機**: 現行の検出対象 (new/describe/abandon/rebase/squash/bookmark 変更系) に `undo` / `restore` / `split` / `bookmark move` / `bookmark track` / `bookmark untrack` が含まれない。特に `jj undo` の検出漏れは lost-update 再発リスクが高く、Operation Verification Checklist 自動化の対象を狭める。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 1 #2、`src/hooks-post-tool-jj-op-verify/src/main.rs` (match 文)。**拡張時は `expected_op_keyword` を実際の `jj op log` 出力と要照合**
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort M。
+
+#### 作業計画
+
+- [ ] 各 verb の実際の op description を jj 0.42 実機で確認し keyword map に追加 + テスト
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 変更系 jj 操作の検出網羅率が上がり、`jj undo` 等の op 記録検証が機能すること。
+
+---
+
+### jj-op-verify の verb 検出を command-boundary に anchor (PR #267 post-merge-feedback T1-3 採用)
+
+> **動機**: `split_whitespace()` の非 anchored 検出は、commit message 引用符内の `"jj new"` 等で false positive「operation not recorded」を誘発しうる。実装時に accepted risk として一度見送った経緯あり (実害観測 0 件)。採用は「advisory 層の UX 劣化」防止目的で、着手時に実観測状況を再確認すること。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 1 #3、`src/hooks-post-tool-jj-op-verify/src/main.rs:detect_last_mutating_jj_op`、順位 285 (edge-case テスト、表裏の関係)
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort S。
+
+#### 作業計画
+
+- [ ] verb 検出をコマンド境界 (`&&` / `;` / `|` / 文頭) anchor に変更 + 引用符内の誤検出テスト
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- commit message 内の jj キーワードで警告が誤発火しないこと。
+
+---
+
+### stale_check_enabled の TOML パーステスト追加 (PR #267 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #267 で追加した `StalenessConfig.stale_check_enabled` のパース経路にテストがなく、silent degrade (機能が黙って無効化) のリスク。既存テストへの数行追加で完備できる。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 2 #1、`src/hooks-session-start/src/hooks_config.rs` の既存パーステスト
+>
+> **実行優先度**: 🔧 Tier 2 — Effort XS。
+
+#### 作業計画
+
+- [ ] 既存 fixture に `stale_check_enabled = true` + assert を追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 新フィールドのパースが regression test で固定されていること。
+
+---
+
+### jj keyword を含む commit message の tokenization edge-case テスト (PR #267 post-merge-feedback T2-2 採用)
+
+> **動機**: 順位 283 (anchor 修正) と表裏。283 の着手有無に関わらず、現行挙動 (既知の限界) を regression test で明示的に固定する価値が独立して残る。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 2 #2、`src/hooks-post-tool-jj-op-verify/src/main.rs` の tests module
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S。283 と同一 PR での消化が効率的。
+
+#### 作業計画
+
+- [ ] `token_detection_ignores_jj_in_message_quotes` 等の edge-case テスト追加 (283 実施後は新挙動を固定)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- tokenization の既知の限界/修正後挙動がテストで明文化されていること。
+
+---
+
+### config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)
+
+> **動機**: PR #267 で FIXED 済の `SIM-NEW-jjopverify-cwd-config-L179` は、既存テストが pure parser のみで file-lookup 経路を未カバーだったため混入した。非 repo-root cwd から hook を起動して config が読み込まれることを検証する統合テストは、cwd drift シナリオ (ADR-045 の核心リスク) の re-incident 検知網になる。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 2 #3、`hooks-post-tool-jj-op-verify` test suite。Adoption Risk: OS 依存 (temp dir / path 形式)
+>
+> **実行優先度**: 🔧 Tier 2 — Severity High / Effort M。
+
+#### 作業計画
+
+- [ ] 実 exe spawn + 非 repo-root cwd で config 読込を assert する `#[ignore]` integration test
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- exe-relative 解決の退行が統合テストで検出されること。
+
+---
+
+### 「config 読み hook は exe-relative 解決必須」convention の明文化 (PR #267 post-merge-feedback T3-1 採用)
+
+> **動機**: 順位 281 (lint rule) の文書層の補完。ADR-045 (または dev-conventions) と該当 hook の inline comment に規約として明文化する。
+>
+> **参照**: `.claude/feedback-reports/267.md` Tier 3 #1。**順位 281 と同一 PR での bundle 実装を推奨** (別作業に切り出す価値は低い)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] 順位 281 の PR に同乗して convention を明文化
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 新規 hook 作成時に参照できる規約が存在し、lint rule (281) と 2 層で防御されていること。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
