@@ -147,6 +147,35 @@ fn parse_field<'a>(content: &'a str, key: &str) -> Option<&'a str> {
         .map(str::trim)
 }
 
+/// pipeline 実行区間で lock を保持する便宜関数 (merge-pipeline / push-runner 用)。
+///
+/// lock は Stop hook への advisory であり pipeline の実行可否を左右しないため、
+/// Busy / Unavailable / exe dir 解決失敗はいずれも警告ログのみで `None` を返し、
+/// pipeline は lock なしで継続する。戻り値の guard を pipeline 終了まで保持すること。
+pub fn hold_pipeline_lock(label: &str, log: fn(&str)) -> Option<PipelineLock> {
+    let Some(dir) = exe_claude_dir() else {
+        log("[pipeline-lock] exe dir 解決失敗 (lock なしで継続)");
+        return None;
+    };
+    match acquire_pipeline_lock(&dir, label) {
+        PipelineLockResult::Acquired(lock) => Some(lock),
+        PipelineLockResult::Busy {
+            holder_pid,
+            holder_age_secs,
+        } => {
+            log(&format!(
+                "[pipeline-lock] 別 pipeline が実行中 (pid={}, age={}s) — lock なしで継続 (advisory)",
+                holder_pid, holder_age_secs
+            ));
+            None
+        }
+        PipelineLockResult::Unavailable { reason } => {
+            log(&format!("[pipeline-lock] 取得不可 (継続): {}", reason));
+            None
+        }
+    }
+}
+
 /// 実行中 exe の親ディレクトリ (= `.claude/`) を返す。
 ///
 /// pipeline exe / hook exe はいずれも `.claude/` 配下に配置される (ADR-010) ため、

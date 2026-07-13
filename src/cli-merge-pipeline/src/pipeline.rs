@@ -416,6 +416,8 @@ fn build_context() -> Result<PipelineContext, i32> {
 }
 
 pub(crate) fn run_pipeline() -> i32 {
+    let _pipeline_lock = lib_jj_helpers::pipeline_lock::hold_pipeline_lock("merge", log_info);
+
     let settings = match resolve_settings() {
         Ok(s) => s,
         Err(code) => return code,
