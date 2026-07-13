@@ -136,6 +136,10 @@
 | 285 | 🔧 Tier 2 | **jj keyword を含む commit message の tokenization edge-case テスト (PR #267 post-merge-feedback T2-2 採用)** | todo13.md | S | なし (順位 283 と表裏。283 の着手有無に関わらず現行挙動を regression test で固定する価値が独立して残る。283 と同一 PR 消化が効率的) |
 | 286 | 🔧 Tier 2 | **config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)** | todo13.md | M | なし (FIXED 済 cwd-config bug の regression guard。既存テストは pure parser のみで file-lookup 経路未カバー。Severity High、Adoption Risk = OS 依存) |
 | 287 | 💎 Tier 3 | **「config 読み hook は exe-relative 解決必須」convention の明文化 (PR #267 post-merge-feedback T3-1 採用)** | todo13.md | XS | なし (順位 281 の文書層補完。**281 と同一 PR bundle 推奨**、別作業に切り出す価値は低い) |
+| 288 | 🔧 Tier 2 | **post-merge feedback の pre-push reports を対象 PR の全 run 集約に拡張 (PR #268 post-merge-feedback T2-1 採用)** | todo13.md | M | なし (「最新 1 run」参照は複数 push した PR で分析が最終 push 分に偏る。PR #267 feedback の evidence-scope 注記で実観測。context の prepush_reports_dir 配列化 + facet 複数 dir 対応。独立 PR 推奨) |
+| 289 | 💎 Tier 3 | **run_feedback_only の docstring 修正 — 検出失敗パスは marker を書かない旨を明記 (PR #268 post-merge-feedback T3-1 採用)** | todo13.md | XS | なし (現行 docstring「marker は通常経路と同様に残る」と実装 (owner_repo 失敗パスは marker なし = 意図的) の drift 修正。**順位 280 PR に同乗推奨**) |
+| 290 | 🚀 Tier 1 | **cli-push-runner の bookmark 検出を ::@ (自 workspace 祖先) に限定 (PR #269 post-merge-feedback T1-1 採用)** | todo13.md | S | なし (jj bookmark list はリポジトリ全体対象のため並行 workspace の bookmark も -b 付与対象に含む。実 push で複数 bookmark 付与を実観測、feedback と dogfood が独立に同一検出。--all 廃止の仕上げ。**順位 280 PR で消化予定**) |
+| 291 | 🔧 Tier 2 | **run_ai_step_for の Result 伝播 regression test (PR #269 post-merge-feedback T2-1 採用)** | todo13.md | S | なし (SIM-NEW-pipeline-L224 = path.exists() 偽陽性 PASS の修正を両呼び出し元で固定。stale report 存在下の再実行失敗が exit 0 にならないことを assert。順位 280 PR 同乗可) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
