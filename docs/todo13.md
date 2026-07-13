@@ -1048,6 +1048,83 @@
 
 ---
 
+### post-merge feedback の pre-push reports を対象 PR の全 run 集約に拡張 (PR #268 post-merge-feedback T2-1 採用)
+
+> **動機**: `find_latest_prepush_reports_dir()` は「最新 1 run」のみを feedback の分析ソースにするため、複数回 push した PR では最後の push 分に分析が偏る。PR #267 の feedback でも「参照した pre-push run は WP-11 status 更新 (docs-only の最終 push) のみが対象」という evidence-scope 注記が付いた実観測あり。対象 PR の commit 範囲内の全 pre-push-review run を集約し、`post-merge-feedback-context.json` の `prepush_reports_dir` を配列化、`analyze-prepush-reports.md` facet も複数 dir 対応に更新する。
+>
+> **参照**: `.claude/feedback-reports/268.md` Tier 2 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir`)、`.takt/facets/instructions/analyze-prepush-reports.md`
+>
+> **実行優先度**: 🔧 Tier 2 — Effort M。context スキーマ変更 + facet 更新 + テストを伴うため独立 PR 推奨。
+
+#### 作業計画
+
+- [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
+- [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 複数 push した PR の feedback が、時刻範囲だけでなく対象 PR のコミット範囲等の追加の識別根拠に基づいて集約された、全 pre-push run のレポートを分析対象にすること。
+
+---
+
+### run_feedback_only の docstring 修正 — 検出失敗パスは marker を書かない旨を明記 (PR #268 post-merge-feedback T3-1 採用)
+
+> **動機**: 現行 docstring は「失敗時 (marker は通常経路と同様に残る)」と記すが、owner_repo 検出/validation 失敗パスでは marker を書かない (同期 CLI で人間が直接ログを見るため意図的)。spec-impl drift の芽を摘む。
+>
+> **参照**: `.claude/feedback-reports/268.md` Tier 3 #1、`src/cli-merge-pipeline/src/pipeline.rs` (`run_feedback_only` docstring)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。**順位 280 の実装 PR に同乗推奨** (cli-merge-pipeline を触る同一 PR で消化)。
+
+#### 作業計画
+
+- [ ] docstring の終了コード契約の記述を実装に合わせて修正
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- docstring と実装の marker 挙動が一致していること。
+
+---
+
+### cli-push-runner の bookmark 検出を `::@` (自 workspace 祖先) に限定 (PR #269 post-merge-feedback T1-1 採用)
+
+> **動機**: bookmark_check の検出 (`jj bookmark list`) はリポジトリ全体を対象とするため、並行 workspace の bookmark も拾い、push の `-b` 付与対象に含めてしまう。本セッションの実 push で `-b <PR#268の bookmark> -b <PR#269の bookmark>` と複数 bookmark が付与された実観測あり (両方自分のもので無害だったが、並行 workspace では他者の作業中 bookmark を巻き込む余地)。`--all` 廃止 (PR #267) の仕上げとして、検出を `::@ ~ trunk()` 等の revset で自 workspace の祖先に限定する。feedback pipeline とセッション内 dogfood が独立に同一問題を検出 (相互裏付け)。
+>
+> **参照**: `.claude/feedback-reports/269.md` Tier 1 #1、`src/cli-push-runner/src/stages/bookmark_check.rs`、ADR-045 § Known operational risks (bookmark conflicts)
+>
+> **実行優先度**: 🚀 Tier 1 — Effort S。**順位 280 の実装 PR で消化予定** (並列安全化の仕上げとして同一テーマ)。
+
+#### 作業計画
+
+- [ ] bookmark 検出を revset ベース (`jj log -r 'bookmarks() & ::@ ~ trunk()'` 等) に変更。`::@` revset のみでは自 workspace 所有の保証にならない (祖先 commit が並行 workspace と共有され得る) ため、workspace root commit の照合等、追加の所有権検証を組み合わせる + テスト
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- push の `-b` 付与対象が自 workspace の祖先にある bookmark に限定され、`::@` revset のみに依存しない追加の所有権検証 (workspace root commit の照合等) を伴うこと。
+
+---
+
+### run_ai_step_for の Result 伝播 regression test (PR #269 post-merge-feedback T2-1 採用)
+
+> **動機**: PR #268 の pre-push review で REJECT された `path.exists()` 偽陽性 PASS (SIM-NEW-pipeline-L224) の修正 (`Result<PathBuf, String>` の直接伝播) を、両呼び出し元 (`run_feedback_only` / `run_ai_step`) で regression test として固定する。stale report 存在下での再実行失敗が exit 0 にならないことの検証が核心。
+>
+> **参照**: `.claude/feedback-reports/269.md` Tier 2 #1、`src/cli-merge-pipeline/src/pipeline.rs` (`run_ai_step_for`)
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S。順位 280 の実装 PR に同乗可 (cli-merge-pipeline を触る場合)。
+
+#### 作業計画
+
+- [ ] Result 伝播の unit/regression test を追加 (stale report + Err ケースで exit 1 を assert)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 偽陽性 PASS バグの再発がテストで検出されること。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
