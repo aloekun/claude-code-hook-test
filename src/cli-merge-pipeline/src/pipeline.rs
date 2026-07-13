@@ -10,6 +10,7 @@ use crate::github::{
     should_skip_branch_delete, PrHeadInfo,
 };
 use lib_subprocess::run_cmd_shell_capped_reporting;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn log_step(name: &str, status: &str, message: &str) {
     if message.is_empty() {
@@ -190,7 +191,7 @@ fn run_ai_step(label: &str, ctx: Option<&PipelineContext>) {
         AiStepContext::Ready {
             pr_number,
             owner_repo,
-        } => run_ai_step_for(label, pr_number, owner_repo),
+        } => drop(run_ai_step_for(label, pr_number, owner_repo)),
         AiStepContext::SkipSilent => {}
         AiStepContext::SkipWithMarker { pr_number, reason } => {
             skip_with_failed_marker(label, pr_number, &reason);
@@ -198,22 +199,68 @@ fn run_ai_step(label: &str, ctx: Option<&PipelineContext>) {
     }
 }
 
-/// 検証済みコンテキストで feedback workflow を実行する ([`run_ai_step`] の本体)。
-fn run_ai_step_for(label: &str, pr_number: u64, owner_repo: &str) {
-    let repo_root = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
+/// 手動 recovery 用エントリポイント (`cli-merge-pipeline --feedback-only <PR>`)。
+///
+/// merge pipeline が post_merge_feedback step の**到達前**に失敗した場合 (例: ローカル
+/// 同期の concurrent checkout 中断、PR #267 で実観測)、`.failed` marker が書かれず
+/// ADR-030 L2 recovery の対象にならない。本経路は marker の有無に依存せず feedback
+/// workflow を単独で再実行する。マージ済み PR の番号を明示指定する前提。
+///
+/// 終了コード: 0 = report 生成成功、1 = 失敗 (marker は通常経路と同様に残る)。
+pub(crate) fn run_feedback_only(pr_number: u64) -> i32 {
+    let label = "feedback-only";
+    let Some(owner_repo) = detect_owner_repo() else {
+        log_step(
+            label,
+            "FAIL",
+            "owner_repo を取得できませんでした (gh repo view 失敗?)",
+        );
+        return 1;
+    };
+    if !lib_pending_file::is_valid_owner_repo(&owner_repo) {
+        log_step(label, "FAIL", &format!("owner_repo が不正: {}", owner_repo));
+        return 1;
+    }
+
+    match run_ai_step_for(label, pr_number, &owner_repo) {
+        Ok(report) => {
             log_step(
                 label,
-                "WARN",
-                &format!("current_dir 取得失敗: {} — feedback workflow をスキップ", e),
+                "PASS",
+                &format!("feedback report: {}", report.display()),
             );
-            return;
+            0
         }
-    };
+        Err(reason) => {
+            log_step(
+                label,
+                "FAIL",
+                &format!("{} (詳細は上記ログ / .failed marker)", reason),
+            );
+            1
+        }
+    }
+}
 
-    if ai_step_should_skip_trivial(label, pr_number, owner_repo) {
-        return;
+/// 検証済みコンテキストで feedback workflow を実行する ([`run_ai_step`] の本体)。
+///
+/// 戻り値は `feedback::run` 相当の実行結果 (`Ok` = 生成された report のパス、
+/// `Err` = 失敗理由)。trivial PR skip・`current_dir` 取得失敗も `Err` として返し、
+/// [`run_feedback_only`] がディスク上の stale ファイルではなく今回の実行結果で
+/// 判定できるようにする (SIM-NEW-pipeline-L224)。
+fn run_ai_step_for(label: &str, pr_number: u64, owner_repo: &str) -> Result<PathBuf, String> {
+    let repo_root = std::env::current_dir().map_err(|e| {
+        let reason = format!("current_dir 取得失敗: {}", e);
+        log_step(
+            label,
+            "WARN",
+            &format!("{} — feedback workflow をスキップ", reason),
+        );
+        reason
+    })?;
+
+    if let Some(reason) = ai_step_should_skip_trivial(label, pr_number, owner_repo) {
+        return Err(reason);
     }
 
     let transcript_source_dir = feedback::project_transcript_dir(&repo_root);
@@ -241,45 +288,63 @@ fn run_ai_step_for(label: &str, pr_number: u64, owner_repo: &str) {
         ),
     );
 
-    run_feedback_and_report(label, &input, &repo_root, pr_number);
+    run_feedback_and_report(label, &input, &repo_root, pr_number)
 }
 
-/// trivial PR (#A-2) なら true を返し SKIP ログを出す。判定失敗時は WARN + false。
-fn ai_step_should_skip_trivial(label: &str, pr_number: u64, owner_repo: &str) -> bool {
+/// trivial PR (#A-2) なら `Some(reason)` を返し SKIP ログを出す。判定失敗時は WARN + `None`。
+fn ai_step_should_skip_trivial(label: &str, pr_number: u64, owner_repo: &str) -> Option<String> {
     match feedback::fetch_pr_diff_summary(pr_number, owner_repo) {
         Ok(summary) if summary.is_trivial() => {
-            log_step(
-                label,
-                "SKIP",
-                &format!(
-                    "trivial PR (commits={}, lines={}, all_md={}) — \
-                     post-merge-feedback skip (#A-2)",
-                    summary.commit_count,
-                    summary.total_lines_changed,
-                    summary.all_files_are_markdown,
-                ),
+            let reason = format!(
+                "trivial PR (commits={}, lines={}, all_md={}) — post-merge-feedback skip (#A-2)",
+                summary.commit_count, summary.total_lines_changed, summary.all_files_are_markdown,
             );
-            true
+            log_step(label, "SKIP", &reason);
+            Some(reason)
         }
-        Ok(_) => false,
+        Ok(_) => None,
         Err(e) => {
             log_step(
                 label,
                 "WARN",
                 &format!("trivial PR 判定失敗: {} — 通常 flow で続行", e),
             );
-            false
+            None
         }
     }
 }
 
-/// `feedback::run` を実行し、結果に応じて PASS / WARN(+marker) をログ出力する。
+/// `feedback::run` 失敗時に `.failed` marker を書き込み WARN ログを出す。
+fn warn_feedback_failure(label: &str, repo_root: &Path, pr_number: u64, reason: &str) {
+    match feedback::write_failed_marker(repo_root, pr_number, reason) {
+        Ok(marker) => log_step(
+            label,
+            "WARN",
+            &format!(
+                "feedback workflow 失敗: {} — marker: {} (L2 recovery が拾います)",
+                reason,
+                marker.display()
+            ),
+        ),
+        Err(marker_err) => log_step(
+            label,
+            "WARN",
+            &format!(
+                "feedback workflow 失敗: {} — marker 書込も失敗: {}",
+                reason, marker_err
+            ),
+        ),
+    }
+}
+
+/// `feedback::run` を実行し、結果に応じて PASS / WARN(+marker) をログ出力した上で、
+/// 実行結果をそのまま返す (呼び出し元が実際の結果で判定するため。SIM-NEW-pipeline-L224)。
 fn run_feedback_and_report(
     label: &str,
     input: &feedback::FeedbackInput,
-    repo_root: &std::path::Path,
+    repo_root: &Path,
     pr_number: u64,
-) {
+) -> Result<PathBuf, String> {
     match feedback::run(input) {
         Ok(report) => {
             log_step(
@@ -287,26 +352,12 @@ fn run_feedback_and_report(
                 "PASS",
                 &format!("feedback report 生成: {}", report.display()),
             );
+            Ok(report)
         }
-        Err(reason) => match feedback::write_failed_marker(repo_root, pr_number, &reason) {
-            Ok(marker) => log_step(
-                label,
-                "WARN",
-                &format!(
-                    "feedback workflow 失敗: {} — marker: {} (L2 recovery が拾います)",
-                    reason,
-                    marker.display()
-                ),
-            ),
-            Err(marker_err) => log_step(
-                label,
-                "WARN",
-                &format!(
-                    "feedback workflow 失敗: {} — marker 書込も失敗: {}",
-                    reason, marker_err
-                ),
-            ),
-        },
+        Err(reason) => {
+            warn_feedback_failure(label, repo_root, pr_number, &reason);
+            Err(reason)
+        }
     }
 }
 
