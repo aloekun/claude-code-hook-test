@@ -394,6 +394,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hooks-post-tool-jj-op-verify"
+version = "0.1.0"
+dependencies = [
+ "lib-subprocess",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "hooks-post-tool-linter"
 version = "0.1.0"
 dependencies = [

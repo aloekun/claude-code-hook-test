@@ -6,11 +6,14 @@
 use std::path::Path;
 
 use crate::hooks_config::StalenessConfig;
-use crate::jj_helpers::{count_commits_in_revset, fetch_head_is_recent, run_jj_with_timeout};
+use crate::jj_helpers::{
+    count_commits_in_revset, fetch_head_is_recent, run_jj_with_timeout, working_copy_is_stale,
+};
 
 const STALENESS_DEFAULT_FETCH_TIMEOUT_SECS: u64 = 3;
 const STALENESS_DEFAULT_FETCH_CACHE_SECS: u64 = 300;
 const STALENESS_DEFAULT_BRANCH: &str = "master";
+const STALE_CHECK_TIMEOUT_SECS: u64 = 5;
 
 pub(crate) fn build_staleness_nudge_message(default_branch: &str, behind: usize) -> String {
     format!(
@@ -51,6 +54,31 @@ pub(crate) fn compute_staleness_nudge(
     Some(build_staleness_nudge_message(default_branch, behind))
 }
 
+pub(crate) fn build_workspace_stale_nudge_message() -> String {
+    "[workspace-stale]\n\
+     この workspace の working copy は stale です (別 workspace の操作で repo view から取り残されています)。\n\
+     対処: `jj workspace update-stale` を実行してください。recovery commit が作られ、working copy 上の変更は失われません (ADR-045 § Known operational risks)。"
+        .to_string()
+}
+
+/// workspace stale 検知 nudge (ADR-045 事故 follow-up、C2)。
+///
+/// 並列 workspace 運用で別 workspace の操作によりこちらの working copy が stale に
+/// なったとき、セッション開始時点で `jj workspace update-stale` を促す。検知は
+/// `working_copy_is_stale` (stderr の stale エラー文言) による。自動実行はしない
+/// (recovery commit を勝手に作らない)。
+///
+/// opt-in (ADR-039 § 1): `[session_start.staleness] stale_check_enabled = true` で有効化。
+pub(crate) fn compute_workspace_stale_nudge(config: &StalenessConfig) -> Option<String> {
+    if !config.stale_check_enabled.unwrap_or(false) {
+        return None;
+    }
+    if !working_copy_is_stale(STALE_CHECK_TIMEOUT_SECS) {
+        return None;
+    }
+    Some(build_workspace_stale_nudge_message())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,14 +115,19 @@ mod tests {
         assert!(!msg.contains("master"));
     }
 
-    #[test]
-    fn compute_staleness_nudge_returns_none_when_disabled() {
-        let config = StalenessConfig {
-            enabled: Some(false),
+    fn config_with(enabled: Option<bool>, stale_check_enabled: Option<bool>) -> StalenessConfig {
+        StalenessConfig {
+            enabled,
             fetch_timeout_secs: None,
             fetch_cache_secs: None,
             default_branch: None,
-        };
+            stale_check_enabled,
+        }
+    }
+
+    #[test]
+    fn compute_staleness_nudge_returns_none_when_disabled() {
+        let config = config_with(Some(false), None);
         let root = unique_temp_root("disabled");
         let result = compute_staleness_nudge(&root, &config);
         assert!(result.is_none());
@@ -102,14 +135,24 @@ mod tests {
 
     #[test]
     fn compute_staleness_nudge_returns_none_when_enabled_field_missing() {
-        let config = StalenessConfig {
-            enabled: None,
-            fetch_timeout_secs: None,
-            fetch_cache_secs: None,
-            default_branch: None,
-        };
+        let config = config_with(None, None);
         let root = unique_temp_root("default-off");
         let result = compute_staleness_nudge(&root, &config);
         assert!(result.is_none(), "ADR-039 § 1 準拠で default-OFF 動作");
+    }
+
+    #[test]
+    fn workspace_stale_nudge_message_includes_recovery_command() {
+        let msg = build_workspace_stale_nudge_message();
+        assert!(msg.contains("[workspace-stale]"));
+        assert!(msg.contains("jj workspace update-stale"));
+        assert!(msg.contains("recovery commit"));
+    }
+
+    /// ADR-039 § 1: stale_check は default-OFF。未設定 / false では jj を呼ばず None。
+    #[test]
+    fn compute_workspace_stale_nudge_returns_none_when_disabled() {
+        assert!(compute_workspace_stale_nudge(&config_with(Some(true), None)).is_none());
+        assert!(compute_workspace_stale_nudge(&config_with(Some(true), Some(false))).is_none());
     }
 }

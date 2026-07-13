@@ -128,8 +128,6 @@
 | 275 | 🔧 Tier 2 | **層別テストテンプレート (StubOllama パターン・integration 独立性) の共有化 (PR #265 post-merge-feedback T2-1 採用)** | todo13.md | M | なし (WP-11/ADR-054 の多層防御実装で「空 StubOllama による LLM 未呼び出し証明」「tempdir+jj init+CwdRestore の integration 独立性」を都度設計。WP-17 の classifier/scope guard 拡張で同種判断が再発見込み。shared crate 化の境界は ADR-044 で判定、WP-17 着手前の実施が効果的) |
 | 276 | 💎 Tier 3 | **ADR-007 に「コメント配置の意思決定フロー」を追加 (PR #265 post-merge-feedback T3-2 採用)** | todo13.md | S | なし (PR #265 で非 doc コメントの Bundle Z block が 2 回発生 = doc コメント/識別子名/マーカー付き Why の配置判断が未文書化。linter 自動化は NLP 必要で却下済み、既存 Q1-Q3 形式で人間/AI の判断補助を doc 化。バッチ PR で消化可) |
 | 277 | 💎 Tier 3 | **PR body 配置タイミング規約を dev-conventions に明記 (PR #265 post-merge-feedback T3-3 採用)** | todo13.md | XS | なし (push パイプライン実行中の working copy に `__pr-body.md` を作成し snapshot 混入をかろうじて回避したヒヤリハット実発生。「push 完了後に scratchpad で準備し --body-file に絶対パス」を規約化。バッチ PR 消化可、並列安全化 PR docs への相乗りも可) |
-| 278 | 💎 Tier 3 | **ADR-015 に「push 戦略は hook ブロックと exe 実装の両層で管理する」原則を追記 (PR #265 post-merge-feedback T3-4 採用)** | todo13.md | XS | なし (pnpm push が `jj git push --all` を無条件実行と判明 = hook block は対話操作にしか効かず自動化経路は exe/config 側管理が必要という 2 層原則が未記録。並列 lost-update incident の背景記録。並列安全化 PR (push の -b 明示化) と同一 PR での消化を推奨) |
-| 279 | 💎 Tier 3 | **ADR-045 に「Known operational risks」「運用ルール」「Operation Verification Checklist」の 3 セクションを追加 (PR #265 post-merge-feedback T3-1 採用)** | todo13.md | S | なし (ADR-045:95「並行操作は jj が安全にマージする」という記述が、本セッションで実際に発生した workspace 間 concurrent 操作による 2 コミット lost update (手動再構築で復旧) と矛盾することが判明。ADR-045 § 再評価 trigger #3 に該当する実観測。Severity High、Effort S で Supervisor が最優先 2 件の一つと指摘) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

@@ -69,15 +69,16 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<bool, i32> {
 }
 
 /// quality_gate より前の事前チェック (bookmark / scratch file / pr size) を実行する。
-/// 失敗時は exit code を Err で返し、pipeline を中断する。
-fn run_pre_checks(config: &config::Config) -> Result<(), i32> {
-    if !run_bookmark_check() {
+/// 成功時は検出した非 trunk bookmark 名 (push stage の `-b` 組み立て用) を返し、
+/// 失敗時は exit code を Err で返して pipeline を中断する。
+fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
+    let Some(detected_bookmarks) = run_bookmark_check() else {
         log_info(
             "パイプライン中断: 非 trunk bookmark が見つかりません。\
              `jj bookmark create <name> -r @` で bookmark を作成して再実行してください。",
         );
         return Err(EXIT_BOOKMARK_MISSING);
-    }
+    };
     if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {
         log_info(
             "パイプライン中断: scratch ファイル検出。`.gitignore` 修正 / ファイル削除 / \
@@ -92,7 +93,7 @@ fn run_pre_checks(config: &config::Config) -> Result<(), i32> {
         );
         return Err(EXIT_PR_SIZE_EXCEEDED);
     }
-    Ok(())
+    Ok(detected_bookmarks)
 }
 
 fn run_pipeline() -> i32 {
@@ -114,9 +115,10 @@ fn run_pipeline() -> i32 {
         workflow,
     ));
 
-    if let Err(code) = run_pre_checks(&config) {
-        return code;
-    }
+    let detected_bookmarks = match run_pre_checks(&config) {
+        Ok(bookmarks) => bookmarks,
+        Err(code) => return code,
+    };
 
     if !run_quality_gate(&config.quality_gate) {
         log_info("パイプライン中断: quality_gate 失敗。問題を修正して再実行してください。");
@@ -133,7 +135,7 @@ fn run_pipeline() -> i32 {
         return EXIT_TAKT_FAILURE;
     }
 
-    if !run_push(&config.push) {
+    if !run_push(&config.push, &detected_bookmarks) {
         log_info("パイプライン中断: push 失敗。");
         return EXIT_PUSH_FAILURE;
     }

@@ -23,6 +23,10 @@ enabled = true
 fetch_timeout_secs = 3        # jj git fetch 全体の timeout (network 異常で session 起動を阻害しない)
 fetch_cache_secs = 300        # FETCH_HEAD mtime が N 秒以内なら fetch をスキップ (network cost 抑制)
 default_branch = "master"     # trunk-based 前提、feature branch 運用では変更
+# workspace stale 検知 nudge (ADR-045 § Known operational risks、C2)。並列 workspace の操作で
+# working copy が stale になったら `jj workspace update-stale` を促す (自動実行はしない)。
+# default-OFF (ADR-039 § 1)、本リポジトリは並列 workspace 運用のため有効化して dogfood。
+stale_check_enabled = true
 
 # [session_start.weekly_review_reminder]
 # - ADR-031 Phase C: `/weekly-review` skill 起動の reminder (試験運用、ADR-039 experimental pattern 準拠)。
@@ -127,6 +131,16 @@ enabled = true                                   # ADR-039 § 1.b mechanical lin
 threshold_bytes = 51200                          # 50KB (= 50 * 1024)、Claude Code 読み取り安定性閾値
 paths = ["docs/**/*.md", "src/**/*.rs"]          # default 対象 glob
 touch_trigger = true                             # 触られたファイルのみ check (ratchet)
+
+# jj operation 検証 (ADR-045 § Operation Verification Checklist の自動化、G案)。
+# Bash tool で変更系 jj コマンド (new/describe/abandon/rebase/squash/bookmark 変更系) を
+# 実行した直後に `jj op log --limit 1` で operation の記録を確認し、無ければ
+# 「operation not recorded」警告を additionalContext で返す (non-blocking 助言層)。
+# 2026-07-12/13 の並列 workspace lost-update incident の検出網。
+# default-OFF (ADR-039 § 1)、本リポジトリは並列 workspace 運用のため有効化して dogfood。
+# Kill-switch: enabled = false で完全停止。
+[post_tool_use.jj_op_verify]
+enabled = true
 
 # ─── PostToolUse: リンター ───
 

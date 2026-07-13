@@ -62,6 +62,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-jj-op-verify.exe\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
