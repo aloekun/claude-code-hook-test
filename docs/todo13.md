@@ -1058,13 +1058,13 @@
 
 #### 作業計画
 
-- [ ] 対象 PR の時刻 range 内の pre-push run dir を列挙する関数に拡張 (`.takt/runs/*-pre-push-review`)
+- [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
 - [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- 複数 push した PR の feedback が全 pre-push run のレポートを分析対象にすること。
+- 複数 push した PR の feedback が、時刻範囲だけでなく対象 PR のコミット範囲等の追加の識別根拠に基づいて集約された、全 pre-push run のレポートを分析対象にすること。
 
 ---
 
@@ -1097,12 +1097,12 @@
 
 #### 作業計画
 
-- [ ] bookmark 検出を revset ベース (`jj log -r 'bookmarks() & ::@ ~ trunk()'` 等) に変更 + テスト
+- [ ] bookmark 検出を revset ベース (`jj log -r 'bookmarks() & ::@ ~ trunk()'` 等) に変更。`::@` revset のみでは自 workspace 所有の保証にならない (祖先 commit が並行 workspace と共有され得る) ため、workspace root commit の照合等、追加の所有権検証を組み合わせる + テスト
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- push の `-b` 付与対象が自 workspace の祖先にある bookmark に限定されること。
+- push の `-b` 付与対象が自 workspace の祖先にある bookmark に限定され、`::@` revset のみに依存しない追加の所有権検証 (workspace root commit の照合等) を伴うこと。
 
 ---
 
