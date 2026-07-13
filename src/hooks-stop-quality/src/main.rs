@@ -206,6 +206,10 @@ fn main() {
         return;
     }
 
+    if pipeline_is_running() {
+        return;
+    }
+
     let stop_config = config.stop_quality.unwrap_or_default();
     let steps = stop_config.steps.unwrap_or_default();
     let timeout = stop_config
@@ -219,6 +223,34 @@ fn main() {
 
     let failures = run_quality_steps(&steps, timeout);
     block_on_failures(&failures);
+}
+
+/// 実行中 pipeline (merge/push) が fresh な lock を保持している間、品質ゲートを skip する
+/// (順位 280、ADR-045 § Known operational risks の Concurrent checkout 事故対策)。
+///
+/// background pipeline のローカル同期 checkout と本 hook の cargo/jj 実行が同一
+/// working copy 上で競合し、jj が「Concurrent checkout」で中断する事故が PR #267 で
+/// 実発生した。lock は `.claude/pipeline.lock` (exe-relative 解決 = 順位 287 規約) を
+/// merge-pipeline / push-runner が実行区間で保持する。
+///
+/// skip は fail-open: Stop 時点のゲートは助言層で、本物のゲートは push pipeline 側の
+/// quality_gate にある (ADR-043 の線引き)。stale threshold (30 分) 超過の lock は無視
+/// されるため、クラッシュした pipeline が永続 skip を招くことはない。
+/// kill-switch: lock ファイルの削除 (または pipeline 終了を待つ)。
+fn pipeline_is_running() -> bool {
+    let Some(dir) = lib_jj_helpers::pipeline_lock::exe_claude_dir() else {
+        return false;
+    };
+    match lib_jj_helpers::pipeline_lock::pipeline_lock_holder(&dir) {
+        Some((pid, age_secs)) => {
+            eprintln!(
+                "[stop-quality] pipeline lock 検知 (pid={}, age={}s) — pipeline 実行中のため品質ゲートを skip (fail-open、順位280)",
+                pid, age_secs
+            );
+            true
+        }
+        None => false,
+    }
 }
 
 /// stdin を読み取る。失敗時は block 判定を emit して None を返す (fail-closed)。
