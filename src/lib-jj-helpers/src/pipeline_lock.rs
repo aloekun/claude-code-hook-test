@@ -112,13 +112,63 @@ pub fn acquire_pipeline_lock_at(
                     holder_age_secs: age_secs,
                 };
             }
-            if let Err(e) = std::fs::write(&path, content) {
+            takeover_stale_lock(path, token, content, stale_threshold_secs, now_unix)
+        }
+        Err(e) => PipelineLockResult::Unavailable {
+            reason: e.to_string(),
+        },
+    }
+}
+
+/// stale と判定した lock を takeover する。`create_new` により先着 1 プロセスのみ
+/// `Acquired` になることを保証し (CodeRabbit re-review Major 対応)、レースに負けた
+/// 側 (create_new が `AlreadyExists` を返す) は `busy_from_disk` で現在の holder 情報を
+/// 読み直して `Busy` を返す。
+///
+/// 残余 TOCTOU: `remove_file` と `create_new` の間隙に他プロセスの `remove_file` が
+/// 割り込む窓が理論上残る (完全な atomic には OS レベルの file lock が必要)。本 lock は
+/// advisory (fail-open, ADR-043) であり、stale threshold 境界での同時 takeover という
+/// 稀なケースに限られるため許容する。
+fn takeover_stale_lock(
+    path: PathBuf,
+    token: String,
+    content: String,
+    stale_threshold_secs: i64,
+    now_unix: i64,
+) -> PipelineLockResult {
+    if let Err(e) = std::fs::remove_file(&path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("[pipeline-lock] takeover 時の remove 失敗 (継続): {}", e);
+        }
+    }
+    match OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(mut f) => {
+            if let Err(e) = f.write_all(content.as_bytes()) {
                 eprintln!("[pipeline-lock] takeover 書き込み失敗 (継続): {}", e);
             }
             PipelineLockResult::Acquired(PipelineLock { path, token })
         }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            busy_from_disk(&path, stale_threshold_secs, now_unix)
+        }
         Err(e) => PipelineLockResult::Unavailable {
             reason: e.to_string(),
+        },
+    }
+}
+
+/// takeover レースに負けた際、ディスク上の現在の holder 情報から `Busy` を組み立てる。
+/// 直後に holder が drop 済みで読めない場合は `holder_pid: 0` で `Busy` を返す
+/// (相手が既に確保していた事実は変わらないため `Acquired` にはしない)。
+fn busy_from_disk(path: &Path, stale_threshold_secs: i64, now_unix: i64) -> PipelineLockResult {
+    match read_fresh_lock(path, stale_threshold_secs, now_unix) {
+        Some((pid, age_secs)) => PipelineLockResult::Busy {
+            holder_pid: pid,
+            holder_age_secs: age_secs,
+        },
+        None => PipelineLockResult::Busy {
+            holder_pid: 0,
+            holder_age_secs: 0,
         },
     }
 }
@@ -371,5 +421,35 @@ mod tests {
         assert!(path.exists());
         drop(guard);
         assert!(!path.exists(), "自分の token の lock は削除される");
+    }
+
+    /// CodeRabbit re-review Major の regression guard: 同じ stale lock に対する
+    /// takeover を 2 スレッドが同時に行っても、`Acquired` になるのは 1 つだけ。
+    #[test]
+    fn concurrent_stale_takeover_only_one_wins() {
+        let path = temp_lock_path("concurrent-stale");
+        std::fs::write(&path, "pid=99999\nstart_unix=1000000\nlabel=crashed\n").unwrap();
+
+        let path_a = path.clone();
+        let path_b = path.clone();
+        let a = std::thread::spawn(move || {
+            acquire_pipeline_lock_at(path_a, "A", 1800, 1_000_000 + 1800)
+        });
+        let b = std::thread::spawn(move || {
+            acquire_pipeline_lock_at(path_b, "B", 1800, 1_000_000 + 1800)
+        });
+        let result_a = a.join().unwrap();
+        let result_b = b.join().unwrap();
+
+        let acquired_count = [&result_a, &result_b]
+            .into_iter()
+            .filter(|r| matches!(r, PipelineLockResult::Acquired(_)))
+            .count();
+        assert_eq!(
+            acquired_count, 1,
+            "stale takeover のレースで Acquired になるのは 1 プロセスのみのはず"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }
