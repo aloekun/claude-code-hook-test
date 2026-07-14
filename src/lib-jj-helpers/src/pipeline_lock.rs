@@ -104,15 +104,17 @@ pub fn acquire_pipeline_lock_at(
             PipelineLockResult::Acquired(PipelineLock { path, token })
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            if let Some((pid, age_secs)) =
-                read_fresh_lock(&path, stale_threshold_secs, now_unix)
-            {
-                return PipelineLockResult::Busy {
-                    holder_pid: pid,
-                    holder_age_secs: age_secs,
-                };
+            let snapshot = std::fs::read_to_string(&path).ok();
+            if let Some(raw) = &snapshot {
+                if let Some((pid, age_secs)) = is_fresh_content(raw, stale_threshold_secs, now_unix)
+                {
+                    return PipelineLockResult::Busy {
+                        holder_pid: pid,
+                        holder_age_secs: age_secs,
+                    };
+                }
             }
-            takeover_stale_lock(path, token, content, stale_threshold_secs, now_unix)
+            takeover_stale_lock(path, token, content, snapshot, stale_threshold_secs, now_unix)
         }
         Err(e) => PipelineLockResult::Unavailable {
             reason: e.to_string(),
@@ -121,24 +123,31 @@ pub fn acquire_pipeline_lock_at(
 }
 
 /// stale と判定した lock を takeover する。`create_new` により先着 1 プロセスのみ
-/// `Acquired` になることを保証し (CodeRabbit re-review Major 対応)、レースに負けた
-/// 側 (create_new が `AlreadyExists` を返す) は `busy_from_disk` で現在の holder 情報を
-/// 読み直して `Busy` を返す。
+/// `Acquired` になることを保証する (CodeRabbit re-review Major 対応)。
 ///
-/// 残余 TOCTOU: `remove_file` と `create_new` の間隙に他プロセスの `remove_file` が
-/// 割り込む窓が理論上残る (完全な atomic には OS レベルの file lock が必要)。本 lock は
-/// advisory (fail-open, ADR-043) であり、stale threshold 境界での同時 takeover という
-/// 稀なケースに限られるため許容する。
+/// `remove_file` 直前に `stale_snapshot` (呼び出し元が stale と判定した時点の生 content)
+/// と現在の content を再比較し、一致する場合のみ削除する。他プロセスが同じ間隙で先に
+/// takeover 済み (= content が変化済み) なら削除をスキップし、後続の `create_new` が
+/// 自然に `AlreadyExists` で失敗して `busy_from_disk` に落ちる。無条件 `remove_file` だと
+/// 先着プロセスが作った fresh lock を後発側が検証なしに消してしまいうる
+/// (2 プロセスとも `Acquired` になる実際に再現した regression)。
+///
+/// 残余 TOCTOU: この再比較と `remove_file` 呼出の間隙のみ (128bit token を含む同一
+/// content が別プロセスにより偶然この一瞬で再現される確率は無視できる)。本 lock は
+/// advisory (fail-open, ADR-043) であり、この残余は許容する。
 fn takeover_stale_lock(
     path: PathBuf,
     token: String,
     content: String,
+    stale_snapshot: Option<String>,
     stale_threshold_secs: i64,
     now_unix: i64,
 ) -> PipelineLockResult {
-    if let Err(e) = std::fs::remove_file(&path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            eprintln!("[pipeline-lock] takeover 時の remove 失敗 (継続): {}", e);
+    if std::fs::read_to_string(&path).ok() == stale_snapshot {
+        if let Err(e) = std::fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("[pipeline-lock] takeover 時の remove 失敗 (継続): {}", e);
+            }
         }
     }
     match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -218,8 +227,14 @@ fn build_lock_content(token: &str, pid: u32, start_unix: i64, label: &str) -> St
 /// - start_unix が未来 (破損 future-dated lock の永続 fresh 化防止)
 fn read_fresh_lock(path: &Path, stale_threshold_secs: i64, now_unix: i64) -> Option<(u32, i64)> {
     let content = std::fs::read_to_string(path).ok()?;
-    let pid: u32 = parse_field(&content, "pid")?.parse().ok()?;
-    let start_unix: i64 = parse_field(&content, "start_unix")?.parse().ok()?;
+    is_fresh_content(&content, stale_threshold_secs, now_unix)
+}
+
+/// `read_fresh_lock` の判定ロジック本体。生 content を直接受け取るため、呼び出し元が
+/// content を再利用 (takeover 直前のスナップショット比較等) できる。
+fn is_fresh_content(content: &str, stale_threshold_secs: i64, now_unix: i64) -> Option<(u32, i64)> {
+    let pid: u32 = parse_field(content, "pid")?.parse().ok()?;
+    let start_unix: i64 = parse_field(content, "start_unix")?.parse().ok()?;
     if start_unix > now_unix {
         return None;
     }
@@ -448,6 +463,46 @@ mod tests {
         assert_eq!(
             acquired_count, 1,
             "stale takeover のレースで Acquired になるのは 1 プロセスのみのはず"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// SIM-NEW-pipeline_lock-L146 の regression guard: `stale_snapshot` 取得後に別プロセスが
+    /// 同じ隙間で先に takeover 済み (content が変化済み) の場合、`remove_file` をスキップして
+    /// `Busy` に落ちる (無条件 remove による 2 プロセスとも `Acquired` の再発防止)。
+    #[test]
+    fn takeover_stale_lock_skips_remove_when_snapshot_is_stale() {
+        let path = temp_lock_path("snapshot-mismatch");
+        let stale_snapshot_before_gap =
+            Some("pid=99999\nstart_unix=1000000\nlabel=crashed\n".to_string());
+
+        let content_written_by_concurrent_takeover_during_gap =
+            build_lock_content("cccccccccccccccccccccccccccccccc", 12345, 1_000_100, "other");
+        std::fs::write(&path, &content_written_by_concurrent_takeover_during_gap).unwrap();
+
+        let result = takeover_stale_lock(
+            path.clone(),
+            "dddddddddddddddddddddddddddddddd".to_string(),
+            build_lock_content(
+                "dddddddddddddddddddddddddddddddd",
+                std::process::id(),
+                1_000_200,
+                "push",
+            ),
+            stale_snapshot_before_gap,
+            1800,
+            1_000_200,
+        );
+
+        assert!(
+            matches!(result, PipelineLockResult::Busy { .. }),
+            "snapshot 不一致時は remove をスキップし Busy に落ちるべき"
+        );
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            after, content_written_by_concurrent_takeover_during_gap,
+            "他プロセスの lock が変更されず残る"
         );
 
         let _ = std::fs::remove_file(&path);
