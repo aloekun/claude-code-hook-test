@@ -1045,6 +1045,181 @@
 
 ---
 
+### cli-pr-monitor の lock.rs を token 方式の所有権検証へ統一
+
+> **動機**: PR #271 で `pipeline_lock.rs` の `Drop` に token ベース所有権検証を追加した (CodeRabbit Major 対応、stale takeover 後に旧プロセスの Drop が新プロセスの lock を誤削除するバグの修正)。`src/cli-pr-monitor/src/lock.rs` の `MonitorLock` の `Drop` (`lock.rs:41-50`) も無条件 `remove_file` で、同型の所有権未検証バグを抱えている。
+>
+> **参照**: `src/lib-jj-helpers/src/pipeline_lock.rs` (token 方式の参照実装)、`src/cli-pr-monitor/src/lock.rs:41-50`
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S-M。
+
+#### 作業計画
+
+- [ ] `MonitorLock` に token フィールドを追加し、`Drop` を token 一致確認付き削除に変更 (`pipeline_lock.rs` の実装を踏襲)
+- [ ] takeover 後に旧 guard の Drop が新 lock を消さないことを確認する regression test 追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `cli-pr-monitor` の lock も stale takeover 後の誤削除が起きないことがテストで保証されていること。
+
+---
+
+### push-runner の stack push モード (opt-in、YAGNI につき見送り継続)
+
+> **動機**: `bookmark_check.rs` の `OWN_WORKSPACE_BOOKMARKS_REVSET = "@"` (厳密一致) は、stacked bookmark 運用 (`feature/base` → `feature/api` → `feature/ui` を `@` 先頭で一括 push) では `@` の bookmark だけでは不足するというトレードオフを持つ。現状その運用実績はなく、必要になった時点で明示オプトインの stack push モード (`[push] stack_push` 等) を追加する拡張余地として記録する。
+>
+> **参照**: `src/cli-push-runner/src/stages/bookmark_check.rs:39-43` (トレードオフの記述箇所、本エントリを指して「todo 登録済み」と既に言及している)
+>
+> **実行優先度**: ⏳ Tier 5 (YAGNI、実運用実績なし) — Effort M。
+
+#### 作業計画
+
+- [ ] stacked bookmark 運用が実際に必要になった時点で `[push] stack_push` config を設計
+- [ ] 実績が出ないまま長期化する場合は close 判断も検討
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- (着手判断待ち) 次のいずれかに至ること: (a) stacked bookmark 運用の実需が生じ opt-in モードが設計・実装される、または (b) 実績が出ないまま長期化し close 判断がなされる。
+
+---
+
+### jj-op-verify hook の位置づけ再整理 — 並列 workspace 安全化ではなく混線緩和層として再分類
+
+> **動機**: `hooks-post-tool-jj-op-verify` は PR #267 / ADR-045 上「並列 workspace 安全化」の一部として位置づけられているが、検知対象 (「op が記録されない」症状) は jj の公式並行モデルでは説明できない (並列操作なら stale working copy エラーか divergent operation heads として op log に残るはず)。実体は出力混線 (Opus 4.8 / Fable 5 モデル起源のシリアライズ不具合、ADR-053 が上流バグと断定済み) の症状検出器であり、並列 workspace 運用の有無とは独立に価値を持つ。「並列対策が完了したので撤去可能」という将来の誤判断を防ぐため、ADR-045 ではなく ADR-053 の枠組みに紐付け直す。
+>
+> **参照**: `docs/adr/adr-045-jj-workspace-parallel-sessions.md` § Known operational risks、`docs/adr/adr-053-stop-tool-call-leak-detection.md`、`src/hooks-post-tool-jj-op-verify/src/main.rs`
+>
+> **実行優先度**: 💎 Tier 3 — Effort S (ドキュメント再整理のみ、hook 実装は変更不要)。
+
+#### 作業計画
+
+- [ ] ADR-053 に「jj-op-verify hook は tool 実行はされたが結果表示の信頼性が疑わしい型の混線を検知する」旨を追記し、当該 hook への参照を追加
+- [ ] ADR-045 の該当 hook の記述を「並列 workspace 対策」から「混線検知 (副次的に並列 workspace 由来の stale 検出にも有効)」に改める
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 将来のセッションが「並列運用をやめたので jj-op-verify は不要」と誤判断しないよう、ADR 上の位置づけが混線緩和層として明記されていること。
+
+---
+
+### ADR-045 にコミット消失事故の「並列原因」診断が未検証である旨の注記追加
+
+> **動機**: WP-11 作業中に発生した「コミット 2 つ消失」事故は「並列 jj workspace の同時操作が原因」と診断され ADR-045 に記録されたが、この診断は当時の一次証拠 (`jj op log` の実データ) ではなく、post-merge-feedback の `analyze-session` facet による事後の自己分析 (未検証) に依拠している。「op が一切記録されない」という症状は jj の公式並行モデルでは説明できず、混線 (モデル起源のシリアライズ不具合) による状態誤認が真因である可能性の方が技術的に整合する。confirmation bias の記録として、この診断の不確実性を ADR-045 に注記する。
+>
+> **参照**: `docs/adr/adr-045-jj-workspace-parallel-sessions.md` § Known operational risks、本セッションの調査 (transcript `ed897a3e-85b5-44d1-a78c-ff23973f207e.jsonl` 系列、独立 subagent 検証)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] ADR-045 の該当事故記述に「並列 workspace 原因説は事後分析による推定であり、一次証拠 (当時の jj op log) には未到達。混線 (モデル起源) が真因である可能性も残る」旨を注記
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- ADR-045 を読む将来のセッションが、この診断を「確定事実」ではなく「未検証の有力仮説」として扱えること。
+
+---
+
+### Lock stale takeover + Drop の concurrency scenario 拡張テスト (271.md T2-2 採用)
+
+> **動機**: PR #271 が導入した token-based ownership Drop の前提 (「fresh lock は takeover されない」) を、既存 `concurrent_stale_takeover_only_one_wins` に加え、takeover 後の旧 guard drop までの full cycle を長い operation chain で検証する価値が高い。PR #267 (concurrent checkout 事故) の再発防止網としても機能する。
+>
+> **参照**: `.claude/feedback-reports/271.md` Tier 2 #2、`src/lib-jj-helpers/src/pipeline_lock.rs` の tests モジュール
+>
+> **実行優先度**: 🔧 Tier 2 — Effort M。
+
+#### 作業計画
+
+- [ ] takeover → 旧 guard drop → 新 guard drop の full cycle を検証するテストを既存テストファイルに追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- takeover 後の旧 guard drop が新 lock を誤削除しないことが、長い operation chain のシナリオでも保証されていること。
+
+---
+
+### Pipeline 段階間の状態遷移 E2E テスト (271.md T2-3 採用)
+
+> **動機**: PR #271 で bookmark 検出の revset 厳密化 (`@` 限定) が push-runner の後続 stage の前提と衝突した実例 (simplicity reviewer が `SIM-NEW-bookmark_check-L43` として検出) があった。Stage -1〜Stage 3 の各段階終了後状態と次段階の前提を突合するテストを追加し、bookmark が `@` に遅延した状態遷移を明示的にカバーする。
+>
+> **参照**: `.claude/feedback-reports/271.md` Tier 2 #3、`src/cli-push-runner/tests/pipeline_integration_test.rs` (新設)
+>
+> **実行優先度**: 🔧 Tier 2 — Effort M。
+
+#### 作業計画
+
+- [ ] `pipeline_integration_test.rs` を新設し、Stage -1〜Stage 3 の状態遷移契約を突合するテストを追加
+- [ ] 既存 `cargo test` 実行に組み込み、独立 CI step は新設しない
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- pipeline stage 間の hidden coupling が regression test で検出可能になっていること。
+
+---
+
+### token ベース ownership check の convention 化 (271.md T3-1 採用)
+
+> **動機**: PR #271 で CodeRabbit Major が指摘した「PID は OS によって再利用されうる」という知見は、`lib-jj-helpers` 以外の multi-process coordination コード追加時にも再発しうる pattern。dev-conventions.md に一般化して記載する価値がある。
+>
+> **参照**: `.claude/feedback-reports/271.md` Tier 3 #1、`docs/dev-conventions.md`
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。
+
+#### 作業計画
+
+- [ ] token ベース ownership check (PID/start_unix 回避) の convention を `docs/dev-conventions.md` に追記
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 将来 multi-process coordination コードを書く際に参照できる convention が存在すること。
+
+---
+
+### revset で workspace 所有権を判定できない旨の convention 明記 (271.md T3-2 採用)
+
+> **動機**: `bookmark_check.rs` の `@` 厳密一致方式 (revset による所有権推定を諦める設計判断) は、将来の jj 運用で参照価値が高い negative result。「共有履歴上の bookmark は他 workspace のものが混ざりうる」旨を project-specific convention として `CLAUDE.md` に追記する。
+>
+> **参照**: `.claude/feedback-reports/271.md` Tier 3 #2、`CLAUDE.md`
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] `CLAUDE.md` に「revset だけでは workspace 所有権を判定できない」旨と `@` 厳密一致の設計判断を追記
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 将来のセッションが同種の revset ベース所有権判定を再提案しないよう、negative result が明文化されていること。
+
+---
+
+### Push pipeline 段階間依存性チェック項目の追加 (271.md T3-3 採用)
+
+> **動機**: PR #271 の hidden coupling incident (revset 厳密化が Stage 3 の前提と衝突) から得た教訓を恒久化する。Pipeline stage 修正時に「この stage の変更が後続 stage の前提を破らないか」を確認する convention を明文化する。
+>
+> **参照**: `.claude/feedback-reports/271.md` Tier 3 #3、`CLAUDE.md` / `docs/dev-conventions.md`
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。
+
+#### 作業計画
+
+- [ ] `CLAUDE.md` または `docs/dev-conventions.md` に pipeline stage 修正時の段階間依存性チェック項目を追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- Pipeline stage 修正時のレビュー観点として、段階間依存性チェックが明文化されていること。
+
+---
+
 
 
 
