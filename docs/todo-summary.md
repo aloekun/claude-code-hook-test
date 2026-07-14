@@ -136,6 +136,15 @@
 | 286 | 🔧 Tier 2 | **config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)** | todo13.md | M | なし (FIXED 済 cwd-config bug の regression guard。既存テストは pure parser のみで file-lookup 経路未カバー。Severity High、Adoption Risk = OS 依存) |
 | 287 | 💎 Tier 3 | **「config 読み hook は exe-relative 解決必須」convention の明文化 (PR #267 post-merge-feedback T3-1 採用)** | todo13.md | XS | なし (順位 281 の文書層補完。**281 と同一 PR bundle 推奨**、別作業に切り出す価値は低い) |
 | 288 | 🔧 Tier 2 | **post-merge feedback の pre-push reports を対象 PR の全 run 集約に拡張 (PR #268 post-merge-feedback T2-1 採用)** | todo13.md | M | なし (「最新 1 run」参照は複数 push した PR で分析が最終 push 分に偏る。PR #267 feedback の evidence-scope 注記で実観測。context の prepush_reports_dir 配列化 + facet 複数 dir 対応。独立 PR 推奨) |
+| 292 | 🔧 Tier 2 | **cli-pr-monitor の lock.rs を token 方式の所有権検証へ統一** | todo13.md | S-M | なし (PR #271 で pipeline_lock.rs に導入した token ベース所有権検証と同型の Drop 無条件削除バグが cli-pr-monitor/src/lock.rs にも残存。参照実装が既にあるため低リスク) |
+| 293 | ⏳ Tier 5 | **push-runner の stack push モード (opt-in、YAGNI につき見送り継続)** | todo13.md | M | なし (stacked bookmark 運用の実績が現状なく、必要になった時点で着手する opt-in 拡張として記録のみ) |
+| 294 | 💎 Tier 3 | **jj-op-verify hook の位置づけ再整理 — 並列 workspace 安全化ではなく混線緩和層として再分類** | todo13.md | S | なし (検知対象は出力混線の症状であり並列 workspace とは独立に価値を持つ。ADR-045→ADR-053 の枠組みへ紐付け直すドキュメント再整理のみ) |
+| 295 | 💎 Tier 3 | **ADR-045 にコミット消失事故の「並列原因」診断が未検証である旨の注記追加** | todo13.md | XS | なし (診断は事後の自己分析に依拠し一次証拠未到達。混線起因の可能性も残ることを confirmation bias の記録として注記) |
+| 296 | 🔧 Tier 2 | **Lock stale takeover + Drop の concurrency scenario 拡張テスト (271.md T2-2 採用)** | todo13.md | M | なし (token-based ownership Drop の前提を takeover 後の旧 guard drop までの full cycle で検証、既存 concurrent_stale_takeover_only_one_wins の拡張) |
+| 297 | 🔧 Tier 2 | **Pipeline 段階間の状態遷移 E2E テスト (271.md T2-3 採用)** | todo13.md | M | なし (Stage -1〜Stage 3 の段階間 hidden coupling を regression test 化、bookmark が @ に遅延した状態遷移を明示的にカバー) |
+| 298 | 💎 Tier 3 | **token ベース ownership check の convention 化 (271.md T3-1 採用)** | todo13.md | S | なし (PID 再利用リスクという業界知見を dev-conventions.md に一般化して記載) |
+| 299 | 💎 Tier 3 | **revset で workspace 所有権を判定できない旨の convention 明記 (271.md T3-2 採用)** | todo13.md | XS | なし (`@` 厳密一致の設計判断という negative result を CLAUDE.md に明文化) |
+| 300 | 💎 Tier 3 | **Push pipeline 段階間依存性チェック項目の追加 (271.md T3-3 採用)** | todo13.md | S | なし (PR #271 の hidden coupling incident から得た教訓を CLAUDE.md / dev-conventions.md に恒久化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
