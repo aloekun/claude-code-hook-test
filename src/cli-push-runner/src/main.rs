@@ -107,6 +107,8 @@ fn run_pipeline() -> i32 {
         }
     };
 
+    let _pipeline_lock = lib_jj_helpers::pipeline_lock::hold_pipeline_lock("push", log_info);
+
     let has_diff = config.diff.is_some();
     let workflow = resolve_takt_workflow(&config);
     log_info(&format!(

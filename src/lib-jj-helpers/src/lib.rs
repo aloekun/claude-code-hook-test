@@ -23,6 +23,9 @@
 //! - [`get_jj_bookmarks`]: 上記を組み合わせた high-level エントリポイント
 //! - [`resolve_git_dir`] / [`inject_git_dir_for_gh`]: 非 colocated jj workspace
 //!   での gh 用 `GIT_DIR` 導出と自動注入 (ADR-045 恒久対策候補 1)
+//! - [`pipeline_lock`]: 実行中 pipeline と Stop hook 品質ゲートの相互排他 (順位 280)
+
+pub mod pipeline_lock;
 
 use std::process::{Command, Stdio};
 

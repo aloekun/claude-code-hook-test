@@ -11,4 +11,7 @@ lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-pending-file = { path = "../lib-pending-file" }
 lib-subprocess = { path = "../lib-subprocess" }
 
+[dev-dependencies]
+tempfile = "3"
+
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

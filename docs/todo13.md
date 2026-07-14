@@ -890,29 +890,6 @@
 
 ---
 
-### pipeline lock + Stop hook 品質ゲート skip 機構 (PR #267 マージ事故の根本解決)
-
-> **動機**: PR #267 のマージで「background の merge pipeline がローカル同期の checkout を実行中に、ターン終了で発火した Stop hook 品質ゲート (cargo/jj) が同じ working copy 上で競合」し、jj が「Concurrent checkout」で中断・working copy が旧状態に取り残される事故が実発生 (jj 側の保護と自動解決で損失ゼロ、復旧 3 コマンド)。実施済みの `--feedback-only` (PR #268) は結果の一つ (feedback 未実行) の回復手段にすぎず、競合自体は防げていない。post-merge feedback の transcript window (first_commit〜merged_at) はマージ処理中の事故を構造的に見えないため、feedback からの提案も期待できない。
->
-> **設計案**: (1) cli-merge-pipeline / cli-push-runner が実行中に lock ファイル (PID + timestamp、`cli-pr-monitor/src/lock.rs` の stale takeover パターンを lib 化して流用) を保持、(2) hooks-stop-quality が開始時に lock を確認し、生きている pipeline 保持中は品質ゲートを skip (ログ + fail-open。Stop 時点のゲートは助言層で、本物のゲートは push 側)、(3) ADR-045 運用ルールに「lock 機構実装までは merge-pr を foreground 実行」の暫定ルールを追記済み → 実装後に撤去。
->
-> **参照**: ADR-045 § Known operational risks、ADR-030 (feedback recovery)、ADR-043 (skip は助言層ゲートの fail-open で整合)、`src/cli-pr-monitor/src/lock.rs` (流用元)、PR #268 (`--feedback-only` = 対症療法側)
->
-> **実行優先度**: 🚀 Tier 1 — Effort S-M。**PR #268 の次の PR で対応予定 (ユーザー合意済み 2026-07-13)**。
-
-#### 作業計画
-
-- [ ] lock を lib (lib-jj-helpers or 新 lib) に一般化 (PID + timestamp + stale takeover)
-- [ ] cli-merge-pipeline / cli-push-runner の実行区間で lock 保持
-- [ ] hooks-stop-quality に lock 検知 → skip (fail-open) を追加 + off/stale ケースのテスト
-- [ ] ADR-045 の「merge は foreground」暫定ルールを撤去し本機構に置換
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- background の merge/push pipeline 実行中にターンを終了しても Stop hook 品質ゲートが working copy に触れず、Concurrent checkout 事故が構造的に再発しないこと。
-
----
 
 ### config-reading hook の `current_dir()` 解決を検出する lint rule (PR #267 post-merge-feedback T1-1 採用)
 
@@ -1068,62 +1045,8 @@
 
 ---
 
-### run_feedback_only の docstring 修正 — 検出失敗パスは marker を書かない旨を明記 (PR #268 post-merge-feedback T3-1 採用)
 
-> **動機**: 現行 docstring は「失敗時 (marker は通常経路と同様に残る)」と記すが、owner_repo 検出/validation 失敗パスでは marker を書かない (同期 CLI で人間が直接ログを見るため意図的)。spec-impl drift の芽を摘む。
->
-> **参照**: `.claude/feedback-reports/268.md` Tier 3 #1、`src/cli-merge-pipeline/src/pipeline.rs` (`run_feedback_only` docstring)
->
-> **実行優先度**: 💎 Tier 3 — Effort XS。**順位 280 の実装 PR に同乗推奨** (cli-merge-pipeline を触る同一 PR で消化)。
 
-#### 作業計画
-
-- [ ] docstring の終了コード契約の記述を実装に合わせて修正
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- docstring と実装の marker 挙動が一致していること。
-
----
-
-### cli-push-runner の bookmark 検出を `::@` (自 workspace 祖先) に限定 (PR #269 post-merge-feedback T1-1 採用)
-
-> **動機**: bookmark_check の検出 (`jj bookmark list`) はリポジトリ全体を対象とするため、並行 workspace の bookmark も拾い、push の `-b` 付与対象に含めてしまう。本セッションの実 push で `-b <PR#268の bookmark> -b <PR#269の bookmark>` と複数 bookmark が付与された実観測あり (両方自分のもので無害だったが、並行 workspace では他者の作業中 bookmark を巻き込む余地)。`--all` 廃止 (PR #267) の仕上げとして、検出を `::@ ~ trunk()` 等の revset で自 workspace の祖先に限定する。feedback pipeline とセッション内 dogfood が独立に同一問題を検出 (相互裏付け)。
->
-> **参照**: `.claude/feedback-reports/269.md` Tier 1 #1、`src/cli-push-runner/src/stages/bookmark_check.rs`、ADR-045 § Known operational risks (bookmark conflicts)
->
-> **実行優先度**: 🚀 Tier 1 — Effort S。**順位 280 の実装 PR で消化予定** (並列安全化の仕上げとして同一テーマ)。
-
-#### 作業計画
-
-- [ ] bookmark 検出を revset ベース (`jj log -r 'bookmarks() & ::@ ~ trunk()'` 等) に変更。`::@` revset のみでは自 workspace 所有の保証にならない (祖先 commit が並行 workspace と共有され得る) ため、workspace root commit の照合等、追加の所有権検証を組み合わせる + テスト
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- push の `-b` 付与対象が自 workspace の祖先にある bookmark に限定され、`::@` revset のみに依存しない追加の所有権検証 (workspace root commit の照合等) を伴うこと。
-
----
-
-### run_ai_step_for の Result 伝播 regression test (PR #269 post-merge-feedback T2-1 採用)
-
-> **動機**: PR #268 の pre-push review で REJECT された `path.exists()` 偽陽性 PASS (SIM-NEW-pipeline-L224) の修正 (`Result<PathBuf, String>` の直接伝播) を、両呼び出し元 (`run_feedback_only` / `run_ai_step`) で regression test として固定する。stale report 存在下での再実行失敗が exit 0 にならないことの検証が核心。
->
-> **参照**: `.claude/feedback-reports/269.md` Tier 2 #1、`src/cli-merge-pipeline/src/pipeline.rs` (`run_ai_step_for`)
->
-> **実行優先度**: 🔧 Tier 2 — Effort S。順位 280 の実装 PR に同乗可 (cli-merge-pipeline を触る場合)。
-
-#### 作業計画
-
-- [ ] Result 伝播の unit/regression test を追加 (stale report + Err ケースで exit 1 を assert)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 偽陽性 PASS バグの再発がテストで検出されること。
-
----
 
 ## 既知課題 (記録のみ、本セッションで未対応)
 

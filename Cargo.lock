@@ -143,6 +143,7 @@ dependencies = [
  "lib-subprocess",
  "serde",
  "serde_json",
+ "tempfile",
  "toml",
 ]
 
@@ -451,6 +452,7 @@ dependencies = [
 name = "hooks-stop-quality"
 version = "0.1.0"
 dependencies = [
+ "lib-jj-helpers",
  "lib-subprocess",
  "serde",
  "serde_json",

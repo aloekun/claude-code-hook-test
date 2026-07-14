@@ -206,7 +206,13 @@ fn run_ai_step(label: &str, ctx: Option<&PipelineContext>) {
 /// ADR-030 L2 recovery の対象にならない。本経路は marker の有無に依存せず feedback
 /// workflow を単独で再実行する。マージ済み PR の番号を明示指定する前提。
 ///
-/// 終了コード: 0 = report 生成成功、1 = 失敗 (marker は通常経路と同様に残る)。
+/// 終了コード: 0 = report 生成成功、1 = 失敗。
+///
+/// marker の扱い (順位 289): feedback workflow 本体の失敗では通常経路と同様に
+/// `.failed` marker が残る (`run_ai_step_for` 内の `FailedMarkerGuard`)。ただし
+/// **owner_repo の検出/validation 失敗パスでは marker を書かない** — 本経路は同期 CLI
+/// で人間が直接ログを見る前提のため、L2 recovery (UserPromptSubmit hook) への引き継ぎは
+/// 不要という意図的な設計。
 pub(crate) fn run_feedback_only(pr_number: u64) -> i32 {
     let label = "feedback-only";
     let Some(owner_repo) = detect_owner_repo() else {
@@ -222,7 +228,17 @@ pub(crate) fn run_feedback_only(pr_number: u64) -> i32 {
         return 1;
     }
 
-    match run_ai_step_for(label, pr_number, &owner_repo) {
+    feedback_only_outcome(label, run_ai_step_for(label, pr_number, &owner_repo))
+}
+
+/// `--feedback-only` の終了コードを**本呼び出しの Result のみ**から導出する。
+///
+/// 順位 291 の regression guard: 初版はディスク上の report 存在 (`path.exists()`) を
+/// 成功根拠にしており、stale report が存在すると失敗した再実行でも exit 0 を返す
+/// hidden-coupling があった (pre-push simplicity-review REJECT: SIM-NEW-pipeline-L224)。
+/// 本関数はファイルシステム状態を一切参照しない。
+fn feedback_only_outcome(label: &str, result: Result<PathBuf, String>) -> i32 {
+    match result {
         Ok(report) => {
             log_step(
                 label,
@@ -416,6 +432,8 @@ fn build_context() -> Result<PipelineContext, i32> {
 }
 
 pub(crate) fn run_pipeline() -> i32 {
+    let _pipeline_lock = lib_jj_helpers::pipeline_lock::hold_pipeline_lock("merge", log_info);
+
     let settings = match resolve_settings() {
         Ok(s) => s,
         Err(code) => return code,
@@ -670,5 +688,28 @@ mod tests {
                 owner_repo: "aloekun/claude-code-hook-test",
             }
         );
+    }
+
+    /// 順位 291 regression guard: 終了コードは本呼び出しの Result のみから導出され、
+    /// ディスク上の stale report の存在に影響されない (SIM-NEW-pipeline-L224 の再発防止)。
+    /// 「stale report が存在する状態で Err → exit 1」が incident の再現シナリオ。
+    #[test]
+    fn feedback_only_outcome_fails_on_err_even_when_stale_report_exists() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let stale_report = temp.path().join("267.md");
+        std::fs::write(&stale_report, "stale report from previous run").unwrap();
+
+        let code = feedback_only_outcome(
+            "test",
+            Err("concurrent run guard trip".to_string()),
+        );
+        assert_eq!(code, 1, "stale report が存在しても Err は exit 1");
+        assert!(stale_report.exists(), "前提: stale report は存在したまま");
+    }
+
+    #[test]
+    fn feedback_only_outcome_succeeds_only_from_ok_result() {
+        let code = feedback_only_outcome("test", Ok(PathBuf::from("reports/267.md")));
+        assert_eq!(code, 0);
     }
 }
