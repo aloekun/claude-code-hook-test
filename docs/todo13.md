@@ -1226,21 +1226,25 @@
 >
 > **重要な scope 限定**: `cli-pr-monitor/src/lock.rs` の `MonitorLock` は `std::fs::write` overwrite 方式 + 「stale takeover の race は benign」という設計判断をコメントで既に明示済みであり、本 rule の対象外とすべき (混同すると誤検出になる)。paths を `pipeline_lock.rs` 等の exclusive-lock 実装ファイルに限定して実装すること。
 >
-> **参照**: `.claude/feedback-reports/273.md` Tier 1 #1、`src/lib-jj-helpers/src/pipeline_lock.rs` (今回の fix)、`.claude/custom-lint-rules.toml`
+> **既知の限界と過去の関連判断**: 271.md Tier 1 #1 (「Concurrent guard (Drop) の無条件リソース削除検出」regex 検出) は「regex では検証済み/未検証を区別できず ADR-007 の regex 層限界に抵触する」という理由で**既に却下済み**。本エントリの単純な comment-presence 検出も同じ限界 (justification コメントさえあれば実際の再検証コードが無くても通過してしまう) を抱える。CodeRabbit re-review (PR #274) 指摘によりこの限界が具体化したため、下記のとおり検出粒度を「コメント有無」から「再読込→比較→remove_file という 3 ステップの出現順序」の regex/pattern 検出へ強化する (AST 層への格上げは Effort M 相当となり本エントリの Effort S を超えるため、まずは pattern 検出の強化で対応し、それでも false negative が実運用で頻発する場合に AST 層格上げを再検討する)。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 1 #1、`.claude/feedback-reports/271.md` Tier 1 #1 (関連する過去の却下判断)、`src/lib-jj-helpers/src/pipeline_lock.rs` (今回の fix)、`.claude/custom-lint-rules.toml`
 >
 > **実行優先度**: 🚀 Tier 1 — Severity High / Effort S。
 
 #### 作業計画
 
-- [ ] `.claude/custom-lint-rules.toml` に comment-presence 検出ルールを追加 (paths を exclusive-lock 実装限定)
+- [ ] `.claude/custom-lint-rules.toml` に「`remove_file` 呼び出し directly 手前の N 行以内に、読込 (`read_to_string` 等) → 比較 (`==`/`if let` 等) の出現順序があること」を要求する pattern 検出ルールを追加 (単純な comment-presence ではなく構造的な出現順序を見る、paths を exclusive-lock 実装限定)
 - [ ] `cli-pr-monitor/src/lock.rs` を誤検出しないことを確認する negative fixture 追加
-- [ ] lint 検出時に CODE REVIEW で「lock safety pattern verified」(stale takeover 等の TOCTOU window 許容根拠が妥当) を確認する運用を `docs/dev-conventions.md` に明文化し、本 rule のカバレッジ限界 (false negative になりうるケース) を rule 定義コメントに記録
+- [ ] 「justification コメントはあるが再読込・比較コードが無い」ケースが lint により検出される (= コメントのみでは通過しない) ことを示す negative fixture を追加
+- [ ] lint 検出時に CODE REVIEW で「lock safety pattern verified」を人手確認する運用を `docs/dev-conventions.md` に明文化し、本 rule の false negative となりうるケース (カバレッジ限界) を rule 定義コメントに記録
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- `remove_file` 直前の状態再検証コメントを欠く新規 exclusive lock 実装が、lint rule (comment-presence 検出) により push 前に検出されること。
-- lint 検出はコメントの「有無」のみを機械的に判定し安全性そのものは証明しないため、検出時は CODE REVIEW で「lock safety pattern verified」であることを人手確認する運用が明文化されていること、かつ本 rule の false negative となりうるケース (カバレッジ限界) が記録されていること。
+- 「読込→比較→remove_file」という構造そのものを欠く新規 exclusive lock 実装が、lint rule (pattern 検出) により push 前に検出されること。
+- 「justification コメントのみで再検証コードを欠く」実装が、コメントの存在にかかわらず lint で検出される (= 通過しない) ことが negative fixture で証明されていること。
+- 上記 pattern 検出にも false negative となりうるケースが残るため、lint 検出時に CODE REVIEW で「lock safety pattern verified」であることを人手確認する運用が明文化されていること、かつ本 rule のカバレッジ限界が記録されていること。
 
 ---
 
@@ -1293,17 +1297,19 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に「push/merge パイプライン実行中に無関係なバグを発見・修正した場合、`jj split` で分離し、それぞれ独立した bookmark/PR にする」復旧手順を追記
+- [ ] `jj split`/`jj rebase` は**混入後の事後対応**であり、混在した変更に対して既に実行された quality gate / pre-push review の結果は汚染されている (予防はできていない) ため、分離後は当該結果を破棄し、分離後の各コミット/PR で quality gate / pre-push review を個別に再実行する手順を追記
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
 - 同種の混入が今後発生した際に、参照できる復旧手順が存在すること。
+- 復旧手順に「混在した変更に対する gate 実行結果は無効であり、分離後に各 PR で個別に再実行する」ことが明記されていること (CodeRabbit 指摘: 復旧は予防の代替ではなく、汚染された gate 結果をそのまま信頼してはならない)。
 
 ---
 
 ### Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)
 
-> **動機**: metrics 系 gate (`file_size_check` (順位177) / `file_length_gate` (順位147) 等) が複数稼働中の本リポジトリでは、violation が先行 PR/feature 由来の pre-existing なものか、今回の変更に起因するものかを判定して override する場面が繰り返し発生する。PR #273 では 4 件の violation が PR #271 由来の pre-existing として人手判断で正しく override されたが、判定基準 (対象 revset の選び方・feature 境界の見極め方) が曖昧なまま自動化すると誤判定リスクがある。判定基準の明文化は Tier 2 #5 (自動 exemption 機構) の検討の前提を整える。
+> **動機**: metrics 系 gate (`file_size_check` / `file_length_gate` 等) が複数稼働中の本リポジトリでは、violation が先行 PR/feature 由来の pre-existing なものか、今回の変更に起因するものかを判定して override する場面が繰り返し発生する。PR #273 では 4 件の violation が PR #271 由来の pre-existing として人手判断で正しく override されたが、判定基準 (対象 revset の選び方・feature 境界の見極め方) が曖昧なまま自動化すると誤判定リスクがある。判定基準の明文化は Tier 2 #5 (自動 exemption 機構) の検討の前提を整える。
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 3 #4、Tier 2 #5、`docs/dev-conventions.md`
 >
@@ -1311,32 +1317,38 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加 (判定者・判定日時・判定根拠の audit trail 記録要件を含む)
+- [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加 (基準時点/現時点の計測結果・差分、判定理由、判定者・判定日時、レビュー承認者を記録する audit trail 要件を含み、証跡が揃わない場合は override 不可とする)
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
 - metrics 系 gate の violation を pre-existing として override する際に、判断根拠として参照できる基準が存在すること。
-- 上記基準に加え、override 判定時に「判定者・判定日時・判定根拠」を PR/MR コメントまたは `docs/override-log.md` に記録する audit trail 要件が明文化されていること (同一メトリクスの反復 violation を将来 anomaly として検知できるようにするため)。
+- 上記基準に加え、override 判定時に「基準時点と現時点の計測結果・差分」「pre-existing と判断した理由」「判定者・判定日時」「レビュー承認者」を PR/MR コメントまたは `docs/override-log.md` に記録し、これらの証跡が揃わない限り override できないチェックリストになっていること (同一メトリクスの反復 violation を将来 anomaly として検知できるようにするため)。
 
 ---
 
-### quality gate isolation 機構を見送り recovery convention で代替する判断の記録 (negative result) (273.md T3-5 採用)
+### quality gate isolation 機構を見送り、recovery による risk acceptance とした判断の記録 (negative result) (273.md T3-5 採用)
 
-> **動機**: PR #273 の post-merge-feedback は「quality gate 実行を commit group ごとに isolated working copy で行う構造的防止機構」(Tier 2 #4) を提案したが、Effort L・runner 複雑化という Adoption Risk に見合わず却下した。spike 見送り (negative result) 永続化 convention に従い、「なぜ isolation 機構を実装せず recovery convention (本ファイルの `jj split` + `jj rebase` パターン記録) で代替したか」を根拠とともに記録する。
+> **動機**: PR #273 の post-merge-feedback は「quality gate 実行を commit group ごとに isolated working copy で行う構造的防止機構」(Tier 2 #4) を提案したが、Effort L・runner 複雑化という Adoption Risk に見合わず却下した。spike 見送り (negative result) 永続化 convention に従い、この却下判断を記録する。
 >
-> **参照**: `.claude/feedback-reports/273.md` Tier 2 #4 (却下 recommendation)、Tier 3 #5、docs/dev-conventions.md § spike 見送り (negative result) 永続化 convention
+> **CodeRabbit 指摘 (PR #274) による訂正**: **recovery (`jj split`/`jj rebase` 復旧パターン) は isolation (予防) の代替にはならない。** isolation は「混入自体を未然に防ぐ」機構であり、recovery は「混入が起きたことを検知した後に事後対応する」機構であって、両者は異なるリスク層に属する。isolation を見送った真の判断は「recovery で同等の予防効果が得られる」ではなく、「混入は今後も起こりうるが、発生時の recovery コストが低いため、isolation 実装コスト (Effort L) をかけてまで予防する必要はないと risk acceptance した」という判断である。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 2 #4 (却下 recommendation)、Tier 3 #5、docs/dev-conventions.md § spike 見送り (negative result) 永続化 convention、`jj split`/`jj rebase` 復旧パターンを記録するタスク (本ファイル内)
 >
 > **実行優先度**: 💎 Tier 3 — Effort S。
 
 #### 作業計画
 
-- [ ] 関連 ADR (ADR-045 または新規 amendment) に、isolation 機構を見送り recovery convention で代替した判断を negative result として記録
+- [ ] 関連 ADR (ADR-045 または新規 amendment) に、isolation 機構を見送り、recovery コストの低さを理由に risk acceptance した判断を negative result として記録する。「recovery が isolation の代替になる」という表現は用いない
+- [ ] 記録には「isolation を見送ったことで残る予防機能の欠如 (混在した変更に対して quality gate / pre-push review が誤って green 判定を出しうる残存リスク)」を明記する
+- [ ] 記録には再検討条件 (例: 同種の混入事故が反復する、isolation の実装コストが下がる、等) を明記する
+- [ ] `docs/todo-summary.md` の本エントリ行の説明も「代替」ではなく「recovery コストの低さによる risk acceptance」と表現する
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
 - 将来の再検討時に、この見送り判断の根拠が参照可能であること。
+- 記録が「recovery は isolation の代替である」という誤解を招く表現になっておらず、予防機能の欠如という残存リスクと、再検討条件が明記されていること。
 
 ---
 
