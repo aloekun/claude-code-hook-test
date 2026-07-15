@@ -1234,11 +1234,13 @@
 
 - [ ] `.claude/custom-lint-rules.toml` に comment-presence 検出ルールを追加 (paths を exclusive-lock 実装限定)
 - [ ] `cli-pr-monitor/src/lock.rs` を誤検出しないことを確認する negative fixture 追加
+- [ ] lint 検出時に CODE REVIEW で「lock safety pattern verified」(stale takeover 等の TOCTOU window 許容根拠が妥当) を確認する運用を `docs/dev-conventions.md` に明文化し、本 rule のカバレッジ限界 (false negative になりうるケース) を rule 定義コメントに記録
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
-- `remove_file` 直前の状態再検証コメントを欠く新規 exclusive lock 実装が push 前に検出されること。
+- `remove_file` 直前の状態再検証コメントを欠く新規 exclusive lock 実装が、lint rule (comment-presence 検出) により push 前に検出されること。
+- lint 検出はコメントの「有無」のみを機械的に判定し安全性そのものは証明しないため、検出時は CODE REVIEW で「lock safety pattern verified」であることを人手確認する運用が明文化されていること、かつ本 rule の false negative となりうるケース (カバレッジ限界) が記録されていること。
 
 ---
 
@@ -1309,12 +1311,13 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加
+- [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加 (判定者・判定日時・判定根拠の audit trail 記録要件を含む)
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
 - metrics 系 gate の violation を pre-existing として override する際に、判断根拠として参照できる基準が存在すること。
+- 上記基準に加え、override 判定時に「判定者・判定日時・判定根拠」を PR/MR コメントまたは `docs/override-log.md` に記録する audit trail 要件が明文化されていること (同一メトリクスの反復 violation を将来 anomaly として検知できるようにするため)。
 
 ---
 
