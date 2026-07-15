@@ -1220,6 +1220,123 @@
 
 ---
 
+### TOCTOU (remove+create_new) パターン検出 lint rule — exclusive lock 実装限定 (273.md T1-1 採用)
+
+> **動機**: PR #273 の二重 Acquired バグ (`remove_file` 直前の状態再検証欠落) は data integrity violation の根本原因だった。`remove_file` の直前に安全性を示す justification コメントが無い exclusive lock 実装を検出する custom lint rule (rule⑩ `no-write-result-discard` と同型の comment-presence 検出) を追加する。
+>
+> **重要な scope 限定**: `cli-pr-monitor/src/lock.rs` の `MonitorLock` は `std::fs::write` overwrite 方式 + 「stale takeover の race は benign」という設計判断をコメントで既に明示済みであり、本 rule の対象外とすべき (混同すると誤検出になる)。paths を `pipeline_lock.rs` 等の exclusive-lock 実装ファイルに限定して実装すること。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 1 #1、`src/lib-jj-helpers/src/pipeline_lock.rs` (今回の fix)、`.claude/custom-lint-rules.toml`
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High / Effort S。
+
+#### 作業計画
+
+- [ ] `.claude/custom-lint-rules.toml` に comment-presence 検出ルールを追加 (paths を exclusive-lock 実装限定)
+- [ ] `cli-pr-monitor/src/lock.rs` を誤検出しないことを確認する negative fixture 追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `remove_file` 直前の状態再検証コメントを欠く新規 exclusive lock 実装が push 前に検出されること。
+
+---
+
+### `takeover_stale_lock_skips_remove_when_snapshot_is_stale` パターンを deterministic concurrency test テンプレートとして記録 (273.md T2-3 採用)
+
+> **動機**: PR #273 で追加した決定論的 regression test (`stale_snapshot` を意図的に不一致にして takeover レースを注入的に再現するパターン) は、実スレッドタイミングに依存する flaky test (`concurrent_stale_takeover_only_one_wins`) より再現性が高い。次の並行処理系 PR で同型テストが必要になった際のテンプレートとして記録する。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 2 #3、`src/lib-jj-helpers/src/pipeline_lock.rs` の `takeover_stale_lock_skips_remove_when_snapshot_is_stale`
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に「並行処理の regression test は実スレッドレースより、内部関数を直接呼び状態不一致を注入する決定論的パターンを優先する」旨とコード例を追記
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 次の並行処理系バグ修正で、決定論的テストパターンが参照可能な形で存在すること。
+
+---
+
+### Advisory lock (fail-open) の TOCTOU window 許容可否を明示コメントで残す設計チェックリスト (273.md T3-1 採用)
+
+> **動機**: `cli-pr-monitor/src/lock.rs` の `MonitorLock` は「stale takeover の race は benign」という判断を既にコメントで明示済みだが、これは実践のみでチェックリスト化されていない。既に実践されている practice を明文化すれば、将来の advisory lock 実装での判断ミス (許容可否を検討せず TOCTOU を放置する、あるいは過剰に厳格化する) を構造的に防止できる。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 3 #1、`src/cli-pr-monitor/src/lock.rs`、`src/lib-jj-helpers/src/pipeline_lock.rs` (takeover_stale_lock の doc comment)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に「advisory lock の TOCTOU window に触れる実装は、許容可否の判断根拠を doc comment に残す」チェックリストを追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- advisory lock 実装時に参照できるチェックリストが存在すること。
+
+---
+
+### quality gate 実行中に発見したバグ修正が別 PR に混入した際の `jj split` + `jj rebase` 復旧パターンを記録 (273.md T3-3 採用)
+
+> **動機**: PR #272 (docs-only) の push 中に quality gate が実行した `cargo test --workspace` で PR #273 相当のバグを発見し、その場で修正した結果 docs コミットに混入した。`jj split` + `jj rebase` で低コストに復旧できた実務パターンを記録する。ADR-045 の並列 workspace リスクとは別種の事故 (単一 session 内の混入) であり、区別して記録する価値がある。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 3 #3、本セッションの復旧手順 (`jj split -m ... <file>` → `jj rebase -s <docs-commit> -d <docs-parent>` → `jj rebase -s <fix-commit> -d master`)
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に「push/merge パイプライン実行中に無関係なバグを発見・修正した場合、`jj split` で分離し、それぞれ独立した bookmark/PR にする」復旧手順を追記
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 同種の混入が今後発生した際に、参照できる復旧手順が存在すること。
+
+---
+
+### Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)
+
+> **動機**: metrics 系 gate (`file_size_check` (順位177) / `file_length_gate` (順位147) 等) が複数稼働中の本リポジトリでは、violation が先行 PR/feature 由来の pre-existing なものか、今回の変更に起因するものかを判定して override する場面が繰り返し発生する。PR #273 では 4 件の violation が PR #271 由来の pre-existing として人手判断で正しく override されたが、判定基準 (対象 revset の選び方・feature 境界の見極め方) が曖昧なまま自動化すると誤判定リスクがある。判定基準の明文化は Tier 2 #5 (自動 exemption 機構) の検討の前提を整える。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 3 #4、Tier 2 #5、`docs/dev-conventions.md`
+>
+> **実行優先度**: 💎 Tier 3 — Effort XS。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- metrics 系 gate の violation を pre-existing として override する際に、判断根拠として参照できる基準が存在すること。
+
+---
+
+### quality gate isolation 機構を見送り recovery convention で代替する判断の記録 (negative result) (273.md T3-5 採用)
+
+> **動機**: PR #273 の post-merge-feedback は「quality gate 実行を commit group ごとに isolated working copy で行う構造的防止機構」(Tier 2 #4) を提案したが、Effort L・runner 複雑化という Adoption Risk に見合わず却下した。spike 見送り (negative result) 永続化 convention に従い、「なぜ isolation 機構を実装せず recovery convention (本ファイルの `jj split` + `jj rebase` パターン記録) で代替したか」を根拠とともに記録する。
+>
+> **参照**: `.claude/feedback-reports/273.md` Tier 2 #4 (却下 recommendation)、Tier 3 #5、docs/dev-conventions.md § spike 見送り (negative result) 永続化 convention
+>
+> **実行優先度**: 💎 Tier 3 — Effort S。
+
+#### 作業計画
+
+- [ ] 関連 ADR (ADR-045 または新規 amendment) に、isolation 機構を見送り recovery convention で代替した判断を negative result として記録
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 将来の再検討時に、この見送り判断の根拠が参照可能であること。
+
+---
+
 
 
 

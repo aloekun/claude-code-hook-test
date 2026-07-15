@@ -145,6 +145,12 @@
 | 298 | 💎 Tier 3 | **token ベース ownership check の convention 化 (271.md T3-1 採用)** | todo13.md | S | なし (PID 再利用リスクという業界知見を dev-conventions.md に一般化して記載) |
 | 299 | 💎 Tier 3 | **revset で workspace 所有権を判定できない旨の convention 明記 (271.md T3-2 採用)** | todo13.md | XS | なし (`@` 厳密一致の設計判断という negative result を CLAUDE.md に明文化) |
 | 300 | 💎 Tier 3 | **Push pipeline 段階間依存性チェック項目の追加 (271.md T3-3 採用)** | todo13.md | S | なし (PR #271 の hidden coupling incident から得た教訓を CLAUDE.md / dev-conventions.md に恒久化) |
+| 301 | 🚀 Tier 1 | **TOCTOU (remove+create_new) パターン検出 lint rule — exclusive lock 実装限定 (273.md T1-1 採用)** | todo13.md | S | なし (二重 Acquired バグの根本原因パターンを検出。cli-pr-monitor/lock.rs は設計判断済みのため scope 除外必須) |
+| 302 | 💎 Tier 3 | **`takeover_stale_lock_skips_remove_when_snapshot_is_stale` パターンを deterministic concurrency test テンプレートとして記録 (273.md T2-3 採用)** | todo13.md | XS | なし (実スレッドレースより状態不一致を直接注入する決定論的テストパターンを次の並行処理系 PR 向けに記録) |
+| 303 | 💎 Tier 3 | **Advisory lock (fail-open) の TOCTOU window 許容可否を明示コメントで残す設計チェックリスト (273.md T3-1 採用)** | todo13.md | XS | なし (cli-pr-monitor/lock.rs が既に実践している判断根拠明示の practice をチェックリスト化) |
+| 304 | 💎 Tier 3 | **quality gate 実行中に発見したバグ修正が別 PR に混入した際の jj split + jj rebase 復旧パターンを記録 (273.md T3-3 採用)** | todo13.md | XS | なし (PR #272/#273 分離で実証済みの復旧手順、ADR-045 の並列 workspace リスクとは別種の単一 session 内混入事故) |
+| 305 | 💎 Tier 3 | **Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)** | todo13.md | XS | なし (file_size_check / file_length_gate 等 metrics 系 gate が複数稼働中で反復しうる override 正当性の判定基準を明文化) |
+| 306 | 💎 Tier 3 | **quality gate isolation 機構を見送り recovery convention で代替する判断の記録 (negative result) (273.md T3-5 採用)** | todo13.md | S | なし (順位261 の spike 見送り convention に従い、isolation 機構を却下し recovery convention (304) で代替した根拠を記録) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
