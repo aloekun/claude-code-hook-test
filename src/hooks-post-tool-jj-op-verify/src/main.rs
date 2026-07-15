@@ -163,16 +163,42 @@ fn verify_enabled(config_text: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// stdin の HookInput とconfig から additionalContext 文字列を決める (純粋部)。
+/// `decide_context` の判定結果。いずれも additionalContext に出す message を持つが、
+/// telemetry (WP-12) は `NotRecorded` の発火のみ記録するため variant で判別する。
+enum Verdict {
+    Recorded(String),
+    NotRecorded(String),
+}
+
+impl Verdict {
+    fn message(&self) -> &str {
+        match self {
+            Verdict::Recorded(m) | Verdict::NotRecorded(m) => m,
+        }
+    }
+}
+
+/// stdin の HookInput とconfig から判定結果を決める (純粋部)。
 /// None = 何も出力しない (対象外コマンド / 無効化 / 検証不能)。
-fn decide_context(command: &str, op_head: Option<&str>) -> Option<String> {
+fn decide_context(command: &str, op_head: Option<&str>) -> Option<Verdict> {
     let op = detect_last_mutating_jj_op(command)?;
     let head = op_head?;
     if op_matches_expectation(head, op.expected_op_keyword) {
-        Some(build_ok_message(&op, head))
+        Some(Verdict::Recorded(build_ok_message(&op, head)))
     } else {
-        Some(build_not_recorded_warning(&op, head))
+        Some(Verdict::NotRecorded(build_not_recorded_warning(&op, head)))
     }
+}
+
+/// jj-op-verify が「operation not recorded」警告を発火したことを記録する (WP-12、fail-open)。
+fn record_not_recorded_warning() {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-post-tool-jj-op-verify",
+        kind: lib_telemetry::FiringKind::Hook,
+        id: "jj-op-verify",
+        decision: lib_telemetry::Decision::Warn,
+        session_id: None,
+    });
 }
 
 fn main() {
@@ -199,13 +225,16 @@ fn main() {
         return;
     }
     let op_head = fetch_op_head();
-    let Some(context) = decide_context(&command, op_head.as_deref()) else {
+    let Some(verdict) = decide_context(&command, op_head.as_deref()) else {
         return;
     };
+    if matches!(verdict, Verdict::NotRecorded(_)) {
+        record_not_recorded_warning();
+    }
     let output = serde_json::json!({
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
-            "additionalContext": context,
+            "additionalContext": verdict.message(),
         }
     });
     println!("{output}");
@@ -263,17 +292,19 @@ mod tests {
     /// 受け入れ基準: 操作に対応する op が無い場合に「operation not recorded」警告を出す。
     #[test]
     fn decide_context_warns_when_operation_not_recorded() {
-        let context =
+        let verdict =
             decide_context("jj new -m 'x'", Some("f53cbee0d008 snapshot working copy")).unwrap();
-        assert!(context.contains("WARNING: operation not recorded"));
-        assert!(context.contains("jj op log"));
+        assert!(matches!(verdict, Verdict::NotRecorded(_)));
+        assert!(verdict.message().contains("WARNING: operation not recorded"));
+        assert!(verdict.message().contains("jj op log"));
     }
 
     #[test]
     fn decide_context_confirms_recorded_operation() {
-        let context =
+        let verdict =
             decide_context("jj new -m 'x'", Some("02911d7f8d4b new empty commit")).unwrap();
-        assert!(context.starts_with("[jj-op-verify] OK"));
+        assert!(matches!(verdict, Verdict::Recorded(_)));
+        assert!(verdict.message().starts_with("[jj-op-verify] OK"));
     }
 
     #[test]

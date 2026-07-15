@@ -152,6 +152,7 @@ fn meta_is_fresh(meta_path: &Path) -> bool {
 
 /// block 判定を stdout に出力するヘルパー
 fn emit_block(reason: &str) {
+    record_block_firing();
     let decision = BlockDecision {
         decision: "block".to_string(),
         reason: reason.to_string(),
@@ -159,6 +160,18 @@ fn emit_block(reason: &str) {
     if let Ok(json) = serde_json::to_string(&decision) {
         println!("{}", json);
     }
+}
+
+/// Stop 品質ゲートが block を発火したこと (品質失敗・fail-closed infra エラーを含む
+/// emit 総数) を telemetry に記録する (WP-12、fail-open)。
+fn record_block_firing() {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-stop-quality",
+        kind: lib_telemetry::FiringKind::Hook,
+        id: "hooks-stop-quality",
+        decision: lib_telemetry::Decision::Block,
+        session_id: None,
+    });
 }
 
 /// 設定ファイルのパス解決

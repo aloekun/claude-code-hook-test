@@ -55,6 +55,7 @@
 - [ADR-052: 自律実行境界の 2 クラス分類（ADR-028 の 2 段化）](docs/adr/adr-052-autonomy-execution-boundary-classes.md) *(試験運用)*
 - [ADR-053: Stop hook による tool call leak 検知](docs/adr/adr-053-stop-tool-call-leak-detection.md) *(試験運用)*
 - [ADR-054: prompt injection 信頼境界の 3 層防御](docs/adr/adr-054-prompt-injection-trust-boundary-defense.md) *(試験運用)*
+- [ADR-055: 発火テレメトリ収集層 — ハーネス ROI 棚卸しの決定論的観測基盤](docs/adr/adr-055-firing-telemetry-collection.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

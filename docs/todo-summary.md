@@ -151,6 +151,8 @@
 | 304 | 💎 Tier 3 | **quality gate 実行中に発見したバグ修正が別 PR に混入した際の jj split + jj rebase 復旧パターンを記録 (273.md T3-3 採用)** | todo13.md | XS | なし (PR #272/#273 分離で実証済みの復旧手順、ADR-045 の並列 workspace リスクとは別種の単一 session 内混入事故。復旧は事後対応であり、分離後は混在した変更に対する gate 実行結果を無効化し各 PR で再実行する手順を含む) |
 | 305 | 💎 Tier 3 | **Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)** | todo13.md | XS | なし (file_size_check / file_length_gate 等 metrics 系 gate が複数稼働中で反復しうる override 正当性の判定基準を明文化) |
 | 306 | 💎 Tier 3 | **quality gate isolation 機構を見送り、recovery による risk acceptance とした判断の記録 (negative result) (273.md T3-5 採用)** | todo13.md | S | なし (spike 見送り convention に従い、isolation 機構を却下し recovery コストの低さ (順位304) を理由に risk acceptance した根拠を記録。recovery は isolation の代替ではなく、予防機能の欠如という残存リスクと再検討条件を明記する) |
+| 307 | 🔧 Tier 2 | **WP-12 step 2: 発火テレメトリ ROI 棚卸し pre-step (発火 0 の rule/preset/hook を削除候補提示)** | todo13.md | M | なし (**着手条件 = ADR-055 収集層マージから 28 日 warm-up 後**。それ以前は全項目が発火 0 = データ無しで判定無意味。集計は Rust exe、weekly-review に file-length-watchlist 同型 facet で接続、incident 由来ルールは発火 0 でも維持推奨の区別) |
+| 308 | 💎 Tier 3 | **WP-12 step 3: ADR-039 bounded lifetime 判定の発火数機械化** | todo13.md | S | 順位 307 (step 2 の集計基盤に依存)。試験運用 ADR 機構の卒業/廃止検討を発火数で自動 promote。step 3 完了で WP-12 完了 |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

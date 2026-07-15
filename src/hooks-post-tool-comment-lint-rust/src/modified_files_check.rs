@@ -83,8 +83,22 @@ pub(crate) fn run_check_modified_files() -> i32 {
     if violations.is_empty() {
         return 0;
     }
+    record_file_length_block();
     print!("{}", format_violation_report(&base, &violations));
     1
+}
+
+/// file-length Stop gate が実 violation を検出して block したことを telemetry に記録する
+/// (WP-12、fail-open)。fail-closed 経路 (jj 失敗の判定不能 block) は ROI 信号を汚さないよう
+/// 記録しない。
+fn record_file_length_block() {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-post-tool-comment-lint-rust",
+        kind: lib_telemetry::FiringKind::Hook,
+        id: "file-length",
+        decision: lib_telemetry::Decision::Block,
+        session_id: None,
+    });
 }
 
 /// `enabled = Some(true)` のときのみ true。section 不在 / `None` / `Some(false)` は
@@ -116,15 +130,7 @@ fn effective_base(config: &GateConfigFile) -> String {
 /// user が確認できる。
 fn override_value() -> Option<String> {
     let raw = std::env::var(OVERRIDE_ENV_VAR).ok()?;
-    is_truthy(&raw).then_some(raw)
-}
-
-/// override env の受理値判定 (順位 151 `pr_size_check::parse_override_env` と同 pattern)。
-fn is_truthy(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
+    lib_telemetry::is_truthy(&raw).then_some(raw)
 }
 
 /// exe と同じ directory の `hooks-config.toml` を読み込む (hooks-stop-quality と同方式)。
@@ -274,20 +280,6 @@ mod tests {
         let config: GateConfigFile =
             toml::from_str("[file_length_gate]\nenabled = true\nbase = \"  \"\n").unwrap();
         assert_eq!(effective_base(&config), "master");
-    }
-
-    #[test]
-    fn is_truthy_accepts_documented_values() {
-        for v in ["1", "true", "TRUE", "True", "yes", "on", "  on  "] {
-            assert!(is_truthy(v), "{:?} should be truthy", v);
-        }
-    }
-
-    #[test]
-    fn is_truthy_rejects_falsey_values() {
-        for v in ["0", "false", "no", "off", "", "   ", "2", "enable"] {
-            assert!(!is_truthy(v), "{:?} should be falsey", v);
-        }
     }
 
     #[test]

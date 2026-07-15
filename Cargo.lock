@@ -386,6 +386,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 name = "hooks-post-tool-comment-lint-rust"
 version = "0.1.0"
 dependencies = [
+ "lib-telemetry",
  "serde",
  "serde_json",
  "tempfile",
@@ -399,6 +400,7 @@ name = "hooks-post-tool-jj-op-verify"
 version = "0.1.0"
 dependencies = [
  "lib-subprocess",
+ "lib-telemetry",
  "serde",
  "serde_json",
  "toml",
@@ -410,6 +412,7 @@ version = "0.1.0"
 dependencies = [
  "globset",
  "lib-subprocess",
+ "lib-telemetry",
  "regex",
  "serde",
  "serde_json",
@@ -422,6 +425,7 @@ name = "hooks-pre-tool-validate"
 version = "0.1.0"
 dependencies = [
  "lib-subprocess",
+ "lib-telemetry",
  "regex",
  "serde",
  "serde_json",
@@ -454,6 +458,7 @@ version = "0.1.0"
 dependencies = [
  "lib-jj-helpers",
  "lib-subprocess",
+ "lib-telemetry",
  "serde",
  "serde_json",
  "toml",
@@ -464,6 +469,7 @@ name = "hooks-stop-tool-call-leak"
 version = "0.1.0"
 dependencies = [
  "lib-subprocess",
+ "lib-telemetry",
  "serde",
  "serde_json",
  "tempfile",
@@ -728,6 +734,16 @@ dependencies = [
 [[package]]
 name = "lib-subprocess"
 version = "0.1.0"
+
+[[package]]
+name = "lib-telemetry"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
 
 [[package]]
 name = "libc"

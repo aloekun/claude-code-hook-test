@@ -303,3 +303,24 @@ check_coderabbit = true      # CodeRabbit レビューの監視
 # trigger_patterns をコメントアウトまたは未設定 → デフォルトトリガー有効
 # trigger_patterns = ["gh pr create", "git push", "jj git push", "pnpm push"]  # 明示指定する場合
 # trigger_patterns = []  # 空配列 = 全トリガー無効化（モニタリング停止）
+
+# ─── 発火テレメトリ収集層 (WP-12 step 1、ADR-055、試験運用) ───
+#
+# 各 hook が block/warn を発火したイベント (rule / preset / hook) を lib-telemetry が
+# .claude/telemetry/firings-<YYYY-MM-DD>-<pid>.jsonl に append する。ハーネス複雑度
+# (custom rule / preset / hook) の維持判断を発火実績で機械化する ROI 棚卸しの収集層。
+# 記録はメタデータのみ (hook / kind / id / decision / timestamp、任意 session_id)。
+# ファイルパス・編集内容・コマンド本文は記録しない (custom rule ② no-personal-paths の思想)。
+#
+# ADR-039 3 点セット:
+#   - Config opt-in (default OFF): code default は unwrap_or(false)。section 省略で OFF。
+#     本 repo は dogfood のため enabled = true。派生プロジェクト deploy 時は section 省略で OFF。
+#   - Kill-switch: 恒久停止は enabled = false。緊急バイパスは env CLAUDE_TELEMETRY_DISABLE=1
+#     (truthy 値、受理集合 1|true|yes|on)。
+#   - Bounded lifetime: 収集開始から 28 日 warm-up 後に WP-12 step 2 (集計 pre-step) で
+#     「発火 0 の rule/preset/hook を削除候補提示」→ step 3 (ADR-039 卒業/廃止の発火数機械化)。
+#
+# fail-open: 記録は observation 層でありゲートではない。書き込み失敗・config 欠落は黙って
+# 握りつぶし、hook 本来の block/allow 判定を妨げない (ADR-043 の fail-closed はゲート限定)。
+[telemetry]
+enabled = true
