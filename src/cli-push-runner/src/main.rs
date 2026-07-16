@@ -73,10 +73,7 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<bool, i32> {
 /// 失敗時は exit code を Err で返して pipeline を中断する。
 fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
     let Some(detected_bookmarks) = run_bookmark_check() else {
-        log_info(
-            "パイプライン中断: 非 trunk bookmark が見つかりません。\
-             `jj bookmark create <name> -r @` で bookmark を作成して再実行してください。",
-        );
+        log_info("パイプライン中断: push 可能な bookmark がありません (対処は直前のログを参照)。");
         return Err(EXIT_BOOKMARK_MISSING);
     };
     if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {

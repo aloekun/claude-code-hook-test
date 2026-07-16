@@ -80,18 +80,29 @@ fn dispatch_bookmark_advance(
 }
 
 fn determine_target_revision() -> Result<Option<String>, String> {
-    let output = run_jj_log("@", "if(empty, \"empty\", \"content\")")?;
-    if output.trim() == "empty" {
-        match run_jj_log("@-", "commit_id") {
-            Ok(_) => Ok(Some("@-".to_string())),
-            Err(_) => {
-                log_info("@ が root commit のため bookmark 自動更新をスキップします");
-                Ok(None)
-            }
-        }
-    } else {
-        Ok(Some("@".to_string()))
+    if !working_copy_is_empty()? {
+        return Ok(Some("@".to_string()));
     }
+    match run_jj_log("@-", "commit_id") {
+        Ok(_) => Ok(Some("@-".to_string())),
+        Err(_) => {
+            log_info("@ が root commit のため bookmark 自動更新をスキップします");
+            Ok(None)
+        }
+    }
+}
+
+/// `@` が空か (= advance が bookmark を `@-` へ前進させる状態か) を返す。
+///
+/// bookmark_check と共有する (T8 / PR #279 の dogfood push で発火した incident):
+/// advance は「`@` が空なら `@-`」の規則で前進先を決めるのに、bookmark_check が
+/// `@` 厳密一致で検査していたため、同一 run 内で「bookmark を `@-` に自動更新」と
+/// 「bookmark が見つかりません」が両方出て、`jj bookmark create -r @` (= 空コミットに
+/// bookmark を付ける破壊的操作) へ誤誘導していた。両者が同じ判定を使うことで
+/// 規則の二重定義を防ぐ。
+pub(super) fn working_copy_is_empty() -> Result<bool, String> {
+    let output = run_jj_log("@", "if(empty, \"empty\", \"content\")")?;
+    Ok(output.trim() == "empty")
 }
 
 fn get_bookmarks_in_range(target: &str) -> Result<Vec<String>, String> {
