@@ -66,10 +66,17 @@ block_threshold = 1500
 
 [quality_gate]
 parallel = true
-# step_timeout 履歴: 120s (Phase b 当初) → 180s (PR #132、Phase b' で 12 件 mistral invoke が 120s 境界) →
+# step_timeout は group 単位ではなく **コマンド単位** に適用される (stages/quality_gate.rs の run_group)。
+# したがって全 group 中で最も遅い 1 コマンドが下限を決める。
+# 履歴: 120s (Phase b 当初) → 180s (PR #132、Phase b' で 12 件 mistral invoke が 120s 境界) →
 # 600s (Phase C、num_ctx 8192 → 32768 で 1 件あたり latency が 5-20s → 30-90s に増加、`cargo test -- --ignored`
-# 全体で local 269s 観測のため 180s 超過。32768 入れることで context overflow 解消するが per-invoke latency は cost)
-step_timeout = 600
+#   全体で local 269s 観測のため 180s 超過) →
+# 300s (T1 / PR #279。600s に上げた主因である Ollama eval を `--ignored` から除外したため前提が解消。
+#   2026-07-16 実測 (32 core / target cold・registry warm) では最遅コマンドが `cargo test` の 28s
+#   (clippy 8s / `--ignored` 19s / pnpm 系は全て 1-2s)。28s に対し約 10 倍のマージンを取りつつ、
+#   ハング検知を 600s から半減させる。cold registry からの bootstrap (依存 199 件の download) は
+#   未実測だがこのマージン内に収まる想定。誤 timeout が出るなら値を戻すこと)
+step_timeout = 300
 
 # `pnpm lint:docs` (cli-docs-lint) は ADR-039 試験運用標準パターンを適用:
 # - Config opt-in: 派生 repo の templates/push-runner-config.toml では本コマンドを除外。

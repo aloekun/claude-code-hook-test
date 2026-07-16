@@ -5,13 +5,15 @@
 //! deliverable D5 に対応 (旧 docs/local-llm-offload-analysis.md §11.6、retire 済)。
 //!
 //! 構成:
-//! - JSON / fixture の構造を検証する schema test (常時実行)
-//! - `agreement_metrics` の pure function を検証する unit test (常時実行)
-//! - 実 Ollama 呼出を伴う end-to-end test (`#[ignore]` 付き、ローカル限定)
+//! - JSON / fixture の構造を検証する schema test (常時実行) — 本ファイル
+//! - `agreement_metrics` の pure function を検証する unit test (常時実行) — 本ファイル
+//! - 実 Ollama 呼出を伴う end-to-end test (`#[ignore]` + env opt-in、ローカル限定) — `e2e.rs`
 //!
-//! end-to-end test の起動:
-//!   cargo test -p cli-finding-classifier --test lint_screen_evals \
+//! end-to-end test の起動 (`LINT_SCREEN_EVALS=1` が必須):
+//!   LINT_SCREEN_EVALS=1 cargo test -p cli-finding-classifier --test lint_screen_evals \
 //!     -- --ignored --nocapture run_lint_screen_against_all_fixtures
+
+mod e2e;
 
 use cli_finding_classifier::{LintFinding, LintScreenResult};
 use serde::Deserialize;
@@ -606,164 +608,3 @@ fn build_confusion_matrix_counts_decision_pairs() {
     assert_eq!(matrix[2][0], 0);
 }
 
-#[test]
-fn verdict_label_thresholds_match_phase_b_table() {
-    assert_eq!(verdict_label(0.85, 0.80), "GO (§8.E 着手)");
-    assert!(verdict_label(0.75, 0.80).contains("CONDITIONAL-GO"));
-    assert!(verdict_label(0.65, 0.80).contains("LOOP-V3"));
-    assert!(verdict_label(0.50, 0.80).contains("NO-GO"));
-}
-
-struct EvalRunOutcome {
-    metrics: AgreementMetrics,
-    latency_ms: u128,
-}
-
-fn run_single_eval(
-    entry: &Eval,
-    client: &lib_ollama_client::OllamaClient,
-    template: &str,
-) -> EvalRunOutcome {
-    use cli_finding_classifier::screen_diff;
-    use std::time::Instant;
-
-    let diff = read_diff_body(&manifest_root().join(&entry.input_diff));
-    let started = Instant::now();
-    let result = screen_diff(client, template, &diff);
-    let latency_ms = started.elapsed().as_millis();
-    let metrics = agreement_metrics(&entry.claude_code_baseline, &result);
-
-    println!(
-        "eval {} ({}): decision={}->{} match={} P={:.0}%/{:.0}% R={:.0}%/{:.0}% F1={:.2} TP={}(norm {}) FP={} FN={} latency={}ms fallback={:?}",
-        entry.id,
-        entry.name,
-        metrics.decision_pair.0,
-        metrics.decision_pair.1,
-        metrics.decision_match,
-        metrics.precision() * 100.0,
-        metrics.precision_normalized() * 100.0,
-        metrics.recall() * 100.0,
-        metrics.recall_normalized() * 100.0,
-        metrics.f1(),
-        metrics.true_positive_count,
-        metrics.true_positive_normalized_count,
-        metrics.false_positive_count,
-        metrics.false_negative_count,
-        latency_ms,
-        result.fallback_reason,
-    );
-    EvalRunOutcome {
-        metrics,
-        latency_ms,
-    }
-}
-
-fn print_confusion_matrix(matrix: &[[u32; 3]; 3]) {
-    println!("decision confusion matrix (rows=baseline, cols=LLM):");
-    println!("            auto_fix  human_review  informational");
-    for (i, label) in DECISION_LABELS.iter().enumerate() {
-        println!(
-            "{:<14}{:>3}           {:>3}            {:>3}",
-            label, matrix[i][0], matrix[i][1], matrix[i][2]
-        );
-    }
-}
-
-fn aggregate_finding_counts(outcomes: &[EvalRunOutcome]) -> (usize, usize, usize, usize) {
-    let mut tp = 0usize;
-    let mut tp_norm = 0usize;
-    let mut fp = 0usize;
-    let mut fn_ = 0usize;
-    for o in outcomes {
-        tp += o.metrics.true_positive_count;
-        tp_norm += o.metrics.true_positive_normalized_count;
-        fp += o.metrics.false_positive_count;
-        fn_ += o.metrics.false_negative_count;
-    }
-    (tp, tp_norm, fp, fn_)
-}
-
-fn verdict_label(agreement: f32, threshold: f32) -> &'static str {
-    if agreement >= threshold {
-        "GO (§8.E 着手)"
-    } else if agreement >= 0.70 {
-        "CONDITIONAL-GO (§8.E auto_fix lane に限定)"
-    } else if agreement >= 0.60 {
-        "LOOP-V3 (§8.D v3 ループ)"
-    } else {
-        "NO-GO (§8.E 却下判断)"
-    }
-}
-
-fn report_summary(set: &EvalSet, outcomes: &[EvalRunOutcome]) {
-    let mut latencies_ms: Vec<u128> = outcomes.iter().map(|o| o.latency_ms).collect();
-    latencies_ms.sort_unstable();
-    let p50 = latencies_ms[latencies_ms.len() / 2];
-    let p95_idx = (latencies_ms.len() as f32 * 0.95) as usize;
-    let p95 = latencies_ms[p95_idx.min(latencies_ms.len() - 1)];
-    let decision_matches = outcomes.iter().filter(|o| o.metrics.decision_match).count() as u32;
-    let agreement = decision_matches as f32 / set.evals.len() as f32;
-    let (tp, tp_norm, fp, fn_) = aggregate_finding_counts(outcomes);
-    let agg_precision = ratio_or_default(tp, tp + fp, tp == 0 && fp == 0 && fn_ == 0);
-    let agg_recall = ratio_or_default(tp, tp + fn_, tp == 0 && fp == 0 && fn_ == 0);
-    let agg_precision_norm = ratio_or_default(tp_norm, tp + fp, tp == 0 && fp == 0 && fn_ == 0);
-    let agg_recall_norm = ratio_or_default(tp_norm, tp + fn_, tp == 0 && fp == 0 && fn_ == 0);
-    let pairs: Vec<(String, String)> = outcomes
-        .iter()
-        .map(|o| o.metrics.decision_pair.clone())
-        .collect();
-    let matrix = build_confusion_matrix(&pairs);
-
-    println!("---");
-    println!(
-        "decision agreement rate = {decision_matches}/{} = {:.1}% (threshold {:.0}%)",
-        set.evals.len(),
-        agreement * 100.0,
-        set.agreement_threshold * 100.0
-    );
-    println!(
-        "aggregate precision={:.1}% recall={:.1}%  (normalized: P={:.1}% R={:.1}%)",
-        agg_precision * 100.0,
-        agg_recall * 100.0,
-        agg_precision_norm * 100.0,
-        agg_recall_norm * 100.0,
-    );
-    println!("latency p50={p50}ms p95={p95}ms");
-    print_confusion_matrix(&matrix);
-    println!(
-        "Phase b verdict: {}",
-        verdict_label(agreement, set.agreement_threshold)
-    );
-}
-
-/// Phase b 判定用の end-to-end test (実 Ollama 呼出)。
-///
-/// 起動方法:
-///   cargo test -p cli-finding-classifier --test lint_screen_evals \
-///     -- --ignored --nocapture run_lint_screen_against_all_fixtures
-///
-/// 前提: Ollama がローカルで起動 + mistral:7b モデル pull 済。
-#[test]
-#[ignore]
-fn run_lint_screen_against_all_fixtures() {
-    use lib_ollama_client::OllamaClient;
-    use std::time::Duration;
-
-    let set = load_eval_set();
-    let client = OllamaClient::new("http://localhost:11434", "mistral:7b")
-        .with_timeout(Duration::from_secs(60))
-        .with_temperature(0.0);
-    let template = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("prompts/lint-screen.txt"),
-    )
-    .unwrap();
-
-    println!("\n=== Phase b'/Bundle i evals: lint-screen end-to-end ===");
-    let outcomes: Vec<EvalRunOutcome> = set
-        .evals
-        .iter()
-        .map(|entry| run_single_eval(entry, &client, &template))
-        .collect();
-
-    report_summary(&set, &outcomes);
-}

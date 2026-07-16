@@ -197,6 +197,41 @@ Phase B で `prompt_eval_count == num_ctx` (100% 到達) を観測し、JSON 出
 - `effort` / `cross-finding clustering` field の実装
 - 他用途 (PR description draft = 提案 3 / §8.F) への `lib-ollama-client` 流用
 
+## eval の起動 — env opt-in の手動実行 (T1 / PR #279、2026-07-16)
+
+lint-screen eval (`run_lint_screen_against_all_fixtures`) は **`LINT_SCREEN_EVALS=1` を設定したときだけ走る**。未設定なら skip メッセージを出して即 return する。
+
+```sh
+LINT_SCREEN_EVALS=1 cargo test -p cli-finding-classifier --test lint_screen_evals \
+  -- --ignored --nocapture run_lint_screen_against_all_fixtures
+```
+
+前提: Ollama 起動 + `mistral:7b` pull 済。判定は出力 (agreement rate / confusion matrix / verdict) を人間が読んで行う。
+
+### なぜ `#[ignore]` だけでは足りなかったか
+
+`#[ignore]` は「`--ignored` を付けたら走る」でしかなく、このリポジトリでは `--ignored` を**無条件で付ける自動経路が 2 つ**ある:
+
+1. `push-runner-config.toml` の quality_gate — `cargo test -- --ignored --test-threads=1`
+2. takt fix step の検証義務 (`.takt/facets/instructions/fix.md`) — 同じコマンドを実行
+
+結果、計測専用テストが毎 push (fix があれば 2 回) 走っていた。塞ぐ場所をコマンド側でなく**テスト側**にしたのは、呼出箇所が複数あり漏れるため。
+
+### なぜ自動 gate から外すのが正しいか
+
+このテストは **assert を持たない**。`report_summary` は println のみで、agreement rate が閾値を割っても pass する。つまり自動 gate では 15 fixture 分の mistral:7b 実呼出の時間だけを払い、何も検証しない。gate に置く意味がない一方、モデル/プロンプト変更時の人手評価には価値があるため、削除ではなく opt-in 化した。
+
+### 実測 (2026-07-16、RTX PRO 5000 48GB)
+
+| 対象 | before | after |
+|---|---|---|
+| eval テスト単体 | 41.3s | 0s (skip) |
+| `cargo test -- --ignored` スイート全体 | 63s | 21s |
+
+`step_timeout` を 600s に上げた根拠だった「`--ignored` 全体 269s」は本実測で再現しなかった (63s)。[ADR-040](adr-040-local-llm-context-size.md) 記録時の GPU (RTX 3070 8GB) から更新済みで、mistral:7b の推論が当時より大幅に速いため。**ADR-040 の resource 数値は stale** であり、それを前提にした見積りは疑うこと。除外を受けて `step_timeout` は 300s に right-size した (根拠は `push-runner-config.toml` のコメント履歴)。
+
+なお本実測時の agreement rate は **86.7% (13/15、GO)** で、Phase b' 記録の 75% (conditional GO) から改善している。num_ctx 32768 化 (Phase C) の効果と見られるが、`[lint_screen] enabled = false` のままなので採否判断は変更しない。
+
 ## eval fixture 設計の 3 軸
 
 `src/cli-finding-classifier/evals/files/eval*.diff` は LLM の挙動を測定するための **合成 fixture** であり、現実のコードではない。fixture 追加・編集時は以下の 3 軸を file 先頭コメントで明示すること (PR #130 → Phase b' 拡張で codify):

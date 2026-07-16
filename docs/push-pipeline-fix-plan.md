@@ -37,6 +37,11 @@ takt / push) を使う。書式の定義元は `src/cli-push-runner/src/log.rs` 
   (2) **takt builtin の 8KB checklist policy** が ADR-036 の anomaly-only 設計を上書きして
   REJECT → 5〜8 分の fix iteration を誘発、
   (3) fix step 内での **workspace ビルド+テストの重複再実行**。
+
+> **(1) は T1 の実測で下方修正済み (2026-07-16)**: eval は 269s ではなく 41s だった
+> (GPU 更新により推論が高速化。§5 T1 実施結果)。(1) は「主犯」ではなく小口の無駄であり、
+> 12 分超の主因は (2)(3) = **takt の execute/fix 時間**に絞られる。以降のタスクの
+> 期待効果を §1 の数値から見積もる場合、同様に stale な前提が無いか実測で確認すること。
 - 追加実装レベルで「コード変更 push 12 分超 → 5〜7 分、docs-only push → 1 分弱」が見込める。
 - 根本再設計 (takt 離脱) は本計画のスコープ外。本計画完了後に ADR-055 telemetry と
   CodeRabbit findings 突合の実測を見て別途判断する (§7)。
@@ -66,7 +71,7 @@ takt / push) を使う。書式の定義元は `src/cli-push-runner/src/log.rs` 
 | # | タスク | 種別 | 期待効果 | 規模 | 依存 |
 |---|--------|------|----------|------|------|
 | T0 | stage 別計測ログ + before 記録 | 計測 | 効果検証の基盤 | XS | なし |
-| T1 | Ollama eval を gate から除外 | 改善 | **-2〜4.5 分/push** | S | T0 |
+| T1 | Ollama eval を gate から除外 | 改善 | **-42s/push** (実測後修正、当初見積 -2〜4.5 分) | S | T0 |
 | T4 | refute facet dogfood 開始 | 改善 | FP 起因 fix iteration の削減 | XS | なし |
 | T5 | push 拒否検知の truncate 依存修正 | 不具合 | silent-failure push の防止 | S | なし |
 | T6 | diff stage の timeout 追加 | 不具合 | 無限ハング防止 | XS | なし |
@@ -248,6 +253,44 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
   4. Ollama が停止中だと (b) は失敗/長時間化する可能性がある。受け入れ基準の
      「Ollama 停止状態で gate が通る」は本タスクの成果物なので、着手前の計測時は
      Ollama を起動した状態で測る (= 現状の実力値を取る)。
+- **実施結果 (2026-07-16, 実装済み / PR #279)**:
+  - **着手前の実測** (申し送りに従い Ollama 起動状態で計測):
+
+    | 対象 | 実測 |
+    |---|---|
+    | (a) `cargo test --workspace -- --ignored --test-threads=1` | 63s |
+    | (b) `run_lint_screen_against_all_fixtures` 単体 | 41.3s (= (a) の 65%) |
+
+    (b) が (a) の大半を占めるため、申し送り 3. の判定基準「前提は生きている」に該当し着手した。
+    ただし **絶対値は根拠の 269s に対し約 1/4** で、想定原因 2. (GPU 更新) が裏付けられた。
+    期待効果は **-2〜4.5 分/push → -42s/push** に下方修正 (§3 表も修正済み)。
+    fix 発生 run では `fix.md` の `--ignored` 義務でも走るため、その分の削減も乗る。
+  - **実装**: `LINT_SCREEN_EVALS` が truthy (`1`/`true`/`yes`/`on`、trim + 大小無視 =
+    push-runner の `parse_override_env` に語彙を合わせた) でなければ skip して return。
+    コマンド側でなくテスト側で塞いだのは申し送りの方針通り (呼出箇所が gate / fix / 手動と複数)。
+    `OllamaClient` を実呼出する `#[ignore]` テストは他に無いことを grep で確認済み
+    (cli-finding-classifier / lib-ollama-client)。
+  - **after 実測**: `--ignored` スイート全体 **63s → 21s** (-42s)。eval 単体は 41.3s → 0s (skip)。
+    opt-in 経路 (`LINT_SCREEN_EVALS=1`) は 15 fixture が正常実行され agreement 86.7% (GO) を確認。
+  - **step_timeout の right-size**: 600 → **300**。実測してから縮小する方針を採り、
+    `cargo clean` 後に gate の全コマンドを計測した (32 core / target cold・registry warm):
+    最遅は `cargo test` の **28s** (clippy 8s / `--ignored` 19s / pnpm 系は全て 1-2s)。
+    `step_timeout` は group 単位でなく **コマンド単位**の適用 (`stages/quality_gate.rs` の
+    `run_group`) なので、最遅 1 コマンドが下限を決める。28s に約 10 倍のマージンを取った。
+    経緯は `push-runner-config.toml` のコメント履歴に記載。
+  - **ファイル分割 (T1 に付随して発生)**: `tests/lint_screen_evals.rs` が変更前から 799 行
+    (上限 800) で、ガード追加分が入らなかった。file-length linter は touch-trigger ratchet
+    のため、`tests/lint_screen_evals/{main.rs,e2e.rs}` に分割した (main = schema/metrics の
+    常時実行テスト 608 行 / e2e = env ガード + 実 Ollama 呼出 + レポート)。
+    Cargo が `tests/<name>/main.rs` を test target として自動認識するため、
+    target 名 `lint_screen_evals` と既存の起動コマンドは不変。
+  - **受け入れ基準の達成状況**:
+    - 「Ollama 停止状態で gate が通る」: **達成 (ただし before から満たされていた)**。
+      `screen_diff` は Ollama 不達時に fallback するため panic せず、かつ assert ゼロなので
+      元から pass していた。T1 の実質的な成果は時間削減と、gate から
+      「何も検証しないのに実 LLM を呼ぶテスト」を外した設計面の整理。
+    - 「gate の `--ignored` が大幅減 (目安 269s → 90s 未満)」: 前提が stale だったため
+      **実測値ベースで読み替えて達成** (63s → 21s)。
 
 ### T4: refute facet の dogfood 開始
 
@@ -406,3 +449,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 | タスク | 判定 | 日付 | 備考 (却下理由 / 移管先) |
 |--------|------|------|--------------------------|
 | T0 | 実装・マージ済 (PR #278) | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用。初回実測で T1 の前提に疑義 → §5 T1 の申し送り参照 |
+| T1 | 実装済 (PR #279) | 2026-07-16 | `LINT_SCREEN_EVALS` env opt-in で eval を gate から除外。`--ignored` 63s → 21s。step_timeout 600 → 300 (実測 right-size)。**判断根拠**: 着手前実測で (b) 41.3s が (a) 63s の 65% を占め、申し送りの判定基準「前提は生きている」に該当したため実施。ただし絶対値が 269s の約 1/4 だったため期待効果を -2〜4.5 分 → -42s に下方修正し、§1 結論の (1)「主犯」認定も修正した。実行の本丸は (2)(3) = T10/T12 |
