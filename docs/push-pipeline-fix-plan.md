@@ -412,6 +412,76 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
   (2 週間 dogfood → 採否判定を ADR-047 に記録) はこの計画とは独立に進行させる。
   本計画上は「有効化 + 初回 push で verify step が動くことの確認」で完了とする。
 - **リスク**: findings 発生時に haiku verify ~1 分が追加されるが、fix iteration 削減が上回る想定。
+- **実施結果 (2026-07-17, 実装済み)**:
+  - **変更は方針どおり 1 行**: `push-runner-config.toml` の
+    `[pre_push_review] refute_enabled = false → true`。`templates/push-runner-config.toml` は
+    `false` のまま据え置き (派生プロジェクトは現行 `pre-push-review` を継承。dogfood は
+    本リポジトリに閉じる = ADR-047 の config opt-in 設計どおり)。
+  - **dogfood 開始日を同じ PR で固定した**: ADR-039 の bounded lifetime は「有効化から
+    2 週間」を起点に持つため、起点日が記録されないと期限が判定不能になる。
+    **開始 2026-07-17 → 判定期限 2026-07-31** を ADR-047 (ステータス行 / Config opt-in /
+    Bounded lifetime の 3 箇所) と `push-runner-config.toml` の `[pre_push_review]`
+    コメントに明記した。あわせて ADR-047 の「本 PR (導入 PR) は OFF とする」という
+    導入 PR 時点の記述を、dogfood 開始済みの現状に合わせて過去形へ更新した。
+  - **有効化前に確認したこと** (dogfood のブートストラップ注意 = §2 原則 4 の適用。
+    有効化した瞬間から本 PR 自身の push が refute workflow を通るため、事前に静的確認した):
+    - refute 側の資産が揃っている: `.takt/workflows/pre-push-review-refute.yaml` /
+      `.takt/facets/instructions/refute-finding.md` /
+      `.takt/facets/output-contracts/refutation-report.md`。
+    - workflow 切替ロジックの unit test 4 本が通る
+      (`cargo test -p cli-push-runner resolve_workflow`)。切替は
+      `config/mod.rs` の `resolve_takt_workflow` に単一集約済み。
+    - **exe 再ビルド不要** (§2 原則 5 の例外): Rust 変更ゼロで、config は実行時に
+      cwd の `push-runner-config.toml` から読まれる (`config_path()`)。
+    - 同じ config を読む他 exe への波及なし: `cli-pr-monitor` の
+      `stages/gate.rs` は `[quality_gate]` のみ参照し `[pre_push_review]` を見ない。
+  - **初回 dogfood push の実測 (本 PR 自身の push、2026-07-17)**:
+
+    | stage | 実測 |
+    |---|---|
+    | pre_checks | 1.3s |
+    | quality_gate | 49.7s (最遅 group = rust-lint-test 49.7s) |
+    | diff | 0.1s |
+    | takt | 97.8s (`pre-push-review-refute`、1 iteration、reviewers 2 本とも APPROVE) |
+    | push | 2.2s |
+    | 合計 | 151s |
+
+    - **切替は確認できた**: 起動ログが
+      `パイプライン開始: ... takt (pre-push-review-refute) → push`
+      (`main.rs` が `resolve_takt_workflow` の結果を出力) を出し、takt も
+      `ワークフロー 'pre-push-review-refute' を起動` → `Workflow completed` で完走した。
+      **有効化は効いている**。
+    - **verify は予告どおり発火しなかった**: simplicity / security とも APPROVE で
+      `all("approved") → COMPLETE` に抜けたため、`any("needs_fix") → verify` の経路に
+      入らなかった。よって **verify 実動の観測は次に findings が出る run に持ち越す**
+      (完了条件の「verify step が動くことの確認」は「有効化が効いていることの確認」までを
+      本 PR の成果として読む。ユーザー承認済みの範囲)。
+    - 参考: T0 の PR #278 (コード変更・fix なし) は quality_gate 93.9s / takt 149.4s /
+      合計 247s。本 run は docs+config の小 diff かつ T1 適用後のため単純比較はできないが、
+      同じ「fix なし run」帯に収まっている。
+  - **⚠ 計測手順の誤りを dogfood 初回で発見・修正した (T4 の副産物)**:
+    ADR-047 の §dogfood 計測項目は refute run を
+    `.takt/runs/*-pre-push-review-refute/trace.md` で辿ると書いていたが、
+    **この glob は 1 件もマッチしない**。takt の run ディレクトリ名は
+    **workflow 名ではなく task 名**から作られるため
+    (`runSlug` = `<UTC timestamp>-pre-push-review`)、refute run でも
+    ディレクトリ名は `20260716-182505-pre-push-review` になる (本 run で実測)。
+    さらに timestamp は **UTC** なので JST 2026-07-17 の run が `20260716-*` になる。
+    放置すると 2026-07-31 の採否判定で **run が 0 件ヒットし「データなし」と誤読する**恐れが
+    あったため、ADR-047 と本節の計測手順を `meta.json` の `piece` フィールド基準に修正した:
+
+    ```sh
+    grep -l '"piece": "pre-push-review-refute"' .takt/runs/*/meta.json
+    ```
+
+    (`trace.md` 冒頭の `# Execution Trace: pre-push-review-refute` でも同定可能。
+    非 refute run の `piece` は `pre-push-review` で、両者はこのフィールドで判別できる。)
+    設計時に書いた計測手順が実運用開始まで検証されていなかった例であり、
+    **dogfood 開始 PR で計測手順まで実地確認する**価値がここに出た。
+  - **dogfood 中の計測項目** (ADR-047 §dogfood 計測項目、判定期限 2026-07-31 まで):
+    上記 `piece` 基準で特定した run の fix iteration 数 (`trace.md` の reviewers↔fix cycle 数) と、
+    reject 率 / reject 誤り率 (`refutation-report.md` の rejected findings を後続 PR の
+    CodeRabbit 再指摘と照合 = 安全網の実証)。
 
 ### T2: 旧 cli-push-pipeline の workspace 除去
 
@@ -560,3 +630,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 | T0 | 実装・マージ済 (PR #278) | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用。初回実測で T1 の前提に疑義 → §5 T1 の申し送り参照 |
 | T1 | 実装済 (PR #279) | 2026-07-16 | `LINT_SCREEN_EVALS` env opt-in で eval を gate から除外。`--ignored` 63s → 21s。step_timeout 600 → 300 (実測 right-size)。**判断根拠**: 着手前実測で (b) 41.3s が (a) 63s の 65% を占め、申し送りの判定基準「前提は生きている」に該当したため実施。ただし絶対値が 269s の約 1/4 だったため期待効果を -2〜4.5 分 → -42s に下方修正し、§1 結論の (1)「主犯」認定も修正した。実行の本丸は (2)(3) = T10/T12 |
 | T8 | 実装済 (PR #280) | 2026-07-17 | 「`@` 空 + bookmark が `@-`」を `NoBookmarks` から切り分け、`jj edit @-` を案内するよう修正。`working_copy_is_empty()` を advance と共有して規則の二重定義を解消。`main.rs` 側の重複案内も撤去。回帰テスト 12 本 + サンドボックス実機で before/after 比較 (§4 T8 実施結果)。**post-PR 修正 (CodeRabbit Major 2 件 + simplicity 警告 2 件を採用)**: (a) 判定順を反転し、bookmark が空の `@` にある場合も中断する — 続行すると `jj diff -r @` が空になり祖先の未 push 変更が AI レビューを経ずに push される (方針 2 を却下した理由と同じ穴が bookmark の位置違いで残っていた)。(b) `@-` 照会の失敗を `unwrap_or_default()` で「親はあるが bookmark 無し」に潰していたのを `ParentState::Unavailable` として保持し、親を確認できない場合は実行不能な `jj edit @-` を案内しない (T8 が直したはずの誤誘導の再生産だった)。あわせて simplicity-review の非ブロッキング警告 2 件も採用: (c) `query_parent_state()` の jj 失敗を log する (他の jj 失敗処理の慣習と揃える)。(d) `@-` に bookmark が無い場合は `jj edit @-` だけでは次に `NoBookmarks` で止まるため、bookmark 作成まで含めて案内する。Minor 1 件のうち日付指摘は CodeRabbit が UTC 基準のため不採用 (本 repo の記録は JST 基準で 2026-07-17 が正)。**dogfood 実証**: 本修正の push 作業中に、私自身が `jj new` で空コミットを作ってしまい T8 の incident 状態を再現したが、修正後の bookmark_check が破壊的な `jj bookmark create -r @` ではなく正しい `jj edit @-` を案内し、案内どおりの操作で復旧できた (修正が in the wild で機能することの実証)。**方針変更**: 方針 2 (`@-` を検査対象にして続行) は `[diff] command = "jj diff -r @"` により **takt レビューを無言 skip して push する**ことが判明したため不採用。方針 3 の「push すべき新変更がない」も再現記録の事実 4 (実際に push 成功 = 変更はあった) と矛盾するため不採用。exit 7 は維持し**案内文のみ正す**方針をユーザー承認のうえ採用した。**実施順**: T4-T7 を飛ばして T1 の次に実施 (T1 の dogfood push で再現が取れたタイミングを優先。T8 は他タスクと独立のため順序入替は無害) |
+| T4 | 実装済 (本 PR) | 2026-07-17 | `push-runner-config.toml` の `refute_enabled = false → true` で dogfood 開始 (変更は方針どおり 1 行、templates は OFF 据え置き)。**dogfood 開始日を同 PR で固定**: ADR-039 bounded lifetime の起点が無いと 2 週間の期限が判定不能になるため、開始 2026-07-17 → **判定期限 2026-07-31** を ADR-047 (ステータス行 / Config opt-in / Bounded lifetime の 3 箇所) + config コメントに明記した。採否判定自体は本計画と独立に ADR-047 で進行する (§8 完了条件 4. の引き継ぎ先)。**初回 dogfood push で切替を実証** (本 PR 自身の push): 起動ログ `takt (pre-push-review-refute)` + takt の `ワークフロー 'pre-push-review-refute' を起動` → 完走を確認。合計 151s (pre_checks 1.3s / quality_gate 49.7s / diff 0.1s / takt 97.8s / push 2.2s)。**verify は予告どおり未発火**: reviewers 2 本とも APPROVE で `all("approved") → COMPLETE` に抜けたため `any("needs_fix") → verify` に入らず、verify 実動の観測は次の findings 発生 run に持ち越し (完了条件は「有効化が効いていることの確認」までで読む)。**副産物: 計測手順の誤りを発見・修正**。ADR-047 §dogfood 計測項目の `.takt/runs/*-pre-push-review-refute/trace.md` は **1 件もマッチしない** — run ディレクトリ名は workflow 名でなく task 名から作られ (`runSlug` = `<UTC timestamp>-pre-push-review`)、refute run でも `20260716-182505-pre-push-review` になる (timestamp も UTC で JST の日付と 1 日ずれ得る)。放置すると 2026-07-31 の採否判定で run 0 件 →「データなし」誤読の恐れがあったため、ADR-047 と §5 T4 実施結果を `meta.json` の `piece` フィールド基準 (`grep -l '"piece": "pre-push-review-refute"' .takt/runs/*/meta.json`) に修正した。設計時の計測手順が実運用開始まで未検証だった例。有効化前の静的確認 (refute workflow / facet 群の存在、`resolve_takt_workflow` の unit test 4 本、`cli-pr-monitor` への波及なし、Rust 変更ゼロのため exe 再ビルド不要) は §5 T4 実施結果に記載。**実施順**: T5-T7 を飛ばして T8 の次に実施 (T4 は他タスクと独立の XS で、依存なし) |

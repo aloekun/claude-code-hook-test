@@ -150,18 +150,19 @@ output_path = ".takt/lint-screen-report.md"
 #   指定時のみ verify 入り workflow (pre-push-review-refute) に切替。section 不在 /
 #   `refute_enabled` 未設定 / false では現行 pre-push-review (verify なし) を使う
 #   (workflow 解決は cli-push-runner の resolve_takt_workflow に単一集約)。
-#   本 PR は導入のみで default OFF。dogfood (refute_enabled = true) は本 PR マージ後に
-#   別 PR で開始する (未検証 refute でこの導入 PR 自体を自己レビューしないため)。
-#   templates は default OFF を継承。
+#   本リポジトリでは **2026-07-17 (push T4) に `refute_enabled = true` で dogfood 開始**。
+#   導入 PR が OFF だったのは、未検証 refute でその導入 PR 自体を自己レビューする
+#   ブートストラップを避けるため。refute workflow が master で検証された後の
+#   本設定変更で dogfood に入った。templates は default OFF を継承 (派生 repo は現行フロー)。
 # - **Kill-switch**: `refute_enabled = false` で即座に現行フローへ (verify 完全 skip)。
 #   永続停止は `.takt/workflows/pre-push-review-refute.yaml` を削除する revert PR。
-# - **Bounded lifetime**: 2 週間 dogfood 後に採否判定。fix iteration 数の減少 かつ
-#   reject 誤りが CodeRabbit 層で回収されている (安全網実証) を確認できたら採用
-#   (pre-push-review.yaml へ verify を統合)、未達なら却下。判定結果は
+# - **Bounded lifetime**: dogfood 開始 (2026-07-17) から 2 週間 = **2026-07-31 が採否判定期限**。
+#   fix iteration 数の減少 かつ reject 誤りが CodeRabbit 層で回収されている (安全網実証) を
+#   確認できたら採用 (pre-push-review.yaml へ verify を統合)、未達なら却下。判定結果は
 #   docs/adr/adr-047-prepush-refute-facet.md に反映する。
 # ---------------------------------------------------------------------------
 [pre_push_review]
-refute_enabled = false
+refute_enabled = true
 refute_workflow = "pre-push-review-refute"
 
 [takt]
