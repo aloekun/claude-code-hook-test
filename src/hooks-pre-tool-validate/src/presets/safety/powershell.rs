@@ -89,10 +89,10 @@ pub(crate) fn preset_powershell_destructive_write() -> Vec<BlockedPattern> {
 
 #[cfg(test)]
 mod tests {
-    use crate::blocked_patterns::{build_blocked_patterns, validate_command, BlockedPattern};
+    use crate::blocked_patterns::{build_blocked_patterns, validate_command, SourcedPattern};
     use crate::config::{Config, PreToolValidateConfig};
 
-    fn patterns_with_presets(presets: &[&str]) -> Vec<BlockedPattern> {
+    fn patterns_with_presets(presets: &[&str]) -> Vec<SourcedPattern> {
         let config = Config {
             pre_tool_validate: Some(PreToolValidateConfig {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),

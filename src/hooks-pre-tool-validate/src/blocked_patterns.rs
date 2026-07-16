@@ -13,7 +13,26 @@ pub(crate) struct BlockedPattern {
     pub(crate) message: &'static str,
 }
 
-pub(crate) fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
+/// `BlockedPattern` に発火元の preset 名を付与したもの。発火テレメトリ (WP-12) が
+/// 「どの preset が block したか」を id として記録するため、build 層で source をタグ付けする。
+/// preset コンストラクタ (14+ 箇所の struct literal) を無変更に保つための薄い newtype。
+pub(crate) struct SourcedPattern {
+    pub(crate) source: String,
+    pub(crate) inner: BlockedPattern,
+}
+
+/// `BlockedPattern` 群を発火元 preset 名で `SourcedPattern` に包む。
+pub(crate) fn tag_source(source: &str, patterns: Vec<BlockedPattern>) -> Vec<SourcedPattern> {
+    patterns
+        .into_iter()
+        .map(|inner| SourcedPattern {
+            source: source.to_string(),
+            inner,
+        })
+        .collect()
+}
+
+pub(crate) fn build_blocked_patterns(config: &Config) -> Vec<SourcedPattern> {
     let preset_names: Vec<String> = config
         .pre_tool_validate
         .as_ref()
@@ -22,19 +41,24 @@ pub(crate) fn build_blocked_patterns(config: &Config) -> Vec<BlockedPattern> {
         .unwrap_or_else(default_preset_names);
     preset_names
         .iter()
-        .flat_map(|name| resolve_preset_or_custom(name.as_str()))
+        .flat_map(|name| tag_source(name, resolve_preset_or_custom(name.as_str())))
         .collect()
 }
 
-pub(crate) fn validate_command(command: &str, patterns: &[BlockedPattern]) -> Option<&'static str> {
-    for pattern in patterns {
+/// command にマッチする最初の `SourcedPattern` を返す (exception 不一致のもの)。
+pub(crate) fn validate_command<'a>(
+    command: &str,
+    patterns: &'a [SourcedPattern],
+) -> Option<&'a SourcedPattern> {
+    for sourced in patterns {
+        let pattern = &sourced.inner;
         if pattern.pattern.is_match(command) {
             if let Some(exc) = &pattern.exception {
                 if exc.is_match(command) {
                     continue;
                 }
             }
-            return Some(pattern.message);
+            return Some(sourced);
         }
     }
     None
@@ -45,7 +69,7 @@ mod tests {
     use super::*;
     use crate::config::{Config, PreToolValidateConfig};
 
-    fn patterns_with_presets(presets: &[&str]) -> Vec<BlockedPattern> {
+    fn patterns_with_presets(presets: &[&str]) -> Vec<SourcedPattern> {
         let config = Config {
             pre_tool_validate: Some(PreToolValidateConfig {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),
@@ -84,5 +108,12 @@ mod tests {
     fn custom_regex_pattern() {
         assert!(is_blocked_with("docker rm -f container", &[r"docker\s+rm"]));
         assert!(!is_blocked_with("docker ps", &[r"docker\s+rm"]));
+    }
+
+    #[test]
+    fn tagged_source_matches_firing_preset() {
+        let patterns = patterns_with_presets(&["git"]);
+        let hit = validate_command("git push", &patterns).unwrap();
+        assert_eq!(hit.source, "git");
     }
 }

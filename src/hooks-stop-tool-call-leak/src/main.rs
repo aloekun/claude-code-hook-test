@@ -79,18 +79,10 @@ fn main() {
     run_check(Path::new(&transcript_path), max_blocks);
 }
 
-/// override env の受理値判定 (FILE_LENGTH_CHECK_OVERRIDE と同 pattern)
-fn is_truthy(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
 /// kill-switch env が設定されていれば skip (stderr に明示)
 fn kill_switch_active() -> bool {
     match std::env::var(OVERRIDE_ENV_VAR) {
-        Ok(value) if is_truthy(&value) => {
+        Ok(value) if lib_telemetry::is_truthy(&value) => {
             eprintln!(
                 "[stop-tool-call-leak] {} が設定されているため検査を skip します",
                 OVERRIDE_ENV_VAR
@@ -185,6 +177,7 @@ fn build_reason(scan: &TailScan, max_blocks: u32) -> String {
 
 /// block 判定を stdout に出力する
 fn emit_block(reason: &str) {
+    record_block_firing();
     let decision = BlockDecision {
         decision: "block".to_string(),
         reason: reason.to_string(),
@@ -196,6 +189,17 @@ fn emit_block(reason: &str) {
             e
         ),
     }
+}
+
+/// tool call leak 検知が block を発火したことを telemetry に記録する (WP-12、fail-open)。
+fn record_block_firing() {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-stop-tool-call-leak",
+        kind: lib_telemetry::FiringKind::Hook,
+        id: "hooks-stop-tool-call-leak",
+        decision: lib_telemetry::Decision::Block,
+        session_id: None,
+    });
 }
 
 #[cfg(test)]
@@ -235,20 +239,6 @@ max_consecutive_blocks = 5
                 .unwrap_or(DEFAULT_MAX_CONSECUTIVE_BLOCKS),
             3
         );
-    }
-
-    #[test]
-    fn is_truthy_accepts_standard_values() {
-        for value in ["1", "true", "TRUE", " yes ", "on"] {
-            assert!(is_truthy(value), "{:?} は truthy であるべき", value);
-        }
-    }
-
-    #[test]
-    fn is_truthy_rejects_falsy_values() {
-        for value in ["", "0", "false", "off", "no", "2"] {
-            assert!(!is_truthy(value), "{:?} は falsy であるべき", value);
-        }
     }
 
     #[test]

@@ -205,13 +205,34 @@ pub(crate) fn run_custom_rules(file: &str, rules: &[CompiledRule]) -> Vec<String
         if !rule_matches_path(compiled, file) {
             continue;
         }
+        let before = violations.len();
         collect_violations_for_rule(file, &content, compiled, &mut violations);
+        if violations.len() > before {
+            record_rule_firing(&compiled.rule);
+        }
         if violations.len() >= MAX_CUSTOM_VIOLATIONS {
             break;
         }
     }
 
     violations
+}
+
+/// custom rule が発火したこと (1 file につき per-rule で 1 回) を telemetry に記録する
+/// (WP-12、fail-open)。severity=error → Block、それ以外 (warning) → Warn にマップする。
+fn record_rule_firing(rule: &CustomRule) {
+    let decision = if rule.severity == "error" {
+        lib_telemetry::Decision::Block
+    } else {
+        lib_telemetry::Decision::Warn
+    };
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-post-tool-linter",
+        kind: lib_telemetry::FiringKind::Rule,
+        id: &rule.id,
+        decision,
+        session_id: None,
+    });
 }
 
 /// PostToolUse custom-rules layer のエントリ。violation があれば feedback を emit する。

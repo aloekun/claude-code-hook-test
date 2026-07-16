@@ -1,6 +1,6 @@
 //! Tool 別 handler (Bash / Write / Edit / PowerShell)。
 
-use crate::blocked_patterns::{build_blocked_patterns, validate_command};
+use crate::blocked_patterns::{build_blocked_patterns, tag_source, validate_command};
 use crate::config::Config;
 use crate::presets::{default_preset_names, preset_secret_detection};
 use crate::protected_files::is_protected_config;
@@ -9,14 +9,26 @@ use crate::ToolInput;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
+/// preset が block を発火したことを telemetry に記録する (WP-12、fail-open)。
+fn record_preset_block(source: &str) {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-pre-tool-validate",
+        kind: lib_telemetry::FiringKind::Preset,
+        id: source,
+        decision: lib_telemetry::Decision::Block,
+        session_id: None,
+    });
+}
+
 pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
     let command = tool_input.command.clone().unwrap_or_default();
     if command.trim().is_empty() {
         return ExitCode::SUCCESS;
     }
     let patterns = build_blocked_patterns(config);
-    if let Some(message) = validate_command(&command, &patterns) {
-        let _ = io::stderr().write_all(message.as_bytes());
+    if let Some(hit) = validate_command(&command, &patterns) {
+        record_preset_block(&hit.source);
+        let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
     ExitCode::SUCCESS
@@ -35,8 +47,9 @@ pub(crate) fn handle_powershell_tool(config: &Config, tool_input: &ToolInput) ->
         return ExitCode::SUCCESS;
     }
     let patterns = build_blocked_patterns(config);
-    if let Some(message) = validate_command(&command, &patterns) {
-        let _ = io::stderr().write_all(message.as_bytes());
+    if let Some(hit) = validate_command(&command, &patterns) {
+        record_preset_block(&hit.source);
+        let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
     ExitCode::SUCCESS
@@ -95,9 +108,10 @@ fn check_secret_in_content(config: &Config, tool_input: &ToolInput) -> Option<Ex
     if scan_text.is_empty() {
         return None;
     }
-    let secret_patterns = preset_secret_detection();
-    let message = validate_command(&scan_text, &secret_patterns)?;
-    let _ = io::stderr().write_all(message.as_bytes());
+    let secret_patterns = tag_source("secret-detection", preset_secret_detection());
+    let hit = validate_command(&scan_text, &secret_patterns)?;
+    record_preset_block(&hit.source);
+    let _ = io::stderr().write_all(hit.inner.message.as_bytes());
     Some(ExitCode::from(2))
 }
 
