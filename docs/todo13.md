@@ -1408,6 +1408,187 @@
 
 ---
 
+### telemetry の block 記録を実 quality 違反に限定（infra エラー混入の除外）(275.md T1-1 採用)
+
+> **動機**: CodeRabbit Major 指摘。`emit_block` / `record_*_firing` が品質違反だけでなく fail-closed の infra エラー（stdin 読込失敗 / JSON parse 失敗）でも発火を記録する。ADR-055 では「hook が block を emit した総数」として意図的にこの設計にしたが、WP-12 の ROI 棚卸し（発火数で hook 維持を判断）では infra エラー混入が発火数を歪めるため、実 quality 違反パス（`block_on_failures` 等）限定に絞り込む方が信号が正確になる。
+>
+> **重要**: これは ADR-055 で「意図的」と記録した判断の見直しであり、実装時は ADR-055 の該当記述（emit 総数の定義）も併せて amendment する。3 hook 横断（hooks-stop-quality / hooks-stop-tool-call-leak / hooks-pre-tool-validate）のため実装は分割 PR 推奨。stop-tool-call-leak は実 leak でのみ emit_block を呼ぶため既に実質限定されている点も確認する。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 1 #1、`src/hooks-stop-quality/src/main.rs`（`emit_block` / `record_block_firing`）、[ADR-055](adr/adr-055-firing-telemetry-collection.md) § 計装スコープ、WP-12 step 2（順位 307、集計精度の前提）。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort M。
+
+#### 作業計画
+
+- [ ] 各 hook の記録呼び出しを実 quality 違反パス限定に移動（infra エラー経路では記録しない）。record 位置の見直し。
+- [ ] [ADR-055](adr/adr-055-firing-telemetry-collection.md) の「emit 総数」定義を amendment（実 violation 限定に方針変更した根拠を記録）。
+- [ ] 各 hook のユニットテストで「infra エラー経路では telemetry を記録しない」ことを検証。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- telemetry の block 記録が実 quality 違反に限定され、infra エラー（stdin/parse 失敗）では記録されないことがテストで保証され、ADR-055 の定義も整合していること。
+
+---
+
+### custom-regex preset の生 regex が telemetry id に流れる privacy footgun の是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)
+
+> **動機**: PR #275 の pre-push simplicity review 非ブロッキング warning（= セッション中に検出された「非ブロッキング follow-up」）。`tag_source(name, ...)` の `name` が named preset 名でなく `blocked_patterns` の生正規表現文字列の場合、その regex テキストがそのまま telemetry の `id` フィールドに載り、ADR-055 の「コマンド本文・内容は非記録」プライバシー原則と緊張する。現行 `hooks-config.toml` は named preset のみのため**非発火**だが、派生プロジェクトが raw-regex エントリを足すと該当する latent footgun。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 1 #2、`src/hooks-pre-tool-validate/src/blocked_patterns.rs`（`tag_source`）、`src/hooks-pre-tool-validate/src/handlers.rs`（`record_preset_block`）、[ADR-055](adr/adr-055-firing-telemetry-collection.md) § プライバシー。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort S。
+
+#### 作業計画
+
+- [ ] custom-regex fallback branch では `source` を合成 id（例 `"custom-block"`）に正規化し、生 regex を telemetry id に載せない。
+- [ ] hooks-config パース時に raw-regex な `blocked_patterns` エントリを検出したら警告する config validation を追加（任意）。
+- [ ] [ADR-055](adr/adr-055-firing-telemetry-collection.md) に「Configuration-Driven Privacy Risks（custom config 変更時のプライバシー implications、派生プロジェクトの責務）」セクションを追記。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- custom-regex な `blocked_patterns` を設定しても生 regex 文字列が telemetry `id` に記録されず、ADR-055 のプライバシー原則が config 由来入力に対しても保たれること。
+
+---
+
+### 逐語的関数複製（3+ コピー）を pre-push 検出する DRY lint rule (275.md T1-3 採用)
+
+> **動機**: PR #275 で `is_truthy` が `lib-telemetry` / `hooks-post-tool-comment-lint-rust` / `hooks-stop-tool-call-leak` の 3 crate に逐語一致で存在していた（simplicity review が検出 → fix loop が `lib_telemetry::is_truthy` へ統一）。ADR-007 の regex 層に「同一関数コピーが threshold（3+）を超える」ことを検出するルールを追加すれば、次回同型の DRY を pre-push 段階で先回り検出できる。
+>
+> **注意**: regex 層の限界（意味的同一性は検出できない）があるため、まず「逐語一致コピー」に限定した pattern 検出とし、false positive を避ける。より網羅的な依存グラフ型検出は様子見（275.md Tier 2 #2）。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 1 #3、`.claude/custom-lint-rules.toml`、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort M。
+
+#### 作業計画
+
+- [ ] workspace 内で同一シグネチャ/本体の関数が 3+ 箇所に逐語一致で存在することを検出する仕組みを追加（custom lint rule または xtask）。
+- [ ] good/bad fixture 追加（順位 313 = ADR-049 incident fixture と抱き合わせ）。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 同一関数が 3+ 箇所に逐語複製された状態が push 前に検出され、共有化を促すこと。
+
+---
+
+### `.claude/telemetry/` の per-pid×日次 partition ファイルの retention/cleanup (275.md T2-1 採用)
+
+> **動機**: WP-12 step 1 の Windows 並行安全性設計（per-pid × 日次 partition）は warm-up 期間中に小さな `firings-*.jsonl` を多数蓄積する。28 日超過分を削除する retention/cleanup を入れる。WP-12 step 2（集計 pre-step）の前提作業。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 2 #1、`src/lib-telemetry/src/lib.rs`、WP-12 step 2（順位 307）。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Effort M。**着手条件 = WP-12 step 2 と同時期（step 1 マージから 28 日後、2026-08-12 頃）**。
+
+#### 作業計画
+
+- [ ] `lib-telemetry` に retention ロジック（N 日超過の firings ファイル削除）を追加、ユニットテスト。
+- [ ] WP-12 step 2 の集計 pre-step と統合（順位 307 と同一 PR 消化が自然）。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 28 日を超えた telemetry partition ファイルが自動削除され、warm-up 蓄積が bounded であること。
+
+---
+
+### `is_truthy` 三重複製を ADR-049 incident suite の fixture として記録 (275.md T2-4 採用)
+
+> **動機**: PR #275 の `is_truthy` 三重複製を [ADR-049](adr/adr-049-incident-eval-regression-suite.md) の「カスタムルールの由来 incident 再現テスト」convention に沿って fixture 化する。順位 311（DRY lint rule）実装時に good/bad fixture として抱き合わせるのが自然。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 2 #4、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)、順位 311（DRY lint rule）。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Low / Effort XS。
+
+#### 作業計画
+
+- [ ] 順位 311 の DRY lint rule に対する bad fixture（3+ 逐語複製）と good fixture（共有化済み）を incident suite に追加。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- `is_truthy` 型の逐語複製 incident が回帰テストで再現・防止されること。
+
+---
+
+### bookmark 未作成での push 失敗（exit 7）のエラーメッセージ改善 (275.md T2-5 採用)
+
+> **動機**: PR #275 のセッションで、新規ブランチの bookmark を作らずに `pnpm push` して exit code 7 で失敗する process friction が実発生した（`jj bookmark create feat/firing-telemetry -r @` を手動実行して再試行）。push-runner の bookmark 自動作成は [ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md) の「明示的命名で ambiguity を避ける」設計意図と緊張するため対象外とし、**エラーメッセージの改善のみ**を行う（`jj bookmark create <name> -r @` を命名規約とともに具体的に提示）。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 2 #5、`src/cli-push-runner`（bookmark 未検出時のエラー出力）、[ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Low / Effort S。
+
+#### 作業計画
+
+- [ ] push-runner の bookmark 未検出エラーに、推奨命名（`feat/...`）付きの `jj bookmark create <name> -r @` を具体的に提示する。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 新規ブランチで bookmark 未作成のまま push した際、次に打つべきコマンドがエラーメッセージから即座に分かること。
+
+---
+
+### ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)
+
+> **動機**: ADR-055 の telemetry は 28 日 warm-up 後に WP-12 step 2/3 で棚卸しする bounded lifetime 機能。運用者が期限を見落とさないよう、具体日付（step 1 マージ 2026-07-16 + 28 日 = 2026-08-12 頃）と todo-summary.md 順位 307/308 へのリンクを `.claude/hooks-config.toml` の `[telemetry]` section コメントに追記する。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 3 #1、`.claude/hooks-config.toml`（`[telemetry]` section）、順位 307/308。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low / Effort XS。
+
+#### 作業計画
+
+- [ ] `[telemetry]` section コメントに warm-up 期限（2026-08-12 頃）と順位 307/308 を追記。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- config を読んだ運用者が telemetry の棚卸し期限と後続タスクを把握できること。
+
+---
+
+### ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)
+
+> **動機**: PR #275 で UTC helper では ADR-044 の「2 番目の消費者」トリガを明示的に論じたのに `is_truthy` では同じ規律を見落とすという非対称性が実発生した（現在は統一済み）。「同一シグネチャ/logic の関数は 2nd consumer 時点で共有 crate に切り出す」という判定基準を明示化し、`is_truthy` を case study として記載する。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 3 #2、`CLAUDE.md`、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low / Effort S。順位 317（チェックリスト）と対で実施すると効果的。
+
+#### 作業計画
+
+- [ ] [ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) に「When to extract helper to shared crate」判定基準と `is_truthy` case study を追記。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 同一パターンの関数が複数箇所に現れた際の共有化判断基準が参照可能で、is_truthy 型の見落としが再発しにくくなること。
+
+---
+
+### utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)
+
+> **動機**: 順位 316（ADR-044 明確化）と対で、新規 helper 追加時の実務チェックを `docs/dev-conventions.md` に追加する。「新 helper 追加前に workspace 内の類似パターンを grep し、2+ 箇所に既存すれば ADR-044 に従い共有化を検討する」。
+>
+> **参照**: `.claude/feedback-reports/275.md` Tier 3 #3、`docs/dev-conventions.md`、順位 316。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low / Effort XS。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` のチェックリストに utility 追加前の grep 手順を追記。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 新規 utility 追加時に既存重複を事前確認する手順が明文化されていること。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
