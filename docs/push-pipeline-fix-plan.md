@@ -25,7 +25,10 @@
 
 計測方法 (after 計測で再現すること): 各 run の `meta.json` の startTime/endTime、
 `trace.md` の `- Started:` / `- Completed:` 行を集計する。takt 外は `cli-push-runner` の
-`パイプライン完了 (Xs)` ログ行 (T0 で stage 別ログを追加)。
+`パイプライン完了 (Xs)` ログ行と、T0 で追加した stage 別ログ行
+`[push-runner] stage=<name> elapsed=<秒>s` (name = pre_checks / quality_gate / diff /
+takt / push) を使う。書式の定義元は `src/cli-push-runner/src/log.rs` の
+`format_stage_elapsed()`。
 
 ### 結論
 
@@ -169,6 +172,17 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
   経過秒のログ行を追加する (`log_info` に統一書式、例: `stage=quality_gate elapsed=312s`)。
   既存の「パイプライン完了 (Xs)」に加える形。§1 のベースライン表を before 値として使う。
 - **受け入れ基準**: `pnpm push` 1 回で全 stage の所要秒が確認できる。
+- **実施結果 (2026-07-16, 実装済み)**:
+  - `log.rs` に `timed()` を追加し、`main.rs` の 5 stage (pre_checks / quality_gate /
+    diff / takt / push) を包んだ。書式は `stage=<name> elapsed=<秒>s` (小数第 1 位)。
+    小数を残すのは「一瞬で終わった stage」と「未計測」をログ上で区別するため。
+  - 記録は stage の成否を見ずに行う。中断で終わった run でも、その stage に
+    かかった時間が after 計測に残る。
+  - 空 diff で takt を skip した run では `stage=takt` 行が出ない。skip 自体は
+    既存の「diff が空のため…」行で判別できるため、skip 用の行は追加していない。
+  - before 値は §1 のベースライン表をそのまま使う (再計測はしない)。
+  - 検証: サンドボックス jj リポジトリで配布 exe を 2 経路 (空 diff → push /
+    diff あり → takt 失敗) 実行し、5 stage 全ての行が出ることを確認済み。
 
 ### T1: Ollama eval を quality_gate から除外 (最優先)
 
@@ -351,4 +365,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 
 | タスク | 判定 | 日付 | 備考 (却下理由 / 移管先) |
 |--------|------|------|--------------------------|
-| (例) T8 | - | - | - |
+| T0 | 実装 | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用 |
