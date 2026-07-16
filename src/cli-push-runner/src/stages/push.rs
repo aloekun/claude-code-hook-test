@@ -1,7 +1,9 @@
+use lib_subprocess::run_cmd_shell_unlimited;
+
 use super::push_jj_bookmark::advance_jj_bookmarks;
 use crate::config::{PushConfig, DEFAULT_PUSH_TIMEOUT_SECS};
 use crate::log::log_stage;
-use crate::runner::run_stage_cmd;
+use crate::runner::MAX_LINES;
 
 pub(crate) fn run_push(config: &PushConfig, detected_bookmarks: &[String]) -> bool {
     // NOTE: takt fix や手動 jj describe で @ が進んでも bookmark が旧コミットのまま残る問題の対策
@@ -18,32 +20,72 @@ pub(crate) fn run_push(config: &PushConfig, detected_bookmarks: &[String]) -> bo
     let command = build_push_command(&config.command, detected_bookmarks);
     log_stage("push", &command);
 
-    match run_stage_cmd("push", &command, timeout) {
+    match run_push_cmd(&command, timeout) {
         Ok(output) => {
             if push_was_refused(&output) {
                 log_stage(
                     "push",
                     "失敗: リモートに反映されませんでした (jj が push を拒否)",
                 );
-                if !output.is_empty() {
-                    eprintln!("{}", output);
-                }
+                print_output(&output);
                 return false;
             }
             log_stage("push", "成功");
-            if !output.is_empty() {
-                eprintln!("{}", output);
-            }
+            print_output(&cap_for_log(&output));
             true
         }
         Err(output) => {
             log_stage("push", "失敗");
-            if !output.is_empty() {
-                eprintln!("{}", output);
-            }
+            print_output(&output);
             false
         }
     }
+}
+
+/// push コマンド専用: 出力を切り詰めずに全行を取得する。
+///
+/// capped variant (`run_cmd_shell_capped`、`MAX_LINES` 行で silent truncate) を使うと、
+/// jj の出力が cap を超えて拒否行が外に落ちた場合に `push_was_refused` が拒否を見逃し、
+/// **リモート未反映のまま exit 0** になる (後続の pr-monitor が旧 head を監視する)。
+/// `lib-subprocess` の doc が定める「出力を control flow 判定に使う callsite で capped
+/// variant を使ってはならない」契約に従い、判定は全量出力に対して行う。
+fn run_push_cmd(cmd: &str, timeout: u64) -> Result<String, String> {
+    let (success, output) = run_cmd_shell_unlimited("push", cmd, timeout);
+    if success {
+        Ok(output)
+    } else {
+        Err(output)
+    }
+}
+
+fn print_output(output: &str) {
+    if !output.is_empty() {
+        eprintln!("{}", output);
+    }
+}
+
+/// 成功時のログ表示用に先頭 `MAX_LINES` 行へ切り詰め、超過分は行数を明示する。
+///
+/// 判定 (`push_was_refused`) は全量出力に対して行い、cap は表示にのみ掛ける
+/// (= 従来のログ量を維持しつつ、判定は truncate の影響を受けない)。失敗経路では
+/// 診断情報を落とさないため本関数を通さず全量を出す。
+///
+/// truncate 表記は `lib_subprocess::drain_pipe_capped_reporting` に合わせる (ログ上の
+/// 見え方を統一する)。あちらは pipe を streaming しながら数えるため実装は共有できない。
+fn cap_for_log(output: &str) -> String {
+    let mut lines = output.lines();
+    let head: Vec<&str> = lines.by_ref().take(MAX_LINES).collect();
+    let truncated = lines.count();
+    if truncated == 0 {
+        return head.join("\n");
+    }
+    let suffix = if truncated == 1 { "" } else { "s" };
+    format!(
+        "{}\n... ({} line{} truncated)",
+        head.join("\n"),
+        truncated,
+        suffix
+    )
 }
 
 /// 検出済み bookmark から push コマンドを組み立てる (ADR-045 事故 follow-up)。
@@ -99,7 +141,7 @@ fn has_explicit_push_target(base: &str) -> bool {
     })
 }
 
-/// bookmark 名が shell 経由実行 (`run_stage_cmd`) で安全な文字だけで構成されるか。
+/// bookmark 名が shell 経由実行 (`run_push_cmd`) で安全な文字だけで構成されるか。
 /// `jj bookmark list` 出力由来とはいえ shell に渡す文字列のため、許可リストで検証する。
 fn is_shell_safe_bookmark_name(name: &str) -> bool {
     !name.is_empty()
@@ -115,6 +157,14 @@ fn is_shell_safe_bookmark_name(name: &str) -> bool {
 /// この無言失敗を成功と誤報告しないための検知。`-b` 明示 (jj 0.42 で自動 track) 時は
 /// 通常発生しないが、fail-open で bare push になった場合や他の "Refusing to ..."
 /// ガード条件を捕捉する安全網として残す。
+///
+/// **入力は `run_push_cmd` の全量出力であること**。cap 済み出力を渡すと拒否行が
+/// 落ちて silent-failure push を見逃す (本関数が防ぐべき事故そのもの)。
+///
+/// 単純な部分一致に留めるのは fail-closed (ADR-043) の判断による。行頭マッチ等への
+/// 厳格化は誤検知を減らすが、jj のメッセージ書式変更で検知漏れ側に倒れる。両者のリスクは
+/// 非対称で、誤検知 (push 成功を失敗と報告) は出力もそのまま表示されるため気付いて
+/// 再実行できるのに対し、検知漏れはリモート未反映のまま exit 0 で先へ進む。
 fn push_was_refused(output: &str) -> bool {
     output.to_lowercase().contains("refusing to")
 }
@@ -208,5 +258,108 @@ mod tests {
         assert!(!is_shell_safe_bookmark_name("a b"));
         assert!(!is_shell_safe_bookmark_name("a\"b"));
         assert!(!is_shell_safe_bookmark_name("a|b"));
+    }
+
+    /// T5 回帰テスト群: push 拒否検知が 40 行 truncate 済み出力に依存していた不具合
+    /// (ADR-049 の流儀: 1 test = 1 failure mode + good/bad)。
+    ///
+    /// 由来: 2026-07-16 の push パイプライン調査 (コード監査で発見。in the wild の
+    /// 発火記録は無く、`lib-subprocess` の doc 契約違反として特定された)。
+    ///
+    /// 事故の形: `run_push` は当時の `runner::run_stage_cmd` (= `run_cmd_shell_capped`、
+    /// `MAX_LINES` 行の silent truncate) の出力に `push_was_refused` を掛けていた。jj の出力が
+    /// cap を超えて拒否行が外へ落ちると、拒否を見逃して **リモート未反映のまま exit 0** となり、
+    /// 後続の pr-monitor が旧 head を監視する。
+    ///
+    /// 修正の核心は「判定は全量出力 (`run_push_cmd`)、cap は表示側 (`cap_for_log`) にのみ」。
+    /// bad / good とも cap を超える長さの実出力で固定し、判定と表示の分離を seal する。
+    mod t5_truncated_refusal_detection {
+        use super::*;
+
+        /// 40 行の正常出力の後に拒否行が来る = 拒否行が cap の外に落ちる状況の再現。
+        const REFUSAL_BEYOND_CAP: &str = "(for /L %i in (1,1,40) do @echo Changes to push to origin) \
+            & echo Warning: Refusing to create new remote bookmark feat/x@origin";
+
+        /// 40 行を超える正常な push 出力 (拒否なし)。
+        const SUCCESS_BEYOND_CAP: &str =
+            "(for /L %i in (1,1,50) do @echo Add bookmark feat/x to 3000737e)";
+
+        /// incident 再現 (bad): cap の外にある拒否行を検知できること。
+        /// jj は拒否時も exit 0 を返すため、この検知が唯一の防波堤になる。
+        #[test]
+        fn refusal_beyond_the_cap_is_detected() {
+            let output = run_push_cmd(REFUSAL_BEYOND_CAP, 30)
+                .expect("jj の拒否は exit 0 なので Ok 経路で返る");
+            assert!(
+                output.lines().count() > MAX_LINES,
+                "run_push_cmd が {} 行に切り詰めている ({} 行の fixture を投入) = T5 の不具合。\
+                 判定に使う出力は truncate してはならない",
+                output.lines().count(),
+                MAX_LINES + 1,
+            );
+            assert!(
+                push_was_refused(&output),
+                "cap の外にある拒否行を検知できること: {:?}",
+                output,
+            );
+        }
+
+        /// good: cap を超える正常な push 出力を拒否と誤判定しないこと。
+        #[test]
+        fn long_successful_output_is_not_refused() {
+            let output = run_push_cmd(SUCCESS_BEYOND_CAP, 30).expect("成功コマンドは Ok");
+            assert!(
+                output.lines().count() > MAX_LINES,
+                "run_push_cmd が {} 行に切り詰めている = T5 の不具合 (good 側も全量で判定する)",
+                output.lines().count(),
+            );
+            assert!(!push_was_refused(&output), "誤検知しないこと: {:?}", output);
+        }
+
+        /// 表示 cap は判定に影響しない: `cap_for_log` は超過分を明示して切り詰めるが、
+        /// `push_was_refused` に渡すのは常に全量出力である。
+        #[test]
+        fn cap_for_log_truncates_display_but_not_the_verdict() {
+            let output = run_push_cmd(REFUSAL_BEYOND_CAP, 30).expect("拒否出力は exit 0");
+            let displayed = cap_for_log(&output);
+            assert!(
+                displayed.contains("truncated"),
+                "表示側は超過を明示して切り詰めること: {:?}",
+                displayed,
+            );
+            assert!(
+                !push_was_refused(&displayed),
+                "前提の確認: 表示用に cap すると拒否行が落ちる (だから判定は全量で行う)",
+            );
+            assert!(push_was_refused(&output), "判定は全量出力に対して真であること");
+        }
+
+        #[test]
+        fn cap_for_log_keeps_short_output_unchanged() {
+            let output = "Changes to push to origin:\n  Add bookmark feat/x to 3000737e";
+            assert_eq!(cap_for_log(output), output);
+        }
+
+        #[test]
+        fn cap_for_log_reports_truncated_line_count() {
+            let output: String = (0..MAX_LINES + 3)
+                .map(|i| format!("line {}\n", i))
+                .collect();
+            let displayed = cap_for_log(&output);
+            assert!(
+                displayed.ends_with("... (3 lines truncated)"),
+                "超過行数を明示すること: {:?}",
+                displayed,
+            );
+        }
+
+        #[test]
+        fn cap_for_log_uses_singular_form_for_one_truncated_line() {
+            let output: String = (0..MAX_LINES + 1).map(|i| format!("line {}\n", i)).collect();
+            assert!(
+                cap_for_log(&output).ends_with("... (1 line truncated)"),
+                "1 行超過は単数形",
+            );
+        }
     }
 }
