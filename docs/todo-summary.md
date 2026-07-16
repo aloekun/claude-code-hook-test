@@ -153,6 +153,15 @@
 | 306 | 💎 Tier 3 | **quality gate isolation 機構を見送り、recovery による risk acceptance とした判断の記録 (negative result) (273.md T3-5 採用)** | todo13.md | S | なし (spike 見送り convention に従い、isolation 機構を却下し recovery コストの低さ (順位304) を理由に risk acceptance した根拠を記録。recovery は isolation の代替ではなく、予防機能の欠如という残存リスクと再検討条件を明記する) |
 | 307 | 🔧 Tier 2 | **WP-12 step 2: 発火テレメトリ ROI 棚卸し pre-step (発火 0 の rule/preset/hook を削除候補提示)** | todo13.md | M | なし (**着手条件 = ADR-055 収集層マージから 28 日 warm-up 後**。それ以前は全項目が発火 0 = データ無しで判定無意味。集計は Rust exe、weekly-review に file-length-watchlist 同型 facet で接続、incident 由来ルールは発火 0 でも維持推奨の区別) |
 | 308 | 💎 Tier 3 | **WP-12 step 3: ADR-039 bounded lifetime 判定の発火数機械化** | todo13.md | S | 順位 307 (step 2 の集計基盤に依存)。試験運用 ADR 機構の卒業/廃止検討を発火数で自動 promote。step 3 完了で WP-12 完了 |
+| 309 | 🚀 Tier 1 | **telemetry の block 記録を実 quality 違反に限定（infra エラー混入除外）(275.md T1-1 採用)** | todo13.md | M | なし (CodeRabbit Major。ADR-055 で「emit 総数」と意図的定義したが WP-12 ROI 棚卸しが infra エラー〔stdin/parse 失敗〕混入で歪むため実 violation パス限定に絞る。3 hook 横断で分割 PR 推奨、ADR-055 amendment 併記) |
+| 310 | 🚀 Tier 1 | **custom-regex preset の生 regex が telemetry id に流れる privacy footgun 是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)** | todo13.md | S | なし (現行 config は named preset のみで非発火だが派生プロジェクトの latent footgun。fallback を合成 id〔"custom-block"〕に正規化 + ADR-055 に config privacy 注記) |
+| 311 | 🚀 Tier 1 | **逐語的関数複製（3+ コピー）を pre-push 検出する DRY lint rule (275.md T1-3 採用)** | todo13.md | M | なし (is_truthy 三重複製事案。ADR-007 regex 層に threshold 検出追加。順位 313 の fixture と抱き合わせ) |
+| 312 | 🔧 Tier 2 | **`.claude/telemetry/` の per-pid×日次 partition ファイル retention/cleanup (275.md T2-1 採用)** | todo13.md | M | 順位 307 (WP-12 step 2 と同時期＝step1 マージから 28 日後 2026-08-12 頃に着手) |
+| 313 | 🔧 Tier 2 | **is_truthy 三重複製を ADR-049 incident fixture 化 (275.md T2-4 採用)** | todo13.md | XS | 順位 311 (DRY lint rule と抱き合わせ) |
+| 314 | 🔧 Tier 2 | **bookmark 未作成での push 失敗（exit 7）のエラーメッセージ改善 (275.md T2-5 採用)** | todo13.md | S | なし (本セッションで実発生。bookmark 自動作成は ADR-011 の明示命名意図と緊張するためメッセージ改善のみ) |
+| 315 | 💎 Tier 3 | **ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)** | todo13.md | XS | なし (warm-up 期限 2026-08-12 頃 + 順位 307/308 リンクを `[telemetry]` section コメントに追記) |
+| 316 | 💎 Tier 3 | **ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)** | todo13.md | S | なし (is_truthy の非対称性を case study 化。順位 317 と対) |
+| 317 | 💎 Tier 3 | **utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)** | todo13.md | XS | 順位 316 (ADR-044 明確化と対) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
