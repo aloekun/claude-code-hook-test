@@ -183,6 +183,19 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
   - before 値は §1 のベースライン表をそのまま使う (再計測はしない)。
   - 検証: サンドボックス jj リポジトリで配布 exe を 2 経路 (空 diff → push /
     diff あり → takt 失敗) 実行し、5 stage 全ての行が出ることを確認済み。
+  - **stage log 初回実測 (PR #278 = 本タスク自身の dogfood push、コード変更あり・fix なし)**:
+
+    | stage | 実測 |
+    |---|---|
+    | pre_checks | 1.2s |
+    | quality_gate | 93.9s |
+    | diff | 0.1s |
+    | takt | 149.4s (simplicity / security とも APPROVE、fix iteration 0) |
+    | push | 2.5s |
+    | 合計 | 247s |
+
+    この 1 run は「fix なし run」に該当し、§1 の該当帯 (1.1〜3.8 分) の上端付近。
+    ただし **quality_gate 93.9s は §1 が T1 の根拠に引く 269s と大きく乖離する** (下記 T1 参照)。
 
 ### T1: Ollama eval を quality_gate から除外 (最優先)
 
@@ -208,6 +221,33 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 - **受け入れ基準**: Ollama 停止状態で `pnpm push` の quality_gate が通る。
   gate の `--ignored` 実行時間が計測で大幅減 (目安 269s → 90s 未満)。
 - **ADR**: ADR-038 に「eval は env opt-in の手動実行に変更」を追記。
+- **⚠ 着手前に検証すること (T0 セッションからの申し送り、2026-07-16)**:
+  1. **期待効果の前提が崩れている可能性がある**。T0 の dogfood push (PR #278) で
+     計測した **quality_gate 全体が 93.9s** で、本タスクが根拠に引く 269s
+     (`push-runner-config.toml` の `step_timeout` コメントの実測記録) の約 1/3 だった。
+     quality_gate は rust-lint-test group (clippy + `cargo test` + `--ignored`) を含み、
+     他 group と並列実行される 93.9s なので、`--ignored` 単体はさらに短いはず。
+     つまり **`run_lint_screen_against_all_fixtures` は既に 269s も掛かっていない**公算が高く、
+     本タスクの期待効果「-2〜4.5 分/push」および受け入れ基準「269s → 90s 未満」は
+     そのままでは使えない。
+  2. **想定原因**: ローカル LLM 環境が ADR-040 記録時 (RTX 3070 8GB) から
+     **RTX PRO 5000 48GB** に更新済み。mistral:7b の推論が当時より大幅に速い可能性がある。
+     ADR-040 の resource 数値は stale なので、その前提で書かれた見積りは疑うこと。
+  3. **最初にやること** (方針を決める前に実測する):
+
+     ```sh
+     # (a) --ignored スイート全体
+     cargo test --workspace -- --ignored --test-threads=1
+     # (b) eval テスト単体の寄与 (これが除外対象)
+     cargo test -p cli-finding-classifier run_lint_screen_against_all_fixtures -- --ignored --exact
+     ```
+
+     (b) が (a) の大半を占めるなら本タスクの前提は生きている。占めないなら
+     **期待効果を実測値で書き直してから**着手するか、優先度を下げて T10/T11
+     (execute 短縮の本丸) を先に回す判断もあり得る。判断根拠は §8 判定記録に残すこと。
+  4. Ollama が停止中だと (b) は失敗/長時間化する可能性がある。受け入れ基準の
+     「Ollama 停止状態で gate が通る」は本タスクの成果物なので、着手前の計測時は
+     Ollama を起動した状態で測る (= 現状の実力値を取る)。
 
 ### T4: refute facet の dogfood 開始
 
@@ -365,4 +405,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 
 | タスク | 判定 | 日付 | 備考 (却下理由 / 移管先) |
 |--------|------|------|--------------------------|
-| T0 | 実装 | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用 |
+| T0 | 実装・マージ済 (PR #278) | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用。初回実測で T1 の前提に疑義 → §5 T1 の申し送り参照 |
