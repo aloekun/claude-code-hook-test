@@ -197,7 +197,7 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
      「push すべき新変更がない」旨に修正。「bookmark が皆無」= 既存の案内が正しいので維持
      (上記 5.)。**現状は両者が同じ文面に潰れており、これが誤誘導の実体**。
 - **リスク**: 中。jj 変更検出は ADR-021 の設計原則に従うこと (revset 合成の流儀)。
-- **実施結果 (2026-07-17, 実装済み / PR 未採番)**:
+- **実施結果 (2026-07-17, 実装済み / PR #280)**:
   - **方針 2・3 の矛盾を実施前に解消**: 着手時に方針 2 (「検査を `@` 空時は `@-` を対象にする」) と
     方針 3 (「`@` 空 + bookmark が `@-` は正常な再 push 状態なので "push すべき新変更がない" 旨に修正」)、
     および再現記録の事実 4 (T1 セッションは `jj edit @-` 後に **push 成功** = push すべき変更はあった)
@@ -221,8 +221,14 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
       jj 呼び出しは closure 注入で外に出した (**ADR-021 原則 3** に準拠。既存の
       `dispatch_bookmark_advance` と同じ流儀で、本 repo には実 jj repo を張る
       test 前例が無いためこの形を踏襲)。
-    - 判定順は「`@` に bookmark があれば従来どおり続行」を先に置き、`@` が空でも
-      bookmark が `@` にあるケースの既存成功経路を退行させない。
+    - 判定順は **`@` の空判定を最優先**する。当初は「`@` に bookmark があれば従来どおり続行」を
+      先に置き、bookmark が空の `@` にある既存経路を温存していたが、**PR #280 の CodeRabbit
+      Major 指摘で反転**した: その経路は `jj diff -r @` が空になり、祖先の未 push 変更が
+      AI レビューを経ずに push される (本タスクが方針 2 を却下した理由と同じ穴が、
+      bookmark の位置違いで残っていた)。`advance_jj_bookmarks` は非 trunk bookmark が
+      2 つ以上あると fallback 更新を skip するため、この状態は実在する。
+      「レビュー範囲 = `@` だから `@` は非空でなければならない」という本タスクの不変条件に
+      判定順を揃えた (§8 判定記録の post-PR 修正欄)。
     - `main.rs:76-79` にも同じ `jj bookmark create -r @` 案内が**重複**しており、
       これも誤誘導の出力元だったため撤去し、ケース別案内を出す bookmark_check に一本化した。
   - **ADR-021 原則 5 との関係**: 原則 5 の標準 (`@`/`@-`/`@--` の優先度付き revset) に対し、
@@ -230,8 +236,9 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
     意図的に `@` 厳密一致へ狭めた経緯がある (`OWN_WORKSPACE_BOOKMARKS_REVSET` の doc)。
     本修正の `@-` 照会は**案内文の出し分け (診断) 専用**で、push 対象
     (`-b <name>` の組み立て) は `@` のままとし、PR #271 の対策を維持する。
-  - **回帰テスト (ADR-049 の流儀)**: `mod t8_empty_head_misdirection` に 7 本追加
-    (cli-push-runner 全体 186 → 193 passed)。由来 incident (PR #279 の dogfood push) と
+  - **回帰テスト (ADR-049 の流儀)**: `mod t8_empty_head_misdirection` に 12 本追加
+    (cli-push-runner 全体 186 → 198 passed。初版 7 本 + post-PR 修正で 5 本)。
+    由来 incident (PR #279 の dogfood push) と
     再現状態を module doc に明記し、追跡鎖 incident → 修正 → test を残した。
     bad = 「`@` 空 + bookmark が `@-`」が `NoBookmarks` に潰れないこと、
     good = 「bookmark 皆無かつ `@` が非空」が `NoBookmarks` のままであること
@@ -552,4 +559,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 |--------|------|------|--------------------------|
 | T0 | 実装・マージ済 (PR #278) | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用。初回実測で T1 の前提に疑義 → §5 T1 の申し送り参照 |
 | T1 | 実装済 (PR #279) | 2026-07-16 | `LINT_SCREEN_EVALS` env opt-in で eval を gate から除外。`--ignored` 63s → 21s。step_timeout 600 → 300 (実測 right-size)。**判断根拠**: 着手前実測で (b) 41.3s が (a) 63s の 65% を占め、申し送りの判定基準「前提は生きている」に該当したため実施。ただし絶対値が 269s の約 1/4 だったため期待効果を -2〜4.5 分 → -42s に下方修正し、§1 結論の (1)「主犯」認定も修正した。実行の本丸は (2)(3) = T10/T12 |
-| T8 | 実装済 | 2026-07-17 | 「`@` 空 + bookmark が `@-`」を `NoBookmarks` から切り分け、`jj edit @-` を案内するよう修正。`working_copy_is_empty()` を advance と共有して規則の二重定義を解消。`main.rs` 側の重複案内も撤去。回帰テスト 7 本 + サンドボックス実機で before/after 比較 (§4 T8 実施結果)。**方針変更**: 方針 2 (`@-` を検査対象にして続行) は `[diff] command = "jj diff -r @"` により **takt レビューを無言 skip して push する**ことが判明したため不採用。方針 3 の「push すべき新変更がない」も再現記録の事実 4 (実際に push 成功 = 変更はあった) と矛盾するため不採用。exit 7 は維持し**案内文のみ正す**方針をユーザー承認のうえ採用した。**実施順**: T4-T7 を飛ばして T1 の次に実施 (T1 の dogfood push で再現が取れたタイミングを優先。T8 は他タスクと独立のため順序入替は無害) |
+| T8 | 実装済 (PR #280) | 2026-07-17 | 「`@` 空 + bookmark が `@-`」を `NoBookmarks` から切り分け、`jj edit @-` を案内するよう修正。`working_copy_is_empty()` を advance と共有して規則の二重定義を解消。`main.rs` 側の重複案内も撤去。回帰テスト 12 本 + サンドボックス実機で before/after 比較 (§4 T8 実施結果)。**post-PR 修正 (CodeRabbit Major 2 件 + simplicity 警告 2 件を採用)**: (a) 判定順を反転し、bookmark が空の `@` にある場合も中断する — 続行すると `jj diff -r @` が空になり祖先の未 push 変更が AI レビューを経ずに push される (方針 2 を却下した理由と同じ穴が bookmark の位置違いで残っていた)。(b) `@-` 照会の失敗を `unwrap_or_default()` で「親はあるが bookmark 無し」に潰していたのを `ParentState::Unavailable` として保持し、親を確認できない場合は実行不能な `jj edit @-` を案内しない (T8 が直したはずの誤誘導の再生産だった)。あわせて simplicity-review の非ブロッキング警告 2 件も採用: (c) `query_parent_state()` の jj 失敗を log する (他の jj 失敗処理の慣習と揃える)。(d) `@-` に bookmark が無い場合は `jj edit @-` だけでは次に `NoBookmarks` で止まるため、bookmark 作成まで含めて案内する。Minor 1 件のうち日付指摘は CodeRabbit が UTC 基準のため不採用 (本 repo の記録は JST 基準で 2026-07-17 が正)。**dogfood 実証**: 本修正の push 作業中に、私自身が `jj new` で空コミットを作ってしまい T8 の incident 状態を再現したが、修正後の bookmark_check が破壊的な `jj bookmark create -r @` ではなく正しい `jj edit @-` を案内し、案内どおりの操作で復旧できた (修正が in the wild で機能することの実証)。**方針変更**: 方針 2 (`@-` を検査対象にして続行) は `[diff] command = "jj diff -r @"` により **takt レビューを無言 skip して push する**ことが判明したため不採用。方針 3 の「push すべき新変更がない」も再現記録の事実 4 (実際に push 成功 = 変更はあった) と矛盾するため不採用。exit 7 は維持し**案内文のみ正す**方針をユーザー承認のうえ採用した。**実施順**: T4-T7 を飛ばして T1 の次に実施 (T1 の dogfood push で再現が取れたタイミングを優先。T8 は他タスクと独立のため順序入替は無害) |
