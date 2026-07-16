@@ -29,7 +29,7 @@ mod stages;
 use std::time::Instant;
 
 use config::{load_config, resolve_takt_workflow};
-use log::log_info;
+use log::{log_info, timed};
 use stages::{
     run_bookmark_check, run_diff, run_lint_screen, run_pr_size_check, run_push, run_quality_gate,
     run_scratch_file_warning, run_takt, DiffResult,
@@ -117,27 +117,27 @@ fn run_pipeline() -> i32 {
         workflow,
     ));
 
-    let detected_bookmarks = match run_pre_checks(&config) {
+    let detected_bookmarks = match timed("pre_checks", || run_pre_checks(&config)) {
         Ok(bookmarks) => bookmarks,
         Err(code) => return code,
     };
 
-    if !run_quality_gate(&config.quality_gate) {
+    if !timed("quality_gate", || run_quality_gate(&config.quality_gate)) {
         log_info("パイプライン中断: quality_gate 失敗。問題を修正して再実行してください。");
         return EXIT_QUALITY_GATE_FAILURE;
     }
 
-    let skip_takt = match run_diff_and_lint_screen(&config) {
+    let skip_takt = match timed("diff", || run_diff_and_lint_screen(&config)) {
         Ok(skip) => skip,
         Err(code) => return code,
     };
 
-    if !skip_takt && !run_takt(&config.takt, &workflow) {
+    if !skip_takt && !timed("takt", || run_takt(&config.takt, &workflow)) {
         log_info("パイプライン中断: takt ワークフロー失敗。");
         return EXIT_TAKT_FAILURE;
     }
 
-    if !run_push(&config.push, &detected_bookmarks) {
+    if !timed("push", || run_push(&config.push, &detected_bookmarks)) {
         log_info("パイプライン中断: push 失敗。");
         return EXIT_PUSH_FAILURE;
     }
