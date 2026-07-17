@@ -50,7 +50,7 @@ steps:
         edit: false
         persona: simplicity-reviewer
         model: sonnet
-        policy: review
+        policy: review-anomaly
         provider_options:
           claude:
             allowed_tools:
@@ -70,7 +70,7 @@ steps:
         edit: false
         persona: security-reviewer
         model: sonnet
-        policy: review
+        policy: review-anomaly
         knowledge: security
         provider_options:
           claude:
@@ -106,7 +106,7 @@ steps:
     edit: false
     persona: code-reviewer
     model: haiku
-    policy: review
+    policy: review-anomaly
     provider_options:
       claude:
         allowed_tools:
@@ -181,7 +181,7 @@ steps:
     edit: false
     persona: supervisor
     model: sonnet
-    policy: review
+    policy: review-anomaly
     provider_options:
       claude:
         allowed_tools:
