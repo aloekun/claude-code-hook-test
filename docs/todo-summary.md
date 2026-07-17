@@ -162,6 +162,11 @@
 | 315 | 💎 Tier 3 | **ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)** | todo13.md | XS | なし (warm-up 期限 2026-08-12 頃 + 順位 307/308 リンクを `[telemetry]` section コメントに追記) |
 | 316 | 💎 Tier 3 | **ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)** | todo13.md | S | なし (is_truthy の非対称性を case study 化。順位 317 と対) |
 | 317 | 💎 Tier 3 | **utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)** | todo13.md | XS | 順位 316 (ADR-044 明確化と対) |
+| 318 | 🚀 Tier 1 | **CR rate-limit 第3 format (`Next review available in: N minutes`) 未対応 + marker 一致/regex 不一致の silent 化 (PR #287 で実観測)** | todo13.md | S | なし (ADR-034 § 検出 logic 更新手順 の 4-6 をそのまま適用可。silent 化解消は追加設計) |
+| 319 | 🚀 Tier 1 | **pr-monitor.yml バックストップの重複ガードが構造的に機能しない — CR 投稿ごとに分析コメントを再投稿 (PR #287 で 5 件実観測)** | todo13.md | S | なし (ガードが LLM prompt 内にあり、トリガー事象自身が skip 条件を無効化するトートロジー) |
+| 320 | 🔧 Tier 2 | **CodeRabbit status check は実レビュー有無に関わらず `pass` — 緑チェックを「レビュー済み」の根拠にしない (PR #287 で実観測)** | todo13.md | S | 順位 318 (決定論的な rate-limit 検知が前提) |
+| 321 | 🔧 Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo13.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
+| 322 | 🚀 Tier 1 | **post-merge-feedback が repo root に scratch script を残し `scratch_file_warning` の pattern をすり抜ける (near-miss 実観測)** | todo13.md | S | なし (PR #85 と同一クラス。pattern 列挙 (deny-list) の構造的限界が露呈) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
