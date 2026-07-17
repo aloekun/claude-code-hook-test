@@ -270,6 +270,83 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 - **リスク**: 低〜中。cwd 正規化が takt subsession 判定
   (`main.rs:306` の `current_dir()` 使用箇所) に影響しないか確認が必要。
   正規化は「ステップ実行の子プロセス」にのみ適用し、判定ロジックは元 cwd を使う形が安全。
+- **実施結果 (2026-07-17, 実装済み / PR #284)**:
+  - **ルート導出は (b) 自 exe パス (ユーザー承認不要 = 実測で確定)**。方針が (a)
+    `CLAUDE_PROJECT_DIR` env と両論併記で「実装時にどちらが確実か確認して選ぶ」と
+    していたため実測した: VSCode 拡張環境 (Claude Code 2.1.212) で
+    **`CLAUDE_PROJECT_DIR` は空**であり、ADR-005 が 2026-03-17 に記録した不安定性が
+    現在も再現する。(a) は死んでいる。(b) は `config_path()` /
+    `pipeline_lock::exe_claude_dir()` / `lib_telemetry::exe_dir()` が既に採る規約
+    (順位 287 / ADR-010) と同形。判断根拠は **ADR-005 に追記**して恒久化した
+    (本計画は削除予定のファイルなので、残すべき知見は ADR 側に置く)。
+  - **⚠ 方針の前提が 1 つ誤っていた — takt subsession 判定も同じ原因で壊れていた**:
+    リスク欄は「正規化が takt 判定に**影響しないか**確認が必要」「判定ロジックは元 cwd を
+    使う形が安全」としていたが、調査の結果 **`takt_subsession_active` は cwd 依存で
+    既に壊れていた**。cwd = `.takt/runs` のとき `<cwd>/.takt/runs`
+    (= `.takt/runs/.takt/runs`) を探して空振りし、active run を検出できない。つまり
+    ADR-004 § takt subsession skip が効かず、**edit: false の subsession に「直せ」指示を
+    返す**事故 (PR #221 で実観測済みのもの) が起こり得る状態だった。元 cwd を維持するのは
+    「安全」ではなく既知の不具合の温存にあたる。回帰テストで**修正前に実際に失敗すること**を
+    確認済み (推測ではない、下記)。
+  - **採用した方針 (ユーザー承認済み)**: **`main` 冒頭で 1 度だけ正規化**し、
+    takt 判定・step 実行の**両方**に効かせる。両者は同一ファイル・同一根本原因の 2 症状で、
+    片方だけ直すと壊れた検出が残る。以降のコードは「cwd = プロジェクトルート」を前提にできる。
+  - **実装** (`src/hooks-stop-quality/`、runtime の変更は 1 exe に閉じる):
+    - `project_root_from_exe(exe)` — `<root>/.claude/<hook>.exe` の規約 (ADR-010) を
+      満たすときのみ `Some(root)`。親ディレクトリ名が `.claude` でなければ `None` を返し
+      **正規化しない**。cwd 書き換えは後続の全 step の実行位置を変える操作なので、
+      `cargo test` / `cargo run` 直下の `target/debug/` を推測で「ルート」扱いするより
+      継承 cwd のまま (= 従来挙動) に倒す。
+    - `normalize_cwd_to_project_root()` — ルート特定不能 / `set_current_dir` 失敗は
+      **警告のみで継続** (fail-open)。Stop 時点のゲートは助言層で本物のゲートは push
+      pipeline 側の quality_gate にある、という既存の線引き (`pipeline_is_running` の doc、
+      ADR-043) に揃えた。
+    - **lib-subprocess は変更なし**: cwd をプロセス単位で正規化するため、`cmd /c` の子は
+      正規化後の cwd を継承する。全 pipeline 共有の `run_cmd_shell_*` に cwd 引数を
+      足す案 (variant 増殖) を採らずに済んだ。
+  - **ファイル分割 (T7 に付随して発生、T1 と同型)**: `main.rs` が 800 行上限に触れた
+    (712 行 → 追記で 804 行)。file-length linter は touch-trigger ratchet のため、
+    責務が最も独立していてテスト量が最大の takt 判定を `takt_subsession.rs` へ切り出した
+    (main 532 行 / takt_subsession 290 行)。**T7 自身が直している file-length gate に
+    T7 が引っ掛かった**形で、gate が機能していることの副次的実証でもある。
+  - **回帰テスト (ADR-049 の流儀)**: `tests/t7_cwd_independence.rs` に E2E 5 本 +
+    `project_root_from_exe` の unit 2 本 (hooks-stop-quality 全体 26 → **33 passed**)。
+    由来 incident と再現状態を module doc に明記した。
+    - **exe を `<root>/.claude/` に staging して spawn する**のが要点。`target/debug/` の
+      exe を直接起動すると **exe-relative のルート導出を素通りしてしまい**、
+      テストが実配置を検証しない。ADR-010 の実レイアウトを temp に組んで走らせる。
+    - bad = 「cwd = `.takt/runs` でルート相対 step が解決できること」(症状 1)、
+      「cwd = `.takt/runs` で active takt run を検知して skip すること」(症状 2)。
+      good = 「cwd = root の正常経路が壊れていないこと」「**実失敗する step は cwd に
+      依らず block すること**」(= 正規化がゲートを骨抜きにした、という最悪の退行ガード)、
+      「completed run では skip しないこと」(過剰 skip ガード)。
+    - **修正前の挙動に対して失敗することを確認済み**: `normalize_cwd_to_project_root()` の
+      呼び出しを外すと **bad 2 本がちょうど失敗し good 3 本は通る**。失敗内容は
+      incident の逐語再現 (`**file-length** failed:` + CP932 の文字化け) だった。
+      good が before/after 両方で通ることも合わせて、テストが素通りしない証跡になる。
+  - **実機検証 (before/after、本リポジトリの実 config で実施)**: サンドボックスではなく
+    **本リポジトリの `.claude/hooks-config.toml` そのもの**で、cwd = `.takt/runs` から
+    配布 exe を起動して比較した (回帰テストが temp fixture なので、実 config での確認を別途行う)。
+
+    | | before (現行配布 exe) | after (修正後) |
+    |---|---|---|
+    | cwd = `.takt/runs` | `{"decision":"block", ... **file-length** failed:` + 文字化け | **出力なし (= block せず通過)** |
+    | cwd = repo root | 通過 | 通過 (維持) |
+    | cwd = `src/lib-subprocess/src` | (同型で失敗するはず) | 通過 |
+
+    **方針の記述「pnpm 系ステップは pnpm が package.json を上方探索するため偶然通る」も
+    実機で裏付けられた**: before で失敗したのは `file-length` step **のみ**で、
+    pnpm 系 5 step と `cargo clippy` は cwd = `.takt/runs` でも通っていた
+    (cargo も Cargo.toml を上方探索する)。**ルート相対パスを書いた step だけが壊れる**
+    という非対称が、症状を step ごとにまだらにして発見を遅らせていた。
+  - **発見 (本タスク外)**: T7 は **cwd drift による silent 故障の 3 例目**で、
+    先行 2 例は既に todo 化されている — 順位 281 (🚀 Tier 1「config 読み hook の
+    `current_dir()` 解決を検出する lint rule」、PR #267 で jj-op-verify が同型の実装をして
+    pre-push REJECT された実例) と順位 287 (💎 Tier 3「config 読み hook は exe-relative 解決必須」
+    convention の明文化、281 と同一 PR bundle 推奨)。T7 は「config 解決」ではなく
+    「**step 実行の cwd**」という別カテゴリなので既存 lint rule 案では捕捉できない。
+    281 着手時に検出対象を「`hooks-*` の `current_dir()` 使用全般」へ広げるか検討する価値がある
+    (§2 原則 4 に従い本 PR では触れない。281/287 は本計画のスコープ外 = docs/todo13.md 管理)。
 
 ### T8: 空 `@` 時の bookmark_check 誤誘導 (**再現確認済み** 2026-07-16)
 
@@ -745,6 +822,19 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
     捨てることになるためトレードオフの判断が要る (T6 の diff は timeout 時に出力不要だった)。
     孫まで殺す (`taskkill /T`) 案もある。規模 S。**テストには経過時間 assert を必ず入れること**
     (無いと本件は再び素通りする)。
+11. 子プロセス出力の **CP932 デコードフォールバック** (T7 の方針 2 から分離、2026-07-17。
+    **ユーザー承認済みの分離**)。`lib-subprocess` の `drain_pipe_*` は `from_utf8_lossy` 固定で、
+    **repo 全体に encoding 処理が存在しない** (grep 済み) ため、cmd.exe が返す日本語エラーが
+    文字化けする (CP932 の各バイトが U+FFFD replacement character に潰れる)。
+    T7 の incident では `指定されたパスが見つかりません。` が判読不能な状態で表示されていた。
+    T7 の cwd 修正でこの**特定の**エラーは出なくなったが、**経路自体は残る** — 例えば
+    `pnpm build:all` 未実行で step の exe が欠落する場合 (ADR-005 Negative に既知として記載、
+    クローン直後・派生プロジェクトで現実的) は cwd と無関係に同じ文字化けが出る。
+    失敗時こそ診断情報を落とすべきでない (T5 §4 / backlog 1 と同じ理由) が、
+    影響先が push-runner / merge-pipeline を含む共有 lib のため §2 原則 4 (1 PR 1 変更) に従い分離した。
+    方針案: `drain_pipe_*` は行単位で読むので「UTF-8 として不正な行のみ CP932 で再デコード」の
+    フォールバックが素直 (正常な UTF-8 出力 = cargo/pnpm は不変)。`encoding_rs` 依存の追加要否を
+    判断すること。規模 S。
 
 ## 7. スコープ外 (本計画では実施しない)
 
@@ -782,3 +872,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 | T5 | 実装済 (PR #282) | 2026-07-17 | push 拒否検知を 40 行 truncate 済み出力から**全量出力**に切替。`lib-subprocess` に `run_cmd_shell_unlimited` を追加 (`drain_pipe_unlimited` は pipe 単体、`_capped_reporting` は cap が残るためどちらも判定用には不足だった) し、3 variant の共通骨格を `run_cmd_shell_with` に集約。境界判定は ADR-044 §「後続の variant 追加」に記録。表示は成功時のみ `cap_for_log` で 40 行 + 超過明示に絞り、**失敗経路は全量表示** (診断情報を落とさない)。**副産物**: 唯一の呼び出し元が消えた `runner::run_stage_cmd` を削除 — dead code 除去に加え「capped 経路で control flow 判定する」罠の構造的排除。`MAX_LINES` は表示用として残置し doc に判定禁止を明記。**厳格化は不採用 (ユーザー承認済み)**: `contains` 誤爆の厳格化はリスクが非対称 (誤検知は出力表示で気付けるが、検知漏れは「リモート未反映のまま exit 0」= 本タスクが防ぐ事故そのもの) で ADR-043 (fail-closed) に反するため見送り、§6 backlog 8 を却下記録に変更。**回帰テスト**: `mod t5_truncated_refusal_detection` 6 本 + lib-subprocess 4 本。`run_push_cmd` を capped に戻すと 3 本が fail することを確認済み (回帰テストが素通りしないことの実証)。**サンドボックス実機で before/after 比較**: 拒否行を 41 行目に置いた fake push command で、before = `[push] 成功` + **exit 0 (silent failure 再現)** / after = 拒否検知 + exit 3。成功経路 (50 行) は 40 行 + `... (10 lines truncated)` 表示で exit 0 を維持。**発見 (本タスク外)**: `cli-pr-monitor` の `push_to_remote` は拒否検知が無く同型の穴 → §6 backlog 9 に追加 (1 PR 1 変更のため別 PR)。**post-PR 修正 (CodeRabbit Minor 1 件 + pre-push 非ブロッキング警告 2 件を採用)**: (a) `run_cmd_shell_capped` の doc「Err 経路で child を kill しない」は **pre-existing の stale 記述** (`kill_and_join_err` 導入 = PR #208 以降、実際は kill + reap + reader thread join している) だったため、child lifecycle の記述を 3 variant 共通の骨格 `run_cmd_shell_with` に集約し variant 側は参照のみにした。(b) `cap_for_log` の truncate 書式重複を `lib_subprocess::truncation_notice` として切り出し (実装は streaming vs materialize で共有できないが書式片は共有できる、という指摘は妥当)。(c) T5 行 / §4 の「本 PR」を PR #282 に backfill (T4 行が放置され本 PR で backfill する羽目になった負債を繰り返さないため)。**実施順**: 計画の推奨順どおり T4 の次に実施 |
 | T4 | 実装済 (PR #281) | 2026-07-17 | `push-runner-config.toml` の `refute_enabled = false → true` で dogfood 開始 (変更は方針どおり 1 行、templates は OFF 据え置き)。**dogfood 開始日を同 PR で固定**: ADR-039 bounded lifetime の起点が無いと 2 週間の期限が判定不能になるため、開始 2026-07-17 → **判定期限 2026-07-31** を ADR-047 (ステータス行 / Config opt-in / Bounded lifetime の 3 箇所) + config コメントに明記した。採否判定自体は本計画と独立に ADR-047 で進行する (§8 完了条件 4. の引き継ぎ先)。**初回 dogfood push で切替を実証** (PR #281 自身の push): 起動ログ `takt (pre-push-review-refute)` + takt の `ワークフロー 'pre-push-review-refute' を起動` → 完走を確認。合計 151s (pre_checks 1.3s / quality_gate 49.7s / diff 0.1s / takt 97.8s / push 2.2s)。**verify は予告どおり未発火**: reviewers 2 本とも APPROVE で `all("approved") → COMPLETE` に抜けたため `any("needs_fix") → verify` に入らず、verify 実動の観測は次の findings 発生 run に持ち越し (完了条件は「有効化が効いていることの確認」までで読む)。**副産物: 計測手順の誤りを発見・修正**。ADR-047 §dogfood 計測項目の `.takt/runs/*-pre-push-review-refute/trace.md` は **1 件もマッチしない** — run ディレクトリ名は workflow 名でなく task 名から作られ (`runSlug` = `<UTC timestamp>-pre-push-review`)、refute run でも `20260716-182505-pre-push-review` になる (timestamp も UTC で JST の日付と 1 日ずれ得る)。放置すると 2026-07-31 の採否判定で run 0 件 →「データなし」誤読の恐れがあったため、ADR-047 と §5 T4 実施結果を `meta.json` の `piece` フィールド基準 (`grep -l '"piece": "pre-push-review-refute"' .takt/runs/*/meta.json`) に修正した。設計時の計測手順が実運用開始まで未検証だった例。有効化前の静的確認 (refute workflow / facet 群の存在、`resolve_takt_workflow` の unit test 4 本、`cli-pr-monitor` への波及なし、Rust 変更ゼロのため exe 再ビルド不要) は §5 T4 実施結果に記載。**実施順**: T5-T7 を飛ばして T8 の次に実施 (T4 は他タスクと独立の XS で、依存なし) |
 | T6 | 実装済 (PR #283) | 2026-07-17 | `run_diff_cmd` を `Command::output()` (無限待ち) から spawn + `drain_pipe_unlimited` × 2 + `wait_with_timeout_safe` に載せ替え、timeout 時は `DiffResult::Error` = exit 5 で中断 (fail-closed / ADR-043)。**timeout 値 60s + `[diff] timeout` で上書き可 (ユーザー承認済み)**: 方針が「30s に合わせるが 60s でも可」と両論併記だったため確認した。60s の根拠は diff が snapshot + 大 diff 書き出しを伴い `jj bookmark list` (30s) より重いこと、および timeout の目的がハング検知であって latency 制限ではなく誤 timeout のコスト (pipeline 全体が exit 5) が高いこと。config 化は `[push] timeout` と同形の escape hatch。**T5 の `run_cmd_shell_unlimited` は使えない**: `run_cmd_shell_*` は全 variant が stdout と stderr を結合するが、diff の stdout は reviewers が読むレビュー対象そのものとしてファイルに書かれるため、jj の stderr 警告 (並列 workspace 時の `Concurrent modification detected` = **まさに本タスクが想定する状況**) が混入する。分離を維持し、同型の `bookmark_check::run_jj_bookmark_list` とは direct args で signature 非互換のため共通化しない (ADR-044 層 1 に判定を追記)。**⚠ 初版実装の欠陥を回帰テストが検出した (本タスク最大の学び)**: 「timeout 後に reader thread を join する」初版は timeout 1s に対し制御が戻るまで **9.6s** 掛かった。`cmd /c` の child は cmd.exe で**孫 (実際の jj) は kill 対象外**、孫が pipe を保持するため EOF が来ず join がブロックする = timeout が意味を成さない (T6 が直すハングの再生産)。失敗経路では join せず detach する形に修正。**教訓**: timeout の回帰テストは Err の内容だけでなく**経過時間を assert する** (しないと素通りする)。**回帰テスト**: `mod t6_diff_timeout` 7 本 + config 2 本 (206 → 215 passed)。cli-push-runner のテスト全体が 9.66s → 1.55s に短縮 = timeout が効いている証跡。「stderr を diff に混ぜない」契約も seal (`run_cmd_shell_*` に載せ替えると落ちる)。**サンドボックス実機で before/after 比較**: `[diff] command` を `ping -t` (永久応答 = 返らない jj diff の代役) にし、`@-` から build した修正前 exe と比較。before は **diff stage の所要時間が外側 kill に追随** (25s→24.4s / 10s→9.4s) = 内部に上限が無く放置すれば無限待ち・診断なし。after は 3.0s で exit 5 + 「jj lock 競合を疑え」の診断。実 `jj diff` (既定 60s) が誤 timeout しないことも確認。before の run 後に `ping.exe` が残存し、孫が kill を生き延びる実機裏付けも取れた。**発見 (本タスク外)**: `lib-subprocess` の `run_cmd_shell_*` 3 variant が**同じ穴**を持ち timeout が wall-clock を縛れない (実測 9.23s)。影響は quality_gate `step_timeout` / push `timeout` / cli-merge-pipeline → §6 backlog 10 に追加 (1 PR 1 変更のため別 PR)。**実施順**: 計画の推奨順どおり T5 の次に実施 |
+| T7 | 実装済 (PR #284) | 2026-07-17 | `hooks-stop-quality` の `main` 冒頭で cwd をプロジェクトルートへ正規化 (`normalize_cwd_to_project_root`)。**ルート導出は (b) exe パス**: 方針が両論併記だったため実測し、VSCode 拡張環境で **`CLAUDE_PROJECT_DIR` が空** = ADR-005 (2026-03-17) の不安定性が現在も再現することを確認して (a) を却下。既存規約 (順位 287 / ADR-010、`config_path()` / `pipeline_lock::exe_claude_dir()` / `lib_telemetry::exe_dir()`) と同形。判断根拠は**本計画が削除予定のため ADR-005 に追記**して恒久化した。**⚠ 方針の前提が 1 つ誤っていた (ユーザー承認のうえ逸脱)**: リスク欄は「正規化が takt subsession 判定に影響しないか確認が必要」「判定ロジックは元 cwd を使う形が安全」としていたが、`takt_subsession_active` は **cwd 依存で既に壊れていた** (cwd = `.takt/runs` だと `.takt/runs/.takt/runs` を探して空振り → active run 未検出 → ADR-004 § takt subsession skip が効かず edit: false の subsession に「直せ」を返す = PR #221 の事故が再発しうる)。元 cwd 維持は「安全」ではなく既知不具合の温存のため、**両症状に効く main 冒頭 1 回の正規化**を採用。回帰テストで修正前に実際に失敗することを確認済み (推測ではない)。**実装**: `project_root_from_exe` は ADR-010 の配置 (`<root>/.claude/<hook>.exe`) を満たすときのみ `Some` を返し、`target/debug/` 等では正規化を skip (cwd 書き換えは全 step の実行位置を変えるため、推測でルート扱いせず従来挙動に倒す)。ルート特定不能・`set_current_dir` 失敗は警告のみで継続 = fail-open (`pipeline_is_running` と同じ線引き、ADR-043: Stop 時点は助言層で本物のゲートは push pipeline 側)。**lib-subprocess は無変更** — プロセス単位の正規化で `cmd /c` の子が継承するため、共有 `run_cmd_shell_*` への cwd 引数追加 (variant 増殖) を回避できた。**ファイル分割 (T7 に付随、T1 と同型)**: `main.rs` が 712 行 → 追記で 804 行となり 800 行上限に触れたため takt 判定を `takt_subsession.rs` へ切り出し (main 532 / takt_subsession 290)。**T7 が直している file-length gate に T7 自身が引っ掛かった** = gate が機能していることの副次的実証。**回帰テスト**: `tests/t7_cwd_independence.rs` E2E 5 本 + unit 2 本 (26 → 33 passed)。**exe を `<root>/.claude/` に staging して spawn** するのが要点 — `target/debug/` の exe を直接起動すると exe-relative のルート導出を素通りして実配置を検証しない。`normalize_cwd_to_project_root()` の呼び出しを外すと **bad 2 本がちょうど失敗し good 3 本は通る**ことを確認済み (failure は incident の逐語再現)。good 側に「実失敗する step は cwd に依らず block する」= 正規化がゲートを骨抜きにする最悪の退行ガードを含む。**実機検証 (before/after、本リポジトリの実 config)**: cwd = `.takt/runs` で before = block + `**file-length** failed:` + 文字化け / after = 出力なし (通過)。root cwd と深い cwd も通過。**方針の記述も実機で裏付け**: before で失敗したのは `file-length` step のみで pnpm 系 5 step + `cargo clippy` は通っていた (pnpm/cargo は設定ファイルを上方探索する) = **ルート相対パスを書いた step だけが壊れる**非対称が症状をまだらにし発見を遅らせていた。**CP932 デコードフォールバック (方針 2) は §6 backlog 11 へ分離 (ユーザー承認済み)**: 影響先が共有 lib (push-runner / merge-pipeline) のため §2 原則 4 に従う。cwd 修正で incident の文字化けは消えるが、exe 欠落時 (ADR-005 Negative の既知事象) 等で経路自体は残るため却下ではなく backlog。**発見 (本タスク外)**: T7 は cwd drift silent 故障の 3 例目で、順位 281 (Tier 1、lint rule) / 順位 287 (Tier 3、convention 明文化) が先行 todo 化済み。ただし T7 は「config 解決」でなく「**step 実行の cwd**」の別カテゴリのため既存 lint rule 案では捕捉できず、281 着手時に検出対象拡大を検討する価値がある (本計画スコープ外 = todo13.md 管理)。**実施順**: 計画の推奨順どおり T6 の次に実施 |
