@@ -6,21 +6,6 @@ The diff has been pre-collected by push-runner (Rust exe) and saved to `.takt/re
 **Read this file first** using the Read tool. This is the authoritative review target.
 Do NOT run `git diff` or `jj diff` yourself -- the file already contains the correct diff scope.
 
-### Optional: lint-screen pre-pass (Phase c §8.E, ADR-038 試験運用)
-
-If `.takt/lint-screen-report.md` exists, push-runner has already run a mistral:7b lint pre-pass on the diff. Read this file as **supplementary context** (treat as advisory, not authoritative):
-
-- Coverage: rule names from a fixed canonical list (`unused-import` / `no-var` / `no-unused-vars` / `magic-number` / `dead-code` / `deep-nesting` / `complexity`)
-- Quality: agreement 75% with Claude baseline (Phase b' conditional GO) — false positives and recall misses are expected
-- Use it to:
-  - Cross-check anomalies you already noticed (consensus signal)
-  - **Skip dimensions** the lint-screen already covered (avoid duplicate findings of unused-import / magic-number etc.)
-- Do NOT use it to:
-  - Adopt findings verbatim without diff verification
-  - Override your own judgment on subjective anomalies (deep-nesting boundary, complexity)
-
-If the report shows `screen_decision: informational` and zero findings, that is a **weak signal of a clean diff** — still review yourself, but you can be more concise in approval rationale.
-
 ## Determinism layer guarantees (do NOT duplicate)
 
 The following dimensions are enforced by deterministic hooks at write time and by `fix-metrics-check.ps1` during fix iterations. Skip them — flagging them duplicates the deterministic layer and produces noise:

@@ -132,6 +132,14 @@ output_path = ".takt/review-diff.txt"
 # default OFF。手動で enabled = true にしたうえで Ollama 起動 + cli-finding-classifier.exe 配備を確認する。
 # Phase b' agreement 75% (conditional GO) のため gating はせず report のみ出力。
 # Ollama down / timeout / diff 過大時は skip + warn (push を block しない)。
+#
+# **消費側が不在 (2026-07-17, push T10 / ADR-056)**: 本 section が生成する
+# `output_path` の report を読む facet は現在存在しない。`review-simplicity.md` の
+# 参照セクションが唯一の読み手だったが、`enabled = false` 下では恒常デッドウェイト
+# (毎 review に注入されるが対象ファイルが常に不在) のため T10 で削除した。
+# したがって **`enabled = true` にするだけでは report は生成されるが誰も読まない**
+# (silent no-op)。再有効化する際は review-simplicity.md への参照セクション復活を
+# セットで行うこと。復活時の原文は ADR-056 の commit の diff から復元できる。
 # ---------------------------------------------------------------------------
 [lint_screen]
 enabled = false
