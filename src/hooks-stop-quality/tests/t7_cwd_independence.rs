@@ -92,19 +92,24 @@ fn run_hook(root: &Path, cwd: &Path) -> String {
         .expect("hook wait")
         .expect("hook must not time out");
     let out = stdout.join().unwrap_or_default();
-    assert_hook_success(status, &out);
-    let _ = stderr.join();
+    let err = stderr.join().unwrap_or_default();
+    assert_hook_success(status, &out, &err);
     out
 }
 
 /// hook プロセスが正常終了 (exit code 0) したことを検証する。
 ///
-/// crash や非 0 exit でも stdout に部分的な JSON を書き出すケースがあるため、
-/// stdout のパース可否だけでは exit code の異常を検知できない。
-fn assert_hook_success(status: std::process::ExitStatus, out: &str) {
+/// 各テストの判定は stdout の block JSON だけを見るため、hook が crash / 非 0 exit で
+/// **何も出力しなかった**場合に `block_reason` が `None` を返し、「block しなかった」= 期待通り
+/// と誤って通ってしまう (`None` を期待する 3 本が false green になる)。exit code を独立に
+/// assert してこの穴を塞ぐ。
+///
+/// 失敗時は **stderr を出す**のが要点。本 hook の診断は `eprintln!` (cwd 正規化の警告等) =
+/// stderr に出るため、stdout が空になる失敗ケースでは stderr だけが手掛かりになる。
+fn assert_hook_success(status: std::process::ExitStatus, out: &str, err: &str) {
     assert!(
         status.success(),
-        "hook exited with exit code {:?}: {out}",
+        "hook exited with exit code {:?}\n--- stdout ---\n{out}\n--- stderr ---\n{err}",
         status.code()
     );
 }
