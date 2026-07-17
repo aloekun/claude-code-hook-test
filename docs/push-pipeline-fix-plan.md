@@ -108,6 +108,69 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 - **テスト**: 41 行以上の出力の末尾に `Refusing to ...` を含む fixture で
   「拒否が検知されること」の回帰テスト。既存の push stage テスト群に追加。
 - **リスク**: 低。出力保持量が増えるだけ。
+- **実施結果 (2026-07-17, 実装済み / PR #282)**:
+  - **実装**: 方針どおり「判定は全量・cap は表示側のみ」。
+    - `lib-subprocess` に `run_cmd_shell_unlimited` を追加した。既存 asset のうち
+      `drain_pipe_unlimited` は pipe 単体、`run_cmd_shell_capped_reporting` は truncate を
+      明示するだけで**判定用には依然不足** (cap は残る) のため、`run_cmd_shell` family に
+      欠けていた unlimited variant を足す形にした。3 variant の共通骨格
+      (spawn → drain → wait → combine) は 3 つ目の copy が出た時点で `run_cmd_shell_with` に
+      集約し、各 variant は drain 戦略の違いだけを表す。境界判定は ADR-044 §「後続の
+      variant 追加」に記録した。
+    - push stage は `run_push_cmd` (unlimited) で全量取得し、`push_was_refused` は
+      **全量出力**に対して判定する。表示は成功時のみ `cap_for_log` (先頭 40 行 +
+      `... (N lines truncated)`) を通し、**失敗経路 (拒否 / Err) は全量表示**する
+      — 失敗時こそ診断情報を落としてはならないため (§6 backlog 1 と同じ理由)。
+      成功時のログ量は従来どおり 40 行で、増えない。
+    - **副産物: `runner::run_stage_cmd` を削除**した。push stage が唯一の呼び出し元だったため
+      未使用になり clippy が検出。dead code を残さない方針 (T2 と同じ) に加え、
+      「capped 経路で control flow 判定する」罠を構造的に排除する意味がある。
+      `MAX_LINES` は表示用として残置し (quality_gate / scratch_file_warning / lint_screen が使用)、
+      doc に「判定に使う出力を本値で cap してはならない」を明記した。
+  - **`contains` 厳格化は不採用 (ユーザー承認済み)**: 方針の「行頭マッチ等に厳格化するか検討」は
+    **見送り**、`contains("refusing to")` を維持した。理由はリスクの非対称性: 誤検知
+    (push 成功を失敗と報告) は出力もそのまま表示されるため気付いて再実行できるのに対し、
+    検知漏れは**リモート未反映のまま exit 0** = T5 が直そうとしている事故そのもの。
+    jj のメッセージ書式変更で検知漏れ側に倒れる厳格化は ADR-043 (fail-closed) に反する。
+    判断根拠はコード doc (`push_was_refused`) にも残した。§6 backlog 8 は却下扱い。
+  - **回帰テスト (ADR-049 の流儀)**: `mod t5_truncated_refusal_detection` に 6 本
+    (cli-push-runner 206 passed。`run_stage_cmd` の 2 本を削除したため 208 → 206)、
+    `lib-subprocess` に unlimited variant の 4 本 (31 passed)。
+    bad = 41 行目の拒否行を検知すること、good = 40 行超の正常出力を誤検知しないこと、
+    および「表示 cap は判定に影響しない」ことを固定した。
+    **修正前の挙動に対して失敗することを確認済み**: `run_push_cmd` を capped 版に戻すと
+    上記 3 本が fail する (「run_push_cmd が 40 行に切り詰めている = T5 の不具合」)。
+    回帰テストが素通りしないことの実証。
+  - **サンドボックス実機検証 (before/after)**: 短いパス (`C:\t5\repo`) に jj repo を張り、
+    `[push] command` を「40 行の正常出力 + 末尾に拒否行」の fake command に、
+    `[diff] command` を空出力にして takt を skip、quality_gate を noop にして
+    push stage まで到達させ、配布 exe (修正前) と修正後 exe を比較した。
+
+    | | before (現行配布 exe) | after (修正後) |
+    |---|---|---|
+    | 41 行目の拒否行 | 見逃し → `[push] 成功` | `[push] 失敗: リモートに反映されませんでした (jj が push を拒否)` |
+    | exit code | **0 (silent failure が再現)** | 3 (EXIT_PUSH_FAILURE) |
+    | 成功時 (50 行・拒否なし) の表示 | 40 行で silent truncate | 40 行 + `... (10 lines truncated)`、exit 0 |
+
+    before が**「リモート未反映のまま exit 0」を逐語で再現**することを確認した上で修正を当てている。
+    この状態で本番なら pr-monitor が旧 head を監視し始める。
+  - **発見 (本タスク外)**: `cli-pr-monitor` の `push_to_remote` は exit code のみを見ており
+    **拒否検知が無い**。post-PR の re-push で同型の silent failure が起き得る。
+    §2 原則 4 (1 PR 1 変更) に従い PR #282 では触れず、§6 backlog 9 に追加した。
+  - **post-PR レビュー指摘の採用 (3 件、ユーザー承認済み)**:
+    - **CodeRabbit Minor**: `run_cmd_shell_capped` の doc が「Err 経路で child を kill しない
+      basic semantics」と書いていたが、実際は Err 経路を `kill_and_join_err` が受けて
+      child を kill + reap し reader thread も join する。`wait_with_timeout_basic` 単体の
+      性質としては正しい記述が、`kill_and_join_err` 導入 (PR #208) 以降 stale になっていた
+      **pre-existing の不整合**。child の lifecycle は 3 variant 共通なので、記述を共通骨格
+      (`run_cmd_shell_with`) の doc に集約し、variant 側は参照のみにした。
+    - **pre-push warning (書式重複)**: `cap_for_log` の `... (N lines truncated)` 書式が
+      `drain_pipe_capped_reporting` と重複していた。切り詰めの実装自体は共有できない
+      (streaming vs materialize 済み文字列) が、**書式片は共有できる**という指摘は妥当なので
+      `lib_subprocess::truncation_notice` として切り出し、両者から使う形にした。
+    - **pre-push warning (表記)**: 本節と §8 の T5 行の「本 PR」を PR 番号採番後に backfill。
+      T4 行が「本 PR」のまま放置され本 PR で backfill する羽目になった負債を、同じ形で
+      繰り返さないため。
 
 ### T6: diff stage の timeout 欠落
 
@@ -424,7 +487,7 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
     コメントに明記した。あわせて ADR-047 の「本 PR (導入 PR) は OFF とする」という
     導入 PR 時点の記述を、dogfood 開始済みの現状に合わせて過去形へ更新した。
   - **有効化前に確認したこと** (dogfood のブートストラップ注意 = §2 原則 4 の適用。
-    有効化した瞬間から本 PR 自身の push が refute workflow を通るため、事前に静的確認した):
+    有効化した瞬間から PR #281 自身の push が refute workflow を通るため、事前に静的確認した):
     - refute 側の資産が揃っている: `.takt/workflows/pre-push-review-refute.yaml` /
       `.takt/facets/instructions/refute-finding.md` /
       `.takt/facets/output-contracts/refutation-report.md`。
@@ -435,7 +498,7 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
       cwd の `push-runner-config.toml` から読まれる (`config_path()`)。
     - 同じ config を読む他 exe への波及なし: `cli-pr-monitor` の
       `stages/gate.rs` は `[quality_gate]` のみ参照し `[pre_push_review]` を見ない。
-  - **初回 dogfood push の実測 (本 PR 自身の push、2026-07-17)**:
+  - **初回 dogfood push の実測 (PR #281 自身の push、2026-07-17)**:
 
     | stage | 実測 |
     |---|---|
@@ -455,7 +518,7 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
       `all("approved") → COMPLETE` に抜けたため、`any("needs_fix") → verify` の経路に
       入らなかった。よって **verify 実動の観測は次に findings が出る run に持ち越す**
       (完了条件の「verify step が動くことの確認」は「有効化が効いていることの確認」までを
-      本 PR の成果として読む。ユーザー承認済みの範囲)。
+      PR #281 の成果として読む。ユーザー承認済みの範囲)。
     - 参考: T0 の PR #278 (コード変更・fix なし) は quality_gate 93.9s / takt 149.4s /
       合計 247s。本 run は docs+config の小 diff かつ T1 適用後のため単純比較はできないが、
       同じ「fix なし run」帯に収まっている。
@@ -595,7 +658,16 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 6. `advance_jj_bookmarks` の二重実行 (stage 1 と stage 8) の統合検討。
 7. 同一 checkout での `pnpm push` 並走ガード (pipeline lock は advisory のまま、
    push 同士のみ相互排他にするか検討。ADR-025/ADR-045 との整合を確認)。
-8. `push_was_refused` の `contains` 誤爆厳格化 (T5 に含めなかった場合)。
+8. ~~`push_was_refused` の `contains` 誤爆厳格化 (T5 に含めなかった場合)。~~
+   **却下 (2026-07-17, T5 で判定)**: リスクが非対称なため厳格化しない。誤検知は出力表示で
+   気付いて再実行できるが、検知漏れは「リモート未反映のまま exit 0」= T5 が防ぐ事故そのもの。
+   ADR-043 (fail-closed) に従い `contains` を維持する。判断根拠は `push_was_refused` の
+   doc コメントに恒久化済み (§4 T5 実施結果)。
+9. `cli-pr-monitor` の `push_to_remote` (`src/cli-pr-monitor/src/stages/push.rs`) に
+   拒否検知を追加する (T5 の調査で発見、2026-07-17)。jj は新規 bookmark 拒否時に exit 0 を
+   返すが、同関数は exit code のみを見ているため post-PR の re-push が無言で失敗し得る。
+   出力取得は `run_cmd_direct` (unlimited) なので**判定の追加だけ**で済む
+   (T5 と違い truncate 問題は無い)。規模 XS。
 
 ## 7. スコープ外 (本計画では実施しない)
 
@@ -630,4 +702,5 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 | T0 | 実装・マージ済 (PR #278) | 2026-07-16 | stage 別ログ `stage=<name> elapsed=<秒>s` を追加 (§5 T0 実施結果)。before 値は §1 表を使用。初回実測で T1 の前提に疑義 → §5 T1 の申し送り参照 |
 | T1 | 実装済 (PR #279) | 2026-07-16 | `LINT_SCREEN_EVALS` env opt-in で eval を gate から除外。`--ignored` 63s → 21s。step_timeout 600 → 300 (実測 right-size)。**判断根拠**: 着手前実測で (b) 41.3s が (a) 63s の 65% を占め、申し送りの判定基準「前提は生きている」に該当したため実施。ただし絶対値が 269s の約 1/4 だったため期待効果を -2〜4.5 分 → -42s に下方修正し、§1 結論の (1)「主犯」認定も修正した。実行の本丸は (2)(3) = T10/T12 |
 | T8 | 実装済 (PR #280) | 2026-07-17 | 「`@` 空 + bookmark が `@-`」を `NoBookmarks` から切り分け、`jj edit @-` を案内するよう修正。`working_copy_is_empty()` を advance と共有して規則の二重定義を解消。`main.rs` 側の重複案内も撤去。回帰テスト 12 本 + サンドボックス実機で before/after 比較 (§4 T8 実施結果)。**post-PR 修正 (CodeRabbit Major 2 件 + simplicity 警告 2 件を採用)**: (a) 判定順を反転し、bookmark が空の `@` にある場合も中断する — 続行すると `jj diff -r @` が空になり祖先の未 push 変更が AI レビューを経ずに push される (方針 2 を却下した理由と同じ穴が bookmark の位置違いで残っていた)。(b) `@-` 照会の失敗を `unwrap_or_default()` で「親はあるが bookmark 無し」に潰していたのを `ParentState::Unavailable` として保持し、親を確認できない場合は実行不能な `jj edit @-` を案内しない (T8 が直したはずの誤誘導の再生産だった)。あわせて simplicity-review の非ブロッキング警告 2 件も採用: (c) `query_parent_state()` の jj 失敗を log する (他の jj 失敗処理の慣習と揃える)。(d) `@-` に bookmark が無い場合は `jj edit @-` だけでは次に `NoBookmarks` で止まるため、bookmark 作成まで含めて案内する。Minor 1 件のうち日付指摘は CodeRabbit が UTC 基準のため不採用 (本 repo の記録は JST 基準で 2026-07-17 が正)。**dogfood 実証**: 本修正の push 作業中に、私自身が `jj new` で空コミットを作ってしまい T8 の incident 状態を再現したが、修正後の bookmark_check が破壊的な `jj bookmark create -r @` ではなく正しい `jj edit @-` を案内し、案内どおりの操作で復旧できた (修正が in the wild で機能することの実証)。**方針変更**: 方針 2 (`@-` を検査対象にして続行) は `[diff] command = "jj diff -r @"` により **takt レビューを無言 skip して push する**ことが判明したため不採用。方針 3 の「push すべき新変更がない」も再現記録の事実 4 (実際に push 成功 = 変更はあった) と矛盾するため不採用。exit 7 は維持し**案内文のみ正す**方針をユーザー承認のうえ採用した。**実施順**: T4-T7 を飛ばして T1 の次に実施 (T1 の dogfood push で再現が取れたタイミングを優先。T8 は他タスクと独立のため順序入替は無害) |
-| T4 | 実装済 (本 PR) | 2026-07-17 | `push-runner-config.toml` の `refute_enabled = false → true` で dogfood 開始 (変更は方針どおり 1 行、templates は OFF 据え置き)。**dogfood 開始日を同 PR で固定**: ADR-039 bounded lifetime の起点が無いと 2 週間の期限が判定不能になるため、開始 2026-07-17 → **判定期限 2026-07-31** を ADR-047 (ステータス行 / Config opt-in / Bounded lifetime の 3 箇所) + config コメントに明記した。採否判定自体は本計画と独立に ADR-047 で進行する (§8 完了条件 4. の引き継ぎ先)。**初回 dogfood push で切替を実証** (本 PR 自身の push): 起動ログ `takt (pre-push-review-refute)` + takt の `ワークフロー 'pre-push-review-refute' を起動` → 完走を確認。合計 151s (pre_checks 1.3s / quality_gate 49.7s / diff 0.1s / takt 97.8s / push 2.2s)。**verify は予告どおり未発火**: reviewers 2 本とも APPROVE で `all("approved") → COMPLETE` に抜けたため `any("needs_fix") → verify` に入らず、verify 実動の観測は次の findings 発生 run に持ち越し (完了条件は「有効化が効いていることの確認」までで読む)。**副産物: 計測手順の誤りを発見・修正**。ADR-047 §dogfood 計測項目の `.takt/runs/*-pre-push-review-refute/trace.md` は **1 件もマッチしない** — run ディレクトリ名は workflow 名でなく task 名から作られ (`runSlug` = `<UTC timestamp>-pre-push-review`)、refute run でも `20260716-182505-pre-push-review` になる (timestamp も UTC で JST の日付と 1 日ずれ得る)。放置すると 2026-07-31 の採否判定で run 0 件 →「データなし」誤読の恐れがあったため、ADR-047 と §5 T4 実施結果を `meta.json` の `piece` フィールド基準 (`grep -l '"piece": "pre-push-review-refute"' .takt/runs/*/meta.json`) に修正した。設計時の計測手順が実運用開始まで未検証だった例。有効化前の静的確認 (refute workflow / facet 群の存在、`resolve_takt_workflow` の unit test 4 本、`cli-pr-monitor` への波及なし、Rust 変更ゼロのため exe 再ビルド不要) は §5 T4 実施結果に記載。**実施順**: T5-T7 を飛ばして T8 の次に実施 (T4 は他タスクと独立の XS で、依存なし) |
+| T5 | 実装済 (PR #282) | 2026-07-17 | push 拒否検知を 40 行 truncate 済み出力から**全量出力**に切替。`lib-subprocess` に `run_cmd_shell_unlimited` を追加 (`drain_pipe_unlimited` は pipe 単体、`_capped_reporting` は cap が残るためどちらも判定用には不足だった) し、3 variant の共通骨格を `run_cmd_shell_with` に集約。境界判定は ADR-044 §「後続の variant 追加」に記録。表示は成功時のみ `cap_for_log` で 40 行 + 超過明示に絞り、**失敗経路は全量表示** (診断情報を落とさない)。**副産物**: 唯一の呼び出し元が消えた `runner::run_stage_cmd` を削除 — dead code 除去に加え「capped 経路で control flow 判定する」罠の構造的排除。`MAX_LINES` は表示用として残置し doc に判定禁止を明記。**厳格化は不採用 (ユーザー承認済み)**: `contains` 誤爆の厳格化はリスクが非対称 (誤検知は出力表示で気付けるが、検知漏れは「リモート未反映のまま exit 0」= 本タスクが防ぐ事故そのもの) で ADR-043 (fail-closed) に反するため見送り、§6 backlog 8 を却下記録に変更。**回帰テスト**: `mod t5_truncated_refusal_detection` 6 本 + lib-subprocess 4 本。`run_push_cmd` を capped に戻すと 3 本が fail することを確認済み (回帰テストが素通りしないことの実証)。**サンドボックス実機で before/after 比較**: 拒否行を 41 行目に置いた fake push command で、before = `[push] 成功` + **exit 0 (silent failure 再現)** / after = 拒否検知 + exit 3。成功経路 (50 行) は 40 行 + `... (10 lines truncated)` 表示で exit 0 を維持。**発見 (本タスク外)**: `cli-pr-monitor` の `push_to_remote` は拒否検知が無く同型の穴 → §6 backlog 9 に追加 (1 PR 1 変更のため別 PR)。**post-PR 修正 (CodeRabbit Minor 1 件 + pre-push 非ブロッキング警告 2 件を採用)**: (a) `run_cmd_shell_capped` の doc「Err 経路で child を kill しない」は **pre-existing の stale 記述** (`kill_and_join_err` 導入 = PR #208 以降、実際は kill + reap + reader thread join している) だったため、child lifecycle の記述を 3 variant 共通の骨格 `run_cmd_shell_with` に集約し variant 側は参照のみにした。(b) `cap_for_log` の truncate 書式重複を `lib_subprocess::truncation_notice` として切り出し (実装は streaming vs materialize で共有できないが書式片は共有できる、という指摘は妥当)。(c) T5 行 / §4 の「本 PR」を PR #282 に backfill (T4 行が放置され本 PR で backfill する羽目になった負債を繰り返さないため)。**実施順**: 計画の推奨順どおり T4 の次に実施 |
+| T4 | 実装済 (PR #281) | 2026-07-17 | `push-runner-config.toml` の `refute_enabled = false → true` で dogfood 開始 (変更は方針どおり 1 行、templates は OFF 据え置き)。**dogfood 開始日を同 PR で固定**: ADR-039 bounded lifetime の起点が無いと 2 週間の期限が判定不能になるため、開始 2026-07-17 → **判定期限 2026-07-31** を ADR-047 (ステータス行 / Config opt-in / Bounded lifetime の 3 箇所) + config コメントに明記した。採否判定自体は本計画と独立に ADR-047 で進行する (§8 完了条件 4. の引き継ぎ先)。**初回 dogfood push で切替を実証** (PR #281 自身の push): 起動ログ `takt (pre-push-review-refute)` + takt の `ワークフロー 'pre-push-review-refute' を起動` → 完走を確認。合計 151s (pre_checks 1.3s / quality_gate 49.7s / diff 0.1s / takt 97.8s / push 2.2s)。**verify は予告どおり未発火**: reviewers 2 本とも APPROVE で `all("approved") → COMPLETE` に抜けたため `any("needs_fix") → verify` に入らず、verify 実動の観測は次の findings 発生 run に持ち越し (完了条件は「有効化が効いていることの確認」までで読む)。**副産物: 計測手順の誤りを発見・修正**。ADR-047 §dogfood 計測項目の `.takt/runs/*-pre-push-review-refute/trace.md` は **1 件もマッチしない** — run ディレクトリ名は workflow 名でなく task 名から作られ (`runSlug` = `<UTC timestamp>-pre-push-review`)、refute run でも `20260716-182505-pre-push-review` になる (timestamp も UTC で JST の日付と 1 日ずれ得る)。放置すると 2026-07-31 の採否判定で run 0 件 →「データなし」誤読の恐れがあったため、ADR-047 と §5 T4 実施結果を `meta.json` の `piece` フィールド基準 (`grep -l '"piece": "pre-push-review-refute"' .takt/runs/*/meta.json`) に修正した。設計時の計測手順が実運用開始まで未検証だった例。有効化前の静的確認 (refute workflow / facet 群の存在、`resolve_takt_workflow` の unit test 4 本、`cli-pr-monitor` への波及なし、Rust 変更ゼロのため exe 再ビルド不要) は §5 T4 実施結果に記載。**実施順**: T5-T7 を飛ばして T8 の次に実施 (T4 は他タスクと独立の XS で、依存なし) |

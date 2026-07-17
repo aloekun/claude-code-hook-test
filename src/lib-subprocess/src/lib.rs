@@ -4,6 +4,10 @@
 //! 順位 173b: wait_with_timeout を polling 系 2 variant (`_safe` / `_basic`) として抽出。
 //! 順位 173c: drain_pipe を 3 variant (`_unlimited` / `_capped` / `_capped_reporting`) として抽出。
 //! 順位 173d: run_cmd_shell を 2 variant (`_capped` / `_capped_reporting`) として抽出。
+//! 2026-07-17: run_cmd_shell に `_unlimited` variant を追加 (出力を control flow 判定に
+//! 使う callsite 用。ADR-044 層 2 = callsite ごとに intent が異なるため variant 維持)。
+//! 3 variant の共通骨格 (spawn → drain → wait → combine) は `run_cmd_shell_with` に集約し、
+//! 各 variant は drain 戦略の違いのみを表す。
 //! ADR-026 Cargo workspace + ADR-012 lib-* naming に整合。
 //!
 //! 順位 173e で variant merge を検討予定。
@@ -164,6 +168,17 @@ pub fn drain_pipe_capped(
     })
 }
 
+/// 切り捨てた行数を報告する注記行を作る (`"... (N lines truncated)"`)。
+///
+/// 出力を「先頭 N 行 + 超過の明示」に切り詰める箇所で表記を揃えるための共有点。
+/// 切り詰めの実装自体は共有できない (pipe を streaming しながら数える
+/// `drain_pipe_capped_reporting` と、materialize 済み文字列を切る callsite では
+/// 構造が異なる) が、**ログ上の見え方は一致させる**。
+pub fn truncation_notice(truncated_lines: usize) -> String {
+    let suffix = if truncated_lines == 1 { "" } else { "s" };
+    format!("... ({} line{} truncated)", truncated_lines, suffix)
+}
+
 /// 子プロセスの stdout / stderr パイプを別スレッドで最大 `max_lines` 行まで読込し、
 /// 超過があれば末尾に `"... (N lines truncated)"` を付与する **reporting capped** variant。
 ///
@@ -198,8 +213,7 @@ pub fn drain_pipe_capped_reporting(
             }
         }
         if truncated > 0 {
-            let suffix = if truncated == 1 { "" } else { "s" };
-            collected.push(format!("... ({} line{} truncated)", truncated, suffix));
+            collected.push(truncation_notice(truncated));
         }
         collected.join("\n")
     })
@@ -224,24 +238,22 @@ fn kill_and_join_err(
     (false, error)
 }
 
-/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **silent capped** variant。
+/// `run_cmd_shell_*` 3 variant の共通骨格 (spawn → drain → wait → combine)。
 ///
-/// 戻り値: `(success, combined_output)`。
-/// - 起動失敗 / try_wait 失敗 → `(false, error_message)`
-/// - timeout → `(false, "timed out after Ns\n<combined>")`
-/// - exit 正常 → `(status.success(), combined)`
+/// variant 間の差は `drain` (= どの `drain_pipe_*` を使うか) だけで、それ以外の
+/// semantics — timeout メッセージ書式 / child の lifecycle / 戻り値の意味 — は
+/// 3 variant で共通。stdout と stderr は型が異なる (`ChildStdout` / `ChildStderr`) ため、
+/// 同一の drain 戦略を両方へ適用できるよう `Box<dyn Read + Send>` に統一して渡す。
 ///
-/// 内部で `drain_pipe_capped(max_lines)` を使用するため stdout / stderr は `max_lines` 行で
-/// silent truncate。control flow 判定に出力を使う callsite では別途 `drain_pipe_unlimited`
-/// を直接組み立てるか、`max_lines` を十分大きく取ること。
-///
-/// 内部で `wait_with_timeout_basic` を使用 (= Err 経路で child を kill しない basic semantics)。
-pub fn run_cmd_shell_capped(
-    label: &str,
-    cmd: &str,
-    timeout_secs: u64,
-    max_lines: usize,
-) -> (bool, String) {
+/// child の lifecycle: 待機は `wait_with_timeout_basic` (= try_wait 失敗時に child を
+/// kill しない basic semantics) を使うが、その Err 経路は本関数が `kill_and_join_err` で
+/// 受け、child の kill + reap と reader thread の join を行う。timeout 経路は
+/// `wait_with_timeout_basic` 自身が kill + reap する。結果として **どの失敗経路でも
+/// child は残らない**。
+fn run_cmd_shell_with<F>(label: &str, cmd: &str, timeout_secs: u64, drain: F) -> (bool, String)
+where
+    F: Fn(Box<dyn Read + Send>) -> JoinHandle<String>,
+{
     let mut child = match Command::new("cmd")
         .args(["/c", cmd])
         .stdout(Stdio::piped())
@@ -252,14 +264,8 @@ pub fn run_cmd_shell_capped(
         Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
     };
 
-    let stdout_handle = drain_pipe_capped(
-        child.stdout.take().expect("stdout must be piped"),
-        max_lines,
-    );
-    let stderr_handle = drain_pipe_capped(
-        child.stderr.take().expect("stderr must be piped"),
-        max_lines,
-    );
+    let stdout_handle = drain(Box::new(child.stdout.take().expect("stdout must be piped")));
+    let stderr_handle = drain(Box::new(child.stderr.take().expect("stderr must be piped")));
 
     let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
         Ok(status) => status,
@@ -282,6 +288,30 @@ pub fn run_cmd_shell_capped(
     }
 }
 
+/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **silent capped** variant。
+///
+/// 戻り値: `(success, combined_output)`。
+/// - 起動失敗 / try_wait 失敗 → `(false, error_message)`
+/// - timeout → `(false, "timed out after Ns\n<combined>")`
+/// - exit 正常 → `(status.success(), combined)`
+///
+/// 内部で `drain_pipe_capped(max_lines)` を使用するため stdout / stderr は `max_lines` 行で
+/// silent truncate。**出力を control flow 判定に使う callsite で本 variant を使ってはならない**
+/// (判定対象の行が cap の外に落ちても戻り値からは判別できず、無言で誤判定する)。
+/// その場合は `run_cmd_shell_unlimited` を使う。
+///
+/// child の lifecycle は 3 variant 共通 (`run_cmd_shell_with` の doc を参照)。
+pub fn run_cmd_shell_capped(
+    label: &str,
+    cmd: &str,
+    timeout_secs: u64,
+    max_lines: usize,
+) -> (bool, String) {
+    run_cmd_shell_with(label, cmd, timeout_secs, |pipe| {
+        drain_pipe_capped(pipe, max_lines)
+    })
+}
+
 /// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **reporting capped** variant。
 ///
 /// `run_cmd_shell_capped` と同 signature だが内部で `drain_pipe_capped_reporting(max_lines)`
@@ -294,44 +324,22 @@ pub fn run_cmd_shell_capped_reporting(
     timeout_secs: u64,
     max_lines: usize,
 ) -> (bool, String) {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return (false, format!("Failed to execute {}: {}", cmd, e)),
-    };
+    run_cmd_shell_with(label, cmd, timeout_secs, |pipe| {
+        drain_pipe_capped_reporting(pipe, max_lines)
+    })
+}
 
-    let stdout_handle = drain_pipe_capped_reporting(
-        child.stdout.take().expect("stdout must be piped"),
-        max_lines,
-    );
-    let stderr_handle = drain_pipe_capped_reporting(
-        child.stderr.take().expect("stderr must be piped"),
-        max_lines,
-    );
-
-    let exit_status = match wait_with_timeout_basic(label, &mut child, timeout_secs) {
-        Ok(status) => status,
-        Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
-    };
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let combined = combine_output(&stdout, &stderr);
-
-    match exit_status {
-        None => {
-            let mut msg = format!("timed out after {}s", timeout_secs);
-            if !combined.is_empty() {
-                msg = format!("{}\n{}", msg, combined);
-            }
-            (false, msg)
-        }
-        Some(status) => (status.success(), combined),
-    }
+/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **unlimited** variant。
+///
+/// `run_cmd_shell_capped` から `max_lines` を除いたもので、内部で `drain_pipe_unlimited`
+/// を使用するため出力は truncate されない。**出力を control flow 判定に使う callsite**
+/// (例: cli-push-runner の push stage が jj の "Refusing to ..." を検知する) はこの variant を
+/// 使うこと。capped variant では判定対象の行が cap の外に落ちて silent failure になる。
+///
+/// 出力が過大な場合にメモリ消費が線形成長する点は `drain_pipe_unlimited` と同じ trade-off。
+/// ログ表示量を絞りたい場合は、判定は全量に対して行い cap は表示側にのみ掛ける。
+pub fn run_cmd_shell_unlimited(label: &str, cmd: &str, timeout_secs: u64) -> (bool, String) {
+    run_cmd_shell_with(label, cmd, timeout_secs, drain_pipe_unlimited)
 }
 
 #[cfg(test)]
@@ -456,6 +464,16 @@ mod tests {
     }
 
     #[test]
+    fn truncation_notice_uses_plural_form_for_multiple_lines() {
+        assert_eq!(truncation_notice(2), "... (2 lines truncated)");
+    }
+
+    #[test]
+    fn truncation_notice_uses_singular_form_for_one_line() {
+        assert_eq!(truncation_notice(1), "... (1 line truncated)");
+    }
+
+    #[test]
     fn drain_pipe_capped_reporting_appends_truncation_summary_when_over_cap() {
         let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
         let handle = drain_pipe_capped_reporting(input, 3);
@@ -558,6 +576,44 @@ mod tests {
     fn run_cmd_shell_capped_reporting_reports_timeout_with_message() {
         let (ok, output) =
             run_cmd_shell_capped_reporting("test", "ping 127.0.0.1 -n 10", 1, 40);
+        assert!(!ok, "timeout should report failure");
+        assert!(
+            output.starts_with("timed out after 1s"),
+            "timeout message expected: {:?}",
+            output,
+        );
+    }
+
+    #[test]
+    fn run_cmd_shell_unlimited_returns_true_on_exit_zero() {
+        let (ok, _output) = run_cmd_shell_unlimited("test", "exit 0", 10);
+        assert!(ok, "exit 0 should report success");
+    }
+
+    #[test]
+    fn run_cmd_shell_unlimited_returns_false_on_exit_nonzero() {
+        let (ok, _output) = run_cmd_shell_unlimited("test", "exit 1", 10);
+        assert!(!ok, "exit 1 should report failure");
+    }
+
+    /// 本 variant の存在理由: capped variant が silent truncate する行数を超えても
+    /// 全行が戻り値に残ること (= control flow 判定に使える)。
+    #[test]
+    fn run_cmd_shell_unlimited_preserves_output_beyond_the_capped_variant_cap() {
+        let cmd = "(for /L %i in (1,1,60) do @echo line %i)";
+        let (ok, output) = run_cmd_shell_unlimited("test", cmd, 30);
+        assert!(ok, "command should succeed: {:?}", output);
+        assert_eq!(
+            output.lines().count(),
+            60,
+            "all lines must survive; unlimited variant must not truncate: {:?}",
+            output,
+        );
+    }
+
+    #[test]
+    fn run_cmd_shell_unlimited_reports_timeout_with_message() {
+        let (ok, output) = run_cmd_shell_unlimited("test", "ping 127.0.0.1 -n 10", 1);
         assert!(!ok, "timeout should report failure");
         assert!(
             output.starts_with("timed out after 1s"),

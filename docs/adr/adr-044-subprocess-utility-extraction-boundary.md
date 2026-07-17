@@ -30,6 +30,9 @@ PR #205 (173a) - #208 (173d) で以下を `lib-subprocess` に集約:
 | `run_cmd_shell` | `_capped` / `_capped_reporting` | drain variant 違い (上記に従う) |
 | `kill_and_join_err` | 1 (内部 helper) | Err 経路で child kill + reader thread join (PR #208 CR Major 対応) |
 
+> 本表は順位 173 完了時点 (2026-06-15) の状態。`run_cmd_shell` はその後 3 variant に増えた
+> (下記「後続の variant 追加」)。
+
 5 callsite (cli-push-runner / cli-push-pipeline / cli-merge-pipeline / hooks-stop-quality / hooks-post-tool-linter) が `lib_subprocess::*` 経由で utility を共有。
 
 ### 173e で判定した境界
@@ -107,6 +110,23 @@ PR #205 (173a) - #208 (173d) で以下を `lib-subprocess` に集約:
 | `run_cmd_shell_capped` vs `_capped_reporting` | ✅ 2 variant 維持 | drain variant 違い (層 2)、callsite 名で intent 表明 (層 2) |
 | `run_cmd_direct` (cli-pr-monitor) | ❌ 各 crate 残置 | shell vs direct args で signature 非互換 (層 1) |
 | `run_cmd_inherit` (2 crate) | ❌ 各 crate 残置 | timeout 有無の policy 差が意図的、signature 異なる (層 1) |
+
+### 後続の variant 追加 (2026-07-17: `run_cmd_shell_unlimited`)
+
+push パイプライン改善 T5 (push 拒否検知の truncate 依存修正) で `run_cmd_shell_unlimited` を追加し、
+`run_cmd_shell` は 3 variant になった。本 ADR の境界基準を実適用した最初の事例なので判定を記録する。
+
+| 論点 | 判定 | 根拠 |
+|---|---|---|
+| lib に入れるか / callsite に置くか | ✅ lib に variant 追加 | 層 1 の「1 crate でしか使われていない → extract せず」は**重複除去のための extract 判定**であり、確立済み family への variant 追加には適用しない。代替 (callsite に spawn→drain→wait→combine の骨格を複製) は重複を**増やす**。`drain_pipe` が既に `_unlimited` を持ち `run_cmd_shell` だけ欠けていた非対称の解消でもある |
+| 単一関数に merge するか | ✅ 3 variant 維持 | 層 2「callsite ごとに intent が異なる」。しかも本件は intent の取り違えが silent failure を生んだ実例そのもの (下記) で、variant 名で意図を表明させる価値が実証された |
+| 3 variant の body 重複 | ✅ 共通骨格を `run_cmd_shell_with` に集約 | 3 つ目の copy が出た時点で rule of three。public API と self-documenting な variant 名は不変で、各 variant は drain 戦略の違いのみを表す |
+
+T5 の由来は本 ADR にとって示唆的である: `run_cmd_shell_capped` の doc は「control flow 判定に
+出力を使う callsite では capped を使うな」と当初から明記していたが、`cli-push-runner` の push stage は
+まさにそれをやっていた (40 行 cap の外に jj の拒否行が落ちると、リモート未反映のまま exit 0)。
+**doc の契約だけでは守られず、正しい variant が存在しないと callsite は間違った variant を選ぶ**。
+層 2 の「callsite が variant 名で intent 表明」は、選択肢が揃っていて初めて機能する。
 
 ## 影響
 
