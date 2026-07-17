@@ -51,6 +51,8 @@ commands = ["pnpm build"]
 # git 環境: "git diff origin/HEAD...HEAD"
 command = "jj diff -r @"
 output_path = ".takt/review-diff.txt"
+# timeout: 未指定時は 60s。超過時は diff 取得失敗 = exit 5 で中断 (fail-closed)。
+# 大 diff / 低速環境で誤 timeout する場合のみ延長する (例: timeout = 180)。
 
 # ---------------------------------------------------------------------------
 # [pre_push_review] — WP-06 / ADR-047 (試験運用): 反証 (refute) facet。

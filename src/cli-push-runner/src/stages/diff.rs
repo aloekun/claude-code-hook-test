@@ -1,7 +1,14 @@
-use std::path::Path;
-use std::process::Command;
+//! Diff stage — `[diff] command` の出力を reviewers 用ファイルに書き出す。
+//!
+//! 出力は takt の reviewers が Read で参照するレビュー対象そのもののため、
+//! **切り詰めない** (`run_diff_cmd` の doc)。実行は timeout 付き (T6)。
 
-use crate::config::DiffConfig;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};
+
+use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS};
 use crate::log::log_stage;
 
 #[derive(Debug, PartialEq)]
@@ -14,18 +21,64 @@ pub(crate) enum DiffResult {
     Error,
 }
 
-/// diff 取得専用: 出力を切り詰めずに全行を取得する。
-/// runner::run_cmd は MAX_LINES=40 で打ち切るため diff には使えない。
-fn run_diff_cmd(cmd: &str) -> Result<String, String> {
-    let output = Command::new("cmd")
+/// diff 取得専用: 出力を切り詰めず、stdout / stderr を分離したまま timeout 付きで取得する。
+///
+/// 戻り値: `Ok(stdout)` / `Err(stderr | timeout メッセージ | 起動失敗メッセージ)`。
+///
+/// **stdout と stderr を結合しない**のが本関数の要件で、`lib_subprocess::run_cmd_shell_*`
+/// (全 variant が `combine_output` で結合する) を使えない理由でもある。stdout は
+/// reviewers が読む diff そのものとしてファイルに書かれるため、jj が stderr に出す警告
+/// (並列 workspace 運用時の `Concurrent modification detected` 等) が混入すると
+/// レビュー対象を汚す。読み取り戦略は cap なし (diff は全量が必要) で、shell 経由なのは
+/// `[diff] command` が config 由来の文字列だから。同型の「全量 + 分離 + timeout」は
+/// `bookmark_check::run_jj_bookmark_list` にもあるが、そちらは direct args で
+/// signature が非互換のため共通化しない (ADR-044 層 1)。
+///
+/// timeout (T6): 旧実装は `Command::output()` で**無限待ち**だった。ADR-045 の並列
+/// workspace 運用で jj の lock 競合が起きるとパイプラインが無言ハングする
+/// (他 stage は全て timeout 付きで、diff だけが穴だった)。timeout 時は Err を返し、
+/// 呼び出し側が `DiffResult::Error` = exit 5 で中断する (fail-closed / ADR-043)。
+///
+/// child の lifecycle: timeout 経路・try_wait 失敗経路とも `wait_with_timeout_safe` が
+/// child を kill + reap する (`_basic` ではなく `_safe` を選ぶ理由 = ADR-044 層 2)。
+///
+/// **child を kill した 2 経路 (timeout / wait 失敗) では reader thread を join しない**。
+/// `cmd /c <command>` の child は cmd.exe で、その孫 (実際の `jj` 等) は kill の対象外である。
+/// 孫は pipe の書き込み端を継承したまま生き残るため EOF が来ず、join すると孫が自然終了する
+/// までブロックする = timeout が意味を成さない (T6 が直そうとしているハングの再生産)。
+/// 実測: 9s 走るコマンドに 1s の timeout を設定し join すると、制御が戻るまで 9.6s 掛かった。
+/// よってこの 2 経路では thread を detach して即座に返す (push-runner は直後に exit 5 で
+/// 終了するため thread は道連れになる)。出力も不要 (診断は timeout メッセージ自身が持つ)。
+/// 子が自力で終了した経路 (exit 0 / 非 0) は pipe が閉じるため join してよい。
+fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
+    let mut child = Command::new("cmd")
         .args(["/c", cmd])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
 
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let stdout_handle = drain_pipe_unlimited(child.stdout.take().expect("stdout must be piped"));
+    let stderr_handle = drain_pipe_unlimited(child.stderr.take().expect("stderr must be piped"));
+
+    let status = wait_with_timeout_safe("diff", &mut child, timeout_secs)
+        .map_err(|e| format!("diff コマンドの wait に失敗: {}", e))?;
+
+    let Some(status) = status else {
+        return Err(format!(
+            "diff コマンドがタイムアウトしました ({}s): {}\n\
+             jj の lock 競合 (並列 workspace 実行中の別 jj プロセス) を疑ってください。\
+             大 diff で恒常的に超過する場合は `[diff] timeout` を延長してください。",
+            timeout_secs, cmd,
+        ));
+    };
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+
+    if status.success() {
+        Ok(stdout)
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         Err(stderr)
     }
 }
@@ -33,7 +86,8 @@ fn run_diff_cmd(cmd: &str) -> Result<String, String> {
 pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
     log_stage("diff", &format!("実行: {}", config.command));
 
-    let output = match run_diff_cmd(&config.command) {
+    let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
+    let output = match run_diff_cmd(&config.command, timeout) {
         Ok(output) => output,
         Err(err) => {
             log_stage("diff", "diff コマンド失敗");
@@ -82,7 +136,7 @@ mod tests {
 
     #[test]
     fn run_diff_cmd_captures_more_than_40_lines() {
-        let result = run_diff_cmd("for /L %i in (1,1,100) do @echo line %i");
+        let result = run_diff_cmd("for /L %i in (1,1,100) do @echo line %i", 30);
         assert!(result.is_ok(), "command should succeed");
         let output = result.unwrap();
         let line_count = output.lines().count();
@@ -98,10 +152,11 @@ mod tests {
         let out_path = std::env::temp_dir().join("test-run-diff-empty.txt");
         let _ = std::fs::remove_file(&out_path);
 
+        const ZERO_BYTE_OUTPUT_COMMAND: &str = "type nul";
         let config = DiffConfig {
-            // `type nul` produces zero bytes on Windows.
-            command: "type nul".to_string(),
+            command: ZERO_BYTE_OUTPUT_COMMAND.to_string(),
             output_path: out_path.to_string_lossy().into_owned(),
+            timeout: None,
         };
 
         let result = run_diff(&config);
@@ -115,5 +170,139 @@ mod tests {
             !out_path.exists(),
             "output file must not be created for an empty diff"
         );
+    }
+
+    /// T6 回帰テスト群: diff stage に timeout が無く無限ハングし得た不具合
+    /// (ADR-049 の流儀: 1 test = 1 failure mode + good/bad)。
+    ///
+    /// 由来: 2026-07-16 の push パイプライン調査 (コード監査で発見。T5 と同じく
+    /// in the wild の発火記録は無く、「他 stage は全て timeout 付き = diff だけが穴」
+    /// という非対称として特定された)。
+    ///
+    /// 事故の形: `run_diff_cmd` は `Command::output()` で子プロセスの終了を**無限に**
+    /// 待っていた。ADR-045 の並列 workspace 運用で jj の lock 競合が起きると
+    /// `pnpm push` は診断も timeout も無いまま停止し、ユーザーは手動 kill するしかない。
+    ///
+    /// 修正の核心は「timeout 付きで待ち、超過時は Err → `DiffResult::Error` = exit 5 で
+    /// 中断する (fail-closed / ADR-043)」。あわせて、判定に使う stdout を stderr と
+    /// 混ぜない契約 (レビュー対象を汚さない) も本 mod で seal する。
+    mod t6_diff_timeout {
+        use super::*;
+        use std::time::{Duration, Instant};
+
+        /// 実行し続けるコマンド (ハングした jj の代役)。timeout が無ければ約 9s 待たされる。
+        const HANGING_COMMAND: &str = "ping 127.0.0.1 -n 10";
+
+        const SHORT_TIMEOUT_SECS: u64 = 1;
+
+        /// incident 再現 (bad): 応答しないコマンドを **timeout で打ち切る**こと。
+        /// 修正前は `Command::output()` が返るまで待ち続け、本 assert には到達しなかった。
+        #[test]
+        fn hanging_command_times_out_instead_of_waiting_forever() {
+            let started = Instant::now();
+            let result = run_diff_cmd(HANGING_COMMAND, SHORT_TIMEOUT_SECS);
+            let elapsed = started.elapsed();
+
+            let err = result.expect_err("timeout は Err で返ること (無限待ちしない)");
+            assert!(
+                err.contains("タイムアウト"),
+                "timeout と判る診断を返すこと: {:?}",
+                err,
+            );
+            assert!(
+                elapsed < Duration::from_secs(5),
+                "timeout ({}s) 後すぐ制御を返すこと。{:?} 掛かった = コマンドの自然終了を\
+                 待っている (T6 の不具合)",
+                SHORT_TIMEOUT_SECS,
+                elapsed,
+            );
+        }
+
+        /// timeout の診断は原因調査に足りること: 超過秒数と実行コマンドを含む。
+        #[test]
+        fn timeout_error_reports_the_limit_and_the_command() {
+            let err = run_diff_cmd(HANGING_COMMAND, SHORT_TIMEOUT_SECS)
+                .expect_err("timeout は Err で返ること");
+            assert!(
+                err.contains(&format!("{}s", SHORT_TIMEOUT_SECS)) && err.contains(HANGING_COMMAND),
+                "超過秒数と実行コマンドを診断に含めること: {:?}",
+                err,
+            );
+        }
+
+        /// timeout は fail-closed で pipeline を止めること (ADR-043)。
+        /// `DiffResult::Error` は main.rs で exit 5 = 中断になる。空 diff 扱いで
+        /// **レビューを skip したまま push に進んではならない**。
+        #[test]
+        fn timeout_aborts_the_pipeline_and_writes_no_diff_file() {
+            let out_path = std::env::temp_dir().join("test-run-diff-timeout.txt");
+            let _ = std::fs::remove_file(&out_path);
+
+            let config = DiffConfig {
+                command: HANGING_COMMAND.to_string(),
+                output_path: out_path.to_string_lossy().into_owned(),
+                timeout: Some(SHORT_TIMEOUT_SECS),
+            };
+
+            assert_eq!(
+                run_diff(&config),
+                DiffResult::Error,
+                "timeout は Error (= exit 5 で中断) になること。Empty だとレビューを\
+                 skip して push に進んでしまう",
+            );
+            assert!(
+                !out_path.exists(),
+                "timeout 時に diff ファイルを書かないこと (古い/欠けた diff でレビューさせない)",
+            );
+        }
+
+        /// good: timeout 内に終わるコマンドを誤って打ち切らないこと。
+        #[test]
+        fn command_within_the_timeout_succeeds() {
+            let output = run_diff_cmd("echo diff line", 30).expect("即終了するコマンドは Ok");
+            assert!(output.contains("diff line"), "stdout を返すこと: {:?}", output);
+        }
+
+        /// `[diff] timeout` 未指定なら既定値が使われること (既定値の適用漏れ防止)。
+        #[test]
+        fn absent_config_timeout_falls_back_to_the_default() {
+            let config = DiffConfig {
+                command: "echo ok".to_string(),
+                output_path: std::env::temp_dir()
+                    .join("test-run-diff-default-timeout.txt")
+                    .to_string_lossy()
+                    .into_owned(),
+                timeout: None,
+            };
+            assert_eq!(
+                config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS),
+                DEFAULT_DIFF_TIMEOUT_SECS,
+            );
+            assert_eq!(run_diff(&config), DiffResult::HasContent);
+            let _ = std::fs::remove_file(&config.output_path);
+        }
+
+        /// stderr を stdout に混ぜないこと: stdout は reviewers が読む diff そのものとして
+        /// ファイルに書かれるため、jj の警告 (並列 workspace 時の `Concurrent modification
+        /// detected` 等) が混入するとレビュー対象を汚す。`run_cmd_shell_*` (全 variant が
+        /// stdout/stderr を結合する) に載せ替えるとこのテストが落ちる。
+        #[test]
+        fn stderr_is_not_merged_into_the_diff_output() {
+            let output = run_diff_cmd("echo real diff& echo Concurrent modification 1>&2", 30)
+                .expect("exit 0 なら Ok");
+            assert!(output.contains("real diff"), "stdout は残ること: {:?}", output);
+            assert!(
+                !output.contains("Concurrent modification"),
+                "stderr の警告が diff 内容に混入しないこと: {:?}",
+                output,
+            );
+        }
+
+        /// 失敗時は stderr を診断として返すこと (従来契約の維持)。
+        #[test]
+        fn failure_returns_stderr_as_the_diagnostic() {
+            let err = run_diff_cmd("echo boom 1>&2& exit /b 1", 30).expect_err("exit 1 は Err");
+            assert!(err.contains("boom"), "stderr を診断に返すこと: {:?}", err);
+        }
     }
 }
