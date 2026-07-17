@@ -64,6 +64,41 @@ default_branch = "master"
 warning_threshold = 800
 block_threshold = 1500
 
+# ---------------------------------------------------------------------------
+# [docs_only_routing] — T11 (push パイプライン改善): docs-only / 空 diff の決定論 routing。
+# PR 範囲 (`<default_branch>..@`) が docs-only (ADR-035 path 基準) のとき、diff で
+# 結果が変わり得ない Rust の quality_gate group (既定 `rust-lint-test`、実測 ~50s) を
+# quality_gate 前に決定論的に skip する。docs-only push でも毎回 clippy + cargo test +
+# `--ignored` を払っていた無駄を落とす。
+#
+# **takt (AI レビュー) は skip しない**: path 基準からは「Rust テスト結果が不変」は
+# 演繹できるが「レビュー不要」は演繹できない (docs の内容・cross-ref・trust boundary は
+# 誤り得る。ADR-035 §適用する criteria、ADR-056 T10 dogfood で reviewer が docs の
+# 事実誤りを検出した実績)。JS 系 group (`lint` の `pnpm lint:docs`) は docs の markdown
+# lint そのものなので維持される。設計詳細: docs/adr/adr-057-docs-only-deterministic-routing.md
+#
+# ADR-039 (Experimental feature 標準パターン) 3 点セット:
+# - **Config opt-in**: 試験運用のため default OFF。本リポジトリでは明示的に
+#   `enabled = true` で dogfood を開始。section 不在 / enabled 未設定では完全 skip
+#   (= 従来どおり全 group 実行)。派生 repo の templates は本 section を置かない。
+# - **Kill-switch**: `enabled = false` で完全停止。env `DOCS_ONLY_ROUTING_DISABLE=1`
+#   で個別 push の意図的バイパス (docs-only でも Rust gate を強制実行したいとき)。
+# - **Bounded lifetime**: 3-5 docs-only PR の dogfood 後 (誤 skip の有無 = docs-only 判定
+#   されたが実は Rust に影響していた、が無いか) に default-ON 昇格 or 却下を判定。判定は
+#   docs/adr/adr-057-docs-only-deterministic-routing.md の bounded lifetime に引き継ぐ。
+#
+# `default_branch` は `[pr_size_check]` の `default_branch` と**論理的に同一の値**を保つ
+# こと (両者とも PR の base branch を指す)。食い違うと一方が誤った PR 範囲を見る
+# (ADR-051 cross-config coupling)。`skip_groups` 未指定時は `["rust-lint-test"]`
+# (`cli-pr-monitor` の gate group 名と一致)。
+#
+# fail-closed (ADR-043): jj 失敗 / summary parse 不能 / 除外パス混入時は全 group を実行する。
+# ---------------------------------------------------------------------------
+[docs_only_routing]
+enabled = true
+default_branch = "master"
+skip_groups = ["rust-lint-test"]
+
 [quality_gate]
 parallel = true
 # step_timeout は group 単位ではなく **コマンド単位** に適用される (stages/quality_gate.rs の run_group)。

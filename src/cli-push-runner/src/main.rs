@@ -3,6 +3,7 @@
 //! pnpm push から呼び出され、以下のステージを実行する:
 //!   Stage -1:  bookmark_check — 非 trunk bookmark の存在を確認 (順位 2)
 //!   Stage 0:   scratch_file_warning — `__*` 等の scratch ファイル混入を検査 (順位 1)
+//!   Stage 0.5: docs_only_routing — PR 範囲が docs-only なら Rust の gate group を skip (T11)
 //!   Stage 1:   quality_gate — TOML で定義されたコマンド群をグループ間で並列実行
 //!   Stage 1.5: diff         — jj diff を取得しファイルに書き出し（reviewers が Read で参照）
 //!   Stage 2:   takt         — AI レビュー（reviewers → fix loop）
@@ -31,8 +32,8 @@ use std::time::Instant;
 use config::{load_config, resolve_takt_workflow};
 use log::{log_info, timed};
 use stages::{
-    run_bookmark_check, run_diff, run_lint_screen, run_pr_size_check, run_push, run_quality_gate,
-    run_scratch_file_warning, run_takt, DiffResult,
+    run_bookmark_check, run_diff, run_docs_only_routing, run_lint_screen, run_pr_size_check,
+    run_push, run_quality_gate, run_scratch_file_warning, run_takt, DiffResult,
 };
 
 const EXIT_SUCCESS: i32 = 0;
@@ -93,6 +94,19 @@ fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
     Ok(detected_bookmarks)
 }
 
+/// takt workflow 名を解決し、パイプライン開始ログを出力する。workflow 名を返す。
+/// (config の読込は呼び出し側で済んでいる前提。)
+fn start_pipeline(config: &config::Config) -> String {
+    let has_diff = config.diff.is_some();
+    let workflow = resolve_takt_workflow(config);
+    log_info(&format!(
+        "パイプライン開始: bookmark → docs_only_routing → quality_gate → {} takt ({}) → push",
+        if has_diff { "diff →" } else { "" },
+        workflow,
+    ));
+    workflow
+}
+
 fn run_pipeline() -> i32 {
     let start = Instant::now();
 
@@ -106,20 +120,20 @@ fn run_pipeline() -> i32 {
 
     let _pipeline_lock = lib_jj_helpers::pipeline_lock::hold_pipeline_lock("push", log_info);
 
-    let has_diff = config.diff.is_some();
-    let workflow = resolve_takt_workflow(&config);
-    log_info(&format!(
-        "パイプライン開始: bookmark → scratch → quality_gate → {} takt ({}) → push",
-        if has_diff { "diff →" } else { "" },
-        workflow,
-    ));
+    let workflow = start_pipeline(&config);
 
     let detected_bookmarks = match timed("pre_checks", || run_pre_checks(&config)) {
         Ok(bookmarks) => bookmarks,
         Err(code) => return code,
     };
 
-    if !timed("quality_gate", || run_quality_gate(&config.quality_gate)) {
+    let skip_groups = timed("docs_only_routing", || {
+        run_docs_only_routing(config.docs_only_routing.as_ref())
+    });
+
+    if !timed("quality_gate", || {
+        run_quality_gate(&config.quality_gate, &skip_groups)
+    }) {
         log_info("パイプライン中断: quality_gate 失敗。問題を修正して再実行してください。");
         return EXIT_QUALITY_GATE_FAILURE;
     }

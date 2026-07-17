@@ -1589,6 +1589,180 @@
 
 ---
 
+### CR rate-limit 第3 format 未対応 + marker 一致/regex 不一致の silent 化 (PR #287 実観測)
+
+> **動機**: PR #287 で CodeRabbit がレビュー上限に達したが、**決定論層 (`check-ci-coderabbit`) が rate-limit を検知できず**、監視は「CodeRabbit: 新規指摘3件 / findings 0 件 / verdict approved」と報告した。ユーザーからは「レートリミットに引っかかっていることが表向き見えなかった」と観測された。
+>
+> **根本原因 (実測で特定)**: CR の wait-time 文言が第3 format に変化していた。
+>
+> | 判定 | 対象文字列 | 結果 |
+> |---|---|---|
+> | `is_rate_limit_comment` | `rate limited by coderabbit.ai` (HTML コメント内) | **TRUE** (marker は一致) |
+> | `extract_old_format_wait_time` | `Please wait N minutes and M seconds` | 不一致 |
+> | `extract_new_format_wait_time` | `More reviews will be available in N minutes` | 不一致 |
+> | **実際の文言 (2026-07 観測)** | **`**Next review available in:** **32 minutes**`** | **どの parser も未対応** |
+>
+> `parse_rate_limit` は `let (minutes, seconds) = extract_wait_time(body)?;` で **None を返して静かに終了**する (`src/check-ci-coderabbit/src/rate_limit.rs`)。結果、rate-limit comment を検出しているのに「rate-limit 無し」と区別が付かない。
+>
+> **ADR-034 の予測は当たっていた**: 同 ADR § 既知 CR rate-limit format 一覧 の「HTML マーカー優先 (CR は UI 文言を変えても internal marker は維持する傾向、本リポジトリ未検証)」は、今回 **marker 安定 / UI 文言変化** として実証された。予測は正しかったが、**wait-time regex 側の脆弱性は対策されていなかった**。
+>
+> **ADR-034 の troubleshooting が想定する症状と違う**: 同 ADR § 検出 logic 更新手順 は「`is_rate_limit_comment` が常時 false を返す symptom (PR #182 実観測)」を前提に書かれている。今回は **marker 一致 / regex 不一致**という別の失敗モードで、既存の症状記述では発見できない。
+>
+> **これは同一クラスの 3 世代目**: 旧 format (~2026 年初) → 新 format (2026-05 / PR #182・#184 で silent regression 実観測) → 第3 format (2026-07 / 本件)。marker は multi-variant 配列化されたが、regex は format 追従のたびに手当てが要る構造のまま。
+>
+> **参照**: `src/check-ci-coderabbit/src/rate_limit.rs` (`extract_wait_time` / `parse_rate_limit`)、`src/check-ci-coderabbit/src/markers.rs` (`RATE_LIMIT_MARKERS`)、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md) § 既知 CR rate-limit format 一覧 / § 検出 logic 更新手順、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed)、PR #287。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity **High** (監視の false-green を生む) / Effort S。
+
+#### 作業計画
+
+- [ ] ADR-034 § 検出 logic 更新手順 の step 4: `extract_next_review_format_wait_time` を追加 (`Next review available in:?\**\s*\**(\d+) minutes?` + `and (\d+) seconds?` 併記 variant)。`extract_wait_time` の or_else 連鎖に追加する。
+- [ ] **silent 化の構造的解消 (本エントリの本丸)**: `is_rate_limit_comment == true` かつ `extract_wait_time == None` の組合せを **loud にする**。現状は「marker 一致だが wait time 不明」= 既知の未知 (known-unknown) を `None` に潰して「rate-limit 無し」と同一視している。最低限 warn ログ + 監視側で「rate-limit 検出・待ち時間不明」を報告し、ADR-043 に従い保守的な既定待ち時間 (例: 30 分) で park する案を検討する。**この修正が入れば第4 format が来ても silent regression にはならない** (regex 追加は追従作業に留まる)。
+- [ ] fixture 追加 (step 5): 第3 format の実 body を 2-3 variant。既存 fixture は backward compat のため維持。**回帰テストは「修正前に実際に落ちること」を確認する** (§2 原則 2 / ADR-049)。marker 一致・regex 不一致の silent ケースも 1 本固定する。
+- [ ] ADR-034 § 既知 CR rate-limit format 一覧 table に第3 format 行を append (step 6)。あわせて § 検出 logic 更新手順 の症状記述に「marker 一致 / regex 不一致 (= 常時 None、silent)」を追記する — 現在の記述は marker 失敗のみ想定で本件を発見できない。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 第3 format の rate-limit comment から待ち時間が抽出でき、監視が park 経路に乗ること (fixture + 実 body で確認)。
+- marker 一致 / wait-time 抽出失敗の組合せが silent に握り潰されず、ログまたは報告に現れること。
+
+---
+
+### pr-monitor.yml バックストップの重複ガードが構造的に機能しない (PR #287 実観測)
+
+> **動機**: PR #287 で「🤖 PR Monitor 分析 (GitHub Actions バックストップ)」が **5 件**投稿された。ユーザーから「1 回投稿すれば十分な情報を、CodeRabbit の投稿に反応して毎回投稿する実装になっていないか」と指摘され、実測で裏付けられた。
+>
+> **実測 (すべて CR 投稿の直後に発火)**:
+>
+> | CR 投稿 | → backstop | 遅延 |
+> |---|---|---|
+> | 12:42:31 | 12:44:13 | +1m42s |
+> | 13:09:32/35 | 13:16:16 | — |
+> | 13:16:36 (ack のみ) | 13:18:11 | +1m35s |
+> | 13:45:03 (ack のみ) | 13:46:09 | +1m06s |
+> | 13:46:25 | **13:49:06** | +2m41s (**マージ 13:48:12 の後**) |
+>
+> **根本原因**: 重複ガードは存在する (`.github/workflows/pr-monitor.yml` prompt 手順 2) が、**構造的トートロジー**になっている。ガードの skip 条件は「過去の分析コメント以降に**新しいコメント等の変化が無い**場合」。しかし本 workflow の起動トリガーは `issue_comment (created) by coderabbitai[bot]` であり、**発火した時点で必ず「新しいコメント」が存在する**。よって issue_comment 経路で skip 条件は永久に成立しない。
+>
+> **証拠 (agent 自身が無価値と認識しつつ投稿している)**: 13:18:11 の投稿本文は「前回分析以降に生じたのは CodeRabbit による定型 acknowledgment コメント 1 件のみで、レビュー実体の追加は無し」と自ら述べている。ガードが「新規コメントの有無」を見ており「分析価値のある新情報か」を見ていないため、ack 1 件でも再分析・再投稿に進む。
+>
+> **副次問題**: (a) PR が **MERGED/CLOSED でも投稿する** (13:49:06 はマージ後)。state ガードが無い。(b) 1 投稿あたり claude-code-action (sonnet / max-turns 30) が 1 run 走るため、**Max 枠を無駄に消費**する (workflow 冒頭コメントが挙げる「Max 枠の暴走ガード」の意図に反する)。
+>
+> **設計上の含意**: ガードを LLM prompt 側 (助言層) に置いたことが原因。`concurrency` は同時実行を潰すが逐次の再投稿は防げない。ADR-042 (ルール vs 仕組み化の境界基準) の観点では、**決定論層 (workflow の `if:` 条件) に移すべき類**。
+>
+> **参照**: `.github/workflows/pr-monitor.yml` (prompt 手順 2 / `on:` / `jobs.analyze.if:` / concurrency)、[ADR-022](adr/adr-022-automation-responsibility-separation.md) 原則 6、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、PR #287。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (機能は壊れないが noise + Max 枠浪費) / Effort S。
+
+#### 作業計画
+
+- [ ] **決定論ガードを `if:` に追加** (LLM prompt に依存しない層へ移す):
+  - [ ] CR の **ack / 定型応答コメントを除外**する。`github.event.comment.body` に `<!-- This is an auto-generated reply by CodeRabbit -->` (= ack) が含まれる場合は起動しない。分析価値があるのは walkthrough (`<!-- This is an auto-generated comment: summarize by coderabbit.ai -->`) のみ。**本件の再投稿 5 件中 2 件はこの 1 条件で消える**。
+  - [ ] PR が **CLOSED / MERGED なら起動しない** (`github.event.issue.state == 'open'`)。
+- [ ] prompt 手順 2 のガード条件を「**新規コメントの有無**」から「**分析価値のある新情報の有無**」へ書き換える (ack / rate-limit 通知 / 自身の分析コメントは新情報に数えない旨を明示)。決定論ガードを主、prompt ガードを従 (二層目) とする。
+- [ ] 起動条件を変えるため **workflow_dispatch でのスモークテスト**を行い、(a) ack で起動しないこと (b) walkthrough で起動すること (c) merged PR で起動しないこと を実測で確認する。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- CR の walkthrough 更新 1 回につき backstop の投稿が高々 1 件で、ack / マージ後には投稿されないこと (実 PR で確認)。
+
+---
+
+### CodeRabbit status check は実レビュー有無に関わらず `pass` (PR #287 実観測)
+
+> **動機**: PR #287 で `gh pr checks 287` が一貫して **`CodeRabbit pass`** を返し続けたが、実際にはレビューが 1 度も実行されていなかった (`pulls/287/reviews` = 0 件、インラインコメント = 0 件)。緑チェックが「レビュー済み」を意味しないことが実観測された。
+>
+> **実測した表示の変遷 (いずれも `pass`)**:
+>
+> | 実態 | checks の表示 |
+> |---|---|
+> | 増分レビュー skip | `pass` — `Review skipped: incremental reviews are disabled` |
+> | **rate limit で未実行** | `pass` — (同上のまま。**本文は `Review limit reached` に更新済みなのに check 行は追従しない**) |
+> | レビュー完了 | `pass` — `Review completed` |
+>
+> **2 つの落とし穴**:
+>
+> 1. **`pass` は「レビューした」ではなく「CodeRabbit が異常終了しなかった」の意**。skip も rate-limit も pass。緑を根拠に「レビュー通過」と判断すると false-green になる。
+> 2. **check 行の summary は stale になる**。CR は**コメント本文を in-place 更新**する (本件では `updated_at` のみ 13:09:39 に更新) が、check の summary 文字列は更新されない。本セッションでは `Review skipped: incremental reviews are disabled` という古い表示のまま、実態は `Review limit reached` だった。**checks 行だけを見ると誤診する**。
+>
+> **正しい判定 source (本件で有効だった順)**: (a) `gh pr view --json reviews` の件数、(b) CR walkthrough 本文の `Configuration used` (`Organization UI` = レビュー未開始の症状 / `Path: .coderabbit.yaml` = 実行された証拠)、(c) 本文の `No actionable comments were generated` / `Review limit reached`。**(b) は本件の診断で決定打になった**。
+>
+> **参照**: PR #287 (`Configuration used` が `Organization UI` → `Path: .coderabbit.yaml` に変化)、順位 318 (決定論的 rate-limit 検知)、`.takt/facets/instructions/analyze-coderabbit.md`、`.github/workflows/pr-monitor.yml` prompt 手順 1。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤診の温床) / Effort S。
+
+#### 作業計画
+
+- [ ] `analyze-coderabbit.md` と `pr-monitor.yml` prompt に「**CodeRabbit check の `pass` はレビュー実施の根拠にならない / summary 文字列は stale になり得る**」を明記し、判定 source を上記 (a)(b)(c) に固定する。
+- [ ] `check-ci-coderabbit` に「**レビュー実施の有無**」を `reviews` 件数 + walkthrough marker から判定する関数を追加し、`review_state: success` と実レビュー有無を分離して report する (現状 `review_state` が success でも実体ゼロがあり得る)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 監視の report で「CR check は pass だが実レビューは 0 件」の状態が判別でき、approved と誤って報告されないこと。
+
+---
+
+### ADR-019/WP-03 クォータ設計の前提 stale + 初回レビュー処理中 push のレビュー欠落穴
+
+> **動機**: PR #287 の rate-limit 調査で、WP-03 (ADR-019 amendment) のクォータ設計に **2 つの前提ズレ**が判明した。
+>
+> **(a) 前提が stale**: `.coderabbit.yaml` 冒頭は「**無料枠レートリミット (3〜4 レビュー/時)** の解除待ちを構造的に削減する」と書かれているが、CR の実際の応答は **`Plan: Pro`**。かつ課金プランのレート制限は固定値ではなく **adaptive per-developer limit** (CR docs: 直近の PR レビュー活動が全ユーザーの 95 パーセンタイル以上に達すると追加レビューの解放が緩やかになる)。**ADR-040 の GPU 前提が stale だった件と同型**で、設計根拠が現状と食い違っている。本件では #276〜#287 の **12 PR を約 24 時間**で投入したことが引き金と強く示唆される (CR 内部カウンタは外部から不可視のため断定はできない)。WP-03 は *PR あたり*のレビュー回数は減らせるが、*developer 単位の rolling window* 枯渇には効かない。
+>
+> **(b) レビュー欠落穴**: `auto_incremental_review: false` と「初回レビュー処理中の push」が組み合わさると、**新 head が誰にもレビューされない**状態になる。PR #287 の実際の経緯: 12:44 時点で CR は初回レビューを処理中 (`Currently processing new changes... please wait`) → その直後に手動 push で head 差し替え → 新 head は増分レビュー対象外 (設定どおり) → 初回レビューは宙に浮く → 手動 `@coderabbitai review` が必要になり、そこで rate limit に到達。ADR-019 は「**手動 push 後は `@coderabbitai review` を手動投稿**」(§ 手動 fix push は手動トリガーが必要) と規定しているが、**規約 (人間の記憶) に依存**しており仕組み化されていない。
+>
+> **参照**: `.coderabbit.yaml` 冒頭コメント、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § WP-03 / § 手動 fix push は手動トリガーが必要、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、`docs/dev-conventions.md` 順位 262 (外部 SaaS 無料枠 / 制限の調査チェックリスト)、PR #287。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Effort S。
+
+#### 作業計画
+
+- [ ] **(a) 前提の是正**: 現行プラン (Pro) と adaptive limit の実態を調査し (`docs/dev-conventions.md` 順位 262 のチェックリストを適用)、`.coderabbit.yaml` 冒頭と ADR-019 § WP-03 の根拠記述を実態に合わせて更新する。**「無料枠 3〜4 レビュー/時」を前提にした設計判断が今も妥当かを再評価する** (adaptive limit なら「PR あたりの削減」より「PR 投入ペース」の方が支配的な可能性)。
+- [ ] **(b) 欠落穴の仕組み化を検討**: 手動 push 後の `@coderabbitai review` 投稿は現状「規約」。ADR-042 の境界基準で仕組み化の是非を判定する。候補: push-runner の push stage 後に「CR 再トリガーが必要」を**警告表示**する (助言層 / fail-open)、または `head_already_reviewed()` を使って未レビュー head を検出し警告する (`review_trigger.rs` に既存の照会ロジックあり)。**自動投稿はレート枠を消費するため慎重に** — ADR-019 § 同一 HEAD への再投稿はレート枠の無駄 と整合させること。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- `.coderabbit.yaml` / ADR-019 のクォータ設計根拠が実プラン・実制限と一致していること。
+- 手動 push で新 head が未レビューのまま放置される経路に、警告または仕組みによる検出があること。
+
+---
+
+### post-merge-feedback が repo root に scratch script を残し scratch guard をすり抜ける (near-miss 実観測)
+
+> **動機**: PR #287 のマージ直後 (2026-07-17 22:49)、post-merge-feedback の takt run が **repo root に `analyze_transcript.py` (3.2KB) を作成して残した**。`.takt/post-merge-feedback-transcript.jsonl` を読んで統計を出す一時解析スクリプトで、プロジェクト資産ではない。jj は auto-snapshot するため、**次のコミットに黙って混入する寸前だった** (本エントリを書くセッションで偶然発見。commit 前の `jj status` 確認で気付かなければ backlog PR に混入していた)。
+>
+> **なぜ guard が効かないか (構造的問題)**: `push-runner-config.toml` の `[scratch_file_warning]` は `patterns = ["__*", "_tmp_*"]` という **deny-list (pattern 列挙)** で、`analyze_transcript.py` はどちらにも一致しない。PR #85 で実害が出た「scratch ファイル混入」と**同一クラス**だが、当時の対策が「観測された pattern を列挙する」形だったため、**新しい命名の scratch は素通りする**。順位 5 (AI 生成一時スクリプト pattern) で `_tmp_*` を追加した補完アプローチも同じ限界を持つ — **AI が付ける名前を列挙で先回りするのは原理的に不可能**。
+>
+> **今回の生成元は自動化コンポーネント**: 人間や interactive Claude ではなく **post-merge-feedback の takt run** (ADR-030) が生成した。ADR-022 (自動化コンポーネントの責務分離) の観点で、**自動化コンポーネントが repo root を汚す**のは責務違反に近い。takt run の作業ファイルは `.takt/runs/<run>/` 配下か scratchpad に閉じるべき。
+>
+> **検討の方向性 (実装前に判断が要る)**:
+>
+> - **(a) 生成側を直す (筋が良い)**: post-merge-feedback の instruction facet に「一時スクリプトは repo root に書かない」を明示。ただし instruction = 助言層のため確実性は低い (ADR-042 のルール vs 仕組み化)。
+> - **(b) allow-list 化**: repo root の**追跡外・新規ファイル**を既知の許容リスト以外すべて警告する (deny-list → allow-list の反転)。列挙の限界を構造的に解消できるが、誤検知の運用コストを見積もる必要がある。
+> - **(c) 拡張子/配置ベース**: repo root 直下の `*.py` は本 repo に存在しない (Rust + TS 構成) ため、root の未追跡 `*.py` は高確度で scratch と判定できる。安価だが (b) より弱い。
+>
+> **参照**: `push-runner-config.toml` `[scratch_file_warning]`、`src/cli-push-runner/src/stages/scratch_file_warning.rs`、PR #85 (原初の実害)、順位 5 (`_tmp_*` 追加の補完アプローチ)、[ADR-022](adr/adr-022-automation-responsibility-separation.md)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)。退避した実物: 本セッションの scratchpad (`analyze_transcript.py`、削除せず保全)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (実害は未発生だが near-miss。混入すると PR に無関係ファイルが載り、レビュー・履歴を汚す) / Effort S。
+
+#### 作業計画
+
+- [ ] **再現確認を先に行う** (§2 原則 2): post-merge-feedback を再実行し、scratch script が repo root に残ることを再現する。再現しない場合は「その run 固有の挙動」の可能性があるため、頻度を見極めてから着手する。
+- [ ] 方向性 (a)(b)(c) を評価して選択する。**(a) 単独は不可** — instruction は助言層で、AI が別の名前で別のファイルを書けば同じことが起きる。(a) + (b または c) の二層が要る。
+- [ ] `scratch_file_warning` の判定を選択した方式で拡張し、**回帰テストは `analyze_transcript.py` を実 fixture として使う** (ADR-049 の incident→eval 流儀。「今回すり抜けた実物」で固定すれば同型の再発を捕まえられる)。
+- [ ] deny-list の限界を `scratch_file_warning.rs` の module doc に記録する (「観測 pattern の列挙では AI 生成の新規命名を先回りできない」= 本件の教訓)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- post-merge-feedback / takt run が repo root に一時ファイルを残した場合に、push 前に検出されること (`analyze_transcript.py` fixture で確認)。
+- 検出方式が「pattern 列挙」に依存しない (新しい命名でも捕まる) こと。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)

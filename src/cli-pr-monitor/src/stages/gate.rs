@@ -80,48 +80,6 @@ pub(crate) fn gate_disabled(config_enabled: bool, env_value: Option<&str>) -> bo
     !config_enabled
 }
 
-/// `jj diff --summary` 出力が docs-only か判定する (ADR-035 path 基準)。
-///
-/// fail-closed: 空出力・パース不能な行 (rename 等の非 M/A/D 行)・除外パス・
-/// 非 docs パスのいずれかがあれば false (= source 扱いで gate 実行)。
-/// ADR-035 の diff 内容基準 (doc comment のみの .rs 変更等) は path だけでは
-/// 判定できないため対象外 — その場合は gate が実行されるだけで安全側に倒れる。
-pub(crate) fn is_docs_only_summary(summary: &str) -> bool {
-    let mut saw_any = false;
-    for line in summary.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        saw_any = true;
-        let Some((status, path)) = line.split_once(' ') else {
-            return false;
-        };
-        if !matches!(status, "M" | "A" | "D") {
-            return false;
-        }
-        if !is_docs_only_path(path) {
-            return false;
-        }
-    }
-    saw_any
-}
-
-/// 単一パスが ADR-035 の docs-only path 基準を満たすか。
-///
-/// `.takt/` / `.claude/` は形式上 md/yaml でも code-equivalent (ADR-035 除外パス)。
-/// Windows の `jj diff --summary` はバックスラッシュ区切りで出力するため正規化する。
-fn is_docs_only_path(path: &str) -> bool {
-    let p = path.trim().replace('\\', "/");
-    if p.is_empty() {
-        return false;
-    }
-    if p.starts_with(".takt/") || p.starts_with(".claude/") {
-        return false;
-    }
-    p.starts_with("docs/") || p.ends_with(".md")
-}
-
 /// 末尾 max_chars 文字を返す (cargo test の失敗一覧は出力末尾に出るため tail を残す)。
 /// multi-byte 安全のため char_indices で境界を求める。
 fn tail_chars(s: &str, max_chars: usize) -> &str {
@@ -232,7 +190,7 @@ fn fix_diff_is_docs_only(pre_cid: Option<&str>) -> bool {
         ));
         return false;
     }
-    is_docs_only_summary(&out)
+    lib_docs_policy::is_docs_only_summary(&out)
 }
 
 /// auto-push 直前の gate 評価 (副作用: env / config / jj diff / コマンド実行)。
@@ -289,53 +247,6 @@ mod tests {
     #[test]
     fn gate_disabled_when_config_off() {
         assert!(gate_disabled(false, None));
-    }
-
-    #[test]
-    fn docs_only_accepts_all_docs_paths() {
-        assert!(is_docs_only_summary(
-            "M docs/notes.md\nA docs/foo/bar.md\nD docs/old.md\n"
-        ));
-    }
-
-    #[test]
-    fn docs_only_accepts_root_md() {
-        assert!(is_docs_only_summary("M README.md"));
-    }
-
-    #[test]
-    fn docs_only_rejects_source_path() {
-        assert!(!is_docs_only_summary("M src/cli-pr-monitor/src/main.rs"));
-    }
-
-    #[test]
-    fn docs_only_rejects_mixed_docs_and_source() {
-        assert!(!is_docs_only_summary("M docs/a.md\nM src/lib.rs"));
-    }
-
-    #[test]
-    fn docs_only_rejects_excluded_code_equivalent_paths() {
-        assert!(!is_docs_only_summary("M .takt/facets/instructions/fix.md"));
-        assert!(!is_docs_only_summary("M .claude/hooks-config.toml"));
-        assert!(!is_docs_only_summary("M .takt/workflows/post-pr-review.yaml"));
-    }
-
-    #[test]
-    fn docs_only_rejects_empty_summary() {
-        assert!(!is_docs_only_summary(""));
-        assert!(!is_docs_only_summary("  \n"));
-    }
-
-    #[test]
-    fn docs_only_rejects_unparseable_lines() {
-        assert!(!is_docs_only_summary("R docs/a.md docs/b.md"));
-        assert!(!is_docs_only_summary("docs/a.md"));
-    }
-
-    #[test]
-    fn docs_only_normalizes_windows_backslash_paths() {
-        assert!(is_docs_only_summary("M docs\\notes.md"));
-        assert!(!is_docs_only_summary("M .takt\\facets\\instructions\\fix.md"));
     }
 
     const SAMPLE: &str = r#"

@@ -38,25 +38,58 @@ pub(crate) fn run_group(group: &GroupConfig, timeout: u64) -> (String, bool, Dur
     (group.name.clone(), true, start.elapsed())
 }
 
-pub(crate) fn run_quality_gate(config: &QualityGateConfig) -> bool {
-    let timeout = config.step_timeout.unwrap_or(DEFAULT_STEP_TIMEOUT_SECS);
-    let parallel = config.parallel.unwrap_or(true);
+/// docs-only routing (T11) が返した skip 対象を除いた実行対象 group を返す。
+/// skip 対象の group 名を 1 件でも実 group にマッチさせられなかった場合は
+/// warning を出す (skip_groups の typo が silent no-op になるのを防ぐ)。
+fn effective_groups<'a>(
+    groups: &'a [GroupConfig],
+    skip_groups: &[String],
+) -> Vec<&'a GroupConfig> {
+    if skip_groups.is_empty() {
+        return groups.iter().collect();
+    }
+    for name in skip_groups {
+        if !groups.iter().any(|g| &g.name == name) {
+            log_stage(
+                "quality_gate",
+                &format!(
+                    "警告: skip 指定の group '{}' が存在しません (docs_only_routing の設定を確認)",
+                    name
+                ),
+            );
+        }
+    }
+    let retained: Vec<&GroupConfig> = groups
+        .iter()
+        .filter(|g| !skip_groups.contains(&g.name))
+        .collect();
+    if retained.is_empty() {
+        log_stage(
+            "quality_gate",
+            "警告: skip 指定が全 group を除外するため skip を無視して全 group を実行 (fail-closed)",
+        );
+        return groups.iter().collect();
+    }
+    let skipped: Vec<&str> = groups
+        .iter()
+        .filter(|g| skip_groups.contains(&g.name))
+        .map(|g| g.name.as_str())
+        .collect();
+    if !skipped.is_empty() {
+        log_stage(
+            "quality_gate",
+            &format!("docs-only のため skip: {}", skipped.join(", ")),
+        );
+    }
+    retained
+}
 
-    log_stage(
-        "quality_gate",
-        &format!(
-            "開始 ({} グループ, {})",
-            config.groups.len(),
-            if parallel { "並列" } else { "直列" }
-        ),
-    );
-
-    let results: Vec<(String, bool, Duration)> = if parallel {
-        let handles: Vec<_> = config
-            .groups
+fn run_groups(groups: &[&GroupConfig], timeout: u64, parallel: bool) -> Vec<(String, bool, Duration)> {
+    if parallel {
+        let handles: Vec<_> = groups
             .iter()
             .map(|group| {
-                let group = group.clone();
+                let group = (*group).clone();
                 std::thread::spawn(move || run_group(&group, timeout))
             })
             .collect();
@@ -69,12 +102,29 @@ pub(crate) fn run_quality_gate(config: &QualityGateConfig) -> bool {
             })
             .collect()
     } else {
-        config
-            .groups
+        groups
             .iter()
             .map(|group| run_group(group, timeout))
             .collect()
-    };
+    }
+}
+
+pub(crate) fn run_quality_gate(config: &QualityGateConfig, skip_groups: &[String]) -> bool {
+    let timeout = config.step_timeout.unwrap_or(DEFAULT_STEP_TIMEOUT_SECS);
+    let parallel = config.parallel.unwrap_or(true);
+
+    let groups = effective_groups(&config.groups, skip_groups);
+
+    log_stage(
+        "quality_gate",
+        &format!(
+            "開始 ({} グループ, {})",
+            groups.len(),
+            if parallel { "並列" } else { "直列" }
+        ),
+    );
+
+    let results = run_groups(&groups, timeout, parallel);
 
     log_stage("quality_gate", "結果:");
     for (name, ok, elapsed) in &results {
@@ -137,8 +187,81 @@ mod tests {
             ],
         };
         assert!(
-            !run_quality_gate(&config),
+            !run_quality_gate(&config, &[]),
             "mixed pass/fail should return false overall"
+        );
+    }
+
+    /// T11: docs-only routing が失敗 group を skip 指定すると gate が PASS になる。
+    /// 逆に言えば skip リストが効いていることの証跡 (skip なしなら false)。
+    #[test]
+    fn run_quality_gate_skips_named_group() {
+        let config = QualityGateConfig {
+            parallel: Some(false),
+            step_timeout: Some(10),
+            groups: vec![
+                make_group("keep", vec!["echo ok"]),
+                make_group("rust-lint-test", vec!["exit 1"]),
+            ],
+        };
+        assert!(
+            !run_quality_gate(&config, &[]),
+            "skip なしなら失敗 group が gate を落とす (対照)"
+        );
+        assert!(
+            run_quality_gate(&config, &["rust-lint-test".to_string()]),
+            "失敗 group を skip すれば残りが PASS"
+        );
+    }
+
+    /// T11: skip 対象が実 group に 1 件も無い場合も、残り group は普通に評価される
+    /// (typo 保護は warning のみで、gate 自体は骨抜きにしない)。
+    #[test]
+    fn effective_groups_retains_all_when_skip_unmatched() {
+        let groups = vec![make_group("a", vec!["echo"]), make_group("b", vec!["echo"])];
+        let skip = vec!["nonexistent".to_string()];
+        let retained = effective_groups(&groups, &skip);
+        assert_eq!(retained.len(), 2, "存在しない skip 名は誰も除外しない");
+    }
+
+    #[test]
+    fn effective_groups_empty_skip_returns_all() {
+        let groups = vec![make_group("a", vec!["echo"])];
+        let retained = effective_groups(&groups, &[]);
+        assert_eq!(retained.len(), 1);
+    }
+
+    /// fail-closed (ADR-043): skip 指定が全 group を覆う誤設定でも、gate を素通り
+    /// (0 group 実行で `.all()` が空 vacuous pass) させず全 group を実行する。
+    /// docs-only routing が JS 系まで skip 名に含める設定ミスに対する gate 骨抜き防止。
+    #[test]
+    fn effective_groups_skip_all_falls_back_to_full_run() {
+        let groups = vec![make_group("a", vec!["echo"]), make_group("b", vec!["echo"])];
+        let skip = vec!["a".to_string(), "b".to_string()];
+        let retained = effective_groups(&groups, &skip);
+        assert_eq!(
+            retained.len(),
+            2,
+            "全 group を skip する指定は無視して全実行 (0 group で vacuous pass させない)"
+        );
+    }
+
+    #[test]
+    fn run_quality_gate_skip_all_does_not_vacuously_pass() {
+        let config = QualityGateConfig {
+            parallel: Some(false),
+            step_timeout: Some(10),
+            groups: vec![
+                make_group("keep", vec!["echo ok"]),
+                make_group("rust-lint-test", vec!["exit 1"]),
+            ],
+        };
+        assert!(
+            !run_quality_gate(
+                &config,
+                &["keep".to_string(), "rust-lint-test".to_string()]
+            ),
+            "全 group skip 指定でも失敗 group は実行され gate は落ちる (fail-closed)"
         );
     }
 }

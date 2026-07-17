@@ -57,6 +57,7 @@
 - [ADR-054: prompt injection 信頼境界の 3 層防御](docs/adr/adr-054-prompt-injection-trust-boundary-defense.md) *(試験運用)*
 - [ADR-055: 発火テレメトリ収集層 — ハーネス ROI 棚卸しの決定論的観測基盤](docs/adr/adr-055-firing-telemetry-collection.md) *(試験運用)*
 - [ADR-056: takt builtin review policy の shadow — policy 層を anomaly 設計に整合させる](docs/adr/adr-056-review-policy-anomaly-shadow.md) *(試験運用)*
+- [ADR-057: docs-only / 空 diff の決定論 routing — instruction 規約から決定論機構への昇格](docs/adr/adr-057-docs-only-deterministic-routing.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

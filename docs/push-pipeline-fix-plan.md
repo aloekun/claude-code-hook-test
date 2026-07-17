@@ -85,7 +85,7 @@ takt / push) を使う。書式の定義元は `src/cli-push-runner/src/log.rs` 
 | T3 | `pnpm build` 形骸ゲートの実体化 or 削除 | 不具合 | 見せかけゲートの解消 | XS | なし |
 | T2 | 旧 cli-push-pipeline の workspace 除去 | 改善 | clippy/test 対象の純減 (22 → 21 crate) | XS (実測: crate 削除 329 行 / PR 全体は push 時 `pr_size` で 396 行。当初「S (大量削除)」は誤見積) | なし |
 | T10 | takt builtin review policy の shadow | 改善 | **-1.5〜3 分/iter + 無駄 fix 削減** (実装済。効果は**未検証** — 1 PR では測れないため ADR-056 の判定期限 2026-07-31 に引き継ぎ) | M | T0 |
-| T11 | docs-only / 空 diff の決定論 routing | 改善 | docs-only push **-6〜8 分** | M | T1 |
+| T11 | docs-only / 空 diff の決定論 routing | 改善 | docs-only push **-~50s** (実装済。当初「-6〜8 分」は §1 stale ベースライン由来で実測で下方修正 = T1/T2 同型。効果検証は ADR-057 判定期限 2026-08-15) | M | T1 |
 | T12 | fix 後の決定論再ゲート + fix 検証義務の縮小 | 改善+安全 | -1〜3 分/fix iter + 自己申告依存の解消 | M | T1, T11 |
 | T13 | backlog 小物 (§6) | 任意 | 各 -数秒〜1 分 | XS×n | 任意 |
 | T99 | after 計測 + 本ファイル削除 | 完了 | - | XS | 全タスク |
@@ -948,6 +948,87 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
   除外パスを含む diff ではフルパイプラインが走る (両方テストで固定)。
 - **ADR**: 新規 ADR (試験運用)。ADR-035 の「instruction 規約 → 決定論機構への昇格」
   (ADR-042 の方向) として位置づける。
+- **実施結果 (2026-07-18, 実装済み / 本 PR)**:
+  - **⚠ 期待効果が実測で大幅に下方修正 (T1/T2 と同型)**: 計画の「docs-only push -6〜8 分」は
+    §1 の古いベースライン由来で、T1/T4 の実測 (docs 相当 push は既に合計 ~151s =
+    quality_gate 49.7s + takt 97.8s) と乖離していた。着手前に quality_gate group を再実測
+    (warm target): **rust-lint-test 50s** (clippy 1s / cargo test 29s / `--ignored` 20s) が
+    律速、JS 系 (lint/test/build) は計 ~6s。したがって docs-only routing の効果は
+    **-~50s (rust group 分)** であり、当初見積の 1/7〜1/10。§3 表の期待効果を修正した。
+  - **方針変更: takt は skip しない (ユーザー承認済み、質問で確認)**。MVP の「takt も skip」は
+    **不採用**。path 判定から「Rust テスト結果が不変」は演繹できるが「レビュー不要」は
+    演繹できない — docs の内容・cross-ref・trust boundary は誤り得る (ADR-035 §適用する
+    criteria が docs-only にも trust boundary / cross-ref / markdown lint を**適用する**と明記。
+    ADR-056 T10 dogfood で reviewer が docs diff の事実誤り = 行数記載ミスを checklist ノイズ
+    0 件で検出した実績)。**skip するのは決定論的に結果が変わらない group のみ** (既定
+    `rust-lint-test`)、takt と JS 系 (`pnpm lint:docs` = docs の markdown lint そのもの) は維持。
+    この「演繹できる範囲だけ落とす」は ADR-043 (fail-closed) の精神。
+  - **判定範囲は PR 範囲 `<base>..@`、単一コミット `@` ではない**: quality_gate は working copy
+    全体をビルド・テストするので、判定すべきは「push される差分全体が docs-only か」。
+    `@` 単独が docs-only でも祖先が Rust に触れていれば gate は必要で、単一コミット判定は
+    祖先の code 変更を見逃す穴になる。`pr_size_check` と同じ `<default_branch>..@` を使う。
+  - **実装**:
+    - **ADR-035 path 基準を新 crate `lib-docs-policy` に集約**。判定を要する決定論層が
+      pre-push (本 stage) と post-PR (`cli-pr-monitor` gate) の 2 箇所になったため、
+      `is_docs_only_summary` を単一実装に切り出した。ADR-035 は「判定が facet ごとに分散して
+      drift した」ことを問題として起案された ADR で、実装が複数箇所に増えるのは ADR-035 が
+      防ごうとした drift の再生産。`cli-pr-monitor` の重複実装 (関数 + テスト 7 本) を撤去し
+      本 crate 呼び出しに置換。crate は依存ゼロ (純粋な文字列判定、jj/subprocess/serde 不要)。
+    - `stages/docs_only_routing.rs` を quality_gate の**前**に追加。純関数 `decide_routing` に
+      jj 呼び出しを closure 注入 (ADR-021 原則 3) し、実 jj repo なしに全分岐を unit test で固定。
+      `run_jj_diff_summary` は `pr_size_check::run_jj_diff_stat` と同型 (direct args のため
+      `run_cmd_shell_*` とは signature 非互換で共通化しない = ADR-044 層 1)。
+    - `run_quality_gate` に `skip_groups: &[String]` を追加し、docs-only 判定が返した group を
+      除外。skip 名が実 group に 1 件もマッチしないと warning (typo が silent no-op になるのを
+      防ぐ、§2「no silent caps」)。`main.rs` は routing 結果を quality_gate に渡す。
+    - config: `[docs_only_routing]` (ADR-039 3 点セット: default OFF / env
+      `DOCS_ONLY_ROUTING_DISABLE=1` kill-switch / bounded lifetime)。本リポジトリは
+      `enabled = true` で dogfood。`default_branch` は `[pr_size_check]` と論理同一値を保つ義務を
+      両 section コメントに明記 (ADR-051 cross-config coupling)。
+  - **空 diff 部分は既存経路で処理済み**: タスク名の「空 diff」は `main.rs` の
+    `DiffResult::Empty` が takt を skip する既存経路が担う。本タスクは「docs はあるが code は
+    無い」ケース (空 diff ではない) の quality_gate skip のみを実装した。
+  - **回帰テスト**: `lib-docs-policy` 8 本 (path 基準の全分岐) + `docs_only_routing` stage 9 本
+    (docs-only / code / mixed / 除外パス / jj 失敗 / 空 / override / disabled / absent) +
+    `quality_gate` の skip 3 本 (skip なしなら失敗 group が gate を落とす対照付き = skip が
+    効いていることの証跡) + config 4 本。cli-push-runner 全体 **231 passed**、
+    lib-docs-policy **8 passed**、cli-pr-monitor **248 passed** (重複テスト移設後も同数)。
+  - **サンドボックス実機検証 (before/after、配布 exe)**: 短いパス (`C:\t11\repo`) に実 jj repo を
+    張り、`rust-lint-test` group を `cmd /c exit 1` (失敗) にして「skip されたか」を exit code で
+    判別 (exit 1 = rust-lint-test が走って失敗 = skip 効かず / それ以外 = skip 成功) した。
+
+    | シナリオ | working copy | config | rust-lint-test | exit |
+    |---|---|---|---|---|
+    | A | docs-only (`M docs/a.md`) | enabled | **skip** | 0 (完走) |
+    | B | code+docs (`M src/main.rs`) | enabled | 実行 | 1 (gate fail) |
+    | C | docs-only | enabled + env kill-switch | 実行 (bypass) | 1 |
+    | D | docs-only | `enabled = false` | 実行 (routing なし) | 1 |
+
+    docs-only で rust group を落とし、code / kill-switch / disabled はいずれもフル実行に倒れる
+    (fail-safe 方向) ことを実バイナリで確認した。
+  - **⚠ サンドボックス構築で確認できた実 repo の安全性**: 当初 sandbox の `master` を local
+    bookmark にしたら、pre_checks の `advance_jj_bookmarks` が `(trunk()..@) & bookmarks()` で
+    master を @ に前進させ、routing が見る `master..@` が**空**になった (routing は pre_checks の
+    後に走るため)。実 repo では `master` が remote-tracking (`master@origin`) で `trunk()` が
+    これを解決するため advance の対象外 = `master..@` は正しく PR 範囲を指す。sandbox は
+    `revset-aliases.'trunk()' = master` で同じ除外を再現して検証した。**実 repo の bookmark
+    advance は master を動かさない**ことの確認でもある。
+  - **exe 再ビルド必要** (§2 原則 5): Rust runtime を変更したため
+    `pnpm build:cli-push-runner` で `.claude/cli-push-runner.exe` を更新済み (dogfood 用)。
+  - **新規 ADR-057** (試験運用、判定期限 2026-08-15)。受け入れ基準「docs-only PR が 1 分台で
+    完走」は本 PR (Rust 変更を含むため docs-only 判定にならない = フル実行される) では計測できず、
+    dogfood の docs-only PR に持ち越し。**効果検証と誤 skip の観測は ADR-057 の bounded lifetime
+    が single source** (本計画は T99 で削除されるため、判定に使う記録を残さない)。
+  - **pre-push dogfood review の指摘採用 (2 件、いずれも非ブロッキング warning を PR 作成前に修正)**:
+    本 PR 自身の push (pre-push-review-refute、APPROVE / 1 iteration) が出した warning 2 件を採用した。
+    (a) `start_pipeline` の docstring が「config 読込」と書いていたが実際は workflow 解決 + 開始ログ
+    のみ (config は呼び出し側で読込済み) だったため訂正。(b) **fail-closed の穴**: `effective_groups`
+    が `skip_groups` に全 group 名が含まれると空を返し、`run_quality_gate` の `.all()` が空集合で
+    vacuous pass する (0 group 実行で gate 素通り) 経路があった。docs-only routing の skip_groups に
+    JS 系まで含める設定ミスで gate が骨抜きになるため、**retained が空なら skip を無視して全 group
+    実行 (fail-closed / ADR-043)** に修正し、guard の test 2 本を追加した (T7 の「正規化がゲートを
+    骨抜きにする最悪の退行ガード」と同型の観点)。
+  - **実施順**: 計画の推奨順どおり T10 の次に実施。
 
 ### T12: fix 後の決定論再ゲート + fix step 検証義務の縮小
 
@@ -1090,4 +1171,5 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 | T3 | 実装済 (PR #285) | 2026-07-17 | **方針 (a) 実体化を採用 (ユーザー承認済み)**。`typescript` + `@types/node` を devDependencies に追加、`tsconfig.json` を新規作成、build script を `npx tsc --noEmit --pretty \|\| true` → `npx --no-install tsc --noEmit --pretty` に変更 (`--no-install` は既存 `lint:md` の規約に追随)。**(b) の前提は成り立たなかった**: 「TS 資産が実質サンプルのみ」ではなく `scripts/deploy-hooks.ts` (190 行) は `pnpm deploy:hooks` の実運用ツール、`scripts/e2e.ts` は `pnpm test:e2e` の入口で、型チェックの価値が実在する。**既存 ts の型エラーは 0** (方針欄の「型エラーなら先に修正」は空振り)、ゲートコストは 0.6s (TypeScript 7 native)。**fail-closed を実測** (ADR-043): 型エラー → exit 1 / typescript 欠落 (npx が npm の `tsc` stub を掴む) → exit 1 / tsconfig の include 空マッチ → TS18003 exit 2。よって黙って green に戻る経路は「握りつぶしの再追加」「tsc 以外への差し替え」の 2 つだけに絞られ、**回帰テストはその 2 経路の封鎖に専念**した (tsc が型エラーを検出すること自体は TypeScript の責務)。**回帰テスト**: `tests/t3_build_gate_seal.rs` 4 本 (33 → 37 passed)。incident 状態 (build script に `\|\| true` を戻す + typescript 削除) で 2 本が実際に FAIL することを確認済み (推測ではない)。`scripts.build` 欠落時は panic させる false-green guard 付き。**型チェック範囲はテスト除外 (ユーザー承認済み)** — vitest が devDep でないため TS2307。npx 自動 DL の非決定性は T3 と別問題なので §6 backlog 12 に分離。**⚠ 本リポの guard に阻まれた**: `hooks-pre-tool-validate` が `tsconfig.json` をハードコードで保護しており Write が exit 2 で拒否される。guard の意図は「リンター設定を弱めてエラーを消す」抑止で、T3 の「ゲートを有効化するための新規作成」と区別できず、config 除外機構も無い (`extra_protected_files` は追加専用)。guard 自身のメッセージが指示する承認フローを踏んで Bash 経由で作成 → 恒久対処は §6 backlog 13 に分離。Rust runtime の変更なし = exe 再ビルド不要。**実施順**: 計画の推奨順どおり T7 の次に実施 |
 | T2 | 実装済 (PR #286) | 2026-07-17 | 旧 `src/cli-push-pipeline/` (2 ファイル / 316 行) を削除し workspace members から除去。**受け入れ基準の実測**: member **22 → 21 crate** (`cargo metadata --no-deps` で前後計測)、`cargo clippy --workspace --all-targets --all-features` warning 0、`cargo test --workspace` 全 pass (削除前 1568 passed → 削除後 1563 passed、削除 crate の `#[test]` 5 本分で総数 **-5**)、`Cargo.lock` のエントリも自動消滅。**dead code の根拠は想定より強かった**: path 依存 0 / pnpm scripts・`build:all` 0 / `.claude/*.exe` に配布物なし に加え、`main.rs` が読む `hooks-config.toml` の `[push_pipeline]` セクションは ADR-015 の設定分離で削除済み = **仮に実行しても動作しない**状態だった。**⚠ 計画の「大量削除」前提は誤りで `PR_SIZE_CHECK_OVERRIDE` は不使用**: 実測は crate 削除分 329 行 (crate 316 + Cargo.lock 10 + doc 1)、docs 追記込みの PR 全体でも push 時 `pr_size` stage で 396 行 (同 stage の計測単位) で、block 1500 どころか warning 800 にも届かない。§2 原則 1 の該当記述を修正した。**gate の bypass は計画の記述ではなく実測で必要になった時だけ使う** (常態化は ADR-043 fail-closed の空洞化)。T1 と同型の「計画時見積もりが実測で覆る」例。**stale 参照の処置**: 生きたコード (`lib-subprocess` `drain_pipe_capped` の callsite 例) と、後続セッションが存在しない crate を探す原因になる未実施タスクの crate 一覧 (ADR-044 の「5 callsite」→ 日付付き追記で現在 4 と明示、`docs/todo10.md` の stress test transfer 候補) を更新。ADR-008/009/010/012 は当時の設計記録のため残置 (経緯は ADR-015 が持つ)。**ADR**: ADR-015 §廃止 に削除節を追記 + **ADR-026 §次ステップの「削除は別 PR」を完了に更新** — 同 ADR (2026-04-17) が先送りの出所で、**削除まで 3 か月、毎 push の clippy/test が dead crate を対象にし続けた**。member 一覧は build 対象そのもので放置コストが毎 push 発生するため、同種の先送りは todo 化して期限を持たせる旨を教訓として記録。**exe 再ビルド不要** (§2 原則 5 の例外): 削除 crate に配布物なし、他は doc コメント 1 行で runtime 挙動ゼロ。**post-PR 修正 (CodeRabbit Minor 1 件を採用)**: override 不要の訂正を §2 原則 1 / §3 表 / §5 実施結果 / §8 に入れながら **T2 の方針欄 (§5) 自体を見落としており**、「diff 行数が block 閾値を超える」という誤った前提が原文のまま残っていた = 次の読み手が古い方針を拾う経路。**方針欄の書き換えではなく打ち消し線 + 訂正注記で対応** (ユーザー承認済み): 本計画は完了タスクを「方針 → 実施結果 (逸脱の記録)」構造で残しており (先例: T5 の「厳格化を検討」→ 実施結果で「不採用」)、方針を遡って正しかったことにすると**「計画時の見積もりが実測で覆った」学び自体が消える**ため、§2 原則 1 で既に使ったパターンに揃えた。**副産物: 数値の不整合も発見・修正**。§2 原則 1 / §3 表 / §5 / §8 の「PR 全体 394 行」は push 前の `jj diff --stat` を手計算した値で、`pr_size` stage の実測 **396 行**と食い違っていた (指摘とは別に本対応中に発見)。結論 (warning 800 未満) は不変だが、**実測を根拠に計画を訂正した節が実測でない数値を載せている**のは本末転倒のため、push 時実測値に統一し出所も明記した。**実施順**: 計画の推奨順どおり T3 の次に実施 |
 | T10 | 実装済 (PR #287) | 2026-07-17 | takt builtin の 8KB チェックリスト policy を、pre-push 限定の新名称 policy `review-anomaly` (5,080 bytes / 112 行、**-37%**) で shadow。無条件 REJECT 16 項目と Boy Scout を撤去し REJECT 基準を instruction 側 (ADR-036 の anomaly 設計) に委譲、`finding_id` 追跡・reopen 条件は維持 (`refute-finding.md` / `fix.md` / output-contracts が依存)。新規 **ADR-056**。**⚠ 計画の対象ファイルが誤っていた**: 方針は `pre-push-review.yaml` を指すが、**同じ計画の T4 が `refute_enabled = true` にしたため実際に走るのは `pre-push-review-refute.yaml`** — 計画どおり前者だけ直せば効果ゼロで、しかも review が普通に流れるため気付けない。両 workflow を変更して解消し、あわせて ADR-047 kill-switch (`refute_enabled = false`) を引いても T10 が暗黙 revert されない直交性を確保した。**教訓: 計画の「対象ファイル」は先行タスクが動かした config で無効化され得る。着手時に「今どの経路が実際に走るか」を config から再確認する**。**適用範囲を 4 step に拡大 (ユーザー承認済み)**: 方針の「reviewer 2 step」は verify / supervise を見落としており、そこでも矛盾が実在した (`refute-finding.md`「確信が持てなければ reject」↔ policy「DRY 違反は無条件 REJECT」、`supervise.md`「blocking が解決していれば push 可」↔ policy「1 件でもあれば REJECT」)。pre-push の review 系 4 step (両 workflow 計 7 step) に適用。post-pr (2) / weekly (7) / post-merge (4) の計 13 step は方針どおり現状維持 — **新名称にしたのはこの blast radius 限定のため** (同名 shadow なら 13 step を巻き込んだ)。**silent degrade を実測で潰した**: facet 名が未解決だと takt はリテラル文字列に degrade する (ADR-048 の実事故) が、review は普通に流れるため成功と区別できない。`takt catalog policies` → `[project]` 解決、`takt prompt pre-push-review-refute` → 新 policy 本文が展開・builtin marker 0 件、`takt prompt post-pr-review` → builtin 維持 (blast radius の実測) の 3 点で確認。`takt prompt` の exit 1 は未変更 workflow でも同一に出る既存挙動 (control で確認)。**方針 3 実施 + 結合を記録**: `review-simplicity.md` の lint-screen 参照 15 行を削除 (`enabled = false` で対象ファイル常時不在 = 恒常デッドウェイト)。削除で消費側が不在になるため、`enabled = true` でも誰も読まない (silent no-op) ことを生成側 `[lint_screen]` コメントに明記 (ADR-051 の規律)。**受け入れ基準は本 PR では未達成 (設計上そうなる)**: 「5 run で execute 203s → 150s 以下」は 1 PR で検証不能のため ADR-056 の bounded lifetime (**判定期限 2026-07-31**、ADR-047 と同期) に引き継ぎ。**効果の帰属**: T4 refute と期間が重なり、fix iteration 減は両者の複合効果 (simplicity execute は reviewers 指標のため切り分け可)。**exe 再ビルド不要** (§2 原則 5 の例外): Rust 変更ゼロ。**副産物**: T2 行の「本 PR」放置 (実際は PR #286) を backfill — T5 が記録した同じ負債の 3 回目の再発。**実施順**: 計画の推奨順どおり T2 の次に実施 |
+| T11 | 実装済 (本 PR) | 2026-07-18 | PR 範囲 (`master..@`) が docs-only (ADR-035 path 基準) のとき quality_gate の `rust-lint-test` group (実測 ~50s = gate 律速) を決定論的に skip。**takt は skip しない (ユーザー承認済み)**: path から「Rust テスト結果不変」は演繹できるが「レビュー不要」は演繹できない (docs の cross-ref / trust boundary / 事実は誤り得る。ADR-035 §適用 criteria + ADR-056 T10 で reviewer が docs の事実誤りを検出した実績)。JS 系 (`pnpm lint:docs`) も維持。**⚠ 期待効果を実測で下方修正 (T1/T2 同型)**: 「-6〜8 分」は §1 stale ベースライン由来で、実測は rust group ~50s = **-~50s**。**ADR-035 path 基準を新 crate `lib-docs-policy` に集約** — pre-push (本 stage) と post-PR (`cli-pr-monitor` gate) の 2 箇所が判定を要するため単一実装化 (判定分散は ADR-035 が防ごうとした drift の再生産)。`cli-pr-monitor` の重複実装 + テスト 7 本を撤去して置換。判定範囲は PR 範囲 `<base>..@` (単一コミット `@` では祖先の code 変更を見逃す)。**空 diff** 部分は既存 `DiffResult::Empty` 経路が担うため本タスクは docs-only の quality_gate skip のみ実装。**ADR-039 3 点セット**: `[docs_only_routing]` default OFF / env `DOCS_ONLY_ROUTING_DISABLE=1` kill-switch / 本 repo `enabled = true` で dogfood。`default_branch` は `[pr_size_check]` と論理同一値を保つ義務を両 section に明記 (ADR-051)。**回帰テスト**: lib-docs-policy 8 + docs_only_routing stage 9 + quality_gate skip 3 (対照付き) + config 4。**サンドボックス実機 before/after** (配布 exe、`C:\t11\repo`): docs-only=skip・exit 0 完走 / code=実行・exit 1 / kill-switch=bypass / disabled=routing なし の 4 scenario で確認。副産物として、実 repo は `master` が remote-tracking のため bookmark advance が master を動かさず `master..@` が正しく PR 範囲を指すことも確認 (sandbox の local master は `trunk()` alias で同じ除外を再現)。新規 **ADR-057** (判定期限 2026-08-15、効果検証と誤 skip 観測を引き継ぎ)。**exe 再ビルド必要** (Rust 変更あり、`pnpm build:cli-push-runner` 実施済み)。**実施順**: 計画の推奨順どおり T10 の次に実施 |
 | T7 | 実装済 (PR #284) | 2026-07-17 | `hooks-stop-quality` の `main` 冒頭で cwd をプロジェクトルートへ正規化 (`normalize_cwd_to_project_root`)。**ルート導出は (b) exe パス**: 方針が両論併記だったため実測し、VSCode 拡張環境で **`CLAUDE_PROJECT_DIR` が空** = ADR-005 (2026-03-17) の不安定性が現在も再現することを確認して (a) を却下。既存規約 (順位 287 / ADR-010、`config_path()` / `pipeline_lock::exe_claude_dir()` / `lib_telemetry::exe_dir()`) と同形。判断根拠は**本計画が削除予定のため ADR-005 に追記**して恒久化した。**⚠ 方針の前提が 1 つ誤っていた (ユーザー承認のうえ逸脱)**: リスク欄は「正規化が takt subsession 判定に影響しないか確認が必要」「判定ロジックは元 cwd を使う形が安全」としていたが、`takt_subsession_active` は **cwd 依存で既に壊れていた** (cwd = `.takt/runs` だと `.takt/runs/.takt/runs` を探して空振り → active run 未検出 → ADR-004 § takt subsession skip が効かず edit: false の subsession に「直せ」を返す = PR #221 の事故が再発しうる)。元 cwd 維持は「安全」ではなく既知不具合の温存のため、**両症状に効く main 冒頭 1 回の正規化**を採用。回帰テストで修正前に実際に失敗することを確認済み (推測ではない)。**実装**: `project_root_from_exe` は ADR-010 の配置 (`<root>/.claude/<hook>.exe`) を満たすときのみ `Some` を返し、`target/debug/` 等では正規化を skip (cwd 書き換えは全 step の実行位置を変えるため、推測でルート扱いせず従来挙動に倒す)。ルート特定不能・`set_current_dir` 失敗は警告のみで継続 = fail-open (`pipeline_is_running` と同じ線引き、ADR-043: Stop 時点は助言層で本物のゲートは push pipeline 側)。**lib-subprocess は無変更** — プロセス単位の正規化で `cmd /c` の子が継承するため、共有 `run_cmd_shell_*` への cwd 引数追加 (variant 増殖) を回避できた。**ファイル分割 (T7 に付随、T1 と同型)**: `main.rs` が 712 行 → 追記で 804 行となり 800 行上限に触れたため takt 判定を `takt_subsession.rs` へ切り出し (main 532 / takt_subsession 290)。**T7 が直している file-length gate に T7 自身が引っ掛かった** = gate が機能していることの副次的実証。**回帰テスト**: `tests/t7_cwd_independence.rs` E2E 5 本 + unit 2 本 (26 → 33 passed)。**exe を `<root>/.claude/` に staging して spawn** するのが要点 — `target/debug/` の exe を直接起動すると exe-relative のルート導出を素通りして実配置を検証しない。`normalize_cwd_to_project_root()` の呼び出しを外すと **bad 2 本がちょうど失敗し good 3 本は通る**ことを確認済み (failure は incident の逐語再現)。good 側に「実失敗する step は cwd に依らず block する」= 正規化がゲートを骨抜きにする最悪の退行ガードを含む。**実機検証 (before/after、本リポジトリの実 config)**: cwd = `.takt/runs` で before = block + `**file-length** failed:` + 文字化け / after = 出力なし (通過)。root cwd と深い cwd も通過。**方針の記述も実機で裏付け**: before で失敗したのは `file-length` step のみで pnpm 系 5 step + `cargo clippy` は通っていた (pnpm/cargo は設定ファイルを上方探索する) = **ルート相対パスを書いた step だけが壊れる**非対称が症状をまだらにし発見を遅らせていた。**CP932 デコードフォールバック (方針 2) は §6 backlog 11 へ分離 (ユーザー承認済み)**: 影響先が共有 lib (push-runner / merge-pipeline) のため §2 原則 4 に従う。cwd 修正で incident の文字化けは消えるが、exe 欠落時 (ADR-005 Negative の既知事象) 等で経路自体は残るため却下ではなく backlog。**発見 (本タスク外)**: T7 は cwd drift silent 故障の 3 例目で、順位 281 (Tier 1、lint rule) / 順位 287 (Tier 3、convention 明文化) が先行 todo 化済み。ただし T7 は「config 解決」でなく「**step 実行の cwd**」の別カテゴリのため既存 lint rule 案では捕捉できず、281 着手時に検出対象拡大を検討する価値がある (本計画スコープ外 = todo13.md 管理)。**post-PR 修正 (CodeRabbit Major 1 件を採用)**: `run_hook` が `wait_with_timeout_safe` の戻り値を捨てており、hook が非 0 exit でも stdout が空なら `block_reason == None` をすり抜ける = **`None` を期待する 3 本 (bad 2 + good 1) が false green** になる穴。「block されないこと」を期待する回帰テストは hook が黙って死ぬと合格してしまうため、指摘は妥当。`cli-pr-monitor` の takt auto-fix が exit code assert を追加したが**指摘の「失敗時は stderr を出す」部分が未達**だったため補正した — メッセージに stdout を渡しており、かつ `stderr.join()` より前に呼ばれるため構造上 stderr を出せなかった。本 hook の診断は `eprintln!` = stderr にしか出ず、指摘が想定する「stdout が空の失敗」では stderr だけが手掛かりになる。**guard が空振りでないことを実証**: staged exe を `where.exe` (非 0 exit・stdout 空) に差し替えると 5 本すべてが `exit code Some(2)` で失敗する (導入前なら `None` 期待の 3 本は素通りしていた)。**実施順**: 計画の推奨順どおり T6 の次に実施 |

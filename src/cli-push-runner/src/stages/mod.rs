@@ -1,5 +1,6 @@
 mod bookmark_check;
 mod diff;
+mod docs_only_routing;
 mod lint_screen;
 mod pr_size_check;
 mod push;
@@ -10,6 +11,7 @@ mod takt;
 
 pub(crate) use bookmark_check::run_bookmark_check;
 pub(crate) use diff::{run_diff, DiffResult};
+pub(crate) use docs_only_routing::run_docs_only_routing;
 pub(crate) use lint_screen::run_lint_screen;
 pub(crate) use pr_size_check::run_pr_size_check;
 pub(crate) use push::run_push;

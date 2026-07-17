@@ -34,6 +34,7 @@ members = [
     "src/hooks-stop-quality",
     "src/hooks-stop-tool-call-leak",
     "src/hooks-user-prompt-feedback-recovery",
+    "src/lib-docs-policy",
     "src/lib-jj-helpers",
     "src/lib-ollama-client",
     "src/lib-pending-file",
