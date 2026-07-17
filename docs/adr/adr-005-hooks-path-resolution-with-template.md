@@ -78,6 +78,25 @@ node -e "...process.cwd() で {{PROJECT_DIR}} を置換..."
 - クローン直後に `pnpm build:all` を実行しないと hooks が動作しない（ADR-003 と同様）
 - テンプレートと生成物の二重管理になる（ただし生成は自動なので実質的な負担は小さい）
 
+### 追記: hook プロセス内部のパス解決も exe-relative (2026-07-17、T7)
+
+本 ADR は `settings.local.json` の `command` 欄 (= Claude Code による変数展開) を対象としていたが、
+**hook プロセスが内部でルートを解決する場合も同じ結論**であることを実測で確認した。
+
+`docs/push-pipeline-fix-plan.md` の T7 (Stop hook の cwd 依存) は、ルート導出手段として
+(a) `CLAUDE_PROJECT_DIR` env / (b) 自 exe パスの親の親、を両論併記していた。
+着手時に VSCode 拡張環境 (Claude Code 2.1.212) で実測したところ **`CLAUDE_PROJECT_DIR` は空**で、
+本 ADR が 2026-03-17 に記録した不安定性は**現在も再現する**。よって (b) を採用した。
+
+hook 内部のパス解決は既に exe-relative が規約 (順位 287、ADR-010: hook exe はすべて `.claude/` 配下)
+であり、`config_path()` / `lib_jj_helpers::pipeline_lock::exe_claude_dir()` /
+`lib_telemetry::exe_dir()` が同じ形を採る。T7 はこれを **cwd 正規化にも適用**した
+(`hooks-stop-quality::normalize_cwd_to_project_root`)。
+
+**含意**: hook が「プロジェクトルート」を必要とする場合、`CLAUDE_PROJECT_DIR` env も
+`current_dir()` も信頼できない (前者は空になり、後者はセッションの cwd drift で動く)。
+exe パスのみが安定した起点である。
+
 ### ADR-003 への影響
 
 ADR-003 の以下の記述はこの ADR により supersede される:
