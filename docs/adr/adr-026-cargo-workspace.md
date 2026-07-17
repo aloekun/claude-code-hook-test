@@ -102,6 +102,6 @@ After:
 
 - **`[workspace.dependencies]` への集約**: serde / toml / regex などの重複依存を集約できる。実利が見えたら別 PR で実施
 - **`[workspace.package]` への version / edition 集約**: 現状すべて `version = "0.1.0"` / `edition = "2021"` で統一されているので、集約しても見た目のみの変化。YAGNI で保留
-- **cli-push-pipeline の deprecation**: ADR-015 で cli-push-runner (takt ベース) に移行済み。cli-push-pipeline は dead code だが本 ADR の scope 外。削除は別 PR
+- ~~**cli-push-pipeline の deprecation**: ADR-015 で cli-push-runner (takt ベース) に移行済み。cli-push-pipeline は dead code だが本 ADR の scope 外。削除は別 PR~~ → **完了 (2026-07-17)**: crate 削除により workspace member は 22 → 21。経緯は [ADR-015](adr-015-push-runner-takt-migration.md) § cli-push-pipeline crate の削除。<br>教訓: 「dead code だが scope 外、削除は別 PR」と先送りした結果、本 ADR (2026-04-17) から削除まで **3 か月**、その間ずっと毎 push の clippy / test が dead crate を対象にし続けた。member 一覧は build 対象そのもので、放置コストが毎 push 発生する。次に同種の先送りをする場合は todo 化して期限を持たせる。
 - **ADR-024 (仮) の正式採用**: 2 つ目の jj ヘルパー使用例が出たら `src/lib-jj-helpers/` を workspace member として新設 (workspace 化により追加が容易に)
 - **ADR-025 (仮) の正式採用**: 2 つ目の cwd 依存テストが出たら `src/lib-test-helpers/` を workspace member として新設 (同上)

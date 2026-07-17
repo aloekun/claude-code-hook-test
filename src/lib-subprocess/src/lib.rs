@@ -139,7 +139,7 @@ pub fn drain_pipe_unlimited(
 ///
 /// `max_lines` 超過分は読み捨て (パイプバッファの排出は継続) されるため、超過行数は
 /// 戻り値に反映されない。ログ表示用の callsite で使用する (cli-push-runner /
-/// cli-push-pipeline / hooks-stop-quality 等)。
+/// hooks-stop-quality 等)。
 pub fn drain_pipe_capped(
     pipe: impl Read + Send + 'static,
     max_lines: usize,

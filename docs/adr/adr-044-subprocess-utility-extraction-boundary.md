@@ -35,6 +35,8 @@ PR #205 (173a) - #208 (173d) で以下を `lib-subprocess` に集約:
 
 5 callsite (cli-push-runner / cli-push-pipeline / cli-merge-pipeline / hooks-stop-quality / hooks-post-tool-linter) が `lib_subprocess::*` 経由で utility を共有。
 
+> 2026-07-17 追記: `cli-push-pipeline` crate は削除済み ([ADR-015](adr-015-push-runner-takt-migration.md) § cli-push-pipeline crate の削除) のため、現在の callsite は残る 4 つ。上記の「5 callsite」は順位 173 完了時点 (2026-06-15) の記録として残す。本 ADR の境界判定 (どの variant を共通化するか) は callsite 数の増減に依存しないため、判定自体は不変。
+
 ### 173e で判定した境界
 
 **共通化したもの** (= lib-subprocess に extract):

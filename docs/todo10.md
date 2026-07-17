@@ -753,7 +753,7 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
   - timeout 内に child が exit する (`child.wait().is_ok()` 系 assert)
   - parent が wait 完了する (deadlock していたら test 自体がハングして CI timeout で fail)
 - **CI 統合**: ADR-031 weekly-review workflow に新 step `rust-stress` を追加 (`cargo test --workspace -- --ignored --test-threads=1`)。既存 rust-test group (`cargo test --workspace`) とは分離 (前者は毎回、後者は週次)
-- **派生プロジェクト transferability**: `lib-subprocess` を採用する他 crate (cli-merge-pipeline / cli-pr-monitor / cli-push-pipeline / cli-push-runner / hooks-post-tool-linter) へも同型 stress test を transfer 可能。本 task の MVP は 2 module 限定、3+ module で同 pattern 観測時に拡張判断
+- **派生プロジェクト transferability**: `lib-subprocess` を採用する他 crate (cli-merge-pipeline / cli-pr-monitor / cli-push-runner / hooks-post-tool-linter) へも同型 stress test を transfer 可能。本 task の MVP は 2 module 限定、3+ module で同 pattern 観測時に拡張判断 (cli-push-pipeline は 2026-07-17 に crate 削除済みのため対象外)
 - **memory `feedback_test_dry_antipattern.md`** 適用: 各 module の test 内に独立 helper (`spawn_large_output_child` / `assert_no_deadlock_within`) を duplicate、共有 test module は抽出しない
 
 #### 作業計画
