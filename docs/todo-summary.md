@@ -167,6 +167,9 @@
 | 320 | 🔧 Tier 2 | **CodeRabbit status check は実レビュー有無に関わらず `pass` — 緑チェックを「レビュー済み」の根拠にしない (PR #287 で実観測)** | todo13.md | S | 順位 318 (決定論的な rate-limit 検知が前提) |
 | 321 | 🔧 Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo13.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
 | 322 | 🚀 Tier 1 | **post-merge-feedback が repo root に scratch script を残し `scratch_file_warning` の pattern をすり抜ける (near-miss 実観測)** | todo13.md | S | なし (PR #85 と同一クラス。pattern 列挙 (deny-list) の構造的限界が露呈) |
+| 323 | 🚀 Tier 1 | **`lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)** | todo13.md | S | なし (quality_gate step_timeout / push timeout / cli-merge-pipeline のハング打ち切りが実質無効。#286 post-merge-feedback の orphan/stale marker と同根の実害 1 件観測済。回帰テストに経過時間 assert 必須 = T6 教訓) |
+| 324 | 🚀 Tier 1 | **`cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)** | todo13.md | XS | なし (T5 = PR #282 が cli-push-runner 側で塞いだ silent-failure push と同型の穴。出力は `run_cmd_direct` で全量取得済のため判定追加のみ) |
+| 325 | 🚀 Tier 1 | **push パイプライン per-run メトリクスの JSONL 永続化 — stage 別 elapsed / routing 判定の遡及分析基盤 (T12 後検証セッションで欠落を実測)** | todo13.md | S | なし (T0 の stage ログは stderr のみで消失し、T1/T3/T11/T12 の効果が落ちる決定論 stage 層を遡及分析できない。ADR-057/058 判定期限 2026-08-15 と T99 after 計測の前提データ。harness-improvement-plan セクション 3 着手前の実装を推奨) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
