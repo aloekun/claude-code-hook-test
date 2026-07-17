@@ -10,6 +10,7 @@ toml = "0.8"
 # tempfile は本番の convert_body_to_file が --body-file 用一時ファイルを
 # 一意名 (O_EXCL + ランダム名) で生成するために使用 (順位 230 flaky 修正)。
 tempfile = "3"
+lib-docs-policy = { path = "../lib-docs-policy" }
 lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-pending-file = { path = "../lib-pending-file" }
 lib-report-formatter = { path = "../lib-report-formatter" }

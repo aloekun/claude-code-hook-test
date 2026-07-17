@@ -1,0 +1,14 @@
+[package]
+name = "lib-docs-policy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_docs_policy"
+path = "src/lib.rs"
+
+# 依存なし: ADR-035 の path 基準は純粋な文字列判定で、jj / subprocess / serde を
+# 一切必要としない。呼び出し側が `jj diff --summary` の出力を渡す形に保つことで、
+# jj 実行方法 (direct args / shell) の違いを本 crate に持ち込まない。
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

@@ -346,6 +346,7 @@ command = "echo push"
             scratch_file_warning: None,
             pr_size_check: None,
             pre_push_review: None,
+            docs_only_routing: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
