@@ -163,16 +163,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cli-push-pipeline"
-version = "0.1.0"
-dependencies = [
- "lib-subprocess",
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
 name = "cli-push-runner"
 version = "0.1.0"
 dependencies = [
