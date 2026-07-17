@@ -213,6 +213,41 @@ output_path = ".takt/lint-screen-report.md"
 refute_enabled = true
 refute_workflow = "pre-push-review-refute"
 
+# ---------------------------------------------------------------------------
+# [post_takt_regate] — T12 (push パイプライン改善): fix 後の決定論再ゲート。
+# takt (reviewers → fix loop) が作業コピーを書き換えた場合にのみ quality_gate を
+# 再実行する。takt の後に決定論検証が無く、fix.md の自己申告 (虚偽ではないが検証不足の
+# fully_resolved: 例 `cargo test` は通したが `#[ignore]` 統合テスト未実行) が回帰を
+# 素通しさせ得た穴を塞ぐ。post-PR 経路は PR #224 の実害後に決定論 gate
+# (cli-pr-monitor/src/stages/gate.rs) で塞いだが、pre-push 経路は未対応だった。
+# あわせて fix.md の workspace 全体 build + `--ignored` 統合テストの自己申告義務を縮小し、
+# その検証を本 stage に委譲する (ADR-037 §Mitigations の pre-push 拡張)。
+#
+# 変化検出 (ADR-021): Stage 1.5 が書き出した diff snapshot を takt 起動前に保持し、
+# takt 後に `[diff] command` を再取得して前後比較する。一致 = 作業コピー不変 = fix は
+# コードを書き換えていない → re-gate skip。差分あり → quality_gate 全 group を再実行。
+# snapshot 前後比較は metadata のみの変化に不感 (ADR-021 § commit_id 単独比較の限界)。
+# 設計詳細: docs/adr/adr-058-post-takt-regate.md
+#
+# ADR-039 (Experimental feature 標準パターン) 3 点セット:
+# - **Config opt-in**: 試験運用のため default OFF。section 不在 / enabled 未設定 /
+#   enabled = false のいずれも re-gate を完全 skip (= takt 後に再検証なし = 従来挙動)。
+#   本リポジトリでは明示的に `enabled = true` で dogfood を開始。派生 repo の templates は
+#   本 section を置かず default OFF を継承する。
+# - **Kill-switch**: `enabled = false` で完全停止。env `POST_TAKT_REGATE_DISABLE=1` で
+#   個別 push の意図的バイパス (再ゲートを飛ばして push したいとき)。**この場合 fix step の
+#   `--ignored` 自己検証も縮小済みのため、workspace + --ignored の検証が抜ける** — 意図的
+#   バイパス時のみの trade-off (fix.md の delegation 注記に明記)。
+# - **Bounded lifetime**: fix 発生 push で re-gate が破壊的変更を検出して block する効果と、
+#   誤 block (fix が実は無害なのに gate が落ちる) の有無を観測後、default-ON 昇格 or 却下を
+#   判定。判定は docs/adr/adr-058-post-takt-regate.md の bounded lifetime に引き継ぐ。
+#
+# fail-closed (ADR-043): snapshot 前後どちらかが取得不能なときは「変化あり」に倒して
+# re-gate を実行する。判定不能を「skip 可能」に倒すことはしない (post-pr gate と同じ方向)。
+# ---------------------------------------------------------------------------
+[post_takt_regate]
+enabled = true
+
 [takt]
 workflow = "pre-push-review"
 task = "pre-push review"

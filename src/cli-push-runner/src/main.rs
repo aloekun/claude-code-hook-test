@@ -7,13 +7,14 @@
 //!   Stage 1:   quality_gate — TOML で定義されたコマンド群をグループ間で並列実行
 //!   Stage 1.5: diff         — jj diff を取得しファイルに書き出し（reviewers が Read で参照）
 //!   Stage 2:   takt         — AI レビュー（reviewers → fix loop）
+//!   Stage 2.5: post_takt_regate — takt fix が作業コピーを変えたら quality_gate を再実行 (T12)
 //!   Stage 3:   push         — jj git push
 //!
 //! push 成功後は pnpm スクリプトチェーンにより cli-pr-monitor が起動される。
 //!
 //! 終了コード:
 //!   0 - 全ステージ成功
-//!   1 - quality_gate 失敗
+//!   1 - quality_gate 失敗 (takt 後の post_takt_regate による再実行失敗を含む)
 //!   2 - takt ワークフロー失敗
 //!   3 - push 失敗
 //!   4 - 設定エラー
@@ -32,8 +33,8 @@ use std::time::Instant;
 use config::{load_config, resolve_takt_workflow};
 use log::{log_info, timed};
 use stages::{
-    run_bookmark_check, run_diff, run_docs_only_routing, run_lint_screen, run_pr_size_check,
-    run_push, run_quality_gate, run_scratch_file_warning, run_takt, DiffResult,
+    run_bookmark_check, run_diff, run_docs_only_routing, run_lint_screen, run_post_takt_regate,
+    run_pr_size_check, run_push, run_quality_gate, run_scratch_file_warning, run_takt, DiffResult,
 };
 
 const EXIT_SUCCESS: i32 = 0;
@@ -46,17 +47,29 @@ const EXIT_SCRATCH_FILE_WARNING: i32 = 6;
 const EXIT_BOOKMARK_MISSING: i32 = 7;
 const EXIT_PR_SIZE_EXCEEDED: i32 = 8;
 
+/// diff stage の結果。takt / post-takt re-gate を走らせるかを表す。
+enum DiffGate {
+    /// diff が空 → takt も re-gate も不要 (push へ直行)
+    SkipTakt,
+    /// takt を実行する。`pre_diff` は post-takt re-gate の変化検出用 snapshot
+    /// (`[diff]` 未設定 / 読込失敗時は None → re-gate は fail-closed で再実行)。
+    RunTakt { pre_diff: Option<String> },
+}
+
 /// diff stage を実行し lint-screen を呼び出す。
-/// Ok(skip_takt) で成功、 Err(exit_code) で pipeline 中断。
-fn run_diff_and_lint_screen(config: &config::Config) -> Result<bool, i32> {
+/// Ok(DiffGate) で成功、 Err(exit_code) で pipeline 中断。
+///
+/// takt 実行前の diff snapshot を **takt 起動前に**メモリへ確保する (T12): fix が
+/// `[diff] output_path` を上書きするため、比較用の pre 状態は takt 前に読み取る必要がある。
+fn run_diff_and_lint_screen(config: &config::Config) -> Result<DiffGate, i32> {
     let Some(diff_config) = &config.diff else {
-        return Ok(false);
+        return Ok(DiffGate::RunTakt { pre_diff: None });
     };
     let diff_path = match run_diff(diff_config) {
         DiffResult::HasContent => diff_config.output_path.as_str(),
         DiffResult::Empty => {
             log_info("diff が空のためレビューをスキップして push に進みます。");
-            return Ok(true);
+            return Ok(DiffGate::SkipTakt);
         }
         DiffResult::Error => {
             log_info("パイプライン中断: diff 取得失敗。");
@@ -66,7 +79,8 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<bool, i32> {
     if let Some(lint_screen_config) = &config.lint_screen {
         run_lint_screen(lint_screen_config, diff_path);
     }
-    Ok(false)
+    let pre_diff = std::fs::read_to_string(diff_path).ok();
+    Ok(DiffGate::RunTakt { pre_diff })
 }
 
 /// quality_gate より前の事前チェック (bookmark / scratch file / pr size) を実行する。
@@ -107,6 +121,33 @@ fn start_pipeline(config: &config::Config) -> String {
     workflow
 }
 
+/// takt (AI レビュー → fix loop) と post-takt re-gate (T12) を実行する。
+/// diff が空 (`DiffGate::SkipTakt`) の場合は両方 skip する。
+/// Ok(()) で続行、Err(exit_code) で pipeline 中断。
+fn run_takt_and_regate(
+    config: &config::Config,
+    workflow: &str,
+    diff_gate: &DiffGate,
+) -> Result<(), i32> {
+    let DiffGate::RunTakt { pre_diff } = diff_gate else {
+        return Ok(());
+    };
+    if !timed("takt", || run_takt(&config.takt, workflow)) {
+        log_info("パイプライン中断: takt ワークフロー失敗。");
+        return Err(EXIT_TAKT_FAILURE);
+    }
+    if !timed("post_takt_regate", || {
+        run_post_takt_regate(config, pre_diff.as_deref())
+    }) {
+        log_info(
+            "パイプライン中断: post-takt re-gate 失敗。takt fix がテスト / lint を壊した \
+             可能性があります。問題を修正して再実行してください。",
+        );
+        return Err(EXIT_QUALITY_GATE_FAILURE);
+    }
+    Ok(())
+}
+
 fn run_pipeline() -> i32 {
     let start = Instant::now();
 
@@ -138,14 +179,13 @@ fn run_pipeline() -> i32 {
         return EXIT_QUALITY_GATE_FAILURE;
     }
 
-    let skip_takt = match timed("diff", || run_diff_and_lint_screen(&config)) {
-        Ok(skip) => skip,
+    let diff_gate = match timed("diff", || run_diff_and_lint_screen(&config)) {
+        Ok(gate) => gate,
         Err(code) => return code,
     };
 
-    if !skip_takt && !timed("takt", || run_takt(&config.takt, &workflow)) {
-        log_info("パイプライン中断: takt ワークフロー失敗。");
-        return EXIT_TAKT_FAILURE;
+    if let Err(code) = run_takt_and_regate(&config, &workflow, &diff_gate) {
+        return code;
     }
 
     if !timed("push", || run_push(&config.push, &detected_bookmarks)) {
