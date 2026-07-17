@@ -1,4 +1,4 @@
-use lib_subprocess::run_cmd_shell_unlimited;
+use lib_subprocess::{run_cmd_shell_unlimited, truncation_notice};
 
 use super::push_jj_bookmark::advance_jj_bookmarks;
 use crate::config::{PushConfig, DEFAULT_PUSH_TIMEOUT_SECS};
@@ -70,8 +70,8 @@ fn print_output(output: &str) {
 /// (= 従来のログ量を維持しつつ、判定は truncate の影響を受けない)。失敗経路では
 /// 診断情報を落とさないため本関数を通さず全量を出す。
 ///
-/// truncate 表記は `lib_subprocess::drain_pipe_capped_reporting` に合わせる (ログ上の
-/// 見え方を統一する)。あちらは pipe を streaming しながら数えるため実装は共有できない。
+/// truncate 表記は `lib_subprocess::truncation_notice` を共有し、`drain_pipe_capped_reporting`
+/// (pipe を streaming しながら数える版) とログ上の見え方を揃える。
 fn cap_for_log(output: &str) -> String {
     let mut lines = output.lines();
     let head: Vec<&str> = lines.by_ref().take(MAX_LINES).collect();
@@ -79,13 +79,7 @@ fn cap_for_log(output: &str) -> String {
     if truncated == 0 {
         return head.join("\n");
     }
-    let suffix = if truncated == 1 { "" } else { "s" };
-    format!(
-        "{}\n... ({} line{} truncated)",
-        head.join("\n"),
-        truncated,
-        suffix
-    )
+    format!("{}\n{}", head.join("\n"), truncation_notice(truncated))
 }
 
 /// 検出済み bookmark から push コマンドを組み立てる (ADR-045 事故 follow-up)。

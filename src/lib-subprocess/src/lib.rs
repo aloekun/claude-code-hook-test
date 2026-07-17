@@ -168,6 +168,17 @@ pub fn drain_pipe_capped(
     })
 }
 
+/// 切り捨てた行数を報告する注記行を作る (`"... (N lines truncated)"`)。
+///
+/// 出力を「先頭 N 行 + 超過の明示」に切り詰める箇所で表記を揃えるための共有点。
+/// 切り詰めの実装自体は共有できない (pipe を streaming しながら数える
+/// `drain_pipe_capped_reporting` と、materialize 済み文字列を切る callsite では
+/// 構造が異なる) が、**ログ上の見え方は一致させる**。
+pub fn truncation_notice(truncated_lines: usize) -> String {
+    let suffix = if truncated_lines == 1 { "" } else { "s" };
+    format!("... ({} line{} truncated)", truncated_lines, suffix)
+}
+
 /// 子プロセスの stdout / stderr パイプを別スレッドで最大 `max_lines` 行まで読込し、
 /// 超過があれば末尾に `"... (N lines truncated)"` を付与する **reporting capped** variant。
 ///
@@ -202,8 +213,7 @@ pub fn drain_pipe_capped_reporting(
             }
         }
         if truncated > 0 {
-            let suffix = if truncated == 1 { "" } else { "s" };
-            collected.push(format!("... ({} line{} truncated)", truncated, suffix));
+            collected.push(truncation_notice(truncated));
         }
         collected.join("\n")
     })
@@ -231,9 +241,15 @@ fn kill_and_join_err(
 /// `run_cmd_shell_*` 3 variant の共通骨格 (spawn → drain → wait → combine)。
 ///
 /// variant 間の差は `drain` (= どの `drain_pipe_*` を使うか) だけで、それ以外の
-/// semantics — timeout メッセージ書式 / Err 経路の child 扱い / 戻り値の意味 — は
+/// semantics — timeout メッセージ書式 / child の lifecycle / 戻り値の意味 — は
 /// 3 variant で共通。stdout と stderr は型が異なる (`ChildStdout` / `ChildStderr`) ため、
 /// 同一の drain 戦略を両方へ適用できるよう `Box<dyn Read + Send>` に統一して渡す。
+///
+/// child の lifecycle: 待機は `wait_with_timeout_basic` (= try_wait 失敗時に child を
+/// kill しない basic semantics) を使うが、その Err 経路は本関数が `kill_and_join_err` で
+/// 受け、child の kill + reap と reader thread の join を行う。timeout 経路は
+/// `wait_with_timeout_basic` 自身が kill + reap する。結果として **どの失敗経路でも
+/// child は残らない**。
 fn run_cmd_shell_with<F>(label: &str, cmd: &str, timeout_secs: u64, drain: F) -> (bool, String)
 where
     F: Fn(Box<dyn Read + Send>) -> JoinHandle<String>,
@@ -284,7 +300,7 @@ where
 /// (判定対象の行が cap の外に落ちても戻り値からは判別できず、無言で誤判定する)。
 /// その場合は `run_cmd_shell_unlimited` を使う。
 ///
-/// 内部で `wait_with_timeout_basic` を使用 (= Err 経路で child を kill しない basic semantics)。
+/// child の lifecycle は 3 variant 共通 (`run_cmd_shell_with` の doc を参照)。
 pub fn run_cmd_shell_capped(
     label: &str,
     cmd: &str,
@@ -445,6 +461,16 @@ mod tests {
         let input = Cursor::new(b"only\ntwo\n".to_vec());
         let handle = drain_pipe_capped(input, 100);
         assert_eq!(handle.join().unwrap(), "only\ntwo");
+    }
+
+    #[test]
+    fn truncation_notice_uses_plural_form_for_multiple_lines() {
+        assert_eq!(truncation_notice(2), "... (2 lines truncated)");
+    }
+
+    #[test]
+    fn truncation_notice_uses_singular_form_for_one_line() {
+        assert_eq!(truncation_notice(1), "... (1 line truncated)");
     }
 
     #[test]
