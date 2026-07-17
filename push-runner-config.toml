@@ -119,6 +119,11 @@ commands = [
 [diff]
 command = "jj diff -r @"
 output_path = ".takt/review-diff.txt"
+# timeout (T6): 未指定時は 60s (DEFAULT_DIFF_TIMEOUT_SECS)。旧実装は無限待ちで、
+# ADR-045 の並列 workspace 運用で jj lock 競合が起きるとパイプラインが無言ハングした。
+# 超過時は diff 取得失敗 = exit 5 で中断する (fail-closed / ADR-043)。
+# 他の jj 系 (bookmark_check 30s) より長いのは snapshot + 大 diff 書き出しを伴うため。
+# 大 diff / 低速環境で誤 timeout する場合のみ延長する (例: timeout = 180)。
 
 # ---------------------------------------------------------------------------
 # [lint_screen] — Phase c (§8.E lint screen facet) — ADR-038 試験運用配下。

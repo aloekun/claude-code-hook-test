@@ -21,6 +21,15 @@ use lint_screen::{apply_lint_screen_env_override, ENV_LINT_SCREEN_ENABLED};
 pub(crate) const DEFAULT_STEP_TIMEOUT_SECS: u64 = 120;
 pub(crate) const DEFAULT_PUSH_TIMEOUT_SECS: u64 = 300;
 
+/// diff stage の既定 timeout (T6)。
+///
+/// 他の jj 系呼び出し (`bookmark_check` の `JJ_TIMEOUT_SECS = 30`) より長く取るのは、
+/// diff が working copy の snapshot + 大 diff の書き出しを伴い、読み取りのみの
+/// `jj bookmark list` より重いため。timeout の目的は**ハング検知**であって latency
+/// 制限ではなく、誤 timeout は diff 失敗 = pipeline 全体の中断 (exit 5) を招くので
+/// 余裕側に倒す。詰まる環境では `[diff] timeout` で上書きする。
+pub(crate) const DEFAULT_DIFF_TIMEOUT_SECS: u64 = 60;
+
 #[derive(Deserialize)]
 pub(crate) struct Config {
     pub(crate) quality_gate: QualityGateConfig,
@@ -71,6 +80,8 @@ pub(crate) struct PrePushReviewConfig {
 pub(crate) struct DiffConfig {
     pub(crate) command: String,
     pub(crate) output_path: String,
+    /// 未指定時は `DEFAULT_DIFF_TIMEOUT_SECS` (T6)。`[push] timeout` と同形。
+    pub(crate) timeout: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -257,6 +268,61 @@ command = "jj git push"
         let diff = config.diff.unwrap();
         assert_eq!(diff.command, "jj diff -r @");
         assert_eq!(diff.output_path, ".takt/review-diff.txt");
+        assert!(diff.timeout.is_none());
+    }
+
+    /// T6: `[diff] timeout` 未指定時は既定値に落ちる (本リポジトリの config は未指定)。
+    #[test]
+    fn config_diff_timeout_defaults() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[diff]
+command = "jj diff -r @"
+output_path = ".takt/review-diff.txt"
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        let diff = config.diff.unwrap();
+        assert!(diff.timeout.is_none());
+        assert_eq!(
+            diff.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS),
+            DEFAULT_DIFF_TIMEOUT_SECS,
+        );
+    }
+
+    /// T6: 大 diff / 低速環境向けの escape hatch (既定 60s では足りない場合)。
+    #[test]
+    fn config_diff_timeout_explicit() {
+        let toml_str = r#"
+[quality_gate]
+[[quality_gate.groups]]
+name = "test"
+commands = ["echo ok"]
+
+[diff]
+command = "jj diff -r @"
+output_path = ".takt/review-diff.txt"
+timeout = 180
+
+[takt]
+workflow = "w"
+task = "t"
+
+[push]
+command = "echo push"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.diff.unwrap().timeout, Some(180));
     }
 
     #[test]
