@@ -49,20 +49,18 @@ If `refutation-report.md` is absent (post-pr-review, or refute disabled), use al
 - All findings in this iteration (new / reopened) have been fixed in the correct source tree (not in any read-only zone).
 - Potential occurrences of the same `family_tag` have been fixed simultaneously (no partial fixes that cause recurrence).
 
-**Important**: After fixing, run the build and tests for the affected crate(s).
+**Important**: After fixing, run the build and tests for the **affected crate(s) only** — e.g. `cargo build -p <crate>` and `cargo test -p <crate>`. You do **not** need to run the full-workspace build/test or the `#[ignore]` integration tests here; those are delegated to the deterministic gate described next.
 
-## `--ignored` integration test gate (conditional — REQUIRED when triggered)
+## Workspace-wide build / test and `--ignored` are delegated to a deterministic gate (T12)
 
-If the fixes in this iteration did **either** of the following:
+You are **not** required to run `cargo build --workspace`, `cargo test --workspace`, or the ignored integration tests (`cargo test -- --ignored --test-threads=1`) in this fix step. A deterministic Rust gate re-runs the project's quality gate — which **includes** `cargo test -- --ignored --test-threads=1` — after this workflow and blocks the push if it fails (fail-closed, ADR-043):
 
-- modified any test file (any `.rs` file containing `#[test]` / `#[ignore]` attributes, or files under a `tests/` directory), or
-- changed the behavior or signature of any `pub` / `pub(crate)` function,
+- **pre-push** (`pnpm push`): the `post-takt re-gate` stage (`cli-push-runner`) re-runs the full quality gate whenever this fix step changed the working copy.
+- **post-pr** (auto-push after CodeRabbit fixes): the auto-push gate (`cli-pr-monitor`) re-runs the `rust-lint-test` group, which includes `--ignored`, before re-pushing.
 
-you MUST also run the ignored integration tests and confirm PASS **before** emitting `convergence_verdict: fully_resolved`:
+Rationale: plain `cargo test` does NOT execute `#[ignore]` integration tests, so PR #224 originally made this fix step self-run the full workspace + `--ignored` suite (a fix to `create_fix_commit` had broken 2 `#[ignore]` repush tests and landed unverified). That self-run became the dominant cost of the fix step, and the gap it covered is now closed deterministically on **both** push paths. Running the heavy suite once in the deterministic gate — instead of on every fix iteration — is both faster and more trustworthy than self-report (ADR-037: mechanical backstop over self-evaluation).
 
-    cargo test -- --ignored --test-threads=1
-
-Rationale: plain `cargo test` does NOT execute `#[ignore]` integration tests, and the automated push paths after this workflow may not re-run them before your changes reach the PR (PR #224: a fix to `create_fix_commit` broke 2 `#[ignore]` repush integration tests and landed on the PR unverified). If the trigger condition applies and the run failed — or you did not run it — emit `convergence_verdict: partial` instead.
+This delegation assumes the deterministic gate is active on the path you are on. If it has been disabled (`POST_TAKT_REGATE_DISABLE=1` / `PR_MONITOR_GATE_DISABLE=1` / `enabled = false`), you are responsible for running `cargo test -- --ignored --test-threads=1` yourself before emitting `fully_resolved`.
 
 ## Pre-completion deterministic check (Bundle Z Phase 2 / #B-β)
 
@@ -113,7 +111,7 @@ This refresh is **unconditional**:
 - {Build execution results}
 
 ## Test results
-- {Test commands executed and results — list each command line explicitly, including `cargo test -- --ignored --test-threads=1` when the conditional gate above applies}
+- {Test commands executed and results — list each command line explicitly. Affected-crate `cargo build -p` / `cargo test -p` only; the full-workspace build/test and `--ignored` suite are delegated to the deterministic re-gate (see above), so you do not run them here}
 
 ## Convergence gate
 
@@ -129,7 +127,7 @@ This refresh is **unconditional**:
 
 After completing fixes, evaluate the gate above and emit one of two verdicts. The next workflow step is selected from this verdict, so it must accurately reflect the gate state.
 
-- **fully_resolved** — `persists == 0` AND `misdirected == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine. When the "`--ignored` integration test gate" trigger condition applies, a PASS of `cargo test -- --ignored --test-threads=1` is an additional precondition for this verdict.
+- **fully_resolved** — `persists == 0` AND `misdirected == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
 - **partial** — `persists > 0` OR `misdirected > 0`. Some findings carried over (still need fixing in a later iteration) or were skipped due to misdirection (and need to be reported). Re-analysis is required.
 
 Place the verdict at the **end of your report** as a single bare line in this exact form (no surrounding quotes, no trailing punctuation):
@@ -144,4 +142,4 @@ or:
 convergence_verdict: partial
 ```
 
-**Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the build passes), emit `partial` so the analyze step can re-evaluate. The same applies to the `--ignored` integration test gate: if its trigger condition applies and you did not run it (or it failed), emit `partial`.
+**Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the affected crate builds), emit `partial` so the analyze step can re-evaluate.

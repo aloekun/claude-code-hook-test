@@ -97,6 +97,7 @@ ADR-036 の Bundle Z 3 層アーキテクチャと同じ思想:
 - 不確実な場合は `partial` を選ぶデフォルトを推奨
 - dogfood で虚偽 fully_resolved が観測されたら順位 53 系列の post-merge-feedback follow-up (T1-1: convergence_verdict gate validator) を採用検討
 - **(2026-07-03 追記) auto-push 前の決定論 gate による機械的 backstop**: PR #224 で「虚偽ではないが検証不足の `fully_resolved`」(`cargo test` のみで `#[ignore]` 統合テスト未実行) が回帰を素通しさせた実害を受け、cli-pr-monitor の auto-push 経路に決定論 gate (`src/cli-pr-monitor/src/stages/gate.rs`、push-runner-config.toml の quality_gate group を push 前に実行) を導入。誤った `fully_resolved` が emit されても、`cargo test -- --ignored` を含む gate が remote 到達前に遮断する (fail-closed、ADR-043)。fix.md 側にも `--ignored` 条件付き必須ゲートを追加済み
+- **(2026-07-18 追記 / T12) honesty constraint の機械的 backstop を pre-push 経路にも拡張**: 上記 gate は post-pr (auto-push) 経路のみで、**pre-push (`pnpm push`) 経路には backstop が無かった**。`cli-push-runner` に post-takt re-gate stage を追加し (`src/cli-push-runner/src/stages/post_takt_regate.rs`、[ADR-058](adr-058-post-takt-regate.md))、takt fix が作業コピーを書き換えた場合に quality_gate を再実行して block する。両経路で「LLM の convergence_verdict 自己申告を決定論 gate で backstop する」構造が揃った。あわせて、backstop が両経路に揃ったことを前提に **fix.md の workspace 全体 build/test + `--ignored` 統合テストの自己申告義務を撤去し、影響 crate の `build -p` + `test -p` に縮小**した (自己検証を fix iteration ごとに払う冗長を解消し、重いスイートは gate で 1 度だけ払う)。上記「fix.md 側にも `--ignored` 条件付き必須ゲートを追加済み」は本追記で置換された (自己申告ではなく決定論 gate が担う)。fail 方向は gate 系 fail-closed で、ADR-021 原則 4 の repush 系 fail-safe とは逆向き (ADR-058 参照)
 
 ## 完了状態
 

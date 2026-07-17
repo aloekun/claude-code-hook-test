@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 
 mod docs_only_routing;
 mod lint_screen;
+mod post_takt_regate;
 mod pr_size_check;
 mod scratch_file_warning;
 
 pub(crate) use docs_only_routing::DocsOnlyRoutingConfig;
+pub(crate) use post_takt_regate::PostTaktRegateConfig;
 pub(crate) use lint_screen::{
     LintScreenConfig, DEFAULT_LINT_SCREEN_ENDPOINT, DEFAULT_LINT_SCREEN_EXE_PATH,
     DEFAULT_LINT_SCREEN_MAX_DIFF_LINES, DEFAULT_LINT_SCREEN_MODEL, DEFAULT_LINT_SCREEN_OUTPUT_PATH,
@@ -43,6 +45,7 @@ pub(crate) struct Config {
     pub(crate) pr_size_check: Option<PrSizeCheckConfig>,
     pub(crate) pre_push_review: Option<PrePushReviewConfig>,
     pub(crate) docs_only_routing: Option<DocsOnlyRoutingConfig>,
+    pub(crate) post_takt_regate: Option<PostTaktRegateConfig>,
 }
 
 #[derive(Deserialize)]
@@ -395,6 +398,7 @@ command = "echo push"
             pr_size_check: None,
             pre_push_review: None,
             docs_only_routing: None,
+            post_takt_regate: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),
@@ -428,6 +432,7 @@ command = "echo push"
             pr_size_check: None,
             pre_push_review: None,
             docs_only_routing: None,
+            post_takt_regate: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),

@@ -86,7 +86,7 @@ takt / push) を使う。書式の定義元は `src/cli-push-runner/src/log.rs` 
 | T2 | 旧 cli-push-pipeline の workspace 除去 | 改善 | clippy/test 対象の純減 (22 → 21 crate) | XS (実測: crate 削除 329 行 / PR 全体は push 時 `pr_size` で 396 行。当初「S (大量削除)」は誤見積) | なし |
 | T10 | takt builtin review policy の shadow | 改善 | **-1.5〜3 分/iter + 無駄 fix 削減** (実装済。効果は**未検証** — 1 PR では測れないため ADR-056 の判定期限 2026-07-31 に引き継ぎ) | M | T0 |
 | T11 | docs-only / 空 diff の決定論 routing | 改善 | docs-only push **-~50s** (実装済。当初「-6〜8 分」は §1 stale ベースライン由来で実測で下方修正 = T1/T2 同型。効果検証は ADR-057 判定期限 2026-08-15) | M | T1 |
-| T12 | fix 後の決定論再ゲート + fix 検証義務の縮小 | 改善+安全 | -1〜3 分/fix iter + 自己申告依存の解消 | M | T1, T11 |
+| T12 | fix 後の決定論再ゲート + fix 検証義務の縮小 | 改善+安全 | -1〜3 分/fix iter + 自己申告依存の解消 (実装済。効果は**未検証** — 1 PR では測れないため ADR-058 の判定期限 2026-08-15 に引き継ぎ = T10/T11 同型) | M | T1, T11 |
 | T13 | backlog 小物 (§6) | 任意 | 各 -数秒〜1 分 | XS×n | 任意 |
 | T99 | after 計測 + 本ファイル削除 | 完了 | - | XS | 全タスク |
 
@@ -1057,6 +1057,72 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
   統合テストが通る。
 - **ADR**: ADR-037 (fix-trust shortcut) に「honesty constraint の機械的 backstop を
   pre-push 経路にも拡張」を追記。ADR-043 整合。
+- **実施結果 (2026-07-18, 実装済み / 本 PR)**:
+  - **変化検出は diff snapshot 前後比較 (ユーザー承認済み)**。方針の「diff 取得時に記録した
+    snapshot / `jj diff` の比較」に沿い、Stage 1.5 が書き出した `[diff] output_path` の中身を
+    **takt 起動前に**メモリへ保持 (fix.md が `.takt/review-diff.txt` を上書きするため takt 前に
+    読む) し、takt 後に `[diff] command` を再取得して前後比較する。一致 = 作業コピー不変 =
+    fix はコードを書き換えていない → re-gate skip、差分あり → quality_gate 再実行。
+    **commit_id + diff 二段構え (ADR-021 原則 1 の字面) は採らなかった**: それには
+    `capture_commit_id` / `diff_is_empty` を要し、ADR-021 next-step 通りなら lib-jj-helpers へ
+    移設 + cli-pr-monitor 移行が必要で PR が肥大化 (§2 原則 4)。diff snapshot 前後比較は
+    metadata のみの変化 (auto-snapshot timestamp 等 = ADR-021 § commit_id 単独比較の限界) に
+    **構造的に不感** (diff テキスト同一 ⟺ `@` tree が親に対し同一) で、commit_id プリミティブを
+    使わないため両 crate 間の共有対象が発生しない。判定は pure function (`decide_regate`)、
+    post snapshot 取得は closure 注入 (ADR-021 原則 3) で全分岐を unit test 固定。
+  - **fail 方向は gate 系 fail-closed (ADR-021 原則 4 の repush 系とは逆向き)**: 同じ変化検出
+    プリミティブでも、repush は「判定不能 → 何もしない (fail-safe、誤 push が破壊的)」なのに対し、
+    re-gate は「判定不能 → 実行して検証 (fail-closed、gate skip が危険)」。pre/post snapshot
+    どちらか取得不能なら「変化あり」に倒して再ゲートする。この非対称を ADR-058 に明記した。
+  - **再ゲート範囲は quality_gate 全 group (ユーザー承認済み)**。方針文言「quality_gate を再実行」
+    どおり `run_quality_gate(&config.quality_gate, &[])` で全 group を再実行 (docs-only skip は
+    pre-fix 最適化のため fix 後は適用せずフル実行 = fail-closed)。律速の `rust-lint-test`
+    (`--ignored` 含む、~50s) が回帰の主対象。fix が実際に作業コピーを変えた run でのみ発生し、
+    reviewers APPROVE で fix が走らない run は 0 コスト。
+  - **方針 3 (post-pr gate の `--ignored` 確認) は充足済み = post-pr 側変更不要**:
+    `cli-pr-monitor/src/stages/gate.rs` は `rust-lint-test` group を実行し、そこに
+    `cargo test -- --ignored --test-threads=1` が既に含まれることを確認した。pre-push (本 re-gate) /
+    post-pr (既存 gate) の両経路とも `--ignored` を含むため、fix.md の `--ignored` 自己申告を
+    撤去しても両経路で決定論的に検証される。
+  - **fix.md の縮小 (ADR-020 共有 facet)**: workspace 全体 build/test + `--ignored` 統合テストの
+    自己申告義務を撤去し、影響 crate の `cargo build -p` + `cargo test -p` に縮小。`--ignored`
+    条件付きゲート節を「決定論 gate へ委譲」節に置換 (根拠ごと更新: PR #224 の穴は両経路の
+    gate で閉じた)。output / verdict / honesty constraint の `--ignored` 参照も更新。
+    **kill-switch でバイパスすると検証が抜ける** cross-config coupling (ADR-051) を fix.md に明記。
+  - **実装** (`src/cli-push-runner/`、runtime 変更は 1 exe に閉じる): `config/post_takt_regate.rs`
+    (opt-in config)、`stages/post_takt_regate.rs` (`decide_regate` pure + `run_post_takt_regate`)、
+    `stages/diff.rs` に `capture_diff_snapshot`、`main.rs` の `run_diff_and_lint_screen` を
+    `DiffGate` (SkipTakt / RunTakt{pre_diff}) 返却に変え、takt 直後に re-gate を配線。
+    `run_pipeline` が 50 行超に触れたため takt+regate を `run_takt_and_regate` に抽出 (T1/T7 同型)。
+  - **ADR-039 3 点セット**: `[post_takt_regate]` default OFF / env `POST_TAKT_REGATE_DISABLE=1`
+    kill-switch / 本 repo `enabled = true` で dogfood。新規 **ADR-058** (判定期限 2026-08-15、
+    ADR-057 と同期) + **ADR-037 §Mitigations に pre-push 拡張を追記**。
+  - **回帰テスト**: `mod post_takt_regate::tests` に decide_regate 6 本 (全 5 分岐 + 短絡) +
+    run_post_takt_regate 統合 5 本 (実プロセスで gate 実行)、`diff` に capture_diff_snapshot 2 本
+    (cli-push-runner 215 → **250 passed**、`--ignored` 2 本も pass)。統合の中核は
+    **変化検出 + gate FAIL → block (false)** (受け入れ基準)、および**無変更なら失敗 gate でも
+    実行せず true** (skip の証跡)。
+  - **サンドボックス実機 before/after** (配布 exe、`C:\t12\repo`、takt は自作 `pnpm.exe` stub で
+    代役 = fix の WC 変更 + 失敗 marker 投下を模擬): **同一の破壊的 fix に対し re-gate の
+    有無だけを変えた 4 scenario**で確認 —
+
+    | scenario | re-gate | takt fix | 結果 |
+    |---|---|---|---|
+    | A (after) | ON | src.txt 変更 + 失敗 marker | **block / exit 1** (変化検出 → gate 再実行 FAIL → push 不到達) |
+    | B (before) | OFF (enabled=false) | 同一の破壊的 fix | **PUSH 到達 / exit 0** (再ゲートなし = 従来挙動、壊れた変更が push される) |
+    | C | ON | marker 投下・**diff 変化なし** | **skip → PUSH** (NoChange。marker 存在下でも gate を走らせない = skip の証跡) |
+    | D | ON + kill-switch | 破壊的 fix | **skip → PUSH** (`POST_TAKT_REGATE_DISABLE=1`) |
+
+    A vs B が因果の分離 (同じ壊れた fix を re-gate ON で遮断・OFF で素通し = re-gate が唯一の差)。
+    C は「fix が無変更なら再検証コストを払わない」効率の実機証跡。before exe を別途 build せず
+    同一 exe の enabled トグルで対比したのは、re-gate 以外の差を排し causal factor を re-gate に
+    限定するため。**stub 注意**: Rust の `Command::new("pnpm")` は `.cmd` を拾わず `.exe` を
+    解決するため、PATH 先頭に置く stub は `pnpm.exe` (rustc で自作) にする必要があった。
+  - **効果 (fix execute 短縮 / block 実績) は 1 PR では測れない**: ADR-058 の bounded lifetime
+    (判定期限 2026-08-15) と T99 after 計測に引き継ぐ (§1 stale ベースライン由来の数値は
+    T1/T2/T11 同様に実測で下方修正され得る)。
+  - **exe 再ビルド必要** (Rust 変更あり、`pnpm build:cli-push-runner` 実施済み)。
+  - **実施順**: 計画の推奨順どおり T11 の次に実施 (最終タスク)。
 
 ## 6. T13: backlog (任意、各 XS)
 
@@ -1173,3 +1239,4 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
 | T10 | 実装済 (PR #287) | 2026-07-17 | takt builtin の 8KB チェックリスト policy を、pre-push 限定の新名称 policy `review-anomaly` (5,080 bytes / 112 行、**-37%**) で shadow。無条件 REJECT 16 項目と Boy Scout を撤去し REJECT 基準を instruction 側 (ADR-036 の anomaly 設計) に委譲、`finding_id` 追跡・reopen 条件は維持 (`refute-finding.md` / `fix.md` / output-contracts が依存)。新規 **ADR-056**。**⚠ 計画の対象ファイルが誤っていた**: 方針は `pre-push-review.yaml` を指すが、**同じ計画の T4 が `refute_enabled = true` にしたため実際に走るのは `pre-push-review-refute.yaml`** — 計画どおり前者だけ直せば効果ゼロで、しかも review が普通に流れるため気付けない。両 workflow を変更して解消し、あわせて ADR-047 kill-switch (`refute_enabled = false`) を引いても T10 が暗黙 revert されない直交性を確保した。**教訓: 計画の「対象ファイル」は先行タスクが動かした config で無効化され得る。着手時に「今どの経路が実際に走るか」を config から再確認する**。**適用範囲を 4 step に拡大 (ユーザー承認済み)**: 方針の「reviewer 2 step」は verify / supervise を見落としており、そこでも矛盾が実在した (`refute-finding.md`「確信が持てなければ reject」↔ policy「DRY 違反は無条件 REJECT」、`supervise.md`「blocking が解決していれば push 可」↔ policy「1 件でもあれば REJECT」)。pre-push の review 系 4 step (両 workflow 計 7 step) に適用。post-pr (2) / weekly (7) / post-merge (4) の計 13 step は方針どおり現状維持 — **新名称にしたのはこの blast radius 限定のため** (同名 shadow なら 13 step を巻き込んだ)。**silent degrade を実測で潰した**: facet 名が未解決だと takt はリテラル文字列に degrade する (ADR-048 の実事故) が、review は普通に流れるため成功と区別できない。`takt catalog policies` → `[project]` 解決、`takt prompt pre-push-review-refute` → 新 policy 本文が展開・builtin marker 0 件、`takt prompt post-pr-review` → builtin 維持 (blast radius の実測) の 3 点で確認。`takt prompt` の exit 1 は未変更 workflow でも同一に出る既存挙動 (control で確認)。**方針 3 実施 + 結合を記録**: `review-simplicity.md` の lint-screen 参照 15 行を削除 (`enabled = false` で対象ファイル常時不在 = 恒常デッドウェイト)。削除で消費側が不在になるため、`enabled = true` でも誰も読まない (silent no-op) ことを生成側 `[lint_screen]` コメントに明記 (ADR-051 の規律)。**受け入れ基準は本 PR では未達成 (設計上そうなる)**: 「5 run で execute 203s → 150s 以下」は 1 PR で検証不能のため ADR-056 の bounded lifetime (**判定期限 2026-07-31**、ADR-047 と同期) に引き継ぎ。**効果の帰属**: T4 refute と期間が重なり、fix iteration 減は両者の複合効果 (simplicity execute は reviewers 指標のため切り分け可)。**exe 再ビルド不要** (§2 原則 5 の例外): Rust 変更ゼロ。**副産物**: T2 行の「本 PR」放置 (実際は PR #286) を backfill — T5 が記録した同じ負債の 3 回目の再発。**実施順**: 計画の推奨順どおり T2 の次に実施 |
 | T11 | 実装済 (本 PR) | 2026-07-18 | PR 範囲 (`master..@`) が docs-only (ADR-035 path 基準) のとき quality_gate の `rust-lint-test` group (実測 ~50s = gate 律速) を決定論的に skip。**takt は skip しない (ユーザー承認済み)**: path から「Rust テスト結果不変」は演繹できるが「レビュー不要」は演繹できない (docs の cross-ref / trust boundary / 事実は誤り得る。ADR-035 §適用 criteria + ADR-056 T10 で reviewer が docs の事実誤りを検出した実績)。JS 系 (`pnpm lint:docs`) も維持。**⚠ 期待効果を実測で下方修正 (T1/T2 同型)**: 「-6〜8 分」は §1 stale ベースライン由来で、実測は rust group ~50s = **-~50s**。**ADR-035 path 基準を新 crate `lib-docs-policy` に集約** — pre-push (本 stage) と post-PR (`cli-pr-monitor` gate) の 2 箇所が判定を要するため単一実装化 (判定分散は ADR-035 が防ごうとした drift の再生産)。`cli-pr-monitor` の重複実装 + テスト 7 本を撤去して置換。判定範囲は PR 範囲 `<base>..@` (単一コミット `@` では祖先の code 変更を見逃す)。**空 diff** 部分は既存 `DiffResult::Empty` 経路が担うため本タスクは docs-only の quality_gate skip のみ実装。**ADR-039 3 点セット**: `[docs_only_routing]` default OFF / env `DOCS_ONLY_ROUTING_DISABLE=1` kill-switch / 本 repo `enabled = true` で dogfood。`default_branch` は `[pr_size_check]` と論理同一値を保つ義務を両 section に明記 (ADR-051)。**回帰テスト**: lib-docs-policy 8 + docs_only_routing stage 9 + quality_gate skip 3 (対照付き) + config 4。**サンドボックス実機 before/after** (配布 exe、`C:\t11\repo`): docs-only=skip・exit 0 完走 / code=実行・exit 1 / kill-switch=bypass / disabled=routing なし の 4 scenario で確認。副産物として、実 repo は `master` が remote-tracking のため bookmark advance が master を動かさず `master..@` が正しく PR 範囲を指すことも確認 (sandbox の local master は `trunk()` alias で同じ除外を再現)。新規 **ADR-057** (判定期限 2026-08-15、効果検証と誤 skip 観測を引き継ぎ)。**exe 再ビルド必要** (Rust 変更あり、`pnpm build:cli-push-runner` 実施済み)。**実施順**: 計画の推奨順どおり T10 の次に実施 |
 | T7 | 実装済 (PR #284) | 2026-07-17 | `hooks-stop-quality` の `main` 冒頭で cwd をプロジェクトルートへ正規化 (`normalize_cwd_to_project_root`)。**ルート導出は (b) exe パス**: 方針が両論併記だったため実測し、VSCode 拡張環境で **`CLAUDE_PROJECT_DIR` が空** = ADR-005 (2026-03-17) の不安定性が現在も再現することを確認して (a) を却下。既存規約 (順位 287 / ADR-010、`config_path()` / `pipeline_lock::exe_claude_dir()` / `lib_telemetry::exe_dir()`) と同形。判断根拠は**本計画が削除予定のため ADR-005 に追記**して恒久化した。**⚠ 方針の前提が 1 つ誤っていた (ユーザー承認のうえ逸脱)**: リスク欄は「正規化が takt subsession 判定に影響しないか確認が必要」「判定ロジックは元 cwd を使う形が安全」としていたが、`takt_subsession_active` は **cwd 依存で既に壊れていた** (cwd = `.takt/runs` だと `.takt/runs/.takt/runs` を探して空振り → active run 未検出 → ADR-004 § takt subsession skip が効かず edit: false の subsession に「直せ」を返す = PR #221 の事故が再発しうる)。元 cwd 維持は「安全」ではなく既知不具合の温存のため、**両症状に効く main 冒頭 1 回の正規化**を採用。回帰テストで修正前に実際に失敗することを確認済み (推測ではない)。**実装**: `project_root_from_exe` は ADR-010 の配置 (`<root>/.claude/<hook>.exe`) を満たすときのみ `Some` を返し、`target/debug/` 等では正規化を skip (cwd 書き換えは全 step の実行位置を変えるため、推測でルート扱いせず従来挙動に倒す)。ルート特定不能・`set_current_dir` 失敗は警告のみで継続 = fail-open (`pipeline_is_running` と同じ線引き、ADR-043: Stop 時点は助言層で本物のゲートは push pipeline 側)。**lib-subprocess は無変更** — プロセス単位の正規化で `cmd /c` の子が継承するため、共有 `run_cmd_shell_*` への cwd 引数追加 (variant 増殖) を回避できた。**ファイル分割 (T7 に付随、T1 と同型)**: `main.rs` が 712 行 → 追記で 804 行となり 800 行上限に触れたため takt 判定を `takt_subsession.rs` へ切り出し (main 532 / takt_subsession 290)。**T7 が直している file-length gate に T7 自身が引っ掛かった** = gate が機能していることの副次的実証。**回帰テスト**: `tests/t7_cwd_independence.rs` E2E 5 本 + unit 2 本 (26 → 33 passed)。**exe を `<root>/.claude/` に staging して spawn** するのが要点 — `target/debug/` の exe を直接起動すると exe-relative のルート導出を素通りして実配置を検証しない。`normalize_cwd_to_project_root()` の呼び出しを外すと **bad 2 本がちょうど失敗し good 3 本は通る**ことを確認済み (failure は incident の逐語再現)。good 側に「実失敗する step は cwd に依らず block する」= 正規化がゲートを骨抜きにする最悪の退行ガードを含む。**実機検証 (before/after、本リポジトリの実 config)**: cwd = `.takt/runs` で before = block + `**file-length** failed:` + 文字化け / after = 出力なし (通過)。root cwd と深い cwd も通過。**方針の記述も実機で裏付け**: before で失敗したのは `file-length` step のみで pnpm 系 5 step + `cargo clippy` は通っていた (pnpm/cargo は設定ファイルを上方探索する) = **ルート相対パスを書いた step だけが壊れる**非対称が症状をまだらにし発見を遅らせていた。**CP932 デコードフォールバック (方針 2) は §6 backlog 11 へ分離 (ユーザー承認済み)**: 影響先が共有 lib (push-runner / merge-pipeline) のため §2 原則 4 に従う。cwd 修正で incident の文字化けは消えるが、exe 欠落時 (ADR-005 Negative の既知事象) 等で経路自体は残るため却下ではなく backlog。**発見 (本タスク外)**: T7 は cwd drift silent 故障の 3 例目で、順位 281 (Tier 1、lint rule) / 順位 287 (Tier 3、convention 明文化) が先行 todo 化済み。ただし T7 は「config 解決」でなく「**step 実行の cwd**」の別カテゴリのため既存 lint rule 案では捕捉できず、281 着手時に検出対象拡大を検討する価値がある (本計画スコープ外 = todo13.md 管理)。**post-PR 修正 (CodeRabbit Major 1 件を採用)**: `run_hook` が `wait_with_timeout_safe` の戻り値を捨てており、hook が非 0 exit でも stdout が空なら `block_reason == None` をすり抜ける = **`None` を期待する 3 本 (bad 2 + good 1) が false green** になる穴。「block されないこと」を期待する回帰テストは hook が黙って死ぬと合格してしまうため、指摘は妥当。`cli-pr-monitor` の takt auto-fix が exit code assert を追加したが**指摘の「失敗時は stderr を出す」部分が未達**だったため補正した — メッセージに stdout を渡しており、かつ `stderr.join()` より前に呼ばれるため構造上 stderr を出せなかった。本 hook の診断は `eprintln!` = stderr にしか出ず、指摘が想定する「stdout が空の失敗」では stderr だけが手掛かりになる。**guard が空振りでないことを実証**: staged exe を `where.exe` (非 0 exit・stdout 空) に差し替えると 5 本すべてが `exit code Some(2)` で失敗する (導入前なら `None` 期待の 3 本は素通りしていた)。**実施順**: 計画の推奨順どおり T6 の次に実施 |
+| T12 | 実装済 (本 PR) | 2026-07-18 | takt 実行後に `post_takt_regate` stage を追加し、fix が作業コピーを書き換えた場合のみ quality_gate 全 group を再実行して block する (虚偽ではないが検証不足の `fully_resolved` = PR #224 型を pre-push でも遮断)。post-PR gate (ADR-037 §Mitigations) の pre-push 版。あわせて `fix.md` (共有 facet / ADR-020) の workspace 全体 + `--ignored` 自己申告義務を撤去し影響 crate の `build -p` + `test -p` に縮小、検証を決定論 gate へ委譲。**変化検出は diff snapshot 前後比較 (ユーザー承認済み)**: Stage 1.5 の diff を takt 前に保持し takt 後に再取得して比較。**commit_id + diff 二段構え (ADR-021 原則 1 字面) は不採用** — それには `capture_commit_id`/`diff_is_empty` の lib-jj-helpers 移設 + cli-pr-monitor 移行が要り PR 肥大化 (§2 原則 4)。diff snapshot 前後比較は metadata のみの変化に構造的に不感 (ADR-021 § commit_id 単独比較の限界) で共有対象が発生しない。判定は pure fn + closure 注入 (ADR-021 原則 3)。**fail 方向は gate 系 fail-closed** (判定不能 → 実行)、ADR-021 原則 4 の repush 系 fail-safe (判定不能 → 何もしない) とは逆向き。**再ゲート範囲は quality_gate 全 group (ユーザー承認済み)**: 文言どおり全 group、docs-only skip は fix 後は非適用 (fail-closed)。**方針 3 は充足済み = post-pr 側変更不要**: cli-pr-monitor gate は `rust-lint-test` group (`--ignored` 含む) を既に実行しており両経路で `--ignored` が担保される。**ADR-039 3 点セット**: `[post_takt_regate]` default OFF / env `POST_TAKT_REGATE_DISABLE=1` / 本 repo `enabled = true`。新規 **ADR-058** (判定期限 2026-08-15、ADR-057 と同期) + **ADR-037 追記**。**回帰テスト**: post_takt_regate 11 本 (decide_regate 全 5 分岐 + 統合の block/pass/skip) + capture_diff_snapshot 2 本 (215 → 250 passed)。中核は変化検出 + gate FAIL → block、無変更なら失敗 gate でも実行せず skip。**サンドボックス実機 before/after** (配布 exe、`C:\t12\repo`、takt は自作 `pnpm.exe` stub で代役): 同一の破壊的 fix に re-gate ON=block/exit 1 (A) vs OFF=PUSH 到達/exit 0 (B、従来挙動) で因果を分離、C=無変更 skip (marker 存在下でも gate 非実行の証跡)、D=kill-switch skip の 4 scenario。stub は Rust の `Command::new("pnpm")` が `.cmd` を拾わないため `pnpm.exe` (rustc 自作) にした。**効果 (fix execute 短縮 / block 実績) は 1 PR で測れず** ADR-058 bounded lifetime + T99 after 計測に引き継ぎ。**exe 再ビルド必要** (`pnpm build:cli-push-runner` 実施済み)。**実施順**: 計画の推奨順どおり T11 の次に実施 (最終タスク) |

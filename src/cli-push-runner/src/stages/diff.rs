@@ -83,6 +83,20 @@ fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
     }
 }
 
+/// takt 実行後の diff snapshot を取得する (T12 post-takt re-gate の変化検出用)。
+///
+/// Stage 1.5 と同じ `[diff] command` を再実行し stdout を返す。呼び出し側 (re-gate) は
+/// takt 起動前に保持した snapshot と本値を**前後比較**し、一致すれば「fix はコードを
+/// 書き換えていない」= re-gate skip に倒す。取得失敗 (jj 失敗 / timeout) は `None` を返し、
+/// 呼び出し側が fail-closed (= 変化ありとみなし re-gate 実行) に扱う (ADR-043)。
+///
+/// `run_diff` と違いファイルには書かない (比較のためメモリ上で保持するだけ)。timeout /
+/// stderr 分離の要件は `run_diff_cmd` と同一 (同 doc 参照)。
+pub(crate) fn capture_diff_snapshot(config: &DiffConfig) -> Option<String> {
+    let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
+    run_diff_cmd(&config.command, timeout).ok()
+}
+
 pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
     log_stage("diff", &format!("実行: {}", config.command));
 
@@ -169,6 +183,38 @@ mod tests {
         assert!(
             !out_path.exists(),
             "output file must not be created for an empty diff"
+        );
+    }
+
+    /// T12: capture_diff_snapshot は成功時に stdout を Some で返す
+    /// (post-takt re-gate の pre/post 比較の材料)。
+    #[test]
+    fn capture_diff_snapshot_returns_output_on_success() {
+        let config = DiffConfig {
+            command: "echo snapshot-content".to_string(),
+            output_path: String::new(),
+            timeout: None,
+        };
+        let snap = capture_diff_snapshot(&config).expect("成功時は Some");
+        assert!(
+            snap.contains("snapshot-content"),
+            "stdout をそのまま返すこと: {:?}",
+            snap
+        );
+    }
+
+    /// T12: 取得失敗 (コマンド exit 非 0) は None を返す
+    /// (呼び出し側は None を fail-closed = 変化ありに倒す)。
+    #[test]
+    fn capture_diff_snapshot_returns_none_on_failure() {
+        let config = DiffConfig {
+            command: "echo boom 1>&2& exit /b 1".to_string(),
+            output_path: String::new(),
+            timeout: Some(30),
+        };
+        assert!(
+            capture_diff_snapshot(&config).is_none(),
+            "失敗時は None (呼び出し側で fail-closed に扱う)"
         );
     }
 
