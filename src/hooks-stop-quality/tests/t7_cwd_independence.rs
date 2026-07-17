@@ -88,12 +88,25 @@ fn run_hook(root: &Path, cwd: &Path) -> String {
         .write_all(br#"{"stop_hook_active": false}"#)
         .expect("write stdin");
 
-    wait_with_timeout_safe("t7-hook", &mut child, HOOK_TIMEOUT_SECS)
+    let status = wait_with_timeout_safe("t7-hook", &mut child, HOOK_TIMEOUT_SECS)
         .expect("hook wait")
         .expect("hook must not time out");
     let out = stdout.join().unwrap_or_default();
+    assert_hook_success(status, &out);
     let _ = stderr.join();
     out
+}
+
+/// hook プロセスが正常終了 (exit code 0) したことを検証する。
+///
+/// crash や非 0 exit でも stdout に部分的な JSON を書き出すケースがあるため、
+/// stdout のパース可否だけでは exit code の異常を検知できない。
+fn assert_hook_success(status: std::process::ExitStatus, out: &str) {
+    assert!(
+        status.success(),
+        "hook exited with exit code {:?}: {out}",
+        status.code()
+    );
 }
 
 /// stdout から block の reason を取り出す。block でなければ `None`。
