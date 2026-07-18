@@ -35,15 +35,6 @@ A deterministic Rust gate (scope guard, ADR-054 layer 3) re-checks the actual fi
 - Use the latest review reports in the Report Directory as primary evidence.
 - Past iteration reports are saved as `{filename}.{timestamp}` in the same directory. For each report, run Glob with a `{report-name}.*` pattern, read up to 2 files in descending timestamp order, and understand persists / reopened trends before starting fixes.
 
-### Optional: refutation-report.md filter (applies whenever refutation-report.md is present)
-
-If the Report Directory contains `refutation-report.md`, a verify (refute) step has already adversarially filtered the reviewer findings. In that case:
-
-- Treat the **Survived Findings** table as your work list. Each row is self-contained (`finding_id`, location, issue, and the carried-over fix suggestion), so fix directly from it. Use the `finding_id` to cross-reference the original reviewer report (`simplicity-review.md` / `security-review.md`) when you need more context on a surviving finding.
-- Fix **only** the findings in the Survived Findings table. Do NOT fix findings listed under **Rejected Findings** -- they were refuted as false positives (a wrongly-rejected one is recaught by the post-pr CodeRabbit layer).
-
-If `refutation-report.md` is absent (post-pr-review, or refute disabled), use all reviewer / analysis reports as usual.
-
 ## Completion criteria (all must be satisfied)
 
 - All findings in this iteration (new / reopened) have been fixed in the correct source tree (not in any read-only zone).

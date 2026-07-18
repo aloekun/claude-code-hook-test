@@ -26,7 +26,7 @@ loop_monitors:
       persona: supervisor
       # haiku: judge は Healthy/Unproductive の 2 択 routing のみ (R2 / T13 項目 3)。
       # post-pr-review.yaml の analyze (haiku で approved/needs_fix/user_decision を分類) に前例。
-      # ⚠ 変更時は refute 側 (pre-push-review-refute.yaml) と必ず揃えること (原則 6 / T10 の罠)。
+      # (refute 側 yaml との同期義務は ADR-047 却下 = refute.yaml 削除 (2026-07-19) に伴い解消。)
       model: haiku
       instruction: loop-monitor-reviewers-fix
       rules:

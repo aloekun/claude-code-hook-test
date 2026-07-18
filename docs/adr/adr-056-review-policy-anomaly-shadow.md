@@ -2,7 +2,8 @@
 
 ## ステータス
 
-試験運用 (2026-07-17) / **dogfood 中 (判定期限 2026-07-31)**
+試験運用 (2026-07-17) / **dogfood 中 (判定期限 2026-07-31)** /
+**採否判定ドラフト: 延長推奨 (2026-07-18、速度基準は未達だが finding 品質目標は達成・交絡あり。下記参照)**
 
 > 本 ADR は [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) の
 > 対象。ただし prompt-contract の変更でありランタイム機能ではないため、config opt-in /
@@ -170,6 +171,14 @@ run 1 の所見: simplicity reviewer は criteria を列挙せず「self-referen
 直接比較できない**。所要時間が run 1 → 2 で伸びている (175s → 345s) が、diff 内容も
 変わっているため policy 起因とは言えない。受け入れ基準の判定にはコード diff を含む run が必要。
 
+**実走 workflow の切替 (2026-07-19、ADR-047 却下確定に伴う)**: refute workflow の削除により、
+2026-07-19 以降の実走は `pre-push-review.yaml` (meta.json の `piece` = `"pre-push-review"`) に
+戻った。本 policy は両 workflow 共通だったため **dogfood 計測は途切れない**が、run 抽出クエリは
+期間で piece 値が変わる点に注意 — 07-17〜19 は `"pre-push-review-refute"`、07-19 以降は
+`"pre-push-review"` (baseline の checklist era run と混ざるため **日付での区別が必須**)。
+kill-switch 記述 (§3 点セット) の「両 workflow / 2 ファイル」は refute 退役後 1 ファイル
+(`pre-push-review.yaml` のみ) になった。
+
 ### 採否判定基準 (2026-07-31)
 
 T10 の受け入れ基準に準拠する:
@@ -209,6 +218,47 @@ T10 の受け入れ基準に準拠する:
 - **security 側の builtin persona / knowledge の slim 化を同時に行う**: security-review の
   execute 平均 91s は simplicity (203s) と並列で wall-clock の律速ではない (T10 方針 4)。
   効果測定後のフォローアップとする。→ 見送り。
+
+## 採否判定ドラフト (2026-07-18)
+
+判定期限 2026-07-31 に先立ち、dogfood 実データで T10 受け入れ基準を評価した (step 別所要は
+`docs/takt-step-timings.md` (別コミットの観測ツール)、refutation report は `.takt/runs/*/reports/`)。
+
+### 実測データ (dogfood 2026-07-17〜18, refute 期 24 run)
+
+| 基準 | 目安 | 実測 | 判定 |
+|---|---|---|---|
+| simplicity execute の短縮 | 203s → **≤150s** | **avg 203.4s / median 196.5s** (≤150s は 7/24 のみ、いずれも docs/小 diff) | ❌ **未達** |
+| checklist 型 REJECT の不発生 | 0 件 | **0 件** (発火した 2 finding は `redundant-dependency` / `doc-fact-inconsistency` = anomaly 適格) | ✅ 達成 |
+| 二重 miss の不発生 | 0 件 | 明確な事例なし (PR #294 の `file_prefix` は pre-push が非ブロッキングで surface、CodeRabbit が Major に格上げ = **severity gap であり miss ではない**) | ✅ (暫定) |
+
+### 評価 — 速度基準は未達、設計目標は達成
+
+- **速度 (≤150s) は未達**だが、この指標は **diff サイズに支配される** (execute は 36s〜416s に分布、
+  コード diff run は 150〜416s)。refute 期は R3 等の大型コード diff が多く、baseline 203s
+  (単一コード diff) との raw 比較は交絡している。「203s → 150s」は diff 正規化なしには判定できない。
+- **本 ADR の設計目標 (checklist ノイズの除去・anomaly 適格な finding のみ)** は達成している:
+  観測された finding は全て articulable な実問題で、DRY/TODO 単独の checklist 型 REJECT は 0。
+  「checklist を撤去すると真の問題を拾えなくなる」(§トレードオフ) への反証データも積めた
+  (reviewer は事実誤り・redundant dependency を checklist 無しで検出した)。
+
+### 延長を推奨する理由 (即却下・即採用のいずれも避ける)
+
+1. **速度未達を理由に却下しない**: 未達は交絡 (diff サイズ) が主因で、policy 起因と断定できない。
+2. **速度達成を理由に採用もしない**: raw 平均が目標を満たしていない以上、基準を満たしたとは書けない。
+3. → **判定期限 (07-31) までに 2 点を詰めて確定する**:
+   - **diff 正規化した execute 比較** — 同程度の diff 行数で anomaly policy 有無を比較 (baseline の
+     checklist era run と対照)。`docs/takt-step-timings.md` の抽出を diff サイズ
+     付きに拡張して算出。
+   - **double-miss の CodeRabbit 突合** — pre-push が APPROVE したが CodeRabbit が blocking を出した
+     PR を洗い、policy 撤去で拾えなくなった真の問題が無いかを確認。
+4. 速度が正規化後も未達なら、**受け入れ基準を「finding 品質 (checklist ノイズ 0)」に再解釈して
+   採用**するか、速度目標を取り下げる形で ADR を更新する選択肢も判定材料に含める。
+
+> **注**: 本節は判定**ドラフト**。status header の確定はユーザー承認後。[ADR-047](adr-047-prepush-refute-facet.md)
+> (却下推奨) とは判定が分かれる — refute は便益 0 で却下寄り、policy shadow は品質目標を達成し延長寄り。
+> 両者の dogfood 期間が重なる交絡は、refute の verify 却下が 0 件だったことで「fix iteration 減は
+> policy 起因」と分離できている (ADR-047 判定ドラフト参照)。
 
 ## 関連 ADR
 

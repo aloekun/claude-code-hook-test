@@ -1,8 +1,8 @@
-<!-- Used by: pre-push-review / pre-push-review-refute (all review steps). Shadows the takt builtin `review` policy for pre-push only. See ADR-056. -->
+<!-- Used by: pre-push-review (all review steps). Shadows the takt builtin `review` policy for pre-push only. See ADR-056. The refute variant (ADR-047) was retired 2026-07-19. -->
 
 # Review Policy (anomaly mode)
 
-Shared judgment criteria for the pre-push review steps (reviewers / refutation /
+Shared judgment criteria for the pre-push review steps (reviewers /
 supervisor). This policy deliberately defines **no REJECT checklist of its own**.
 What counts as a blocking problem is owned by each step's instruction facet; this
 policy only constrains **how** a finding must be evidenced, scoped, and tracked.
@@ -27,7 +27,6 @@ Each step's instruction facet defines what qualifies as blocking:
 
 - `review-simplicity` — an articulable anomaly (unexplained complexity, hidden coupling, dead-on-arrival code, ...)
 - `review-security` — a concrete exploit path (who controls the input, what newly becomes possible)
-- `refute-finding` — a finding that survives adversarial refutation
 - `supervise` — the current iteration's blocking findings are resolved
 
 This policy adds none of its own. In particular there is **no list of "REJECT

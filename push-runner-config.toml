@@ -187,31 +187,13 @@ max_diff_lines = 5000
 output_path = ".takt/lint-screen-report.md"
 
 # ---------------------------------------------------------------------------
-# [pre_push_review] — WP-06 / ADR-047 (試験運用): 反証 (refute) facet。
-# reviewers と fix の間に verify(refute, haiku) step を挟み、reviewer(sonnet) の
-# false positive finding を fix 前に反証・却下して無駄な fix iteration を削減する。
-# 誤って却下した真の finding は post-pr CodeRabbit 層で回収される (安全網)。
-# 設計背景・詳細: docs/adr/adr-047-prepush-refute-facet.md
-#
-# ADR-039 (Experimental feature 標準パターン) 3 点セット:
-# - **Config opt-in**: default OFF。`refute_enabled = true` かつ `refute_workflow`
-#   指定時のみ verify 入り workflow (pre-push-review-refute) に切替。section 不在 /
-#   `refute_enabled` 未設定 / false では現行 pre-push-review (verify なし) を使う
-#   (workflow 解決は cli-push-runner の resolve_takt_workflow に単一集約)。
-#   本リポジトリでは **2026-07-17 (push T4) に `refute_enabled = true` で dogfood 開始**。
-#   導入 PR が OFF だったのは、未検証 refute でその導入 PR 自体を自己レビューする
-#   ブートストラップを避けるため。refute workflow が master で検証された後の
-#   本設定変更で dogfood に入った。templates は default OFF を継承 (派生 repo は現行フロー)。
-# - **Kill-switch**: `refute_enabled = false` で即座に現行フローへ (verify 完全 skip)。
-#   永続停止は `.takt/workflows/pre-push-review-refute.yaml` を削除する revert PR。
-# - **Bounded lifetime**: dogfood 開始 (2026-07-17) から 2 週間 = **2026-07-31 が採否判定期限**。
-#   fix iteration 数の減少 かつ reject 誤りが CodeRabbit 層で回収されている (安全網実証) を
-#   確認できたら採用 (pre-push-review.yaml へ verify を統合)、未達なら却下。判定結果は
-#   docs/adr/adr-047-prepush-refute-facet.md に反映する。
+# [pre_push_review] — 撤去済み (ADR-047 却下、2026-07-19)。
+# 反証 (refute) facet: reviewers と fix の間に verify(refute, haiku) を挟む試験運用
+# だったが、dogfood 26 run で verify の finding 却下 0 件 (ADR-056 の anomaly policy
+# fact-check 義務 = inline 反証が上流で FP を枯らした) のため却下。section 不在 =
+# resolve_takt_workflow は現行 pre-push-review.yaml を使う (default OFF と同じ経路)。
+# 却下根拠・一般反証機構との構成差: docs/adr/adr-047-prepush-refute-facet.md
 # ---------------------------------------------------------------------------
-[pre_push_review]
-refute_enabled = true
-refute_workflow = "pre-push-review-refute"
 
 # ---------------------------------------------------------------------------
 # [post_takt_regate] — T12 (push パイプライン改善): fix 後の決定論再ゲート。
