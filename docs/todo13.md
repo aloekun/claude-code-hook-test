@@ -1815,6 +1815,38 @@
 
 ---
 
+### 並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)
+
+> **動機**: R4 の ADR-047 採否判定分析 (2026-07-19、[ADR-047](adr/adr-047-prepush-refute-facet.md) 「却下理由の補強」節) から。直列 refute (verify step) は同日導入の [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) anomaly policy が **inline 反証** (fact-check 義務) として上流で FP を枯らしたため、**26 run で却下 0 件・便益 0** となり却下推奨。これで precision 側 (FP 除去) は ADR-056 が担う体制になったが、**recall 側 (見落とし) は post-PR CodeRabbit 頼みのまま**。一方 reviewers step は並列実行であり、simplicity execute (実測 avg 203s / max 416s) を律速上限として **第 3 の並列レビュアーを wall-clock 追加ゼロで足せる**見込みがある (security execute avg 92s が simplicity の陰に収まっている実績)。観点は「実装内容」ではなく「**設計内容**」— 見落としやすいポイントの指摘・プロジェクト適合性 (ADR / dev-conventions との整合)。
+>
+> **重要な区別**: これは反証 (precision フィルタ) の代替ではなく**多視点化 (recall 拡張)**。機能軸が逆であり、「refute の後継」ではなく独立の新実験として評価する。最大リスクは **fix loop 率の再上昇** (現行 8.3% は「finding が減った」直接効果。設計・適合性指摘は anomaly 指摘より主観的で FP を出しやすく、規律なしでは T10 以前の 20〜45% へ逆行し得る)。
+>
+> **対処案 (2 phase 構成、Phase 0 必須先行)**:
+>
+> - **Phase 0 — 需要の実証 (ADR-042 の流儀)**: 「simplicity/security が APPROVE した後に、CodeRabbit または post-merge feedback 分析で初めて検出された**設計起因の見落とし**」の実績数を数える。データソースは実在する 3 系列 — (1) `.claude/feedback-reports/*.md` (post-merge-feedback 蓄積、`.takt/runs` に 54 run 分の生成履歴あり)、(2) merged PR の CodeRabbit resolved threads (`gh api` の reviewThreads で path/body 取得可、PR #294 で手順実証済)、(3) `docs/adr/` の「実害後に塞いだ」記録 (ADR-058 の PR #224 等)。**実績ゼロなら見送り** (negative result は dev-conventions 順位 261 convention で永続化)。あわせて weekly-review ([ADR-031](adr/adr-031-weekly-review-pipeline.md) architecture facet) / post-PR CodeRabbit との役割重複を確認し、並列レビュアーでしか埋まらない穴かを判定する。
+> - **Phase 1 — 実験導入 (Phase 0 で需要が実証された場合のみ、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) 3 点セット)**: `pre-push-review.yaml` の reviewers step に design-review sub-step (sonnet) を**並列追加**。規律は ADR-056 と同一 + 追加 1 点 — (a) fact-check 義務 (実コード・実 ADR で検証してから raise)、(b) articulable 要件、(c) [ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) output contract、(d) **指摘には根拠ソース (対象 ADR / dev-conventions / 実コードの file:line) の引用を必須**とし、実データ・実ソースに基づかない speculation を禁止、(e) **blocking にできるのは実害を具体的に示せた場合のみ**、それ以外は non-blocking warning (fix loop 再上昇の抑止)。
+>
+> **受け入れ基準 (Phase 1)**: ①採用された設計 finding ≥1 件/実験期間、②fix loop 率が現行 8.3% から有意に悪化しない、③wall-clock が simplicity 律速のまま (design execute ≤ simplicity execute を `scripts/analyze-takt-timings.ps1` で確認 — 別コミットの観測ツール)。計測は R3 の `push-runs-*.jsonl` (総時間・fix 発生) + step 別 timing 抽出で機械的に行う。
+>
+> **参照**: [ADR-047](adr/adr-047-prepush-refute-facet.md) §却下理由の補強 (一般反証機構との構成差・本案の出自)、[ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) (inline 反証 = 規律の移植元)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (Phase 0 需要調査の根拠)、`docs/takt-step-timings.md` (step 別実測、別コミット)、[push-pipeline-fix-plan2.md](push-pipeline-fix-plan2.md) R4。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Low〜Medium (現行に実害はない: recall 穴は post-PR CodeRabbit が受けている。改善余地の探索) / Effort: Phase 0 = S、Phase 1 = M (条件付き)。
+
+#### 作業計画
+
+- [ ] Phase 0: feedback-reports / CodeRabbit resolved threads / ADR 実害記録の 3 系列から「pre-push 通過後に検出された設計起因の見落とし」を集計し、需要の有無を判定する (ゼロなら見送り + negative result 永続化で本エントリ完了)。
+- [ ] Phase 0: weekly-review architecture facet / post-PR CodeRabbit との役割重複を確認し、並列レビュアー固有の担当領域を定義できるか判定する。
+- [ ] Phase 1 (条件付き): design-review facet 作成 + pre-push-review.yaml へ並列追加 (ADR-039 3 点セット、上記規律 (a)〜(e))。
+- [ ] Phase 1 (条件付き): 受け入れ基準 ①〜③ を dogfood で計測し、採否判定を ADR 化する。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- Phase 0 の需要調査結果 (実績数と判定) が記録されていること。見送りなら negative result が dev-conventions convention で永続化されていること。
+- Phase 1 に進んだ場合: design-review が並列で動き、受け入れ基準 ①〜③ の計測データに基づく採否判定が ADR に記録されていること。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)

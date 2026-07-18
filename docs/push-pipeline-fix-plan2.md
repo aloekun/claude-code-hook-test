@@ -216,13 +216,39 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
     (b) 本 R2 セクションのマージ済み表記の不統一を解消 (Minor)、(c) 本 R3「内容」欄の deferred
     フィールド (pr_size 行数 / takt run slug) を明示 (Minor)。CI pass / CodeRabbit review 完了。
 
-### R4: ADR-047 / ADR-056 の採否判定 — 判定期限 2026-07-31 (doc PR)
+### R4: ADR-047 / ADR-056 の採否判定 — 判定期限 2026-07-31 (doc PR) **【判定ドラフト作成済 2026-07-18 / 却下理由補強 2026-07-19】**
 
 - **ADR-047 (refute facet)**: `meta.json` の `piece` 基準で refute run を集計し、FP 起因
   fix iteration の削減効果と verify step の実動を評価 → 採用/廃止/延長をステータス更新。
 - **ADR-056 (policy shadow)**: 受け入れ基準「simplicity execute 203s → 150s 以下 (5 run)」と
   REJECT 率で評価。T4 refute と期間が重なるため効果の帰属に注意 (ADR-056 に記載済み)。
 - 2 判定を 1 doc PR にまとめてよい (どちらも ADR ステータス更新のみ)。
+- **判定ドラフト (2026-07-18, dogfood 実データで評価)**: 各 ADR に「採否判定ドラフト」節を追記済。
+  - **ADR-047 → 却下推奨**: refute run 26 件中 verify 発火は 2 件のみ・**finding 却下 0 件**。
+    fix loop 減 (8.3% vs baseline 20%) は verify 却下 0 のため refute 起因ではなく ADR-056/diff
+    に帰属。安全網 (b) は却下 0 で未作動 = 便益未実証。→ `refute_enabled=false` + refute.yaml
+    削除 revert PR (承認後)。
+  - **ADR-056 → 延長推奨**: simplicity execute avg **203.4s で ≤150s 未達** (ただし diff サイズ
+    交絡)、一方 checklist 型 REJECT 0・二重 miss なし = **品質目標は達成**。速度は diff 正規化
+    比較、double-miss は CodeRabbit 突合を 07-31 までに詰めて確定。
+  - **可観測性の裏付け**: step 別所要は `docs/takt-step-timings.md` (別コミット ②)、
+    (b) の計測手段 (refutation-report.md 解析 + gh api の CodeRabbit thread) は確立済。**未計測の曖昧さは
+    解消** ((b) は「ゼロ事象」として確定)。
+  - **status header の確定と revert は判定承認後** (本コミットはドラフトのみ)。
+- **却下理由の補強 (2026-07-19、ADR-047 に「却下理由の補強」節を追記)**: 「反証という手法が無効」
+  という誤読を防ぐ精緻化。
+  - **一般反証機構との構成差**: 機能する反証は「複数反証 + 多数決 / 反証者能力 ≥ 発見者 or 証拠優位
+    (テスト・実行等) / 高 FP 率の前提」を持ち 2〜5 割の kill 率を出す。本実装は**単独 haiku・
+    証拠優位なし・多数決なし**で一般原則から乖離。却下 0% は「反証の一般的な姿」ではない。
+  - **ADR-056 への帰属**: refute と anomaly policy は**同日 (07-17) dogfood 開始**の競合解で、
+    ADR-056 の fact-check/articulable 義務が **inline 反証**として上流で FP を枯らした
+    (24 run 中 22 が finding ゼロ、verify に届いた 2 件は真の指摘 = survive 判断 2/2 正解)。
+    結論は「反証が無効」ではなく「**この位置にこの構成で置く必要が ADR-056 の成功で消滅**」。
+  - **timing 実測 (理想 vs 実態)**: 理想 = FP 却下ごとに fix (134〜312s) を節約して平均短縮。
+    実態 = 発火 2 run で各 **+約 99s の純追加**・fix 削減 0 (符号が設計意図と逆。低頻度のため
+    額は小さい)。外部 finding 向け反証層 (ADR-038/ADR-023) は却下の射程外で維持。
+  - **代替案を todo 起案 (順位 326)**: 並列設計レビュアー (recall 側の新実験、reviewers 並列で
+    wall-clock 追加ゼロ見込み)。見落とし実績の事前調査 (Phase 0) 付き — 需要ゼロなら見送り。
 
 ### R5: ADR-057 / ADR-058 の採否判定 — 判定期限 2026-08-15 (doc PR)
 
