@@ -102,13 +102,42 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
   - **§1 表への行追加と PR 番号 backfill は push/マージ時に実施** (§1 は「全 PR マージ済み」
     のスナップショットのため、未 push の本タスクは §3 の本欄で完了記録とする)。
 
-### R2: loop_monitor judge の haiku 化 (T13 項目 3 採用分) — XS
+### R2: loop_monitor judge の haiku 化 (T13 項目 3 採用分) — XS **【実装済み・未 push, 2026-07-18】**
 
 - **内容**: loop_monitor の `judge.model: sonnet` → `haiku` (2 択判定のみ。post-pr-review.yaml に前例)。
 - **対象**: `pre-push-review.yaml` と `pre-push-review-refute.yaml` の**両方** (原則 6 参照。
   片方だけ変えると効果ゼロで気付けない = T10 で実際に起きた罠)。
 - **受け入れ基準**: 実 push で judge が haiku で完走。fix iteration 発生 run での遷移時間を
   記録できれば尚可 (R3 未実装の間は push ログの手動保存)。
+- **実施結果 (2026-07-18, 実装済み / 未 push)**:
+  - **方針**: loop_monitor の stall-detection judge を `sonnet` → `haiku`。judge は cycle が
+    threshold (2) 回反復した時に `Healthy → reviewers(refute 側も同じ) / Unproductive → supervise`
+    の **2 択 routing** を返すだけで、コード読解や修正判断を伴わない。haiku で十分という前例は
+    post-pr-review.yaml の analyze step (haiku で approved/needs_fix/user_decision の **3 分類**を
+    担当) = より複雑な分類を既に haiku が捌いている実績。
+  - **対象 (両方変更した)**: `pre-push-review.yaml` (judge L30) と `pre-push-review-refute.yaml`
+    (judge L39) の 2 ファイル。`refute_enabled = true` / `refute_workflow = "pre-push-review-refute"`
+    (`push-runner-config.toml` L213-214) のため**実走は refute 側**だが、kill-switch
+    (`refute_enabled = false`) で非 refute 側へ即戻せる設計 (ADR-047) のため、片方だけ変えると
+    戻した瞬間に効果が消え気付けない (原則 6 / T10 で実際に起きた罠)。両 yaml の judge に
+    「もう片方と揃えよ」inline コメント (原則 6 / T10 参照付き) を追加し、同期義務を人可読に明記した。
+  - **ADR-039 の観点**: これは experimental feature の**新設ではなく既存 judge の model 変更のみ**。
+    opt-in / kill-switch / bounded-lifetime は refute facet 自体 (ADR-047、判定期限 7/31) が
+    既に保持しており、haiku judge はその配下に入る。非 refute 側の judge も同値 (haiku) に
+    揃えたのは、refute 廃止 (kill-switch or ADR-047 却下) 時の着地先として効果を維持するため。
+  - **exe 再ビルド不要**: yaml 設定変更のみで Rust 変更なし (原則 4 は非該当)。takt (0.35.3、
+    ADR-017 で固定) が実行時に yaml を読む配布物であり、`.claude/*.exe` は無関係。
+  - **検証**: `takt prompt pre-push-review` / `takt prompt pre-push-review-refute` で両 workflow が
+    step 4 まで正常にパース・レンダリングされることを確認 (judge step preview の
+    `reportContent is required` は実 report 本文を要さない dry preview 固有の制約で、yaml 不正
+    ではない)。両ファイルの `loop_monitors[0].judge.model` が `haiku` であることも確認済み。
+  - **受け入れ基準の充足度 (未検証事項として記録)**: 基準「実 push で judge が haiku で完走」は
+    本 work unit のスコープ (commit まで) 外。judge は **loop_monitor が cycle 停滞を検出した
+    時のみ fire** する = fix iteration が 1 回以上発生する run でしか起動しないため、fix なし run
+    (§1 実測では T10 後 0/4 が fix なし) では judge 自体が呼ばれない。よって「haiku 完走」の
+    実証は fix 発生 run が出た時の push ログ手動保存 (R3 未実装のため) に持ち越す。
+  - **§1 表への行追加と PR 番号 backfill は push/マージ時に実施** (R1 と同じ扱い。§1 は
+    「全 PR マージ済み」のスナップショットのため、未 push の本タスクは §3 本欄で完了記録とする)。
 
 ### R3: push per-run メトリクスの JSONL 永続化 (todo 順位 325) — S
 
