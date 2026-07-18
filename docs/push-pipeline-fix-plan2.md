@@ -32,6 +32,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 | T11 | #288 | docs-only PR (ADR-035 path 基準) の rust gate 決定論 skip。`lib-docs-policy` 新設 (ADR-057、判定期限 8/15) |
 | T12 | #289 | fix 後の決定論再ゲート `post_takt_regate` + fix.md 自己検証義務の縮小 (ADR-058、判定期限 8/15) |
 | T13 | #290 + 判定 | backlog 13 項目の処置確定: **採用 2 (→ R1/R2)**、todo 移管 3 (項目 9→順位 324 / 項目 10→順位 323 / 項目 12→既存順位 16)、却下 6 (項目 2/4/5/6/8/11)、条件付き却下 2 (項目 7/13、再評価トリガー付き)。判断根拠は旧計画 §6/§8 |
+| R1 | #292 | quality_gate 失敗 step の出力を全量表示 (40 行 truncate 除去。成功経路は cap 維持 = T5「失敗経路は診断を落とさない」の残り半分。ADR-049 流の回帰テスト 2 本追加) |
 
 ### 実測の現在地 (2026-07-18 時点)
 
@@ -65,7 +66,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 
 ## 3. 残タスク (1 PR 1 タスク、推奨順)
 
-### R1: gate 失敗時出力の truncate 改善 (T13 項目 1 採用分) — XS **【実装済み・未 push, 2026-07-18】**
+### R1: gate 失敗時出力の truncate 改善 (T13 項目 1 採用分) — XS **【マージ済み #292, 2026-07-18】**
 
 - **内容**: quality_gate の step 失敗時、cargo test の失敗一覧が 40 行 truncate で消え
   診断できない問題の解消。`run_cmd_shell_capped_reporting` (truncate 明示 variant) + cap
@@ -73,7 +74,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 - **対象**: `src/cli-push-runner/src/stages/quality_gate.rs` + `lib-subprocess` の必要 variant
 - **受け入れ基準**: 失敗 step の出力が truncate されず表示されることの回帰テスト。
   成功経路の表示は現状維持 (cap あり) で退行なし。
-- **実施結果 (2026-07-18, 実装済み / 未 push)**:
+- **実施結果 (2026-07-18, マージ済み / PR #292)**:
   - **方針**: 受け入れ基準「truncate されず表示」に従い**失敗経路の全量表示**を採用
     (`capped_reporting` + cap 引き上げ案は truncate を明示するだけで基準を満たさないため
     不採用)。T5 (§4/PR #282) が push stage で確立した「判定は exit status ベース・失敗経路は
@@ -99,8 +100,8 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
     実証済みのため、XS 相応の検証に留める。
   - **exe 再ビルド済み** (`pnpm build:cli-push-runner`)。`cargo clippy -p cli-push-runner
     --all-targets` warning 0 / `cargo test -p cli-push-runner` 252 passed。
-  - **§1 表への行追加と PR 番号 backfill は push/マージ時に実施** (§1 は「全 PR マージ済み」
-    のスナップショットのため、未 push の本タスクは §3 の本欄で完了記録とする)。
+  - **§1 表に R1 行 (#292) を追加済み** (2026-07-18 マージ完了に伴い backfill)。未 push
+    だった間は §1 (「全 PR マージ済み」スナップショット) に載せず §3 本欄を完了記録としていた。
 
 ### R2: loop_monitor judge の haiku 化 (T13 項目 3 採用分) — XS **【実装済み・未 push, 2026-07-18】**
 
