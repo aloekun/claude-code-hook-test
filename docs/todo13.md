@@ -1847,6 +1847,49 @@
 
 ---
 
+### 多段コミットの ADR / observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用)
+
+> **動機**: R4 (ADR-047 却下 / ADR-056 延長) を「判定ドラフト → 却下理由補強 → plan2.md 反映 → 却下確定・撤去 → 観測ツール」と複数コミット・複数 PR に分割して進めた際、齟齬が複数回発生した — (a) timing doc が ADR-047 を「却下」と断定したが該当ブランチの ADR status header は未確定だった (PR #295 の pre-push review が REJECT → fix step が訂正)、(b) timing doc の `docs/takt-step-timings.md` への参照を markdown link にすると中間コミットで cross-ref が壊れるため plain-text に統一する必要があった、(c) ADR status 行と「採否判定」セクションの同期。ADR 58 件超・活発な多段階判定運用の本 repo では同型の反復が見込まれる。#295 と #296 の post-merge feedback がいずれも採用候補と判定。
+>
+> **対処案**: `docs/dev-conventions.md` に「多段コミット/多段 PR で ADR・観測 doc を更新するときのチェックリスト」を追加する。項目案: ① doc が外部 ADR の status (試験運用/却下等) に言及する場合は、参照先 ADR の**現行 status header と同期**しているか (未確定を「確定」と書かない)、② 別コミット/別 PR にまたがるファイルへの参照は **markdown link ではなく plain-text パス**にして中間コミットの cross-ref 破壊を避ける (docs-lint cross-ref は markdown link のみ検査)、③ ADR の status 行と「採否判定」セクションの記述を同時更新する。dev-conventions には WP-06/07/08 由来の同種 checklist 先例が複数あり同形式で追加可能。
+>
+> **参照**: `.claude/feedback-reports/295.md` Tier3 #2 / `.claude/feedback-reports/296.md` Tier3 #2、`docs/dev-conventions.md`、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (plain-text 参照統一の先例は本 R4 で ADR-047/056 に適用済)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Low / Frequency Medium / Effort S (doc checklist の追加のみ、機械化はしない)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に上記 3 項目のチェックリストを追加 (WP-06/07/08 の既存 checklist と同形式)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 多段コミットで ADR/observability doc を更新する運用者が、status 同期・plain-text 参照・セクション同期の 3 点を dev-conventions のチェックリストで確認できること。
+
+---
+
+### post-merge feedback が成功後に `post-merge-feedback-context.json` を残し次マージの feedback を誤 bail させる (cleanup gap、#296 マージで実観測)
+
+> **動機**: 2026-07-19 の #296 マージで、post_merge_feedback step が「前回の feedback がまだ進行中の可能性 (context.json が 820s 前に書かれた)」と判定して bail し、`.claude/feedback-reports/296.md.failed` marker を残した ([ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) L2 recovery 経路)。原因は **#295 マージの post-merge feedback が正常完了 (295.md 生成) したにもかかわらず自身の `.takt/post-merge-feedback-context.json` を掃除せず残した**こと。約 25 分 (1500s threshold) 以内に次のマージを行うと、前回の leftover context.json を「進行中」と誤判定して feedback が走らない = **連続マージで後発の feedback が構造的に skip される**。今回は手動で context.json 削除 + `--feedback-only 296` で recovery したが、根治は context.json の cleanup。
+>
+> **対処案**: post-merge feedback workflow (または cli-merge-pipeline) が feedback の**正常完了時に `post-merge-feedback-context.json` を削除**する。あわせて staleness 判定を「時刻ベース (820s < 1500s)」から「稼働中プロセスの実在確認」等に寄せるか、少なくとも成功時 cleanup で leftover を残さないようにする。fail 時は marker を残す現行 L2 recovery を維持 (真の中断と区別)。
+>
+> **参照**: `src/cli-merge-pipeline/src/pipeline.rs` (post_merge_feedback step / context.json の書き出し・cleanup)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) (L1 floor / L2 recovery、marker 運用)、`.takt/post-merge-feedback-context.json`、#296 マージ実観測 (2026-07-19)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (連続マージで後発 PR の再発防止分析が構造的に skip される。今回は手動 recovery で救済したが、気付かなければ feedback が静かに欠落) / Frequency Low〜Medium (連続マージ運用時) / Effort S (成功時 cleanup の追加)。
+
+#### 作業計画
+
+- [ ] 再現テスト: leftover context.json がある状態で 2 回目のマージ feedback が誤 bail することを固定 (base_dir 注入等)。
+- [ ] post-merge feedback の**正常完了時に context.json を削除**する (fail 時は marker を残す現行動作を維持)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 連続マージ (前回 feedback 成功後 25 分以内) でも 2 回目の post-merge feedback が leftover context.json で誤 bail せず実行されること (回帰テストで seal)。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)
