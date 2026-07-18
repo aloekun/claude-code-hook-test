@@ -1763,6 +1763,88 @@
 
 ---
 
+### `lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)
+
+> **動機**: T6 (PR #283、diff stage の timeout 追加) の実装中に発見された共有 lib 側の同種欠陥 (push-pipeline-fix-plan §6 backlog 10 から移管。計画ファイルは T99 で削除予定のため要点を本エントリに転記済)。`lib-subprocess` の `run_cmd_shell_with` (= `run_cmd_shell_capped` / `_capped_reporting` / `_unlimited` 3 variant の共通骨格) は timeout 検知後に `child.kill()` → reader thread join するが、`cmd /c <command>` の**孫プロセス (実際の `cargo` / `jj` 等) は kill 対象外**で pipe の書き込み端を保持し続けるため EOF が来ず、**join が孫の自然終了までブロック**する。実測: `run_cmd_shell_capped` に `timeout_secs = 1` を指定したテストが返るまで 9.23s (`ping -n 10` の自然終了待ち)。既存テストは経過時間を assert しないため素通りしている。
+>
+> **影響**: cli-push-runner の quality_gate (`step_timeout = 300`) と push (`timeout = 300`)、cli-merge-pipeline の step 実行 — ハングした `cargo test` / `jj git push` を timeout で打ち切れない (gate のハング保護が実質無効 = ADR-043 fail-closed の空洞化)。**同じ「Windows の `child.kill()` はプロセスツリーを殺せない」根因の実害が 2026-07-17 の post-merge-feedback #286 で発生**: `feedback::run_takt_workflow` の timeout kill (1200s) も descendants を殺せず (`feedback/mod.rs` が PR #78 時点から明記)、orphan takt が kill の約 3 分後に report を完成させたが、reconciliation は kill 直後の 1 回のみのため `.failed` marker が stale に残留。marker 記載の復旧手順 (takt 再実行) は context が後続 PR に上書き済みで誤 PR 分析を誘発する状態だった (2026-07-18 に orphan report の手動 copy で復旧済)。
+>
+> **対処案** (§6 backlog 10 の分析より):
+>
+> - **(a) T6 と同じ「失敗経路では join せず detach」**: 実績ある方式だが、`_capped` 系は表示用出力を捨てることになるためトレードオフの判断が要る (T6 の diff は timeout 時に出力不要だったので単純に採れた)。
+> - **(b) 孫まで殺す (`taskkill /T /F` or Job Object)**: orphan の発生自体を止められるため、post-merge-feedback の stale marker 問題 (上記) にも波及効果がある。Windows 固有実装の複雑さを見積もること。
+> - (b) を採らない場合、`feedback::reconcile_takt_output` の「reconciliation が kill 直後 1 回のみ」の穴 (orphan が後から report を完成させると marker が stale 残留し、以後誰も再チェックしない) への緩和策を別途検討する。
+>
+> **参照**: `src/lib-subprocess/src/` (`run_cmd_shell_with`)、`src/cli-merge-pipeline/src/feedback/takt.rs` (`TAKT_TIMEOUT_SECS`) / `feedback/mod.rs` (reconciliation 設計)、T6 実施結果 = PR #283 (経過時間 assert の教訓)、#286 feedback report Tier1 #2 (「優先度を上げて todo 化」推奨)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium-High (ハング保護の実質無効化 + stale marker の実害 1 件観測済) / Effort S。
+
+#### 作業計画
+
+- [ ] **経過時間 assert 付きの再現テストを先に書く** (T6 の教訓: timeout の回帰テストは Err の内容だけでなく経過時間を assert する。無いと本件は再び素通りする)。
+- [ ] (a) detach vs (b) process-tree kill を評価して選択する。判断は `_capped` 系の出力保全要否と Windows 実装コストの比較で行い、選ばなかった側の理由を `run_cmd_shell_with` の doc に記録する。
+- [ ] 3 variant + 呼び出し元 (cli-push-runner quality_gate / push、cli-merge-pipeline) で回帰確認。サンドボックス実機 E2E は `ping -t` 差し替え + before/after 経過時間比較 (dev-conventions 記載の手法) で行う。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- `timeout_secs = 1` 指定時、孫プロセスが生存していても制御が 1s + ε で戻ること (経過時間 assert で seal)。
+- ハングするコマンド (`ping -t` stub) が quality_gate / push / merge-pipeline の timeout で実際に打ち切られること。
+
+---
+
+### `cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)
+
+> **動機**: T5 (PR #282) の調査で発見された sibling bug (push-pipeline-fix-plan §6 backlog 9 から移管)。jj は新規 bookmark の push 拒否時に **exit 0** を返すことがある (ADR-011 の背景) が、`src/cli-pr-monitor/src/stages/push.rs` の `push_to_remote` は exit code のみで成否判定しており、post-PR の re-push (CodeRabbit 指摘修正後の再 push 等) が**リモート未反映のまま成功扱い**になり得る。T5 が cli-push-runner 側で塞いだ「silent-failure push」= ADR-043 が防ぐ事故そのものと同型の穴。
+>
+> **対処**: 出力取得は既に `run_cmd_direct` (全量、truncate 無し) のため、**拒否判定の追加だけ**で済む (T5 と違い truncate 問題は無い)。判定ロジック `push_was_refused` は現在 `cli-push-runner/src/stages/push.rs` の private fn のため、共有化 (lib 移設) か複製かは [ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) の境界基準 (2nd consumer 出現時の共通化判定) で決める。fail-closed 側に倒す `contains` 判定の根拠は同 fn の doc コメントに恒久化済みで、そのまま踏襲する。
+>
+> **参照**: `src/cli-pr-monitor/src/stages/push.rs`、T5 実施結果 = PR #282 (`mod t5_truncated_refusal_detection` 回帰テスト 6 本が参考)、#286 feedback report Tier2 #3 (採用候補)、[ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (外部可視の push が無言で未反映になる silent failure。発生は re-push 経路のみ) / Effort XS。
+
+#### 作業計画
+
+- [ ] 再現テストを先に書く (拒否メッセージ + exit 0 の出力で失敗扱いになることを assert。T5 の回帰テスト群を参考にする)。
+- [ ] `push_was_refused` の共有化可否を ADR-044 基準で判定し、`push_to_remote` に拒否判定を追加する。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 拒否メッセージ + exit 0 の push が `push_to_remote` で失敗として報告されること (回帰テストで seal)。
+
+---
+
+### push パイプライン per-run メトリクスの JSONL 永続化 — stage 別 elapsed / routing 判定の遡及分析基盤
+
+> **動機**: T12 完了後の検証セッション (2026-07-18) で、push パイプラインの可観測性が「takt 部分のみ十分」であることを実測した。takt 部分は `.takt/runs/<slug>/meta.json` + `trace.md` で全 run 永続化されており fix 発生率・レビュー時間の before/after 分析が成立する。一方、**T0 (PR #278) で追加した `stage=<name> elapsed=<秒>s` ログは stderr のみで永続化されず** (`src/cli-push-runner/src/log.rs` の `timed()` → `eprintln!`)、quality_gate の group 別時間・`pr_size` の diff 行数・docs_only skip の発火・post_takt_regate の判定・パイプライン総所要時間はセッションが閉じると消失する。**T1/T3/T11/T12 の改善効果はまさにこの決定論 stage 層に落ちる**ため、ADR-057/058 (判定期限 2026-08-15) の効果検証と push-pipeline-fix-plan T99 の after 計測が「push 時のコンソール出力を手動保存する」運用に依存している。ユーザーが直接ターミナルで push した分は記録が残らない。
+>
+> **対処案**: run 終了時に 1 行の JSONL を `.claude/telemetry/` へ append する。計測点は `log.rs` の `timed()` に一元化済みのため、収集 struct を `main.rs` で蓄積し pipeline 終了時 (中断時含む) に書き出すだけで済む。器は lib-telemetry (ADR-055) を再利用し fail-open / opt-in (`[telemetry] enabled`) / kill-switch の既存原則に相乗りする — ただし ADR-055 のスコープは hook 発火イベントなので、**push run 記録への流用は ADR-055 amendment か別 record kind かの判断が要る** (プライバシー原則 = メタデータのみ、bookmark 名を含めるかも判断)。
+>
+> **フィールド案**: ts / bookmark / pr_size_lines / docs_only (bool) / stage 別 elapsed / skip した gate group / post_takt_regate 判定 (skip・run・block) / takt run slug (**`.takt/runs/` と join する鍵**) / total_secs / exit_code / **os** (harness-improvement-plan WP-15 以降はクラウド Linux run が混入しハードウェアの土俵が変わるため、改善効果の判定を Windows ローカル分に限定できるよう環境を分離する)。
+>
+> **着手時期の推奨**: harness-improvement-plan セクション 3 (WP-13〜16) 着手**前**。同セクションは本機での code push が 8〜15 回程度見込まれ、先に永続化しておけば全 push が自動的に after 計測コーパスになる (手動記録不要)。
+>
+> **参照**: `src/cli-push-runner/src/log.rs` (`format_stage_elapsed` の doc が「before/after 比較の contract」と明記しつつ永続化されていない)、[ADR-055](adr/adr-055-firing-telemetry-collection.md)、[ADR-057](adr/adr-057-docs-only-deterministic-routing.md) / [ADR-058](adr/adr-058-post-takt-regate.md) (判定期限の消費者)、push-pipeline-fix-plan §1 計測方法 / T99。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (機能不具合ではないが、改善投資の定量評価が構造的に不可能になっている。判定期限 2026-08-15 が消費者として実在) / Effort S。
+
+#### 作業計画
+
+- [ ] 記録スキーマを決める (ADR-055 amendment か新 record kind か。メタデータのみ原則との整合、bookmark 名の扱いを含む)。
+- [ ] `main.rs` で stage 計測を蓄積し、pipeline 終了時に 1 行 append する (fail-open。exit 7 等の中断経路でも書く — 中断頻度自体が観測対象)。
+- [ ] 回帰テスト: base_dir 注入 (lib-telemetry の `record_to` 同型) で「1 run = 1 行」「中断時も書かれる」「kill-switch で書かれない」を assert。
+- [ ] 集計手順を ADR-057/058 の判定手順に接続する (判定期限 2026-08-15 で実際に使う形にする。手動コンソール保存への依存を撤去)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- `pnpm push` 1 回につき 1 行の JSONL が残り、stage 別 elapsed / docs_only / post_takt_regate 判定 / total_secs が事後に集計できること。
+- ADR-057/058 の効果検証手順がコンソール出力の手動保存に依存しないこと。
+- 変更範囲: 計測点は `src/cli-push-runner/src/log.rs` の `timed()` に一元化済みのため、`log.rs` 自体および各呼び出し元 (quality_gate / pr_size / docs_only skip / post_takt_regate 等の stage 計測箇所) への変更は不要であり、`main.rs` (収集 struct の蓄積・pipeline 終了時の書き出し) と `.claude/telemetry/` (出力先) のみが変更対象であることを実装 PR で確認・明記すること。
+
+---
+
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)

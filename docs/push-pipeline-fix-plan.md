@@ -1150,6 +1150,7 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
    返すが、同関数は exit code のみを見ているため post-PR の re-push が無言で失敗し得る。
    出力取得は `run_cmd_direct` (unlimited) なので**判定の追加だけ**で済む
    (T5 と違い truncate 問題は無い)。規模 XS。
+   **→ todo 移管 (2026-07-18)**: docs/todo13.md + todo-summary.md 順位 324 に起票済。
 10. `lib-subprocess` の `run_cmd_shell_*` 3 variant で **timeout が wall-clock を縛れない**
     (T6 の実装中に発見、2026-07-17)。`run_cmd_shell_with` は timeout 検知後に reader thread を
     join するが、`cmd /c <command>` の孫プロセス (実際の `cargo` / `jj`) は `child.kill()` の
@@ -1162,6 +1163,8 @@ T1 を最優先とする理由: 以降の全 PR の dogfood push が速くなり
     捨てることになるためトレードオフの判断が要る (T6 の diff は timeout 時に出力不要だった)。
     孫まで殺す (`taskkill /T`) 案もある。規模 S。**テストには経過時間 assert を必ず入れること**
     (無いと本件は再び素通りする)。
+    **→ todo 移管 (2026-07-18)**: docs/todo13.md + todo-summary.md 順位 323 に起票済
+    (2026-07-17 の post-merge-feedback #286 stale marker が同根の実害である旨を追記のうえ)。
 11. 子プロセス出力の **CP932 デコードフォールバック** (T7 の方針 2 から分離、2026-07-17。
     **ユーザー承認済みの分離**)。`lib-subprocess` の `drain_pipe_*` は `from_utf8_lossy` 固定で、
     **repo 全体に encoding 処理が存在しない** (grep 済み) ため、cmd.exe が返す日本語エラーが

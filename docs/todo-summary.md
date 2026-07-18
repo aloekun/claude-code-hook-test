@@ -5,7 +5,7 @@
 > **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo13.md`、2026-06-29 PR #224 セッションで新設。従来の追加先 `docs/todo10.md` が約 95KB = 50KB 安定読み取り閾値の約 2 倍に達したため移行、todo10.md は以降 既存エントリの編集・完了削除専用) に記録する。なお `docs/todo11.md` は 2026-06-06 todo9.md 分割で新設された専用ファイル (順位 157, 160-173 を収容)、`docs/todo12.md` は 2026-06-12 PR #204 で todo10.md 分割により新設された専用ファイル (順位 176/178/179/180/181/182/193/194 = PR #185 〜 PR #196 era を収容) で、いずれも新規追加先ではない。
 
 <a id="recommended-order-summary"></a>
-## 推奨実行順序サマリー (2026-05-10 更新、ADR-033 採番管理簡素化 land 後)
+## 推奨実行順序サマリー (2026-07-18 更新、順位 323-325 追加)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
@@ -167,6 +167,9 @@
 | 320 | 🔧 Tier 2 | **CodeRabbit status check は実レビュー有無に関わらず `pass` — 緑チェックを「レビュー済み」の根拠にしない (PR #287 で実観測)** | todo13.md | S | 順位 318 (決定論的な rate-limit 検知が前提) |
 | 321 | 🔧 Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo13.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
 | 322 | 🚀 Tier 1 | **post-merge-feedback が repo root に scratch script を残し `scratch_file_warning` の pattern をすり抜ける (near-miss 実観測)** | todo13.md | S | なし (PR #85 と同一クラス。pattern 列挙 (deny-list) の構造的限界が露呈) |
+| 323 | 🚀 Tier 1 | **`lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)** | todo13.md | S | なし (quality_gate step_timeout / push timeout / cli-merge-pipeline のハング打ち切りが実質無効。#286 post-merge-feedback の orphan/stale marker と同根の実害 1 件観測済。回帰テストに経過時間 assert 必須 = T6 教訓) |
+| 324 | 🚀 Tier 1 | **`cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)** | todo13.md | XS | なし (T5 = PR #282 が cli-push-runner 側で塞いだ silent-failure push と同型の穴。出力は `run_cmd_direct` で全量取得済のため判定追加のみ) |
+| 325 | 🚀 Tier 1 | **push パイプライン per-run メトリクスの JSONL 永続化 — stage 別 elapsed / routing 判定の遡及分析基盤 (T12 後検証セッションで欠落を実測)** | todo13.md | S | なし (T0 の stage ログは stderr のみで消失し、T1/T3/T11/T12 の効果が落ちる決定論 stage 層を遡及分析できない。ADR-057/058 判定期限 2026-08-15 と T99 after 計測の前提データ。harness-improvement-plan セクション 3 着手前の実装を推奨) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
