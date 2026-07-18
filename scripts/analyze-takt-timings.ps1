@@ -44,7 +44,9 @@ $runCount = 0
 foreach ($dir in Get-ChildItem -Directory $RunsDir) {
   $metaPath = Join-Path $dir.FullName "meta.json"
   if (-not (Test-Path $metaPath)) { continue }
-  $meta = Get-Content $metaPath -Raw | ConvertFrom-Json
+  # crashed / in-progress run の truncated・破損 meta.json は ConvertFrom-Json が throw する。
+  # 1 件の破損 run で集計ループ全体を止めないよう、その run だけ skip する (下の phase 行 parse と同じ流儀)。
+  try { $meta = Get-Content $metaPath -Raw | ConvertFrom-Json } catch { continue }
   if ($meta.piece -ne $Piece) { continue }
   # startTime は takt meta モデル上 Option (in-progress / クラッシュ run で欠損し得る)。
   # null を ConvertTo-Utc に渡すと全集計がクラッシュするため、その run だけ skip する。

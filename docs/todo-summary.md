@@ -5,7 +5,7 @@
 > **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo13.md`、2026-06-29 PR #224 セッションで新設。従来の追加先 `docs/todo10.md` が約 95KB = 50KB 安定読み取り閾値の約 2 倍に達したため移行、todo10.md は以降 既存エントリの編集・完了削除専用) に記録する。なお `docs/todo11.md` は 2026-06-06 todo9.md 分割で新設された専用ファイル (順位 157, 160-173 を収容)、`docs/todo12.md` は 2026-06-12 PR #204 で todo10.md 分割により新設された専用ファイル (順位 176/178/179/180/181/182/193/194 = PR #185 〜 PR #196 era を収容) で、いずれも新規追加先ではない。
 
 <a id="recommended-order-summary"></a>
-## 推奨実行順序サマリー (2026-07-19 更新、順位 326 追加。323-324 は 07-18 追加、325 = push per-run メトリクス JSONL 永続化は R3 (#294) で実装完了し削除)
+## 推奨実行順序サマリー (2026-07-19 更新、順位 326-328 追加。323-324 は 07-18 追加、325 = push per-run メトリクス JSONL 永続化は R3 (#294) で実装完了し削除)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
@@ -170,6 +170,8 @@
 | 323 | 🚀 Tier 1 | **`lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)** | todo13.md | S | なし (quality_gate step_timeout / push timeout / cli-merge-pipeline のハング打ち切りが実質無効。#286 post-merge-feedback の orphan/stale marker と同根の実害 1 件観測済。回帰テストに経過時間 assert 必須 = T6 教訓) |
 | 324 | 🚀 Tier 1 | **`cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)** | todo13.md | XS | なし (T5 = PR #282 が cli-push-runner 側で塞いだ silent-failure push と同型の穴。出力は `run_cmd_direct` で全量取得済のため判定追加のみ) |
 | 326 | 🔧 Tier 2 | **並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)** | todo13.md | S (Phase 0) / M (Phase 1 条件付き) | なし (Phase 0 の需要調査で見落とし実績ゼロなら見送り = negative result 永続化。ADR-047 却下確定 = refute.yaml 削除 revert PR とは独立に進められる) |
+| 327 | 🔧 Tier 3 | **多段コミットの ADR/observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用: status 同期 / plain-text 参照 / セクション同期)** | todo13.md | S | なし (実害は各 PR review/feedback で捕捉済。doc checklist のみ、機械化は再発観測後にエスカレーション) |
+| 328 | 🚀 Tier 1 | **post-merge feedback が成功後に `post-merge-feedback-context.json` を残し次マージの feedback を誤 bail させる (cleanup gap、#296 マージで実観測)** | todo13.md | S | なし (連続マージで後発 PR の再発防止分析が構造的に skip。成功時 cleanup の追加 + 回帰テスト。ADR-030 L2 recovery で今回は手動救済済) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

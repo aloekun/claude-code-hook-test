@@ -71,9 +71,14 @@ pwsh -File scripts/analyze-takt-timings.ps1 -Piece pre-push-review -Since 2000-0
 5. **fix の execute は発火時に高価** (baseline 15 run で avg 312s、refute 2 run で 134s)。fix loop の
    発生頻度が総所要の最大の変動要因。findings を減らす施策 (anomaly policy 等) が fix コストを直接
    下げる。
-6. **execute 時間は diff サイズ支配** (min 36s 〜 max 416s)。run 間比較は diff サイズ正規化が前提。
+6. **execute 時間は diff サイズ支配** (min 36s 〜 max 416s)。したがって **run 間比較は diff サイズ
+   正規化が前提**で、生の avg 同士の比較だけで優劣は断定できない。
    [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) の受け入れ基準「simplicity execute
-   203s → 150s 以下」に対し、refute 期の実測 avg は **203.4s** で未達 (R4 判定参照)。
+   **203s (ADR-056 の基準参照値、単一コード diff の 1 run)** → 150s 以下」に対し、refute 期の生 avg は
+   **203.4s** で、**raw では未達だが diff サイズ交絡のため policy 起因の未達とは断定できない**。
+   ⚠ **この基準参照値 203s は本表の baseline 平均 (164.4s、全期間・全 diff サイズ混在) とは別物**
+   (基準値は特定の 1 コード diff run、baseline avg は分布の平均)。正規化した比較と最終判定は
+   R4 (ADR-056 の採否判定ドラフト) に委ねる。
 
 ## 関連
 
