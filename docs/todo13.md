@@ -1841,6 +1841,7 @@
 
 - `pnpm push` 1 回につき 1 行の JSONL が残り、stage 別 elapsed / docs_only / post_takt_regate 判定 / total_secs が事後に集計できること。
 - ADR-057/058 の効果検証手順がコンソール出力の手動保存に依存しないこと。
+- 変更範囲: 計測点は `src/cli-push-runner/src/log.rs` の `timed()` に一元化済みのため、`log.rs` 自体および各呼び出し元 (quality_gate / pr_size / docs_only skip / post_takt_regate 等の stage 計測箇所) への変更は不要であり、`main.rs` (収集 struct の蓄積・pipeline 終了時の書き出し) と `.claude/telemetry/` (出力先) のみが変更対象であることを実装 PR で確認・明記すること。
 
 ---
 
