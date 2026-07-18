@@ -170,6 +170,7 @@ dependencies = [
  "lib-docs-policy",
  "lib-jj-helpers",
  "lib-subprocess",
+ "lib-telemetry",
  "serde",
  "serde_json",
  "tempfile",

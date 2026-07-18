@@ -1815,36 +1815,6 @@
 
 ---
 
-### push パイプライン per-run メトリクスの JSONL 永続化 — stage 別 elapsed / routing 判定の遡及分析基盤
-
-> **動機**: T12 完了後の検証セッション (2026-07-18) で、push パイプラインの可観測性が「takt 部分のみ十分」であることを実測した。takt 部分は `.takt/runs/<slug>/meta.json` + `trace.md` で全 run 永続化されており fix 発生率・レビュー時間の before/after 分析が成立する。一方、**T0 (PR #278) で追加した `stage=<name> elapsed=<秒>s` ログは stderr のみで永続化されず** (`src/cli-push-runner/src/log.rs` の `timed()` → `eprintln!`)、quality_gate の group 別時間・`pr_size` の diff 行数・docs_only skip の発火・post_takt_regate の判定・パイプライン総所要時間はセッションが閉じると消失する。**T1/T3/T11/T12 の改善効果はまさにこの決定論 stage 層に落ちる**ため、ADR-057/058 (判定期限 2026-08-15) の効果検証と push-pipeline-fix-plan T99 の after 計測が「push 時のコンソール出力を手動保存する」運用に依存している。ユーザーが直接ターミナルで push した分は記録が残らない。
->
-> **対処案**: run 終了時に 1 行の JSONL を `.claude/telemetry/` へ append する。計測点は `log.rs` の `timed()` に一元化済みのため、収集 struct を `main.rs` で蓄積し pipeline 終了時 (中断時含む) に書き出すだけで済む。器は lib-telemetry (ADR-055) を再利用し fail-open / opt-in (`[telemetry] enabled`) / kill-switch の既存原則に相乗りする — ただし ADR-055 のスコープは hook 発火イベントなので、**push run 記録への流用は ADR-055 amendment か別 record kind かの判断が要る** (プライバシー原則 = メタデータのみ、bookmark 名を含めるかも判断)。
->
-> **フィールド案**: ts / bookmark / pr_size_lines / docs_only (bool) / stage 別 elapsed / skip した gate group / post_takt_regate 判定 (skip・run・block) / takt run slug (**`.takt/runs/` と join する鍵**) / total_secs / exit_code / **os** (harness-improvement-plan WP-15 以降はクラウド Linux run が混入しハードウェアの土俵が変わるため、改善効果の判定を Windows ローカル分に限定できるよう環境を分離する)。
->
-> **着手時期の推奨**: harness-improvement-plan セクション 3 (WP-13〜16) 着手**前**。同セクションは本機での code push が 8〜15 回程度見込まれ、先に永続化しておけば全 push が自動的に after 計測コーパスになる (手動記録不要)。
->
-> **参照**: `src/cli-push-runner/src/log.rs` (`format_stage_elapsed` の doc が「before/after 比較の contract」と明記しつつ永続化されていない)、[ADR-055](adr/adr-055-firing-telemetry-collection.md)、[ADR-057](adr/adr-057-docs-only-deterministic-routing.md) / [ADR-058](adr/adr-058-post-takt-regate.md) (判定期限の消費者)、push-pipeline-fix-plan §1 計測方法 / T99。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (機能不具合ではないが、改善投資の定量評価が構造的に不可能になっている。判定期限 2026-08-15 が消費者として実在) / Effort S。
-
-#### 作業計画
-
-- [ ] 記録スキーマを決める (ADR-055 amendment か新 record kind か。メタデータのみ原則との整合、bookmark 名の扱いを含む)。
-- [ ] `main.rs` で stage 計測を蓄積し、pipeline 終了時に 1 行 append する (fail-open。exit 7 等の中断経路でも書く — 中断頻度自体が観測対象)。
-- [ ] 回帰テスト: base_dir 注入 (lib-telemetry の `record_to` 同型) で「1 run = 1 行」「中断時も書かれる」「kill-switch で書かれない」を assert。
-- [ ] 集計手順を ADR-057/058 の判定手順に接続する (判定期限 2026-08-15 で実際に使う形にする。手動コンソール保存への依存を撤去)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
-
-#### 完了基準
-
-- `pnpm push` 1 回につき 1 行の JSONL が残り、stage 別 elapsed / docs_only / post_takt_regate 判定 / total_secs が事後に集計できること。
-- ADR-057/058 の効果検証手順がコンソール出力の手動保存に依存しないこと。
-- 変更範囲: 計測点は `src/cli-push-runner/src/log.rs` の `timed()` に一元化済みのため、`log.rs` 自体および各呼び出し元 (quality_gate / pr_size / docs_only skip / post_takt_regate 等の stage 計測箇所) への変更は不要であり、`main.rs` (収集 struct の蓄積・pipeline 終了時の書き出し) と `.claude/telemetry/` (出力先) のみが変更対象であることを実装 PR で確認・明記すること。
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 (現時点で本ファイルへの既知課題は無し。docs/todo10.md / todo9.md 末尾を参照。)

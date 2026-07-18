@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 pub(crate) fn log_stage(stage: &str, message: &str) {
     eprintln!("[push-runner] [{}] {}", stage, message);
 }
@@ -23,13 +21,10 @@ fn format_stage_elapsed(stage: &str, secs: f64) -> String {
     format!("stage={} elapsed={:.1}s", stage, secs)
 }
 
-/// `f` の実行時間を計測し、成否によらず所要時間を記録して結果をそのまま返す。
-/// 中断で終わった stage も計測対象に残すため、記録は `f` の戻り値を見ずに行う。
-pub(crate) fn timed<T>(stage: &str, f: impl FnOnce() -> T) -> T {
-    let start = Instant::now();
-    let result = f();
-    log_info(&format_stage_elapsed(stage, start.elapsed().as_secs_f64()));
-    result
+/// stage の所要時間を contract 書式で stderr に 1 行出力する (T0)。計測は
+/// `RunMetrics::timed` (R3) が行い、そこから本関数で stderr 行を出しつつ JSONL へ永続化する。
+pub(crate) fn log_stage_elapsed(stage: &str, secs: f64) {
+    log_info(&format_stage_elapsed(stage, secs));
 }
 
 #[cfg(test)]
@@ -42,10 +37,5 @@ mod tests {
             format_stage_elapsed("quality_gate", 312.04),
             "stage=quality_gate elapsed=312.0s"
         );
-    }
-
-    #[test]
-    fn timed_returns_inner_value() {
-        assert_eq!(timed("test", || 42), 42);
     }
 }
