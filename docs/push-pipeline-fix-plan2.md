@@ -216,7 +216,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
     (b) 本 R2 セクションのマージ済み表記の不統一を解消 (Minor)、(c) 本 R3「内容」欄の deferred
     フィールド (pr_size 行数 / takt run slug) を明示 (Minor)。CI pass / CodeRabbit review 完了。
 
-### R4: ADR-047 / ADR-056 の採否判定 — 判定期限 2026-07-31 (doc PR) **【判定ドラフト作成済 2026-07-18 / 却下理由補強 2026-07-19】**
+### R4: ADR-047 / ADR-056 の採否判定 — 判定期限 2026-07-31 (doc PR) **【ADR-047 却下確定・撤去実施 2026-07-19 / ADR-056 は延長中】**
 
 - **ADR-047 (refute facet)**: `meta.json` の `piece` 基準で refute run を集計し、FP 起因
   fix iteration の削減効果と verify step の実動を評価 → 採用/廃止/延長をステータス更新。
@@ -249,6 +249,19 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
     額は小さい)。外部 finding 向け反証層 (ADR-038/ADR-023) は却下の射程外で維持。
   - **代替案を todo 起案 (順位 326)**: 並列設計レビュアー (recall 側の新実験、reviewers 並列で
     wall-clock 追加ゼロ見込み)。見落とし実績の事前調査 (Phase 0) 付き — 需要ゼロなら見送り。
+- **ADR-047 却下確定 + 撤去実施 (2026-07-19、ユーザー承認済み)**: ADR の書き換えだけでは機能は
+  止まらない (実行スイッチは `push-runner-config.toml` の `refute_enabled = true` で、確定時点でも
+  実走は refute 側だった) ため、撤去を同時実施した:
+  - `[pre_push_review]` section 撤去 (本体 + templates、tombstone コメント残置) → 実走は
+    `pre-push-review.yaml` に一本化 (次の push から。R2 で非 refute 側 judge も haiku 化済みの
+    ため効果は維持される)。
+  - `pre-push-review-refute.yaml` + refute 専用 facet 2 本 (refute-finding / refutation-report) を
+    削除。共有 facet (fix.md / supervise.md / review-anomaly.md) と pre-push-review.yaml の
+    恒常デッドウェイト参照も除去 (ADR-056 T10 の lint_screen 参照削除と同型)。
+  - Rust 側 `resolve_takt_workflow` は汎用機構のため残置 (section 不在 = default 経路は既存
+    unit test が保護)。exe 再ビルド不要。verify 却下 0 件のため挙動影響ゼロ。
+  - ADR-056 の dogfood 計測は継続 (policy は両 workflow 共通)。ただし 07-19 以降の run 抽出は
+    `piece = "pre-push-review"` になるため日付での区別が必須 (ADR-056 に注記済み)。
 
 ### R5: ADR-057 / ADR-058 の採否判定 — 判定期限 2026-08-15 (doc PR)
 

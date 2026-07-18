@@ -55,19 +55,12 @@ output_path = ".takt/review-diff.txt"
 # 大 diff / 低速環境で誤 timeout する場合のみ延長する (例: timeout = 180)。
 
 # ---------------------------------------------------------------------------
-# [pre_push_review] — WP-06 / ADR-047 (試験運用): 反証 (refute) facet。
-# reviewers と fix の間に verify(refute, haiku) step を挟み、reviewer の
-# false positive を fix 前に反証・却下して無駄な fix iteration を削減する試み。
-# 本テンプレートでは **default OFF** (ADR-039)。有効化するには verify 入り
-# workflow (.takt/workflows/pre-push-review-refute.yaml) と refute facet 群
-# (refute-finding.md instruction + refutation-report.md output-contract) を
-# 配布したうえで以下を設定:
-#   refute_enabled = true
-#   refute_workflow = "pre-push-review-refute"
-# Kill-switch: refute_enabled = false で現行 pre-push-review へ即戻し。
+# [pre_push_review] — 撤去済み (ADR-047 却下、2026-07-19)。
+# 反証 (refute) facet の試験運用だったが、dogfood で verify の finding 却下 0 件
+# (anomaly policy の fact-check 義務 = inline 反証が上流で FP を枯らした) のため
+# 却下し、workflow / facet 群も削除済み。section 不在 = 現行 pre-push-review を
+# 使う (resolve_takt_workflow の default)。詳細: docs/adr/adr-047-prepush-refute-facet.md
 # ---------------------------------------------------------------------------
-[pre_push_review]
-refute_enabled = false
 
 [takt]
 workflow = "pre-push-review"

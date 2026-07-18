@@ -171,6 +171,14 @@ run 1 の所見: simplicity reviewer は criteria を列挙せず「self-referen
 直接比較できない**。所要時間が run 1 → 2 で伸びている (175s → 345s) が、diff 内容も
 変わっているため policy 起因とは言えない。受け入れ基準の判定にはコード diff を含む run が必要。
 
+**実走 workflow の切替 (2026-07-19、ADR-047 却下確定に伴う)**: refute workflow の削除により、
+2026-07-19 以降の実走は `pre-push-review.yaml` (meta.json の `piece` = `"pre-push-review"`) に
+戻った。本 policy は両 workflow 共通だったため **dogfood 計測は途切れない**が、run 抽出クエリは
+期間で piece 値が変わる点に注意 — 07-17〜19 は `"pre-push-review-refute"`、07-19 以降は
+`"pre-push-review"` (baseline の checklist era run と混ざるため **日付での区別が必須**)。
+kill-switch 記述 (§3 点セット) の「両 workflow / 2 ファイル」は refute 退役後 1 ファイル
+(`pre-push-review.yaml` のみ) になった。
+
 ### 採否判定基準 (2026-07-31)
 
 T10 の受け入れ基準に準拠する:
