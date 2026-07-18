@@ -156,6 +156,47 @@ decision trigger:
   層 1 の「2 つ目の使用例待ち」トリガに到達したため、将来 3 crate 目が現れたら中立 crate
   (例 `lib-time`) への抽出候補とする
 
+## Amendment (2026-07-18): push-run メトリクス record kind (R3、todo 順位 325)
+
+本 ADR のスコープは hook 発火イベント (`firings-*.jsonl`) だが、push パイプラインの
+per-run メトリクス永続化 (push-pipeline-fix-plan2 §3 R3) が同じ器を必要としたため、
+**別 record kind** として相乗りさせる。判断と設計は以下。
+
+### 別 record kind (別ファイル) を採用 — amendment ではなくスキーマ分離
+
+`firings-*.jsonl` は WP-12 step 2 の集計が glob 走査する前提で、行の shape (hook/kind/id/
+decision) が固定されている。push-run メトリクスは shape が全く異なる (stage 別 elapsed の
+object・exit_code・os 等) ため、同一ファイルに混ぜると firing 集計を壊す。よって
+**`push-runs-<YYYY-MM-DD>-<pid>.jsonl` という別 prefix** に書き、firing 集計と分離する。
+opt-in (`[telemetry] enabled`) / kill-switch (`CLAUDE_TELEMETRY_DISABLE`) / fail-open /
+per-pid×日次 partition / `WRITE_LOCK` 直列化の既存原則には相乗りする (グローバル telemetry
+スイッチ 1 つで両 record kind を統べる)。
+
+### 責務分離 — lib-telemetry はドメイン中立の器のまま
+
+push-run 固有スキーマ (`RunRecord`) は消費側 `cli-push-runner` (`src/metrics.rs`) が保持し、
+lib-telemetry には**任意 `Serialize` を prefix 付き partition へ書く汎用 writer**
+(`record_metric` / `record_metric_to` / `record_metric_gated_to`) だけを追加した。これにより
+「観測層を特定ドメインに結合させない」という本 ADR の設計思想 (§欠点 の UTC ヘルパー複製の
+論点と同根) を保つ。`ts` は writer が書き込み時に差し込むため、UTC ヘルパーの消費者は
+lib-telemetry 内に留まり、§欠点 の「3 crate 目で lib-time 抽出」トリガには到達しない。
+
+### 記録フィールドとプライバシー
+
+os / exit_code / total_secs / docs_only / skipped_groups / post_takt_regate 判定
+(skip / run-pass / block を区別) / takt_workflow / bookmarks / stage 別 elapsed。**メタデータ
+のみ**の原則 (§プライバシー) は維持する。bookmark 名は branch 識別子 (= メタデータ、
+session_id と同性質) であり、ファイルパス・コマンド本文ではないため run の識別鍵として載せる。
+
+**deferred (別 PR、完了基準の必須外)**: takt run slug (`run_cmd_inherit` が takt 出力を
+捕捉しないため `.takt/runs/` との join 鍵を clean に取得できない)・pr_size 行数
+(`run_pr_size_check` が総行数を返さない)。
+
+### 消費者
+
+ADR-057 / ADR-058 の採否判定 (期限 2026-08-15) と R5/R6 の after 計測。これらの効果検証が
+「push 時コンソール出力の手動保存」に依存していたのを、機械集計可能な JSONL に置き換える。
+
 ## 関連 ADR
 
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用標準パターン (opt-in / kill-switch / bounded lifetime)

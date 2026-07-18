@@ -48,9 +48,10 @@ src/*/Cargo.lock
 .claude/weekly-review-pending.json
 .claude/weekly-review-deferred.json
 
-# WP-12 / ADR-055: 発火テレメトリ収集層 (lib-telemetry) の JSONL。ローカル運用データ (内部
-# artifact)。per-process/per-day partition (firings-<YYYY-MM-DD>-<pid>.jsonl)。ROI 棚卸しの
-# 集計は後続 PR (WP-12 step 2)。
+# WP-12 / ADR-055: テレメトリ収集層 (lib-telemetry) の JSONL。ローカル運用データ (内部
+# artifact)。per-process/per-day partition。firings-<...>.jsonl = hook 発火 (ROI 棚卸し集計は
+# WP-12 step 2)。push-runs-<...>.jsonl = push パイプライン per-run メトリクス (R3、ADR-055
+# amendment。ADR-057/058 判定と after 計測の集計元)。
 .claude/telemetry/
 
 # ADR-030: takt workflow への入力 (cli-merge-pipeline が生成、workflow が読む)

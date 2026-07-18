@@ -25,13 +25,15 @@
 
 mod config;
 mod log;
+mod metrics;
 mod runner;
 mod stages;
 
 use std::time::Instant;
 
 use config::{load_config, resolve_takt_workflow};
-use log::{log_info, timed};
+use log::log_info;
+use metrics::RunMetrics;
 use stages::{
     run_bookmark_check, run_diff, run_docs_only_routing, run_lint_screen, run_post_takt_regate,
     run_pr_size_check, run_push, run_quality_gate, run_scratch_file_warning, run_takt, DiffResult,
@@ -123,22 +125,27 @@ fn start_pipeline(config: &config::Config) -> String {
 
 /// takt (AI レビュー → fix loop) と post-takt re-gate (T12) を実行する。
 /// diff が空 (`DiffGate::SkipTakt`) の場合は両方 skip する。
-/// Ok(()) で続行、Err(exit_code) で pipeline 中断。
+/// Ok(()) で続行、Err(exit_code) で pipeline 中断。metrics に takt workflow と
+/// re-gate 判定を記録する (R3)。
 fn run_takt_and_regate(
     config: &config::Config,
     workflow: &str,
     diff_gate: &DiffGate,
+    metrics: &mut RunMetrics,
 ) -> Result<(), i32> {
     let DiffGate::RunTakt { pre_diff } = diff_gate else {
         return Ok(());
     };
-    if !timed("takt", || run_takt(&config.takt, workflow)) {
+    metrics.set_takt_workflow(workflow);
+    if !metrics.timed("takt", || run_takt(&config.takt, workflow)) {
         log_info("パイプライン中断: takt ワークフロー失敗。");
         return Err(EXIT_TAKT_FAILURE);
     }
-    if !timed("post_takt_regate", || {
+    let regate = metrics.timed("post_takt_regate", || {
         run_post_takt_regate(config, pre_diff.as_deref())
-    }) {
+    });
+    metrics.set_regate_verdict(regate.telemetry_verdict());
+    if !regate.proceed {
         log_info(
             "パイプライン中断: post-takt re-gate 失敗。takt fix がテスト / lint を壊した \
              可能性があります。問題を修正して再実行してください。",
@@ -148,9 +155,27 @@ fn run_takt_and_regate(
     Ok(())
 }
 
+/// pipeline を実行し、成否によらず per-run メトリクスを 1 行 JSONL へ永続化して exit code を
+/// 返す (R3)。書き出しは全終了経路で 1 回だけ通る本関数に集約し、中断 run
+/// (config エラー / 各種 exit code) も観測対象に残す (中断頻度自体が計測対象)。
 fn run_pipeline() -> i32 {
     let start = Instant::now();
+    let mut metrics = RunMetrics::new();
 
+    let code = run_stages(&mut metrics);
+
+    let elapsed = start.elapsed();
+    metrics.finish(code, elapsed);
+    if code == EXIT_SUCCESS {
+        log_info(&format!("パイプライン完了 ({:.0}s)", elapsed.as_secs_f64()));
+    }
+    metrics.record();
+    code
+}
+
+/// 各 stage を順に実行し、計測を `metrics` に蓄積して exit code を返す。早期 return も
+/// すべて呼び出し側 `run_pipeline` に戻り、そこで 1 回だけメトリクスが書かれる。
+fn run_stages(metrics: &mut RunMetrics) -> i32 {
     let config = match load_config() {
         Ok(c) => c,
         Err(e) => {
@@ -163,38 +188,38 @@ fn run_pipeline() -> i32 {
 
     let workflow = start_pipeline(&config);
 
-    let detected_bookmarks = match timed("pre_checks", || run_pre_checks(&config)) {
+    let detected_bookmarks = match metrics.timed("pre_checks", || run_pre_checks(&config)) {
         Ok(bookmarks) => bookmarks,
         Err(code) => return code,
     };
+    metrics.set_bookmarks(&detected_bookmarks);
 
-    let skip_groups = timed("docs_only_routing", || {
+    let skip_groups = metrics.timed("docs_only_routing", || {
         run_docs_only_routing(config.docs_only_routing.as_ref())
     });
+    metrics.set_skipped_groups(&skip_groups);
 
-    if !timed("quality_gate", || {
+    if !metrics.timed("quality_gate", || {
         run_quality_gate(&config.quality_gate, &skip_groups)
     }) {
         log_info("パイプライン中断: quality_gate 失敗。問題を修正して再実行してください。");
         return EXIT_QUALITY_GATE_FAILURE;
     }
 
-    let diff_gate = match timed("diff", || run_diff_and_lint_screen(&config)) {
+    let diff_gate = match metrics.timed("diff", || run_diff_and_lint_screen(&config)) {
         Ok(gate) => gate,
         Err(code) => return code,
     };
 
-    if let Err(code) = run_takt_and_regate(&config, &workflow, &diff_gate) {
+    if let Err(code) = run_takt_and_regate(&config, &workflow, &diff_gate, metrics) {
         return code;
     }
 
-    if !timed("push", || run_push(&config.push, &detected_bookmarks)) {
+    if !metrics.timed("push", || run_push(&config.push, &detected_bookmarks)) {
         log_info("パイプライン中断: push 失敗。");
         return EXIT_PUSH_FAILURE;
     }
 
-    let elapsed = start.elapsed();
-    log_info(&format!("パイプライン完了 ({:.0}s)", elapsed.as_secs_f64()));
     EXIT_SUCCESS
 }
 

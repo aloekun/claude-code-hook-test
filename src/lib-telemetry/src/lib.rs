@@ -32,6 +32,11 @@ use std::sync::{Mutex, OnceLock};
 /// telemetry 書き込み先ディレクトリ名 (base_dir 配下)。
 const TELEMETRY_DIR: &str = "telemetry";
 
+/// 発火イベント (firing) の partition file prefix。集計 (WP-12 step 2) は
+/// `firings-*.jsonl` を glob 走査する前提。push-run 等の別 record kind は別 prefix を使い、
+/// この firing 集計を汚さない。
+const FIRINGS_PREFIX: &str = "firings";
+
 /// 緊急停止用 env の名前 (kill-switch)。truthy 値で telemetry を完全無効化する。
 const KILL_SWITCH_ENV: &str = "CLAUDE_TELEMETRY_DISABLE";
 
@@ -149,23 +154,119 @@ pub fn record_to(base_dir: &Path, firing: &Firing, now_epoch: u64) -> io::Result
         decision: firing.decision.as_str(),
         session_id: firing.session_id,
     };
-    let mut line =
+    let line =
         serde_json::to_string(&record).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    line.push('\n');
+    append_partitioned(base_dir, FIRINGS_PREFIX, &line, now_epoch)
+}
 
+/// `file_prefix` が partition ファイル名の構成要素として安全かを判定する。空でなく、ASCII
+/// 英数字と `-` `_` のみを許可する。公開 API ([`record_metric_to`] 系) 由来の任意文字列が
+/// `../` や絶対パス・path separator によって `telemetry` ディレクトリ外へ書き込むのを防ぐ
+/// (defense-in-depth。現 caller は全て定数だが、`pub` API のため入力を検証する)。
+fn is_safe_file_prefix(file_prefix: &str) -> bool {
+    !file_prefix.is_empty()
+        && file_prefix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// 汎用 partition writer: `base_dir/telemetry/<file_prefix>-<YYYY-MM-DD>-<pid>.jsonl` へ
+/// 改行 1 個付きで 1 行 append する。firing / push-run 等の record kind 間で per-process(pid)
+/// と日次(date) の partition・ディレクトリ生成・[`WRITE_LOCK`] 直列化を共有する
+/// (ADR-055 § Windows 並行書き込み安全性)。`line` は改行なしで渡す (本関数が付与する)。
+///
+/// `file_prefix` が [`is_safe_file_prefix`] を満たさない場合は書き込まず `InvalidInput` を返す
+/// (path traversal 防止)。prod 入口はこの Err を握りつぶす (fail-open) ため、不正 prefix でも
+/// telemetry 外への書き込みも panic も起きない。
+fn append_partitioned(
+    base_dir: &Path,
+    file_prefix: &str,
+    line: &str,
+    now_epoch: u64,
+) -> io::Result<()> {
+    if !is_safe_file_prefix(file_prefix) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsafe telemetry file_prefix: {file_prefix:?}"),
+        ));
+    }
+    let ts = epoch_secs_to_iso8601(now_epoch);
     let date = ts.get(..10).unwrap_or(ts.as_str());
     let pid = std::process::id();
     let path = base_dir
         .join(TELEMETRY_DIR)
-        .join(format!("firings-{date}-{pid}.jsonl"));
+        .join(format!("{file_prefix}-{date}-{pid}.jsonl"));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
+    let mut buf = String::with_capacity(line.len() + 1);
+    buf.push_str(line.trim_end_matches('\n'));
+    buf.push('\n');
+
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let mut file = OpenOptions::new().append(true).create(true).open(&path)?;
-    file.write_all(line.as_bytes())?;
+    file.write_all(buf.as_bytes())?;
     Ok(())
+}
+
+/// 純粋 writer (opt-in 判定なし): 任意の `Serialize` 値を JSON object 化し `ts` (UTC ISO 8601)
+/// を差し込んで `base_dir/telemetry/<file_prefix>-*.jsonl` へ 1 行 append する。firing 以外の
+/// record kind (例 push-run メトリクス、R3) が同じ partition / lock 基盤を再利用するための
+/// 汎用版。base_dir / now は注入 (テストが temp dir へ確定的に書ける)。**プライバシー原則
+/// (メタデータのみ、パス・コマンド本文を載せない) の遵守は呼び出し側 record の責務**。
+///
+/// `record` が JSON object にならない場合 (配列 / スカラ) は `ts` を差し込めないため、値を
+/// そのまま書く (fail-open の一貫、実際の record は必ず object)。
+pub fn record_metric_to<T: serde::Serialize>(
+    base_dir: &Path,
+    file_prefix: &str,
+    record: &T,
+    now_epoch: u64,
+) -> io::Result<()> {
+    let line = metric_line(record, now_epoch)?;
+    append_partitioned(base_dir, file_prefix, &line, now_epoch)
+}
+
+/// `record` を JSON 化し `ts` を差し込んだ 1 行の JSON 文字列を返す。
+fn metric_line<T: serde::Serialize>(record: &T, now_epoch: u64) -> io::Result<String> {
+    let mut value =
+        serde_json::to_value(record).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert(
+            "ts".to_string(),
+            serde_json::Value::String(epoch_secs_to_iso8601(now_epoch)),
+        );
+    }
+    serde_json::to_string(&value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// gate 込み汎用 metric writer (OnceLock キャッシュ不使用): `base_dir` で opt-in を評価し、
+/// 有効なら [`record_metric_to`] を呼ぶ。テストが temp dir を変えながら gate 挙動を検証する
+/// ための版。fail-open: 書き込み失敗は握りつぶす。firing の [`record_gated_to`] と同形。
+pub fn record_metric_gated_to<T: serde::Serialize>(
+    base_dir: &Path,
+    file_prefix: &str,
+    record: &T,
+    now_epoch: u64,
+) {
+    if !telemetry_enabled(base_dir) {
+        return;
+    }
+    let _ = record_metric_to(base_dir, file_prefix, record, now_epoch);
+}
+
+/// prod 入口 (汎用 metric): 実行中 exe 隣の `.claude/` を解決 → opt-in 判定 (1 プロセス 1 回
+/// キャッシュ) → 1 行 append。fail-open のため exe 解決失敗・config 欠落・書き込み失敗はすべて
+/// 黙って無視し never panic。firing の [`record`] と同じ経路を任意 record kind に開く。
+pub fn record_metric<T: serde::Serialize>(file_prefix: &str, record: &T) {
+    let Some(base_dir) = exe_dir() else {
+        return;
+    };
+    if !enabled_cached(&base_dir) {
+        return;
+    }
+    let _ = record_metric_to(&base_dir, file_prefix, record, utc_now_epoch_secs());
 }
 
 /// gate 込み writer (OnceLock キャッシュ不使用): `base_dir` で opt-in を評価し、有効なら
@@ -471,6 +572,124 @@ mod tests {
         let file_as_base = dir.path().join("not-a-dir");
         fs::write(&file_as_base, "x").unwrap();
         assert!(record_to(&file_as_base, &sample("git"), T_2026_04_01_1200).is_err());
+    }
+
+    /// 当該プロセスの任意 prefix ファイル内容を読む (テストプロセスは単一 pid)。
+    fn read_partition(base: &Path, prefix: &str, now: u64) -> String {
+        let iso = epoch_secs_to_iso8601(now);
+        let date = iso.get(..10).unwrap_or(iso.as_str());
+        let pid = std::process::id();
+        let path = base
+            .join(TELEMETRY_DIR)
+            .join(format!("{prefix}-{date}-{pid}.jsonl"));
+        fs::read_to_string(path).unwrap_or_default()
+    }
+
+    #[test]
+    fn record_metric_to_writes_one_line_with_ts_injected() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = serde_json::json!({ "os": "windows", "exit_code": 0 });
+        record_metric_to(dir.path(), "push-runs", &record, T_2026_04_01_1200).unwrap();
+        let content = read_partition(dir.path(), "push-runs", T_2026_04_01_1200);
+        assert_eq!(content.matches('\n').count(), 1);
+        let v: serde_json::Value = serde_json::from_str(content.trim_end()).unwrap();
+        assert_eq!(
+            v["ts"], "2026-04-01T12:00:00Z",
+            "ts は record 本体ではなく writer が差し込む"
+        );
+        assert_eq!(v["os"], "windows");
+        assert_eq!(v["exit_code"], 0);
+    }
+
+    #[test]
+    fn record_metric_to_uses_separate_file_from_firings() {
+        let dir = tempfile::tempdir().unwrap();
+        record_to(dir.path(), &sample("git"), T_2026_04_01_1200).unwrap();
+        record_metric_to(
+            dir.path(),
+            "push-runs",
+            &serde_json::json!({ "exit_code": 7 }),
+            T_2026_04_01_1200,
+        )
+        .unwrap();
+        assert_eq!(
+            read_partition(dir.path(), "firings", T_2026_04_01_1200)
+                .lines()
+                .count(),
+            1,
+            "firing 集計 (firings-*.jsonl glob) に push-run 行が混ざらない"
+        );
+        assert_eq!(
+            read_partition(dir.path(), "push-runs", T_2026_04_01_1200)
+                .lines()
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn record_metric_gated_to_noop_when_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("hooks-config.toml"),
+            "[telemetry]\nenabled = false\n",
+        )
+        .unwrap();
+        record_metric_gated_to(
+            dir.path(),
+            "push-runs",
+            &serde_json::json!({ "exit_code": 0 }),
+            T_2026_04_01_1200,
+        );
+        assert!(!dir.path().join(TELEMETRY_DIR).exists());
+    }
+
+    #[test]
+    fn append_partitioned_rejects_unsafe_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = serde_json::json!({ "x": 1 });
+        for bad in ["../evil", "a/b", "..", "abs\\path", "", "a b", "pre.fix"] {
+            assert!(
+                record_metric_to(dir.path(), bad, &record, T_2026_04_01_1200).is_err(),
+                "unsafe prefix {bad:?} は拒否されるべき (path traversal 防止)"
+            );
+        }
+        assert!(
+            !dir.path().join(TELEMETRY_DIR).exists(),
+            "unsafe prefix では telemetry ディレクトリも作られない"
+        );
+    }
+
+    #[test]
+    fn append_partitioned_accepts_safe_prefixes() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = serde_json::json!({ "x": 1 });
+        for good in ["push-runs", "firings", "abc_123", "a"] {
+            record_metric_to(dir.path(), good, &record, T_2026_04_01_1200)
+                .unwrap_or_else(|e| panic!("safe prefix {good:?} は通るべき: {e}"));
+        }
+    }
+
+    #[test]
+    fn record_metric_gated_to_writes_when_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("hooks-config.toml"),
+            "[telemetry]\nenabled = true\n",
+        )
+        .unwrap();
+        record_metric_gated_to(
+            dir.path(),
+            "push-runs",
+            &serde_json::json!({ "exit_code": 0 }),
+            T_2026_04_01_1200,
+        );
+        assert_eq!(
+            read_partition(dir.path(), "push-runs", T_2026_04_01_1200)
+                .lines()
+                .count(),
+            1
+        );
     }
 
     #[test]

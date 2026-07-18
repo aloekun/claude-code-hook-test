@@ -10,6 +10,7 @@ toml = "0.8"
 lib-docs-policy = { path = "../lib-docs-policy" }
 lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-subprocess = { path = "../lib-subprocess" }
+lib-telemetry = { path = "../lib-telemetry" }
 
 [dev-dependencies]
 tempfile = "3"

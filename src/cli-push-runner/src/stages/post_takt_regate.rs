@@ -43,7 +43,7 @@ use crate::stages::quality_gate::run_quality_gate;
 const OVERRIDE_ENV_VAR: &str = "POST_TAKT_REGATE_DISABLE";
 
 /// re-gate 要否の判定結果。skip 系 3 種と実行系 2 種に分かれる。
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum RegateDecision {
     /// config で無効 (ADR-039 opt-in: section 不在 / enabled != true)
     Disabled,
@@ -126,13 +126,38 @@ fn apply_regate_decision(decision: RegateDecision, quality_gate: &QualityGateCon
     }
 }
 
+/// re-gate stage の結果。`proceed` は push 続行可否 (main.rs の制御フロー)、`decision` は
+/// telemetry (R3) が skip / run-pass / block を判別するための判定 (R3 で追加)。bool 単独では
+/// 「無変更 skip」と「変更あり pass」を区別できず ADR-058 の採否判定に必要な信号が落ちるため、
+/// stage 内部で確定済みの `RegateDecision` を呼び出し側へ surface する。
+pub(crate) struct RegateOutcome {
+    pub(crate) decision: RegateDecision,
+    pub(crate) proceed: bool,
+}
+
+impl RegateOutcome {
+    /// telemetry 用の判定文字列。skip 系 (gate 未実行) と run 系 (実行して pass / block) を
+    /// 区別する。ADR-058 の「fix 発生 run での block/pass 実績 vs 無変更 skip の実測」に対応。
+    pub(crate) fn telemetry_verdict(&self) -> &'static str {
+        match (self.decision, self.proceed) {
+            (RegateDecision::Disabled, _) => "disabled",
+            (RegateDecision::OverrideSkipped, _) => "override_skipped",
+            (RegateDecision::NoChange, _) => "no_change",
+            (RegateDecision::Changed, true) => "changed_pass",
+            (RegateDecision::Changed, false) => "changed_block",
+            (RegateDecision::Indeterminate, true) => "indeterminate_pass",
+            (RegateDecision::Indeterminate, false) => "indeterminate_block",
+        }
+    }
+}
+
 /// post-takt re-gate stage の入口。takt 実行後に呼ばれ、fix が作業コピーを書き換えた
-/// 場合のみ quality_gate を再実行する。戻り値 `false` で pipeline を中断
+/// 場合のみ quality_gate を再実行する。`proceed == false` で pipeline を中断
 /// (main.rs で EXIT_QUALITY_GATE_FAILURE)。
 ///
 /// `pre_diff` は Stage 1.5 が保持した takt 起動前の diff snapshot (`[diff]` 未設定 /
 /// 読込失敗時は None → Indeterminate = fail-closed)。
-pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> bool {
+pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> RegateOutcome {
     let enabled = config
         .post_takt_regate
         .as_ref()
@@ -143,7 +168,8 @@ pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> b
         fetch_post_diff(config.diff.as_ref())
     });
 
-    apply_regate_decision(decision, &config.quality_gate)
+    let proceed = apply_regate_decision(decision, &config.quality_gate);
+    RegateOutcome { decision, proceed }
 }
 
 #[cfg(test)]
@@ -235,20 +261,28 @@ command = "echo push"
     #[test]
     fn regate_blocks_when_change_detected_and_gate_fails() {
         let config = config_with(true, "exit 1", "echo changed");
+        let outcome = run_post_takt_regate(&config, Some("stale-pre-snapshot"));
         assert!(
-            !run_post_takt_regate(&config, Some("stale-pre-snapshot")),
-            "変化検出 + gate FAIL → block (false)。fix が壊した回帰を push 前に遮断する"
+            !outcome.proceed,
+            "変化検出 + gate FAIL → block (proceed=false)。fix が壊した回帰を push 前に遮断する"
+        );
+        assert_eq!(
+            outcome.telemetry_verdict(),
+            "changed_block",
+            "telemetry は変更あり block を区別する (ADR-058 判定信号)"
         );
     }
 
-    /// 変化ありでも gate が通れば push 続行 (return true)。
+    /// 変化ありでも gate が通れば push 続行 (proceed=true)。
     #[test]
     fn regate_passes_when_change_detected_and_gate_passes() {
         let config = config_with(true, "echo ok", "echo changed");
+        let outcome = run_post_takt_regate(&config, Some("stale-pre-snapshot"));
         assert!(
-            run_post_takt_regate(&config, Some("stale-pre-snapshot")),
-            "変化検出 + gate PASS → push 続行 (true)"
+            outcome.proceed,
+            "変化検出 + gate PASS → push 続行 (proceed=true)"
         );
+        assert_eq!(outcome.telemetry_verdict(), "changed_pass");
     }
 
     /// 変化なしなら gate を**実行しない**: 失敗する gate を設定しても true を返す
@@ -265,9 +299,15 @@ command = "echo push"
         let pre = capture_diff_snapshot(&diff_cfg).expect("pre snapshot 取得");
 
         let config = config_with(true, "exit 1", "echo unchanged");
+        let outcome = run_post_takt_regate(&config, Some(&pre));
         assert!(
-            run_post_takt_regate(&config, Some(&pre)),
-            "無変更 (pre == post) は gate を実行せず skip (true)。失敗 gate でも走らない証跡"
+            outcome.proceed,
+            "無変更 (pre == post) は gate を実行せず skip (proceed=true)。失敗 gate でも走らない証跡"
+        );
+        assert_eq!(
+            outcome.telemetry_verdict(),
+            "no_change",
+            "telemetry は無変更 skip を run 系と区別する"
         );
     }
 
@@ -276,10 +316,12 @@ command = "echo push"
     #[test]
     fn regate_disabled_config_skips_entirely() {
         let config = config_with(false, "exit 1", "echo changed");
+        let outcome = run_post_takt_regate(&config, Some("stale-pre-snapshot"));
         assert!(
-            run_post_takt_regate(&config, Some("stale-pre-snapshot")),
+            outcome.proceed,
             "enabled = false は re-gate を完全 skip (opt-in OFF)"
         );
+        assert_eq!(outcome.telemetry_verdict(), "disabled");
     }
 
     /// section 不在も OFF レーン (default OFF)。
@@ -310,8 +352,8 @@ command = "echo push"
             "section 不在は None (default OFF)"
         );
         assert!(
-            run_post_takt_regate(&config, Some("stale-pre-snapshot")),
-            "section 不在は re-gate を skip (true)"
+            run_post_takt_regate(&config, Some("stale-pre-snapshot")).proceed,
+            "section 不在は re-gate を skip (proceed=true)"
         );
     }
 }
