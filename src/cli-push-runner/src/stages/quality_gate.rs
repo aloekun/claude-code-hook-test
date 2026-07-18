@@ -1,17 +1,31 @@
 use std::time::{Duration, Instant};
 
-use lib_subprocess::run_cmd_shell_capped;
+use lib_subprocess::run_cmd_shell_unlimited;
 
 use crate::config::{GroupConfig, QualityGateConfig, DEFAULT_STEP_TIMEOUT_SECS};
 use crate::log::{log_stage, log_step};
-use crate::runner::MAX_LINES;
+
+/// quality_gate の 1 step を実行し `(success, 全量出力)` を返す。
+///
+/// 出力を **truncate せず全量**取得するのは、失敗 step の診断情報 (cargo test の
+/// 失敗テスト一覧など) を落とさないため。旧実装は `run_cmd_shell_capped`
+/// (`MAX_LINES` = 40 行の silent truncate) の出力を失敗時にそのまま表示していたため、
+/// 41 行目以降に出る失敗内容が消えて診断できなかった (R1 = T5「失敗経路は診断を
+/// 落とさない」原則の残り半分。§4 T5 / §6 backlog 1)。
+///
+/// success/failure の判定は exit status に基づき出力量に依存しないが、失敗時の
+/// **表示**には全量が要る。成功時は出力を表示しない (従来どおり quiet) ため、
+/// 全量保持のコスト (メモリ線形成長) は失敗 step の診断のためだけに払う。
+fn run_step(name: &str, cmd: &str, timeout: u64) -> (bool, String) {
+    run_cmd_shell_unlimited(name, cmd, timeout)
+}
 
 pub(crate) fn run_group(group: &GroupConfig, timeout: u64) -> (String, bool, Duration) {
     let start = Instant::now();
 
     if let Some(pre) = &group.pre {
         log_step(&group.name, "PRE", pre);
-        let (ok, output) = run_cmd_shell_capped(&group.name, pre, timeout, MAX_LINES);
+        let (ok, output) = run_step(&group.name, pre, timeout);
         if !ok {
             log_step(&group.name, "FAIL", "pre コマンド失敗");
             if !output.is_empty() {
@@ -23,7 +37,7 @@ pub(crate) fn run_group(group: &GroupConfig, timeout: u64) -> (String, bool, Dur
 
     for cmd in &group.commands {
         log_step(&group.name, "RUN", cmd);
-        let (ok, output) = run_cmd_shell_capped(&group.name, cmd, timeout, MAX_LINES);
+        let (ok, output) = run_step(&group.name, cmd, timeout);
         if ok {
             log_step(&group.name, "PASS", "");
         } else {
@@ -263,5 +277,57 @@ mod tests {
             ),
             "全 group skip 指定でも失敗 group は実行され gate は落ちる (fail-closed)"
         );
+    }
+
+    /// R1 回帰テスト群: quality_gate の step 失敗時、出力が 40 行 cap で silent truncate
+    /// され cargo test の失敗一覧が消えて診断できなかった不具合 (T5「失敗経路は診断を
+    /// 落とさない」原則の残り半分。ADR-049 の流儀: 1 test = 1 failure mode + good/bad)。
+    ///
+    /// 由来: 2026-07-16 の push パイプライン調査で backlog 化 (§6 項目 1)。コード監査で
+    /// 特定 (in the wild の発火記録は無く、cap 済み出力を失敗表示に使う構造的な診断喪失)。
+    ///
+    /// 事故の形: 旧 `run_group` は `run_cmd_shell_capped(MAX_LINES=40)` の出力を失敗時に
+    /// `eprintln!` していたため、41 行目以降に出る失敗テスト名が silent truncate で落ち、
+    /// 「どのテストが落ちたか」がログから判らなかった。
+    ///
+    /// 修正の核心は「失敗 step の出力を全量取得 (`run_step` = `run_cmd_shell_unlimited`)」。
+    /// 成功時は従来どおり出力を表示しない (退行なし)。`run_step` を capped 版に戻すと
+    /// `failing_step_output_is_not_truncated` が fail する (回帰テストが素通りしない証跡)。
+    mod r1_failure_output_not_truncated {
+        use super::*;
+        use crate::runner::MAX_LINES;
+
+        /// 40 行を超える出力を出してから失敗する step の再現。`cmd /c "A & exit 1"` は
+        /// 最後のコマンド (`exit 1`) の exit code を返すため失敗として報告される。
+        const FAIL_BEYOND_CAP: &str =
+            "(for /L %i in (1,1,60) do @echo failing test line %i) & exit 1";
+
+        /// incident 再現 (bad): 失敗 step の出力が cap (40 行) を超えても全量取得でき、
+        /// cap の外にある診断行 (60 行目) が残ること。
+        #[test]
+        fn failing_step_output_is_not_truncated() {
+            let (ok, output) = run_step("rust-lint-test", FAIL_BEYOND_CAP, 30);
+            assert!(!ok, "exit 1 は失敗として報告される: {:?}", output);
+            assert!(
+                output.lines().count() > MAX_LINES,
+                "run_step が {} 行に切り詰めている = R1 の不具合。失敗診断は truncate してはならない",
+                output.lines().count(),
+            );
+            assert!(
+                output.contains("failing test line 60"),
+                "cap ({} 行) の外にある診断行が残ること: {} 行取得",
+                MAX_LINES,
+                output.lines().count(),
+            );
+        }
+
+        /// good: 成功 step は従来どおり成功を報告する (退行なし)。成功経路の表示は
+        /// `run_group` 側で変えていない (quiet のまま) ことと合わせ、変更が失敗経路に
+        /// 閉じていることを固定する。
+        #[test]
+        fn passing_step_still_succeeds() {
+            let (ok, output) = run_step("ok-group", "echo ok", 10);
+            assert!(ok, "echo ok は成功: {:?}", output);
+        }
     }
 }

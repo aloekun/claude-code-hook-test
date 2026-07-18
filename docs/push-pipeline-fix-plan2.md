@@ -65,7 +65,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 
 ## 3. 残タスク (1 PR 1 タスク、推奨順)
 
-### R1: gate 失敗時出力の truncate 改善 (T13 項目 1 採用分) — XS
+### R1: gate 失敗時出力の truncate 改善 (T13 項目 1 採用分) — XS **【実装済み・未 push, 2026-07-18】**
 
 - **内容**: quality_gate の step 失敗時、cargo test の失敗一覧が 40 行 truncate で消え
   診断できない問題の解消。`run_cmd_shell_capped_reporting` (truncate 明示 variant) + cap
@@ -73,6 +73,34 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 - **対象**: `src/cli-push-runner/src/stages/quality_gate.rs` + `lib-subprocess` の必要 variant
 - **受け入れ基準**: 失敗 step の出力が truncate されず表示されることの回帰テスト。
   成功経路の表示は現状維持 (cap あり) で退行なし。
+- **実施結果 (2026-07-18, 実装済み / 未 push)**:
+  - **方針**: 受け入れ基準「truncate されず表示」に従い**失敗経路の全量表示**を採用
+    (`capped_reporting` + cap 引き上げ案は truncate を明示するだけで基準を満たさないため
+    不採用)。T5 (§4/PR #282) が push stage で確立した「判定は exit status ベース・失敗経路は
+    診断を落とさない・成功経路は cap」を quality_gate に横展開した = **T5 の残り半分**。
+  - **実装 (`stages/quality_gate.rs` に閉じる)**: step 実行を `run_step` に集約し、
+    `run_cmd_shell_capped` (`MAX_LINES` = 40 行の silent truncate) から
+    `run_cmd_shell_unlimited` へ切替。失敗 step は全量を `eprintln!`、成功 step は
+    従来どおり出力を表示しない (quiet = 退行なし)。判定 (`ok`) は exit status 由来で
+    出力量に依存しないため、全量保持のコストは失敗時の診断のためだけに払う旨を
+    `run_step` の doc に明記した。**`run_cmd_shell_unlimited` は T5 で追加済みのため
+    lib-subprocess の変更は不要** (対象欄の「必要 variant」は充足済み)。top-level の
+    `MAX_LINES` import は capped 不使用に伴い除去 (const 自体は push.rs 等が使用のため残置)。
+  - **回帰テスト (ADR-049 の流儀)**: `mod r1_failure_output_not_truncated` **2 本追加**
+    (cli-push-runner crate 250 → 252 passed。quality_gate module は 9 → 11 本)。由来
+    (2026-07-16 調査でコード監査により backlog 化。
+    in the wild の発火記録なし) を module doc に明記。bad = 60 行出力 + exit 1 の step で
+    cap (40 行) の外にある診断行 (60 行目) が残ること、good = 成功 step が退行しないこと。
+    **修正前の挙動で失敗することを確認済み**: `run_step` を capped 版に戻すと bad が
+    「40 行に切り詰めている = R1 の不具合」で fail し good は通る (回帰テストが素通りしない証跡)。
+  - **サンドボックス実機 before/after は不要と判断**: T5〜T7 は exit code / 制御フローを
+    変える変更のため配布 exe 比較を行ったが、R1 は**失敗経路の表示量のみ**を変え判定
+    (`ok` / exit code) は不変。回帰テストの capped↔unlimited 差替えで before/after は
+    実証済みのため、XS 相応の検証に留める。
+  - **exe 再ビルド済み** (`pnpm build:cli-push-runner`)。`cargo clippy -p cli-push-runner
+    --all-targets` warning 0 / `cargo test -p cli-push-runner` 252 passed。
+  - **§1 表への行追加と PR 番号 backfill は push/マージ時に実施** (§1 は「全 PR マージ済み」
+    のスナップショットのため、未 push の本タスクは §3 の本欄で完了記録とする)。
 
 ### R2: loop_monitor judge の haiku 化 (T13 項目 3 採用分) — XS
 
