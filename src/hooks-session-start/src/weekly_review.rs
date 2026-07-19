@@ -11,7 +11,15 @@
 //! jj checkout / workspace materialization (ADR-045) のたびに再マテリアライズされ mtime が
 //! リセットされるため。mtime に依存すると「実際は 1 か月前の実行なのに fresh」に見え、reminder が
 //! 永久に発火しない silent-fresh バグ (past_time / reaper と同クラス) を踏む。`last_run_at` は
-//! skill が書き込む workspace 不変の値で、欠落データは次回実行で backfill される (self-healing)。
+//! skill が書き込む内容 timestamp で、mtime と違い jj checkout では書き換わらない。欠落データは
+//! 次回実行で backfill される (self-healing)。
+//!
+//! ただし状態ファイル自体は gitignore 済み untracked で **workspace ローカル** なため
+//! secondary workspace には存在しない (PR-N2 以前は「`last_run_at` は workspace 不変」と誤記して
+//! いたが、値は不変でもファイル所在が workspace 依存だった、ADR-045 状態分裂)。last-run 読込は
+//! [`lib_jj_helpers::resolve_main_workspace_root`] でメイン workspace root に canonical 化する。
+//! 一方 failed marker / pending JSON はレビュー成果物であり実行した workspace に属するため
+//! workspace ローカルのまま扱う。
 
 use serde::Deserialize;
 use std::path::Path;
@@ -45,8 +53,9 @@ pub(crate) enum WeeklyLastRunState {
 /// `.claude/weekly-review-last-run.json` の必要フィールドのみ。
 ///
 /// `last_run_at` は skill Phase 4 が実行完了時刻を RFC 3339 (UTC) で書き込む authoritative
-/// timestamp。jj checkout / workspace materialization で書き換わる mtime と違い workspace 不変
-/// なので、staleness 判定の第一情報源とする。
+/// timestamp。jj checkout / workspace materialization で書き換わる mtime と違い内容 timestamp は
+/// checkout で変わらないため staleness 判定の第一情報源とする (ファイル自体は workspace ローカルで、
+/// 読込元は [`compute_weekly_review_reminder_nudge`] がメイン workspace root に canonical 化する)。
 #[derive(Deserialize)]
 struct WeeklyLastRunFile {
     last_run_at: Option<String>,
@@ -61,8 +70,8 @@ struct WeeklyLastRunFile {
 ///   4. `last_run_at` 欠落 / parse 不能 / 未来値 → `Stale` (発火)。mtime にはフォールバックしない
 ///      (mtime は jj workspace で reset され silent-fresh を再導入するため)。欠落データは次回
 ///      skill 実行で `last_run_at` が書かれて backfill される (self-healing)。
-fn weekly_review_last_run_state(repo_root: &Path, now_unix: i64) -> WeeklyLastRunState {
-    let path = repo_root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+fn weekly_review_last_run_state(main_root: &Path, now_unix: i64) -> WeeklyLastRunState {
+    let path = main_root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return WeeklyLastRunState::Missing,
@@ -212,6 +221,13 @@ fn build_weekly_review_system_message(
 /// 2 経路 (staleness + failed marker) は独立して評価し、両方該当する場合は 1 nudge にまとめる。
 /// 該当なし (= last-run が threshold 内 + failed marker なし) は None を返す。
 ///
+/// ADR-045 (PR-N2): last-run 状態は gitignore 済み untracked で workspace ローカルのため、
+/// `repo_root` (現 workspace) ではなく [`lib_jj_helpers::resolve_main_workspace_root`] で導出した
+/// メイン workspace root から読む (secondary workspace でもメイン側の実行記録を共有し、
+/// 「未実行」誤判定で永久発火するのを防ぐ)。導出不能時は現 root に fail-open する。一方
+/// failed marker (`.claude/weekly-reviews/*.md.failed`) はレビュー成果物であり実行した workspace に
+/// 属するため `repo_root` のまま読む。
+///
 /// ADR-059: 戻り値は `additional_context` (モデル可視、末尾に「ユーザーに伝えよ」明示指示を付す) と
 /// `system_message` (ユーザー可視 1 行、`system_message_enabled` が真のときのみ `Some`) の 2 層。
 pub(crate) fn compute_weekly_review_reminder_nudge(
@@ -226,7 +242,9 @@ pub(crate) fn compute_weekly_review_reminder_nudge(
         .reminder_threshold_days
         .unwrap_or(WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS);
     let failed_check_enabled = config.failed_marker_check_enabled.unwrap_or(true);
-    let last_run_state = weekly_review_last_run_state(repo_root, now_unix);
+    let main_root = lib_jj_helpers::resolve_main_workspace_root(repo_root)
+        .unwrap_or_else(|| repo_root.to_path_buf());
+    let last_run_state = weekly_review_last_run_state(&main_root, now_unix);
     let staleness_lines = build_weekly_review_staleness_lines(&last_run_state, threshold_days);
     let failed_markers = if failed_check_enabled {
         weekly_review_failed_markers(repo_root)
@@ -362,6 +380,56 @@ mod tests {
         assert!(nudge.additional_context.contains(".failed` marker が 1 件残存"));
         assert!(nudge.additional_context.contains("2026-05-15.md.failed"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn last_run_read_from_main_root_while_markers_stay_workspace_local() {
+        let base = unique_temp_root("main-root-split");
+        let main = base.join("main");
+        let ws = base.join("ws");
+        let last_run_str = "2026-06-01T00:00:00Z";
+        let then = parse_iso8601_to_unix(last_run_str).unwrap();
+        let now = then + 18 * 86_400;
+        std::fs::create_dir_all(main.join(".claude")).unwrap();
+        std::fs::write(
+            main.join(WEEKLY_REVIEW_LAST_RUN_PATH),
+            format!("{{\"last_run_at\": \"{}\"}}", last_run_str),
+        )
+        .unwrap();
+        std::fs::create_dir_all(ws.join(".jj")).unwrap();
+        std::fs::write(ws.join(".jj/repo"), "../../main/.jj/repo").unwrap();
+        std::fs::create_dir_all(ws.join(".claude/weekly-reviews")).unwrap();
+        std::fs::write(
+            ws.join(".claude/weekly-reviews/2026-05-15.md.failed"),
+            "fail",
+        )
+        .unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(true),
+            system_message_enabled: Some(true),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&ws, &config, now)
+            .expect("secondary workspace でもメイン root の last-run で発火する");
+        assert!(
+            nudge.additional_context.contains("18 日経過"),
+            "last-run はメイン workspace root から読む (secondary の未実行に fallback しない): {}",
+            nudge.additional_context
+        );
+        assert!(
+            nudge.additional_context.contains("2026-05-15.md.failed"),
+            "failed marker は現 workspace ローカルから読む"
+        );
+        let msg = nudge
+            .system_message
+            .expect("system_message_enabled = true なので systemMessage が付く");
+        assert!(
+            msg.contains("18 日経過"),
+            "systemMessage も main-root 由来の経過日数: {}",
+            msg
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

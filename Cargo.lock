@@ -429,6 +429,7 @@ dependencies = [
 name = "hooks-session-start"
 version = "0.1.0"
 dependencies = [
+ "lib-jj-helpers",
  "lib-subprocess",
  "proptest",
  "serde",
