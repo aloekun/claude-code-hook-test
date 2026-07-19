@@ -207,6 +207,20 @@
 
 - 新セッション起動 → `.claude/telemetry/firings-*.jsonl` に `hooks-session-start` 行が append されること (削除条件 4)。
 
+### 作業記録 (2026-07-19 実装完了)
+
+- **実装済み**。コミット粒度 (レビューしやすさ優先で 3 分割):
+  1. `feat(session-start)`: `Cargo.toml` に `lib-telemetry` 依存追加 + `main.rs` に `record_nudge_firing` ヘルパー + 5 発火点 (pr_monitor_catchup / reaper / staleness / workspace_stale / weekly_review_reminder) への配線。配線で `emit_session_start_output` が 50 行上限 (touch-trigger ratchet) を超えたため `append_pr_monitor_catchup_nudge` / `append_cwd_nudges` に責務分割 (挙動不変)。
+  2. `docs(adr)`: ADR-055 のスコープに session-start nudge 群を追記 + 除外根拠を撤回 (下記 設計判断) + Amendment (2026-07-19) セクション + 関連 ADR に ADR-059 追記。
+  3. `docs`: 本計画書に PR-N3 作業記録を反映 (本コミット)。
+- **設計判断 (ADR-055 除外根拠の撤回)**: ADR-055 初版は session-start reminder を含む nudge-only hook を「decision 語彙が block/warn の 2 値のため nudge (助言出力) は乗らない」として除外していた。しかし ADR-055 は `decision` を「発火の重み」を表す軸と定義済みで、additionalContext の助言層で実際には block しない custom rule / jj-op-verify も既に warn/block を記録している。nudge はこの warn (= 助言的発火) に自然に対応するため、除外根拠は不成立と判断し撤回した。全 nudge を `warn` で一括記録する (表示ノイズゼロのため systemMessage と違い段階展開不要、計画どおり)。
+- 検証結果:
+  - `cargo test -p hooks-session-start`: **93 passed** (PR-N2 と同数)。観測層の追加は挙動不変のため新規ユニットテストは追加せず。telemetry 本体の書き込み・opt-in・partition は lib-telemetry の 20+ テストが担保し、record wrapper に専用テストを持たない方針は sibling hook (hooks-post-tool-jj-op-verify / hooks-stop-tool-call-leak) の `record_*_firing` の前例に倣った (`record` は exe 隣 `.claude/` 解決 + `OnceLock` キャッシュのプロセスグローバル依存でユニットテストに不向き)。
+  - `cargo clippy -p hooks-session-start --all-targets -- -D warnings`: クリーン。
+  - `pnpm build:all`: 成功 (全 crate release ビルド + 更新 exe を `.claude/` に配布)。
+  - **デプロイ済み exe を実 session_id で駆動して end-to-end 確認済み**: メイン workspace から `.claude/hooks-session-start.exe` を SessionStart 入力で駆動すると、`.claude/telemetry/firings-2026-07-19-<pid>.jsonl` に `pr_monitor_catchup` と `weekly_review_reminder` の **2 発火行** (`hook=hooks-session-start` / `kind=hook` / `decision=warn` / `session_id` 付き) が append されることを確認。発火した nudge のみ記録される (条件未成立の staleness / workspace_stale / reaper は非記録) ことも確認。実 session_id を渡すことで `.session-id` の冪等スキップを確認し、既存 session 状態を汚さないことも担保。
+- **残タスク (削除条件 4)**: land 後、**新セッション起動**で `.claude/telemetry/firings-*.jsonl` に session-start nudge 発火行が記録されることを目視確認 (本 E2E で pre-land 検証済み)。opt-in (`[telemetry] enabled = true`) は dogfood のため既に本 repo で有効。
+
 ---
 
 ## PR 外の即時運用アクション (本計画とは独立、忘れず実施)
