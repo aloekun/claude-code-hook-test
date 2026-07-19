@@ -32,6 +32,17 @@ if (!name) {
   process.exit(2);
 }
 
+// このリポジトリの Rust 製 exe は --help を未実装で、help フラグを転送すると実体
+// (例: cli-merge-pipeline は merge 本体) が起動し PR #109 / ADR-030 の SIGPIPE 事故
+// ベクタになる。exe-help-block hook (polling_exe) と同じ意図で、ランチャー経由の
+// 呼び出しでも fail-closed に拒否する (ガード迂回の防止)。
+const HELP_FLAGS = new Set(["--help", "-h", "/?"]);
+if (forwarded.some((arg) => HELP_FLAGS.has(arg))) {
+  console.error(`error: ${name} does not implement a help flag; forwarding it would execute the tool itself (PR #109 / ADR-030 SIGPIPE vector).`);
+  console.error(`       read src/${name}/src/main.rs for its arguments instead.`);
+  process.exit(2);
+}
+
 const exePath = join(CLAUDE_DIR, `${name}${EXE_SUFFIX}`);
 if (!existsSync(exePath)) {
   console.error(`error: artifact not found: ${exePath}`);
