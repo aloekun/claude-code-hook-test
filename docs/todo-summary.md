@@ -135,7 +135,7 @@
 | 285 | 🔧 Tier 2 | **jj keyword を含む commit message の tokenization edge-case テスト (PR #267 post-merge-feedback T2-2 採用)** | todo13.md | S | なし (順位 283 と表裏。283 の着手有無に関わらず現行挙動を regression test で固定する価値が独立して残る。283 と同一 PR 消化が効率的) |
 | 286 | 🔧 Tier 2 | **config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)** | todo13.md | M | なし (FIXED 済 cwd-config bug の regression guard。既存テストは pure parser のみで file-lookup 経路未カバー。Severity High、Adoption Risk = OS 依存) |
 | 287 | 💎 Tier 3 | **「config 読み hook は exe-relative 解決必須」convention の明文化 (PR #267 post-merge-feedback T3-1 採用)** | todo13.md | XS | なし (順位 281 の文書層補完。**281 と同一 PR bundle 推奨**、別作業に切り出す価値は低い) |
-| 288 | 🔧 Tier 2 | **post-merge feedback の pre-push reports を対象 PR の全 run 集約に拡張 (PR #268 post-merge-feedback T2-1 採用)** | todo13.md | M | なし (「最新 1 run」参照は複数 push した PR で分析が最終 push 分に偏る。PR #267 feedback の evidence-scope 注記で実観測。context の prepush_reports_dir 配列化 + facet 複数 dir 対応。独立 PR 推奨) |
+| 288 | 🚀 Tier 1 | **pre-push review が PR 全体をカバーしない — post-merge の全 run 集約 + push-runner `[diff]` stage の tip-only 範囲修正 (PR #268/#300/#301 feedback 採用、Severity High 3連続再発)** | todo13.md | M | なし (根因は `[diff]` stage `jj diff -r @` が tip のみ = 祖先 code が AI レビュー未経由で merge。`docs_only_routing` は PR 範囲へ修正済だが `[diff]` は非対称。単一 push では全 run 集約でも救えず [diff] 範囲拡張 + bookmark_check 祖先検証が根治。ADR-027 射程はユーザー判断。独立 PR 推奨) |
 | 292 | 🔧 Tier 2 | **cli-pr-monitor の lock.rs を token 方式の所有権検証へ統一** | todo13.md | S-M | なし (PR #271 で pipeline_lock.rs に導入した token ベース所有権検証と同型の Drop 無条件削除バグが cli-pr-monitor/src/lock.rs にも残存。参照実装が既にあるため低リスク) |
 | 293 | ⏳ Tier 5 | **push-runner の stack push モード (opt-in、YAGNI につき見送り継続)** | todo13.md | M | なし (stacked bookmark 運用の実績が現状なく、必要になった時点で着手する opt-in 拡張として記録のみ) |
 | 294 | 💎 Tier 3 | **jj-op-verify hook の位置づけ再整理 — 並列 workspace 安全化ではなく混線緩和層として再分類** | todo13.md | S | なし (検知対象は出力混線の症状であり並列 workspace とは独立に価値を持つ。ADR-045→ADR-053 の枠組みへ紐付け直すドキュメント再整理のみ) |
@@ -172,6 +172,10 @@
 | 326 | 🔧 Tier 2 | **並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)** | todo13.md | S (Phase 0) / M (Phase 1 条件付き) | なし (Phase 0 の需要調査で見落とし実績ゼロなら見送り = negative result 永続化。ADR-047 却下確定 = refute.yaml 削除 revert PR とは独立に進められる) |
 | 327 | 🔧 Tier 3 | **多段コミットの ADR/observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用: status 同期 / plain-text 参照 / セクション同期)** | todo13.md | S | なし (実害は各 PR review/feedback で捕捉済。doc checklist のみ、機械化は再発観測後にエスカレーション) |
 | 328 | 🚀 Tier 1 | **post-merge feedback が成功後に `post-merge-feedback-context.json` を残し次マージの feedback を誤 bail させる (cleanup gap、#296 マージで実観測)** | todo13.md | S | なし (連続マージで後発 PR の再発防止分析が構造的に skip。成功時 cleanup の追加 + 回帰テスト。ADR-030 L2 recovery で今回は手動救済済) |
+| 329 | 💎 Tier 3 | **新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを dev-conventions に追加 (#301 post-merge feedback 採用)** | todo13.md | S | なし (ADR-055 初版が自定義の `decision` 軸と矛盾する除外根拠を採用→Amendment 撤回の手戻り。ADR 59件超で同型見落とし再発しうる。#327 と対の doc-only 対処) |
+| 330 | 💎 Tier 3 | **「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)** | todo13.md | XS | なし (ADR-059 の 2 チャネルパターンと `WeeklyReviewNudge` struct 化。第2弾展開 3件で再利用見込み。dev-conventions 1節追記) |
+| 331 | 🔧 Tier 2 | **hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テスト追加 (#299 post-merge feedback 採用)** | todo13.md | S | なし (現状 pure function レベルのみ、実 config パース込み exe 駆動の検証なし。ADR-049 exe-spawn E2E 先例流用。UI 実描画確認は別途 dogfood) |
+| 332 | 🔧 Tier 2 | **`pnpm build:all` 前に git usr/bin (cp.exe) PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)** | todo13.md | S | なし (Windows で pnpm が cmd.exe 経由実行のため `cp` 解決失敗。memory 既記録だが再発2回目。Windows 限定 additive 分岐、他OS非影響) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

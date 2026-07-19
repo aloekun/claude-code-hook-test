@@ -1029,19 +1029,25 @@
 
 > **動機**: `find_latest_prepush_reports_dir()` は「最新 1 run」のみを feedback の分析ソースにするため、複数回 push した PR では最後の push 分に分析が偏る。PR #267 の feedback でも「参照した pre-push run は WP-11 status 更新 (docs-only の最終 push) のみが対象」という evidence-scope 注記が付いた実観測あり。対象 PR の commit 範囲内の全 pre-push-review run を集約し、`post-merge-feedback-context.json` の `prepush_reports_dir` を配列化、`analyze-prepush-reports.md` facet も複数 dir 対応に更新する。
 >
-> **参照**: `.claude/feedback-reports/268.md` Tier 2 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir`)、`.takt/facets/instructions/analyze-prepush-reports.md`
+> **再発・優先度見直し (2026-07-19、#300/#301 feedback)**: PR-N2 (#300) / PR-N3 (#301) の feedback で同型 gap が Severity High で再発。根因は本エントリの集約範囲より上流の **push-runner `[diff]` stage** (`push-runner-config.toml` の `[diff] command = "jj diff -r @"`) が **tip コミットのみ**を AI レビュー用 diff に書き出す点。複数コミットを 1 回の `pnpm push` でまとめて送ると、tip 以外の祖先コミット (例 #300 の `resolve_main_workspace_root()` 実装、#301 の `Cargo.toml`/`main.rs` 変更) が local security/simplicity レビューを一度も経ずに merge される (security-review.md が実 diff と矛盾して "docs-only / No dependency changes" と記載)。**単一 push では pre-push run 自体が 1 回のみ**のため、本エントリの「全 run 集約」だけでは救えない。よって本エントリの実装時に、(a) `[diff]` stage の diff 範囲を `docs_only_routing` と同様に `<default_branch>..@` (PR 範囲) へ拡張し、(b) `bookmark_check.rs` の `@` 非 trunk 祖先が未レビューのまま push される穴 (T8 / PR #280 と同クラス) の検証を併せて行う。`docs_only_routing.rs` の skip 判定は既に `<default_branch>..@` に修正済みだが `[diff]` stage 自体は未修正で非対称。ADR-027 (push-time review を diff-local に限定し範囲外は CodeRabbit backstop) の trade-off 射程が security-review にも及ぶかはユーザー判断待ち。
 >
-> **実行優先度**: 🔧 Tier 2 — Effort M。context スキーマ変更 + facet 更新 + テストを伴うため独立 PR 推奨。
+> **参照**: `.claude/feedback-reports/268.md` Tier 2 #1 / `.claude/feedback-reports/300.md` Tier1 #1 / `.claude/feedback-reports/301.md` Tier1 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir`)、`push-runner-config.toml` (`[diff]` section)、`src/cli-push-runner/src/stages/diff.rs`・`src/cli-push-runner/src/stages/bookmark_check.rs`、`src/cli-push-runner/src/config/docs_only_routing.rs` (既に PR 範囲へ修正済の対照)、`.takt/facets/instructions/analyze-prepush-reports.md`、[ADR-027](adr/adr-027-push-review-simplicity-focus.md)
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High (review gate の silent 覆域縮小が 3 PR 連続で再発) / Frequency Medium (複数コミットを 1 push する運用で恒常発生) / Effort M。context スキーマ変更 + facet 更新 + `[diff]` stage 修正 + テストを伴うため独立 PR 推奨 (旧 Tier 2 から昇格)。
 
 #### 作業計画
 
+- [ ] **`[diff]` stage の diff 範囲を `<default_branch>..@` (PR 範囲) に拡張** — 祖先コミットの code 変更も AI レビュー用 diff に含める (`docs_only_routing` の skip 判定と同基準に揃える)。
+- [ ] `bookmark_check.rs` で `@` 非 trunk 祖先が未レビューのまま push される穴を検証・塞ぐ (T8 / PR #280 と同クラス)。
 - [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
-- [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に
+- [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
 - 複数 push した PR の feedback が、時刻範囲だけでなく対象 PR のコミット範囲等の追加の識別根拠に基づいて集約された、全 pre-push run のレポートを分析対象にすること。
+- 複数コミットを 1 回で push した PR でも、tip 以外の祖先コミットの code 変更が pre-push AI レビュー (security/simplicity) の diff に含まれること (#300/#301 の "docs-only 誤認" が起きないこと)。
+- `bookmark_check` が `<default_branch>..@` の各祖先コミットと pre-push review 証跡を対応付け、いずれかが未レビューなら **fail-closed** で push を拒否すること ([ADR-043](adr/adr-043-security-gates-fail-closed.md))。レビュー済み・未レビュー祖先の両ケースを回帰テストで seal。
 
 ---
 
@@ -1887,6 +1893,92 @@
 #### 完了基準
 
 - 連続マージ (前回 feedback 成功後 25 分以内) でも 2 回目の post-merge feedback が leftover context.json で誤 bail せず実行されること (回帰テストで seal)。
+
+---
+
+### 新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを追加 (#301 post-merge feedback 採用)
+
+> **動機**: PR-N3 (#301) で、ADR-055 初版が**自ら定義した `decision` 軸 (block/warn = 発火の重み)** と矛盾する除外根拠 (「nudge は block/warn に乗らない」) を採用しており、本 PR で Amendment を追加して除外根拠を撤回する手戻りが発生した。ADR は既に 59 件超を相互参照しており、新規 ADR が既存 ADR の定義・原則と衝突する見落としは他 ADR でも再発しうる。#301 の post-merge feedback が採用候補と判定 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。
+>
+> **対処案**: `CLAUDE.md` または `docs/dev-conventions.md` に「新規 ADR 起案時のチェックリスト」を追加する。項目案: ① ADR が用いる用語・軸 (例 `decision` = 発火の重み) が**既存 ADR の定義と衝突していないか**、② 除外/非除外・採用/却下などの判断根拠が、参照先 ADR が既に定義した原則から**演繹的に導けるか** (別解釈を新設していないか)、③ 衝突が**新規 ADR 初版の誤り**由来なら起案時に初版で解消する。ただし既存 ADR が陳腐化した等で**方針を意図的に変更・supersede する**正当なケースは別扱いとし、Amendment / superseding ADR による明示的更新を妨げない (「初版の誤り」と「既存方針の意図的変更」を区別する項目を設ける)。#327 (多段コミットの ADR/observability 更新チェックリスト) と対をなす doc-only 対処で、同セクションにまとめると発見性が良い。
+>
+> **参照**: `.claude/feedback-reports/301.md` Tier3 #1、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (§計装スコープ の `decision` 軸定義と Amendment (2026-07-19) の除外根拠撤回)、`docs/dev-conventions.md`、#327 (関連 checklist)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S (doc checklist のみ、機械化はしない。ADR 相互参照数が多く同型見落としが再発しうるが、実害は各 PR review/feedback で捕捉できているため機械化は再発観測後にエスカレーション)。
+
+#### 作業計画
+
+- [ ] `CLAUDE.md` または `docs/dev-conventions.md` に上記 3 項目のチェックリストを追加 (#327 と同セクションにまとめる)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 新規 ADR 起案者が、用語・軸の既存 ADR 定義との整合と判断根拠の演繹可能性をチェックリストで確認でき、ADR-055 型の初版自己矛盾 → Amendment 撤回の手戻りを防げること。
+
+---
+
+### 「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)
+
+> **動機**: PR-N1 (#299) で、ユーザー行動を要求する nudge (weekly reminder) を `additionalContext` (モデル向け) だけでなく `systemMessage` (ユーザー向け) の 2 チャネルで返す設計 ([ADR-059](adr/adr-059-hook-system-message-visibility.md)) を確立し、その過程で `compute_weekly_review_reminder_nudge` の戻り値を「additional_context + system_message」の struct (`WeeklyReviewNudge`) に変更した。ADR-059 の第2弾展開 (PR monitor catch-up / post-merge recovery / failed marker) で同型パターンの再利用が見込まれる。weekly reminder が 4 週間気付かれなかった実害 (Severity Medium) の再発防止として設計原則を明文化する。#299 の post-merge feedback が採用候補と判定 (Effort XS / Adoption Risk None)。
+>
+> **対処案**: `docs/dev-conventions.md` に 2 点を追記する。① **ユーザーの行動を要求する nudge は systemMessage (ユーザー可視) と additionalContext (モデル可視) の 2 チャネルで返す** (ADR-059 の可視化チャネル分離)、② **戻り値が複数の意味役割を持つ場合は tuple/多値 flag ではなく struct 化して役割を命名する** (`WeeklyReviewNudge { additional_context, system_message }` の先例)。
+>
+> **参照**: `.claude/feedback-reports/299.md` Tier3 #1、[ADR-059](adr/adr-059-hook-system-message-visibility.md)、`src/hooks-session-start/src/weekly_review.rs` (`WeeklyReviewNudge`)、`docs/dev-conventions.md`。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort XS (dev-conventions への 1 節追記のみ、ADR-059 第2弾展開で再利用見込み)。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に上記 2 点の convention を追記。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 行動要求 nudge を実装する運用者が、2 チャネル返却と多義的戻り値の struct 化を dev-conventions で確認できること。
+
+---
+
+### hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テストを追加 (#299 post-merge feedback 採用)
+
+> **動機**: PR-N1 (#299) で systemMessage 可視化 (ADR-059) を追加したが、テストは `build_session_start_json` の pure function レベルに留まり、**実 config パースを含む exe 実駆動レベルの検証がない** (`src/hooks-session-start/tests/` 自体が未作成)。ADR-059 の第2弾展開で同型の 2 チャネル JSON contract が複製される見込みで、JSON contract の regression を exe レベルで seal する価値がある。#299 の post-merge feedback が採用候補と判定 (Effort S / Adoption Risk None)。
+>
+> **対処案**: `src/hooks-session-start/tests/e2e.rs` (新設) に、SessionStart 入力 JSON を stdin で渡して exe を駆動し、`systemMessage` を含む出力 JSON の形状 (systemMessage 有り/無し・additionalContext の nudge 併載) を assert する E2E を追加する。既存の exe-spawn bounded-wait convention ([ADR-049](adr/adr-049-incident-eval-regression-suite.md) `incident_eval.rs`) を踏襲。**注記**: 本 E2E は JSON contract の regression 防止に留まり、Claude Code クライアント UI 側の実描画確認 (ADR-059 削除条件2 / 判定期限 2026-08-16) は代替できないため dogfood 目視は別途必要。
+>
+> **参照**: `.claude/feedback-reports/299.md` Tier2 #1、[ADR-059](adr/adr-059-hook-system-message-visibility.md)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md) (exe-spawn E2E 先例)、`src/hooks-session-start/src/main.rs` (`build_session_start_json`)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S (既存 exe-spawn E2E convention を流用可能、tests/ 新設)。
+
+#### 作業計画
+
+- [ ] `src/hooks-session-start/tests/e2e.rs` を新設し、実 config + stdin 入力で exe を駆動して systemMessage 有り/無しの JSON 形状を assert。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- 実 config パース込みの exe 駆動で systemMessage を含む JSON contract が regression テストで seal されること (UI 実描画確認は別途 dogfood)。
+
+---
+
+### `pnpm build:all` 前に git usr/bin (cp.exe) の PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)
+
+> **動機**: `pnpm build:all` (及び per-crate `build:*`) は `cp target/release/X.exe .claude/X.exe` で Unix `cp` を使うが、pnpm は Windows で `cmd.exe` 経由で script を実行するため `cp` が解決できず copy step が失敗する (`'cp' is not recognized`)。memory `windows-build-cp-path-gotcha.md` に既記録だが、PR-N3 (#301) の実装でも**再度手動で PATH 追加が必要になった (再発 2 回目)**。ビルド阻害という Severity Medium と再発 Frequency Medium が揃う。#301 の post-merge feedback が採用候補と判定。
+>
+> **対処案**: `package.json` の `build:all` (または各 `build:*`) で、Windows のとき git の `usr/bin` (cp.exe 提供) を PATH に前置してから cargo/cp を実行する。Windows 限定の additive な分岐 (他 OS は非該当) とし既存の Unix 動作を変えない。あるいは `cp` を Node の cross-platform copy (`node -e` / `shx` 等) に置換する案も検討。あわせて setup ドキュメントへの明記を補助的に実施。
+>
+> **参照**: `.claude/feedback-reports/301.md` Tier1 #2、`package.json` (`build:all` / `build:*` scripts)、memory `windows-build-cp-path-gotcha.md` (既記録・再発)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (ビルド阻害) / Frequency Medium (再発 2 回目) / Effort S (Windows 限定 if 分岐、他 OS 非影響、Adoption Risk は OS 依存分岐のみ)。
+
+#### 作業計画
+
+- [ ] `package.json` の build script を Windows で cp.exe を解決できるよう修正: `git.exe` の場所を自動検出 (非標準インストールにも対応) → `usr/bin/cp.exe` の存在確認 → 既存 PATH を保持したまま前置。未検出時は cross-platform copy (`node -e` / `shx` 等) へ fallback するか明確なエラーを出す (silent 失敗にしない)。
+- [ ] setup ドキュメントに前提を明記 (補助)。
+- [ ] 本エントリ削除 + todo-summary.md 行削除。
+
+#### 完了基準
+
+- クリーンな Windows 環境で `pnpm build:all` が手動 PATH 調整なしに exe を `.claude/` へ配布できること。
+- Git が非標準の場所にインストールされている / `cp.exe` が不在の環境でも、cross-platform copy への fallback か診断可能な明確なエラーで失敗すること (silent 失敗・意味不明な `'cp' is not recognized` で止まらない)。
 
 ---
 
