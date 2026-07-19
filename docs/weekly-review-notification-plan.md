@@ -116,7 +116,7 @@
   - `cargo clippy -p hooks-session-start --all-targets -- -D warnings`: クリーン。
   - `pnpm build:all`: 成功 (更新 exe を `.claude/` に配布)。
   - **デプロイ済み exe を実際に駆動して end-to-end 確認済み**: main workspace は last-run 未実行 (Missing) のため、`systemMessage = "週次レビュー: 実行記録なし (threshold 7 日)。/weekly-review の実行を検討してください"` と additionalContext 末尾の defense-in-depth 明示指示の両方が出力されることを確認。
-- **残タスク (削除条件 2)**: land 後に **新セッションを起動して UI 上に systemMessage の 1 行が実表示されるか目視確認**。表示スタイル (警告色か等) はドキュメント未明記のため dogfood で確認する。判定期限 2026-08-16 (ADR-059 bounded lifetime)。
+- **残タスク (削除条件 2、2026-07-19 時点 未確認 → 本計画書を保持する唯一の理由)**: land 後、reminder を起点に weekly review を実行したセッション (VSCode 拡張環境) では、systemMessage の 1 行が UI に**独立して描画されたか確証が持てなかった**。観測できたのは additionalContext 経由のモデル言及 (defense-in-depth) のみで、systemMessage の直接描画は切り分け不能。**残課題: VSCode 拡張が hook `systemMessage` を描画するか (ターミナル CLI との挙動差含む) を調査**する。詳細な dogfood 観測は [ADR-059 § Dogfood 観測 (2026-07-19)](adr/adr-059-hook-system-message-visibility.md) に記録済み。判定期限 2026-08-16 (ADR-059 bounded lifetime)。表示未確認でも実装は revert せず (additionalContext 明示指示が backstop として機能)、表示経路を再調査してから判断する。
 
 ---
 
