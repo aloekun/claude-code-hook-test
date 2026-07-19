@@ -1040,13 +1040,14 @@
 - [ ] **`[diff]` stage の diff 範囲を `<default_branch>..@` (PR 範囲) に拡張** — 祖先コミットの code 変更も AI レビュー用 diff に含める (`docs_only_routing` の skip 判定と同基準に揃える)。
 - [ ] `bookmark_check.rs` で `@` 非 trunk 祖先が未レビューのまま push される穴を検証・塞ぐ (T8 / PR #280 と同クラス)。
 - [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
-- [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に
+- [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)
 - [ ] 本エントリ削除 + todo-summary.md 行削除
 
 #### 完了基準
 
 - 複数 push した PR の feedback が、時刻範囲だけでなく対象 PR のコミット範囲等の追加の識別根拠に基づいて集約された、全 pre-push run のレポートを分析対象にすること。
 - 複数コミットを 1 回で push した PR でも、tip 以外の祖先コミットの code 変更が pre-push AI レビュー (security/simplicity) の diff に含まれること (#300/#301 の "docs-only 誤認" が起きないこと)。
+- `bookmark_check` が `<default_branch>..@` の各祖先コミットと pre-push review 証跡を対応付け、いずれかが未レビューなら **fail-closed** で push を拒否すること ([ADR-043](adr/adr-043-security-gates-fail-closed.md))。レビュー済み・未レビュー祖先の両ケースを回帰テストで seal。
 
 ---
 
@@ -1899,7 +1900,7 @@
 
 > **動機**: PR-N3 (#301) で、ADR-055 初版が**自ら定義した `decision` 軸 (block/warn = 発火の重み)** と矛盾する除外根拠 (「nudge は block/warn に乗らない」) を採用しており、本 PR で Amendment を追加して除外根拠を撤回する手戻りが発生した。ADR は既に 59 件超を相互参照しており、新規 ADR が既存 ADR の定義・原則と衝突する見落としは他 ADR でも再発しうる。#301 の post-merge feedback が採用候補と判定 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。
 >
-> **対処案**: `CLAUDE.md` または `docs/dev-conventions.md` に「新規 ADR 起案時のチェックリスト」を追加する。項目案: ① ADR が用いる用語・軸 (例 `decision` = 発火の重み) が**既存 ADR の定義と衝突していないか**、② 除外/非除外・採用/却下などの判断根拠が、参照先 ADR が既に定義した原則から**演繹的に導けるか** (別解釈を新設していないか)、③ 衝突する場合は起案時に Amendment ではなく初版で解消する。#327 (多段コミットの ADR/observability 更新チェックリスト) と対をなす doc-only 対処で、同セクションにまとめると発見性が良い。
+> **対処案**: `CLAUDE.md` または `docs/dev-conventions.md` に「新規 ADR 起案時のチェックリスト」を追加する。項目案: ① ADR が用いる用語・軸 (例 `decision` = 発火の重み) が**既存 ADR の定義と衝突していないか**、② 除外/非除外・採用/却下などの判断根拠が、参照先 ADR が既に定義した原則から**演繹的に導けるか** (別解釈を新設していないか)、③ 衝突が**新規 ADR 初版の誤り**由来なら起案時に初版で解消する。ただし既存 ADR が陳腐化した等で**方針を意図的に変更・supersede する**正当なケースは別扱いとし、Amendment / superseding ADR による明示的更新を妨げない (「初版の誤り」と「既存方針の意図的変更」を区別する項目を設ける)。#327 (多段コミットの ADR/observability 更新チェックリスト) と対をなす doc-only 対処で、同セクションにまとめると発見性が良い。
 >
 > **参照**: `.claude/feedback-reports/301.md` Tier3 #1、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (§計装スコープ の `decision` 軸定義と Amendment (2026-07-19) の除外根拠撤回)、`docs/dev-conventions.md`、#327 (関連 checklist)。
 >
@@ -1970,13 +1971,14 @@
 
 #### 作業計画
 
-- [ ] `package.json` の build script を Windows で cp.exe を解決できるよう修正 (PATH 前置 or cross-platform copy へ置換)。
+- [ ] `package.json` の build script を Windows で cp.exe を解決できるよう修正: `git.exe` の場所を自動検出 (非標準インストールにも対応) → `usr/bin/cp.exe` の存在確認 → 既存 PATH を保持したまま前置。未検出時は cross-platform copy (`node -e` / `shx` 等) へ fallback するか明確なエラーを出す (silent 失敗にしない)。
 - [ ] setup ドキュメントに前提を明記 (補助)。
 - [ ] 本エントリ削除 + todo-summary.md 行削除。
 
 #### 完了基準
 
 - クリーンな Windows 環境で `pnpm build:all` が手動 PATH 調整なしに exe を `.claude/` へ配布できること。
+- Git が非標準の場所にインストールされている / `cp.exe` が不在の環境でも、cross-platform copy への fallback か診断可能な明確なエラーで失敗すること (silent 失敗・意味不明な `'cp' is not recognized` で止まらない)。
 
 ---
 
