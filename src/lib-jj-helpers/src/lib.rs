@@ -23,6 +23,8 @@
 //! - [`get_jj_bookmarks`]: 上記を組み合わせた high-level エントリポイント
 //! - [`resolve_git_dir`] / [`inject_git_dir_for_gh`]: 非 colocated jj workspace
 //!   での gh 用 `GIT_DIR` 導出と自動注入 (ADR-045 恒久対策候補 1)
+//! - [`resolve_main_workspace_root`]: secondary jj workspace から canonical な (メイン)
+//!   workspace root を解決 (gitignore 済み untracked 状態ファイルの workspace 分裂対策、ADR-045)
 //! - [`pipeline_lock`]: 実行中 pipeline と Stop hook 品質ゲートの相互排他 (順位 280)
 
 pub mod pipeline_lock;
@@ -231,6 +233,40 @@ pub fn resolve_git_dir(workspace_root: &std::path::Path) -> GitDirResolution {
             git_dir.display(),
             e
         )),
+    }
+}
+
+/// secondary jj workspace から canonical な (メイン) workspace root を解決する (ADR-045 状態分裂対策)。
+///
+/// `.claude/weekly-review-last-run.json` のような gitignore 済み untracked 状態ファイルは
+/// workspace ごとに独立し (per-checkout materialize)、secondary workspace には存在しない。状態を
+/// 1 か所 (メイン workspace) に集約するため、`.jj` の on-disk layout からメイン root を導出する。
+/// [`resolve_git_dir`] と同じ layout 解釈 (相対パス基準、verbatim prefix 剥がし) を共有する:
+///
+/// 1. `<root>/.jj/repo` がディレクトリ → この root 自身がメイン (colocated) workspace →
+///    `Some(root)` をそのまま返す
+/// 2. `<root>/.jj/repo` がファイル → 内容が main repo store への (相対なら `<root>/.jj/` 基準の)
+///    パス (`<main>/.jj/repo`)。その 2 階層上がメイン workspace root
+/// 3. `.jj/repo` 不在 / 読み取り失敗 / 導出パス不存在 → `None` (caller は現 root に fail-open)
+///
+/// `GIT_DIR` を扱う [`resolve_git_dir`] と違い最終 store ではなく **workspace root** を返す点、
+/// および colocated root を `Resolved` ではなく入力そのまま返す点で用途が異なる。
+pub fn resolve_main_workspace_root(
+    workspace_root: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let repo_entry = workspace_root.join(".jj").join("repo");
+    if repo_entry.is_dir() {
+        return Some(workspace_root.to_path_buf());
+    }
+    if !repo_entry.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&repo_entry).ok()?;
+    let store = resolve_relative_to(content.trim(), &workspace_root.join(".jj"));
+    let main_root = store.parent()?.parent()?;
+    match main_root.canonicalize() {
+        Ok(p) => Some(strip_windows_verbatim_prefix(&p)),
+        Err(_) => None,
     }
 }
 
@@ -613,6 +649,123 @@ mod tests {
                 }
                 other => panic!("Resolved を期待: {}", debug_name(&other)),
             }
+        }
+    }
+
+    /// [`resolve_main_workspace_root`] の layout 解釈テスト。fixture は `git_dir` と同型。
+    mod main_workspace_root {
+        use super::super::*;
+        use std::fs;
+
+        fn make_colocated_main(root: &std::path::Path) {
+            fs::create_dir_all(root.join(".git")).unwrap();
+            fs::create_dir_all(root.join(".jj/repo/store")).unwrap();
+        }
+
+        fn make_secondary_workspace(ws: &std::path::Path, main_store: &str) {
+            fs::create_dir_all(ws.join(".jj")).unwrap();
+            fs::write(ws.join(".jj/repo"), main_store).unwrap();
+        }
+
+        #[test]
+        fn colocated_main_returns_itself() {
+            let tmp = tempfile::tempdir().unwrap();
+            make_colocated_main(tmp.path());
+            let resolved = resolve_main_workspace_root(tmp.path())
+                .expect("colocated main (.jj/repo がディレクトリ) は自身を返す");
+            assert_eq!(resolved.as_path(), tmp.path());
+        }
+
+        #[test]
+        fn secondary_workspace_resolves_to_main_root() {
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            let ws = tmp.path().join("ws");
+            make_colocated_main(&main);
+            make_secondary_workspace(&ws, "../../main/.jj/repo");
+
+            let resolved = resolve_main_workspace_root(&ws)
+                .expect("secondary の .jj/repo ファイルからメイン root を導出する");
+            assert_eq!(
+                resolved.canonicalize().unwrap(),
+                main.canonicalize().unwrap(),
+                "メイン workspace root (store の 2 階層上) を返すこと"
+            );
+            assert!(
+                !resolved.to_string_lossy().starts_with(r"\\?\"),
+                "verbatim prefix は剥がされていること: {:?}",
+                resolved
+            );
+        }
+
+        #[test]
+        fn secondary_workspace_with_absolute_store_path_resolves() {
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            let ws = tmp.path().join("ws");
+            make_colocated_main(&main);
+            let abs = main.join(".jj").join("repo");
+            make_secondary_workspace(&ws, &abs.to_string_lossy());
+
+            let resolved = resolve_main_workspace_root(&ws)
+                .expect("絶対パス store でもメイン root を導出する");
+            assert_eq!(
+                resolved.canonicalize().unwrap(),
+                main.canonicalize().unwrap()
+            );
+        }
+
+        #[test]
+        fn non_jj_directory_is_none() {
+            let tmp = tempfile::tempdir().unwrap();
+            assert!(
+                resolve_main_workspace_root(tmp.path()).is_none(),
+                ".jj 不在は None (caller は現 root に fail-open)"
+            );
+        }
+
+        /// 実 jj で colocated main + secondary workspace を組み、実レイアウトとの齟齬を検出する。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn real_jj_secondary_workspace_resolves_to_main_root() {
+            use std::process::Command as StdCommand;
+
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            fs::create_dir_all(&main).unwrap();
+
+            let init_ok = StdCommand::new("jj")
+                .args(["git", "init", "--colocate"])
+                .current_dir(&main)
+                .status()
+                .expect("jj git init 実行失敗")
+                .success();
+            assert!(init_ok, "jj git init --colocate が失敗");
+
+            let ws = tmp.path().join("ws");
+            let add_ok = StdCommand::new("jj")
+                .args(["workspace", "add", ws.to_string_lossy().as_ref()])
+                .current_dir(&main)
+                .status()
+                .expect("jj workspace add 実行失敗")
+                .success();
+            assert!(add_ok, "jj workspace add が失敗");
+
+            let resolved = resolve_main_workspace_root(&ws)
+                .expect("実 jj secondary workspace からメイン root を導出する");
+            assert_eq!(
+                resolved.canonicalize().unwrap(),
+                main.canonicalize().unwrap(),
+                "secondary はメイン workspace root を返す"
+            );
+
+            let main_resolved =
+                resolve_main_workspace_root(&main).expect("colocated main は自身を返す");
+            assert_eq!(
+                main_resolved.canonicalize().unwrap(),
+                main.canonicalize().unwrap(),
+                "colocated main は自身の root を返す"
+            );
         }
     }
 }
