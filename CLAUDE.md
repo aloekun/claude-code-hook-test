@@ -59,6 +59,7 @@
 - [ADR-056: takt builtin review policy の shadow — policy 層を anomaly 設計に整合させる](docs/adr/adr-056-review-policy-anomaly-shadow.md) *(試験運用)*
 - [ADR-057: docs-only / 空 diff の決定論 routing — instruction 規約から決定論機構への昇格](docs/adr/adr-057-docs-only-deterministic-routing.md) *(試験運用)*
 - [ADR-058: fix 後の決定論再ゲート (post-takt re-gate) — pre-push 経路への機械的 backstop 拡張](docs/adr/adr-058-post-takt-regate.md) *(試験運用)*
+- [ADR-059: hook 通知の可視化チャネル分離 (systemMessage = ユーザー向け / additionalContext = モデル向け)](docs/adr/adr-059-hook-system-message-visibility.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
