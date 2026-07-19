@@ -104,8 +104,37 @@ ADR-003 の以下の記述はこの ADR により supersede される:
 - 「`settings.local.json` での参照: `"%CLAUDE_PROJECT_DIR%\\.claude\\<機能名>.exe"`」→ テンプレートの `{{PROJECT_DIR}}` に変更
 - 「バージョン管理するもの: `settings.local.json`」→ テンプレートを管理し、生成物は `.gitignore`
 
+### 追記: `{{EXE_SUFFIX}}` 変数 + パス区切り `/` 統一 (2026-07-20、WP-13)
+
+`harness-improvement-plan.md` WP-13「EXE_SUFFIX 抽象化」(全クラウド対応の土台) の一環として、
+本 ADR のテンプレート機構を OS 非依存化した。
+
+**変更点:**
+
+1. **`{{EXE_SUFFIX}}` プレースホルダーを追加**: テンプレートの exe パス末尾を
+   `hooks-session-start.exe` から `hooks-session-start{{EXE_SUFFIX}}` に変更し、生成時に OS 依存の
+   実行ファイル拡張子 (Windows: `.exe` / それ以外: 空文字) へ置換する。`{{PROJECT_DIR}}` と同じ
+   ビルド時置換の枠組みに乗せた。
+2. **パス区切りを `/` に統一**: テンプレートの `\\.claude\\` を `/.claude/` に変更し、
+   `{{PROJECT_DIR}}` も forward-slash 正規化した値で置換する。**forward-slash の絶対パス exe は
+   Windows でも実行可能**であることを実測で確認済み (`& "C:/…/x.exe"` / `cmd /c "C:/…/x.exe"` の
+   双方が exit 0。加えて配布後の session で forward-slash パスの PreToolUse hook が実発火を確認)。
+   これにより JSON エスケープ (`\\`) が不要になり、Linux でもそのまま通る。
+3. **生成ロジックを `scripts/build-hooks-settings.mjs` へ切り出し**: 従来 `package.json` に
+   インラインで書いていた `node -e "…"` を独立スクリプト化し、`{{EXE_SUFFIX}}` 置換と
+   **生成物の JSON 妥当性検証 (fail-closed)** を追加した (壊れた settings で hooks が無言で
+   無効化される本 ADR 冒頭の事故を防ぐため)。
+4. **`deploy-hooks.ts` も同一解決に追従**: 派生プロジェクト配布時の template 解決も
+   forward-slash + `{{EXE_SUFFIX}}` に揃え、コピー対象 exe リストも crate 名 + `EXE_SUFFIX` で
+   組み立てるよう変更した。
+
+**スコープ外 (WP-15 の Linux config 生成に委ねる)**: `hooks-config.toml` の quality_gate `cmd`
+(cmd.exe 経由 + `.\.claude\….exe`) や `push-runner-config.toml` の `exe_path` 明示指定は、
+ソースの hardcode ではなくデプロイ時 config であり、cmd.exe 依存の解消を含むため本 WP では変更しない。
+
 ## References
 
 - ADR-003 — hooks の配置規則とビルド戦略（本 ADR で部分的に supersede）
 - `.claude/settings.local.json.template` — テンプレートの実体
-- `package.json` の `build:hooks-settings` — 生成スクリプト
+- `scripts/build-hooks-settings.mjs` — 生成スクリプト (`package.json` の `build:hooks-settings` が起動)
+- `scripts/deploy-hooks.ts` — 派生プロジェクト配布時の同一 template 解決
