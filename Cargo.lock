@@ -431,6 +431,7 @@ version = "0.1.0"
 dependencies = [
  "lib-jj-helpers",
  "lib-subprocess",
+ "lib-telemetry",
  "proptest",
  "serde",
  "serde_json",

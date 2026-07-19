@@ -9,6 +9,9 @@
 //!   5. Working copy staleness nudge: `staleness` module
 //!   6. Weekly review reminder (ADR-031 Phase C): `weekly_review` module
 //!
+//! 各 nudge の発火は `lib-telemetry` (ADR-055) に `warn` として記録され、ROI 棚卸しの
+//! 観測基盤 (`.claude/telemetry/firings-*.jsonl`) に載る (fail-open)。
+//!
 //! .session-id ファイルは「同一 ID スキップ」方式:
 //!   - 既に同じ session_id が書かれていれば何もしない (冪等)
 //!   - 異なる ID (新セッション or サブセッション) の場合は上書きする
@@ -102,57 +105,84 @@ fn main() {
     emit_session_start_output(&session_id);
 }
 
-/// `additionalContext` (session_id + 任意の PR monitor catch-up nudge + 任意の reaper nudge) を
-/// 組み立て、Claude Code に返す JSON を stdout に書き出す。
+/// `additionalContext` (session_id + 任意の nudge 群: PR monitor catch-up / reaper / staleness /
+/// workspace_stale / weekly review) と任意の `systemMessage` を組み立て、Claude Code に返す JSON を
+/// stdout に書き出す。各 nudge の追記と telemetry 記録はヘルパーに委譲する。
 /// serde_json で組み立てることで session_id 内の特殊文字を安全にエスケープする。
 fn emit_session_start_output(session_id: &str) {
     let mut context = format!("CLAUDE_CODE_SESSION_ID={}", session_id);
     let mut system_message: Option<String> = None;
     let now_unix = current_unix_secs();
+    append_pr_monitor_catchup_nudge(&mut context, session_id, now_unix);
+    if let Ok(cwd) = std::env::current_dir() {
+        system_message = append_cwd_nudges(&mut context, session_id, &cwd, now_unix);
+    }
+    let output = build_session_start_json(&context, system_message.as_deref());
+    println!("{}", output);
+}
+
+/// PR monitor catch-up nudge を `context` に追記し、発火時は telemetry に記録する。
+/// この nudge は cwd に依存せず parked state ファイルのみを見るため独立したヘルパーにする。
+fn append_pr_monitor_catchup_nudge(context: &mut String, session_id: &str, now_unix: i64) {
     if let Some(state) = read_parked_state(&pr_monitor_state_path()) {
         if let Some(nudge) = compute_catchup_nudge(&state, now_unix) {
             context.push_str("\n\n");
             context.push_str(&nudge);
+            record_nudge_firing("pr_monitor_catchup", session_id);
         }
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Some(reaper_nudge) = compute_reaper_nudge(&cwd, now_unix) {
+}
+
+/// cwd 依存の nudge 群 (reaper / staleness / workspace_stale / weekly review) を `context` に
+/// 追記し、発火時は telemetry に記録する。weekly review のみユーザー可視の systemMessage を
+/// 伴うため、それを戻り値として返す (発火しなければ `None`)。
+fn append_cwd_nudges(
+    context: &mut String,
+    session_id: &str,
+    cwd: &Path,
+    now_unix: i64,
+) -> Option<String> {
+    if let Some(reaper_nudge) = compute_reaper_nudge(cwd, now_unix) {
+        context.push_str("\n\n");
+        context.push_str(&reaper_nudge);
+        record_nudge_firing("reaper", session_id);
+    }
+    let hooks_config = read_hooks_config(cwd);
+    let session_start = hooks_config.session_start.as_ref()?;
+    if let Some(staleness_config) = session_start.staleness.as_ref() {
+        if let Some(staleness_nudge) = compute_staleness_nudge(cwd, staleness_config) {
             context.push_str("\n\n");
-            context.push_str(&reaper_nudge);
+            context.push_str(&staleness_nudge);
+            record_nudge_firing("staleness", session_id);
         }
-        let hooks_config = read_hooks_config(&cwd);
-        if let Some(staleness_config) = hooks_config
-            .session_start
-            .as_ref()
-            .and_then(|s| s.staleness.as_ref())
-        {
-            if let Some(staleness_nudge) = compute_staleness_nudge(&cwd, staleness_config) {
-                context.push_str("\n\n");
-                context.push_str(&staleness_nudge);
-            }
-            if let Some(stale_nudge) = compute_workspace_stale_nudge(staleness_config) {
-                context.push_str("\n\n");
-                context.push_str(&stale_nudge);
-            }
-        }
-        if let Some(weekly_config) = hooks_config
-            .session_start
-            .as_ref()
-            .and_then(|s| s.weekly_review_reminder.as_ref())
-        {
-            if let Some(weekly_nudge) =
-                compute_weekly_review_reminder_nudge(&cwd, weekly_config, now_unix)
-            {
-                context.push_str("\n\n");
-                context.push_str(&weekly_nudge.additional_context);
-                if weekly_nudge.system_message.is_some() {
-                    system_message = weekly_nudge.system_message;
-                }
-            }
+        if let Some(stale_nudge) = compute_workspace_stale_nudge(staleness_config) {
+            context.push_str("\n\n");
+            context.push_str(&stale_nudge);
+            record_nudge_firing("workspace_stale", session_id);
         }
     }
-    let output = build_session_start_json(&context, system_message.as_deref());
-    println!("{}", output);
+    let weekly_config = session_start.weekly_review_reminder.as_ref()?;
+    let weekly_nudge = compute_weekly_review_reminder_nudge(cwd, weekly_config, now_unix)?;
+    context.push_str("\n\n");
+    context.push_str(&weekly_nudge.additional_context);
+    record_nudge_firing("weekly_review_reminder", session_id);
+    weekly_nudge.system_message
+}
+
+/// nudge の発火を telemetry (ADR-055) に記録する (fail-open)。
+///
+/// `id` は nudge 種別 (`weekly_review_reminder` / `pr_monitor_catchup` / `reaper` /
+/// `staleness` / `workspace_stale`)。nudge は助言出力のため decision は一律 `Warn`
+/// (「発火の重み」軸であり、実際に停止したかではない。jj-op-verify の非 block warn と同性質)。
+/// 記録失敗・opt-in OFF は lib-telemetry 内部で握りつぶすため hook 本来の出力を妨げない。
+fn record_nudge_firing(id: &str, session_id: &str) {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-session-start",
+        kind: lib_telemetry::FiringKind::Hook,
+        id,
+        decision: lib_telemetry::Decision::Warn,
+        session_id: Some(session_id),
+    });
 }
 
 /// SessionStart hook の stdout JSON を組み立てる純粋関数 (ADR-059)。
