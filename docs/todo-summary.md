@@ -176,6 +176,7 @@
 | 330 | 💎 Tier 3 | **「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)** | todo13.md | XS | なし (ADR-059 の 2 チャネルパターンと `WeeklyReviewNudge` struct 化。第2弾展開 3件で再利用見込み。dev-conventions 1節追記) |
 | 331 | 🔧 Tier 2 | **hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テスト追加 (#299 post-merge feedback 採用)** | todo13.md | S | なし (現状 pure function レベルのみ、実 config パース込み exe 駆動の検証なし。ADR-049 exe-spawn E2E 先例流用。UI 実描画確認は別途 dogfood) |
 | 332 | 🔧 Tier 2 | **`pnpm build:all` 前に git usr/bin (cp.exe) PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)** | todo13.md | S | なし (Windows で pnpm が cmd.exe 経由実行のため `cp` 解決失敗。memory 既記録だが再発2回目。Windows 限定 additive 分岐、他OS非影響) |
+| 333 | 🔧 Tier 2 | **VSCode 拡張が hook `systemMessage` を UI 描画するかの調査 (ADR-059 dogfood / 削除条件 2、2026-07-19 週次レビュー観測)** | todo14.md | S | なし (2026-07-19 dogfood で VSCode UI での systemMessage 独立描画が未確認 = additionalContext 経由のみ観測。ターミナル CLI との挙動差を切り分け。ADR-059 bounded-lifetime 判定 期限 2026-08-16 の blocker。描画なしでも defense-in-depth backstop あり revert 不要) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

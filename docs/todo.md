@@ -22,6 +22,84 @@
 
 ## 現在進行中
 
+### 週次レビュー採用 (2026-07-19)
+
+#### docs/todo.md preamble の「八つ」を実際の 14 ファイルに更新 (週次レビュー WR-2026-07-19-T01 採用)
+
+> **動機**: 主 preamble が「新セッションでは八つすべてを確認すること」と指示しているが、corpus は実際には 14 ファイル (todo.md / todo2-13.md / todo-summary.md) 存在する。todo8-13.md への案内が preamble の使い分けリストに無く、新規セッションの onboarding routing を毀損する。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-19-T01 で採用 (severity=high, facet=todo, category=todo-preamble-drift)
+>
+> **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-T01、`docs/todo.md:1-15` (preamble)
+
+##### 背景: todo8-13.md は逐次追加されたが、preamble の「八つ」記述と使い分けリスト (todo2-7.md までしか列挙していない) が未更新のまま drift した。
+
+##### 設計決定: preamble を「新セッションでは十四つすべてを確認すること (todo.md / todo2-13.md / todo-summary.md)」に更新し、todo8-13.md 追加の経緯 (拡張履歴) を使い分けリストに追記する。
+
+- [ ] preamble のファイル数記述と使い分けリストを実 corpus (14 ファイル) に一致させる
+- [ ] T02 (todo14.md 新設) と整合させる (新規追加先ファイルの記述を同時更新)
+- [ ] 本エントリ削除
+
+##### 完了基準: preamble のファイル数・使い分けリストが実 corpus と一致し、onboarding で全 todo ファイルが辿れること。
+
+#### todo13.md が 50KB 超過 — todo14.md 新設で新規追加先を移す (週次レビュー WR-2026-07-19-T02 採用)
+
+> **動機**: `todo13.md` が 50KB 閾値を大幅超過 (171KB, 約 3.4 倍) しているにもかかわらず preamble が「新規エントリの追加先は本ファイル」と宣言し続けている。todo8-12 が一貫して守ってきた 50KB 分割ポリシーからの逸脱で、Claude Code の読み取り安定性を損なう。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-19-T02 で採用 (severity=high, facet=todo, category=todo-preamble-drift)
+>
+> **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-T02、`docs/todo13.md` (175,298 bytes)、file-length-watchlist の機械 scan と整合
+>
+> **注**: 本週次レビュー land 時点の PR #302 (feedback 採用登録) も todo13.md 肥大化の一因。
+
+##### 背景: 新規エントリを todo13.md に追加し続けた結果 50KB を大幅超過。file-length watchlist の機械 scan でも todo13.md (175KB) / todo10.md (97KB) / todo-summary.md (79KB) が閾値超過として検出されている。
+
+##### 設計決定: (Option A 推奨) `docs/todo14.md` を新設し新規エントリの追加先を移す。todo13.md preamble を「既存タスクの編集・完了削除専用」に変更し、todo.md / 各 detail file の preamble と todo-summary.md のファイルリストを更新する。(Option B) 50KB 閾値の運用停止を意図的に決定した場合はその旨を全 preamble と todo-summary.md に明記する。
+
+- [ ] Option A/B を決定 (現状は A 推奨)
+- [ ] A 採用時: todo14.md 新設 + 全 preamble のルーティング記述を更新 (T01 の preamble 更新と同時実施)
+- [ ] 本エントリ削除
+
+##### 完了基準: todo13.md への新規エントリ追加が止まり、新規は 50KB 未満のファイルへ向かうこと (または 50KB 運用停止が全 preamble に明記されること)。
+
+#### fetch_head_is_recent() の mtime 依存を埋め込み timestamp に置換 (週次レビュー WR-2026-07-19-J01 採用)
+
+> **動機**: `fetch_head_is_recent()` が `.git/FETCH_HEAD` の mtime のみで fetch 鮮度を判定している。jj workspace 操作 (working copy materialization) で mtime がリセットされると false positive となり、実際は stale でも staleness nudge が発火しない可能性がある。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-19-J01 で採用 (severity=high, facet=jj-robustness, category=jj-mtime-staleness)
+>
+> **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-J01、`src/hooks-session-start/src/jj_helpers.rs:12-25`、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (jj-robustness facet の bounded lifetime dogfood 文脈)
+
+##### 背景: 本 bug class (jj 操作による mtime リセット) は 2026-07 セッションで実観測済みで、新設 jj-robustness facet (ADR-039 bounded lifetime dogfood) が再検出した good signal。ただし jj new / workspace 操作が実際に `.git/FETCH_HEAD` の mtime を書き換える具体的機序は本レビューで再現検証しておらず、実装前に経験的確認を推奨する。
+
+##### 設計決定: mtime 依存を廃し、jj git fetch 成功後に `.claude/fetch-last-run.json` 等へ埋め込みタイムスタンプを書き込み、そこから鮮度判定する方式に置換する (weekly-review last-run / telemetry と同じ「内容 timestamp は checkout 不変」方式、CR #233 の mtime リセット教訓と整合)。
+
+- [ ] jj 操作が FETCH_HEAD mtime を書き換える機序を経験的に確認 (前提検証)
+- [ ] 埋め込み timestamp 方式へ置換 + mtime リセットを模擬する回帰テスト
+- [ ] 本エントリ削除
+
+##### 完了基準: jj workspace 操作後も fetch 鮮度が正しく判定されること (mtime リセット模擬の回帰テストで seal)。
+
+#### gh 呼び出しに --repo を付与 — 非 colocated jj workspace の PR 検出 silent 失敗 (週次レビュー WR-2026-07-19-J02 採用)
+
+> **動機**: `detect_owner_repo()` (cli-merge-pipeline/src/github.rs:92-99) および `get_pr_info()` / `find_pr_via_jj_bookmarks()` (cli-pr-monitor/src/util.rs:31-68) が `--repo` 無しで `gh repo view` / `gh pr list` を呼び出しており、非 colocated jj workspace (`.git` 無し) で gh の自動検出が失敗し merge/monitor パイプラインが silent に PR 検出不能となる。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-19-J02 で採用 (severity=high, facet=jj-robustness, category=jj-gh-no-repo)
+>
+> **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-J02、`src/cli-merge-pipeline/src/github.rs:92-99`、`src/cli-pr-monitor/src/util.rs:31-68`、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)、PR #238 (実インシデント)
+
+##### 背景: 既に実インシデント化しており、`.claude/hooks-config.toml` の gh-repo-env-guard preset コメントが PR #238 / ADR-045 を明記している。既存 guard は誤った回避策 (`GH_REPO=` の場当たり利用) をブロックするのみで、根本原因 (呼び出し箇所の `--repo` 欠落) は未修正。J01 と同じ ADR-039 dogfood 文脈。
+
+##### 設計決定: `GH_REPO` 環境変数 or jj remote 由来で owner/repo を明示的に解決し、全 gh 呼び出しに `--repo` を付与する。
+
+- [ ] github.rs / util.rs の gh 呼び出しに owner/repo 解決 + `--repo` 付与
+- [ ] 非 colocated workspace を模擬した PR 検出の回帰テスト
+- [ ] 本エントリ削除
+
+##### 完了基準: 非 colocated jj workspace でも merge/monitor パイプラインが PR を正しく検出できること (回帰テストで seal)。
+
+---
+
 ### 週次レビュー採用 (2026-07-01)
 
 #### Stop hook `[stop_quality]` と push-runner `[quality_gate]` の lint/test 重複を解消 (週次レビュー WR-2026-07-01-A01 採用)
