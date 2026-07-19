@@ -107,6 +107,7 @@ fn main() {
 /// serde_json で組み立てることで session_id 内の特殊文字を安全にエスケープする。
 fn emit_session_start_output(session_id: &str) {
     let mut context = format!("CLAUDE_CODE_SESSION_ID={}", session_id);
+    let mut system_message: Option<String> = None;
     let now_unix = current_unix_secs();
     if let Some(state) = read_parked_state(&pr_monitor_state_path()) {
         if let Some(nudge) = compute_catchup_nudge(&state, now_unix) {
@@ -143,11 +144,14 @@ fn emit_session_start_output(session_id: &str) {
                 compute_weekly_review_reminder_nudge(&cwd, weekly_config, now_unix)
             {
                 context.push_str("\n\n");
-                context.push_str(&weekly_nudge);
+                context.push_str(&weekly_nudge.additional_context);
+                if weekly_nudge.system_message.is_some() {
+                    system_message = weekly_nudge.system_message;
+                }
             }
         }
     }
-    let output = build_session_start_json(&context, None);
+    let output = build_session_start_json(&context, system_message.as_deref());
     println!("{}", output);
 }
 

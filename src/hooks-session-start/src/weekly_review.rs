@@ -25,6 +25,11 @@ const WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS: u64 = 7;
 pub(crate) const WEEKLY_REVIEW_LAST_RUN_PATH: &str = ".claude/weekly-review-last-run.json";
 const WEEKLY_REVIEW_REVIEWS_DIR: &str = ".claude/weekly-reviews";
 
+/// additionalContext に付す明示指示 (ADR-059 defense-in-depth)。systemMessage が UI に
+/// 表示されない環境でも、モデル経由でユーザーへ届くよう「冒頭で一言伝えよ」を義務づける。
+const WEEKLY_REVIEW_TELL_USER_INSTRUCTION: &str =
+    "セッション最初の応答で、この weekly-review reminder をユーザーに一言伝えること (systemMessage 非表示環境向けの defense-in-depth、ADR-059)。";
+
 /// `.claude/weekly-review-last-run.json` の last-run 状態。
 ///
 /// `Missing` (= 未実行 / 初回) / `Stale` (= last_run_at 欠落・不正) / `Unreadable` (= 読込失敗) を
@@ -159,15 +164,61 @@ fn build_weekly_review_failed_marker_lines(markers: &[String]) -> Vec<String> {
     lines
 }
 
+/// weekly review reminder の nudge 出力 (ADR-059 の 2 層可視化チャネル)。
+pub(crate) struct WeeklyReviewNudge {
+    /// モデル可視。`hookSpecificOutput.additionalContext` に載る詳細 + 行動指示。
+    pub(crate) additional_context: String,
+    /// ユーザー可視の 1 行サマリー。`systemMessage` に載る。`system_message_enabled` が
+    /// 真かつ nudge 発火時のみ `Some`。
+    pub(crate) system_message: Option<String>,
+}
+
+/// ADR-059: weekly nudge のユーザー可視 1 行サマリー (systemMessage) を組み立てる。
+///
+/// staleness も failed marker も無ければ `None` (additionalContext の発火条件と一致)。
+/// 表示ノイズを抑えるため 1 行 (`\n` を含まない) に限定し、詳細は additionalContext に寄せる。
+fn build_weekly_review_system_message(
+    state: &WeeklyLastRunState,
+    threshold_days: u64,
+    failed_marker_count: usize,
+) -> Option<String> {
+    let staleness = weekly_review_staleness_hits(state, threshold_days);
+    if !staleness && failed_marker_count == 0 {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if staleness {
+        let elapsed = match state {
+            WeeklyLastRunState::ElapsedDays(d) => format!("前回実行から {} 日経過", d),
+            WeeklyLastRunState::Missing => "実行記録なし".to_string(),
+            _ => "前回実行の記録が不正/欠落".to_string(),
+        };
+        parts.push(format!("{} (threshold {} 日)", elapsed, threshold_days));
+    }
+    if failed_marker_count > 0 {
+        parts.push(format!(
+            "前回実行が失敗 (.failed marker {} 件)",
+            failed_marker_count
+        ));
+    }
+    Some(format!(
+        "週次レビュー: {}。`/weekly-review` の実行を検討してください",
+        parts.join("、")
+    ))
+}
+
 /// ADR-031 Phase C: weekly review reminder の nudge を組み立てる。
 ///
 /// 2 経路 (staleness + failed marker) は独立して評価し、両方該当する場合は 1 nudge にまとめる。
 /// 該当なし (= last-run が threshold 内 + failed marker なし) は None を返す。
+///
+/// ADR-059: 戻り値は `additional_context` (モデル可視、末尾に「ユーザーに伝えよ」明示指示を付す) と
+/// `system_message` (ユーザー可視 1 行、`system_message_enabled` が真のときのみ `Some`) の 2 層。
 pub(crate) fn compute_weekly_review_reminder_nudge(
     repo_root: &Path,
     config: &WeeklyReviewReminderConfig,
     now_unix: i64,
-) -> Option<String> {
+) -> Option<WeeklyReviewNudge> {
     if !config.enabled.unwrap_or(false) {
         return None;
     }
@@ -194,7 +245,20 @@ pub(crate) fn compute_weekly_review_reminder_nudge(
         }
         lines.extend(build_weekly_review_failed_marker_lines(&failed_markers));
     }
-    Some(lines.join("\n"))
+    lines.push(String::new());
+    lines.push(WEEKLY_REVIEW_TELL_USER_INSTRUCTION.to_string());
+    let additional_context = lines.join("\n");
+
+    let system_message = if config.system_message_enabled.unwrap_or(false) {
+        build_weekly_review_system_message(&last_run_state, threshold_days, failed_markers.len())
+    } else {
+        None
+    };
+
+    Some(WeeklyReviewNudge {
+        additional_context,
+        system_message,
+    })
 }
 
 #[cfg(test)]
@@ -223,6 +287,7 @@ mod tests {
             enabled: Some(false),
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(true),
+            system_message_enabled: Some(false),
         };
         assert!(compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000).is_none());
         let _ = std::fs::remove_dir_all(&root);
@@ -261,12 +326,13 @@ mod tests {
             enabled: Some(true),
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
         };
         let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000)
             .expect("staleness nudge must be emitted when last-run file missing");
-        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
-        assert!(nudge.contains("threshold (7 日)"));
-        assert!(nudge.contains("未実行"));
+        assert!(nudge.additional_context.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.additional_context.contains("threshold (7 日)"));
+        assert!(nudge.additional_context.contains("未実行"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -288,12 +354,13 @@ mod tests {
             enabled: Some(true),
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(true),
+            system_message_enabled: Some(false),
         };
         let nudge = compute_weekly_review_reminder_nudge(&root, &config, now)
             .expect("failed marker nudge must be emitted");
-        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
-        assert!(nudge.contains(".failed` marker が 1 件残存"));
-        assert!(nudge.contains("2026-05-15.md.failed"));
+        assert!(nudge.additional_context.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.additional_context.contains(".failed` marker が 1 件残存"));
+        assert!(nudge.additional_context.contains("2026-05-15.md.failed"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -314,11 +381,12 @@ mod tests {
             enabled: Some(true),
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
         };
         let nudge = compute_weekly_review_reminder_nudge(&root, &config, now)
             .expect("40 日前の last_run_at は fresh な mtime に関わらず staleness を発火させる");
-        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
-        assert!(nudge.contains("40 日経過"));
+        assert!(nudge.additional_context.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.additional_context.contains("40 日経過"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -339,6 +407,7 @@ mod tests {
             enabled: Some(true),
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
         };
         assert!(
             compute_weekly_review_reminder_nudge(&root, &config, now).is_none(),
@@ -391,12 +460,13 @@ mod tests {
             enabled: Some(true),
             reminder_threshold_days: Some(7),
             failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
         };
         let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000).expect(
             "last_run_at 欠落は mtime にフォールバックせず stale 扱いで発火する (CR #233 Major)",
         );
-        assert!(nudge.contains("[WEEKLY_REVIEW_REMINDER]"));
-        assert!(nudge.contains("stale 扱い"));
+        assert!(nudge.additional_context.contains("[WEEKLY_REVIEW_REMINDER]"));
+        assert!(nudge.additional_context.contains("stale 扱い"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -435,5 +505,108 @@ mod tests {
             &WeeklyLastRunState::Unreadable,
             7
         ));
+    }
+
+    #[test]
+    fn system_message_is_some_when_enabled_and_never_run() {
+        let root = unique_temp_root("sysmsg-never");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(true),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000)
+            .expect("nudge must fire when last-run file missing");
+        let msg = nudge
+            .system_message
+            .expect("system_message_enabled = true なので systemMessage が付く");
+        assert!(msg.contains("週次レビュー"));
+        assert!(msg.contains("実行記録なし"));
+        assert!(!msg.contains('\n'), "systemMessage は 1 行に限定する");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn system_message_reports_elapsed_days_when_enabled() {
+        let root = unique_temp_root("sysmsg-elapsed");
+        let last_run_path = root.join(WEEKLY_REVIEW_LAST_RUN_PATH);
+        std::fs::create_dir_all(last_run_path.parent().unwrap()).unwrap();
+        let last_run_str = "2026-06-01T00:00:00Z";
+        let then = parse_iso8601_to_unix(last_run_str).unwrap();
+        let now = then + 18 * 86_400;
+        std::fs::write(
+            &last_run_path,
+            format!("{{\"last_run_at\": \"{}\"}}", last_run_str),
+        )
+        .unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(true),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, now)
+            .expect("18 日経過で nudge が発火する");
+        let msg = nudge.system_message.expect("systemMessage が付く");
+        assert!(msg.contains("18 日経過"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn system_message_is_none_when_disabled_but_additional_context_still_fires() {
+        let root = unique_temp_root("sysmsg-off");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000)
+            .expect("system_message_enabled = false でも additionalContext の nudge は発火する");
+        assert!(nudge.system_message.is_none());
+        assert!(nudge
+            .additional_context
+            .contains("[WEEKLY_REVIEW_REMINDER]"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn additional_context_includes_tell_user_instruction() {
+        let root = unique_temp_root("tell-user");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(7),
+            failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000)
+            .expect("nudge fires");
+        assert!(
+            nudge
+                .additional_context
+                .contains("ユーザーに一言伝えること"),
+            "ADR-059 defense-in-depth の明示指示が additionalContext に含まれる"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn build_weekly_review_system_message_none_when_fresh_and_no_marker() {
+        assert!(
+            build_weekly_review_system_message(&WeeklyLastRunState::ElapsedDays(3), 7, 0).is_none()
+        );
+    }
+
+    #[test]
+    fn build_weekly_review_system_message_combines_staleness_and_marker() {
+        let msg = build_weekly_review_system_message(&WeeklyLastRunState::Missing, 7, 2)
+            .expect("staleness or marker があれば Some");
+        assert!(msg.contains("実行記録なし"));
+        assert!(msg.contains("失敗"));
+        assert!(msg.contains("2 件"));
     }
 }
