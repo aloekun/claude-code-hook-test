@@ -26,9 +26,12 @@ const OUTPUT = join(ROOT, ".claude", "settings.local.json");
 
 const projectDir = ROOT.replace(/\\/g, "/");
 const template = readFileSync(TEMPLATE, "utf8");
+// 置換値はリテラルとして扱う (関数リプレーサ)。文字列置換だと projectDir 中の
+// `$&` / `$'` / `` $` `` / `$1` 等が特殊解釈され、パスが破損して hooks が
+// 無言で無効化される (fail-open) 恐れがあるため。
 const resolved = template
-  .replace(/\{\{PROJECT_DIR\}\}/g, projectDir)
-  .replace(/\{\{EXE_SUFFIX\}\}/g, EXE_SUFFIX);
+  .replace(/\{\{PROJECT_DIR\}\}/g, () => projectDir)
+  .replace(/\{\{EXE_SUFFIX\}\}/g, () => EXE_SUFFIX);
 
 // 生成物が壊れて hooks が無効化される事故 (ADR-005 の背景) を防ぐため、
 // 書き出す前に JSON として妥当か検証する (fail-closed)。

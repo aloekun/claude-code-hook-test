@@ -126,9 +126,12 @@ function deployTo(targetDir: string): boolean {
   const templateSrc = join(CLAUDE_DIR, SETTINGS_TEMPLATE);
   if (existsSync(templateSrc)) {
     const template = readFileSync(templateSrc, "utf8");
+    // 置換値はリテラルとして扱う (関数リプレーサ)。文字列置換だと projectDir 中の
+    // `$&` / `$'` 等が特殊解釈され、生成される settings のパスが破損する恐れがある。
+    const projectDir = targetDir.replace(/\\/g, "/");
     const resolved = template
-      .replace(/\{\{PROJECT_DIR\}\}/g, targetDir.replace(/\\/g, "/"))
-      .replace(/\{\{EXE_SUFFIX\}\}/g, EXE_SUFFIX);
+      .replace(/\{\{PROJECT_DIR\}\}/g, () => projectDir)
+      .replace(/\{\{EXE_SUFFIX\}\}/g, () => EXE_SUFFIX);
     let newSettings: Record<string, unknown>;
     try {
       newSettings = JSON.parse(resolved);
