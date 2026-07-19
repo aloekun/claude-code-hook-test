@@ -103,6 +103,21 @@
 - `pnpm build:all` → 新セッション起動 → **UI に systemMessage の 1 行が表示されることを目視確認** (削除条件 2)。
   表示されない場合は ADR-059 の前提が崩れるため、実装を revert せず表示経路を再調査してから判断する。
 
+### 作業記録 (2026-07-19 実装完了)
+
+- **実装済み**。ADR 番号は起案時点の最新が ADR-058 だったため **ADR-059** で確定。
+- コミット粒度 (レビューしやすさ優先で 4 分割):
+  1. `docs(adr)`: ADR-059 起案 + CLAUDE.md リンク追記
+  2. `refactor(session-start)`: JSON 組み立てを `build_session_start_json(context, system_message)` に切り出し + builder テスト (この時点では `None` 呼び出しで挙動不変)
+  3. `feat(session-start)`: `system_message_enabled` 追加 + `compute_weekly_review_reminder_nudge` を `WeeklyReviewNudge { additional_context, system_message }` に struct 化 + systemMessage 生成 + additionalContext に「ユーザーに一言伝えよ」明示指示 + main.rs 配線 + テスト
+  4. `chore(config)`: `.claude/hooks-config.toml` に `system_message_enabled = true` 追記
+- 検証結果:
+  - `cargo test -p hooks-session-start`: **92 passed** (config parse / systemMessage 生成の Missing・ElapsedDays・failed marker・有効/無効各分岐 / builder 形状 / 明示指示)。
+  - `cargo clippy -p hooks-session-start --all-targets -- -D warnings`: クリーン。
+  - `pnpm build:all`: 成功 (更新 exe を `.claude/` に配布)。
+  - **デプロイ済み exe を実際に駆動して end-to-end 確認済み**: main workspace は last-run 未実行 (Missing) のため、`systemMessage = "週次レビュー: 実行記録なし (threshold 7 日)。/weekly-review の実行を検討してください"` と additionalContext 末尾の defense-in-depth 明示指示の両方が出力されることを確認。
+- **残タスク (削除条件 2)**: land 後に **新セッションを起動して UI 上に systemMessage の 1 行が実表示されるか目視確認**。表示スタイル (警告色か等) はドキュメント未明記のため dogfood で確認する。判定期限 2026-08-16 (ADR-059 bounded lifetime)。
+
 ---
 
 ## PR-N2: last-run 状態のメイン workspace canonical 化
