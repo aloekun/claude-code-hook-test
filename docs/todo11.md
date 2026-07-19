@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo9.md がファイルサイズ 75KB 超 (890 行) に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して、PR-specific follow-up entries (PR #174 以降の post-merge-feedback 採用 entry) を本ファイルに分離 (2026-06-06)。todo9.md には「既存ルール仕組み化バンドル + 週次レビュー拡張」themed entries が残る。todo.md / todo2.md 〜 todo10.md の既存エントリは引き続き有効、相互に独立。新セッションでは十五つすべてを確認すること (todo.md / todo2-14.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo9.md がファイルサイズ 75KB 超 (890 行) に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して、PR-specific follow-up entries (PR #174 以降の post-merge-feedback 採用 entry) を本ファイルに分離 (2026-06-06)。todo9.md には「既存ルール仕組み化バンドル + 週次レビュー拡張」themed entries が残る。todo.md / todo2.md 〜 todo10.md の既存エントリは引き続き有効、相互に独立。新セッションでは二十つすべてを確認すること (todo.md / todo2-19.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
