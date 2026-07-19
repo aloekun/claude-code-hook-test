@@ -45,6 +45,12 @@ stale_check_enabled = true
 enabled = true
 reminder_threshold_days = 7        # ADR-031 § トリガー方式: 「前回実行から 7 日経過で promote」と整合
 failed_marker_check_enabled = true # 前回失敗 marker 検出 → resume promote。false で staleness のみに限定可
+# ADR-059 (試験運用、判定期限 2026-08-16): reminder 発火時に systemMessage (ユーザー可視 1 行) を
+# additionalContext と併せて出し、「発火しているのにユーザーに見えない」silent 化を解消する。
+# source default OFF (派生 repo deploy 時は本行を置かない = additionalContext のみの従来挙動)。
+# 本リポジトリは dogfood のため true。systemMessage のみ止めたい場合は false
+# (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
+system_message_enabled = true
 
 # ─── PreToolUse: コマンド検証 ───
 
