@@ -30,3 +30,47 @@
 #### 完了基準
 
 - VSCode 拡張 (と CLI) で hook `systemMessage` が描画されるかが切り分けられ、ADR-059 削除条件 2 の判定 (計画書 `docs/weekly-review-notification-plan.md` の削除可否) が下せること。
+
+---
+
+### docs/todo*.md 本文の順位番号表記を検出する custom lint rule (ADR-033 使用禁止の仕組み化)
+
+> **動機**: [ADR-033](adr/adr-033-todo-numbering-simplification.md) (2026-04-29 試験運用) が「絶対番号は table のみに保持し、本文中の順位番号表記は使用禁止」と規定し、「将来の展望」節で pre-push hook の custom_lint_rule 追加を検討済みと明記したが、未実装のまま約 3 ヶ月経過。#303 の CodeRabbit 対応でも本文参照の drift が問題化した文脈。#303 post-merge feedback で採用。
+>
+> **対処案**: `.claude/custom-lint-rules.toml` に regex rule を追加し、`docs/todo*.md` の本文 (table 行を除く) に残る順位番号の literal 表記を検出する。ADR-033 の検証用 grep が既に動作実証済みのため rule 化の Effort は S。既存の literal-ban 系 custom rule (rule⑥/⑪) と同型。
+>
+> **参照**: `.claude/feedback-reports/303.md` Tier1 #2、[ADR-033](adr/adr-033-todo-numbering-simplification.md) (§ 将来の展望)、`.claude/custom-lint-rules.toml`。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (ADR-033 で既に禁止規定 + 検証 grep 実証済み)。
+
+#### 作業計画
+
+- [ ] `.claude/custom-lint-rules.toml` に `docs/todo*.md` 本文の順位番号表記を検出する regex rule を追加 (table 行を除外)
+- [ ] 既存本文の違反を洗い出し修正 (ADR-033 の grep を流用)
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- `docs/todo*.md` 本文に順位番号表記が混入した場合、pre-push / PostToolUse で決定論的に検出されること (ADR-033 の規定が仕組みで強制される)。
+
+---
+
+### post-merge-feedback の transcript 分析を cli-merge-pipeline 生成の summary index に置換
+
+> **動機**: post-merge-feedback の session-analysis facet が、大きな transcript (#303 マージ時は約 1.5MB / 427 行) で 25K token limit に衝突し、Grep + 手動パースの避難措置を要した (aggregate 工程の自己観測)。cli-merge-pipeline は既に transcript filter を実施済みのため、index 出力の追加は自然な拡張。#303 post-merge feedback で採用。
+>
+> **対処案**: cli-merge-pipeline の Phase 0 (transcript filter) で summary index (timestamp / message_type / tool_name / outcome) を事前生成し、session-analysis facet の入力を raw transcript からこの index に置換する。token limit 衝突を構造的に回避。
+>
+> **参照**: `.claude/feedback-reports/303.md` Tier2 #1、`src/cli-merge-pipeline` (Phase 0 transcript filter 出力)、`.takt/facets/instructions/analyze-session.md` (消費側 facet)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency High (毎回のマージ feedback で発生し得る) / Effort M / Adoption Risk None (既存 filter の自然な拡張)。
+
+#### 作業計画
+
+- [ ] cli-merge-pipeline の Phase 0 で transcript summary index を生成 (timestamp / message_type / tool_name / outcome)
+- [ ] session-analysis facet の入力を index に切替 + token 消費が threshold 内に収まることを確認
+- [ ] 本エントリ削除 + todo-summary.md 行削除
+
+#### 完了基準
+
+- 大きな transcript の PR でも session-analysis facet が token limit に衝突せず、Grep 避難措置なしで分析が完了すること。
