@@ -2,10 +2,10 @@
 
 > **本ファイルの位置付け**: `docs/todo.md` から「推奨実行順序サマリー」section を切り出した index 専用ファイル。各タスクの詳細は「ファイル」列に示された `docs/todoN.md` を参照する。`docs/todo.md` のサイズが 50KB を超え Claude Code 読み取り安定性に影響したため分離 (2026-05-09)。
 >
-> **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo13.md`、2026-06-29 PR #224 セッションで新設。従来の追加先 `docs/todo10.md` が約 95KB = 50KB 安定読み取り閾値の約 2 倍に達したため移行、todo10.md は以降 既存エントリの編集・完了削除専用) に記録する。なお `docs/todo11.md` は 2026-06-06 todo9.md 分割で新設された専用ファイル (順位 157, 160-173 を収容)、`docs/todo12.md` は 2026-06-12 PR #204 で todo10.md 分割により新設された専用ファイル (順位 176/178/179/180/181/182/193/194 = PR #185 〜 PR #196 era を収容) で、いずれも新規追加先ではない。
+> **更新方針**: table への新規行追加・既存行の削除・順位の再採番はすべて本ファイルで実施する。詳細エントリは現行の追加先ファイル (= `docs/todo14.md`、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で新設。従来の追加先 `docs/todo13.md` が約 171KB = 50KB 安定読み取り閾値の約 3.4 倍に達したため移行、todo13.md は以降 既存エントリの編集・完了削除専用) に記録する。なお `docs/todo10.md` は 2026-06-29 PR #224 セッションで todo13.md へ追加先が移行するまでの旧追加先 (以降 既存エントリの編集・完了削除専用)、`docs/todo11.md` は 2026-06-06 todo9.md 分割で新設された専用ファイル (順位 157, 160-173 を収容)、`docs/todo12.md` は 2026-06-12 PR #204 で todo10.md 分割により新設された専用ファイル (順位 176/178/179/180/181/182/193/194 = PR #185 〜 PR #196 era を収容) で、いずれも新規追加先ではない。
 
 <a id="recommended-order-summary"></a>
-## 推奨実行順序サマリー (2026-07-19 更新、順位 326-328 追加。323-324 は 07-18 追加、325 = push per-run メトリクス JSONL 永続化は R3 (#294) で実装完了し削除)
+## 推奨実行順序サマリー (2026-07-19 更新、順位 329-333 追加 (329-332 は PR-N1〜N3 (#299-#301) post-merge feedback 採用登録 #302、333 は週次レビュー WR-2026-07-19 findings 採用)。326-328 も 07-19 追加、323-324 は 07-18 追加、325 = push per-run メトリクス JSONL 永続化は R3 (#294) で実装完了し削除)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
@@ -176,6 +176,7 @@
 | 330 | 💎 Tier 3 | **「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)** | todo13.md | XS | なし (ADR-059 の 2 チャネルパターンと `WeeklyReviewNudge` struct 化。第2弾展開 3件で再利用見込み。dev-conventions 1節追記) |
 | 331 | 🔧 Tier 2 | **hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テスト追加 (#299 post-merge feedback 採用)** | todo13.md | S | なし (現状 pure function レベルのみ、実 config パース込み exe 駆動の検証なし。ADR-049 exe-spawn E2E 先例流用。UI 実描画確認は別途 dogfood) |
 | 332 | 🔧 Tier 2 | **`pnpm build:all` 前に git usr/bin (cp.exe) PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)** | todo13.md | S | なし (Windows で pnpm が cmd.exe 経由実行のため `cp` 解決失敗。memory 既記録だが再発2回目。Windows 限定 additive 分岐、他OS非影響) |
+| 333 | 🔧 Tier 2 | **VSCode 拡張が hook `systemMessage` を UI 描画するかの調査 (ADR-059 dogfood / 削除条件 2、2026-07-19 週次レビュー観測)** | todo14.md | S | なし (2026-07-19 dogfood で VSCode UI での systemMessage 独立描画が未確認 = additionalContext 経由のみ観測。ターミナル CLI との挙動差を切り分け。ADR-059 bounded-lifetime 判定 期限 2026-08-16 の blocker。描画なしでも defense-in-depth backstop あり revert 不要) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

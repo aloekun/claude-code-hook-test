@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo6.md がファイルサイズ 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #143 T3-#1 採用時 = 2026-05-11 から新規エントリは本ファイルに記録していた。**本ファイルも 60KB に到達したため、PR #172 仕組み化方針切替セッション = 2026-05-25 以降の新規エントリは [docs/todo9.md](todo9.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md / todo7.md / todo9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十四つすべてを確認すること (todo.md / todo2-13.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo6.md がファイルサイズ 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #143 T3-#1 採用時 = 2026-05-11 から新規エントリは本ファイルに記録していた。**本ファイルも 60KB に到達したため、PR #172 仕組み化方針切替セッション = 2026-05-25 以降の新規エントリは [docs/todo9.md](todo9.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2.md / todo3.md / todo4.md / todo5.md / todo6.md / todo7.md / todo9.md の既存エントリは引き続き有効、相互に独立。新セッションでは十五つすべてを確認すること (todo.md / todo2-14.md / todo-summary.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 

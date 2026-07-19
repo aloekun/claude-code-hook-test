@@ -2,17 +2,24 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo2.md](todo2.md) + [docs/todo3.md](todo3.md) + [docs/todo4.md](todo4.md) + [docs/todo5.md](todo5.md) + [docs/todo6.md](todo6.md) + [docs/todo7.md](todo7.md) + [docs/todo-summary.md](todo-summary.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加):
+> **本ファイル + [docs/todo2.md](todo2.md) 〜 [docs/todo14.md](todo14.md) + [docs/todo-summary.md](todo-summary.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加):
 > - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)。table の新規行追加・既存行編集・順位再採番はここで行う。
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
 > - **docs/todo4.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #101 セッション以降の新規エントリは todo5.md へ)
 > - **docs/todo5.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (2026-05-09 に古い半分を todo7.md へ分割。PR #115 以降のエントリのみ残存。新規エントリは todo6.md へ)
-> - **docs/todo6.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加
+> - **docs/todo6.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #143 = 2026-05-11 以降の新規エントリは todo8.md へ)
 > - **docs/todo7.md**: 既存タスクの編集・完了削除専用 (旧 todo5.md の PR #101〜#109 エントリを 2026-05-09 に分割移動)。**新規タスクは追加しない**
-> - 例外: 既存 todo.md / todo2.md 〜 todo7.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは八つすべてを確認すること** (todo.md / todo2-7.md / todo-summary.md)
+> - **docs/todo8.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (60KB に到達したため、PR #172 仕組み化方針切替 = 2026-05-25 以降の新規エントリは todo9.md へ)
+> - **docs/todo9.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB 超 1100+ 行に到達したため、PR #185 land 後 2026-05-29 以降の新規エントリは todo10.md へ。2026-06-06 に PR-specific follow-up entries を todo11.md へ分離)
+> - **docs/todo10.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約95KB に到達したため、PR #224 セッション = 2026-06-29 以降の新規エントリは todo13.md へ。2026-06-12 PR #204 で PR #185〜#196 era のエントリを todo12.md へ分離)
+> - **docs/todo11.md**: 既存タスクの編集・完了削除専用 (2026-06-06 todo9.md 分割で新設、PR-specific follow-up entries 収容)。**新規タスクは追加しない**
+> - **docs/todo12.md**: 既存タスクの編集・完了削除専用 (2026-06-12 PR #204 で todo10.md 分割により新設、PR #185〜#196 era のエントリ収容)。**新規タスクは追加しない**
+> - **docs/todo13.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約171KB に到達したため、週次レビュー WR-2026-07-19-T02 採用 = 2026-07-19 以降の新規エントリは todo14.md へ)
+> - **docs/todo14.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加 (2026-07-19 週次レビュー WR-2026-07-19-T02 採用で新設)
+> - 例外: 既存 todo.md / todo2.md 〜 todo14.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは十五つすべてを確認すること** (todo.md / todo2-14.md / todo-summary.md)
 
 ---
 
@@ -21,6 +28,48 @@
 ---
 
 ## 現在進行中
+
+### 週次レビュー採用 (2026-07-19)
+
+> **注 (2026-07-19)**: 本セッションの週次レビューで採用した T01 (docs/todo.md preamble drift) と T02 (todo13.md 50KB 超過 → todo14.md 新設) は、PR #303 の CodeRabbit 対応 (fix commit) で master preamble を 15 ファイルへ全面更新 + todo14.md 新設 + routing 更新まで完了したため、完了タスクとして削除した (`docs/todo.md` preamble / `docs/todo14.md` / `docs/todo-summary.md` に成果が残る)。J01 / J02 はコード修正が未着手のため下記に継続。
+
+#### fetch_head_is_recent() の mtime 依存を埋め込み timestamp に置換 (週次レビュー WR-2026-07-19-J01 採用)
+
+> **動機**: `fetch_head_is_recent()` が `.git/FETCH_HEAD` の mtime のみで fetch 鮮度を判定している。jj workspace 操作 (working copy materialization) で mtime がリセットされると false positive となり、実際は stale でも staleness nudge が発火しない可能性がある。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-19-J01 で採用 (severity=high, facet=jj-robustness, category=jj-mtime-staleness)
+>
+> **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-J01、`src/hooks-session-start/src/jj_helpers.rs:12-25`、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (jj-robustness facet の bounded lifetime dogfood 文脈)
+
+##### 背景: 本 bug class (jj 操作による mtime リセット) は 2026-07 セッションで実観測済みで、新設 jj-robustness facet (ADR-039 bounded lifetime dogfood) が再検出した good signal。ただし jj new / workspace 操作が実際に `.git/FETCH_HEAD` の mtime を書き換える具体的機序は本レビューで再現検証しておらず、実装前に経験的確認を推奨する。
+
+##### 設計決定: mtime 依存を廃し、jj git fetch 成功後に `.claude/fetch-last-run.json` 等へ埋め込みタイムスタンプを書き込み、そこから鮮度判定する方式に置換する (weekly-review last-run / telemetry と同じ「内容 timestamp は checkout 不変」方式、CR #233 の mtime リセット教訓と整合)。
+
+- [ ] jj 操作が FETCH_HEAD mtime を書き換える機序を経験的に確認 (前提検証)
+- [ ] 埋め込み timestamp 方式へ置換 + mtime リセットを模擬する回帰テスト
+- [ ] 本エントリ削除
+
+##### 完了基準: jj workspace 操作後も fetch 鮮度が正しく判定されること (mtime リセット模擬の回帰テストで seal)。
+
+#### gh 呼び出しに --repo を付与 — 非 colocated jj workspace の PR 検出 silent 失敗 (週次レビュー WR-2026-07-19-J02 採用)
+
+> **動機**: `detect_owner_repo()` (cli-merge-pipeline/src/github.rs:92-99) および `get_pr_info()` / `find_pr_via_jj_bookmarks()` (cli-pr-monitor/src/util.rs:31-68) が `--repo` 無しで `gh repo view` / `gh pr list` を呼び出しており、非 colocated jj workspace (`.git` 無し) で gh の自動検出が失敗し merge/monitor パイプラインが silent に PR 検出不能となる。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-07-19-J02 で採用 (severity=high, facet=jj-robustness, category=jj-gh-no-repo)
+>
+> **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-J02、`src/cli-merge-pipeline/src/github.rs:92-99`、`src/cli-pr-monitor/src/util.rs:31-68`、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)、PR #238 (実インシデント)
+
+##### 背景: 既に実インシデント化しており、`.claude/hooks-config.toml` の gh-repo-env-guard preset コメントが PR #238 / ADR-045 を明記している。既存 guard は誤った回避策 (`GH_REPO=` の場当たり利用) をブロックするのみで、根本原因 (呼び出し箇所の `--repo` 欠落) は未修正。J01 と同じ ADR-039 dogfood 文脈。
+
+##### 設計決定: `GH_REPO` 環境変数 or jj remote 由来で owner/repo を明示的に解決し、全 gh 呼び出しに `--repo` を付与する。
+
+- [ ] github.rs / util.rs の gh 呼び出しに owner/repo 解決 + `--repo` 付与
+- [ ] 非 colocated workspace を模擬した PR 検出の回帰テスト
+- [ ] 本エントリ削除
+
+##### 完了基準: 非 colocated jj workspace でも merge/monitor パイプラインが PR を正しく検出できること (回帰テストで seal)。
+
+---
 
 ### 週次レビュー採用 (2026-07-01)
 
