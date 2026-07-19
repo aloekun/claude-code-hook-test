@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-06-29) / 改訂 (2026-06-30: 初 PR 運用ケースで判明した secondary workspace の `.git` 不在 → gh ベースコマンドの `GIT_DIR` 必須、および merge-pipeline の bookmark 誤検出を「§ PR 運用時の追加設定」として追記) / 改訂 (2026-07-03: 恒久対策候補 1 = `GIT_DIR` 自動注入を実装。cli-* exe は手動 `GIT_DIR` 前置なしで動作するようになり、手動前置は直接 gh 呼び出し時の fallback に格下げ。PR #238 で `GH_REPO` による場当たり対処が部分故障を招いた実観測を受け `gh-repo-env-guard` preset も追加) / 改訂 (2026-07-13: **再評価 trigger #3 が発火** — 並列セッションの concurrent 操作と重なる時間帯に 2 コミット分の作業が消失する incident が発生 (PR #265 セッション、手動再構築で復旧)。「並行操作は jj が安全にマージする」という調整ポイント 4 の記述を jj 公式の並行モデルに即して是正し、「§ Known operational risks」「§ 並列運用の運用ルール」「§ Operation Verification Checklist」を新設)
+試験運用 (2026-06-29) / 改訂 (2026-06-30: 初 PR 運用ケースで判明した secondary workspace の `.git` 不在 → gh ベースコマンドの `GIT_DIR` 必須、および merge-pipeline の bookmark 誤検出を「§ PR 運用時の追加設定」として追記) / 改訂 (2026-07-03: 恒久対策候補 1 = `GIT_DIR` 自動注入を実装。cli-* exe は手動 `GIT_DIR` 前置なしで動作するようになり、手動前置は直接 gh 呼び出し時の fallback に格下げ。PR #238 で `GH_REPO` による場当たり対処が部分故障を招いた実観測を受け `gh-repo-env-guard` preset も追加) / 改訂 (2026-07-13: **再評価 trigger #3 が発火** — 並列セッションの concurrent 操作と重なる時間帯に 2 コミット分の作業が消失する incident が発生 (PR #265 セッション、手動再構築で復旧)。「並行操作は jj が安全にマージする」という調整ポイント 4 の記述を jj 公式の並行モデルに即して是正し、「§ Known operational risks」「§ 並列運用の運用ルール」「§ Operation Verification Checklist」を新設) / 改訂 (2026-07-19: **gitignore 済み untracked 状態ファイルの workspace 分裂** を silent bug class として追記。weekly-review last-run ([ADR-031](adr-031-weekly-review-pipeline.md)) が secondary workspace 側にのみ存在しメイン側で永久「未実行」発火した実例で、mtime リセット (CR #233) と対になる。「§ gitignore 済み untracked 状態ファイルの workspace 分裂」を新設、PR-N2)
 
 > ADR-039 (Experimental feature 標準パターン) に準拠: config opt-in なし (本 ADR は workflow 運用ポリシーであり実装機構ではないため該当しない) / kill-switch = 本 ADR を supersede する後続 ADR で停止可能、運用上は単一 workspace へ戻すだけで無効化 / bounded lifetime = 採用判定 3 ヶ月 (2026-09-29) を目安に dogfood 結果から本採用 / 修正 / 却下を判定。
 
@@ -38,6 +38,26 @@ git には worktree (同一リポジトリを汚染せず複数 working tree で
 | `.claude/pr-monitor-state.json` / lock / `.session-id` / `feedback-reports/` | gitignore + per-checkout | **workspace ごとに独立 → 並列 monitor が state を衝突させない** |
 | `/target/` (Cargo workspace) | gitignore | workspace ごとに独立ビルド (disk コストのみ) |
 | `.git` (colocated git ref) | **secondary workspace には存在しない** (`jj workspace add` は colocated 化しない、`.jj` のみ) | **gh ベースの `pnpm create-pr` / `pnpm merge-pr` / `cli-pr-monitor --monitor-only` は `GIT_DIR` 必須** (後述「§ PR 運用時の追加設定」)。`pnpm push` は `jj git push` backend のため不要 — この非対称が初回検証で見落とされた |
+
+### gitignore 済み untracked 状態ファイルの workspace 分裂 (2026-07-19 追記、PR-N2)
+
+上表の「state / lock / monitor は workspace ごとに独立」は、**ephemeral な per-session 状態** (`pr-monitor-state.json` / lock / `.session-id` / `feedback-reports/`) にとっては衝突回避の **利点**である。しかし **論理的にグローバルであるべき状態** を gitignore 済み untracked ファイルで持つと、同じ per-workspace 分離が **silent bug** に反転する。
+
+**実観測 (2026-07-19)**: weekly-review の last-run timestamp (`.claude/weekly-review-last-run.json`、[ADR-031](adr-031-weekly-review-pipeline.md)) は前回実行 (2026-07-01) が secondary workspace (`claude-code-hook-test-improve`) 側で書かれ、メイン workspace には存在しなかった。SessionStart hook はメイン側で常に「未実行」判定となり、reminder が約 4 週間発火し続けた (ユーザーが気付かず、これが nudge 可視化改善 = PR-N1〜N3 の発端)。
+
+これは [ADR-031](adr-031-weekly-review-pipeline.md) が対処した **mtime リセット** ([CR #233](https://github.com/aloekun/claude-code-hook-test/pull/233)) と **対になる silent bug class** である。両者とも「状態が fresh に見えて発火しない」形で表面化するが、原因が異なる:
+
+| silent bug class | 原因 | 表面化 | 対処 |
+|---|---|---|---|
+| mtime リセット (CR #233) | 同一ファイルの mtime が checkout で変わる | 実際は数週間前でも fresh に見える | 内容 timestamp (`last_run_at`) のみを情報源にする |
+| **workspace 分裂 (本追記)** | ファイル自体が workspace ごとに別物 (secondary に不在) | メイン側で永久「未実行」 | メイン workspace root に canonical 化 |
+
+**判定基準**: gitignore 済み untracked 状態ファイルを追加するときは、その状態が **per-workspace であるべきか global であるべきか** を必ず区別する。
+
+- **global** であるべき状態 → `lib_jj_helpers::resolve_main_workspace_root(cwd).unwrap_or(cwd)` でメイン workspace root に canonical 化して読み書きする (導出不能は現 root に fail-open)。PR-N2 で weekly-review last-run に適用。
+- **per-workspace** であるべき状態 (レビュー成果物 = weekly-review report / `.failed` marker / pending JSON、monitor state、lock、session-id) → 「実行した workspace に属する」ため per-workspace のままが正しい。
+
+`resolve_main_workspace_root` は `.jj/repo` の on-disk layout (secondary はメイン store への相対パスを格納したファイル、colocated main はディレクトリ) を辿ってメイン root を導出する。これは後述「§ PR 運用時の追加設定」で `GIT_DIR` を導出する `resolve_git_dir` と同じ layout 解釈を共有する姉妹関数 (最終 store ではなく workspace root を返す点が異なる)。
 
 ## 検討した選択肢
 

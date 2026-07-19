@@ -170,6 +170,24 @@
 - deploy 後、**ccht-improve workspace からセッション起動** → メイン側 last-run が読まれ、
   systemMessage / additionalContext の経過日数が実日数になることを確認 (削除条件 3)。
 
+### 作業記録 (2026-07-19 実装完了)
+
+- **実装済み (main リポジトリ側)**。コミット粒度 (レビューしやすさ優先で 4 分割):
+  1. `feat(lib-jj-helpers)`: `resolve_main_workspace_root` 追加 (fixture + 実 jj E2E テストを `resolve_git_dir` パターンで流用)。この時点では caller なしで挙動不変。
+  2. `feat(session-start)`: hooks-session-start に lib-jj-helpers 依存追加 + `compute_weekly_review_reminder_nudge` の last-run 読込を `resolve_main_workspace_root(cwd).unwrap_or(cwd)` 基準に変更 (failed marker / pending JSON は workspace ローカル維持) + `weekly_review.rs` の「`last_run_at` は workspace 不変」誤記訂正 (値は checkout 不変だがファイル所在は workspace 依存) + `hooks_config.rs` の残存「mtime」記述訂正 (CR #233 drift) + secondary→main 読込の分割挙動テスト追加。
+  3. `docs(adr)`: ADR-031 § トリガー方式と reminder にメイン workspace canonical 化の決定を追記 + ADR-045 に「gitignore 済み untracked 状態ファイルの workspace 分裂」を silent bug class として新設 (mtime リセット CR #233 との対比表)。
+  4. `docs`: 本計画書に PR-N2 作業記録を反映 (本コミット)。
+- **claude-code-skills リポジトリ (別 git repo)**: `weekly-review/SKILL.md` Step 5.3 を **メイン root 解決付き**に変更 (bash snippet で `.jj/repo` を辿って `$MAIN_ROOT` を導出、書込先を `$MAIN_ROOT/.claude/weekly-review-last-run.json` に) + frontmatter の SessionStart hook 経路説明を更新。**内容編集のみ実施し、git commit / `~/.claude/skills` への deploy は skills repo 側の PR/deploy ライフサイクルに委ねる** (本環境は git コマンドが hook で一律 block されるため、ユーザー確認済)。
+- 検証結果:
+  - `cargo test --workspace`: 全 crate green (hooks-session-start **93 passed** = PR-N1 の 92 + 新規 secondary→main 分割テスト 1、lib-jj-helpers **37 passed + 実 jj E2E 2 passed**)。
+  - `cargo clippy --workspace --all-targets -- -D warnings`: クリーン。
+  - `pnpm build:all`: 成功 (更新 exe を `.claude/` に配布)。
+  - **デプロイ済み exe を secondary workspace レイアウトで駆動して end-to-end 確認済み**: `.jj/repo` がメイン store を指す fixture から exe を起動すると、メイン root の last-run (`2026-07-01`) を読んで additionalContext・systemMessage の経過日数が **「18 日経過」** になることを確認 (fix 前は secondary 自身の不在 last-run を見て「未実行」判定になっていた)。対照として `.jj/repo` 無し + last-run 不在のディレクトリからは現 root に fail-open して「未実行」/「実行記録なし」となり、導出不能時の安全動作も確認。
+- **残タスク**:
+  - **運用ステップ (land 時に 1 回)**: `claude-code-hook-test-improve/.claude/weekly-review-last-run.json` (2026-07-01 実行記録) をメイン workspace の `.claude/` にコピーして実行履歴を救済する (未実施。land 前にメイン workspace で行うと reminder 表示が変わるため land 時に実施)。
+  - **削除条件 3**: land + deploy 後に **ccht-improve workspace から新セッションを起動**し、メイン側 last-run が読まれて経過日数が「未実行」ではなく実日数で表示されることを目視確認。
+  - claude-code-skills 側の SKILL.md 変更を skills repo で commit + `~/.claude/skills` へ deploy (skills repo ライフサイクル)。
+
 ---
 
 ## PR-N3: session-start nudge の telemetry 統合

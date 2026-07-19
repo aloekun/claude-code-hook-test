@@ -30,7 +30,8 @@ pub(crate) struct StalenessConfig {
 /// `enabled = false` では完全 skip (default-OFF in source、repo config で明示 enable する)。
 ///
 /// 2 種類の reminder を発火:
-///   - last-run staleness: `.claude/weekly-review-last-run.json` の mtime が
+///   - last-run staleness: メイン workspace の `.claude/weekly-review-last-run.json` の
+///     `last_run_at` (内容 timestamp。mtime ではない — CR #233 / ADR-045 PR-N2 で canonical 化) が
 ///     `reminder_threshold_days` を超えていれば「`/weekly-review` の実行を検討」を nudge
 ///   - failed marker: `.claude/weekly-reviews/*.md.failed` が 1 件以上存在すれば
 ///     「前回 weekly-review が失敗、`/weekly-review` で resume」を nudge
