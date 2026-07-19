@@ -156,7 +156,7 @@ fn collect_posted_retrigger_park_fields(
     let wait_secs = (wakeup_unix - now_unix).max(0);
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
+        .unwrap_or_else(|_| format!("cli-pr-monitor{}", std::env::consts::EXE_SUFFIX));
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".into());
@@ -250,7 +250,7 @@ pub(crate) fn format_park_signal(
     let wait_total_secs = rl.wait_minutes * 60 + rl.wait_seconds;
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "cli-pr-monitor.exe".into());
+        .unwrap_or_else(|_| format!("cli-pr-monitor{}", std::env::consts::EXE_SUFFIX));
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".into());

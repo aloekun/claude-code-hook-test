@@ -6,7 +6,10 @@ pub(crate) const DEFAULT_LINT_SCREEN_TIMEOUT_SECS: u64 = 60;
 pub(crate) const DEFAULT_LINT_SCREEN_MAX_DIFF_LINES: usize = 5000;
 pub(crate) const DEFAULT_LINT_SCREEN_MODEL: &str = "mistral:7b";
 pub(crate) const DEFAULT_LINT_SCREEN_ENDPOINT: &str = "http://localhost:11434";
+#[cfg(windows)]
 pub(crate) const DEFAULT_LINT_SCREEN_EXE_PATH: &str = ".claude/cli-finding-classifier.exe";
+#[cfg(not(windows))]
+pub(crate) const DEFAULT_LINT_SCREEN_EXE_PATH: &str = ".claude/cli-finding-classifier";
 pub(crate) const DEFAULT_LINT_SCREEN_OUTPUT_PATH: &str = ".takt/lint-screen-report.md";
 
 /// `LINT_SCREEN_ENABLED` env var の名前 (順位 115、Phase D D-1 workflow gap 解消)。

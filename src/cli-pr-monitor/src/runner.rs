@@ -258,12 +258,16 @@ pub(crate) fn run_cmd_inherit(label: &str, program: &str, args: &[&str]) -> bool
     }
 }
 
+/// check-ci-coderabbit 実行ファイルのパスを解決する (cli-pr-monitor と同 dir 前提)。
+///
+/// 実行ファイル拡張子は OS 依存 (Windows: `.exe` / それ以外: なし) のため
+/// `std::env::consts::EXE_SUFFIX` で解決する (WP-13: EXE_SUFFIX 抽象化)。
 pub(crate) fn checker_exe_path() -> PathBuf {
     std::env::current_exe()
         .unwrap_or_default()
         .parent()
         .unwrap_or(Path::new("."))
-        .join("check-ci-coderabbit.exe")
+        .join(format!("check-ci-coderabbit{}", std::env::consts::EXE_SUFFIX))
 }
 
 #[cfg(test)]

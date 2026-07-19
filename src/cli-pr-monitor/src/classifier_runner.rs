@@ -35,15 +35,20 @@ pub(crate) struct ClassifiedFinding {
     pub(crate) fallback_reason: Option<String>,
 }
 
-/// cli-finding-classifier.exe のパスを解決する。
+/// cli-finding-classifier 実行ファイルのパスを解決する。
 ///
-/// 通常は cli-pr-monitor.exe と同 dir に置かれる (.claude/ 配下デプロイ前提)。
+/// 通常は cli-pr-monitor と同 dir に置かれる (.claude/ 配下デプロイ前提)。
+/// 実行ファイル拡張子は OS 依存 (Windows: `.exe` / それ以外: なし) のため
+/// `std::env::consts::EXE_SUFFIX` で解決する (WP-13: EXE_SUFFIX 抽象化)。
 pub(crate) fn classifier_exe_path() -> PathBuf {
     std::env::current_exe()
         .unwrap_or_default()
         .parent()
         .unwrap_or(Path::new("."))
-        .join("cli-finding-classifier.exe")
+        .join(format!(
+            "cli-finding-classifier{}",
+            std::env::consts::EXE_SUFFIX
+        ))
 }
 
 /// findings を classifier に流して enrich する。
@@ -223,7 +228,8 @@ mod tests {
     #[test]
     fn classifier_exe_path_resolves_to_sibling_of_current_exe() {
         let p = classifier_exe_path();
-        assert!(p.to_string_lossy().ends_with("cli-finding-classifier.exe"));
+        let expected = format!("cli-finding-classifier{}", std::env::consts::EXE_SUFFIX);
+        assert!(p.to_string_lossy().ends_with(&expected));
     }
 
     #[test]

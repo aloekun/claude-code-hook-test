@@ -74,13 +74,15 @@ pub(crate) fn preset_polling_anti_pattern() -> Vec<BlockedPattern> {
 /// `.failed` marker 未生成 → ADR-030 仕様違反、という連鎖の起点。
 ///
 /// 設計:
-/// - `<path-prefix>?<name>.exe` + 単独 `--help|-h|/?` (subcommand 形式 `exe foo --help` は対象外)
+/// - `<path-prefix>?<name>[.exe]` + 単独 `--help|-h|/?` (subcommand 形式 `exe foo --help` は対象外)
+/// - `.exe` 拡張子は OS 依存のため optional にする (Windows は `.exe` 付き、Linux は拡張子なしの
+///   同名バイナリを同じく block、WP-13: EXE_SUFFIX 抽象化)
 /// - 引数 `--version` 等は block 対象外 (本 preset の責務は --help 系の trigger のみ)
 /// - 順位 65 (PR #109 post-merge-feedback 採用、Bundle c)
 pub(crate) fn preset_exe_help_block() -> Vec<BlockedPattern> {
     vec![BlockedPattern {
         pattern: Regex::new(
-            r#"(?im)(^|&&|;|\|\||\||&|\n)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:\S*?[/\\])?(?:cli-[\w-]+|hooks-[\w-]+|check-ci-[\w-]+)\.exe\s+(?:--help|-h|/\?)(\s|$)"#,
+            r#"(?im)(^|&&|;|\|\||\||&|\n)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:\S*?[/\\])?(?:cli-[\w-]+|hooks-[\w-]+|check-ci-[\w-]+)(?:\.exe)?\s+(?:--help|-h|/\?)(\s|$)"#,
         )
         .unwrap(),
         exception: None,
@@ -299,6 +301,30 @@ mod tests {
     fn exe_help_block_allows_subcommand_help() {
         assert!(!is_blocked_with(
             "cli-merge-pipeline.exe foo --help",
+            &["exe-help-block"]
+        ));
+    }
+
+    #[test]
+    fn exe_help_block_blocks_linux_binary_without_exe_suffix() {
+        assert!(is_blocked_with(
+            "cli-merge-pipeline --help",
+            &["exe-help-block"]
+        ));
+    }
+
+    #[test]
+    fn exe_help_block_blocks_linux_path_prefixed_binary() {
+        assert!(is_blocked_with(
+            "./.claude/cli-merge-pipeline --help",
+            &["exe-help-block"]
+        ));
+    }
+
+    #[test]
+    fn exe_help_block_allows_linux_subcommand_help() {
+        assert!(!is_blocked_with(
+            "cli-merge-pipeline foo --help",
             &["exe-help-block"]
         ));
     }
