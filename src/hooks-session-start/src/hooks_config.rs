@@ -41,6 +41,10 @@ pub(crate) struct WeeklyReviewReminderConfig {
     pub(crate) enabled: Option<bool>,
     pub(crate) reminder_threshold_days: Option<u64>,
     pub(crate) failed_marker_check_enabled: Option<bool>,
+    /// systemMessage (ユーザー可視 1 行、ADR-059) を出すか。source default OFF
+    /// (`unwrap_or(false)`)。`false` でも additionalContext の nudge は継続する
+    /// (systemMessage のみを止める kill-switch)。`enabled = false` は nudge 自体を止める。
+    pub(crate) system_message_enabled: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -127,6 +131,7 @@ default_branch = "main"
 enabled = true
 reminder_threshold_days = 14
 failed_marker_check_enabled = false
+system_message_enabled = true
 "#;
         let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
         f.write_all(toml_str.as_bytes()).unwrap();
@@ -140,6 +145,33 @@ failed_marker_check_enabled = false
         assert_eq!(weekly.enabled, Some(true));
         assert_eq!(weekly.reminder_threshold_days, Some(14));
         assert_eq!(weekly.failed_marker_check_enabled, Some(false));
+        assert_eq!(weekly.system_message_enabled, Some(true));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn weekly_review_system_message_enabled_defaults_to_none_when_omitted() {
+        use std::io::Write;
+        let root = unique_temp_root("weekly-no-sysmsg");
+        let claude_dir = root.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let toml_str = r#"
+[session_start.weekly_review_reminder]
+enabled = true
+"#;
+        let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+        drop(f);
+        let config = read_hooks_config(&root);
+        let weekly = config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.weekly_review_reminder.as_ref())
+            .expect("weekly_review_reminder section should parse");
+        assert_eq!(
+            weekly.system_message_enabled, None,
+            "system_message_enabled 未設定は None (source default OFF、ADR-059)"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
