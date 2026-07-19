@@ -147,13 +147,26 @@ fn emit_session_start_output(session_id: &str) {
             }
         }
     }
-    let output = serde_json::json!({
+    let output = build_session_start_json(&context, None);
+    println!("{}", output);
+}
+
+/// SessionStart hook の stdout JSON を組み立てる純粋関数 (ADR-059)。
+///
+/// `context` は常に `hookSpecificOutput.additionalContext` (モデル可視) に載せる。
+/// `system_message` が `Some` のときのみトップレベル `systemMessage` (ユーザー可視) を付与し、
+/// `None` のときは従来どおり `systemMessage` を省いた JSON を返す。
+fn build_session_start_json(context: &str, system_message: Option<&str>) -> serde_json::Value {
+    let mut output = serde_json::json!({
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
             "additionalContext": context,
         }
     });
-    println!("{}", output);
+    if let Some(message) = system_message {
+        output["systemMessage"] = serde_json::Value::String(message.to_string());
+    }
+    output
 }
 
 /// シェル用シングルクォート (内部の ' を '\'' にエスケープ)
@@ -260,6 +273,31 @@ mod tests {
         let json = r#"{"hook_event_name": "SessionStart"}"#;
         let input: HookInput = serde_json::from_str(json).unwrap();
         assert!(extract_non_empty_session_id(input).is_none());
+    }
+
+    #[test]
+    fn build_session_start_json_omits_system_message_when_none() {
+        let output = build_session_start_json("ctx-only", None);
+        assert_eq!(
+            output["hookSpecificOutput"]["hookEventName"],
+            "SessionStart"
+        );
+        assert_eq!(output["hookSpecificOutput"]["additionalContext"], "ctx-only");
+        assert!(
+            output.get("systemMessage").is_none(),
+            "system_message = None のときトップレベル systemMessage は付与しない"
+        );
+    }
+
+    #[test]
+    fn build_session_start_json_includes_system_message_when_some() {
+        let output = build_session_start_json("ctx", Some("週次レビュー: 実行記録なし"));
+        assert_eq!(output["systemMessage"], "週次レビュー: 実行記録なし");
+        assert_eq!(output["hookSpecificOutput"]["additionalContext"], "ctx");
+        assert_eq!(
+            output["hookSpecificOutput"]["hookEventName"],
+            "SessionStart"
+        );
     }
 
     #[test]
