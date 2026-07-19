@@ -19,18 +19,22 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const CLAUDE_DIR = join(ROOT, ".claude");
 
-const EXE_FILES = [
-  "hooks-pre-tool-validate.exe",
-  "hooks-post-tool-linter.exe",
-  "hooks-post-tool-comment-lint-rust.exe",
-  "hooks-stop-quality.exe",
-  "hooks-stop-feedback-dispatch.exe",
-  "hooks-user-prompt-feedback-recovery.exe",
-  "cli-push-runner.exe",
-  "cli-pr-monitor.exe",
-  "cli-merge-pipeline.exe",
-  "check-ci-coderabbit.exe",
-  "cli-docs-lint.exe",
+/** OS 依存の実行ファイル拡張子 (Windows: ".exe" / それ以外: "")。WP-13: EXE_SUFFIX 抽象化。 */
+const EXE_SUFFIX = process.platform === "win32" ? ".exe" : "";
+
+// crate 名 (拡張子なし)。コピー時に EXE_SUFFIX を付与する。
+const EXE_BASENAMES = [
+  "hooks-pre-tool-validate",
+  "hooks-post-tool-linter",
+  "hooks-post-tool-comment-lint-rust",
+  "hooks-stop-quality",
+  "hooks-stop-feedback-dispatch",
+  "hooks-user-prompt-feedback-recovery",
+  "cli-push-runner",
+  "cli-pr-monitor",
+  "cli-merge-pipeline",
+  "check-ci-coderabbit",
+  "cli-docs-lint",
 ];
 
 const SETTINGS_TEMPLATE = "settings.local.json.template";
@@ -91,7 +95,8 @@ function deployTo(targetDir: string): boolean {
     mkdirSync(targetClaude, { recursive: true });
   }
 
-  for (const exe of EXE_FILES) {
+  for (const base of EXE_BASENAMES) {
+    const exe = `${base}${EXE_SUFFIX}`;
     const src = join(CLAUDE_DIR, exe);
     if (!existsSync(src)) {
       logger.warn(`  ${exe} not found (run pnpm build:all first)`);
@@ -121,10 +126,9 @@ function deployTo(targetDir: string): boolean {
   const templateSrc = join(CLAUDE_DIR, SETTINGS_TEMPLATE);
   if (existsSync(templateSrc)) {
     const template = readFileSync(templateSrc, "utf8");
-    const resolved = template.replace(
-      /\{\{PROJECT_DIR\}\}/g,
-      targetDir.replace(/\\/g, "\\\\")
-    );
+    const resolved = template
+      .replace(/\{\{PROJECT_DIR\}\}/g, targetDir.replace(/\\/g, "/"))
+      .replace(/\{\{EXE_SUFFIX\}\}/g, EXE_SUFFIX);
     let newSettings: Record<string, unknown>;
     try {
       newSettings = JSON.parse(resolved);

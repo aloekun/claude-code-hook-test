@@ -13,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-session-start.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-session-start{{EXE_SUFFIX}}\"",
             "timeout": 5
           }
         ]
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-user-prompt-feedback-recovery.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-user-prompt-feedback-recovery{{EXE_SUFFIX}}\"",
             "timeout": 5
           }
         ]
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-pre-tool-validate.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-pre-tool-validate{{EXE_SUFFIX}}\"",
             "timeout": 5
           }
         ]
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-linter.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-post-tool-linter{{EXE_SUFFIX}}\"",
             "timeout": 30
           }
         ]
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-comment-lint-rust.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-post-tool-comment-lint-rust{{EXE_SUFFIX}}\"",
             "timeout": 10
           }
         ]
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-post-tool-jj-op-verify.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-post-tool-jj-op-verify{{EXE_SUFFIX}}\"",
             "timeout": 10
           }
         ]
@@ -79,17 +79,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-tool-call-leak.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-tool-call-leak{{EXE_SUFFIX}}\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-quality.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-quality{{EXE_SUFFIX}}\"",
             "timeout": 300
           },
           {
             "type": "command",
-            "command": "\"{{PROJECT_DIR}}\\.claude\\hooks-stop-feedback-dispatch.exe\"",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-feedback-dispatch{{EXE_SUFFIX}}\"",
             "timeout": 10
           }
         ]
