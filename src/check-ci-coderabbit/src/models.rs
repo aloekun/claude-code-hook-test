@@ -32,7 +32,14 @@ pub(crate) struct RateLimitInfo {
     ///
     /// `false` = marker だけ一致した未知書式で、待機時間は既定値
     /// ([`crate::rate_limit::UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES`])。
-    /// 監視側はこれを見て「実測」と「既定値」を区別して報告する。
+    ///
+    /// **本 field は出力 JSON 上の観測用で、消費するコードは無い**。
+    /// cli-pr-monitor の `RateLimitState` は本 field を持たず (typed 化すると
+    /// 全 struct literal の更新が必要になる一方、得られるのは park summary の
+    /// 文言精度という副次的な利得のため見送った)、既定値適用を運用者に伝える
+    /// 経路は [`crate::rate_limit::parse_rate_limit`] が出す stderr 警告
+    /// (monitor がログ転送する) が担う。値自体は monitor が保持する checker の
+    /// 生 JSON (`check_output`) から参照できる。
     pub(crate) wait_time_parsed: bool,
 }
 
