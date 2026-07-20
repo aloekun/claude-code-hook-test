@@ -156,6 +156,11 @@ fn spawn_timeout_killer(
 /// gh コマンドを実行し stdout を返す。タイムアウト 30 秒。
 /// パイプのデッドロックを防ぐため、タイムアウトは別スレッドで kill し、
 /// メインスレッドは wait_with_output でパイプを安全に読み取る。
+///
+/// **`wait_with_output` の結果は一旦変数に受けてから `?` する**。エラーを直接
+/// 伝播させると `done_flag` を立てる前に関数を抜け、タイマースレッドが deadline
+/// まで生き残って PID 再利用時に無関係のプロセスを kill しうる
+/// (`spawn_timeout_killer` の doc が要求する契約。CodeRabbit PR #307 指摘)。
 fn run_gh(args: &[&str]) -> Result<String, String> {
     let child = Command::new("gh")
         .args(args)
@@ -166,11 +171,9 @@ fn run_gh(args: &[&str]) -> Result<String, String> {
 
     let (timeout_flag, done_flag) = spawn_timeout_killer(child.id());
 
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("gh 出力の取得に失敗: {}", e))?;
-
+    let wait_result = child.wait_with_output();
     done_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    let output = wait_result.map_err(|e| format!("gh 出力の取得に失敗: {}", e))?;
 
     if timeout_flag.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("gh コマンドがタイムアウトしました".to_string());

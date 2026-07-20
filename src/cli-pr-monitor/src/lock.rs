@@ -148,11 +148,26 @@ const LOCK_WRITE_WINDOW_SECS: i64 = 5;
 /// parse 不能な lock の pid は不明。表示用に「不明」を表す番兵。
 const UNKNOWN_HOLDER_PID: u32 = 0;
 
+/// 2 つの時刻から経過秒を求める。**mtime が未来なら 0 (作成直後) とみなす**。
+///
+/// `duration_since` は mtime が未来だと `Err` を返す。これを「齢が不明」として
+/// 扱うと呼び出し側が stale 判定に倒れ、`create_new` 直後の空 lock が takeover
+/// されて WP-15 で塞いだ同時取得レースがクロックスキュー経由で再発する。
+/// クラウド / コンテナでスキューは珍しくないため、未来 mtime は「たった今作られた」
+/// と解釈するのが安全側 (CodeRabbit PR #307 指摘)。
+fn age_secs_between(modified: std::time::SystemTime, now: std::time::SystemTime) -> i64 {
+    match now.duration_since(modified) {
+        Ok(elapsed) => i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX),
+        Err(_) => 0,
+    }
+}
+
 /// ファイル自身の mtime から経過秒を求める (内容が読めない lock の齢判定用)。
+///
+/// `None` は metadata / mtime の取得自体に失敗した場合のみ。
 fn file_age_secs(path: &PathBuf) -> Option<i64> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
-    let elapsed = std::time::SystemTime::now().duration_since(modified).ok()?;
-    i64::try_from(elapsed.as_secs()).ok()
+    Some(age_secs_between(modified, std::time::SystemTime::now()))
 }
 
 /// parse 不能な lock を「保持者が書き込み中」とみなせるか判定する。
@@ -484,6 +499,30 @@ mod tests {
             acquired_count, 1,
             "exactly one thread should acquire the lock under concurrency"
         );
+    }
+
+    /// クロックスキュー対策 (CodeRabbit PR #307): mtime が**未来**でも齢 0 とみなすこと。
+    ///
+    /// 旧実装は `duration_since` の `Err` を `None` に潰しており、呼び出し側が
+    /// 「齢不明 = stale」に倒れて空 lock を takeover していた。つまり WP-15 で
+    /// 塞いだ同時取得レースが、クロックスキューという別経路から再発しうる。
+    #[test]
+    fn future_mtime_is_treated_as_just_created() {
+        let now = std::time::SystemTime::now();
+        let future = now + std::time::Duration::from_secs(3600);
+        assert_eq!(
+            age_secs_between(future, now),
+            0,
+            "未来 mtime は「たった今作られた」と解釈すること (stale 誤判定を防ぐ)",
+        );
+    }
+
+    /// 通常経路 (good): 過去の mtime は経過秒をそのまま返すこと。
+    #[test]
+    fn past_mtime_yields_elapsed_seconds() {
+        let now = std::time::SystemTime::now();
+        let past = now - std::time::Duration::from_secs(42);
+        assert_eq!(age_secs_between(past, now), 42);
     }
 
     /// WP-15 incident 再現 (bad): `create_new` 直後の**空** lock を stale と誤判定
