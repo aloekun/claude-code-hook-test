@@ -313,23 +313,55 @@ fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
     }
 }
 
-fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
+/// 人間向けの判定文を組み立てる。
+///
+/// 「問題は見つかりませんでした」は **findings が空**かつ**未確定要素が残って
+/// いない**ときにだけ出す。findings が空であることは「見るべきものが無かった」
+/// の十分条件ではなく、レート制限でレビューが走っていない / 未解決スレッドが
+/// 残っている場合でも空になり得る (PR #307/#309 実観測: 「未解決スレッド2件」を
+/// 表示しながら同一レポートで「問題は見つかりませんでした」と断定していた)。
+///
+/// 判定順は「未確定 → 重大 → 未解決 → 軽微 → 問題なし」。未確定要素は findings の
+/// 有無より先に評価し、断定文へ落ちる経路を構造的に塞ぐ。
+fn compute_verdict(result: &crate::stages::poll::PollResult) -> String {
+    verdict_for_unsettled_review(result).unwrap_or_else(|| verdict_for_findings(result))
+}
+
+/// レビューがまだ確定していない場合の保留判定文を返す。確定済みなら `None`。
+///
+/// findings の中身を見る前に評価する。ここを通過して初めて
+/// [`verdict_for_findings`] の断定文 (「問題は見つかりませんでした」等) を出せる。
+fn verdict_for_unsettled_review(result: &crate::stages::poll::PollResult) -> Option<String> {
     match result.action.as_str() {
         "parked_rate_limit" => {
-            return "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)";
+            return Some(
+                "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)".to_string(),
+            );
         }
         "parked_review_recheck" => {
-            return "review 完了待ちのため wakeup を予約 (上記 PARK signal 参照)";
+            return Some(
+                "review 完了待ちのため wakeup を予約 (上記 PARK signal 参照)".to_string(),
+            );
         }
         _ => {}
     }
 
-    if let Some(cr) = &result.coderabbit {
-        if cr.review_state == "not_found" || cr.review_state == "pending" {
-            return "CodeRabbit review が未完了のため、判定を保留します";
-        }
+    if result.rate_limit.is_some() {
+        return Some(
+            "CodeRabbit がレート制限中でレビューが実施されていないため、判定を保留します"
+                .to_string(),
+        );
     }
 
+    let cr = result.coderabbit.as_ref()?;
+    if cr.review_state == "not_found" || cr.review_state == "pending" {
+        return Some("CodeRabbit review が未完了のため、判定を保留します".to_string());
+    }
+    None
+}
+
+/// レビュー確定後の判定文を findings と未解決スレッドから組み立てる。
+fn verdict_for_findings(result: &crate::stages::poll::PollResult) -> String {
     let critical_major = result
         .findings
         .iter()
@@ -340,12 +372,25 @@ fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
         .count();
 
     if critical_major > 0 {
-        "修正が必要な指摘があります"
-    } else if !result.findings.is_empty() {
-        "重大な問題は見つかりませんでした。軽微な改善提案があります"
-    } else {
-        "問題は見つかりませんでした"
+        return "修正が必要な指摘があります".to_string();
     }
+
+    let unresolved_threads = result
+        .coderabbit
+        .as_ref()
+        .and_then(|c| c.unresolved_threads)
+        .unwrap_or(0);
+    if unresolved_threads > 0 {
+        return format!(
+            "未解決スレッドが{}件残っているため、判定を保留します",
+            unresolved_threads
+        );
+    }
+
+    if !result.findings.is_empty() {
+        return "重大な問題は見つかりませんでした。軽微な改善提案があります".to_string();
+    }
+    "問題は見つかりませんでした".to_string()
 }
 
 fn print_findings_table(findings: &[lib_report_formatter::Finding]) {
@@ -590,6 +635,89 @@ mod tests {
     #[test]
     fn verdict_no_problems_when_coderabbit_state_absent() {
         let r = poll_result("stop_monitoring_success", None, vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
+    }
+
+    /// R3 用: 未解決スレッド数と rate-limit を指定できる `PollResult` を組む。
+    fn poll_result_with_unsettled(
+        unresolved_threads: Option<usize>,
+        rate_limit: Option<crate::state::RateLimitState>,
+        findings: Vec<Finding>,
+    ) -> PollResult {
+        PollResult {
+            action: "stop_monitoring_success".into(),
+            summary: "test".into(),
+            ci: None,
+            coderabbit: Some(CodeRabbitState {
+                review_state: "success".into(),
+                new_comments: 0,
+                actionable_comments: None,
+                unresolved_threads,
+            }),
+            findings,
+            check_output: None,
+            rate_limit,
+        }
+    }
+
+    /// PR #309 incident の rate-limit 情報 (第 3 世代書式、57 分待機)。
+    fn pr309_rate_limit() -> crate::state::RateLimitState {
+        crate::state::RateLimitState {
+            until_unix_secs: 1_784_556_707,
+            comment_event_time: "2026-07-20T12:10:47Z".into(),
+            wait_minutes: 57,
+            wait_seconds: 0,
+        }
+    }
+
+    /// R3 (incident 再現): rate-limit 中は findings が空でも「問題なし」と断定しない。
+    ///
+    /// findings が空なのは「レビューして何も無かった」からではなく「レビューが
+    /// 走っていない」からであり、両者を判定文で区別する必要がある。
+    #[test]
+    fn verdict_holds_when_rate_limit_present_even_with_no_findings() {
+        let r = poll_result_with_unsettled(Some(0), Some(pr309_rate_limit()), vec![]);
+        let verdict = compute_verdict(&r);
+        assert!(
+            verdict.contains("レート制限"),
+            "rate-limit 中であることを判定文に出すべき: {}",
+            verdict
+        );
+        assert_ne!(verdict, VERDICT_NO_PROBLEMS);
+    }
+
+    /// R3 (incident 再現): 「未解決スレッド2件」を表示しながら同一レポートで
+    /// 「問題は見つかりませんでした」と断定していた矛盾を塞ぐ (PR #307/#309 実観測)。
+    #[test]
+    fn verdict_holds_when_unresolved_threads_remain_with_no_findings() {
+        let r = poll_result_with_unsettled(Some(2), None, vec![]);
+        let verdict = compute_verdict(&r);
+        assert_eq!(verdict, "未解決スレッドが2件残っているため、判定を保留します");
+    }
+
+    /// findings が Minor のみでも、未解決スレッドが残っていれば
+    /// 「重大な問題は見つかりませんでした」と断定しない。
+    #[test]
+    fn verdict_holds_when_unresolved_threads_remain_with_minor_findings() {
+        let r = poll_result_with_unsettled(Some(1), None, vec![finding("minor")]);
+        let verdict = compute_verdict(&r);
+        assert_ne!(verdict, VERDICT_MINOR);
+        assert!(verdict.contains("未解決スレッドが1件"), "verdict={}", verdict);
+    }
+
+    /// 重大な指摘がある場合は、未解決スレッドより「修正が必要」を優先する
+    /// (どちらも行動を促す文言だが、より強い方を出す)。
+    #[test]
+    fn verdict_critical_takes_precedence_over_unresolved_threads() {
+        let r = poll_result_with_unsettled(Some(2), None, vec![finding("critical")]);
+        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
+    }
+
+    /// 新 guard が効きすぎないこと: 未解決スレッド 0 件・rate-limit なし・findings 空
+    /// なら従来どおり「問題は見つかりませんでした」を出す。
+    #[test]
+    fn verdict_no_problems_when_no_unsettled_signals_remain() {
+        let r = poll_result_with_unsettled(Some(0), None, vec![]);
         assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
     }
 
