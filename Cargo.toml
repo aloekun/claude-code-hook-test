@@ -25,6 +25,7 @@ members = [
     "src/cli-merge-pipeline",
     "src/cli-pr-monitor",
     "src/cli-push-runner",
+    "src/cli-takt-timings",
     "src/hooks-post-tool-comment-lint-rust",
     "src/hooks-post-tool-jj-op-verify",
     "src/hooks-post-tool-linter",

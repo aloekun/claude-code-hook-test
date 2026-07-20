@@ -178,6 +178,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-takt-timings"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "colored"
 version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
