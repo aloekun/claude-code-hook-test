@@ -103,6 +103,18 @@ pub(crate) struct RateLimitState {
     pub(crate) comment_event_time: String,
     pub(crate) wait_minutes: u64,
     pub(crate) wait_seconds: u64,
+    /// 待ち時間を CR の comment 本文から実際に読み取れたか (PR #307)。
+    ///
+    /// `false` = CR が未知の書式に変えたため既定値で代替した = **wakeup 時刻は目安**。
+    /// 旧 state ファイルにはこのキーが無いが、旧実装は待ち時間を読めたときしか
+    /// rate_limit を書き出さなかったため、既定値は `true` が事実に合う。
+    #[serde(default = "wait_time_parsed_default")]
+    pub(crate) wait_time_parsed: bool,
+}
+
+/// 旧 state ファイル (キー不在) の `wait_time_parsed` 既定値。
+fn wait_time_parsed_default() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -528,6 +540,34 @@ mod tests {
         assert_eq!(rl.until_unix_secs, 1_735_689_600);
         assert_eq!(rl.wait_minutes, 5);
         assert_eq!(rl.wait_seconds, 13);
+        assert!(
+            rl.wait_time_parsed,
+            "wait_time_parsed 不在の旧 wire format は true 扱い (旧実装は読めたときだけ書き出した)",
+        );
+    }
+
+    /// PR #307: CR の書式変更で待ち時間を読めなかった旨が check-ci-coderabbit から
+    /// 監視側へ伝播すること。ここで落ちると「既定値で park した」事実が可視化されず、
+    /// 書式追加が必要なことに誰も気付けない。
+    #[test]
+    fn update_state_propagates_unparsed_wait_time_flag() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "action": "continue_monitoring",
+            "rate_limit": {
+                "until_unix_secs": 1735689600_i64,
+                "comment_created_at": "2026-07-20T10:06:43Z",
+                "wait_minutes": 15,
+                "wait_seconds": 0,
+                "wait_time_parsed": false
+            }
+        });
+        update_state_from_check_result(&mut state, &result);
+        let rl = state.rate_limit.expect("rate_limit must be populated");
+        assert!(
+            !rl.wait_time_parsed,
+            "書式未知のフラグが監視側へ伝播すること",
+        );
     }
 
     #[test]
@@ -539,6 +579,7 @@ mod tests {
             comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 13,
+            wait_time_parsed: true,
         });
         // rate_limit field を含まない正常 polling 結果
         let result = serde_json::json!({ "action": "continue_monitoring" });

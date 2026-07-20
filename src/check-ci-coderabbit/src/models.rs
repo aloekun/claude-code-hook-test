@@ -28,6 +28,13 @@ pub(crate) struct RateLimitInfo {
     pub(crate) comment_event_time: String,
     pub(crate) wait_minutes: u64,
     pub(crate) wait_seconds: u64,
+    /// 待ち時間を comment 本文から**実際に読み取れたか**。
+    ///
+    /// `false` = rate-limit comment とは判定できたが、CR の文面が既知のどの書式にも
+    /// 一致せず既定値で代替したことを意味する (CR の書式変更を検知した状態)。
+    /// 下流はこれを見て「wakeup 時刻は当てにならない」と扱い、書式追加が必要な事実を
+    /// 可視化する。ADR-034 § CR rate-limit format evolution 参照。
+    pub(crate) wait_time_parsed: bool,
 }
 
 #[derive(Serialize, Default)]

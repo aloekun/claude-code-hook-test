@@ -173,8 +173,14 @@ pub(super) fn finalize_parked(
     state.wakeup_reason = Some("rate_limit_retry".into());
     state.head_commit = pr_info.head_commit.clone();
     state.summary = format!(
-        "CodeRabbit rate-limit: wakeup を {}m{}s 後に予約 (PARK signal 参照)",
-        rl.wait_minutes, rl.wait_seconds
+        "CodeRabbit rate-limit: wakeup を {}m{}s 後に予約 (PARK signal 参照){}",
+        rl.wait_minutes,
+        rl.wait_seconds,
+        if rl.wait_time_parsed {
+            ""
+        } else {
+            " ※待ち時間の書式が未知のため既定値。CR の書式変更を疑うこと"
+        }
     );
     if let Err(e) = write_state_to(state_path, state) {
         let msg = format!("park state 永続化失敗のため PARK signal を中止 ({})。手動で `@coderabbitai review` を投稿してください", e);
@@ -244,6 +250,14 @@ pub(super) fn handle_rate_limit_retry(
         return RateLimitOutcome::Failed("PR 番号未確定のため retrigger スキップ".into());
     };
 
+    if !rl.wait_time_parsed {
+        log_info(
+            "[rate_limit] Warning: CR の待ち時間書式が未知のため既定値を使用しています。\
+             wakeup 時刻は目安です。check-ci-coderabbit の extract_wait_time に \
+             新書式の追加が必要です (ADR-034)",
+        );
+    }
+
     if sleep_secs > 0 {
         log_info(&format!(
             "[rate_limit] reset まで {}秒 (wait={}m{}s + 60s buffer)、Park で wakeup 要求 (retry 候補={}/{})",
@@ -298,6 +312,7 @@ mod tests {
             comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 13,
+            wait_time_parsed: true,
         });
         crate::state::write_state_to(&tmp, &state).unwrap();
 
@@ -339,6 +354,7 @@ mod tests {
             comment_event_time: comment_a.into(),
             wait_minutes: 5,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let already_handled_iter1 = state.rate_limit_last_retriggered_at.as_deref()
             == Some(rl_a.comment_event_time.as_str());
@@ -362,6 +378,7 @@ mod tests {
             comment_event_time: comment_b.into(),
             wait_minutes: 5,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let already_handled_iter3 = state.rate_limit_last_retriggered_at.as_deref()
             == Some(rl_b.comment_event_time.as_str());
@@ -403,6 +420,7 @@ mod tests {
             comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 10,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
         let pr_info = crate::util::PrInfo {
@@ -438,6 +456,7 @@ mod tests {
             comment_event_time: "2026-04-30T00:00:00Z".into(),
             wait_minutes: 0,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let mut state = PrMonitorState::new(None, None, "t".into());
         let pr_info = crate::util::PrInfo {
@@ -474,6 +493,7 @@ mod tests {
             comment_event_time: "2026-05-01T00:00:00Z".into(),
             wait_minutes: 47,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let pr_info = crate::util::PrInfo {
             pr_number: Some(42),
@@ -515,6 +535,7 @@ mod tests {
             comment_event_time: "2026-05-08T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let pr_info = crate::util::PrInfo {
             pr_number: Some(1),
@@ -573,6 +594,7 @@ mod tests {
             comment_event_time: "2026-05-08T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let pr_info = crate::util::PrInfo {
             pr_number: Some(1),

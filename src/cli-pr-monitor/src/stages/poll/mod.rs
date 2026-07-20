@@ -153,6 +153,7 @@ mod tests {
             comment_event_time: "x".into(),
             wait_minutes: 5,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let result = serde_json::json!({});
         finalize_parked(

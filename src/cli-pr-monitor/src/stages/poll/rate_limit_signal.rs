@@ -335,6 +335,7 @@ mod tests {
             comment_event_time: "2026-05-01T00:00:00Z".into(),
             wait_minutes: 47,
             wait_seconds: 0,
+            wait_time_parsed: true,
         };
         let pr_info = crate::util::PrInfo {
             pr_number: Some(42),
@@ -368,6 +369,7 @@ mod tests {
             comment_event_time: "2026-05-01T00:00:00Z".into(),
             wait_minutes: 5,
             wait_seconds: 30,
+            wait_time_parsed: true,
         };
         let pr_info = crate::util::PrInfo {
             pr_number: None,
@@ -460,6 +462,7 @@ mod tests {
             comment_event_time: "2026-05-22T06:08:02Z".into(),
             wait_minutes: 38,
             wait_seconds: 30,
+            wait_time_parsed: true,
         };
         let pr_info = crate::util::PrInfo {
             pr_number: Some(169),
