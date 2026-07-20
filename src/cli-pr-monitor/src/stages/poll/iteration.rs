@@ -183,23 +183,49 @@ fn enrich_with_classifier(
 
 fn apply_skip_handling(state: &mut PrMonitorState, skip_ci: bool, skip_coderabbit: bool) {
     if skip_ci {
-        state.ci = Some(CiState {
-            overall: "skipped".into(),
-            runs: vec![],
-        });
+        mark_ci_skipped(state);
     }
     if skip_coderabbit {
-        state.coderabbit = Some(CodeRabbitState {
-            review_state: "skipped".into(),
-            new_comments: 0,
-            actionable_comments: None,
-            unresolved_threads: None,
-        });
-        state.findings = Vec::new();
+        mark_coderabbit_skipped(state);
     }
     if skip_ci || skip_coderabbit {
         state.action = recompute_action(state, skip_ci, skip_coderabbit);
+    } else if should_downgrade_rate_limited_success(state, skip_coderabbit) {
+        state.action = "continue_monitoring".into();
     }
+}
+
+fn mark_ci_skipped(state: &mut PrMonitorState) {
+    state.ci = Some(CiState {
+        overall: "skipped".into(),
+        runs: vec![],
+    });
+}
+
+fn mark_coderabbit_skipped(state: &mut PrMonitorState) {
+    state.coderabbit = Some(CodeRabbitState {
+        review_state: "skipped".into(),
+        new_comments: 0,
+        actionable_comments: None,
+        unresolved_threads: None,
+    });
+    state.findings = Vec::new();
+}
+
+/// skip 未指定 (本番設定: `check_ci=true` / `check_coderabbit=true`) の既定経路で、
+/// rate-limit 中に誤って `stop_monitoring_success` へ倒れた `state.action` を検出する。
+///
+/// この経路では上の `recompute_action` 呼び出しが発火せず、`state.action` は
+/// `check-ci-coderabbit::decide()` の値がそのまま残る。`decide()` は `rate_limit` を
+/// 知らないため、レート制限中で「コメント0件」だと誤って `stop_monitoring_success` を
+/// 返すことがある (PR #307/#309 実観測)。ここで検出した場合は呼び出し側で
+/// `continue_monitoring` に差し戻し、`run_one_iteration` の terminal 短絡を回避して
+/// `handle_rate_limit_branch` の park + 再トリガー経路へ流す。
+///
+/// `action_required` / `stop_monitoring_failure` は `decide()` の判定 (actionable な
+/// 指摘 / CI・CR 失敗) を尊重するため対象外 (`stop_monitoring_success` のみ検出)。
+fn should_downgrade_rate_limited_success(state: &PrMonitorState, skip_coderabbit: bool) -> bool {
+    cr_rate_limited(state, skip_coderabbit) && state.action == "stop_monitoring_success"
 }
 
 fn make_terminal_result(state: PrMonitorState, result: serde_json::Value) -> PollResult {
@@ -230,6 +256,40 @@ fn make_timeout_result(
     }
 }
 
+/// まだ結論を出せる状態にないか (= 監視継続すべきか) を判定する。
+///
+/// **rate-limit は「レビュー未実施」であって「指摘なし」ではない**。CodeRabbit が
+/// レート制限でレビューを開始できなかった場合もコメントは 0 件になるため、
+/// `cr_ok` (new_comments == 0 && unresolved_threads == 0) だけを見ると
+/// **レビュー未実施と clean レビューが区別できず** success に倒れる
+/// (PR #307 / #309 で実観測: 制限中なのに「問題は見つかりませんでした」と報告)。
+///
+/// ここで continue_monitoring に倒すことで、呼び出し側の terminal 短絡
+/// (`action != "continue_monitoring"` で即 return) を回避し、
+/// `handle_rate_limit_branch` の park + `@coderabbitai review` 再トリガー経路へ流す。
+fn checks_still_outstanding(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool) -> bool {
+    let ci_pending = !skip_ci
+        && state
+            .ci
+            .as_ref()
+            .map(|c| c.overall == "pending")
+            .unwrap_or(true);
+
+    let cr_pending = !skip_coderabbit
+        && state
+            .coderabbit
+            .as_ref()
+            .map(|c| c.review_state == "not_found" || c.review_state == "pending")
+            .unwrap_or(true);
+
+    ci_pending || cr_pending || cr_rate_limited(state, skip_coderabbit)
+}
+
+/// `skip_coderabbit` 適用後に、CodeRabbit がレート制限中かどうかを判定する。
+fn cr_rate_limited(state: &PrMonitorState, skip_coderabbit: bool) -> bool {
+    !skip_coderabbit && state.rate_limit.is_some()
+}
+
 /// skip 適用後に、有効なチェックだけを見て action を再導出する
 fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool) -> String {
     let ci_ok = skip_ci
@@ -249,21 +309,7 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
             })
             .unwrap_or(false);
 
-    let ci_pending = !skip_ci
-        && state
-            .ci
-            .as_ref()
-            .map(|c| c.overall == "pending")
-            .unwrap_or(true);
-
-    let cr_pending = !skip_coderabbit
-        && state
-            .coderabbit
-            .as_ref()
-            .map(|c| c.review_state == "not_found" || c.review_state == "pending")
-            .unwrap_or(true);
-
-    if ci_pending || cr_pending {
+    if checks_still_outstanding(state, skip_ci, skip_coderabbit) {
         return "continue_monitoring".into();
     }
 
@@ -296,6 +342,126 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
 mod tests {
     use super::*;
     use lib_report_formatter::Finding;
+
+    /// CI 完了 + CodeRabbit がコメント 0 件 = 一見「clean」に見える state を作る。
+    /// rate_limit を後から差し込むことで「レビュー未実施」との差だけを検証できる。
+    fn settled_state() -> PrMonitorState {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        state.ci = Some(crate::state::CiState {
+            overall: "success".into(),
+            runs: vec![],
+        });
+        state.coderabbit = Some(crate::state::CodeRabbitState {
+            review_state: "success".into(),
+            new_comments: 0,
+            actionable_comments: None,
+            unresolved_threads: Some(0),
+        });
+        state
+    }
+
+    fn rate_limit_state() -> crate::state::RateLimitState {
+        crate::state::RateLimitState {
+            until_unix_secs: 1_784_550_887,
+            comment_event_time: "2026-07-20T12:10:47Z".into(),
+            wait_minutes: 23,
+            wait_seconds: 0,
+            wait_time_parsed: true,
+        }
+    }
+
+    /// PR #307 / #309 incident 再現 (bad): rate-limit 中は「コメント 0 件」でも
+    /// 結論を出さず監視を継続すること。
+    ///
+    /// 由来: 2026-07-20。CodeRabbit がレート制限でレビューを開始できなかったのに
+    /// 監視が stop_monitoring_success を返した。**レビュー未実施と clean レビューが
+    /// どちらも「コメント 0 件」になる**ため、rate_limit を見ないと区別できない。
+    /// success に倒れると呼び出し側の terminal 短絡で rate-limit 分岐に到達せず、
+    /// park も `@coderabbitai review` の再トリガーも起きない。
+    #[test]
+    fn rate_limited_review_is_not_treated_as_clean() {
+        let mut state = settled_state();
+        state.rate_limit = Some(rate_limit_state());
+
+        assert!(
+            checks_still_outstanding(&state, false, false),
+            "rate-limit 中は監視継続すべき (レビュー未実施を clean と誤判定しない)",
+        );
+        assert_eq!(
+            recompute_action(&state, false, false),
+            "continue_monitoring",
+            "success に倒すと terminal 短絡で park 経路に到達しない",
+        );
+    }
+
+    /// good: rate-limit が無ければ従来どおり success に到達すること (退行なし)。
+    #[test]
+    fn settled_checks_without_rate_limit_still_reach_success() {
+        let state = settled_state();
+
+        assert!(!checks_still_outstanding(&state, false, false));
+        assert_eq!(recompute_action(&state, false, false), "stop_monitoring_success");
+    }
+
+    /// good: CodeRabbit を skip する構成では rate-limit があっても監視を止めないこと。
+    /// skip 指定は「CodeRabbit を判断材料にしない」意味なので、その中の rate-limit も
+    /// 判断材料から外れる。
+    #[test]
+    fn rate_limit_is_ignored_when_coderabbit_is_skipped() {
+        let mut state = settled_state();
+        state.rate_limit = Some(rate_limit_state());
+
+        assert!(
+            !checks_still_outstanding(&state, false, true),
+            "skip_coderabbit = true なら rate-limit も判断材料から外す",
+        );
+    }
+
+    /// SIM-NEW-iteration.rs-L259 fix (regression): skip 未指定の既定経路
+    /// (本番設定 `check_ci=true` / `check_coderabbit=true` → skip_ci=false /
+    /// skip_coderabbit=false) では旧実装が `recompute_action` を呼ばず、
+    /// `checks_still_outstanding` の rate-limit チェックが実質デッドコードだった。
+    /// `apply_skip_handling` を直接呼び、`state.action` が実際に downgrade
+    /// されることを確認する。
+    #[test]
+    fn apply_skip_handling_downgrades_rate_limited_success_without_skip_flags() {
+        let mut state = settled_state();
+        state.action = "stop_monitoring_success".into();
+        state.rate_limit = Some(rate_limit_state());
+
+        apply_skip_handling(&mut state, false, false);
+
+        assert_eq!(
+            state.action, "continue_monitoring",
+            "skip 未指定の既定経路でも rate-limit 中は success を確定させてはいけない",
+        );
+    }
+
+    /// good: rate-limit があっても `action_required` (actionable な既存指摘) は
+    /// 上書きしないこと。stale な状態でも既にある指摘を握りつぶすべきではない。
+    #[test]
+    fn apply_skip_handling_keeps_action_required_even_when_rate_limited() {
+        let mut state = settled_state();
+        state.action = "action_required".into();
+        state.rate_limit = Some(rate_limit_state());
+
+        apply_skip_handling(&mut state, false, false);
+
+        assert_eq!(state.action, "action_required");
+    }
+
+    /// good: rate-limit があっても `stop_monitoring_failure` (CI/CR失敗) は
+    /// 上書きしないこと。失敗判定は decide() の優先順位を尊重する。
+    #[test]
+    fn apply_skip_handling_keeps_failure_even_when_rate_limited() {
+        let mut state = settled_state();
+        state.action = "stop_monitoring_failure".into();
+        state.rate_limit = Some(rate_limit_state());
+
+        apply_skip_handling(&mut state, false, false);
+
+        assert_eq!(state.action, "stop_monitoring_failure");
+    }
 
     /// PR #238 regression: checker が stderr に警告 (repo 検出失敗等の fail-soft ログ)
     /// を出しても、stdout の JSON パースが壊れないこと。修正前は stdout+stderr の
