@@ -7,6 +7,15 @@
 
 # Built executables (can be rebuilt with pnpm build:all)
 .claude/*.exe
+# Linux / macOS のバイナリには拡張子が無く *.exe では捕まらないため、名前で無視する
+# (WP-15: クラウドセッションで cloud-setup.sh が配置したバイナリを jj が snapshot して
+# しまうのを防ぐ)。設定ファイルを巻き込むのは hooks-config.toml だけなので negate で戻す。
+.claude/check-ci-coderabbit
+.claude/cli-*
+.claude/hooks-*
+!.claude/hooks-config.toml
+# cloud-setup.sh が展開する provenance ファイル
+.claude/BUILD_INFO
 
 # Deploy targets (contains local paths; create from deploy-targets.template.json)
 scripts/deploy-targets.json

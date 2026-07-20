@@ -134,19 +134,92 @@ fn build_lock_content(mode: &str) -> Option<String> {
     }
 }
 
+/// `create_new` 成功から内容書き込み完了までの窓を吸収する猶予 (WP-15)。
+///
+/// `create_new` は atomic だが、その直後にファイルは**空**で存在する。この窓で
+/// 別プロセスが読むと TOML parse に失敗し、素朴に「壊れている = stale」と扱うと
+/// 全員が takeover して**同時取得**が起きる (Linux で 6/6 スレッドが取得する
+/// 実測不具合。Windows はスケジューリングの差で顕在化していなかっただけ)。
+///
+/// 実際の書き込みはミリ秒で完了するため数秒あれば十分。短く保つことで、
+/// 「create 直後に crash して空ファイルが残った」場合の巻き添えも数秒で解ける。
+const LOCK_WRITE_WINDOW_SECS: i64 = 5;
+
+/// parse 不能な lock の pid は不明。表示用に「不明」を表す番兵。
+const UNKNOWN_HOLDER_PID: u32 = 0;
+
+/// 2 つの時刻から経過秒を求める。**mtime が未来なら 0 (作成直後) とみなす**。
+///
+/// `duration_since` は mtime が未来だと `Err` を返す。これを「齢が不明」として
+/// 扱うと呼び出し側が stale 判定に倒れ、`create_new` 直後の空 lock が takeover
+/// されて WP-15 で塞いだ同時取得レースがクロックスキュー経由で再発する。
+/// クラウド / コンテナでスキューは珍しくないため、未来 mtime は「たった今作られた」
+/// と解釈するのが安全側 (CodeRabbit PR #307 指摘)。
+fn age_secs_between(modified: std::time::SystemTime, now: std::time::SystemTime) -> i64 {
+    match now.duration_since(modified) {
+        Ok(elapsed) => i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX),
+        Err(_) => 0,
+    }
+}
+
+/// ファイル自身の mtime から経過秒を求める (内容が読めない lock の齢判定用)。
+///
+/// `None` は metadata / mtime の取得自体に失敗した場合のみ。
+fn file_age_secs(path: &PathBuf) -> Option<i64> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(age_secs_between(modified, std::time::SystemTime::now()))
+}
+
+/// parse 不能な lock を「保持者が書き込み中」とみなせるか判定する。
+///
+/// 2 つの状況を内容で区別する:
+/// - **空**: `create_new` は成功したが `write_all` がまだ = 保持者が書き込み中。
+///   busy (`Some`) を返して同時取得を防ぐ。
+/// - **非空だが不正**: 本当に壊れた lock。従来どおり `None` を返して takeover させる。
+///
+/// 空の側にも `LOCK_WRITE_WINDOW_SECS` の齢制限を掛ける。create 直後に保持者が
+/// crash すると空ファイルが残るが、この制限が無いと以降の取得が永久に阻まれるため。
+///
+/// pid は内容が読めない以上 unknown。
+fn holder_still_writing(
+    path: &PathBuf,
+    content: &str,
+    parse_error: &toml::de::Error,
+) -> Option<(LockFile, i64)> {
+    if !content.trim().is_empty() {
+        log_info(&format!(
+            "[lock] 既存 lock の parse 失敗 (内容あり = 破損、stale 扱い): {}",
+            parse_error
+        ));
+        return None;
+    }
+
+    let age_secs = file_age_secs(path)?;
+    if age_secs >= LOCK_WRITE_WINDOW_SECS {
+        log_info(&format!(
+            "[lock] 空の lock が {}s 以上残存 (create 直後の crash とみなし stale 扱い)",
+            LOCK_WRITE_WINDOW_SECS
+        ));
+        return None;
+    }
+
+    Some((
+        LockFile {
+            pid: UNKNOWN_HOLDER_PID,
+            start_time: String::new(),
+            mode: String::new(),
+        },
+        age_secs,
+    ))
+}
+
 /// 既存 lock が fresh なら `Some((LockFile, age_secs))` を返す。
-/// stale (parse 失敗 / 超過) の場合は `None` (= 取得可)。
+/// stale (超過 / 古くて壊れている) の場合は `None` (= 取得可)。
 fn read_fresh_lock(path: &PathBuf, stale_threshold_secs: i64) -> Option<(LockFile, i64)> {
     let content = std::fs::read_to_string(path).ok()?;
     let lock: LockFile = match toml::from_str(&content) {
         Ok(l) => l,
-        Err(e) => {
-            log_info(&format!(
-                "[lock] 既存 lock の parse 失敗 (stale 扱い): {}",
-                e
-            ));
-            return None;
-        }
+        Err(e) => return holder_still_writing(path, &content, &e),
     };
     let past_time = PastTime::from_iso8601_now(&lock.start_time)?;
     let age_secs = past_time.age_secs();
@@ -425,6 +498,55 @@ mod tests {
         assert_eq!(
             acquired_count, 1,
             "exactly one thread should acquire the lock under concurrency"
+        );
+    }
+
+    /// クロックスキュー対策 (CodeRabbit PR #307): mtime が**未来**でも齢 0 とみなすこと。
+    ///
+    /// 旧実装は `duration_since` の `Err` を `None` に潰しており、呼び出し側が
+    /// 「齢不明 = stale」に倒れて空 lock を takeover していた。つまり WP-15 で
+    /// 塞いだ同時取得レースが、クロックスキューという別経路から再発しうる。
+    #[test]
+    fn future_mtime_is_treated_as_just_created() {
+        let now = std::time::SystemTime::now();
+        let future = now + std::time::Duration::from_secs(3600);
+        assert_eq!(
+            age_secs_between(future, now),
+            0,
+            "未来 mtime は「たった今作られた」と解釈すること (stale 誤判定を防ぐ)",
+        );
+    }
+
+    /// 通常経路 (good): 過去の mtime は経過秒をそのまま返すこと。
+    #[test]
+    fn past_mtime_yields_elapsed_seconds() {
+        let now = std::time::SystemTime::now();
+        let past = now - std::time::Duration::from_secs(42);
+        assert_eq!(age_secs_between(past, now), 42);
+    }
+
+    /// WP-15 incident 再現 (bad): `create_new` 直後の**空** lock を stale と誤判定
+    /// しないこと。
+    ///
+    /// 由来: 2026-07-20 の Linux 実測 (WSL Ubuntu 24.04)。`create_new` は atomic
+    /// だが直後のファイルは空で、内容書き込みまでの窓に別スレッドが読むと TOML
+    /// parse に失敗する。これを「壊れている = stale」と扱っていたため全員が
+    /// takeover し、8 スレッド中 6 つが同時に Acquired になった。Windows では
+    /// スケジューリングの差で顕在化していなかっただけで、設計上の欠陥は同じ。
+    ///
+    /// 修正の核心は「parse 不能でも十分新しければ書き込み中 = busy とみなす」。
+    #[test]
+    fn empty_lock_file_is_treated_as_busy_not_stale() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("pr-monitor.lock");
+        std::fs::write(&path, "").unwrap();
+
+        let result = acquire_at(path, "probe", DEFAULT_STALE_THRESHOLD_SECS);
+
+        assert!(
+            matches!(result, LockResult::Busy { .. }),
+            "空 lock は「保持者が書き込み中」= Busy とすること。Acquired だと\
+             create_new の排他が無意味になり同時取得が起きる (WP-15 の不具合)",
         );
     }
 

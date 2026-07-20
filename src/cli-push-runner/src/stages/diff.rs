@@ -4,9 +4,9 @@
 //! **切り詰めない** (`run_diff_cmd` の doc)。実行は timeout 付き (T6)。
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
-use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};
+use lib_subprocess::{drain_pipe_unlimited, shell_command, wait_with_timeout_safe};
 
 use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS};
 use crate::log::log_stage;
@@ -43,7 +43,8 @@ pub(crate) enum DiffResult {
 /// child を kill + reap する (`_basic` ではなく `_safe` を選ぶ理由 = ADR-044 層 2)。
 ///
 /// **child を kill した 2 経路 (timeout / wait 失敗) では reader thread を join しない**。
-/// `cmd /c <command>` の child は cmd.exe で、その孫 (実際の `jj` 等) は kill の対象外である。
+/// `shell_command` の child はシェル (cmd.exe / sh) で、その孫 (実際の `jj` 等) は
+/// kill の対象外になり得る (cmd.exe は常に、sh も複合コマンドを fork した場合)。
 /// 孫は pipe の書き込み端を継承したまま生き残るため EOF が来ず、join すると孫が自然終了する
 /// までブロックする = timeout が意味を成さない (T6 が直そうとしているハングの再生産)。
 /// 実測: 9s 走るコマンドに 1s の timeout を設定し join すると、制御が戻るまで 9.6s 掛かった。
@@ -51,8 +52,7 @@ pub(crate) enum DiffResult {
 /// 終了するため thread は道連れになる)。出力も不要 (診断は timeout メッセージ自身が持つ)。
 /// 子が自力で終了した経路 (exit 0 / 非 0) は pipe が閉じるため join してよい。
 fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
-    let mut child = Command::new("cmd")
-        .args(["/c", cmd])
+    let mut child = shell_command(cmd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -148,9 +148,35 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
 mod tests {
     use super::*;
 
+    /// 100 行を吐くコマンド。cmd.exe と POSIX sh で構文が非互換なため OS 別に
+    /// 出し分ける (WP-15)。POSIX 側は `seq` 不在の最小環境でも動く while ループ。
+    #[cfg(windows)]
+    const EMIT_100_LINES_CMD: &str = "for /L %i in (1,1,100) do @echo line %i";
+    #[cfg(not(windows))]
+    const EMIT_100_LINES_CMD: &str = "i=1; while [ $i -le 100 ]; do echo line $i; i=$((i+1)); done";
+
+    /// 何も出力せず正常終了するコマンド (0 バイト出力の検証用)。
+    #[cfg(windows)]
+    const ZERO_BYTE_OUTPUT_CMD: &str = "type nul";
+    #[cfg(not(windows))]
+    const ZERO_BYTE_OUTPUT_CMD: &str = "true";
+
+    /// stderr へ出力してから非 0 で終わるコマンド (失敗診断の検証用)。
+    #[cfg(windows)]
+    const STDERR_THEN_FAIL_CMD: &str = "echo boom 1>&2& exit /b 1";
+    #[cfg(not(windows))]
+    const STDERR_THEN_FAIL_CMD: &str = "echo boom 1>&2; exit 1";
+
+    /// stdout と stderr の両方へ出しつつ正常終了するコマンド。
+    /// stderr (jj の警告相当) が diff 本体に混ざらない契約の検証用。
+    #[cfg(windows)]
+    const STDOUT_AND_STDERR_CMD: &str = "echo real diff& echo Concurrent modification 1>&2";
+    #[cfg(not(windows))]
+    const STDOUT_AND_STDERR_CMD: &str = "echo real diff; echo Concurrent modification 1>&2";
+
     #[test]
     fn run_diff_cmd_captures_more_than_40_lines() {
-        let result = run_diff_cmd("for /L %i in (1,1,100) do @echo line %i", 30);
+        let result = run_diff_cmd(EMIT_100_LINES_CMD, 30);
         assert!(result.is_ok(), "command should succeed");
         let output = result.unwrap();
         let line_count = output.lines().count();
@@ -166,9 +192,8 @@ mod tests {
         let out_path = std::env::temp_dir().join("test-run-diff-empty.txt");
         let _ = std::fs::remove_file(&out_path);
 
-        const ZERO_BYTE_OUTPUT_COMMAND: &str = "type nul";
         let config = DiffConfig {
-            command: ZERO_BYTE_OUTPUT_COMMAND.to_string(),
+            command: ZERO_BYTE_OUTPUT_CMD.to_string(),
             output_path: out_path.to_string_lossy().into_owned(),
             timeout: None,
         };
@@ -208,7 +233,7 @@ mod tests {
     #[test]
     fn capture_diff_snapshot_returns_none_on_failure() {
         let config = DiffConfig {
-            command: "echo boom 1>&2& exit /b 1".to_string(),
+            command: STDERR_THEN_FAIL_CMD.to_string(),
             output_path: String::new(),
             timeout: Some(30),
         };
@@ -237,7 +262,12 @@ mod tests {
         use std::time::{Duration, Instant};
 
         /// 実行し続けるコマンド (ハングした jj の代役)。timeout が無ければ約 9s 待たされる。
+        /// cmd.exe と POSIX sh で構文が非互換なため OS 別に出し分ける (WP-15)。
+        /// 所要時間を両 OS で揃えないと片側だけ timeout 経路を検証しない穴になる。
+        #[cfg(windows)]
         const HANGING_COMMAND: &str = "ping 127.0.0.1 -n 10";
+        #[cfg(not(windows))]
+        const HANGING_COMMAND: &str = "sleep 10";
 
         const SHORT_TIMEOUT_SECS: u64 = 1;
 
@@ -334,8 +364,7 @@ mod tests {
         /// stdout/stderr を結合する) に載せ替えるとこのテストが落ちる。
         #[test]
         fn stderr_is_not_merged_into_the_diff_output() {
-            let output = run_diff_cmd("echo real diff& echo Concurrent modification 1>&2", 30)
-                .expect("exit 0 なら Ok");
+            let output = run_diff_cmd(STDOUT_AND_STDERR_CMD, 30).expect("exit 0 なら Ok");
             assert!(output.contains("real diff"), "stdout は残ること: {:?}", output);
             assert!(
                 !output.contains("Concurrent modification"),
@@ -347,7 +376,7 @@ mod tests {
         /// 失敗時は stderr を診断として返すこと (従来契約の維持)。
         #[test]
         fn failure_returns_stderr_as_the_diagnostic() {
-            let err = run_diff_cmd("echo boom 1>&2& exit /b 1", 30).expect_err("exit 1 は Err");
+            let err = run_diff_cmd(STDERR_THEN_FAIL_CMD, 30).expect_err("exit 1 は Err");
             assert!(err.contains("boom"), "stderr を診断に返すこと: {:?}", err);
         }
     }

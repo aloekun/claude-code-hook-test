@@ -93,12 +93,74 @@ fn parse_args() -> Result<CliArgs, String> {
 
 // ─── gh CLI 実行 ───
 
+/// PID を指定して子プロセスを強制終了する (Windows: `taskkill /F` / Unix: `kill -9`)。
+///
+/// `run_gh` のタイマースレッドは `child` を move できない (メインスレッドが
+/// `wait_with_output` でパイプを読むため) ので、PID 経由で外から殺す。
+///
+/// **この分岐が片肺だと timeout が機能しない**: kill されなければ `wait_with_output`
+/// は子の自然終了までブロックし続け、`timeout_flag` が立っても制御が戻らない。
+/// WP-15 以前は Windows 分岐しか無く、Linux では gh がハングすると CI 監視が
+/// 永久停止する状態だった。
+///
+/// 外部コマンド経由なのは libc 依存を増やさないため。kill 自体の失敗は握り潰す
+/// (既に自然終了していれば失敗するのが正常で、その場合 timeout 判定も無害)。
+fn kill_process_by_id(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .output();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+    }
+}
+
+/// タイムアウト監視スレッドを起動し `(timeout_flag, done_flag)` を返す。
+///
+/// スレッドは deadline まで一括で寝るのではなく 100ms 刻みで `done_flag` を見て
+/// 早期終了する (正常終了時にプロセスの exit を 30 秒引き延ばさないため)。
+/// deadline 到達時は `timeout_flag` を立ててから PID 経由で子を強制終了する。
+///
+/// 呼び出し側は `wait_with_output` から戻ったら**必ず `done_flag` を立てる**こと。
+/// 立て忘れるとスレッドが deadline まで生き残り、既に終了した子の PID を kill する
+/// (PID 再利用があれば無関係のプロセスを殺しうる)。
+fn spawn_timeout_killer(
+    child_id: u32,
+) -> (
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let timeout_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag_clone = timeout_flag.clone();
+    let done_clone = done_flag.clone();
+
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            if done_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        flag_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+        kill_process_by_id(child_id);
+    });
+
+    (timeout_flag, done_flag)
+}
+
 /// gh コマンドを実行し stdout を返す。タイムアウト 30 秒。
 /// パイプのデッドロックを防ぐため、タイムアウトは別スレッドで kill し、
 /// メインスレッドは wait_with_output でパイプを安全に読み取る。
 ///
-/// NOTE: タイムアウト時のプロセス kill は Windows (taskkill) のみ実装。
-/// この exe は Windows 専用として設計されている (ADR-001)。
+/// **`wait_with_output` の結果は一旦変数に受けてから `?` する**。エラーを直接
+/// 伝播させると `done_flag` を立てる前に関数を抜け、タイマースレッドが deadline
+/// まで生き残って PID 再利用時に無関係のプロセスを kill しうる
+/// (`spawn_timeout_killer` の doc が要求する契約。CodeRabbit PR #307 指摘)。
 fn run_gh(args: &[&str]) -> Result<String, String> {
     let child = Command::new("gh")
         .args(args)
@@ -107,38 +169,11 @@ fn run_gh(args: &[&str]) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("gh の起動に失敗: {}", e))?;
 
-    // タイムアウト用: done_flag で早期終了、timeout_flag でタイムアウト判定
-    let child_id = child.id();
-    let timeout_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let done_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let flag_clone = timeout_flag.clone();
-    let done_clone = done_flag.clone();
+    let (timeout_flag, done_flag) = spawn_timeout_killer(child.id());
 
-    // タイマースレッドは 100ms 刻みで done_flag をチェックし、早期終了する
-    std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + Duration::from_secs(30);
-        while std::time::Instant::now() < deadline {
-            if done_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                return; // プロセス完了 → スレッド即終了
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        // タイムアウト到達
-        flag_clone.store(true, std::sync::atomic::Ordering::Relaxed);
-        #[cfg(target_os = "windows")]
-        {
-            let _ = Command::new("taskkill")
-                .args(["/F", "/PID", &child_id.to_string()])
-                .output();
-        }
-    });
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("gh 出力の取得に失敗: {}", e))?;
-
-    // プロセス完了をタイマースレッドに通知
+    let wait_result = child.wait_with_output();
     done_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    let output = wait_result.map_err(|e| format!("gh 出力の取得に失敗: {}", e))?;
 
     if timeout_flag.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("gh コマンドがタイムアウトしました".to_string());

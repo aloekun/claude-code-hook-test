@@ -238,6 +238,35 @@ fn kill_and_join_err(
     (false, error)
 }
 
+/// コマンド文字列を OS のシェル経由で実行する `Command` を組み立てる (WP-15)。
+///
+/// Windows は `cmd /c <cmd>`、それ以外 (Linux / macOS) は `sh -c <cmd>`。
+/// **リポジトリ内で「シェル経由の実行」を行う唯一の spawn 起点**であり、新たに
+/// `Command::new("cmd")` を書き足してはならない (Linux 移植で無言に壊れるため)。
+///
+/// `sh` を選ぶ理由: quality gate / push / merge の step は `pnpm test` や
+/// `cargo clippy ... -- -D warnings` のような単純なコマンド行であり、bash 固有構文
+/// (配列 / `[[ ]]` / process substitution) を必要としない。POSIX sh に限定しておけば
+/// bash 不在の最小コンテナ (クラウドの使い捨て環境) でも同じ経路が通る。
+///
+/// **cmd.exe と sh でシェル構文は互換ではない**点に注意 (`%VAR%` vs `$VAR`、
+/// パス区切り、`&` の意味)。config に書く step の `cmd` は両者で解釈が一致する
+/// 書き方 (プレーンなコマンド + `/` 区切り相対パス) に揃えること。
+pub fn shell_command(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("cmd");
+        command.args(["/c", cmd]);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = Command::new("sh");
+        command.args(["-c", cmd]);
+        command
+    }
+}
+
 /// `run_cmd_shell_*` 3 variant の共通骨格 (spawn → drain → wait → combine)。
 ///
 /// variant 間の差は `drain` (= どの `drain_pipe_*` を使うか) だけで、それ以外の
@@ -254,8 +283,7 @@ fn run_cmd_shell_with<F>(label: &str, cmd: &str, timeout_secs: u64, drain: F) ->
 where
     F: Fn(Box<dyn Read + Send>) -> JoinHandle<String>,
 {
-    let mut child = match Command::new("cmd")
-        .args(["/c", cmd])
+    let mut child = match shell_command(cmd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -288,7 +316,7 @@ where
     }
 }
 
-/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **silent capped** variant。
+/// `shell_command` 経由で shell コマンドを実行し timeout 付きで結果を返す **silent capped** variant。
 ///
 /// 戻り値: `(success, combined_output)`。
 /// - 起動失敗 / try_wait 失敗 → `(false, error_message)`
@@ -312,7 +340,7 @@ pub fn run_cmd_shell_capped(
     })
 }
 
-/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **reporting capped** variant。
+/// `shell_command` 経由で shell コマンドを実行し timeout 付きで結果を返す **reporting capped** variant。
 ///
 /// `run_cmd_shell_capped` と同 signature だが内部で `drain_pipe_capped_reporting(max_lines)`
 /// を使用、stdout / stderr 超過時は末尾に `"... (N lines truncated)"` が追加される。
@@ -329,7 +357,7 @@ pub fn run_cmd_shell_capped_reporting(
     })
 }
 
-/// `cmd /c <cmd>` で shell コマンドを実行し timeout 付きで結果を返す **unlimited** variant。
+/// `shell_command` 経由で shell コマンドを実行し timeout 付きで結果を返す **unlimited** variant。
 ///
 /// `run_cmd_shell_capped` から `max_lines` を除いたもので、内部で `drain_pipe_unlimited`
 /// を使用するため出力は truncate されない。**出力を control flow 判定に使う callsite**
@@ -371,24 +399,40 @@ mod tests {
         assert_eq!(combine_output("out\n", "err"), "out\nerr");
     }
 
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
+
+    /// timeout 経路を踏ませるための「十分に長く走る」コマンド (両 OS で約 10 秒、WP-15)。
+    ///
+    /// `exit 0` / `exit 1` / `echo hello` は cmd.exe と POSIX sh の双方で同じ意味に
+    /// 解釈されるためテスト内に直接書けるが、「長時間走る」「N 行吐く」は構文が非互換
+    /// なので cfg で出し分ける。**振る舞い (所要時間 / 出力行数) は両 OS で揃えること** —
+    /// ここがズレると片方の OS だけ timeout / truncation を検証しない抜け穴になる。
+    #[cfg(windows)]
+    const LONG_RUNNING_CMD: &str = "ping 127.0.0.1 -n 10";
+    #[cfg(not(windows))]
+    const LONG_RUNNING_CMD: &str = "sleep 10";
+
+    /// capped variant の cap (40 行) を超える 60 行を吐くコマンド。
+    /// POSIX 側は `seq` が無い最小環境でも動くよう while ループで書く。
+    #[cfg(windows)]
+    const EMIT_60_LINES_CMD: &str = "(for /L %i in (1,1,60) do @echo line %i)";
+    #[cfg(not(windows))]
+    const EMIT_60_LINES_CMD: &str = "i=1; while [ $i -le 60 ]; do echo line $i; i=$((i+1)); done";
 
     fn spawn_quick_exit() -> std::process::Child {
-        Command::new("cmd")
-            .args(["/c", "exit 0"])
+        shell_command("exit 0")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("failed to spawn quick-exit cmd")
+            .expect("failed to spawn quick-exit command")
     }
 
     fn spawn_long_running() -> std::process::Child {
-        Command::new("cmd")
-            .args(["/c", "ping 127.0.0.1 -n 10"])
+        shell_command(LONG_RUNNING_CMD)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("failed to spawn long-running cmd")
+            .expect("failed to spawn long-running command")
     }
 
     #[test]
@@ -557,7 +601,7 @@ mod tests {
 
     #[test]
     fn run_cmd_shell_capped_reports_timeout_with_message() {
-        let (ok, output) = run_cmd_shell_capped("test", "ping 127.0.0.1 -n 10", 1, 40);
+        let (ok, output) = run_cmd_shell_capped("test", LONG_RUNNING_CMD, 1, 40);
         assert!(!ok, "timeout should report failure");
         assert!(
             output.starts_with("timed out after 1s"),
@@ -574,8 +618,7 @@ mod tests {
 
     #[test]
     fn run_cmd_shell_capped_reporting_reports_timeout_with_message() {
-        let (ok, output) =
-            run_cmd_shell_capped_reporting("test", "ping 127.0.0.1 -n 10", 1, 40);
+        let (ok, output) = run_cmd_shell_capped_reporting("test", LONG_RUNNING_CMD, 1, 40);
         assert!(!ok, "timeout should report failure");
         assert!(
             output.starts_with("timed out after 1s"),
@@ -600,7 +643,7 @@ mod tests {
     /// 全行が戻り値に残ること (= control flow 判定に使える)。
     #[test]
     fn run_cmd_shell_unlimited_preserves_output_beyond_the_capped_variant_cap() {
-        let cmd = "(for /L %i in (1,1,60) do @echo line %i)";
+        let cmd = EMIT_60_LINES_CMD;
         let (ok, output) = run_cmd_shell_unlimited("test", cmd, 30);
         assert!(ok, "command should succeed: {:?}", output);
         assert_eq!(
@@ -613,7 +656,7 @@ mod tests {
 
     #[test]
     fn run_cmd_shell_unlimited_reports_timeout_with_message() {
-        let (ok, output) = run_cmd_shell_unlimited("test", "ping 127.0.0.1 -n 10", 1);
+        let (ok, output) = run_cmd_shell_unlimited("test", LONG_RUNNING_CMD, 1);
         assert!(!ok, "timeout should report failure");
         assert!(
             output.starts_with("timed out after 1s"),

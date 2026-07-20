@@ -271,12 +271,24 @@ mod tests {
         use super::*;
 
         /// 40 行の正常出力の後に拒否行が来る = 拒否行が cap の外に落ちる状況の再現。
+        /// cmd.exe と POSIX sh で構文が非互換なため OS 別に出し分ける (WP-15)。
+        /// **出力行数と拒否行の文面は両 OS で揃えること** — ズレると片側だけ
+        /// 「cap の外の拒否行を検知する」という本 mod の主題を検証しなくなる。
+        #[cfg(windows)]
         const REFUSAL_BEYOND_CAP: &str = "(for /L %i in (1,1,40) do @echo Changes to push to origin) \
             & echo Warning: Refusing to create new remote bookmark feat/x@origin";
+        #[cfg(not(windows))]
+        const REFUSAL_BEYOND_CAP: &str =
+            "i=1; while [ $i -le 40 ]; do echo Changes to push to origin; i=$((i+1)); done; \
+             echo Warning: Refusing to create new remote bookmark feat/x@origin";
 
         /// 40 行を超える正常な push 出力 (拒否なし)。
+        #[cfg(windows)]
         const SUCCESS_BEYOND_CAP: &str =
             "(for /L %i in (1,1,50) do @echo Add bookmark feat/x to 3000737e)";
+        #[cfg(not(windows))]
+        const SUCCESS_BEYOND_CAP: &str =
+            "i=1; while [ $i -le 50 ]; do echo Add bookmark feat/x to 3000737e; i=$((i+1)); done";
 
         /// incident 再現 (bad): cap の外にある拒否行を検知できること。
         /// jj は拒否時も exit 0 を返すため、この検知が唯一の防波堤になる。
