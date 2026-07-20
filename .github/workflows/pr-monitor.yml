@@ -55,8 +55,21 @@
 # - 自己トリガー防止: 本 workflow の投稿は github-actions[bot] 名義の issue_comment に
 #   なるが、(a) issue_comment 条件が coderabbitai[bot] 限定、かつ (b) allowed_bots が
 #   coderabbitai[bot] のみ許可のため github-actions[bot] トリガーは弾かれ、二重に防止。
-# - Max 枠の暴走ガード: concurrency で PR 単位に集約 (最新イベントのみ処理) +
-#   プロンプト内の重複ガード。
+# - 重複投稿ガード (順位 319 — 決定論層を主とする): 旧構成は CR の投稿 (ack / rate-limit
+#   通知含む) ごとに分析コメントを再投稿していた (PR #287 で 5 件、#304 で 3 件、#307 で 5 件
+#   実観測)。原因はガードが LLM prompt 内 (助言層) にしかなく、トリガー事象 (新規コメントの
+#   存在) 自身が prompt ガードの「新情報あり」を成立させるトートロジーだったこと。対策として
+#   jobs.analyze.if: に決定論的な起動選別を置く:
+#   (a) issue_comment は CR の walkthrough/summary コメント (summarize marker を含み、かつ
+#       rate-limit placeholder marker を含まないもの) のみ起動。ack (auto-generated reply) /
+#       rate-limit 通知 / コマンド応答は summarize marker を持たないため起動しない。walkthrough は
+#       in-place 更新される (types: [created] のみ購読) ため初回作成で高々 1 回起動し、実レビューの
+#       追加は pull_request_review (submitted) 経路が拾う。
+#   (b) CLOSED / MERGED の PR では起動しない (issue.state / pull_request.state == 'open')。
+#   prompt 手順 2 の重複ガードはこの決定論層の二層目 (fallback) に降格。ADR-042 (ルール vs
+#   仕組み化) の観点でガードを助言層から決定論層へ移した形。
+# - Max 枠の暴走ガード: 上記の起動選別 + concurrency で PR 単位に集約 (最新イベントのみ処理)
+#   することで 1 PR あたりの claude-code-action run 数を抑える。
 
 name: pr-monitor
 
@@ -94,6 +107,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_review' &&
+       github.event.pull_request.state == 'open' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.review.user.login != 'github-actions[bot]' &&
        github.event.review.user.login != 'claude[bot]' &&
@@ -101,7 +115,10 @@ jobs:
        !startsWith(github.event.review.user.login, 'renovate')) ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
-       github.event.comment.user.login == 'coderabbitai[bot]')
+       github.event.issue.state == 'open' &&
+       github.event.comment.user.login == 'coderabbitai[bot]' &&
+       contains(github.event.comment.body, '<!-- This is an auto-generated comment: summarize by coderabbit.ai -->') &&
+       !contains(github.event.comment.body, '<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -167,7 +184,10 @@ jobs:
                - 会話コメント: gh api repos/${{ github.repository }}/issues/<番号>/comments
                - 差分: gh pr diff <番号>
 
-            2. 重複ガード: 会話コメントに本 workflow の過去の分析コメント (見出し「🤖 PR Monitor 分析」) が既に存在し、その投稿時刻以降に新しいレビュー・指摘・コメント・CI 状態の変化が無い場合は、分析を行わず最終応答として厳密に次の1行のみを出力して終了する (前後に他の文字を付けない): `SKIP: no new information`
+            2. 重複ガード (二層目 — 主たるガードは workflow の jobs.analyze.if: の決定論層。この prompt ガードはその fallback): 会話コメントに本 workflow の過去の分析コメント (見出し「🤖 PR Monitor 分析」) が既に存在する場合、その最新の分析投稿時刻以降に **分析価値のある新情報** が生じたかで判断する。以下は新情報に**数えない** — 分析価値のある新情報がこれら以外に無ければ、分析を行わず最終応答として厳密に次の1行のみを出力して終了する (前後に他の文字を付けない): `SKIP: no new information`
+               - CodeRabbit の定型 acknowledgment / コマンド応答 (`✅ Action performed` / `For best results, initiate chat` 等)、rate-limit 通知 (`Review limit reached` 等)、レビュー未着 / skip の通知
+               - 本 workflow (github-actions[bot]) 自身が過去に投稿した分析コメント
+               分析価値のある新情報の例: 人間・レビュアーによる新規レビュー / 新規インライン指摘、CI 状態の変化、PR state の変化。
 
             3. 分析:
                - レビュー指摘 (CodeRabbit / 人間 / 他 bot を問わず全レビュアーの指摘) を 1 件ずつプロジェクト適合性でフィルタする。判定観点は .takt/facets/instructions/analyze-coderabbit.md の「Step 2: Project fitness filter」に従う (入力が gh コマンドの結果である点だけが異なる)。intentional design 判定は CLAUDE.md の ADR 一覧から該当 ADR を Read して行う。
