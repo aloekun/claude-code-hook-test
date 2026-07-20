@@ -35,12 +35,14 @@
 
 #### 作業計画
 
-- [ ] **決定論ガードを `if:` に追加** (LLM prompt に依存しない層へ移す):
-  - [ ] CR の **ack / 定型応答コメントを除外**する。`github.event.comment.body` に `<!-- This is an auto-generated reply by CodeRabbit -->` (= ack) が含まれる場合は起動しない。分析価値があるのは walkthrough (`<!-- This is an auto-generated comment: summarize by coderabbit.ai -->`) のみ。**本件の再投稿 5 件中 2 件はこの 1 条件で消える**。
-  - [ ] PR が **CLOSED / MERGED なら起動しない** (`github.event.issue.state == 'open'`)。
-- [ ] prompt 手順 2 のガード条件を「**新規コメントの有無**」から「**分析価値のある新情報の有無**」へ書き換える (ack / rate-limit 通知 / 自身の分析コメントは新情報に数えない旨を明示)。決定論ガードを主、prompt ガードを従 (二層目) とする。
-- [ ] 起動条件を変えるため **workflow_dispatch でのスモークテスト**を行い、(a) ack で起動しないこと (b) walkthrough で起動すること (c) merged PR で起動しないこと を実測で確認する。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
+- [x] **決定論ガードを `if:` に追加** (LLM prompt に依存しない層へ移す、2026-07-20 実装):
+  - [x] CR の **ack / rate-limit / コマンド応答を除外**する。当初案の denylist (`<!-- ...reply by CodeRabbit -->` を除外) ではなく **positive allowlist** を採用: issue_comment は walkthrough/summary マーカー `<!-- This is an auto-generated comment: summarize by coderabbit.ai -->` を含み、**かつ** rate-limit placeholder マーカー `<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->` を含まない場合のみ起動。マーカーはライブ PR #304/#307 の生 body で実検証。ack (reply) / rate-limit 通知 / command invocation は summarize マーカーを持たないため一括除外される (denylist より確実 — #307 の 5 投稿中 4 件が消え、実レビュー 1 件のみ残る)。
+  - [x] PR が **CLOSED / MERGED なら起動しない**。issue_comment 経路に `github.event.issue.state == 'open'`、pull_request_review 経路に `github.event.pull_request.state == 'open'` を追加。
+- [x] prompt 手順 2 のガード条件を「**新規コメントの有無**」から「**分析価値のある新情報の有無**」へ書き換え、ack / rate-limit / 自身の分析コメントは新情報に数えない旨を明示。決定論ガードを主、prompt ガードを従 (二層目) へ降格。
+- [ ] 起動条件を変えるため **workflow_dispatch でのスモークテスト** (post-merge): (a) ack で起動しない (b) walkthrough で起動する (c) merged PR で起動しない を実測確認する。
+- [ ] **dogfood 実 PR 確認**後に本エントリ削除 + todo-summary2.md 行削除。
+
+> **現在地 (2026-07-20)**: `.github/workflows/pr-monitor.yml` の `jobs.analyze.if:` / prompt 手順 2 / 先頭設計メモを修正済 (YAML parse + paren balance を node で検証、CodeRabbit マーカーは live API で裏取り)。**残**: workflow は push/merge 後にしか実発火しないため、workflow_dispatch スモークと実 PR での「walkthrough 1 回 = 高々 1 投稿 / ack・merged では無投稿」確認は post-merge のバックストップ観測で行う。確認できたら本エントリ削除。
 
 #### 完了基準
 
