@@ -228,13 +228,18 @@ cmd = "pnpm build"
 
 # 順位 147 / PR-W5 (file-length-enforcement-plan.md): file-length Stop gate。
 # PR 範囲 (base branch..@) の .rs file が 800 行超なら Stop を block する強制層。
-# cmd は cmd.exe (`cmd /c`) 経由で実行されるため forward-slash (`./`) 始まりは不可。
-# backslash 相対パスを TOML literal string (single quote、escape 不要) で指定する。
+#
+# cmd は OS のシェル経由で実行される (Windows: cmd.exe / Linux: sh、WP-15)。
+# 両シェルで共通に解決できるのは **forward-slash の絶対パス**だけなので
+# (cmd.exe は forward-slash 相対を、sh は backslash を解決できない = 実測)、
+# hooks-stop-quality が展開する 2 つのプレースホルダーで書く:
+#   {{CLAUDE_DIR}} → .claude/ の絶対パス (forward-slash 正規化)
+#   {{EXE_SUFFIX}} → .exe (Windows) / 空文字 (Linux)
 # gate の有効化は下記 [file_length_gate] enabled で制御 (この step があっても
 # enabled = false なら exe は即 exit 0 で no-op)。
 [[stop_quality.steps]]
 name = "file-length"
-cmd = '.\.claude\hooks-post-tool-comment-lint-rust.exe --check-modified-files'
+cmd = '{{CLAUDE_DIR}}/hooks-post-tool-comment-lint-rust{{EXE_SUFFIX}} --check-modified-files'
 
 # ─── PR-W5: file-length Stop gate 設定 (ADR-039 experimental feature 標準パターン) ───
 #

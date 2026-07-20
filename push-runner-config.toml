@@ -178,8 +178,11 @@ output_path = ".takt/review-diff.txt"
 # ---------------------------------------------------------------------------
 [lint_screen]
 enabled = false
-# 以下は default 値、明示しなくてもよいが意図を残すなら明示推奨
-exe_path = ".claude/cli-finding-classifier.exe"
+# 以下は default 値、明示しなくてもよいが意図を残すなら明示推奨。
+# exe_path は **あえて明示しない** (WP-15): code 側の default が
+# `.claude/cli-finding-classifier` + OS の実行ファイル拡張子で cfg 分岐しており、
+# ここに `.exe` 付きの値を書くと Linux で解決に失敗する。OS ごとに値を変えたい
+# 場合のみ明示すること。
 model = "mistral:7b"
 endpoint = "http://localhost:11434"
 timeout_secs = 60

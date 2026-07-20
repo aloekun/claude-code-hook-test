@@ -309,6 +309,35 @@ fn warn_no_steps_configured(config_found: bool) {
     }
 }
 
+/// step の `cmd` 中のプレースホルダーを実行環境に合わせて展開する (WP-15)。
+///
+/// 展開対象:
+/// - `{{CLAUDE_DIR}}` → `.claude/` の**絶対パス** (forward-slash 正規化)
+/// - `{{EXE_SUFFIX}}` → `.exe` (Windows) / 空文字 (それ以外)
+///
+/// **なぜ絶対パス + forward-slash か**: step は cmd.exe (Windows) と sh (Linux) の
+/// 双方で解釈される。cmd.exe は forward-slash の**相対**パス (`.claude/foo.exe`) を
+/// コマンドとして解決できず、sh は backslash (`.\.claude\foo.exe`) を解釈できない。
+/// 実測の結果、両者が共通で通るのは **forward-slash の絶対パス**だけだった
+/// (ADR-005 の settings.local.json で確認済みの性質と同じ)。
+///
+/// 解決不能時はプレースホルダーを残したまま返す。展開済みの壊れたパスで走らせるより、
+/// `{{CLAUDE_DIR}}` を含むエラーメッセージで失敗させたほうが原因が自明になるため。
+fn expand_step_placeholders(cmd: &str) -> String {
+    let expanded = cmd.replace("{{EXE_SUFFIX}}", std::env::consts::EXE_SUFFIX);
+    if !expanded.contains("{{CLAUDE_DIR}}") {
+        return expanded;
+    }
+    let Some(claude_dir) = lib_jj_helpers::pipeline_lock::exe_claude_dir() else {
+        eprintln!(
+            "[stop-quality] Warning: .claude ディレクトリを解決できず {{{{CLAUDE_DIR}}}} を展開できません"
+        );
+        return expanded;
+    };
+    let normalized = claude_dir.to_string_lossy().replace('\\', "/");
+    expanded.replace("{{CLAUDE_DIR}}", &normalized)
+}
+
 /// 各ステップを並列に実行し、失敗を step 定義順で集約する (WP-05)。
 ///
 /// 逐次実行では合計時間が全ステップの和になり Stop hook が肥大化していた
@@ -325,7 +354,8 @@ fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<String> {
         .map(|step| {
             let step_name = step.name.clone();
             let handle = std::thread::spawn(move || {
-                run_cmd_shell_capped(&step.name, &step.cmd, timeout, MAX_LINES)
+                let cmd = expand_step_placeholders(&step.cmd);
+                run_cmd_shell_capped(&step.name, &cmd, timeout, MAX_LINES)
             });
             (step_name, handle)
         })
@@ -364,6 +394,48 @@ fn block_on_failures(failures: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WP-15: プレースホルダーを持たない既存 step は素通しすること (退行なし)。
+    #[test]
+    fn expand_step_placeholders_leaves_plain_commands_untouched() {
+        assert_eq!(expand_step_placeholders("pnpm test"), "pnpm test");
+    }
+
+    /// `{{EXE_SUFFIX}}` が実行 OS の拡張子に展開されること。
+    #[test]
+    fn expand_step_placeholders_substitutes_exe_suffix_for_the_host_os() {
+        let expanded = expand_step_placeholders("tool{{EXE_SUFFIX}} --flag");
+        assert_eq!(
+            expanded,
+            format!("tool{} --flag", std::env::consts::EXE_SUFFIX),
+        );
+        assert!(
+            !expanded.contains("{{EXE_SUFFIX}}"),
+            "プレースホルダーが残っている: {:?}",
+            expanded,
+        );
+    }
+
+    /// `{{CLAUDE_DIR}}` は **forward-slash の絶対パス**に展開されること。
+    /// backslash が残ると sh 側で、相対パスになると cmd.exe 側で解決に失敗する
+    /// (両者が共通で通るのは forward-slash 絶対パスのみ = 実測)。
+    #[test]
+    fn expand_step_placeholders_yields_a_forward_slash_absolute_claude_dir() {
+        let Some(claude_dir) = lib_jj_helpers::pipeline_lock::exe_claude_dir() else {
+            return;
+        };
+        let expanded = expand_step_placeholders("{{CLAUDE_DIR}}/tool{{EXE_SUFFIX}}");
+        assert!(
+            !expanded.contains('\\'),
+            "backslash が残ると sh で解決できない: {:?}",
+            expanded,
+        );
+        assert!(
+            expanded.starts_with(&claude_dir.to_string_lossy().replace('\\', "/")),
+            "絶対パスに展開されること (相対だと cmd.exe が解決できない): {:?}",
+            expanded,
+        );
+    }
 
     #[test]
     fn default_config_has_no_steps() {
