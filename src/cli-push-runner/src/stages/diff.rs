@@ -2,13 +2,26 @@
 //!
 //! 出力は takt の reviewers が Read で参照するレビュー対象そのもののため、
 //! **切り詰めない** (`run_diff_cmd` の doc)。実行は timeout 付き (T6)。
+//!
+//! ## レビュー範囲は PR 全体
+//!
+//! `[diff] command` の [`DIFF_PR_RANGE_PLACEHOLDER`] は `Config::diff_pr_range()`
+//! (= `<base>..@`) に展開される。以前は config に `jj diff -r @` と直書きされており、
+//! **tip コミットしかレビュアーに渡らなかった**。祖先コミットは AI レビューを一度も
+//! 経ずに merge され、しかもレビュアー側からは「渡された diff が PR 全体か」を
+//! 検証できないため誤りが誰にも検知されなかった (todo 順位 288、Severity High で
+//! PR #268/#300/#301/#311 と 4 回再発)。
+//!
+//! 範囲の直書きを禁じるだけでは派生プロジェクトの古い config を救えないため、
+//! [`verify_diff_covers_pr_range`] が生成された diff と PR 範囲の変更ファイル集合を
+//! 突き合わせ、不足があれば fail-closed で中断する。
 
 use std::path::Path;
 use std::process::Stdio;
 
 use lib_subprocess::{drain_pipe_unlimited, shell_command, wait_with_timeout_safe};
 
-use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS};
+use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS, DIFF_PR_RANGE_PLACEHOLDER};
 use crate::log::log_stage;
 
 #[derive(Debug, PartialEq)]
@@ -83,6 +96,73 @@ fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
     }
 }
 
+/// レビュー対象 diff が PR 範囲の全変更ファイルを含むか検査する (fail-closed / ADR-043)。
+///
+/// **なぜ必要か**: `[diff] command` は config 由来の自由文字列で、`-r @` のように
+/// PR より狭い範囲を書けてしまう。狭い範囲を書いても reviewers 側からは「渡された
+/// diff が全体か」を検証できず、正しく「docs-only」等と判定してしまうため、
+/// 誤りが誰にも検知されないまま merge に至る (todo 順位 288、Severity High で 4 回再発)。
+/// 検査の真実源は `jj diff --summary` = docs_only_routing / pr_size_check と同じ経路。
+///
+/// 判定不能 (summary 取得失敗 / diff がヘッダを持たない) は「網羅している」に倒さず
+/// エラーにする。「検証できない」を「検証した」と扱わないための線引き。
+fn verify_diff_covers_pr_range(
+    diff_output: &str,
+    fetch_summary: impl FnOnce() -> Result<String, String>,
+) -> Result<(), String> {
+    let summary = fetch_summary().map_err(|e| format!("PR 範囲の summary 取得に失敗: {}", e))?;
+
+    let expected = parse_summary_paths(&summary);
+    if expected.is_empty() {
+        return Ok(());
+    }
+
+    let covered = parse_git_diff_paths(diff_output);
+    if covered.is_empty() {
+        return Err(
+            "diff 出力に `diff --git` ヘッダが無く、対象ファイルを特定できません".to_string(),
+        );
+    }
+
+    let missing: Vec<&String> = expected.iter().filter(|p| !covered.contains(*p)).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} ファイルが未収録 (例: {})",
+        missing.len(),
+        missing
+            .iter()
+            .take(3)
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+/// `jj diff --summary` の `M path` 形式からパス集合を作る。
+///
+/// Windows の jj は `\` 区切りで出すため `/` に正規化して `--git` 側と突き合わせる。
+fn parse_summary_paths(summary: &str) -> std::collections::BTreeSet<String> {
+    summary
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .map(|(_status, path)| path.trim().replace('\\', "/"))
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// unified diff の `diff --git a/X b/X` ヘッダからパス集合を作る。
+fn parse_git_diff_paths(diff_output: &str) -> std::collections::BTreeSet<String> {
+    diff_output
+        .lines()
+        .filter_map(|line| line.strip_prefix("diff --git "))
+        .filter_map(|rest| rest.split_once(" b/"))
+        .map(|(_a_side, b_path)| b_path.trim().replace('\\', "/"))
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
 /// takt 実行後の diff snapshot を取得する (T12 post-takt re-gate の変化検出用)。
 ///
 /// Stage 1.5 と同じ `[diff] command` を再実行し stdout を返す。呼び出し側 (re-gate) は
@@ -91,17 +171,36 @@ fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
 /// 呼び出し側が fail-closed (= 変化ありとみなし re-gate 実行) に扱う (ADR-043)。
 ///
 /// `run_diff` と違いファイルには書かない (比較のためメモリ上で保持するだけ)。timeout /
-/// stderr 分離の要件は `run_diff_cmd` と同一 (同 doc 参照)。
-pub(crate) fn capture_diff_snapshot(config: &DiffConfig) -> Option<String> {
+/// stderr 分離の要件は `run_diff_cmd` と同一 (同 doc 参照)。範囲カバレッジ検査も
+/// 行わない (前後比較が目的で、レビュー入力にはならないため)。
+pub(crate) fn capture_diff_snapshot(config: &DiffConfig, pr_range: &str) -> Option<String> {
     let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
-    run_diff_cmd(&config.command, timeout).ok()
+    run_diff_cmd(&resolve_diff_command(&config.command, pr_range), timeout).ok()
 }
 
-pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
-    log_stage("diff", &format!("実行: {}", config.command));
+/// `[diff] command` の [`DIFF_PR_RANGE_PLACEHOLDER`] を PR 範囲 revset に展開する。
+pub(crate) fn resolve_diff_command(command: &str, pr_range: &str) -> String {
+    command.replace(DIFF_PR_RANGE_PLACEHOLDER, pr_range)
+}
+
+pub(crate) fn run_diff(config: &DiffConfig, pr_range: &str) -> DiffResult {
+    run_diff_with(config, pr_range, || {
+        super::docs_only_routing::run_jj_diff_summary(pr_range)
+    })
+}
+
+/// `run_diff` の本体。PR 範囲の summary 取得を注入可能にして、範囲カバレッジ検査を
+/// jj 実行なしでテストできるようにする (`post_takt_regate::decide_regate` と同じ流儀)。
+fn run_diff_with(
+    config: &DiffConfig,
+    pr_range: &str,
+    fetch_summary: impl FnOnce() -> Result<String, String>,
+) -> DiffResult {
+    let command = resolve_diff_command(&config.command, pr_range);
+    log_stage("diff", &format!("実行: {}", command));
 
     let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
-    let output = match run_diff_cmd(&config.command, timeout) {
+    let output = match run_diff_cmd(&command, timeout) {
         Ok(output) => output,
         Err(err) => {
             log_stage("diff", "diff コマンド失敗");
@@ -120,7 +219,30 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
         return DiffResult::Empty;
     }
 
-    let path = Path::new(&config.output_path);
+    if let Err(reason) = verify_diff_covers_pr_range(&output, fetch_summary) {
+        report_coverage_failure(pr_range, &reason);
+        return DiffResult::Error;
+    }
+
+    write_diff_output(&config.output_path, &output)
+}
+
+/// 範囲検査に落ちたときの fail-closed 通知 (ADR-043)。
+///
+/// 「レビュー範囲が PR より狭い」ことは検知できても自動修復はできない
+/// (どこまで広げるべきかは config の意図次第) ため、push を止めて人間に返す。
+fn report_coverage_failure(pr_range: &str, reason: &str) {
+    log_stage("diff", &format!("レビュー範囲の検査に失敗: {}", reason));
+    eprintln!(
+        "[push-runner] [diff] レビュー対象 diff が PR 範囲 ({}) を網羅していません: {}\n\
+         このまま進めると祖先コミットが AI レビューを経ずに merge されます (todo 順位 288)。\n\
+         `[diff] command` が `{}` を使っているか、出力が unified diff (--git) 形式かを確認してください。",
+        pr_range, reason, DIFF_PR_RANGE_PLACEHOLDER
+    );
+}
+
+fn write_diff_output(output_path: &str, output: &str) -> DiffResult {
+    let path = Path::new(output_path);
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             log_stage("diff", &format!("ディレクトリ作成失敗: {}", e));
@@ -128,12 +250,12 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
         }
     }
 
-    match std::fs::write(path, &output) {
+    match std::fs::write(path, output) {
         Ok(()) => {
             let line_count = output.lines().count();
             log_stage(
                 "diff",
-                &format!("書き出し完了: {} ({} 行)", config.output_path, line_count),
+                &format!("書き出し完了: {} ({} 行)", output_path, line_count),
             );
             DiffResult::HasContent
         }
@@ -147,6 +269,124 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 範囲検査を jj 非依存でテストするための PR 範囲 revset。
+    fn test_pr_range() -> String {
+        format!("{}..@", crate::config::DEFAULT_BASE_BRANCH)
+    }
+
+    /// PR #268/#300/#301/#311 の incident 形状: PR に 2 ファイル変更があるのに、
+    /// レビュー対象 diff には tip コミットの 1 ファイルしか入っていない。
+    const INCIDENT_PR_SUMMARY: &str = "M docs/plan.md\nM src/checker/decide.rs\n";
+    const INCIDENT_TIP_ONLY_DIFF: &str =
+        "diff --git a/docs/plan.md b/docs/plan.md\n@@ -1 +1 @@\n-a\n+b\n";
+
+    #[test]
+    fn resolve_diff_command_expands_pr_range_placeholder() {
+        let range = test_pr_range();
+        assert_eq!(
+            resolve_diff_command("jj diff --git -r {{PR_RANGE}}", &range),
+            format!("jj diff --git -r {}", range)
+        );
+    }
+
+    /// base branch が `main` の派生プロジェクトでも展開が成立すること
+    /// (rule⑫ が防ごうとしている alternative branch の silent breakage)。
+    #[test]
+    fn resolve_diff_command_expands_alternative_base_branch() {
+        assert_eq!(
+            resolve_diff_command("jj diff --git -r {{PR_RANGE}}", "main..@"),
+            "jj diff --git -r main..@"
+        );
+    }
+
+    /// incident 再現: レビュー対象 diff が PR 範囲より狭いことを検知する。
+    /// 旧実装にはこの検査が無く、狭い diff が「全体」として reviewers に渡っていた。
+    #[test]
+    fn verify_rejects_diff_narrower_than_pr_range() {
+        let result = verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || {
+            Ok(INCIDENT_PR_SUMMARY.to_string())
+        });
+        let err = result.expect_err("PR 範囲より狭い diff は検知されなければならない");
+        assert!(
+            err.contains("src/checker/decide.rs"),
+            "未収録ファイル名を示すこと: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn verify_accepts_diff_covering_whole_pr_range() {
+        let full_diff = format!(
+            "{}diff --git a/src/checker/decide.rs b/src/checker/decide.rs\n@@ -1 +1 @@\n-x\n+y\n",
+            INCIDENT_TIP_ONLY_DIFF
+        );
+        assert!(
+            verify_diff_covers_pr_range(&full_diff, || Ok(INCIDENT_PR_SUMMARY.to_string())).is_ok()
+        );
+    }
+
+    /// Windows の jj は `--summary` を `\` 区切りで出すため、正規化しないと
+    /// 全ファイルが「未収録」に見えて常時 fail する。
+    #[test]
+    fn verify_normalizes_windows_path_separators() {
+        let summary = "M docs\\plan.md\n";
+        assert!(verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || Ok(
+            summary.to_string()
+        ))
+        .is_ok());
+    }
+
+    /// summary 取得に失敗したら「網羅している」に倒さない (fail-closed / ADR-043)。
+    #[test]
+    fn verify_fails_closed_when_summary_unavailable() {
+        let result =
+            verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || Err("jj 失敗".to_string()));
+        assert!(
+            result.is_err(),
+            "検証できないことを検証したものとして扱ってはならない"
+        );
+    }
+
+    /// jj 既定形式 (`diff --git` ヘッダを持たない) では収録ファイルを特定できないため
+    /// fail-closed にする。--git 形式への切替 (todo 順位 264) を機械的に要求する層。
+    #[test]
+    fn verify_fails_closed_when_diff_has_no_git_headers() {
+        let plain_format_diff = "Modified regular file docs/plan.md:\n   1    1: -a\n";
+        let result = verify_diff_covers_pr_range(plain_format_diff, || {
+            Ok(INCIDENT_PR_SUMMARY.to_string())
+        });
+        assert!(result.is_err(), "形式不明なら検証済みと扱わない");
+    }
+
+    /// PR 範囲が空 (変更なし) なら検査は素通しする (空 diff は上流で Empty 扱い)。
+    #[test]
+    fn verify_passes_when_pr_range_is_empty() {
+        assert!(verify_diff_covers_pr_range("", || Ok(String::new())).is_ok());
+    }
+
+    /// run_diff の実経路で範囲不足が Error になること (report 経路まで含めた固定)。
+    #[test]
+    fn run_diff_errors_when_coverage_check_fails() {
+        let out_path = std::env::temp_dir().join("test-run-diff-coverage.txt");
+        let _ = std::fs::remove_file(&out_path);
+        let config = DiffConfig {
+            command: format!("echo {}", INCIDENT_TIP_ONLY_DIFF.lines().next().unwrap()),
+            output_path: out_path.to_string_lossy().into_owned(),
+            timeout: Some(30),
+            default_branch: None,
+        };
+
+        let result = run_diff_with(&config, &test_pr_range(), || {
+            Ok(INCIDENT_PR_SUMMARY.to_string())
+        });
+
+        assert_eq!(result, DiffResult::Error);
+        assert!(
+            !out_path.exists(),
+            "範囲不足の diff はレビュー入力として書き出さない"
+        );
+    }
 
     /// 100 行を吐くコマンド。cmd.exe と POSIX sh で構文が非互換なため OS 別に
     /// 出し分ける (WP-15)。POSIX 側は `seq` 不在の最小環境でも動く while ループ。
@@ -196,9 +436,10 @@ mod tests {
             command: ZERO_BYTE_OUTPUT_CMD.to_string(),
             output_path: out_path.to_string_lossy().into_owned(),
             timeout: None,
+            default_branch: None,
         };
 
-        let result = run_diff(&config);
+        let result = run_diff_with(&config, &test_pr_range(), || Ok(String::new()));
 
         assert_eq!(
             result,
@@ -219,8 +460,9 @@ mod tests {
             command: "echo snapshot-content".to_string(),
             output_path: String::new(),
             timeout: None,
+            default_branch: None,
         };
-        let snap = capture_diff_snapshot(&config).expect("成功時は Some");
+        let snap = capture_diff_snapshot(&config, &test_pr_range()).expect("成功時は Some");
         assert!(
             snap.contains("snapshot-content"),
             "stdout をそのまま返すこと: {:?}",
@@ -236,9 +478,10 @@ mod tests {
             command: STDERR_THEN_FAIL_CMD.to_string(),
             output_path: String::new(),
             timeout: Some(30),
+            default_branch: None,
         };
         assert!(
-            capture_diff_snapshot(&config).is_none(),
+            capture_diff_snapshot(&config, &test_pr_range()).is_none(),
             "失敗時は None (呼び出し側で fail-closed に扱う)"
         );
     }
@@ -318,10 +561,11 @@ mod tests {
                 command: HANGING_COMMAND.to_string(),
                 output_path: out_path.to_string_lossy().into_owned(),
                 timeout: Some(SHORT_TIMEOUT_SECS),
+                default_branch: None,
             };
 
             assert_eq!(
-                run_diff(&config),
+                run_diff_with(&config, &test_pr_range(), || Ok(String::new())),
                 DiffResult::Error,
                 "timeout は Error (= exit 5 で中断) になること。Empty だとレビューを\
                  skip して push に進んでしまう",
@@ -349,12 +593,13 @@ mod tests {
                     .to_string_lossy()
                     .into_owned(),
                 timeout: None,
+                default_branch: None,
             };
             assert_eq!(
                 config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS),
                 DEFAULT_DIFF_TIMEOUT_SECS,
             );
-            assert_eq!(run_diff(&config), DiffResult::HasContent);
+            assert_eq!(run_diff_with(&config, &test_pr_range(), || Ok(String::new())), DiffResult::HasContent);
             let _ = std::fs::remove_file(&config.output_path);
         }
 

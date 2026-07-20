@@ -24,7 +24,7 @@
 use std::process::{Command, Stdio};
 
 use crate::config::{
-    PrSizeCheckConfig, DEFAULT_PR_SIZE_BASE_BRANCH, DEFAULT_PR_SIZE_BLOCK_THRESHOLD,
+    PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD,
     DEFAULT_PR_SIZE_WARNING_THRESHOLD,
 };
 use crate::log::{log_info, log_stage};
@@ -41,15 +41,14 @@ const OVERRIDE_ENV_VAR: &str = "PR_SIZE_CHECK_OVERRIDE";
 ///
 /// fail-open: jj 不調 (timeout / 起動失敗 / 出力 parse 失敗) 時は warning ログのみで
 /// true を返し、push 自体は止めない。
-pub(crate) fn run_pr_size_check(config: Option<&PrSizeCheckConfig>) -> bool {
+pub(crate) fn run_pr_size_check(config: Option<&PrSizeCheckConfig>, pr_range: &str) -> bool {
     let enabled = config.and_then(|c| c.enabled).unwrap_or(false);
     if !enabled {
         return true;
     }
-    let default_branch = effective_default_branch(config);
     let warning = effective_warning_threshold(config);
     let block = effective_block_threshold(config);
-    let revset = format!("{}..@", default_branch);
+    let revset = pr_range.to_string();
     let stat_line = match run_jj_diff_stat(&revset) {
         Ok(line) => line,
         Err(e) => {
@@ -120,14 +119,6 @@ fn classify_and_log(
         &format!("PR diff {} 行 (閾値 warning={} 内、OK)", total, warning),
     );
     true
-}
-
-fn effective_default_branch(config: Option<&PrSizeCheckConfig>) -> String {
-    config
-        .and_then(|c| c.default_branch.as_ref())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_PR_SIZE_BASE_BRANCH.to_string())
 }
 
 fn effective_warning_threshold(config: Option<&PrSizeCheckConfig>) -> usize {
@@ -345,33 +336,6 @@ mod tests {
     }
 
     #[test]
-    fn effective_default_branch_uses_default_when_none() {
-        assert_eq!(effective_default_branch(None), "master");
-    }
-
-    #[test]
-    fn effective_default_branch_uses_config_when_present() {
-        let c = PrSizeCheckConfig {
-            enabled: Some(true),
-            default_branch: Some("main".to_string()),
-            warning_threshold: None,
-            block_threshold: None,
-        };
-        assert_eq!(effective_default_branch(Some(&c)), "main");
-    }
-
-    #[test]
-    fn effective_default_branch_falls_back_when_blank_string() {
-        let c = PrSizeCheckConfig {
-            enabled: Some(true),
-            default_branch: Some("   ".to_string()),
-            warning_threshold: None,
-            block_threshold: None,
-        };
-        assert_eq!(effective_default_branch(Some(&c)), "master");
-    }
-
-    #[test]
     fn effective_warning_threshold_default() {
         assert_eq!(effective_warning_threshold(None), 800);
     }
@@ -405,7 +369,7 @@ mod tests {
 
     #[test]
     fn run_pr_size_check_skips_when_section_absent() {
-        assert!(run_pr_size_check(None));
+        assert!(run_pr_size_check(None, &fixture_revset("master")));
     }
 
     #[test]
@@ -416,7 +380,7 @@ mod tests {
             warning_threshold: None,
             block_threshold: None,
         };
-        assert!(run_pr_size_check(Some(&c)));
+        assert!(run_pr_size_check(Some(&c), &fixture_revset("master")));
     }
 
     #[test]
@@ -427,7 +391,7 @@ mod tests {
             warning_threshold: None,
             block_threshold: None,
         };
-        assert!(run_pr_size_check(Some(&c)));
+        assert!(run_pr_size_check(Some(&c), &fixture_revset("master")));
     }
 
     #[test]

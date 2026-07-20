@@ -1,13 +1,5 @@
 use serde::Deserialize;
 
-/// docs-only routing の base branch 既定値。PR 範囲 `format!("{}..@", branch)` の base。
-///
-/// `[pr_size_check]` の `default_branch` と**論理的に同一の値でなければならない**
-/// (両者とも「PR の base branch」を指す)。config で別々に持つのは ADR-039 の
-/// section 独立性のためだが、値が食い違うと一方が誤った範囲を見る (ADR-051 の
-/// cross-config coupling)。`push-runner-config.toml` のコメントに同期義務を明記する。
-pub(crate) const DEFAULT_DOCS_ONLY_BASE_BRANCH: &str = "master";
-
 /// docs-only と判定されたとき skip する quality_gate group の既定値。
 ///
 /// `rust-lint-test` は diff が docs-only (ADR-035 path 基準) のとき結果が変わり得ない
@@ -49,14 +41,6 @@ pub(crate) struct DocsOnlyRoutingConfig {
 }
 
 impl DocsOnlyRoutingConfig {
-    pub(crate) fn effective_default_branch(&self) -> String {
-        self.default_branch
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| DEFAULT_DOCS_ONLY_BASE_BRANCH.to_string())
-    }
-
     pub(crate) fn effective_skip_groups(&self) -> Vec<String> {
         match &self.skip_groups {
             Some(groups) if !groups.is_empty() => groups.clone(),
@@ -94,11 +78,15 @@ command = "echo push"
             BASE
         );
         let config = parse(&toml_str);
+        assert_eq!(
+            config.docs_only_pr_range(),
+            "main..@",
+            "section の default_branch は top-level より優先される (後方互換)"
+        );
         let s = config
             .docs_only_routing
             .expect("[docs_only_routing] should parse to Some");
         assert_eq!(s.enabled, Some(true));
-        assert_eq!(s.effective_default_branch(), "main");
         assert_eq!(s.effective_skip_groups(), vec!["rust-lint-test", "heavy"]);
     }
 
@@ -115,9 +103,13 @@ command = "echo push"
     fn effective_defaults_when_fields_omitted() {
         let toml_str = format!("{}\n[docs_only_routing]\nenabled = true\n", BASE);
         let config = parse(&toml_str);
+        assert_eq!(
+            config.docs_only_pr_range(),
+            format!("{}..@", crate::config::DEFAULT_BASE_BRANCH),
+            "section / top-level とも未設定なら共通の既定 base branch に倒れる"
+        );
         let s = config.docs_only_routing.unwrap();
         assert_eq!(s.enabled, Some(true));
-        assert_eq!(s.effective_default_branch(), "master");
         assert_eq!(s.effective_skip_groups(), vec!["rust-lint-test"]);
     }
 

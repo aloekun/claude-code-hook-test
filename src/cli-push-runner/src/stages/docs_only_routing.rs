@@ -16,11 +16,16 @@
 //!
 //! ## 判定範囲は PR 範囲 (`<base>..@`)、単一コミット (`@`) ではない
 //!
-//! `[diff]` stage は `jj diff -r @` (単一コミット) を使うが、本 stage は
-//! `pr_size_check` と同じ `<default_branch>..@` (PR 範囲) を使う。quality_gate は
-//! working copy 全体をビルド・テストするので、判定すべきは「push される差分全体が
-//! docs-only か」であり、`@` 単独が docs-only でも祖先コミットが Rust に触れていれば
-//! gate は必要。単一コミット判定は祖先の code 変更を見逃す穴になる。
+//! quality_gate は working copy 全体をビルド・テストするので、判定すべきは
+//! 「push される差分全体が docs-only か」であり、`@` 単独が docs-only でも祖先
+//! コミットが Rust に触れていれば gate は必要。単一コミット判定は祖先の code 変更を
+//! 見逃す穴になる。
+//!
+//! 範囲は `Config::docs_only_pr_range()` から受け取る。かつては本 stage だけが
+//! PR 範囲で `[diff]` stage は `jj diff -r @` (単一コミット) という**非対称**があり、
+//! 祖先コミットが AI レビューを一度も経ずに merge される欠陥が 4 回再発した
+//! (todo 順位 288)。現在は `diff` / `docs_only_routing` / `pr_size_check` の 3 stage が
+//! 同一の解決 (`Config::resolve_base_branch`) を共有し、非対称を構造的に排除している。
 //!
 //! ## 由来
 //!
@@ -57,7 +62,10 @@ pub(crate) enum RoutingDecision {
 ///
 /// ADR-039 § Config opt-in: section 不在 / `enabled != Some(true)` は完全 skip
 /// (= 空 Vec を返し従来挙動)。明示的に `enabled = true` のときのみ判定する。
-pub(crate) fn run_docs_only_routing(config: Option<&DocsOnlyRoutingConfig>) -> Vec<String> {
+pub(crate) fn run_docs_only_routing(
+    config: Option<&DocsOnlyRoutingConfig>,
+    pr_range: &str,
+) -> Vec<String> {
     let Some(config) = config else {
         return Vec::new();
     };
@@ -66,9 +74,8 @@ pub(crate) fn run_docs_only_routing(config: Option<&DocsOnlyRoutingConfig>) -> V
     }
     let override_active =
         std::env::var(OVERRIDE_ENV_VAR).ok().as_deref() == Some("1");
-    let revset = format!("{}..@", config.effective_default_branch());
-    let decision = decide_routing(config, override_active, || run_jj_diff_summary(&revset));
-    log_and_map(decision, &revset)
+    let decision = decide_routing(config, override_active, || run_jj_diff_summary(pr_range));
+    log_and_map(decision, pr_range)
 }
 
 /// 純関数の判定コア。jj 実行は `fetch_summary` closure で注入し (ADR-021 原則 3)、
@@ -132,9 +139,16 @@ fn log_and_map(decision: RoutingDecision, revset: &str) -> Vec<String> {
 /// `jj diff --summary -r '<revset>'` を実行し stdout を返す。
 ///
 /// pr_size_check の `run_jj_diff_stat` と同型 (drain_pipe_unlimited + timeout)。
-/// direct args のため `run_cmd_shell_*` (shell 経由) とは signature 非互換で
-/// 共通化しない (ADR-044 層 1)。
-fn run_jj_diff_summary(revset: &str) -> Result<String, String> {
+///
+/// **direct args 必須** (shell 経由にしないこと): `[diff] command` のような shell 実行に
+/// すると revset のクォートがシェル方言に依存する。cmd.exe は `-r "<base>..@"` の
+/// `"` を除去せず jj に渡すため `Revision '"<base>..@"' doesn't exist` で必ず失敗する
+/// (sh は除去するので Linux だけ通る = 片 OS でのみ壊れる形。2026-07-21 実測)。
+///
+/// `diff` stage の範囲カバレッジ検査もこの関数を使う。両者は「PR 範囲の変更ファイル
+/// 一覧」という**同一の問い**を扱うため、別実装にすると本 PR が排除した非対称
+/// (stage ごとに違う範囲を見る) を再導入することになる。
+pub(super) fn run_jj_diff_summary(revset: &str) -> Result<String, String> {
     let mut child = Command::new("jj")
         .args(["diff", "--summary", "-r", revset])
         .stdout(Stdio::piped())
@@ -272,11 +286,11 @@ mod tests {
     #[test]
     fn disabled_config_returns_empty_skip_set() {
         let cfg = config(false, None);
-        assert!(run_docs_only_routing(Some(&cfg)).is_empty());
+        assert!(run_docs_only_routing(Some(&cfg), "trunk()..@").is_empty());
     }
 
     #[test]
     fn absent_config_returns_empty_skip_set() {
-        assert!(run_docs_only_routing(None).is_empty());
+        assert!(run_docs_only_routing(None, "trunk()..@").is_empty());
     }
 }

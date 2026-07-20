@@ -3,6 +3,18 @@
 # pnpm push で起動される push-runner.exe がこのファイルを読み込む。
 # カレントディレクトリ (リポジトリルート) を優先的に検索する。
 
+# PR base branch。`diff` / `docs_only_routing` / `pr_size_check` の 3 stage が
+# 「PR 範囲」= `<default_branch>..@` をここから解決する (唯一の真実源)。
+# 各 section にも `default_branch` を書けるが後方互換のための override であり、
+# 新規に section 側で持たせないこと (値が食い違うと stage 間で見る範囲がずれる)。
+#
+# TOML の table 構文上、本キーは**最初の [section] より前**に置く必要がある。
+# section の後ろに書くとその section のキーとして解釈され、top-level には効かない。
+#
+# 未設定なら "master" (DEFAULT_BASE_BRANCH)。main 系リポジトリでは
+# `default_branch = "main"` を有効化すること。
+# default_branch = "master"
+
 # ---------------------------------------------------------------------------
 # [scratch_file_warning] — 順位 1 (PR #85 T1-4): scratch ファイル混入の防御層。
 # `@` commit に `__*` 等の scratch ファイルが含まれていないか push 前に検査し、
@@ -152,7 +164,24 @@ commands = [
 ]
 
 [diff]
-command = "jj diff -r @"
+# `{{PR_RANGE}}` は push-runner が `<default_branch>..@` に展開する。
+#
+# **exe と config は同時に更新すること** (ADR-051 cross-system config coupling):
+# プレースホルダ対応前の cli-push-runner.exe が本 config を読むと `{{PR_RANGE}}` が
+# そのまま jj に渡り `Failed to parse revset: Syntax error` で exit 5 になる
+# (2026-07-21 実観測)。fail-closed なので silent 誤動作にはならないが、
+# `pnpm build:cli-push-runner` (or `build:all`) で exe を更新すれば解消する。
+# **revset を直書きしないこと**: `-r @` のように PR より狭い範囲を書くと、祖先
+# コミットが AI レビューを一度も経ずに merge される (todo 順位 288、Severity High で
+# PR #268/#300/#301/#311 と 4 回再発)。レビュアー側からは渡された diff が PR 全体か
+# 検証できないため、誤りは誰にも検知されない。
+#
+# `--git` (unified diff) 必須。(a) 範囲カバレッジ検査が `diff --git` ヘッダから
+# ファイル一覧を抽出する、(b) jj 既定形式は色を落とすと `+`/`-` が消え LLM
+# レビュアーが削除を追加と誤読する (todo 順位 264、PR #256 で約 19 分浪費)。
+#
+# 生成された diff が PR 範囲を網羅していない場合は exit 5 で中断する (fail-closed)。
+command = "jj diff --git -r {{PR_RANGE}}"
 output_path = ".takt/review-diff.txt"
 # timeout (T6): 未指定時は 60s (DEFAULT_DIFF_TIMEOUT_SECS)。旧実装は無限待ちで、
 # ADR-045 の並列 workspace 運用で jj lock 競合が起きるとパイプラインが無言ハングした。

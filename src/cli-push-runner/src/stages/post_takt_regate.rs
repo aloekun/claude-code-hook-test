@@ -86,8 +86,8 @@ fn decide_regate(
 
 /// takt 実行後の post-takt diff snapshot を取得する。`[diff]` 未設定時は None
 /// (呼び出し側で Indeterminate = fail-closed に倒れる)。
-fn fetch_post_diff(diff_config: Option<&DiffConfig>) -> Option<String> {
-    diff_config.and_then(capture_diff_snapshot)
+fn fetch_post_diff(diff_config: Option<&DiffConfig>, pr_range: &str) -> Option<String> {
+    diff_config.and_then(|c| capture_diff_snapshot(c, pr_range))
 }
 
 /// 判定結果を実行に写像する。skip 系は `true` (push 続行)、実行系は quality_gate の
@@ -164,8 +164,14 @@ pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> R
         .is_some_and(|c| c.is_enabled());
     let override_active = std::env::var(OVERRIDE_ENV_VAR).ok().as_deref() == Some("1");
 
+    let pr_range = config.pr_range_revset(
+        config
+            .diff
+            .as_ref()
+            .and_then(|d| d.default_branch.as_deref()),
+    );
     let decision = decide_regate(enabled, override_active, pre_diff, || {
-        fetch_post_diff(config.diff.as_ref())
+        fetch_post_diff(config.diff.as_ref(), &pr_range)
     });
 
     let proceed = apply_regate_decision(decision, &config.quality_gate);
@@ -295,8 +301,9 @@ command = "echo push"
             command: "echo unchanged".to_string(),
             output_path: String::new(),
             timeout: Some(30),
+            default_branch: None,
         };
-        let pre = capture_diff_snapshot(&diff_cfg).expect("pre snapshot 取得");
+        let pre = capture_diff_snapshot(&diff_cfg, "trunk()..@").expect("pre snapshot 取得");
 
         let config = config_with(true, "exit 1", "echo unchanged");
         let outcome = run_post_takt_regate(&config, Some(&pre));
