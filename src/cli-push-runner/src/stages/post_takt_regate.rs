@@ -164,12 +164,7 @@ pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> R
         .is_some_and(|c| c.is_enabled());
     let override_active = std::env::var(OVERRIDE_ENV_VAR).ok().as_deref() == Some("1");
 
-    let pr_range = config.pr_range_revset(
-        config
-            .diff
-            .as_ref()
-            .and_then(|d| d.default_branch.as_deref()),
-    );
+    let pr_range = config.diff_pr_range();
     let decision = decide_regate(enabled, override_active, pre_diff, || {
         fetch_post_diff(config.diff.as_ref(), &pr_range)
     });

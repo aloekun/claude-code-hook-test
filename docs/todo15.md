@@ -454,7 +454,7 @@
 
 #### 作業計画
 
-- [ ] **`[diff]` stage の diff 範囲を `<default_branch>..@` (PR 範囲) に拡張** — 祖先コミットの code 変更も AI レビュー用 diff に含める (`docs_only_routing` の skip 判定と同基準に揃える)。
+- [x] **`[diff]` stage の diff 範囲を `<default_branch>..@` (PR 範囲) に拡張** — 祖先コミットの code 変更も AI レビュー用 diff に含める (`docs_only_routing` の skip 判定と同基準に揃える)。**PR #311/#313 で実装済** (上記 (a) 参照。範囲カバレッジ検査 + config-load 時の `{{PR_RANGE}}` 必須検証込み)。
 - [ ] `bookmark_check.rs` で `@` 非 trunk 祖先が未レビューのまま push される穴を検証・塞ぐ (T8 / PR #280 と同クラス)。
 - [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
 - [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)

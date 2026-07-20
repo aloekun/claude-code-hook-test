@@ -44,6 +44,14 @@ pub(crate) const DEFAULT_DIFF_TIMEOUT_SECS: u64 = 60;
 /// merge される欠陥が 4 回再発した。todo 順位 288 / ADR-051 cross-config coupling)。
 pub(crate) const DEFAULT_BASE_BRANCH: &str = "master";
 
+/// branch 名を trim し、空文字を `None` に落とす (空白のみの設定値を未設定扱いにする)。
+fn normalize_branch(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 #[derive(Deserialize)]
 pub(crate) struct Config {
     /// 全 stage 共通の PR base branch。section 側の `default_branch` が
@@ -62,23 +70,47 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    /// PR base branch を解決する。優先順: section override → top-level → 既定値。
+    /// PR base branch を解決する。優先順:
+    /// section override → [`Config::effective_default_branch`] (top-level か、
+    /// 全一致する section override 群) → 既定値。
     ///
     /// section override は後方互換のために残してある (既存の派生プロジェクト config が
     /// `[pr_size_check] default_branch` 等を持つため)。新規に section 側で持たせないこと。
+    /// override 値が stage 間で食い違わないことは [`validate_base_branch_ranges_agree`]
+    /// が `load_config` 時に fail-closed で保証する。
     pub(crate) fn resolve_base_branch(&self, section_override: Option<&str>) -> String {
-        section_override
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                self.default_branch
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-            })
+        normalize_branch(section_override)
+            .or_else(|| self.effective_default_branch())
             .unwrap_or_else(|| DEFAULT_BASE_BRANCH.to_string())
+    }
+
+    /// config 全体で共有する effective base branch を返す (CodeRabbit #313)。
+    ///
+    /// top-level `default_branch` が明示されていればそれ。無ければ section override 群が
+    /// **全て一致**していればその値を全 stage 共通の base とする。top-level を書かず
+    /// section override だけで base を揃えた legacy config で、override 未設定の stage
+    /// (例 `[diff]`) が `DEFAULT_BASE_BRANCH` に落ちる理由だけで
+    /// [`validate_base_branch_ranges_agree`] に reject されるのを防ぐ。override 群が
+    /// 食い違う場合は `None` を返し、各 stage が自分の override or 既定に解決した結果を
+    /// validate が fail-closed で検知する (genuine な不一致は従来どおり拒否)。
+    fn effective_default_branch(&self) -> Option<String> {
+        if let Some(top) = normalize_branch(self.default_branch.as_deref()) {
+            return Some(top);
+        }
+        let overrides: Vec<String> = [
+            self.diff.as_ref().and_then(|c| c.default_branch.as_deref()),
+            self.docs_only_routing
+                .as_ref()
+                .and_then(|c| c.default_branch.as_deref()),
+            self.pr_size_check
+                .as_ref()
+                .and_then(|c| c.default_branch.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(normalize_branch)
+        .collect();
+        let first = overrides.first()?;
+        overrides.iter().all(|v| v == first).then(|| first.clone())
     }
 
     /// PR 範囲の revset (`<base>..@`) を組み立てる。
@@ -238,432 +270,59 @@ fn validate_config(config: &Config) -> Result<(), String> {
             ));
         }
     }
+    validate_diff_command_uses_pr_range(config)?;
+    validate_base_branch_ranges_agree(config)?;
+    Ok(())
+}
+
+/// `[diff] command` が [`DIFF_PR_RANGE_PLACEHOLDER`] を含むことを config-load 時に検証する
+/// (CodeRabbit #313)。
+///
+/// プレースホルダを欠いた command (例: legacy の `jj diff -r @`) は PR 範囲を無視して
+/// tip のみをレビュー対象にし得る。範囲カバレッジ検査 (`stages::diff::verify_diff_covers_pr_range`)
+/// が runtime の backstop として残るが、config-load 時に明示エラーで弾くことで
+/// 「なぜ diff が狭い/空なのか」を実行時ではなく設定時点で判る診断に前倒しする
+/// (fail-closed / ADR-043、defense-in-depth)。`[diff]` section 不在時は無検査。
+fn validate_diff_command_uses_pr_range(config: &Config) -> Result<(), String> {
+    let Some(diff) = &config.diff else {
+        return Ok(());
+    };
+    if diff.command.contains(DIFF_PR_RANGE_PLACEHOLDER) {
+        return Ok(());
+    }
+    Err(format!(
+        "設定ファイルエラー: [diff] command が {placeholder} を含みません (現在: {command:?})。\
+         PR 範囲全体をレビュー対象にするため command には {placeholder} を使うこと \
+         (例: \"jj diff --git -r {placeholder}\")。直書きの範囲 (`-r @` 等) は tip のみを\
+         レビューし、祖先コミットが未レビューで merge される (todo 順位 288、4 回再発)",
+        placeholder = DIFF_PR_RANGE_PLACEHOLDER,
+        command = diff.command,
+    ))
+}
+
+/// 3 stage (`diff` / `docs_only_routing` / `pr_size_check`) が解決する PR 範囲が
+/// 一致することを検査する (SIM-NEW-config-mod-rs-L69)。
+///
+/// section 側の `default_branch` override は後方互換のために残しているが、
+/// 各 stage が独立解決するため、override が top-level や他 section の値と
+/// 食い違うと `[diff]` だけが狭い範囲を見る非対称が復活する (todo 順位 288、
+/// 4 回再発)。「値を同期する義務」を config のコメントだけに頼らず、
+/// コード上の不変条件として fail-closed で強制する。
+fn validate_base_branch_ranges_agree(config: &Config) -> Result<(), String> {
+    let ranges = [
+        ("diff", config.diff_pr_range()),
+        ("docs_only_routing", config.docs_only_pr_range()),
+        ("pr_size_check", config.pr_size_pr_range()),
+    ];
+    let (_, diff_range) = &ranges[0];
+    if let Some((name, range)) = ranges.iter().find(|(_, range)| range != diff_range) {
+        return Err(format!(
+            "設定ファイルエラー: PR 範囲が stage 間で一致しません ([{name}] は \"{range}\" に解決、\
+             [diff] は \"{diff_range}\" に解決)。default_branch は top-level か、全 section で同じ値にすること"
+        ));
+    }
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// base branch 解決の 3 段 (section override → top-level → 既定値) と、
-    /// **3 stage が同じ範囲に解決される**ことを固定する。
-    ///
-    /// 後者が本 PR の要点: 以前は stage ごとに独立解決で、`[diff]` だけが PR 範囲を
-    /// 見ていない非対称を許していた (todo 順位 288、4 回再発)。
-    mod base_branch_resolution {
-        use super::*;
-
-        const MINIMAL: &str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "t"
-commands = ["echo ok"]
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "echo push"
-
-[diff]
-command = "jj diff --git -r {{PR_RANGE}}"
-output_path = ".takt/d.txt"
-"#;
-
-        /// TOML の table 構文上、top-level key は**全 section より前**に置く必要が
-        /// あるため、prefix / suffix を分けて組み立てる。
-        fn parse(top_level: &str, sections: &str) -> Config {
-            toml::from_str(&format!("{}{}{}", top_level, MINIMAL, sections))
-                .expect("config should parse")
-        }
-
-        #[test]
-        fn all_stages_share_the_same_range_by_default() {
-            let config = parse("", "");
-            let expected = format!("{}..@", DEFAULT_BASE_BRANCH);
-            assert_eq!(config.diff_pr_range(), expected);
-            assert_eq!(config.docs_only_pr_range(), expected);
-            assert_eq!(config.pr_size_pr_range(), expected);
-        }
-
-        #[test]
-        fn top_level_default_branch_applies_to_all_stages() {
-            let config = parse("default_branch = \"main\"\n", "");
-            assert_eq!(config.diff_pr_range(), "main..@");
-            assert_eq!(config.docs_only_pr_range(), "main..@");
-            assert_eq!(config.pr_size_pr_range(), "main..@");
-        }
-
-        /// 後方互換: 既存の派生プロジェクト config が持つ section 側の
-        /// `default_branch` は top-level より優先される。
-        #[test]
-        fn section_override_wins_over_top_level() {
-            let config = parse(
-                "default_branch = \"main\"\n",
-                "\n[pr_size_check]\nenabled = true\ndefault_branch = \"develop\"\n",
-            );
-            assert_eq!(config.pr_size_pr_range(), "develop..@");
-            assert_eq!(
-                config.diff_pr_range(),
-                "main..@",
-                "override は指定した section にのみ効く"
-            );
-        }
-
-        #[test]
-        fn blank_override_falls_back_instead_of_producing_empty_range() {
-            let config = parse(
-                "default_branch = \"main\"\n",
-                "\n[pr_size_check]\nenabled = true\ndefault_branch = \"   \"\n",
-            );
-            assert_eq!(
-                config.pr_size_pr_range(),
-                "main..@",
-                "空白のみの override は未設定として扱う (`..@` を作らない)"
-            );
-        }
-
-        #[test]
-        fn blank_top_level_falls_back_to_default() {
-            let config = parse("default_branch = \"\"\n", "");
-            assert_eq!(config.diff_pr_range(), format!("{}..@", DEFAULT_BASE_BRANCH));
-        }
-    }
-
-    #[test]
-    fn config_parses_full_without_diff() {
-        let toml_str = r#"
-[quality_gate]
-parallel = true
-step_timeout = 60
-
-[[quality_gate.groups]]
-name = "lint"
-commands = ["pnpm lint"]
-
-[[quality_gate.groups]]
-name = "test"
-pre = "pnpm install"
-commands = ["pnpm test", "pnpm test:e2e"]
-
-[takt]
-workflow = "pre-push-review"
-task = "pre-push review"
-extra_args = ["--pipeline", "--skip-git"]
-
-[push]
-command = "jj git push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-
-        assert_eq!(config.quality_gate.parallel, Some(true));
-        assert_eq!(config.quality_gate.step_timeout, Some(60));
-        assert_eq!(config.quality_gate.groups.len(), 2);
-        assert!(config.diff.is_none());
-
-        assert_eq!(config.takt.workflow, "pre-push-review");
-        assert_eq!(config.takt.task, "pre-push review");
-        assert_eq!(config.takt.extra_args.as_ref().unwrap().len(), 2);
-
-        assert_eq!(config.push.command, "jj git push");
-        assert!(config.push.timeout.is_none());
-    }
-
-    #[test]
-    fn config_push_timeout_explicit() {
-        let toml_str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "jj git push"
-timeout = 600
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.push.timeout, Some(600));
-        assert_eq!(
-            config.push.timeout.unwrap_or(DEFAULT_PUSH_TIMEOUT_SECS),
-            600,
-        );
-    }
-
-    #[test]
-    fn config_push_timeout_defaults() {
-        let toml_str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "echo push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        assert!(config.push.timeout.is_none());
-        assert_eq!(
-            config.push.timeout.unwrap_or(DEFAULT_PUSH_TIMEOUT_SECS),
-            DEFAULT_PUSH_TIMEOUT_SECS,
-        );
-    }
-
-    #[test]
-    fn config_parses_with_diff() {
-        let toml_str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[diff]
-command = "jj diff -r @"
-output_path = ".takt/review-diff.txt"
-
-[takt]
-workflow = "pre-push-review"
-task = "pre-push review"
-
-[push]
-command = "jj git push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-
-        let diff = config.diff.unwrap();
-        assert_eq!(diff.command, "jj diff -r @");
-        assert_eq!(diff.output_path, ".takt/review-diff.txt");
-        assert!(diff.timeout.is_none());
-    }
-
-    /// T6: `[diff] timeout` 未指定時は既定値に落ちる (本リポジトリの config は未指定)。
-    #[test]
-    fn config_diff_timeout_defaults() {
-        let toml_str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[diff]
-command = "jj diff -r @"
-output_path = ".takt/review-diff.txt"
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "echo push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        let diff = config.diff.unwrap();
-        assert!(diff.timeout.is_none());
-        assert_eq!(
-            diff.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS),
-            DEFAULT_DIFF_TIMEOUT_SECS,
-        );
-    }
-
-    /// T6: 大 diff / 低速環境向けの escape hatch (既定 60s では足りない場合)。
-    #[test]
-    fn config_diff_timeout_explicit() {
-        let toml_str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[diff]
-command = "jj diff -r @"
-output_path = ".takt/review-diff.txt"
-timeout = 180
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "echo push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.diff.unwrap().timeout, Some(180));
-    }
-
-    #[test]
-    fn config_quality_gate_defaults() {
-        let toml_str = r#"
-[quality_gate]
-
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "echo push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        assert!(config.quality_gate.parallel.unwrap_or(true));
-        assert_eq!(
-            config
-                .quality_gate
-                .step_timeout
-                .unwrap_or(DEFAULT_STEP_TIMEOUT_SECS),
-            DEFAULT_STEP_TIMEOUT_SECS,
-        );
-        assert!(config.takt.extra_args.is_none());
-    }
-
-    #[test]
-    fn config_pre_field_optional() {
-        let toml_str = r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "no-pre"
-commands = ["echo test"]
-
-[[quality_gate.groups]]
-name = "with-pre"
-pre = "echo install"
-commands = ["echo test"]
-
-[takt]
-workflow = "w"
-task = "t"
-
-[push]
-command = "echo push"
-"#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        assert!(config.quality_gate.groups[0].pre.is_none());
-        assert!(config.quality_gate.groups[1].pre.is_some());
-    }
-
-    #[test]
-    fn validate_rejects_empty_groups() {
-        let config = Config {
-            default_branch: None,
-            quality_gate: QualityGateConfig {
-                parallel: None,
-                step_timeout: None,
-                groups: vec![],
-            },
-            diff: None,
-            lint_screen: None,
-            scratch_file_warning: None,
-            pr_size_check: None,
-            pre_push_review: None,
-            docs_only_routing: None,
-            post_takt_regate: None,
-            takt: TaktConfig {
-                workflow: "w".into(),
-                task: "t".into(),
-                extra_args: None,
-            },
-            push: PushConfig {
-                command: "echo".into(),
-                timeout: None,
-            },
-        };
-        let result = validate_config(&config);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("groups が空"));
-    }
-
-    #[test]
-    fn validate_rejects_empty_commands() {
-        let config = Config {
-            default_branch: None,
-            quality_gate: QualityGateConfig {
-                parallel: None,
-                step_timeout: None,
-                groups: vec![GroupConfig {
-                    name: "empty".into(),
-                    pre: None,
-                    commands: vec![],
-                }],
-            },
-            diff: None,
-            lint_screen: None,
-            scratch_file_warning: None,
-            pr_size_check: None,
-            pre_push_review: None,
-            docs_only_routing: None,
-            post_takt_regate: None,
-            takt: TaktConfig {
-                workflow: "w".into(),
-                task: "t".into(),
-                extra_args: None,
-            },
-            push: PushConfig {
-                command: "echo".into(),
-                timeout: None,
-            },
-        };
-        let result = validate_config(&config);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("'empty'"));
-    }
-
-    /// resolve_takt_workflow テスト用に base config + 任意の [pre_push_review]
-    /// section を組み立てる。base workflow は "pre-push-review"。
-    fn config_with_optional_pre_push(pre_push_section: &str) -> Config {
-        let toml_str = format!(
-            r#"
-[quality_gate]
-[[quality_gate.groups]]
-name = "test"
-commands = ["echo ok"]
-
-[takt]
-workflow = "pre-push-review"
-task = "pre-push review"
-
-[push]
-command = "echo push"
-{pre_push_section}
-"#
-        );
-        toml::from_str(&toml_str).unwrap()
-    }
-
-    #[test]
-    fn resolve_workflow_base_when_section_absent() {
-        let config = config_with_optional_pre_push("");
-        assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
-    }
-
-    #[test]
-    fn resolve_workflow_base_when_refute_disabled() {
-        let config = config_with_optional_pre_push(
-            "[pre_push_review]\nrefute_enabled = false\nrefute_workflow = \"pre-push-review-refute\"",
-        );
-        assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
-    }
-
-    #[test]
-    fn resolve_workflow_refute_when_enabled() {
-        let config = config_with_optional_pre_push(
-            "[pre_push_review]\nrefute_enabled = true\nrefute_workflow = \"pre-push-review-refute\"",
-        );
-        assert_eq!(resolve_takt_workflow(&config), "pre-push-review-refute");
-    }
-
-    #[test]
-    fn resolve_workflow_base_when_enabled_but_no_refute_workflow() {
-        let config = config_with_optional_pre_push("[pre_push_review]\nrefute_enabled = true");
-        assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
-    }
-}
+mod tests;
