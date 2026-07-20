@@ -11,18 +11,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const PREAMBLE_SCAN_LINES: usize = 12;
-const TODO_SUMMARY_FILE: &str = "todo-summary.md";
+/// 分割された index の全 part (todo-summary.md / todo-summary2.md / ...) にマッチする prefix。
+/// `is_todo_summary` (ファイル分類) と `check_line` (preamble の summary 参照判定) の両方で使い、
+/// 判定基準を一致させる (Phase 3 simplicity-review: 完全一致と prefix-match の混在は landmine)。
+const TODO_SUMMARY_PREFIX: &str = "todo-summary";
 
 /// `docs/` 配下の preamble 整合性を検査する。
 pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
     let todo_files = list_todo_files(docs_dir)?;
     let expected_total = todo_files.len();
-    let has_summary = todo_files.iter().any(|p| is_todo_summary(p));
-    let expected_without_summary = if has_summary {
-        expected_total.saturating_sub(1)
-    } else {
-        expected_total
-    };
+    let summary_count = todo_files.iter().filter(|p| is_todo_summary(p)).count();
+    let expected_without_summary = expected_total.saturating_sub(summary_count);
 
     let mut violations = Vec::new();
     for path in &todo_files {
@@ -79,7 +78,7 @@ fn check_line(
         ));
     };
 
-    let includes_summary = line.contains(TODO_SUMMARY_FILE);
+    let includes_summary = line.contains(TODO_SUMMARY_PREFIX);
     let expected = if includes_summary {
         expected_total
     } else {
@@ -118,7 +117,7 @@ fn number_regex() -> Regex {
 fn is_todo_summary(path: &Path) -> bool {
     path.file_name()
         .and_then(|s| s.to_str())
-        .map(|name| name == TODO_SUMMARY_FILE)
+        .map(|name| name.starts_with(TODO_SUMMARY_PREFIX) && name.ends_with(".md"))
         .unwrap_or(false)
 }
 
@@ -296,6 +295,53 @@ mod tests {
             v.is_empty(),
             "expected no violations when summary absent (2 files = 二つ), got {:?}",
             v
+        );
+    }
+
+    #[test]
+    fn is_todo_summary_recognizes_split_parts() {
+        assert!(is_todo_summary(Path::new("todo-summary.md")));
+        assert!(is_todo_summary(Path::new("todo-summary2.md")));
+        assert!(!is_todo_summary(Path::new("todo3.md")));
+        assert!(!is_todo_summary(Path::new("todo.md")));
+    }
+
+    /// 分割された index (todo-summary.md + todo-summary2.md) を両方 summary 扱いで
+    /// preamble check から skip し、かつ両方を count する。summary 参照ありは
+    /// expected_total (=4)、参照なしは expected_without_summary (= 4 - summary 2 = 2) と照合。
+    #[test]
+    fn check_counts_split_summary_parts_and_skips_both() {
+        let tmp = TempDir::new().unwrap();
+        write(&tmp.path().join("todo-summary.md"), "# S\n\n> 百つ\n");
+        write(&tmp.path().join("todo-summary2.md"), "# S2\n\n> 百つ\n");
+        write(
+            &tmp.path().join("todo.md"),
+            "# TODO\n\n> stuff\n>\n> 新セッションでは四つすべてを確認すること (todo.md / todo2.md / todo-summary.md)。\n",
+        );
+        write(
+            &tmp.path().join("todo2.md"),
+            "# TODO\n\n> stuff\n>\n> 各 entry を確認すること。二つすべてを確認すること。\n",
+        );
+        let v = check(tmp.path()).unwrap();
+        assert!(v.is_empty(), "expected no violations, got {:?}", v);
+    }
+
+    /// preamble が todo-summary.md を含まず todo-summary2.md のみを参照する場合でも
+    /// prefix-match (`TODO_SUMMARY_PREFIX`) で summary 参照と判定し expected_total と
+    /// 照合することを保証する回帰テスト (Phase 3 simplicity-review 指摘の follow-up)。
+    #[test]
+    fn check_line_detects_summary_via_prefix_when_only_todo_summary2_referenced() {
+        let re = number_regex();
+        let path = Path::new("todo3.md");
+        let referenced = "> 新セッションでは五つすべてを確認すること (todo.md / todo2.md / todo-summary2.md)。";
+        assert!(
+            check_line(path, 1, referenced, &re, 5, 3).is_none(),
+            "todo-summary2.md 参照は summary 扱いで expected_total=5 と一致すべき"
+        );
+        let mismatched = "> 新セッションでは三つすべてを確認すること (todo.md / todo2.md / todo-summary2.md)。";
+        assert!(
+            check_line(path, 1, mismatched, &re, 5, 3).is_some(),
+            "todo-summary2.md 参照時は expected_total(5) と照合するため 三つ(3) は violation になるべき"
         );
     }
 }

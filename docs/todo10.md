@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo9.md がファイルサイズ 50KB を超え行数 1100+ 行に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する (PR #185 = Bundle CR-RL land 後、2026-05-29 ユーザー判断)。**新規エントリの追加先は引き続き本ファイル** (2026-06-12 PR #204 で PR #185 〜 PR #196 era の 8 エントリを [docs/todo12.md](todo12.md) に分離して file_size_check 50KB threshold 内に収めた、todo12.md は新規追加先ではない)。todo.md / todo2.md 〜 todo9.md / todo11.md / todo12.md の既存エントリは引き続き有効、相互に独立。**2026-07-20 に順位 215-224 を todo18.md/todo19.md へ物理分割し、本ファイルは順位 198-214 のみ収容 (docs 50KB 超過解消、39KB 台に縮小)。**新セッションでは二十つすべてを確認すること (todo.md / todo2-19.md / todo-summary.md)。
+> **本ファイルの位置付け**: docs/todo9.md がファイルサイズ 50KB を超え行数 1100+ 行に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して新規エントリは本ファイルに記録する (PR #185 = Bundle CR-RL land 後、2026-05-29 ユーザー判断)。**新規エントリの追加先は引き続き本ファイル** (2026-06-12 PR #204 で PR #185 〜 PR #196 era の 8 エントリを [docs/todo12.md](todo12.md) に分離して file_size_check 50KB threshold 内に収めた、todo12.md は新規追加先ではない)。todo.md / todo2.md 〜 todo9.md / todo11.md / todo12.md の既存エントリは引き続き有効、相互に独立。**2026-07-20 に順位 215-224 を todo18.md/todo19.md へ物理分割し、本ファイルは順位 198-214 のみ収容 (docs 50KB 超過解消、39KB 台に縮小)。**新セッションでは21つすべてを確認すること (todo.md / todo2-19.md / todo-summary.md / todo-summary2.md)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 

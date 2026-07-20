@@ -4,7 +4,8 @@
 >
 > **本ファイル + [docs/todo2.md](todo2.md) 〜 [docs/todo19.md](todo19.md) + [docs/todo-summary.md](todo-summary.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加、2026-07-20 docs 50KB 超過解消で todo13.md を todo15/16/17・todo10.md を todo18/19 へ物理分割):
 >
-> - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)。table の新規行追加・既存行編集・順位再採番はここで行う。
+> - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)、順位 6-219 を収容。既存行編集・順位再採番はここで行う。
+> - **docs/todo-summary2.md**: todo-summary.md の table を 2026-07-20 に docs 50KB 超過解消で分割した後半 (順位 220 以降を収容)。新規行追加は末尾 = 本ファイルで行う。cli-docs-lint の priority-inversion / preamble は両 summary を統合検査。
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
@@ -25,7 +26,7 @@
 > - **docs/todo18.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo10.md 分割で新設、順位 215-219 収容)。**新規タスクは追加しない**
 > - **docs/todo19.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo10.md 分割で新設、順位 220-224 収容)。**新規タスクは追加しない**
 > - 例外: 既存 todo.md / todo2.md 〜 todo19.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo2-19.md / todo-summary.md)
+> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo2-19.md / todo-summary.md / todo-summary2.md)
 
 ---
 
