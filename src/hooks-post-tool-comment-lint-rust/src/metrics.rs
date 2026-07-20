@@ -1,6 +1,7 @@
 //! File-level metrics for `--metrics` mode (Bundle Z Phase 2 / #B-β).
 //!
-//! 出力 JSON は `scripts/fix-metrics-check.ps1` が pre/post 比較に使用する。
+//! 出力 JSON は `--metrics` の生出力として使えるほか、同 crate の
+//! `--fix-metrics-check` モード (`fix_metrics_check`) が pre/post 比較に直接使用する。
 //! `non_doc_comment_count` は `find_violations` と同じ判定ロジックで計上 (例外マーカー除外)。
 
 use serde::Serialize;

@@ -8,11 +8,11 @@ Do NOT run `git diff` or `jj diff` yourself -- the file already contains the cor
 
 ## Determinism layer guarantees (do NOT duplicate)
 
-The following dimensions are enforced by deterministic hooks at write time and by `fix-metrics-check.ps1` during fix iterations. Skip them — flagging them duplicates the deterministic layer and produces noise:
+The following dimensions are enforced by deterministic hooks at write time and by `hooks-post-tool-comment-lint-rust --fix-metrics-check` during fix iterations. Skip them — flagging them duplicates the deterministic layer and produces noise:
 
 - **Comment policy** (Bundle Z #B-α / `hooks-post-tool-comment-lint-rust`): Non-doc comments are blocked at PostToolUse. Existing comments in the diff have already passed the allowlist (`// SAFETY:` / `// TODO:` / rustdoc etc.).
 - **Function length** (順位 48, same hook): Functions >50 lines are blocked at write time (touch-trigger ratchet, grandfathered until touched). New >50 functions or growth past 50 cannot land in changed regions.
-- **Function metrics during fix** (Bundle Z #B-β / `fix-metrics-check.ps1`): non-doc comment count, function length, max nesting depth cannot increase per function during fix iterations. Pre/post comparison enforces this structurally.
+- **Function metrics during fix** (Bundle Z #B-β / `hooks-post-tool-comment-lint-rust --fix-metrics-check`): non-doc comment count, function length, max nesting depth cannot increase per function during fix iterations. Pre/post comparison enforces this structurally.
 
 Reviewing these dimensions is duplicative. Skip them.
 

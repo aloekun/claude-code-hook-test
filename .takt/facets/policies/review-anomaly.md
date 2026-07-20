@@ -8,7 +8,7 @@ What counts as a blocking problem is owned by each step's instruction facet; thi
 policy only constrains **how** a finding must be evidenced, scoped, and tracked.
 
 Rationale: the deterministic layer intercepts structural violations at write time
-(PostToolUse lint hooks) and during fix iterations (`fix-metrics-check.ps1`), so a
+(PostToolUse lint hooks) and during fix iterations (`hooks-post-tool-comment-lint-rust --fix-metrics-check`), so a
 reviewer-side checklist duplicates a layer that already ran and turns unremarkable
 code into fix iterations. See ADR-036 (three-layer review) and ADR-056 (this policy).
 

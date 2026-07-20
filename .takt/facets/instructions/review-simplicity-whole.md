@@ -20,7 +20,7 @@ The following dimensions are enforced by deterministic hooks (PostToolUse / push
 
 - **Comment policy** (`hooks-post-tool-comment-lint-rust`): Non-doc comments blocked at write time
 - **Function length** (順位 48, same hook): Functions >50 lines blocked (touch-trigger ratchet)
-- **Function metrics during fix** (`fix-metrics-check.ps1`): non-doc comment count, function length, max nesting depth cannot increase per function during fix iterations
+- **Function metrics during fix** (`hooks-post-tool-comment-lint-rust --fix-metrics-check`): non-doc comment count, function length, max nesting depth cannot increase per function during fix iterations
 - **File length** (順位 147, planned): when landed, replaces manual whole-tree file size review
 
 Skip these dimensions. If the determinism layer is the right home for a pattern, raise a finding suggesting the layer extension, but do not enumerate per-file violations the deterministic layer already catches.

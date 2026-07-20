@@ -23,6 +23,7 @@ use std::io::{self, Read};
 
 mod comment_lint;
 mod file_length;
+mod fix_metrics_check;
 mod function_length;
 mod line_filter;
 mod metrics;
@@ -105,6 +106,13 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 3 && args[1] == "--metrics" {
         std::process::exit(run_metrics_mode(&args[2]));
+    }
+    if args.len() >= 3 && args[1] == "--fix-metrics-check" {
+        let pre_revset = args
+            .get(3)
+            .map(String::as_str)
+            .unwrap_or(fix_metrics_check::DEFAULT_PRE_REVSET);
+        std::process::exit(fix_metrics_check::run_fix_metrics_check(&args[2], pre_revset));
     }
     if args.len() >= 2 && args[1] == "--check-modified-files" {
         std::process::exit(modified_files_check::run_check_modified_files());

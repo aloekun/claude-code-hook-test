@@ -10,18 +10,18 @@
 
 各 phase は `.takt/runs/<slug>/logs/*.jsonl` に `phase_start` と `phase_complete` を持ち、両者は
 `phaseExecutionId` で一意対応する。`duration = phase_complete.timestamp - phase_start.timestamp`。
-抽出は再現スクリプト [`scripts/analyze-takt-timings.ps1`](../scripts/analyze-takt-timings.ps1) に集約。
+抽出は再現ツール `cli-takt-timings` (`src/cli-takt-timings/`、旧 `scripts/analyze-takt-timings.ps1` を WP-14 で Rust 化) に集約。
 
 **本表は 2026-07-18 時点の観測スナップショット** (ADR-047/056 の R4 判定はまだ確定していない。
 判定期限は 2026-07-31)。本 doc を publish する push 自身が run 集合に混入して観測対象を変えて
-しまう問題を避けるため、`-Until` でこのスナップショット取得時点以降の push の run を除外して
+しまう問題を避けるため、`--until` でこのスナップショット取得時点以降の push の run を除外して
 再現する:
 
 ```sh
 # 観測スナップショットの再現 (2026-07-18T13:00:00Z 以前の run のみ):
-pwsh -File scripts/analyze-takt-timings.ps1 -Piece pre-push-review-refute -Until 2026-07-18T13:00:00Z
-pwsh -File scripts/analyze-takt-timings.ps1 -Piece pre-push-review -Since 2000-01-01 -Until 2026-07-18T13:00:00Z
-# 最新 (rolling) を見る場合は -Until を外す。ADR-047/056 の判定 (期限 2026-07-31) が確定するまでは
+pnpm takt-timings -- --piece pre-push-review-refute --until 2026-07-18T13:00:00Z
+pnpm takt-timings -- --piece pre-push-review --since 2000-01-01 --until 2026-07-18T13:00:00Z
+# 最新 (rolling) を見る場合は --until を外す。ADR-047/056 の判定 (期限 2026-07-31) が確定するまでは
 # refute も非 refute (pre-push-review) も毎 push 増え続ける。
 ```
 
