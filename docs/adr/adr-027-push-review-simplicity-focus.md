@@ -42,6 +42,18 @@ push 時点で見たかったのは「コードのシンプルさ」であり、
 
 「architectural 妥当性 (cross-file, ADR 準拠, 命名規約)」→「コードのシンプルさ (diff 局所)」に責務を狭める。後者は diff だけで完結するため、reviewer が Grep/Read で探索する必要がなくなる。
 
+### Amendment (2026-07-21): 「diff 局所」は *観点* の限定であって *コミット範囲* の限定ではない
+
+本 ADR が狭めたのは **reviewer が使う criteria** (cross-file 探索を要求しない) であり、**レビュー対象に含めるコミットの範囲**ではない。この 2 つが混同され、`push-runner-config.toml` の `[diff] command` が `jj diff -r @` (tip コミットのみ) のまま運用された結果、祖先コミットが pre-push レビューを一度も経ずに merge される状態が生まれた (todo 順位 288、Severity High で PR #268/#300/#301/#311 と 4 回再発)。
+
+レビュー対象は **PR 範囲 (`<base>..@`) 全体**とする。根拠:
+
+- **速度は理由にならない (実測)**: 同一 PR に対しレビュー対象を 37 行 → 1011 行 (27 倍) に広げても所要時間は 4m32s → 4m43s の **+11 秒**。本 ADR の速度改善は arch-review facet の除去 (219-270s/iter) によるもので、diff 範囲の縮小は寄与していない。
+- **検知不能性**: レビュアーは渡された diff が PR 全体かを検証できないため、範囲が狭いことによる見落としは誰にも検知されない (実際 security-review が実 diff と矛盾して "docs-only / No dependency changes" と報告した)。
+- **CodeRabbit backstop では代替できない**: 第三者レビューは有用だが、セルフレビューを省いてよい理由にはならない。両者は独立した層として併用する。
+
+実装は `Config::resolve_base_branch` に範囲解決を一本化し、`[diff] command` は `{{PR_RANGE}}` プレースホルダ経由で範囲を受け取る (config に revset を直書きできない)。加えて生成 diff が PR 範囲を網羅しているかを fail-closed で機械検査する。
+
 ### simplicity-review の criteria (diff 局所で完結)
 
 - ネスト深さ (>4 レベルで要改善)

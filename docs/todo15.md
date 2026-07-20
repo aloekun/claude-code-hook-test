@@ -218,39 +218,6 @@
 
 ---
 
-### pre-push review-diff.txt の生成形式を jj diff --git に切替 — LLM レビュアーの add/delete 誤読解消 (PR #256 post-merge-feedback Tier1 #1 採用)
-
-> **動機**: `push-runner-config.toml:113` の `[diff] command = "jj diff -r @"`（jj デフォルト形式）で生成される `.takt/review-diff.txt` は、追加/削除を色 + 行番号2列（`NNN     :` = 削除 / `     NNN:` = 追加）で表現する。ファイル化で色が落ちると `-`/`+` マーカーが無くなり、削除が「左列のみ行番号」でしか区別できず、pre-push の LLM レビュアー（simplicity-review 等）が削除ブロックを「追加」と誤読しうる。`--git`（標準 unified diff）は色非依存で `+`/`-` を明示するため誤読しない。PR #256（ADR-051 起票 PR）で todo エントリ25行の**削除**を simplicity-review が「追加」と誤読し stale-tracking-entry として false positive REJECT を出し、レビュー約19分を浪費した実害が発生した。
->
-> **本タスクの位置づけ**: PR #256 post-merge-feedback Tier1 #1 で採用（他6提案は over-engineering として却下）。fix ステップの「hunk-polarity bug」という診断は不正確で、真因は色を落とした平文 diff の LLM 可読性問題。
->
-> **参照**: `push-runner-config.toml:113`（`command = "jj diff -r @"` → `"jj diff --git -r @"`、修正対象）、`templates/push-runner-config.toml:52`（同様の変更、`pnpm deploy:hooks` で派生プロジェクトに配布されるため**両方修正必須**）、memory `prepush-review-diff-plain-format-misread.md`、PR #256 feedback report (`.claude/feedback-reports/256.md`) Tier1 #1
->
-> **実行優先度**: 🔧 Tier 2 — Effort S。false positive で約19分浪費した実害が既に発生しており、config + template 各1箇所の軽微な修正で再発を防止できる。
-
-#### 設計決定 (案)
-
-- `[diff] command` を `jj diff --git -r @` に変更。本番 config と template の2箇所を同一 PR で修正（template 未修正だと派生プロジェクトに同じ false positive が横展開）。
-- review-diff.txt を format-sensitive に parse する `.rs` 箇所は存在せず（LLM facet が読むのみ）、Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `push-runner-config.toml:113` を `command = "jj diff --git -r @"` に変更
-- [ ] `templates/push-runner-config.toml:52` も同様に変更
-- [ ] review-diff.txt を参照する箇所（facet instruction / `.rs`）が `--git` 形式で問題ないか確認
-- [ ] dogfood: 削除を含む diff で pre-push review が正しく削除を認識することを確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- pre-push review が削除ブロックを「追加」と誤読しなくなり、config + template 両方が `--git` 形式、派生プロジェクトへの横展開も解消。
-
-#### 詰まっている箇所
-
-- なし（変更箇所・影響範囲とも確定済み、PR #256 feedback report で cross-validation 済み）。
-
----
-
 ### cli-docs-lint に ADR 重複採番 + CLAUDE.md 索引整合チェック追加 (PR #261 post-merge-feedback T1-#2 採用)
 
 > **動機**: PR #261 で当方が ADR-052 として起草した ADR が、並行 land した PR #260 の ADR-052 (自律実行境界) と採番衝突し、rebase 時にファイル名 + 本文タイトル + ソース内参照 10+ 箇所の置換が発生した実例。ADR は既に 53 件、並行 PR 開発が常態化しており再発頻度 Medium。現状この衝突を機械検知する層が存在しない (発見は rebase 時の CLAUDE.md conflict 頼み)。
@@ -476,6 +443,10 @@
 > **動機**: `find_latest_prepush_reports_dir()` は「最新 1 run」のみを feedback の分析ソースにするため、複数回 push した PR では最後の push 分に分析が偏る。PR #267 の feedback でも「参照した pre-push run は WP-11 status 更新 (docs-only の最終 push) のみが対象」という evidence-scope 注記が付いた実観測あり。対象 PR の commit 範囲内の全 pre-push-review run を集約し、`post-merge-feedback-context.json` の `prepush_reports_dir` を配列化、`analyze-prepush-reports.md` facet も複数 dir 対応に更新する。
 >
 > **再発・優先度見直し (2026-07-19、#300/#301 feedback)**: PR-N2 (#300) / PR-N3 (#301) の feedback で同型 gap が Severity High で再発。根因は本エントリの集約範囲より上流の **push-runner `[diff]` stage** (`push-runner-config.toml` の `[diff] command = "jj diff -r @"`) が **tip コミットのみ**を AI レビュー用 diff に書き出す点。複数コミットを 1 回の `pnpm push` でまとめて送ると、tip 以外の祖先コミット (例 #300 の `resolve_main_workspace_root()` 実装、#301 の `Cargo.toml`/`main.rs` 変更) が local security/simplicity レビューを一度も経ずに merge される (security-review.md が実 diff と矛盾して "docs-only / No dependency changes" と記載)。**単一 push では pre-push run 自体が 1 回のみ**のため、本エントリの「全 run 集約」だけでは救えない。よって本エントリの実装時に、(a) `[diff]` stage の diff 範囲を `docs_only_routing` と同様に `<default_branch>..@` (PR 範囲) へ拡張し、(b) `bookmark_check.rs` の `@` 非 trunk 祖先が未レビューのまま push される穴 (T8 / PR #280 と同クラス) の検証を併せて行う。`docs_only_routing.rs` の skip 判定は既に `<default_branch>..@` に修正済みだが `[diff]` stage 自体は未修正で非対称。ADR-027 (push-time review を diff-local に限定し範囲外は CodeRabbit backstop) の trade-off 射程が security-review にも及ぶかはユーザー判断待ち。
+>
+> **(a) 実装済 (2026-07-21)**: PR #311 で 4 回目の再発 (695 行の PR に対しレビュー対象 37 行、security-review が実 diff と矛盾して "docs-only / No dependency changes" と記載) を観測し、`[diff]` stage を修正した。top-level `default_branch` を新設して `diff` / `docs_only_routing` / `pr_size_check` の 3 stage が同一解決を共有し、`[diff] command` は `{{PR_RANGE}}` プレースホルダ経由で範囲を受け取る (config に revset を直書きできない)。加えて生成 diff が PR 範囲の全変更ファイルを含むかを `jj diff --summary` と突き合わせる**範囲カバレッジ検査**を fail-closed で追加し、config の書き方に依存せず「レビュー範囲 < PR 範囲」を検知できるようにした (未更新の派生プロジェクト config も捕まる)。順位 264 (`--git` 形式切替) も同 PR で同時実施 (範囲検査が `diff --git` ヘッダを読む要件と重なるため)。**ADR-027 の射程についてのユーザー判断**: 範囲拡張のレビュー時間コストを実測したところ 37 行 4m32s → 1011 行 4m43s (**+11 秒**) で、ADR-027 の速度改善は arch-review facet 除去によるものであり diff 範囲縮小は寄与していないことが判明したため、範囲拡張を採用した。
+>
+> **残タスク**: 本エントリ本体の「post-merge feedback の全 run 集約」と、上記 (b) `bookmark_check.rs` の祖先未レビュー穴の検証は未着手。
 >
 > **参照**: `.claude/feedback-reports/268.md` Tier 2 #1 / `.claude/feedback-reports/300.md` Tier1 #1 / `.claude/feedback-reports/301.md` Tier1 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir`)、`push-runner-config.toml` (`[diff]` section)、`src/cli-push-runner/src/stages/diff.rs`・`src/cli-push-runner/src/stages/bookmark_check.rs`、`src/cli-push-runner/src/config/docs_only_routing.rs` (既に PR 範囲へ修正済の対照)、`.takt/facets/instructions/analyze-prepush-reports.md`、[ADR-027](adr/adr-027-push-review-simplicity-focus.md)
 >
