@@ -2,8 +2,10 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo2.md](todo2.md) 〜 [docs/todo14.md](todo14.md) + [docs/todo-summary.md](todo-summary.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加):
-> - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)。table の新規行追加・既存行編集・順位再採番はここで行う。
+> **本ファイル + [docs/todo2.md](todo2.md) 〜 [docs/todo19.md](todo19.md) + [docs/todo-summary.md](todo-summary.md) の使い分け** (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加、2026-07-20 docs 50KB 超過解消で todo13.md を todo15/16/17・todo10.md を todo18/19 へ物理分割):
+>
+> - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)、順位 6-219 を収容。既存行編集・順位再採番はここで行う。
+> - **docs/todo-summary2.md**: todo-summary.md の table を 2026-07-20 に docs 50KB 超過解消で分割した後半 (順位 220 以降を収容)。新規行追加は末尾 = 本ファイルで行う。cli-docs-lint の priority-inversion / preamble は両 summary を統合検査。
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #88 以降の新規エントリは todo3.md へ)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
@@ -13,13 +15,18 @@
 > - **docs/todo7.md**: 既存タスクの編集・完了削除専用 (旧 todo5.md の PR #101〜#109 エントリを 2026-05-09 に分割移動)。**新規タスクは追加しない**
 > - **docs/todo8.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (60KB に到達したため、PR #172 仕組み化方針切替 = 2026-05-25 以降の新規エントリは todo9.md へ)
 > - **docs/todo9.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB 超 1100+ 行に到達したため、PR #185 land 後 2026-05-29 以降の新規エントリは todo10.md へ。2026-06-06 に PR-specific follow-up entries を todo11.md へ分離)
-> - **docs/todo10.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約95KB に到達したため、PR #224 セッション = 2026-06-29 以降の新規エントリは todo13.md へ。2026-06-12 PR #204 で PR #185〜#196 era のエントリを todo12.md へ分離)
+> - **docs/todo10.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約95KB に到達したため、PR #224 セッション = 2026-06-29 以降の新規エントリは todo13.md へ。2026-06-12 PR #204 で PR #185〜#196 era のエントリを todo12.md へ分離。2026-07-20 に順位 215-224 を todo18/todo19 へ物理分割し 50KB 以下に縮小)
 > - **docs/todo11.md**: 既存タスクの編集・完了削除専用 (2026-06-06 todo9.md 分割で新設、PR-specific follow-up entries 収容)。**新規タスクは追加しない**
 > - **docs/todo12.md**: 既存タスクの編集・完了削除専用 (2026-06-12 PR #204 で todo10.md 分割により新設、PR #185〜#196 era のエントリ収容)。**新規タスクは追加しない**
-> - **docs/todo13.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約171KB に到達したため、週次レビュー WR-2026-07-19-T02 採用 = 2026-07-19 以降の新規エントリは todo14.md へ)
+> - **docs/todo13.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約171KB に到達したため、週次レビュー WR-2026-07-19-T02 採用 = 2026-07-19 以降の新規エントリは todo14.md へ。2026-07-20 に順位 248-332 を todo15/todo16/todo17 へ物理分割し 50KB 以下に縮小)
 > - **docs/todo14.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加 (2026-07-19 週次レビュー WR-2026-07-19-T02 採用で新設)
-> - 例外: 既存 todo.md / todo2.md 〜 todo14.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは十五つすべてを確認すること** (todo.md / todo2-14.md / todo-summary.md)
+> - **docs/todo15.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo13.md 分割で新設、順位 248-296 収容)。**新規タスクは追加しない**
+> - **docs/todo16.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo13.md 分割で新設、順位 297-318 収容)。**新規タスクは追加しない**
+> - **docs/todo17.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo13.md 分割で新設、順位 319-332 収容)。**新規タスクは追加しない**
+> - **docs/todo18.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo10.md 分割で新設、順位 215-219 収容)。**新規タスクは追加しない**
+> - **docs/todo19.md**: 既存タスクの編集・完了削除専用 (2026-07-20 todo10.md 分割で新設、順位 220-224 収容)。**新規タスクは追加しない**
+> - 例外: 既存 todo.md / todo2.md 〜 todo19.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo2-19.md / todo-summary.md / todo-summary2.md)
 
 ---
 
@@ -41,15 +48,15 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-J01、`src/hooks-session-start/src/jj_helpers.rs:12-25`、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (jj-robustness facet の bounded lifetime dogfood 文脈)
 
-##### 背景: 本 bug class (jj 操作による mtime リセット) は 2026-07 セッションで実観測済みで、新設 jj-robustness facet (ADR-039 bounded lifetime dogfood) が再検出した good signal。ただし jj new / workspace 操作が実際に `.git/FETCH_HEAD` の mtime を書き換える具体的機序は本レビューで再現検証しておらず、実装前に経験的確認を推奨する。
+##### 背景: 本 bug class (jj 操作による mtime リセット) は 2026-07 セッションで実観測済みで、新設 jj-robustness facet (ADR-039 bounded lifetime dogfood) が再検出した good signal。ただし jj new / workspace 操作が実際に `.git/FETCH_HEAD` の mtime を書き換える具体的機序は本レビューで再現検証しておらず、実装前に経験的確認を推奨する
 
-##### 設計決定: mtime 依存を廃し、jj git fetch 成功後に `.claude/fetch-last-run.json` 等へ埋め込みタイムスタンプを書き込み、そこから鮮度判定する方式に置換する (weekly-review last-run / telemetry と同じ「内容 timestamp は checkout 不変」方式、CR #233 の mtime リセット教訓と整合)。
+##### 設計決定: mtime 依存を廃し、jj git fetch 成功後に `.claude/fetch-last-run.json` 等へ埋め込みタイムスタンプを書き込み、そこから鮮度判定する方式に置換する (weekly-review last-run / telemetry と同じ「内容 timestamp は checkout 不変」方式、CR #233 の mtime リセット教訓と整合)
 
 - [ ] jj 操作が FETCH_HEAD mtime を書き換える機序を経験的に確認 (前提検証)
 - [ ] 埋め込み timestamp 方式へ置換 + mtime リセットを模擬する回帰テスト
 - [ ] 本エントリ削除
 
-##### 完了基準: jj workspace 操作後も fetch 鮮度が正しく判定されること (mtime リセット模擬の回帰テストで seal)。
+##### 完了基準: jj workspace 操作後も fetch 鮮度が正しく判定されること (mtime リセット模擬の回帰テストで seal)
 
 #### gh 呼び出しに --repo を付与 — 非 colocated jj workspace の PR 検出 silent 失敗 (週次レビュー WR-2026-07-19-J02 採用)
 
@@ -59,15 +66,15 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-07-19.md` WR-2026-07-19-J02、`src/cli-merge-pipeline/src/github.rs:92-99`、`src/cli-pr-monitor/src/util.rs:31-68`、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)、PR #238 (実インシデント)
 
-##### 背景: 既に実インシデント化しており、`.claude/hooks-config.toml` の gh-repo-env-guard preset コメントが PR #238 / ADR-045 を明記している。既存 guard は誤った回避策 (`GH_REPO=` の場当たり利用) をブロックするのみで、根本原因 (呼び出し箇所の `--repo` 欠落) は未修正。J01 と同じ ADR-039 dogfood 文脈。
+##### 背景: 既に実インシデント化しており、`.claude/hooks-config.toml` の gh-repo-env-guard preset コメントが PR #238 / ADR-045 を明記している。既存 guard は誤った回避策 (`GH_REPO=` の場当たり利用) をブロックするのみで、根本原因 (呼び出し箇所の `--repo` 欠落) は未修正。J01 と同じ ADR-039 dogfood 文脈
 
-##### 設計決定: `GH_REPO` 環境変数 or jj remote 由来で owner/repo を明示的に解決し、全 gh 呼び出しに `--repo` を付与する。
+##### 設計決定: `GH_REPO` 環境変数 or jj remote 由来で owner/repo を明示的に解決し、全 gh 呼び出しに `--repo` を付与する
 
 - [ ] github.rs / util.rs の gh 呼び出しに owner/repo 解決 + `--repo` 付与
 - [ ] 非 colocated workspace を模擬した PR 検出の回帰テスト
 - [ ] 本エントリ削除
 
-##### 完了基準: 非 colocated jj workspace でも merge/monitor パイプラインが PR を正しく検出できること (回帰テストで seal)。
+##### 完了基準: 非 colocated jj workspace でも merge/monitor パイプラインが PR を正しく検出できること (回帰テストで seal)
 
 ---
 
@@ -83,9 +90,9 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-07-01.md` WR-2026-07-01-A01、`.claude/hooks-config.toml` `[stop_quality]` (修正対象)、`push-runner-config.toml` `[quality_gate]` (lint/test single authority 候補)、`docs/file-length-enforcement-plan.md` PR-W5 (整合先)、ADR-004 (Stop hook 品質ゲート)、ADR-015 (push-runner 移行)、ADR-022 (責務分離)
 
-##### 背景: ADR-015 で push-time quality gate を push-runner-config.toml に集約した際、ADR-004 由来の Stop hook `[stop_quality]` の lint/test step が削除されず残存。push-runner-config.toml 自身のコメントが「Stop hook では実行しない」と意図を明記しているため意図と実装の乖離が明白。ただし `[stop_quality]` は PR-W5 の file-length gate 受け皿としての将来用途があるため、セクション全削除ではなく重複 step の選択的除去が必要。
+##### 背景: ADR-015 で push-time quality gate を push-runner-config.toml に集約した際、ADR-004 由来の Stop hook `[stop_quality]` の lint/test step が削除されず残存。push-runner-config.toml 自身のコメントが「Stop hook では実行しない」と意図を明記しているため意図と実装の乖離が明白。ただし `[stop_quality]` は PR-W5 の file-length gate 受け皿としての将来用途があるため、セクション全削除ではなく重複 step の選択的除去が必要
 
-##### 設計決定: Option A' (推奨、PR-W5 整合版) — `[stop_quality]` から push-runner `[quality_gate]` と重複する lint/clippy/test step のみを削除し、session 固有チェック (PR-W5 の file-length step 等) の受け皿としてセクションは維持。quality_gate を lint/test の single authority とする。ADR-004 と ADR-015 に責務境界 (Stop hook = session 固有 / push gate = lint/test authority) を明記。Option B (意図的 defense-in-depth として両 ADR にコスト試算コメント追記) は代替案。
+##### 設計決定: Option A' (推奨、PR-W5 整合版) — `[stop_quality]` から push-runner `[quality_gate]` と重複する lint/clippy/test step のみを削除し、session 固有チェック (PR-W5 の file-length step 等) の受け皿としてセクションは維持。quality_gate を lint/test の single authority とする。ADR-004 と ADR-015 に責務境界 (Stop hook = session 固有 / push gate = lint/test authority) を明記。Option B (意図的 defense-in-depth として両 ADR にコスト試算コメント追記) は代替案
 
 - [ ] PR-W5 (file-length gate) land 後に着手 or 並行時は `[stop_quality.steps]` 追加先の整合を確認
 - [ ] `[stop_quality]` の重複 lint/test step を特定し選択的削除 (file-length step は残す)
@@ -105,9 +112,9 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-06-01.md` WR-2026-06-01-C02、`src/cli-merge-pipeline/src/feedback.rs:156-207` (修正対象)、`src/lib-pending-file/src/lib.rs` `is_valid_owner_repo()` (既存 validator)、ADR-022 § defense-in-depth 原則
 
-##### 背景: cli-merge-pipeline の feedback path は merge 完了後に `gh pr view` / `gh api` で PR メタデータを取得する経路で、入力 `owner_repo` は pending file 由来。hook 経由の通常 path では `is_valid_owner_repo()` が呼ばれるが、broken pending file (Claude 編集ミス / 手動修正等) が cli-merge-pipeline に直接到達した場合は無検証で gh CLI に渡る (cli-merge-pipeline は hook と独立して起動可能)。
+##### 背景: cli-merge-pipeline の feedback path は merge 完了後に `gh pr view` / `gh api` で PR メタデータを取得する経路で、入力 `owner_repo` は pending file 由来。hook 経由の通常 path では `is_valid_owner_repo()` が呼ばれるが、broken pending file (Claude 編集ミス / 手動修正等) が cli-merge-pipeline に直接到達した場合は無検証で gh CLI に渡る (cli-merge-pipeline は hook と独立して起動可能)
 
-##### 設計決定: `fetch_pr_time_range()` 先頭で `is_valid_owner_repo(owner_repo)` を呼び出し、無効時は `Err` 返却。もしくは関数 signature を `&PendingFile` 受取に変更し型不変条件で保証 (より構造的)。
+##### 設計決定: `fetch_pr_time_range()` 先頭で `is_valid_owner_repo(owner_repo)` を呼び出し、無効時は `Err` 返却。もしくは関数 signature を `&PendingFile` 受取に変更し型不変条件で保証 (より構造的)
 
 - [ ] Option A 採用判断 (1 行 guard) or Option B 採用判断 (型 signature 変更)
 - [ ] `is_valid_owner_repo()` の re-export / dependency 確認 (lib-pending-file → cli-merge-pipeline)
@@ -127,9 +134,9 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-06-01.md` WR-2026-06-01-A01、`.claude/weekly-reviews/2026-07-01.md` WR-2026-07-01-A02 (再検出)、`CLAUDE.md:5-45` (ADR index、修正対象)、`docs/adr/adr-033-todo-numbering-simplification.md:40-42, 81, 95, 130` (`ADR-032 PR-β` 参照 4 箇所、修正対象)、`docs/todo2.md:232` (ADR-032 reserved 文脈)
 
-##### 背景: ADR-032 は「docs-only fast-path」関連の試験運用 ADR として `docs/todo2.md` 順位 20 で起案予定だが未作成。一方 ADR-033 は task naming 例示として `ADR-032 PR-β` を使用済みで、CLAUDE.md は ADR-031 → ADR-033 へジャンプする状態。reader が CLAUDE.md から ADR-032 を辿ろうとすると broken-link、ADR-033 から ADR-032 を辿ろうとしても dead-pointer。
+##### 背景: ADR-032 は「docs-only fast-path」関連の試験運用 ADR として `docs/todo2.md` 順位 20 で起案予定だが未作成。一方 ADR-033 は task naming 例示として `ADR-032 PR-β` を使用済みで、CLAUDE.md は ADR-031 → ADR-033 へジャンプする状態。reader が CLAUDE.md から ADR-032 を辿ろうとすると broken-link、ADR-033 から ADR-032 を辿ろうとしても dead-pointer
 
-##### 設計決定: Option A (recommended、reservation 明示) — CLAUDE.md ADR index に `- ADR-032: (reserved — docs-only fast-path、起案 docs/todo2.md 順位 20)` のスタブ行を追加し、ADR-033 内の `ADR-032 PR-β` を **実在 ADR (例: ADR-031 PR-β 相当の task 名)** に差し替えるか、`(reserved ADR-032 のタスク名例)` 等の reservation 明示 wording に変更。Option B (ADR-032 を本作業で実体化) は scope creep のため不採用、別 task として `docs/todo2.md` 順位 20 で trackable。
+##### 設計決定: Option A (recommended、reservation 明示) — CLAUDE.md ADR index に `- ADR-032: (reserved — docs-only fast-path、起案 docs/todo2.md 順位 20)` のスタブ行を追加し、ADR-033 内の `ADR-032 PR-β` を **実在 ADR (例: ADR-031 PR-β 相当の task 名)** に差し替えるか、`(reserved ADR-032 のタスク名例)` 等の reservation 明示 wording に変更。Option B (ADR-032 を本作業で実体化) は scope creep のため不採用、別 task として `docs/todo2.md` 順位 20 で trackable
 
 - [ ] CLAUDE.md ADR index に `ADR-032: (reserved)` 行追加 (位置: ADR-031 と ADR-033 の間)
 - [ ] `docs/adr/adr-033-todo-numbering-simplification.md:40-42, 81, 95, 130` の `ADR-032 PR-β` 参照 4 箇所を差し替え判断 (実在 ADR 引用 or reservation 明示 wording)

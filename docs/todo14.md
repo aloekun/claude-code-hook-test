@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo13.md がファイルサイズ約 171KB (50KB 安定読み取り閾値の約 3.4 倍) に到達したため、新規エントリは本ファイルに記録する (2026-07-19 週次レビュー WR-2026-07-19-T02 採用)。**新規エントリの追加先は本ファイル**。todo.md / todo2.md 〜 todo13.md の既存エントリは引き続き有効、相互に独立。
+> **本ファイルの位置付け**: docs/todo13.md がファイルサイズ約 171KB (50KB 安定読み取り閾値の約 3.4 倍) に到達したため、新規エントリは本ファイルに記録する (2026-07-19 週次レビュー WR-2026-07-19-T02 採用)。**新規エントリの追加先は本ファイル**。todo.md / todo2.md 〜 todo19.md の既存エントリは引き続き有効、相互に独立 (2026-07-20 に todo13.md→todo15/16/17・todo10.md→todo18/19 の物理分割で todo15-19 を新設)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -25,7 +25,7 @@
 - [ ] ターミナル CLI 版 Claude Code で新セッションを起動し systemMessage の描画を確認 (last-run を stale にするか failed marker を置いて reminder を発火させる)
 - [ ] VSCode 拡張での描画有無・スタイルを確認し CLI との差を切り分け
 - [ ] 結果を ADR-059 § Dogfood 観測 (2026-07-19) に追記 + 削除条件 2 の可否を判定
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -47,7 +47,7 @@
 
 - [ ] `.claude/custom-lint-rules.toml` に `docs/todo*.md` 本文の順位番号表記を検出する regex rule を追加 (table 行を除外)
 - [ ] 既存本文の違反を洗い出し修正 (ADR-033 の grep を流用)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -69,7 +69,7 @@
 
 - [ ] cli-merge-pipeline の Phase 0 で transcript summary index を生成 (timestamp / message_type / tool_name / outcome)
 - [ ] session-analysis facet の入力を index に切替 + token 消費が threshold 内に収まることを確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 

@@ -33,7 +33,9 @@ static TIER_REGEX: LazyLock<Regex> =
 static RANK_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"順位\s*(\d+)(?:/(\d+))?").expect("static rank regex must compile"));
 
-const SUMMARY_FILE: &str = "todo-summary.md";
+/// 分割された index の全 part にマッチする name prefix。
+/// `todo-summary.md` / `todo-summary2.md` / 将来の `todo-summary3.md` を含む。
+const SUMMARY_FILE_PREFIX: &str = "todo-summary";
 
 /// 依存記述近傍で「解決済」を示す substring。順位参照の **直後 RESOLUTION_WINDOW_CHARS
 /// 文字以内** にいずれかが含まれていれば、その順位参照は resolved 扱い (= inversion
@@ -44,24 +46,54 @@ const RESOLVED_MARKERS: &[&str] = &["land 済", "完了", "retired", "retire 済
 /// multi-byte 文字でも spec 通りの 80 文字 window を保証する。
 const RESOLUTION_WINDOW_CHARS: usize = 80;
 
-/// `docs/` 配下の todo-summary.md を読み inversion を検査する。
+/// `docs/` 配下の todo-summary*.md (分割された index の全 part) を読み inversion を検査する。
+///
+/// 複数 part にまたがる場合も **全 part の row を統合してから** tier_by_rank を構築するため、
+/// part をまたいだ cross-file 依存 (例: part1 の Tier1 が part2 の Tier2 に依存) も検査対象になる。
 pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
-    let path: PathBuf = docs_dir.join(SUMMARY_FILE);
-    if !path.exists() {
-        return Ok(vec![]);
+    let mut rows: Vec<TableRow> = Vec::new();
+    for path in list_summary_files(docs_dir)? {
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("読み込み失敗 {}: {}", path.display(), e))?;
+        rows.extend(parse_table_rows(&content, &path));
     }
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("読み込み失敗 {}: {}", path.display(), e))?;
-    Ok(check_content(&path, &content))
+    Ok(check_rows(&rows))
 }
 
-/// 与えられた markdown 内容から inversion violations を抽出する。
+/// `docs/todo-summary*.md` を name 順に列挙する (分割された index の全 part)。
+fn list_summary_files(docs_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let entries = fs::read_dir(docs_dir)
+        .map_err(|e| format!("docs ディレクトリ読み込み失敗 {}: {}", docs_dir.display(), e))?;
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if name.starts_with(SUMMARY_FILE_PREFIX) && name.ends_with(".md") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+/// 与えられた単一ファイルの markdown 内容から inversion violations を抽出する。
 pub fn check_content(path: &Path, content: &str) -> Vec<Violation> {
-    let rows = parse_table_rows(content);
+    check_rows(&parse_table_rows(content, path))
+}
+
+/// 収集済みの全 row から inversion violations を抽出する。
+/// tier_by_rank は渡された row 全体 (= 全 part) から構築するため、分割された
+/// summary 間の cross-file 依存も検査される。violation は各 row の出自 (file/line) に帰属する。
+fn check_rows(rows: &[TableRow]) -> Vec<Violation> {
     let tier_by_rank: HashMap<u32, u32> = rows.iter().map(|r| (r.rank, r.tier)).collect();
 
     let mut violations = Vec::new();
-    for row in &rows {
+    for row in rows {
         if has_no_dependency_prefix(&row.dependency) {
             continue;
         }
@@ -78,7 +110,7 @@ pub fn check_content(path: &Path, content: &str) -> Vec<Violation> {
             if is_rank_resolved(&row.dependency, dep_rank) {
                 continue;
             }
-            violations.push(make_violation(path, row, dep_rank, dep_tier));
+            violations.push(make_violation(row, dep_rank, dep_tier));
         }
     }
     violations
@@ -90,9 +122,11 @@ struct TableRow {
     tier: u32,
     dependency: String,
     line: usize,
+    /// row の出自ファイル。分割された summary で violation を正しい part に帰属させる。
+    path: PathBuf,
 }
 
-fn parse_table_rows(content: &str) -> Vec<TableRow> {
+fn parse_table_rows(content: &str, path: &Path) -> Vec<TableRow> {
     content
         .lines()
         .enumerate()
@@ -101,6 +135,7 @@ fn parse_table_rows(content: &str) -> Vec<TableRow> {
             tier,
             dependency: dep,
             line: idx + 1,
+            path: path.to_path_buf(),
         }))
         .collect()
 }
@@ -193,9 +228,9 @@ fn has_resolved_marker_after(haystack: &str, needle: &str) -> bool {
     false
 }
 
-fn make_violation(path: &Path, row: &TableRow, dep_rank: u32, dep_tier: u32) -> Violation {
+fn make_violation(row: &TableRow, dep_rank: u32, dep_tier: u32) -> Violation {
     Violation {
-        file: path.display().to_string(),
+        file: row.path.display().to_string(),
         line: row.line,
         message: format!(
             "priority inversion 検出: 順位 {} (Tier {}) が 順位 {} (Tier {}) に依存しています。\
@@ -210,6 +245,7 @@ fn make_violation(path: &Path, row: &TableRow, dep_rank: u32, dep_tier: u32) -> 
 mod tests {
     use super::*;
     use std::path::Path;
+    use tempfile::TempDir;
 
     fn fake_path() -> &'static Path {
         Path::new("docs/todo-summary.md")
@@ -400,5 +436,73 @@ mod tests {
         assert_eq!(violations.len(), 1, "Tier 2 → Tier 3 is an inversion");
         assert!(violations[0].message.contains("順位 100"));
         assert!(violations[0].message.contains("順位 90"));
+    }
+
+    #[test]
+    fn list_summary_files_returns_all_parts_sorted() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("todo-summary.md"), "").unwrap();
+        fs::write(tmp.path().join("todo-summary2.md"), "").unwrap();
+        fs::write(tmp.path().join("todo.md"), "").unwrap();
+        fs::write(tmp.path().join("README.md"), "").unwrap();
+        let files = list_summary_files(tmp.path()).unwrap();
+        let names: Vec<String> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["todo-summary.md", "todo-summary2.md"]);
+    }
+
+    /// 分割された index (todo-summary.md + todo-summary2.md) を跨ぐ inversion を
+    /// 統合 tier_by_rank で検出し、violation が part2 (出自ファイル) に帰属することを保証する。
+    /// 分割で priority-inversion カバレッジが半減しないことの回帰テスト (Phase 3)。
+    #[test]
+    fn check_detects_cross_part_inversion_attributed_to_source_part() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("todo-summary.md"),
+            "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n\
+             | 19 | 🔧 Tier 2 | task | todo3.md | M | なし |\n",
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("todo-summary2.md"),
+            "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n\
+             | 220 | 🚀 Tier 1 | task | todo14.md | M | 順位 19 land 後推奨 |\n",
+        )
+        .unwrap();
+        let violations = check(tmp.path()).unwrap();
+        assert_eq!(
+            violations.len(),
+            1,
+            "cross-part inversion should be detected, got {:#?}",
+            violations
+        );
+        assert!(
+            violations[0].file.contains("todo-summary2.md"),
+            "violation は part2 (出自) に帰属すべき: {}",
+            violations[0].file
+        );
+        assert!(violations[0].message.contains("順位 220"));
+        assert!(violations[0].message.contains("順位 19"));
+    }
+
+    /// 単一 part のみ (todo-summary.md だけ) でも従来どおり動作する回帰テスト。
+    #[test]
+    fn check_single_part_still_works() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("todo-summary.md"),
+            "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n\
+             | 19 | 🔧 Tier 2 | task | todo3.md | M | なし |\n\
+             | 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |\n",
+        )
+        .unwrap();
+        let violations = check(tmp.path()).unwrap();
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].file.contains("todo-summary.md"));
     }
 }
