@@ -40,7 +40,7 @@
   - [ ] PR が **CLOSED / MERGED なら起動しない** (`github.event.issue.state == 'open'`)。
 - [ ] prompt 手順 2 のガード条件を「**新規コメントの有無**」から「**分析価値のある新情報の有無**」へ書き換える (ack / rate-limit 通知 / 自身の分析コメントは新情報に数えない旨を明示)。決定論ガードを主、prompt ガードを従 (二層目) とする。
 - [ ] 起動条件を変えるため **workflow_dispatch でのスモークテスト**を行い、(a) ack で起動しないこと (b) walkthrough で起動すること (c) merged PR で起動しないこと を実測で確認する。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -75,7 +75,7 @@
 
 - [ ] `analyze-coderabbit.md` と `pr-monitor.yml` prompt に「**CodeRabbit check の `pass` はレビュー実施の根拠にならない / summary 文字列は stale になり得る**」を明記し、判定 source を上記 (a)(b)(c) に固定する。
 - [ ] `check-ci-coderabbit` に「**レビュー実施の有無**」を `reviews` 件数 + walkthrough marker から判定する関数を追加し、`review_state: success` と実レビュー有無を分離して report する (現状 `review_state` が success でも実体ゼロがあり得る)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -99,7 +99,7 @@
 
 - [ ] **(a) 前提の是正**: 現行プラン (Pro) と adaptive limit の実態を調査し (`docs/dev-conventions.md` 順位 262 のチェックリストを適用)、`.coderabbit.yaml` 冒頭と ADR-019 § WP-03 の根拠記述を実態に合わせて更新する。**「無料枠 3〜4 レビュー/時」を前提にした設計判断が今も妥当かを再評価する** (adaptive limit なら「PR あたりの削減」より「PR 投入ペース」の方が支配的な可能性)。
 - [ ] **(b) 欠落穴の仕組み化を検討**: 手動 push 後の `@coderabbitai review` 投稿は現状「規約」。ADR-042 の境界基準で仕組み化の是非を判定する。候補: push-runner の push stage 後に「CR 再トリガーが必要」を**警告表示**する (助言層 / fail-open)、または `head_already_reviewed()` を使って未レビュー head を検出し警告する (`review_trigger.rs` に既存の照会ロジックあり)。**自動投稿はレート枠を消費するため慎重に** — ADR-019 § 同一 HEAD への再投稿はレート枠の無駄 と整合させること。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -132,7 +132,7 @@
 - [ ] 方向性 (a)(b)(c) を評価して選択する。**(a) 単独は不可** — instruction は助言層で、AI が別の名前で別のファイルを書けば同じことが起きる。(a) + (b または c) の二層が要る。
 - [ ] `scratch_file_warning` の判定を選択した方式で拡張し、**回帰テストは `analyze_transcript.py` を実 fixture として使う** (ADR-049 の incident→eval 流儀。「今回すり抜けた実物」で固定すれば同型の再発を捕まえられる)。
 - [ ] deny-list の限界を `scratch_file_warning.rs` の module doc に記録する (「観測 pattern の列挙では AI 生成の新規命名を先回りできない」= 本件の教訓)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -162,7 +162,7 @@
 - [ ] **経過時間 assert 付きの再現テストを先に書く** (T6 の教訓: timeout の回帰テストは Err の内容だけでなく経過時間を assert する。無いと本件は再び素通りする)。
 - [ ] (a) detach vs (b) process-tree kill を評価して選択する。判断は `_capped` 系の出力保全要否と Windows 実装コストの比較で行い、選ばなかった側の理由を `run_cmd_shell_with` の doc に記録する。
 - [ ] 3 variant + 呼び出し元 (cli-push-runner quality_gate / push、cli-merge-pipeline) で回帰確認。サンドボックス実機 E2E は `ping -t` 差し替え + before/after 経過時間比較 (dev-conventions 記載の手法) で行う。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -185,7 +185,7 @@
 
 - [ ] 再現テストを先に書く (拒否メッセージ + exit 0 の出力で失敗扱いになることを assert。T5 の回帰テスト群を参考にする)。
 - [ ] `push_was_refused` の共有化可否を ADR-044 基準で判定し、`push_to_remote` に拒否判定を追加する。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -216,7 +216,7 @@
 - [ ] Phase 0: weekly-review architecture facet / post-PR CodeRabbit との役割重複を確認し、並列レビュアー固有の担当領域を定義できるか判定する。
 - [ ] Phase 1 (条件付き): design-review facet 作成 + pre-push-review.yaml へ並列追加 (ADR-039 3 点セット、上記規律 (a)〜(e))。
 - [ ] Phase 1 (条件付き): 受け入れ基準 ①〜③ を dogfood で計測し、採否判定を ADR 化する。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -238,7 +238,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に上記 3 項目のチェックリストを追加 (WP-06/07/08 の既存 checklist と同形式)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -260,7 +260,7 @@
 
 - [ ] 再現テスト: leftover context.json がある状態で 2 回目のマージ feedback が誤 bail することを固定 (base_dir 注入等)。
 - [ ] post-merge feedback の**正常完了時に context.json を削除**する (fail 時は marker を残す現行動作を維持)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -281,7 +281,7 @@
 #### 作業計画
 
 - [ ] `CLAUDE.md` または `docs/dev-conventions.md` に上記 3 項目のチェックリストを追加 (#327 と同セクションにまとめる)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -302,7 +302,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に上記 2 点の convention を追記。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -323,7 +323,7 @@
 #### 作業計画
 
 - [ ] `src/hooks-session-start/tests/e2e.rs` を新設し、実 config + stdin 入力で exe を駆動して systemMessage 有り/無しの JSON 形状を assert。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -345,7 +345,7 @@
 
 - [ ] `package.json` の build script を Windows で cp.exe を解決できるよう修正: `git.exe` の場所を自動検出 (非標準インストールにも対応) → `usr/bin/cp.exe` の存在確認 → 既存 PATH を保持したまま前置。未検出時は cross-platform copy (`node -e` / `shx` 等) へ fallback するか明確なエラーを出す (silent 失敗にしない)。
 - [ ] setup ドキュメントに前提を明記 (補助)。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 

@@ -32,7 +32,7 @@
 - [x] B1: auto-push (`repush.rs`) に push 前 quality_gate (`--ignored` 含む) を挿入 (PR-1、`stages/gate.rs` 新設。push-runner-config.toml の quality_gate group を単一ソース参照、docs-only fix diff は ADR-035 path 基準で gate skip、FAIL は `action_required` 即 escalation)
 - [ ] dogfood: [docs/auto-push-gate-dogfood.md](auto-push-gate-dogfood.md) の観測ログ + GO/NO-GO 判断基準に従い B1-loop 要否を判定 (期限: PR-1 merge + 6 週間 / gate FAIL 2 件 / auto-push 発火 10 回 のいずれか先)
 - [ ] (GO 判定時のみ) B1-loop: gate FAIL を convergence ループに差し戻す経路 + N 回上限 → `action_required` (fail-closed) — 設計案・不採用案は dogfood doc §5 に保存済み
-- [ ] 本 entry 削除 + todo-summary.md 行削除 + dogfood doc 削除 (同一 commit、NO-GO の場合は ADR-043 amendment に知見移管後)
+- [ ] 本 entry 削除 + todo-summary2.md 行削除 + dogfood doc 削除 (同一 commit、NO-GO の場合は ADR-043 amendment に知見移管後)
 
 #### 完了基準
 
@@ -67,7 +67,7 @@
 - [ ] (C) `rust-toolchain.toml` で channel + rustfmt component 固定
 - [ ] (B) fmt `--check` step を Stop gate / push-runner gate に追加
 - [ ] dogfood: 意図的に非整形コードを書き gate が block することを確認
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -102,7 +102,7 @@
 - [ ] main.rs に positive/negative test 追加 (justification マーカー有無で discriminate)
 - [ ] false positive 計測 (既存コードの `#[allow]` を grep、正当なものに justification マーカー付与 or scope 調整)
 - [ ] `cargo test -p hooks-post-tool-linter` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -129,7 +129,7 @@
 - [ ] `unresolved_threads` / `actionable_comments` の None / Some(0) / Some(1)、`new_comments` (型は `usize`) の 0 / 1 を直交させ、各境界で `cr_clean` の true/false を assert する test 追加
 - [ ] 既存 `evaluate_rate_limit_shortcut_blocks_when_new_comments_exist` (Fix 3 で追加) との重複排除、各 field 独立の discriminating test
 - [ ] `cargo test -p cli-pr-monitor` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -152,7 +152,7 @@
 - [ ] ADR-022 に (1) Pre-Create Cleanup Flow の具体例 (`jj new` 空 child → takt amend → 変更なければ `try_abandon_empty_fix_commit` で abandon、integration test 参照) を追記
 - [ ] ADR-022 に (2) 大規模リファクタリング agent 委譲時の format スコープ指針 (分割対象ファイルのみに fmt 限定、無差別 `cargo fmt` 回避) を追記
 - [ ] markdownlint clean
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -182,7 +182,7 @@
 - [ ] (2) post_steps / Stop hook に root 直下新規 untracked 検知 + warning を実装
 - [ ] dogfood: 次回 merge で feedback workflow が repo root に stray を残さないことを確認
 - [ ] (3) 必要なら gitignore に補助パターン追加
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -215,7 +215,7 @@
 - [ ] post-pr-review が docs-only 判定に使う diff の生成箇所を特定 (`review-diff.txt` 流用 or 独自生成)
 - [ ] diff scope を PR 全体に修正、or 分類基準を findings file path に変更
 - [ ] dogfood: code + docs 混在 PR で docs-only 誤判定しないことを確認
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -245,7 +245,7 @@
 #### 作業計画
 
 - [ ] memory `feedback-di-over-ambient-global-tests.md` に (a) 具体例 + (b) 例外境界を追記
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -278,7 +278,7 @@
 
 - [ ] ADR-022 に Serialization Primitive Single-Instance Rule の Appendix 追加
 - [ ] 順位 234 (memory) と cross-reference
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -313,7 +313,7 @@
 - [ ] main.rs に positive/negative test 追加
 - [ ] 既存 `.rs` の PID+ms temp 命名を grep して false positive 計測
 - [ ] `cargo test -p hooks-post-tool-linter` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -340,7 +340,7 @@
 - [ ] `convert_body_to_file` を per-test tempdir 注入 + 高並列 concurrent で実行し temp file collision が起きないことを assert する regression test 追加
 - [ ] 意図的に PID+ms 命名へ戻すと test が落ちることを確認 (検出網の有効性検証)
 - [ ] `cargo test -p cli-pr-monitor` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -371,7 +371,7 @@
 - [ ] main.rs に positive/negative test 追加
 - [ ] 既存 `.rs` の直叩き箇所を grep して false positive 計測
 - [ ] `cargo test -p hooks-post-tool-linter` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -394,7 +394,7 @@
 - [ ] `filter_transcripts` の `fs::read_dir` 結果を timestamp (または名前) で sort してから処理するよう変更
 - [ ] 複数 jsonl の順序が入力順に依らず決定論になることを assert する regression test 追加
 - [ ] `cargo test -p cli-merge-pipeline` pass
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -416,7 +416,7 @@
 
 - [ ] `takt.rs` の `spawn()` / `try_wait()` の `Err(e)` を `eprintln!` で記録するよう変更 (握り潰しを解消)
 - [ ] `cargo test -p cli-merge-pipeline` pass + `cargo clippy` clean
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -439,7 +439,7 @@
 - [ ] binary crate (cli-merge-pipeline) 内で external consumer 不在の `pub` シンボルを `pub(crate)` に変更
 - [ ] `cargo build` / `cargo clippy --workspace -- -D warnings` clean を確認 (未使用 pub 警告含む)
 - [ ] CLAUDE.md に「binary crate では cross-module 共有シンボルは pub(crate)、pub は使わない」方針を明文化
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -462,7 +462,7 @@
 - [ ] `pub(crate)` (cross-module 共有) / module-private / `pub` (library API のみ) の判断チェックリストを具体例付きで作成
 - [ ] 恒久配置先を決定 (coding-style.md / CLAUDE.md、file-length-enforcement-plan.md は暫定)
 - [ ] 順位 241 との重複を統合 (bundle 検討)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -484,7 +484,7 @@
 
 - [ ] coding-style.md に「test helper は各 module 複製、shared util module は anti-pattern」を根拠 (coupling < isolation) 付きで追記
 - [ ] split レビュー時の確認項目 (helper が複製されているか) を明示
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -505,7 +505,7 @@
 #### 作業計画
 
 - [ ] push-runner-config.toml `[pr_size_check]` コメントに override 適用基準 (mechanical refactor 定義 + PR description 明記事項) を追記
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -533,7 +533,7 @@
 - [ ] poll の CI 完了判定に「review-complete + mergeability CLEAN」短絡条件を追加
 - [ ] CodeRabbit-only 構成の判定 (実 CI check の有無) を実装
 - [ ] `cargo test -p cli-pr-monitor` pass + regression test (短絡が誤発火しないこと)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 

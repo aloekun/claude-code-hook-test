@@ -25,7 +25,7 @@
 - [ ] ターミナル CLI 版 Claude Code で新セッションを起動し systemMessage の描画を確認 (last-run を stale にするか failed marker を置いて reminder を発火させる)
 - [ ] VSCode 拡張での描画有無・スタイルを確認し CLI との差を切り分け
 - [ ] 結果を ADR-059 § Dogfood 観測 (2026-07-19) に追記 + 削除条件 2 の可否を判定
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -47,7 +47,7 @@
 
 - [ ] `.claude/custom-lint-rules.toml` に `docs/todo*.md` 本文の順位番号表記を検出する regex rule を追加 (table 行を除外)
 - [ ] 既存本文の違反を洗い出し修正 (ADR-033 の grep を流用)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -69,7 +69,7 @@
 
 - [ ] cli-merge-pipeline の Phase 0 で transcript summary index を生成 (timestamp / message_type / tool_name / outcome)
 - [ ] session-analysis facet の入力を index に切替 + token 消費が threshold 内に収まることを確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 

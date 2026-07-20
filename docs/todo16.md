@@ -19,7 +19,7 @@
 
 - [ ] `pipeline_integration_test.rs` を新設し、Stage -1〜Stage 3 の状態遷移契約を突合するテストを追加
 - [ ] 既存 `cargo test` 実行に組み込み、独立 CI step は新設しない
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -38,7 +38,7 @@
 #### 作業計画
 
 - [ ] token ベース ownership check (PID/start_unix 回避) の convention を `docs/dev-conventions.md` に追記
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -57,7 +57,7 @@
 #### 作業計画
 
 - [ ] `CLAUDE.md` に「revset だけでは workspace 所有権を判定できない」旨と `@` 厳密一致の設計判断を追記
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -76,7 +76,7 @@
 #### 作業計画
 
 - [ ] `CLAUDE.md` または `docs/dev-conventions.md` に pipeline stage 修正時の段階間依存性チェック項目を追加
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -102,7 +102,7 @@
 - [ ] `cli-pr-monitor/src/lock.rs` を誤検出しないことを確認する negative fixture 追加
 - [ ] 「justification コメントはあるが再読込・比較コードが無い」ケースが lint により検出される (= コメントのみでは通過しない) ことを示す negative fixture を追加
 - [ ] lint 検出時に CODE REVIEW で「lock safety pattern verified」を人手確認する運用を `docs/dev-conventions.md` に明文化し、本 rule の false negative となりうるケース (カバレッジ限界) を rule 定義コメントに記録
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -123,7 +123,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に「並行処理の regression test は実スレッドレースより、内部関数を直接呼び状態不一致を注入する決定論的パターンを優先する」旨とコード例を追記
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -142,7 +142,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に「advisory lock の TOCTOU window に触れる実装は、許容可否の判断根拠を doc comment に残す」チェックリストを追加
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -162,7 +162,7 @@
 
 - [ ] `docs/dev-conventions.md` に「push/merge パイプライン実行中に無関係なバグを発見・修正した場合、`jj split` で分離し、それぞれ独立した bookmark/PR にする」復旧手順を追記
 - [ ] `jj split`/`jj rebase` は**混入後の事後対応**であり、混在した変更に対して既に実行された quality gate / pre-push review の結果は汚染されている (予防はできていない) ため、分離後は当該結果を破棄し、分離後の各コミット/PR で quality gate / pre-push review を個別に再実行する手順を追記
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -182,7 +182,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加 (基準時点/現時点の計測結果・差分、判定理由、判定者・判定日時、レビュー承認者を記録する audit trail 要件を含み、証跡が揃わない場合は override 不可とする)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -207,7 +207,7 @@
 - [ ] 記録には「isolation を見送ったことで残る予防機能の欠如 (混在した変更に対して quality gate / pre-push review が誤って green 判定を出しうる残存リスク)」を明記する
 - [ ] 記録には再検討条件 (例: 同種の混入事故が反復する、isolation の実装コストが下がる、等) を明記する
 - [ ] `docs/todo-summary.md` の本エントリ行の説明も「代替」ではなく「recovery コストの低さによる risk acceptance」と表現する
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -242,7 +242,7 @@
 - [ ] takt facet (`file-length-watchlist.md` 同型) を新設し weekly-review.yaml の reviewers parallel block に追加。
 - [ ] aggregate-weekly.md に `### 発火統計 (機械的観測)` セクション転載を追加。
 - [ ] dogfood: 週次レビューレポートに発火統計セクションが出力され、初回実行で削除候補 (または全維持の根拠) が特定されることを確認。
-- [ ] 本エントリ削除 + todo-summary.md 行削除 + [harness-improvement-plan.md](harness-improvement-plan.md) の WP-12 状態更新 (step 2 消化)。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除 + [harness-improvement-plan.md](harness-improvement-plan.md) の WP-12 状態更新 (step 2 消化)。
 
 #### 完了基準
 
@@ -264,7 +264,7 @@
 
 - [ ] step 2 の集計出力に「試験運用 ADR の機構ごとの発火数 + bounded lifetime 期限との照合」を追加し、卒業/廃止の検討を promote する判定を機械化する。
 - [ ] ADR-039 に「bounded lifetime 判定の発火数機械化」を amendment として記録。
-- [ ] 本エントリ削除 + todo-summary.md 行削除 + harness-improvement-plan.md の WP-12 状態更新 (step 3 消化 = WP-12 完了)。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除 + harness-improvement-plan.md の WP-12 状態更新 (step 3 消化 = WP-12 完了)。
 
 #### 完了基準
 
@@ -287,7 +287,7 @@
 - [ ] 各 hook の記録呼び出しを実 quality 違反パス限定に移動（infra エラー経路では記録しない）。record 位置の見直し。
 - [ ] [ADR-055](adr/adr-055-firing-telemetry-collection.md) の「emit 総数」定義を amendment（実 violation 限定に方針変更した根拠を記録）。
 - [ ] 各 hook のユニットテストで「infra エラー経路では telemetry を記録しない」ことを検証。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -308,7 +308,7 @@
 - [ ] custom-regex fallback branch では `source` を合成 id（例 `"custom-block"`）に正規化し、生 regex を telemetry id に載せない。
 - [ ] hooks-config パース時に raw-regex な `blocked_patterns` エントリを検出したら警告する config validation を追加（任意）。
 - [ ] [ADR-055](adr/adr-055-firing-telemetry-collection.md) に「Configuration-Driven Privacy Risks（custom config 変更時のプライバシー implications、派生プロジェクトの責務）」セクションを追記。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -330,7 +330,7 @@
 
 - [ ] workspace 内で同一シグネチャ/本体の関数が 3+ 箇所に逐語一致で存在することを検出する仕組みを追加（custom lint rule または xtask）。
 - [ ] good/bad fixture 追加（順位 313 = ADR-049 incident fixture と抱き合わせ）。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -350,7 +350,7 @@
 
 - [ ] `lib-telemetry` に retention ロジック（N 日超過の firings ファイル削除）を追加、ユニットテスト。
 - [ ] WP-12 step 2 の集計 pre-step と統合（順位 307 と同一 PR 消化が自然）。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -369,7 +369,7 @@
 #### 作業計画
 
 - [ ] 順位 311 の DRY lint rule に対する bad fixture（3+ 逐語複製）と good fixture（共有化済み）を incident suite に追加。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -388,7 +388,7 @@
 #### 作業計画
 
 - [ ] push-runner の bookmark 未検出エラーに、推奨命名（`feat/...`）付きの `jj bookmark create <name> -r @` を具体的に提示する。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -407,7 +407,7 @@
 #### 作業計画
 
 - [ ] `[telemetry]` section コメントに warm-up 期限（2026-08-12 頃）と順位 307/308 を追記。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -426,7 +426,7 @@
 #### 作業計画
 
 - [ ] [ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) に「When to extract helper to shared crate」判定基準と `is_truthy` case study を追記。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -445,7 +445,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` のチェックリストに utility 追加前の grep 手順を追記。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
@@ -484,7 +484,7 @@
 - [ ] **silent 化の構造的解消 (本エントリの本丸)**: `is_rate_limit_comment == true` かつ `extract_wait_time == None` の組合せを **loud にする**。現状は「marker 一致だが wait time 不明」= 既知の未知 (known-unknown) を `None` に潰して「rate-limit 無し」と同一視している。最低限 warn ログ + 監視側で「rate-limit 検出・待ち時間不明」を報告し、ADR-043 に従い保守的な既定待ち時間 (例: 30 分) で park する案を検討する。**この修正が入れば第4 format が来ても silent regression にはならない** (regex 追加は追従作業に留まる)。
 - [ ] fixture 追加 (step 5): 第3 format の実 body を 2-3 variant。既存 fixture は backward compat のため維持。**回帰テストは「修正前に実際に落ちること」を確認する** (§2 原則 2 / ADR-049)。marker 一致・regex 不一致の silent ケースも 1 本固定する。
 - [ ] ADR-034 § 既知 CR rate-limit format 一覧 table に第3 format 行を append (step 6)。あわせて § 検出 logic 更新手順 の症状記述に「marker 一致 / regex 不一致 (= 常時 None、silent)」を追記する — 現在の記述は marker 失敗のみ想定で本件を発見できない。
-- [ ] 本エントリ削除 + todo-summary.md 行削除。
+- [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 

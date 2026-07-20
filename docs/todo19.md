@@ -40,7 +40,7 @@
 - [ ] `cargo test -p hooks-session-start -- --ignored --test-threads=1` でローカル動作確認
 - [ ] `cargo test -p hooks-pre-tool-validate -- --ignored --test-threads=1` でローカル動作確認
 - [ ] ADR-031 weekly-review workflow (`.takt/workflows/weekly-review.yaml` 等) に rust-stress step 追加
-- [ ] 次回 `/weekly-review` で実発火確認、本 task entry 削除 + todo-summary.md 行削除
+- [ ] 次回 `/weekly-review` で実発火確認、本 task entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -95,7 +95,7 @@
 - [ ] CLAUDE.md ADR list 追記 (Option B の場合のみ)
 - [ ] ADR-025 precedent との相補性を ADR 内で明示
 - [ ] `~/.claude/rules/common/coding-style.md` (or rust/patterns.md) から本 ADR への link を追加 (派生プロジェクト transferability)
-- [ ] 本 task entry 削除 + todo-summary.md 行削除
+- [ ] 本 task entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -163,7 +163,7 @@
 - [ ] `~/.claude/` snapshot 取得 (memory `feedback_global_config_backup` per)
 - [ ] `~/.claude/CLAUDE.md` に新 sub-section「AI 先走り防止 — 計画文書作成完了時の GO/NO-GO ゲート」を追加 (上記設計決定の rule 内容、~30 行)
 - [ ] markdownlint clean
-- [ ] 本エントリ削除 + docs/todo-summary.md 行削除
+- [ ] 本エントリ削除 + docs/todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -211,7 +211,7 @@
 - [ ] hooks-stop-quality `main.rs` に `const _: () = assert!(ACTIVE_RUN_FRESH_THRESHOLD_SECS == hooks_session_start::reaper::ORPHAN_THRESHOLD_SECS);` を追加
 - [ ] `cargo build --workspace` で compile-time assert が通ることを確認、片方を変更して compile error を観測 (PR description に貼付)
 - [ ] hooks-stop-quality の既存コメント (line 67) を「compile-time assert で同期保証」 に更新
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -265,7 +265,7 @@
 - [ ] 4 error path の inline 説明 + anti-example (fail-open) の論理対比
 - [ ] PR #222 + ADR-004 § freshness check との cross-reference 追加
 - [ ] markdownlint clean
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 

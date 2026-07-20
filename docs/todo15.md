@@ -21,7 +21,7 @@
 
 - [ ] Gate Function Design Checklist を `CLAUDE.md` patterns section または `docs/guides/gate-functions.md` に新設: (1) 判定不能状態は fail-closed、(2) gate 関数内で `filter_map + .ok()?` 禁止、(3) single-pass file access で TOCTOU 回避、(4) iterator chain + `Result::?` idiom で nesting depth 抑制、(5) エラーパスを明示的にテスト
 - [ ] ADR-043 (順位 249) との相互リンク
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -42,7 +42,7 @@
 #### 作業計画
 
 - [ ] ADR-043 に具体コード例 section を追加 (`.ok()?` anti-pattern / single-read + `ErrorKind` idiom / TOCTOU 回避の単一操作)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -63,7 +63,7 @@
 #### 作業計画
 
 - [ ] ADR-021 (または `CLAUDE.md`) に「jj revset の base branch は config / arg 化し hardcode 禁止」の原則を明文化 (`.rs` / TOML config / docs / 他ツール横断)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -83,7 +83,7 @@
 
 - [ ] 新 ADR (順位 135 placeholder policy 適用) に「部分効果 env var」anti-pattern を codify: 定義 / PR #238 実例 / 判定基準 (env var による回避策採用時は対象コマンド全系統でのカバレッジ確認を必須化) / 推奨代替 (全系統に効く機構 = GIT_DIR 自動注入型、または明示フラグ)
 - [ ] CLAUDE.md の ADR 一覧にリンク追加 (ADR-022 の「CLAUDE.md はリンクに留める」方針に従い本文は ADR 側へ)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -106,7 +106,7 @@
 #### 作業計画
 
 - [ ] ADR-030 に「owner_repo 検出失敗などの実行前 skip も marker 付き skip とし L2 recovery 対象にする (`AiStepContext::SkipWithMarker`)」の実装記録 sub-section を数行追記 (PR #238 シナリオを inline cite)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -130,7 +130,7 @@
 
 - [ ] `[pr_size_check] default_branch` を `master@origin` に変更 (config 1 行) または pr_size_check 側で remote tracking ref を優先解決する fallback を実装 (着手時に判断、`[file_length_gate] base` も同点検)
 - [ ] ローカル master 遅延状態を模した test (revset 解決の単体レベル) を検討
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -155,7 +155,7 @@
 - [ ] ADR-040 に amendment: RTX 3070 8GB の実測表は「旧環境 (historical)」と明示し、新 GPU での再測定値 (ADR-046 の VRAM 実測 + 代表 diff の latency) を追記
 - [ ] 「Context 選定の判断 flow」の memory 軸 (同時起動可否 / swap) を latency 軸へ再重み付け
 - [ ] ADR-038 の RTX 3070 前提記述 (§コンテキスト / §帰結の VRAM 8GB 制約) に更新環境への参照を付す
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -180,7 +180,7 @@
 - [ ] FP 検出強化版 `classify.txt` を作成 (false_positive_likely の positive signal をより明示、Windows 専用/test mock/合成 fixture 等の既知 FP パターンを few-shot 化)
 - [ ] WP-04 の Opus gold eval セット (35 件) で qwen3-coder:30b 等を再測、FP recall と human_review 安全軸を確認
 - [ ] 能力限界と確認できれば恒久見送りとして本 entry 削除。プロンプト不適合なら該当モデル + 専用プロンプトで格上げ (ADR-038 の model default 変更 + amendment)
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -206,7 +206,7 @@
 - [ ] 採用時: `push-runner-config.toml` の `cargo test` step を `cargo nextest run` に置換。**nextest は doctest を実行しないため `cargo test --doc` を併走**させる (doctest 有無を確認: `///` の ` ``` ` を持つ crate)
 - [ ] `--ignored` 統合テスト (repush 等) が nextest で正しく実行されることを確認 (nextest の `--run-ignored` フラグ)
 - [ ] before/after 実測で push pipeline 時間短縮を確認
-- [ ] 本 entry 削除 + todo-summary.md 行削除
+- [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -239,7 +239,7 @@
 - [ ] `templates/push-runner-config.toml:52` も同様に変更
 - [ ] review-diff.txt を参照する箇所（facet instruction / `.rs`）が `--git` 形式で問題ないか確認
 - [ ] dogfood: 削除を含む diff で pre-push review が正しく削除を認識することを確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -269,7 +269,7 @@
 - [ ] 既存 CheckMode dispatch / kill-switch 設定に統合 (ADR-039 パターン)
 - [ ] fixture テスト: 重複採番 / 索引欠落 / 番号不一致の bad fixture + clean fixture
 - [ ] push-runner quality_gate (`pnpm lint:docs`) 経由で発火することを確認
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -290,7 +290,7 @@
 - [ ] 対象パターンの棚卸し (StubOllama / tempdir+jj init+CwdRestore / 層別テストの構成方針)
 - [ ] ADR-044 の境界判定で shared test crate 化 or fixture + doc 化を判断
 - [ ] 切り出し + 既存呼び出し側 (cli-finding-classifier / cli-pr-monitor) の移行
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -309,7 +309,7 @@
 #### 作業計画
 
 - [ ] ADR-007 に Q 形式の「コメントを書きたくなったときの配置判断フロー」を追記 (doc コメント / 識別子名 / マーカー付き Why コメントの 3 分岐)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -328,7 +328,7 @@
 #### 作業計画
 
 - [ ] dev-conventions.md に PR body 配置タイミング規約を追記 (scratchpad + 絶対パス推奨 / repo 直下 `__` ファイルは push 完了後のみ)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -349,7 +349,7 @@
 
 - [ ] custom-lint-rules.toml に「hooks-* の .rs で `current_dir()` + `hooks-config.toml` の組合せ」を検出するルール追加 (bad/good fixture + incident 構造)
 - [ ] 順位 287 (convention 明文化) を同一 PR で bundle
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -368,7 +368,7 @@
 #### 作業計画
 
 - [ ] 各 verb の実際の op description を jj 0.42 実機で確認し keyword map に追加 + テスト
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -387,7 +387,7 @@
 #### 作業計画
 
 - [ ] verb 検出をコマンド境界 (`&&` / `;` / `|` / 文頭) anchor に変更 + 引用符内の誤検出テスト
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -406,7 +406,7 @@
 #### 作業計画
 
 - [ ] 既存 fixture に `stale_check_enabled = true` + assert を追加
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -425,7 +425,7 @@
 #### 作業計画
 
 - [ ] `token_detection_ignores_jj_in_message_quotes` 等の edge-case テスト追加 (283 実施後は新挙動を固定)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -444,7 +444,7 @@
 #### 作業計画
 
 - [ ] 実 exe spawn + 非 repo-root cwd で config 読込を assert する `#[ignore]` integration test
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -463,7 +463,7 @@
 #### 作業計画
 
 - [ ] 順位 281 の PR に同乗して convention を明文化
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -487,7 +487,7 @@
 - [ ] `bookmark_check.rs` で `@` 非 trunk 祖先が未レビューのまま push される穴を検証・塞ぐ (T8 / PR #280 と同クラス)。
 - [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
 - [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -509,7 +509,7 @@
 
 - [ ] `MonitorLock` に token フィールドを追加し、`Drop` を token 一致確認付き削除に変更 (`pipeline_lock.rs` の実装を踏襲)
 - [ ] takeover 後に旧 guard の Drop が新 lock を消さないことを確認する regression test 追加
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -529,7 +529,7 @@
 
 - [ ] stacked bookmark 運用が実際に必要になった時点で `[push] stack_push` config を設計
 - [ ] 実績が出ないまま長期化する場合は close 判断も検討
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -549,7 +549,7 @@
 
 - [ ] ADR-053 に「jj-op-verify hook は tool 実行はされたが結果表示の信頼性が疑わしい型の混線を検知する」旨を追記し、当該 hook への参照を追加
 - [ ] ADR-045 の該当 hook の記述を「並列 workspace 対策」から「混線検知 (副次的に並列 workspace 由来の stale 検出にも有効)」に改める
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -568,7 +568,7 @@
 #### 作業計画
 
 - [ ] ADR-045 の該当事故記述に「並列 workspace 原因説は事後分析による推定であり、一次証拠 (当時の jj op log) には未到達。混線 (モデル起源) が真因である可能性も残る」旨を注記
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
@@ -587,7 +587,7 @@
 #### 作業計画
 
 - [ ] takeover → 旧 guard drop → 新 guard drop の full cycle を検証するテストを既存テストファイルに追加
-- [ ] 本エントリ削除 + todo-summary.md 行削除
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
