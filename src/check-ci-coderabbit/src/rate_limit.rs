@@ -3,6 +3,15 @@
 use crate::markers::{is_rate_limit_comment, rate_limit_event_time};
 use crate::models::{GhComment, RateLimitInfo};
 
+/// marker は一致したが待機時間を既知書式で読めなかったときに使う既定待機時間 (分)。
+///
+/// CR は rate-limit comment の書式を過去 2 回変更しており (ADR-034)、書式追随は
+/// 常に後追いになる。待機時間が読めないことを「rate-limit ではない」と扱うと
+/// silent success に戻るため、marker 一致を制限の根拠として採用し、待機時間だけを
+/// 保守的な既定値で埋める。値が実際の reset より短ければ wakeup 後に再検出されて
+/// 再度 park されるだけ (retry は `max_retries` で有界) なので安全側に倒れる。
+pub(crate) const UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES: u64 = 30;
+
 /// CodeRabbit rate-limit comment を検出し、reset 時刻 (unix epoch) を返す。
 pub(crate) fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitInfo> {
     let comments: Vec<GhComment> = serde_json::from_str(json).ok()?;
@@ -32,7 +41,10 @@ pub(crate) fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitI
 
     let body = latest.body.as_deref()?;
     let event_time = rate_limit_event_time(latest)?;
-    let (minutes, seconds) = extract_wait_time(body)?;
+    let (minutes, seconds, wait_time_parsed) = resolve_wait_time(body);
+    if !wait_time_parsed {
+        warn_unknown_wait_time_format();
+    }
     let comment_unix = parse_iso8601_to_unix(event_time)?;
 
     let until_unix_secs = comment_unix + (minutes as i64) * 60 + (seconds as i64) + 60;
@@ -42,7 +54,32 @@ pub(crate) fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitI
         comment_event_time: event_time.to_string(),
         wait_minutes: minutes,
         wait_seconds: seconds,
+        wait_time_parsed,
     })
+}
+
+/// 未知書式で既定値を適用したことを stderr に警告する。
+///
+/// cli-pr-monitor は checker の stderr をログ転送するため、既定値で埋めた事実が
+/// 運用ログに残る (park signal の「30 分待機」を CR の申告値と誤読させないため)。
+/// 同時に「CR が書式を再変更した」検知シグナルとしても機能する。
+fn warn_unknown_wait_time_format() {
+    eprintln!(
+        "[check-ci-coderabbit] rate-limit marker は一致したが待機時間を既知書式で読めず、既定 {} 分を適用 (CR 書式が再変更された可能性)",
+        UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES
+    );
+}
+
+/// marker 一致済み body から待機時間を解決する。
+///
+/// 戻り値の 3 番目は「既知書式で待機時間を読めたか」。既知 3 世代のいずれにも
+/// 一致しなければ [`UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES`] を返し `false` を立てる。
+/// 呼び出し側はこのフラグで「実測値」と「既定値」を区別して報告できる。
+pub(crate) fn resolve_wait_time(body: &str) -> (u64, u64, bool) {
+    match extract_wait_time(body) {
+        Some((minutes, seconds)) => (minutes, seconds, true),
+        None => (UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES, 0, false),
+    }
 }
 
 /// 旧 format (`Please wait **N minutes? and M seconds?**`) を抽出。
@@ -76,9 +113,31 @@ pub(crate) fn extract_new_format_wait_time(body: &str) -> Option<(u64, u64)> {
     Some((m, 0))
 }
 
-/// 旧 / 新どちらかの format に一致すれば `(minutes, seconds)` を返す。旧 → 新の順で試行。
+/// 第 3 世代 format (`**Next review available in:** **N minutes**`) を抽出。
+///
+/// PR #309 (2026-07-20) で実観測。ラベルと数値の間に markdown の `**` と `:` が
+/// 挟まるため、区切りは `[:*\s]*` で吸収する (CR が強調記法を変えても壊れにくい)。
+pub(crate) fn extract_next_review_format_wait_time(body: &str) -> Option<(u64, u64)> {
+    let re_full = regex::Regex::new(
+        r"Next review available in[:*\s]*(\d+) minutes?[*\s]*and[:*\s]*(\d+) seconds?",
+    )
+    .ok()?;
+    if let Some(caps) = re_full.captures(body) {
+        let m: u64 = caps.get(1)?.as_str().parse().ok()?;
+        let s: u64 = caps.get(2)?.as_str().parse().ok()?;
+        return Some((m, s));
+    }
+    let re_min = regex::Regex::new(r"Next review available in[:*\s]*(\d+) minutes?").ok()?;
+    let caps = re_min.captures(body)?;
+    let m: u64 = caps.get(1)?.as_str().parse().ok()?;
+    Some((m, 0))
+}
+
+/// 既知 3 世代のいずれかに一致すれば `(minutes, seconds)` を返す。古い世代から順に試行。
 pub(crate) fn extract_wait_time(body: &str) -> Option<(u64, u64)> {
-    extract_old_format_wait_time(body).or_else(|| extract_new_format_wait_time(body))
+    extract_old_format_wait_time(body)
+        .or_else(|| extract_new_format_wait_time(body))
+        .or_else(|| extract_next_review_format_wait_time(body))
 }
 
 /// ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ` 形式) を unix epoch 秒に変換する。
@@ -142,6 +201,45 @@ pub(crate) fn days_in_month_check(year: i64, month: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PR #309 の実 rate-limit comment body (2026-07-20T12:10:47Z 投稿) の忠実な抜粋。
+    ///
+    /// 出典: `gh api repos/aloekun/claude-code-hook-test/issues/309/comments`。
+    /// この incident が「CR 書式変更で rate-limit 検知が沈黙する」2 度目の regression
+    /// (PR #182/#184 に次ぐ) を起こした実入力そのもの。ADR-049 に従い合成データでは
+    /// なく実データを fixture 化する。
+    ///
+    /// 構造上の要点は 2 つ:
+    /// - walkthrough header marker (`summarize by coderabbit.ai`) を **同一 comment 内に**
+    ///   併せ持つ。`is_clean_walkthrough_comment` が rate-limit comment を除外していなければ
+    ///   clean walkthrough と誤認され得る配置。
+    /// - 待機時間が第 3 世代書式 (`**Next review available in:** **57 minutes**`)。
+    const PR309_RATE_LIMIT_BODY: &str = r#"<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+[![Review Change Stack](https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg)](https://app.coderabbit.ai/change-stack/aloekun/claude-code-hook-test/pull/309)
+
+<!-- review_stack_entry_end -->
+<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->
+
+> [!WARNING]
+> ## Review limit reached
+>
+> `@aloekun`, you've reached your PR review limit, so we couldn't start this review.
+>
+> **Next review available in:** **57 minutes**
+>
+> Enable **usage-based reviews** in Billing to review now."#;
+
+    /// PR #309 の実 comment を GH API の comments JSON 形として組み立てる。
+    fn pr309_comments_json() -> String {
+        serde_json::json!([{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": PR309_RATE_LIMIT_BODY,
+            "created_at": "2026-07-20T12:10:47Z"
+        }])
+        .to_string()
+    }
 
     #[test]
     fn iso8601_epoch_zero() {
@@ -239,14 +337,44 @@ mod tests {
         assert!(parse_rate_limit(json, "2026-04-29T00:00:00Z").is_none());
     }
 
+    /// R2: marker は一致するが待機時間が既知 3 世代のどれにも一致しない未知書式でも、
+    /// rate-limit として検出し続ける (旧実装は `None` を返し監視が silent success に倒れた)。
+    /// 待機時間は既定値で埋め、`wait_time_parsed = false` で「読めなかった」ことを明示する。
     #[test]
-    fn rate_limit_no_match_when_no_wait_time() {
+    fn rate_limit_falls_back_to_default_wait_when_format_unknown() {
         let json = r#"[{
             "user": {"login": "coderabbitai[bot]"},
             "body": "Rate limit exceeded but format is unusual",
             "created_at": "2026-04-30T00:00:00Z"
         }]"#;
-        assert!(parse_rate_limit(json, "2026-04-29T00:00:00Z").is_none());
+        let result = parse_rate_limit(json, "2026-04-29T00:00:00Z")
+            .expect("marker 一致時は未知書式でも rate-limit として検出すべき");
+        assert_eq!(result.wait_minutes, UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES);
+        assert_eq!(result.wait_seconds, 0);
+        assert!(
+            !result.wait_time_parsed,
+            "未知書式では既定値であることを wait_time_parsed=false で申告する"
+        );
+        let base = parse_iso8601_to_unix("2026-04-30T00:00:00Z").unwrap();
+        assert_eq!(
+            result.until_unix_secs,
+            base + (UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES as i64) * 60 + 60
+        );
+    }
+
+    /// R2 の fallback が「marker 無しの comment まで rate-limit 扱いする」方向に
+    /// 効きすぎていないことを固定する (fallback の適用範囲は marker 一致後のみ)。
+    #[test]
+    fn rate_limit_fallback_does_not_fire_without_marker() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "Next review available in: 57 minutes",
+            "created_at": "2026-04-30T00:00:00Z"
+        }]"#;
+        assert!(
+            parse_rate_limit(json, "2026-04-29T00:00:00Z").is_none(),
+            "marker 非一致なら待機時間書式に一致しても rate-limit ではない"
+        );
     }
 
     #[test]
@@ -349,6 +477,58 @@ mod tests {
             .expect("new format minutes-only variant must be detected");
         assert_eq!(result.wait_minutes, 30);
         assert_eq!(result.wait_seconds, 0);
+    }
+
+    /// R2 / incident 再現: PR #309 の実 comment から第 3 世代書式の待機時間を読む。
+    /// 旧実装ではここが `None` に倒れ、`decide()` に rate_limit が届かず silent success
+    /// になっていた (本 incident の起点)。
+    #[test]
+    fn rate_limit_detected_from_pr309_incident_body() {
+        let result = parse_rate_limit(&pr309_comments_json(), "2026-07-20T12:00:00Z")
+            .expect("PR #309 の実 rate-limit comment は検出されなければならない");
+        assert_eq!(result.wait_minutes, 57);
+        assert_eq!(result.wait_seconds, 0);
+        assert!(
+            result.wait_time_parsed,
+            "第 3 世代書式は既知書式として読めるので fallback ではない"
+        );
+        assert_eq!(result.comment_event_time, "2026-07-20T12:10:47Z");
+        let base = parse_iso8601_to_unix("2026-07-20T12:10:47Z").unwrap();
+        assert_eq!(result.until_unix_secs, base + 57 * 60 + 60);
+    }
+
+    /// PR #309 の実 comment は walkthrough header marker を併せ持つが、rate-limit
+    /// comment である限り clean walkthrough と判定してはならない。
+    /// (この排他が崩れると `decide()` が walkthrough_clean で早期 success に倒れる)
+    #[test]
+    fn pr309_incident_body_is_not_treated_as_clean_walkthrough() {
+        let clean = crate::parsers::parse_walkthrough_clean_marker(
+            &pr309_comments_json(),
+            "2026-07-20T12:00:00Z",
+        );
+        assert!(
+            !clean,
+            "rate-limit comment は walkthrough header を含んでも clean 扱いしない"
+        );
+    }
+
+    #[test]
+    fn wait_time_next_review_format_minutes_only() {
+        let body = "**Next review available in:** **57 minutes**";
+        assert_eq!(extract_wait_time(body), Some((57, 0)));
+    }
+
+    #[test]
+    fn wait_time_next_review_format_with_seconds() {
+        let body = "**Next review available in:** **3 minutes and 20 seconds**";
+        assert_eq!(extract_wait_time(body), Some((3, 20)));
+    }
+
+    /// 強調記法が付かない素の書式でも読めること (CR が markdown を変えても壊れない)。
+    #[test]
+    fn wait_time_next_review_format_without_markdown_emphasis() {
+        let body = "Next review available in 12 minutes.";
+        assert_eq!(extract_wait_time(body), Some((12, 0)));
     }
 
     #[test]

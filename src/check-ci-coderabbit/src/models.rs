@@ -28,6 +28,12 @@ pub(crate) struct RateLimitInfo {
     pub(crate) comment_event_time: String,
     pub(crate) wait_minutes: u64,
     pub(crate) wait_seconds: u64,
+    /// `wait_minutes` / `wait_seconds` を既知書式から実際に読めたか。
+    ///
+    /// `false` = marker だけ一致した未知書式で、待機時間は既定値
+    /// ([`crate::rate_limit::UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES`])。
+    /// 監視側はこれを見て「実測」と「既定値」を区別して報告する。
+    pub(crate) wait_time_parsed: bool,
 }
 
 #[derive(Serialize, Default)]
