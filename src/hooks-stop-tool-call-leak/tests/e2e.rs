@@ -95,6 +95,26 @@ fn write_transcript(dir: &tempfile::TempDir, entries: &[Value]) -> PathBuf {
     path
 }
 
+/// 子へ stdin payload を書く。**子が読まずに終了済みでも失敗させない**。
+///
+/// `main` は kill-switch (`STOP_TOOL_CALL_LEAK_OVERRIDE`) と `enabled = false` の
+/// 2 経路で **stdin を読む前に return** する。この場合パイプの読み手が消えるため、
+/// 親の `write_all` は Unix で `BrokenPipe` (EPIPE) になる。子の exit と親の write の
+/// どちらが先かは競合で、Windows は小さな payload がバッファに収まり成功しがちなのに対し
+/// Linux では実際に失敗する (2026-07-20、ubuntu-22.04 CI で `kill_switch_env_skips_check`
+/// が Broken pipe で落ちた。WSL では通っていたため CI matrix が初めて捕捉した)。
+///
+/// これらの test の主題は「skip されること」であって「stdin が消費されること」ではない。
+/// よって `BrokenPipe` のみ正常として飲み込み、他の I/O エラーは従来どおり panic させる。
+fn write_stdin_tolerating_early_exit(child: &mut std::process::Child, stdin_payload: &str) {
+    let mut stdin = child.stdin.take().expect("child stdin");
+    match stdin.write_all(stdin_payload.as_bytes()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(e) => panic!("write stdin payload: {e:?}"),
+    }
+}
+
 /// exe を spawn して stdin payload を与え、(stdout, stderr) を返す
 fn run_hook(stdin_payload: &str, override_env: Option<&str>) -> (String, String) {
     ensure_config_beside_exe();
@@ -107,12 +127,7 @@ fn run_hook(stdin_payload: &str, override_env: Option<&str>) -> (String, String)
         None => cmd.env_remove("STOP_TOOL_CALL_LEAK_OVERRIDE"),
     };
     let mut child = cmd.spawn().expect("spawn hook exe");
-    child
-        .stdin
-        .take()
-        .expect("child stdin")
-        .write_all(stdin_payload.as_bytes())
-        .expect("write stdin payload");
+    write_stdin_tolerating_early_exit(&mut child, stdin_payload);
     let stdout_handle = drain_pipe_unlimited(child.stdout.take().expect("child stdout"));
     let stderr_handle = drain_pipe_unlimited(child.stderr.take().expect("child stderr"));
     let status = wait_with_timeout_safe("hooks-stop-tool-call-leak", &mut child, HOOK_TIMEOUT_SECS)
