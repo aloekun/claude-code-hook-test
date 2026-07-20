@@ -8,8 +8,11 @@ fn fmt(x: f64) -> String {
 }
 
 /// 合計占有を 0 桁に丸めた整数にする (旧 ps1 の `[math]::Round(sum, 0)`)。
+///
+/// PowerShell の `[math]::Round` 既定 (MidpointRounding.ToEven) に合わせ、中点は
+/// 偶数側へ丸める (banker's rounding)。同 crate の `round1` と丸め規約を揃える。
 fn round0(x: f64) -> i64 {
-    x.round() as i64
+    x.round_ties_even() as i64
 }
 
 /// step/phase 別集計表を組み立てる (見出し + テーブル)。
@@ -107,6 +110,14 @@ mod tests {
     fn sum_rounds_to_integer() {
         assert_eq!(round0(132.4), 132);
         assert_eq!(round0(132.6), 133);
+    }
+
+    #[test]
+    fn sum_midpoint_rounds_to_even() {
+        assert_eq!(round0(132.5), 132);
+        assert_eq!(round0(133.5), 134);
+        assert_eq!(round0(0.5), 0);
+        assert_eq!(round0(2.5), 2);
     }
 
     #[test]
