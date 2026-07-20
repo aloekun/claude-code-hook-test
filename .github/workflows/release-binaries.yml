@@ -1,0 +1,156 @@
+# release-binaries — Linux バイナリのビルドと rolling release への公開 (WP-15)
+#
+# 役割: master への push で全 Rust 成果物を x86_64-unknown-linux-gnu 向けにビルドし、
+# 固定タグ `nightly` の prerelease へ単一 tarball として公開する。使い捨ての
+# クラウドセッション (claude.ai/code) が 19 crate をビルドせずにハーネスを即時
+# 有効化できるようにするのが目的。取得側は scripts/cloud-setup.sh。
+#
+# 設計メモ:
+# - **単一 tarball で公開する**: バイナリを個別 asset にすると、run が途中で失敗/
+#   キャンセルされたとき release に新旧が混在した不整合なセットが残る。1 asset なら
+#   差し替えが実質アトミックになり、取得側も 1 回のダウンロードで済む。
+# - **rolling tag (`nightly`) を上書き更新する**: 使い捨て環境向けなので「常に master
+#   最新」であればよく、バージョン解決を setup script に持ち込みたくない。取得側は
+#   常に同一 URL を叩けばよい。再現性が要る場合は tarball 内の BUILD_INFO に
+#   commit SHA が入っているので、そこから逆引きできる。
+# - **prerelease にする**: `gh release list` の latest に載せず、人間向けの正式
+#   リリースと混同されないようにする。
+# - **バイナリ一覧は cargo metadata から導出する**: package.json の build:* や
+#   deploy-hooks.ts の allowlist に列挙をコピーすると、crate 追加時に片方だけ
+#   更新されて無言で欠落する (実際 deploy-hooks.ts の allowlist は 11 個で、
+#   settings.local.json.template が参照する 3 つの hook exe を既に取りこぼしている)。
+#   workspace の bin target を機械的に集めることで、この drift を構造的に断つ。
+# - **公開前に cargo test を通す**: 壊れたバイナリを rolling release に載せると、
+#   クラウドセッション側が原因不明の挙動不良を起こす (しかも setup は成功する) ため。
+#   Windows leg と hooks smoke test を含む本格的な CI matrix は WP-16 で扱う。
+# - **paths フィルタで docs-only push を除外する**: 本リポジトリは docs / todo 更新の
+#   push が多く、そのたびに全 crate を再ビルドするのは無駄。バイナリの内容に影響する
+#   パスに限定する。
+# - checkout は persist-credentials: false (pr-monitor.yml と同じ token 漏洩対策)。
+#   release の publish に使う token は該当 step の env にのみ置く。
+
+name: release-binaries
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/release-binaries.yml"
+  workflow_dispatch:
+
+# 同時実行を許すと 2 つの run が同じ tag の asset を奪い合う。古い run を止めるのでは
+# なく直列化する: cancel すると tarball の差し替えが中途半端な状態で終わりうるため。
+concurrency:
+  group: release-binaries
+  cancel-in-progress: false
+
+permissions:
+  contents: write # rolling release (tag `nightly`) の作成と asset 差し替えに必要
+
+env:
+  RELEASE_TAG: nightly
+  TARGET_TRIPLE: x86_64-unknown-linux-gnu
+
+jobs:
+  build:
+    # glibc は前方互換 (新しい glibc 上で動く) だが後方互換ではないため、
+    # ビルド側は実行環境より古い glibc に合わせる。22.04 = glibc 2.35。
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Show toolchain versions
+        run: |
+          rustc --version
+          cargo --version
+          ldd --version | head -1
+
+      # 壊れたバイナリを rolling release に載せないためのゲート。
+      # Linux 側で cmd.exe 依存が復活していないかの検知も兼ねる (WP-15)。
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Build all workspace binaries
+        run: cargo build --release --workspace --bins
+
+      # bin target 名を cargo metadata から取り出す (列挙のハードコードを避ける)。
+      # workspace_members に属する package だけを見て、依存 crate の bin を拾わない。
+      - name: Collect binaries into a single tarball
+        id: package
+        run: |
+          set -euo pipefail
+          mkdir -p dist/bin
+
+          cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[].targets[] | select(.kind[] == "bin") | .name' \
+            | sort -u > dist/bin-names.txt
+
+          if [ ! -s dist/bin-names.txt ]; then
+            echo "error: no bin targets found via cargo metadata" >&2
+            exit 1
+          fi
+
+          echo "packaging $(wc -l < dist/bin-names.txt) binaries:"
+          while read -r name; do
+            src="target/release/${name}"
+            if [ ! -x "$src" ]; then
+              echo "error: expected binary not found: ${src}" >&2
+              exit 1
+            fi
+            cp "$src" "dist/bin/${name}"
+            echo "  - ${name}"
+          done < dist/bin-names.txt
+
+          # 取得側が「いつ・どの commit のバイナリか」を確認できるようにする。
+          # rolling tag は履歴を持たないため、この情報が唯一の provenance になる。
+          cat > dist/bin/BUILD_INFO <<EOF
+          commit=${GITHUB_SHA}
+          ref=${GITHUB_REF}
+          run_id=${GITHUB_RUN_ID}
+          target=${TARGET_TRIPLE}
+          built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+
+          archive="claude-code-hooks-${TARGET_TRIPLE}.tar.gz"
+          tar -czf "${archive}" -C dist/bin .
+          sha256sum "${archive}" > "${archive}.sha256"
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+
+      # tag が無ければ作り、あれば asset を --clobber で差し替える。
+      # notes に commit を書いておくと Release ページだけで世代が判る。
+      - name: Publish to the rolling prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --prerelease \
+              --title "Linux binaries (rolling)" \
+              --notes "master の最新ビルド。scripts/cloud-setup.sh が取得する。"
+          fi
+
+          gh release upload "${RELEASE_TAG}" "${ARCHIVE}" "${ARCHIVE}.sha256" --clobber
+
+          gh release edit "${RELEASE_TAG}" \
+            --notes "master の最新ビルド (commit ${GITHUB_SHA})。scripts/cloud-setup.sh が取得する。"
