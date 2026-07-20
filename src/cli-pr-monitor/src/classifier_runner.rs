@@ -269,34 +269,38 @@ mod tests {
         assert_eq!(parsed[0].finding.severity, "Critical");
     }
 
+    /// A long-running command used to exercise the timeout path. cmd.exe and POSIX sh
+    /// disagree on syntax, so the fixture is selected per OS (WP-15). Keep the runtime
+    /// comparable on both sides so neither leg silently stops exercising the timeout.
+    #[cfg(windows)]
+    const LONG_RUNNING_CMD: &str = "ping 127.0.0.1 -n 3";
+    #[cfg(not(windows))]
+    const LONG_RUNNING_CMD: &str = "sleep 3";
+
     /// `wait_with_timeout` success path: a fast process completes within a generous timeout.
     #[test]
     fn wait_with_timeout_returns_some_when_process_completes() {
-        let child = Command::new("cmd")
-            .arg("/c")
-            .arg("echo ok")
+        let child = lib_subprocess::shell_command("echo ok")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("failed to spawn cmd");
+            .expect("failed to spawn shell command");
         let result = wait_with_timeout(child, Duration::from_secs(5));
         assert!(result.is_some(), "process should complete within 5-second timeout");
     }
 
     /// `wait_with_timeout` timeout path: a long-running process exceeds a short timeout.
     ///
-    /// Note: the child process (ping) continues running in a background thread until it
-    /// terminates naturally (~2 s). This is intentional — the thread-based design cannot
+    /// Note: the child process continues running in a background thread until it
+    /// terminates naturally (~3 s). This is intentional — the thread-based design cannot
     /// kill the child after the timeout (child is moved into the thread). Acceptable in tests.
     #[test]
     fn wait_with_timeout_returns_none_on_timeout() {
-        let child = Command::new("cmd")
-            .arg("/c")
-            .arg("ping 127.0.0.1 -n 3")
+        let child = lib_subprocess::shell_command(LONG_RUNNING_CMD)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("failed to spawn cmd");
+            .expect("failed to spawn shell command");
         let result = wait_with_timeout(child, Duration::from_millis(50));
         assert!(result.is_none(), "process should not complete within 50 ms timeout");
     }

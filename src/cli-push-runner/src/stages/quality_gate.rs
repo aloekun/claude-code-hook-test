@@ -297,10 +297,16 @@ mod tests {
         use super::*;
         use crate::runner::MAX_LINES;
 
-        /// 40 行を超える出力を出してから失敗する step の再現。`cmd /c "A & exit 1"` は
-        /// 最後のコマンド (`exit 1`) の exit code を返すため失敗として報告される。
+        /// 40 行を超える出力を出してから失敗する step の再現。cmd.exe の `A & exit 1` も
+        /// POSIX sh の `A; exit 1` も最後のコマンドの exit code を返すため失敗として
+        /// 報告される。構文が非互換なため OS 別に出し分ける (WP-15)。
+        /// **出力行数 (60) は両 OS で揃えること** — cap (40 行) を超えることが前提の test。
+        #[cfg(windows)]
         const FAIL_BEYOND_CAP: &str =
             "(for /L %i in (1,1,60) do @echo failing test line %i) & exit 1";
+        #[cfg(not(windows))]
+        const FAIL_BEYOND_CAP: &str =
+            "i=1; while [ $i -le 60 ]; do echo failing test line $i; i=$((i+1)); done; exit 1";
 
         /// incident 再現 (bad): 失敗 step の出力が cap (40 行) を超えても全量取得でき、
         /// cap の外にある診断行 (60 行目) が残ること。
