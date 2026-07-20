@@ -292,8 +292,8 @@ fn run_check(args: CliArgs) -> CheckResult {
     };
 
     let findings = fetch_findings(&repo, pr, &args.push_time);
-    let (status, action) = decide(&ci, &cr);
-    let summary = build_summary(&ci, &cr);
+    let (status, action) = decide(&ci, &cr, rate_limit.as_ref());
+    let summary = build_summary(&ci, &cr, rate_limit.as_ref());
 
     CheckResult {
         status,
