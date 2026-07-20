@@ -48,20 +48,9 @@ struct LogEvent {
 ///
 /// PowerShell の `[math]::Round(x, 1)` は既定で MidpointRounding.ToEven を使う。
 /// 旧 ps1 が生成した観測スナップショットと数値を一致させるため同じ丸めを再現する
-/// (例: 131.45 → 131.4)。中点以外は最近接へ丸める。
+/// (例: 131.45 → 131.4)。`round0` と同じく stdlib の `round_ties_even()` を使う。
 pub fn round1(x: f64) -> f64 {
-    let scaled = x * 10.0;
-    let floor = scaled.floor();
-    let rounded = if (scaled - floor - 0.5).abs() < 1e-9 {
-        if (floor as i64) % 2 == 0 {
-            floor
-        } else {
-            floor + 1.0
-        }
-    } else {
-        scaled.round()
-    };
-    rounded / 10.0
+    (x * 10.0).round_ties_even() / 10.0
 }
 
 /// log の各行から phase_start/complete を対応付け、完了した phase の Row を返す。
