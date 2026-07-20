@@ -313,6 +313,13 @@ fn print_report(result: &crate::stages::poll::PollResult, pr_label: &str) {
     }
 }
 
+/// レポート末尾に出す人間向けの判定文を決める。
+///
+/// **`findings` が空でも「問題なし」と断定してはならない**。CodeRabbit の未解決
+/// スレッドは `findings` には現れない (新規コメントが無い再チェックでは空になる) ため、
+/// これを見ないと「未解決 2 件」と表示した直後に「問題は見つかりませんでした」と
+/// 結論する矛盾が起きる (PR #307 で実観測)。`action` は正しく action_required に
+/// なっていたので、判定文だけが不完全な信号から安心させる結論を出していた。
 fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
     match result.action.as_str() {
         "parked_rate_limit" => {
@@ -339,10 +346,18 @@ fn compute_verdict(result: &crate::stages::poll::PollResult) -> &'static str {
         })
         .count();
 
+    let unresolved_threads = result
+        .coderabbit
+        .as_ref()
+        .and_then(|cr| cr.unresolved_threads)
+        .unwrap_or(0);
+
     if critical_major > 0 {
         "修正が必要な指摘があります"
     } else if !result.findings.is_empty() {
         "重大な問題は見つかりませんでした。軽微な改善提案があります"
+    } else if unresolved_threads > 0 {
+        "CodeRabbit の未解決スレッドが残っています。内容を確認してください"
     } else {
         "問題は見つかりませんでした"
     }
@@ -482,6 +497,20 @@ mod tests {
         }
     }
 
+    /// `unresolved_threads` を指定できる variant (PR #307 incident の再現用)。
+    fn poll_result_with_threads(
+        action: &str,
+        review_state: Option<&str>,
+        findings: Vec<Finding>,
+        unresolved_threads: Option<usize>,
+    ) -> PollResult {
+        let mut r = poll_result(action, review_state, findings);
+        if let Some(cr) = r.coderabbit.as_mut() {
+            cr.unresolved_threads = unresolved_threads;
+        }
+        r
+    }
+
     fn finding(severity: &str) -> Finding {
         Finding {
             severity: severity.into(),
@@ -500,6 +529,53 @@ mod tests {
     const VERDICT_NO_PROBLEMS: &str = "問題は見つかりませんでした";
     const VERDICT_MINOR: &str = "重大な問題は見つかりませんでした。軽微な改善提案があります";
     const VERDICT_CRITICAL: &str = "修正が必要な指摘があります";
+
+    const VERDICT_UNRESOLVED: &str =
+        "CodeRabbit の未解決スレッドが残っています。内容を確認してください";
+
+    /// PR #307 incident 再現 (bad): findings が空でも未解決スレッドが残っていれば
+    /// 「問題は見つかりませんでした」と結論しないこと。
+    ///
+    /// 由来: 2026-07-20 の PR #307 recheck。同じレポート内で
+    /// 「未解決スレッド2件」「action: action_required」と表示した直後に
+    /// 「**判定**: 問題は見つかりませんでした」と出していた。再チェックでは新規
+    /// コメントが無く findings が空になるため、findings だけを見る判定は破綻する。
+    #[test]
+    fn verdict_flags_unresolved_threads_even_when_findings_are_empty() {
+        let r = poll_result_with_threads("action_required", Some("success"), vec![], Some(2));
+        assert_eq!(
+            compute_verdict(&r),
+            VERDICT_UNRESOLVED,
+            "未解決スレッドがあるのに「問題なし」と結論してはならない",
+        );
+    }
+
+    /// good: 未解決スレッドが 0 なら従来どおり「問題なし」と結論すること (退行なし)。
+    #[test]
+    fn verdict_reports_no_problems_when_threads_are_resolved() {
+        let r = poll_result_with_threads("continue_monitoring", Some("success"), vec![], Some(0));
+        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
+    }
+
+    /// good: `unresolved_threads` 不明 (None) は 0 と同じ扱い (従来挙動を維持)。
+    #[test]
+    fn verdict_treats_unknown_thread_count_as_none_outstanding() {
+        let r = poll_result_with_threads("continue_monitoring", Some("success"), vec![], None);
+        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
+    }
+
+    /// good: findings があるときは従来の findings ベース判定を優先すること。
+    /// 未解決スレッドの文言で severity 情報を潰さない。
+    #[test]
+    fn verdict_prefers_findings_severity_over_unresolved_threads() {
+        let r = poll_result_with_threads(
+            "action_required",
+            Some("success"),
+            vec![finding("critical")],
+            Some(3),
+        );
+        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
+    }
 
     #[test]
     fn verdict_park_rate_limit_takes_precedence_over_review_state() {
