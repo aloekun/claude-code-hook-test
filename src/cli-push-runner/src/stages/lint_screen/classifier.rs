@@ -112,11 +112,16 @@ fn abort_child(
     let _ = stderr_handle.join();
 }
 
-#[cfg(test)]
+/// `pump_child_io` の挙動テスト群。
+///
+/// 全ケースが cmd.exe / PowerShell を子プロセスに使うため module ごと Windows 限定
+/// にしている (WP-15: 個別 `#[cfg(windows)]` だけだと Linux で `use super::*` が
+/// unused となり、本リポジトリの `clippy -D warnings` ゲートで落ちる)。
+/// Linux 側で pump_child_io の deadlock 保護が無検証になる点は WP-16 (CI matrix) で扱う。
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
-    #[cfg(windows)]
     fn spawn_piped(program: &str, args: &[&str]) -> std::process::Child {
         Command::new(program)
             .args(args)
@@ -130,7 +135,6 @@ mod tests {
     /// `cmd /C more` は stdin を EOF まで読んで stdout へ echo する。
     /// stdin write → EOF 通知 → stdout 回収の正常系を固定化する。
     #[test]
-    #[cfg(windows)]
     fn pump_child_io_roundtrips_stdin_to_stdout() {
         let child = spawn_piped("cmd", &["/C", "more"]);
         let out = pump_child_io(child, "hello classifier", 30).expect("正常完走すべき");
@@ -144,7 +148,6 @@ mod tests {
     /// 非 0 終了は Err(非 0 終了) に分類される。stdin payload は空にして
     /// 「子が stdin を読まずに即終了 → broken pipe」の race を排除する。
     #[test]
-    #[cfg(windows)]
     fn pump_child_io_reports_nonzero_exit() {
         let child = spawn_piped("cmd", &["/C", "exit 3"]);
         let err = pump_child_io(child, "", 30).expect_err("非 0 終了は Err のはず");
@@ -153,7 +156,6 @@ mod tests {
 
     /// exit 0 かつ stdout 空は Err(stdout 空) に分類される。
     #[test]
-    #[cfg(windows)]
     fn pump_child_io_reports_empty_stdout() {
         let child = spawn_piped("cmd", &["/C", "exit 0"]);
         let err = pump_child_io(child, "", 30).expect_err("stdout 空は Err のはず");
@@ -164,7 +166,6 @@ mod tests {
     /// 子プロセスが `timeout_secs + 5` 秒以内に終了しない場合に `Err("timeout (Ns)")`
     /// を返すことを確認する。`timeout_secs=1` を渡すと内部で 6s タイムアウトが発火する。
     #[test]
-    #[cfg(windows)]
     #[ignore = "integration: tests timeout behavior (~6s actual wait); run via `cargo test -- --ignored --test-threads=1`"]
     fn pump_child_io_reports_timeout_when_child_exceeds_deadline() {
         let child = spawn_piped(
@@ -182,7 +183,6 @@ mod tests {
     /// ではこのテストは `write_all` でハングし (実測 78 分継続を確認)、push gate
     /// の step_timeout が FAIL として検出する。
     #[test]
-    #[cfg(windows)]
     #[ignore = "integration: spawns real process with ~256KB stdout + ~1MB stdin; run via `cargo test -- --ignored --test-threads=1`"]
     fn pump_child_io_survives_child_flooding_stdout_before_reading_stdin() {
         let flood_script = "$d = 'x' * 8192; \
