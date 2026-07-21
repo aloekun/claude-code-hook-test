@@ -73,6 +73,9 @@ CR は format を時間経過で変更するため、本リポジトリの実装
 |---|---|---|
 | ~2026 年初頃 (旧 format) | `Rate limit exceeded` (本文先頭、heading なし) | `Please wait \*?\*?(\d+) minutes? and (\d+) seconds?` / 短縮形 `Please wait \*?\*?(\d+) minutes?` |
 | 2026-05 観測 (新 format) | `rate limited by coderabbit.ai` (HTML コメント `<!-- ... -->` 内、`## Review limit reached` heading 併設) | `More reviews will be available in (\d+) minutes? and (\d+) seconds?` / 短縮形 `More reviews will be available in (\d+) minutes?` |
+| 2026-07-20 観測 (第 3 世代、PR #309) | 変わらず `rate limited by coderabbit.ai` (`## Review limit reached` heading も維持) | `Next review available in[:*\s]*(\d+) minutes?...` (`**Next review available in:** **57 minutes**` の形。ラベルと数値の間に markdown 強調が挟まるため区切りを文字クラスで吸収) |
+
+**未知書式の fail-closed fallback (2026-07-20 追加、WP-15 追補 R2)**: marker は一致したが wait time regex がどれも一致しない場合、旧実装は `parse_rate_limit` が `None` を返し「rate-limit ではない」= 検知の沈黙に倒れていた。書式追随は本質的に後追いになるため、**marker 一致を制限の根拠として採用し、待機時間だけを既定値 (`UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES` = 30 分) で埋める**方式に変更した。既定値が実際の reset より短い場合は wakeup 後に再検出されて再 park されるだけで、retry は `max_retries` で有界。既定値適用時は checker が stderr に警告を出し (cli-pr-monitor がログ転送)、書式再変更の検知シグナルを兼ねる。これにより「書式変更 → 即 silent success」の経路は構造的に閉じ、書式追随 (下記手順) は待機時間精度の改善に格下げされる。
 
 **HTML マーカー優先**: walkthrough body の HTML コメント (`<!-- ... rate limited by coderabbit.ai -->`) は heading 文言や本文より stable な可能性が高いため、新 format 検出の優先 source とする (CR 側で UI 文言は変えても internal marker は維持する傾向、本リポジトリ未検証だが post-merge-feedback で再評価)。
 
@@ -82,9 +85,9 @@ format drift で `is_rate_limit_comment` が常時 false を返す symptom (= 30
 
 1. **観測**: 該当 PR で `gh api repos/.../issues/<N>/comments --jq '.[] | select(.user.login == "coderabbitai[bot]")' | head` で walkthrough body を確認
 2. **grep**: 新 marker 候補 (HTML コメント / heading / 本文文言) を特定
-3. **marker 配列 append**: `src/check-ci-coderabbit/src/main.rs` の `RATE_LIMIT_MARKERS` 配列に新 marker を追加
-4. **regex 追加**: 同 main.rs の `extract_wait_time` から呼ばれる `extract_<format-name>_format_wait_time` ヘルパーを新規追加 (旧 + 新の共存パターン)
-5. **fixture 追加**: 同 `#[cfg(test)]` mod に新 format fixture を 2-3 variant 追加 (順位 168 と同 pattern)。既存 fixture は backward compat のため維持
+3. **marker 配列 append**: `src/check-ci-coderabbit/src/markers.rs` の `RATE_LIMIT_MARKERS` 配列に新 marker を追加
+4. **regex 追加**: `src/check-ci-coderabbit/src/rate_limit.rs` の `extract_wait_time` から呼ばれる `extract_<format-name>_format_wait_time` ヘルパーを新規追加 (既存世代との共存パターン)
+5. **fixture 追加**: 同 `#[cfg(test)]` mod に新 format fixture を 2-3 variant 追加 (順位 168 と同 pattern)。既存 fixture は backward compat のため維持。**実 incident の comment body を出典付きで fixture 化する** (ADR-049)
 6. **ADR-034 update**: 本 ADR の § 既知 CR rate-limit format 一覧 table に新 format 行を append
 
 ### auto-trigger 投稿
