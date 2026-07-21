@@ -335,6 +335,7 @@ command = "echo push"
 
     fn make_config_without_lint_screen() -> Config {
         Config {
+            default_branch: None,
             quality_gate: QualityGateConfig {
                 parallel: None,
                 step_timeout: None,

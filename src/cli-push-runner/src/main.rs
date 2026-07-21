@@ -67,7 +67,8 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<DiffGate, i32> {
     let Some(diff_config) = &config.diff else {
         return Ok(DiffGate::RunTakt { pre_diff: None });
     };
-    let diff_path = match run_diff(diff_config) {
+    let pr_range = config.diff_pr_range();
+    let diff_path = match run_diff(diff_config, &pr_range) {
         DiffResult::HasContent => diff_config.output_path.as_str(),
         DiffResult::Empty => {
             log_info("diff が空のためレビューをスキップして push に進みます。");
@@ -100,7 +101,7 @@ fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
         );
         return Err(EXIT_SCRATCH_FILE_WARNING);
     }
-    if !run_pr_size_check(config.pr_size_check.as_ref()) {
+    if !run_pr_size_check(config.pr_size_check.as_ref(), &config.pr_size_pr_range()) {
         log_info(
             "パイプライン中断: PR diff サイズが block_threshold を超過。\
              PR 分割 / 閾値調整 / `PR_SIZE_CHECK_OVERRIDE=1` のいずれかで再実行してください。",
@@ -195,7 +196,7 @@ fn run_stages(metrics: &mut RunMetrics) -> i32 {
     metrics.set_bookmarks(&detected_bookmarks);
 
     let skip_groups = metrics.timed("docs_only_routing", || {
-        run_docs_only_routing(config.docs_only_routing.as_ref())
+        run_docs_only_routing(config.docs_only_routing.as_ref(), &config.docs_only_pr_range())
     });
     metrics.set_skipped_groups(&skip_groups);
 

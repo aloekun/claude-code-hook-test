@@ -9,10 +9,6 @@ pub(crate) const DEFAULT_PR_SIZE_WARNING_THRESHOLD: usize = 800;
 /// 大型 refactoring 時は config / env override で意図的バイパス。
 pub(crate) const DEFAULT_PR_SIZE_BLOCK_THRESHOLD: usize = 1500;
 
-/// 順位 151: PR base の default branch 名。`format!("{}..@", default_branch)` で
-/// revset 組立 (rule⑫ `no-hardcoded-jj-revset-range` 適用)。
-pub(crate) const DEFAULT_PR_SIZE_BASE_BRANCH: &str = "master";
-
 /// 順位 151 (Bundle "既存ルール仕組み化") — PR diff size を `jj diff --stat` で計測し
 /// warning / block する pre-push stage の config。
 ///

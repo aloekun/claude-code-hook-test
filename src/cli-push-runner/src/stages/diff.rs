@@ -2,13 +2,26 @@
 //!
 //! 出力は takt の reviewers が Read で参照するレビュー対象そのもののため、
 //! **切り詰めない** (`run_diff_cmd` の doc)。実行は timeout 付き (T6)。
+//!
+//! ## レビュー範囲は PR 全体
+//!
+//! `[diff] command` の [`DIFF_PR_RANGE_PLACEHOLDER`] は `Config::diff_pr_range()`
+//! (= `<base>..@`) に展開される。以前は config に `jj diff -r @` と直書きされており、
+//! **tip コミットしかレビュアーに渡らなかった**。祖先コミットは AI レビューを一度も
+//! 経ずに merge され、しかもレビュアー側からは「渡された diff が PR 全体か」を
+//! 検証できないため誤りが誰にも検知されなかった (todo 順位 288、Severity High で
+//! PR #268/#300/#301/#311 と 4 回再発)。
+//!
+//! 範囲の直書きを禁じるだけでは派生プロジェクトの古い config を救えないため、
+//! [`verify_diff_covers_pr_range`] が生成された diff と PR 範囲の変更ファイル集合を
+//! 突き合わせ、不足があれば fail-closed で中断する。
 
 use std::path::Path;
 use std::process::Stdio;
 
 use lib_subprocess::{drain_pipe_unlimited, shell_command, wait_with_timeout_safe};
 
-use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS};
+use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS, DIFF_PR_RANGE_PLACEHOLDER};
 use crate::log::log_stage;
 
 #[derive(Debug, PartialEq)]
@@ -83,6 +96,128 @@ fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
     }
 }
 
+/// レビュー対象 diff が PR 範囲の全変更ファイルを含むか検査する (fail-closed / ADR-043)。
+///
+/// **なぜ必要か**: `[diff] command` は config 由来の自由文字列で、`-r @` のように
+/// PR より狭い範囲を書けてしまう。狭い範囲を書いても reviewers 側からは「渡された
+/// diff が全体か」を検証できず、正しく「docs-only」等と判定してしまうため、
+/// 誤りが誰にも検知されないまま merge に至る (todo 順位 288、Severity High で 4 回再発)。
+/// 検査の真実源は `jj diff --summary` = docs_only_routing / pr_size_check と同じ経路。
+///
+/// 判定不能 (summary 取得失敗 / summary の行が 1 つでもパースできない / diff がヘッダを
+/// 持たない) は「網羅している」に倒さずエラーにする。「検証できない」を「検証した」と
+/// 扱わないための線引き。
+///
+/// パースの厳格性は [`parse_summary_paths`] が担う: **1 行でも解釈できない行があれば
+/// `Err`**。妥当な行だけ拾って未知行を silent drop すると、jj の出力書式が一部だけ
+/// 変わったとき (例: 一部行だけ新 status) に、変わっていない行で `expected` が非空になり
+/// coverage を通過してしまう — 本 PR が塞いでいる「誤りが誰にも検知されない」構造その
+/// ものを gate 自身が再生産する (CodeRabbit #313: per-line fail-open)。
+fn verify_diff_covers_pr_range(
+    diff_output: &str,
+    fetch_summary: impl FnOnce() -> Result<String, String>,
+) -> Result<(), String> {
+    let summary = fetch_summary().map_err(|e| format!("PR 範囲の summary 取得に失敗: {}", e))?;
+
+    let expected = parse_summary_paths(&summary).map_err(|e| {
+        format!(
+            "summary をパースできませんでした: {}。jj の出力書式が変わった可能性があります",
+            e
+        )
+    })?;
+    if expected.is_empty() {
+        return Ok(());
+    }
+
+    let covered = parse_git_diff_paths(diff_output);
+    if covered.is_empty() {
+        return Err(
+            "diff 出力に `diff --git` ヘッダが無く、対象ファイルを特定できません".to_string(),
+        );
+    }
+
+    let missing: Vec<&String> = expected.iter().filter(|p| !covered.contains(*p)).collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} ファイルが未収録 (例: {})",
+        missing.len(),
+        missing
+            .iter()
+            .take(3)
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+/// `jj diff --summary` の `M path` / `R old new` (rename) / `C old new` (copy)
+/// 形式からパス集合を作る。
+///
+/// **空行を除く 1 行でも解釈できなければ `Err`** を返す (CodeRabbit #313)。妥当な行
+/// だけを拾って未知行を silent drop すると、jj の出力書式が一部だけ変わったとき
+/// (一部の行だけ新 status / status とパスに分割不能) に、変わっていない行で `expected`
+/// が非空になり `verify_diff_covers_pr_range` の coverage 検査を通過してしまう。
+/// 全行が未知のときだけ fail-closed する旧実装 (SIM-NEW-diff-rs-L178) の per-line 版。
+/// 全行が空 (末尾改行のみ 等) なら `Ok` の空集合を返す (= 変更なし)。
+///
+/// `R`/`C` は `<status> <old> <new>` の 3 トークン形式 (`lib_docs_policy` の
+/// `is_docs_only_summary` テストが同じ `"R docs/a.md docs/b.md"` 形状を実証)。
+/// `parse_git_diff_paths` (`diff --git a/old b/new` の new = `b/` 側のみ拾う) と
+/// 揃えるため new path 側だけを採用する (SIM-NEW-diff-rs-L146)。
+///
+/// Windows の jj は `\` 区切りで出すため `/` に正規化して `--git` 側と突き合わせる。
+fn parse_summary_paths(
+    summary: &str,
+) -> Result<std::collections::BTreeSet<String>, String> {
+    let mut paths = std::collections::BTreeSet::new();
+    for line in summary.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let (status, rest) = line
+            .split_once(' ')
+            .ok_or_else(|| format!("status とパスに分割できない行: {:?}", line))?;
+        let path = summary_line_new_path(status, rest)
+            .ok_or_else(|| format!("未知 status / new path 欠落の行: {:?}", line))?;
+        paths.insert(path);
+    }
+    Ok(paths)
+}
+
+/// 1 行分の `<status> <rest>` から採用すべきパスを返す (rename/copy は new path のみ)。
+/// 受理できない行は `None` を返し、呼び出し側 [`parse_summary_paths`] が `Err` に昇格して
+/// fail-closed に倒す。
+///
+/// `None` になるのは: 未知 status (`jj diff --summary` の M/A/D/R/C 以外) / R・C で
+/// new path (末尾トークン) が無い崩れた行 / パスが空。catch-all で任意 status や崩れた
+/// R/C を通すと、jj の出力書式が変わった行を「妥当なパス」として取り込み、書式変化を
+/// 検知できず gate が沈黙する (SIM-NEW-diff-rs-L178)。旧実装は崩れた R/C の生トークンを
+/// 残して coverage 不一致に頼っていたが、CodeRabbit #313 指摘に従い「未知 status も崩れた
+/// R/C も明示的に reject」へ統一する (fail-closed の判定を coverage 副作用でなく
+/// パース時点に前倒しする)。
+fn summary_line_new_path(status: &str, rest: &str) -> Option<String> {
+    let trimmed = rest.trim();
+    let path = match status {
+        "M" | "A" | "D" => trimmed,
+        "R" | "C" => trimmed.rsplit_once(' ').map(|(_, new)| new)?,
+        _ => return None,
+    };
+    (!path.is_empty()).then(|| path.replace('\\', "/"))
+}
+
+/// unified diff の `diff --git a/X b/X` ヘッダからパス集合を作る。
+fn parse_git_diff_paths(diff_output: &str) -> std::collections::BTreeSet<String> {
+    diff_output
+        .lines()
+        .filter_map(|line| line.strip_prefix("diff --git "))
+        .filter_map(|rest| rest.split_once(" b/"))
+        .map(|(_a_side, b_path)| b_path.trim().replace('\\', "/"))
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
 /// takt 実行後の diff snapshot を取得する (T12 post-takt re-gate の変化検出用)。
 ///
 /// Stage 1.5 と同じ `[diff] command` を再実行し stdout を返す。呼び出し側 (re-gate) は
@@ -91,17 +226,36 @@ fn run_diff_cmd(cmd: &str, timeout_secs: u64) -> Result<String, String> {
 /// 呼び出し側が fail-closed (= 変化ありとみなし re-gate 実行) に扱う (ADR-043)。
 ///
 /// `run_diff` と違いファイルには書かない (比較のためメモリ上で保持するだけ)。timeout /
-/// stderr 分離の要件は `run_diff_cmd` と同一 (同 doc 参照)。
-pub(crate) fn capture_diff_snapshot(config: &DiffConfig) -> Option<String> {
+/// stderr 分離の要件は `run_diff_cmd` と同一 (同 doc 参照)。範囲カバレッジ検査も
+/// 行わない (前後比較が目的で、レビュー入力にはならないため)。
+pub(crate) fn capture_diff_snapshot(config: &DiffConfig, pr_range: &str) -> Option<String> {
     let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
-    run_diff_cmd(&config.command, timeout).ok()
+    run_diff_cmd(&resolve_diff_command(&config.command, pr_range), timeout).ok()
 }
 
-pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
-    log_stage("diff", &format!("実行: {}", config.command));
+/// `[diff] command` の [`DIFF_PR_RANGE_PLACEHOLDER`] を PR 範囲 revset に展開する。
+pub(crate) fn resolve_diff_command(command: &str, pr_range: &str) -> String {
+    command.replace(DIFF_PR_RANGE_PLACEHOLDER, pr_range)
+}
+
+pub(crate) fn run_diff(config: &DiffConfig, pr_range: &str) -> DiffResult {
+    run_diff_with(config, pr_range, || {
+        super::docs_only_routing::run_jj_diff_summary(pr_range)
+    })
+}
+
+/// `run_diff` の本体。PR 範囲の summary 取得を注入可能にして、範囲カバレッジ検査を
+/// jj 実行なしでテストできるようにする (`post_takt_regate::decide_regate` と同じ流儀)。
+fn run_diff_with(
+    config: &DiffConfig,
+    pr_range: &str,
+    fetch_summary: impl FnOnce() -> Result<String, String>,
+) -> DiffResult {
+    let command = resolve_diff_command(&config.command, pr_range);
+    log_stage("diff", &format!("実行: {}", command));
 
     let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
-    let output = match run_diff_cmd(&config.command, timeout) {
+    let output = match run_diff_cmd(&command, timeout) {
         Ok(output) => output,
         Err(err) => {
             log_stage("diff", "diff コマンド失敗");
@@ -112,6 +266,11 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
         }
     };
 
+    if let Err(reason) = verify_diff_covers_pr_range(&output, fetch_summary) {
+        report_coverage_failure(pr_range, &reason);
+        return DiffResult::Error;
+    }
+
     if output.is_empty() {
         log_stage(
             "diff",
@@ -120,7 +279,25 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
         return DiffResult::Empty;
     }
 
-    let path = Path::new(&config.output_path);
+    write_diff_output(&config.output_path, &output)
+}
+
+/// 範囲検査に落ちたときの fail-closed 通知 (ADR-043)。
+///
+/// 「レビュー範囲が PR より狭い」ことは検知できても自動修復はできない
+/// (どこまで広げるべきかは config の意図次第) ため、push を止めて人間に返す。
+fn report_coverage_failure(pr_range: &str, reason: &str) {
+    log_stage("diff", &format!("レビュー範囲の検査に失敗: {}", reason));
+    eprintln!(
+        "[push-runner] [diff] レビュー対象 diff が PR 範囲 ({}) を網羅していません: {}\n\
+         このまま進めると祖先コミットが AI レビューを経ずに merge されます (todo 順位 288)。\n\
+         `[diff] command` が `{}` を使っているか、出力が unified diff (--git) 形式かを確認してください。",
+        pr_range, reason, DIFF_PR_RANGE_PLACEHOLDER
+    );
+}
+
+fn write_diff_output(output_path: &str, output: &str) -> DiffResult {
+    let path = Path::new(output_path);
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             log_stage("diff", &format!("ディレクトリ作成失敗: {}", e));
@@ -128,12 +305,12 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
         }
     }
 
-    match std::fs::write(path, &output) {
+    match std::fs::write(path, output) {
         Ok(()) => {
             let line_count = output.lines().count();
             log_stage(
                 "diff",
-                &format!("書き出し完了: {} ({} 行)", config.output_path, line_count),
+                &format!("書き出し完了: {} ({} 行)", output_path, line_count),
             );
             DiffResult::HasContent
         }
@@ -145,239 +322,4 @@ pub(crate) fn run_diff(config: &DiffConfig) -> DiffResult {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 100 行を吐くコマンド。cmd.exe と POSIX sh で構文が非互換なため OS 別に
-    /// 出し分ける (WP-15)。POSIX 側は `seq` 不在の最小環境でも動く while ループ。
-    #[cfg(windows)]
-    const EMIT_100_LINES_CMD: &str = "for /L %i in (1,1,100) do @echo line %i";
-    #[cfg(not(windows))]
-    const EMIT_100_LINES_CMD: &str = "i=1; while [ $i -le 100 ]; do echo line $i; i=$((i+1)); done";
-
-    /// 何も出力せず正常終了するコマンド (0 バイト出力の検証用)。
-    #[cfg(windows)]
-    const ZERO_BYTE_OUTPUT_CMD: &str = "type nul";
-    #[cfg(not(windows))]
-    const ZERO_BYTE_OUTPUT_CMD: &str = "true";
-
-    /// stderr へ出力してから非 0 で終わるコマンド (失敗診断の検証用)。
-    #[cfg(windows)]
-    const STDERR_THEN_FAIL_CMD: &str = "echo boom 1>&2& exit /b 1";
-    #[cfg(not(windows))]
-    const STDERR_THEN_FAIL_CMD: &str = "echo boom 1>&2; exit 1";
-
-    /// stdout と stderr の両方へ出しつつ正常終了するコマンド。
-    /// stderr (jj の警告相当) が diff 本体に混ざらない契約の検証用。
-    #[cfg(windows)]
-    const STDOUT_AND_STDERR_CMD: &str = "echo real diff& echo Concurrent modification 1>&2";
-    #[cfg(not(windows))]
-    const STDOUT_AND_STDERR_CMD: &str = "echo real diff; echo Concurrent modification 1>&2";
-
-    #[test]
-    fn run_diff_cmd_captures_more_than_40_lines() {
-        let result = run_diff_cmd(EMIT_100_LINES_CMD, 30);
-        assert!(result.is_ok(), "command should succeed");
-        let output = result.unwrap();
-        let line_count = output.lines().count();
-        assert!(
-            line_count > 40,
-            "expected >40 lines captured, got {}; run_diff_cmd must not apply the 40-line cap",
-            line_count
-        );
-    }
-
-    #[test]
-    fn run_diff_returns_empty_when_output_is_empty() {
-        let out_path = std::env::temp_dir().join("test-run-diff-empty.txt");
-        let _ = std::fs::remove_file(&out_path);
-
-        let config = DiffConfig {
-            command: ZERO_BYTE_OUTPUT_CMD.to_string(),
-            output_path: out_path.to_string_lossy().into_owned(),
-            timeout: None,
-        };
-
-        let result = run_diff(&config);
-
-        assert_eq!(
-            result,
-            DiffResult::Empty,
-            "run_diff must return Empty when the diff command produces empty output"
-        );
-        assert!(
-            !out_path.exists(),
-            "output file must not be created for an empty diff"
-        );
-    }
-
-    /// T12: capture_diff_snapshot は成功時に stdout を Some で返す
-    /// (post-takt re-gate の pre/post 比較の材料)。
-    #[test]
-    fn capture_diff_snapshot_returns_output_on_success() {
-        let config = DiffConfig {
-            command: "echo snapshot-content".to_string(),
-            output_path: String::new(),
-            timeout: None,
-        };
-        let snap = capture_diff_snapshot(&config).expect("成功時は Some");
-        assert!(
-            snap.contains("snapshot-content"),
-            "stdout をそのまま返すこと: {:?}",
-            snap
-        );
-    }
-
-    /// T12: 取得失敗 (コマンド exit 非 0) は None を返す
-    /// (呼び出し側は None を fail-closed = 変化ありに倒す)。
-    #[test]
-    fn capture_diff_snapshot_returns_none_on_failure() {
-        let config = DiffConfig {
-            command: STDERR_THEN_FAIL_CMD.to_string(),
-            output_path: String::new(),
-            timeout: Some(30),
-        };
-        assert!(
-            capture_diff_snapshot(&config).is_none(),
-            "失敗時は None (呼び出し側で fail-closed に扱う)"
-        );
-    }
-
-    /// T6 回帰テスト群: diff stage に timeout が無く無限ハングし得た不具合
-    /// (ADR-049 の流儀: 1 test = 1 failure mode + good/bad)。
-    ///
-    /// 由来: 2026-07-16 の push パイプライン調査 (コード監査で発見。T5 と同じく
-    /// in the wild の発火記録は無く、「他 stage は全て timeout 付き = diff だけが穴」
-    /// という非対称として特定された)。
-    ///
-    /// 事故の形: `run_diff_cmd` は `Command::output()` で子プロセスの終了を**無限に**
-    /// 待っていた。ADR-045 の並列 workspace 運用で jj の lock 競合が起きると
-    /// `pnpm push` は診断も timeout も無いまま停止し、ユーザーは手動 kill するしかない。
-    ///
-    /// 修正の核心は「timeout 付きで待ち、超過時は Err → `DiffResult::Error` = exit 5 で
-    /// 中断する (fail-closed / ADR-043)」。あわせて、判定に使う stdout を stderr と
-    /// 混ぜない契約 (レビュー対象を汚さない) も本 mod で seal する。
-    mod t6_diff_timeout {
-        use super::*;
-        use std::time::{Duration, Instant};
-
-        /// 実行し続けるコマンド (ハングした jj の代役)。timeout が無ければ約 9s 待たされる。
-        /// cmd.exe と POSIX sh で構文が非互換なため OS 別に出し分ける (WP-15)。
-        /// 所要時間を両 OS で揃えないと片側だけ timeout 経路を検証しない穴になる。
-        #[cfg(windows)]
-        const HANGING_COMMAND: &str = "ping 127.0.0.1 -n 10";
-        #[cfg(not(windows))]
-        const HANGING_COMMAND: &str = "sleep 10";
-
-        const SHORT_TIMEOUT_SECS: u64 = 1;
-
-        /// incident 再現 (bad): 応答しないコマンドを **timeout で打ち切る**こと。
-        /// 修正前は `Command::output()` が返るまで待ち続け、本 assert には到達しなかった。
-        #[test]
-        fn hanging_command_times_out_instead_of_waiting_forever() {
-            let started = Instant::now();
-            let result = run_diff_cmd(HANGING_COMMAND, SHORT_TIMEOUT_SECS);
-            let elapsed = started.elapsed();
-
-            let err = result.expect_err("timeout は Err で返ること (無限待ちしない)");
-            assert!(
-                err.contains("タイムアウト"),
-                "timeout と判る診断を返すこと: {:?}",
-                err,
-            );
-            assert!(
-                elapsed < Duration::from_secs(5),
-                "timeout ({}s) 後すぐ制御を返すこと。{:?} 掛かった = コマンドの自然終了を\
-                 待っている (T6 の不具合)",
-                SHORT_TIMEOUT_SECS,
-                elapsed,
-            );
-        }
-
-        /// timeout の診断は原因調査に足りること: 超過秒数と実行コマンドを含む。
-        #[test]
-        fn timeout_error_reports_the_limit_and_the_command() {
-            let err = run_diff_cmd(HANGING_COMMAND, SHORT_TIMEOUT_SECS)
-                .expect_err("timeout は Err で返ること");
-            assert!(
-                err.contains(&format!("{}s", SHORT_TIMEOUT_SECS)) && err.contains(HANGING_COMMAND),
-                "超過秒数と実行コマンドを診断に含めること: {:?}",
-                err,
-            );
-        }
-
-        /// timeout は fail-closed で pipeline を止めること (ADR-043)。
-        /// `DiffResult::Error` は main.rs で exit 5 = 中断になる。空 diff 扱いで
-        /// **レビューを skip したまま push に進んではならない**。
-        #[test]
-        fn timeout_aborts_the_pipeline_and_writes_no_diff_file() {
-            let out_path = std::env::temp_dir().join("test-run-diff-timeout.txt");
-            let _ = std::fs::remove_file(&out_path);
-
-            let config = DiffConfig {
-                command: HANGING_COMMAND.to_string(),
-                output_path: out_path.to_string_lossy().into_owned(),
-                timeout: Some(SHORT_TIMEOUT_SECS),
-            };
-
-            assert_eq!(
-                run_diff(&config),
-                DiffResult::Error,
-                "timeout は Error (= exit 5 で中断) になること。Empty だとレビューを\
-                 skip して push に進んでしまう",
-            );
-            assert!(
-                !out_path.exists(),
-                "timeout 時に diff ファイルを書かないこと (古い/欠けた diff でレビューさせない)",
-            );
-        }
-
-        /// good: timeout 内に終わるコマンドを誤って打ち切らないこと。
-        #[test]
-        fn command_within_the_timeout_succeeds() {
-            let output = run_diff_cmd("echo diff line", 30).expect("即終了するコマンドは Ok");
-            assert!(output.contains("diff line"), "stdout を返すこと: {:?}", output);
-        }
-
-        /// `[diff] timeout` 未指定なら既定値が使われること (既定値の適用漏れ防止)。
-        #[test]
-        fn absent_config_timeout_falls_back_to_the_default() {
-            let config = DiffConfig {
-                command: "echo ok".to_string(),
-                output_path: std::env::temp_dir()
-                    .join("test-run-diff-default-timeout.txt")
-                    .to_string_lossy()
-                    .into_owned(),
-                timeout: None,
-            };
-            assert_eq!(
-                config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS),
-                DEFAULT_DIFF_TIMEOUT_SECS,
-            );
-            assert_eq!(run_diff(&config), DiffResult::HasContent);
-            let _ = std::fs::remove_file(&config.output_path);
-        }
-
-        /// stderr を stdout に混ぜないこと: stdout は reviewers が読む diff そのものとして
-        /// ファイルに書かれるため、jj の警告 (並列 workspace 時の `Concurrent modification
-        /// detected` 等) が混入するとレビュー対象を汚す。`run_cmd_shell_*` (全 variant が
-        /// stdout/stderr を結合する) に載せ替えるとこのテストが落ちる。
-        #[test]
-        fn stderr_is_not_merged_into_the_diff_output() {
-            let output = run_diff_cmd(STDOUT_AND_STDERR_CMD, 30).expect("exit 0 なら Ok");
-            assert!(output.contains("real diff"), "stdout は残ること: {:?}", output);
-            assert!(
-                !output.contains("Concurrent modification"),
-                "stderr の警告が diff 内容に混入しないこと: {:?}",
-                output,
-            );
-        }
-
-        /// 失敗時は stderr を診断として返すこと (従来契約の維持)。
-        #[test]
-        fn failure_returns_stderr_as_the_diagnostic() {
-            let err = run_diff_cmd(STDERR_THEN_FAIL_CMD, 30).expect_err("exit 1 は Err");
-            assert!(err.contains("boom"), "stderr を診断に返すこと: {:?}", err);
-        }
-    }
-}
+mod tests;
