@@ -104,6 +104,13 @@
 | 342 | 💎 Tier 3 | **Positive Evidence Requirement を CLAUDE.md/ADR に明文化 (#311 post-merge feedback 採用)** | todo14.md | M | なし (#311 の「commit status pass を review 実行と同一視」fail-open の再発防止。外部監視は成功定義を単一ソースで充足させず陽性証拠を要求。has_review_evidence が参考実装、ADR-009/018/034 系列に適用可) |
 | 343 | 💎 Tier 3 | **ADR-034 に「新世代 CR format 対応の SOP」セクション追加 (#311 post-merge feedback 採用)** | todo14.md | S | なし (CR 3 世代 format 変更実績。table 追加 / extract 関数 / fixture / ADR 更新の 4 手順を明文化し missed case を防止。順位 338 (format-check CI) と相補) |
 | 344 | 💎 Tier 3 | **並行性バグの root cause 分析で推測を禁止し観測的再現を要求するルール追加 (#312 post-merge feedback 採用)** | todo14.md | S | なし (#312 で「128-bit token 衝突」誤 root cause を 3 回外した後 atomic 計装で確定した実績。誤分析のまま fix は再発防止にならず Severity High。推論/観測判定は semantic 要で機械化不可につき rule docs のみ) |
+| 345 | 🚀 Tier 1 | **deploy 時の exe/config feature 互換性診断 (内容ベース、mtime 不使用) — stale-exe silent fail 防止 (#310 post-merge feedback 採用)** | todo14.md | M | なし (deployed exe が config 要求 feature を満たさず silent command-not-found で quality gate 誤 block、本セッションで 2 回実観測。exe 埋め込みバージョン vs config min_exe_version の内容ベース比較、mtime 不使用) |
+| 346 | 🔧 Tier 2 | **pre-merge checklist に「Deferred Tests Completed」ブロッカー項目を追加 (#310 post-merge feedback 採用)** | todo14.md | S | なし (PR #310 自体が workflow_dispatch スモークを post-merge に defer、実施漏れリスク実在) |
+| 347 | 🔧 Tier 2 | **CodeRabbit findings が空のとき fix commit 生成を skip (#310 post-merge feedback 採用)** | todo14.md | S | なし (空 fix commit → abandon の noise を PR #310 monitor で実観測。該当コードパスは実装時に再調査) |
+| 348 | 💎 Tier 3 | **CodeRabbit marker / GitHub event state の統合契約 doc + ADR-042 実例追記 (#310 post-merge feedback 採用)** | todo14.md | S | なし (marker format 変更時の無音失敗リスクが PR analysis で指摘、marker/state 依存が散在) |
+| 349 | 💎 Tier 3 | **pr-monitor.yml に state semantics / if 式 / hardening 意図のインラインコメント追加 (#310 post-merge feedback 採用)** | todo14.md | S | なし (state guard が redundant と誤認・折り畳み if 式が誤読される混乱が本セッションで 2 件実発生) |
+| 350 | 💎 Tier 3 | **新 config directive と要求最小 exe version の CHANGELOG/FEATURES 記録 (#310 post-merge feedback 採用)** | todo14.md | S | なし (順位 345 の互換性チェック機構と対になる human-readable 契約。2 回の stale-exe 実観測) |
+| 351 | 💎 Tier 3 | **local LLM review の network 分離制約を明記し unverifiable finding を skip 運用 (#310 post-merge feedback 採用)** | todo14.md | S | なし (local LLM が live marker を検証できず false positive を実出力、author が手動で否定。原提案の Target ADR-038 はスコープ違いで要修正) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
