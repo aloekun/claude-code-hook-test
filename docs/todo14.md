@@ -304,16 +304,16 @@
 
 > **動機**: PR #310 自体が workflow_dispatch スモークテスト等の検証を post-merge に defer しており、defer した検証の実施漏れリスクが実在する。PR #310 post-merge feedback Tier2 #2 で採用。
 >
-> **対処案**: `docs/pre-merge-checklist.md` (新規) または `CLAUDE.md` に「Deferred Tests Completed」ブロッカー項目を追加し、defer した検証 (workflow_dispatch スモーク等) の実施をマージ前に確認する。
+> **対処案**: 配置先は `docs/dev-conventions.md` (CLAUDE.md から責務分離済みの既存運用 convention・チェックリスト集、順位261/262 と同型構成) に一本化する。新規ファイル `docs/pre-merge-checklist.md` の起こしは行わず、`CLAUDE.md` (ADR index 専用、チェックリストは非搭載方針) への直接追記も行わない。`docs/dev-conventions.md` に「Deferred Tests Completed」ブロッカー項目の見出しを新設し、defer した検証 (workflow_dispatch スモーク等) の実施をマージ前に確認する運用として位置付ける。
 >
-> **参照**: `.claude/feedback-reports/310.md` Tier2 #2、[docs/todo17.md](todo17.md) の pr-monitor 重複ガード dogfood タスク (defer した workflow_dispatch 検証の追跡先)。
+> **参照**: `.claude/feedback-reports/310.md` Tier2 #2、[docs/todo17.md](todo17.md) の pr-monitor 重複ガード dogfood タスク (defer した workflow_dispatch 検証の追跡先)、`docs/dev-conventions.md` (配置先、既存チェックリスト集)。
 >
 > **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
-- [ ] `docs/pre-merge-checklist.md` 新設 or `CLAUDE.md` に「Deferred Tests Completed」ブロッカー項目を追加
-- [ ] pr-monitor 重複ガードの dogfood 実施をこの checklist に載せて運用確認
+- [ ] `docs/dev-conventions.md` に「Deferred Tests Completed」ブロッカー項目の見出しを新設 (`pre-merge-checklist.md` の新規作成・`CLAUDE.md` への追記は行わない)
+- [ ] defer した検証 (workflow_dispatch スモーク、pr-monitor 重複ガード dogfood 等) を必須チェック項目として明示的に列挙し、完了基準と対応付ける
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
@@ -326,7 +326,7 @@
 
 > **動機**: CodeRabbit findings が空でも fix commit が生成され abandoned になる挙動を PR #310 monitor で実観測した。空 commit → abandon は workflow noise / レビュー時の不確実性という UX 劣化を招く。PR #310 post-merge feedback Tier2 #3 で採用。
 >
-> **対処案**: actionable changes がある場合のみ fix commit を作成する。該当コードパス (cli-merge-pipeline または該当 takt fix step) は実装時に再調査が必要。
+> **対処案**: **actionable findings が 0 の場合** (findings が空、または全 findings が non-actionable〔nitpick / informational のみ〕) に fix commit 生成・abandon をスキップする。actionable 判定を作業計画とテストで明示する。該当コードパス (cli-merge-pipeline または該当 takt fix step) は実装時に再調査が必要。
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier2 #3、`src/cli-merge-pipeline` (post_merge_feedback / fix state 処理周辺)。
 >
@@ -335,12 +335,13 @@
 #### 作業計画
 
 - [ ] 空 fix commit を生成しているコードパスを特定 (cli-merge-pipeline / takt fix step)
-- [ ] findings が空の場合は commit 作成・abandon 処理をスキップするよう修正
+- [ ] findings が空、または actionable findings が 0 (全 non-actionable) の場合に commit 作成・abandon をスキップするよう修正 (actionable 判定を明示)
+- [ ] 「findings 空」と「全 non-actionable」の両ケースをテストスコープに追加
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- CodeRabbit findings が空のとき、空 fix commit が作成されず abandon 処理も走らないこと。
+- CodeRabbit findings が空、または全 findings が non-actionable のとき、空 fix commit が作成されず abandon 処理も走らないこと (両ケースを回帰テストで seal)。
 
 ---
 
