@@ -274,3 +274,157 @@
 #### 完了基準
 
 - 並行性バグの修正が観測的再現に基づくことを convention が要求し、レビュアーが「推測ベースの root cause」を land 前に指摘できること。
+
+---
+
+### deploy 時の exe/config feature 互換性診断 (内容ベース、mtime 不使用)
+
+> **動機**: deployed `.claude/*.exe` が古く、tracked config (`.claude/hooks-config.toml`) が要求する新 feature (例: `{{CLAUDE_DIR}}` プレースホルダー展開) を満たさないと、silent `command not found` で quality gate が誤 block する。本セッションで 2 回実観測 (PR #307 の `{{CLAUDE_DIR}}` 機能追加時、2026-07-20 WP-15 rebase 時、いずれも MEMORY.md 記録済)。PR #310 post-merge feedback Tier1 #1 で採用。
+>
+> **対処案**: deploy step で exe 埋め込みバージョン文字列と config 側 `min_exe_version` フィールドを**内容ベースで比較**する診断チェックを追加する。**mtime 比較は使わない** — jj tracked config は `jj workspace add`/checkout で mtime がリセットされ偽陽性/偽陰性を生む (既知の mtime-staleness 問題と同型)。将来的に [ADR-051](adr/adr-051-cross-system-config-coupling.md) の隣接領域として ADR 化も検討可。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier1 #1、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`.claude/hooks-config.toml`、`scripts/deploy-artifacts.mjs`。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High (silent command-not-found で quality gate 誤 block) / Frequency Medium (2 回実観測) / Effort M / Adoption Risk None (mtime 回避設計であれば)。
+
+#### 作業計画
+
+- [ ] exe にビルドバージョン文字列を埋め込み、`.claude/hooks-config.toml` に `min_exe_version` フィールドを追加
+- [ ] deploy step (`scripts/deploy-artifacts.mjs` or cli-merge-pipeline の deploy 処理) で内容ベースの互換性チェックを実装 (mtime 不使用)
+- [ ] 互換性違反時に silent でなく明確なエラーで停止することを確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- config が要求する feature を満たさない古い exe が deploy されている場合、内容ベース比較で検出され silent `command not found` にならないこと。
+
+---
+
+### pre-merge checklist に「Deferred Tests Completed」ブロッカー項目を追加
+
+> **動機**: PR #310 自体が workflow_dispatch スモークテスト等の検証を post-merge に defer しており、defer した検証の実施漏れリスクが実在する。PR #310 post-merge feedback Tier2 #2 で採用。
+>
+> **対処案**: 配置先は `docs/dev-conventions.md` (CLAUDE.md から責務分離済みの既存運用 convention・チェックリスト集、順位261/262 と同型構成) に一本化する。新規ファイル `docs/pre-merge-checklist.md` の起こしは行わず、`CLAUDE.md` (ADR index 専用、チェックリストは非搭載方針) への直接追記も行わない。`docs/dev-conventions.md` に「Deferred Tests Completed」ブロッカー項目の見出しを新設し、defer した検証 (workflow_dispatch スモーク等) の実施をマージ前に確認する運用として位置付ける。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier2 #2、[docs/todo17.md](todo17.md) の pr-monitor 重複ガード dogfood タスク (defer した workflow_dispatch 検証の追跡先)、`docs/dev-conventions.md` (配置先、既存チェックリスト集)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に「Deferred Tests Completed」ブロッカー項目の見出しを新設 (`pre-merge-checklist.md` の新規作成・`CLAUDE.md` への追記は行わない)
+- [ ] defer した検証 (workflow_dispatch スモーク、pr-monitor 重複ガード dogfood 等) を必須チェック項目として明示的に列挙し、完了基準と対応付ける
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- defer した検証がマージ前に checklist で可視化され、実施漏れが防止されること。
+
+---
+
+### CodeRabbit findings が空のとき fix commit 生成を skip
+
+> **動機**: CodeRabbit findings が空でも fix commit が生成され abandoned になる挙動を PR #310 monitor で実観測した。空 commit → abandon は workflow noise / レビュー時の不確実性という UX 劣化を招く。PR #310 post-merge feedback Tier2 #3 で採用。
+>
+> **対処案**: **actionable findings が 0 の場合** (findings が空、または全 findings が non-actionable〔nitpick / informational のみ〕) に fix commit 生成・abandon をスキップする。actionable 判定を作業計画とテストで明示する。該当コードパス (cli-merge-pipeline または該当 takt fix step) は実装時に再調査が必要。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier2 #3、`src/cli-merge-pipeline` (post_merge_feedback / fix state 処理周辺)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (該当コードパスは実装時に再調査)。
+
+#### 作業計画
+
+- [ ] 空 fix commit を生成しているコードパスを特定 (cli-merge-pipeline / takt fix step)
+- [ ] findings が空、または actionable findings が 0 (全 non-actionable) の場合に commit 作成・abandon をスキップするよう修正 (actionable 判定を明示)
+- [ ] 「findings 空」と「全 non-actionable」の両ケースをテストスコープに追加
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- CodeRabbit findings が空、または全 findings が non-actionable のとき、空 fix commit が作成されず abandon 処理も走らないこと (両ケースを回帰テストで seal)。
+
+---
+
+### CodeRabbit marker / GitHub event state の統合契約 doc + ADR-042 実例追記
+
+> **動機**: PR #310 の pre-push simplicity review が新 gate を「internally consistent」と評価した一方、marker format 変更時の無音失敗リスクが PR analysis で指摘された。CodeRabbit の marker 文字列 (summarize / rate-limited 等) と GitHub event state fields への依存が複数箇所に散在している。PR #310 post-merge feedback Tier3 #1 で採用。
+>
+> **対処案**: `docs/integration-contracts/coderabbit.md` (新規) に marker 文字列と event state fields の統合契約を集約し、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) に本 PR (#310) を deterministic primary gate + advisory fallback パターンの具体例として参照追記する。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier3 #1、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、`.github/workflows/pr-monitor.yml` (marker/state 依存の実装)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/integration-contracts/coderabbit.md` 新設 (marker 文字列 + event state fields の契約)
+- [ ] [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) に本 PR を deterministic-primary/advisory-fallback の実例として参照追記
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- CodeRabbit marker / event state に依存する箇所が契約 doc に集約され、marker 変更時の影響範囲が追えること。
+
+---
+
+### pr-monitor.yml に state semantics / if 式 / hardening 意図のインラインコメント追加
+
+> **動機**: 本セッション中に pr-monitor.yml の `state == 'open'` guard が「redundant」と誤認される、折り畳まれた多条件 if 式が誤読される、という混乱が 2 件 (ローカルレビュアー) 実発生した。PR #310 post-merge feedback Tier3 #2 で採用。
+>
+> **対処案**: `.github/workflows/pr-monitor.yml` の `if:` 近傍に (a) `issue_comment` は closed/merged PR でも fire するが `pull_request_review` はしないという GitHub Actions state semantics、(b) 折り畳まれた多条件 if 式の sub-condition 一覧、(c) additive restriction + prompt guard の fallback demote という hardening パターンの設計意図、をコメントとして追記する。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier3 #2、`.github/workflows/pr-monitor.yml` (PR #310 で追加した決定論ガード)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (実害根拠あり)。
+
+#### 作業計画
+
+- [ ] pr-monitor.yml の `if:` 近傍に (a) state semantics (b) if 式 sub-condition 一覧 (c) hardening 意図のコメントを追記
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- pr-monitor.yml の `if:` 条件の意図が inline で追え、state guard / if 式の誤読が起きにくいこと。
+
+---
+
+### 新 config directive と要求最小 exe version の CHANGELOG/FEATURES 記録
+
+> **動機**: 本 batch の deploy 互換性診断エントリ (exe/config feature 互換性チェック機構) と対になる human-readable な契約が無い。新 config directive (`{{CLAUDE_DIR}}` 等) 導入時に要求される最小 exe version が記録されておらず、stale-exe を 2 回実観測した。PR #310 post-merge feedback Tier3 #3 で採用。
+>
+> **対処案**: `CHANGELOG.md` (新規) または `docs/FEATURES.md` に、新 config directive と要求される最小 exe version を human-readable に記録する。本 batch の内容ベース互換性チェック (機構) と対で運用する。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier3 #3、[docs/todo14.md](todo14.md) の deploy 互換性診断エントリ (対となる互換性チェック機構)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk (派生プロジェクト deploy の配布作業レベル、weak)。
+
+#### 作業計画
+
+- [ ] `CHANGELOG.md` 新設 or `docs/FEATURES.md` に config directive + 要求最小 exe version を記録
+- [ ] deploy 互換性診断の機構と対で参照できるよう相互リンク
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- 新 config directive 導入時に要求 exe version が human-readable に記録され、deploy 側が参照できること。
+
+---
+
+### local LLM review の network 分離制約を明記し unverifiable finding を skip 運用
+
+> **動機**: PR #310 で local LLM review (network 分離) が「summarize マーカーは実在しないかも」という false positive を報告し、author が手動で live PR (#304/#307) の生 body を確認して否定した実例がある。local LLM は live PR body / CodeRabbit marker の存在確認を行えない。PR #310 post-merge feedback Tier3 #4 で採用。
+>
+> **対処案**: local-review / review-local スキルの運用 doc (新規) または関連 ADR に、network 分離で live 検証ができない制約を明記し、該当 finding を "unverifiable locally" としてスキップする運用を記述する。**注**: 提案原文の Target「ADR-038」は finding-classifier 用 ADR であり本件 (pre-push local LLM diff reviewer) とはスコープが異なるため、実装時に正しい対象へ修正する。
+>
+> **参照**: `.claude/feedback-reports/310.md` Tier3 #4、review-local / local-review スキル運用 doc。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] review-local / local-review スキル運用 doc に network 分離制約 + "unverifiable locally" skip 運用を明記 (正しい対象 ADR/doc を確認して追記)
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- local LLM review が live 検証不可能な finding を "unverifiable locally" として扱う運用が doc 化され、false positive 由来の混乱が減ること。
