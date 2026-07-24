@@ -6,8 +6,12 @@
 # hooks / CLI を即時有効化する。release-binaries.yml が公開した rolling release
 # (タグ `nightly`) から Linux バイナリを取得し、.claude/ へ配置して settings を生成する。
 #
-# 使い方: 環境設定の setup script に登録する (環境キャッシュが効くため 2 回目以降は高速)。
-#   bash scripts/cloud-setup.sh
+# 使い方: Claude Code Web の環境設定で、セッションの作業ツリーに対して走る
+#   session-start フェーズに登録する (冪等なので毎セッション実行して安全)。
+#     bash scripts/cloud-setup.sh
+#   注意 (B): env-build フェーズだけに登録すると、生成物 (.claude/ バイナリ /
+#   settings.local.json / .jj / target/ 等はすべて git 追跡外) が session 起動時の
+#   fresh clone で消え、環境が半整備になる。必ず session の作業ツリーに対して走らせること。
 #
 # 設計メモ:
 # - **認証を要求しない**: public リポジトリの Release asset は素の HTTPS で取得できる。
@@ -37,7 +41,19 @@ readonly TARGET_TRIPLE="x86_64-unknown-linux-gnu"
 readonly JJ_VERSION="${CLOUD_SETUP_JJ_VERSION:-0.42.0}"
 readonly JJ_TARGET_TRIPLE="x86_64-unknown-linux-musl"
 
-readonly INSTALL_BIN_DIR="${CLOUD_SETUP_BIN_DIR:-$HOME/.local/bin}"
+# jj/CLI bin の設置先。既定を PATH に確実に載る /usr/local/bin にする (クラウドは root 実行)。
+# これで後続の jj / hooks / push-runner が jj を解決でき、旧ラッパーの PATH 確保 (C-1) が本体に入る。
+# 非 root 環境では CLOUD_SETUP_BIN_DIR=~/.local/bin 等に上書きする。
+readonly INSTALL_BIN_DIR="${CLOUD_SETUP_BIN_DIR:-/usr/local/bin}"
+
+# jj colocated 初期化時に track する既定ブランチ (A-3)。CLOUD_SETUP_DEFAULT_BRANCH で上書き可。
+readonly DEFAULT_BRANCH="${CLOUD_SETUP_DEFAULT_BRANCH:-master}"
+
+# pnpm は latest ではなく固定メジャーを入れる (CodeRabbit #318)。pnpm-lock.yaml は
+# lockfileVersion 9.0 で `--frozen-lockfile` は pnpm 9+ 前提。`npm install -g pnpm` (latest) だと
+# 将来の pnpm が frozen-install / lockfile 互換を壊すリスクがある。ローカル dev の pnpm 11 に
+# 合わせる (v9.0 は pnpm 9-11 が互換)。CLOUD_SETUP_PNPM_SPEC で上書き可。
+readonly PNPM_SPEC="${CLOUD_SETUP_PNPM_SPEC:-pnpm@11}"
 
 # ─── ログ ───
 
@@ -195,8 +211,14 @@ install_jj() {
     return 0
   fi
 
-  mkdir -p "${INSTALL_BIN_DIR}"
-  install -m 0755 "${jj_bin}" "${INSTALL_BIN_DIR}/jj"
+  if ! mkdir -p "${INSTALL_BIN_DIR}" 2>/dev/null; then
+    warn "${INSTALL_BIN_DIR} を作成できませんでした (権限不足の可能性)。jj は未配置のままです。"
+    return 0
+  fi
+  if ! install -m 0755 "${jj_bin}" "${INSTALL_BIN_DIR}/jj" 2>/dev/null; then
+    warn "${INSTALL_BIN_DIR}/jj への配置に失敗しました (権限不足の可能性)。jj は未配置のままです。"
+    return 0
+  fi
   log "jj を配置: ${INSTALL_BIN_DIR}/jj"
 
   case ":${PATH}:" in
@@ -230,12 +252,129 @@ report_optional_features() {
   fi
 }
 
+# ─── C-1. pnpm の確保 ───
+#
+# base image に node はあっても pnpm が無いことがある。push / merge pipeline は pnpm 前提。
+# 旧: ラッパー側の `npm install -g pnpm`。本体に取り込み「1 スクリプト」化する。
+ensure_pnpm() {
+  if command -v pnpm >/dev/null 2>&1; then
+    log "pnpm: 導入済み (skip)"
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "npm が無いため pnpm を導入できません (pnpm push / merge-pr は使えません)"
+    return 0
+  fi
+  log "pnpm を導入中 (npm install -g ${PNPM_SPEC})"
+  npm install -g "${PNPM_SPEC}" || warn "pnpm の導入に失敗しました (pnpm push / merge-pr は使えません)"
+}
+
+# ─── A. jj リポジトリの初期化 (colocated) + identity + bookmark track ───
+#
+# install_jj は jj バイナリを置くだけでリポジトリを jj 化しない。素の git のままだと
+# file-length Stop gate (hooks-post-tool-comment-lint-rust --check-modified-files) が
+# "There is no jj repo" で fail-closed し毎回 Stop をブロックする。jj-op-verify PostToolUse /
+# PreToolUse の jj プリセット / push-runner / merge-pipeline / todo_staleness も前提を欠く。
+init_jj_repo() {
+  if ! command -v jj >/dev/null 2>&1; then
+    warn "jj が使えないため jj 初期化を skip (file-length gate / jj hooks / push は使えません)"
+    return 0
+  fi
+
+  # A-3 準備: colocate init 後は git HEAD が detached になり `git branch --show-current` が
+  #      空になるため、現ブランチ名は init より前に取得しておく (CodeRabbit #318)。
+  local current_branch
+  current_branch="$(git -C "${REPO_ROOT}" branch --show-current 2>/dev/null || true)"
+
+  # A-2. identity を git global (launcher hook 由来) から継承。未設定だと commit author が
+  #      空になり push 不可。init 前に設定すれば init が作る working-copy commit も正しい author になる。
+  if [ -z "$(jj config get user.name 2>/dev/null || true)" ]; then
+    local git_name
+    git_name="$(git config --global user.name 2>/dev/null || true)"
+    if [ -n "${git_name}" ]; then
+      if jj config set --user user.name "${git_name}"; then
+        log "jj user.name = ${git_name}"
+      else
+        warn "jj user.name の設定に失敗 (push で commit author が空になる可能性)"
+      fi
+    else
+      warn "git global user.name 未設定 → jj commit author が空になり push できません"
+    fi
+  fi
+  if [ -z "$(jj config get user.email 2>/dev/null || true)" ]; then
+    local git_email
+    git_email="$(git config --global user.email 2>/dev/null || true)"
+    if [ -n "${git_email}" ]; then
+      if jj config set --user user.email "${git_email}"; then
+        log "jj user.email = ${git_email}"
+      else
+        warn "jj user.email の設定に失敗 (push で commit author が空になる可能性)"
+      fi
+    else
+      warn "git global user.email 未設定 → jj commit author が空になり push できません"
+    fi
+  fi
+
+  # A-1. colocated 初期化 (冪等: .jj があれば skip)。.claude/ バイナリ・settings・target・
+  #      node_modules はすべて .gitignore 済みのため working-copy commit には入らない。
+  if [ -d "${REPO_ROOT}/.jj" ]; then
+    log "jj リポジトリ: 既に初期化済み (skip)"
+  else
+    log "jj リポジトリを colocated 初期化中 (jj git init --colocate)"
+    if ! ( cd "${REPO_ROOT}" && jj git init --colocate ); then
+      warn "jj git init に失敗 (file-length gate / push は使えません)"
+      return 0
+    fi
+  fi
+
+  # A-3. push ワークフロー (ADR-011/015) 用に既定ブランチ + 現ブランチ (init 前に取得済み) の
+  #      remote bookmark を track。remote bookmark 未 import / 不在なら best-effort で無視。
+  ( cd "${REPO_ROOT}" && jj bookmark track "${DEFAULT_BRANCH}@origin" >/dev/null 2>&1 ) \
+    && log "bookmark track: ${DEFAULT_BRANCH}@origin" || true
+  if [ -n "${current_branch}" ] && [ "${current_branch}" != "${DEFAULT_BRANCH}" ]; then
+    ( cd "${REPO_ROOT}" && jj bookmark track "${current_branch}@origin" >/dev/null 2>&1 ) \
+      && log "bookmark track: ${current_branch}@origin" || true
+  fi
+}
+
+# ─── C-2. cargo キャッシュのプリウォーム ───
+#
+# 初回 Stop の lint:rust (cargo clippy --workspace) は cold cache で step_timeout を超過し
+# 実 lint を隠したまま偽 failure を出す。ここで一度流して target/ を暖める。
+# `-D warnings` は付けない: warmup の目的はキャッシュ暖機なので lint 結果で失敗させない
+# (将来コードが warning を入れても setup を止めないため)。現時点で clippy 債務は無く、それは
+# release-binaries.yml の CI clippy ゲート (-D warnings) が land 前に担保する (CodeRabbit #318)。
+# 効果は本 setup が session-start フェーズで走り target/ が当該セッションに残る場合 (ヘッダ B) に限る。
+# 既定 ON。時間超過が問題なら CLOUD_SETUP_SKIP_CARGO_WARMUP=1 で無効化。上限は CLOUD_SETUP_CARGO_WARMUP_TIMEOUT。
+warmup_cargo() {
+  if [ "${CLOUD_SETUP_SKIP_CARGO_WARMUP:-0}" = "1" ]; then
+    log "cargo warmup: skip (CLOUD_SETUP_SKIP_CARGO_WARMUP=1)"
+    return 0
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    log "cargo: 未検出 — lint:rust ウォームアップを skip (初回 Stop は cold compile)"
+    return 0
+  fi
+  local timeout_secs="${CLOUD_SETUP_CARGO_WARMUP_TIMEOUT:-240}"
+  log "cargo clippy --workspace をウォームアップ中 (最大 ${timeout_secs}s、初回 Stop の cold compile 回避)"
+  if command -v timeout >/dev/null 2>&1; then
+    ( cd "${REPO_ROOT}" && timeout "${timeout_secs}" cargo clippy --workspace --all-targets --all-features ) \
+      || warn "cargo warmup 未完了 (timeout/失敗)。初回 Stop の lint:rust は cold compile になります。"
+  else
+    ( cd "${REPO_ROOT}" && cargo clippy --workspace --all-targets --all-features ) \
+      || warn "cargo warmup 未完了。初回 Stop の lint:rust は cold compile になります。"
+  fi
+}
+
 main() {
   install_harness_binaries
   verify_required_binaries
   generate_settings
+  ensure_pnpm            # C-1: pnpm 確保 (本体に取り込み)
   install_jj
+  init_jj_repo           # A-1/A-2/A-3: colocated 初期化 + identity + bookmark track
   install_node_dependencies
+  warmup_cargo           # C-2: lint:rust の cold compile 回避 (best-effort)
   report_optional_features
   log "セットアップ完了"
 }
