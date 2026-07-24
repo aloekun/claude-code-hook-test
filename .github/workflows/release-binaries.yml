@@ -84,6 +84,13 @@ jobs:
           cargo --version
           ldd --version | head -1
 
+      # clippy を CI にも通す (C-3)。従来は cargo test + build のみで、clippy 債務は
+      # ローカル push-runner (rust-lint-test group) と使い捨てクラウドの Stop ゲートでしか
+      # 検出されず CI をすり抜けていた。ローカル push-runner と同一コマンドにして結果を一致させ、
+      # クラウドの toolchain 差由来の債務を land 前に露出する。
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
       # 壊れたバイナリを rolling release に載せないためのゲート。
       # Linux 側で cmd.exe 依存が復活していないかの検知も兼ねる (WP-15)。
       - name: Run tests
