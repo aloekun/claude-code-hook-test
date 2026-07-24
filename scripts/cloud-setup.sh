@@ -126,7 +126,12 @@ verify_required_binaries() {
       import { readFileSync } from "node:fs";
       import { existsSync } from "node:fs";
 
-      const [templatePath, claudeDir] = process.argv.slice(2);
+      // `node -e` はスクリプトファイルを argv に含めない (argv = [node, templatePath,
+      // claudeDir])。したがって渡した引数は argv[1] から始まり slice(1) で取り出す。
+      // slice(2) だと templatePath に claudeDir が入り claudeDir が undefined になり、
+      // readFileSync がディレクトリを EISDIR で失敗 → verify が die して install_jj /
+      // install_node_dependencies に到達しない (WP-15 cloud-setup 環境半整備バグ)。
+      const [templatePath, claudeDir] = process.argv.slice(1);
       const template = readFileSync(templatePath, "utf8");
 
       // テンプレートの command は "{{PROJECT_DIR}}/.claude/<name>{{EXE_SUFFIX}}" 形式。
