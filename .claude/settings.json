@@ -11,5 +11,95 @@
   },
   "env": {
     "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs --setup",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-user-prompt-feedback-recovery",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|Replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-pre-tool-validate",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-post-tool-linter",
+            "timeout": 35
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-post-tool-comment-lint-rust",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-post-tool-jj-op-verify",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-stop-tool-call-leak",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-stop-quality",
+            "timeout": 300
+          },
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-stop-feedback-dispatch",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
   }
 }
