@@ -350,12 +350,13 @@ fn expand_step_placeholders(cmd: &str) -> String {
 fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<String> {
     let handles: Vec<(String, std::thread::JoinHandle<(bool, String)>)> = steps
         .iter()
-        .cloned()
         .map(|step| {
             let step_name = step.name.clone();
+            let thread_name = step.name.clone();
+            let raw_cmd = step.cmd.clone();
             let handle = std::thread::spawn(move || {
-                let cmd = expand_step_placeholders(&step.cmd);
-                run_cmd_shell_capped(&step.name, &cmd, timeout, MAX_LINES)
+                let cmd = expand_step_placeholders(&raw_cmd);
+                run_cmd_shell_capped(&thread_name, &cmd, timeout, MAX_LINES)
             });
             (step_name, handle)
         })
