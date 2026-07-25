@@ -401,13 +401,16 @@ warmup_cargo() {
     CARGO_WARMUP_RESULT="skipped-no-cargo"
     return 0
   fi
+  # timeout 無しの無制限実行は許容しない: ログの「最大 Ns」と実挙動が乖離し、重い
+  # cache 構築でセットアップ全体が止まり得るため skip する (CodeRabbit #321)。
+  if ! command -v timeout >/dev/null 2>&1; then
+    log "cargo warmup: skip (timeout コマンド未検出のため実行時間を制限できません)"
+    CARGO_WARMUP_RESULT="skipped-no-timeout"
+    return 0
+  fi
   local timeout_secs="${CLOUD_SETUP_CARGO_WARMUP_TIMEOUT:-240}"
   log "cargo clippy --workspace をウォームアップ中 (最大 ${timeout_secs}s、初回 Stop の cold compile 回避)"
-  local -a warmup_cmd=(cargo clippy --workspace --all-targets --all-features)
-  if command -v timeout >/dev/null 2>&1; then
-    warmup_cmd=(timeout "${timeout_secs}" "${warmup_cmd[@]}")
-  fi
-  if ( cd "${REPO_ROOT}" && "${warmup_cmd[@]}" ); then
+  if ( cd "${REPO_ROOT}" && timeout "${timeout_secs}" cargo clippy --workspace --all-targets --all-features ); then
     CARGO_WARMUP_RESULT="done"
   else
     CARGO_WARMUP_RESULT="failed"
@@ -457,19 +460,27 @@ cargo_target_dir=${CARGO_TARGET_DIR:-<unset>}"
 # (cache 未反映は「遅い」だけで「壊れている」ではないため fail-closed 対象外)。
 report_cache_phase_status() {
   if [ -f "${CACHE_STAMP_HOME}" ]; then
-    log "cache-phase 反映 (HOME): あり — pnpm store 暖機が snapshot に残存"
+    log "cache-phase stamp (HOME): あり — cache-phase 完走 + HOME が snapshot に残存"
     # set -e 下でも読み出し失敗 (権限/race) で setup を止めない (上記コメントの fail-open を実装で担保)
     sed 's/^/  /' "${CACHE_STAMP_HOME}" 2>/dev/null \
       || warn "stamp の内容を読み出せませんでした (表示のみ skip)"
   else
-    log "cache-phase 反映 (HOME): なし — pnpm install はフルダウンロードになります (セットアップスクリプト欄の --cache-phase 登録とキャッシュ再構築を確認)"
+    log "cache-phase stamp (HOME): なし — pnpm install はフルダウンロードになります (セットアップスクリプト欄の --cache-phase 登録とキャッシュ再構築を確認)"
   fi
   if [ -z "${CARGO_TARGET_DIR:-}" ]; then
     log "CARGO_TARGET_DIR: 未設定 — cargo 暖機はセッションに反映されません (Web UI の環境変数欄で /opt/cargo-target 等を設定)"
   elif [ -f "${CARGO_TARGET_DIR}/.cache-phase-stamp" ]; then
-    log "cache-phase 反映 (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): あり — lint:rust は warm cache で開始"
+    # stamp は warmup が failed / skipped-* でも書かれる。warm cache と言えるのは
+    # cargo_warmup=done の場合のみ (CodeRabbit #321)。
+    local warmup_state
+    warmup_state="$(sed -n 's/^cargo_warmup=//p' "${CARGO_TARGET_DIR}/.cache-phase-stamp" 2>/dev/null || true)"
+    if [ "${warmup_state}" = "done" ]; then
+      log "cache-phase stamp (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): あり (cargo_warmup=done) — lint:rust は warm cache で開始"
+    else
+      log "cache-phase stamp (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): あり (cargo_warmup=${warmup_state:-unknown}) — warmup 未完了のため初回 lint:rust は cold compile の可能性"
+    fi
   else
-    log "cache-phase 反映 (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): なし — 初回 Stop の lint:rust は cold compile"
+    log "cache-phase stamp (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): なし — 初回 Stop の lint:rust は cold compile"
   fi
 }
 

@@ -179,9 +179,12 @@ for candidate in "${PWD}" /home/user/claude-code-hook-test; do
 done
 CLONED=""
 if [ -z "${REPO_DIR}" ]; then
-  CLONED="$(mktemp -d)"
-  if git clone --depth 1 https://github.com/aloekun/claude-code-hook-test "${CLONED}/repo"; then
-    REPO_DIR="${CLONED}/repo"
+  if CLONED="$(mktemp -d)"; then
+    if git clone --depth 1 https://github.com/aloekun/claude-code-hook-test "${CLONED}/repo"; then
+      REPO_DIR="${CLONED}/repo"
+    fi
+  else
+    echo "[setup-script] 一時ディレクトリを作成できず cache-phase を skip (fail-open)"
   fi
 fi
 if [ -n "${REPO_DIR}" ]; then
