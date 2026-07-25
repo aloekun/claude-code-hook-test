@@ -18,6 +18,10 @@
 #                     1 回だけ走る)。snapshot に載って意味があるものだけを暖める:
 #                     pnpm store / cargo clippy warmup (要 CARGO_TARGET_DIR=リポ外、
 #                     例 /opt/cargo-target を Web UI の環境変数欄で設定)。
+#                     注意: セットアップスクリプト実行時は repo clone 前/外の cwd の
+#                     ことがあり、相対パス直書き登録は exit 127 でセッション開始を
+#                     ブロックする (2026-07-25 実測)。登録 snippet は ADR-060
+#                     「ユーザー側の環境設定」の fail-open 版を使うこと。
 #   引数なし        … 旧来の全ステップ実行 (後方互換 + ローカル Linux 検証用)。
 #                     クラウドの実運用では上記 2 フェーズを使う。
 #

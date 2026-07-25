@@ -157,8 +157,47 @@ allowlist 化) を再評価する。
 ### ユーザー側の環境設定 (コード外、Web UI)
 
 1. 環境変数欄: `CLOUD_HARNESS=1` と `CARGO_TARGET_DIR=/opt/cargo-target` を追加
-2. セットアップスクリプト欄: `bash scripts/cloud-setup.sh --cache-phase` へ変更
-   (欄の変更がキャッシュ再構築のトリガーを兼ねる)
+2. セットアップスクリプト欄: 下記 snippet を登録 (欄の変更がキャッシュ再構築のトリガーを兼ねる)
+
+セットアップスクリプトの実行環境は**リポジトリの clone 前/外の cwd であることがある**
+(公式ドキュメントは cwd も repo の存在も保証していない。E2E 検証 2 回目で
+`bash scripts/cloud-setup.sh` の相対パス起動が exit 127 になることを実測)。また非ゼロ exit は
+「Setup script failed」でセッション開始をブロックし、初回プロンプトの送り直しを強いる。
+そのため snippet は (a) repo を探し、無ければ自前で shallow clone し、(b) 結果に関わらず
+`exit 0` で終える (fail-open — 未暖機は「遅い」だけで、C-3 stamp 報告が次セッションの
+SessionStart ログで検出する):
+
+```bash
+#!/bin/bash
+# ADR-060 cache-phase 暖機。repo clone 前/外で走ることがあるため自前で解決し、
+# 失敗してもセッション開始をブロックしない (fail-open、検出は C-3 stamp 報告)。
+set -u
+SETUP_REL="scripts/cloud-setup.sh"
+REPO_DIR=""
+for candidate in "${PWD}" /home/user/claude-code-hook-test; do
+  if [ -f "${candidate}/${SETUP_REL}" ]; then REPO_DIR="${candidate}"; break; fi
+done
+CLONED=""
+if [ -z "${REPO_DIR}" ]; then
+  CLONED="$(mktemp -d)"
+  if git clone --depth 1 https://github.com/aloekun/claude-code-hook-test "${CLONED}/repo"; then
+    REPO_DIR="${CLONED}/repo"
+  fi
+fi
+if [ -n "${REPO_DIR}" ]; then
+  bash "${REPO_DIR}/${SETUP_REL}" --cache-phase \
+    || echo "[setup-script] cache-phase 失敗 (fail-open: 暖機なしでセッション継続可)"
+else
+  echo "[setup-script] repo を取得できず cache-phase を skip (fail-open)"
+fi
+if [ -n "${CLONED}" ]; then rm -rf "${CLONED}"; fi
+exit 0
+```
+
+一時 clone で warmup した場合、cargo の workspace メンバー crate は fingerprint がパス
+依存のためセッション側 (`/home/user/<repo>`) で再コンパイルになるが、コンパイル時間の
+大半を占める外部依存 crate は `CARGO_TARGET_DIR` 経由で再利用される。pnpm store は
+`$HOME` 配下でパス非依存に効く。
 
 ## E2E 検証記録
 
@@ -175,6 +214,27 @@ allowlist 化) を再評価する。
   走ったが成果物が snapshot に残らない」の 2 候補があり、当時のログでは判別不能だった
 - **対応**: この判別を可能にする stamp 観測機構 (§ 決定 3 の C-3) を追加。次回のキャッシュ
   再構築後のセッションで、SessionStart ログの `cache-phase 反映` 行により原因を確定させる
+
+### 2026-07-25 追記: 根本原因の確定 (ユーザー報告)
+
+セットアップスクリプト欄には登録済みだったが、新規セッション開始時に
+`Setup script failed with exit code 127 — bash: scripts/cloud-setup.sh: No such file or
+directory` が発生していたことがユーザー報告で判明。**cache-phase は一度も完走しておらず**、
+「未登録 or 未再構築」でも「snapshot に残らない」でもない第 3 の原因だった。
+
+学び (公式ドキュメント確認 + 実測):
+
+- セットアップスクリプトの実行時、**repo が clone 済みであることも cwd が repo ルートで
+  あることも保証されない** (公式例は apt install 等の repo 非依存処理のみ。repo 内ファイル
+  は SessionStart hook + `$CLAUDE_PROJECT_DIR` に誘導されている)。相対パス起動は不可
+- **セットアップスクリプトの非ゼロ exit はセッション開始をブロック**し、初回プロンプトの
+  送り直しを強いる。暖機はセッションの必須要件ではないため、この経路は fail-open
+  (常に `exit 0`) にすべき — C-3 stamp 報告が導入済みなので失敗は無言にならない
+  ([ADR-043](adr-043-security-gates-fail-closed.md) の観点でも「壊れているのに通す」では
+  なく「遅いだけの状態を通し、検出は別層が担う」の整理)
+
+対応: § ユーザー側の環境設定の snippet を「repo 探索 + fallback shallow clone + fail-open」
+に更新。
 
 ## 関連
 
