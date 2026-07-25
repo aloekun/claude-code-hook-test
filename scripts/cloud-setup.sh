@@ -6,12 +6,20 @@
 # hooks / CLI を即時有効化する。release-binaries.yml が公開した rolling release
 # (タグ `nightly`) から Linux バイナリを取得し、.claude/ へ配置して settings を生成する。
 #
-# 使い方: Claude Code Web の環境設定で、セッションの作業ツリーに対して走る
-#   session-start フェーズに登録する (冪等なので毎セッション実行して安全)。
-#     bash scripts/cloud-setup.sh
-#   注意 (B): env-build フェーズだけに登録すると、生成物 (.claude/ バイナリ /
-#   settings.local.json / .jj / target/ 等はすべて git 追跡外) が session 起動時の
-#   fresh clone で消え、環境が半整備になる。必ず session の作業ツリーに対して走らせること。
+# 使い方 (ADR-060: 2 つのフェーズに分離。旧・注意 (B) の「session フェーズへ登録」は
+#   Web UI に対応する設定が存在しないことが判明したため、SessionStart hook 経由に確定):
+#
+#   --session-phase … .claude/settings.json の SessionStart hook から毎セッション実行される
+#                     (scripts/cloud-hook-dispatch.mjs --setup が起動)。バイナリ配置 / jj /
+#                     pnpm install。生成物 (.claude/ バイナリ / .jj / node_modules) は git
+#                     追跡外で fresh clone のたびに消えるため、毎セッション再構築する。
+#                     冪等なので resume 時の再実行も安全。
+#   --cache-phase   … Web UI のセットアップスクリプト欄に登録する (環境キャッシュ構築時に
+#                     1 回だけ走る)。snapshot に載って意味があるものだけを暖める:
+#                     pnpm store / cargo clippy warmup (要 CARGO_TARGET_DIR=リポ外、
+#                     例 /opt/cargo-target を Web UI の環境変数欄で設定)。
+#   引数なし        … 旧来の全ステップ実行 (後方互換 + ローカル Linux 検証用)。
+#                     クラウドの実運用では上記 2 フェーズを使う。
 #
 # 設計メモ:
 # - **認証を要求しない**: public リポジトリの Release asset は素の HTTPS で取得できる。
@@ -92,8 +100,10 @@ install_harness_binaries() {
   local base_url="https://github.com/${REPO_SLUG}/releases/download/${RELEASE_TAG}"
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  # 途中で失敗しても一時ディレクトリを残さない。
-  trap 'rm -rf "${tmp_dir}"' RETURN
+  # 途中で失敗しても一時ディレクトリを残さない。RETURN trap は関数返却後もシェルに残留し、
+  # 後続関数の return で消滅済み local tmp_dir を参照して set -u で落ちるため
+  # (--session-phase 再実行が exit 1 になる実測バグ)、発火時に自己解除する。
+  trap 'rm -rf "${tmp_dir}"; trap - RETURN' RETURN
 
   log "バイナリを取得中: ${base_url}/${archive}"
   # --fail: HTTP 404/5xx を silent な空ファイルではなく exit 非 0 にする
@@ -193,7 +203,8 @@ install_jj() {
   local url="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/${archive}"
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "${tmp_dir}"' RETURN
+  # 自己解除する理由は install_harness_binaries の同 trap のコメント参照。
+  trap 'rm -rf "${tmp_dir}"; trap - RETURN' RETURN
 
   log "jj ${JJ_VERSION} を取得中"
   if ! curl --fail --location --silent --show-error --output "${tmp_dir}/${archive}" "${url}"; then
@@ -366,7 +377,38 @@ warmup_cargo() {
   fi
 }
 
-main() {
+# ─── フェーズ実行 (ADR-060) ───
+
+# SessionStart hook (cloud-hook-dispatch.mjs --setup) から毎セッション実行される。
+# generate_settings は呼ばない: クラウドの hook 登録は tracked な .claude/settings.json +
+# dispatcher が担う (ADR-060 § 決定 2)。settings.local.json を併産すると、起動時 snapshot
+# 仕様により当該セッションには効かないまま二重登録リスクだけが残る。
+# warmup_cargo も呼ばない: SessionStart の latency 予算に収まらないため cache-phase +
+# CARGO_TARGET_DIR (リポ外) の組に委ねる。
+run_session_phase() {
+  install_harness_binaries
+  verify_required_binaries
+  ensure_pnpm
+  install_jj             # セッション内は非 attach リポの release も取得可 (ADR-060 実測)
+  init_jj_repo           # A-1/A-2/A-3: colocated 初期化 + identity + bookmark track
+  install_node_dependencies
+  report_optional_features
+  log "セットアップ完了 (--session-phase)"
+}
+
+# Web UI のセットアップスクリプト欄から環境キャッシュ構築時に 1 回だけ実行される。
+# fresh clone で消えるリポ内生成物 (バイナリ / settings / .jj) をここで作っても無意味なので
+# 作らない。snapshot に載って次セッションを速くするものだけを暖める。
+run_cache_phase() {
+  ensure_pnpm
+  install_node_dependencies   # pnpm store が snapshot に載り session-phase の install が高速化
+  warmup_cargo                # 要 CARGO_TARGET_DIR=リポ外。リポ内 target/ は clone で消える
+  report_optional_features
+  log "セットアップ完了 (--cache-phase)"
+}
+
+# 旧来の全ステップ (後方互換 + ローカル Linux 検証用)。
+run_legacy_full() {
   install_harness_binaries
   verify_required_binaries
   generate_settings
@@ -377,6 +419,15 @@ main() {
   warmup_cargo           # C-2: lint:rust の cold compile 回避 (best-effort)
   report_optional_features
   log "セットアップ完了"
+}
+
+main() {
+  case "${1:-}" in
+    --session-phase) run_session_phase ;;
+    --cache-phase)   run_cache_phase ;;
+    "")              run_legacy_full ;;
+    *)               die "不明な引数: $1 (--session-phase / --cache-phase / 引数なし)" ;;
+  esac
 }
 
 main "$@"

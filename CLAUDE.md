@@ -60,6 +60,7 @@
 - [ADR-057: docs-only / 空 diff の決定論 routing — instruction 規約から決定論機構への昇格](docs/adr/adr-057-docs-only-deterministic-routing.md) *(試験運用)*
 - [ADR-058: fix 後の決定論再ゲート (post-takt re-gate) — pre-push 経路への機械的 backstop 拡張](docs/adr/adr-058-post-takt-regate.md) *(試験運用)*
 - [ADR-059: hook 通知の可視化チャネル分離 (systemMessage = ユーザー向け / additionalContext = モデル向け)](docs/adr/adr-059-hook-system-message-visibility.md) *(試験運用)*
+- [ADR-060: Cloud ハーネス有効化 — tracked dispatcher 登録 + SessionStart 実体確保の 2 層分離](docs/adr/adr-060-cloud-harness-sessionstart-dispatcher.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
