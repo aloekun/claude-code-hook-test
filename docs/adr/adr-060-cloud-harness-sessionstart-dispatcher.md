@@ -101,6 +101,14 @@ snapshot に**載って意味があるもの**だけを暖める:
 
 引数なしの `cloud-setup.sh` は従来 main() のまま残す (後方互換 + ローカル Linux 検証用)。
 
+反映確認の決定論化 (C-3、E2E 検証 1 回目の学びから追加): cache-phase は完了時に stamp
+(`~/.cache/cloud-setup/cache-phase-stamp` と `$CARGO_TARGET_DIR/.cache-phase-stamp` の 2 箇所)
+を書き、session-phase は冒頭で stamp の有無と `CARGO_TARGET_DIR` の設定状況を SessionStart
+ログに報告する。これにより「cache-phase が snapshot に載ったか」を人が pnpm の reused 数
+から推測する必要がなくなる (ADR-042: 繰り返す手動確認は仕組みへ)。2 箇所に書くのは
+snapshot の部分欠落 (HOME 側だけ残る等) を切り分けるため。stamp は観測専用の best-effort
+で、書き込み失敗や不在で setup を止めない (未反映は「遅い」だけで「壊れている」ではない)。
+
 ### 4. ADR-039 3 点セット
 
 **§ 1.b 判定**: 本 feature は PreToolUse block / Stop block という blocking 挙動を含むため
@@ -151,6 +159,22 @@ allowlist 化) を再評価する。
 1. 環境変数欄: `CLOUD_HARNESS=1` と `CARGO_TARGET_DIR=/opt/cargo-target` を追加
 2. セットアップスクリプト欄: `bash scripts/cloud-setup.sh --cache-phase` へ変更
    (欄の変更がキャッシュ再構築のトリガーを兼ねる)
+
+## E2E 検証記録
+
+### 2026-07-25: dogfood 1 回目 (merge + env 設定後の新規クラウドセッション)
+
+- **session-phase: 動作確認** — SessionStart で dispatcher → `--session-phase` が完走
+  (バイナリ配置 + fail-closed 検証 / jj 0.42.0 導入 + colocated 初期化 + bookmark track /
+  pnpm install)。PreToolUse (git ブロック) / Stop gate の発火も実測。§ 決定 1-2 は設計どおり
+- **cache-phase: 未反映** — 環境変数欄の `CLOUD_HARNESS=1` / `CARGO_TARGET_DIR=/opt/cargo-target`
+  は設定済みだったが、セッション開始時点で `/opt/cargo-target` が不存在
+  (セッション中の Stop gate `lint:rust` が cold compile で新規作成したことを mtime で確認)、
+  pnpm install は `reused 0, downloaded 245` (store 空 = フルダウンロード)。
+  原因は「セットアップスクリプト欄の未登録 or キャッシュ未再構築」と「cache-phase は
+  走ったが成果物が snapshot に残らない」の 2 候補があり、当時のログでは判別不能だった
+- **対応**: この判別を可能にする stamp 観測機構 (§ 決定 3 の C-3) を追加。次回のキャッシュ
+  再構築後のセッションで、SessionStart ログの `cache-phase 反映` 行により原因を確定させる
 
 ## 関連
 
