@@ -103,7 +103,8 @@ install_harness_binaries() {
   # 途中で失敗しても一時ディレクトリを残さない。RETURN trap は関数返却後もシェルに残留し、
   # 後続関数の return で消滅済み local tmp_dir を参照して set -u で落ちるため
   # (--session-phase 再実行が exit 1 になる実測バグ)、発火時に自己解除する。
-  trap 'rm -rf "${tmp_dir}"; trap - RETURN' RETURN
+  # EXIT にも掛けるのは die() (exit 1) 経路では RETURN trap が発火しないため (PR #319 CR)。
+  trap 'rm -rf "${tmp_dir}"; trap - RETURN EXIT' RETURN EXIT
 
   log "バイナリを取得中: ${base_url}/${archive}"
   # --fail: HTTP 404/5xx を silent な空ファイルではなく exit 非 0 にする
@@ -203,8 +204,8 @@ install_jj() {
   local url="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/${archive}"
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  # 自己解除する理由は install_harness_binaries の同 trap のコメント参照。
-  trap 'rm -rf "${tmp_dir}"; trap - RETURN' RETURN
+  # 自己解除 + EXIT 併用の理由は install_harness_binaries の同 trap のコメント参照。
+  trap 'rm -rf "${tmp_dir}"; trap - RETURN EXIT' RETURN EXIT
 
   log "jj ${JJ_VERSION} を取得中"
   if ! curl --fail --location --silent --show-error --output "${tmp_dir}/${archive}" "${url}"; then
