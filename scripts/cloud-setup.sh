@@ -338,6 +338,27 @@ init_jj_repo() {
     fi
   fi
 
+  # A-4 (ADR-060 リハーサル実測): colocate init は git HEAD を detach し、環境によっては
+  #      ローカルブランチ ref も残らない。jj 中心のローカル flow は影響しないが、クラウド
+  #      セッションの Claude は git で commit/push するため、そのままだと push が
+  #      "src refspec does not match any" で失敗する。init 前に取得した現ブランチへ
+  #      HEAD を戻す (直後の working tree は不変なので checkout は安全)。ref が消えて
+  #      いる場合は現 HEAD 位置で作り直す。
+  if ! git -C "${REPO_ROOT}" symbolic-ref -q HEAD >/dev/null; then
+    if [ -n "${current_branch}" ]; then
+      if ( cd "${REPO_ROOT}" && { git checkout -q "${current_branch}" 2>/dev/null \
+          || git checkout -q -B "${current_branch}" 2>/dev/null; } ); then
+        log "git HEAD を ${current_branch} へ再アタッチ"
+      else
+        warn "git HEAD の再アタッチに失敗 (detached のまま。git push 前に checkout -B が必要)"
+      fi
+    else
+      # 本 run の開始時点で既に detached だった場合は戻し先が分からない。無言 skip に
+      # すると push 失敗まで露見しないため、ここで明示する。
+      warn "git HEAD が detached でブランチ名も不明のため再アタッチできません (git checkout -B <branch> で復旧)"
+    fi
+  fi
+
   # A-3. push ワークフロー (ADR-011/015) 用に既定ブランチ + 現ブランチ (init 前に取得済み) の
   #      remote bookmark を track。remote bookmark 未 import / 不在なら best-effort で無視。
   ( cd "${REPO_ROOT}" && jj bookmark track "${DEFAULT_BRANCH}@origin" >/dev/null 2>&1 ) \
