@@ -18,6 +18,10 @@
 #                     1 回だけ走る)。snapshot に載って意味があるものだけを暖める:
 #                     pnpm store / cargo clippy warmup (要 CARGO_TARGET_DIR=リポ外、
 #                     例 /opt/cargo-target を Web UI の環境変数欄で設定)。
+#                     注意: セットアップスクリプト実行時は repo clone 前/外の cwd の
+#                     ことがあり、相対パス直書き登録は exit 127 でセッション開始を
+#                     ブロックする (2026-07-25 実測)。登録 snippet は ADR-060
+#                     「ユーザー側の環境設定」の fail-open 版を使うこと。
 #   引数なし        … 旧来の全ステップ実行 (後方互換 + ローカル Linux 検証用)。
 #                     クラウドの実運用では上記 2 フェーズを使う。
 #
@@ -62,6 +66,10 @@ readonly DEFAULT_BRANCH="${CLOUD_SETUP_DEFAULT_BRANCH:-master}"
 # 将来の pnpm が frozen-install / lockfile 互換を壊すリスクがある。ローカル dev の pnpm 11 に
 # 合わせる (v9.0 は pnpm 9-11 が互換)。CLOUD_SETUP_PNPM_SPEC で上書き可。
 readonly PNPM_SPEC="${CLOUD_SETUP_PNPM_SPEC:-pnpm@11}"
+
+# cache-phase 反映確認用 stamp の HOME 側パス (C-3)。pnpm store (~/.local/share/pnpm) と
+# 同じくリポ外 HOME 配下に置き、「HOME が snapshot に残存するか」の観測点を兼ねる。
+readonly CACHE_STAMP_HOME="${CLOUD_SETUP_CACHE_STAMP_HOME:-${HOME}/.cache/cloud-setup/cache-phase-stamp}"
 
 # ─── ログ ───
 
@@ -379,23 +387,100 @@ init_jj_repo() {
 # release-binaries.yml の CI clippy ゲート (-D warnings) が land 前に担保する (CodeRabbit #318)。
 # 効果は本 setup が session-start フェーズで走り target/ が当該セッションに残る場合 (ヘッダ B) に限る。
 # 既定 ON。時間超過が問題なら CLOUD_SETUP_SKIP_CARGO_WARMUP=1 で無効化。上限は CLOUD_SETUP_CARGO_WARMUP_TIMEOUT。
+# 実行結果を write_cache_stamp (C-3) が stamp に記録するためのグローバル。
+CARGO_WARMUP_RESULT="not-run"
+
 warmup_cargo() {
   if [ "${CLOUD_SETUP_SKIP_CARGO_WARMUP:-0}" = "1" ]; then
     log "cargo warmup: skip (CLOUD_SETUP_SKIP_CARGO_WARMUP=1)"
+    CARGO_WARMUP_RESULT="skipped-env"
     return 0
   fi
   if ! command -v cargo >/dev/null 2>&1; then
     log "cargo: 未検出 — lint:rust ウォームアップを skip (初回 Stop は cold compile)"
+    CARGO_WARMUP_RESULT="skipped-no-cargo"
+    return 0
+  fi
+  # timeout 無しの無制限実行は許容しない: ログの「最大 Ns」と実挙動が乖離し、重い
+  # cache 構築でセットアップ全体が止まり得るため skip する (CodeRabbit #321)。
+  if ! command -v timeout >/dev/null 2>&1; then
+    log "cargo warmup: skip (timeout コマンド未検出のため実行時間を制限できません)"
+    CARGO_WARMUP_RESULT="skipped-no-timeout"
     return 0
   fi
   local timeout_secs="${CLOUD_SETUP_CARGO_WARMUP_TIMEOUT:-240}"
   log "cargo clippy --workspace をウォームアップ中 (最大 ${timeout_secs}s、初回 Stop の cold compile 回避)"
-  if command -v timeout >/dev/null 2>&1; then
-    ( cd "${REPO_ROOT}" && timeout "${timeout_secs}" cargo clippy --workspace --all-targets --all-features ) \
-      || warn "cargo warmup 未完了 (timeout/失敗)。初回 Stop の lint:rust は cold compile になります。"
+  if ( cd "${REPO_ROOT}" && timeout "${timeout_secs}" cargo clippy --workspace --all-targets --all-features ); then
+    CARGO_WARMUP_RESULT="done"
   else
-    ( cd "${REPO_ROOT}" && cargo clippy --workspace --all-targets --all-features ) \
-      || warn "cargo warmup 未完了。初回 Stop の lint:rust は cold compile になります。"
+    CARGO_WARMUP_RESULT="failed"
+    warn "cargo warmup 未完了 (timeout/失敗)。初回 Stop の lint:rust は cold compile になります。"
+  fi
+}
+
+# ─── C-3. cache-phase 反映の観測 (stamp) ───
+#
+# 「cache-phase の成果が snapshot に載ったか」は従来、次セッションで pnpm install の
+# reused 数や CARGO_TARGET_DIR の有無を人が読んで推測するしかなかった (2026-07-25 の
+# E2E 検証で実際に手動判定し、「cache-phase が走っていない」のか「走ったが snapshot に
+# 残らない」のか判別材料が無いことが判明)。stamp を cache-phase の最後に書き、
+# session-phase の冒頭で存在を報告することで、この判定を SessionStart ログの決定論的な
+# 数行にする (ADR-042: 繰り返す手動確認は仕組みへ)。
+# 2 箇所 (HOME / CARGO_TARGET_DIR) に書くのは snapshot の部分欠落を切り分けるため:
+# HOME 側 stamp があるのに pnpm reused が 0 なら「snapshot は残るが store 側の問題」、
+# 両方無ければ「cache-phase 自体が走っていない (セットアップスクリプト欄が未登録 or
+# キャッシュ未再構築)」と読み分けられる。
+write_cache_stamp() {
+  local completed_at commit content
+  completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  commit="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  content="completed_at=${completed_at}
+commit=${commit}
+cargo_warmup=${CARGO_WARMUP_RESULT}
+cargo_target_dir=${CARGO_TARGET_DIR:-<unset>}"
+
+  # stamp は観測用の best-effort。書けなくても setup は成功扱い (fail-open)。
+  if mkdir -p "$(dirname -- "${CACHE_STAMP_HOME}")" 2>/dev/null \
+      && printf '%s\n' "${content}" > "${CACHE_STAMP_HOME}" 2>/dev/null; then
+    log "cache-phase stamp を書き込み: ${CACHE_STAMP_HOME}"
+  else
+    warn "cache-phase stamp を書き込めませんでした: ${CACHE_STAMP_HOME} (次セッションの反映確認は手動になります)"
+  fi
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    if mkdir -p "${CARGO_TARGET_DIR}" 2>/dev/null \
+        && printf '%s\n' "${content}" > "${CARGO_TARGET_DIR}/.cache-phase-stamp" 2>/dev/null; then
+      log "cache-phase stamp を書き込み: ${CARGO_TARGET_DIR}/.cache-phase-stamp"
+    else
+      warn "cache-phase stamp を書き込めませんでした: ${CARGO_TARGET_DIR}/.cache-phase-stamp"
+    fi
+  fi
+}
+
+# session-phase 冒頭で cache-phase の反映状況を報告する。観測のみで setup は止めない
+# (cache 未反映は「遅い」だけで「壊れている」ではないため fail-closed 対象外)。
+report_cache_phase_status() {
+  if [ -f "${CACHE_STAMP_HOME}" ]; then
+    log "cache-phase stamp (HOME): あり — cache-phase 完走 + HOME が snapshot に残存"
+    # set -e 下でも読み出し失敗 (権限/race) で setup を止めない (上記コメントの fail-open を実装で担保)
+    sed 's/^/  /' "${CACHE_STAMP_HOME}" 2>/dev/null \
+      || warn "stamp の内容を読み出せませんでした (表示のみ skip)"
+  else
+    log "cache-phase stamp (HOME): なし — pnpm install はフルダウンロードになります (セットアップスクリプト欄の --cache-phase 登録とキャッシュ再構築を確認)"
+  fi
+  if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    log "CARGO_TARGET_DIR: 未設定 — cargo 暖機はセッションに反映されません (Web UI の環境変数欄で /opt/cargo-target 等を設定)"
+  elif [ -f "${CARGO_TARGET_DIR}/.cache-phase-stamp" ]; then
+    # stamp は warmup が failed / skipped-* でも書かれる。warm cache と言えるのは
+    # cargo_warmup=done の場合のみ (CodeRabbit #321)。
+    local warmup_state
+    warmup_state="$(sed -n 's/^cargo_warmup=//p' "${CARGO_TARGET_DIR}/.cache-phase-stamp" 2>/dev/null || true)"
+    if [ "${warmup_state}" = "done" ]; then
+      log "cache-phase stamp (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): あり (cargo_warmup=done) — lint:rust は warm cache で開始"
+    else
+      log "cache-phase stamp (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): あり (cargo_warmup=${warmup_state:-unknown}) — warmup 未完了のため初回 lint:rust は cold compile の可能性"
+    fi
+  else
+    log "cache-phase stamp (CARGO_TARGET_DIR=${CARGO_TARGET_DIR}): なし — 初回 Stop の lint:rust は cold compile"
   fi
 }
 
@@ -408,6 +493,7 @@ warmup_cargo() {
 # warmup_cargo も呼ばない: SessionStart の latency 予算に収まらないため cache-phase +
 # CARGO_TARGET_DIR (リポ外) の組に委ねる。
 run_session_phase() {
+  report_cache_phase_status   # C-3: cache-phase の反映状況を SessionStart ログで決定論的に可視化
   install_harness_binaries
   verify_required_binaries
   ensure_pnpm
@@ -425,6 +511,7 @@ run_cache_phase() {
   ensure_pnpm
   install_node_dependencies   # pnpm store が snapshot に載り session-phase の install が高速化
   warmup_cargo                # 要 CARGO_TARGET_DIR=リポ外。リポ内 target/ は clone で消える
+  write_cache_stamp           # C-3: snapshot 反映を次セッションで判定するための stamp
   report_optional_features
   log "セットアップ完了 (--cache-phase)"
 }
