@@ -41,6 +41,23 @@ fn is_main_assistant(entry: &Value) -> bool {
         && entry.get("isSidechain").and_then(Value::as_bool) != Some(true)
 }
 
+/// ハーネスが API リトライ失敗時に記録する合成 assistant エントリか (ADR-061)。
+///
+/// v2.1.206 実測: ツール呼び出しの parse 失敗 → 内部リトライも失敗した turn は
+/// `isApiErrorMessage: true` かつ `message.model == "<synthetic>"` の擬似 assistant
+/// エントリ ("The model's tool call could not be parsed (retry also failed).") で
+/// 終端する。この合成エントリは `type: "assistant"` だが leak を持たないため、素の
+/// `scan_tail` では「非 leak の最終 assistant」としてチェーンを打ち切り、直前の実
+/// leak を取り逃がす (副因)。isMeta user と同様、チェーンを切らずスキップ対象とする。
+/// 一般 API エラー (529 Overloaded / session limit 等) も本条件に該当するが、スキップ
+/// されるだけで leak 判定には影響しない (直前が leak でなければチェーンは伸びない)。
+fn is_synthetic(entry: &Value) -> bool {
+    let api_error = entry.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true);
+    let synthetic_model =
+        entry.pointer("/message/model").and_then(Value::as_str) == Some("<synthetic>");
+    api_error || synthetic_model
+}
+
 /// assistant エントリの text block 群を返す。
 ///
 /// `message.content` は通常 block 配列だが、文字列形式にもフォールバック対応する。
@@ -88,7 +105,8 @@ fn is_chain_breaking_user_entry(entry: &Value) -> bool {
 /// 走査規則:
 /// - 実ユーザーの発話に到達したら打ち切り (チェーンリセット)
 /// - assistant 以外 (queue-operation / isMeta user / tool_result 等) はスキップ
-/// - 非 leak の assistant に到達したら打ち切り
+/// - 合成 assistant エントリ (hard-fail、ADR-061) はチェーンを切らずスキップ
+/// - 非 leak の実 assistant に到達したら打ち切り
 pub(crate) fn scan_tail(entries: &[Value]) -> TailScan {
     let mut consecutive_leaks = 0u32;
     let mut last_tool_name: Option<String> = None;
@@ -97,6 +115,9 @@ pub(crate) fn scan_tail(entries: &[Value]) -> TailScan {
             break;
         }
         if !is_main_assistant(entry) {
+            continue;
+        }
+        if is_synthetic(entry) {
             continue;
         }
         let blocks = assistant_text_blocks(entry);
@@ -142,6 +163,15 @@ mod tests {
 
     fn tool_result_entry() -> Value {
         json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}})
+    }
+
+    /// ハーネスの hard-fail 合成エントリ (ADR-061、828764ce line 274/286 実測構造)。
+    fn synthetic_entry() -> Value {
+        json!({"type": "assistant", "isApiErrorMessage": true, "message": {
+            "model": "<synthetic>",
+            "content": [{"type": "text",
+                "text": "The model's tool call could not be parsed (retry also failed)."}]
+        }})
     }
 
     fn to_jsonl(entries: &[Value]) -> String {
@@ -250,5 +280,60 @@ mod tests {
     #[test]
     fn scan_handles_empty_entries() {
         assert_eq!(scan_tail(&[]).consecutive_leaks, 0);
+    }
+
+    #[test]
+    fn is_synthetic_detects_both_markers() {
+        assert!(is_synthetic(&synthetic_entry()));
+        assert!(
+            is_synthetic(&json!({"type": "assistant", "isApiErrorMessage": true})),
+            "isApiErrorMessage のみでも合成と判定する"
+        );
+        assert!(
+            is_synthetic(&json!({"type": "assistant", "message": {"model": "<synthetic>"}})),
+            "model == <synthetic> のみでも合成と判定する"
+        );
+        assert!(
+            !is_synthetic(&assistant_text_entry(LEAK_TEXT)),
+            "通常 assistant は合成でない"
+        );
+    }
+
+    #[test]
+    fn scan_skips_synthetic_and_detects_preceding_leak() {
+        let entries = vec![assistant_text_entry(LEAK_TEXT), synthetic_entry()];
+        let scan = scan_tail(&entries);
+        assert_eq!(
+            scan.consecutive_leaks, 1,
+            "828764ce 1 回目 (leak→合成 で turn 終端): 合成はチェーンを切らず直前の leak を検知"
+        );
+        assert_eq!(scan.last_tool_name.as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn scan_zero_when_synthetic_follows_normal_assistant() {
+        let entries = vec![assistant_text_entry("作業を続けます。"), synthetic_entry()];
+        assert_eq!(
+            scan_tail(&entries).consecutive_leaks,
+            0,
+            "一般 API エラー (overloaded 等) が正常応答の後: 合成の直前が leak でなければ伸びない"
+        );
+    }
+
+    #[test]
+    fn scan_leak_chain_breaks_at_real_user_across_synthetic() {
+        let entries = vec![
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+            real_user_entry("テキストで出力されて止まっています"),
+            meta_user_entry("The previous response failed to produce a valid tool call."),
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+        ];
+        assert_eq!(
+            scan_tail(&entries).consecutive_leaks,
+            1,
+            "828764ce 2 回目 (leak→合成→実 user→isMeta→leak→合成): 実 user がチェーン起点をリセット"
+        );
     }
 }
