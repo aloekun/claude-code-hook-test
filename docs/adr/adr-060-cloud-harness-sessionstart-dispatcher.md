@@ -94,10 +94,14 @@ Web UI のセットアップスクリプト欄は `bash scripts/cloud-setup.sh -
 snapshot に**載って意味があるもの**だけを暖める:
 
 - pnpm 確保 + `pnpm install` (pnpm store が snapshot に載り、セッション毎の install が高速化)
-- `cargo clippy` warmup — **環境変数 `CARGO_TARGET_DIR=/opt/cargo-target` (Web UI で設定)
-  との組で初めて有効**。従来はリポ内 `target/` に書いて fresh clone で消えていた
-  (PR #318 warmup_cargo が休眠していた原因)。リポ外に出せば snapshot に載り、
-  全セッションの Stop gate `lint:rust` / `cargo test` が warm cache で始まる
+- `cargo clippy` warmup — 暖機先はリポ外 `CARGO_TARGET_DIR=/opt/cargo-target`。
+  当初は「Web UI の環境変数欄で設定」との組で有効化する設計だったが、環境変数欄は
+  セットアップスクリプトに注入されない (E2E 検証 3 回目で実測確定) ため、cache-phase では
+  script 自身が未設定時に既定値を適用する (C-4 `ensure_cache_cargo_target_dir`)。
+  セッション側の cargo に同じパスを見せるため、環境変数欄の設定も引き続き必要
+  (既定値との一致は [ADR-051](adr-051-cross-system-config-coupling.md) の coupling 規律で管理)。
+  リポ外に出せば snapshot に載り、全セッションの Stop gate `lint:rust` / `cargo test` が
+  warm cache で始まる
 
 引数なしの `cloud-setup.sh` は従来 main() のまま残す (後方互換 + ローカル Linux 検証用)。
 
@@ -238,6 +242,42 @@ directory` が発生していたことがユーザー報告で判明。**cache-p
 
 対応: § ユーザー側の環境設定の snippet を「repo 探索 + fallback shallow clone + fail-open」
 に更新。
+
+### 2026-07-26: dogfood 2 回目 (fail-open snippet + stamp 機構でのキャッシュ再構築後)
+
+結果は**部分成功**。stamp 観測機構 (C-3) が設計どおり一発で原因を切り分けた。
+
+- **cache-phase: 完走** — stamp (HOME) あり、`completed_at` = 再構築時刻、`commit` = 当時の
+  master 先頭と一致。exit 127 問題は fail-open snippet で解消
+- **pnpm: 完全再利用** — `pnpm install` が「Already up to date / Done in 1.2s」。
+  pnpm store (291M) に加え **`node_modules` 292M 自体が snapshot からセッションに残存**
+- **cargo 暖機: 反映されず** — stamp が `cargo_warmup=done` かつ **`cargo_target_dir=<unset>`**
+  を記録し、`/opt/cargo-target` 不在・`$CARGO_TARGET_DIR/.cache-phase-stamp` なし。
+  暖機はリポ内 `target/` (384M、セッションに残存) に行われたが、セッション側 cargo は
+  `/opt/cargo-target` を見るため使われない
+
+学び 2 点 (いずれも実測):
+
+1. **Web UI の環境変数欄はセッションには注入されるが、セットアップスクリプト
+   (キャッシュ再構築) の実行環境には注入されない**。時系列で確定: `CARGO_TARGET_DIR` は
+   再構築より前から設定済みかつ全セッションで注入されていたのに、stamp は `<unset>` を記録
+2. **リポ内の git 追跡外生成物 (`target/` 384M / `node_modules` 292M) が snapshot 経由で
+   セッションに残存した**。コンテキスト章の制約 2「fresh clone で毎セッション消える」は
+   2026-07-25 時点の実測であり、現在の platform 挙動とは食い違う。ただし clone 挙動に
+   保証は無いため、設計はリポ外 (`/opt` / `$HOME`) を正とする方針を維持し、残存は
+   ボーナスとして扱う
+
+対応: cache-phase に C-4 (`ensure_cache_cargo_target_dir`) を追加 — `CARGO_TARGET_DIR`
+未設定時は script 自身が既定値 `/opt/cargo-target` を export して暖機先をセッション側
+cargo と揃える。既定値は環境変数欄の値と論理結合 ([ADR-051](adr-051-cross-system-config-coupling.md))。
+環境変数欄の `CARGO_TARGET_DIR` は**セッション側のために引き続き必要** (削除しないこと)。
+`CLOUD_SETUP_CARGO_TARGET_DIR` で cache-phase の既定値を変更する場合、Web UI の
+環境変数欄では届かない (本節の学び 1) ため、setup snippet 内で
+`export CLOUD_SETUP_CARGO_TARGET_DIR=/絶対パス` してから script を起動すること。
+値は絶対パスのみ有効 (相対パスは cargo 実行時に REPO_ROOT 配下へ解決され一時 clone と
+ともに失われるため、script が警告して既定値へフォールバックする)。また、その値は
+セッション側 `CARGO_TARGET_DIR` と同じ絶対パスに揃えること。
+反映にはキャッシュ再構築のトリガー (セットアップスクリプト欄への無害な変更) が必要。
 
 ## 関連
 

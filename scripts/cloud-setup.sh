@@ -16,8 +16,10 @@
 #                     冪等なので resume 時の再実行も安全。
 #   --cache-phase   … Web UI のセットアップスクリプト欄に登録する (環境キャッシュ構築時に
 #                     1 回だけ走る)。snapshot に載って意味があるものだけを暖める:
-#                     pnpm store / cargo clippy warmup (要 CARGO_TARGET_DIR=リポ外、
-#                     例 /opt/cargo-target を Web UI の環境変数欄で設定)。
+#                     pnpm store / cargo clippy warmup。暖機先の CARGO_TARGET_DIR は
+#                     未設定なら script が /opt/cargo-target を適用する (C-4。Web UI の
+#                     環境変数欄はセッション専用で cache-phase には注入されない実測のため。
+#                     セッション側は従来どおり環境変数欄の設定が必要)。
 #                     注意: セットアップスクリプト実行時は repo clone 前/外の cwd の
 #                     ことがあり、相対パス直書き登録は exit 127 でセッション開始を
 #                     ブロックする (2026-07-25 実測)。登録 snippet は ADR-060
@@ -418,6 +420,35 @@ warmup_cargo() {
   fi
 }
 
+# ─── C-4. cache-phase の CARGO_TARGET_DIR fallback ───
+#
+# Web UI の環境変数欄はセッションには注入されるが、セットアップスクリプト (キャッシュ
+# 再構築) の実行環境には注入されない (2026-07-26 E2E 検証 3 回目で時系列確定: 設定済みの
+# 環境で再構築しても stamp が cargo_target_dir=<unset> を記録)。未設定のまま warmup すると
+# リポ内 target/ に書かれ、セッション側 cargo (CARGO_TARGET_DIR=/opt/cargo-target) からは
+# 使われない。cache-phase では script 自身が既定値を適用して暖機先を揃える。
+# 既定値はセッション側の Web UI 環境変数欄の値と論理結合している (ADR-051 クロスシステム
+# 設定 coupling): 片方を変える場合は必ず両方を揃えること。CLOUD_SETUP_CARGO_TARGET_DIR で
+# 上書き可。session-phase / legacy では適用しない (ローカルはリポ内 target/ が正)。
+readonly DEFAULT_CACHE_CARGO_TARGET_DIR="${CLOUD_SETUP_CARGO_TARGET_DIR:-/opt/cargo-target}"
+
+ensure_cache_cargo_target_dir() {
+  if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    local target_dir="${DEFAULT_CACHE_CARGO_TARGET_DIR}"
+    # 相対パスは warmup_cargo の cd "${REPO_ROOT}" でリポ配下に解決され、一時 clone と
+    # ともに失われるため受け付けない — 既定値へフォールバックする (CodeRabbit #322)。
+    case "${target_dir}" in
+      /*) ;;
+      *)
+        warn "CLOUD_SETUP_CARGO_TARGET_DIR は絶対パスのみ有効です (指定値: ${target_dir})。既定値 /opt/cargo-target を使用します。"
+        target_dir="/opt/cargo-target"
+        ;;
+    esac
+    export CARGO_TARGET_DIR="${target_dir}"
+    log "CARGO_TARGET_DIR 未設定のため既定値を適用: ${CARGO_TARGET_DIR} (セットアップスクリプトには Web UI の環境変数が注入されないため — C-4)"
+  fi
+}
+
 # ─── C-3. cache-phase 反映の観測 (stamp) ───
 #
 # 「cache-phase の成果が snapshot に載ったか」は従来、次セッションで pnpm install の
@@ -505,12 +536,14 @@ run_session_phase() {
 }
 
 # Web UI のセットアップスクリプト欄から環境キャッシュ構築時に 1 回だけ実行される。
-# fresh clone で消えるリポ内生成物 (バイナリ / settings / .jj) をここで作っても無意味なので
-# 作らない。snapshot に載って次セッションを速くするものだけを暖める。
+# リポ内生成物 (バイナリ / settings / .jj) はここで作らず、snapshot に載って次セッションを
+# 速くするものだけを暖める。実測 (E2E 3 回目) ではリポ内 target/ や node_modules も
+# セッションに残存したが、clone 挙動に保証は無いため暖機先はリポ外を正とする。
 run_cache_phase() {
+  ensure_cache_cargo_target_dir  # C-4: 環境変数欄は cache-phase に注入されないため既定値を適用
   ensure_pnpm
   install_node_dependencies   # pnpm store が snapshot に載り session-phase の install が高速化
-  warmup_cargo                # 要 CARGO_TARGET_DIR=リポ外。リポ内 target/ は clone で消える
+  warmup_cargo                # 暖機先はリポ外 CARGO_TARGET_DIR (セッション側 cargo と一致させる)
   write_cache_stamp           # C-3: snapshot 反映を次セッションで判定するための stamp
   report_optional_features
   log "セットアップ完了 (--cache-phase)"
