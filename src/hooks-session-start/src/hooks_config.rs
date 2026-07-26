@@ -105,6 +105,7 @@ mod tests {
 enabled = true
 fetch_timeout_secs = 5
 default_branch = "main"
+stale_check_enabled = true
 "#;
         let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
         f.write_all(toml_str.as_bytes()).unwrap();
@@ -118,6 +119,33 @@ default_branch = "main"
         assert_eq!(staleness.enabled, Some(true));
         assert_eq!(staleness.fetch_timeout_secs, Some(5));
         assert_eq!(staleness.default_branch.as_deref(), Some("main"));
+        assert_eq!(staleness.stale_check_enabled, Some(true));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn staleness_stale_check_enabled_defaults_to_none_when_omitted() {
+        use std::io::Write;
+        let root = unique_temp_root("staleness-no-stale-check");
+        let claude_dir = root.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let toml_str = r#"
+[session_start.staleness]
+enabled = true
+"#;
+        let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+        drop(f);
+        let config = read_hooks_config(&root);
+        let staleness = config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.staleness.as_ref())
+            .expect("staleness section should parse");
+        assert_eq!(
+            staleness.stale_check_enabled, None,
+            "stale_check_enabled 未設定は None (default-OFF、ADR-039)"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
