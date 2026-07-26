@@ -279,6 +279,41 @@ cargo と揃える。既定値は環境変数欄の値と論理結合 ([ADR-051]
 セッション側 `CARGO_TARGET_DIR` と同じ絶対パスに揃えること。
 反映にはキャッシュ再構築のトリガー (セットアップスクリプト欄への無害な変更) が必要。
 
+### 2026-07-26: dogfood 3 回目 (C-4 マージ + 再構築後) — C-4 は未発動、原因は再構築の stale repo
+
+結果は**部分成功のまま** (dogfood 2 と同じ症状)。stamp: `completed_at=01:55:50Z`、
+`cargo_warmup=done`、**`commit=932fcb1` (#321 = C-4 マージ前)**、`cargo_target_dir=<unset>`。
+`/opt/cargo-target` 不在、暖機はリポ内 `target/` (384M) へ。pnpm は再利用主体で良好。
+
+ここで時系列が矛盾する: **#322 (C-4) のマージは再構築 (01:55) より前**なのに、stamp の
+commit はマージ前を指した。fresh clone なら起こり得ない。これが学び 3 を確定させた:
+
+3. **キャッシュ再構築は前回 snapshot のファイルシステム上で走る** (クリーンな base からでは
+   ない)。前回 snapshot に残存していた旧 checkout (`/home/user/claude-code-hook-test` @ #321)
+   を snippet の probe が発見し、**その中の旧 `cloud-setup.sh` (C-4 なし) を実行した**。
+   つまり probe-first の snippet は「マージ → 欄変更で再構築」のたびに 1 世代前の script を
+   実行する staleness を持つ。C-4 のコード自体は正しいが、この経路ではまだ一度も実行されて
+   いない
+
+対応判断: **期限切れ待ち (案 A) を採用、snippet の clone-first 化は見送り** (順位261 の
+negative result 永続化として記録)。根拠:
+
+- キャッシュ期限 (約 7 日) 切れ後の再構築はクリーンな環境から始まり、probe が外れて
+  fresh shallow clone (C-4 入り最新 master) が走るため、**時間経過で自然解消する見込み**
+- それまでの実害は「cargo 暖機が効かない = 初回 Stop の lint:rust が遅い」のみで、
+  C-3 stamp 報告が状態を毎セッション可視化しており無言の壊れ方はしない
+- clone-first 化は staleness を恒久解消するが、正常時にも毎再構築で clone を強制する。
+  期限切れ再構築で C-4 発動が確認できてから必要性を再評価する方が、機構追加の根拠が
+  実測に基づく (ADR-039 の精神)。**マージ直後に欄変更で再構築して即反映させたい運用が
+  実際に発生したら clone-first 化を再検討**する
+
+検証残: 期限切れ後の新規セッションで、**cold compile が走る前に**
+`/opt/cargo-target/.cache-phase-stamp` が存在し、その内容が
+`cargo_target_dir=/opt/cargo-target`・`cargo_warmup=done`・最新 master の commit で
+あることを確認できれば完全成功 (SessionStart ログの C-3 報告行がこの判定を出力する)。
+ディレクトリ実在だけを成功条件にしない — `/opt/cargo-target` はセッション中の
+Stop gate cold compile でも作成されるため暖機の証拠にならない (dogfood 1 で実測)。
+
 ## 関連
 
 - [ADR-005](adr-005-hooks-path-resolution-with-template.md) — パス解決の不安定性と
