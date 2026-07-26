@@ -307,8 +307,12 @@ negative result 永続化として記録)。根拠:
   実測に基づく (ADR-039 の精神)。**マージ直後に欄変更で再構築して即反映させたい運用が
   実際に発生したら clone-first 化を再検討**する
 
-検証残: 期限切れ後の新規セッションで `stamp: cargo_target_dir=/opt/cargo-target,
-cargo_warmup=done, commit=最新 master` + `/opt/cargo-target` 実在を確認できれば完全成功。
+検証残: 期限切れ後の新規セッションで、**cold compile が走る前に**
+`/opt/cargo-target/.cache-phase-stamp` が存在し、その内容が
+`cargo_target_dir=/opt/cargo-target`・`cargo_warmup=done`・最新 master の commit で
+あることを確認できれば完全成功 (SessionStart ログの C-3 報告行がこの判定を出力する)。
+ディレクトリ実在だけを成功条件にしない — `/opt/cargo-target` はセッション中の
+Stop gate cold compile でも作成されるため暖機の証拠にならない (dogfood 1 で実測)。
 
 ## 関連
 
