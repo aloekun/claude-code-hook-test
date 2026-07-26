@@ -434,7 +434,17 @@ readonly DEFAULT_CACHE_CARGO_TARGET_DIR="${CLOUD_SETUP_CARGO_TARGET_DIR:-/opt/ca
 
 ensure_cache_cargo_target_dir() {
   if [ -z "${CARGO_TARGET_DIR:-}" ]; then
-    export CARGO_TARGET_DIR="${DEFAULT_CACHE_CARGO_TARGET_DIR}"
+    local target_dir="${DEFAULT_CACHE_CARGO_TARGET_DIR}"
+    # 相対パスは warmup_cargo の cd "${REPO_ROOT}" でリポ配下に解決され、一時 clone と
+    # ともに失われるため受け付けない — 既定値へフォールバックする (CodeRabbit #322)。
+    case "${target_dir}" in
+      /*) ;;
+      *)
+        warn "CLOUD_SETUP_CARGO_TARGET_DIR は絶対パスのみ有効です (指定値: ${target_dir})。既定値 /opt/cargo-target を使用します。"
+        target_dir="/opt/cargo-target"
+        ;;
+    esac
+    export CARGO_TARGET_DIR="${target_dir}"
     log "CARGO_TARGET_DIR 未設定のため既定値を適用: ${CARGO_TARGET_DIR} (セットアップスクリプトには Web UI の環境変数が注入されないため — C-4)"
   fi
 }

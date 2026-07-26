@@ -271,6 +271,12 @@ directory` が発生していたことがユーザー報告で判明。**cache-p
 未設定時は script 自身が既定値 `/opt/cargo-target` を export して暖機先をセッション側
 cargo と揃える。既定値は環境変数欄の値と論理結合 ([ADR-051](adr-051-cross-system-config-coupling.md))。
 環境変数欄の `CARGO_TARGET_DIR` は**セッション側のために引き続き必要** (削除しないこと)。
+`CLOUD_SETUP_CARGO_TARGET_DIR` で cache-phase の既定値を変更する場合、Web UI の
+環境変数欄では届かない (本節の学び 1) ため、setup snippet 内で
+`export CLOUD_SETUP_CARGO_TARGET_DIR=/絶対パス` してから script を起動すること。
+値は絶対パスのみ有効 (相対パスは cargo 実行時に REPO_ROOT 配下へ解決され一時 clone と
+ともに失われるため、script が警告して既定値へフォールバックする)。また、その値は
+セッション側 `CARGO_TARGET_DIR` と同じ絶対パスに揃えること。
 反映にはキャッシュ再構築のトリガー (セットアップスクリプト欄への無害な変更) が必要。
 
 ## 関連
