@@ -181,9 +181,9 @@ steps:
 
   # ---------------------------------------------------------------------------
   # Step 2: aggregate-weekly
-  #   3 つの whole-tree review reports を統合し、severity 順に並べた
-  #   findings JSON + markdown を生成する。
-  #   pass_previous_response: false で、Report Directory の各 *-review.md を
+  #   6 つの whole-tree レポート (5 review facet + file-length watchlist) を統合し、
+  #   severity 順に並べた findings JSON + markdown を生成する。
+  #   pass_previous_response: false で、Report Directory の各レポートファイルを
   #   直接読む。post-merge-feedback の aggregate-feedback と同パターン。
   # ---------------------------------------------------------------------------
   - name: aggregate-weekly
