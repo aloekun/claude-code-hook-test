@@ -32,6 +32,11 @@
             "type": "command",
             "command": "node scripts/cloud-hook-dispatch.mjs hooks-user-prompt-feedback-recovery",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-stop-tool-call-leak",
+            "timeout": 10
           }
         ]
       }
