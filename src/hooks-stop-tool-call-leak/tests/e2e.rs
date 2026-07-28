@@ -74,6 +74,20 @@ fn assert_leak_config_matches_test_assumptions(content: &str) {
          (consecutive_leaks_at_cap_fail_open / second_consecutive_leak_still_blocks) の \
          leak 件数も同時に更新すること"
     );
+    assert_eq!(
+        leak.get("prompt_recovery_enabled")
+            .and_then(toml::Value::as_bool),
+        Some(true),
+        "E2E は prompt_recovery_enabled = true を前提とする (ADR-061)。無効化するなら \
+         回収 E2E (recovery_mode_emits_additional_context 等) の期待値も同時に更新すること"
+    );
+    assert_eq!(
+        leak.get("recovery_system_message_enabled")
+            .and_then(toml::Value::as_bool),
+        Some(true),
+        "E2E は recovery_system_message_enabled = true を前提とする (ADR-059)。値を変えたら \
+         recovery_mode_includes_system_message の期待値も同時に更新すること"
+    );
 }
 
 fn assistant_text_entry(text: &str) -> Value {
@@ -82,6 +96,15 @@ fn assistant_text_entry(text: &str) -> Value {
 
 fn meta_user_entry(text: &str) -> Value {
     json!({"type": "user", "isMeta": true, "message": {"role": "user", "content": text}})
+}
+
+/// ハーネスの hard-fail 合成エントリ (ADR-061、828764ce line 274/286 実測構造)。
+fn synthetic_entry() -> Value {
+    json!({"type": "assistant", "isApiErrorMessage": true, "message": {
+        "model": "<synthetic>",
+        "content": [{"type": "text",
+            "text": "The model's tool call could not be parsed (retry also failed)."}]
+    }})
 }
 
 fn write_transcript(dir: &tempfile::TempDir, entries: &[Value]) -> PathBuf {
@@ -140,10 +163,14 @@ fn run_hook(stdin_payload: &str, override_env: Option<&str>) -> (String, String)
 }
 
 fn stdin_for(transcript_path: &std::path::Path) -> String {
+    stdin_for_event(transcript_path, "Stop")
+}
+
+fn stdin_for_event(transcript_path: &std::path::Path, event: &str) -> String {
     json!({
         "session_id": "e2e-test",
         "transcript_path": transcript_path.to_string_lossy(),
-        "hook_event_name": "Stop",
+        "hook_event_name": event,
         "stop_hook_active": false
     })
     .to_string()
@@ -223,4 +250,78 @@ fn malformed_stdin_fails_open() {
     let (stdout, stderr) = run_hook("not-a-json{", None);
     assert_eq!(stdout, "", "壊れた stdin では block しない");
     assert!(stderr.contains("fail-open"), "fail-open を stderr に明示: {}", stderr);
+}
+
+#[test]
+fn synthetic_after_leak_blocks_in_stop_mode() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = write_transcript(&dir, &[assistant_text_entry(LEAK_TEXT), synthetic_entry()]);
+    let (stdout, _stderr) = run_hook(&stdin_for(&path), None);
+    let decision: Value = serde_json::from_str(&stdout).expect("stdout は block JSON");
+    assert_eq!(
+        decision["decision"], "block",
+        "828764ce 副因: 合成エントリを跨いで直前の leak を block (ADR-061)"
+    );
+}
+
+#[test]
+fn recovery_mode_emits_additional_context() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = write_transcript(&dir, &[assistant_text_entry(LEAK_TEXT), synthetic_entry()]);
+    let (stdout, _stderr) = run_hook(&stdin_for_event(&path, "UserPromptSubmit"), None);
+    let out: Value = serde_json::from_str(&stdout).expect("stdout は回収 JSON");
+    assert_eq!(out["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit");
+    let ctx = out["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .expect("additionalContext は文字列");
+    assert!(ctx.contains("Bash"), "ツール名を明示: {}", ctx);
+    assert!(ctx.contains("再実行"), "再実行を促す: {}", ctx);
+    assert!(
+        out.get("decision").is_none(),
+        "UserPromptSubmit では decision:block を出さない"
+    );
+}
+
+#[test]
+fn recovery_mode_includes_system_message() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = write_transcript(&dir, &[assistant_text_entry(LEAK_TEXT), synthetic_entry()]);
+    let (stdout, _stderr) = run_hook(&stdin_for_event(&path, "UserPromptSubmit"), None);
+    let out: Value = serde_json::from_str(&stdout).expect("stdout は回収 JSON");
+    let msg = out["systemMessage"]
+        .as_str()
+        .expect("recovery_system_message_enabled=true なので systemMessage が付く");
+    assert!(!msg.contains('\n'), "systemMessage は 1 行 (ADR-059): {}", msg);
+}
+
+#[test]
+fn recovery_mode_clean_transcript_no_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = write_transcript(&dir, &[assistant_text_entry("作業が完了しました。")]);
+    let (stdout, _stderr) = run_hook(&stdin_for_event(&path, "UserPromptSubmit"), None);
+    assert_eq!(stdout, "", "hard-fail leak が無ければ回収しない");
+}
+
+#[test]
+fn recovery_mode_leak_without_synthetic_no_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = write_transcript(&dir, &[assistant_text_entry(LEAK_TEXT)]);
+    let (stdout, _stderr) = run_hook(&stdin_for_event(&path, "UserPromptSubmit"), None);
+    assert_eq!(
+        stdout, "",
+        "合成を伴わない末尾 leak は Stop hook の領分 (回収しない)"
+    );
+}
+
+#[test]
+fn recovery_mode_kill_switch_skips() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = write_transcript(&dir, &[assistant_text_entry(LEAK_TEXT), synthetic_entry()]);
+    let (stdout, stderr) = run_hook(&stdin_for_event(&path, "UserPromptSubmit"), Some("1"));
+    assert_eq!(stdout, "", "kill-switch 有効時は回収も skip");
+    assert!(
+        stderr.contains("STOP_TOOL_CALL_LEAK_OVERRIDE"),
+        "skip 理由を明示: {}",
+        stderr
+    );
 }
