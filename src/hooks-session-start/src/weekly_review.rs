@@ -21,6 +21,7 @@
 //! 一方 failed marker / pending JSON はレビュー成果物であり実行した workspace に属するため
 //! workspace ローカルのまま扱う。
 
+use lib_hook_output::SingleLineMessage;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -178,19 +179,20 @@ pub(crate) struct WeeklyReviewNudge {
     /// モデル可視。`hookSpecificOutput.additionalContext` に載る詳細 + 行動指示。
     pub(crate) additional_context: String,
     /// ユーザー可視の 1 行サマリー。`systemMessage` に載る。`system_message_enabled` が
-    /// 真かつ nudge 発火時のみ `Some`。
-    pub(crate) system_message: Option<String>,
+    /// 真かつ nudge 発火時のみ `Some`。単一行不変条件は `SingleLineMessage` が構造的に保証する。
+    pub(crate) system_message: Option<SingleLineMessage>,
 }
 
 /// ADR-059: weekly nudge のユーザー可視 1 行サマリー (systemMessage) を組み立てる。
 ///
 /// staleness も failed marker も無ければ `None` (additionalContext の発火条件と一致)。
-/// 表示ノイズを抑えるため 1 行 (`\n` を含まない) に限定し、詳細は additionalContext に寄せる。
+/// 表示ノイズを抑えるため 1 行に限定する (単一行不変条件は `SingleLineMessage` が構造的に保証し、
+/// `\n` / `\r` が混じっても構築時にサニタイズされる)。詳細は additionalContext に寄せる。
 fn build_weekly_review_system_message(
     state: &WeeklyLastRunState,
     threshold_days: u64,
     failed_marker_count: usize,
-) -> Option<String> {
+) -> Option<SingleLineMessage> {
     let staleness = weekly_review_staleness_hits(state, threshold_days);
     if !staleness && failed_marker_count == 0 {
         return None;
@@ -210,10 +212,10 @@ fn build_weekly_review_system_message(
             failed_marker_count
         ));
     }
-    Some(format!(
+    Some(SingleLineMessage::new(format!(
         "週次レビュー: {}。`/weekly-review` の実行を検討してください",
         parts.join("、")
-    ))
+    )))
 }
 
 /// ADR-031 Phase C: weekly review reminder の nudge を組み立てる。
@@ -425,7 +427,7 @@ mod tests {
             .system_message
             .expect("system_message_enabled = true なので systemMessage が付く");
         assert!(
-            msg.contains("18 日経過"),
+            msg.as_str().contains("18 日経過"),
             "systemMessage も main-root 由来の経過日数: {}",
             msg
         );
@@ -590,9 +592,8 @@ mod tests {
         let msg = nudge
             .system_message
             .expect("system_message_enabled = true なので systemMessage が付く");
-        assert!(msg.contains("週次レビュー"));
-        assert!(msg.contains("実行記録なし"));
-        assert!(!msg.contains('\n'), "systemMessage は 1 行に限定する");
+        assert!(msg.as_str().contains("週次レビュー"));
+        assert!(msg.as_str().contains("実行記録なし"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -618,7 +619,7 @@ mod tests {
         let nudge = compute_weekly_review_reminder_nudge(&root, &config, now)
             .expect("18 日経過で nudge が発火する");
         let msg = nudge.system_message.expect("systemMessage が付く");
-        assert!(msg.contains("18 日経過"));
+        assert!(msg.as_str().contains("18 日経過"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -673,8 +674,8 @@ mod tests {
     fn build_weekly_review_system_message_combines_staleness_and_marker() {
         let msg = build_weekly_review_system_message(&WeeklyLastRunState::Missing, 7, 2)
             .expect("staleness or marker があれば Some");
-        assert!(msg.contains("実行記録なし"));
-        assert!(msg.contains("失敗"));
-        assert!(msg.contains("2 件"));
+        assert!(msg.as_str().contains("実行記録なし"));
+        assert!(msg.as_str().contains("失敗"));
+        assert!(msg.as_str().contains("2 件"));
     }
 }

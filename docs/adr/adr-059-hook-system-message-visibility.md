@@ -135,6 +135,54 @@ whole-tree weekly review ([ADR-031](adr-031-weekly-review-pipeline.md)) をこ�
   明示指示 (defense-in-depth) が backstop として機能しているため、実装は revert しない (§ リスクの方針)。
 - 段階展開 (第 2 弾 nudge) の採否は、この描画調査 + telemetry の発火頻度を合わせて 2026-08-16 に判定する。
 
+## 追補 (2026-07-28): 単一行不変条件の型による構造保証 (`SingleLineMessage`)
+
+### 問題: 単一行不変条件が per-site 検証で再発した
+
+systemMessage は「1 行」チャネルだが、その不変条件は各 producer の `format!` + テストの
+`assert!(!msg.contains('\n'))` に依存していた。この per-site 検証は site ごとに漏れる:
+
+- PR #326 (ADR-061) で CodeRabbit が「`hooks-stop-tool-call-leak` の systemMessage 検証が
+  LF (`\n`) のみで CR (`\r`) を通過させる」と指摘。
+- 同型の assert が**無関係な別 hook** `hooks-session-start` (weekly_review) にも現存していた
+  (#326 の post-merge-feedback fact-check が偶発的に発見)。CodeRabbit は PR diff 内のファイル
+  しか見ないため、diff 外の同型ギャップは検出されなかった。
+
+決定論的リンターにも該当ルールは無く、検出は「CodeRabbit が偶然拾うか否か」という非決定論的な
+reactive 検出に留まっていた ([ADR-042](adr-042-rule-vs-mechanism-boundary.md) の「ルール」側の限界)。
+
+### 決定: 検証済み newtype で構造保証する (ルール→仕組み化)
+
+共有 crate [`lib-hook-output`](../../src/lib-hook-output/) に newtype `SingleLineMessage` を導入する:
+
+- **構築時サニタイズ**: `SingleLineMessage::new()` が `\r\n` / `\n` / `\r` を単一空白へ置換し、
+  内部値は必ず 1 行になる。将来 producer が動的値 (ファイルパス / エラー文字列等) を補間して
+  誤って改行を混ぜても、production は多行を emit しない (fail-open UX、本 ADR の思想と整合)。
+- **debug / release で挙動を割らない**: サニタイズは全ビルドで一律に行い、改行入力でも panic
+  しない。当初 `new()` に `debug_assert` を置いて dev 時に混入を surface する案を採ったが、
+  「サニタイズより先に panic して安全網が debug/test で機能しない (fail-open が build 間で割れる)」
+  ため除去した (PR #327 CodeRabbit 指摘)。混入を検出したい consumer が現れたら別途 `Result` を
+  返す構築子を足す (現状 YAGNI)。
+- **型による bypass 防止**: systemMessage フィールド/引数の型を `String` → `SingleLineMessage`
+  に変更 (`RecoveryOutput.system_message`、`build_session_start_json` の引数等)。生の `String` を
+  systemMessage に載せることがコンパイル時に不可能になり、「多行を emit する」バグを構造的に排除する。
+- **wire 形式は不変**: `#[serde(transparent)]` で JSON 上は素の文字列として出力される。
+- **リジェクトではなくサニタイズを採用**: systemMessage は UX nudge であり、改行混入時に構築を
+  失敗させるより「必ず 1 行に落とす」方が fail-open として正しい。
+
+### スコープ
+
+`SingleLineMessage` は **systemMessage チャネル専用**。複数行が正当な additionalContext /
+block reason、および PR タイトル/ボディ (cli-pr-monitor 管轄) には適用せず、それらの改行は保持する。
+移行した producer は 2 つ (weekly_review / recovery)。per-site の改行 assert は型保証に置換して
+削除し、単一行性の網羅テストは `lib-hook-output` に集約した。
+
+### 関連
+
+- [ADR-042](adr-042-rule-vs-mechanism-boundary.md) — ルール vs 仕組み化 (本追補は仕組み化側)
+- [ADR-044](adr-044-subprocess-utility-extraction-boundary.md) — 共有ユーティリティ抽出境界 (新 crate の根拠)
+- PR #326 (ADR-061) — 本追補の起点となった CodeRabbit 指摘
+
 ## 関連
 
 - [ADR-031: 週次プロジェクト全体レビューパイプライン](adr-031-weekly-review-pipeline.md)

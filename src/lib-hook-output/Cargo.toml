@@ -1,0 +1,16 @@
+[package]
+name = "lib-hook-output"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_hook_output"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

@@ -16,6 +16,7 @@
 //!   - 既に同じ session_id が書かれていれば何もしない (冪等)
 //!   - 異なる ID (新セッション or サブセッション) の場合は上書きする
 
+use lib_hook_output::SingleLineMessage;
 use serde::Deserialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -111,13 +112,13 @@ fn main() {
 /// serde_json で組み立てることで session_id 内の特殊文字を安全にエスケープする。
 fn emit_session_start_output(session_id: &str) {
     let mut context = format!("CLAUDE_CODE_SESSION_ID={}", session_id);
-    let mut system_message: Option<String> = None;
+    let mut system_message: Option<SingleLineMessage> = None;
     let now_unix = current_unix_secs();
     append_pr_monitor_catchup_nudge(&mut context, session_id, now_unix);
     if let Ok(cwd) = std::env::current_dir() {
         system_message = append_cwd_nudges(&mut context, session_id, &cwd, now_unix);
     }
-    let output = build_session_start_json(&context, system_message.as_deref());
+    let output = build_session_start_json(&context, system_message.as_ref());
     println!("{}", output);
 }
 
@@ -141,7 +142,7 @@ fn append_cwd_nudges(
     session_id: &str,
     cwd: &Path,
     now_unix: i64,
-) -> Option<String> {
+) -> Option<SingleLineMessage> {
     if let Some(reaper_nudge) = compute_reaper_nudge(cwd, now_unix) {
         context.push_str("\n\n");
         context.push_str(&reaper_nudge);
@@ -189,8 +190,12 @@ fn record_nudge_firing(id: &str, session_id: &str) {
 ///
 /// `context` は常に `hookSpecificOutput.additionalContext` (モデル可視) に載せる。
 /// `system_message` が `Some` のときのみトップレベル `systemMessage` (ユーザー可視) を付与し、
-/// `None` のときは従来どおり `systemMessage` を省いた JSON を返す。
-fn build_session_start_json(context: &str, system_message: Option<&str>) -> serde_json::Value {
+/// `None` のときは従来どおり `systemMessage` を省いた JSON を返す。単一行不変条件は
+/// `SingleLineMessage` が保証する (ADR-059)。
+fn build_session_start_json(
+    context: &str,
+    system_message: Option<&SingleLineMessage>,
+) -> serde_json::Value {
     let mut output = serde_json::json!({
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
@@ -198,7 +203,7 @@ fn build_session_start_json(context: &str, system_message: Option<&str>) -> serd
         }
     });
     if let Some(message) = system_message {
-        output["systemMessage"] = serde_json::Value::String(message.to_string());
+        output["systemMessage"] = serde_json::Value::String(message.as_str().to_string());
     }
     output
 }
@@ -325,7 +330,8 @@ mod tests {
 
     #[test]
     fn build_session_start_json_includes_system_message_when_some() {
-        let output = build_session_start_json("ctx", Some("週次レビュー: 実行記録なし"));
+        let msg = SingleLineMessage::new("週次レビュー: 実行記録なし");
+        let output = build_session_start_json("ctx", Some(&msg));
         assert_eq!(output["systemMessage"], "週次レビュー: 実行記録なし");
         assert_eq!(output["hookSpecificOutput"]["additionalContext"], "ctx");
         assert_eq!(

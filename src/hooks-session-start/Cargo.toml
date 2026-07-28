@@ -10,6 +10,7 @@ toml = "0.8"
 lib-subprocess = { path = "../lib-subprocess" }
 lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-telemetry = { path = "../lib-telemetry" }
+lib-hook-output = { path = "../lib-hook-output" }
 
 [dev-dependencies]
 proptest = "1"

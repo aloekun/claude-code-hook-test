@@ -438,6 +438,7 @@ dependencies = [
 name = "hooks-session-start"
 version = "0.1.0"
 dependencies = [
+ "lib-hook-output",
  "lib-jj-helpers",
  "lib-subprocess",
  "lib-telemetry",
@@ -472,6 +473,7 @@ dependencies = [
 name = "hooks-stop-tool-call-leak"
 version = "0.1.0"
 dependencies = [
+ "lib-hook-output",
  "lib-subprocess",
  "lib-telemetry",
  "serde",
@@ -704,6 +706,14 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 [[package]]
 name = "lib-docs-policy"
 version = "0.1.0"
+
+[[package]]
+name = "lib-hook-output"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "lib-jj-helpers"
