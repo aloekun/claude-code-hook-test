@@ -1,9 +1,15 @@
-//! Stop tool call leak 検知フック (ADR-053)
+//! tool call leak 検知フック (ADR-053 / ADR-061)
 //!
 //! Claude Code がツール呼び出しを正規の tool_use block ではなくテキスト領域に
 //! `<invoke name="...">...</invoke>` の生 XML として出力し、実行されないまま
-//! turn が終了する不具合を Stop 時に検知し、`decision: block` で正規の
-//! ツール呼び出しによる再実行を促す。
+//! turn が終了する不具合を検知する。単一 exe が `hook_event_name` で 2 経路に分岐する:
+//!
+//! - **Stop** (既定、`hook_event_name` 欠落時も含む): 末尾 leak を検知し `decision: block`
+//!   で正規のツール呼び出しによる再実行を促す (ADR-053)。
+//! - **UserPromptSubmit** (ADR-061 主因): ハーネスの内部リトライも失敗して合成エントリ
+//!   (`isApiErrorMessage:true` / `model:"<synthetic>"`) で turn がエラー終了する
+//!   hard-fail 経路では Stop hook が発火しない。直後の UserPromptSubmit で取り逃がした
+//!   leak を検知し、非ブロッキングな additionalContext (+任意 systemMessage) で再実行を促す。
 //!
 //! 設計判断 (ADR-053):
 //! - **`stop_hook_active` skip は不採用** (ADR-004 からの意図的逸脱)。
@@ -22,9 +28,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 mod detect;
+mod recovery;
 mod transcript;
 
-use transcript::{parse_tail_entries, scan_tail, TailScan};
+use transcript::{parse_tail_entries, scan_recovery, scan_tail, TailScan};
 
 /// 緊急バイパス用 env var (kill-switch)。truthy 値で検査を skip する。
 const OVERRIDE_ENV_VAR: &str = "STOP_TOOL_CALL_LEAK_OVERRIDE";
@@ -36,10 +43,11 @@ const DEFAULT_MAX_CONSECUTIVE_BLOCKS: u32 = 3;
 /// (ADR-053 §調査結果)、末尾のみで判定できる。
 const TAIL_LINES: usize = 200;
 
-/// Stop hook 入力 (必要なフィールドのみ)
+/// hook 入力 (必要なフィールドのみ)。`hook_event_name` で Stop / UserPromptSubmit を分岐する。
 #[derive(Deserialize)]
 struct HookInput {
     transcript_path: Option<String>,
+    hook_event_name: Option<String>,
 }
 
 /// block 判定の出力
@@ -55,11 +63,17 @@ struct ConfigFile {
     stop_tool_call_leak: Option<LeakConfig>,
 }
 
-/// `[stop_tool_call_leak]` section (ADR-039: code default は disabled)
+/// `[stop_tool_call_leak]` section (ADR-039: 各機能 code default は disabled)
 #[derive(Deserialize, Default)]
 struct LeakConfig {
+    /// Stop hook の leak block を有効化する。
     enabled: Option<bool>,
+    /// 連続 block 上限 (到達で fail-open)。
     max_consecutive_blocks: Option<u32>,
+    /// UserPromptSubmit の hard-fail leak 回収層を有効化する (ADR-061 主因)。
+    prompt_recovery_enabled: Option<bool>,
+    /// 回収時に systemMessage (ユーザー可視 1 行、ADR-059) を出すか。
+    recovery_system_message_enabled: Option<bool>,
 }
 
 fn main() {
@@ -67,16 +81,31 @@ fn main() {
         return;
     }
     let config = load_config().stop_tool_call_leak.unwrap_or_default();
+    let Some(input) = read_hook_input_from_stdin() else {
+        return;
+    };
+    let Some(transcript_path) = input.transcript_path else {
+        eprintln!("[stop-tool-call-leak] transcript_path 欠落 (fail-open)");
+        return;
+    };
+    let path = Path::new(&transcript_path);
+    if input.hook_event_name.as_deref() == Some("UserPromptSubmit") {
+        if !config.prompt_recovery_enabled.unwrap_or(false) {
+            return;
+        }
+        run_recovery(
+            path,
+            config.recovery_system_message_enabled.unwrap_or(false),
+        );
+        return;
+    }
     if !config.enabled.unwrap_or(false) {
         return;
     }
-    let Some(transcript_path) = read_transcript_path_from_stdin() else {
-        return;
-    };
     let max_blocks = config
         .max_consecutive_blocks
         .unwrap_or(DEFAULT_MAX_CONSECUTIVE_BLOCKS);
-    run_check(Path::new(&transcript_path), max_blocks);
+    run_check(path, max_blocks);
 }
 
 /// kill-switch env が設定されていれば skip (stderr に明示)
@@ -110,21 +139,16 @@ fn load_config() -> ConfigFile {
     toml::from_str(&content).unwrap_or_default()
 }
 
-/// stdin の Stop hook 入力 JSON から transcript_path を取り出す。
-/// 読み取り / parse 失敗、field 欠落は fail-open (stderr 警告 + None)。
-fn read_transcript_path_from_stdin() -> Option<String> {
+/// stdin の hook 入力 JSON をパースする。
+/// 読み取り / parse 失敗は fail-open (stderr 警告 + None)。
+fn read_hook_input_from_stdin() -> Option<HookInput> {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
         eprintln!("[stop-tool-call-leak] stdin 読み込み失敗 (fail-open): {}", e);
         return None;
     }
     match serde_json::from_str::<HookInput>(&input) {
-        Ok(hook_input) => {
-            if hook_input.transcript_path.is_none() {
-                eprintln!("[stop-tool-call-leak] transcript_path 欠落 (fail-open)");
-            }
-            hook_input.transcript_path
-        }
+        Ok(hook_input) => Some(hook_input),
         Err(e) => {
             eprintln!("[stop-tool-call-leak] 入力 JSON parse 失敗 (fail-open): {}", e);
             None
@@ -158,6 +182,33 @@ fn run_check(transcript_path: &Path, max_blocks: u32) {
         return;
     }
     emit_block(&build_reason(&scan, max_blocks));
+}
+
+/// UserPromptSubmit 回収層 (ADR-061 主因)。hard-fail 経路で Stop hook が発火せず
+/// 取り逃がした leak を検知し、additionalContext (+任意 systemMessage) で再実行を促す。
+/// 出力は非ブロッキング (decision:block は出さない)。読み取り失敗は fail-open。
+fn run_recovery(transcript_path: &Path, emit_system_message: bool) {
+    let content = match std::fs::read_to_string(transcript_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(
+                "[stop-tool-call-leak] transcript 読み込み失敗 (fail-open): {}: {}",
+                transcript_path.display(),
+                e
+            );
+            return;
+        }
+    };
+    let entries = parse_tail_entries(&content, TAIL_LINES);
+    let scan = scan_recovery(&entries);
+    if !scan.should_recover {
+        return;
+    }
+    record_recovery_firing();
+    match recovery::render(scan.last_tool_name.as_deref(), emit_system_message) {
+        Some(json) => println!("{}", json),
+        None => eprintln!("[stop-tool-call-leak] recovery 出力の JSON serialize 失敗 (fail-open)"),
+    }
 }
 
 /// block reason を組み立てる。ツール名と検知回数を明示して再実行を促す
@@ -202,6 +253,18 @@ fn record_block_firing() {
     });
 }
 
+/// UserPromptSubmit 回収層が nudge を発火したことを telemetry に記録する (ADR-061、fail-open)。
+/// 非ブロッキングのため `Decision::Warn`、id は Stop block と区別する suffix 付き。
+fn record_recovery_firing() {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-stop-tool-call-leak",
+        kind: lib_telemetry::FiringKind::Hook,
+        id: "hooks-stop-tool-call-leak/prompt-recovery",
+        decision: lib_telemetry::Decision::Warn,
+        session_id: None,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +305,33 @@ max_consecutive_blocks = 5
     }
 
     #[test]
+    fn config_recovery_keys_default_to_disabled() {
+        let leak = LeakConfig::default();
+        assert!(
+            !leak.prompt_recovery_enabled.unwrap_or(false),
+            "prompt_recovery_enabled は code default OFF (ADR-039)"
+        );
+        assert!(
+            !leak.recovery_system_message_enabled.unwrap_or(false),
+            "recovery_system_message_enabled は code default OFF (ADR-059)"
+        );
+    }
+
+    #[test]
+    fn config_parses_recovery_keys() {
+        let toml_str = r#"
+[stop_tool_call_leak]
+enabled = true
+prompt_recovery_enabled = true
+recovery_system_message_enabled = true
+"#;
+        let config: ConfigFile = toml::from_str(toml_str).unwrap();
+        let leak = config.stop_tool_call_leak.unwrap();
+        assert_eq!(leak.prompt_recovery_enabled, Some(true));
+        assert_eq!(leak.recovery_system_message_enabled, Some(true));
+    }
+
+    #[test]
     fn hook_input_parses_with_extra_fields() {
         let json = r#"{
             "session_id": "abc",
@@ -251,6 +341,26 @@ max_consecutive_blocks = 5
         }"#;
         let input: HookInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.transcript_path.as_deref(), Some("C:\\tmp\\t.jsonl"));
+        assert_eq!(input.hook_event_name.as_deref(), Some("Stop"));
+    }
+
+    #[test]
+    fn hook_input_parses_user_prompt_submit_event() {
+        let json = r#"{
+            "transcript_path": "C:\\tmp\\t.jsonl",
+            "hook_event_name": "UserPromptSubmit"
+        }"#;
+        let input: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.hook_event_name.as_deref(), Some("UserPromptSubmit"));
+    }
+
+    #[test]
+    fn hook_input_hook_event_name_optional() {
+        let input: HookInput = serde_json::from_str(r#"{"transcript_path": "x"}"#).unwrap();
+        assert_eq!(
+            input.hook_event_name, None,
+            "hook_event_name 欠落時は None (Stop 扱いで後方互換)"
+        );
     }
 
     #[test]

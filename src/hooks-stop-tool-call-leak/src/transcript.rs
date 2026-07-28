@@ -135,6 +135,52 @@ pub(crate) fn scan_tail(entries: &[Value]) -> TailScan {
     }
 }
 
+/// UserPromptSubmit 回収層 (ADR-061 主因) の走査結果。
+pub(crate) struct RecoveryScan {
+    /// 「最後の assistant 活動が hard-fail leak」= 回収 nudge を発火すべきか。
+    pub(crate) should_recover: bool,
+    /// 回収対象 leak のツール名 (additionalContext での提示用)。
+    pub(crate) last_tool_name: Option<String>,
+}
+
+/// 末尾から「最後の assistant 活動が hard-fail leak」かを判定する (ADR-061 主因)。
+///
+/// hard-fail 経路 (合成エントリで turn がエラー終了) では Stop hook が発火しないため、
+/// 直後の UserPromptSubmit で回収する。判定規則 (末尾から `MAX_SCAN_ENTRIES` 件):
+/// - assistant 以外 (user / system / attachment / 現 prompt 等) はすべてスキップし、
+///   末尾から最初に出会う実 assistant を探す (現 prompt が transcript に載っていても頑健)
+/// - その実 assistant の手前に合成エントリが 1 つ以上あり、かつ実 assistant が leak なら発火
+/// - 合成エントリが無い (最後の assistant 活動が通常応答、または合成を伴わない leak) 場合は
+///   発火しない。leak が最後で合成が無いケースは Stop hook の領分であり、UserPromptSubmit
+///   での再誘導ループを避けるための意図的スコープ限定 (ADR-061 § 設計決定 3)
+pub(crate) fn scan_recovery(entries: &[Value]) -> RecoveryScan {
+    let mut saw_synthetic = false;
+    for entry in entries.iter().rev().take(MAX_SCAN_ENTRIES) {
+        if !is_main_assistant(entry) {
+            continue;
+        }
+        if is_synthetic(entry) {
+            saw_synthetic = true;
+            continue;
+        }
+        if !saw_synthetic {
+            break;
+        }
+        let blocks = assistant_text_blocks(entry);
+        if blocks.iter().any(|text| text_block_has_leak(text)) {
+            return RecoveryScan {
+                should_recover: true,
+                last_tool_name: blocks.iter().find_map(|text| extract_tool_name(text)),
+            };
+        }
+        break;
+    }
+    RecoveryScan {
+        should_recover: false,
+        last_tool_name: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +381,76 @@ mod tests {
             1,
             "828764ce 2 回目 (leak→合成→実 user→isMeta→leak→合成): 実 user がチェーン起点をリセット"
         );
+    }
+
+    fn turn_end_entry() -> Value {
+        json!({"type": "system", "subtype": "turn_duration"})
+    }
+
+    #[test]
+    fn recovery_fires_on_synthetic_after_leak() {
+        let entries = vec![assistant_text_entry(LEAK_TEXT), synthetic_entry()];
+        let scan = scan_recovery(&entries);
+        assert!(
+            scan.should_recover,
+            "leak→合成 で turn がエラー終了 (Stop 不発火) は回収対象"
+        );
+        assert_eq!(scan.last_tool_name.as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn recovery_skips_synthetic_after_normal_assistant() {
+        let entries = vec![assistant_text_entry("完了しました。"), synthetic_entry()];
+        assert!(
+            !scan_recovery(&entries).should_recover,
+            "合成の直前が leak でなければ (overloaded 等) 回収しない"
+        );
+    }
+
+    #[test]
+    fn recovery_skips_normal_last_assistant() {
+        let entries = vec![assistant_text_entry("作業が完了しました。")];
+        assert!(!scan_recovery(&entries).should_recover);
+    }
+
+    #[test]
+    fn recovery_skips_leak_without_synthetic() {
+        let entries = vec![assistant_text_entry(LEAK_TEXT)];
+        assert!(
+            !scan_recovery(&entries).should_recover,
+            "合成を伴わない末尾 leak は Stop hook の領分 (再誘導ループ回避)"
+        );
+    }
+
+    #[test]
+    fn recovery_fires_across_current_prompt_user_entry() {
+        let entries = vec![
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+            turn_end_entry(),
+            real_user_entry("不具合が続いています"),
+        ];
+        assert!(
+            scan_recovery(&entries).should_recover,
+            "UserPromptSubmit 時点で現 prompt が transcript 末尾に載っていても回収する"
+        );
+    }
+
+    #[test]
+    fn recovery_passes_consecutive_synthetic_entries() {
+        let entries = vec![
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+            synthetic_entry(),
+        ];
+        assert!(
+            scan_recovery(&entries).should_recover,
+            "連続する合成エントリを通過して直前の leak を検知する"
+        );
+    }
+
+    #[test]
+    fn recovery_skips_empty_entries() {
+        assert!(!scan_recovery(&[]).should_recover);
     }
 }
