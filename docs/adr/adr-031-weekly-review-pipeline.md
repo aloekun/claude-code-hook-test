@@ -126,7 +126,7 @@ must-run でないことが「skill を主動線に置ける」設計上の余�
 | 層 | 機構 | 責務 | 失敗時の挙動 |
 |---|------|-----|------------|
 | **L1 Reminder** | `hooks-session-start` (Rust) 拡張 | `.claude/weekly-review-last-run.json` の `last_run_at` を見て、7 日以上経過していれば `additionalContext` で `/weekly-review` を促す。`last_run_at` が無い旧/破損データは stale 扱い (発火) にして次回更新で移行 (mtime にはフォールバックしない) | reminder 不在 (致命的でない、ユーザーが気付けば実行) |
-| **L2 Review** (AI parallel) | takt workflow `weekly-review` | 3 facets (simplicity / security / architecture) を **whole-tree** で並列レビュー、aggregate facet で findings JSON + markdown 統合 | `.claude/weekly-reviews/<date>.md.failed` marker 残存 → 次セッションの L1 hook が recovery context を出力 |
+| **L2 Review** (AI parallel) | takt workflow `weekly-review` | 5 facets (simplicity / security / architecture / todo / jj-robustness) + 決定論的 file-size scan を **whole-tree** で並列レビュー、aggregate step で findings JSON + markdown 統合 | `.claude/weekly-reviews/<date>.md.failed` marker 残存 → 次セッションの L1 hook が recovery context を出力 |
 | **L3 Approval & Apply** | skill `/weekly-review` | takt 起動 → pending JSON 読み込み → AskUserQuestion で採否一括選択 → 採用分のみ docs/todo.md に追記 | best-effort (ユーザーが skill を再起動すれば pending JSON から再開可能) |
 
 ### 全体フロー
@@ -144,10 +144,13 @@ skill /weekly-review (Phase 1-4)
   ├─ Phase 1: 起動条件チェック (--dry-run / --resume の判定)
   ├─ Phase 2: takt run weekly-review.yaml を同期実行
   │     ├─ parallel:
-  │     │   ├─ review-simplicity-whole  (whole-tree, ADR-027 制約解除)
-  │     │   ├─ review-security-whole    (whole-tree, security knowledge)
-  │     │   └─ review-architecture-whole (新 persona, ADR 整合性)
-  │     └─ aggregate-weekly  (3 reports → findings JSON + markdown)
+  │     │   ├─ review-simplicity-whole    (whole-tree, ADR-027 制約解除)
+  │     │   ├─ review-security-whole      (whole-tree, security knowledge)
+  │     │   ├─ review-architecture-whole  (新 persona, ADR 整合性)
+  │     │   ├─ review-todo-whole          (docs/todo*.md corpus 棚卸し)
+  │     │   ├─ review-jj-robustness-whole (jj workspace fragility 検出)
+  │     │   └─ file-length-watchlist      (決定論的 file-size scan)
+  │     └─ aggregate-weekly  (6 reports → findings JSON + markdown)
   │     成功: .claude/weekly-reviews/<YYYY-MM-DD>.md + .claude/weekly-review-pending.json
   │     失敗: .claude/weekly-reviews/<YYYY-MM-DD>.md.failed marker
   ├─ Phase 3: pending JSON を読み込み AskUserQuestion で採否一括選択
@@ -157,18 +160,21 @@ skill /weekly-review (Phase 1-4)
               + .claude/weekly-review-pending.json をクリア
 ```
 
-### takt workflow 構成 (3 review facets + 1 aggregate)
+### takt workflow 構成 (5 review facets + 1 file-size scan + 1 aggregate)
 
-[ADR-020](adr-020-takt-facets-sharing.md) の facets 共通化原則に倣う。本 workflow は 4 facet を 2 step で chain する:
+[ADR-020](adr-020-takt-facets-sharing.md) の facets 共通化原則に倣う。本 workflow は 5 review facet + 決定論的 file-size scan + `aggregate-weekly` を 2 step (parallel → aggregate) で chain する:
 
 | facet | 役割 | 派生元 |
 |---|---|---|
 | `review-simplicity-whole` | whole-tree の simplicity 観点 (重複 / 累積複雑度 / dead code / overspec'd 抽象化) | `review-simplicity.md` から派生 (※後述「アンチパターン」で共通化不可) |
 | `review-security-whole` | whole-tree の security 観点 (機密漏出パターン / 入力検証の偏在 / 暗号アルゴリズム) | `review-security.md` から派生 |
 | `review-architecture-whole` | ADR 整合性 / モジュール境界 / [ADR-012](adr-012-src-naming-convention.md) 命名規約 / 循環依存 / レイヤ侵犯 | 新規 |
-| `aggregate-weekly` | 3 reports → findings JSON + markdown (採否単位の構造化) | `aggregate-feedback.md` を参考 |
+| `review-todo-whole` | `docs/todo*.md` 全 corpus の dead pattern / cross-file 重複 / preamble routing drift の週次棚卸し | ADR-031 拡張 (順位154) |
+| `review-jj-robustness-whole` | 非 colocated / 並列 jj workspace ([ADR-045](adr-045-jj-workspace-parallel-sessions.md)) の mtime staleness / `gh --repo` 欠落 / colocated `.git` 前提 等の環境 fragility 検出 | ADR-031 拡張 (順位247) |
+| `file-length-watchlist` | 決定論的 file-size scan (`.rs` 800 行 + `todo*.md` 50KB)。LLM 判断ゼロの機械観測 | PR-W0 拡張 (順位154) |
+| `aggregate-weekly` | 6 reports → findings JSON + markdown (採否単位の構造化) | `aggregate-feedback.md` を参考 |
 
-**並列構成**: 3 review facets を `parallel:` block で並列実行し、`aggregate-weekly` で統合する。これは [post-merge-feedback.yaml](../../.takt/workflows/post-merge-feedback.yaml) の構造を流用する (analyze 3 並列 → aggregate)。fix loop は不要 (修正対象がコードではなく findings レポート生成)。
+**並列構成**: 5 review facets + 決定論的 file-size scan (計 6) を `parallel:` block で並列実行し、`aggregate-weekly` で統合する。これは [post-merge-feedback.yaml](../../.takt/workflows/post-merge-feedback.yaml) の構造を流用する (analyze 並列 → aggregate)。fix loop は不要 (修正対象がコードではなく findings レポート生成)。
 
 ### 入力源
 
