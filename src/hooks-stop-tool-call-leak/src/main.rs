@@ -187,6 +187,10 @@ fn run_check(transcript_path: &Path, max_blocks: u32) {
 /// UserPromptSubmit 回収層 (ADR-061 主因)。hard-fail 経路で Stop hook が発火せず
 /// 取り逃がした leak を検知し、additionalContext (+任意 systemMessage) で再実行を促す。
 /// 出力は非ブロッキング (decision:block は出さない)。読み取り失敗は fail-open。
+///
+/// `run_check` の `max_consecutive_blocks` に相当する連続発火上限は意図的に持たない。
+/// 出力が非ブロッキングで retry ループを自ら誘発しないため上限が不要であり、発火頻度は
+/// telemetry (`hooks-stop-tool-call-leak/prompt-recovery`) で dogfood 観測する (ADR-061)。
 fn run_recovery(transcript_path: &Path, emit_system_message: bool) {
     let content = match std::fs::read_to_string(transcript_path) {
         Ok(c) => c,

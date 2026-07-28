@@ -1,7 +1,11 @@
 //! transcript JSONL の tail 解析。
 //!
-//! Stop hook 入力の `transcript_path` が指すセッション JSONL を末尾から走査し、
-//! 「最後の main-session assistant エントリが leak か」と「連続 leak 回数」を求める。
+//! セッション JSONL を末尾から走査し、2 つの hook 経路にそれぞれの判定を提供する:
+//! - Stop (`scan_tail`、ADR-053): 「最後の main-session assistant エントリが leak か」と
+//!   「連続 leak 回数」を求める。
+//! - UserPromptSubmit (`scan_recovery`、ADR-061): hard-fail 経路 (合成エントリで turn
+//!   エラー終了) で Stop が発火せず取り逃がした leak を「最後の assistant 活動が hard-fail
+//!   leak か」で検知する。
 //!
 //! 連続 leak カウントの設計 (ADR-053 §ループ防止):
 //! - leak 検知で block すると Claude が再試行し、再 leak し得る (実データで確認済み)。

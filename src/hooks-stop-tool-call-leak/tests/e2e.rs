@@ -120,12 +120,14 @@ fn write_transcript(dir: &tempfile::TempDir, entries: &[Value]) -> PathBuf {
 
 /// 子へ stdin payload を書く。**子が読まずに終了済みでも失敗させない**。
 ///
-/// `main` は kill-switch (`STOP_TOOL_CALL_LEAK_OVERRIDE`) と `enabled = false` の
-/// 2 経路で **stdin を読む前に return** する。この場合パイプの読み手が消えるため、
-/// 親の `write_all` は Unix で `BrokenPipe` (EPIPE) になる。子の exit と親の write の
-/// どちらが先かは競合で、Windows は小さな payload がバッファに収まり成功しがちなのに対し
-/// Linux では実際に失敗する (2026-07-20、ubuntu-22.04 CI で `kill_switch_env_skips_check`
-/// が Broken pipe で落ちた。WSL では通っていたため CI matrix が初めて捕捉した)。
+/// `main` は kill-switch (`STOP_TOOL_CALL_LEAK_OVERRIDE`) の 1 経路で **stdin を読む前に
+/// return** する (ADR-061 で dual-mode 化した際、`enabled` / `prompt_recovery_enabled` の
+/// 判定は `hook_event_name` を得るまで確定しないため stdin 読み取り後へ移動した。stdin 前に
+/// return するのは kill-switch のみ)。この場合パイプの読み手が消えるため、親の `write_all` は
+/// Unix で `BrokenPipe` (EPIPE) になる。子の exit と親の write のどちらが先かは競合で、
+/// Windows は小さな payload がバッファに収まり成功しがちなのに対し Linux では実際に失敗する
+/// (2026-07-20、ubuntu-22.04 CI で `kill_switch_env_skips_check` が Broken pipe で落ちた。
+/// WSL では通っていたため CI matrix が初めて捕捉した)。
 ///
 /// これらの test の主題は「skip されること」であって「stdin が消費されること」ではない。
 /// よって `BrokenPipe` のみ正常として飲み込み、他の I/O エラーは従来どおり panic させる。
