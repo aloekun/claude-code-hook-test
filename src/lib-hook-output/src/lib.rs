@@ -20,24 +20,21 @@ use serde::Serialize;
 /// (systemMessage の wire 形式は従来どおり string)。
 ///
 /// サニタイズは「本来 1 行であるべきチャネルへ、将来 producer が動的値 (ファイルパス /
-/// エラー文字列等) を補間して誤って改行を混ぜた」場合の安全網。production は多行を emit せず、
-/// 開発時 (debug) は [`SingleLineMessage::new`] の `debug_assert` が producer の混入を surface する。
+/// エラー文字列等) を補間して誤って改行を混ぜた」場合の安全網。debug / release いずれの
+/// ビルドでも一律にサニタイズし (fail-open)、多行を emit しない (build 間で挙動が割れない)。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct SingleLineMessage(String);
 
 impl SingleLineMessage {
-    /// 任意文字列から構築する。改行類はサニタイズされ、結果は必ず 1 行になる。
+    /// 任意文字列から構築する。改行類 (`\r\n` / `\n` / `\r`) はサニタイズされ、結果は必ず
+    /// 1 行になる。
     ///
-    /// debug ビルドでは入力に改行が含まれると `debug_assert` で fail する (producer 側で
-    /// 1 行に保つべきという契約の明示)。release ビルドではサニタイズで fail-open に救済する。
+    /// debug / release いずれのビルドでも挙動は一律 (fail-open): 改行を含む入力でも panic せず
+    /// 1 行へ落とす。`debug_assert` でサニタイズ前に panic させると安全網が debug/test で機能せず
+    /// build 間で挙動が割れるため、意図的に assert を置かない (PR #327 CodeRabbit 指摘)。
     pub fn new(raw: impl Into<String>) -> Self {
-        let raw = raw.into();
-        debug_assert!(
-            !raw.contains('\n') && !raw.contains('\r'),
-            "SingleLineMessage: producer は 1 行を保つべき (改行はサニタイズで救済): {raw:?}"
-        );
-        Self(sanitize_single_line(&raw))
+        Self(sanitize_single_line(&raw.into()))
     }
 
     /// 内部の 1 行文字列を借用で返す。
@@ -108,6 +105,16 @@ mod tests {
     fn new_keeps_clean_string_unchanged() {
         let m = SingleLineMessage::new("週次レビュー: 実行記録なし");
         assert_eq!(m.as_str(), "週次レビュー: 実行記録なし");
+    }
+
+    #[test]
+    fn new_sanitizes_newlines_without_panicking() {
+        let m = SingleLineMessage::new("a\nb\r\nc\rd");
+        assert_eq!(
+            m.as_str(),
+            "a b c d",
+            "assert を持たないため debug/test でも panic せず一律サニタイズ (fail-open、全ビルド共通)"
+        );
     }
 
     #[test]
