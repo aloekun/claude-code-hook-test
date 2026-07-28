@@ -167,8 +167,27 @@ dogfood 計測項目: block 発火数、fail-open (上限到達) 数、誤検知
 - 本 hook の block reason 自体が `<invoke` への言及を含むが、reason は
   `isMeta: true` の user エントリとして記録されるため検知対象にならない
 
+## Dogfood 観測 (2026-07-28) — hard-fail 経路での取り逃がし 2 件
+
+セッション `828764ce` (improve workspace、CLI、v2.1.206) で leak が 2 回発生したが
+(2026-07-27 / 07-28)、いずれも本 Stop hook が block しなかった。原因は 2 層:
+
+1. **主因**: ツール呼び出しの内部リトライも失敗した turn は、ハーネスが合成エントリ
+   (`isApiErrorMessage: true` / `model: "<synthetic>"`、"...could not be parsed
+   (retry also failed).") を記録して turn をエラー終了させ、**この経路では Stop hooks が
+   発火しない** (正常終了 turn にある `stop_hook_summary` が leak turn にだけ無い)。
+   Stop hook では構造的に届かない。
+2. **副因**: `scan_tail` が合成エントリ (`type: "assistant"` だが leak 無し) を「非 leak の
+   最終 assistant」としてチェーンを打ち切り、直前の実 leak を取り逃がす。
+
+対応は [ADR-061](adr-061-tool-call-leak-hardfail-recovery.md) で行う (UserPromptSubmit
+回収層 + `scan_tail` の合成エントリ耐性)。本 ADR の bounded lifetime (撤去判定) は
+ADR-061 と連動する。約 150 セッションの corpus 調査で hard-fail 合成エントリは本 incident の
+2 件のみであり、頻度は稀だが同一コマンド文脈で 2/2 再現している。
+
 ## 関連 ADR
 
+- [ADR-061](adr-061-tool-call-leak-hardfail-recovery.md) — hard-fail 経路対応 (本 ADR の拡張)
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用標準パターン
 - [ADR-004](adr-004-stop-hook-quality-gate.md) — Stop 品質ゲート (ループ防止方式の逸脱元)
 - [ADR-043](adr-043-security-gates-fail-closed.md) — fail-closed 原則 (エラー処理方式の逸脱元)
