@@ -61,6 +61,7 @@
 - [ADR-058: fix 後の決定論再ゲート (post-takt re-gate) — pre-push 経路への機械的 backstop 拡張](docs/adr/adr-058-post-takt-regate.md) *(試験運用)*
 - [ADR-059: hook 通知の可視化チャネル分離 (systemMessage = ユーザー向け / additionalContext = モデル向け)](docs/adr/adr-059-hook-system-message-visibility.md) *(試験運用)*
 - [ADR-060: Cloud ハーネス有効化 — tracked dispatcher 登録 + SessionStart 実体確保の 2 層分離](docs/adr/adr-060-cloud-harness-sessionstart-dispatcher.md) *(試験運用)*
+- [ADR-061: tool call leak の hard-fail 経路対応 — Stop 不発火の回収層 + scan_tail 合成エントリ耐性](docs/adr/adr-061-tool-call-leak-hardfail-recovery.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

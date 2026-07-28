@@ -1,7 +1,11 @@
 //! transcript JSONL の tail 解析。
 //!
-//! Stop hook 入力の `transcript_path` が指すセッション JSONL を末尾から走査し、
-//! 「最後の main-session assistant エントリが leak か」と「連続 leak 回数」を求める。
+//! セッション JSONL を末尾から走査し、2 つの hook 経路にそれぞれの判定を提供する:
+//! - Stop (`scan_tail`、ADR-053): 「最後の main-session assistant エントリが leak か」と
+//!   「連続 leak 回数」を求める。
+//! - UserPromptSubmit (`scan_recovery`、ADR-061): hard-fail 経路 (合成エントリで turn
+//!   エラー終了) で Stop が発火せず取り逃がした leak を「最後の assistant 活動が hard-fail
+//!   leak か」で検知する。
 //!
 //! 連続 leak カウントの設計 (ADR-053 §ループ防止):
 //! - leak 検知で block すると Claude が再試行し、再 leak し得る (実データで確認済み)。
@@ -39,6 +43,23 @@ pub(crate) fn parse_tail_entries(content: &str, tail_lines: usize) -> Vec<Value>
 fn is_main_assistant(entry: &Value) -> bool {
     entry.get("type").and_then(Value::as_str) == Some("assistant")
         && entry.get("isSidechain").and_then(Value::as_bool) != Some(true)
+}
+
+/// ハーネスが API リトライ失敗時に記録する合成 assistant エントリか (ADR-061)。
+///
+/// v2.1.206 実測: ツール呼び出しの parse 失敗 → 内部リトライも失敗した turn は
+/// `isApiErrorMessage: true` かつ `message.model == "<synthetic>"` の擬似 assistant
+/// エントリ ("The model's tool call could not be parsed (retry also failed).") で
+/// 終端する。この合成エントリは `type: "assistant"` だが leak を持たないため、素の
+/// `scan_tail` では「非 leak の最終 assistant」としてチェーンを打ち切り、直前の実
+/// leak を取り逃がす (副因)。isMeta user と同様、チェーンを切らずスキップ対象とする。
+/// 一般 API エラー (529 Overloaded / session limit 等) も本条件に該当するが、スキップ
+/// されるだけで leak 判定には影響しない (直前が leak でなければチェーンは伸びない)。
+fn is_synthetic(entry: &Value) -> bool {
+    let api_error = entry.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true);
+    let synthetic_model =
+        entry.pointer("/message/model").and_then(Value::as_str) == Some("<synthetic>");
+    api_error || synthetic_model
 }
 
 /// assistant エントリの text block 群を返す。
@@ -88,7 +109,8 @@ fn is_chain_breaking_user_entry(entry: &Value) -> bool {
 /// 走査規則:
 /// - 実ユーザーの発話に到達したら打ち切り (チェーンリセット)
 /// - assistant 以外 (queue-operation / isMeta user / tool_result 等) はスキップ
-/// - 非 leak の assistant に到達したら打ち切り
+/// - 合成 assistant エントリ (hard-fail、ADR-061) はチェーンを切らずスキップ
+/// - 非 leak の実 assistant に到達したら打ち切り
 pub(crate) fn scan_tail(entries: &[Value]) -> TailScan {
     let mut consecutive_leaks = 0u32;
     let mut last_tool_name: Option<String> = None;
@@ -97,6 +119,9 @@ pub(crate) fn scan_tail(entries: &[Value]) -> TailScan {
             break;
         }
         if !is_main_assistant(entry) {
+            continue;
+        }
+        if is_synthetic(entry) {
             continue;
         }
         let blocks = assistant_text_blocks(entry);
@@ -111,6 +136,52 @@ pub(crate) fn scan_tail(entries: &[Value]) -> TailScan {
     TailScan {
         consecutive_leaks,
         last_tool_name,
+    }
+}
+
+/// UserPromptSubmit 回収層 (ADR-061 主因) の走査結果。
+pub(crate) struct RecoveryScan {
+    /// 「最後の assistant 活動が hard-fail leak」= 回収 nudge を発火すべきか。
+    pub(crate) should_recover: bool,
+    /// 回収対象 leak のツール名 (additionalContext での提示用)。
+    pub(crate) last_tool_name: Option<String>,
+}
+
+/// 末尾から「最後の assistant 活動が hard-fail leak」かを判定する (ADR-061 主因)。
+///
+/// hard-fail 経路 (合成エントリで turn がエラー終了) では Stop hook が発火しないため、
+/// 直後の UserPromptSubmit で回収する。判定規則 (末尾から `MAX_SCAN_ENTRIES` 件):
+/// - assistant 以外 (user / system / attachment / 現 prompt 等) はすべてスキップし、
+///   末尾から最初に出会う実 assistant を探す (現 prompt が transcript に載っていても頑健)
+/// - その実 assistant の手前に合成エントリが 1 つ以上あり、かつ実 assistant が leak なら発火
+/// - 合成エントリが無い (最後の assistant 活動が通常応答、または合成を伴わない leak) 場合は
+///   発火しない。leak が最後で合成が無いケースは Stop hook の領分であり、UserPromptSubmit
+///   での再誘導ループを避けるための意図的スコープ限定 (ADR-061 § 設計決定 3)
+pub(crate) fn scan_recovery(entries: &[Value]) -> RecoveryScan {
+    let mut saw_synthetic = false;
+    for entry in entries.iter().rev().take(MAX_SCAN_ENTRIES) {
+        if !is_main_assistant(entry) {
+            continue;
+        }
+        if is_synthetic(entry) {
+            saw_synthetic = true;
+            continue;
+        }
+        if !saw_synthetic {
+            break;
+        }
+        let blocks = assistant_text_blocks(entry);
+        if blocks.iter().any(|text| text_block_has_leak(text)) {
+            return RecoveryScan {
+                should_recover: true,
+                last_tool_name: blocks.iter().find_map(|text| extract_tool_name(text)),
+            };
+        }
+        break;
+    }
+    RecoveryScan {
+        should_recover: false,
+        last_tool_name: None,
     }
 }
 
@@ -142,6 +213,15 @@ mod tests {
 
     fn tool_result_entry() -> Value {
         json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}})
+    }
+
+    /// ハーネスの hard-fail 合成エントリ (ADR-061、828764ce line 274/286 実測構造)。
+    fn synthetic_entry() -> Value {
+        json!({"type": "assistant", "isApiErrorMessage": true, "message": {
+            "model": "<synthetic>",
+            "content": [{"type": "text",
+                "text": "The model's tool call could not be parsed (retry also failed)."}]
+        }})
     }
 
     fn to_jsonl(entries: &[Value]) -> String {
@@ -250,5 +330,131 @@ mod tests {
     #[test]
     fn scan_handles_empty_entries() {
         assert_eq!(scan_tail(&[]).consecutive_leaks, 0);
+    }
+
+    #[test]
+    fn is_synthetic_detects_both_markers() {
+        assert!(is_synthetic(&synthetic_entry()));
+        assert!(
+            is_synthetic(&json!({"type": "assistant", "isApiErrorMessage": true})),
+            "isApiErrorMessage のみでも合成と判定する"
+        );
+        assert!(
+            is_synthetic(&json!({"type": "assistant", "message": {"model": "<synthetic>"}})),
+            "model == <synthetic> のみでも合成と判定する"
+        );
+        assert!(
+            !is_synthetic(&assistant_text_entry(LEAK_TEXT)),
+            "通常 assistant は合成でない"
+        );
+    }
+
+    #[test]
+    fn scan_skips_synthetic_and_detects_preceding_leak() {
+        let entries = vec![assistant_text_entry(LEAK_TEXT), synthetic_entry()];
+        let scan = scan_tail(&entries);
+        assert_eq!(
+            scan.consecutive_leaks, 1,
+            "828764ce 1 回目 (leak→合成 で turn 終端): 合成はチェーンを切らず直前の leak を検知"
+        );
+        assert_eq!(scan.last_tool_name.as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn scan_zero_when_synthetic_follows_normal_assistant() {
+        let entries = vec![assistant_text_entry("作業を続けます。"), synthetic_entry()];
+        assert_eq!(
+            scan_tail(&entries).consecutive_leaks,
+            0,
+            "一般 API エラー (overloaded 等) が正常応答の後: 合成の直前が leak でなければ伸びない"
+        );
+    }
+
+    #[test]
+    fn scan_leak_chain_breaks_at_real_user_across_synthetic() {
+        let entries = vec![
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+            real_user_entry("テキストで出力されて止まっています"),
+            meta_user_entry("The previous response failed to produce a valid tool call."),
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+        ];
+        assert_eq!(
+            scan_tail(&entries).consecutive_leaks,
+            1,
+            "828764ce 2 回目 (leak→合成→実 user→isMeta→leak→合成): 実 user がチェーン起点をリセット"
+        );
+    }
+
+    fn turn_end_entry() -> Value {
+        json!({"type": "system", "subtype": "turn_duration"})
+    }
+
+    #[test]
+    fn recovery_fires_on_synthetic_after_leak() {
+        let entries = vec![assistant_text_entry(LEAK_TEXT), synthetic_entry()];
+        let scan = scan_recovery(&entries);
+        assert!(
+            scan.should_recover,
+            "leak→合成 で turn がエラー終了 (Stop 不発火) は回収対象"
+        );
+        assert_eq!(scan.last_tool_name.as_deref(), Some("Bash"));
+    }
+
+    #[test]
+    fn recovery_skips_synthetic_after_normal_assistant() {
+        let entries = vec![assistant_text_entry("完了しました。"), synthetic_entry()];
+        assert!(
+            !scan_recovery(&entries).should_recover,
+            "合成の直前が leak でなければ (overloaded 等) 回収しない"
+        );
+    }
+
+    #[test]
+    fn recovery_skips_normal_last_assistant() {
+        let entries = vec![assistant_text_entry("作業が完了しました。")];
+        assert!(!scan_recovery(&entries).should_recover);
+    }
+
+    #[test]
+    fn recovery_skips_leak_without_synthetic() {
+        let entries = vec![assistant_text_entry(LEAK_TEXT)];
+        assert!(
+            !scan_recovery(&entries).should_recover,
+            "合成を伴わない末尾 leak は Stop hook の領分 (再誘導ループ回避)"
+        );
+    }
+
+    #[test]
+    fn recovery_fires_across_current_prompt_user_entry() {
+        let entries = vec![
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+            turn_end_entry(),
+            real_user_entry("不具合が続いています"),
+        ];
+        assert!(
+            scan_recovery(&entries).should_recover,
+            "UserPromptSubmit 時点で現 prompt が transcript 末尾に載っていても回収する"
+        );
+    }
+
+    #[test]
+    fn recovery_passes_consecutive_synthetic_entries() {
+        let entries = vec![
+            assistant_text_entry(LEAK_TEXT),
+            synthetic_entry(),
+            synthetic_entry(),
+        ];
+        assert!(
+            scan_recovery(&entries).should_recover,
+            "連続する合成エントリを通過して直前の leak を検知する"
+        );
+    }
+
+    #[test]
+    fn recovery_skips_empty_entries() {
+        assert!(!scan_recovery(&[]).should_recover);
     }
 }
