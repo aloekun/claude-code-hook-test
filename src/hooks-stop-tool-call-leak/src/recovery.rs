@@ -6,6 +6,7 @@
 //! (ユーザーの prompt 自体が拒否される)。additionalContext (モデル向け) と任意の
 //! systemMessage (ユーザー可視 1 行、ADR-059) の非ブロッキング 2 チャネルで通知する。
 
+use lib_hook_output::SingleLineMessage;
 use serde::Serialize;
 
 /// additionalContext / systemMessage 先頭に付す検出タグ (他 hook の命名規約に倣う)。
@@ -27,7 +28,7 @@ struct RecoveryOutput {
     #[serde(rename = "hookSpecificOutput")]
     hook_specific_output: HookSpecificOutput,
     #[serde(rename = "systemMessage", skip_serializing_if = "Option::is_none")]
-    system_message: Option<String>,
+    system_message: Option<SingleLineMessage>,
 }
 
 /// additionalContext (モデル向け、複数行可) を組み立てる。
@@ -50,12 +51,13 @@ fn build_additional_context(tool_name: Option<&str>) -> String {
     )
 }
 
-/// systemMessage (ユーザー可視 1 行、ADR-059)。表示ノイズ抑制のため `\n` を含めない。
-fn build_system_message(tool_name: Option<&str>) -> String {
+/// systemMessage (ユーザー可視 1 行、ADR-059)。単一行不変条件は `SingleLineMessage` が
+/// 構造的に保証する (改行が混じっても構築時にサニタイズされ 1 行になる)。
+fn build_system_message(tool_name: Option<&str>) -> SingleLineMessage {
     let tool = tool_name.unwrap_or(UNKNOWN_TOOL);
-    format!(
+    SingleLineMessage::new(format!(
         "ツール呼び出し ({tool}) がテキスト出力され未実行のまま turn 終了したため、再実行を促しました (tool-call-leak recovery)"
-    )
+    ))
 }
 
 /// 回収 JSON 文字列を組み立てる。`emit_system_message` が真のときのみトップレベル
@@ -109,13 +111,9 @@ mod tests {
     }
 
     #[test]
-    fn system_message_is_single_line() {
+    fn system_message_includes_tool_name() {
         let msg = build_system_message(Some("Bash"));
-        assert!(
-            !msg.contains('\n') && !msg.contains('\r'),
-            "systemMessage は 1 行に限定 (ADR-059): {msg}"
-        );
-        assert!(msg.contains("Bash"));
+        assert!(msg.as_str().contains("Bash"));
     }
 
     #[test]
