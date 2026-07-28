@@ -293,7 +293,11 @@ fn recovery_mode_includes_system_message() {
     let msg = out["systemMessage"]
         .as_str()
         .expect("recovery_system_message_enabled=true なので systemMessage が付く");
-    assert!(!msg.contains('\n'), "systemMessage は 1 行 (ADR-059): {}", msg);
+    assert!(
+        !msg.contains('\n') && !msg.contains('\r'),
+        "systemMessage は 1 行 (ADR-059): {}",
+        msg
+    );
 }
 
 #[test]

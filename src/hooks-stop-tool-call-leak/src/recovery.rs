@@ -111,7 +111,10 @@ mod tests {
     #[test]
     fn system_message_is_single_line() {
         let msg = build_system_message(Some("Bash"));
-        assert!(!msg.contains('\n'), "systemMessage は 1 行に限定 (ADR-059): {msg}");
+        assert!(
+            !msg.contains('\n') && !msg.contains('\r'),
+            "systemMessage は 1 行に限定 (ADR-059): {msg}"
+        );
         assert!(msg.contains("Bash"));
     }
 

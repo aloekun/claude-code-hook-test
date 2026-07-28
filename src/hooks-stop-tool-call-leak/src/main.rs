@@ -156,8 +156,9 @@ fn read_hook_input_from_stdin() -> Option<HookInput> {
     }
 }
 
-/// transcript を読み、leak 判定と連続カウントに基づいて block / fail-open を決定する
-fn run_check(transcript_path: &Path, max_blocks: u32) {
+/// transcript を読み末尾 `TAIL_LINES` 行をパースする。
+/// 読み取り失敗は fail-open (stderr 警告 + None)。Stop / UserPromptSubmit 両経路で共用する。
+fn load_tail_entries(transcript_path: &Path) -> Option<Vec<serde_json::Value>> {
     let content = match std::fs::read_to_string(transcript_path) {
         Ok(c) => c,
         Err(e) => {
@@ -166,10 +167,17 @@ fn run_check(transcript_path: &Path, max_blocks: u32) {
                 transcript_path.display(),
                 e
             );
-            return;
+            return None;
         }
     };
-    let entries = parse_tail_entries(&content, TAIL_LINES);
+    Some(parse_tail_entries(&content, TAIL_LINES))
+}
+
+/// transcript を読み、leak 判定と連続カウントに基づいて block / fail-open を決定する
+fn run_check(transcript_path: &Path, max_blocks: u32) {
+    let Some(entries) = load_tail_entries(transcript_path) else {
+        return;
+    };
     let scan = scan_tail(&entries);
     if scan.consecutive_leaks == 0 {
         return;
@@ -192,18 +200,9 @@ fn run_check(transcript_path: &Path, max_blocks: u32) {
 /// 出力が非ブロッキングで retry ループを自ら誘発しないため上限が不要であり、発火頻度は
 /// telemetry (`hooks-stop-tool-call-leak/prompt-recovery`) で dogfood 観測する (ADR-061)。
 fn run_recovery(transcript_path: &Path, emit_system_message: bool) {
-    let content = match std::fs::read_to_string(transcript_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!(
-                "[stop-tool-call-leak] transcript 読み込み失敗 (fail-open): {}: {}",
-                transcript_path.display(),
-                e
-            );
-            return;
-        }
+    let Some(entries) = load_tail_entries(transcript_path) else {
+        return;
     };
-    let entries = parse_tail_entries(&content, TAIL_LINES);
     let scan = scan_recovery(&entries);
     if !scan.should_recover {
         return;
