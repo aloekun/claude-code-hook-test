@@ -61,7 +61,14 @@ src/*/Cargo.lock
 # artifact)。per-process/per-day partition。firings-<...>.jsonl = hook 発火 (ROI 棚卸し集計は
 # WP-12 step 2)。push-runs-<...>.jsonl = push パイプライン per-run メトリクス (R3、ADR-055
 # amendment。ADR-057/058 判定と after 計測の集計元)。
+# monthly-<YYYY-MM>.json = cli-telemetry-report の月次 rollup (WP-12 step 2/3、ADR-062)。
 .claude/telemetry/
+
+# WP-12 / ADR-062: 月次ハーネス ROI レビュー (cli-telemetry-report + /monthly-review skill) の
+# ローカル成果物。monthly-reviews/ = 月次レポート (md + JSON)。monthly-review-last-run.json =
+# skill 実行記録 (weekly-review 同様、内容 timestamp で staleness 判定するため必ず ignore)。
+.claude/monthly-reviews/
+.claude/monthly-review-last-run.json
 
 # ADR-030: takt workflow への入力 (cli-merge-pipeline が生成、workflow が読む)
 .takt/post-merge-feedback-context.json
