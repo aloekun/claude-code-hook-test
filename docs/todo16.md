@@ -272,29 +272,6 @@
 
 ---
 
-### telemetry の block 記録を実 quality 違反に限定（infra エラー混入の除外）(275.md T1-1 採用)
-
-> **動機**: CodeRabbit Major 指摘。`emit_block` / `record_*_firing` が品質違反だけでなく fail-closed の infra エラー（stdin 読込失敗 / JSON parse 失敗）でも発火を記録する。ADR-055 では「hook が block を emit した総数」として意図的にこの設計にしたが、WP-12 の ROI 棚卸し（発火数で hook 維持を判断）では infra エラー混入が発火数を歪めるため、実 quality 違反パス（`block_on_failures` 等）限定に絞り込む方が信号が正確になる。
->
-> **重要**: これは ADR-055 で「意図的」と記録した判断の見直しであり、実装時は ADR-055 の該当記述（emit 総数の定義）も併せて amendment する。3 hook 横断（hooks-stop-quality / hooks-stop-tool-call-leak / hooks-pre-tool-validate）のため実装は分割 PR 推奨。stop-tool-call-leak は実 leak でのみ emit_block を呼ぶため既に実質限定されている点も確認する。
->
-> **参照**: `.claude/feedback-reports/275.md` Tier 1 #1、`src/hooks-stop-quality/src/main.rs`（`emit_block` / `record_block_firing`）、[ADR-055](adr/adr-055-firing-telemetry-collection.md) § 計装スコープ、WP-12 step 2（順位 307、集計精度の前提）。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort M。
-
-#### 作業計画
-
-- [ ] 各 hook の記録呼び出しを実 quality 違反パス限定に移動（infra エラー経路では記録しない）。record 位置の見直し。
-- [ ] [ADR-055](adr/adr-055-firing-telemetry-collection.md) の「emit 総数」定義を amendment（実 violation 限定に方針変更した根拠を記録）。
-- [ ] 各 hook のユニットテストで「infra エラー経路では telemetry を記録しない」ことを検証。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- telemetry の block 記録が実 quality 違反に限定され、infra エラー（stdin/parse 失敗）では記録されないことがテストで保証され、ADR-055 の定義も整合していること。
-
----
-
 ### custom-regex preset の生 regex が telemetry id に流れる privacy footgun の是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)
 
 > **動機**: PR #275 の pre-push simplicity review 非ブロッキング warning（= セッション中に検出された「非ブロッキング follow-up」）。`tag_source(name, ...)` の `name` が named preset 名でなく `blocked_patterns` の生正規表現文字列の場合、その regex テキストがそのまま telemetry の `id` フィールドに載り、ADR-055 の「コマンド本文・内容は非記録」プライバシー原則と緊張する。現行 `hooks-config.toml` は named preset のみのため**非発火**だが、派生プロジェクトが raw-regex エントリを足すと該当する latent footgun。

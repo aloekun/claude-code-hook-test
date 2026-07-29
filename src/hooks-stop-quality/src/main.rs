@@ -72,9 +72,37 @@ struct QualityStepConfig {
 /// デフォルトのステップタイムアウト（秒）
 const DEFAULT_STEP_TIMEOUT_SECS: u64 = 60;
 
-/// block 判定を stdout に出力するヘルパー
-fn emit_block(reason: &str) {
-    record_block_firing();
+/// block 判定の発火源。telemetry 記録対象 (実 quality 違反) か、infra エラー
+/// (stdin 読込 / JSON parse 失敗の fail-closed block) かを区別する。
+///
+/// 順位309 / ADR-055 § 計装スコープ amendment: WP-12 ROI 棚卸し (発火数で hook 維持を
+/// 判断する) の信号を歪めないため、infra エラーの fail-closed block は telemetry に
+/// 記録しない。実 quality 違反 (品質ステップ失敗) のみを「hook が発火した」として計上する。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BlockCause {
+    QualityViolation,
+    InfraError,
+}
+
+impl BlockCause {
+    /// この block を telemetry の firing として記録すべきか。実 quality 違反のみ true。
+    fn records_firing(self) -> bool {
+        matches!(self, BlockCause::QualityViolation)
+    }
+}
+
+/// block 判定を stdout に出力するヘルパー。実 quality 違反 (`QualityViolation`) のみ
+/// telemetry に firing を記録する (`InfraError` は記録しない、順位309)。
+fn emit_block(reason: &str, cause: BlockCause) {
+    emit_block_with(reason, cause, record_block_firing);
+}
+
+/// [`emit_block`] のテスト可能な芯。telemetry 記録を closure で注入し、`cause` による
+/// 記録有無をテストが副作用で観測できるようにする (prod は [`record_block_firing`])。
+fn emit_block_with(reason: &str, cause: BlockCause, record_firing: impl FnOnce()) {
+    if cause.records_firing() {
+        record_firing();
+    }
     let decision = BlockDecision {
         decision: "block".to_string(),
         reason: reason.to_string(),
@@ -84,8 +112,9 @@ fn emit_block(reason: &str) {
     }
 }
 
-/// Stop 品質ゲートが block を発火したこと (品質失敗・fail-closed infra エラーを含む
-/// emit 総数) を telemetry に記録する (WP-12、fail-open)。
+/// Stop 品質ゲートが実 quality 違反で block を発火したことを telemetry に記録する
+/// (WP-12、fail-open)。infra エラー (stdin/parse 失敗) の fail-closed block はこの経路を
+/// 通さず記録しない (順位309、ADR-055 § 計装スコープ amendment)。
 fn record_block_firing() {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "hooks-stop-quality",
@@ -254,10 +283,10 @@ fn pipeline_is_running() -> bool {
 fn read_stdin_or_block() -> Option<String> {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
-        emit_block(&format!(
-            "品質ゲートエラー: stdin読み込みに失敗しました: {}",
-            e
-        ));
+        emit_block(
+            &format!("品質ゲートエラー: stdin読み込みに失敗しました: {}", e),
+            BlockCause::InfraError,
+        );
         return None;
     }
     Some(input)
@@ -268,10 +297,10 @@ fn parse_hook_input_or_block(input: &str) -> Option<HookInput> {
     match serde_json::from_str(input) {
         Ok(v) => Some(v),
         Err(e) => {
-            emit_block(&format!(
-                "品質ゲートエラー: 入力JSONのパースに失敗しました: {}",
-                e
-            ));
+            emit_block(
+                &format!("品質ゲートエラー: 入力JSONのパースに失敗しました: {}", e),
+                BlockCause::InfraError,
+            );
             None
         }
     }
@@ -389,7 +418,7 @@ fn block_on_failures(failures: &[String]) {
         "品質ゲートが失敗しました。以下の問題を修正してください:\n\n{}",
         failures.join("\n\n")
     );
-    emit_block(&reason);
+    emit_block(&reason, BlockCause::QualityViolation);
 }
 
 #[cfg(test)]
@@ -509,6 +538,31 @@ cmd = "pnpm test"
         let json = serde_json::to_string(&decision).unwrap();
         assert!(json.contains(r#""decision":"block""#));
         assert!(json.contains(r#""reason":"test failed""#));
+    }
+
+    /// 順位309: 実 quality 違反 (品質ステップ失敗) の block は telemetry recorder を発火する。
+    #[test]
+    fn quality_violation_block_invokes_the_telemetry_recorder() {
+        let mut recorded = false;
+        emit_block_with("品質ゲート失敗", BlockCause::QualityViolation, || {
+            recorded = true
+        });
+        assert!(recorded, "実 quality 違反の block は firing を記録する");
+    }
+
+    /// 順位309 / ADR-055 § 計装スコープ amendment: infra エラー (stdin/parse 失敗) の
+    /// fail-closed block は ROI 信号 (発火数で hook 維持を判断) を歪めるため telemetry
+    /// recorder を発火しない。record 位置を実 violation 経路限定に移した回帰ガード。
+    #[test]
+    fn infra_error_block_does_not_invoke_the_telemetry_recorder() {
+        let mut recorded = false;
+        emit_block_with("stdin 読み込み失敗", BlockCause::InfraError, || {
+            recorded = true
+        });
+        assert!(
+            !recorded,
+            "infra エラーの fail-closed block は firing を記録しない (順位309)"
+        );
     }
 
     #[test]
