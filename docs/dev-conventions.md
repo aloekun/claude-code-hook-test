@@ -7,7 +7,7 @@
 spike・実験タスクを見送る (採用しない) と判断したときは、negative result の知見が散逸しないよう以下の **3 点セット** を必ず実施する:
 
 1. **ADR に結論と実測根拠を記録** — 見送り判断・数値根拠・比較対象を該当 ADR (新規 or amendment) に永続化する。「なぜ見送ったか」を後続セッションが再構築できる粒度で書く。
-2. **計画文書の状態列を更新** — 該当タスクの計画文書 (例: `docs/harness-improvement-plan.md` 等の ephemeral 計画) の状態を「見送り / 却下」に更新し、宙吊りの検討を残さない。
+2. **計画文書の状態列を更新** — 該当タスクの計画文書 (WP 方式の ephemeral 実行計画書 等) の状態を「見送り / 却下」に更新し、宙吊りの検討を残さない。
 3. **再評価トリガー付き follow-up を Tier 5 todo 化** — 「どういう条件が変われば再評価するか」(新モデル出現 / プロンプト改善 / GPU 更新 等) を明示した follow-up を Tier 5 (⏳) todo として登録する。恒久見送りではなく「現時点では見送り」を表現する。
 
 **確立事例** (2 例で成立):
@@ -43,7 +43,7 @@ takt facet が Report Directory から report を読む際は、**現 iteration 
 見出し (section heading / WP heading) は実装の条件スコープと 1:1 対応させ、実装変更時は見出しも追随させる:
 
 1. **takt instruction / output-contract の section 見出し** — `if` ガードや file-existence check の条件を反映する。「X-variant only」ではなく「Applies when \<condition\>」形式で実際の適用条件を表す (例: 「pre-push-review-refute only」→「applies whenever refutation-report.md is present」)。
-2. **計画文書の WP 見出し** — `docs/harness-improvement-plan.md` 等の WP status を「実装済」に更新する際は、WP 見出しが実装内容を正確に反映しているか確認する。方針転換した場合は見出しも更新する。
+2. **計画文書の WP 見出し** — ephemeral 実行計画書 (WP 方式) 等の WP status を「実装済」に更新する際は、WP 見出しが実装内容を正確に反映しているか確認する。方針転換した場合は見出しも更新する。
 
 **由来** (PR #252 / WP-07): WP 見出し「JSON 化」が markdown 契約標準化への方針転換後も未更新で CodeRabbit 指摘。同 PR で `fix.md` の section 見出しが本文の適用条件より狭い (「refute only」だが実際は file 存在時) ことも simplicity review で観測。
 
