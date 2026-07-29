@@ -140,7 +140,20 @@ todo を消化する:
 
 ## 実装 Phase
 
-### Phase 0 (PR-1): 順位 309 — telemetry block 記録の infra エラー除外
+### Phase 0 (PR-1): 順位 309 — telemetry block 記録の infra エラー除外 ✅ 完了 (PR #329, 2026-07-29)
+
+**実施結果**: PR #329 でマージ済み。当初 todo は「3 hook 横断で分割 PR 推奨」としていたが、
+コード精査の結果 infra エラーで実際に block を記録していたのは **stop-quality のみ**と判明
+(leak は `run_check` の実 leak 検出時のみ、pre-tool-validate は `validate_command` hit 時のみ
+record で既に実 violation 限定)。よって分割 PR は不要で単一 PR にまとめた。stop-quality に
+`BlockCause { QualityViolation, InfraError }` を導入し、`emit_block(reason, cause)` が
+`cause.records_firing()` (QualityViolation のみ) の場合だけ telemetry に記録するよう変更
+(closure 注入した `emit_block_with` で回帰テスト)。CodeRabbit review の追加指摘に対応し、
+worker thread panic を `QualityViolation` として誤計上しないよう `StepFailure` +
+`step_failure_from_join` + `aggregate_block_cause` を追加 (panic のみ = `InfraError`、実失敗
+混在 = `QualityViolation`)。ADR-055 § 計装スコープに amendment 追記済み。
+
+当初の作業計画 (すべて完了):
 
 - docs/todo16.md の順位 309 entry を Read し、対象 3 hook と仕様を確認して実装 (infra エラー
   経路 = stdin/parse 失敗等では block を記録しない。実 quality 違反パスに限定)。
@@ -148,7 +161,35 @@ todo を消化する:
   該当 entry を消化・削除。
 - 分割 PR 推奨の記載が todo にあるため、大きくなる場合は hook ごとに分割してよい。
 
-### Phase 1 (PR-2): `cli-telemetry-report` exe
+### Phase 1 (PR-2): `cli-telemetry-report` exe ✅ 実装完了 (未 push、2026-07-29)
+
+**実施結果**: 新規 crate `src/cli-telemetry-report/` を実装。モジュール構成は
+`discover`(root 発見 + degraded 判定) / `aggregate`(月次集計・rollup 確定・retention) /
+`snapshot`(config enabled + exe 配備) / `verdict`(判定候補) / `incident`(維持推奨ルール抽出) /
+`report`(md + JSON) / `timekit` / `model` / `config` / `main`。48 unit テスト + 実データ実測が
+通過し、`cargo test --workspace` / `cargo clippy --workspace --all-targets -- -D warnings` /
+`pnpm lint:md` 全通。release ビルドを `.claude/` へ deploy 済み。**push / PR 作成は未実施**
+(通常フロー・ADR-028 ゲート待ち)。
+
+実装上の決定 (プラン未指定箇所、Phase 4 で ADR-062 へ反映):
+
+- **incident 由来ルールの真実源** = `.claude/custom-lint-rules.toml` の `[rules.incident]`
+  サブテーブル (id を exe 側に複製しない、ADR-049 思想と整合)。
+- **degraded 判定の追加条件**: 「現 workspace 以外で root 未解決の workspace 数 > 到達可能な
+  extra_roots 数」でも degraded とする。現 workspace 自身の `self.root()` 解決失敗は現 root
+  (exe 隣接 `.claude` の親) で補うため degraded にしない。この環境の `ccht-improve` workspace は
+  jj 格納パス不整合 (`../../../ccht-improve`、実体は `-improve`) で `self.root()` が解決不能な
+  ため、**main workspace から実行すると improve が未解決 → degraded → promote 抑止** となる
+  (leak 発火は improve 偏在のため誤 promote を防ぐ正しい挙動)。運用上は improve workspace から
+  実行するか extra_roots に improve を追加する。
+- root 発見テンプレート = `jj workspace list --ignore-working-copy -T
+  'name ++ \t ++ target.current_working_copy() ++ \t ++ root()'`
+  (`--ignore-working-copy` で read-only 化、`current_working_copy()` で現 workspace 判定)。
+- `[telemetry_report]` に `trend_months`(既定 6)、機構マッピングに `enabled_config_keys` /
+  `exe_names` を追加 (snapshot の汎用化)。dogfood config: retention_days=90 /
+  zero_streak_months=2 / leak 機構 1 件。
+
+当初の作業計画 (すべて完了):
 
 - 設計決定 2 の仕様を実装。workspace Cargo.toml members 追加、package.json に
   `build:cli-telemetry-report` + `build:all` 組み込み + `"telemetry-report"` script
@@ -162,6 +203,8 @@ todo を消化する:
   不変 / retention 境界 / 壊れ行 skip / snapshot) + **実データ実測** (現存の main/improve
   telemetry に対して実行し、2026-07 の improve 側に `hooks-stop-tool-call-leak` が非 0 で
   現れる・main が 0 である等、構造を確認する。件数は増え続けるため厳密値は assert しない)。
+  → 実測で improve+main 横断集計・leak 13 block / recovery 2 warn の内訳分離・degraded 抑止を確認
+  (実測時点では main 側にも leak 発火が蓄積し 0 ではなくなっていたが、横断集計は正しく合算)。
 
 ### Phase 2 (PR-3 前半): L1 reminder
 

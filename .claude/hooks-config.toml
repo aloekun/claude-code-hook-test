@@ -348,3 +348,39 @@ check_coderabbit = true      # CodeRabbit レビューの監視
 # 握りつぶし、hook 本来の block/allow 判定を妨げない (ADR-043 の fail-closed はゲート限定)。
 [telemetry]
 enabled = true
+
+# ─── 月次ハーネス ROI レビュー集計 (WP-12 step 2/3、ADR-062、試験運用) ───
+#
+# cli-telemetry-report (`pnpm telemetry-report`) が読む設定。各 workspace root の
+# firings-*.jsonl を横断集計し月次 rollup (.claude/telemetry/monthly-<YYYY-MM>.json) を
+# main workspace 側に確定、レポート (.claude/monthly-reviews/<YYYY-MM-DD>.md + JSON) を出力する。
+# 発火 0 の機構を洗い出し、下記 mechanism マッピングで非アクティブ化判定候補を提示する
+# (自動無効化はしない。採否は /monthly-review skill の AskUserQuestion を経る、ADR-022/028)。
+#
+# ADR-039 3 点セット (収集層 [telemetry] とは別レイヤーの opt-in):
+#   - Config opt-in: section 省略 = レポート生成のみ。retention (削除系) は retention_days
+#     未設定で無効 (default OFF)。本 repo は dogfood のため retention_days を設定。
+#   - Kill-switch: section 削除で本集計を停止 (収集層 [telemetry] とは独立)。
+#   - Bounded lifetime: 初回有意義な実行は収集開始 (2026-07-15) + 28 日 = 2026-08-12 以降。
+#     dogfood 3 回で採否判定 (ADR-062)。
+#
+# root 発見が不完全 (jj workspace list 失敗 / 現 workspace 以外の未解決 / extra_roots 到達不能)
+# な実行では判定候補の promote を抑止する (発見漏れ + 発火 0 の誤 promote 防止)。
+# extra_roots: jj workspace list で自動解決できない workspace を絶対パスで補う。machine 固有の
+# ため本 (tracked) config には置かず、必要な環境で settings ローカルに追記する運用。
+[telemetry_report]
+retention_days = 90            # 90 日超過の raw firing partition を削除 (rollup 確定後のため判定に影響なし)
+zero_streak_months = 2        # 連続 2 か月発火 0 で非アクティブ化候補として promote (ユーザー決定事項 1)
+trend_months = 6              # レポートが遡る月数 (月別表 / 発火 0 リストの窓)
+# extra_roots = ["C:\\path\\to\\other-workspace"]  # 環境ごとに必要なら有効化
+
+# 初期マッピング 1 件: ADR-053/061 の tool call leak 検知。監視 2 id が連続発火 0 かつ各月
+# enabled+配備済みなら非アクティブ化候補として提示する (crate 撤去 revert PR は ADR-053/061
+# bounded lifetime 手順に従う)。全試験運用 ADR の網羅登録は将来拡張。
+[[telemetry_report.mechanisms]]
+name = "stop_tool_call_leak"
+adr = "ADR-053/061"
+ids = ["hooks-stop-tool-call-leak", "hooks-stop-tool-call-leak/prompt-recovery"]
+enabled_config_keys = ["stop_tool_call_leak.enabled", "stop_tool_call_leak.prompt_recovery_enabled"]
+exe_names = ["hooks-stop-tool-call-leak"]
+proposal = "[stop_tool_call_leak] enabled = false + prompt_recovery_enabled = false（最終的な crate 撤去 revert PR は ADR-053/061 bounded lifetime 手順に従う）"
