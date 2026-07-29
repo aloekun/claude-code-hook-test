@@ -253,7 +253,7 @@ WP-12 step 2/3 (発火数で hook の維持・削除を判断する ROI 棚卸�
 
 | hook | 修正前 | 修正後 |
 |---|---|---|
-| hooks-stop-quality | stdin/parse 失敗の fail-closed block でも記録 | `record_block_firing` を `emit_block` から実 quality 違反経路 (`block_on_failures`) へ移動。infra エラー経路 (`read_stdin_or_block` / `parse_hook_input_or_block`) は block decision を emit するが telemetry には記録しない |
+| hooks-stop-quality | stdin/parse 失敗の fail-closed block でも記録 | `emit_block(reason, cause: BlockCause)` に変更し、`cause.records_firing()` (QualityViolation のみ真) の場合だけ telemetry に記録する。infra エラー経路 (`read_stdin_or_block` / `parse_hook_input_or_block`) と worker thread panic (`run_quality_steps` の join 失敗) は `InfraError` 扱いで block decision のみ emit し記録しない。実 quality 違反 (品質ステップ失敗) のみ `QualityViolation` |
 | hooks-stop-tool-call-leak | (変更なし) | `emit_block` は `run_check` の実 leak 検出時のみ呼ばれ、transcript 読取失敗・連続数 0・上限到達は fail-open で return するため既に実 leak 限定。ADR-061 の回収層 (`prompt-recovery`) は `should_recover` 成立時のみ warn 記録 |
 | hooks-pre-tool-validate | (変更なし) | `record_preset_block` は `validate_command` が hit を返す (= preset にマッチした実 violation) 経路のみ。stdin/parse 失敗は `ExitCode::FAILURE` で return し記録しない。既に preset match 限定 |
 
@@ -265,6 +265,12 @@ telemetry 記録を closure 注入した `emit_block_with` をテストの芯と
 recorder を発火 / InfraError は発火しない」を副作用で観測して回帰ガードにする。leak / preset
 は record 呼び出しが既に violation 経路にしか存在しないため、コード構造でこの不変条件が保たれる
 (追加のテストは設けない)。
+
+また `run_quality_steps` の各失敗は `StepFailure { message, cause }` で由来を保持し、worker
+thread panic (join の `Err`) は実 quality 違反ではないため `InfraError`、ステップの実失敗は
+`QualityViolation` とする。`block_on_failures` は `aggregate_block_cause` で全体の cause を
+決め (1 件でも実失敗があれば `QualityViolation`、全て panic なら `InfraError`)、`emit_block`
+に渡す。これにより内部障害 (panic) を品質違反として ROI 信号に誤計上しない (CodeRabbit Major 指摘)。
 
 ### 帰結
 
