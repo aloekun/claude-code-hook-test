@@ -206,13 +206,46 @@ worker thread panic を `QualityViolation` として誤計上しないよう `St
   → 実測で improve+main 横断集計・leak 13 block / recovery 2 warn の内訳分離・degraded 抑止を確認
   (実測時点では main 側にも leak 発火が蓄積し 0 ではなくなっていたが、横断集計は正しく合算)。
 
-### Phase 2 (PR-3 前半): L1 reminder
+### Phase 2 (PR-3 前半): L1 reminder ✅ 実装完了 (未 push、2026-07-30)
 
-- 設計決定 3 を実装。`hooks_config.rs` に config struct、`monthly_review.rs` (新 module、
-  `weekly_review.rs` を参考に。ただし failed marker 経路は持たない)、`main.rs` の nudge 配線、
-  unit テスト (weekly の test 構成を踏襲: 閾値境界 / Missing=発火 / Unreadable=抑制 /
-  main-root canonical / systemMessage opt-in)。
-- 本 repo の hooks-config.toml では enabled = true で dogfood (ADR-039: code default は OFF)。
+**実施結果**: `hooks-session-start` に月次レビュー reminder を実装。
+
+- `hooks_config.rs`: `MonthlyReviewReminderConfig` (`enabled` / `threshold_days` /
+  `system_message_enabled`) を追加し `SessionStartConfig.monthly_review_reminder` に配線 +
+  パーステスト 2 件 (section parse / system_message_enabled 省略時 None)。
+- `monthly_review.rs` (新 module): last-run staleness の 1 経路のみ (weekly と異なり failed
+  marker 経路は持たない、設計決定 1)。`.claude/monthly-review-last-run.json` の `last_run_at`
+  内容 timestamp で判定 (mtime 非依存、`PastTime` で未来値を Stale 扱い)、
+  `lib_jj_helpers::resolve_main_workspace_root` で main-root canonical 化 (ADR-045)、
+  `SingleLineMessage` で systemMessage opt-in (ADR-059)、telemetry id `monthly_review_reminder`
+  / warn で計装 (ADR-055)。threshold の code default = 28 日
+  (`MONTHLY_REVIEW_DEFAULT_THRESHOLD_DAYS`)。unit テスト 21 件 (閾値境界 / Missing=発火 /
+  Stale=発火 / Unreadable=抑制 / 未来値=Stale / default threshold / main-root canonical /
+  systemMessage opt-in / tell-user 指示)。
+- `main.rs`: `append_cwd_nudges` から monthly nudge を配線 (weekly の後、両 config は独立 opt-in)。
+  weekly + monthly は systemMessage スロットが 1 つのため `combine_system_messages` で ` / `
+  区切りの 1 行に合成。関数長 50 行ガイドライン (順位 48) 遵守のため review reminder 部分を
+  `append_review_reminder_nudges` に切り出し。unit テスト 3 件 (合成 0/1/複数)。
+- `.claude/hooks-config.toml`: `[session_start.monthly_review_reminder]` を `enabled = true` /
+  `threshold_days = 28` / `system_message_enabled = true` で dogfood 有効化 (ADR-039: code
+  default は OFF、派生 deploy では section を置かず完全 skip)。
+
+検証: `cargo test --workspace` (全 crate green、hooks-session-start 120 件) /
+`cargo clippy --workspace --all-targets -- -D warnings` / `pnpm lint:md` 全通。
+**push / PR 作成は未実施** (通常フロー・ADR-028 ゲート待ち)。実 hook 発火の確認は dogfood に委ねる
+(unit テストで閾値境界を固定済み、検証要件どおり)。
+
+実装上の決定 (プラン未指定箇所、Phase 4 で ADR-062 へ反映):
+
+- **config 閾値フィールド名 = `threshold_days`** (weekly の `reminder_threshold_days` とは
+  非対称だが、設計決定 3 の明示表記 `threshold_days=28` に従う)。code default 28 は
+  `monthly_review.rs` 側に置き、config 欠落時に適用。
+- **weekly + monthly 同時発火時の systemMessage 合成**: 出力 JSON の systemMessage スロットは
+  1 つのため ` / ` 区切りで 1 行連結 (単一行不変条件は `SingleLineMessage` が構造的に保証)。
+  additionalContext は両 reminder を独立に付す。
+- state file `.claude/monthly-review-last-run.json` の gitignore は Phase 1 で追加済み
+  (書き手は L3 skill、exe/hook 側は読むのみ)。当初計画どおり (すべて完了):
+  設計決定 3 の全教訓 (a)〜(d) を適用、hooks-config.toml で dogfood。
 
 ### Phase 3 (PR-3 後半 + skills repo): L3 skill + docs
 
