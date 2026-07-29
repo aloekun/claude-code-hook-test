@@ -24,6 +24,11 @@
 83〜829ms/Stop)。ADR-053/061 の bounded lifetime は「leak 4 週間非観測で撤去判定」と定めるが、
 この判定を機械的に promote する仕組みが無く、人間の記憶に依存している。
 
+**判定基準の関係 (新旧の統一)**: 本プランは撤去判定の正式基準を「連続 2 か月発火 0」
+(ユーザー決定事項 1) に置き、ADR-053/061 の「4 週間非観測」記述は Phase 3 の追記で
+「月次レビュー (ADR-062) の判定基準に従う」へ更新して新旧基準を併存させない
+(2 か月は 4 週間より保守的な置き換えであり、判定主体が人間の記憶から月次レビューへ移る)。
+
 ### 既存計画との合流 (重要)
 
 この問題は [ADR-055](adr/adr-055-firing-telemetry-collection.md) の WP-12 が既に計画していた
@@ -80,19 +85,31 @@ todo を消化する:
    prefix):
    - **入力**: 各 root の `.claude/telemetry/firings-*.jsonl`。root 発見は `jj workspace list`
      の動的列挙 (パース失敗・workspace 未使用環境は現 root のみに fail-open) + config
-     `extra_roots` で追加可。
+     `extra_roots` で追加可。**root 発見が不完全な場合 (`jj workspace list` 失敗 /
+     `extra_roots` の到達不能) はレポートに degraded を明示し、当該実行では判定候補の
+     promote を抑止する** (集計・レポート生成は fail-open で継続するが、「発火 0」判定は
+     完全な root 集合を前提とする。leak 発火が improve に偏在するため、発見漏れ + 発火 0 の
+     組合せは誤 promote に直結する)。
    - **月次 rollup (順位 312)**: 月ごとの id 別集計を `.claude/telemetry/monthly-<YYYY-MM>.json`
-     (main workspace 側) に永続化。raw daily ファイルは retention (config、既定 90 日) 超過分を
-     削除。**複数月トレンドは rollup から読む**ため raw 削除後も判定可能。rollup は集計済み月を
-     再集計しない (確定月は不変。当月は毎回再計算)。
+     (main workspace 側) に永続化。raw daily ファイルは retention (config `retention_days`、
+     **code default は未設定 = 削除無効**。ADR-039 opt-in。本 repo は hooks-config.toml で
+     `retention_days = 90` を設定して dogfood) 超過分を削除。**複数月トレンドは rollup から
+     読む**ため raw 削除後も判定可能。rollup は集計済み月を再集計しない (確定月は不変。
+     当月は毎回再計算)。
    - **レポート出力** (`.claude/monthly-reviews/<YYYY-MM-DD>.md` + 機械可読 JSON):
      (a) 月別 × id 別カウント + 前月比、(b) 直近 N か月の発火 0 リスト、(c) **config enabled /
      exe 配備状態の snapshot** (「0 = 上流修正」と「0 = 無効化・未配備」の誤読防止。
      hooks-config.toml の該当 enabled 値と `.claude/*.exe` の存在を機械確認)、(d) incident 由来
-     ルール (ADR-049) の「発火 0 でも維持推奨」マーク、(e) 判定候補。
+     ルール (ADR-049) の「発火 0 でも維持推奨」マーク、(e) 判定候補。snapshot は集計実行時点の
+     状態であり単体では月内の有効性を証明しないため、**月次 rollup 確定時に当月の snapshot を
+     rollup JSON にも保存**し、判定はこの月別記録を参照する (次項)。
    - **判定候補 (step 3 MVP)**: 「機構 → 監視対象 id 群 → 成立時の提案」の静的マッピングを
      config (例: hooks-config.toml `[[telemetry_report.mechanisms]]`) に持ち、**連続
      `zero_streak_months` (既定 2) か月発火 0 で非アクティブ化候補として promote**。
+     promote の成立条件には「対象の各月 rollup に enabled=true + 配備ありの snapshot 記録が
+     あること」を含める (無効化・未配備の月を「発火 0」と誤読しない)。月中の一時無効化までは
+     snapshot では検出できないが、最終判断が必ずユーザー採否 (AskUserQuestion) を経る前提で
+     受容する (この限界は ADR-062 の留意点に明記すること)。
      初期マッピングは 1 件: ADR-053/061 (leak 検知) → ids
      [`hooks-stop-tool-call-leak`, `hooks-stop-tool-call-leak/prompt-recovery`] → 提案 =
      `[stop_tool_call_leak] enabled = false` + `prompt_recovery_enabled = false`
@@ -112,6 +129,9 @@ todo を消化する:
    - Phase 1: 起動条件確認 → Phase 2: `pnpm telemetry-report` (exe) を同期実行 → Phase 3:
      レポート提示 + AskUserQuestion で判定候補・削除候補の採否 → Phase 4: **ハイブリッド実行**
      (軽量 config 変更は即時に通常 push/PR フロー、大型は docs/todo.md 登録) + last-run 更新。
+   - **候補が 4 件を超える場合は AskUserQuestion を複数質問に分割**する (1 質問 4 option の
+     制約。severity / 機構種別順にグループ化。ADR-031 Phase E dogfood で確立した weekly-review
+     と同方式)。
    - 自動で無効化しない。採否は必ず AskUserQuestion を経る (ADR-022/028)。
 5. **週次レビューとの役割分担**: 週次 = whole-tree コードレビュー (ADR-031)、月次 = telemetry/
    ROI 棚卸し。ADR-055 が step 2 の出力先を「週次レビュー facet」と想定していた点は amendment で
@@ -172,9 +192,11 @@ todo を消化する:
 
 1. 本ドキュメントの「ユーザー決定事項」3 項目と「設計決定」5 項目を 1 つずつ、ADR-062 (および
    ADR-055/053/061 の追記) と照合し、**すべて ADR 側に記載済みであることを確認**する。
-   照合の観点: 閾値 2 か月 (config 可変)・ハイブリッド実行・workspace 横断と fail-open・
-   rollup/retention・snapshot による発火 0 誤読防止・incident 由来の維持推奨区別・takt 不採用
-   (YAGNI) と marker 不採用・週次との役割分担・warm-up 初回時期。
+   照合の観点: 閾値 2 か月 (config 可変) と「4 週間」基準の置き換え関係・ハイブリッド実行・
+   workspace 横断と fail-open・root 発見不完全時の promote 抑止 (degraded 明示)・
+   rollup/retention (retention default OFF)・snapshot による発火 0 誤読防止 (月別 rollup 記録 +
+   月中一時無効化の検出限界)・incident 由来の維持推奨区別・takt 不採用 (YAGNI) と marker 不採用・
+   AskUserQuestion 4 件超の分割・週次との役割分担・warm-up 初回時期。
 2. 漏れがあれば ADR を補完する (本ドキュメントにしか書かれていない決定を残さない)。
 3. 確認完了後、**本ドキュメント (`docs/monthly-harness-roi-review-plan.md`) を削除**し、
    削除を含む最終 PR を通常フローで作成する。
