@@ -120,10 +120,7 @@ pub fn discover_roots(current_root: &Path, extra_roots: &[String]) -> RootDiscov
         .filter_map(|w| w.root.as_ref())
         .map(|p| canonicalize_or_as_is(Path::new(p)))
         .collect();
-    let unresolved_non_current = parsed
-        .iter()
-        .filter(|w| w.root.is_none() && !w.is_current)
-        .count();
+    let unresolved_non_current = count_unresolved_non_current(&parsed);
 
     let (reachable_extra, unreachable_extra) = partition_extra_roots(extra_roots);
     let (roots, degraded) = combine_roots(
@@ -140,6 +137,16 @@ pub fn discover_roots(current_root: &Path, extra_roots: &[String]) -> RootDiscov
         degraded,
         main_root,
     }
+}
+
+/// root 未解決かつ現 workspace でない workspace 数を数える (pure)。現 workspace の `self.root()`
+/// 解決失敗は現 root (exe 隣接 `.claude` の親) で補えるため除外する。この除外が「現 workspace の
+/// jj 格納パス不整合」を degraded と誤判定しないための核 (ADR-062 § degraded 判定)。
+pub fn count_unresolved_non_current(lines: &[WorkspaceLine]) -> usize {
+    lines
+        .iter()
+        .filter(|w| w.root.is_none() && !w.is_current)
+        .count()
 }
 
 /// extra_roots を (存在するもの canonical, 存在しないもの) に分ける。
@@ -251,6 +258,32 @@ mod tests {
         assert!(
             degraded.is_empty(),
             "現 workspace の root 解決失敗は unresolved_non_current に数えないため degraded にならない"
+        );
+    }
+
+    #[test]
+    fn count_unresolved_non_current_excludes_current_workspace_error() {
+        let lines = vec![
+            WorkspaceLine {
+                name: "ccht-improve".to_string(),
+                is_current: true,
+                root: None,
+            },
+            WorkspaceLine {
+                name: "other".to_string(),
+                is_current: false,
+                root: None,
+            },
+            WorkspaceLine {
+                name: "default".to_string(),
+                is_current: false,
+                root: Some("/main".to_string()),
+            },
+        ];
+        assert_eq!(
+            count_unresolved_non_current(&lines),
+            1,
+            "現 workspace の error 行 (is_current=true) は除外、非 current の未解決 1 件のみ数える"
         );
     }
 

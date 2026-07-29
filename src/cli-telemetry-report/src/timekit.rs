@@ -59,6 +59,10 @@ pub fn month_key_of_ts(ts: &str) -> Option<String> {
 
 /// `YYYY-MM-DD` 日付文字列 → Unix epoch からの日数。retention 判定で partition ファイル名の
 /// 日付を経過日数に変換するために使う。桁が揃わない / 数値でない入力は `None`。
+///
+/// 月・日のレンジ検証に加え、`civil_from_days` で往復して暦日として正準でない日付
+/// (例 `2026-02-30` / 非うるう年の `2026-02-29`) を `None` で拒否する (月ごとの日数・うるう年を
+/// ハードコードせず round-trip で判定)。
 pub fn date_str_to_day(date: &str) -> Option<i64> {
     let mut it = date.split('-');
     let y: i64 = it.next()?.parse().ok()?;
@@ -67,7 +71,11 @@ pub fn date_str_to_day(date: &str) -> Option<i64> {
     if it.next().is_some() || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return None;
     }
-    Some(days_from_civil(y, m, d))
+    let days = days_from_civil(y, m, d);
+    if civil_from_days(days) != (y, m, d) {
+        return None;
+    }
+    Some(days)
 }
 
 /// 暦日 (y, m, d) → Unix epoch からの日数 (負値可)。Howard Hinnant のアルゴリズム。
@@ -134,6 +142,15 @@ mod tests {
         );
         assert!(date_str_to_day("2026-13-01").is_none());
         assert!(date_str_to_day("not-a-date").is_none());
+    }
+
+    #[test]
+    fn date_str_to_day_rejects_non_canonical_dates() {
+        assert!(date_str_to_day("2026-02-30").is_none(), "2 月 30 日は存在しない");
+        assert!(date_str_to_day("2026-04-31").is_none(), "4 月は 30 日まで");
+        assert!(date_str_to_day("2026-02-29").is_none(), "2026 は非うるう年");
+        assert!(date_str_to_day("2024-02-29").is_some(), "2024 はうるう年で 2/29 が有効");
+        assert!(date_str_to_day("2026-01-31").is_some());
     }
 
     #[test]

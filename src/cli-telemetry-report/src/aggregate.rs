@@ -123,7 +123,10 @@ fn is_firing_file(path: &Path) -> bool {
 ///   1. 既存の確定月 (`finalized = true`) は不変 (再集計しない)。
 ///   2. `current_month` 未満で既存 rollup が無い月は今回 raw で確定する (`finalized = true`)。
 ///   3. `current_month` は毎回 raw で再計算し上書きする (`finalized = false`)。
-///   4. raw に現れず既存 rollup にある月はそのまま保持する (raw が retention 削除済みでも維持)。
+///   4. `current_month` を過ぎても未確定 (`finalized = false`) のまま残る月 (raw が retention
+///      削除済みで raw に現れない) は、既存 rollup の ids を保持したまま今回確定する
+///      (`finalized = true`)。raw 消失を理由に未確定のまま据え置くと二度と確定されず
+///      永続的に `finalized = false` のまま固定されてしまうため。
 ///
 /// 返す Vec は月キー昇順。
 pub fn finalize_rollups(
@@ -165,8 +168,10 @@ fn union_months(
 
 /// 1 月の rollup をどう扱うか決める。上書きが必要なら新 [`MonthRollup`]、据え置きなら `None`。
 ///
-/// 確定月 (当月でない `finalized`) は据え置き。raw が空でも既存が非空の過去月は据え置き
-/// (retention 削除後の維持)。それ以外は raw で確定/再計算する。
+/// 確定月 (当月でない `finalized`) は据え置き。それ以外の過去月は raw (あれば) または
+/// 既存 ids (raw が retention 削除済みなら) で今回確定する。raw 消失時に既存の未確定 rollup を
+/// そのまま据え置くと `finalized` が永久に `false` のまま固定されてしまうため、
+/// 過去月は必ずこの呼び出しで確定させる (規則 4)。
 fn resolve_month(
     by_month: &BTreeMap<String, MonthRollup>,
     raw_counts: &BTreeMap<String, MonthCounts>,
@@ -180,10 +185,10 @@ fn resolve_month(
     if prev.is_some_and(|r| r.finalized) && !is_current {
         return None;
     }
-    let ids = raw_counts.get(month).cloned().unwrap_or_default();
-    if ids.is_empty() && !is_current && prev.is_some_and(|r| !r.ids.is_empty()) {
-        return None;
-    }
+    let ids = raw_counts
+        .get(month)
+        .cloned()
+        .unwrap_or_else(|| ids_without_raw(is_current, prev));
     Some(MonthRollup {
         month: month.to_string(),
         finalized: !is_current,
@@ -191,6 +196,16 @@ fn resolve_month(
         snapshot: snapshot.clone(),
         generated_at: now_iso.to_string(),
     })
+}
+
+/// raw に対象月のデータが無いときに使う ids。当月なら raw どおり空、過去月は既存 rollup の
+/// ids を維持する (retention で raw が消えても既存集計を失わない、規則 4)。
+fn ids_without_raw(is_current: bool, prev: Option<&MonthRollup>) -> MonthCounts {
+    if is_current {
+        MonthCounts::default()
+    } else {
+        prev.map(|r| r.ids.clone()).unwrap_or_default()
+    }
 }
 
 /// main workspace の `<main_root>/.claude/telemetry/monthly-*.json` を読み込む (I/O)。
@@ -377,6 +392,25 @@ mod tests {
         let aug = out.iter().find(|r| r.month == "2026-08").unwrap();
         assert_eq!(aug.ids["leak"].counts.block, 5, "当月は毎回再計算");
         assert!(!aug.finalized);
+    }
+
+    #[test]
+    fn finalize_rollups_finalizes_stale_unfinalized_month_when_raw_is_gone() {
+        let existing = vec![MonthRollup {
+            month: "2026-07".to_string(),
+            finalized: false,
+            ids: month_counts("leak", 4, 0),
+            snapshot: Snapshot::default(),
+            generated_at: "old".to_string(),
+        }];
+        let raw: BTreeMap<String, MonthCounts> = BTreeMap::new();
+        let out = finalize_rollups(existing, &raw, &Snapshot::default(), "2026-09", 3_000);
+        let jul = out.iter().find(|r| r.month == "2026-07").unwrap();
+        assert!(
+            jul.finalized,
+            "raw retention 削除後も過去月として確定し finalized=false に固定されない"
+        );
+        assert_eq!(jul.ids["leak"].counts.block, 4, "raw 消失時は既存 ids を保持");
     }
 
     #[test]

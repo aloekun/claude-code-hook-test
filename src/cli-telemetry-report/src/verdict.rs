@@ -76,6 +76,8 @@ fn verdict_for(
 }
 
 /// 最新月から遡り「全監視 id が発火 0 かつ snapshot が enabled+配備済み」の連続月数を数える。
+/// 月キーが暦月として連続していない (欠落月がある) 場合はそこで streak を打ち切る
+/// (rollups に穴があると誤って連続扱いし false promote を招くため)。
 /// 返り値は (連続月数, 連続列先頭が未確定当月か)。
 fn trailing_zero_streak(
     rollups: &[MonthRollup],
@@ -84,16 +86,43 @@ fn trailing_zero_streak(
 ) -> (u64, bool) {
     let mut streak = 0u64;
     let mut partial = false;
+    let mut newer_month: Option<&str> = None;
     for (i, rollup) in rollups.iter().rev().enumerate() {
-        if !month_qualifies(rollup, mechanism) {
+        if !streak_continues(rollup, mechanism, newer_month) {
             break;
         }
         if i == 0 && rollup.month == current_month && !rollup.finalized {
             partial = true;
         }
         streak += 1;
+        newer_month = Some(&rollup.month);
     }
     (streak, partial)
+}
+
+/// 当該月が streak の条件 (発火 0 かつ enabled+配備済み) を満たし、かつ直前に数えた
+/// より新しい月 (`newer_month`) のちょうど 1 か月前 (暦月連続) であるか。
+fn streak_continues(rollup: &MonthRollup, mechanism: &MechanismConfig, newer_month: Option<&str>) -> bool {
+    month_qualifies(rollup, mechanism)
+        && newer_month.is_none_or(|newer| is_month_before(&rollup.month, newer))
+}
+
+/// `earlier` が `later` のちょうど 1 か月前かどうか (`YYYY-MM` 文字列の暦月比較)。
+/// パース失敗時は継続性なしとして扱う (fail closed: streak を打ち切る)。
+fn is_month_before(earlier: &str, later: &str) -> bool {
+    let (Some(e), Some(l)) = (parse_year_month(earlier), parse_year_month(later)) else {
+        return false;
+    };
+    let next = if e.1 == 12 { (e.0 + 1, 1) } else { (e.0, e.1 + 1) };
+    next == l
+}
+
+/// `YYYY-MM` を (year, month) にパースする。month は 1..=12 の範囲であることを検証する。
+fn parse_year_month(month: &str) -> Option<(i32, u32)> {
+    let (y, m) = month.split_once('-')?;
+    let y: i32 = y.parse().ok()?;
+    let m: u32 = m.parse().ok()?;
+    (1..=12).contains(&m).then_some((y, m))
 }
 
 /// 当該月が機構の「発火 0 かつ enabled+配備済み」を満たすか。
@@ -232,5 +261,17 @@ mod tests {
         let v = &compute_verdicts(&rollups, &[leak()], 2, false, "2026-07")[0];
         assert!(v.current_month_partial, "連続列先頭が未確定当月");
         assert_eq!(v.status, VerdictStatus::Promote);
+    }
+
+    #[test]
+    fn gap_month_breaks_streak() {
+        let rollups = vec![
+            rollup("2026-05", true, 0, enabled_snapshot()),
+            rollup("2026-06", true, 0, enabled_snapshot()),
+            rollup("2026-08", true, 0, enabled_snapshot()),
+        ];
+        let v = &compute_verdicts(&rollups, &[leak()], 2, false, "2026-08")[0];
+        assert_eq!(v.zero_streak, 1, "2026-08 の 1 か月のみが連続 (2026-06 は 2026-08 の直前月でない)");
+        assert_eq!(v.status, VerdictStatus::NotMet);
     }
 }
