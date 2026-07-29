@@ -72,9 +72,37 @@ struct QualityStepConfig {
 /// デフォルトのステップタイムアウト（秒）
 const DEFAULT_STEP_TIMEOUT_SECS: u64 = 60;
 
-/// block 判定を stdout に出力するヘルパー
-fn emit_block(reason: &str) {
-    record_block_firing();
+/// block 判定の発火源。telemetry 記録対象 (実 quality 違反) か、infra エラー
+/// (stdin 読込 / JSON parse 失敗の fail-closed block) かを区別する。
+///
+/// 順位309 / ADR-055 § 計装スコープ amendment: WP-12 ROI 棚卸し (発火数で hook 維持を
+/// 判断する) の信号を歪めないため、infra エラーの fail-closed block は telemetry に
+/// 記録しない。実 quality 違反 (品質ステップ失敗) のみを「hook が発火した」として計上する。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BlockCause {
+    QualityViolation,
+    InfraError,
+}
+
+impl BlockCause {
+    /// この block を telemetry の firing として記録すべきか。実 quality 違反のみ true。
+    fn records_firing(self) -> bool {
+        matches!(self, BlockCause::QualityViolation)
+    }
+}
+
+/// block 判定を stdout に出力するヘルパー。実 quality 違反 (`QualityViolation`) のみ
+/// telemetry に firing を記録する (`InfraError` は記録しない、順位309)。
+fn emit_block(reason: &str, cause: BlockCause) {
+    emit_block_with(reason, cause, record_block_firing);
+}
+
+/// [`emit_block`] のテスト可能な芯。telemetry 記録を closure で注入し、`cause` による
+/// 記録有無をテストが副作用で観測できるようにする (prod は [`record_block_firing`])。
+fn emit_block_with(reason: &str, cause: BlockCause, record_firing: impl FnOnce()) {
+    if cause.records_firing() {
+        record_firing();
+    }
     let decision = BlockDecision {
         decision: "block".to_string(),
         reason: reason.to_string(),
@@ -84,8 +112,9 @@ fn emit_block(reason: &str) {
     }
 }
 
-/// Stop 品質ゲートが block を発火したこと (品質失敗・fail-closed infra エラーを含む
-/// emit 総数) を telemetry に記録する (WP-12、fail-open)。
+/// Stop 品質ゲートが実 quality 違反で block を発火したことを telemetry に記録する
+/// (WP-12、fail-open)。infra エラー (stdin/parse 失敗) の fail-closed block はこの経路を
+/// 通さず記録しない (順位309、ADR-055 § 計装スコープ amendment)。
 fn record_block_firing() {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "hooks-stop-quality",
@@ -254,10 +283,10 @@ fn pipeline_is_running() -> bool {
 fn read_stdin_or_block() -> Option<String> {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
-        emit_block(&format!(
-            "品質ゲートエラー: stdin読み込みに失敗しました: {}",
-            e
-        ));
+        emit_block(
+            &format!("品質ゲートエラー: stdin読み込みに失敗しました: {}", e),
+            BlockCause::InfraError,
+        );
         return None;
     }
     Some(input)
@@ -268,10 +297,10 @@ fn parse_hook_input_or_block(input: &str) -> Option<HookInput> {
     match serde_json::from_str(input) {
         Ok(v) => Some(v),
         Err(e) => {
-            emit_block(&format!(
-                "品質ゲートエラー: 入力JSONのパースに失敗しました: {}",
-                e
-            ));
+            emit_block(
+                &format!("品質ゲートエラー: 入力JSONのパースに失敗しました: {}", e),
+                BlockCause::InfraError,
+            );
             None
         }
     }
@@ -338,6 +367,16 @@ fn expand_step_placeholders(cmd: &str) -> String {
     expanded.replace("{{CLAUDE_DIR}}", &normalized)
 }
 
+/// 1 step の失敗理由と、その失敗の由来 (`BlockCause`) を保持する。
+///
+/// worker thread panic は実 quality 違反ではなく infra エラーであるため、
+/// `run_quality_steps` の時点で由来を記録しておく (順位309 / ADR-055 § 計装スコープ
+/// amendment: panic を `QualityViolation` として誤計上しないため)。
+struct StepFailure {
+    message: String,
+    cause: BlockCause,
+}
+
 /// 各ステップを並列に実行し、失敗を step 定義順で集約する (WP-05)。
 ///
 /// 逐次実行では合計時間が全ステップの和になり Stop hook が肥大化していた
@@ -346,8 +385,9 @@ fn expand_step_placeholders(cmd: &str) -> String {
 /// 並列化し、総時間を最遅ステップまで短縮する。網羅性は全ステップ実行で維持。
 ///
 /// 失敗集約は spawn 順 (= step 定義順) を保つため決定論的。worker が panic した場合は
-/// fail-closed で failure 扱いにして block する (品質ゲートを黙って通さない)。
-fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<String> {
+/// fail-closed で failure 扱いにして block するが、由来は `BlockCause::InfraError`
+/// として記録する (実 quality 違反ではないため)。
+fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<StepFailure> {
     let handles: Vec<(String, std::thread::JoinHandle<(bool, String)>)> = steps
         .iter()
         .map(|step| {
@@ -362,34 +402,70 @@ fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<String> {
         })
         .collect();
 
-    let mut failures: Vec<String> = Vec::new();
-    for (name, handle) in handles {
-        match handle.join() {
-            Ok((success, output)) => {
-                if !success {
-                    failures.push(format!("**{}** failed:\n```\n{}\n```", name, output));
-                }
-            }
-            Err(_) => {
-                failures.push(format!(
-                    "**{}** failed: worker thread が panic しました (fail-closed)",
-                    name
-                ));
-            }
-        }
-    }
-    failures
+    handles
+        .into_iter()
+        .filter_map(|(name, handle)| step_failure_from_join(&name, handle.join()))
+        .collect()
 }
 
-fn block_on_failures(failures: &[String]) {
+/// 1 step の `JoinHandle::join()` 結果を `StepFailure` に変換する (成功時は `None`)。
+///
+/// worker panic (`Err`) は実 quality 違反ではないため `BlockCause::InfraError` として
+/// 記録する (順位309: panic を telemetry の quality 違反として誤計上しないため)。
+fn step_failure_from_join(
+    name: &str,
+    result: std::thread::Result<(bool, String)>,
+) -> Option<StepFailure> {
+    match result {
+        Ok((true, _)) => None,
+        Ok((false, output)) => Some(StepFailure {
+            message: format!("**{}** failed:\n```\n{}\n```", name, output),
+            cause: BlockCause::QualityViolation,
+        }),
+        Err(_) => Some(StepFailure {
+            message: format!(
+                "**{}** failed: worker thread が panic しました (fail-closed)",
+                name
+            ),
+            cause: BlockCause::InfraError,
+        }),
+    }
+}
+
+/// 失敗一覧全体としての `BlockCause` を決定する。
+///
+/// 1 件でも実 quality 違反 (`BlockCause::QualityViolation`) があれば、実際に品質
+/// チェックが失敗したことを意味するため全体を `QualityViolation` とする。全失敗が
+/// worker panic (`BlockCause::InfraError`) のみの場合に限り `InfraError` とする
+/// (順位309: panic 単体を quality 違反として telemetry に誤計上しない)。
+fn aggregate_block_cause(failures: &[StepFailure]) -> BlockCause {
+    if failures
+        .iter()
+        .any(|f| f.cause == BlockCause::QualityViolation)
+    {
+        BlockCause::QualityViolation
+    } else {
+        BlockCause::InfraError
+    }
+}
+
+fn block_on_failures(failures: &[StepFailure]) {
     if failures.is_empty() {
         return;
     }
     let reason = format!(
         "品質ゲートが失敗しました。以下の問題を修正してください:\n\n{}",
-        failures.join("\n\n")
+        join_failure_messages(failures)
     );
-    emit_block(&reason);
+    emit_block(&reason, aggregate_block_cause(failures));
+}
+
+fn join_failure_messages(failures: &[StepFailure]) -> String {
+    failures
+        .iter()
+        .map(|f| f.message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[cfg(test)]
@@ -511,6 +587,31 @@ cmd = "pnpm test"
         assert!(json.contains(r#""reason":"test failed""#));
     }
 
+    /// 順位309: 実 quality 違反 (品質ステップ失敗) の block は telemetry recorder を発火する。
+    #[test]
+    fn quality_violation_block_invokes_the_telemetry_recorder() {
+        let mut recorded = false;
+        emit_block_with("品質ゲート失敗", BlockCause::QualityViolation, || {
+            recorded = true
+        });
+        assert!(recorded, "実 quality 違反の block は firing を記録する");
+    }
+
+    /// 順位309 / ADR-055 § 計装スコープ amendment: infra エラー (stdin/parse 失敗) の
+    /// fail-closed block は ROI 信号 (発火数で hook 維持を判断) を歪めるため telemetry
+    /// recorder を発火しない。record 位置を実 violation 経路限定に移した回帰ガード。
+    #[test]
+    fn infra_error_block_does_not_invoke_the_telemetry_recorder() {
+        let mut recorded = false;
+        emit_block_with("stdin 読み込み失敗", BlockCause::InfraError, || {
+            recorded = true
+        });
+        assert!(
+            !recorded,
+            "infra エラーの fail-closed block は firing を記録しない (順位309)"
+        );
+    }
+
     #[test]
     fn step_timeout_default_is_reasonable() {
         const { assert!(DEFAULT_STEP_TIMEOUT_SECS >= 30) };
@@ -546,20 +647,70 @@ cmd = "pnpm test"
 
         assert_eq!(failures.len(), 2, "失敗した 2 ステップのみ集約される");
         assert!(
-            failures[0].contains("fail-b"),
+            failures[0].message.contains("fail-b"),
             "spawn 順 = step 定義順を保つ (fail-b が先): {:?}",
-            failures
+            failures[0].message
         );
         assert!(
-            failures[1].contains("fail-d"),
+            failures[1].message.contains("fail-d"),
             "spawn 順 = step 定義順を保つ (fail-d が後): {:?}",
-            failures
+            failures[1].message
         );
         assert!(
-            !failures.iter().any(|f| f.contains("pass-")),
-            "成功ステップは failure に含まれない: {:?}",
-            failures
+            !failures.iter().any(|f| f.message.contains("pass-")),
+            "成功ステップは failure に含まれない"
         );
+    }
+
+    /// 順位309: 実際にステップが失敗した場合 (panic ではない) は `QualityViolation`
+    /// として記録される。
+    #[test]
+    fn step_failure_from_join_tags_real_failures_as_quality_violation() {
+        let failure = step_failure_from_join("step", Ok((false, "boom".to_string())))
+            .expect("失敗した step は Some を返す");
+        assert_eq!(failure.cause, BlockCause::QualityViolation);
+    }
+
+    /// 順位309 / ADR-055 § 計装スコープ amendment: worker panic は `InfraError` として
+    /// 記録される (実 quality 違反として telemetry に誤計上しない回帰ガード)。
+    #[test]
+    fn step_failure_from_join_tags_panics_as_infra_error() {
+        let result: std::thread::Result<(bool, String)> = Err(Box::new("panic"));
+        let failure = step_failure_from_join("step", result).expect("panic は Some を返す");
+        assert_eq!(failure.cause, BlockCause::InfraError);
+    }
+
+    #[test]
+    fn step_failure_from_join_returns_none_for_success() {
+        assert!(step_failure_from_join("step", Ok((true, String::new()))).is_none());
+    }
+
+    /// 順位309: 実 quality 違反が 1 件でもあれば全体は `QualityViolation` とする
+    /// (panic と混在していても、実際にチェックが失敗した事実は変わらないため)。
+    #[test]
+    fn aggregate_block_cause_is_quality_violation_when_any_failure_is_a_violation() {
+        let failures = vec![
+            StepFailure {
+                message: "panic".to_string(),
+                cause: BlockCause::InfraError,
+            },
+            StepFailure {
+                message: "real failure".to_string(),
+                cause: BlockCause::QualityViolation,
+            },
+        ];
+        assert_eq!(aggregate_block_cause(&failures), BlockCause::QualityViolation);
+    }
+
+    /// 順位309 / ADR-055 § 計装スコープ amendment: 失敗が全て worker panic の場合のみ
+    /// `InfraError` とする (panic 単体を quality 違反として誤計上しない回帰ガード)。
+    #[test]
+    fn aggregate_block_cause_is_infra_error_when_all_failures_are_panics() {
+        let failures = vec![StepFailure {
+            message: "worker thread が panic しました".to_string(),
+            cause: BlockCause::InfraError,
+        }];
+        assert_eq!(aggregate_block_cause(&failures), BlockCause::InfraError);
     }
 
     /// T7: ADR-010 の実配置 `<root>/.claude/<hook>.exe` からルートを導出する。

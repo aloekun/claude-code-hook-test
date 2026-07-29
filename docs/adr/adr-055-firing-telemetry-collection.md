@@ -75,9 +75,11 @@ warm-up 後に実データで棚卸し (step 2/3) を後続 PR で行う。本 A
 
 `decision` は「hook がツールを実際に停止したか」ではなく「発火の重み」を表す軸である。
 custom rule / jj-op-verify は additionalContext の助言層で実際には block しないが、severity
-に応じて block/warn を記録する。逆に stop-quality は infra エラー (stdin/parse 失敗) の
-fail-closed 経路でも block を emit するため、「hook が block を emit した総数」として記録
-する。file-length gate の fail-closed 経路 (jj 失敗の判定不能 block) は ROI 信号を汚さない
+に応じて block/warn を記録する。stop-quality は当初 infra エラー (stdin/parse 失敗) の
+fail-closed 経路でも block を emit するため「hook が block を emit した総数」として記録して
+いたが、後述の Amendment (2026-07-29) でこの定義を撤回し、実 quality 違反 (品質ステップ
+失敗) の block のみ記録するよう限定した (WP-12 ROI 信号から infra ノイズを除外)。
+file-length gate の fail-closed 経路 (jj 失敗の判定不能 block) は当初から ROI 信号を汚さない
 よう記録しない。
 
 ### 副作用注入によるテスト可能性
@@ -238,6 +240,44 @@ ADR-059 は systemMessage 可視化を weekly reminder 限定で dogfood し、�
 stop-feedback-dispatch / user-prompt-feedback-recovery は本 PR では計装しない。撤回した根拠は
 これらにも当てはまるが、計装は各 hook を触る PR で個別に行う (ADR-059 段階展開に連動)。
 §計装スコープ の除外リストは本 amendment に合わせて更新した。
+
+## Amendment (2026-07-29): block 記録を実 quality 違反に限定 (順位309、WP-12 ROI 信号の精度)
+
+初版 § 計装スコープ は stop-quality の block 記録を「hook が block を emit した総数」と
+定義し、infra エラー (stdin 読込 / JSON parse 失敗) の fail-closed 経路も計上していた。
+WP-12 step 2/3 (発火数で hook の維持・削除を判断する ROI 棚卸し) の観点では、この infra
+エラー混入が発火数を歪め「実際に品質違反を捕捉した回数」と乖離する。CodeRabbit Major 指摘
+(順位309) を受け、**block 記録を実 quality 違反 (品質ステップ失敗) パス限定に絞り込む**。
+
+### 3 hook の状態 (計装スコープ表のうち block を emit する hook)
+
+| hook | 修正前 | 修正後 |
+|---|---|---|
+| hooks-stop-quality | stdin/parse 失敗の fail-closed block でも記録 | `emit_block(reason, cause: BlockCause)` に変更し、`cause.records_firing()` (QualityViolation のみ真) の場合だけ telemetry に記録する。infra エラー経路 (`read_stdin_or_block` / `parse_hook_input_or_block`) と worker thread panic (`run_quality_steps` の join 失敗) は `InfraError` 扱いで block decision のみ emit し記録しない。実 quality 違反 (品質ステップ失敗) のみ `QualityViolation` |
+| hooks-stop-tool-call-leak | (変更なし) | `emit_block` は `run_check` の実 leak 検出時のみ呼ばれ、transcript 読取失敗・連続数 0・上限到達は fail-open で return するため既に実 leak 限定。ADR-061 の回収層 (`prompt-recovery`) は `should_recover` 成立時のみ warn 記録 |
+| hooks-pre-tool-validate | (変更なし) | `record_preset_block` は `validate_command` が hit を返す (= preset にマッチした実 violation) 経路のみ。stdin/parse 失敗は `ExitCode::FAILURE` で return し記録しない。既に preset match 限定 |
+
+### 設計: 経路を型で区別しテストで固定
+
+stop-quality に `BlockCause { QualityViolation, InfraError }` を導入し、`emit_block(reason, cause)`
+が `cause.records_firing()` (QualityViolation のみ真) のときだけ telemetry に記録する。
+telemetry 記録を closure 注入した `emit_block_with` をテストの芯とし、「QualityViolation は
+recorder を発火 / InfraError は発火しない」を副作用で観測して回帰ガードにする。leak / preset
+は record 呼び出しが既に violation 経路にしか存在しないため、コード構造でこの不変条件が保たれる
+(追加のテストは設けない)。
+
+また `run_quality_steps` の各失敗は `StepFailure { message, cause }` で由来を保持し、worker
+thread panic (join の `Err`) は実 quality 違反ではないため `InfraError`、ステップの実失敗は
+`QualityViolation` とする。`block_on_failures` は `aggregate_block_cause` で全体の cause を
+決め (1 件でも実失敗があれば `QualityViolation`、全て panic なら `InfraError`)、`emit_block`
+に渡す。これにより内部障害 (panic) を品質違反として ROI 信号に誤計上しない (CodeRabbit Major 指摘)。
+
+### 帰結
+
+- 「発火 0 = 削除候補」の ROI 信号が infra エラーの fail-closed block で汚染されなくなり、
+  発火数は「hook が実際に品質違反を捕捉した回数」を表す。
+- fail-open 原則は不変。telemetry 記録の有無に関わらず block decision 自体は emit するため、
+  infra エラー時も Claude への block 通知は従来どおり行われ、ゲート挙動は変わらない。
 
 ## 関連 ADR
 
