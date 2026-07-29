@@ -52,6 +52,25 @@ failed_marker_check_enabled = true # 前回失敗 marker 検出 → resume promo
 # (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
 system_message_enabled = true
 
+# [session_start.monthly_review_reminder]
+# - ADR-062 (WP-12 step 2/3): `/monthly-review` skill 起動の reminder (試験運用、ADR-039 準拠)。
+#   1 経路で発火 (weekly と異なり failed marker 経路は持たない、設計決定 1):
+#     `.claude/monthly-review-last-run.json` の `last_run_at` (内容 timestamp。mtime ではない
+#     — ADR-031 silent-fresh 教訓 / ADR-045 で main-root canonical 化) が `threshold_days`
+#     (既定 28) を超過したら telemetry ROI 棚卸しの `/monthly-review` 実行を促す。
+#   dogfood 3 回で default-ON 昇格 or 却下を判定 (bounded lifetime、ADR-062)。
+#   Kill-switch: `enabled = false` で完全停止。
+[session_start.monthly_review_reminder]
+# 試験運用元 (本リポジトリ) では明示的に enable して reminder を実発火させる運用。
+# 派生プロジェクト deploy 時は default OFF (ADR-039 § 1 opt-in 契約) を維持
+# (code default は unwrap_or(false)、本行を置かなければ完全 skip)。
+enabled = true
+threshold_days = 28                # ADR-053/061 の撤去粒度「4 週間」と整合 (月次粒度)
+# ADR-059: reminder 発火時に systemMessage (ユーザー可視 1 行) を additionalContext と併せて出す。
+# source default OFF。本リポジトリは dogfood のため true。systemMessage のみ止めたい場合は false
+# (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
+system_message_enabled = true
+
 # ─── PreToolUse: コマンド検証 ───
 
 [pre_tool_validate]

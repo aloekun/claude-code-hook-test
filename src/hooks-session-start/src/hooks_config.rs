@@ -1,8 +1,8 @@
 //! `.claude/hooks-config.toml` の deserialization (session_start section)。
 //!
-//! 各 feature の config struct (StalenessConfig / WeeklyReviewReminderConfig) と
-//! repo root からの読込関数を提供する。`[features].enabled` allow-list は
-//! 本 crate ではなく `lib-hooks-config` で扱う (PR-3b で導入予定)。
+//! 各 feature の config struct (StalenessConfig / WeeklyReviewReminderConfig /
+//! MonthlyReviewReminderConfig) と repo root からの読込関数を提供する。`[features].enabled`
+//! allow-list は本 crate ではなく `lib-hooks-config` で扱う (PR-3b で導入予定)。
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -48,10 +48,37 @@ pub(crate) struct WeeklyReviewReminderConfig {
     pub(crate) system_message_enabled: Option<bool>,
 }
 
+/// ADR-062 (WP-12 step 2/3): `/monthly-review` skill 起動 reminder 設定 (試験運用、ADR-039 experimental pattern)。
+///
+/// `[session_start.monthly_review_reminder]` section 不在 / `enabled` 未設定 /
+/// `enabled = false` では完全 skip (default-OFF in source、repo config で明示 enable する)。
+///
+/// weekly_review_reminder と異なり failed marker 経路は持たない (設計決定 1: L2 の月次集計
+/// (cli-telemetry-report) は決定論 exe で高速なため `.failed` marker / resume 機構を採らない)。
+/// 発火は last-run staleness の 1 経路のみ: メイン workspace の
+/// `.claude/monthly-review-last-run.json` の `last_run_at` (内容 timestamp。mtime ではない —
+/// ADR-031 silent-fresh 教訓 / ADR-045 で main-root canonical 化) が `threshold_days` を
+/// 超えていれば「`/monthly-review` の実行を検討」を nudge。
+///
+/// fail-open: ファイル読込失敗時は warning なしで通過する (session 起動阻害しない)。
+#[derive(Deserialize)]
+pub(crate) struct MonthlyReviewReminderConfig {
+    pub(crate) enabled: Option<bool>,
+    /// staleness threshold (日)。source default は
+    /// [`MONTHLY_REVIEW_DEFAULT_THRESHOLD_DAYS`](crate::monthly_review) = 28 日
+    /// (ADR-053/061 の撤去粒度「4 週間」と整合)。
+    pub(crate) threshold_days: Option<u64>,
+    /// systemMessage (ユーザー可視 1 行、ADR-059) を出すか。source default OFF
+    /// (`unwrap_or(false)`)。`false` でも additionalContext の nudge は継続する
+    /// (systemMessage のみを止める kill-switch)。`enabled = false` は nudge 自体を止める。
+    pub(crate) system_message_enabled: Option<bool>,
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct SessionStartConfig {
     pub(crate) staleness: Option<StalenessConfig>,
     pub(crate) weekly_review_reminder: Option<WeeklyReviewReminderConfig>,
+    pub(crate) monthly_review_reminder: Option<MonthlyReviewReminderConfig>,
 }
 
 #[derive(Deserialize, Default)]
@@ -147,6 +174,63 @@ system_message_enabled = true
         assert_eq!(weekly.reminder_threshold_days, Some(14));
         assert_eq!(weekly.failed_marker_check_enabled, Some(false));
         assert_eq!(weekly.system_message_enabled, Some(true));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hooks_config_parses_session_start_monthly_review_reminder_section() {
+        use std::io::Write;
+        let root = unique_temp_root("monthly");
+        let claude_dir = root.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let toml_str = r#"
+[session_start.monthly_review_reminder]
+enabled = true
+threshold_days = 28
+system_message_enabled = true
+"#;
+        let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+        drop(f);
+        let config = read_hooks_config(&root);
+        let monthly = config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.monthly_review_reminder.as_ref())
+            .expect("monthly_review_reminder section should parse");
+        assert_eq!(monthly.enabled, Some(true));
+        assert_eq!(monthly.threshold_days, Some(28));
+        assert_eq!(monthly.system_message_enabled, Some(true));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn monthly_review_system_message_enabled_defaults_to_none_when_omitted() {
+        use std::io::Write;
+        let root = unique_temp_root("monthly-no-sysmsg");
+        let claude_dir = root.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let toml_str = r#"
+[session_start.monthly_review_reminder]
+enabled = true
+"#;
+        let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
+        f.write_all(toml_str.as_bytes()).unwrap();
+        drop(f);
+        let config = read_hooks_config(&root);
+        let monthly = config
+            .session_start
+            .as_ref()
+            .and_then(|s| s.monthly_review_reminder.as_ref())
+            .expect("monthly_review_reminder section should parse");
+        assert_eq!(
+            monthly.system_message_enabled, None,
+            "system_message_enabled 未設定は None (source default OFF、ADR-059)"
+        );
+        assert_eq!(
+            monthly.threshold_days, None,
+            "threshold_days 未設定は None (code default 28 は monthly_review 側で適用)"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

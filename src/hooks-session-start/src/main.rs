@@ -8,6 +8,7 @@
 //!   4. Orphan run reaper (ADR-030 §L2): `reaper` module
 //!   5. Working copy staleness nudge: `staleness` module
 //!   6. Weekly review reminder (ADR-031 Phase C): `weekly_review` module
+//!   7. Monthly review reminder (ADR-062, WP-12 step 2/3): `monthly_review` module
 //!
 //! 各 nudge の発火は `lib-telemetry` (ADR-055) に `warn` として記録され、ROI 棚卸しの
 //! 観測基盤 (`.claude/telemetry/firings-*.jsonl`) に載る (fail-open)。
@@ -23,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 mod hooks_config;
 mod jj_helpers;
+mod monthly_review;
 mod past_time;
 mod pr_monitor;
 mod reaper;
@@ -30,6 +32,7 @@ mod staleness;
 mod weekly_review;
 
 use hooks_config::read_hooks_config;
+use monthly_review::compute_monthly_review_reminder_nudge;
 use pr_monitor::{compute_catchup_nudge, pr_monitor_state_path, read_parked_state};
 use reaper::compute_reaper_nudge;
 use staleness::{compute_staleness_nudge, compute_workspace_stale_nudge};
@@ -134,9 +137,10 @@ fn append_pr_monitor_catchup_nudge(context: &mut String, session_id: &str, now_u
     }
 }
 
-/// cwd 依存の nudge 群 (reaper / staleness / workspace_stale / weekly review) を `context` に
-/// 追記し、発火時は telemetry に記録する。weekly review のみユーザー可視の systemMessage を
-/// 伴うため、それを戻り値として返す (発火しなければ `None`)。
+/// cwd 依存の nudge 群 (reaper / staleness / workspace_stale / weekly review / monthly review) を
+/// `context` に追記し、発火時は telemetry に記録する。weekly / monthly review はユーザー可視の
+/// systemMessage を伴い、両方発火した場合は 1 行に合成して返す (systemMessage スロットは 1 つのため。
+/// どちらも発火しなければ `None`)。
 fn append_cwd_nudges(
     context: &mut String,
     session_id: &str,
@@ -162,12 +166,60 @@ fn append_cwd_nudges(
             record_nudge_firing("workspace_stale", session_id);
         }
     }
-    let weekly_config = session_start.weekly_review_reminder.as_ref()?;
-    let weekly_nudge = compute_weekly_review_reminder_nudge(cwd, weekly_config, now_unix)?;
-    context.push_str("\n\n");
-    context.push_str(&weekly_nudge.additional_context);
-    record_nudge_firing("weekly_review_reminder", session_id);
-    weekly_nudge.system_message
+    append_review_reminder_nudges(context, session_id, cwd, session_start, now_unix)
+}
+
+/// weekly / monthly review reminder を評価して `context` に追記し、発火した systemMessage を
+/// 合成して返す。両 reminder は同型 (additionalContext + 任意 systemMessage) で、systemMessage
+/// スロットが出力 JSON に 1 つのため合成する。両 config は独立に opt-in される (片方だけ enable 可)。
+fn append_review_reminder_nudges(
+    context: &mut String,
+    session_id: &str,
+    cwd: &Path,
+    session_start: &hooks_config::SessionStartConfig,
+    now_unix: i64,
+) -> Option<SingleLineMessage> {
+    let mut system_messages: Vec<SingleLineMessage> = Vec::new();
+    if let Some(weekly_config) = session_start.weekly_review_reminder.as_ref() {
+        if let Some(weekly_nudge) =
+            compute_weekly_review_reminder_nudge(cwd, weekly_config, now_unix)
+        {
+            context.push_str("\n\n");
+            context.push_str(&weekly_nudge.additional_context);
+            record_nudge_firing("weekly_review_reminder", session_id);
+            system_messages.extend(weekly_nudge.system_message);
+        }
+    }
+    if let Some(monthly_config) = session_start.monthly_review_reminder.as_ref() {
+        if let Some(monthly_nudge) =
+            compute_monthly_review_reminder_nudge(cwd, monthly_config, now_unix)
+        {
+            context.push_str("\n\n");
+            context.push_str(&monthly_nudge.additional_context);
+            record_nudge_firing("monthly_review_reminder", session_id);
+            system_messages.extend(monthly_nudge.system_message);
+        }
+    }
+    combine_system_messages(system_messages)
+}
+
+/// 複数の nudge が返した systemMessage を 1 行に合成する (ADR-059: systemMessage スロットは
+/// 出力 JSON に 1 つのため)。
+///
+/// 0 件 → `None`、1 件 → そのまま、複数 → ` / ` 区切りで連結して 1 つの `SingleLineMessage` に
+/// する (連結後も単一行不変条件は `SingleLineMessage::new` が構造的に保証する)。
+fn combine_system_messages(messages: Vec<SingleLineMessage>) -> Option<SingleLineMessage> {
+    match messages.len() {
+        0 => None,
+        1 => messages.into_iter().next(),
+        _ => Some(SingleLineMessage::new(
+            messages
+                .iter()
+                .map(SingleLineMessage::as_str)
+                .collect::<Vec<_>>()
+                .join(" / "),
+        )),
+    }
 }
 
 /// nudge の発火を telemetry (ADR-055) に記録する (fail-open)。
@@ -337,6 +389,35 @@ mod tests {
         assert_eq!(
             output["hookSpecificOutput"]["hookEventName"],
             "SessionStart"
+        );
+    }
+
+    #[test]
+    fn combine_system_messages_none_when_empty() {
+        assert!(combine_system_messages(Vec::new()).is_none());
+    }
+
+    #[test]
+    fn combine_system_messages_passes_single_through_unchanged() {
+        let msg = combine_system_messages(vec![SingleLineMessage::new("週次レビュー: 実行記録なし")])
+            .expect("1 件はそのまま Some");
+        assert_eq!(msg.as_str(), "週次レビュー: 実行記録なし");
+    }
+
+    #[test]
+    fn combine_system_messages_joins_multiple_on_one_line() {
+        let msg = combine_system_messages(vec![
+            SingleLineMessage::new("週次レビュー: 実行記録なし"),
+            SingleLineMessage::new("月次レビュー: 実行記録なし"),
+        ])
+        .expect("複数件は合成して Some");
+        assert_eq!(
+            msg.as_str(),
+            "週次レビュー: 実行記録なし / 月次レビュー: 実行記録なし"
+        );
+        assert!(
+            !msg.as_str().contains('\n'),
+            "合成後も単一行不変条件を満たす (SingleLineMessage が保証)"
         );
     }
 
