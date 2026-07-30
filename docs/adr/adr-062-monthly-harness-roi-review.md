@@ -84,7 +84,9 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
   promote 抑止となる (leak 発火が improve 偏在のため誤 promote を防ぐ正しい挙動)。degraded を解消する
   運用は **improve workspace から実行する** (improve が現 root として解決される)。`extra_roots` は
   集計対象 root を追加する (improve の telemetry を取り込む) が、未解決 workspace の root は未知で
-  対応を検証できないため degraded の解除には使わない。
+  対応を検証できないため degraded の解除には使わない。**この格納パス不整合が続く限り main workspace
+  からの実行は恒久的に degraded であり、improve workspace からの実行が唯一の非 degraded 経路である**
+  (last-run 更新契約 § 決定 5 により、main からは L1 reminder が止まらない)。
 - **月次 rollup + retention**: 月ごとの id 別集計を `.claude/telemetry/monthly-<YYYY-MM>.json`
   (main workspace 側) に永続化。raw daily ファイルは retention (config `retention_days`。**code
   default は未設定 = 削除無効**、ADR-039 opt-in。本 repo は `retention_days = 90` で dogfood) 超過分を
@@ -156,7 +158,8 @@ skills repo (`$CLAUDE_SKILLS_REPO`) で作成し `~/.claude/skills/` へ deploy 
   に到達しない) と **degraded** (root 発見不完全で promote 抑止) の場合は last-run を**更新せず
   stale のまま**にし、次回セッションで L1 reminder を再発火させる。degraded を「レビュー完了」と
   みなして更新すると、root 発見漏れ (leak 発火が improve に偏在) のまま催促が止まるため。degraded は
-  improve workspace 実行 / `extra_roots` 追加で解消するまで催促を継続する (§ 決定 2 の運用指針と整合)。
+  **improve workspace 実行で解消するまで催促を継続する** (`extra_roots` は集計対象 root を追加する
+  のみで degraded は解除しない)。
 - **候補が 4 件を超える場合は AskUserQuestion を複数質問に分割**する (1 質問 4 option の制約。
   severity / 機構種別順にグループ化。ADR-031 Phase E dogfood で確立した weekly-review と同方式)。
 - 自動で無効化しない。採否は必ず AskUserQuestion を経る
