@@ -3,6 +3,9 @@
 //! 機構ごとに「監視 id 群が連続 `zero_streak_months` か月発火 0、かつ各月の rollup snapshot が
 //! enabled=true + 配備あり」を満たせば非アクティブ化候補として promote する。root 発見が
 //! degraded な実行では promote を抑止する (発見漏れ + 発火 0 の誤 promote 防止、設計決定 2 § 入力)。
+//! **閾値判定は確定月のみで数える** (未確定当月は streak 表示 / `current_month_partial` には含めるが
+//! 閾値到達判定からは除外する、Phase D)。「連続 2 か月発火 0」(ユーザー決定事項 1) の忠実実装であり、
+//! leak の promote 最早時期は「2 つの完全なゼロ月が確定した後の初回実行」になる。
 //! 最終判断は必ずユーザー採否を経る (自動無効化しない、ADR-022/028)。
 
 use crate::config::MechanismConfig;
@@ -30,7 +33,8 @@ pub struct Verdict {
     /// promote 閾値 (`zero_streak_months`)。
     pub required: u64,
     pub proposal: String,
-    /// 連続列の先頭 (最新) が未確定の当月を含むか (参考情報として明示)。
+    /// 連続列の先頭 (最新) が未確定の当月を含むか。参考情報として明示し、かつ閾値到達判定からは
+    /// この 1 か月を除外する (確定月のみで数える、Phase D)。
     pub current_month_partial: bool,
 }
 
@@ -57,9 +61,10 @@ fn verdict_for(
     current_month: &str,
 ) -> Verdict {
     let (zero_streak, current_month_partial) = trailing_zero_streak(rollups, mechanism, current_month);
+    let confirmed_streak = zero_streak - u64::from(current_month_partial);
     let status = if degraded {
         VerdictStatus::Suppressed
-    } else if zero_streak >= zero_streak_months && zero_streak_months > 0 {
+    } else if confirmed_streak >= zero_streak_months && zero_streak_months > 0 {
         VerdictStatus::Promote
     } else {
         VerdictStatus::NotMet
@@ -253,14 +258,36 @@ mod tests {
     }
 
     #[test]
-    fn current_partial_month_flagged() {
+    fn current_partial_month_flagged_but_excluded_from_threshold() {
         let rollups = vec![
             rollup("2026-06", true, 0, enabled_snapshot()),
             rollup("2026-07", false, 0, enabled_snapshot()),
         ];
         let v = &compute_verdicts(&rollups, &[leak()], 2, false, "2026-07")[0];
         assert!(v.current_month_partial, "連続列先頭が未確定当月");
-        assert_eq!(v.status, VerdictStatus::Promote);
+        assert_eq!(v.zero_streak, 2, "streak 表示は未確定当月を含む");
+        assert_eq!(
+            v.status,
+            VerdictStatus::NotMet,
+            "確定 1 か月 + 部分当月 1 か月は閾値 2 に未達 (当月部分は閾値から除外、Phase D)"
+        );
+    }
+
+    #[test]
+    fn confirmed_two_plus_partial_month_promotes() {
+        let rollups = vec![
+            rollup("2026-05", true, 0, enabled_snapshot()),
+            rollup("2026-06", true, 0, enabled_snapshot()),
+            rollup("2026-07", false, 0, enabled_snapshot()),
+        ];
+        let v = &compute_verdicts(&rollups, &[leak()], 2, false, "2026-07")[0];
+        assert!(v.current_month_partial);
+        assert_eq!(v.zero_streak, 3, "streak 表示は確定 2 + 部分 1");
+        assert_eq!(
+            v.status,
+            VerdictStatus::Promote,
+            "確定 2 か月で閾値到達 (当月部分を除いても 2 か月)"
+        );
     }
 
     #[test]
