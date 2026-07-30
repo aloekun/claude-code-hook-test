@@ -162,8 +162,9 @@ weekly と異なり **failed marker 経路は持たない** (§ 決定 1 の mar
 加え snapshot 用の `enabled_config_keys` / `exe_names` を持ち、config enabled / exe 配備の確認
 (§ 決定 2 レポート (c)) を機構横断で汎用化する。promote の成立条件には
 「対象の各月 rollup に `enabled = true` + 配備ありの snapshot 記録があること」を含める (無効化・
-未配備の月を「発火 0」と誤読しない)。**月中の一時無効化までは snapshot では検出できない**が、
-最終判断が必ずユーザー採否 (AskUserQuestion) を経る前提で受容する。
+未配備の月を「発火 0」と誤読しない)。**snapshot が証明する範囲には限界がある** (Phase C amendment で
+「月中実行があればその最後の時点」に精緻化。§ 4 の amendment 参照) が、最終判断が必ずユーザー採否
+(AskUserQuestion) を経る前提で受容する。
 
 初期マッピングは 1 件: ADR-053/061 (leak 検知) → ids
 `[hooks-stop-tool-call-leak, hooks-stop-tool-call-leak/prompt-recovery]` → 提案 =
@@ -172,6 +173,22 @@ revert PR は ADR-053/061 bounded lifetime の手順に従う)。ADR-061 の回�
 `hooks-stop-tool-call-leak/prompt-recovery` (decision = warn) で記録されるため、leak のトレンドは
 block + この warn の合算と内訳で見る。全試験運用 ADR の網羅登録は将来拡張とし、MVP はこの 1 件 +
 発火 0 リスト全般で足りる。
+
+### 4 の amendment (2026-07-31, Phase C): rollup 確定時の snapshot 保持
+
+snapshot は集計実行時点の状態でしかなく、月次カデンツでは月 M の確定を M+1 の初回実行が行う。旧実装は
+確定する全月に**実行時点 (M+1) の snapshot** を刻んでいたため、月 M 中ずっと無効化していた機構を
+M+1 で再有効化すると「M は enabled + 発火 0」と確定し、無効化月を誤って promote streak に算入し得た。
+`aggregate.rs` `resolve_month` を修正し、**確定 rollup に「月中最後の観測」を保持**する:
+
+- **当月**: 毎回現在 snapshot で再スタンプ (月中最後の実行時点が自然に確定値として残る)。
+- **過去月の確定で prev (月中の未確定 rollup) がある**: `prev.snapshot` を保持 (現在 snapshot で
+  再スタンプしない)。
+- **過去月で prev が無い (月中に一度も実行が無かった)**: 現在 snapshot で代用する。
+
+したがって **snapshot が証明するのは (a) 月中に実行があればその最後の時点、(b) 無ければ確定時点の
+状態** に精緻化される。真の月中の一時無効化 (snapshot と snapshot の間のトグル) は依然検出できないが、
+最終判断は必ずユーザー採否を経る前提で受容する。
 
 ### 5. L3: skill `/monthly-review`
 
@@ -241,8 +258,9 @@ telemetry の ROI 棚卸しは dogfood で有用性を検証する。明示的�
 - **telemetry はローカル運用データ** (gitignore): rollup もローカル。マシン移行でトレンドが
   消える点は ADR-055 と同じ位置づけで受容する。
 - **発火 0 の解釈**は snapshot (config enabled + exe 配備の月別記録) で緩和するが確定はしない。
-  **月中の一時無効化は snapshot では検出できない**限界があり、最終判断は必ずユーザー採否を経る
-  (自動無効化しない)。
+  Phase C 以降 **snapshot が証明するのは「月中実行があればその最後の時点、無ければ確定時点の状態」**
+  (§ 4 amendment) で、真の月中の一時無効化 (snapshot 間のトグル) は依然検出できない限界があり、
+  最終判断は必ずユーザー採否を経る (自動無効化しない)。
 - **初回実行は 2026-08-12 以降を推奨** (warm-up)。実装 land はそれ以前でよい。
 - root 発見が不完全な実行では degraded を明示し promote を抑止するが、集計・レポート自体は
   fail-open で継続する ([ADR-043](adr-043-security-gates-fail-closed.md) の fail-closed は
