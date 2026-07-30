@@ -107,6 +107,11 @@
 | 349 | 💎 Tier 3 | **pr-monitor.yml に state semantics / if 式 / hardening 意図のインラインコメント追加 (#310 post-merge feedback 採用)** | todo14.md | S | なし (state guard が redundant と誤認・折り畳み if 式が誤読される混乱が本セッションで 2 件実発生) |
 | 350 | 💎 Tier 3 | **新 config directive と要求最小 exe version の CHANGELOG/FEATURES 記録 (#310 post-merge feedback 採用)** | todo14.md | S | なし (順位 345 の互換性チェック機構と対になる human-readable 契約。2 回の stale-exe 実観測) |
 | 351 | 💎 Tier 3 | **local LLM review の network 分離制約を明記し unverifiable finding を skip 運用 (#310 post-merge feedback 採用)** | todo14.md | S | なし (local LLM が live marker を検証できず false positive を実出力、author が手動で否定。原提案の Target ADR-038 はスコープ違いで要修正) |
+| 352 | 💎 Tier 3 | **フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加 (#333 post-merge feedback T3-2 採用)** | todo14.md | S | なし (PR #333 Phase 4 で plan doc の 6 実装決定を ADR-062 へ手動 transpose した際に漏れかけ照合で補完。60+ ADR の多段階運用で plan→ADR 同期漏れ再発見込み。lint 化非現実的だが順位261/262/274 と同型の checklist 化は overhead 最小) |
+| 353 | 💎 Tier 3 | **ADR amendment 時の「§ Amendment」節追加を dev-conventions.md チェックリスト化 (#332 post-merge feedback T3-2 採用)** | todo14.md | XS | なし (PR #332/#333 で ADR-062 が ADR-053/055/061 を amend し被 amend 側追記を都度アドホック実施。CLAUDE.md 索引の Supersedes 注記と同様に Amendment 明記を convention 化) |
+| 354 | 💎 Tier 3 | **todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-8 採用)** | todo14.md | XS | なし (PR #332 で todo16.md 複数セクション削除時に lint:md を 3 回以上再実行。段階削除+都度 lint:md+順位番号本文混入注意の checklist 化、専用スクリプト化 (Tier2 様子見) と独立の即応策。順位334 と相補) |
+| 355 | 💎 Tier 3 | **新規スキル作成チェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-9 採用)** | todo14.md | XS | なし (PR #332 で monthly-review skill 作成時に weekly-review を都度参照する手戻り。SKILL.md/evals.json/trigger_eval.json の 3 点セット + Phase 構成 + deploy 前 sync check を checklist 化) |
+| 356 | 🔧 Tier 2 | **weekly/monthly staleness 判定の共通 fixture parametrized test を追加 (#331 post-merge feedback T2-1 採用)** | todo14.md | S | なし (monthly_review.rs の staleness 判定が weekly_review.rs と逐語重複、片方修正で挙動乖離するリスク。同一 fixture〔threshold 境界/Missing/Stale/Unreadable/未来値/main-root canonical〕で両流路を検証、inline test module に配置) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
