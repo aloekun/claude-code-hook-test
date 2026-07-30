@@ -17,6 +17,7 @@ mod config;
 mod discover;
 mod incident;
 mod model;
+mod registry;
 mod report;
 mod snapshot;
 mod timekit;
@@ -125,6 +126,7 @@ fn finish_report(
     now: u64,
 ) -> io::Result<Summary> {
     let incident_ids = incident::incident_rule_ids(config_base);
+    let registry = registry::build_registry(config_base, &config.registry.hook_ids);
     let verdicts = verdict::compute_verdicts(
         rollups,
         &config.mechanisms,
@@ -147,6 +149,7 @@ fn finish_report(
         current_snapshot: snapshot,
         mechanisms: &config.mechanisms,
         incident_ids: &incident_ids,
+        registry: &registry,
         verdicts: &verdicts,
         trend_months: config.trend_months(),
         retention_deleted,
@@ -272,6 +275,7 @@ mod tests {
             zero_streak_months: Some(2),
             trend_months: Some(6),
             extra_roots: Vec::new(),
+            registry: Default::default(),
             mechanisms: vec![config::MechanismConfig {
                 name: "stop_tool_call_leak".to_string(),
                 adr: "ADR-053/061".to_string(),
