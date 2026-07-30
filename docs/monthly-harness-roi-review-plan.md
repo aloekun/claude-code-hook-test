@@ -1,7 +1,10 @@
 # 月次ハーネス ROI レビュー 追加アクション (dogfood #1 起点) 実装プラン
 
 **本ドキュメントは実装作業の指示書である。** 実作業は本ドキュメントの内容のみを見て実施できる
-ように書かれている。前身の実装指示書 (同名ファイル、WP-12 step 2/3 の Phase 0〜4) は PR #333 で
+ように書かれている(ただし「設計決定 1」で明示した rule id / hook_ids の語彙など一部の項目は、
+本ドキュメントの記載を鵜呑みにせず実装コードから実確認することを要求している。これは別文書の
+参照が必要という意味ではなく実装作業に内在する検証であり、指示書としての自己完結性を損なわない)。
+前身の実装指示書 (同名ファイル、WP-12 step 2/3 の Phase 0〜4) は PR #333 で
 ADR 反映を照合のうえ削除済み。本ドキュメントは 2026-07-30 の初回 dogfood (`/monthly-review`) と
 アーキテクチャ調査で発見した問題群への**追加アクション A〜D** の指示書として新規に起こした。
 **最終目標は Phase E**: 本プランの「設計決定」が [ADR-062](adr/adr-062-monthly-harness-roi-review.md)
@@ -71,10 +74,10 @@ degraded の解除には使わない」に保守化した。ADR-062 § 決定 2 
 | `docs/adr/adr-062-monthly-harness-roi-review.md` § 決定 5 | 「degraded は improve workspace 実行 / `extra_roots` 追加で解消するまで催促を継続する (§ 決定 2 の運用指針と整合)」— § 決定 2 が更新済みのため、この括弧書きは現在**偽** |
 | memory `monthly-review-degraded-from-main-workspace` (auto-memory、`MEMORY.md` index 行含む) | How to apply の「`extra_roots` に improve の絶対パスを追加して degraded を解消する」 |
 
-**未文書化の運用帰結**: この環境の `ccht-improve` workspace は jj 格納パス不整合で `self.root()` が
-解決不能のため、その状態が続く限り **main workspace からの実行は恒久的に degraded** → last-run 契約
-(degraded では更新しない) により main からは L1 reminder が止まらない。**improve workspace からの
-実行が唯一の非 degraded 経路**である。
+**未文書化の運用帰結**: **improve workspace からの実行が唯一の非 degraded 経路である。** 現状の
+main-workspace 環境では `ccht-improve` workspace が jj 格納パス不整合で `self.root()` が解決不能な
+ため、この path 不整合が続く限り main workspace からの実行は degraded のままとなる → last-run 契約
+(degraded では更新しない) により main からは L1 reminder が止まらない。
 
 #### C の根拠
 

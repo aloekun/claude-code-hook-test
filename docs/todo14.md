@@ -433,7 +433,7 @@
 
 ### フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加
 
-> **動機**: PR #333 (Phase 4) で計画文書 `docs/monthly-harness-roi-review-plan.md` の 3 user-decisions + 5 design-decisions + 検証観点 (計 6 項目の実装上の決定) を ADR-062 へ手動 transpose した際、プラン doc にしか無かった決定が漏れかけ、Phase 4 の照合で発見・補完した。本 repo は 60+ の ADR を Phase 1〜4 等の多段階で運用しており、plan→ADR 同期漏れは今後の phase-completion で再発が見込まれる。#333 post-merge feedback Tier3 #2 で採用。
+> **動機**: PR #333 (Phase 4) で計画文書 `docs/monthly-harness-roi-review-plan.md` の 3 user-decisions + 5 design-decisions (計 8 項目) + 検証観点を ADR-062 へ手動 transpose した際、プラン doc にしか無かった決定が漏れかけ、Phase 4 の照合で発見・補完した。本 repo は 60+ の ADR を Phase 1〜4 等の多段階で運用しており、plan→ADR 同期漏れは今後の phase-completion で再発が見込まれる。#333 post-merge feedback Tier3 #2 で採用。
 >
 > **対処案**: `docs/dev-conventions.md` に「フェーズ完了 (plan doc 削除) 前に、計画文書の実装決定事項 (user-decisions / design-decisions / 実装上の決定) がすべて最終設計文書 (ADR) に転記済みかを 1 項目ずつ照合する」チェックリスト規約を追加する。lint 化は非現実的 (ADR ごとに記述形式が異なる) だが、既存の番号付きチェックリスト規約 (順位261/262/274 等) と同型で overhead 最小。
 >
