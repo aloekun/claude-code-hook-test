@@ -139,13 +139,24 @@ section 不在 / `enabled` 未設定 / `false` では完全 skip。本リポジ�
 根本原因は上流の不具合であり、本 hook は上流が修正されるまでの時限的な防御層である。
 撤去判定 trigger:
 
-- **撤去**: 上流 (Claude Code / モデル) の修正が確認できた、または leak が
-  **4 週間観測されなくなった**時点で、hook 登録解除 + crate 削除の revert PR を作成
+- **撤去**: 上流 (Claude Code / モデル) の修正が確認できた、または **月次レビュー (ADR-062) が
+  leak を連続 2 か月発火 0 で非アクティブ化候補として promote した**時点で、hook 登録解除 +
+  crate 削除の revert PR を作成 (旧「4 週間非観測」基準は ADR-062 の 2 か月基準へ正式置換。
+  2 か月は 4 週間より保守的。詳細は本 § 末尾の追記を参照)
 - **継続**: leak が観測され続ける間は維持。block 発火が透明になるよう stderr /
   reason に検知回数を明示している
 
 dogfood 計測項目: block 発火数、fail-open (上限到達) 数、誤検知報告 (正当なテキスト
 出力が block された件数、期待値 0)。
+
+**撤去判定の機械 promote (2026-07-30 追記、[ADR-062](adr-062-monthly-harness-roi-review.md))**:
+上記「4 週間観測されなくなった」の判定は人間の記憶に依存していたが、
+[ADR-062 (月次ハーネス ROI レビュー)](adr-062-monthly-harness-roi-review.md) が
+telemetry 発火実績 (id `hooks-stop-tool-call-leak` + ADR-061 の `prompt-recovery` warn) から
+**連続 2 か月発火 0 で非アクティブ化候補として機械 promote** する (config `zero_streak_months`、
+既定 2。4 週間より保守的な置き換え)。promote は `/monthly-review` skill の AskUserQuestion を
+経てユーザーが採否し、自動無効化はしない。最終的な hook 登録解除 + crate 削除の revert PR は
+本 § の手順に従う。
 
 ## 帰結
 
@@ -187,6 +198,7 @@ ADR-061 と連動する。約 150 セッションの corpus 調査で hard-fail 
 
 ## 関連 ADR
 
+- [ADR-062](adr-062-monthly-harness-roi-review.md) — 月次 ROI レビュー (撤去判定「4 週間非観測」を発火実績で機械 promote)
 - [ADR-061](adr-061-tool-call-leak-hardfail-recovery.md) — hard-fail 経路対応 (本 ADR の拡張)
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用標準パターン
 - [ADR-004](adr-004-stop-hook-quality-gate.md) — Stop 品質ゲート (ループ防止方式の逸脱元)

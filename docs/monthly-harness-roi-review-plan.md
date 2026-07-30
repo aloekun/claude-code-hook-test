@@ -206,9 +206,12 @@ worker thread panic を `QualityViolation` として誤計上しないよう `St
   → 実測で improve+main 横断集計・leak 13 block / recovery 2 warn の内訳分離・degraded 抑止を確認
   (実測時点では main 側にも leak 発火が蓄積し 0 ではなくなっていたが、横断集計は正しく合算)。
 
-### Phase 2 (PR-3 前半): L1 reminder ✅ 実装完了 (未 push、2026-07-30)
+### Phase 2 (PR-3 前半): L1 reminder ✅ 完了 (PR #331, merged 2026-07-30)
 
-**実施結果**: `hooks-session-start` に月次レビュー reminder を実装。
+**実施結果**: `hooks-session-start` に月次レビュー reminder を実装。PR #331 として push →
+CI (analyze) pass / CodeRabbit pass (Walkthrough のみ、actionable 指摘なし・未解決スレッド 0) →
+squash merge 済み (merge commit `453620ed`)。post-merge-feedback (ADR-030) は takt で同期実行され、
+findings の採否は本プラン完了時にまとめてユーザー判断で実施予定 (ADR-014/030、未採用)。
 
 - `hooks_config.rs`: `MonthlyReviewReminderConfig` (`enabled` / `threshold_days` /
   `system_message_enabled`) を追加し `SessionStartConfig.monthly_review_reminder` に配線 +
@@ -231,9 +234,10 @@ worker thread panic を `QualityViolation` として誤計上しないよう `St
   default は OFF、派生 deploy では section を置かず完全 skip)。
 
 検証: `cargo test --workspace` (全 crate green、hooks-session-start 120 件) /
-`cargo clippy --workspace --all-targets -- -D warnings` / `pnpm lint:md` 全通。
-**push / PR 作成は未実施** (通常フロー・ADR-028 ゲート待ち)。実 hook 発火の確認は dogfood に委ねる
-(unit テストで閾値境界を固定済み、検証要件どおり)。
+`cargo clippy --workspace --all-targets -- -D warnings` / `pnpm lint:md` 全通。push は
+`pnpm push` (takt push-runner、pre-push-review APPROVE) → PR #331 作成 (ADR-028 ゲート、ユーザー承認) →
+merge pipeline (ADR-013、squash merge + `jj new master@origin` 同期) で完了。実 hook 発火の確認は
+dogfood に委ねる (unit テストで閾値境界を固定済み、検証要件どおり)。
 
 実装上の決定 (プラン未指定箇所、Phase 4 で ADR-062 へ反映):
 
@@ -247,22 +251,43 @@ worker thread panic を `QualityViolation` として誤計上しないよう `St
   (書き手は L3 skill、exe/hook 側は読むのみ)。当初計画どおり (すべて完了):
   設計決定 3 の全教訓 (a)〜(d) を適用、hooks-config.toml で dogfood。
 
-### Phase 3 (PR-3 後半 + skills repo): L3 skill + docs
+### Phase 3 (PR-3 後半 + skills repo): L3 skill + docs ✅ 実装完了 (未 push / skills repo 未 commit、2026-07-30)
 
-- **skills repo 側**: `$CLAUDE_SKILLS_REPO/monthly-review/SKILL.md` を新規作成 (weekly-review
-  skill を template に、設計決定 4 の Phase 構成)。skills repo の規約
-  (`$CLAUDE_SKILLS_REPO/docs/adr/0002` 等) に従い、deploy 方式は既存 skill と同じにする。
-  skills repo は別リポジトリのため PR フローも当該 repo の流儀に従う。
-- **本 repo docs**:
-  - ADR-062 新規: 本ドキュメントの「背景」「設計決定」「ユーザー決定事項」を正式記録。
-    ステータス試験運用、ADR-039 3 点セット (opt-in: reminder/retention は default OFF、
-    kill-switch: 各 enabled = false + telemetry 側 kill-switch が上流に存在、bounded lifetime:
-    dogfood 3 回で採否判定)。
-  - ADR-055 amendment: step 2/3 消化 + 出力先の週次→月次変更 + (Phase 0 の) block 記録限定。
-  - ADR-053 / ADR-061 追記: 「撤去判定 (4 週間非観測) は月次レビュー (ADR-062) が機械 promote
-    する」1 段落ずつ。
-  - CLAUDE.md index に ADR-062 追加。todo-summary2.md / todo16.md の順位 307/308/312 entry を
-    消化・削除 (harness-improvement-plan.md の WP-12 状態も更新)。
+**実施結果**: L3 skill (skills repo) + 本 repo docs をすべて実装。
+
+- **skills repo 側** (`$CLAUDE_SKILLS_REPO` = `C:\Users\owner\work\claude-code-skills`、git・別リポ):
+  `monthly-review/SKILL.md` + `evals/evals.json` (5 ケース) + `evals/trigger_eval.json`
+  (22 件: 正 8 / 負 14) を新規作成。weekly-review を template にしつつ、設計決定 1 に従い takt でなく
+  `pnpm telemetry-report` (`cli-telemetry-report`) を同期実行、failed marker / resume 機構なしの
+  簡素版。設計決定 4/5 の Phase 構成 (起動条件確認 → exe 同期実行 → レポート提示 + AskUserQuestion
+  採否〔4 件超は分割〕→ ハイブリッド実行〔軽量 config 即時 push/PR / 大型 docs/todo.md 登録〕+
+  last-run 更新)。degraded / warm-up 時の promote 抑止も明記。ADR-0002 規約に従い
+  `~/.claude/skills/monthly-review/SKILL.md` へ deploy 済み (repo と in sync、skill として登録確認)。
+  **skills repo の commit / PR は未実施** (git はこの workspace の hook で block されるため、当該 repo の
+  flow で別途)。
+- **本 repo docs** (すべて完了):
+  - ✅ ADR-062 新規 (`docs/adr/adr-062-monthly-harness-roi-review.md`): 本ドキュメントの「背景」
+    「設計決定」「ユーザー決定事項」を正式記録。試験運用、ADR-039 3 点セット (opt-in:
+    reminder/retention は default OFF、kill-switch: 各 enabled = false + 上流 telemetry の
+    kill-switch、bounded lifetime: dogfood 3 回で採否判定)。
+  - ✅ ADR-055 amendment (2026-07-30): step 2/3 消化 + 出力先の週次→月次変更 (既存 2026-07-29 の
+    block 記録限定を Phase 0 分として本 amendment で言及)。
+  - ✅ ADR-053 / ADR-061 追記: 「撤去判定 (4 週間非観測) は月次レビュー (ADR-062) が連続 2 か月発火 0 で
+    機械 promote する」を 1 段落ずつ + 関連 ADR リンク。
+  - ✅ CLAUDE.md index に ADR-062 追加。todo-summary2.md の順位 307/308/312 行削除、todo16.md の該当
+    3 セクション (WP-12 step 2 / step 3 / retention) 削除、harness-improvement-plan.md の WP-12 状態
+    更新 (step 2-3 + retention を ADR-062 で消化、出力先 週次→月次)。
+
+検証: `pnpm lint:md` 全通 (skills repo の SKILL.md も markdownlint 0 error、eval JSON は妥当性確認済)。
+**push / PR 作成は未実施** (通常フロー・ADR-028 ゲート待ち)。
+
+実装上の決定 (プラン未指定箇所、Phase 4 で ADR-062 へ反映):
+
+- skill の大型作業の登録先は `docs/todo.md` (weekly-review と同一慣行)。優先度 table への行追加は
+  skill では行わずユーザー判断。
+- eval は fixture 不使用の 5 シナリオ (正常 config 採用 / degraded 抑止 / warm-up 保留 /
+  exe 失敗 best-effort / 大型 todo 登録)。trigger 負例に weekly-review との弁別 (「週次」「/weekly-review」)
+  と config 編集依頼を含める。
 
 ### Phase 4 (最終): ADR 記載漏れ確認 + 本ドキュメント削除
 
