@@ -2,9 +2,11 @@
 //!
 //! `jj workspace list` の動的列挙 + config `extra_roots` で集計対象 root を集める。leak 発火は
 //! improve workspace に偏在するため、発見漏れ + 発火 0 の組合せは誤 promote に直結する。よって
-//! 発見が不完全な場合 (jj list 失敗 / 現 workspace 以外の root 未解決を extra_roots で補えない /
-//! extra_roots 到達不能) は degraded を明示し、当該実行では判定候補の promote を抑止する
-//! (集計・レポート生成は fail-open で継続する)。
+//! 発見が不完全な場合 (jj list 失敗 / 現 workspace 以外の root 未解決 / extra_roots 到達不能) は
+//! degraded を明示し、当該実行では判定候補の promote を抑止する (集計・レポート生成は fail-open で
+//! 継続する)。未解決 workspace は root が未知で extra_roots との対応を検証できないため、件数比較で
+//! degraded を解除せず、未解決が 1 件でもあれば degraded を維持する (誤設定した extra_root による
+//! 誤 promote を防ぐ)。extra_roots は集計対象 root を追加するが degraded の解除には使わない。
 //!
 //! パースと degraded 判定は純粋関数 ([`parse_workspace_list`] / [`combine_roots`]) に分離し、
 //! jj 実行・canonicalize・存在確認の I/O は [`discover_roots`] が担う。
@@ -95,10 +97,9 @@ pub fn combine_roots(
     for extra in unreachable_extra {
         degraded.push(format!("extra_root が到達不能です: {extra}"));
     }
-    if jj_list_ok && unresolved_non_current > reachable_extra.len() {
+    if jj_list_ok && unresolved_non_current > 0 {
         degraded.push(format!(
-            "現 workspace 以外で root 未解決の workspace が {unresolved_non_current} 件あり、到達可能な extra_roots ({} 件) で補いきれません (発火 0 判定の誤 promote を防ぐため degraded、extra_roots への明示追加を推奨)",
-            reachable_extra.len()
+            "現 workspace 以外で root 未解決の workspace が {unresolved_non_current} 件あります (root が未知のため extra_roots との対応を検証できず、発火 0 判定の誤 promote を防ぐため degraded を維持。対象 workspace から実行すれば当該 workspace が現 root として解決されます)"
         ));
     }
     (roots, degraded)
@@ -288,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn combine_roots_degraded_when_unresolved_exceeds_extra() {
+    fn combine_roots_degraded_when_any_unresolved_non_current() {
         let (_, degraded) = combine_roots(
             PathBuf::from("/cur"),
             Vec::new(),
@@ -302,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn combine_roots_extra_root_covers_unresolved() {
+    fn combine_roots_extra_root_added_but_unresolved_keeps_degraded() {
         let (roots, degraded) = combine_roots(
             PathBuf::from("/cur"),
             Vec::new(),
@@ -311,8 +312,16 @@ mod tests {
             vec![PathBuf::from("/improve")],
             &[],
         );
-        assert!(degraded.is_empty(), "到達可能 extra_root が未解決数を補うと degraded 解消");
-        assert!(roots.contains(&PathBuf::from("/improve")));
+        assert_eq!(
+            degraded.len(),
+            1,
+            "extra_root は集計対象に加わるが、未解決 workspace の root は未知で対応を検証できないため degraded は維持"
+        );
+        assert!(degraded[0].contains("root 未解決"));
+        assert!(
+            roots.contains(&PathBuf::from("/improve")),
+            "extra_root は集計 root には追加される"
+        );
     }
 
     #[test]
