@@ -74,13 +74,17 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
 - **root 発見不完全時の promote 抑止**: root 発見が不完全な場合 (`jj workspace list` 失敗 /
   現 workspace 以外の未解決 / `extra_roots` の到達不能) はレポートに **degraded を明示**し、当該
   実行では判定候補の promote を抑止する (degraded 成立の実装条件 = 現 workspace 以外で root 未解決の
-  workspace 数 > 到達可能な `extra_roots` 数。**現 workspace 自身の `self.root()` 解決失敗は exe 隣接
-  `.claude` の親 = 現 root で補うため degraded にしない**)。集計・レポート生成は fail-open で継続するが、
-  「発火 0」判定は完全な root 集合を前提とする (発見漏れ + 発火 0 の組合せは誤 promote に直結するため)。
-  この環境の `ccht-improve` workspace は jj 格納パス不整合で `self.root()` が解決不能なため、
-  main workspace から実行すると improve が未解決 → degraded → promote 抑止となる (leak 発火が
-  improve 偏在のため誤 promote を防ぐ正しい挙動)。**improve workspace から実行すれば improve が現 root
-  として解決され degraded は解消する**、または `extra_roots` に improve を追加する。
+  workspace が **1 件でもあれば degraded**。未解決 workspace は `self.root()` が `<Error>` = root 未知の
+  ため `extra_roots` との対応を検証できず、件数比較で degraded を解除すると誤設定した extra_root が
+  誤 promote を招く。対応を検証できない以上、未解決 1 件でも degraded を維持する。**現 workspace 自身の
+  `self.root()` 解決失敗は exe 隣接 `.claude` の親 = 現 root で補うため degraded にしない**)。集計・
+  レポート生成は fail-open で継続するが、「発火 0」判定は完全な root 集合を前提とする (発見漏れ +
+  発火 0 の組合せは誤 promote に直結するため)。この環境の `ccht-improve` workspace は jj 格納パス
+  不整合で `self.root()` が解決不能なため、main workspace から実行すると improve が未解決 → degraded →
+  promote 抑止となる (leak 発火が improve 偏在のため誤 promote を防ぐ正しい挙動)。degraded を解消する
+  運用は **improve workspace から実行する** (improve が現 root として解決される)。`extra_roots` は
+  集計対象 root を追加する (improve の telemetry を取り込む) が、未解決 workspace の root は未知で
+  対応を検証できないため degraded の解除には使わない。
 - **月次 rollup + retention**: 月ごとの id 別集計を `.claude/telemetry/monthly-<YYYY-MM>.json`
   (main workspace 側) に永続化。raw daily ファイルは retention (config `retention_days`。**code
   default は未設定 = 削除無効**、ADR-039 opt-in。本 repo は `retention_days = 90` で dogfood) 超過分を
