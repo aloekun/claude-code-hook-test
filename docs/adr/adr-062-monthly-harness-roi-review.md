@@ -102,6 +102,37 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
   単体では月内の有効性を証明しないため、**月次 rollup 確定時に当月の snapshot を rollup JSON にも
   保存**し、判定はこの月別記録を参照する。
 
+### 2 の amendment (2026-07-31, Phase A): 機構レジストリ + 発火 0 リスト再定義
+
+初回 dogfood (2026-07-30) で、レポート (b) の発火 0 リストが「発火 0 = 削除候補」の中核シグナルとして
+機能していないことが判明した。rollup の id entry は発火レコードからしか作られない (`aggregate.rs`
+`count_firings` は block/warn のみ加算) ため、(1) 発火が止まって窓外に落ちた id と (2) 一度も発火して
+いない機構が**どちらも不可視**だった (§ 決定 4 の「MVP は 1 件 + **発火 0 リスト全般**で足りる」の
+後半が実装で満たされていなかった)。機構レジストリで母集合を静的に列挙してこの盲点を塞ぐ:
+
+- **機構レジストリ (3 供給源、すべて exe 隣接 `config_base` 基準)**:
+  - **rule**: `.claude/custom-lint-rules.toml` の全 rule id。incident 判定 (`incident.rs`) と同じ読み口
+    (`RulesFile`) を共有する。telemetry の rule firing id は `hooks-post-tool-linter` の
+    `lib_telemetry::record` が `id: &rule.id` で記録する (= rule の `id` フィールドそのもの)。
+  - **preset**: `hooks-config.toml` の `[pre_tool_validate] blocked_patterns` 宣言。preset firing は
+    `hooks-pre-tool-validate` の `record_preset_block` が `hit.source` (= blocked_patterns の宣言文字列)
+    を id に記録するため、宣言をそのまま列挙すれば発火 id と突き合う。
+  - **hook / nudge**: 自動列挙元が無いため config `[telemetry_report.registry] hook_ids` を新設
+    (ADR-039 additive。section 不在でも rule/preset は自動列挙される)。id は hook 名と一致しない例が
+    ある (`jj-op-verify` / `pr_monitor_catchup` / `hooks-stop-tool-call-leak/prompt-recovery` /
+    `file-length` / nudge 群等) ため、各 hook の `record` 呼び出しから実確認して列挙する。
+- **発火 0 集合 = (レジストリ ∪ 全 rollup 履歴に現れた id) − (窓内に発火した id)**。2 区分で提示:
+  - **never-fired**: レジストリにあり全履歴で発火 0。
+  - **went-quiet**: 履歴に発火があるが窓内 0 (**最終発火月を併記**。全 rollup 走査で導出)。
+
+  incident (`[rules.incident]`) 維持推奨マークと mechanisms 監視対象マークは新リストにも適用する。
+- **degraded 実行時は (b) 全体に「参考値 (root 発見不完全)」注記**を付す (発火が発見漏れ root に
+  偏在し得るため。verdict の promote 抑止と整合)。
+- 供給源単位の読取失敗は fail-open で skip しつつ**レポートに欠落を明示**する (silent fallback 排除、
+  「読めなかった」と「id が 0 件」を区別)。JSON の zero_firing entry に `provenance`
+  (`never_fired` / `went_quiet`) と `last_fired_month` を追加、`registry.source_failures` も出力する。
+  (b) は参考情報でありユーザーゲート (自動削除しない) は不変。
+
 ### 3. L1: SessionStart reminder
 
 `hooks-session-start` の `[session_start.monthly_review_reminder]` (`enabled` / `threshold_days`
