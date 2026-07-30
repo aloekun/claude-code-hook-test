@@ -163,12 +163,23 @@ code default OFF を継承する。
 根本原因は上流の不具合であり、本 hook は上流が修正されるまでの時限的な防御層である。
 [ADR-053](adr-053-stop-tool-call-leak-detection.md) と連動して撤去を判定する:
 
-- **撤去**: 上流 (Claude Code / モデル) の修正が確認できた、または leak が **4 週間観測されなく
-  なった**時点で、ADR-053 とまとめて hook 登録解除 + crate 削除の revert PR を作成
+- **撤去**: 上流 (Claude Code / モデル) の修正が確認できた、または **月次レビュー (ADR-062) が
+  leak (Stop block + 本回収 warn の合算) を連続 2 か月発火 0 で promote した**時点で、ADR-053 と
+  まとめて hook 登録解除 + crate 削除の revert PR を作成 (旧「4 週間非観測」基準は ADR-062 の
+  2 か月基準へ正式置換)
 - **継続**: leak が観測され続ける間は維持
 
 dogfood 計測項目: 回収発火数 (telemetry の `hooks-stop-tool-call-leak/prompt-recovery`)、
 UserPromptSubmit の発火順 (ハーネス自身の isMeta 注入との前後関係の実観測)、誤発火報告 (期待値 0)。
+
+**撤去判定の機械 promote (2026-07-30 追記、[ADR-062](adr-062-monthly-harness-roi-review.md))**:
+ADR-053 と連動する「4 週間観測されなくなった」の撤去判定は、
+[ADR-062 (月次ハーネス ROI レビュー)](adr-062-monthly-harness-roi-review.md) が telemetry 発火
+実績から機械 promote する。本 ADR の回収層は id `hooks-stop-tool-call-leak/prompt-recovery`
+(decision = warn) で記録されるため、leak トレンドは ADR-053 の Stop block と本 warn の**合算と
+内訳**で見る。両 id が連続 2 か月発火 0 (config `zero_streak_months`、既定 2) で非アクティブ化候補と
+なり、`/monthly-review` skill の AskUserQuestion を経てユーザーが採否する (自動無効化しない)。
+撤去は ADR-053 とまとめた revert PR で行う。
 
 ## 帰結
 
@@ -192,6 +203,7 @@ UserPromptSubmit の発火順 (ハーネス自身の isMeta 注入との前後�
 
 ## 関連 ADR
 
+- [ADR-062](adr-062-monthly-harness-roi-review.md) — 月次 ROI レビュー (撤去判定を発火実績で機械 promote、回収 warn を合算)
 - [ADR-053](adr-053-stop-tool-call-leak-detection.md) — 既存の Stop hook 検知 (本 ADR の拡張元)
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用標準パターン
 - [ADR-049](adr-049-incident-eval-regression-suite.md) — incident→eval 回帰スイート (fixture 方針)

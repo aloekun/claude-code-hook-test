@@ -279,8 +279,46 @@ thread panic (join の `Err`) は実 quality 違反ではないため `InfraErro
 - fail-open 原則は不変。telemetry 記録の有無に関わらず block decision 自体は emit するため、
   infra エラー時も Claude への block 通知は従来どおり行われ、ゲート挙動は変わらない。
 
+## Amendment (2026-07-30): WP-12 step 2/3 消化 + 出力先の週次→月次変更 (ADR-062)
+
+初版 § コンテキスト / § Bounded lifetime は、step 2 (ROI 棚卸し pre-step) の出力先を
+**週次レビュー ([ADR-031](adr-031-weekly-review-pipeline.md)) の facet** と想定していた。
+[ADR-062 (月次ハーネス ROI レビュー)](adr-062-monthly-harness-roi-review.md) の実装にあたり、
+この想定を **月次レビューへ変更**し、WP-12 step 2/3 を ADR-062 で消化する。
+
+### 出力先を週次→月次に変更
+
+テレメトリ傾向は週次では変化が小さくノイズになり、ADR-053/061 の leak 撤去粒度「4 週間」とも
+月次が一致する。よって step 2 の集計は週次 facet ではなく **月次の決定論 exe
+`cli-telemetry-report`** (ADR-062 § 決定 2) が担い、出力は `.claude/monthly-reviews/` +
+月次 rollup (`.claude/telemetry/monthly-<YYYY-MM>.json`) とする。週次 = whole-tree コード
+レビュー / 月次 = telemetry/ROI 棚卸し、の役割分担で ADR-031 と併存する。
+
+### step 2 / step 3 の消化内容 (ADR-062 に詳細)
+
+- **step 2 (棚卸し pre-step)**: `cli-telemetry-report` が workspace 横断で `firings-*.jsonl` を
+  集計し、月別 × id 別カウント + 発火 0 リスト + config enabled / exe 配備 snapshot + incident 由来
+  ルール ([ADR-049](adr-049-incident-eval-regression-suite.md)) の維持推奨マークを出力する。
+  incident 由来の区別は初版 § Bounded lifetime の想定どおり `[rules.incident]` を真実源とする。
+- **step 3 (bounded lifetime 判定の機械化)**: config `[[telemetry_report.mechanisms]]` の静的
+  マッピングで「連続 `zero_streak_months` (既定 2) か月発火 0 → 非アクティブ化候補として promote」を
+  MVP 実装。初期マッピングは ADR-053/061 の leak 検知 1 件。自動無効化はせず採否は
+  `/monthly-review` skill の AskUserQuestion を経る (ADR-022/028)。
+
+### retention (順位 312) の相乗り
+
+初版 § Windows 並行書き込み安全性 の per-pid × 日次 partition は削除機構が無かった。
+`cli-telemetry-report` に retention (`[telemetry_report] retention_days`、code default 未設定 =
+削除無効の opt-in) を相乗りさせ、rollup 確定後の raw daily ファイルを削除する (複数月トレンドは
+rollup から読むため判定に影響しない)。
+
+なお、初版 (別 § に既述) の 2026-07-29 amendment「block 記録を実 quality 違反に限定 (順位309)」は、
+ADR-062 の Phase 0 (ユーザー決定事項 3) として先行実装したものであり、本 step 2/3 の ROI 信号
+精度向上の一部である。
+
 ## 関連 ADR
 
+- [ADR-062](adr-062-monthly-harness-roi-review.md) — 月次ハーネス ROI レビュー (WP-12 step 2/3 の実装、出力先を月次に変更)
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用標準パターン (opt-in / kill-switch / bounded lifetime)
 - [ADR-043](adr-043-security-gates-fail-closed.md) — fail-closed 原則 (本 telemetry は observation 層で適用外 = fail-open)
 - [ADR-044](adr-044-subprocess-utility-extraction-boundary.md) — utility extraction 境界 (UTC ヘルパー抽出トリガ到達)

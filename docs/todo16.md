@@ -216,62 +216,6 @@
 
 ---
 
-
-
-
-### WP-12 step 2: 発火テレメトリ ROI 棚卸し pre-step (28 日 warm-up 後着手)
-
-> **動機**: WP-12 step 1 ([ADR-055](adr/adr-055-firing-telemetry-collection.md)) で `lib-telemetry` が `.claude/telemetry/firings-*.jsonl` に発火を収集し始めた。その実データを使って「直近 28 日で発火 0 の rule/preset/hook」を削除候補として機械抽出し、ハーネス複雑度の維持判断を発火実績で機械化する (WP-12 の本来目的)。
->
-> **本タスクの位置づけ**: WP-12 step 1 の後続 PR。**着手条件 = step 1 マージから 28 日経過** (warm-up。それ以前は全項目が発火 0 = データ無しになり削除候補判定が無意味)。
->
-> **参照**: [ADR-055](adr/adr-055-firing-telemetry-collection.md) (収集層)、[ADR-031](adr/adr-031-weekly-review-pipeline.md) (棚卸しの出力先 = weekly-review)、`.takt/facets/instructions/file-length-watchlist.md` (同型の「機械層」pre-step = takt facet + Bash パターン)、`.takt/facets/instructions/aggregate-weekly.md` (`### File Length Watchlist (機械的観測)` セクションの隣に発火統計セクションを追加)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md) (incident 由来ルールは発火 0 でも維持推奨の区別)。
->
-> **実行優先度**: 🔧 Tier 2 — Effort M。step 1 の投資回収に必須だが warm-up 待ちのため即着手不可。
-
-#### 設計決定 (案)
-
-- **集計は Rust exe** (ヒアリング確定)。`firings-*.jsonl` を glob 走査し、rule/preset/hook ごとに直近 28 日の発火数を集計する `cli-*` exe (または既存 crate のサブコマンド)。全 rule/preset/hook の一覧 (custom-lint-rules.toml / preset レジストリ / hook レジストリ) との差分で「発火 0 の項目」を導出する。
-- **takt facet + Bash で weekly-review に接続**。file-length-watchlist と同型で、facet の Bash step が集計 exe を呼び watchlist markdown を出力 → aggregate-weekly が `### 発火統計 (機械的観測)` セクションとして転載する。
-- **incident 由来ルールの区別**: `custom-lint-rules.toml` の `[rules.incident]` を持つルールは発火 0 でも「抑止力として維持推奨」とし、非 incident ルールのみ削除候補にする (ADR-049 の思想)。
-- **warm-up 表示**: 収集開始日から 28 日未満の項目は「観測期間中・判定保留」と出力し、誤って削除候補に出さない。
-
-#### 作業計画
-
-- [ ] 集計 Rust exe を実装 (28 日窓の発火数集計 + 全項目レジストリとの差分 + incident 区別 + warm-up 判定)。ユニットテストで固定 JSONL fixture から集計値を assert。
-- [ ] takt facet (`file-length-watchlist.md` 同型) を新設し weekly-review.yaml の reviewers parallel block に追加。
-- [ ] aggregate-weekly.md に `### 発火統計 (機械的観測)` セクション転載を追加。
-- [ ] dogfood: 週次レビューレポートに発火統計セクションが出力され、初回実行で削除候補 (または全維持の根拠) が特定されることを確認。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除 + [harness-improvement-plan.md](harness-improvement-plan.md) の WP-12 状態更新 (step 2 消化)。
-
-#### 完了基準
-
-- 週次レビューレポートに発火統計セクションが出力され、直近 28 日で発火 0 の rule/preset/hook が (incident 由来を除いて) 削除候補として、または全維持の根拠とともに特定されること。
-
----
-
-### WP-12 step 3: ADR-039 bounded lifetime 判定の発火数機械化 (step 2 に依存)
-
-> **動機**: ADR-039 の試験運用機能の卒業/廃止判定は現状「手動で観測値を閾値照合」する方式で、機械集計機構が無い。WP-12 step 2 で発火数の集計基盤ができるので、これを使って「試験運用 ADR の機構が N 日発火 0 → 卒業 (廃止 or 本採用) の検討を promote」を機械化する。
->
-> **本タスクの位置づけ**: WP-12 step 3。**step 2 (集計基盤) に依存**。step 2 完了後に着手。
->
-> **参照**: [ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (§ 3 bounded lifetime、現状は手動 3 値判定)、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (収集層)、WP-12 step 2 (集計基盤、本ファイル内)。
->
-> **実行優先度**: 💎 Tier 3 — Effort S。step 2 の集計結果に卒業/廃止判定ロジックを重ねる薄い層。
-
-#### 作業計画
-
-- [ ] step 2 の集計出力に「試験運用 ADR の機構ごとの発火数 + bounded lifetime 期限との照合」を追加し、卒業/廃止の検討を promote する判定を機械化する。
-- [ ] ADR-039 に「bounded lifetime 判定の発火数機械化」を amendment として記録。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除 + harness-improvement-plan.md の WP-12 状態更新 (step 3 消化 = WP-12 完了)。
-
-#### 完了基準
-
-- 試験運用機能の卒業/廃止検討が発火数に基づいて週次で自動 promote され、ADR-039 の手動閾値照合が機械化されること。
-
----
-
 ### custom-regex preset の生 regex が telemetry id に流れる privacy footgun の是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)
 
 > **動機**: PR #275 の pre-push simplicity review 非ブロッキング warning（= セッション中に検出された「非ブロッキング follow-up」）。`tag_source(name, ...)` の `name` が named preset 名でなく `blocked_patterns` の生正規表現文字列の場合、その regex テキストがそのまま telemetry の `id` フィールドに載り、ADR-055 の「コマンド本文・内容は非記録」プライバシー原則と緊張する。現行 `hooks-config.toml` は named preset のみのため**非発火**だが、派生プロジェクトが raw-regex エントリを足すと該当する latent footgun。
@@ -315,26 +259,6 @@
 
 ---
 
-### `.claude/telemetry/` の per-pid×日次 partition ファイルの retention/cleanup (275.md T2-1 採用)
-
-> **動機**: WP-12 step 1 の Windows 並行安全性設計（per-pid × 日次 partition）は warm-up 期間中に小さな `firings-*.jsonl` を多数蓄積する。28 日超過分を削除する retention/cleanup を入れる。WP-12 step 2（集計 pre-step）の前提作業。
->
-> **参照**: `.claude/feedback-reports/275.md` Tier 2 #1、`src/lib-telemetry/src/lib.rs`、WP-12 step 2（順位 307）。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Effort M。**着手条件 = WP-12 step 2 と同時期（step 1 マージから 28 日後、2026-08-12 頃）**。
-
-#### 作業計画
-
-- [ ] `lib-telemetry` に retention ロジック（N 日超過の firings ファイル削除）を追加、ユニットテスト。
-- [ ] WP-12 step 2 の集計 pre-step と統合（順位 307 と同一 PR 消化が自然）。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 28 日を超えた telemetry partition ファイルが自動削除され、warm-up 蓄積が bounded であること。
-
----
-
 ### `is_truthy` 三重複製を ADR-049 incident suite の fixture として記録 (275.md T2-4 採用)
 
 > **動機**: PR #275 の `is_truthy` 三重複製を [ADR-049](adr/adr-049-incident-eval-regression-suite.md) の「カスタムルールの由来 incident 再現テスト」convention に沿って fixture 化する。順位 311（DRY lint rule）実装時に good/bad fixture として抱き合わせるのが自然。
@@ -375,15 +299,15 @@
 
 ### ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)
 
-> **動機**: ADR-055 の telemetry は 28 日 warm-up 後に WP-12 step 2/3 で棚卸しする bounded lifetime 機能。運用者が期限を見落とさないよう、具体日付（step 1 マージ 2026-07-16 + 28 日 = 2026-08-12 頃）と todo-summary.md 順位 307/308 へのリンクを `.claude/hooks-config.toml` の `[telemetry]` section コメントに追記する。
+> **動機**: ADR-055 の telemetry は 28 日 warm-up 後に WP-12 step 2/3 で棚卸しする bounded lifetime 機能。運用者が期限を見落とさないよう、具体日付（収集開始 2026-07-15 + 28 日 = 2026-08-12 頃、ADR-062 と統一）と [ADR-062](adr/adr-062-monthly-harness-roi-review.md)（step 2/3 を消化した月次レビュー）へのリンクを `.claude/hooks-config.toml` の `[telemetry]` section コメントに追記する。
 >
-> **参照**: `.claude/feedback-reports/275.md` Tier 3 #1、`.claude/hooks-config.toml`（`[telemetry]` section）、順位 307/308。
+> **参照**: `.claude/feedback-reports/275.md` Tier 3 #1、`.claude/hooks-config.toml`（`[telemetry]` section）、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)。
 >
 > **実行優先度**: 💎 Tier 3 — Severity Low / Effort XS。
 
 #### 作業計画
 
-- [ ] `[telemetry]` section コメントに warm-up 期限（2026-08-12 頃）と順位 307/308 を追記。
+- [ ] `[telemetry]` section コメントに warm-up 期限（2026-08-12 頃）と [ADR-062](adr/adr-062-monthly-harness-roi-review.md) を追記。
 - [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
