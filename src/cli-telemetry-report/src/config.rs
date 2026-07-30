@@ -30,9 +30,24 @@ pub struct TelemetryReportConfig {
     /// `jj workspace list` で発見できない root を補う追加 root (絶対パス)。
     #[serde(default)]
     pub extra_roots: Vec<String>,
+    /// 発火 0 リストの母集合を与える機構レジストリ (設計決定 1、Phase A)。section 不在でも
+    /// rule / preset は自動列挙されるため、hook / nudge の静的 id リストのみを持つ (ADR-039 additive)。
+    #[serde(default)]
+    pub registry: RegistryConfig,
     /// 判定候補マッピング (機構ごと)。
     #[serde(default)]
     pub mechanisms: Vec<MechanismConfig>,
+}
+
+/// `[telemetry_report.registry]` の設定値。自動列挙元が無い hook / nudge 発火 id を静的に列挙する
+/// (設計決定 1 § hook / nudge)。id は hook 名と一致しない例がある (`jj-op-verify` /
+/// `pr_monitor_catchup` / `hooks-stop-tool-call-leak/prompt-recovery` 等、各 hook の
+/// `lib_telemetry::record` 実装で確認)。
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct RegistryConfig {
+    /// hook / nudge 発火 id の静的リスト。
+    #[serde(default)]
+    pub hook_ids: Vec<String>,
 }
 
 impl TelemetryReportConfig {
@@ -131,5 +146,30 @@ proposal = "enabled = false"
     fn trend_months_has_floor_of_one() {
         let cfg = parse_config("[telemetry_report]\ntrend_months = 0\n");
         assert_eq!(cfg.trend_months(), 1);
+    }
+
+    #[test]
+    fn registry_hook_ids_default_empty_when_absent() {
+        let cfg = parse_config("[telemetry_report]\n");
+        assert!(cfg.registry.hook_ids.is_empty());
+    }
+
+    #[test]
+    fn parses_registry_hook_ids() {
+        let toml = r#"
+[telemetry_report]
+
+[telemetry_report.registry]
+hook_ids = ["file-length", "reaper", "hooks-stop-tool-call-leak/prompt-recovery"]
+"#;
+        let cfg = parse_config(toml);
+        assert_eq!(
+            cfg.registry.hook_ids,
+            vec![
+                "file-length".to_string(),
+                "reaper".to_string(),
+                "hooks-stop-tool-call-leak/prompt-recovery".to_string(),
+            ]
+        );
     }
 }

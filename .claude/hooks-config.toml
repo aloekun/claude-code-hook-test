@@ -393,6 +393,32 @@ zero_streak_months = 2        # 連続 2 か月発火 0 で非アクティブ化
 trend_months = 6              # レポートが遡る月数 (月別表 / 発火 0 リストの窓)
 # extra_roots = ["C:\\path\\to\\other-workspace"]  # 環境ごとに必要なら有効化
 
+# 機構レジストリ (設計決定 1、Phase A)。発火 0 リストの母集合を「窓内 rollup に現れた id」から
+# 「全機構」に拡張する。rule (custom-lint-rules.toml の全 rule id) と preset ([pre_tool_validate]
+# blocked_patterns) は exe が自動列挙するため、自動列挙元が無い hook / nudge 発火 id のみここに静的
+# 列挙する。id は hook 名と一致しない例がある (各 hook の lib_telemetry::record 呼び出しで実確認):
+#   file-length                                = hooks-post-tool-comment-lint-rust (file-length gate)
+#   hooks-stop-tool-call-leak                  = leak 検知 Stop 経路 (block)
+#   hooks-stop-tool-call-leak/prompt-recovery  = leak 回収 UserPromptSubmit 経路 (warn、ADR-061)
+#   jj-op-verify                               = hooks-post-tool-jj-op-verify (operation 未記録 warn)
+#   hooks-stop-quality                         = Stop 品質ゲート (block)
+#   pr_monitor_catchup / reaper / staleness / workspace_stale / weekly_review_reminder /
+#   monthly_review_reminder                    = hooks-session-start の nudge 群 (warn)
+[telemetry_report.registry]
+hook_ids = [
+  "file-length",
+  "hooks-stop-tool-call-leak",
+  "hooks-stop-tool-call-leak/prompt-recovery",
+  "jj-op-verify",
+  "hooks-stop-quality",
+  "pr_monitor_catchup",
+  "reaper",
+  "staleness",
+  "workspace_stale",
+  "weekly_review_reminder",
+  "monthly_review_reminder",
+]
+
 # 初期マッピング 1 件: ADR-053/061 の tool call leak 検知。監視 2 id が連続発火 0 かつ各月
 # enabled+配備済みなら非アクティブ化候補として提示する (crate 撤去 revert PR は ADR-053/061
 # bounded lifetime 手順に従う)。全試験運用 ADR の網羅登録は将来拡張。
