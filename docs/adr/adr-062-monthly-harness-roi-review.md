@@ -66,24 +66,29 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
 `src/cli-telemetry-report/` ([ADR-012](adr-012-src-naming-convention.md) の `cli-` prefix)。
 
 - **入力**: 各 root の `.claude/telemetry/firings-*.jsonl`。root 発見は `jj workspace list` の動的
-  列挙 (パース失敗・workspace 未使用環境は現 root のみに fail-open) + config `extra_roots` で追加可。
-  テレメトリは workspace ローカル (exe 隣の `.claude/` に書かれる) で、実測上 leak 発火は improve
-  workspace に偏在するため **workspace 横断集計が必須**。
+  列挙 (読み取り専用レポートのため `--ignore-working-copy` で working copy を変異させず、テンプレートの
+  `current_working_copy()` 出力で現 workspace を判定する。パース失敗・workspace 未使用環境は現 root
+  のみに fail-open) + config `extra_roots` で追加可。テレメトリは workspace ローカル (exe 隣の
+  `.claude/` に書かれる) で、実測上 leak 発火は improve workspace に偏在するため
+  **workspace 横断集計が必須**。
 - **root 発見不完全時の promote 抑止**: root 発見が不完全な場合 (`jj workspace list` 失敗 /
   現 workspace 以外の未解決 / `extra_roots` の到達不能) はレポートに **degraded を明示**し、当該
-  実行では判定候補の promote を抑止する。集計・レポート生成は fail-open で継続するが、「発火 0」
-  判定は完全な root 集合を前提とする (発見漏れ + 発火 0 の組合せは誤 promote に直結するため)。
+  実行では判定候補の promote を抑止する (degraded 成立の実装条件 = 現 workspace 以外で root 未解決の
+  workspace 数 > 到達可能な `extra_roots` 数。**現 workspace 自身の `self.root()` 解決失敗は exe 隣接
+  `.claude` の親 = 現 root で補うため degraded にしない**)。集計・レポート生成は fail-open で継続するが、
+  「発火 0」判定は完全な root 集合を前提とする (発見漏れ + 発火 0 の組合せは誤 promote に直結するため)。
   この環境の `ccht-improve` workspace は jj 格納パス不整合で `self.root()` が解決不能なため、
   main workspace から実行すると improve が未解決 → degraded → promote 抑止となる (leak 発火が
-  improve 偏在のため誤 promote を防ぐ正しい挙動)。運用上は improve workspace から実行するか
-  `extra_roots` に improve を追加する。
+  improve 偏在のため誤 promote を防ぐ正しい挙動)。**improve workspace から実行すれば improve が現 root
+  として解決され degraded は解消する**、または `extra_roots` に improve を追加する。
 - **月次 rollup + retention**: 月ごとの id 別集計を `.claude/telemetry/monthly-<YYYY-MM>.json`
   (main workspace 側) に永続化。raw daily ファイルは retention (config `retention_days`。**code
   default は未設定 = 削除無効**、ADR-039 opt-in。本 repo は `retention_days = 90` で dogfood) 超過分を
   削除する。**複数月トレンドは rollup から読む**ため raw 削除後も判定可能。rollup は集計済み月を
   再集計しない (確定月は不変。当月は毎回再計算)。
 - **レポート出力** (`.claude/monthly-reviews/<YYYY-MM-DD>.md` + 機械可読 JSON):
-  (a) 月別 × id 別カウント + 前月比、(b) 直近 N か月の発火 0 リスト、(c) config enabled / exe 配備
+  (a) 月別 × id 別カウント + 前月比、(b) 直近 N か月 (config `trend_months`、既定 6) の発火 0 リスト、
+  (c) config enabled / exe 配備
   状態の **snapshot** (「0 = 上流修正」と「0 = 無効化・未配備」の誤読防止)、(d) incident 由来ルール
   ([ADR-049](adr-049-incident-eval-regression-suite.md)) の「発火 0 でも維持推奨」マーク、
   (e) 判定候補。incident 由来ルールの真実源は `.claude/custom-lint-rules.toml` の `[rules.incident]`
@@ -94,7 +99,10 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
 ### 3. L1: SessionStart reminder
 
 `hooks-session-start` の `[session_start.monthly_review_reminder]` (`enabled` / `threshold_days`
-既定 28 / `system_message_enabled`)。`weekly_review.rs` のパターンを踏襲し、以下の教訓を適用する:
+既定 28 / `system_message_enabled`)。閾値フィールド名は `threshold_days` とする (weekly の
+`reminder_threshold_days` とは非対称だが本 ADR の明示表記に合わせた。code default 28 は
+`monthly_review.rs` 側に置き config 欠落時に適用)。`weekly_review.rs` のパターンを踏襲し、以下の
+教訓を適用する:
 
 - staleness は state file `.claude/monthly-review-last-run.json` の `last_run_at` **内容 timestamp**
   のみで判定し mtime に一切依存しない (ADR-031 の silent-fresh バグ教訓)。
@@ -113,7 +121,9 @@ weekly と異なり **failed marker 経路は持たない** (§ 決定 1 の mar
 
 「機構 → 監視対象 id 群 → 成立時の提案」の静的マッピングを config
 (`hooks-config.toml [[telemetry_report.mechanisms]]`) に持ち、**連続 `zero_streak_months` (既定 2)
-か月発火 0 で非アクティブ化候補として promote** する (ユーザー決定事項 1)。promote の成立条件には
+か月発火 0 で非アクティブ化候補として promote** する (ユーザー決定事項 1)。各機構エントリは監視 id 群に
+加え snapshot 用の `enabled_config_keys` / `exe_names` を持ち、config enabled / exe 配備の確認
+(§ 決定 2 レポート (c)) を機構横断で汎用化する。promote の成立条件には
 「対象の各月 rollup に `enabled = true` + 配備ありの snapshot 記録があること」を含める (無効化・
 未配備の月を「発火 0」と誤読しない)。**月中の一時無効化までは snapshot では検出できない**が、
 最終判断が必ずユーザー採否 (AskUserQuestion) を経る前提で受容する。
@@ -134,6 +144,8 @@ skills repo (`$CLAUDE_SKILLS_REPO`) で作成し `~/.claude/skills/` へ deploy 
 - Phase 1: 起動条件確認 → Phase 2: `pnpm telemetry-report` (exe) を同期実行 → Phase 3: レポート
   提示 + AskUserQuestion で判定候補・削除候補の採否 → Phase 4: **ハイブリッド実行** (軽量 config
   変更は即時に通常 push/PR フロー、大型は `docs/todo.md` 登録) + last-run 更新 (ユーザー決定事項 2)。
+  大型作業の登録先は weekly-review と同じ `docs/todo.md` で、優先度 table の採番 (行追加) は skill
+  では行わずユーザー判断に委ねる。
 - **last-run 更新契約 (L1 reminder の誤抑制防止)**: `.claude/monthly-review-last-run.json` の
   `last_run_at` は、**exe が完全な (degraded でない) レポート生成に成功し、Phase 3 (レビュー) に
   到達した場合にのみ**更新する。**exe 失敗** (Phase 2 で非 0 exit = レポート不在。skill は Phase 4
