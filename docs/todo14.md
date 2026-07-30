@@ -428,3 +428,111 @@
 #### 完了基準
 
 - local LLM review が live 検証不可能な finding を "unverifiable locally" として扱う運用が doc 化され、false positive 由来の混乱が減ること。
+
+---
+
+### フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加
+
+> **動機**: PR #333 (Phase 4) で計画文書 `docs/monthly-harness-roi-review-plan.md` の 3 user-decisions + 5 design-decisions (計 8 項目) + 検証観点を ADR-062 へ手動 transpose した際、プラン doc にしか無かった決定が漏れかけ、Phase 4 の照合で発見・補完した。本 repo は 60+ の ADR を Phase 1〜4 等の多段階で運用しており、plan→ADR 同期漏れは今後の phase-completion で再発が見込まれる。#333 post-merge feedback Tier3 #2 で採用。
+>
+> **対処案**: `docs/dev-conventions.md` に「フェーズ完了 (plan doc 削除) 前に、計画文書の実装決定事項 (user-decisions / design-decisions / 実装上の決定) がすべて最終設計文書 (ADR) に転記済みかを 1 項目ずつ照合する」チェックリスト規約を追加する。lint 化は非現実的 (ADR ごとに記述形式が異なる) だが、既存の番号付きチェックリスト規約 (順位261/262/274 等) と同型で overhead 最小。
+>
+> **参照**: `.claude/feedback-reports/333.md` Tier3 #2、`docs/dev-conventions.md` (既存チェックリスト集)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) (Phase 4 で本照合を実施した実例)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に plan→ADR 転記照合チェックリストを追加 (照合単位 = user-decisions / design-decisions / 実装上の決定、plan doc 削除前に全項目の ADR 記載を確認)
+- [ ] ADR-062 / Phase 4 を実例として cite
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- フェーズ完了 (plan doc 削除) 前に、plan doc の実装決定が ADR に漏れなく転記されているかを convention が要求し、レビュアーが参照できること。
+
+---
+
+### ADR amendment 時の「§ Amendment」節追加を dev-conventions.md のチェックリストに追加
+
+> **動機**: PR #332 で ADR-062 が ADR-053/055/061 を amend し、PR #333 でも ADR-053/061 への追記を手動で実施したが、被 amend 側 ADR への追記が都度アドホックに行われている。CLAUDE.md の ADR 索引には既に (Supersedes/Superseded by) 注記が多数あり、Amendment 明記の convention 化は低コストで一貫性向上に資する。#332 post-merge feedback Tier3 #2 で採用。
+>
+> **対処案**: `docs/dev-conventions.md` (または CLAUDE.md convention セクション) に「ADR が他 ADR を override/amend する場合、被 amend 側 ADR に § Amendment セクションを追加し双方向リンクを張る」チェックリスト項目を追加する。
+>
+> **参照**: `.claude/feedback-reports/332.md` Tier3 #2、`docs/dev-conventions.md`、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) / ADR-053 / ADR-055 / ADR-061 (amendment 実例)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に ADR amendment 時の § Amendment 追加 + 双方向リンクのチェックリストを追加
+- [ ] ADR-062 の amendment 群を実例として cite
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- ADR が他 ADR を amend する際、被 amend 側への § Amendment 追記漏れを convention で防げること。
+
+---
+
+### todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加
+
+> **動機**: PR #332 で todo16.md の複数セクション削除時に lint:md を 3 回以上再実行する非効率を観測した。todo ファイルの段階的削除と都度 lint:md 実行の手順が明文化されておらず、削除漏れ・lint 崩れ・summary 行との不整合が起きやすい。#332 post-merge feedback Tier3 #8 で採用。専用スクリプト化 (#332 Tier2 #1) は ADR-033 効果待ちで様子見だが、チェックリスト明記自体は Effort XS の無リスク即応策として独立採用可能。
+>
+> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (todo-summary2.md) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 順位番号の本文混入 ([ADR-033](adr/adr-033-todo-numbering-simplification.md)) に注意」のチェックリストを追加する。
+>
+> **参照**: `.claude/feedback-reports/332.md` Tier3 #8、`docs/dev-conventions.md`、[ADR-033](adr/adr-033-todo-numbering-simplification.md)、todo14.md 順位334 (順位番号 lint rule と相補)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に todo ファイル削除・更新チェックリストを追加 (詳細/summary の対更新・段階削除+都度 lint:md・順位番号の本文混入注意)
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- todo ファイルの削除・更新時に段階削除と整合確認の手順が checklist 化され、削除漏れ・lint 崩れ・summary 不整合が防止されること。
+
+---
+
+### 新規スキル作成チェックリストを dev-conventions.md に追加
+
+> **動機**: PR #332 で monthly-review skill を新規作成した際、weekly-review skill を都度参照して構造 (SKILL.md / evals.json / trigger_eval.json の 3 点セット、Phase 構成、deploy 前 sync check) を確認する手戻りを観測した。3 点セット要件を明記したチェックリストがあれば都度の参照往復を削減できる。#332 post-merge feedback Tier3 #9 で採用。
+>
+> **対処案**: `docs/dev-conventions.md` (スキル開発 convention セクション) に「新規スキル作成時は (1) SKILL.md / evals.json / trigger_eval.json の 3 点セット、(2) Phase 構成、(3) deploy 前の /skill-sync-check、を満たす」チェックリストを追加する。
+>
+> **参照**: `.claude/feedback-reports/332.md` Tier3 #9、`docs/dev-conventions.md`、skill-sync-check スキル、weekly-review / monthly-review skill (構造 template)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に新規スキル作成チェックリスト (3 点セット / Phase 構成 / deploy 前 sync check) を追加
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- 新規スキル作成時に 3 点セット等の必須要素が checklist で確認でき、template skill への参照往復が削減されること。
+
+---
+
+### weekly/monthly staleness 判定の共通 fixture parametrized test を追加
+
+> **動機**: PR #331 で追加した `monthly_review.rs` の staleness 判定ロジックは `weekly_review.rs` と逐語的に重複しており (`last_run_state_from_content` / staleness 判定 / main-root canonical / 未来 timestamp 等)、片方だけの独立バグ修正で挙動が乖離するリスクがある。#331 post-merge feedback Tier2 #1 で採用。
+>
+> **対処案**: weekly/monthly 両流路の staleness 判定を、同一 fixture (threshold 境界・Missing・Stale・Unreadable・未来 timestamp・main-root canonical 等) で検証する parametrized test を追加する。両モジュールの inline `#[cfg(test)] mod tests` に配置する (PR report が示した `src/tests/` は不在で、実態は inline test module)。既存 test パターン踏襲のみで Effort S。
+>
+> **参照**: `.claude/feedback-reports/331.md` Tier2 #1、`src/hooks-session-start/src/monthly_review.rs` / `weekly_review.rs` (inline test module)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] weekly/monthly の staleness 判定を同一 fixture で検証する parametrized test を追加 (threshold 境界 / Missing / Stale / Unreadable / 未来値 / main-root canonical)
+- [ ] 片方だけのロジック変更で乖離が検出されることを確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- weekly/monthly の staleness 判定が同一 fixture で検証され、片方のロジック変更による挙動乖離がテストで検知されること。
