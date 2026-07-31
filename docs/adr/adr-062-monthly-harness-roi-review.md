@@ -129,7 +129,10 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
 - **degraded 実行時は (b) 全体に「参考値 (root 発見不完全)」注記**を付す (発火が発見漏れ root に
   偏在し得るため。verdict の promote 抑止と整合)。
 - 供給源単位の読取失敗は fail-open で skip しつつ**レポートに欠落を明示**する (silent fallback 排除、
-  「読めなかった」と「id が 0 件」を区別)。JSON の zero_firing entry に `provenance`
+  「読めなかった」と「id が 0 件」を区別)。**hook は自動列挙元が無く `hook_ids` が唯一の供給源のため、
+  空リストも実質的な供給源欠落として同様に明示する** (rule/preset の空は読める上での「0 件」だが、
+  hook の空は列挙不能。派生プロジェクトは ADR-039 opt-in で `hook_ids` 未設定が既定のため、この注記で
+  「hook の never-fired 判定は不能」を可視化する)。JSON の zero_firing entry に `provenance`
   (`never_fired` / `went_quiet`) と `last_fired_month` を追加、`registry.source_failures` も出力する。
   (b) は参考情報でありユーザーゲート (自動削除しない) は不変。
 
