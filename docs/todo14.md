@@ -23,7 +23,7 @@
 #### 作業計画
 
 - [ ] [High] aggregate.rs: 月中 無効化→翌月 再有効化トグルが `resolve_snapshot` を正しく通過する月間境界越境テストを追加 (#337 Tier2-1)
-- [ ] verdict.rs: `confirmed_streak` 計算直前に underflow-safety 前提 (`partial ⇒ zero_streak≥1`) を `debug_assert!` で局所検証 (#337 Tier1-1)
+- [ ] verdict.rs: `confirmed_streak` 計算を `checked_sub` ベースの明示処理にし release build でも underflow を防止、`debug_assert!` (`partial ⇒ zero_streak≥1`) は診断用に併設 (#337 Tier1-1 + CodeRabbit PR #339)
 - [ ] verdict.rs tests: `current_month_partial==0` の境界を明示テスト化し `confirmed_streak==zero_streak` 等価を保証 (#337 Tier2-2)
 - [ ] report.rs: `zero_firing_list` の共有計算を `render()` で一度だけ実行し MD/JSON フォーマッタへ結果を渡す構造に抽出 (#336 Tier1-1)
 - [ ] report.rs tests: MD/JSON 両出力で zero_firing (id集合 / provenance / last_fired_month) + source_failures 一致の回帰テスト (#336 Tier2-1)
@@ -31,7 +31,7 @@
 
 #### 完了基準
 
-- 月中トグルシナリオ・streak 不変条件・MD/JSON 一致・3 供給源 fail-open が回帰テストで固定され、`cargo test --workspace` / clippy を通過すること。
+- 月中トグルシナリオ・streak 不変条件 (release-mode での判定保証を検証する回帰テストを含む)・MD/JSON 一致・3 供給源 fail-open が回帰テストで固定され、`cargo test --workspace` / clippy を通過すること。
 
 ---
 
@@ -70,7 +70,7 @@
 #### 作業計画
 
 - [ ] docs/dev-conventions.md に jj bookmark / workspace の `@` semantics (並行操作での位置変化・shared store 挙動) を状態図形式で整理 (#336 Tier3-2 + #337 Tier3-3)
-- [ ] cli-pr-monitor: stacked commit + 複数層 bookmark 時の PR 検出限界を regression test で固定化 (false negative 防止) (#336 Tier2-2 + #338 Tier2-1)
+- [ ] cli-pr-monitor: stacked commit + 複数層 bookmark 時の PR 検出限界を regression test で固定化 (既知の false negative を明示記録、検出改善はスコープ外) (#336 Tier2-2 + #338 Tier2-1)
 
 #### 完了基準
 
