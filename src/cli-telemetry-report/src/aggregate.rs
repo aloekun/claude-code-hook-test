@@ -171,7 +171,8 @@ fn union_months(
 /// 確定月 (当月でない `finalized`) は据え置き。それ以外の過去月は raw (あれば) または
 /// 既存 ids (raw が retention 削除済みなら) で今回確定する。raw 消失時に既存の未確定 rollup を
 /// そのまま据え置くと `finalized` が永久に `false` のまま固定されてしまうため、
-/// 過去月は必ずこの呼び出しで確定させる (規則 4)。
+/// 過去月は必ずこの呼び出しで確定させる (規則 4)。刻む snapshot は [`resolve_snapshot`] が決める
+/// (過去月の確定では月中最後の観測を保持する、設計決定 3)。
 fn resolve_month(
     by_month: &BTreeMap<String, MonthRollup>,
     raw_counts: &BTreeMap<String, MonthCounts>,
@@ -193,9 +194,26 @@ fn resolve_month(
         month: month.to_string(),
         finalized: !is_current,
         ids,
-        snapshot: snapshot.clone(),
+        snapshot: resolve_snapshot(is_current, prev, snapshot),
         generated_at: now_iso.to_string(),
     })
+}
+
+/// 確定/再計算する rollup に刻む snapshot を決める (設計決定 3、Phase C)。
+///
+/// snapshot は集計実行時点の状態でしかないため、過去月の確定を翌月以降の現在 snapshot で再スタンプ
+/// すると「月中は無効化されていた」事実を消し、無効化月を enabled と誤認して promote streak に
+/// 算入し得る (月次カデンツでは月 M の確定は M+1 の初回実行が行うため、確定 snapshot は実質 M+1 時点)。
+/// よって刻む snapshot を実行タイミングごとに使い分ける:
+///   - 当月: 毎回現在 snapshot で再スタンプ (月中最後の実行時点が自然に確定値として残る)。
+///   - 過去月で prev (月中の未確定 rollup) がある: `prev.snapshot` を保持 = 月中最後の観測。
+///   - 過去月で prev が無い (月中に一度も実行が無かった): 現在 snapshot で代用 (限界。snapshot が
+///     証明するのは (a) 月中実行があればその最後の時点、(b) 無ければ確定時点の状態)。
+fn resolve_snapshot(is_current: bool, prev: Option<&MonthRollup>, current: &Snapshot) -> Snapshot {
+    match prev {
+        Some(p) if !is_current => p.snapshot.clone(),
+        _ => current.clone(),
+    }
 }
 
 /// raw に対象月のデータが無いときに使う ids。当月なら raw どおり空、過去月は既存 rollup の
@@ -346,6 +364,24 @@ mod tests {
         m
     }
 
+    fn snapshot_enabled(enabled: bool) -> Snapshot {
+        let mut config_keys = BTreeMap::new();
+        config_keys.insert("leak.enabled".to_string(), enabled);
+        let mut mechanisms = BTreeMap::new();
+        mechanisms.insert(
+            "leak".to_string(),
+            crate::model::MechanismState {
+                config_keys,
+                exes: BTreeMap::new(),
+            },
+        );
+        Snapshot { mechanisms }
+    }
+
+    fn enabled_of(rollup: &MonthRollup) -> bool {
+        rollup.snapshot.mechanisms["leak"].config_keys["leak.enabled"]
+    }
+
     #[test]
     fn finalize_rollups_finalizes_past_and_recomputes_current() {
         let mut raw: BTreeMap<String, MonthCounts> = BTreeMap::new();
@@ -411,6 +447,52 @@ mod tests {
             "raw retention 削除後も過去月として確定し finalized=false に固定されない"
         );
         assert_eq!(jul.ids["leak"].counts.block, 4, "raw 消失時は既存 ids を保持");
+    }
+
+    #[test]
+    fn finalize_rollups_keeps_prev_snapshot_when_finalizing_past_month() {
+        let existing = vec![MonthRollup {
+            month: "2026-08".to_string(),
+            finalized: false,
+            ids: MonthCounts::new(),
+            snapshot: snapshot_enabled(false),
+            generated_at: "aug".to_string(),
+        }];
+        let raw: BTreeMap<String, MonthCounts> = BTreeMap::new();
+        let out = finalize_rollups(existing, &raw, &snapshot_enabled(true), "2026-09", 3_000);
+        let aug = out.iter().find(|r| r.month == "2026-08").unwrap();
+        assert!(aug.finalized, "過去月は確定する");
+        assert!(
+            !enabled_of(aug),
+            "月中に記録した disabled snapshot を確定時の現在 snapshot=enabled で上書きしない"
+        );
+    }
+
+    #[test]
+    fn finalize_rollups_stamps_current_snapshot_for_past_month_without_prev() {
+        let mut raw: BTreeMap<String, MonthCounts> = BTreeMap::new();
+        raw.insert("2026-08".to_string(), month_counts("leak", 2, 0));
+        let out = finalize_rollups(Vec::new(), &raw, &snapshot_enabled(true), "2026-09", 3_000);
+        let aug = out.iter().find(|r| r.month == "2026-08").unwrap();
+        assert!(aug.finalized);
+        assert!(enabled_of(aug), "prev が無い過去月は現在 snapshot で代用する");
+    }
+
+    #[test]
+    fn finalize_rollups_stamps_current_snapshot_for_current_month() {
+        let existing = vec![MonthRollup {
+            month: "2026-09".to_string(),
+            finalized: false,
+            ids: month_counts("leak", 1, 0),
+            snapshot: snapshot_enabled(false),
+            generated_at: "old".to_string(),
+        }];
+        let mut raw: BTreeMap<String, MonthCounts> = BTreeMap::new();
+        raw.insert("2026-09".to_string(), month_counts("leak", 5, 0));
+        let out = finalize_rollups(existing, &raw, &snapshot_enabled(true), "2026-09", 4_000);
+        let sep = out.iter().find(|r| r.month == "2026-09").unwrap();
+        assert!(!sep.finalized);
+        assert!(enabled_of(sep), "当月は毎回現在 snapshot で再スタンプする");
     }
 
     #[test]
