@@ -65,6 +65,7 @@
 - [ADR-062: 月次ハーネス ROI レビュー — telemetry 発火実績によるハーネス複雑度の棚卸し (WP-12 step 2/3)](docs/adr/adr-062-monthly-harness-roi-review.md) *(試験運用)*
 - [ADR-063: Linux 可搬性レイヤ + nightly release + cloud-setup — クラウド向けプリビルドバイナリ配布](docs/adr/adr-063-linux-portability-release-binaries.md)
 - [ADR-064: PR 監視 success 判定の陽性証拠要求 — レート制限 silent success の排除](docs/adr/adr-064-monitor-success-positive-evidence.md)
+- [ADR-065: CI matrix による移植退行防止 — 両 OS で同一スイートを回す](docs/adr/adr-065-ci-matrix-cross-os-regression.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

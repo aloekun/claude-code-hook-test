@@ -219,7 +219,7 @@
 >
 > **参照**: `.claude/feedback-reports/311.md` Tier1 #3、`adr/adr-034-coderabbit-auto-monitoring.md`、`src/check-ci-coderabbit/src/{decide,rate_limit}.rs`。
 >
-> **実行優先度**: 🔧 Tier 2 (analyzer の `Tier 1` だが ci_step = automation のため project Tier 2) — Severity Medium / Frequency Medium (3 世代実績) / Effort M / Adoption Risk None。本リポジトリは cargo test 用 CI 自体が未整備のため WP-16 (CI matrix) と連動して検討。
+> **実行優先度**: 🔧 Tier 2 (analyzer の `Tier 1` だが ci_step = automation のため project Tier 2) — Severity Medium / Frequency Medium (3 世代実績) / Effort M / Adoption Risk None。CI matrix は `adr/adr-065-ci-matrix-cross-os-regression.md` で整備済 (PR / master push で両 OS の `cargo test` が回る) のため、定期検証の載せ先はこの workflow を土台にできる。
 
 #### 作業計画
 

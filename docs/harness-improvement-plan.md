@@ -19,7 +19,7 @@
 Anthropic 公式のハーネスエンジニアリング指針（決定論的基盤・コンテキスト効率・フィードバックループ速度）に対する本プロジェクトの評価結果:
 
 - 決定論的ゲート（hooks）・ルール vs 仕組み化（ADR-042）・フィードバックループ（ADR-030 / 031）・決定論的オーケストレーション（takt）は **高適合**。
-- ギャップは (1) **実行環境の可搬性**（Windows 依存。WP-13〜15 で解消済み）、(2) **自律実行の常時性**（監視がローカルセッション寿命に依存。実際に PR #237 の wakeup 失効を観測済み）、(3) **外部入力の信頼境界**（CodeRabbit コメントが編集権限を持つ fix エージェントに直結。WP-11 で 3 層防御を実装済み）。
+- ギャップは (1) **実行環境の可搬性**（Windows 依存。WP-13〜16 で解消済み）、(2) **自律実行の常時性**（監視がローカルセッション寿命に依存。実際に PR #237 の wakeup 失効を観測済み）、(3) **外部入力の信頼境界**（CodeRabbit コメントが編集権限を持つ fix エージェントに直結。WP-11 で 3 層防御を実装済み）。
 - 残る主戦場は (2) の常時性 = セクション 4（WP-17〜19）。
 
 ## 2. 検証済みの前提事実（再調査不要、2026-07-04 確認）
@@ -75,7 +75,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-13 | 3 | EXE_SUFFIX 抽象化 | M | なし | 完了（[ADR-005](adr/adr-005-hooks-path-resolution-with-template.md) amendment。launcher 経路の実走確認済） |
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
-| WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 未着手 |
+| WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。windows-latest + ubuntu-latest の 2 leg を新設。required check 化と GitHub Actions 実走の安定性確認は → § 残作業） |
 | WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行） | M | WP-09, 10, 11 | 未着手 |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
 | WP-19 | 4 | 常時性ガード（kill-switch / 自主減速 / 監査ループ） | M | WP-18 | 未着手 |
@@ -92,14 +92,15 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - 現状: PR 監視の陽性証拠 gate は実装・incident 実データでの単体実測済み（ADR-064）。
 - 残作業: 実 push/PR サイクルで CodeRabbit レート制限が自然発生した際に (a) 監視が success で終わらず park すること、(b) レポート判定文が保留を出すこと、を実観測したら完了（ADR-064 ステータス欄の検証残。この経路は自然発生時にしか実測できない）。
 
-## 6. 未着手 WP
+### WP-16 残: CI matrix の実走観測と required check 化
 
-### WP-16: CI matrix（移植退行防止）
+- 現状: `.github/workflows/ci.yml` に windows-latest + ubuntu-latest の 2 leg を新設し、各 leg で clippy / `cargo test` / hooks smoke test / `--ignored` 統合テスト（jj 0.42.0 を導入）を実行する（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）。jj 取得 step は両 OS で実 URL・実 asset を用いて実走確認済、テスト自体もローカル Windows で全 pass。
+- 残作業:
+  1. **GitHub Actions 上での実走は本 WP の PR が初回**。run 時間・cache 効率・flake の有無を数 run 観測する。
+  2. 安定を確認したら Branch Protection の Required status checks に登録（todo 順位 6 の Branch Protection 整備と連動。ADR-065 § 決定 5 が段階を分ける根拠）。
+  3. ADR-063 の残課題のうち「Linux 上で pump_child_io の deadlock 保護 / run_cmd_capture の stdout/stderr 分離が無検証」は matrix では閉じない（該当テストは cmd.exe / PowerShell 依存で module ごと Windows 限定）。POSIX 版テストの追加は ADR-065 の残課題として追跡。
 
-- **背景**: WP-15 の Linux 実測で「Windows だけで回していると気付けない設計欠陥」（lock 同時取得レース）が実在した（ADR-063）。また `#[cfg(windows)]` ガードのテスト（pump_child_io の deadlock 保護、run_cmd_capture の stdout/stderr 分離）は Linux 実行では skip される既知ギャップがある。
-- **ステップ**: `windows-latest` + `ubuntu-latest` で cargo test + hooks smoke test（fixture stdin → 期待する block/pass 判定を assert。ADR-049 の incident fixture 資産を流用）。安定後に required check 化（todo 順位 6 の Branch Protection 整備と連動）。
-
-## 7. セクション 4: ループエンジニアリングへの道筋
+## 6. セクション 4: ループエンジニアリングへの道筋
 
 ### WP-17: イベント駆動バックボーン完成
 
@@ -126,7 +127,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   2. **自主減速**: routine プロンプト冒頭に自己抑制判定 —「未マージの draft PR が 3 件以上ある／直近 run の失敗が続いている場合は何もせず終了」。作りかけの山を積まないための背圧制御。
   3. **監査ループを閉じる**: 自律アクション一覧（routine run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。
 
-## 8. 完了条件と退役手順
+## 7. 完了条件と退役手順
 
 本ファイルは以下を全て満たした時点で削除する:
 

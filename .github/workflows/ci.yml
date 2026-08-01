@@ -1,0 +1,180 @@
+# ci — Windows / Linux の 2 OS matrix による移植退行防止ゲート
+#
+# 役割: PR と master push で Rust 成果物 (clippy / cargo test / hooks smoke test) を
+# **windows-latest と ubuntu-latest の両方**で実行し、片方の OS でしか通らないコードが
+# land するのを止める。設計根拠は docs/adr/adr-065-ci-matrix-cross-os-regression.md。
+#
+# 設計メモ:
+# - **両 OS を回す理由は実例に基づく**: Linux 実測で cli-pr-monitor の lock が同時取得を
+#   許すレースが見つかった (Windows ではスケジューリング差で顕在化しなかっただけで欠陥は
+#   同じ)。また `jj -r "<base>..@"` のようなシェル経由の引数は cmd.exe ではクォートが
+#   除去されず Windows だけ壊れる。どちらも「片 OS だけで回していると気付けない」欠陥で、
+#   検出には両 OS で同じスイートを流すしかない (ADR-063 § 副次発見)。
+# - **fail-fast: false**: 片方が落ちても他方を最後まで走らせる。本 workflow の目的は
+#   「どちらの OS で壊れたか」の切り分けなので、巻き添えキャンセルは情報を失う。
+# - **jj を固定バージョンで導入する**: `--ignored` 統合テストは実 jj を spawn する
+#   (ADR-011 / ADR-015 / ADR-045 が 0.42 系の挙動に依存)。導入しないとこれらが CI を
+#   すり抜け、jj 呼び出し経路の OS 差 (上記のクォート事故) が land 前に検出できない。
+#   バージョン不一致は fail-closed で落とす — 「入っているが別バージョン」は
+#   「テストが通ったのに本番挙動が違う」を生む最悪の形なので黙って進めない。
+# - **`--ignored` を直列 (`--test-threads=1`) で回す**: これらは cwd を書き換えるため
+#   並列実行では相互干渉する (ADR-041)。ローカル push-runner の rust-test group と
+#   同一コマンドにして、CI とローカルで結果が一致するようにしている。
+# - **hooks smoke test を独立 step にする**: `cargo test --workspace` に含まれるが、
+#   「hook が fixture stdin に対して期待どおり block/pass するか」は他のユニットテストとは
+#   性質の違う契約なので、run の一覧で独立に赤/緑が読めるようにする。コンパイル済みの
+#   ため再実行コストはほぼゼロ。
+# - **release-binaries.yml の clippy/test と重複するのは意図的**: あちらは「壊れた
+#   バイナリを rolling release に載せない」ための自己完結したゲートで、workflow_dispatch や
+#   PR を経ない master push でも単独で成立する必要がある。本 workflow に依存させると
+#   その保証が消える (ADR-065 § 決定 7)。
+# - checkout は persist-credentials: false (pr-monitor.yml / release-binaries.yml と同じ
+#   token 漏洩対策)。本 workflow は読み取りのみなので permissions も contents: read に絞る。
+# - **`paths:` フィルタを付けない (release-binaries.yml との非対称は意図的)**: あちらは
+#   publish job で required check にはならないため、docs-only push を除外して無駄な再ビルドを
+#   省くのが正しい。本 workflow は required check にする予定 (§ 決定 5) で、**paths で skip した
+#   check を required にすると GitHub はそれを success ではなく pending として扱い、PR が
+#   永久にマージ不能になる**。「回さない」と「緑」を区別できないのが GitHub の仕様なので、
+#   required にする側では paths を使わない。将来 run 量を削るなら、job を必ず起動したうえで
+#   中身を条件分岐して success を返す形にすること (skip ではなく early-success)。
+#   public リポジトリの Actions は無料・無制限のため、現状の余剰は CPU 時間のみ。
+# - **required check 化はまだしない**: 数 run 分の安定性 (実行時間・flake の有無) を観測して
+#   から Branch Protection の Required status checks に登録する (段階の根拠は ADR-065 § 決定 5)。
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# PR に追い push した場合、古い run は結果が不要なのでキャンセルしてよい
+# (release-binaries.yml と違い、途中終了しても壊れる成果物が無い)。
+# 一方 **master push はキャンセルしない**: master への push は `github.ref` が常に
+# `refs/heads/master` で同一 group に落ちるため、`true` 固定だと連続 merge で前の run が
+# 報告前に消え、「一度も検証されていない master commit」が生まれる。required check 化
+# (ADR-065 § 決定 5) 後はそれが実害になるので、キャンセルは PR イベントに限定する。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # ADR-011 / ADR-015 / ADR-045 が 0.42 系の挙動に依存するため、ローカル検証環境および
+  # scripts/cloud-setup.sh と同じバージョンに固定する (ADR-017 と同型の版固定)。
+  # 3 箇所の論理結合なので、上げるときは必ず揃えて上げること (ADR-051)。
+  JJ_VERSION: "0.42.0"
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-ci-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ci-
+
+      - name: Show toolchain versions
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+
+      - name: Install jj (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="jj-v${JJ_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          url="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}/${archive}"
+          tmp="$(mktemp -d)"
+          curl --fail --location --silent --show-error --output "${tmp}/${archive}" "${url}"
+          tar -xzf "${tmp}/${archive}" -C "${tmp}"
+          # アーカイブのレイアウト (flat / サブディレクトリ入り) に依存しないよう探索して拾う
+          # (cloud-setup.sh の install_jj と同じ方針)。
+          bin="$(find "${tmp}" -type f -name jj -print -quit)"
+          if [ -z "${bin}" ]; then
+            echo "error: jj binary not found in ${archive}" >&2
+            exit 1
+          fi
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 "${bin}" "${HOME}/.local/bin/jj"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Install jj (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "jj-v${env:JJ_VERSION}-x86_64-pc-windows-msvc.zip"
+          $url = "https://github.com/jj-vcs/jj/releases/download/v${env:JJ_VERSION}/${archive}"
+          $work = Join-Path $env:RUNNER_TEMP 'jj-download'
+          $dest = Join-Path $env:RUNNER_TEMP 'jj-bin'
+          New-Item -ItemType Directory -Force -Path $work, $dest | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile (Join-Path $work $archive)
+          Expand-Archive -Path (Join-Path $work $archive) -DestinationPath $work -Force
+          $bin = Get-ChildItem -Path $work -Filter 'jj.exe' -Recurse | Select-Object -First 1
+          if (-not $bin) { throw "jj.exe not found in $archive" }
+          Copy-Item $bin.FullName (Join-Path $dest 'jj.exe') -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $dest
+
+      # 「入っているが別バージョン」を通すと、テストが緑でも本番の jj 挙動と一致しなくなる。
+      # identity は統合テストが commit を作るため必須 (未設定だと author が空になり
+      # 挙動が環境依存になる)。
+      - name: Verify the pinned jj version and configure identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          jj --version
+          if ! jj --version | grep -q "${JJ_VERSION}"; then
+            echo "error: jj version mismatch (expected ${JJ_VERSION})" >&2
+            exit 1
+          fi
+          jj config set --user user.name "ci"
+          jj config set --user user.email "ci@example.invalid"
+
+      # ローカル push-runner (rust-lint-test group) と同一コマンド。`--all-targets` により
+      # test コードも対象になるため、片 OS でしかコンパイルされない `#[cfg(...)]` 配下の
+      # 未使用 import 等もここで露出する。
+      - name: Run clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        shell: bash
+        run: cargo test --workspace
+
+      # fixture stdin -> 期待する block/pass 判定 (ADR-049 の incident fixture 資産を流用)。
+      - name: Run hooks smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p hooks-pre-tool-validate --test smoke
+          cargo test -p hooks-post-tool-linter --test incident_eval
+
+      - name: Run ignored (integration) tests
+        shell: bash
+        run: cargo test --workspace -- --ignored --test-threads=1

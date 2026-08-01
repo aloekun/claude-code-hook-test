@@ -619,9 +619,13 @@ cmd = "pnpm test"
     }
 
     /// WP-05 並列化: 複数ステップを並列実行しても、失敗が step 定義順で集約され、
-    /// 成功ステップは failure に含まれないこと。`run_cmd_shell_capped` は `cmd /c` 依存
-    /// のため Windows でのみ実行する (WP-16 CI matrix の非 Windows leg では skip)。
-    #[cfg(windows)]
+    /// 成功ステップは failure に含まれないこと。
+    ///
+    /// 両 OS で実行する: `run_cmd_shell_capped` は ADR-063 で `shell_command`
+    /// (Windows=`cmd /c` / 非 Windows=`sh -c`) に抽象化済みで、step の `exit 0` /
+    /// `exit 1` は cmd.exe と POSIX sh の双方で同義。かつて付いていた
+    /// `#[cfg(windows)]` は ADR-063 以前の `cmd /c` 直書き時代の名残で、
+    /// ADR-065 の CI matrix 導入時に PR #342 の CodeRabbit 指摘で発見・除去した。
     #[test]
     fn run_quality_steps_parallel_collects_failures_in_step_order() {
         let steps = vec![

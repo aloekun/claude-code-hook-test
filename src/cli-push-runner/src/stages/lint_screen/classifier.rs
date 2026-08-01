@@ -117,7 +117,8 @@ fn abort_child(
 /// 全ケースが cmd.exe / PowerShell を子プロセスに使うため module ごと Windows 限定
 /// にしている (WP-15: 個別 `#[cfg(windows)]` だけだと Linux で `use super::*` が
 /// unused となり、本リポジトリの `clippy -D warnings` ゲートで落ちる)。
-/// Linux 側で pump_child_io の deadlock 保護が無検証になる点は WP-16 (CI matrix) で扱う。
+/// ADR-065 の CI matrix により本 module は Windows leg で CI 実行対象になったが、
+/// Linux 側の同等検証 (POSIX 版テスト) は未了で ADR-065 の残課題として追跡している。
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
