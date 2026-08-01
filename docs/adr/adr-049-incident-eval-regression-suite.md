@@ -11,7 +11,7 @@
 既存の `rule_test_coverage_check` は「各ルールが対応 test 関数を宣言していること」をゲート化するが、
 **ルールが由来 incident を今も検出できるか (= ハーネス自身の退行)** を機械検出する仕組みは無かった。
 
-WP-08 (`docs/harness-improvement-plan.md`) は、各ルールを生んだ実 incident を再現する fixture を整備し、
+WP-08 (2026-07-04 策定のハーネス改善計画) は、各ルールを生んだ実 incident を再現する fixture を整備し、
 それを hook に食わせて block/warn を assert する回帰スイートで「ハーネス自体の退行」を機械検出する。
 
 ## 決定

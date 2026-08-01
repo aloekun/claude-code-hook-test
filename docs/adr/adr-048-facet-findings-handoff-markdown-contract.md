@@ -4,13 +4,13 @@
 
 試験運用 (2026-07-06)
 
-> WP-07 (`docs/harness-improvement-plan.md`) の実装 ADR。計画の当初案 (findings の JSON 化) を
+> WP-07 (2026-07-04 策定のハーネス改善計画) の実装 ADR。計画の当初案 (findings の JSON 化) を
 > takt 公式仕様の調査結果に基づき却下し、takt idiomatic な markdown output-contract の標準化に方針転換した記録。
 
 ## コンテキスト
 
 WP-07 の目的は、pre-push review の **reviewers → fix 間の findings 受け渡し**で発生しうる
-「parse 事故・読み落とし」を防ぐことである。当初計画 (`docs/harness-improvement-plan.md` の WP-07) は
+「parse 事故・読み落とし」を防ぐことである。当初計画 (2026-07-04 策定のハーネス改善計画の WP-07) は
 次の 2 ステップを想定していた:
 
 1. findings スキーマ定義 (file / line / severity / rationale / suggested_fix) を **JSON 化**。

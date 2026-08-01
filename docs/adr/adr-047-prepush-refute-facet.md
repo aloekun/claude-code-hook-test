@@ -19,7 +19,7 @@
 
 [ADR-036](adr-036-bundle-z-three-layer-review.md) の Bundle Z は「決定論層 → 制約付き修正 → 異常検知 reviewer」の 3 層で review 品質を構造化したが、**reviewer が出した finding の真偽を fix 前に検証する層**は持たない。fix は与えられた finding を無条件に修正対象とする。
 
-WP-06 (`docs/harness-improvement-plan.md`) は、reviewers と fix の間に **verify (refute) step** を挟み、finding を **反証 (adversarial verification)** する。
+WP-06 (2026-07-04 策定のハーネス改善計画) は、reviewers と fix の間に **verify (refute) step** を挟み、finding を **反証 (adversarial verification)** する。
 
 ## 決定
 

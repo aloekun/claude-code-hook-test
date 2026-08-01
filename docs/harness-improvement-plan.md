@@ -1,333 +1,111 @@
 # ハーネス改善実行計画書（2026-07-04 策定）
 
 > **位置付け**: ephemeral 計画書。本ファイルの最終目標は、記載された全 WP（作業パッケージ）を完了し、知識を永続成果物（ADR / todo / rules）へ移管したうえで、**本ファイル自身を削除すること**である。永続成果物（ADR 等）から本ファイルへリンクを張ってはならない（Cross-File Reference Lifecycle: 参照は permanent → ephemeral の方向のみ禁止対象）。削除条件と手順は末尾「完了条件と退役手順」を参照。
+>
+> **2026-08-01 スリム化**: 完了・見送り WP の詳細記録は永続成果物へ移管済みのため本ファイルから削除した（WP-15 本体 → [ADR-063](adr/adr-063-linux-portability-release-binaries.md)、WP-15 追補 → [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) を新規起票。WP-14 は新規 ADR 不要判断のため各 crate doc + commit message が永続記録。その他は「全体像」表の移管先参照を見よ）。本ファイルには残作業のみを記載する。
 
 ## 0. この文書の扱い方（実行セッション向け）
 
 本計画は 2026-07-04 のハーネスエンジニアリング評価セッション（Claude Fable 5）で策定された。実作業は別モデル・別セッションで実施される前提のため、必要な背景・検証済み事実・規約参照を自己完結的に記載してある。**再調査せずに本ファイルの記載を信頼してよい事実**は「2. 検証済みの前提事実」に集約した。
 
-- 進め方: **1 WP = 原則 1 PR**。バンドル可能な組み合わせは各 WP に明記。
+- 進め方: **1 WP = 原則 1 PR**。
 - 進捗管理: 「4. 全体像」の表の「状態」列を更新する（`未着手` → `実装済` → `観測中`（dogfood 期間あり）→ `完了` / `見送り`）。`見送り` の場合は理由と todo 移管先（順位番号）を同列に記録する。
 - 知識移管の順序（順位 117 で codify 済みの 3 ステップ原則に従う）: ① permanent 側（ADR / todo / rules）を先に作成・validate → ② 参照を permanent 側へ付け替え → ③ 本ファイルから該当記述を削除。
 - ADR 起票時の採番: 「ADR-NNN（採番未確定、land 時に確定）」placeholder 方式を使う（順位 135 / 140 で codify 済み）。
-- todo 登録時: 詳細エントリは `docs/todo13.md` に追記、順位 table への行追加は [todo-summary.md](todo-summary.md) のみで行う（ADR-033）。
+- todo 登録時: 詳細エントリは現行の追加先 todoN.md（[todo-summary.md](todo-summary.md) 冒頭の更新方針を参照）に追記、順位 table への行追加は todo-summary.md / todo-summary2.md（新規行は summary2 末尾）のみで行う（ADR-033）。
 
 ## 1. 背景（評価の要旨）
 
 Anthropic 公式のハーネスエンジニアリング指針（決定論的基盤・コンテキスト効率・フィードバックループ速度）に対する本プロジェクトの評価結果:
 
-- 決定論的ゲート（hooks 7 本）・ルール vs 仕組み化（ADR-042）・フィードバックループ（ADR-030 / 031）・決定論的オーケストレーション（takt）は **高適合**。
-- ギャップは (1) **実行環境の可搬性**（Windows 依存）、(2) **自律実行の常時性**（監視がローカルセッション寿命に依存。実際に PR #237 の wakeup 失効を観測済み）、(3) **外部入力の信頼境界**（CodeRabbit コメントが編集権限を持つ fix エージェントに直結）。
-- 運用上の最大ボトルネックは **CodeRabbit 無料枠のレートリミット**（3 件/時。体感で解除待ち約 3 回/日 × 20〜40 分）。
+- 決定論的ゲート（hooks）・ルール vs 仕組み化（ADR-042）・フィードバックループ（ADR-030 / 031）・決定論的オーケストレーション（takt）は **高適合**。
+- ギャップは (1) **実行環境の可搬性**（Windows 依存。WP-13〜15 で解消済み）、(2) **自律実行の常時性**（監視がローカルセッション寿命に依存。実際に PR #237 の wakeup 失効を観測済み）、(3) **外部入力の信頼境界**（CodeRabbit コメントが編集権限を持つ fix エージェントに直結。WP-11 で 3 層防御を実装済み）。
+- 残る主戦場は (2) の常時性 = セクション 4（WP-17〜19）。
 
 ## 2. 検証済みの前提事実（再調査不要、2026-07-04 確認）
+
+> 本節の外部 SaaS の課金・上限事実（GitHub Actions 課金 / routines cap 等）は、残作業 WP-17〜19 の前提として本ファイルに保持する。research preview 由来の仕様変動があり得るため現時点では ADR 化せず、**WP-17〜19 の ADR 起票時に最新値へ再確認したうえで永続化する**（退役条件 2 がこの移管を必須化している）。
 
 ### ユーザー環境
 
 - Claude は **Max 定額プラン**（API 従量課金ではない）。コスト最適化の実体は「Max 使用量枠とレートリミットの節約」。
-- GitHub アカウントは **GitHub Free**。Copilot Pro（月 $10）をサブスクしているが、**Copilot Pro は GitHub Actions の無料枠と完全に無関係**（別製品。解約しても Actions 枠は変わらない）。
-- 本リポジトリ（aloekun/claude-code-hook-test）は **public**。
-- ローカルに **27b/31b 級 LLM を実行可能なスペックの PC** を保有（Ollama 導入済み、現行は mistral:7b を ADR-038 で使用中）。
+- GitHub アカウントは **GitHub Free**。本リポジトリ（aloekun/claude-code-hook-test）は **public**。
 - Linux 対応の主ターゲットは **claude.ai/code クラウドセッション**。ループエンジニアリングの理想像は**常時稼働エージェント**。
 
 ### GitHub Actions 課金（GitHub 公式 docs で確認済み）
 
-- **public リポジトリ + standard GitHub-hosted runner の Actions 実行は完全無料・回数無制限**。2,000 分/月（Free）の枠は private リポジトリにのみ適用される。原文: "GitHub Actions usage is free for self-hosted runners and for public repositories that use standard GitHub-hosted runners."
-- 分数計算は **job 単位で分未満切り上げ**（"GitHub rounds the minutes and partial minutes each job uses up to the nearest whole minute."）。private 化した場合のみ関係する。
-- runner 単価は Linux が最安（Windows 約 2 倍、macOS 約 10 倍）。
-- セルフホストランナーは分数無料だが、**public リポジトリでの利用は fork PR からの任意コード実行リスクがあり GitHub 非推奨**。private 化とセットでのみ検討。
+- **public リポジトリ + standard GitHub-hosted runner の Actions 実行は完全無料・回数無制限**。2,000 分/月（Free）の枠は private リポジトリにのみ適用される。
+- runner 単価は Linux が最安（Windows 約 2 倍、macOS 約 10 倍）。private 化した場合のみ関係する。
 
 ### Claude 側の実行経路（公式 docs で確認済み）
 
 - **claude-code-action** は `CLAUDE_CODE_OAUTH_TOKEN`（ローカルで `claude setup-token` を実行して生成。Pro/Max ユーザー対応）での認証をサポート。API キー従量課金なしで **Max 枠内**で動く。
-- **cloud routines**（claude.ai/code/routines）は Anthropic 管理インフラで実行され、使用量は "Routines draw down subscription usage the same way interactive sessions do"（= Max 枠消費）。**アカウント毎の 1 日あたり run 数上限**あり。one-off run は daily cap の対象外。
+- **cloud routines**（claude.ai/code/routines）は Anthropic 管理インフラで実行され、使用量は Max 枠消費。**アカウント毎の 1 日あたり run 数上限**あり。one-off run は daily cap の対象外。
 - routines の **GitHub トリガー**は Claude GitHub App の webhook 経由で、**GitHub Actions の分数を一切消費しない**。webhook イベントには per-routine / per-account の時間あたり上限あり（超過分は破棄）。research preview のため仕様変動に注意。
 - routines の GitHub トリガーには **Claude GitHub App のインストールが必須**（`/web-setup` だけでは不足）。また `/schedule` はクラウドセッション内からは使えないため、routine の作成・編集は claude.ai/code/routines の Web UI で行う。
 - routine run の緑ステータスは「インフラエラーなし」の意味であり**タスク成功を意味しない**。transcript の確認が必要。
+- クラウドセッションのプラットフォーム制約（セットアップスクリプトの実行タイミング・fresh clone 挙動・hooks の snapshot 登録）は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) の実測（2026-07-25/26）が最新。本節より新しい事実はそちらを正とする。
 
 ## 3. 実行時に遵守する既存規約・既知の注意点
 
 - **ADR-016**: `pnpm push` 等の長時間コマンドは Bash timeout 600000ms + `run_in_background: true` 必須。デフォルト 120s では途中で kill される。
-- **ADR-028**: `pnpm create-pr` / `pnpm merge-pr` は permissions.ask ゲート対象。自動実行しない。
+- **ADR-028 / ADR-052**: `pnpm create-pr` / `pnpm merge-pr` は permissions.ask ゲート対象。自動実行しない。自律 actor の実行境界は ADR-052 の 2 クラス分類に従う。
 - **PreToolUse hook が `gh` の直呼びを block する**。GitHub 操作は既存の pnpm scripts / cli-* 経由で行うこと（hook のフィードバックに従う）。
-- **ADR-043**: fail-closed はゲート関数のみに適用。助言層（本計画の local_review 等）は fail-open（graceful skip）が正しい。この線引きを新規 ADR に明記すること。
-- **Windows ビルドの既知の罠（WP-13 で解消済み）**: 従来 `pnpm build:all` は Git for Windows の `usr/bin`（`cp` 等）を PATH に要求していたが、WP-13 で `cp` を Node 製 `scripts/deploy-artifacts.mjs` に置換したため、この PATH 依存は解消された。
+- **ADR-043**: fail-closed はゲート関数のみに適用。助言層は fail-open（graceful skip）が正しい。
 - **本ファイルを含む md 編集時に発火するカスタムルール**: 個人ユーザーパスの記載禁止（rule②・error）、`](../docs/` 形式のバックリンク禁止(rule⑧・error)、非 ASCII 見出しへのアンカーリンク警告（rule⑤）。markdownlint は MD028 / MD040（コードフェンスに言語必須）/ MD058（table 前後に空行）のみ有効。
-- **takt はバージョン固定**（ADR-017）。Linux 対応時も同一バージョンの Linux バイナリを取得する。
-- 派生プロジェクト（techbook-ledger / auto-review-fix-vc）への配布（`pnpm deploy:hooks`）を壊さないこと（WP-13 で特に注意）。
+- **takt はバージョン固定**（ADR-017）。Linux でも同一バージョンを使う（cloud-setup.sh が機械的に担保、ADR-063）。
+- 派生プロジェクト（techbook-ledger / auto-review-fix-vc）への配布（`pnpm deploy:hooks`）を壊さないこと。
 
 ## 4. 全体像
 
 | WP | セクション | タスク | 工数 | 依存 | 状態 |
 |---|---|---|---|---|---|
-| WP-01 | 1-A | ローカル LLM レビュアー選定スパイク | S-M | なし | 見送り (ADR-046: 意味的再現率 ~13% ≪ 50%、GPU 再calibration → 順位 255) |
-| WP-02 | 1-A | `local_review` stage 実装 | M | WP-01 | 見送り (WP-01 前提不成立、ADR-046 で却下) |
-| WP-03 | 1-A | CodeRabbit クォータ設計（`.coderabbit.yaml` 新設） | S | なし | 実装済（ADR-019 amendment、dogfood 観測待ち: rate 解除待ち < 1 回/日） |
-| WP-04 | 1-A | classifier モデル格上げ（7b → 27b 級） | XS-S | WP-01 | 見送り (ADR-038 amendment: FP 検出改善なし + qwen3-coder は安全後退、mistral:7b 維持。FP-tune 再評価 → 順位 256) |
-| WP-05 | 1-A | Stop hook 高速化（nextest + 変更 crate 限定） | M | なし | 完了（ADR-004 amendment: 逐次→並列で ~8s→~2s 約75%削減で受け入れ基準〔中央値半減〕達成。nextest/変更crate は実測無効 → push pipeline 向け nextest を順位257へ） |
-| WP-06 | 1-B | 反証（refute）facet 追加 | S-M | なし | 実装済（ADR-047、導入は default OFF、dogfood 有効化はマージ後の別 PR） |
-| WP-07 | 1-B | facet 間受け渡しの JSON 化 | M | なし | 実装済（ADR-048: 公式調査で JSON 却下→markdown 契約標準化。simplicity-review 契約新設・reviewer 間で列統一） |
-| WP-08 | 1-B | incident→eval 回帰スイート | S | なし | 実装済（ADR-049: 11 incident 由来ルールに bad/good fixture + 実 exe E2E + fixture 必須 fail-closed gate） |
-| WP-09 | 1-C | PR 監視の GitHub Actions 化 Phase A（読み取り専用） | M | なし | 観測中（`.github/workflows/pr-monitor.yml` + ADR-022 原則 6、PR #258 マージ済で master 上で本稼働。トリガーはレビュアー非依存〔pull_request_review 全レビュアー + pull_request opened/ready + issue_comment は coderabbitai 発のみ〕、sonnet。読み取り専用は「エージェント書き込み能力ゼロ + 非エージェント step のデータ投稿」の 2 不変条件で担保〔pre-push security review が token-exfil 含む 3 件を land 前に修正〕。secrets 登録済・スモークテスト成功。dogfood: セッション閉鎖中の無人分析コメント + wakeup 失効の取りこぼしゼロを確認したら完了。follow-up〔pagination ギャップ等〕は WP-10 feedback 時に採否判断） |
-| WP-10 | 1-C | 自律境界ポリシー ADR（ADR-028 の 2 段化） | S | なし | 実装済（ADR-052 起票: 自律 actor 限定の 2 クラス分類〔自動実行可: docs-only / Tier3 cleanup / `claude/` push / draft PR 作成、ゲート必須: ready 化 / マージ / master push〕+ 分類不能は fail-closed〔ADR-043〕。ADR-028 のゲートを commitment 点へ移設するのが 2 段化の本質。試験運用。Rust 分類関数は呼び手〔自律実行経路〕不在で今回見送り＝ WP-17/18 着手時に gate.rs の docs-only 判定を lib 切り出しで実装） |
-| WP-11 | 2 | prompt injection 信頼境界の 3 層防御 | M-L | WP-08 | 実装済（[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md): 分類/指示/決定論の 3 層 + security facet + fixture。決定論層は default OFF opt-in、本リポジトリは observe で dogfood 開始。誤検知ゼロ確認後 enforce 昇格が採否判定〔3-5 PR〕） |
-| WP-12 | 2 | 発火テレメトリ + ハーネス ROI 棚卸し | M | なし | 実装済（step1 収集層: ADR-055 + lib-telemetry + 6 hook 計装。step2-3〔集計 pre-step / 卒業判定機械化〕+ retention は [ADR-062](adr/adr-062-monthly-harness-roi-review.md) 月次ハーネス ROI レビュー〔cli-telemetry-report + /monthly-review skill〕で消化。出力先は当初想定の週次から月次へ変更。初回有意義な実行は 28 日 warm-up 後 2026-08-12 以降） |
-| WP-13 | 3 | EXE_SUFFIX 抽象化 | M | なし | 実装済（build/実行 scripts を deploy-artifacts.mjs / run-artifact.mjs 経由に、settings を `/` 区切り + `{{EXE_SUFFIX}}` 化、Rust の機能的 exe 解決を EXE_SUFFIX 化。ADR-005 amendment。cargo test 全 pass・build:all/deploy:hooks/lint:docs 退行なし実測。config TOML の cmd.exe 依存は WP-15 へ。`完了` は初回 push/PR で launcher 経路の実走確認後） |
-| WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 実装済（3 本すべて Rust 化: fix-metrics-check→comment-lint `--fix-metrics-check` / prepare-pr-body→cli-pr-monitor サブコマンド / analyze-takt-timings→新規 cli-takt-timings crate。cargo test カバレッジ下・実データで旧 ps1 と出力一致確認。`完了` は初回 push/PR で fix step metrics-check と prepare-pr-body 経路の実走確認後） |
-| WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 実装済（release-binaries.yml〔master push → rolling `nightly` prerelease に単一 tarball〕+ scripts/cloud-setup.sh 新設。前提として Linux 実行時に壊れる可搬性欠陥を修正: `cmd /c` 決め打ちの唯一の shell spawn 点を `shell_command`〔Windows=cmd /c / 他=sh -c〕へ集約、taskkill のみだった timeout kill に unix 分岐、cmd.exe 構文テストの OS 中立化、config の `.exe`/backslash 依存を `{{CLAUDE_DIR}}`/`{{EXE_SUFFIX}}` 展開へ。**WSL Ubuntu 24.04 で実測**: cargo test --workspace 全 pass・ignored 含め全 pass・clippy clean・hooks 実発火・push pipeline が sh -c 経路で完走。Linux 実測により lock の同時取得レース〔8 中 6 取得〕も発見・修正。`完了` は release 実生成 + 実クラウドセッションでの cloud-setup.sh 実走確認後） |
+| WP-01 | 1-A | ローカル LLM レビュアー選定スパイク | S-M | なし | 見送り（[ADR-046](adr/adr-046-local-llm-review-spike.md)。GPU 再calibration → 順位 255） |
+| WP-02 | 1-A | `local_review` stage 実装 | M | WP-01 | 見送り（WP-01 前提不成立、ADR-046 で却下。todo 移管なし: 再評価は順位 255 の再 calibration に従属、代替経路は WP-03 = ADR-019） |
+| WP-03 | 1-A | CodeRabbit クォータ設計 | S | なし | 完了（[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) amendment。dogfood 達成: rate 解除待ち < 1 回/日） |
+| WP-04 | 1-A | classifier モデル格上げ | XS-S | WP-01 | 見送り（[ADR-038](adr/adr-038-local-llm-finding-classification.md) amendment。FP-tune 再評価 → 順位 256） |
+| WP-05 | 1-A | Stop hook 高速化 | M | なし | 完了（[ADR-004](adr/adr-004-stop-hook-quality-gate.md) amendment: 並列化 ~8s→~2s。nextest は順位 257 へ） |
+| WP-06 | 1-B | 反証（refute）facet 追加 | S-M | なし | 完了（[ADR-047](adr/adr-047-prepush-refute-facet.md)。dogfood の結果 2026-07-19 却下・撤去済） |
+| WP-07 | 1-B | facet 間受け渡しの output-contract 標準化 | M | なし | 完了（[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md)。試験運用判定は ADR 側で管理） |
+| WP-08 | 1-B | incident→eval 回帰スイート | S | なし | 完了（[ADR-049](adr/adr-049-incident-eval-regression-suite.md)） |
+| WP-09 | 1-C | PR 監視の GitHub Actions 化 Phase A | M | なし | 完了（[ADR-022](adr/adr-022-automation-responsibility-separation.md) 原則 6。無人分析コメント + wakeup 取りこぼしゼロを観測済） |
+| WP-10 | 1-C | 自律境界ポリシー ADR | S | なし | 完了（[ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md)。Rust 分類関数は WP-17/18 着手時に実装 = ADR-052 記載） |
+| WP-11 | 2 | prompt injection 信頼境界の 3 層防御 | M-L | WP-08 | 観測中（[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)。scope_guard observe 運用中 → § 残作業） |
+| WP-12 | 2 | 発火テレメトリ + ハーネス ROI 棚卸し | M | なし | 完了（[ADR-055](adr/adr-055-firing-telemetry-collection.md) + [ADR-062](adr/adr-062-monthly-harness-roi-review.md)。初回月次レビュー〔2026-08-12 以降〕は ADR-062 の機構が管理） |
+| WP-13 | 3 | EXE_SUFFIX 抽象化 | M | なし | 完了（[ADR-005](adr/adr-005-hooks-path-resolution-with-template.md) amendment。launcher 経路の実走確認済） |
+| WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
+| WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 未着手 |
 | WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行） | M | WP-09, 10, 11 | 未着手 |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
 | WP-19 | 4 | 常時性ガード（kill-switch / 自主減速 / 監査ループ） | M | WP-18 | 未着手 |
 
-推奨着手順（最初の 1 か月）:
+## 5. 残作業（観測継続）
 
-1. Week 1: WP-03（最小工数でレート待ち直撃）→ WP-01 / 04 スパイク
-2. Week 2: WP-02 + WP-09 Phase A（独立着手可）
-3. Week 3: WP-13（クラウド対応の土台）+ WP-08
-4. Week 4: WP-06 + WP-10
+### WP-11 残: scope_guard の enforce 昇格判定
 
-以降は WP-11 → Linux 系（WP-14〜16）→ ループ系（WP-17〜19）。各 WP の受け入れ基準を満たしてから次へ進む。
+- 現状: `pr-monitor-config.toml` の `[fix.scope_guard]` を `mode = "observe"` で dogfood 中（ADR-054 の決定論層）。
+- 残作業: 誤検知ゼロを確認したら `mode = "enforce"` へ昇格し、3〜5 PR で採否判定（bounded lifetime）。判定基準・kill-switch は ADR-054 を参照。
 
-## 5. セクション 1: 4 観点の改善
+### WP-15 追補残: レート制限 park の実観測
 
-### WP-01: ローカル LLM レビュアー選定スパイク
+- 現状: PR 監視の陽性証拠 gate は実装・incident 実データでの単体実測済み（ADR-064）。
+- 残作業: 実 push/PR サイクルで CodeRabbit レート制限が自然発生した際に (a) 監視が success で終わらず park すること、(b) レポート判定文が保留を出すこと、を実観測したら完了（ADR-064 ステータス欄の検証残。この経路は自然発生時にしか実測できない）。
 
-> **見送り (2026-07-04、[ADR-046](adr/adr-046-local-llm-review-spike.md) で却下)**: 実施済み。PR #90〜242 から CodeRabbit findings 67 件/33 PR を harvest し、5 PR/23 findings のパイロットで 4 モデル (qwen3-coder:30b / gemma4:31b / gemma4:26b / mistral:7b) を実測。意味的再現率は最良でも約 13%（union で約 26%）で受け入れ基準 50% を大きく下回り、かつ過剰検出が深刻 (0.69〜0.87)。結論・比較表・較正知見・モデル別失敗モードは ADR-046 に移管。副次 follow-up (GPU 更新による ADR-040 再 calibration) は順位 255。以下の当初ステップは記録用。
-
-- **目的**: CodeRabbit 往復（最大ボトルネック）をローカル LLM の事前レビューで削減できるか、モデル選定と実測で判断する。
-- **ステップ**:
-  1. **候補モデルは着手時に必ず ollama.com/library で最新状況を確認して差し替える**（以下は 2026-07-04 時点のスナップショット。LLM の世代交代は速く、本リストの鮮度は保証されない）。現時点の候補 3 つ: `qwen3-coder:30b`（MoE 30B-A3B、Q4 で 19GB。active 3B のため推論が数倍速い、コーディング特化）/ `gemma4:31b`（dense、20GB、256K context。品質枠）/ `gemma4:26b`（MoE active 4B、18GB。速度枠）。
-  2. 選定基準（モデル名より重要）: (a) Q4 量子化で 20GB 級以内、(b) コードレビュー性能（評価データでの再現率で判断）、(c) **MoE と dense のトレードオフ** — MoE は全パラメータをメモリにロードするため**メモリ削減にはほぼならない**が active パラメータが小さく推論が速い。dense は同メモリ帯で品質有利・低速。レビューは push 待ち時間に直結するため速度も評価軸に含める、(d) context 長（diff のチャンク分割要否に直結。gemma4 系は 256K）。
-  3. 評価データ作成: 過去 PR の CodeRabbit findings（post-pr-review の `coderabbit-analysis.md`、`check-ci-coderabbit` の解析結果）から正解データ 30〜50 件を抽出。
-  4. 各モデルに該当 PR の diff をレビューさせ、再現率（CodeRabbit 指摘の事前検出率）・過剰検出率・応答時間を比較。
-  5. 結果を ADR-NNN「ローカル LLM pre-push レビュアー」の Context に記録。num_ctx / メモリ実測は ADR-040 の amendment としても記録。
-- **受け入れ基準**: 比較表完成 + 採用モデル決定。**再現率 50% 未満なら WP-02 を中止**し、本スパイクの結論のみ ADR 化して終了（スパイクの意義）。
-- **注意**: 27b/31b 級 + 大 num_ctx はメモリを大きく消費する。diff をチャンク分割して評価する場合は lint_screen の既存分割戦略に揃える。
-
-### WP-02: `local_review` stage 実装
-
-> **見送り (2026-07-04、[ADR-046](adr/adr-046-local-llm-review-spike.md) で却下)**: 前提 (WP-01 スパイクで再現率 50% 以上) が不成立のため実装しない。push 前 local_review stage の追加 (`push-runner-config.toml` の `[local_review]` / cli-push-runner stage) は行わない。CodeRabbit 往復削減は WP-03（`.coderabbit.yaml` によるレビュー対象絞り込み）等の別経路で追求する。
-
-- **目的**: push 前にローカル LLM レビューを挟み、CodeRabbit 到達時点で指摘が出尽くしている状態を作る。
-- **ステップ**:
-  1. `push-runner-config.toml`（ルートと `templates/` の両方）に `[local_review]` セクション追加。`enabled = false` デフォルト（ADR-039 標準パターン: config opt-in + kill-switch + bounded lifetime）。
-  2. cli-push-runner に stage 追加。`lib-ollama-client` を流用。findings 出力は lint_screen / classification と同一スキーマに揃え、既存の分類経路に流す。
-  3. **fail-open 設計**: これはゲートではなく助言層。Ollama 不在・timeout 時は graceful skip で push 続行。ADR に ADR-043 との線引き（fail-closed はゲートのみ）を明記。
-- **受け入れ基準**: 4 週間 dogfood で「PR 1 件あたりの CodeRabbit 指摘数」がベースライン比で減少。ベースラインは導入前 4 週間の実績から先に算出しておくこと。
-
-### WP-03: CodeRabbit クォータ設計
-
-> **実装済 (2026-07-04、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) amendment)**: 要確認 (step 1) の結果、public 特典は本アカウントの rate-limit を撤廃しておらず 3〜4 回/時上限が実際に効いている (ユーザー確認)。balanced 構成を採用: `.coderabbit.yaml` 新設 (`enabled=true` / `drafts=false` / `auto_incremental_review=false` / `auto_pause_after_reviewed_commits=5` / `language=ja-JP`) + 監視の auto-push 成功後に `@coderabbitai review` を明示投稿 (`pr-monitor-config.toml [fix] trigger_review_after_push`、`review_trigger.rs`、fail-open)。設計根拠・消費モデル・既知制約・dogfood 受け入れ基準は ADR-019 amendment に移管。dogfood で「rate 解除待ち < 1 回/日」を確認したら `完了`。以下は当初ステップ (記録用)。
-
-- **目的**: レートリミット解除待ち（約 3 回/日 × 20〜40 分）を構造的に削減する。
-- **ステップ**:
-  1. **要確認（着手時に必ず最新の公式 docs を参照）**: CodeRabbit は public/OSS リポジトリ向けに Pro 機能の無償提供を行っている場合がある。適用されればレートリミット自体が緩和される可能性があるため、設定変更の前にまず確認する。
-  2. `.coderabbit.yaml` を新規作成（現状存在しない = 全 push が自動レビューされている）。draft PR の自動レビュー除外、fix push 時の自動インクリメンタルレビュー抑止、`@coderabbitai review` の明示トリガー運用への切替。**設定キーの正確な名称は CodeRabbit 公式リファレンスで確認すること**（本計画では未検証）。
-  3. post-pr-review 側の運用変更: fix → 検証 → **1 回の push に束ねる**。`fix.md` facet の指示と cli-pr-monitor の push タイミングを調整。
-  4. ADR-019（CodeRabbit ハイブリッド構成）の amendment として記録。
-- **受け入れ基準**: レート解除待ち発生が 1 回/日未満。
-
-### WP-04: classifier モデル格上げ
-
-> **見送り (2026-07-05、[ADR-038](adr/adr-038-local-llm-finding-classification.md) amendment)**: 実測済み。real findings 30 件 + キュレート FP 5 件 = 35 件を Opus gold baseline とし、5 モデル (mistral:7b / gemma4:12b/26b/31b / qwen3-coder:30b) を比較。**どの候補も FP 検出を改善せず**（全モデル 3〜4/6 の FP を有害な auto_fix に誤分類）、accuracy 最良の qwen3-coder は human_review を auto_fix に誤送する安全後退を起こし、中型 dense は劣化 (12b/31b) or 破綻 (26b=27 invalid)。mistral:7b は安全軸完璧・最軽量のため維持。結論・eval 手法・安全軸の知見は ADR-038 amendment に移管。FP 検出強化プロンプトでの再評価は順位 256。以下は当初ステップ (記録用)。
-
-- **目的**: ADR-038 の findings classification 精度向上（`false_positive_likely` の判定改善で下流の無駄な fix を削減）。
-- **ステップ**: WP-01 と同時実施。設定のモデル名変更 + 過去の classification 結果を新モデルで再分類して一致率・改善点を確認。ADR-040 amendment（実測値更新）。
-- **注意**: classification はレビューより軽いタスクのため、27b 級が最適とは限らない。WP-01 の候補に加えて中型 dense（例: `gemma4:12b`、7.6GB、256K context）も比較対象に含め、精度が同等なら速度・メモリで有利な方を採る。候補の鮮度確認は WP-01 ステップ 1 と同じ。
-
-### WP-05: Stop hook 高速化
-
-> **実装済 (2026-07-05、[ADR-004](adr/adr-004-stop-hook-quality-gate.md) amendment)**: 実測でボトルネックを再特定。当初想定の nextest / 変更 crate 限定 clippy は本 hook に無効だった（Stop hook は cargo test を実行せず、clippy は cargo incremental で warm 0.4〜0.8s。変更 crate 限定でも逆依存込みで上積み ~0.3s）。真因は **7 ステップの逐次実行 (~8.1s)**。`run_quality_steps` を `std::thread` で並列化し **~8.1s → ~2.0s (約75%削減)** を実測、網羅性は全ステップ実行で不変。単体テスト (失敗を step 順で集約) 追加。設計根拠は ADR-004 amendment。nextest は push pipeline の cargo test 向けに順位 257 へ migrate。以下は当初ステップ (記録用)。
-
-- **目的**: `hooks-stop-quality`（timeout 300s）の実行時間短縮。ゲート網羅性は落とさない。
-- **ステップ**:
-  1. テスト実行を cargo-nextest に置換。**注意: nextest は doctest を実行しない**。doctest が存在する場合は `cargo test --doc` を併走させること。
-  2. 変更 crate 限定モード: jj の変更ファイル → crate マッピング（`lib-jj-helpers` 拡張）→ `cargo test -p` / `clippy -p`。**逆依存 crate を `cargo metadata` で解決して必ず含める**。
-  3. fail-closed（ADR-043）: マッピングまたは逆依存解決が判定不能なら workspace 全体実行にフォールバック。
-- **受け入れ基準**: Stop hook 実行時間の中央値半減（before/after 計測）。逆依存を含むことのユニットテスト必須。
-
-### WP-06: 反証（refute）facet 追加
-
-> **実装済 (2026-07-06、[ADR-047](adr/adr-047-prepush-refute-facet.md))**: reviewers と fix の間に verify(refute, haiku) step を挟む `pre-push-review-refute` workflow を新設。opt-in は `push-runner-config.toml` の `[pre_push_review] refute_enabled`（**導入は false=OFF**、dogfood 有効化はマージ後の別 PR、templates も default OFF、cli-push-runner の `resolve_takt_workflow` で workflow 切替）。verify 全却下時は supervise 経由。`fix.md` / `supervise.md` は `refutation-report.md` 存在時のみ参照で後方互換。`loop_monitors.cycle` を `[reviewers, verify, fix]` に更新（膠着検出維持）。設計背景・kill-switch・dogfood 計測は ADR-047 に移管。**dogfood 有効化（マージ後の別 PR）から 2 週間で採否判定**: fix iteration 減少 かつ reject 誤りが CodeRabbit 層で回収を確認したら採用（pre-push-review.yaml へ統合）、未達なら却下。以下は当初ステップ (記録用)。
-
-- **目的**: pre-push review の false positive 起因の fix iteration を削減する（adversarial verification）。
-- **ステップ**:
-  1. `.takt/facets/instructions/refute-finding.md` 新規作成。「finding を反証せよ。対象コードを実際に Read し、指摘が再現しない・前提が誤っているなら reject。確信が持てない finding は reject に倒す」（pre-push の fix コストが高いため）。
-  2. `pre-push-review.yaml` を reviewers → verify（haiku）→ fix に変更。ADR-NNN 起票（試験運用、ADR-039 パターン）。
-  3. dogfood 計測: fix iteration 数、reject 率、reject 誤り率（reject した finding が後に CodeRabbit で再指摘された数）。
-- **受け入れ基準**: fix iteration 数の減少、かつ reject 誤りが CodeRabbit 層で回収されている（安全網の実証）。
-
-### WP-07: facet 間受け渡しの JSON 化
-
-> **実装済 (2026-07-06、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md))**: 当初案 (findings の JSON 化) を takt 公式仕様の調査で却下。takt の idiomatic な handoff は markdown output-contract (`{report:}` 参照) で、公式スタイルガイドが JSON/プレーンテキスト契約を DON'T と明記。parse 事故の真因は「simplicity-review に output-contract が無く列が不統一」だったため、`.takt/facets/output-contracts/simplicity-review.md` を新設 (builtin security-review の finding テーブルを踏襲)、reviewer 間で列統一 (finding_id / family_tag / severity / type / location / issue / fix suggestion)、refutation-report に family_tag 追加。既存 workflow の `format:` 名にそのまま解決されるため YAML 変更不要。当初案の「Rust pre-step (cli-push-runner)」は takt が LLM step 専用 + cli-push-runner が takt workflow 全体を不透明に呼ぶため実現不能と判明。machine 検証 (Bash 経由 Rust validator) は見送り (順位化候補)。以下は当初ステップ (記録用)。
-
-- **目的**: reviewers → fix 間の findings 受け渡し（現状 markdown）の parse 事故・読み落とし防止。
-- **ステップ**:
-  1. findings スキーマ定義（file / line / severity / rationale / suggested_fix）。
-  2. Rust 側（cli-push-runner）に schema 検証 pre-step 追加。parse 失敗時は markdown fallback（段階導入のため）。
-  3. pre-push-review で効果確認後、post-pr-review へ展開。
-
-### WP-08: incident→eval 回帰スイート
-
-> **実装済 (2026-07-06、[ADR-049](adr/adr-049-incident-eval-regression-suite.md))**: 12 ルール中 **11 が実 incident 由来**（rule① no-console-log は汎用サンプルで免除）と判明。`[rules.incident]` (pr/bad_fixture/good_fixture/adr) を toml に構造化し、`tests/fixtures/incidents/{bad,good}/` に **1 fixture = 1 failure mode** の bad/good ペア（good = false positive 退行ガード）を整備。**実 exe を spawn する E2E** (`tests/incident_eval.rs`、rule⑨ は temp-CWD で paths filter も検証、assert は type/severity/line のみ) と、`incident_fixture_coverage_check` (incident 由来ルールに fixture 必須を **fail-closed** で強制) を追加。fixture は src/ 外・markdownlint 除外・`//!` doc ヘッダで隔離しハーネス運用を壊さない。追跡鎖 incident→rule→fixture→test→ADR を閉じた。以下は当初ステップ (記録用)。
-
-- **目的**: 「ハーネス自体の退行」を機械検出する。カスタムルール 12 本は全て実 incident（PR 番号）由来なので、逆方向の検証を仕組み化する。
-- **ステップ**:
-  1. `tests/fixtures/incidents/` に由来 incident を再現する fixture を整備（例: rule② の由来である PR #75 の PII パス混入）。
-  2. hooks を stdin JSON で起動し block/warn を assert する integration test。
-  3. 既存 `rule_test_coverage_check` を拡張し「incident 由来ルールは incident fixture 必須」をゲート化。
-- **注意**: injection 系 fixture（WP-11 で追加）はテストデータであることをファイル冒頭コメントで明示する。
-
-### WP-09: PR 監視の GitHub Actions 化 Phase A（読み取り専用）
-
-> **観測中 (2026-07-11、[ADR-022](adr/adr-022-automation-responsibility-separation.md) 原則 6)**: `.github/workflows/pr-monitor.yml` を新設し PR #258 でマージ済。トリガーはレビュアー非依存 (pull_request_review 全レビュアー + pull_request opened/ready + issue_comment は coderabbitai 発のみ) で、CodeRabbit 固有条件を 1 箇所に局所化しロックインを回避。model=sonnet。読み取り専用は指示層ではなく「①分析エージェントは書き込み能力ゼロ ②副作用 (コメント投稿) は非エージェント step が `--body-file` でデータとして実行」の 2 不変条件 + `contents: read` + `persist-credentials: false` で担保 (pre-push security review が `gh api` 過剰スコープ / persist-credentials token 書き込み / エージェント投稿による token 露出の 3 件を land 前に検出・修正)。スモークテスト (pull_request opened で本 PR 自身に発火) 成功、読み取り専用が実地で機能。CodeRabbit Minor (空結果 skip) + dogfood finding (コメント前置き混入) を child commit で修正。**完了条件**: `pull_request_review`/`issue_comment` トリガーはマージ後に master 上で本稼働を開始したため、セッション閉鎖中の CodeRabbit レビュー完了に無人分析コメントが付き wakeup 失効の取りこぼしゼロを dogfood で観測したら `完了`。follow-up (pagination ギャップ〔`gh api` に `--paginate` 無し、30 件超で取りこぼし〕/ least-privilege scope / `gh pr checks` の scope / 各種 test・docs / ADR-052 提案) は WP-10 feedback 完了時にまとめて採否判断 (`.claude/feedback-reports/258.md`)。以下は当初ステップ (記録用)。
-
-- **目的**: 監視をローカルセッション寿命から切り離す第一歩。public リポジトリのため GitHub 側コストはゼロ、LLM 消費は Max 枠（検証済み事実参照）。
-- **ステップ**:
-  1. ローカルで `claude setup-token` を実行し OAuth トークンを生成 → リポジトリ secrets に `CLAUDE_CODE_OAUTH_TOKEN` として登録。**トークンは資格情報として扱い、ログ・PR 本文に出さない**。
-  2. `.github/workflows/pr-monitor.yml` 作成: `pull_request` / `issue_comment` / `check_suite` トリガー + claude-code-action。**Phase A は読み取り専用**（findings 分析・分類・サマリーコメント投稿まで。fix push はしない）。
-  3. **自己トリガーループの防止**: 自分（bot / claude-code-action）が投稿したコメントで `issue_comment` が再発火しないよう、actor / comment author でフィルタする。
-  4. `concurrency` グループを PR 単位で設定し、連続イベントを集約（Max 枠の暴走ガード）。
-  5. ローカル cli-pr-monitor は併存: Actions は「セッション不在時のバックストップ」、ローカルは「セッション稼働中の高速経路」。この責務分離を ADR-022 に追記。
-- **受け入れ基準**: セッション閉鎖中の CodeRabbit レビュー完了に無人で分析コメントが付く。wakeup 失効による取りこぼしゼロ。
-- **注意**: public リポジトリでは fork PR に secrets が渡らない（GitHub の標準挙動）。本人 push の PR のみ動作すれば要件は満たす。`pull_request_target` は使わないこと（権限昇格リスク）。
-
-### WP-10: 自律境界ポリシー ADR（ADR-028 の 2 段化）
-
-> **実装済 (2026-07-11、[ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md))**: 自律 actor 限定の 2 クラス分類を起票。自動実行可 (docs-only〔ADR-035 基準〕/ Tier3 cleanup / `claude/` prefix push / `claude/` ブランチからの draft PR 作成) と ゲート必須 (PR ready 化 / マージ / master push / 非 draft PR 作成)、分類不能は fail-closed でゲート必須へ (ADR-043)。要点は「ADR-028 のゲートを除去せず commitment 点〔ready 化 / マージ〕へ移設する」= 2 段化。interactive Claude は従来どおり ADR-028 (人間ゲート)、本 ADR は自律 actor 限定 (ADR-022 の actor 区分)。**Rust 分類関数は今回見送り**: 調査の結果 PR 作成/マージの事前許可は 100% harness (permissions.ask) 側で、Rust に自律実行経路 (呼び手) が存在しないため今実装すると dead code (YAGNI)。呼び手 (イベント駆動バックボーン Phase B / 夜間ループ) 着手時に `cli-pr-monitor` gate.rs の `is_docs_only_summary`/`is_docs_only_path` を lib 切り出しで再利用実装する。draft PR 作成を自動実行可に含めるのは WP-18 夜間ループの設計終点「draft PR 作成で停止」と整合し、常時性ガード (背圧 / kill-switch) とセット運用が前提 (ADR-052 原則 5)。以下は当初ステップ (記録用)。
-
-- **目的**: 常時稼働化と ADR-028 の実行ゲートの原理的衝突を、事前定義された 2 クラスで解消する。
-- **ステップ**:
-  1. ADR-NNN 起票: **自動実行可クラス**（docs-only〔ADR-035 を土台〕、Tier 3 cleanup、`claude/` prefix ブランチへの push）と**ゲート必須クラス**（外部可視かつ revert 困難: PR の ready 化・マージ）。
-  2. 分類判定関数を cli-push-runner / cli-merge-pipeline に実装。**分類不能はゲート必須側に倒す**（fail-closed、ADR-043 準拠）。
-
-## 6. セクション 2: 4 観点以外の重要ポイント
-
-### WP-11: prompt injection 信頼境界の 3 層防御
-
-> **実装済 (2026-07-12、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md))**: 3 層 + 補助 2 施策を実装。① 分類層 (`cli-finding-classifier`): injection シグナルを LLM 呼び出しの**前**に決定論的に検知して `injection_suspect` へ短絡 (敵対的 finding が LLM 出力を操作する self-referential attack を防ぐため自己申告させない、fail-open 補助)。② 指示層 (`fix.md` / `fix-supervisor.md`): findings の Location から positive allowlist を導出させ範囲外編集を禁止 (fail-open 補助)。③ **決定論層 (本命)**: `stages/scope_guard.rs` が fix commit (分離 child) の `jj diff --summary` を allowlist と照合し、対象外ファイルへの変更を fail-closed で block。既存 gate 経路 (`run_auto_push`) に統合、判定不能はすべて block 側。④ security-whole facet に「Pipeline-directed injection」観点追加。⑤ fixture は scope guard / classifier の検知テストに配置。**決定論層は default OFF opt-in** (`pnpm deploy:hooks` 配布先で意図せぬ有効化を避けるため。gate.rs の default ON とは異なる判断の理由は ADR-054)、`mode = observe|enforce` + kill-switch `PR_MONITOR_SCOPE_GUARD_DISABLE=1`。**受け入れ基準** (注入が指示層をすり抜けても決定論層が 100% block) は `enforce_blocks_when_fix_touches_file_outside_allowlist` 他で machine-enforce。当初計画の「fixture を WP-08 incident-eval に追加」は逸脱: incident-eval は正規表現ルール専用で injection 検知に不適 (誤検知・回避容易) と判明、理由は ADR-054 § 施策 5。**dogfood**: 本リポジトリで `[fix.scope_guard] enabled = true, mode = observe` で開始。誤検知ゼロを確認したら enforce へ昇格し、3-5 PR で採否判定 (bounded lifetime)。以下は当初ステップ (記録用)。
-
-- **目的**: CodeRabbit コメント（外部の非信頼テキスト）が編集権限を持つ fix エージェントに直結している経路を防御する。**自律化（WP-17 以降）を進めるほどリスクが増幅するため、WP-17 の前提条件とする。**
-- **ステップ**:
-  1. 分類層: cli-finding-classifier に新 action `injection_suspect`（命令口調・スコープ外要求の検知）を追加 → 強制的に `human_review` へ。
-  2. 指示層: `fix.md` facet に対象ファイル allowlist を入力として明示し、範囲外編集禁止を指示。
-  3. **決定論層（本命）**: fix 後の jj diff を検証する Rust stage — finding 対象外ファイルへの変更があれば block。ゲートなので fail-closed（ADR-043）。
-  4. security-whole-review facet に「パイプライン自体への注入」観点を追加。
-  5. 悪意コメント fixture（例: ファイル削除指示・設定改変指示）を WP-08 の incident-eval に追加。
-- **受け入れ基準**: 注入 fixture が指示層をすり抜けても決定論層が 100% block する。
-
-### WP-12: 発火テレメトリ + ハーネス ROI 棚卸し
-
-> **実装済 (2026-07-15、step1 収集層のみ、[ADR-055](adr/adr-055-firing-telemetry-collection.md))**: ヒアリングで「収集層のみ先行 PR」と確定。共通 lib `lib-telemetry` を新設し、6 hook（pre-tool-validate preset / post-tool-linter custom rule / jj-op-verify warn / stop-quality / stop-tool-call-leak / comment-lint-rust file-length gate）を計装。発火を `.claude/telemetry/firings-<date>-<pid>.jsonl` に per-process/per-day partition で append（Windows 並行競合を pid+日次+Mutex の 3 重で排除）。記録はメタデータのみ（hook/kind/id/decision/timestamp、パス・内容は非記録）。**記録対象は裁量発火に限定**（常時 ON の構造チェック〔非 doc コメント/関数長/file_size/utf8〕と nudge-only hook は ROI ノイズのため除外）。ADR-039 3 点セット（opt-in default OFF・kill-switch `CLAUDE_TELEMETRY_DISABLE`・bounded lifetime）+ fail-open（ADR-043 の fail-closed はゲート限定）。step 1 の理由: telemetry はマージ後に初めてデータが溜まるため、この PR 単体では必ず発火 0（データ無し）になる。**step 2（集計 pre-step）/ step 3（卒業判定機械化）+ retention は [ADR-062](adr/adr-062-monthly-harness-roi-review.md)（月次ハーネス ROI レビュー: `cli-telemetry-report` exe + `/monthly-review` skill + SessionStart reminder の 3 層）で消化済み**。当初は step 2 の出力先を週次レビュー facet と想定していたが、テレメトリ傾向は週次ではノイズになり ADR-053/061 の leak 撤去粒度「4 週間」と月次が一致するため**出力先を月次に変更**（ADR-055 に amendment）。初回有意義な実行は 28 日 warm-up 後の 2026-08-12 以降。以下は当初ステップ（記録用、出力先は現在は月次）。
-
-- **目的**: ハーネス複雑度（hooks 7 本・ルール 12 本・crate 19 個）の維持判断を発火実績で機械化する。
-- **ステップ**:
-  1. 共通 telemetry 層を lib に追加: 全 hooks の block/warn 発火を `.claude/telemetry/` 配下の JSONL に append（hook 名・rule/preset・timestamp・decision）。**`.claude/telemetry/` は gitignore する**（ローカル運用データ）。**Windows のファイルロック競合に注意**: hooks は並行実行され得るため、プロセス毎ファイル or append 失敗時 retry で設計する。
-  2. weekly-review の aggregate 前 Rust pre-step（file-length-watchlist と同型の機械処理）として「直近 28 日で発火 0 のルール/preset/hook を列挙 → 削除候補提案」を追加。
-  3. ADR-039 の bounded lifetime 判定（試験運用機能の卒業/廃止）を発火数で機械化。
-- **受け入れ基準**: 週次レビューレポートに発火統計セクションが出力され、初回実行で削除候補（または全維持の根拠）が特定される。
-
-## 7. セクション 3: Linux 対応（claude.ai/code クラウド）
-
-### WP-13: EXE_SUFFIX 抽象化
-
-> **実装済 (2026-07-20)**: `.exe` ハードコードを OS 非依存化する 5 コミットで実装。① build コピー `cp target/release/*.exe .claude/` を Node 製 `scripts/deploy-artifacts.mjs` に置換（`cp` の PATH 依存も構造解消）。② 実行系 pnpm scripts（push / create-pr / mark-notified / merge-pr / check-ci / lint:docs）を `scripts/run-artifact.mjs` ランチャー経由に（suffix 解決 + 引数忠実転送で cli-pr-monitor の `--body` 再結合も透過）。③ `settings.local.json.template` を `/` 区切り + `{{EXE_SUFFIX}}` に統一（forward-slash 絶対パス exe が Windows でも実行可能なことを実測、配布後 session の PreToolUse hook 実発火も確認）、生成を `scripts/build-hooks-settings.mjs` へ切り出し + JSON 妥当性検証（fail-closed）、`deploy-hooks.ts` も同一解決に追従（[ADR-005](adr/adr-005-hooks-path-resolution-with-template.md) amendment）。④ Rust の機能的 exe 解決を `std::env::consts::EXE_SUFFIX` 化。**スコープ補正**: プラン策定（2026-07-04）後のコード進化で当初想定の「hooks-pre-tool-validate の protected_files / polling_exe」は stale（protected_files に `.exe` 無し）となっており、実際の機能的 `.exe`（cli-pr-monitor の classifier/checker exe 解決・wakeup fallback 3 箇所、cli-push-runner の lint_screen デフォルト、hooks-pre-tool-validate の exe-help-block regex を `.exe` optional 化して Linux バイナリも block）を精査して置換した。**スコープ外（WP-15 の Linux config 生成へ委譲）**: `hooks-config.toml` の quality_gate `cmd`（cmd.exe 経由 + `.\.claude\….exe`）と `push-runner-config.toml` の `exe_path` 明示指定はソース hardcode ではなくデプロイ時 config であり、cmd.exe 依存の解消を含むため本 WP では変更しない。**受け入れ基準の実測**: cargo test 全 pass（248/256/232）・clippy clean・`pnpm build:all` / `deploy:hooks`（一時ターゲットで smoke）/ `lint:docs` 退行なし。**`完了` 条件**: 本変更を含む初回 push/PR サイクルで push / create-pr 経路の launcher 実走に退行が無いことを確認したら `完了`（create-pr / merge-pr は副作用のため本セッションでは launcher の引数透過性を設計で担保するに留めた）。以下は当初ステップ（記録用）。
-
-- **目的**: `.exe` ハードコード（package.json の build/実行 scripts 15 箇所以上 + Rust コード 2 箇所）の解消。全クラウド対応の土台。
-- **ステップ**:
-  1. `scripts/deploy-artifacts.mjs`（Node 製・クロスプラットフォーム）を新設し、package.json の全 `cp target/release/*.exe .claude/` を置換（`process.platform` で suffix 判定）。**副次効果: Git usr/bin の `cp` PATH 依存（既知の罠）が構造的に解消される。**
-  2. pnpm scripts の `./.claude/*.exe` 直接呼び出しを、suffix 解決するランチャー mjs 経由に変更。
-  3. `.claude/settings.local.json.template`: パス区切りを `/` に統一（Windows でも動作する）+ `{{EXE_SUFFIX}}` 変数追加。`build:hooks-settings` の置換ロジック拡張（ADR-005 の拡張として記録）。
-  4. Rust 側の `.exe` ハードコード（hooks-pre-tool-validate の protected_files / polling_exe）を `std::env::consts::EXE_SUFFIX` ベースに。
-- **受け入れ基準**: Windows 上で全テスト・全パイプラインが退行なし（この時点で Linux 動作確認は不要）。`pnpm deploy:hooks`（派生プロジェクト配布）も壊れていないこと。
-
-### WP-14: PowerShell 3 本の Rust 化
-
-> **実装済 (2026-07-20)**: `scripts/` の PowerShell 3 本をすべて Rust 化し、`scripts/` から ps1 を一掃した (3 コミット)。① `fix-metrics-check.ps1`（Bundle Z #B-β）→ hooks-post-tool-comment-lint-rust の `--fix-metrics-check <file> [<pre_revset>]` モード（crate 内 `compute_metrics` を直接再利用し exe 往復・temp file・PowerShell console encoding 依存を排除、呼び出し元 fix.md を launcher 経由に更新）。② `prepare-pr-body.ps1` → cli-pr-monitor の `--prepare-pr-body` / `--prepare-pr-body-cleanup` サブコマンド（pnpm script 名据え置きで prepare-pr skill〔ADR-028〕は無改修）。③ `analyze-takt-timings.ps1` → 新規 crate cli-takt-timings（ISO 8601→epoch 整数ミリ秒の pure-std パーサ〔chrono 非依存〕で .NET tick と数値一致、banker's rounding で `[math]::Round(ToEven)` 再現、合計降順の同値時 tiebreak と per-run 順序を決定論化）。**スコープ補正**: プラン策定 (2026-07-04) 時点の ps1 は 2 本 (工数 `S-M ×2` はこれを反映) で、`analyze-takt-timings.ps1` は策定後 (2026-07-19、PR #295) に追加され現在 3 本 = タイトルと一致。ヒアリングで 3 本すべてを対象と確定、3 本目は新規 crate 独立配置を採用。**検証**: cargo test 全 pass（新規 unit test は comment-lint 側 + cli-pr-monitor 側 + cli-takt-timings 28 件）、clippy clean、`pnpm build:all`（cli-takt-timings 追加後も 16 成果物デプロイ）・`lint:docs` 退行なし。fix-metrics-check / analyze-takt-timings は**実 exe で旧 ps1 と出力一致を実測**（analyze は全 data 行の数値完全一致。差分はヘッダの UTF-8 化〔ps1 は日本語 mojibake〕と per-run 内の決定論的順序化のみ = いずれも改善）。参照 docs（fix.md / review-simplicity{,-whole}.md / review-anomaly.md / ADR-036 / ADR-028 / takt-step-timings.md）を新コマンドに追従。cli-takt-timings は repo-local 観測ツールのため deploy-hooks の派生配布 allowlist には非追加。ADR-001/026 の既存方針に整合するため新規 ADR は不要と判断（決定は各 crate の doc コメント + commit message に記録）。**`完了` 条件**: 初回 push/PR サイクルで fix step の metrics-check（fix.md）と PR 作成の prepare-pr-body 経路が launcher 経由で実走することを確認したら `完了`（WP-13 と同型の実走確認）。以下は当初ステップ（記録用）。
-
-- **ステップ**: `scripts/fix-metrics-check.ps1`（Bundle Z #B-β）→ 既存関連 crate へ統合。`scripts/prepare-pr-body.ps1` → cli-pr-monitor のサブコマンド化。ADR-001（hooks は Rust）の方針と整合し、cargo test のカバレッジ下に入れる。
-- **注意**: カスタムルール③④（ps1 向け lint）は派生プロジェクト転用価値があるため削除しない（本 WP でも `custom-lint-rules.toml` のルール③④と incident fixture の ps1 は保持）。
-
-### WP-15: Linux バイナリビルド + クラウド setup script
-
-> **実装済 (2026-07-20)**: 8 コミットで実装。**スコープ補正**: 当初ステップ (release workflow + setup script) の手前に、**Linux では実行時に壊れる可搬性欠陥**が残っていることが着手時調査で判明したため、受け入れ基準「`cargo test` と push pipeline の dry-run が通る」を満たす前提としてこれを先に修正した。
->
-> **① 可搬性修正 (Linux 実行を成立させる前提)**: (a) `lib-subprocess` の `run_cmd_shell_*` が `Command::new("cmd").args(["/c", …])` に固定されており、これが**リポジトリ唯一の shell spawn 点**だったため Linux では quality_gate / push / merge の全 step が spawn 失敗で無言に失敗扱いになる状態だった。OS 判定で `cmd /c` / `sh -c` を返す `shell_command` へ集約 (bash 固有構文を使わない前提で POSIX `sh` を選択 = bash 不在の最小コンテナでも通る)。`cli-push-runner` の `diff.rs` も同じ経路へ統合。(b) `check-ci-coderabbit` の timeout kill が `taskkill` のみで非 Windows 分岐が無く、Linux では `wait_with_output` が**無限ハング**していた (gh がハングすると CI 監視が永久停止) → `kill_process_by_id` で Windows=taskkill / Unix=kill -9 に分岐。(c) cmd.exe 構文 (`for /L` / `type nul` / `exit /b` / `A & B` / `ping -n`) を直書きしたテストが cfg 未ガードで残っており Linux で panic / assert 失敗 → OS 別 const 化 (行数・所要時間を両 OS で揃え、片側だけ主題を検証しない穴を防ぐ)。
->
-> **② デプロイ時 config の cmd.exe 依存解消 (WP-13 からの引き継ぎ)**: file-length step の `.\.claude\….exe` は backslash + `.exe` 決め打ちで sh では解決不能、一方 cmd.exe は forward-slash **相対**パスを解決できない。**実測の結果、両シェルが共通で通るのは forward-slash の絶対パスだけ**だったため (ADR-005 が settings.local.json で確認済みの性質と同型)、`hooks-stop-quality` に `{{CLAUDE_DIR}}` / `{{EXE_SUFFIX}}` の展開を追加。`push-runner-config.toml` の `[lint_screen] exe_path` は code 側が既に OS 分岐 default を持つため明示指定をやめた。
->
-> **③ ステップ 1 (release workflow)**: `.github/workflows/release-binaries.yml`。master push (paths フィルタで docs-only を除外) で `x86_64-unknown-linux-gnu` をビルドし、固定タグ `nightly` の prerelease へ**単一 tarball**で公開。単一 asset にしたのは run 失敗時に新旧混在の不整合セットが残らないようにするため。**バイナリ一覧は `cargo metadata` から導出**し、package.json / deploy-hooks.ts への列挙コピーによる drift を構造的に断つ (実際 deploy-hooks.ts の allowlist は 11 個で、settings template が参照する hook exe を 3 つ取りこぼしていた)。ubuntu-22.04 固定は glibc 後方互換が無いため。musl は tree-sitter の C コンパイルに musl-tools が必要でビルドが一段複雑になるのに対し、実行先が Ubuntu 系で glibc 2.35 なら十分と判断して不採用。
->
-> **④ ステップ 2 (setup script)**: `scripts/cloud-setup.sh`。**要確認事項への回答**: public リポジトリの Release asset は素の HTTPS で取得できるため **gh CLI 認証は不要** (トークン受け渡し構成を持ち込まない = 失敗点を増やさない)。必須バイナリ一覧は `settings.local.json.template` から導出 (「どの exe が無いと hooks が発火しないか」の正解はテンプレート自身が持つ)。バイナリ欠落・settings 生成失敗は fail-closed (setup 成功と報告してハーネス無しで進む事故を防ぐ、ADR-005 の背景と同型)。jj は 0.42.0 固定 (ADR-011/015/045 が 0.42 系挙動に依存)、takt は `pnpm install --frozen-lockfile` で ADR-017 の固定を機械的に担保。あわせて `.gitignore` が `.claude/*.exe` のみで**拡張子なし Linux バイナリを無視しない**問題も修正 (クラウドで jj が成果物を snapshot してしまう)。
->
-> **⑤ ステップ 3 (Ollama graceful skip)**: コード監査で**無条件に skip される**ことを確認。lint_screen は `enabled = false` かつ戻り値が `()` で構造的に block 不可能。classifier は exe 側が fallback JSON + exit 0 を返し、runner 側が全失敗経路を空 Vec に潰す二重の fail-open。実 Ollama を叩く eval は `#[ignore]` + env opt-in の二重ガードで `cargo test -- --ignored` でも skip される。fail-closed であるべきゲート (`[fix.gate]` / `docs_only_routing` / `post_takt_regate`) は Ollama 非依存で、ADR-043 の線引きは正しく引かれている。
->
-> **受け入れ基準の実測 (WSL Ubuntu 24.04 = 実 Linux)**: `cargo test --workspace` 全 pass / `cargo test -- --ignored --test-threads=1` 全 pass (jj 導入後) / `clippy --workspace --all-targets --all-features -- -D warnings` clean / **hooks 実発火**(SessionStart が additionalContext JSON を出力、PreToolUse が `rm -rf /` を exit 2 でブロックし `echo hello` を通す、tree-sitter の comment-lint が違反検出) / **push pipeline が `sh -c` 経路で完走**(quality_gate の rust-lint-test が clippy・cargo test とも PASS)。cloud-setup.sh の jj 取得は実 URL・実展開ロジックで実走確認。
->
-> **Linux 実測で発見した副次不具合**: `cli-pr-monitor` の lock が**同時取得**を許していた (8 スレッド中 6 つが取得)。`create_new` は atomic だが直後のファイルは空で、その窓を読んだ側が TOML parse 失敗を一律「stale」と扱って全員 takeover していた。Windows ではスケジューリング差で顕在化していなかっただけで欠陥は同じ。parse 失敗を内容で 2 分 (空 = 書き込み中 → busy / 非空の不正 = 破損 → takeover) して修正。**「Windows だけで回していると気付けない設計欠陥が実在した」= Linux 実測と WP-16 (CI matrix) の価値を裏づける実例。**
->
-> **`完了` 条件 (1) 達成 (2026-07-20、2026-07-21 に再実測)**: PR #307 マージ時の release-binaries.yml run は build job が失敗した (master が赤で、#308 の stop-tool-call-leak E2E 修正が必要だった)。#308 マージ後の run (commit `541adde1`) が成功し、固定タグ `nightly` の prerelease が生成された (tarball `claude-code-hooks-x86_64-unknown-linux-gnu.tar.gz` 9,721,643 bytes + `.sha256`)。**認証なしでの取得可否を実測**: WSL Ubuntu 24.04 から素の `curl -sSfL` で両 asset を取得 (gh CLI 認証なし) → `sha256sum -c` 一致 → 展開して 16 バイナリ + BUILD_INFO を確認 → **release バイナリそのもので hooks 実発火**まで確認 (`hooks-pre-tool-validate` が `rm -rf /` を exit 2 でブロックし `echo hello` を exit 0 で通す、`hooks-session-start` が additionalContext JSON を出力)。これで § WP-15 ④ の「public リポジトリの Release asset は素の HTTPS で取得できるため gh CLI 認証は不要」という設計判断が実 URL・実 asset で裏付けられた。
->
-> **`完了` 条件**: (1) 本変更が master に入り release-binaries.yml が実走して `nightly` release が生成されること (**上記のとおり達成**)、(2) 実際の claude.ai/code セッションで `cloud-setup.sh` を走らせ hooks 発火と `cargo test` 通過を確認すること。(2) は本セッションでは実施不能 (クラウド環境未使用) のため `実装済` に留める。**Linux 側の未検証領域**: `#[cfg(windows)]` ガードのテスト (pump_child_io の deadlock 保護、run_cmd_capture の stdout/stderr 分離) は Linux で skip されるため、WP-16 の CI matrix で扱う。以下は当初ステップ (記録用)。
-
-- **目的**: 使い捨てのクラウドセッションで 19 crate をビルドせずにハーネスを即時有効化する。
-- **ステップ**:
-  1. `.github/workflows/release-binaries.yml`: master push で `x86_64-unknown-linux-gnu` をビルドし artifact/Release へ。`lib-ollama-client` が ureq + rustls 構成なら musl 静的リンクも検討（openssl 依存を避ける）。public リポジトリのためビルド時間は無料。
-  2. `scripts/cloud-setup.sh`: Release からバイナリ取得 → `.claude/` 配置 → settings 生成（Linux 用テンプレート置換）→ takt（ADR-017 固定バージョン）+ jj の Linux バイナリ取得。claude.ai/code の環境 setup script に登録（**環境キャッシュが効くため 2 回目以降は高速**）。
-  3. Ollama 依存機能（lint_screen / local_review）がクラウドで graceful skip されることを確認。
-- **受け入れ基準**: claude.ai/code セッションで SessionStart / PostToolUse / Stop hooks が発火し、`cargo test` と push pipeline の dry-run が通る。
-- **要確認事項**: クラウドのデフォルト network access は Trusted（許可リスト制）。GitHub Release のダウンロードは既定で通るはずだが、setup script 内で `gh` CLI の認証が必要な場合は環境変数（環境設定の env vars）でトークンを渡す構成を検証すること。
-
-#### WP-15 追補: 監視 fail-open 修正のゼロ再構築（旧 PR #309 全破棄、2026-07-20 決定）
-
-> **実装済 (2026-07-21)**: 3 コミットで R1〜R4 を実装し、R5 を上記 § WP-15 に再録した。旧 #309 のコード・テストは一切参照せず、plan の要件記述のみから再構築している。
->
-> **破棄の実施**: PR #309 を破棄理由付きコメントで close、remote branch `fix/monitor-fail-open-signals` を削除、ローカル 4 commits を abandon、bookmark を forget、`.claude/pr-monitor-state.json` の stale wakeup state を削除。いずれも実施済み。
->
-> **① R2 (書式追随 + fail-closed 化)**: CR の第 3 世代書式 `**Next review available in:** **57 minutes**` の抽出を追加 (区切りを `[:*\s]*` で吸収し強調記法の変化に耐える)。加えて**書式追随を前提にしない構造**へ変更した: marker (`rate limited by coderabbit.ai`) が一致したのに待機時間をどの既知書式でも読めない場合、旧実装は `None` = 「rate-limit ではない」に倒れていたが、marker 一致を制限の根拠として採用し待機時間だけを既定 30 分で埋める。既定値が実 reset より短ければ wakeup 後に再検出されて再 park されるだけで、retry は `max_retries` で有界。既定値適用時は checker が stderr に警告し (monitor がログ転送)、「30 分」を CR の申告値と誤読させない + 書式再変更の検知シグナルを兼ねる。ADR-034 の既知 format 一覧に第 3 世代行と本方針を追記し、更新手順の stale なファイル参照 (`main.rs` → `markers.rs` / `rate_limit.rs`) も修正。
->
-> **② R1/R4 (silent success の排除、本丸)**: takt reviewer の提案どおり `decide()` に rate_limit を渡し、**action の算出そのものを正す**一点修正にした (旧 #309 の monitor 側 2 箇所分散は不採用)。R1 = rate-limit 検出中かつ「レビュー実施の陽性証拠」が無ければ `continue_monitoring` を返し、判断を monitor 既存の rate-limit branch (park / 再 trigger) に委ねる。`has_actionable` 分岐**より前**に置くのが要点で、これが無いと過去サイクル由来の未解決スレッドだけで `action_required` に抜けて監視が終わる。R4 = rate-limit を検出できなかった場合の backstop として、陽性証拠が無い限り `stop_monitoring_success` を出さない。**陽性証拠の定義**: `review_state` (commit status) は制限中でも pass になるため証拠に使わず、`push_time` で絞られた「今サイクルの CR 出力そのもの」= `walkthrough_clean` / `actionable_comments` が読めた (`Some(0)` 含む) / `new_comments > 0` のみを採用。`unresolved_threads` は push_time で絞られず過去サイクルの残骸を含み得るので除外した。`build_summary` も rate-limit 中は「CodeRabbit指摘なし」と断定せず「レート制限中 (レビュー未実施)」を出す。
->
-> **③ R3 (判定文)**: 判定順を「未確定 → 重大 → 未解決 → 軽微 → 問題なし」に整理し、未確定要素 (park / rate-limit / review 未完了 / 未解決スレッド) を findings の有無**より先に**評価する。`compute_verdict` を未確定判定と findings 判定の 2 関数に分割し、「断定文はどの guard を通過して初めて出せるのか」を関数境界で表現した。
->
-> **検証 (実測)**: Windows + WSL Ubuntu 24.04 (実 Linux) の双方で `cargo test --workspace` 全 pass・`clippy --workspace --all-targets --all-features -- -D warnings` clean。`lint:docs` / `lint:md` 退行なし。**既存テストは無改修で全 pass** (新 gate が確立済み挙動を乱していないことの確認。decide/summary 100 件、monitor verdict 13 件)。
->
-> **incident 実データでの実測 (実エントリポイント経由)**: close 後の PR #309 に残る実 rate-limit comment (2026-07-20T12:10:47Z 投稿 / 12:38:33Z 編集、第 3 世代書式) に対し、**実 exe を `--push-time 2026-07-20T12:37:00Z` で実走**させた (この push_time は rate-limit comment の `updated_at` を含みつつ、後から投稿された CR の「Review finished」コメントを除外するため incident 当時と同形の入力になる)。結果は `action: continue_monitoring` / `summary: "CI実行中。CodeRabbitレート制限中 (レビュー未実施)"` / `rate_limit.wait_minutes: 57` / `wait_time_parsed: true`。**同一入力で修正前バイナリと比較**: `.claude/` にデプロイ済みだった旧 #309 branch 由来の exe (= R2 相当の検知修正は入っているが `decide()` 統合は無い状態) は `action: stop_monitoring_success` / `summary: "CI実行中。CodeRabbit指摘なし"` を返した。**rate-limit を検知できていても `decide()` に渡っていなければ silent success になる**という根本原因が、実データで直接裏づけられた形になっている (同時に、症状側パッチでは不十分だったことの実証でもある)。
->
-> **E2E カバレッジの正直な申告**: 上記で担保されたのは (a) 全 gate のユニット検証、(b) **checker の実エントリポイントを実データで通した単体実測**、(c) 修正前後の差分の実測、の 3 点。**未実測**は次のとおり: cli-pr-monitor 側の統合経路 (checker 起動 → `continue_monitoring` 受領 → `handle_rate_limit_branch` で park → PARK signal 出力) は、本セッション中に CR レート制限が自然発生しなかったため実走させていない。park 後の wakeup → 再 trigger 経路も同様に未実測 (この経路の実測はレート制限の自然発生時にしか行えない)。monitor 側の分岐順序 (terminal 短絡が rate-limit branch より先に発火する構造) は本変更で触っておらず、`continue_monitoring` を返せば branch に到達することは既存実装の性質に依存している。また `#[cfg(windows)]` ガードのテストは Linux で skip される (WP-16 の CI matrix で扱う既存ギャップ)。
->
-> **`完了` 条件**: 本変更を含む PR がマージされ、その後の実 push/PR サイクルで CR レート制限が発生した際に (a) 監視が success で終わらず park すること、(b) レポート判定文が保留を出すこと、を実観測したら `完了`。それまでは `実装済` に留める。
->
-> **経緯**: WP-15 の PR #307 運用中に、PR 監視系の fail-open 不具合群（CodeRabbit レート制限中の silent success 等）が実発火した。修正 PR #309（`fix/monitor-fail-open-signals`、4 commits、head `908f6a9b`）を作成したが、4 コミット目の初版が「本番 config では一度も実行されない誤修正 + 実エントリポイントを迂回して pass するテスト」であり、pre-push review（takt）の High REJECT（finding `SIM-NEW-iteration.rs-L259`）→ fix step の自動書き直しを経た合成物となった。コミットメッセージには無効と判明した検証主張が残存し、実装も症状側への多層パッチ（monitor 側 2 箇所分散）である。**続修よりゼロ再構築が速いと判断し、#309 は再利用なしで全破棄する**（中途半端な状態の引き継ぎを避け、それによってより良い実装が制約される可能性を排除するため。健全に見えるコミットも含めて引き継がない）。
-
-- **破棄対象と手順（本追補の時点では未実施）**: 新 PR 作成後に PR #309 を参照コメント付きで close + remote branch 削除。ローカルの 4 commits（change-id: `ppkwnvsl` / `mnkuluov` / `ovwltoyx` / `tzlssomy`）を abandon し、bookmark `fix/monitor-fail-open-signals` を forget。`.claude/pr-monitor-state.json` に残る #309 向け stale wakeup state を破棄（SessionStart catchup の「#309 監視再開」案内は無視してよい）。
-- **やりたいこと（要件のみ。実装方式は新実装の裁量に委ね、旧 #309 のコード・テストは参照しない）**:
-  1. **R1（必須）**: CodeRabbit がレート制限でレビューを開始できないまま、監視が「レビュー済み・指摘なし」（`stop_monitoring_success` / 判定文「問題は見つかりませんでした」）と報告する silent success を排除する（PR #307 / #309 で実観測）。
-  2. **R2（必須）**: CR の rate-limit comment 書式変更で検知が沈黙しないこと。既知 3 世代（`Please wait **N minutes and M seconds**` → `More reviews will be available in N minutes and M seconds` → `**Next review available in:** **N minutes**`）に加え、未知書式でも marker（`rate limited by coderabbit.ai`）一致時は制限として扱う。[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md) が予告していた再発事案（PR #182/#184 に次ぐ 2 度目の書式変更起因 regression）。
-  3. **R3（必須）**: 監視レポートの人間向け判定文が、findings が空でも未解決スレッド・レート制限等の未確定要素を無視して「問題なし」と断定しないこと（実観測: 「未解決スレッド2件」表示と同一レポート内で「問題は見つかりませんでした」）。
-  4. **R4（推奨）**: success 判定に「レビューが実際に実施された陽性証拠」を要求し、CR がマーカー文言自体を変えても silent success に戻らない構造にする。見送る場合は残存リスクとして todo 化する。
-  5. **R5（必須）**: WP-15 `完了` 条件 (1) 達成の記録を本 plan に再録する（旧 #309 の docs コミット相当。事実: 2026-07-20 に PR #307/#308 マージ後、release-binaries.yml が成功し `nightly` prerelease を生成〔tarball 9.72MB + sha256、commit `541adde1`〕。認証なし curl 取得 → checksum 一致 → 展開 → release バイナリそのもので Linux 上の hooks 実発火まで実測済み）。
-- **検証済みの根本原因（再調査不要、2026-07-20 コード実読）**: ① CR はレート制限中も commit check を「pass / Review completed」にする（外部 SaaS 挙動、実観測）→ ② checker はこれを `review_state` に採用（`src/check-ci-coderabbit/src/main.rs` の `fetch_coderabbit_commit_state`）→ ③ `parse_rate_limit` の結果は出力 JSON に添付されるだけで `decide()`（`src/check-ci-coderabbit/src/decide.rs`）に渡らない → ④ 本 repo の PR に CI run は無く、`decide()` は `runs` 空の pending を pending 扱いしない → ⑤ 判定条件をすり抜け `stop_monitoring_success` → ⑥ monitor 側は action をそのまま採用し、terminal 短絡（`src/cli-pr-monitor/src/stages/poll/iteration.rs`）が rate-limit 処理（`handle_rate_limit_branch`。park / 再トリガー機構は既存・有界）より先に発火する。
-- **参考（拘束しない）**: takt reviewer は「`decide()` に rate_limit を渡して action の算出自体を正す」統合を提案していた。旧 #309 の monitor 側 2 箇所分散は、この High finding を誘発した反面教師。
-- **検証要件（全段階で必須。検証せずに進めない）**:
-  - 全コミットで Windows + Linux（WSL）の `cargo test --workspace` + clippy `-D warnings`。docs 変更は `lint:docs` / `lint:md`。
-  - incident 実データでの実測: close 後の PR #309 に実 rate-limit comment（2026-07-20T12:10:47Z 投稿、現行書式）が残る見込み。`--push-time` をコメント時刻以前に指定すれば checker 単体で incident 入力を副作用なしに再現できる（PR #307 側のコメントはレビュー完了時に walkthrough へ編集され残っていない）。
-  - E2E のカバレッジを正直に申告する: wakeup 経路の実測は CR レート制限の自然発生時のみ可能。発生しなかった場合に、何がユニット / checker 単体実測で担保され、何が未実測かを PR に明記する。
-  - 検証主張の規律: 旧作業では「wakeup 経路 vs 初回 park 経路」という経路違いの比較を 2 回「実環境検証済み」と報告した。実測は経路の同一性を確認してから主張する。
-- **教訓（新実装のセルフチェック）**: (a) 修正が本番 config（`check_ci=true` / `check_coderabbit=true`、skip なし）の経路で実行されることをテストで固定する（旧初版は skip 構成でしか呼ばれない dead code だった）。(b) テストは実エントリポイントを迂回しない。(c) fixture は実データを使う（[ADR-049](adr/adr-049-incident-eval-regression-suite.md)）。
+## 6. 未着手 WP
 
 ### WP-16: CI matrix（移植退行防止）
 
-- **ステップ**: `windows-latest` + `ubuntu-latest` で cargo test + hooks smoke test（fixture stdin → 期待する block/pass 判定を assert。WP-08 の資産を流用）。安定後に required check 化（todo 順位 6 の Branch Protection 整備と連動）。
+- **背景**: WP-15 の Linux 実測で「Windows だけで回していると気付けない設計欠陥」（lock 同時取得レース）が実在した（ADR-063）。また `#[cfg(windows)]` ガードのテスト（pump_child_io の deadlock 保護、run_cmd_capture の stdout/stderr 分離）は Linux 実行では skip される既知ギャップがある。
+- **ステップ**: `windows-latest` + `ubuntu-latest` で cargo test + hooks smoke test（fixture stdin → 期待する block/pass 判定を assert。ADR-049 の incident fixture 資産を流用）。安定後に required check 化（todo 順位 6 の Branch Protection 整備と連動）。
 
-## 8. セクション 4: ループエンジニアリングへの道筋
+## 7. セクション 4: ループエンジニアリングへの道筋
 
 ### WP-17: イベント駆動バックボーン完成
 
-- **前提条件**: WP-11（injection 防御）完了必須。
+- **前提条件**: WP-11（injection 防御）の enforce 昇格完了必須。
 - **ステップ**:
-  1. WP-09 を Phase B へ拡張: fix push まで無人実行。`claude/` prefix ブランチ制約 + WP-10 の自動実行可クラス限定 + WP-11 の diff スコープ検証を CI 側でも実行。
+  1. WP-09 の pr-monitor.yml を Phase B へ拡張: fix push まで無人実行。`claude/` prefix ブランチ制約 + ADR-052 の自動実行可クラス限定（分類判定は `cli-pr-monitor` gate.rs の docs-only 判定を lib 切り出しで再利用実装 = ADR-052 記載の呼び手着手時実装）+ ADR-054 の diff スコープ検証を CI 側でも実行。
   2. weekly-review を cloud routine（schedule トリガー、週 1）へ移行し、ローカル PC 稼働への依存を解消。SessionStart の staleness リマインダーはバックストップに格下げ。
   3. cli-pr-monitor の wakeup 機構（CronCreate 系。失効事例あり）を廃止し、ADR-018 の amendment として記録。
 - **受け入れ基準**: PC 電源オフの週末をまたいで PR イベント・週次レビューが取りこぼしなく処理される。
@@ -336,7 +114,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 - **ステップ**:
   1. cloud routine（schedule、平日夜間 1 回）: [todo-summary.md](todo-summary.md) から「依存なし・XS/S・Tier 2/3・**自律実行可マーク付き**」を 1 件選択 → 実装 → pre-push 相当の検証 → **draft PR 作成で停止**（マージ判断は人間）。
-  2. 自律実行可マークの opt-in 列を todo-summary.md の table に追加（docs-only PR で実施。最初は 5〜10 件だけ人間がマークする）。
+  2. 自律実行可マークの opt-in 列を todo-summary の table に追加（docs-only PR で実施。最初は 5〜10 件だけ人間がマークする）。
   3. クラウドは使い捨てクローンのため jj workspace 分離は不要。ローカルで同ループを回す場合のみ ADR-045 の workspace を使い、並行運用の衝突は ADR-022 の責務分離で整理。
   4. routine の daily run cap と Max 枠消費を 1 週間観測して頻度調整。
 - **受け入れ基準**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行**。
@@ -348,7 +126,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   2. **自主減速**: routine プロンプト冒頭に自己抑制判定 —「未マージの draft PR が 3 件以上ある／直近 run の失敗が続いている場合は何もせず終了」。作りかけの山を積まないための背圧制御。
   3. **監査ループを閉じる**: 自律アクション一覧（routine run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。
 
-## 9. 完了条件と退役手順
+## 8. 完了条件と退役手順
 
 本ファイルは以下を全て満たした時点で削除する:
 
@@ -357,4 +135,4 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 3. 永続成果物から本ファイルへの参照が存在しない（`pnpm lint:docs` / grep で確認）。
 4. 削除 PR で残タスクの lifecycle 整合（完了 / deprioritize / todo 移管のいずれか）を明示する（docs-governance の Retirement Workflow。順位 79 の要件）。
 
-dogfood 期間（WP-02: 4 週間、WP-06 / 18: 2 週間）が残っている場合、実装完了後に本ファイルを即削除せず、観測タスクを todo へ移管したうえで削除してもよい（その場合も上記 2〜4 を満たすこと）。
+dogfood 期間（WP-18: 2 週間）が残っている場合、実装完了後に本ファイルを即削除せず、観測タスクを todo へ移管したうえで削除してもよい（その場合も上記 2〜4 を満たすこと）。
