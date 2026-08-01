@@ -632,7 +632,7 @@
 
 > **動機**: PR #340 で CLAUDE.md の ADR-047 index タグが `*(試験運用)*` のまま、ADR-047 本体のステータス「却下 (2026-07-19 確定)」と乖離して残存していることを、pre-push simplicity review と post-merge 分析が独立に指摘した (実害継続を Read で確認済み)。index タグと本体ステータスの整合は手動更新に依存しており、ステータス遷移 (試験運用 → 採用/却下) のたびに再発しうる。#340 post-merge feedback Tier1 #1 で採用。
 >
-> **対処案**: CLAUDE.md の ADR index 行のステータスタグと、対応 ADR ファイル本体の「ステータス」見出しの一致を検証する doc-consistency チェックを pre-push 経路に追加する。[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) の正規表現層/AST 層はいずれも単一ファイル起点設計のため、`custom-lint-rules.toml` への追加ではなく独立チェック (cli-docs-lint 拡張 or 専用スクリプト/test) として実装する。順位 272 (ADR 重複採番 + CLAUDE.md 索引整合チェック) と同居実装が可能で相補。
+> **対処案**: CLAUDE.md の ADR index 行のステータスタグと、対応 ADR ファイル本体の「ステータス」見出しの一致を検証する doc-consistency チェックを pre-push 経路に追加する。[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) の正規表現層/AST 層はいずれも単一ファイル起点設計のため、`custom-lint-rules.toml` への追加ではなく独立チェック (cli-docs-lint 拡張 or 専用スクリプト/test) として実装する。**責務分界 (PR #341 CodeRabbit 指摘で明文化)**: 本 entry はステータスタグ整合のみを扱い、採番重複/索引存在/番号一致は順位 272 の責務。実装は同一 validator module への同居が可能で相補。
 >
 > **参照**: `.claude/feedback-reports/340.md` Tier1 #1、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-047](adr/adr-047-prepush-refute-facet.md)、順位 272 (同居実装候補)。
 >
@@ -647,7 +647,7 @@
 
 #### 完了基準
 
-- CLAUDE.md の ADR index タグと ADR 本体ステータスの乖離が pre-push で機械検知されること。
+- CLAUDE.md の ADR index タグと ADR 本体ステータスの乖離が pre-push で機械検知されること (採番/索引存在/番号一致の検知は順位 272 の完了基準で扱い、本 entry の対象外)。
 
 ---
 
