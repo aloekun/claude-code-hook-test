@@ -17,8 +17,10 @@
 //! bad = incident 状態 (cwd ≠ root) で誤 block しないこと。
 //! good = 正規化がゲート自体を骨抜きにしていないこと (実失敗は cwd に依らず block)。
 //!
-//! `run_cmd_shell_capped` が `cmd /c` 依存のため Windows でのみ実行する
-//! (ADR-065 CI matrix の非 Windows leg では skip)。
+//! **Windows 限定の根拠**: `run_cmd_shell_capped` 自体は ADR-063 で OS 抽象化済み
+//! だが、本テストが再現する incident は `.\.claude\probe.cmd` という **cmd.exe 固有の
+//! ルート相対パス解決**そのものであり、POSIX sh に等価物が無い (fixture も `.cmd`)。
+//! よって主題が Windows 固有であり、ADR-065 CI matrix の非 Windows leg では skip される。
 #![cfg(windows)]
 
 use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};

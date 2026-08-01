@@ -119,6 +119,11 @@ Required status checks に登録する。未検証の新規 workflow をいき�
   残っていた成果物。CI の fresh clone には存在しない) を退避した状態で通常 / `--ignored` の
   両スイートを再実行し、いずれも pass することを確認した。ローカルだけで通る隠れた
   環境依存が無いことの実測的な裏づけ。
+- **ubuntu leg の先取り実行 (WSL Ubuntu 24.04)**: CI と同一コマンドで
+  clippy `-D warnings` clean / `cargo test --workspace` **1,707 pass, 0 failed**。
+  Windows の 1,881 との差 174 は `#[cfg(windows)]` 群であり、両 OS の実行本数差が
+  想定どおりであることも併せて確認した (差が説明できない = どちらかの leg が主題を
+  検証していない、の検知)。
 - **未観測**: GitHub Actions 上での実行は本 workflow を含む PR の run が初回であり、
   run 時間・cache 効率・flake の有無は未観測。§ 決定 5 の段階分けはこの事実に基づく。
 
@@ -147,6 +152,24 @@ Required status checks に登録する。未検証の新規 workflow をいき�
   `scripts/cloud-setup.sh::install_jj` も同じ前提で、本 workflow で新たに開く穴ではない。
   `permissions: contents: read` かつ secrets を持たない job のため、影響範囲は使い捨ての
   非特権 runner に閉じる。checksum asset が公開されたら追随する。
+
+### 副次発見: 理由が stale 化した `#[cfg(windows)]` ガード
+
+本 ADR の PR (#342) で CodeRabbit が `hooks-stop-quality` の
+`run_quality_steps_parallel_collects_failures_in_step_order` の `#[cfg(windows)]` 除去を
+指摘し、**指摘が正しかった**。当該テストの step は `exit 0` / `exit 1` のみで、実行経路の
+`run_cmd_shell_capped` は [ADR-063](adr-063-linux-portability-release-binaries.md) で
+`shell_command` (cmd /c ↔ sh -c) に抽象化済み。ガードと「`cmd /c` 依存だから Windows 限定」と
+いう doc コメントは、いずれも ADR-063 以前の記述が残ったものだった。実 Linux (WSL) で
+ガード除去後に pass することを実測し、除去した。
+
+留意すべきは、**ローカルの post-PR レビュー層はこれを「false positive」と判定していた**点
+(理由として「`run_cmd_shell_capped` は cmd /c 依存」という、まさに stale なコメントの主張を
+そのまま採用していた)。コメントが実装から乖離すると、レビュー層はその乖離を増幅する。
+`#[cfg(...)]` ガードには**理由を書くだけでなく、その理由が今も成立するかを疑う**必要がある。
+同型の点検として `t7_cwd_independence` のガード理由も実態 (再現対象の incident が
+`.\.claude\probe.cmd` という cmd.exe 固有のルート相対パス解決そのもの) に書き直した
+— こちらはガード自体が正当である。
 
 ### 残課題
 
