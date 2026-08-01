@@ -18,7 +18,7 @@
 //! good = 正規化がゲート自体を骨抜きにしていないこと (実失敗は cwd に依らず block)。
 //!
 //! `run_cmd_shell_capped` が `cmd /c` 依存のため Windows でのみ実行する
-//! (WP-16 CI matrix の非 Windows leg では skip)。
+//! (ADR-065 CI matrix の非 Windows leg では skip)。
 #![cfg(windows)]
 
 use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};

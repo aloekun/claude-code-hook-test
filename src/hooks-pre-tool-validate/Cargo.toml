@@ -11,4 +11,10 @@ toml = "0.8"
 lib-subprocess = { path = "../lib-subprocess" }
 lib-telemetry = { path = "../lib-telemetry" }
 
+[dev-dependencies]
+# tempfile: hooks smoke test (tests/smoke.rs、ADR-065) が exe + config を temp dir へ
+# staging するために使う。serde_json / lib-subprocess も同テストで使うが、integration
+# test は [dependencies] も見えるため再宣言は不要。
+tempfile = "3"
+
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

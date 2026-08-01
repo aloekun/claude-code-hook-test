@@ -114,7 +114,10 @@ Linux 実測で `cli-pr-monitor` の lock が**同時取得**を許すレース�
 ### 残課題
 
 - `#[cfg(windows)]` ガードのテスト (pump_child_io の deadlock 保護、run_cmd_capture の
-  stdout/stderr 分離) は Linux 実行では skip される。CI matrix 整備 (両 OS) で扱う。
+  stdout/stderr 分離) は Linux 実行では skip される。CI matrix は
+  [ADR-065](adr-065-ci-matrix-cross-os-regression.md) で整備し、これらは Windows leg で
+  CI 実行対象になった (従来の Linux only CI では一度も走っていなかった)。**Linux 上での
+  同等検証 (POSIX 版テストの追加) は未了**であり、ADR-065 の残課題として引き継いでいる。
 - クラウドセッションのプラットフォーム制約 (セットアップスクリプトの実行タイミング・
   fresh clone 挙動・hooks の snapshot 登録) への対応は
   [ADR-060](adr-060-cloud-harness-sessionstart-dispatcher.md) を参照。

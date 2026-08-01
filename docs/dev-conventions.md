@@ -54,7 +54,7 @@ integration test で外部バイナリを spawn する場合、**無期限 wait 
 1. **timeout 付き wait** — `child.wait_with_output()` / `child.wait()` は子プロセスが hang すると CI を無期限ブロックする。代わりに `lib-subprocess::wait_with_timeout_safe(label, &mut child, 30)` 等の timeout 付き wait を使い、超過時は kill + test 失敗させる。
 2. **出力捕捉との両立** — 出力が必要なら stdout/stderr を `lib-subprocess::drain_pipe_unlimited` で別スレッド drain してから timeout wait する (pipe バッファ充填による deadlock 回避)。
 
-**由来** (PR #254 / WP-08、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)): codebase 初の exe-spawn E2E テスト (`incident_eval.rs`) パターンを確立したが timeout 境界が欠落し CodeRabbit nitpick。WP-16 CI smoke test 等で同パターン流用が見込まれるため convention 化する。
+**由来** (PR #254 / WP-08、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)): codebase 初の exe-spawn E2E テスト (`incident_eval.rs`) パターンを確立したが timeout 境界が欠落し CodeRabbit nitpick。同パターンの流用が見込まれるため convention 化した（実際に [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) の hooks smoke test が本 convention に従っている）。
 
 ## 外部 fixture 参照テストは値まで assert (順位274)
 

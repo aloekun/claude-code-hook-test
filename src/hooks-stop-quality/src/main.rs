@@ -620,7 +620,7 @@ cmd = "pnpm test"
 
     /// WP-05 並列化: 複数ステップを並列実行しても、失敗が step 定義順で集約され、
     /// 成功ステップは failure に含まれないこと。`run_cmd_shell_capped` は `cmd /c` 依存
-    /// のため Windows でのみ実行する (WP-16 CI matrix の非 Windows leg では skip)。
+    /// のため Windows でのみ実行する (ADR-065 CI matrix の非 Windows leg では skip)。
     #[cfg(windows)]
     #[test]
     fn run_quality_steps_parallel_collects_failures_in_step_order() {

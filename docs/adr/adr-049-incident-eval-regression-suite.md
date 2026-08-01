@@ -91,7 +91,7 @@ prompt/test 資産の追加であり、[ADR-039](adr-039-experimental-feature-st
 - ルールの検出力退行と false positive 退行を cargo test で機械検出 (ハーネス自身の回帰スイート)。
 - 各ルールが由来 incident と再現 fixture を機械可読に持ち、削除可否判断が追跡可能。
 - 実 exe E2E で hook の全経路 (stdin/config/feedback/exit) を保証。
-- 本 repo 初の exe-spawn integration test パターンを確立 (WP-16 CI smoke test で流用可能)。
+- 本 repo 初の exe-spawn integration test パターンを確立 ([ADR-065](adr-065-ci-matrix-cross-os-regression.md) の hooks smoke test が流用)。
 
 ### 欠点 / 留意点
 

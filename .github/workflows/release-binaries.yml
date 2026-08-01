@@ -22,7 +22,8 @@
 #   workspace の bin target を機械的に集めることで、この drift を構造的に断つ。
 # - **公開前に cargo test を通す**: 壊れたバイナリを rolling release に載せると、
 #   クラウドセッション側が原因不明の挙動不良を起こす (しかも setup は成功する) ため。
-#   Windows leg と hooks smoke test を含む本格的な CI matrix は WP-16 で扱う。
+#   ci.yml (両 OS matrix、ADR-065) と重複するが、本 workflow は PR を経ない master push や
+#   workflow_dispatch でも単独で成立する必要があるため、このゲートは残す。
 # - **paths フィルタで docs-only push を除外する**: 本リポジトリは docs / todo 更新の
 #   push が多く、そのたびに全 crate を再ビルドするのは無駄。バイナリの内容に影響する
 #   パスに限定する。
