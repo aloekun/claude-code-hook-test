@@ -98,7 +98,19 @@ Required status checks に登録する。未検証の新規 workflow をいき�
 [ADR-043](adr-043-security-gates-fail-closed.md) の fail-closed はゲート**関数**の
 振る舞いに関する原則であり、ゲート自体の導入手順を一足飛びにする根拠ではない。
 
-### 6. `release-binaries.yml` の clippy / cargo test は残す (重複は意図的)
+### 6. `paths:` フィルタは付けない (`release-binaries.yml` との非対称は意図的)
+
+`release-binaries.yml` は docs-only push を `paths:` で除外している。本 workflow で同じ
+フィルタを付けないのは、**`paths:` で skip された check を Required status checks に指定すると、
+GitHub はそれを success ではなく pending として扱い、PR が永久にマージ不能になる**ため。
+「回さない」と「緑」を GitHub が区別できない以上、required にする側 (本 workflow、§ 決定 5) と
+publish 用で required にならない側 (`release-binaries.yml`) では正しい選択が逆になる。
+
+将来 run 量を削る必要が出た場合も `paths:` は使わず、**job は必ず起動したうえで中身を
+条件分岐して success を返す** (skip ではなく early-success) 形にすること。public リポジトリの
+Actions は無料・無制限なので、現状の余剰コストは CPU 時間のみである。
+
+### 7. `release-binaries.yml` の clippy / cargo test は残す (重複は意図的)
 
 あちらは「壊れたバイナリを rolling release に載せない」ための自己完結したゲートで、
 `workflow_dispatch` や PR を経ない master push でも単独で成立する必要がある

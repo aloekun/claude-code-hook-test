@@ -27,9 +27,17 @@
 # - **release-binaries.yml の clippy/test と重複するのは意図的**: あちらは「壊れた
 #   バイナリを rolling release に載せない」ための自己完結したゲートで、workflow_dispatch や
 #   PR を経ない master push でも単独で成立する必要がある。本 workflow に依存させると
-#   その保証が消える (ADR-065 § 決定 4)。
+#   その保証が消える (ADR-065 § 決定 7)。
 # - checkout は persist-credentials: false (pr-monitor.yml / release-binaries.yml と同じ
 #   token 漏洩対策)。本 workflow は読み取りのみなので permissions も contents: read に絞る。
+# - **`paths:` フィルタを付けない (release-binaries.yml との非対称は意図的)**: あちらは
+#   publish job で required check にはならないため、docs-only push を除外して無駄な再ビルドを
+#   省くのが正しい。本 workflow は required check にする予定 (§ 決定 5) で、**paths で skip した
+#   check を required にすると GitHub はそれを success ではなく pending として扱い、PR が
+#   永久にマージ不能になる**。「回さない」と「緑」を区別できないのが GitHub の仕様なので、
+#   required にする側では paths を使わない。将来 run 量を削るなら、job を必ず起動したうえで
+#   中身を条件分岐して success を返す形にすること (skip ではなく early-success)。
+#   public リポジトリの Actions は無料・無制限のため、現状の余剰は CPU 時間のみ。
 # - **required check 化はまだしない**: 数 run 分の安定性 (実行時間・flake の有無) を観測して
 #   から Branch Protection の Required status checks に登録する (段階の根拠は ADR-065 § 決定 5)。
 
