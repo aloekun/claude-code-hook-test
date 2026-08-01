@@ -300,6 +300,118 @@ fn fresh_sentinel_blocks_takeover_without_being_stolen() {
     let _ = std::fs::remove_file(&sentinel);
 }
 
+/// PR #342 CI (windows-latest、2 コア runner) で実測された「同時 Acquired 2 つ」の
+/// 決定論再現。
+///
+/// 出遅れスレッドは**除去前に読んだ** stale sentinel content を握ったまま
+/// `reclaim_stale_sentinel` に入る。勝者が自己修復 (`finish_reclaim`) を終えて reclaim
+/// marker を除去した後でも、gate path は content 由来のため同じ path を再作成できて
+/// しまう。そこで sentinel を検証なしに除去すると、**勝者の fresh sentinel を破壊**して
+/// 2 本目の takeover 実行権が生まれ、勝者の rename 前に lock を読めば双方 `Acquired`
+/// になる (CI の「得た数: 2」)。
+///
+/// 期待動作: 現在の sentinel が gate を正当化した stale content と一致しない場合は
+/// `Busy` に倒し、勝者の sentinel には一切触れない。
+#[test]
+fn reclaim_with_cached_stale_content_leaves_winner_sentinel_intact() {
+    let path = temp_lock_path("reclaim-cached-stale");
+    let sentinel = takeover_sentinel_path(&path);
+    let now = 1_001_800;
+    let cached_stale = "pid=88888\nstart_unix=1000000\n";
+    let winner_fresh = "pid=77777\nstart_unix=1001799\n";
+    std::fs::write(&sentinel, winner_fresh).unwrap();
+
+    let gate = reclaim_stale_sentinel(&sentinel, cached_stale, now);
+
+    let sentinel_after = std::fs::read_to_string(&sentinel);
+    let marker = reclaim_gate_path(&sentinel, cached_stale);
+    let marker_leaked = marker.exists();
+    let _ = std::fs::remove_file(&sentinel);
+    let _ = std::fs::remove_file(&marker);
+
+    assert!(
+        matches!(gate, SentinelGate::Busy),
+        "cache 済み stale content で再確立済み sentinel を奪ってはならない"
+    );
+    assert_eq!(
+        sentinel_after.expect("勝者の sentinel は存在し続ける"),
+        winner_fresh,
+        "勝者の fresh sentinel は無傷で残る"
+    );
+    assert!(!marker_leaked, "出遅れ側が作った reclaim marker は後始末される");
+}
+
+/// 孤立 stale sentinel からの自己修復で `Acquired` した後、reclaim marker が残留しない
+/// こと。marker は takeover 完了まで保持される (除去が早すぎると上記の cache 済み
+/// content 再作成経路が開く) ため、除去タイミングの回帰を leak として検出する。
+#[test]
+fn orphaned_sentinel_selfheal_leaves_no_reclaim_marker() {
+    let path = temp_lock_path("orphan-selfheal-no-marker");
+    std::fs::write(&path, "pid=99999\nstart_unix=1000000\nlabel=crashed\n").unwrap();
+    let sentinel = takeover_sentinel_path(&path);
+    let stale_sentinel = "pid=88888\nstart_unix=1000000\n";
+    std::fs::write(&sentinel, stale_sentinel).unwrap();
+
+    let result = acquire_pipeline_lock_at(path.clone(), "push", 1800, 1_000_000 + 1800);
+
+    assert!(matches!(result, PipelineLockResult::Acquired(_)));
+    assert!(!sentinel.exists(), "takeover 完了後に sentinel は除去される");
+    assert!(
+        !reclaim_gate_path(&sentinel, stale_sentinel).exists(),
+        "reclaim marker は takeover 完了後に除去され残留しない"
+    );
+    drop(result);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// 上記 regression guard の高競合版 (opt-in)。
+///
+/// PR #342 の CI Windows leg で `concurrent_takeover_with_orphaned_sentinel_single_winner`
+/// が「得た数: 2」で落ちたが、開発機 (Windows) では 40 回連続で再現しなかった。runner の
+/// コア数・負荷でしか踏まない窓があるため、スレッド数と round 数を上げて窓を広げる。
+/// 失敗を即 assert せず全 round 分集計するのは、**再現率**自体が修正の効果測定になるため。
+#[test]
+#[ignore = "stress: 高競合の lock race 再現用 (数秒〜数十秒)。`cargo test -- --ignored --test-threads=1` で実行"]
+fn concurrent_takeover_orphaned_sentinel_stress() {
+    const ROUNDS: usize = 400;
+    const THREADS: usize = 32;
+
+    let mut failures: Vec<(usize, usize)> = Vec::new();
+    for round in 0..ROUNDS {
+        let path = temp_lock_path(&format!("orphaned-sentinel-hicon-{round}"));
+        std::fs::write(&path, "pid=99999\nstart_unix=1000000\nlabel=crashed\n").unwrap();
+        let sentinel = takeover_sentinel_path(&path);
+        std::fs::write(&sentinel, "pid=88888\nstart_unix=1000000\n").unwrap();
+
+        let handles: Vec<_> = (0..THREADS)
+            .map(|i| {
+                let p = path.clone();
+                std::thread::spawn(move || {
+                    acquire_pipeline_lock_at(p, &format!("T{i}"), 1800, 1_000_000 + 1800)
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let acquired = results
+            .iter()
+            .filter(|r| matches!(r, PipelineLockResult::Acquired(_)))
+            .count();
+        if acquired != 1 {
+            failures.push((round, acquired));
+        }
+        drop(results);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&sentinel);
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{} / {ROUNDS} round で同時 Acquired が 1 以外になった (round, 得た数): {:?}",
+        failures.len(),
+        &failures[..failures.len().min(10)]
+    );
+}
+
 /// SIM-NEW-pipeline_lock-L157 の regression guard (高競合版): 孤立した stale
 /// sentinel が存在する状態で N スレッドが同時に取得を試みても、自己修復後も
 /// **同時に** `Acquired` になるのはちょうど 1 つ (自己修復が単一 winner 性を
