@@ -2,7 +2,7 @@
 
 > **位置付け**: ephemeral 計画書。本ファイルの最終目標は、記載された全 WP（作業パッケージ）を完了し、知識を永続成果物（ADR / todo / rules）へ移管したうえで、**本ファイル自身を削除すること**である。永続成果物（ADR 等）から本ファイルへリンクを張ってはならない（Cross-File Reference Lifecycle: 参照は permanent → ephemeral の方向のみ禁止対象）。削除条件と手順は末尾「完了条件と退役手順」を参照。
 >
-> **2026-08-01 スリム化**: 完了・見送り WP の詳細記録は各 ADR へ移管済みのため本ファイルから削除した（WP-15 本体 → [ADR-063](adr/adr-063-linux-portability-release-binaries.md)、WP-15 追補 → [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) を新規起票。その他は「全体像」表の ADR 参照先を見よ）。本ファイルには残作業のみを記載する。
+> **2026-08-01 スリム化**: 完了・見送り WP の詳細記録は永続成果物へ移管済みのため本ファイルから削除した（WP-15 本体 → [ADR-063](adr/adr-063-linux-portability-release-binaries.md)、WP-15 追補 → [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) を新規起票。WP-14 は新規 ADR 不要判断のため各 crate doc + commit message が永続記録。その他は「全体像」表の移管先参照を見よ）。本ファイルには残作業のみを記載する。
 
 ## 0. この文書の扱い方（実行セッション向け）
 
@@ -23,6 +23,8 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - 残る主戦場は (2) の常時性 = セクション 4（WP-17〜19）。
 
 ## 2. 検証済みの前提事実（再調査不要、2026-07-04 確認）
+
+> 本節の外部 SaaS の課金・上限事実（GitHub Actions 課金 / routines cap 等）は、残作業 WP-17〜19 の前提として本ファイルに保持する。research preview 由来の仕様変動があり得るため現時点では ADR 化せず、**WP-17〜19 の ADR 起票時に最新値へ再確認したうえで永続化する**（退役条件 2 がこの移管を必須化している）。
 
 ### ユーザー環境
 
@@ -59,7 +61,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP | セクション | タスク | 工数 | 依存 | 状態 |
 |---|---|---|---|---|---|
 | WP-01 | 1-A | ローカル LLM レビュアー選定スパイク | S-M | なし | 見送り（[ADR-046](adr/adr-046-local-llm-review-spike.md)。GPU 再calibration → 順位 255） |
-| WP-02 | 1-A | `local_review` stage 実装 | M | WP-01 | 見送り（WP-01 前提不成立、ADR-046 で却下） |
+| WP-02 | 1-A | `local_review` stage 実装 | M | WP-01 | 見送り（WP-01 前提不成立、ADR-046 で却下。todo 移管なし: 再評価は順位 255 の再 calibration に従属、代替経路は WP-03 = ADR-019） |
 | WP-03 | 1-A | CodeRabbit クォータ設計 | S | なし | 完了（[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) amendment。dogfood 達成: rate 解除待ち < 1 回/日） |
 | WP-04 | 1-A | classifier モデル格上げ | XS-S | WP-01 | 見送り（[ADR-038](adr/adr-038-local-llm-finding-classification.md) amendment。FP-tune 再評価 → 順位 256） |
 | WP-05 | 1-A | Stop hook 高速化 | M | なし | 完了（[ADR-004](adr/adr-004-stop-hook-quality-gate.md) amendment: 並列化 ~8s→~2s。nextest は順位 257 へ） |
