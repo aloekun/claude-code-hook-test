@@ -1,23 +1,39 @@
 //! CI / CodeRabbit state + comment JSON parsers (順位 209 / 順位 208 PR A refactor)。
 
 use crate::markers::{is_clean_walkthrough_comment, is_rate_limit_comment};
-use crate::models::{CiRunSummary, CiStatus, GhComment, GhReview, GhRunItem, GhStatusItem};
+use crate::models::{
+    CiRunSummary, CiStatus, GhComment, GhReview, GhRollupItem, GhRunItem, GhStatusItem,
+};
 
-/// gh run list の JSON をパースして CI 状態を返す。
-pub(crate) fn parse_ci_runs(json: &str) -> CiStatus {
-    let items: Vec<GhRunItem> = serde_json::from_str(json).unwrap_or_else(|e| {
-        eprintln!("[check-ci-coderabbit] CI runs JSON パースエラー: {}", e);
+/// `gh pr view --json statusCheckRollup` の JSON をパースして CI 状態を返す。
+///
+/// rollup は **PR head SHA に紐づく check だけ**を返すため、`gh run list --branch` と違い
+/// 同一ブランチの古い SHA の run が混入しない。ブランチ名の解決も不要になる
+/// (jj colocated リポジトリの git HEAD は detached で、ブランチ名を取得できない)。
+///
+/// **空 rollup は `pending` 扱いにする** (`success` にしない)。check がまだ作成されて
+/// いない状態と「全部通った」状態は区別する必要があり、後者を陽性証拠なしに名乗ると
+/// [ADR-064](../../../docs/adr/adr-064-monitor-success-positive-evidence.md) が排除した
+/// silent success を再導入することになる。
+pub(crate) fn parse_ci_rollup(json: &str) -> CiStatus {
+    let items: Vec<GhRollupItem> = serde_json::from_str(json).unwrap_or_else(|e| {
+        eprintln!("[check-ci-coderabbit] statusCheckRollup JSON パースエラー: {}", e);
         vec![]
     });
 
-    if items.is_empty() {
+    let normalized: Vec<GhRunItem> = items
+        .iter()
+        .filter(|item| !is_coderabbit_status_context(item))
+        .map(normalize_rollup_item)
+        .collect();
+    if normalized.is_empty() {
         return CiStatus {
             overall: "pending".to_string(),
             runs: vec![],
         };
     }
 
-    let runs: Vec<CiRunSummary> = items
+    let runs: Vec<CiRunSummary> = normalized
         .iter()
         .map(|item| CiRunSummary {
             name: item.name.clone(),
@@ -29,9 +45,46 @@ pub(crate) fn parse_ci_runs(json: &str) -> CiStatus {
         .collect();
 
     CiStatus {
-        overall: classify_ci_overall(&items).to_string(),
+        overall: classify_ci_overall(&normalized).to_string(),
         runs,
     }
+}
+
+/// rollup 要素が CodeRabbit 自身の commit status (`StatusContext.context` に
+/// "CodeRabbit" を含む) かどうかを判定する。
+///
+/// `ci.overall` は `decide()` の最優先分岐 (`ci.overall=="failure"` → 即
+/// `stop_monitoring_failure`) に使われる。CodeRabbit の commit status はレート制限中
+/// でも pass を返す等、生の値が信頼できない (PR #307/#309、`decide::has_review_evidence`
+/// のコメント参照) ため、独立した `review_state` シグナル (`fetch_coderabbit_commit_state`
+/// 経由) としてのみ扱い、CI 判定には混ぜない。混ぜると `decide()` が CR 用に用意した
+/// rate-limit gate / evidence backstop を素通りする。
+fn is_coderabbit_status_context(item: &GhRollupItem) -> bool {
+    item.context
+        .as_deref()
+        .map(|c| c.contains("CodeRabbit"))
+        .unwrap_or(false)
+}
+
+/// rollup の union ノードを `gh run list` 相当の `{name, conclusion}` へ正規化する。
+///
+/// `CheckRun` で `conclusion` が未確定 (実行中) の場合は `status` (`IN_PROGRESS` /
+/// `QUEUED`) を conclusion 位置へ落とし、[`is_pending_run`] が pending と判定できる形に
+/// する。`StatusContext` は `context` / `state` から拾う。
+fn normalize_rollup_item(item: &GhRollupItem) -> GhRunItem {
+    let name = item
+        .name
+        .clone()
+        .or_else(|| item.context.clone())
+        .unwrap_or_else(|| "(unnamed check)".to_string());
+    let conclusion = item
+        .conclusion
+        .clone()
+        .filter(|c| !c.is_empty())
+        .or_else(|| item.state.clone().filter(|s| !s.is_empty()))
+        .or_else(|| item.status.clone().filter(|s| !s.is_empty()))
+        .map(|c| c.to_ascii_lowercase());
+    GhRunItem { name, conclusion }
 }
 
 fn classify_ci_overall(items: &[GhRunItem]) -> &'static str {
@@ -44,6 +97,10 @@ fn classify_ci_overall(items: &[GhRunItem]) -> &'static str {
     }
 }
 
+/// 未確定 (= まだ結論が出ていない) 状態。`requested` / `expected` は rollup 語彙。
+///
+/// pending を success 側へ寄せないこと: 「まだ終わっていない」を「通った」と報告すると
+/// ADR-064 が排除した陽性証拠なき success に戻る。
 fn is_pending_run(i: &GhRunItem) -> bool {
     matches!(
         i.conclusion.as_deref(),
@@ -52,9 +109,14 @@ fn is_pending_run(i: &GhRunItem) -> bool {
             | Some("queued")
             | Some("in_progress")
             | Some("waiting")
+            | Some("requested")
+            | Some("expected")
     )
 }
 
+/// 失敗として扱う結論。`error` は `StatusContext` の、`startup_failure` は `CheckRun` の語彙。
+///
+/// `skipped` / `neutral` は失敗に含めない (GitHub 自身も PR を赤にしない)。
 fn is_failure_run(i: &GhRunItem) -> bool {
     matches!(
         i.conclusion.as_deref(),
@@ -63,6 +125,8 @@ fn is_failure_run(i: &GhRunItem) -> bool {
             | Some("timed_out")
             | Some("action_required")
             | Some("stale")
+            | Some("error")
+            | Some("startup_failure")
     )
 }
 
@@ -209,59 +273,127 @@ pub(crate) fn parse_unresolved_threads(json: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
+    /// PR #342 の実 rollup 形状 (CheckRun / 大文字 conclusion) をそのまま固定する。
+    /// 名前も検証するのは、正規化が `name` を取りこぼすと runs が `(unnamed check)` の
+    /// 羅列になり「見えているのに中身が空」の状態を見逃すため。
     #[test]
-    fn ci_all_success() {
+    fn ci_rollup_checkrun_all_success() {
         let json = r#"[
-            {"name": "build", "conclusion": "success"},
-            {"name": "test", "conclusion": "success"}
+            {"__typename":"CheckRun","name":"rust (ubuntu-latest)","status":"COMPLETED","conclusion":"SUCCESS"},
+            {"__typename":"CheckRun","name":"rust (windows-latest)","status":"COMPLETED","conclusion":"SUCCESS"}
         ]"#;
-        let ci = parse_ci_runs(json);
+        let ci = parse_ci_rollup(json);
         assert_eq!(ci.overall, "success");
         assert_eq!(ci.runs.len(), 2);
+        assert_eq!(ci.runs[0].name, "rust (ubuntu-latest)");
+        assert_eq!(ci.runs[0].conclusion, "success");
     }
 
     #[test]
-    fn ci_one_failure() {
+    fn ci_rollup_one_failure() {
         let json = r#"[
-            {"name": "build", "conclusion": "success"},
-            {"name": "test", "conclusion": "failure"}
+            {"__typename":"CheckRun","name":"rust (ubuntu-latest)","status":"COMPLETED","conclusion":"SUCCESS"},
+            {"__typename":"CheckRun","name":"rust (windows-latest)","status":"COMPLETED","conclusion":"FAILURE"}
         ]"#;
-        let ci = parse_ci_runs(json);
-        assert_eq!(ci.overall, "failure");
+        assert_eq!(parse_ci_rollup(json).overall, "failure");
     }
 
+    /// 実行中の CheckRun は conclusion が null。`status` へフォールバックして pending と
+    /// 判定できること (ここが抜けると実行中の check が success に化ける)。
     #[test]
-    fn ci_pending_null_conclusion() {
+    fn ci_rollup_in_progress_falls_back_to_status() {
         let json = r#"[
-            {"name": "build", "conclusion": null},
-            {"name": "test", "conclusion": "success"}
+            {"__typename":"CheckRun","name":"rust (windows-latest)","status":"IN_PROGRESS","conclusion":null},
+            {"__typename":"CheckRun","name":"rust (ubuntu-latest)","status":"COMPLETED","conclusion":"SUCCESS"}
         ]"#;
-        let ci = parse_ci_runs(json);
+        let ci = parse_ci_rollup(json);
         assert_eq!(ci.overall, "pending");
+        assert_eq!(ci.runs[0].conclusion, "in_progress");
     }
 
+    /// 旧 commit status API 由来の `StatusContext` は `context` / `state` を使う。
     #[test]
-    fn ci_pending_in_progress() {
+    fn ci_rollup_status_context_uses_context_and_state() {
         let json = r#"[
-            {"name": "build", "conclusion": "in_progress"}
+            {"__typename":"StatusContext","context":"legacy","state":"SUCCESS"}
         ]"#;
-        let ci = parse_ci_runs(json);
-        assert_eq!(ci.overall, "pending");
+        let ci = parse_ci_rollup(json);
+        assert_eq!(ci.overall, "success");
+        assert_eq!(ci.runs[0].name, "legacy");
     }
 
     #[test]
-    fn ci_empty_runs() {
-        let json = "[]";
-        let ci = parse_ci_runs(json);
+    fn ci_rollup_status_context_error_is_failure() {
+        let json = r#"[{"__typename":"StatusContext","context":"legacy","state":"ERROR"}]"#;
+        assert_eq!(parse_ci_rollup(json).overall, "failure");
+    }
+
+    /// SIM-NEW-parsers-L18 fix: CodeRabbit 自身の commit status
+    /// (`StatusContext.context` に "CodeRabbit" を含む) は `ci.overall` の算出対象から
+    /// 除外すること。CR の commit status はレート制限中でも pass/error が生の値のまま
+    /// 混入しうる (PR #307/#309) ため、単独では `ci.overall` の CI failure 最優先分岐
+    /// (`decide()`) を素通りしてしまう。除外後は他に check が無ければ空 rollup 扱いで
+    /// `pending` になる。
+    #[test]
+    fn ci_rollup_excludes_coderabbit_status_context_from_overall() {
+        let json = r#"[
+            {"__typename":"StatusContext","context":"CodeRabbit","state":"ERROR"}
+        ]"#;
+        let ci = parse_ci_rollup(json);
+        assert_eq!(
+            ci.overall, "pending",
+            "CodeRabbit 自身の commit status を ci.overall に混ぜてはならない"
+        );
+        assert!(ci.runs.is_empty());
+    }
+
+    /// 上記の除外が他の (正規の) check の判定を巻き込まないことを確認する:
+    /// CodeRabbit の StatusContext が ERROR でも、Actions の CheckRun が success なら
+    /// `ci.overall` はその success をそのまま反映する。
+    #[test]
+    fn ci_rollup_excludes_coderabbit_status_context_but_keeps_other_checks() {
+        let json = r#"[
+            {"__typename":"CheckRun","name":"rust (ubuntu-latest)","status":"COMPLETED","conclusion":"SUCCESS"},
+            {"__typename":"StatusContext","context":"CodeRabbit","state":"ERROR"}
+        ]"#;
+        let ci = parse_ci_rollup(json);
+        assert_eq!(
+            ci.overall, "success",
+            "CodeRabbit の commit status (ERROR) を除外すれば残る CheckRun の success がそのまま overall になる"
+        );
+        assert_eq!(ci.runs.len(), 1);
+        assert_eq!(ci.runs[0].name, "rust (ubuntu-latest)");
+    }
+
+    /// check がまだ 1 件も作られていない状態を success と報告しないこと (ADR-064)。
+    #[test]
+    fn ci_rollup_empty_is_pending_not_success() {
+        let ci = parse_ci_rollup("[]");
         assert_eq!(ci.overall, "pending");
         assert!(ci.runs.is_empty());
     }
 
+    /// `gh -q .statusCheckRollup` は rollup 不在時に `null` を返す。パース失敗時も
+    /// success へ倒れないこと。
     #[test]
-    fn ci_cancelled_is_failure() {
-        let json = r#"[{"name": "deploy", "conclusion": "cancelled"}]"#;
-        let ci = parse_ci_runs(json);
-        assert_eq!(ci.overall, "failure");
+    fn ci_rollup_null_is_pending() {
+        assert_eq!(parse_ci_rollup("null").overall, "pending");
+    }
+
+    #[test]
+    fn ci_rollup_cancelled_is_failure() {
+        let json = r#"[{"__typename":"CheckRun","name":"deploy","status":"COMPLETED","conclusion":"CANCELLED"}]"#;
+        assert_eq!(parse_ci_rollup(json).overall, "failure");
+    }
+
+    /// skipped / neutral は GitHub 自身も PR を赤にしない。失敗に数えないこと。
+    #[test]
+    fn ci_rollup_skipped_and_neutral_are_not_failures() {
+        let json = r#"[
+            {"__typename":"CheckRun","name":"optional","status":"COMPLETED","conclusion":"SKIPPED"},
+            {"__typename":"CheckRun","name":"advisory","status":"COMPLETED","conclusion":"NEUTRAL"}
+        ]"#;
+        assert_eq!(parse_ci_rollup(json).overall, "success");
     }
 
     #[test]

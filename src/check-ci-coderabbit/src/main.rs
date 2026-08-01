@@ -33,7 +33,7 @@ use crate::models::{
     CheckResult, CiRunSummary, CiStatus, CodeRabbitStatus, ListFindingsOutput,
 };
 use crate::parsers::{
-    parse_actionable_comments, parse_ci_runs, parse_coderabbit_status, parse_new_comments,
+    parse_actionable_comments, parse_ci_rollup, parse_coderabbit_status, parse_new_comments,
     parse_unresolved_threads, parse_walkthrough_clean_marker,
 };
 use crate::rate_limit::parse_rate_limit;
@@ -213,26 +213,6 @@ fn auto_detect_pr() -> Result<u64, String> {
         .map_err(|_| format!("PR番号のパースに失敗: {}", output))
 }
 
-fn get_current_branch() -> Result<String, String> {
-    let child = Command::new("git")
-        .args(["branch", "--show-current"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("git branch の起動に失敗: {}", e))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("git branch の実行に失敗: {}", e))?;
-    // Note: wait_with_output 自体にはタイムアウトがないが、
-    // 呼び出し元の CronCreate ジョブ全体にタイムアウトがあるため実用上問題ない
-    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if branch.is_empty() {
-        Err("現在のブランチを取得できませんでした".to_string())
-    } else {
-        Ok(branch)
-    }
-}
-
 /// 解決済み repo/PR から head SHA を取得する (順位258 harm #2 fix)。
 ///
 /// 旧実装は無指定 `gh pr view` で cwd の branch auto-detection に依存していたが、
@@ -272,7 +252,7 @@ fn run_check(args: CliArgs) -> CheckResult {
         Err(error_result) => return *error_result,
     };
 
-    let ci = fetch_ci(&get_current_branch().unwrap_or_default());
+    let ci = fetch_ci(&repo, pr);
     let cr_state = fetch_coderabbit_commit_state(&repo, pr);
 
     let comments_json = fetch_issue_comments_json(&repo, pr);
@@ -357,24 +337,32 @@ fn build_init_error_result(
     }
 }
 
-fn fetch_ci(branch: &str) -> CiStatus {
-    if branch.is_empty() {
-        return CiStatus {
-            overall: "pending".to_string(),
-            runs: vec![],
-        };
-    }
+/// PR head に紐づく check を `statusCheckRollup` から取得する。
+///
+/// **ブランチ名を使わない**理由 (2026-08-01、PR #342 で実観測): 旧実装は
+/// `git branch --show-current` でブランチ名を解決して `gh run list --branch` を叩いて
+/// いたが、本リポジトリは jj colocated で **git HEAD が detached** のためブランチ名が
+/// 常に空になり、`fetch_ci("")` が早期 return して CI が恒久的に `pending` になっていた。
+/// PR に status check を出す workflow が存在しなかった間は「CI 未設定」と区別できず、
+/// この blind spot は表面化していなかった。
+///
+/// 併せて **古い SHA の run 混入**も解消する: `gh run list --branch X --limit 5` は
+/// ブランチ上の全 SHA の run を返すため、push 後に前 commit の結論を現在の結論として
+/// 報告しうる (ADR-064 が排除した陽性証拠なき success と同型)。rollup は PR head SHA に
+/// 紐づく check だけを返すため、この経路が構造的に閉じる。
+fn fetch_ci(repo: &str, pr: u64) -> CiStatus {
     match run_gh(&[
-        "run",
-        "list",
-        "--branch",
-        branch,
-        "--limit",
-        "5",
+        "pr",
+        "view",
+        &pr.to_string(),
+        "--repo",
+        repo,
         "--json",
-        "name,conclusion",
+        "statusCheckRollup",
+        "-q",
+        ".statusCheckRollup",
     ]) {
-        Ok(ci_json) => parse_ci_runs(&ci_json),
+        Ok(ci_json) => parse_ci_rollup(&ci_json),
         Err(e) => {
             eprintln!("[check-ci-coderabbit] CI 取得エラー (pending 扱い): {}", e);
             CiStatus {
