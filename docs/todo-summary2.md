@@ -112,6 +112,8 @@
 | 354 | 💎 Tier 3 | **todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-8 採用)** | todo14.md | XS | なし (PR #332 で todo16.md 複数セクション削除時に lint:md を 3 回以上再実行。段階削除+都度 lint:md+順位番号本文混入注意の checklist 化、専用スクリプト化 (Tier2 様子見) と独立の即応策。順位334 と相補) |
 | 355 | 💎 Tier 3 | **新規スキル作成チェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-9 採用)** | todo14.md | XS | なし (PR #332 で monthly-review skill 作成時に weekly-review を都度参照する手戻り。SKILL.md/evals.json/trigger_eval.json の 3 点セット + Phase 構成 + deploy 前 sync check を checklist 化) |
 | 356 | 🔧 Tier 2 | **weekly/monthly staleness 判定の共通 fixture parametrized test を追加 (#331 post-merge feedback T2-1 採用)** | todo14.md | S | なし (monthly_review.rs の staleness 判定が weekly_review.rs と逐語重複、片方修正で挙動乖離するリスク。同一 fixture〔threshold 境界/Missing/Stale/Unreadable/未来値/main-root canonical〕で両流路を検証、inline test module に配置) |
+| 357 | 🔧 Tier 2 | **CLAUDE.md の ADR index ステータスタグと ADR 本体の整合チェックを追加 (#340 post-merge feedback T1-1 採用)** | todo14.md | M | なし (ADR-047 の index タグが `試験運用` のまま本体の `却下` と乖離した実害が残存。ADR-007 の 2 層は単一ファイル起点のため独立 doc-consistency チェックとして実装、順位 272 と同居実装候補。着手時に ADR-047 タグ即修正を含む) |
+| 358 | 💎 Tier 3 | **Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化 (#340 post-merge feedback T3-1 採用)** | todo14.md | S | なし (PR #340 で移管先未記載 3 件を CodeRabbit が指摘。順位 261 の見送り限定 convention を完了/委譲ケースへ拡張し、退役条件を含む 3 段階プロトコルを checklist 化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
