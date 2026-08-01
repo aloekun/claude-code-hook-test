@@ -10,6 +10,95 @@
 
 ## 現在進行中
 
+### cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)
+
+> **動機**: 月次ハーネス ROI レビュー実装 (PR #335-338) の post-merge feedback で cli-telemetry-report に決定論的な堅牢化余地が挙がった。特に Phase C (snapshot 保持) の根本シナリオ = 月中に無効化→翌月再有効化される機構が既存 3 テストで未カバー (High)。Phase D の `confirmed_streak = zero_streak - partial` は前提 (`partial ⇒ zero_streak≥1`) が別関数依存で局所防御が無く、将来のリファクタで release build の silent underflow wrap により誤った deactivation 判定を招き得る。加えて `zero_firing_list` の MD/JSON 二重計算は出力乖離の温床。
+>
+> **対処案**: 下記 作業計画。いずれも既存テストモジュール / 局所コードへの追加で Effort 小。
+>
+> **参照**: PR #337 (Phase C+D) / PR #336 (Phase A) / PR #338 (Phase E)、`.claude/feedback-reports/337.md` (Tier1 #1 / Tier2 #1,#2)、`.claude/feedback-reports/336.md` (Tier1 #1 / Tier2 #1)、`.claude/feedback-reports/338.md` (Tier2 #2)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、`src/cli-telemetry-report/src/{aggregate,verdict,report,registry}.rs`。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity High〜Low (越境テストのみ High) / Frequency Low〜Medium / Effort S〜XS / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] [High] aggregate.rs: 月中 無効化→翌月 再有効化トグルが `resolve_snapshot` を正しく通過する月間境界越境テストを追加 (#337 Tier2-1)
+- [ ] verdict.rs: `confirmed_streak` 計算を `checked_sub` ベースの明示処理にし release build でも underflow を防止、`debug_assert!` (`partial ⇒ zero_streak≥1`) は診断用に併設 (#337 Tier1-1 + CodeRabbit PR #339)
+- [ ] verdict.rs tests: `current_month_partial==0` の境界を明示テスト化し `confirmed_streak==zero_streak` 等価を保証 (#337 Tier2-2)
+- [ ] report.rs: `zero_firing_list` の共有計算を `render()` で一度だけ実行し MD/JSON フォーマッタへ結果を渡す構造に抽出 (#336 Tier1-1)
+- [ ] report.rs tests: MD/JSON 両出力で zero_firing (id集合 / provenance / last_fired_month) + source_failures 一致の回帰テスト (#336 Tier2-1)
+- [ ] registry.rs tests: rule / preset / hook の 3 供給源が空・欠落時に同一 fail-open 挙動 (source_failures 計上) をすることを 1 テストで統一検証 (#338 Tier2-2、実装本体は #336 で対応済)
+
+#### 完了基準
+
+- 月中トグルシナリオ・streak 不変条件 (release-mode での判定保証を検証する回帰テストを含む)・MD/JSON 一致・3 供給源 fail-open が回帰テストで固定され、`cargo test --workspace` / clippy を通過すること。
+
+---
+
+### telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)
+
+> **動機**: 月次 ROI レビュー実装で判明した「snapshot は実行時点の状態≠対象期間の状態」という時間語義の混同 (Phase C の根本原因) と、streak 不変条件 (`partial ⇒ zero_streak≥1`) が未文書化。また「main root からの monthly review は常に degraded、回避は secondary workspace 実行」という運用事実が ADR-062 amendment / memory / SKILL.md の 5+ 箇所に分散し、PR #335-338 で反復的に扱われた (Frequency High)。
+>
+> **対処案**: 下記 作業計画。いずれも Effort XS の文書追記。採用後は分散していた degraded 記述を ADR 参照に集約可能。
+>
+> **参照**: `.claude/feedback-reports/337.md` (Tier3 #1,#2)、`.claude/feedback-reports/338.md` (Tier3 #1)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、`CLAUDE.md`。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium〜Low / Frequency Medium〜High / Effort XS / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] CLAUDE.md に「Snapshot は実行時点の状態であり対象期間の状態ではない」を明示する Temporal Semantics セクションを新設 (日次ロールアップ等の同型バグ予防) (#337 Tier3-1)
+- [ ] ADR-062 に streak 不変条件 (`current_month_partial=true ⇒ zero_streak≥1`) を追記 (verdict の debug_assert と対) (#337 Tier3-2)
+- [ ] ADR-062 に帰結節を新設し「main root からの monthly review は常に degraded、回避は secondary workspace 実行」を集約 (分散記述を ADR 参照に一本化) (#338 Tier3-1)
+
+#### 完了基準
+
+- snapshot 時間語義・streak 不変条件・degraded 運用が ADR-062 / CLAUDE.md に一元化され、分散記述が ADR 参照に集約されること。
+
+---
+
+### jj workspace/bookmark semantics の文書化 + pr-monitor 回帰テスト
+
+> **動機**: PR #335-338 の 5 段階 stacked push で、jj bookmark の `@` semantics (並行操作での位置変化・shared store 挙動) と、stacked commit で `@` が最上段にあると下段 bookmark を見失う pr-monitor 検出限界が反復観測された。既存 memory (`pr-monitor-bookmark-detection-pitfalls` / `parallel-workspace-shared-store-changes-under-you`) に続き 3 件目の類似事象で systemic pattern と判断。
+>
+> **対処案**: 状態図での文書化 + 既知限界の回帰テスト固定化。検出ロジック改善 (副作用リスクあり) は本エントリでは扱わず、まず限界を test で seal する。
+>
+> **参照**: `.claude/feedback-reports/336.md` (Tier2 #2 / Tier3 #2)、`.claude/feedback-reports/337.md` (Tier3 #3)、`.claude/feedback-reports/338.md` (Tier2 #1)、memory `pr-monitor-bookmark-detection-pitfalls` / `parallel-workspace-shared-store-changes-under-you`、`src/cli-pr-monitor/`、`docs/dev-conventions.md`。
+>
+> **実行優先度**: 🔧 Tier 2〜3 — Severity Medium / Frequency High / Effort S〜M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] docs/dev-conventions.md に jj bookmark / workspace の `@` semantics (並行操作での位置変化・shared store 挙動) を状態図形式で整理 (#336 Tier3-2 + #337 Tier3-3)
+- [ ] cli-pr-monitor: stacked commit + 複数層 bookmark 時の PR 検出限界を regression test で固定化 (既知の false negative を明示記録、検出改善はスコープ外) (#336 Tier2-2 + #338 Tier2-1)
+
+#### 完了基準
+
+- jj bookmark semantics が dev-conventions.md に構造化され、pr-monitor の stacked-commit 検出挙動が回帰テストで固定されること。
+
+---
+
+### 開発ワークフロー規約の補強 (polling 禁止 / CodeRabbit→ADR timing)
+
+> **動機**: `polling-anti-pattern` hook は稼働中だが dev-conventions.md に [ADR-016](adr/adr-016-long-running-command-strategy.md) / [ADR-018](adr/adr-018-pr-monitor-takt-migration.md) への導線が無く、本セッションでも block 後に手探りで代替パターンを発見した。また PR #338 で「設計決定 4 の ADR 未記載」を merge 直前の simplicity reviewer 監査で発見し E commit で急遽補足した (類似事象 #336 / #338)。外部レビュー指摘対応の ADR 反映タイミング規約が無い。
+>
+> **対処案**: dev-conventions.md / CLAUDE.md への軽量な規約・導線追加 (仕組みは既存の hook が担い、本エントリは導線と timing 規約のみ、ADR-042 整合)。
+>
+> **参照**: `.claude/feedback-reports/337.md` (Tier3 #4)、`.claude/feedback-reports/338.md` (Tier3 #4)、[ADR-016](adr/adr-016-long-running-command-strategy.md) / [ADR-018](adr/adr-018-pr-monitor-takt-migration.md)、`docs/dev-conventions.md`、`CLAUDE.md`。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium / Frequency Medium / Effort XS〜S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] docs/dev-conventions.md に polling 禁止 + `run_in_background` 必須の規約を追加し ADR-016/018 への参照リンクを付与 (block 前の自己解決を促進) (#337 Tier3-4)
+- [ ] CLAUDE.md に「CodeRabbit 等の外部レビュー指摘への実装対応は、ADR への反映を完了させてから PR を merge する」timing 規約を追加 (#338 Tier3-4)
+
+#### 完了基準
+
+- polling 代替パターンへの導線が dev-conventions.md に整備され、外部レビュー指摘の ADR 反映タイミング規約が CLAUDE.md に明記されること。
+
+---
+
 ### VSCode 拡張が hook `systemMessage` を UI 描画するかの調査 (ADR-059 dogfood / 削除条件 2)
 
 > **動機**: [ADR-059](adr/adr-059-hook-system-message-visibility.md) (systemMessage 可視化) の dogfood で、2026-07-19 に PR-N1〜N3 を land し reminder 起点で weekly review を実行したが、**VSCode 拡張環境では systemMessage の 1 行が UI に独立描画されたか確証が持てなかった** (観測できたのは additionalContext 経由のモデル言及のみ)。VSCode 拡張が hook の `systemMessage` をターミナル CLI と異なる扱いにしている可能性がある。ADR-059 の bounded-lifetime 判定 (期限 2026-08-16) と `docs/weekly-review-notification-plan.md` 削除条件 2 の前提であり、未確認のままでは段階展開の採否も計画書削除も判断できない。
