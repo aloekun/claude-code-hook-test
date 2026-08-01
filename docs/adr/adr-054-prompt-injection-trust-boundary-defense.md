@@ -87,6 +87,12 @@ whole-tree security facet ([.takt/facets/instructions/review-security-whole.md](
 
 decision trigger は `pr-monitor-config.toml` の `[fix.scope_guard]` section コメントと `scope_guard.rs` の module doc に永続記録する (ephemeral 計画書のみへの記載は retire 時に dead pointer 化するため不可)。
 
+**dogfood 記録**:
+
+- observe 期間 (2026-07-12 有効化〜2026-08-01): post-pr-review 実行 30 回、うち fix step 実行 5 回。violation (OBSERVE ログ) の観測 0 件 = 誤検知ゼロ。
+- 2026-08-01: `mode = "enforce"` へ昇格。以降が decision trigger (enforce で 3-5 PR) の計測期間。fix step の発生頻度が低下しているため (直近 2 週間は 0 回)、判定材料の蓄積は fix 発生ベースで待つ。
+- 観測ギャップ: violation 記録は monitor の stderr のみで永続化されない (ADR-055 telemetry は cli-pr-monitor 未計装)。採否判定を機械化する必要が生じた場合は lib-telemetry 計装が候補。
+
 ## ADR-043 との線引き
 
 - **決定論層 (層 3)**: ゲート = fail-closed。判定不能はすべて block 側 (ADR-043 準拠)。ただし enabled = false のとき (未有効化) は「何もしない = push 続行」であり、これは「ゲートが存在しない」状態であって fail-open ではない。

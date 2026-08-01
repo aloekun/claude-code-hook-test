@@ -53,12 +53,13 @@ group = "rust-lint-test"
 # templates 側のコメントアウトで default OFF が継承される)。
 # mode: "observe" = violation を記録するが push は続行 (誤検知率の計測用)。
 #       "enforce" = violation で auto-push を中止し action_required に倒す (fail-closed)。
-# bounded lifetime (ADR-054): dogfood 初期は observe で誤検知ゼロを確認し、その後 enforce に
-# 上げる。enforce で 3-5 PR 誤検知ゼロなら本採用、誤検知頻発なら enabled = false で kill。
+# bounded lifetime (ADR-054): observe 期間 (2026-07-12〜08-01、fix step 実行 5 回) で誤検知
+# ゼロを確認し、2026-08-01 に enforce へ昇格。enforce で 3-5 PR 誤検知ゼロなら本採用、
+# 誤検知頻発なら enabled = false で kill。
 # 緊急バイパス (kill-switch): 環境変数 PR_MONITOR_SCOPE_GUARD_DISABLE=1
 [fix.scope_guard]
 enabled = true
-mode = "observe"
+mode = "enforce"
 
 # ---------------------------------------------------------------------------
 # [classifier] — ADR-038 (採用、2026-05-15) 経由のローカル LLM finding classifier。

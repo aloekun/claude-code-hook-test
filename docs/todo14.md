@@ -625,3 +625,47 @@
 #### 完了基準
 
 - weekly/monthly の staleness 判定が同一 fixture で検証され、片方のロジック変更による挙動乖離がテストで検知されること。
+
+---
+
+### CLAUDE.md の ADR index ステータスタグと ADR 本体ステータスの整合チェックを追加
+
+> **動機**: PR #340 で CLAUDE.md の ADR-047 index タグが `*(試験運用)*` のまま、ADR-047 本体のステータス「却下 (2026-07-19 確定)」と乖離して残存していることを、pre-push simplicity review と post-merge 分析が独立に指摘した (実害継続を Read で確認済み)。index タグと本体ステータスの整合は手動更新に依存しており、ステータス遷移 (試験運用 → 採用/却下) のたびに再発しうる。#340 post-merge feedback Tier1 #1 で採用。
+>
+> **対処案**: CLAUDE.md の ADR index 行のステータスタグと、対応 ADR ファイル本体の「ステータス」見出しの一致を検証する doc-consistency チェックを pre-push 経路に追加する。[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) の正規表現層/AST 層はいずれも単一ファイル起点設計のため、`custom-lint-rules.toml` への追加ではなく独立チェック (cli-docs-lint 拡張 or 専用スクリプト/test) として実装する。**責務分界 (PR #341 CodeRabbit 指摘で明文化)**: 本 entry はステータスタグ整合のみを扱い、採番重複/索引存在/番号一致は順位 272 の責務。実装は同一 validator module への同居が可能で相補。
+>
+> **参照**: `.claude/feedback-reports/340.md` Tier1 #1、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-047](adr/adr-047-prepush-refute-facet.md)、順位 272 (同居実装候補)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] CLAUDE.md の ADR-047 タグを `*(試験運用)*` → `*(却下)*` に修正 (実残存の不整合解消、着手時の即修正)
+- [ ] ADR index タグと ADR 本体「ステータス」見出しの整合チェックを実装 (cli-docs-lint 拡張 or 独立スクリプト、順位 272 と同居検討)
+- [ ] pre-push 経路 (lint:docs) への組込みと、不整合 fixture での検知確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- CLAUDE.md の ADR index タグと ADR 本体ステータスの乖離が pre-push で機械検知されること (採番/索引存在/番号一致の検知は順位 272 の完了基準で扱い、本 entry の対象外)。
+
+---
+
+### Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化
+
+> **動機**: PR #340 の計画書スリム化で、CodeRabbit から「WP-14 の永続移管先未記載」「外部 SaaS 事実の移管方針」「WP-02 の todo 移管先未記録」の 3 件が指摘された。ephemeral 計画文書から permanent 成果物への知識移行の手順は「見送り」ケース限定の順位 261 convention にしか存在せず、完了/委譲ケースの移管先明記が規約の空白だったことが構造要因。#340 post-merge feedback Tier3 #1 で採用。
+>
+> **対処案**: `docs/dev-conventions.md` の順位 261 convention (spike 見送り 3 点セット) を拡張し、Cross-File Reference Lifecycle として明文化する: (1) permanent 成果物を先に作成・validate、(2) permanent→ephemeral 方向の参照を除去し、移管先 (ADR / todo 順位 / crate doc 等) を ephemeral 側の状態列に明記 (完了/委譲/見送りの全ケース対象)、(3) 計画文書の退役条件 (全状態確定 + 永続成果物からの参照ゼロ + 残タスクの lifecycle 整合) を含める。
+>
+> **参照**: `.claude/feedback-reports/340.md` Tier3 #1、`docs/dev-conventions.md` (順位 261 convention)、`docs/harness-improvement-plan.md` (退役手順の実例)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に Cross-File Reference Lifecycle の checklist を追加 (順位 261 convention の拡張として整理)
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- ephemeral 計画文書の完了/委譲/見送りいずれのケースでも、永続移管先の明記と参照方向の規律が checklist で確認できること。

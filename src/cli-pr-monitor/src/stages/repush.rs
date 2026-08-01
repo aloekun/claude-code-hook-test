@@ -2,7 +2,6 @@ use lib_report_formatter::Finding;
 
 use crate::fix_commit::FixCommitState;
 use crate::log::log_info;
-use crate::stages::push::run_push;
 
 // ─── re-push 判定 (pure function、副作用を注入可能) ───
 
@@ -83,113 +82,6 @@ pub(crate) fn decide_repush(
     }
 }
 
-// ─── re-push フロー ───
-
-/// auto-push の実行。push 前に 2 段の gate を評価する:
-/// 1. scope guard (`stages/scope_guard.rs`、WP-11 / ADR-054): fix diff が finding 対象外の
-///    ファイルを変更していれば block (prompt injection 防御、default OFF opt-in)。
-/// 2. 品質 gate (`stages/gate.rs`、PR #224 対策 B1): テスト等の FAIL で block。
-///
-/// どちらの block も push せず `action_required` に倒す (fail-closed、ADR-043)。
-fn run_auto_push(
-    config: &crate::config::FixConfig,
-    findings: &[Finding],
-    pr_label: &str,
-    pre_cid: Option<&str>,
-) {
-    let scope_outcome =
-        crate::stages::scope_guard::evaluate_scope_guard(&config.scope_guard, pre_cid, findings);
-    log_info(&format!("[decision] scope_guard: {:?}", scope_outcome));
-    if let crate::stages::scope_guard::ScopeGuardOutcome::BlockedViolation { reason } =
-        &scope_outcome
-    {
-        log_info(&format!(
-            "[action] auto_push 中止 (scope guard BLOCK、fail-closed): {}",
-            reason
-        ));
-        mark_scope_guard_action_required(pr_label, reason);
-        return;
-    }
-
-    let gate_outcome = crate::stages::gate::evaluate_gate(&config.gate, pre_cid);
-    log_info(&format!("[decision] gate: {:?}", gate_outcome));
-    if let crate::stages::gate::GateOutcome::Failed { reason } = &gate_outcome {
-        log_info(&format!(
-            "[action] auto_push 中止 (gate FAIL、fail-closed): {}",
-            reason
-        ));
-        mark_gate_failure_action_required(pr_label, reason);
-        return;
-    }
-
-    log_info(&format!(
-        "[action] auto_push: {} の takt 修正を自動 re-push",
-        pr_label
-    ));
-    let push_ok = run_push(config);
-    if push_ok {
-        log_info("[action] auto_push: 成功");
-    } else {
-        log_info("[action] auto_push: 失敗 (手動対応が必要)");
-    }
-
-    if crate::stages::review_trigger::should_trigger_review_after_push(
-        push_ok,
-        config.trigger_review_after_push,
-    ) {
-        crate::stages::review_trigger::trigger_coderabbit_review();
-    }
-}
-
-/// auto-push を中止した理由を state の `action_required` として永続化する。
-/// state 読み書き失敗は log のみ残して続行する (push は既に中止済みで安全側)。
-fn mark_action_required(summary: String) {
-    use crate::state::{read_state_from, state_file_path, write_state_to};
-
-    let path = state_file_path();
-    let Some(mut state) = read_state_from(&path) else {
-        log_info("[action_required] state 読み込み不可のため永続化を skip (log のみ)");
-        return;
-    };
-    state.action = "action_required".into();
-    state.summary = summary;
-    if let Err(e) = write_state_to(&path, &state) {
-        log_info(&format!("[action_required] state 書き込み失敗 (継続): {}", e));
-    }
-}
-
-/// gate FAIL を state に反映する。
-fn mark_gate_failure_action_required(pr_label: &str, reason: &str) {
-    mark_action_required(format!(
-        "{}: auto-push gate FAIL — push は実行されていません。修正後に pnpm push してください。原因: {}",
-        pr_label, reason
-    ));
-}
-
-/// scope guard BLOCK (finding 対象外ファイルへの変更 = injection の疑い) を state に反映する。
-fn mark_scope_guard_action_required(pr_label: &str, reason: &str) {
-    mark_action_required(format!(
-        "{}: auto-push scope guard BLOCK — finding 対象外ファイルへの変更を検知したため push を中止しました (prompt injection の疑い、ADR-054)。fix commit を確認してください。原因: {}",
-        pr_label, reason
-    ));
-}
-
-/// auto_push_severity 設定値から自動 push するか否かを返す。
-/// "critical" / "major" => true、"none" => false、未知値 => false (警告ログあり)
-pub(crate) fn should_auto_push(setting: &str) -> bool {
-    match setting {
-        "none" => false,
-        "critical" | "major" => true,
-        other => {
-            log_info(&format!(
-                "auto_push_severity に未知の値 '{}' が指定されています。'none' として扱い自動 push をスキップします",
-                other
-            ));
-            false
-        }
-    }
-}
-
 fn execute_repush_action(
     fix_config: &crate::config::FixConfig,
     findings: &[Finding],
@@ -198,7 +90,9 @@ fn execute_repush_action(
     action: RepushAction,
 ) {
     match action {
-        RepushAction::AutoPush => run_auto_push(fix_config, findings, pr_label, pre_cid),
+        RepushAction::AutoPush => {
+            crate::stages::auto_push::run_auto_push(fix_config, findings, pr_label, pre_cid)
+        }
         RepushAction::UserConfirmWithSeparatedFix { commit_id } => {
             log_info(&format!(
                 "[action] auto_push スキップ: ユーザー確認待ち (fix commit 分離済み: {})",
@@ -243,7 +137,7 @@ pub(crate) fn execute_repush_flow(
     let decision = decide_repush(pre_cid, post_cid.as_deref(), crate::runner::diff_is_empty);
     log_info(&format!("[decision] repush: {:?}", decision));
 
-    let allow_auto = should_auto_push(&fix_config.auto_push_severity);
+    let allow_auto = crate::stages::auto_push::should_auto_push(&fix_config.auto_push_severity);
     log_info(&format!(
         "[state] auto_push_setting: {} (allow_auto: {}), fix_state_created: {}",
         fix_config.auto_push_severity,
@@ -265,31 +159,6 @@ pub(crate) fn execute_repush_flow(
 mod tests {
     use super::*;
     use crate::runner::{capture_commit_id, diff_is_empty};
-
-    #[test]
-    fn should_auto_push_none_returns_false() {
-        assert!(!should_auto_push("none"));
-    }
-
-    #[test]
-    fn should_auto_push_critical_returns_true() {
-        assert!(should_auto_push("critical"));
-    }
-
-    #[test]
-    fn should_auto_push_major_returns_true() {
-        assert!(should_auto_push("major"));
-    }
-
-    #[test]
-    fn should_auto_push_unknown_value_returns_false() {
-        // タイポや未知値は fail-closed: 自動 push しない
-        assert!(!should_auto_push("non"));
-        assert!(!should_auto_push("Critical"));
-        assert!(!should_auto_push(""));
-    }
-
-    // ─── decide_repush: commit id + diff の二段構え判定 ───
 
     #[test]
     fn decide_repush_same_commit_id_returns_no_change() {

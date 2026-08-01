@@ -70,7 +70,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-08 | 1-B | incident→eval 回帰スイート | S | なし | 完了（[ADR-049](adr/adr-049-incident-eval-regression-suite.md)） |
 | WP-09 | 1-C | PR 監視の GitHub Actions 化 Phase A | M | なし | 完了（[ADR-022](adr/adr-022-automation-responsibility-separation.md) 原則 6。無人分析コメント + wakeup 取りこぼしゼロを観測済） |
 | WP-10 | 1-C | 自律境界ポリシー ADR | S | なし | 完了（[ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md)。Rust 分類関数は WP-17/18 着手時に実装 = ADR-052 記載） |
-| WP-11 | 2 | prompt injection 信頼境界の 3 層防御 | M-L | WP-08 | 観測中（[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)。scope_guard observe 運用中 → § 残作業） |
+| WP-11 | 2 | prompt injection 信頼境界の 3 層防御 | M-L | WP-08 | 観測中（[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)。2026-08-01 enforce 昇格済 → § 残作業） |
 | WP-12 | 2 | 発火テレメトリ + ハーネス ROI 棚卸し | M | なし | 完了（[ADR-055](adr/adr-055-firing-telemetry-collection.md) + [ADR-062](adr/adr-062-monthly-harness-roi-review.md)。初回月次レビュー〔2026-08-12 以降〕は ADR-062 の機構が管理） |
 | WP-13 | 3 | EXE_SUFFIX 抽象化 | M | なし | 完了（[ADR-005](adr/adr-005-hooks-path-resolution-with-template.md) amendment。launcher 経路の実走確認済） |
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
@@ -82,10 +82,10 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 ## 5. 残作業（観測継続）
 
-### WP-11 残: scope_guard の enforce 昇格判定
+### WP-11 残: scope_guard の本採用判定
 
-- 現状: `pr-monitor-config.toml` の `[fix.scope_guard]` を `mode = "observe"` で dogfood 中（ADR-054 の決定論層）。
-- 残作業: 誤検知ゼロを確認したら `mode = "enforce"` へ昇格し、3〜5 PR で採否判定（bounded lifetime）。判定基準・kill-switch は ADR-054 を参照。
+- 現状: observe 期間（2026-07-12〜08-01、fix step 実行 5 回）で誤検知ゼロを確認し、2026-08-01 に `mode = "enforce"` へ昇格済（ADR-054 の dogfood 記録参照）。
+- 残作業: enforce で 3〜5 PR（fix step 発生ベース）誤検知ゼロを確認したら本採用（ADR-054 の status 更新）。判定基準・kill-switch は ADR-054 を参照。
 
 ### WP-15 追補残: レート制限 park の実観測
 
