@@ -75,7 +75,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-13 | 3 | EXE_SUFFIX 抽象化 | M | なし | 完了（[ADR-005](adr/adr-005-hooks-path-resolution-with-template.md) amendment。launcher 経路の実走確認済） |
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
-| WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。windows-latest + ubuntu-latest の 2 leg を新設。required check 化と GitHub Actions 実走の安定性確認は → § 残作業） |
+| WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
 | WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行） | M | WP-09, 10, 11 | 未着手 |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
 | WP-19 | 4 | 常時性ガード（kill-switch / 自主減速 / 監査ループ） | M | WP-18 | 未着手 |
@@ -94,9 +94,10 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 ### WP-16 残: CI matrix の実走観測と required check 化
 
-- 現状: `.github/workflows/ci.yml` に windows-latest + ubuntu-latest の 2 leg を新設し、各 leg で clippy / `cargo test` / hooks smoke test / `--ignored` 統合テスト（jj 0.42.0 を導入）を実行する（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）。jj 取得 step は両 OS で実 URL・実 asset を用いて実走確認済、テスト自体もローカル Windows で全 pass。
+- 現状: PR #342 で `.github/workflows/ci.yml`（windows-latest + ubuntu-latest の 2 leg。各 leg で clippy / `cargo test` / hooks smoke test / `--ignored` 統合テスト、jj 0.42.0 導入）をマージ済み（2026-08-02、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）。master 稼働中。
+- 初回観測期間（2026-08-01〜08-02）の実績（詳細は ADR-065 の「実走観測」追記）: **6 run で success 5 / failure 1、run 時間 2.4〜4.4 分**。failure 1 は flake ではなく master 潜在の pipeline_lock reclaim レース（多コアのローカルでは再現不能、2 vCPU runner でのみ顕在化）で、PR #344 で修正し、rebase 後の CI で両 leg 緑（2 コア runner 上の高競合 stress 含む）を実地検証済み。**matrix は初回観測期間内に実バグを 1 件捕捉した**。
 - 残作業:
-  1. **GitHub Actions 上での実走は本 WP の PR が初回**。run 時間・cache 効率・flake の有無を数 run 観測する。
+  1. 観測継続: cache 効率（2 回目以降の run 時間短縮）と flake の有無を引き続き数 run 分確認する。
   2. 安定を確認したら Branch Protection の Required status checks に登録（todo 順位 6 の Branch Protection 整備と連動。ADR-065 § 決定 5 が段階を分ける根拠）。
   3. ADR-063 の残課題のうち「Linux 上で pump_child_io の deadlock 保護 / run_cmd_capture の stdout/stderr 分離が無検証」は matrix では閉じない（該当テストは cmd.exe / PowerShell 依存で module ごと Windows 限定）。POSIX 版テストの追加は ADR-065 の残課題として追跡。
 

@@ -136,8 +136,27 @@ Actions は無料・無制限なので、現状の余剰コストは CPU 時間�
   Windows の 1,881 との差 174 は `#[cfg(windows)]` 群であり、両 OS の実行本数差が
   想定どおりであることも併せて確認した (差が説明できない = どちらかの leg が主題を
   検証していない、の検知)。
-- **未観測**: GitHub Actions 上での実行は本 workflow を含む PR の run が初回であり、
-  run 時間・cache 効率・flake の有無は未観測。§ 決定 5 の段階分けはこの事実に基づく。
+- **未観測 (起票時点)**: GitHub Actions 上での実行は本 workflow を含む PR の run が初回で、
+  起票時点では run 時間・cache 効率・flake の有無は未観測だった。§ 決定 5 の段階分けは
+  この事実に基づく。実走の結果は次項「実走観測」を参照。
+
+### 実走観測 (2026-08-02 追記)
+
+初回観測期間 (2026-08-01〜08-02) の 6 run (PR イベント 4 + master push 2) の実績:
+
+- **success 5 / failure 1**。run 時間は 2.4〜4.4 分 (2 leg 並列の wall clock)。
+- failure 1 件 (windows leg の `cargo test`) は flake ではなく **master に潜在していた
+  実バグ**だった: `lib-jj-helpers` pipeline_lock の reclaim 自己修復で、除去前に読んだ
+  stale sentinel content を cache した出遅れスレッドが、勝者の marker 除去後に同一 gate を
+  再作成して fresh sentinel を強奪し、同時 `Acquired` が 2 つ発生する競合 (詳細と修正は
+  PR #344)。多コアの開発機では 12,800 回試行 + affinity 2 コア固定でも再現できず、
+  2 vCPU runner の preemption 条件でのみ顕在化した。決定論再現テスト (修正前 red →
+  修正後 green) で機構を証明して修正し、rebase 後の本 workflow で両 leg 緑 (2 コア
+  runner 上での 32 threads × 400 rounds 高競合 stress 含む) を実地検証した。
+- § コンテキストの「片 OS でしか検出できない欠陥」に、**matrix 自身が初回観測期間内に
+  3 例目を追加した**形になる。§ 決定 5 の観測フェーズ先行の判断も同時に裏づけられた
+  (最初から required check にしていれば、この競合の解明までの間、全 PR が確率的に
+  ブロックされ得た)。
 
 ## 帰結
 
