@@ -119,6 +119,7 @@
 | 361 | 🔧 Tier 2 | **JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト (#342 post-merge feedback 採用)** | todo14.md | S | なし (ADR-051 型の 2 ファイル結合「上げるときは必ず揃える」を機械検証へ。順位 360 と同一 PR 可) |
 | 362 | 🔧 Tier 2 | **git subprocess のブランチ名依存引数を検出する custom lint rule (#343 post-merge feedback 採用)** | todo14.md | S | なし (detached HEAD で CI 観測が silent pending 化した PR #343 incident 由来。ADR-049 fixture 3 点セット整備込み。順位 363 と同一 PR 可) |
 | 363 | 🔧 Tier 2 | **check-ci-coderabbit の detached HEAD 回帰統合テスト (#343 post-merge feedback 採用)** | todo14.md | M | なし (修正済み silent pending バグの regression test が皆無。順位 362 と同一 PR 可) |
+| 364 | 🔧 Tier 2 | **ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)** | todo14.md | M | WP-17 再分割 PR (lib-scope-guard land) 後が効率的 (ADR-068 の後退検知は削除系のみの暫定。追加系 injection と backstop 自己弱体化の経路を閉じる) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

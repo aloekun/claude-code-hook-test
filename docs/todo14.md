@@ -790,3 +790,27 @@
 #### 完了基準
 
 - detached HEAD 環境で CI 状態が pending に固着する回帰が、テスト失敗として land 前に検出されること。
+
+---
+
+### ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)
+
+> **動機**: pre-push の takt fix step には「finding 由来 allowlist との fix diff 照合」の決定論層が無く、instruction (fix.md の scope allowlist) 頼み。2026-08-02 の WP-17 PR 2a incident (fix が finding 対象外の lib crate 2 つを丸ごと削除し gate 全 PASS で push) で顕在化した。[ADR-068](adr/adr-068-fix-step-authority-boundary.md) の後退検知 backstop は削除系 (ファイル脱落 / 追加行削減) のみ検知する 80/20 の暫定で、**追加系の injection (finding 対象外ファイルへの書き込み・config 書き換え) は検知できない**。PR #348 security review の non-blocking 注記 (fix step が push-runner-config.toml の `max_added_line_shrink_pct` / `enabled` を書き換えて backstop 自体を自己弱体化できる経路が instruction 頼み) もこれで閉じる。
+>
+> **対処案**: `cli-push-runner` の post_takt_regate 段 (または直前の専用 stage) で、`.takt/runs/` の最新 findings レポートから `Location` 列を抽出して allowlist を導出し、takt 前後の diff 差分の変更ファイルを照合する。判定コアは `lib-scope-guard` (WP-17 再分割 PR で land 予定) を再利用し、cli-pr-monitor の post-pr 経路と判定の同一性を保つ (ADR-054 の drift 防止)。violation は ADR-068 の `[FIX_REGRESSION]` と同様の loud block + 独立 kill-switch。findings レポートのパース失敗は fail-closed。
+>
+> **参照**: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) § 決定 3 / 残課題、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) § 欠点 (pre-push 展開の予告元)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (post-pr 側の先行実装)、PR #348 security review 注記。依存: WP-17 再分割 PR (lib-scope-guard の land) 後が効率的。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity High (injection 防御の穴) / Frequency Low (fix 発生時のみ) / Effort M / Adoption Risk Low (既存 stage への追加、kill-switch つき)。
+
+#### 作業計画
+
+- [ ] findings レポート (.takt/runs/ 最新 run) から Location 列を抽出する parser (fail-closed)
+- [ ] lib-scope-guard で allowlist 照合、violation は loud block + 独立 kill-switch
+- [ ] incident 再現テスト (finding 対象外ファイルへの追加系変更が block されること)
+- [ ] fix.md / fix-supervisor.md の「pre-push は後退検知のみ」記述を更新
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- fix step が finding 対象外ファイルを変更 (追加・書き換え・削除いずれも) した push が、決定論的に block されること。ADR-068 の後退検知では通ってしまう「追加系 injection」ケースがテストで固定されていること。
