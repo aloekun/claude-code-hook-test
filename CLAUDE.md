@@ -66,6 +66,7 @@
 - [ADR-063: Linux 可搬性レイヤ + nightly release + cloud-setup — クラウド向けプリビルドバイナリ配布](docs/adr/adr-063-linux-portability-release-binaries.md)
 - [ADR-064: PR 監視 success 判定の陽性証拠要求 — レート制限 silent success の排除](docs/adr/adr-064-monitor-success-positive-evidence.md)
 - [ADR-065: CI matrix による移植退行防止 — 両 OS で同一スイートを回す](docs/adr/adr-065-ci-matrix-cross-os-regression.md) *(試験運用)*
+- [ADR-066: 自律実行の全体 kill-switch — 正極性単一フラグと「欠損 → 安全状態」原則](docs/adr/adr-066-autonomy-global-kill-switch.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
