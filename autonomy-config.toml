@@ -39,6 +39,12 @@
 # 派生プロジェクトへは配布しない。ファイルが無ければ自動的に停止 = 安全側 default。
 
 [autonomy]
-# WP-17 PR 1 時点では false。呼び手 (Phase B の無人 fix push) は PR 2 で実装されるため、
-# 現時点で true にしても作用する経路が無い。PR 2 で経路と drill を揃えてから true へ倒す。
-enabled = false
+# WP-17 PR 2 で true へ倒した。呼び手 (pr-monitor.yml の Phase B fix job) が実装され、
+# リポジトリとしては自律 fix push を許可する意思表示をした状態。
+#
+# ただし判定は本フラグと外部フラグの AND なので、**これだけでは Phase B は動かない**。
+# GitHub Actions 側は Actions variable AUTONOMY_ENABLED = 'true' が別途必要で、それは
+# admin (リポジトリ所有者) だけが設定できる。実際の有効化タイミングは admin が握る。
+#
+# 停止する場合: 恒久停止は本行を false へ、緊急停止は Actions variable を削除する。
+enabled = true
