@@ -1,0 +1,16 @@
+[package]
+name = "cli-autonomy-gate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+# is_truthy (受理集合 1|true|yes|on) と発火テレメトリ (ADR-055) の両方を借りる。
+# 受理集合を再実装すると kill-switch ごとに truthy 解釈が drift するため必ず共有する。
+lib-telemetry = { path = "../lib-telemetry" }
+
+[dev-dependencies]
+tempfile = "3"
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

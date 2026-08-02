@@ -116,6 +116,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-autonomy-gate"
+version = "0.1.0"
+dependencies = [
+ "lib-telemetry",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "cli-docs-lint"
 version = "0.1.0"
 dependencies = [
