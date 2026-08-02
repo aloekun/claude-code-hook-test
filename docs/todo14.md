@@ -807,10 +807,11 @@
 
 - [ ] findings レポート (.takt/runs/ 最新 run) から Location 列を抽出する parser (fail-closed)
 - [ ] lib-scope-guard で allowlist 照合、violation は loud block + 独立 kill-switch
-- [ ] incident 再現テスト (finding 対象外ファイルへの追加系変更が block されること)
+- [ ] incident 再現テスト: (a) finding 対象外ファイルへの追加系変更が block されること、(b) `ALWAYS_ALLOWED` 対象ファイル (`.takt/review-diff.txt` 等) への変更は finding allowlist 外でも block されないこと、の両方を固定する
 - [ ] fix.md / fix-supervisor.md の「pre-push は後退検知のみ」記述を更新
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
 - fix step が finding 対象外ファイルを変更 (追加・書き換え・削除いずれも) した push が、決定論的に block されること。ADR-068 の後退検知では通ってしまう「追加系 injection」ケースがテストで固定されていること。
+- `ALWAYS_ALLOWED` (post-pr 側の先行実装 `src/cli-pr-monitor/src/stages/scope_guard.rs` で定義済み、現状 `.takt/review-diff.txt` のみ) は、fix step が本 instruction (fix.md 「Pre-completion diff refresh」) に従って正当に書き換える中間ファイルの例外リストである。pre-push 側の実装も finding allowlist に加えてこのリストを常に許可し、post-pr 側と同一のリストを共有すること (ADR-054 の drift 防止)。この例外により (a) の block 判定が誤って `.takt/review-diff.txt` 自体の正当な refresh まで block しないことをテストで固定する。
