@@ -76,7 +76,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
-| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11（2026-08-02 充足確認済） | 未着手（着手決定・4 PR 分割済 → § WP-17） |
+| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11（2026-08-02 充足確認済） | 着手中（PR 1 実装済 = [ADR-066](adr/adr-066-autonomy-global-kill-switch.md)。PR 2-4 未着手 → § WP-17） |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
 | WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1 へ前倒し） | S-M | WP-18 | 未着手 |
 
@@ -117,31 +117,16 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   3. Claude GitHub App は未インストール。ユーザーがインストールする方針（確認済み）。routine 移行（PR 4）はユーザーの Web UI 作業とセットのため最後に回す。
 - **PR 分割**: 1 WP = 原則 1 PR からの明示的逸脱（kill-switch 前倒しにより 1 PR に収まらない）。PR 1 → 2 → 3 → 4 の順で依存する。
 
-#### WP-17 PR 1: 全体 kill-switch（新規 ADR 起票、WP-19 ステップ 1 前倒し分）
+#### WP-17 PR 1: 全体 kill-switch（WP-19 ステップ 1 前倒し分） — 実装済（2026-08-02）
 
-設計レビュー済み（2026-08-02）。以下をそのまま実装する:
+設計・決定・検証記録はすべて [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) へ移管済み（§ 0 の知識移管 3 ステップ）。本節は残作業のみを保持する。
 
-- **正極性の単一フラグ**: repo config `[autonomy] enabled`（default OFF。配置は既存 `pr-monitor-config.toml` への section 追加が第一候補、実装時判断可）+ GitHub Actions variable `AUTONOMY_ENABLED` の 2 拠点。負極性（`AUTONOMY_KILL=1` で停止）方式は**採らない**。ADR-052 契約表の「opt-in 既定」「kill-switch」「未接続・読み取り不能時の既定」「停止手順」の 4 行を単一フラグで満たす（opt-in と kill-switch は別機構ではなく、同一フラグの default 状態と停止操作として読む）。
-- **統一原則（ADR に明記）**: 統一するのはフラグの極性ではなく「入力欠損・読み取り不能時に安全状態へ解決する」という不変条件。ゲートの安全状態 = ゲート有効（既存 `*_DISABLE` 緊急バイパス env の家系）、自律 actor の安全状態 = 停止（本フラグ。`CLOUD_HARNESS` / config `enabled` opt-in と同じ ADR-039 標準家系）。本フラグは既存 opt-in 家系への合流であり、新しい極性の発明ではない。
-- **負極性を退けた根拠（ADR に記録）**:
-  - GitHub Actions の `vars` コンテキストは未定義 variable を空文字列に評価する。負極性条件（`vars.AUTONOMY_KILL != '1'`）では変数の削除・typo・リポジトリ移行時の引き継ぎ漏れがすべて無音で「許可」に倒れ、ADR-052 原則 5 に違反する。workflow 式は必ず「未定義 → 停止」に評価される向きで書く:
-
-    ```yaml
-    if: ${{ vars.AUTONOMY_ENABLED == 'true' }}  # 未定義 → '' → false → 停止（安全側）
-    ```
-
-  - 緊急停止の操作反射の統一: ADR-060 の `CLOUD_HARNESS` が「変数削除 = 停止」を運用者に訓練済み。本フラグも削除 / false 化 = 停止で同方向に揃う（負極性だと「削除しても止まらない」という逆反射が同居し、インシデント時の人為ミスに直結する）。
-- **実行コンテキスト別の権威マッピング（ADR に必須記載）**:
-  - CI（GitHub Actions）: Actions variable（admin のみ書き込み可）を権威とし、repo config は master ref から読む。PR ブランチの checkout copy を判定に使うと、自律 actor 自身（または injection を受けた fix agent）が `claude/` ブランチ上の config 書き換えで自己解除できてしまう（ADR-054 と同型の信頼境界）。
-  - ローカル自律 actor（将来の夜間ループ）: repo config + env が権威。
-  - interactive セッションの操作（ローカル cli-pr-monitor の auto-push 含む）は ADR-052 原則 1 により本フラグの対象外（既存 gate 群 + ADR-028 のまま）。
-- **純粋判定コア**: 判定は単一の純粋関数に閉じ込め、欠損 / ゴミ値 / false / true の全組み合わせを unit test で固定する（cli-pr-monitor gate.rs の `gate_disabled` / cli-push-runner post_takt_regate の判定コアと同スタイル）。呼び手（Phase B・夜間ループ・weekly routine）での env / config 直読みは禁止（lib-docs-policy 集約と同じ drift 防止理由）。配置は共有 lib（新規 crate か既存 lib への module 追加かは実装時判断）。
-- **truthy 受理は厳密**: lib-telemetry の pub 正規化関数（受理集合 `1|true|yes|on`）に相乗り。`0`・空・ゴミ値・欠損はすべて停止 + stderr 診断。
-- **loud deny**: deny 時は log marker（例 `[AUTONOMY_OFF]`）+ ADR-055 telemetry で観測可能にする。無音 no-op 禁止（ADR-064 の silent-success 排除と同じ論理。ADR-060 の「無効時無音」はローカル常時発火のノイズ対策という個別事情で、本フラグには適用しない）。
-- **判定タイミング**: 各 commitment 操作（push / draft PR 作成）の直前で毎回判定。起動済みの単一操作は対象外（ADR-052 停止手順）。run 冒頭 1 回だけの判定にしない（長時間 run 中のフリップを次の操作境界で効かせる）。
-- **フラグ台帳**: 全 kill-switch / opt-in フラグの一覧表（名前・極性・欠損時挙動）を ADR に含める（ADR-054 kill-switch table の全体版。混在を暗黙の慣習から文書化された在庫へ変える）。
-- **背圧契約の曖昧さ解消（ADR で確定）**: ADR-052 原則 5 の契約表は背圧未接続も fail-closed 条件に含めるが、指標「未マージ draft 数」は draft PR 作成操作にのみ意味を持つ。「背圧接続は操作クラス別の前提条件」と定義する — draft PR 作成は未マージ draft 数背圧が前提（WP-18 で実装）、既存 PR への fix push は既存の有界 retry（max_retries 系）を背圧として充てる。
-- 補足（ADR に明記）: scope_guard で観測された「ADR-039 opt-in default OFF と ADR-043 fail-closed の緊張」は本フラグには無い（default OFF = fail-closed 方向で一致）。ADR 採番は placeholder 方式（§ 0）。
+- **成果物**: `cli-autonomy-gate`（純粋判定コア + config/env 読み取り + loud 出力、unit test 21 件）、`autonomy-config.toml`（`[autonomy] enabled`、初期値 `false`）、`templates/autonomy-config.toml`、`pnpm autonomy-status`。
+- **確定した設計**（詳細は ADR-066）: 正極性の単一フラグを repo config と外部フラグ `AUTONOMY_ENABLED` の AND で評価。負極性は不採用。背圧契約は操作クラス別で `draft-pr` は WP-18 まで構造的に deny。deny は loud + ADR-055 telemetry。exit コードは 0/1/2 で呼び手は非ゼロを全て拒否として扱う。
+- **PR 2 へ引き渡す前提**:
+  1. workflow 式 `if: ${{ vars.AUTONOMY_ENABLED == 'true' }}` と exe 呼び出しの二層を接続する。
+  2. CI では `autonomy-config.toml` を **master ref から取り出した写し**として `--config` へ渡す（PR ブランチの checkout を渡すと自律 actor が自己解除できる。ADR-066 § 決定 3）。exe はパスの出所を検証できないため workflow 側の契約。
+  3. `autonomy-config.toml` の `enabled` を `true` へ倒すのは PR 2（呼び手と drill が揃ってから）。
 
 #### WP-17 PR 2: Phase B — pr-monitor.yml の無人 fix push 拡張（旧ステップ 1）
 
