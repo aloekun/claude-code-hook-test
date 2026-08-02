@@ -76,9 +76,9 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
-| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行） | M | WP-09, 10, 11 | 未着手 |
+| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11（2026-08-02 充足確認済） | 未着手（着手決定・4 PR 分割済 → § WP-17） |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
-| WP-19 | 4 | 常時性ガード（kill-switch / 自主減速 / 監査ループ） | M | WP-18 | 未着手 |
+| WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1 へ前倒し） | S-M | WP-18 | 未着手 |
 
 ## 5. 残作業（観測継続）
 
@@ -105,12 +105,79 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 ### WP-17: イベント駆動バックボーン完成
 
-- **前提条件**: WP-11（injection 防御）の enforce 昇格完了必須。
-- **ステップ**:
-  1. WP-09 の pr-monitor.yml を Phase B へ拡張: fix push まで無人実行。`claude/` prefix ブランチ制約 + ADR-052 の自動実行可クラス限定（分類判定は `cli-pr-monitor` gate.rs の docs-only 判定を lib 切り出しで再利用実装 = ADR-052 記載の呼び手着手時実装）+ ADR-054 の diff スコープ検証を CI 側でも実行。
-  2. weekly-review を cloud routine（schedule トリガー、週 1）へ移行し、ローカル PC 稼働への依存を解消。SessionStart の staleness リマインダーはバックストップに格下げ。
-  3. cli-pr-monitor の wakeup 機構（CronCreate 系。失効事例あり）を廃止し、ADR-018 の amendment として記録。
-- **受け入れ基準**: PC 電源オフの週末をまたいで PR イベント・週次レビューが取りこぼしなく処理される。
+> 2026-08-02 着手前レビューで方針確定（依存検証 + ユーザー確認 + kill-switch 設計レビュー）。実装セッションが本節のみで作業内容を把握できるよう自己完結的に記載してある。旧記載の「ステップ 1/2/3」は PR 2/4/3 に対応する（PR 1 は WP-19 からの前倒し分）。
+
+- **前提条件（充足済み、2026-08-02 検証）**: WP-11 の enforce 昇格 — `pr-monitor-config.toml` の `[fix.scope_guard]` は `enabled = true` / `mode = "enforce"`（2026-08-01 昇格）。WP-11 の本採用判定（enforce で 3〜5 PR 誤検知ゼロ）は本 WP の前提ではなく「5. 残作業」で並行観測を続ける。
+- **依存 WP の状態（2026-08-02 検証済み、再調査不要）**:
+  - WP-09: pr-monitor.yml（GitHub Actions バックストップ、読み取り専用多層防御込み）が master 稼働中。PR 2 の拡張母体。
+  - WP-10: [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 起票済み。ただし同 ADR 実装スコープ節の「gate.rs の docs-only 判定は pub(crate) 内部限定、将来 lib へ切り出す」は **stale** — 切り出しは [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) の副産物として完了済みで、`lib-docs-policy` を cli-pr-monitor / cli-push-runner の 2 呼び手が使用中。PR 2 の分類判定は `lib_docs_policy::is_docs_only_summary` を呼ぶだけでよい（stale 記述は PR 2 で訂正）。
+- **着手前決定（2026-08-02、ユーザー確認済み）**:
+  1. WP-19 ステップ 1（全体 kill-switch）を本 WP の PR 1 へ前倒し統合する。根拠: ADR-052 原則 5 は「config opt-in と kill-switch の両方が接続され機能していること」を自動実行可クラス有効化の前提条件とするため、kill-switch 無しに Phase B へ着手できない（本計画書の依存欄と ADR-052 契約の食い違いを解消）。WP-19 の残り（自主減速・監査ループ）は WP-18 後のまま。
+  2. ADR-064 検証残は PR 3 の wakeup 廃止に伴い移し替える: (a) park 実観測は機構ごと消えるため moot として閉じ、(b) レポート判定文の保留保証は GitHub Actions 経路の検証残として引き継ぐ。ADR-064 ステータス欄と ADR-018 amendment の両方に記録し、検証の穴を残さない。
+  3. Claude GitHub App は未インストール。ユーザーがインストールする方針（確認済み）。routine 移行（PR 4）はユーザーの Web UI 作業とセットのため最後に回す。
+- **PR 分割**: 1 WP = 原則 1 PR からの明示的逸脱（kill-switch 前倒しにより 1 PR に収まらない）。PR 1 → 2 → 3 → 4 の順で依存する。
+
+#### WP-17 PR 1: 全体 kill-switch（新規 ADR 起票、WP-19 ステップ 1 前倒し分）
+
+設計レビュー済み（2026-08-02）。以下をそのまま実装する:
+
+- **正極性の単一フラグ**: repo config `[autonomy] enabled`（default OFF。配置は既存 `pr-monitor-config.toml` への section 追加が第一候補、実装時判断可）+ GitHub Actions variable `AUTONOMY_ENABLED` の 2 拠点。負極性（`AUTONOMY_KILL=1` で停止）方式は**採らない**。ADR-052 契約表の「opt-in 既定」「kill-switch」「未接続・読み取り不能時の既定」「停止手順」の 4 行を単一フラグで満たす（opt-in と kill-switch は別機構ではなく、同一フラグの default 状態と停止操作として読む）。
+- **統一原則（ADR に明記）**: 統一するのはフラグの極性ではなく「入力欠損・読み取り不能時に安全状態へ解決する」という不変条件。ゲートの安全状態 = ゲート有効（既存 `*_DISABLE` 緊急バイパス env の家系）、自律 actor の安全状態 = 停止（本フラグ。`CLOUD_HARNESS` / config `enabled` opt-in と同じ ADR-039 標準家系）。本フラグは既存 opt-in 家系への合流であり、新しい極性の発明ではない。
+- **負極性を退けた根拠（ADR に記録）**:
+  - GitHub Actions の `vars` コンテキストは未定義 variable を空文字列に評価する。負極性条件（`vars.AUTONOMY_KILL != '1'`）では変数の削除・typo・リポジトリ移行時の引き継ぎ漏れがすべて無音で「許可」に倒れ、ADR-052 原則 5 に違反する。workflow 式は必ず「未定義 → 停止」に評価される向きで書く:
+
+    ```yaml
+    if: ${{ vars.AUTONOMY_ENABLED == 'true' }}  # 未定義 → '' → false → 停止（安全側）
+    ```
+
+  - 緊急停止の操作反射の統一: ADR-060 の `CLOUD_HARNESS` が「変数削除 = 停止」を運用者に訓練済み。本フラグも削除 / false 化 = 停止で同方向に揃う（負極性だと「削除しても止まらない」という逆反射が同居し、インシデント時の人為ミスに直結する）。
+- **実行コンテキスト別の権威マッピング（ADR に必須記載）**:
+  - CI（GitHub Actions）: Actions variable（admin のみ書き込み可）を権威とし、repo config は master ref から読む。PR ブランチの checkout copy を判定に使うと、自律 actor 自身（または injection を受けた fix agent）が `claude/` ブランチ上の config 書き換えで自己解除できてしまう（ADR-054 と同型の信頼境界）。
+  - ローカル自律 actor（将来の夜間ループ）: repo config + env が権威。
+  - interactive セッションの操作（ローカル cli-pr-monitor の auto-push 含む）は ADR-052 原則 1 により本フラグの対象外（既存 gate 群 + ADR-028 のまま）。
+- **純粋判定コア**: 判定は単一の純粋関数に閉じ込め、欠損 / ゴミ値 / false / true の全組み合わせを unit test で固定する（cli-pr-monitor gate.rs の `gate_disabled` / cli-push-runner post_takt_regate の判定コアと同スタイル）。呼び手（Phase B・夜間ループ・weekly routine）での env / config 直読みは禁止（lib-docs-policy 集約と同じ drift 防止理由）。配置は共有 lib（新規 crate か既存 lib への module 追加かは実装時判断）。
+- **truthy 受理は厳密**: lib-telemetry の pub 正規化関数（受理集合 `1|true|yes|on`）に相乗り。`0`・空・ゴミ値・欠損はすべて停止 + stderr 診断。
+- **loud deny**: deny 時は log marker（例 `[AUTONOMY_OFF]`）+ ADR-055 telemetry で観測可能にする。無音 no-op 禁止（ADR-064 の silent-success 排除と同じ論理。ADR-060 の「無効時無音」はローカル常時発火のノイズ対策という個別事情で、本フラグには適用しない）。
+- **判定タイミング**: 各 commitment 操作（push / draft PR 作成）の直前で毎回判定。起動済みの単一操作は対象外（ADR-052 停止手順）。run 冒頭 1 回だけの判定にしない（長時間 run 中のフリップを次の操作境界で効かせる）。
+- **フラグ台帳**: 全 kill-switch / opt-in フラグの一覧表（名前・極性・欠損時挙動）を ADR に含める（ADR-054 kill-switch table の全体版。混在を暗黙の慣習から文書化された在庫へ変える）。
+- **背圧契約の曖昧さ解消（ADR で確定）**: ADR-052 原則 5 の契約表は背圧未接続も fail-closed 条件に含めるが、指標「未マージ draft 数」は draft PR 作成操作にのみ意味を持つ。「背圧接続は操作クラス別の前提条件」と定義する — draft PR 作成は未マージ draft 数背圧が前提（WP-18 で実装）、既存 PR への fix push は既存の有界 retry（max_retries 系）を背圧として充てる。
+- 補足（ADR に明記）: scope_guard で観測された「ADR-039 opt-in default OFF と ADR-043 fail-closed の緊張」は本フラグには無い（default OFF = fail-closed 方向で一致）。ADR 採番は placeholder 方式（§ 0）。
+
+#### WP-17 PR 2: Phase B — pr-monitor.yml の無人 fix push 拡張（旧ステップ 1）
+
+- pr-monitor.yml を Phase B へ拡張し、fix push まで無人実行する。実行条件は全 AND 合成（1 つでも欠けたら Phase A 相当 = 分析コメントのみに degrade。fail-closed）:
+  1. PR 1 の kill-switch が有効（workflow 式 + 操作直前判定の二重）。
+  2. 対象 PR の head ブランチが `claude/` prefix（ADR-052 target 軸）。
+  3. 変更内容が ADR-052 自動実行可クラス（内容軸）。分類は `lib_docs_policy::is_docs_only_summary` を再利用し、分類不能はゲート必須へ（fail-closed）。あわせて ADR-052 実装スコープ節の stale 記述（lib 切り出しが未了である旨）を訂正する。
+  4. ADR-054 scope guard（fix diff の findings 由来 allowlist 検証）を CI 側でも実行。
+- **permissions 昇格の再設計**: Phase A の安全担保の主体は `contents: read`（push が 403 で決定論的に失敗）だった。Phase B では `contents: write` が必要になりこの担保が失われるため、代替の決定論的担保（例: repository ruleset で `claude/` 以外への push を deny）を同 PR で設計し、workflow 冒頭の多層防御コメントを更新する。
+- **適用対象の現実**: 既存のローカル発 PR ブランチは `claude/` prefix ではないため、無人 fix push の作用対象は当面 `claude/` ブランチ PR（= WP-18 の夜間ループ発 PR が本命）に限られる。実走検証は workflow_dispatch + `claude/` テストブランチのスモークで行う。
+- ADR: Phase B 設計を新規 ADR または ADR-022 amendment として記録。起票時に「2. 検証済みの前提事実」の GitHub Actions 課金 / claude-code-action OAuth の事実を最新値へ再確認し永続化する（同節冒頭の必須要件）。
+
+#### WP-17 PR 3: wakeup 機構（CronCreate 系）の廃止（旧ステップ 3）
+
+- 廃止対象: cli-pr-monitor の CronCreate park モデル（ADR-018 追記の Bundle b で再導入。PR #237 で失効事例を観測済み）。
+  - park / wakeup 経路: state の `next_wakeup_at_unix` / `wakeup_reason`、monitor stage の wakeup invocation、`[PR_MONITOR_PARK]` envelope 出力。
+  - hooks-session-start の pr_monitor catch-up nudge（park 失効の救済層。機構ごと dead code になるため撤去）。
+- 代替: PR イベント（レート制限中の再開含む）は GitHub Actions 経路（Phase A/B）が引き受ける。CodeRabbit の後続コメント / レビュー到着がそのままトリガーになるため、ローカルの時限 wakeup は不要。
+- 記録: ADR-018 amendment を起票し、着手前決定 2 の ADR-064 検証残移し替え（(a) moot / (b) Actions 経路へ引き継ぎ）を amendment と ADR-064 ステータス欄の両方に記載。ADR-034 の CronCreate 参照も同 PR で整合を取る。
+
+#### WP-17 PR 4: weekly-review の cloud routine 移行（旧ステップ 2）
+
+- **ユーザー作業（先行必須、Claude からは実行不可）**:
+  1. Claude GitHub App を本リポジトリにインストール（github.com/apps/claude）。
+  2. claude.ai/code/routines の Web UI で routine を作成（schedule トリガー、週 1）。`/schedule` はクラウドセッション内から使用不可（「2. 検証済みの前提事実」参照）。
+- **Claude 側作業**:
+  1. routine 用プロンプト草案の作成（weekly-review 相当の起動手順 + 結果確認手順。routine run の緑ステータスはタスク成功を意味しないため transcript 確認を含める）。
+  2. hooks-session-start の weekly_review staleness リマインダーをバックストップへ格下げ（主経路 = routine、リマインダー = routine 失敗時の救済である旨へ文言・閾値を調整）。
+  3. ADR 起票。起票時に「2. 検証済みの前提事実」の routines 事実（daily run cap / webhook 上限 / 緑ステータスの意味）を最新値へ再確認し永続化する（同節冒頭の必須要件）。
+- 留意: routine はクラウド（Linux）実行のため ADR-060（dogfood 3/5 回、判定期限 2026-09-30）/ ADR-063 の枠内で動き、その dogfood 機会を兼ねる。
+
+#### WP-17 受け入れ基準
+
+- PR 1–2: kill-switch drill — `AUTONOMY_ENABLED` 未設定 / false で Phase B が fix push せず loud deny marker が run log / telemetry で観測できること。有効時のみ `claude/` テストブランチへの fix push が通ること（workflow_dispatch スモーク）。
+- PR 3: wakeup 廃止後、レート制限を含む PR イベントが GitHub Actions 経路のみで処理されること（ADR-064 (b) の判定文保証は同経路の検証残として追跡）。
+- WP 全体（従来基準）: PC 電源オフの週末をまたいで PR イベント・週次レビューが取りこぼしなく処理されること。
 
 ### WP-18: 夜間 todo 消化ループ
 
@@ -124,7 +191,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 ### WP-19: 常時性ガード
 
 - **ステップ**:
-  1. **全体 kill-switch**: 単一フラグ（リポ内 config + GitHub Actions variable）で全自律動作を停止できる仕組み（ADR-039 パターンの全体版）。
+  1. **全体 kill-switch**: WP-17 PR 1 へ前倒し済み（2026-08-02 決定、根拠 = ADR-052 原則 5 の契約。設計・実装内容は § WP-17 の PR 1 を参照）。
   2. **自主減速**: routine プロンプト冒頭に自己抑制判定 —「未マージの draft PR が 3 件以上ある／直近 run の失敗が続いている場合は何もせず終了」。作りかけの山を積まないための背圧制御。
   3. **監査ループを閉じる**: 自律アクション一覧（routine run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。
 
