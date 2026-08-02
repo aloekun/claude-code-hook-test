@@ -21,7 +21,7 @@ use serde::Deserialize;
 /// 不変 = fix はコードを書き換えていない → re-gate を skip する。差分あり = fix が変更した
 /// → quality_gate を再実行する。snapshot の前後比較は metadata のみの変化 (auto-snapshot
 /// timestamp 等、ADR-021 § commit_id 単独比較の限界) に不感で、「実質変更があったか」を
-/// 直接判定する。判定は pure function (`decide_regate`)、jj 呼び出しは closure 注入
+/// 直接判定する。判定は pure function (`analyze_regate`)、jj 呼び出しは closure 注入
 /// (ADR-021 原則 3)。
 ///
 /// ## fail-closed (ADR-043)

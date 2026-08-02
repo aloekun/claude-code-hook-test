@@ -18,7 +18,7 @@
 //! 不変 = fix はコードを書き換えていない → re-gate skip。差分あり = fix が変更した →
 //! quality_gate 再実行。snapshot の前後比較は metadata のみの変化 (auto-snapshot の
 //! timestamp 等、ADR-021 § commit_id 単独比較の限界) に不感で「実質変更があったか」を
-//! 直接判定する。判定は pure function (`decide_regate`)、jj 呼び出しは closure 注入
+//! 直接判定する。判定は pure function (`analyze_regate`)、jj 呼び出しは closure 注入
 //! (ADR-021 原則 3) でテスト時に外部 jj なしに全分岐を固定する。
 //!
 //! ## fail 方向 (ADR-043、post-pr gate と同じ)

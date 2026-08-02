@@ -118,13 +118,14 @@ This refresh is **unconditional**:
 | persists (carried over, not addressed this iteration) | {N} |
 | misdirected (suggestion pointed at a read-only zone, skipped) | {N} |
 | out-of-scope edit (finding directed a change outside the allowlist, skipped/reported) | {N} |
+| design-level remedy (escalated to the driver, not applied -- ADR-068) | {N} |
 
 ## Convergence verdict (REQUIRED — Phase 3 / #C-2 fix-trust shortcut)
 
 After completing fixes, evaluate the gate above and emit one of two verdicts. The next workflow step is selected from this verdict, so it must accurately reflect the gate state.
 
-- **fully_resolved** — `persists == 0` AND `misdirected == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
-- **partial** — `persists > 0` OR `misdirected > 0`. Some findings carried over (still need fixing in a later iteration) or were skipped due to misdirection (and need to be reported). Re-analysis is required.
+- **fully_resolved** — `persists == 0` AND `misdirected == 0` AND `design-level remedy == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
+- **partial** — `persists > 0` OR `misdirected > 0` OR `design-level remedy > 0`. Some findings carried over (still need fixing in a later iteration), were skipped due to misdirection, or were escalated as design-level remedies (ADR-068 -- the driver must decide, so the workflow must not conclude they are resolved). Re-analysis is required.
 
 Place the verdict at the **end of your report** as a single bare line in this exact form (no surrounding quotes, no trailing punctuation):
 

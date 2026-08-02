@@ -249,7 +249,7 @@ pub(crate) fn run_diff(config: &DiffConfig, pr_range: &str) -> DiffResult {
 }
 
 /// `run_diff` の本体。PR 範囲の summary 取得を注入可能にして、範囲カバレッジ検査を
-/// jj 実行なしでテストできるようにする (`post_takt_regate::decide_regate` と同じ流儀)。
+/// jj 実行なしでテストできるようにする (`post_takt_regate::analyze_regate` と同じ流儀)。
 fn run_diff_with(
     config: &DiffConfig,
     pr_range: &str,
