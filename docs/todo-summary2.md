@@ -114,6 +114,11 @@
 | 356 | 🔧 Tier 2 | **weekly/monthly staleness 判定の共通 fixture parametrized test を追加 (#331 post-merge feedback T2-1 採用)** | todo14.md | S | なし (monthly_review.rs の staleness 判定が weekly_review.rs と逐語重複、片方修正で挙動乖離するリスク。同一 fixture〔threshold 境界/Missing/Stale/Unreadable/未来値/main-root canonical〕で両流路を検証、inline test module に配置) |
 | 357 | 🔧 Tier 2 | **CLAUDE.md の ADR index ステータスタグと ADR 本体の整合チェックを追加 (#340 post-merge feedback T1-1 採用)** | todo14.md | M | なし (ADR-047 の index タグが `試験運用` のまま本体の `却下` と乖離した実害が残存。ADR-007 の 2 層は単一ファイル起点のため独立 doc-consistency チェックとして実装。責務はステータスタグ整合のみで採番/索引存在/番号一致は順位 272、実装は同一 module 同居可。着手時に ADR-047 タグ即修正を含む) |
 | 358 | 💎 Tier 3 | **Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化 (#340 post-merge feedback T3-1 採用)** | todo14.md | S | なし (PR #340 で移管先未記載 3 件を CodeRabbit が指摘。順位 261 の見送り限定 convention を完了/委譲ケースへ拡張し、退役条件を含む 3 段階プロトコルを checklist 化) |
+| 359 | 💎 Tier 3 | **WP-16 系 post-merge feedback 文書系 10 件の docs バッチ (dev-conventions 集中、#342/#343/#344 採用)** | todo14.md | M | なし (2026-08-02 方針決定: 文書系 10 件を 1 PR に集約。paths×required-check gotcha / exe-spawn staging 規約の Severity High 2 件を含むため早めが望ましい) |
+| 360 | 🔧 Tier 2 | **push-runner と ci.yml の cargo test コマンド等価性検証テスト (#342/#343 post-merge feedback 採用)** | todo14.md | S | なし (連続 2 PR で独立指摘 = Frequency High。`[workspace] default-members` 不在への暗黙依存を機械検証。順位 361 と同一 PR 可) |
+| 361 | 🔧 Tier 2 | **JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト (#342 post-merge feedback 採用)** | todo14.md | S | なし (ADR-051 型の 2 ファイル結合「上げるときは必ず揃える」を機械検証へ。順位 360 と同一 PR 可) |
+| 362 | 🔧 Tier 2 | **git subprocess のブランチ名依存引数を検出する custom lint rule (#343 post-merge feedback 採用)** | todo14.md | S | なし (detached HEAD で CI 観測が silent pending 化した PR #343 incident 由来。ADR-049 fixture 3 点セット整備込み。順位 363 と同一 PR 可) |
+| 363 | 🔧 Tier 2 | **check-ci-coderabbit の detached HEAD 回帰統合テスト (#343 post-merge feedback 採用)** | todo14.md | M | なし (修正済み silent pending バグの regression test が皆無。順位 362 と同一 PR 可) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

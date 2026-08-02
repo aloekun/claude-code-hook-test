@@ -669,3 +669,124 @@
 #### 完了基準
 
 - ephemeral 計画文書の完了/委譲/見送りいずれのケースでも、永続移管先の明記と参照方向の規律が checklist で確認できること。
+
+---
+
+### WP-16 系 post-merge feedback 文書系 10 件の docs バッチ (dev-conventions 集中)
+
+> **動機**: PR #342 (CI matrix / ADR-065)・#343 (監視 CI 観測修正)・#344 (pipeline_lock レース修正) の post-merge feedback で採用確定した文書系 10 件を、1 本の docs バッチ PR に集約する (2026-08-02 方針決定。per-PR の細切れ doc PR を避け milestone でまとめる運用)。全件 `docs/dev-conventions.md` 中心の追記で、GitHub 仕様の gotcha など Severity High 2 件を含む。
+>
+> **内容 (10 件)**:
+>
+> 1. `[workspace] default-members` 不在で `cargo test` = `cargo test --workspace` という暗黙不変条件の明記 + `push-runner-config.toml` への inline comment (#342 T3-1。順位 360 のテストと対)
+> 2. ADR-051 (cross-system config coupling) をチェックリストに登録 — 3 系統以上のインフラ設定を跨ぐ変更時の確認項目 (#342 T3-3)
+> 3. ambient/auto-detect 環境状態 (git ブランチ名・`GH_REPO`・cwd) に依存せず明示引数を使う設計原則 — PR #238/#247/#343 の 3 例目で systemic (#343 T3-1)
+> 4. 並行バグ調査の標準テストパターン — 決定論再現テスト + stress の aggregate 計測 + low-core CI でのみ再現するレースの扱い (#344 T2-1)
+> 5. TOCTOU + 2 層防御 (verify-before-destroy + deferred cleanup、最終 fallback は `create_new` 排他へ収束) の設計原則 (#344 T3-1)
+> 6. CI 失敗の introduced-by-this-change / pre-existing を diff で切り分けるチェックリスト (#344 T3-2)
+> 7. `paths:` フィルタ付き check を required 化すると skip が pending 扱いで PR が永久ブロックされる GitHub gotcha + early-success 代替 (#342 T3-2、Severity High)
+> 8. exe-spawn テストは exe + deploy 済 config を temp dir へ staging する規約 — 既存 bounded wait 規約と対 (#342 T3-4、Severity High)
+> 9. cross-platform matrix の `fail-fast: false` 既定 (#342 T3-5)
+> 10. shell 抽象化確認済み cfg ガードの除去可否ガイダンス + レビュー層がコード内コメント根拠で false positive 判定する際の前提再検証手順 (#342 T3-7)
+>
+> **参照**: `.claude/feedback-reports/342.md` / `343.md` / `344.md` (各 Rationale)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。
+>
+> **実行優先度**: 💎 Tier 3 — 各件 Effort XS〜S・合計 M / Adoption Risk None。Severity High 2 件 (#7, #8) を含むため docs バッチとしては早めの実施が望ましい。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` へ 10 件を追記 (既存 convention の書式に合わせる)
+- [ ] `push-runner-config.toml` へ #1 対応の inline comment を追加
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- 10 件すべてが dev-conventions.md (+ inline comment 1 箇所) に反映され、`pnpm lint:docs` / markdownlint が clean であること。
+
+---
+
+### push-runner と ci.yml の cargo test コマンド等価性検証テスト
+
+> **動機**: `push-runner-config.toml` の rust-test group は `cargo test`、`.github/workflows/ci.yml` は `cargo test --workspace` を使い、両者は root `Cargo.toml` に `[workspace] default-members` が**無い**ことに依存して偶然等価になっている。ADR-065 § 決定 2 は「CI とローカルでコマンドが違うと、どちらかの緑が嘘になる」を設計原則とするが、この等価は機械検証されていない。#342 T2-1 と #343 T2-3 が連続 2 PR で独立に指摘し Frequency High。
+>
+> **対処案**: `Cargo.toml` に `default-members` が導入されたら fail する検証テストを追加する (例: cargo metadata で default-members 不在を assert、または両コマンドの対象 crate 集合の一致を比較)。実装位置は `src/cli-push-runner` の config 検証テスト近傍が候補。
+>
+> **参照**: `.claude/feedback-reports/342.md` Tier2 #1 / `.claude/feedback-reports/343.md` Tier2 #3、`push-runner-config.toml` (rust-test group)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 2。順位 359 の #1 (文書化) と対。順位 361 と同一 PR (A 系統) にまとめてよい。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency High / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] default-members 不在 (または両コマンドの対象集合一致) を assert する検証テストを追加
+- [ ] 意図的に default-members を足した状態で fail することを確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- `cargo test` (push-runner) と `cargo test --workspace` (CI) の等価が破れる変更が、テスト失敗として land 前に検出されること。
+
+---
+
+### JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト
+
+> **動機**: jj バージョン (0.42.0) は `.github/workflows/ci.yml` と `scripts/cloud-setup.sh` の 2 ファイル + ローカル検証環境の 3 箇所論理結合 (ADR-065 § 決定 3、ADR-051 型)。「上げるときは必ず揃える」の手動運用に依存しており、片方だけの更新は「テストが緑でも本番挙動が違う」を生む。#342 T2-2 採用 (supervisor 補正: 版文字列を持つのは 2 ファイルのみ、3 箇所目 = ローカル環境は静的検出不可)。
+>
+> **対処案**: 2 ファイルから jj 版文字列を抽出して一致を assert するテストを追加する (repo-root `tests/` の配備検証系 or CI step)。
+>
+> **参照**: `.claude/feedback-reports/342.md` Tier2 #2、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 3、[ADR-051](adr/adr-051-cross-system-config-coupling.md)。順位 360 と同一 PR (A 系統) にまとめてよい。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] 2 ファイルの版文字列一致を assert するテスト/step を追加
+- [ ] 片方だけ変更した状態で fail することを確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- ci.yml と cloud-setup.sh の jj 版が乖離した変更が land 前に機械検出されること。
+
+---
+
+### git subprocess のブランチ名依存引数を検出する custom lint rule
+
+> **動機**: PR #343 で、exe 内部の `git branch --show-current` subprocess が jj colocated 環境 (git HEAD が detached) で常に空文字を返し、CI 観測が恒久 pending 化する silent 欠陥が実在した。PreToolUse hook は Claude の tool 呼び出し層にのみ効き exe 内部の subprocess には無効なため、`src/**/*.rs` を対象とする custom lint rule (正規表現層、ADR-007) で同型再発を防ぐ。#343 T1-1 採用 (supervisor が PreToolUse 案から再構成済み)。
+>
+> **対処案**: `.claude/custom-lint-rules.toml` に new rule — git subprocess 呼び出しのブランチ名依存引数 (`branch` + `--show-current` 等) を検出する。ADR-049 に従い incident fixture (bad/good) + `[rules.incident]` provenance (pr = 343) + incident_eval CASES entry を整備する。
+>
+> **参照**: `.claude/feedback-reports/343.md` Tier1 #1、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) Amendment (欠測と正常が同じ出力になる構成の教訓)。順位 363 と同一 PR (B 系統) にまとめてよい。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] custom-lint-rules.toml に rule を追加 (regex + 除外条件の設計)
+- [ ] ADR-049 の 3 点セット (bad/good fixture + `[rules.incident]` + CASES entry) を整備
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- `src/**/*.rs` にブランチ名依存の git subprocess が追加された場合に custom lint が発火し、good fixture では発火しないこと (incident_eval で回帰保証)。
+
+---
+
+### check-ci-coderabbit の detached HEAD 回帰統合テスト
+
+> **動機**: PR #343 で修正した「jj colocated (detached HEAD) 環境で CI 状態が恒久 pending 化する」バグの regression test が皆無 (`src/check-ci-coderabbit/tests/` 自体が不在)。再発時は監視の自律ループが再び silent に破綻する。#343 T2-1 採用。
+>
+> **対処案**: temp dir に jj colocated repo (detached HEAD) を組み、CI 状態解決が statusCheckRollup ベースで機能すること (旧経路のようにブランチ名解決依存で空にならないこと) を検証する統合テストを新設する。gh 呼び出しは実 API に依存しない形 (parse 層の既存単体テスト + 経路の構造検証) を基本とし、実 jj spawn が必要な部分は lib-jj-helpers の `#[ignore]` + 直列実行パターンを踏襲する。
+>
+> **参照**: `.claude/feedback-reports/343.md` Tier2 #1、`src/check-ci-coderabbit/src/main.rs` (`fetch_ci`) / `src/check-ci-coderabbit/src/parsers.rs` (`parse_ci_rollup` 単体テスト群 = 既存資産)。順位 362 と同一 PR (B 系統) にまとめてよい。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] detached HEAD 環境での CI 状態解決を検証する統合テストを新設
+- [ ] ブランチ名依存の旧経路への回帰が fail することを確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- detached HEAD 環境で CI 状態が pending に固着する回帰が、テスト失敗として land 前に検出されること。
