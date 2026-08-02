@@ -208,7 +208,11 @@ fn summary_line_new_path(status: &str, rest: &str) -> Option<String> {
 }
 
 /// unified diff の `diff --git a/X b/X` ヘッダからパス集合を作る。
-fn parse_git_diff_paths(diff_output: &str) -> std::collections::BTreeSet<String> {
+///
+/// `pub(crate)`: post_takt_regate の fix 後退検知 (ADR-068) が takt 前後の diff の
+/// ファイル集合比較に再利用する。coverage 検査と後退検知でヘッダ解釈が分岐すると
+/// 片方だけ書式変化に沈黙するため、単一実装を共有する。
+pub(crate) fn parse_git_diff_paths(diff_output: &str) -> std::collections::BTreeSet<String> {
     diff_output
         .lines()
         .filter_map(|line| line.strip_prefix("diff --git "))

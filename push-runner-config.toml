@@ -258,6 +258,15 @@ output_path = ".takt/lint-screen-report.md"
 #
 # fail-closed (ADR-043): snapshot 前後どちらかが取得不能なときは「変化あり」に倒して
 # re-gate を実行する。判定不能を「skip 可能」に倒すことはしない (post-pr gate と同じ方向)。
+#
+# fix 後退検知 (ADR-068、2026-08-03 追加): re-gate は「ツリーが検証を通るか」しか見ないため、
+# fix が PR の変更を丸ごと revert しても通過してしまう (2026-08-02 の WP-17 PR 2a incident:
+# simplicity REJECT への fix が lib 抽出 2 crate を削除し、gate 全 PASS のまま push 成功)。
+# takt 前後の PR diff を比較し (1) ファイル脱落 = 件数によらず block、(2) 追加行の削減率が
+# max_added_line_shrink_pct % 超 = block する。block 時は [FIX_REGRESSION] マーカー付きで
+# 停止し、driver が fix の妥当性を判断する。意図的な大規模削除 fix を承認して通す場合のみ
+# env POST_TAKT_REGRESSION_DISABLE=1 で明示 bypass する (re-gate 本体とは独立の kill-switch)。
+# max_added_line_shrink_pct 未設定は default 50。
 # ---------------------------------------------------------------------------
 [post_takt_regate]
 enabled = true

@@ -8,7 +8,7 @@ mod pr_size_check;
 mod scratch_file_warning;
 
 pub(crate) use docs_only_routing::DocsOnlyRoutingConfig;
-pub(crate) use post_takt_regate::PostTaktRegateConfig;
+pub(crate) use post_takt_regate::{PostTaktRegateConfig, DEFAULT_MAX_SHRINK_PCT};
 pub(crate) use lint_screen::{
     LintScreenConfig, DEFAULT_LINT_SCREEN_ENDPOINT, DEFAULT_LINT_SCREEN_EXE_PATH,
     DEFAULT_LINT_SCREEN_MAX_DIFF_LINES, DEFAULT_LINT_SCREEN_MODEL, DEFAULT_LINT_SCREEN_OUTPUT_PATH,
