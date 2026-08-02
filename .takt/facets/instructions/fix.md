@@ -124,8 +124,8 @@ This refresh is **unconditional**:
 
 After completing fixes, evaluate the gate above and emit one of two verdicts. The next workflow step is selected from this verdict, so it must accurately reflect the gate state.
 
-- **fully_resolved** — `persists == 0` AND `misdirected == 0` AND `design-level remedy == 0`. All findings of this iteration were either fixed or correctly skipped. No remaining work for the analyze step to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
-- **partial** — `persists > 0` OR `misdirected > 0` OR `design-level remedy > 0`. Some findings carried over (still need fixing in a later iteration), were skipped due to misdirection, or were escalated as design-level remedies (ADR-068 -- the driver must decide, so the workflow must not conclude they are resolved). Re-analysis is required.
+- **fully_resolved** — `persists == 0` AND `misdirected == 0` AND `out-of-scope edit == 0` AND `design-level remedy == 0`. All findings of this iteration were fixed outright. No remaining work for the analyze step to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
+- **partial** — `persists > 0` OR `misdirected > 0` OR `out-of-scope edit > 0` OR `design-level remedy > 0`. Some findings carried over (still need fixing in a later iteration), were skipped due to misdirection or allowlist scope, or were escalated as design-level remedies (ADR-068 -- the driver must decide, so the workflow must not conclude they are resolved). Re-analysis is required.
 
 Place the verdict at the **end of your report** as a single bare line in this exact form (no surrounding quotes, no trailing punctuation):
 

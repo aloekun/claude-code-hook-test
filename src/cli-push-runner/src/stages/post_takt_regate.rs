@@ -400,14 +400,19 @@ command = "echo push"
     fn analyze_blocks_when_fix_drops_files_from_pr_diff() {
         let pre = format!(
             "{}{}{}",
-            file_diff("src/lib-x/Cargo.toml", 10),
-            file_diff("src/lib-x/src/lib.rs", 100),
-            file_diff("docs/plan.md", 5)
+            file_diff("src/lib-x/Cargo.toml", 5),
+            file_diff("src/lib-x/src/lib.rs", 10),
+            file_diff("docs/plan.md", 100)
         );
-        let post = file_diff("docs/plan.md", 5);
+        let post = file_diff("docs/plan.md", 100);
         let (d, reason) =
             analyze_regate(true, false, regression_on(), Some(&pre), || Some(post.clone()));
-        assert_eq!(d, RegateDecision::FixRegression);
+        assert_eq!(
+            d,
+            RegateDecision::FixRegression,
+            "追加行の削減率 (115→100 = 13%) は閾値以下でも、ファイル脱落だけで block する\
+             (shrink シグナルと独立に部分脱落を検知する分離検証)"
+        );
         let reason = reason.expect("FixRegression は理由を持つ");
         assert!(reason.contains("2 ファイル"), "脱落ファイル数を報告する: {reason}");
         assert!(reason.contains("src/lib-x"), "脱落ファイル名を例示する: {reason}");
@@ -513,6 +518,12 @@ command = "echo push"
     /// gut-revert は gate 全 PASS で push された — その経路を封じるのが本変更の核心)。
     /// gate "echo ok" (走れば PASS) + gutted post diff で proceed=false を固定し、
     /// block が gate 由来ではなく後退検知由来であることを verdict で証明する。
+    ///
+    /// post diff は echo 1 行 (git ヘッダ無し) = pre の全ファイルが脱落した全面 revert 形。
+    /// 部分脱落のシグナル分離は純粋レベルの
+    /// `analyze_blocks_when_fix_drops_files_from_pr_diff` が担い、本テストは
+    /// 「config 経由の実プロセス実行でも block が end-to-end に効く」ことだけを固定する
+    /// (shell の echo で複数行 git ヘッダを合成するのは platform 依存になるため)。
     #[test]
     fn regate_blocks_regression_even_when_gate_would_pass() {
         let pre = format!(
@@ -520,8 +531,8 @@ command = "echo push"
             file_diff("src/lib-x/src/lib.rs", 100),
             file_diff("docs/plan.md", 5)
         );
-        let post_diff_without_lib_x = "echo +docs-only-line";
-        let config = config_with(true, "echo ok", post_diff_without_lib_x);
+        let post_diff_total_revert_shape = "echo +docs-only-line";
+        let config = config_with(true, "echo ok", post_diff_total_revert_shape);
         let outcome = run_post_takt_regate(&config, Some(&pre));
         assert!(
             !outcome.proceed,
