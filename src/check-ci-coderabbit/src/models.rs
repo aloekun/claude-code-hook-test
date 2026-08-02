@@ -72,6 +72,24 @@ pub(crate) struct GhRunItem {
     pub(crate) conclusion: Option<String>,
 }
 
+/// `gh pr view --json statusCheckRollup` の 1 要素。
+///
+/// rollup は 2 種類のノードが混在する GraphQL union で、フィールド名が異なる:
+/// - `CheckRun` (GitHub Actions 等): `name` + `status` + `conclusion`
+/// - `StatusContext` (旧 commit status API): `context` + `state`
+///
+/// どちらが来ても取りこぼさないよう両方を `Option` で受け、[`crate::parsers`] 側で
+/// 正規化する。値は GraphQL 由来で大文字 (`SUCCESS` / `IN_PROGRESS`) のため、
+/// 正規化時に小文字化して `gh run list` 時代の wire format と互換を保つ。
+#[derive(Deserialize)]
+pub(crate) struct GhRollupItem {
+    pub(crate) name: Option<String>,
+    pub(crate) context: Option<String>,
+    pub(crate) status: Option<String>,
+    pub(crate) conclusion: Option<String>,
+    pub(crate) state: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub(crate) struct GhStatusItem {
     pub(crate) context: Option<String>,

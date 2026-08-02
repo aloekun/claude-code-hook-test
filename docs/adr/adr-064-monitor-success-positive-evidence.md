@@ -88,6 +88,28 @@ monitor 側に判定を分散させず、**`decide()` に rate_limit を渡し�
   wakeup 再 trigger) は、セッション中にレート制限が自然発生しなかったため未実測 (ステータス
   欄の検証残)。monitor 側の分岐順序は本変更で触っておらず既存実装の性質に依存する。
 
+## Amendment (2026-08-01): CI 側は「観測できていない」ことに気付けていなかった
+
+本 ADR は CodeRabbit 側の判定に陽性証拠を要求したが、**CI 側の入力が恒久的に欠測している**
+ことは検知できていなかった。`fetch_ci` は `git branch --show-current` でブランチ名を解決して
+`gh run list --branch` を叩いていたが、本リポジトリは jj colocated で **git HEAD が detached**
+のためブランチ名が常に空になり、早期 return で CI が常に `pending` / `runs: []` になっていた。
+
+**これが表面化しなかった理由**が本質的である: 当時 PR に status check を出す workflow が
+存在せず (`release-binaries.yml` は master push 限定、`pr-monitor.yml` は意図的に
+`pull_request` を使わない)、「CI 未設定」と「CI を観測できない」が**同じ出力**になっていた。
+ADR-065 (CI matrix、PR #342 で新設) が PR 単位の check を初めて生んだ瞬間に、実際には
+failure だった Windows leg を `pending` と報告し続けることで露見した。
+
+対処として `gh pr view <pr> --json statusCheckRollup` に切り替えた。ブランチ解決が不要になり、
+併せて **`gh run list --branch X --limit 5` がブランチ上の全 SHA の run を返す**問題
+(push 後に前 commit の結論を現在の結論として報告しうる = 本 ADR が排除した silent success と
+同型) も構造的に閉じる。空 rollup は `success` ではなく `pending` として扱う。
+
+**教訓**: 「証拠を要求する」判定は、**証拠の入力経路自体が沈黙していないか**を別途担保しない
+と成立しない。欠測と正常が同じ出力になる構成 (ここでは「CI が無い」と「CI が見えない」) は、
+観測対象が現れた瞬間まで誰も気付けない。
+
 ## 教訓 (同種修正のセルフチェック)
 
 1. 修正が**本番 config の経路で実行される**ことをテストで固定する (旧初版は skip 構成でしか
