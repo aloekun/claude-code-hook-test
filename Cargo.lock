@@ -143,6 +143,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-fix-push-gate"
+version = "0.1.0"
+dependencies = [
+ "lib-autonomy-policy",
+ "lib-docs-policy",
+ "lib-scope-guard",
+ "lib-telemetry",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cli-merge-pipeline"
 version = "0.1.0"
 dependencies = [

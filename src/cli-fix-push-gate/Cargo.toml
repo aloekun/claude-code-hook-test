@@ -1,0 +1,19 @@
+[package]
+name = "cli-fix-push-gate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# 4 軸すべて既存の単一実装を借りる。本 crate 固有の判定ロジックは AND 合成と順序だけで、
+# 各軸の基準を再実装しない (再実装は ADR-035 / ADR-054 の drift 再生産にあたる)。
+lib-autonomy-policy = { path = "../lib-autonomy-policy" }
+lib-docs-policy = { path = "../lib-docs-policy" }
+lib-scope-guard = { path = "../lib-scope-guard" }
+lib-telemetry = { path = "../lib-telemetry" }
+
+[dev-dependencies]
+tempfile = "3"
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
