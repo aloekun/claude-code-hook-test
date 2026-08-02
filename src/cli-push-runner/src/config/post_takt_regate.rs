@@ -21,7 +21,7 @@ use serde::Deserialize;
 /// 不変 = fix はコードを書き換えていない → re-gate を skip する。差分あり = fix が変更した
 /// → quality_gate を再実行する。snapshot の前後比較は metadata のみの変化 (auto-snapshot
 /// timestamp 等、ADR-021 § commit_id 単独比較の限界) に不感で、「実質変更があったか」を
-/// 直接判定する。判定は pure function (`decide_regate`)、jj 呼び出しは closure 注入
+/// 直接判定する。判定は pure function (`analyze_regate`)、jj 呼び出しは closure 注入
 /// (ADR-021 原則 3)。
 ///
 /// ## fail-closed (ADR-043)
@@ -45,13 +45,30 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 pub(crate) struct PostTaktRegateConfig {
     pub(crate) enabled: Option<bool>,
+    /// fix 後退検知 (ADR-068) の追加行削減率の閾値 (%)。この値を**超えたら** block。
+    /// 未設定は [`DEFAULT_MAX_SHRINK_PCT`]。ファイル脱落検査は閾値によらず常に block。
+    pub(crate) max_added_line_shrink_pct: Option<u32>,
 }
+
+/// fix 後退検知の追加行削減率の既定閾値 (%)。
+///
+/// 50% = 「fix が PR の追加行の半分超を削った」。正当な fix の削減 (冗長ブロックの除去等)
+/// は経験上これを大きく下回り、incident (2026-08-02 の gut-revert) は約 80% だった。
+/// 誤 block 時は env `POST_TAKT_REGRESSION_DISABLE=1` の明示 bypass で通せるため、
+/// 閾値は取り逃し (fail-open) より誤検知 (人間確認 1 回) に寄せる。
+pub(crate) const DEFAULT_MAX_SHRINK_PCT: u32 = 50;
 
 impl PostTaktRegateConfig {
     /// `enabled = true` が明示されているときのみ re-gate を有効とみなす
     /// (ADR-039 opt-in: 未設定 / false は OFF)。
     pub(crate) fn is_enabled(&self) -> bool {
         self.enabled == Some(true)
+    }
+
+    /// fix 後退検知の追加行削減率の閾値 (%)。未設定は default。
+    pub(crate) fn max_shrink_pct(&self) -> u32 {
+        self.max_added_line_shrink_pct
+            .unwrap_or(DEFAULT_MAX_SHRINK_PCT)
     }
 }
 
@@ -111,5 +128,26 @@ command = "echo push"
             !s.is_enabled(),
             "section present but enabled omitted must be OFF (opt-in)"
         );
+    }
+
+    #[test]
+    fn shrink_pct_defaults_when_omitted() {
+        let toml_str = format!("{}\n[post_takt_regate]\nenabled = true\n", BASE);
+        let s = parse(&toml_str).post_takt_regate.unwrap();
+        assert_eq!(
+            s.max_shrink_pct(),
+            super::DEFAULT_MAX_SHRINK_PCT,
+            "閾値未設定は default (ADR-068)"
+        );
+    }
+
+    #[test]
+    fn shrink_pct_parses_custom_value() {
+        let toml_str = format!(
+            "{}\n[post_takt_regate]\nenabled = true\nmax_added_line_shrink_pct = 30\n",
+            BASE
+        );
+        let s = parse(&toml_str).post_takt_regate.unwrap();
+        assert_eq!(s.max_shrink_pct(), 30);
     }
 }
