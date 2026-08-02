@@ -807,7 +807,7 @@
 
 - [ ] findings レポート (.takt/runs/ 最新 run) から Location 列を抽出する parser (fail-closed)
 - [ ] lib-scope-guard で allowlist 照合、violation は loud block + 独立 kill-switch
-- [ ] incident 再現テスト: (a) finding 対象外ファイルへの追加系変更が block されること、(b) `ALWAYS_ALLOWED` 対象ファイル (`.takt/review-diff.txt` 等) への変更は finding allowlist 外でも block されないこと、の両方を固定する
+- [ ] incident 再現テスト: (a) finding 対象外ファイルへの変更が**変更種別 3 種 (追加 = 新規ファイル作成 / 書き換え = 既存ファイル編集、config 自己弱体化含む / 削除) のいずれでも** block されること、(b) `ALWAYS_ALLOWED` 対象ファイル (`.takt/review-diff.txt` 等) への変更は finding allowlist 外でも block されないこと、の両方を固定する (完了基準の「追加・書き換え・削除いずれも」に対応)
 - [ ] fix.md / fix-supervisor.md の「pre-push は後退検知のみ」記述を更新
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 

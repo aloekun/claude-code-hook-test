@@ -30,7 +30,7 @@ PR 2a の diff 内の計画書は「workflow を既存 exe（`cli-autonomy-gate`
 
 | 要件 | 内容 |
 |---|---|
-| 置き場所 | diff 内の計画文書（plan doc / `docs/todoN.md` エントリ）。または diff の module doc が明示参照する計画文書 |
+| 置き場所 | **diff 内の計画文書のみ**（plan doc / `docs/todoN.md` エントリを同一 PR で更新する）。diff 外の計画文書は module doc が参照していても不可 — この PR でレビューされていない文書は stale や自己都合の事前記述でありえ、未レビューのファイルにレビューを緩和させることになる |
 | 具体性 | 後続 PR と**抽出↔呼び手のペアリング**を具体名で書く（どの crate / exe / 関数を、どの後続変更が消費するか）。「将来使う」だけの宣言は無効 |
 | 名前一致 | 宣言中の名前は diff 内の実名と一致していること。矛盾する宣言は降格根拠にならない（incident の形） |
 
@@ -60,7 +60,7 @@ PR size gate に当たった際の分割判断:
 
 instruction / 規約層のみの変更のため config opt-in は無い（kill-switch は instruction の revert）。次を観測して本採用 / 改訂を判断する:
 
-- **decision trigger**: 宣言付き chain PR が 3〜5 本流れた時点で、(a) 有効な宣言を持つ先頭 PR が missing-consumer で REJECT されないこと、(b) 未宣言の投機的抽象が引き続き REJECT されること、(c) 名前不一致が blocking のままであること、を確認する。
+- **decision trigger**: 宣言付き chain PR が 3〜5 本流れた時点で、(a) 有効な宣言を持つ先頭 PR が missing-consumer で REJECT されないこと、(b) 未宣言の投機的抽象が引き続き REJECT されること、(c) 名前不一致が blocking のままであること、(d) 宣言が欠落・非具体（「将来使う」レベル）のケースが blocking のままであること、を確認する（(b)〜(d) で fail-closed 3 条件の全てを検証対象にする）。
 - **期限**: 2026-11-03 までに判定材料が集まらなければ、chain 分割の発生頻度に照らして延長 / 却下を決める。
 - 直近の検証機会: WP-17 の再分割チェーン（2a / 2b / 2c）が最初の宣言付き chain になる。
 
@@ -75,7 +75,7 @@ instruction / 規約層のみの変更のため config opt-in は無い（kill-s
 ### 欠点 / 留意点
 
 - 宣言の維持コスト: チェーン構成が変わったら宣言も更新が要る。stale な宣言は名前不一致で fail-closed に倒れる（安全側だが手戻り）。
-- 降格は LLM instruction 層であり決定論的ではない。降格の誤適用（無効な宣言を有効と誤読）は起こりうるが、その場合も「warning に落ちる」だけで push 自体は ADR-068 backstop と quality gate が守る。
+- 降格は LLM instruction 層であり決定論的ではない。降格の誤適用（無効な宣言を有効と誤読）が起きた場合、**投機的抽象が blocking レビューを受けずに land するリスクは残る** — [ADR-068](adr-068-fix-step-authority-boundary.md) backstop が守るのは「fix step による PR の後退」だけ、quality gate が守るのは「ビルド・テストの成立」だけで、どちらも未消費抽象の設計妥当性は検証しない。残る防御は Warnings 記録の監査痕跡（後続 PR が land しないまま放置されたチェーンを次のレビューが辿れる）に限られる。
 - 中間 PR（呼び手はあるが自分も次への供給を含む）は宣言を両方向に書く必要がある。
 
 ### 残課題
