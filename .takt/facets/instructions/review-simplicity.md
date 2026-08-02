@@ -22,7 +22,7 @@ Read the diff straight through. Note any pattern that prompted "this looks unusu
 
 - **Unexplained complexity**: Logic choices with no obvious motivation given the surrounding code; algorithm complexity that seems disproportionate to the problem
 - **Inconsistent style**: Naming or structural patterns that diverge from neighboring code without rationale
-- **Dead-on-arrival code**: Branches, parameters, or abstractions with no apparent caller or use site
+- **Dead-on-arrival code**: Branches, parameters, or abstractions with no apparent caller or use site (before flagging, check "PR chain declarations" below -- a declared successor PR is a legitimate caller-to-be)
 - **Hidden coupling**: Changes that silently depend on global state, environment, ordering, or undocumented invariants
 - **Missing failure paths**: Operations that can fail (I/O, parse, network, optional unwrap) with no visible error handling
 - **Non-obvious magic values**: Numeric or string literals whose meaning isn't clear from context
@@ -38,9 +38,21 @@ Review primarily within the changed diff. **Limited** cross-file lookups are per
 The DRY and YAGNI dimensions in anomaly detection apply **only to executable code logic**.
 
 - **DRY scope**: Flag duplicated *code logic* (copy-paste functions, repeated control flow, redundant computations). Do NOT flag duplication that is documentation, doc-vs-code restatement, or test independence.
-- **YAGNI scope**: Flag *speculative code abstractions* (unused parameters, premature interfaces, over-engineered patterns in production code). Do NOT flag planning-document "future candidates" / "Phase 2 検討" / ADR rejected-alternative sections, or comments documenting known constraints.
+- **YAGNI scope**: Flag *speculative code abstractions* (unused parameters, premature interfaces, over-engineered patterns in production code). Do NOT flag planning-document "future candidates" / "Phase 2 検討" / ADR rejected-alternative sections, or comments documenting known constraints. For abstractions whose consumer is a **declared successor PR**, see "PR chain declarations" below.
 
 If a finding cannot be tied to executable code logic, it is out of scope. See [ADR-035: docs-only PR 評価ポリシー](../../../docs/adr/adr-035-doc-evaluation-policy.md) for the full list of criteria that do NOT apply to docs-only diffs (mutation / error handling / test coverage / function length / DRY / YAGNI all fall under this).
+
+## PR chain declarations (ADR-069)
+
+Multi-PR chains (the PR size gate forces features >1500 lines to split) necessarily produce **leading PRs that introduce infrastructure whose consumer arrives in a successor PR**. Treating every missing consumer as blocking would structurally reject every chain's leading PR, so chain-declared items get a narrower treatment:
+
+- **When the declaration is valid**, missing-consumer findings (dead-on-arrival code, premature interfaces / abstractions) against the **declared items** are **non-blocking warnings**, not REJECT grounds. Still record them in Warnings so the chain's tail stays auditable (if the successor never lands, the next reviewer sees the trail).
+- **A valid declaration** must satisfy all of:
+  1. It lives in a **planning document inside this diff** (e.g. the plan doc / a `docs/todoN.md` entry updated in the same PR), or in a planning document that the diff's module docs explicitly reference -- verifying that referenced doc is within the limited cross-file lookup allowance.
+  2. It names the **successor PR and the specific pairing**: which new crate / exe / function will be consumed by which planned change. Generic "will be used later" does not qualify.
+  3. The declared names **match the code**: the crate / exe / function names in the declaration must equal those in the diff. A declaration that contradicts the diff (the 2026-08-02 case: the in-diff plan doc described wiring to a *different* exe than the one the comments promised) does NOT downgrade -- flag it as blocking, citing the contradiction.
+- **Fail-closed**: no declaration found, pairing not specific, or names mismatch → the finding stays blocking as usual. This section narrows nothing for undeclared speculation.
+- **Fix Suggestion ordering (ADR-068 carry-over)**: when you do raise a finding that admits multiple remedies, list the **least destructive remedy first** (e.g. "correct the declaration/comment" before "defer/remove the abstraction"). The fix step follows suggestion order, and a most-destructive-first ordering caused a gut-revert incident (2026-08-02).
 
 ## Calibration: avoid over-narrowing
 
