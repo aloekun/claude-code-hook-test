@@ -165,6 +165,7 @@ dependencies = [
  "lib-jj-helpers",
  "lib-pending-file",
  "lib-report-formatter",
+ "lib-scope-guard",
  "lib-subprocess",
  "proptest",
  "serde",
@@ -770,6 +771,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "lib-scope-guard"
+version = "0.1.0"
 
 [[package]]
 name = "lib-subprocess"

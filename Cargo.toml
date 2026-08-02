@@ -43,6 +43,7 @@ members = [
     "src/lib-ollama-client",
     "src/lib-pending-file",
     "src/lib-report-formatter",
+    "src/lib-scope-guard",
     "src/lib-subprocess",
     "src/lib-telemetry",
 ]
