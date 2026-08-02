@@ -65,3 +65,14 @@ integration test で外部バイナリを spawn する場合、**無期限 wait 
 3. **lint ではなく convention** — fixture ごとにスキーマが異なり regex での自動検知は非現実的なため、機械 lint 化せず convention として運用する (ADR-042 の役割分担)。
 
 **由来** (PR #261 T3-#2、[ADR-041](adr/adr-041-test-isolation-patterns.md)): `hooks-stop-tool-call-leak` の E2E (`tests/e2e.rs`) が実 config を隣にコピーする際、`[stop_tool_call_leak]` section の存在しか assert しておらず、`enabled = true` / `max_consecutive_blocks = 3` の値変更が cap 境界テスト (`consecutive_leaks_at_cap_fail_open` 等) を原因の見えない形で silent break させるリスクを CodeRabbit / session / pre-push simplicity の 3 ソースが独立指摘した。順位 273 で実例側 (値まで assert) を修正し、本 convention でパターンを一般化した。
+
+## PR chain の分割と宣言 (ADR-069)
+
+PR size gate (block 1500 行) に当たって PR を分割する場合の規約 (詳細は [ADR-069](adr/adr-069-pr-chain-declaration.md)):
+
+1. **抽出と最初の呼び手の間で切らない** — ADR-044 層 1 の正当化 (呼び手の存在) が diff から消え、simplicity review の missing-consumer 検査 (dead-on-arrival / premature abstraction) に構造的に REJECT される。切断点は関心の境界 (機能 vs 配線、実装 vs docs バッチ) に置く。
+2. **良い関節が無ければ `PR_SIZE_CHECK_OVERRIDE=1` + 理由の明記が正当** — 悪い関節で切った分割はチェーン全体のコスト (レビュー回数・宣言管理・矛盾リスク) で上限超過 1 回分を上回り得る。
+3. **チェーンの先頭 / 中間 PR は diff 内の計画文書で宣言する** — 後続 PR と抽出↔呼び手のペアリングを具体名で書く (「将来使う」は無効)。宣言済み項目への missing-consumer findings は non-blocking warning へ降格される。宣言なし / 名前不一致は従来どおり blocking (fail-closed)。
+4. **分割後は各 PR の diff 内文書がその PR の真実を語っているか再検証する** — 分割は diff の境界だけでなく文書とコードの整合の境界も動かす。
+
+**由来** (2026-08-02 WP-17 PR 2a incident、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) / [ADR-069](adr/adr-069-pr-chain-declaration.md)): size gate 強制の 2 分割が抽出 (lib 2 crate) と呼び手 (cli-fix-push-gate) を分離し、宣言の無い先頭 PR が simplicity REJECT → fix の gut-revert → gate 全 PASS のまま空洞化 push という連鎖が発生した。

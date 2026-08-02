@@ -68,10 +68,11 @@
 - [ADR-065: CI matrix による移植退行防止 — 両 OS で同一スイートを回す](docs/adr/adr-065-ci-matrix-cross-os-regression.md) *(試験運用)*
 - [ADR-066: 自律実行の全体 kill-switch — 正極性単一フラグと「欠損 → 安全状態」原則](docs/adr/adr-066-autonomy-global-kill-switch.md) *(試験運用)*
 - [ADR-068: pre-push fix step の権限境界 — 後退検知 backstop と設計級 remedy の human routing](docs/adr/adr-068-fix-step-authority-boundary.md) *(試験運用)*
+- [ADR-069: PR chain 宣言規約 — 分割チェーンと missing-consumer 検査の両立](docs/adr/adr-069-pr-chain-declaration.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)
 
 ## Build
 
