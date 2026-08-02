@@ -1,0 +1,21 @@
+# autonomy-config.toml -- 自律実行の全体 kill-switch (ADR-066)
+#
+# 派生プロジェクト向けテンプレート。**コピーは任意** — このファイルが無ければ
+# cli-autonomy-gate は常に停止 (deny) 判定になり、それが安全側の既定である。
+# 自律 actor (無人 fix push / 夜間ループ / cloud routine) を導入するまで置く必要はない。
+#
+# 判定は「本ファイルの [autonomy] enabled」と「外部フラグ env AUTONOMY_ENABLED」の AND。
+# どちらか一方でも欠損・非 truthy なら停止する。以下はすべて停止に倒れる:
+#   - ファイルが無い / 読めない / toml parse 失敗
+#   - [autonomy] section が無い / enabled キーが無い
+#   - enabled = false
+#   - enabled が bool 以外 (例 "true" と文字列で書いた場合)
+#
+# CI から読ませる場合、本ファイルは master ref の写しでなければならない。PR ブランチの
+# checkout を読ませると自律 actor 自身が書き換えて自己解除できる (ADR-054 と同型の
+# 信頼境界)。CI 側の権威は admin のみ書き込める Actions variable AUTONOMY_ENABLED。
+#
+# 緊急停止は Actions variable の削除、恒久停止は enabled = false。
+
+[autonomy]
+enabled = false
