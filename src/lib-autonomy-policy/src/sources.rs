@@ -18,7 +18,7 @@ use std::path::Path;
 /// この env へ写して渡す。ローカル自律 actor では実行環境の env をそのまま使う。
 /// どちらの経路でも「未設定 = 停止」で、変数の削除がそのまま緊急停止になる
 /// (ADR-060 の `CLOUD_HARNESS` と同じ操作反射)。
-pub(crate) const EXTERNAL_ENV: &str = "AUTONOMY_ENABLED";
+pub const EXTERNAL_ENV: &str = "AUTONOMY_ENABLED";
 
 /// `autonomy-config.toml` のトップレベル (autonomy section のみ関心)。
 #[derive(serde::Deserialize)]
@@ -38,14 +38,14 @@ struct AutonomySection {
 /// fix エージェント) が `claude/` ブランチ上で config を書き換えて自己解除できる
 /// (ADR-054 が塞いだ信頼境界と同型)。本 exe はパスの出所を検証できないため、これは
 /// 呼び手の契約であり、履行の監査は deny/allow 行に出る `config=` の実パスで行う。
-pub(crate) fn read_repo_config_enabled(path: &Path) -> Option<bool> {
+pub fn read_repo_config_enabled(path: &Path) -> Option<bool> {
     let content = std::fs::read_to_string(path).ok()?;
     let parsed: AutonomyConfigFile = toml::from_str(&content).ok()?;
     parsed.autonomy?.enabled
 }
 
 /// 外部フラグの生値。未設定 / 非 UTF-8 は `None` (= 停止)。
-pub(crate) fn read_external_raw() -> Option<String> {
+pub fn read_external_raw() -> Option<String> {
     std::env::var(EXTERNAL_ENV).ok()
 }
 

@@ -119,10 +119,8 @@ dependencies = [
 name = "cli-autonomy-gate"
 version = "0.1.0"
 dependencies = [
+ "lib-autonomy-policy",
  "lib-telemetry",
- "serde",
- "tempfile",
- "toml",
 ]
 
 [[package]]
@@ -725,6 +723,16 @@ name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
+
+[[package]]
+name = "lib-autonomy-policy"
+version = "0.1.0"
+dependencies = [
+ "lib-telemetry",
+ "serde",
+ "tempfile",
+ "toml",
+]
 
 [[package]]
 name = "lib-docs-policy"
