@@ -311,7 +311,20 @@ jobs:
   # ---------------------------------------------------------------------------
   fix:
     needs: analyze
-    if: vars.AUTONOMY_ENABLED == 'true'
+    # 【SEC-NEW-pr-monitor-fix-job-actor-gate-L312 対策】カスタム if: は既定の
+    # success()/needs チェックを上書きするため、`needs.analyze.result == 'success'` を
+    # 明示しないと analyze が actor 条件で skip されても fix はそのまま起動してしまう
+    # (analyze の actor 制限が一切継承されない)。ここで明示的に継承する。
+    # さらに pull_request_review 経路は analyze 側で「github-actions[bot] 等の
+    # 除外リスト以外の任意レビュアー」を許容している (Phase A は read-only なので
+    # 許容範囲)。fix は contents: write を持つ Phase B のため、write 権限を持たない
+    # 外部レビュアーが自分のレビューだけで起動できないよう、pull_request_review
+    # 経路に限り author_association を OWNER/MEMBER/COLLABORATOR に絞る。
+    if: >-
+      needs.analyze.result == 'success' &&
+      vars.AUTONOMY_ENABLED == 'true' &&
+      (github.event_name != 'pull_request_review' ||
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.review.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -536,7 +549,27 @@ jobs:
       # gate が deny した場合に run を失敗させず、degrade したことだけを明示する。
       # Phase A の分析コメントは既に投稿済みなので、成果物としては Phase A 相当に落ちる。
       - name: Report degrade to Phase A
-        if: steps.applies.outputs.proceed == 'true' && steps.gate.outcome != 'success'
+        # SIM-NEW-pr-monitor-yml-L539 対策: この if: は success()/failure()/cancelled()/
+        # always() を呼ばないため GitHub Actions が暗黙に success() を前置する。前段 step
+        # (Checkout / Build / 両エージェント) はどれも continue-on-error を持たないため、
+        # 本当に失敗すると success() が偽になり本 step ごと skip され、コメントが約束する
+        # 「前段 step の失敗」診断行が出力されない。!cancelled() で置き換え、cancel 以外の
+        # 経路 (成功・失敗いずれも) で必ず到達するようにする。
+        if: (!cancelled()) && steps.applies.outputs.proceed == 'true' && steps.gate.outcome != 'success'
+        env:
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
         run: |
-          echo "[FIX_PUSH_DENY] ゲートが push を許可しなかったため Phase A 相当 (分析コメントのみ) に degrade しました。"
-          echo "理由は直前の gate step の [FIX_PUSH_DENY] 行を参照してください。"
+          echo "[FIX_PUSH_DENY] Phase A 相当 (分析コメントのみ) に degrade しました。"
+          # 本 step の guard は「gate が deny した」場合と「gate に到達しなかった」場合
+          # (findings 0 件 / 前段 step の失敗) の両方で真になる。後者で gate の
+          # [FIX_PUSH_DENY] 行を案内すると存在しない行を指すため、outcome で分岐する。
+          # skip された step の outcome は '' または 'skipped' のどちらもあり得るので、
+          # 「gate が走った」ことを示す値だけを明示的に判定する。
+          case "${GATE_OUTCOME:-}" in
+            failure)
+              echo "理由: gate が push を拒否しました。直前の gate step の [FIX_PUSH_DENY] 行を参照してください。"
+              ;;
+            *)
+              echo "理由: gate step に到達しませんでした (outcome='${GATE_OUTCOME:-<未実行>}')。findings 0 件、または前段 step の skip / 失敗が原因です。前段 step のログを参照してください。"
+              ;;
+          esac
