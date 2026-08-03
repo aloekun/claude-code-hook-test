@@ -239,10 +239,17 @@ fn summary_line_new_path(status: &str, rest: &str) -> Option<String> {
 /// 呼び出し側で `Err` に昇格させる。空白区切りへの fallback を残さないのは、波括弧形式の
 /// パースに失敗した行が空白 fallback で「それらしいパス」に化けると、書式変化を検知できず
 /// gate が沈黙するため (既存方針「未知は明示的に reject」と同じ、fail-closed)。
+///
+/// # 空白を足し引きしない (CodeRabbit #350)
+///
+/// どちらの分岐も new path を trim しない。`ARROW` が前後の空白を込みで区切るため内部の
+/// 空白はそのまま残り、行頭・行末の空白は呼び出し側 [`summary_line_new_path`] が既に
+/// 落としている。ここで重ねて trim すると矢印分岐だけがパス末尾の空白を削り、波括弧分岐と
+/// 非対称になる (両分岐で同じパスが違う結果になる状態を作らない)。
 fn rename_new_path(rest: &str) -> Option<String> {
     const ARROW: &str = " => ";
     let Some(open) = rest.find('{') else {
-        return rest.split_once(ARROW).map(|(_, new)| new.trim().to_string());
+        return rest.split_once(ARROW).map(|(_, new)| new.to_string());
     };
     let close = open + rest[open..].find('}')?;
     let (_, new) = rest[open + 1..close].split_once(ARROW)?;

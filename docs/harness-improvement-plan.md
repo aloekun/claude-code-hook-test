@@ -161,6 +161,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 1. 本計画書の更新コミット（`jj log -r 'master..'` で description が `docs(harness-plan): WP-17 の実行状況と再分割計画` のもの）が既にあれば、それを 2a の先頭として流用する。
 2. **パーサ修正の回収**: `mxzwmsyp` は rename パーサ修正（`src/cli-push-runner/src/stages/diff.rs` + `src/cli-push-runner/src/stages/diff/tests.rs` の 2 ファイル）と incident の gut-revert（lib 削除等）が混在しており、**rebase / duplicate では回収できない**。次の手順で 2 ファイル分だけ取り出す:
    - `tests.rs` は #348 以降 master で未変更のため丸ごと取得可: `jj restore --from mxzwmsyp -- src/cli-push-runner/src/stages/diff/tests.rs`
+     - **restore の前提（実行前に確認すること）**: 「master 側が未変更」が成立している間だけ丸ごと上書きしてよい。`jj diff --from master --to mxzwmsyp -- <path>` が incident コミット単体の差分（`jj diff -r mxzwmsyp -- <path>`）と一致すれば前提は満たされている。一致しない = master 側にも変更が入っており、`diff.rs` と同じく hunk 単位の手適用に切り替える（restore すると master 側の変更を無言で巻き戻す）。
    - `diff.rs` は **restore 不可**（#348 が `parse_git_diff_paths` の `pub(crate)` 化を入れており、mxzwmsyp 版で上書きすると `post_takt_regate.rs` が compile error になる）。`jj diff -r mxzwmsyp -- src/cli-push-runner/src/stages/diff.rs` で hunk を確認し、`summary_line_new_path` の R/C 分岐変更と `rename_new_path` 関数追加、関連 doc 更新だけを現ファイルへ手で適用する（`pub(crate)` 行とは重ならない）。
    - 修正の本質: jj の rename summary は `R src\{old => new}\file.rs` の**波括弧形式**で、旧実装の 3 トークン前提が壊れたパスを作り **rename を含む PR が一律 push 不能**だった。詳細は mxzwmsyp のコミットメッセージ参照。
 3. 検証: `cargo test -p cli-push-runner`（rename 系テスト含め全緑）、`cargo clippy -p cli-push-runner --all-targets -- -D warnings`。
@@ -185,11 +186,15 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 1. 2b マージ後、残チェーンを rebase: `jj rebase -s lqxzpvuw -d master`。conflict 指針は 2b と同じ。
 2. 内容: pr-monitor.yml の fix job（agent は push しない / findings と fix の agent 分離 / gate と config は master ref から調達 / degrade は run 失敗にしない — 設計の全文は rxvwoxyq が起票する ADR-067 に記載済み）、`autonomy-config.toml` の `enabled = true`、ADR-067 + ADR-052 訂正 + CLAUDE.md。
 3. workflow の構文検証: js-yaml でのパース（node script を scratchpad に書いて実行。実走は後述スモークで）。
-4. **マージ前の確認**: Actions variable `AUTONOMY_ENABLED` は設定済み（= true）のため、**2c がマージされた瞬間に Phase B が live になる**。意図的に段階を踏むなら、マージ前に variable を削除し、下記スモーク段 1 で再設定する（削除 = 停止が ADR-066 の設計どおり機能する）。
-5. push → PR → マージ（ユーザー）。
-6. **マージ後の実走スモーク**（ユーザー操作込み。順序厳守）:
+4. **マージ前の確認**: Actions variable `AUTONOMY_ENABLED` は設定済み（= true）のため、**2c がマージされた瞬間に Phase B が live になる**。意図的に段階を踏むなら、下記スモーク段 0.5 を済ませた後・マージ前に variable を削除し、段 1 で再設定する（削除 = 停止が ADR-066 の設計どおり機能する）。段 0.5 は variable 層を通す必要があるため、削除するとしても段 0.5 の後にすること。
+5. push → PR → マージ（ユーザー）。ただしマージ前に下記スモーク段 0.5 を先に済ませる。
+6. **実走スモーク**（ユーザー操作込み。順序厳守）。
+
+   前提となる `workflow_dispatch` の挙動: **dispatch は起動時に ref（ブランチ）を選べ、選んだ ref 版の workflow 定義で走る**（workflow ファイル自体が default branch に存在すれば Actions UI の候補に出る。pr-monitor.yml は master 稼働中なので条件を満たす）。したがって 2c の fix job は**マージ前に 2c ブランチ ref に対して実走できる**。なお dispatch 起点の run は PR の Status Check には載らない（pr-monitor.yml 冒頭の設計メモのとおり、対象 SHA が default branch 側になるため）。対象 PR は input `pr_number` で渡す。
+
    - 段 0: repository ruleset で `claude/` 以外への `GITHUB_TOKEN` push を deny（5 層目の防波堤。ユーザー、GitHub UI）。
-   - 段 1: variable `AUTONOMY_ENABLED` = `true` を設定 → 適当な非 `claude/` PR に対し workflow_dispatch → fix job が `[FIX_PUSH_DENY] branch=... claude/ prefix ではない` で degrade することを確認。
+   - 段 0.5（**マージ前**）: 2c ブランチ ref を選んで workflow_dispatch。`AUTONOMY_ENABLED` は設定済みなので variable 層は通り、gate と `autonomy-config.toml` は **master ref から調達**される（ADR-066 決定 3）＝ master 側は `enabled = false` のままなので、fix job は config 層で停止するのが期待動作。ここで検証できるのは workflow 構文 / job 配線 / variable 層 / master-ref 調達 / **config 無効時の deny 経路**（= kill-switch が効く側）。allow 経路だけがマージ後に残る。`cli-fix-push-gate` exe を master ref から取るため、**2b マージ済みであることが前提**。
+   - 段 1: 適当な非 `claude/` PR に対し workflow_dispatch → fix job が `[FIX_PUSH_DENY] branch=... claude/ prefix ではない` で degrade することを確認（2c マージ後。config が有効化されて初めて prefix 層まで到達する）。
    - 段 2: `claude/` prefix のテストブランチで docs 指摘のある PR を作り、allow 経路（gate exit 0 → workflow step が push）と deny 経路（variable 削除で次 run から job skip）を観測。
    - 結果を ADR-067 の検証記録と ADR-066 / ADR-068 の bounded lifetime 観測へ記帳する。
 

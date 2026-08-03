@@ -92,6 +92,10 @@ fn parse_summary_paths_extracts_new_path_for_rename() {
 
 /// 波括弧形式の全 branch を 1 バッチで固定する (dev-conventions: パーサ修正は
 /// 個別ケースを潰すのでなく入力空間全体を一度に堅牢化する)。
+///
+/// 末尾 2 ケースは空白を含むパス (CodeRabbit #350)。区切りの `" => "` と紛れる位置に
+/// 空白があっても両 branch が同じ結果を返す = 空白の足し引きで非対称にならないことを
+/// 固定する。
 #[test]
 fn rename_brace_form_covers_every_shape() {
     let cases = [
@@ -100,6 +104,8 @@ fn rename_brace_form_covers_every_shape() {
         ("R src/{ => sub/}file.rs\n", "src/sub/file.rs"),
         ("R old.rs => new.rs\n", "new.rs"),
         ("C docs/{a.md => c.md}\n", "docs/c.md"),
+        ("R docs/{my old.md => my new.md}\n", "docs/my new.md"),
+        ("R my old.rs => my new.rs\n", "my new.rs"),
     ];
     for (summary, expected) in cases {
         assert_eq!(
