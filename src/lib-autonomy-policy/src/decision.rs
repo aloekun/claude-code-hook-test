@@ -18,7 +18,7 @@ const RAW_VALUE_LOG_CAP: usize = 32;
 /// ADR-052 原則 5 の契約は背圧の接続も自動実行可の前提条件とするが、背圧の指標は操作クラス
 /// ごとに異なる。よって「背圧が接続済みか」は本 enum の性質として持たせる。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Operation {
+pub enum Operation {
     /// 既存 PR ブランチへの fix push。背圧は cli-pr-monitor の有界 retry (max_retries) が担う。
     FixPush,
     /// draft PR 作成。背圧の指標は「未マージ draft 数」で、WP-18 まで未接続。
@@ -26,14 +26,14 @@ pub(crate) enum Operation {
 }
 
 impl Operation {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Operation::FixPush => "fix-push",
             Operation::DraftPr => "draft-pr",
         }
     }
 
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
             "fix-push" => Some(Operation::FixPush),
             "draft-pr" => Some(Operation::DraftPr),
@@ -57,18 +57,18 @@ impl Operation {
 
 /// 判定入力。すべて読み取り済みの値で、`Option` の `None` が「接続されていない」を表す。
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct GateInputs<'a> {
+pub struct GateInputs<'a> {
     /// `autonomy-config.toml` の `[autonomy] enabled`。
     /// `None` = ファイル欠落 / 読み取り不能 / parse 失敗 / section 欠落 / キー未指定。
-    pub(crate) repo_config_enabled: Option<bool>,
+    pub repo_config_enabled: Option<bool>,
     /// 外部フラグ (CI variable → env / ローカル env) の生値。`None` = 未設定。
-    pub(crate) external_raw: Option<&'a str>,
-    pub(crate) operation: Operation,
+    pub external_raw: Option<&'a str>,
+    pub operation: Operation,
 }
 
 /// deny の理由。loud 出力と exit コードの根拠になる。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DenyReason {
+pub enum DenyReason {
     /// 外部フラグが未設定 (CI variable 未定義 / env 未設定)。
     ExternalUnset,
     /// 外部フラグが truthy でない。生値を診断へ出す (ADR-039 § 2: 診断は実受理値を反映する)。
@@ -83,7 +83,7 @@ pub(crate) enum DenyReason {
 
 impl DenyReason {
     /// 人間向けの 1 行説明。run log に出て原因切り分けに使われる。
-    pub(crate) fn describe(&self, env_name: &str, config_path: &str) -> String {
+    pub fn describe(&self, env_name: &str, config_path: &str) -> String {
         match self {
             DenyReason::ExternalUnset => {
                 format!("外部フラグ {env_name} が未設定です (未接続 = 停止)")
@@ -105,7 +105,7 @@ impl DenyReason {
     }
 
     /// telemetry / grep 用の安定した短縮コード。生値は含めない。
-    pub(crate) fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             DenyReason::ExternalUnset => "external-unset",
             DenyReason::ExternalNotTruthy(_) => "external-not-truthy",
@@ -118,7 +118,7 @@ impl DenyReason {
 
 /// 判定結果。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Decision {
+pub enum Decision {
     Allowed,
     Denied(DenyReason),
 }
@@ -129,7 +129,7 @@ pub(crate) enum Decision {
 /// 緊急停止で最初に操作される面 (CI variable) だからで、drill 時の deny 理由が操作クラスに
 /// 依らず一定になる。全ソースの状態は [`describe_sources`] が別途 loud 出力するため、
 /// 先頭理由だけを返しても診断情報は失われない。
-pub(crate) fn evaluate(inputs: GateInputs<'_>) -> Decision {
+pub fn evaluate(inputs: GateInputs<'_>) -> Decision {
     match inputs.external_raw {
         None => return Decision::Denied(DenyReason::ExternalUnset),
         Some(raw) if !lib_telemetry::is_truthy(raw) => {
@@ -152,7 +152,7 @@ pub(crate) fn evaluate(inputs: GateInputs<'_>) -> Decision {
 ///
 /// deny 理由を 1 つに絞る [`evaluate`] と違い、こちらは 3 ソースすべてを出す。
 /// 「フラグを 1 つ直したのにまだ止まる」という切り分けを 1 run の log だけで完結させる。
-pub(crate) fn describe_sources(inputs: GateInputs<'_>, env_name: &str) -> String {
+pub fn describe_sources(inputs: GateInputs<'_>, env_name: &str) -> String {
     let external = match inputs.external_raw {
         None => "unset".to_string(),
         Some(raw) if lib_telemetry::is_truthy(raw) => "enabled".to_string(),

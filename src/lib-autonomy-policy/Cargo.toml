@@ -1,0 +1,20 @@
+[package]
+name = "lib-autonomy-policy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_autonomy_policy"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+# is_truthy (受理集合 1|true|yes|on) を共有する。再実装すると kill-switch ごとに
+# truthy 解釈が drift する (ADR-066 § 決定 4)。
+lib-telemetry = { path = "../lib-telemetry" }
+
+[dev-dependencies]
+tempfile = "3"
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

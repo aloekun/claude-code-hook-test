@@ -18,6 +18,7 @@
 use std::collections::BTreeSet;
 
 use lib_report_formatter::Finding;
+use lib_scope_guard::{find_out_of_scope, parse_changed_files};
 use serde::Deserialize;
 
 use crate::log::log_info;
@@ -26,10 +27,6 @@ use crate::runner::{run_cmd_direct, JJ_CMD_TIMEOUT_SECS};
 /// kill-switch: この環境変数が "1" のとき scope guard を skip する (緊急バイパス用)。
 /// 既存の `PR_MONITOR_GATE_DISABLE` とは独立 — 品質 gate と scope guard を別々に停止できる。
 pub(crate) const SCOPE_GUARD_DISABLE_ENV: &str = "PR_MONITOR_SCOPE_GUARD_DISABLE";
-
-/// fix step が正当に refresh する中間ファイル (fix.md の許可書き込み対象)。
-/// findings 由来 allowlist に加えて常に許可する。
-const ALWAYS_ALLOWED: &[&str] = &[".takt/review-diff.txt"];
 
 /// scope guard 設定 (`pr-monitor-config.toml` の `[fix.scope_guard]`)。
 /// `crate::config::FixConfig` の field として deserialize される。
@@ -85,51 +82,12 @@ fn is_observe_mode(mode: &str) -> bool {
     mode == "observe"
 }
 
-/// パスを正規化する (Windows のバックスラッシュ → スラッシュ、前後空白除去)。
-/// jj diff --summary (Windows は `\` 区切り) と findings の `file` (`/` 区切り) を揃える。
-fn normalize_path(path: &str) -> String {
-    path.trim().replace('\\', "/")
-}
-
 /// findings の `file` 列から編集許可ファイル集合 (allowlist) を導出する。
-/// 空パスは除外する。
-fn allowlist_from_findings(findings: &[Finding]) -> BTreeSet<String> {
-    findings
-        .iter()
-        .map(|f| normalize_path(&f.file))
-        .filter(|p| !p.is_empty())
-        .collect()
-}
-
-/// `jj diff --summary` 出力から変更ファイルパスを抽出する。
 ///
-/// fail-closed: パース不能な行 (rename `R` 等の非 M/A/D 行) は Err に倒し、
-/// 呼び出し側で block させる (判定不能を通過させない)。
-fn parse_changed_files(summary: &str) -> Result<Vec<String>, String> {
-    let mut files = Vec::new();
-    for line in summary.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Some((status, path)) = line.split_once(' ') else {
-            return Err(format!("パース不能な diff summary 行: {line:?}"));
-        };
-        if !matches!(status, "M" | "A" | "D") {
-            return Err(format!("未対応の diff status (fail-closed): {line:?}"));
-        }
-        files.push(normalize_path(path));
-    }
-    Ok(files)
-}
-
-/// 変更ファイルのうち allowlist にも ALWAYS_ALLOWED にも含まれないものを返す。
-fn find_out_of_scope(changed: &[String], allowlist: &BTreeSet<String>) -> Vec<String> {
-    changed
-        .iter()
-        .filter(|f| !allowlist.contains(*f) && !ALWAYS_ALLOWED.contains(&f.as_str()))
-        .cloned()
-        .collect()
+/// パス正規化と空パス除外は `lib_scope_guard` に委譲する — CI 経路
+/// (`cli-fix-push-gate`、ADR-067) と同じ判定を共有し、片方だけ緩む drift を防ぐ (ADR-054)。
+fn allowlist_from_findings(findings: &[Finding]) -> BTreeSet<String> {
+    lib_scope_guard::allowlist_from_paths(findings.iter().map(|f| f.file.as_str()))
 }
 
 /// violation を mode に応じて Observed / Blocked に振り分ける。
@@ -294,12 +252,8 @@ mod tests {
         assert!(!is_observe_mode("unknown"), "未知値は enforce (block 側、fail-closed)");
     }
 
-    #[test]
-    fn normalize_path_converts_windows_separators() {
-        assert_eq!(normalize_path("src\\cli\\main.rs"), "src/cli/main.rs");
-        assert_eq!(normalize_path("  src/a.rs  "), "src/a.rs");
-    }
-
+    /// Finding 型 → パス集合の glue のみを検証する (正規化・空パス除外の網羅は
+    /// `lib_scope_guard` 側のテストが持つ)。
     #[test]
     fn allowlist_collects_finding_files_and_drops_empty() {
         let findings = vec![finding_at("src/a.rs"), finding_at("src\\b.rs"), finding_at("")];
@@ -307,37 +261,6 @@ mod tests {
         assert!(allow.contains("src/a.rs"));
         assert!(allow.contains("src/b.rs"), "バックスラッシュは正規化される");
         assert_eq!(allow.len(), 2, "空パスは除外される");
-    }
-
-    #[test]
-    fn parse_changed_files_extracts_mad_paths() {
-        let summary = "M src/a.rs\nA src/b.rs\nD src/c.rs\n";
-        let files = parse_changed_files(summary).unwrap();
-        assert_eq!(files, vec!["src/a.rs", "src/b.rs", "src/c.rs"]);
-    }
-
-    #[test]
-    fn parse_changed_files_rejects_rename_and_unparseable_lines() {
-        assert!(parse_changed_files("R old.rs new.rs").is_err(), "rename は fail-closed");
-        assert!(parse_changed_files("weird-line-without-status").is_err());
-    }
-
-    #[test]
-    fn find_out_of_scope_flags_files_outside_allowlist() {
-        let allowlist: BTreeSet<String> = ["src/a.rs".to_string()].into_iter().collect();
-        let changed = vec!["src/a.rs".to_string(), ".claude/settings.json".to_string()];
-        let oos = find_out_of_scope(&changed, &allowlist);
-        assert_eq!(oos, vec![".claude/settings.json"]);
-    }
-
-    #[test]
-    fn find_out_of_scope_allows_review_diff_refresh() {
-        let allowlist: BTreeSet<String> = ["src/a.rs".to_string()].into_iter().collect();
-        let changed = vec!["src/a.rs".to_string(), ".takt/review-diff.txt".to_string()];
-        assert!(
-            find_out_of_scope(&changed, &allowlist).is_empty(),
-            ".takt/review-diff.txt は fix の正当な refresh 対象として常に許可"
-        );
     }
 
     /// WP-11 受け入れ基準 (synthetic injection scenario): finding は src/main.rs のみを
@@ -369,15 +292,6 @@ mod tests {
             }
             other => panic!("observe は記録のみで block しない: {other:?}"),
         }
-    }
-
-    /// 変更が allowlist 内に収まる正当な fix は violation にならない (false-positive ガード)。
-    #[test]
-    fn in_scope_fix_produces_no_violation() {
-        let findings = vec![finding_at("src/main.rs"), finding_at("src/lib.rs")];
-        let allowlist = allowlist_from_findings(&findings);
-        let changed = vec!["src/main.rs".to_string(), "src/lib.rs".to_string()];
-        assert!(find_out_of_scope(&changed, &allowlist).is_empty());
     }
 
     struct CwdRestore {

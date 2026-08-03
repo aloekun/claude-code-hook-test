@@ -1,0 +1,15 @@
+[package]
+name = "lib-scope-guard"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_scope_guard"
+path = "src/lib.rs"
+
+# 依存なし: ADR-054 の scope 判定は「diff summary 文字列」と「許可パス集合」だけで決まる
+# 純粋な文字列処理で、jj / git / subprocess / findings 型を一切必要としない。呼び出し側が
+# summary と許可パスを渡す形に保つことで、diff の取得方法 (jj diff / git diff、ローカル / CI)
+# の違いを本 crate に持ち込まない (lib-docs-policy と同じ方針)。
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

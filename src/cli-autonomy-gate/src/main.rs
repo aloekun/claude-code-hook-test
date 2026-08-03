@@ -1,9 +1,12 @@
 //! `cli-autonomy-gate` — 自律実行の全体 kill-switch ゲート (WP-17 PR 1、ADR-066)。
 //!
-//! 自律 actor (GitHub Actions の無人 fix push、夜間 todo 消化ループ、cloud routine) が
-//! ADR-052 の自動実行可クラスの操作を行う **直前** に呼び、許可されているかを exit コードで
-//! 受け取るための決定論ゲート。run 冒頭で 1 回だけ判定するのではなく操作境界ごとに呼ぶ
-//! (ADR-052 停止手順「フラグを OFF にすると次の自律実行判定から無効化される」を満たすため)。
+//! 判定そのものは [`lib_autonomy_policy`] が持つ。本 exe はその CLI 面 (引数解析・loud 出力・
+//! exit コード・telemetry) だけを担う汎用ゲートで、`pnpm autonomy-status` と drill が呼ぶ。
+//!
+//! Phase B の fix push 直前ゲートは `cli-fix-push-gate` を使うこと (ADR-067)。あちらは
+//! kill-switch に加えて ADR-052 の target / 内容軸と ADR-054 scope guard も 1 回で評価する。
+//! 本 exe と `&&` で連鎖させる運用は**しない** — 連鎖の書き忘れで kill-switch を通り越す
+//! 合成ミスを構造的に防ぐため、fix push 経路は単一 exe に閉じる方針とする。
 //!
 //! # 使い方
 //!
@@ -20,20 +23,21 @@
 //! **呼び手は非ゼロをすべて拒否として扱うこと。** `1` だけを拒否とみなして `2` を通すと、
 //! 引数を間違えた瞬間に fail-open する。
 //!
+//! # bounded lifetime (ADR-066)
+//!
+//! decision trigger: Phase B 稼働後の自律 fix push 3〜5 run で (a) 有効時に通ること、
+//! (b) いずれかのフラグを倒すと次の操作境界で止まること、(c) deny 理由が run log だけで
+//! 切り分けられること、を確認したら本採用。2026-11-02 までに未判定なら延長 / 却下を判断する。
+//!
 //! # 出力
 //!
 //! 判定は必ず loud に出す (無音 no-op 禁止)。allow は stdout の `[AUTONOMY_ALLOW]`、deny は
 //! stderr の `[AUTONOMY_OFF]` で、どちらも全ソースの状態と読み取り先 config パスを含む。
-//! 「何もしなかった run」の原因が run log だけで切り分けられることを要件とする
-//! (ADR-064 の silent-success 排除と同じ論理)。ADR-060 の `CLOUD_HARNESS` は無効時無音を
-//! 選んだが、あれはローカル常時発火のノイズ対策という個別事情で本 exe には適用しない。
-
-mod decision;
-mod sources;
 
 use std::path::PathBuf;
 
-use decision::{Decision, DenyReason, GateInputs, Operation};
+use lib_autonomy_policy::{describe_sources, evaluate, Decision, DenyReason, GateInputs, Operation};
+use lib_autonomy_policy::sources;
 
 /// 許可時の grep マーカー (stdout)。
 const MARKER_ALLOW: &str = "[AUTONOMY_ALLOW]";
@@ -53,7 +57,7 @@ fn main() {
 /// コマンドライン設定。既定値は設けない — 両方とも明示必須。
 ///
 /// `--config` を省略可能にして cwd から推測すると、CI で master ref の写しを渡し忘れた
-/// 呼び手が PR ブランチの config を黙って読む (上記 [`sources`] の信頼境界)。省略を
+/// 呼び手が PR ブランチの config を黙って読む (ADR-066 § 決定 3 の信頼境界)。省略を
 /// 引数不正として弾くことで、呼び手にパスの出所を必ず意識させる。
 struct Cli {
     operation: Operation,
@@ -111,9 +115,9 @@ fn run(args: Vec<String>) -> i32 {
 /// 判定と loud 出力。allow / deny のどちらでも全ソースの状態を 1 行目に出す。
 fn report(cli: &Cli, inputs: GateInputs<'_>) -> i32 {
     let config_display = cli.config_path.display();
-    let state = decision::describe_sources(inputs, sources::EXTERNAL_ENV);
+    let state = describe_sources(inputs, sources::EXTERNAL_ENV);
     let operation = cli.operation.as_str();
-    match decision::evaluate(inputs) {
+    match evaluate(inputs) {
         Decision::Allowed => {
             println!("{MARKER_ALLOW} operation={operation} config={config_display} {state}");
             EXIT_ALLOWED

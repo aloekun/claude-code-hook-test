@@ -119,10 +119,8 @@ dependencies = [
 name = "cli-autonomy-gate"
 version = "0.1.0"
 dependencies = [
+ "lib-autonomy-policy",
  "lib-telemetry",
- "serde",
- "tempfile",
- "toml",
 ]
 
 [[package]]
@@ -139,6 +137,19 @@ version = "0.1.0"
 dependencies = [
  "lib-ollama-client",
  "lib-report-formatter",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "cli-fix-push-gate"
+version = "0.1.0"
+dependencies = [
+ "lib-autonomy-policy",
+ "lib-docs-policy",
+ "lib-scope-guard",
+ "lib-telemetry",
  "serde",
  "serde_json",
  "tempfile",
@@ -165,6 +176,7 @@ dependencies = [
  "lib-jj-helpers",
  "lib-pending-file",
  "lib-report-formatter",
+ "lib-scope-guard",
  "lib-subprocess",
  "proptest",
  "serde",
@@ -726,6 +738,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
+name = "lib-autonomy-policy"
+version = "0.1.0"
+dependencies = [
+ "lib-telemetry",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "lib-docs-policy"
 version = "0.1.0"
 
@@ -770,6 +792,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "lib-scope-guard"
+version = "0.1.0"
 
 [[package]]
 name = "lib-subprocess"
