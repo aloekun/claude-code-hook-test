@@ -168,7 +168,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 4. push（bookmark 例 `feat/wp17-r2a-docs-parser`）→ PR 作成（承認フロー）→ マージ（ユーザー）。
 5. マージ後、stale remote ブランチ `feat/wp17-pr2a-policy-libs` の削除をユーザーへ依頼。
 
-##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯） — 実施中（本 PR）
+##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯） — 完了（PR #351、2026-08-03 マージ）
 
 抽出（`lib-scope-guard` / `lib-autonomy-policy`）と最初の呼び手（`cli-fix-push-gate`）を**同一 PR に入れる**ことで ADR-044 層 1 を充足する（incident の初回分割はここを分離して失敗した）。
 
@@ -185,7 +185,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
   - **この宣言の検証状態**（ADR-069 § 決定 1 の名前一致要件に対する自己申告）: 引数 4 種と exe 名は**本 PR の diff 内**（`src/cli-fix-push-gate/src/main.rs` の `parse_args` / `USAGE`）で照合できる。step 名と exe パスは 2c の実装（ローカルに存在する未 land コミット。本 PR の diff には**含まれない**）と照合済みだが、**本 PR の diff だけでは検証できない主張**である。レビュアーによる名前一致の最終確認は 2c の diff で行う。
 - **lib 2 件の呼び手は 2b 自身の diff 内に揃っている**（未消費ではない）: `lib-scope-guard` → `cli-pr-monitor::stages::scope_guard`（既存）+ `cli-fix-push-gate`（本 PR）。`lib-autonomy-policy` → `cli-autonomy-gate`（既存）+ `cli-fix-push-gate`（本 PR）。ADR-069 § 決定 3-1「抽出と最初の呼び手の間で切らない」に従い、incident の初回分割が分離したこの境界を同一 PR に戻してある。
 
-##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行）
+##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行） — 実施中（本 PR）
 
 1. 2b マージ後、残チェーンを rebase: `jj rebase -s lqxzpvuw -d master`。conflict 指針は 2b と同じ。
 2. 内容: pr-monitor.yml の fix job（agent は push しない / findings と fix の agent 分離 / gate と config は master ref から調達 / degrade は run 失敗にしない — 設計の全文は rxvwoxyq が起票する ADR-067 に記載済み）、`autonomy-config.toml` の `enabled = true`、ADR-067 + ADR-052 訂正 + CLAUDE.md。

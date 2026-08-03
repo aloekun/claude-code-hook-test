@@ -435,6 +435,7 @@ jobs:
       - name: Extract findings JSON
         id: findings_json
         if: steps.applies.outputs.proceed == 'true' && steps.findings.outcome == 'success'
+        continue-on-error: true
         env:
           EXECUTION_FILE: ${{ steps.findings.outputs.execution_file }}
         run: |
@@ -507,9 +508,10 @@ jobs:
         continue-on-error: true
         env:
           AUTONOMY_ENABLED: ${{ vars.AUTONOMY_ENABLED }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
         run: |
           master-ref/target/release/cli-fix-push-gate \
-            --branch "${{ steps.pr.outputs.head_ref }}" \
+            --branch "$HEAD_REF" \
             --config master-ref/autonomy-config.toml \
             --diff-summary-file "${{ steps.diff.outputs.path }}" \
             --findings-file "${{ steps.findings_json.outputs.path }}"

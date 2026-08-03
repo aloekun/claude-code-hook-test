@@ -74,6 +74,27 @@ fix.md の「決定論 scope guard が fix diff を再照合する」という�
 - unit test 291 件 pass（新規 9 件: incident 再現 = **gate が PASS しても後退検知が block する**、全面 revert、閾値境界 50/51%、小規模削減は通す、検知 OFF フォールバック、非 --git 形式、config default / カスタム値）。
 - incident 再現テスト `regate_blocks_regression_even_when_gate_would_pass` が本 ADR の中核契約（品質ゲート通過と意図保存は別物）を machine-enforce する。
 
+### 観測: docs-only fix の事実性は無検査（PR #351、2026-08-03）
+
+本 ADR の後退検知が**カバーしない**領域を実観測したため記録する。
+
+post-PR の fix step が、計画書の chain 宣言にある「2c の実体で step 名・パス・引数を照合済み」という**真の記述**を、「実装済みの実体と照合済みではない」という**偽の記述**へ書き換えて auto-push した（経緯は [ADR-069](adr-069-pr-chain-declaration.md) § 実測 2）。手動で訂正した。
+
+このとき既存の決定論層はすべて設計どおり動作している:
+
+| 層 | 判定 | 何を守ったか |
+|---|---|---|
+| ADR-054 scope guard | PASS（変更 1 ファイルは allowlist 内） | 編集**範囲**が findings 由来であること |
+| ADR-035 docs-only 判定 | docs-only → gate skip | 変更**クラス**が自動実行可であること |
+| 本 ADR の後退検知 | 対象外（削除ではなく書き換え） | 実装の**量的後退**がないこと |
+
+つまり **「正しい範囲の、正しいクラスの、量的に後退していない変更」でありながら内容が偽**という経路は、どの層も検査していない。コード領域ではコンパイル・テストが事実性の代理検査になるが、**docs にはその代理が無い**。
+
+現時点では追加機構を入れない（本 ADR § 決定の「最小処置原則」と同じく、観測 1 件で機構を足さない）。次を満たしたら再検討する:
+
+- docs-only fix の事実性誤りが 2 回目に観測されたとき。
+- または、fix が書いた docs をレビュー無しで land させる経路（Phase B の無人 fix push = ADR-067）で同種の誤りが発生したとき。**Phase B の対象は docs 指摘に限られる**ため、この穴は Phase B の主要リスク面と重なる。ADR-067 の bounded lifetime 観測時に本項目も併せて確認する。
+
 ## 帰結
 
 ### 利点
