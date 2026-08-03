@@ -215,6 +215,8 @@ Bundle b (Bb-1/Bb-2/Bb-3、PR #113-115、2026-05-05〜06 land) は本 ADR とは
 
 ### Sub-PR 2 の構成変化 (Bundle b land 後)
 
+> **2026-08-03 注記 (WP-17 PR 3)**: 下表の CronCreate park モデルは [ADR-018](adr-018-pr-monitor-takt-migration.md) 追記 (2026-08-03) で**廃止済み** (single-shot 化)。rate-limit の即時 retrigger と dedup は single-shot モデルでも維持されているが、park / wakeup を前提とする記述は歴史記録として読むこと。
+
 | component | 旧 (本 ADR 当初) | 新 (Bundle b land 後) |
 |---|---|---|
 | rate-limit auto-retry 実装 (順位 42) | Sub-PR 2 で着手予定 | ✅ **Bb-1 (PR #113) で land 済**。CronCreate park モデルで `[rate_limit] reset 後の即時 retrigger → @coderabbitai review 自動投稿` が PR #115 dogfood で実証 |

@@ -207,3 +207,49 @@ PR #120 (cli-finding-classifier 統合) の dogfood で観測された **「rate
 
 - PR #120 (Phase 5 land): rate-limit auto-retry の Posted 経路 silent exit 観測の根拠
 - 本 PR (順位 80 fix + 順位 82 ADR update + §A-2 P-4 ledger): 本 ADR 追記の land
+
+## 追記 (2026-08-03): park モデルの廃止 — single-shot 化 (WP-17 PR 3)
+
+### 決定
+
+追記 (2026-05-06) の Bundle b で再導入した CronCreate park モデルを廃止し、cli-pr-monitor を
+**single-shot モデル** (1 回 check して必ず terminal 報告で終了) へ移行する。
+
+- 未確定 (review 未完) は terminal `pending_review`、rate-limit reset 待ちは terminal
+  `rate_limited` として報告する。どちらも「後続は GitHub Actions 経路が処理」を明示する。
+- state の wakeup fields (`next_wakeup_at_unix` / `wakeup_reason` / `review_recheck_count`)、
+  `[PR_MONITOR_PARK]` envelope、`[review_recheck]` config を撤去。旧 state / config は
+  unknown field として無視される (前方互換テストで固定)。
+- hooks-session-start の pr_monitor catch-up nudge (Bb-3) も撤去 — 「park 失効の救済」という
+  役割ごと dead code になった。
+- **維持したもの**: 同一 PR + 同一 head での state 継続 (`should_continue_state`)。これは
+  park の付随物ではなく時刻窓アンカー (`--push-time` の基準) であり、落とすと再実行のたびに
+  新着判定窓がリセットされる。rate-limit の retry 上限 / comment dedup も同様に維持。
+
+### 根拠
+
+1. **wakeup はローカルセッションの寿命に依存する**。PR #237 でセッション終了による
+   CronCreate 失効 = 監視の取りこぼしを実観測した (Bb-3 の catch-up nudge はその症状への
+   救済層であって、根治ではなかった)。
+2. **GitHub Actions 経路が常設になった** (WP-17、[ADR-067](adr-067-phase-b-unattended-fix-push.md))。
+   CodeRabbit のレビュー到着・後続コメント (レート制限中の再開を含む) がそのままイベント
+   トリガーになるため、ローカルの時限 wakeup は冗長。
+3. 常時性の担保を「ローカルの工夫 (park + catch-up)」から「常設インフラ (Actions)」へ移すのは
+   ハーネス改善計画 (2) 自律実行の常時性の主旨そのもの。
+
+### ADR-064 検証残の移し替え (計画書の着手前決定 2)
+
+- (a) 「監視が success で終わらず park すること」の実観測 → **moot として閉じる**
+  (park 機構ごと消滅)。single-shot の同等保証は `rate_limited` / `pending_review` の
+  terminal 報告で、unit test により固定済み。
+- (b) 「レポート判定文が保留を出すこと」→ ローカル側は `verdict_for_unsettled_review` の
+  判定文として維持 (テスト固定済み)。**GitHub Actions 経路での同等保証は同経路の検証残**
+  として引き継ぐ (ADR-064 ステータス欄も同旨に更新)。
+
+### 影響
+
+- `pnpm push` / `pnpm create-pr` チェイン末尾の監視は「その時点の状態報告」になる。レビュー
+  未着なら pending_review で終わり、後続はユーザーの手動再実行 (`--monitor-only`) か
+  Actions 経路のコメントで把握する。
+- 本 ADR の追記 (2026-05-06) の park 設計・順位 80 fix (PARK signal 保証) は歴史記録として
+  残す。現行実装の正は本追記。
