@@ -4,6 +4,8 @@
 
 承認済み (2026-06-01、試験運用 2026-04-27 → 本採用に昇格)
 
+> **2026-08-04 更新 (WP-17 PR 4)**: 起動トリガーを [ADR-070](adr-070-weekly-review-cloud-routine.md) が変更した。分析フェーズ (Phase 1-2 = takt workflow 実行) は cloud routine (週 1 schedule) が担い、SessionStart reminder は「レビューを実行せよ」から「**routine の稼働と結果の取り込みを確認せよ**」の監査リマインダー (既定 30 日) へ転換。**Phase 3 (採否判断) / Phase 4 (task list 反映 + last-run 更新) は従来どおりローカルの人間作業**で、routine は置き換えではない。本 ADR のパイプライン設計そのものは変更なし。
+>
 > 本 ADR の運用パターンは [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) で標準化された 3 点セット (config opt-in / kill-switch / bounded lifetime) の対象。本採用判定で ADR-039 の retirement workflow に従い、Phase C/D/E 用 ephemeral handoff doc を retire 済 (Phase E land と同 PR、git log で履歴 trackable)。
 
 ### 採用判定の根拠 (Phase E dogfood 観測結果)
