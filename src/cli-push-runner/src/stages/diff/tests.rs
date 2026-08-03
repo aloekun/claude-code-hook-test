@@ -73,39 +73,61 @@ fn verify_normalizes_windows_path_separators() {
 /// SIM-NEW-diff-rs-L146: rename 行 (`R <old> <new>`) は new path だけを
 /// パス集合に採用すること。旧実装は old+new を 1 個の壊れたパスにしてしまい、
 /// coverage 検査が rename ファイルを絶対に "covered" と一致させられなかった。
+/// **実測値** (2026-08-02、jj 0.42.0 / Windows): 共通 prefix / suffix を括り出した
+/// 波括弧形式。旧テストは `"R docs/a.md docs/b.md"` という手書き fixture を根拠に
+/// 3 トークン空白区切りを前提にしていたが、jj はその形式を出さない。
+const OBSERVED_RENAME_SUMMARY: &str =
+    "R src\\{cli-autonomy-gate => lib-autonomy-policy}\\src\\decision.rs\n";
+
 #[test]
 fn parse_summary_paths_extracts_new_path_for_rename() {
-    let paths = parse_summary_paths("R docs/a.md docs/b.md\n").expect("valid rename は Ok");
+    let paths = parse_summary_paths(OBSERVED_RENAME_SUMMARY).expect("valid rename は Ok");
     assert_eq!(
         paths,
-        std::collections::BTreeSet::from(["docs/b.md".to_string()]),
-        "rename は new path のみを採用し、old path や結合パスを含めないこと: {:?}",
+        std::collections::BTreeSet::from(["src/lib-autonomy-policy/src/decision.rs".to_string()]),
+        "波括弧を prefix/suffix と結合して new path を復元すること: {:?}",
         paths
     );
 }
 
-/// copy 行 (`C <old> <new>`) も rename と同じ扱い (new path のみ採用)。
+/// 波括弧形式の全 branch を 1 バッチで固定する (dev-conventions: パーサ修正は
+/// 個別ケースを潰すのでなく入力空間全体を一度に堅牢化する)。
+///
+/// 末尾 2 ケースは空白を含むパス (CodeRabbit #350)。区切りの `" => "` と紛れる位置に
+/// 空白があっても両 branch が同じ結果を返す = 空白の足し引きで非対称にならないことを
+/// 固定する。
 #[test]
-fn parse_summary_paths_extracts_new_path_for_copy() {
-    let paths = parse_summary_paths("C docs/a.md docs/c.md\n").expect("valid copy は Ok");
-    assert_eq!(
-        paths,
-        std::collections::BTreeSet::from(["docs/c.md".to_string()]),
-        "copy は new path のみを採用すること: {:?}",
-        paths
-    );
+fn rename_brace_form_covers_every_shape() {
+    let cases = [
+        ("R docs/{a.md => b.md}\n", "docs/b.md"),
+        ("R src/{sub/ => }file.rs\n", "src/file.rs"),
+        ("R src/{ => sub/}file.rs\n", "src/sub/file.rs"),
+        ("R old.rs => new.rs\n", "new.rs"),
+        ("C docs/{a.md => c.md}\n", "docs/c.md"),
+        ("R docs/{my old.md => my new.md}\n", "docs/my new.md"),
+        ("R my old.rs => my new.rs\n", "my new.rs"),
+    ];
+    for (summary, expected) in cases {
+        assert_eq!(
+            parse_summary_paths(summary).unwrap_or_else(|e| panic!("{summary:?}: {e}")),
+            std::collections::BTreeSet::from([expected.to_string()]),
+            "{summary:?} の new path は {expected:?}"
+        );
+    }
 }
 
 /// incident 再現 (rename 版): rename されたファイルを含む PR 範囲でも、
 /// new path を収録した diff は coverage 検査を通ること。
+///
+/// 実測書式でこれが通らず「rename を含む PR が一律 push 不能」になっていたのが
+/// 本修正の契機 (WP-17 PR 2a の push が exit 5 で停止)。
 #[test]
 fn verify_accepts_diff_with_renamed_file() {
-    let summary = "R docs/a.md docs/b.md\n";
-    let diff = "diff --git a/docs/a.md b/docs/b.md\n@@ -1 +1 @@\n-old\n+new\n";
+    let diff = "diff --git a/src/cli-autonomy-gate/src/decision.rs \
+                b/src/lib-autonomy-policy/src/decision.rs\n@@ -1 +1 @@\n-old\n+new\n";
     assert!(
-        verify_diff_covers_pr_range(diff, || Ok(summary.to_string())).is_ok(),
-        "rename ファイルの new path が --git ヘッダの b/ 側と一致し、coverage 検査を\
-         通ること (旧実装は old+new の壊れたパスと一致せず常に未収録扱いだった)"
+        verify_diff_covers_pr_range(diff, || Ok(OBSERVED_RENAME_SUMMARY.to_string())).is_ok(),
+        "波括弧形式から復元した new path が --git ヘッダの b/ 側と一致すること"
     );
 }
 
@@ -192,13 +214,20 @@ fn parse_summary_paths_rejects_unknown_status() {
 /// fail-closed の判定をパース時点に前倒しする)。
 #[test]
 fn parse_summary_paths_rejects_malformed_rename_line() {
-    assert!(
-        parse_summary_paths("R docs/only-one-token.md\n").is_err(),
-        "new path (末尾トークン) が無い崩れた rename 行は Err"
-    );
+    for malformed in [
+        "R docs/only-one-token.md\n",
+        "R src/{a => b\n",
+        "R src/{ab}\n",
+        "R docs/a.md docs/b.md\n",
+    ] {
+        assert!(
+            parse_summary_paths(malformed).is_err(),
+            "{malformed:?} は矢印 / 波括弧のどちらの実測書式でもないため Err"
+        );
+    }
     assert_eq!(
-        parse_summary_paths("R docs/a.md docs/b.md\n").expect("正常 rename は Ok"),
-        std::collections::BTreeSet::from(["docs/b.md".to_string()]),
+        parse_summary_paths(OBSERVED_RENAME_SUMMARY).expect("正常 rename は Ok"),
+        std::collections::BTreeSet::from(["src/lib-autonomy-policy/src/decision.rs".to_string()]),
         "正常な rename は new path のみ"
     );
 }
