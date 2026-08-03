@@ -168,7 +168,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 4. push（bookmark 例 `feat/wp17-r2a-docs-parser`）→ PR 作成（承認フロー）→ マージ（ユーザー）。
 5. マージ後、stale remote ブランチ `feat/wp17-pr2a-policy-libs` の削除をユーザーへ依頼。
 
-##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯） — 実施中（本 PR）
+##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯） — 完了（PR #351、2026-08-03 マージ）
 
 抽出（`lib-scope-guard` / `lib-autonomy-policy`）と最初の呼び手（`cli-fix-push-gate`）を**同一 PR に入れる**ことで ADR-044 層 1 を充足する（incident の初回分割はここを分離して失敗した）。
 
@@ -185,7 +185,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
   - **この宣言の検証状態**（ADR-069 § 決定 1 の名前一致要件に対する自己申告）: 引数 4 種と exe 名は**本 PR の diff 内**（`src/cli-fix-push-gate/src/main.rs` の `parse_args` / `USAGE`）で照合できる。step 名と exe パスは 2c の実装（ローカルに存在する未 land コミット。本 PR の diff には**含まれない**）と照合済みだが、**本 PR の diff だけでは検証できない主張**である。レビュアーによる名前一致の最終確認は 2c の diff で行う。
 - **lib 2 件の呼び手は 2b 自身の diff 内に揃っている**（未消費ではない）: `lib-scope-guard` → `cli-pr-monitor::stages::scope_guard`（既存）+ `cli-fix-push-gate`（本 PR）。`lib-autonomy-policy` → `cli-autonomy-gate`（既存）+ `cli-fix-push-gate`（本 PR）。ADR-069 § 決定 3-1「抽出と最初の呼び手の間で切らない」に従い、incident の初回分割が分離したこの境界を同一 PR に戻してある。
 
-##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行）
+##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行） — 実施中（本 PR）
 
 1. 2b マージ後、残チェーンを rebase: `jj rebase -s lqxzpvuw -d master`。conflict 指針は 2b と同じ。
 2. 内容: pr-monitor.yml の fix job（agent は push しない / findings と fix の agent 分離 / gate と config は master ref から調達 / degrade は run 失敗にしない — 設計の全文は rxvwoxyq が起票する ADR-067 に記載済み）、`autonomy-config.toml` の `enabled = true`、ADR-067 + ADR-052 訂正 + CLAUDE.md。
@@ -197,9 +197,9 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
    前提となる `workflow_dispatch` の挙動: **dispatch は起動時に ref（ブランチ）を選べ、選んだ ref 版の workflow 定義で走る**（workflow ファイル自体が default branch に存在すれば Actions UI の候補に出る。pr-monitor.yml は master 稼働中なので条件を満たす）。したがって 2c の fix job は**マージ前に 2c ブランチ ref に対して実走できる**。なお dispatch 起点の run は PR の Status Check には載らない（pr-monitor.yml 冒頭の設計メモのとおり、対象 SHA が default branch 側になるため）。対象 PR は input `pr_number` で渡す。
 
    - 段 0: repository ruleset で `claude/` 以外への `GITHUB_TOKEN` push を deny（5 層目の防波堤。ユーザー、GitHub UI）。
-   - 段 0.5（**マージ前**）: 2c ブランチ ref を選んで workflow_dispatch。`AUTONOMY_ENABLED` は設定済みなので variable 層は通り、gate と `autonomy-config.toml` は **master ref から調達**される（ADR-066 決定 3）＝ master 側は `enabled = false` のままなので、fix job は config 層で停止するのが期待動作。ここで検証できるのは workflow 構文 / job 配線 / variable 層 / master-ref 調達 / **config 無効時の deny 経路**（= kill-switch が効く側）。allow 経路だけがマージ後に残る。`cli-fix-push-gate` exe を master ref から取るため、**2b マージ済みであることが前提**。
-   - 段 1: 適当な非 `claude/` PR に対し workflow_dispatch → fix job が `[FIX_PUSH_DENY] branch=... claude/ prefix ではない` で degrade することを確認（2c マージ後。config が有効化されて初めて prefix 層まで到達する）。
-   - 段 2: `claude/` prefix のテストブランチで docs 指摘のある PR を作り、allow 経路（gate exit 0 → workflow step が push）と deny 経路（variable 削除で次 run から job skip）を観測。
+   - 段 0.5（**マージ前**）: 2c ブランチ ref を選んで workflow_dispatch（`pr_number` は任意の open PR でよい。2c の PR 自身で可）。`AUTONOMY_ENABLED` が設定済みなら variable 層を通って fix job が起動する。**期待動作は prefix 層（`Decide whether Phase B applies` step）の deny** — 対象 PR のブランチは `claude/*` ではないため `[FIX_PUSH_DENY] branch=... claude/ prefix ではない` を出し、以降の全 step（`proceed` ゲート）が skip される。**job は緑で終わるのが正常**（degrade ≠ run 失敗の設計どおり）。ここで検証できるのは workflow 構文（実 Actions ランタイム）/ job 配線 / variable 層 / prefix deny 経路。**master-ref 調達と config 層の deny には到達しない**（到達には `claude/*` PR + docs 指摘が必要 = 段 2 の構成。gate exe 単体の config-false deny は 2b の drill 7 シナリオで実測済みのため検証の穴にはならない）。dispatch は反復可能 — レビュー対応で workflow が変わったら、variable 削除 → マージの直前に**最終 HEAD で再実行**する。副作用: analyze job も走るため対象 PR に Phase A 分析コメントが 1 件付く（agent 1 run 分の Max 枠を消費）。
+   - 段 1: variable 再設定後、適当な非 `claude/` PR に対し workflow_dispatch → マージ済み master 版の workflow でも prefix 層の deny（`[FIX_PUSH_DENY] branch=... claude/ prefix ではない`）が出ることを確認。
+   - 段 2: `claude/` prefix のテストブランチで docs 指摘のある PR を作り、allow 経路（gate exit 0 → workflow step が push）と deny 経路（variable 削除で次 run から job skip）を観測。config 層の deny（master 調達の `autonomy-config.toml`）が実走で確認できるのはこの段が最初。あわせて run log の `[PHASE_B_ACTOR]` / `[PHASE_B_ACTOR_UNRESOLVED]` マーカーで **coderabbitai[bot] の permission 解決結果**を確認する — bot は collaborator ではない可能性が高く、その場合 `pull_request_review` 経路の Phase B は恒久 deny（fail-closed で危険はないが、`issue_comment` = walkthrough 経路だけが生きる形になる）。deny なら actor gate への bot allowlist 追加を follow-up として判断する（内容側は決定論著者フィルタが守っているため、追加しても多層防御は崩れない）。
    - 結果を ADR-067 の検証記録と ADR-066 / ADR-068 の bounded lifetime 観測へ記帳する。
 
 #### WP-17 PR 3: wakeup 機構（CronCreate 系）の廃止（旧ステップ 3）

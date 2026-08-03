@@ -88,13 +88,15 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 | 未接続 / 読み取り不能時の既定 | 背圧（未マージ draft 数の監視）または kill-switch が未接続・読み取り不能なら、自動実行可クラスを無効化しゲート必須へ倒す（fail-closed、原則 3 と整合） |
 | 停止手順 | フラグを OFF にすると次の自律実行判定から自動実行可が無効化される（既に起動済みの単一操作は対象外）。緊急時は CI variable 側で即時停止する |
 
-## 実装スコープ（2026-07-11 時点）
+## 実装スコープ（2026-07-11 時点。呼び手は 2026-08-02 に着手済み）
+
+> **2026-08-02 追記**: 本節が想定していた「呼び手（自律実行経路）」は WP-17 で実装された。kill-switch は [ADR-066](adr-066-autonomy-global-kill-switch.md)、原則 2 の 2 軸分類を機械判定するゲートは [ADR-067](adr-067-phase-b-unattended-fix-push.md)（`cli-fix-push-gate`）が担う。以下の記述は起票時点の判断として残す。
 
 本 ADR は**ポリシー（decision rule）の確定に閉じ、Rust 分類関数の実装は今回見送る**。
 
 - **理由**: 現状 PR 作成/マージの事前許可は 100% harness 層（`.claude/settings.json` の `permissions.ask`）で強制されており、**Rust 側に事前許可ゲートも自律実行経路も存在しない**（`cli-push-runner` / `cli-merge-pipeline` を調査し確認）。分類関数を今実装しても呼び手が無く dead code（YAGNI）になる。呼び手は自律実行経路（イベント駆動バックボーン Phase B、夜間ループ）が初めて生む。
 - **将来の実装方針**（呼び手着手時）:
-  - `cli-pr-monitor` の `src/cli-pr-monitor/src/stages/gate.rs` にある `is_docs_only_summary` / `is_docs_only_path`（ADR-035 の path 基準を実装済・fail-closed）を lib（`lib-jj-helpers` または新 `lib-diff-classify`）へ切り出して再利用する。現状は `pub(crate)` で cli-pr-monitor 内部限定。
+  - ~~`cli-pr-monitor` の `src/cli-pr-monitor/src/stages/gate.rs` にある `is_docs_only_summary` / `is_docs_only_path`（ADR-035 の path 基準を実装済・fail-closed）を lib（`lib-jj-helpers` または新 `lib-diff-classify`）へ切り出して再利用する。現状は `pub(crate)` で cli-pr-monitor 内部限定。~~ **（2026-08-02 訂正）** この切り出しは [ADR-057](adr-057-docs-only-deterministic-routing.md) の副産物として既に完了しており、`lib-docs-policy` が ADR-035 path 基準の単一実装になっている。呼び手は `lib_docs_policy::is_docs_only_summary` を呼ぶだけでよい。
   - ADR-035 の diff 内容基準（doc comment のみの `.rs` 変更 / yaml comment-only）は path だけでは判定できないため、必要になった時点で新規実装する（現状の `gate.rs` は「path で判定不能なら gate 実行に倒す」= fail-closed でこの穴を安全側に埋めている）。
   - 分類 → 分岐の設計参考として、既存の `FixConfig.auto_push_severity`（`"critical"` / `"major"` / `"none"` の文字列分類による自動 re-push 制御）が同型の先行実装として利用できる。
   - 分類関数は本 ADR 原則 3 に従い、分類不能を必ずゲート必須へ倒す（fail-closed）。
@@ -133,5 +135,5 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 - [ADR-043](adr-043-security-gates-fail-closed.md)（fail-closed 原則）— 分類不能をゲート必須へ倒す既定の根拠
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md)（試験運用標準パターン）— config opt-in + kill-switch + bounded lifetime
 - [ADR-019](adr-019-coderabbit-review-hybrid-policy.md)（CodeRabbit ハイブリッド構成）— draft 除外 / 無料枠制約が draft PR を低コミットメント・ready 化を commitment 点とする根拠
-- `src/cli-pr-monitor/src/stages/gate.rs`（`is_docs_only_summary` / `is_docs_only_path`）— 将来の分類関数の再利用母体
+- `src/lib-docs-policy`（`is_docs_only_summary` — ADR-035 path 基準の単一実装。[ADR-057](adr-057-docs-only-deterministic-routing.md) で `gate.rs` から切り出し済、実装スコープ節の 2026-08-02 訂正を参照）— 分類関数の再利用母体
 - セッション 247510ea-3f24-4b87-8f68-3c860e1b1b4e（2026-04-18）/ PR #54 — 無ゲート自律実行の事故（ADR-028 と共有する反例）

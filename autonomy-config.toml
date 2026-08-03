@@ -39,6 +39,14 @@
 # 派生プロジェクトへは配布しない。ファイルが無ければ自動的に停止 = 安全側 default。
 
 [autonomy]
-# WP-17 PR 1 時点では false。呼び手 (Phase B の無人 fix push) は PR 2 で実装されるため、
-# 現時点で true にしても作用する経路が無い。PR 2 で経路と drill を揃えてから true へ倒す。
-enabled = false
+# WP-17 PR 2 で true へ倒した。呼び手 (pr-monitor.yml の Phase B fix job) が実装され、
+# リポジトリとしては自律 fix push を許可する意思表示をした状態。
+#
+# ただし判定は本フラグと外部フラグ (Actions variable AUTONOMY_ENABLED、'true' ちょうど) の
+# AND なので、本フラグ単独では Phase B は動かない。variable の設定・削除は admin (リポジトリ
+# 所有者) だけが行え、現在値は Settings → Secrets and variables → Actions → Variables が正。
+# 本コメントに variable の設定状態は書かない — 外部 SaaS 側の実状と config 内の記述が
+# 食い違う drift を避ける (ADR-051 のクロスシステム coupling 規律)。
+#
+# 停止する場合: 恒久停止は本行を false へ、緊急停止は Actions variable を削除する。
+enabled = true
