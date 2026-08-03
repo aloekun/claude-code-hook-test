@@ -181,7 +181,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 
 **2b の chain 宣言**（ADR-069 準拠。2b PR の diff にこの計画書が含まれることで有効になる）:
 
-- **未消費なのは 1 つだけ**: 2b が導入する `cli-fix-push-gate`（crate `src/cli-fix-push-gate`、bin 同名）の **workflow 呼び手**。これは**後続 PR 2c** の `.github/workflows/pr-monitor.yml` の `fix` job、step 名 `Gate fix push (deterministic, 4-axis AND)` が `master-ref/target/release/cli-fix-push-gate` を `--branch` / `--config` / `--diff-summary-file` / `--findings-file` 付きで実行する形で land する（2c の実体で step 名・パス・引数を照合済み）。
+- **未消費なのは 1 つだけ**: 2b が導入する `cli-fix-push-gate`（crate `src/cli-fix-push-gate`、bin 同名）の **workflow 呼び手**。これは**後続 PR 2c** の `.github/workflows/pr-monitor.yml` の `fix` job として、step 名 `Gate fix push (deterministic, 4-axis AND)` で `master-ref/target/release/cli-fix-push-gate` を `--branch` / `--config` / `--diff-summary-file` / `--findings-file` 付きで実行する形で land させる仕様である（本 PR 時点で 2c は未着手のため、この step 名・パス・引数は「2c 実装時に一致させるべき仕様」であって実装済みの実体と照合済みではない。名前一致の確認は 2c の diff レビューで行う、ADR-069 § 決定 1）。
 - **lib 2 件の呼び手は 2b 自身の diff 内に揃っている**（未消費ではない）: `lib-scope-guard` → `cli-pr-monitor::stages::scope_guard`（既存）+ `cli-fix-push-gate`（本 PR）。`lib-autonomy-policy` → `cli-autonomy-gate`（既存）+ `cli-fix-push-gate`（本 PR）。ADR-069 § 決定 3-1「抽出と最初の呼び手の間で切らない」に従い、incident の初回分割が分離したこの境界を同一 PR に戻してある。
 
 ##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行）
