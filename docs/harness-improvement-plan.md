@@ -87,10 +87,11 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - 現状: observe 期間（2026-07-12〜08-01、fix step 実行 5 回）で誤検知ゼロを確認し、2026-08-01 に `mode = "enforce"` へ昇格済（ADR-054 の dogfood 記録参照）。
 - 残作業: enforce で 3〜5 PR（fix step 発生ベース）誤検知ゼロを確認したら本採用（ADR-054 の status 更新）。判定基準・kill-switch は ADR-054 を参照。
 
-### WP-15 追補残: レート制限 park の実観測
+### WP-15 追補残: レート制限時の保留保証（GitHub Actions 経路）
 
 - 現状: PR 監視の陽性証拠 gate は実装・incident 実データでの単体実測済み（ADR-064）。
-- 残作業: 実 push/PR サイクルで CodeRabbit レート制限が自然発生した際に (a) 監視が success で終わらず park すること、(b) レポート判定文が保留を出すこと、を実観測したら完了（ADR-064 ステータス欄の検証残。この経路は自然発生時にしか実測できない）。
+- **2026-08-04 更新（WP-17 PR 3）**: 旧残作業のうち (a)「監視が success で終わらず **park** すること」は、park モデルの廃止（[ADR-018](adr/adr-018-pr-monitor-takt-migration.md) 追記 2026-08-03）で **moot として終了**。single-shot モデルでの同等保証は terminal `rate_limited` 報告で、unit test により固定済み。
+- 残作業: (b)「レポート判定文が保留を出すこと」の **GitHub Actions 経路での実観測**。CodeRabbit レート制限が自然発生した際に、Phase A の分析コメントが「レビュー未実施のため保留」を明示することを確認したら完了（この経路は自然発生時にしか実測できない）。ローカル側の判定文は `verdict_for_unsettled_review` のテストで固定済み。
 
 ### WP-16 残: CI matrix の実走観測と required check 化
 
@@ -202,13 +203,15 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
    - 段 2: `claude/` prefix のテストブランチで docs 指摘のある PR を作り、allow 経路（gate exit 0 → workflow step が push）と deny 経路（variable 削除で次 run から job skip）を観測。config 層の deny（master 調達の `autonomy-config.toml`）が実走で確認できるのはこの段が最初。あわせて run log の `[PHASE_B_ACTOR]` / `[PHASE_B_ACTOR_UNRESOLVED]` マーカーで **coderabbitai[bot] の permission 解決結果**を確認する — bot は collaborator ではない可能性が高く、その場合 `pull_request_review` 経路の Phase B は恒久 deny（fail-closed で危険はないが、`issue_comment` = walkthrough 経路だけが生きる形になる）。deny なら actor gate への bot allowlist 追加を follow-up として判断する（内容側は決定論著者フィルタが守っているため、追加しても多層防御は崩れない）。
    - 結果を ADR-067 の検証記録と ADR-066 / ADR-068 の bounded lifetime 観測へ記帳する。
 
-#### WP-17 PR 3: wakeup 機構（CronCreate 系）の廃止（旧ステップ 3）
+#### WP-17 PR 3: wakeup 機構（CronCreate 系）の廃止（旧ステップ 3） — 実施中（本 PR）
 
 - 廃止対象: cli-pr-monitor の CronCreate park モデル（ADR-018 追記の Bundle b で再導入。PR #237 で失効事例を観測済み）。
   - park / wakeup 経路: state の `next_wakeup_at_unix` / `wakeup_reason`、monitor stage の wakeup invocation、`[PR_MONITOR_PARK]` envelope 出力。
   - hooks-session-start の pr_monitor catch-up nudge（park 失効の救済層。機構ごと dead code になるため撤去）。
 - 代替: PR イベント（レート制限中の再開含む）は GitHub Actions 経路（Phase A/B）が引き受ける。CodeRabbit の後続コメント / レビュー到着がそのままトリガーになるため、ローカルの時限 wakeup は不要。
 - 記録: ADR-018 amendment を起票し、着手前決定 2 の ADR-064 検証残移し替え（(a) moot / (b) Actions 経路へ引き継ぎ）を amendment と ADR-064 ステータス欄の両方に記載。ADR-034 の CronCreate 参照も同 PR で整合を取る。
+- 実装メモ（本 PR で確定した設計判断）: 時刻窓アンカーの state 継続（`should_continue_state` = 同一 PR + 同一 head なら `started_at` / `fix_push_time` を維持）は park の付随物ではないため**残した**。落とすと手動再実行のたびに `--push-time` が「今」へリセットされ、push 後に届いた CR コメントが新着判定から漏れる。rate-limit の retry 上限 / comment dedup も同様に維持。
+- 本 PR の PR がそのまま**スモーク段 1 の観測対象**を兼ねる（variable 再設定済みの状態で、非 `claude/` PR に対する fix job の prefix deny をマージ済み master 版 workflow で確認する）。
 
 #### WP-17 PR 4: weekly-review の cloud routine 移行（旧ステップ 2）
 

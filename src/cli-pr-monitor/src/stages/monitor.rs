@@ -17,13 +17,16 @@ pub(crate) fn start_monitoring(pr_info: &PrInfo) -> i32 {
     start_monitoring_inner(pr_info, false)
 }
 
-/// Bb-2: wakeup invocation 用 (state リセットを skip し前回の next_wakeup_at_unix /
-/// review_recheck_count を保持したまま single-iteration check を実行する)。
-pub(crate) fn start_monitoring_wakeup(pr_info: &PrInfo) -> i32 {
+/// 同一 PR + 同一 head への連続 invocation 用 (WP-17 PR 3)。
+///
+/// state をリセットせず、時刻窓アンカー (started_at / fix_push_time) と
+/// rate_limit_retries 等の累積値を維持したまま single-shot check を実行する。
+/// 旧 wakeup invocation の後継だが、時限スケジューリングは伴わない。
+pub(crate) fn start_monitoring_continuing(pr_info: &PrInfo) -> i32 {
     start_monitoring_inner(pr_info, true)
 }
 
-fn start_monitoring_inner(pr_info: &PrInfo, is_wakeup: bool) -> i32 {
+fn start_monitoring_inner(pr_info: &PrInfo, continue_state: bool) -> i32 {
     let config = load_config();
     if !config.monitor.enabled {
         log_info("監視は設定で無効化されています");
@@ -40,9 +43,9 @@ fn start_monitoring_inner(pr_info: &PrInfo, is_wakeup: bool) -> i32 {
         .map(|n| format!("PR #{}", n))
         .unwrap_or_else(|| "PR".to_string());
 
-    init_or_resume_state(pr_info, is_wakeup, &pr_label);
+    init_or_continue_state(pr_info, continue_state, &pr_label);
 
-    let poll_result = run_poll_loop(&config, pr_info, is_wakeup);
+    let poll_result = run_poll_loop(&config, pr_info);
     log_info(&format!(
         "ポーリング完了: action={}, summary={}",
         poll_result.action, poll_result.summary
@@ -85,9 +88,9 @@ fn try_acquire_monitor_lock() -> AcquireResult {
     }
 }
 
-fn init_or_resume_state(pr_info: &PrInfo, is_wakeup: bool, pr_label: &str) {
-    if is_wakeup {
-        log_info(&format!("{} の監視を再開 (wakeup)", pr_label));
+fn init_or_continue_state(pr_info: &PrInfo, continue_state: bool, pr_label: &str) {
+    if continue_state {
+        log_info(&format!("{} の監視を継続 (既存 state の時刻窓を維持)", pr_label));
         return;
     }
     log_info(&format!("{} の監視を開始", pr_label));
@@ -208,15 +211,15 @@ pub(crate) fn run_monitor_only() -> i32 {
 
     log_info("監視のみモード (既存 PR 検出)");
 
-    if let Some(resume_push_time) = detect_wakeup_resume(&pr_info) {
+    if let Some(resume_push_time) = detect_state_continuity(&pr_info) {
         log_info(&format!(
-            "[wakeup] 前回 park の next_wakeup_at_unix が経過 → state を継続 (started_at={})",
+            "[state] 既存 state と同一 PR / head → 時刻窓を継続 (started_at={})",
             resume_push_time
         ));
         pr_info.push_time = Some(resume_push_time.clone());
         pr_info.fix_push_time =
             resume_fix_push_time_or_started_at(&resume_push_time, &state_file_path());
-        start_monitoring_wakeup(&pr_info)
+        start_monitoring_continuing(&pr_info)
     } else {
         let now = utc_now_iso8601();
         pr_info.push_time = Some(now.clone());
@@ -236,40 +239,34 @@ fn resume_fix_push_time_or_started_at(
         .or_else(|| Some(started_at_fallback.to_string()))
 }
 
-/// Bb-2: 既存 state file が「自分の PR / repo / head commit の wakeup 待ち」かを判定し、
-/// 該当すれば push_time として継続用 ISO 8601 (state.started_at) を返す。
+/// 既存 state file が「同一 PR / repo / head commit の続き」かを判定し、
+/// 該当すれば push_time として継続用 ISO 8601 (state.started_at) を返す (WP-17 PR 3)。
 ///
-/// CR Major #1 fix (Bb-2 PR #114 review): 同一 PR でも新 commit が push されれば head_commit
-/// が変わるため、stored vs current head 一致も check する。head 不一致なら fresh push 扱い。
-fn detect_wakeup_resume(pr_info: &PrInfo) -> Option<String> {
+/// 旧 `detect_wakeup_resume` の後継。wakeup 時刻の経過条件は wakeup 廃止に伴い落としたが、
+/// **時刻窓アンカーの継続判定は残す** — これを落とすと手動再実行のたびに `--push-time` が
+/// 「今」になり、push 後〜再実行の間に届いた CR コメントが新着判定から漏れる。
+///
+/// CR Major #1 fix (Bb-2 PR #114 review) 由来の head 一致条件は維持: 同一 PR でも新 commit が
+/// push されれば head_commit が変わるため、stored vs current head 一致も check する。
+/// head 不一致なら fresh 初期化扱い。
+fn detect_state_continuity(pr_info: &PrInfo) -> Option<String> {
     let state = read_state_from(&state_file_path())?;
-    let now_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    if !should_resume_wakeup(&state, pr_info, now_unix) {
+    if !should_continue_state(&state, pr_info) {
         return None;
     }
     Some(state.started_at)
 }
 
-/// CR Major #1 fix: detect_wakeup_resume の判定 invariant を pure に分離してテスト可能にする。
+/// detect_state_continuity の判定 invariant を pure に分離してテスト可能にする。
 ///
-/// resume 条件 (全て true):
+/// 継続条件 (全て true):
 ///   1. state.pr == pr_info.pr_number AND state.repo == pr_info.repo
-///   2. state.next_wakeup_at_unix が Some かつ now を経過
-///   3. state.head_commit が Some かつ pr_info.head_commit と一致
+///   2. state.head_commit が Some かつ pr_info.head_commit と一致
 ///
-/// 1 つでも不一致なら resume せず fresh push 経路に倒す。legacy state (head_commit None) は
-/// 自動的に 3 で False になり安全側 (fresh push) に倒れる。
-fn should_resume_wakeup(state: &PrMonitorState, pr_info: &PrInfo, now_unix: i64) -> bool {
+/// 1 つでも不一致なら継続せず fresh 初期化に倒す。legacy state (head_commit None) は
+/// 自動的に 2 で False になり安全側 (fresh 初期化) に倒れる。
+fn should_continue_state(state: &PrMonitorState, pr_info: &PrInfo) -> bool {
     if state.pr != pr_info.pr_number || state.repo != pr_info.repo {
-        return false;
-    }
-    let Some(wakeup_at) = state.next_wakeup_at_unix else {
-        return false;
-    };
-    if wakeup_at > now_unix {
         return false;
     }
     match (state.head_commit.as_deref(), pr_info.head_commit.as_deref()) {
@@ -333,14 +330,16 @@ fn compute_verdict(result: &crate::stages::poll::PollResult) -> String {
 /// [`verdict_for_findings`] の断定文 (「問題は見つかりませんでした」等) を出せる。
 fn verdict_for_unsettled_review(result: &crate::stages::poll::PollResult) -> Option<String> {
     match result.action.as_str() {
-        "parked_rate_limit" => {
+        "rate_limited" => {
             return Some(
-                "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)".to_string(),
+                "CodeRabbit rate-limit 中でレビュー未実施のため、判定を保留します (後続は GitHub Actions 経路が処理)"
+                    .to_string(),
             );
         }
-        "parked_review_recheck" => {
+        "pending_review" => {
             return Some(
-                "review 完了待ちのため wakeup を予約 (上記 PARK signal 参照)".to_string(),
+                "review 未確定のため判定を保留します (後続は GitHub Actions 経路が処理)"
+                    .to_string(),
             );
         }
         _ => {}
@@ -430,76 +429,56 @@ mod tests {
         }
     }
 
-    fn make_park_state(pr: u64, repo: &str, wakeup_at: i64, head: Option<&str>) -> PrMonitorState {
+    fn make_state(pr: u64, repo: &str, head: Option<&str>) -> PrMonitorState {
         let mut s = PrMonitorState::new(Some(pr), Some(repo.into()), "t".into());
-        s.next_wakeup_at_unix = Some(wakeup_at);
-        s.wakeup_reason = Some("review_recheck".into());
         s.head_commit = head.map(String::from);
         s
     }
 
     #[test]
-    fn should_resume_wakeup_true_when_pr_repo_head_match_and_due() {
-        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+    fn should_continue_state_true_when_pr_repo_head_match() {
+        let state = make_state(42, "o/r", Some("abc1234"));
         let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
-        assert!(should_resume_wakeup(&state, &pr_info, 200));
+        assert!(should_continue_state(&state, &pr_info));
     }
 
     #[test]
-    fn should_resume_wakeup_false_when_head_differs() {
-        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+    fn should_continue_state_false_when_head_differs() {
+        let state = make_state(42, "o/r", Some("abc1234"));
         let pr_info = make_pr_info(42, "o/r", Some("def5678"));
         assert!(
-            !should_resume_wakeup(&state, &pr_info, 200),
-            "CR Major #1: head 不一致なら fresh push 経路に倒す"
+            !should_continue_state(&state, &pr_info),
+            "CR Major #1 由来: head 不一致なら fresh 初期化に倒す (stale な時刻窓を持ち込まない)"
         );
     }
 
     #[test]
-    fn should_resume_wakeup_false_when_state_head_missing() {
-        let state = make_park_state(42, "o/r", 100, None);
+    fn should_continue_state_false_when_state_head_missing() {
+        let state = make_state(42, "o/r", None);
         let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
         assert!(
-            !should_resume_wakeup(&state, &pr_info, 200),
-            "legacy state (head_commit None) は安全側で fresh push 扱い"
+            !should_continue_state(&state, &pr_info),
+            "legacy state (head_commit None) は安全側で fresh 初期化扱い"
         );
     }
 
     #[test]
-    fn should_resume_wakeup_false_when_pr_info_head_missing() {
-        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+    fn should_continue_state_false_when_pr_info_head_missing() {
+        let state = make_state(42, "o/r", Some("abc1234"));
         let pr_info = make_pr_info(42, "o/r", None);
         assert!(
-            !should_resume_wakeup(&state, &pr_info, 200),
-            "current head 取得失敗時は安全側で fresh push 扱い"
+            !should_continue_state(&state, &pr_info),
+            "current head 取得失敗時は安全側で fresh 初期化扱い"
         );
     }
 
     #[test]
-    fn should_resume_wakeup_false_when_pr_or_repo_differs() {
-        let state = make_park_state(42, "o/r", 100, Some("abc1234"));
+    fn should_continue_state_false_when_pr_or_repo_differs() {
+        let state = make_state(42, "o/r", Some("abc1234"));
         let other_pr = make_pr_info(99, "o/r", Some("abc1234"));
         let other_repo = make_pr_info(42, "x/y", Some("abc1234"));
-        assert!(!should_resume_wakeup(&state, &other_pr, 200));
-        assert!(!should_resume_wakeup(&state, &other_repo, 200));
-    }
-
-    #[test]
-    fn should_resume_wakeup_false_when_wakeup_in_future() {
-        let state = make_park_state(42, "o/r", 1000, Some("abc1234"));
-        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
-        assert!(
-            !should_resume_wakeup(&state, &pr_info, 100),
-            "next_wakeup_at_unix が未来ならまだ resume しない"
-        );
-    }
-
-    #[test]
-    fn should_resume_wakeup_false_when_next_wakeup_unset() {
-        let mut state = make_park_state(42, "o/r", 100, Some("abc1234"));
-        state.next_wakeup_at_unix = None;
-        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
-        assert!(!should_resume_wakeup(&state, &pr_info, 200));
+        assert!(!should_continue_state(&state, &other_pr));
+        assert!(!should_continue_state(&state, &other_repo));
     }
 
     use crate::stages::poll::PollResult;
@@ -538,24 +517,25 @@ mod tests {
         }
     }
 
-    const VERDICT_PARK_RATE_LIMIT: &str =
-        "CodeRabbit rate-limit のため wakeup を予約 (上記 PARK signal 参照)";
-    const VERDICT_PARK_REVIEW: &str = "review 完了待ちのため wakeup を予約 (上記 PARK signal 参照)";
+    const VERDICT_RATE_LIMITED: &str =
+        "CodeRabbit rate-limit 中でレビュー未実施のため、判定を保留します (後続は GitHub Actions 経路が処理)";
+    const VERDICT_PENDING_REVIEW: &str =
+        "review 未確定のため判定を保留します (後続は GitHub Actions 経路が処理)";
     const VERDICT_REVIEW_PENDING: &str = "CodeRabbit review が未完了のため、判定を保留します";
     const VERDICT_NO_PROBLEMS: &str = "問題は見つかりませんでした";
     const VERDICT_MINOR: &str = "重大な問題は見つかりませんでした。軽微な改善提案があります";
     const VERDICT_CRITICAL: &str = "修正が必要な指摘があります";
 
     #[test]
-    fn verdict_park_rate_limit_takes_precedence_over_review_state() {
-        let r = poll_result("parked_rate_limit", Some("not_found"), vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_PARK_RATE_LIMIT);
+    fn verdict_rate_limited_takes_precedence_over_review_state() {
+        let r = poll_result("rate_limited", Some("not_found"), vec![]);
+        assert_eq!(compute_verdict(&r), VERDICT_RATE_LIMITED);
     }
 
     #[test]
-    fn verdict_park_review_recheck_takes_precedence_over_findings() {
-        let r = poll_result("parked_review_recheck", Some("not_found"), vec![finding("critical")]);
-        assert_eq!(compute_verdict(&r), VERDICT_PARK_REVIEW);
+    fn verdict_pending_review_takes_precedence_over_findings() {
+        let r = poll_result("pending_review", Some("not_found"), vec![finding("critical")]);
+        assert_eq!(compute_verdict(&r), VERDICT_PENDING_REVIEW);
     }
 
     #[test]

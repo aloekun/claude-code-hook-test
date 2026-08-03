@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::time::Duration;
 
 use crate::classifier_runner::classify_findings;
 use crate::config::{ClassifierConfig, DEFAULT_CHECK_TIMEOUT_SECS};
@@ -39,20 +38,10 @@ pub(super) fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
         return Some(make_terminal_result(state, result));
     }
 
-    if let Some(terminal) = handle_rate_limit_branch(
-        &mut state,
-        ctx.rate_limit_config,
-        ctx.pr_info,
-        ctx.review_recheck_wait_secs,
-        &result,
-        ctx.state_path,
-    ) {
+    if let Some(terminal) =
+        handle_rate_limit_branch(&mut state, ctx.rate_limit_config, ctx.pr_info, &result, ctx.state_path)
+    {
         return Some(terminal);
-    }
-
-    if ctx.start.elapsed() >= Duration::from_secs(ctx.max_duration) {
-        log_info(&format!("監視タイムアウト ({}秒)", ctx.max_duration));
-        return Some(make_timeout_result(state, ctx.max_duration, result));
     }
 
     None
@@ -137,7 +126,6 @@ fn build_state_for_iteration(
         state.notified = existing.notified;
         state.rate_limit_retries = existing.rate_limit_retries;
         state.rate_limit_last_retriggered_at = existing.rate_limit_last_retriggered_at;
-        state.review_recheck_count = existing.review_recheck_count;
         state.head_commit = existing.head_commit;
         state.classified_findings = existing.classified_findings;
         state.fix_push_time = existing.fix_push_time;
@@ -206,22 +194,6 @@ fn make_terminal_result(state: PrMonitorState, result: serde_json::Value) -> Pol
     PollResult {
         action: state.action,
         summary: state.summary,
-        ci: state.ci,
-        coderabbit: state.coderabbit,
-        findings: state.findings,
-        check_output: Some(result),
-        rate_limit: state.rate_limit,
-    }
-}
-
-fn make_timeout_result(
-    state: PrMonitorState,
-    max_duration: u64,
-    result: serde_json::Value,
-) -> PollResult {
-    PollResult {
-        action: "timed_out".into(),
-        summary: format!("監視タイムアウト ({}秒)", max_duration),
         ci: state.ci,
         coderabbit: state.coderabbit,
         findings: state.findings,

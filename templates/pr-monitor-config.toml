@@ -5,10 +5,10 @@
 
 [monitor]
 enabled = true
-poll_interval_secs = 120
-max_duration_secs = 600
 check_ci = true
 check_coderabbit = true
+# (旧 poll_interval_secs / max_duration_secs は廃止済み — single-shot 化 (WP-17 PR 3) に
+#  よりポーリングループ自体が消滅。残っていても unknown field として無視される)
 
 # takt セクションを有効にすると、ポーリング完了後に
 # CodeRabbit 指摘の AI 分析を実行する。

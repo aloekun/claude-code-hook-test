@@ -328,24 +328,9 @@ name = "post_merge_feedback"
 type = "ai"
 prompt = "post-merge-feedback"
 
-# ─── Post-PR Monitor: daemon + state file ───
-#
-# pnpm create-pr / pnpm push 実行時に daemon がバックグラウンドで起動し、
-# check-ci-coderabbit.exe を定期ポーリングして結果を
-# .claude/pr-monitor-state.json に書き出す。
-# Claude は CronCreate で state file を cat し、action に従って行動する。
-# CronCreate は UX 最適化レイヤーであり、コア機能ではない。
-# フォールバック: cat .claude/pr-monitor-state.json で手動確認可能。
-
-[post_pr_monitor]
-enabled = true
-poll_interval_secs = 120     # CronCreate のポーリング間隔（秒、2分）
-max_duration_secs = 600      # 最大監視時間（秒、10分）
-check_ci = true              # GitHub Actions の監視
-check_coderabbit = true      # CodeRabbit レビューの監視
-# trigger_patterns をコメントアウトまたは未設定 → デフォルトトリガー有効
-# trigger_patterns = ["gh pr create", "git push", "jj git push", "pnpm push"]  # 明示指定する場合
-# trigger_patterns = []  # 空配列 = 全トリガー無効化（モニタリング停止）
+# (旧 [post_pr_monitor] セクションは WP-17 PR 3 で撤去 — daemon + CronCreate ポーリング
+#  時代 (ADR-009) の残骸で、どのコードも読んでいなかった。現行の PR 監視設定は
+#  リポジトリルートの pr-monitor-config.toml が正)
 
 # ─── 発火テレメトリ収集層 (WP-12 step 1、ADR-055、試験運用) ───
 #
@@ -402,8 +387,10 @@ trend_months = 6              # レポートが遡る月数 (月別表 / 発火 
 #   hooks-stop-tool-call-leak/prompt-recovery  = leak 回収 UserPromptSubmit 経路 (warn、ADR-061)
 #   jj-op-verify                               = hooks-post-tool-jj-op-verify (operation 未記録 warn)
 #   hooks-stop-quality                         = Stop 品質ゲート (block)
-#   pr_monitor_catchup / reaper / staleness / workspace_stale / weekly_review_reminder /
+#   reaper / staleness / workspace_stale / weekly_review_reminder /
 #   monthly_review_reminder                    = hooks-session-start の nudge 群 (warn)
+#   (pr_monitor_catchup は WP-17 PR 3 で nudge ごと撤去 — 過去の firings jsonl には残るが
+#    集計対象の現役 id ではない)
 [telemetry_report.registry]
 hook_ids = [
   "file-length",
@@ -411,7 +398,6 @@ hook_ids = [
   "hooks-stop-tool-call-leak/prompt-recovery",
   "jj-op-verify",
   "hooks-stop-quality",
-  "pr_monitor_catchup",
   "reaper",
   "staleness",
   "workspace_stale",

@@ -1,14 +1,18 @@
 //! Post-PR Monitor
 //!
 //! PR 作成と CI/CodeRabbit 監視を一貫して行うスタンドアロン CLI。
-//! Bb-2 で single-iteration + CronCreate park モデルに移行。
+//! WP-17 PR 3 で single-shot モデルへ移行 (旧 Bb-2 の CronCreate park モデルは廃止 —
+//! ADR-018 amendment)。checker を 1 回呼び、terminal action か「未確定 (pending_review /
+//! rate_limited)」の報告で必ず終了する。未確定 PR の後続イベントは GitHub Actions 経路
+//! (pr-monitor workflow の Phase A/B) が常時処理し、ローカルの時限 wakeup は使わない。
 //!
 //! モード:
-//!   デフォルト (PR 作成): gh pr create → 初回 review_recheck park → (wakeup で) takt 分析
+//!   デフォルト (PR 作成): gh pr create → single-shot check → 報告
 //!     pnpm create-pr -- --title "..." --body "..."
 //!
-//!   --monitor-only: PR が存在すれば single-iteration check → (wakeup なら) park / 終端
-//!     pnpm push 完了後および CronCreate wakeup でチェインで呼ばれる
+//!   --monitor-only: PR が存在すれば single-shot check → 報告
+//!     pnpm push 完了後にチェインで呼ばれる。手動再実行も可 (同一 PR + 同一 head なら
+//!     state の時刻窓アンカーを継続する)
 //!
 //!   --mark-notified: state file の notified フラグを true にする
 //!     Claude が結果を処理した後に呼ばれる
@@ -17,7 +21,7 @@
 //!     --prepare-pr-body-cleanup: `.tmp-pr-body.md` を削除する (旧 prepare-pr-body.ps1、WP-14)
 //!
 //! 終了コード:
-//!   0 - 正常終了 (park 含む、PARK signal は stdout に出力済)
+//!   0 - 正常終了 (pending_review / rate_limited の保留報告を含む)
 //!   1 - gh pr create 失敗 (PR 作成モードのみ) / prepare-pr-body の入力空・IO 失敗
 
 mod classifier_runner;

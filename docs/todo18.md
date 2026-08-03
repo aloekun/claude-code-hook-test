@@ -15,7 +15,7 @@
 >
 > **本タスクの位置づけ**: PR #214 post-merge-feedback Tier 3 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-06-20 ユーザー承認)。analyzer rationale: 「PR #214 の `review_recheck.rs` で positive pattern として land (lines 185–187)。同型コード (`review_recheck_count`, `head_commit` 上書き) との一貫性がある確立されたパターン。Frequency Medium = cli-pr-monitor には複数の state machine があり再発確実。Effort S、Adoption Risk None → ✅ 採用候補と判定」。pre-push:simplicity + pre-push:security の独立 2 ソース検出。
 >
-> **参照**: `.claude/feedback-reports/214.md` Tier 3 #1、[src/cli-pr-monitor/src/stages/poll/review_recheck.rs:177-193](../src/cli-pr-monitor/src/stages/poll/review_recheck.rs#L177-L193) (現行 `finalize_initial_review_park` の defensive reset block)、memory `feedback_no_unenforced_rules.md` (enforcement 要件)、memory `feedback_global_config_backup.md` (snapshot 必須)。
+> **参照**: `.claude/feedback-reports/214.md` Tier 3 #1、旧 `src/cli-pr-monitor/src/stages/poll/review_recheck.rs` の `finalize_initial_review_park` defensive reset block (**WP-17 PR 3 の park モデル廃止でファイルごと削除済み** — pattern の実例は PR #214 の diff を参照。rule 化する価値は削除後も変わらない: 同型の state machine は `finalize_pending_review` / iteration の state 継承等に現存)、memory `feedback_no_unenforced_rules.md` (enforcement 要件)、memory `feedback_global_config_backup.md` (snapshot 必須)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort S。global rules への docs 追記 ~30 行で完結、`feedback_global_config_backup` snapshot を忘れない。
 
