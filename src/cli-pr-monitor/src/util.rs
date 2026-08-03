@@ -10,13 +10,13 @@ pub(crate) struct PrInfo {
     pub(crate) push_time: Option<String>,
     /// 現在の PR head commit OID (CR Major #1 fix, Bb-2 PR #114 review)。
     ///
-    /// `gh pr view --json headRefOid` で取得した SHA。`detect_wakeup_resume` が
-    /// state の head_commit と比較し、新 commit が push されていれば fresh push
+    /// `gh pr view --json headRefOid` で取得した SHA。`detect_state_continuity` が
+    /// state の head_commit と比較し、新 commit が push されていれば fresh 初期化
     /// 経路に分岐させる。`pr_number` が None の段階では None。
     pub(crate) head_commit: Option<String>,
     /// fresh push 時の固定 push_time (順位 141 実装、CR rate-limit detection bug 修正)。
     ///
-    /// `push_time` は wakeup 経路で `state.started_at` を再利用するため CR overlay の
+    /// `push_time` は state 継続経路で `state.started_at` を再利用するため CR overlay の
     /// `updated_at` が「過去扱い」で除外される構造バグがあった。本 field は fresh push
     /// 時刻を固定保持し、`check-ci-coderabbit` への `--push-time` 引数として優先される。
     /// None の場合は `push_time` に fallback (legacy 互換)。
@@ -76,7 +76,7 @@ fn find_pr_via_jj_bookmarks() -> Option<u64> {
 
 /// CR Major #1 fix (Bb-2 PR #114 review): PR の現在 head commit OID を `gh pr view`
 /// で取得する。失敗時は None を返す (caller は head_commit None を「不明」として扱い、
-/// detect_wakeup_resume 側で fresh push 経路に倒す)。
+/// detect_state_continuity 側で fresh 初期化経路に倒す)。
 pub(crate) fn get_pr_head_commit(pr_number: u64, repo: Option<&str>) -> Option<String> {
     let pr_str = pr_number.to_string();
     let mut args: Vec<&str> = vec![

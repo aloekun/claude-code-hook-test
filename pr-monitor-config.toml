@@ -6,17 +6,12 @@
 
 [monitor]
 enabled = true
-max_duration_secs = 600
 check_ci = true
 check_coderabbit = true
+# (旧 max_duration_secs は WP-17 PR 3 で廃止 — single-shot 化によりループ上限が消滅)
 
-# review 完了待ち park 制御 (Bb-3 順位 55)。
-# CodeRabbit walkthrough 確認後、review 完了をポーリングする CronCreate 経路の
-# 待機秒数と最大再チェック回数。コメントアウトで全てデフォルト (5 分 / 5 分 / 3 回) を使用。
-# [review_recheck]
-# initial_review_wait_secs = 300
-# review_recheck_wait_secs = 300
-# max_review_rechecks = 3
+# (旧 [review_recheck] セクションは WP-17 PR 3 で廃止。park/wakeup モデルの撤去に伴い
+#  設定対象が消滅した。旧 config に残っていても unknown section として無視される)
 
 [takt]
 workflow = "post-pr-review"

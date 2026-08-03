@@ -2,7 +2,8 @@
 //!
 //! push / PR 作成後に CI (GitHub Actions) と CodeRabbit レビューの状態を
 //! gh CLI 経由で取得し、構造化 JSON を stdout に出力する。
-//! CronCreate のポーリングジョブから定期的に呼び出される想定。
+//! cli-pr-monitor の single-shot check から呼び出される (WP-17 PR 3 で
+//! CronCreate ポーリング前提を廃止)。
 //!
 //! 使い方:
 //!   check-ci-coderabbit.exe --push-time "2026-04-01T12:00:00Z" [--repo owner/repo] [--pr 42]

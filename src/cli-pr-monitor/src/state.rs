@@ -40,45 +40,21 @@ pub(crate) struct PrMonitorState {
     /// CR が新たな rate-limit comment を投稿したら event_time が変わり再度 retrigger 対象になる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) rate_limit_last_retriggered_at: Option<String>,
-    /// 次回 wakeup の予定時刻 (unix epoch 秒)。Bb-1 (Bundle b PR-1) で導入。
+    /// state 記録時点の PR head commit OID (CR Major #1 fix, Bb-2 PR #114 review で導入)。
     ///
-    /// rate-limit 等で長時間待機が必要な場合、cli-pr-monitor は同プロセス内で sleep せず
-    /// この field に reset 時刻を保存して exit する。Claude Code 側が stdout の
-    /// PARK signal を読み、CronCreate (`durable: true`) で wakeup を予約する。
-    /// wakeup 発火時に `cli-pr-monitor.exe --monitor-only` が再 invoke される。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) next_wakeup_at_unix: Option<i64>,
-    /// wakeup の理由ラベル (e.g. "rate_limit_retry" / "review_recheck"). Bb-1 で導入、Bb-2 で値追加。
-    ///
-    /// Bb-2 (review 完了待ち) で `"review_recheck"` 経路を追加。Bb-3 (SessionStart catch-up) で
-    /// 複数の wakeup 経路を識別するための discriminator。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) wakeup_reason: Option<String>,
-    /// review 完了待ちの recheck 回数 (Bb-2 で導入)。
-    ///
-    /// `parked_review_recheck` 経路で wakeup が発火するたびにインクリメントされる。
-    /// `max_review_rechecks` (config) 到達で `action_required` 経路に抜ける (review が想定時間内に
-    /// 完了していない通知)。新規 push で `PrMonitorState::new` により 0 にリセット、wakeup 経路で
-    /// は build_state_for_iteration が既存値を保持する。
-    #[serde(default)]
-    pub(crate) review_recheck_count: u32,
-    /// park 時点の PR head commit OID (CR Major #1 fix, Bb-2 PR #114 review)。
-    ///
-    /// `detect_wakeup_resume` が wakeup 判定時に「同 PR への新 push で head が変わって
-    /// いないか」を検証するために使う。state の pr / repo / next_wakeup_at_unix が
-    /// 一致しても head が変われば fresh push として扱い、stale state (started_at /
-    /// review_recheck_count) を新 commit に持ち込まない。値は `gh pr view --json
-    /// headRefOid` で取得した SHA。legacy state (本フィールド未設定) は wakeup 不一致
-    /// 扱い (= fresh push 経路) で安全側に倒す。
+    /// 同一 PR への連続 invocation で state (started_at = 時刻窓アンカー) を継続してよいかの
+    /// 判定に使う (`should_continue_state`)。pr / repo が一致しても head が変われば新 push と
+    /// して扱い、stale な時刻窓を新 commit に持ち込まない。値は `gh pr view --json headRefOid`
+    /// で取得した SHA。legacy state (本フィールド未設定) は不一致扱い (= fresh 初期化) で
+    /// 安全側に倒す。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) head_commit: Option<String>,
     /// fresh push 時の固定 push_time (順位 141 実装、CR rate-limit detection bug 修正)。
     ///
-    /// `started_at` は wakeup ごとに更新されるため、CR walkthrough overlay の `updated_at`
-    /// が `started_at` より過去になると `parse_rate_limit` の `event_time >= push_time`
-    /// filter で除外され検出失敗する。本 field は fresh push (= head_commit 確定時) の
-    /// 時刻で固定し、wakeup recheck 経路でも上書きしないことで「fix push 直後の overlay
-    /// は確実に検出」される invariant を保証する。
+    /// CR walkthrough overlay の `updated_at` が時刻窓アンカーより過去になると
+    /// `parse_rate_limit` の `event_time >= push_time` filter で除外され検出失敗する。
+    /// 本 field は fresh push (= head_commit 確定時) の時刻で固定し、後続 invocation でも
+    /// 上書きしないことで「fix push 直後の overlay は確実に検出」される invariant を保証する。
     /// 値は ISO 8601 UTC (`utc_now_iso8601()` で生成)。`check-ci-coderabbit` への
     /// `--push-time` 引数として渡される。legacy state (本フィールド未設定) は `started_at`
     /// に fallback して挙動を維持する。
@@ -144,9 +120,6 @@ impl PrMonitorState {
             rate_limit: None,
             rate_limit_retries: 0,
             rate_limit_last_retriggered_at: None,
-            next_wakeup_at_unix: None,
-            wakeup_reason: None,
-            review_recheck_count: 0,
             head_commit: None,
             fix_push_time: None,
         }
@@ -269,9 +242,6 @@ mod tests {
             rate_limit: None,
             rate_limit_retries: 0,
             rate_limit_last_retriggered_at: None,
-            next_wakeup_at_unix: None,
-            wakeup_reason: None,
-            review_recheck_count: 0,
             head_commit: None,
             fix_push_time: None,
         };
@@ -311,15 +281,40 @@ mod tests {
         }"#;
 
         let state: PrMonitorState = serde_json::from_str(legacy_json).unwrap();
-        assert_eq!(state.review_recheck_count, 0);
         assert!(state.head_commit.is_none());
-        assert!(state.next_wakeup_at_unix.is_none());
-        assert!(state.wakeup_reason.is_none());
         assert_eq!(state.rate_limit_retries, 0);
         assert!(
             state.fix_push_time.is_none(),
             "legacy state without fix_push_time field falls back to None (順位 141)"
         );
+    }
+
+    /// PR 3 (wakeup 廃止): 旧 state file に残る wakeup fields (next_wakeup_at_unix /
+    /// wakeup_reason / review_recheck_count) は unknown field として無視され、
+    /// deserialize が失敗しないこと (park モデル時代の state file との前方互換)。
+    #[test]
+    fn state_with_removed_wakeup_fields_still_deserializes() {
+        let park_era_json = r#"{
+            "pr": 42,
+            "repo": "owner/repo",
+            "started_at": "2026-08-01T00:00:00Z",
+            "last_checked": null,
+            "ci": null,
+            "coderabbit": null,
+            "action": "parked_review_recheck",
+            "summary": "review check を 300s 後に予約",
+            "findings": [],
+            "notified": false,
+            "daemon_pid": null,
+            "daemon_status": "running",
+            "next_wakeup_at_unix": 1785732397,
+            "wakeup_reason": "review_recheck",
+            "review_recheck_count": 2
+        }"#;
+
+        let state: PrMonitorState = serde_json::from_str(park_era_json).unwrap();
+        assert_eq!(state.pr, Some(42));
+        assert_eq!(state.action, "parked_review_recheck");
     }
 
     /// 順位 141 (PR #169 follow-up): `fix_push_time` field の round-trip 検証。
@@ -348,66 +343,6 @@ mod tests {
         let state = PrMonitorState::new(Some(1), None, "t".into());
         let json = serde_json::to_string(&state).unwrap();
         assert!(!json.contains("fix_push_time"));
-    }
-
-    #[test]
-    fn state_serialize_roundtrip_with_review_recheck_count() {
-        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
-        state.review_recheck_count = 2;
-        state.next_wakeup_at_unix = Some(1_775_088_000);
-        state.wakeup_reason = Some("review_recheck".into());
-
-        let json = serde_json::to_string(&state).unwrap();
-        assert!(json.contains("review_recheck_count"));
-        assert!(json.contains("review_recheck"));
-
-        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.review_recheck_count, 2);
-        assert_eq!(
-            deserialized.wakeup_reason.as_deref(),
-            Some("review_recheck")
-        );
-    }
-
-    #[test]
-    fn state_default_review_recheck_count_is_zero() {
-        let state = PrMonitorState::new(Some(1), None, "t".into());
-        assert_eq!(state.review_recheck_count, 0);
-    }
-
-    #[test]
-    fn state_serialize_roundtrip_with_wakeup_fields() {
-        let mut state =
-            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-05T12:00:00Z".into());
-        state.next_wakeup_at_unix = Some(1_775_088_000);
-        state.wakeup_reason = Some("rate_limit_retry".into());
-
-        let json = serde_json::to_string(&state).unwrap();
-        assert!(json.contains("next_wakeup_at_unix"));
-        assert!(json.contains("rate_limit_retry"));
-
-        let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
-        assert_eq!(state, deserialized);
-        assert_eq!(deserialized.next_wakeup_at_unix, Some(1_775_088_000));
-        assert_eq!(
-            deserialized.wakeup_reason.as_deref(),
-            Some("rate_limit_retry")
-        );
-    }
-
-    #[test]
-    fn state_omits_wakeup_fields_when_none() {
-        let state = PrMonitorState::new(Some(1), None, "t".into());
-        let json = serde_json::to_string(&state).unwrap();
-        assert!(!json.contains("next_wakeup_at_unix"));
-        assert!(!json.contains("wakeup_reason"));
-    }
-
-    #[test]
-    fn state_default_wakeup_fields_are_none() {
-        let state = PrMonitorState::new(Some(1), None, "t".into());
-        assert!(state.next_wakeup_at_unix.is_none());
-        assert!(state.wakeup_reason.is_none());
     }
 
     #[test]
