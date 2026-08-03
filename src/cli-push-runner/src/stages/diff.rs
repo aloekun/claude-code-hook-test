@@ -162,8 +162,7 @@ fn verify_diff_covers_pr_range(
 /// 全行が未知のときだけ fail-closed する旧実装 (SIM-NEW-diff-rs-L178) の per-line 版。
 /// 全行が空 (末尾改行のみ 等) なら `Ok` の空集合を返す (= 変更なし)。
 ///
-/// `R`/`C` は `<status> <old> <new>` の 3 トークン形式 (`lib_docs_policy` の
-/// `is_docs_only_summary` テストが同じ `"R docs/a.md docs/b.md"` 形状を実証)。
+/// `R`/`C` の実際の書式は [`rename_new_path`] を参照 (2026-08-02 実測で訂正)。
 /// `parse_git_diff_paths` (`diff --git a/old b/new` の new = `b/` 側のみ拾う) と
 /// 揃えるため new path 側だけを採用する (SIM-NEW-diff-rs-L146)。
 ///
@@ -191,20 +190,65 @@ fn parse_summary_paths(
 /// fail-closed に倒す。
 ///
 /// `None` になるのは: 未知 status (`jj diff --summary` の M/A/D/R/C 以外) / R・C で
-/// new path (末尾トークン) が無い崩れた行 / パスが空。catch-all で任意 status や崩れた
-/// R/C を通すと、jj の出力書式が変わった行を「妥当なパス」として取り込み、書式変化を
-/// 検知できず gate が沈黙する (SIM-NEW-diff-rs-L178)。旧実装は崩れた R/C の生トークンを
+/// [`rename_new_path`] が new path を復元できない崩れた行 / パスが空。catch-all で任意
+/// status や崩れた R/C を通すと、jj の出力書式が変わった行を「妥当なパス」として取り込み、
+/// 書式変化を検知できず gate が沈黙する (SIM-NEW-diff-rs-L178)。旧実装は崩れた R/C の生トークンを
 /// 残して coverage 不一致に頼っていたが、CodeRabbit #313 指摘に従い「未知 status も崩れた
 /// R/C も明示的に reject」へ統一する (fail-closed の判定を coverage 副作用でなく
 /// パース時点に前倒しする)。
 fn summary_line_new_path(status: &str, rest: &str) -> Option<String> {
     let trimmed = rest.trim();
     let path = match status {
-        "M" | "A" | "D" => trimmed,
-        "R" | "C" => trimmed.rsplit_once(' ').map(|(_, new)| new)?,
+        "M" | "A" | "D" => trimmed.to_string(),
+        "R" | "C" => rename_new_path(trimmed)?,
         _ => return None,
     };
     (!path.is_empty()).then(|| path.replace('\\', "/"))
+}
+
+/// `jj diff --summary` の rename / copy 行から new path を復元する。
+///
+/// # 実測した書式 (2026-08-02)
+///
+/// jj は共通 prefix / suffix を括り出した**波括弧形式**で出す:
+///
+/// ```text
+/// R src\{cli-autonomy-gate => lib-autonomy-policy}\src\decision.rs
+/// ```
+///
+/// 共通部分が無い場合は括弧の無い矢印形式 (`old => new`) になる。ただしこちらは実出力を
+/// **観測できていない**推定であり、上の波括弧形式と証拠の強さが違う (本コミットが正した
+/// 「fixture を実測の証拠と取り違える」誤りを繰り返さないため明記する)。推定が外れていても
+/// 未知形は `None` → `Err` に倒れるので、書式変化は沈黙せず push 停止として現れる。
+///
+/// # 旧実装のバグ (本関数が修正するもの)
+///
+/// 旧実装は `<status> <old> <new>` の 3 トークン空白区切りを前提に `rsplit_once(' ')` して
+/// おり、上の実測行からは `lib-autonomy-policy}\src\decision.rs` という壊れたパスを取り出して
+/// いた。結果 coverage 検査の期待値が `--git` 側と一致せず、**rename を含む PR が一律 push
+/// 不能**になっていた (判定は block 側なので fail-closed ではあるが誤検知)。
+///
+/// 3 トークン形式を前提とした根拠は `lib_docs_policy` の `"R docs/a.md docs/b.md"` という
+/// テスト文字列だったが、これは jj の出力を観測したものではなく**手で作った fixture** で、
+/// 実挙動の証拠になっていなかった (dev-conventions「外部 fixture 参照テストは値まで assert」
+/// が想定する失敗そのもの)。本関数のテストは実測値をそのまま assert する。
+///
+/// # 受理する形と倒し方
+///
+/// 波括弧形式と矢印形式のみ受理し、それ以外 (旧 3 トークン形式を含む) は `None` を返して
+/// 呼び出し側で `Err` に昇格させる。空白区切りへの fallback を残さないのは、波括弧形式の
+/// パースに失敗した行が空白 fallback で「それらしいパス」に化けると、書式変化を検知できず
+/// gate が沈黙するため (既存方針「未知は明示的に reject」と同じ、fail-closed)。
+fn rename_new_path(rest: &str) -> Option<String> {
+    const ARROW: &str = " => ";
+    let Some(open) = rest.find('{') else {
+        return rest.split_once(ARROW).map(|(_, new)| new.trim().to_string());
+    };
+    let close = open + rest[open..].find('}')?;
+    let (_, new) = rest[open + 1..close].split_once(ARROW)?;
+    let prefix = &rest[..open];
+    let suffix = &rest[close + 1..];
+    Some(format!("{prefix}{new}{suffix}"))
 }
 
 /// unified diff の `diff --git a/X b/X` ヘッダからパス集合を作る。
