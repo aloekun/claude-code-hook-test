@@ -480,10 +480,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p findings-input
+          # --paginate --slurp: 30 件/ページを超えるとデフォルトでは先頭ページしか
+          # 取得できず findings agent への入力が黙って欠落する。--paginate で全ページ
+          # 取得し、--slurp でページ配列としてまとめてから --jq に渡す (--paginate だけだと
+          # --jq がページ単位に適用され結合結果が有効な単一 JSON 配列にならない)。
+          # --slurp 後は `.[]` がページを指すため `.[][]` でページ内要素まで展開する。
           gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
-            --jq '[.[] | select(.user.login == "coderabbitai[bot]")]' > findings-input/comments.json
+            --paginate --slurp \
+            --jq '[.[][] | select(.user.login == "coderabbitai[bot]")]' > findings-input/comments.json
           gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
-            --jq '[.[] | select(.user.login == "coderabbitai[bot]")]' > findings-input/reviews.json
+            --paginate --slurp \
+            --jq '[.[][] | select(.user.login == "coderabbitai[bot]")]' > findings-input/reviews.json
 
       # findings agent (読み取り専用)。fix agent とは別プロセスで、scope guard の allowlist を
       # 先に確定させる。同一 agent に findings と fix の両方を出させると allowlist が
@@ -623,6 +630,14 @@ jobs:
             --findings-file "${{ steps.findings_json.outputs.path }}"
 
       - name: Push fix (workflow-authored, not agent-authored)
+        id: push
+        # continue-on-error: push 競合 (並行更新による non-fast-forward reject 等) を
+        # run 失敗にしない。ADR-067 § 決定6「degrade は失敗ではない」は早期打ち切り /
+        # findings ゼロ / ゲート deny と同列に扱うべき失敗経路であり、gate 通過後の
+        # 外部要因による push 失敗だけを run 失敗として特別扱いする理由はない。
+        # id を明示するのは、後続の「Report degrade to Phase A」step が
+        # steps.gate.outcome だけでなく steps.push.outcome も参照して分岐するため。
+        continue-on-error: true
         if: steps.applies.outputs.proceed == 'true' && steps.gate.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -639,8 +654,10 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
             "HEAD:refs/heads/${HEAD_REF}"
 
-      # gate が deny した場合に run を失敗させず、degrade したことだけを明示する。
-      # Phase A の分析コメントは既に投稿済みなので、成果物としては Phase A 相当に落ちる。
+      # gate が deny した場合、または push 自体が失敗した場合 (push 競合等、gate は
+      # 通過済み) に run を失敗させず、degrade したことだけを明示する。Phase A の
+      # 分析コメントは既に投稿済みなので、成果物としては Phase A 相当に落ちる
+      # (ADR-067 § 決定6)。
       - name: Report degrade to Phase A
         # SIM-NEW-pr-monitor-yml-L539 対策: この if: は success()/failure()/cancelled()/
         # always() を呼ばないため GitHub Actions が暗黙に success() を前置する。前段 step
@@ -648,19 +665,26 @@ jobs:
         # 本当に失敗すると success() が偽になり本 step ごと skip され、コメントが約束する
         # 「前段 step の失敗」診断行が出力されない。!cancelled() で置き換え、cancel 以外の
         # 経路 (成功・失敗いずれも) で必ず到達するようにする。
-        if: (!cancelled()) && steps.applies.outputs.proceed == 'true' && steps.gate.outcome != 'success'
+        # push step は continue-on-error のため失敗しても job 全体は失敗せず本 step まで
+        # 到達する。gate.outcome == 'success' でも push.outcome == 'failure' なら degrade
+        # 扱いにするよう条件を拡張する (push 競合が run 失敗になっていた不整合の是正)。
+        if: >-
+          (!cancelled()) && steps.applies.outputs.proceed == 'true' &&
+          (steps.gate.outcome != 'success' || steps.push.outcome == 'failure')
         env:
           GATE_OUTCOME: ${{ steps.gate.outcome }}
+          PUSH_OUTCOME: ${{ steps.push.outcome }}
         run: |
           echo "[FIX_PUSH_DENY] Phase A 相当 (分析コメントのみ) に degrade しました。"
-          # 本 step の guard は「gate が deny した」場合と「gate に到達しなかった」場合
-          # (findings 0 件 / 前段 step の失敗) の両方で真になる。後者で gate の
-          # [FIX_PUSH_DENY] 行を案内すると存在しない行を指すため、outcome で分岐する。
-          # skip された step の outcome は '' または 'skipped' のどちらもあり得るので、
-          # 「gate が走った」ことを示す値だけを明示的に判定する。
+          # 本 step の guard は「gate が deny した」場合、「gate に到達しなかった」場合
+          # (findings 0 件 / 前段 step の skip / 失敗)、「gate は通過したが push 自体が
+          # 失敗した」場合 (push 競合等) の3通りで真になる。順に判定して案内文を出し分ける。
           case "${GATE_OUTCOME:-}" in
             failure)
               echo "理由: gate が push を拒否しました。直前の gate step の [FIX_PUSH_DENY] 行を参照してください。"
+              ;;
+            success)
+              echo "理由: push step が失敗しました (outcome='${PUSH_OUTCOME:-<未実行>}')。push 競合 (並行更新による non-fast-forward reject) 等が原因です。直前の push step のログを参照してください。"
               ;;
             *)
               echo "理由: gate step に到達しませんでした (outcome='${GATE_OUTCOME:-<未実行>}')。findings 0 件、または前段 step の skip / 失敗が原因です。前段 step のログを参照してください。"
