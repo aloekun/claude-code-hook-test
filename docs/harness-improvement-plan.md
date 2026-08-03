@@ -87,10 +87,11 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - 現状: observe 期間（2026-07-12〜08-01、fix step 実行 5 回）で誤検知ゼロを確認し、2026-08-01 に `mode = "enforce"` へ昇格済（ADR-054 の dogfood 記録参照）。
 - 残作業: enforce で 3〜5 PR（fix step 発生ベース）誤検知ゼロを確認したら本採用（ADR-054 の status 更新）。判定基準・kill-switch は ADR-054 を参照。
 
-### WP-15 追補残: レート制限 park の実観測
+### WP-15 追補残: レート制限時の保留保証（GitHub Actions 経路）
 
 - 現状: PR 監視の陽性証拠 gate は実装・incident 実データでの単体実測済み（ADR-064）。
-- 残作業: 実 push/PR サイクルで CodeRabbit レート制限が自然発生した際に (a) 監視が success で終わらず park すること、(b) レポート判定文が保留を出すこと、を実観測したら完了（ADR-064 ステータス欄の検証残。この経路は自然発生時にしか実測できない）。
+- **2026-08-04 更新（WP-17 PR 3）**: 旧残作業のうち (a)「監視が success で終わらず **park** すること」は、park モデルの廃止（[ADR-018](adr/adr-018-pr-monitor-takt-migration.md) 追記 2026-08-03）で **moot として終了**。single-shot モデルでの同等保証は terminal `rate_limited` 報告で、unit test により固定済み。
+- 残作業: (b)「レポート判定文が保留を出すこと」の **GitHub Actions 経路での実観測**。CodeRabbit レート制限が自然発生した際に、Phase A の分析コメントが「レビュー未実施のため保留」を明示することを確認したら完了（この経路は自然発生時にしか実測できない）。ローカル側の判定文は `verdict_for_unsettled_review` のテストで固定済み。
 
 ### WP-16 残: CI matrix の実走観測と required check 化
 

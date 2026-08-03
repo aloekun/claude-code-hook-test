@@ -177,12 +177,13 @@ fn finalize_waiting_reset_reports_rate_limited_terminal() {
     let rl = state.rate_limit.clone().unwrap();
     let pr_info = pr_info_without_shortcut();
 
-    let outcome = finalize_waiting_reset(
+    let outcome = finalize_waiting_reset_with(
         &mut state,
         &rl,
         &pr_info,
         &serde_json::Value::Null,
         &state_path,
+        |_| None,
     );
 
     assert_eq!(outcome.action, "rate_limited");
@@ -229,12 +230,13 @@ fn finalize_waiting_reset_persists_head_commit() {
         fix_push_time: None,
     };
 
-    let outcome = finalize_waiting_reset(
+    let outcome = finalize_waiting_reset_with(
         &mut state,
         &rl,
         &pr_info,
         &serde_json::Value::Null,
         &state_path,
+        |_| None,
     );
 
     assert_eq!(outcome.action, "rate_limited");
@@ -267,12 +269,13 @@ fn finalize_waiting_reset_survives_write_failure() {
     let rl = state.rate_limit.clone().unwrap();
     let pr_info = pr_info_without_shortcut();
 
-    let outcome = finalize_waiting_reset(
+    let outcome = finalize_waiting_reset_with(
         &mut state,
         &rl,
         &pr_info,
         &serde_json::Value::Null,
         &bad_path,
+        |_| None,
     );
 
     assert_eq!(
@@ -312,6 +315,54 @@ fn finalize_posted_retrigger_persists_head_commit() {
         persisted.head_commit.as_deref(),
         Some("cafef00d"),
         "head_commit が persist されないと should_continue_state が次回 fresh 初期化に倒れる"
+    );
+}
+
+/// fail-closed 回帰 (SIM-NEW-rate_limit-L122): retrigger 投稿後の state 書き込み失敗は
+/// `finalize_waiting_reset` と異なり `action_required` に倒れる — この経路は
+/// `@coderabbitai review` 投稿という副作用を伴うため (L148-165 のコメント参照)、
+/// state 永続化の成否で重複投稿を防ぐ必要がある (`finalize_waiting_reset` の
+/// fail-open とは対照的な fail-closed 方針)。
+#[test]
+fn finalize_posted_retrigger_action_required_when_write_state_fails() {
+    let bad_path = std::env::temp_dir()
+        .join(format!(
+            "test-rl-posted-retrigger-fail-{}",
+            std::process::id()
+        ))
+        .join("nonexistent-dir")
+        .join("state.json");
+    let mut state = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+    let rl = RateLimitState {
+        until_unix_secs: 0,
+        comment_event_time: "2026-08-03T00:00:00Z".into(),
+        wait_minutes: 5,
+        wait_seconds: 0,
+    };
+    let pr_info = crate::util::PrInfo {
+        pr_number: Some(1),
+        repo: Some("o/r".into()),
+        push_time: None,
+        head_commit: None,
+        fix_push_time: None,
+    };
+
+    let outcome = finalize_posted_retrigger(
+        &mut state,
+        &rl,
+        &pr_info,
+        &serde_json::Value::Null,
+        &bad_path,
+    );
+
+    assert_eq!(
+        outcome.action, "action_required",
+        "state 永続化失敗時は fail-closed で action_required に倒れること (重複投稿防止)"
+    );
+    assert!(
+        outcome.summary.contains("重複投稿"),
+        "手動介入時に重複投稿への注意を促す文言が必要: {}",
+        outcome.summary
     );
 }
 
@@ -441,4 +492,52 @@ fn format_shortcut_signal_includes_required_fields() {
     assert!(sig.contains("mergeable: MERGEABLE"));
     assert!(sig.contains("merge_state: CLEAN"));
     assert!(sig.contains("AskUserQuestion"));
+}
+
+/// CodeRabbit #353 (注入の正しさ): `finalize_waiting_reset_with` は注入された
+/// fetcher が `Some(CLEAN)` を返し CR 側もクリーンなら shortcut 判定に到達する。
+///
+/// `|_| None` を渡すテストだけでは「注入したものが実際に使われているか」を
+/// 判別できない (fetcher を無視する実装でも通ってしまう)。ここでは呼び出し自体を
+/// フラグで観測し、注入経路が生きていることを固定する。
+#[test]
+fn finalize_waiting_reset_with_uses_injected_fetcher() {
+    use std::cell::Cell;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let state_path = tmp.path().join("state.json");
+    let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+    state.rate_limit = Some(RateLimitState {
+        until_unix_secs: 9_999_999_999,
+        comment_event_time: "2026-08-03T00:00:00Z".into(),
+        wait_minutes: 5,
+        wait_seconds: 0,
+    });
+    let rl = state.rate_limit.clone().unwrap();
+    let pr_info = crate::util::PrInfo {
+        pr_number: Some(42),
+        repo: Some("o/r".into()),
+        push_time: None,
+        head_commit: Some("deadbeef".into()),
+        fix_push_time: None,
+    };
+
+    let called = Cell::new(false);
+    let outcome = finalize_waiting_reset_with(
+        &mut state,
+        &rl,
+        &pr_info,
+        &serde_json::Value::Null,
+        &state_path,
+        |_| {
+            called.set(true);
+            None
+        },
+    );
+
+    assert!(
+        called.get(),
+        "注入した fetcher が呼ばれること (呼ばれないなら gh 層が迂回されていない疑い)"
+    );
+    assert_eq!(outcome.action, "rate_limited");
 }

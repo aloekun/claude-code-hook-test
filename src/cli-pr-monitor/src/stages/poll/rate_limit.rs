@@ -112,7 +112,7 @@ fn finalize_posted_retrigger(
     state_path: &Path,
 ) -> PollResult {
     state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
-    state.head_commit = pr_info.head_commit.clone();
+    state.record_head_commit(pr_info.head_commit.as_deref());
     state.action = "pending_review".into();
     state.summary = format!(
         "rate-limit へ retrigger を投稿 (retry={}/state 参照)。review 再実行の後続は GitHub Actions 経路が処理",
@@ -170,12 +170,26 @@ fn finalize_waiting_reset(
     result: &serde_json::Value,
     state_path: &Path,
 ) -> PollResult {
+    finalize_waiting_reset_with(state, rl, pr_info, result, state_path, fetch_mergeable_status)
+}
+
+/// [`finalize_waiting_reset`] の本体。mergeable 取得を注入可能にして shell (gh) 層を
+/// テストから外す (CodeRabbit #353: テストが実 `gh` を起動していた。
+/// `verify_diff_covers_pr_range` (cli-push-runner) と同じ注入の流儀)。
+fn finalize_waiting_reset_with(
+    state: &mut PrMonitorState,
+    rl: &crate::state::RateLimitState,
+    pr_info: &PrInfo,
+    result: &serde_json::Value,
+    state_path: &Path,
+    fetch_mergeable: impl FnOnce(&PrInfo) -> Option<MergeableStatus>,
+) -> PollResult {
     state.action = "rate_limited".into();
     state.summary = format!(
         "CodeRabbit rate-limit 中 (残り約 {}m{}s)。reset 後の再レビューは GitHub Actions 経路が処理",
         rl.wait_minutes, rl.wait_seconds
     );
-    state.head_commit = pr_info.head_commit.clone();
+    state.record_head_commit(pr_info.head_commit.as_deref());
     if let Err(e) = write_state_to(state_path, state) {
         log_info(&format!(
             "state 書き込み失敗 (rate_limited 確定後、続行): {}",
@@ -183,7 +197,7 @@ fn finalize_waiting_reset(
         ));
     }
 
-    emit_shortcut_signal_if_eligible(state, rl, pr_info);
+    emit_shortcut_signal_if_eligible(state, rl, pr_info, fetch_mergeable);
 
     PollResult {
         action: state.action.clone(),
@@ -205,8 +219,9 @@ fn emit_shortcut_signal_if_eligible(
     state: &PrMonitorState,
     rl: &crate::state::RateLimitState,
     pr_info: &PrInfo,
+    fetch_mergeable: impl FnOnce(&PrInfo) -> Option<MergeableStatus>,
 ) {
-    let Some(mergeable) = fetch_mergeable_status(pr_info) else {
+    let Some(mergeable) = fetch_mergeable(pr_info) else {
         return;
     };
     if !evaluate_rate_limit_shortcut(state.coderabbit.as_ref(), &mergeable) {

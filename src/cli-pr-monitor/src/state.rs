@@ -124,6 +124,20 @@ impl PrMonitorState {
             fix_push_time: None,
         }
     }
+
+    /// 現在の PR head OID を state へ記録する (terminal 化の全経路が呼ぶ)。
+    ///
+    /// **`Some` のときだけ上書きする**。`gh pr view --json headRefOid` は API 障害等で
+    /// `None` を返しうるため (`util::get_pr_head_commit` は失敗を None に潰す)、無条件代入に
+    /// すると取得失敗のたびに保存済み OID が消える。その状態で次回 `--monitor-only` を実行
+    /// すると `should_continue_state` が `None` を見て継続を拒否し、時刻窓アンカーが「今」へ
+    /// リセットされて間に届いた CR コメントを取りこぼす (PR #237/#307/#309 と同型)。
+    /// 取得失敗は「head が変わった」の証拠ではないため、既存値の保持が正しい (fail-safe)。
+    pub(crate) fn record_head_commit(&mut self, current: Option<&str>) {
+        if let Some(oid) = current {
+            self.head_commit = Some(oid.to_string());
+        }
+    }
 }
 
 /// state file の保存パスを返す (本番デフォルト = `<exe>/pr-monitor-state.json`)。
@@ -249,6 +263,36 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: PrMonitorState = serde_json::from_str(&json).unwrap();
         assert_eq!(state, deserialized);
+    }
+
+    /// CodeRabbit #353: `record_head_commit(None)` は保存済み OID を消さないこと。
+    ///
+    /// `get_pr_head_commit` は gh 失敗を None に潰すため、無条件代入だと API 障害の
+    /// たびに継続判定 (`should_continue_state`) が壊れ、時刻窓アンカーがリセットされる。
+    /// 取得失敗は「head が変わった」の証拠ではない。
+    #[test]
+    fn record_head_commit_keeps_existing_when_current_unavailable() {
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        state.record_head_commit(Some("abc1234"));
+
+        state.record_head_commit(None);
+
+        assert_eq!(
+            state.head_commit.as_deref(),
+            Some("abc1234"),
+            "取得失敗 (None) で保存済み head_commit を消さないこと"
+        );
+    }
+
+    /// 新しい OID が取れたときは上書きすること (新 commit の push を反映する)。
+    #[test]
+    fn record_head_commit_overwrites_when_current_available() {
+        let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+        state.record_head_commit(Some("abc1234"));
+
+        state.record_head_commit(Some("def5678"));
+
+        assert_eq!(state.head_commit.as_deref(), Some("def5678"));
     }
 
     #[test]

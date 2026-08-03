@@ -100,7 +100,7 @@ fn finalize_pending_review(ctx: &PollContext<'_>) -> PollResult {
     state.summary =
         "review 未確定。後続の PR イベントは GitHub Actions 経路 (pr-monitor workflow) が処理"
             .to_string();
-    state.head_commit = ctx.pr_info.head_commit.clone();
+    state.record_head_commit(ctx.pr_info.head_commit.as_deref());
     state.fix_push_time = state
         .fix_push_time
         .or_else(|| ctx.fix_push_time.map(String::from));
