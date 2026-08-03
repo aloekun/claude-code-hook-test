@@ -1,11 +1,21 @@
-//! ADR-031 Phase C: `/weekly-review` skill 起動 reminder。
+//! ADR-031 Phase C / ADR-070: weekly-review の**監査リマインダー** (バックストップ)。
+//!
+//! ADR-070 で分析の主経路が cloud routine (週 1 schedule) へ移ったため、本 module の役割は
+//! 「レビューを実行せよ」から「**routine の稼働と結果の取り込みを確認せよ**」へ転換した。
+//!
+//! **重要な非対称**: `.claude/weekly-review-last-run.json` は skill Phase 4 が**ローカル実行時**に
+//! のみ書き込む。cloud routine は使い捨てクローンで動くため書き込んでも破棄され、この値は
+//! routine 実行では更新されない。したがって本 reminder は **cloud routine の実行を観測できない** —
+//! 発火は「routine が止まっている」の証拠ではなく、定期的な監査を促す助言に過ぎない。
+//! threshold も週次サイクル (7 日) ではなく監査サイクル (既定 30 日) に合わせてある。
 //!
 //! 2 種類の reminder を発火:
-//!   - last-run staleness: `.claude/weekly-review-last-run.json` の `last_run_at` が
-//!     `reminder_threshold_days` を超えていれば「`/weekly-review` の実行を検討」を nudge。
-//!     `last_run_at` が欠落/不正な旧・破損データは stale 扱い (= 発火) にする。
+//!   - last-run staleness: 上記 `last_run_at` が `reminder_threshold_days` を超えていれば
+//!     「routine の稼働確認と結果取り込み」を nudge。`last_run_at` が欠落/不正な旧・破損データは
+//!     stale 扱い (= 発火) にする。
 //!   - failed marker: `.claude/weekly-reviews/*.md.failed` が 1 件以上存在すれば
-//!     「前回 weekly-review が失敗、`/weekly-review` で resume」を nudge
+//!     「前回**ローカル**実行が失敗、`/weekly-review` で resume」を nudge (これは routine ではなく
+//!     ローカル実行の失敗を見るため、従来どおりの意味を保つ)
 //!
 //! staleness の情報源を mtime にしない (欠落時も mtime にフォールバックしない) のは、状態ファイルが
 //! jj checkout / workspace materialization (ADR-045) のたびに再マテリアライズされ mtime が
@@ -29,8 +39,13 @@ use crate::hooks_config::WeeklyReviewReminderConfig;
 use crate::past_time::PastTime;
 use crate::reaper::parse_iso8601_to_unix;
 
-/// weekly review reminder の threshold (default 7 日、ADR-031 § トリガー方式 と整合)。
-const WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS: u64 = 7;
+/// weekly review reminder の threshold (default 30 日)。
+///
+/// ADR-070 で「週次サイクル (7 日)」から「監査サイクル (30 日)」へ変更した。分析の主経路が
+/// cloud routine (週 1 schedule) へ移り、本 reminder は routine の稼働と結果取り込みを促す
+/// **バックストップ**になったため。7 日のままだと、routine が正常に動いていても
+/// `last_run_at` (ローカル実行でのみ更新) が古いまま毎週発火し、必ずノイズになる。
+const WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS: u64 = 30;
 pub(crate) const WEEKLY_REVIEW_LAST_RUN_PATH: &str = ".claude/weekly-review-last-run.json";
 const WEEKLY_REVIEW_REVIEWS_DIR: &str = ".claude/weekly-reviews";
 
@@ -155,8 +170,17 @@ fn build_weekly_review_staleness_lines(
     vec![
         "[WEEKLY_REVIEW_REMINDER]".to_string(),
         format!(
-            "週次プロジェクト全体レビュー (ADR-031) が threshold ({} 日) を超えました (前回からの経過: {})。\n\
-             推奨: `/weekly-review` skill を起動して whole-tree レビューを実施 (push-runner / post-PR / post-merge の 3 パイプラインが見ない累積複雑度・横断的 ADR 整合性・ハーネス遵守 観点を補完)",
+            "weekly-review の**ローカル**実行記録が threshold ({} 日) を超えました (前回のローカル実行からの経過: {})。\n\
+             \n\
+             注意: 分析の主経路は cloud routine (週 1 schedule、ADR-070) に移っており、\
+             **本 reminder は cloud routine の実行を観測できません** (routine は使い捨てクローンで動くため \
+             `weekly-review-last-run.json` を更新しない)。したがってこれは「routine が動いていない」の証拠では**なく**、\
+             定期的な監査を促すバックストップです。\n\
+             \n\
+             推奨アクション:\n\
+             1. claude.ai/code/routines で weekly-review routine が予定どおり実行されているか確認する\n\
+             2. 直近 run の transcript を開き、findings の採否と task list への反映 (ADR-031 Phase 3 / Phase 4) が未処理なら取り込む\n\
+             3. routine が動いていない / 結果を取り込みたい場合は `/weekly-review` skill をローカルで起動する",
             threshold_days, elapsed_label,
         ),
     ]
@@ -188,6 +212,11 @@ pub(crate) struct WeeklyReviewNudge {
 /// staleness も failed marker も無ければ `None` (additionalContext の発火条件と一致)。
 /// 表示ノイズを抑えるため 1 行に限定する (単一行不変条件は `SingleLineMessage` が構造的に保証し、
 /// `\n` / `\r` が混じっても構築時にサニタイズされる)。詳細は additionalContext に寄せる。
+///
+/// ADR-070 以降、分析の主経路は cloud routine (週 1 schedule)。本 message はその**稼働確認を
+/// 促す監査リマインダー**であり、「routine が止まっている」の断定ではない — ローカル state
+/// (`weekly-review-last-run.json`) は routine が使い捨てクローンで動くため更新されず、
+/// routine の実行を観測できないため。文言も「前回**ローカル**実行から」と限定する。
 fn build_weekly_review_system_message(
     state: &WeeklyLastRunState,
     threshold_days: u64,
@@ -200,20 +229,20 @@ fn build_weekly_review_system_message(
     let mut parts: Vec<String> = Vec::new();
     if staleness {
         let elapsed = match state {
-            WeeklyLastRunState::ElapsedDays(d) => format!("前回実行から {} 日経過", d),
-            WeeklyLastRunState::Missing => "実行記録なし".to_string(),
-            _ => "前回実行の記録が不正/欠落".to_string(),
+            WeeklyLastRunState::ElapsedDays(d) => format!("前回ローカル実行から {} 日経過", d),
+            WeeklyLastRunState::Missing => "ローカル実行の記録なし".to_string(),
+            _ => "ローカル実行の記録が不正/欠落".to_string(),
         };
         parts.push(format!("{} (threshold {} 日)", elapsed, threshold_days));
     }
     if failed_marker_count > 0 {
         parts.push(format!(
-            "前回実行が失敗 (.failed marker {} 件)",
+            "前回ローカル実行が失敗 (.failed marker {} 件)",
             failed_marker_count
         ));
     }
     Some(SingleLineMessage::new(format!(
-        "週次レビュー: {}。`/weekly-review` の実行を検討してください",
+        "週次レビュー監査: {}。routine の稼働と結果の取り込みを確認してください (claude.ai/code/routines)",
         parts.join("、")
     )))
 }
@@ -592,8 +621,18 @@ mod tests {
         let msg = nudge
             .system_message
             .expect("system_message_enabled = true なので systemMessage が付く");
-        assert!(msg.as_str().contains("週次レビュー"));
-        assert!(msg.as_str().contains("実行記録なし"));
+        assert!(msg.as_str().contains("週次レビュー監査"));
+        assert!(
+            msg.as_str().contains("ローカル実行の記録なし"),
+            "ADR-070: staleness は**ローカル**実行の記録に限定した表現であること (cloud routine の\
+             実行は観測できないため「未実行」と断定しない): {}",
+            msg
+        );
+        assert!(
+            msg.as_str().contains("routine"),
+            "監査対象が routine であることを示すこと: {}",
+            msg
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -663,6 +702,59 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// ADR-070: 既定 threshold は監査サイクル (30 日)。週次サイクル (7 日) のままだと、
+    /// cloud routine が正常に動いていてもローカルの `last_run_at` が更新されないため
+    /// 毎週発火して必ずノイズになる。
+    #[test]
+    fn default_threshold_is_audit_cycle_not_weekly() {
+        assert_eq!(
+            WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS, 30,
+            "routine 移行後の既定は監査サイクル (30 日)"
+        );
+        assert!(
+            !weekly_review_staleness_hits(&WeeklyLastRunState::ElapsedDays(10), WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS),
+            "routine が週次で回っていれば 10 日程度のローカル未実行では発火しないこと"
+        );
+        assert!(weekly_review_staleness_hits(
+            &WeeklyLastRunState::ElapsedDays(31),
+            WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS
+        ));
+    }
+
+    /// ADR-070: additionalContext は「本 reminder が cloud routine を観測できない」ことと、
+    /// routine の稼働確認を第一アクションとすることを明示する。これが無いと、routine が
+    /// 正常でも「レビュー未実施」と読める旧文言に戻り、ユーザーを誤誘導する。
+    #[test]
+    fn additional_context_states_routine_is_unobservable_and_primary() {
+        let root = unique_temp_root("routine-framing");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = WeeklyReviewReminderConfig {
+            enabled: Some(true),
+            reminder_threshold_days: Some(30),
+            failed_marker_check_enabled: Some(false),
+            system_message_enabled: Some(false),
+        };
+        let nudge = compute_weekly_review_reminder_nudge(&root, &config, 2_000_000_000)
+            .expect("nudge fires");
+        let ctx = &nudge.additional_context;
+        assert!(
+            ctx.contains("cloud routine の実行を観測できません"),
+            "観測不能であることの明示が必要 (誤誘導防止): {}",
+            ctx
+        );
+        assert!(
+            ctx.contains("claude.ai/code/routines"),
+            "稼働確認先の導線が必要: {}",
+            ctx
+        );
+        assert!(
+            ctx.contains("ローカル"),
+            "staleness がローカル実行に限定された指標であることを示すこと: {}",
+            ctx
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn build_weekly_review_system_message_none_when_fresh_and_no_marker() {
         assert!(
@@ -674,7 +766,7 @@ mod tests {
     fn build_weekly_review_system_message_combines_staleness_and_marker() {
         let msg = build_weekly_review_system_message(&WeeklyLastRunState::Missing, 7, 2)
             .expect("staleness or marker があれば Some");
-        assert!(msg.as_str().contains("実行記録なし"));
+        assert!(msg.as_str().contains("ローカル実行の記録なし"));
         assert!(msg.as_str().contains("失敗"));
         assert!(msg.as_str().contains("2 件"));
     }
