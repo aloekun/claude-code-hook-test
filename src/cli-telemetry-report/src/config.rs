@@ -41,7 +41,7 @@ pub struct TelemetryReportConfig {
 
 /// `[telemetry_report.registry]` の設定値。自動列挙元が無い hook / nudge 発火 id を静的に列挙する
 /// (設計決定 1 § hook / nudge)。id は hook 名と一致しない例がある (`jj-op-verify` /
-/// `pr_monitor_catchup` / `hooks-stop-tool-call-leak/prompt-recovery` 等、各 hook の
+/// `weekly_review_reminder` / `hooks-stop-tool-call-leak/prompt-recovery` 等、各 hook の
 /// `lib_telemetry::record` 実装で確認)。
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct RegistryConfig {

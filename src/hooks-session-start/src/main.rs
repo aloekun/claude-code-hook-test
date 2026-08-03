@@ -1,14 +1,16 @@
-//! SessionStart hook — セッション ID を環境変数とファイルに伝播する + PR monitor catch-up
+//! SessionStart hook — セッション ID を環境変数とファイルに伝播する + 各種 nudge
 //!
 //! Claude Code の SessionStart イベントで発火し、以下の経路で session 起動準備を行う:
 //!
 //!   1. $CLAUDE_ENV_FILE に export 文を追記 → Bash ツールから参照可能
 //!   2. .claude/.session-id ファイルに書き出し → 子プロセス (exe) から参照可能
-//!   3. PR monitor catch-up: `pr_monitor` module
-//!   4. Orphan run reaper (ADR-030 §L2): `reaper` module
-//!   5. Working copy staleness nudge: `staleness` module
-//!   6. Weekly review reminder (ADR-031 Phase C): `weekly_review` module
-//!   7. Monthly review reminder (ADR-062, WP-12 step 2/3): `monthly_review` module
+//!   3. Orphan run reaper (ADR-030 §L2): `reaper` module
+//!   4. Working copy staleness nudge: `staleness` module
+//!   5. Weekly review reminder (ADR-031 Phase C): `weekly_review` module
+//!   6. Monthly review reminder (ADR-062, WP-12 step 2/3): `monthly_review` module
+//!
+//! 旧 3. PR monitor catch-up (Bb-3) は WP-17 PR 3 で撤去 — park/wakeup モデルの廃止に伴い
+//! 「park 失効の救済」という役割ごと dead code になった (ADR-018 amendment 参照)。
 //!
 //! 各 nudge の発火は `lib-telemetry` (ADR-055) に `warn` として記録され、ROI 棚卸しの
 //! 観測基盤 (`.claude/telemetry/firings-*.jsonl`) に載る (fail-open)。
@@ -26,14 +28,12 @@ mod hooks_config;
 mod jj_helpers;
 mod monthly_review;
 mod past_time;
-mod pr_monitor;
 mod reaper;
 mod staleness;
 mod weekly_review;
 
 use hooks_config::read_hooks_config;
 use monthly_review::compute_monthly_review_reminder_nudge;
-use pr_monitor::{compute_catchup_nudge, pr_monitor_state_path, read_parked_state};
 use reaper::compute_reaper_nudge;
 use staleness::{compute_staleness_nudge, compute_workspace_stale_nudge};
 use weekly_review::compute_weekly_review_reminder_nudge;
@@ -109,7 +109,7 @@ fn main() {
     emit_session_start_output(&session_id);
 }
 
-/// `additionalContext` (session_id + 任意の nudge 群: PR monitor catch-up / reaper / staleness /
+/// `additionalContext` (session_id + 任意の nudge 群: reaper / staleness /
 /// workspace_stale / weekly review) と任意の `systemMessage` を組み立て、Claude Code に返す JSON を
 /// stdout に書き出す。各 nudge の追記と telemetry 記録はヘルパーに委譲する。
 /// serde_json で組み立てることで session_id 内の特殊文字を安全にエスケープする。
@@ -117,24 +117,11 @@ fn emit_session_start_output(session_id: &str) {
     let mut context = format!("CLAUDE_CODE_SESSION_ID={}", session_id);
     let mut system_message: Option<SingleLineMessage> = None;
     let now_unix = current_unix_secs();
-    append_pr_monitor_catchup_nudge(&mut context, session_id, now_unix);
     if let Ok(cwd) = std::env::current_dir() {
         system_message = append_cwd_nudges(&mut context, session_id, &cwd, now_unix);
     }
     let output = build_session_start_json(&context, system_message.as_ref());
     println!("{}", output);
-}
-
-/// PR monitor catch-up nudge を `context` に追記し、発火時は telemetry に記録する。
-/// この nudge は cwd に依存せず parked state ファイルのみを見るため独立したヘルパーにする。
-fn append_pr_monitor_catchup_nudge(context: &mut String, session_id: &str, now_unix: i64) {
-    if let Some(state) = read_parked_state(&pr_monitor_state_path()) {
-        if let Some(nudge) = compute_catchup_nudge(&state, now_unix) {
-            context.push_str("\n\n");
-            context.push_str(&nudge);
-            record_nudge_firing("pr_monitor_catchup", session_id);
-        }
-    }
 }
 
 /// cwd 依存の nudge 群 (reaper / staleness / workspace_stale / weekly review / monthly review) を
@@ -224,7 +211,7 @@ fn combine_system_messages(messages: Vec<SingleLineMessage>) -> Option<SingleLin
 
 /// nudge の発火を telemetry (ADR-055) に記録する (fail-open)。
 ///
-/// `id` は nudge 種別 (`weekly_review_reminder` / `pr_monitor_catchup` / `reaper` /
+/// `id` は nudge 種別 (`weekly_review_reminder` / `reaper` /
 /// `staleness` / `workspace_stale`)。nudge は助言出力のため decision は一律 `Warn`
 /// (「発火の重み」軸であり、実際に停止したかではない。jj-op-verify の非 block warn と同性質)。
 /// 記録失敗・opt-in OFF は lib-telemetry 内部で握りつぶすため hook 本来の出力を妨げない。
