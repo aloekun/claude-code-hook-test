@@ -42,9 +42,11 @@
 # WP-17 PR 2 で true へ倒した。呼び手 (pr-monitor.yml の Phase B fix job) が実装され、
 # リポジトリとしては自律 fix push を許可する意思表示をした状態。
 #
-# ただし判定は本フラグと外部フラグの AND なので、**これだけでは Phase B は動かない**。
-# GitHub Actions 側は Actions variable AUTONOMY_ENABLED = 'true' が別途必要で、それは
-# admin (リポジトリ所有者) だけが設定できる。実際の有効化タイミングは admin が握る。
+# ただし判定は本フラグと外部フラグ (Actions variable AUTONOMY_ENABLED、'true' ちょうど) の
+# AND なので、本フラグ単独では Phase B は動かない。variable の設定・削除は admin (リポジトリ
+# 所有者) だけが行え、現在値は Settings → Secrets and variables → Actions → Variables が正。
+# 本コメントに variable の設定状態は書かない — 外部 SaaS 側の実状と config 内の記述が
+# 食い違う drift を避ける (ADR-051 のクロスシステム coupling 規律)。
 #
 # 停止する場合: 恒久停止は本行を false へ、緊急停止は Actions variable を削除する。
 enabled = true

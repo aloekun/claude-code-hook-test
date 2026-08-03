@@ -126,7 +126,7 @@ unit test: `cli-fix-push-gate` 22 件 / `lib-scope-guard` 11 件 / `lib-autonomy
 
 ### workflow (2026-08-02 時点で未実走)
 
-YAML は js-yaml でパースし、job 構成 (`analyze` / `fix`)、`fix.if`、job 権限、12 step の条件チェーンを確認した。**実走スモークは未実施** — Actions variable の設定と `claude/` テストブランチの用意が要るため (§ 残課題)。
+YAML は js-yaml でパースし、job 構成 (`analyze` / `fix`)、`fix.if`、job 権限、13 step の条件チェーンを確認した (起票時は 12 step。pre-push レビュー 5 ラウンドの対応で `Fetch CodeRabbit review comments` step が追加され 13 になり、検証は追加後の構成で再実行済み)。**実走スモークは未実施** — Actions variable の設定と `claude/` テストブランチの用意が要るため (§ 残課題)。
 
 ## 帰結
 

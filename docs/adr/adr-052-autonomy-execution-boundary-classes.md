@@ -135,5 +135,5 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 - [ADR-043](adr-043-security-gates-fail-closed.md)（fail-closed 原則）— 分類不能をゲート必須へ倒す既定の根拠
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md)（試験運用標準パターン）— config opt-in + kill-switch + bounded lifetime
 - [ADR-019](adr-019-coderabbit-review-hybrid-policy.md)（CodeRabbit ハイブリッド構成）— draft 除外 / 無料枠制約が draft PR を低コミットメント・ready 化を commitment 点とする根拠
-- `src/cli-pr-monitor/src/stages/gate.rs`（`is_docs_only_summary` / `is_docs_only_path`）— 将来の分類関数の再利用母体
+- `src/lib-docs-policy`（`is_docs_only_summary` — ADR-035 path 基準の単一実装。[ADR-057](adr-057-docs-only-deterministic-routing.md) で `gate.rs` から切り出し済、実装スコープ節の 2026-08-02 訂正を参照）— 分類関数の再利用母体
 - セッション 247510ea-3f24-4b87-8f68-3c860e1b1b4e（2026-04-18）/ PR #54 — 無ゲート自律実行の事故（ADR-028 と共有する反例）
