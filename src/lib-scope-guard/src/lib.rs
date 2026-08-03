@@ -5,16 +5,12 @@
 //!
 //! ## 呼び出し元
 //!
-//! - `cli-pr-monitor` の auto-push 前 scope guard (ローカル経路、jj diff)。現時点で
-//!   唯一の呼び手。
-//! - `cli-fix-push-gate` (ADR-067、計画中・本 diff の時点では未実装) の CI 側 scope guard
-//!   (GitHub Actions 経路、git diff) として、実装されれば呼び出す予定。
+//! - `cli-pr-monitor` の auto-push 前 scope guard (ローカル経路、jj diff)。
+//! - `cli-fix-push-gate` (ADR-067) の CI 側 scope guard (GitHub Actions 経路、git diff)。
 //!
 //! 2 経路が同じ判定を持つ必要があるため lib 化した (ADR-044 層 1「3+ crate 重複」ではなく
 //! 「同一 ADR の判定が 2 経路に分岐する」ケース — 分岐した瞬間に片方だけ緩む drift が
 //! ADR-054 の防御を無効化するため、重複数ではなく **判定の同一性** を根拠に抽出する)。
-//! CI 側の呼び手はまだ実装されていないが、後から追加する際に判定ロジックが 2 箇所へ
-//! 分岐する期間を作らないよう前倒しで lib 化した。
 //!
 //! ## 本 crate の範囲
 //!

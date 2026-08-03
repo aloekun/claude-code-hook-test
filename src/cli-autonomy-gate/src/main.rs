@@ -3,9 +3,8 @@
 //! 判定そのものは [`lib_autonomy_policy`] が持つ。本 exe はその CLI 面 (引数解析・loud 出力・
 //! exit コード・telemetry) だけを担う汎用ゲートで、`pnpm autonomy-status` と drill が呼ぶ。
 //!
-//! Phase B の fix push 直前ゲートは `cli-fix-push-gate` を使うこと (ADR-067、計画中・
-//! 本 diff の時点では未実装)。実装されればあちらは kill-switch に加えて ADR-052 の
-//! target / 内容軸と ADR-054 scope guard も 1 回で評価する予定。
+//! Phase B の fix push 直前ゲートは `cli-fix-push-gate` を使うこと (ADR-067)。あちらは
+//! kill-switch に加えて ADR-052 の target / 内容軸と ADR-054 scope guard も 1 回で評価する。
 //! 本 exe と `&&` で連鎖させる運用は**しない** — 連鎖の書き忘れで kill-switch を通り越す
 //! 合成ミスを構造的に防ぐため、fix push 経路は単一 exe に閉じる方針とする。
 //!

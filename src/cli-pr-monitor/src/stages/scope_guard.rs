@@ -84,9 +84,8 @@ fn is_observe_mode(mode: &str) -> bool {
 
 /// findings の `file` 列から編集許可ファイル集合 (allowlist) を導出する。
 ///
-/// パス正規化と空パス除外は `lib_scope_guard` に委譲する — 将来 CI 経路
-/// (`cli-fix-push-gate`、ADR-067。計画中・本 diff の時点では未実装) が追加された際に
-/// 同じ判定を共有し、片方だけ緩む drift を防ぐ (ADR-054)。
+/// パス正規化と空パス除外は `lib_scope_guard` に委譲する — CI 経路
+/// (`cli-fix-push-gate`、ADR-067) と同じ判定を共有し、片方だけ緩む drift を防ぐ (ADR-054)。
 fn allowlist_from_findings(findings: &[Finding]) -> BTreeSet<String> {
     lib_scope_guard::allowlist_from_paths(findings.iter().map(|f| f.file.as_str()))
 }

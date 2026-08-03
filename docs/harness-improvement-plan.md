@@ -156,7 +156,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 
 **jj 運用の注意（本セッションで 3 回発生した事故の予防）**: ファイル編集を始める前に必ず `jj new -m "wip: <内容>"` で新コミットを作ること。描述済みコミットが `@` のまま編集すると、後続の `jj describe` が既存コミットのメッセージを上書きし、変更が混入する。`pnpm push` は必ず timeout 600000ms + `run_in_background: true`（ADR-016）。PR 作成・マージは AskUserQuestion または本文提示でユーザー承認を得る（ADR-028。VSCode では AskUserQuestion の preview・同一ターンの本文が見えないことがあるため、**draft はツール呼び出しを伴わない単独メッセージで提示**する）。
 
-##### 2a: 計画書更新 + rename パーサ修正（約 130〜200 行） — 実施中（本 PR）
+##### 2a: 計画書更新 + rename パーサ修正（約 130〜200 行） — 完了（PR #350、2026-08-03 マージ）
 
 1. 本計画書の更新コミット（`jj log -r 'master..'` で description が `docs(harness-plan): WP-17 の実行状況と再分割計画` のもの）が既にあれば、それを 2a の先頭として流用する。
 2. **パーサ修正の回収**: `mxzwmsyp` は rename パーサ修正（`src/cli-push-runner/src/stages/diff.rs` + `src/cli-push-runner/src/stages/diff/tests.rs` の 2 ファイル）と incident の gut-revert（lib 削除等）が混在しており、**rebase / duplicate では回収できない**。次の手順で 2 ファイル分だけ取り出す:
@@ -168,7 +168,7 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 4. push（bookmark 例 `feat/wp17-r2a-docs-parser`）→ PR 作成（承認フロー）→ マージ（ユーザー）。
 5. マージ後、stale remote ブランチ `feat/wp17-pr2a-policy-libs` の削除をユーザーへ依頼。
 
-##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯）
+##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯） — 実施中（本 PR）
 
 抽出（`lib-scope-guard` / `lib-autonomy-policy`）と最初の呼び手（`cli-fix-push-gate`）を**同一 PR に入れる**ことで ADR-044 層 1 を充足する（incident の初回分割はここを分離して失敗した）。
 
@@ -179,7 +179,10 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 5. 検証: `cargo test --workspace` 全緑（1936 件規模 + 新規 33 件）、`cargo clippy --workspace --all-targets -- -D warnings`、`pnpm lint:docs` / `lint:md`。
 6. push 時は `jj edit` で `@` を 2b tip（lib module doc 修正コミット）に置く（push-runner のレビュー範囲と bookmark 自動更新は `master..@`）。bookmark 例 `feat/wp17-r2b-libs-gate` → PR → マージ。
 
-**2b の chain 宣言**（ADR-069 準拠。2b PR の diff にこの計画書が含まれることで有効になる）: 2b が導入する `cli-fix-push-gate`（crate `src/cli-fix-push-gate`）の workflow 呼び手は、**後続 PR 2c の `.github/workflows/pr-monitor.yml` fix job**（step `Gate fix push` が `master-ref/target/release/cli-fix-push-gate` を実行）として land する。`lib-scope-guard` の 2 呼び手（`cli-pr-monitor` scope_guard / `cli-fix-push-gate`）と `lib-autonomy-policy` の 2 呼び手（`cli-autonomy-gate` / `cli-fix-push-gate`）は **2b 自身の diff 内**に存在する。
+**2b の chain 宣言**（ADR-069 準拠。2b PR の diff にこの計画書が含まれることで有効になる）:
+
+- **未消費なのは 1 つだけ**: 2b が導入する `cli-fix-push-gate`（crate `src/cli-fix-push-gate`、bin 同名）の **workflow 呼び手**。これは**後続 PR 2c** の `.github/workflows/pr-monitor.yml` の `fix` job、step 名 `Gate fix push (deterministic, 4-axis AND)` が `master-ref/target/release/cli-fix-push-gate` を `--branch` / `--config` / `--diff-summary-file` / `--findings-file` 付きで実行する形で land する（2c の実体で step 名・パス・引数を照合済み）。
+- **lib 2 件の呼び手は 2b 自身の diff 内に揃っている**（未消費ではない）: `lib-scope-guard` → `cli-pr-monitor::stages::scope_guard`（既存）+ `cli-fix-push-gate`（本 PR）。`lib-autonomy-policy` → `cli-autonomy-gate`（既存）+ `cli-fix-push-gate`（本 PR）。ADR-069 § 決定 3-1「抽出と最初の呼び手の間で切らない」に従い、incident の初回分割が分離したこの境界を同一 PR に戻してある。
 
 ##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行）
 
