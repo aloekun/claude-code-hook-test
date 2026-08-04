@@ -95,6 +95,12 @@ post-PR の fix step が、計画書の chain 宣言にある「2c の実体で 
 - docs-only fix の事実性誤りが 2 回目に観測されたとき。
 - または、fix が書いた docs をレビュー無しで land させる経路（Phase B の無人 fix push = ADR-067）で同種の誤りが発生したとき。**Phase B の対象は docs 指摘に限られる**ため、この穴は Phase B の主要リスク面と重なる。ADR-067 の bounded lifetime 観測時に本項目も併せて確認する。
 
+#### Phase B 1 run 目での確認（2026-08-04）
+
+[ADR-067](adr-067-phase-b-unattended-fix-push.md) 段 2 の完走に伴い、Phase B の無人 fix が書いた docs を実測検証した。仕込んだ不整合 3 点に対し fix agent は 3 点とも**事実として正しい修正**を行い、範囲外の編集はゼロだった（1 ファイル / 3 insertions / 3 deletions）。**同種の誤りは観測されていない**ため、追加機構の再検討条件は満たされていない（事実性誤りの観測は PR #351 の 1 件のままで 2 回目は発生していない）。
+
+ただし観測対象は「意図的に仕込んだ、検出しやすい不整合」であり、自然発生する CodeRabbit 指摘の分布とは異なる。1 run で穴が塞がったとは言えないため、本項目は ADR-067 の bounded lifetime 観測（3〜5 run）を通じて追跡を続ける。
+
 ## 帰結
 
 ### 利点

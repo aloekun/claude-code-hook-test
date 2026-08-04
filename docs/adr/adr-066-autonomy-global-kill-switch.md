@@ -185,6 +185,18 @@ PR 1 時点で実 exe による kill-switch drill 8 シナリオを実施し、�
 
 unit test 21 件（判定コア 9 / sources 6 / 引数解析 6）。うち 1 件が 54 組合せの網羅走査。
 
+### 実走観測 1 run 目（[ADR-067](adr-067-phase-b-unattended-fix-push.md) 段 2、2026-08-04）
+
+Phase B の稼働により bounded lifetime の decision trigger 観測が始まった。**自律 fix push が発生した run は 1 回目**であり、本採用判定に要する 3〜5 run には達していない。
+
+| trigger 項目 | 観測 | 判定 |
+|---|---|---|
+| (a) 有効時に意図どおり通ること | `AUTONOMY_ENABLED=true` + config `enabled=true` で `[FIX_PUSH_ALLOW] ... autonomy=allowed` → push 成立 | 充足 |
+| (b) いずれかのフラグを倒すと次の操作境界で止まること | `AUTONOMY_ENABLED` を削除した状態で dispatch → **fix job 自体が skip**（workflow 式層で停止） | variable 側は充足。**config 側（`enabled = false`）の実走観測は未実施**（exe 単体は drill #2 で確認済み） |
+| (c) deny 理由が run log だけで切り分けられること | 段 2 の 3 回目で `reason=empty-fix-diff` が 4 軸すべての状態とともに 1 行で出力され、原因が上流の `Apply fixes` にあると判別できた | 充足 |
+
+§ 欠点の 1 点目に挙げた master ref 契約も実走で確認できた — gate 呼び出しの `--config master-ref/autonomy-config.toml` が run log に出ており、PR ブランチ側の同名ファイルは判定に使われていない。
+
 ## 帰結
 
 ### 利点

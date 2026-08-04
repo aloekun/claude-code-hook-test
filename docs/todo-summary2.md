@@ -120,6 +120,15 @@
 | 362 | 🔧 Tier 2 | **git subprocess のブランチ名依存引数を検出する custom lint rule (#343 post-merge feedback 採用)** | todo14.md | S | なし (detached HEAD で CI 観測が silent pending 化した PR #343 incident 由来。ADR-049 fixture 3 点セット整備込み。順位 363 と同一 PR 可) |
 | 363 | 🔧 Tier 2 | **check-ci-coderabbit の detached HEAD 回帰統合テスト (#343 post-merge feedback 採用)** | todo14.md | M | なし (修正済み silent pending バグの regression test が皆無。順位 362 と同一 PR 可) |
 | 364 | 🔧 Tier 2 | **ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)** | todo14.md | M | WP-17 再分割 PR (lib-scope-guard land) 後が効率的 (ADR-068 の後退検知は削除系のみの暫定。追加系 injection と backstop 自己弱体化の経路を閉じる) |
+| 365 | 🔧 Tier 3 | **dev-conventions 集中バッチ — post-merge feedback の convention 8 件 (#350〜#357 採用分)** | todo20.md | S | なし (docs-only。項目 7 は land 済の「LLM を含む自動化経路は実走でしか検証できない」convention との統合可否を先に判断する) |
+| 366 | 🔧 Tier 2 | **`gh api` 誤用を防ぐ custom lint rule 2 件 (--slurp/--jq 併用・--paginate 欠落、#352/#356 採用)** | todo20.md | S | なし (WP-17 段 2 で本番経路を 2 回止めた誤用。4 種の静的検査を通過した実績があり ADR-042 の仕組み化対象。ADR-049 fixture 追加込み) |
+| 367 | 🔧 Tier 2 | **jj 出力形式契約の回帰テスト + fixture provenance の明示 (#350 採用)** | todo20.md | M | なし (rename 波括弧形式の前提誤りが 1 年間未検出だった incident 由来。同一ファイルを触る 2 件を 1 PR に集約) |
+| 368 | 🔧 Tier 3 | **cli-fix-push-gate の軸出力一貫性 regression test (#351 採用)** | todo20.md | S | なし (describe_axes と evaluate の食い違いは ADR-067 § 決定 4 の観測性前提を崩す。誤 allow は起きないため Tier 3) |
+| 369 | 🔧 Tier 2 | **pr-monitor の出力形式バリアンス + rate-limit 分岐テスト (#357 採用)** | todo20.md | M | なし (段 2 で実走検出したフェンス問題の retroactive テスト化。cli-pr-monitor 系 2 件を 1 PR に集約) |
+| 370 | 🔧 Tier 3 | **ADR-069 試験運用判断基準の具体化 (#352 採用)** | todo20.md | M | なし (docs-only。2b で得た初回実測を判断材料として明記する。ADR-039 bounded lifetime の decision trigger 要件を充足させる) |
+| 371 | 🔧 Tier 3 | **weekly-review reminder の doc-drift 同期 — post-ADR-070 用語 (#354 採用)** | todo20.md | S | なし (実装は新用語を採用済みで doc だけ旧用語。順位 365 の convention 5 が今後の再発を防ぐ側) |
+| 372 | 🔧 Tier 2 | **templates の陳腐化 example 削除 + simplicity-review facet への同期チェック追加 (#353 採用)** | todo20.md | S | なし (WP-17 PR 3 で廃止した poll_interval_secs / max_duration_secs が派生プロジェクト向け template に残存) |
+| 373 | 🔧 Tier 2 | **Rust exe の自動再ビルド — PostToolUse の cargo check + Stop hook の build/deploy 2 層** | todo20.md | M | なし (2026-08-04 実測で 3 パッケージの .claude/*.exe がソースより古い状態を確認。cargo check 0.4-0.7 秒 / build --release 4-10 秒の差で層を分ける) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
