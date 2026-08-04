@@ -560,7 +560,21 @@ jobs:
           EXECUTION_FILE: ${{ steps.findings.outputs.execution_file }}
         run: |
           set -euo pipefail
-          FINDINGS_FILE="$RUNNER_TEMP/findings.json"
+          # findings ファイルは **ワークスペース内** (findings-input/) に置く。$RUNNER_TEMP に
+          # 置くと後段の fix agent が読めない (2026-08-04 実走で確認)。Claude Code は作業
+          # ディレクトリ外のファイルアクセスをディレクトリサンドボックスで遮るため、
+          # --allowedTools に絶対パスを列挙しても届かない。同一 run 内の対照が根拠:
+          # findings agent (findings-input/** = 内) は permission_denials_count=0 で成功、
+          # fix agent ($RUNNER_TEMP/findings.json = 外) は同じターン数で denials=2・無編集。
+          # 結果 fix diff が空になり、ゲートが empty-fix-diff で deny していた。
+          #
+          # ディレクトリは `Fetch CodeRabbit review comments` (cr_input) が作る。本 step の
+          # if は findings step の成功を、findings step の if は cr_input の成功を要求するため、
+          # ここに到達した時点で findings-input/ は必ず存在する (mkdir を重ねない)。
+          #
+          # ワークスペースルートは checkout 先ではない素のディレクトリなので、findings-input/
+          # が pr/ 側の `git add -A` に混入することはない。
+          FINDINGS_FILE="findings-input/findings.json"
           RAW_FILE="$RUNNER_TEMP/findings-raw.txt"
           jq -r '.[] | select(.type == "result") | .result' "$EXECUTION_FILE" > "$RAW_FILE"
           # コードフェンスの決定論的除去 (2026-08-04 実走で必要と判明)。
@@ -603,7 +617,8 @@ jobs:
           prompt: |
             以下の findings に対応する修正を、チェックアウト済みの PR ブランチ (`pr/` ディレクトリ) へ適用してください。
 
-            ${{ steps.findings_json.outputs.count }} 件の findings は `${{ steps.findings_json.outputs.path }}` にあります (JSON 配列)。
+            ${{ steps.findings_json.outputs.count }} 件の findings は、作業ディレクトリ直下の
+            `${{ steps.findings_json.outputs.path }}` にあります (JSON 配列)。まずこのファイルを読んでください。
 
             findings の `file` はリポジトリルート起点なので、実際に編集するパスは `pr/` を前置した位置です
             (例: `file` が `docs/a.md` なら編集対象は `pr/docs/a.md`)。
@@ -616,7 +631,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-5
             --max-turns 30
-            --allowedTools "Read(pr/docs/**),Edit(pr/docs/**),Write(pr/docs/**),Read(${{ steps.findings_json.outputs.path }})"
+            --allowedTools "Read(pr/docs/**),Edit(pr/docs/**),Write(pr/docs/**),Read(findings-input/findings.json)"
             --disallowedTools "Bash,WebFetch,WebSearch,NotebookEdit"
 
       - name: Compute fix diff summary
@@ -635,6 +650,8 @@ jobs:
           cat "$SUMMARY_FILE"
 
       # 決定論ゲート。ここが Phase B の唯一の担保。非ゼロなら push step は動かない。
+      # --findings-file はワークスペース相対パス (findings-input/findings.json)。run: の
+      # cwd は $GITHUB_WORKSPACE であり、master-ref/... の指定と同じ前提に立つ。
       - name: Gate fix push (deterministic, 4-axis AND)
         id: gate
         if: steps.applies.outputs.proceed == 'true' && steps.diff.outcome == 'success'
