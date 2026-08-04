@@ -76,7 +76,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
-| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11（2026-08-02 充足確認済） | 着手中（PR 1 = [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) #347 マージ済。PR 2 は incident を経て再分割 2a/2b/2c で実施 → § WP-17 PR 2。事前整備 [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 マージ済） |
+| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11（2026-08-02 充足確認済） | 観測中（PR 1 #347 / 2a #350 / 2b #351 / 2c #352 / 3 #353 マージ済、PR 4 = [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) 実施中。スモーク段 0/0.5/1 完了、段 2（allow 経路）が残。事前整備 [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 マージ済） |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
 | WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1 へ前倒し） | S-M | WP-18 | 未着手 |
 
@@ -115,7 +115,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - **着手前決定（2026-08-02、ユーザー確認済み）**:
   1. WP-19 ステップ 1（全体 kill-switch）を本 WP の PR 1 へ前倒し統合する。根拠: ADR-052 原則 5 は「config opt-in と kill-switch の両方が接続され機能していること」を自動実行可クラス有効化の前提条件とするため、kill-switch 無しに Phase B へ着手できない（本計画書の依存欄と ADR-052 契約の食い違いを解消）。WP-19 の残り（自主減速・監査ループ）は WP-18 後のまま。
   2. ADR-064 検証残は PR 3 の wakeup 廃止に伴い移し替える: (a) park 実観測は機構ごと消えるため moot として閉じ、(b) レポート判定文の保留保証は GitHub Actions 経路の検証残として引き継ぐ。ADR-064 ステータス欄と ADR-018 amendment の両方に記録し、検証の穴を残さない。
-  3. Claude GitHub App は未インストール。ユーザーがインストールする方針（確認済み）。routine 移行（PR 4）はユーザーの Web UI 作業とセットのため最後に回す。
+  3. Claude GitHub App は未インストール（2026-08-02 時点）。ユーザーがインストールする方針（確認済み）。routine 移行（PR 4）はユーザーの Web UI 作業とセットのため最後に回す。→ **2026-08-04 更新: インストール済み（ユーザー確認）**。PR 4 の routine 作成・one-off 実行も完了（§ WP-17 PR 4）。
 - **PR 分割**: 1 WP = 原則 1 PR からの明示的逸脱（kill-switch 前倒しにより 1 PR に収まらない）。PR 1 → 2 → 3 → 4 の順で依存する。
 
 #### WP-17 PR 1: 全体 kill-switch（WP-19 ステップ 1 前倒し分） — 完了（PR #347、2026-08-02 マージ）
@@ -213,16 +213,15 @@ jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxv
 - 実装メモ（本 PR で確定した設計判断）: 時刻窓アンカーの state 継続（`should_continue_state` = 同一 PR + 同一 head なら `started_at` / `fix_push_time` を維持）は park の付随物ではないため**残した**。落とすと手動再実行のたびに `--push-time` が「今」へリセットされ、push 後に届いた CR コメントが新着判定から漏れる。rate-limit の retry 上限 / comment dedup も同様に維持。
 - 本 PR の PR がそのまま**スモーク段 1 の観測対象**を兼ねる（variable 再設定済みの状態で、非 `claude/` PR に対する fix job の prefix deny をマージ済み master 版 workflow で確認する）。
 
-#### WP-17 PR 4: weekly-review の cloud routine 移行（旧ステップ 2）
+#### WP-17 PR 4: weekly-review の cloud routine 移行（旧ステップ 2） — 実施中（本 PR）
 
-- **ユーザー作業（先行必須、Claude からは実行不可）**:
-  1. Claude GitHub App を本リポジトリにインストール（github.com/apps/claude）。
-  2. claude.ai/code/routines の Web UI で routine を作成（schedule トリガー、週 1）。`/schedule` はクラウドセッション内から使用不可（「2. 検証済みの前提事実」参照）。
-- **Claude 側作業**:
-  1. routine 用プロンプト草案の作成（weekly-review 相当の起動手順 + 結果確認手順。routine run の緑ステータスはタスク成功を意味しないため transcript 確認を含める）。
-  2. hooks-session-start の weekly_review staleness リマインダーをバックストップへ格下げ（主経路 = routine、リマインダー = routine 失敗時の救済である旨へ文言・閾値を調整）。
-  3. ADR 起票。起票時に「2. 検証済みの前提事実」の routines 事実（daily run cap / webhook 上限 / 緑ステータスの意味）を最新値へ再確認し永続化する（同節冒頭の必須要件）。
-- 留意: routine はクラウド（Linux）実行のため ADR-060（dogfood 3/5 回、判定期限 2026-09-30）/ ADR-063 の枠内で動き、その dogfood 機会を兼ねる。
+決定・検証記録は [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) へ移管済み。以下は状態と残作業のみ。
+
+- **ユーザー作業**: routine 作成（schedule、週 1）+ one-off 手動実行 — **完了（2026-08-04）**。Claude GitHub App は**本リポジトリにインストール済み**（2026-08-04 ユーザー確認）。したがって「schedule トリガーのみなら App 不要か」は**本 WP では未検証**（インストール済みの状態でしか観測していないため、不要であることを主張できない）。
+- **Claude 側作業**: routine プロンプト（ADR-070 に記載）/ リマインダーの監査リマインダー化 / ADR-070 起票 / routines の SaaS 事実の永続化 — **本 PR で完了**。
+- **実測（ADR-070 § 検証記録）**: one-off run で `pnpm install` → `cloud-setup.sh` → takt weekly-review が全て exit 0、6 facet 並列で 7m18s 完走、findings 1 件（medium）。クラウド Linux 実行が成立することを確認（ADR-060 / ADR-063 の dogfood を兼ねる）。
+- **移行で判明した構造的制約**: weekly-review は 4 フェーズで、routine が担えるのは Phase 1-2（分析）のみ。Phase 3（採否判断）は人間の判断が本質、Phase 4（task list 反映 + last-run 更新）はそれに従属する。**routine は skill の置き換えではなく分析フェーズの前倒し**。あわせて `weekly-review-last-run.json` は使い捨てクローンで更新されないため、リマインダーは routine の実行を観測できない（→ 意味を監査リマインダーへ転換、閾値 7 → 30 日）。
+- **未解決の残課題（ADR-070 § 残課題）**: routine の分析結果が transcript にしか残らず、ユーザーが読まなければ消える。選択は配送方法だけでなく**実行主体を含む 3 択**（routine / **GitHub Actions schedule**（WP-17 バックボーン再利用、research preview 非依存、push 可否に不確実性なし）/ ローカル維持 = routine 断念）で、配送先は**通知を持つチャネル（Issue 等）ならローカル検出機構が不要**になる。判定は ADR-070 bounded lifetime (b) の観測後に行い、**断念も正規の出口**。未検証点: routine の push 認証（App インストール済みの状態で push できるかを one-off 1 回で検証する。App の要否そのものは切り分けない — 既存連携を壊す価値がないため）。
 
 #### WP-17 受け入れ基準
 

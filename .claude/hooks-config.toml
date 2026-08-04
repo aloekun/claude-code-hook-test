@@ -29,12 +29,16 @@ default_branch = "master"     # trunk-based 前提、feature branch 運用では
 stale_check_enabled = true
 
 # [session_start.weekly_review_reminder]
-# - ADR-031 Phase C: `/weekly-review` skill 起動の reminder (試験運用、ADR-039 experimental pattern 準拠)。
+# - ADR-031 Phase C / ADR-070: weekly-review の**監査リマインダー** (試験運用、ADR-039 準拠)。
+#   ADR-070 で分析の主経路が cloud routine (週 1 schedule) へ移り、本 reminder は
+#   「レビューを実行せよ」から「routine の稼働と結果の取り込みを確認せよ」へ転換した。
 #   2 経路で発火:
-#     1. `.claude/weekly-review-last-run.json` の mtime が `reminder_threshold_days` 超過
-#     2. `.claude/weekly-reviews/*.md.failed` marker 1 件以上残存 (前回失敗 resume promote)
+#     1. `.claude/weekly-review-last-run.json` の `last_run_at` が `reminder_threshold_days` 超過
+#     2. `.claude/weekly-reviews/*.md.failed` marker 1 件以上残存 (前回ローカル実行の失敗 resume)
 #   両方該当する場合は 1 nudge にまとめて出力。
-#   3-5 週の dogfood 後に default-ON 昇格 or 却下を判定 (bounded lifetime)。
+#   **重要**: last_run_at は skill の**ローカル実行時**にのみ更新される。cloud routine は
+#   使い捨てクローンで動くため更新しない = 本 reminder は routine の実行を観測できない。
+#   発火は「routine が止まっている」の証拠ではなく定期監査の促し。
 #   Kill-switch: `enabled = false` で完全停止。
 [session_start.weekly_review_reminder]
 # 試験運用元 (本リポジトリ) では明示的に enable して reminder を実発火させる運用。
@@ -43,8 +47,8 @@ stale_check_enabled = true
 # 派生プロジェクト deploy 時は default OFF (ADR-039 § 1 opt-in 契約) を維持。
 # 次 PR (PR-3) で `[features].enabled` allow-list 方式に移行予定 = 本 `enabled = true` は暫定。
 enabled = true
-reminder_threshold_days = 7        # ADR-031 § トリガー方式: 「前回実行から 7 日経過で promote」と整合
-failed_marker_check_enabled = true # 前回失敗 marker 検出 → resume promote。false で staleness のみに限定可
+reminder_threshold_days = 30       # ADR-070: 監査サイクル。週次 (7 日) だと routine 正常時も毎週発火しノイズになる
+failed_marker_check_enabled = true # 前回ローカル実行の失敗 marker 検出 → resume promote。false で staleness のみに限定可
 # ADR-059 (試験運用、判定期限 2026-08-16): reminder 発火時に systemMessage (ユーザー可視 1 行) を
 # additionalContext と併せて出し、「発火しているのにユーザーに見えない」silent 化を解消する。
 # source default OFF (派生 repo deploy 時は本行を置かない = additionalContext のみの従来挙動)。
