@@ -14,12 +14,12 @@ Phase B の fix job が `claude/` prefix ブランチに対して起動し、以
 3. fix agent が `pr/docs/**` の範囲で編集する
 4. `cli-fix-push-gate` の 4 軸 AND がすべて満たされ exit 0 になる
 
-以上の 3 ステップを順に観測します。
+以上の 4 ステップを順に観測します。
 
 ## 実行手順
 
 Actions タブから pr-monitor workflow を手動起動します。ref は master を選び、`pr_number` に
-この PR の番号を入れてください。variable の設定は任意です。
+この PR の番号を入れてください。
 
 なお `AUTONOMY_ENABLED` が `true` でなければ fix job は起動しないため、事前設定は必須です。
 
@@ -27,7 +27,7 @@ Actions タブから pr-monitor workflow を手動起動します。ref は mast
 
 - この PR をクローズする
 - ブランチを削除する
-- TODO: 観測結果の記録先を決める
+- TODO: 観測結果はこの PR のコメントに記録する。上記 4 ステップすべての通過を確認できた時点で完了とする
 
 ## 補足
 
