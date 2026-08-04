@@ -480,17 +480,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p findings-input
-          # --paginate --slurp: 30 件/ページを超えるとデフォルトでは先頭ページしか
-          # 取得できず findings agent への入力が黙って欠落する。--paginate で全ページ
-          # 取得し、--slurp でページ配列としてまとめてから --jq に渡す (--paginate だけだと
-          # --jq がページ単位に適用され結合結果が有効な単一 JSON 配列にならない)。
-          # --slurp 後は `.[]` がページを指すため `.[][]` でページ内要素まで展開する。
-          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
-            --paginate --slurp \
-            --jq '[.[][] | select(.user.login == "coderabbitai[bot]")]' > findings-input/comments.json
-          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
-            --paginate --slurp \
-            --jq '[.[][] | select(.user.login == "coderabbitai[bot]")]' > findings-input/reviews.json
+          # 30 件/ページを超えるとデフォルトでは先頭ページしか取得できず、findings agent への
+          # 入力が黙って欠落する。--paginate で全ページ取得し、--slurp でページ配列にまとめる。
+          #
+          # フィルタは gh の --jq ではなく**外部 jq** に渡す:
+          #   1. `gh api` は `--slurp` と `--jq` の併用を拒否する (2026-08-04 実走で確認。
+          #      "the --slurp option is not supported with --jq or --template" で exit 1)
+          #   2. かといって --slurp を外して --paginate --jq にすると、--jq がページ単位に
+          #      適用され、出力が複数の JSON 配列の連結になって単一配列としてパースできない
+          # --slurp の出力は `[[page1...], [page2...]]` なので `.[][]` でページ内要素まで展開する。
+          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" --paginate --slurp \
+            | jq '[.[][] | select(.user.login == "coderabbitai[bot]")]' > findings-input/comments.json
+          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" --paginate --slurp \
+            | jq '[.[][] | select(.user.login == "coderabbitai[bot]")]' > findings-input/reviews.json
 
       # findings agent (読み取り専用)。fix agent とは別プロセスで、scope guard の allowlist を
       # 先に確定させる。同一 agent に findings と fix の両方を出させると allowlist が
