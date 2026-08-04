@@ -123,12 +123,18 @@ PR 監視 (ADR-067) とは価値方程式が根本的に違う — あちらは�
 
 #### 実現可能性の未検証点
 
-- **routine の push 認証**: 検証記録の one-off では push を制約で禁じたため未観測 (clone が通ったことは push 可否の証拠にならない — public repo の clone は無認証で成立する)。Claude GitHub App は本リポジトリに**インストール済み**のため、検証すべきは「**App インストール済みの状態で routine が push できるか**」であり、App の要否そのものは切り分けない (既存連携を壊してまで切り分ける価値がないため。二値の結果があれば実行主体の判定には足りる)。one-off 1 回 (`claude/push-auth-test-<date>` へ最小ファイルを push) で検証できる。失敗すれば実行主体 1 + ブランチ配送はそこで終了。
+- **routine の push はローカル hook に阻まれる (2026-08-04 実測)**: one-off で検証したところ、`jj git push` は `jj-push-guard` プリセット ([ADR-015](adr-015-push-runner-takt-migration.md)) が無条件でブロックし `pnpm push` へ誘導する。routine は誘導先が自律レビュー / fix パイプライン全体を起動する (外部可視の副作用を伴う) と判断して実行を見送った。**認証層に到達していないため push 可否そのものは未検証**。
+  - サンドボックスの remote は `http://local_proxy@127.0.0.1:<port>/git/...` のローカル proxy 経由で、セッション内トークンが直接使われる構成ではない。`jj git fetch` は成功するため **read は通る** (jj コマンド自体は hook 対象外で、ブロックは push 系のみ)。
+  - **含意**: 実行主体 1 + ブランチ配送を成立させるには、`jj git push -b claude/weekly-review-*` を docs-only 条件付きで許可する例外をローカル hook に新設する必要がある。これは [ADR-067](adr-067-phase-b-unattended-fix-push.md) (Phase B) と同クラスの「自律 push 経路の新設」であり、採用バー (追加運用負担ほぼゼロ) を明らかに超える。
+  - 一方 **実行主体 2 (Actions) はこの問題が構造的に発生しない** — workflow の push はローカル hook 層を通らず、ゲートは Phase B と同じく workflow 自身のロジックが持つ。**配送先を Issue にする案も push 自体が不要**になるため同様に回避できる。
+  - 副次観測: 本テストで `pnpm push` を実行しなかった判断は正しい。無人実行で自律パイプラインを起動すると PR コメント投稿・Max 枠消費・場合により auto-push という外部可視の副作用が発生する。得られる情報 (proxy が push を通すか) は、上記の含意により実行主体の判定にはもはや影響しない。
 - Actions 案 (実行主体 2) は個々の要素に稼働実績があり、未検証は組み合わせのみ。
 
 #### 判定手順
 
-bounded lifetime の decision trigger (b)「findings が実際に採用へ繋がったか」がこの問題の観測を兼ねる。schedule 実行が数回回った時点で transcript が読まれずに findings が流れていれば、配送ループ不成立の実証になる。その時点で (1) routine push テストの結果、(2) Actions 案との統合性比較、(3) 断念 (ローカル維持) のコスト、を突き合わせて実行主体と配送チャネルを確定する。
+bounded lifetime の decision trigger (b)「findings が実際に採用へ繋がったか」がこの問題の観測を兼ねる。schedule 実行が数回回った時点で transcript が読まれずに findings が流れていれば、配送ループ不成立の実証になる。
+
+**2026-08-04 の push テストにより、実行主体 1 (routine) + ブランチ配送は既に劣後している** (上記のとおりローカル hook への例外新設が前提になり、採用バーを超える)。したがって (b) が不成立と判定された場合の実質的な選択は **実行主体 2 (Actions schedule) / 配送先を Issue に変更 / 断念 (ローカル維持)** の 3 つになる。判定時は (1) Actions 案の実装コスト、(2) Issue 配送の自律実行境界での位置づけ ([ADR-028](adr-028-pnpm-create-pr-gate.md) / [ADR-052](adr-052-autonomy-execution-boundary-classes.md))、(3) 断念のコスト (失うのは数分の待ち時間短縮のみ) を突き合わせる。
 
 判断の入力として、決定 2 の監査リマインダーが暫定的な救済層になる (「routine の結果を取り込む時期です」と定期的に促す)。ただしこれも助言層であり、ADR-042 (ルール vs 仕組み化) の基準では決定論的な担保ではない。
 
