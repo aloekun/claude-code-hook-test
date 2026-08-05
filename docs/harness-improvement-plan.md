@@ -76,9 +76,9 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
-| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11（2026-08-02 充足確認済） | 観測中（PR 1 #347 / 2a #350 / 2b #351 / 2c #352 / 3 #353 マージ済、PR 4 #354 マージ済 = [ADR-070](adr/adr-070-weekly-review-cloud-routine.md)。**PR は全 land 済、実走スモーク段 0〜2 も完了（2026-08-04）**（#356 / #357 / #358 の実走バグ修正を経て 4 回目の dispatch で 13 step 完走 → § WP-17 段 2 の実施記録）。事前整備 [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 マージ済） |
-| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | 未着手 |
-| WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1 へ前倒し） | S-M | WP-18 | 未着手 |
+| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11 | **観測中（実装は 2026-08-04 に全 land）** — #347 / #350 / #351 / #352 / #353 / #354、実走バグ修正 #356 / #357 / #358、記帳 #359。実走スモーク段 0〜2 まで完走。**観測待ち**: 停止側の実走 2 点 / 自動起動経路 / 週末またぎ / ADR-066 bounded lifetime（1 of 3〜5 run）→ § WP-17。派生 ADR: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 |
+| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **着手可** — 着手前決定 3 件確定済み（2026-08-05 ユーザー確認 → § WP-18）。実行主体 = GitHub Actions schedule、背圧（WP-19 ステップ 2）を PR 1 へ前倒し統合、タスク台帳 = [claude-code-web-tasks.md](claude-code-web-tasks.md) |
+| WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1、背圧は WP-18 PR 1 へ前倒し） | S-M | WP-18 | 未着手（残りは監査ループのみ） |
 
 ## 5. 残作業（観測継続）
 
@@ -104,173 +104,76 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 ## 6. セクション 4: ループエンジニアリングへの道筋
 
-### WP-17: イベント駆動バックボーン完成
+### WP-17: イベント駆動バックボーン完成 — 観測中（実装は 2026-08-04 に全 land）
 
-> 2026-08-02 着手前レビューで方針確定（依存検証 + ユーザー確認 + kill-switch 設計レビュー）。実装セッションが本節のみで作業内容を把握できるよう自己完結的に記載してある。旧記載の「ステップ 1/2/3」は PR 2/4/3 に対応する（PR 1 は WP-19 からの前倒し分）。
+> **状態が `完了` ではなく `観測中` なのは**、実装が全 land した一方で受け入れ基準に未検証項目が残っているため（§ 受け入れ基準 / § 後続へ引き継ぐ残課題）。dogfood 期間の観測が済んだ時点で `完了` へ移す。
+>
+> **設計・決定・検証記録は各 ADR が正**。本節は達成内容と後続へ引き継ぐ残課題の索引だけを残す。着手前レビューの前提確認、PR 分割の作業手順、jj 資産の change_id 一覧、実走スモークの当初計画は役目を終えたため削除した（経緯は git log と #347〜#359 の PR 本文を参照）。
 
-- **前提条件（充足済み、2026-08-02 検証）**: WP-11 の enforce 昇格 — `pr-monitor-config.toml` の `[fix.scope_guard]` は `enabled = true` / `mode = "enforce"`（2026-08-01 昇格）。WP-11 の本採用判定（enforce で 3〜5 PR 誤検知ゼロ）は本 WP の前提ではなく「5. 残作業」で並行観測を続ける。
-- **依存 WP の状態（2026-08-02 検証済み、再調査不要）**:
-  - WP-09: pr-monitor.yml（GitHub Actions バックストップ、読み取り専用多層防御込み）が master 稼働中。PR 2 の拡張母体。
-  - WP-10: [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 起票済み。ただし同 ADR 実装スコープ節の「gate.rs の docs-only 判定は pub(crate) 内部限定、将来 lib へ切り出す」は **stale** — 切り出しは [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) の副産物として完了済みで、`lib-docs-policy` を cli-pr-monitor / cli-push-runner の 2 呼び手が使用中。PR 2 の分類判定は `lib_docs_policy::is_docs_only_summary` を呼ぶだけでよい（stale 記述は PR 2 で訂正）。
-- **着手前決定（2026-08-02、ユーザー確認済み）**:
-  1. WP-19 ステップ 1（全体 kill-switch）を本 WP の PR 1 へ前倒し統合する。根拠: ADR-052 原則 5 は「config opt-in と kill-switch の両方が接続され機能していること」を自動実行可クラス有効化の前提条件とするため、kill-switch 無しに Phase B へ着手できない（本計画書の依存欄と ADR-052 契約の食い違いを解消）。WP-19 の残り（自主減速・監査ループ）は WP-18 後のまま。
-  2. ADR-064 検証残は PR 3 の wakeup 廃止に伴い移し替える: (a) park 実観測は機構ごと消えるため moot として閉じ、(b) レポート判定文の保留保証は GitHub Actions 経路の検証残として引き継ぐ。ADR-064 ステータス欄と ADR-018 amendment の両方に記録し、検証の穴を残さない。
-  3. Claude GitHub App は未インストール（2026-08-02 時点）。ユーザーがインストールする方針（確認済み）。routine 移行（PR 4）はユーザーの Web UI 作業とセットのため最後に回す。→ **2026-08-04 更新: インストール済み（ユーザー確認）**。PR 4 の routine 作成・one-off 実行も完了（§ WP-17 PR 4）。
-- **PR 分割**: 1 WP = 原則 1 PR からの明示的逸脱（kill-switch 前倒しにより 1 PR に収まらない）。PR 1 → 2 → 3 → 4 の順で依存する。
+**達成したこと**: PC 電源オフ中も PR イベントが処理される GitHub Actions バックボーンを、読み取り専用（Phase A）から**限定的な書き込み（Phase B = docs 指摘の無人 fix push）**まで拡張し、その全体を単一の kill-switch で停止できる状態にした。あわせてローカルの時限 wakeup を廃止し、週次レビューの分析フェーズを cloud routine へ移した。
 
-#### WP-17 PR 1: 全体 kill-switch（WP-19 ステップ 1 前倒し分） — 完了（PR #347、2026-08-02 マージ）
-
-設計・決定・検証記録はすべて [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) へ移管済み。成果物: `cli-autonomy-gate`（unit test 21 件 + drill 8 シナリオ実測済）、`autonomy-config.toml`（`enabled = false`）、`pnpm autonomy-status`。exe 単体の kill-switch drill は充足済（ADR-066 § 検証記録）。`観測中` への遷移は Phase B（再分割 2c）稼働後、ADR-066 の bounded lifetime（3〜5 run、期限 2026-11-02）が管理する。
-
-- **再分割 2b/2c へ引き渡す前提**（原文は #347 時点の記載、現在も有効）:
-  1. workflow 式 `if: ${{ vars.AUTONOMY_ENABLED == 'true' }}` と exe 呼び出しの二層を接続する。
-  2. CI では `autonomy-config.toml` を **master ref から取り出した写し**として `--config` へ渡す（PR ブランチの checkout を渡すと自律 actor が自己解除できる。ADR-066 § 決定 3）。
-  3. `autonomy-config.toml` の `enabled` を `true` へ倒すのは呼び手と drill が揃う 2c。
-  4. GitHub 側の Actions variable `AUTONOMY_ENABLED` = `true`（小文字ちょうど。workflow 式は完全一致）は**設定済み**（2026-08-02 ユーザー作業。Settings → Secrets and variables → Actions → Variables）。2c マージまでは fix job 自体が存在しないため作用しない。
-
-#### WP-17 PR 2: Phase B — pr-monitor.yml の無人 fix push 拡張 — 2a/2b/2c すべて land 済（#350/#351/#352）。**実走スモーク段 2 まで完了（2026-08-04）**
-
-> **実行者向け**: 以下 2a/2b/2c の記述は **land 完了時点の記録**であり、再実行の必要はない。実走スモークの結果は § WP-17 段 2 の実施記録 と [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 が正。当時の判断根拠を追う必要がなければ、この小節は読み飛ばしてよい。
-
-**経緯（3 行）**: PR 2 は一括実装（1613 行）→ PR size gate で 2 分割 → 先頭 PR が simplicity REJECT → takt fix が lib 抽出 2 crate を丸ごと削除し gate 全 PASS のまま空洞化 push が「成功」する incident が発生（2026-08-02）。原因分析と再発防止は [ADR-068](adr/adr-068-fix-step-authority-boundary.md)（fix 後退検知 backstop、PR #348）と [ADR-069](adr/adr-069-pr-chain-declaration.md)（PR chain 宣言規約、PR #349）として **land 済み**。この 2 つが入った現在は、同じ事故は決定論的に block され、チェーン分割は宣言により REJECT されない。
-
-**資産の実在確認（着手時に最初に実行）**:
-
-```sh
-jj log -r 'ylkowqkp | unksnyts | mxzwmsyp | lwpktvpm | lqxzpvuw | utpvkwql | rxvwoxyq | zqlrrurl' --no-graph -T 'change_id.short() ++ " | " ++ description.first_line() ++ "\n"'
-```
-
-8 行出れば資産は無傷。change_id は rebase 後も安定なので、以降の手順はすべて change_id で参照する（commit_id は組み替えで変わる）。
-
-| change_id | 内容 | 行き先 |
+| PR | 内容 | 記録先 |
 |---|---|---|
-| `zqlrrurl` | docs: PR 1 完了反映（旧） | **abandon**（内容は本節の更新が包含済み） |
-| `ylkowqkp` | `lib-scope-guard` 抽出（ADR-054 判定コア、テスト 11 件） | 2b |
-| `unksnyts` | `lib-autonomy-policy` 抽出（ADR-066 判定コア、テスト 21 件維持） | 2b |
-| `mxzwmsyp` | rename パーサ修正 + **incident の gut-revert が混入**（後述） | 2a（2 ファイルのみ回収）→ abandon |
-| `lwpktvpm` | `cli-fix-push-gate`（4 軸 AND ゲート、テスト 22 件 + drill 7 実測済） | 2b |
-| `lqxzpvuw` | pr-monitor.yml の Phase B fix job（12 step） | 2c |
-| `utpvkwql` | `autonomy-config.toml` の `enabled = true` 化 | 2c |
-| `rxvwoxyq` | ADR-067 起票 + ADR-052 stale 訂正 + CLAUDE.md | 2c |
+| #347 | 全体 kill-switch（WP-19 ステップ 1 の前倒し統合。根拠は ADR-052 原則 5 が kill-switch を自動実行可クラスの前提条件としているため） | [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) |
+| #350 / #351 / #352 | Phase B 無人 fix push（2a: rename パーサ修正 / 2b: lib 抽出 2 件 + `cli-fix-push-gate` / 2c: workflow + config 有効化） | [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) |
+| #353 | wakeup 機構（CronCreate park モデル）の廃止 | [ADR-018](adr/adr-018-pr-monitor-takt-migration.md) amendment |
+| #354 | weekly-review の cloud routine 移行 | [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) |
+| #356 / #357 / #358 | 実走スモーク段 2 で検出した 3 件の修正 | [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 |
+| #359 | 段 2 の記帳と follow-up の todo 登録（順位 365-373） | 本節 + [todo20.md](todo20.md) |
 
-チェーン構造: `zqlrrurl → ylkowqkp → unksnyts → {lwpktvpm → lqxzpvuw → utpvkwql → rxvwoxyq, mxzwmsyp}`（旧 master 起点）。remote に stale ブランチ `feat/wp17-pr2a-policy-libs`（mxzwmsyp = 汚染版）が残っており、2a 完了時にユーザーへ GitHub UI での削除を依頼する（`gh` 直呼びは hook が block）。
+**本 WP から派生した ADR**: PR 2 の実装途中に発生した incident（size gate 強制の 2 分割で先頭 PR が simplicity REJECT → takt fix が lib 抽出 2 crate を丸ごと削除 → gate 全 PASS のまま空洞化 push が「成功」）から、[ADR-068](adr/adr-068-fix-step-authority-boundary.md)（fix 後退検知 backstop、#348）と [ADR-069](adr/adr-069-pr-chain-declaration.md)（PR chain 宣言規約、#349）を起票・land した。ADR-069 の初回実測は 2b（#351）が兼ねている（同 ADR § 実測 1 / 2）。
 
-**jj 運用の注意（本セッションで 3 回発生した事故の予防）**: ファイル編集を始める前に必ず `jj new -m "wip: <内容>"` で新コミットを作ること。描述済みコミットが `@` のまま編集すると、後続の `jj describe` が既存コミットのメッセージを上書きし、変更が混入する。`pnpm push` は必ず timeout 600000ms + `run_in_background: true`（ADR-016）。PR 作成・マージは AskUserQuestion または本文提示でユーザー承認を得る（ADR-028。VSCode では AskUserQuestion の preview・同一ターンの本文が見えないことがあるため、**draft はツール呼び出しを伴わない単独メッセージで提示**する）。
+#### 実走スモーク段 2 — Phase B allow 経路の完走（2026-08-04）
 
-##### 2a: 計画書更新 + rename パーサ修正（約 130〜200 行） — 完了（PR #350、2026-08-03 マージ）
+観測装置（PR #355 = 意図的な docs 不整合 3 点を仕込み、マージせずクローズした使い捨て）に対し `workflow_dispatch` を **4 回**実行し、4 回目で **13 step 完走** = `Push fix`（allow 経路）の成立に至った。1〜3 回目で検出した欠陥は #356 / #357 / #358 で修正済み。
 
-1. 本計画書の更新コミット（`jj log -r 'master..'` で description が `docs(harness-plan): WP-17 の実行状況と再分割計画` のもの）が既にあれば、それを 2a の先頭として流用する。
-2. **パーサ修正の回収**: `mxzwmsyp` は rename パーサ修正（`src/cli-push-runner/src/stages/diff.rs` + `src/cli-push-runner/src/stages/diff/tests.rs` の 2 ファイル）と incident の gut-revert（lib 削除等）が混在しており、**rebase / duplicate では回収できない**。次の手順で 2 ファイル分だけ取り出す:
-   - `tests.rs` は #348 以降 master で未変更のため丸ごと取得可: `jj restore --from mxzwmsyp -- src/cli-push-runner/src/stages/diff/tests.rs`
-     - **restore の前提（実行前に確認すること）**: 「master 側が未変更」が成立している間だけ丸ごと上書きしてよい。`jj diff --from master --to mxzwmsyp -- <path>` が incident コミット単体の差分（`jj diff -r mxzwmsyp -- <path>`）と一致すれば前提は満たされている。一致しない = master 側にも変更が入っており、`diff.rs` と同じく hunk 単位の手適用に切り替える（restore すると master 側の変更を無言で巻き戻す）。
-   - `diff.rs` は **restore 不可**（#348 が `parse_git_diff_paths` の `pub(crate)` 化を入れており、mxzwmsyp 版で上書きすると `post_takt_regate.rs` が compile error になる）。`jj diff -r mxzwmsyp -- src/cli-push-runner/src/stages/diff.rs` で hunk を確認し、`summary_line_new_path` の R/C 分岐変更と `rename_new_path` 関数追加、関連 doc 更新だけを現ファイルへ手で適用する（`pub(crate)` 行とは重ならない）。
-   - 修正の本質: jj の rename summary は `R src\{old => new}\file.rs` の**波括弧形式**で、旧実装の 3 トークン前提が壊れたパスを作り **rename を含む PR が一律 push 不能**だった。詳細は mxzwmsyp のコミットメッセージ参照。
-3. 検証: `cargo test -p cli-push-runner`（rename 系テスト含め全緑）、`cargo clippy -p cli-push-runner --all-targets -- -D warnings`。
-4. push（bookmark 例 `feat/wp17-r2a-docs-parser`）→ PR 作成（承認フロー）→ マージ（ユーザー）。
-5. マージ後、stale remote ブランチ `feat/wp17-pr2a-policy-libs` の削除をユーザーへ依頼。
+**この段から得た 3 つの知見**（詳細は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 / § 段 2 で閉じた課題）:
 
-##### 2b: lib 抽出 2 件 + cli-fix-push-gate（約 1,130 行、warning 帯） — 完了（PR #351、2026-08-03 マージ）
-
-抽出（`lib-scope-guard` / `lib-autonomy-policy`）と最初の呼び手（`cli-fix-push-gate`）を**同一 PR に入れる**ことで ADR-044 層 1 を充足する（incident の初回分割はここを分離して失敗した）。
-
-1. rebase: `jj rebase -s ylkowqkp -d master`（2a マージ後の master）。descendants（2c 分と mxzwmsyp）も一緒に移動する。その後 `jj abandon -r mxzwmsyp`（2a で回収済み）と `jj abandon -r zqlrrurl`（stale。※ zqlrrurl が ylkowqkp の親として残っている場合は rebase 前に abandon するか `-s zqlrrurl` ではなく `-s ylkowqkp` 起点で外す）。
-2. conflict 解決指針（rebase 時に発生しうる）: `docs/harness-improvement-plan.md` と `CLAUDE.md` は **master 側を正**とし、rxvwoxyq 由来の編集は CLAUDE.md の ADR-067 行（ADR-066 と ADR-068 の行の間に挿入）だけ活かす。`autonomy-config.toml` / `pr-monitor.yml` / ADR-052 は master 未変更のため conflict しない見込み。
-3. **lib module doc の時制修正**（新コミット）: `lib-scope-guard/src/lib.rs`・`lib-autonomy-policy/src/lib.rs`・`cli-autonomy-gate/src/main.rs`・`cli-pr-monitor/src/stages/scope_guard.rs` の「cli-fix-push-gate（計画中・本 diff の時点では未実装）」系の文言を、同一 PR に呼び手が存在する現実に合わせて現在形へ直す（incident 後の言い換えの残骸）。
-4. **chain 宣言（ADR-069 の初回 dogfood）**: 本計画書の下記「2b の chain 宣言」を 2b のコミットで**削除せずそのまま残し**、2b の diff に本計画書の状態行更新（例: 2b 見出しへの「実施中」付記）を含めることで宣言を diff に載せる。レビューが宣言を認識して missing-consumer findings を warning に降格することが ADR-069 試験運用の初回実測になる（結果を ADR-069 の試験運用判断基準の記録として残すこと）。
-5. 検証: `cargo test --workspace` 全緑（1936 件規模 + 新規 33 件）、`cargo clippy --workspace --all-targets -- -D warnings`、`pnpm lint:docs` / `lint:md`。
-6. push 時は `jj edit` で `@` を 2b tip（lib module doc 修正コミット）に置く（push-runner のレビュー範囲と bookmark 自動更新は `master..@`）。bookmark 例 `feat/wp17-r2b-libs-gate` → PR → マージ。
-
-**2b の chain 宣言**（ADR-069 準拠。2b PR の diff にこの計画書が含まれることで有効になる）:
-
-- **未消費なのは 1 つだけ**: 2b が導入する `cli-fix-push-gate`（crate `src/cli-fix-push-gate`、bin 同名）の **workflow 呼び手**。これは**後続 PR 2c** の `.github/workflows/pr-monitor.yml` の `fix` job として、step 名 `Gate fix push (deterministic, 4-axis AND)` で `master-ref/target/release/cli-fix-push-gate` を `--branch` / `--config` / `--diff-summary-file` / `--findings-file` 付きで実行する形で land する。
-  - **この宣言の検証状態**（ADR-069 § 決定 1 の名前一致要件に対する自己申告）: 引数 4 種と exe 名は**本 PR の diff 内**（`src/cli-fix-push-gate/src/main.rs` の `parse_args` / `USAGE`）で照合できる。step 名と exe パスは 2c の実装（ローカルに存在する未 land コミット。本 PR の diff には**含まれない**）と照合済みだが、**本 PR の diff だけでは検証できない主張**である。レビュアーによる名前一致の最終確認は 2c の diff で行う。
-- **lib 2 件の呼び手は 2b 自身の diff 内に揃っている**（未消費ではない）: `lib-scope-guard` → `cli-pr-monitor::stages::scope_guard`（既存）+ `cli-fix-push-gate`（本 PR）。`lib-autonomy-policy` → `cli-autonomy-gate`（既存）+ `cli-fix-push-gate`（本 PR）。ADR-069 § 決定 3-1「抽出と最初の呼び手の間で切らない」に従い、incident の初回分割が分離したこの境界を同一 PR に戻してある。
-
-##### 2c: Phase B workflow + config 有効化 + ADR-067（約 470 行） — 実施中（本 PR）
-
-1. 2b マージ後、残チェーンを rebase: `jj rebase -s lqxzpvuw -d master`。conflict 指針は 2b と同じ。
-2. 内容: pr-monitor.yml の fix job（agent は push しない / findings と fix の agent 分離 / gate と config は master ref から調達 / degrade は run 失敗にしない — 設計の全文は rxvwoxyq が起票する ADR-067 に記載済み）、`autonomy-config.toml` の `enabled = true`、ADR-067 + ADR-052 訂正 + CLAUDE.md。
-3. workflow の構文検証: js-yaml でのパース（node script を scratchpad に書いて実行。実走は後述スモークで）。
-4. **マージ前の確認**: Actions variable `AUTONOMY_ENABLED` は設定済み（= true）のため、**2c がマージされた瞬間に Phase B が live になる**。意図的に段階を踏むなら、下記スモーク段 0.5 を済ませた後・マージ前に variable を削除し、段 1 で再設定する（削除 = 停止が ADR-066 の設計どおり機能する）。段 0.5 は variable 層を通す必要があるため、削除するとしても段 0.5 の後にすること。
-5. push → PR → マージ（ユーザー）。ただしマージ前に下記スモーク段 0.5 を先に済ませる。
-6. **実走スモーク**（ユーザー操作込み。順序厳守）。
-
-   前提となる `workflow_dispatch` の挙動: **dispatch は起動時に ref（ブランチ）を選べ、選んだ ref 版の workflow 定義で走る**（workflow ファイル自体が default branch に存在すれば Actions UI の候補に出る。pr-monitor.yml は master 稼働中なので条件を満たす）。したがって 2c の fix job は**マージ前に 2c ブランチ ref に対して実走できる**。なお dispatch 起点の run は PR の Status Check には載らない（pr-monitor.yml 冒頭の設計メモのとおり、対象 SHA が default branch 側になるため）。対象 PR は input `pr_number` で渡す。
-
-   > **段 0 / 0.5 / 1 / 2 すべて完了（2026-08-04）→ § WP-17 段 2 の実施記録 を参照。** 以下の記述は当初計画で、実施記録は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録が正。
-
-   - 段 0: repository ruleset で `claude/` 以外への `GITHUB_TOKEN` push を deny（5 層目の防波堤。ユーザー、GitHub UI）。
-   - 段 0.5（**マージ前**）: 2c ブランチ ref を選んで workflow_dispatch（`pr_number` は任意の open PR でよい。2c の PR 自身で可）。`AUTONOMY_ENABLED` が設定済みなら variable 層を通って fix job が起動する。**期待動作は prefix 層（`Decide whether Phase B applies` step）の deny** — 対象 PR のブランチは `claude/*` ではないため `[FIX_PUSH_DENY] branch=... claude/ prefix ではない` を出し、以降の全 step（`proceed` ゲート）が skip される。**job は緑で終わるのが正常**（degrade ≠ run 失敗の設計どおり）。ここで検証できるのは workflow 構文（実 Actions ランタイム）/ job 配線 / variable 層 / prefix deny 経路。**master-ref 調達と config 層の deny には到達しない**（到達には `claude/*` PR + docs 指摘が必要 = 段 2 の構成。gate exe 単体の config-false deny は 2b の drill 7 シナリオで実測済みのため検証の穴にはならない）。dispatch は反復可能 — レビュー対応で workflow が変わったら、variable 削除 → マージの直前に**最終 HEAD で再実行**する。副作用: analyze job も走るため対象 PR に Phase A 分析コメントが 1 件付く（agent 1 run 分の Max 枠を消費）。
-   - 段 1: variable 再設定後、適当な非 `claude/` PR に対し workflow_dispatch → マージ済み master 版の workflow でも prefix 層の deny（`[FIX_PUSH_DENY] branch=... claude/ prefix ではない`）が出ることを確認。
-   - 段 2: `claude/` prefix のテストブランチで docs 指摘のある PR を作り、allow 経路（gate exit 0 → workflow step が push）と deny 経路（variable 削除で次 run から job skip）を観測。config 層の deny（master 調達の `autonomy-config.toml`）が実走で確認できるのはこの段が最初。あわせて run log の `[PHASE_B_ACTOR]` / `[PHASE_B_ACTOR_UNRESOLVED]` マーカーで **coderabbitai[bot] の permission 解決結果**を確認する — bot は collaborator ではない可能性が高く、その場合 `pull_request_review` 経路の Phase B は恒久 deny（fail-closed で危険はないが、`issue_comment` = walkthrough 経路だけが生きる形になる）。deny なら actor gate への bot allowlist 追加を follow-up として判断する（内容側は決定論著者フィルタが守っているため、追加しても多層防御は崩れない）。
-   - 結果を ADR-067 の検証記録と ADR-066 / ADR-068 の bounded lifetime 観測へ記帳する。
-
-#### WP-17 段 2 の実施記録（2026-08-04、**完了**）
-
-> 詳細は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 / § 段 2 で閉じた課題 が正。本節は経緯と PR 対応の要約のみを残す。
-
-`claude/phase-b-smoke-20260804` ブランチ + PR #355（意図的な docs 不整合 3 点を仕込んだ観測装置。マージせずクローズした使い捨て）に対し `workflow_dispatch` を **4 回**実行し、4 回目で **13 step 完走** = `Push fix`（allow 経路）の成立に至った。
-
-| 回 | 検出した欠陥 | 対処 |
-|---|---|---|
-| 1 | `gh api` は `--slurp` と `--jq` を併用できない | PR #356 マージ済 |
-| 2 | findings agent の出力がコードフェンスで囲まれ `jq` が失敗 | PR #357 マージ済 |
-| 3 | `Apply fixes` が findings ファイルを読めず空 diff | PR #358 マージ済（findings をワークスペース内へ移動） |
-| 4 | なし（完走） | — |
-
-**1〜3 の 3 件はすべて pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過していた。** 加えて 3 の修正時には、**ADR-067 に書かれていた修正方針そのもの**（`allowedTools` を `Read(findings-input/**)` にする）が pre-push security review で REJECT された — raw な bot テキストを write 権限の agent に晒す誤りで、単一ファイル指定に改めて land した。
-
-4 回目は **PR #358 をマージせずブランチ ref に対して dispatch** し、完走を確認してから 1 回だけマージした（過去 3 サイクルの「毎回マージ」が不要な手戻りだったことへの是正）。その後 `AUTONOMY_ENABLED` を削除した状態で dispatch して **fix job 自体が skip** されることを確認し、variable を再設定して PR #355 をクローズした。
-
-無人 fix が書いた内容も実測検証し、仕込んだ 3 点を過不足なく修正・範囲外の編集ゼロであることを確認している（ADR-068 § Phase B 1 run 目での確認）。
-
-**この時点で残っていた作業**: 本 docs バッチ（記帳 + 一般化 + post-merge feedback 採否 + follow-up 判断）。
-
-#### WP-17 PR 3: wakeup 機構（CronCreate 系）の廃止（旧ステップ 3） — 完了（PR #353、2026-08-04 マージ）
-
-- 廃止対象: cli-pr-monitor の CronCreate park モデル（ADR-018 追記の Bundle b で再導入。PR #237 で失効事例を観測済み）。
-  - park / wakeup 経路: state の `next_wakeup_at_unix` / `wakeup_reason`、monitor stage の wakeup invocation、`[PR_MONITOR_PARK]` envelope 出力。
-  - hooks-session-start の pr_monitor catch-up nudge（park 失効の救済層。機構ごと dead code になるため撤去）。
-- 代替: PR イベント（レート制限中の再開含む）は GitHub Actions 経路（Phase A/B）が引き受ける。CodeRabbit の後続コメント / レビュー到着がそのままトリガーになるため、ローカルの時限 wakeup は不要。
-- 記録: ADR-018 amendment を起票し、着手前決定 2 の ADR-064 検証残移し替え（(a) moot / (b) Actions 経路へ引き継ぎ）を amendment と ADR-064 ステータス欄の両方に記載。ADR-034 の CronCreate 参照も同 PR で整合を取る。
-- 実装メモ（本 PR で確定した設計判断）: 時刻窓アンカーの state 継続（`should_continue_state` = 同一 PR + 同一 head なら `started_at` / `fix_push_time` を維持）は park の付随物ではないため**残した**。落とすと手動再実行のたびに `--push-time` が「今」へリセットされ、push 後に届いた CR コメントが新着判定から漏れる。rate-limit の retry 上限 / comment dedup も同様に維持。
-- 本 PR の PR がそのまま**スモーク段 1 の観測対象**を兼ねる（variable 再設定済みの状態で、非 `claude/` PR に対する fix job の prefix deny をマージ済み master 版 workflow で確認する）。
-
-#### WP-17 PR 4: weekly-review の cloud routine 移行（旧ステップ 2） — 完了（PR #354、2026-08-04 マージ）
-
-決定・検証記録は [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) へ移管済み。以下は状態と残作業のみ。
-
-- **ユーザー作業**: routine 作成（schedule、週 1）+ one-off 手動実行 — **完了（2026-08-04）**。Claude GitHub App は**本リポジトリにインストール済み**（2026-08-04 ユーザー確認）。したがって「schedule トリガーのみなら App 不要か」は**本 WP では未検証**（インストール済みの状態でしか観測していないため、不要であることを主張できない）。
-- **Claude 側作業**: routine プロンプト（ADR-070 に記載）/ リマインダーの監査リマインダー化 / ADR-070 起票 / routines の SaaS 事実の永続化 — **本 PR で完了**。
-- **実測（ADR-070 § 検証記録）**: one-off run で `pnpm install` → `cloud-setup.sh` → takt weekly-review が全て exit 0、6 facet 並列で 7m18s 完走、findings 1 件（medium）。クラウド Linux 実行が成立することを確認（ADR-060 / ADR-063 の dogfood を兼ねる）。
-- **移行で判明した構造的制約**: weekly-review は 4 フェーズで、routine が担えるのは Phase 1-2（分析）のみ。Phase 3（採否判断）は人間の判断が本質、Phase 4（task list 反映 + last-run 更新）はそれに従属する。**routine は skill の置き換えではなく分析フェーズの前倒し**。あわせて `weekly-review-last-run.json` は使い捨てクローンでは更新されないため、リマインダーは routine の実行を観測できない（→ 意味を監査リマインダーへ転換、閾値 7 → 30 日）。
-- **未解決の残課題（ADR-070 § 残課題）**: routine の分析結果が transcript にしか残らず、ユーザーが読まなければ消える。選択は配送方法だけでなく**実行主体を含む 3 択**（routine / **GitHub Actions schedule**（WP-17 バックボーン再利用、research preview 非依存、push 可否に不確実性なし）/ ローカル維持 = routine 断念）で、配送先は**通知を持つチャネル（Issue 等）ならローカル検出機構が不要**になる。判定は ADR-070 bounded lifetime (b) の観測後に行い、**断念も正規の出口**。push 認証の試験 routine は 2026-08-04 に実施し、**結論と残課題は ADR-070 § 残課題へ移管済**（試験 routine 自体はユーザーが削除済み）。本 WP の完了判定はこの残課題に依存しない — 判定は ADR-070 bounded lifetime (b) の観測後。
+1. **静的検査は LLM を含む経路を素通りする** — 検出した 3 件はすべて pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過していた。さらに 3 件目の修正時には **ADR-067 に書かれていた修正方針そのもの**が pre-push security review で REJECT された（raw な bot テキストを write 権限の agent に晒す誤り）。convention 化済み（[dev-conventions.md](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない）。
+2. **反復はマージせず ref 指定の dispatch で行う** — 1〜3 回目は毎回マージしており、1 バグあたり 1 サイクルの手戻りだった。4 回目は PR #358 をマージせずブランチ ref に dispatch し、完走を確認してから 1 回だけマージした。
+3. **無人 fix の出力は実測検証する** — 仕込んだ 3 点を過不足なく修正し範囲外の編集ゼロであることを確認した（[ADR-068](adr/adr-068-fix-step-authority-boundary.md) § Phase B 1 run 目での確認）。
 
 #### WP-17 受け入れ基準
 
-- PR 1: kill-switch drill（exe 単体） — **充足済**（PR #347。8 シナリオ実測、ADR-066 § 検証記録）。
-- 再分割 2b: `cli-fix-push-gate` の決定論層 drill — **充足済**（7 シナリオ実測、ADR-067 § 検証記録に記載済み。land 時に有効化）。加えて 2b が ADR-069 chain 宣言の初回実測を兼ねる（宣言付き先頭 PR が missing-consumer REJECT を受けないこと）。
-- 再分割 2c: 実走スモーク段 0〜2（§ 2c 手順 6） — `AUTONOMY_ENABLED` 未設定 / false で fix job が起動せず、有効時のみ `claude/` テストブランチへの fix push が通ること。**段 0 / 0.5 / 1 / 2 すべて充足済（2026-08-04）**。段 2 は 4 回目の dispatch で 13 step 完走し、`Apply fixes` の実編集 → `Push fix` の commit 生成 → push が成立した（§ WP-17 段 2 の実施記録、ADR-067 § 検証記録）。
-  - **停止側の実走で確認したのは「variable を削除した（= 未設定）」場合のみ**である。明示的な `AUTONOMY_ENABLED=false` を設定した dispatch は実施していない。workflow 式 `vars.AUTONOMY_ENABLED == 'true'` は未設定と `false` を同じく偽と評価するため挙動は一致するはずだが、**実走では確認していない**。同様に config 側（master ref の `autonomy-config.toml` で `enabled = false`）の deny も実走未観測で、gate exe 単体の drill（ADR-066 § 検証記録 #2）でのみ固定されている。この 2 点は ADR-066 bounded lifetime の観測（3〜5 run）で埋める。
-- PR 4: weekly-review の cloud routine 移行 — **充足済**（PR #354。one-off 実行で routine が起動し weekly-review 相当の出力を返すことを実測。ADR-070 § 検証記録）。routine 出力の受け渡し手段は ADR-070 § 残課題として継続。
-- PR 3: wakeup 廃止後、レート制限を含む PR イベントが GitHub Actions 経路のみで処理されること（ADR-064 (b) の判定文保証は同経路の検証残として追跡）。
-- WP 全体（従来基準）: PC 電源オフの週末をまたいで PR イベント・週次レビューが取りこぼしなく処理されること。
+| 基準 | 状態 |
+|---|---|
+| kill-switch drill（exe 単体、8 シナリオ） | **充足**（#347、ADR-066 § 検証記録） |
+| `cli-fix-push-gate` の決定論層 drill（7 シナリオ） | **充足**（#351、ADR-067 § 検証記録）。同 PR が ADR-069 chain 宣言の初回実測も兼ねる |
+| 実走スモーク段 0〜2 — 有効時のみ `claude/` ブランチへの fix push が通ること | **充足**（#352 + 段 2 完走。ADR-067 § 検証記録） |
+| weekly-review の cloud routine 移行 | **充足**（#354、ADR-070 § 検証記録） |
+| wakeup 廃止後、PR イベントが GitHub Actions 経路のみで処理されること | **部分充足** — 通常経路は稼働中。ADR-064 (b) の判定文保証は同経路の検証残 |
+| **WP 全体**: PC 電源オフの週末をまたいで PR イベント・週次レビューが取りこぼしなく処理されること | **未検証**（実運用の観測待ち） |
 
-### WP-18: 夜間 todo 消化ループ
+#### 後続へ引き継ぐ残課題
 
-- **ステップ**:
-  1. cloud routine（schedule、平日夜間 1 回）: [todo-summary.md](todo-summary.md) から「依存なし・XS/S・Tier 2/3・**自律実行可マーク付き**」を 1 件選択 → 実装 → pre-push 相当の検証 → **draft PR 作成で停止**（マージ判断は人間）。
-  2. 自律実行可マークの opt-in 列を todo-summary の table に追加（docs-only PR で実施。最初は 5〜10 件だけ人間がマークする）。
-  3. クラウドは使い捨てクローンのため jj workspace 分離は不要。ローカルで同ループを回す場合のみ ADR-045 の workspace を使い、並行運用の衝突は ADR-022 の責務分離で整理。
-  4. routine の daily run cap と Max 枠消費を 1 週間観測して頻度調整。
-- **受け入れ基準**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行**。
+- **停止側の実走が未完**: 実走で確認したのは `AUTONOMY_ENABLED` を**削除した（= 未設定）**場合のみ。明示的な `AUTONOMY_ENABLED=false` と config 側（master ref の `autonomy-config.toml` で `enabled = false`）の deny は実走未観測で、gate exe 単体の drill でのみ固定されている。ADR-066 bounded lifetime の観測（3〜5 run、期限 2026-11-02）で埋める。
+- **Phase B の自動起動経路が未検証**: 段 1 で `coderabbitai[bot]` の permission が `none` と実測されたため `pull_request_review` 経路は恒久 deny で、起動は `issue_comment`（walkthrough）経路だけになる。この経路は初回 1 回きりで、その時点では CodeRabbit の実レビューがまだ無いことが多い。「findings がある状態で Phase B が自動起動する窓」が実質的に無い可能性がある（段 2 は手動 dispatch で成立させたため未検証）。bot allowlist の要否と併せて **WP-18 着手時に実測する**（ADR-067 § 検証記録）。
+- **routine 出力の受け渡し手段が未決**: 分析結果が transcript にしか残らずユーザーが読まなければ消える。実行主体を含む 3 択（routine / GitHub Actions schedule / ローカル維持 = 断念）で、**断念も正規の出口**。判定は ADR-070 bounded lifetime (b) の観測後（[ADR-070](adr/adr-070-weekly-review-cloud-routine.md) § 残課題）。
+- **Phase B の実効価値は WP-18 に依存**: 対象が docs 指摘に限られるため、WP-18 の夜間ループが `claude/` ブランチ PR を作り始めるまで発火機会が小さい（ADR-067 § 欠点）。
+
+### WP-18: 夜間 todo 消化ループ — 着手可（着手前決定 3 件確定済み、2026-08-05）
+
+> 次セッションは本節だけで着手できる。夜間に 1 タスクを無人実装し **draft PR 作成で停止**する（マージ判断は人間）ループを、WP-17 のバックボーン上に組む。
+
+- **着手前決定（2026-08-05、ユーザー確認済み）**:
+  1. **実行主体 = GitHub Actions schedule workflow**（cloud routine ではない）。根拠: [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) § 実現可能性の未検証点の実測 — routine の `jj git push` はローカル hook（`jj-push-guard`）に阻まれ、例外新設は「自律 push 経路の新設」= 採用バー超え。Actions は workflow step が push する Phase B（[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md)）と同構造でこの問題が発生せず、`claude/` prefix ブランチは ruleset 除外とも整合する。
+  2. **WP-19 ステップ 2（背圧）を本 WP の PR 1 へ前倒し統合**。根拠: [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 は背圧なしの draft-pr クラス有効化をアンチパターンとして明示的に禁止し、`lib-autonomy-policy` の `backpressure_connected()` は `DraftPr => false` 固定で**構造的に deny する**（コード内コメントが「WP-18 で背圧を実装する PR がここを `true` へ反転させる」と指定済み）。WP-17 の kill-switch 前倒しと同じ判断。
+  3. **タスク台帳 = [claude-code-web-tasks.md](claude-code-web-tasks.md)**（旧案「todo-summary へ自律実行可列を追加」は置き換え）。同ファイルは既に「Web 実行可の判定基準 + curated なタスク表 + 着手フロー」を持ち、夜間ループの選択元に転用できる。ただし現状は ephemeral（全タスク land で retire）なので、**「定期更新される管理台帳」へ lifecycle を改訂**し、自律実行可の判断は **weekly-review と同じタイミングで定期更新**する（WP-19 ステップ 3 の監査ループと接続）。
+
+- **PR 構成（新規 3 本）**:
+  1. **PR 1: 背圧実装 + ADR 起票（M）** — 判定コア側は `lib-autonomy-policy` の `Operation::backpressure_connected()` が `DraftPr => false` 固定で構造的 deny しているので、**これを `true` へ反転させるのが必須の 1 点**。あわせて未マージ draft PR 数（`claude/` prefix）を決定論的に取得し（workflow step の `gh api`）、閾値は WP-19 ステップ 2 の「3 件以上で停止」を初期値に置く。**閾値判定をどの層に置くかは実装時の設計判断**（(a) `GateInputs` に読み取り済みの draft 数を渡して gate 内で判定 — 現状のフィールドは `repo_config_enabled` / `external_raw` / `operation` の 3 つで入力の口を足す必要がある / (b) workflow step 側で判定し gate には接続状態だけ持たせる）。**同じ背圧状態を 2 箇所で持たない**こと — `backpressure_connected()` と別フィールドの二重管理は判定経路の分岐を招く。drill で実測を固定する。ADR 起票は [ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) 3 点セット + **§ 3 の SaaS 課金・上限事実を最新値へ再確認して永続化**（本ファイル退役条件 2 の移管義務）。
+  2. **PR 2: タスク台帳のブラッシュアップ（docs、S）** — [claude-code-web-tasks.md](claude-code-web-tasks.md) の stale 行検証（land 済みタスクの除去）、無人実行可マークの追加（Web 実行可 = 人間が対話で補助できる、無人可 = 補助なしで完結、の 2 段階。最初は 5〜10 件だけ人間がマーク）、lifecycle を ephemeral から定期更新台帳へ改訂、weekly-review パイプラインへ台帳更新手順を接続。
+  3. **PR 3: 夜間 workflow（schedule、M-L）** — タスク選択（台帳の機械判定・fail-closed）→ 実装 → `cargo test` 検証 → draft PR 作成。**push / PR 作成は workflow step が gate（`cli-autonomy-gate --operation draft-pr`）経由で実行し、agent は push の主体にしない**（ADR-067 と同型）。**実走スモーク段を受け入れ基準に含める**（[dev-conventions](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない）。スモークで WP-17 残課題 2 件（Phase B 自動起動経路の実測 / `coderabbitai[bot]` allowlist 要否）も同梱観測する（ADR-067 § 検証記録に「WP-18 着手時に実測」と記帳済み）。
+
+- **運用ノート**: クラウドは使い捨てクローンのため jj workspace 分離は不要。ローカルで同ループを回す場合のみ [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の workspace を使う。稼働後 1 週間は run 頻度と Max 枠消費を観測して頻度調整。
+- **受け入れ基準**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行**。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）に載せて仕組み化する。
 
 ### WP-19: 常時性ガード
 
 - **ステップ**:
-  1. **全体 kill-switch**: WP-17 PR 1 へ前倒し済み（2026-08-02 決定、根拠 = ADR-052 原則 5 の契約。設計・実装内容は § WP-17 の PR 1 を参照）。
-  2. **自主減速**: routine プロンプト冒頭に自己抑制判定 —「未マージの draft PR が 3 件以上ある／直近 run の失敗が続いている場合は何もせず終了」。作りかけの山を積まないための背圧制御。
-  3. **監査ループを閉じる**: 自律アクション一覧（routine run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。
+  1. **全体 kill-switch**: WP-17 の PR #347 へ前倒し済み（2026-08-02 決定、根拠 = ADR-052 原則 5 の契約。設計・実装内容は [ADR-066](adr/adr-066-autonomy-global-kill-switch.md)）。
+  2. **自主減速（背圧）**: WP-18 の PR 1 へ前倒し済み（2026-08-05 決定、根拠 = ADR-052 原則 5 の契約と `backpressure_connected()` の構造的 deny。→ § WP-18）。当初案の「routine プロンプト冒頭の自己抑制判定」は決定論層（`cli-autonomy-gate` の背圧入力）へ格上げして実装する — instruction 層の自己抑制は ADR-028 が指摘した soft 防衛のため。
+  3. **監査ループを閉じる**: 自律アクション一覧（workflow run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。WP-18 の採用率測定と台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）の定期更新もここに載る。
 
 ## 7. 完了条件と退役手順
 
