@@ -47,7 +47,6 @@
 
 | 順位 | Tier | 内容 | 対象ファイル (実パス) | 工数 | 注意 |
 |---|---|---|---|---|---|
-| 284 | T2 | `stale_check_enabled` (Option\<bool\>) の TOML パーステスト追加（未テストのパース経路を補完） | `src/hooks-session-start/src/hooks_config.rs`（`mod tests`、既存 `hooks_config_parses_session_start_staleness_section` 拡張） | XS | 純 deserialize。`temp_dir()` fixture で Linux CI pass 済みパターン、最もクリーン |
 | 203 | T2 | GitHub token `ghu_` / `ghr_` の secret 検出ブロックテスト 2 件追加 | `src/hooks-pre-tool-validate/src/presets/safety/secret.rs` | XS | todo 記載の `main.rs` は module split でパスドリフト、実体は `secret.rs`。純 regex 判定 |
 | 240 | T2 | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる |
 | 180 | T2 | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |
