@@ -77,6 +77,14 @@ PR size gate (block 1500 行) に当たって PR を分割する場合の規約 
 
 **由来** (2026-08-02 WP-17 PR 2a incident、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) / [ADR-069](adr/adr-069-pr-chain-declaration.md)): size gate 強制の 2 分割が抽出 (lib 2 crate) と呼び手 (cli-fix-push-gate) を分離し、宣言の無い先頭 PR が simplicity REJECT → fix の gut-revert → gate 全 PASS のまま空洞化 push という連鎖が発生した。
 
+## jj: ファイル編集を始める前に `jj new` する
+
+**別作業で作られた既存コミットが `@` の状態でファイルを編集しない。** 編集を始める前に `jj new -m "wip: <内容>"` で**そのターンの作業コミット**を作り、その上で編集する（`jj new` 直後の `@` も description を持つが、これは今から書き換える対象なので問題ない。禁止したいのは前ターン以前に確定した他の作業のコミットを `@` にしたまま編集することである）。
+
+理由: jj は working copy をそのままコミットへ反映するため、既存コミットが `@` のままだと編集内容がそのコミットへ吸収される。その後 `jj describe` を実行すると**そのコミットのメッセージが上書きされ**、無関係な変更が既存コミットへ混入した状態で push されうる。push-runner のレビュー範囲は `master..@` なので混入自体はレビュー対象に入るが、「どのコミットの変更か」がずれた状態は後から追いにくい。
+
+**由来** (2026-08-02 WP-17 PR 2 の実装セッション): 同一セッション中に 3 回発生した。関連して、同セッションでは `pnpm push` を timeout 600000ms + background で実行する ([ADR-016](adr/adr-016-long-running-command-strategy.md))、PR 作成・マージはユーザー承認を得る ([ADR-028](adr/adr-028-pnpm-create-pr-gate.md)) も併せて運用している。VSCode では AskUserQuestion の preview や同一ターンに出した本文が見えないことがあるため、**PR 本文の draft はツール呼び出しを伴わない単独メッセージで提示する**。
+
 ## LLM を含む自動化経路は実走でしか検証できない (ADR-067)
 
 LLM を step に含む workflow / パイプラインを**新規に組んだとき、および既存経路の LLM step を追加・変更したとき**は、**静的検査の通過を完了条件にしない**。実走スモークを必須の受け入れ基準として設計する。本 convention の由来となった 3 件はいずれも**既存 workflow への変更**であり、新規作成に限った規約では取りこぼす:
