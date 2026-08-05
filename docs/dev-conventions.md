@@ -76,3 +76,14 @@ PR size gate (block 1500 行) に当たって PR を分割する場合の規約 
 4. **分割後は各 PR の diff 内文書がその PR の真実を語っているか再検証する** — 分割は diff の境界だけでなく文書とコードの整合の境界も動かす。
 
 **由来** (2026-08-02 WP-17 PR 2a incident、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) / [ADR-069](adr/adr-069-pr-chain-declaration.md)): size gate 強制の 2 分割が抽出 (lib 2 crate) と呼び手 (cli-fix-push-gate) を分離し、宣言の無い先頭 PR が simplicity REJECT → fix の gut-revert → gate 全 PASS のまま空洞化 push という連鎖が発生した。
+
+## LLM を含む自動化経路は実走でしか検証できない (ADR-067)
+
+LLM を step に含む workflow / パイプラインを**新規に組んだとき、および既存経路の LLM step を追加・変更したとき**は、**静的検査の通過を完了条件にしない**。実走スモークを必須の受け入れ基準として設計する。本 convention の由来となった 3 件はいずれも**既存 workflow への変更**であり、新規作成に限った規約では取りこぼす:
+
+1. **静的検査は「LLM がいる経路」を素通りする** — 構文パース・型検査・レビューのいずれも「その API 呼び出しが実際に何を返すか」「agent が実際に何を読めるか」を検証しない。ADR-067 段 2 で検出した 3 件 (`gh api` の `--slurp` / `--jq` 排他、agent 出力のコードフェンス、agent のサンドボックスによる読み取り拒否) は **すべて pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過していた**。
+2. **設計文書に書かれた修正方針も検査対象である** — ADR-067 § 残課題に書いた修正方針 (`allowedTools` に glob を与える) 自体が誤りで、実装時の pre-push security review が REJECT した。**方針を実装へ写す作業でも、レビューは方針を無条件に正としてはならない**。
+3. **反復は ref 指定の dispatch で行い、マージを検証の前提にしない** — `workflow_dispatch` は ref を選べるため、修正ブランチに対して直接実行できる。「修正 → PR → レビュー → マージ → 再実行」をバグごとに回すのは手戻りである。
+4. **最初の失敗で停止する経路では、1 回の実走で見つかるバグは高々 1 個** — 実行がそこで止まるため、n 個のバグには n 回の実走が要る。見積もりは「1 サイクル 1 バグ」を前提に置く。並列実行する経路や失敗しても継続する経路 (`continue-on-error` 等) では 1 回で複数検出できるため、この前提は当てはまらない — **対象経路の停止条件を確認してから見積もること**。
+
+**由来** (2026-08-04 WP-17 段 2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録): Phase B 無人 fix push の実走スモークで `workflow_dispatch` を 4 回要し、うち 3 回が上記の静的検査すり抜けバグの検出に費やされた。1〜3 回目は毎回マージしており、それが不要な手戻りだったことも同時に判明した。

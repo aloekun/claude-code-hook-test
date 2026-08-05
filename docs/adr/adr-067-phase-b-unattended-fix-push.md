@@ -126,7 +126,68 @@ unit test: `cli-fix-push-gate` 22 件 / `lib-scope-guard` 11 件 / `lib-autonomy
 
 ### workflow (2026-08-02 時点で未実走)
 
-YAML は js-yaml でパースし、job 構成 (`analyze` / `fix`)、`fix.if`、job 権限、13 step の条件チェーンを確認した (起票時は 12 step。pre-push レビュー 5 ラウンドの対応で `Fetch CodeRabbit review comments` step が追加され 13 になり、検証は追加後の構成で再実行済み)。**実走スモークは未実施** — Actions variable の設定と `claude/` テストブランチの用意が要るため (§ 残課題)。
+YAML は js-yaml でパースし、job 構成 (`analyze` / `fix`)、`fix.if`、job 権限、13 step の条件チェーンを確認した (起票時は 12 step。pre-push レビュー 5 ラウンドの対応で `Fetch CodeRabbit review comments` step が追加され 13 になり、検証は追加後の構成で再実行済み)。
+
+### 実走スモーク段 0 / 0.5 / 1 (2026-08-03〜04、完了)
+
+| 段 | 内容 | 結果 |
+|---|---|---|
+| 0 | repository ruleset で `claude/` 以外への `GITHUB_TOKEN` push を deny (5 層目) | 設定済み。admin bypass でローカル push / squash マージが通ることをマージ実行で確認 |
+| 0.5 | 2c ブランチ ref へ `workflow_dispatch` (マージ前) | fix job 起動 → **prefix 層 deny**、job 緑。workflow 構文 / job 配線 / variable 層が実 Actions ランタイムで成立 |
+| 1 | マージ済み master 版で非 `claude/` PR へ dispatch | 同じく prefix 層 deny を確認 |
+
+段 1 で **`[PHASE_B_ACTOR] reviewer=coderabbitai[bot] permission=none`** を観測した。`collaborators/{user}/permission` API は `GITHUB_TOKEN` で**呼べる** (起票時に「静的には確定できない」としていた不確実性が解消)。ただし bot の権限は `none` のため、**`pull_request_review` 経路の Phase B は恒久 deny** になる。`issue_comment` (walkthrough) 経路は actor gate の permission 検査対象外なので生きている。actor gate への bot allowlist 追加は follow-up 判断 (内容側は決定論著者フィルタが守るため多層防御は崩れない)。
+
+**follow-up 判断 (2026-08-04): 追加しない — WP-18 着手時に再判断する。** Phase B の実効価値は WP-18 の夜間ループが `claude/` ブランチ PR を作り始めるまで小さく (§ 欠点)、防御層を 1 つ減らす判断は実効性の問題を実測してからで足りる。
+
+ただし段 2 完了時に**自動起動経路そのものへの懸念**が浮上したため記録する。`pull_request_review` 経路が恒久 deny だと、Phase B の起動は `issue_comment` 経路だけになる。この経路は walkthrough (summarize marker を含むコメント) の `types: [created]` のみを購読するため初回 1 回きりで、**その時点では CodeRabbit の実レビュー (inline comments) がまだ存在しないことが多い** → findings 0 件 → degrade。つまり「findings がある状態で Phase B が自動起動する窓」が実質的に無い可能性がある。段 2 は `workflow_dispatch` による手動起動で、その時点で指摘が溜まっていたため成立した — **自動起動経路は一度も検証されていない**。WP-18 着手時に bot allowlist の要否と併せて実測すること。
+
+### 実走スモーク段 2 (2026-08-04、**完走**)
+
+`claude/phase-b-smoke-20260804` ブランチ + PR #355 (意図的な docs 不整合 3 点を仕込んだ観測装置。マージせずクローズする使い捨て) に対し `workflow_dispatch` を 4 回実行した。1〜3 回目は **1 回の dispatch につきバグを 1 個ずつ検出**している (実行が最初の失敗で止まるため)。
+
+| 回 | 到達点 | 検出した欠陥 | 対処 |
+|---|---|---|---|
+| 1 | `Fetch CodeRabbit review comments` | `gh api` は **`--slurp` と `--jq` を併用できない** (`the --slurp option is not supported with --jq or --template`)。#352 の takt fix が入れたページネーション対応が実行不能だった | PR #356 でマージ済 (外部 `jq` へパイプ) |
+| 2 | `Extract findings JSON` | findings agent が出力を ```json で囲み `jq` がパース失敗。出力形式の保証が**指示層のみ**だった | PR #357 でマージ済 (決定論層でフェンス行を除去) |
+| 3 | `Gate fix push` | **`Apply fixes` が 1 ファイルも編集せず空 diff** → ゲートが `reason=empty-fix-diff` で deny | PR #358 でマージ済 (findings をワークスペース内へ移動。§ 残課題 1) |
+| 4 | **`Push fix` = 13 step 完走** | なし | — |
+
+**1〜3 の 3 件とも pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種をすべて通過していた**。LLM を含む workflow は静的検査では検証しきれず、実走でしか出ない欠陥がある — 段 2 を必須としたマージ手順の設計が妥当だったことの裏づけになる。
+
+3 回目で確認できた正常動作 (いずれも実走初):
+
+- 決定論的著者フィルタが coderabbitai[bot] の投稿のみを抽出
+- findings agent が**仕込んだ不整合 3 点を過不足なく検出** (観測装置の設計が妥当)
+- **4 軸ゲートが全軸を評価し空 diff を検出して deny** (`autonomy=allowed branch=isolated content=empty scope=in-scope(0 files)`)。「push するものが無いのに push する」ことを防ぐ設計どおりの動作
+- degrade 分岐が `GATE_OUTCOME: skipped` を正しく判別し理由を出力
+
+#### 4 回目 — allow 経路の完走 (2026-08-04)
+
+PR #358 のブランチ ref に対して dispatch した。**マージ前**である — § 残課題 2 の是正をそのまま実践し、13 step の完走を確認してから 1 回だけマージした。
+
+| 観測点 | 実測値 |
+|---|---|
+| `Collect findings` | findings 3 件 (仕込んだ不整合と 1:1) |
+| `Apply fixes` | `permission_denials_count=0` / `num_turns=6` / `is_error=false` (3 回目は denials=2・turns=3・無編集) |
+| `Compute fix diff summary` | `M docs/phase-b-smoke-test.md` (1 ファイル) |
+| `Gate fix push` | `[FIX_PUSH_ALLOW] branch=claude/phase-b-smoke-20260804 files=1 autonomy=allowed branch=isolated content=docs-only scope=in-scope(1 files)` |
+| `Push fix` | `ee9557a..86f424c HEAD -> claude/phase-b-smoke-20260804` |
+| `Report degrade to Phase A` | skip (= degrade しなかった証拠。§ 決定 6 の設計どおり) |
+
+**無人 fix が書いた内容も実測で検証した**。仕込んだ 3 点を過不足なく修正し、範囲外の編集はゼロ (1 ファイル / 3 insertions / 3 deletions):
+
+| 仕込んだ不整合 | fix agent の修正 |
+|---|---|
+| 4 項目を列挙して「3 ステップ」 | 「4 ステップ」へ訂正 |
+| 「variable の設定は任意です」と「事前設定は必須です」の矛盾 | 「任意です」側を削除 (必須が事実) |
+| 判断基準のない TODO | 記録先と完了条件を明記 |
+
+あわせて `fetch-depth: 1` の shallow clone からの token 付き URL push が成立することも確認できた (§ 残課題 3 で最大の不確実性としていた点)。ADR-039 bounded lifetime の自律 fix push 回数は **1 回** (期限 2026-11-02)。
+
+#### deny 経路の再確認 — kill-switch 削除 (2026-08-04)
+
+`AUTONOMY_ENABLED` を削除した状態で master ref へ dispatch し、**fix job 自体が skip** されることを確認した (`if: vars.AUTONOMY_ENABLED == 'true'` が偽になり job が起動しない)。ADR-066 の「欠損 → 安全状態」が実 Actions ランタイムで機能する。観測後に `true` へ再設定済み。
 
 ## 帰結
 
@@ -145,14 +206,51 @@ YAML は js-yaml でパースし、job 構成 (`analyze` / `fix`)、`fix.if`、j
 - **ループ防止が GitHub の仕様依存**。`GITHUB_TOKEN` push が run を発火させない性質に乗っている。token 種別を変える際は別途ガードが要る (§ 決定 7)。
 - **findings agent の出力形式が prompt 依存**。JSON 配列でなければ fail-closed で止まるので安全側だが、形式崩れが degrade の主因になる可能性がある。実走で観測する。
 
+### 段 2 で閉じた課題 (2026-08-04)
+
+**1. `Apply fixes` が findings ファイルを読めない → PR #358 で解決**
+
+fix agent の findings 参照先が `$RUNNER_TEMP/findings.json` = `/home/runner/work/_temp/findings.json` で、**agent の作業ディレクトリ (ワークスペース直下) の外**にあった。Claude Code は既定で作業ディレクトリ外のファイルアクセスを制限するため、`allowedTools` に絶対パスを列挙してもディレクトリサンドボックスが別レイヤで遮る。結果 agent は findings を取得できず 1 ファイルも編集せず、空 diff → ゲートが `empty-fix-diff` で deny していた。
+
+診断の根拠は**同一 run 内の対照**である (仮説ではない):
+
+| agent | 読み取り先 | `permission_denials_count` | ターン数 | 結果 |
+|---|---|---|---|---|
+| `Collect findings` | `findings-input/**` (ワークスペース**内**) | **0** | 3 | 成功・3 件検出 |
+| `Apply fixes` | `/home/runner/work/_temp/findings.json` (**外**) | **2** | 3 | 無編集 |
+
+修正後の 4 回目で `Apply fixes` は `denials=0` / `turns=6` / 3 ファイル箇所の編集となり、診断が正しかったことが実測で確認された。
+
+> **当初の修正方針は誤っていた (訂正)**。本節はかつて「`Apply fixes` の `allowedTools` を `Read(findings-input/**)` にする」と書いていたが、これは**採ってはならない**。同ディレクトリには `comments.json` / `reviews.json` = 著者フィルタ済みだが**未要約の raw な CodeRabbit テキスト**があり、glob を与えると write 権限を持つ fix agent がそれを直接読める。これは findings agent (read-only) と fix agent (write 可) を別プロセスへ分けた § 決定 2 と [ADR-054](adr-054-prompt-injection-trust-boundary-defense.md) の設計目的そのものを崩す。4 軸ゲートは path ベースの検査しか行わず (`lib-docs-policy` の拡張子判定と `lib-scope-guard` の allowlist 突き合わせ)、in-scope な docs ファイルへ**何が書かれたか**は検査しないため、injection が成立しても下流では捕まらない。実装時の pre-push security review がこれを REJECT で指摘し、`Read(findings-input/findings.json)` (単一ファイル) に絞って land した。
+>
+> **一般化**: 静的検査を通らないのはコードだけではない。**ADR に書かれた修正方針そのものが誤っていることがある**。方針を実装へ写す作業でも、レビューは方針を無条件に正としてはならない。
+
+**2. 検証手順の是正 — マージせずブランチ ref で反復する → 4 回目で実践**
+
+段 2 の 1〜3 回目は「修正 → PR → レビュー → マージ → 再 dispatch」を毎回回し、1 バグあたり 1 サイクルを費やした。これは不要だった。**`workflow_dispatch` は ref を選べる**ため、修正ブランチに対して直接 dispatch し、`Push fix` まで通ることを確認してから 1 回だけマージすればよい。4 回目はこの手順で実施し、完走を確認してから PR #358 をマージした。
+
+ゲートと config は `Build fix push gate from master` が master から調達するので、ブランチ ref で走らせても § 決定 3 の信頼境界は保たれる (検証対象は workflow の step であってゲートではない)。過去の記述で「マージが検証の前提」としたものは**誤り**である。
+
+**3. 未実走 step の先回り監査 → 実施済み。実走でも成立**
+
+PR #358 で `Push fix` を静的に監査し、コードを変える必要のある欠陥は見つからなかった。4 回目の実走で 3 点とも成立を確認した:
+
+- commit 前の `user.name` / `user.email` 設定 — 有効 (リポジトリローカル config への書き込み)
+- `git -C pr add -A` でステージした変更が commit まで維持されるか — 維持された (間に挟まる `Gate fix push` は `master-ref/` の exe を実行するだけで `pr/` に触れない)
+- `persist-credentials: false` + `ref: head_ref` の checkout に対する token 付き URL push — 成立。**`fetch-depth: 1` の shallow clone からの push も通る**ことが確認できた (監査時点で最大の不確実性としていた点)
+
+**4. 観測装置 (PR #355) 側の抑止要因 → 削除済み**
+
+`docs/phase-b-smoke-test.md` の冒頭には、pre-push レビューによる観測装置の破壊を防ぐ目的で入れた宣言があった。着手時点で命令形 (「修正しないでください」) は PR #355 のレビュー対応で既に事実記述へ緩和されていたが、**「本文には意図的な不整合を 3 点含めてあります」「これは観測装置です」という明示が残っており、命令形でなくとも fix agent に「直さなくてよい」と判断させる材料になる**。段 2 の 4 回目に先立ちこの 2 ブロックを削除した (PR #355 への push。新規 PR は作っていない)。
+
+削除後の push で pre-push レビューは APPROVE、takt fix は `NoChange` で、仕込んだ不整合 3 点は無傷のまま残った。**抑止要因なしでも pre-push レビューは観測装置を壊さなかった**ため、当初懸念していたトレードオフ (fix agent を抑止しないと pre-push が壊す) は実測では発生しなかった。
+
 ### 残課題
 
-1. **実走スモーク** (ユーザー操作が必要):
-   - Actions variable `AUTONOMY_ENABLED = true` を設定する。
-   - `claude/` prefix のテストブランチで docs 指摘のある PR を作り、`workflow_dispatch` で pr-monitor を起動して Phase B の allow / deny 両経路を観測する。
-2. **repository ruleset による最終防波堤** (ユーザー操作が必要): `claude/` 以外のブランチへの `GITHUB_TOKEN` push を deny する ruleset を設定する。§ 決定 1-4 の 4 層がすべて破られた場合の 5 層目で、workflow からは設定できない。
-3. `cargo build` のキャッシュ導入 (job 時間短縮)。
-4. Tier 3 cleanup の機械判定 — 現状は分類不能としてゲート必須に倒れている。判定を導入するなら ADR-052 内容軸の拡張として別途起票する。
+- **repository ruleset による最終防波堤**: 設定済み (段 0)。実体は ruleset `phase-b-backstop-restrict-non-claude-push` で、`~ALL` ブランチを対象に `creation` / `update` / `non_fast_forward` を禁止し、`refs/heads/claude/**` を除外、bypass は RepositoryRole 5 (Repository admin) のみ。段 2 で**除外条件が効くこと**は観測できた (Phase B の `GITHUB_TOKEN` push が `claude/*` へ bypass 警告なしで成功する一方、ローカルからの非 `claude/` ブランチ push には `Bypassed rule violations` が出た)。ただし**`claude/` 以外へ `GITHUB_TOKEN` が push しようとして deny される**ことは依然未観測 — workflow の prefix gate が先に止めるため意図的に起こしにくい。なお副作用として master へのマージには毎回 admin bypass のチェック操作が要る。GitHub の ruleset は actor ベースの制限を書けず「全体を制限 + admin を bypass」が唯一の実現方法なので、これは設計上避けられない (緩めると `GITHUB_TOKEN` が master へ push できるようになり防波堤の意味が失われる)。
+- **「編集対象ファイル本文の指示に fix agent が影響される」経路は依然未実証**。段 2 では抑止要因を削除してから実走したため、残したまま走らせた場合の挙動は観測していない。リスクとして扱い、実証されたら [ADR-054](adr-054-prompt-injection-trust-boundary-defense.md) へ記帳する。
+- `cargo build` のキャッシュ導入 (job 時間短縮)。
+- Tier 3 cleanup の機械判定 — 現状は分類不能としてゲート必須に倒れている。判定を導入するなら ADR-052 内容軸の拡張として別途起票する。
 
 ## 関連
 

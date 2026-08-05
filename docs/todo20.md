@@ -1,0 +1,253 @@
+# TODO (Part 20)
+
+> **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
+>
+> **本ファイルの位置付け**: docs/todo14.md がファイルサイズ約 70KB (50KB 安定読み取り閾値の約 1.4 倍) に到達したため、新規エントリは本ファイルに記録する (2026-08-04 WP-17 段 2 完了時の post-merge feedback 一括登録で新設)。**新規エントリの追加先は本ファイル**。todo.md / todo2.md 〜 todo19.md の既存エントリは引き続き有効、相互に独立。
+>
+> **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
+
+---
+
+## #350〜#357 post-merge feedback 採用分 (2026-08-04 一括登録)
+
+> WP-17 段 2 完了時に 7 レポート (#350/#351/#352/#353/#354/#356/#357) の採用候補 24 件を棚卸しし、採用 19 件を **実装時の PR 粒度**で 8 エントリへまとめたもの。却下 5 件は下記「却下した候補」を参照。
+
+### dev-conventions 集中バッチ — post-merge feedback の convention 8 件
+
+> **動機**: #350〜#357 の 7 レポートが独立に提案した convention 追記のうち、採用と判断した 8 件。いずれも docs のみの変更で相互依存が無く、1 PR にまとめた方がレビュー・採番のコストが下がる (ADR-035 docs-only PR 評価ポリシー、[[batch-doc-prs-for-iteration-speed]] のバッチ方針)。
+>
+> **対処案**: `docs/dev-conventions.md` に以下を追記する。順位は追って採番。
+>
+> 1. **ライブラリ crate 抽出前の pre-check チェックリスト** (#351) — ADR 引用の実在確認 / 2+ caller 確認 / 責務共有確認 / workspace Cargo.toml 一括更新。ADR-024 / ADR-044 が示す抽出基準を着手前チェックへ落とす
+> 2. **ADR 引用時の実装適用確認** (#352) — 新規 ADR を引用する際はその ADR が既に実装へ適用済みか codebase で確認する。仮定・計画段階の ADR の引用は禁止
+> 3. **fail-close path を持つ関数には理由を doc comment に明記** (#353) — `finalize_posted_retrigger` (fail-close) と `finalize_waiting_reset` / `finalize_pending_review` (fail-open) の非対称設計が読み取れなかった実例に対応
+> 4. **大規模機能削除コミット時の同時更新** (#353) — 関連 ADR・ハーネス計画・テンプレート example の検証残を同一 PR で更新する (ADR cross-reference 整合チェック込み)
+> 5. **ADR の trigger/scope 再定義時の同期** (#354) — ある ADR が他 ADR の trigger/scope を再定義したら、旧 ADR 本文の該当セクションと関連 struct doc comment を同一 PR 内で同期する
+> 6. **`gh api --paginate --slurp` → 外部 `jq` パイプ** (#356) — 正しいパターンと `--jq` 併用不可の理由 (`the --slurp option is not supported with --jq or --template`) を明記
+> 7. **LLM workflow の output-contract は 2 層で保証** (#357) — 指示層 (prompt) だけに委ねず仕組み層 (決定論的な後処理) を必ず置く。**2026-08-04 に land 済の「LLM を含む自動化経路は実走でしか検証できない」convention と統合できるか検討してから書く** (重複記述を作らない)
+> 8. **外部 SaaS API の状態判定を指示層に書く際の実測確認** (#357) — exe 実装と現在の戻り値を実測してから指示を書く、をチェックリスト化
+>
+> **参照**: `.claude/feedback-reports/{351,352,353,354,356,357}.md` の Tier 3 節、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — これらは全て「ルール」側なので機械 lint 化しない判断込み)。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (docs-only)。
+
+#### 作業計画
+
+- [ ] 8 件を `docs/dev-conventions.md` へ追記 (7 は既存 convention との統合可否を先に判断)
+- [ ] CLAUDE.md の dev-conventions 行に主要項目を追記
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- 8 件がいずれも「由来 (どの PR のどの指摘か)」付きで dev-conventions.md に存在すること。7 が既存 convention と重複記述になっていないこと。
+
+### `gh api` 誤用を防ぐ custom lint rule 2 件
+
+> **動機**: WP-17 段 2 の実走で `gh api` の誤用が 2 回連続で本番経路を止めた。(a) `--slurp` と `--jq` の併用不可 (#356、Phase B が findings 取得直前で停止)、(b) list-endpoint での `--paginate` 欠落 (#352、30 件超で silent に欠落)。どちらも **pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過**しており、レビューでは止まらないことが実証済み。ADR-042 の「ルールでなく仕組みで守る」に該当する。
+>
+> **対処案**: `.claude/custom-lint-rules.toml` に正規表現層ルールを 2 つ追加する (ADR-007 の regex 層で足りる — AST 不要)。
+>
+> 1. `gh api` 呼び出しで `--slurp` と `--jq` を同一ステートメント内で併用しているパターンを検知 (`\` line-continuation を跨ぐ範囲も含む)
+> 2. `gh api` の list-endpoint 呼び出し (`.../comments`, `.../reviews`, `.../issues` 等) で `--paginate` が欠落しているパターンを検知
+>
+> 対象拡張子に `yml` / `yaml` を含め `.github/workflows/*.yml` を検査対象化する。ADR-049 の incident→eval 回帰スイートに #352 / #356 の実 incident を fixture として追加する。
+>
+> **参照**: `.claude/feedback-reports/352.md` Tier 1 #1、`.claude/feedback-reports/356.md` Tier 1 #1、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 (実走で検出した経緯)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (regex 層の線引き)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity High (本番経路の停止を 2 回起こした) / Frequency Medium / Effort S / Adoption Risk Low (regex 層、false positive は既存ルールと同じ運用で調整)。
+
+#### 作業計画
+
+- [ ] 2 ルールを custom-lint-rules.toml に追加 (yml/yaml を対象拡張子へ)
+- [ ] ADR-049 fixture に #352 / #356 の incident 再現ケースを追加 (good + bad)
+- [ ] 現行 `.github/workflows/*.yml` 全体に対して false positive が出ないことを確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- #352 / #356 の実 incident コードがルールで検知され、修正後のコードは検知されないことが fixture テストで固定されていること。
+
+### jj 出力形式契約の回帰テスト + fixture provenance の明示
+
+> **動機**: PR #350 の incident — jj の rename summary が波括弧形式 (`R src\{old => new}\file.rs`) であることを 1 年間未検証のまま前提にしており、rename を含む PR が一律 push 不能になっていた。fixture の値が「実測値」か「推定値」かが区別されておらず、誤った前提が長期間検出されなかった。
+>
+> **対処案**: 2 点をまとめて 1 PR で実施する (同一ファイル `src/cli-push-runner/src/stages/diff/tests.rs` を触るため)。
+>
+> 1. **jj バージョンアップ時の出力形式変化を検知する E2E テスト** — 現行 jj 0.42.0 の実測値を fixture として固定し、`jj --version` 相違時は WARNING ログ (fail はしない)。CI step としても実行
+> 2. **fixture に provenance コメントを追加** — 値の由来を `observed:` (jj 実測、バージョン / 日付付き) / `assumed:` (未観測の推定) で明示。PR #350 で導入済みの `OBSERVED_RENAME_SUMMARY` const 命名パターンを他 fixture にも拡張
+>
+> **参照**: `.claude/feedback-reports/350.md` Tier 2 #1 / #2、[[dont-trust-takt-fix-output]] (parser の finding は入力空間全体を一度に固める)、`docs/dev-conventions.md` § 外部 fixture 参照テストは値まで assert (順位274) — 本エントリはその「外部 CLI 出力版」。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity High (1 年間気付かれなかった前提誤り) / Frequency Low (jj のバージョンアップ時) / Effort M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] jj 0.42.0 の rename/copy summary 実測値を fixture として固定
+- [ ] `jj --version` 相違時に WARNING を出す E2E テストを追加 (fail はしない)
+- [ ] 既存 fixture に observed / assumed の provenance コメントを付与
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- jj の出力形式が変わった場合にテストが (WARNING または失敗で) 検知できること。全 fixture の値の由来が読み取れること。
+
+### cli-fix-push-gate の軸出力一貫性 regression test
+
+> **動機**: `describe_axes()` (deny 行の 4 軸表示) と `evaluate()` (実際の allow/deny 判定) が別関数として実装されており、両者が食い違うと **「deny 行が示す理由と実際の判定が一致しない」** という最悪の観測性劣化が起きる。ADR-067 § 決定 4 は「4 軸すべての状態が deny 行に出るため、なぜ動かないかが 1 run の log で完結する」ことを設計の利点として挙げており、その前提を機械で固定する。
+>
+> **対処案**: `src/cli-fix-push-gate/src/checks.rs` の tests モジュールに、同一入力で `describe_axes()` と `evaluate()` を実行し verdict と軸出力の一貫性 (Allow → 全軸 approved / Denied → 拒否理由が軸出力に明記) を assert する regression test を追加する。
+>
+> **参照**: `.claude/feedback-reports/351.md` Tier 2 #1、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 決定 4 / § 利点。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium (観測性の劣化。誤 allow は起きない) / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] 一貫性 assert のテストを追加 (Allow / Denied 双方向)
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- `describe_axes()` と `evaluate()` の判定が食い違う変更が入るとテストが落ちること。
+
+### pr-monitor の出力形式バリアンス + rate-limit 分岐テスト
+
+> **動機**: 2 点とも WP-17 段 2 由来。(a) findings agent の出力がコードフェンスで囲まれ `jq` が失敗した #357 の incident は、修正 (決定論層でのフェンス除去) を入れたが **retroactive なテストが無い**。(b) cli-pr-monitor の rate-limit 分岐 `until_unix_secs` 過去値 (即時 retrigger 経路) は実装自体は正しかったが運用手順の誤記で混乱が生じており、挙動をテストで固定しておく価値がある。
+>
+> **対処案**: 2 点をまとめて 1 PR で実施する (どちらも cli-pr-monitor 系)。
+>
+> 1. **出力形式バリアンスの integration test** — フェンス付き / フェンスなし / 無効 JSON / 空配列の 4 パターンで、決定論層 (`sed` によるフェンス除去 + `jq -e 'type == "array"'` の fail-closed guard) が期待どおり振る舞うことを固定。`tests/pr-monitor-findings-format.rs` を新設
+> 2. **rate-limit 分岐テスト** — `until_unix_secs` が過去値のとき即時 retrigger 経路へ入ることを固定
+>
+> **参照**: `.claude/feedback-reports/357.md` Tier 2 #1 / #2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 (段 2 の 2 回目)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) (rate-limit の判定文保証)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `tests/pr-monitor-findings-format.rs` を新設し 4 パターンを固定
+- [ ] rate-limit `until_unix_secs` 過去値の分岐テストを追加
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- フェンス付き出力が決定論層で正しく剥がされ、無効 JSON は fail-closed で止まることがテストで固定されていること。
+
+### ADR-069 試験運用判断基準の具体化
+
+> **動機**: CodeRabbit が #352 で ADR-069 の 3 箇所 (外部計画文書による宣言の扱い / missing-consumer 検査の降格条件 / 本採用への移行基準) について判断基準が曖昧だと指摘した。ADR-039 の試験運用標準パターンは bounded lifetime に decision trigger を要求しており、現状の ADR-069 はこれを満たしきれていない。
+>
+> **対処案**: `docs/adr/adr-069-pr-chain-declaration.md` § 試験運用判断基準に、missing-consumer 検査の具体的な降格条件 / concrete decision criteria / Phase C 本採用基準を追記する。**2b で得た初回実測 (宣言付き先頭 PR が missing-consumer REJECT を受けなかった) を判断材料として明記する**。
+>
+> **参照**: `.claude/feedback-reports/352.md` Tier 3 #2、[ADR-069](adr/adr-069-pr-chain-declaration.md)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) § bounded lifetime。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None (docs-only)。
+
+#### 作業計画
+
+- [ ] 3 箇所の判断基準を具体化して追記
+- [ ] 2b の初回実測を判断材料として記録
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- ADR-069 の試験運用を「継続 / 本採用 / 却下」のどれに倒すかが、記載された基準だけで判定できること。
+
+### weekly-review reminder の doc-drift 同期 (post-ADR-070 用語)
+
+> **動機**: ADR-070 が weekly-review reminder の意味を「実行トリガー」から「監査リマインダー」へ、閾値を 7 日から 30 日へ再定義したが、`WeeklyReviewReminderConfig` の doc comment と ADR-031 本文が旧用語のまま残っている。実装 (`weekly_review.rs`) は新用語を採用済みで、**doc だけが取り残されている**状態。
+>
+> **対処案**: `src/hooks-session-start/src/hooks_config.rs` の `WeeklyReviewReminderConfig` doc comment と `docs/adr/adr-031-weekly-review-pipeline.md` の該当セクションを、post-ADR-070 の用語 (30 日 / cloud routine / 監査) に合わせて更新する。
+>
+> **参照**: `.claude/feedback-reports/354.md` Tier 3 #1、[ADR-070](adr/adr-070-weekly-review-cloud-routine.md)、[ADR-031](adr/adr-031-weekly-review-pipeline.md)。本エントリと同時に採用した「ADR の trigger/scope 再定義時の同期」convention (dev-conventions 集中バッチの 5) が、この type の drift を今後防ぐ側の対処。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium (誤誘導。実装は正しい) / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `hooks_config.rs` の doc comment を更新
+- [ ] ADR-031 の該当セクションを更新
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- reminder の意味・閾値について、実装 / struct doc / ADR-031 / ADR-070 の 4 箇所が同じことを述べていること。
+
+### templates の陳腐化 example 削除 + simplicity-review facet への同期チェック追加
+
+> **動機**: WP-17 PR 3 で廃止した `poll_interval_secs` / `max_duration_secs` が `templates/hooks-config-{python,typescript}.toml` の `[post_pr_monitor]` example に残っている。派生プロジェクトがこの example をコピーすると存在しないオプションを設定することになる。pre-push レビューは #353 を APPROVE しており、**設定オプション削除時に templates が同期されていないことを検知する層が無い**ことが判明した。
+>
+> **対処案**: 2 点をまとめて 1 PR で実施する。
+>
+> 1. `templates/hooks-config-python.toml:46-49` と `templates/hooks-config-typescript.toml:50-53` の陳腐化 example を削除
+> 2. pre-push simplicity-review facet のプロンプトに「設定オプションの削除を含む diff では `templates/*.toml` の example との同期を確認する」指示を追加
+>
+> **参照**: `.claude/feedback-reports/353.md` Tier 1 #1 / template_fix、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (設定の論理結合)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (派生プロジェクトへの誤誘導) / Frequency Low / Effort S / Adoption Risk Low。
+
+#### 作業計画
+
+- [ ] 2 template の陳腐化 example を削除
+- [ ] simplicity-review facet のプロンプトに同期チェック指示を追加
+- [ ] 他に廃止済みオプションが templates に残っていないか全 template を確認
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- 全 template から廃止済みオプションが除去されていること。設定オプション削除を含む diff で simplicity-review が templates の同期に言及すること。
+
+## ハーネス改善 (2026-08-04 セッション発案)
+
+### Rust exe の自動再ビルド — PostToolUse の cargo check + Stop hook の build/deploy 2 層
+
+> **動機**: `.claude/*.exe` は .gitignore された生成物で、`pnpm build:all` を明示実行しない限り古いバイナリが使われ続ける。2026-08-04 の実測では `cli-fix-push-gate` (3/3 ファイル)・`cli-autonomy-gate` (1/1)・`hooks-session-start` (1/8) の 3 パッケージで exe がソースより古かった。`hooks-session-start` は SessionStart hook として実際に走るため、**変更した挙動が反映されないまま気付かない**。あわせて Rust ソースの編集直後に compile error を検知する層が無く、誤った修正が push 直前の quality gate まで表面化しない。
+>
+> **対処案**: 2 層に分ける。層の割り当ては 2026-08-04 の実測に基づく:
+>
+> | 操作 | 小パッケージ (cli-autonomy-gate) | 大パッケージ (cli-pr-monitor、30 ファイル) |
+> |---|---|---|
+> | `cargo build --release` (変更あり) | 4.3 秒 | 9.9 秒 |
+> | `cargo build --release` (変更なし) | 0.18 秒 | — |
+> | `cargo check` | 0.39 秒 | 0.70 秒 |
+>
+> 1. **PostToolUse** (`.rs` 編集時): `cargo check -p <pkg>` — 0.4〜0.7 秒。既存の `post_tool_linter.pipelines` へ `extensions = ["rs"]` のパイプラインを追加し、ファイルパスから `-p <pkg>` を解決する薄いラッパー (`scripts/cargo-check-for-file.mjs` 等) を噛ませる。**新規 exe は不要**
+> 2. **Stop hook** (ターン終了時): `jj status` の変更ファイルから**影響を受ける bin target を解決**し、該当分のみ `cargo build --release -p <pkg>` + `node scripts/deploy-artifacts.mjs <pkg>`。既存の `hooks-stop-quality.exe` ([ADR-004](adr/adr-004-stop-hook-quality-gate.md)) と同じ層なので統合も検討する
+>
+> **影響 target の解決は `src/<pkg>/**/*.rs` 限定にしない** (#359 CodeRabbit 指摘): `Cargo.toml` / `Cargo.lock` / `build.rs` / workspace の shared crate (`lib-*`) の変更でも再ビルドが要る。とくに lib crate は複数 bin から依存されるため、変更 1 件が複数 target へ波及する ([ADR-026](adr/adr-026-cargo-workspace.md) の workspace 構成)。`cargo metadata` の依存グラフから逆引きするのが確実。
+>
+> **PostToolUse で build しない理由** (当初案からの変更): (a) 編集ごとに 4〜10 秒かかり、1 機能の変更で 5 ファイル触れば 20〜50 秒がビルドに消える (同一パッケージでも編集のたびに再コンパイルされるため 2 回目以降も同コスト)、(b) 関数の分割中・型の変更中の compile error は「正常」であり、毎回 additionalContext で報告するとモデルが壊れていると誤認して不要な修正を始めるリスクがある、(c) deploy も毎回走る。**Stop hook はターン終了時点の状態だけを検査するため (b) のノイズが構造的に発生しない**。
+>
+> **`pnpm build:all` / `pnpm deploy:hooks` を経由しない理由** (#359 CodeRabbit 指摘への回答): `build:all` は**全パッケージをビルドする**ため、「変更のあった target だけをビルドする」という本エントリの設計目的そのものに反する (全ビルドなら現状の手動運用と変わらず Stop hook にする意味がない)。ただし**配布経路の乖離という論点は妥当**で、`.claude/` への staging と派生プロジェクト配布のロジックが `deploy-artifacts.mjs` と `deploy:hooks` の 2 系統に分かれないよう、実装時に共通化するか `deploy:hooks` へ単一パッケージ指定の口を足すかを判断する。
+>
+> **参照**: [ADR-010](adr/adr-010-hooks-layout-and-build-strategy-v2.md) (exe の配置とビルド戦略)、[ADR-004](adr/adr-004-stop-hook-quality-gate.md) (Stop hook 品質ゲート)、[ADR-002](adr/adr-002-post-tool-use-linter-composition.md) (PostToolUse リンター構成)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (config opt-in + kill-switch)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (古い exe による silent な挙動不一致) / Frequency High (Rust を触るたび) / Effort M / Adoption Risk Low (両層とも config opt-in + kill-switch を付ける)。
+
+#### 作業計画
+
+- [ ] PostToolUse: `.rs` パイプライン + パス→パッケージ解決ラッパー
+- [ ] Stop hook: `cargo metadata` の依存グラフから影響 bin target を解決 (`Cargo.toml` / `Cargo.lock` / `build.rs` / `lib-*` の変更も入力に含める) + build + deploy
+- [ ] deploy ロジックが `deploy-artifacts.mjs` と `pnpm deploy:hooks` の 2 系統へ分岐しないよう共通化方針を決める
+- [ ] 両層に config opt-in / kill-switch を付ける (ADR-039 3 点セット)
+- [ ] ビルド失敗時の出力形式 (additionalContext / block の使い分け) を決める
+- [ ] 本エントリ削除 + todo-summary2.md 行削除
+
+#### 完了基準
+
+- Rust ソースを編集したターンの終了時に、該当パッケージの `.claude/*.exe` が最新化されていること。
+- **`lib-*` crate や `Cargo.toml` を変更したターンでは、それに依存する全 bin の exe が最新化されていること** (`src/<pkg>/**/*.rs` 限定の検出では取りこぼす経路をテストで固定する)。
+- compile error のあるコードを書いた直後に PostToolUse で検知されること。
+- 中間状態 (編集途中の compile error) が Stop hook で報告されないこと。
+
+## 却下した候補 (2026-08-04、記録のみ)
+
+再提案時に同じ検討を繰り返さないための記録。
+
+| 出典 | 候補 | 却下理由 |
+|---|---|---|
+| #350 Tier 1 #1 | Parser fixture の OBSERVED / ESTIMATED マーカー必須化 (custom lint rule) | ルール寄りで効果が不確実。自由記述コメントの regex マッチは false positive が読めない。同 PR の Tier 2 #2 (provenance コメントの手動付与) で実質同じ効果が得られ、そちらは採用済み (順位 367) |
+| #350 Tier 2 #3 | 複数モジュールのパーサ挙動一貫性 integration test | 対象モジュール間で入力の意味が異なり (push-runner は diff summary、lib-docs-policy は path 判定)、「一貫している」の定義自体が曖昧。順位 367 の fixture 固定で個別に守る |
+| #350 Tier 3 #1 | Parser が外部ツール出力に依存する場合の契約明文化 ADR | 順位 365 の convention 2 (ADR 引用時の実装適用確認) および順位 367 の provenance と重複。ADR を新規起票するほどの独立性が無い |
+| #352 Tier 2 #1 | pagination / jq 集約ロジックのフィクスチャテスト | 順位 366 の custom lint rule 2 件と守備範囲が重なる。lint で誤用を止める方が実行時テストより早く安く効く |
+| #356 Tier 1 #2 | Phase B smoke の CI schedule 定期実行 | agent 2 run 分の Max 枠を定期的に消費し続ける一方、検知対象 (外部 CLI の互換性変化) の発生頻度が低い。ROI が見合わない。ADR-067 の bounded lifetime 観測 (3〜5 run) で実運用の発火実績を見てから再検討する |
