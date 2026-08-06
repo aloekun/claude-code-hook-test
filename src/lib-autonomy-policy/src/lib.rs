@@ -22,4 +22,4 @@ pub mod decision;
 pub mod sources;
 
 pub use decision::{evaluate, describe_sources, Decision, DenyReason, GateInputs, Operation};
-pub use sources::{read_external_raw, read_repo_config_enabled, EXTERNAL_ENV};
+pub use sources::{read_external_raw, read_repo_config, RepoConfig, EXTERNAL_ENV};

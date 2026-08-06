@@ -116,7 +116,7 @@ fn run(args: Vec<String>) -> i32 {
     };
     let external = sources::read_external_raw();
     let autonomy = lib_autonomy_policy::evaluate(GateInputs {
-        repo_config_enabled: sources::read_repo_config_enabled(&cli.config_path),
+        repo_config_enabled: sources::read_repo_config(&cli.config_path).enabled,
         external_raw: external.as_deref(),
         open_draft_prs: None,
         max_open_draft_prs: None,
