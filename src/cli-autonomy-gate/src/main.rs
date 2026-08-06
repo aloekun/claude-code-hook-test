@@ -11,8 +11,14 @@
 //! # 使い方
 //!
 //! ```text
-//! cli-autonomy-gate --operation <fix-push|draft-pr> --config <path>
+//! cli-autonomy-gate --operation <fix-push|draft-pr> --config <path> \
+//!   [--open-draft-prs <count>]
 //! ```
+//!
+//! `--open-draft-prs` は `draft-pr` の背圧入力 (ADR-071)。呼び手 (workflow step) が
+//! `gh api` で数えた **未マージ draft PR (`claude/` prefix) の実測件数**を渡す。省略すると
+//! 背圧未接続として deny に倒れるため、`draft-pr` では実質必須。`fix-push` の背圧は
+//! cli-pr-monitor の有界 retry が担うので本フラグは判定に影響しない。
 //!
 //! # exit コード
 //!
@@ -48,49 +54,59 @@ const EXIT_ALLOWED: i32 = 0;
 const EXIT_DENIED: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-const USAGE: &str = "usage: cli-autonomy-gate --operation <fix-push|draft-pr> --config <path>";
+const USAGE: &str = "usage: cli-autonomy-gate --operation <fix-push|draft-pr> --config <path> \
+[--open-draft-prs <count>]";
 
 fn main() {
     std::process::exit(run(std::env::args().skip(1).collect()));
 }
 
-/// コマンドライン設定。既定値は設けない — 両方とも明示必須。
+/// コマンドライン設定。`--operation` / `--config` に既定値は設けない — 明示必須。
 ///
 /// `--config` を省略可能にして cwd から推測すると、CI で master ref の写しを渡し忘れた
 /// 呼び手が PR ブランチの config を黙って読む (ADR-066 § 決定 3 の信頼境界)。省略を
 /// 引数不正として弾くことで、呼び手にパスの出所を必ず意識させる。
+///
+/// `--open-draft-prs` だけは省略可能。`fix-push` では判定に使わないためで、`draft-pr` で
+/// 省略した場合は `None` = 背圧未接続として deny に倒れる (省略が許可へ倒れることはない)。
 struct Cli {
     operation: Operation,
     config_path: PathBuf,
+    open_draft_prs: Option<u32>,
 }
 
 fn parse_args(args: &[String]) -> Result<Cli, String> {
     let mut operation = None;
     let mut config_path = None;
+    let mut open_draft_prs = None;
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
         let value = args.get(index + 1);
+        let take = || value.ok_or_else(|| format!("{flag} の値がありません"));
         match flag {
             "--operation" => {
-                let raw = value.ok_or_else(|| "--operation の値がありません".to_string())?;
+                let raw = take()?;
                 operation = Some(
                     Operation::parse(raw)
                         .ok_or_else(|| format!("未知の operation です: {raw:?}"))?,
                 );
-                index += 2;
             }
-            "--config" => {
-                let raw = value.ok_or_else(|| "--config の値がありません".to_string())?;
-                config_path = Some(PathBuf::from(raw));
-                index += 2;
+            "--config" => config_path = Some(PathBuf::from(take()?)),
+            "--open-draft-prs" => {
+                let raw = take()?;
+                open_draft_prs = Some(raw.parse::<u32>().map_err(|_| {
+                    format!("--open-draft-prs は 0 以上の整数である必要があります: {raw:?}")
+                })?);
             }
             other => return Err(format!("未知の引数です: {other:?}")),
         }
+        index += 2;
     }
     Ok(Cli {
         operation: operation.ok_or_else(|| "--operation が必要です".to_string())?,
         config_path: config_path.ok_or_else(|| "--config が必要です".to_string())?,
+        open_draft_prs,
     })
 }
 
@@ -108,7 +124,7 @@ fn run(args: Vec<String>) -> i32 {
     let inputs = GateInputs {
         repo_config_enabled: repo_config.enabled,
         external_raw: external.as_deref(),
-        open_draft_prs: None,
+        open_draft_prs: cli.open_draft_prs,
         max_open_draft_prs: repo_config.max_open_draft_prs,
         operation: cli.operation,
     };
@@ -168,6 +184,32 @@ mod tests {
             .expect("parse");
         assert_eq!(cli.operation, Operation::FixPush);
         assert_eq!(cli.config_path, PathBuf::from("a.toml"));
+        assert_eq!(cli.open_draft_prs, None, "省略時は背圧未接続 (= 停止側)");
+    }
+
+    #[test]
+    fn parses_the_open_draft_count() {
+        let cli = parse_args(&args(&[
+            "--operation", "draft-pr",
+            "--config", "a.toml",
+            "--open-draft-prs", "0",
+        ]))
+        .expect("parse");
+        assert_eq!(cli.open_draft_prs, Some(0));
+    }
+
+    /// 数えられなかった結果を空文字や負値で渡されても、`None` (= 0 件扱いになりうる形) では
+    /// なく引数不正として弾く。呼び手の `gh api` が失敗した形が黙って通らないようにする。
+    #[test]
+    fn non_numeric_open_draft_counts_are_usage_errors() {
+        for raw in ["", "-1", "3.0", "three", "1 "] {
+            let parsed = parse_args(&args(&[
+                "--operation", "draft-pr",
+                "--config", "a.toml",
+                "--open-draft-prs", raw,
+            ]));
+            assert!(parsed.is_err(), "{raw:?} が引数不正として弾かれない");
+        }
     }
 
     #[test]
