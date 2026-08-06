@@ -1,0 +1,14 @@
+[package]
+name = "cli-nightly-task-select"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cli-nightly-task-select"
+path = "src/main.rs"
+
+# 依存なし。台帳の markdown table を読むだけで、外部 crate を必要としない。
+# 依存を足さないこと自体が設計上の制約 — 本 exe は夜間ループの唯一の「何を実装するか」
+# 決定者であり、供給元が増えるほど無人経路の攻撃面が広がる。
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
