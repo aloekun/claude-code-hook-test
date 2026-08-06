@@ -1,6 +1,6 @@
 # Claude Code Web 対応可能タスクリスト
 
-> **状態**: 試験運用 (本ドキュメントは「Claude Code Web セッションで着手するタスクのピックアップ scope」を切り出した ephemeral artifact であり、列挙された全タスクが land したら役割を終える)
+> **状態**: 試験運用 / **定期更新される管理台帳** (2026-08-06 に ephemeral artifact から改訂。列挙タスクが 0 件になっても役割は終わらない → [§ライフサイクル](#ライフサイクル))
 >
 > **作成経緯**: [docs/todo-summary.md](todo-summary.md) のタスク数増加に伴い、Linux 環境の Claude Code Web でも着手できるタスク（= Windows ベースの hooks/パイプラインへの実行依存がないドキュメント修正系）を抽出するため、2026-05-16 に作成。
 >
@@ -151,9 +151,31 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 
 ## ライフサイクル
 
-- 採用タスクが全て land したら本ファイルを retire する（`~/.claude/rules/common/docs-governance.md` § Retirement Workflow に従う、global path のため markdown link なし）
-- retire 時の手順:
-  1. 採用タスク欄が空になっていることを確認
-  2. permanent value の移管は不要（本ファイルは scope 整理のための作業表で、永続価値となる decision はない）
-  3. リポ内で本ファイルを参照する箇所を `grep -rn "claude-code-web-tasks.md"` で洗い出し、参照を除去
-  4. 本ファイルを物理削除
+### 2026-08-06 の改訂: ephemeral artifact → 定期更新台帳
+
+旧 lifecycle は「採用タスクが全て land したら retire」だった。これは本ファイルが Claude Code Web セッションの pickup scope を切り出しただけの作業表だった頃の想定である。
+
+WP-18 の夜間 todo 消化ループがここを**タスク選択元**として読むようになると、この lifecycle は成り立たない。台帳が空になった瞬間にファイルごと消えると、ループの入力が消滅する。そもそも `docs/todo-summary.md` に新しいタスクが登録され続ける以上、「全部 land して終わり」という状態は来ない。
+
+したがって本ファイルは**空になっても retire しない**。空は「今は無人で回せるタスクが無い」という正常な状態で、夜間ループはその場合に何も作らずに終わる（fail-closed）。
+
+### 定期更新（週次）
+
+更新は **weekly-review と同じタイミング**で行う。専用のスケジュールを増やさないのは、台帳の鮮度が落ちる速度が todo corpus の decay と同じ周期だから。接続は `.takt/facets/instructions/review-todo-whole.md`（weekly-review workflow の観点⑤）が担い、台帳の鮮度を検査して findings として上げる。
+
+棚卸しで見るもの:
+
+1. **land 済み行の削除** — `docs/todo-summary.md` / `todo-summary2.md` の順位 table から消えた行を削除し、根拠を [§棚卸し履歴](#棚卸し履歴) に記帳する
+2. **新規候補の昇格** — todo-summary 側に増えたタスクのうち [§採用タスク (2) の判定基準](#採用タスク-2-cargo-test-検証タスククロスプラットフォーム対応後2026-07-23)を満たすものを表へ追加する
+3. **無人可マークの見直し** — [§自律実行可否の 2 段階分類](#自律実行可否の-2-段階分類)の 3 条件を再確認する。特に条件 3（重複の恐れ）は台帳の外にある未マージブランチ・進行中 PR を見ないと判定できないため、この棚卸しでしか確認できない
+
+1〜3 の実行と採否は**人間が決める**（ADR-022）。facet は read-only で findings を上げるだけで、本ファイルを編集しない。
+
+### retire 条件
+
+夜間ループ（WP-18）が終了し、Web セッションの pickup scope としても不要になった時点で retire する（`~/.claude/rules/common/docs-governance.md` § Retirement Workflow に従う、global path のため markdown link なし）。手順:
+
+1. 本ファイルを読む自動化（夜間 workflow / weekly-review facet）が撤去済みであることを確認
+2. permanent value の移管を確認 — 現時点で永続価値を持つのは [§自律実行可否の 2 段階分類](#自律実行可否の-2-段階分類)の判定条件のみ。retire 時に ADR へ移す
+3. リポ内で本ファイルを参照する箇所を `grep -rn "claude-code-web-tasks.md"` で洗い出し、参照を除去
+4. 本ファイルを物理削除
