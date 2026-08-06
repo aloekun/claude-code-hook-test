@@ -24,9 +24,11 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 ## 2. 検証済みの前提事実（再調査不要、2026-07-04 確認）
 
-> 本節の外部 SaaS の課金・上限事実（GitHub Actions 課金 / routines cap 等）は、残作業 WP-17〜19 の前提として本ファイルに保持する。research preview 由来の仕様変動があり得るため現時点では ADR 化せず、**WP-17〜19 の ADR 起票時に最新値へ再確認したうえで永続化する**（退役条件 2 がこの移管を必須化している）。
+> **本節の外部 SaaS の課金・上限事実は、担当 WP の ADR 起票時に最新値を再確認して永続化し、本節から削除する**（退役条件 2 がこの移管を必須化している）。research preview 由来の仕様変動があるため、移管時は必ず再確認し確認日を ADR 側に明記すること。まだ移管先の ADR が無い事実だけを本節に残す。
 >
-> **移管済み（2026-08-06、WP-18 PR 1）**: GitHub Actions 課金 2 点と claude-code-action の OAuth 認証は最新値を再確認したうえで [ADR-071](adr/adr-071-draft-pr-backpressure.md) § 外部 SaaS の課金・上限事実へ移し、本節からは削除した。残る cloud routines の事実群は WP-19 / [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) の担当範囲のため本節に残す。
+> **移管済み（2026-08-06、WP-18 PR 1）**: GitHub Actions 課金 2 点と claude-code-action の OAuth 認証 → [ADR-071](adr/adr-071-draft-pr-backpressure.md) § 外部 SaaS の課金・上限事実。
+>
+> **未移管**: cloud routines の事実群（daily cap / webhook 上限 / GitHub App 必須 / 緑ステータスの意味）は WP-19 / [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) の担当範囲のため本節に残す。
 
 ### ユーザー環境
 
@@ -168,7 +170,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   2. **PR 2: タスク台帳のブラッシュアップ（docs、S）** — [claude-code-web-tasks.md](claude-code-web-tasks.md) の stale 行検証（land 済みタスクの除去）、無人実行可マークの追加（Web 実行可 = 人間が対話で補助できる、無人可 = 補助なしで完結、の 2 段階。最初は 5〜10 件だけ人間がマーク）、lifecycle を ephemeral から定期更新台帳へ改訂、weekly-review パイプラインへ台帳更新手順を接続。
   3. **PR 3: 夜間 workflow（schedule、M-L）** — タスク選択（台帳の機械判定・fail-closed）→ 実装 → `cargo test` 検証 → draft PR 作成。**push / PR 作成は workflow step が gate 経由で実行し、agent は push の主体にしない**（ADR-067 と同型）。**実走スモーク段を受け入れ基準に含める**（[dev-conventions](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない）。スモークで WP-17 残課題 2 件（Phase B 自動起動経路の実測 / `coderabbitai[bot]` allowlist 要否）も同梱観測する（ADR-067 § 検証記録に「WP-18 着手時に実測」と記帳済み）。
 
-- **PR chain 宣言（[ADR-069](adr/adr-069-pr-chain-declaration.md) 決定 1）**: PR 1 が導入した以下は **PR 3 まで呼び手を持たない**。PR 1 単体では `draft-pr` は deny のままで運用挙動は変わらない。
+- **PR chain 宣言（[ADR-069](adr/adr-069-pr-chain-declaration.md) 決定 1）**: PR 1 が導入した以下は **PR 3 まで呼び手を持たない**。リポジトリ内の自動化経路に `--open-draft-prs` を渡す呼び手が 1 つも無いため、PR 1 単体では `draft-pr` が許可される経路が動かず運用挙動は変わらない（exe を手動実行して 3 拠点をすべて満たせば allow になる = drill として意図した挙動。[ADR-071](adr/adr-071-draft-pr-backpressure.md) § 残課題）。
 
   | PR 1 が導入するもの | PR 3 の消費側 |
   |---|---|

@@ -137,5 +137,5 @@ toml の parse はファイル単位なので、本キーが型違い (文字列
 
 ### 残課題
 
-- 実測件数を渡す呼び手 (夜間 workflow の `gh api` step) は本 ADR の PR には含まれない。WP-18 PR 3 で追加する。それまで `draft-pr` は `backpressure-unavailable` で deny のままであり、**運用挙動は変わらない**。
+- 実測件数を渡す呼び手 (夜間 workflow の `gh api` step) は本 ADR の PR には含まれない。WP-18 PR 3 で追加する。それまで**リポジトリ内の自動化経路には `--open-draft-prs` を渡す呼び手が 1 つも無い**ため、`draft-pr` は常に `backpressure-unavailable` で deny になり運用挙動は変わらない。exe を手動で実行し 3 拠点 (外部フラグ / repo config / 実測件数と閾値) をすべて満たせば allow になる — これは drill として意図した挙動であり、「自動で draft PR が作られる」ことを意味しない。
 - bounded lifetime (b) の観測 = 閾値到達での実停止は、夜間ループが 3 件の draft を積むまで発生しない。WP-18 の 2 週間の試験運用期間中に観測できなければ、閾値を一時的に下げて意図的に到達させる。
