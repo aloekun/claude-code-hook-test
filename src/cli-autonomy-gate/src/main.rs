@@ -107,6 +107,8 @@ fn run(args: Vec<String>) -> i32 {
     let inputs = GateInputs {
         repo_config_enabled: sources::read_repo_config_enabled(&cli.config_path),
         external_raw: external.as_deref(),
+        open_draft_prs: None,
+        max_open_draft_prs: None,
         operation: cli.operation,
     };
     report(&cli, inputs)
