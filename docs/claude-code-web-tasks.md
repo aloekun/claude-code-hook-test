@@ -1,10 +1,29 @@
 # Claude Code Web 対応可能タスクリスト
 
-> **状態**: 試験運用 (本ドキュメントは「Claude Code Web セッションで着手するタスクのピックアップ scope」を切り出した ephemeral artifact であり、列挙された全タスクが land したら役割を終える)
+> **状態**: 試験運用 / **定期更新される管理台帳** (2026-08-06 に ephemeral artifact から改訂。列挙タスクが 0 件になっても役割は終わらない → [§ライフサイクル](#ライフサイクル))
 >
 > **作成経緯**: [docs/todo-summary.md](todo-summary.md) のタスク数増加に伴い、Linux 環境の Claude Code Web でも着手できるタスク（= Windows ベースの hooks/パイプラインへの実行依存がないドキュメント修正系）を抽出するため、2026-05-16 に作成。
 >
 > **scope 境界**: リポジトリ内のファイル編集に閉じる。当初 (2026-05-16) は Rust ビルド/テスト/Windows hook 実行が成功条件にならない **ドキュメント修正系** に限定していた ([§採用タスク](#採用タスク))。2026-07-23 に Windows/Linux クロスプラットフォーム対応 (CI = `.github/workflows/release-binaries.yml` が ubuntu-22.04 で `cargo test --workspace` をゲート実行、`scripts/cloud-setup.sh` が Linux プリビルドバイナリ + jj 0.42 を配置) が整ったため、**成功条件が `cargo test` (+ 必要に応じ `cargo clippy`) で検証完結する Rust 実装・テスト・lint タスク** も scope に追加した ([§採用タスク (2)](#採用タスク-2-cargo-test-検証タスククロスプラットフォーム対応後2026-07-23))。実 Windows hook 発火 / `pnpm push` パイプライン end-to-end / Windows 固有ランタイム挙動が成功条件になるタスクは引き続き対象外。
+
+## 自律実行可否の 2 段階分類
+
+本ファイルは 2026-08-06 から、Claude Code Web セッションの pickup scope に加えて**夜間 todo 消化ループ（WP-18）の選択元**を兼ねる。両者は必要な自律度が違うため、実行可否を 2 段階に分ける。
+
+| 段階 | 意味 | 前提 |
+|---|---|---|
+| **Web 実行可** | 人間が対話で補助できる前提で着手できる。曖昧な点はセッション中に確認して詰められる | 本ファイルの各表に載っていること自体がこの段階 |
+| **無人可** | 補助なしで完結する。実装内容が台帳の記述だけで一意に決まり、着手時の設計判断が要らない | 上に加えて下記 3 条件をすべて満たす |
+
+**無人可の判定条件**:
+
+1. **着手時の判断が要らない** — 台帳の「注意」欄に「再選定する」「着手時判断」「見積り」「検討」といった、人間が決める前提の記述がない
+2. **実装内容が一意** — 何をどこに書くかが台帳と対象ファイルの現物から決まる。設計の選択肢が複数残っていない
+3. **重複の恐れがない** — 同一タスクの実装が未マージのブランチや進行中の PR に存在しない
+
+3 は台帳だけでは判定できないため、定期棚卸し（→ § ライフサイクル）で確認する。**判定に迷ったら無人可にしない** — 誤って無人可にしたタスクは、夜間ループが人間の意図と違う実装で draft PR を作る形で失敗する。無人可にしなかったことによる損失は「Web セッションで人間が着手する」だけであり、非対称に軽い。
+
+マークは**人間が付ける**（ADR-022 の責務分離）。夜間ループは無人可マークの有無を機械的に読むだけで、自分でこの判定をしない。
 
 ## 採用タスク
 
@@ -14,10 +33,7 @@
 2. Rust ビルド / Windows hook / pnpm パイプラインの実行が成功条件に **ならない**
 3. [docs/todo-summary.md](todo-summary.md) の表で採用判定済み（`feedback_no_unenforced_rules.md` 例外として既存実践の明文化に該当）
 
-| 順位 | Tier | 内容 | 編集ファイル | 工数 |
-|---|---|---|---|---|
-| 120 | T3 | `takt-workflow-persona-without-model` rule コメント拡張（field 拡張手順 4-5 行）+ ADR-007 case study 追記（enumeration-based 正規表現層、Rust regex lookahead 非対応の pragmatic 対処）(PR #150 T1-#1、実体 Tier 3) | [.claude/custom-lint-rules.toml](../.claude/custom-lint-rules.toml) ルール⑨ + [docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) | XS |
-| 134 | T3 | ADR-035 に docs-only PR 評価の適用外基準リスト追加（mutation / error handling / DRY / YAGNI / function length / test coverage / magic-number 等）(PR #156 T3 #2) | [docs/adr/adr-035-doc-evaluation-policy.md](adr/adr-035-doc-evaluation-policy.md) | S |
+**現在 0 件**（2026-08-06 の棚卸しで最後の 2 件が land 済みと確認され削除。→ § 棚卸し履歴）。docs-only の候補が再び出た場合は上記 3 基準で本表へ追加する。
 
 ### 着手フロー
 
@@ -45,29 +61,43 @@
 
 `cargo test` で完結し外部依存・設計判断が最小のもの。工数昇順。
 
-| 順位 | Tier | 内容 | 対象ファイル (実パス) | 工数 | 注意 |
-|---|---|---|---|---|---|
-| 284 | T2 | `stale_check_enabled` (Option\<bool\>) の TOML パーステスト追加（未テストのパース経路を補完） | `src/hooks-session-start/src/hooks_config.rs`（`mod tests`、既存 `hooks_config_parses_session_start_staleness_section` 拡張） | XS | 純 deserialize。`temp_dir()` fixture で Linux CI pass 済みパターン、最もクリーン |
-| 203 | T2 | GitHub token `ghu_` / `ghr_` の secret 検出ブロックテスト 2 件追加 | `src/hooks-pre-tool-validate/src/presets/safety/secret.rs` | XS | todo 記載の `main.rs` は module split でパスドリフト、実体は `secret.rs`。純 regex 判定 |
-| 240 | T2 | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる |
-| 180 | T2 | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |
-| 228 | T2 | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs`（末尾 tests） | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係 |
-| 163 | T2 | cross_ref validator に percent-encode / GFM heading slug / relative path normalize の edge case fixture test 追加 | `src/cli-docs-lint/src/cross_ref.rs`（`#[cfg(test)]` mod） | S | 全て `tempfile::TempDir` 上で完結。実コードは canonicalize 非使用・percent-decode 仕様を実装から確認して期待値決定 |
-| 339 | T2 | CR rate-limit 3 世代 format × 4 parse path（old/new/next/fallback）× 主要 CR state の複合マトリックステスト | `src/check-ci-coderabbit/src/decide.rs`（既存 `mod tests`） | S | 既存 helper（`pr309_incident_*` 等）と世代別書式を組み合わせるだけ。純 parse + decide |
-| 178 | T2 | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |
-| 239 | T2 | `filter_transcripts` の `read_dir` 非決定順を timestamp ソートで決定論化 + 回帰テスト | `src/cli-merge-pipeline/src/feedback/transcript.rs`（`filter_transcripts` + tests） | M | temp-dir に複数 jsonl 生成 → 順序 assert で完結。実 hook 発火不要 |
+| 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 |
+|---|---|---|---|---|---|---|
+| 284 | T2 | — | `stale_check_enabled` (Option\<bool\>) の TOML パーステスト追加（未テストのパース経路を補完） | `src/hooks-session-start/src/hooks_config.rs`（`mod tests`、既存 `hooks_config_parses_session_start_staleness_section` 拡張） | XS | 純 deserialize。`temp_dir()` fixture で Linux CI pass 済みパターン、最もクリーン |
+| 203 | T2 | ✅ | GitHub token `ghu_` / `ghr_` の secret 検出ブロックテスト 2 件追加 | `src/hooks-pre-tool-validate/src/presets/safety/secret.rs` | XS | todo 記載の `main.rs` は module split でパスドリフト、実体は `secret.rs`。純 regex 判定 |
+| 240 | T2 | ✅ | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる |
+| 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |
+| 228 | T2 | ✅ | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs`（末尾 tests） | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係 |
+| 163 | T2 | ✅ | cross_ref validator に percent-encode / GFM heading slug / relative path normalize の edge case fixture test 追加 | `src/cli-docs-lint/src/cross_ref.rs`（`#[cfg(test)]` mod） | S | 全て `tempfile::TempDir` 上で完結。実コードは canonicalize 非使用・percent-decode 仕様を実装から確認して期待値決定 |
+| 339 | T2 | ✅ | CR rate-limit 3 世代 format × 4 parse path（old/new/next/fallback）× 主要 CR state の複合マトリックステスト | `src/check-ci-coderabbit/src/decide.rs`（既存 `mod tests`） | S | 既存 helper（`pr309_incident_*` 等）と世代別書式を組み合わせるだけ。純 parse + decide |
+| 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |
+| 239 | T2 | ✅ | `filter_transcripts` の `read_dir` 非決定順を timestamp ソートで決定論化 + 回帰テスト | `src/cli-merge-pipeline/src/feedback/transcript.rs`（`filter_transcripts` + tests） | M | temp-dir に複数 jsonl 生成 → 順序 assert で完結。実 hook 発火不要 |
 
 ### Batch 2: 新規実装を伴う（○、要設計判断）
 
 cargo test で検証完結するが、新規 module / lint rule / 軽微リファクタ / 依存追加判断を含む。
 
-| 順位 | Tier | 内容 | 対象ファイル | 工数 | 注意 |
-|---|---|---|---|---|---|
-| 340 | T2 | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |
-| 216 | T2 | `no-workstream-seq-names-in-config` lint rule 追加（config comment 内 `PR-[0-9]+` を検出、`#NNN` は除外） | `.claude/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/rule_tests_extras.rs` + `tests/incident_eval.rs` + `tests/fixtures/incidents/{bad,good}/` + (dogfood) `.claude/hooks-config.toml` | S | 確立 12 rule / 11 incident パターン踏襲。Rust regex lookaround 不要（`\bPR-[0-9]+\b`）。dogfood は数行の text 編集 |
-| 272 | T1 | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |
-| 334 | T1 | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + fixtures（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |
-| 179 | T2 | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |
+| 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 | 注意 |
+|---|---|---|---|---|---|---|
+| 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |
+| 216 | T2 | ✅ | `no-workstream-seq-names-in-config` lint rule 追加（config comment 内 `PR-[0-9]+` を検出、`#NNN` は除外） | `.claude/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/rule_tests_extras.rs` + `tests/incident_eval.rs` + `tests/fixtures/incidents/{bad,good}/` + (dogfood) `.claude/hooks-config.toml` | S | 確立 12 rule / 11 incident パターン踏襲。Rust regex lookaround 不要（`\bPR-[0-9]+\b`）。dogfood は数行の text 編集 |
+| 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |
+| 334 | T1 | — | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + fixtures（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |
+| 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |
+
+### 無人可としなかった 7 件の理由
+
+「注意」欄の記述と § 自律実行可否の 2 段階分類 の 3 条件を突き合わせた結果。将来この判断を見直す際、根拠を再調査せずに済むよう残す。
+
+| 順位 | 満たさない条件 | 該当箇所 |
+|---|---|---|
+| 284 | 3（重複の恐れ） | 未マージの `claude/select-next-task-a9aiam` に同タスクの実装が乗っている。タスク自体は 1・2 を満たすので、ブランチが決着したら無人可へ昇格しうる |
+| 178 | 1（着手時の判断） | 「実挙動を読んで実在する invariant を**再選定する**」— 何をテストするか自体が未確定 |
+| 334 | 1（着手時の判断） | 「regex FP 精緻化 + 本文 dogfood cleanup の規模を着手前に**grep 見積り**」 |
+| 179 | 1（着手時の判断） | 「新 dev-dep 追加 or plain `#[test]` で代替を**着手時判断**」— 依存を増やす判断は無人でしない |
+| 180 | 2（実装内容が一意でない） | 「既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を**検討**」 |
+| 340 | 2（実装内容が一意でない） | 「`main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな**合成関数抽出リファクタ**が要る」— 抽出の切り方が未確定 |
+| 272 | 2（実装内容が一意でない） | 新規 validator module の設計（検査項目の分割・エラー表現）が台帳から一意に決まらない |
 
 ### 対象外（Web では完了不能 / 残価値枯渇）
 
@@ -104,11 +134,48 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 
 ---
 
+## 棚卸し履歴
+
+台帳の鮮度は「行が消えていること」でしか表現されないため、削除の根拠をここに残す。削除理由が追えないと、後から「なぜこのタスクは消えたのか」を再調査する羽目になる。
+
+### 2026-08-06
+
+| 順位 | 節 | 判定 | 根拠 |
+|---|---|---|---|
+| 120 | 採用タスク | land 済みのため削除 | `docs/todo-summary.md` / `todo-summary2.md` の順位 table から消えている。実体も確認済み — [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) に negation by enumeration の case study（Rust regex が lookahead 非対応である旨と代替案 3 択の比較）が存在する |
+| 134 | 採用タスク | land 済みのため削除 | 同上。[ADR-035](adr/adr-035-doc-evaluation-policy.md) に docs-only PR の適用外基準リスト（mutation / DRY / YAGNI 等）が存在する |
+
+これで docs-only の採用枠は 0 件になった。ただし本ファイルは retire しない（→ § ライフサイクル）。
+
+---
+
 ## ライフサイクル
 
-- 採用タスクが全て land したら本ファイルを retire する（`~/.claude/rules/common/docs-governance.md` § Retirement Workflow に従う、global path のため markdown link なし）
-- retire 時の手順:
-  1. 採用タスク欄が空になっていることを確認
-  2. permanent value の移管は不要（本ファイルは scope 整理のための作業表で、永続価値となる decision はない）
-  3. リポ内で本ファイルを参照する箇所を `grep -rn "claude-code-web-tasks.md"` で洗い出し、参照を除去
-  4. 本ファイルを物理削除
+### 2026-08-06 の改訂: ephemeral artifact → 定期更新台帳
+
+旧 lifecycle は「採用タスクが全て land したら retire」だった。これは本ファイルが Claude Code Web セッションの pickup scope を切り出しただけの作業表だった頃の想定である。
+
+WP-18 の夜間 todo 消化ループがここを**タスク選択元**として読むようになると、この lifecycle は成り立たない。台帳が空になった瞬間にファイルごと消えると、ループの入力が消滅する。そもそも `docs/todo-summary.md` に新しいタスクが登録され続ける以上、「全部 land して終わり」という状態は来ない。
+
+したがって本ファイルは**空になっても retire しない**。空は「今は無人で回せるタスクが無い」という正常な状態で、夜間ループはその場合に何も作らずに終わる（fail-closed）。
+
+### 定期更新（週次）
+
+更新は **weekly-review と同じタイミング**で行う。専用のスケジュールを増やさないのは、台帳の鮮度が落ちる速度が todo corpus の decay と同じ周期だから。接続は `.takt/facets/instructions/review-todo-whole.md`（weekly-review workflow の観点⑤）が担い、台帳の鮮度を検査して findings として上げる。
+
+棚卸しで見るもの:
+
+1. **land 済み行の削除** — `docs/todo-summary.md` / `todo-summary2.md` の順位 table から消えた行を削除し、根拠を [§棚卸し履歴](#棚卸し履歴) に記帳する。対象は**現行のタスク表のみ**（Batch 1 / Batch 2 と、非空なら [§採用タスク](#採用タスク) の表）で、[§棚卸し履歴](#棚卸し履歴) と [§無人可としなかった 7 件の理由](#無人可としなかった-7-件の理由) は対象外 — どちらも順位列を持つが、削除済み順位を意図的に残す記録だから
+2. **新規候補の昇格** — todo-summary 側に増えたタスクのうち、[§採用タスク (2) の判定基準](#採用タスク-2-cargo-test-検証タスククロスプラットフォーム対応後2026-07-23)**または** [§採用タスク の判定基準](#採用タスク)（docs-only）のいずれかを満たすものを、対応する表へ追加する。docs-only 枠は現在 0 件だが再追加を許しているため、両方の経路を見ないと候補を取りこぼす
+3. **無人可マークの見直し** — [§自律実行可否の 2 段階分類](#自律実行可否の-2-段階分類)の 3 条件を再確認する。特に条件 3（重複の恐れ）は台帳の外にある未マージブランチ・進行中 PR を見ないと判定できないため、この棚卸しでしか確認できない
+
+1〜3 の実行と採否は**人間が決める**（ADR-022）。facet は read-only で findings を上げるだけで、本ファイルを編集しない。
+
+### retire 条件
+
+夜間ループ（WP-18）が終了し、Web セッションの pickup scope としても不要になった時点で retire する（`~/.claude/rules/common/docs-governance.md` § Retirement Workflow に従う、global path のため markdown link なし）。手順:
+
+1. 本ファイルを読む自動化（夜間 workflow / weekly-review facet）が撤去済みであることを確認
+2. permanent value の移管を確認 — 現時点で永続価値を持つのは [§自律実行可否の 2 段階分類](#自律実行可否の-2-段階分類)の判定条件のみ。retire 時に ADR へ移す
+3. リポ内で本ファイルを参照する箇所を `grep -rn "claude-code-web-tasks.md" .` で洗い出し、参照を除去（検索対象パス `.` を省くと標準入力待ちになり、参照を 1 件も見つけないまま「参照なし」と誤認する）
+4. 本ファイルを物理削除

@@ -131,6 +131,9 @@ steps:
       # 観点 ⑤ Todo 妥当性 (ADR-031 拡張、順位154)。docs/todo*.md 全 corpus の
       # dead pattern / cross-file 重複 / preamble routing drift を週次 batch で棚卸し。
       # 順位136 hook (編集時 immediate) / cli-docs-lint が拾えない経年・横断的劣化を補完。
+      # 2026-08-06 (WP-18 PR 2): docs/claude-code-web-tasks.md の鮮度検査を追加。同台帳は
+      # 夜間 todo 消化ループのタスク選択元で、stale な 無人可 マークが無人 agent の重複実装を
+      # 招く。台帳の lifecycle が本 step を定期棚卸しの場として指名している。
       - name: review-todo-whole
         edit: false
         persona: architecture-reviewer
