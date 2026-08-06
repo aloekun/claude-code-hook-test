@@ -72,6 +72,7 @@
 - [ADR-069: PR chain 宣言規約 — 分割チェーンと missing-consumer 検査の両立](docs/adr/adr-069-pr-chain-declaration.md) *(試験運用)*
 - [ADR-070: weekly-review の分析フェーズを cloud routine へ移行 — 常時性の獲得と成果物デリバリの未解決](docs/adr/adr-070-weekly-review-cloud-routine.md) *(試験運用)*
 - [ADR-071: 未マージ draft PR 数による背圧 — draft-pr クラスの自主減速](docs/adr/adr-071-draft-pr-backpressure.md) *(試験運用)*
+- [ADR-072: 夜間 todo 消化ループ — 無人実装から draft PR までの決定論経路](docs/adr/adr-072-nightly-todo-loop.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
