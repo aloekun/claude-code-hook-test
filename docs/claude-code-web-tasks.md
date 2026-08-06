@@ -14,10 +14,7 @@
 2. Rust ビルド / Windows hook / pnpm パイプラインの実行が成功条件に **ならない**
 3. [docs/todo-summary.md](todo-summary.md) の表で採用判定済み（`feedback_no_unenforced_rules.md` 例外として既存実践の明文化に該当）
 
-| 順位 | Tier | 内容 | 編集ファイル | 工数 |
-|---|---|---|---|---|
-| 120 | T3 | `takt-workflow-persona-without-model` rule コメント拡張（field 拡張手順 4-5 行）+ ADR-007 case study 追記（enumeration-based 正規表現層、Rust regex lookahead 非対応の pragmatic 対処）(PR #150 T1-#1、実体 Tier 3) | [.claude/custom-lint-rules.toml](../.claude/custom-lint-rules.toml) ルール⑨ + [docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) | XS |
-| 134 | T3 | ADR-035 に docs-only PR 評価の適用外基準リスト追加（mutation / error handling / DRY / YAGNI / function length / test coverage / magic-number 等）(PR #156 T3 #2) | [docs/adr/adr-035-doc-evaluation-policy.md](adr/adr-035-doc-evaluation-policy.md) | S |
+**現在 0 件**（2026-08-06 の棚卸しで最後の 2 件が land 済みと確認され削除。→ § 棚卸し履歴）。docs-only の候補が再び出た場合は上記 3 基準で本表へ追加する。
 
 ### 着手フロー
 
@@ -101,6 +98,21 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
   - `gh` CLI / GitHub Actions workflow 整備で Web からも実行可能だが、本リポ初の `.github/workflows/*` 追加など影響範囲があり、ローカル dogfood と組み合わせる方が安全
 - **判断作業混在系**: 順位 118
   - rule⑧ の paths filter 検討は ADR amendment との整合判断を含み、純 docs 修正には閉じない
+
+---
+
+## 棚卸し履歴
+
+台帳の鮮度は「行が消えていること」でしか表現されないため、削除の根拠をここに残す。削除理由が追えないと、後から「なぜこのタスクは消えたのか」を再調査する羽目になる。
+
+### 2026-08-06
+
+| 順位 | 節 | 判定 | 根拠 |
+|---|---|---|---|
+| 120 | 採用タスク | land 済みのため削除 | `docs/todo-summary.md` / `todo-summary2.md` の順位 table から消えている。実体も確認済み — [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) に negation by enumeration の case study（Rust regex が lookahead 非対応である旨と代替案 3 択の比較）が存在する |
+| 134 | 採用タスク | land 済みのため削除 | 同上。[ADR-035](adr/adr-035-doc-evaluation-policy.md) に docs-only PR の適用外基準リスト（mutation / DRY / YAGNI 等）が存在する |
+
+これで docs-only の採用枠は 0 件になった。ただし本ファイルは retire しない（→ § ライフサイクル）。
 
 ---
 
