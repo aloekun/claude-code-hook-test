@@ -292,19 +292,20 @@
 
 - [ ] #363 マージ後、`workflow_dispatch` (dry_run=true) でゲート通過までを確認
 - [ ] dry_run=false で draft PR 作成まで完走させる
-- [ ] `ADR-072` の実走スモーク節にある 4 項目を観測し結果を同 ADR の検証記録節へ記帳
+- [ ] `ADR-072` の実走スモーク節にある 8 項目を観測し結果を同 ADR の検証記録節へ記帳
+- [ ] GitHub UI を触る過程で **順位 384 (外部設定の実体記録) を同時に実施する** — 実値はこの機会にしか揃わない
 - [ ] 完走後、2 週間の採用率測定を開始する
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
 - 有効時のみ `claude/nightly-*` の draft PR が作られることを実走で確認。
-- `ADR-072` の実走スモーク 4 項目すべてに観測結果が記帳されていること (未観測の項目が残るなら、その理由も記帳)。
+- `ADR-072` の実走スモーク 8 項目すべてに観測結果が記帳されていること (未観測の項目が残るなら、その理由も記帳)。
 - 計画書の WP-18 受け入れ基準表から「未実施」が消えていること。
 
 ### レビュー指摘への対応時チェックリスト
 
-> **動機**: WP-18 の 3 PR で**同型の失敗が 3 件**発生した。いずれも「変更の影響範囲を、指摘された 1 点だけで見積もった」ことが共通項。
+> **動機**: WP-18 の 3 PR で**同型の失敗が 4 件**発生した。いずれも「変更の影響範囲を、指摘された 1 点だけで見積もった」ことが共通項。
 >
 > 1. **takt fix step は設計文書を更新しない** — #363 で 4 サイクルの REJECT から fix により workflow が 3 回書き換わったが、ADR は一度も更新されず、最終的に `ADR-072` 決定 5 が実装と**正反対**の内容 (agent に Bash を許す vs 実際は落とす) のまま残った。commit message も同様に stale になった。さらに fix step は変更を「当時の作業コピー」に書くため、計画書コミットに workflow と Rust ソースの修正が混入し、コミット境界も壊れた
 > 2. **CodeRabbit finding の summary はスコープではない** — `pnpm check-ci --list-findings` が返す finding は `file` / `line` を 1 箇所しか持たないが、#361 の指摘はコメント本文で「両文書は…読めます」と 2 ファイルを名指ししていた。anchor された ADR だけ直して計画書側の同じ記述を取りこぼし、ユーザー指摘で発覚した
@@ -395,7 +396,7 @@
 
 ## #363 post-merge feedback 採用分 (2026-08-07 一括登録)
 
-> WP-18 の最終 PR (#363、ADR-072) マージ後の post-merge-feedback が Tier 1 に 4 件・Tier 2 に 2 件を採用候補として挙げたもの。**6 件すべてが台帳 (`docs/claude-code-web-tasks.md`) 経由の prompt injection という 1 本の根から出ている。**
+> WP-18 の最終 PR (#363、ADR-072) マージ後の post-merge-feedback が Tier 1 に 4 件・Tier 2 に 2 件を採用候補として挙げたもの。**うち 5 件 (378-382) が台帳 (`docs/claude-code-web-tasks.md`) 経由の prompt injection という 1 本の根から出ている。** 残る 383 は `is_separator_row` の markdown パース欠陥で根が異なり、同じ post-merge feedback で挙がったため同バッチに乗せただけである (§ 順序 も参照)。
 >
 > 発生源: 夜間ループは台帳の `内容` / `対象ファイル` / `注意` を**自由記述のまま無人 agent のプロンプトへ埋め込む**。agent は `$GITHUB_WORKSPACE` 全体に `Read/Edit/Write/Glob/Grep` を持ち、Guard step はパス名しか検査しない。台帳由来の文字列は draft PR 本文にもそのまま出る。
 >
@@ -483,7 +484,7 @@
 #### 作業計画
 
 - [ ] 順位 380 の実装後、injection payload fixture を追加する
-- [ ] [memory](../CLAUDE.md) の linter test suite 設計原則に従い good/bad の対を用意する
+- [ ] fixture は **good / bad の対**で用意し、**1 fixture = 1 条件**に保つ (assert は最小限、payload の由来をコメントで辿れるようにする)
 
 ### `is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト
 
@@ -502,3 +503,39 @@
 - [ ] `is_separator_row` にパイプ検証を追加する
 - [ ] bare `---` がセパレータ行として通らないことの回帰テストを追加する
 - [ ] 表の直前に水平線がある台帳で選択が壊れないことを確認する
+
+---
+
+## 夜間ループの外部設定の実体記録 (2026-08-07 登録)
+
+### 外部設定 (GitHub App / repository variables・secrets) の実体を ADR-072 へ記録する
+
+> **動機**: [.github/workflows/nightly-todo.yml](../.github/workflows/nightly-todo.yml) は `vars.NIGHTLY_APP_ID` / `secrets.NIGHTLY_APP_PRIVATE_KEY` / `vars.AUTONOMY_ENABLED` を参照するが、**これらの実体を記録した文書がリポジトリ内に 1 つも無い**。`NIGHTLY_APP` の文字列は workflow の 2 行と [ADR-072](adr/adr-072-nightly-todo-loop.md) の 2 行 (§ 欠点 / 留意点 の鍵漏洩リスク、§ 残課題 の本件) にしか現れず、**どれも登録先や実値には触れていない**。
+>
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 8 は「なぜ App token か」「なぜ PAT ではないか」「どの権限を付けるか」「なぜ publish 直前に発行するか」を厚く残している。**欠けているのは設計根拠ではなく運用実体**である。
+>
+> **これは [ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反にあたる**。同 ADR は内部設定と外部 SaaS 設定が論理結合する場合に (1) 両設定ファイルへの相互参照コメント (2) 期待値の組み合わせ表の ADR 必須記載 (3) 変更は両側を同一 PR、の 3 点を設計規律として定めている。`workflow` ↔ `GitHub App + repository variables/secrets` はまさにこの型で、3 点とも未実施。
+>
+> 前例として [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 0 は repository ruleset を **ruleset 名つきで「設定済み」と記録**している。ADR-072 は同じ扱いをしていない。
+>
+> **記録すべき項目**:
+>
+> - App 名 / 作成日 / インストール範囲 (`claude-code-hook-test` のみか)
+> - 付与した権限の実際の一覧 (決定 8 の方針どおり Workflows が**付いていない**ことの確認を含む)
+> - **既存の Claude GitHub App との区別** — あちらは Workflows を含む広い権限を持つ別物。混同すると「もう入っているから不要」と誤判断されうる
+> - `NIGHTLY_APP_ID` = repository **variable** / `NIGHTLY_APP_PRIVATE_KEY` = **secret** / `AUTONOMY_ENABLED` = **variable** という登録先の別
+> - **期待値の組み合わせ表** (ADR-051 決定 2) — 各値の欠落時にどう倒れるか。`AUTONOMY_ENABLED` 欠落は job ごと起動しない、App 資格情報の欠落は publish step で落ちる、等
+> - 再構築手順 (鍵ローテーション時・派生プロジェクトへの展開時)
+>
+> **順位 374 と同時に実施する**。スモークでは `AUTONOMY_ENABLED` の設定と App token の実動確認のため GitHub UI を触るので、その過程で実値がすべて揃う。先行して記録しようとすると値が確定せず二度手間になる。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (現状でも動作はするが、鍵ローテーション・障害調査・派生プロジェクト展開のいずれでも由来が辿れない) / Frequency Low / Effort S / Adoption Risk None。
+>
+> **教訓**: App の作成手順・「Expire user authorization tokens」の扱い・既存 App との違いは **2026-08-07 のセッションでユーザーへ提示したが、リポジトリへ残さなかった**。会話は次のセッションに残らないが workflow は残る。参照だけが残って由来が消える状態を作った。順位 375 (レビュー指摘への対応時チェックリスト) と同じクラスの失敗。
+
+#### 作業計画
+
+- [ ] 順位 374 のスモーク実施時に、GitHub UI で App 名・インストール範囲・権限一覧・variable/secret の登録先を確認する
+- [ ] [ADR-072](adr/adr-072-nightly-todo-loop.md) に § 外部設定の実体 を新設し、上記項目と期待値の組み合わせ表を記録する
+- [ ] [.github/workflows/nightly-todo.yml](../.github/workflows/nightly-todo.yml) の App token step へ ADR-051 決定 1 の相互参照コメントを追加する
+- [ ] `AUTONOMY_ENABLED` についても同様に現在の設定状態を記録する ([ADR-066](adr/adr-066-autonomy-global-kill-switch.md) は「Actions variable を使う」とは書くが現状値を記録していない)

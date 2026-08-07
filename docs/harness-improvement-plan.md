@@ -80,7 +80,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
 | WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11 | **観測中（実装は 2026-08-04 に全 land）** — #347 / #350 / #351 / #352 / #353 / #354、実走バグ修正 #356 / #357 / #358、記帳 #359。実走スモーク段 0〜2 まで完走。**観測待ち**: 停止側の実走 2 点 / 自動起動経路 / 週末またぎ / ADR-066 bounded lifetime（1 of 3〜5 run）→ § WP-17。派生 ADR: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 |
-| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **3 PR すべてマージ済（2026-08-07）** — PR 1 = 背圧 + [ADR-071](adr/adr-071-draft-pr-backpressure.md)（#361）/ PR 2 = タスク台帳（#362）/ PR 3 = 夜間 workflow + [ADR-072](adr/adr-072-nightly-todo-loop.md)（#363）。**未完**: 実走スモーク（順位 374）→ 採用率 2 週間測定。**定常運用開始前に必須**: prompt injection 対策 4 件（順位 378-381）→ § WP-18 |
+| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **3 PR すべてマージ済（2026-08-07）** — PR 1 = 背圧 + [ADR-071](adr/adr-071-draft-pr-backpressure.md)（#361）/ PR 2 = タスク台帳（#362）/ PR 3 = 夜間 workflow + [ADR-072](adr/adr-072-nightly-todo-loop.md)（#363）。**未完**: 実走スモーク（順位 374、外部設定の実体記録 384 を同時実施）→ 採用率 2 週間測定。**定常運用開始前に必須**: prompt injection 対策 4 件（順位 378-381）→ § WP-18 |
 | WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1、背圧は WP-18 PR 1 へ前倒し） | S-M | WP-18 | 未着手（残りは監査ループのみ。背圧は WP-18 PR 1 で land 済み） |
 
 ## 5. 残作業（観測継続）
@@ -162,7 +162,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 **ただし WP としては未完**。残作業は 2 系統ある（→ § 残作業）:
 
-1. **実走スモーク**（順位 374）— 受け入れ基準の中核。コードは land したが、**まだ 1 度も走っていない**
+1. **実走スモーク**（順位 374。**外部設定の実体記録 384 を同時実施**）— 受け入れ基準の中核。コードは land したが、**まだ 1 度も走っていない**
 2. **prompt injection 対策 4 件**（順位 378-381）— #363 の post-merge-feedback が Tier 1 として挙げたもの。定常運用開始前に必須
 
 #### 残作業
@@ -170,6 +170,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | 順位 | 内容 | Tier | 期限 |
 |---|---|---|---|
 | 374 | 実走スモーク（`workflow_dispatch` の `dry_run` から開始、観測 8 項目） | 🚀 1 | 次に着手する作業 |
+| 384 | 外部設定（GitHub App / repository variables・secrets）の実体を [ADR-072](adr/adr-072-nightly-todo-loop.md) へ記録（[ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反の解消） | 🚀 1 | **順位 374 と同時**（スモークで GitHub UI を触る過程で実値が揃う） |
 | 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | 定常運用開始前 |
 | 379 | agent の tool scope を `work/**` へ限定（現行は `$GITHUB_WORKSPACE` 全体） | 🚀 1 | 定常運用開始前 |
 | 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | 定常運用開始前 |
@@ -181,6 +182,8 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 **378-381 は 1 本の根から出ている** — 台帳の自由記述フィールドが無検証で無人 agent のプロンプトへ流入し、agent は workspace 全体に書き込め、その出力が公開面（draft PR 本文）に出る。[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) の信頼境界そのもので、詳細は [todo20.md](todo20.md) § #363 post-merge feedback 採用分。
 
 現時点の実効リスクは低い（悪意ある台帳行を master へマージするのはユーザー自身）が、**draft PR の流量が増えると前提が変わる**ため無期限に積んではならない。スモークは `dry_run` で PR を作らないため、**378-381 を待たずに着手してよい**。
+
+**384 はスモークに相乗りする記録作業** — workflow が参照する GitHub App / `NIGHTLY_APP_ID` / `NIGHTLY_APP_PRIVATE_KEY` / `AUTONOMY_ENABLED` の実体（App 名・インストール範囲・付与権限・登録先・欠落時の倒れ方）がリポジトリ内に 1 行も無く、[ADR-051](adr/adr-051-cross-system-config-coupling.md) が定める 3 点（相互参照コメント / 期待値の組み合わせ表 / 両側同一 PR）が未実施のまま。スモークで GitHub UI を触る過程で実値が揃うため、先行させると値が確定せず二度手間になる。
 
 **未 push の改善 3 点**（`wp18/unpushed-improvements` = `fc22403c` に保持）: 改ざん検知の `continue-on-error` 除去（red 化）、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 10 の色分け表、決定 6 の列挙基準。#363 の最終 push が security REJECT で止まったため master に載っていない。いずれも可観測性・文書の改善で、fail-closed 自体は master 版でも成立している。
 
@@ -217,7 +220,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   |---|---|
   | 背圧の決定論層 drill（12 シナリオ、実 exe） | **充足**（PR 1、[ADR-071](adr/adr-071-draft-pr-backpressure.md) § 検証記録） |
   | タスク選択の境界固定（unit test 25 件 + 実データ選択） | **充足**（PR 3、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 検証記録） |
-  | **実走スモーク — 有効時のみ `claude/nightly-*` の draft PR が作られること** | **未実施**（順位 374）。前提 (a) workflow が master にあること・(b) 台帳に無人可マークがあることは**いずれも 2026-08-07 のマージで充足済み**。加えて GitHub UI 側で `AUTONOMY_ENABLED` を `'true'`（完全一致）に設定する操作が要る。反復は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 2 の知見 2 に従い**マージせず ref 指定の dispatch** で行う（`dry_run` 入力あり） |
+  | **実走スモーク — 有効時のみ `claude/nightly-*` の draft PR が作られること** | **未実施**（順位 374）。前提 (a) workflow が master にあること・(b) 台帳に無人可マークがあることは**いずれも 2026-08-07 のマージで充足済み**。加えて GitHub UI 側で `AUTONOMY_ENABLED` を `'true'`（完全一致）に設定する操作と、`dry_run=false` の完走には App（`NIGHTLY_APP_ID` / `NIGHTLY_APP_PRIVATE_KEY`）の登録が要る。**この UI 操作で確認した実値は順位 384 で ADR-072 へ記録する**。反復は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 2 の知見 2 に従い**マージせず ref 指定の dispatch** で行う（`dry_run` 入力あり） |
   | スモークの同梱観測 8 項目（内訳は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表を参照。主なものは **App token 作成 PR に `ci.yml` の 2 OS run が紐づくこと**、`AUTONOMY_ENABLED` の設定、`claude/nightly-*` の **ref 作成**が通ること、WP-17 残課題 2 件） | **未実施**（一覧は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表が正。WP-17 の 2 件は ADR-067 § 検証記録に「WP-18 着手時に実測」と記帳済み） |
   | **WP 全体**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行** | **未着手**（スモーク完走後に開始）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）に載せて仕組み化する |
 

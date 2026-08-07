@@ -134,11 +134,12 @@
 | 376 | 🔧 Tier 2 | **push-runner の bookmark 自動前進がスタック境界を壊す** | todo20.md | S | なし (2026-08-06 実観測。@ の祖先にあたる非 trunk bookmark を前進させ、レビュー済み PR #361 の bookmark が #363 の tip へ移動した。size gate が先に止めたため remote 影響は無し) |
 | 377 | 💎 Tier 3 | **夜間ループの防御を検知から防止へ格上げする判断** | todo20.md | M-L | 順位 374 + 2 週間の試験運用 (ADR-072 残課題 3 件。実運用の観測が判断材料で、観測前の着手は過剰設計。「不要」判断も正規の出口) |
 | 378 | 🚀 Tier 1 | **台帳を ADR-035 の docs-only 除外パス表へ追加し code-equivalent として扱う (#363 Tier1 #1)** | todo20.md | XS | なし (順位 379-381 の前提。台帳だけを変える PR が緩い評価経路に乗るのを塞ぐ) |
-| 379 | 🚀 Tier 1 | **夜間ループ agent の tool scope を `work/**` へ限定する (#363 Tier1 #2)** | todo20.md | S | なし (現行は `$GITHUB_WORKSPACE` 全体。決定 7 の改ざん検知が必要になっている根本原因) |
-| 380 | 🚀 Tier 1 | **台帳フィールドを agent prompt へ untrusted data として明示 framing する (#363 Tier1 #3)** | todo20.md | M | なし (ADR-054 の 3 層防御の第 1 層。順位 382 の regression test はこれが入る前提) |
-| 381 | 🚀 Tier 1 | **台帳由来 SUMMARY の draft PR 本文出力に screening を追加 (#363 Tier1 #4)** | todo20.md | S | なし (public repo では draft PR 本文も第三者に可視 = 攻撃者制御文字列の公開面) |
+| 379 | 🚀 Tier 1 | **夜間ループ agent の tool scope を `work/**` へ限定する (#363 Tier1 #2)** | todo20.md | S | 順位 378 (現行は `$GITHUB_WORKSPACE` 全体。決定 7 の改ざん検知が必要になっている根本原因) |
+| 380 | 🚀 Tier 1 | **台帳フィールドを agent prompt へ untrusted data として明示 framing する (#363 Tier1 #3)** | todo20.md | M | 順位 378 (ADR-054 の 3 層防御の第 1 層) |
+| 381 | 🚀 Tier 1 | **台帳由来 SUMMARY の draft PR 本文出力に screening を追加 (#363 Tier1 #4)** | todo20.md | S | 順位 378 (public repo では draft PR 本文も第三者に可視 = 攻撃者制御文字列の公開面) |
 | 382 | 🔧 Tier 2 | **台帳 prompt injection payload の regression test (#363 Tier2 #1)** | todo20.md | M | 順位 380 (framing が入ってから、その framing が効くことを固定する) |
 | 383 | 🔧 Tier 2 | **`is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト (#363 Tier2 #2)** | todo20.md | S | なし (2026-08-07 実コード確認済み。bare `---` がセパレータ行として通る) |
+| 384 | 🚀 Tier 1 | **夜間ループの外部設定 (GitHub App / repository variables・secrets) の実体を ADR-072 へ記録 — ADR-051 違反の解消** | todo20.md | S | 順位 374 と同時実施 (スモークで GitHub UI を触る過程で実値が揃う。ADR-072 は決定 8 で設計根拠を厚く残す一方、App の作成・インストール範囲・variable/secret の登録先を 1 行も記録していない) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
