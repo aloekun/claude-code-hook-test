@@ -129,6 +129,10 @@
 | 371 | 🔧 Tier 3 | **weekly-review reminder の doc-drift 同期 — post-ADR-070 用語 (#354 採用)** | todo20.md | S | なし (実装は新用語を採用済みで doc だけ旧用語。順位 365 の convention 5 が今後の再発を防ぐ側) |
 | 372 | 🔧 Tier 2 | **templates の陳腐化 example 削除 + simplicity-review facet への同期チェック追加 (#353 採用)** | todo20.md | S | なし (WP-17 PR 3 で廃止した poll_interval_secs / max_duration_secs が派生プロジェクト向け template に残存) |
 | 373 | 🔧 Tier 2 | **Rust exe の自動再ビルド — PostToolUse の cargo check + Stop hook の build/deploy 2 層** | todo20.md | M | なし (2026-08-04 実測で 3 パッケージの .claude/*.exe がソースより古い状態を確認。cargo check 0.4-0.7 秒 / build --release 4-10 秒の差で層を分ける) |
+| 374 | 🚀 Tier 1 | **WP-18 夜間ループの実走スモーク実施** | todo20.md | M | #363 マージ (WP-18 受け入れ基準の中核。観測項目の一覧は ADR-072 の実走スモーク節が正で本 todo には複製しない) |
+| 375 | 🔧 Tier 2 | **レビュー指摘への対応時チェックリスト (fix 後の文書整合 / finding スコープ / 意図的 stale 表 / 技術的前提の検証)** | todo20.md | S | なし (WP-18 の 3 PR で同型の失敗が 4 件。いずれも変更の影響範囲を指摘された 1 点だけで見積もったこと、または前提を検証せず動いたことが共通項) |
+| 376 | 🔧 Tier 2 | **push-runner の bookmark 自動前進がスタック境界を壊す** | todo20.md | S | なし (2026-08-06 実観測。@ の祖先にあたる非 trunk bookmark を前進させ、レビュー済み PR #361 の bookmark が #363 の tip へ移動した。size gate が先に止めたため remote 影響は無し) |
+| 377 | 💎 Tier 3 | **夜間ループの防御を検知から防止へ格上げする判断** | todo20.md | M-L | 順位 374 + 2 週間の試験運用 (ADR-072 残課題 3 件。実運用の観測が判断材料で、観測前の着手は過剰設計。「不要」判断も正規の出口) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
