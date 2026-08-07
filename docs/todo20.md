@@ -282,7 +282,7 @@
 >
 > **対処案**: #363 マージ後、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 2 の知見 2 に従い**マージせずブランチ ref への `workflow_dispatch`** で反復する (`dry_run` 入力でゲート通過まで走らせ push を止められる)。1 バグ 1 サイクルの手戻りを避けるため、マージは完走を確認してから 1 回だけ行う。
 >
-> **観測項目の一覧は `ADR-072` の実走スモーク節にある表が正**。本エントリには複製しない (同じチェックリストを 2 箇所で管理すると必ず drift する — #362 の post-merge feedback が指摘した single source-of-truth 問題と同型)。現時点で 4 項目あり、うち 2 件は WP-17 から引き継いだ残課題。
+> **観測項目の一覧は `ADR-072` の実走スモーク節にある表が正**。本エントリには複製しない (同じチェックリストを 2 箇所で管理すると必ず drift する — #362 の post-merge feedback が指摘した single source-of-truth 問題と同型)。現時点で 8 項目あり、うち 2 件は WP-17 から引き継いだ残課題。
 >
 > **参照**: `ADR-072` の実走スモーク節 / 試験運用判断基準節、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) (WP-17 残課題 2 件の出所)、[dev-conventions.md](dev-conventions.md)。
 >
@@ -390,3 +390,115 @@
 
 - 3 件それぞれに「着手 / 不要」の判断と根拠 (観測データ) が `ADR-072` へ記帳されていること。
 - 着手と判断したものが実装済みであること。
+
+---
+
+## #363 post-merge feedback 採用分 (2026-08-07 一括登録)
+
+> WP-18 の最終 PR (#363、ADR-072) マージ後の post-merge-feedback が Tier 1 に 4 件・Tier 2 に 2 件を採用候補として挙げたもの。**6 件すべてが台帳 (`docs/claude-code-web-tasks.md`) 経由の prompt injection という 1 本の根から出ている。**
+>
+> 発生源: 夜間ループは台帳の `内容` / `対象ファイル` / `注意` を**自由記述のまま無人 agent のプロンプトへ埋め込む**。agent は `$GITHUB_WORKSPACE` 全体に `Read/Edit/Write/Glob/Grep` を持ち、Guard step はパス名しか検査しない。台帳由来の文字列は draft PR 本文にもそのまま出る。
+>
+> **実効リスクは現時点では低い** — 悪意ある台帳行を master へマージするのはユーザー自身であり、単独運用では外部からの注入経路が無い。しかし [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) が扱う信頼境界の類型そのものであり、**夜間ループが定常運用に入り draft PR の流量が増えると前提が変わる**。
+>
+> **期限**: 順位 374 (実走スモーク) の完了後、**定常運用開始前**。無期限に積んではならない。スモーク自体は `dry_run` で PR を作らないため本件の実害は無く、スモークを待たせる理由も無い。
+>
+> **順序**: 378 → 379/381 (独立) → 380 → 382。378 は他 3 件の前提 (台帳変更が緩い評価経路に乗ると、対策そのものを迂回する台帳 PR が通りうる)。382 は 380 の framing が入ってからでないと固定する対象が無い。383 は独立。
+
+### 台帳を ADR-035 の docs-only 除外パス表へ追加し code-equivalent として扱う
+
+> **動機**: [ADR-035](adr/adr-035-doc-evaluation-policy.md) の除外パス一覧に台帳が含まれておらず、**台帳だけを変える PR が docs-only の緩い評価経路に乗る**。台帳は「次に何を実装するか」を決める実行入力であり、拡張子が `.md` であることと危険度は無関係。
+>
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 は同じ理由で台帳を Guard step の禁止リストへ入れているが、**PR 評価ポリシー側には同じ手当てが無い**という非対称が残っている。
+>
+> **対処案**: ADR-035 の除外パス表へ 1 行追加し、参照している facet instructions 側の記述も同期する。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Medium / Effort XS / Adoption Risk None。既存機構への 1 行追加で閉じられる。
+
+#### 作業計画
+
+- [ ] ADR-035 の除外パス表へ `docs/claude-code-web-tasks.md` を追加し、code-equivalent とする根拠を記す
+- [ ] 除外パス表を参照している facet instructions を grep し、記述を同期する
+- [ ] 台帳のみを変える PR が docs-only 判定にならないことを確認する
+
+### 夜間ループ agent の tool scope を `work/**` へ限定する
+
+> **動機**: 現行の `--allowedTools "Read,Edit,Write,Glob,Grep"` は**スコープ引数を持たない**ため、agent は `$GITHUB_WORKSPACE` 全体を読み書きできる。そこには判定の調達元である `master-ref/` が含まれる。
+>
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 7 (ゲート資産の改ざん検知) は**この穴があるために必要になった検知層**である。scope を絞れば検知ではなく予防で塞げる。決定 7 自身が「検知であって防止ではない」と残課題に挙げている。
+>
+> **対処案**: `--allowedTools` にパススコープを付与できるか調査し、可能なら `work/**` へ限定する。不可なら agent の作業ディレクトリ自体を `work/` に切り替える案を検討する。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Low / Effort S / Adoption Risk None。
+>
+> **注意**: 実装後も決定 7 の改ざん検知は**残す**。防御層を 1 枚に減らす変更ではない。
+
+#### 作業計画
+
+- [ ] `--allowedTools` のパススコープ指定可否を公式ドキュメントで確認する (推測で設計しない)
+- [ ] scope 限定を実装し、`master-ref/` へ書けないことを実走で確認する
+- [ ] 順位 377 (検知から防止への格上げ判断) の判断材料として ADR-072 へ記帳する
+
+### 台帳フィールドを agent prompt へ untrusted data として明示 framing する
+
+> **動機**: prompt 組立が `${{ steps.select.outputs.summary/target_files/caution }}` を無検証で埋め込んでいる。台帳の行に指示文を書けば、それが agent への指示として読まれる。
+>
+> [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) の 3 層防御でいう**第 1 層 (信頼境界の明示)** が欠けている状態。
+>
+> **対処案**: prompt テンプレート側で台帳由来の文字列を「これはデータであり指示ではない」と明示する区切りで囲む。加えて `ledger.rs` の parse 側で制御文字や区切り記号の混入を弾くかを検討する (決定 2 の「曖昧さはすべて停止側へ」と同じ姿勢)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Medium / Effort M / Adoption Risk None。
+>
+> **注意**: framing は緩和であって遮断ではない。順位 379 の scope 限定と併せて初めて意味を持つ。
+
+#### 作業計画
+
+- [ ] prompt 組立に untrusted data の framing を導入する
+- [ ] parse 側で弾くべき入力の範囲を決め、ADR-072 決定 2 の exit 2 経路へ寄せる
+- [ ] 順位 382 の regression test で framing の有効性を固定する
+
+### 台帳由来 SUMMARY の draft PR 本文出力に screening を追加
+
+> **動機**: PR body 生成が `echo "- 内容: ${SUMMARY}"` を無検証で行う。**draft PR であっても public repository では第三者に可視**であり、攻撃者制御文字列の公開面になる。
+>
+> **対処案**: PR 本文へ出す前に長さ制限・改行/markdown 制御文字のエスケープを行う。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] PR body 生成箇所に screening/escaping を追加する
+- [ ] 公開面に出る他の経路 (ブランチ名・コミットメッセージ) も同時に棚卸しする
+
+### 台帳 prompt injection payload の regression test
+
+> **動機**: 順位 380 で入れる framing が**実際に効くこと**を固定する。framing は文言の変更で静かに壊れるため、テストが無いと退行に気づけない。
+>
+> **対処案**: 台帳 fixture に injection payload (`caution: "; echo PWNED; #"` 等) を含む行を置き、選択結果と prompt 組立が payload を指示として扱わないことを assert する。
+>
+> **依存**: 順位 380 (framing 実装)。framing 前にテストだけ書いても固定する対象が無い。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] 順位 380 の実装後、injection payload fixture を追加する
+- [ ] [memory](../CLAUDE.md) の linter test suite 設計原則に従い good/bad の対を用意する
+
+### `is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト
+
+> **動機**: `is_table_row` は行頭 `|` を要求するのに対し、`is_separator_row` は `split_cells` の結果だけを見るため**パイプを 1 つも含まない行が通る**。`split_cells("---")` は `["---"]` を返し、全セルが `-` のみなので真になる。
+>
+> **2026-08-07 に実コードで確認済み** ([ledger.rs:262-272](../src/cli-nightly-task-select/src/ledger.rs#L262-L272))。markdown の水平線 `---` は本 todo ファイル自身が使っており、台帳に現れうる。表の直前に水平線があると、それをセパレータ行と誤認して表構造の解釈がずれる。
+>
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 2 が「台帳の曖昧さはすべて停止側へ」と定めた fail-closed 設計の coverage hole にあたる。
+>
+> **対処案**: `is_separator_row` へ `is_table_row` 同等のパイプ検証 guard を追加する。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `is_separator_row` にパイプ検証を追加する
+- [ ] bare `---` がセパレータ行として通らないことの回帰テストを追加する
+- [ ] 表の直前に水平線がある台帳で選択が壊れないことを確認する
