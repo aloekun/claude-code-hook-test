@@ -25,6 +25,7 @@ members = [
     "src/cli-finding-classifier",
     "src/cli-fix-push-gate",
     "src/cli-merge-pipeline",
+    "src/cli-nightly-task-select",
     "src/cli-pr-monitor",
     "src/cli-push-runner",
     "src/cli-takt-timings",
