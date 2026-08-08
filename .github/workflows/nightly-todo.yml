@@ -454,6 +454,35 @@ jobs:
             --title "feat: 順位 ${RANK} の無人実装 (nightly-todo)" \
             --body-file "$RUNNER_TEMP/pr-body.md"
 
+      # CodeRabbit の自動レビューは draft PR を対象外にしている
+      # (.coderabbit.yaml の reviews.auto_review.drafts: false = ADR-019 のクォータ設計)。
+      # 一方 ADR-052 / 本 ADR は夜間ループを **draft PR で止める**。この 2 つを素直に
+      # 組み合わせると「夜間 PR は永久にレビューされない」状態になる (2026-08-08 に PR #365 で
+      # 実測)。両立のため、draft PR 作成後に**明示トリガーを 1 回だけ**投げる。
+      # ADR-019 が fix push で採っている「自動増分レビューを止め、明示 `@coderabbitai review` を
+      # 1 回投稿する」と同じ形で、レート消費は 1 PR あたり 1 回に留まる。
+      #
+      # **token は App のものを使う。** job の GITHUB_TOKEN は pull-requests: read しか
+      # 持たず、書き込み権限を戻すと決定 8 § 副次効果 (agent が触れる唯一の資格情報を
+      # read-only にした) を巻き戻してしまう。
+      #
+      # **本 step は continue-on-error で受ける。** 決定 10 は gh / network の失敗を red と
+      # 分類するが、それは無人ループの本体経路 (実装 → ゲート → push → PR 作成) の話であり、
+      # レビュー起動は成果物が出来た**後**に走る助言層にあたる。[ADR-043] が「fail-closed は
+      # ゲート関数のみ。助言層は fail-open が正しい」と定めているため、ここで run を red に
+      # すると「draft PR は正しく出来たのにレビュー起動だけ失敗した夜」が「本当に壊れた夜」と
+      # 同じ色になる。代わりに outcome を Report outcome へ出して可視化する。
+      - name: Request a CodeRabbit review (drafts are excluded from auto review)
+        id: request-review
+        continue-on-error: true
+        if: steps.publish.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ steps.select.outputs.branch }}
+        run: |
+          set -euo pipefail
+          gh pr comment --repo "${{ github.repository }}" "$BRANCH" --body "@coderabbitai review"
+
       # 無音で終わらせない (ADR-064 と同じ論理)。どの段で止まったかを 1 行で出す。
       - name: Report outcome
         if: '!cancelled()'
@@ -468,10 +497,15 @@ jobs:
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           APP_TOKEN_OUTCOME: ${{ steps.app-token.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          REQUEST_REVIEW_OUTCOME: ${{ steps.request-review.outcome }}
         run: |
-          echo "[NIGHTLY] preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>}"
+          echo "[NIGHTLY] preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>} request_review=${REQUEST_REVIEW_OUTCOME:-<未実行>}"
           if [ "${PUBLISH_OUTCOME:-}" = "success" ]; then
             echo "[NIGHTLY] draft PR を作成しました。"
+            # 助言層の失敗は run を red にしないが、無音にもしない (ADR-043)。
+            if [ "${REQUEST_REVIEW_OUTCOME:-}" != "success" ]; then
+              echo "[NIGHTLY_WARN] CodeRabbit レビューの明示トリガー投稿に失敗しました (request_review=${REQUEST_REVIEW_OUTCOME:-<未実行>})。draft PR は作成済みなので、必要なら PR へ手で '@coderabbitai review' を投稿してください。"
+            fi
             exit 0
           fi
           echo "[NIGHTLY_SKIP] 本 run は draft PR を作りませんでした。上の 1 行で停止段を特定してください。"

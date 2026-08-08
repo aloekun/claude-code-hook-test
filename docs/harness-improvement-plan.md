@@ -169,7 +169,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 | 順位 | 内容 | Tier | 期限 |
 |---|---|---|---|
-| 374 | 実走スモーク（`workflow_dispatch` の `dry_run` から開始、観測 8 項目） | 🚀 1 | 次に着手する作業 |
+| 374 | 実走スモーク（**allow 経路は 2026-08-08 の schedule 実走で充足**。残りは停止側 3 状態とトークン露出の 2 項目で、`workflow_dispatch` の専用 run が要る） | 🚀 1 | 次に着手する作業 |
 | 384 | 外部設定（GitHub App / repository variables・secrets）の実体を [ADR-072](adr/adr-072-nightly-todo-loop.md) へ記録（[ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反の解消） | 🚀 1 | **順位 374 と同時**（スモークで GitHub UI を触る過程で実値が揃う） |
 | 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | 定常運用開始前 |
 | 379 | agent の tool scope を `work/**` へ限定（現行は `$GITHUB_WORKSPACE` 全体） | 🚀 1 | 定常運用開始前 |
@@ -220,9 +220,9 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   |---|---|
   | 背圧の決定論層 drill（12 シナリオ、実 exe） | **充足**（PR 1、[ADR-071](adr/adr-071-draft-pr-backpressure.md) § 検証記録） |
   | タスク選択の境界固定（unit test 25 件 + 実データ選択） | **充足**（PR 3、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 検証記録） |
-  | **実走スモーク — 有効時のみ `claude/nightly-*` の draft PR が作られること** | **未実施**（順位 374）。前提 (a) workflow が master にあること・(b) 台帳に無人可マークがあることは**いずれも 2026-08-07 のマージで充足済み**。加えて GitHub UI 側で `AUTONOMY_ENABLED` を `'true'`（完全一致）に設定する操作と、`dry_run=false` の完走には App（`NIGHTLY_APP_ID` / `NIGHTLY_APP_PRIVATE_KEY`）の登録が要る。**この UI 操作で確認した設定メタデータは順位 384 で ADR-072 へ記録する**（秘密値そのものは記録しない）。反復は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 2 の知見 2 に従い**マージせず ref 指定の dispatch** で行う（`dry_run` 入力あり） |
-  | **停止側の実走 — 無効時に何も作られないこと**（`AUTONOMY_ENABLED` の 3 状態 = `'true'` / `'false'` / 未設定 で dispatch し、`false` と未設定では job 起動・ブランチ作成・draft PR・App token のいずれも発生しないことを確認） | **未実施**（順位 374 に同梱）。**成功経路だけの確認では kill-switch が効くことを示せない** — 本プロジェクトは背圧 12 シナリオ・kill-switch 8 シナリオと決定論層の deny を drill で固めてきたが、夜間ループの停止側は実走未観測。WP-17 の残課題（明示的 `false` と config 側 deny が実走未観測、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime）と同じ穴なので、ここで一緒に埋める。deny 結果は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモーク へ記帳する |
-  | スモークの同梱観測 8 項目（内訳は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表を参照。主なものは **App token 作成 PR に `ci.yml` の 2 OS run が紐づくこと**、`AUTONOMY_ENABLED` の設定、`claude/nightly-*` の **ref 作成**が通ること、WP-17 残課題 2 件） | **未実施**（一覧は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表が正。WP-17 の 2 件は ADR-067 § 検証記録に「WP-18 着手時に実測」と記帳済み） |
+  | **実走スモーク — 有効時のみ `claude/nightly-*` の draft PR が作られること** | **充足**（2026-08-08、[PR #365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203`）。ただし **`workflow_dispatch` ではなく schedule の本番 run が先に消化した** — `AUTONOMY_ENABLED` を立てた時点で schedule も有効になるため。結果は成功だったが、観測装置の準備前に無人 run が走る構造だった点は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 残課題 に記帳 |
+  | **停止側の実走 — 無効時に何も作られないこと**（`AUTONOMY_ENABLED` の 3 状態 = `'true'` / `'false'` / 未設定 で dispatch し、`false` と未設定では job 起動・ブランチ作成・draft PR・App token のいずれも発生しないことを確認） | **未実施**（順位 374 の残り）。**成功経路だけの確認では kill-switch が効くことを示せない** — 本プロジェクトは背圧 12 シナリオ・kill-switch 8 シナリオと決定論層の deny を drill で固めてきたが、夜間ループの停止側は実走未観測。WP-17 の残課題（明示的 `false` と config 側 deny が実走未観測、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime）と同じ穴なので、ここで一緒に埋める。**本番 schedule では観測できず、`workflow_dispatch` の専用 run が要る** |
+  | スモークの同梱観測 8 項目（内訳は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表が正） | **5 項目充足 / 1 項目は不成立と判明 / 2 項目未観測**。充足 = `AUTONOMY_ENABLED` の完全一致起動・`claude/nightly-*` の ref 作成・**App token 作成 PR に `ci.yml` の 2 OS run が紐づくこと**（決定 8 の核心）・決定 7 の照合が誤検知しないこと（1 run）・`publish/` の rsync が過不足なく運ぶこと。**不成立** = WP-17 残課題の Phase B 自動起動（CodeRabbit が draft を自動レビューしないため契機が発生しない → [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 で対処）。**未観測** = トークン露出・停止側 |
   | **WP 全体**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行** | **未着手**（スモーク完走後に開始）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）に載せて仕組み化する |
 
   なお採用率 50% は根拠のある閾値ではなく、2 週間・最大 14 件（背圧により実際はより少ない）では統計的な意味を持たない（[ADR-072](adr/adr-072-nightly-todo-loop.md) § 欠点）。判断材料の 1 つとして扱う。
