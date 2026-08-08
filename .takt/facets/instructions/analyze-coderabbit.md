@@ -19,7 +19,7 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 CodeRabbit sometimes raises findings that are not applicable to this project. Before classifying severity, evaluate each finding against the project context:
 
 1. Read `CLAUDE.md` to understand the project's architecture decisions and constraints
-2. **Determine if the PR is docs-only** under [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md): inspect the diff in `.takt/review-diff.txt`. The PR is docs-only when **all** changed files are `docs/**` / `*.md` / source-code doc comments / yaml comment-only, **and** no executable code logic changes. Excluded paths (`.takt/facets/instructions/**`, `.claude/**`, `.takt/workflows/**.yaml` structural changes) disqualify docs-only treatment even when the file extension is `.md`/`.yaml`
+2. **Determine if the PR is docs-only** under [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md): inspect the diff in `.takt/review-diff.txt`. The PR is docs-only when **all** changed files are `docs/**` / `*.md` / source-code doc comments / yaml comment-only, **and** no executable code logic changes. Excluded paths (`.takt/facets/instructions/**`, `.claude/**`, `.takt/workflows/**.yaml` structural changes, `docs/claude-code-web-tasks.md` = the nightly loop's task ledger per ADR-072) disqualify docs-only treatment even when the file extension is `.md`/`.yaml`
 3. For each finding, check:
    - **Platform scope**: This project targets Windows only. Findings about cross-platform compatibility (e.g., `.exe` hardcoding) are NOT applicable -- downgrade to `Info`
    - **Intentional design**: Check if the finding contradicts an ADR decision. If so, mark as `not_applicable`

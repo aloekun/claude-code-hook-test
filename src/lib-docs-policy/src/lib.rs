@@ -47,9 +47,22 @@ pub fn is_docs_only_summary(summary: &str) -> bool {
     saw_any
 }
 
+/// 夜間ループ (ADR-072) のタスク台帳。
+///
+/// `docs/` 配下だが「次に何を実装するか」を決める**実行入力**であり、無人可マークの
+/// 付いた行が `cli-nightly-task-select` に読まれ、その内容がそのまま無人 agent の
+/// プロンプトへ入る = code-equivalent (ADR-035 除外パス)。
+///
+/// ADR-072 決定 6 は同じ理由で台帳を Guard step の禁止リストへ入れているが、PR 評価
+/// ポリシー側の手当てが抜けており、**台帳だけを変える PR が docs-only の緩い評価経路に
+/// 乗る**状態だった。前方一致ではなく完全一致で比較する — `docs/claude-code-web-tasks`
+/// で始まる別ファイル (メモ等) まで巻き込むと、逆に正当な docs PR が重い経路へ落ちる。
+const NIGHTLY_TASK_LEDGER: &str = "docs/claude-code-web-tasks.md";
+
 /// 単一パスが ADR-035 の docs-only path 基準を満たすか。
 ///
 /// `.takt/` / `.claude/` は形式上 md/yaml でも code-equivalent (ADR-035 除外パス)。
+/// [`NIGHTLY_TASK_LEDGER`] も同じ理由で除外する。
 /// Windows の `jj diff --summary` はバックスラッシュ区切りで出力するため正規化する。
 fn is_docs_only_path(path: &str) -> bool {
     let p = path.trim().replace('\\', "/");
@@ -57,6 +70,9 @@ fn is_docs_only_path(path: &str) -> bool {
         return false;
     }
     if p.starts_with(".takt/") || p.starts_with(".claude/") {
+        return false;
+    }
+    if p == NIGHTLY_TASK_LEDGER {
         return false;
     }
     p.starts_with("docs/") || p.ends_with(".md")
@@ -93,6 +109,33 @@ mod tests {
         assert!(!is_docs_only_summary("M .takt/facets/instructions/fix.md"));
         assert!(!is_docs_only_summary("M .claude/hooks-config.toml"));
         assert!(!is_docs_only_summary("M .takt/workflows/post-pr-review.yaml"));
+    }
+
+    /// 台帳 (ADR-072) は docs/ 配下でも code-equivalent なので docs-only にしない。
+    #[test]
+    fn docs_only_rejects_nightly_task_ledger() {
+        assert!(!is_docs_only_summary("M docs/claude-code-web-tasks.md"));
+    }
+
+    /// 台帳が 1 つ混ざれば、他が純粋な docs でも PR 全体は docs-only ではない。
+    #[test]
+    fn docs_only_rejects_nightly_task_ledger_mixed_with_plain_docs() {
+        assert!(!is_docs_only_summary(
+            "M docs/adr/adr-072.md\nM docs/claude-code-web-tasks.md"
+        ));
+    }
+
+    /// 前方一致で実装すると近い名前の正当な docs まで重い経路へ落ちる (完全一致の担保)。
+    #[test]
+    fn docs_only_accepts_paths_merely_prefixed_by_the_ledger_name() {
+        assert!(is_docs_only_summary("M docs/claude-code-web-tasks-notes.md"));
+        assert!(is_docs_only_summary("M docs/claude-code-web-tasks.md.bak"));
+        assert!(is_docs_only_summary("M docs/archive/claude-code-web-tasks.md"));
+    }
+
+    #[test]
+    fn docs_only_rejects_nightly_task_ledger_with_windows_backslash() {
+        assert!(!is_docs_only_summary("M docs\\claude-code-web-tasks.md"));
     }
 
     #[test]

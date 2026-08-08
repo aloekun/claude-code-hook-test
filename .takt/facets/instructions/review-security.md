@@ -52,7 +52,7 @@ If you cannot articulate the third bullet, the finding is speculative — downgr
 
 When the diff qualifies as **docs-only** under [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md) (path basis + diff content basis both satisfied), apply the trust boundary criterion below instead of the full security review.
 
-**Excluded paths** (do NOT treat as docs-only even if `.md` / `.yaml`): `.takt/facets/instructions/**` (LLM behavior prompts = code-equivalent), `.claude/**` (Claude Code settings = code-equivalent), `.takt/workflows/**.yaml` structural changes (step / `model` / `allowed_tools` edits). For these, run full security review even when the file extension is `.md`. See ADR-035 for the complete path basis.
+**Excluded paths** (do NOT treat as docs-only even if `.md` / `.yaml`): `.takt/facets/instructions/**` (LLM behavior prompts = code-equivalent), `.claude/**` (Claude Code settings = code-equivalent), `.takt/workflows/**.yaml` structural changes (step / `model` / `allowed_tools` edits), `docs/claude-code-web-tasks.md` (the nightly loop's task ledger — its rows select what the unattended agent implements and flow into its prompt = code-equivalent, ADR-072). For these, run full security review even when the file extension is `.md`. See ADR-035 for the complete path basis.
 
 - **Pass criterion**: If the change does NOT alter a trust boundary, judge as APPROVE without further security analysis
 - **Trust boundary unchanged** (APPROVE immediately):
