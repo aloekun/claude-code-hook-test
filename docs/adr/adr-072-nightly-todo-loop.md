@@ -218,6 +218,8 @@ clone は shallow にしない。新規ブランチの push で shallow update �
 
 改ざん検知を red にするのは初版で落としていた。`continue-on-error: true` + 下流の `if: steps.integrity.outcome == 'success'` で push は止まる (fail-closed は成立している) が、**green で終わるため run 一覧上は「何もすることが無かった夜」と区別が付かない**。決定 10 を書いたことで、その分類にこの結末が入っていないことが露出した (§ 静的レビューが捕捉した件 #10)。
 
+**同じ露出が 3 step 続いた。** 表を追加した PR (#366) の CodeRabbit レビューが、「`gh` / network / clone の失敗 → red」の行に対して `Prepare a clean publish tree` (clone) / `Mint App token` (GitHub API) / `Push branch and open draft PR` (push + PR 作成) の 3 つが `continue-on-error: true` で green に落ちていることを指摘し、除去した。いずれもネットワーク I/O であり設計された結末ではない。**表を書いた著者自身は 1 件 (改ざん検知) しか見つけられず、残り 3 件は他者のレビューで出た** — 分類の明文化は露出の必要条件であって十分条件ではない。
+
 具体的には `Count open claude/ drafts and in-flight ranks` に `continue-on-error` を**意図的に付けていない**。この step が失敗するのは gh API か network の問題であって、設計された結末ではない。なお `Report outcome` は `if: '!cancelled()'` なので red の場合も 1 行サマリは出る — 診断情報は失われない。
 
 pre-push simplicity review はここを「他の停止点と同様に graceful degradation すべき」と指摘したが、上記の理由で**現状を維持する**。指摘が再発しないよう決定として記録しておく。
