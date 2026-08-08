@@ -314,7 +314,8 @@ pub fn screen_for_public_output(text: &str) -> String {
     if trimmed.chars().count() <= MAX_CHARS {
         return trimmed.to_string();
     }
-    let head: String = trimmed.chars().take(MAX_CHARS).collect();
+    let head_chars = MAX_CHARS - TRUNCATION_SUFFIX.chars().count();
+    let head: String = trimmed.chars().take(head_chars).collect();
     format!("{head}{TRUNCATION_SUFFIX}")
 }
 
@@ -334,9 +335,13 @@ pub fn screen_for_public_output(text: &str) -> String {
 /// MARK (U+061C) が未カバーで、区切り文字 `===END_LEDGER_DATA===` の内部にこれらを
 /// 混入させると `reject_prompt_frame_escape` の `contains` 比較を素通りできた
 /// (pre-push review SEC-NEW-ledger-rs-L327 指摘)。同じ回避クラスを塞ぐため追加した。
+///
+/// RIGHT-TO-LEFT MARK (U+200E) / LEFT-TO-RIGHT MARK (U+200F) も同じ bidi 制御文字
+/// カテゴリ (`Cf`) に属し、表示順序を書き換えられるため追加した (CodeRabbit 指摘)。
 fn is_bidi_or_invisible_format_char(c: char) -> bool {
     const BIDI_EMBEDDING_AND_OVERRIDE: RangeInclusive<char> = '\u{202A}'..='\u{202E}';
     const BIDI_ISOLATE: RangeInclusive<char> = '\u{2066}'..='\u{2069}';
+    const BIDI_MARK: RangeInclusive<char> = '\u{200E}'..='\u{200F}';
     const ZERO_WIDTH_SPACE_AND_JOINERS: RangeInclusive<char> = '\u{200B}'..='\u{200D}';
     const ZERO_WIDTH_NO_BREAK_SPACE: char = '\u{FEFF}';
     const WORD_JOINER: char = '\u{2060}';
@@ -346,6 +351,7 @@ fn is_bidi_or_invisible_format_char(c: char) -> bool {
     const TAG_BLOCK: RangeInclusive<char> = '\u{E0000}'..='\u{E007F}';
     BIDI_EMBEDDING_AND_OVERRIDE.contains(&c)
         || BIDI_ISOLATE.contains(&c)
+        || BIDI_MARK.contains(&c)
         || ZERO_WIDTH_SPACE_AND_JOINERS.contains(&c)
         || c == ZERO_WIDTH_NO_BREAK_SPACE
         || c == WORD_JOINER
@@ -595,7 +601,8 @@ mod tests {
     fn public_screening_truncates_overlong_text_at_a_character_boundary() {
         let screened = screen_for_public_output(&"あ".repeat(500));
         assert!(screened.ends_with("…(以下略)"));
-        assert_eq!(screened.chars().filter(|c| *c == 'あ').count(), 200);
+        assert_eq!(screened.chars().count(), 200);
+        assert_eq!(screened.chars().filter(|c| *c == 'あ').count(), 194);
     }
 
     #[test]
@@ -617,6 +624,16 @@ mod tests {
     fn public_screening_strips_bidi_isolate_characters() {
         let with_isolate = "abc\u{2066}def\u{2069}ghi";
         assert_eq!(screen_for_public_output(with_isolate), "abcdefghi");
+    }
+
+    /// CodeRabbit 指摘: RLM/LRM も bidi 制御文字 (`Cf`) であり表示順序を書き換えられるため、
+    /// bidi override/isolate と同じ扱いで除去する。
+    #[test]
+    fn public_screening_strips_bidi_marks() {
+        let with_bidi_mark = "abc\u{200E}def\u{200F}ghi";
+        let screened = screen_for_public_output(with_bidi_mark);
+        assert_eq!(screened, "abcdefghi");
+        assert!(!screened.chars().any(is_bidi_or_invisible_format_char));
     }
 
     /// SEC-NEW-ledger-rs-L301: ゼロ幅文字は不可視のまま文字列に残ると偽装に使える。
@@ -667,6 +684,14 @@ mod tests {
     #[test]
     fn bidi_override_in_free_text_fields_is_an_error() {
         let markdown = ledger("| 203 | T2 | ✅ | secret\u{202E}テスト | b.rs | XS | - |");
+        assert!(select(&markdown, &none()).is_err());
+    }
+
+    /// CodeRabbit 指摘: RLM/LRM も parse 側で弾く (公開出力側の除去だけでは
+    /// agent プロンプトに渡る前段の防御にならない)。
+    #[test]
+    fn bidi_mark_in_free_text_fields_is_an_error() {
+        let markdown = ledger("| 203 | T2 | ✅ | secret\u{200E}テスト | b.rs | XS | - |");
         assert!(select(&markdown, &none()).is_err());
     }
 
