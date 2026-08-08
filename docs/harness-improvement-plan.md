@@ -171,12 +171,12 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 | 順位 | 内容 | Tier | 期限 |
 |---|---|---|---|
-| 374 | 実走スモーク（**allow 経路・停止側とも 2026-08-08 に充足**。残りは**トークン露出 1 項目**のみで、使い捨て `build.rs` を仕込む `workflow_dispatch` の専用 run が要る） | 🚀 1 | 残り 1 項目 |
+| 374 | 実走スモーク（**allow 経路・停止側・tool scope deny とも 2026-08-08 に充足**。残りは**トークン露出 1 項目のみ・意図的に保留**。初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測する） | 🚀 1 | 残り 1 項目（保留） |
 | 384 | 外部設定（GitHub App / repository variables・secrets）の実体を [ADR-072](adr/adr-072-nightly-todo-loop.md) へ記録（[ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反の解消） | 🚀 1 | **完了**（2026-08-08、ADR-072 § 外部設定の実体。todo エントリの削除は docs バッチで行う） |
 | 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | **完了**（2026-08-08）。**穴の本体は決定論層 `lib-docs-policy` にあった** — 台帳は `docs/` 配下なので `is_docs_only_path` が docs-only と判定していた。ADR + facet 2 件 + 同 crate の 4 箇所を同期し unit test 4 件で固定 |
-| 379 | agent の tool scope を `work/**` へ限定（現行は `$GITHUB_WORKSPACE` 全体） | 🚀 1 | 定常運用開始前 |
-| 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | 定常運用開始前 |
-| 381 | 台帳由来 SUMMARY の draft PR 本文出力に screening を追加 | 🚀 1 | 定常運用開始前 |
+| 379 | agent の tool scope を `work/**` へ限定 | 🚀 1 | **実装済・両側実測済**（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12）。deny（`master-ref/` へ書けない）と allow（`work/` は編集できる）をローカル CLI で確認。実装で `Write(path)` 指定子が no-op と判明し `Edit(path)` へ統一 |
+| 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | **実装済**（同 決定 13）。prompt の framing + parse 側での枠偽装拒否の 2 層。回帰テストは marker / 自然文許可 / ゼロ幅・tag・soft hyphen・bidi・制御文字の拒否を good/bad 対で固定 |
+| 381 | 台帳由来 SUMMARY の draft PR 本文出力に screening を追加 | 🚀 1 | **実装済**（同 決定 14）。公開面の棚卸し済み（台帳由来で外部可視なのは PR 本文の `内容` のみ）。回帰テストは code span 脱出・mention 保持・切り詰め・空入力・不可視文字除去を固定 |
 | 382 | 台帳 prompt injection payload の regression test（順位 380 に依存） | 🔧 2 | 380 の後 |
 | 383 | `is_separator_row` のパイプ検証欠落を塞ぐ（2026-08-07 実コード確認済み） | 🔧 2 | 任意 |
 | 375-377 | レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断 | 🔧 2〜💎 3 | WP-18 完了後 |
@@ -224,7 +224,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
   | タスク選択の境界固定（unit test 25 件 + 実データ選択） | **充足**（PR 3、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 検証記録） |
   | **実走スモーク — 有効時のみ `claude/nightly-*` の draft PR が作られること** | **充足**（2026-08-08、[PR #365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203`）。ただし **`workflow_dispatch` ではなく schedule の本番 run が先に消化した** — `AUTONOMY_ENABLED` を立てた時点で schedule も有効になるため。結果は成功だったが、観測装置の準備前に無人 run が走る構造だった点は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 残課題 に記帳 |
   | **停止側の実走 — 無効時に何も作られないこと**（`AUTONOMY_ENABLED` の 3 状態 = `'true'` / `'false'` / 未設定 で dispatch し、`false` と未設定では job 起動・ブランチ作成・draft PR・App token のいずれも発生しないことを確認） | **充足**（2026-08-08、ユーザー実測）。`'false'` と未設定の 2 状態で **`dry_run` をオフ（= push / PR 作成をする設定）**にして dispatch し、2 回とも job が skip。確認後 `'true'` へ復旧済み。**これで WP-17 の残課題（明示的 `false` と未設定の実走未観測、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime）も同時に埋まった** |
-  | スモークの同梱観測 **9 項目**（起票時の 8 件 + #364 で追加した停止側 1 件。内訳は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表が正） | **6 充足 / 1 不成立 / 1 判定不能 / 1 未観測**。**充足** = `AUTONOMY_ENABLED` の完全一致起動・`claude/nightly-*` の ref 作成・**App token 作成 PR に `ci.yml` の 2 OS run が紐づくこと**（決定 8 の核心）・決定 7 の照合が誤検知しないこと（1 run）・`publish/` の rsync が過不足なく運ぶこと・**停止側 2 状態**。**不成立** = WP-17 残課題の Phase B 自動起動（CodeRabbit が draft を自動レビューしないため契機が発生しない → [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 で対処）。**判定不能** = `coderabbitai[bot]` allowlist の要否（上記より CodeRabbit のイベントが発生しないため。決定 11 の明示トリガーが効いてから再判定）。**未観測** = トークン露出のみ |
+  | スモークの同梱観測 **10 項目**（起票時の 8 件 + #364 で追加した停止側 1 件 + 順位 379 で追加した tool scope deny 1 件。内訳は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表が正） | **8 充足 / 1 不成立 / 1 保留**。**充足** = `AUTONOMY_ENABLED` の完全一致起動・`claude/nightly-*` の ref 作成・**App token 作成 PR に `ci.yml` の 2 OS run が紐づくこと**（決定 8 の核心）・決定 7 の照合が誤検知しないこと（1 run）・`publish/` の rsync が過不足なく運ぶこと・**停止側 2 状態**・**tool scope deny**・allowlist 判定不能を除く。**不成立** = WP-17 残課題の Phase B 自動起動（CodeRabbit が draft を自動レビューしないため契機が発生しない → [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 で対処。`coderabbitai[bot]` allowlist の要否も同経路のため判定不能で、決定 11 が効いてから再判定）。**保留** = トークン露出（初版 probe の設計欠陥を解消してから 1 回で観測） |
   | **WP 全体**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行** | **未着手**（スモーク完走後に開始）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）に載せて仕組み化する |
 
   なお採用率 50% は根拠のある閾値ではなく、2 週間・最大 14 件（背圧により実際はより少ない）では統計的な意味を持たない（[ADR-072](adr/adr-072-nightly-todo-loop.md) § 欠点）。判断材料の 1 つとして扱う。
