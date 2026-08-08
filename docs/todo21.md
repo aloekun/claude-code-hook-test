@@ -53,7 +53,7 @@
 > **対処案** (いずれか、または組み合わせ):
 >
 > - `BOOKMARK_SEARCH_REVSETS` の段数を増やす — 対症療法。何段積まれるかに上限が無いので根治しない
-> - **探索を深さ非依存の revset へ変える** (`heads(::@ & bookmarks())` = @ から祖先方向で最初に当たる bookmark) — 3 クレート共有の `lib-jj-helpers` を触るため 3 クレート (push-runner / pr-monitor / merge-pipeline) 全てで回帰確認が要る。**本命**
+> - **探索を深さ非依存の revset へ変える** (`heads(::@ & bookmarks())` = @ から祖先方向の bookmark 付きコミット) — 3 クレート共有の `lib-jj-helpers` を触るため 3 クレート (push-runner / pr-monitor / merge-pipeline) 全てで回帰確認が要る。**本命**。ただし `heads(...)` は @ に複数 bookmark が付くと**複数コミットを返す**ため、clone の `--head` / `-b` や PR 番号選択が複数対象にならないよう、trunk 系を除いた単一 bookmark へ絞る (現行 `BOOKMARK_SEARCH_REVSETS` の `is_trunk_bookmark` 除外と同じ規律) か、返り値を最初の 1 件に制限する必要がある
 > - push-runner の「bookmark を `@-` に自動更新」を、空コミットを飛ばして直近の非空 bookmark commit へ寄せる
 > - 監視・自動 fix 経路が**空コミットを積まない / 積んだら片付ける** ([ADR-022](adr/adr-022-automation-responsibility-separation.md) の責務分離としてはこちらが筋)
 >
@@ -97,9 +97,9 @@
 
 > **動機**: #367 のマージ後、post-merge-feedback の再実行は**成功していた**が、マーカーが「report 不在」で failed 扱いになっていた (`takt 成功扱いだが report 不在: feedback-report.md が見つかりません`)。実際にはレポート実体は takt の run ディレクトリ (`.takt/runs/*/reports/feedback-report.md`) に**存在しており**、`.claude/feedback-reports/367.md` へ手動コピーしてマーカーを外した。
 >
-> **問題の型**: 完了判定 (report 不在チェック) が、report の**書き込み完了より先に走る** race。takt workflow は成功 (exit 0) しているのに、その直後の marker 判定が書き込み途中を「不在」と見なす。fail-open ではなく**誤った fail** を出しており、次セッションに不要な recovery 指示 (`hooks-user-prompt-feedback-recovery`) を投げる。
+> **問題の型 (要特定)**: `reconcile_takt_output` → `copy_feedback_report` が **`find_latest_run_dir` で選んだ run dir の `reports/feedback-report.md`** をコピーし、無ければ「report 不在」で marker を残す ([mod.rs:147](../src/cli-merge-pipeline/src/feedback/mod.rs#L147) / [takt.rs:84](../src/cli-merge-pipeline/src/feedback/takt.rs#L84))。takt は exit 0 なのに不在になったので、**単純な write race と断定せず**、まず転送順序と契機を特定する。候補は (a) `find_latest_run_dir` が report 書き込み前の run dir を選んだ、(b) 別の新しい run dir を掴んだ (latest 特定のずれ)、(c) source パスの不一致。#367 では実体が run dir に**存在した**ので、copy 実行時点と report 完成時点の前後関係の問題である可能性が高い。
 >
-> **対処案**: (a) report 不在判定の前に takt run ディレクトリの `reports/feedback-report.md` も確認する、(b) 判定に短い retry / 待機を入れる、(c) takt の完了と report 書き込みを同期させる。ADR-030 (決定論的 post-merge feedback) の marker 設計に属する。
+> **対処案** (機序特定後): (a) `copy_feedback_report` の source が無いとき短い retry / 待機を入れる、(b) run dir 特定を「report が存在する最新 run」に絞る、(c) takt の完了と report 書き込みを同期させる。ADR-030 (決定論的 post-merge feedback) の marker 設計に属する。
 >
 > **参照**: [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) (marker + recovery 設計)、[cli-merge-pipeline](../src/cli-merge-pipeline/src/feedback/) (feedback step)。
 >

@@ -88,8 +88,8 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 ### WP-11 残: scope_guard の本採用判定
 
 - 現状: observe 期間（2026-07-12〜08-01、fix step 実行 5 回）で誤検知ゼロを確認し、2026-08-01 に `mode = "enforce"` へ昇格済（ADR-054 の dogfood 記録参照）。
-- **2026-08-08 に enforce 下で誤検知を 1 件観測**（#366、WP-18）。自動 fix の push が「finding 対象外ファイルへの変更を検知 (injection の疑い): `.github/workflows/nightly-todo.yml`」で BLOCK されたが、**これは injection ではなく、CodeRabbit finding の anchor（`docs/adr/adr-072`）と remedy（workflow）が別ファイルだった**ケース。scope guard が anchor だけを信頼する設計である限り、**anchor と remedy が別ファイルになる指摘は構造的に必ず BLOCK される**（memory `coderabbit-finding-summary-truncates-scope` と同根）。本採用判定の前に、この構造的限界を「誤検知」に数えるか「設計どおりの保守的 deny」に数えるかを ADR-054 で明示する必要がある。
-- 残作業: enforce で 3〜5 PR（fix step 発生ベース）の観測を続ける。ただし上記の構造的 BLOCK を誤検知に数えると本採用バーに届かないため、**判定基準の再定義が先**（ADR-054 の status 更新時に扱う）。判定基準・kill-switch は ADR-054 を参照。
+- **2026-08-08 に enforce 下で BLOCK を 1 件観測**（#366、WP-18）。自動 fix の push が「finding 対象外ファイルへの変更を検知 (injection の疑い): `.github/workflows/nightly-todo.yml`」で止まった。実装を確認したところ、`evaluate_scope_guard` の allowlist は `allowlist_from_paths(findings.iter().map(|f| f.file))` = **finding の anchor（`file`）位置だけ**で構成され、remedy が別ファイルにある場合はそれを含まない（ADR-054 も「allowlist を findings の file 集合に限定する欠点」を明記）。したがって**これは誤検知ではなく、scope guard の現行設計どおりの保守的 deny** である。CodeRabbit finding の anchor（`docs/adr/adr-072`）と remedy（workflow）が別ファイルだったために起きた（memory `coderabbit-finding-summary-truncates-scope` と同根で、anchor と remedy が別ファイルの指摘は構造的に必ず deny される）。
+- 残作業: 本採用の「誤検知ゼロ」判定基準を、**この設計上の保守的 deny を誤検知に数えないよう明確化する**（ADR-054 の status 更新時に扱う）。enforce で 3〜5 PR（fix step 発生ベース）の観測を続ける。判定基準・kill-switch は ADR-054 を参照。
 
 ### WP-15 追補残: レート制限時の保留保証（GitHub Actions 経路）
 
