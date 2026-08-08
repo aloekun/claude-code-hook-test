@@ -175,8 +175,8 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | 384 | 外部設定（GitHub App / repository variables・secrets）の実体を [ADR-072](adr/adr-072-nightly-todo-loop.md) へ記録（[ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反の解消） | 🚀 1 | **完了**（2026-08-08、ADR-072 § 外部設定の実体。todo エントリの削除は docs バッチで行う） |
 | 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | **完了**（2026-08-08）。**穴の本体は決定論層 `lib-docs-policy` にあった** — 台帳は `docs/` 配下なので `is_docs_only_path` が docs-only と判定していた。ADR + facet 2 件 + 同 crate の 4 箇所を同期し unit test 4 件で固定 |
 | 379 | agent の tool scope を `work/**` へ限定 | 🚀 1 | **実装済・両側実測済**（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12）。deny（`master-ref/` へ書けない）と allow（`work/` は編集できる）をローカル CLI で確認。実装で `Write(path)` 指定子が no-op と判明し `Edit(path)` へ統一 |
-| 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | **実装済**（同 決定 13）。prompt の framing + parse 側での枠偽装拒否の 2 層。unit test 3 件 |
-| 381 | 台帳由来 SUMMARY の draft PR 本文出力に screening を追加 | 🚀 1 | **実装済**（同 決定 14）。公開面の棚卸し済み（台帳由来で外部可視なのは PR 本文の `内容` のみ）。unit test 5 件 |
+| 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | **実装済**（同 決定 13）。prompt の framing + parse 側での枠偽装拒否の 2 層。回帰テストは marker / 自然文許可 / ゼロ幅・tag・soft hyphen・bidi・制御文字の拒否を good/bad 対で固定 |
+| 381 | 台帳由来 SUMMARY の draft PR 本文出力に screening を追加 | 🚀 1 | **実装済**（同 決定 14）。公開面の棚卸し済み（台帳由来で外部可視なのは PR 本文の `内容` のみ）。回帰テストは code span 脱出・mention 保持・切り詰め・空入力・不可視文字除去を固定 |
 | 382 | 台帳 prompt injection payload の regression test（順位 380 に依存） | 🔧 2 | 380 の後 |
 | 383 | `is_separator_row` のパイプ検証欠落を塞ぐ（2026-08-07 実コード確認済み） | 🔧 2 | 任意 |
 | 375-377 | レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断 | 🔧 2〜💎 3 | WP-18 完了後 |
