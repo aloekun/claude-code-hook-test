@@ -332,6 +332,7 @@ pre-push review を 11 サイクル通す過程で、blocking な欠陥 9 件が
 ### 残課題
 
 - **実走スモークの完走** (§ 検証記録)。本 ADR の受け入れ基準の中核であり、未実施。
+- **外部設定 (GitHub App / repository variables・secrets) の実体が未記録**。決定 8 は「なぜ App token か」を厚く残す一方、App 名・インストール範囲・付与権限の実際・`NIGHTLY_APP_ID` (variable) / `NIGHTLY_APP_PRIVATE_KEY` (secret) / `AUTONOMY_ENABLED` (variable) の登録先と欠落時の倒れ方を 1 行も書いていない。[ADR-051](adr-051-cross-system-config-coupling.md) が内部設定と外部 SaaS 設定の論理結合に課す 3 点 (相互参照コメント / 期待値の組み合わせ表 / 両側同一 PR) が未実施の状態にあたる。実走スモークで GitHub UI を触る際に**設定メタデータ** (名前・登録先の別・付与権限のスコープ・所有者・ローテーション方針・欠落時の挙動) を確認し、§ 外部設定の実体 として本 ADR へ追記する。**秘密値そのもの (`NIGHTLY_APP_PRIVATE_KEY` の鍵本文や発行済み token) は ADR にも git 履歴にも残さない** — ADR-051 が記録を課すのは「結合の存在」と「期待値の組み合わせ」であって、秘密の実値ではない。
 - **`master-ref/` を agent のファイルシステムから外す**。決定 7 は検知どまりで、防止には別 job + artifact 受け渡しへの構造変更が要る。実走スモークで agent が実際にワークスペース外へ手を伸ばすか観測してから判断する。
 - **authority gate の直前で draft 数を再計数するか**。現状は job 冒頭のスナップショットを使い回す (§ 決定 4)。閾値を 1 件超えて push される事象が実運用で観測されたら入れる。
 - **ガードレール禁止リストの allowlist 化**。台帳の「対象ファイル」列を機械可読にする (別列に正規化パスを持つ等) のが前提。
