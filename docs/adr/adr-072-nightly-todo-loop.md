@@ -323,6 +323,8 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 
 **この順序は褒められたものではない。** 受け入れ基準の中核である実走検証を、人間が観測装置を用意した dispatch ではなく**本番の無人 run が先に消化した**形になっている。結果的に成功したが、失敗していれば観測の準備が無いまま夜間に壊れた成果物が出ていた。ここでの教訓は、`AUTONOMY_ENABLED` を立てた時点で schedule も同時に有効になるという事実が、スモーク計画に織り込まれていなかったこと (§ 残課題)。
 
+観測項目は **9 件**である (起票時の 8 件 + [#364](https://github.com/aloekun/claude-code-hook-test/pull/364) で受け入れ基準へ追加した停止側 1 件)。以降の集計はこの 9 件を母数にする。
+
 | 観測項目 | 出所 | 結果 (2026-08-08) |
 |---|---|---|
 | Actions variable `AUTONOMY_ENABLED` が `true` ちょうどで設定されており job が起動すること | ADR-066 § 決定 2 (完全一致要件) | **充足** — job が起動し完走 |
@@ -333,9 +335,48 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 | WP-17 残課題: Phase B の自動起動経路が成立するか | [ADR-067](adr-067-phase-b-unattended-fix-push.md) § 検証記録 | **不成立と判明** — CodeRabbit が draft を自動レビューしないため起動契機のコメント自体が発生しない (決定 11 で対処) |
 | WP-17 残課題: `coderabbitai[bot]` allowlist の要否 | 同上 | **判定不能** — 上記より CodeRabbit のイベントが発生していない。決定 11 の明示トリガーが効いてから再判定 |
 | **`cargo` サブプロセスから `CLAUDE_CODE_OAUTH_TOKEN` / `GITHUB_TOKEN` が見えるか** | pre-push security review の warning | **未観測** — 使い捨ての `build.rs` を仕込む専用 run が要る (§ 残課題) |
-| **停止側: `AUTONOMY_ENABLED` が `'false'` / 未設定で何も作られないこと** | ADR-066 の 3 状態。#364 で受け入れ基準へ追加 | **未観測** — allow 経路しか走っていない |
+| **停止側: `AUTONOMY_ENABLED` が `'false'` / 未設定で何も作られないこと** | ADR-066 の 3 状態。#364 で受け入れ基準へ追加 | **充足** (2026-08-08、ユーザー実測) — `'false'` と未設定の 2 状態で `workflow_dispatch` (`dry_run` オフ = push / PR 作成をする設定) を実行し、**2 回とも job が skip**。ブランチ・draft PR・App token のいずれも作られなかった。確認後 `'true'` へ復旧済み |
 
-**`workflow_dispatch` + `dry_run` は依然として必要である。** 残る 2 項目 (トークン露出・停止側) は本番 schedule では観測できない。反復は [ADR-067](adr-067-phase-b-unattended-fix-push.md) § 段 2 の知見 2 に従い、**マージせずブランチ ref への `workflow_dispatch`** で行う。
+**停止側は `dry_run` をオフにして検証した。** `AUTONOMY_ENABLED` が `'true'` でなければ job の `if:` で止まるため `dry_run` の値は判定に関与しないが、**あえて「push も PR 作成もする設定」で実行**することで「dry_run だから作られなかったのでは」という解釈の余地を消している。
+
+**残るのはトークン露出 1 項目のみ。** 使い捨ての `build.rs` から `env | grep -i token` を出す専用 run が要り、本番 schedule では観測できない。反復は [ADR-067](adr-067-phase-b-unattended-fix-push.md) § 段 2 の知見 2 に従い、**マージせずブランチ ref への `workflow_dispatch`** で行う。
+
+### 外部設定の実体 (2026-08-08 確認)
+
+[ADR-051](adr-051-cross-system-config-coupling.md) が内部設定と外部 SaaS 設定の論理結合に課す 3 点のうち、**(2) 期待値の組み合わせ表**を本節が担う。**秘密値そのもの (`NIGHTLY_APP_PRIVATE_KEY` の鍵本文や発行済み token) は記録しない** — 記録するのは結合の存在と期待値であって、秘密の実値ではない。
+
+| 項目 | 実体 |
+|---|---|
+| App 名 | `nightly-todo-aloekun` (PR の author は `nightly-todo-aloekun[bot]` として現れる) |
+| 作成日 | **未確認** — App の設定ページに表示が見当たらなかった。監査で必要になった時点で GitHub の Audit log から引く |
+| インストール範囲 | **Only select repositories** = `claude-code-hook-test` のみ |
+| 付与権限 | Contents: **Read and write** / Pull requests: **Read and write** / Metadata: **Read-only** / Workflows: **No access** |
+| `NIGHTLY_APP_ID` | repository **variable** (Actions → Variables) |
+| `NIGHTLY_APP_PRIVATE_KEY` | repository **secret** (Actions → Secrets) |
+| `AUTONOMY_ENABLED` | repository **variable** (Actions → Variables)。現在値 `'true'` |
+
+**付与権限は決定 8 の設計意図と完全に一致していた。** 同決定は「Contents: write / Pull requests: write / Metadata: read のみ。**Workflows は付けない**」と書いており、実体もそのとおりだった。Workflows が No access であることは、`.github/workflows/**` を含む push が権限層でも通らないことを意味し、決定 6 の禁止リストと二重の防御になっている。
+
+**既存の Claude GitHub App とは別物である。** あちらは Workflows を含む広い権限を持ち、Claude Code の cloud 経路が使う。混同して「もう入っているから不要」と判断しないこと。
+
+#### 値が欠けたときにどう倒れるか
+
+| 欠落 | 挙動 | 根拠 |
+|---|---|---|
+| `AUTONOMY_ENABLED` が `'false'` / 未設定 | **job ごと起動しない**。ブランチ・draft PR・App token のいずれも作られない | **実測済** (2026-08-08、§ 実走スモーク)。job の `if: vars.AUTONOMY_ENABLED == 'true'` |
+| `autonomy-config.toml` の `enabled = false` | `cli-autonomy-gate` が deny。pre-flight で agent 起動前に止まり、green + `[NIGHTLY_SKIP]` で終わる | exe 単体の drill 8 シナリオ ([ADR-066](adr-066-autonomy-global-kill-switch.md)) |
+| `max_open_draft_prs` に到達 | 同上 (背圧 deny) | drill 12 シナリオ ([ADR-071](adr-071-draft-pr-backpressure.md)) |
+| `NIGHTLY_APP_ID` / `NIGHTLY_APP_PRIVATE_KEY` が欠落 | `Mint App token` が失敗 → **run は red**。`publish` は `if: steps.app-token.outcome == 'success'` で skip されるため、ブランチも draft PR も作られない | **設計上の期待値 (未実測)**。同 step は決定 10 に従い `continue-on-error` を持たない |
+
+最終行は**未実測**である。資格情報を意図的に壊す run は、復旧を伴うため実施していない。fail-closed の側 (欠けても成果物が出ない) は step の `if:` 連鎖から構造的に言えるが、**run が red で終わるか green で終わるか**は実際に落としてみないと確定しない。
+
+#### 再構築手順 (鍵ローテーション / 派生プロジェクトへの展開)
+
+1. GitHub App を作成する。権限は上表のとおり (**Workflows は付けない**)
+2. インストール先を対象リポジトリ 1 つに絞る (Only select repositories)
+3. App ID を repository **variable** `NIGHTLY_APP_ID` へ登録
+4. 秘密鍵を生成し repository **secret** `NIGHTLY_APP_PRIVATE_KEY` へ登録 (鍵本文はリポジトリにも ADR にも残さない)
+5. `AUTONOMY_ENABLED` を variable として `'true'` に設定する。**これを立てると schedule も同時に有効になる** (§ 残課題)
 
 3 行目は決定 5 で Bash を落とした後も残る経路の確認である。agent は `cargo` を直接叩けないが、`work/` へ書いた `build.rs` は `Verify deterministically` step の `cargo test` が実行する。同 step に `env:` を置いていないことがトークン非露出の根拠なので、**その前提が実 runner で成立するか**を使い捨ての `build.rs` から `env | grep -i token` を出して実測する。
 
@@ -363,7 +404,8 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 
 ### 残課題
 
-- **実走スモークの残り 2 項目** (§ 実走スモーク)。allow 経路は 2026-08-08 の schedule 初回実走で成立したが、**(a) `cargo` サブプロセスへのトークン露出**と**(b) 停止側 (`AUTONOMY_ENABLED` = `'false'` / 未設定)** はいずれも本番 schedule では観測できず、`workflow_dispatch` の専用 run が要る。
+- **実走スモークの残り 1 項目** (§ 実走スモーク)。allow 経路 (schedule 初回実走) と停止側 2 状態 (dispatch) は 2026-08-08 に充足した。残るのは **`cargo` サブプロセスへのトークン露出**で、使い捨ての `build.rs` を仕込む専用 run が要る。この観測は決定 5 の「Bash 再付与を再検討してよいか」の判断材料でもある。
+- **外部設定の実体は記録したが、作成日と資格情報欠落時の run の色は未確定** (§ 外部設定の実体)。前者は GitHub の Audit log から引ける。後者は資格情報を意図的に壊す run が要り、復旧を伴うため実施していない。
 - **`AUTONOMY_ENABLED` を立てると schedule も同時に有効になる**。スモークを「まず dry_run で」と計画していたのに、変数を立てた時点で本番の夜間 run が先に走った (§ 実走スモーク)。**観測装置の準備前に無人 run が始まる**構造なので、次に同種の自律機能を足すときは「有効化の粒度」を dispatch 限定と schedule 込みで分けられるか検討する。
 - **CodeRabbit が bot 投稿の `@coderabbitai review` に反応するか** (決定 11)。無反応なら明示トリガーの設計自体が成立しないため、次回の夜間 run で最優先に確認する。
 - **外部設定 (GitHub App / repository variables・secrets) の実体が未記録**。決定 8 は「なぜ App token か」を厚く残す一方、App 名・インストール範囲・付与権限の実際・`NIGHTLY_APP_ID` (variable) / `NIGHTLY_APP_PRIVATE_KEY` (secret) / `AUTONOMY_ENABLED` (variable) の登録先と欠落時の倒れ方を 1 行も書いていない。[ADR-051](adr-051-cross-system-config-coupling.md) が内部設定と外部 SaaS 設定の論理結合に課す 3 点 (相互参照コメント / 期待値の組み合わせ表 / 両側同一 PR) が未実施の状態にあたる。実走スモークで GitHub UI を触る際に**設定メタデータ** (名前・登録先の別・付与権限のスコープ・所有者・ローテーション方針・欠落時の挙動) を確認し、§ 外部設定の実体 として本 ADR へ追記する。**秘密値そのもの (`NIGHTLY_APP_PRIVATE_KEY` の鍵本文や発行済み token) は ADR にも git 履歴にも残さない** — ADR-051 が記録を課すのは「結合の存在」と「期待値の組み合わせ」であって、秘密の実値ではない。

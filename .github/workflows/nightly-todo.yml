@@ -48,6 +48,10 @@ jobs:
     # kill-switch の第 1 層 (workflow 式)。Actions variable は admin のみ書き込み可で、
     # 'true' ちょうどの完全一致でなければ job ごと起動しない。exe 側 (第 2 層) は
     # 1|true|yes|on を受理するため受理値が異なる点に注意 (ADR-066)。
+    #
+    # **2026-08-08 に実測済み**: `'false'` と未設定の 2 状態で dispatch し、いずれも
+    # job が skip されブランチ・draft PR・App token のどれも作られないことを確認した
+    # (ADR-072 § 実走スモーク)。現在値と登録先は同 ADR § 外部設定の実体 を見ること。
     if: vars.AUTONOMY_ENABLED == 'true'
     runs-on: ubuntu-latest
     # Implement (--max-turns 60、他 job の実績比で最大 40 分規模) +
@@ -384,6 +388,12 @@ jobs:
       # App の権限は Contents / Pull requests の write のみで **Workflows は付けていない**。
       # .github/workflows/** を含む push は権限側でも通らず、Guard step の禁止リストと
       # 二重になる。
+      #
+      # **外部設定の実体は ADR-072 § 外部設定の実体 に記録してある** (ADR-051 決定 1 の
+      # 相互参照)。App 名 / インストール範囲 / 付与権限の実際 / vars と secrets の登録先 /
+      # 各値が欠けたときの倒れ方 / 鍵ローテーション時の再構築手順はそちらを見ること。
+      # この 2 行 (`vars.NIGHTLY_APP_ID` / `secrets.NIGHTLY_APP_PRIVATE_KEY`) を変えるときは
+      # 同 ADR の表も同一 PR で更新する (ADR-051 決定 3)。
       # 本 step にも continue-on-error を付けない (決定 10)。App installation token の
       # 発行は GitHub への外部 API 呼び出しであり、失敗は gh/network の障害 (secret の
       # 誤設定・GitHub 側の障害等) であって設計された結末ではない。green + [NIGHTLY_SKIP]
