@@ -285,9 +285,13 @@ jobs:
       # 検知なく revert/delete/resurrect される (SIM-NEW-nightly-todo-yml-L268)。
       # work/ を checkout した時点の commit (Record work/ base commit の出力) へ揃えることで、
       # rsync が運ぶ差分を「agent が実際に編集した内容」だけに固定する。
+      # **本 step には意図的に continue-on-error を付けない** (決定 10)。ここで行う
+      # `git clone` はネットワーク I/O であり、失敗するとすれば gh/network の障害であって
+      # 設計された結末ではない。continue-on-error で受けると clone 失敗を
+      # 「何もすることが無かった夜」と同じ green + [NIGHTLY_SKIP] に落とし込んでしまい、
+      # 決定 10 が区別しようとした「本当に壊れた夜」の信号が消える。
       - name: Prepare a clean publish tree (agent never touched its .git)
         id: publish-tree
-        continue-on-error: true
         if: steps.select.outcome == 'success' && steps.verify.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -333,9 +337,15 @@ jobs:
       # 強制力を持たない)。Guard step は work/ の diff しか見ないためこの改ざんを検知できず、後段の
       # Gate (authority) がそのまま改ざん後の exe/config を再実行してしまう。ここで基準値
       # (Build 段で採取した sha256) と照合し、不一致なら Gate (authority) の実行前に止める。
+      #
+      # **本 step には意図的に continue-on-error を付けない** (ADR-072 決定 10)。他の停止点は
+      # 設計上の正常な結末なので green + NIGHTLY_SKIP で終えるが、ゲート資産の改ざんは
+      # 「何かがゲートを無効化しようとした」という、この系が出しうる最も大きい信号である。
+      # green で終えると「何もすることが無かった夜」と run 一覧上で区別が付かない。
+      # なお red で落ちても後続 step は if: の評価前に skip されるため push には到達せず、
+      # Report outcome は if: '!cancelled()' なので診断行は出る。
       - name: Verify gate integrity (detect tampering during implement)
         id: integrity
-        continue-on-error: true
         if: steps.select.outcome == 'success' && steps.guard.outcome == 'success'
         run: |
           set -euo pipefail
@@ -374,9 +384,12 @@ jobs:
       # App の権限は Contents / Pull requests の write のみで **Workflows は付けていない**。
       # .github/workflows/** を含む push は権限側でも通らず、Guard step の禁止リストと
       # 二重になる。
+      # 本 step にも continue-on-error を付けない (決定 10)。App installation token の
+      # 発行は GitHub への外部 API 呼び出しであり、失敗は gh/network の障害 (secret の
+      # 誤設定・GitHub 側の障害等) であって設計された結末ではない。green + [NIGHTLY_SKIP]
+      # に落とすと、資格情報の設定ミスが「今夜は何もすることが無かった」と区別できなくなる。
       - name: Mint App token (so ci.yml attaches to the draft PR)
         id: app-token
-        continue-on-error: true
         if: >-
           steps.gate.outcome == 'success' &&
           github.event.inputs.dry_run != 'true'
@@ -385,9 +398,13 @@ jobs:
           app-id: ${{ vars.NIGHTLY_APP_ID }}
           private-key: ${{ secrets.NIGHTLY_APP_PRIVATE_KEY }}
 
+      # 本 step にも continue-on-error を付けない (決定 10)。`git push` / `gh pr create` は
+      # いずれもネットワーク I/O で、ここまで到達した時点で kill-switch/背圧の gate は
+      # 通過済みのため、失敗するとすれば gh/network の障害 (push 拒否・API 障害等) であって
+      # 設計された結末ではない。green + [NIGHTLY_SKIP] に落とすと、実際には draft PR が
+      # 作られなかった障害が「今夜は何もすることが無かった」と区別できなくなる。
       - name: Push branch and open draft PR (workflow-authored)
         id: publish
-        continue-on-error: true
         if: >-
           steps.gate.outcome == 'success' &&
           steps.app-token.outcome == 'success' &&

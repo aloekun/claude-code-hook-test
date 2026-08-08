@@ -110,6 +110,8 @@ draft PR は commitment 点の手前なので人間のレビューが最終防�
 
 **台帳 (`docs/claude-code-web-tasks.md`) を含めるのは、それが「次に何を実装するか」を決める仕組みだから。** config や gate exe と同じく*自分を縛る側*にある。agent が台帳を書き換えた diff が draft PR に紛れ、人間が見落としてマージすると、以後のタスク選択が静かに汚染される。初版はここを落としていた (§ 静的レビューが捕捉した件)。
 
+**列挙の基準は「危険か」ではなく「将来の無人 run のゲートを緩めるか」である。** security review は `Cargo.toml` / `Cargo.lock` の欠落を warning として挙げたが（agent が追加した build-script 依存が Guard を素通りする）、**採らない** — これらは通常の diff であり、人間の PR レビューとマージという既存の防衛線が効く。一方リストに載せた 7 つは、書き換わると*それ以降の run*がゲートを経ずに走るようになる。この基準を持たないと禁止リストは「怪しいもの全部」へ膨らみ、正当なタスクを弾き始める。
+
 **許可リストではなく禁止リストにした**のは、台帳の「対象ファイル」列が自由記述の markdown (バッククォート・括弧・複数パスの列挙) で、path allowlist に落とすと正当なタスクまで弾くため。allowlist 化は台帳を機械可読にしてからの課題とする (§ 残課題)。
 
 空 diff も deny する — agent が実装を見送った場合と失敗した場合の両方をここで捕まえる。
@@ -208,6 +210,16 @@ clone は shallow にしない。新規ブランチの push で shallow update �
 
 両者を同じ扱いにすると、run 一覧から「本当に壊れた夜」と「何もすることが無かった夜」の区別が消える。毎晩回る無人ループでは、この 2 つが混ざった時点で run 一覧が読まれなくなる。
 
+| 結末 | 色 | 根拠 |
+|---|---|---|
+| 背圧 deny / タスク無し / guard deny / 空 diff | green + `[NIGHTLY_SKIP]` | 設計された結末。毎晩起こりうる |
+| `gh` / network / clone の失敗 | **red** | インフラ障害。設計された結末ではない |
+| **ゲート資産の改ざん検知 (決定 7)** | **red** | 「何かがゲートを無効化しようとした」— この系が出しうる最も大きい信号 |
+
+改ざん検知を red にするのは初版で落としていた。`continue-on-error: true` + 下流の `if: steps.integrity.outcome == 'success'` で push は止まる (fail-closed は成立している) が、**green で終わるため run 一覧上は「何もすることが無かった夜」と区別が付かない**。決定 10 を書いたことで、その分類にこの結末が入っていないことが露出した (§ 静的レビューが捕捉した件 #10)。
+
+**同じ露出が 3 step 続いた。** 表を追加した PR (#366) の CodeRabbit レビューが、「`gh` / network / clone の失敗 → red」の行に対して `Prepare a clean publish tree` (clone) / `Mint App token` (GitHub API) / `Push branch and open draft PR` (push + PR 作成) の 3 つが `continue-on-error: true` で green に落ちていることを指摘し、除去した。いずれもネットワーク I/O であり設計された結末ではない。**表を書いた著者自身は 1 件 (改ざん検知) しか見つけられず、残り 3 件は他者のレビューで出た** — 分類の明文化は露出の必要条件であって十分条件ではない。
+
 具体的には `Count open claude/ drafts and in-flight ranks` に `continue-on-error` を**意図的に付けていない**。この step が失敗するのは gh API か network の問題であって、設計された結末ではない。なお `Report outcome` は `if: '!cancelled()'` なので red の場合も 1 行サマリは出る — 診断情報は失われない。
 
 pre-push simplicity review はここを「他の停止点と同様に graceful degradation すべき」と指摘したが、上記の理由で**現状を維持する**。指摘が再発しないよう決定として記録しておく。
@@ -253,11 +265,11 @@ WP-18 PR 2 (#362) の台帳に対し release build の実 exe を走らせた。
 
 js-yaml で 17 step 構成を確認した。
 
-### 静的レビューが著者の見落としを 9 件捕捉した (2026-08-06〜07)
+### 静的レビューが著者の見落としを 10 件捕捉した (2026-08-06〜07)
 
-pre-push review を 11 サイクル通す過程で、blocking な欠陥 9 件が見つかった (うち 1 件は non-blocking warning からの拾い上げ)。**いずれも著者 (Claude) が設計時に気づけなかったもの**で、記録しておく価値がある。共通するのは「守っているつもりの範囲」と「実際に守れている範囲」のずれである。
+pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件が見つかった (うち 1 件は non-blocking warning からの拾い上げ)。**いずれも著者 (Claude) が設計時に気づけなかったもの**で、記録しておく価値がある。共通するのは「守っているつもりの範囲」と「実際に守れている範囲」のずれである。
 
-なお 9 件のうち 2 件 (#3 / #6) は**指摘の具体例そのものが誤っていた**。#3 は誤りに気づかず設計を動かし、#6 は誤りの中にある正しい構造を拾って設計を変えた。差は前提を検証したかどうかだけである。
+なお 10 件のうち 2 件 (#3 / #6) は**指摘の具体例そのものが誤っていた**。#3 は誤りに気づかず設計を動かし、#6 は誤りの中にある正しい構造を拾って設計を変えた。差は前提を検証したかどうかだけである。
 
 | # | 指摘 | 何を見落としていたか |
 |---|---|---|
@@ -270,6 +282,7 @@ pre-push review を 11 サイクル通す過程で、blocking な欠陥 9 件が
 | 7 (simplicity) | 決定 9 の `publish/` が `--branch master` 固定で、agent 実行中に master が進むと無関係な変更を静かに revert / delete する | **セキュリティのために入れた構造変更が、別の正しさを壊していた**。`work/` の checkout と `publish/` の clone の間に最大 60 ターン + Verify が挟まることを、`rsync --delete` を書いた時点で考えていなかった (→ base commit への固定を追加) |
 | 8 (simplicity) | 決定 6 の禁止リストが**台帳自身**を守っていない | 「自分を縛る仕組み」として config と gate exe は列挙したのに、**選択元である台帳**を同じクラスだと認識していなかった。決定 1 で「台帳は master ref から読む」と信頼境界を引いておきながら、その台帳への書き込み経路を塞いでいなかった |
 | 9 (simplicity) | job に `timeout-minutes` が無く既定 360 分まで走りうる | 同リポジトリの他 workflow は**例外なく明示済み** (`ci.yml`=60 / `pr-monitor.yml`=15, 20 / `release-binaries.yml`=30)。とくに同じ `claude-code-action` を使う `pr-monitor.yml` の fix job は 30 turns に対し 20 分を課しているのに、本 job は turns 2 倍 (60) で上限なし。決定 4 で Max 枠の節約のために gate を二重に呼ぶ設計にしておきながら、**ハングした run が枠を焼き続ける経路**を空けていた。`timeout-minutes: 60` を明示 |
+| 10 (simplicity) | 改ざん検知が決定 10 の色分けのどちらにも入らないまま green 側に落ちていた | 決定 10 を書いた**その push で**露出した。分類を明文化すると、分類に入らない結末が可視になる — 暗黙のまま放置していれば誰も気づかなかった。fail-closed は成立していたので、見落としていたのは*安全性*ではなく**可観測性**の側だった |
 
 修正後、fix step は指摘 1 に対して `id` / `continue-on-error` の追加に加え、`Select task` へ `if: steps.preflight.outcome == 'success'` を足している。これは指摘の Fix Suggestion には無かったが**必要な追加**である — `continue-on-error` を付けただけでは deny 後も後続段が走ってしまう。
 
