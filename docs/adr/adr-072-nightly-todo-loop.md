@@ -281,7 +281,9 @@ pre-push simplicity review はここを「他の停止点と同様に graceful d
 
 **draft PR でも public repository では第三者に可視**であり、台帳の自由記述がそのまま公開面へ出ていた (順位 381)。
 
-公開面の棚卸し結果、台帳由来で外部可視になるのは **PR 本文の `内容` だけ**だった。`RANK` は `u32` にパース済み、ブランチ名は `format!("claude/nightly-{rank}")` で、どちらも**構造的に安全**である。
+公開面の棚卸し結果、台帳由来で外部可視になるのは **PR 本文の `内容`** と **step ログ**の 2 つだった。`RANK` は `u32` にパース済み、ブランチ名は `format!("claude/nightly-{rank}")` で、どちらも**構造的に安全**である。
+
+**初版は「公開面 = PR 本文」と狭く見ており、step ログを見落としていた** (#369 post-merge feedback が指摘)。`Select task` step は exe 出力を `tee` で `selected.txt` と**画面 (= Actions ログ) の両方**へ出しており、そこに生の `summary` / `target_files` / `caution` 行が含まれていた。**public repo では step ログも第三者に可視**なので、これは screening を迂回する 2 つ目の公開面だった。`tee` をリダイレクト (`> selected.txt`) に変え、ログへはマーカー行 (rank/branch/ledger のみ = 安全) と screening 済みの `summary_display` だけを `grep` で出す形にした。生の出力はファイルに留まり `$GITHUB_OUTPUT` 経由でのみ使われる。**「公開面」は出力先を 1 つ塞ぐたびに次が見つかる**ので、棚卸しは「PR 本文」で止めず経路単位で行う。
 
 `cli-nightly-task-select` に `summary_display` 出力を足し、workflow はそれを**インラインコードスパンで囲んで**出す。コードスパンの内側では markdown が描画されず `@mention` の通知も飛ばないため、注入の効果がそこで消える。したがって screening の主眼は **「コードスパンから抜け出せる文字を残さないこと」**に絞り、バッククォートの置換・制御文字の除去・200 文字での切り詰めだけを行う。`@` は書き換えない — 無害化はコードスパンの役目で、`@` を潰すと正当なタスク記述が読めなくなる。
 

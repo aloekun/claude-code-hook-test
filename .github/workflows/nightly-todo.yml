@@ -150,10 +150,18 @@ jobs:
         if: steps.preflight.outcome == 'success'
         run: |
           set -euo pipefail
+          # **tee ではなくリダイレクトにする (ADR-072 決定 14、post-merge feedback #369)。**
+          # tee は exe の全出力を Actions ログへも出すが、そこには生の自由記述
+          # (summary / target_files / caution) が含まれる。**step ログも public repo では
+          # 第三者に可視**なので、tee は決定 14 の screening を迂回する公開面になっていた。
+          # 生の出力はファイルに留め ($GITHUB_OUTPUT 経由でのみ使う)、ログへは安全な行だけを出す。
           master-ref/target/release/cli-nightly-task-select \
             --ledger master-ref/docs/claude-code-web-tasks.md \
             --exclude-ranks "${{ steps.inflight.outputs.exclude_ranks }}" \
-            | tee "$RUNNER_TEMP/selected.txt"
+            > "$RUNNER_TEMP/selected.txt"
+          # 可観測性: マーカー行 (rank/branch/ledger のみ = 構造的に安全) と screening 済みの
+          # summary_display だけをログへ出す。生の summary/target_files/caution は出さない。
+          grep -E '^\[NIGHTLY_TASK\]|^summary_display=' "$RUNNER_TEMP/selected.txt"
           # 許可リスト方式 — exe が出す key のうち、ここに列挙したものだけを転送する。
           # 想定外の key 注入を防ぐ fail-closed だが、**exe 側に出力を足したらここも足す**
           # 必要がある (片方だけ変えると新しい出力が黙って捨てられ、参照側は空文字になる)。
