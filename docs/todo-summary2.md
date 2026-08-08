@@ -139,7 +139,10 @@
 | 381 | 🚀 Tier 1 | **台帳由来 SUMMARY の draft PR 本文出力に screening を追加 (#363 Tier1 #4)** | todo20.md | S | 順位 378 (public repo では draft PR 本文も第三者に可視 = 攻撃者制御文字列の公開面) |
 | 382 | 🔧 Tier 2 | **台帳 prompt injection payload の regression test (#363 Tier2 #1)** | todo20.md | M | 順位 380 (framing が入ってから、その framing が効くことを固定する) |
 | 383 | 🔧 Tier 2 | **`is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト (#363 Tier2 #2)** | todo20.md | S | なし (2026-08-07 実コード確認済み。bare `---` がセパレータ行として通る) |
-| 384 | 🚀 Tier 1 | **夜間ループの外部設定 (GitHub App / repository variables・secrets) の実体を ADR-072 へ記録 — ADR-051 違反の解消** | todo20.md | S | 順位 374 と同時実施 (スモークで GitHub UI を触る過程で実値が揃う。ADR-072 は決定 8 で設計根拠を厚く残す一方、App の作成・インストール範囲・variable/secret の登録先を 1 行も記録していない) |
+| 385 | 🔧 Tier 3 | **cli-pr-monitor の lock に liveness check が無く、プロセス死後も最大 30 分監視が skip される** | todo21.md | S | なし (2026-08-08 実測。stale 判定は経過時間 1800s のみで pid 生存を見ない。module doc に既知トレードオフとして明記済みのため「不要」判断も正規の出口) |
+| 386 | 🔧 Tier 2 | **監視・自動 fix 経路が積む空コミットで bookmark がずれ `pnpm merge-pr` / `pnpm push` が失敗する** | todo21.md | M | なし (2026-08-08 セッションで 7 回観測。`BOOKMARK_SEARCH_REVSETS` は @/@-/@-- の 3 段のみ。生成元は監視・自動 fix 経路と確定。深さ非依存 revset へ変える案が本命) |
+| 387 | 🔧 Tier 2 | **自動 fix 経路は push が BLOCK されてもローカル作業コピーを書き換える** | todo21.md | M | なし (2026-08-08 実測。#366 で scope guard BLOCK 後もローカルは fix 版に。push を止めても local 状態は変わる。ADR-022 の後始末責務) |
+| 388 | 🔧 Tier 3 | **post-merge-feedback の完了判定が書き込みと race し成功した feedback を failed marker にする** | todo21.md | S | なし (2026-08-08 実測。#367 で report は run dir に存在したのに不在判定。データ損失なし・誤 fail のみ) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo14.md がファイルサイズ約 70KB (50KB 安定読み取り閾値の約 1.4 倍) に到達したため、新規エントリは本ファイルに記録する (2026-08-04 WP-17 段 2 完了時の post-merge feedback 一括登録で新設)。**新規エントリの追加先は本ファイル**。todo.md / todo2.md 〜 todo19.md の既存エントリは引き続き有効、相互に独立。
+> **本ファイルの位置付け**: docs/todo14.md がファイルサイズ約 70KB (50KB 安定読み取り閾値の約 1.4 倍) に到達したため、新規エントリを本ファイルに記録していた (2026-08-04 WP-17 段 2 完了時の post-merge feedback 一括登録で新設)。**本ファイルも約 56KB (50KB 閾値超過) に到達したため、2026-08-08 WP-18 セッション以降の新規エントリは [docs/todo21.md](todo21.md) へ記録する。本ファイルは既存タスクの編集・完了削除専用**。todo.md / todo2.md 〜 todo19.md / todo21.md の既存エントリは引き続き有効、相互に独立。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -514,38 +514,6 @@
 
 ---
 
-## 夜間ループの外部設定の実体記録 (2026-08-07 登録)
+## 夜間ループの外部設定の実体記録 (2026-08-07 登録 → 2026-08-08 完了・削除)
 
-### 外部設定 (GitHub App / repository variables・secrets) の実体を ADR-072 へ記録する
-
-> **動機**: [.github/workflows/nightly-todo.yml](../.github/workflows/nightly-todo.yml) は `vars.NIGHTLY_APP_ID` / `secrets.NIGHTLY_APP_PRIVATE_KEY` / `vars.AUTONOMY_ENABLED` を参照するが、**これらの実体を記録した文書がリポジトリ内に 1 つも無い**。`NIGHTLY_APP` の文字列は workflow の 2 行と [ADR-072](adr/adr-072-nightly-todo-loop.md) の 2 行 (§ 欠点 / 留意点 の鍵漏洩リスク、§ 残課題 の本件) にしか現れず、**どれも登録先や実値には触れていない**。
->
-> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 8 は「なぜ App token か」「なぜ PAT ではないか」「どの権限を付けるか」「なぜ publish 直前に発行するか」を厚く残している。**欠けているのは設計根拠ではなく運用実体**である。
->
-> **これは [ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反にあたる**。同 ADR は内部設定と外部 SaaS 設定が論理結合する場合に (1) 両設定ファイルへの相互参照コメント (2) 期待値の組み合わせ表の ADR 必須記載 (3) 変更は両側を同一 PR、の 3 点を設計規律として定めている。`workflow` ↔ `GitHub App + repository variables/secrets` はまさにこの型で、3 点とも未実施。
->
-> 前例として [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 0 は repository ruleset を **ruleset 名つきで「設定済み」と記録**している。ADR-072 は同じ扱いをしていない。
->
-> **記録すべき項目**:
->
-> - App 名 / 作成日 / インストール範囲 (`claude-code-hook-test` のみか)
-> - 付与した権限の実際の一覧 (決定 8 の方針どおり Workflows が**付いていない**ことの確認を含む)
-> - **既存の Claude GitHub App との区別** — あちらは Workflows を含む広い権限を持つ別物。混同すると「もう入っているから不要」と誤判断されうる
-> - `NIGHTLY_APP_ID` = repository **variable** / `NIGHTLY_APP_PRIVATE_KEY` = **secret** / `AUTONOMY_ENABLED` = **variable** という登録先の別
-> - **期待値の組み合わせ表** (ADR-051 決定 2) — 各値の欠落時にどう倒れるか。`AUTONOMY_ENABLED` 欠落は job ごと起動しない、App 資格情報の欠落は publish step で落ちる、等
-> - 再構築手順 (鍵ローテーション時・派生プロジェクトへの展開時)
->
-> **記録しない対象 (非記録ルール)**: `NIGHTLY_APP_PRIVATE_KEY` の実値 (秘密鍵本文) を含む機微な値そのものはリポジトリへ記録しない。記録対象は登録先の別 (variable/secret)・欠落時の挙動・再構築手順に限り、実際の秘密値は GitHub UI 側にのみ存在させる。[ADR-051](adr/adr-051-cross-system-config-coupling.md) の文書化規律は「結合の存在」と「期待値の組み合わせ」を記録するものであり、秘密の実値を記録する趣旨ではない。
->
-> **順位 374 と同時に実施する**。スモークでは `AUTONOMY_ENABLED` の設定と App token の実動確認のため GitHub UI を触るので、その過程で実値がすべて揃う。先行して記録しようとすると値が確定せず二度手間になる。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (現状でも動作はするが、鍵ローテーション・障害調査・派生プロジェクト展開のいずれでも由来が辿れない) / Frequency Low / Effort S / Adoption Risk None。
->
-> **教訓**: App の作成手順・「Expire user authorization tokens」の扱い・既存 App との違いは **2026-08-07 のセッションでユーザーへ提示したが、リポジトリへ残さなかった**。会話は次のセッションに残らないが workflow は残る。参照だけが残って由来が消える状態を作った。順位 375 (レビュー指摘への対応時チェックリスト) と同じクラスの失敗。
-
-#### 作業計画
-
-- [ ] 順位 374 のスモーク実施時に、GitHub UI で App 名・インストール範囲・権限一覧・variable/secret の登録先を確認する
-- [ ] [ADR-072](adr/adr-072-nightly-todo-loop.md) に § 外部設定の実体 を新設し、上記項目と期待値の組み合わせ表を記録する
-- [ ] [.github/workflows/nightly-todo.yml](../.github/workflows/nightly-todo.yml) の App token step へ ADR-051 決定 1 の相互参照コメントを追加する
-- [ ] `AUTONOMY_ENABLED` についても同様に現在の設定状態を記録する ([ADR-066](adr/adr-066-autonomy-global-kill-switch.md) は「Actions variable を使う」とは書くが現状値を記録していない)
+> **順位 384 は完了したため本エントリを削除した (2026-08-08)。** 外部設定の実体は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 外部設定の実体 に記録済み (App 名 `nightly-todo-aloekun` / インストール範囲 `claude-code-hook-test` のみ / 付与権限 Contents・PR write, Metadata read, **Workflows なし** / variable・secret の登録先 / 欠落時の倒れ方の表 / 再構築手順、秘密値そのものは非記録)。ADR-051 の 3 点 (相互参照コメントを workflow へ・期待値の組み合わせ表を ADR へ・両側同一 PR) も #369/#370 で充足。summary2 の順位 384 行も削除済み。
