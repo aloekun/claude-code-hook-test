@@ -159,14 +159,34 @@ jobs:
             --ledger master-ref/docs/claude-code-web-tasks.md \
             --exclude-ranks "${{ steps.inflight.outputs.exclude_ranks }}" \
             > "$RUNNER_TEMP/selected.txt"
-          # 可観測性: マーカー行 (rank/branch/ledger のみ = 構造的に安全) と screening 済みの
-          # summary_display だけをログへ出す。生の summary/target_files/caution は出さない。
-          grep -E '^\[NIGHTLY_TASK\]|^summary_display=' "$RUNNER_TEMP/selected.txt"
           # 許可リスト方式 — exe が出す key のうち、ここに列挙したものだけを転送する。
           # 想定外の key 注入を防ぐ fail-closed だが、**exe 側に出力を足したらここも足す**
           # 必要がある (片方だけ変えると新しい出力が黙って捨てられ、参照側は空文字になる)。
           grep -E '^(rank|branch|target_files|summary|summary_display|caution)=' "$RUNNER_TEMP/selected.txt" \
             >> "$GITHUB_OUTPUT"
+
+      # 出力契約の検証と可観測ログ。**この step には continue-on-error を付けない**
+      # (ADR-072 決定 14、#370 CodeRabbit 指摘)。
+      #
+      # Select task は exit 2 (台帳破損) / exit 3 (該当タスク無し) / exit 0 を区別するため
+      # continue-on-error が必要で、その非 success は下段の Stop step が「正常な no-op」として
+      # green で終える。ところが検証を Select task の**中**に置くと、exe は成功したのに出力が
+      # 壊れている (マーカー欠落) ケースの exit 1 も同じ continue-on-error に飲まれ、
+      # 「出力契約違反」が「今夜は何も無かった」に化ける。検証を別 step に切り出し
+      # continue-on-error を付けないことで、この失敗を job の red として顕在化させる。
+      #
+      # 生の summary/target_files/caution はログへ出さない。ログへ出すのはマーカー行
+      # (rank/branch/ledger のみ = 構造的に安全) と screening 済みの summary_display だけ。
+      - name: Validate and echo the task-selection output contract
+        if: steps.select.outcome == 'success'
+        run: |
+          set -euo pipefail
+          if ! grep -qE '^\[NIGHTLY_TASK\]' "$RUNNER_TEMP/selected.txt" \
+            || ! grep -qE '^summary_display=' "$RUNNER_TEMP/selected.txt"; then
+            echo "::error::output-contract violation: cli-nightly-task-select の出力に [NIGHTLY_TASK] または summary_display= が見つかりません (出力フォーマットのドリフトの可能性)。台帳選択は成功しているため no-op ではなく job を止めます。" >&2
+            exit 1
+          fi
+          grep -E '^\[NIGHTLY_TASK\]|^summary_display=' "$RUNNER_TEMP/selected.txt"
 
       # 本 step は 2 つの経路で発火する — select が非ゼロだった場合と、Pre-flight gate の
       # 背圧 deny で select 自体が skip された場合。後者では select の [NIGHTLY_SKIP] 行が
