@@ -37,7 +37,7 @@ mod ledger;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use ledger::Task;
+use ledger::{Task, screen_for_public_output};
 
 const MARKER_SELECTED: &str = "[NIGHTLY_TASK]";
 const MARKER_SKIP: &str = "[NIGHTLY_SKIP]";
@@ -156,6 +156,10 @@ fn report_selected(task: &Task, ledger_display: &str) {
     println!("target_files={}", one_line(&task.target_files));
     println!("summary={}", one_line(&task.summary));
     println!("caution={}", one_line(&task.caution));
+    println!(
+        "summary_display={}",
+        one_line(&screen_for_public_output(&task.summary))
+    );
 }
 
 fn one_line(value: &str) -> String {
