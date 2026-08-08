@@ -199,6 +199,16 @@ Phase B の稼働により bounded lifetime の decision trigger 観測が始ま
 
 § 欠点の 1 点目に挙げた master ref 契約も実走で確認できた — gate 呼び出しの `--config master-ref/autonomy-config.toml` が run log に出ており、PR ブランチ側の同名ファイルは判定に使われていない。
 
+### 実走観測 2 — 停止側の variable 3 状態が埋まった（2026-08-08、WP-18 停止側スモーク）
+
+WP-18 夜間ループ（[ADR-072](adr-072-nightly-todo-loop.md) § 実走スモーク）の停止側検証として、`AUTONOMY_ENABLED` の残る 2 状態を `workflow_dispatch` で実測した（ユーザー実測）:
+
+- **明示的 `'false'`** と **未設定**の 2 状態で、いずれも **`dry_run` をオフ（= push / PR 作成をする設定）**にして dispatch → **2 回とも job が skip** し、ブランチ・draft PR・App token のいずれも作られなかった。確認後 `'true'` へ復旧済み。
+- これで trigger (b) の **variable 側は 3 状態（`'true'` / `'false'` / 未設定）すべてが実走で確認済み**になった（1 run 目に確認したのは「削除 = 未設定」のみ）。**残るのは config 側（master ref の `autonomy-config.toml` で `enabled = false`）の実走のみ**（exe 単体は drill #2 で固定済み）。
+- あわせて draft-pr クラスでも (a) 有効時の allow 経路が 1 run 成立した（schedule の初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成。経緯は ADR-072 § 実走スモーク）。
+
+なお本観測は自律 fix push の発生した run ではないため、decision trigger の run 数（3〜5 run）には数えない — 埋めたのは (b) の状態網羅である。
+
 ## 帰結
 
 ### 利点
