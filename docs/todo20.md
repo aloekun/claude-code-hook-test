@@ -320,8 +320,9 @@
 > 2. **finding に対応したら**、`url` (discussion アンカー) を開いて本文のスコープ語 (「両方の」「N 箇所」「同様に」) を確認する。修正後は本文が挙げた全箇所を grep で再確認してから「対応済み」と報告する
 > 3. **「意図的に古い情報を残す表・節」を新設したら**、それを走査する既存・新規の検査が無いか確認する。あるなら検査側に除外を書く
 > 4. **指摘が技術的前提 (ツールの挙動・仕様) に依拠しているなら、対処より先にその前提を検証する**。とくに設計変更や他経路への横展開を伴う場合。一次情報 (公式ドキュメント / 実測) に当たり、伝聞で設計を動かさない。検証結果は「真だった」場合も含めて ADR へ記録する
+> 5. **narrow な修正を入れたら、隣接エッジに穴が残っていないか確認する** (#369/#370 で複数回再演、memory `dont-trust-takt-fix-output` と同根)。fix step / 自分の修正が「指摘された 1 点」だけを塞ぐと、同じクラスの入力空間の別の点が素通りになる。実例: 不可視文字の除去を公開面だけに入れ parse 側の枠検査を素通りさせた / 出力先を 1 つ (PR 本文) 塞いで step ログを見落とした。**入力空間・出力経路を「点」ではなく「クラス / 経路の集合」として一度に固める**。
 >
-> **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — 4 件とも機械 lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)。
+> **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — いずれも機械 lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
 >
 > **実行優先度**: 🔧 Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk None (docs-only)。
 

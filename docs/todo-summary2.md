@@ -143,6 +143,9 @@
 | 386 | 🔧 Tier 2 | **監視・自動 fix 経路が積む空コミットで bookmark がずれ `pnpm merge-pr` / `pnpm push` が失敗する** | todo21.md | M | なし (2026-08-08 セッションで 7 回観測。`BOOKMARK_SEARCH_REVSETS` は @/@-/@-- の 3 段のみ。生成元は監視・自動 fix 経路と確定。深さ非依存 revset へ変える案が本命) |
 | 387 | 🔧 Tier 2 | **自動 fix 経路は push が BLOCK されてもローカル作業コピーを書き換える** | todo21.md | M | なし (2026-08-08 実測。#366 で scope guard BLOCK 後もローカルは fix 版に。push を止めても local 状態は変わる。ADR-022 の後始末責務) |
 | 388 | 🔧 Tier 3 | **post-merge-feedback の完了判定が書き込みと race し成功した feedback を failed marker にする** | todo21.md | S | なし (2026-08-08 実測。#367 で report は run dir に存在したのに不在判定。データ損失なし・誤 fail のみ) |
+| 389 | 🚀 Tier 1 | **`Write(path)` tool-scope 指定子の no-op を検出する settings validator (#369 T1 採用)** | todo21.md | M | なし (CLI 2.1.218 で Write() は no-op = deny の silent 無効化。Edit() のみ機能。ADR-072 決定 12 に事実記録済み) |
+| 390 | 🔧 Tier 2 | **台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI 検証 (#369 T2 採用)** | todo21.md | M | なし (LEDGER_DATA_FRAME_MARKER と ===BEGIN/END_LEDGER_DATA=== が対。片側変更で ADR-072 決定 13 の framing が破れる) |
+| 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

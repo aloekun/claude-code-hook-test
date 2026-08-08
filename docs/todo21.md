@@ -113,3 +113,69 @@
 #### 完了基準
 
 - takt が成功し report が run dir に存在する場合に failed marker が出ないこと。
+
+---
+
+## #369/#370 post-merge feedback 採用分 (2026-08-09 登録)
+
+> WP-18 の prompt injection 対策 PR (#369 / #370) の post-merge feedback が挙げた採用候補のうち、セッション中に未対応で価値の高い 3 件をユーザー承認 (2026-08-09) のうえ登録する。narrow-fix 教訓 (#369/#370 T3) は順位 375 の 5 項目目へ取り込んだため本節には立てない。
+
+### `Write(path)` tool-scope 指定子の no-op を検出する settings validator
+
+> **動機**: `--allowedTools` / `--disallowedTools` および settings.json の permission で、**`Write(path)` 指定子はファイル権限チェックにマッチせず no-op** である (CLI 2.1.218 で実測、`Edit(path)` が Write を含む全編集ツールをカバー)。順位 379 の実装で `Write(work/**)` / `Write(master-ref/**)` を並べており、**deny のつもりの設定が黙って無効化される silent security failure** になっていた。CLI 自身は警告を出すが、CI ログに埋もれて気づけない。
+>
+> **対処案**: `.claude/settings*.json` と workflow の `claude_args` を検査し、permission rule に `Write(...)` 指定子が現れたら **error (必須 CI check の失敗)** にする。**warning では不十分** — silent security failure（deny の無効化）は [ADR-043](adr/adr-043-security-gates-fail-closed.md) の fail-closed 対象であり、検知しても CI が通ってマージできる状態は穴を残す。ADR-007 の regex 層で足りる (AST 不要)。あわせて [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) / ADR-072 決定 12 に「ファイル編集 scope は Edit(path) で表す」事実を追記済みかを確認する。
+>
+> **参照**: `.claude/feedback-reports/369.md` Tier 1 #2、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12 (Write no-op の実測記録)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (regex 層)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High (deny の silent 無効化) / Frequency Low / Effort M / Adoption Risk Low (派生プロジェクト deploy のみ)。
+
+#### 作業計画
+
+- [ ] `Write(...)` 指定子を検出する regex 層ルールを custom-lint-rules.toml に追加
+- [ ] `.claude/settings*.json` と `.github/workflows/*.yml` の `claude_args` を検査対象に含める
+- [ ] 現行リポジトリで false positive が出ないことを確認 (Edit/Read 指定子は許可)
+
+#### 完了基準
+
+- `Write(path)` 指定子を含む設定が検知され、**必須 CI check が失敗する**こと (warning 止まりにしない)。
+- `Edit(path)` / `Read(path)` は検知されないこと。
+
+### 台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI で検証
+
+> **動機**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13 の framing は、`ledger.rs` の `LEDGER_DATA_FRAME_MARKER` と `.github/workflows/nightly-todo.yml` の `===BEGIN/END_LEDGER_DATA===` が**対**になって初めて成立する。片方だけ変えると framing が破れる (agent プロンプトの信頼境界が開く) が、現状は doc comment の相互参照だけで機械検証が無い。[ADR-069](adr/adr-069-pr-chain-declaration.md) 決定 7 の sha256 gate-asset check と同格の cross-file 不変量。
+>
+> **対処案**: 両ファイルから定数 / リテラルを抽出して一致を assert する CI テストを追加する。AST 層 custom linter は overkill で、単純な constant-compare test (Effort M) で同等効果。
+>
+> **参照**: `.claude/feedback-reports/369.md` Tier 2 #1、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (cross-system coupling の機械検証)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (framing の片側破れ) / Frequency Low / Effort M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `ledger.rs` の `LEDGER_DATA_FRAME_MARKER` と workflow の区切りリテラルを抽出・比較するテストを新設
+- [ ] 片方を変えるとテストが落ちることを確認
+
+#### 完了基準
+
+- 定数とリテラルが不一致になる変更が入るとテストが落ちること。
+
+### jj の落とし穴 (squash の方向・空コミットでの bookmark ずれ) を dev-conventions へ
+
+> **動機**: 本セッション (#364〜#371) で jj 運用の落とし穴を繰り返し踏んだ。(a) `jj squash --into <bookmark>` の方向が直感と逆で、ターゲットが description なしの新コミットへ移動する / (b) `jj bookmark set` の後退拒否と `jj abandon` による bookmark 消失・復旧 / (c) `jj new master` を「コミット確定」のつもりで実行して変更を前コミットに取り残す。いずれも復旧に op log 参照が要った。memory には別の jj squash gotcha (headless editor hang) が既に記録済みで、jj 運用の落とし穴は systemic に再発している。
+>
+> **対処案**: [dev-conventions.md](dev-conventions.md) に「jj 運用の落とし穴と復旧」チェックリストを 1 本追加する。**コミット確定は `jj describe` + `jj bookmark set/create`、`jj new` は新しい作業を始めるときだけ**、`jj squash` は方向を確認、bookmark がずれたら `jj edit <bookmark>` で戻す、を明文化。順位 386 (空コミットでの bookmark ずれ) の機構側対処とは別に、運用ルール側で人間 / agent を守る。
+>
+> **参照**: `.claude/feedback-reports/369.md` Tier 3 #1、memory `jj-squash-editor-hang-headless` / `jj-concurrent-session-op-divergence`、順位 386 (機構側対処)、[ADR-021](adr/adr-021-jj-change-detection-principles.md)。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Medium (作業の取り残し・bookmark 消失。ただし loud で復旧可) / Frequency High (本セッションで複数回) / Effort S / Adoption Risk None (docs-only)。
+
+#### 作業計画
+
+- [ ] `docs/dev-conventions.md` に「jj 運用の落とし穴と復旧」チェックリストを追記 (由来セッション付き)
+- [ ] 既存 memory (squash hang / op divergence) と重複せず補完する形にする
+- [ ] **操作例は再現可能な最小の初期状態つきで書く** (#372 CodeRabbit 指摘)。`jj squash --into` / `jj new master` の結果は jj バージョン・git リモートの有無・コミットグラフ・bookmark 位置・ワークツリー状態に依存するため、「@ が bookmark より N 段先の空コミットにある」等、読者が実際に再現・検証できる前提条件を明記する。断定形の「必ずこうなる」ではなく前提つきで書く
+
+#### 完了基準
+
+- コミット確定・squash 方向・bookmark ずれ復旧の 3 点が、**再現可能な初期状態つきで**根拠を添えて dev-conventions に存在すること。
