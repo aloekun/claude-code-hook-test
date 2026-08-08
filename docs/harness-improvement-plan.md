@@ -173,7 +173,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 |---|---|---|---|
 | 374 | 実走スモーク（**allow 経路・停止側とも 2026-08-08 に充足**。残りは**トークン露出 1 項目**のみで、使い捨て `build.rs` を仕込む `workflow_dispatch` の専用 run が要る） | 🚀 1 | 残り 1 項目 |
 | 384 | 外部設定（GitHub App / repository variables・secrets）の実体を [ADR-072](adr/adr-072-nightly-todo-loop.md) へ記録（[ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反の解消） | 🚀 1 | **完了**（2026-08-08、ADR-072 § 外部設定の実体。todo エントリの削除は docs バッチで行う） |
-| 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | 定常運用開始前 |
+| 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | **完了**（2026-08-08）。**穴の本体は決定論層 `lib-docs-policy` にあった** — 台帳は `docs/` 配下なので `is_docs_only_path` が docs-only と判定していた。ADR + facet 2 件 + 同 crate の 4 箇所を同期し unit test 4 件で固定 |
 | 379 | agent の tool scope を `work/**` へ限定（現行は `$GITHUB_WORKSPACE` 全体） | 🚀 1 | 定常運用開始前 |
 | 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | 定常運用開始前 |
 | 381 | 台帳由来 SUMMARY の draft PR 本文出力に screening を追加 | 🚀 1 | 定常運用開始前 |

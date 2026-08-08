@@ -44,8 +44,11 @@ AI reviewer (takt の `review-simplicity` / `review-security` / `analyze-coderab
 - `.takt/facets/instructions/**` — facet instruction は LLM 行動を制御する prompt = code-equivalent
 - `.claude/**` — Claude Code 設定 (hooks / settings) = code-equivalent
 - `.takt/workflows/**.yaml` の structural 変更 (step 追加 / 削除 / 順序変更 / `model` / `allowed_tools` の変更等)
+- `docs/claude-code-web-tasks.md` — 夜間ループ ([ADR-072](adr-072-nightly-todo-loop.md)) が**次に何を実装するかを決める実行入力**。無人可マークの付いた行が `cli-nightly-task-select` に読まれ、その内容がそのまま無人 agent のプロンプトへ入る = code-equivalent
 
 これらは形式上 markdown / yaml だが、AI 挙動 / hook 挙動を変える実質的なコードであり、docs-only fast-approve は適用しない。
+
+**台帳 (`docs/claude-code-web-tasks.md`) を加えた理由は、拡張子と危険度が無関係だからである。** [ADR-072](adr-072-nightly-todo-loop.md) 決定 6 は同じ理由で台帳を Guard step の禁止リスト (自律 actor が書き換えてはならないファイル) へ入れているのに、**PR 評価ポリシー側には同じ手当てが無い**という非対称が残っていた。その状態では「台帳だけを変える PR」が docs-only の緩い評価経路に乗り、**対策そのものを迂回する台帳 PR が通りうる**。`docs/**` 配下だが本表の除外が優先する。
 
 #### Diff 内容基準
 
