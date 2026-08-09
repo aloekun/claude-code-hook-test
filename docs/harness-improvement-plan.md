@@ -158,18 +158,22 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 ### WP-18: 夜間 todo 消化ループ — 観測中（実装・スモークは 2026-08-08 までにほぼ完了、本番稼働中）
 
-> 夜間に 1 タスクを無人実装し **draft PR 作成で停止**する（マージ判断は人間）ループ。**設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正**（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、外部設定の実体は ADR-072 § 外部設定の実体）。本節は残作業の索引だけを残す。着手前決定・PR 構成・PR chain 宣言・受け入れ基準の達成記録は役目を終えたため削除した（経緯は git log と #361〜#370 の PR 本文を参照）。
+> 夜間に 1 タスクを無人実装し **PR 作成で停止**する（マージ判断は人間）ループ。**設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正**（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、外部設定の実体は ADR-072 § 外部設定の実体）。本節は残作業の索引だけを残す。着手前決定・PR 構成・PR chain 宣言・受け入れ基準の達成記録は役目を終えたため削除した（経緯は git log と #361〜#370 の PR 本文を参照）。
+>
+> **2026-08-09 の方針変更**: 停止点を draft PR から**通常 PR**へ変更する（順位 394）。トリガーがユーザー指示か自動採択かで扱いを区別せず、commitment 点をマージ 1 点に集約する（ユーザー判断）。draft であることが CodeRabbit の自動レビュー対象外を招いていた構造そのものを解消する。
 
-**達成したこと**: 台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）から Rust 分類関数が選んだ 1 タスクを、kill-switch（ADR-066）と背圧（ADR-071）の上で無人実装し draft PR 作成で止めるループが本番稼働に入った（2026-08-08 に schedule 初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成）。定常運用開始前に必須とした prompt injection 対策 4 件（順位 378-381 → ADR-072 決定 12-14 + [ADR-035](adr/adr-035-doc-evaluation-policy.md) / `lib-docs-policy` の同期）と外部設定の実体記録（順位 384 → ADR-072 § 外部設定の実体）も完了。実走スモーク 10 項目は **8 充足 / 1 不成立（Phase B 自動起動 → 決定 11 で対処）/ 1 保留（トークン露出）**で、一覧は ADR-072 § 実走スモークが正。停止側実測は WP-17 の残課題（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime の variable 側 3 状態）も同時に埋めた（ADR-066 § 実走観測 2）。
+**達成したこと**: 台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）から Rust 分類関数が選んだ 1 タスクを、kill-switch（ADR-066）と背圧（ADR-071）の上で無人実装し PR 作成で止めるループが本番稼働に入った（2026-08-08 に schedule 初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成）。定常運用開始前に必須とした prompt injection 対策 4 件（順位 378-381 → ADR-072 決定 12-14 + [ADR-035](adr/adr-035-doc-evaluation-policy.md) / `lib-docs-policy` の同期）と外部設定の実体記録（順位 384 → ADR-072 § 外部設定の実体）も完了。実走スモーク 10 項目は **8 充足 / 1 訂正（Phase B 自動起動 → 経路は生存、順位 393 で記述訂正）/ 1 保留（トークン露出）**で、一覧は ADR-072 § 実走スモークが正。停止側実測は WP-17 の残課題（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime の variable 側 3 状態）も同時に埋めた（ADR-066 § 実走観測 2）。
 
 #### 残作業
 
 | 内容 | 管理先 | 期限 / 条件 |
 |---|---|---|
+| **順位 393: ADR-072 決定 11 の撤回記録 + Phase B 判定の訂正** — App token 投稿は CodeRabbit に無視されると 2026-08-09 に実測確定（#373 で投稿者別の対照: bot は 10 時間無反応 / 人間は 4 秒で反応）。Phase B も「不成立」ではなく起動契機が無かっただけと判明 | [todo21.md](todo21.md) | 🚀 Tier 1、順位 394 の前提 |
+| **順位 394: draft 廃止 + 背圧命名の `autonomous` 系への統一** — `--draft` 除去 / **背圧計数の `.isDraft` 除去（必須、落とすと ADR-052 原則 5 違反）** / 決定 11 step 撤去 / ADR-052 分類表の本体改訂 / ADR-019・071・072 の同期。12 ファイル 132 箇所、size gate 超過時は 2 本へ分割し [ADR-069](adr/adr-069-pr-chain-declaration.md) 宣言を付ける | [todo21.md](todo21.md) | 🚀 Tier 1 |
 | スモーク残 1 項目: `cargo` サブプロセスへのトークン露出（順位 374 の残り。**意図的保留** — 初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測。ADR-072 決定 5 の Bash 再付与判断の材料でもある） | ADR-072 § 残課題 | 急がない（Bash 非付与が保守側） |
-| 決定 11 の実測: CodeRabbit が bot（App）投稿の `@coderabbitai review` に反応するか。無反応なら 3 択で再判断。`coderabbitai[bot]` allowlist の要否も同時に再判定（WP-17 残課題と共通） | ADR-072 § 残課題 | 次回夜間 run で最優先 |
-| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = スモーク完走後（2026-08-09 ユーザー決定）**。完走の定義は決定 11 の実測完了までとし、意図的保留のトークン露出は完走条件に含めない | ADR-072 § 試験運用判断基準 | 2026-11-06 までに判定 |
+| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = スモーク完走後（2026-08-09 ユーザー決定）**。完走の定義を順位 394 の実走確認（PR に CodeRabbit の初回自動レビューが付くこと）までとし、意図的保留のトークン露出は完走条件に含めない | ADR-072 § 試験運用判断基準 | 2026-11-06 までに判定 |
 | 稼働後 1 週間の run 頻度・Max 枠消費を観測して schedule 頻度を調整 | 運用ノート（本表のみ） | 稼働中 |
+| **順位 395: 週次レビューで浮きブランチを検出し削除を提案** — 判定は現行の branch 単一ソース（`git ls-remote`）を維持し、滞留（最大 7 日程度）は許容する。`claude/nightly-*` も対象に含める。自動削除はしない | [todo21.md](todo21.md) | 🔧 Tier 2、WP-19 ステップ 3 の一部先取り |
 | 順位 382（injection payload regression test。依存先の順位 380 完了で unblock）/ 順位 383（`is_separator_row` のパイプ検証欠落） | [todo-summary2.md](todo-summary2.md) | 🔧 Tier 2、任意 |
 | 順位 375-377（レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断） | [todo-summary2.md](todo-summary2.md) | 🔧 2〜💎 3、WP-18 完了後 |
 
@@ -180,7 +184,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - **ステップ**:
   1. **全体 kill-switch**: WP-17 の PR #347 へ前倒し済み（2026-08-02 決定、根拠 = ADR-052 原則 5 の契約。設計・実装内容は [ADR-066](adr/adr-066-autonomy-global-kill-switch.md)）。
   2. **自主減速（背圧）**: WP-18 の PR 1 で **land 済み**（2026-08-06、[ADR-071](adr/adr-071-draft-pr-backpressure.md)）。当初案の「routine プロンプト冒頭の自己抑制判定」は決定論層（`cli-autonomy-gate --open-draft-prs` と `autonomy-config.toml` の `max_open_draft_prs`）へ格上げして実装した — instruction 層の自己抑制は ADR-028 が指摘した soft 防衛のため。残る観測は ADR-071 の bounded lifetime が管理する。
-  3. **監査ループを閉じる**: 自律アクション一覧（workflow run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。WP-18 の採用率測定と台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）の定期更新もここに載る。
+  3. **監査ループを閉じる**: 自律アクション一覧（workflow run 履歴 + `claude/` ブランチ PR）を weekly-review の入力に追加し、「自律動作の週次棚卸し」を人間のレビューポイントとして固定する。WP-18 の採用率測定と台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）の定期更新もここに載る。**浮きブランチ検出（順位 395）は本ステップの一部を先取りするもの**で、着手時は重複しない形で統合する。
 
 ## 7. 完了条件と退役手順
 
