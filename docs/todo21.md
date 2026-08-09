@@ -179,3 +179,32 @@
 #### 完了基準
 
 - コミット確定・squash 方向・bookmark ずれ復旧の 3 点が、**再現可能な初期状態つきで**根拠を添えて dev-conventions に存在すること。
+
+---
+
+## WP-18 失敗頻度分析の follow-up (2026-08-09 登録)
+
+### push パイプラインの terminal outcome を telemetry へ記録し、失敗回数・原因を機械集計可能にする
+
+> **動機**: 2026-08-09 の WP-18 失敗頻度分析で、**パイプライン失敗の回数・原因に構造化記録が無い**ことが判明した。定量は `.takt/runs/` のディレクトリ数からの推定に頼り (pre-push run 数 ÷ マージ PR 数 = 08-07 は 18 run/1 PR でベースライン 1.9 の約 9 倍)、失敗の内訳 (レビュー REJECT / quality gate / jj push 段の bookmark 解決失敗など) は trace.md と todo エントリの突き合わせでしか復元できなかった。[ADR-055](adr/adr-055-firing-telemetry-collection.md) の telemetry は rule/preset/hook の**発火**のみを記録し、パイプラインの**結末**は対象外。
+>
+> **対処案**: push-runner の terminal outcome (成功 / 失敗した stage + reason code) を telemetry へ 1 行追記する。reason は自由文ではなく **stage + 機械可読 code** (例: `review-reject` / `quality-gate` / `jj-push-bookmark-resolution` / `regate`) にする。集計は `cli-telemetry-report` (ADR-062 月次レビューの決定論 exe) へ載せ、月次で「失敗率と内訳の推移」を読める形にする。順位 386/387/376 の対処が入った後の**効果測定**と、未知の失敗モードの早期発見が主目的。merge-pipeline / pr-monitor への同型展開は push-runner で型が固まってから検討する。
+>
+> **設計上の注意**: (a) telemetry は助言層なので **fail-open** — 記録の失敗がパイプライン本体の exit code を変えてはならない ([ADR-043](adr/adr-043-security-gates-fail-closed.md))。(b) ADR-055 の firing event schema に outcome event を混ぜるか別ファイルにするかは、既存 `firings-*.jsonl` の後方互換 (cli-telemetry-report のパーサ) を確認して決める。
+>
+> **参照**: [ADR-055](adr/adr-055-firing-telemetry-collection.md)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) (push-runner)、順位 386/387/376 (効果測定の対象となる再発防止策)。
+>
+> **実行優先度**: 🔧 Tier 3 — Severity Low (観測の欠落であり機能障害ではない) / Frequency Medium (push のたびに記録機会) / Effort M / Adoption Risk Low (fail-open を守る限り本体に影響しない)。順位 386/387 の対処より先に入れると効果測定のベースラインが取れる点は考慮に値する。
+
+#### 作業計画
+
+- [ ] push-runner の terminal 出口 (成功 / 各失敗段) を洗い出し、stage + reason code の一覧を定義する
+- [ ] ADR-055 の firing event と同居させるか別ファイルにするかを、`cli-telemetry-report` パーサの後方互換を確認して決める
+- [ ] outcome 記録を実装し、記録失敗がパイプラインの exit code を変えないことをテストで固定する
+- [ ] `cli-telemetry-report` に期間指定の失敗集計 (回数・stage 別内訳) を追加する
+
+#### 完了基準
+
+- `pnpm push` の各試行が terminal outcome (成功 / 失敗 stage + reason code) を機械可読で残すこと。
+- `cli-telemetry-report` で月次レビューが失敗率・内訳を読めること。
+- telemetry 書き込み失敗時もパイプライン本体の挙動・exit code が変わらないこと (fail-open のテストで固定)。

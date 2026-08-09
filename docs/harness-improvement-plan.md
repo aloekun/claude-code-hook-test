@@ -3,6 +3,8 @@
 > **位置付け**: ephemeral 計画書。本ファイルの最終目標は、記載された全 WP（作業パッケージ）を完了し、知識を永続成果物（ADR / todo / rules）へ移管したうえで、**本ファイル自身を削除すること**である。永続成果物（ADR 等）から本ファイルへリンクを張ってはならない（Cross-File Reference Lifecycle: 参照は permanent → ephemeral の方向のみ禁止対象）。削除条件と手順は末尾「完了条件と退役手順」を参照。
 >
 > **2026-08-01 スリム化**: 完了・見送り WP の詳細記録は永続成果物へ移管済みのため本ファイルから削除した（WP-15 本体 → [ADR-063](adr/adr-063-linux-portability-release-binaries.md)、WP-15 追補 → [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) を新規起票。WP-14 は新規 ADR 不要判断のため各 crate doc + commit message が永続記録。その他は「全体像」表の移管先参照を見よ）。本ファイルには残作業のみを記載する。
+>
+> **2026-08-09 スリム化**: WP-18 の完了記録（着手前決定 / PR 構成 / PR chain 宣言 / 受け入れ基準の達成）を削除した。設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md)（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)）が正。2026-08-08 の停止側実測は [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2 へ追記済み。経緯は git log と #361〜#370 の PR 本文を参照。
 
 ## 0. この文書の扱い方（実行セッション向け）
 
@@ -79,8 +81,8 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-14 | 3 | PowerShell 3 本の Rust 化 | S-M ×2 | なし | 完了（新規 ADR 不要判断 = 決定は各 crate doc + commit message に記録。実走確認済） |
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
-| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11 | **観測中（実装は 2026-08-04 に全 land）** — #347 / #350 / #351 / #352 / #353 / #354、実走バグ修正 #356 / #357 / #358、記帳 #359。実走スモーク段 0〜2 まで完走。**観測待ち**: 停止側の実走 2 点 / 自動起動経路 / 週末またぎ / ADR-066 bounded lifetime（1 of 3〜5 run）→ § WP-17。派生 ADR: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 |
-| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **3 PR すべてマージ済（2026-08-07）** — PR 1 = 背圧 + [ADR-071](adr/adr-071-draft-pr-backpressure.md)（#361）/ PR 2 = タスク台帳（#362）/ PR 3 = 夜間 workflow + [ADR-072](adr/adr-072-nightly-todo-loop.md)（#363）。**未完**: 実走スモーク（順位 374、外部設定の実体記録 384 を同時実施）→ 採用率 2 週間測定。**定常運用開始前に必須**: prompt injection 対策 4 件（順位 378-381）→ § WP-18 |
+| WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11 | **観測中（実装は 2026-08-04 に全 land）** — #347 / #350 / #351 / #352 / #353 / #354、実走バグ修正 #356 / #357 / #358、記帳 #359。実走スモーク段 0〜2 まで完走。**観測待ち**: config 側 kill-switch の実走（variable 側 3 状態は 2026-08-08 実測済 = [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2）/ Phase B 起動（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 の実測待ち）/ 週末またぎ / ADR-066 bounded lifetime（1 of 3〜5 run）→ § WP-17。派生 ADR: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 |
+| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **観測中（実装・スモークは 2026-08-08 までにほぼ完了、本番稼働中）** — 3 PR（#361 / #362 / #363）+ 追補 5 PR（#366〜#370）マージ済。injection 対策 4 件（順位 378-381）と外部設定記録（384）完了、スモーク 10 項目中 8 充足（[ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークが正）。**残**: トークン露出 probe（保留）/ 決定 11 実測 / 採用率 2 週間測定 → § WP-18 |
 | WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1、背圧は WP-18 PR 1 へ前倒し） | S-M | WP-18 | 未着手（残りは監査ループのみ。背圧は WP-18 PR 1 で land 済み） |
 
 ## 5. 残作業（観測継続）
@@ -150,85 +152,28 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 #### 後続へ引き継ぐ残課題
 
-- **停止側の実走が未完**: 実走で確認したのは `AUTONOMY_ENABLED` を**削除した（= 未設定）**場合のみ。明示的な `AUTONOMY_ENABLED=false` と config 側（master ref の `autonomy-config.toml` で `enabled = false`）の deny は実走未観測で、gate exe 単体の drill でのみ固定されている。ADR-066 bounded lifetime の観測（3〜5 run、期限 2026-11-02）で埋める。
-- **Phase B の自動起動経路が未検証**: 段 1 で `coderabbitai[bot]` の permission が `none` と実測されたため `pull_request_review` 経路は恒久 deny で、起動は `issue_comment`（walkthrough）経路だけになる。この経路は初回 1 回きりで、その時点では CodeRabbit の実レビューがまだ無いことが多い。「findings がある状態で Phase B が自動起動する窓」が実質的に無い可能性がある（段 2 は手動 dispatch で成立させたため未検証）。bot allowlist の要否と併せて **WP-18 着手時に実測する**（ADR-067 § 検証記録）。
+- **停止側の実走は config 側のみ残る**: variable 側 3 状態（`'true'` / `'false'` / 未設定）は 2026-08-08 の WP-18 停止側スモークですべて実測済（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2）。**残るのは config 側（master ref の `autonomy-config.toml` で `enabled = false`）の実走のみ**（exe 単体 drill で固定済み）。ADR-066 bounded lifetime の観測（3〜5 run、期限 2026-11-02）で埋める。
+- **Phase B の自動起動経路は「不成立」と実測で判明**: CodeRabbit は draft を自動レビューしないため（`.coderabbit.yaml` の `drafts: false`）、起動契機のコメント自体が夜間 draft PR では発生しない。[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11（draft PR 作成後の `@coderabbitai review` 明示トリガー）で対処済みで、**CodeRabbit が bot 投稿へ反応するかを次回夜間 run で実測**する（`coderabbitai[bot]` allowlist の要否も同経路のため、決定 11 が効いてから再判定）。夜間ループの稼働開始（PR #365〜）で `claude/` ブランチ PR の供給は始まっており、これが通れば ADR-067 § 欠点の発火機会問題も解消する。
 - **routine 出力の受け渡し手段が未決**: 分析結果が transcript にしか残らずユーザーが読まなければ消える。実行主体を含む 3 択（routine / GitHub Actions schedule / ローカル維持 = 断念）で、**断念も正規の出口**。判定は ADR-070 bounded lifetime (b) の観測後（[ADR-070](adr/adr-070-weekly-review-cloud-routine.md) § 残課題）。
-- **Phase B の実効価値は WP-18 に依存**: 対象が docs 指摘に限られるため、WP-18 の夜間ループが `claude/` ブランチ PR を作り始めるまで発火機会が小さい（ADR-067 § 欠点）。
 
-### WP-18: 夜間 todo 消化ループ — 実装 land 済 + allow 経路の実走成立（2026-08-08）
+### WP-18: 夜間 todo 消化ループ — 観測中（実装・スモークは 2026-08-08 までにほぼ完了、本番稼働中）
 
-> 夜間に 1 タスクを無人実装し **draft PR 作成で停止**する（マージ判断は人間）ループを、WP-17 のバックボーン上に組む。
+> 夜間に 1 タスクを無人実装し **draft PR 作成で停止**する（マージ判断は人間）ループ。**設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正**（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、外部設定の実体は ADR-072 § 外部設定の実体）。本節は残作業の索引だけを残す。着手前決定・PR 構成・PR chain 宣言・受け入れ基準の達成記録は役目を終えたため削除した（経緯は git log と #361〜#370 の PR 本文を参照）。
 
-**進捗**: PR 1（背圧、[#361](https://github.com/aloekun/claude-code-hook-test/pull/361)）/ PR 2（タスク台帳、[#362](https://github.com/aloekun/claude-code-hook-test/pull/362)）/ PR 3（夜間 workflow、[#363](https://github.com/aloekun/claude-code-hook-test/pull/363)）すべて **master へマージ済み**（2026-08-07）。
-
-**2026-08-08 に夜間ループが初めて実走し、draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365)（`claude/nightly-203`）の作成まで完走した。** ただし **WP としては未完**で、残作業は 2 系統ある（→ § 残作業）:
-
-1. **実走スモークの残り**（順位 374。**外部設定の実体記録 384 を同時実施**）— allow 経路は上記で成立したが、**停止側（`AUTONOMY_ENABLED` の 3 状態）とトークン露出の 2 項目が未観測**。どちらも本番 schedule では観測できず `workflow_dispatch` の専用 run が要る
-2. **prompt injection 対策 4 件**（順位 378-381）— #363 の post-merge-feedback が Tier 1 として挙げたもの。定常運用開始前に必須
-
-**なお allow 経路は `workflow_dispatch` ではなく schedule の本番 run が先に消化した** — `AUTONOMY_ENABLED` を立てると schedule も同時に有効になるため。結果は成功だったが、観測装置の準備前に無人 run が始まる構造だった点は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 残課題 に記帳した。
+**達成したこと**: 台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）から Rust 分類関数が選んだ 1 タスクを、kill-switch（ADR-066）と背圧（ADR-071）の上で無人実装し draft PR 作成で止めるループが本番稼働に入った（2026-08-08 に schedule 初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成）。定常運用開始前に必須とした prompt injection 対策 4 件（順位 378-381 → ADR-072 決定 12-14 + [ADR-035](adr/adr-035-doc-evaluation-policy.md) / `lib-docs-policy` の同期）と外部設定の実体記録（順位 384 → ADR-072 § 外部設定の実体）も完了。実走スモーク 10 項目は **8 充足 / 1 不成立（Phase B 自動起動 → 決定 11 で対処）/ 1 保留（トークン露出）**で、一覧は ADR-072 § 実走スモークが正。停止側実測は WP-17 の残課題（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime の variable 側 3 状態）も同時に埋めた（ADR-066 § 実走観測 2）。
 
 #### 残作業
 
-| 順位 | 内容 | Tier | 期限 |
-|---|---|---|---|
-| 374 | 実走スモーク（**allow 経路・停止側・tool scope deny とも 2026-08-08 に充足**。残りは**トークン露出 1 項目のみ・意図的に保留**。初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測する） | 🚀 1 | 残り 1 項目（保留） |
-| 384 | 外部設定（GitHub App / repository variables・secrets）の実体を [ADR-072](adr/adr-072-nightly-todo-loop.md) へ記録（[ADR-051](adr/adr-051-cross-system-config-coupling.md) 違反の解消） | 🚀 1 | **完了**（2026-08-08、ADR-072 § 外部設定の実体。todo エントリの削除は docs バッチで行う） |
-| 378 | 台帳を [ADR-035](adr/adr-035-doc-evaluation-policy.md) の docs-only 除外パス表へ追加 | 🚀 1 | **完了**（2026-08-08）。**穴の本体は決定論層 `lib-docs-policy` にあった** — 台帳は `docs/` 配下なので `is_docs_only_path` が docs-only と判定していた。ADR + facet 2 件 + 同 crate の 4 箇所を同期し unit test 4 件で固定 |
-| 379 | agent の tool scope を `work/**` へ限定 | 🚀 1 | **実装済・両側実測済**（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12）。deny（`master-ref/` へ書けない）と allow（`work/` は編集できる）をローカル CLI で確認。実装で `Write(path)` 指定子が no-op と判明し `Edit(path)` へ統一 |
-| 380 | 台帳フィールドを agent prompt へ untrusted data として明示 framing | 🚀 1 | **実装済**（同 決定 13）。prompt の framing + parse 側での枠偽装拒否の 2 層。回帰テストは marker / 自然文許可 / ゼロ幅・tag・soft hyphen・bidi・制御文字の拒否を good/bad 対で固定 |
-| 381 | 台帳由来 SUMMARY の draft PR 本文出力に screening を追加 | 🚀 1 | **実装済**（同 決定 14）。公開面の棚卸し済み（台帳由来で外部可視なのは PR 本文の `内容` のみ）。回帰テストは code span 脱出・mention 保持・切り詰め・空入力・不可視文字除去を固定 |
-| 382 | 台帳 prompt injection payload の regression test（順位 380 に依存） | 🔧 2 | 380 の後 |
-| 383 | `is_separator_row` のパイプ検証欠落を塞ぐ（2026-08-07 実コード確認済み） | 🔧 2 | 任意 |
-| 375-377 | レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断 | 🔧 2〜💎 3 | WP-18 完了後 |
+| 内容 | 管理先 | 期限 / 条件 |
+|---|---|---|
+| スモーク残 1 項目: `cargo` サブプロセスへのトークン露出（順位 374 の残り。**意図的保留** — 初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測。ADR-072 決定 5 の Bash 再付与判断の材料でもある） | ADR-072 § 残課題 | 急がない（Bash 非付与が保守側） |
+| 決定 11 の実測: CodeRabbit が bot（App）投稿の `@coderabbitai review` に反応するか。無反応なら 3 択で再判断。`coderabbitai[bot]` allowlist の要否も同時に再判定（WP-17 残課題と共通） | ADR-072 § 残課題 | 次回夜間 run で最優先 |
+| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = スモーク完走後（2026-08-09 ユーザー決定）**。完走の定義は決定 11 の実測完了までとし、意図的保留のトークン露出は完走条件に含めない | ADR-072 § 試験運用判断基準 | 2026-11-06 までに判定 |
+| 稼働後 1 週間の run 頻度・Max 枠消費を観測して schedule 頻度を調整 | 運用ノート（本表のみ） | 稼働中 |
+| 順位 382（injection payload regression test。依存先の順位 380 完了で unblock）/ 順位 383（`is_separator_row` のパイプ検証欠落） | [todo-summary2.md](todo-summary2.md) | 🔧 Tier 2、任意 |
+| 順位 375-377（レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断） | [todo-summary2.md](todo-summary2.md) | 🔧 2〜💎 3、WP-18 完了後 |
 
-**378-381 は 1 本の根から出ている** — 台帳の自由記述フィールドが無検証で無人 agent のプロンプトへ流入し、agent は workspace 全体に書き込め、その出力が公開面（draft PR 本文）に出る。[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) の信頼境界そのもので、詳細は [todo20.md](todo20.md) § #363 post-merge feedback 採用分。
-
-現時点の実効リスクは低い（悪意ある台帳行を master へマージするのはユーザー自身）が、**draft PR の流量が増えると前提が変わる**ため無期限に積んではならない。スモークは `dry_run` で PR を作らないため、**378-381 を待たずに着手してよい**。
-
-**384 はスモークに相乗りする記録作業** — workflow が参照する GitHub App / `NIGHTLY_APP_ID` / `NIGHTLY_APP_PRIVATE_KEY` / `AUTONOMY_ENABLED` の実体（App 名・インストール範囲・付与権限・登録先・欠落時の倒れ方）がリポジトリ内に 1 行も無く、[ADR-051](adr/adr-051-cross-system-config-coupling.md) が定める 3 点（相互参照コメント / 期待値の組み合わせ表 / 両側同一 PR）が未実施のまま。スモークで GitHub UI を触る過程で実値が揃うため、先行させると値が確定せず二度手間になる。
-
-**未 push の改善 3 点**（`wp18/unpushed-improvements` = `fc22403c` に保持）: 改ざん検知の `continue-on-error` 除去（red 化）、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 10 の色分け表、決定 6 の列挙基準。#363 の最終 push が security REJECT で止まったため master に載っていない。いずれも可観測性・文書の改善で、fail-closed 自体は master 版でも成立している。
-
-- **着手前決定（2026-08-05、ユーザー確認済み）**:
-  1. **実行主体 = GitHub Actions schedule workflow**（cloud routine ではない）。根拠: [ADR-070](adr/adr-070-weekly-review-cloud-routine.md) § 実現可能性の未検証点の実測 — routine の `jj git push` はローカル hook（`jj-push-guard`）に阻まれ、例外新設は「自律 push 経路の新設」= 採用バー超え。Actions は workflow step が push する Phase B（[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md)）と同構造でこの問題が発生せず、`claude/` prefix ブランチは ruleset 除外とも整合する。
-  2. **WP-19 ステップ 2（背圧）を本 WP の PR 1 へ前倒し統合**。根拠: [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 は背圧なしの draft-pr クラス有効化をアンチパターンとして明示的に禁止し、着手時点の `lib-autonomy-policy` は `backpressure_connected()` が `DraftPr => false` 固定で**構造的に deny していた**。WP-17 の kill-switch 前倒しと同じ判断。→ PR 1 で解消済み（設計は [ADR-071](adr/adr-071-draft-pr-backpressure.md)）。
-  3. **タスク台帳 = [claude-code-web-tasks.md](claude-code-web-tasks.md)**（旧案「todo-summary へ自律実行可列を追加」は置き換え）。同ファイルは既に「Web 実行可の判定基準 + curated なタスク表 + 着手フロー」を持ち、夜間ループの選択元に転用できる。ただし現状は ephemeral（全タスク land で retire）なので、**「定期更新される管理台帳」へ lifecycle を改訂**し、自律実行可の判断は **weekly-review と同じタイミングで定期更新**する（WP-19 ステップ 3 の監査ループと接続）。
-
-- **PR 構成（新規 3 本）**:
-  1. **PR 1: 背圧実装 + ADR 起票（M）— 実装済み（2026-08-06、[ADR-071](adr/adr-071-draft-pr-backpressure.md)）**。閾値判定の層は実装時判断で **(a) gate 内**を採った（`GateInputs` に実測値と閾値を渡す）。`Operation::backpressure_connected()` は廃し、`requires_draft_backpressure()`（指標の要求のみ・状態を持たない）と `GateInputs::{open_draft_prs, max_open_draft_prs}`（状態）へ分けて二重管理を避けた。閾値は `autonomy-config.toml` の `[autonomy] max_open_draft_prs = 3`。実 exe による drill 12 シナリオと unit test 40 件で実測を固定済み。SaaS 課金・上限事実（§ 2）の最新値再確認と永続化も同 ADR で完了。
-  2. **PR 2: タスク台帳のブラッシュアップ（docs、S）— 実装済み（2026-08-06、[#362](https://github.com/aloekun/claude-code-hook-test/pull/362)）**。stale 行 2 件（順位 120 / 134、どちらも land 済み）を削除し棚卸し履歴 section を新設。無人可の 2 段階分類を導入して 14 件中 7 件をユーザー承認のうえマーク（見送り 7 件も理由を表で明示）。lifecycle は「空になっても retire しない」定期更新台帳へ改訂。weekly-review への接続は新 step を足さず既存の観点⑤（`review-todo-whole` facet）に Criterion 3 として相乗りさせた。
-  3. **PR 3: 夜間 workflow（schedule、M-L）— マージ済み（2026-08-07、[#363](https://github.com/aloekun/claude-code-hook-test/pull/363)、[ADR-072](adr/adr-072-nightly-todo-loop.md)）。2026-08-08 の schedule で初回実走し allow 経路が成立**。タスク選択は新規 exe `cli-nightly-task-select`（実装時判断で shell ではなく Rust を採用 — markdown table の境界に回帰テストを書く場が要るため）。`.github/workflows/nightly-todo.yml` が 18 step で選択 → 実装 → コストフィルタ（`cargo test` + `cargo clippy`）→ **clean publish tree の用意** → ガードレール禁止リスト → **ゲート資産の改ざん検知** → gate → **App token 発行** → draft PR 作成を回す。schedule は毎日 03:00 JST（2026-08-06 ユーザー確認）。**push / PR 作成は workflow step が gate 経由で実行し、agent は push の主体にしない**（ADR-067 と同型）。
-
-     改ざん検知と clean publish tree はいずれも pre-push security review の REJECT を受けて追加した（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 7 / 決定 9）。後者は「agent が `work/.git` を書き換えると App token を持つ step で任意コマンドが走る」経路への対処で、危険な設定キーの列挙（deny-list）で 2 回連続レビュー漏れを指摘されたため、**Implement 終了後に新規 clone した作業ツリーで git 操作を行う**構造へ切り替えた。**App token は Windows CI を draft PR へ紐づけるために導入した**（同 決定 8）— `GITHUB_TOKEN` で作成した PR は `pull_request` run が承認待ちになり、人間が Approve するまで `ci.yml` が動かない。Windows を主開発環境とする本プロジェクトで、2 OS 検証を人間の操作待ちにする設計は採れないため（2026-08-07 ユーザー判断）。PAT ではなく App を使うのは、オーナーの PAT が Repository admin として ADR-067 の ruleset backstop を bypass してしまうため。
-
-     これに伴い workflow 内の検証は**コストフィルタ**（ubuntu 単独、無駄な draft PR を作らないための足切り）と位置づけ直し、**品質の保証は PR に紐づく `ci.yml`（2 OS）**が担う形にした。
-
-- **PR chain 宣言（[ADR-069](adr/adr-069-pr-chain-declaration.md) 決定 1）— 充足済み**: PR 1 が導入した以下は PR 3 が消費する。PR 3 は PR 1 のブランチ（`feat/draft-pr-backpressure`）にスタックしているため、両者は同一チェーン内で対応が閉じている。
-
-  | PR 1 が導入するもの | PR 3 の消費側（`.github/workflows/nightly-todo.yml`） |
-  |---|---|
-  | `cli-autonomy-gate` の `--open-draft-prs <count>` フラグ | `Pre-flight gate` / `Gate draft PR creation` の 2 step が、`Count open claude/ drafts and in-flight ranks` step の `gh pr list` 結果（`isDraft` かつ `claude/` prefix の件数）を渡す |
-  | `autonomy-config.toml` の `[autonomy] max_open_draft_prs` | 同 2 step が `--config master-ref/autonomy-config.toml` を渡し、master ref の写しから読ませる（kill-switch の `enabled` と同じ経路・同じファイル） |
-  | `lib_autonomy_policy::Operation::DraftPr` の許可経路 | 同 2 step が `--operation draft-pr` で呼び、`Gate draft PR creation` が exit 0 のときだけ `Push branch and open draft PR` へ進む |
-
-  この順序は逆にできない。[ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 が背圧の接続を draft-pr クラス有効化の**前提条件**としているため、背圧が先に land する必要がある（WP-17 の kill-switch 先行と同じ構造）。
-
-  **PR 2 → PR 3 の実行時依存**: PR 3 の workflow は台帳の「無人可」列を読む。PR 2 が未マージのままだと `cli-nightly-task-select` は exit 2（無人可 列を持つ表が無い）で止まる。**これは設計どおりの fail-closed** で、静かな no-op にはならない（[ADR-072](adr/adr-072-nightly-todo-loop.md) § 検証記録の実データ確認）。PR 3 のコードは PR 2 に依存しないため、CI は独立に green になる。
-
-- **運用ノート**: クラウドは使い捨てクローンのため jj workspace 分離は不要。ローカルで同ループを回す場合のみ [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の workspace を使う。稼働後 1 週間は run 頻度と Max 枠消費を観測して頻度調整。
-- **受け入れ基準**:
-
-  | 基準 | 状態 |
-  |---|---|
-  | 背圧の決定論層 drill（12 シナリオ、実 exe） | **充足**（PR 1、[ADR-071](adr/adr-071-draft-pr-backpressure.md) § 検証記録） |
-  | タスク選択の境界固定（unit test 25 件 + 実データ選択） | **充足**（PR 3、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 検証記録） |
-  | **実走スモーク — 有効時のみ `claude/nightly-*` の draft PR が作られること** | **充足**（2026-08-08、[PR #365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203`）。ただし **`workflow_dispatch` ではなく schedule の本番 run が先に消化した** — `AUTONOMY_ENABLED` を立てた時点で schedule も有効になるため。結果は成功だったが、観測装置の準備前に無人 run が走る構造だった点は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 残課題 に記帳 |
-  | **停止側の実走 — 無効時に何も作られないこと**（`AUTONOMY_ENABLED` の 3 状態 = `'true'` / `'false'` / 未設定 で dispatch し、`false` と未設定では job 起動・ブランチ作成・draft PR・App token のいずれも発生しないことを確認） | **充足**（2026-08-08、ユーザー実測）。`'false'` と未設定の 2 状態で **`dry_run` をオフ（= push / PR 作成をする設定）**にして dispatch し、2 回とも job が skip。確認後 `'true'` へ復旧済み。**これで WP-17 の残課題（明示的 `false` と未設定の実走未観測、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime）も同時に埋まった** |
-  | スモークの同梱観測 **10 項目**（起票時の 8 件 + #364 で追加した停止側 1 件 + 順位 379 で追加した tool scope deny 1 件。内訳は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークの表が正） | **8 充足 / 1 不成立 / 1 保留**。**充足** = `AUTONOMY_ENABLED` の完全一致起動・`claude/nightly-*` の ref 作成・**App token 作成 PR に `ci.yml` の 2 OS run が紐づくこと**（決定 8 の核心）・決定 7 の照合が誤検知しないこと（1 run）・`publish/` の rsync が過不足なく運ぶこと・**停止側 2 状態**・**tool scope deny**・allowlist 判定不能を除く。**不成立** = WP-17 残課題の Phase B 自動起動（CodeRabbit が draft を自動レビューしないため契機が発生しない → [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 で対処。`coderabbitai[bot]` allowlist の要否も同経路のため判定不能で、決定 11 が効いてから再判定）。**保留** = トークン露出（初版 probe の設計欠陥を解消してから 1 回で観測） |
-  | **WP 全体**: 2 週間の試験運用で無人 draft PR の採用率（人間がマージした割合）を測定。**50% 超で継続・拡大、未満なら対象クラスを絞って再試行** | **未着手**（スモーク完走後に開始）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）に載せて仕組み化する |
-
-  なお採用率 50% は根拠のある閾値ではなく、2 週間・最大 14 件（背圧により実際はより少ない）では統計的な意味を持たない（[ADR-072](adr/adr-072-nightly-todo-loop.md) § 欠点）。判断材料の 1 つとして扱う。
+ローカルで同ループを回す場合のみ [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の workspace を使う（クラウドは使い捨てクローンのため分離不要）。
 
 ### WP-19: 常時性ガード
 

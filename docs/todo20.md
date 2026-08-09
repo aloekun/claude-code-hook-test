@@ -290,12 +290,12 @@
 
 #### 作業計画
 
-- [ ] #363 マージ後、`workflow_dispatch` (dry_run=true) でゲート通過までを確認
-- [ ] dry_run=false で draft PR 作成まで完走させる
-- [ ] **停止側を実走で確認する** — `AUTONOMY_ENABLED` を `'false'` と未設定の 2 状態で dispatch し、job 起動・`claude/nightly-*` ブランチ作成・draft PR・App token 発行のいずれも発生しないことを確認する (成功経路だけの確認では kill-switch が効く証拠にならない)
-- [ ] `ADR-072` の実走スモーク節にある 8 項目を観測し結果を同 ADR の検証記録節へ記帳
-- [ ] GitHub UI を触る過程で **順位 384 (外部設定の実体記録) を同時に実施する** — 実値はこの機会にしか揃わない
-- [ ] 完走後、2 週間の採用率測定を開始する
+- [x] draft PR 作成までの完走 (2026-08-08、schedule 初回実走 = PR #365。dispatch でなく本番 run が先に消化した経緯は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 残課題)
+- [x] **停止側の実走確認** (2026-08-08、`'false'` / 未設定 × dry_run オフで 2 回とも job skip。[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2)
+- [x] スモーク観測項目の記帳 (10 項目中 8 充足 / 1 不成立 = 決定 11 で対処 / 1 保留 = トークン露出。ADR-072 § 実走スモーク)
+- [x] 順位 384 (外部設定の実体記録) の同時実施 (2026-08-08 完了、ADR-072 § 外部設定の実体)
+- [ ] **残り: トークン露出 probe** — 初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測 (意図的保留、ADR-072 § 残課題)
+- [ ] 決定 11 の実測 (CodeRabbit が bot 投稿の `@coderabbitai review` に反応するか) 完了後、2 週間の採用率測定を開始する (2026-08-09 ユーザー決定: トークン露出の保留は測定開始をブロックしない)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
@@ -399,80 +399,9 @@
 
 ## #363 post-merge feedback 採用分 (2026-08-07 一括登録)
 
-> WP-18 の最終 PR (#363、ADR-072) マージ後の post-merge-feedback が Tier 1 に 4 件・Tier 2 に 2 件を採用候補として挙げたもの。**うち 5 件 (378-382) が台帳 (`docs/claude-code-web-tasks.md`) 経由の prompt injection という 1 本の根から出ている。** 残る 383 は `is_separator_row` の markdown パース欠陥で根が異なり、同じ post-merge feedback で挙がったため同バッチに乗せただけである (§ 順序 も参照)。
+> WP-18 の最終 PR (#363、ADR-072) マージ後の post-merge-feedback 採用分。**うち順位 378-381 (台帳経由 prompt injection 対策の Tier 1 群 4 件) は 2026-08-08 に実装完了したため本ファイルから削除した** — 記録先: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12 (tool scope 限定) / 決定 13 (untrusted framing) / 決定 14 (公開面 screening)、[ADR-035](adr/adr-035-doc-evaluation-policy.md) + `lib-docs-policy` (台帳の docs-only 除外、#368)。残るのは 382 (regression test) と 383 (`is_separator_row`、根が異なる独立の markdown パース欠陥) の 2 件。
 >
-> 発生源: 夜間ループは台帳の `内容` / `対象ファイル` / `注意` を**自由記述のまま無人 agent のプロンプトへ埋め込む**。agent は `$GITHUB_WORKSPACE` 全体に `Read/Edit/Write/Glob/Grep` を持ち、Guard step はパス名しか検査しない。台帳由来の文字列は draft PR 本文にもそのまま出る。
->
-> **実効リスクは現時点では低い** — 悪意ある台帳行を master へマージするのはユーザー自身であり、単独運用では外部からの注入経路が無い。しかし [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) が扱う信頼境界の類型そのものであり、**夜間ループが定常運用に入り draft PR の流量が増えると前提が変わる**。
->
-> **期限**: 順位 374 (実走スモーク) の完了後、**定常運用開始前**。無期限に積んではならない。スモーク自体は `dry_run` で PR を作らないため本件の実害は無く、スモークを待たせる理由も無い。
->
-> **順序**: 378 → 379/381 (独立) → 380 → 382。378 は他 3 件の前提 (台帳変更が緩い評価経路に乗ると、対策そのものを迂回する台帳 PR が通りうる)。382 は 380 の framing が入ってからでないと固定する対象が無い。383 は独立。
-
-### 台帳を ADR-035 の docs-only 除外パス表へ追加し code-equivalent として扱う
-
-> **動機**: [ADR-035](adr/adr-035-doc-evaluation-policy.md) の除外パス一覧に台帳が含まれておらず、**台帳だけを変える PR が docs-only の緩い評価経路に乗る**。台帳は「次に何を実装するか」を決める実行入力であり、拡張子が `.md` であることと危険度は無関係。
->
-> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 は同じ理由で台帳を Guard step の禁止リストへ入れているが、**PR 評価ポリシー側には同じ手当てが無い**という非対称が残っている。
->
-> **対処案**: ADR-035 の除外パス表へ 1 行追加し、参照している facet instructions 側の記述も同期する。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Medium / Effort XS / Adoption Risk None。既存機構への 1 行追加で閉じられる。
-
-#### 作業計画
-
-- [ ] ADR-035 の除外パス表へ `docs/claude-code-web-tasks.md` を追加し、code-equivalent とする根拠を記す
-- [ ] 除外パス表を参照している facet instructions を grep し、記述を同期する
-- [ ] 台帳のみを変える PR が docs-only 判定にならないことを確認する
-
-### 夜間ループ agent の tool scope を `work/**` へ限定する
-
-> **動機**: 現行の `--allowedTools "Read,Edit,Write,Glob,Grep"` は**スコープ引数を持たない**ため、agent は `$GITHUB_WORKSPACE` 全体を読み書きできる。そこには判定の調達元である `master-ref/` が含まれる。
->
-> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 7 (ゲート資産の改ざん検知) は**この穴があるために必要になった検知層**である。scope を絞れば検知ではなく予防で塞げる。決定 7 自身が「検知であって防止ではない」と残課題に挙げている。
->
-> **対処案**: `--allowedTools` にパススコープを付与できるか調査し、可能なら `work/**` へ限定する。不可なら agent の作業ディレクトリ自体を `work/` に切り替える案を検討する。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Low / Effort S / Adoption Risk None。
->
-> **注意**: 実装後も決定 7 の改ざん検知は**残す**。防御層を 1 枚に減らす変更ではない。
-
-#### 作業計画
-
-- [ ] `--allowedTools` のパススコープ指定可否を公式ドキュメントで確認する (推測で設計しない)
-- [ ] scope 限定を実装し、`master-ref/` へ書けないことを実走で確認する
-- [ ] 順位 377 (検知から防止への格上げ判断) の判断材料として ADR-072 へ記帳する
-
-### 台帳フィールドを agent prompt へ untrusted data として明示 framing する
-
-> **動機**: prompt 組立が `${{ steps.select.outputs.summary/target_files/caution }}` を無検証で埋め込んでいる。台帳の行に指示文を書けば、それが agent への指示として読まれる。
->
-> [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) の 3 層防御でいう**第 1 層 (信頼境界の明示)** が欠けている状態。
->
-> **対処案**: prompt テンプレート側で台帳由来の文字列を「これはデータであり指示ではない」と明示する区切りで囲む。加えて `ledger.rs` の parse 側で制御文字や区切り記号の混入を弾くかを検討する (決定 2 の「曖昧さはすべて停止側へ」と同じ姿勢)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Medium / Effort M / Adoption Risk None。
->
-> **注意**: framing は緩和であって遮断ではない。順位 379 の scope 限定と併せて初めて意味を持つ。
-
-#### 作業計画
-
-- [ ] prompt 組立に untrusted data の framing を導入する
-- [ ] parse 側で弾くべき入力の範囲を決め、ADR-072 決定 2 の exit 2 経路へ寄せる
-- [ ] 順位 382 の regression test で framing の有効性を固定する
-
-### 台帳由来 SUMMARY の draft PR 本文出力に screening を追加
-
-> **動機**: PR body 生成が `echo "- 内容: ${SUMMARY}"` を無検証で行う。**draft PR であっても public repository では第三者に可視**であり、攻撃者制御文字列の公開面になる。
->
-> **対処案**: PR 本文へ出す前に長さ制限・改行/markdown 制御文字のエスケープを行う。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High / Frequency Low / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] PR body 生成箇所に screening/escaping を追加する
-- [ ] 公開面に出る他の経路 (ブランチ名・コミットメッセージ) も同時に棚卸しする
+> 発生源の背景 (382 のために残す): 夜間ループは台帳 (`docs/claude-code-web-tasks.md`) の自由記述フィールドを無人 agent のプロンプトへ埋め込む。決定 12-14 の防御は実装済みで、**それが効き続けることを固定する**のが 382 の役割。
 
 ### 台帳 prompt injection payload の regression test
 
@@ -485,13 +414,13 @@
 >
 > 初版はこの区別を持たず 2 だけを例示していた。テスト名が prompt injection を名乗りながら shell injection しか見ない状態は、通っていること自体が誤った安心になる。
 >
-> **依存**: 順位 380 (framing 実装)。framing 前にテストだけ書いても固定する対象が無い。
+> **依存**: 解消済み — 順位 380 の framing は 2026-08-08 実装済み ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13)。着手可能。決定 13 の unit test (marker / 不可視文字の拒否) は parse 層のみを固定しており、**prompt 組立と自然言語 adversarial payload の系統は未固定**なので本エントリの価値は残る。
 >
 > **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 作業計画
 
-- [ ] 順位 380 の実装後、injection payload fixture を追加する
+- [ ] injection payload fixture を追加する (順位 380 の framing は実装済みのため着手可能)
 - [ ] **自然言語 adversarial payload** と **shell / パース形式 payload** を別 fixture に分ける (前者が prompt injection の本命、後者はパース堅牢性)
 - [ ] fixture は **good / bad の対**で用意し、**1 fixture = 1 条件**に保つ (assert は最小限、payload の由来をコメントで辿れるようにする)
 
@@ -513,8 +442,3 @@
 - [ ] bare `---` がセパレータ行として通らないことの回帰テストを追加する
 - [ ] 表の直前に水平線がある台帳で選択が壊れないことを確認する
 
----
-
-## 夜間ループの外部設定の実体記録 (2026-08-07 登録 → 2026-08-08 完了・削除)
-
-> **順位 384 は完了したため本エントリを削除した (2026-08-08)。** 外部設定の実体は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 外部設定の実体 に記録済み (App 名 `nightly-todo-aloekun` / インストール範囲 `claude-code-hook-test` のみ / 付与権限 Contents・PR write, Metadata read, **Workflows なし** / variable・secret の登録先 / 欠落時の倒れ方の表 / 再構築手順、秘密値そのものは非記録)。ADR-051 の 3 点 (相互参照コメントを workflow へ・期待値の組み合わせ表を ADR へ・両側同一 PR) も #369/#370 で充足。summary2 の順位 384 行も削除済み。
