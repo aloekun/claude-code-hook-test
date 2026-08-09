@@ -11,13 +11,13 @@
 //! # 使い方
 //!
 //! ```text
-//! cli-autonomy-gate --operation <fix-push|draft-pr> --config <path> \
-//!   [--open-draft-prs <count>]
+//! cli-autonomy-gate --operation <fix-push|autonomous-pr> --config <path> \
+//!   [--open-autonomous-prs <count>]
 //! ```
 //!
-//! `--open-draft-prs` は `draft-pr` の背圧入力 (ADR-071)。呼び手 (workflow step) が
-//! `gh api` で数えた **未マージ draft PR (`claude/` prefix) の実測件数**を渡す。省略すると
-//! 背圧未接続として deny に倒れるため、`draft-pr` では実質必須。`fix-push` の背圧は
+//! `--open-autonomous-prs` は `autonomous-pr` の背圧入力 (ADR-071)。呼び手 (workflow step) が
+//! `gh api` で数えた **未マージの自律 PR (`claude/` prefix) の実測件数**を渡す。省略すると
+//! 背圧未接続として deny に倒れるため、`autonomous-pr` では実質必須。`fix-push` の背圧は
 //! cli-pr-monitor の有界 retry が担うので本フラグは判定に影響しない。
 //!
 //! # exit コード
@@ -54,8 +54,8 @@ const EXIT_ALLOWED: i32 = 0;
 const EXIT_DENIED: i32 = 1;
 const EXIT_USAGE: i32 = 2;
 
-const USAGE: &str = "usage: cli-autonomy-gate --operation <fix-push|draft-pr> --config <path> \
-[--open-draft-prs <count>]";
+const USAGE: &str = "usage: cli-autonomy-gate --operation <fix-push|autonomous-pr> --config <path> \
+[--open-autonomous-prs <count>]";
 
 fn main() {
     std::process::exit(run(std::env::args().skip(1).collect()));
@@ -67,18 +67,18 @@ fn main() {
 /// 呼び手が PR ブランチの config を黙って読む (ADR-066 § 決定 3 の信頼境界)。省略を
 /// 引数不正として弾くことで、呼び手にパスの出所を必ず意識させる。
 ///
-/// `--open-draft-prs` だけは省略可能。`fix-push` では判定に使わないためで、`draft-pr` で
+/// `--open-autonomous-prs` だけは省略可能。`fix-push` では判定に使わないためで、`autonomous-pr` で
 /// 省略した場合は `None` = 背圧未接続として deny に倒れる (省略が許可へ倒れることはない)。
 struct Cli {
     operation: Operation,
     config_path: PathBuf,
-    open_draft_prs: Option<u32>,
+    open_autonomous_prs: Option<u32>,
 }
 
 fn parse_args(args: &[String]) -> Result<Cli, String> {
     let mut operation = None;
     let mut config_path = None;
-    let mut open_draft_prs = None;
+    let mut open_autonomous_prs = None;
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -93,10 +93,10 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
                 );
             }
             "--config" => config_path = Some(PathBuf::from(take()?)),
-            "--open-draft-prs" => {
+            "--open-autonomous-prs" => {
                 let raw = take()?;
-                open_draft_prs = Some(raw.parse::<u32>().map_err(|_| {
-                    format!("--open-draft-prs は 0 以上の整数である必要があります: {raw:?}")
+                open_autonomous_prs = Some(raw.parse::<u32>().map_err(|_| {
+                    format!("--open-autonomous-prs は 0 以上の整数である必要があります: {raw:?}")
                 })?);
             }
             other => return Err(format!("未知の引数です: {other:?}")),
@@ -106,7 +106,7 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
     Ok(Cli {
         operation: operation.ok_or_else(|| "--operation が必要です".to_string())?,
         config_path: config_path.ok_or_else(|| "--config が必要です".to_string())?,
-        open_draft_prs,
+        open_autonomous_prs,
     })
 }
 
@@ -124,8 +124,8 @@ fn run(args: Vec<String>) -> i32 {
     let inputs = GateInputs {
         repo_config_enabled: repo_config.enabled,
         external_raw: external.as_deref(),
-        open_draft_prs: cli.open_draft_prs,
-        max_open_draft_prs: repo_config.max_open_draft_prs,
+        open_autonomous_prs: cli.open_autonomous_prs,
+        max_open_autonomous_prs: repo_config.max_open_autonomous_prs,
         operation: cli.operation,
     };
     report(&cli, inputs)
@@ -184,39 +184,55 @@ mod tests {
             .expect("parse");
         assert_eq!(cli.operation, Operation::FixPush);
         assert_eq!(cli.config_path, PathBuf::from("a.toml"));
-        assert_eq!(cli.open_draft_prs, None, "省略時は背圧未接続 (= 停止側)");
+        assert_eq!(cli.open_autonomous_prs, None, "省略時は背圧未接続 (= 停止側)");
     }
 
     #[test]
-    fn parses_the_open_draft_count() {
+    fn parses_the_open_autonomous_pr_count() {
         let cli = parse_args(&args(&[
-            "--operation", "draft-pr",
+            "--operation", "autonomous-pr",
             "--config", "a.toml",
-            "--open-draft-prs", "0",
+            "--open-autonomous-prs", "0",
         ]))
         .expect("parse");
-        assert_eq!(cli.open_draft_prs, Some(0));
+        assert_eq!(cli.open_autonomous_prs, Some(0));
     }
 
     /// 数えられなかった結果を空文字や負値で渡されても、`None` (= 0 件扱いになりうる形) では
     /// なく引数不正として弾く。呼び手の `gh api` が失敗した形が黙って通らないようにする。
     #[test]
-    fn non_numeric_open_draft_counts_are_usage_errors() {
+    fn non_numeric_open_autonomous_pr_counts_are_usage_errors() {
         for raw in ["", "-1", "3.0", "three", "1 "] {
             let parsed = parse_args(&args(&[
-                "--operation", "draft-pr",
+                "--operation", "autonomous-pr",
                 "--config", "a.toml",
-                "--open-draft-prs", raw,
+                "--open-autonomous-prs", raw,
             ]));
             assert!(parsed.is_err(), "{raw:?} が引数不正として弾かれない");
         }
     }
 
+    /// 旧フラグ名 `--open-draft-prs` は未知引数として弾く (ADR-072 決定 15 の改名)。
+    ///
+    /// 判定コア側の旧名拒否 (`Operation::parse("draft-pr")` / 旧 config キー) は
+    /// lib-autonomy-policy が固定しているが、**CLI の引数層だけ素通りする**形が最も危うい —
+    /// 呼び手が旧フラグを渡し続けると値が `None` のまま「背圧未接続」ではなく
+    /// 「フラグを渡したつもり」の状態で運用されうる。ここで exit 2 に倒す。
+    #[test]
+    fn the_pre_rename_cli_flag_is_rejected_as_unknown() {
+        let parsed = parse_args(&args(&[
+            "--operation", "autonomous-pr",
+            "--config", "a.toml",
+            "--open-draft-prs", "0",
+        ]));
+        assert!(parsed.is_err(), "旧フラグ --open-draft-prs が引数不正として弾かれない");
+    }
+
     #[test]
     fn order_of_flags_does_not_matter() {
-        let cli = parse_args(&args(&["--config", "b.toml", "--operation", "draft-pr"]))
+        let cli = parse_args(&args(&["--config", "b.toml", "--operation", "autonomous-pr"]))
             .expect("parse");
-        assert_eq!(cli.operation, Operation::DraftPr);
+        assert_eq!(cli.operation, Operation::AutonomousPr);
         assert_eq!(cli.config_path, PathBuf::from("b.toml"));
     }
 

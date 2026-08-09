@@ -213,76 +213,11 @@
 
 ## 夜間ループの draft 廃止とレビュー起動の是正 (2026-08-09 登録)
 
-> **由来**: 2026-08-09 に PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) で実測した 2 件の観測から、ユーザー判断 (同日) を経て方針を確定したもの。**3 件は 1 本の根から出ている** — 夜間 PR を draft にしたことが CodeRabbit の自動レビュー対象外を招き、その回避策 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11) が bot 投稿の無視で不成立になった。順位 393 が記録の是正、394 が構造の是正、395 は独立 (ブランチ運用) だが同じセッションの観測に由来する。
+> **由来**: 2026-08-09 に PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) で実測した 2 件の観測から、ユーザー判断 (同日) を経て方針を確定したもの。**3 件は 1 本の根から出ている** — 夜間 PR を draft にしたことが CodeRabbit の自動レビュー対象外を招き、その回避策 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11) が bot 投稿の無視で不成立になった。
 >
-> **順序**: 393 → 394。393 は現状記録を実測に合わせる作業で、394 の改訂前提になる。395 は独立で並行可。
-
-### ADR-072 決定 11 (CodeRabbit 明示トリガー) を撤回として記録し Phase B 判定を訂正する
-
-> **動機**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 は「draft PR 作成後に `@coderabbitai review` を 1 回投稿する」設計だが、**App token (bot) の投稿は CodeRabbit に無視される**ことが 2026-08-09 に確定した。同一 PR (#373)・同一文言・同一設定で投稿者だけが異なる 2 回の実測:
+> **順位 393 (記録の是正) と 394 (構造の是正) は実装済み・削除済み** (2026-08-09)。撤回記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 の撤回ブロック、停止点変更は同 決定 15、背圧の指標改訂は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、分類表の本体改訂は [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 2 が正。**実走確認 (夜間 PR に CodeRabbit の初回自動レビューが付くこと) だけが残り**、計画書 WP-18 の残作業表と ADR-072 § 実走スモークが追跡する。
 >
-> | 時刻 (UTC) | 投稿者 | 反応 |
-> |---|---|---|
-> | 08-08 18:10:54 | `nightly-todo-aloekun` (App/bot) | **なし** (約 10 時間) |
-> | 08-09 04:10:39 | `aloekun` (人間) | **4 秒後**に応答 → 11 秒後にレビュー開始 |
->
-> 決定 11 自身が「bot 同士のループを避けるため他 bot のコメントを無視する実装は珍しくない」と未検証事項に挙げていた仮説が、そのまま実証された。**明示トリガーという方式自体は有効**で ([ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) の fix push 後トリガーは現在も機能している)、効かないのは投稿者が bot の場合だけ。ADR-019 側は `cli-pr-monitor` がローカルの `gh` = **ユーザー資格情報**で投稿しているため成立していた。決定 11 は「ADR-019 と同型」と判断したが、**同型だったのはコマンド文字列だけで投稿者の種別が違っていた**。
->
-> あわせて **§ 実走スモークの Phase B 判定も誤り**。「不成立」と記帳しているが、実際は CodeRabbit のコメントが発生した時点で `issue_comment` 経路が発火し、**Phase A が夜間 draft PR で自動起動した** (#373 で 04:12:15 に分析コメント)。経路は生存しており、起動契機が無かっただけである。`coderabbitai[bot]` allowlist の要否も同様に再判定が必要。
->
-> **対処案**: 決定 11 を削除せず**撤回として記録**する ([ADR-047](adr/adr-047-prepush-refute-facet.md) が「dogfood の結果 2026-07-19 却下・撤去済」と残している形式に倣う)。撤回理由と実測表を残し、順位 394 の draft 廃止が代替解になることを明記する。§ 実走スモークの Phase B 行と `coderabbitai[bot]` allowlist 行も実測に合わせて訂正する。
->
-> **参照**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 / § 実走スモーク、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md)、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) (Phase B 起動経路)、PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (ADR の記述が実測と食い違ったまま残ると、次の判断が誤った前提に乗る) / Frequency 一度きり / Effort S / Adoption Risk None (docs-only)。
-
-#### 作業計画
-
-- [ ] 決定 11 に撤回の記録を追記する (実測表 + 撤回理由 + 代替解が順位 394 であること)
-- [ ] § 実走スモークの Phase B 行を「経路は生存・起動契機が無かった」へ訂正する
-- [ ] `coderabbitai[bot]` allowlist の判定不能行を、決定 11 撤回を踏まえた再判定条件へ書き換える
-
-#### 完了基準
-
-- 決定 11 が撤回として記録され、bot 投稿が無視される実測 (投稿者別の対照) が残っていること。
-- Phase B 自動起動の判定が「不成立」ではなく実測どおりの記述になっていること。
-
-### 夜間ループの draft PR を通常 PR へ変更し背圧の命名を `autonomous` 系へ揃える
-
-> **動機**: 順位 393 の実測を受けた**構造側の是正**。夜間ループが draft PR を作るために `.coderabbit.yaml` の `reviews.auto_review.drafts: false` と衝突し、レビューが付かない状態を回避策 (決定 11) で埋めようとして失敗した。**draft をやめれば `auto_review.enabled: true` の初回レビューに自然に乗り、回避策そのものが不要になる。**
->
-> **ユーザー判断 (2026-08-09)**: 発生トリガーがユーザー指示か自動採択かで扱いを区別しない。有効な修正 PR ならプロジェクトに取り入れてよい。したがって commitment 点は **マージ 1 点**に集約してよく、「ready = レビュー求む」の意思表示を自律 actor が出すことを許容する。
->
-> **必ず同時に直す箇所**: [nightly-todo.yml](../.github/workflows/nightly-todo.yml) の背圧計数は `jq '[.[] | select(.isDraft and ...)] | length'` で **`.isDraft` を条件にしている**。draft をやめると**計数が常に 0 になり背圧が完全に無効化される** ([ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 が禁じる状態)。`--draft` の除去とセットで必須。
->
-> **ADR 側の改訂**:
->
-> - **ADR-052**: 原則 2 の分類表で「**非 draft PR の作成**」がゲート必須クラスに、「PR の ready 化」も同様に列挙されている。前者を自動実行可クラスへ移す**本体改訂**にあたる (注記の追加では済まない)。改訂理由 (トリガーの別を区別せず commitment 点をマージに集約する) を明記する
-> - **ADR-019**: quota 消費が夜間 PR 1 件につき 1 レビュー増える。決定 11 が意図していた消費量と同じ (起動経路が明示トリガーから auto_review に変わるだけ) だが、クォータ設計の前提が変わるため注記する
-> - **ADR-071 / ADR-072**: 背圧の指標定義 (「未マージ draft 数」→「未マージの `claude/` PR 数」) と決定 8 の draft 前提記述
->
-> **命名 (ユーザー選択 2026-08-09)**: `autonomous` 系へ揃える。`max_open_autonomous_prs` / `--open-autonomous-prs` / `Operation::AutonomousPr` / `--operation autonomous-pr` / `requires_autonomous_pr_backpressure()` / `open_autonomous_prs`、ADR-052 のクラス名は「autonomous-pr クラス」。**[ADR-071](adr/adr-071-draft-pr-backpressure.md) のファイル名は変更しない** — ADR 番号とファイル名は歴史的識別子で、変えると全リンクが壊れる。内容側で意味を再定義する。
->
-> **影響範囲**: 12 ファイル 132 箇所。Rust 実装は `lib-autonomy-policy` (54) / `cli-autonomy-gate` (23) / `cli-fix-push-gate` (2)。**PR size gate (1500 行) に掛かった場合は (a) 機械的リネーム (挙動不変) → (b) draft 廃止 の 2 本へ分割し、[ADR-069](adr/adr-069-pr-chain-declaration.md) の chain 宣言を付ける。**
->
-> **参照**: [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 2 / 原則 5、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md)、[ADR-071](adr/adr-071-draft-pr-backpressure.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 8 / 決定 11、順位 393 (記録側の是正)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High (現状は夜間 PR にレビューが付かず、無人実装の品質が CI だけに依存している) / Frequency 毎晩 / Effort M-L / Adoption Risk Medium (背圧計数の同時修正を落とすと ADR-052 原則 5 違反になる)。
-
-#### 作業計画
-
-- [ ] `gh pr create` から `--draft` を除去する
-- [ ] 背圧計数の `.isDraft` 条件を除去する (**落とすと背圧が無効化される**)
-- [ ] 決定 11 の `Request a CodeRabbit review` step を撤去する
-- [ ] 背圧の命名を `autonomous` 系へ揃える (config / flag / 型 / 文字列 / 関数 / field)
-- [ ] ADR-052 原則 2 の分類表を改訂し、ADR-019 / ADR-071 / ADR-072 の該当記述を同期する
-- [ ] 実走で夜間 PR に CodeRabbit の初回自動レビューが付くこと、背圧が閾値で止まることを確認する
-
-#### 完了基準
-
-- 夜間ループが通常 PR を作り、CodeRabbit の初回自動レビューが**実走で**付くこと。
-- 背圧が draft 廃止後も機能すること (閾値到達で deny することを実測または drill で確認)。
-- ADR-052 の分類表が改訂され、改訂理由が記録されていること。
+> 以下の 395 は独立 (ブランチ運用) だが同じセッションの観測に由来する。
 
 ### 週次レビューで浮きブランチを検出し削除を提案する
 
@@ -312,3 +247,43 @@
 
 - 週次レビューがクローズ済み PR の残存ブランチを列挙し、削除を提案すること。
 - 自動削除を行わないこと (提案までで止まる)。
+
+---
+
+## CI 安定性 (2026-08-09 登録)
+
+### hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす
+
+> **由来**: PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376) の CI で `rust (ubuntu-latest)` が失敗した。`windows-latest` は成功、変更は当該クレートを 1 ファイルも触っていない。
+>
+> ```text
+> test malformed_stdin_does_not_block ... FAILED
+> panicked at src/hooks-pre-tool-validate/tests/smoke.rs:137:
+>   spawn hooks-pre-tool-validate: Os { code: 26, kind: ExecutableFileBusy,
+>                                       message: "Text file busy" }
+> ```
+>
+> **機構**: [smoke.rs](../src/hooks-pre-tool-validate/tests/smoke.rs) の 2 テストは cargo 既定で並列実行される。各テストは `stage_hook()` で exe を tempdir へ `fs::copy` してから spawn する。片方の `fs::copy` が**書き込み用 fd を開いている最中に**、もう片方の `Command::spawn()` が fork すると、子プロセスがその fd を継承する。copy 側が fd を閉じても fork された子が exec するまで複製が残るため、copy 側の exec が `ETXTBSY` で落ちる。Linux 固有 (Windows では再現しない)。
+>
+> **頻度**: 直近 15 回の `ci.yml` run で初出。恒常的ではないが、**両 OS matrix (ADR-065) が意味を持つのは CI が信頼できるときだけ**で、原因不明の赤が続くと「また flake だろう」と実バグを見落とす経路になる。
+>
+> **対処案** (実装時に判断):
+>
+> - (a) `ci.yml` の hooks smoke step を `--test-threads=1` にする — 最小・即効だが、他 suite の並列性は保たれるので損失は小さい
+> - (b) `run_hook` の spawn を `ETXTBSY` でリトライする — 根本に近いが、テストコードに retry を持ち込む
+> - (c) staging をやめて `built_exe()` を直接起動する — copy 自体が消えるが、config を tempdir に staging する設計 (テストの副作用隔離) と噛み合うか要確認
+>
+> **参照**: [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) (両 OS matrix の意義)、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (実バグではないが CI の信号品質を下げる) / Frequency Low (初観測) / Effort S / Adoption Risk Low (テスト実行方法の変更のみ)。
+
+#### 作業計画
+
+- [ ] 対処案 (a)-(c) から選び、ローカル (WSL Ubuntu) で並列実行を再現させてから直す
+- [ ] 修正後に同じ再現手順で `ETXTBSY` が出ないことを確認する
+- [ ] 他の smoke/E2E suite に同型の「copy してから spawn」パターンが無いか棚卸しする
+
+#### 完了基準
+
+- hooks smoke suite が Linux で `ETXTBSY` を起こさないこと (再現手順付きで確認)。
+- 同型パターンが他 suite に無いこと、またはあれば同じ対処が入っていること。

@@ -22,36 +22,40 @@ const RAW_VALUE_LOG_CAP: usize = 32;
 pub enum Operation {
     /// 既存 PR ブランチへの fix push。背圧は cli-pr-monitor の有界 retry (max_retries) が担う。
     FixPush,
-    /// draft PR 作成。背圧の指標は「未マージ draft 数」(ADR-071)。
-    DraftPr,
+    /// 自律 actor による PR 作成。背圧の指標は「未マージの `claude/` PR 数」(ADR-071)。
+    ///
+    /// 指標は当初「未マージ **draft** 数」だったが、夜間ループの停止点を draft PR から
+    /// 通常 PR へ移した時点で draft 属性を条件から外した (ADR-072 決定 15)。draft を
+    /// 数え続けると**常に 0 件 = 背圧が無効化**され、ADR-052 原則 5 が禁じる状態になる。
+    AutonomousPr,
 }
 
 impl Operation {
     pub fn as_str(self) -> &'static str {
         match self {
             Operation::FixPush => "fix-push",
-            Operation::DraftPr => "draft-pr",
+            Operation::AutonomousPr => "autonomous-pr",
         }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "fix-push" => Some(Operation::FixPush),
-            "draft-pr" => Some(Operation::DraftPr),
+            "autonomous-pr" => Some(Operation::AutonomousPr),
             _ => None,
         }
     }
 
-    /// 本操作クラスが「未マージ draft 数」の背圧を要求するか (ADR-052 原則 5 / ADR-071)。
+    /// 本操作クラスが「未マージの自律 PR 数」の背圧を要求するか (ADR-052 原則 5 / ADR-071)。
     ///
     /// `FixPush` が `false` なのは背圧が不要だからではない。fix push の背圧は cli-pr-monitor の
     /// 有界 retry (`max_retries`) が担っており、**呼び出しごとに gate へ渡す状態を持たない**
-    /// ため、判定入力としては現れない。draft 数を入力として要求するのは `DraftPr` だけ。
+    /// ため、判定入力としては現れない。PR 数を入力として要求するのは `AutonomousPr` だけ。
     ///
-    /// 背圧の「状態」(実測 draft 数・閾値) はここには持たない。持たせると [`GateInputs`] の
+    /// 背圧の「状態」(実測 PR 数・閾値) はここには持たない。持たせると [`GateInputs`] の
     /// 入力と二重管理になり、判定経路が分岐する (ADR-071 § 決定 2)。
-    fn requires_draft_backpressure(self) -> bool {
-        matches!(self, Operation::DraftPr)
+    fn requires_autonomous_pr_backpressure(self) -> bool {
+        matches!(self, Operation::AutonomousPr)
     }
 }
 
@@ -63,13 +67,16 @@ pub struct GateInputs<'a> {
     pub repo_config_enabled: Option<bool>,
     /// 外部フラグ (CI variable → env / ローカル env) の生値。`None` = 未設定。
     pub external_raw: Option<&'a str>,
-    /// 未マージ draft PR (`claude/` prefix) の実測件数。`None` = 未取得 / 取得失敗 (= 停止)。
+    /// 未マージの自律 PR (`claude/` prefix) の実測件数。`None` = 未取得 / 取得失敗 (= 停止)。
     ///
     /// 取得は呼び手 (workflow step の `gh api`) の責務。`0` と `None` は意味が異なる —
     /// `0` は「数えた結果 0 件」、`None` は「数えられなかった」で、後者は deny に倒れる。
-    pub open_draft_prs: Option<u32>,
-    /// `autonomy-config.toml` の `[autonomy] max_open_draft_prs`。`None` = 読めない (= 停止)。
-    pub max_open_draft_prs: Option<u32>,
+    ///
+    /// **draft 属性で絞り込まない。** 絞り込むと停止点が通常 PR になった時点で常に 0 件へ
+    /// 潰れ、背圧が無音で無効化される (ADR-072 決定 15)。
+    pub open_autonomous_prs: Option<u32>,
+    /// `autonomy-config.toml` の `[autonomy] max_open_autonomous_prs`。`None` = 読めない (= 停止)。
+    pub max_open_autonomous_prs: Option<u32>,
     pub operation: Operation,
 }
 
@@ -86,7 +93,7 @@ pub enum DenyReason {
     RepoConfigDisabled,
     /// 操作クラスが要求する背圧の指標を読めない (実測値 / 閾値のいずれかが欠落)。
     BackpressureUnavailable(Operation),
-    /// 背圧が飽和した = 未マージ draft が閾値に達している (自主減速)。
+    /// 背圧が飽和した = 未マージの自律 PR が閾値に達している (自主減速)。
     BackpressureSaturated { open: u32, limit: u32 },
 }
 
@@ -107,13 +114,13 @@ impl DenyReason {
                 format!("{config_path} で [autonomy] enabled = false が指定されています")
             }
             DenyReason::BackpressureUnavailable(op) => format!(
-                "操作クラス {} の背圧を読めません (未マージ draft 数の実測値または {config_path} の \
-[autonomy] max_open_draft_prs が欠落。ADR-052 原則 5 の契約により停止)",
+                "操作クラス {} の背圧を読めません (未マージの自律 PR 数の実測値または {config_path} の \
+[autonomy] max_open_autonomous_prs が欠落。ADR-052 原則 5 の契約により停止)",
                 op.as_str()
             ),
             DenyReason::BackpressureSaturated { open, limit } => format!(
-                "未マージ draft PR が {open} 件で閾値 {limit} 件に達しています (自主減速。\
-draft をマージ / クローズするか {config_path} の max_open_draft_prs を見直してください)"
+                "未マージの自律 PR が {open} 件で閾値 {limit} 件に達しています (自主減速。\
+該当 PR をマージ / クローズするか {config_path} の max_open_autonomous_prs を見直してください)"
             ),
         }
     }
@@ -146,7 +153,7 @@ pub enum Decision {
 /// 先頭理由だけを返しても診断情報は失われない。
 ///
 /// 背圧の飽和判定が `>=` であって `>` ではないのは、閾値が「これ以上は積まない」上限だから。
-/// `limit = 0` は「draft を 1 件も作らない」= 実質停止を意味する (ADR-071 § 決定 3)。
+/// `limit = 0` は「自律 PR を 1 件も作らない」= 実質停止を意味する (ADR-071 § 決定 3)。
 pub fn evaluate(inputs: GateInputs<'_>) -> Decision {
     match inputs.external_raw {
         None => return Decision::Denied(DenyReason::ExternalUnset),
@@ -160,8 +167,8 @@ pub fn evaluate(inputs: GateInputs<'_>) -> Decision {
         Some(false) => return Decision::Denied(DenyReason::RepoConfigDisabled),
         Some(true) => {}
     }
-    if inputs.operation.requires_draft_backpressure() {
-        let (Some(open), Some(limit)) = (inputs.open_draft_prs, inputs.max_open_draft_prs) else {
+    if inputs.operation.requires_autonomous_pr_backpressure() {
+        let (Some(open), Some(limit)) = (inputs.open_autonomous_prs, inputs.max_open_autonomous_prs) else {
             return Decision::Denied(DenyReason::BackpressureUnavailable(inputs.operation));
         };
         if open >= limit {
@@ -195,15 +202,15 @@ pub fn describe_sources(inputs: GateInputs<'_>, env_name: &str) -> String {
 
 /// 背圧 1 ソース分の状態表記。
 ///
-/// `structural` は「この操作クラスは draft 数を入力として要求しない」を意味する
-/// (fix push は cli-pr-monitor の有界 retry が背圧を担う)。draft 数を要求するクラスでは
+/// `structural` は「この操作クラスは自律 PR 数を入力として要求しない」を意味する
+/// (fix push は cli-pr-monitor の有界 retry が背圧を担う)。自律 PR 数を要求するクラスでは
 /// 実測値と閾値を必ず併記し、「止まったのは数え損ねか、それとも積み過ぎか」を run log
 /// 1 行で切り分けられるようにする。
 fn describe_backpressure(inputs: GateInputs<'_>) -> String {
-    if !inputs.operation.requires_draft_backpressure() {
+    if !inputs.operation.requires_autonomous_pr_backpressure() {
         return "structural".to_string();
     }
-    match (inputs.open_draft_prs, inputs.max_open_draft_prs) {
+    match (inputs.open_autonomous_prs, inputs.max_open_autonomous_prs) {
         (Some(open), Some(limit)) if open >= limit => format!("saturated({open}/{limit})"),
         (Some(open), Some(limit)) => format!("ok({open}/{limit})"),
         _ => "unavailable".to_string(),
@@ -233,7 +240,7 @@ mod tests {
     /// truthy でない表記。空文字・0・false に加え、解釈不能なゴミ値を含む。
     const NOT_TRUTHY: &[&str] = &["", "0", "false", "off", "no", "enabled", "2", "１"];
 
-    /// 背圧入力を接続しない既定形。`DraftPr` はこの形では常に deny になる。
+    /// 背圧入力を接続しない既定形。`AutonomousPr` はこの形では常に deny になる。
     fn inputs<'a>(
         repo_config_enabled: Option<bool>,
         external_raw: Option<&'a str>,
@@ -242,8 +249,8 @@ mod tests {
         GateInputs {
             repo_config_enabled,
             external_raw,
-            open_draft_prs: None,
-            max_open_draft_prs: None,
+            open_autonomous_prs: None,
+            max_open_autonomous_prs: None,
             operation,
         }
     }
@@ -251,14 +258,14 @@ mod tests {
     /// kill-switch 2 面を有効にしたうえで背圧入力だけを差し替える。
     fn with_backpressure<'a>(
         operation: Operation,
-        open_draft_prs: Option<u32>,
-        max_open_draft_prs: Option<u32>,
+        open_autonomous_prs: Option<u32>,
+        max_open_autonomous_prs: Option<u32>,
     ) -> GateInputs<'a> {
         GateInputs {
             repo_config_enabled: Some(true),
             external_raw: Some("true"),
-            open_draft_prs,
-            max_open_draft_prs,
+            open_autonomous_prs,
+            max_open_autonomous_prs,
             operation,
         }
     }
@@ -273,7 +280,7 @@ mod tests {
 
     #[test]
     fn denies_when_external_is_unset() {
-        for op in [Operation::FixPush, Operation::DraftPr] {
+        for op in [Operation::FixPush, Operation::AutonomousPr] {
             for repo in [None, Some(true), Some(false)] {
                 assert_eq!(
                     evaluate(inputs(repo, None, op)),
@@ -307,14 +314,14 @@ mod tests {
         );
     }
 
-    /// 背圧入力が 1 つでも欠ければ、kill-switch が両面とも有効でも draft PR は通さない。
+    /// 背圧入力が 1 つでも欠ければ、kill-switch が両面とも有効でも自律 PR は通さない。
     /// 実測値と閾値のどちらが欠けても同じ deny に倒れることを固定する (ADR-052 原則 5)。
     #[test]
-    fn denies_draft_pr_when_any_backpressure_input_is_missing() {
+    fn denies_autonomous_pr_when_any_backpressure_input_is_missing() {
         for (open, limit) in [(None, None), (Some(0), None), (None, Some(3))] {
             assert_eq!(
-                evaluate(with_backpressure(Operation::DraftPr, open, limit)),
-                Decision::Denied(DenyReason::BackpressureUnavailable(Operation::DraftPr)),
+                evaluate(with_backpressure(Operation::AutonomousPr, open, limit)),
+                Decision::Denied(DenyReason::BackpressureUnavailable(Operation::AutonomousPr)),
                 "open={open:?} limit={limit:?} は背圧未接続として deny でなければならない"
             );
         }
@@ -322,34 +329,34 @@ mod tests {
 
     /// 閾値ちょうどで止まる (`>` ではなく `>=`)。境界の off-by-one を pin する。
     #[test]
-    fn draft_pr_stops_at_the_limit_not_after_it() {
+    fn autonomous_pr_stops_at_the_limit_not_after_it() {
         assert_eq!(
-            evaluate(with_backpressure(Operation::DraftPr, Some(2), Some(3))),
+            evaluate(with_backpressure(Operation::AutonomousPr, Some(2), Some(3))),
             Decision::Allowed
         );
         assert_eq!(
-            evaluate(with_backpressure(Operation::DraftPr, Some(3), Some(3))),
+            evaluate(with_backpressure(Operation::AutonomousPr, Some(3), Some(3))),
             Decision::Denied(DenyReason::BackpressureSaturated { open: 3, limit: 3 })
         );
         assert_eq!(
-            evaluate(with_backpressure(Operation::DraftPr, Some(9), Some(3))),
+            evaluate(with_backpressure(Operation::AutonomousPr, Some(9), Some(3))),
             Decision::Denied(DenyReason::BackpressureSaturated { open: 9, limit: 3 })
         );
     }
 
-    /// `limit = 0` は「draft を 1 件も作らない」= 実質停止。0 件でも通さない。
+    /// `limit = 0` は「自律 PR を 1 件も作らない」= 実質停止。0 件でも通さない。
     #[test]
-    fn zero_limit_denies_every_draft_pr() {
+    fn zero_limit_denies_every_autonomous_pr() {
         assert_eq!(
-            evaluate(with_backpressure(Operation::DraftPr, Some(0), Some(0))),
+            evaluate(with_backpressure(Operation::AutonomousPr, Some(0), Some(0))),
             Decision::Denied(DenyReason::BackpressureSaturated { open: 0, limit: 0 })
         );
     }
 
-    /// fix push の背圧は cli-pr-monitor の有界 retry が担うため、draft 数の飽和では止めない。
-    /// 「draft が溜まったら fix push も止まる」という意図しない結合が入っていないことを固定する。
+    /// fix push の背圧は cli-pr-monitor の有界 retry が担うため、自律 PR 数の飽和では止めない。
+    /// 「自律 PR が溜まったら fix push も止まる」という意図しない結合が入っていないことを固定する。
     #[test]
-    fn fix_push_is_unaffected_by_draft_backpressure_inputs() {
+    fn fix_push_is_unaffected_by_autonomous_pr_backpressure_inputs() {
         for (open, limit) in [(None, None), (Some(99), Some(1)), (Some(0), Some(3))] {
             assert_eq!(
                 evaluate(with_backpressure(Operation::FixPush, open, limit)),
@@ -365,9 +372,9 @@ mod tests {
         let saturated_but_switched_off = GateInputs {
             repo_config_enabled: Some(false),
             external_raw: Some("true"),
-            open_draft_prs: Some(0),
-            max_open_draft_prs: Some(3),
-            operation: Operation::DraftPr,
+            open_autonomous_prs: Some(0),
+            max_open_autonomous_prs: Some(3),
+            operation: Operation::AutonomousPr,
         };
         assert_eq!(
             evaluate(saturated_but_switched_off),
@@ -384,15 +391,15 @@ mod tests {
         let backpressures: [(Option<u32>, Option<u32>); 4] =
             [(None, None), (Some(0), None), (Some(0), Some(3)), (Some(3), Some(3))];
         let mut allowed_count = 0;
-        for op in [Operation::FixPush, Operation::DraftPr] {
+        for op in [Operation::FixPush, Operation::AutonomousPr] {
             for repo in [None, Some(true), Some(false)] {
                 for external in &externals {
                     for (open, limit) in backpressures {
                         let allowed = evaluate(GateInputs {
                             repo_config_enabled: repo,
                             external_raw: *external,
-                            open_draft_prs: open,
-                            max_open_draft_prs: limit,
+                            open_autonomous_prs: open,
+                            max_open_autonomous_prs: limit,
                             operation: op,
                         }) == Decision::Allowed;
                         let backpressure_ok = op == Operation::FixPush
@@ -410,21 +417,21 @@ mod tests {
             }
         }
         let fix_push_allows_every_backpressure = backpressures.len();
-        let draft_pr_allows_only_the_unsaturated_one = 1;
+        let autonomous_pr_allows_only_the_unsaturated_one = 1;
         assert_eq!(
             allowed_count,
             TRUTHY.len()
-                * (fix_push_allows_every_backpressure + draft_pr_allows_only_the_unsaturated_one),
+                * (fix_push_allows_every_backpressure + autonomous_pr_allows_only_the_unsaturated_one),
             "許可される組み合わせ数が想定外"
         );
     }
 
     #[test]
     fn describe_sources_reports_every_source_state() {
-        let line = describe_sources(inputs(None, Some("0"), Operation::DraftPr), "AUTONOMY_ENABLED");
+        let line = describe_sources(inputs(None, Some("0"), Operation::AutonomousPr), "AUTONOMY_ENABLED");
         assert!(line.contains("AUTONOMY_ENABLED=not-truthy"), "{line}");
         assert!(line.contains("repo_config=unavailable"), "{line}");
-        assert!(line.contains("backpressure(draft-pr)=unavailable"), "{line}");
+        assert!(line.contains("backpressure(autonomous-pr)=unavailable"), "{line}");
     }
 
     /// 背圧の 3 状態が実測値付きで出ること。deny 行だけで「数え損ね」と「積み過ぎ」を
@@ -434,11 +441,11 @@ mod tests {
         let describe = |open, limit, op| {
             describe_sources(with_backpressure(op, open, limit), "AUTONOMY_ENABLED")
         };
-        assert!(describe(Some(1), Some(3), Operation::DraftPr).contains("backpressure(draft-pr)=ok(1/3)"));
-        assert!(describe(Some(3), Some(3), Operation::DraftPr)
-            .contains("backpressure(draft-pr)=saturated(3/3)"));
-        assert!(describe(None, Some(3), Operation::DraftPr)
-            .contains("backpressure(draft-pr)=unavailable"));
+        assert!(describe(Some(1), Some(3), Operation::AutonomousPr).contains("backpressure(autonomous-pr)=ok(1/3)"));
+        assert!(describe(Some(3), Some(3), Operation::AutonomousPr)
+            .contains("backpressure(autonomous-pr)=saturated(3/3)"));
+        assert!(describe(None, Some(3), Operation::AutonomousPr)
+            .contains("backpressure(autonomous-pr)=unavailable"));
         assert!(describe(Some(9), Some(1), Operation::FixPush)
             .contains("backpressure(fix-push)=structural"));
     }
@@ -455,10 +462,20 @@ mod tests {
     #[test]
     fn operation_parse_rejects_unknown_values() {
         assert_eq!(Operation::parse("fix-push"), Some(Operation::FixPush));
-        assert_eq!(Operation::parse("draft-pr"), Some(Operation::DraftPr));
+        assert_eq!(Operation::parse("autonomous-pr"), Some(Operation::AutonomousPr));
         assert_eq!(Operation::parse("merge"), None);
         assert_eq!(Operation::parse("FIX-PUSH"), None);
         assert_eq!(Operation::parse(""), None);
+    }
+
+    /// 旧名 `draft-pr` は受理しない (ADR-072 決定 15 の改名)。
+    ///
+    /// 呼び手を更新し忘れた場合に**別名として通ってしまう**のが最悪で、その形だと背圧付きの
+    /// クラスが背圧なしで動く。`None` を返せば呼び手は引数不正 (exit 2) で止まるため、
+    /// 取りこぼしは fail-closed 側に倒れる。
+    #[test]
+    fn the_pre_rename_operation_name_is_not_accepted_as_an_alias() {
+        assert_eq!(Operation::parse("draft-pr"), None);
     }
 
     #[test]
@@ -478,6 +495,6 @@ mod tests {
         let text = DenyReason::BackpressureSaturated { open: 4, limit: 3 }
             .describe("AUTONOMY_ENABLED", "autonomy-config.toml");
         assert!(text.contains('4') && text.contains('3'), "{text}");
-        assert!(text.contains("max_open_draft_prs"), "{text}");
+        assert!(text.contains("max_open_autonomous_prs"), "{text}");
     }
 }

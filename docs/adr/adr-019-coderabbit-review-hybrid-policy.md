@@ -150,6 +150,14 @@ WP-03 は 2026-04-19 で却下した「rate-limit 耐性 (超過後の auto-retr
 - **従来**: 初回レビュー 1 + fix push ごとの自動増分レビュー N = `1 + N` 回。
 - **WP-03**: 初回レビュー 1 + fix 束ねごとの明示レビュー 1 = `1 + (iteration 数)` 回。push 毎ではなく「レビューしてほしい確定タイミング」のみ消費し、中間 push (rebase / cleanup 等) が誤ってレビューを消費しない。
 
+#### 夜間ループ PR の消費 (2026-08-09 追記、ADR-072 決定 15)
+
+夜間ループ ([ADR-072](adr-072-nightly-todo-loop.md)) が停止点を draft PR から**通常 PR**へ移したため、**夜間 PR 1 件につき初回自動レビュー 1 回**を消費するようになった。従来は `auto_review.drafts: false` により夜間 PR が丸ごとレビュー対象外で、**quota を一切消費しない代わりに一度もレビューされなかった**。
+
+**消費量そのものは増えていない。** ADR-072 決定 11 (撤回済み) が投げようとしていた明示トリガー 1 回と同量で、起動経路が「明示トリガー」から `auto_review` に変わるだけである。ただし**クォータ設計の前提は変わる** — 上の消費モデルは人間が開く PR を数の母数にしていたが、そこへ毎晩最大 1 件が加わる。背圧 ([ADR-071](adr-071-draft-pr-backpressure.md)) の閾値が、この母数の実効上限になる。
+
+`reviews.auto_review.drafts` は `false` のまま変えない。夜間 PR が draft でなくなったので設定を触る必要がなく、人間が意図的に draft で開く PR を対象外に保つ意味は残る。
+
 #### 既知の制約
 
 - **手動 fix push は手動トリガーが必要**: 明示トリガーは監視の auto-push 経路 (`auto_push_severity` = critical/major) のみ。ユーザー手動 push (severity=none / minor) 後は `@coderabbitai review` を手動投稿する (fail-open のログが誘導する)。

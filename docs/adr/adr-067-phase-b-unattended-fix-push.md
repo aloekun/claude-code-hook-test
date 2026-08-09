@@ -142,6 +142,8 @@ YAML は js-yaml でパースし、job 構成 (`analyze` / `fix`)、`fix.if`、j
 
 ただし段 2 完了時に**自動起動経路そのものへの懸念**が浮上したため記録する。`pull_request_review` 経路が恒久 deny だと、Phase B の起動は `issue_comment` 経路だけになる。この経路は walkthrough (summarize marker を含むコメント) の `types: [created]` のみを購読するため初回 1 回きりで、**その時点では CodeRabbit の実レビュー (inline comments) がまだ存在しないことが多い** → findings 0 件 → degrade。つまり「findings がある状態で Phase B が自動起動する窓」が実質的に無い可能性がある。段 2 は `workflow_dispatch` による手動起動で、その時点で指摘が溜まっていたため成立した — **自動起動経路は一度も検証されていない**。WP-18 着手時に bot allowlist の要否と併せて実測すること。
 
+> **追記 (2026-08-09)**: [ADR-072](adr-072-nightly-todo-loop.md) の夜間 PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) で、CodeRabbit のコメントを契機に **`issue_comment` 経路が実際に発火した** (04:12:15 に Phase A が自動起動)。ADR-072 § 実走スモークが一度「Phase B は不成立」と記帳したのは誤りで、**経路は生存しており、起動契機のコメントが供給されていなかっただけ**である。ただし本段落が挙げた**本題の懸念 — walkthrough 時点では inline comments が無く findings 0 件で degrade する — は未解消**で、Phase B 本体 (無人 fix push) への到達はなお未観測。起動契機の供給は ADR-072 の draft 廃止 (todo 順位 394) が担うため、bot allowlist の要否と併せてその後の run で判定する。
+
 ### 実走スモーク段 2 (2026-08-04、**完走**)
 
 `claude/phase-b-smoke-20260804` ブランチ + PR #355 (意図的な docs 不整合 3 点を仕込んだ観測装置。マージせずクローズする使い捨て) に対し `workflow_dispatch` を 4 回実行した。1〜3 回目は **1 回の dispatch につきバグを 1 個ずつ検出**している (実行が最初の失敗で止まるため)。

@@ -41,7 +41,7 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 | docs-only 変更（[ADR-035](adr-035-doc-evaluation-policy.md) の path 基準 + diff 内容基準） | 実行されないテキスト変更。revert 容易 |
 | Tier 3 cleanup（todo taxonomy の 💎 Tier 3 = 低リスクな機械的 refactor / doc / rule / visibility scoping 等） | 意図表現を侵さない局所変更。revert 容易 |
 | `claude/` prefix ブランチへの push | trunk ではない隔離 namespace。ブランチ push は revert 可能で、まだ PR として外部にコミットされていない |
-| `claude/` ブランチからの **draft PR 作成** | draft は CodeRabbit 自動レビュー対象外（`.coderabbit.yaml` の `drafts=false`、[ADR-019](adr-019-coderabbit-review-hybrid-policy.md)）で quota を消費せず、低コミットメントで容易に close 可能。かつ「無人実装 → 人間レビューへの handoff 点」として設計上の停止地点になる |
+| `claude/` ブランチからの **PR 作成**（draft / 非 draft を問わない = **autonomous-pr クラス**） | 「無人実装 → 人間レビューへの handoff 点」として設計上の停止地点になる。close は容易で、マージしない限り trunk に影響しない。**背圧（原則 5）の接続が有効化の前提条件** |
 
 #### ゲート必須クラス（人間の承認まで実行しない）
 
@@ -49,12 +49,22 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 
 | 操作 | 根拠 |
 |---|---|
-| PR の ready 化（draft → ready for review） | PR をレビューに commit し、CodeRabbit quota を消費する（[ADR-019](adr-019-coderabbit-review-hybrid-policy.md) の無料枠制約） |
 | PR マージ | 後戻り不可 |
 | trunk（master）/ protected branch への push | 外部可視かつ revert 困難 |
-| 非 draft PR の作成 | 作成と同時にレビュー可視 + CodeRabbit quota 消費 |
 
-**分類の合成（内容軸 × target 軸）**: 上記 2 表は独立した 2 軸を含む — 操作の**内容**（docs-only / Tier3 cleanup 等）と push / PR の**target**（`claude/` ブランチか trunk か、draft PR か ready PR か）。両者は合成的に評価し、**いずれかの軸がゲート必須なら操作全体がゲート必須**とする（fail-closed の合成、原則 3 と整合）。したがって「docs-only 変更」の自動実行可は `claude/` 等の非 protected ブランチ上に限られ、同一内容でも trunk（master）への直接 push は常にゲート必須である（自律 actor は `claude/` ブランチに閉じる運用が前提だが、表の読み違いを防ぐため明示する）。
+**分類の合成（内容軸 × target 軸）**: 上記 2 表は独立した 2 軸を含む — 操作の**内容**（docs-only / Tier3 cleanup 等）と push / PR の**target**（`claude/` ブランチか trunk か）。両者は合成的に評価し、**いずれかの軸がゲート必須なら操作全体がゲート必須**とする（fail-closed の合成、原則 3 と整合）。したがって「docs-only 変更」の自動実行可は `claude/` 等の非 protected ブランチ上に限られ、同一内容でも trunk（master）への直接 push は常にゲート必須である（自律 actor は `claude/` ブランチに閉じる運用が前提だが、表の読み違いを防ぐため明示する）。
+
+> **改訂（2026-08-09、ユーザー判断）— draft 軸の撤去**
+>
+> 起票時の分類は **draft PR 作成 = 自動実行可 / 非 draft PR の作成・ready 化 = ゲート必須**と、draft 属性を境界に置いていた。これを改め、**`claude/` ブランチからの PR 作成は draft かどうかに関わらず自動実行可**とし、ゲート必須クラスから「PR の ready 化」「非 draft PR の作成」の 2 行を削除した。これは注記の追加ではなく**分類表の本体改訂**である。
+>
+> **改訂理由**: 起票時は「ready = レビューに commit する意思表示」を commitment 点と見なしていた。しかし発生トリガーがユーザー指示か自動採択かで扱いを区別する必要はなく、**有効な修正 PR ならプロジェクトに取り入れてよい**（2026-08-09 ユーザー判断）。であれば commitment 点は**マージ 1 点**に集約でき、ready であること自体は後戻り不可な commitment ではない。
+>
+> **副次的に解けた矛盾**: draft を境界に置いたことで、夜間ループの PR が `.coderabbit.yaml` の `auto_review.drafts: false` と衝突し、**レビューが一度も付かない PR を毎晩生む**構造になっていた（[ADR-072](adr-072-nightly-todo-loop.md) 決定 11 の撤回参照）。境界を draft から「trunk へのマージ」へ移すことで、この衝突は回避策なしに解消する。
+>
+> **CodeRabbit quota の扱い**: 起票時に draft を自動実行可とした根拠の 1 つ「quota を消費しない」は失われ、夜間 PR 1 件につき初回レビュー 1 回を消費する。これは決定 11 が意図していた消費量と同じで（起動経路が明示トリガーから `auto_review` に変わるだけ）、[ADR-019](adr-019-coderabbit-review-hybrid-policy.md) 側に注記した。
+>
+> **背圧の同時改訂**: 背圧の指標も「未マージ **draft** 数」から「未マージの `claude/` PR 数」へ変える必要がある（原則 5）。draft で数え続けると計数が常に 0 になり、**背圧が無音で無効化**される — 原則 5 が禁じる状態そのものなので、本改訂と分離して land させてはならない。
 
 ### 原則 3: 分類不能は fail-closed（ゲート必須に倒す）
 
@@ -68,16 +78,16 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 
 ```text
 自律 actor:
-  claude/ ブランチで実装 → push (自動) → draft PR 作成 (自動) → 停止
-                                                              ↓
-人間:                                          draft をレビューし ready 化/マージを判断 (ゲート)
+  claude/ ブランチで実装 → push (自動) → PR 作成 (自動) → 停止
+                                                        ↓
+人間:                                     PR をレビューしマージを判断 (ゲート)
 ```
 
-ゲートは「あらゆる外部可視操作の前」から「commitment 点（ready 化 / マージ）の前」へ移る。これが ADR-028 の「2 段化」の本質である（段 1 = 自動実行可・無ゲート、段 2 = ゲート必須・人間）。
+ゲートは「あらゆる外部可視操作の前」から「commitment 点（マージ）の前」へ移る。これが ADR-028 の「2 段化」の本質である（段 1 = 自動実行可・無ゲート、段 2 = ゲート必須・人間）。
 
 ### 原則 5: 背圧・kill-switch との連動
 
-自動実行可クラス（特に draft PR 作成）を背圧なしで運用すると、未マージ draft PR の山を積む。本クラスは**常時性ガード**（未マージ draft が閾値を超えたら自律動作を停止する背圧制御、および全自律動作を止める全体 kill-switch）と**セットで**有効化する。本 ADR は「**何を**自律実行してよいか」を定め、背圧・kill-switch は「**いつ**自主減速・停止するか」を定める。両者は相補で、片方だけでは安全な常時稼働にならない。
+自動実行可クラス（特に autonomous-pr = PR 作成）を背圧なしで運用すると、未マージ PR の山を積む。本クラスは**常時性ガード**（未マージの `claude/` PR が閾値を超えたら自律動作を停止する背圧制御、および全自律動作を止める全体 kill-switch）と**セットで**有効化する。本 ADR は「**何を**自律実行してよいか」を定め、背圧・kill-switch は「**いつ**自主減速・停止するか」を定める。両者は相補で、片方だけでは安全な常時稼働にならない。
 
 本 ADR は kill-switch / 背圧の実装を規定しないが、自動実行可クラスを有効化する呼び手が満たすべき**契約**を以下に固定する（実装は常時性ガードの担当）。「将来の実装者が本ポリシーのみを根拠に安全装置なしで有効化する」ことを防ぐため、**config opt-in と kill-switch の両方が接続され機能していることを、自動実行可クラス有効化の前提条件**とする:
 
@@ -85,7 +95,7 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 |---|---|
 | opt-in 既定 | 自動実行可クラスの有効化は config opt-in（既定 OFF）。未設定なら全操作をゲート必須扱い（ADR-039） |
 | kill-switch | 単一フラグ（リポジトリ内 config + CI variable）で全自律動作を即時停止。停止中は自動実行可クラスの操作も一切実行しない |
-| 未接続 / 読み取り不能時の既定 | 背圧（未マージ draft 数の監視）または kill-switch が未接続・読み取り不能なら、自動実行可クラスを無効化しゲート必須へ倒す（fail-closed、原則 3 と整合） |
+| 未接続 / 読み取り不能時の既定 | 背圧（未マージの `claude/` PR 数の監視）または kill-switch が未接続・読み取り不能なら、自動実行可クラスを無効化しゲート必須へ倒す（fail-closed、原則 3 と整合）。**「数え方を変えた結果、実質的に何も数えていない」も未接続と同じ**（2026-08-09 改訂で draft 絞り込みを外した理由） |
 | 停止手順 | フラグを OFF にすると次の自律実行判定から自動実行可が無効化される（既に起動済みの単一操作は対象外）。緊急時は CI variable 側で即時停止する |
 
 ## 実装スコープ（2026-07-11 時点。呼び手は 2026-08-02 に着手済み）
@@ -112,14 +122,14 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 - **自律 actor にゲート必須クラスの操作を無ゲートで実行させる**: セッション 247510ea（PR #54 誤生成）の再発。
 - **分類不能を optimistic に自動実行可へ倒す**: fail-open（ADR-043 違反）。判定不能は必ずゲート必須へ。
 - **interactive Claude Code が本 ADR を口実に ADR-028 のゲートを skip する**: 本 ADR は自律 actor 限定。interactive は人間ゲート（ADR-028）に従う。
-- **draft PR の自動作成を背圧（常時性ガード）なしで有効化する**: 未マージ draft の山を招く（原則 5 違反）。
+- **autonomous-pr クラス（PR の自動作成）を背圧（常時性ガード）なしで有効化する**: 未マージ PR の山を招く（原則 5 違反）。**背圧の指標を、実質的に常に 0 になる形へ変えてしまうのも同じ違反**（2026-08-09 の draft 廃止で `.isDraft` 絞り込みを外した理由）。
 - **分類ロジックを Rust 分類関数を用意せず自律 actor の実行時 LLM 判断に委ねる**: ADR-028 が指摘した「Claude が守る意志に依存する soft 防衛」の failure mode。呼び手実装時は機械判定（fail-closed）を必ず伴う。
 
 ## 試験運用判断基準（ADR-039）
 
 本 ADR は試験運用とする。呼び手（自律実行経路）が実装された後、以下を観測して本採用/改訂を判断する:
 
-- 自動実行可クラスの操作が意図せず commitment 点（ready 化 / マージ）へ到達しないこと。
+- 自動実行可クラスの操作が意図せず commitment 点（マージ）へ到達しないこと。
 - 分類不能ケースが確実にゲート必須へ倒れること（fail-closed 契約）。
 - config opt-in + 全体 kill-switch で全自律動作を停止できること。
 - **bounded lifetime（期限と判定手順）**: 本 ADR のステータス日 2026-07-11 を起点に、**2026-10-11 を再評価期限**とする（先行設計が無期限に試験運用のまま陳腐化するのを防ぐ）。期限までに以下を判断する:
@@ -134,6 +144,6 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 - [ADR-035](adr-035-doc-evaluation-policy.md)（docs-only PR 評価ポリシー）— 自動実行可クラスの docs-only 判定基準の source of truth
 - [ADR-043](adr-043-security-gates-fail-closed.md)（fail-closed 原則）— 分類不能をゲート必須へ倒す既定の根拠
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md)（試験運用標準パターン）— config opt-in + kill-switch + bounded lifetime
-- [ADR-019](adr-019-coderabbit-review-hybrid-policy.md)（CodeRabbit ハイブリッド構成）— draft 除外 / 無料枠制約が draft PR を低コミットメント・ready 化を commitment 点とする根拠
+- [ADR-019](adr-019-coderabbit-review-hybrid-policy.md)（CodeRabbit ハイブリッド構成）— 無料枠クォータの制約。2026-08-09 改訂前は「draft 除外 = quota 非消費」が draft PR を自動実行可とする根拠でもあった
 - `src/lib-docs-policy`（`is_docs_only_summary` — ADR-035 path 基準の単一実装。[ADR-057](adr-057-docs-only-deterministic-routing.md) で `gate.rs` から切り出し済、実装スコープ節の 2026-08-02 訂正を参照）— 分類関数の再利用母体
 - セッション 247510ea-3f24-4b87-8f68-3c860e1b1b4e（2026-04-18）/ PR #54 — 無ゲート自律実行の事故（ADR-028 と共有する反例）

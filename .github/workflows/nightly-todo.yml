@@ -1,8 +1,12 @@
 # 夜間 todo 消化ループ (WP-18 PR 3、ADR-072)
 #
 # 台帳 (docs/claude-code-web-tasks.md) の「無人可」タスクを 1 件、無人で実装し
-# **draft PR 作成で停止**する。マージ判断は人間が行う (ADR-052 の自動実行可クラス =
+# **PR 作成で停止**する。マージ判断は人間が行う (ADR-052 の自動実行可クラス =
 # commitment 点の手前で止まる操作)。
+#
+# 2026-08-09 に停止点を draft PR から**通常 PR**へ変更した (ADR-072 決定 15)。draft は
+# .coderabbit.yaml の auto_review.drafts: false と衝突してレビューが付かず、commitment 点は
+# マージ 1 点に集約してよいというユーザー判断による。
 #
 # 信頼境界の要 (ADR-066 § 決定 3 / ADR-067 と同型):
 #   - 台帳・ゲート exe・autonomy-config.toml はすべて **master ref の写し** から調達する。
@@ -28,9 +32,9 @@ on:
         type: boolean
         default: false
 
-# draft PR の作成と claude/ ブランチへの push は別の App installation token (Decision 8) で
+# PR の作成と claude/ ブランチへの push は別の App installation token (Decision 8) で
 # 行うため、この job の GITHUB_TOKEN に write は不要。既定の GITHUB_TOKEN は
-# 「Count open claude/ drafts」の `gh pr list` (読み取りのみ) と、Implement ステップへ渡す
+# 「Count open claude/ PRs」の `gh pr list` (読み取りのみ) と、Implement ステップへ渡す
 # `github_token` 入力にしか使われない。後者は agent (未信頼) が触れる唯一の GitHub 資格情報
 # なので、write 権限を持たせたまま渡すと Guard/Integrity/Gate の「agent は push できない」
 # 前提を token 側から崩しうる (security review REJECT, SEC-NEW-nightly-todo-yml-L173)。
@@ -50,7 +54,7 @@ jobs:
     # 1|true|yes|on を受理するため受理値が異なる点に注意 (ADR-066)。
     #
     # **2026-08-08 に実測済み**: `'false'` と未設定の 2 状態で dispatch し、いずれも
-    # job が skip されブランチ・draft PR・App token のどれも作られないことを確認した
+    # job が skip されブランチ・PR・App token のどれも作られないことを確認した
     # (ADR-072 § 実走スモーク)。現在値と登録先は同 ADR § 外部設定の実体 を見ること。
     if: vars.AUTONOMY_ENABLED == 'true'
     runs-on: ubuntu-latest
@@ -89,7 +93,7 @@ jobs:
       # が、gh や network の失敗は**インフラ障害**であって設計された結末ではない。red で
       # 出したほうが「見に行くべきものがある」と伝わる。両者を同じ扱いにすると、本当に
       # 壊れた夜と何もすることが無かった夜の区別が run 一覧から消える (ADR-072 決定 10)。
-      - name: Count open claude/ drafts and in-flight ranks
+      - name: Count open claude/ PRs and in-flight ranks
         id: inflight
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -97,7 +101,7 @@ jobs:
           set -euo pipefail
           LIMIT=100
           gh pr list --repo "${{ github.repository }}" --state open --limit "$LIMIT" \
-            --json headRefName,isDraft > "$RUNNER_TEMP/open-prs.json"
+            --json headRefName > "$RUNNER_TEMP/open-prs.json"
           TOTAL=$(jq 'length' "$RUNNER_TEMP/open-prs.json")
           # 取得件数が上限に張り付いた場合、数え落としがありうる。背圧を過小に見積もると
           # 「積み過ぎているのに作ってよい」へ倒れるため、ここは fail-closed で止める。
@@ -105,11 +109,14 @@ jobs:
             echo "[NIGHTLY_SKIP] open PR が取得上限 ($LIMIT) に達しており正確に数えられません"
             exit 1
           fi
-          OPEN_DRAFTS=$(jq '[.[] | select(.isDraft and (.headRefName | startswith("claude/")))] | length' \
+          # **draft 属性で絞り込まない** (ADR-072 決定 15)。停止点を通常 PR へ移した以上、
+          # `.isDraft` を条件に残すと計数が常に 0 になり、背圧が無音で無効化される
+          # (ADR-052 原則 5 が禁じる状態)。数える対象は `claude/` prefix の未マージ PR 全体。
+          OPEN_AUTONOMOUS_PRS=$(jq '[.[] | select(.headRefName | startswith("claude/"))] | length' \
             "$RUNNER_TEMP/open-prs.json")
           # 着手済み判定は **PR の状態ではなくブランチの存在**で行う。
           #
-          # open PR だけを見ると、draft PR が merge されずクローズされた順位が再び選択対象に
+          # open PR だけを見ると、PR が merge されずクローズされた順位が再び選択対象に
           # 戻る。ブランチは残っているため push が non-fast-forward で失敗し、毎晩 agent を
           # 1 回まるごと走らせて最後に落ちる無駄ループになる。採用率が低い場合にクローズが
           # 起きるのは受け入れ基準が前提にしている運用なので、これは必ず踏む。
@@ -121,11 +128,11 @@ jobs:
             'refs/heads/claude/nightly-*' > "$RUNNER_TEMP/nightly-refs.txt"
           EXCLUDE=$(sed -n 's#^.*refs/heads/claude/nightly-\([0-9]\{1,\}\)$#\1#p' \
             "$RUNNER_TEMP/nightly-refs.txt" | paste -sd, -)
-          echo "open_drafts=$OPEN_DRAFTS" >> "$GITHUB_OUTPUT"
+          echo "open_autonomous_prs=$OPEN_AUTONOMOUS_PRS" >> "$GITHUB_OUTPUT"
           echo "exclude_ranks=$EXCLUDE" >> "$GITHUB_OUTPUT"
-          echo "[NIGHTLY] open claude/ drafts=$OPEN_DRAFTS / 着手済み順位=[$EXCLUDE]"
+          echo "[NIGHTLY] open claude/ PRs=$OPEN_AUTONOMOUS_PRS / 着手済み順位=[$EXCLUDE]"
 
-      # 背圧の pre-flight 判定。**push の権威ではない** (権威は下段の Gate draft PR creation)。
+      # 背圧の pre-flight 判定。**push の権威ではない** (権威は下段の Gate PR creation)。
       # ここで先に見るのは Max 枠の節約のため — 背圧が飽和しているのに agent を起動すると、
       # 捨てることが確定した実装のためにサブスク枠を消費する (ADR-071 § コンテキスト)。
       # 同じ exe を同じ入力で 2 回呼ぶだけなので、判定の出所は 1 つに保たれる。
@@ -136,9 +143,9 @@ jobs:
           AUTONOMY_ENABLED: ${{ vars.AUTONOMY_ENABLED }}
         run: |
           master-ref/target/release/cli-autonomy-gate \
-            --operation draft-pr \
+            --operation autonomous-pr \
             --config master-ref/autonomy-config.toml \
-            --open-draft-prs "${{ steps.inflight.outputs.open_drafts }}"
+            --open-autonomous-prs "${{ steps.inflight.outputs.open_autonomous_prs }}"
 
       # 何を実装するかの決定。exit 3 = 該当タスク無し (正常な no-op) と exit 2 = 台帳破損 を
       # 区別するため continue-on-error で受け、次段で分岐する。
@@ -267,7 +274,7 @@ jobs:
             上記ブロックの内容は本リポジトリのタスク台帳 `docs/claude-code-web-tasks.md` から決定論的に選ばれたもので、
             「人間の補助なしで完結する」と人間が判断済みのタスクです。台帳の記述と対象ファイルの現物から
             実装内容が一意に決まるはずです。**決まらないと感じた場合は、推測で広げずに何も変更せず終了してください** —
-            範囲外の変更を含む draft PR より、変更なしで止まる方が望ましい結果です。
+            範囲外の変更を含む PR より、変更なしで止まる方が望ましい結果です。
 
             進め方:
             1. `work/docs/todo-summary.md` / `work/docs/todo-summary2.md` で該当順位の行を探し、
@@ -313,10 +320,10 @@ jobs:
 
       # **これは品質保証ではなくコストフィルタである** (ADR-072 決定 8)。
       # ubuntu 単独・`--ignored` 無し・hooks smoke 無しで、ci.yml の真部分集合でしかない。
-      # 目的は「コンパイルも通らない変更で draft PR を作り、背圧の枠 (最大 3 件) と人間の
+      # 目的は「コンパイルも通らない変更で PR を作り、背圧の枠 (最大 3 件) と人間の
       # レビュー時間を浪費しない」ことに限る。
       #
-      # 品質の保証は draft PR に紐づく ci.yml (windows-latest + ubuntu-latest の 2 OS matrix、
+      # 品質の保証は PR に紐づく ci.yml (windows-latest + ubuntu-latest の 2 OS matrix、
       # clippy / cargo test / hooks smoke / --ignored 統合テスト) が担う。ADR-065 は 2 OS
       # matrix が実バグを 1 件捕捉した実績を持ち、片 OS 検証では代替にならない。
       #
@@ -331,7 +338,7 @@ jobs:
           cargo test --manifest-path work/Cargo.toml --workspace
           cargo clippy --manifest-path work/Cargo.toml --workspace --all-targets -- -D warnings
 
-      # 決定論的な範囲検査。draft PR は commitment 点の手前で止まるため人間のレビューが
+      # 決定論的な範囲検査。夜間 PR は commitment 点の手前で止まるため人間のレビューが
       # 最終防衛だが、「自分を縛る仕組みを自分で書き換えた diff」だけは人間に見せる前に止める。
       # 台帳の「対象ファイル」列は自由記述の markdown で path allowlist に落とせないため、
       # 許可リストではなく **禁止リスト** で守る (ADR-052 target 軸の補強)。
@@ -389,7 +396,7 @@ jobs:
           fi
           # docs/claude-code-web-tasks.md (台帳) も対象に含む。台帳は「次に何を実装するか」を
           # 決める仕組みであり、config や gate exe と同じく **自分を縛る側**にある。agent が
-          # 台帳を書き換えた diff が draft PR に紛れ、人間が見落としてマージすると、以後の
+          # 台帳を書き換えた diff が PR に紛れ、人間が見落としてマージすると、以後の
           # タスク選択が静かに汚染される (ADR-072 決定 6)。
           if grep -Eq '^(autonomy-config\.toml|\.github/workflows/|docs/claude-code-web-tasks\.md|src/cli-autonomy-gate/|src/lib-autonomy-policy/|src/cli-fix-push-gate/|src/cli-nightly-task-select/)' \
             "$RUNNER_TEMP/changed.txt"; then
@@ -422,7 +429,7 @@ jobs:
       # push の権威。ここが非ゼロなら push step は動かない。pre-flight と同じ exe・同じ入力を
       # 使うが、run 中に kill-switch が倒された場合はこちらで止まる (ADR-066 の停止手順が
       # 「次の操作境界で効く」ことの実装)。
-      - name: Gate draft PR creation (authority)
+      - name: Gate PR creation (authority)
         id: gate
         continue-on-error: true
         if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success'
@@ -430,11 +437,11 @@ jobs:
           AUTONOMY_ENABLED: ${{ vars.AUTONOMY_ENABLED }}
         run: |
           master-ref/target/release/cli-autonomy-gate \
-            --operation draft-pr \
+            --operation autonomous-pr \
             --config master-ref/autonomy-config.toml \
-            --open-draft-prs "${{ steps.inflight.outputs.open_drafts }}"
+            --open-autonomous-prs "${{ steps.inflight.outputs.open_autonomous_prs }}"
 
-      # CI を夜間 draft PR に紐づけるための App token (ADR-072 決定 8)。
+      # CI を夜間 PR に紐づけるための App token (ADR-072 決定 8)。
       #
       # GITHUB_TOKEN で作成した PR の pull_request イベントは **承認待ちの run** になり、
       # 人間が Approve を押すまで ci.yml が動かない。無人ループでこれは「CI 未実施のまま
@@ -459,7 +466,7 @@ jobs:
       # 発行は GitHub への外部 API 呼び出しであり、失敗は gh/network の障害 (secret の
       # 誤設定・GitHub 側の障害等) であって設計された結末ではない。green + [NIGHTLY_SKIP]
       # に落とすと、資格情報の設定ミスが「今夜は何もすることが無かった」と区別できなくなる。
-      - name: Mint App token (so ci.yml attaches to the draft PR)
+      - name: Mint App token (so ci.yml attaches to the PR)
         id: app-token
         if: >-
           steps.gate.outcome == 'success' &&
@@ -472,9 +479,9 @@ jobs:
       # 本 step にも continue-on-error を付けない (決定 10)。`git push` / `gh pr create` は
       # いずれもネットワーク I/O で、ここまで到達した時点で kill-switch/背圧の gate は
       # 通過済みのため、失敗するとすれば gh/network の障害 (push 拒否・API 障害等) であって
-      # 設計された結末ではない。green + [NIGHTLY_SKIP] に落とすと、実際には draft PR が
+      # 設計された結末ではない。green + [NIGHTLY_SKIP] に落とすと、実際には PR が
       # 作られなかった障害が「今夜は何もすることが無かった」と区別できなくなる。
-      - name: Push branch and open draft PR (workflow-authored)
+      - name: Push branch and open PR (workflow-authored)
         id: publish
         if: >-
           steps.gate.outcome == 'success' &&
@@ -487,7 +494,7 @@ jobs:
           BRANCH: ${{ steps.select.outputs.branch }}
           RANK: ${{ steps.select.outputs.rank }}
           # 公開面へ出すのは screening 済みの summary_display だけ (ADR-072 決定 14)。
-          # 生の summary はここでは使わない — draft PR でも public repo では第三者に可視で、
+          # 生の summary はここでは使わない — PR は public repo では第三者に可視で、
           # 台帳の自由記述が攻撃者制御文字列の公開面になるため。
           SUMMARY_DISPLAY: ${{ steps.select.outputs.summary_display }}
         run: |
@@ -505,7 +512,7 @@ jobs:
             "HEAD:refs/heads/${BRANCH}"
           {
             echo "台帳 (docs/claude-code-web-tasks.md) の無人可タスク **順位 ${RANK}** を"
-            echo "夜間ループ (nightly-todo workflow) が無人で実装した draft PR です。"
+            echo "夜間ループ (nightly-todo workflow) が無人で実装した PR です。"
             echo
             echo "- 内容: \`${SUMMARY_DISPLAY}\`"
             echo "- 事前フィルタ: 夜間 workflow が ubuntu 上で \`cargo test --workspace\` +"
@@ -513,49 +520,27 @@ jobs:
             echo "  (agent の自己申告ではなく workflow が回し直した結果)。**これはコストフィルタで**"
             echo "  **品質の保証ではありません** — 単一 OS で \`--ignored\` も hooks smoke も含みません"
             echo "- 品質の保証: 本 PR に紐づく **ci.yml (windows-latest + ubuntu-latest)** のチェックを見てください"
-            echo "- ゲート: \`cli-autonomy-gate --operation draft-pr\` (kill-switch + 背圧) を通過"
+            echo "- ゲート: \`cli-autonomy-gate --operation autonomous-pr\` (kill-switch + 背圧) を通過"
             echo
             echo "**マージ判断は人間が行います** (ADR-052 の commitment 点)。CI が緑で内容が台帳の"
-            echo "意図に沿っていれば ready 化してマージしてください。ずれている場合はクローズを —"
+            echo "意図に沿っていればマージしてください。ずれている場合はクローズを —"
             echo "採用率は WP-18 の受け入れ基準の測定対象です。"
             echo
             echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } > "$RUNNER_TEMP/pr-body.md"
+          # **draft では作らない** (ADR-072 決定 15)。draft は .coderabbit.yaml の
+          # auto_review.drafts: false と衝突し、レビューが付かない PR を毎晩生む。
+          # commitment 点はマージ 1 点であり、ready であること自体は commitment ではない。
           gh pr create --repo "${{ github.repository }}" \
-            --draft \
             --base master \
             --head "$BRANCH" \
             --title "feat: 順位 ${RANK} の無人実装 (nightly-todo)" \
             --body-file "$RUNNER_TEMP/pr-body.md"
 
-      # CodeRabbit の自動レビューは draft PR を対象外にしている
-      # (.coderabbit.yaml の reviews.auto_review.drafts: false = ADR-019 のクォータ設計)。
-      # 一方 ADR-052 / 本 ADR は夜間ループを **draft PR で止める**。この 2 つを素直に
-      # 組み合わせると「夜間 PR は永久にレビューされない」状態になる (2026-08-08 に PR #365 で
-      # 実測)。両立のため、draft PR 作成後に**明示トリガーを 1 回だけ**投げる。
-      # ADR-019 が fix push で採っている「自動増分レビューを止め、明示 `@coderabbitai review` を
-      # 1 回投稿する」と同じ形で、レート消費は 1 PR あたり 1 回に留まる。
-      #
-      # **token は App のものを使う。** job の GITHUB_TOKEN は pull-requests: read しか
-      # 持たず、書き込み権限を戻すと決定 8 § 副次効果 (agent が触れる唯一の資格情報を
-      # read-only にした) を巻き戻してしまう。
-      #
-      # **本 step は continue-on-error で受ける。** 決定 10 は gh / network の失敗を red と
-      # 分類するが、それは無人ループの本体経路 (実装 → ゲート → push → PR 作成) の話であり、
-      # レビュー起動は成果物が出来た**後**に走る助言層にあたる。[ADR-043] が「fail-closed は
-      # ゲート関数のみ。助言層は fail-open が正しい」と定めているため、ここで run を red に
-      # すると「draft PR は正しく出来たのにレビュー起動だけ失敗した夜」が「本当に壊れた夜」と
-      # 同じ色になる。代わりに outcome を Report outcome へ出して可視化する。
-      - name: Request a CodeRabbit review (drafts are excluded from auto review)
-        id: request-review
-        continue-on-error: true
-        if: steps.publish.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          BRANCH: ${{ steps.select.outputs.branch }}
-        run: |
-          set -euo pipefail
-          gh pr comment --repo "${{ github.repository }}" "$BRANCH" --body "@coderabbitai review"
+      # ここに `Request a CodeRabbit review` step があった (ADR-072 決定 11)。**撤回済み。**
+      # App token (bot) が投稿した `@coderabbitai review` は CodeRabbit に無視されると
+      # 2026-08-09 に実測で確定したため (#373 の投稿者別対照)、step ごと撤去した。
+      # 通常 PR は .coderabbit.yaml の auto_review.enabled: true が拾うので明示トリガーは不要。
 
       # 無音で終わらせない (ADR-064 と同じ論理)。どの段で止まったかを 1 行で出す。
       - name: Report outcome
@@ -571,15 +556,10 @@ jobs:
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           APP_TOKEN_OUTCOME: ${{ steps.app-token.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
-          REQUEST_REVIEW_OUTCOME: ${{ steps.request-review.outcome }}
         run: |
-          echo "[NIGHTLY] preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>} request_review=${REQUEST_REVIEW_OUTCOME:-<未実行>}"
+          echo "[NIGHTLY] preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>}"
           if [ "${PUBLISH_OUTCOME:-}" = "success" ]; then
-            echo "[NIGHTLY] draft PR を作成しました。"
-            # 助言層の失敗は run を red にしないが、無音にもしない (ADR-043)。
-            if [ "${REQUEST_REVIEW_OUTCOME:-}" != "success" ]; then
-              echo "[NIGHTLY_WARN] CodeRabbit レビューの明示トリガー投稿に失敗しました (request_review=${REQUEST_REVIEW_OUTCOME:-<未実行>})。draft PR は作成済みなので、必要なら PR へ手で '@coderabbitai review' を投稿してください。"
-            fi
+            echo "[NIGHTLY] PR を作成しました。"
             exit 0
           fi
-          echo "[NIGHTLY_SKIP] 本 run は draft PR を作りませんでした。上の 1 行で停止段を特定してください。"
+          echo "[NIGHTLY_SKIP] 本 run は PR を作りませんでした。上の 1 行で停止段を特定してください。"
