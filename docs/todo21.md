@@ -208,3 +208,107 @@
 - `pnpm push` の各試行が terminal outcome (成功 / 失敗 stage + reason code) を機械可読で残すこと。
 - `cli-telemetry-report` で月次レビューが失敗率・内訳を読めること。
 - telemetry 書き込み失敗時もパイプライン本体の挙動・exit code が変わらないこと (fail-open のテストで固定)。
+
+---
+
+## 夜間ループの draft 廃止とレビュー起動の是正 (2026-08-09 登録)
+
+> **由来**: 2026-08-09 に PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) で実測した 2 件の観測から、ユーザー判断 (同日) を経て方針を確定したもの。**3 件は 1 本の根から出ている** — 夜間 PR を draft にしたことが CodeRabbit の自動レビュー対象外を招き、その回避策 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11) が bot 投稿の無視で不成立になった。順位 393 が記録の是正、394 が構造の是正、395 は独立 (ブランチ運用) だが同じセッションの観測に由来する。
+>
+> **順序**: 393 → 394。393 は現状記録を実測に合わせる作業で、394 の改訂前提になる。395 は独立で並行可。
+
+### ADR-072 決定 11 (CodeRabbit 明示トリガー) を撤回として記録し Phase B 判定を訂正する
+
+> **動機**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 は「draft PR 作成後に `@coderabbitai review` を 1 回投稿する」設計だが、**App token (bot) の投稿は CodeRabbit に無視される**ことが 2026-08-09 に確定した。同一 PR (#373)・同一文言・同一設定で投稿者だけが異なる 2 回の実測:
+>
+> | 時刻 (UTC) | 投稿者 | 反応 |
+> |---|---|---|
+> | 08-08 18:10:54 | `nightly-todo-aloekun` (App/bot) | **なし** (約 10 時間) |
+> | 08-09 04:10:39 | `aloekun` (人間) | **4 秒後**に応答 → 11 秒後にレビュー開始 |
+>
+> 決定 11 自身が「bot 同士のループを避けるため他 bot のコメントを無視する実装は珍しくない」と未検証事項に挙げていた仮説が、そのまま実証された。**明示トリガーという方式自体は有効**で ([ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) の fix push 後トリガーは現在も機能している)、効かないのは投稿者が bot の場合だけ。ADR-019 側は `cli-pr-monitor` がローカルの `gh` = **ユーザー資格情報**で投稿しているため成立していた。決定 11 は「ADR-019 と同型」と判断したが、**同型だったのはコマンド文字列だけで投稿者の種別が違っていた**。
+>
+> あわせて **§ 実走スモークの Phase B 判定も誤り**。「不成立」と記帳しているが、実際は CodeRabbit のコメントが発生した時点で `issue_comment` 経路が発火し、**Phase A が夜間 draft PR で自動起動した** (#373 で 04:12:15 に分析コメント)。経路は生存しており、起動契機が無かっただけである。`coderabbitai[bot]` allowlist の要否も同様に再判定が必要。
+>
+> **対処案**: 決定 11 を削除せず**撤回として記録**する ([ADR-047](adr/adr-047-prepush-refute-facet.md) が「dogfood の結果 2026-07-19 却下・撤去済」と残している形式に倣う)。撤回理由と実測表を残し、順位 394 の draft 廃止が代替解になることを明記する。§ 実走スモークの Phase B 行と `coderabbitai[bot]` allowlist 行も実測に合わせて訂正する。
+>
+> **参照**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 / § 実走スモーク、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md)、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) (Phase B 起動経路)、PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (ADR の記述が実測と食い違ったまま残ると、次の判断が誤った前提に乗る) / Frequency 一度きり / Effort S / Adoption Risk None (docs-only)。
+
+#### 作業計画
+
+- [ ] 決定 11 に撤回の記録を追記する (実測表 + 撤回理由 + 代替解が順位 394 であること)
+- [ ] § 実走スモークの Phase B 行を「経路は生存・起動契機が無かった」へ訂正する
+- [ ] `coderabbitai[bot]` allowlist の判定不能行を、決定 11 撤回を踏まえた再判定条件へ書き換える
+
+#### 完了基準
+
+- 決定 11 が撤回として記録され、bot 投稿が無視される実測 (投稿者別の対照) が残っていること。
+- Phase B 自動起動の判定が「不成立」ではなく実測どおりの記述になっていること。
+
+### 夜間ループの draft PR を通常 PR へ変更し背圧の命名を `autonomous` 系へ揃える
+
+> **動機**: 順位 393 の実測を受けた**構造側の是正**。夜間ループが draft PR を作るために `.coderabbit.yaml` の `reviews.auto_review.drafts: false` と衝突し、レビューが付かない状態を回避策 (決定 11) で埋めようとして失敗した。**draft をやめれば `auto_review.enabled: true` の初回レビューに自然に乗り、回避策そのものが不要になる。**
+>
+> **ユーザー判断 (2026-08-09)**: 発生トリガーがユーザー指示か自動採択かで扱いを区別しない。有効な修正 PR ならプロジェクトに取り入れてよい。したがって commitment 点は **マージ 1 点**に集約してよく、「ready = レビュー求む」の意思表示を自律 actor が出すことを許容する。
+>
+> **必ず同時に直す箇所**: [nightly-todo.yml](../.github/workflows/nightly-todo.yml) の背圧計数は `jq '[.[] | select(.isDraft and ...)] | length'` で **`.isDraft` を条件にしている**。draft をやめると**計数が常に 0 になり背圧が完全に無効化される** ([ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 が禁じる状態)。`--draft` の除去とセットで必須。
+>
+> **ADR 側の改訂**:
+>
+> - **ADR-052**: 原則 2 の分類表で「**非 draft PR の作成**」がゲート必須クラスに、「PR の ready 化」も同様に列挙されている。前者を自動実行可クラスへ移す**本体改訂**にあたる (注記の追加では済まない)。改訂理由 (トリガーの別を区別せず commitment 点をマージに集約する) を明記する
+> - **ADR-019**: quota 消費が夜間 PR 1 件につき 1 レビュー増える。決定 11 が意図していた消費量と同じ (起動経路が明示トリガーから auto_review に変わるだけ) だが、クォータ設計の前提が変わるため注記する
+> - **ADR-071 / ADR-072**: 背圧の指標定義 (「未マージ draft 数」→「未マージの `claude/` PR 数」) と決定 8 の draft 前提記述
+>
+> **命名 (ユーザー選択 2026-08-09)**: `autonomous` 系へ揃える。`max_open_autonomous_prs` / `--open-autonomous-prs` / `Operation::AutonomousPr` / `--operation autonomous-pr` / `requires_autonomous_pr_backpressure()` / `open_autonomous_prs`、ADR-052 のクラス名は「autonomous-pr クラス」。**[ADR-071](adr/adr-071-draft-pr-backpressure.md) のファイル名は変更しない** — ADR 番号とファイル名は歴史的識別子で、変えると全リンクが壊れる。内容側で意味を再定義する。
+>
+> **影響範囲**: 12 ファイル 132 箇所。Rust 実装は `lib-autonomy-policy` (54) / `cli-autonomy-gate` (23) / `cli-fix-push-gate` (2)。**PR size gate (1500 行) に掛かった場合は (a) 機械的リネーム (挙動不変) → (b) draft 廃止 の 2 本へ分割し、[ADR-069](adr/adr-069-pr-chain-declaration.md) の chain 宣言を付ける。**
+>
+> **参照**: [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 2 / 原則 5、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md)、[ADR-071](adr/adr-071-draft-pr-backpressure.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 8 / 決定 11、順位 393 (記録側の是正)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity High (現状は夜間 PR にレビューが付かず、無人実装の品質が CI だけに依存している) / Frequency 毎晩 / Effort M-L / Adoption Risk Medium (背圧計数の同時修正を落とすと ADR-052 原則 5 違反になる)。
+
+#### 作業計画
+
+- [ ] `gh pr create` から `--draft` を除去する
+- [ ] 背圧計数の `.isDraft` 条件を除去する (**落とすと背圧が無効化される**)
+- [ ] 決定 11 の `Request a CodeRabbit review` step を撤去する
+- [ ] 背圧の命名を `autonomous` 系へ揃える (config / flag / 型 / 文字列 / 関数 / field)
+- [ ] ADR-052 原則 2 の分類表を改訂し、ADR-019 / ADR-071 / ADR-072 の該当記述を同期する
+- [ ] 実走で夜間 PR に CodeRabbit の初回自動レビューが付くこと、背圧が閾値で止まることを確認する
+
+#### 完了基準
+
+- 夜間ループが通常 PR を作り、CodeRabbit の初回自動レビューが**実走で**付くこと。
+- 背圧が draft 廃止後も機能すること (閾値到達で deny することを実測または drill で確認)。
+- ADR-052 の分類表が改訂され、改訂理由が記録されていること。
+
+### 週次レビューで浮きブランチを検出し削除を提案する
+
+> **動機**: 2026-08-09 に、クローズ済み PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) のブランチを手動削除したことで [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 3 の除外マーカーが消え、同じ順位 203 が再選択された (PR #373)。**決定 3 自体は設計どおり動作している** — ブランチの存在が着手済みマーカーであり、それが人手で消えたことが原因。
+>
+> **方針 (ユーザー判断 2026-08-09)**: 判定は現行の `git ls-remote` による **branch 単一ソースのまま維持する**。「クローズ済み PR も見る」案は判定ソースが 2 つになり、fail-closed の単純さ (一致なしでも exit 0 + 空出力で「0 件」と「取得失敗」を取り違えない) を崩すため**採らない**。代わりに浮きブランチを週次で片付け、放置によるタスク滞留を解消する。
+>
+> - **`claude/nightly-*` も削除提案の対象に含める** (除外しない)。ブランチが残る間そのタスクが選べない期間 (最大 7 日程度) は許容する — 自動実行できる todo はほとんどが改善タスクで急がず、重要な todo はメインセッションで消化するため
+> - **削除後の再挑戦も許容する**。現状のクローズは夜間ループの機能不全に起因するもので、正常動作後は採用方向の選択が多くなる見込み
+>
+> **対処案**: weekly-review に「クローズ済み PR の残存ブランチ」検出を追加する。既存の観点⑤ (`review-todo-whole` facet) へ相乗りさせるか決定論的 scan として持つかは実装時判断 ([ADR-031](adr/adr-031-weekly-review-pipeline.md) の構成に従う)。**削除の実行は提案までとし、自動削除はしない** ([ADR-022](adr/adr-022-automation-responsibility-separation.md) / [ADR-028](adr/adr-028-pnpm-create-pr-gate.md))。
+>
+> **現状**: クローズ由来で残っている `claude/` ブランチは無い。`claude/nightly-203` は open な #373 のもの、`claude/cloudharness-e2e-validation-sptfc7` / `claude/select-next-task-a9aiam` は 7 月下旬から open のままの #320 / #324 のもの (これらは PR 自体の棚卸し対象)。
+>
+> **参照**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 3、[ADR-031](adr/adr-031-weekly-review-pipeline.md) (weekly-review)、[ADR-022](adr/adr-022-automation-responsibility-separation.md)、WP-19 ステップ 3 (監査ループ — 本エントリはその一部を先取りする)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Low (滞留は最大 7 日で解消され、実害は選択機会の遅延のみ) / Frequency Low (週次) / Effort S-M / Adoption Risk Low (提案のみで自動削除しない)。
+
+#### 作業計画
+
+- [ ] クローズ済み PR の残存ブランチを列挙する検出を weekly-review に追加する
+- [ ] `claude/nightly-*` を除外せず対象に含める (除外すると滞留が永続する)
+- [ ] 削除は提案までとし、実行はユーザー承認を経ることを明示する
+- [ ] WP-19 ステップ 3 (自律アクションの週次棚卸し) と重複しない形で載せる
+
+#### 完了基準
+
+- 週次レビューがクローズ済み PR の残存ブランチを列挙し、削除を提案すること。
+- 自動削除を行わないこと (提案までで止まる)。
