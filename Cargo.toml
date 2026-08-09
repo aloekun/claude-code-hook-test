@@ -28,6 +28,7 @@ members = [
     "src/cli-nightly-task-select",
     "src/cli-pr-monitor",
     "src/cli-push-runner",
+    "src/cli-stale-branch-scan",
     "src/cli-takt-timings",
     "src/cli-telemetry-report",
     "src/hooks-post-tool-comment-lint-rust",

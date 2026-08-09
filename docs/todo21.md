@@ -215,40 +215,9 @@
 
 > **由来**: 2026-08-09 に PR [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) で実測した 2 件の観測から、ユーザー判断 (同日) を経て方針を確定したもの。**3 件は 1 本の根から出ている** — 夜間 PR を draft にしたことが CodeRabbit の自動レビュー対象外を招き、その回避策 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11) が bot 投稿の無視で不成立になった。
 >
-> **順位 393 (記録の是正) と 394 (構造の是正) は実装済み・削除済み** (2026-08-09)。撤回記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 の撤回ブロック、停止点変更は同 決定 15、背圧の指標改訂は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、分類表の本体改訂は [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 2 が正。**実走確認 (夜間 PR に CodeRabbit の初回自動レビューが付くこと) だけが残り**、計画書 WP-18 の残作業表と ADR-072 § 実走スモークが追跡する。
+> **順位 393 (記録の是正) と 394 (構造の是正) は実装済み・削除済み** (2026-08-09、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376))。撤回記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 の撤回ブロック、停止点変更は同 決定 15、背圧の指標改訂は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、分類表の本体改訂は [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 2 が正。**実走確認 (夜間 PR に CodeRabbit の初回自動レビューが付くこと) だけが残り**、計画書 WP-18 の残作業表と ADR-072 § 実走スモークが追跡する。
 >
-> 以下の 395 は独立 (ブランチ運用) だが同じセッションの観測に由来する。
-
-### 週次レビューで浮きブランチを検出し削除を提案する
-
-> **動機**: 2026-08-09 に、クローズ済み PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) のブランチを手動削除したことで [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 3 の除外マーカーが消え、同じ順位 203 が再選択された (PR #373)。**決定 3 自体は設計どおり動作している** — ブランチの存在が着手済みマーカーであり、それが人手で消えたことが原因。
->
-> **方針 (ユーザー判断 2026-08-09)**: 判定は現行の `git ls-remote` による **branch 単一ソースのまま維持する**。「クローズ済み PR も見る」案は判定ソースが 2 つになり、fail-closed の単純さ (一致なしでも exit 0 + 空出力で「0 件」と「取得失敗」を取り違えない) を崩すため**採らない**。代わりに浮きブランチを週次で片付け、放置によるタスク滞留を解消する。
->
-> - **`claude/nightly-*` も削除提案の対象に含める** (除外しない)。ブランチが残る間そのタスクが選べない期間 (最大 7 日程度) は許容する — 自動実行できる todo はほとんどが改善タスクで急がず、重要な todo はメインセッションで消化するため
-> - **削除後の再挑戦も許容する**。現状のクローズは夜間ループの機能不全に起因するもので、正常動作後は採用方向の選択が多くなる見込み
->
-> **対処案**: weekly-review に「クローズ済み PR の残存ブランチ」検出を追加する。既存の観点⑤ (`review-todo-whole` facet) へ相乗りさせるか決定論的 scan として持つかは実装時判断 ([ADR-031](adr/adr-031-weekly-review-pipeline.md) の構成に従う)。**削除の実行は提案までとし、自動削除はしない** ([ADR-022](adr/adr-022-automation-responsibility-separation.md) / [ADR-028](adr/adr-028-pnpm-create-pr-gate.md))。
->
-> **現状**: クローズ由来で残っている `claude/` ブランチは無い。`claude/nightly-203` は open な #373 のもの、`claude/cloudharness-e2e-validation-sptfc7` / `claude/select-next-task-a9aiam` は 7 月下旬から open のままの #320 / #324 のもの (これらは PR 自体の棚卸し対象)。
->
-> **参照**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 3、[ADR-031](adr/adr-031-weekly-review-pipeline.md) (weekly-review)、[ADR-022](adr/adr-022-automation-responsibility-separation.md)、WP-19 ステップ 3 (監査ループ — 本エントリはその一部を先取りする)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Low (滞留は最大 7 日で解消され、実害は選択機会の遅延のみ) / Frequency Low (週次) / Effort S-M / Adoption Risk Low (提案のみで自動削除しない)。
-
-#### 作業計画
-
-- [ ] クローズ済み PR の残存ブランチを列挙する検出を weekly-review に追加する
-- [ ] `claude/nightly-*` を除外せず対象に含める (除外すると滞留が永続する)
-- [ ] 削除は提案までとし、実行はユーザー承認を経ることを明示する
-- [ ] WP-19 ステップ 3 (自律アクションの週次棚卸し) と重複しない形で載せる
-
-#### 完了基準
-
-- 週次レビューがクローズ済み PR の残存ブランチを列挙し、削除を提案すること。
-- 自動削除を行わないこと (提案までで止まる)。
-
----
+> **順位 395 (週次レビューでの浮きブランチ検出) も実装済み・削除済み** (2026-08-09)。`cli-stale-branch-scan` として実装し、`pnpm stale-branch-scan` で実行する。設計は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 が正 — **takt workflow はネットワークを持たない** (`network_access: false`) ため決定論 scan を skill 側 (L3) に置いた経緯もそちらに記録した。
 
 ## CI 安定性 (2026-08-09 登録)
 
