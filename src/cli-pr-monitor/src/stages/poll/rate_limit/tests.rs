@@ -410,7 +410,8 @@ fn evaluate_rate_limit_shortcut_when_all_conditions_met() {
     assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
 }
 
-/// 順位 141: unresolved thread が残っていれば shortcut を抑止 (CR の指摘が未対応)。
+/// 順位 141 / 順位 228: unresolved_threads だけが残っていれば shortcut を抑止する
+/// (他 2 field は clean 側の境界値 = 0 / Some(0) に固定して単独 field を discriminate)。
 #[test]
 fn evaluate_rate_limit_shortcut_blocks_when_unresolved_threads_exist() {
     let m = MergeableStatus {
@@ -419,11 +420,64 @@ fn evaluate_rate_limit_shortcut_blocks_when_unresolved_threads_exist() {
     };
     let cr = crate::state::CodeRabbitState {
         review_state: "commented".into(),
-        new_comments: 1,
-        actionable_comments: Some(1),
+        new_comments: 0,
+        actionable_comments: Some(0),
         unresolved_threads: Some(1),
     };
     assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228: actionable_comments だけが残っていれば shortcut を抑止する
+/// (他 2 field は clean 側の境界値に固定して単独 field を discriminate)。
+#[test]
+fn evaluate_rate_limit_shortcut_blocks_when_actionable_comments_only() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "commented".into(),
+        new_comments: 0,
+        actionable_comments: Some(1),
+        unresolved_threads: Some(0),
+    };
+    assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228 (silent-clean 誤認保護): `actionable_comments: None` は
+/// `unwrap_or(0) == 0` により clean 扱いになることを固定する。他 2 field は
+/// clean 側の境界値に固定し、この field の None 単独の効果を discriminate する。
+#[test]
+fn evaluate_rate_limit_shortcut_actionable_comments_none_is_clean() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "approved".into(),
+        new_comments: 0,
+        actionable_comments: None,
+        unresolved_threads: Some(0),
+    };
+    assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228 (silent-clean 誤認保護): `unresolved_threads: None` は
+/// `unwrap_or(0) == 0` により clean 扱いになることを固定する。他 2 field は
+/// clean 側の境界値に固定し、この field の None 単独の効果を discriminate する。
+#[test]
+fn evaluate_rate_limit_shortcut_unresolved_threads_none_is_clean() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "approved".into(),
+        new_comments: 0,
+        actionable_comments: Some(0),
+        unresolved_threads: None,
+    };
+    assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
 }
 
 /// 順位 141: new_comments > 0 のとき unresolved_threads が 0 でも shortcut を抑止。
