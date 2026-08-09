@@ -1,0 +1,17 @@
+[package]
+name = "cli-stale-branch-scan"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# gh pr list --json の出力を読む。欠損フィールドを握り潰さないため Value 経由で明示的に検査する。
+serde_json = "1.0"
+# push-runner-config.toml の default_branch を追加の trunk 保護対象として読む (TrunkConfig)。
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+# 非 colocated / 並列 jj workspace でも gh が正しい repo を見るための GIT_DIR 注入 (ADR-045)。
+lib-jj-helpers = { path = "../lib-jj-helpers" }
+# `git ls-remote` / `gh pr list` の timeout 付き実行 (SIM-NEW-cli-stale-branch-scan-collect-L89)。
+lib-subprocess = { path = "../lib-subprocess" }
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

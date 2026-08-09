@@ -204,6 +204,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-stale-branch-scan"
+version = "0.1.0"
+dependencies = [
+ "lib-jj-helpers",
+ "lib-subprocess",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "cli-takt-timings"
 version = "0.1.0"
 dependencies = [

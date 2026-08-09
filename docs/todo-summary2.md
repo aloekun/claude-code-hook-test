@@ -143,7 +143,6 @@
 | 390 | 🔧 Tier 2 | **台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI 検証 (#369 T2 採用)** | todo21.md | M | なし (LEDGER_DATA_FRAME_MARKER と ===BEGIN/END_LEDGER_DATA=== が対。片側変更で ADR-072 決定 13 の framing が破れる) |
 | 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |
 | 392 | 🔧 Tier 3 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
-| 395 | 🔧 Tier 2 | **週次レビューで浮きブランチを検出し削除を提案する** | todo21.md | S-M | なし (2026-08-09 の手動ブランチ削除で ADR-072 決定 3 の除外マーカーが消え順位 203 が再選択された。判定は branch 単一ソースのまま維持し、滞留を週次で解消する) |
 | 396 | 🔧 Tier 2 | **hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす** | todo21.md | S | なし (#376 CI で ubuntu のみ失敗、windows は成功、当該クレートは無変更。2 テストが並列に exe を copy→spawn し、fork した子が copy 側の書き込み fd を継承するため exec が Text file busy。直近 15 run で初出だが ADR-065 の両 OS matrix の信号品質を下げる) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。

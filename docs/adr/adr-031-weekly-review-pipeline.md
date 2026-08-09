@@ -129,7 +129,33 @@ must-run でないことが「skill を主動線に置ける」設計上の余�
 |---|------|-----|------------|
 | **L1 Reminder** | `hooks-session-start` (Rust) 拡張 | `.claude/weekly-review-last-run.json` の `last_run_at` を見て、7 日以上経過していれば `additionalContext` で `/weekly-review` を促す。`last_run_at` が無い旧/破損データは stale 扱い (発火) にして次回更新で移行 (mtime にはフォールバックしない) | reminder 不在 (致命的でない、ユーザーが気付けば実行) |
 | **L2 Review** (AI parallel) | takt workflow `weekly-review` | 5 facets (simplicity / security / architecture / todo / jj-robustness) + 決定論的 file-size scan を **whole-tree** で並列レビュー、aggregate step で findings JSON + markdown 統合 | `.claude/weekly-reviews/<date>.md.failed` marker 残存 → 次セッションの L1 hook が recovery context を出力 |
-| **L3 Approval & Apply** | skill `/weekly-review` | takt 起動 → pending JSON 読み込み → AskUserQuestion で採否一括選択 → 採用分のみ docs/todo.md に追記 | best-effort (ユーザーが skill を再起動すれば pending JSON から再開可能) |
+| **L3 Approval & Apply** | skill `/weekly-review` | **決定論 scan (`pnpm stale-branch-scan`) の同期実行** → takt 起動 → pending JSON 読み込み → AskUserQuestion で採否一括選択 → 採用分のみ docs/todo.md に追記 | best-effort (ユーザーが skill を再起動すれば pending JSON から再開可能) |
+
+#### 各層の実体がどこにあるか
+
+**L3 (skill) だけ本リポジトリの外にある。** レビューで「ADR は L3 の実装を定義しているがリポジトリに skill ファイルが無い」と指摘されたため明記する ([PR #377](https://github.com/aloekun/claude-code-hook-test/pull/377))。
+
+| 層 | 実体の所在 | VCS |
+|---|---|---|
+| L1 Reminder | `src/hooks-session-start/` | 本リポジトリ |
+| L2 Review | `.takt/workflows/weekly-review.yaml` + `.takt/facets/instructions/*` | 本リポジトリ |
+| L2 外の決定論 scan | `src/cli-stale-branch-scan/` (`pnpm stale-branch-scan`) | 本リポジトリ |
+| **L3 Approval & Apply** | **skills repo (`$CLAUDE_SKILLS_REPO`) の `weekly-review/SKILL.md`** を `~/.claude/skills/` へ deploy | **別リポジトリ** |
+
+skill を別リポジトリに置く構成は [ADR-062](adr-062-monthly-harness-roi-review.md) (`/monthly-review`) と同じで、本 ADR に固有の判断ではない。**帰結として、skill 側の変更は本リポジトリの PR diff に現れない** — L2/L3 をまたぐ変更をするときは、両リポジトリの更新が揃っているかを人間が確認する必要がある (自動で照合する仕組みは無く、`/skill-sync-check` が手動の確認手段)。
+
+#### L2 に置けない決定論 scan は L3 が直接呼ぶ (2026-08-09 追記、順位 395)
+
+**takt workflow (L2) はネットワークを持たない。** [weekly-review.yaml](../../.takt/workflows/weekly-review.yaml) は全 provider に `network_access: false` を課しており、他 3 パイプライン (`pre-push-review` / `post-pr-review` / `post-merge-feedback`) が `true` なのと意図的に異なる — whole-tree の 6 facet はローカルのソースツリーだけを読めばよく、外部へ出ないことが隔離として効いている。
+
+そのため **`git ls-remote` / `gh` を要する決定論 scan は L2 に置けない**。1 つの scan のために `network_access: true` へ反転すると、**6 facet すべての隔離が同時に緩む**からである。代わりに L3 (skill) が takt 起動の前に決定論 exe を同期実行し、その出力を findings と並べて採否にかける。`/monthly-review` が `cli-telemetry-report` を同期実行する形 ([ADR-062](adr-062-monthly-harness-roi-review.md)) と同じ配置になる。
+
+**判断基準**: 決定論 scan の置き場所は「ネットワークが要るか」で決まる。
+
+| 条件 | 置き場所 | 例 |
+|---|---|---|
+| ローカルファイルだけで完結 | **L2** の parallel step (`file-length-watchlist` 型) | `.rs` 行数 / `todo*.md` バイト数 |
+| ネットワーク (`gh` / `git ls-remote` / API) が要る | **L3** が takt 起動前に同期実行 | 残存ブランチ検出 (`cli-stale-branch-scan`) |
 
 ### 全体フロー
 
@@ -175,6 +201,33 @@ skill /weekly-review (Phase 1-4)
 | `review-jj-robustness-whole` | 非 colocated / 並列 jj workspace ([ADR-045](adr-045-jj-workspace-parallel-sessions.md)) の mtime staleness / `gh --repo` 欠落 / colocated `.git` 前提 等の環境 fragility 検出 | ADR-031 拡張 (順位247) |
 | `file-length-watchlist` | 決定論的 file-size scan (`.rs` 800 行 + `todo*.md` 50KB)。LLM 判断ゼロの機械観測 | PR-W0 拡張 (順位154) |
 | `aggregate-weekly` | 6 reports → findings JSON + markdown (採否単位の構造化) | `aggregate-feedback.md` を参考 |
+
+**workflow の外にもう 1 つ決定論 scan がある**: 残存ブランチ検出 (`cli-stale-branch-scan`、順位 395) は `gh` / `git ls-remote` を要するため本 workflow には入らず、L3 の skill が takt 起動前に実行する (§ アーキテクチャ の「L2 に置けない決定論 scan」)。
+
+### 残存ブランチ検出 (`cli-stale-branch-scan`、2026-08-09 追加、順位 395)
+
+**由来**: クローズ済み PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) のブランチを手で消したことで [ADR-072](adr-072-nightly-todo-loop.md) 決定 3 の除外マーカーが失われ、同じ順位が再選択された。決定 3 自体は設計どおりで、**ブランチの存在が着手済みマーカー**である以上、浮いたブランチを定期的に片付ける場が要る。
+
+**判定規則**: remote ブランチ 1 本ごとに、それを head とする PR を全状態で引き、
+
+- **すべて closed / merged** → 削除候補 (提案対象)
+- **open が 1 本でもある** → 対象外。close 後に別 PR を開く / reopen する形が実在するため、閉じた側だけを見て消す提案を出さない
+- **PR が 1 件も無い** → 対象外。まだ PR を開いていない作業中のブランチと区別できない
+- **trunk (`master` / `main` / `HEAD`)** → 常に対象外
+- **`claude/nightly-*` を除外しない** (2026-08-09 ユーザー判断)。除外すると夜間 PR のブランチが永久に残り、同じ順位が二度と選ばれなくなる
+
+state が未知の値だった場合は **open と同じ扱い (保護側)** にする。GitHub が state を追加したときに、解釈できない PR を持つブランチが「PR 無し」と誤判定されて削除提案に載るのが最悪の失敗だから。
+
+**PR は全件引かずブランチごとに引く**。総 PR 数は単調増加する一方、remote ブランチ数は運用上小さく有界である。全件方式は取得上限の保守を延々と生み、上限に張り付いた瞬間 fail-closed で scan 自体が止まる — **実装中に実際に踏んだ** (本リポジトリは PR が 300 件を超えており、全件方式は書いた時点で既に使えなかった)。
+
+**削除は提案までで止める** ([ADR-022](adr-022-automation-responsibility-separation.md) / [ADR-028](adr-028-pnpm-create-pr-gate.md))。出力に含めるのは人間がそのまま貼れる `git push origin --delete -- <branch>` であって、exe は実行しない。ブランチ削除は外部可視で、しかも**着手済みマーカーの破棄**でもあるため ([ADR-072](adr-072-nightly-todo-loop.md) 決定 3)、判断を自律 actor に渡さない。
+
+**貼れるコマンドである以上、ブランチ名は攻撃面になる。** git の ref 名規則は `;` / バッククォート / `|` / `$()` を許し (`git check-ref-format` で実測)、`--force` のような `-` 始まりも有効な ref 名である。したがって出力側で 2 つの手当てを打つ:
+
+- **`--` 区切りを必ず挟む**。これが無いと `-` 始まりのブランチ名が `git push` のフラグとして解釈される
+- **安全文字 (`[A-Za-z0-9._/-]`) の allowlist から外れる名前には、そもそも貼れるコマンドを生成しない**。ブランチ名は 3 つの表すべてに出るため、無害化は描画の全経路で共通の関数を通す (出口ごとに個別対策を足すと、出口が増えたときに同じ穴が空く)
+
+**出力に wall-clock を含めない**。同じリポジトリ状態なら同じ出力になるようにしてあり、週次で前回分と diff を取れば「今週新たに浮いたブランチ」だけが読める。時刻を混ぜると毎回全行が差分になる。実行時刻は呼び手 (skill / weekly report) が記録する。
 
 **並列構成**: 5 review facets + 決定論的 file-size scan (計 6) を `parallel:` block で並列実行し、`aggregate-weekly` で統合する。これは [post-merge-feedback.yaml](../../.takt/workflows/post-merge-feedback.yaml) の構造を流用する (analyze 並列 → aggregate)。fix loop は不要 (修正対象がコードではなく findings レポート生成)。
 
