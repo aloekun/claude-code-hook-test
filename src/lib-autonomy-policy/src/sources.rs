@@ -29,7 +29,7 @@ struct AutonomyConfigFile {
 #[derive(serde::Deserialize)]
 struct AutonomySection {
     enabled: Option<bool>,
-    max_open_draft_prs: Option<u32>,
+    max_open_autonomous_prs: Option<u32>,
 }
 
 /// `[autonomy]` から読めた値。各フィールドの `None` は「読めなかった」= 停止側。
@@ -41,8 +41,8 @@ struct AutonomySection {
 pub struct RepoConfig {
     /// `[autonomy] enabled` (kill-switch のリポジトリ側の面)。
     pub enabled: Option<bool>,
-    /// `[autonomy] max_open_draft_prs` (draft PR 背圧の閾値、ADR-071)。
-    pub max_open_draft_prs: Option<u32>,
+    /// `[autonomy] max_open_autonomous_prs` (自律 PR 背圧の閾値、ADR-071)。
+    pub max_open_autonomous_prs: Option<u32>,
 }
 
 /// `[autonomy]` section を読む。読めない一切のケースは全フィールド `None`。
@@ -62,7 +62,7 @@ pub fn read_repo_config(path: &Path) -> RepoConfig {
     };
     RepoConfig {
         enabled: section.enabled,
-        max_open_draft_prs: section.max_open_draft_prs,
+        max_open_autonomous_prs: section.max_open_autonomous_prs,
     }
 }
 
@@ -97,7 +97,7 @@ mod tests {
 
     fn limit_of(body: &str) -> Option<u32> {
         let (_dir, path) = config_with(body);
-        read_repo_config(&path).max_open_draft_prs
+        read_repo_config(&path).max_open_autonomous_prs
     }
 
     #[test]
@@ -107,22 +107,30 @@ mod tests {
     }
 
     #[test]
-    fn reads_the_draft_backpressure_threshold() {
+    fn reads_the_autonomous_pr_backpressure_threshold() {
         assert_eq!(
-            limit_of("[autonomy]\nenabled = true\nmax_open_draft_prs = 3\n"),
+            limit_of("[autonomy]\nenabled = true\nmax_open_autonomous_prs = 3\n"),
             Some(3)
         );
         assert_eq!(
-            limit_of("[autonomy]\nenabled = true\nmax_open_draft_prs = 0\n"),
+            limit_of("[autonomy]\nenabled = true\nmax_open_autonomous_prs = 0\n"),
             Some(0)
         );
     }
 
-    /// 閾値キーが無ければ `None` = 背圧未接続 = draft PR は deny。既定値へ倒さない
+    /// 閾値キーが無ければ `None` = 背圧未接続 = 自律 PR は deny。既定値へ倒さない
     /// (「書き忘れたら 3 件まで自動で作る」という fail-open を作らないため)。
     #[test]
     fn missing_threshold_key_is_none_not_a_default() {
         assert_eq!(limit_of("[autonomy]\nenabled = true\n"), None);
+    }
+
+    /// 旧キー名 `max_open_draft_prs` だけが残った config は「閾値なし」= deny に倒れる
+    /// (ADR-072 決定 15 の改名)。unknown key は無視される仕様なので、改名を取りこぼした
+    /// config が**古い値のまま効き続ける**ことはない。
+    #[test]
+    fn the_pre_rename_threshold_key_does_not_connect_the_backpressure() {
+        assert_eq!(limit_of("[autonomy]\nenabled = true\nmax_open_draft_prs = 3\n"), None);
     }
 
     #[test]
@@ -160,9 +168,9 @@ mod tests {
     #[test]
     fn malformed_threshold_also_disables_the_kill_switch_flag() {
         for body in [
-            "[autonomy]\nenabled = true\nmax_open_draft_prs = \"3\"\n",
-            "[autonomy]\nenabled = true\nmax_open_draft_prs = -1\n",
-            "[autonomy]\nenabled = true\nmax_open_draft_prs = 1.5\n",
+            "[autonomy]\nenabled = true\nmax_open_autonomous_prs = \"3\"\n",
+            "[autonomy]\nenabled = true\nmax_open_autonomous_prs = -1\n",
+            "[autonomy]\nenabled = true\nmax_open_autonomous_prs = 1.5\n",
         ] {
             let (_dir, path) = config_with(body);
             assert_eq!(

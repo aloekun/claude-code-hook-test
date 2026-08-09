@@ -102,6 +102,8 @@ ADR-052 原則 5 は背圧の未接続も fail-closed 条件に含めるが、�
 
 `draft-pr` は kill-switch が両面とも有効でも常に deny する。これは未実装の placeholder ではなく現時点の正しい fail-closed 状態であり、「kill-switch だけ有効化して draft の山を積む」経路（ADR-052 原則 5 が警告するアンチパターン）を構造的に塞ぐ。WP-18 で背圧を実装する PR がこの判定を反転させる。
 
+> **現行の名称・指標（2026-08-09 時点）**: 上表は WP-17 時点の記録である。背圧は WP-18 で接続され（[ADR-071](adr-071-draft-pr-backpressure.md)）、その後の停止点変更（[ADR-072](adr-072-nightly-todo-loop.md) 決定 15）で **`draft-pr` → `autonomous-pr`** へ改名、指標も「未マージ draft 数」→「**未マージの `claude/` PR 数**（draft を問わない）」へ改めた。本節の構造（背圧の接続は操作クラス別の前提条件）は変わらない。
+
 ### 6. 判定タイミングは操作直前・毎回
 
 run 冒頭で 1 回だけ判定するのではなく、各 commitment 操作（push / draft PR 作成）の直前に毎回呼ぶ。ADR-052 停止手順「フラグを OFF にすると次の自律実行判定から自動実行可が無効化される（既に起動済みの単一操作は対象外）」を満たすため、長時間 run の途中でフラグを倒しても次の操作境界で効く。
@@ -227,7 +229,7 @@ WP-18 夜間ループ（[ADR-072](adr-072-nightly-todo-loop.md) § 実走スモ�
 ### 残課題
 
 - PR 2（Phase B）で workflow 式（`vars.AUTONOMY_ENABLED == 'true'`）と exe 呼び出しの二層を接続し、master ref からの config 抽出を実装する。
-- WP-18 で未マージ draft 数の背圧を実装し、`Operation::DraftPr` の `backpressure_connected` を反転させる。
+- ~~WP-18 で未マージ draft 数の背圧を実装し、`Operation::DraftPr` の `backpressure_connected` を反転させる。~~ → **完了**（[ADR-071](adr-071-draft-pr-backpressure.md)）。実装では enum 側の `backpressure_connected` を残さず、要求する指標を返す `requires_autonomous_pr_backpressure()` と `GateInputs` の実測値へ分けた（状態を 2 箇所に持たないため）。指標と型名は 2026-08-09 に `autonomous-pr` 系へ改名済み。
 - WP-19 の残り（自主減速・監査ループ）は本 ADR の範囲外。本フラグは「全停止」だけを担い、「いつ自主減速するか」は別機構が担う（ADR-052 原則 5 の役割分担）。
 
 ## 関連
