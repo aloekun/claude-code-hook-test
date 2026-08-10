@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-08-06、2026-08-09 に停止点を draft PR から通常 PR へ変更)
+試験運用 (2026-08-06、2026-08-09 に停止点を draft PR から通常 PR へ変更、2026-08-10 にレビュー要求経路を確立)
 
 > [ADR-052](adr-052-autonomy-execution-boundary-classes.md) の自動実行可クラスのうち **PR 作成 (autonomous-pr クラス)** を、[ADR-066](adr-066-autonomy-global-kill-switch.md) の kill-switch と [ADR-071](adr-071-draft-pr-backpressure.md) の背圧の上に実装する。無人 fix push ([ADR-067](adr-067-phase-b-unattended-fix-push.md)) の次の段で、**自律 actor が初めて「新しい成果物」を作る**経路になる。
 >
@@ -241,7 +241,9 @@ pre-push simplicity review はここを「他の停止点と同様に graceful d
 >
 > 下記「未検証」が挙げていた仮説 (bot 同士のループを避けるため他 bot のコメントを無視する実装) が、そのまま実証された形である。**明示トリガーという方式自体は無効ではない** — [ADR-019](adr-019-coderabbit-review-hybrid-policy.md) の fix push 後トリガーは現在も機能している。効かないのは投稿者が bot の場合だけで、ADR-019 側は `cli-pr-monitor` がローカルの `gh` = **ユーザー資格情報**で投稿しているために成立していた。本決定は「ADR-019 と同型」と判断したが、**同型だったのはコマンド文字列だけで、投稿者の種別が違っていた**。
 >
-> **代替解は順位 394 の draft 廃止**である。夜間ループが通常 PR を作れば `.coderabbit.yaml` の `auto_review.enabled: true` による初回レビューに自然に乗り、明示トリガーという回避策そのものが不要になる。「draft で止める」という制約は、トリガーの別 (ユーザー指示 / 自動採択) で扱いを区別せず commitment 点をマージ 1 点へ集約する判断 (2026-08-09 ユーザー決定) により外した — 下記の「ready 化は ADR-052 の commitment 点を侵す」という前提はこの決定で失効している。
+> **撤回したのは「投稿者が bot である」ことであって、明示トリガーという方式ではない (2026-08-10 追記)。** 当初はこの区別が曖昧なまま「代替解は draft 廃止」と書いたが、それは誤りだった (決定 15 § 前提の訂正)。方式は決定 16 が**投稿者を人間 identity にして復活させ**、実走で成立を確認している。
+>
+> ~~**代替解は順位 394 の draft 廃止**である。夜間ループが通常 PR を作れば `.coderabbit.yaml` の `auto_review.enabled: true` による初回レビューに自然に乗り、明示トリガーという回避策そのものが不要になる。~~「draft で止める」という制約は、トリガーの別 (ユーザー指示 / 自動採択) で扱いを区別せず commitment 点をマージ 1 点へ集約する判断 (2026-08-09 ユーザー決定) により外した — 下記の「ready 化は ADR-052 の commitment 点を侵す」という前提はこの決定で失効している。
 >
 > **教訓**: 未検証事項として自分で書き出した仮説を、その検証前に本番経路へ載せた。決定 10 の例外として `continue-on-error` を付けたため run は green のままで、**失敗が 10 時間気づかれなかった**。「投稿が成功したか」は観測できても「相手が反応したか」は観測していない — 助言層の fail-open は、効果の観測を別に用意して初めて成立する。
 >
@@ -317,6 +319,12 @@ pre-push simplicity review はここを「他の停止点と同様に graceful d
 
 ### 15. 停止点を draft PR から通常 PR へ移す (2026-08-09)
 
+> **前提の訂正 (2026-08-10)**: 本決定は「draft をやめれば `auto_review` の初回レビューに自然に乗る」を根拠にしていたが、**この因果は誤りだった**。実際のブロック要因は draft ではなく **PR の author が bot であること**で、draft を廃止しても夜間 PR にレビューは付かなかった ([#379](https://github.com/aloekun/claude-code-hook-test/pull/379) が `draft=false` で 10 時間 26 分 無反応)。制約の全体像は [ADR-019](adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない、解決は決定 16 を見よ。
+>
+> **決定そのものは維持する。** レビューが付かない理由の説明は誤っていたが、「commitment 点をマージ 1 点に集約する」という判断は [ADR-052](adr-052-autonomy-execution-boundary-classes.md) 原則 2 の改訂として独立に成立しており、draft へ戻す理由は無い。
+>
+> **教訓**: 症状 (レビューが付かない) と、目に付いた差分 (draft である) を因果で結んでしまった。`.coderabbit.yaml` に `drafts: false` という**もっともらしい説明が実在した**ことが誤診を後押ししている。draft を外した後に**同じ症状が続くか**を確かめる前に「解決した」と記録したのが誤りで、**対処の効果は対処後の観測で確かめる**しかない (決定 16 の検証 step はこの教訓の実装でもある)。
+
 **決定 11 の撤回を受けた構造側の是正である。** 明示トリガーが不成立と分かった時点で残る選択肢は「レビューされない PR を毎晩作り続ける」か「draft をやめる」かの 2 つで、後者を採った。
 
 **commitment 点はマージ 1 点に集約する (ユーザー判断)。** 起票時は「ready 化 = レビューに commit する意思表示」も commitment 点と見なしていたが、**発生トリガーがユーザー指示か自動採択かで扱いを区別する必要はない** — 有効な修正 PR ならプロジェクトに取り入れてよい。したがって自律 actor が「ready = レビュー求む」を出すことは許容し、後戻り不可な操作 (マージ) だけを人間に残す。[ADR-052](adr-052-autonomy-execution-boundary-classes.md) 原則 2 の分類表を本体改訂し、ゲート必須クラスから「PR の ready 化」「非 draft PR の作成」を削除した。
@@ -338,9 +346,60 @@ pre-push simplicity review はここを「他の停止点と同様に graceful d
 
 **旧名は黙って通さない。** `Operation::parse("draft-pr")` は `None` を返して引数不正 (exit 2) になり、旧キー `max_open_draft_prs` だけの config は閾値未接続 (deny) になる。呼び手の更新漏れが「別名として通る」形で fail-open しないよう unit test で固定した ([ADR-071](adr-071-draft-pr-backpressure.md) § unit test)。
 
-**決定 11 の step は撤去し、跡地にコメントを残す。** 通常 PR は `.coderabbit.yaml` の `auto_review.enabled: true` が拾うため、明示トリガーは不要になった。`Report outcome` からも `request_review` の outcome と `[NIGHTLY_WARN]` 分岐を除いた。
+**決定 11 の step は撤去し、跡地にコメントを残す。** ~~通常 PR は `.coderabbit.yaml` の `auto_review.enabled: true` が拾うため、明示トリガーは不要になった。~~ → **この見込みは外れた** (上記「前提の訂正」)。明示トリガーは依然として必要で、決定 16 が**投稿者を人間 identity にして**復活させる。`Report outcome` から `request_review` の outcome と `[NIGHTLY_WARN]` 分岐を除いた点は維持する — 投稿はもはやこの workflow の責務ではないため。
 
-**CodeRabbit の quota は夜間 PR 1 件あたり 1 レビュー増える。** 決定 11 が意図していた消費量と同じで ([ADR-019](adr-019-coderabbit-review-hybrid-policy.md) § 夜間ループ PR の消費 に注記)、`auto_review.drafts: false` の設定自体は変えていない — 人間が意図的に draft で開く PR を対象外に保つ意味は残る。
+**CodeRabbit の quota は夜間 PR 1 件あたり 1 レビュー増える。** 決定 11 が意図していた消費量と同じで ([ADR-019](adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない に注記)、`auto_review.drafts: false` の設定自体は変えていない — 人間が意図的に draft で開く PR を対象外に保つ意味は残る。
+
+### 16. レビュー要求だけを人間 identity で出す — 別 workflow へ分離する (2026-08-10)
+
+**決定 11 の撤回理由は「明示トリガーという方式が悪い」ではなく「投稿者が bot だった」である。** identity を変えれば方式は生きる。制約の全体像は [ADR-019](adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない が持つ。
+
+**PR の作成者は bot のまま維持する。** author を人間資格情報へ変える案もあったが、決定 8 が App token を選んだ理由 (PAT はオーナー権限で [ADR-067](adr-067-phase-b-unattended-fix-push.md) の ruleset backstop を bypass する) は今も有効である。**変えるのは「誰が PR を作るか」ではなく「誰がレビューを頼むか」**だけでよい。
+
+**PAT は権限を絞れば決定 8 の懸念に当たらない。** `CODERABBIT_TRIGGER_PAT` は fine-grained PAT で **Pull requests: write のみ** (対象リポジトリ 1 つ、期限付き)。**push もマージもできない** (どちらも `Contents: write` が必要) ため、ruleset backstop を迂回する経路が構造的に存在しない。決定 8 の却下は「PAT 一般」ではなく「push に使う PAT」に対するものだった。
+
+#### nightly-todo.yml の中に置かない — 資格情報を agent の job から隔離する
+
+これが本決定で最も重要な設計判断である。分離の理由は責務分離ではなく**信頼境界**にある。
+
+nightly-todo の job は**未信頼の agent が実装を書き、その成果物を `cargo test` が実行する** job である。決定 5 は agent に Bash を与えず、決定 8 § 副次効果は agent が触れる `GITHUB_TOKEN` を read-only にした。さらに § 実走スモークで**唯一未解決なのが「`cargo` サブプロセスへのトークン露出」**である。
+
+その job に人間資格情報を置くと、**未解決の露出リスクの対象に人間 PAT が加わる**。[`review-request.yml`](../../.github/workflows/review-request.yml) は agent を一切動かさないため、PAT はそこにしか存在しない。
+
+一般化すると、**新しい資格情報を足すときは「その job で何が実行されうるか」を先に問う**。決定 8 § 帰結が「資格情報を足すと、その step で何が実行されうるかを洗い直す必要がある」と書いた一般則の 2 例目にあたる。
+
+#### pull_request_target の攻撃面を閉じる
+
+public リポジトリでは **fork からの PR でも起動し、その時点で secrets へ到達できる**。checkout しなくても、PR のタイトル・本文・ブランチ名を `run:` へ展開すれば script injection から secret 窃取に至る。[ADR-031](adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 で塞いだのと同じクラスである。
+
+- PR ブランチを **checkout しない** (コードを一切実行しない)
+- `run:` へ展開するのは **PR 番号 (整数) だけ**。文字列フィールドはシェルに渡さない
+- fork PR を条件で除外する
+
+起動条件は 4 つの AND で fail-closed にした: author が Bot / fork でない / base が本リポジトリ / kill-switch が有効。**author は `user.type == 'Bot'` で判定する** — `nightly-todo-aloekun[bot]` を直書きすると App 改名で黙って発火しなくなる。
+
+**kill-switch は 2 面とも見る。** workflow 式からはリポジトリ内ファイルを読めないため、variable 面は `if:` で、config 面は job 内の step が既定ブランチの `autonomy-config.toml` を API で読んで判定する。PR ブランチ側ではなく既定ブランチから読むのは決定 3 と同じ信頼境界 (自律 actor が自分の停止フラグを書き換えて自己解除する経路を作らない)。**「意図した停止」は green、「読めなかった」は red** と分ける (決定 10 と同じ分類)。
+
+#### 投稿しただけで成功としない
+
+**決定 11 の失敗の本質は、投稿の成否しか観測せず「相手が反応したか」を見ていなかったことにある。** 助言層を fail-open にしたこと自体は [ADR-043](adr-043-security-gates-fail-closed.md) に沿って正しかったが、fail-open は**効果の観測を別に用意して初めて成立する**。
+
+本 workflow は投稿後に CodeRabbit の反応を待ち、無ければ red で落とす。判定は要求コメントの id を起点に**それより新しい** CodeRabbit コメントだけを数える — PR 上の総数を見ると過去の skip 通知や別要求への反応で誤って成功と判定する。照会の一時失敗は「反応なし」と読み替えず、判定は deadline 到達時のみ行う。
+
+投稿は冪等にする。`opened` は PR ごとに 1 回だが run の手動 re-run で二重投稿になり、[ADR-019](adr-019-coderabbit-review-hybrid-policy.md) § 再トリガー抑止ガードのとおり同一 HEAD への再投稿は**レート枠を消費するだけ**である。
+
+#### 実走検証 (2026-08-10)
+
+`workflow_dispatch` で経路全体を 1 回で確認した。**PR 作成から CodeRabbit の反応まで 15 秒、完全自動**。
+
+| 段 | 時刻 (UTC) | 結果 |
+|---|---|---|
+| `nightly-todo` 完走 | 09:23:02 | 全 step success (順位 163 を選択) |
+| bot PR 作成 | 09:23:02 | [#381](https://github.com/aloekun/claude-code-hook-test/pull/381) `draft=false` / author `nightly-todo-aloekun[bot]` |
+| `review-request` 自動起動 | 09:23:05 | kill-switch 2 面を通過し投稿 (comment id=5238298985) |
+| **CodeRabbit の反応** | 09:23:17 | **反応あり**。検証 step が「要求後のコメント 2 件」を確認 |
+
+**検証 step は実際に働いた** — 1 回目の確認では反応が無く 2 回目で検出している。決定 11 のように投稿の成否だけを見ていれば、この待機は存在しなかった。
 
 ## 試験運用判断基準 (ADR-039)
 
@@ -433,15 +492,17 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 | 決定 7 の照合が実 runner 上でも通ること (誤検知で毎晩止まらないこと) | 本 ADR § integrity 機構の drill | **充足 (1 run)** — 誤検知せず publish へ到達。毎晩の安定性は継続観測 |
 | `publish/` の clone + rsync が実 runner で成立し、`work/` の変更が過不足なく運ばれること | 決定 9 (`--delete` による削除の反映を含む) | **充足** — commit は 1 ファイル 18 行追加・削除ゼロで、順位 203 の指定範囲と完全に一致 |
 | WP-17 残課題: Phase B の自動起動経路が成立するか | [ADR-067](adr-067-phase-b-unattended-fix-push.md) § 検証記録 | **経路は生存 (2026-08-09 訂正)** — 2026-08-08 時点では「不成立」と記帳したが誤り。起動契機のコメントが無かっただけで、CodeRabbit がコメントした時点で `issue_comment` 経路は発火した (#373 で 04:12:15 に **Phase A が夜間 PR 上で自動起動**)。**Phase B 本体 (無人 fix push) の到達はなお未観測** — docs 指摘が出る PR に当たっていない |
-| WP-17 残課題: `coderabbitai[bot]` allowlist の要否 | 同上 | **未判定 (2026-08-09 に条件を再設定)** — 上記のとおりイベントは発生しうると分かった。判定条件は「決定 11 の明示トリガーが効いてから」ではなく (決定 11 は撤回)、**順位 394 の draft 廃止後、CodeRabbit の自動レビューが付いた夜間 PR で Phase A/B の起動可否を見る**こと |
+| WP-17 残課題: `coderabbitai[bot]` allowlist の要否 | 同上 | **未判定 (2026-08-10 に前提が整った)** — 決定 16 で夜間 PR に CodeRabbit のレビューが付くようになり、判定に必要な起動契機が毎回供給されるようになった。次に docs 指摘の出る夜間 PR で Phase A/B の起動可否と併せて見る |
 | **`cargo` サブプロセスから `CLAUDE_CODE_OAUTH_TOKEN` / `GITHUB_TOKEN` が見えるか** | pre-push security review の warning | **未観測 (意図的に保留)** — 観測には使い捨ての `build.rs` を仕込む専用 run が要り、初版の probe は public CI ログへ広く env 名を出す設計欠陥で撤去した (§ 残課題)。決定 5 で agent に Bash を与えない判断は**保守側**のため、未観測でも安全側に倒れている。確実に 1 つずつ可観測性を積む方針 (2026-08-08 ユーザー確認) に従い、安全な probe を設計できるまで保留する |
 | **停止側: `AUTONOMY_ENABLED` が `'false'` / 未設定で何も作られないこと** | ADR-066 の 3 状態。#364 で受け入れ基準へ追加 | **充足** (2026-08-08、ユーザー実測) — `'false'` と未設定の 2 状態で `workflow_dispatch` (`dry_run` オフ = push / PR 作成をする設定) を実行し、**2 回とも job が skip**。ブランチ・draft PR・App token のいずれも作られなかった。確認後 `'true'` へ復旧済み |
 | **tool scope の deny が効くこと (agent が `master-ref/` へ書けない)** | 決定 12 (順位 379) | **充足** (2026-08-08、ローカル CLI 実測) — 同じ `--allowedTools` / `--disallowedTools` フラグで `master-ref/PROBE.txt` への Write を試させると `File is in a directory that is denied by your permission settings.` で拒否され、ファイルは作られず config も無傷。対照で `work/` への Write は成功。あわせて実 dispatch run で agent が対象 1 ファイルのみ編集し `guard=success` = allow 側も成立 |
 
 **停止側は `dry_run` をオフにして検証した。** `AUTONOMY_ENABLED` が `'true'` でなければ job の `if:` で止まるため `dry_run` の値は判定に関与しないが、**あえて「push も PR 作成もする設定」で実行**することで「dry_run だから作られなかったのでは」という解釈の余地を消している。
 
-**10 件中 7 件が充足、残る 3 件が未確定。** 未確定は (a) Phase B の自動起動 (経路の生存は #373 で確認したが、**Phase B 本体 = 無人 fix push への到達は未観測**)、(b) `coderabbitai[bot]` allowlist の要否、(c) トークン露出 (安全な probe を設計できるまで保留)。**(a) と (b) は順位 394 の draft 廃止後に同じ run で判定できる**。
+**10 件中 7 件が充足、残る 3 件が未確定。** 未確定は (a) Phase B 本体 (無人 fix push) への到達、(b) `coderabbitai[bot]` allowlist の要否、(c) トークン露出 (安全な probe を設計できるまで保留)。
 
+> **(a)(b) の前提は 2026-08-10 に整った。** 両者は「CodeRabbit が夜間 PR にコメントすること」を起動契機とするため、レビューが一度も付かない間は**観測機会そのものが無かった**。決定 16 でレビューが毎回付くようになり、あとは docs 指摘の出る夜間 PR に当たれば判定できる。**未確定の理由が「機構が無い」から「事象待ち」へ変わった**点が進捗である。
+>
 > **集計の訂正 (2026-08-09)**: 従前は「8 件が充足、1 件が不成立、残る未確定は 2 件」と書いていたが、合計が 11 件で母数の 10 件と合っておらず、充足数も表と 1 件ずれていた (表の充足は 7 行)。**表が正**であり、上記へ改めた。
 
 **トークン露出の観測は意図的に保留する。** 初版の probe は (1) `build.rs` が draft PR の git 履歴に残り、(2) 名指しの 4 変数を超えて `TOKEN`/`SECRET`/`KEY` に一致する全 env 名 (`ACTIONS_RUNTIME_TOKEN` 等) を public CI ログへ出す設計欠陥があり、pre-push security review が REJECT して撤去した。安全に観測するには最低限 (a) `build.rs` を Guard の deny 配下パスに置いて commit 混入を防ぐ、(b) 出力を名指しの変数のみに絞る、(c) `if: github.event_name == 'workflow_dispatch'` で dispatch 限定にする、の 3 点が要る。決定 5 の Bash 非付与が保守側に倒れているため未観測でも安全側であり、不確実な追加 dispatch を急がず、設計を固めてから 1 回で観測する (2026-08-08 ユーザー方針)。
@@ -459,6 +520,11 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 | `NIGHTLY_APP_ID` | repository **variable** (Actions → Variables) |
 | `NIGHTLY_APP_PRIVATE_KEY` | repository **secret** (Actions → Secrets) |
 | `AUTONOMY_ENABLED` | repository **variable** (Actions → Variables)。現在値 `'true'` |
+| `CODERABBIT_TRIGGER_PAT` | repository **secret** (Actions → Secrets)。2026-08-10 登録。**fine-grained PAT / 対象リポジトリ 1 つ (`claude-code-hook-test`) / `Pull requests: Read and write` のみ / 期限あり**。用途は [`review-request.yml`](../../.github/workflows/review-request.yml) からのレビュー要求コメント投稿だけ (決定 16) |
+
+**PAT は push もマージもできない。** どちらも `Contents: write` が必要で、本 PAT には付与していない。決定 8 が PAT を却下した理由 ([ADR-067](adr-067-phase-b-unattended-fix-push.md) の ruleset backstop 迂回) は、**push に使う PAT** に対するものであって権限を絞った PAT には当たらない。この非対称が決定 16 を成立させている。
+
+**期限切れは沈黙しない。** PAT が失効すると `review-request.yml` の投稿 step が失敗し、workflow が red になる。投稿できても CodeRabbit が反応しなければ検証 step が red になる (決定 16)。どちらの経路でも run 一覧から気づける。
 
 **付与権限は決定 8 の設計意図と完全に一致していた。** 同決定は「Contents: write / Pull requests: write / Metadata: read のみ。**Workflows は付けない**」と書いており、実体もそのとおりだった。Workflows が No access であることは、`.github/workflows/**` を含む push が権限層でも通らないことを意味し、決定 6 の禁止リストと二重の防御になっている。
 
@@ -509,11 +575,11 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 
 ### 残課題
 
-- **実走スモークの残り 3 項目** (§ 実走スモーク)。allow 経路・停止側・tool scope deny は 2026-08-08 に充足した。残るのは (a) Phase B 本体の到達、(b) `coderabbitai[bot]` allowlist の要否 (いずれも順位 394 後の run で判定)、(c) **`cargo` サブプロセスへのトークン露出**。(c) は初版 probe の設計欠陥 (commit 混入 + env 名の広域露出) を解消した安全な probe を設計してから 1 回で観測する。決定 5 の Bash 非付与が保守側のため未観測でも安全側であり、急がない。この観測は決定 5 の「Bash 再付与を再検討してよいか」の判断材料でもある。
+- **実走スモークの残り 3 項目** (§ 実走スモーク)。allow 経路・停止側・tool scope deny は 2026-08-08 に充足した。残るのは (a) Phase B 本体の到達、(b) `coderabbitai[bot]` allowlist の要否 (**決定 16 で観測機会は供給されるようになった。あとは docs 指摘の出る夜間 PR に当たるのを待つ**)、(c) **`cargo` サブプロセスへのトークン露出**。(c) は初版 probe の設計欠陥 (commit 混入 + env 名の広域露出) を解消した安全な probe を設計してから 1 回で観測する。決定 5 の Bash 非付与が保守側のため未観測でも安全側であり、急がない。この観測は決定 5 の「Bash 再付与を再検討してよいか」の判断材料でもある。
 - **外部設定の実体は記録したが、作成日と資格情報欠落時の run の色は未確定** (§ 外部設定の実体)。前者は GitHub の Audit log から引ける。後者は資格情報を意図的に壊す run が要り、復旧を伴うため実施していない。
 - **`AUTONOMY_ENABLED` を立てると schedule も同時に有効になる**。スモークを「まず dry_run で」と計画していたのに、変数を立てた時点で本番の夜間 run が先に走った (§ 実走スモーク)。**観測装置の準備前に無人 run が始まる**構造なので、次に同種の自律機能を足すときは「有効化の粒度」を dispatch 限定と schedule 込みで分けられるか検討する。
-- ~~**CodeRabbit が bot 投稿の `@coderabbitai review` に反応するか** (決定 11)~~ → **解決 (2026-08-09)**。無反応と実測で確定し、決定 11 を撤回した (§ 決定 11 の撤回ブロック)。代替解は順位 394 の draft 廃止。
-- **Phase B 本体 (無人 fix push) が夜間 PR で到達するか**。#373 で `issue_comment` 経路の生存と Phase A の自動起動までは確認したが、docs 指摘が出る PR に当たっていないため Phase B 自身は未観測。`coderabbitai[bot]` allowlist の要否も同じ run で判定する (§ 実走スモーク)。
+- ~~**CodeRabbit が bot 投稿の `@coderabbitai review` に反応するか** (決定 11)~~ → **解決 (2026-08-09〜10)**。無反応と実測で確定して決定 11 を撤回し、**投稿者を人間 identity に変えて方式ごと復活させた** (決定 16、2026-08-10 に実走で成立を確認)。当初「代替解は draft 廃止」と書いたのは誤りだった (決定 15 § 前提の訂正)。
+- **Phase B 本体 (無人 fix push) が夜間 PR で到達するか**。#373 で `issue_comment` 経路の生存と Phase A の自動起動までは確認したが、docs 指摘が出る PR に当たっていないため Phase B 自身は未観測。`coderabbitai[bot]` allowlist の要否も同じ run で判定する (§ 実走スモーク)。**決定 16 で夜間 PR に毎回レビューが付くようになったため、観測機会は供給され続ける。**
 - **`master-ref/` を agent のファイルシステムから外すか (順位 377 の判断材料)**。決定 12 の tool scope で**agent が直接書く経路は予防側で塞いだ**ため、当初の「検知どまり」状態は解消した。残るのは build script 経由の経路で、完全に外すには別 job + artifact 受け渡しへの構造変更が要る。**決定 12 のスコープが実走で効いていることを確認できるまでは、構造変更の要否を判断しない** — 効いていなければ前提が変わる。
 - **authority gate の直前で自律 PR 数を再計数するか**。現状は job 冒頭のスナップショットを使い回す (§ 決定 4)。閾値を 1 件超えて push される事象が実運用で観測されたら入れる。**再計数を入れない現状の根拠**: 超過は最大でも 1 件で、背圧は「積み過ぎを止める」ためのものであって厳密な上限ではない。同一 workflow の並行 run は `concurrency` で直列化済みなので、増分の出所は別経路 (人手 / Phase B) に限られる。CodeRabbit の PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376) レビューが同じ点を指摘したが、この保留は意図であり指摘を受けての新規判断ではない。
 - **ガードレール禁止リストの allowlist 化**。台帳の「対象ファイル」列を機械可読にする (別列に正規化パスを持つ等) のが前提。

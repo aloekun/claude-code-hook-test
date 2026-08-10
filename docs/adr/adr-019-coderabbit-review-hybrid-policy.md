@@ -150,13 +150,36 @@ WP-03 は 2026-04-19 で却下した「rate-limit 耐性 (超過後の auto-retr
 - **従来**: 初回レビュー 1 + fix push ごとの自動増分レビュー N = `1 + N` 回。
 - **WP-03**: 初回レビュー 1 + fix 束ねごとの明示レビュー 1 = `1 + (iteration 数)` 回。push 毎ではなく「レビューしてほしい確定タイミング」のみ消費し、中間 push (rebase / cleanup 等) が誤ってレビューを消費しない。
 
-#### 夜間ループ PR の消費 (2026-08-09 追記、ADR-072 決定 15)
+#### CodeRabbit は bot 作成 PR を自動レビューしない (2026-08-10 実測で確定)
 
-夜間ループ ([ADR-072](adr-072-nightly-todo-loop.md)) が停止点を draft PR から**通常 PR**へ移したため、**夜間 PR 1 件につき初回自動レビュー 1 回**を消費するようになった。従来は `auto_review.drafts: false` により夜間 PR が丸ごとレビュー対象外で、**quota を一切消費しない代わりに一度もレビューされなかった**。
+**本節が本リポジトリにおける「CodeRabbit がいつレビューするか」の真実源である。** ADR-072 の夜間ループがこの制約に真正面から当たったため、経路を全て実測して確定させた。
 
-**消費量そのものは増えていない。** ADR-072 決定 11 (撤回済み) が投げようとしていた明示トリガー 1 回と同量で、起動経路が「明示トリガー」から `auto_review` に変わるだけである。ただし**クォータ設計の前提は変わる** — 上の消費モデルは人間が開く PR を数の母数にしていたが、そこへ毎晩最大 1 件が加わる。背圧 ([ADR-071](adr-071-draft-pr-backpressure.md)) の閾値が、この母数の実効上限になる。
+CodeRabbit には **PR の author が bot なら自動レビューをスキップする組み込み挙動**がある (公式メッセージ "Auto Review Skipped — Bot user detected")。設定ではなくプラットフォーム側の判定で、`.coderabbit.yaml` からは制御できない。
 
-`reviews.auto_review.drafts` は `false` のまま変えない。夜間 PR が draft でなくなったので設定を触る必要がなく、人間が意図的に draft で開く PR を対象外に保つ意味は残る。
+| 経路 | 結果 | 根拠 |
+|---|---|---|
+| bot 作成 PR の `auto_review` | **skip** | [#379](https://github.com/aloekun/claude-code-hook-test/pull/379) が `draft=false` で 10 時間 26 分 無反応。人間作成の #376 / #377 は 33 秒 / 18 秒で反応 |
+| bot が `@coderabbitai review` を投稿 | **無視** | [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) で App 投稿が 10 時間無反応 → 同一 PR・同一文言で人間が投稿すると 4 秒で応答 |
+| 人間が `@coderabbitai review` を投稿 | **動く** | 上記 / #378 は 5 秒で応答 |
+| CodeRabbit を reviewer に要求 | **API が拒否** | HTTP 422 `Reviews may only be requested from collaborators` (CodeRabbit は App であり collaborator ではない) |
+| PR を reopen | **無効** | 状態遷移では skip が解除されない (2026-08-10 実測) |
+| 設定で bot を許可 | **キーが存在しない** | [設定スキーマ](https://coderabbit.ai/integrations/schema.v2.json) を全数確認。username 系は `ignore_usernames` (除外専用) のみで allowlist 方向は無い。`chat.allow_non_org_members` は説明文に "This does not affect automatic PR review eligibility" と明記 |
+
+**`ignore_usernames` は原因ではない。** 本リポジトリの `.coderabbit.yaml` は同キーを設定しておらず (既定 `[]`)、`ignore_title_keywords` にも該当しない。設定側に原因は無く、**bot 判定そのもの**である。
+
+**skip 通知の有無は判断材料にならない。** 公開事例では skip 時に "Auto Review Skipped" コメントが出るが、本リポジトリの #365 / #379 では**通知すら投稿されなかった**。`reviews.review_status` で抑制できるとされるが本リポジトリは未設定で、プラン差か実装差かは**未解明**。**通知が無いことは bot 判定が無い証拠にはならない**。
+
+##### 唯一の経路 = 人間 identity のコメント投稿
+
+上表のとおり、**人間 identity で `@coderabbitai review` を投稿する以外に自動化できる経路が無い**。これは消去法ではなく全経路の実測による。実装は [`review-request.yml`](../../.github/workflows/review-request.yml) が担い、設計判断は [ADR-072](adr-072-nightly-todo-loop.md) 決定 16 に記録した。
+
+##### quota への影響
+
+夜間 PR は **1 件につき明示トリガー 1 回**を消費する。`auto_review` には乗らないため、上の消費モデル (`1 + iteration 数`) の母数へ毎晩最大 1 件が加わる形になる。背圧 ([ADR-071](adr-071-draft-pr-backpressure.md)) の閾値がこの母数の実効上限である。
+
+消費量は ADR-072 決定 11 (撤回済み) が意図していた量と同じで、**変わったのは投稿者の identity だけ**である。
+
+`reviews.auto_review.drafts` は `false` のまま変えない。夜間 PR が draft でなくなったので触る必要がなく、人間が意図的に draft で開く PR を対象外に保つ意味は残る。
 
 #### 既知の制約
 
