@@ -143,7 +143,22 @@
 | 390 | 🔧 Tier 2 | **台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI 検証 (#369 T2 採用)** | todo21.md | M | なし (LEDGER_DATA_FRAME_MARKER と ===BEGIN/END_LEDGER_DATA=== が対。片側変更で ADR-072 決定 13 の framing が破れる) |
 | 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |
 | 392 | 🔧 Tier 3 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
-| 396 | 🔧 Tier 2 | **hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす** | todo21.md | S | なし (#376 CI で ubuntu のみ失敗、windows は成功、当該クレートは無変更。2 テストが並列に exe を copy→spawn し、fork した子が copy 側の書き込み fd を継承するため exec が Text file busy。直近 15 run で初出だが ADR-065 の両 OS matrix の信号品質を下げる) |
+| 396 | 🚀 Tier 1 | **hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす (flaky テスト、早期修正)** | todo21.md | S | なし (#376 CI で ubuntu のみ失敗、windows は成功、当該クレートは無変更。2 テストが並列に exe を copy→spawn し、fork した子が copy 側の書き込み fd を継承するため exec が Text file busy。直近 15 run で初出だが ADR-065 の両 OS matrix の信号品質を下げる。**flaky を放置すると「また flake だろう」で実バグを見落とす**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断で Tier 1 へ格上げ) |
+| 397 | 🚀 Tier 1 | **`pnpm merge-pr` が夜間 PR (remote 専用ブックマーク) を検出できない** | todo21.md | S-M | なし (2026-08-10 実測。#381 のマージが「PR が見つかりません」で exit 1。夜間 PR は remote 専用 bookmark しか持たず、`gh pr merge` は hook でブロックされるため**ブロックされる経路と動かない経路しかない**。採用率測定で毎回踏む) |
+| 398 | 🔧 Tier 2 | **post-merge-feedback の進行中ガードが完了済みの run を進行中と誤判定する** | todo21.md | S-M | なし (2026-08-10 実測。ガードは context.json の mtime 1500s だけを見て完了を見ない。連続マージで確実に踏む。順位 399/400 と同一機構) |
+| 399 | 🔧 Tier 2 | **`--feedback-only <PR>` が同じガードに阻まれ復旧手段として機能しない** | todo21.md | S | なし (2026-08-10 実測。PR 番号を引数で受け context 非依存の設計なのにガードだけ context 鮮度を見る。復旧専用コマンドが復旧に使えない) |
+| 400 | 🔧 Tier 2 | **post-merge-feedback の marker が危険な復旧手順を案内し安全な手順に触れていない** | todo21.md | XS-S | なし (2026-08-10 実測。takt 直接起動は stale context を読み誤った PR のレポートを生成しうる。実際に #382 の marker 時点で context は #383 を指していた。安全な --feedback-only に言及が無い) |
+| 401 | 💎 Tier 3 | **CodeRabbit 無料枠の窓は固定時刻でなく直近の消費に追随する** | todo21.md | XS | なし (2026-08-10 実測。56 分告知どおりに投げても通らず、間に成功した別レビューで窓がずれた。拒否応答には解除時間が無い。決定 16 で自律 PR が毎晩 1 本消費するため人間作業と競合) |
+| 402 | 🚀 Tier 1 | **「対処後は効果を観測するまで完了と見なさない」を明文化 (系統 A-1)** | todo21.md | S | なし (2026-08-10 採用。決定 11 は投稿の成否だけ見て 10 時間気づけず、決定 15 は同じ症状が続くか確かめる前に解決済みと記録した。fail-open は効果の観測を別に用意して初めて成立する) |
+| 403 | 🚀 Tier 1 | **AI レビューの数値・外部仕様の主張は仮説として扱い実測で二重検証 (系統 A-2)** | todo21.md | S | なし (2026-08-10 採用。組合せ数の指摘は観察は正しいが提示値も誤り (実測 384)、gh のオプション併用提案は実行時エラー、jq 正規表現案はパースエラー。観察と修正手段の確信度は別) |
+| 404 | 🔧 Tier 2 | **外部依存の非同期応答待ちに timeout / retry を明記する convention (系統 A-3)** | todo21.md | S | なし (2026-08-10 採用。cli-stale-branch-scan の初版が timeout 無しで、同期実行経路の無診断ハング要因だった) |
+| 405 | 🔧 Tier 2 | **新規 crate 実装時に既存同種コンポーネントとの重複を確認 (系統 B-1)** | todo21.md | S | なし (2026-08-10 採用。default_branch 解決ロジックの複製が CodeRabbit 指摘後に同一 PR 内で再発。34 crate 規模では記憶に頼れない) |
+| 406 | 🔧 Tier 2 | **旧 API 廃止時に enum / config key / CLI flag の 3 形態すべての reject をテスト固定 (系統 B-2)** | todo21.md | S | なし (2026-08-10 採用。改名時に CLI フラグだけ test suite から漏れ、別名として通れば fail-open になる) |
+| 407 | 🔧 Tier 2 | **旧語彙が live code に出現したら reject するカスタムリントルール (系統 B-3)** | todo21.md | S | なし (2026-08-10 採用。132 箇所の改名で CodeRabbit が同一 PR 内だけで 4 箇所の取りこぼしを指摘。ADR-007 の既存 regex 基盤で足り docs は extensions で自然に除外) |
+| 408 | 🚀 Tier 1 | **safety-critical な config 比較に shell glob を禁止し exact-match を必須化 (系統 C-1)** | todo21.md | S | なし (2026-08-10 採用。kill-switch 判定の部分一致で fail-closed を謳う step 自身が fail-open だった。該当コメントが無かったため症状が出ず潜伏していた) |
+| 409 | 🔧 Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
+| 410 | 🔧 Tier 2 | **`autonomy-config.toml` の boolean パース edge case をテスト固定 (系統 C-3)** | todo21.md | S | なし (2026-08-10 採用。順位 408 の修正時に手で確認した edge case がテストとして残っていない。workflow の awk と Rust 側の解釈一致も確認できると望ましい) |
+| 411 | 🚀 Tier 1 | **`cargo fmt` を PreToolUse でブロックし正しい対処を提示 (系統 F、規約ではなく機構)** | todo21.md | S | なし (2026-08-10 ユーザー判断で提案の形を変更。規約は毎セッション読まれコンテキストを圧迫するが hook は発火時のみコストが出る。ADR-042 へこの非対称を追記するのも本エントリの範囲。**反射的に実行されやすく無関係な差分を生む**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

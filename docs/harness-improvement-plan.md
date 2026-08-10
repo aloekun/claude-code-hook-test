@@ -153,29 +153,77 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 #### 後続へ引き継ぐ残課題
 
 - **停止側の実走は config 側のみ残る**: variable 側 3 状態（`'true'` / `'false'` / 未設定）は 2026-08-08 の WP-18 停止側スモークですべて実測済（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2）。**残るのは config 側（master ref の `autonomy-config.toml` で `enabled = false`）の実走のみ**（exe 単体 drill で固定済み）。ADR-066 bounded lifetime の観測（3〜5 run、期限 2026-11-02）で埋める。
-- **Phase B の自動起動経路は生存している（2026-08-09 訂正）**: 一度「不成立」と記帳したが誤りで、起動契機のコメントが夜間 draft PR に供給されていなかっただけ。#373 で CodeRabbit がコメントした時点で `issue_comment` 経路は発火し、Phase A が自動起動した（[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録の追記）。対処として置いた [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11（`@coderabbitai review` の明示トリガー）は **bot 投稿が無視されるため撤回**し、代替解は順位 394 の draft 廃止。**残るのは Phase B 本体（無人 fix push）への到達と `coderabbitai[bot]` allowlist の要否**で、いずれも順位 394 後の run で判定する。
+- **Phase B の自動起動経路は生存している（2026-08-09 訂正）**: 一度「不成立」と記帳したが誤りで、起動契機のコメントが夜間 draft PR に供給されていなかっただけ。#373 で CodeRabbit がコメントした時点で `issue_comment` 経路は発火し、Phase A が自動起動した（[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録の追記）。対処として置いた [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11（`@coderabbitai review` の明示トリガー）は **bot 投稿が無視されるため撤回**し、代替解は当初「順位 394 の draft 廃止」としたが**これも誤り**で、真の原因は author が bot であることだった（[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない）。解決は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16。**残るのは Phase B 本体（無人 fix push）への到達と `coderabbitai[bot]` allowlist の要否**で、決定 16 により**観測機会は供給されるようになった**（あとは docs 指摘の出る夜間 PR に当たるのを待つ）。
 - **routine 出力の受け渡し手段が未決**: 分析結果が transcript にしか残らずユーザーが読まなければ消える。実行主体を含む 3 択（routine / GitHub Actions schedule / ローカル維持 = 断念）で、**断念も正規の出口**。判定は ADR-070 bounded lifetime (b) の観測後（[ADR-070](adr/adr-070-weekly-review-cloud-routine.md) § 残課題）。
 
-### WP-18: 夜間 todo 消化ループ — 観測中（実装・スモークは 2026-08-08 までにほぼ完了、本番稼働中）
+### WP-18: 夜間 todo 消化ループ — 観測中 + 運用問題の対処中（本番稼働中）
 
 > 夜間に 1 タスクを無人実装し **PR 作成で停止**する（マージ判断は人間）ループ。**設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正**（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、外部設定の実体は ADR-072 § 外部設定の実体）。本節は残作業の索引だけを残す。着手前決定・PR 構成・PR chain 宣言・受け入れ基準の達成記録は役目を終えたため削除した（経緯は git log と #361〜#370 の PR 本文を参照）。
 >
 > **2026-08-09 の方針変更（実装済み）**: 停止点を draft PR から**通常 PR**へ変更した（旧 順位 394 → [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 15）。トリガーがユーザー指示か自動採択かで扱いを区別せず、commitment 点をマージ 1 点に集約する（ユーザー判断）。draft であることが CodeRabbit の自動レビュー対象外を招いていた構造そのものを解消した。背圧の指標も同時に「未マージの `claude/` PR 数」へ改め（[ADR-071](adr/adr-071-draft-pr-backpressure.md)）、名称を `autonomous` 系へ揃えた。
+>
+> **2026-08-10 の追加実装**: draft 廃止だけではレビューが付かないことが実走で判明した。**ブロック要因は draft ではなく PR の author が bot であること**で、CodeRabbit の組み込み挙動（設定では制御不可）だった。`review-request.yml` を新設し、**PR 作成者は bot のまま、レビュー要求だけを人間資格情報で出す**分離で解決した（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16）。制約の全体像は [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない が真実源。
 
-**達成したこと**: 台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）から Rust 分類関数が選んだ 1 タスクを、kill-switch（ADR-066）と背圧（ADR-071）の上で無人実装し PR 作成で止めるループが本番稼働に入った（2026-08-08 に schedule 初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成）。定常運用開始前に必須とした prompt injection 対策 4 件（順位 378-381 → ADR-072 決定 12-14 + [ADR-035](adr/adr-035-doc-evaluation-policy.md) / `lib-docs-policy` の同期）と外部設定の実体記録（順位 384 → ADR-072 § 外部設定の実体）も完了。実走スモーク 10 項目は **7 充足 / 3 未確定**（Phase B 本体の到達 / `coderabbitai[bot]` allowlist の要否 / トークン露出）で、一覧は ADR-072 § 実走スモークが正。前 2 者は順位 394 後の run で同時に判定できる。停止側実測は WP-17 の残課題（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime の variable 側 3 状態）も同時に埋めた（ADR-066 § 実走観測 2）。
+**達成したこと**: 台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）から Rust 分類関数が選んだ 1 タスクを、kill-switch（ADR-066）と背圧（ADR-071）の上で無人実装し PR 作成で止めるループが本番稼働に入った（2026-08-08 に schedule 初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成）。定常運用開始前に必須とした prompt injection 対策 4 件（順位 378-381 → ADR-072 決定 12-14 + [ADR-035](adr/adr-035-doc-evaluation-policy.md) / `lib-docs-policy` の同期）と外部設定の実体記録（順位 384 → ADR-072 § 外部設定の実体）も完了。実走スモーク 10 項目は **7 充足 / 3 未確定**（Phase B 本体の到達 / `coderabbitai[bot]` allowlist の要否 / トークン露出）で、一覧は ADR-072 § 実走スモークが正。前 2 者は決定 16 でレビューが毎回付くようになり、観測機会が供給されるようになった（残るは事象待ち）。停止側実測は WP-17 の残課題（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime の variable 側 3 状態）も同時に埋めた（ADR-066 § 実走観測 2）。
+
+**2026-08-10 に運用が一巡した**: 決定 16 の確立で bot 作成 PR にレビューが付く経路が成立し（PR 作成から CodeRabbit の反応まで 15 秒、完全自動）、**採用率測定の 1 件目 [#381](https://github.com/aloekun/claude-code-hook-test/pull/381) をマージ**した。あわせて台帳の後始末運用を明文化した（マージ時に該当順位を削除しないと除外マーカーが消えて再選択される、[claude-code-web-tasks.md](claude-code-web-tasks.md)）。**この一巡で運用問題が 5 件見つかっており**（§ 残作業 の「運用問題の対処」）、実装が終わっても運用が回るとは限らないことが実証された。
 
 #### 残作業
 
+> **3 区分に分ける（2026-08-10 再編成）**。従来は観測と派生タスクが 1 表に混在しており、**WP-18 の完了に何が要るのか**が読み取れなかった。2026-08-10 の運用一巡で運用問題が 5 件見つかったことを機に、(1) 観測待ち、(2) 運用問題の対処、(3) WP-18 外の派生、へ分けた。
+
+##### (1) 観測待ち — 機構は整備済みで、事象か期限を待つもの
+
 | 内容 | 管理先 | 期限 / 条件 |
 |---|---|---|
-| ~~順位 393 / 394 の実走確認~~ → **充足（2026-08-10）**。夜間 PR に CodeRabbit のレビューが付くことを実走で確認した。ただし**原因は draft ではなく author が bot であること**で、決定 15 の前提は誤りだった。解決は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16（レビュー要求だけを人間 identity で出す別 workflow）。制約の全体像は [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない が正 | ADR-072 決定 16 | 完了 |
+| ~~順位 393 / 394 の実走確認~~ → **充足（2026-08-10）**。夜間 PR に CodeRabbit のレビューが付くことを実走で確認した。ただし**原因は draft ではなく author が bot であること**で、決定 15 の前提は誤りだった。解決は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16 | ADR-072 決定 16 | 完了 |
 | **スモーク未確定 (a) Phase B 本体の到達 と (b) `coderabbitai[bot]` allowlist の要否** — 決定 16 で**観測機会は供給されるようになった**（夜間 PR に毎回レビューが付く）。あとは **docs 指摘の出る夜間 PR に当たるのを待つ**だけで、未確定の理由が「機構が無い」から「事象待ち」へ変わった | ADR-072 § 実走スモーク | 事象待ち（機構は整備済み） |
-| **スモーク未確定 3 件のうち (c) `cargo` サブプロセスへのトークン露出**（順位 374 の残り。**意図的保留** — 初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測。ADR-072 決定 5 の Bash 再付与判断の材料でもある） | ADR-072 § 残課題 | 急がない（Bash 非付与が保守側）。**完走条件には含めない** |
-| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = 2026-08-10 に確定**（PR に CodeRabbit のレビューが付く実走確認をもって完走とする定義。意図的保留のトークン露出は完走条件に含めない）。1 件目は [#381](https://github.com/aloekun/claude-code-hook-test/pull/381) | ADR-072 § 試験運用判断基準 | 2026-08-24 に中間確認、2026-11-06 までに判定 |
+| **スモーク未確定 (c) `cargo` サブプロセスへのトークン露出**（順位 374 の残り。**意図的保留** — 初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測。ADR-072 決定 5 の Bash 再付与判断の材料でもある） | ADR-072 § 残課題 | 急がない（Bash 非付与が保守側）。**完走条件には含めない** |
+| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = 2026-08-10 に確定**。1 件目は [#381](https://github.com/aloekun/claude-code-hook-test/pull/381)（採用） | ADR-072 § 試験運用判断基準 | 2026-08-24 に中間確認、2026-11-06 までに判定 |
 | 稼働後 1 週間の run 頻度・Max 枠消費を観測して schedule 頻度を調整 | 運用ノート（本表のみ） | 稼働中 |
-| ~~順位 395: 週次レビューで浮きブランチを検出し削除を提案~~ → **実装完了（2026-08-09）**。`cli-stale-branch-scan` / `pnpm stale-branch-scan`。設計と判定規則は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 が正。自動削除はしない（提案のみ） | [ADR-031](adr/adr-031-weekly-review-pipeline.md) | 完了。WP-19 ステップ 3 の一部を先取り済み |
+
+##### (2) 運用問題の対処 — WP-18 が生んだ / WP-18 の運用で日常的に踏むもの
+
+> **WP-18 の完了条件に含める**（2026-08-10 ユーザー方針）。判定基準は 2 つ。**基準 1**: WP-18 の機構が無ければ起きなかった。**基準 2**: 以前から存在したが WP-18 の運用で踏み、**使い勝手に影響する**潜在バグ。**WP-18 が生んだ問題を WP-18 の外へ押し出さない**ための区分である。
+
+| 内容 | 基準 | 管理先 | 期限 / 条件 |
+|---|---|---|---|
+| **順位 397: `pnpm merge-pr` が夜間 PR を検出できない** — WP-18 が新設した「bot が作った PR を人間がマージする」経路で生まれた。夜間 PR は remote 専用ブックマークしか持たず、`gh pr merge` は hook でブロックされるため**逃げ道が無い**。毎回 `jj bookmark track` が要る | 1 | [todo21.md](todo21.md) | 🚀 Tier 1、**採用率測定の運用に直結** |
+| **順位 398-400: post-merge feedback の進行中ガードと復旧経路** — 連続マージで確実に踏み、復旧に手動介入（context 削除）が要る。marker は**危険な手順（stale context を読む直接起動）を案内**しており、誤った PR のレポートを生成しうる。3 件は同一機構の 3 面で同一 PR で扱える | 2 | [todo21.md](todo21.md) | 🔧 Tier 2、運用中に再発する |
+| **順位 401: CodeRabbit クォータの窓が直近消費に追随する** — 決定 16 で**自律 PR が毎晩 1 レビュー消費**するようになり、人間の作業が集中する日に競合する。ADR-019 へ観測を記録する | 1 | [todo21.md](todo21.md) | 💎 Tier 3、記録のみ |
+| **順位 410: `autonomy-config.toml` の boolean パース edge case をテスト固定** — WP-18 成果物（`review-request.yml` / `cli-autonomy-gate`）自身の堅牢化。kill-switch 判定の fail-open は [#380](https://github.com/aloekun/claude-code-hook-test/pull/380) で修正済みだが、確認がテストとして残っていない | 1 | [todo21.md](todo21.md) | 🔧 Tier 2、成果物の堅牢化 |
+
+##### (3) WP-18 外の派生 — 完了条件に含めない
+
+> WP-18 の PR やその CI で見つかったが、**WP-18 の機構とは独立**していて対処も独立に進められるもの。これらを WP-18 に紐づけると、**一般則の整備が終わるまで本計画書を退役できなくなる**（§ 7 の退役条件と衝突する）。優先度が低いという意味ではない — 順位 396 と 411 は**いずれも高優先度**で、WP-18 とは別に早期着手する。
+
+| 内容 | 管理先 | 期限 / 条件 |
+|---|---|---|
+| **順位 396: hooks smoke suite の Linux `ETXTBSY` flake** — WP-18 の CI で見つかったが別クレートの既存テスト競合で、WP-18 の経路とは無関係。**flaky テストは「また flake だろう」で実バグを見落とす経路を作る**ため、両 OS matrix（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）の信号品質を守る意味で**早期に潰す** | [todo21.md](todo21.md) | **高優先度**（WP-18 とは独立に着手） |
+| **順位 411: `cargo fmt` を PreToolUse でブロック** — WP-18 作業中の誤実行が発端だが、対象は開発環境全般。**規約ではなく機構で弾く**判断（[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)）。反射的に実行されやすく無関係な差分を生むため**早期に塞ぐ** | [todo21.md](todo21.md) | **高優先度**（WP-18 とは独立に着手） |
+| 順位 402-409（post-merge feedback 採用分のうち一般則。観測の完全性 / 重複実装の予防 / shell·config パースの安全性）。**順位 410 のみ (2) へ分類**した（WP-18 成果物自身の堅牢化のため） | [todo-summary2.md](todo-summary2.md) | リポジトリ全体に適用する一般則 |
+| ~~順位 395: 週次レビューで浮きブランチを検出し削除を提案~~ → **実装完了（2026-08-09）**。`cli-stale-branch-scan` / `pnpm stale-branch-scan`。設計と判定規則は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 が正 | [ADR-031](adr/adr-031-weekly-review-pipeline.md) | 完了。WP-19 ステップ 3 の一部を先取り済み |
 | 順位 382（injection payload regression test。依存先の順位 380 完了で unblock）/ 順位 383（`is_separator_row` のパイプ検証欠落） | [todo-summary2.md](todo-summary2.md) | 🔧 Tier 2、任意 |
 | 順位 375-377（レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断） | [todo-summary2.md](todo-summary2.md) | 🔧 2〜💎 3、WP-18 完了後 |
+
+#### WP-18 の完了条件
+
+本 WP は以下の両方を満たした時点で `完了` とする。
+
+1. **(1) 観測待ちのうち採用率測定が判定に至ること**（2026-11-06 期限）。
+
+   **スモーク未確定 3 件はいずれも完了条件に含めない**（非ブロッカー）。理由と移管先は次のとおり。
+
+   | 未確定 | 完了条件に含めない理由 | 移管先 / 期限 |
+   |---|---|---|
+   | (a) Phase B 本体の到達 / (b) `coderabbitai[bot]` allowlist の要否 | **事象待ちであり自力で発生させられない**（docs 指摘の出る夜間 PR に当たるまで観測できない）。機構は決定 16 で整備済みで、待つ以外にできることが無い。これを条件にすると WP を閉じられない | [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモーク。**2026-11-06 時点で未観測なら「機会が来なかった」として見送り**、ADR-067 の bounded lifetime へ委ねる |
+   | (c) `cargo` サブプロセスへのトークン露出 | **意図的保留**（2026-08-09 ユーザー決定）。安全な probe を設計してから 1 回で観測する。決定 5 の Bash 非付与が保守側のため未観測でも安全側 | ADR-072 § 残課題。期限なし（急がない） |
+
+2. **(2) 運用問題の対処がすべて決着していること**（対処するか、根拠つきで見送るかのいずれか）。
+
+2 を条件に含めるのは、**WP-18 が生んだ問題と、WP-18 の運用で日常的に踏む問題を、WP-18 の外へ押し出さないため**（2026-08-10 ユーザー方針）。実装が終わった時点で WP を閉じると、運用の綻びが「誰の担当でもないタスク」として残る。
+
+**(3) は完了条件に含めない**。§ 7 の退役条件が「全 WP が完了または見送り」である以上、リポジトリ全体の一般則を WP-18 に紐づけると本計画書が永久に退役できなくなる。
 
 ローカルで同ループを回す場合のみ [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の workspace を使う（クラウドは使い捨てクローンのため分離不要）。
 
