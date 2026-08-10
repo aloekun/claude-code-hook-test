@@ -144,7 +144,6 @@
 | 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |
 | 392 | 🔧 Tier 3 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
 | 396 | 🚀 Tier 1 | **hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす (flaky テスト、早期修正)** | todo21.md | S | なし (#376 CI で ubuntu のみ失敗、windows は成功、当該クレートは無変更。2 テストが並列に exe を copy→spawn し、fork した子が copy 側の書き込み fd を継承するため exec が Text file busy。直近 15 run で初出だが ADR-065 の両 OS matrix の信号品質を下げる。**flaky を放置すると「また flake だろう」で実バグを見落とす**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断で Tier 1 へ格上げ) |
-| 397 | 🚀 Tier 1 | **`pnpm merge-pr` が夜間 PR (remote 専用ブックマーク) を検出できない** | todo21.md | S-M | なし (2026-08-10 実測。#381 のマージが「PR が見つかりません」で exit 1。夜間 PR は remote 専用 bookmark しか持たず、`gh pr merge` は hook でブロックされるため**ブロックされる経路と動かない経路しかない**。採用率測定で毎回踏む) |
 | 398 | 🔧 Tier 2 | **post-merge-feedback の進行中ガードが完了済みの run を進行中と誤判定する** | todo21.md | S-M | なし (2026-08-10 実測。ガードは context.json の mtime 1500s だけを見て完了を見ない。連続マージで確実に踏む。順位 399/400 と同一機構) |
 | 399 | 🔧 Tier 2 | **`--feedback-only <PR>` が同じガードに阻まれ復旧手段として機能しない** | todo21.md | S | なし (2026-08-10 実測。PR 番号を引数で受け context 非依存の設計なのにガードだけ context 鮮度を見る。復旧専用コマンドが復旧に使えない) |
 | 400 | 🔧 Tier 2 | **post-merge-feedback の marker が危険な復旧手順を案内し安全な手順に触れていない** | todo21.md | XS-S | なし (2026-08-10 実測。takt 直接起動は stale context を読み誤った PR のレポートを生成しうる。実際に #382 の marker 時点で context は #383 を指していた。安全な --feedback-only に言及が無い) |
@@ -159,6 +158,8 @@
 | 409 | 🔧 Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
 | 410 | 🔧 Tier 2 | **`autonomy-config.toml` の boolean パース edge case をテスト固定 (系統 C-3)** | todo21.md | S | なし (2026-08-10 採用。順位 408 の修正時に手で確認した edge case がテストとして残っていない。workflow の awk と Rust 側の解釈一致も確認できると望ましい) |
 | 411 | 🚀 Tier 1 | **`cargo fmt` を PreToolUse でブロックし正しい対処を提示 (系統 F、規約ではなく機構)** | todo21.md | S | なし (2026-08-10 ユーザー判断で提案の形を変更。規約は毎セッション読まれコンテキストを圧迫するが hook は発火時のみコストが出る。ADR-042 へこの非対称を追記するのも本エントリの範囲。**反射的に実行されやすく無関係な差分を生む**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断) |
+| 412 | 💎 Tier 3 | **`resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う** | todo21.md | S | なし (2026-08-10 PR #385 の CodeRabbit 指摘。colocated は入力をそのまま返し file 経路は canonicalize する。現行 caller に破綻経路は見当たらないが、caller が文字列比較を始めた時点で分裂しうる。PR #385 は逐語移動 PR のため見送り) |
+| 413 | 🔧 Tier 2 | **`CwdRestore` Drop guard が 8 定義 / 6 ファイルに複製。ADR-025 の統合トリガーと再評価期限を超過** | todo21.md | S-M | なし (2026-08-10 PR #385 の pre-push review 指摘。ADR-025 自身が「2 例目で `lib-test-helpers` へ統合」と定め再評価期限 2026-07-31 も過ぎている。抽出するか ADR-025 の status を更新するかの判断が要る) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 

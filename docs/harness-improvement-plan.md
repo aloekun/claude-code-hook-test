@@ -188,7 +188,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 | 内容 | 基準 | 管理先 | 期限 / 条件 |
 |---|---|---|---|
-| **順位 397: `pnpm merge-pr` が夜間 PR を検出できない** — WP-18 が新設した「bot が作った PR を人間がマージする」経路で生まれた。夜間 PR は remote 専用ブックマークしか持たず、`gh pr merge` は hook でブロックされるため**逃げ道が無い**。毎回 `jj bookmark track` が要る | 1 | [todo21.md](todo21.md) | 🚀 Tier 1、**採用率測定の運用に直結** |
+| ~~順位 397: `pnpm merge-pr` が夜間 PR を検出できない~~ → **対処済み（2026-08-11）**。PR 検出をローカル → リモート追跡 bookmark の 2 段にし、bookmark 非依存の `--pr <番号>` と実行可能な失敗ヒントを追加した。設計は [ADR-013](adr/adr-013-merge-pipeline.md) § PR 検出のフォールバックと逃げ道 が正 | 1 | [ADR-013](adr/adr-013-merge-pipeline.md) | 完了 |
 | **順位 398-400: post-merge feedback の進行中ガードと復旧経路** — 連続マージで確実に踏み、復旧に手動介入（context 削除）が要る。marker は**危険な手順（stale context を読む直接起動）を案内**しており、誤った PR のレポートを生成しうる。3 件は同一機構の 3 面で同一 PR で扱える | 2 | [todo21.md](todo21.md) | 🔧 Tier 2、運用中に再発する |
 | **順位 401: CodeRabbit クォータの窓が直近消費に追随する** — 決定 16 で**自律 PR が毎晩 1 レビュー消費**するようになり、人間の作業が集中する日に競合する。ADR-019 へ観測を記録する | 1 | [todo21.md](todo21.md) | 💎 Tier 3、記録のみ |
 | **順位 410: `autonomy-config.toml` の boolean パース edge case をテスト固定** — WP-18 成果物（`review-request.yml` / `cli-autonomy-gate`）自身の堅牢化。kill-switch 判定の fail-open は [#380](https://github.com/aloekun/claude-code-hook-test/pull/380) で修正済みだが、確認がテストとして残っていない | 1 | [todo21.md](todo21.md) | 🔧 Tier 2、成果物の堅牢化 |

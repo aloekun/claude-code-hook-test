@@ -45,7 +45,7 @@
 > **実測した内訳**:
 >
 > 1. `detect_pr_number()` の 1 段目 `gh pr view` は、**jj 併用リポジトリでは原理的に成立しない** — `.git/HEAD` は常に detached (実測時は空コミットの生 commit id が入っていた) ため `could not determine current branch` になる
-> 2. 2 段目のフォールバック `get_jj_bookmarks()` は [`BOOKMARK_SEARCH_REVSETS = ["@", "@-", "@--"]`](../src/lib-jj-helpers/src/lib.rs#L51) の **3 段しか遡らない**。失敗時に bookmark はそれより深くにあり、空の Vec が返って 2 段目も空振りする
+> 2. 2 段目のフォールバック `get_jj_bookmarks()` は [`BOOKMARK_SEARCH_REVSETS = ["@", "@-", "@--"]`](../src/lib-jj-helpers/src/bookmarks.rs#L25) の **3 段しか遡らない**。失敗時に bookmark はそれより深くにあり、空の Vec が返って 2 段目も空振りする
 > 3. **push 経路でも別の顔で出る**: `pnpm push` は「bookmark を `@` (または `@-`) に自動更新」する。@ が監視経路の作った空コミットだと、bookmark がその空コミットへ移り `Won't push commit ... since it has no description` で失敗する (#370 で実測)。ここから `jj bookmark set` の後退拒否・`jj abandon` によるブックマーク消失と復旧がこじれた
 >
 > **生成元はほぼ確定した**: 空コミットを積むのは **PR 監視 (`cli-pr-monitor --monitor-only`) と自動 fix 経路**である。監視は呼ばれるたびに working-copy を進め、自動 fix は `fix(review): apply CodeRabbit fixes for #NNN` コミット + 前後の空コミットを作る。#364 の記述にあった「生成元未特定」は本セッションの反復観測で解消した。
@@ -57,7 +57,7 @@
 > - push-runner の「bookmark を `@-` に自動更新」を、空コミットを飛ばして直近の非空 bookmark commit へ寄せる
 > - 監視・自動 fix 経路が**空コミットを積まない / 積んだら片付ける** ([ADR-022](adr/adr-022-automation-responsibility-separation.md) の責務分離としてはこちらが筋)
 >
-> **参照**: [github.rs:103](../src/cli-merge-pipeline/src/github.rs#L103) (`detect_pr_number`)、[lib.rs:51](../src/lib-jj-helpers/src/lib.rs#L51) (`BOOKMARK_SEARCH_REVSETS`)、[ADR-013](adr/adr-013-merge-pipeline.md)、[ADR-021](adr/adr-021-jj-change-detection-principles.md) (jj 変更検出の設計原則)、[ADR-024](adr/adr-024-shared-jj-helpers-library.md) (共有ヘルパーの変更は 3 クレートに効く)。
+> **参照**: [github.rs:136](../src/cli-merge-pipeline/src/github.rs#L136) (`detect_pr_number`。順位 397 でリモート追跡 bookmark へのフォールバックと `--pr` を追加済み。本順位が扱う「探索 revset より深い位置」の問題は未解決)、[bookmarks.rs:25](../src/lib-jj-helpers/src/bookmarks.rs#L25) (`BOOKMARK_SEARCH_REVSETS`)、[ADR-013](adr/adr-013-merge-pipeline.md)、[ADR-021](adr/adr-021-jj-change-detection-principles.md) (jj 変更検出の設計原則)、[ADR-024](adr/adr-024-shared-jj-helpers-library.md) (共有ヘルパーの変更は 3 クレートに効く)。
 >
 > **実行優先度**: 🔧 Tier 2 — Severity Medium (マージ / push 経路が止まる。ただし loud failure で復旧手順も短い) / Frequency High (自動 fix が走った PR で毎回・本セッションで 7 回) / Effort M / Adoption Risk Low。
 
@@ -266,32 +266,6 @@
 > **由来**: 2026-08-10 のセッションで、夜間ループの PR を**人間がマージする経路**を初めて通した際に実測した 5 件。いずれも「自動化が別の自動化の前提を崩す」型で、[ADR-022](adr/adr-022-automation-responsibility-separation.md) の責務分離が扱う領域にある。
 >
 > **順位 398-400 は同じ機構 (post-merge-feedback の進行中ガード) の 3 つの面**で、対処は別々だが同一 PR で扱える。
-
-### `pnpm merge-pr` が夜間 PR (remote 専用ブックマーク) を検出できない
-
-> **動機**: PR [#381](https://github.com/aloekun/claude-code-hook-test/pull/381) (`claude/nightly-163`) をマージしようとして `エラー: 現在のブックマークに紐づく PR が見つかりません` で exit 1 した。原因は **夜間ループの PR が remote 専用ブックマークしか持たない**こと。`claude/nightly-163@origin` は remote 側にのみ存在し、[`get_jj_bookmarks`](../src/lib-jj-helpers/src/lib.rs) が返すのは**ローカル**ブックマークなので検出できない。
->
-> **これまで顕在化しなかった理由**: 従来マージしてきた PR はすべて自分で `jj bookmark create` したローカルブックマークを持っていた。**bot が remote に作った PR を人間がマージする**経路は WP-18 で初めて通った。
->
-> **回避策 (実施済み)**: `jj bookmark track claude/nightly-163 --remote=origin` でローカル化してから `pnpm merge-pr`。ただし**非自明で、採用率測定では毎回踏む**。
->
-> **なぜ `gh pr merge` で代替できないか**: `hooks-pre-tool-validate` が `gh pr merge` をブロックし `pnpm merge-pr` へ誘導する ([ADR-013](adr/adr-013-merge-pipeline.md))。**ブロックされる経路と、動かない経路しかない**状態になっている。
->
-> **対処案**: (a) PR 検出時に remote 専用ブックマークも探索対象へ含める、(b) 見つからない場合に track を促す loud なヒントを出す、(c) `--pr <番号>` オプションを足して bookmark 非依存で指定できるようにする。(c) は順位 399 の `--feedback-only` と設計が揃う。
->
-> **参照**: [ADR-013](adr/adr-013-merge-pipeline.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) (夜間 PR の生成元)、[lib-jj-helpers](../src/lib-jj-helpers/src/lib.rs)、順位 386 (同じ bookmark 探索の別問題)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (マージ経路が止まる。loud failure だが回避策が非自明) / Frequency High (**夜間 PR をマージするたび**。採用率測定の運用に直結) / Effort S-M / Adoption Risk Low。
-
-#### 作業計画
-
-- [ ] 対処案 (a)(b)(c) から選ぶ。順位 386 の bookmark 探索見直しと同一 PR で扱えるか検討する
-- [ ] remote 専用ブックマークのみが存在する状態を再現する回帰テストを追加する
-- [ ] `pnpm merge-pr` の失敗メッセージに track 手順を含める (どの案を採っても有用)
-
-#### 完了基準
-
-- 夜間ループの PR を `jj bookmark track` 無しで `pnpm merge-pr` できること、または失敗時に**実行可能な回避手順**が出力されること。
 
 ### post-merge-feedback の進行中ガードが、完了済みの run を進行中と誤判定する
 
@@ -634,3 +608,60 @@
 
 - **決めた検出範囲**において `cargo fmt` が PreToolUse でブロックされ、メッセージだけで正しい対処に到達できること。範囲を完全一致に限定した場合は、素通りする形態 (`--all` 付き / toolchain 指定 / `cargo-fmt`) を完了基準に明記すること。
 - ADR-042 に規約と機構のコスト非対称が記録されていること。
+
+---
+
+## PR #385 のレビューで見送った指摘 (2026-08-10 登録)
+
+> **由来**: 順位 397 の PR ([#385](https://github.com/aloekun/claude-code-hook-test/pull/385)) で出た指摘のうち、**PR の性質 (逐語移動が大半) を理由に本 PR では扱わなかった**もの。どちらも指摘自体は妥当で、スレッドに理由を返信済み。
+
+### `resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う
+
+> **動機**: [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の CodeRabbit 指摘。`resolve_main_workspace_root` は `.jj/repo` が**ディレクトリ (colocated)** なら入力パスをそのまま返し、**ファイル (secondary workspace)** なら `canonicalize()` + verbatim prefix 剥がしを通す。同じチェックアウトでも入口によって返るパス文字列の形が変わる。
+>
+> **現時点で破綻経路は見当たらない**: `cli-telemetry-report` は入力・出力の両方を `canonicalize_or_as_is()` に通すため差分を吸収する。`weekly_review` / `monthly_review` は返り値を `join()` してファイル I/O にしか使っておらず、文字列比較のキーにしていないため OS が等価パスを同じ実体へ解決する。**caller が文字列比較を始めた時点で分裂する**のが本質的なリスク。
+>
+> **なぜ #385 で直さなかったか**: `workspace.rs` は `lib.rs` の 800 行超過に伴う**移動で作られたファイル**で、#385 は diff 2203 行のうち約 1700 行がこの移動、サイズゲートを override して通している。移動 PR に挙動変更を積み増すほどレビューの前提が崩れるため、**同じ移動ファイル内でも線を引いた**:
+>
+> | 指摘 | #385 での扱い | 線引きの理由 |
+> |---|---|---|
+> | `strip_windows_verbatim_prefix` の UNC 未対応 ([該当スレッド](https://github.com/aloekun/claude-code-hook-test/pull/385#discussion_r3751110198)) | **修正した** | 「ネットワーク共有上で `GIT_DIR` が壊れる」という具体的な失敗経路がある明確なバグで、純関数のテストで固定でき、非 UNC パスの挙動は変わらない |
+> | 本エントリ (colocated 経路の正規化) | **見送り** | doc comment が「colocated root は入力そのまま返す」と**意図的な設計として明記**しており、変更には caller 3 箇所の検証が要る。現行 caller に破綻経路も見当たらない |
+>
+> **対処案**: colocated 経路も `canonicalize()` し、失敗時は入力のまま返す (現行 caller の fail-open を維持)。合わせて caller 3 箇所が正規化前提に依存していないことを確認する。
+>
+> **参照**: [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) (状態ファイルの workspace 分裂対策)、[workspace.rs](../src/lib-jj-helpers/src/workspace.rs)、[#385 の該当スレッド](https://github.com/aloekun/claude-code-hook-test/pull/385#discussion_r3751110189)。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low (現行 caller に破綻経路なし) / Frequency Low / Effort S / Adoption Risk Low (caller 3 箇所の確認が要る)。
+
+#### 作業計画
+
+- [ ] colocated 経路の返り値を `canonicalize()` + verbatim prefix 剥がしに揃える
+- [ ] caller 3 箇所 (`cli-telemetry-report` / `weekly_review` / `monthly_review`) が正規化形に依存していないことを確認する
+- [ ] colocated / secondary の両経路が同じ形のパスを返すことを固定するテストを追加する
+
+#### 完了基準
+
+- 同じチェックアウトに対し、colocated 経路と secondary 経路が同じ形式のパスを返すこと。
+
+### `CwdRestore` Drop guard がリポジトリ全体で 8 定義 / 6 ファイルに複製されている
+
+> **動機**: [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push review 指摘 (non-blocking)。テストで cwd を退避・復元する `CwdRestore` / `CwdGuard` 相当の struct が **8 箇所で定義されている** (2026-08-10 実測: `fix_commit/abandon.rs` に 3 個、`fix_commit/sweep.rs` / `stages/push_jj_bookmark.rs` / `stages/repush.rs` / `stages/scope_guard.rs` に各 1 個、加えて本 PR の `lib-jj-helpers/src/bookmarks.rs`)。レビューは「6 個目」と表現したが、これはファイル数を数えた場合の値。
+>
+> **問題の型**: [ADR-025](adr/adr-025-cwd-restore-drop-guard.md) 自身が「2 例目が出たら `lib-test-helpers` へ統合する」というトリガーと再評価期限 (2026-07-31) を定めているが、**トリガーを 4 回超過したまま期限も過ぎており、ADR の status が実態と乖離している**。ADR が定めた条件が守られないと、以後の「2 例目で統合」という判断基準そのものが信用できなくなる。
+>
+> **対処案**: (a) `src/lib-test-helpers/` を新設して `CwdRestore` を抽出する (ADR-025 の当初計画)、(b) 抽出しない判断を下し ADR-025 の status と再評価期限を更新する。**どちらでもよいが、放置は選択肢に含めない**。
+>
+> **参照**: [ADR-025](adr/adr-025-cwd-restore-drop-guard.md)、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) (共通化と分離の線引き)、[#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push review。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (ADR の判断基準が形骸化する) / Frequency Low / Effort S-M / Adoption Risk Low。
+
+#### 作業計画
+
+- [ ] 抽出するか status 更新に留めるかを決める (ADR-044 の境界判定を適用する)
+- [ ] 抽出する場合は `lib-test-helpers` を新設し 6 箇所を差し替える
+- [ ] いずれの場合も ADR-025 の status と再評価期限を実態に合わせて更新する
+
+#### 完了基準
+
+- `CwdRestore` の重複について、抽出したか見送ったかが ADR-025 に根拠つきで記録されていること。

@@ -7,8 +7,9 @@ use crate::config::{
 use crate::feedback;
 use crate::github::{
     delete_remote_branch, detect_owner_repo, detect_pr_number, run_gh_logged,
-    should_skip_branch_delete, PrHeadInfo,
+    should_skip_branch_delete, PrHeadInfo, PrLookupFailure,
 };
+use lib_jj_helpers::BookmarkSearch;
 use lib_subprocess::run_cmd_shell_capped_reporting;
 use std::path::{Path, PathBuf};
 
@@ -409,13 +410,52 @@ fn resolve_settings() -> Result<PipelineSettings, i32> {
     })
 }
 
+/// PR 検出に失敗したとき、そのまま実行できる復旧手順を出力する。
+///
+/// 「bookmark 検出が効かない状況では `gh pr merge` が hook でブロックされていて
+/// 逃げ道が無い」(順位 397) 状態を避けるため、必ず `--pr` を第一手段として案内する。
+fn log_pr_lookup_failure(failure: &PrLookupFailure) {
+    log_info("エラー: 現在のブックマークに紐づく PR が見つかりません。");
+    match &failure.search {
+        BookmarkSearch::Local(names) | BookmarkSearch::RemoteOnly(names) => {
+            log_info(&format!(
+                "検出した bookmark {:?} に対応する PR がありません (PR 未作成 / head ブランチ名が違う可能性)。",
+                names
+            ));
+        }
+        BookmarkSearch::NotFound => {
+            log_info(
+                "@ / @- / @-- のいずれにも bookmark がありません (自動生成の空コミットで探索範囲外へ出た可能性)。",
+            );
+        }
+    }
+    log_info("復旧手順 1 (推奨): PR 番号を直接指定する — pnpm merge-pr --pr <PR番号>");
+    log_info("復旧手順 2: bookmark の位置を確認する — jj bookmark list --all-remotes");
+    log_info("復旧手順 3: bookmark の commit へ移動する — jj edit <bookmark名>");
+}
+
 /// PR 検出 + owner_repo 検出を行い `PipelineContext` を構築する。検出失敗時は `Err(1)`。
-fn build_context() -> Result<PipelineContext, i32> {
-    log_info("PR を検出中...");
-    let Some(pr_number) = detect_pr_number() else {
-        log_info("エラー: 現在のブックマークに紐づく PR が見つかりません。");
-        log_info("ヒント: PR が作成済みで、正しいブックマークにいることを確認してください。");
-        return Err(1);
+///
+/// `pr_override` (`--pr <番号>`) が指定された場合は bookmark 検出を行わない。
+fn build_context(pr_override: Option<u64>) -> Result<PipelineContext, i32> {
+    let pr_number = match pr_override {
+        Some(pr_number) => {
+            log_info(&format!(
+                "--pr {} が指定されたため bookmark からの PR 検出をスキップします",
+                pr_number
+            ));
+            pr_number
+        }
+        None => {
+            log_info("PR を検出中...");
+            match detect_pr_number() {
+                Ok(pr_number) => pr_number,
+                Err(failure) => {
+                    log_pr_lookup_failure(&failure);
+                    return Err(1);
+                }
+            }
+        }
     };
     log_info(&format!("PR #{} を検出しました", pr_number));
 
@@ -431,14 +471,14 @@ fn build_context() -> Result<PipelineContext, i32> {
     })
 }
 
-pub(crate) fn run_pipeline() -> i32 {
+pub(crate) fn run_pipeline(pr_override: Option<u64>) -> i32 {
     let _pipeline_lock = lib_jj_helpers::pipeline_lock::hold_pipeline_lock("merge", log_info);
 
     let settings = match resolve_settings() {
         Ok(s) => s,
         Err(code) => return code,
     };
-    let ctx = match build_context() {
+    let ctx = match build_context(pr_override) {
         Ok(c) => c,
         Err(code) => return code,
     };

@@ -85,6 +85,28 @@ PR-C で以下を実施:
 
 なお公開 API のうち `capture_commit_id` / `diff_is_empty` は PR-C 時点では未移設。現状は cli-pr-monitor 内のみで使用されており、2 つ目の使用例が出たタイミングで本 crate に追加する (ADR-021 原則 1-4 系の共通化は将来 PR で段階的に実施)。
 
+### モジュール分割と API 追加 (2026-08-11、順位 397)
+
+`lib.rs` 単一ファイルが 800 行ガイドラインを超えたため、責務ごとに分割した。`lib.rs` は crate doc と再エクスポートだけを持つファサードとして残るため、**呼び出し側のパス (`lib_jj_helpers::get_jj_bookmarks` 等) は変わらない**。
+
+```text
+src/lib-jj-helpers/src/
+  ├── lib.rs            # crate doc + pub use による再エクスポートのみ
+  ├── bookmarks.rs      # bookmark 探索 (ADR-021 原則 5 系)
+  ├── workspace.rs      # workspace layout 解釈 (ADR-045 系)
+  ├── pipeline_lock.rs  # pipeline 排他 (順位 280)
+  └── pipeline_lock/tests.rs
+```
+
+あわせて、リモート追跡 bookmark を扱う API を追加した ([ADR-013](adr-013-merge-pipeline.md) § PR 検出のフォールバックと逃げ道):
+
+- `query_remote_bookmarks_at(revset: &str, stderr_mode: &StderrMode) -> Vec<String>`
+- `enum BookmarkSearch { Local(Vec<String>), RemoteOnly(Vec<String>), NotFound }`
+- `get_jj_bookmarks_with_remote_fallback(stderr_mode, fallback_log) -> BookmarkSearch`
+- `select_with_remote_fallback(revsets, local, remote, fallback_log) -> BookmarkSearch` (query 注入版の pure function)
+
+**既存 API は変更していない**。リモートへのフォールバックは新 API を明示的に呼んだ場合にのみ起こり、かつローカル bookmark が 1 つでも見つかる状況では従来と結果が一致する。共有ヘルパーの変更が 3 クレートに効く以上、既定の探索挙動を書き換えるより新 API を足して呼び出し側に選ばせる方が回帰の面で安全である。`RemoteOnly` を型で区別するのは、**bookmark を書き換える経路 (push-runner の bookmark 前進など) がリモート専用 bookmark を対象にしてはならない**ため。
+
 ## 影響
 
 ### 採用される構成要素
