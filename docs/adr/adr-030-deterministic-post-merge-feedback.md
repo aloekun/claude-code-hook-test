@@ -255,14 +255,44 @@ L1 と L2 は **重複動作しない**: L1 が marker を書いていれば L2 
 
 つまり、L1 のみであれば「マージ後 `TAKT_TIMEOUT_SECS` 以内に完了 or marker 化」が保証される。L2 (致命系の backstop) を含めても「次回 SessionStart 時には必ず marker 化」が保証される。実数値は `cli-merge-pipeline::feedback::TAKT_TIMEOUT_SECS` / `ORPHAN_THRESHOLD_SECS` を参照のこと (本 ADR で数値固定するとコード変更時に drift する)。
 
-#### 並行起動 guard (Phase B post-fix で追加)
+#### 並行起動 guard (Phase B post-fix で追加、2026-08-11 に判定根拠を変更)
 
-cross-invocation context overwrite race の予防として、`feedback::run` の冒頭で `.takt/post-merge-feedback-context.json` の経過時間を確認:
+cross-invocation context overwrite race の予防として、`feedback::run` の冒頭で「他の post-merge-feedback が進行中でないか」を確認し、進行中なら新規実行を refuse する。
 
-- `CONCURRENT_RUN_GUARD_SECS = 1500` (timeout 1200s より少し長い値) 以内に書かれた context.json が存在する場合、新規実行を refuse する
-- 1500s 経過していれば「前回 takt は確実に終わっている」と判断して上書き許可
+**初版 (時間ベース) とその破綻**: 当初は `.takt/post-merge-feedback-context.json` の経過時間を見て、`CONCURRENT_RUN_GUARD_SECS = 1500` 秒以内に書かれていれば refuse していた。これは **run が完了したかを一切見ていない**。2026-08-10 に #383 をマージした 4 分後に #382 をマージしたところ、#383 の run は既に完了していた (report 生成済み・takt プロセス不在) にもかかわらず #382 の feedback が refuse された。**完了済みでも 25 分間は次の feedback を起動できない**構造で、連続マージ運用では確実に踏む (順位 398)。
 
-これは orphan takt がまだ走っている可能性が高い時間帯における新規 cli-merge-pipeline 起動を発生源で止め、context.json / transcript.jsonl の race を回避する。本格的な per-invocation isolation は将来 takt の context dir 連携で実現する余地を残す (Phase B のスコープ外)。
+さらに、この guard は復旧経路も塞いでいた。`--feedback-only <PR>` は PR 番号を引数で受け context.json に依存しない設計なのに、guard だけが context.json の鮮度を見るため、**復旧専用コマンドが復旧に使えない**状態になっていた (順位 399)。実際の復旧は「進行中の takt が無いことを確認 → context.json を手動削除 → 再実行」でしか通らなかった。
+
+**現行 (状態ベース)**: 判定根拠を「時間が経ったか」から「**実際にまだ走っているか**」へ移した。
+
+- `.takt/runs/*/meta.json` を走査し、`task` が post-merge-feedback かつ `status: "running"` の run があれば refuse する
+- 完了 (`completed` / `failed`) した run は次の feedback を止めない
+- `status` が読めない run は**進行中とみなさない**。壊れた meta.json 1 つで後続の feedback が永久に起動できなくなる方が害が大きく、取りこぼしの実害は「同時に 2 つ走りうる」に留まる。長時間 `running` のまま放置された run は L2 の orphan reaper が `failed` へ落とす
+
+> **reaper のセーフティネットが効く範囲 (2026-08-11 レビュー指摘で明記)**: L2 の orphan reaper が拾えるのは **meta.json がパース可能で `status` / `startTime` を読めた run のみ**である (`reaper::read_takt_meta` はパース失敗を `None` にして skip する。本 guard と同じ前提)。meta.json が構文レベルで壊れている場合 (abrupt kill による書き込み途中の破損等) は reaper も拾わないため、次に読める内容へ書き戻されるまで「進行中とみなさない」側へ倒れ続ける。これは reaper が必ず回収する保証があるからではなく、**許容している既知のギャップ**である。
+
+guard の目的 (進行中の takt が読んでいる context.json を上書きしない) は変えていない。時間経過を見る必要が無くなったため `CONCURRENT_RUN_GUARD_SECS` は廃止した (`ORPHAN_THRESHOLD_SECS` は L2 reaper 側で引き続き使う)。`--feedback-only` も同じ guard を通るため、**進行中でなければ手動のファイル削除なしに復旧できる**。
+
+#### run の特定は PR 番号で束縛する (2026-08-11 追加)
+
+`copy_feedback_report` は当初 `find_latest_run_dir` で **dir 名の lex-sort 末尾**を「最新 run」として選んでいた。これは 2 つの取り違えを起こす。
+
+| 取り違え | 症状 |
+|---|---|
+| 別 PR の run を掴む | 連続マージ中は自分より新しい別 PR の run dir が末尾に来る。その `feedback-report.md` を現在の PR の `<pr>.md` へコピーすると**誤った PR のレポート**が生成される |
+| 完了していない run を掴む | run dir の存在は成否を意味しない。takt は timeout / 失敗でも dir を残す |
+
+`meta.json` の `task` (`"post-merge-feedback for #<PR>"`) を照合して **対象 PR の最新 run** を選ぶ形に変えた。report のパスも `meta.json` の `reportDirectory` を優先する (takt の layout 変更に meta.json の方が追随が早い)。同じ情報源を orphan reaper (`hooks-session-start::reaper`) が既に読んでおり、情報源を新設せず合流させている。
+
+あわせて、report 不在判定の前に短い再試行 (5 回 × 200ms) を入れた。#367 で「takt 成功扱いだが report 不在」の marker が出た後に run dir を見ると実体が**存在していた** (順位 388)。PR 束縛で「別 run を見ていた」クラスは消えるが、takt exit 直後の flush 待ちは残るため最小限だけ待つ。完了済み run が後から report を生やすことは無いので長く待つ意味は無い。
+
+#### `.failed` marker の復旧手順 (2026-08-11 更新)
+
+marker が案内する復旧手順は **`pnpm merge-pr --feedback-only <PR>` を第一手段**とする。PR 番号を引数で受けるため、失敗から再実行までの間に別 PR が `pnpm merge-pr` を実行していても対象を取り違えない。
+
+`pnpm exec takt -w post-merge-feedback -t "..."` の直接起動は **最終手段**へ降格した。これは context.json を読み直すだけなので、context が別 PR を指していると**誤った PR の transcript でレポートを生成する**。2026-08-10 に #382 の marker が出た時点で context は実際に #383 を指していた (順位 400)。旧テンプレートはこの危険な手順を第一手段として案内し、安全な `--feedback-only` に一切触れていなかった。「再実行前に `pr_number` の一致を確認してください」という警告は書かれていたが、**読み飛ばせば誤ったレポートが生成される**以上、手順の順序そのものを変えるのが正しい。
+
+context.json の手動削除の案内も廃止した。guard が context.json の鮮度を見なくなったため不要になっている。
 
 ### レイテンシ
 

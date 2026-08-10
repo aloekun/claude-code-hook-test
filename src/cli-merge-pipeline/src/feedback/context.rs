@@ -35,6 +35,11 @@ struct WorkflowContext<'a> {
 
 /// `.takt/runs/` 配下で `workflow` 名を含む最新ディレクトリ (lex-sort 末尾) を返す。
 ///
+/// **post-merge-feedback の run 特定には使わない** (順位 398/388)。lex-latest は別 PR の
+/// 新しい run を掴みうるため、そちらは [`crate::feedback::run_registry`] が `meta.json` の
+/// task label で PR を照合して選ぶ。本関数の用途は pre-push-review の reports dir 探索に
+/// 限られる (こちらは PR 束縛の概念が無く、直近の run を採るのが正しい)。
+///
 /// takt の run dir は `<timestamp>-<sanitized-task-label>` 形式。task label が
 /// ADR-030 §task labeling convention に従い workflow 名を prefix として含む場合、
 /// dir 名にも `-<workflow>` という連続部分文字列が必ず現れる:

@@ -4,16 +4,10 @@
 //! abrupt 終了 (SIGPIPE / kill -9 / panic / 早期 return) でも marker 存在を保証する。
 
 use crate::feedback::context::{TAKT_TASK_PREFIX, TAKT_WORKFLOW};
+use crate::feedback::run_registry;
 use crate::feedback::FEEDBACK_DIR;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// 並行起動 guard の TTL (秒)。`TAKT_TIMEOUT_SECS` (1200s) より少し長い値。
-///
-/// 直前の cli-merge-pipeline 起動で `context.json` が書かれてから本値の経過時間内に
-/// 次の起動が来た場合、orphan takt が生きている可能性が高いとみなして refuse する
-/// (Bug 3: cross-invocation context overwrite race の予防)。
-pub const CONCURRENT_RUN_GUARD_SECS: u64 = 1500;
 
 /// `.failed` marker を書き出す (L2 recovery が拾う前提)。
 pub fn write_failed_marker(
@@ -26,26 +20,28 @@ pub fn write_failed_marker(
         .map_err(|e| format!("feedback dir 作成失敗 {}: {}", dir.display(), e))?;
     let path = dir.join(format!("{}.md.failed", pr_number));
     let body = format!(
-        "# post-merge-feedback failed (PR #{})\n\n\
-         takt workflow `{}` の同期実行が失敗しました。\n\n\
-         ## 失敗理由\n\n{}\n\n\
+        "# post-merge-feedback failed (PR #{pr_number})\n\n\
+         takt workflow `{TAKT_WORKFLOW}` の同期実行が失敗しました。\n\n\
+         ## 失敗理由\n\n{reason}\n\n\
          ## 復旧手順\n\n\
-         1. このマーカー (`{}`) を残したまま、Claude Code セッションで何か入力する\n\
-         2. UserPromptSubmit hook (`hooks-user-prompt-feedback-recovery`) が検出し、Claude に再実行を促す\n\
-         3. Claude セッションから手動で再実行する場合は、リポジトリルートで\n   \
-            `pnpm exec takt -w {} -t \"{}{}\"` を直接起動してください\n   \
-            注意: この再実行は `.takt/post-merge-feedback-context.json` を読み直すだけなので、\n   \
-            失敗から再実行までの間に **別 PR が `pnpm merge-pr` を実行している** と context が\n   \
-            上書きされ、誤った PR の transcript range が使われます。再実行前に\n   \
-            `.takt/post-merge-feedback-context.json` の `pr_number` が #{} と一致することを必ず確認してください。\n",
-        pr_number,
-        TAKT_WORKFLOW,
-        reason,
-        path.display(),
-        TAKT_WORKFLOW,
-        TAKT_TASK_PREFIX,
-        pr_number,
-        pr_number,
+         **推奨: `pnpm merge-pr --feedback-only {pr_number}`**\n\n\
+         PR 番号を引数で受けるため、この間に別 PR が `pnpm merge-pr` を実行していても\n\
+         対象を取り違えません。マージは行わず feedback だけを再実行します。\n\n\
+         ### そのほかの経路\n\n\
+         - このマーカー (`{marker}`) を残したまま Claude Code セッションで何か入力すると、\n  \
+           UserPromptSubmit hook (`hooks-user-prompt-feedback-recovery`) が検出して\n  \
+           Claude に再実行を促します\n\
+         - **最終手段**: `pnpm exec takt -w {TAKT_WORKFLOW} -t \"{TAKT_TASK_PREFIX}{pr_number}\"` の直接起動。\n  \
+           これは `{context}` を**読み直すだけ**なので、失敗から再実行までの間に別 PR が\n  \
+           `pnpm merge-pr` を実行していると context が上書きされ、**誤った PR の transcript**\n  \
+           でレポートが生成されます。起動前に `{context}` の `pr_number` が #{pr_number} と\n  \
+           一致することを必ず確認してください。上の `--feedback-only` にこの危険はありません。\n",
+        pr_number = pr_number,
+        TAKT_WORKFLOW = TAKT_WORKFLOW,
+        reason = reason,
+        marker = path.display(),
+        TAKT_TASK_PREFIX = TAKT_TASK_PREFIX,
+        context = crate::feedback::CONTEXT_PATH,
     );
     fs::write(&path, body).map_err(|e| format!("failed marker 書込失敗: {}", e))?;
     Ok(path)
@@ -153,31 +149,48 @@ impl Drop for FailedMarkerGuard<'_> {
     }
 }
 
-/// 既存の context file の経過時刻を返す。存在しない/読めない場合は `None`。
-fn context_age_secs(context_path: &Path) -> Option<u64> {
-    let modified = fs::metadata(context_path).ok()?.modified().ok()?;
-    modified.elapsed().ok().map(|d| d.as_secs())
-}
-
 /// 並行 cli-merge-pipeline 起動を検出した場合 `Err` を返す。
 ///
-/// 「直前の cli-merge-pipeline 起動の context.json が依然として新しい」状態は
-/// orphan takt が走り続けている可能性を示すため、context.json を上書きしない。
-/// `cleanup_failed_marker` 等の場合は影響なし (これは marker 系ファイル)。
-pub(crate) fn check_concurrent_run_guard(context_path: &Path) -> Result<(), String> {
-    let Some(age) = context_age_secs(context_path) else {
+/// # 何を見るか (順位 398 で変更)
+///
+/// 見るのは **takt run の `meta.json` の `status`** であり、`context.json` の mtime ではない。
+/// 旧実装は「直前の起動から `CONCURRENT_RUN_GUARD_SECS` (1500) 秒以内なら進行中とみなす」
+/// だったが、これは **run が完了したかを一切見ていない**。完了済みでも 25 分間は次の
+/// feedback を起動できず、連続マージ運用では確実に踏んだ (2026-08-10 に #382 / #383 で実測)。
+///
+/// guard の目的そのもの (進行中の takt が読んでいる `context.json` を上書きしない) は正しい。
+/// 判定根拠だけを「時間が経ったか」から「**実際にまだ走っているか**」へ移す。
+///
+/// # 取りこぼす側へ倒す理由
+///
+/// `status` が読めない run は進行中とみなさない (`run_registry::RunStatus` の doc 参照)。壊れた
+/// meta.json 1 つで後続の feedback が永久に起動できなくなる方が害が大きく、取りこぼしの
+/// 実害は「同時に 2 つ走りうる」に留まる。
+///
+/// **注意 (2026-08-11 レビュー指摘で訂正)**: orphan reaper (`hooks-session-start`) が `failed`
+/// へ落とせるのは、meta.json 自体がパース可能で `status: "running"` と `startTime` を読めた
+/// run に限る (`reaper::read_takt_meta` もパース不能な meta.json は skip する、本 guard と
+/// 同じ前提)。meta.json が構文レベルで壊れている場合 (abrupt kill による書き込み途中の破損等)
+/// は reaper のセーフティネットも効かず、次に読める内容へ書き戻されるまで無期限にここで
+/// 「進行中とみなさない」側へ倒れ続ける。これは reaper が必ず拾う保証があるからではなく、
+/// 許容している既知のギャップである。
+pub(crate) fn check_concurrent_run_guard(repo_root: &Path) -> Result<(), String> {
+    let running = run_registry::running_runs(&run_registry::runs_dir(repo_root));
+    let Some(first) = running.first() else {
         return Ok(());
     };
-    if age >= CONCURRENT_RUN_GUARD_SECS {
-        return Ok(());
-    }
+    let listed = running
+        .iter()
+        .map(run_registry::describe)
+        .collect::<Vec<_>>()
+        .join(", ");
     Err(format!(
-        "前回の post-merge-feedback workflow がまだ進行中の可能性 \
-         (context.json が {}s 前に書かれた)。{}s 待つか、進行中の takt が無いことを\
-         確認してから手動で {} を削除してください。",
-        age,
-        CONCURRENT_RUN_GUARD_SECS,
-        context_path.display()
+        "post-merge-feedback workflow が進行中です (run: {}). 進行中の run が \
+         context.json を読んでいるため上書きしません。完了を待つか、run が死んでいる場合は \
+         {} の status を確認してください (放置された run は SessionStart の orphan reaper が \
+         failed へ落とします)。",
+        listed,
+        first.dir.join("meta.json").display()
     ))
 }
 
@@ -329,46 +342,169 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn concurrent_run_guard_passes_when_context_absent() {
-        let path = unique_tmp_path("feedback-guard-absent");
-        assert!(check_concurrent_run_guard(&path).is_ok());
+    /// guard は repo root を受け取り `.takt/runs/*/meta.json` を見る。
+    mod concurrent_run_guard {
+        use super::*;
+
+        fn repo_with_runs(label: &str, runs: &[(&str, u64, &str)]) -> PathBuf {
+            let root = unique_tmp_path(label);
+            for (slug, pr, status) in runs {
+                let dir = root.join(".takt").join("runs").join(slug);
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(
+                    dir.join("meta.json"),
+                    format!(r#"{{"task":"post-merge-feedback for #{pr}","status":"{status}"}}"#),
+                )
+                .unwrap();
+            }
+            root
+        }
+
+        #[test]
+        fn passes_when_no_runs_exist() {
+            let root = unique_tmp_path("feedback-guard-no-runs");
+            assert!(check_concurrent_run_guard(&root).is_ok());
+        }
+
+        /// **順位 398 の完了基準**: 直前の feedback が完了していれば、25 分待たずに通る。
+        #[test]
+        fn passes_when_the_previous_run_has_finished() {
+            let root = repo_with_runs(
+                "feedback-guard-finished",
+                &[(
+                    "20260810-100000-post-merge-feedback-for-383",
+                    383,
+                    "completed",
+                )],
+            );
+            assert!(
+                check_concurrent_run_guard(&root).is_ok(),
+                "完了済みの run は次の feedback を止めてはいけない"
+            );
+            let _ = fs::remove_dir_all(&root);
+        }
+
+        #[test]
+        fn passes_when_the_previous_run_failed() {
+            let root = repo_with_runs(
+                "feedback-guard-failed",
+                &[("20260810-100000-post-merge-feedback-for-383", 383, "failed")],
+            );
+            assert!(check_concurrent_run_guard(&root).is_ok());
+            let _ = fs::remove_dir_all(&root);
+        }
+
+        #[test]
+        fn blocks_while_a_run_is_in_flight() {
+            let root = repo_with_runs(
+                "feedback-guard-running",
+                &[(
+                    "20260810-100000-post-merge-feedback-for-383",
+                    383,
+                    "running",
+                )],
+            );
+            let result = check_concurrent_run_guard(&root);
+            let message = result.expect_err("進行中の run は上書きを止める");
+            assert!(message.contains("進行中"), "{message}");
+            assert!(message.contains("#383"), "どの run かを示すこと: {message}");
+            let _ = fs::remove_dir_all(&root);
+        }
+
+        /// 完了済みの run が新しくても、別に進行中の run があれば止める。
+        #[test]
+        fn blocks_when_any_run_is_in_flight_even_if_a_newer_one_finished() {
+            let root = repo_with_runs(
+                "feedback-guard-mixed",
+                &[
+                    ("20260810-100000-post-merge-feedback-for-1", 1, "running"),
+                    ("20260810-200000-post-merge-feedback-for-2", 2, "completed"),
+                ],
+            );
+            assert!(check_concurrent_run_guard(&root).is_err());
+            let _ = fs::remove_dir_all(&root);
+        }
+
+        /// 壊れた meta.json は「進行中」に倒さない。1 つの壊れたファイルで後続の
+        /// feedback が永久に起動できなくなる方が害が大きい。
+        #[test]
+        fn a_broken_meta_does_not_block_forever() {
+            let root = unique_tmp_path("feedback-guard-broken-meta");
+            let dir = root
+                .join(".takt")
+                .join("runs")
+                .join("20260810-100000-post-merge-feedback-for-9");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("meta.json"), "{ not json").unwrap();
+            assert!(check_concurrent_run_guard(&root).is_ok());
+            let _ = fs::remove_dir_all(&root);
+        }
+
+        /// 他 workflow の進行中 run は post-merge-feedback を止めない。
+        #[test]
+        fn a_running_run_of_another_workflow_does_not_block() {
+            let root = unique_tmp_path("feedback-guard-other-workflow");
+            let dir = root
+                .join(".takt")
+                .join("runs")
+                .join("20260810-100000-pre-push-review");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("meta.json"),
+                r#"{"task":"pre-push-review","status":"running"}"#,
+            )
+            .unwrap();
+            assert!(check_concurrent_run_guard(&root).is_ok());
+            let _ = fs::remove_dir_all(&root);
+        }
     }
 
-    #[test]
-    fn concurrent_run_guard_blocks_when_context_recent() {
-        let path = unique_tmp_path("feedback-guard-recent");
-        fs::write(&path, "{}").unwrap();
-        let result = check_concurrent_run_guard(&path);
-        assert!(result.is_err(), "newly-written context should block");
-        let msg = result.unwrap_err();
-        assert!(msg.contains("進行中"));
-        let _ = fs::remove_file(&path);
-    }
+    /// 復旧手順の案内 (順位 400)。marker を読んだ人が**危険な手順を先に踏まない**こと。
+    mod recovery_instructions {
+        use super::*;
 
-    #[test]
-    fn concurrent_run_guard_passes_when_context_stale() {
-        let path = unique_tmp_path("feedback-guard-stale-substitute");
-        fs::write(&path, "{}").unwrap();
-        let age = context_age_secs(&path);
-        assert!(age.is_some());
-        assert!(age.unwrap() < CONCURRENT_RUN_GUARD_SECS);
-        let _ = fs::remove_file(&path);
-    }
+        fn marker_body(pr_number: u64) -> String {
+            let root = unique_tmp_path("feedback-marker-body");
+            let path = write_failed_marker(&root, pr_number, "テスト理由").expect("marker");
+            let body = fs::read_to_string(&path).expect("read");
+            let _ = fs::remove_dir_all(&root);
+            body
+        }
 
-    #[test]
-    fn context_age_secs_returns_none_for_missing() {
-        let path = unique_tmp_path("feedback-age-missing");
-        assert!(context_age_secs(&path).is_none());
-    }
+        #[test]
+        fn recommends_feedback_only_first() {
+            let body = marker_body(382);
+            let recommended = body
+                .find("--feedback-only 382")
+                .expect("--feedback-only を案内すること");
+            let takt_direct = body
+                .find("pnpm exec takt")
+                .expect("最終手段として takt 直接起動も残すこと");
+            assert!(
+                recommended < takt_direct,
+                "安全な手順 (--feedback-only) を危険な手順 (takt 直接起動) より先に書くこと"
+            );
+        }
 
-    #[test]
-    fn context_age_secs_returns_some_for_existing() {
-        let path = unique_tmp_path("feedback-age-exists");
-        fs::write(&path, "{}").unwrap();
-        let age = context_age_secs(&path);
-        assert!(age.is_some());
-        assert!(age.unwrap() < 5);
-        let _ = fs::remove_file(&path);
+        #[test]
+        fn labels_the_direct_takt_invocation_as_a_last_resort() {
+            let body = marker_body(382);
+            assert!(body.contains("最終手段"), "{body}");
+            assert!(
+                body.contains("誤った PR"),
+                "stale context を読む危険を明示すること: {body}"
+            );
+        }
+
+        /// 旧テンプレートは「context.json を手動で削除」を案内していた。guard が
+        /// context.json の鮮度を見なくなった (順位 398) 以上、この案内は残さない。
+        #[test]
+        fn does_not_tell_the_reader_to_delete_the_context_file() {
+            let body = marker_body(382);
+            assert!(
+                !body.contains("削除"),
+                "context.json の手動削除を案内しないこと: {body}"
+            );
+        }
     }
 }
