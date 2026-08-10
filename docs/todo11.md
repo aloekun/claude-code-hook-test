@@ -184,46 +184,6 @@
 
 ---
 
-### Cross-ref edge case test coverage 追加 (PR #179 T2-#1 採用)
-
-> **動機**: PR #179 で cli-docs-lint の cross_ref validator を新規実装し push-runner quality_gate に統合したが、percent-encode (`%20` / `%23`)、GFM heading slug、relative path normalize (`../`) の各 variant が fixture テストで明示的に保護されていない。validator のロジック劣化を silent regression として放置するリスクがある。
->
-> **本タスクの位置づけ**: PR #179 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort S / Adoption Risk None、2026-05-28 ユーザー承認)。cross_ref validator の edge case coverage 拡充による silent regression 防止。
->
-> **参照**: `.claude/feedback-reports/179.md` Tier 2 #1、`src/cli-docs-lint/src/cross_ref.rs` (既存 9 tests に追加)、PR #179 (cli-docs-lint 本体 land)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 tests と同 pattern で fixture 追加。
-
-#### 設計決定 (案)
-
-- **対象 edge case**:
-  1. **percent-encode**: 日本語 file name の percent-encode (例: `%20` 空白、`%E3...` UTF-8) を含む link を resolve できるか
-  2. **GFM heading slug**: heading anchor (`#section-with-spaces` 等) の小文字化 / 空白→`-` 変換が GFM 仕様に従うか
-  3. **relative path normalize**: 多段 `../` を含む link (例: docs/ から 2 階層上 root → 別 path) を正しく resolve できるか (現状の base_dir.join + canonicalize 経路)
-- **fixture pattern**: 既存 cross_ref.rs の `#[cfg(test)]` mod 内の tempdir + 動的 fixture 生成 pattern を踏襲
-- **memory `feedback_test_dry_antipattern`**: 各 variant 独立 setup、共通 helper 化しない
-
-> NOTE: 本 entry の編集時に edge case の link 例を Markdown link 形式 (角括弧 + 丸括弧) で書くと、cli-docs-lint の cross_ref validator が backtick 内 link も誤検出する (= 本 entry land 時に発覚した false positive)。validator 自体の backtick-aware 化も本 entry 着手時に検討余地あり (現状は description + 拡張子のみで回避)。
-
-#### 作業計画
-
-- [ ] `src/cli-docs-lint/src/cross_ref.rs` の `#[cfg(test)]` mod に 3 case の fixture test を追加
-- [ ] cargo test で pass 確認 + 意図的に validator から正規化ロジックを抜いて test が落ちるか手動検証
-- [ ] (任意) validator の backtick-aware 化 (inline code 内の link を無視) を本 entry に同梱検討
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 3 edge case (percent-encode / GFM heading slug / relative path normalize) が unit test で independent 検証
-- silent regression を test で 1 件以上検出できる構造
-- 既存 9 tests と整合性を保つ
-
-#### 詰まっている箇所
-
-なし。Effort S、cli-docs-lint 内のみで完結。
-
----
-
 ### `pnpm create-pr` PR body truncation 回避を検証する e2e/integration test 追加 (PR #181 T2-#1 採用)
 
 > **動機**: PR #134 + #181 で 2 回観測された `pnpm create-pr` (= `cli-pr-monitor.exe` の PR 作成モード) における PR body 切り詰め問題。複数 section・複数行の body を `--body "..."` で渡すと shell argument 解釈で改行が delimiter 処理されて body が途中で切れる silent UX 劣化が発生する。memory `feedback_pnpm_create_pr_body` で `--body-file <path>` workaround を採用済だが、回避策が正常動作することを担保する自動 regression gate が存在しない。

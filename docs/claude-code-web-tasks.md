@@ -43,6 +43,26 @@
 4. 詳細エントリが置かれた `docs/todoN.md` の該当 section も削除する
 5. PR を作成（commit 単位は task 単位、複数 task を 1 PR に束ねる場合は理由を PR description に明記）
 
+### 夜間ループ（無人実装）でマージしたタスクの後始末
+
+> **2026-08-10 制定。** 夜間ループ ([ADR-072](adr/adr-072-nightly-todo-loop.md)) が作った PR をマージするときは、**マージと同じタイミングで本ファイルから該当順位を削除する**。
+
+**なぜ必要か**: 夜間ループの「着手済み」判定は **`claude/nightly-*` ブランチの存在だけ**を見る（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 3）。本ファイルに完了を示す列は無く、`無人可` 列の `✅` は着手可否の印であって進捗ではない。したがって、後始末をしないと次の 2 つが起きる。
+
+- **PR をマージしてブランチを削除すると、除外マーカーが消えて同じ順位が再選択される**
+- 夜間ループは自分では後始末できない。Guard step が台帳の書き換えを禁止しているため（決定 6）、**完了の記録は人間側の責務**として残っている
+
+実際に [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) のブランチを手で削除した際、順位 203 が再選択されて [#373](https://github.com/aloekun/claude-code-hook-test/pull/373) が作られた。あれはクローズ由来だったが、**マージ由来でも同じことが起きる**（しかも完了済みタスクの重複実装になる）。
+
+**手順**（上記「着手フロー」3〜4 と同じ削除を、マージ時に行う）:
+
+1. 本ファイルの該当順位行を削除する
+2. [docs/todo-summary.md](todo-summary.md) / [docs/todo-summary2.md](todo-summary2.md) の該当順位行を削除する
+3. 詳細エントリが置かれた `docs/todoN.md` の該当 section を削除する
+4. そのうえで PR をマージし、ブランチも削除する
+
+**削除するのはマージした順位だけ。** クローズした夜間 PR の順位は**完了していない**ので本ファイルに残す。その場合はブランチが残る限り再選択されず、ブランチを整理した時点で再び選択対象へ戻る（[ADR-031](adr/adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 が週次で棚卸しし、再挑戦は許容する方針）。
+
 ---
 
 ## 採用タスク (2): cargo test 検証タスク（クロスプラットフォーム対応後、2026-07-23〜）
@@ -68,7 +88,6 @@
 | 240 | T2 | ✅ | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる |
 | 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |
 | 228 | T2 | ✅ | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs`（末尾 tests） | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係 |
-| 163 | T2 | ✅ | cross_ref validator に percent-encode / GFM heading slug / relative path normalize の edge case fixture test 追加 | `src/cli-docs-lint/src/cross_ref.rs`（`#[cfg(test)]` mod） | S | 全て `tempfile::TempDir` 上で完結。実コードは canonicalize 非使用・percent-decode 仕様を実装から確認して期待値決定 |
 | 339 | T2 | ✅ | CR rate-limit 3 世代 format × 4 parse path（old/new/next/fallback）× 主要 CR state の複合マトリックステスト | `src/check-ci-coderabbit/src/decide.rs`（既存 `mod tests`） | S | 既存 helper（`pr309_incident_*` 等）と世代別書式を組み合わせるだけ。純 parse + decide |
 | 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |
 | 239 | T2 | ✅ | `filter_transcripts` の `read_dir` 非決定順を timestamp ソートで決定論化 + 回帰テスト | `src/cli-merge-pipeline/src/feedback/transcript.rs`（`filter_transcripts` + tests） | M | temp-dir に複数 jsonl 生成 → 順序 assert で完結。実 hook 発火不要 |
