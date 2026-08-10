@@ -1,0 +1,235 @@
+# review-request — bot 作成 PR へ CodeRabbit レビューを要求する
+#
+# 役割: 自律 actor (夜間ループ / Phase B 等) が作った PR は CodeRabbit の自動レビュー
+# 対象にならないため、**人間資格情報**で `@coderabbitai review` を 1 回だけ投稿する。
+#
+# ## なぜこの workflow が要るのか (2026-08-10 実測で確定)
+#
+# CodeRabbit は **PR の author が bot なら自動レビューをスキップする** (公式挙動
+# "Auto Review Skipped — Bot user detected")。本リポジトリでも実測した:
+#
+# | 経路 | 結果 |
+# |---|---|
+# | bot 作成 PR の auto_review | skip (#379 が 10 時間超 無反応) |
+# | bot が `@coderabbitai review` を投稿 | 無視 (#373 が 10 時間 無反応) |
+# | 人間が `@coderabbitai review` を投稿 | 動く (#373 は 4 秒、#378 は 5 秒で応答) |
+# | CodeRabbit を reviewer に要求 | GitHub API が 422 (App は collaborator ではない) |
+# | PR を reopen | 無効 (状態遷移では skip が解除されない) |
+# | 設定で bot を許可 | schema.v2.json に該当キーが存在しない |
+#
+# **人間 identity のコメント投稿が唯一の経路**である。これは消去法ではなく、
+# 上表のすべてを実測して確定した (docs/adr/adr-072-nightly-todo-loop.md)。
+#
+# ## なぜ nightly-todo.yml の中に置かないのか
+#
+# nightly-todo の job は**未信頼の agent が実装を書き、その成果物を `cargo test` が
+# 実行する** job である。ADR-072 は決定 5 で agent に Bash を与えず、決定 8 § 副次効果で
+# agent が触れる GITHUB_TOKEN を read-only にした。さらに同 ADR のスモークで
+# **唯一未解決なのが「cargo サブプロセスへのトークン露出」**である。
+# その job に人間資格情報を置くと、未解決の露出リスクの対象に人間 PAT が加わる。
+# 本 workflow は agent を一切動かさないため、PAT はここにしか存在しない。
+#
+# ## PAT の権限と、ADR-072 決定 8 との関係
+#
+# `CODERABBIT_TRIGGER_PAT` は fine-grained PAT で **Pull requests: write のみ**
+# (対象リポジトリ 1 つ、期限付き)。決定 8 が PAT を却下した理由は「オーナー権限で
+# ADR-067 の ruleset backstop を bypass する」ことだったが、**この PAT は push も
+# マージもできない** (どちらも Contents: write が必要) ため、その懸念は成立しない。
+# 実体は ADR-072 § 外部設定の実体 に記録する (ADR-051 決定 1)。
+#
+# ## pull_request_target を使うことの危険と、その封じ方
+#
+# public リポジトリでは **fork からの PR でも本 workflow が起動し、その時点で
+# secrets へアクセスできる**。したがって:
+#
+# - PR ブランチを **checkout しない** (コードを一切実行しない)
+# - `run:` へ展開するのは **PR 番号 (整数) だけ**。タイトル / 本文 / ブランチ名などの
+#   攻撃者制御文字列はシェルに渡さない (script injection → secret 窃取の経路)
+# - fork PR を条件で除外する
+#
+# ## 投稿しただけで成功としない
+#
+# ADR-072 決定 11 は「投稿できたか」しか見ておらず、bot 投稿が無視されている事実に
+# **10 時間気づけなかった**。本 workflow は投稿後に CodeRabbit の反応を確認し、
+# 無ければ **red で落とす**。助言層なので他を止めはしないが、無音にはしない。
+name: review-request
+
+on:
+  pull_request_target:
+    types: [opened]
+
+# PAT が投稿を担うため、GITHUB_TOKEN 側に書き込みは不要。読み取りだけに使う。
+# `issues: read` を併記するのは、PR のコメントが `/issues/{n}/comments` 配下にあり
+# どちらの scope で読めるかが端点により揺れるため (読み取り専用なので過剰付与のリスクは
+# 無く、確認 step が 403 で偽の red になるのを防ぐ)。
+# `contents: read` は既定ブランチの autonomy-config.toml (kill-switch の config 面) を
+# 読むために要る。
+permissions:
+  pull-requests: read
+  issues: read
+  contents: read
+
+concurrency:
+  group: review-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  request:
+    # 4 条件の AND (いずれか 1 つでも欠ければ起動しない = fail-closed):
+    #   1. PR author が Bot (App 改名に強い。login 直書きだと改名で黙って止まる)
+    #   2. fork からの PR ではない (fork PR で secrets を使う経路を塞ぐ)
+    #   3. base が本リポジトリ
+    #   4. kill-switch の variable 面 (ADR-066)。**config 面は job 内の step で見る**
+    #      — workflow 式からはリポジトリ内ファイルを読めないため。ADR-066 の
+    #      kill-switch は variable と config の 2 面 AND なので、片面だけで起動判定を
+    #      終えると `enabled = false` にしても投稿できてしまう
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      vars.AUTONOMY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # **checkout しない。** PR のコードは一切取得も実行もしない。
+      # 必要なのは PR 番号だけで、それは event payload から得られる。
+
+      # kill-switch の config 面 (ADR-066)。既定ブランチの autonomy-config.toml を
+      # **API で読む** (checkout しないため)。PR ブランチ側ではなく既定ブランチから
+      # 読むのは ADR-072 の信頼境界と同じ理由 — 自律 actor が自分の停止フラグを
+      # 書き換えて自己解除する経路を作らない。
+      #
+      # **「意図した停止」と「読めなかった」を区別する。** 前者は green で終え、後者は
+      # red にする (ADR-072 決定 10 と同じ分類)。読めないまま素通りさせると、
+      # kill-switch が効いているのか壊れているのか run 一覧から分からなくなる。
+      - name: Check the config side of the kill-switch
+        id: killswitch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          case "$DEFAULT_BRANCH" in
+            ''|*[!A-Za-z0-9._/-]*)
+              echo "[REVIEW_REQUEST] 既定ブランチ名が想定外です: '$DEFAULT_BRANCH'"
+              exit 1
+              ;;
+          esac
+          if ! CONFIG=$(gh api "repos/${REPO}/contents/autonomy-config.toml?ref=${DEFAULT_BRANCH}" \
+                -H "Accept: application/vnd.github.raw" 2>&1); then
+            echo "[REVIEW_REQUEST] autonomy-config.toml を読めません (kill-switch の状態を確定できない)"
+            echo "$CONFIG" | head -3
+            exit 1
+          fi
+          # [autonomy] セクション内の enabled だけを見る。他 section の同名キーを
+          # 拾わないよう、セクション境界で切ってから判定する。
+          ENABLED_LINE=$(printf '%s\n' "$CONFIG" | awk '
+            /^\[/ { in_section = ($0 ~ /^\[autonomy\]/) ; next }
+            in_section && /^[[:space:]]*enabled[[:space:]]*=/ { print $0 }
+          ' | head -1)
+          echo "[REVIEW_REQUEST] config: ${ENABLED_LINE:-<enabled キー無し>}"
+          # コメントと空白を除いた値だけを厳密一致で判定する。substring match
+          # (`*true*`) だと `enabled = false  # ... true ...` のようなコメント付き
+          # 行が誤って proceed=true になり、fail-closed 契約が壊れる。
+          ENABLED_VALUE=$(printf '%s\n' "$ENABLED_LINE" | sed 's/#.*//' | awk -F= '{gsub(/[[:space:]]/,"",$2); print $2}')
+          case "$ENABLED_VALUE" in
+            true)
+              echo "proceed=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "[REVIEW_REQUEST_SKIP] kill-switch の config 面が有効ではありません。投稿しません"
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      # **冪等にする。** `opened` は PR ごとに 1 回だが、run の手動 re-run や後段の
+      # 検証失敗後の再実行で二重投稿になりうる。ADR-019 § 再トリガー抑止ガードのとおり
+      # 同一 HEAD への `@coderabbitai review` 再投稿は**レート枠を消費するだけ**で、
+      # 無料枠運用では実害がある。既存の要求があればそれを起点に検証だけ行う。
+      - name: Post the review request (human identity), or reuse an existing one
+        id: request
+        if: steps.killswitch.outputs.proceed == 'true'
+        env:
+          # 人間資格情報。これがコメントの投稿者 identity になる (本 workflow の要)。
+          GH_TOKEN: ${{ secrets.CODERABBIT_TRIGGER_PAT }}
+          # **整数のみ**を env 経由で渡す。文字列フィールドは一切シェルへ入れない。
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "[REVIEW_REQUEST] secret CODERABBIT_TRIGGER_PAT が未設定です"
+            echo "[REVIEW_REQUEST] 未設定を「投稿不要」と読み替えない (ADR-043)"
+            exit 1
+          fi
+          # PR 番号が整数であることを自前でも確認する。event payload は GitHub 生成の
+          # 整数だが、ここが唯一シェルへ入る値なので二重に固める。
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*)
+              echo "[REVIEW_REQUEST] PR 番号が整数ではありません: '$PR_NUMBER'"
+              exit 1
+              ;;
+          esac
+          # `--slurp` は `--jq` と併用できない (gh 2.95.0 で実測)。`--paginate` 単体だと
+          # jq はページごとに適用され出力が連結されるため、**id をストリームで出して
+          # shell 側で畳む**。これなら全ページを取りこぼさない。
+          EXISTING=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.body | contains("@coderabbitai review")) | .id' \
+            | sort -n | tail -1)
+          if [ -n "$EXISTING" ]; then
+            echo "[REVIEW_REQUEST] 既にレビュー要求が存在します (comment id=${EXISTING})。再投稿しません"
+            echo "since_id=${EXISTING}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # `gh api` で投稿するのは、**作成したコメントの id を得る**ため。
+          # 検証段はこの id より新しい CodeRabbit コメントだけを数える。
+          NEW_ID=$(gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body='@coderabbitai review' --jq '.id')
+          echo "[REVIEW_REQUEST] PR #${PR_NUMBER} へレビュー要求を投稿しました (comment id=${NEW_ID})"
+          echo "since_id=${NEW_ID}" >> "$GITHUB_OUTPUT"
+
+      # **効果を観測する。** 決定 11 の失敗は「投稿は成功したが相手が反応しなかった」
+      # ことに気づけなかった点にある。投稿の成否ではなく **CodeRabbit の反応**を待つ。
+      #
+      # **「この要求への反応」だけを数える。** PR 上の CodeRabbit コメント総数を見ると、
+      # 過去の skip 通知や別要求への反応が 1 件でもあった時点で成功と誤判定する。
+      # 要求コメントの id を起点に、**それより新しい** CodeRabbit コメントのみを数える
+      # (comment id は単調増加)。`--paginate` で 1 ページ目 (既定 30 件) に収まらない
+      # PR でも取りこぼさない。
+      - name: Verify CodeRabbit actually responded
+        if: steps.killswitch.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          SINCE_ID: ${{ steps.request.outputs.since_id }}
+        run: |
+          set -euo pipefail
+          case "$SINCE_ID" in
+            ''|*[!0-9]*)
+              echo "[REVIEW_REQUEST_FAIL] 起点となる comment id を取得できていません: '$SINCE_ID'"
+              exit 1
+              ;;
+          esac
+          # 実測レイテンシは 4〜5 秒 (#373 / #378)。10 分は十分な余裕を持った上限で、
+          # ここに達したら「遅い」ではなく「反応していない」と判断してよい。
+          DEADLINE=20
+          for i in $(seq 1 "$DEADLINE"); do
+            # 照会の一時失敗を「反応なし」と読み替えない。API blip で偽の red を出すと、
+            # 本当に反応していない夜と区別がつかなくなる (決定 11 と逆向きの同じ誤り)。
+            # 判定を下すのは deadline 到達時だけにする。
+            COUNT=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --jq ".[] | select(.user.login==\"coderabbitai[bot]\" and .id > ${SINCE_ID}) | .id" \
+              2>/dev/null | wc -l || echo "")
+            if [ -n "$COUNT" ] && [ "$COUNT" -gt 0 ]; then
+              echo "[REVIEW_REQUEST] CodeRabbit の反応を確認しました (${i} 回目の確認、要求後のコメント ${COUNT} 件)"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "[REVIEW_REQUEST_FAIL] 要求 (comment id=${SINCE_ID}) 後に CodeRabbit が反応しません ($((DEADLINE * 30)) 秒)"
+          echo "[REVIEW_REQUEST_FAIL] 投稿者 identity が bot に戻っていないか (PAT の失効 →"
+          echo "[REVIEW_REQUEST_FAIL] GITHUB_TOKEN へのフォールバック等)、CodeRabbit 側の"
+          echo "[REVIEW_REQUEST_FAIL] 仕様変更、レート上限のいずれかを疑うこと。"
+          exit 1
