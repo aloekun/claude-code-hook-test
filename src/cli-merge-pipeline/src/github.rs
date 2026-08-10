@@ -1,7 +1,7 @@
 //! PR 検出 / owner-repo 検出 / リモートブランチ削除 (gh + jj 連携)。
 
 use crate::pipeline::log_info;
-use lib_jj_helpers::{get_jj_bookmarks as lib_get_jj_bookmarks, StderrMode};
+use lib_jj_helpers::{get_jj_bookmarks_with_remote_fallback, BookmarkSearch, StderrMode};
 use lib_subprocess::combine_output;
 use serde::Deserialize;
 use std::process::Command;
@@ -76,17 +76,6 @@ pub(crate) fn run_gh_logged(args: &[&str]) -> Option<String> {
     }
 }
 
-/// 現在の jj change 周辺に紐づく全ブックマーク名を取得する。
-///
-/// `lib_jj_helpers::BOOKMARK_SEARCH_REVSETS` の順で検索し、最初に非空の結果が
-/// 得られた revset の bookmark を返す。trunk 系 bookmark は除外される。
-///
-/// stderr は `Piped` で捕捉し、jj 失敗時の原因を `log_info` に流す
-/// (cli-merge-pipeline は merge の事前確認が主目的のため、診断情報を積極的に出す)。
-pub(crate) fn get_jj_bookmarks() -> Vec<String> {
-    lib_get_jj_bookmarks(StderrMode::Piped(log_info), Some(log_info))
-}
-
 /// 現在のリポジトリの `{owner}/{repo}` を検出する (ADR-029)
 pub(crate) fn detect_owner_repo() -> Option<String> {
     run_gh_logged(&[
@@ -99,55 +88,78 @@ pub(crate) fn detect_owner_repo() -> Option<String> {
     ])
 }
 
-/// 現在のブックマークから PR 番号を検出する
-pub(crate) fn detect_pr_number() -> Option<u64> {
-    let pr_number = run_gh_logged(&["pr", "view", "--json", "number", "-q", ".number"])
-        .and_then(|s| s.parse::<u64>().ok());
+/// PR 検出に失敗したときの診断情報 (実行可能な復旧手順を組み立てるために使う)。
+pub(crate) struct PrLookupFailure {
+    /// 失敗時点で見えていた bookmark。空でなければ「bookmark はあるが PR が無い」を意味する。
+    pub(crate) search: BookmarkSearch,
+}
 
-    if pr_number.is_some() {
-        return pr_number;
+/// bookmark 名から PR 番号を引く (open → 全 state の順)。
+fn pr_number_for_bookmark(bookmark: &str) -> Option<u64> {
+    log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
+
+    let open = run_gh_logged(&[
+        "pr",
+        "list",
+        "--head",
+        bookmark,
+        "--json",
+        "number",
+        "-q",
+        ".[0].number",
+    ])
+    .and_then(|s| s.parse::<u64>().ok());
+    if open.is_some() {
+        return open;
     }
 
-    let bookmarks = get_jj_bookmarks();
+    run_gh_logged(&[
+        "pr",
+        "list",
+        "--head",
+        bookmark,
+        "--state",
+        "all",
+        "--json",
+        "number",
+        "-q",
+        ".[0].number",
+    ])
+    .and_then(|s| s.parse::<u64>().ok())
+}
+
+/// 現在のブックマークから PR 番号を検出する。
+///
+/// ローカル bookmark で見つからない場合はリモート追跡 bookmark へフォールバックする。
+/// bot が remote に作った PR (ADR-072 の夜間ループ) は `claude/nightly-163@origin` の
+/// ようなリモート専用 bookmark しか持たず、ローカル探索だけでは検出できない (順位 397)。
+pub(crate) fn detect_pr_number() -> Result<u64, PrLookupFailure> {
+    if let Some(pr_number) = run_gh_logged(&["pr", "view", "--json", "number", "-q", ".number"])
+        .and_then(|s| s.parse::<u64>().ok())
+    {
+        return Ok(pr_number);
+    }
+
+    let search = get_jj_bookmarks_with_remote_fallback(StderrMode::Piped(log_info), Some(log_info));
+    let bookmarks = match &search {
+        BookmarkSearch::Local(names) => names.clone(),
+        BookmarkSearch::RemoteOnly(names) => {
+            log_info(&format!(
+                "ローカル bookmark が無いため、リモート追跡 bookmark で PR を検索します: {:?} (jj bookmark track は不要)",
+                names
+            ));
+            names.clone()
+        }
+        BookmarkSearch::NotFound => Vec::new(),
+    };
+
     for bookmark in &bookmarks {
-        log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
-
-        let pr_number = run_gh_logged(&[
-            "pr",
-            "list",
-            "--head",
-            bookmark,
-            "--json",
-            "number",
-            "-q",
-            ".[0].number",
-        ])
-        .and_then(|s| s.parse::<u64>().ok());
-
-        if pr_number.is_some() {
-            return pr_number;
-        }
-
-        let pr_number = run_gh_logged(&[
-            "pr",
-            "list",
-            "--head",
-            bookmark,
-            "--state",
-            "all",
-            "--json",
-            "number",
-            "-q",
-            ".[0].number",
-        ])
-        .and_then(|s| s.parse::<u64>().ok());
-
-        if pr_number.is_some() {
-            return pr_number;
+        if let Some(pr_number) = pr_number_for_bookmark(bookmark) {
+            return Ok(pr_number);
         }
     }
 
-    None
+    Err(PrLookupFailure { search })
 }
 
 pub(crate) fn delete_remote_branch(branch_name: &str) {

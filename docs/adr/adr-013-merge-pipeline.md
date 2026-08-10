@@ -47,7 +47,8 @@ Claude が "pnpm merge-pr" を実行する
        ▼
 cli-merge-pipeline.exe (スタンドアロン)
   ├─ hooks-config.toml [merge_pipeline] を読み込み
-  ├─ jj bookmark → gh pr list --head で PR を自動検出
+  ├─ jj bookmark (ローカル → リモート追跡) → gh pr list --head で PR を自動検出
+  │   (--pr <番号> 指定時はこの検出をスキップ)
   ├─ pre_steps を順次実行（マージ前チェック）
   ├─ gh pr merge --squash --delete-branch を実行
   ├─ jj git fetch && jj new master@origin でローカル同期
@@ -59,7 +60,7 @@ cli-merge-pipeline.exe (スタンドアロン)
 | 項目 | 決定 | 理由 |
 |---|---|---|
 | マージ戦略 | squash 固定 | master の履歴を 1 PR = 1 コミットに保つ |
-| PR 検出 | jj bookmark から自動検出 | `pnpm push` / `pnpm create-pr` と同じ方式で一貫性がある |
+| PR 検出 | jj bookmark から自動検出（ローカル → リモート追跡の順。`--pr <番号>` で明示指定も可） | `pnpm push` / `pnpm create-pr` と同じ方式で一貫性がある。検出が効かない状況の逃げ道として明示指定を残す（詳細: 後述「§ PR 検出のフォールバックと逃げ道」） |
 | ブランチ削除 | `--delete-branch` で自動削除 | マージ済みブランチの残留を防ぐ |
 | ローカル同期 | `jj git fetch` + `jj new master@origin` | マージ後すぐに master 最新から作業を開始できる。`master@origin` (= remote tracking ref) を直接参照することで local master bookmark の状態に依存しない (詳細: 後述「§ sync_local の前提条件」) |
 | ステップ分離 | `pre_steps`（マージ前）/ `post_steps`（マージ後） | 学び提案等の post-merge 処理を正しいタイミングで実行 |
@@ -97,6 +98,24 @@ step_timeout = 120
 - **`master@origin` は jj clone 直後から自動生成される**: 設定なしで必ず存在する ref のため、新 PC / fresh clone でも前提条件を満たす
 - **ADR-011 (push 戦略) との分離**: ADR-011 が確立した `auto-track-bookmarks = "*"` 設定は push の関心領域 (新規 bookmark の auto-track) のためのもの。merge-pipeline は同設定の副作用 (= local bookmark の fast-forward) に偶発的に依存していたが、本設計でその依存を解消した
 
+### PR 検出のフォールバックと逃げ道 (2026-08-11 追加、順位 397)
+
+**問題**: bot が作った PR を人間がマージする経路（[ADR-072](adr-072-nightly-todo-loop.md) の夜間ループ）では、PR の head が `claude/nightly-163@origin` のような**リモート専用 bookmark** しか持たない。fetch しただけの bookmark はローカルに作られない（jj の `git.auto-local-bookmark` 既定値。jj 0.42.0 で実測）ため、ローカル bookmark だけを見ていた PR 検出が空振りし、`pnpm merge-pr` が「PR が見つかりません」で exit 1 していた（[#381](https://github.com/aloekun/claude-code-hook-test/pull/381) のマージで実測）。
+
+**構造的な問題はその先にある**: `gh pr merge` は本 ADR の guard でブロックされているため、検出が効かない状況では**ブロックされる経路と動かない経路しかない**。回避策（`jj bookmark track` してから再実行）は非自明で、夜間 PR をマージするたびに要求される。
+
+**決定**: PR 検出を 3 段構えにする。
+
+1. `gh pr view`（jj 併用リポジトリでは HEAD が detached のため通常失敗する。git 運用の派生プロジェクト向けに残す）
+2. **ローカル bookmark** → `gh pr list --head`
+3. **リモート追跡 bookmark** → `gh pr list --head`（`jj bookmark track` は不要。この経路を通った場合はその旨をログに出す）
+
+加えて `--pr <PR番号>` を追加し、bookmark 検出に依存しない経路を常に 1 つ確保する。検出失敗時のメッセージは、この `--pr` を第一手段として実行可能な形で提示する。
+
+**ローカルを先に全 revset 走査してからリモートへ移る**二段構成にしてある（revset ごとに両方を見るのではなく）。ローカル bookmark が 1 つでも見つかる状況では従来と結果が完全に一致し、同じ探索ヘルパーを共有する push-runner / pr-monitor（[ADR-024](adr-024-shared-jj-helpers-library.md)）への回帰が構造的に起きない。bookmark を**書き換える**経路（push-runner の bookmark 前進など）はリモート専用 bookmark を対象にしてはならないため、探索結果は `Local` / `RemoteOnly` を区別して返す。
+
+**残る制約**: bookmark が探索 revset（`@` / `@-` / `@--`）より深い位置にある場合は依然として検出できない（順位 386 の別問題）。この場合も `--pr` で回避できる。
+
 #### 過去の不具合 (2026-06-26 観測)
 
 新 PC で `.jj/repo/config.toml` に `auto-track-bookmarks` 設定が無い状態で merge-pipeline を実行したところ、stale local master に作業コピーが乗り、`post_steps` の post-merge-feedback subsession が古い lint warning (`unnecessary_sort_by`) を「fix」しようとして `src/lib-report-formatter/src/lib.rs` を stray 編集する事故が発生した。原因連鎖の半分が本 sync_local 設計のバグであり、本 ADR 改訂と [src/cli-merge-pipeline/src/main.rs](../../src/cli-merge-pipeline/src/main.rs) の修正で根本解消した。残り半分の連鎖 (Stop hook の subsession 無差別発火) は [ADR-004](adr-004-stop-hook-quality-gate.md) § takt subsession skip で多層防御を入れている。
@@ -124,3 +143,5 @@ step_timeout = 120
 - [ADR-012: src/ ディレクトリの命名規約](adr-012-src-naming-convention.md) — `cli-` プレフィックスの命名根拠
 - [ADR-014: Post-Merge Feedback](adr-014-post-merge-feedback.md) — `ai` ステップで呼び出す skill のフロー定義
 - [ADR-029: Post-Merge Feedback の自動起動](adr-029-post-merge-feedback-auto-trigger.md) — `ai` ステップの具体実装仕様 (2026-04-23 追加)
+- [ADR-024: 共通 jj ヘルパーライブラリ](adr-024-shared-jj-helpers-library.md) — bookmark 探索の共有先 (2026-08-11 追加)
+- [ADR-072: 夜間 todo 消化ループ](adr-072-nightly-todo-loop.md) — リモート専用 bookmark を持つ PR の生成元 (2026-08-11 追加)
