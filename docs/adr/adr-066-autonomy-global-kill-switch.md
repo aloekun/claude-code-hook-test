@@ -85,11 +85,34 @@ CI で PR ブランチの config を読むと、自律 actor 自身（または 
 
 ### 4. 純粋判定コアへの集約
 
-判定は `src/cli-autonomy-gate/src/decision.rs` の `evaluate` 1 関数に閉じ込め、欠損 / ゴミ値 / false / true の全組み合わせを unit test で固定する（external 9 種 × repo config 3 種 × operation 2 種 = 54 組合せを走査し、「許可されるのは 3 条件が揃った場合だけ」を網羅的に確認）。既存の `gate.rs` の `gate_disabled` / `post_takt_regate` の判定コアと同スタイル。
+判定は `src/lib-autonomy-policy/src/decision.rs` の `evaluate` 1 関数に閉じ込め（起草時は `cli-autonomy-gate` 内の module。2 つ目の呼び手 `cli-fix-push-gate` が出た時点で ADR-044 層 1 に従い共有 lib へ extract した）、欠損 / ゴミ値 / false / true の全組み合わせを unit test で固定する（external 9 種 × repo config 3 種 × operation 2 種 = 54 組合せを走査し、「許可されるのは 3 条件が揃った場合だけ」を網羅的に確認）。既存の `gate.rs` の `gate_disabled` / `post_takt_regate` の判定コアと同スタイル。
 
-**呼び手が env / config を直読みして独自に真偽を組み立てることを禁止する。** 片方の呼び手だけが `unwrap_or(true)` を書いた瞬間に無音で fail-open へ反転するためで、`lib-docs-policy` が ADR-035 の path 基準を単一実装へ集約しているのと同じ drift 防止である。呼び手はすべて `cli-autonomy-gate` の exit コードを経由する。
+**呼び手が env / config を直読みして独自に真偽を組み立てることを禁止する。** 片方の呼び手だけが `unwrap_or(true)` を書いた瞬間に無音で fail-open へ反転するためで、`lib-docs-policy` が ADR-035 の path 基準を単一実装へ集約しているのと同じ drift 防止である。
+
+呼び手が従う契約は 2 形態ある（起草時は exe 経由の 1 形態だけだったが、共有 lib 化に伴い明文化する）。
+
+| 呼び手の種類 | 契約 | 例 |
+|---|---|---|
+| shell / workflow から呼ぶ | `cli-autonomy-gate` の **exit コード**に従う（非ゼロはすべて拒否） | `pnpm autonomy-status`、停止側 drill |
+| Rust から呼ぶ | `lib_autonomy_policy` の `sources::read_*` で読み `evaluate` で判定する。**自前の真偽合成をしない** | `cli-fix-push-gate`（`evaluate` を直接呼び、kill-switch を構造的に含む） |
+
+どちらも判定コアは同一関数であり、禁止しているのは「読み取りと合成を呼び手が自作すること」である。exe を挟むか lib を直接使うかは呼び出し形態の違いに過ぎない。
 
 truthy の受理集合（`1|true|yes|on`、前後空白・大小無視）は `lib_telemetry::is_truthy` を共有する。再実装すると kill-switch ごとに truthy 解釈が drift する。
+
+#### 例外は 1 つだけあり、テストで縛る（2026-08-11 追記、順位 410）
+
+「呼び手が config を直読みしない」原則の**唯一の例外**が `review-request.yml` である。この workflow は PR のコードを一切取得しない設計のため **checkout せず GitHub API で既定ブランチの `autonomy-config.toml` を読む**。exe を実行できないので、`[autonomy] enabled` の解釈を awk/sed で自前に持つほかない。結果として config 面の解釈が **Rust と shell の 2 実装**に分かれている（[ADR-051](adr-051-cross-system-config-coupling.md) のクロスシステム coupling）。
+
+この乖離を放置すると、shell 側だけが緩くなった瞬間に config 面の kill-switch が無音で自己解除されうる。そこで `src/lib-autonomy-policy/tests/workflow_awk_parity.rs` が **workflow YAML から shell 断片をその場で抽出して実行**し、Rust 実装と突き合わせる。断片を複製せず原本を読むため、workflow 側だけを編集しても検証が追随する。
+
+保証するのは等価性ではなく**片側の含意**である:
+
+> shell が `true` と読む ⇒ Rust も `Some(true)` と読む
+
+逆向き（Rust が読めて shell が読めない）は既知の乖離として許容する。awk が section header を `^\[autonomy\]` の完全一致で見ているため、dotted key (`autonomy.enabled = true`) や空白入りヘッダ (`[ autonomy ]`) は shell 側で「enabled キー無し」= 停止に倒れる。**shell 側が厳しい向きは fail-closed** なので安全側であり、この**乖離の方向そのもの**を別テストで固定してある。方向が反転したら落ちる。
+
+本テストは `#[cfg(unix)]` である。当該 job は `runs-on: ubuntu-latest` 固定で shell 実装が動くのは unix だけであり、Windows で `sh`/`awk` の有無に応じた skip を入れると「動かなかった」と「一致した」が区別できなくなるため（[ADR-043](adr-043-security-gates-fail-closed.md) の fail-closed）。両 OS matrix（[ADR-065](adr-065-ci-matrix-cross-os-regression.md)）のうち ubuntu ジョブが担保する。
 
 ### 5. 背圧契約は操作クラス別
 
