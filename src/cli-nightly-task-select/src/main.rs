@@ -37,7 +37,7 @@ mod ledger;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use ledger::{Task, screen_for_public_output};
+use ledger::{screen_for_public_output, screen_for_title, Task};
 
 const MARKER_SELECTED: &str = "[NIGHTLY_TASK]";
 const MARKER_SKIP: &str = "[NIGHTLY_SKIP]";
@@ -108,7 +108,13 @@ fn run(args: Vec<String>) -> i32 {
     let display = cli.ledger_path.display().to_string();
     let markdown = match std::fs::read_to_string(&cli.ledger_path) {
         Ok(text) => text,
-        Err(e) => return skip(EXIT_USAGE, &format!("台帳を読めません ({display}): {e}"), false),
+        Err(e) => {
+            return skip(
+                EXIT_USAGE,
+                &format!("台帳を読めません ({display}): {e}"),
+                false,
+            )
+        }
     };
     match ledger::select(&markdown, &cli.excluded_ranks) {
         Err(message) => skip(
@@ -160,6 +166,7 @@ fn report_selected(task: &Task, ledger_display: &str) {
         "summary_display={}",
         one_line(&screen_for_public_output(&task.summary))
     );
+    println!("pr_title_display={}", screen_for_title(&task.pr_title));
 }
 
 fn one_line(value: &str) -> String {
@@ -179,8 +186,8 @@ mod tests {
 
     #[test]
     fn parses_both_required_flags() {
-        let cli = parse_args(&args(&["--ledger", "a.md", "--exclude-ranks", "203,240"]))
-            .expect("parse");
+        let cli =
+            parse_args(&args(&["--ledger", "a.md", "--exclude-ranks", "203,240"])).expect("parse");
         assert_eq!(cli.ledger_path, PathBuf::from("a.md"));
         assert_eq!(cli.excluded_ranks, [203, 240].into_iter().collect());
     }
@@ -211,8 +218,13 @@ mod tests {
 
     #[test]
     fn surrounding_whitespace_in_the_exclude_list_is_tolerated() {
-        let cli = parse_args(&args(&["--ledger", "a.md", "--exclude-ranks", " 203 , 240 "]))
-            .expect("parse");
+        let cli = parse_args(&args(&[
+            "--ledger",
+            "a.md",
+            "--exclude-ranks",
+            " 203 , 240 ",
+        ]))
+        .expect("parse");
         assert_eq!(cli.excluded_ranks, [203, 240].into_iter().collect());
     }
 

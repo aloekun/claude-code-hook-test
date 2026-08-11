@@ -169,7 +169,7 @@ jobs:
           # 許可リスト方式 — exe が出す key のうち、ここに列挙したものだけを転送する。
           # 想定外の key 注入を防ぐ fail-closed だが、**exe 側に出力を足したらここも足す**
           # 必要がある (片方だけ変えると新しい出力が黙って捨てられ、参照側は空文字になる)。
-          grep -E '^(rank|branch|target_files|summary|summary_display|caution)=' "$RUNNER_TEMP/selected.txt" \
+          grep -E '^(rank|branch|target_files|summary|summary_display|pr_title_display|caution)=' "$RUNNER_TEMP/selected.txt" \
             >> "$GITHUB_OUTPUT"
 
       # 出力契約の検証と可観測ログ。**この step には continue-on-error を付けない**
@@ -188,12 +188,16 @@ jobs:
         if: steps.select.outcome == 'success'
         run: |
           set -euo pipefail
+          # pr_title_display は**値が空でも行そのものは必ず出る**契約 (空 = 台帳の列が
+          # 無い/空 → 従来タイトルへフォールバック)。行の存在を検査することで、exe 側の
+          # 出力ドリフトが「毎晩黙ってフォールバックし続ける」形に化けるのを防ぐ。
           if ! grep -qE '^\[NIGHTLY_TASK\]' "$RUNNER_TEMP/selected.txt" \
-            || ! grep -qE '^summary_display=' "$RUNNER_TEMP/selected.txt"; then
-            echo "::error::output-contract violation: cli-nightly-task-select の出力に [NIGHTLY_TASK] または summary_display= が見つかりません (出力フォーマットのドリフトの可能性)。台帳選択は成功しているため no-op ではなく job を止めます。" >&2
+            || ! grep -qE '^summary_display=' "$RUNNER_TEMP/selected.txt" \
+            || ! grep -qE '^pr_title_display=' "$RUNNER_TEMP/selected.txt"; then
+            echo "::error::output-contract violation: cli-nightly-task-select の出力に [NIGHTLY_TASK] / summary_display= / pr_title_display= のいずれかが見つかりません (出力フォーマットのドリフトの可能性)。台帳選択は成功しているため no-op ではなく job を止めます。" >&2
             exit 1
           fi
-          grep -E '^\[NIGHTLY_TASK\]|^summary_display=' "$RUNNER_TEMP/selected.txt"
+          grep -E '^\[NIGHTLY_TASK\]|^summary_display=|^pr_title_display=' "$RUNNER_TEMP/selected.txt"
 
       # 本 step は 2 つの経路で発火する — select が非ゼロだった場合と、Pre-flight gate の
       # 背圧 deny で select 自体が skip された場合。後者では select の [NIGHTLY_SKIP] 行が
@@ -493,20 +497,37 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BRANCH: ${{ steps.select.outputs.branch }}
           RANK: ${{ steps.select.outputs.rank }}
-          # 公開面へ出すのは screening 済みの summary_display だけ (ADR-072 決定 14)。
+          # 公開面へ出すのは screening 済みの *_display だけ (ADR-072 決定 14)。
           # 生の summary はここでは使わない — PR は public repo では第三者に可視で、
           # 台帳の自由記述が攻撃者制御文字列の公開面になるため。
+          #
+          # **出口ごとに別の screening を通す。** summary_display は本文でコードスパンに
+          # 囲まれる前提、pr_title_display はタイトルで生テキストとして出る前提で、
+          # それぞれ `screen_for_public_output` / `screen_for_title` を通っている。
           SUMMARY_DISPLAY: ${{ steps.select.outputs.summary_display }}
+          PR_TITLE_DISPLAY: ${{ steps.select.outputs.pr_title_display }}
         run: |
           set -euo pipefail
           # commit の author 表記は cosmetic。ci.yml が走るかどうかを決めるのは
           # **push / PR 作成に使った token の actor** であり、ここでは App token を使っている。
           git -C publish config user.name "github-actions[bot]"
           git -C publish config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # **タイトルは実装内容 + 自動作成の 2 つを示す。** 翌朝 PR 一覧を見た人間が、
+          # 中身を開かずに「何が入っているか」と「夜間ループ由来か」を判別できるようにする。
+          # 台帳に「PRタイトル」列が無い / 空の行は従来の形へフォールバックする (移行期間)。
+          if [ -n "$PR_TITLE_DISPLAY" ]; then
+            PR_TITLE="${PR_TITLE_DISPLAY} (nightly-todo 順位 ${RANK})"
+          else
+            PR_TITLE="feat: 順位 ${RANK} の無人実装 (nightly-todo)"
+          fi
+          echo "[NIGHTLY] PR title: ${PR_TITLE}"
           # commit 直前に add をやり直さない。stage したのは Guard step で、間に挟まる Gate は
           # master-ref/ の exe を実行するだけで publish/ に触れないため index は維持される。
           # 再 add しないことが「ゲートが検査した内容そのものを commit する」保証になる。
-          git -C publish commit -m "feat: 順位 ${RANK} の無人実装 (nightly-todo)"
+          #
+          # commit message も PR タイトルに揃える。squash マージでは PR タイトルが採用されるため
+          # 履歴上は後者が正だが、ブランチを直接見たときに食い違わない方がよい。
+          git -C publish commit -m "$PR_TITLE"
           git -C publish push \
             "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
             "HEAD:refs/heads/${BRANCH}"
@@ -534,7 +555,7 @@ jobs:
           gh pr create --repo "${{ github.repository }}" \
             --base master \
             --head "$BRANCH" \
-            --title "feat: 順位 ${RANK} の無人実装 (nightly-todo)" \
+            --title "$PR_TITLE" \
             --body-file "$RUNNER_TEMP/pr-body.md"
 
       # ここに `Request a CodeRabbit review` step があった (ADR-072 決定 11)。**撤回済み。**

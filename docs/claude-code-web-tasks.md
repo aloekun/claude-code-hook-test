@@ -77,32 +77,41 @@
 >
 > **着手フロー**: [上記 §着手フロー](#着手フロー)に同じ（完了後に該当順位を収録する `docs/todo-summary.md` または `docs/todo-summary2.md`（順位 220 以降）の該当行 + `docs/todoN.md` の詳細エントリを削除）。加えて DoD として `cargo test --workspace`（+ 該当 crate の `cargo clippy`）green を PR description に記載する。詳細エントリ内の対象ファイルパスがリファクタで stale なことがあるため、着手時に実パス（下表「対象ファイル(実パス)」列）を優先する。
 
+### 「PRタイトル」列の書き方（2026-08-11 追加、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17）
+
+夜間ループが作る PR のタイトルは `<この列の値> (nightly-todo 順位 NNN)` になる。**翌朝 PR 一覧を見た人間が、中身を開かずに何が入っているか判断できる 1 行**を書くこと。
+
+- **conventional commits の prefix を含める**（`feat(scope): ` / `test(scope): ` / `fix(scope): `）。`内容` 列から機械的に決められないため、ここで人間が選ぶ
+- **60 文字以内**。超えると `…` で切り詰められる（PR 一覧で読む 1 行のため）
+- **空でよい**。未記入なら従来の `feat: 順位 NNN の無人実装 (nightly-todo)` にフォールバックする。`無人可` が `—` の行は選ばれないので空のままでよい
+- `内容` 列とは**用途が違う**。あちらは agent への依頼文で長くてよい。こちらはタイトル
+
 ### Batch 1: 純テスト・軽微実装（即着手推奨、◎）
 
 `cargo test` で完結し外部依存・設計判断が最小のもの。工数昇順。
 
-| 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 |
-|---|---|---|---|---|---|---|
-| 284 | T2 | — | `stale_check_enabled` (Option\<bool\>) の TOML パーステスト追加（未テストのパース経路を補完） | `src/hooks-session-start/src/hooks_config.rs`（`mod tests`、既存 `hooks_config_parses_session_start_staleness_section` 拡張） | XS | 純 deserialize。`temp_dir()` fixture で Linux CI pass 済みパターン、最もクリーン |
-| 203 | T2 | ✅ | GitHub token `ghu_` / `ghr_` の secret 検出ブロックテスト 2 件追加 | `src/hooks-pre-tool-validate/src/presets/safety/secret.rs` | XS | todo 記載の `main.rs` は module split でパスドリフト、実体は `secret.rs`。純 regex 判定 |
-| 240 | T2 | ✅ | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる |
-| 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |
-| 228 | T2 | ✅ | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs`（末尾 tests） | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係 |
-| 339 | T2 | ✅ | CR rate-limit 3 世代 format × 4 parse path（old/new/next/fallback）× 主要 CR state の複合マトリックステスト | `src/check-ci-coderabbit/src/decide.rs`（既存 `mod tests`） | S | 既存 helper（`pr309_incident_*` 等）と世代別書式を組み合わせるだけ。純 parse + decide |
-| 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |
-| 239 | T2 | ✅ | `filter_transcripts` の `read_dir` 非決定順を timestamp ソートで決定論化 + 回帰テスト | `src/cli-merge-pipeline/src/feedback/transcript.rs`（`filter_transcripts` + tests） | M | temp-dir に複数 jsonl 生成 → 順序 assert で完結。実 hook 発火不要 |
+| 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 | PRタイトル |
+|---|---|---|---|---|---|---|---|
+| 284 | T2 | — | `stale_check_enabled` (Option\<bool\>) の TOML パーステスト追加（未テストのパース経路を補完） | `src/hooks-session-start/src/hooks_config.rs`（`mod tests`、既存 `hooks_config_parses_session_start_staleness_section` 拡張） | XS | 純 deserialize。`temp_dir()` fixture で Linux CI pass 済みパターン、最もクリーン |  |
+| 203 | T2 | ✅ | GitHub token `ghu_` / `ghr_` の secret 検出ブロックテスト 2 件追加 | `src/hooks-pre-tool-validate/src/presets/safety/secret.rs` | XS | todo 記載の `main.rs` は module split でパスドリフト、実体は `secret.rs`。純 regex 判定 | test(pre-tool-validate): GitHub token の secret 検出ブロックをテストする |
+| 240 | T2 | ✅ | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる | fix(merge-pipeline): takt spawn/try_wait のエラー握り潰しを解消する |
+| 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |  |
+| 228 | T2 | ✅ | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs`（末尾 tests） | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係 | test(check-ci): rate-limit shortcut の cr_clean 判定をテストで固定する |
+| 339 | T2 | ✅ | CR rate-limit 3 世代 format × 4 parse path（old/new/next/fallback）× 主要 CR state の複合マトリックステスト | `src/check-ci-coderabbit/src/decide.rs`（既存 `mod tests`） | S | 既存 helper（`pr309_incident_*` 等）と世代別書式を組み合わせるだけ。純 parse + decide | test(check-ci): CR rate-limit パースの複合マトリックステストを追加する |
+| 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |  |
+| 239 | T2 | ✅ | `filter_transcripts` の `read_dir` 非決定順を timestamp ソートで決定論化 + 回帰テスト | `src/cli-merge-pipeline/src/feedback/transcript.rs`（`filter_transcripts` + tests） | M | temp-dir に複数 jsonl 生成 → 順序 assert で完結。実 hook 発火不要 | fix(merge-pipeline): transcript の読み取り順を timestamp ソートで決定論化する |
 
 ### Batch 2: 新規実装を伴う（○、要設計判断）
 
 cargo test で検証完結するが、新規 module / lint rule / 軽微リファクタ / 依存追加判断を含む。
 
-| 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 | 注意 |
-|---|---|---|---|---|---|---|
-| 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |
-| 216 | T2 | ✅ | `no-workstream-seq-names-in-config` lint rule 追加（config comment 内 `PR-[0-9]+` を検出、`#NNN` は除外） | `.claude/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/rule_tests_extras.rs` + `tests/incident_eval.rs` + `tests/fixtures/incidents/{bad,good}/` + (dogfood) `.claude/hooks-config.toml` | S | 確立 12 rule / 11 incident パターン踏襲。Rust regex lookaround 不要（`\bPR-[0-9]+\b`）。dogfood は数行の text 編集 |
-| 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |
-| 334 | T1 | — | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + fixtures（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |
-| 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |
+| 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 | 注意 | PRタイトル |
+|---|---|---|---|---|---|---|---|
+| 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |  |
+| 216 | T2 | ✅ | `no-workstream-seq-names-in-config` lint rule 追加（config comment 内 `PR-[0-9]+` を検出、`#NNN` は除外） | `.claude/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/rule_tests_extras.rs` + `tests/incident_eval.rs` + `tests/fixtures/incidents/{bad,good}/` + (dogfood) `.claude/hooks-config.toml` | S | 確立 12 rule / 11 incident パターン踏襲。Rust regex lookaround 不要（`\bPR-[0-9]+\b`）。dogfood は数行の text 編集 | feat(post-tool-linter): config の workstream 連番名を lint する |
+| 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |  |
+| 334 | T1 | — | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + fixtures（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |  |
+| 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
 
 ### 無人可としなかった 7 件の理由
 
