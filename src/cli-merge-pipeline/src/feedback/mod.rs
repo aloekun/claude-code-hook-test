@@ -21,6 +21,7 @@
 mod context;
 mod markers;
 mod pr_metadata;
+mod run_registry;
 mod takt;
 mod transcript;
 
@@ -71,7 +72,7 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
     let context_path = input.repo_root.join(CONTEXT_PATH);
     let transcript_path = input.repo_root.join(TRANSCRIPT_PATH);
 
-    check_concurrent_run_guard(&context_path)?;
+    check_concurrent_run_guard(&input.repo_root)?;
 
     write_pending_marker_logged(&input.repo_root, input.pr_number);
     let mut marker_guard = FailedMarkerGuard::new(&input.repo_root, input.pr_number);
