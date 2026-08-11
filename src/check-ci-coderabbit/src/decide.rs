@@ -639,4 +639,106 @@ mod tests {
         assert!(summary.contains("新規指摘3件"));
         assert!(summary.contains("未解決スレッド1件"));
     }
+
+    /// 3 世代 CR rate-limit format (old/new/next) + 未知書式 fallback の計 4 parse path
+    /// それぞれが `crate::rate_limit::parse_rate_limit` で実際に検出され、かつ `decide()`
+    /// の主要な CR state 分岐で世代非依存に同じ結果を返すことを固定するマトリックステスト。
+    ///
+    /// `decide()` は `rate_limit.is_some()` だけを見て `wait_minutes` 等の中身を見ないため、
+    /// 世代が増えても分岐結果は変わらないはずだが、それを固定していないと新世代追加時に
+    /// この暗黙の前提が崩れても気づけない (#311 post-merge feedback Tier2 #1 採用)。
+    #[test]
+    fn decide_matrix_across_rate_limit_format_generations_and_cr_states() {
+        struct FormatCase {
+            label: &'static str,
+            body: &'static str,
+        }
+        // old/new/next は rate_limit.rs の既存 fixture と同じ実書式を再利用。
+        // fallback は marker のみ一致し既知 3 世代のどれにも一致しない未知書式。
+        let format_cases = [
+            FormatCase {
+                label: "old",
+                body: "Rate limit exceeded\n\nPlease wait **5 minutes and 13 seconds** before requesting another review.",
+            },
+            FormatCase {
+                label: "new",
+                body: "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n>\n> More reviews will be available in 36 minutes and 52 seconds.",
+            },
+            FormatCase {
+                label: "next",
+                body: "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n>\n> **Next review available in:** **57 minutes**",
+            },
+            FormatCase {
+                label: "fallback",
+                body: "Rate limit exceeded but the wording changed in a way none of the known parsers recognize.",
+            },
+        ];
+
+        struct StateCase {
+            label: &'static str,
+            cr: fn() -> CodeRabbitStatus,
+            expected: (&'static str, &'static str),
+        }
+        let state_cases = [
+            StateCase {
+                label: "no_evidence_with_stale_unresolved_threads",
+                cr: pr309_incident_cr_status,
+                expected: ("pending", "continue_monitoring"),
+            },
+            StateCase {
+                label: "walkthrough_clean_no_unresolved",
+                cr: || CodeRabbitStatus {
+                    review_state: "not_found".to_string(),
+                    new_comments: 0,
+                    actionable_comments: None,
+                    unresolved_threads: Some(0),
+                    walkthrough_clean: true,
+                },
+                expected: ("complete", "stop_monitoring_success"),
+            },
+            StateCase {
+                label: "actionable_evidence_present",
+                cr: || CodeRabbitStatus {
+                    review_state: "success".to_string(),
+                    new_comments: 0,
+                    actionable_comments: Some(3),
+                    unresolved_threads: Some(0),
+                    walkthrough_clean: false,
+                },
+                expected: ("action_required", "action_required"),
+            },
+        ];
+
+        for format_case in &format_cases {
+            let json = serde_json::json!([{
+                "user": {"login": "coderabbitai[bot]"},
+                "body": format_case.body,
+                "created_at": "2026-07-20T12:10:47Z"
+            }])
+            .to_string();
+            let rl = crate::rate_limit::parse_rate_limit(&json, "2026-07-20T12:00:00Z")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{} format must be detected as rate-limited by parse_rate_limit",
+                        format_case.label
+                    )
+                });
+
+            for state_case in &state_cases {
+                let ci = ci_no_runs("success");
+                let cr = (state_case.cr)();
+                let (status, action) = decide(&ci, &cr, Some(&rl));
+                assert_eq!(
+                    status, state_case.expected.0,
+                    "format={} state={}: status mismatch",
+                    format_case.label, state_case.label
+                );
+                assert_eq!(
+                    action, state_case.expected.1,
+                    "format={} state={}: action mismatch",
+                    format_case.label, state_case.label
+                );
+            }
+        }
+    }
 }
