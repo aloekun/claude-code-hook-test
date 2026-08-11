@@ -197,4 +197,81 @@ mod tests {
             Some(true)
         );
     }
+
+    /// 行内コメントは値に混ざらない。
+    ///
+    /// **`false # ... true ...` を `true` と読む substring match 事故**は
+    /// review-request.yml 側で実際に想定された失敗 (同 workflow のコメント参照)。
+    /// TOML parser では起こらないが、両実装が同じ config を読む以上ここで固定する。
+    #[test]
+    fn trailing_comments_do_not_leak_into_the_value() {
+        assert_eq!(
+            enabled_of("[autonomy]\nenabled = true # 恒久停止は false へ\n"),
+            Some(true)
+        );
+        assert_eq!(
+            enabled_of("[autonomy]\nenabled = false # 以前は true だった\n"),
+            Some(false),
+            "コメント内の true を値として拾ってはいけない"
+        );
+    }
+
+    /// 値が空の `enabled =` は parse 失敗 → 全 `None` (= 停止)。
+    /// 「キーは書いたが値を消した」編集ミスが許可へ倒れないこと。
+    #[test]
+    fn an_empty_value_is_all_none() {
+        let (_dir, path) = config_with("[autonomy]\nenabled =\n");
+        assert_eq!(read_repo_config(&path), RepoConfig::default());
+    }
+
+    /// 大文字混じりの `True` / `TRUE` は TOML の bool ではない → 停止側。
+    #[test]
+    fn capitalised_booleans_are_none() {
+        assert_eq!(enabled_of("[autonomy]\nenabled = True\n"), None);
+        assert_eq!(enabled_of("[autonomy]\nenabled = TRUE\n"), None);
+    }
+
+    /// literal string (`'true'`) も bool ではない。basic string と同じく停止側。
+    #[test]
+    fn literal_string_booleans_are_none() {
+        assert_eq!(enabled_of("[autonomy]\nenabled = 'true'\n"), None);
+    }
+
+    /// 別 section の同名キーを拾わない。`[autonomy]` に `enabled` が無ければ `None`。
+    #[test]
+    fn an_enabled_key_in_another_section_does_not_leak() {
+        assert_eq!(
+            enabled_of("[autonomy]\nmax_open_autonomous_prs = 3\n\n[other]\nenabled = true\n"),
+            None,
+            "[other] の enabled を [autonomy] の値として読んではいけない"
+        );
+    }
+
+    /// `[autonomy]` が 2 回現れる config は TOML として不正 → 全 `None` (= 停止)。
+    /// 「後ろの section が勝つ」ような暗黙の解決をしない。
+    #[test]
+    fn a_duplicated_section_is_all_none() {
+        let (_dir, path) =
+            config_with("[autonomy]\nenabled = false\n\n[autonomy]\nenabled = true\n");
+        assert_eq!(read_repo_config(&path), RepoConfig::default());
+    }
+
+    /// CRLF 改行でも読める (Windows で編集した config が停止扱いにならないこと)。
+    #[test]
+    fn crlf_line_endings_parse() {
+        assert_eq!(enabled_of("[autonomy]\r\nenabled = true\r\n"), Some(true));
+    }
+
+    /// TOML としては有効だが、workflow の awk が拾えない書き方。
+    ///
+    /// **awk 側は section header を `^\[autonomy\]` の完全一致で見ている**ため、
+    /// dotted key や空白入りヘッダは「enabled キー無し」= 停止に倒れる。ここでは
+    /// **Rust 側がどう読むか**を固定し、両実装の乖離方向 (awk が厳しい = fail-closed)
+    /// を `tests/workflow_awk_parity.rs` が検証できる土台にする。
+    #[test]
+    fn toml_forms_the_workflow_awk_cannot_see() {
+        assert_eq!(enabled_of("autonomy.enabled = true\n"), Some(true));
+        assert_eq!(enabled_of("[ autonomy ]\nenabled = true\n"), Some(true));
+        assert_eq!(enabled_of("[autonomy]\nenabled=true\n"), Some(true));
+    }
 }

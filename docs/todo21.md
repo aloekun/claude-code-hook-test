@@ -341,38 +341,6 @@
 
 - marker の復旧手順に従うだけで、**誤った PR のレポートが生成され得ない**こと。
 
-### CodeRabbit 無料枠の窓は固定時刻ではなく直近の消費に追随する
-
-> **動機**: 2026-08-10 に PR #382 のレビューがレート制限で 3 回失敗した。1 回目の通知は `Next review available in: 56 minutes` と告知していたが、**その 56 分後に投げても通らなかった**。間に #383 のレビューが成功しており、**その消費で窓が後ろへずれた**と解釈するのが観測に整合する。
->
-> **実測**:
->
-> | 時刻 | 出来事 |
-> |---|---|
-> | 09:54:40Z | 自動レビュー試行 → `Review limit reached` / **56 分**告知 |
-> | 10:26Z 台 | #383 へ手動トリガー → **成功** |
-> | 10:28 / 10:30Z | #382 へ手動トリガー → `Review rate limited.` |
-> | 10:51:54Z | **告知どおりの時刻**に投稿 → やはり `Review rate limited.` |
->
-> **併せて判明した点**: 手動トリガーへの拒否応答 (`Review rate limited.`) には**解除までの時間が含まれない**。時間が書かれるのは自動レビュー試行時の `Review limit reached` だけ。
->
-> **運用上の含意**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16 で**自律 PR が毎晩 1 本レビューを消費する**ようになった。[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) のクォータ設計は人間が開く PR を母数にしていたため、**人間の作業が集中する日に自律 PR のレビューと競合する**構造が新たに生まれている。
->
-> **対処案**: まず [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) へ観測事実として記録する (窓の挙動 / 拒否応答に時間が無い / 自律 PR との競合)。そのうえで、待機時刻の見積りは「**最後にレビューが成功した時刻**」を基準にする運用へ改める。機械化するかは頻度を見てから判断する。
->
-> **参照**: [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない / § 再トリガー抑止ガード、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16。
->
-> **実行優先度**: 💎 Tier 3 — Severity Low (待ち時間の見積りが外れるだけ) / Frequency Medium (無料枠を使い切る日) / Effort XS (記録のみ) / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] ADR-019 へ観測事実を追記する (窓の挙動 / 拒否応答の情報量 / 自律 PR との競合)
-- [ ] 待機見積りの基準を「最後の成功時刻」へ改める旨を記載する
-
-#### 完了基準
-
-- レート制限に当たったとき、次に投げるべき時刻の見積り方が ADR-019 から読み取れること。
-
 ---
 
 ## post-merge feedback 採用分 (#376/#377/#380/#381/#382、2026-08-10 採否確定)
@@ -560,25 +528,6 @@
 #### 完了基準
 
 - 採用・不採用のいずれかが根拠つきで記録され、採用時は false positive が実運用で問題にならないこと。
-
-### 系統 C-3: `autonomy-config.toml` の boolean パース edge case をテストで固定する
-
-> **動機**: 順位 408 の修正時に、値に trailing comment が付く場合・空値・引用符付き・複数セクション境界・不正な TOML といった edge case を手で確認した。**この確認はテストとして残っていない**。
->
-> **対処案**: `cli-autonomy-gate` 側に、config の boolean 解釈が上記 edge case で期待どおり fail-closed に倒れることを固定するテストを追加する。**workflow 側の awk 実装と Rust 側の解釈が一致すること**も併せて確認できると望ましい (どちらも同じ config を読むため)。
->
-> **参照**: [ADR-066](adr/adr-066-autonomy-global-kill-switch.md)、[ADR-041](adr/adr-041-test-isolation-patterns.md)、PR [#380](https://github.com/aloekun/claude-code-hook-test/pull/380)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] boolean パースの edge case テストを追加する (trailing comment / 空値 / 引用符 / セクション境界 / 不正 TOML)
-- [ ] workflow の awk 実装と Rust 側の解釈が一致することを fixture で確認できるか検討する
-
-#### 完了基準
-
-- config の boolean 解釈が edge case で fail-closed に倒れることがテストで固定されていること。
 
 ### 系統 F (形を変えて採用): `cargo fmt` を PreToolUse でブロックし正しいコマンドを提示する
 

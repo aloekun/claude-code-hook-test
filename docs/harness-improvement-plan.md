@@ -190,8 +190,8 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 |---|---|---|---|
 | ~~順位 397: `pnpm merge-pr` が夜間 PR を検出できない~~ → **対処済み（2026-08-11）**。PR 検出をローカル → リモート追跡 bookmark の 2 段にし、bookmark 非依存の `--pr <番号>` と実行可能な失敗ヒントを追加した。設計は [ADR-013](adr/adr-013-merge-pipeline.md) § PR 検出のフォールバックと逃げ道 が正 | 1 | [ADR-013](adr/adr-013-merge-pipeline.md) | 完了 |
 | **順位 398-400: post-merge feedback の進行中ガードと復旧経路** — 連続マージで確実に踏み、復旧に手動介入（context 削除）が要る。marker は**危険な手順（stale context を読む直接起動）を案内**しており、誤った PR のレポートを生成しうる。3 件は同一機構の 3 面で同一 PR で扱える | 2 | [todo21.md](todo21.md) | 🔧 Tier 2、運用中に再発する |
-| **順位 401: CodeRabbit クォータの窓が直近消費に追随する** — 決定 16 で**自律 PR が毎晩 1 レビュー消費**するようになり、人間の作業が集中する日に競合する。ADR-019 へ観測を記録する | 1 | [todo21.md](todo21.md) | 💎 Tier 3、記録のみ |
-| **順位 410: `autonomy-config.toml` の boolean パース edge case をテスト固定** — WP-18 成果物（`review-request.yml` / `cli-autonomy-gate`）自身の堅牢化。kill-switch 判定の fail-open は [#380](https://github.com/aloekun/claude-code-hook-test/pull/380) で修正済みだが、確認がテストとして残っていない | 1 | [todo21.md](todo21.md) | 🔧 Tier 2、成果物の堅牢化 |
+| ~~順位 401: CodeRabbit クォータの窓が直近消費に追随する~~ → **記録済み（2026-08-11）**。窓の挙動 / 拒否応答に解除時刻が無いこと / 自律 PR との競合を [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する へ記録した | 1 | [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) | 完了 |
+| ~~順位 410: `autonomy-config.toml` の boolean パース edge case をテスト固定~~ → **対処済み（2026-08-11）**。Rust 側の edge case を固定し、あわせて **`review-request.yml` の shell 実装が Rust より緩くないこと**（`shell が有効と読む ⇒ Rust も有効と読む` の片側含意）を、workflow YAML から shell 断片を抽出して実行し検証するテストを追加した。等価性は保証しない — 逆向きの既知の乖離は shell 側が厳しい fail-closed 方向で、その**方向自体**を assertion 化している | 1 | [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) | 完了 |
 
 ##### (3) WP-18 外の派生 — 完了条件に含めない
 
