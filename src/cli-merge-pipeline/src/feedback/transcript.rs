@@ -56,11 +56,21 @@ pub fn filter_transcripts(
     let entries = fs::read_dir(source_dir)
         .map_err(|e| format!("transcript dir 読込失敗 {}: {}", source_dir.display(), e))?;
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-            continue;
-        }
+    let mut jsonl_paths: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("jsonl"))
+        .collect();
+
+    // `fs::read_dir` の走査順は OS/filesystem 依存で非決定的なため、mtime でソートして
+    // 複数セッション jsonl 間の処理順を決定論化する (ADR-030 determinism 目標)。
+    jsonl_paths.sort_by_key(|path| {
+        fs::metadata(path)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+
+    for path in jsonl_paths {
         let file = match fs::File::open(&path) {
             Ok(f) => f,
             Err(_) => continue,
@@ -257,6 +267,63 @@ mod tests {
         assert!(!out.contains("07:00:00"));
         assert!(!out.contains("11:00:00"));
         assert!(!out.contains("queue-operation"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn filter_transcripts_orders_by_mtime_not_filename() {
+        let dir = std::env::temp_dir().join(format!(
+            "feedback-filter-order-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0),
+        ));
+        fs::create_dir_all(&dir).unwrap();
+
+        // ファイル名は書込み順と逆の alphabetical 順にしておき、mtime ソートでないと
+        // 順序が崩れることを検出できるようにする。
+        let written_first_path = dir.join("zzz-session.jsonl");
+        fs::write(
+            &written_first_path,
+            format!(
+                "{}\n",
+                r#"{"type":"user","timestamp":"2026-04-25T09:00:00.000Z","id":"first-written"}"#
+            ),
+        )
+        .unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        let written_second_path = dir.join("aaa-session.jsonl");
+        fs::write(
+            &written_second_path,
+            format!(
+                "{}\n",
+                r#"{"type":"user","timestamp":"2026-04-25T09:05:00.000Z","id":"second-written"}"#
+            ),
+        )
+        .unwrap();
+
+        let out_path = dir.join("filtered.jsonl");
+        let range = PrTimeRange {
+            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
+            merged_at: "2026-04-25T10:00:00.000Z".into(),
+        };
+        let written = filter_transcripts(&dir, &range, &out_path).unwrap();
+        assert_eq!(written, 2);
+
+        let out = fs::read_to_string(&out_path).unwrap();
+        let first_pos = out.find("first-written").expect("first-written 行が存在する");
+        let second_pos = out
+            .find("second-written")
+            .expect("second-written 行が存在する");
+        assert!(
+            first_pos < second_pos,
+            "mtime が古いファイルが filename の alphabetical 順に関わらず先に処理されるべき: {out}"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
