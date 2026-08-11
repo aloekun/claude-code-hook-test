@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo20.md がファイルサイズ約 56KB (50KB 安定読み取り閾値超過) に到達したため、新規エントリは本ファイルに記録する (2026-08-08 WP-18 セッションの docs バッチで新設)。**新規エントリの追加先は本ファイル**。todo.md / todo2.md 〜 todo20.md の既存エントリは引き続き有効、相互に独立。
+> **本ファイルの位置付け**: docs/todo20.md がファイルサイズ約 56KB (50KB 安定読み取り閾値超過) に到達したため新設した (2026-08-08 WP-18 セッションの docs バッチ)。**本ファイルも約 57KB に到達したため、新規エントリの追加先は [docs/todo22.md](todo22.md) へ移った** (2026-08-11)。本ファイルの既存エントリは引き続き有効、相互に独立。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -50,6 +50,15 @@
 >
 > **生成元はほぼ確定した**: 空コミットを積むのは **PR 監視 (`cli-pr-monitor --monitor-only`) と自動 fix 経路**である。監視は呼ばれるたびに working-copy を進め、自動 fix は `fix(review): apply CodeRabbit fixes for #NNN` コミット + 前後の空コミットを作る。#364 の記述にあった「生成元未特定」は本セッションの反復観測で解消した。
 >
+> **2026-08-11 に 2 件追加で観測した** (計 9 回)。順位 397 の対処 (リモート追跡 bookmark へのフォールバックと `--pr`) を入れた後でも、**本順位が扱う「探索範囲」の問題は残っている**ことが実地で示された形である。
+>
+> | 症状 | 経緯 |
+> |---|---|
+> | `pnpm push` が exit 3 | #385 の push 後に post-pr-monitor が空コミットを作り `@` がそこへ移動。push-runner の「bookmark を `@` に自動更新」が説明なしコミットへ bookmark を移し `Won't push commit ... since it has no description` で停止。`jj squash -u` → `jj edit` で復旧 |
+> | `pnpm merge-pr` が PR 未検出 | 作業保全のため**子コミットに別 bookmark を作った**ところ、それが `@` にあるため PR の bookmark (`@-`) より手前で探索が止まった。空コミットではないが**「近い revset が優先される」という同じ構造**。`pnpm merge-pr --pr <番号>` で回避 |
+>
+> 後者は「探索が浅い」のではなく「近い方を採る」規則そのものが原因で、**深さ非依存 revset へ変えるだけでは解決しない**可能性がある (対処案の検討時に考慮すること)。一方で順位 397 の `--pr` は**どちらの症状にも逃げ道として機能した**ため、緊急度は下がっている。
+>
 > **対処案** (いずれか、または組み合わせ):
 >
 > - `BOOKMARK_SEARCH_REVSETS` の段数を増やす — 対症療法。何段積まれるかに上限が無いので根治しない
@@ -59,7 +68,7 @@
 >
 > **参照**: [github.rs:136](../src/cli-merge-pipeline/src/github.rs#L136) (`detect_pr_number`。順位 397 でリモート追跡 bookmark へのフォールバックと `--pr` を追加済み。本順位が扱う「探索 revset より深い位置」の問題は未解決)、[bookmarks.rs:25](../src/lib-jj-helpers/src/bookmarks.rs#L25) (`BOOKMARK_SEARCH_REVSETS`)、[ADR-013](adr/adr-013-merge-pipeline.md)、[ADR-021](adr/adr-021-jj-change-detection-principles.md) (jj 変更検出の設計原則)、[ADR-024](adr/adr-024-shared-jj-helpers-library.md) (共有ヘルパーの変更は 3 クレートに効く)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (マージ / push 経路が止まる。ただし loud failure で復旧手順も短い) / Frequency High (自動 fix が走った PR で毎回・本セッションで 7 回) / Effort M / Adoption Risk Low。
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (マージ / push 経路が止まる。ただし loud failure で復旧手順も短い) / Frequency High (自動 fix が走った PR で毎回。2026-08-08 に 7 回、2026-08-11 に 2 回で計 9 回) / Effort M / Adoption Risk Low。
 
 #### 作業計画
 

@@ -154,6 +154,25 @@
 | 411 | 🚀 Tier 1 | **`cargo fmt` を PreToolUse でブロックし正しい対処を提示 (系統 F、規約ではなく機構)** | todo21.md | S | なし (2026-08-10 ユーザー判断で提案の形を変更。規約は毎セッション読まれコンテキストを圧迫するが hook は発火時のみコストが出る。ADR-042 へこの非対称を追記するのも本エントリの範囲。**反射的に実行されやすく無関係な差分を生む**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断) |
 | 412 | 💎 Tier 3 | **`resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う** | todo21.md | S | なし (2026-08-10 PR #385 の CodeRabbit 指摘。colocated は入力をそのまま返し file 経路は canonicalize する。現行 caller に破綻経路は見当たらないが、caller が文字列比較を始めた時点で分裂しうる。PR #385 は逐語移動 PR のため見送り) |
 | 413 | 🔧 Tier 2 | **`CwdRestore` Drop guard が 8 定義 / 6 ファイルに複製。ADR-025 の統合トリガーと再評価期限を超過** | todo21.md | S-M | なし (2026-08-10 PR #385 の pre-push review 指摘。ADR-025 自身が「2 例目で `lib-test-helpers` へ統合」と定め再評価期限 2026-07-31 も過ぎている。抽出するか ADR-025 の status を更新するかの判断が要る) |
+| 414 | 🚀 Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
+| 415 | 🔧 Tier 2 | **PR 検出源を広げる変更の信頼スコープ検査チェックリスト (系統 A-2)** | todo22.md | XS | なし (2026-08-11 採用。#385 の security review が「origin push 権限と同等の信頼度のソースまで検出を拡張する」点を指摘。検出源追加時の確認項目を明文化) |
+| 416 | 🔧 Tier 2 | **新規 screening 関数は実 exe を 1 回動かしてから test / doc を書く (系統 A-3)** | todo22.md | XS | なし (2026-08-11 採用。#389 で既存関数の挙動を推測でテストし期待値が実挙動と食い違った。ADR-067 の「実走でしか検証できない」を純関数の挙動確認まで広げる) |
+| 417 | 🚀 Tier 1 | **出力契約 3 層 (exe 出力キー ⊆ workflow allowlist ⊆ 検証 step) の同期を CI で検証 (系統 B-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で片方だけ更新すると新出力が黙って捨てられる構造が判明。workflow のコメント自身が警告していた = 機構で守るべき対象。cross-file 検査は ADR-007 の regex 層外のため CI test 形式) |
+| 418 | 🔧 Tier 2 | **出力契約 3 層追跡パターンを再利用可能な形で文書化 (系統 B-2)** | todo22.md | S | なし (2026-08-11 採用。同期責務が exe 実装者 / CI テンプレート / 検証 step 実装者に分散。検証 step は値でなく行の存在を見る点も含めて記録。順位 417 と同一 PR) |
+| 419 | 🚀 Tier 1 | **takt run の解決規約 (PR 束縛 / status 判定) を全コンポーネント共通 convention 化 (系統 C-1)** | todo22.md | S | なし (2026-08-11 採用。同ロジックが merge-pipeline / orphan reaper / 将来の pr-monitor の 3 箇所以上で必要。ADR-024 と同じ DRY 昇格パターン。ADR-030 へ thread safety の保証範囲も補足) |
+| 420 | 🚀 Tier 1 | **run binding が並行起動下で破れないことの integration test (系統 C-2)** | todo22.md | M | なし (2026-08-11 採用。WP-18 dogfood で run 解決のインシデント 2 件が実発生。既存テストは単一セッション想定。並行バグは計装して実測すること = memory verify-concurrency-by-observation) |
+| 421 | 💎 Tier 3 | **marker の命名・状態遷移・recovery ポリシーを統一規約にする (系統 C-3)** | todo22.md | XS | なし (2026-08-11 採用。marker 生成が Rust と takt workflow に分散し post-pr-review / post-merge-feedback の 2 系統で形式が揺れている) |
+| 422 | 🔧 Tier 2 | **cross-system parity テストの設計原則 (境界最小化の罠 / 方向性の非対称) を文書化 (系統 D-1)** | todo22.md | S | なし (2026-08-11 採用。workflow_awk_parity.rs の実装に 8 反復を要した根本原因。判定そのものを原本に実行させるところまでが要件だと明記) |
+| 423 | 🔧 Tier 2 | **CI matrix で `#[cfg(unix)]` テストの実行を保証する (系統 D-2)** | todo22.md | S | なし (2026-08-11 採用。Windows では中身 0 件で走り「0 件実行」と「全件成功」が CI 出力上見分けにくい。ADR-064 の陽性証拠要求と同じ論理) |
+| 424 | 🔧 Tier 2 | **UNC パス復元ロジックを Windows 実機で検証する (系統 E-1)** | todo22.md | M | なし (2026-08-11 採用。Linux では検証不可。本プロジェクトは Windows 固有 gotcha を反復して踏んでいる。実機再現が困難なら見送り判断を根拠つきで記録する) |
+| 425 | 🔧 Tier 2 | **jj の `git.auto-local-bookmark` 既定値への依存を CI で固定する (系統 E-2)** | todo22.md | M | なし (2026-08-11 採用。順位 397 の対処はこの既定値に依存しており、変わると前提が崩れるが気づく仕組みが無い) |
+| 426 | 🔧 Tier 2 | **`lib-jj-helpers` 分割の call site 回帰統合テスト (系統 E-3)** | todo22.md | M | なし (2026-08-11 採用。#385 の module 分割は re-export ファサードで API 互換を維持したが、実 call site の import 挙動を固定するテストが無い) |
+| 427 | 🔧 Tier 2 | **`BookmarkSearch::RemoteOnly` への変異操作を検出する (系統 F-1)** | todo22.md | M | なし (2026-08-11 採用。ADR-013 の設計契約では読み取り専用だが呼び出し側の誤用は防げない。lint より型 (newtype) で不可能にする案と比較すること) |
+| 428 | 🔧 Tier 2 | **PR 番号を取る CLI の不正値 (`--pr 0` 等) を PreToolUse で検出する (系統 F-2)** | todo22.md | S | なし (2026-08-11 採用。#385 で exe 側は契約を得たが同型 CLI 追加時の漏れは防げない。exe の拒否で足りるなら不採用も正規の出口) |
+| 429 | 💎 Tier 3 | **「optional 列」の意味 (ヘッダに無くてよい ≠ 行に無くてよい) を明記 (系統 G-1)** | todo22.md | XS | なし (2026-08-11 採用。#389 で max_index() への反映漏れから index out of bounds panic が発生。語の解釈の齟齬が原因) |
+| 430 | 💎 Tier 3 | **CLI フラグ解析の `Mode` enum + validator パターンを convention 化 (系統 G-2)** | todo22.md | XS | なし (2026-08-11 採用。フラグの段階的拡張による分岐の複製は再発パターン。lint 化は false positive リスクで却下済み、doc 化で代替) |
+| 431 | 🔧 Tier 2 | **`review-request` の成功判定を初回レビュー取得まで遅らせる** | todo22.md | S-M | なし (2026-08-11 実走で判明。レート制限による拒否も success として記録され、未レビューの自律 PR が信号として残らない。ADR-019 § M5 の方針によりリトライは作らず検出と可視化に留める) |
+| 432 | 💎 Tier 3 | **`check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー** | todo22.md | S-M | なし (2026-08-11 実測: run 538 件 / 174MB / 最古 46 日前 / クリーンアップ機構なし。現時点で実害は無いが単調増加。案 1 = 名前フィルタで走査を絞る、案 2 = 保持ポリシー) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で ADR-032 の前提 + rate-limit + convergence cost 削減を進める → Tier 3 で ADR-032 を land + ドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。
 
