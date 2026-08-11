@@ -82,7 +82,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-15 | 3 | Linux バイナリビルド + クラウド setup script | M | WP-13, 14 | 完了（[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。クラウド実測は [ADR-060](adr/adr-060-cloud-harness-sessionstart-dispatcher.md) dogfood で達成、以降は ADR-060 の bounded lifetime で管理。追補の陽性証拠設計は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) → park 実観測は § 残作業） |
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
 | WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11 | **観測中（実装は 2026-08-04 に全 land）** — #347 / #350 / #351 / #352 / #353 / #354、実走バグ修正 #356 / #357 / #358、記帳 #359。実走スモーク段 0〜2 まで完走。**観測待ち**: config 側 kill-switch の実走（variable 側 3 状態は 2026-08-08 実測済 = [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2）/ Phase B 起動（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 の実測待ち）/ 週末またぎ / ADR-066 bounded lifetime（1 of 3〜5 run）→ § WP-17。派生 ADR: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 |
-| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **観測中（実装・スモークは 2026-08-08 までにほぼ完了、本番稼働中）** — 3 PR（#361 / #362 / #363）+ 追補 5 PR（#366〜#370）マージ済。injection 対策 4 件（順位 378-381）と外部設定記録（384）完了、スモーク 10 項目中 8 充足（[ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモークが正）。**残**: トークン露出 probe（保留）/ 決定 11 実測 / 採用率 2 週間測定 → § WP-18 |
+| WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **観測中（本番稼働中）** — 設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正。運用問題 5 件は 2026-08-11 に全件決着（[ADR-073](adr/adr-073-work-package-completion-boundary.md) § WP-18 での適用実績）。**残**: 採用率 2 週間測定（2026-11-06 期限）+ 非ブロッカーのスモーク未確定 3 件 → § WP-18 |
 | WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1、背圧は WP-18 PR 1 へ前倒し） | S-M | WP-18 | 未着手（残りは監査ループのみ。背圧は WP-18 PR 1 で land 済み） |
 
 ## 5. 残作業（観測継続）
@@ -156,76 +156,40 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 - **Phase B の自動起動経路は生存している（2026-08-09 訂正）**: 一度「不成立」と記帳したが誤りで、起動契機のコメントが夜間 draft PR に供給されていなかっただけ。#373 で CodeRabbit がコメントした時点で `issue_comment` 経路は発火し、Phase A が自動起動した（[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録の追記）。対処として置いた [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11（`@coderabbitai review` の明示トリガー）は **bot 投稿が無視されるため撤回**し、代替解は当初「順位 394 の draft 廃止」としたが**これも誤り**で、真の原因は author が bot であることだった（[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない）。解決は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16。**残るのは Phase B 本体（無人 fix push）への到達と `coderabbitai[bot]` allowlist の要否**で、決定 16 により**観測機会は供給されるようになった**（あとは docs 指摘の出る夜間 PR に当たるのを待つ）。
 - **routine 出力の受け渡し手段が未決**: 分析結果が transcript にしか残らずユーザーが読まなければ消える。実行主体を含む 3 択（routine / GitHub Actions schedule / ローカル維持 = 断念）で、**断念も正規の出口**。判定は ADR-070 bounded lifetime (b) の観測後（[ADR-070](adr/adr-070-weekly-review-cloud-routine.md) § 残課題）。
 
-### WP-18: 夜間 todo 消化ループ — 観測中 + 運用問題の対処中（本番稼働中）
+### WP-18: 夜間 todo 消化ループ — 観測中（本番稼働中）
 
-> 夜間に 1 タスクを無人実装し **PR 作成で停止**する（マージ判断は人間）ループ。**設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正**（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)、外部設定の実体は ADR-072 § 外部設定の実体）。本節は残作業の索引だけを残す。着手前決定・PR 構成・PR chain 宣言・受け入れ基準の達成記録は役目を終えたため削除した（経緯は git log と #361〜#370 の PR 本文を参照）。
+> **設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正**（背圧は [ADR-071](adr/adr-071-draft-pr-backpressure.md)）。**残作業の区分規則は [ADR-073](adr/adr-073-work-package-completion-boundary.md)**。本節は残作業の索引だけを残す。
 >
-> **2026-08-09 の方針変更（実装済み）**: 停止点を draft PR から**通常 PR**へ変更した（旧 順位 394 → [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 15）。トリガーがユーザー指示か自動採択かで扱いを区別せず、commitment 点をマージ 1 点に集約する（ユーザー判断）。draft であることが CodeRabbit の自動レビュー対象外を招いていた構造そのものを解消した。背圧の指標も同時に「未マージの `claude/` PR 数」へ改め（[ADR-071](adr/adr-071-draft-pr-backpressure.md)）、名称を `autonomous` 系へ揃えた。
->
-> **2026-08-10 の追加実装**: draft 廃止だけではレビューが付かないことが実走で判明した。**ブロック要因は draft ではなく PR の author が bot であること**で、CodeRabbit の組み込み挙動（設定では制御不可）だった。`review-request.yml` を新設し、**PR 作成者は bot のまま、レビュー要求だけを人間資格情報で出す**分離で解決した（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16）。制約の全体像は [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § CodeRabbit は bot 作成 PR を自動レビューしない が真実源。
-
-**達成したこと**: 台帳（[claude-code-web-tasks.md](claude-code-web-tasks.md)）から Rust 分類関数が選んだ 1 タスクを、kill-switch（ADR-066）と背圧（ADR-071）の上で無人実装し PR 作成で止めるループが本番稼働に入った（2026-08-08 に schedule 初回実走で draft PR [#365](https://github.com/aloekun/claude-code-hook-test/pull/365) = `claude/nightly-203` を作成）。定常運用開始前に必須とした prompt injection 対策 4 件（順位 378-381 → ADR-072 決定 12-14 + [ADR-035](adr/adr-035-doc-evaluation-policy.md) / `lib-docs-policy` の同期）と外部設定の実体記録（順位 384 → ADR-072 § 外部設定の実体）も完了。実走スモーク 10 項目は **7 充足 / 3 未確定**（Phase B 本体の到達 / `coderabbitai[bot]` allowlist の要否 / トークン露出）で、一覧は ADR-072 § 実走スモークが正。前 2 者は決定 16 でレビューが毎回付くようになり、観測機会が供給されるようになった（残るは事象待ち）。停止側実測は WP-17 の残課題（[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) bounded lifetime の variable 側 3 状態）も同時に埋めた（ADR-066 § 実走観測 2）。
-
-**2026-08-10 に運用が一巡した**: 決定 16 の確立で bot 作成 PR にレビューが付く経路が成立し（PR 作成から CodeRabbit の反応まで 15 秒、完全自動）、**採用率測定の 1 件目 [#381](https://github.com/aloekun/claude-code-hook-test/pull/381) をマージ**した。あわせて台帳の後始末運用を明文化した（マージ時に該当順位を削除しないと除外マーカーが消えて再選択される、[claude-code-web-tasks.md](claude-code-web-tasks.md)）。**この一巡で運用問題が 5 件見つかっており**（§ 残作業 の「運用問題の対処」）、実装が終わっても運用が回るとは限らないことが実証された。
+> **2026-08-11 スリム化**: 稼働到達・方針変更（決定 15/16）・運用一巡の記録・完了した残作業行・完了条件の判断根拠を削除した。移管先は ADR-072（実走観測と決定）、ADR-073（完了条件の切り方）、および (2) の各対処先 ADR。経緯は git log と #361〜#389 の PR 本文を参照。
 
 #### 残作業
-
-> **3 区分に分ける（2026-08-10 再編成）**。従来は観測と派生タスクが 1 表に混在しており、**WP-18 の完了に何が要るのか**が読み取れなかった。2026-08-10 の運用一巡で運用問題が 5 件見つかったことを機に、(1) 観測待ち、(2) 運用問題の対処、(3) WP-18 外の派生、へ分けた。
 
 ##### (1) 観測待ち — 機構は整備済みで、事象か期限を待つもの
 
 | 内容 | 管理先 | 期限 / 条件 |
 |---|---|---|
-| ~~順位 393 / 394 の実走確認~~ → **充足（2026-08-10）**。夜間 PR に CodeRabbit のレビューが付くことを実走で確認した。ただし**原因は draft ではなく author が bot であること**で、決定 15 の前提は誤りだった。解決は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 16 | ADR-072 決定 16 | 完了 |
-| **スモーク未確定 (a) Phase B 本体の到達 と (b) `coderabbitai[bot]` allowlist の要否** — 決定 16 で**観測機会は供給されるようになった**（夜間 PR に毎回レビューが付く）。あとは **docs 指摘の出る夜間 PR に当たるのを待つ**だけで、未確定の理由が「機構が無い」から「事象待ち」へ変わった | ADR-072 § 実走スモーク | 事象待ち（機構は整備済み） |
+| **スモーク未確定 (a) Phase B 本体の到達 と (b) `coderabbitai[bot]` allowlist の要否** — 決定 16 で**レビュー要求が毎回届くようになった**（夜間 PR ごとに人間 identity で `@coderabbitai review` を投稿し、反応も確認する）。未確定の理由が「機構が無い」から「事象待ち」へ変わった。ただし**要求が届くことと実レビューが取得できることは別**で、レート制限で弾かれる夜がある（[#387](https://github.com/aloekun/claude-code-hook-test/pull/387) で実測、順位 431）。待つのは **docs 指摘の出る夜間 PR で実レビューが取得できること** | ADR-072 § 実走スモーク | 事象待ち（機構は整備済み） |
 | **スモーク未確定 (c) `cargo` サブプロセスへのトークン露出**（順位 374 の残り。**意図的保留** — 初版 probe の設計欠陥を解消した安全な probe を設計してから 1 回で観測。ADR-072 決定 5 の Bash 再付与判断の材料でもある） | ADR-072 § 残課題 | 急がない（Bash 非付与が保守側）。**完走条件には含めない** |
-| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = 2026-08-10 に確定**。1 件目は [#381](https://github.com/aloekun/claude-code-hook-test/pull/381)（採用） | ADR-072 § 試験運用判断基準 | 2026-08-24 に中間確認、2026-11-06 までに判定 |
+| **採用率 2 週間測定**（WP 全体の受け入れ基準。人間がマージした割合 50% 超で継続・拡大 — 参考値であり統計的意味は無い、ADR-072 § 欠点）。測定は weekly-review の自律アクション棚卸し（WP-19 ステップ 3）へ載せて仕組み化。**開始起点 = 2026-08-10 に確定**。1 件目は [#381](https://github.com/aloekun/claude-code-hook-test/pull/381)（採用）、2 件目は [#387](https://github.com/aloekun/claude-code-hook-test/pull/387)（順位 339、**未決着** — CodeRabbit のレート制限でレビュー未取得のまま OPEN。経緯は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 定常運用 2 巡目の実走観測） | ADR-072 § 試験運用判断基準 | 2026-08-24 に中間確認、2026-11-06 までに判定 |
 | 稼働後 1 週間の run 頻度・Max 枠消費を観測して schedule 頻度を調整 | 運用ノート（本表のみ） | 稼働中 |
 
-##### (2) 運用問題の対処 — WP-18 が生んだ / WP-18 の運用で日常的に踏むもの
+##### (2) 運用問題の対処 — **全 5 件が決着済み（2026-08-11）**
 
-> **WP-18 の完了条件に含める**（2026-08-10 ユーザー方針）。判定基準は 2 つ。**基準 1**: WP-18 の機構が無ければ起きなかった。**基準 2**: 以前から存在したが WP-18 の運用で踏み、**使い勝手に影響する**潜在バグ。**WP-18 が生んだ問題を WP-18 の外へ押し出さない**ための区分である。
+WP-18 が生んだ / WP-18 の運用で踏む問題の 5 件（順位 397 / 398-400 / 401 / 410）は、[#385](https://github.com/aloekun/claude-code-hook-test/pull/385) / [#386](https://github.com/aloekun/claude-code-hook-test/pull/386) / [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) で決着した。個別の決着先と、この区分を完了条件に含める判断は [ADR-073](adr/adr-073-work-package-completion-boundary.md) § WP-18 での適用実績 が正。
 
-| 内容 | 基準 | 管理先 | 期限 / 条件 |
-|---|---|---|---|
-| ~~順位 397: `pnpm merge-pr` が夜間 PR を検出できない~~ → **対処済み（2026-08-11）**。PR 検出をローカル → リモート追跡 bookmark の 2 段にし、bookmark 非依存の `--pr <番号>` と実行可能な失敗ヒントを追加した。設計は [ADR-013](adr/adr-013-merge-pipeline.md) § PR 検出のフォールバックと逃げ道 が正 | 1 | [ADR-013](adr/adr-013-merge-pipeline.md) | 完了 |
-| ~~順位 398-400: post-merge feedback の進行中ガードと復旧経路~~ → **対処済み（2026-08-11）**。ガードの判定根拠を context.json の mtime から **takt run の `status`** へ移し、run の特定を PR 番号で束縛、marker の復旧手順は `--feedback-only` を第一手段へ。同一機構だったため順位 388（report 不在の誤判定）も同一 PR で解消した。設計は [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § 並行起動 guard / § run の特定は PR 番号で束縛する / § `.failed` marker の復旧手順 が正 | 2 | [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) | 完了 |
-| ~~順位 401: CodeRabbit クォータの窓が直近消費に追随する~~ → **記録済み（2026-08-11）**。窓の挙動 / 拒否応答に解除時刻が無いこと / 自律 PR との競合を [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する へ記録した | 1 | [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) | 完了 |
-| ~~順位 410: `autonomy-config.toml` の boolean パース edge case をテスト固定~~ → **対処済み（2026-08-11）**。Rust 側の edge case を固定し、あわせて **`review-request.yml` の shell 実装が Rust より緩くないこと**（`shell が有効と読む ⇒ Rust も有効と読む` の片側含意）を、workflow YAML から shell 断片を抽出して実行し検証するテストを追加した。等価性は保証しない — 逆向きの既知の乖離は shell 側が厳しい fail-closed 方向で、その**方向自体**を assertion 化している | 1 | [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) | 完了 |
-
-##### (3) WP-18 外の派生 — 完了条件に含めない
-
-> WP-18 の PR やその CI で見つかったが、**WP-18 の機構とは独立**していて対処も独立に進められるもの。これらを WP-18 に紐づけると、**一般則の整備が終わるまで本計画書を退役できなくなる**（§ 7 の退役条件と衝突する）。優先度が低いという意味ではない — 順位 396 と 411 は**いずれも高優先度**で、WP-18 とは別に早期着手する。
+##### (3) WP-18 外の派生 — 完了条件に含めない（[ADR-073](adr/adr-073-work-package-completion-boundary.md)）
 
 | 内容 | 管理先 | 期限 / 条件 |
 |---|---|---|
 | **順位 396: hooks smoke suite の Linux `ETXTBSY` flake** — WP-18 の CI で見つかったが別クレートの既存テスト競合で、WP-18 の経路とは無関係。**flaky テストは「また flake だろう」で実バグを見落とす経路を作る**ため、両 OS matrix（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）の信号品質を守る意味で**早期に潰す** | [todo21.md](todo21.md) | **高優先度**（WP-18 とは独立に着手） |
 | **順位 411: `cargo fmt` を PreToolUse でブロック** — WP-18 作業中の誤実行が発端だが、対象は開発環境全般。**規約ではなく機構で弾く**判断（[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)）。反射的に実行されやすく無関係な差分を生むため**早期に塞ぐ** | [todo21.md](todo21.md) | **高優先度**（WP-18 とは独立に着手） |
 | 順位 402-409（post-merge feedback 採用分のうち一般則。観測の完全性 / 重複実装の予防 / shell·config パースの安全性）。**順位 410 のみ (2) へ分類**した（WP-18 成果物自身の堅牢化のため） | [todo-summary2.md](todo-summary2.md) | リポジトリ全体に適用する一般則 |
-| ~~順位 395: 週次レビューで浮きブランチを検出し削除を提案~~ → **実装完了（2026-08-09）**。`cli-stale-branch-scan` / `pnpm stale-branch-scan`。設計と判定規則は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 が正 | [ADR-031](adr/adr-031-weekly-review-pipeline.md) | 完了。WP-19 ステップ 3 の一部を先取り済み |
 | 順位 382（injection payload regression test。依存先の順位 380 完了で unblock）/ 順位 383（`is_separator_row` のパイプ検証欠落） | [todo-summary2.md](todo-summary2.md) | 🔧 Tier 2、任意 |
 | 順位 375-377（レビュー対応チェックリスト / push-runner bookmark 前進 / 防御の格上げ判断） | [todo-summary2.md](todo-summary2.md) | 🔧 2〜💎 3、WP-18 完了後 |
 
 #### WP-18 の完了条件
 
-本 WP は以下の両方を満たした時点で `完了` とする。
-
-1. **(1) 観測待ちのうち採用率測定が判定に至ること**（2026-11-06 期限）。
-
-   **スモーク未確定 3 件はいずれも完了条件に含めない**（非ブロッカー）。理由と移管先は次のとおり。
-
-   | 未確定 | 完了条件に含めない理由 | 移管先 / 期限 |
-   |---|---|---|
-   | (a) Phase B 本体の到達 / (b) `coderabbitai[bot]` allowlist の要否 | **事象待ちであり自力で発生させられない**（docs 指摘の出る夜間 PR に当たるまで観測できない）。機構は決定 16 で整備済みで、待つ以外にできることが無い。これを条件にすると WP を閉じられない | [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモーク。**2026-11-06 時点で未観測なら「機会が来なかった」として見送り**、ADR-067 の bounded lifetime へ委ねる |
-   | (c) `cargo` サブプロセスへのトークン露出 | **意図的保留**（2026-08-09 ユーザー決定）。安全な probe を設計してから 1 回で観測する。決定 5 の Bash 非付与が保守側のため未観測でも安全側 | ADR-072 § 残課題。期限なし（急がない） |
-
-2. **(2) 運用問題の対処がすべて決着していること**（対処するか、根拠つきで見送るかのいずれか）。
-
-2 を条件に含めるのは、**WP-18 が生んだ問題と、WP-18 の運用で日常的に踏む問題を、WP-18 の外へ押し出さないため**（2026-08-10 ユーザー方針）。実装が終わった時点で WP を閉じると、運用の綻びが「誰の担当でもないタスク」として残る。
-
-**(3) は完了条件に含めない**。§ 7 の退役条件が「全 WP が完了または見送り」である以上、リポジトリ全体の一般則を WP-18 に紐づけると本計画書が永久に退役できなくなる。
-
-ローカルで同ループを回す場合のみ [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の workspace を使う（クラウドは使い捨てクローンのため分離不要）。
+**(1) の採用率測定が判定に至った時点**で `完了` とする（2026-11-06 期限）。(2) は決着済み、(3) は含めない（[ADR-073](adr/adr-073-work-package-completion-boundary.md)）。スモーク未確定 3 件はいずれも非ブロッカーで、理由と移管先は [ADR-072](adr/adr-072-nightly-todo-loop.md) § 実走スモーク が正。
 
 ### WP-19: 常時性ガード
 

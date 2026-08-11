@@ -535,7 +535,7 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 | 決定 7 の照合が実 runner 上でも通ること (誤検知で毎晩止まらないこと) | 本 ADR § integrity 機構の drill | **充足 (1 run)** — 誤検知せず publish へ到達。毎晩の安定性は継続観測 |
 | `publish/` の clone + rsync が実 runner で成立し、`work/` の変更が過不足なく運ばれること | 決定 9 (`--delete` による削除の反映を含む) | **充足** — commit は 1 ファイル 18 行追加・削除ゼロで、順位 203 の指定範囲と完全に一致 |
 | WP-17 残課題: Phase B の自動起動経路が成立するか | [ADR-067](adr-067-phase-b-unattended-fix-push.md) § 検証記録 | **経路は生存 (2026-08-09 訂正)** — 2026-08-08 時点では「不成立」と記帳したが誤り。起動契機のコメントが無かっただけで、CodeRabbit がコメントした時点で `issue_comment` 経路は発火した (#373 で 04:12:15 に **Phase A が夜間 PR 上で自動起動**)。**Phase B 本体 (無人 fix push) の到達はなお未観測** — docs 指摘が出る PR に当たっていない |
-| WP-17 残課題: `coderabbitai[bot]` allowlist の要否 | 同上 | **未判定 (2026-08-10 に前提が整った)** — 決定 16 で夜間 PR に CodeRabbit のレビューが付くようになり、判定に必要な起動契機が毎回供給されるようになった。次に docs 指摘の出る夜間 PR で Phase A/B の起動可否と併せて見る |
+| WP-17 残課題: `coderabbitai[bot]` allowlist の要否 | 同上 | **未判定 (2026-08-10 に前提が整った)** — 決定 16 で夜間 PR へ**レビュー要求が毎回届く**ようになり、判定に必要な起動契機が供給されるようになった (要求と実レビュー取得は別で、レート制限で弾かれる夜がある — 順位 431)。次に **docs 指摘の出る夜間 PR で実レビューが取得できたとき**に Phase A/B の起動可否と併せて見る |
 | **`cargo` サブプロセスから `CLAUDE_CODE_OAUTH_TOKEN` / `GITHUB_TOKEN` が見えるか** | pre-push security review の warning | **未観測 (意図的に保留)** — 観測には使い捨ての `build.rs` を仕込む専用 run が要り、初版の probe は public CI ログへ広く env 名を出す設計欠陥で撤去した (§ 残課題)。決定 5 で agent に Bash を与えない判断は**保守側**のため、未観測でも安全側に倒れている。確実に 1 つずつ可観測性を積む方針 (2026-08-08 ユーザー確認) に従い、安全な probe を設計できるまで保留する |
 | **停止側: `AUTONOMY_ENABLED` が `'false'` / 未設定で何も作られないこと** | ADR-066 の 3 状態。#364 で受け入れ基準へ追加 | **充足** (2026-08-08、ユーザー実測) — `'false'` と未設定の 2 状態で `workflow_dispatch` (`dry_run` オフ = push / PR 作成をする設定) を実行し、**2 回とも job が skip**。ブランチ・draft PR・App token のいずれも作られなかった。確認後 `'true'` へ復旧済み |
 | **tool scope の deny が効くこと (agent が `master-ref/` へ書けない)** | 決定 12 (順位 379) | **充足** (2026-08-08、ローカル CLI 実測) — 同じ `--allowedTools` / `--disallowedTools` フラグで `master-ref/PROBE.txt` への Write を試させると `File is in a directory that is denied by your permission settings.` で拒否され、ファイルは作られず config も無傷。対照で `work/` への Write は成功。あわせて実 dispatch run で agent が対象 1 ファイルのみ編集し `guard=success` = allow 側も成立 |
@@ -544,11 +544,63 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 
 **10 件中 7 件が充足、残る 3 件が未確定。** 未確定は (a) Phase B 本体 (無人 fix push) への到達、(b) `coderabbitai[bot]` allowlist の要否、(c) トークン露出 (安全な probe を設計できるまで保留)。
 
-> **(a)(b) の前提は 2026-08-10 に整った。** 両者は「CodeRabbit が夜間 PR にコメントすること」を起動契機とするため、レビューが一度も付かない間は**観測機会そのものが無かった**。決定 16 でレビューが毎回付くようになり、あとは docs 指摘の出る夜間 PR に当たれば判定できる。**未確定の理由が「機構が無い」から「事象待ち」へ変わった**点が進捗である。
+> **(a)(b) の前提は 2026-08-10 に整った。** 両者は「CodeRabbit が夜間 PR にコメントすること」を起動契機とするため、レビューが一度も付かない間は**観測機会そのものが無かった**。決定 16 で**レビュー要求が毎回届く**ようになり、docs 指摘の出る夜間 PR で実レビューが取得できれば判定できる。**未確定の理由が「機構が無い」から「事象待ち」へ変わった**点が進捗である。
+>
+> **要求が届くことと実レビューが取得できることは別である** (2026-08-11 追記)。決定 16 が保証するのは要求の発行と反応の確認までで、レート制限で弾かれる夜がある (#387 で実測)。観測機会の供給頻度は「毎晩」ではなく「枠が空いている夜」が正しい。
 >
 > **集計の訂正 (2026-08-09)**: 従前は「8 件が充足、1 件が不成立、残る未確定は 2 件」と書いていたが、合計が 11 件で母数の 10 件と合っておらず、充足数も表と 1 件ずれていた (表の充足は 7 行)。**表が正**であり、上記へ改めた。
 
 **トークン露出の観測は意図的に保留する。** 初版の probe は (1) `build.rs` が draft PR の git 履歴に残り、(2) 名指しの 4 変数を超えて `TOKEN`/`SECRET`/`KEY` に一致する全 env 名 (`ACTIONS_RUNTIME_TOKEN` 等) を public CI ログへ出す設計欠陥があり、pre-push security review が REJECT して撤去した。安全に観測するには最低限 (a) `build.rs` を Guard の deny 配下パスに置いて commit 混入を防ぐ、(b) 出力を名指しの変数のみに絞る、(c) `if: github.event_name == 'workflow_dispatch'` で dispatch 限定にする、の 3 点が要る。決定 5 の Bash 非付与が保守側に倒れているため未観測でも安全側であり、不確実な追加 dispatch を急がず、設計を固めてから 1 回で観測する (2026-08-08 ユーザー方針)。
+
+### 定常運用 2 巡目の実走観測 — 全ゲートが設計どおり働いた (2026-08-11)
+
+schedule の実走 ([run 31418341378](https://github.com/aloekun/claude-code-hook-test/actions/runs/31418341378)) が順位 339 を選び、PR [#387](https://github.com/aloekun/claude-code-hook-test/pull/387) (`claude/nightly-339`) の作成まで完走した。**決定 15-17 を入れた後の経路を通しで観測した最初の run** であり、以下を実測で確認した。
+
+| 時刻 (UTC) | 出来事 |
+|---|---|
+| 18:17:41 | `nightly-todo` が schedule 起動 |
+| 18:18:14 | kill-switch 通過・背圧 ok・順位 339 を選択 |
+| 18:22:26 | PR #387 作成 (author `app/nightly-todo-aloekun`、`draft=false`) |
+| 18:22:29 | `review-request` が自動起動 |
+| 18:22:40 | `@coderabbitai review` を **`aloekun` (人間 identity)** で投稿 |
+| 18:22:46 | CodeRabbit が **6 秒後**に反応 |
+| 18:23:11 | 検証 step が反応を確認して success |
+
+| 設計 | 根拠 | 実測 |
+|---|---|---|
+| kill-switch は config + variable の AND | ADR-066 決定 2 | `AUTONOMY_ENABLED=enabled repo_config=enabled` |
+| config は **master ref の写し**を読む | ADR-066 決定 3 | `config=master-ref/autonomy-config.toml` |
+| 背圧は未マージ `claude/` PR 数 | [ADR-071](adr-071-draft-pr-backpressure.md) | `backpressure(autonomous-pr)=ok(1/3)` |
+| 着手済みはブランチ存在で除外 | 決定 3 | `着手済み順位=[203,228,240]` を除外 |
+| 台帳も master ref から読む | 決定 3 の信頼境界 | `ledger=master-ref/docs/claude-code-web-tasks.md` |
+| 停止点は通常 PR | 決定 15 | `draft=false`、OPEN のまま停止 |
+| レビュー要求は人間 identity | 決定 16 | 投稿者 `aloekun`、6 秒で反応 |
+| 台帳は bot が書き換えない | 決定 6 | 変更は `decide.rs` 1 ファイルのみ |
+| 宣言した対象ファイルの外へ出ない | 決定 12 の tool scope | 台帳の対象 `src/check-ci-coderabbit/src/decide.rs` と完全一致、+102/-0 (テストのみ) |
+
+CI は両 OS pass。**逸脱は 1 つも無かった。**
+
+#### ただしレビューは取得できていない — 成功判定が「反応の有無」で止まっている
+
+CodeRabbit の反応の中身は `Review limit reached` (レート制限、`Next review available in: 27 minutes`) だった。`review-request` の検証は**要求後に CodeRabbit のコメントが 1 件以上付いたか**だけを見るため、**拒否も success として記録される**。
+
+これは決定 11 の失敗 (10 時間の無反応に気づけなかった) への対策としては契約どおりで、workflow のコメントにも「投稿の成否ではなく CodeRabbit の反応を待つ」と明記してある。**設計の欠陥ではない。**
+
+ただし結果として、**レビュー未取得が独立した状態として分類されていない**。痕跡自体は残っている — PR には `Review limit reached` コメントが付き、run log にも反応確認の記録がある。問題は**それらが success と同じ色で終わる**ことで、run 一覧や PR 一覧を見ただけでは「レビュー済み」と「レート制限で未取得」を区別できない。§ M5 の方針でリトライ機構を持たないため、解除後に自動で再要求されることもない。
+
+**扱いは未決** — 初回レビューを取得するまで success 判定を遅らせる案をユーザーが検討中 (2026-08-11)。本節は観測事実の記録に留める。
+
+#### レート制限の競合は順位 401 の予測どおりに起きた
+
+枠を消費したのは**同日の人間の作業**である。[ADR-019](adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する に記録した「決定 16 で自律 PR が毎晩 1 レビュー消費するため、人間の作業が集中する日に競合する」が、**記録の翌日に実地で再現した**。
+
+| 時刻 (UTC) | レビュー消費 |
+|---|---|
+| 15:48:25 | PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) (人間) |
+| 17:50:53 | PR [#386](https://github.com/aloekun/claude-code-hook-test/pull/386) (人間) |
+| 18:22:26 | PR #387 (**自律**) → 枠切れ |
+
+想定外の挙動ではなく、**想定した副作用が想定どおり出た**という位置づけになる。
 
 ### 外部設定の実体 (2026-08-08 確認)
 
@@ -604,6 +656,10 @@ pre-push review を 12 サイクル通す過程で、blocking な欠陥 10 件�
 - 滞留タスクの消化が人間の着手時間から切り離される。失敗しても draft PR を閉じるだけで済む。
 - 停止操作を増やしていない。緊急時の反射は [ADR-066](adr-066-autonomy-global-kill-switch.md) から変わらない。
 - 選択が決定論なので、失敗した run を同じ入力で再現できる。
+
+### 運用上の注意
+
+**ローカルで同じループを回す場合のみ [ADR-045](adr-045-jj-workspace-parallel-sessions.md) の jj workspace を使う。** GitHub Actions 上の実行は使い捨てクローンで走るため分離は不要で、workspace を切るのはローカルで本ループとメイン作業を並行させるときに限られる。
 
 ### 欠点 / 留意点
 

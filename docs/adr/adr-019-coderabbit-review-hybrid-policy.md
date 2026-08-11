@@ -94,6 +94,18 @@ CodeRabbit は自身の Learning システムで「この repo/path では cross
 
 機械化 (待機時刻の自動計算・自律 PR のレビュー要求の間引き) は行わない。§ M5 を不採用とする論拠と同じ理由で、レート制限耐性の作り込みはレビュアーロックインの温床になる。頻度を観測してから判断する。
 
+#### 競合は記録の翌日に実地で起きた (2026-08-11 実測)
+
+上記の競合構造は仮説ではなく、**記録した翌日に再現した**。夜間ループの PR [#387](https://github.com/aloekun/claude-code-hook-test/pull/387) が `Review limit reached` (`Next review available in: 27 minutes`) で弾かれ、枠を消費していたのは同日の人間の作業だった。
+
+| 時刻 (UTC) | レビュー消費 |
+|---|---|
+| 15:48:25 | PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) (人間) |
+| 17:50:53 | PR [#386](https://github.com/aloekun/claude-code-hook-test/pull/386) (人間) |
+| 18:22:26 | PR #387 (**自律**) → 枠切れ |
+
+**人間が 2 本マージすると、その夜の自律 PR は高い確率でレビューを取得できない。** 現状はリトライ機構を持たないため、弾かれた自律 PR は未レビューのまま残る (経路の詳細と扱いは [ADR-072](adr-072-nightly-todo-loop.md) § 定常運用 2 巡目の実走観測)。1 日の人間 PR 本数が 2 本を超える運用が常態化するなら、機械化の是非を再検討する材料になる。
+
 ### レビュアー可換性の方針 (2026-04-19 追記)
 
 CodeRabbit は便利だが、無料枠制約と将来的な仕様変更リスクを踏まえて「CodeRabbit 依存を固定化しない」ことを設計方針とする。
