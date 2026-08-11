@@ -234,28 +234,6 @@
 
 ---
 
-### 3 世代 CR format × 4 parse path × CR state の複合マトリックステスト
-
-> **動機**: CodeRabbit nitpick (`verdict_*_takes_precedence` 不足) は #311 の 7 テストで解消済みだが、**format 世代軸** (old / new / next / fallback の 4 parse path) × CR state の組合せ網羅は未実施で、新世代 format 追加時の回帰防止に不足がある。
->
-> **対処案**: `check-ci-coderabbit/src/decide.rs` の `#[cfg(test)]` に parametrized matrix test を追加し、3 世代 CR format × 4 parse path × 主要 CR state の組合せを網羅する。
->
-> **参照**: `.claude/feedback-reports/311.md` Tier2 #1、`src/check-ci-coderabbit/src/decide.rs`。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium (format 世代は今後も増える見込み) / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] format 世代 × parse path × CR state の parametrized matrix test を追加
-- [ ] 新世代 format 追加時に fixture を足す運用と紐付け
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 全 CR format 世代 × parse path × state の組合せがテストで固定され、新世代追加時のリグレッションを機械検知できること。
-
----
-
 ### decide.rs/main.rs の境界値・parameter threading テスト拡充
 
 > **動機**: 前回 incident の根本原因は parameter threading の欠落 (`parse_rate_limit()` はするが `decide()` に渡さない) だった。同クラスのリグレッションを防ぐテストが、インシデント発生ドメイン (rate-limit 判定) 直下で不足している。positive evidence の複合シナリオ、呼び出し側 (`main.rs`) が `decide()` に `rate_limit` を正しく構成することの検証が未固定。
