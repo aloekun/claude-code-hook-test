@@ -1,0 +1,3 @@
+# WP-08 incident-eval fixture (synthetic test data). Reproduces PR #216 (no-workstream-seq-names-in-config).
+# 次 PR (PR-3) で `[features].enabled` allow-list 方式に移行予定
+enabled = true
