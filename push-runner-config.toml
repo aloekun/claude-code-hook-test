@@ -89,15 +89,12 @@ block_threshold = 1500
 # 事実誤りを検出した実績)。JS 系 group (`lint` の `pnpm lint:docs`) は docs の markdown
 # lint そのものなので維持される。設計詳細: docs/adr/adr-057-docs-only-deterministic-routing.md
 #
-# ADR-039 (Experimental feature 標準パターン) 3 点セット:
-# - **Config opt-in**: 試験運用のため default OFF。本リポジトリでは明示的に
-#   `enabled = true` で dogfood を開始。section 不在 / enabled 未設定では完全 skip
-#   (= 従来どおり全 group 実行)。派生 repo の templates は本 section を置かない。
-# - **Kill-switch**: `enabled = false` で完全停止。env `DOCS_ONLY_ROUTING_DISABLE=1`
+# ADR-039 3 点セット → **採用済み (2026-08-12、51 docs-only run の dogfood で誤 skip 0・
+# 整合破れ 0)**。default-ON 昇格し templates にも反映済み。確定判定の詳細は
+# docs/adr/adr-057-docs-only-deterministic-routing.md の「確定判定」を参照。
+# - **Kill-switch** (採用後も維持): `enabled = false` で完全停止 (section 不在 /
+#   enabled 未設定も完全 skip = 従来どおり全 group 実行)。env `DOCS_ONLY_ROUTING_DISABLE=1`
 #   で個別 push の意図的バイパス (docs-only でも Rust gate を強制実行したいとき)。
-# - **Bounded lifetime**: 3-5 docs-only PR の dogfood 後 (誤 skip の有無 = docs-only 判定
-#   されたが実は Rust に影響していた、が無いか) に default-ON 昇格 or 却下を判定。判定は
-#   docs/adr/adr-057-docs-only-deterministic-routing.md の bounded lifetime に引き継ぐ。
 #
 # `default_branch` は `[pr_size_check]` の `default_branch` と**論理的に同一の値**を保つ
 # こと (両者とも PR の base branch を指す)。食い違うと一方が誤った PR 範囲を見る
@@ -243,18 +240,15 @@ output_path = ".takt/lint-screen-report.md"
 # snapshot 前後比較は metadata のみの変化に不感 (ADR-021 § commit_id 単独比較の限界)。
 # 設計詳細: docs/adr/adr-058-post-takt-regate.md
 #
-# ADR-039 (Experimental feature 標準パターン) 3 点セット:
-# - **Config opt-in**: 試験運用のため default OFF。section 不在 / enabled 未設定 /
-#   enabled = false のいずれも re-gate を完全 skip (= takt 後に再検証なし = 従来挙動)。
-#   本リポジトリでは明示的に `enabled = true` で dogfood を開始。派生 repo の templates は
-#   本 section を置かず default OFF を継承する。
-# - **Kill-switch**: `enabled = false` で完全停止。env `POST_TAKT_REGATE_DISABLE=1` で
-#   個別 push の意図的バイパス (再ゲートを飛ばして push したいとき)。**この場合 fix step の
-#   `--ignored` 自己検証も縮小済みのため、workspace + --ignored の検証が抜ける** — 意図的
-#   バイパス時のみの trade-off (fix.md の delegation 注記に明記)。
-# - **Bounded lifetime**: fix 発生 push で re-gate が破壊的変更を検出して block する効果と、
-#   誤 block (fix が実は無害なのに gate が落ちる) の有無を観測後、default-ON 昇格 or 却下を
-#   判定。判定は docs/adr/adr-058-post-takt-regate.md の bounded lifetime に引き継ぐ。
+# ADR-039 3 点セット → **採用済み (2026-08-12、212 run dogfood: no_change 70.8% /
+# 誤 block 1 件のみ)**。default-ON 昇格し templates にも反映済み。確定判定の詳細は
+# docs/adr/adr-058-post-takt-regate.md の「確定判定」を参照。
+# - **Kill-switch** (採用後も維持): `enabled = false` で完全停止 (section 不在 /
+#   enabled 未設定も re-gate を完全 skip = takt 後に再検証なし = 従来挙動)。env
+#   `POST_TAKT_REGATE_DISABLE=1` で個別 push の意図的バイパス (再ゲートを飛ばして push
+#   したいとき)。**この場合 fix step の `--ignored` 自己検証も縮小済みのため、workspace +
+#   --ignored の検証が抜ける** — 意図的バイパス時のみの trade-off (fix.md の delegation
+#   注記に明記)。
 #
 # fail-closed (ADR-043): snapshot 前後どちらかが取得不能なときは「変化あり」に倒して
 # re-gate を実行する。判定不能を「skip 可能」に倒すことはしない (post-pr gate と同じ方向)。

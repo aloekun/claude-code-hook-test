@@ -459,3 +459,177 @@
 - 次のいずれかが達成され、どちらを採ったかが根拠つきで記録されていること。
   - **案 1**: `meta.json` の**パース件数**が post-merge-feedback の run 数まで減っていること (実測で確認)。ディレクトリの列挙自体は残るため **O(n) は解消しない** — 削減できるのは読み取り / パース回数である
   - **案 2**: 保持ポリシーにより `.takt/runs` の run 数に上限が定まっていること
+
+---
+
+## 台帳整理バッチ (2026-08-12): todo2.md 退役に伴う移送 2 件 + docs 棚卸しの新規起票 7 件
+
+> **由来**: docs/ 直下の一時作業ドキュメント全件棚卸し (2026-08-12) の採否確定分。旧 todo2.md の ADR-032 ブロック (docs-only 高速パス) は [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) が別設計で実現したため退役し、独立価値の残る 2 タスクのみ本ファイルへ移送した。加えて棚卸しが発見した構造問題 7 件を起票した。
+
+### GitHub Branch Protection 整備 — ブロックを Required status checks へ集約 (旧 docs-only 高速パス計画 Phase pre から独立化)
+
+> **設計方針** (2026-04-27 改訂、移送元 todo2.md から継承): 個人開発 + コーディングエージェント前提では、**Required reviewers (人間レビュー必須) は anti-pattern**。実装/テスト/PR 作成が AI で自動化される一方、人間レビューだけが同期処理として律速になるため。Required reviewers を外し、ブロックは **CI (Required status checks) に集約**する。人間レビューは event-driven (バグ / 大きい変更 / 設計変更時のみ)、定常レビューは ADR-031 週次レビューで補完。
+>
+> **Status update (2026-08-12)**: 旧親タスク (ADR-032 docs-only 高速パス) は ADR-057 が別設計で実現し廃止。本タスクは GitHub 側設定の独立タスクとして todo2.md (退役) から移送。設計方針の詳細表・リスク許容の記述は git log の旧 todo2.md を参照。
+>
+> **実行優先度**: 🚀 Tier 1 — 設定のみ、依存タスクは完了済。
+
+#### 作業計画
+
+- [ ] main branch protection 設定: **Required status checks** (lint / test / build / rust-test / markdownlint)、**直接 push 禁止** (PR 必須)、❌ Required reviewers は設定しない
+- [ ] CodeRabbit を非ブロッキング化 (センサー役): Required status checks に含めない
+- [ ] 設定変更を確認 (`gh api repos/aloekun/claude-code-hook-test/branches/master/protection`)
+- [ ] 運用方針を README または CLAUDE.md に短く明示 (人間レビューは event-driven である旨)
+
+#### 完了基準
+
+- branch protection が上記構成で有効になっており、gh api で確認できること。運用方針が明文化されていること。
+
+### broken-link-check + Markdown 内部アンカー検査の quality_gate 統合 (旧 docs-only 高速パス計画 Phase broken-link から独立化)
+
+> **動機** (PR #85 T2-1 finding、移送元 todo2.md から継承): todo ファイルが旧日付アンカーを参照したまま merge された事案があり、URL 切れだけでなく **`#anchor` 参照先の存在確認**も検査対象に含める。リポジトリに link check は現在も皆無 (lychee / markdown-link-check / `lint:links` いずれも 0 hit、2026-08-12 再確認)。
+>
+> **Status update (2026-08-12)**: 旧親タスク廃止に伴い独立タスク化して todo2.md (退役) から移送。
+>
+> **実行優先度**: 🔧 Tier 2 — Effort S-M。markdownlint の clean baseline 確立済みのため着手可能。
+
+#### 作業計画
+
+- [ ] markdown-link-check or lychee の選定 (実行時間 + 検査品質、**内部アンカー検査対応の有無を選定基準に含める**)
+- [ ] `pnpm lint:links` script + push-runner-config.toml の lint group 統合
+- [ ] 設定ファイル (除外 URL / リトライ / timeout)
+- [ ] **内部アンカー検査の動作確認**: 意図的に broken anchor を作って検出されることを dogfood
+- [ ] 既存違反の clean baseline 確立 (別 commit で先に対応)
+- [ ] (branch protection タスク側と連動) Required status checks への追加を検討
+
+#### 完了基準
+
+- docs の broken link / broken anchor が push 時に決定論的に検出されること。
+
+### 旧グローバル rules (.claude_old) の採否判断と再配置
+
+> **動機**: マシン移行により `~/.claude/rules/common/*.md` と `~/.claude/CLAUDE.md` が現環境に存在しない。旧 snapshot は `C:\Users\owner\work\syncthing\.claude_old` (2026-06-17 凍結、ECC 由来の汎用部分 + 本リポジトリで育てた自育部分のハイブリッド)。現リポジトリの **ADR 9 本 + Rust ソース 5 箇所 + hook 実行時メッセージ 1 箇所を含む 25 箇所超**が rules への dead pointer を持ち、台帳のグローバル文書対象タスク約 16 件 (各エントリに 2026-08-12 の Status update 注記済み) の実施先が未定のまま滞留する。
+>
+> **選択肢** (2026-08-12 棚卸しの評価): (1) 全体採用 — 最速だが機械強制済み 14 節の二重管理と実在しない agents 表を持ち込む。(2) **自育部分のみ採用** (棚卸し推奨) — docs-governance 全体 / git-workflow の jj・gh 節 / code-review・testing の自育節 / security / 頻度判定節を配置し、ECC 汎用・言語別・agents 表・機械強制済み節は除外。選別記録を dev-conventions.md に残す。(3) repo 転記 — VCS 管理下で消失が再発しないが参照 path 書き換え (ADR amendment 含む) が大きい。
+>
+> **実行優先度**: 🚀 Tier 1 — グローバル文書対象タスク群と dead pointer 解消のブロッカー。Effort M (判断 + 配置 + 記録)。
+
+#### 作業計画
+
+- [ ] 採否 (上記 1/2/3) をユーザーが決定する
+- [ ] 決定に沿って配置を実施し、選別記録 (どの節を採り、どの節をなぜ除外したか) を残す
+- [ ] dead pointer 25 箇所超の生存を grep で確認する (`~/.claude/rules/common/` 参照の全数)
+- [ ] グローバル文書対象タスク各エントリの「配置先未定」Status update 注記を解除する
+
+#### 完了基準
+
+- rules の配置先が確定し、参照 25 箇所超が生きた参照になっている (または repo 転記で置換されている) こと。
+
+### 孤立ブランチの回収と後始末 (nightly 未マージクローズ 3 本 + 実装孤立 2 本)
+
+> **動機**: 2026-08-12 の `pnpm stale-branch-scan` + gh 突合で、nightly 無人実装のうち **3 本が未マージのまま PR クローズ** (draft 属性事故 = #365/#373、CodeRabbit 自動レビュー不発 = #378/#379) されて実装が宙に浮いていると判明。別途、`hooks_config.rs` の TOML パーステスト実装が放棄気味のブランチ 2 本 (`claude/select-next-task-a9aiam` = open PR #324 / `claude/cloudharness-e2e-validation-sptfc7` = closed #320) に孤立している。#324 のコード hunk は master に無衝突で当たることを確認済み (コンフリクトは docs 台帳側のみ)。
+>
+> **⚠ 順序制約**: `claude/nightly-*` ブランチを先に削除すると夜間ループ (ADR-072 決定 3) が同一タスクを再選択して重複 PR を生成する事故が文書化済み。**ブランチ削除は回収 PR のマージ + 台帳該当行の削除が済んでから**。それまで stale-branch-scan は毎週この 3 本を削除候補として報告し続けるが実行しないこと。
+>
+> **実行優先度**: 🚀 Tier 1 — 実装済み成果物の逸失防止。Effort M (回収 PR 最大 4 本)。
+
+#### 作業計画
+
+- [ ] 健全なマージ待ち PR #391 (transcript 読み取り順の決定論化、CI 全 pass) を approve → マージ (ユーザー操作)
+- [ ] #324 から `hooks_config.rs` の hunk を新ブランチで回収 (cherry-pick 相当)、docs 台帳側の行削除は手で作り直して PR 化。マージ後に #324 クローズ + 当該 2 ブランチ削除
+- [ ] nightly 未マージクローズ 3 本 (ghu_/ghr_ 検出テスト / rate_limit cr_clean 回帰テスト / takt.rs spawn Err ログ) を non-draft PR として作り直し、マージと同時に台帳該当行を削除
+- [ ] 全回収完了後に stale-branch-scan の削除提案を実行してブランチを掃除する
+
+#### 完了基準
+
+- 未マージクローズの実装がすべて master に回収 (または明示的に破棄判断) され、残存ブランチが scan の削除候補 0 件になること。
+
+### 決定論 gate 結果の telemetry 統合 (観測不能の再発防止)
+
+> **動機**: auto-push gate の B1-loop 採否判定 (ADR-043 amendment 2026-08-12) が「6 週間の dogfood で gate FAIL の観測記録 0 件」で終わった。実態は FAIL が無かったのではなく、**cli-pr-monitor が lib-telemetry 未統合で gate 結果 (`[gate] PASS/FAIL`) が stdout にしか出ず消える**ため観測不能だった。ADR-067 Phase B の `cli-fix-push-gate` も同型の構造で、bounded-lifetime 判定を持つ機構の観測が再び失われるリスクがある。
+>
+> **参照**: [ADR-043](adr/adr-043-security-gates-fail-closed.md) § Amendment (2026-08-12)、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (record kind 追加の前例 = push-runs)、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (判定基盤の欠落) / Frequency Low / Effort M。
+
+#### 作業計画
+
+- [ ] telemetry 未統合の決定論 gate を列挙する (cli-pr-monitor の gate / cli-fix-push-gate / その他)
+- [ ] lib-telemetry の record kind 設計 (push-runs と同様の別 prefix partition) と記録フィールド (gate 名 / PASS・FAIL / 理由区分) を決める
+- [ ] 実装 + 回帰テスト (kill-switch OFF で書かれない、中断経路でも書かれる、の push-runs 前例に倣う)
+
+#### 完了基準
+
+- gate の PASS/FAIL が `.claude/telemetry/` で事後集計でき、bounded-lifetime 判定が stdout 手動転記に依存しないこと。
+
+### weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)
+
+> **動機**: `.claude/weekly-review-last-run.json` は `report_path: .claude/weekly-reviews/2026-07-27.md` を指すが**そのファイルが存在しない** (dead pointer。ディレクトリには 2026-07-19.md のみ)。また ADR-070 で分析フェーズを cloud routine へ移行 (#354、2026-08-04) して以降の成果物保存先が未確認で、2026-08 のレポートが 1 件も無い理由 (未実行か保存先変更か) が切り分けられていない。この欠落が `review-jj-robustness-whole` facet の bounded-lifetime 判定 (todo13.md、新期限 2026-09-30) を阻害している。
+>
+> **参照**: [ADR-070](adr/adr-070-weekly-review-cloud-routine.md)、[ADR-031](adr/adr-031-weekly-review-pipeline.md)、todo13.md の jj-robustness facet エントリ。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (判定データの逸失) / Frequency Medium (毎週) / Effort S-M。
+
+#### 作業計画
+
+- [ ] 2026-07-27 run のレポートの所在調査 (secondary workspace 側に残っている可能性が高い) と回収
+- [ ] cloud routine 移行後の成果物デリバリ経路を確認し、`.claude/weekly-reviews/` への保存 (または新しい正) を確定する
+- [ ] `weekly-review-last-run.json` の report_path が実在ファイルを指すことを保証する経路 (書き込み時検証等) を検討する
+
+#### 完了基準
+
+- weekly-review の成果物が毎回追跡可能な場所に残り、facet 別 findings の事後集計ができること。
+
+### cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加
+
+> **動機**: todo14.md に台帳 (todo-summary*.md) の順位行を持たない孤児エントリが 4 件、約 3 週間検出されずに滞留していた (2026-08-12 の棚卸しで発見、同日採番して解消)。既存の cli-docs-lint validator は preamble (数詞照合) / cross_ref / priority_inversion の 3 種のみで、詳細エントリと台帳行の対応は検査されない。ADR-033 の「絶対番号は table のみ」規約は、対応検査が無いと片側だけの登録を許してしまう。
+>
+> **対処案**: todoN.md の `### ` 見出しタイトルと summary の「タスク」列の突合 (完全一致は求めず、summary 側がタイトル文字列を含む等の許容度設計が必要)。todo14.md 起票済みの「本文の順位番号表記を検出する custom lint rule」と実装を共有できる可能性がある。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (台帳整合性) / Frequency Low〜Medium / Effort S-M。
+
+#### 作業計画
+
+- [ ] 突合ロジックの許容度を設計する (見出し末尾の由来注記 / 太字 / Bundle マークの正規化)
+- [ ] cli-docs-lint に検査を実装 + 良性/違反 fixture のテスト
+- [ ] 既存違反 0 を確認して有効化する
+
+#### 完了基準
+
+- 台帳行の無い詳細エントリ (またはその逆) が push 時に決定論検出されること。
+
+### security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加
+
+> **動機**: PR #313 で pre-push の security reviewer が新規追加の fail-closed 検査コードを名指しで分析し「coverage バイパス経路は無い」と結論して APPROVE したが、CodeRabbit が同ファイルに **coverage バイパスを許す Critical 3 件**を検出した (ADR-056 確定判定 2026-08-12 の二重 miss 分析)。「自分が新規追加した安全機構そのものの抜け」は、二重 miss 10 件の中で最も再現性の高い失敗パターン。
+>
+> **参照**: [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) § 確定判定 (2026-08-12)、`.takt/facets/instructions/review-security.md` (追記先)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium〜High / Frequency Low / Effort S。
+
+#### 作業計画
+
+- [ ] security facet の instruction に「diff が fail-closed 検査・gate・validator を新規追加/変更している場合、その検査自体を敵対的入力で突破する経路を列挙して検証する」観点を追記する
+- [ ] 追記が anomaly 設計 (checklist 化しない、ADR-036/056) と整合する書き方になっていることを確認する
+
+#### 完了基準
+
+- 新規 fail-closed 検査を含む diff で、当該観点の分析がレビューレポートに現れること (次の該当 PR で確認)。
+
+### fix 検証縮小 × re-gate 全 group 再実行が flaky テストの当たり面を広げる問題の対策検討
+
+> **動機**: ADR-058 確定判定 (2026-08-12) で、25 日間唯一の changed_block が「PR が触っていない別 crate の flaky 並行性テスト (失敗率 10% を 30 連実行で実測) による誤 block」と判明。ADR-037 trust shortcut (fix は影響 crate のみ検証) と re-gate の全 group 再実行の組み合わせは、fix 発生のたびに workspace 全体の flaky に当たる構造を持つ。当該 flaky 自体は実在の race を露呈させ PR #312 で修正済みだが、構造は残る。
+>
+> **対処案** (トレードオフ検討): (a) re-gate FAIL 時に失敗テストを 1 回だけ自動再実行して flaky を弁別、(b) flaky 検出時の隔離運用 (`#[ignore]` + 週次で回す)、(c) 何もしない (flaky は都度根本修正する方針を明文化 — 今回は修正まで 8 時間で完了しており実績あり)。
+>
+> **参照**: [ADR-058](adr/adr-058-post-takt-regate.md) § 確定判定、[ADR-037](adr/adr-037-takt-fix-trust-shortcut.md)、PR #312。
+>
+> **実行優先度**: 💎 Tier 3 — Severity Low (発生率 1/34) / Frequency Low / Effort S-M。
+
+#### 作業計画
+
+- [ ] 過去の quality_gate / re-gate 失敗のうち flaky 起因の比率を push-runs + セッションログから概算する
+- [ ] 対処案 (a)(b)(c) を比較し採否を決める (発生率が低ければ (c) の明文化が正解になり得る — negative result も永続化する)
+
+#### 完了基準
+
+- 対処案の採否が根拠つきで決まり、採用案が実装または明文化されていること。

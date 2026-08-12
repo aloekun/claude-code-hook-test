@@ -72,6 +72,8 @@
 > **参照**: `.claude/feedback-reports/217.md` Tier 3 #1、PR #217 takt-fix iter 2 (`spawn_stdout_drainer` + `poll_child_with_deadline` 初版抽出) / iter 3 (`lib-subprocess` 統合)、`docs/adr/adr-016-long-running-command-strategy.md` (append 候補)、`docs/adr/adr-025-cwd-restore-drop-guard.md` (precedent: pattern codify ADR)、`docs/adr/adr-044-subprocess-utility-extraction-boundary.md` (lib-subprocess 境界判定)、`src/lib-subprocess/src/lib.rs` (`drain_pipe_unlimited` / `wait_with_timeout_basic` 実装)、順位 220 (test 層、bundle 推奨)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort S。ADR appendix or 新 ADR 作成 (~150 行)、3 pattern (background drain / `Command::output()` / `Stdio::null()`) の説明 + lib-subprocess utility cite + anti-pattern 例 (本 PR の deadlock fix 経緯を inline cite)。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 
@@ -113,13 +115,15 @@
 
 ### `~/.claude/CLAUDE.md` に「複数セッション跨ぎの計画文書作成時は AI が先走らずユーザー確認後に方針報告し GO/NO-GO を得る」ルール追加 (PR #218 post-merge-feedback #5 採用)
 
-> **動機**: PR #218 (docs PR、ファイルサイズチェックフロー改善計画 + 順位 220/221 採用) のセッション内で、Plan file (`docs/file-length-enforcement-plan.md`) 作成完了報告後、AI (Claude) が **ユーザー承認なしに PR-W0 (weekly audit step 追加) の実装着手を開始** し、ユーザーが `[Request interrupted by user]` で停止 + 「勝手に作業を進めないでください」と明示的に course correction する事案が発生した。Auto mode 下でも「計画書 / planning doc 作成のような **大きな task 完了時** は GO/NO-GO の確認待ちが必須」という規範を CLAUDE.md に明文化することで、本セッション内の事例を後続セッションで再発防止する。
+> **動機**: PR #218 (docs PR、ファイルサイズチェックフロー改善計画 + 順位 220/221 採用) のセッション内で、Plan file (`docs/file-length-enforcement-plan.md`、同計画は 2026-08-12 に削除済み。要旨は docs/dev-conventions.md § Rust ファイル分割の制約条件へ移設) 作成完了報告後、AI (Claude) が **ユーザー承認なしに PR-W0 (weekly audit step 追加) の実装着手を開始** し、ユーザーが `[Request interrupted by user]` で停止 + 「勝手に作業を進めないでください」と明示的に course correction する事案が発生した。Auto mode 下でも「計画書 / planning doc 作成のような **大きな task 完了時** は GO/NO-GO の確認待ちが必須」という規範を CLAUDE.md に明文化することで、本セッション内の事例を後続セッションで再発防止する。
 >
 > **本タスクの位置づけ**: PR #218 post-merge-feedback #5 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None、2026-06-23 ユーザー承認)。analyzer rationale: 「AI がユーザー確認なしに計画書作成を開始し `[Request interrupted by user]` で停止させた事例。Severity Medium (AI 暴走 = UX 劣化)・Effort XS・Adoption Risk None → ✅ 条件を満たす。Frequency Low だが Effort が極小なため採用コストが低い」。
 >
 > **参照**: `.claude/feedback-reports/218.md` Tier 3 #5、PR #218 session transcript (Plan file 作成完了 → AI 先走り → ユーザー停止 → "勝手に作業を進めないでください" の course correction)、memory `feedback_no_unauthorized_reorder.md` (推奨実行順序の上位タスクが blocked された時点で停止し、ユーザーに pivot 可否を確認する、の補強)、memory `feedback_global_config_backup.md` (snapshot 必須)、`~/.claude/CLAUDE.md` (編集対象 global config)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。global config への 1 段落追記で完結、`feedback_global_config_backup` snapshot を忘れない。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 

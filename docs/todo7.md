@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 67KB に到達して Claude Code の読み取り安定性 (50KB 超で不安定化) を損なったため、2026-05-09 に **PR #101〜#109 由来の古い半分のタスクを本ファイルへ分離** した。todo5.md には PR #110 以降のタスクが残存。本ファイルは既存タスクの編集・完了削除専用、新規タスクは追加しない (新規エントリは [docs/todo6.md](todo6.md) へ)。todo.md / todo2-22.md の既存エントリは引き続き有効、相互に独立。新セッションでは24つすべてを確認すること (todo.md / todo2-22.md / todo-summary.md / todo-summary2.md)。
+> **本ファイルの位置付け**: docs/todo5.md がファイルサイズ 67KB に到達して Claude Code の読み取り安定性 (50KB 超で不安定化) を損なったため、2026-05-09 に **PR #101〜#109 由来の古い半分のタスクを本ファイルへ分離** した。todo5.md には PR #110 以降のタスクが残存。本ファイルは既存タスクの編集・完了削除専用、新規タスクは追加しない (新規エントリは [docs/todo6.md](todo6.md) へ)。todo.md / todo3-22.md の既存エントリは引き続き有効、相互に独立。新セッションでは23つすべてを確認すること (todo.md / todo3-22.md / todo-summary.md / todo-summary2.md。todo2.md は 2026-08-12 退役)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -51,53 +51,6 @@
 
 - gh API モック戦略の選定: HTTP mock library `mockito` vs `run_gh` の trait injection — 単純さ優先なら後者、real API 結合に近づけたいなら前者。
 - `eprintln!` (stderr) を assert する仕組みが Rust 標準にないため、`gag::BufferRedirect` や custom logger 注入が必要 — 着手時に評価。
-
----
-
-### `.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)
-
-> **動機**: PR #103 push の実観測で takt pre-push-review が **6-iter outlier (22m 50s)** を発生させ、うち iter 3+4 の ~10 分が wasted。原因は `.takt/review-diff.txt` が push-runner 起動時 snapshot として固定され、fix step の変更が反映されないこと。reviewer は古い diff を読んで「fix されていない」と機械的 false positive (`persists`) を出し、max iter まで escalate して supervise の live Read で打開する以外に経路がない。supervisor 自身が "structural limit" として診断済 (`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md`)。
->
-> **本タスクの位置づけ**: PR #103 セッション知見 (post-merge-feedback の Tier 3 #1 = ADR 化提案を skip し、機構で塞ぐ実装層対策を採用)。Bundle Z 3 層 (#B-α / #B-β / #B-γ) では完全に塞げない独立改善。reviewer の判定精度を構造的に改善することで 6-iter outlier の発生率を 0% 近くに抑える。
->
-> **Status update (2026-06-06)**: **採用案 C (`.takt/facets/instructions/fix.md` に refresh section 追加) は既に land 済** — entry 内 checklist `[x]` で完了表示 + `fix.md` に「Pre-completion diff refresh (REQUIRED)」section 確認。残るは **dogfood 観測** (PR D-6 merge + 1-2 PR の 6-iter outlier 非再発確認 + AI 実行率 > 90%) のみ。継続観測なら本 entry は **削除候補に近接**。次セッションで dogfood log を確認後、6-iter outlier が解消していれば即削除可。
->
-> **参照**: `.claude/feedback-reports/103.md` (Tier 3 #1 で同根因に別アプローチ提案、本 task で代替)、`.takt/runs/20260503-113700-pre-push-review/reports/supervisor-validation.md` (false positive 構造診断)、[ADR-036: Bundle Z 3 層アーキテクチャ](adr/adr-036-bundle-z-three-layer-review.md) (PR #97 ベースライン observation を含む、本 task は Bundle Z 3 層では塞げない独立改善)
->
-> **実行優先度**: 🚀 **Tier 1** — Effort M。takt 設定 / pre-push-review.yaml への hook 追加。Status update により実装は完了、残作業は dogfood 観測のみ。
-
-#### 設計決定 (D-6 セッションで確定、2026-05-13)
-
-- **refresh タイミング**: fix step が `convergence_verdict` を emit する直前に refresh (= 次 reviewer iteration が読み始める時点で post-fix 状態)
-- **実装方針 (3 案を評価)**:
-  - **案 A: takt workflow の reviewer step に precondition step を挟む** — ❌ **不可**。takt v0.35.3 schema (`PieceMovement` / `PieceConfig`) を確認した結果、per-step `before:` / `pre-step:` / `hooks:` field は存在しない。piece レベルの `runtime.prepare` は workflow 開始時 1 回のみ実行され、step 間に挟まらない (`node_modules/.pnpm/takt@0.35.3/node_modules/takt/dist/core/models/piece-types.d.ts` Line 74-98 / `runtime-environment.js` Line 171-191)
-  - **案 B: cli-push-runner 側で fix step の終了を検出して diff を更新** — ❌ **scope 不適合**。`stages/takt.rs` は `run_cmd_inherit` で takt を spawn-and-wait するのみ。filesystem watcher で `.takt/runs/<latest>/reports/*.md` の生成を監視する案は ~100-200 行の Rust + race condition 対応が必要で、AI-driven 案で塞げる範囲を超える複雑度
-  - **案 C: fix.md instruction に "Pre-completion diff refresh" section を追加** — ✅ **採用**。既存の Bundle Z #B-β `Pre-completion deterministic check (Bundle Z Phase 2 / #B-β)` と同形の precedent あり (`scripts/fix-metrics-check.ps1` を Bash 呼び出しする pattern)。失敗 mode (= AI が refresh を skip) は現状と同等 (no regression)
-- **採用案 C の実装**: `.takt/facets/instructions/fix.md` に「Pre-completion diff refresh (REQUIRED)」section を追加 (advisor 推奨)。`jj diff -r @ > .takt/review-diff.txt` を `convergence_verdict` emit 直前に必須実行
-- **共有 instruction の影響**: `fix.md` は pre-push-review.yaml と post-pr-review.yaml の両方で使用される。post-pr-review は `.takt/review-diff.txt` を読まないが、refresh は冪等で副作用なし (~1s 程度の `jj diff` invocation cost のみ)
-- **派生プロジェクト deploy**: `scripts/deploy-hooks.ts` は exe + `settings.local.json` のみ転送し、`.takt/facets/instructions/*` は派生 (techbook-ledger / auto-review-fix-vc) 各自が管理。よって本変更の自動 propagate は不要 (手動 port が必要だが scope 外、follow-up task)
-
-#### 作業計画
-
-- [x] takt workflow の hook 仕様を確認 → 案 A 不可と確定
-- [x] cli-push-runner の takt invocation 構造を確認 → 案 B も scope 不適合と確定
-- [x] advisor に方針相談 → 案 C (instruction-level) 採用 + 共有 instruction 影響 / deploy 経路を検証
-- [x] `.takt/facets/instructions/fix.md` に「Pre-completion diff refresh (REQUIRED)」section を追加
-- [ ] dogfood: D-6 PR push 自体で本 instruction が機能するかを観察 (fix step が refresh を実行 → 次 reviewer iter が post-fix 状態を読むか)
-- [ ] dogfood 1〜2 PR で実 6-iter outlier scenario が再発しないことを観測
-- [x] Bundle Z #B-β との競合確認: `fix-metrics-check.ps1` invocation は fix step 内部の Bash 実行で完結し、本 task の diff refresh は同 fix step の最終段 Bash 実行で独立。両者は時系列で順序通り走り競合なし
-- [ ] 本 todo7.md エントリを削除 (PR D-6 merge + 1-2 PR の dogfood 完了後)
-
-#### 完了基準
-
-- fix step 完了後の review iteration で `.takt/review-diff.txt` が最新状態を反映
-- 6-iter outlier の発生率が **0%** に近づく (PR #103 のような scenario が 3-iter で収束)
-- supervisor の live Read 救済が不要になる (= supervisor step は workflow に残るが、false positive 救済責務が消える)
-
-#### 残課題 / dogfood リスク
-
-- AI-driven 案の弱点: fix step の AI が refresh 命令を skip する可能性。Bundle Z #B-β `metrics_check` invocation の実行率を baseline として比較し、refresh 実行率 > 90% を初期目標とする。dogfood で実行率 < 90% なら **案 D (PostToolUse hook ベースの決定論層)** へ escalate を検討
-- 派生プロジェクト port: `~/.takt/facets/instructions/fix.md` (global) や techbook-ledger / auto-review-fix-vc の同等ファイルへの転載が follow-up task (本 task scope 外)
 
 ---
 

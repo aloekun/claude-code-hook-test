@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo4.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #101 セッション以降の新規エントリは本ファイルに記録していた。**本ファイルも 67KB に到達したため、2026-05-09 に PR #101〜#109 由来の古い半分を [docs/todo7.md](todo7.md) へ分離した**。本ファイル残存は PR #110 以降のエントリのみ。新規エントリは [docs/todo6.md](todo6.md) へ。todo.md / todo2-22.md の既存エントリは引き続き有効、相互に独立。新セッションでは24つすべてを確認すること (todo.md / todo2-22.md / todo-summary.md / todo-summary2.md)。
+> **本ファイルの位置付け**: docs/todo4.md がファイルサイズ約 50KB に到達したため、Claude Code の読み取り安定性 (50KB 超で不安定化) を考慮して PR #101 セッション以降の新規エントリは本ファイルに記録していた。**本ファイルも 67KB に到達したため、2026-05-09 に PR #101〜#109 由来の古い半分を [docs/todo7.md](todo7.md) へ分離した**。本ファイル残存は PR #110 以降のエントリのみ。新規エントリは [docs/todo6.md](todo6.md) へ。todo.md / todo3-22.md の既存エントリは引き続き有効、相互に独立。新セッションでは23つすべてを確認すること (todo.md / todo3-22.md / todo-summary.md / todo-summary2.md。todo2.md は 2026-08-12 退役)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -72,6 +72,8 @@ PR で空き番号を取得する運用に統一。
 > **参照**: PR #117 retirement の経緯 (`docs/coderabbit-monitoring-efficiency.md` 削除)、`.claude/feedback-reports/117.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。1 セクションに 5-10 行追記。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 

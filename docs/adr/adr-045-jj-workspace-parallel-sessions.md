@@ -10,7 +10,7 @@
 
 ### 問題
 
-メインセッションは `docs/file-length-enforcement-plan.md` の W3 (cli-merge-pipeline 分割) / W4 (cli-push-runner 分割) という大規模 src リファクタを進める。一方で post-merge-feedback / 週次レビュー / CodeRabbit 対応から、`docs/todo*.md` 系列に細粒度の不具合修正・改善タスク (lint rule / takt facet / test / docs 系、順位 225-232 等) が継続的に蓄積している。
+(起案当時の状況 — 以下は履歴記述): メインセッションは旧 `docs/file-length-enforcement-plan.md` の W3 (cli-merge-pipeline 分割) / W4 (cli-push-runner 分割) という大規模 src リファクタを進めていた (**W3/W4 は完了済み — PR #230/#231。同計画も全 PR 完了により 2026-08-12 削除済み**)。一方で post-merge-feedback / 週次レビュー / CodeRabbit 対応から、`docs/todo*.md` 系列に細粒度の不具合修正・改善タスク (lint rule / takt facet / test / docs 系、順位 225-232 等) が継続的に蓄積していた。
 
 これらを単一セッションで直列処理すると:
 
@@ -100,17 +100,17 @@ pnpm build:all                           # 全 exe ビルド + settings.local.js
 
 ### タスク領域の分割方針 (論理衝突回避)
 
-| workspace | 担当領域 |
+| workspace | 担当領域 (起案当時の実例。W3/W4 は PR #230/#231 で完了済み — 現在は「大規模 src リファクタ vs 細粒度改善」という役割分担の型として読む) |
 |---|---|
-| メイン (`default`) | `docs/file-length-enforcement-plan.md` の W3 / W4 = `src/cli-merge-pipeline` / `src/cli-push-runner` の大規模分割 |
-| 改善 (`../ccht-improve`) | 順位 225-232 等の細粒度改善 = custom lint rule / takt facet (`.takt/facets/`) / test / docs 系 |
+| メイン (`default`) | 大規模 src リファクタ (当時の実例: 旧 file-length-enforcement-plan の W3 / W4 = `src/cli-merge-pipeline` / `src/cli-push-runner` の分割) |
+| 改善 (`../ccht-improve`) | 細粒度改善 = custom lint rule / takt facet (`.takt/facets/`) / test / docs 系 (当時の実例: 順位 225-232) |
 
 src の大規模分割 (メイン) と lint/facet/docs (改善) は編集領域が直交し、同一ファイルの同時編集を避けられる。
 
 ### 並列運用の調整ポイント
 
 1. **bookmark 名は workspace 間で共有 namespace**。タスクごとに別名 (メイン = `pr-w3-...` / `pr-w4-...`、改善 = `fix-<task>` / `lint-<rule>` 等) を付け、別 PR として独立させる。同名 bookmark を両 workspace で作らない。
-2. **ローカル `master` bookmark は共有**。片方が `pnpm merge-pr` で land すると `master@origin` が進む。もう片方は `jj git fetch` + `jj rebase -d master@origin` で取り込んでから push する (`docs/file-length-enforcement-plan.md` § Cargo.lock 競合の rebase 手順と同型)。
+2. **ローカル `master` bookmark は共有**。片方が `pnpm merge-pr` で land すると `master@origin` が進む。もう片方は `jj git fetch` + `jj rebase -d master@origin` で取り込んでから push する (`docs/dev-conventions.md` § Rust ファイル分割の制約条件 内の Cargo.lock 競合 rebase 手順と同型。旧 file-length-enforcement-plan から移設)。
 3. **state / lock / monitor は workspace ごとに独立** (gitignore + per-checkout)。並列の post-PR monitor / CronCreate が互いの state を壊さない。
 4. **op log は共有**であり、並行操作の扱いは jj 公式の並行モデルに従う (2026-07-13 是正。当初の「並行操作は jj が安全にマージする」という記述は不正確だった)。公式モデル: jj は lock-free 設計で、並行操作は op log の分岐 (divergent operation heads) として記録され、次のコマンドが自動 3-way マージする。干渉は「stale working copy」(エラーで停止 → `jj workspace update-stale` で recovery commit が作られ変更は保全される) と「bookmark 競合」(競合状態として可視化) の 2 形態で表面化する。ただし **colocated リポジトリの同時編集は upstream が「十分にテストされていない」と明記する領域**であり (本リポジトリの default workspace は colocated)、公式保証の外側がある。「§ Known operational risks」を参照。
 

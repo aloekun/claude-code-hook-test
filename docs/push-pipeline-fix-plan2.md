@@ -34,8 +34,9 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 | T13 | #290 + 判定 | backlog 13 項目の処置確定: **採用 2 (→ R1/R2)**、todo 移管 3 (項目 9→順位 324 / 項目 10→順位 323 / 項目 12→既存順位 16)、却下 6 (項目 2/4/5/6/8/11)、条件付き却下 2 (項目 7/13、再評価トリガー付き)。判断根拠は旧計画 §6/§8 |
 | R1 | #292 | quality_gate 失敗 step の出力を全量表示 (40 行 truncate 除去。成功経路は cap 維持 = T5「失敗経路は診断を落とさない」の残り半分。ADR-049 流の回帰テスト 2 本追加) |
 | R2 | #293 | loop_monitor stall-detection judge を sonnet → haiku 化 (2 択 routing のみ、post-pr-review.yaml に前例)。pre-push-review + refute 両 yaml を同期変更 (片方だけは効果ゼロ = T10 の罠、原則 6)。ADR-047 配下 |
+| R3 | #294 | push per-run メトリクスを `.claude/telemetry/push-runs-*.jsonl` へ永続化 (stage 別 elapsed / docs_only / post_takt_regate 判定 / total / exit_code / os。lib-telemetry に汎用 writer 追加、ADR-055 amendment。2026-08-12 backfill: 実運用で 212 record 蓄積済み = R5 の判定データ源として稼働確認) |
 
-### 実測の現在地 (2026-07-18 時点)
+### 実測の現在地 (2026-07-18 時点の過去スナップショット — 現況の正は R3 の push-runs JSONL)
 
 | 指標 | before (2026-07-16 baseline、直近 20 run) | 現在 |
 |---|---|---|
@@ -48,9 +49,9 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
 - **計測方法 (永続データ)**: `.takt/runs/<slug>/meta.json` の startTime/endTime と `trace.md` の
   iteration ヘッダ (takt 部分・fix 発生の判定)。refute run の抽出は `meta.json` の
   `"piece": "pre-push-review-refute"` 基準 (run ディレクトリ名では判別不可、ADR-047 に記載)。
-- **stage 別 (gate/push 等)** は T0 ログが stderr のみで非永続だったが、**R3 で per-run JSONL
-  (`.claude/telemetry/push-runs-*.jsonl`) に永続化**した (実装済み・未 push)。次回 push 以降が
-  自動的に集計コーパスになる。
+- **stage 別 (gate/push 等)** は T0 ログが stderr のみで非永続だったが、**R3 (#294) で per-run JSONL
+  (`.claude/telemetry/push-runs-*.jsonl`) に永続化**した。2026-08-12 時点で 212 record
+  (2026-07-18〜08-11) が蓄積済み = 集計コーパスとして稼働中。
 - ⚠ **旧計画 §8 の目標「docs-only push 1 分台」は総時間としては達成不能の見込み**:
   T11 で「docs-only でも takt レビューは skip しない」(docs の事実誤り検出実績があるため) を
   ユーザー承認済みであり、takt が支配項として残る。R6 の after 計測で目標を gate 部分
@@ -144,7 +145,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
   - **§1 表に R2 行 (#293) を追加済み** (2026-07-18 マージ完了に伴い backfill)。未 push だった間は
     §1 (「全 PR マージ済み」スナップショット) に載せず §3 本欄を完了記録としていた。
 
-### R3: push per-run メトリクスの JSONL 永続化 (todo 順位 325) — S **【実装済み・未 push, 2026-07-18】**
+### R3: push per-run メトリクスの JSONL 永続化 (todo 順位 325) — S **【マージ済み #294, 2026-07-18】**
 
 - **内容 (当初案の全フィールド)**: run 終了時に stage 別 elapsed / docs_only 判定 /
   post_takt_regate 判定 / pr_size 行数 / takt run slug / total / exit code / os を 1 行 JSONL で
@@ -154,7 +155,7 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
   「記録フィールド」を正とすること (集計利用者が存在しないフィールドを期待しないため)。
 - **位置付け**: R5/R6 の計測基盤。harness-improvement-plan セクション 3 (Linux 対応) 着手前に
   入れると、同作業の push (8〜15 回見込み) が自動的に after 計測コーパスになる。
-- **実施結果 (2026-07-18, 実装済み / 未 push)**:
+- **実施結果 (2026-07-18 時点のスナップショット記録。その後 #294 としてマージ済み — 見出しの Status を正とする)**:
   - **スキーマ判定 (canonical の「ADR-055 amendment か別 record kind か」)**: **別 record kind =
     別ファイル `push-runs-<YYYY-MM-DD>-<pid>.jsonl`** を採用。firing (`firings-*.jsonl`) は
     WP-12 step 2 の集計が glob 走査する前提で shape 固定のため、shape の異なる push-run 行を
@@ -205,11 +206,12 @@ cli-pr-monitor) の遅延 (コード変更 push 最大 14.6 分) と不具合の
     `CLAUDE_TELEMETRY_DISABLE=1` では書かれないことを実測 (検証で出た合成行は削除済)。
   - **受け入れ基準の充足度**: 完了基準「stage 別 elapsed / docs_only / post_takt_regate 判定 /
     total_secs が事後集計できる」✓、「ADR-057/058 の効果検証がコンソール手動保存に依存しない」✓
-    (機械集計可能な JSONL 化)。実 push コーパスは**次回 push 以降**に自動蓄積される (本 work unit は
-    commit までのため実データ 0 件。R5/R6 が消費)。
+    (機械集計可能な JSONL 化)。実 push コーパスは**次回 push 以降**に自動蓄積される (記録時点では
+    commit までのため実データ 0 件 — **2026-08-12 現況: 212 record 蓄積済み**。R5/R6 が消費)。
   - **todo 側**: docs/todo13.md 順位 325 エントリ + todo-summary.md 順位 325 行を削除済 (canonical
     の「本エントリ削除」)。exe 再ビルド済 (原則 4)。§1 表への行追加と PR 番号 backfill は
-    push/マージ時に実施 (R1/R2 と同じ扱い)。
+    2026-08-12 に実施済み (放置期間約 3 週間 — 「本 PR 表記は PR 作成後に必ず backfill」の
+    負債パターンの再発例として記録)。
   - **CodeRabbit レビュー対応 (PR #294)**: 未解決 3 件を対応 — (a) `lib-telemetry` の公開 API
     `record_metric*` 由来 `file_prefix` に path-traversal 検証 (`is_safe_file_prefix`、fail-open
     skip) + 回帰テスト 2 本を追加 (Major、現 exploit 無しだが `pub` API の defense-in-depth)、

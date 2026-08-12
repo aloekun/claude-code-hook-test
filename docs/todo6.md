@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo5.md / 本ファイルが 50KB に到達 (PR #143 T3-#1) のため **新規エントリは [docs/todo8.md](todo8.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo2-22.md の既存エントリは引き続き有効、相互に独立。新セッションでは24つすべてを確認すること (todo.md / todo2-22.md / todo-summary.md / todo-summary2.md)。
+> **本ファイルの位置付け**: docs/todo5.md / 本ファイルが 50KB に到達 (PR #143 T3-#1) のため **新規エントリは [docs/todo8.md](todo8.md) へ移行**。本ファイルは既存タスクの編集・完了削除専用。todo.md / todo3-22.md の既存エントリは引き続き有効、相互に独立。新セッションでは23つすべてを確認すること (todo.md / todo3-22.md / todo-summary.md / todo-summary2.md。todo2.md は 2026-08-12 退役)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -64,6 +64,8 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 > **本タスクの位置づけ**: PR #139 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。`feedback_no_unenforced_rules.md` 方針との整合: 本提案は「既存実践の明文化」であり機械検知不可なルール追加ではない (review/PR body 記述で人間の意識付けに用いる目安) ため例外的に採用相当。
 >
 > **参照**: `.claude/feedback-reports/139.md` Tier 3 #1、`~/.claude/rules/common/development-workflow.md`、PR #119/#120/#121 (sub-PR 分割実例)、PR #139 (partial completion 実例)
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 作業計画
 
@@ -93,6 +95,8 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 > **本タスクの位置づけ**: PR #140 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None)。
 >
 > **参照**: `.claude/feedback-reports/140.md` Tier 3 #2、`~/.claude/CLAUDE.md` (global、リンクのみ方針 = `feedback_claude_md_link_only.md`)、`src/hooks-post-tool-linter/src/main.rs` `CustomRule` struct
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定の余地
 
@@ -128,6 +132,8 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 > **本タスクの位置づけ**: PR #141 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium = 2 観測 / Effort XS / Adoption Risk None)。memory rule の central reference への昇格パターン。
 >
 > **参照**: `.claude/feedback-reports/141.md` Tier 3 #2、`~/.claude/rules/common/development-workflow.md`、memory `feedback_verify_task_not_already_done.md` / `feedback_todo_no_history.md`、PR #125 / PR #141
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 作業計画
 
@@ -152,6 +158,8 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 > **本タスクの位置づけ**: PR #141 post-merge-feedback Tier 3 #3 採用 (Severity Low / Frequency Medium = 複数 session 観測 / Effort S / Adoption Risk None)。memory policy の central reference への昇格パターン。
 >
 > **参照**: `.claude/feedback-reports/141.md` Tier 3 #3、`~/.claude/CLAUDE.md`、memory `feedback_no_unenforced_rules.md` (PR #140 / #141 で追記済)
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定
 
@@ -188,6 +196,8 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 > **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 2 #3 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
 >
 > **参照**: `.claude/feedback-reports/142.md` Tier 2 #3、`~/.claude/rules/common/testing.md`、`src/lib-ollama-client/src/lib.rs` の `overflow_hint()` (PR #142)
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 作業計画
 
@@ -208,6 +218,8 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 > **本タスクの位置づけ**: PR #142 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort S / Adoption Risk None)。
 >
 > **参照**: `.claude/feedback-reports/142.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md`、PR #142 CR Minor #2
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 作業計画
 

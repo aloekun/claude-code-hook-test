@@ -18,6 +18,8 @@
 > **参照**: `.claude/feedback-reports/214.md` Tier 3 #1、旧 `src/cli-pr-monitor/src/stages/poll/review_recheck.rs` の `finalize_initial_review_park` defensive reset block (**WP-17 PR 3 の park モデル廃止でファイルごと削除済み** — pattern の実例は PR #214 の diff を参照。rule 化する価値は削除後も変わらない: 同型の state machine は `finalize_pending_review` / iteration の state 継承等に現存)、memory `feedback_no_unenforced_rules.md` (enforcement 要件)、memory `feedback_global_config_backup.md` (snapshot 必須)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort S。global rules への docs 追記 ~30 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 
@@ -116,6 +118,8 @@
 > **参照**: `.claude/feedback-reports/216.md` Tier 3 #1、`~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle (現行 section、編集対象)、順位 216 (機械層 = lint rule、本 task の機械強制対応)、memory `feedback_global_config_backup` (snapshot 必須)、PR #216 hooks-config.toml diff (違反実例として inline cite)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。global rules への docs 追記 ~15 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 
@@ -172,6 +176,8 @@
 > **参照**: `.claude/feedback-reports/216.md` Tier 3 #2、`docs/adr/adr-039-experimental-feature-standard-pattern.md` § Bounded Lifetime (編集対象、6-point design checklist 拡張)、`~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 (補助編集対象、同旨 note 追加)、PR #216 hooks-config.toml comment (違反実例)、memory `feedback_global_config_backup` (snapshot 必須)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。ADR + global rules への docs 追記 ~10 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で、旧環境の patterns.md に土台 section (Experimental Feature 設計時の参照必須、PR #194 由来) は存在するが、本タスクの増分 (provisional enabled 変更時の todo tracking note) は旧環境でも未実施。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 
@@ -222,6 +228,8 @@
 > **参照**: `.claude/feedback-reports/216.md` Tier 3 #3、`~/.claude/rules/common/development-workflow.md` § 設計 doc/実装の同期チェック (編集対象)、PR #216 cleanup session log (誤判定 → grep 救出の経緯)、memory `feedback_verify_task_not_already_done` (関連 memory、再確認 verb-noun rule の前提となる「verify」step)、memory `feedback_global_config_backup` (snapshot 必須)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。global rules への docs 追記 ~8 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+>
+> **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
 #### 設計決定 (案)
 

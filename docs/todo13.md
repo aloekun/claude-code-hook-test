@@ -10,40 +10,6 @@
 
 ## 現在進行中
 
-### auto-push gate-bypass の是正 — A1 (fix facet で `--ignored` 必須) + B1-loop (auto-push に gate + convergence ループ差し戻し) (PR #224 セッション合意)
-
-> **動機**: PR #224 (PR-W2) で、CodeRabbit Major finding を takt が auto-fix した際、`create_fix_commit` の変更が `#[ignore]` な repush 統合テスト2件を破壊した。しかし (a) takt fix facet の coder は `cargo test` (非 `--ignored`) で検証して `convergence_verdict: fully_resolved` を宣言、(b) 監視の auto-push は `jj git push` 直 push で cli-push-runner の quality_gate (`cargo test -- --ignored` を含む唯一のゲート) を**バイパス**したため、回帰が無検証で PR に到達した。手動で `cargo test --ignored` を回して初めて発見・revert した。
->
-> **本タスクの位置づけ**: PR #224 セッション ユーザー合意 (2026-06-29)。A1 (fix 時の検証強化) + B1-loop (push 時の安全網) の 2 層。
->
-> **参照**: PR #224 (`1c0f345b`)、`push-runner-config.toml` `[[quality_gate.groups]]` name=`rust-lint-test` (`cargo test -- --ignored --test-threads=1` を含む、コメント「push pipeline でのみ実行」= 当ゲートが #[ignore] テストを回す唯一の自動経路)、`.takt/facets/instructions/fix.md` (coder 完了ゲート、修正対象)、`src/cli-pr-monitor/src/stages/repush.rs` (auto-push の `jj git push`、修正対象)、ADR-043 (Fail-Closed)、ADR-037 (convergence_verdict 信頼)、ADR-022 (auto-push 責務)。
->
-> **実行優先度**: 🚀 **Tier 1** — Effort M。回帰素通しの実害が PR #224 で顕在化。A1 は低コスト (facet に数行)、B1-loop は auto-push 経路の改修。
-
-#### 設計決定 (案)
-
-- **A1**: `fix.md` の完了ゲートに「test ファイルを変更した、または `pub(crate)` 関数の挙動・signature を変えた場合は `cargo test -- --ignored --test-threads=1` を実行し PASS を `fully_resolved` 宣言の前提とする」を必須条件として追記。
-- **B1-loop**: 監視の auto-push を `jj git push` 直ではなく、push 前に quality_gate 相当 (clippy + `cargo test` + `cargo test -- --ignored`) を実行。FAIL なら (i) takt convergence ループに差し戻して再 analyze→再 fix (= `convergence_verdict` に `--ignored` 結果を反映)、(ii) N 回で収束しなければ fail-closed で `action_required` に倒し人間へ escalation。
-- **人間ボトルネック回避**: B1-loop により自己修復可能な回帰 (sibling テスト忘れ等) は機械で完結、本当に詰まった時のみ人間。今日の「壊れたまま push → 後で人間が後始末」より前倒し + 良いシグナル。
-
-#### 作業計画 (Status update 2026-07-03: 2 PR 構成に再編、PR-1 = A1+B1 実装済)
-
-- [x] A1: `fix.md` 完了ゲートに `--ignored` 必須条件を追記 (PR-1、条件 = test ファイル変更 or `pub`/`pub(crate)` 関数の挙動・signature 変更時)
-- [x] B1: auto-push (`repush.rs`) に push 前 quality_gate (`--ignored` 含む) を挿入 (PR-1、`stages/gate.rs` 新設。push-runner-config.toml の quality_gate group を単一ソース参照、docs-only fix diff は ADR-035 path 基準で gate skip、FAIL は `action_required` 即 escalation)
-- [ ] dogfood: [docs/auto-push-gate-dogfood.md](auto-push-gate-dogfood.md) の観測ログ + GO/NO-GO 判断基準に従い B1-loop 要否を判定 (期限: PR-1 merge + 6 週間 / gate FAIL 2 件 / auto-push 発火 10 回 のいずれか先)
-- [ ] (GO 判定時のみ) B1-loop: gate FAIL を convergence ループに差し戻す経路 + N 回上限 → `action_required` (fail-closed) — 設計案・不採用案は dogfood doc §5 に保存済み
-- [ ] 本 entry 削除 + todo-summary2.md 行削除 + dogfood doc 削除 (同一 commit、NO-GO の場合は ADR-043 amendment に知見移管後)
-
-#### 完了基準
-
-- takt fix が #[ignore] テストを壊す変更をしても fix 時 (A1) または auto-push 前 (B1) に必ず検出され、`jj git push` 直 push で gate を迂回する経路が解消 (PR-1 で達成)。B1-loop の要否が dogfood 観測で判定され、GO なら機械収束・NO-GO なら即 escalation 恒久化として決着していること。
-
-#### 詰まっている箇所
-
-- (解消済 2026-07-03) B1-loop の接続方式と N 値は dogfood doc §5 に設計案として確定 (専用 `gate-fix.yaml` + N=2)。残る不確定要素は dogfood 観測結果のみ。
-
----
-
 ### fmt baseline cleanup + `cargo fmt --check` gate 導入 + rustfmt 固定 (PR #224 セッション合意)
 
 > **動機**: PR #224 で分割 agent の `cargo fmt` が分割対象外の 5 ファイルに整形差分を混入した (revert で対処)。調査の結果、fmt enforcement がリポジトリのどこにも無く (Stop gate / push pipeline / CI / package.json いずれも `cargo fmt --check` 不在)、ワークスペース全体で **29 ファイル**が rustfmt-clean でないドリフトを蓄積していると判明。
@@ -428,9 +394,9 @@
 
 > **動機**: PR-W3 の feedback module 分割で `write_failed_marker` / `fetch_pr_diff_summary` / `FeedbackInput` / `run` 等、external consumer が存在しない binary crate 内シンボルが `pub` export されており、`pub(crate)` 方針と乖離している (CodeRabbit findings)。file split refactor PR ごとに繰り返す systemic pattern (Frequency Medium) のため、CLAUDE.md に方針を明文化し、既存 `pub` を `pub(crate)` に揃える。
 >
-> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort S / Adoption Risk None)。file-length-enforcement-plan.md の分割制約「Cross-module visibility は pub(crate)」の恒久 codify に相当。
+> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort S / Adoption Risk None)。docs/dev-conventions.md § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan から 2026-08-12 移設) の分割制約「Cross-module visibility は pub(crate)」の恒久 codify に相当。
 >
-> **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、docs/file-length-enforcement-plan.md § 制約条件 (既存の pub(crate) ガイド)。
+> **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、docs/dev-conventions.md § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § 制約条件の pub(crate) ガイド、2026-08-12 移設)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort S。
 
@@ -453,14 +419,14 @@
 >
 > **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #1 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。file-length 強制が継続する限り split は今後も発生。順位 241 (binary crate の pub(crate) 方針 + CLAUDE.md 明文化) と相補。
 >
-> **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、`docs/file-length-enforcement-plan.md` § 制約条件 (既存の「Cross-module visibility は pub(crate)」)、順位 241。**注意**: 追記先候補の `file-length-enforcement-plan.md` は PR-W5 land 後に削除予定のため、`~/.claude/rules/common/coding-style.md` または `CLAUDE.md` への恒久配置を着手時に判断する。
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § 制約条件の「Cross-module visibility は pub(crate)」、2026-08-12 移設)、順位 241。**注意**: 旧 file-length-enforcement-plan.md は 2026-08-12 に削除済み。暫定配置先は docs/dev-conventions.md § Rust ファイル分割の制約条件になった。恒久配置 (coding-style.md / CLAUDE.md) は着手時に判断。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。
 
 #### 作業計画
 
 - [ ] `pub(crate)` (cross-module 共有) / module-private / `pub` (library API のみ) の判断チェックリストを具体例付きで作成
-- [ ] 恒久配置先を決定 (coding-style.md / CLAUDE.md、file-length-enforcement-plan.md は暫定)
+- [ ] 恒久配置先を決定 (coding-style.md / CLAUDE.md、現暫定 = dev-conventions.md § Rust ファイル分割の制約条件)
 - [ ] 順位 241 との重複を統合 (bundle 検討)
 - [ ] 本 entry 削除 + todo-summary2.md 行削除
 
@@ -476,7 +442,7 @@
 >
 > **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。memory `feedback_test_dry_antipattern` の恒久 codify。
 >
-> **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、`docs/file-length-enforcement-plan.md` § test helper は per-module duplicate。
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § test helper は per-module duplicate、2026-08-12 移設)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。
 
@@ -498,7 +464,7 @@
 >
 > **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #3 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。file-length 強制が続く限り機械 refactor の override 判断は今後も発生。
 >
-> **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、`docs/file-length-enforcement-plan.md` § push 手順 (override use case)。
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § push 手順の override use case、2026-08-12 移設)。
 >
 > **実行優先度**: 💎 **Tier 3** — Effort XS。
 
@@ -549,10 +515,20 @@
 >
 > **参照**: ADR-031 § 将来の展望 (観点⑧)、`.takt/facets/instructions/review-jj-robustness-whole.md`、ADR-045 (jj workspace 並列運用)、ADR-039 (bounded lifetime)、2026-07 セッションで実観測した 4 bug class (weekly-review staleness / stale `CARGO_MANIFEST_DIR` / untracked state 消失 / 非 colocated gh 失敗)
 
-#### 作業計画
+#### 作業計画 (Status update 2026-08-12: 継続判定 = ADR-039 の延長 1 回目)
 
-- [ ] 次回 `/weekly-review` で observability 観測 (既知 4 bug class 相当を実検出できるか、context 圧迫の有無)
-- [ ] 2-3 週 dogfood で採用率 / false positive を ADR-031 § 採用判定の閾値 で評価
+> **2026-08-12 の観測結果**: 解析可能な weekly-review run は 2026-07-19 の 1 回分のみ。同 run で
+> jj-robustness facet は findings 2 件 / 採用候補 2 件 (採用率 100%)、既知 4 bug class 中 2 class
+> (mtime staleness / 非 colocated gh 失敗) を再検出、deferred 0 件、確定 false positive 0 件。
+> ただし n=2 では FP ≤5% の閾値を判定できず (J01 に「機序未再現」の FP 疑い注記があり、FP なら
+> 50%)、かつ 2026-07-27 run のレポートが `.claude/weekly-review-last-run.json` の指す
+> `2026-07-27.md` として存在しない (dead pointer) ため観測データが不足。**retire 条件 (低品質) には
+> 全く該当せず、定着条件 (FP 判定) には届かないため「継続 (延長 1 回目)」とする。次回で採否確定が
+> 必要 (ADR-039 § Bounded lifetime の「継続は 1 回まで」)。**
+
+- [x] 次回 `/weekly-review` で observability 観測 (2026-07-19 run で実施: 既知 4 bug class 中 2 class を実検出、context 圧迫なし)
+- [ ] weekly-review 成果物の保存問題 (dead pointer / cloud routine 移行後の保存先) を解消し、追加 run の facet 別 findings を取得する (詳細は todo22 の「weekly-review 成果物の保存問題」エントリ)
+- [ ] 新期限 = **weekly-review 追加 2 run 完了時点 or 2026-09-30 の早い方**: ADR-031 § 採用判定の閾値 5 項目 (特に FP ≤5% を n≥10 findings で) を評価し採否を確定する
 - [ ] 有用 → 定着 (本 entry 削除 + todo-summary 行削除) / 低品質 → facet retire (weekly-review.yaml + aggregate から除去)
 
 #### 完了基準

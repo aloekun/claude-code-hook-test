@@ -33,6 +33,9 @@
 //! (`cli-pr-monitor` の auto-push 前 gate) と ADR-035 path 基準を共有する
 //! (`lib_docs_policy::is_docs_only_summary`)。設計詳細は
 //! `docs/adr/adr-057-docs-only-deterministic-routing.md`。
+//!
+//! ADR-057 は 2026-08-12 採用確定 (212 push run 中 51 docs-only run の dogfood、
+//! 誤 skip 0・判定と skip の整合破れ 0)。default-ON として templates にも反映済み。
 
 use std::process::{Command, Stdio};
 

@@ -211,7 +211,7 @@ table の `依存` 列を `順位 6` → `Phase pre` のようにタスク名に
 
 ## 新規エントリ template
 
-新規タスクを `docs/todo3.md` (または todo2.md / todo.md の既存セクション内) に追加する際は、以下の形式で記述する:
+新規タスクを現行の追加先 todo ファイル (`docs/todo.md` preamble の routing 表が指す最新の `todoN.md`。既存タスクへの追補はその収容ファイル) に追加する際は、以下の形式で記述する:
 
 ```markdown
 ### <task name> (出典: PR #<N> T<X>-<Y>)
