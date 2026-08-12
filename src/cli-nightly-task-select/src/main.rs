@@ -2,7 +2,7 @@
 //!
 //! 台帳 (`docs/claude-code-web-tasks.md`) の「無人可」マークが付いた行から 1 件を決定論的に
 //! 選び、夜間 workflow の後続 step が使う値 (順位・ブランチ名・対象ファイル・指示文) を
-//! `GITHUB_OUTPUT` 形式で出す。選択そのものは [`ledger`] が持ち、本 exe は CLI 面
+//! `GITHUB_OUTPUT` 形式で出す。選択そのものは `lib-ledger` crate が持ち、本 exe は CLI 面
 //! (引数解析・loud 出力・exit コード) だけを担う。
 //!
 //! # 使い方
@@ -32,12 +32,10 @@
 //! 選択の有無にかかわらず loud に出す (無音 no-op 禁止、ADR-064 と同じ論理)。選択は stdout の
 //! `[NIGHTLY_TASK]`、no-op と失敗は stderr の `[NIGHTLY_SKIP]`。
 
-mod ledger;
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use ledger::{screen_for_public_output, screen_for_title, Task};
+use lib_ledger::{screen_for_public_output, screen_for_title, Task};
 
 const MARKER_SELECTED: &str = "[NIGHTLY_TASK]";
 const MARKER_SKIP: &str = "[NIGHTLY_SKIP]";
@@ -116,7 +114,7 @@ fn run(args: Vec<String>) -> i32 {
             )
         }
     };
-    match ledger::select(&markdown, &cli.excluded_ranks) {
+    match lib_ledger::select(&markdown, &cli.excluded_ranks) {
         Err(message) => skip(
             EXIT_USAGE,
             &format!("台帳を解釈できません ({display}): {message}"),

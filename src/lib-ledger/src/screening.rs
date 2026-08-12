@@ -121,8 +121,8 @@ fn collapse_spaces(text: &str) -> String {
 /// 不可視だが `Mn` に分類される variation selector 2 ブロックを加えてある。
 ///
 /// Unicode のバージョンが上がって `Cf` が増えた場合はここも追随する必要がある。追随漏れは
-/// 「新しい不可視文字での framing 脱出」として現れるため、[`crate::ledger`] の framing 検査に
-/// 対する回帰テストが検出の場になる。
+/// 「新しい不可視文字での framing 脱出」として現れるため、crate root の framing 検査
+/// (`reject_prompt_frame_escape`) に対する回帰テストが検出の場になる。
 /// ## 列挙している範囲 (code point 昇順)
 ///
 /// | 範囲 | 内容 |

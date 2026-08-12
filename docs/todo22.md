@@ -50,7 +50,7 @@
 >
 > **対処案**: (a) 「新しい出力面を足すときは、既存 screening を流用してよいかを**囲いの有無**から判断する」を convention として明文化、(b) [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) へ **output surface × wrapping context の対応表**を追記する (どの出口がどんな囲いを持ち、それゆえ何を追加処理すべきか)。
 >
-> **参照**: [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 14 § 3 つ目の公開面、[screening.rs](../src/cli-nightly-task-select/src/ledger/screening.rs) (2 関数の対照が実装済み)。
+> **参照**: [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 14 § 3 つ目の公開面、[screening.rs](../src/lib-ledger/src/screening.rs) (2 関数の対照が実装済み)。
 >
 > **実行優先度**: 🚀 Tier 1 — Severity Medium / Frequency **High** (出力面は増え続ける) / Effort S / Adoption Risk None。
 
@@ -363,7 +363,7 @@
 >
 > **対処案**: 上記を `docs/dev-conventions.md` へ明記する。表パーサに optional 列を足すときのチェック項目 (列数検証への反映) も併記する。
 >
-> **参照**: [ledger.rs](../src/cli-nightly-task-select/src/ledger.rs) (`max_index` の doc に教訓を記録済み)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17。
+> **参照**: [lib-ledger/src/lib.rs](../src/lib-ledger/src/lib.rs) (`max_index` の doc に教訓を記録済み)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17。
 >
 > **実行優先度**: 💎 Tier 3 — Severity Low (テストで捕捉済み) / Frequency Medium (今後の列追加で再発見込み) / Effort XS / Adoption Risk None。
 
