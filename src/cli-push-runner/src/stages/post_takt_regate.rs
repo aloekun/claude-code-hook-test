@@ -33,6 +33,9 @@
 //!
 //! `docs/adr/adr-058-post-takt-regate.md`。ADR-037 §Mitigations (honesty constraint の
 //! 機械的 backstop) の pre-push 拡張。
+//!
+//! ADR-058 は 2026-08-12 採用確定 (212 run dogfood: no_change 70.8% / 誤 block 1 件のみ)。
+//! default-ON として templates にも反映済み。
 
 use crate::config::{Config, DiffConfig, QualityGateConfig};
 use crate::log::{log_info, log_stage};

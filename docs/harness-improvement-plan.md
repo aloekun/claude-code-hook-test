@@ -83,7 +83,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 | WP-16 | 3 | CI matrix（移植退行防止） | S | WP-13, 14 | 観測中（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。2 OS matrix は PR #342 でマージ済・master 稼働中、初回観測期間に実バグ 1 件捕捉（PR #344 で修正）。観測継続と required check 化は → § 残作業） |
 | WP-17 | 4 | イベント駆動バックボーン完成（Phase B + routines 移行 + 全体 kill-switch 前倒し） | M-L | WP-09, 10, 11 | **観測中（実装は 2026-08-04 に全 land）** — #347 / #350 / #351 / #352 / #353 / #354、実走バグ修正 #356 / #357 / #358、記帳 #359。実走スモーク段 0〜2 まで完走。**観測待ち**: config 側 kill-switch の実走（variable 側 3 状態は 2026-08-08 実測済 = [ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 実走観測 2）/ Phase B 起動（[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 の実測待ち）/ 週末またぎ / ADR-066 bounded lifetime（1 of 3〜5 run）→ § WP-17。派生 ADR: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) #348 / [ADR-069](adr/adr-069-pr-chain-declaration.md) #349 |
 | WP-18 | 4 | 夜間 todo 消化ループ | M-L | WP-15, 17 | **観測中（本番稼働中）** — 設計・決定・検証記録は [ADR-072](adr/adr-072-nightly-todo-loop.md) が正。運用問題 5 件は 2026-08-11 に全件決着（[ADR-073](adr/adr-073-work-package-completion-boundary.md) § WP-18 での適用実績）。**残**: 採用率 2 週間測定（2026-11-06 期限）+ 非ブロッカーのスモーク未確定 3 件 → § WP-18 |
-| WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1、背圧は WP-18 PR 1 へ前倒し） | S-M | WP-18 | 未着手（残りは監査ループのみ。背圧は WP-18 PR 1 で land 済み） |
+| WP-19 | 4 | 常時性ガード（自主減速 / 監査ループ。全体 kill-switch は WP-17 PR 1、背圧は WP-18 PR 1 へ前倒し） | S-M | WP-18 | **一部着手**（監査ループのうち浮きブランチ検出は `cli-stale-branch-scan` として #377 で land 済み。残りは自律アクションの週次棚卸し + 採用率測定の載せ込み。背圧は WP-18 PR 1 で land 済み） |
 
 ## 5. 残作業（観測継続）
 

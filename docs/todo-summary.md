@@ -6,7 +6,7 @@
 
 <a id="recommended-order-summary"></a>
 
-## 推奨実行順序サマリー (2026-07-19 更新、順位 329-333 追加 (329-332 は PR-N1〜N3 (#299-#301) post-merge feedback 採用登録 #302、333 は週次レビュー WR-2026-07-19 findings 採用)。326-328 も 07-19 追加、323-324 は 07-18 追加、325 = push per-run メトリクス JSONL 永続化は R3 (#294) で実装完了し削除)
+## 推奨実行順序サマリー (2026-08-12 更新: docs 棚卸しバッチ — todo2.md 退役で順位 6/10 を todo22.md へ移送・11/20/21/22 を削除、順位 51/225/27 を完了/決着で削除、順位 433-443 を todo-summary2.md 末尾に追加。新規行の追加は常に todo-summary2.md 側で行う)
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
@@ -14,24 +14,18 @@
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 6 | 🚀 Tier 1 | ADR-032 PR-pre: GitHub Branch Protection 整備 | todo2.md | 設定のみ | なし (依存タスクは完了済) |
-| 10 | 🔧 Tier 2 | ADR-032 PR-broken-link: broken-link-check + 内部アンカー検査 統合 | todo2.md | Small-中 | なし (clean baseline 確立済) |
-| 11 | 🔧 Tier 2 | `cli-pr-monitor` プロセス正常終了の integration test (PR #85 T2-2) | todo2.md | S | なし (Status update 2026-06-06: ADR-018 park モデル / ADR-030 短命プロセス移行後の再現確認が前段必要、未再現なら削除候補) |
+| 6 | 🚀 Tier 1 | GitHub Branch Protection 整備 — ブロックを Required status checks へ集約 | todo22.md | 設定のみ | なし (依存タスクは完了済。2026-08-12: 旧親 ADR-032 は ADR-057 置換で欠番、独立タスク化して todo2.md (退役) から移送) |
+| 10 | 🔧 Tier 2 | broken-link-check + Markdown 内部アンカー検査の quality_gate 統合 | todo22.md | Small-中 | なし (clean baseline 確立済。2026-08-12: 独立タスク化して todo2.md (退役) から移送) |
 | 16 | 🔧 Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
 | 17 | 🔧 Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
 | 18 | 🔧 Tier 2 | **`.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)** | todo3.md | S | なし |
-| 20 | 💎 Tier 3 | ADR-032 PR-β: 実装 (enabled=false default) | todo2.md | 中-高 | 6, 8, 10 |
-| 21 | 💎 Tier 3 | ADR-032 PR-γ: enablement (1 行 flip) | todo2.md | XS | ADR-031 dogfood (本採用済 2026-06-01) + 順位 20 |
-| 22 | 💎 Tier 3 | ADR-032 PR-δ: dogfood + メトリクス検証 | todo2.md | (運用) | 順位 21 |
-| 27 | 🧹 Tier 4 | ADR-030 Phase E/F: 旧機構廃止 + dogfood | todo.md | 中 | なし (cleanup、Status update 2026-06-06: Phase D-7 = PR #154 land 済、残 Phase E 旧機構廃止 + Phase F dogfood) |
-| 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | 順位 27 Phase F |
+| 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | なし (2026-08-12: 前提の Phase E/F は決着 — Phase E 廃止は撤回 (ADR-030 § 撤回記録)、Phase F は長期運用実績で充足。着手は任意) |
 | 36 | 🔧 Tier 2 | **cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky) ★ Bundle X** | todo4.md | M | Bundle W (順位 34/35) land 済 (2026-06-07) → 後付け検証層として着手可能、変更 crate + 1-hop 依存 scope |
 | 37 | 🔧 Tier 2 | **pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky) ★ Bundle X** | todo4.md | S | 順位 36 と同 PR (Bundle X、cli-push-runner に +~1 秒 step 追加) |
 | 38 | 💎 Tier 3 | **L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)** | todo4.md | S | ADR-031 採用昇格済 (PR #192) + Bundle W land 済 (2026-06-07) → Bundle X (順位 36/37) land のみ残依存、facet 追加 or aggregate 前 Rust pre-step として組込 |
 | 40 | 🚀 Tier 1 | **prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)** | todo4.md | XS | なし (Status update 2026-06-06: PR #175 で push-runner 側 `bookmark_check.rs` stage 実装済 → skill 側は二重防御 + 派生プロジェクト未 deploy 環境向け knowledge transfer に縮小) |
 | 44 | 💎 Tier 3 | **PreToolUse hook で `gh` CLI の token-bloat パターンを検出する `gh-token-efficiency` preset 追加 (計画書 #D-1、PR #172 仕組み化方針切替 2026-05-25)** | todo4.md | M | なし (順位 144 hook 化 dogfood 成功事例を踏襲、3 BlockedPattern = 応答破棄漏れ POST / `--jq` なし GET / CR walkthrough state 混入 を `exception` field 付きで実装、`feedback_pipeline_over_rules.md` 適用で rule → hook 切替、session 毎の rule load コスト不要) |
 | 49 | 🔧 Tier 2 | **`parse_findings` 系の error-path test infrastructure (PR #101 T2-1)** | todo7.md | M | なし (Status update 2026-06-06: 元 Bundle a Sub-PR 2 (順位 42/43/46) は段階 land 完了で消滅、本 task は単独で `unwrap_or_else(\|_\| empty)` silent fail 抑止 + cli-pr-monitor mock infra として独立着手可) |
-| 51 | 🚀 Tier 1 | **`.takt/review-diff.txt` を fix→review iteration 間で refresh (PR #103 観測)** | todo7.md | M | なし (Status update 2026-06-06: 採用案 C = `fix.md` instruction 追加は land 済、残作業 = dogfood 観測のみ、6-iter outlier 解消確認後に削除可) |
 | 52 | 💎 Tier 3 | **comment-lint hook の MultiEdit 対応 (順位 50 follow-up)** | todo7.md | S | なし (順位 50 で v1 = Edit のみ実装、MultiEdit は whole-file fallback で no-regression、利用頻度低く優先度は低) |
 | 60 | 💎 Tier 3 | **analyze-session の transcript filter 絞り込み (旧 #A-3)** | todo7.md | M | なし (旧 docs/pipeline-token-efficiency.md #A-3、ADR-036/037 化に伴い計画書削除、本 task のみ todo に移管。analyze-session の input range を PR 作成 commit〜merge に限定して input token 30-50% 削減見込み、dogfood で実測必要) |
 | 61 | 🔧 Tier 2 | **`check-ci-coderabbit` に CR review.body parse 機能追加 — outside-diff-range finding の programmatic 検出 (PR #108 T2-1 採用、PR #172 仕組み化方針切替 2026-05-25)** | todo7.md | M | なし (Status update 2026-06-06: 旧依存 順位 45 = `--list-findings` Rust モードは PR #101 で land 済、本 task は `source: "inline" \| "review_body"` field 追加で同型 finding 化、手動 checklist (= 当初 rule 案) を programmatic 検出で置換、`feedback_pipeline_over_rules.md` 適用、analyze-coderabbit 連携で merge 前検出を構造化、即着手可能) |

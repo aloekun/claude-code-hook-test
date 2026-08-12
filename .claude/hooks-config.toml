@@ -47,13 +47,20 @@ stale_check_enabled = true
 # 派生プロジェクト deploy 時は default OFF (ADR-039 § 1 opt-in 契約) を維持。
 # 次 PR (PR-3) で `[features].enabled` allow-list 方式に移行予定 = 本 `enabled = true` は暫定。
 enabled = true
-reminder_threshold_days = 30       # ADR-070: 監査サイクル。週次 (7 日) だと routine 正常時も毎週発火しノイズになる
+# 2026-08-12 ユーザー判断で 30 → 7 に差し戻し: ADR-070 の 30 日 (監査サイクル) は cloud routine が
+# 週 1 で成果物を届けている正常稼働が前提だが、移行 (#354) 後の成果物デリバリが未確立
+# (weekly-reviews/ に 2026-07-19 以降のレポートなし + last-run が dead pointer)。前提不成立の間は
+# 7 日で鳴らしてリカバリ作業の滞留を防ぐ。30 日への再引き上げは todo22.md
+# 「weekly-review 成果物の保存問題」の解消 (デリバリ確立) 後に再評価する。
+reminder_threshold_days = 7
 failed_marker_check_enabled = true # 前回ローカル実行の失敗 marker 検出 → resume promote。false で staleness のみに限定可
-# ADR-059 (試験運用、判定期限 2026-08-16): reminder 発火時に systemMessage (ユーザー可視 1 行) を
+# ADR-059 (採用 2026-08-12): reminder 発火時に systemMessage (ユーザー可視 1 行) を
 # additionalContext と併せて出し、「発火しているのにユーザーに見えない」silent 化を解消する。
+# 判定確定: CLI はプロンプト前に描画する / VSCode 拡張は描画せず additionalContext の
+# defense-in-depth (モデルによる冒頭言及) が代替する (2026-08-12 運用観測、ADR-059 § 確定判定)。
 # source default OFF (派生 repo deploy 時は本行を置かない = additionalContext のみの従来挙動)。
-# 本リポジトリは dogfood のため true。systemMessage のみ止めたい場合は false
-# (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
+# systemMessage のみ止めたい場合は false (additionalContext の nudge は継続)。
+# reminder 自体の停止は上の enabled = false。
 system_message_enabled = true
 
 # [session_start.monthly_review_reminder]
@@ -70,9 +77,10 @@ system_message_enabled = true
 # (code default は unwrap_or(false)、本行を置かなければ完全 skip)。
 enabled = true
 threshold_days = 28                # ADR-053/061 の撤去粒度「4 週間」と整合 (月次粒度)
-# ADR-059: reminder 発火時に systemMessage (ユーザー可視 1 行) を additionalContext と併せて出す。
-# source default OFF。本リポジトリは dogfood のため true。systemMessage のみ止めたい場合は false
-# (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
+# ADR-059 (採用 2026-08-12): reminder 発火時に systemMessage (ユーザー可視 1 行) を additionalContext と
+# 併せて出す。判定確定: CLI は描画 / VSCode 拡張は非描画で additionalContext の defense-in-depth が代替
+# (本 reminder の運用観測が判定根拠。ADR-059 § 確定判定)。source default OFF。systemMessage のみ
+# 止めたい場合は false (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
 system_message_enabled = true
 
 # ─── PreToolUse: コマンド検証 ───
@@ -262,7 +270,8 @@ cmd = "pnpm test:e2e"
 name = "build"
 cmd = "pnpm build"
 
-# 順位 147 / PR-W5 (file-length-enforcement-plan.md): file-length Stop gate。
+# 順位 147 / PR-W5: file-length Stop gate (旧 file-length-enforcement-plan、
+# 2026-08-12 完了・削除。分割制約は docs/dev-conventions.md § Rust ファイル分割の制約条件 へ移設)。
 # PR 範囲 (base branch..@) の .rs file が 800 行超なら Stop を block する強制層。
 #
 # cmd は OS のシェル経由で実行される (Windows: cmd.exe / Linux: sh、WP-15)。
@@ -287,8 +296,10 @@ cmd = '{{CLAUDE_DIR}}/hooks-post-tool-comment-lint-rust{{EXE_SUFFIX}} --check-mo
 #     本 repo は Phase 1 (PR-W1〜W4) の clean state を dogfood するため enabled = true。
 #   - Kill-switch: 恒久停止は enabled = false。緊急バイパスは env
 #     FILE_LENGTH_CHECK_OVERRIDE=1 (truthy 値、順位 151 pr_size_check と同 pattern)。
-#   - Bounded lifetime: 採否判定は file-length-enforcement-plan.md 削除条件 3
-#     (override 未使用で 1-2 セッション通過) を trigger とする。
+#   - Bounded lifetime: 本採用 (2026-08-12)。削除条件 1-3 (PR-W0〜W5 全マージ
+#     #219/#220/#224/#230/#231/#234 / 800 行超 .rs 0 件 (2026-08-12 実測) /
+#     OVERRIDE 未使用 6 週間 (land 2026-07-02 から全 push が gate 通過)) の
+#     充足を確認して計画書を削除した。
 #
 # base: PR 範囲算出の base branch (省略時 "master"、ADR-021 § Revset Composability で引数化)。
 [file_length_gate]

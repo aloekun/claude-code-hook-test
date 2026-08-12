@@ -16,8 +16,8 @@
 //!   § 1.b mechanical lint 例外 (default ON) には該当せず、§ 1 opt-in を適用する。
 //! - **Kill-switch**: 緊急バイパスは env `FILE_LENGTH_CHECK_OVERRIDE` (truthy 値で skip、
 //!   順位 151 `pr_size_check` と同 pattern)。恒久停止は `enabled = false`。
-//! - **Bounded lifetime**: 採否判定基準は `docs/file-length-enforcement-plan.md`
-//!   削除条件 3 (override 未使用で 1-2 セッション通過) を trigger とする。
+//! - **Bounded lifetime**: 本採用確定 (2026-08-12、旧 file-length-enforcement-plan の
+//!   削除条件充足)。分割制約は docs/dev-conventions.md § Rust ファイル分割の制約条件。
 //!
 //! # Fail-closed (ADR-043)
 //!

@@ -2,7 +2,7 @@
 
 > **本ファイルの位置付け**: `docs/todo-summary.md` から「完了済 Bundle / post-merge-feedback 反映」の長文 paragraph を切り出した history 専用ファイル (2026-05-25 分離、todo-summary.md 50KB 超過解消)。サマリーは index 専用責務に集中、本ファイルは Bundle 単位の経緯 / 採用判定 / Sub-PR 構成等を時系列で蓄積する。
 >
-> **更新方針**: 新規 Bundle の post-merge-feedback 反映時に **本ファイル末尾に追記**。Bundle 単位の paragraph は完了後も残し、reference value として保持する (削除しない)。新規 task entry は引き続き `docs/todoN.md` 系列に登録、本ファイルは「採用判定の経緯」のみ codify する。
+> **更新方針 (2026-08-12 改訂)**: **本ファイルへの追記は PR #168 (2026-05-21) で終了した**。以降の post-merge-feedback 採否は `docs/todo-summary2.md` + 各 `docs/todoN.md` (採否サマリー表・却下記録) + `.claude/feedback-reports/` が正であり、Bundle 単位の経緯記録は行っていない。既存 paragraph は reference value として保持する (削除しない)。
 >
 > **関連**: [docs/todo-summary.md](todo-summary.md) (現役 task の優先度 index) / [docs/todo*.md](todo.md) (現役 task 詳細) / `~/.claude/memory/feedback_*.md` (session-specific 補足)
 

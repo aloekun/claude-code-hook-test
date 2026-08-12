@@ -5,6 +5,26 @@
 #
 # プロジェクトに合わせて quality_gate.groups の commands を変更すること。
 
+# ---------------------------------------------------------------------------
+# [docs_only_routing] — docs-only PR の決定論 routing (ADR-057、2026-08-12 採用・default-ON)。
+# PR 範囲 (`<default_branch>..@`) が docs-only (ADR-035 path 基準) のとき、diff で結果が
+# 変わり得ない Rust の quality_gate group (既定 `rust-lint-test`) を quality_gate 前に
+# 決定論的に skip する。takt (AI レビュー) と JS 系 group は skip しない。
+# 採用根拠: 51 docs-only run の dogfood で誤 skip 0・判定と skip の整合破れ 0
+# (docs/adr/adr-057-docs-only-deterministic-routing.md の「確定判定」参照)。
+#
+# base branch は top-level の `default_branch` から解決される (未設定なら "master")。
+# `skip_groups` 未指定時は ["rust-lint-test"]。Rust group を持たないプロジェクトでは
+# skip 対象が無く実質 no-op。
+# Kill-switch: `enabled = false` で完全停止 (section 不在 / enabled 未設定も完全 skip =
+# 全 group 実行)。env `DOCS_ONLY_ROUTING_DISABLE=1` で個別 push の意図的バイパス
+# (docs-only でも Rust gate を強制実行したいとき)。
+# fail-closed (ADR-043): jj 失敗 / summary parse 不能 / 除外パス混入時は全 group を実行する。
+# ---------------------------------------------------------------------------
+[docs_only_routing]
+enabled = true
+skip_groups = ["rust-lint-test"]
+
 [quality_gate]
 parallel = true
 step_timeout = 120
@@ -76,6 +96,22 @@ output_path = ".takt/review-diff.txt"
 # 却下し、workflow / facet 群も削除済み。section 不在 = 現行 pre-push-review を
 # 使う (resolve_takt_workflow の default)。詳細: docs/adr/adr-047-prepush-refute-facet.md
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# [post_takt_regate] — fix 後の決定論再ゲート (ADR-058、2026-08-12 採用・default-ON)。
+# takt (reviewers → fix loop) が作業コピーを書き換えた場合にのみ quality_gate 全 group を
+# 再実行し、FAIL なら push せず中断する (fail-closed、ADR-043)。fix step の自己申告
+# (虚偽ではないが検証不足の fully_resolved) を機械的 backstop で塞ぐ。fix が変更しなかった
+# run では skip され実質 0 コスト。採用根拠: 212 run dogfood で no_change 70.8% /
+# 誤 block 1 件のみ (docs/adr/adr-058-post-takt-regate.md の「確定判定」参照)。
+#
+# 変化検出は [diff] の snapshot 前後比較に依る。[diff] 未設定では pre snapshot が取れず
+# fail-closed で毎回再実行される (安全側だが常時コスト)。
+# Kill-switch: `enabled = false` で完全停止 (section 不在 / enabled 未設定も skip =
+# takt 後に再検証なし)。env `POST_TAKT_REGATE_DISABLE=1` で個別 push の意図的バイパス。
+# ---------------------------------------------------------------------------
+[post_takt_regate]
+enabled = true
 
 [takt]
 workflow = "pre-push-review"

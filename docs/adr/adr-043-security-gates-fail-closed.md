@@ -146,6 +146,16 @@ PR #194 commit `dfad56ff` で `build_todo_staleness_message` 内の `let stale =
 - 期間: 2026-06-04 から最低 3 PR の review
 - 本採用判断: 3 PR の review で fail-open 指摘が CR / reviewer から再発しなければ stable 昇格、再発があれば本 ADR の不足を分析して原則追加
 
+## Amendment (2026-08-12): auto-push gate は即 escalation 運用を恒久化 (B1-loop NO-GO)
+
+PR #224 の auto-push gate-bypass 是正 (A1: fix.md の虚偽 `fully_resolved` 抑止 / B1: cli-pr-monitor `stages/gate.rs` の決定論 gate + FAIL 時即 escalation) の dogfood 観測 (2026-07-03〜08-12、`docs/auto-push-gate-dogfood.md`、本 amendment への転記をもって削除) に基づき、**B1-loop (gate FAIL 時の自動修復ループ) は実装しない (NO-GO)**。gate FAIL 時は即 escalation (人間へ引き継ぎ) を恒久運用とする。
+
+判定根拠:
+
+1. **gate FAIL の観測記録が 6 週間で 1 件も取れなかった**。ただしこれは「FAIL が 0 件だった」ことを意味しない — cli-pr-monitor は lib-telemetry 未統合で、gate 結果 (`[gate] PASS/FAIL` / `[decision] gate:`) は stdout にしか出ず永続化されない。**観測手段の欠落**により GO 条件 (FAIL 2 件以上) の成立を立証できる経路が存在しなかった (この観測欠落自体の再発防止は「決定論 gate 結果の telemetry 統合」として todo 台帳へ起票済み)。
+2. **前提経路の消滅**: WP-17 PR 3 (#353) の single-shot 化でローカル monitor プロセス内の auto-push 経路は縮退し、未確定 PR の後続処理は GitHub Actions 経路 (ADR-067 Phase B) へ移行済み。B1-loop の設計 (monitor プロセス内の同期反復) は現アーキテクチャと非整合。
+3. gate FAIL 件数は観測不能で GO 条件 (FAIL 2 件以上) の成立を検証できず (「記録 0 件」は「実際 0 件」を意味しない)、ループの複雑さ (専用 workflow + 反復制御) に見合う需要の証跡がない。観測不能は fail-closed 側 = 追加自動化を作らない方向へ倒す。
+
 ## 参照
 
 - PR #194 (`feat(hooks): merge 前 mechanical gate 強化 (clippy + 空 commit sweep)`) commit `dfad56ff`: `behind?` → `is_none_or` 修正

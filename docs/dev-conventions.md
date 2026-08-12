@@ -95,3 +95,34 @@ LLM を step に含む workflow / パイプラインを**新規に組んだと�
 4. **最初の失敗で停止する経路では、1 回の実走で見つかるバグは高々 1 個** — 実行がそこで止まるため、n 個のバグには n 回の実走が要る。見積もりは「1 サイクル 1 バグ」を前提に置く。並列実行する経路や失敗しても継続する経路 (`continue-on-error` 等) では 1 回で複数検出できるため、この前提は当てはまらない — **対象経路の停止条件を確認してから見積もること**。
 
 **由来** (2026-08-04 WP-17 段 2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録): Phase B 無人 fix push の実走スモークで `workflow_dispatch` を 4 回要し、うち 3 回が上記の静的検査すり抜けバグの検出に費やされた。1〜3 回目は毎回マージしており、それが不要な手戻りだったことも同時に判明した。
+
+## Rust ファイル分割の制約条件 (file-length-enforcement-plan 移設、2026-08-12)
+
+> 出典: docs/file-length-enforcement-plan.md (PR-W0〜W5 全完了により 2026-08-12 削除)。経緯は git log を参照。800 行超 `.rs` file の module 分割 (mechanical file split refactor) に適用する制約・手順の要旨。
+
+### 分割時の制約 (Write 時の遵守事項)
+
+1. **behavior 不変** — 関数 signature 変更 / field rename / default 値変更をしない。機械的な移動 + visibility 調整のみ。test count も分割前後で一致させる (着手前に master HEAD で baseline を測定)。
+2. **Cross-module visibility は `pub(crate)`** — 別 module から参照する struct / function は `pub(crate)` を付与。`pub` は crate 外公開を意味するため使わない (binary crate では効果なし、library crate なら API contract 化)。
+3. **test helper は per-module duplicate** — `unique_temp_root` 等の test helper は共有 module を抽出せず、各 test module に独立 copy する (memory `feedback_test_dry_antipattern` per)。共有 test util module は anti-pattern。
+4. **`// foo` 非 doc コメントは移動時に削除** — 関数 body 内の非 doc コメントは Bundle Z #B-α rule で block される。pre-existing コメントを carry over しない (PR-3a #217 で 16 violations 同時発生の失敗事例あり)。許可されるのは `///` / `//!` / `// SAFETY:` / `// NOTE:` のみ。意図は関数名 / 分割で表現する。
+5. **関数長 50 行 / 分割後の全 file ≤ 800 行** — 新 helper 関数が 50 行を超えたらさらに分割。分割後 module が 800 行を超えるなら sub-split。
+
+### Cargo.lock 競合時の rebase 手順 (並列 PR)
+
+workspace 全体で 1 つの `Cargo.lock` を共有するため、並列 PR の先行 merge で後発 PR に rebase が必要になる:
+
+```bash
+jj git fetch
+jj rebase -d master@origin   # ローカル master は auto-track 設定に依存して stale になり得るため remote 基準 (ADR-013/045 と同じ)
+cargo build --workspace   # Cargo.lock 再生成
+jj describe -m "<元の commit message>"   # rebase 後の commit に再 describe
+pnpm push
+```
+
+[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の並列 workspace 運用 (`jj git fetch` + `jj rebase -d master@origin` で取り込んでから push) と同型。
+
+### override env の正当な use case
+
+- **`PR_SIZE_CHECK_OVERRIDE=1`** (push-runner `pr_size_check`): 大型 mechanical refactor (削除≒追加、behavior 不変、test count 不変) で diff が block_threshold を超えるとき。PR description に「mechanical refactor、behavior 不変、test count 不変」を明記する ([PR chain の分割と宣言](#pr-chain-の分割と宣言-adr-069) の項 2 とも整合)。
+- **`FILE_LENGTH_CHECK_OVERRIDE=1`** (Stop hook file-length gate、`.claude/hooks-config.toml` `[file_length_gate]`): emergency バイパス専用 (truthy 値で skip、恒久停止は `enabled = false`)。日常運用では使わない — 旧計画書の削除条件 3 (override 未使用で gate 通過が継続) は land 2026-07-02 から 6 週間の全 push で充足を確認し、gate は 2026-08-12 に本採用となった。

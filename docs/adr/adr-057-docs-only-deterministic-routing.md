@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-07-18) / **dogfood 中 (判定期限 2026-08-15)**
+**採用 (2026-08-12)**
 
 > 本 ADR は [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) の
 > 対象。ランタイム機能なので 3 点セット (config opt-in / kill-switch / bounded lifetime) を
@@ -41,7 +41,7 @@ diff が完全に空 (レビュー対象なし) のケースは `main.rs` の
 `run_diff_and_lint_screen` が `DiffResult::Empty` で takt を skip する経路が既にある。
 本 ADR は **docs はあるが code は無い** ケース (空 diff ではない) を扱う。
 
-## 決定 (試験運用)
+## 決定 (2026-08-12 採用確定 — 起案時は試験運用)
 
 ### docs-only 判定を決定論層に昇格する
 
@@ -87,14 +87,29 @@ path 文字列からは判定できないため本 crate は扱わない。該�
 
 - **Config opt-in**: `push-runner-config.toml` の `[docs_only_routing]` section で
   default OFF。section 不在 / `enabled != true` は完全 skip (= 従来どおり全 group 実行)。
-  本リポジトリは `enabled = true` で dogfood。派生 repo の templates は section を置かない。
+  本リポジトリは `enabled = true` で dogfood。2026-08-12 採用に伴い templates へ
+  default-ON で反映 (試験運用中は「派生 repo の templates は section を置かない」だった)。
 - **Kill-switch**: `enabled = false` で完全停止。env `DOCS_ONLY_ROUTING_DISABLE=1` で
   個別 push の意図的バイパス (docs-only でも Rust gate を強制実行したいとき)。
-- **Bounded lifetime**: dogfood 開始 (2026-07-18) から約 4 週間 = **判定期限 2026-08-15**。
-  3-5 docs-only PR の dogfood で **誤 skip** (docs-only と判定されたが実は Rust に影響していた)
-  が無いことを確認できたら default-ON 昇格 (templates へ反映)、観測されたら却下。判定結果は
-  本 ADR のステータス行 + `push-runner-config.toml` の `[docs_only_routing]` コメント +
-  `src/cli-push-runner/src/stages/docs_only_routing.rs` module doc に反映する。
+- **Bounded lifetime — 判定済み (2026-08-12 採用、下記確定判定)**。当初の設計 (履歴):
+  dogfood 開始 (2026-07-18) から約 4 週間 = 判定期限 2026-08-15。3-5 docs-only PR の dogfood で
+  **誤 skip** (docs-only と判定されたが実は Rust に影響していた) が無いことを確認できたら
+  default-ON 昇格 (templates へ反映)、観測されたら却下。判定結果は本 ADR のステータス行 +
+  `push-runner-config.toml` の `[docs_only_routing]` コメント +
+  `src/cli-push-runner/src/stages/docs_only_routing.rs` module doc に反映する — 3 箇所とも反映済み。
+
+  **確定判定 (2026-08-12、push-runs telemetry 212 record / 2026-07-18〜08-11)**:
+
+  - **dogfood 実績**: 212 push run 中 docs_only=true 51 run (24.1%)、対象 22 bookmark —
+    要求「3-5 docs-only PR」を大幅超過。
+  - **整合性**: docs_only=true の 51/51 で `skipped_groups=["rust-lint-test"]`、false の
+    161/161 で skip なし = 判定と skip の対応に破れ 0。
+  - **効果**: quality_gate 実測 3.2s (skip) vs 57.4s (フル) = **-54.2s/run、51 run 累計
+    約 46 分** (見積もり -~50s と一致)。
+  - **誤 skip**: 積極的証跡なし (docs-only 51 run に Rust gate 起因の失敗形跡なし)。さらに
+    fix 発生時は ADR-058 re-gate がフル gate を再実行して安全網として実発火した例が 2 件
+    (2026-08-04 / 08-11)。
+  - **判定**: **採用、default-ON 昇格 (templates へ反映)**。
 
 ## 影響
 

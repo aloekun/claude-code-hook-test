@@ -7,7 +7,10 @@
 //! のみ書き込む。cloud routine は使い捨てクローンで動くため書き込んでも破棄され、この値は
 //! routine 実行では更新されない。したがって本 reminder は **cloud routine の実行を観測できない** —
 //! 発火は「routine が止まっている」の証拠ではなく、定期的な監査を促す助言に過ぎない。
-//! threshold も週次サイクル (7 日) ではなく監査サイクル (既定 30 日) に合わせてある。
+//! threshold の source default は監査サイクル (30 日) だが、本リポジトリの config は 7 日に
+//! 差し戻して運用中 (2026-08-12 — routine の成果物デリバリ未確立のため。hooks-config.toml 参照)。
+//! ADR-059 (systemMessage 併用) は 2026-08-12 採用確定: CLI は描画 / VSCode 拡張は非描画で
+//! additionalContext の defense-in-depth が代替する (ADR-059 § 確定判定)。
 //!
 //! 2 種類の reminder を発火:
 //!   - last-run staleness: 上記 `last_run_at` が `reminder_threshold_days` を超えていれば

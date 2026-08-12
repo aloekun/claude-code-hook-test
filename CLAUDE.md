@@ -56,10 +56,10 @@
 - [ADR-053: Stop hook による tool call leak 検知](docs/adr/adr-053-stop-tool-call-leak-detection.md) *(試験運用)*
 - [ADR-054: prompt injection 信頼境界の 3 層防御](docs/adr/adr-054-prompt-injection-trust-boundary-defense.md) *(試験運用)*
 - [ADR-055: 発火テレメトリ収集層 — ハーネス ROI 棚卸しの決定論的観測基盤](docs/adr/adr-055-firing-telemetry-collection.md) *(試験運用)*
-- [ADR-056: takt builtin review policy の shadow — policy 層を anomaly 設計に整合させる](docs/adr/adr-056-review-policy-anomaly-shadow.md) *(試験運用)*
-- [ADR-057: docs-only / 空 diff の決定論 routing — instruction 規約から決定論機構への昇格](docs/adr/adr-057-docs-only-deterministic-routing.md) *(試験運用)*
-- [ADR-058: fix 後の決定論再ゲート (post-takt re-gate) — pre-push 経路への機械的 backstop 拡張](docs/adr/adr-058-post-takt-regate.md) *(試験運用)*
-- [ADR-059: hook 通知の可視化チャネル分離 (systemMessage = ユーザー向け / additionalContext = モデル向け)](docs/adr/adr-059-hook-system-message-visibility.md) *(試験運用)*
+- [ADR-056: takt builtin review policy の shadow — policy 層を anomaly 設計に整合させる](docs/adr/adr-056-review-policy-anomaly-shadow.md) *(採用)*
+- [ADR-057: docs-only / 空 diff の決定論 routing — instruction 規約から決定論機構への昇格](docs/adr/adr-057-docs-only-deterministic-routing.md) *(採用)*
+- [ADR-058: fix 後の決定論再ゲート (post-takt re-gate) — pre-push 経路への機械的 backstop 拡張](docs/adr/adr-058-post-takt-regate.md) *(採用)*
+- [ADR-059: hook 通知の可視化チャネル分離 (systemMessage = ユーザー向け / additionalContext = モデル向け)](docs/adr/adr-059-hook-system-message-visibility.md) *(採用)*
 - [ADR-060: Cloud ハーネス有効化 — tracked dispatcher 登録 + SessionStart 実体確保の 2 層分離](docs/adr/adr-060-cloud-harness-sessionstart-dispatcher.md) *(試験運用)*
 - [ADR-061: tool call leak の hard-fail 経路対応 — Stop 不発火の回収層 + scan_tail 合成エントリ耐性](docs/adr/adr-061-tool-call-leak-hardfail-recovery.md) *(試験運用)*
 - [ADR-062: 月次ハーネス ROI レビュー — telemetry 発火実績によるハーネス複雑度の棚卸し (WP-12 step 2/3)](docs/adr/adr-062-monthly-harness-roi-review.md) *(試験運用)*

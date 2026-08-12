@@ -2,8 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-07-17) / **dogfood 中 (判定期限 2026-07-31)** /
-**採否判定ドラフト: 延長推奨 (2026-07-18、速度基準は未達だが finding 品質目標は達成・交絡あり。下記参照)**
+**採用 (2026-08-12)**
 
 > 本 ADR は [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) の
 > 対象。ただし prompt-contract の変更でありランタイム機能ではないため、config opt-in /
@@ -190,6 +189,12 @@ T10 の受け入れ基準に準拠する:
 
 判定結果は本 ADR に追記する。
 
+> **速度基準の取り下げ (2026-08-12 確定判定)**: 確定判定で速度目標 (203s→150s) は取り下げた。
+> 203s は refute 期 24 run の baseline で、全期間 baseline は avg 162.6s / median 129.7s
+> (checklist era 70 run) — 比較軸が baseline の取り方に依存し不成立。diff サイズの交絡も未解消。
+> 受け入れ基準は本 ADR が用意していた退避路どおり「finding 品質 (checklist ノイズ 0)」に
+> 再解釈した。
+
 ## トレードオフ / 留意点
 
 - **二重 miss リスク**: builtin checklist が拾っていた真の問題を anomaly 基準が拾えない
@@ -259,6 +264,54 @@ T10 の受け入れ基準に準拠する:
 > (却下推奨) とは判定が分かれる — refute は便益 0 で却下寄り、policy shadow は品質目標を達成し延長寄り。
 > 両者の dogfood 期間が重なる交絡は、refute の verify 却下が 0 件だったことで「fix iteration 減は
 > policy 起因」と分離できている (ADR-047 判定ドラフト参照)。
+
+## 確定判定 (2026-08-12): 採用
+
+確定判定 (2026-08-12)。使用した母集団は 3 つで、それぞれ観測層が異なる (単一 corpus からの
+再計算は不可能 — 速度と verdict は takt run ログにしか無く、push 全体の文脈は push-runs にしか無い):
+
+- **速度 (n=214)**: `.takt/runs/*/logs/*.jsonl` の phase timing のうち、anomaly era
+  (2026-07-17 の T10 land 以降) の simplicity-review execute phase 全件。
+- **verdict 分布 (n=207)**: 同 era の `reports/simplicity-review.md` のうち `## Result:` 行が
+  機械抽出できた run (レポートは run ごとに上書きされるため最終 iteration の verdict のみ。
+  抽出不能な旧形式は除外 — checklist era 側に 27 件存在)。214 との差は execute phase はあるが
+  レポートに Result 行が残らなかった run。
+- **push-runs telemetry 212 record (2026-07-18〜08-11)**: push パイプライン全体の文脈
+  (docs-only / re-gate 分岐等、ADR-057/058 の判定と共通の corpus)。本 ADR では補助参照であり、
+  速度・verdict の分母には使っていない。
+
+### 速度: 目標取り下げ
+
+anomaly era 214 run で execute avg 169.5s / median 155.0s (checklist era: avg 162.6 /
+median 129.7)。速度目標 (203s → 150s) は未達のため取り下げた — 203s は refute 期 24 run の
+baseline であり、全期間 baseline (checklist era 70 run: avg 162.6s / median 129.7s) と
+比較軸が baseline の取り方に依存して不成立。diff サイズの交絡も未解消。受け入れ基準は
+§採否判定基準に記載のとおり「finding 品質 (checklist ノイズ 0)」に再解釈した。
+
+### finding 品質: 設計目標達成
+
+anomaly era REJECT 25/207 run (12.1%)、うち 13 件サンプルで checklist 型 REJECT
+(DRY/TODO 単独) は **0 件** — 設計目標達成。
+
+### 二重 miss の訂正
+
+ドラフトの「二重 miss の不発生 ✅ (暫定)」は**誤り**。anomaly era の merged PR 21 件突合で、
+pre-push APPROVE 後に CodeRabbit が Critical/Major を出した**スコープ内の miss が
+10 件 / 6 PR** あった (Critical 3 件はすべて PR #313 `stages/diff.rs` — pre-push security
+reviewer が当該コードを名指しで「coverage バイパス経路なし」と結論して APPROVE していた。
+他は #327 / #329 / #330×3 / #369)。
+
+ただし「policy 撤去が原因」の因果は未証明: 見逃しの大半 (新規 fail-closed 検査の論理的抜け /
+Unicode bidi mark の網羅漏れ / 月次ロールアップの状態遷移) は旧 builtin checklist でも
+拾えたとは考えにくい種類。反実仮想の検証には A/B が必要。
+
+CodeRabbit 層が 10 件全件を merge 前に捕捉した = ADR-019/ADR-036 の三層レビュー設計が
+想定どおり機能した証拠としてここに記録する。
+
+### 却下条件の精緻化
+
+「二重 miss ≥1 件」ではなく「**anomaly 基準では原理的に拾えないが checklist なら拾えた種類**の
+二重 miss ≥1 件」を今後の再評価トリガーとする。
 
 ## 関連 ADR
 

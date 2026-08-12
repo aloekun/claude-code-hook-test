@@ -12,8 +12,10 @@
 `phaseExecutionId` で一意対応する。`duration = phase_complete.timestamp - phase_start.timestamp`。
 抽出は再現ツール `cli-takt-timings` (`src/cli-takt-timings/`、旧 `scripts/analyze-takt-timings.ps1` を WP-14 で Rust 化) に集約。
 
-**本表は 2026-07-18 時点の観測スナップショット** (ADR-047/056 の R4 判定はまだ確定していない。
-判定期限は 2026-07-31)。本 doc を publish する push 自身が run 集合に混入して観測対象を変えて
+**本表は 2026-07-18 時点の観測スナップショット** (R4 判定の現在地: **ADR-047 は 2026-07-19 に
+却下確定・refute workflow 撤去済み**。ADR-056 の判定は同 ADR のステータス行を参照 — 経緯は
+[push-pipeline-fix-plan2.md](push-pipeline-fix-plan2.md) R4)。
+本 doc を publish する push 自身が run 集合に混入して観測対象を変えて
 しまう問題を避けるため、`--until` でこのスナップショット取得時点以降の push の run を除外して
 再現する:
 
@@ -21,8 +23,9 @@
 # 観測スナップショットの再現 (2026-07-18T13:00:00Z 以前の run のみ):
 pnpm takt-timings -- --piece pre-push-review-refute --until 2026-07-18T13:00:00Z
 pnpm takt-timings -- --piece pre-push-review --since 2000-01-01 --until 2026-07-18T13:00:00Z
-# 最新 (rolling) を見る場合は --until を外す。ADR-047/056 の判定 (期限 2026-07-31) が確定するまでは
-# refute も非 refute (pre-push-review) も毎 push 増え続ける。
+# 最新 (rolling) を見る場合は --until を外す。ADR-047 (却下 2026-07-19) / ADR-056 (採用 2026-08-12) の
+# 判定は確定済み。refute run は撤去済みで増えないが、非 refute (pre-push-review) は毎 push 増え続ける
+# ため、スナップショット再現には --until が引き続き必要。
 ```
 
 `n` は phase 実行回数 (fix loop の iteration を含むため run 数より多くなり得る)。所要時間は秒。

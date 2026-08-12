@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-07-18) / **dogfood 中 (判定期限 2026-08-15)**
+**採用 (2026-08-12)**
 
 > 本 ADR は [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) の
 > 対象。ランタイム機能なので 3 点セット (config opt-in / kill-switch / bounded lifetime) を
@@ -40,7 +40,7 @@ auto-push 前に実行) で塞がれた ([ADR-037](adr-037-takt-fix-trust-shortc
 fix execute 平均 296s の主因だった。同じ `--ignored` スイートを fix iteration ごとに払うのは
 冗長で、決定論 gate で 1 度だけ払う方が速く、かつ自己申告より信頼できる。
 
-## 決定 (試験運用)
+## 決定 (2026-08-12 採用確定 — 起案時は試験運用)
 
 ### pre-push に post-takt re-gate stage を追加する
 
@@ -111,16 +111,40 @@ fix が走らなかった run では 0 コスト。
 
 - **Config opt-in**: `push-runner-config.toml` の `[post_takt_regate]` section で default OFF。
   section 不在 / `enabled != true` は完全 skip (= takt 後に再検証なし = 従来挙動)。
-  本リポジトリは `enabled = true` で dogfood。派生 repo の templates は section を置かない。
+  本リポジトリは `enabled = true` で dogfood。2026-08-12 採用に伴い templates へ
+  default-ON で反映 (試験運用中は「派生 repo の templates は section を置かない」だった)。
 - **Kill-switch**: `enabled = false` で完全停止。env `POST_TAKT_REGATE_DISABLE=1` で個別 push の
   意図的バイパス。**バイパス時は fix.md の `--ignored` 自己検証も縮小済みのため workspace +
   `--ignored` の検証が抜ける** — 意図的バイパス時のみの trade-off として fix.md の delegation
   注記に明記した (cross-config coupling、[ADR-051](adr-051-cross-system-config-coupling.md))。
-- **Bounded lifetime**: dogfood 開始 (2026-07-18) から約 4 週間 = **判定期限 2026-08-15**
-  (ADR-057 と同期)。fix 発生 push で re-gate が破壊的変更を検出して block する効果と、
-  誤 block (fix が実は無害な変更なのに gate が落ちる) の頻度を観測後、default-ON 昇格 or 却下を
-  判定。判定結果は本 ADR のステータス行 + `push-runner-config.toml` の `[post_takt_regate]`
-  コメント + `src/cli-push-runner/src/stages/post_takt_regate.rs` module doc に反映する。
+- **Bounded lifetime — 判定済み (2026-08-12 採用、下記確定判定)**。当初の設計 (履歴):
+  dogfood 開始 (2026-07-18) から約 4 週間 = 判定期限 2026-08-15 (ADR-057 と同期)。fix 発生
+  push で re-gate が破壊的変更を検出して block する効果と、誤 block (fix が実は無害な変更なのに
+  gate が落ちる) の頻度を観測後、default-ON 昇格 or 却下を判定。判定結果は本 ADR のステータス行 +
+  `push-runner-config.toml` の `[post_takt_regate]` コメント +
+  `src/cli-push-runner/src/stages/post_takt_regate.rs` module doc に反映する — 3 箇所とも反映済み。
+
+### 確定判定 (2026-08-12): 採用
+
+push-runs telemetry 212 record (2026-07-18〜08-11) の集計に基づく確定判定。
+
+- **分岐分布 (212 run)**: no_change 150 (70.8%、stage 所要 0.1-0.2s = 設計どおり実質
+  0 コスト) / changed_pass 33 / changed_block 1 / not_run 28。
+- **re-gate 実走コスト**: 実走 34 run の stage 所要 avg 58.7s、累計約 33 分 / 25 日。
+- **changed_block 1 件 (2026-07-20、`fix/prepush-review-pr-range`) は追加調査で誤 block と
+  確定**: 落ちたのは PR が 1 行も触っていない `lib-jj-helpers` の並行性テスト
+  `concurrent_stale_takeover_only_one_wins` (flaky、30 連実行で失敗率 10% を実測)。fix の
+  成果物は無修正のまま後日 push が通り PR #313 にマージ済み。副産物としてこの flaky は実在の
+  production race を露呈させ PR #312 で根本修正された。
+- **集計**: **真の回帰検出 0 件 / 誤 block 1 件 (fix 発火 34 run 中 2.9%)**。
+- **採用理由 (実績ではなく構造)**:
+  1. fail-closed の代償 (誤 block 率 2.9%、累計 33 分) が低い。
+  2. 2026-08-03 以降 ADR-068 (fix 後退検知) が re-gate stage を器として利用しており、
+     既に別価値を持つ。
+  3. 却下すると fix.md の自己検証義務縮小 (本 ADR で実施) が宙に浮き、revert が必須の
+     連動作業になる (ADR-051 coupling)。
+- **留意 (記録)**: ADR-037 trust shortcut (fix は影響 crate のみ検証) × re-gate 全 group
+  再実行の組み合わせは flaky テストの当たり面を広げる — 対策検討は todo 台帳へ起票済み。
 
 ## 影響
 

@@ -4,8 +4,10 @@
 
 試験運用 (2026-04-25)
 
-- **Supersedes ADR-014**: full — `/post-merge-feedback` skill 自体を廃止し、takt workflow に置き換える
-- **Supersedes ADR-029**: partial — 層 3-4 (Claude session / skill 起動) を廃止。層 1 の `[[merge_pipeline.post_steps]]` `type = "ai"` スロットは流用するが、出力先を pending file から takt workflow 起動 + report file に変更する
+> **⚠ Supersede 方針の撤回 (2026-08-12)**: 以下 2 項は起案時の計画であり、**実施しないことが確定した** (§ 撤回記録 2026-08-12)。ADR-014 / ADR-029 のステータスは「試験運用」のまま維持し、本 ADR の L1/L2 と旧機構 (skill / hook 経路) の**併存構成が現行の正**である。
+
+- ~~**Supersedes ADR-014**: full — `/post-merge-feedback` skill 自体を廃止し、takt workflow に置き換える~~ (撤回)
+- ~~**Supersedes ADR-029**: partial — 層 3-4 (Claude session / skill 起動) を廃止。層 1 の `[[merge_pipeline.post_steps]]` `type = "ai"` スロットは流用するが、出力先を pending file から takt workflow 起動 + report file に変更する~~ (撤回。層 1 スロットの流用と report file 化自体は Phase B で実施済み)
 
 ## コンテキスト
 
@@ -367,7 +369,7 @@ workflow 名同士が部分文字列関係になってはいけない。「部�
 - skill が担っていた Phase 1-5 (PR 特定 → analyze-pr 呼び出し → セッション振り返り → 統合 → ユーザー承認) は、takt workflow の 4 facets + L2 recovery の組み合わせで再実装される
 - セッション知見へのアクセスは「skill がメイン会話内で動く」ことではなく「transcript 抽出」で達成する。Phase 0 で実現可能性を確認済
 
-ADR-014 のステータスを `Superseded by ADR-030` に更新する (Phase E で実施)。
+~~ADR-014 のステータスを `Superseded by ADR-030` に更新する (Phase E で実施)。~~ (撤回前の計画。Phase E 撤回 = 2026-08-12 により実施しない — § 撤回記録)
 
 #### ADR-029 (partial supersede)
 
@@ -375,7 +377,7 @@ ADR-014 のステータスを `Superseded by ADR-030` に更新する (Phase E �
 - **流用**: 層 1 の `[[merge_pipeline.post_steps]]` `type = "ai"` スロット — ADR-013 で予約された拡張ポイントを引き続き使う
 - **置換**: pending file 機構 (`hooks-stop-feedback-dispatch` / `lib-pending-file` / `.claude/post-merge-feedback-pending.json`) は廃止し、takt workflow 起動 + report file ベースに置き換える
 
-ADR-029 のステータスを `Superseded by ADR-030` に更新する (Phase E で実施)。
+~~ADR-029 のステータスを `Superseded by ADR-030` に更新する (Phase E で実施)。~~ (撤回前の計画。Phase E 撤回 = 2026-08-12 により実施しない — § 撤回記録。pending file 機構の廃止も撤回され現役)
 
 ### ADR-022 (責務分離原則) との整合性
 
@@ -451,8 +453,17 @@ PR #91 で実証された pathological loop:
 - **Phase C**: UserPromptSubmit hook — L2 Recovery (PR #80 で land)
 - **Phase D**: 廃止 (skill enrichment 不要、本 ADR 「検討した選択肢 D」参照)
 - **Phase D-7 (補完)**: L1 Drop guard + L2 orphan reaper + ADR-030 spec (PR #154 で land、Bundle c-1)
-- **Phase E**: 旧機構廃止 (Phase B/C dogfood 数回後の判断) — 進捗は `docs/todo-summary.md` の priority table で trackable
-- **Phase F**: dogfood 検証 — Phase E land 後の継続観察として priority table で trackable
+- **Phase E**: 旧機構廃止 — **撤回 (2026-08-12、下記 § 撤回記録)**
+- **Phase F**: dogfood 検証 — 長期運用実績で充足 (2026-08-12 判定、下記 § 撤回記録)
+
+### 撤回記録 (2026-08-12): Phase E (旧機構廃止) の撤回と Phase F の決着
+
+docs 棚卸しで Phase E の計画と実態の矛盾が顕在化したため、ユーザー判断で **Phase E を撤回**した。
+
+- **矛盾の内容**: Phase E は post-merge-feedback skill / `hooks-stop-feedback-dispatch` crate / `lib-pending-file` の削除と ADR-014/029 の Superseded 化を計画していたが、実態はこれらすべてが現在も稼働中 (skill は ADR-029 自動起動経路つきで deploy 済み、crate 2 つは `build:all` に配線、`.gitignore` の pending 行も現役)。稼働中の機構を計画どおり機械的に削除することはできず、かといって計画を放置すると「廃止予定」と「現役」の宣言が併存し続ける。
+- **判断**: 現行機構の稼働継続を正とし、廃止タスクを取り下げる。ADR-014 / ADR-029 のステータスは「試験運用」のまま維持し、本 ADR の L1/L2 と旧機構 (skill / hook 経路) は**併存構成が現行の正**である。本文中の「Phase E で実施」とある ADR-014/029 の Superseded 化も実施しない。
+- **Phase F の決着**: 専用の dogfood 検証は不要と判定。2026-04 の land 以降 3 か月超の運用で feedback report が全マージ PR で生成され続けており (`.claude/feedback-reports/` は #390 まで連続)、L1 Drop guard + L2 recovery (PR #154) も投入済み。silent loss 0 の実証は運用実績で充足した。
+- **台帳**: 該当 todo エントリ (todo.md) と priority table 行は 2026-08-12 に削除。派生プロジェクト反映タスクのみ任意タスクとして存続。
 
 ## 影響
 
