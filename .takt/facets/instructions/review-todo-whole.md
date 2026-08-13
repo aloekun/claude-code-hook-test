@@ -16,7 +16,7 @@ Your job is the **broad, cross-file, time-based decay** none of the above can se
 ## Reading the corpus
 
 1. `Glob docs/todo*.md` + `docs/todo-summary.md` + `docs/claude-code-web-tasks.md` — enumerate the whole corpus and note sizes.
-2. Read `docs/todo.md` の preamble (冒頭の使い分けルール) first — it defines the routing contract (新規は todo6.md へ、編集専用は todo2-7.md、順位 table は todo-summary.md 等).
+2. Read `docs/todo.md` の preamble (冒頭の使い分けルール) first — it defines the routing contract (どの todo file が現在の新規追加先か、どれが編集専用か、順位 table は `todo-summary*.md`、等). The concrete file assignments roll over whenever a file crosses 50KB, so always take them from the current preamble — never from remembered file names.
 3. Sample the largest / oldest-looking files. Use `Grep` to follow task titles / 順位 numbers / `WR-` ids across files.
 4. Cross-check the `docs/todo-summary.md` 順位 table against the detail entries it points to (`| N | Tier | title | todoX.md | ... |`).
 
@@ -64,6 +64,8 @@ Check three things, in this order:
    - § 採用タスク の 3 基準 (docs-only: edits confined to repo files, no Rust build / Windows hook / pnpm pipeline in the success condition, already adopted in the 順位 table).
 
    The docs-only path currently has zero rows, but the ledger explicitly keeps it open for re-population, so a docs-only candidate that only the second path admits must still be surfaced. Name the 順位, which path it takes, and which criterion you checked. Do not propose promotion on title alone — read the detail entry.
+
+   **This check is MANDATORY and its result must appear as a dedicated report section `## 昇格候補 (promotion candidates)` — even when the answer is zero.** A zero-candidate result must state 0 件 together with what was examined (how many 順位 rows each summary file contributed, how many were excluded as already listed in the ledger, and how many detail entries were read and rejected against which criterion). A report without this section is treated as "check not performed", not as "no candidates" — the 2026-08-13 run silently skipped this exact check while completing every other criterion, and the omission was only detectable by a human re-reading the report. The mandatory section is the machine-checkable proof of execution.
 3. **無人可 marks that no longer hold** — this is the check nothing else can perform, because it depends on state **outside the corpus**. For every row marked `✅ 無人可`, confirm condition 3 of the ledger's § 自律実行可否の 2 段階分類 (no duplicate work in flight): use `jj log` and remote bookmark inspection to look for an unmerged branch or in-flight PR implementing the same task. A mark whose task now has an implementation branch must be raised — the nightly loop would otherwise duplicate it. Also re-read the row's 注意 column against conditions 1 and 2 (no 「再選定」「着手時判断」「見積り」「検討」; implementation uniquely determined); a row whose 注意 text has been edited since marking may no longer qualify.
 
    **Absence of evidence is not evidence of absence here.** Unlike Criterion 0/1/2, this check reads state outside the repository (remote bookmarks, PR status), which can be unreachable — no network, no `gh` auth, a shallow or non-colocated clone. If you cannot actually observe remote/PR state, report condition 3 for that row as **unverified** and say which lookup failed. Do **not** write it up as "no duplicate found": a silent downgrade from "could not check" to "checked, clean" is exactly how a stale mark survives into the nightly loop. Reporting unverified is the correct advisory-layer behavior — this facet blocks nothing, so the cost of saying so is one line in the report.
@@ -90,6 +92,7 @@ If a finding needs natural-language judgment about task intent (「これはも�
 
 - File: `review-todo-whole.md` (Report Directory)
 - Format identifier: `review-todo-whole`
+- **Required section**: `## 昇格候補 (promotion candidates)` must always be present (Criterion 3-2). Zero candidates → state 0 件 with the examination summary. The `/weekly-review` skill reads this section to drive the mandatory ledger-addition step; a missing section is reported to the user as "check not performed" (never silently treated as 0 件).
 - Read-only (`edit: false`): report findings only; the `/weekly-review` skill + user decide adoption (never edit `docs/todo*.md` or `docs/claude-code-web-tasks.md` from this facet — the ledger's 無人可 marks in particular are a human decision).
 - Category hint for aggregate-weekly: use `todo-dead-entry` / `todo-duplicate` / `todo-preamble-drift` / `ledger-staleness` (aggregate normalizes into the ADR-031 category set).
 - If nothing survives evidence-gathering, output「特筆すべき todo-hygiene の findings なし」and end with `analysis complete` (do not manufacture findings).

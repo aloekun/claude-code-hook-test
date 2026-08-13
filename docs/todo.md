@@ -39,6 +39,109 @@
 
 ## 現在進行中
 
+### 週次レビュー採用 (2026-08-13)
+
+> 2026-08-13 の週次レビュー (whole-tree, ADR-031) で採用した findings。詳細レポートは `.claude/weekly-reviews/2026-08-13.md`。J01 (fetch_head mtime) は既存 entry (WR-2026-07-19-J01) と重複のためスキップした。
+
+#### CLAUDE.md の ADR-030 supersedes 注記を撤回済み内容に合わせて削除 (週次レビュー WR-2026-08-13-A01 採用)
+
+> **動機**: `CLAUDE.md:34` が ADR-030 を「Supersedes ADR-014 full, ADR-029 partial」と宣言しているが、ADR-030 自身が 2026-08-12 にこの主張を撤回済み。ADR-014/029 は設計上 ADR-030 と並んで試験運用のまま。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-A01 で採用 (severity=critical, facet=architecture, category=docs-source-drift)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`CLAUDE.md:34`
+
+##### 背景: ADR-030 の撤回注記と CLAUDE.md 索引の乖離。1 行の docs 修正で解消する
+
+##### 設計決定: `CLAUDE.md:34` の「Supersedes ADR-014 full, ADR-029 partial」注記を削除し `*(試験運用 / ...)*` のみ残す
+
+- [ ] `CLAUDE.md:34` の該当注記を削除
+
+##### 完了基準: `CLAUDE.md:34` の ADR-030 行が supersedes 主張を含まず、ADR-030 の現状 (撤回済み) と整合する
+
+#### 台帳の ✅無人可 5 行を condition 3 違反により — へ降格 (週次レビュー WR-2026-08-13-T02 採用)
+
+> **動機**: `docs/claude-code-web-tasks.md` の `✅ 無人可` 5 行 (順位 203/216/228/239/240) が § 自律実行可否の condition 3 (重複の恐れなし) に違反。各順位に未マージ PR (#373/#394/#379/#391/#378) が存在し、夜間 todo ループが重複/競合 PR を作りうる。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-T02 で採用 (severity=high, facet=todo, category=todo-duplicate)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/claude-code-web-tasks.md` (採用タスク Batch 1/2)
+
+##### 背景: ADR-072 の夜間ループは無人可マークを機械的に読む。マークが古いと重複実装 PR を生む
+
+##### 設計決定: 該当 5 行の `✅ 無人可` を `—` へ降格し、理由を § 無人可としなかった…理由 表に記録する。PR がマージ or 恒久 close + untrack されるまで
+
+- [ ] 順位 203/216/228/239/240 の 無人可 を `—` へ (**人間が実施** — マークは人間が付ける、ADR-022)
+- [ ] § 無人可としなかった…理由 表に根拠を追記
+
+##### 完了基準: 当該 5 行が `無人可=—`、理由表に PR 番号付きで記録
+
+#### 台帳 Batch 1 の closed-without-merge 行を棚卸し履歴へ移動し、in-flight を明示 (週次レビュー WR-2026-08-13-T01 採用)
+
+> **動機**: `docs/claude-code-web-tasks.md` Batch 1 の順位 203/228/240 は nightly PR (#373/#379/#378) が unmerged close されたのに active のまま残存。順位 239 は open PR (#391) が in-flight として反映されていない。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-T01 で採用 (severity=medium, facet=todo, category=todo-dead-entry)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/claude-code-web-tasks.md` (採用タスク Batch 1)
+
+##### 背景: 台帳の鮮度は「行が消えていること」でしか表現されないため、closed 行の残存が棚卸し漏れになる
+
+##### 設計決定: closed-without-merge 行 (203/228/240) を Batch 1 から削除し § 棚卸し履歴 に closed 理由を記録、open-PR 行 (239) を in-flight として明示する
+
+- [ ] 203/228/240 を Batch 1 から削除 + § 棚卸し履歴 記帳
+- [ ] 239 の in-flight 状態を明示
+
+##### 完了基準: Batch 1 に unmerged-close 行が残らず、棚卸し履歴に根拠が残り、順位 239 が in-flight として明示されている
+
+#### docs/todo23.md を新設し、新規追加先ポインタを更新する — todo22.md 50KB 超過 (週次レビュー WR-2026-08-13-M01 採用)
+
+> **動機**: `docs/todo22.md` が 54179B (>50KB) だが `docs/todo.md:30` の新規追加先ポインタが todo22.md のまま。routing 契約が実ファイルサイズに追随していない。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-M01 で採用 (severity=medium, facet=multi, category=todo-preamble-drift)。file-length-watchlist の機械観測と review-todo-whole の記述矛盾を突合して検出。
+>
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/todo.md:30`、`docs/todo22.md`
+
+##### 背景: todo20→21→22 と同じ 50KB 分割パターンの継続。preamble routing の drift 解消
+
+##### 設計決定: `docs/todo23.md` を作成し、`docs/todo.md:30` の新規追加先を todo23.md へ更新する。todo22.md は「編集専用・新規追加しない」へ
+
+- [ ] todo23.md 新設
+- [ ] todo.md preamble (L30 周辺) の routing 更新 — 使い分けリストへの todo23.md 行追加と、冒頭の列挙範囲 (「本ファイル + todo3.md 〜 todoN.md」) の両方 (cli-docs-lint は列挙範囲と実ファイル数の一致を検証しないため手動確認)
+
+##### 完了基準: 新規追加先が todo23.md を指し、todo22.md が編集専用に切り替わり、preamble の列挙範囲が実ファイル群と一致する
+
+#### ADR-031 に ADR-070 (Phase 1-2 の cloud routine 移行) への前方参照を追記 (週次レビュー WR-2026-08-13-A02 採用)
+
+> **動機**: ADR-031 の 4-phase 設計に、ADR-070 (Phase 1-2 の cloud routine 移行) への前方参照が無く、ADR-031 を単独で読むと誤解を招く。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-A02 で採用 (severity=medium, facet=architecture, category=adr-alignment)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/adr/adr-031-weekly-review-pipeline.md` (ステータス/abstract)
+
+##### 背景: cross-ADR coupling が documented だが見落としやすい。安価な doc 明確化
+
+##### 設計決定: ADR-031 の status/abstract に ADR-070 参照の Note を追加し、Phase 1-2 の trigger のみが移行した旨を明示する
+
+- [ ] ADR-031 に ADR-070 前方参照 Note を追加
+
+##### 完了基準: ADR-031 単独読者が ADR-070 への移行を辿れる
+
+#### todo.md の Tier-5 zero-priority entry を backlog へ移動 or retire (週次レビュー WR-2026-08-13-T03 採用)
+
+> **動機**: `docs/todo.md:160-171` の Tier-5/optional・zero-priority entry (追って ADR-030 の takt-test-vc 反映) が 2 か月以上進捗なくメイン corpus に残り視覚ノイズになっている。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-T03 で採用 (severity=low, facet=todo, category=todo-preamble-drift)。aggregate 推奨は ❌却下だったがユーザー判断で採用。
+>
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/todo.md:160-171`
+
+##### 背景: entry 自体は self-aware で正しくスコープされているが、配置がメイン corpus でノイズ
+
+##### 設計決定: 新設 `## Future / Backlog (No Current Priority)` section へ移動する。不要と判断すれば retire
+
+- [ ] entry を backlog section へ移動 or retire 判断
+
+##### 完了基準: 該当 entry がメイン進行中 corpus から外れる
+
 ### 週次レビュー採用 (2026-07-19)
 
 > **注 (2026-07-19)**: 本セッションの週次レビューで採用した T01 (docs/todo.md preamble drift) と T02 (todo13.md 50KB 超過 → todo14.md 新設) は、PR #303 の CodeRabbit 対応 (fix commit) で master preamble を 15 ファイルへ全面更新 + todo14.md 新設 + routing 更新まで完了したため、完了タスクとして削除した (`docs/todo.md` preamble / `docs/todo14.md` / `docs/todo-summary.md` に成果が残る)。J01 / J02 はコード修正が未着手のため下記に継続。
