@@ -9,6 +9,7 @@ use crate::violation::{
     emit_feedback, LintViolation, ViolationExample, ViolationFix, ViolationLocation,
     MAX_CUSTOM_VIOLATIONS,
 };
+use crate::repo_path::to_repo_relative;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -127,12 +128,15 @@ pub(crate) fn rule_matches_ext(rule: &CustomRule, file: &str) -> bool {
 }
 
 /// `compiled.paths_glob` が `None` (filter なし) または `Some(GlobSet)` で file path がマッチする場合 true。
+///
+/// 照合前に [`to_repo_relative`] を通すこと。rule の `paths` はリポジトリ相対 glob で書かれる
+/// のに hook 入力は絶対パスなので、素の文字列で照合すると**常に不一致 = rule が無言で
+/// 死ぬ** (2026-08-13 に `takt-workflow-persona-without-model` で実測)。
 pub(crate) fn rule_matches_path(compiled: &CompiledRule, file: &str) -> bool {
     let Some(globset) = compiled.paths_glob.as_ref() else {
         return true;
     };
-    let normalized = file.replace('\\', "/");
-    globset.is_match(&normalized)
+    globset.is_match(to_repo_relative(file))
 }
 
 /// 1 件の regex match と rule 定義から `LintViolation` の JSON 文字列を構築する。

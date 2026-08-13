@@ -517,3 +517,36 @@ fn powershell_validation_returns_multiple_violators() {
     let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
     assert_eq!(missing, vec!["ps-a".to_string(), "ps-b".to_string()]);
 }
+
+/// **hook が実際に渡すのは絶対パス**なので、`paths` 付き rule がその形で一致することを固定する。
+///
+/// 既存テストは相対パスのみを渡しており、`paths` を持つ rule が実運用で一度も発火しない
+/// 状態を通していた (2026-08-13 に `takt-workflow-persona-without-model` で実測確認)。
+#[test]
+fn paths_filter_matches_absolute_path_as_delivered_by_the_hook() {
+    let rule = make_test_rule_with_paths("test", "x", &["md"], &["docs/**/*.md"]);
+    let compiled = compile_rule(rule).expect("rule must compile");
+    let cwd = std::env::current_dir().expect("cwd");
+    let abs = format!("{}/docs/spec.md", cwd.to_string_lossy().replace('\\', "/"));
+    assert!(
+        rule_matches_path(&compiled, &abs),
+        "絶対パスで一致しないと paths 付き rule は無言で死ぬ: {}",
+        abs
+    );
+}
+
+/// リポジトリ外の絶対パスは `paths` に一致させない。
+///
+/// 固定パス (`/other-repo` 等) は実行環境の cwd とたまたま一致すると正しい実装でも落ちる。
+/// cwd 由来の sibling path なら cwd 自身とは必ず別ディレクトリになる。
+#[test]
+fn paths_filter_rejects_absolute_path_outside_repo() {
+    let rule = make_test_rule_with_paths("test", "x", &["md"], &["docs/**/*.md"]);
+    let compiled = compile_rule(rule).expect("rule must compile");
+    let cwd = std::env::current_dir().expect("cwd");
+    let outside = format!(
+        "{}-outside/docs/spec.md",
+        cwd.to_string_lossy().replace('\\', "/")
+    );
+    assert!(!rule_matches_path(&compiled, &outside));
+}

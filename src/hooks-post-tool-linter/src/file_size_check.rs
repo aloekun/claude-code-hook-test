@@ -7,6 +7,7 @@
 //! ADR-039 § 3 Bounded lifetime: 3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定。
 
 use crate::config::{Config, FileSizeCheckConfig};
+use crate::repo_path::to_repo_relative;
 use crate::violation::emit_feedback;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
@@ -57,7 +58,7 @@ pub(crate) fn check_file_size_threshold(
             return None;
         }
     };
-    let normalized = file.replace('\\', "/");
+    let normalized = to_repo_relative(file);
     if !glob_set.is_match(&normalized) {
         return None;
     }
@@ -118,6 +119,51 @@ mod tests {
             result.is_none(),
             "enabled=false must short-circuit even when size exceeds threshold"
         );
+    }
+
+    /// **hook が実際に渡すのは絶対パス**なので、その形で glob に一致することを固定する。
+    ///
+    /// 既存テストは相対パスしか渡しておらず、`paths` が相対 glob であるために実運用では
+    /// 常に不一致 = 本検査が一度も発火しない状態を通してしまった (2026-08-13 に docs 配下の
+    /// 50KB 超 6 件が無警告で蓄積していたことで発覚)。入力の形まで再現しないテストは
+    /// 「動いているつもり」を固定する。
+    #[test]
+    fn file_size_check_matches_absolute_path_as_delivered_by_the_hook() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 51_200,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: true,
+        };
+        let cwd = std::env::current_dir().expect("cwd");
+        let abs = format!("{}/docs/oversized.md", cwd.to_string_lossy().replace('\\', "/"));
+        let result = check_file_size_threshold(&abs, 60_000, &config);
+        assert!(
+            result.is_some(),
+            "絶対パス入力で発火しないと実運用では無言の no-op になる: {}",
+            abs
+        );
+    }
+
+    /// リポジトリ外の絶対パスは対象外 (誤って検査しない)。
+    ///
+    /// 固定パス (`/other-repo` 等) を使うと、実行環境の cwd がたまたま一致した場合に
+    /// 正しい実装でも落ちる。cwd から派生させた sibling path なら、cwd 自身とは必ず
+    /// 別ディレクトリであることが構造的に保証される。
+    #[test]
+    fn file_size_check_skips_absolute_path_outside_repo() {
+        let config = FileSizeCheckConfig {
+            enabled: true,
+            threshold_bytes: 51_200,
+            paths: vec!["docs/**/*.md".to_string()],
+            touch_trigger: true,
+        };
+        let cwd = std::env::current_dir().expect("cwd");
+        let outside = format!(
+            "{}-outside/docs/x.md",
+            cwd.to_string_lossy().replace('\\', "/")
+        );
+        assert!(check_file_size_threshold(&outside, 60_000, &config).is_none());
     }
 
     #[test]
