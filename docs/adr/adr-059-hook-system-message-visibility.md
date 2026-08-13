@@ -169,7 +169,9 @@ recovery / failed marker 等への適用) は見送り**とする。再評価ト
 
 - weekly の `reminder_threshold_days` を 30 → **7** に差し戻した (ユーザー判断)。ADR-070 の 30 日
   (監査サイクル) は cloud routine の週次成果物デリバリが前提だが、移行後のデリバリが未確立のため。
-  再引き上げはデリバリ確立 (todo22 の「weekly-review 成果物の保存問題」解消) 後に再評価する。
+  ~~再引き上げはデリバリ確立 (todo22 の「weekly-review 成果物の保存問題」解消) 後に再評価する。~~
+  → **2026-08-13 に条件を撤回。7 日は恒久設定**となった (週次レビューは毎週実行すること自体に
+  意味があるため)。決定の所在は [ADR-070](adr-070-weekly-review-cloud-routine.md) 決定 2 の改訂。
 
 ## 追補 (2026-07-28): 単一行不変条件の型による構造保証 (`SingleLineMessage`)
 

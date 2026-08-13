@@ -43,7 +43,18 @@ routine が担えるのは Phase 1-2 に限られる。**routine は weekly-revi
 
 - 「前回実行から N 日経過 → `/weekly-review` を実行せよ」(routine 移行後は嘘になる) を廃す。
 - 「routine の稼働と、その結果の取り込みを確認する時期です」へ改め、**この reminder はローカル state しか見ておらず cloud routine の実行を観測できない**ことを文言に明記する。
-- 閾値は週次サイクル (7 日) ではなく監査サイクル (既定 30 日) に合わせる。routine が正常でも発火するため、短い閾値は必ずノイズになる。
+- ~~閾値は週次サイクル (7 日) ではなく監査サイクル (既定 30 日) に合わせる。routine が正常でも発火するため、短い閾値は必ずノイズになる。~~ → **撤回 (2026-08-13、ユーザー判断)。閾値は週次サイクル (7 日) を恒久的に採る。**
+
+  > **改訂理由**: 起票時は「routine が主経路なのだからローカル reminder は監査粒度でよい」と考え、ノイズ回避を根拠に 30 日へ寄せた。しかし**週次レビューは毎週実行すること自体に意味がある**運用であり、「weekly」を冠する運用の reminder が月周期でしか鳴らないなら、それはもう週次運用ではない。2026-08-12 に一度 7 日へ差し戻した際は「デリバリ確立後に 30 日へ再引き上げを再評価する」という条件付き措置として記録していたが、**その条件は撤回し 7 日を恒久設定とする**。
+  >
+  > ノイズ懸念そのものは残るが、対処は閾値の延長ではなく**文言側**で行う (本決定が既に定めた「この reminder は cloud routine を観測できない」の明示)。発火を減らすのではなく、発火の意味を正しく伝えることで解く。
+  >
+  > **反映先 3 箇所** (いずれか 1 つでも欠けると再びドリフトする):
+  > 1. `.claude/hooks-config.toml` の `[session_start.weekly_review_reminder].reminder_threshold_days = 7`
+  > 2. `src/hooks-session-start/src/weekly_review.rs` の `WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS`(= 7、config 行が無い環境でも週次で鳴る)
+  > 3. 本 ADR (本項)
+  >
+  > **monthly review の閾値とは独立に管理する。** `[session_start.monthly_review_reminder].threshold_days` (28 日、[ADR-062](adr-062-monthly-harness-roi-review.md)) は別 section・別キー・別 module・別定数であり、**片方の変更をもう片方へ波及させてはならない**。旧 code default 30 は monthly の 28 と値が近く「片方を直したつもりで両方動かす」誤りを招きやすかったため、独立性は `weekly_review.rs` の `default_threshold_is_weekly_and_independent_from_monthly` が回帰テストで固定している (どちらを変更しても落ちるので、片方だけの意図かを明示的に判断させる)。
 - `.failed` marker 検出経路は**ローカル実行の失敗**を見るものなので従来どおり維持する。
 
 ### 3. routine run の成功判定は transcript を読むことでのみ行う
