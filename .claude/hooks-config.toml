@@ -47,11 +47,17 @@ stale_check_enabled = true
 # 派生プロジェクト deploy 時は default OFF (ADR-039 § 1 opt-in 契約) を維持。
 # 次 PR (PR-3) で `[features].enabled` allow-list 方式に移行予定 = 本 `enabled = true` は暫定。
 enabled = true
-# 2026-08-12 ユーザー判断で 30 → 7 に差し戻し: ADR-070 の 30 日 (監査サイクル) は cloud routine が
-# 週 1 で成果物を届けている正常稼働が前提だが、移行 (#354) 後の成果物デリバリが未確立
-# (weekly-reviews/ に 2026-07-19 以降のレポートなし + last-run が dead pointer)。前提不成立の間は
-# 7 日で鳴らしてリカバリ作業の滞留を防ぐ。30 日への再引き上げは todo22.md
-# 「weekly-review 成果物の保存問題」の解消 (デリバリ確立) 後に再評価する。
+# 7 日は**恒久設定**であり暫定値ではない (2026-08-13 ユーザー判断で確定)。週次レビューは
+# 毎週実行すること自体に意味があり、「weekly」を冠する運用の reminder が月周期で鳴るなら
+# それはもう週次運用ではない。ADR-070 は routine 移行時に一度 30 日 (監査サイクル) へ寄せ、
+# 2026-08-12 に 7 日へ差し戻したが、当時は「デリバリ確立後に 30 日へ再引き上げを再評価」と
+# いう条件付き措置として記録していた。その条件は撤回し、ローカル reminder は恒久的に
+# 週次サイクルで鳴らす (ADR-070 決定 2 改訂、Rust 側 code default も 7 に一致させた)。
+#
+# **monthly_review_reminder.threshold_days (28) とは独立の変数**。キー名も section も別で、
+# 片方の変更をもう片方へ波及させないこと。旧 code default 30 は monthly の 28 と近く混同を
+# 招いたため、独立性は weekly_review.rs の
+# default_threshold_is_weekly_and_independent_from_monthly が回帰テストで固定している。
 reminder_threshold_days = 7
 failed_marker_check_enabled = true # 前回ローカル実行の失敗 marker 検出 → resume promote。false で staleness のみに限定可
 # ADR-059 (採用 2026-08-12): reminder 発火時に systemMessage (ユーザー可視 1 行) を
