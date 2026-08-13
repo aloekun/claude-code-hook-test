@@ -633,3 +633,128 @@
 #### 完了基準
 
 - 対処案の採否が根拠つきで決まり、採用案が実装または明文化されていること。
+
+---
+
+### 順位 444: orphan reaper が success report 検出時に meta.json を running のまま残す
+
+> **動機**: post-merge-feedback の run が**レポートを書いた後・meta.json を終端状態へ更新する前に死ぬ**と、その run は永久に「進行中」として残り、**以後すべての post-merge-feedback をブロックする**。
+>
+> 2026-08-13 に PR #396 のマージで実発生した。ブロック元は #281 (2026-07-16 起動) と #374 (2026-08-09 起動) の 2 run で、どちらも `.claude/feedback-reports/{281,374}.md` の実体 (5000 B / 7471 B、mtime は起動の 15〜40 分後) を持ちながら `meta.json` が `status: "running"` / `currentStep: "analyze"` のままだった。
+>
+> **発現は 2026-08-13 が初回で、それ以前はブロックしていない** (起票時に「#281 が 28 日間ブロックしていた」と書いたのは誤りで訂正済み)。旧 guard は「直前の起動から 1500 秒以内なら進行中」という時間窓判定で、stale meta を見ていなかったため無害だった。[PR #388](https://github.com/aloekun/claude-code-hook-test/pull/388) (順位 398、2026-08-11 land) が判定根拠を `meta.json` の `status` へ移したことで、既存の stale meta が初めて恒久ブロック要因に変わった。**さらに発現は exe のデプロイまで遅延した** — 同日 05:00Z の PR #395 の feedback は旧 exe で成功しており、`.claude/cli-merge-pipeline.exe` が #388 込みで再デプロイされた 08:00Z 以降、09:35Z の PR #396 で初めてブロックした。
+>
+> **原因**: [reaper.rs](../src/hooks-session-start/src/reaper.rs) の `reap_orphans` は
+>
+> ```rust
+> if marker.exists() || success_report.exists() { continue; }
+> ```
+>
+> で success report がある run を skip する。失敗マーカーを書かない判断自体は正しい (実際に成功しているため) が、**`mark_meta_failed` も呼ばれないため meta が `running` のまま残る**。一方 `cli-merge-pipeline` の進行中ガードは meta の `status` だけを見るため、この run を永久に「進行中」と解釈する。**2 コンポーネントの判定基準が不一致**で、reaper 側が「成功として整合させる」経路を持たないことが穴。
+>
+> **参照**: [reaper.rs](../src/hooks-session-start/src/reaper.rs) (`reap_orphans` の skip 条件)、[run_registry.rs](../src/cli-merge-pipeline/src/feedback/run_registry.rs) (進行中判定)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。順位 442 群と同じ「meta.json の status で進行中を判定する」ロジックの共有課題 (順位 428 系) とも隣接する。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity **High** (feedback ループが無言で恒久停止する。しかも停止に気づく手段が「マージ時の WARN」しかない) / Frequency Medium (run の異常終了は実際に 2 回発生) / Effort S / Adoption Risk None。
+
+#### 設計決定
+
+**2 層で直す。** reaper 側 (層 1) だけでも今回の事象は解けるが、それは「SessionStart が 1 回走る」ことに依存した回復であり、guard 自身は依然として stale meta 1 件で恒久停止する。guard 側 (層 2) を対称化しておくと、reaper が走る前でもブロックしない。
+
+##### 層 1: reaper に reconcile 経路を追加する
+
+`reap_orphans` に「success report があるが meta が非終端」の**整合 (reconcile) 経路**を追加する。失敗マーカーは書かず、meta を `completed` 相当へ更新して進行中ガードを解放する。`endTime` はレポートの mtime から導出する (今回の手動復旧と同じ導出)。
+
+- [ ] `reap_orphans` に reconcile 分岐を追加 (report あり + meta 非終端 → meta を終端化、marker は書かない)
+- [ ] 回帰テスト: 既存 `reap_orphans_skips_when_success_report_exists_despite_stale_meta` は「skip する」ことを固定しているため、**この期待自体を「reconcile する」へ改める**必要がある (テスト名も含めて更新)
+- [ ] 進行中ガード側 (`cli-merge-pipeline`) から見て、reconcile 後の run がブロック要因にならないことを確認する
+
+##### 層 2: guard の fail 方向を入力クラス間で対称化する
+
+[markers.rs](../src/cli-merge-pipeline/src/feedback/markers.rs) の `check_concurrent_run_guard` は、**隣接する 2 つの入力クラスで fail 方向が逆になっている**:
+
+| 入力 | 現在の扱い | 帰結 |
+|---|---|---|
+| meta.json がパース不能 | 進行中とみなさない (**fail-open**) | 意図的。doc に「壊れた meta.json 1 つで後続の feedback が永久に起動できなくなる方が害が大きい」と明記 |
+| meta.json は読めるが `status: "running"` のまま古い | 進行中とみなす (**fail-closed**) | **恒久ブロック**。上の原則が想定していたのと同じ害が、評価されていない隣のクラスで起きる |
+
+順位 398 の doc が自ら述べた「1 件で永久に起動できなくなる方が害が大きい」という原則を、後者にも適用する。
+
+**ただし「経過時間だけ」で fail-open にしてはならない。** 素朴に `startTime` から一定時間で切ると、**正常に長く走っている run を stale と誤判定**し、guard が同時実行を許して `context.json` 上書き防止という本来の目的を失う。しかも本 entry 自身が反例を持っている — 復旧した 2 run のレポート生成は**起動の 15〜40 分後**であり、reaper の `ORPHAN_THRESHOLD_SECS` (1500 秒 = 25 分) を共有すると **#374 の 40 分の run は「stale」と誤判定される**。閾値の共有は一見自然だが、reaper の閾値は「orphan と見なしてよい古さ」であって「post-merge-feedback の正常な実行時間の上限」ではなく、**目的が違う値を使い回してはならない**。
+
+したがって経過時間は単独の判定根拠にせず、**生存/進捗の陽性シグナルと併用**する。候補: (a) run の `currentStep` / `currentIteration` が前回観測から進んでいるか、(b) `logs/` の最終更新、(c) プロセスの生存確認、(d) takt 側の heartbeat。いずれも「まだ動いている証拠」を積極的に取る形で、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) の陽性証拠要求と同じ姿勢を取る。
+
+- [ ] 実測: post-merge-feedback の正常な実行時間分布を `.takt/runs/*/meta.json` の start/end から集計し、閾値を推測でなく実測から決める (本 entry の 15〜40 分は 2 サンプルにすぎない)
+- [ ] `check_concurrent_run_guard` に「経過時間 + 生存/進捗シグナル」の複合判定を追加する (**経過時間だけの除外は入れない**)
+- [ ] 回帰テスト: (i) 古く進捗も無い `running` はブロックしない、(ii) **閾値を超えていても進捗がある `running` はブロックする** (正常な長時間 run の誤除外防止)、(iii) 新しい `running` は従来どおりブロックする
+- [ ] reaper の `ORPHAN_THRESHOLD_SECS` を**共有しない**判断を doc に残す (目的の違う閾値の使い回しを後から復活させないため)
+
+#### 完了基準
+
+- success report を持つ非終端 run が SessionStart の reaper 通過後に終端状態へ整合され、`pnpm merge-pr` の進行中ガードを塞がないこと (層 1)。
+- **reaper が一度も走っていない状態でも**、閾値を超えた stale `running` が `pnpm merge-pr` をブロックしないこと (層 2)。
+- 閾値内の `running` は従来どおりブロックすること (guard の本来目的の非退行)。
+- 上記が回帰テストで固定され、`cargo test --workspace` が green であること。
+
+---
+
+### 順位 445: todo preamble と facet routing 記述の整合を lint で機械検証する
+
+> **動機**: `docs/todo.md` preamble が列挙する todo ファイル群 (新規追加先 / 編集専用 / 列挙範囲) と、それを参照する `.takt/facets/instructions/review-todo-whole.md` の routing 記述が**独立に手で維持されており、片方だけ古くなる**。
+>
+> 2026-08-13 の PR #395 で実際に発生した: preamble の新規追加先が更新される一方、facet 側には `todo6.md` / `todo2-7.md` という**旧世代の固定値**が残り、whole-tree review が古い送付先を案内していた。`cli-docs-lint` は preamble の数詞は見るが**列挙範囲と実ファイル群の集合一致は検証しない**ため、この class は機械層に穴がある。weekly-review が 50KB 超過のたびに todo ファイルを増やす構造上、再発は継続的に起こる。
+>
+> **参照**: [review-todo-whole.md](../.takt/facets/instructions/review-todo-whole.md) (routing 記述)、[docs/todo.md](todo.md) preamble、`src/cli-docs-lint/`、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (正規表現層/AST 層の線引き)、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 (本タスクが入るまでの暫定 convention)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤誘導であり実行時破壊ではない) / Frequency **Medium** (todo ファイルは継続的に増える) / Effort S / Adoption Risk None。
+
+#### 設計決定
+
+`cli-docs-lint` に検査を追加する (custom lint rule ではなく docs-lint 側。preamble 解析は既に同 exe が持っているため)。
+
+**集合の作り方を先に固定する。** ここを曖昧にすると誤検出か検査漏れのどちらかが必ず出る:
+
+- **対象は番号付きの詳細ファイルのみ** — `docs/todo*.md` の素の glob は `docs/todo-summary.md` / `docs/todo-summary2.md` も拾う。これらは順位 table であって詳細エントリの追加先ではないので、`todo<数字>.md` に限定する (`todo.md` 本体の扱いも明示的に決める)。
+- **範囲表記は展開してから比較する** — preamble と facet instruction はどちらも `todo3.md 〜 todo23.md` / `todo3-23.md` のような範囲表記を使う。文字列のまま集合比較すると常に不一致になるため、範囲を展開して要素の集合へ落とす。
+- **数詞と列挙範囲は別の検査** — 既存 `cli-docs-lint` は数詞 (「24 つ」) を見ているが、列挙範囲が実ファイル集合と一致するかは見ていない。本タスクで足すのは後者。
+
+- [ ] 集合抽出規則を実装する (番号付き詳細ファイルのみ / 範囲表記の展開)
+- [ ] preamble の列挙集合と `docs/todo<数字>.md` の実ファイル集合を比較する
+- [ ] facet instruction 側の routing 記述に含まれる `todoN.md` 参照を抽出し、preamble の集合と矛盾しないか検査する
+- [ ] fixture テスト (good / bad) を追加する。**bad 側に「summary ファイルを誤って含む」「範囲表記が未展開」の 2 ケースを必ず入れる** (本タスクの取りこぼし要因そのもの)
+- [ ] 本タスク land 後、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 の routing 該当部分を撤去する (ADR-042 のルール vs 仕組み化)
+
+#### 完了基準
+
+- preamble と実ファイル群、preamble と facet routing 記述の不一致が `pnpm lint:docs` で検出されること。
+- 検出が fixture テストで固定され、`cargo test --workspace` が green であること。
+
+---
+
+### 順位 446: post-merge-feedback の transcript 抽出が並列 jj workspace のセッションを取りこぼす
+
+> **動機**: `cli-merge-pipeline` の transcript 抽出は `cwd` から導出した**単一 project-id フォルダ** (`~/.claude/projects/<project-id>/`) しか見ない。ところが本リポジトリは [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の並列 workspace 運用をしており、`~/.claude/projects/` には `c--Users-owner-work-claude-code-hook-test` と `C--Users-owner-work-claude-code-hook-test-improve` という**別 project-id のフォルダが実在する**。secondary workspace で実装したセッションの transcript は、現在のロジックから構造的に不可視になる。
+>
+> 2026-08-13 の PR #395 の post-merge feedback で `session-analysis` が `session_data_unavailable` で失敗し、期待範囲 14 時間に対し無関係な 2.5 分の記録しか得られなかった。**[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) の前提であるセッション知見の抽出が systematic に無力化されうる**。
+>
+> なお「PR #395 が実際に secondary workspace で実装されたか」は未確認で、まず**原因の切り分け**が要る (project-id フォルダが複数実在することは事実確認済み)。同じ「ハーネスが自分の壊れに気づけない」層の問題として順位 444 と隣接する。
+>
+> **参照**: [transcript.rs](../src/cli-merge-pipeline/src/feedback/transcript.rs) (`project_transcript_dir` / `cwd_to_project_id`)、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity **High** (feedback の分析入力が無言で欠落する) / Frequency Medium / Effort S (切り分けは短時間) / Adoption Risk None。
+
+#### 設計決定
+
+まず切り分け、結果に応じて対処を決める (先に実装を決めない)。
+
+**対処を決める際の制約: 候補の絞り込みは「広げる」ではなく「束縛する」方向で行う。** (a) の全 project-id 走査や (c) の時刻範囲だけの検索は、**無関係なセッションを分析入力に引き込む**。実際 `~/.claude/projects/` には本リポジトリ以外の project-id も同居しうるし、同じ時間帯に別作業のセッションが走っていることもある。誤った transcript で feedback を生成するのは、transcript が無いより悪い (もっともらしい誤った知見が台帳へ入る)。したがって候補には **repo root / workspace path / PR 番号 / bookmark / session metadata のいずれかの陽性一致**を必須条件として課す ([ADR-064](adr/adr-064-monitor-success-positive-evidence.md) の陽性証拠要求と同じ姿勢)。canonical 化 (b) だけでは secondary workspace 配下に保存された transcript を発見できない場合がある点にも注意する。
+
+- [ ] `~/.claude/projects/` の project-id 群と jj workspace 一覧を突合し、どの workspace がどの project-id に対応するかを確定する
+- [ ] PR #395 の実装セッションがどの project-id 配下にあったかを特定し、取りこぼしが実際に起きたのかを確認する (起きていなければ別原因として本タスクを再定義する)
+- [ ] 対処案を上記の束縛制約のもとで決める (探索範囲を広げる案は、必ず陽性一致条件とセットにする)
+- [ ] 回帰テスト: 複数 project-id フォルダを持つ fixture で対象セッションが選ばれること。**bad ケースとして「無関係な project-id に同一時刻範囲のセッションがある」fixture を必ず含める** (時刻だけで拾わないことの担保)
+
+#### 完了基準
+
+- 並列 workspace で実装したセッションの transcript が post-merge-feedback から参照できること。**fixture テストだけでは完了としない** — 実際に並列 workspace + 複数 project-id を用意し、`cli-merge-pipeline` の実経路 (exe 実行) で対象 transcript が選ばれることを確認する ([dev-conventions.md](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない / [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md))。
+- 無関係な project-id のセッションが選ばれないことも同じ実経路で確認すること。
+- 取りこぼしが再現しない場合は、**実行手順と観測結果を negative result として永続化**して閉じる ([dev-conventions.md](dev-conventions.md) § spike / 実験タスクの見送り (negative result) 永続化 convention)。

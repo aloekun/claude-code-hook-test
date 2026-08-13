@@ -181,6 +181,9 @@
 | 441 | 🔧 Tier 2 | **cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加** | todo22.md | S-M | なし (2026-08-12 起票。todo14.md の孤児 4 件が 3 週間未検出だった lint 死角。本文順位番号 lint = 順位 334 と実装共有の可能性) |
 | 442 | 🔧 Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | 💎 Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
+| 444 | 🚀 Tier 1 | **orphan reaper が success report 検出時に meta.json を running のまま残す (feedback ループ恒久停止)** | todo22.md | S | なし (2026-08-13 起票。PR #396 マージで実発生。順位 398 の guard 変更で stale meta が初めてブロック要因化) |
+| 445 | 🔧 Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
+| 446 | 🚀 Tier 1 | **post-merge-feedback の transcript 抽出が並列 jj workspace のセッションを取りこぼす** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。ADR-030 の分析入力が無言欠落、まず切り分け) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

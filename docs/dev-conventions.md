@@ -126,3 +126,34 @@ pnpm push
 
 - **`PR_SIZE_CHECK_OVERRIDE=1`** (push-runner `pr_size_check`): 大型 mechanical refactor (削除≒追加、behavior 不変、test count 不変) で diff が block_threshold を超えるとき。PR description に「mechanical refactor、behavior 不変、test count 不変」を明記する ([PR chain の分割と宣言](#pr-chain-の分割と宣言-adr-069) の項 2 とも整合)。
 - **`FILE_LENGTH_CHECK_OVERRIDE=1`** (Stop hook file-length gate、`.claude/hooks-config.toml` `[file_length_gate]`): emergency バイパス専用 (truthy 値で skip、恒久停止は `enabled = false`)。日常運用では使わない — 旧計画書の削除条件 3 (override 未使用で gate 通過が継続) は land 2026-07-02 から 6 週間の全 push で充足を確認し、gate は 2026-08-12 に本採用となった。
+
+## 同一事実が複数箇所に分散する場合の変更手順 (順位 445 実装までの暫定 convention)
+
+1 つの事実 (設定値・routing ポインタ・閾値等) が **code 定数 / config コメント / ADR / facet instruction** など複数箇所に書かれている場合、変更時は**全箇所を 1 つの PR で揃える**。片方だけ直すと、残った側が「古い前提」を語り続け、後続のレビューやレビュアー facet を誤誘導する。
+
+1. **変更前に反映先を数え上げる** — `grep` で当該の値・ポインタを含む全ファイルを洗い出し、PR 内で反映先を列挙する (ADR の決定を変えたなら、その決定を引用している別 ADR も対象)。
+2. **「暫定措置」と書いた記述は、恒久化した時点で必ず書き換える** — 条件付き記述 (「〜が確立したら再評価する」) を残したまま条件が消えると、レビュアーが毎回「未文書化の暫定措置」として誤検出する。
+3. **反映先リストを ADR 側に残す** — 次に変更する人が数え上げからやり直さずに済む。
+4. **機械検証できるものは lint へ寄せる** — 本 convention は人手の網羅に依存しており、順位 445 (preamble ⇔ facet routing の集合比較 lint) が入れば少なくとも routing 系は機械側が持つ。**その時点で本 convention の該当部分は撤去する** (ADR-042 のルール vs 仕組み化の境界)。
+5. **1 PR に収まらない場合は PR chain で分ける** ([ADR-069](adr/adr-069-pr-chain-declaration.md)) — 反映先が多く size gate (block 1500 行) に当たる場合、「1 PR で揃える」を守るために無理な圧縮をしない。良い切断点があれば chain に分け、**chain 全体で全反映先を更新すること**と**各 PR の担当範囲**を先頭 PR の計画文書で宣言する。良い関節が無ければ `PR_SIZE_CHECK_OVERRIDE=1` + 理由の明記が正当 (ADR-069 § 2 と同じ判断基準)。**分けてよいのは反映先の集合であって、一部を「後で直す」ことではない** — 中間状態で古い前提が残る期間を作らないよう、chain の順序は「古い前提を参照している側を先に land する」向きに取る。
+
+**由来** (2026-08-13、PR #395 / #396 の post-merge feedback で独立に 2 件観測): (a) `docs/todo.md` preamble の routing 更新に対し `.takt/facets/instructions/review-todo-whole.md` の固定値 (`todo6.md` / `todo2-7.md`) が取り残され、whole-tree review が古い送付先を案内していた。(b) weekly reminder の閾値 7 日が **code default (30) / hooks-config.toml / ADR-070 / ADR-059 の 4 箇所**に分散し、うち 3 箇所が「暫定措置・再評価予定」という古い前提のままで、週次レビューの architecture facet がこれを finding として誤検出した (実際の drift は指摘と逆向きだった)。
+
+## fallback を持つ設定値のテストは実際の解決経路を通す
+
+config が未指定のときに code default へ解決される (`config.foo.unwrap_or(DEFAULT)` 等) 設定値のテストは、**定数を直接ヘルパへ渡すのではなく、config が未指定の状態から解決関数を呼ぶ実経路**で書く。
+
+1. **定数値の assert だけでは resolver の退行を検知できない** — `assert_eq!(DEFAULT, 7)` は定数を守るだけで、解決側が `unwrap_or(30)` に書き換わっても緑のまま通る。「config 行が無い環境でも既定で動く」という主張は、その経路を通して初めて検証される。
+2. **境界は解決経路の戻り値で固定する** — 閾値なら「境界の手前で発火しない / 境界で発火する」を、resolver を呼ぶ公開関数の戻り値 (`None` / `Some`) で assert する。
+3. **テストが効くことを変異で確かめる** — 既定値を別の値へ一時的に書き換えてテストが FAIL することを実測してから、元に戻す。テストが実際に何かを守っているかは、推論ではなく観測で確認する。
+
+**由来** (2026-08-13 PR #396、CodeRabbit 指摘 + post-merge feedback): weekly reminder の既定値テストが定数を直接 `weekly_review_staleness_hits` へ渡しており、`reminder_threshold_days: None` から既定へ解決される経路を通っていなかった。実経路 (persisted `last_run_at` 経由) へ変更したところ、**テスト自身が `.claude` ディレクトリ未作成で落ちる隠れた前提**まで副次的に露見した。定数直渡しでは検出できなかった穴である。
+
+## 複合タスクの仕様には各項目の処置と除外根拠を書く
+
+複数行 / 複数ファイル / 複数バッチにまたがるタスクを `docs/todo*.md` に書くときは、**対象として挙げた全項目について処置 (実施 / 除外) と、除外する場合の根拠**を仕様側に明記する。
+
+1. **仕様側の対象数と実装側の対象数がずれる** — 「5 行が対象」と書いたタスクの実装が 4 行だけを扱っていても、根拠が書かれていなければレビューでは「意図的な絞り込み」と「見落とし」を区別できない。
+2. **除外は消さずに残す** — 除外した項目を仕様から削ると、次に読む人が「なぜこれは対象外なのか」を再調査することになる。
+
+**由来** (2026-08-13 PR #395、PR diff + pre-push simplicity の 2 ソースが独立指摘): 週次レビュー採用の WR-2026-08-13-T02 が順位 203/216/228/239/240 の 5 行を降格対象と記述する一方、実装タスク T01 は Batch 1 の 4 行のみを扱い、**Batch 2 にある順位 216 の処置が仕様にも実装にも現れない**状態だった。
