@@ -17,6 +17,7 @@ mod config;
 mod custom_rules;
 mod file_size_check;
 mod pipeline_runner;
+mod repo_path;
 mod utf8_integrity;
 mod violation;
 
