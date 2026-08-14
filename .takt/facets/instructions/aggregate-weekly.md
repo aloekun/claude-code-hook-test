@@ -1,6 +1,6 @@
 # Aggregate Weekly Review
 
-3 つの whole-tree レビュー (simplicity / security / architecture) を統合し、週次レビューレポートと構造化 findings JSON を生成する。
+5 つの whole-tree レビュー facet (simplicity / security / architecture / todo / jj-robustness) と決定論 scan 2 つ (file-length / workspace-hygiene) を統合し、週次レビューレポートと構造化 findings JSON を生成する。
 
 ADR-031 § Findings スキーマ + § 採否フロー の input source として findings JSON を produce する設計。skill 側 (Phase C 予定) が JSON を読んで AskUserQuestion で採否を確認するため、本 facet は構造化データの単一 source。
 
@@ -32,12 +32,12 @@ ADR-031 § Findings スキーマ + § 採否フロー の input source として
 
 実行日は本 step の wall clock を `YYYY-MM-DD` 形式で取得 (UTC でも JST でも一貫していればよい。findings id の prefix に使う)。
 
-## Phase 1: 3 reports の統合
+## Phase 1: findings source reports の統合
 
-各 report の findings を抽出し以下のルールで統合する:
+findings source は 6 report (5 review facet + workspace-hygiene-scan の検出部分)。file-length-watchlist と workspace-hygiene-scan の ignored サイズは機械的観測であり findings に含めない (§ Input の扱いに従う)。各 report の findings を抽出し以下のルールで統合する:
 
-1. **重複検出**: 同じ `location.path` + 似た description / 同じ category の finding はマージする (3 facets 間で観点が重なるケースあり、例: simplicity が dead code、architecture が ADR-012 違反として同じ symbol を flag)
-2. **rationale 統合**: マージした finding の rationale 部分に複数 facet (simplicity / security / architecture) を併記する
+1. **重複検出**: 同じ `location.path` + 似た description / 同じ category の finding はマージする (facet 間で観点が重なるケースあり、例: simplicity が dead code、architecture が ADR-012 違反として同じ symbol を flag)
+2. **rationale 統合**: マージした finding の rationale 部分に該当する複数 facet 名を併記する
 3. **severity 確定**: 各 finding の severity は facet が articulate した severity を尊重する。複数 facet が異なる severity を articulate した場合は **高い方** を採用する (例: simplicity が medium、security が high なら high)
 4. **品質フィルタ** (最初から表に乗せない):
    - 一般的なベストプラクティスの押し付け (具体的な file / line evidence なし)
@@ -103,7 +103,7 @@ category が複数該当する場合は最も特徴的な 1 つを採用、補�
 各 finding に id を採番:
 
 - format: `WR-<YYYY-MM-DD>-<facet_initial><sequence>`
-- facet_initial: `S` (simplicity) / `C` (security) / `A` (architecture) / `W` (workspace-hygiene) / `M` (multi-facet merged)
+- facet_initial: `S` (simplicity) / `C` (security) / `A` (architecture) / `T` (todo) / `J` (jj-robustness) / `W` (workspace-hygiene) / `M` (multi-facet merged)。`T` / `J` は 2026-07〜08 の実 run が既に採番していた表記の明文化 (WR-2026-08-13-T02 / WR-2026-07-19-J01 等が docs/todo.md に採用済みで、変更すると既存参照が壊れる)
 - sequence: 同 facet 内で 01 から連番 (`01` / `02` / ...)
 
 例: `WR-2026-05-29-A03` = 2026-05-29 実行、architecture facet 由来、3 番目。
