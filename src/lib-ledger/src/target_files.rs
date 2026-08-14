@@ -100,17 +100,25 @@ fn extract_quoted_spans(body: &str) -> Result<Vec<String>, String> {
     let mut spans = Vec::new();
     let mut current = String::new();
     let mut in_quote = false;
+    let mut separated = true;
     for ch in body.chars() {
         if ch == '`' {
             if in_quote {
                 spans.push(std::mem::take(&mut current));
+                separated = false;
+            } else if !separated {
+                return Err(format!(
+                    "成果物どうしは `+` で区切ってください (空白や連結だけでは不可): {body:?}"
+                ));
             }
             in_quote = !in_quote;
             continue;
         }
         if in_quote {
             current.push(ch);
-        } else if !(ch.is_whitespace() || ch == '+') {
+        } else if ch == '+' {
+            separated = true;
+        } else if !ch.is_whitespace() {
             return Err(format!(
                 "引用の外に文字 {ch:?} があります (成果物はすべてバッククォートで囲むこと): {body:?}"
             ));
@@ -141,7 +149,11 @@ fn expand_braces(span: &str) -> Result<Vec<String>, String> {
     if tail.contains('{') || tail.contains('}') {
         return Err(format!("展開記法が 2 組以上あります: {span:?}"));
     }
-    let alternatives: Vec<&str> = span[open + 1..close].split(',').map(str::trim).collect();
+    let inner = &span[open + 1..close];
+    if inner.contains('{') {
+        return Err(format!("展開記法が入れ子になっています: {span:?}"));
+    }
+    let alternatives: Vec<&str> = inner.split(',').map(str::trim).collect();
     if alternatives.iter().any(|a| a.is_empty()) {
         return Err(format!("展開記法に空の要素があります: {span:?}"));
     }
@@ -283,6 +295,35 @@ mod tests {
     #[test]
     fn nested_or_multiple_brace_groups_are_errors() {
         assert!(parse_target_files("`src/{a,b}/{c,d}.rs`").is_err());
+    }
+
+    /// 入れ子の `{` は展開部の中に残り、`src/{b.rs` という壊れたパスを生む。
+    /// `validate_path` は `{` を見ないため、そのまま「変更されていない成果物」として
+    /// 要求され続け、原因が読み取れない失敗になる。展開の時点で止める。
+    #[test]
+    fn brace_group_containing_another_open_brace_is_an_error() {
+        let error = parse_target_files("`src/{a,{b}.rs`").expect_err("入れ子は弾く");
+        assert!(error.contains("入れ子"), "{error}");
+    }
+
+    /// 契約は「複数の成果物は `+` で並べる」。空白区切り・連結を受理していると、
+    /// 実装が文書より緩い状態になり、書式の説明が事実と食い違う。
+    #[test]
+    fn adjacent_quotes_without_a_plus_separator_are_errors() {
+        for body in ["`src/a.rs` `docs/b.md`", "`src/a.rs``docs/b.md`"] {
+            let error = parse_target_files(body).expect_err("{body:?} は `+` 区切りが要る");
+            assert!(error.contains("`+` で区切って"), "{body:?}: {error}");
+        }
+    }
+
+    /// `+` の前後の空白は自由。区切りが在ることだけを要求する。
+    #[test]
+    fn plus_separator_tolerates_surrounding_whitespace() {
+        assert_eq!(
+            ok("`src/a.rs`+`docs/b.md`"),
+            vec!["docs/b.md", "src/a.rs"],
+            "空白なしの `+` も受理する"
+        );
     }
 
     #[test]

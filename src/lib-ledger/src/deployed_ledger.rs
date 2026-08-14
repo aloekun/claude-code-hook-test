@@ -68,15 +68,26 @@ fn target_file_cells(markdown: &str) -> Vec<(u32, String)> {
         let Some((rank_idx, target_idx)) = columns else {
             continue;
         };
-        if split.len() <= rank_idx.max(target_idx) {
-            continue;
-        }
-        let Ok(rank) = split[rank_idx].parse::<u32>() else {
+        let Some(rank) = parse_rank(&split, rank_idx) else {
             continue;
         };
+        assert!(
+            split.len() > target_idx,
+            "順位 {rank} の行に 対象ファイル 列がありません (必要 {} 列、実際 {} 列)。\
+             実台帳の select() も同じ入力で「列数が足りません」で失敗する — \
+             ここで読み飛ばすと、その行だけが書式検査からも順位重複検査からも外れる",
+            target_idx + 1,
+            split.len()
+        );
         cells.push((rank, split[target_idx].clone()));
     }
     cells
+}
+
+/// データ行の順位を読む。`None` は「データ行ではない」(区切り行 `|---|` など) の意味で、
+/// 列不足とは区別する — 前者は読み飛ばしてよく、後者は検査の穴になる。
+fn parse_rank(split: &[String], rank_idx: usize) -> Option<u32> {
+    split.get(rank_idx)?.parse::<u32>().ok()
 }
 
 fn header_columns_for_check(split: &[String]) -> (usize, usize) {
