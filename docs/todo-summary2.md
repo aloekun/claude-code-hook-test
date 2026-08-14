@@ -190,6 +190,7 @@
 | 450 | 🔧 Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
 | 451 | 💎 Tier 3 | **OR 条件の不成立を主張するときは全経路を明示する convention (PR #400 T3-1)** | todo23.md | XS | なし (2026-08-14 採用。#400 の CodeRabbit 指摘 3 件すべてが同一欠陥。449 の自動検出が様子見の間の人手ガイド) |
 | 452 | 💎 Tier 3 | **本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (PR #400 T3-2)** | todo23.md | XS | なし (2026-08-14 採用。ADR-051 の具体化。スキルリポ側に約 110 行のコミット漏れが滞留していた検出も含める) |
+| 453 | 🔧 Tier 2 | **post-merge-feedback 分析 agent の書き込み先制約 (read-only facet の一時ファイル生成)** | todo23.md | S | なし (2026-08-14 起票。analyze_transcript.py の実観測。weekly の workspace-hygiene-scan が backstop、本タスクは上流修正で緊急度低) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

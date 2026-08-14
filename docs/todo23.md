@@ -222,3 +222,37 @@
 #### 詰まっている箇所
 
 なし
+
+## セッション由来 (2026-08-14 起票)
+
+### post-merge-feedback 分析 agent の書き込み先制約 — read-only facet がリポジトリ root へ一時ファイルを残せる
+
+> **動機**: 2026-08-14 の PR #400 マージ時、post-merge-feedback workflow の分析 agent (analyze-session) が transcript 解析用の一時スクリプト `analyze_transcript.py` を**リポジトリ root に生成し、そのまま残した**。該当 step は `edit: false` (read-only 意図) だが、この設定は takt の Edit 系ツールを制限するだけで、**Bash / Write 経由のファイル生成は制限されない**。jj auto-snapshot が新規ファイルを即 working copy commit に取り込むため、次の commit への混入経路になる (今回は人間のレビューで偶然発見)。
+>
+> **本タスクの位置づけ**: weekly-review の workspace-hygiene-scan step (2026-08-14 追加) が**回収網 (backstop)** を担うのに対し、本タスクは**上流 (生成させない側)** の修正。ADR-058 (fix 後の決定論再ゲート) と同じ二層構え。
+>
+> **参照**: `.takt/facets/instructions/analyze-session.md`、`.takt/workflows/post-merge-feedback.yaml`、[ADR-022](adr/adr-022-automation-responsibility-separation.md)
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Low (観測 1 回) / Effort S / Adoption Risk None。backstop が先に入っているため緊急度は低い。
+
+#### 設計決定 (案)
+
+候補は 2 つ (併用可):
+
+- **(a) instruction 誘導**: analyze-session 等の一時ファイルを作り得る instruction に「一時ファイルはリポジトリ内に作らない。OS の temp ディレクトリ (`$TMPDIR` / `%TEMP%`) を使う」を明記する。Effort XS、ただし instruction 層の規約なので強制力は無い
+- **(b) 検査の workflow 内前倒し**: post-merge-feedback workflow の最終 step (または merge-pipeline の feedback step 完了後) に `jj st` の clean 確認を足し、汚れていれば警告する。決定論だが、どの層に置くかの設計判断が要る (merge-pipeline Rust 側なら [ADR-022](adr/adr-022-automation-responsibility-separation.md) の責務分離と整合)
+
+#### 作業計画
+
+- [ ] 一時ファイルを作り得る instruction を棚卸しする (analyze-session / analyze-pr / analyze-prepush-reports が候補)
+- [ ] (a) を実施する
+- [ ] (b) の要否を判断する (weekly の backstop で十分か、merge 直後の即時検出が要るか)
+
+#### 完了基準
+
+- 分析 agent が一時ファイルを必要とするとき、リポジトリ外に作ることが instruction で指示されている
+- (b) を採用した場合: feedback step 後の working copy 汚れが merge pipeline のログで可視化される
+
+#### 詰まっている箇所
+
+なし
