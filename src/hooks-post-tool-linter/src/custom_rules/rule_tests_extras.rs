@@ -549,7 +549,7 @@ fn no_workstream_seq_names_in_config_rule() -> CustomRule {
     make_test_rule(
         "no-workstream-seq-names-in-config",
         r"\bPR-[0-9]+\b",
-        &["toml", "yaml", "yml", "jsonc", "json"],
+        &["toml", "yaml", "yml", "jsonc"],
     )
 }
 

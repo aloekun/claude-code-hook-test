@@ -307,34 +307,87 @@ fn incident_fixture_coverage_check() {
     );
 }
 
-/// 既存 3 検査が宣言する fixture 名を集める。
+/// `[rules.incident]` が宣言する fixture 名を **kind ごとに分けて** 集める。
 ///
-/// `[rules.incident]` の bad/good は別名を宣言できるため、両方を鍵として集める
-/// (実運用は同名だが、片方だけ差し替えられた場合に孤児と誤判定しないため)。
+/// bad/good を 1 つの集合にまとめてはならない。`bad_fixture = "a"` / `good_fixture = "b"`
+/// を宣言する rule があると、実在する `bad/b` が「b は宣言済み」として孤児判定を
+/// すり抜ける (kind を跨いだ照合になるため)。実運用では bad/good 同名だが、schema は
+/// 別名を許すので照合も kind 単位で行う。
 #[cfg(test)]
-fn declared_fixture_names(rules: &[CustomRule]) -> std::collections::BTreeSet<String> {
-    let mut declared = std::collections::BTreeSet::new();
+fn declared_fixture_names_by_kind(
+    rules: &[CustomRule],
+) -> (
+    std::collections::BTreeSet<String>,
+    std::collections::BTreeSet<String>,
+) {
+    let mut bad = std::collections::BTreeSet::new();
+    let mut good = std::collections::BTreeSet::new();
     for rule in rules {
         if let Some(incident) = &rule.incident {
-            declared.insert(incident.bad_fixture.clone());
-            declared.insert(incident.good_fixture.clone());
+            bad.insert(incident.bad_fixture.clone());
+            good.insert(incident.good_fixture.clone());
         }
     }
-    declared
+    (bad, good)
 }
 
 /// `tests/fixtures/incidents/<kind>/` の実ファイル名を集める。
 ///
-/// 読めない / 空はここでは判定せず呼び手の false-green ガードに委ねる。
+/// **列挙の失敗は握り潰さない** (ADR-043 fail-closed)。`read_dir` の要素エラーや
+/// 非 UTF-8 名を捨てると、読めなかった 1 件が孤児だった場合に「他が読めたので 0 件」と
+/// 誤って緑になる。検査そのものが成立していないので panic して落とす。
 #[cfg(test)]
 fn existing_fixture_names(kind: &str) -> std::collections::BTreeSet<String> {
     let dir = incident_fixtures_dir(kind);
     let entries = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("failed to read fixture dir {}: {e}", dir.display()));
-    entries
-        .flatten()
-        .filter(|e| e.path().is_file())
-        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+    let mut names = std::collections::BTreeSet::new();
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|e| {
+            panic!(
+                "failed to read a directory entry under {}: {e} (false-green guard: an \
+                 unreadable entry could be the orphan)",
+                dir.display()
+            )
+        });
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "non-UTF-8 fixture file name under {} — cannot verify its orphan status",
+                    dir.display()
+                )
+            })
+            .to_string();
+        names.insert(name);
+    }
+    names
+}
+
+/// 1 つの kind について、宣言されていない実ファイルを孤児として列挙する。
+///
+/// I/O を持たない純関数にしてあるのは、kind を跨いだ照合をしていないことを
+/// synthetic な集合で固定できるようにするため。
+#[cfg(test)]
+fn orphans_for_kind(
+    kind: &str,
+    declared: &std::collections::BTreeSet<String>,
+    existing: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    existing
+        .difference(declared)
+        .map(|name| {
+            format!(
+                "fixture `{}/{}` is referenced by no rule — add the `[[rules]]` entry it was \
+                 created for (with `[rules.incident]`), or delete the fixture",
+                kind, name
+            )
+        })
         .collect()
 }
 
@@ -359,26 +412,20 @@ fn existing_fixture_names(kind: &str) -> std::collections::BTreeSet<String> {
 #[test]
 fn orphan_fixture_check() {
     let rules = load_deployed_custom_rules();
-    let declared = declared_fixture_names(&rules);
+    let (declared_bad, declared_good) = declared_fixture_names_by_kind(&rules);
     assert!(
-        !declared.is_empty(),
+        !declared_bad.is_empty() && !declared_good.is_empty(),
         "no fixtures declared by any `[rules.incident]` — false-green guard"
     );
     let mut orphans: Vec<String> = Vec::new();
-    for kind in ["bad", "good"] {
+    for (kind, declared) in [("bad", &declared_bad), ("good", &declared_good)] {
         let existing = existing_fixture_names(kind);
         assert!(
             !existing.is_empty(),
             "no fixture files found under {} — false-green guard",
             incident_fixtures_dir(kind).display()
         );
-        for name in existing.difference(&declared) {
-            orphans.push(format!(
-                "fixture `{}/{}` is referenced by no rule — add the `[[rules]]` entry it was \
-                 created for (with `[rules.incident]`), or delete the fixture",
-                kind, name
-            ));
-        }
+        orphans.extend(orphans_for_kind(kind, declared, &existing));
     }
     assert!(
         orphans.is_empty(),
@@ -386,4 +433,33 @@ fn orphan_fixture_check() {
         orphans.len(),
         orphans.join("\n  - ")
     );
+}
+
+/// bad/good を 1 つの集合にまとめると、kind を跨いだ名前で孤児がすり抜ける。
+/// `bad_fixture = "a"` / `good_fixture = "b"` の rule に対し実在する `bad/b` は
+/// 孤児だが、統合集合では「b は宣言済み」として見逃される。
+#[cfg(test)]
+#[test]
+fn orphans_are_matched_within_the_same_kind_only() {
+    let declared_bad: std::collections::BTreeSet<String> = ["a.toml".to_string()].into();
+    let declared_good: std::collections::BTreeSet<String> = ["b.toml".to_string()].into();
+    let existing_bad: std::collections::BTreeSet<String> =
+        ["a.toml".to_string(), "b.toml".to_string()].into();
+    let existing_good: std::collections::BTreeSet<String> = ["b.toml".to_string()].into();
+
+    let bad_orphans = orphans_for_kind("bad", &declared_bad, &existing_bad);
+    assert_eq!(bad_orphans.len(), 1, "{bad_orphans:?}");
+    assert!(bad_orphans[0].contains("bad/b.toml"), "{bad_orphans:?}");
+
+    assert!(orphans_for_kind("good", &declared_good, &existing_good).is_empty());
+}
+
+/// 宣言と実ファイルが一致していれば孤児 0 件 (正常系の固定)。
+#[cfg(test)]
+#[test]
+fn matching_declarations_yield_no_orphans() {
+    let declared: std::collections::BTreeSet<String> =
+        ["a.toml".to_string(), "b.rs".to_string()].into();
+    let existing = declared.clone();
+    assert!(orphans_for_kind("bad", &declared, &existing).is_empty());
 }

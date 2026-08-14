@@ -713,7 +713,9 @@ pattern = '\bPR-[0-9]+\b'
 severity = "warning"
 message = "config コメントに workstream 連番名 (PR-N) が書かれています。恒久的な参照 (GitHub PR 番号 `#NNN` / 日付 / ADR) に置き換えてください"
 why = "`PR-N` (N = 数字) 形式の workstream 連番は、その作業パッケージが終わると何を指すか復元できない ephemeral な識別子であり、rule⑥ `no-ephemeral-todo-reference` と同じ「消える参照」クラス。実際に `.claude/hooks-config.toml` のコメントへ書かれ、後から対応 PR を特定できなくなっていた (順位 216)。GitHub PR 番号 `#NNN` は不変なので除外する (pattern が `PR-` + 数字に限定されるため `#NNN` 形式は構造的に非対象)。なお本ルール自身の説明で数字を使わず `PR-N` と書くのは、rule⑥ が `docs/todoN.md` と書くのと同じ自己検出回避"
-extensions = ["toml", "yaml", "yml", "jsonc", "json"]
+# plain `json` は対象外。本ルールは config **コメント**内の ephemeral 参照を対象とするが、
+# JSON はコメント構文を持たないため、fire するとしたら data 文字列であり message と食い違う。
+extensions = ["toml", "yaml", "yml", "jsonc"]
 
 [rules.fix]
 strategy = "ephemeral な連番を恒久参照に置換、または削除"
