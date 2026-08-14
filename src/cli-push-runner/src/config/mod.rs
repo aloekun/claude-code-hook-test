@@ -2,12 +2,14 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 mod docs_only_routing;
+mod ledger_completion;
 mod lint_screen;
 mod post_takt_regate;
 mod pr_size_check;
 mod scratch_file_warning;
 
 pub(crate) use docs_only_routing::DocsOnlyRoutingConfig;
+pub(crate) use ledger_completion::LedgerCompletionConfig;
 pub(crate) use post_takt_regate::{PostTaktRegateConfig, DEFAULT_MAX_SHRINK_PCT};
 pub(crate) use lint_screen::{
     LintScreenConfig, DEFAULT_LINT_SCREEN_ENDPOINT, DEFAULT_LINT_SCREEN_EXE_PATH,
@@ -63,6 +65,7 @@ pub(crate) struct Config {
     pub(crate) takt: TaktConfig,
     pub(crate) push: PushConfig,
     pub(crate) scratch_file_warning: Option<ScratchFileWarningConfig>,
+    pub(crate) ledger_completion: Option<LedgerCompletionConfig>,
     pub(crate) pr_size_check: Option<PrSizeCheckConfig>,
     pub(crate) pre_push_review: Option<PrePushReviewConfig>,
     pub(crate) docs_only_routing: Option<DocsOnlyRoutingConfig>,

@@ -167,7 +167,7 @@ fn verify_diff_covers_pr_range(
 /// 揃えるため new path 側だけを採用する (SIM-NEW-diff-rs-L146)。
 ///
 /// Windows の jj は `\` 区切りで出すため `/` に正規化して `--git` 側と突き合わせる。
-fn parse_summary_paths(
+pub(super) fn parse_summary_paths(
     summary: &str,
 ) -> Result<std::collections::BTreeSet<String>, String> {
     let mut paths = std::collections::BTreeSet::new();

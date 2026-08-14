@@ -22,6 +22,7 @@
 //!   6 - scratch_file_warning 検出 (override env で bypass 可能)
 //!   7 - bookmark_check 非 trunk bookmark 未設定
 //!   8 - pr_size_check が block_threshold 超過 (override env で bypass 可能)
+//!   9 - ledger_completion: 台帳が宣言する成果物に未変更のものがある
 
 mod config;
 mod log;
@@ -35,8 +36,9 @@ use config::{load_config, resolve_takt_workflow};
 use log::log_info;
 use metrics::RunMetrics;
 use stages::{
-    run_bookmark_check, run_diff, run_docs_only_routing, run_lint_screen, run_post_takt_regate,
-    run_pr_size_check, run_push, run_quality_gate, run_scratch_file_warning, run_takt, DiffResult,
+    run_bookmark_check, run_diff, run_docs_only_routing, run_ledger_completion, run_lint_screen,
+    run_post_takt_regate, run_pr_size_check, run_push, run_quality_gate, run_scratch_file_warning,
+    run_takt, DiffResult,
 };
 
 const EXIT_SUCCESS: i32 = 0;
@@ -48,6 +50,7 @@ const EXIT_DIFF_FAILURE: i32 = 5;
 const EXIT_SCRATCH_FILE_WARNING: i32 = 6;
 const EXIT_BOOKMARK_MISSING: i32 = 7;
 const EXIT_PR_SIZE_EXCEEDED: i32 = 8;
+const EXIT_LEDGER_INCOMPLETE: i32 = 9;
 
 /// diff stage の結果。takt / post-takt re-gate を走らせるかを表す。
 enum DiffGate {
@@ -108,7 +111,33 @@ fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
         );
         return Err(EXIT_PR_SIZE_EXCEEDED);
     }
+    if !run_ledger_completion(
+        config.ledger_completion.as_ref(),
+        &read_pr_descriptions(&config.pr_size_pr_range()),
+        &config.pr_size_pr_range(),
+    ) {
+        log_info(
+            "パイプライン中断: 台帳が宣言する成果物に未変更のものがあります。\
+             実装を完了させるか、`Ledger-Rank:` trailer を外して再実行してください。",
+        );
+        return Err(EXIT_LEDGER_INCOMPLETE);
+    }
     Ok(detected_bookmarks)
+}
+
+/// PR 範囲の全コミット description を連結して返す。
+///
+/// tip だけを見ないのは、`Ledger-Rank:` を宣言したコミットの上に別のコミットを積んでから
+/// push する形が普通にあるため。取得に失敗した場合は空文字を返す — ここで push を止めると
+/// 台帳と無関係な push まで巻き込む。宣言が読めなければ stage 自体が skip され、
+/// **止まらないのは「宣言していない push」と同じ扱い**で、緩める方向の破綻ではない。
+fn read_pr_descriptions(pr_range: &str) -> String {
+    stages::read_descriptions(pr_range).unwrap_or_else(|message| {
+        log_info(&format!(
+            "  commit description を取得できません ({message})、台帳完了検証は skip します"
+        ));
+        String::new()
+    })
 }
 
 /// takt workflow 名を解決し、パイプライン開始ログを出力する。workflow 名を返す。

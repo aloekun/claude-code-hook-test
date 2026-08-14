@@ -19,14 +19,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+mod completion;
 #[cfg(test)]
 mod deployed_ledger;
+mod rank_lookup;
 mod screening;
 mod target_files;
 
+pub use completion::{evaluate, Completion};
+pub use rank_lookup::target_files_for_rank;
 use screening::is_bidi_or_invisible_format_char;
 pub use screening::{screen_for_public_output, screen_for_title};
 pub use target_files::parse_target_files;
+
 
 /// 無人可を表すマーク。台帳の表記と一致させる。
 const MARK_AUTONOMOUS: &str = "✅";
@@ -657,6 +662,7 @@ mod tests {
         };
         assert_eq!(task.branch(), "claude/nightly-203");
     }
+
 
     /// 「PRタイトル」列は optional。**無い台帳でも従来どおり選択できる**ことを固定する
     /// (列を全行へ埋めるまでの移行期間があるため)。

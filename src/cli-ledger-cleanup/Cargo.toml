@@ -1,0 +1,17 @@
+[package]
+name = "cli-ledger-cleanup"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cli-ledger-cleanup"
+path = "src/main.rs"
+
+[dependencies]
+# 台帳の解釈は lib-ledger に集約する (ADR-024)。本 exe は CLI 面 (引数・出力・exit コード) だけを担う。
+lib-ledger = { path = "../lib-ledger" }
+
+# 外部 crate 依存は足さない。本 exe は「実装が完了したか」を判定して後始末の可否を決める
+# ゲートであり、供給元が増えるほど判定を曲げられる面が広がる (lib-ledger と同じ論理)。
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

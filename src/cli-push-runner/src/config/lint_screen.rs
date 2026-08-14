@@ -348,6 +348,7 @@ command = "echo push"
             diff: None,
             lint_screen: None,
             scratch_file_warning: None,
+            ledger_completion: None,
             pr_size_check: None,
             pre_push_review: None,
             docs_only_routing: None,
