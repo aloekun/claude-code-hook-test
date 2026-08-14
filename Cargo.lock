@@ -172,6 +172,9 @@ dependencies = [
 [[package]]
 name = "cli-nightly-task-select"
 version = "0.1.0"
+dependencies = [
+ "lib-ledger",
+]
 
 [[package]]
 name = "cli-pr-monitor"
@@ -791,6 +794,10 @@ version = "0.1.0"
 dependencies = [
  "tempfile",
 ]
+
+[[package]]
+name = "lib-ledger"
+version = "0.1.0"
 
 [[package]]
 name = "lib-ollama-client"

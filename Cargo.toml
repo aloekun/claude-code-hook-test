@@ -44,6 +44,7 @@ members = [
     "src/lib-docs-policy",
     "src/lib-hook-output",
     "src/lib-jj-helpers",
+    "src/lib-ledger",
     "src/lib-ollama-client",
     "src/lib-pending-file",
     "src/lib-report-formatter",

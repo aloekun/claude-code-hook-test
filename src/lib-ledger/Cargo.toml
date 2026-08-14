@@ -1,0 +1,15 @@
+[package]
+name = "lib-ledger"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_ledger"
+path = "src/lib.rs"
+
+[dependencies]
+# 外部 crate 依存を持たない。本 crate は夜間ループが「何を実装してよいか」を決める
+# 台帳の解釈を担い、無人経路の入口にあたる。供給元が増えるほど攻撃面が広がるため、
+# 依存を足さないこと自体が設計上の制約 (移設元 cli-nightly-task-select から継承)。
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

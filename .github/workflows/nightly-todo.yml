@@ -292,7 +292,7 @@ jobs:
             制約 (逸脱すると後続の決定論ゲートが push を拒否します):
             - **自律動作のガードレール自体を変更しないこと**: `autonomy-config.toml`、
               `.github/workflows/**`、`src/cli-autonomy-gate/**`、`src/lib-autonomy-policy/**`、
-              `src/cli-fix-push-gate/**`、`src/cli-nightly-task-select/**`
+              `src/cli-fix-push-gate/**`、`src/cli-nightly-task-select/**`、`src/lib-ledger/**`
             - コミット・push・ブランチ操作・PR 操作は行わないこと (あなたの権限外)
             - タスクに関係しないファイルを整形・修正しないこと
           # tool scope (ADR-072 決定 12、順位 379)。
@@ -402,7 +402,7 @@ jobs:
           # 決める仕組みであり、config や gate exe と同じく **自分を縛る側**にある。agent が
           # 台帳を書き換えた diff が PR に紛れ、人間が見落としてマージすると、以後の
           # タスク選択が静かに汚染される (ADR-072 決定 6)。
-          if grep -Eq '^(autonomy-config\.toml|\.github/workflows/|docs/claude-code-web-tasks\.md|src/cli-autonomy-gate/|src/lib-autonomy-policy/|src/cli-fix-push-gate/|src/cli-nightly-task-select/)' \
+          if grep -Eq '^(autonomy-config\.toml|\.github/workflows/|docs/claude-code-web-tasks\.md|src/cli-autonomy-gate/|src/lib-autonomy-policy/|src/cli-fix-push-gate/|src/cli-nightly-task-select/|src/lib-ledger/)' \
             "$RUNNER_TEMP/changed.txt"; then
             echo "[NIGHTLY_DENY] 自律動作のガードレールを変更しているため push しません"
             exit 1

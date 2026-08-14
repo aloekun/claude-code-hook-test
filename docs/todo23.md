@@ -39,7 +39,7 @@
 実装先の候補が 2 つあり、着手時に選ぶ (両方入れる選択もある):
 
 - **(a) custom lint rule** (`.claude/custom-lint-rules.toml`、`paths=["docs/claude-code-web-tasks.md"]`) — 台帳を編集した人へ即時フィードバック。既存 12 rule の確立パターンに乗る
-- **(b) 台帳パーサの fail-closed 検査** (`src/cli-nightly-task-select/src/ledger.rs`) — 夜間ループがタスクを選ぶ瞬間に停止する。同 module の設計方針「曖昧さはすべて停止側へ」および [ADR-043](adr/adr-043-security-gates-fail-closed.md) と整合し、**マークが誤っていても自動実行に到達しない**
+- **(b) 台帳パーサの fail-closed 検査** (`src/lib-ledger/src/lib.rs`) — 夜間ループがタスクを選ぶ瞬間に停止する。同 crate の設計方針「曖昧さはすべて停止側へ」および [ADR-043](adr/adr-043-security-gates-fail-closed.md) と整合し、**マークが誤っていても自動実行に到達しない**
 
 (a) は書き手への予防、(b) は自動実行の直前での遮断で、守る対象が違う。
 
