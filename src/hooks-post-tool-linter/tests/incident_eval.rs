@@ -51,6 +51,7 @@ const CASES: &[Case] = &[
     Case { rule_type: "NO_WRITE_RESULT_DISCARD", severity: "error", fixture: "no-write-result-discard.rs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_JJ_TEMPLATE_FIRST_LINE", severity: "error", fixture: "no-jj-template-first-line.toml", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_HARDCODED_JJ_REVSET_RANGE", severity: "warning", fixture: "no-hardcoded-jj-revset-range.rs", expected_line: 2, workflow_rel: None },
+    Case { rule_type: "NO_WORKSTREAM_SEQ_NAMES_IN_CONFIG", severity: "warning", fixture: "no-workstream-seq-names-in-config.toml", expected_line: 2, workflow_rel: None },
 ];
 
 fn repo_root() -> PathBuf {

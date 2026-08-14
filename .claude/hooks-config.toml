@@ -43,9 +43,9 @@ stale_check_enabled = true
 [session_start.weekly_review_reminder]
 # 試験運用元 (本リポジトリ) では明示的に enable して reminder を実発火させる運用。
 # ADR-031 は 2026-06-01 で本採用化済み、Phase E 観測で「reminder 未発火 = silent」だった
-# 問題に対処するため試験運用元での enable に切替 (2026-06-23、PR-1)。
+# 問題に対処するため試験運用元での enable に切替 (2026-06-23)。
 # 派生プロジェクト deploy 時は default OFF (ADR-039 § 1 opt-in 契約) を維持。
-# 次 PR (PR-3) で `[features].enabled` allow-list 方式に移行予定 = 本 `enabled = true` は暫定。
+# 将来 `[features].enabled` allow-list 方式へ移行予定 = 本 `enabled = true` は暫定。
 enabled = true
 # 7 日は**恒久設定**であり暫定値ではない (2026-08-13 ユーザー判断で確定)。週次レビューは
 # 毎週実行すること自体に意味があり、「weekly」を冠する運用の reminder が月周期で鳴るなら
