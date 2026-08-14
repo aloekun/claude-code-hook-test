@@ -19,10 +19,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+mod deployed_ledger;
 mod screening;
+mod target_files;
 
 use screening::is_bidi_or_invisible_format_char;
 pub use screening::{screen_for_public_output, screen_for_title};
+pub use target_files::parse_target_files;
 
 /// 無人可を表すマーク。台帳の表記と一致させる。
 const MARK_AUTONOMOUS: &str = "✅";

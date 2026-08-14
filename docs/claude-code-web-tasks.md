@@ -90,6 +90,25 @@
 - **空でよい**。未記入なら従来の `feat: 順位 NNN の無人実装 (nightly-todo)` にフォールバックする。`無人可` が `—` の行は選ばれないので空のままでよい
 - `内容` 列とは**用途が違う**。あちらは agent への依頼文で長くてよい。こちらはタイトル
 
+### 「対象ファイル」列の書き方（2026-08-15 制定、機械強制あり）
+
+この列は**後始末の完了判定に使う機械可読フィールド**である。「宣言された成果物がすべて変更されたか」で完了を判定するため、**書き漏らした成果物はそのまま判定の穴になる**。実際に夜間 PR [#394](https://github.com/aloekun/claude-code-hook-test/pull/394) は lint rule の fixture だけを追加してマージされ、rule 本体が無いまま完了扱いになりかけた。
+
+書式（`lib-ledger` の `parse_target_files` が解釈し、`cargo test` が実台帳の全行を毎回検証する）:
+
+- **成果物はすべてバッククォートで囲む。** 囲みの無い散文（`+ fixtures` 等）は成果物として抽出されず、**欠けていても検証を通過してしまう**ため error にする
+- **リポジトリ相対パスで書く。** `main.rs` のような裸のファイル名はどの crate か決まらないため error。`src/cli-docs-lint/src/main.rs` と書く
+- **複数の成果物は `+` で並べる**
+- **丸括弧（全角・半角とも）の中は注釈**として無視される。行番号・「新規」・関数名などを自由に書いてよい（例: 「（`mod tests`、既存 `xxx` 拡張）」）
+- **`{a,b}` は展開され、展開結果の全てが要求対象になる**（例: `tests/fixtures/incidents/{bad,good}/` は bad/good 両方の変更を要求する）
+- パス区切りは `/`。絶対パス・`..` は不可
+
+例:
+
+```text
+`src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `src/cli-docs-lint/src/main.rs`（CheckMode dispatch 拡張）
+```
+
 ### Batch 1: 純テスト・軽微実装（即着手推奨、◎）
 
 `cargo test` で完結し外部依存・設計判断が最小のもの。工数昇順。
@@ -110,9 +129,9 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 | 注意 | PRタイトル |
 |---|---|---|---|---|---|---|---|
 | 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |  |
-| 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |  |
-| 334 | T1 | — | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + fixtures（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |  |
-| 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
+| 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `src/cli-docs-lint/src/main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |  |
+| 334 | T1 | — | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + `tests/fixtures/incidents/{bad,good}/`（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |  |
+| 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `src/cli-pr-monitor/src/config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
 
 ### 無人可としなかった 7 件の理由
 
