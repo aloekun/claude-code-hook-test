@@ -184,6 +184,13 @@
 | 444 | 🚀 Tier 1 | **orphan reaper が success report 検出時に meta.json を running のまま残す (feedback ループ恒久停止)** | todo22.md | S | なし (2026-08-13 起票。PR #396 マージで実発生。順位 398 の guard 変更で stale meta が初めてブロック要因化) |
 | 445 | 🔧 Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
 | 446 | 🚀 Tier 1 | **post-merge-feedback の transcript 抽出が並列 jj workspace のセッションを取りこぼす** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。ADR-030 の分析入力が無言欠落、まず切り分け) |
+| 447 | 🚀 Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
+| 448 | 🔧 Tier 2 | **判断留保キーワード検査の回帰テスト (canonical / tagged / untagged の 3 分類) (PR #400 T2-1)** | todo23.md | S | 447 (検証対象が 447 の成果物。走査の実体が現状 Rust に無いため単独着手は不可) |
+| 449 | 🔧 Tier 2 | **昇格不適格判定の「両経路記載」を決定論化するかを判断 (PR #400 T2-2)** | todo23.md | S-M | なし (2026-08-14 採用。判定は facet LLM + 人間で Rust 実装が無く、決定論化しうるのは記帳形式のみ。次回 weekly-review の初回記帳実績を見てから採否。見送りも正規の出口) |
+| 450 | 🔧 Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
+| 451 | 💎 Tier 3 | **OR 条件の不成立を主張するときは全経路を明示する convention (PR #400 T3-1)** | todo23.md | XS | なし (2026-08-14 採用。#400 の CodeRabbit 指摘 3 件すべてが同一欠陥。449 の自動検出が様子見の間の人手ガイド) |
+| 452 | 💎 Tier 3 | **本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (PR #400 T3-2)** | todo23.md | XS | なし (2026-08-14 採用。ADR-051 の具体化。スキルリポ側に約 110 行のコミット漏れが滞留していた検出も含める) |
+| 453 | 🔧 Tier 2 | **post-merge-feedback 分析 agent の書き込み先制約 (read-only facet の一時ファイル生成)** | todo23.md | S | なし (2026-08-14 起票。analyze_transcript.py の実観測。weekly の workspace-hygiene-scan が backstop、本タスクは上流修正で緊急度低) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

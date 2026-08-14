@@ -1,6 +1,6 @@
 # Aggregate Weekly Review
 
-3 つの whole-tree レビュー (simplicity / security / architecture) を統合し、週次レビューレポートと構造化 findings JSON を生成する。
+5 つの whole-tree レビュー facet (simplicity / security / architecture / todo / jj-robustness) と決定論 scan 2 つ (file-length / workspace-hygiene) を統合し、週次レビューレポートと構造化 findings JSON を生成する。
 
 ADR-031 § Findings スキーマ + § 採否フロー の input source として findings JSON を produce する設計。skill 側 (Phase C 予定) が JSON を読んで AskUserQuestion で採否を確認するため、本 facet は構造化データの単一 source。
 
@@ -18,7 +18,7 @@ ADR-031 § Findings スキーマ + § 採否フロー の input source として
 
 ### Report Directory (takt が提供)
 
-本 step (`pass_previous_response: false`) は前 step の response を受け取らない。代わりに Report Directory に保存された 4 reports を Read で読み取る:
+本 step (`pass_previous_response: false`) は前 step の response を受け取らない。代わりに Report Directory に保存された 7 reports を Read で読み取る:
 
 - `simplicity-whole-review.md` — review-simplicity-whole facet の出力
 - `security-whole-review.md` — review-security-whole facet の出力
@@ -26,17 +26,18 @@ ADR-031 § Findings スキーマ + § 採否フロー の input source として
 - `review-todo-whole.md` — review-todo-whole facet の出力 (観点⑤ Todo 妥当性、順位154)。docs/todo*.md corpus の dead pattern / cross-file 重複 / preamble drift。**findings として Phase 1 統合に含める**
 - `review-jj-robustness-whole.md` — review-jj-robustness-whole facet の出力 (観点⑧ jj-workspace robustness、順位247)。mtime staleness / CARGO_MANIFEST_DIR 実行時読み / --repo 無し gh / colocated .git 前提。**findings として Phase 1 統合に含める**
 - `file-length-watchlist.md` — file-length-watchlist facet の出力 (PR-W0 拡張、順位154。deterministic な `.rs` 800 行 + `docs/todo*.md` 50KB scan)。本 watchlist は LLM 判断による findings ではなく機械的観測のため、Phase 1 統合では findings には含めず、Phase 2 の "file size watchlist" 専用 section として weekly report に転載する
+- `workspace-hygiene-scan.md` — workspace-hygiene-scan facet の出力 (2026-08-14 追加。root 直下 allowlist 突合 + scratch pattern whole-tree + ignored 資産サイズの deterministic scan)。扱いは 2 分される: **root 直下の想定外ファイルと scratch pattern 合致は findings として Phase 1 統合に含める** (severity は report 記載の目安に従う。削除の実行判断をユーザーの採否フローに乗せるため)。**ignored 資産サイズは機械的観測**であり findings に含めず、file size watchlist と同様に専用 section へ転載する
 
 ### Context
 
 実行日は本 step の wall clock を `YYYY-MM-DD` 形式で取得 (UTC でも JST でも一貫していればよい。findings id の prefix に使う)。
 
-## Phase 1: 3 reports の統合
+## Phase 1: findings source reports の統合
 
-各 report の findings を抽出し以下のルールで統合する:
+findings source は 6 report (5 review facet + workspace-hygiene-scan の検出部分)。file-length-watchlist と workspace-hygiene-scan の ignored サイズは機械的観測であり findings に含めない (§ Input の扱いに従う)。各 report の findings を抽出し以下のルールで統合する:
 
-1. **重複検出**: 同じ `location.path` + 似た description / 同じ category の finding はマージする (3 facets 間で観点が重なるケースあり、例: simplicity が dead code、architecture が ADR-012 違反として同じ symbol を flag)
-2. **rationale 統合**: マージした finding の rationale 部分に複数 facet (simplicity / security / architecture) を併記する
+1. **重複検出**: 同じ `location.path` + 似た description / 同じ category の finding はマージする (facet 間で観点が重なるケースあり、例: simplicity が dead code、architecture が ADR-012 違反として同じ symbol を flag)
+2. **rationale 統合**: マージした finding の rationale 部分に該当する複数 facet 名を併記する
 3. **severity 確定**: 各 finding の severity は facet が articulate した severity を尊重する。複数 facet が異なる severity を articulate した場合は **高い方** を採用する (例: simplicity が medium、security が high なら high)
 4. **品質フィルタ** (最初から表に乗せない):
    - 一般的なベストプラクティスの押し付け (具体的な file / line evidence なし)
@@ -77,6 +78,7 @@ simplicity / security / architecture facets が emit する category を以下�
 - `todo-dead-entry` — todo corpus の完了済/陳腐化 entry (削除漏れ)
 - `todo-duplicate` — todo*.md 跨ぎの重複 entry / 順位 table と detail の不整合
 - `todo-preamble-drift` — todo.md preamble の routing 契約と実態の乖離
+- `workspace-hygiene` — リポジトリに残るべきでないファイル (root 直下の想定外ファイル / scratch pattern 合致)
 - `jj-mtime-staleness` — mtime を staleness 判断に使用 (jj workspace で reset され silent-fresh)
 - `jj-manifest-dir` — CARGO_MANIFEST_DIR 等 compile-time 絶対パスでの実行時ファイル読み
 - `jj-gh-no-repo` — `--repo`/`GH_REPO` 無しの gh (非 colocated jj で失敗)
@@ -101,7 +103,7 @@ category が複数該当する場合は最も特徴的な 1 つを採用、補�
 各 finding に id を採番:
 
 - format: `WR-<YYYY-MM-DD>-<facet_initial><sequence>`
-- facet_initial: `S` (simplicity) / `C` (security) / `A` (architecture) / `M` (multi-facet merged)
+- facet_initial: `S` (simplicity) / `C` (security) / `A` (architecture) / `T` (todo) / `J` (jj-robustness) / `W` (workspace-hygiene) / `M` (multi-facet merged)。`T` / `J` は 2026-07〜08 の実 run が既に採番していた表記の明文化 (WR-2026-08-13-T02 / WR-2026-07-19-J01 等が docs/todo.md に採用済みで、変更すると既存参照が壊れる)
 - sequence: 同 facet 内で 01 から連番 (`01` / `02` / ...)
 
 例: `WR-2026-05-29-A03` = 2026-05-29 実行、architecture facet 由来、3 番目。
@@ -145,7 +147,7 @@ Markdown は人間 / Claude が読む summary 層。findings table を severity 
 ### スコープ
 - 対象ツリー: `src/` / `scripts/` / `.claude/` / `.takt/` / `docs/`
 - レビューファセット: simplicity-whole / security-whole / architecture-whole / todo-whole / jj-robustness-whole
-- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB)
+- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB) / workspace-hygiene-scan (root allowlist + scratch pattern + ignored サイズ)
 - 採否方針: Phase C skill `/weekly-review` で AskUserQuestion 経由
 
 ### File Length Watchlist (機械的観測)
@@ -153,6 +155,10 @@ Markdown は人間 / Claude が読む summary 層。findings table を severity 
 `file-length-watchlist.md` の内容を本 section に転載する (header 行は省略、件数表示 + table 部分を再現)。0 件 (clean state) の場合は「現時点で 800 行超 file は存在しない (clean state)」を表示。
 
 詳細は Report Directory の `file-length-watchlist.md` を参照。
+
+### Workspace Hygiene (機械的観測)
+
+`workspace-hygiene-scan.md` の「ignored 資産の堆積」section を本 section に転載する (サイズ table)。root 直下の想定外ファイルと scratch pattern 合致は本 section ではなく **統合 findings に含める** (category=`workspace-hygiene`、採否フローに乗せるため)。3 検査すべて 0 件の場合は「workspace hygiene: clean state」を表示。
 
 ### 統合 findings
 
@@ -200,13 +206,17 @@ findings 全体がゼロの場合は以下を出力:
 ### スコープ
 - 対象ツリー: `src/` / `scripts/` / `.claude/` / `.takt/` / `docs/`
 - レビューファセット: simplicity-whole / security-whole / architecture-whole / todo-whole / jj-robustness-whole
-- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB)
+- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB) / workspace-hygiene-scan (root allowlist + scratch pattern + ignored サイズ)
 
 ### File Length Watchlist (機械的観測)
 
 `file-length-watchlist.md` の内容を本 section に転載する (件数表示 + table 部分)。0 件 (clean state) の場合は「現時点で 800 行超 file は存在しない (clean state)」を表示。
 
-特筆すべき findings なし。3 facet いずれも whole-tree レビューで blocking concern を発見しませんでした。
+### Workspace Hygiene (機械的観測)
+
+`workspace-hygiene-scan.md` の「ignored 資産の堆積」section を転載する。検出 0 件の場合は「workspace hygiene: clean state」を表示。
+
+特筆すべき findings なし。各 facet いずれも whole-tree レビューで blocking concern を発見しませんでした。
 
 決定論層 + diff-local レビュー + post-pr-review が現状の coherence を保っている状態と解釈できます。
 ```

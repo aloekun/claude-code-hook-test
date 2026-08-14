@@ -5,8 +5,8 @@ description: >
   が見ない whole-tree 観点 (累積複雑度 / 横断的 ADR 整合性 / ハーネス遵守 /
   test 設計) を補完する。
   5 つの whole-tree review facet (simplicity / security / architecture / todo / jj-robustness)
-  と決定論的 file-size scan を parallel で走らせて aggregate-weekly が findings JSON +
-  markdown を生成する。post-merge-feedback.yaml の構造を流用。
+  と決定論的 scan 2 つ (file-size / workspace-hygiene) を parallel で走らせて
+  aggregate-weekly が findings JSON + markdown を生成する。post-merge-feedback.yaml の構造を流用。
   fix loop なし: コードではなく findings レポートを生成するため
   reviewers/fix の構造は不要。
   出力: weekly-review.md + findings.json (Report Directory に保存)
@@ -29,11 +29,12 @@ steps:
   # ---------------------------------------------------------------------------
   # Step 1: reviewers (parallel)
   #   5 つの whole-tree review facet (simplicity / security / architecture / todo /
-  #   jj-robustness) と決定論的 file-size scan を並列実行する。各 review facet は独立した
-  #   観点でソースツリー / todo corpus を Glob/Read/Grep し、findings を articulate する。
+  #   jj-robustness) と決定論的 scan 2 つ (file-size / workspace-hygiene) を並列実行する。
+  #   各 review facet は独立した観点でソースツリー / todo corpus を Glob/Read/Grep し、
+  #   findings を articulate する。
   #   Report Directory には simplicity-whole-review.md / security-whole-review.md /
   #   architecture-whole-review.md / review-todo-whole.md / review-jj-robustness-whole.md /
-  #   file-length-watchlist.md が並ぶ。
+  #   file-length-watchlist.md / workspace-hygiene-scan.md が並ぶ。
   # ---------------------------------------------------------------------------
   - name: reviewers
     parallel:
@@ -128,6 +129,31 @@ steps:
         rules:
           - condition: analysis complete
 
+      # 観点 ⑨ workspace hygiene (2026-08-14 追加)。root 直下の想定外ファイル (allowlist
+      # 突合) + scratch pattern (__* / _tmp_*) whole-tree + ignored 資産サイズの週次棚卸し。
+      # push 時 scratch 検査 ([scratch_file_warning] stage) は push 時のみ・pattern 合致のみで、
+      # push 後に生成された非 pattern ファイル (2026-08-14 の analyze_transcript.py 実観測) を
+      # 捕まえられない。jj auto-snapshot が新規ファイルを即 commit に取り込むため、週次の
+      # 回収網として本 step を置く。file-length-watchlist と同じ純機械 step (LLM 判断ゼロ、
+      # persona は takt の構造要件)。削除は提案止まり、実行は Phase 3 でユーザーが決める (ADR-022)。
+      - name: workspace-hygiene-scan
+        edit: false
+        persona: simplicity-reviewer
+        model: haiku
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Bash
+              - Read
+        instruction: workspace-hygiene-scan
+        output_contracts:
+          report:
+            - name: workspace-hygiene-scan.md
+              format: workspace-hygiene-scan
+        rules:
+          - condition: analysis complete
+
       # 観点 ⑤ Todo 妥当性 (ADR-031 拡張、順位154)。docs/todo*.md 全 corpus の
       # dead pattern / cross-file 重複 / preamble routing drift を週次 batch で棚卸し。
       # 順位136 hook (編集時 immediate) / cli-docs-lint が拾えない経年・横断的劣化を補完。
@@ -184,7 +210,8 @@ steps:
 
   # ---------------------------------------------------------------------------
   # Step 2: aggregate-weekly
-  #   6 つの whole-tree レポート (5 review facet + file-length watchlist) を統合し、
+  #   7 つの whole-tree レポート (5 review facet + file-length watchlist +
+  #   workspace hygiene scan) を統合し、
   #   severity 順に並べた findings JSON + markdown を生成する。
   #   pass_previous_response: false で、Report Directory の各レポートファイルを
   #   直接読む。post-merge-feedback の aggregate-feedback と同パターン。

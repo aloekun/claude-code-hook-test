@@ -257,7 +257,7 @@ state が未知の値だった場合は **open と同じ扱い (保護側)** に
   "findings": [
     {
       "id": "WR-2026-04-27-A03",
-      "facet": "simplicity | security | architecture",
+      "facet": "simplicity | security | architecture | todo | jj-robustness | workspace-hygiene",
       "severity": "critical | high | medium | low",
       "category": "nesting | naming | adr-violation | cyclic-dep | dead-code | ...",
       "location": { "path": "src/foo.rs", "line_range": "120-145" },
