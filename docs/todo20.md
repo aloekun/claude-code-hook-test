@@ -428,7 +428,7 @@
 
 > **動機**: `is_table_row` は行頭 `|` を要求するのに対し、`is_separator_row` は `split_cells` の結果だけを見るため**パイプを 1 つも含まない行が通る**。`split_cells("---")` は `["---"]` を返し、全セルが `-` のみなので真になる。
 >
-> **2026-08-07 に実コードで確認済み** ([ledger.rs:262-272](../src/cli-nightly-task-select/src/ledger.rs#L262-L272))。markdown の水平線 `---` は本 todo ファイル自身が使っており、台帳に現れうる。表の直前に水平線があると、それをセパレータ行と誤認して表構造の解釈がずれる。
+> **2026-08-07 に実コードで確認済み** ([lib.rs:262-272](../src/lib-ledger/src/lib.rs#L262-L272))。markdown の水平線 `---` は本 todo ファイル自身が使っており、台帳に現れうる。表の直前に水平線があると、それをセパレータ行と誤認して表構造の解釈がずれる。
 >
 > [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 2 が「台帳の曖昧さはすべて停止側へ」と定めた fail-closed 設計の coverage hole にあたる。
 >

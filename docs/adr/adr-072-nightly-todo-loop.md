@@ -110,7 +110,9 @@ security review の主張は「**`--allowedTools` の `Bash(cmd:*)` は文字列
 
 draft PR は commitment 点の手前なので人間のレビューが最終防衛になるが、「自分を縛る仕組みを自分で書き換えた diff」だけは例外とし、決定論的な path 禁止リストで push を止める。
 
-対象: `autonomy-config.toml` / `.github/workflows/**` / **`docs/claude-code-web-tasks.md`** / `src/cli-autonomy-gate/**` / `src/lib-autonomy-policy/**` / `src/cli-fix-push-gate/**` / `src/cli-nightly-task-select/**`。
+対象: `autonomy-config.toml` / `.github/workflows/**` / **`docs/claude-code-web-tasks.md`** / `src/cli-autonomy-gate/**` / `src/lib-autonomy-policy/**` / `src/cli-fix-push-gate/**` / `src/cli-nightly-task-select/**` / `src/lib-ledger/**`。
+
+**`src/lib-ledger/**` は 2026-08-14 に追加した。** 台帳パーサを `cli-nightly-task-select` から共有 lib へ抽出した際、パースの実体だけが禁止リストの外へ出た。exe 名で列挙していたため、**中身を別 crate へ動かすと保護が自動では追随しない**。禁止リストは「どの exe か」ではなく「どのロジックが自分を縛るか」で決まる — 台帳の解釈は agent が読む指示そのものを組み立てる位置にあり、exe 側に残った CLI 面と同じ保護が要る。
 
 **台帳 (`docs/claude-code-web-tasks.md`) を含めるのは、それが「次に何を実装するか」を決める仕組みだから。** config や gate exe と同じく*自分を縛る側*にある。agent が台帳を書き換えた diff が draft PR に紛れ、人間が見落としてマージすると、以後のタスク選択が静かに汚染される。初版はここを落としていた (§ 静的レビューが捕捉した件)。
 
