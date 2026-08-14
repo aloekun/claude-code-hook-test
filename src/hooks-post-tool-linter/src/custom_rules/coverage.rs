@@ -306,3 +306,84 @@ fn incident_fixture_coverage_check() {
         gaps.join("\n  - ")
     );
 }
+
+/// 既存 3 検査が宣言する fixture 名を集める。
+///
+/// `[rules.incident]` の bad/good は別名を宣言できるため、両方を鍵として集める
+/// (実運用は同名だが、片方だけ差し替えられた場合に孤児と誤判定しないため)。
+#[cfg(test)]
+fn declared_fixture_names(rules: &[CustomRule]) -> std::collections::BTreeSet<String> {
+    let mut declared = std::collections::BTreeSet::new();
+    for rule in rules {
+        if let Some(incident) = &rule.incident {
+            declared.insert(incident.bad_fixture.clone());
+            declared.insert(incident.good_fixture.clone());
+        }
+    }
+    declared
+}
+
+/// `tests/fixtures/incidents/<kind>/` の実ファイル名を集める。
+///
+/// 読めない / 空はここでは判定せず呼び手の false-green ガードに委ねる。
+#[cfg(test)]
+fn existing_fixture_names(kind: &str) -> std::collections::BTreeSet<String> {
+    let dir = incident_fixtures_dir(kind);
+    let entries = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("failed to read fixture dir {}: {e}", dir.display()));
+    entries
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+        .collect()
+}
+
+/// 孤児 fixture ゲート ([`incident_fixture_coverage_check`] の**逆向き**)。
+///
+/// # なぜ逆向きの検査が要るのか
+///
+/// 既存 3 検査 ([`rule_test_coverage_check`] / [`incident_fixture_coverage_check`] /
+/// `incident_eval.rs` の `cases_cover_every_incident_rule`) は**すべて rule を起点**に回る。
+/// したがって「rule を伴わない fixture」= 孤児は 3 検査すべてを素通りする。
+///
+/// 2026-08-14、夜間 todo ループの PR [#394] が **fixture 2 ファイルだけを追加して CI green で
+/// マージされた** (rule 定義・rule test・E2E case・dogfood がいずれも無い)。台帳が
+/// 「新規 lint rule は 3 つの cargo test 群で機械強制される」と記していた保証は、
+/// **rule を書いた場合にのみ成立**していた。本検査はその非対称を閉じる。
+///
+/// 「fixture があるなら必ず rule がある」は例外なく成立するため、
+/// [`NON_INCIDENT_RULES`] のような allowlist を持たない (順方向にだけ必要な例外)。
+///
+/// [#394]: https://github.com/aloekun/claude-code-hook-test/pull/394
+#[cfg(test)]
+#[test]
+fn orphan_fixture_check() {
+    let rules = load_deployed_custom_rules();
+    let declared = declared_fixture_names(&rules);
+    assert!(
+        !declared.is_empty(),
+        "no fixtures declared by any `[rules.incident]` — false-green guard"
+    );
+    let mut orphans: Vec<String> = Vec::new();
+    for kind in ["bad", "good"] {
+        let existing = existing_fixture_names(kind);
+        assert!(
+            !existing.is_empty(),
+            "no fixture files found under {} — false-green guard",
+            incident_fixtures_dir(kind).display()
+        );
+        for name in existing.difference(&declared) {
+            orphans.push(format!(
+                "fixture `{}/{}` is referenced by no rule — add the `[[rules]]` entry it was \
+                 created for (with `[rules.incident]`), or delete the fixture",
+                kind, name
+            ));
+        }
+    }
+    assert!(
+        orphans.is_empty(),
+        "orphan incident fixtures detected ({} issue(s)):\n  - {}",
+        orphans.len(),
+        orphans.join("\n  - ")
+    );
+}

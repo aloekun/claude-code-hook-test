@@ -345,29 +345,6 @@
 
 ---
 
-### `filter_transcripts` の複数 jsonl 走査を timestamp ソートで deterministic 化 + regression test (PR #230 post-merge-feedback T2-#1 採用)
-
-> **動機**: `filter_transcripts` (transcript.rs) が `fs::read_dir` の非決定的走査順で複数 `.jsonl` を処理しており、複数 Claude セッションが並存する場合にファイル間の時系列順が保証されない。downstream の takt workflow (analyze-session) が受け取る context の順序品質が低下し、ADR-030 の determinism 目標と乖離する (CodeRabbit findings)。走査結果を timestamp ソートして決定論化し、regression test で保護する。
->
-> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 2 #1 採用 (Medium / Frequency Low / Effort M / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/230.md` Tier 2 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/transcript.rs` (対象)、ADR-030 (determinism 目標)。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort M。
-
-#### 作業計画
-
-- [ ] `filter_transcripts` の `fs::read_dir` 結果を timestamp (または名前) で sort してから処理するよう変更
-- [ ] 複数 jsonl の順序が入力順に依らず決定論になることを assert する regression test 追加
-- [ ] `cargo test -p cli-merge-pipeline` pass
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 複数 `.jsonl` 入力時の filter 出力が決定論的順序になり regression test で保護される。
-
----
-
 ### `takt.rs` の spawn/try_wait `Err(_)` 分岐に eprintln 追加 — 原因握り潰し解消 (PR #230 post-merge-feedback T3-#1 採用)
 
 > **動機**: `takt.rs` の `spawn()` / `try_wait()` の `Err(_) =>` 分岐がエラー詳細を握り潰しており、失敗時に `.failed` marker へ実際の原因 (`pnpm` 未検出 / 権限エラー等) が残らず L2 recovery の debugging が困難 (CodeRabbit findings)。同 crate に確立済の `write_pending_marker_logged` 等の `eprintln!` パターンを踏襲して原因を記録する。

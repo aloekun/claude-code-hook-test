@@ -102,7 +102,6 @@
 | 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |  |
 | 228 | T2 | ✅ | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs`（末尾 tests） | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係 | test(check-ci): rate-limit shortcut の cr_clean 判定をテストで固定する |
 | 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |  |
-| 239 | T2 | ✅ | `filter_transcripts` の `read_dir` 非決定順を timestamp ソートで決定論化 + 回帰テスト | `src/cli-merge-pipeline/src/feedback/transcript.rs`（`filter_transcripts` + tests） | M | temp-dir に複数 jsonl 生成 → 順序 assert で完結。実 hook 発火不要 | fix(merge-pipeline): transcript の読み取り順を timestamp ソートで決定論化する |
 
 ### Batch 2: 新規実装を伴う（○、要設計判断）
 
@@ -111,7 +110,6 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 | 注意 | PRタイトル |
 |---|---|---|---|---|---|---|---|
 | 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |  |
-| 216 | T2 | ✅ | `no-workstream-seq-names-in-config` lint rule 追加（config comment 内 `PR-[0-9]+` を検出、`#NNN` は除外） | `.claude/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/rule_tests_extras.rs` + `tests/incident_eval.rs` + `tests/fixtures/incidents/{bad,good}/` + (dogfood) `.claude/hooks-config.toml` | S | 確立 12 rule / 11 incident パターン踏襲。Rust regex lookaround 不要（`\bPR-[0-9]+\b`）。dogfood は数行の text 編集 | feat(post-tool-linter): config の workstream 連番名を lint する |
 | 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |  |
 | 334 | T1 | — | docs/todo\*.md 本文の順位番号表記を検出する custom lint rule（ADR-033 仕組み化、`paths=["docs/todo*.md"]` scope、table 行除外） | `.claude/custom-lint-rules.toml` + fixtures（216 と同基盤） | M | 検証経路は 216 と同じ cargo test。**regex FP 精緻化**（preamble の「順位 220 以降」等）+ **本文 dogfood cleanup の規模**を着手前に grep 見積り（todo 記載 S だが M 見込み） |  |
 | 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
@@ -178,7 +176,38 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 
 これで docs-only の採用枠は 0 件になった。ただし本ファイルは retire しない（→ § ライフサイクル）。
 
+### 2026-08-14
+
+| 順位 | 節 | 判定 | 根拠 |
+|---|---|---|---|
+| 239 | 採用タスク (2) Batch 1 | マージ済みのため削除 | 夜間 PR [#391](https://github.com/aloekun/claude-code-hook-test/pull/391) が 2026-08-14 にマージ。実体も確認済み — `src/cli-merge-pipeline/src/feedback/transcript.rs` に `jsonl_paths.sort_by_key(\|path\| transcript_ordering_key(path))` が存在し、`docs/todo-summary2.md` の順位 table からも削除済み |
+| 216 | 採用タスク (2) Batch 2 | 本 PR で完成させたため削除 | 夜間 PR [#394](https://github.com/aloekun/claude-code-hook-test/pull/394) は fixture 2 ファイルのみで rule 本体が無く**未完了だった**（→ [§ 未完了のままマージされた順位](#未完了のままマージされた順位)）。本 PR で rule 定義・rule test 5 件・E2E case・dogfood を実装し、完了基準（`.toml`/`.yaml`/`.yml`/`.jsonc` の `PR-` + 数字を warning 検出、`PR #NNN` は非検出）を満たしたうえで削除した |
+
 ---
+
+## 未完了のままマージされた順位
+
+夜間 PR がマージされても**タスクが完了しているとは限らない**。マージは「その PR の内容を取り込む」判断であって「台帳の完了基準を満たした」判定ではなく、両者を突き合わせる機構が現状どこにも無い。ここには実際に起きた事例と、そこから設けた機構を記録する。
+
+**現在 live な事例は無い**（順位 216 は 2026-08-14 に完成させて削除済み。→ [§ 棚卸し履歴](#棚卸し履歴)）。本節を残すのは、下記の失敗モードと対処が再発防止の根拠として参照され続けるため。
+
+### 事例: 順位 216（2026-08-14）
+
+| PR | 入った成果物 | 欠けていた成果物 |
+|---|---|---|
+| [#394](https://github.com/aloekun/claude-code-hook-test/pull/394) | `tests/fixtures/incidents/{bad,good}/no-workstream-seq-names-in-config.toml`（2 ファイル・計 6 行） | `.claude/custom-lint-rules.toml` の rule 定義、rule test、`tests/incident_eval.rs` の E2E case、dogfood |
+
+**なぜ CI を通ったのか**: custom lint rule の 3 つの機械チェックは**すべて「rule → fixture/test」の向き**にしか働かなかった。
+
+- `rule_test_coverage_check`: toml の各 rule に対応 test が実在するか
+- `incident_fixture_coverage_check`: incident 由来 rule に bad/good fixture が実在するか
+- `cases_cover_every_incident_rule`: `CASES.len()` == `[rules.incident]` の個数
+
+いずれも rule の存在を起点に検査するため、**rule を伴わない孤児 fixture は 3 チェックすべてを素通り**した。「新規 lint rule は 3 つの cargo test 群で機械強制される」という [§ 採用タスク (2)](#採用タスク-2-cargo-test-検証タスククロスプラットフォーム対応後2026-07-23) の記述は、**rule を書いた場合にのみ成立**していた。
+
+**対処**: 逆向きの `orphan_fixture_check`（`src/hooks-post-tool-linter/src/custom_rules/coverage.rs`）を追加し、「fixture があるなら必ず rule がある」を fail-closed で強制した。この検査があれば #394 は CI で落ちてマージできなかった。
+
+**残る一般的リスク**: 上記は lint rule クラスに固有の対処であり、「マージ ≠ 完了」という失敗モード自体は他のタスククラスに残る。完了基準を機械可読にして削除前に検証する仕組み（push 前セルフレビューでの決定論的な台帳自動削除 + 実装確認）を別途構築する。
 
 ## 昇格検査履歴
 

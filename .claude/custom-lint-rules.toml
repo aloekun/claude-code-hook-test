@@ -704,3 +704,44 @@ rs = [
   "no_hardcoded_jj_revset_range_skips_parameterized_format",
   "no_hardcoded_jj_revset_range_skips_other_branch_literal",
 ]
+
+# ─── ルール⑬: config コメント内の workstream 連番名を禁止 ───
+
+[[rules]]
+id = "no-workstream-seq-names-in-config"
+pattern = '\bPR-[0-9]+\b'
+severity = "warning"
+message = "config コメントに workstream 連番名 (PR-N) が書かれています。恒久的な参照 (GitHub PR 番号 `#NNN` / 日付 / ADR) に置き換えてください"
+why = "`PR-N` (N = 数字) 形式の workstream 連番は、その作業パッケージが終わると何を指すか復元できない ephemeral な識別子であり、rule⑥ `no-ephemeral-todo-reference` と同じ「消える参照」クラス。実際に `.claude/hooks-config.toml` のコメントへ書かれ、後から対応 PR を特定できなくなっていた (順位 216)。GitHub PR 番号 `#NNN` は不変なので除外する (pattern が `PR-` + 数字に限定されるため `#NNN` 形式は構造的に非対象)。なお本ルール自身の説明で数字を使わず `PR-N` と書くのは、rule⑥ が `docs/todoN.md` と書くのと同じ自己検出回避"
+extensions = ["toml", "yaml", "yml", "jsonc", "json"]
+
+[rules.fix]
+strategy = "ephemeral な連番を恒久参照に置換、または削除"
+steps = [
+  "その `PR-N` が指す実 PR を特定できるなら GitHub PR 番号 `#NNN` に置換",
+  "特定できないなら日付 / ADR 番号など復元可能な参照に置換",
+  "計画の記述で参照先が未定なら連番を落として内容だけ残す (例: 「次 PR (PR-N) で移行予定」→「将来移行予定」)",
+]
+
+[rules.example]
+bad = '# 次 PR (PR-N、N = 数字) で allow-list 方式に移行予定'
+good = '# 将来 allow-list 方式へ移行予定 (由来: PR #216)'
+
+[rules.incident]
+pr = 216
+bad_fixture = "no-workstream-seq-names-in-config.toml"
+good_fixture = "no-workstream-seq-names-in-config.toml"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule⑬ は toml / yaml / yml (主要拡張子) + jsonc / json (非主要)。
+# positive は主要拡張子ごとに 1 件、negative は `PR #216` (GitHub 形式) を網羅。
+other_ext_tests = ["no_workstream_seq_names_in_config_detects_jsonc_comment"]
+
+[rules.test_coverage.main_ext_tests]
+toml = [
+  "no_workstream_seq_names_in_config_detects_toml_comment",
+  "no_workstream_seq_names_in_config_skips_github_pr_reference",
+]
+yaml = ["no_workstream_seq_names_in_config_detects_yaml_comment"]
+yml = ["no_workstream_seq_names_in_config_detects_yml_comment"]

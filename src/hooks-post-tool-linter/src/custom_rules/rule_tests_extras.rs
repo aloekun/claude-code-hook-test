@@ -540,3 +540,76 @@ fn no_hardcoded_jj_revset_range_skips_other_branch_literal() {
     let violations = run_custom_rules(file.to_str().unwrap(), &rules);
     assert!(violations.is_empty());
 }
+
+/// rule⑬ (順位 216): config コメント内の workstream 連番名 (`PR-` + 数字) を検出する。
+///
+/// 連番リテラルは helper 側で組み立てる。テスト本体に直書きすると、この `.rs` 自体は
+/// rule の対象拡張子外とはいえ、同じ形の文字列が repo 内へ増えて grep の見通しが悪くなる。
+fn no_workstream_seq_names_in_config_rule() -> CustomRule {
+    make_test_rule(
+        "no-workstream-seq-names-in-config",
+        r"\bPR-[0-9]+\b",
+        &["toml", "yaml", "yml", "jsonc", "json"],
+    )
+}
+
+/// `PR-<seq>` 形式 (= 検出対象) のコメント行。
+fn build_workstream_seq_comment(seq: u32) -> String {
+    format!("# 次 PR (PR-{seq}) で allow-list 方式に移行予定\nenabled = true\n")
+}
+
+/// GitHub PR 番号 `#NNN` 形式 (= 不変参照なので非検出) のコメント行。
+fn build_github_pr_reference_comment(number: u32) -> String {
+    format!("# 将来 allow-list 方式へ移行予定 (由来: PR #{number})\nenabled = true\n")
+}
+
+#[test]
+fn no_workstream_seq_names_in_config_detects_toml_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "hooks-config.toml", &build_workstream_seq_comment(3));
+    let rules = compile_test_rules(vec![no_workstream_seq_names_in_config_rule()]);
+    let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+    assert_eq!(violations.len(), 1);
+}
+
+#[test]
+fn no_workstream_seq_names_in_config_detects_yaml_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "workflow.yaml", &build_workstream_seq_comment(1));
+    let rules = compile_test_rules(vec![no_workstream_seq_names_in_config_rule()]);
+    let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+    assert_eq!(violations.len(), 1);
+}
+
+#[test]
+fn no_workstream_seq_names_in_config_detects_yml_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "workflow.yml", &build_workstream_seq_comment(12));
+    let rules = compile_test_rules(vec![no_workstream_seq_names_in_config_rule()]);
+    let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+    assert_eq!(violations.len(), 1);
+}
+
+#[test]
+fn no_workstream_seq_names_in_config_detects_jsonc_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "settings.jsonc", &build_workstream_seq_comment(2));
+    let rules = compile_test_rules(vec![no_workstream_seq_names_in_config_rule()]);
+    let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+    assert_eq!(violations.len(), 1);
+}
+
+/// GitHub PR 番号は不変な参照であり、本 rule の対象ではない。
+/// この negative が崩れると、正当な PR 参照まで書き換えを迫られる。
+#[test]
+fn no_workstream_seq_names_in_config_skips_github_pr_reference() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(
+        dir.path(),
+        "hooks-config.toml",
+        &build_github_pr_reference_comment(216),
+    );
+    let rules = compile_test_rules(vec![no_workstream_seq_names_in_config_rule()]);
+    let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+    assert!(violations.is_empty());
+}
