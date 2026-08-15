@@ -115,10 +115,16 @@ fn summary_row_from_cells(cells: &[String], rank: u32) -> Result<SummaryRow, Str
 /// パス区切りや `..` を含む値をそのまま結合すると `docs_dir` の外のファイルを書き換えられて
 /// しまうため、区切りを一切含まない単純な `*.md` ファイル名だけを許可する
 /// (pre-push security review SEC-NEW-apply-rs-L59)。
+///
+/// `:` も弾く。`C:evil.md` は区切りを含まないが、Windows の [`std::path::Path::join`] は
+/// **ドライブ接頭辞付きの相対パスで基底パスを置き換える**ため、`docs_dir.join("C:evil.md")`
+/// が `docs_dir` の外を指す。区切り文字だけを見ていると Windows でだけ穴が残る
+/// (CodeRabbit #406)。
 fn validate_detail_file_name(detail_file: &str, rank: u32) -> Result<(), String> {
     let is_plain_filename = !detail_file.is_empty()
         && !detail_file.contains('/')
         && !detail_file.contains('\\')
+        && !detail_file.contains(':')
         && detail_file != "."
         && detail_file != "..";
     if !is_plain_filename || !detail_file.ends_with(".md") {
@@ -306,6 +312,8 @@ mod tests {
             "/etc/passwd.md",
             "sub/dir.md",
             "..",
+            "C:evil.md",
+            "c:evil.md",
         ] {
             let poisoned = format!(
                 "# サマリー\n\n\

@@ -195,14 +195,43 @@ mod tests {
     }
 
     /// 順位 table のどちらにも無い順位は、台帳にあっても後始末しない。
+    ///
+    /// **fixture から 240 の行を消してから測る。** 消さないと `todo13.md` が存在しない
+    /// ことが失敗要因になり、0 件経路を通らないまま「エラーになった」で通ってしまう
+    /// (初版がその形だった)。
     #[test]
     fn a_rank_absent_from_both_summary_files_is_an_error() {
         let docs = fixture_dir("absent-summary");
+        std::fs::write(
+            docs.join("todo-summary2.md"),
+            "# サマリー 2\n\n\
+             | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n",
+        )
+        .expect("rewrite summary2");
         let path = ledger_path(&docs);
         let markdown = std::fs::read_to_string(&path).expect("read");
         let error = plan_removal(&path, &markdown, &docs, 240)
-            .expect_err("240 の詳細ファイルは無いので失敗する");
-        assert!(error.contains("todo13.md") || error.contains("順位 240"), "{error}");
+            .expect_err("順位 table のどちらにも無いので失敗する");
+        assert!(
+            error.contains("にありません"),
+            "0 件経路のメッセージになっていない: {error}"
+        );
+    }
+
+    /// 順位 table には行があるが、指し先の詳細ファイルが実在しない場合。
+    /// 上の 0 件経路とは別の失敗要因なので、テストも分ける。
+    #[test]
+    fn a_missing_detail_file_is_a_separate_error() {
+        let docs = fixture_dir("missing-detail-file");
+        let path = ledger_path(&docs);
+        let markdown = std::fs::read_to_string(&path).expect("read");
+        let error = plan_removal(&path, &markdown, &docs, 240)
+            .expect_err("todo13.md が無いので失敗する");
+        assert!(
+            error.contains("todo13.md"),
+            "詳細ファイル欠落のメッセージになっていない: {error}"
+        );
     }
 
     #[test]

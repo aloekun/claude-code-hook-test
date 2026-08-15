@@ -488,9 +488,24 @@ jobs:
             --changed-files "$RUNNER_TEMP/changed.txt" \
             --apply
           git -C publish add -A docs
-          git -C publish -c user.name='nightly-todo' -c user.email='nightly-todo@users.noreply.github.com' \
-            commit -m "chore(ledger): 順位 ${{ steps.select.outputs.rank }} を完了に伴い台帳から削除する" \
-            -m "実装完了は cli-ledger-cleanup が台帳の宣言と PR の変更を突き合わせて判定済み。マージと後始末を原子的にするため PR へ同梱する。"
+          # **pathspec (`-- docs`) は必須。** Guard step が `git add -A` でツリー全体を
+          # stage 済みなので、pathspec なしで commit すると agent の実装まで巻き込む。
+          # そうなると後段の Push step の `git commit` がコミット対象を失って非ゼロで落ち、
+          # `set -euo pipefail` により PR が作られなくなる (CodeRabbit #406 Critical)。
+          # pathspec 付きなら docs だけがコミットされ、残りは index に留まる。
+          #
+          # **commit はステージ有無を確認してから行う。** `apply_removals` は重複実行
+          # (`AbsentFromLedger`) を正常系として扱い 0 ファイル変更で `EXIT_COMPLETE` を返す
+          # 設計であり、加えて agent が docs/ を一切触らない実装もありうる。どちらの場合も
+          # ここでのステージは空になる。無条件 commit だと "nothing to commit" で非ゼロ
+          # 終了し、`set -euo pipefail` で検証済みの実装ごと job が落ちる
+          # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L497)。
+          if ! git -C publish diff --cached --quiet -- docs; then
+            git -C publish -c user.name='nightly-todo' -c user.email='nightly-todo@users.noreply.github.com' \
+              commit -m "chore(ledger): 順位 ${{ steps.select.outputs.rank }} を完了に伴い台帳から削除する" \
+              -m "実装完了は cli-ledger-cleanup が台帳の宣言と PR の変更を突き合わせて判定済み。マージと後始末を原子的にするため PR へ同梱する。" \
+              -- docs
+          fi
 
       - name: Stop when the implementation is incomplete
         if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome != 'success'
@@ -589,13 +604,26 @@ jobs:
             PR_TITLE="feat: 順位 ${RANK} の無人実装 (nightly-todo)"
           fi
           echo "[NIGHTLY] PR title: ${PR_TITLE}"
-          # commit 直前に add をやり直さない。stage したのは Guard step で、間に挟まる Gate は
-          # master-ref/ の exe を実行するだけで publish/ に触れないため index は維持される。
+          # commit 直前に add をやり直さない。stage したのは Guard step であり、
           # 再 add しないことが「ゲートが検査した内容そのものを commit する」保証になる。
+          #
+          # 間に挟まる step のうち **台帳後始末だけは publish/ を書き換える**が、あちらは
+          # `-- docs` の pathspec 付きで commit するため docs 以外の stage は index に残る。
+          # ここで commit されるのは agent の実装そのもので、後始末は 1 つ前のコミットに入る。
+          # (pathspec を落とすと agent の実装まで前のコミットへ吸われ、ここが空になって落ちる。)
           #
           # commit message も PR タイトルに揃える。squash マージでは PR タイトルが採用されるため
           # 履歴上は後者が正だが、ブランチを直接見たときに食い違わない方がよい。
-          git -C publish commit -m "$PR_TITLE"
+          #
+          # **commit はステージ有無を確認してから行う。** agent の実装が docs/ のみだった
+          # 場合、直前の ledger-removal step が `-- docs` pathspec で全 stage を吸い切って
+          # おり、ここでのステージが空になりうる。無条件 commit は "nothing to commit" で
+          # 非ゼロ終了し `set -euo pipefail` で job を落とす
+          # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L497/L608)。
+          # 実装コミットが無くても ledger-removal のコミットが HEAD に残っているため push は成立する。
+          if ! git -C publish diff --cached --quiet; then
+            git -C publish commit -m "$PR_TITLE"
+          fi
           git -C publish push \
             "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
             "HEAD:refs/heads/${BRANCH}"
