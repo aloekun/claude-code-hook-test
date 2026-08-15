@@ -78,11 +78,16 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --release \
-            -p cli-nightly-task-select -p cli-autonomy-gate \
+            -p cli-nightly-task-select -p cli-autonomy-gate -p cli-ledger-cleanup \
             --manifest-path master-ref/Cargo.toml
           # 改ざん検知の基準値。Implement ステップ (agent) が master-ref/ 配下のゲート
           # exe/config を書き換えていないか、後段の Verify gate integrity で照合する。
+          # cli-ledger-cleanup も同じ信頼境界にある (Implement 後に台帳の宣言を採点する
+          # exe なので、書き換えられると #394 の再発防止そのものが無効化される) ため、
+          # cli-autonomy-gate と同じ基準値に含める (pre-push simplicity review
+          # SIM-NEW-nightly-todo-yml-L421)。
           sha256sum master-ref/target/release/cli-autonomy-gate master-ref/autonomy-config.toml \
+            master-ref/target/release/cli-ledger-cleanup \
             > "$RUNNER_TEMP/gate-integrity.sha256"
 
       # 背圧の実測値と、着手済み順位の除外リストを 1 回の問い合わせから作る。
@@ -418,13 +423,16 @@ jobs:
       # Guard の後に置くのは、禁止リスト違反を先に落とすため (改ざんされた台帳で
       # 完了判定させない)。exe と台帳はどちらも master-ref/ から取る — work/ 側は agent が
       # 書き換えられるので、自分の成績表を自分で書ける状態にしない (決定 1 と同じ信頼境界)。
+      # exe 自体は Build deterministic gates from master (Implement 前) で既にビルド済みの
+      # ものを使う。ここで改めて cargo build すると Implement 後の master-ref/src を
+      # コンパイルし直すことになり、cli-autonomy-gate と揃えた改ざん検知が意味を失う
+      # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L421)。
       - name: Verify the declared artifacts are complete
         id: ledger-completion
         continue-on-error: true
         if: steps.guard.outcome == 'success'
         run: |
           set -euo pipefail
-          cargo build --release -p cli-ledger-cleanup --manifest-path master-ref/Cargo.toml
           master-ref/target/release/cli-ledger-cleanup \
             --ledger master-ref/docs/claude-code-web-tasks.md \
             --ranks "${{ steps.select.outputs.rank }}" \

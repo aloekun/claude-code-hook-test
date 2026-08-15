@@ -4,6 +4,8 @@
 //! 「既に実装した順位の宣言を後から引く」。後始末 (実装確認 → 台帳からの削除) が入口で、
 //! 選択とは向きが逆になる。
 
+use std::collections::BTreeSet;
+
 use super::{autonomy_table_header, is_table_row, parse_row, split_cells, Columns};
 
 /// 指定順位の「対象ファイル」セルを引く。
@@ -12,13 +14,21 @@ use super::{autonomy_table_header, is_table_row, parse_row, split_cells, Columns
 /// 場合で、後始末の重複実行では正常に起こりうる。台帳の形が壊れている場合は
 /// [`super::select`] と同じく `Err` を返す — 解釈できない台帳を「順位が無い」と同じ扱いに
 /// すると、壊れた台帳のもとで検証が素通りする。
+///
+/// **順位の重複は要求順位に関係なく `Err`。** [`super::select`] が台帳全体の一意性を
+/// 前提に動く以上、こちらだけが壊れた台帳を受理すると「選択は止まるのに後始末は進む」
+/// という非対称ができる。後始末は行を消す側なので、どの行を指すか決まらない台帳の上で
+/// 動かしてはならない。
 pub fn target_files_for_rank(markdown: &str, rank: u32) -> Result<Option<String>, String> {
     let lines: Vec<&str> = markdown.lines().collect();
     let mut found = None;
+    let mut seen = BTreeSet::new();
     let mut index = 0usize;
     while index < lines.len() {
         index = match autonomy_table_header(&lines, index)? {
-            Some(columns) => collect_rank_cell(&lines, index + 2, &columns, rank, &mut found)?,
+            Some(columns) => {
+                collect_rank_cell(&lines, index + 2, &columns, rank, &mut found, &mut seen)?
+            }
             None => index + 1,
         };
     }
@@ -31,16 +41,18 @@ fn collect_rank_cell(
     columns: &Columns,
     wanted: u32,
     found: &mut Option<String>,
+    seen: &mut BTreeSet<u32>,
 ) -> Result<usize, String> {
     while index < lines.len() && is_table_row(lines[index]) {
         let cells = split_cells(lines[index]);
         let (task, _) = parse_row(&cells, columns, index + 1)?;
+        if !seen.insert(task.rank) {
+            return Err(format!(
+                "順位 {} が台帳に複数あります (どの行を指すか決まらないため後始末できません)",
+                task.rank
+            ));
+        }
         if task.rank == wanted {
-            if found.is_some() {
-                return Err(format!(
-                    "順位 {wanted} が台帳に複数あります (どの行の宣言を使うべきか決まりません)"
-                ));
-            }
             *found = Some(task.target_files);
         }
         index += 1;
@@ -103,5 +115,29 @@ mod tests {
              | 203 | T2 | — | y | `src/c.rs` | XS | - |",
         );
         assert!(target_files_for_rank(&duplicated, 203).is_err());
+    }
+
+    /// **要求順位と無関係な重複も `Err`。** ここを通すと、`select()` が拒否する壊れた台帳の
+    /// 上で後始末だけが進む。後始末は行を消す側なので、どの行を指すか決まらない状態で
+    /// 動かしてはならない。
+    #[test]
+    fn a_duplicate_of_another_rank_is_also_an_error() {
+        let duplicated = ledger(
+            "| 203 | T2 | ✅ | x | `src/b.rs` | XS | - |\n\
+             | 203 | T2 | — | y | `src/c.rs` | XS | - |\n\
+             | 240 | T2 | — | z | `src/d.rs` | XS | - |",
+        );
+        let error = target_files_for_rank(&duplicated, 240).expect_err("重複台帳は拒否する");
+        assert!(error.contains("順位 203"), "{error}");
+    }
+
+    /// 表をまたいだ重複も検出する (台帳は Batch 1 / Batch 2 の 2 表を持つ)。
+    #[test]
+    fn a_duplicate_across_two_tables_is_an_error() {
+        let markdown = format!(
+            "{}\n### Batch 2\n\n| 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 | 注意 |\n|---|---|---|---|---|---|---|\n| 203 | T2 | — | dup | `src/e.rs` | S | - |\n",
+            ledger("| 203 | T2 | ✅ | x | `src/b.rs` | XS | - |")
+        );
+        assert!(target_files_for_rank(&markdown, 203).is_err());
     }
 }

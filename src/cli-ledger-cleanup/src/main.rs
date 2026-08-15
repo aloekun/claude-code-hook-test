@@ -39,6 +39,7 @@ use std::path::PathBuf;
 use lib_ledger::{evaluate, target_files_for_rank, Completion};
 
 const MARKER_OK: &str = "[LEDGER_CLEANUP_OK]";
+const MARKER_ABSENT: &str = "[LEDGER_CLEANUP_ABSENT]";
 const MARKER_BLOCK: &str = "[LEDGER_CLEANUP_BLOCK]";
 
 const EXIT_COMPLETE: i32 = 0;
@@ -144,49 +145,90 @@ fn run(args: Vec<String>) -> i32 {
     }
 }
 
+/// 1 順位ぶんの判定結果。台帳から消えている順位は「完了」と同じ結末 (後始末してよい) だが、
+/// 実ファイルの突き合わせをしていないので `Completion::Complete` と地続きにしない。
+///
+/// 呼び手には 2 通りある: 夜間 workflow は同一 run が選んだ順位を渡す (消えていれば重複実行の
+/// 正常系)。push-runner は人が打ったコミットトレーラーから順位を渡す (消えていれば手入力の
+/// 誤りかもしれない)。どちらも exit コードは変えない (呼び手の設計判断) が、run log 上は
+/// `MARKER_OK` (=検証した) と区別できる専用マーカーを出す
+/// (pre-push simplicity review SIM-NEW-cli-ledger-cleanup-main-rs-L337)。
+enum RankOutcome {
+    /// 台帳から既に消えている。実ファイルの突き合わせはしていない。
+    AbsentFromLedger,
+    /// 台帳に見つかり、実ファイルと突き合わせた結果。
+    Evaluated(Completion),
+}
+
 /// 順位ごとの判定。台帳から消えている順位は完了扱いにする (後始末の重複実行で起こる)。
 fn verdict_for_all(
     markdown: &str,
     ranks: &[u32],
     changed_files: &BTreeSet<String>,
-) -> Result<Vec<(u32, Completion)>, String> {
+) -> Result<Vec<(u32, RankOutcome)>, String> {
     let mut verdicts = Vec::new();
     for rank in ranks {
         let Some(cell) = target_files_for_rank(markdown, *rank)? else {
-            verdicts.push((*rank, Completion::Complete));
+            verdicts.push((*rank, RankOutcome::AbsentFromLedger));
             continue;
         };
-        verdicts.push((*rank, evaluate(&cell, changed_files)));
+        verdicts.push((*rank, RankOutcome::Evaluated(evaluate(&cell, changed_files))));
     }
     Ok(verdicts)
+}
+
+/// `print_verdict` が `report` に返す分類。exit コードを決める材料であって、
+/// 順位ごとの loud 出力そのもの (副作用) とは分けて扱う。
+enum PrintedVerdict {
+    Ok,
+    Incomplete,
+    Unverifiable,
+}
+
+/// 1 順位ぶんの判定を loud に出す。
+fn print_verdict(rank: u32, verdict: &RankOutcome) -> PrintedVerdict {
+    match verdict {
+        RankOutcome::AbsentFromLedger => {
+            println!(
+                "{MARKER_ABSENT} 順位 {rank}: 台帳に見つかりません \
+                 (後始末の重複実行、または手入力順位の誤りの可能性 — \
+                 実ファイルとの突き合わせは行っていません)"
+            );
+            PrintedVerdict::Ok
+        }
+        RankOutcome::Evaluated(Completion::Complete) => {
+            println!("{MARKER_OK} 順位 {rank}: 宣言された成果物がすべて変更されています");
+            PrintedVerdict::Ok
+        }
+        RankOutcome::Evaluated(Completion::Incomplete { missing }) => {
+            eprintln!(
+                "{MARKER_BLOCK} 順位 {rank}: 宣言された成果物のうち {} 件が未変更です:",
+                missing.len()
+            );
+            for path in missing {
+                eprintln!("  - {path}");
+            }
+            PrintedVerdict::Incomplete
+        }
+        RankOutcome::Evaluated(Completion::Unverifiable { reason }) => {
+            eprintln!("{MARKER_BLOCK} 順位 {rank}: 対象ファイル列を解釈できません: {reason}");
+            PrintedVerdict::Unverifiable
+        }
+    }
 }
 
 /// 判定を loud に出して exit コードを決める。
 ///
 /// 未完了と検証不能が混在する場合は未完了を優先して返す。実装が足りていない方が
 /// 先に直すべきことであり、書式の不正はその後で見ればよい。
-fn report(verdicts: &[(u32, Completion)], changed_files: &BTreeSet<String>) -> i32 {
+fn report(verdicts: &[(u32, RankOutcome)], changed_files: &BTreeSet<String>) -> i32 {
     let mut incomplete = false;
     let mut unverifiable = false;
     for (rank, verdict) in verdicts {
-        match verdict {
-            Completion::Complete => {
-                println!("{MARKER_OK} 順位 {rank}: 宣言された成果物がすべて変更されています");
-            }
-            Completion::Incomplete { missing } => {
-                incomplete = true;
-                eprintln!(
-                    "{MARKER_BLOCK} 順位 {rank}: 宣言された成果物のうち {} 件が未変更です:",
-                    missing.len()
-                );
-                for path in missing {
-                    eprintln!("  - {path}");
-                }
-            }
-            Completion::Unverifiable { reason } => {
-                unverifiable = true;
-                eprintln!("{MARKER_BLOCK} 順位 {rank}: 対象ファイル列を解釈できません: {reason}");
-            }
+        match print_verdict(*rank, verdict) {
+            PrintedVerdict::Ok => {}
+            PrintedVerdict::Incomplete => incomplete = true,
+            PrintedVerdict::Unverifiable => unverifiable = true,
         }
     }
     if incomplete {
@@ -240,8 +282,14 @@ mod tests {
     /// `case` はテストごとに固有の名前。**入力から機械的に作ってはならない** —
     /// 初版は `changed.len()` を使い、`/` 区切り版と `\` 区切り版が同じ長さだったため
     /// 並列実行で同一ディレクトリの `changed.txt` を奪い合って落ちた。
+    ///
+    /// `case` はプロセス内のスレッド間しか分けない。`process::id()` も足すのは、
+    /// quality_gate の `cargo test` と手元の `cargo test` が同時に走るなど、**別プロセスが
+    /// 同じケースを実行する**場面が実際にあるため (本 PR が production 側で直したのと
+    /// 同じ race クラス)。
     fn run_with_case(case: &str, changed: &str, ranks: &str) -> i32 {
-        let dir = std::env::temp_dir().join(format!("cli-ledger-cleanup-{case}"));
+        let dir = std::env::temp_dir()
+            .join(format!("cli-ledger-cleanup-{}-{case}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let ledger = write(&dir, "ledger.md", &ledger_markdown());
         let changed_path = write(&dir, "changed.txt", changed);
@@ -320,7 +368,8 @@ mod tests {
     /// 台帳のパスを間違えた run が「完了」と報告しないこと。
     #[test]
     fn a_missing_ledger_file_is_a_usage_error() {
-        let dir = std::env::temp_dir().join("cli-ledger-cleanup-absent");
+        let dir = std::env::temp_dir()
+            .join(format!("cli-ledger-cleanup-{}-absent", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let changed = write(&dir, "changed.txt", "src/a.rs\n");
         let code = run(args(&[
@@ -338,7 +387,8 @@ mod tests {
     /// 「実装が足りない」という誤った診断が出る。
     #[test]
     fn a_missing_changed_files_list_is_a_usage_error() {
-        let dir = std::env::temp_dir().join("cli-ledger-cleanup-absent-changed");
+        let dir = std::env::temp_dir()
+            .join(format!("cli-ledger-cleanup-{}-absent-changed", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let ledger = write(&dir, "ledger.md", &ledger_markdown());
         let code = run(args(&[
