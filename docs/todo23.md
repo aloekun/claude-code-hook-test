@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo22.md がファイルサイズ 66528 B (2026-08-13 時点、50KB = 51200 B の安定読み取り閾値超過) に到達したため、新規エントリは本ファイルに記録する (2026-08-13 新設、週次レビュー WR-2026-08-13-M01 採用)。**新規エントリの追加先は本ファイル**。todo.md / todo3.md 〜 todo22.md の既存エントリは引き続き有効、相互に独立。
+> **本ファイルの位置付け**: docs/todo22.md がファイルサイズ 66528 B (2026-08-13 時点、50KB = 51200 B の安定読み取り閾値超過) に到達したため、新規エントリは本ファイルに記録する (2026-08-13 新設、週次レビュー WR-2026-08-13-M01 採用)。**本ファイルは既存タスクの編集・完了削除専用** (52690 B に到達したため、2026-08-16 以降の新規エントリは [docs/todo24.md](todo24.md) へ)。todo.md / todo3.md 〜 todo22.md の既存エントリは引き続き有効、相互に独立。
 >
 > **サイズ表記について**: todo22.md のサイズは記録時点で異なる (週次レビュー検出時 54203 B → 本ファイル新設時 66528 B → その後の追記でさらに増加)。各記載は**その時点の計測値**であり、現在値と一致しないことがある。現在値が必要なら計測すること。
 >
@@ -188,7 +188,7 @@
 
 ### weekly-review 周辺の決定論層テスト
 
-> **動機**: weekly-review に足した決定論層 (workspace-hygiene-scan / 7 レポート統合 / 昇格検査履歴) は instruction 層に散っており、**壊れても次の週次実行まで気づかない**。[#401](https://github.com/aloekun/claude-code-hook-test/pull/401) の scan は `2>/dev/null` でエラーを握り潰しており、失敗と 0 件を判別できなかった (指摘を受けて修正済みだが、回帰テストが無い)。
+> **動機**: weekly-review に足した決定論層 (workspace-hygiene-scan / 7 レポート統合 など) は instruction 層に散っており、**壊れても次の週次実行まで気づかない**。[#401](https://github.com/aloekun/claude-code-hook-test/pull/401) の scan は `2>/dev/null` でエラーを握り潰しており、失敗と 0 件を判別できなかった (指摘を受けて修正済みだが、回帰テストが無い)。
 >
 > **統合した提案 (4 件)**: scan 失敗と 0 件の区別 / aggregate-weekly の 7 レポート読み取り / 複数不採用理由の re-evaluation / parser 境界 3 件の regression 化 (#401 Tier2 #1・#3・#4、#404 Tier2 #1)。
 >
@@ -199,7 +199,7 @@
 #### 設計決定 (案)
 
 - parser 境界 3 件 (`+` 必須化 / 入れ子 brace 拒否 / 列欠落 panic) は `lib-ledger` に既存テストがあるので、**抜けている境界だけ足す**
-- scan 失敗の区別は instruction 内 bash が対象で Rust のテスト対象が無い。**検証対象を決める作業から始まる**（「判断留保キーワード検査の回帰テスト」「昇格不適格判定の『両経路記載』を決定論化するかを判断する」と同じ構図）— shell の単体テスト基盤を作るか、検査自体を exe へ寄せるかを判断する
+- scan 失敗の区別は instruction 内 bash が対象で Rust のテスト対象が無い。**検証対象を決める作業から始まる**（「判断留保キーワード検査の回帰テスト」と同じ構図）— shell の単体テスト基盤を作るか、検査自体を exe へ寄せるかを判断する
 
 #### 作業計画
 
@@ -384,37 +384,6 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 前提タスク (決定論層の実装先確定) 待ち
 
-### 昇格不適格判定の「両経路記載」を決定論化するかを判断する (出典: PR #400 Tier2 #2)
-
-> **動機**: CodeRabbit 指摘 (#400 の 1 件目 / 3 件目) — 採用は docs-only / cargo-test の **2 経路 OR** なので、片経路の失敗だけでは不適格を証明できない。#400 で「両経路分の基準番号または非適用理由」を必須化したが、これも instruction 層の規約で機械強制が無い。§ 昇格検査履歴 は一度記帳すると基準変更まで再評価されないため、**片経路だけの理由で記帳された順位は恒久除外**になる。
->
-> **本タスクの位置づけ**: レポートは新規テストファイルでの「OR/AND ロジック網羅テスト」を提案しているが、**昇格判定を行う Rust 実装は存在しない** (facet LLM + 人間の判断)。したがって「判定ロジックのテスト」は書けない。決定論化しうる対象は判定そのものではなく**記帳の形式** — § 昇格検査履歴 の各行の理由が両経路に言及しているかの検査である。これはレポート Tier1 #1 (様子見、誤検出率の検証待ち) と同じ対象であり、**両者は統合して扱う**。
->
-> **参照**: `.claude/feedback-reports/400.md` Tier 2 #2 および Tier 1 #1、[docs/claude-code-web-tasks.md](claude-code-web-tasks.md) § 昇格検査履歴
->
-> **実行優先度**: 🔧 **Tier 2** — Severity High / Frequency Medium / Effort S-M / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- 検査対象は § 昇格検査履歴 の table 行の「対象外の理由」セル。両経路 (`docs-only` / `cargo-test`) への言及が揃っているかを見る
-- 誤検出率が読めないため、**実装前にサンプリング検証を行う** (レポート Tier1 #1 自身が前提として挙げている)
-- **「決定論層を作らない」も正規の出口**。その場合は negative result を `docs/dev-conventions.md` へ永続化する (spike 見送りの永続化 convention に従う)。§ 昇格検査履歴 はまだ 1 行も記帳されていないため、初回記帳の実物を見てから判断する方が精度が高い
-
-#### 作業計画
-
-- [ ] 次回 `/weekly-review` の初回記帳を待ち、実際の理由セルの書かれ方をサンプルとして得る
-- [ ] 両経路言及の検出を regex で書いた場合の誤検出率を、そのサンプルで見積もる
-- [ ] 採否を決める (実装する / negative result として見送る)
-- [ ] 実装する場合は fixture テストを同時に置く
-
-#### 完了基準
-
-- 実装するか見送るかが根拠つきで決まり、いずれの場合も記録が残る (実装 = 検査 + fixture、見送り = dev-conventions.md への negative result)
-
-#### 詰まっている箇所
-
-初回の記帳実績待ち (次回 `/weekly-review` で発生する)
-
 ### push-runner の bookmark 不在を早期検出し fallback のノイズを除去する (出典: PR #400 Tier2 #3)
 
 > **動機**: #400 のセッションで実際に発生 — 新規ブランチの初 push で `pnpm push` が exit 7 (`push 可能な bookmark がありません`) で中断した。パイプラインは pre_checks 段階で止まるため実害は小さいが、ユーザーが受け取るのは「push が失敗した」という結果である。
@@ -450,7 +419,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 > **動機**: #400 の CodeRabbit 指摘は 3 箇所すべてが**同じ欠陥**を指していた — 複数経路の OR で「どれも駄目」と結論するのに、片方の経路しか検査していない。台帳側には書式規約を入れたが、それは台帳固有の記述であり、同型の判断は他の場所でも起きうる。
 >
-> **本タスクの位置づけ**: 「昇格不適格判定の『両経路記載』を決定論化するかを判断する」の自動検出が様子見の間、**人手ガイドとして機能する**。自動検出を見送った場合は本 convention が恒久的な担保になる。
+> **本タスクの位置づけ**: 対だった自動検出タスク (順位 449「昇格不適格判定の『両経路記載』を決定論化するかを判断する」) は、検査対象だった台帳 § 昇格検査履歴 の廃止により 2026-08-16 に削除した。**本 convention は単独で成立する** — OR の不成立を片経路だけで主張する誤りは台帳の外でも起きるため、恒久的な担保として残す。
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 3 #1
 >
@@ -541,3 +510,93 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 #### 詰まっている箇所
 
 なし
+
+## 週次レビュー由来 (2026-08-15 実行、調査で判明した機構の欠陥)
+
+> **由来**: 2026-08-15 の週次レビュー ([ADR-031](adr/adr-031-weekly-review-pipeline.md)) 実行時に、findings とは別に**パイプライン自身の欠陥**が 2 件見つかった。どちらも実行ログ (`.takt/runs/20260815-100604-weekly-review-2026-08-15/logs/`) の実測に基づく。findings 採用分は [docs/todo.md](todo.md) § 週次レビュー採用 (2026-08-15) 側にある。
+
+### weekly-review facet の出力言語を output contract に明記する
+
+> **動機**: 2026-08-15 の run で `review-todo-whole.md` が**ほぼ全文ハングルで出力された**。同 run の他 4 facet (architecture / security / simplicity / jj-robustness) は英語で、**日本語の facet は 1 つも無かった**。原因は退行ではなく、**言語指定がどこにも存在しないこと**である。
+>
+> **調査で確定した事実** (2026-08-15):
+>
+> - takt は `language: en | ja` の config key を持つ (`node_modules/takt/builtins/{en,ja}/config.yaml:7`)
+> - **本リポジトリに `.takt/config.yaml` が無い** → builtin default にフォールバックし `en` ロケールが選ばれている。実行ログの systemPrompt が `builtins/en/facets/personas/architecture-reviewer.md` の英語テキストそのままであることで確認済み
+> - `.takt/` 配下を `日本語|Japanese|language` で全文検索した結果、ヒットは `review-todo-whole.md:91` の日本語**例文**のみ。**instruction にも output contract にも言語指定は 1 つも無い**
+> - `takt --help` に `--language` 相当のオプションは無い
+> - `~/.claude/settings.json` の `"language": "Japanese"` は Claude Code 本体の設定で、takt が spawn する provider には伝播しない
+>
+> **本タスクの位置づけ**: 出力言語がモデル任せだと、レポートを読む人間 (日本語話者) が毎回言語ガチャを引くことになる。ハングル出力は今回たまたま可読だったが、facet が増えるほど当たりを引く確率が下がる。
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/facets/instructions/*.md` の § Output contract、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (output-contract 標準化)
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity Medium / Frequency High (毎週全 facet) / Effort XS / Adoption Risk None。
+
+#### 設計決定
+
+**`.takt/config.yaml` に `language: ja` を置く案は採らない。** ロケール全体が切り替わり、takt builtin の persona / policy / knowledge がすべて日本語版に差し替わる。今回の問題は「レポートの出力言語」だけであり、persona の文面まで動かすのは影響範囲が広すぎる (現行の英語 persona で 4 facet は期待どおり動いている)。
+
+採るのは **各 facet instruction の `## Output contract` 節に出力言語を明記する**方式。facet 単位で確実に効き、instruction 自体がリポジトリ管理下にあるため差分がレビューに乗る。
+
+#### 作業計画
+
+- [ ] 対象 facet を棚卸しする — weekly-review の 7 step (`review-simplicity-whole` / `review-security-whole` / `review-architecture-whole` / `review-todo-whole` / `review-jj-robustness-whole` / `file-length-watchlist` / `workspace-hygiene-scan`) + `aggregate-weekly`。他パイプライン (pre-push-review / post-pr-review / post-merge-feedback) の facet も同じ欠落を持つか確認し、範囲を決める
+- [ ] 各 `## Output contract` に「レポート本文は日本語で書く。コード識別子・パス・ADR 番号は原文のまま」を追記する
+- [ ] `aggregate-weekly` の findings.json は `description` / `proposal` の言語をどうするか決める (現状は英語。skill が `docs/todo.md` へ展開する際に翻訳しているため、日本語化すると翻訳工程が減る)
+- [ ] 次回 weekly-review の実走で全 facet が日本語で出ることを確認する (**instruction 変更は実走でしか検証できない** — [docs/dev-conventions.md](dev-conventions.md))
+
+#### 完了基準
+
+- weekly-review の全 facet レポートが日本語で出力される
+- 出力言語が instruction 上の明示的な契約になっており、モデルやロケール既定に依存しない
+
+#### 詰まっている箇所
+
+なし
+
+### 昇格候補集合の構築を決定論層へ移す — instruction による全件判定の強制は 2 回失敗している
+
+> **動機**: `review-todo-whole` facet の昇格候補チェックが、**2 週連続で同じ形で失敗している**。2026-08-13 は 164 件中約 50 件をサンプリングして「0 件」と報告。対策として instruction に全件判定を義務づけた (#399 / #400) が、2026-08-15 の run は **251 件中約 13 件しか判定せず**、残り約 238 件を未判定のまま「候補 0 件」と結論した。
+>
+> **調査で確定した事実** (2026-08-15、実行ログの実測):
+>
+> - **instruction は完全に届いていた** — 20,145 文字が渡り、`judge ALL of it — never sample` も、2026-08-13 の同一失敗を名指しした文も含まれていた
+> - **takt は予算制約を一切注入していない** — プロンプト全体を `token|budget|limit|max` で検索して 0 ヒット
+> - **打ち切られてもいない** — 実行フェーズは 2 分 37 秒 / iteration 1 回 / `status: "done"` で正常終了。同 run の security facet は 3 分 54 秒使っており、短くも長くもない普通の終わり方
+> - したがって facet が書いた「token 예산 부족 (~12,500 token 대 실제 공급량 부족)」は**モデルの作り話**で、実際には何の予算にも当たっていない
+> - 同 facet は台帳の事実も誤読している (順位 284 の `無人可` を `✅` と報告。台帳の現物は `—`)
+>
+> **本タスクの位置づけ**: `model: haiku` の facet に 251 件の全件判定を**指示文だけで強制**している構造そのものが原因。[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) の区分でいえばこれは「ルール」であって「仕組み」ではなく、同じ層での再強化は 2 回とも失敗した。3 回目を同じ層で試す根拠が無い。
+>
+> **なぜ放置できないか**: 昇格検査は「`docs/todo-summary*.md` に溜まったタスク → 台帳 → 夜間ループ」の唯一の供給経路である。ここが詰まると台帳の `✅` (auto lane) は現在の 3 件から増えず、夜間ループの消化能力が構造的に頭打ちになる。
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/facets/instructions/review-todo-whole.md` Criterion 3-2、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、[ADR-022](adr/adr-022-automation-responsibility-separation.md)、[docs/work-plan-nightly-lane-model.md](work-plan-nightly-lane-model.md) PR-5
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency High (毎週) / Effort S / Adoption Risk Low。
+
+#### rescope (2026-08-16): LLM 全件判定と収束機構を廃止し、差集合の出力だけを残す
+
+lane モデル ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18) により、**昇格 = 人間の割り当て判断**と再定義された。週次レビューが出すべきものは判定結果ではなく**判断の材料**だけになったため、本タスクから以下が落ちる。
+
+- **LLM への基準適合判定の配布** — 誰を台帳へ載せるかは人間が決める。facet は件数を報告するだけ (instruction は 2026-08-16 に縮小済み)
+- **収支検証 (渡した件数 = 返ってきた件数)** — 判定させないので収支という概念が消える
+- **収束機構 (§ 昇格検査履歴 への記帳)** — 同 section は 2026-08-16 に廃止。毎回全順位から差集合を取り直すため、除外リストという状態を持たない
+
+**残るのは差集合の決定論的な出力 1 点のみ。** `docs/todo-summary.md` + `docs/todo-summary2.md` の全順位から台帳の現行タスク表に既載の順位を引き、markdown (順位・Tier・タイトル) で出す。`lib-ledger` は既に台帳パーサ (`parse_target_files` / `rank_lookup`) を持っており、順位 table 側のパーサを足せば完結する (work-plan PR-3 で同じパーサを別用途に足すため、PR-3 の後が楽)。
+
+#### 作業計画
+
+- [ ] `docs/todo-summary*.md` の順位 table パーサを `lib-ledger` に追加する (台帳パーサと同じく「曖昧さは停止側へ」= 列ずれ・重複順位は fail-closed)
+- [ ] 差集合を出力する決定論 step を作る。配置は weekly-review workflow の純機械 step (file-length-watchlist / workspace-hygiene-scan と同型、LLM 判断ゼロ) を第一候補とする
+- [ ] `review-todo-whole` の Criterion 3-2 を、その出力への参照に置き換える
+- [ ] weekly-review skill 側を、一覧を**提示するだけ**の形へ更新する (判定も記帳もしない。台帳への行追加はユーザー承認時のみ、lane は人間が付ける)
+
+#### 完了基準
+
+- 台帳未掲載の順位一覧が決定論的に出力され、`cargo test --workspace` が green
+- 次回 weekly-review の実走で、その一覧がレポートに現れる
+
+#### 詰まっている箇所
+
+- work-plan PR-3 (順位 table 存在照合ゲート) の summary パーサ実装待ち — 同じパーサを流用するため

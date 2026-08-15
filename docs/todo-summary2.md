@@ -86,7 +86,6 @@
 | 330 | 💎 Tier 3 | **「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)** | todo17.md | XS | なし (ADR-059 の 2 チャネルパターンと `WeeklyReviewNudge` struct 化。第2弾展開 3件で再利用見込み。dev-conventions 1節追記) |
 | 331 | 🔧 Tier 2 | **hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テスト追加 (#299 post-merge feedback 採用)** | todo17.md | S | なし (現状 pure function レベルのみ、実 config パース込み exe 駆動の検証なし。ADR-049 exe-spawn E2E 先例流用。UI 実描画確認は別途 dogfood) |
 | 332 | 🔧 Tier 2 | **`pnpm build:all` 前に git usr/bin (cp.exe) PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)** | todo17.md | S | なし (Windows で pnpm が cmd.exe 経由実行のため `cp` 解決失敗。memory 既記録だが再発2回目。Windows 限定 additive 分岐、他OS非影響) |
-| 334 | 🚀 Tier 1 | **docs/todo*.md 本文の順位番号表記を検出する custom lint rule (ADR-033 使用禁止の仕組み化、#303 post-merge feedback 採用)** | todo14.md | S | なし (ADR-033 が禁止規定 + 将来の展望で lint 検討済みだが未実装 約3ヶ月。検証 grep 実証済み、literal-ban rule⑥/⑪ と同型) |
 | 335 | 🔧 Tier 2 | **post-merge-feedback の transcript 分析を cli-merge-pipeline 生成 summary index に置換 (#303 post-merge feedback 採用)** | todo14.md | M | なし (session-analysis facet が約 1.5MB transcript で 25K token limit 衝突・避難措置を自己観測。既存 filter の自然な拡張、Frequency High) |
 | 336 | 🚀 Tier 1 | **post-merge-feedback の分析ソース選定を対象 PR の commit/bookmark 照合ベースに修正 — 時刻範囲のみ選定を廃止 (#311/#312 post-merge feedback 採用)** | todo14.md | M | なし (時刻範囲のみの pre-push run / transcript 選定が並行 push (#311/#312/#313) で他 PR 知見を誤帰属、#311/#312 feedback で実地確認。post-merge-feedback 分析範囲欠陥として過去 3 回 recurrence した先行 todo の同型・より深刻版。#311 feedback=✅ / #312 feedback=🤔 と判定割れだが両者実害確認済、ADR-042 で mechanizable=Yes) |
 | 337 | 🔧 Tier 2 | **並行テストで thread::spawn 結果を Vec::collect 後に判定する pattern を custom lint 強制 (#312 post-merge feedback 採用)** | todo14.md | M | なし (#312 で遅延イテレータが実行中 thread を drop し「2 Acquired」偽陽性、collect で回避した実績。thread::spawn は 8 ファイルで使用され再発余地。対象を concurrent test 近傍限定で FP 軽減。analyzer Tier1 = mechanical enforcement → memory `feedback_tier_classification` per project Tier 2 に再分類) |
@@ -105,7 +104,7 @@
 | 351 | 💎 Tier 3 | **local LLM review の network 分離制約を明記し unverifiable finding を skip 運用 (#310 post-merge feedback 採用)** | todo14.md | S | なし (local LLM が live marker を検証できず false positive を実出力、author が手動で否定。原提案の Target ADR-038 はスコープ違いで要修正) |
 | 352 | 💎 Tier 3 | **フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加 (#333 post-merge feedback T3-2 採用)** | todo14.md | S | なし (PR #333 Phase 4 で plan doc の 6 実装決定を ADR-062 へ手動 transpose した際に漏れかけ照合で補完。60+ ADR の多段階運用で plan→ADR 同期漏れ再発見込み。lint 化非現実的だが順位261/262/274 と同型の checklist 化は overhead 最小) |
 | 353 | 💎 Tier 3 | **ADR amendment 時の「§ Amendment」節追加を dev-conventions.md チェックリスト化 (#332 post-merge feedback T3-2 採用)** | todo14.md | XS | なし (PR #332/#333 で ADR-062 が ADR-053/055/061 を amend し被 amend 側追記を都度アドホック実施。CLAUDE.md 索引の Supersedes 注記と同様に Amendment 明記を convention 化) |
-| 354 | 💎 Tier 3 | **todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-8 採用)** | todo14.md | XS | なし (PR #332 で todo16.md 複数セクション削除時に lint:md を 3 回以上再実行。段階削除+都度 lint:md+順位番号本文混入注意の checklist 化、専用スクリプト化 (Tier2 様子見) と独立の即応策。順位334 と相補) |
+| 354 | 💎 Tier 3 | **todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-8 採用)** | todo14.md | XS | なし (PR #332 で todo16.md 複数セクション削除時に lint:md を 3 回以上再実行。段階削除+都度 lint:md の checklist 化、専用スクリプト化 (Tier2 様子見) と独立の即応策。2026-08-16: 順位番号の本文混入は ADR-033 § 改訂 で許容されたため checklist 対象から外す) |
 | 355 | 💎 Tier 3 | **新規スキル作成チェックリストを dev-conventions.md に追加 (#332 post-merge feedback T3-9 採用)** | todo14.md | XS | なし (PR #332 で monthly-review skill 作成時に weekly-review を都度参照する手戻り。SKILL.md/evals.json/trigger_eval.json の 3 点セット + Phase 構成 + deploy 前 sync check を checklist 化) |
 | 356 | 🔧 Tier 2 | **weekly/monthly staleness 判定の共通 fixture parametrized test を追加 (#331 post-merge feedback T2-1 採用)** | todo14.md | S | なし (monthly_review.rs の staleness 判定が weekly_review.rs と逐語重複、片方修正で挙動乖離するリスク。同一 fixture〔threshold 境界/Missing/Stale/Unreadable/未来値/main-root canonical〕で両流路を検証、inline test module に配置) |
 | 357 | 🔧 Tier 2 | **CLAUDE.md の ADR index ステータスタグと ADR 本体の整合チェックを追加 (#340 post-merge feedback T1-1 採用)** | todo14.md | M | なし (ADR-047 の index タグが `試験運用` のまま本体の `却下` と乖離した実害が残存。ADR-007 の 2 層は単一ファイル起点のため独立 doc-consistency チェックとして実装。責務はステータスタグ整合のみで採番/索引存在/番号一致は順位 272、実装は同一 module 同居可。着手時に ADR-047 タグ即修正を含む) |
@@ -177,7 +176,7 @@
 | 438 | 🚀 Tier 1 | **孤立ブランチの回収と後始末 (nightly 未マージクローズ 3 本 + 実装孤立 2 本)** | todo22.md | M | なし (2026-08-12 scan + gh 突合。⚠ nightly ブランチの先行削除は夜間ループの再選択事故を誘発するため回収 PR マージ後にのみ削除) |
 | 439 | 🔧 Tier 2 | **決定論 gate 結果の telemetry 統合 (観測不能の再発防止)** | todo22.md | M | なし (2026-08-12 起票。B1-loop NO-GO 判定が「観測手段の欠落」で立証不能に終わった再発防止。ADR-043 § Amendment 2026-08-12 参照) |
 | 440 | 🔧 Tier 2 | **weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)** | todo22.md | S-M | なし (2026-08-12 起票。last-run の指す 2026-07-27.md が不在、ADR-070 移行後の保存先未確認。jj-robustness facet の bounded-lifetime 判定 = todo13.md の blocker) |
-| 441 | 🔧 Tier 2 | **cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加** | todo22.md | S-M | なし (2026-08-12 起票。todo14.md の孤児 4 件が 3 週間未検出だった lint 死角。本文順位番号 lint = 順位 334 と実装共有の可能性) |
+| 441 | 🔧 Tier 2 | **cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加** | todo22.md | S-M | なし (2026-08-12 起票。todo14.md の孤児 4 件が 3 週間未検出だった lint 死角。2026-08-16 に採番漏れ 3 件が再発しており価値は上がっている。実装共有先だった本文順位番号 lint は同日 retire) |
 | 442 | 🔧 Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | 💎 Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
 | 444 | 🚀 Tier 1 | **orphan reaper が success report 検出時に meta.json を running のまま残す (feedback ループ恒久停止)** | todo22.md | S | なし (2026-08-13 起票。PR #396 マージで実発生。順位 398 の guard 変更で stale meta が初めてブロック要因化) |
@@ -185,9 +184,8 @@
 | 446 | 🚀 Tier 1 | **post-merge-feedback の transcript 抽出が並列 jj workspace のセッションを取りこぼす** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。ADR-030 の分析入力が無言欠落、まず切り分け) |
 | 447 | 🚀 Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
 | 448 | 🔧 Tier 2 | **判断留保キーワード検査の回帰テスト (canonical / tagged / untagged の 3 分類) (PR #400 T2-1)** | todo23.md | S | 447 (検証対象が 447 の成果物。走査の実体が現状 Rust に無いため単独着手は不可) |
-| 449 | 🔧 Tier 2 | **昇格不適格判定の「両経路記載」を決定論化するかを判断 (PR #400 T2-2)** | todo23.md | S-M | なし (2026-08-14 採用。判定は facet LLM + 人間で Rust 実装が無く、決定論化しうるのは記帳形式のみ。次回 weekly-review の初回記帳実績を見てから採否。見送りも正規の出口) |
 | 450 | 🔧 Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
-| 451 | 💎 Tier 3 | **OR 条件の不成立を主張するときは全経路を明示する convention (PR #400 T3-1)** | todo23.md | XS | なし (2026-08-14 採用。#400 の CodeRabbit 指摘 3 件すべてが同一欠陥。449 の自動検出が様子見の間の人手ガイド) |
+| 451 | 💎 Tier 3 | **OR 条件の不成立を主張するときは全経路を明示する convention (PR #400 T3-1)** | todo23.md | XS | なし (2026-08-14 採用。#400 の CodeRabbit 指摘 3 件すべてが同一欠陥。対だった順位 449 は検査対象の台帳 § 昇格検査履歴 廃止により 2026-08-16 削除、本 convention は単独で成立) |
 | 452 | 💎 Tier 3 | **本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (PR #400 T3-2)** | todo23.md | XS | なし (2026-08-14 採用。ADR-051 の具体化。スキルリポ側に約 110 行のコミット漏れが滞留していた検出も含める) |
 | 453 | 🔧 Tier 2 | **post-merge-feedback 分析 agent の書き込み先制約 (read-only facet の一時ファイル生成)** | todo23.md | S | なし (2026-08-14 起票。analyze_transcript.py の実観測。weekly の workspace-hygiene-scan が backstop、本タスクは上流修正で緊急度低) |
 | 454 | 🚀 Tier 1 | **自律実行ガードレールの 3 点同期を機械検証する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#403/#405 で 3 箇所を手で揃えた。片方漏れで保護が静かに緩み、#403 では実際に抽出で実体が保護外へ出かけた) |
@@ -195,9 +193,12 @@
 | 456 | 🚀 Tier 1 | **workflow の guard なし `git commit` を検知する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#406 で Critical を 2 度。レビューが無ければ夜間ループが停止していた) |
 | 457 | 🔧 Tier 2 | **lint rule の宣言拡張子が test_coverage で網羅されているか検査 (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#402 の孤児 fixture 検査と対になる、もう 1 つの非対称。例外 allowlist の要否を着手時に決める) |
 | 458 | 🔧 Tier 2 | **`cli-ledger-cleanup` の統合テスト suite (提案 10 件を統合)** | todo23.md | M | なし (2026-08-15 採用。手動実測した安全側 3 ケースの自動化が起点。削除は取り返しがつかないため安全側こそ回り続ける必要がある) |
-| 459 | 🔧 Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448/449 と同じ構図) |
+| 459 | 🔧 Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448 と同じ構図) |
 | 460 | 💎 Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 3 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
 | 461 | 💎 Tier 3 | **開発 convention の一括追記 — 本チェーンの手順レベル教訓 (提案 12 件を統合)** | todo23.md | S | 460 (設計原則は ADR 側へ寄せるため先に確定させる。finding_id 埋込の方針が未決) |
+| 462 | 🚀 Tier 1 | **weekly-review facet の出力言語を output contract に明記する** | todo23.md | XS | なし (2026-08-16 採番。2026-08-15 の run で 1 facet がハングル出力・日本語ゼロ。`.takt/config.yaml` 不在で en builtin にフォールバックしており、instruction にも contract にも言語指定が無い。lane モデル work-plan PR-2 で実施) |
+| 463 | 🚀 Tier 1 | **昇格候補集合の構築を決定論層へ移す (台帳未掲載順位一覧の決定論出力)** | todo23.md | S | なし (2026-08-16 採番。LLM 全件判定は 2 週連続で失敗、lane モデルで rescope し差集合出力のみ残った。work-plan PR-3 の summary パーサを流用するため PR-3 の後が楽。lane モデル work-plan PR-5 で実施) |
+| 464 | 💎 Tier 3 | **`review-todo-whole` facet の台帳読み取り精度を決定論層で担保するか判定する** | todo24.md | S | 順位 463 (facet の報告範囲が lane モデルで縮小したため、463 land 後の実走レポートを見て要否を再判定する。不要なら理由を付して削除) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

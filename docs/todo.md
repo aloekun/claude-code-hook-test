@@ -2,7 +2,7 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo3.md](todo3.md) 〜 [docs/todo23.md](todo23.md) + [docs/todo-summary.md](todo-summary.md) + [docs/todo-summary2.md](todo-summary2.md) の使い分け** (todo2.md は 2026-08-12 退役) (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加、2026-07-20 docs 50KB 超過解消で todo13.md を todo15/16/17・todo10.md を todo18/19 へ物理分割、2026-08-04 todo14.md の 50KB 超過で todo20.md 追加、2026-08-08 todo20.md の 50KB 超過で todo21.md 追加、2026-08-11 todo21.md の 50KB 超過で todo22.md 追加、2026-08-13 todo22.md の 50KB 超過で todo23.md 追加):
+> **本ファイル + [docs/todo3.md](todo3.md) 〜 [docs/todo24.md](todo24.md) + [docs/todo-summary.md](todo-summary.md) + [docs/todo-summary2.md](todo-summary2.md) の使い分け** (todo2.md は 2026-08-12 退役) (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加、2026-07-20 docs 50KB 超過解消で todo13.md を todo15/16/17・todo10.md を todo18/19 へ物理分割、2026-08-04 todo14.md の 50KB 超過で todo20.md 追加、2026-08-08 todo20.md の 50KB 超過で todo21.md 追加、2026-08-11 todo21.md の 50KB 超過で todo22.md 追加、2026-08-13 todo22.md の 50KB 超過で todo23.md 追加、2026-08-16 todo23.md の 50KB 超過で todo24.md 追加):
 >
 > - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)、順位 6-219 を収容。既存行編集・順位再採番はここで行う。
 > - **docs/todo-summary2.md**: todo-summary.md の table を 2026-07-20 に docs 50KB 超過解消で分割した後半 (順位 220 以降を収容)。新規行追加は末尾 = 本ファイルで行う。cli-docs-lint の priority-inversion / preamble は両 summary を統合検査。
@@ -28,9 +28,10 @@
 > - **docs/todo20.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (2026-08-04 todo14.md の 50KB 超過で新設・順位 365-388 を収容、2026-08-08 に本ファイルも 50KB 超過で新規追加先は todo21.md へ移行)
 > - **docs/todo21.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約57KB に到達したため、2026-08-11 以降の新規エントリは todo22.md へ。2026-08-08 todo20.md の 50KB 超過で新設、順位 385 以降を収容)
 > - **docs/todo22.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (約 66KB に到達したため、2026-08-13 以降の新規エントリは todo23.md へ。2026-08-11 todo21.md の 50KB 超過で新設)
-> - **docs/todo23.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加 (2026-08-13 todo22.md の 50KB 超過で新設、週次レビュー WR-2026-08-13-M01 採用)
-> - 例外: 既存 todo.md / todo3.md 〜 todo23.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo3-23.md / todo-summary.md / todo-summary2.md。todo2.md は 2026-08-12 退役)
+> - **docs/todo23.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (52690B に到達したため、2026-08-16 以降の新規エントリは todo24.md へ。2026-08-13 todo22.md の 50KB 超過で新設、週次レビュー WR-2026-08-13-M01 採用)
+> - **docs/todo24.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加 (2026-08-16 todo23.md の 50KB 超過で新設)
+> - 例外: 既存 todo.md / todo3.md 〜 todo24.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
+> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo3-24.md / todo-summary.md / todo-summary2.md。todo2.md は 2026-08-12 退役)
 
 ---
 
@@ -39,6 +40,151 @@
 ---
 
 ## 現在進行中
+
+### 週次レビュー採用 (2026-08-15)
+
+> 2026-08-15 の週次レビュー (whole-tree, ADR-031) で採用した findings。詳細レポートは `.claude/weekly-reviews/2026-08-15.md`。検出 14 件のうち 8 件を採用、6 件 (C01/C02/C04/C05/A05/J03) は却下した。
+
+#### file-length 800 行閾値の single source of truth 化 (週次レビュー WR-2026-08-15-A01 採用)
+
+> **動機**: 800 行閾値が `.claude/hooks-config.toml` `[file_length_gate]`、`src/hooks-post-tool-comment-lint-rust/src/modified_files_check.rs` (`MAX_FILE_LINES=800`)、`src/cli-push-runner/src/stages/pr_size_check.rs` (別建ての 800/1500 行 PR 範囲チェック)、`docs/dev-conventions.md` の 4 箇所に独立定義されている。さらに 50KB の `file_size_check` と 800 行の `file_length_gate` という別物の閾値が、役割の違いを文書化しないまま混在している。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A01 で採用 (severity=high, facet=architecture, category=docs-source-drift)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.claude/hooks-config.toml` (`[file_length_gate]`)
+
+##### 背景: `docs/dev-conventions.md` 自身が「同一事実が複数箇所に分散する場合の変更手順」を anti-pattern として明記しており、本件はその実例に該当する
+
+##### 設計決定: 800 行定数を共有 `lib-*` crate へ集約し、`modified_files_check.rs` と `pr_size_check.rs` の双方から参照する
+
+- [ ] 800 行定数を共有 crate へ抽出し 2 箇所から参照する
+- [ ] `file_size_check` (edit 時 50KB) と `file_length_gate` (push 時 800 行) が意図的に別フェーズなのか redundant なのかを ADR-039 に明記する
+- [ ] `.takt/facets/instructions/file-length-watchlist.md` から authoritative source へ逆参照を張る
+
+##### 完了基準: 800 行という数値がコード上 1 箇所にのみ存在し、他の参照点がすべてそこを指す。2 種の閾値の役割差が ADR-039 に記述されている
+
+#### weekly-review reminder 閾値の共有定数化と値の test 固定 (週次レビュー WR-2026-08-15-A02 採用)
+
+> **動機**: `reminder_threshold_days` が `src/hooks-session-start/src/weekly_review.rs` の Rust default、`.claude/hooks-config.toml:61`、ADR-070 の決定本文、ADR-059 の 4 箇所以上に同期機構なしで分散している。`docs/dev-conventions.md:140` は 2026-08-13 に code default (30) と config (7) が実際に乖離し手動で調整した incident を記録済み。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A02 で採用 (severity=high, facet=architecture, category=docs-source-drift)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.claude/hooks-config.toml:61`、`docs/dev-conventions.md:140` (2026-08-13 の乖離 incident)
+
+##### 背景: 実際に乖離した実績のある分散定義。WR-2026-08-15-A01 と同じ SSOT 欠如の系統だが、こちらは incident が既に起きている点で優先度が高い
+
+##### 設計決定: `WEEKLY_REVIEW_REMINDER_THRESHOLD_DAYS` を `src/hooks-session-start/src/lib.rs` の共有定数として抽出し、config の default deserialization から参照する
+
+- [ ] `WEEKLY_REVIEW_REMINDER_THRESHOLD_DAYS` を `src/hooks-session-start/src/lib.rs` に定義
+- [ ] config の default 値解決を当該定数経由に変更
+- [ ] `.claude/hooks-config.toml` に定数の所在を指す TOML コメントを追加
+- [ ] 定数が文書化された値 (7) と一致することを assert する test を追加
+
+##### 完了基準: `cargo test` が定数値 = 7 を固定しており、code default と config の乖離が test で検出される
+
+#### lint rule ⑥ の拡張子リスト/テスト同期義務を ADR-007 へ昇格 (週次レビュー WR-2026-08-15-A03 採用)
+
+> **動機**: lint rule ⑥ (`no-ephemeral-todo-reference`) の拡張子リストとテスト同期の義務が `.claude/custom-lint-rules.toml:257-265` の TOML コメントにしか書かれておらず、ADR-007・`docs/dev-conventions.md`・テストモジュール自身のいずれにも無い。新しい拡張子を追加した開発者が `rule_test_coverage_check` を回さずローカル `cargo test` を通し、必要なテストなしでマージし得る — ADR-007 § Lint rule 最小テストチェックリストが警告している当の anti-pattern。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A03 で採用 (severity=medium, facet=architecture, category=harness-duplication)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.claude/custom-lint-rules.toml:274` (`.claude/custom-lint-rules.toml:257-265`)
+
+##### 背景: 列挙リストとテスト義務がセットで動く pattern は他ルールにも再利用可能だが、現状は 1 ルールの TOML コメントに閉じている
+
+##### 設計決定: ADR-007 に「列挙 + テスト義務」pattern を再利用可能な形で追補し、コード側からも逆参照を張る
+
+- [ ] ADR-007 § Case study に本 pattern を追補する
+- [ ] `src/hooks-post-tool-linter/src/main.rs` の該当テストモジュールに TOML 行を指す doc comment を追加
+- [ ] (長期・ADR-042 スコープ) `rule_test_coverage_check` が拡張子リストを TOML から直接抽出する案を検討
+
+##### 完了基準: 拡張子を追加した開発者が ADR-007 かコード上の doc comment のどちらからでもテスト義務に到達できる
+
+#### ADR-031 の reminder 閾値「既定 30 日」記述を 7 日へ訂正 (週次レビュー WR-2026-08-15-A04 採用)
+
+> **動機**: ADR-031 の 2026-08-04 更新節が SessionStart reminder を「監査リマインダー (既定 30 日)」と記述しているが、`.claude/hooks-config.toml:61` は `reminder_threshold_days=7` で、ADR-070 が 7 日を恒久値として確定している (30 日案は検討のうえ却下)。ADR-031 のテキストが実装値に対して stale。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A04 で採用 (severity=medium, facet=architecture, category=adr-alignment)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`docs/adr/adr-031-weekly-review-pipeline.md:7`
+
+##### 背景: WR-2026-08-15-A02 の分散定義のうち「文書側の値がずれている」分。A02 の定数化とは独立にテキスト訂正だけで解消する
+
+##### 設計決定: ADR-031 の 2026-08-04 更新節を 7 日恒久 (ADR-070 準拠) に訂正し、30 日が却下された理由を短く注記する
+
+- [ ] ADR-031 の該当記述を 7 日へ訂正
+- [ ] 30 日案が ADR-070 で却下された経緯を 1〜2 行で注記
+
+##### 完了基準: ADR-031 の記述が `.claude/hooks-config.toml` の実装値および ADR-070 の決定と一致する
+
+#### lib-ledger の repo_root() をコンパイル時パスから実行時探索へ (週次レビュー WR-2026-08-15-J01 採用)
+
+> **動機**: `src/lib-ledger/src/deployed_ledger.rs:30-34` の `repo_root()` が `env!("CARGO_MANIFEST_DIR")` に `"../.."` を join したコンパイル時絶対パスで解決している。workspace を移動/改名した場合や、workspace コピー間で `target/` を共有した場合 (ADR-045 のシナリオ)、コンパイル時に焼き込まれたパスが解決できず `read_ledger()` が「台帳を読めません」で panic する。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-J01 で採用 (severity=medium, facet=jj-robustness, category=jj-manifest-dir)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`src/lib-ledger/src/deployed_ledger.rs:30-34`
+
+##### 背景: `CARGO_MANIFEST_DIR` のコンパイル時読みは ADR-045 が明示する脆弱性リストの 1 つ。現状は panic = fail-closed なので silent 破壊ではないが、脆弱性そのものは残る
+
+##### 設計決定: `std::env::current_dir()` から `.git` / `.claude` marker を上方探索し、fallback として `std::env::var()` で実行時に `CARGO_MANIFEST_DIR` を読む
+
+- [ ] `repo_root()` を marker 上方探索ベースに置換
+- [ ] fallback を `env!()` から `std::env::var()` へ変更
+- [ ] workspace 移動を模したテストで解決が壊れないことを固定
+
+##### 完了基準: workspace を移動/改名しても `read_ledger()` が panic せず台帳を解決できる
+
+#### custom_rules/coverage.rs の CARGO_MANIFEST_DIR 実行時解決 (週次レビュー WR-2026-08-15-J02 採用)
+
+> **動機**: `src/hooks-post-tool-linter/src/custom_rules/coverage.rs:22-28,68-69` の `load_deployed_custom_rules()` と `extract_existing_test_fn_names()` (いずれも `#[cfg(test)]`) が `env!("CARGO_MANIFEST_DIR")` でコンパイル時にパスを解決しており、WR-2026-08-15-J01 と同一の hazard を持つ。workspace 移動/改名や `target/` 共有で panic する。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-J02 で採用 (severity=medium, facet=jj-robustness, category=jj-manifest-dir)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`src/hooks-post-tool-linter/src/custom_rules/coverage.rs:22-28,68-69`
+
+##### 背景: J01 と同一パターンだが別ファイル・テスト専用コードのため別 finding として追跡する。J01 の修正方針が決まれば機械的に適用できる
+
+##### 設計決定: 両関数の `env!("CARGO_MANIFEST_DIR")` を `std::env::var(...)` による実行時解決へ置換する
+
+- [ ] `load_deployed_custom_rules()` の解決を実行時化
+- [ ] `extract_existing_test_fn_names()` の解決を実行時化
+
+##### 完了基準: workspace 移動後も当該 2 関数を含むテストが panic せず通る
+
+#### lint-screen eval E2E に閾値 assertion を入れる判断 (週次レビュー WR-2026-08-15-S01 採用)
+
+> **動機**: `src/cli-finding-classifier/tests/lint_screen_evals/e2e.rs:53-84` の `run_lint_screen_against_all_fixtures` は Ollama + lint-screen の全 pipeline を全 eval fixture に対して実行するが assertion が 1 つも無く、metrics を人間解釈用に print するだけ (line 76)。LLM の判定精度を劣化させる PR が、誰かが出力を目視しない限り無言で通る。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-S01 で採用 (severity=medium, facet=simplicity, category=test-anti-pattern)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`src/cli-finding-classifier/tests/lint_screen_evals/e2e.rs:53-84`
+
+##### 背景: 現状は `#[ignore]` + `LINT_SCREEN_EVALS` env による opt-in で、ADR-038 が本テストを「検証ゲートではなく実験的計測ツール」と位置づけている。即時対応は不要という判断が finding 自身に含まれる
+
+##### 設計決定: ADR-038 の試験運用ステータスが解けて CI 昇格へ動く時点で `report_summary` (line 83) に閾値 assertion (例: `assert!(f1_score >= BASELINE_F1)`) を入れる
+
+- [ ] ADR-038 の試験運用判定の出口条件に「eval E2E の assertion 化」を紐づける
+- [ ] CI 昇格時に baseline F1 を決めて `report_summary` へ assertion を追加
+
+##### 完了基準: ADR-038 の採否が確定した時点で、本テストが計測専用のままか assertion 付き検証ゲートかが明示的に決まっている
+
+#### INJECTION_SIGNALS 語彙を dogfood 観測から拡充する (週次レビュー WR-2026-08-15-C03 採用)
+
+> **動機**: `src/cli-finding-classifier/src/lib.rs:84-102` の `INJECTION_SIGNALS` (17 文字列) は意図的に非網羅で、間接命令形 (「assuming this is false positive」)、suffix-injection 変種、テンプレート置換 (「this is ${action} recommendation」) といった既知の回避パターンを捕捉しない。層 1 は補助的かつ fail-open で、層 2 (fix.md allowlist) と層 3 (scope guard, fail-closed) が主防御。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-C03 で採用 (severity=low, facet=security, category=prompt-injection)
+>
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`src/cli-finding-classifier/src/lib.rs:84-102`、ADR-054 (prompt injection 信頼境界の 3 層防御)
+
+##### 背景: 回帰ではなく ADR-054 が設計として織り込んだ運用モデル。語彙は dogfood で観測した実例から育てる前提になっている
+
+##### 設計決定: dogfood 中に観測した回避試行を記録し、対応する test fixture とセットで `INJECTION_SIGNALS` に追加していく
+
+- [ ] 観測した回避試行を記録する運用先を決める (feedback-reports / todo のいずれか)
+- [ ] 観測実例が出た時点で fixture 付きで語彙へ追加
+
+##### 完了基準: 回避試行が観測された際に、語彙追加と fixture 追加がセットで行われる経路が確立している
 
 ### 週次レビュー採用 (2026-08-13)
 
@@ -60,39 +206,14 @@
 
 ##### 完了基準: `CLAUDE.md:34` の ADR-030 行が supersedes 主張を含まず、ADR-030 の現状 (撤回済み) と整合する
 
-#### 台帳の ✅無人可 5 行を condition 3 違反により — へ降格 (週次レビュー WR-2026-08-13-T02 採用)
+#### 撤回: WR-2026-08-13-T01 / T02 (台帳 finding 2 件) — 2026-08-16
 
-> **動機**: `docs/claude-code-web-tasks.md` の `✅ 無人可` 5 行 (順位 203/216/228/239/240) が § 自律実行可否の condition 3 (重複の恐れなし) に違反。各順位に未マージ PR (#373/#394/#379/#391/#378) が存在し、夜間 todo ループが重複/競合 PR を作りうる。
+> **採用済みだったが実行せずに撤回した 2 件**。採用の記録だけ消えると「なぜ実行されなかったのか」が追えなくなるため、撤回の事実をここに残す (エントリ本体は削除済み)。
 >
-> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-T02 で採用 (severity=high, facet=todo, category=todo-duplicate)
+> - **WR-2026-08-13-T02**「台帳の ✅無人可 5 行を condition 3 違反により — へ降格」— 前提が二重に消滅した。対象ブランチは 2026-08-15 に削除済みで順位 216/239 は完了済み、さらに根拠だった **condition 3 自体を 2026-08-16 に廃止**した ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18)
+> - **WR-2026-08-13-T01**「台帳 Batch 1 の closed-without-merge 行を棚卸し履歴へ移動し、in-flight を明示」— 台帳の明文規定「削除するのはマージした順位だけ」と矛盾する。実行すると**未完了タスク 3 件 (順位 203/228/240) が台帳から消える**
 >
-> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/claude-code-web-tasks.md` (採用タスク Batch 1/2)
-
-##### 背景: ADR-072 の夜間ループは無人可マークを機械的に読む。マークが古いと重複実装 PR を生む
-
-##### 設計決定: 該当 5 行の `✅ 無人可` を `—` へ降格し、理由を § 無人可としなかった…理由 表に記録する。PR がマージ or 恒久 close + untrack されるまで
-
-- [ ] 順位 203/216/228/239/240 の 無人可 を `—` へ (**人間が実施** — マークは人間が付ける、ADR-022)
-- [ ] § 無人可としなかった…理由 表に根拠を追記
-
-##### 完了基準: 当該 5 行が `無人可=—`、理由表に PR 番号付きで記録
-
-#### 台帳 Batch 1 の closed-without-merge 行を棚卸し履歴へ移動し、in-flight を明示 (週次レビュー WR-2026-08-13-T01 採用)
-
-> **動機**: `docs/claude-code-web-tasks.md` Batch 1 の順位 203/228/240 は nightly PR (#373/#379/#378) が unmerged close されたのに active のまま残存。順位 239 は open PR (#391) が in-flight として反映されていない。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-T01 で採用 (severity=medium, facet=todo, category=todo-dead-entry)
->
-> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/claude-code-web-tasks.md` (採用タスク Batch 1)
-
-##### 背景: 台帳の鮮度は「行が消えていること」でしか表現されないため、closed 行の残存が棚卸し漏れになる
-
-##### 設計決定: closed-without-merge 行 (203/228/240) を Batch 1 から削除し § 棚卸し履歴 に closed 理由を記録、open-PR 行 (239) を in-flight として明示する
-
-- [ ] 203/228/240 を Batch 1 から削除 + § 棚卸し履歴 記帳
-- [ ] 239 の in-flight 状態を明示
-
-##### 完了基準: Batch 1 に unmerged-close 行が残らず、棚卸し履歴に根拠が残り、順位 239 が in-flight として明示されている
+> **撤回の一般的な含意**: どちらも condition 3 と ADR-072 決定 3 が同じブランチを逆に解釈していたことから生まれた finding である。レビューが正しく規則を適用しても、規則同士が矛盾していれば誤った採用に至る — 採用の是非は finding 単体ではなく、根拠にした規則の整合性まで見ないと判定できない。
 
 #### docs/todo23.md を新設し、新規追加先ポインタを更新する — todo22.md 50KB 超過 (週次レビュー WR-2026-08-13-M01 採用)
 
