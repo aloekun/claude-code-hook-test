@@ -36,7 +36,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use lib_ledger::{evaluate, target_files_for_rank, Completion};
+use lib_ledger::{evaluate, screen_for_public_output, target_files_for_rank, Completion};
 
 const MARKER_OK: &str = "[LEDGER_CLEANUP_OK]";
 const MARKER_ABSENT: &str = "[LEDGER_CLEANUP_ABSENT]";
@@ -206,12 +206,12 @@ fn print_verdict(rank: u32, verdict: &RankOutcome) -> PrintedVerdict {
                 missing.len()
             );
             for path in missing {
-                eprintln!("  - {path}");
+                eprintln!("  - {}", screen_for_public_output(path));
             }
             PrintedVerdict::Incomplete
         }
         RankOutcome::Evaluated(Completion::Unverifiable { reason }) => {
-            eprintln!("{MARKER_BLOCK} 順位 {rank}: 対象ファイル列を解釈できません: {reason}");
+            eprintln!("{MARKER_BLOCK} 順位 {rank}: 対象ファイル列を解釈できません: {}", screen_for_public_output(reason));
             PrintedVerdict::Unverifiable
         }
     }

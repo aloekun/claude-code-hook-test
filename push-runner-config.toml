@@ -65,7 +65,11 @@ patterns = ["__*", "_tmp_*"]
 # ---------------------------------------------------------------------------
 [ledger_completion]
 enabled = true
-exe = ".claude/cli-ledger-cleanup.exe"
+# `exe` は指定しない。既定値は `DEFAULT_EXE` が OS ごとに分岐しており
+# (Windows は `.exe` 付き / それ以外は拡張子なし)、ここで書くと**片方の OS でしか
+# 存在しないパスに固定される**。ADR-063 で Linux 実行 (cloud / WSL) を支えている以上、
+# 拡張子を config へ書き込むと cloud 側だけが「exe を起動できない」で fail-closed して
+# 宣言付き push を全部止める。lint_screen も同じ理由で config に exe を書いていない。
 ledger = "docs/claude-code-web-tasks.md"
 
 # ---------------------------------------------------------------------------

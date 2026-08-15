@@ -476,7 +476,7 @@ jobs:
       - name: Gate PR creation (authority)
         id: gate
         continue-on-error: true
-        if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success'
+        if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success' && steps.ledger-completion.outcome == 'success'
         env:
           AUTONOMY_ENABLED: ${{ vars.AUTONOMY_ENABLED }}
         run: |
