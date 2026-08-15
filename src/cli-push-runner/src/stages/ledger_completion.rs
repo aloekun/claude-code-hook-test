@@ -24,7 +24,10 @@ use std::process::{Command, Stdio};
 use crate::config::LedgerCompletionConfig;
 use crate::log::{log_info, log_stage};
 
+#[cfg(windows)]
 const DEFAULT_EXE: &str = ".claude/cli-ledger-cleanup.exe";
+#[cfg(not(windows))]
+const DEFAULT_EXE: &str = ".claude/cli-ledger-cleanup";
 const DEFAULT_LEDGER: &str = "docs/claude-code-web-tasks.md";
 const TRAILER_PREFIX: &str = "Ledger-Rank:";
 const EXE_TIMEOUT_SECS: u64 = 60;

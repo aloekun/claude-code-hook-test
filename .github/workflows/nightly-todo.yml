@@ -414,41 +414,17 @@ jobs:
             exit 1
           fi
 
-      # 台帳が宣言した成果物がすべて揃っているかを決定論的に検証する。
-      #
-      # 由来: PR #394 は lint rule の 5 成果物のうち fixture 2 件だけを追加して CI green で
-      # マージされた。Guard step は「触ってはいけない物を触っていないか」しか見ず、
-      # 「実装すべき物を実装したか」は誰も見ていなかった。
-      #
-      # Guard の後に置くのは、禁止リスト違反を先に落とすため (改ざんされた台帳で
-      # 完了判定させない)。exe と台帳はどちらも master-ref/ から取る — work/ 側は agent が
-      # 書き換えられるので、自分の成績表を自分で書ける状態にしない (決定 1 と同じ信頼境界)。
-      # exe 自体は Build deterministic gates from master (Implement 前) で既にビルド済みの
-      # ものを使う。ここで改めて cargo build すると Implement 後の master-ref/src を
-      # コンパイルし直すことになり、cli-autonomy-gate と揃えた改ざん検知が意味を失う
-      # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L421)。
-      - name: Verify the declared artifacts are complete
-        id: ledger-completion
-        continue-on-error: true
-        if: steps.guard.outcome == 'success'
-        run: |
-          set -euo pipefail
-          master-ref/target/release/cli-ledger-cleanup \
-            --ledger master-ref/docs/claude-code-web-tasks.md \
-            --ranks "${{ steps.select.outputs.rank }}" \
-            --changed-files "$RUNNER_TEMP/changed.txt"
-
-      - name: Stop when the implementation is incomplete
-        if: steps.guard.outcome == 'success' && steps.ledger-completion.outcome != 'success'
-        run: |
-          echo "::error::台帳が宣言する成果物に未変更のものがあります (直前の [LEDGER_CLEANUP_BLOCK] を参照)。実装が不完全な draft PR を作らないため、ここで停止します。" >&2
-          exit 1
-
       # Implement ステップ (agent) は $GITHUB_WORKSPACE 全体に Read/Edit/Write/Glob/Grep を持ち、
       # master-ref/ 側のゲート exe/config も技術的には書き換え可能 (プロンプト上の「対象は work/」は
       # 強制力を持たない)。Guard step は work/ の diff しか見ないためこの改ざんを検知できず、後段の
       # Gate (authority) がそのまま改ざん後の exe/config を再実行してしまう。ここで基準値
       # (Build 段で採取した sha256) と照合し、不一致なら Gate (authority) の実行前に止める。
+      #
+      # **Implement 後にゲート資産を使う step より前に置く。** 検証していない exe で判定してから
+      # 改ざんを調べる順にすると、「改ざん済み exe が出した合格」を一度は信じたことになる。
+      # 後続の条件を辿れば push には到達しないと分かるが、安全性の根拠が 4 step 先の `if` に
+      # 分散する。道具を検める step を先に置けば、以降の判定はすべて検証済みの道具で行われる
+      # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L421 の指摘を順序にも適用)。
       #
       # **本 step には意図的に continue-on-error を付けない** (ADR-072 決定 10)。他の停止点は
       # 設計上の正常な結末なので green + NIGHTLY_SKIP で終えるが、ゲート資産の改ざんは
@@ -465,6 +441,34 @@ jobs:
             echo "[NIGHTLY_DENY] ゲート exe/config が Implement ステップ中に変更されました (改ざん検知)"
             exit 1
           fi
+
+      # 台帳が宣言した成果物がすべて揃っているかを決定論的に検証する。
+      #
+      # 由来: PR #394 は lint rule の 5 成果物のうち fixture 2 件だけを追加して CI green で
+      # マージされた。Guard step は「触ってはいけない物を触っていないか」しか見ず、
+      # 「実装すべき物を実装したか」は誰も見ていなかった。
+      #
+      # exe と台帳はどちらも master-ref/ から取る — work/ 側は agent が書き換えられるので、
+      # 自分の成績表を自分で書ける状態にしない (決定 1 と同じ信頼境界)。exe は Implement 前に
+      # ビルドし、直前の integrity step で sha256 照合済みのものを使う。ここで cargo build を
+      # やり直すと Implement 後の master-ref/src をコンパイルすることになり、改ざん検知を
+      # 迂回する (SIM-NEW-nightly-todo-yml-L421)。
+      - name: Verify the declared artifacts are complete
+        id: ledger-completion
+        continue-on-error: true
+        if: steps.integrity.outcome == 'success'
+        run: |
+          set -euo pipefail
+          master-ref/target/release/cli-ledger-cleanup \
+            --ledger master-ref/docs/claude-code-web-tasks.md \
+            --ranks "${{ steps.select.outputs.rank }}" \
+            --changed-files "$RUNNER_TEMP/changed.txt"
+
+      - name: Stop when the implementation is incomplete
+        if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome != 'success'
+        run: |
+          echo "::error::台帳が宣言する成果物に未変更のものがあります (直前の [LEDGER_CLEANUP_BLOCK] を参照)。実装が不完全な draft PR を作らないため、ここで停止します。" >&2
+          exit 1
 
       # push の権威。ここが非ゼロなら push step は動かない。pre-flight と同じ exe・同じ入力を
       # 使うが、run 中に kill-switch が倒された場合はこちらで止まる (ADR-066 の停止手順が
