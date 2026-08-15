@@ -47,6 +47,32 @@ enabled = true
 patterns = ["__*", "_tmp_*"]
 
 # ---------------------------------------------------------------------------
+# [ledger_completion] — 台帳タスクの実装完了検証 (2026-08-15 追加)。
+# commit description に `Ledger-Rank: N` trailer を書くと、台帳
+# (docs/claude-code-web-tasks.md) の「対象ファイル」列が挙げる成果物すべてが
+# PR 範囲で変更されているかを cli-ledger-cleanup が判定し、未完了なら push を止める。
+#
+# 由来: 夜間 PR #394 が lint rule の 5 成果物のうち fixture 2 件だけを追加して
+# CI green でマージされた。CI は「壊れていないか」を見るが「宣言した成果物が揃ったか」は
+# 見ない。両者を突き合わせる機構がどこにも無かった。
+#
+# ADR-039 3 点セット:
+# - **Config opt-in**: default OFF。本リポジトリで dogfood のため enabled = true。
+# - **Kill-switch**: `enabled = false` で完全停止。trailer を書かない push は常に skip される
+#   ため、止まるのは「宣言した人」だけ。
+# - **Bounded lifetime**: trailer を使った push を数回観測し、誤検出の有無と
+#   「宣言し忘れ」の頻度を見てから default-ON 昇格 or 却下を判定する。
+# ---------------------------------------------------------------------------
+[ledger_completion]
+enabled = true
+# `exe` は指定しない。既定値は `DEFAULT_EXE` が OS ごとに分岐しており
+# (Windows は `.exe` 付き / それ以外は拡張子なし)、ここで書くと**片方の OS でしか
+# 存在しないパスに固定される**。ADR-063 で Linux 実行 (cloud / WSL) を支えている以上、
+# 拡張子を config へ書き込むと cloud 側だけが「exe を起動できない」で fail-closed して
+# 宣言付き push を全部止める。lint_screen も同じ理由で config に exe を書いていない。
+ledger = "docs/claude-code-web-tasks.md"
+
+# ---------------------------------------------------------------------------
 # [pr_size_check] — 順位 151 (Bundle "既存ルール仕組み化"): PR diff サイズ検査。
 # `jj diff --stat -r '<default_branch>..@'` で PR 範囲の insertions + deletions を計測し、
 # `~/.claude/rules/common/git-workflow.md` § Multi-PR chaining の「1 PR あたり 250-800 lines」

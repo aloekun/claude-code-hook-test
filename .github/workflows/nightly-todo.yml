@@ -78,11 +78,16 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --release \
-            -p cli-nightly-task-select -p cli-autonomy-gate \
+            -p cli-nightly-task-select -p cli-autonomy-gate -p cli-ledger-cleanup \
             --manifest-path master-ref/Cargo.toml
           # 改ざん検知の基準値。Implement ステップ (agent) が master-ref/ 配下のゲート
           # exe/config を書き換えていないか、後段の Verify gate integrity で照合する。
+          # cli-ledger-cleanup も同じ信頼境界にある (Implement 後に台帳の宣言を採点する
+          # exe なので、書き換えられると #394 の再発防止そのものが無効化される) ため、
+          # cli-autonomy-gate と同じ基準値に含める (pre-push simplicity review
+          # SIM-NEW-nightly-todo-yml-L421)。
           sha256sum master-ref/target/release/cli-autonomy-gate master-ref/autonomy-config.toml \
+            master-ref/target/release/cli-ledger-cleanup \
             > "$RUNNER_TEMP/gate-integrity.sha256"
 
       # 背圧の実測値と、着手済み順位の除外リストを 1 回の問い合わせから作る。
@@ -292,7 +297,8 @@ jobs:
             制約 (逸脱すると後続の決定論ゲートが push を拒否します):
             - **自律動作のガードレール自体を変更しないこと**: `autonomy-config.toml`、
               `.github/workflows/**`、`src/cli-autonomy-gate/**`、`src/lib-autonomy-policy/**`、
-              `src/cli-fix-push-gate/**`、`src/cli-nightly-task-select/**`、`src/lib-ledger/**`
+              `src/cli-fix-push-gate/**`、`src/cli-nightly-task-select/**`、`src/lib-ledger/**`、
+              `src/cli-ledger-cleanup/**`
             - コミット・push・ブランチ操作・PR 操作は行わないこと (あなたの権限外)
             - タスクに関係しないファイルを整形・修正しないこと
           # tool scope (ADR-072 決定 12、順位 379)。
@@ -402,7 +408,7 @@ jobs:
           # 決める仕組みであり、config や gate exe と同じく **自分を縛る側**にある。agent が
           # 台帳を書き換えた diff が PR に紛れ、人間が見落としてマージすると、以後の
           # タスク選択が静かに汚染される (ADR-072 決定 6)。
-          if grep -Eq '^(autonomy-config\.toml|\.github/workflows/|docs/claude-code-web-tasks\.md|src/cli-autonomy-gate/|src/lib-autonomy-policy/|src/cli-fix-push-gate/|src/cli-nightly-task-select/|src/lib-ledger/)' \
+          if grep -Eq '^(autonomy-config\.toml|\.github/workflows/|docs/claude-code-web-tasks\.md|src/cli-autonomy-gate/|src/lib-autonomy-policy/|src/cli-fix-push-gate/|src/cli-nightly-task-select/|src/lib-ledger/|src/cli-ledger-cleanup/)' \
             "$RUNNER_TEMP/changed.txt"; then
             echo "[NIGHTLY_DENY] 自律動作のガードレールを変更しているため push しません"
             exit 1
@@ -413,6 +419,12 @@ jobs:
       # 強制力を持たない)。Guard step は work/ の diff しか見ないためこの改ざんを検知できず、後段の
       # Gate (authority) がそのまま改ざん後の exe/config を再実行してしまう。ここで基準値
       # (Build 段で採取した sha256) と照合し、不一致なら Gate (authority) の実行前に止める。
+      #
+      # **Implement 後にゲート資産を使う step より前に置く。** 検証していない exe で判定してから
+      # 改ざんを調べる順にすると、「改ざん済み exe が出した合格」を一度は信じたことになる。
+      # 後続の条件を辿れば push には到達しないと分かるが、安全性の根拠が 4 step 先の `if` に
+      # 分散する。道具を検める step を先に置けば、以降の判定はすべて検証済みの道具で行われる
+      # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L421 の指摘を順序にも適用)。
       #
       # **本 step には意図的に continue-on-error を付けない** (ADR-072 決定 10)。他の停止点は
       # 設計上の正常な結末なので green + NIGHTLY_SKIP で終えるが、ゲート資産の改ざんは
@@ -430,13 +442,41 @@ jobs:
             exit 1
           fi
 
+      # 台帳が宣言した成果物がすべて揃っているかを決定論的に検証する。
+      #
+      # 由来: PR #394 は lint rule の 5 成果物のうち fixture 2 件だけを追加して CI green で
+      # マージされた。Guard step は「触ってはいけない物を触っていないか」しか見ず、
+      # 「実装すべき物を実装したか」は誰も見ていなかった。
+      #
+      # exe と台帳はどちらも master-ref/ から取る — work/ 側は agent が書き換えられるので、
+      # 自分の成績表を自分で書ける状態にしない (決定 1 と同じ信頼境界)。exe は Implement 前に
+      # ビルドし、直前の integrity step で sha256 照合済みのものを使う。ここで cargo build を
+      # やり直すと Implement 後の master-ref/src をコンパイルすることになり、改ざん検知を
+      # 迂回する (SIM-NEW-nightly-todo-yml-L421)。
+      - name: Verify the declared artifacts are complete
+        id: ledger-completion
+        continue-on-error: true
+        if: steps.integrity.outcome == 'success'
+        run: |
+          set -euo pipefail
+          master-ref/target/release/cli-ledger-cleanup \
+            --ledger master-ref/docs/claude-code-web-tasks.md \
+            --ranks "${{ steps.select.outputs.rank }}" \
+            --changed-files "$RUNNER_TEMP/changed.txt"
+
+      - name: Stop when the implementation is incomplete
+        if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome != 'success'
+        run: |
+          echo "::error::台帳が宣言する成果物に未変更のものがあります (直前の [LEDGER_CLEANUP_BLOCK] を参照)。実装が不完全な draft PR を作らないため、ここで停止します。" >&2
+          exit 1
+
       # push の権威。ここが非ゼロなら push step は動かない。pre-flight と同じ exe・同じ入力を
       # 使うが、run 中に kill-switch が倒された場合はこちらで止まる (ADR-066 の停止手順が
       # 「次の操作境界で効く」ことの実装)。
       - name: Gate PR creation (authority)
         id: gate
         continue-on-error: true
-        if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success'
+        if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success' && steps.ledger-completion.outcome == 'success'
         env:
           AUTONOMY_ENABLED: ${{ vars.AUTONOMY_ENABLED }}
         run: |
