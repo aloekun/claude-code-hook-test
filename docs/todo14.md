@@ -99,7 +99,7 @@
 ---
 
 
-### docs/todo*.md 本文の順位番号表記を検出する custom lint rule (ADR-033 使用禁止の仕組み化)
+### docs/todo*.md 本文の順位番号表記を検出する custom lint rule (ADR-033 使用禁止の仕組み化、#303 post-merge feedback 採用)
 
 > **動機**: [ADR-033](adr/adr-033-todo-numbering-simplification.md) (2026-04-29 試験運用) が「絶対番号は table のみに保持し、本文中の順位番号表記は使用禁止」と規定し、「将来の展望」節で pre-push hook の custom_lint_rule 追加を検討済みと明記したが、未実装のまま約 3 ヶ月経過。#303 の CodeRabbit 対応でも本文参照の drift が問題化した文脈。#303 post-merge feedback で採用。
 >
@@ -211,7 +211,7 @@
 
 ---
 
-### decide.rs/main.rs の境界値・parameter threading テスト拡充
+### decide.rs/main.rs の境界値・parameter threading テスト拡充 (#311 post-merge feedback 採用)
 
 > **動機**: 前回 incident の根本原因は parameter threading の欠落 (`parse_rate_limit()` はするが `decide()` に渡さない) だった。同クラスのリグレッションを防ぐテストが、インシデント発生ドメイン (rate-limit 判定) 直下で不足している。positive evidence の複合シナリオ、呼び出し側 (`main.rs`) が `decide()` に `rate_limit` を正しく構成することの検証が未固定。
 >

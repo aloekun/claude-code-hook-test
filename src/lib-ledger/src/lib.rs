@@ -23,11 +23,13 @@ mod completion;
 #[cfg(test)]
 mod deployed_ledger;
 mod rank_lookup;
+mod removal;
 mod screening;
 mod target_files;
 
 pub use completion::{evaluate, Completion};
 pub use rank_lookup::target_files_for_rank;
+pub use removal::{remove_detail_entry, remove_ledger_row, remove_summary_row, SummaryRow};
 use screening::is_bidi_or_invisible_format_char;
 pub use screening::{screen_for_public_output, screen_for_title};
 pub use target_files::parse_target_files;
