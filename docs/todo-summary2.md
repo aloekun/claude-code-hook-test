@@ -190,6 +190,14 @@
 | 451 | 💎 Tier 3 | **OR 条件の不成立を主張するときは全経路を明示する convention (PR #400 T3-1)** | todo23.md | XS | なし (2026-08-14 採用。#400 の CodeRabbit 指摘 3 件すべてが同一欠陥。449 の自動検出が様子見の間の人手ガイド) |
 | 452 | 💎 Tier 3 | **本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (PR #400 T3-2)** | todo23.md | XS | なし (2026-08-14 採用。ADR-051 の具体化。スキルリポ側に約 110 行のコミット漏れが滞留していた検出も含める) |
 | 453 | 🔧 Tier 2 | **post-merge-feedback 分析 agent の書き込み先制約 (read-only facet の一時ファイル生成)** | todo23.md | S | なし (2026-08-14 起票。analyze_transcript.py の実観測。weekly の workspace-hygiene-scan が backstop、本タスクは上流修正で緊急度低) |
+| 454 | 🚀 Tier 1 | **自律実行ガードレールの 3 点同期を機械検証する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#403/#405 で 3 箇所を手で揃えた。片方漏れで保護が静かに緩み、#403 では実際に抽出で実体が保護外へ出かけた) |
+| 455 | 🚀 Tier 1 | **一時ファイルの弱い一意性を検知する lint (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#405 で production/test の両方で踏んだ。1 つ直した直後に同型を別箇所で作っており人手の注意では止まらない。regex 層の限界を先に見積もる) |
+| 456 | 🚀 Tier 1 | **workflow の guard なし `git commit` を検知する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#406 で Critical を 2 度。レビューが無ければ夜間ループが停止していた) |
+| 457 | 🔧 Tier 2 | **lint rule の宣言拡張子が test_coverage で網羅されているか検査 (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#402 の孤児 fixture 検査と対になる、もう 1 つの非対称。例外 allowlist の要否を着手時に決める) |
+| 458 | 🔧 Tier 2 | **`cli-ledger-cleanup` の統合テスト suite (提案 10 件を統合)** | todo23.md | M | なし (2026-08-15 採用。手動実測した安全側 3 ケースの自動化が起点。削除は取り返しがつかないため安全側こそ回り続ける必要がある) |
+| 459 | 🔧 Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448/449 と同じ構図) |
+| 460 | 💎 Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 3 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
+| 461 | 💎 Tier 3 | **開発 convention の一括追記 — 本チェーンの手順レベル教訓 (提案 12 件を統合)** | todo23.md | S | 460 (設計原則は ADR 側へ寄せるため先に確定させる。finding_id 埋込の方針が未決) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 
