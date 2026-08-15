@@ -33,6 +33,8 @@
 //! run log で「実装が足りない」と「台帳の書式が不正」を区別するためで、どちらも後始末を
 //! 進めない点は同じ。
 
+mod apply;
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -46,6 +48,7 @@ const EXIT_COMPLETE: i32 = 0;
 const EXIT_USAGE: i32 = 2;
 const EXIT_INCOMPLETE: i32 = 3;
 const EXIT_UNVERIFIABLE: i32 = 4;
+const EXIT_REMOVAL_FAILED: i32 = 5;
 
 const USAGE: &str = "usage: cli-ledger-cleanup --ledger <path> --ranks <csv> --changed-files <path>";
 
@@ -57,15 +60,23 @@ struct Cli {
     ledger_path: PathBuf,
     ranks: Vec<u32>,
     changed_files_path: PathBuf,
+    /// `--apply` 指定時のみ削除する。既定は検証だけ (呼び手が誤って消さないよう opt-in)。
+    apply: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<Cli, String> {
     let mut ledger_path = None;
     let mut ranks = None;
     let mut changed_files_path = None;
+    let mut apply = false;
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
+        if flag == "--apply" {
+            apply = true;
+            index += 1;
+            continue;
+        }
         let value = args.get(index + 1);
         let take = || value.ok_or_else(|| format!("{flag} の値がありません"));
         match flag {
@@ -81,6 +92,7 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
         ranks: ranks.ok_or_else(|| "--ranks が必要です".to_string())?,
         changed_files_path: changed_files_path
             .ok_or_else(|| "--changed-files が必要です".to_string())?,
+        apply,
     })
 }
 
@@ -139,9 +151,75 @@ fn run(args: Vec<String>) -> i32 {
         Ok(files) => files,
         Err(message) => return block(EXIT_USAGE, &message, false),
     };
-    match verdict_for_all(&markdown, &cli.ranks, &changed_files) {
-        Err(message) => block(EXIT_USAGE, &message, false),
-        Ok(verdicts) => report(&verdicts, &changed_files),
+    let verdicts = match verdict_for_all(&markdown, &cli.ranks, &changed_files) {
+        Ok(verdicts) => verdicts,
+        Err(message) => return block(EXIT_USAGE, &message, false),
+    };
+    let code = report(&verdicts, &changed_files);
+    if code != EXIT_COMPLETE || !cli.apply {
+        return code;
+    }
+    apply_removals(&cli, &markdown, &verdicts)
+}
+
+/// 検証を通った順位を 3 箇所から取り除く。
+///
+/// **検証が通った場合しか呼ばれない。** 未完了 / 検証不能で削除すると、実装されていない
+/// タスクが台帳から消えて誰にも追えなくなる (#394 で実際に起きかけた形)。
+///
+/// **1 回の実行で後始末できるのは 1 順位まで。** 順位 table / 詳細エントリの読み取りは
+/// 常にディスクから行い、同一実行内の他順位の削除を考慮しない。2 順位以上が同じ
+/// `todo-summary*.md` / `docs/todoN.md` を触っていた場合、後で書き出す側が前の削除を
+/// 黙って巻き戻す (pre-push simplicity review SIM-NEW-cli-ledger-cleanup-apply-rs-L51)。
+/// `--ranks` に複数渡すこと自体は検証専用の呼び出しでは引き続きでき、`--apply` と
+/// 組み合わせたときだけこの上限にかかる。
+fn apply_removals(cli: &Cli, markdown: &str, verdicts: &[(u32, RankOutcome)]) -> i32 {
+    let Some(docs_dir) = cli.ledger_path.parent().map(std::path::Path::to_path_buf) else {
+        return block(EXIT_USAGE, "台帳のパスから docs ディレクトリを解決できません", false);
+    };
+    let targets: Vec<u32> = verdicts
+        .iter()
+        .filter(|(_, v)| !matches!(v, RankOutcome::AbsentFromLedger))
+        .map(|(rank, _)| *rank)
+        .collect();
+    let rank = match targets.as_slice() {
+        [] => {
+            println!("{MARKER_OK} 台帳に残っている順位はありません (後始末済み)");
+            return EXIT_COMPLETE;
+        }
+        [rank] => *rank,
+        many => {
+            let listed = many.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
+            return block(
+                EXIT_REMOVAL_FAILED,
+                &format!(
+                    "--apply は 1 回の実行で 1 順位までです (対象: {listed})。\
+                     順位ごとに --ranks を分けて実行し直してください。"
+                ),
+                false,
+            );
+        }
+    };
+    let plan = match apply::plan_removal(&cli.ledger_path, markdown, &docs_dir, rank) {
+        Ok(plan) => plan,
+        Err(message) => {
+            return block(
+                EXIT_REMOVAL_FAILED,
+                &format!("順位 {rank} の後始末を計画できません: {message}"),
+                false,
+            )
+        }
+    };
+    match plan.write_all() {
+        Ok(files) => {
+            println!("{MARKER_OK} 順位 {rank} を後始末しました: {}", files.join(", "));
+            EXIT_COMPLETE
+        }
+        Err(message) => block(
+            EXIT_REMOVAL_FAILED,
+            &format!("順位 {rank} の書き出しに失敗しました: {message}"),
+            false,
+        ),
     }
 }
 
@@ -330,6 +408,114 @@ mod tests {
     #[test]
     fn a_rank_absent_from_the_ledger_is_complete() {
         assert_eq!(run_with_case("absent-rank", "src/a.rs\n", "999"), EXIT_COMPLETE);
+    }
+
+    /// `--apply` 用に、台帳 / 順位 table / 詳細エントリの 3 点が揃った docs ディレクトリを作る。
+    fn apply_fixture_dir(case: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("cli-ledger-cleanup-apply-{}-{case}", std::process::id()));
+        let docs = dir.join("docs");
+        std::fs::create_dir_all(&docs).expect("mkdir");
+        write(
+            &docs,
+            "claude-code-web-tasks.md",
+            "# 台帳\n\n\
+             | 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 |\n\
+             |---|---|---|---|---|---|---|\n\
+             | 203 | T2 | ✅ | x | `src/a.rs` | XS | - |\n\
+             | 240 | T2 | ✅ | y | `src/b.rs` | XS | - |\n",
+        );
+        write(
+            &docs,
+            "todo-summary.md",
+            "# サマリー\n\n\
+             | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n\
+             | 203 | 🔧 Tier 2 | **タイトル A** | todo10.md | XS | なし |\n\
+             | 240 | 🔧 Tier 2 | **タイトル B** | todo10.md | XS | なし |\n",
+        );
+        write(
+            &docs,
+            "todo-summary2.md",
+            "# サマリー 2\n\n\
+             | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n",
+        );
+        write(
+            &docs,
+            "todo10.md",
+            "# TODO\n\n---\n\n### タイトル A\n\n> 動機\n\n---\n\n### タイトル B\n\n> 動機\n",
+        );
+        docs
+    }
+
+    /// `--apply` かつ単一順位なら、台帳 / 順位 table / 詳細エントリの 3 点が実際に消える。
+    #[test]
+    fn apply_with_a_single_target_removes_all_three_locations() {
+        let docs = apply_fixture_dir("single");
+        let ledger_path = docs.join("claude-code-web-tasks.md");
+        let changed_path = write(&docs, "changed.txt", "src/a.rs\n");
+
+        let code = run(args(&[
+            "--ledger",
+            &ledger_path.to_string_lossy(),
+            "--ranks",
+            "203",
+            "--changed-files",
+            &changed_path.to_string_lossy(),
+            "--apply",
+        ]));
+
+        assert_eq!(code, EXIT_COMPLETE);
+        let ledger = std::fs::read_to_string(&ledger_path).expect("read");
+        assert!(!ledger.contains("| 203 |"), "台帳に残っている");
+        assert!(ledger.contains("| 240 |"), "他の順位まで消えている");
+        let summary = std::fs::read_to_string(docs.join("todo-summary.md")).expect("read");
+        assert!(!summary.contains("タイトル A"));
+        assert!(summary.contains("タイトル B"), "他の順位まで消えている");
+    }
+
+    /// `--apply` は 1 回の実行で 1 順位まで。2 順位以上が同じ順位 table / 詳細エントリを
+    /// 共有していると、後で書き出す側が前の削除を黙って巻き戻す
+    /// (pre-push simplicity review SIM-NEW-cli-ledger-cleanup-apply-rs-L51)。
+    /// この巻き戻りを未然に防ぐため、複数対象は fail-closed で拒否し、全ファイルを無傷で残す。
+    #[test]
+    fn apply_with_multiple_targets_in_one_run_is_rejected_and_leaves_files_untouched() {
+        let docs = apply_fixture_dir("multi");
+        let ledger_path = docs.join("claude-code-web-tasks.md");
+        let summary_path = docs.join("todo-summary.md");
+        let detail_path = docs.join("todo10.md");
+        let ledger_before = std::fs::read_to_string(&ledger_path).expect("read");
+        let summary_before = std::fs::read_to_string(&summary_path).expect("read");
+        let detail_before = std::fs::read_to_string(&detail_path).expect("read");
+        let changed_path = write(&docs, "changed.txt", "src/a.rs\nsrc/b.rs\n");
+
+        let code = run(args(&[
+            "--ledger",
+            &ledger_path.to_string_lossy(),
+            "--ranks",
+            "203,240",
+            "--changed-files",
+            &changed_path.to_string_lossy(),
+            "--apply",
+        ]));
+
+        assert_eq!(code, EXIT_REMOVAL_FAILED);
+        assert_eq!(
+            std::fs::read_to_string(&ledger_path).expect("read"),
+            ledger_before,
+            "台帳が書き換わっている"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&summary_path).expect("read"),
+            summary_before,
+            "順位 table が書き換わっている"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&detail_path).expect("read"),
+            detail_before,
+            "詳細エントリが書き換わっている"
+        );
     }
 
     /// Windows 区切りで渡されても台帳の `/` 宣言と突き合う。

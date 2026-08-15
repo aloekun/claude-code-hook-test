@@ -464,6 +464,34 @@ jobs:
             --ranks "${{ steps.select.outputs.rank }}" \
             --changed-files "$RUNNER_TEMP/changed.txt"
 
+      # 完了と判定できた順位を台帳・順位 table・詳細エントリから取り除き、PR に同梱する。
+      #
+      # 由来: 後始末は「マージ時に人間が 4 手順を実行する」ルールでしか存在せず、実績は
+      # 4 件中 2 件で失敗していた (成否がローカル手順を踏んだか GitHub UI マージかに依存)。
+      # ブランチ削除で着手済みマーカーが消える一方で台帳の行は残るため、完了済みタスクが
+      # 再選択される。PR に後始末を同梱すれば、マージと後始末が原子的になる。
+      #
+      # **書き込み先は publish/ (PR ブランチの作業ツリー)**。master-ref/ は判定の入力であり、
+      # ここを書き換えると次段の Gate が改ざん後の状態を読む。Guard step は agent の diff を
+      # 見るものでこの step より前に済んでおり、決定論 exe による台帳変更は禁止リストの
+      # 対象外 (ADR-072 決定 6 が禁じているのは agent の書き換え)。
+      #
+      # exe は Implement 前ビルド + integrity 照合済みのものを使う (再ビルドしない)。
+      - name: Remove the completed task from the ledger
+        id: ledger-removal
+        if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome == 'success'
+        run: |
+          set -euo pipefail
+          master-ref/target/release/cli-ledger-cleanup \
+            --ledger publish/docs/claude-code-web-tasks.md \
+            --ranks "${{ steps.select.outputs.rank }}" \
+            --changed-files "$RUNNER_TEMP/changed.txt" \
+            --apply
+          git -C publish add -A docs
+          git -C publish -c user.name='nightly-todo' -c user.email='nightly-todo@users.noreply.github.com' \
+            commit -m "chore(ledger): 順位 ${{ steps.select.outputs.rank }} を完了に伴い台帳から削除する" \
+            -m "実装完了は cli-ledger-cleanup が台帳の宣言と PR の変更を突き合わせて判定済み。マージと後始末を原子的にするため PR へ同梱する。"
+
       - name: Stop when the implementation is incomplete
         if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome != 'success'
         run: |
