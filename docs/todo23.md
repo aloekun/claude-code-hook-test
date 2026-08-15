@@ -10,6 +10,262 @@
 
 ---
 
+## post-merge feedback 採用分 (#400〜#406 一括、2026-08-15 採否確定)
+
+> **由来**: 台帳後始末チェーン 7 PR ([#400](https://github.com/aloekun/claude-code-hook-test/pull/400)〜[#406](https://github.com/aloekun/claude-code-hook-test/pull/406)) の post-merge feedback を一括で棚卸しした。
+>
+> | レポートの推奨 | 件数 | 本バッチでの扱い |
+> |---|---|---|
+> | ✅ 採用候補 | 51 | うち 7 件は #400 バッチと「post-merge-feedback 分析 agent の書き込み先制約」で登録済み → **対象は 44 件** |
+> | 🤔 様子見 | 18 | action なし |
+> | ❌ 却下推奨 | 12 | ユーザー承認により却下確定 |
+>
+> **44 件を系統ごとに統合して 7 タスクへ落とした**。類似提案を 1 タスクにまとめるのは、同じ fixture 基盤・同じ文書へ別々に着手すると実装が重複するため。統合の内訳は各エントリの「統合した提案」に記す。
+>
+> **系統 1 (決定論的検査) は 9 件中 4 件のみ採用。** 残り 5 件 (rustdoc link 検査 / finding_id 埋込検知 / Actions outcome 検査 / serial numbering CI / dry-run gate) は、本セッションで実害が観測されておらず、推測で lint を増やすと誤検出と保守コストが先に来るため見送った。
+
+### 自律実行ガードレールの 3 点同期を機械検証する
+
+> **動機**: 禁止リストが 3 箇所 (`.github/workflows/nightly-todo.yml` の Guard step grep / 同ファイルの agent プロンプト / [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6) に重複している。[#403](https://github.com/aloekun/claude-code-hook-test/pull/403) と [#405](https://github.com/aloekun/claude-code-hook-test/pull/405) で新しい crate を追加した際、いずれも 3 箇所を手で揃えた。**片方だけ更新すると保護が静かに緩む** — #403 では実際に、抽出でパースの実体が禁止リストの外へ出る事故が起きかけた。
+>
+> **統合した提案**: Guard-list 3 点同期 validator (#403 Tier1 #1)。
+>
+> **参照**: `.claude/feedback-reports/403.md`、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- 3 箇所からパス集合を抽出し、完全一致を要求する cargo test (実ファイルを読む既存 2 検査と同じ形)
+- 抽出は行指向で十分 (grep 行の `^(a|b|c)` 展開 / プロンプトのバッククォート列挙 / ADR の `/` 区切り列挙)
+- **禁止リストは「どの exe か」ではなく「どのロジックが自分を縛るか」で決まる** ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 に追記済み) ため、検査対象に加えるのは「3 箇所が同じ集合か」だけにする。集合の中身が妥当かは人間の判断
+
+#### 作業計画
+
+- [ ] 3 箇所のパーサを書き、現行の集合が一致することを確認する
+- [ ] 意図的に 1 箇所だけ足した状態で赤くなることを実測する
+- [ ] cargo test として追加する
+
+#### 完了基準
+
+- 3 箇所のいずれかだけを変更すると push / CI が赤くなる
+
+#### 詰まっている箇所
+
+なし
+
+### 一時ファイルの弱い一意性を検知する lint
+
+> **動機**: `std::env::temp_dir().join(<固定名>)` を [#405](https://github.com/aloekun/claude-code-hook-test/pull/405) で **production とテストの両方で踏んだ**。production 側は [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) が支える並行 `pnpm push` で互いのスナップショットを上書きし合う race、テスト側は入力長から名前を作って `/` 版と `\` 版が衝突する形だった。1 つ直した直後に同型を別の場所で作っており、**人手の注意では止まらない**。
+>
+> **統合した提案**: `temp_dir().join(<固定 or 弱い一意性>)` の検知 (#405 Tier1 #4)、テスト用一時ファイルの命名規則 (#405 Tier3 #4 の機械強制部分)。
+>
+> **参照**: `.claude/feedback-reports/405.md`、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- custom lint rule (`.claude/custom-lint-rules.toml`)。`temp_dir()` を含む行の近傍に `process::id()` 等の一意化子が無い形を検出する
+- **regex 層の限界を先に見積もる** ([ADR-007](adr/adr-007-custom-linter-layer-boundary.md))。`join` が複数行に分かれる書き方は正規表現で追えない。追えない形が現行コードにどれだけあるか grep で測ってから、rule にするか cargo test にするかを決める
+
+#### 作業計画
+
+- [ ] 現行コードの `temp_dir()` 利用箇所を全件洗い、regex で追える形の割合を測る
+- [ ] rule 化するなら fixture 3 点セット + dogfood
+- [ ] 追えない形が多ければ cargo test (AST でなく実ファイル走査) へ切り替える
+
+#### 完了基準
+
+- 固定名の一時ファイル生成を足すと、その場で機械的に止まる
+
+#### 詰まっている箇所
+
+なし
+
+### workflow の guard なし `git commit` を検知する
+
+> **動機**: [#406](https://github.com/aloekun/claude-code-hook-test/pull/406) で **Critical を 2 度**踏んだ。(1) pathspec 無しの `git commit` が Guard step の `git add -A` で stage された全ツリーを取り込み、後段の commit が空になって **PR が 1 つも作られなくなる**。(2) ステージが空の場合に無条件 commit が非ゼロで落ち、検証済みの実装ごと job が落ちる。どちらも「単体では正しいが前後の文脈で破綻する」型で、レビューが無ければ夜間ループが停止していた。
+>
+> **統合した提案**: workflow YAML の conditional-output step で guard なし `git commit` を検出 (#406 Tier1 #5)、workflow の git-index パターン文書化 (#406 Tier3 #1 の機械強制部分)。
+>
+> **参照**: `.claude/feedback-reports/406.md`
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Low / Effort S / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- 既存 rule⑨ (`takt-workflow-persona-without-model`) が `.takt/workflows/*.yaml` を対象にしているのと同じ形で、`.github/workflows/*.yml` を対象にした rule を足す
+- 検出対象は「`git commit` に pathspec (`-- <path>`) も `--allow-empty` も先行 guard も無い」形。guard の有無を regex で判定するのは難しいので、**pathspec の有無だけを見る**方が現実的かもしれない (着手時に判断)
+
+#### 作業計画
+
+- [ ] 現行 workflow の `git commit` を全件洗い、どの形なら安全と言えるかを決める
+- [ ] rule 化して fixture 3 点セット + dogfood
+- [ ] 意図的に pathspec を外して赤くなることを実測する
+
+#### 完了基準
+
+- pathspec も guard も無い `git commit` を workflow へ足すと、その場で止まる
+
+#### 詰まっている箇所
+
+なし
+
+### lint rule の宣言拡張子が test_coverage で網羅されているか検査する
+
+> **動機**: [#402](https://github.com/aloekun/claude-code-hook-test/pull/402) で rule⑬ を追加した際、`extensions` に `json` を挙げながら `test_coverage` に json のテストが無い状態を作り、CodeRabbit に指摘された。既存 3 検査は「rule → fixture」「rule → test」の向きしか見ておらず、**宣言した拡張子の一部にテストが無い状態を素通り**する。#402 で追加した孤児 fixture 検査と対になる、もう 1 つの非対称。
+>
+> **統合した提案**: `extension_test_coverage_check` (#402 Tier1 #1)。
+>
+> **参照**: `.claude/feedback-reports/402.md`、`src/hooks-post-tool-linter/src/custom_rules/coverage.rs`
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- `coverage.rs` に検査を追加する (既存 `orphan_fixture_check` と同じ場所・同じ形)
+- 主要拡張子は `main_ext_tests.<ext>`、非主要は `other_ext_tests` でカバーされているかを見る
+- **`no-console-log` のような例外の扱いを先に決める** — 既存の順方向検査は `NON_INCIDENT_RULES` allowlist を持つが、この検査に同じ例外が要るかは自明でない
+
+#### 作業計画
+
+- [ ] 現行 12 rule で検査が緑になることを確認する
+- [ ] 意図的に 1 拡張子のテストを外して赤くなることを実測する
+- [ ] 例外 allowlist の要否を決める
+
+#### 完了基準
+
+- `extensions` に挙げた拡張子でテストが無いものがあると `cargo test` が赤くなる
+
+#### 詰まっている箇所
+
+なし
+
+### `cli-ledger-cleanup` の統合テスト suite
+
+> **動機**: 新規 crate に crate 全体を通す統合テストが無い。[#405](https://github.com/aloekun/claude-code-hook-test/pull/405)/[#406](https://github.com/aloekun/claude-code-hook-test/pull/406) では実台帳のコピーを使った手動の実測で確認したが、**その手順は記録に残るだけで再実行されない**。台帳削除は取り返しがつかない操作なので、安全側の挙動こそ自動で回り続ける必要がある。
+>
+> **統合した提案 (10 件)**: happy path / multi-rank ループの巻き戻し検知 / 不完全入力の no-op / 列順入替の fail-closed / fixture の前提 assert / 複数失敗条件の優先順位 / 並行 temp ファイルの一意性 / `screen_for_public_output` 経由の検証 / `DEFAULT_EXE` の OS 分岐一貫性 / zero-change の E2E (#405 Tier2 #1〜#5、#406 Tier2 #1〜#6)。
+>
+> **参照**: `.claude/feedback-reports/405.md`、`.claude/feedback-reports/406.md`
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity High / Frequency Medium / Effort M / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- `src/cli-ledger-cleanup/tests/` に統合テストを置き、fixture 生成ヘルパーを 1 つ共有する
+- **手動で実測した 3 ケースをそのまま自動化する**のが起点 (完了状態で削除 / 未完了で 3 ファイル無変更 / パストラバーサル拒否)
+- 並行 temp ファイルの検証は、複数プロセスを spawn して実測する形にする (単一プロセス内のスレッドでは `process::id()` が同じで検証にならない)
+
+#### 作業計画
+
+- [ ] fixture ヘルパーを作る (実台帳相当の 3 ファイル構成)
+- [ ] 安全側 (no-op / fail-closed / traversal 拒否) を先に固める
+- [ ] happy path と multi-rank を足す
+- [ ] 並行実行と OS 分岐は最後 (環境依存が強い)
+
+#### 完了基準
+
+- 手動実測した安全側の挙動が、すべて `cargo test` で回り続ける
+
+#### 詰まっている箇所
+
+なし
+
+### weekly-review 周辺の決定論層テスト
+
+> **動機**: weekly-review に足した決定論層 (workspace-hygiene-scan / 7 レポート統合 / 昇格検査履歴) は instruction 層に散っており、**壊れても次の週次実行まで気づかない**。[#401](https://github.com/aloekun/claude-code-hook-test/pull/401) の scan は `2>/dev/null` でエラーを握り潰しており、失敗と 0 件を判別できなかった (指摘を受けて修正済みだが、回帰テストが無い)。
+>
+> **統合した提案 (4 件)**: scan 失敗と 0 件の区別 / aggregate-weekly の 7 レポート読み取り / 複数不採用理由の re-evaluation / parser 境界 3 件の regression 化 (#401 Tier2 #1・#3・#4、#404 Tier2 #1)。
+>
+> **参照**: `.claude/feedback-reports/401.md`、`.claude/feedback-reports/404.md`
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- parser 境界 3 件 (`+` 必須化 / 入れ子 brace 拒否 / 列欠落 panic) は `lib-ledger` に既存テストがあるので、**抜けている境界だけ足す**
+- scan 失敗の区別は instruction 内 bash が対象で Rust のテスト対象が無い。**検証対象を決める作業から始まる**（「判断留保キーワード検査の回帰テスト」「昇格不適格判定の『両経路記載』を決定論化するかを判断する」と同じ構図）— shell の単体テスト基盤を作るか、検査自体を exe へ寄せるかを判断する
+
+#### 作業計画
+
+- [ ] parser 境界の抜けを洗い、`lib-ledger` に足す
+- [ ] scan 失敗の検証対象を決める (shell のまま / exe 化 / 見送り)
+- [ ] aggregate の 7 レポート読み取りは instruction の Required section で代替できないか検討する
+
+#### 完了基準
+
+- 決定論層の失敗と 0 件が、テストで区別されて固定される
+
+#### 詰まっている箇所
+
+scan 失敗テストの検証対象が未確定 (shell か exe か)
+
+### 外部入力の信頼境界と fail-closed の徒定形を ADR 化する
+
+> **動機**: 本チェーンで踏んだ Critical 2 件は、いずれも**同じ 1 つの原則の欠落**から来ている。(1) 順位 table のファイル列を未検証で `Path::join` に渡してパストラバーサルを作った、(2) 3 箇所の削除を 1 ファイルずつ書いて孤児を作りうる形にした。加えて整合性検証を完了検証より後に置き、**検証していない道具で判定する**順序も作った。個別の修正はしたが、原則として書き残さないと同じ判断を毎回やり直す。
+>
+> **統合した提案 (3 件)**: 外部ファイル由来の値・パスは入力層で検証必須 (#406 Tier3 #2)、不完全な入力 → no-op の明記 (#406 Tier3 #4)、narrow public surface (#404 Tier3 #2)。
+>
+> **参照**: `.claude/feedback-reports/404.md`、`.claude/feedback-reports/406.md`、[ADR-043](adr/adr-043-security-gates-fail-closed.md)
+>
+> **実行優先度**: 💎 **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 設計決定 (案)
+
+新規 ADR として、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed) の具体化に位置づける。書く原則は 3 つ:
+
+- **外部ファイル由来の値・パスは入力層で検証する** — 使う直前ではなく parse 時点で。#406 では `lib-ledger` の parse に検証を入れたことで、呼び手が増えても穴が開かなくなった
+- **不完全な入力には部分適用しない (no-op)** — 3 箇所に跨る操作は全部揃ってから書く。片方だけ適用すると、検出機構が無い限り誰も気づかない状態が残る
+- **検証していない道具で判定しない** — 道具の検証を、その道具を使う判定より前に置く。後ろに置くと安全性の根拠が離れた条件式に分散する
+
+#### 作業計画
+
+- [ ] ADR を書く (背景に本チェーンの Critical 2 件を実例として置く)
+- [ ] [CLAUDE.md](../CLAUDE.md) の ADR 索引に追加する
+- [ ] 既存 ADR-043 から相互参照を張る
+
+#### 完了基準
+
+- 同型の設計判断に直面した人が、代替案と却下理由まで含めて追える
+
+#### 詰まっている箇所
+
+なし
+
+### 開発 convention の一括追記 (本チェーンの手順レベル教訓)
+
+> **動機**: 本チェーンで繰り返し効いた手順を convention 化する。**いずれも「守らなかったときに実際に事故った」もの**に限る。
+>
+> **統合した提案 (12 件)**: テスト合格 ≠ 検証完了 (#404 Tier3 #4) / 外部仕様は実装前に実データで検証 (#404 Tier3 #3) / 新規 exe パスは兄弟実装を参照 (#405 Tier3 #3) / temp ファイル命名規則 (#405 Tier3 #4) / PowerShell 行抽出の型 assert (#404 Tier3 #6) / workflow の git-index パターン (#406 Tier3 #1) / CLI 出力は screening 経由 (#405 Tier3 #1) / 新規 crate は happy path テスト必須 (#406 Tier3 #5) / 新規 lint rule の完了基準 6 条件 (#402 Tier3 #1) / ファイル移動時の docs リンク確認 (#403 Tier3 #1) / ADR-006 の設計意図を CLAUDE.md へ (#404 Tier3 #5) / 出荷コードへの finding_id 埋込 (#404 Tier3 #1)。
+>
+> **参照**: `.claude/feedback-reports/{402,403,404,405,406}.md`
+>
+> **実行優先度**: 💎 **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 設計決定 (案)
+
+- [docs/dev-conventions.md](dev-conventions.md) へ 1 バッチで追記する
+- **各項目に「守らなかったときに何が起きたか」を 1 行で添える**。抽象的な原則だけ並べると読まれない
+- **finding_id 埋込 (#404 Tier3 #1) は書き方を先に決める** — 私は「50 箇所以上で使われる確立された慣習」として不採用にしたが、analyzer は「慣習そのものを見直すべき」という逆の立場。どちらを採るかを決めてから書く
+
+#### 作業計画
+
+- [ ] 12 項目を書く (各項目に実例を 1 行)
+- [ ] finding_id 埋込の方針を決める (現状維持 / `#PR番号` へ統一)
+- [ ] markdownlint clean
+
+#### 完了基準
+
+- 本チェーンで踏んだ手順レベルの失敗が、次に同じことをする人へ届く形で残る
+
+#### 詰まっている箇所
+
+finding_id 埋込の方針が未決 (現状維持か統一か)
+
+---
+
 ## post-merge feedback 採用分 (#400、2026-08-14 採否確定)
 
 > **由来**: PR [#400](https://github.com/aloekun/claude-code-hook-test/pull/400) (weekly-review 台帳昇格機構の転記規則・基準番号書式の明文化) の post-merge feedback ([ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)) が挙げた提案を、ユーザーが採否確定した (2026-08-14)。
