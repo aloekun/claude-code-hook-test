@@ -167,9 +167,17 @@ jobs:
           # (summary / target_files / caution) が含まれる。**step ログも public repo では
           # 第三者に可視**なので、tee は決定 14 の screening を迂回する公開面になっていた。
           # 生の出力はファイルに留め ($GITHUB_OUTPUT 経由でのみ使う)、ログへは安全な行だけを出す。
+          # --summary-file は順位 table の照合先。台帳に残っているのに順位 table から
+          # 消えた順位は「完了/取り下げ済みなのに後始末が漏れた行」なので選ばせない
+          # (人間が手で実装してマージした場合、台帳の後始末は人手のため漏れる)。
+          # **順位 220 以降は todo-summary2.md にあるので両方渡す** — 片方だけだと、
+          # もう一方に載っている順位が「消えた」と判定されて候補から落ちる。
+          # exe 側は 1 つでも読めなければ exit 2 (fail-closed)。
           master-ref/target/release/cli-nightly-task-select \
             --ledger master-ref/docs/claude-code-web-tasks.md \
             --exclude-ranks "${{ steps.inflight.outputs.exclude_ranks }}" \
+            --summary-file master-ref/docs/todo-summary.md \
+            --summary-file master-ref/docs/todo-summary2.md \
             > "$RUNNER_TEMP/selected.txt"
           # 許可リスト方式 — exe が出す key のうち、ここに列挙したものだけを転送する。
           # 想定外の key 注入を防ぐ fail-closed だが、**exe 側に出力を足したらここも足す**
@@ -219,6 +227,8 @@ jobs:
           else
             echo "理由: タスクを選べませんでした。"
             echo "      直前の [NIGHTLY_SKIP] 行を参照してください (exit 3 = 該当タスク無し / exit 2 = 台帳の解釈失敗)。"
+            echo "      [NIGHTLY_WARN] 行があれば、台帳に残っているが順位 table から消えた順位です"
+            echo "      (完了/取り下げ済みの行が台帳に残っている = 後始末漏れ)。台帳の該当行を確認してください。"
           fi
 
       - name: Checkout master (agent workspace)
