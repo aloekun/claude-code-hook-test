@@ -98,3 +98,7 @@ For each finding, name the specific files / crates and propose the smallest rest
 ## Scope boundary
 
 Severity / Frequency / Adoption Risk / Recommendation rubric is delegated to aggregate-weekly. Surface the concern with file-level evidence; let aggregate weight it.
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、severity の `critical` / `high` / `medium` / `low`、および § Judgment procedure が列挙する category 識別子 (`harness-duplication` / `adr-alignment` / …)

@@ -108,3 +108,7 @@ pre-push reports は読み込めましたが、再発防止に値する findings
 ```
 
 最後に `analysis complete` で終了する。
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`post-merge-feedback.yaml` の `rules.condition` が英語リテラルで照合)、および転記する verdict の値 `APPROVE` / `REJECT` / `N/A` / `needs_fix`。verdict は上流 facet の出力をそのまま写す欄であり、訳すと集約側で元の判定と突き合わせられなくなる

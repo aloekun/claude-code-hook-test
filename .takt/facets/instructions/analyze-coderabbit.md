@@ -96,3 +96,7 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 - If the findings array is empty, report "No actionable findings" with verdict `approved`.
 - If the JSON file is missing or empty, report the error and exit.
 - When this is a re-analysis after a fix iteration, compare with previous reports to check for regression or persistence.
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — verdict の値 `approved` / `needs_fix` / `user_decision` (§ Verdict Rules)、および § Output Format の section 見出しと表の列名。`post-pr-review.yaml` の `rules.condition` がこの 3 値を英語リテラルで照合しており、訳すと分岐が成立しない

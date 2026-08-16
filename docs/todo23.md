@@ -515,46 +515,6 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 > **由来**: 2026-08-15 の週次レビュー ([ADR-031](adr/adr-031-weekly-review-pipeline.md)) 実行時に、findings とは別に**パイプライン自身の欠陥**が 2 件見つかった。どちらも実行ログ (`.takt/runs/20260815-100604-weekly-review-2026-08-15/logs/`) の実測に基づく。findings 採用分は [docs/todo.md](todo.md) § 週次レビュー採用 (2026-08-15) 側にある。
 
-### weekly-review facet の出力言語を output contract に明記する
-
-> **動機**: 2026-08-15 の run で `review-todo-whole.md` が**ほぼ全文ハングルで出力された**。同 run の他 4 facet (architecture / security / simplicity / jj-robustness) は英語で、**日本語の facet は 1 つも無かった**。原因は退行ではなく、**言語指定がどこにも存在しないこと**である。
->
-> **調査で確定した事実** (2026-08-15):
->
-> - takt は `language: en | ja` の config key を持つ (`node_modules/takt/builtins/{en,ja}/config.yaml:7`)
-> - **本リポジトリに `.takt/config.yaml` が無い** → builtin default にフォールバックし `en` ロケールが選ばれている。実行ログの systemPrompt が `builtins/en/facets/personas/architecture-reviewer.md` の英語テキストそのままであることで確認済み
-> - `.takt/` 配下を `日本語|Japanese|language` で全文検索した結果、ヒットは `review-todo-whole.md:91` の日本語**例文**のみ。**instruction にも output contract にも言語指定は 1 つも無い**
-> - `takt --help` に `--language` 相当のオプションは無い
-> - `~/.claude/settings.json` の `"language": "Japanese"` は Claude Code 本体の設定で、takt が spawn する provider には伝播しない
->
-> **本タスクの位置づけ**: 出力言語がモデル任せだと、レポートを読む人間 (日本語話者) が毎回言語ガチャを引くことになる。ハングル出力は今回たまたま可読だったが、facet が増えるほど当たりを引く確率が下がる。
->
-> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/facets/instructions/*.md` の § Output contract、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (output-contract 標準化)
->
-> **実行優先度**: 🚀 **Tier 1** — Severity Medium / Frequency High (毎週全 facet) / Effort XS / Adoption Risk None。
-
-#### 設計決定
-
-**`.takt/config.yaml` に `language: ja` を置く案は採らない。** ロケール全体が切り替わり、takt builtin の persona / policy / knowledge がすべて日本語版に差し替わる。今回の問題は「レポートの出力言語」だけであり、persona の文面まで動かすのは影響範囲が広すぎる (現行の英語 persona で 4 facet は期待どおり動いている)。
-
-採るのは **各 facet instruction の `## Output contract` 節に出力言語を明記する**方式。facet 単位で確実に効き、instruction 自体がリポジトリ管理下にあるため差分がレビューに乗る。
-
-#### 作業計画
-
-- [ ] 対象 facet を棚卸しする — weekly-review の 7 step (`review-simplicity-whole` / `review-security-whole` / `review-architecture-whole` / `review-todo-whole` / `review-jj-robustness-whole` / `file-length-watchlist` / `workspace-hygiene-scan`) + `aggregate-weekly`。他パイプライン (pre-push-review / post-pr-review / post-merge-feedback) の facet も同じ欠落を持つか確認し、範囲を決める
-- [ ] 各 `## Output contract` に「レポート本文は日本語で書く。コード識別子・パス・ADR 番号は原文のまま」を追記する
-- [ ] `aggregate-weekly` の findings.json は `description` / `proposal` の言語をどうするか決める (現状は英語。skill が `docs/todo.md` へ展開する際に翻訳しているため、日本語化すると翻訳工程が減る)
-- [ ] 次回 weekly-review の実走で全 facet が日本語で出ることを確認する (**instruction 変更は実走でしか検証できない** — [docs/dev-conventions.md](dev-conventions.md))
-
-#### 完了基準
-
-- weekly-review の全 facet レポートが日本語で出力される
-- 出力言語が instruction 上の明示的な契約になっており、モデルやロケール既定に依存しない
-
-#### 詰まっている箇所
-
-なし
-
 ### 昇格候補集合の構築を決定論層へ移す — instruction による全件判定の強制は 2 回失敗している
 
 > **動機**: `review-todo-whole` facet の昇格候補チェックが、**2 週連続で同じ形で失敗している**。2026-08-13 は 164 件中約 50 件をサンプリングして「0 件」と報告。対策として instruction に全件判定を義務づけた (#399 / #400) が、2026-08-15 の run は **251 件中約 13 件しか判定せず**、残り約 238 件を未判定のまま「候補 0 件」と結論した。

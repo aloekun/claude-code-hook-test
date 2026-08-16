@@ -73,3 +73,7 @@ Use `Grep` to find sibling entry points that perform conceptually similar operat
 ## Scope boundary
 
 The aggregate-weekly facet decides the final severity for the weekly report. Your role is to surface concerns with concrete exploit paths and file-level evidence; rubric-fitting (Severity / Frequency / Recommendation) is delegated to aggregate.
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、および severity の `critical` / `high` / `medium` / `low` (ADR-031 § Findings スキーマ)

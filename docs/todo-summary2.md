@@ -196,7 +196,6 @@
 | 459 | 🔧 Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448 と同じ構図) |
 | 460 | 💎 Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 3 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
 | 461 | 💎 Tier 3 | **開発 convention の一括追記 — 本チェーンの手順レベル教訓 (提案 12 件を統合)** | todo23.md | S | 460 (設計原則は ADR 側へ寄せるため先に確定させる。finding_id 埋込の方針が未決) |
-| 462 | 🚀 Tier 1 | **weekly-review facet の出力言語を output contract に明記する** | todo23.md | XS | なし (2026-08-16 採番。2026-08-15 の run で 1 facet がハングル出力・日本語ゼロ。`.takt/config.yaml` 不在で en builtin にフォールバックしており、instruction にも contract にも言語指定が無い。lane モデル work-plan PR-2 で実施) |
 | 463 | 🚀 Tier 1 | **昇格候補集合の構築を決定論層へ移す (台帳未掲載順位一覧の決定論出力)** | todo23.md | S | なし (2026-08-16 採番。LLM 全件判定は 2 週連続で失敗、lane モデルで rescope し差集合出力のみ残った。work-plan PR-3 の summary パーサを流用するため PR-3 の後が楽。lane モデル work-plan PR-5 で実施) |
 | 464 | 💎 Tier 3 | **`review-todo-whole` facet の台帳読み取り精度を決定論層で担保するか判定する** | todo24.md | S | 順位 463 (facet の報告範囲が lane モデルで縮小したため、463 land 後の実走レポートを見て要否を再判定する。不要なら理由を付して削除) |
 

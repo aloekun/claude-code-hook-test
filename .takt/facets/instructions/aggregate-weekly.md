@@ -222,3 +222,8 @@ findings 全体がゼロの場合は以下を出力:
 ```
 
 最後に `aggregation complete` で終了する。
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `aggregation complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、および Markdown report の section 見出しと表の列名
+- **`findings.json` の自由記述 field も日本語で書く** (`description` / `proposal` / `rationale`)。`/weekly-review` skill はこれらを `docs/todo*.md` のエントリへ展開するため、英語のままだと展開時に翻訳工程が挟まり、原文と登録文が食い違う余地が生まれる。**`id` / `facet` / `severity` / `category` / `decision` / `location` は enum・識別子なので原文のまま**

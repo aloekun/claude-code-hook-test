@@ -82,3 +82,7 @@ Conversely, if reading the tree leaves you with a concrete unease that you can a
 4. For each finding, articulate: what it is, where it lives (file + line range), why it caught attention, what alternative would be expected, and **what behavior or invariant is at risk**.
 5. Classify each finding by severity (`critical` / `high` / `medium` / `low`) per ADR-031 § Findings スキーマ.
 6. Write the report per the output contract (`simplicity-whole-review.md`). End with `analysis complete`.
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、および severity の `critical` / `high` / `medium` / `low` (ADR-031 § Findings スキーマ)
