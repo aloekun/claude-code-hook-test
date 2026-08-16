@@ -510,6 +510,17 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 **自ブランチの削除と空 ref の作成が自律 actor の操作分類に加わる** — どちらも `claude/**` 空間に閉じ、closed PR のブランチは GitHub の Restore branch で復元できるため commitment 点の侵犯には当たらない ([ADR-052](adr-052-autonomy-execution-boundary-classes.md) § 操作分類に追記)。
 
+#### 実装 (2026-08-16)
+
+| 決定 | 実装先 | 要点 |
+|---|---|---|
+| 19 (失敗マーカー) | `nightly-todo.yml` の `Leave a handoff marker…` step | 条件は **implement 成功 かつ publish 未達 かつ (verify / guard / ledger-completion のいずれかが非成功)**。`gh api -X POST .../git/refs` で base commit を指す空 ref を 1 本作る |
+| 19 (対象外の停止) | 同 step の `if` | **gate deny (kill-switch / 背圧) と integrity 検知はマーカーを作らない**。前者は「今夜は動かない」という設計された停止で翌晩の再試行が正しく、後者は red で人間を呼ぶセキュリティ事象なのでマーカーで静かに除外してはならない |
+| 20 (掃除) | `Clean up branches of settled PRs` step | `cli-stale-branch-scan --prefix claude/nightly- --deletable-only` の出力を消費。**選択より前**に置く (直後の in-flight 集計が `git ls-remote` から除外順位を作るため、後だと消したはずのブランチで除外され続ける) |
+| 20 (判定と実行の分離) | `cli-stale-branch-scan` | 「PR が 1 件も無いブランチは候補にしない」既存規則がそのまま失敗マーカーを守る。出力は `git push --delete` の引数になるため、**ブランチ名の allowlist を満たさないものは出力しない** (markdown レポートのコピペ経路と同じ injection 面) |
+| App token の 2 段化 | `cleanup-token` / `app-token` step | 掃除用を job 冒頭、publish + マーカー用を implement 後に mint。1 つで賄わないのは寿命 1 時間に対し implement が最大 60 ターン走るため (決定 8)。**2 回目は gate 通過を条件にしない** — implement 後に停止した run こそマーカーが要る |
+| dry_run の扱い | 掃除 / マーカーの両 step | どちらも `dry_run` では**対象を列挙するだけで書き込まない**。観測はできるが副作用は無い形にして、実走確認を安全に 1 回で済ませる |
+
 #### 検討して捨てた案 (決定 18〜20 の設計時、2026-08-16)
 
 | 案 | 捨てた理由 |

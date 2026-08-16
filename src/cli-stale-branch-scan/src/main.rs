@@ -3,8 +3,12 @@
 //! # 使い方
 //!
 //! ```text
-//! cli-stale-branch-scan [--remote <name>] [--repo <owner/name>]
+//! cli-stale-branch-scan [--remote <name|url>] [--repo <owner/name>] [--prefix <p>] [--deletable-only]
 //! ```
+//!
+//! `--prefix` は走査対象を絞る (例: `claude/nightly-`)。**PR の問い合わせ前**に効くので
+//! `gh` の呼び出し回数も減る。`--deletable-only` は markdown ではなく**削除候補のブランチ名を
+//! 1 行 1 件**で出す機械可読モードで、`nightly-todo.yml` の掃除 step が消費する。
 //!
 //! # なぜ takt workflow の中に置かないか
 //!
@@ -19,9 +23,16 @@
 //! # 削除はしない
 //!
 //! 本 exe は**提案までで止まる** ([ADR-022](../../../docs/adr/adr-022-automation-responsibility-separation.md) /
-//! [ADR-028](../../../docs/adr/adr-028-pnpm-create-pr-gate.md))。ブランチ削除は外部可視かつ
-//! 取り消しコストのある操作で、自律 actor の自動実行可クラスに入らない。出力に含めるのは
+//! [ADR-028](../../../docs/adr/adr-028-pnpm-create-pr-gate.md))。出力に含めるのは
 //! **人間がそのまま貼れる削除コマンド**であって、実行はしない。
+//!
+//! **削除する呼び手が 1 つだけある。** [ADR-052](../../../docs/adr/adr-052-autonomy-execution-boundary-classes.md)
+//! の 2026-08-16 改訂で「自分が作った `claude/**` ブランチのうち PR が紐づくものの削除」が
+//! 自動実行可クラスに入り、`nightly-todo.yml` の掃除 step が `--deletable-only` の出力を
+//! 消費して削除する ([ADR-072](../../../docs/adr/adr-072-nightly-todo-loop.md) 決定 20)。
+//! **判定と実行の分離は保たれている** — 本 exe は「消してよい」を決めるだけで、消すのは呼び手。
+//! `BranchVerdict::NoPullRequest` を候補にしない既存の規則が、そのまま夜間ループの
+//! 失敗マーカー (PR の無い `claude/nightly-<順位>`) を守る。
 //!
 //! # 出力に wall-clock を含めない理由
 //!
@@ -40,26 +51,59 @@ mod collect;
 
 use classify::{BranchVerdict, ClassifiedBranch};
 
-const USAGE: &str = "usage: cli-stale-branch-scan [--remote <name>] [--repo <owner/name>]";
+const USAGE: &str = "usage: cli-stale-branch-scan [--remote <name|url>] [--repo <owner/name>] \
+     [--prefix <p>] [--deletable-only]";
 const DEFAULT_REMOTE: &str = "origin";
 
 struct Cli {
     remote: String,
     repo: Option<String>,
+    /// 走査対象のブランチ名 prefix。PR 問い合わせ前に絞るので `gh` 呼び出しも減る。
+    prefix: Option<String>,
+    /// markdown ではなく削除候補のブランチ名を 1 行 1 件で出す。
+    deletable_only: bool,
+}
+
+/// 値を取る flag の次トークンを取り出す。**別の flag は値として受け取らない。**
+///
+/// 素朴に「次のトークン」を値にすると `--prefix --deletable-only` が
+/// 「prefix = `--deletable-only`」と解釈され、`deletable_only` は false のまま
+/// **markdown レポートが出る**。呼び手はそれを削除候補の一覧として読むため、
+/// 誤りが「引数不正」ではなく「別モードの正常出力」に化ける。値の欠落として弾く
+/// (CodeRabbit [#412](https://github.com/aloekun/claude-code-hook-test/pull/412))。
+fn take_value(argv: &[String], index: usize, flag: &str) -> Result<String, String> {
+    match argv.get(index) {
+        Some(value) if !value.starts_with("--") => Ok(value.clone()),
+        Some(value) => Err(format!(
+            "{flag} の値が別のオプションになっています: {value:?}\n{USAGE}"
+        )),
+        None => Err(format!("{flag} の値がありません\n{USAGE}")),
+    }
 }
 
 fn parse_args(argv: &[String]) -> Result<Cli, String> {
     let mut remote = DEFAULT_REMOTE.to_string();
     let mut repo = None;
+    let mut prefix = None;
+    let mut deletable_only = false;
     let mut i = 0;
     while i < argv.len() {
-        match argv[i].as_str() {
+        let flag = argv[i].as_str();
+        match flag {
+            "--prefix" => {
+                prefix = Some(take_value(argv, i + 1, flag)?);
+                i += 2;
+            }
+            "--deletable-only" => {
+                deletable_only = true;
+                i += 1;
+            }
             "--remote" => {
-                remote = argv.get(i + 1).ok_or_else(|| USAGE.to_string())?.clone();
+                remote = take_value(argv, i + 1, flag)?;
                 i += 2;
             }
             "--repo" => {
-                repo = Some(argv.get(i + 1).ok_or_else(|| USAGE.to_string())?.clone());
+                repo = Some(take_value(argv, i + 1, flag)?);
                 i += 2;
             }
             other => return Err(format!("不明な引数: {other:?}\n{USAGE}")),
@@ -68,7 +112,15 @@ fn parse_args(argv: &[String]) -> Result<Cli, String> {
     if remote.is_empty() {
         return Err(format!("--remote は空にできません\n{USAGE}"));
     }
-    Ok(Cli { remote, repo })
+    if prefix.as_deref() == Some("") {
+        return Err(format!("--prefix は空にできません\n{USAGE}"));
+    }
+    Ok(Cli {
+        remote,
+        repo,
+        prefix,
+        deletable_only,
+    })
 }
 
 fn main() {
@@ -85,13 +137,48 @@ fn main() {
         Ok(branches) => branches,
         Err(message) => fail(&message),
     };
+    let branches = filter_by_prefix(branches, cli.prefix.as_deref());
     let prs = match collect::fetch_pull_requests_for(&branches, cli.repo.as_deref()) {
         Ok(prs) => prs,
         Err(message) => fail(&message),
     };
     let configured_trunk = configured_trunk_branch();
     let classified = classify::classify(&branches, &prs, configured_trunk.as_deref());
+    if cli.deletable_only {
+        print!("{}", render_deletable(&classified));
+        return;
+    }
     print!("{}", render(&classified, &cli.remote));
+}
+
+fn filter_by_prefix(branches: Vec<String>, prefix: Option<&str>) -> Vec<String> {
+    let Some(prefix) = prefix else {
+        return branches;
+    };
+    branches.into_iter().filter(|b| b.starts_with(prefix)).collect()
+}
+
+/// 削除候補のブランチ名だけを 1 行 1 件で返す (機械可読モード)。
+///
+/// **名前が [`is_safe_branch_name`] を満たさないものは出さない。** 呼び手 (`nightly-todo.yml`)
+/// はこの出力を `git push origin --delete "$branch"` の引数に使うため、markdown レポートの
+/// コピペ経路と同じ injection 面がある。危険な名前は候補から落とし、落とした事実を stderr へ
+/// 出す — 黙って落とすと「掃除されないブランチがある」ことに誰も気づけない。
+fn render_deletable(classified: &[ClassifiedBranch]) -> String {
+    let mut out = String::new();
+    for branch in classify::deletion_candidates(classified) {
+        if is_safe_branch_name(&branch.branch) {
+            out.push_str(&branch.branch);
+            out.push('\n');
+            continue;
+        }
+        eprintln!(
+            "[stale-branch-scan] 削除候補ですが名前に使用できない文字があるため出力しません \
+             (人間が確認してください): {:?}",
+            branch.branch
+        );
+    }
+    out
 }
 
 fn fail(message: &str) -> ! {
@@ -337,6 +424,100 @@ mod tests {
         assert!(parse_args(&args(&["--repo"])).is_err());
         assert!(parse_args(&args(&["--delete"])).is_err());
         assert!(parse_args(&args(&["--remote", ""])).is_err());
+        assert!(parse_args(&args(&["--prefix"])).is_err());
+        assert!(parse_args(&args(&["--prefix", ""])).is_err());
+    }
+
+    /// 値を取る flag に別の flag が続いたら**引数不正**。素朴に次トークンを値にすると
+    /// `--prefix --deletable-only` が「prefix = --deletable-only」と読まれ、
+    /// `deletable_only` は false のまま **markdown レポート**が出る。呼び手はそれを
+    /// 削除候補の一覧として読むため、誤りが別モードの正常出力に化ける。
+    #[test]
+    fn a_flag_is_never_consumed_as_another_flags_value() {
+        assert!(parse_args(&args(&["--prefix", "--deletable-only"])).is_err());
+        assert!(parse_args(&args(&["--remote", "--repo", "o/r"])).is_err());
+        assert!(parse_args(&args(&["--repo", "--prefix", "claude/"])).is_err());
+    }
+
+    #[test]
+    fn the_machine_readable_flags_are_parsed() {
+        let cli = parse_args(&args(&["--prefix", "claude/nightly-", "--deletable-only"]))
+            .expect("parse");
+        assert_eq!(cli.prefix.as_deref(), Some("claude/nightly-"));
+        assert!(cli.deletable_only);
+        assert!(!parse_args(&args(&[])).expect("parse").deletable_only);
+    }
+
+    /// prefix は **PR 問い合わせの前**に効かせる。夜間の掃除は `claude/nightly-*` だけを
+    /// 対象にすればよく、無関係なブランチまで 1 本ずつ `gh` を呼ぶ理由がない。
+    #[test]
+    fn the_prefix_filters_branches_before_they_are_scanned() {
+        let branches = vec![
+            "claude/nightly-203".to_string(),
+            "claude/lane-model-pr4".to_string(),
+            "master".to_string(),
+        ];
+        assert_eq!(
+            filter_by_prefix(branches.clone(), Some("claude/nightly-")),
+            vec!["claude/nightly-203".to_string()]
+        );
+        assert_eq!(filter_by_prefix(branches.clone(), None), branches);
+    }
+
+    /// 機械可読モードは **Stale だけ**を出す。とりわけ `NoPullRequest` を出さないことが
+    /// 夜間ループの失敗マーカー (PR の無い `claude/nightly-<順位>`) を守る一線になる。
+    #[test]
+    fn the_machine_readable_output_lists_only_branches_whose_prs_are_all_settled() {
+        let classified = classify::classify(
+            &[
+                "claude/nightly-203".to_string(),
+                "claude/nightly-228".to_string(),
+                "claude/nightly-240".to_string(),
+                "claude/nightly-999".to_string(),
+            ],
+            &[
+                pr(1, "claude/nightly-203", "CLOSED"),
+                pr(2, "claude/nightly-228", "MERGED"),
+                pr(3, "claude/nightly-240", "OPEN"),
+            ],
+            None,
+        );
+        let out = render_deletable(&classified);
+        assert_eq!(out, "claude/nightly-203\nclaude/nightly-228\n");
+        assert!(
+            !out.contains("claude/nightly-999"),
+            "PR の無いブランチ (失敗マーカー) を削除候補に出している"
+        );
+        assert!(
+            !out.contains("claude/nightly-240"),
+            "open PR のブランチを削除候補に出している"
+        );
+    }
+
+    /// **merged を除外しない** (ADR-072 決定 20)。マージ時にブランチが消し忘れられ、かつ
+    /// 台帳の行が残っていると、そのブランチが除外マーカーとして効き続けてその順位が
+    /// 永久に選択されなくなる。
+    #[test]
+    fn a_merged_pr_whose_branch_remains_is_a_deletion_candidate() {
+        let classified = classify::classify(
+            &["claude/nightly-216".to_string()],
+            &[pr(9, "claude/nightly-216", "MERGED")],
+            None,
+        );
+        assert_eq!(render_deletable(&classified), "claude/nightly-216\n");
+    }
+
+    /// 呼び手は出力を `git push origin --delete "$branch"` に渡す。危険な文字を含む名前は
+    /// 候補から落とす (markdown レポートのコピペ経路と同じ injection 面)。
+    #[test]
+    fn an_unsafe_branch_name_is_withheld_from_the_machine_readable_output() {
+        let hostile = "claude/nightly-1;curl evil".to_string();
+        let classified = classify::classify(
+            std::slice::from_ref(&hostile),
+            &[pr(1, &hostile, "CLOSED")],
+            None,
+        );
+        assert_eq!(render_deletable(&classified), "");
     }
 
     /// **削除コマンドは提案として出すだけ**。出力に含まれることと、exe が実行しないことは別。

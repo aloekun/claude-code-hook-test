@@ -79,6 +79,7 @@ jobs:
           set -euo pipefail
           cargo build --release \
             -p cli-nightly-task-select -p cli-autonomy-gate -p cli-ledger-cleanup \
+            -p cli-stale-branch-scan \
             --manifest-path master-ref/Cargo.toml
           # 改ざん検知の基準値。Implement ステップ (agent) が master-ref/ 配下のゲート
           # exe/config を書き換えていないか、後段の Verify gate integrity で照合する。
@@ -89,6 +90,74 @@ jobs:
           sha256sum master-ref/target/release/cli-autonomy-gate master-ref/autonomy-config.toml \
             master-ref/target/release/cli-ledger-cleanup \
             > "$RUNNER_TEMP/gate-integrity.sha256"
+
+      # ── 掃除用の App token (1 回目の mint、ADR-072 決定 20) ──────────────────
+      # publish 用 (2 回目) と分ける理由は寿命。installation token は 1 時間で失効し、
+      # implement は最大 60 ターン走るため、1 つの token で掃除と publish の両方を賄うと
+      # publish に届く前に失効しうる (決定 8)。掃除は job 冒頭で終わるのでここで取る。
+      #
+      # **dry_run では mint しない。** 掃除 step 側が dry_run なら削除せず列挙だけを出す
+      # ため token が不要で、要らない資格情報を job に置かない。
+      #
+      # **permission-* を明示する。** 省略すると installation の全権限 (Contents:write /
+      # Pull requests:write) を継承した token になる。掃除に要るのは ref 削除 = Contents
+      # だけなので、この token では PR を作れない形にしておく — 2 回 mint する意味は
+      # 寿命の分割だけでなく**権限の分割**でもある (CodeRabbit #412 / zizmor github-app)。
+      - name: Mint App token (branch cleanup)
+        id: cleanup-token
+        if: github.event.inputs.dry_run != 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.NIGHTLY_APP_ID }}
+          private-key: ${{ secrets.NIGHTLY_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # 決着済み PR のブランチを掃除する (ADR-072 決定 20)。
+      #
+      # **タスク選択より前に置く。** 直後の in-flight 集計が `git ls-remote` の結果から
+      # 除外順位を作るため、掃除が後だとその晩は消したはずのブランチで除外され続ける。
+      #
+      # **判定は exe、削除は step**。「PR が 1 件も無いブランチは候補にしない」規則を
+      # `cli-stale-branch-scan` が既に持っており、それがそのまま失敗マーカー (決定 19、
+      # PR の無い claude/nightly-<順位>) を守る。shell で PR 状態をパースし直さない
+      # (回帰テストの場が無い判定を無人経路に置かない = 決定 1 と同じ理由)。
+      #
+      # closed と merged を区別しない。merged を除外すると、マージ時にブランチが消し
+      # 忘れられ台帳の行も残っている順位が、除外マーカーで永久に選択されなくなる。
+      #
+      # **本 step には continue-on-error を付けない** (決定 10)。ここで失敗するのは
+      # ls-remote / gh / push のネットワーク I/O であって設計された結末ではない。
+      - name: Clean up branches of settled PRs
+        id: cleanup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.cleanup-token.outputs.token }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          master-ref/target/release/cli-stale-branch-scan \
+            --remote "https://github.com/${{ github.repository }}.git" \
+            --repo "${{ github.repository }}" \
+            --prefix 'claude/nightly-' \
+            --deletable-only > "$RUNNER_TEMP/deletable-branches.txt"
+          COUNT=$(wc -l < "$RUNNER_TEMP/deletable-branches.txt")
+          echo "[NIGHTLY] 掃除対象 (決着済み PR のブランチ): ${COUNT} 件"
+          if [ "$COUNT" -eq 0 ]; then
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/deletable-branches.txt"
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "[NIGHTLY] dry_run のため削除しません (上記が対象)。"
+            exit 0
+          fi
+          # 削除は App token で行う。job の GITHUB_TOKEN は contents: read しか持たない
+          # (決定 8 § 副次効果 — agent が触れる唯一の資格情報を read-only に保つ)。
+          while IFS= read -r branch; do
+            [ -n "$branch" ] || continue
+            git push "https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git" \
+              --delete "refs/heads/$branch"
+            echo "[NIGHTLY] 削除: $branch"
+          done < "$RUNNER_TEMP/deletable-branches.txt"
 
       # 背圧の実測値と、着手済み順位の除外リストを 1 回の問い合わせから作る。
       # 数える主体 (本 step) と判断する主体 (ゲート exe) を分けるのは ADR-067 と同型。
@@ -563,15 +632,25 @@ jobs:
       # 発行は GitHub への外部 API 呼び出しであり、失敗は gh/network の障害 (secret の
       # 誤設定・GitHub 側の障害等) であって設計された結末ではない。green + [NIGHTLY_SKIP]
       # に落とすと、資格情報の設定ミスが「今夜は何もすることが無かった」と区別できなくなる。
+      #
+      # **2 回目の mint (決定 20 の 2 段化)。** publish だけでなく**失敗マーカー**の作成にも
+      # 使うため、gate 通過だけを条件にしない — implement 後に停止した run こそマーカーが要る。
+      # 掃除用の 1 回目 (job 冒頭) と分ける理由は寿命 1 時間 (同 step のコメント参照)。
       - name: Mint App token (so ci.yml attaches to the PR)
         id: app-token
         if: >-
-          steps.gate.outcome == 'success' &&
+          always() &&
+          steps.select.outcome == 'success' &&
+          steps.implement.outcome == 'success' &&
           github.event.inputs.dry_run != 'true'
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.NIGHTLY_APP_ID }}
           private-key: ${{ secrets.NIGHTLY_APP_PRIVATE_KEY }}
+          # push / 失敗マーカーの ref 作成に Contents、`gh pr create` に Pull requests。
+          # 省略すると installation の全権限を継承するため、要る 2 つだけを明示する。
+          permission-contents: write
+          permission-pull-requests: write
 
       # 本 step にも continue-on-error を付けない (決定 10)。`git push` / `gh pr create` は
       # いずれもネットワーク I/O で、ここまで到達した時点で kill-switch/背圧の gate は
@@ -653,6 +732,10 @@ jobs:
             echo "意図に沿っていればマージしてください。ずれている場合はクローズを —"
             echo "採用率は WP-18 の受け入れ基準の測定対象です。"
             echo
+            echo "**close する場合の lane 操作** (ADR-072 決定 20): 人間が引き取るなら台帳の"
+            echo "\`無人可\` を \`✅\` → \`—\` へ変更してください。**\`✅\` のまま close すると、**"
+            echo "**決着済み PR のブランチ掃除の後にこの順位が再び選択されます** (= 再投入の意思表示)。"
+            echo
             echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           } > "$RUNNER_TEMP/pr-body.md"
           # **draft では作らない** (ADR-072 決定 15)。draft は .coderabbit.yaml の
@@ -664,6 +747,64 @@ jobs:
             --title "$PR_TITLE" \
             --body-file "$RUNNER_TEMP/pr-body.md"
 
+      # 失敗マーカー (ADR-072 決定 19)。**implement 後に publish へ到達しなかった run** は、
+      # base commit を指す空 ref `claude/nightly-<順位>` を残して人間の確認へ回す。
+      #
+      # なぜ要るか: verify 段で落ちた run はブランチも PR も残さないため、翌晩まったく同じ
+      # タスクが再選択される。無人ループは毎晩同じ場所で失敗し続け、後続のタスクへ進まない。
+      #
+      # 対象は verify 失敗 / guard deny (空 diff を含む) / ledger-completion 未完了 の 3 つ。
+      # **gate deny (kill-switch / 背圧) と integrity 検知は含めない** — 前者は「今夜は
+      # 動かない」という設計された停止で翌晩の再試行が正しく、後者は red で人間を呼ぶ
+      # セキュリティ事象なのでマーカーで静かに除外してはならない。
+      #
+      # **publish-tree のインフラ障害 (git clone のネットワーク失敗等) も含めない**
+      # (pre-push simplicity review SIM-NEW-nightly-todo-yml-L635)。publish-tree に
+      # continue-on-error は無いため、失敗すればそのまま job 全体が red で落ちて「本当に
+      # 壊れた夜」の信号は既に出ている (publish-tree step のコメント参照)。ここでさらに
+      # handoff marker を作ると、翌晩リトライすれば直る一過性の障害まで人間の確認待ちに
+      # 固定してしまう。publish-tree が失敗すると guard は if 未充足で skip され
+      # (`outcome == 'skipped'` は `!= 'success'`) 、素朴な条件では guard deny と区別できず
+      # 誤って marker が作られていた。integrity と同様に明示的に除外する。
+      #
+      # implement **前**の停止 (背圧 / タスク無し / インフラ障害) もマーカーを作らない。
+      # この境界が「transient か、タスクが不適合か」の分類を run の構造で代替する。
+      #
+      # コードは push しない。完遂できなかった成果物をレビュー面へ出す意味はなく、必要なのは
+      # 「この順位は人間の確認待ち」という 1 ビットだけ。ref 作成 1 回で足りる。
+      - name: Leave a handoff marker when the run stopped after implementing
+        id: handoff
+        if: >-
+          always() &&
+          steps.select.outcome == 'success' &&
+          steps.implement.outcome == 'success' &&
+          steps.publish.outcome != 'success' &&
+          steps.publish-tree.outcome != 'failure' &&
+          steps.integrity.outcome != 'failure' &&
+          (steps.verify.outcome != 'success' ||
+           steps.guard.outcome != 'success' ||
+           steps.ledger-completion.outcome != 'success')
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ steps.select.outputs.branch }}
+          RANK: ${{ steps.select.outputs.rank }}
+          BASE_SHA: ${{ steps.work-base.outputs.sha }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          echo "[NIGHTLY_HANDOFF] 順位 ${RANK} は implement 後に停止しました (verify/guard/ledger-completion のいずれか)。"
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "[NIGHTLY_HANDOFF] dry_run のためマーカー (${BRANCH} → ${BASE_SHA}) は作成しません。"
+            exit 0
+          fi
+          gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            -f "ref=refs/heads/${BRANCH}" \
+            -f "sha=${BASE_SHA}" > /dev/null
+          echo "[NIGHTLY_HANDOFF] マーカー ${BRANCH} を作成しました (${BASE_SHA} を指す空 ref)。"
+          echo "[NIGHTLY_HANDOFF] このマーカーがある間、順位 ${RANK} は再選択されません。次の操作:"
+          echo "[NIGHTLY_HANDOFF]   - 人間が引き取る → 台帳の 無人可 を ✅ → — へ変更し、${BRANCH} を削除"
+          echo "[NIGHTLY_HANDOFF]   - 仕様を直して再投入 → ✅ のまま ${BRANCH} を削除"
+
       # ここに `Request a CodeRabbit review` step があった (ADR-072 決定 11)。**撤回済み。**
       # App token (bot) が投稿した `@coderabbitai review` は CodeRabbit に無視されると
       # 2026-08-09 に実測で確定したため (#373 の投稿者別対照)、step ごと撤去した。
@@ -673,6 +814,7 @@ jobs:
       - name: Report outcome
         if: '!cancelled()'
         env:
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
           SELECT_OUTCOME: ${{ steps.select.outcome }}
           IMPLEMENT_OUTCOME: ${{ steps.implement.outcome }}
@@ -683,10 +825,27 @@ jobs:
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           APP_TOKEN_OUTCOME: ${{ steps.app-token.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          HANDOFF_OUTCOME: ${{ steps.handoff.outcome }}
+          RANK: ${{ steps.select.outputs.rank }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          echo "[NIGHTLY] preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>}"
+          echo "[NIGHTLY] cleanup=${CLEANUP_OUTCOME:-<未実行>} preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>} handoff=${HANDOFF_OUTCOME:-<未実行>}"
           if [ "${PUBLISH_OUTCOME:-}" = "success" ]; then
             echo "[NIGHTLY] PR を作成しました。"
+            exit 0
+          fi
+          # 実装まで到達して停止した run は「何も無かった夜」ではなく**人間の確認待ち**。
+          # [NIGHTLY_SKIP] と別のマーカーで出すのは、run 一覧でこの 2 つを見分けるため
+          # (ADR-072 決定 19)。
+          if [ "${HANDOFF_OUTCOME:-}" = "success" ]; then
+            # **dry_run では marker を作っていない** (handoff step 側で列挙のみ)。
+            # ここで「マーカーがある」と書くと、実際には翌晩も同じ順位が選ばれる run を
+            # 「確認待ちで止まっている」と読ませてしまう (CodeRabbit #412)。
+            if [ "${DRY_RUN:-}" = "true" ]; then
+              echo "[NIGHTLY_HANDOFF] 順位 ${RANK:-<不明>} は implement 後に停止しました。**dry_run のためマーカーは作成していません** (実走なら人間の確認待ちになる経路)。"
+              exit 0
+            fi
+            echo "[NIGHTLY_HANDOFF] 順位 ${RANK:-<不明>} は人間の確認待ちです。マーカーがある間その順位は再選択されません。"
             exit 0
           fi
           echo "[NIGHTLY_SKIP] 本 run は PR を作りませんでした。上の 1 行で停止段を特定してください。"
