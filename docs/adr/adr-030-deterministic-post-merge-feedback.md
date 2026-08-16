@@ -232,10 +232,18 @@ L1 の pre-emptive marker 書込み **直前** に process が死んだ場合 (�
 - **scan 対象**: `.takt/runs/*/meta.json` の `status: "running"` AND `task` が `"post-merge-feedback for #"` で始まる run
 - **orphan 判定閾値**: `ORPHAN_THRESHOLD_SECS = TAKT_TIMEOUT_SECS + 300 (= 1500s)`。`TAKT_TIMEOUT_SECS` 経過後も `running` のまま放置されている run は abrupt termination で死んだとみなす
 - **reap 動作**: `.claude/feedback-reports/<pr>.md.failed` marker を生成 + `meta.json` の `status` を `"failed"` に更新 (`reaped_by: "hooks-session-start"` field も追加)
-- **冪等性 / false-positive 抑止**: 以下のいずれかに該当する run は reap を skip する:
-  1. 既存の `.failed` marker がある (L1 もしくは前回 reaper pass で処理済み)
-  2. **`.claude/feedback-reports/<pr>.md` 成功レポートが存在する** — 上記 Reconciliation 節で記述した「takt parent kill 後に descendants が report 完成」path では meta.json が `status: "running"` のまま残るが、実際には成功している。reap せず stale meta.json を放置する方が、false-positive の `.failed` marker で `hooks-user-prompt-feedback-recovery` が毎 prompt nag するより害が少ない
-- **nudge**: 検出時は SessionStart の `additionalContext` に `[POST_MERGE_FEEDBACK_REAPER]` tag 付きで通知
+- **marker を書くかどうかと status を直すかどうかは別問題 (2026-08-17 に修正)**: marker はユーザーへの nag なので二重に書かない。一方 `meta.json` の `status` は**機構が読む状態**なので、どの分岐でも必ず終端状態へ確定させる:
+
+  | 既存の成果物 | `.failed` marker | `meta.json` の `status` |
+  |---|---|---|
+  | `.failed` marker がある (L1 もしくは前回 reaper pass で処理済み) | 既存を保持 (上書きしない) | `"failed"` へ確定 |
+  | `<pr>.md` 成功レポートがある | 書かない | `"completed"` へ確定 |
+  | どちらも無い | 新規生成 | `"failed"` へ確定 |
+
+  `<pr>.md` があるとき marker を書かないのは、上記 Reconciliation 節で記述した「takt parent kill 後に descendants が report 完成」path では実際には成功しており、false-positive の `.failed` marker で `hooks-user-prompt-feedback-recovery` が毎 prompt nag するのが害だから。**ただし stale な `status: "running"` を放置してはならない** — 下記 incident を参照。
+- **nudge**: 検出時は SessionStart の `additionalContext` に `[POST_MERGE_FEEDBACK_REAPER]` tag 付きで通知。marker 新規生成分と、status のみ確定した分は区別して報告する
+
+> **incident (2026-08-17)**: 旧実装は marker / 成功レポートのいずれかがあれば orphan 全体を skip しており、**`status` を直すことまで skip していた**。その結果 `20260706-044830-post-merge-feedback-for-249` (成功レポート `249.md` は存在、meta は `running` のまま) が 6 週間残り、下記「並行起動 guard」が以後の post-merge-feedback (#394 / #408) を恒久的に block した。「false-positive nag を避ける」判断と「機構が読む状態を放置する」判断は独立しており、後者は常に確定させる必要がある。
 
 ##### 責務分離
 
@@ -246,7 +254,7 @@ L1 の pre-emptive marker 書込み **直前** に process が死んだ場合 (�
 | **L2 reaper** (out-of-process) | `hooks-session-start::compute_reaper_nudge` | pre-emptive write 完了前の OOM Killer / power loss / kill -9。Drop guard で救済不可な致命系の backstop |
 | **L2 recovery** (UserPromptSubmit hook) | `hooks-user-prompt-feedback-recovery` | 上記いずれかで生成された `.failed` marker を Claude に通知 |
 
-L1 と L2 は **重複動作しない**: L1 が marker を書いていれば L2 reaper は `marker.exists()` で skip。L2 が走るのは L1 が完全に効かなかった致命系のみ。
+L1 と L2 は **marker については重複動作しない**: L1 が marker を書いていれば L2 reaper は `marker.exists()` で marker 生成を skip する。marker を新規に書くのは L1 が完全に効かなかった致命系のみ。ただし **`meta.json` の `status` 確定は L2 の専任責務**であり、marker を skip する分岐でも必ず実行する (上記 incident 2026-08-17)。
 
 ##### SLA (post-merge-feedback の完了/失敗保証)
 
@@ -270,6 +278,9 @@ cross-invocation context overwrite race の予防として、`feedback::run` の
 - `.takt/runs/*/meta.json` を走査し、`task` が post-merge-feedback かつ `status: "running"` の run があれば refuse する
 - 完了 (`completed` / `failed`) した run は次の feedback を止めない
 - `status` が読めない run は**進行中とみなさない**。壊れた meta.json 1 つで後続の feedback が永久に起動できなくなる方が害が大きく、取りこぼしの実害は「同時に 2 つ走りうる」に留まる。長時間 `running` のまま放置された run は L2 の orphan reaper が `failed` へ落とす
+- **経過時間による足切り (2026-08-17 追加)**: `status: "running"` であっても、`startTime` からの経過が `ORPHAN_THRESHOLD_SECS` を超えた run は進行中とみなさない。`startTime` が読めない / 未来日付の run も同様に進行中とみなさない (時刻を確定できない run を block 側へ倒すと、その 1 ファイルで機構が恒久停止する。未来日付を fresh 扱いしないのは順位 197 / `PastTime` と同じ bug class を再現させないため)
+
+  これは L2 reaper の重複ではなく、**独立した backstop** である。reaper は SessionStart が走る環境でしか動かないのに対し、本 guard は merge のたびに必ず通る。2026-08-17 の incident では reaper 側の穴 (上記) により stale run が残り続けたが、guard 自身が時間を見ていれば block は起きなかった。単一の stale file が機構を恒久停止させないことを、両層でそれぞれ担保する
 
 > **reaper のセーフティネットが効く範囲 (2026-08-11 レビュー指摘で明記)**: L2 の orphan reaper が拾えるのは **meta.json がパース可能で `status` / `startTime` を読めた run のみ**である (`reaper::read_takt_meta` はパース失敗を `None` にして skip する。本 guard と同じ前提)。meta.json が構文レベルで壊れている場合 (abrupt kill による書き込み途中の破損等) は reaper も拾わないため、次に読める内容へ書き戻されるまで「進行中とみなさない」側へ倒れ続ける。これは reaper が必ず回収する保証があるからではなく、**許容している既知のギャップ**である。
 

@@ -171,16 +171,24 @@ pub(crate) fn find_orphan_post_merge_feedback_runs(
     orphans
 }
 
-/// orphan の meta.json を `status: "failed"` に書き換える。reaper の責任明示のため
+/// orphan の meta.json に書き戻す終端 status。
+///
+/// takt process が死んで書き戻せなかった `status` を、reaper が観測事実から確定させる。
+/// `"running"` のまま残すと `cli-merge-pipeline` の並行起動 guard が以後の
+/// post-merge-feedback を止め続ける (2026-08-17 の #249 incident)。
+const TERMINAL_STATUS_FAILED: &str = "failed";
+const TERMINAL_STATUS_COMPLETED: &str = "completed";
+
+/// orphan の meta.json を終端 status へ書き換える。reaper の責任明示のため
 /// `reaped_by: "hooks-session-start"` も追加する。malformed JSON は skip (Err 返す)。
-fn mark_meta_failed(meta_path: &Path) -> std::io::Result<()> {
+fn settle_meta_status(meta_path: &Path, terminal_status: &str) -> std::io::Result<()> {
     let content = std::fs::read_to_string(meta_path)?;
     let mut value: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     if let Some(obj) = value.as_object_mut() {
         obj.insert(
             "status".to_string(),
-            serde_json::Value::String("failed".to_string()),
+            serde_json::Value::String(terminal_status.to_string()),
         );
         obj.insert(
             "reaped_by".to_string(),
@@ -227,21 +235,53 @@ fn write_new_marker_file(path: &std::path::Path, body: &str) -> bool {
     true
 }
 
-/// 冪等性:
-/// - 既存 `.failed` marker がある → skip (L1 / 前回 reaper pass による処理済み)
-/// - 既存 `<pr>.md` 成功レポートがある → skip (ADR-030 §Reconciliation で documented されている
-///   「takt parent kill 後に descendants が report 完成」path。meta.json は `status: "running"`
-///   のままだが実際は成功しているため、ここで `.failed` marker を書くと false-positive nag になる)
+/// reaper が 1 pass で行った処置。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct ReapOutcome {
+    /// 新規に `.failed` marker を書いた (PR 番号, age_secs)。ユーザーへの nag 対象。
+    pub(crate) marked_failed: Vec<(u64, u64)>,
+    /// marker は書かず、meta.json の stale な `status` だけを終端状態へ確定させた PR 番号。
+    pub(crate) settled_only: Vec<u64>,
+}
+
+/// 検出された orphan run の `.failed` marker と meta.json `status` を確定させる。
+///
+/// # marker を書くかどうかと、status を直すかどうかは別問題 (2026-08-17 incident)
+///
+/// 旧実装は marker / 成功レポートのいずれかがあれば orphan 全体を skip しており、
+/// **`status: "running"` を直すことまで skip していた**。その結果 `20260706-...-for-249` は
+/// 6 週間 `"running"` のまま残り、`cli-merge-pipeline` の並行起動 guard が以後の
+/// post-merge-feedback (#394 / #408) を恒久的に block した。
+///
+/// marker はユーザーへの nag なので二重に書かない。一方 meta.json の `status` は
+/// 機構が読む状態なので、どの経路でも必ず終端状態へ確定させる。
+///
+/// 分岐:
+/// - 既存 `.failed` marker がある → marker はそのまま、status のみ `failed` へ
+///   (L1 の pre-emptive marker を残したまま死んだ run)
+/// - 既存 `<pr>.md` 成功レポートがある → marker は書かず、status を `completed` へ
+///   (ADR-030 §Reconciliation の「takt parent kill 後に descendants が report 完成」path。
+///   ここで `.failed` marker を書くと false-positive nag になる)
+/// - どちらも無い → `.failed` marker を新規作成し、status を `failed` へ
+///
+/// marker とレポートが両方ある場合は marker 側を優先する。marker が残っている限り
+/// recovery は未完了として扱うのが L2 の一貫した見方であり、status もそれに揃える。
 ///
 /// marker 書込失敗時は当該 orphan を skip して次に進む (best-effort)。
-/// 戻り値: 新規 reap した (PR 番号, age_secs) リスト。
-pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> Vec<(u64, u64)> {
-    let mut reaped = Vec::new();
+pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> ReapOutcome {
+    let mut outcome = ReapOutcome::default();
     for orphan in orphans {
         let feedback_dir = repo_root.join(FEEDBACK_DIR_REPO_RELATIVE);
         let marker = feedback_dir.join(format!("{}.md.failed", orphan.pr_number));
         let success_report = feedback_dir.join(format!("{}.md", orphan.pr_number));
-        if marker.exists() || success_report.exists() {
+        if marker.exists() {
+            settle_meta_status_logged(&orphan.meta_path, TERMINAL_STATUS_FAILED);
+            outcome.settled_only.push(orphan.pr_number);
+            continue;
+        }
+        if success_report.exists() {
+            settle_meta_status_logged(&orphan.meta_path, TERMINAL_STATUS_COMPLETED);
+            outcome.settled_only.push(orphan.pr_number);
             continue;
         }
         if let Some(parent) = marker.parent() {
@@ -251,10 +291,26 @@ pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> Vec<(u64,
         if !write_new_marker_file(&marker, &body) {
             continue;
         }
-        let _ = mark_meta_failed(&orphan.meta_path);
-        reaped.push((orphan.pr_number, orphan.age_secs));
+        settle_meta_status_logged(&orphan.meta_path, TERMINAL_STATUS_FAILED);
+        outcome
+            .marked_failed
+            .push((orphan.pr_number, orphan.age_secs));
     }
-    reaped
+    outcome
+}
+
+/// `settle_meta_status` の失敗を silent drop せず stderr に残す。
+///
+/// 書き換えに失敗しても SessionStart 自体は止めない (best-effort)。ただし失敗が続くと
+/// guard の恒久 block が再発しうるため、痕跡は必ず残す。
+fn settle_meta_status_logged(meta_path: &Path, terminal_status: &str) {
+    if let Err(e) = settle_meta_status(meta_path, terminal_status) {
+        eprintln!(
+            "[session-start] [reaper] meta.json の status 確定に失敗 (続行) {}: {}",
+            meta_path.display(),
+            e
+        );
+    }
 }
 
 /// SessionStart 時の reaper エントリポイント。orphan を検出 + reap し、
@@ -262,19 +318,31 @@ pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> Vec<(u64,
 pub(crate) fn compute_reaper_nudge(repo_root: &Path, now_unix: i64) -> Option<String> {
     let runs_dir = repo_root.join(TAKT_RUNS_DIR);
     let orphans = find_orphan_post_merge_feedback_runs(&runs_dir, now_unix);
-    let reaped = reap_orphans(repo_root, &orphans);
-    if reaped.is_empty() {
+    let outcome = reap_orphans(repo_root, &orphans);
+    if outcome.marked_failed.is_empty() && outcome.settled_only.is_empty() {
         return None;
     }
-    let mut lines = Vec::with_capacity(reaped.len() + 2);
-    lines.push("[POST_MERGE_FEEDBACK_REAPER]".to_string());
-    lines.push(format!(
-        "orphan post-merge-feedback runs を {} 件検出、`.failed` marker を生成しました \
-         (abrupt termination 経路の L2 recovery、ADR-030 §L2)",
-        reaped.len()
-    ));
-    for (pr, age) in &reaped {
-        lines.push(format!("  - PR #{} (経過 {} 秒)", pr, age));
+    let mut lines = vec!["[POST_MERGE_FEEDBACK_REAPER]".to_string()];
+    if !outcome.marked_failed.is_empty() {
+        lines.push(format!(
+            "orphan post-merge-feedback runs を {} 件検出、`.failed` marker を生成しました \
+             (abrupt termination 経路の L2 recovery、ADR-030 §L2)",
+            outcome.marked_failed.len()
+        ));
+        for (pr, age) in &outcome.marked_failed {
+            lines.push(format!("  - PR #{} (経過 {} 秒)", pr, age));
+        }
+    }
+    if !outcome.settled_only.is_empty() {
+        lines.push(format!(
+            "stale な meta.json の status を {} 件終端状態へ確定しました \
+             (marker / レポートは既存のため nag なし。放置すると merge pipeline の \
+             並行起動 guard を恒久 block する)",
+            outcome.settled_only.len()
+        ));
+        for pr in &outcome.settled_only {
+            lines.push(format!("  - PR #{}", pr));
+        }
     }
     Some(lines.join("\n"))
 }
@@ -499,9 +567,9 @@ mod tests {
         let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
         assert_eq!(orphans.len(), 1);
 
-        let reaped = reap_orphans(&root, &orphans);
-        assert_eq!(reaped.len(), 1);
-        assert_eq!(reaped[0].0, 200);
+        let outcome = reap_orphans(&root, &orphans);
+        assert_eq!(outcome.marked_failed.len(), 1);
+        assert_eq!(outcome.marked_failed[0].0, 200);
 
         let marker = root.join(FEEDBACK_DIR_REPO_RELATIVE).join("200.md.failed");
         assert!(marker.exists());
@@ -544,14 +612,88 @@ mod tests {
         .unwrap();
 
         let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
-        let reaped = reap_orphans(&root, &orphans);
+        let outcome = reap_orphans(&root, &orphans);
         assert!(
-            reaped.is_empty(),
+            outcome.marked_failed.is_empty(),
             "ADR-030 §Reconciliation path: success report exists despite stale meta.json — must not write .failed marker"
         );
         assert!(
             !feedback_dir.join("202.md.failed").exists(),
             "no .failed marker may be written when <pr>.md success report is present"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **2026-08-17 incident の核心**: 成功レポートがあって marker を書かない場合でも、
+    /// meta.json の `status: "running"` は必ず終端状態へ確定させる。ここを skip したため
+    /// `20260706-...-for-249` が 6 週間 running のまま残り、cli-merge-pipeline の
+    /// 並行起動 guard が #394 / #408 の feedback を恒久 block した。
+    #[test]
+    fn reap_orphans_settles_stale_meta_even_when_it_skips_the_marker() {
+        let root = unique_temp_root("settle-on-reconciled-success");
+        let runs = root.join(".takt/runs");
+        let run = runs.join("20260706-044830-post-merge-feedback-for-249");
+        let start_iso = "2026-07-06T04:48:30Z";
+        let start_unix = parse_iso8601_to_unix(start_iso).unwrap();
+        write_meta(&run, "post-merge-feedback for #249", "running", start_iso);
+        let now = start_unix + ORPHAN_THRESHOLD_SECS as i64 + 60;
+
+        let feedback_dir = root.join(FEEDBACK_DIR_REPO_RELATIVE);
+        std::fs::create_dir_all(&feedback_dir).unwrap();
+        std::fs::write(feedback_dir.join("249.md"), "# feedback report").unwrap();
+
+        let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
+        let outcome = reap_orphans(&root, &orphans);
+        assert_eq!(outcome.settled_only, vec![249]);
+
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(run.join("meta.json")).unwrap()).unwrap();
+        assert_eq!(
+            updated.get("status").and_then(|v| v.as_str()),
+            Some("completed"),
+            "成功レポートがあるなら completed へ確定させる (failed ではない)"
+        );
+
+        assert!(
+            find_orphan_post_merge_feedback_runs(&runs, now).is_empty(),
+            "確定後は二度と orphan として検出されない (冪等)"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// L1 の pre-emptive marker を残したまま死んだ run。marker は上書きしないが、
+    /// status は `failed` へ確定させる。
+    #[test]
+    fn reap_orphans_settles_stale_meta_when_a_marker_already_exists() {
+        let root = unique_temp_root("settle-on-existing-marker");
+        let runs = root.join(".takt/runs");
+        let run = runs.join("20260513-100000-post-merge-feedback-for-203");
+        let start_iso = "2026-05-13T03:26:40Z";
+        let start_unix = parse_iso8601_to_unix(start_iso).unwrap();
+        write_meta(&run, "post-merge-feedback for #203", "running", start_iso);
+        let now = start_unix + ORPHAN_THRESHOLD_SECS as i64 + 60;
+
+        let feedback_dir = root.join(FEEDBACK_DIR_REPO_RELATIVE);
+        std::fs::create_dir_all(&feedback_dir).unwrap();
+        let marker = feedback_dir.join("203.md.failed");
+        std::fs::write(&marker, "pre-existing detailed marker from L1").unwrap();
+
+        let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
+        let outcome = reap_orphans(&root, &orphans);
+        assert_eq!(outcome.settled_only, vec![203]);
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap(),
+            "pre-existing detailed marker from L1",
+            "既存 marker は上書きしない"
+        );
+
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(run.join("meta.json")).unwrap()).unwrap();
+        assert_eq!(
+            updated.get("status").and_then(|v| v.as_str()),
+            Some("failed")
         );
 
         let _ = std::fs::remove_dir_all(&root);
@@ -573,9 +715,9 @@ mod tests {
         std::fs::write(&marker, "pre-existing detailed marker from L1").unwrap();
 
         let orphans = find_orphan_post_merge_feedback_runs(&runs, now);
-        let reaped = reap_orphans(&root, &orphans);
+        let outcome = reap_orphans(&root, &orphans);
         assert!(
-            reaped.is_empty(),
+            outcome.marked_failed.is_empty(),
             "must not re-reap when marker already exists"
         );
 

@@ -174,8 +174,19 @@ impl Drop for FailedMarkerGuard<'_> {
 /// は reaper のセーフティネットも効かず、次に読める内容へ書き戻されるまで無期限にここで
 /// 「進行中とみなさない」側へ倒れ続ける。これは reaper が必ず拾う保証があるからではなく、
 /// 許容している既知のギャップである。
+///
+/// # 経過時間による足切り (2026-08-17)
+///
+/// 「進行中か」の判定は [`run_registry::running_runs`] が `startTime` の経過時間まで見て行う。
+/// reaper に頼らずここで閉じるのは、reaper が SessionStart の走る環境でしか動かない一方、
+/// 本 guard は merge のたびに必ず通るため。
 pub(crate) fn check_concurrent_run_guard(repo_root: &Path) -> Result<(), String> {
-    let running = run_registry::running_runs(&run_registry::runs_dir(repo_root));
+    check_concurrent_run_guard_at(repo_root, lib_pending_file::utc_now_epoch_secs() as i64)
+}
+
+/// [`check_concurrent_run_guard`] の時刻注入版 (テスト用)。
+fn check_concurrent_run_guard_at(repo_root: &Path, now_unix: i64) -> Result<(), String> {
+    let running = run_registry::running_runs(&run_registry::runs_dir(repo_root), now_unix);
     let Some(first) = running.first() else {
         return Ok(());
     };
@@ -187,8 +198,8 @@ pub(crate) fn check_concurrent_run_guard(repo_root: &Path) -> Result<(), String>
     Err(format!(
         "post-merge-feedback workflow が進行中です (run: {}). 進行中の run が \
          context.json を読んでいるため上書きしません。完了を待つか、run が死んでいる場合は \
-         {} の status を確認してください (放置された run は SessionStart の orphan reaper が \
-         failed へ落とします)。",
+         {} の status を確認してください (takt timeout + 5 分を過ぎた run は本 guard が \
+         自動的に対象外とし、SessionStart の orphan reaper が status を終端状態へ落とします)。",
         listed,
         first.dir.join("meta.json").display()
     ))
@@ -346,6 +357,17 @@ mod tests {
     mod concurrent_run_guard {
         use super::*;
 
+        const RUN_START_ISO: &str = "2026-08-10T10:00:00Z";
+
+        fn run_start_unix() -> i64 {
+            lib_pending_file::iso8601_to_epoch_secs(RUN_START_ISO).expect("妥当な ISO 8601")
+        }
+
+        /// fixture の run がまだ takt timeout 窓の内側にいる時刻。
+        fn now_while_in_flight() -> i64 {
+            run_start_unix() + 60
+        }
+
         fn repo_with_runs(label: &str, runs: &[(&str, u64, &str)]) -> PathBuf {
             let root = unique_tmp_path(label);
             for (slug, pr, status) in runs {
@@ -353,7 +375,10 @@ mod tests {
                 fs::create_dir_all(&dir).unwrap();
                 fs::write(
                     dir.join("meta.json"),
-                    format!(r#"{{"task":"post-merge-feedback for #{pr}","status":"{status}"}}"#),
+                    format!(
+                        r#"{{"task":"post-merge-feedback for #{pr}","status":"{status}",
+                            "startTime":"{RUN_START_ISO}"}}"#
+                    ),
                 )
                 .unwrap();
             }
@@ -363,7 +388,7 @@ mod tests {
         #[test]
         fn passes_when_no_runs_exist() {
             let root = unique_tmp_path("feedback-guard-no-runs");
-            assert!(check_concurrent_run_guard(&root).is_ok());
+            assert!(check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok());
         }
 
         /// **順位 398 の完了基準**: 直前の feedback が完了していれば、25 分待たずに通る。
@@ -378,7 +403,7 @@ mod tests {
                 )],
             );
             assert!(
-                check_concurrent_run_guard(&root).is_ok(),
+                check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok(),
                 "完了済みの run は次の feedback を止めてはいけない"
             );
             let _ = fs::remove_dir_all(&root);
@@ -390,7 +415,27 @@ mod tests {
                 "feedback-guard-failed",
                 &[("20260810-100000-post-merge-feedback-for-383", 383, "failed")],
             );
-            assert!(check_concurrent_run_guard(&root).is_ok());
+            assert!(check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok());
+            let _ = fs::remove_dir_all(&root);
+        }
+
+        /// **2026-08-17 incident の再発防止**: 終端状態へ書き戻せずに死んだ run 1 つが、
+        /// 以後の post-merge-feedback を永久に block してはいけない。
+        #[test]
+        fn passes_when_the_running_run_is_older_than_the_takt_timeout() {
+            let root = repo_with_runs(
+                "feedback-guard-stale-running",
+                &[(
+                    "20260706-044830-post-merge-feedback-for-249",
+                    249,
+                    "running",
+                )],
+            );
+            let six_weeks_later = run_start_unix() + 6 * 7 * 24 * 3600;
+            assert!(
+                check_concurrent_run_guard_at(&root, six_weeks_later).is_ok(),
+                "放置された running run は guard を恒久停止させてはいけない"
+            );
             let _ = fs::remove_dir_all(&root);
         }
 
@@ -404,7 +449,7 @@ mod tests {
                     "running",
                 )],
             );
-            let result = check_concurrent_run_guard(&root);
+            let result = check_concurrent_run_guard_at(&root, now_while_in_flight());
             let message = result.expect_err("進行中の run は上書きを止める");
             assert!(message.contains("進行中"), "{message}");
             assert!(message.contains("#383"), "どの run かを示すこと: {message}");
@@ -421,7 +466,7 @@ mod tests {
                     ("20260810-200000-post-merge-feedback-for-2", 2, "completed"),
                 ],
             );
-            assert!(check_concurrent_run_guard(&root).is_err());
+            assert!(check_concurrent_run_guard_at(&root, now_while_in_flight()).is_err());
             let _ = fs::remove_dir_all(&root);
         }
 
@@ -436,7 +481,7 @@ mod tests {
                 .join("20260810-100000-post-merge-feedback-for-9");
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("meta.json"), "{ not json").unwrap();
-            assert!(check_concurrent_run_guard(&root).is_ok());
+            assert!(check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok());
             let _ = fs::remove_dir_all(&root);
         }
 
@@ -451,10 +496,10 @@ mod tests {
             fs::create_dir_all(&dir).unwrap();
             fs::write(
                 dir.join("meta.json"),
-                r#"{"task":"pre-push-review","status":"running"}"#,
+                format!(r#"{{"task":"pre-push-review","status":"running","startTime":"{RUN_START_ISO}"}}"#),
             )
             .unwrap();
-            assert!(check_concurrent_run_guard(&root).is_ok());
+            assert!(check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok());
             let _ = fs::remove_dir_all(&root);
         }
     }

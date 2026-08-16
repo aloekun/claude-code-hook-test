@@ -16,6 +16,7 @@
 //! 読んでおり、情報源を新設せず既存のものへ合流させている。
 
 use crate::feedback::context::TAKT_TASK_PREFIX;
+use crate::feedback::takt::ORPHAN_THRESHOLD_SECS;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -40,6 +41,8 @@ use std::path::{Path, PathBuf};
 struct TaktMetaFile {
     task: Option<String>,
     status: Option<String>,
+    #[serde(rename = "startTime")]
+    start_time: Option<String>,
     #[serde(rename = "reportDirectory")]
     report_directory: Option<String>,
 }
@@ -68,6 +71,8 @@ pub(crate) struct FeedbackRun {
     /// task label から取り出した PR 番号。
     pub(crate) pr_number: u64,
     pub(crate) status: RunStatus,
+    /// `meta.json` の `startTime` を epoch 秒に直したもの。読めなければ `None`。
+    started_at: Option<i64>,
     /// `meta.json` の `reportDirectory` (repo root からの相対パス)。
     report_directory: Option<String>,
 }
@@ -144,6 +149,10 @@ fn to_feedback_run(dir: PathBuf, meta: TaktMetaFile) -> Option<FeedbackRun> {
         dir,
         pr_number,
         status,
+        started_at: meta
+            .start_time
+            .as_deref()
+            .and_then(lib_pending_file::iso8601_to_epoch_secs),
         report_directory: meta.report_directory,
     })
 }
@@ -178,14 +187,43 @@ pub(crate) fn latest_run_for_pr(runs_dir: &Path, pr_number: u64) -> Option<Feedb
         .rfind(|run| run.pr_number == pr_number)
 }
 
-/// 進行中 (`status: "running"`) の run をすべて返す。
+/// `status: "running"` の run のうち、**まだ in-flight でありうる**ものだけを返す。
 ///
 /// 対象 PR で絞らないのは、guard の関心が「**別の** feedback が走っていないか」だから。
-pub(crate) fn running_runs(runs_dir: &Path) -> Vec<FeedbackRun> {
+///
+/// # なぜ status だけでは足りないか (2026-08-17 の incident)
+///
+/// `meta.json` の `status` を終端状態へ書き戻すのは takt process 自身であり、その process が
+/// 死ねば `"running"` が永久に残る。実際、`20260706-044830-post-merge-feedback-for-249` が
+/// 6 週間 `"running"` のまま残り、その間の post-merge-feedback (#394 / #408) が全て
+/// この guard で block された。
+///
+/// out-of-process の回収層 (`hooks-session-start::reaper`) はあるが、それは SessionStart が
+/// 走る環境でしか動かない。**単一の stale file が機構を恒久停止させない**ことを、guard 自身が
+/// 時間で担保する。閾値は reaper と同じ [`ORPHAN_THRESHOLD_SECS`] (takt timeout + 5 分) で、
+/// これを超えた run は reaper の判定と同様「死んでいる」とみなす。
+pub(crate) fn running_runs(runs_dir: &Path, now_unix: i64) -> Vec<FeedbackRun> {
     collect_feedback_runs(runs_dir)
         .into_iter()
-        .filter(|run| run.status == RunStatus::Running)
+        .filter(|run| run.status == RunStatus::Running && is_within_flight_window(run, now_unix))
         .collect()
+}
+
+/// `startTime` から見て、この run がまだ takt timeout 窓の内側にいるか。
+///
+/// `startTime` が読めない (欠落 / 破損 / 未来日付) 場合は **`false`**。時刻が確定できない run を
+/// 「進行中」に倒すと、その 1 ファイルで後続が永久に止まる — これは本 module が `status` 不読の
+/// ときに既に採っている「取りこぼす側へ倒す」方針と同じで、実害は「同時に 2 つ走りうる」に留まる。
+/// 未来日付を fresh 扱いしないのは、破損した future timestamp が恒久 block を作る bug class
+/// (順位 197 / `PastTime`) を再現させないため。
+fn is_within_flight_window(run: &FeedbackRun, now_unix: i64) -> bool {
+    let Some(started_at) = run.started_at else {
+        return false;
+    };
+    if started_at > now_unix {
+        return false;
+    }
+    now_unix - started_at < ORPHAN_THRESHOLD_SECS as i64
 }
 
 /// `.takt/runs/` の絶対パス。
@@ -214,9 +252,27 @@ mod tests {
         dir
     }
 
+    /// 全 fixture が共有する `startTime`。in-flight 窓の内外は `now` 側で作り分ける。
+    const RUN_START_ISO: &str = "2026-08-10T10:00:00Z";
+
+    fn run_start_unix() -> i64 {
+        lib_pending_file::iso8601_to_epoch_secs(RUN_START_ISO).expect("fixture は妥当な ISO 8601")
+    }
+
+    /// `RUN_START_ISO` の run がまだ takt timeout 窓の内側にいる時刻。
+    fn now_while_in_flight() -> i64 {
+        run_start_unix() + 60
+    }
+
+    /// `RUN_START_ISO` の run が orphan 閾値を超えた時刻。
+    fn now_after_flight_window() -> i64 {
+        run_start_unix() + ORPHAN_THRESHOLD_SECS as i64 + 1
+    }
+
     fn meta(pr: u64, status: &str, slug: &str) -> String {
         format!(
             r#"{{"task":"post-merge-feedback for #{pr}","status":"{status}",
+                "startTime":"{RUN_START_ISO}",
                 "reportDirectory":".takt/runs/{slug}/reports"}}"#
         )
     }
@@ -321,7 +377,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let absent = tmp.path().join("absent");
         assert!(collect_feedback_runs(&absent).is_empty());
-        assert!(running_runs(&absent).is_empty());
+        assert!(running_runs(&absent, now_while_in_flight()).is_empty());
     }
 
     #[test]
@@ -344,9 +400,60 @@ mod tests {
             &meta(3, "failed", "c"),
         );
 
-        let running = running_runs(runs);
+        let running = running_runs(runs, now_while_in_flight());
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].pr_number, 2);
+    }
+
+    /// **2026-08-17 incident の核心**: 終端状態へ書き戻せずに死んだ run が、以後の
+    /// feedback を永久に止めてはいけない。
+    #[test]
+    fn a_stale_running_run_is_not_in_flight() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runs = tmp.path();
+        write_run(
+            runs,
+            "20260706-044830-post-merge-feedback-for-249",
+            &meta(249, "running", "stale"),
+        );
+
+        assert!(
+            running_runs(runs, now_while_in_flight()).len() == 1,
+            "閾値内では従来どおり in-flight とみなす"
+        );
+        assert!(
+            running_runs(runs, now_after_flight_window()).is_empty(),
+            "orphan 閾値を超えた running は死んだものとして扱う"
+        );
+    }
+
+    #[test]
+    fn a_running_run_without_a_start_time_is_not_in_flight() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_run(
+            tmp.path(),
+            "20260810-100000-post-merge-feedback-for-7",
+            r#"{"task":"post-merge-feedback for #7","status":"running"}"#,
+        );
+        assert!(
+            running_runs(tmp.path(), now_while_in_flight()).is_empty(),
+            "経過時間を確定できない run は block 側へ倒さない"
+        );
+    }
+
+    /// 破損した future timestamp が「永遠に fresh」になる bug class (順位 197) を塞ぐ。
+    #[test]
+    fn a_running_run_with_a_future_start_time_is_not_in_flight() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_run(
+            tmp.path(),
+            "20260810-100000-post-merge-feedback-for-8",
+            &meta(8, "running", "future"),
+        );
+        assert!(
+            running_runs(tmp.path(), run_start_unix() - 3600).is_empty(),
+            "startTime が now より未来の run は fresh とみなさない"
+        );
     }
 
     /// `status` が読めない run を進行中とみなすと、壊れた meta.json 1 つで後続の
@@ -359,7 +466,7 @@ mod tests {
             "20260810-100000-post-merge-feedback-for-5",
             r#"{"task":"post-merge-feedback for #5"}"#,
         );
-        assert!(running_runs(tmp.path()).is_empty());
+        assert!(running_runs(tmp.path(), now_while_in_flight()).is_empty());
         assert_eq!(
             latest_run_for_pr(tmp.path(), 5).map(|r| r.status),
             Some(RunStatus::Finished)
