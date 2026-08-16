@@ -64,3 +64,7 @@ The shift to anomaly detection is meant to remove the duplicative checklist work
 2. Read straight through. After the first pass, list any pattern that read as "unusual / unexpected / hard to explain"
 3. For each anomaly, classify as blocking (significant unexplained risk) or non-blocking (worth raising but not a blocker)
 4. If there is even one blocking anomaly, judge as REJECT
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — レポート内の判定語 `APPROVE` / `REJECT`、`pre-push-review.yaml` の `rules.condition` が照合する `approved` / `needs_fix`、severity の `critical` / `high` / `medium` / `low`、`finding_id` の値、出力契約の section 名と表の列名。下流の fix step がこれらを英語リテラルで読むため、訳すと判定と findings の受け渡しが壊れる (ADR-048)

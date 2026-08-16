@@ -63,3 +63,4 @@ Grep will over-match: most `.modified()` / `gh` / `env!` uses are benign. This f
 - Read-only (`edit: false`): report findings only; the `/weekly-review` skill + user decide adoption.
 - Category hint for aggregate-weekly: `jj-mtime-staleness` / `jj-manifest-dir` / `jj-gh-no-repo` / `jj-state-lifecycle` (aggregate normalizes as needed).
 - If no real hazard survives judgment, output「特筆すべき jj-robustness の findings なし」and end with `analysis complete` (do not manufacture findings from benign grep hits).
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、severity の `critical` / `high` / `medium` / `low`、および上記の category hint

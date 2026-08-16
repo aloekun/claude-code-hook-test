@@ -66,3 +66,7 @@ When the diff qualifies as **docs-only** under [ADR-035](../../../docs/adr/adr-0
   - Specifications that other systems will rely on (API contracts, security guarantees)
 
 Rationale: documentation that does not redefine who-can-do-what cannot introduce security vulnerabilities by itself. Treating descriptive docs as security-relevant produces false-positive iterations and erodes review signal. ADR-035 captures the full docs-only evaluation policy across reviewer facets.
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — レポート内の判定語 `APPROVE` / `REJECT`、`pre-push-review.yaml` の `rules.condition` が照合する `approved` / `needs_fix`、severity の `critical` / `high` / `medium` / `low`、`finding_id` の値、出力契約の section 名と表の列名。下流の fix step がこれらを英語リテラルで読むため、訳すと判定と findings の受け渡しが壊れる (ADR-048)

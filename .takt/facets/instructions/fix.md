@@ -140,3 +140,7 @@ convergence_verdict: partial
 ```
 
 **Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the affected crate builds), emit `partial` so the analyze step can re-evaluate.
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — `convergence_verdict: fully_resolved` / `convergence_verdict: partial` (ADR-037 の fix-trust shortcut がこの文字列で reviewers 再実行を短絡する)、`Unable to proceed with fixes`、および上記の section 見出し (`## Build results` / `## Test results` / `## Convergence gate` 等)。`pre-push-review.yaml` / `post-pr-review.yaml` の `rules.condition` がこれらを英語リテラルで照合する

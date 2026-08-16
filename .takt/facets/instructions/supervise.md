@@ -21,3 +21,7 @@ Judge **only the current iteration's** reports -- the latest `review-report` / `
 
 ## Summary
 - {Overall assessment: ready to push or issues remain}
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 判定の `All validations complete, ready to push` / `Issues detected`、参照する `finding_id` の値、および上記の section 見出し (`## Supervisor validation` / `## Summary`)。`pre-push-review.yaml` / `post-pr-review.yaml` の `rules.condition` がこれらを英語リテラルで照合する

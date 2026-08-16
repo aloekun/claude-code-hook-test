@@ -141,3 +141,7 @@ PR diff + レビューコメントを分析し、再発防止に役立つ知見�
 ```
 
 最後に `analysis complete` で終了する。
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`post-merge-feedback.yaml` の `rules.condition` が英語リテラルで照合)、および Required output の section 見出しと表の列名

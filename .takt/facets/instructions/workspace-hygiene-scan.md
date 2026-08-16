@@ -128,6 +128,7 @@ severity の目安 (aggregate-weekly の統合用): root 直下の想定外フ�
 - 3 検査とも 0 件でも section を生成 (「未実施」と「0 件」を区別するため。aggregate-weekly が常に Read 可能)
 - **未実施は 0 件と書かない**: shell 出力が `(未実施: ...)` の検査は「未実施 + 理由」で報告する。aggregate-weekly はこれを finding にせず warning として weekly report に転記する
 - **削除は提案止まり**: 検出ファイルの削除・`.gitignore` 追記は `/weekly-review` skill の Phase 3 でユーザーが決める (ADR-022)。本 step は列挙のみ
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンド (Bash の出力を含む) はもちろん、**完了条件の `analysis complete` も訳さない** (`weekly-review.yaml` の `rules.condition` と step-level rule `all("analysis complete")` が英語リテラルで照合する)
 
 ## Completion criteria
 

@@ -77,7 +77,7 @@
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)、takt facet の出力言語は各 instruction に直書きする
 
 ## Build
 

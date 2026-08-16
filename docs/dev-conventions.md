@@ -157,3 +157,16 @@ config が未指定のときに code default へ解決される (`config.foo.unw
 2. **除外は消さずに残す** — 除外した項目を仕様から削ると、次に読む人が「なぜこれは対象外なのか」を再調査することになる。
 
 **由来** (2026-08-13 PR #395、PR diff + pre-push simplicity の 2 ソースが独立指摘): 週次レビュー採用の WR-2026-08-13-T02 が順位 203/216/228/239/240 の 5 行を降格対象と記述する一方、実装タスク T01 は Batch 1 の 4 行のみを扱い、**Batch 2 にある順位 216 の処置が仕様にも実装にも現れない**状態だった。
+
+## takt facet の出力言語は各 instruction に直書きする
+
+`.takt/facets/instructions/*.md` の全ファイルに、出力言語の指定を **1 ファイル 1 行ずつ直書き**する。共通ファイルへ切り出して参照させる形は採らない。
+
+1. **参照形はプロンプトに載らない** — takt が facet へ渡すのは当該 instruction の本文であり、「共通規約を参照せよ」と書いても参照先の中身は届かない。届かない指定は存在しないのと同じ。
+2. **固定トークンは訳さないことを同時に書く** — workflow の `rules.condition` は `analysis complete` / `convergence_verdict: fully_resolved` / `approved` / `needs_fix` などを**英語リテラルで照合**する。「日本語で書く」だけを指示すると、モデルがこれらまで訳して gate が通らなくなる。言語指定と免除リストは必ず対で書く。
+3. **免除リストは facet ごとに実値を確認して書く。汎用リストを流用しない** — 照合される値は facet ごとに違う (`analyze-coderabbit` は `approved` / `needs_fix` / `user_decision`、reviewer は `approved` / `needs_fix` + レポート内の `APPROVE` / `REJECT`、`supervise` は `All validations complete, ready to push` / `Issues detected`)。**実在しない値を書けば免除は効かず、実在する値を落とせばその facet だけ gate が壊れる。** 対応表は `.takt/workflows/*.yaml` の `instruction:` と `- condition:` の対から機械的に作れる。
+4. **変更時は grep で全箇所を更新する** — 直書きの代償は分散である。文言を変えるときは `grep -L "日本語" .takt/facets/instructions/*.md` が空になることを確認する。
+
+**由来** (2026-08-15 の weekly-review 実行、2026-08-16 に対処): `review-todo-whole` facet の出力が**ほぼ全文ハングル**になり、同 run の他 4 facet は英語で、日本語のレポートは 1 つも無かった。原因は退行ではなく**言語指定の不在**で、`.takt/config.yaml` が無いため takt builtin の `en` ロケールにフォールバックしており、instruction にも output contract にも言語指定が 1 箇所も存在しなかった。`~/.claude/settings.json` の `"language": "Japanese"` は Claude Code 本体の設定で、takt が spawn する provider には伝播しない。
+
+**3 の由来** (PR [#410](https://github.com/aloekun/claude-code-hook-test/pull/410) の CodeRabbit 指摘): 初版は 19 ファイルすべてに**同一の汎用免除リスト**を貼っており、`analyze-coderabbit` に実在しない `changes_requested` / `pending_ci_completion` を挙げる一方、実際に照合される `needs_fix` / `user_decision` を落としていた。reviewer 系も `approved` / `needs_fix` が抜けていた。**免除リストは「それらしい値の列挙」ではなく実値の写しであり、確認せずに複製すると守っているつもりの gate が守られない。**

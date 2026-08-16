@@ -77,6 +77,7 @@ find docs -maxdepth 1 -name 'todo*.md' -exec wc -c {} + 2>/dev/null \
 - File: `file-length-watchlist.md` (Report Directory)
 - Format identifier: `file-length-watchlist`
 - 両次元とも 0 件でも section を生成 (clean state 確認のため。aggregate-weekly が常に Read 可能)
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンド (Bash の出力を含む) はもちろん、**完了条件の `analysis complete` も訳さない** (`weekly-review.yaml` の `rules.condition` と step-level rule `all("analysis complete")` が英語リテラルで照合する)
 
 ## Completion criteria
 

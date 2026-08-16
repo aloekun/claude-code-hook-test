@@ -100,3 +100,4 @@ If a finding needs natural-language judgment about task intent (「これはも�
 - Read-only (`edit: false`): report findings only; the `/weekly-review` skill + user decide adoption (never edit `docs/todo*.md` or `docs/claude-code-web-tasks.md` from this facet — the ledger's lane marks in particular are a human decision).
 - Category hint for aggregate-weekly: use `todo-dead-entry` / `todo-duplicate` / `todo-preamble-drift` / `ledger-staleness` (aggregate normalizes into the ADR-031 category set).
 - If nothing survives evidence-gathering, output「特筆すべき todo-hygiene の findings なし」and end with `analysis complete` (do not manufacture findings).
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `analysis complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、severity の `critical` / `high` / `medium` / `low`、上記の category hint、および必須 section 名 `## 昇格候補 (promotion candidates)`

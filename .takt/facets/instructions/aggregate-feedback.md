@@ -190,3 +190,7 @@ PR タイトルが context に含まれていない場合は、レポート内�
 ```
 
 最後に `aggregation complete` で終了する。
+
+## 出力言語
+
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `aggregation complete` (`post-merge-feedback.yaml` の `rules.condition` が英語リテラルで照合)、および Required output の section 見出しと表の列名 (`Type` / `Description` / `Target` / `Severity` / `Frequency` / `Effort` / `Adoption Risk` / `Recommendation` / `Rationale`)
