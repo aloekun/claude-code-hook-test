@@ -42,6 +42,8 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 | Tier 3 cleanup（todo taxonomy の 💎 Tier 3 = 低リスクな機械的 refactor / doc / rule / visibility scoping 等） | 意図表現を侵さない局所変更。revert 容易 |
 | `claude/` prefix ブランチへの push | trunk ではない隔離 namespace。ブランチ push は revert 可能で、まだ PR として外部にコミットされていない |
 | `claude/` ブランチからの **PR 作成**（draft / 非 draft を問わない = **autonomous-pr クラス**） | 「無人実装 → 人間レビューへの handoff 点」として設計上の停止地点になる。close は容易で、マージしない限り trunk に影響しない。**背圧（原則 5）の接続が有効化の前提条件** |
+| **自分が作った `claude/` ブランチの削除**（**PR が紐づくものに限る**。closed / merged を問わない） | `claude/**` 空間内で trunk に影響しない。PR があれば成果物と diff は PR 上に残り、GitHub の **Restore branch** で復元できる。PR が紐づく = 人間が close か merge かの判断を済ませたもの（[ADR-072](adr-072-nightly-todo-loop.md) 決定 20） |
+| **`claude/` 空間への空 ref の作成**（失敗マーカー） | 既存 commit を指す ref を 1 本増やすだけで、コードも PR も作らない。削除も復元も容易で、外部レビュー面には何も現れない（[ADR-072](adr-072-nightly-todo-loop.md) 決定 19） |
 
 #### ゲート必須クラス（人間の承認まで実行しない）
 
@@ -65,6 +67,16 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 > **CodeRabbit quota の扱い**: 起票時に draft を自動実行可とした根拠の 1 つ「quota を消費しない」は失われ、夜間 PR 1 件につき初回レビュー 1 回を消費する。これは決定 11 が意図していた消費量と同じで（起動経路が明示トリガーから `auto_review` に変わるだけ）、[ADR-019](adr-019-coderabbit-review-hybrid-policy.md) 側に注記した。
 >
 > **背圧の同時改訂**: 背圧の指標も「未マージ **draft** 数」から「未マージの `claude/` PR 数」へ変える必要がある（原則 5）。draft で数え続けると計数が常に 0 になり、**背圧が無音で無効化**される — 原則 5 が禁じる状態そのものなので、本改訂と分離して land させてはならない。
+
+#### 改訂（2026-08-16）— ref のライフサイクル操作を自動実行可へ加える
+
+[ADR-072](adr-072-nightly-todo-loop.md) の lane モデル（決定 18〜20）が、夜間ループに 2 つの新しい ref 操作を要求する — **決着済み PR のブランチの自動掃除**と、**失敗マーカーとしての空 ref 作成**である。自動実行可クラスの表へ 2 行を追加した。
+
+**どちらも commitment 点の侵犯には当たらない。** 判断の軸は原則 2 と同じ「取り消しコスト」で、ここでは*何が失われうるか*を見る。空 ref の作成は既存 commit への参照を 1 本増やすだけで、成果物も外部レビュー面も生まない。ブランチ削除は一見取り消しコストが大きいが、**対象を PR が紐づくものへ限る**ことで (a) 人間が close か merge かの判断を済ませている、(b) 成果物と diff は PR 上に永続、(c) GitHub の Restore branch で復元可能、の 3 点が揃う。
+
+**復元可能性は「PR が残っていること」に依存している。** したがって PR の無いブランチ（= 失敗マーカー）を削除対象に含めることは本改訂の範囲外であり、ADR-072 決定 20 が明示的に禁じている。**逆に merged PR のブランチは対象に含む** — 復元可能性の根拠は PR の存在であって close か merge かではなく、除外すると消し忘れたブランチが順位を永久に選択不能にする（同決定 20）。
+
+**一般則**: 自律 actor が自分で作った `claude/**` の ref を、自分が作った文脈の中で片付けることは自動実行可である。他者が作った ref、`claude/**` の外、あるいは成果物が他に残らない削除は、いずれも本行の範囲に入らない。
 
 ### 原則 3: 分類不能は fail-closed（ゲート必須に倒す）
 
@@ -145,5 +157,6 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 - [ADR-043](adr-043-security-gates-fail-closed.md)（fail-closed 原則）— 分類不能をゲート必須へ倒す既定の根拠
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md)（試験運用標準パターン）— config opt-in + kill-switch + bounded lifetime
 - [ADR-019](adr-019-coderabbit-review-hybrid-policy.md)（CodeRabbit ハイブリッド構成）— 無料枠クォータの制約。2026-08-09 改訂前は「draft 除外 = quota 非消費」が draft PR を自動実行可とする根拠でもあった
+- [ADR-072](adr-072-nightly-todo-loop.md)（夜間 todo 消化ループ）— autonomous-pr クラスの実装。決定 18〜20 の lane モデルが 2026-08-16 の ref ライフサイクル改訂の要求元
 - `src/lib-docs-policy`（`is_docs_only_summary` — ADR-035 path 基準の単一実装。[ADR-057](adr-057-docs-only-deterministic-routing.md) で `gate.rs` から切り出し済、実装スコープ節の 2026-08-02 訂正を参照）— 分類関数の再利用母体
 - セッション 247510ea-3f24-4b87-8f68-3c860e1b1b4e（2026-04-18）/ PR #54 — 無ゲート自律実行の事故（ADR-028 と共有する反例）

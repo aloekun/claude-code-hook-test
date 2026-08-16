@@ -2,7 +2,7 @@
 
 > **運用ルール** ([docs/todo.md](todo.md) と同一): 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイルの位置付け**: docs/todo13.md がファイルサイズ約 171KB (50KB 安定読み取り閾値の約 3.4 倍) に到達したため、2026-07-19 週次レビュー WR-2026-07-19-T02 採用時に新設した。**本ファイル自体も約 70KB に到達したため新規エントリは追加しない** — 2026-08-04 以降の新規エントリは [docs/todo20.md](todo20.md) へ記録していたが、todo20.md も 50KB 超過で 2026-08-08 以降は todo21.md、その todo21.md も 50KB 超過で **2026-08-11 以降の追加先は [docs/todo22.md](todo22.md)** である。todo.md / todo3.md 〜 todo22.md の既存エントリは引き続き有効、相互に独立 (todo2.md は 2026-08-12 退役) (2026-07-20 に todo13.md→todo15/16/17・todo10.md→todo18/19 の物理分割で todo15-19 を新設)。
+> **本ファイルの位置付け**: docs/todo13.md がファイルサイズ約 171KB (50KB 安定読み取り閾値の約 3.4 倍) に到達したため、2026-07-19 週次レビュー WR-2026-07-19-T02 採用時に新設した。**本ファイル自体も約 70KB に到達したため新規エントリは追加しない** — 2026-08-04 以降の新規エントリは [docs/todo20.md](todo20.md) へ記録していたが、todo20.md も 50KB 超過で 2026-08-08 以降は todo21.md、その todo21.md も 50KB 超過で 2026-08-11 以降は todo22.md へ移った。**現在の追加先は [docs/todo.md](todo.md) preamble の routing 表が正である** (2026-08-16 時点は todo24.md)。todo.md / todo3.md 〜 todo22.md の既存エントリは引き続き有効、相互に独立 (todo2.md は 2026-08-12 退役) (2026-07-20 に todo13.md→todo15/16/17・todo10.md→todo18/19 の物理分割で todo15-19 を新設)。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
@@ -98,28 +98,6 @@
 - polling 代替パターンへの導線が dev-conventions.md に整備され、外部レビュー指摘の ADR 反映タイミング規約が CLAUDE.md に明記されること。
 ---
 
-
-### docs/todo*.md 本文の順位番号表記を検出する custom lint rule (ADR-033 使用禁止の仕組み化、#303 post-merge feedback 採用)
-
-> **動機**: [ADR-033](adr/adr-033-todo-numbering-simplification.md) (2026-04-29 試験運用) が「絶対番号は table のみに保持し、本文中の順位番号表記は使用禁止」と規定し、「将来の展望」節で pre-push hook の custom_lint_rule 追加を検討済みと明記したが、未実装のまま約 3 ヶ月経過。#303 の CodeRabbit 対応でも本文参照の drift が問題化した文脈。#303 post-merge feedback で採用。
->
-> **対処案**: `.claude/custom-lint-rules.toml` に regex rule を追加し、`docs/todo*.md` の本文 (table 行を除く) に残る順位番号の literal 表記を検出する。ADR-033 の検証用 grep が既に動作実証済みのため rule 化の Effort は S。既存の literal-ban 系 custom rule (rule⑥/⑪) と同型。
->
-> **参照**: `.claude/feedback-reports/303.md` Tier1 #2、[ADR-033](adr/adr-033-todo-numbering-simplification.md) (§ 将来の展望)、`.claude/custom-lint-rules.toml`。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (ADR-033 で既に禁止規定 + 検証 grep 実証済み)。
-
-#### 作業計画
-
-- [ ] `.claude/custom-lint-rules.toml` に `docs/todo*.md` 本文の順位番号表記を検出する regex rule を追加 (table 行を除外)
-- [ ] 既存本文の違反を洗い出し修正 (ADR-033 の grep を流用)
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- `docs/todo*.md` 本文に順位番号表記が混入した場合、pre-push / PostToolUse で決定論的に検出されること (ADR-033 の規定が仕組みで強制される)。
-
----
 
 ### post-merge-feedback の transcript 分析を cli-merge-pipeline 生成の summary index に置換
 
@@ -523,16 +501,18 @@
 
 > **動機**: PR #332 で todo16.md の複数セクション削除時に lint:md を 3 回以上再実行する非効率を観測した。todo ファイルの段階的削除と都度 lint:md 実行の手順が明文化されておらず、削除漏れ・lint 崩れ・summary 行との不整合が起きやすい。#332 post-merge feedback Tier3 #8 で採用。専用スクリプト化 (#332 Tier2 #1) は ADR-033 効果待ちで様子見だが、チェックリスト明記自体は Effort XS の無リスク即応策として独立採用可能。
 >
-> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (todo-summary2.md) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 順位番号の本文混入 ([ADR-033](adr/adr-033-todo-numbering-simplification.md)) に注意」のチェックリストを追加する。
+> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (**該当順位を収める `docs/todo-summary.md` または `docs/todo-summary2.md`**。順位 220 未満は前者) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 削除する順位を指す本文参照を残さない ([ADR-033](adr/adr-033-todo-numbering-simplification.md) § アンチパターン)」のチェックリストを追加する。
 >
-> **参照**: `.claude/feedback-reports/332.md` Tier3 #8、`docs/dev-conventions.md`、[ADR-033](adr/adr-033-todo-numbering-simplification.md)、todo14.md 順位334 (順位番号 lint rule と相補)。
+> **2026-08-16 更新**: 当初の対処案 (3) は「順位番号を本文に書かない」だったが、[ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 が本文参照の禁止を緩和したため、**削除済み順位への参照を残さない**へ置き換えた。相補関係にあった順位番号 lint rule のタスクは同日 retire している。
+>
+> **参照**: `.claude/feedback-reports/332.md` Tier3 #8、`docs/dev-conventions.md`、[ADR-033](adr/adr-033-todo-numbering-simplification.md)。
 >
 > **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に todo ファイル削除・更新チェックリストを追加 (詳細/summary の対更新・段階削除+都度 lint:md・順位番号の本文混入注意)
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
+- [ ] `docs/dev-conventions.md` に todo ファイル削除・更新チェックリストを追加 (詳細/summary の対更新・段階削除+都度 lint:md・削除済み順位への本文参照を残さない)
+- [ ] 本エントリ削除 + 該当順位を収める summary index (`docs/todo-summary.md` または `docs/todo-summary2.md`) の行削除
 
 #### 完了基準
 
