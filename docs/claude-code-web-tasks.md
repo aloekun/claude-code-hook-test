@@ -144,7 +144,6 @@ close は「この成果物は採らない」という判断であって、「�
 
 | 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 | PRタイトル |
 |---|---|---|---|---|---|---|---|
-| 240 | T2 | ✅ | `takt.rs` の spawn/try_wait `Err(_)` → `Err(e)` + `eprintln!`（原因握り潰し解消、`.failed` marker debug 改善） | `src/cli-merge-pipeline/src/feedback/takt.rs`（60・68 行） | XS | pnpm/takt の実実行は成功条件外。compile + clippy 通過で足りる | fix(merge-pipeline): takt spawn/try_wait のエラー握り潰しを解消する |
 | 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |  |
 | 228 | T2 | ✅ | `evaluate_rate_limit_shortcut` の cr_clean 判定（`new_comments` / `actionable_comments` / `unresolved_threads` 3 field × None/Some 境界）の回帰テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit/tests.rs` | S | pure 関数、silent-clean 誤認保護。同 crate の `#[ignore]` 統合テストは無関係。**2026-08-17 パス修正**: 旧記載の `rate_limit_signal.rs` は module 分割で消滅しており実在しない（判定関数の実体は同階層の `rate_limit.rs`、テストは `rate_limit/tests.rs`）。既存の `evaluate_rate_limit_shortcut_*` 5 件と重複しない境界だけを足す | test(check-ci): rate-limit shortcut の cr_clean 判定をテストで固定する |
 | 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |  |
