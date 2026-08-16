@@ -220,40 +220,6 @@
 
 ---
 
-### GitHub token alternation の variant test 完成 — `ghu_` / `ghr_` (PR #201 post-merge-feedback T2-1 採用)
-
-> **動機**: PR #201 で `(gho|ghs|ghu|ghr)_[A-Za-z0-9]{36}` の regex alternation に `ghu_` (user-to-server) / `ghr_` (refresh) の専用テストが欠落していることを 3 ソース (PR diff + pre-push NB-2 + CR NB-2) が独立検出。alternation グループは全 variant に 1+ test が原則で、将来 regex 簡略化時の silent drop regression を防止する。
->
-> **本タスクの位置づけ**: PR #201 post-merge-feedback Tier 2 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-10 ユーザー承認)。順位 145 preset matrix test と同根の test matrix mechanical 強化。Bundle-201-FB-A 候補 (T3-1 と同 PR で land 可能だが T3-1 は今回未採用のため単独 land でも可)。
->
-> **参照**: `.claude/feedback-reports/201.md` Tier 2 #1、`src/hooks-pre-tool-validate/src/main.rs` の `secret_detection_blocks_github_oauth_token` (gho_) / `secret_detection_blocks_github_server_token` (ghs_) test (既存テンプレート)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort XS。2 テストケース追加のみ (~10 行)。
-
-#### 設計決定 (案)
-
-- 既存 `secret_detection_blocks_github_oauth_token` (gho_) / `secret_detection_blocks_github_server_token` (ghs_) と同パターンで `ghu_` / `ghr_` 用 test を追加
-- `is_blocked_with("let token = \"ghu_<36 chars>\";", SECRET_DETECT)` 形式
-- helper 共通化なし (memory `feedback_test_dry_antipattern` 適用)、independent setup
-
-#### 作業計画
-
-- [ ] `secret_detection_blocks_github_user_to_server_token` test 関数追加 (ghu_ + 36 chars fixture)
-- [ ] `secret_detection_blocks_github_refresh_token` test 関数追加 (ghr_ + 36 chars fixture)
-- [ ] `cargo test -p hooks-pre-tool-validate` で全 pass 確認 (現 202 + 2 = 204)
-- [ ] 本 todo10.md エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- 4 variant (`gho_` / `ghs_` / `ghu_` / `ghr_`) すべてが専用 test で block 検証される
-- 将来の regex 簡略化時の silent drop が test で検出される
-
-#### 詰まっている箇所
-
-なし。Effort XS、test 追加のみ。
-
----
-
 ### ADR-007 に exception field + 専用 pattern の設計方針 codify (PR #201 post-merge-feedback T3-2 採用)
 
 > **動機**: Rust 標準 regex crate は negative lookahead 非対応のため、相互排他的な regex pattern を扱う際は `BlockedPattern.exception` field + 専用 pattern の 2 段判定が canonical solution。順位 144 `jj-message-required` (PR #171) で導入され、順位 146 `secret-detection` (PR #201) で Anthropic `sk-ant-` を OpenAI `sk-` から除外するのに再利用。2 PR で再利用 = Frequency Medium で ADR codify 妥当。将来の custom linter 実装者が negative lookahead を試みて iteration を浪費するのを防ぐ。

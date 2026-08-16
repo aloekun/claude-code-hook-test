@@ -150,6 +150,24 @@ mod tests {
     }
 
     #[test]
+    fn secret_detection_blocks_github_user_to_server_token() {
+        let cmd = format!(
+            "let token = \"{}{}\";",
+            "ghu_", "abcdefghijklmnopqrstuvwxyz0123456789"
+        );
+        assert!(is_blocked_with(&cmd, SECRET_DETECT));
+    }
+
+    #[test]
+    fn secret_detection_blocks_github_refresh_token() {
+        let cmd = format!(
+            "let token = \"{}{}\";",
+            "ghr_", "abcdefghijklmnopqrstuvwxyz0123456789"
+        );
+        assert!(is_blocked_with(&cmd, SECRET_DETECT));
+    }
+
+    #[test]
     fn secret_detection_blocks_anthropic_api_key() {
         let cmd = format!(
             "let key = \"{}{}\";",
