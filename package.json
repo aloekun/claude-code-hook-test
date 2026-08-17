@@ -6,6 +6,7 @@
     "lint": "npx oxlint src/",
     "lint:md": "npx --no-install markdownlint-cli2 \"**/*.md\"",
     "lint:docs": "node scripts/run-artifact.mjs cli-docs-lint",
+    "lint:workflows": "node scripts/lint-workflows.mjs",
     "test": "npx vitest run",
     "test:e2e": "npx tsx scripts/e2e.ts",
     "build": "npx --no-install tsc --noEmit --pretty",
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "js-yaml": "^5.3.0",
     "markdownlint-cli2": "^0.22.1",
     "takt": "0.35.3",
     "typescript": "^7.0.2"
