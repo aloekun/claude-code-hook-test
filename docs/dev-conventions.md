@@ -166,7 +166,32 @@ config が未指定のときに code default へ解決される (`config.foo.unw
 2. **固定トークンは訳さないことを同時に書く** — workflow の `rules.condition` は `analysis complete` / `convergence_verdict: fully_resolved` / `approved` / `needs_fix` などを**英語リテラルで照合**する。「日本語で書く」だけを指示すると、モデルがこれらまで訳して gate が通らなくなる。言語指定と免除リストは必ず対で書く。
 3. **免除リストは facet ごとに実値を確認して書く。汎用リストを流用しない** — 照合される値は facet ごとに違う (`analyze-coderabbit` は `approved` / `needs_fix` / `user_decision`、reviewer は `approved` / `needs_fix` + レポート内の `APPROVE` / `REJECT`、`supervise` は `All validations complete, ready to push` / `Issues detected`)。**実在しない値を書けば免除は効かず、実在する値を落とせばその facet だけ gate が壊れる。** 対応表は `.takt/workflows/*.yaml` の `instruction:` と `- condition:` の対から機械的に作れる。
 4. **変更時は grep で全箇所を更新する** — 直書きの代償は分散である。文言を変えるときは `grep -L "日本語" .takt/facets/instructions/*.md` が空になることを確認する。
+5. **ただし instruction の言語指定は best-effort であり、契約ではない** — 指示は届いていても**確率的に破られる**。守らせる層 (instruction) と保証する層 (集約 facet) を分け、**契約は最終成果物 1 枚に置く** (下記)。
 
 **由来** (2026-08-15 の weekly-review 実行、2026-08-16 に対処): `review-todo-whole` facet の出力が**ほぼ全文ハングル**になり、同 run の他 4 facet は英語で、日本語のレポートは 1 つも無かった。原因は退行ではなく**言語指定の不在**で、`.takt/config.yaml` が無いため takt builtin の `en` ロケールにフォールバックしており、instruction にも output contract にも言語指定が 1 箇所も存在しなかった。`~/.claude/settings.json` の `"language": "Japanese"` は Claude Code 本体の設定で、takt が spawn する provider には伝播しない。
 
 **3 の由来** (PR [#410](https://github.com/aloekun/claude-code-hook-test/pull/410) の CodeRabbit 指摘): 初版は 19 ファイルすべてに**同一の汎用免除リスト**を貼っており、`analyze-coderabbit` に実在しない `changes_requested` / `pending_ci_completion` を挙げる一方、実際に照合される `needs_fix` / `user_decision` を落としていた。reviewer 系も `approved` / `needs_fix` が抜けていた。**免除リストは「それらしい値の列挙」ではなく実値の写しであり、確認せずに複製すると守っているつもりの gate が守られない。**
+
+### 契約は最終成果物に置く — 中間レポートの言語は保証しない (2026-08-17 実測)
+
+言語指定を全 instruction へ入れた後の weekly-review を **2 回**実走して観測した。
+
+| 観測 | 1 回目 | 2 回目 |
+|---|---|---|
+| 日本語で出た**入力**レポート (全 8 件 = 5 review facet + 決定論 scan 3) | 7 件 | 6 件 |
+| **最終レポート** (`weekly-review.md`) | 日本語 | 日本語 |
+| 逸脱 | `simplicity-whole-review` が英語 | 同左 + `review-todo-whole` が英語 (ハングル混入あり) |
+
+**`review-todo-whole` が 1 回目は日本語・2 回目は英語**になったことが決め手で、facet 固有の構造的欠陥では説明できない。指示の位置 (末尾 `## 出力言語` 節)・instruction の日本語率 (どれも約 1%)・`knowledge` の有無・persona・model のいずれも、成否と対応しなかった (同じ `simplicity-reviewer` persona の 3 step で結果が割れている)。**残る説明は LLM 出力のばらつきである。**
+
+**内容は言語によらず正確だった。** 英語・ハングル混入の各レポートについて、指摘をコードと突き合わせて検証した — `touch_trigger` が config で受理されるのに読まれない件、`lib-subprocess` の variant 別テストの実在、順位 table の範囲 (6–219 / 220–467)、棚卸し履歴の順位 120/134 まで、**幻覚も現実との齟齬も 1 件も無かった**。言語は表層の差でしかない。
+
+したがって設計を次のように定める。
+
+- **日本語を求めるのは `aggregate-weekly` の出力 1 枚だけ** (人間が読むのはこれ)。同 facet の instruction に「入力は日本語以外が混ざりうる / 最終レポートは日本語で書く / 日本語以外の finding は自由記述全体を訳す」と明記してある
+- **中間レポートの言語は問わない。** 各 facet の言語指定は残すが (実際 7〜8 割は日本語になり読みやすさの期待値は上がる)、**それを完了条件や gate にしない**
+- **翻訳フォールバック層は作らない。** 最終成果物が既に日本語で出ている以上、LLM step を 1 つ増やす価値がない
+
+**ただし、この 1 枚の契約もまだ決定論的に検査していない。** `weekly-review.yaml` は `aggregation complete` の有無しか見ず、`weekly-review.md` / `findings.json` の言語を検査する validator は無い。**検査を持たない「保証」は、本節が問題視している「指示文で守らせようとする」構図そのもの**であり、現状は 2 回の実走で日本語だったという観測があるだけの **best-effort** である (生成は `sonnet` で、揺れた 2 facet は `haiku`)。検査の追加は順位 465 (docs 整合性と output-contract の drift を機械検証) の範囲に含めた — **契約を 1 点へ集約したこと自体は正しいが、その 1 点を機械が見るまで完了ではない。**
+
+**一般則**: LLM への指示は「届けば守られる」ものではない。**守らせる層と保証する層を分け、契約は決定論的に確認できる 1 点に置く。** これは [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) のルール vs 仕組みの境界を、出力言語という別クラスの対象へ適用した例である。同じ構図で失敗したのが昇格候補の全件判定 (指示文で強制して 2 週連続で失敗し、決定論 exe へ移した) であり、**指示文で保証しようとすると必ず同じ壁に当たる**。
