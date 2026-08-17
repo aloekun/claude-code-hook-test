@@ -1,0 +1,302 @@
+# 不具合修正バックログ消化計画 (PR 12 本)
+
+> **状態**: 進行中 (2026-08-17 作成) / **本ファイルは ephemeral な作業計画書**である。
+>
+> **最終目標**: 下記 12 本の PR をすべてマージし、残観測を消化し、各 todo エントリの後始末を終えたうえで、**本ファイル自身を削除する** (→ [§ 本計画書の退役手順](#本計画書の退役手順))。
+>
+> **作成経緯**: [docs/todo-summary.md](todo-summary.md) / [docs/todo-summary2.md](todo-summary2.md) の全順位から、(1) [docs/claude-code-web-tasks.md](claude-code-web-tasks.md) (夜間ループ台帳) に**未掲載**で、(2) **実観測された不具合の修正**にあたる 23 タスクを抽出し、同一 crate・同一障害クラスで PR 12 本に統合した。統合の理由は各 PR の節に記載しており、**PR description にも束ねた理由を明記すること** (リポジトリ規約)。
+
+## 進行表
+
+各 PR は「実装 + push → PR 作成承認 → マージ → エントリ後始末」で 1 サイクル。E / L は完了基準に実走観測を含むため、エントリ後始末が観測後に遅延する (→ [§ 残観測トラッキング](#残観測トラッキング))。
+
+| # | PR | 対象順位 | 状態 |
+|---|---|---|---|
+| A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | 444 + 328 + 347 | 未着手 |
+| B | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) + 446 | 未着手 |
+| C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 未着手 |
+| D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |
+| E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | 未着手 |
+| F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | 未着手 |
+| G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | 未着手 |
+| H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | 未着手 |
+| I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | 未着手 |
+| J | fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に | 233 | 未着手 |
+| K | fix(subprocess): timeout の孫プロセス穴を塞ぐ | 323 | 未着手 |
+| L | fix(automation): 自動化経路の小穴・ノイズ修正束 | 467 + 181 | 未着手 |
+
+消化順は A → L の表の順。**PR をスタックしない** — 順位 376 (PR H で修正するまで push-runner の bookmark 自動前進がスタック境界を壊す既知バグ) を踏むため、各 PR は前の PR がマージされてから master 起点で作る。
+
+## 共通の運用ルール
+
+1. **PR 作成前の承認**: push 完了後、PR タイトル・ボディを提示してユーザーの明示承認を得てから `pnpm create-pr` を実行する (ADR-028。スコープ承認 ≠ 作成許可)。
+2. **PR body は `--body-file` で渡す** (`--body` は 1 行目で切れる)。body ファイルは push 完了後に scratchpad で作る (working copy に置くと snapshot 混入する)。
+3. **エントリ後始末は実装と同じ PR に含める**: 該当 `docs/todoN.md` の節削除 + [todo-summary.md](todo-summary.md) (順位 219 以下) / [todo-summary2.md](todo-summary2.md) (順位 220 以上) の行削除。ただし**完了基準に実走観測を含むタスク (319 / 431 / 467 / 181) はエントリを残し**、観測確認後の docs バッチで削除する。
+4. **複数コミットのスタックを 1 PR で push する場合**は `jj edit @-` 等で tip を揃える (push-runner のレビューは `<base>..@` の PR 全体を見る)。行削除の編集に PowerShell の `Set-Content` を使わない (CRLF 化で全行 diff になる) — Edit ツールか sed を使う。
+5. **jj squash は `-u` を付ける** (source/dest 両方に description があると editor 起動で headless hang)。
+6. 各 PR の DoD: `cargo test --workspace` green (+ 該当 crate の clippy)。workflow を触る PR は `pnpm lint:workflows` も。
+7. **夜間ループとの競合**: 着手前に該当ファイルを触る `claude/nightly-*` ブランチが無いか確認する。既知の衝突は PR D の節に記載。
+
+---
+
+## PR A: fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 (順位 444 + 328 + 347)
+
+**束ねる理由**: 3 件とも `cli-merge-pipeline` の post-merge-feedback 経路の欠陥。444 (stale meta による恒久ブロック) と 328 (leftover context.json による誤 bail) は同じ「進行中誤判定」機構の裏表、347 (空 fix commit) も同経路の後始末不備。
+
+**事前準備 (PR 前)**: `.takt/runs/*/meta.json` の start/end から post-merge-feedback の正常実行時間分布を実測する。444 層 2 の閾値は推測で決めてはならない (既知の 2 サンプルは 15〜40 分)。
+
+### 順位 444: orphan reaper が success report 検出時に meta.json を running のまま残す
+
+- **不具合**: run がレポート書き込み後・meta 終端化前に死ぬと `status: "running"` のまま残り、以後すべての post-merge-feedback をブロックする。2026-08-13 に PR #396 マージで実発生 (ブロック元は #281 / #374 の 2 run)。原因は `src/hooks-session-start/src/reaper.rs` の `reap_orphans` が `if marker.exists() || success_report.exists() { continue; }` で成功 run を skip し、meta を終端化する経路が無いこと。`cli-merge-pipeline` 側の進行中ガードは meta の `status` だけを見るため判定基準が不一致。
+- **層 1 (reaper)**: `reap_orphans` に reconcile 分岐を追加 — report あり + meta 非終端なら meta を `completed` 相当へ更新 (marker は書かない)。`endTime` はレポートの mtime から導出。既存テスト `reap_orphans_skips_when_success_report_exists_despite_stale_meta` は「skip する」期待自体を「reconcile する」へ改める (テスト名含め更新)。
+- **層 2 (guard)**: `src/cli-merge-pipeline/src/feedback/markers.rs` の `check_concurrent_run_guard` は「meta パース不能 = fail-open / stale running = fail-closed」と隣接クラスで fail 方向が逆。後者にも fail-open 原則を適用する。ただし**経過時間だけで stale 判定してはならない** (正常な 40 分 run を誤判定する) — `currentStep` の進捗・`logs/` の最終更新・プロセス生存等の**陽性シグナルと複合判定**する (ADR-064 の姿勢)。reaper の `ORPHAN_THRESHOLD_SECS` (1500s) は目的が違う値なので**共有しない**旨を doc に残す。
+- **回帰テスト**: (i) 古く進捗も無い running はブロックしない、(ii) 閾値超でも進捗がある running はブロックする、(iii) 新しい running は従来どおりブロックする。
+- **完了基準**: reaper 通過後に成功 run が終端化されること (層 1)、**reaper が走らなくても** stale running がブロックしないこと (層 2)、閾値内 running のブロック非退行。
+
+### 順位 328: 成功後に context.json が残り次マージの feedback を誤 bail させる
+
+- **不具合**: #295 の feedback が正常完了しても `.takt/post-merge-feedback-context.json` を掃除しないため、1500s 以内の連続マージで次の feedback が「進行中」と誤 bail (#296 で実観測、手動 recovery 済み)。
+- **対処**: `src/cli-merge-pipeline/src/pipeline.rs` の post_merge_feedback step で**正常完了時に context.json を削除**。fail 時は marker を残す現行 L2 recovery (ADR-030) を維持。先に leftover で誤 bail する再現テストを固定 (base_dir 注入等) してから直す。
+- **完了基準**: 連続マージ (成功後 25 分以内) で 2 回目の feedback が誤 bail しないこと (回帰テストで seal)。
+
+### 順位 347: CodeRabbit findings が空でも fix commit が生成され abandon される
+
+- **不具合**: findings 0 件でも fix commit 生成 → abandon の noise (PR #310 で実観測)。
+- **対処**: 該当コードパスを特定 (cli-merge-pipeline / takt fix step、実装時に再調査が必要と明記されている) し、actionable findings 0 (空、または全件 nitpick/informational) なら commit 生成・abandon を skip。actionable 判定はテストで明示する。
+- **完了基準**: 「findings 空」「全 non-actionable」の両ケースで空 fix commit が作られないこと (回帰テストで seal)。
+
+**後始末**: todo22.md「順位 444」節 / todo17.md「post-merge feedback が成功後に…誤 bail させる」節 / todo14.md「CodeRabbit findings が空のとき fix commit 生成を skip」節を削除、todo-summary2.md の 444 / 328 / 347 行を削除。
+
+---
+
+## PR B: fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 (順位 336 + 288(a) + 446)
+
+**束ねる理由**: 3 件とも `src/cli-merge-pipeline/src/feedback/` の context.rs / transcript.rs が「時刻範囲だけで分析ソースを選ぶ」同一欠陥。336 の commit/bookmark 照合と 288(a) の全 run 集約は同じ関数 (`find_latest_prepush_reports_dir`) の変更で、446 の transcript 探索にも同じ陽性一致原則を適用する。
+
+**着手順: 446 の切り分けを最初に行う** (実装方針に影響するため)。
+
+### 順位 446: transcript 抽出が並列 jj workspace のセッションを取りこぼす (まず切り分け)
+
+- **不具合疑い**: transcript 抽出は cwd 由来の**単一 project-id フォルダ**しか見ないが、ADR-045 の並列 workspace 運用で `~/.claude/projects/` には複数 project-id が実在する。PR #395 の feedback で `session_data_unavailable` が実発生。
+- **切り分け**: project-id 群と jj workspace 一覧を突合し、PR #395 の実装セッションの所在を特定。取りこぼしが確認できなければ**別原因として再定義するか、negative result を永続化して閉じる** (dev-conventions の見送り convention)。
+- **対処の制約**: 探索候補は「広げる」のではなく「束縛する」— repo root / workspace path / PR 番号 / bookmark / session metadata の**陽性一致を必須条件**に課す。全 project-id 走査や時刻範囲だけの検索は無関係セッションを引き込み、誤った知見が台帳に入る (transcript が無いより悪い)。
+- **完了基準**: fixture テストだけでは完了としない — 実際に複数 project-id を用意し **exe 実行の実経路**で対象 transcript が選ばれ、無関係な project-id が選ばれないことを確認する。
+
+### 順位 336: pre-push run / transcript の選定を対象 PR の commit/bookmark 照合に変更
+
+- **不具合**: `find_latest_prepush_reports_dir` と transcript 選定が時刻範囲のみのため、同日並行 push (#311/#312/#313) で他 PR の知見を誤帰属 (#311 の feedback に #313 のコードが混入、実地確認済み)。
+- **対処**: context.json 生成で対象 PR の commit range / bookmark と突き合わせて選定。照合に外れた run/transcript は除外か unverified 表示 (fail-open な助言層)。
+- **回帰テスト**: #311/#312 で観測した混入シナリオを固定。
+
+### 順位 288(a): pre-push reports の全 run 集約 + `prepush_reports_dir` 配列化
+
+- **背景**: 「最新 1 run」のみが分析ソースのため、複数回 push した PR で分析が偏る。上流の `[diff]` stage PR 範囲化は **PR #311/#313 で実装済み** — 残るのは集約側。
+- **対処**: 対象 PR の pre-push run dir を全列挙する関数に拡張 (336 と同じ複数の識別根拠で判定)。context.json の `prepush_reports_dir` を配列化し、`.takt/facets/instructions/analyze-prepush-reports.md` を複数 dir 対応に更新。**スキーマ契約変更のため**: 全 reader の列挙 + 旧 string 形式との後方互換 (or schema versioning) + 空配列時の挙動を明記。
+- **完了基準**: 複数 push した PR の feedback が、commit 範囲等の識別根拠に基づき全 pre-push run を分析対象にすること。
+
+**後始末**: todo14.md「分析ソース選定を…修正」節 / todo22.md「順位 446」節を削除、todo-summary2.md の 336 / 446 行を削除。**順位 288 のエントリ (todo15.md) は削除しない** — 作業計画の該当項目にチェックを付け「(a) は PR で実装済み、残は (b) bookmark_check」と追記する。削除は PR I 完了時。
+
+---
+
+## PR C: fix(hooks): smoke suite の ETXTBSY 解消 (順位 396)
+
+- **不具合**: `src/hooks-pre-tool-validate/tests/smoke.rs` の 2 テストが並列で exe を tempdir へ `fs::copy` → spawn するため、Linux で片方の copy 中の書き込み fd を fork した子が継承し、exec が `Text file busy` (os error 26) で落ちる。PR #376 の CI (ubuntu のみ) で実観測。flaky の放置は「また flake だろう」で実バグを見落とす経路になる (2026-08-10 ユーザー判断で Tier 1 格上げ)。
+- **対処** (実装時に選択): (a) ci.yml の hooks smoke step を `--test-threads=1` (最小・即効)、(b) spawn を ETXTBSY でリトライ、(c) staging をやめて `built_exe()` 直接起動 (config staging 設計との整合要確認)。
+- **手順**: WSL Ubuntu で並列実行を再現させてから直し、同じ手順で消えたことを確認。他の smoke/E2E suite に「copy してから spawn」同型パターンが無いか棚卸しする。
+- **完了基準**: Linux で ETXTBSY が出ないこと (再現手順付き)。同型パターンの棚卸し完了。
+- **後始末**: todo21.md「hooks smoke suite の並列実行が…」節 + todo-summary2.md 396 行を削除。
+
+---
+
+## PR D: fix(check-ci-coderabbit): rate-limit 第 3 format 対応 + 実レビュー有無の分離 (順位 318 + 320)
+
+**束ねる理由**: 320 は 318 に依存 (台帳の依存欄に明記) し、同一 crate `check-ci-coderabbit` の連続した変更。
+
+**⚠ 着手前の lane 調整**: [claude-code-web-tasks.md](claude-code-web-tasks.md) の順位 176 (`✅` auto lane) が同一ファイル `src/check-ci-coderabbit/src/rate_limit.rs` を触る。台帳の規律は「競合する割り当てをしない」— ユーザーに確認して 176 を `—` (human) へ移して本 PR に取り込むか、夜間 PR の land を待つ。
+
+### 順位 318: rate-limit 第 3 format 未対応 + silent 化
+
+- **不具合**: PR #287 で CR の wait-time 文言が第 3 format (`**Next review available in:** **32 minutes**`) に変わり、marker (`is_rate_limit_comment`) は一致するのに全 extract 関数が不一致 → `parse_rate_limit` が None で**静かに**「rate-limit 無し」扱い。監視が false-green を報告した。旧 → 新 → 第 3 と同一クラス 3 世代目。
+- **対処**:
+  1. `extract_next_review_format_wait_time` を追加し `extract_wait_time` の or_else 連鎖へ (ADR-034 § 検出 logic 更新手順 step 4)。
+  2. **本丸 = silent 化の構造的解消**: marker 一致 & wait-time None の組合せを loud にする (warn ログ + 「rate-limit 検出・待ち時間不明」報告 + ADR-043 に従い保守的既定待ち時間〔例 30 分〕で park する案を検討)。これが入れば第 4 format が来ても silent regression にならない。
+  3. fixture: 第 3 format の実 body 2-3 variant + silent ケース 1 本。**修正前に実際に落ちることを確認** (ADR-049)。
+  4. ADR-034 の format 一覧 table に第 3 format 行を append し、症状記述に「marker 一致 / regex 不一致 (常時 None、silent)」を追記。
+- **完了基準**: 第 3 format から待ち時間が抽出でき park 経路に乗ること。marker 一致 / 抽出失敗が silent に握り潰されないこと。
+
+### 順位 320: CodeRabbit status check は実レビュー無しでも `pass`
+
+- **不具合**: PR #287 で checks が一貫して pass だが実レビュー 0 件 (skip も rate-limit も pass、check summary 文字列は stale になる)。
+- **対処**: (1) `.takt/facets/instructions/analyze-coderabbit.md` と `.github/workflows/pr-monitor.yml` prompt に「pass はレビュー実施の根拠にならない」を明記し、判定 source を reviews 件数 / walkthrough の `Configuration used` / 本文文言に固定。(2) `check-ci-coderabbit` に「レビュー実施有無」を `reviews` 件数 + walkthrough marker から判定する関数を追加し、`review_state: success` と分離して report。
+- **完了基準**: 「check は pass だが実レビュー 0 件」が report で判別でき approved と誤報しないこと。
+
+**後始末**: todo16.md 318 節 / todo17.md 320 節を削除、todo-summary2.md の 318 / 320 行を削除。
+
+---
+
+## PR E: fix(ci): 監視系 workflow の誤動作修正 (順位 319 + 431)
+
+**束ねる理由**: どちらも `.github/workflows/` のみの変更で、完了判定が「マージ後の実走観測」という同じ性質。1 回のマージで両方の dogfood を開始できる。
+
+### 順位 319: pr-monitor.yml バックストップの重複ガード — pull_request_review 経路
+
+- **不具合**: 2026-07-20 の決定論ガード (#310) は issue_comment 経路のみで、dogfood 集計 (#347〜#390 の 29 PR) で **2 投稿以上が 69%** = 不合格。残原因は `pull_request_review` 経路の content フィルタ欠落 — (i) 1 回の walkthrough が両経路で起動 (2 投稿)、(ii) body 空の ack が review として通る (3 投稿目)。
+- **対処**: 案 (a) body 空 / summarize マーカー無しの review を除外、**案 (b) が本命**: head SHA + walkthrough 単位の冪等キーで既投稿を判定する決定論ガード (event 条件だけでは同一 walkthrough の 2 経路を原理的に区別できない。ADR-042 の決定論層方針)。workflow 先頭設計メモ L82-83「追加は pull_request_review 経路が拾う」も改訂。
+- **完了基準**: walkthrough 更新 1 回につき投稿が**両経路合算で高々 1 件**、ack / マージ後に投稿されないこと (**実 PR で確認** — エントリ削除は観測後)。
+
+### 順位 431: review-request のレート制限拒否が success で終わる
+
+- **不具合**: 2026-08-11 の夜間ループ実走 (PR #387) で CR が `Review limit reached` を返したのに、検証が「コメント 1 件以上付いたか」だけを見るため success 記録。未レビューの自律 PR が信号として残らない。
+- **対処**: `.github/workflows/review-request.yml` で CR 応答を分類 (受理 / レート制限 / skip / エラー)。**文言依存の判別は脆い**ため、未知の変化は安全側 (未取得扱い) に倒す。success 判定を陽性証拠へ寄せるか warning 可視化に留めるかを決める。**リトライ機構は作らない** (ADR-019 § M5)。未レビュー PR を後から拾う経路 (weekly-review) との役割分担を決める。
+- **完了基準**: レート制限で弾かれた自律 PR が run の色か棚卸しで**未レビューと分かる**こと。
+
+**検証**: `pnpm lint:workflows`。**エントリ後始末は実走観測後** → [§ 残観測トラッキング](#残観測トラッキング)。
+
+---
+
+## PR F: fix(pr-monitor): cli-pr-monitor 小修正束 (順位 246 + 292 + 385)
+
+**束ねる理由**: 3 件とも `cli-pr-monitor` 単一 crate の独立した小修正。292 と 385 は同じ `lock.rs`。
+
+### 順位 246: CodeRabbit-only 構成で「幻の CI pending」
+
+- **不具合**: 実 CI check が無い構成 (docs-only PR で共通) で poll が「CI: pending」を完了と判定できず recheck を上限まで繰り返す。PR #231/#232 で手動の GitHub API 確認 (`mergeStateStatus=CLEAN`) が 2 回必要になった。
+- **対処**: poll の CI 完了判定に「実 check 不在 or CodeRabbit のみ」+「CR review 完了 (unresolved 0 / actionable 0)」+「mergeability CLEAN/MERGEABLE」で短絡する条件分岐を追加。**実 CI check が 1 件でも pending なら従来どおり待機** (誤短絡防止、regression test で固定)。
+- **完了基準**: CodeRabbit-only 構成で無駄 recheck をせず merge-ready 判定。実 CI がある場合は非退行。
+
+### 順位 292: lock.rs を token 方式の所有権検証へ統一
+
+- **不具合**: `src/cli-pr-monitor/src/lock.rs` の `MonitorLock::Drop` (L41-50) が無条件 `remove_file` で、stale takeover 後に旧プロセスの Drop が新プロセスの lock を誤削除する (PR #271 で `pipeline_lock.rs` に修正済みの同型バグ)。
+- **対処**: `src/lib-jj-helpers/src/pipeline_lock.rs` の token 方式を踏襲 — token フィールド追加 + Drop を token 一致確認付き削除に変更 + takeover 後の誤削除がないことの regression test。
+
+### 順位 385: lock の liveness check 要否判断
+
+- **位置づけ**: **バグ報告ではなく判断タスク**。stale 判定は経過 1800s のみで pid 生存を見ない (module doc に既知トレードオフとして明記済み)。crash 時の復帰窓が最大 30 分になる。
+- **判断**: pid 生存確認の要否を決める。**「不要」も正規の出口** — 影響は interactive セッションの監視遅延に限られ GitHub Actions 経路は無関係。不要なら根拠を lock.rs の module doc へ追記して閉じる。採用するなら pid 再利用対策 (start_time 併用) + OS 差の吸収を設計し、順位 301/303 の既存 TOCTOU 設計判断と衝突しないことを確認。
+- **完了基準**: 採否いずれかが根拠つきで module doc (または ADR) に記録されていること。
+
+**後始末**: todo13.md 246 節 / todo15.md 292 節 / todo21.md 385 節を削除、todo-summary2.md の 246 / 292 / 385 行を削除。
+
+---
+
+## PR G: fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 (順位 386 + 387)
+
+**束ねる理由**: 同じ「監視・自動 fix 経路が作るコミット」への対処の両面 (bookmark 探索が壊れる / ローカル副作用が残る)。387 のエントリ自身が 386 との同一 PR 化を検討事項として挙げている。
+
+### 順位 386: 空コミットで bookmark が探索範囲外に出て merge-pr / push が失敗
+
+- **不具合**: 計 9 回観測。`BOOKMARK_SEARCH_REVSETS = ["@", "@-", "@--"]` (`src/lib-jj-helpers/src/bookmarks.rs:25`) の 3 段しか遡らず、監視・自動 fix 経路が積む空コミットで bookmark が範囲外に出る。push 経路では「bookmark を @ に自動更新」が空コミットへ bookmark を移し `Won't push commit ... since it has no description` で失敗 (#370)。
+- **対処 (本命)**: 探索を深さ非依存 revset (`heads(::@ & bookmarks())` 等) へ変更。`heads()` は複数 bookmark を返しうるため trunk 系除外 + 単一化の規律を維持する。**3 crate (push-runner / pr-monitor / merge-pipeline) すべてで回帰確認** (ADR-024)。push-runner の「@- 自動更新」も空コミットを飛ばす形へ揃える。
+- **注意**: 2026-08-11 の追加観測で「子コミットに別 bookmark がある」ケースは*近い方を採る規則そのもの*が原因で、**深さ非依存化だけでは解決しない可能性**が指摘されている。検討して残る場合は挙動を明記する (順位 397 の `--pr` 逃げ道は両症状で機能済み)。
+- **回帰テスト**: bookmark が @--- 以深にある構成での解決を固定。
+- **完了基準**: 深い位置の bookmark で `pnpm merge-pr` / `pnpm push` が解決できること (またはその状態自体が発生しなくなること)。採った案の根拠を記録。
+
+### 順位 387: 自動 fix 経路が push BLOCK 後もローカルを書き換えたまま残す
+
+- **不具合**: #366 で scope guard (ADR-054) が push を BLOCK した後も、ローカルに fix コミットと working-copy 変更が残った (気づかなければ次作業に混入)。#369/#370 でも再発。
+- **対処**: 自動 fix / 監視経路の終了パスを洗い、BLOCK・失敗時に (a) fix コミット・空コミットをロールバックする、または (b) 「未 push の自動生成コミットが残っている」と警告する。どちらも ADR-022 の「自動化コンポーネントは自分の副作用を後始末する」責務。
+- **完了基準**: BLOCK / 失敗後にローカルへ未 push の自動生成コミットが残らない、または残ることが明示的に警告されること。
+
+**後始末**: todo21.md 386 / 387 の両節を削除、todo-summary2.md の 386 / 387 行を削除。台帳の順位 412 / 426 (auto lane、同 crate 別ファイル) との衝突は低いが、着手時に `claude/nightly-412` / `nightly-426` ブランチの有無を確認する。
+
+---
+
+## PR H: fix(push-runner): push 経路 stage 修正束 (順位 376 + 254 + 322)
+
+**束ねる理由**: 3 件とも `cli-push-runner` の stage 単位の独立修正で相互に無干渉。
+
+### 順位 376: bookmark 自動前進がスタック境界を壊す
+
+- **不具合**: 2026-08-06 実観測。スタック push 時に **@ の祖先にあたる非 trunk bookmark をすべて @ へ前進**させ、レビュー済み PR #361 の bookmark が #363 の tip を指した (gate が止めなければ silent 混入)。Severity High。
+- **対処**: 自動前進の対象を絞る — 案 (a) 「@ と同一コミットを指す bookmark」のみ、案 (b) push 対象として解決した 1 本のみ。どちらも単一ブランチ運用の挙動は不変。実装は bookmark stage。
+- **回帰テスト**: スタック構成で前進しないこと + 単一ブランチ構成で従来どおり前進すること (**両方向**)。
+
+### 順位 254: pr_size_check の base をローカル master から remote tracking ref へ
+
+- **不具合**: `[pr_size_check] default_branch = "master"` がローカル bookmark 基準のため、並列 workspace でローカル master が遅延すると merge 済み PR 分を合算 (実 160 行 → 1604 行と誤 block、実害あり)。ADR-013 の `sync_local` は `master@origin` 原則を test で固定済み — 同じ原則を適用する。
+- **対処**: config を `master@origin` に変更するか、pr_size_check 側で remote tracking ref を優先解決する fallback を実装 (着手時判断)。`[file_length_gate] base` も同点検。ローカル master 遅延を模した revset 解決レベルの test を検討。
+
+### 順位 322: scratch_file_warning が pattern 列挙 (deny-list) で新規命名をすり抜ける
+
+- **不具合**: post-merge-feedback の takt run が repo root に `analyze_transcript.py` を残し、`[scratch_file_warning]` の `patterns = ["__*", "_tmp_*"]` に一致せず素通り (near-miss)。**AI が付ける名前を列挙で先回りするのは原理的に不可能**。
+- **対処**: 先に再現確認 (post-merge-feedback 再実行で再現するか)。方式は (a) instruction facet への禁止明記 (助言層、**単独では不可**) + (b) repo root の追跡外新規ファイルを allow-list 以外すべて警告 (誤検知コスト見積もり要) または (c) root 未追跡 `*.py` 等の配置ベース判定 (本 repo は Rust + TS 構成なので高確度)。(a) + (b or c) の二層。
+- **回帰テスト**: `analyze_transcript.py` (同名再作成でよい) を実 fixture として固定 (ADR-049 流儀)。deny-list の限界を `scratch_file_warning.rs` の module doc に記録。
+- **完了基準**: takt run が root に残した一時ファイルが push 前に検出され、検出方式が pattern 列挙に依存しないこと。
+
+**後始末**: todo20.md 376 節 / todo15.md 254 節 / todo17.md 322 節を削除、todo-summary2.md の 376 / 254 / 322 行を削除。
+
+---
+
+## PR I: fix(push-runner): bookmark_check の未レビュー祖先 fail-closed (順位 288(b))
+
+- **背景**: 順位 288 の残タスク後半。`[diff]` stage の PR 範囲化 (実装済み) 後も、`src/cli-push-runner/src/stages/bookmark_check.rs` に「@ の非 trunk 祖先が未レビューのまま push される穴」(T8 / PR #280 と同クラス) の検証が残っている。
+- **対処**: `<default_branch>..@` の各祖先コミットと pre-push review 証跡を対応付け、いずれかが未レビューなら **fail-closed で push を拒否** (ADR-043)。
+- **回帰テスト**: レビュー済み祖先 / 未レビュー祖先の両ケースを seal。
+- **PR H と分ける理由**: 同 crate だが、新しい fail-closed gate の追加は誤 block リスクがあり、切り戻し単位を独立させる。
+- **後始末**: **ここで順位 288 のエントリ (todo15.md「post-merge feedback の pre-push reports を対象 PR の全 run 集約に拡張」節) を削除** (前半 (a) は PR B で完了済みの前提) + todo-summary2.md の 288 行を削除。
+
+---
+
+## PR J: fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に (順位 233)
+
+- **不具合**: PR #227 で post-pr-review の analyze が `@` コミット (docs のみ) の diff を見て PR を docs-only と誤判定し、CodeRabbit が PR 全体で出した finding を ADR-035 filter で誤って適用外化。有効 finding の見逃しリスク。
+- **診断から**: docs-only 判定に使う diff の生成箇所を特定する (pre-push の `review-diff.txt` 流用か、post-pr-review 独自の `@` 限定 diff 生成か)。起動箇所は `cli-pr-monitor` の `stages/takt.rs` 周辺。
+- **対処** (どちらかを選択): (A) analyze に渡す diff を PR 全体 (base..head) に変更 — pre-push (ADR-027 = `@` 限定 simplicity) と diff 生成を共有しているなら post-pr-review 専用に分離する。(B) docs-only 分類を CodeRabbit findings の file path 基準に切替 (findings が code file を指すなら docs-only にしない)。
+- **dogfood**: code + docs 混在 PR で誤判定しないことを確認。
+- **完了基準**: code 変更を含む PR が docs-only 誤判定されず、code finding が誤フィルタされないこと。
+- **後始末**: todo13.md 233 節 + todo-summary2.md 233 行を削除。
+
+---
+
+## PR K: fix(subprocess): timeout の孫プロセス穴を塞ぐ (順位 323)
+
+- **不具合**: `lib-subprocess` の `run_cmd_shell_with` (capped / capped_reporting / unlimited の共通骨格) は timeout 後に `child.kill()` → reader thread join するが、`cmd /c` の**孫プロセス (実際の cargo / jj) は kill 対象外**で pipe を保持し続け、join が孫の自然終了までブロックする (実測: `timeout_secs = 1` のテストが 9.23s)。quality_gate / push / merge-pipeline のハング保護が実質無効 (ADR-043 の空洞化)。同根の実害: #286 の orphan takt による stale `.failed` marker。
+- **手順**:
+  1. **経過時間 assert 付きの再現テストを先に書く** (T6 = PR #283 の教訓: Err 内容だけの assert では素通りする)。
+  2. (a) 失敗経路では join せず detach (実績あり。ただし `_capped` 系は表示用出力を捨てるトレードオフ) vs (b) 孫まで殺す (`taskkill /T /F` or Job Object。orphan 発生自体を止め stale marker 問題にも波及効果。Windows 実装コスト要見積) を評価して選択。選ばなかった側の理由を `run_cmd_shell_with` の doc に記録。
+  3. (b) を採らない場合、`feedback::reconcile_takt_output` の「reconciliation が kill 直後 1 回のみ」の穴への緩和策を別途検討する。
+  4. 3 variant + 呼び出し元 (cli-push-runner quality_gate / push、cli-merge-pipeline) で回帰確認。実機 E2E は `ping -t` 差し替え + before/after 経過時間比較。
+- **完了基準**: `timeout_secs = 1` で孫が生存していても 1s + ε で制御が戻ること (経過時間 assert で seal)。ハングするコマンドが各 timeout で実際に打ち切られること。
+- **後始末**: todo17.md 323 節 + todo-summary2.md 323 行を削除。
+
+---
+
+## PR L: fix(automation): 自動化経路の小穴・ノイズ修正束 (順位 467 + 181)
+
+**束ねる理由**: どちらも自動化経路の出力品質の小修正で、単独 PR を立てる規模ではない。
+
+### 順位 467: 夜間ループとレポート出力の小穴 3 点
+
+- **D-1** (`.github/workflows/nightly-todo.yml`): 掃除ループの `git push --delete` 前に `git ls-remote` で ref の存在を確認し、既に消えていれば warning で skip (現状は `set -euo pipefail` で step 全体が中断)。**失敗の種別を潰さない** — 「ref が既に消えている」だけを warning + 継続にし、**ネットワーク / 認証エラーは従来どおり失敗させる** (ADR-072 決定 10)。TOCTOU で削除時に消えていた場合も種別判定で「既に消えている」として扱う。
+- **D-2** (`src/lib-ledger/src/summary_gate.rs`): parse エラーに行番号と文脈を含める診断強化 + テスト。
+- **F-2** (`src/cli-stale-branch-scan/`): `--repo` 明示時は GIT_DIR 導出失敗の警告を抑止 (夜間 workflow は jj リポジトリ外で走るため毎晩出る)。
+
+### 順位 181: aggregate-weekly facet の findings.json が markdown fence で wrap される
+
+- **不具合**: facet LLM が ` ```json ... ``` ` で wrap して write し、weekly-review skill が JSON parser に直接渡せない (2026-05-30 dogfood で実観測、skill 側は手動 strip の workaround 中)。
+- **対処**: `.takt/facets/instructions/aggregate-weekly.md` の JSON 生成 section に「**raw JSON のみ、fence で囲まない。先頭 `{` 末尾 `}`**」を明示。(option) skill 側に defensive strip 手順を補足。**instruction 修正で habit を矯正できるかは未確定** — 次回 `/weekly-review` の dogfood で確認し、ダメなら skill 側 strip へ切替。
+
+**検証**: `cargo test --workspace` + `pnpm lint:workflows`。**エントリ後始末は実走観測後** → [§ 残観測トラッキング](#残観測トラッキング)。
+
+---
+
+## 残観測トラッキング
+
+完了基準に実走観測を含むタスク。マージ後に観測し、確認できたらエントリ後始末 (todoN.md 節 + summary 行の削除) を docs バッチで行う。
+
+- [ ] **319** (PR E): マージ後の実 PR 数件で backstop 投稿が walkthrough 1 回につき両経路合算 ≤ 1 件であること → 確認後 todo17.md 319 節 + todo-summary2.md 319 行を削除
+- [ ] **431** (PR E): 次にレート制限が起きた夜間 run で「未レビュー」が可視化されること → 確認後 todo22.md 431 節 (`review-request` の成功判定…) + todo-summary2.md 431 行を削除
+- [ ] **467 D-1 / F-2** (PR L): 次回 dispatch or schedule 実走で、消えたブランチで job が落ちないこと + GIT_DIR 警告が出ないこと → 確認後 todo24.md 467 節 + todo-summary2.md 467 行を削除
+- [ ] **181** (PR L): 次回 `/weekly-review` で findings.json が raw JSON で出力されること → 確認後 todo12.md 181 節 + **todo-summary.md** (順位 219 以下側) の 181 行を削除。矯正できなければ skill 側 strip へ切替してから完了
+
+## 本計画書の退役手順
+
+すべての作業の完了をもって本ファイルを削除する。条件と手順:
+
+1. 進行表の 12 PR がすべてマージ済みであること
+2. [§ 残観測トラッキング](#残観測トラッキング) の 4 項目がすべて消化され、対応するエントリ後始末が完了していること
+3. 順位 288 のエントリ (todo15.md) が PR I 完了時に削除されていること
+4. `grep -rn "bugfix-batch-plan" .` で本ファイルへの参照が残っていないことを確認する (検索対象パス `.` を省くと標準入力待ちになるため必ず付ける)
+5. 本ファイルを物理削除する (削除自体は残観測の最後のエントリ後始末と同じ docs バッチ PR に同乗してよい)
+
+永続化すべき知見 (再発防止策・設計判断) は各 PR で ADR / module doc / dev-conventions に書き込む方針のため、本ファイルに永続価値は残らない。
