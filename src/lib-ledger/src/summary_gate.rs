@@ -38,13 +38,34 @@ const REQUIRED_HEADERS: (&str, &str) = ("順位", "タスク");
 /// ヘッダ行 + 区切り行。データ行はこの 2 行の後から始まる。
 const HEADER_AND_SEPARATOR_ROWS: usize = 2;
 
+/// 順位 table の 1 行。人間が割り当てを判断するために要る列だけを持つ。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SummaryEntry {
+    pub rank: u32,
+    pub tier: String,
+    pub title: String,
+    pub detail_file: String,
+}
+
 /// 順位 table に載っている順位の集合を返す。
 ///
 /// 呼び手は `docs/todo-summary.md` / `docs/todo-summary2.md` の両方に当て、**和集合**を取る
 /// (順位 220 以降は 2 つ目のファイルにあり、片方だけでは全順位を見たことにならない)。
 pub fn parse_summary_ranks(markdown: &str) -> Result<BTreeSet<u32>, String> {
+    Ok(parse_summary_entries(markdown)?
+        .into_iter()
+        .map(|entry| entry.rank)
+        .collect())
+}
+
+/// 順位 table の全行を文書順で返す。
+///
+/// [`parse_summary_ranks`] との違いは列を落とさないことだけで、走査規則は共通
+/// (ヘッダ判定・空行の扱い・非数値順位のエラーはすべて同じ)。**2 つの走査を別々に
+/// 書かない** — 片方だけが実データの癖 (表途中の空行) に対応した状態を作らないため。
+pub fn parse_summary_entries(markdown: &str) -> Result<Vec<SummaryEntry>, String> {
     let lines: Vec<&str> = markdown.lines().collect();
-    let mut ranks = BTreeSet::new();
+    let mut entries = Vec::new();
     let mut tables_scanned = 0usize;
     let mut index = 0usize;
     while index < lines.len() {
@@ -54,7 +75,7 @@ pub fn parse_summary_ranks(markdown: &str) -> Result<BTreeSet<u32>, String> {
         };
         tables_scanned += 1;
         index += HEADER_AND_SEPARATOR_ROWS;
-        index = consume_rows(&lines, index, rank_column, &mut ranks)?;
+        index = consume_rows(&lines, index, rank_column, &mut entries)?;
     }
     if tables_scanned == 0 {
         return Err(
@@ -62,7 +83,7 @@ pub fn parse_summary_ranks(markdown: &str) -> Result<BTreeSet<u32>, String> {
                 .to_string(),
         );
     }
-    Ok(ranks)
+    Ok(entries)
 }
 
 /// `index` 行が順位 table のヘッダ行なら順位列の位置を返す。
@@ -100,7 +121,7 @@ fn consume_rows(
     lines: &[&str],
     mut index: usize,
     rank_column: usize,
-    ranks: &mut BTreeSet<u32>,
+    entries: &mut Vec<SummaryEntry>,
 ) -> Result<usize, String> {
     while index < lines.len() {
         let line = lines[index];
@@ -111,18 +132,25 @@ fn consume_rows(
         if !crate::is_table_row(line) {
             break;
         }
-        take_rank(&crate::split_cells(line), rank_column, index + 1, ranks)?;
+        entries.push(take_entry(
+            &crate::split_cells(line),
+            rank_column,
+            index + 1,
+        )?);
         index += 1;
     }
     Ok(index)
 }
 
-fn take_rank(
+/// 順位 table の 1 行を [`SummaryEntry`] にする。
+///
+/// 順位以外の列は**表示用**であり、欠けても停止しない (空文字で埋める)。順位だけは
+/// 判定に使うため、読めなければエラーにする。
+fn take_entry(
     cells: &[String],
     rank_column: usize,
     line_number: usize,
-    ranks: &mut BTreeSet<u32>,
-) -> Result<(), String> {
+) -> Result<SummaryEntry, String> {
     let raw = cells
         .get(rank_column)
         .ok_or_else(|| format!("{line_number} 行目: 順位 table の行に順位列がありません"))?;
@@ -130,8 +158,18 @@ fn take_rank(
         .trim()
         .parse::<u32>()
         .map_err(|_| format!("{line_number} 行目: 順位を整数として読めません: {raw:?}"))?;
-    ranks.insert(rank);
-    Ok(())
+    let cell = |offset: usize| {
+        cells
+            .get(rank_column + offset)
+            .map(|c| c.trim().trim_matches('*').trim().to_string())
+            .unwrap_or_default()
+    };
+    Ok(SummaryEntry {
+        rank,
+        tier: cell(1),
+        title: cell(2),
+        detail_file: cell(3),
+    })
 }
 
 /// 選択結果と、順位 table に無いために飛ばした順位。
@@ -250,6 +288,29 @@ mod tests {
         );
         let ranks = parse_summary_ranks(&markdown).expect("parse");
         assert_eq!(ranks, [203].into_iter().collect());
+    }
+
+    /// 表示用の列 (Tier / タスク / ファイル) も取れる。判定に使うのは順位だけだが、
+    /// 人間が「どれを台帳へ載せるか」を決める材料として一覧に出す。
+    #[test]
+    fn entries_carry_the_columns_a_human_needs_to_decide() {
+        let entries = parse_summary_entries(&summary(
+            "| 203 | 🔧 Tier 2 | **テスト追加 (PR #201)** | todo10.md | XS | なし |",
+        ))
+        .expect("parse");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].rank, 203);
+        assert_eq!(entries[0].tier, "🔧 Tier 2");
+        assert_eq!(entries[0].title, "テスト追加 (PR #201)");
+        assert_eq!(entries[0].detail_file, "todo10.md");
+    }
+
+    /// 表示用の列が欠けても停止しない (順位だけが判定に効く)。
+    #[test]
+    fn missing_display_columns_do_not_stop_the_scan() {
+        let entries = parse_summary_entries(&summary("| 203 |")).expect("parse");
+        assert_eq!(entries[0].rank, 203);
+        assert_eq!(entries[0].title, "");
     }
 
     /// 順位 table が 1 つも無いのは「全順位が消えた」ではなく構成変更。

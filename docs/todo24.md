@@ -28,26 +28,34 @@
 >
 > **本タスクの位置づけ**: facet は `model: haiku` で動いている (`.takt/workflows/weekly-review.yaml`)。台帳のセル値のような**機械的に読める事実**を LLM に読ませていること自体が設計の問題で、`lib-ledger` が既に台帳パーサを持っている以上、決定論層へ寄せられる。
 >
-> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/runs/20260815-100604-weekly-review-2026-08-15/reports/review-todo-whole.md` (Criterion 3-3 の表)、`.takt/workflows/weekly-review.yaml` (`model: haiku`)、`src/lib-ledger/`、[docs/work-plan-nightly-lane-model.md](work-plan-nightly-lane-model.md) PR-5
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/runs/20260815-100604-weekly-review-2026-08-15/reports/review-todo-whole.md` (Criterion 3-3 の表)、`.takt/workflows/weekly-review.yaml` (`model: haiku`)、`src/lib-ledger/`、`src/cli-ledger-candidates/`
 >
-> **実行優先度**: 💎 **Tier 3** — 要否そのものが未確定 (下記 rescope)。判定材料が揃うまで着手しない。
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium (毎週) / Effort S / Adoption Risk None。
 
-#### rescope (2026-08-16): 要否を PR-5 の後に再判定する
+#### rescope (2026-08-17): 残る範囲を確定した — 逆向き差集合の決定論化
 
-lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18) で **facet が台帳について報告する範囲が大きく縮んだ**。本タスクが問題視した誤読 (順位 284 の `無人可` を `✅` と報告) は Criterion 3-3 の未マージブランチ走査に付随して出たもので、その走査自体を 2026-08-16 に撤去した。さらに Criterion 3-2 の全件判定も件数報告へ縮小し、[work-plan](work-plan-nightly-lane-model.md) PR-5 で決定論 exe の出力へ置き換わる。
+lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18) で facet の報告範囲を 2 度縮小し、そのうえで**まだ残る機械的読み取り**を確定させた。
 
-**したがって本タスクは「台帳セルの構造化データを facet へ渡す」から「PR-5 後に facet が台帳について何を報告しているかを見て、決定論化がまだ要るかを判定する」へ rescope する。** 縮小後に残るのは `✅` 行の `注意` 列の読み直し程度であり、それだけのために構造化データ経路を新設するのは割に合わない可能性が高い。**「不要」も正規の出口**で、その場合は理由を付して本エントリを削除する。
+| facet の検査 | 現状 | 決定論化の要否 |
+|---|---|---|
+| Criterion 3-2 (未掲載順位の列挙) | `cli-ledger-candidates` の出力への参照に置換済み | **完了** (LLM は数えなくなった) |
+| Criterion 3-3 (未マージブランチ走査) | 撤去済み (条件 3 廃止) | **消滅** |
+| Criterion 3-1 (台帳にあるが順位 table に無い行) | facet が台帳の順位列を読んで summary を grep する | **要** — `cli-ledger-candidates` の**逆向き差集合**そのもので、同じパーサで出せる |
+| Criterion 3-3 (`✅` 行の `注意` 列の読み直し) | facet が `無人可` と `注意` のセルを読む | **一部要** — 判断留保の語を読むのは自然言語判断で LLM が適任だが、**どの行が `✅` か**は機械可読な事実で、2026-08-15 に誤読した (順位 284) のはまさにここ |
+
+**したがって「不要」ではない。** ただし残りは当初より小さく、`cli-ledger-candidates` に逆向き出力 (台帳にあるが順位 table に無い順位) と `✅` 行の一覧を足すだけで足りる見込み。新しい経路の設計は要らない。
 
 #### 作業計画
 
-- [ ] PR-5 (台帳未掲載順位一覧の決定論出力 + facet 参照置き換え) の完了を待つ
-- [ ] 次回 weekly-review の実走レポートで、facet が台帳について報告した内容を確認する
-- [ ] 機械的に読める事実の誤報告が残っているかを判定する
-- [ ] 残っていれば `lib-ledger` の構造化出力を facet へ渡す経路を設計する。残っていなければ理由を付して本エントリを削除する
+- [ ] `cli-ledger-candidates` に逆向き差集合 (台帳にあるが順位 table に無い順位) の出力を足す — Criterion 3-1 の置換先
+- [ ] 同 exe に `無人可` 列の値つき行一覧を出す経路を足すか判断する (facet が `✅` 行を自分で読まなくて済むように)
+- [ ] `review-todo-whole` の Criterion 3-1 / 3-3 を、その出力への参照に置き換える
+- [ ] 次回 weekly-review の実走で、facet が報告する台帳の事実が現物と一致することを確認する
 
 #### 完了基準
 
-- 決定論化の要否が実走レポートの実物を根拠に決まり、実装するか削除するかのいずれかで決着している
+- facet が報告する台帳の機械可読な事実 (順位・`無人可`) が exe 由来になり、LLM の読み取り精度に依存しない
+- 自然言語判断 (`注意` 欄の判断留保の読み取り) だけが facet に残る
 
 #### 詰まっている箇所
 

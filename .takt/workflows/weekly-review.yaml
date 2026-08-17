@@ -154,6 +154,31 @@ steps:
         rules:
           - condition: analysis complete
 
+      # 台帳未掲載の順位の全件列挙 (2026-08-17 追加、ADR-072 決定 18)。
+      # 従来は review-todo-whole facet (haiku) に「全順位を判定せよ」と指示文だけで
+      # 強制していたが 2 週連続で失敗した (164 件中約 50 件 / 251 件中 13 件しか判定せず
+      # いずれも「候補 0 件」と報告)。件数を数えるのは機械の仕事なので決定論層へ戻す。
+      # file-length-watchlist / workspace-hygiene-scan と同じ純機械 step。
+      # **判定はしない** — どれを台帳へ載せるか、lane を ✅ / — のどちらにするかは
+      # 人間の割り当て判断 (ADR-022 / ADR-072 決定 18)。本 step は材料を出すだけ。
+      - name: ledger-candidates
+        edit: false
+        persona: architecture-reviewer
+        model: haiku
+        policy: review
+        provider_options:
+          claude:
+            allowed_tools:
+              - Bash
+              - Read
+        instruction: ledger-candidates
+        output_contracts:
+          report:
+            - name: ledger-candidates.md
+              format: ledger-candidates
+        rules:
+          - condition: analysis complete
+
       # 観点 ⑤ Todo 妥当性 (ADR-031 拡張、順位154)。docs/todo*.md 全 corpus の
       # dead pattern / cross-file 重複 / preamble routing drift を週次 batch で棚卸し。
       # 順位136 hook (編集時 immediate) / cli-docs-lint が拾えない経年・横断的劣化を補完。

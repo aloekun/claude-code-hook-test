@@ -156,6 +156,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-ledger-candidates"
+version = "0.1.0"
+dependencies = [
+ "lib-ledger",
+]
+
+[[package]]
 name = "cli-ledger-cleanup"
 version = "0.1.0"
 dependencies = [

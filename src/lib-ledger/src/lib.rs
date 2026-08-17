@@ -33,7 +33,9 @@ pub use rank_lookup::target_files_for_rank;
 pub use removal::{remove_detail_entry, remove_ledger_row, remove_summary_row, SummaryRow};
 use screening::is_bidi_or_invisible_format_char;
 pub use screening::{screen_for_public_output, screen_for_title};
-pub use summary_gate::{parse_summary_ranks, select_listed_in_summary, Selection};
+pub use summary_gate::{
+    parse_summary_entries, parse_summary_ranks, select_listed_in_summary, Selection, SummaryEntry,
+};
 pub use target_files::parse_target_files;
 
 
@@ -93,6 +95,30 @@ pub fn select(markdown: &str, excluded_ranks: &BTreeSet<u32>) -> Result<Option<T
         };
     }
     scan.finish()
+}
+
+/// 台帳の**現行タスク表**に載っている順位をすべて返す。
+///
+/// 対象は [`select`] と同じ「無人可 列を持つ表」に限る。棚卸し履歴や「無人可としなかった
+/// 理由」の表は順位列を持つが**削除済み順位を意図的に残す記録**であり、ここに含めると
+/// 「台帳に載っている」と誤って数えてしまう (`removal::remove_ledger_row` と同じ線引き)。
+///
+/// `無人可` マークの値 (`✅` / `—`) は見ない。lane が human でも「台帳に載っている」ことは
+/// 変わらず、掲載済みかどうかだけが本関数の関心事である。
+pub fn parse_ledger_ranks(markdown: &str) -> Result<BTreeSet<u32>, String> {
+    let lines: Vec<&str> = markdown.lines().collect();
+    let nothing_excluded = BTreeSet::new();
+    let mut scan = Scan::new(&nothing_excluded);
+    let mut index = 0usize;
+    while index < lines.len() {
+        index = match autonomy_table_header(&lines, index)? {
+            Some(columns) => scan.consume_rows(&lines, index + 2, &columns)?,
+            None => index + 1,
+        };
+    }
+    let ranks: BTreeSet<u32> = scan.ranks_seen.keys().copied().collect();
+    scan.finish()?;
+    Ok(ranks)
 }
 
 /// `index` 行が「無人可 列を持つ表のヘッダ行」ならその列位置を返す。

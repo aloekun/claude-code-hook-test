@@ -1,0 +1,11 @@
+[package]
+name = "cli-ledger-candidates"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# 順位 table / 台帳のパーサ。両方とも既に lib-ledger が持っており、
+# 本 exe は差集合を取って markdown に整形するだけ。
+lib-ledger = { path = "../lib-ledger" }
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
