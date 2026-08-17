@@ -26,6 +26,7 @@ ADR-031 § Findings スキーマ + § 採否フロー の input source として
 - `review-todo-whole.md` — review-todo-whole facet の出力 (観点⑤ Todo 妥当性、順位154)。docs/todo*.md corpus の dead pattern / cross-file 重複 / preamble drift。**findings として Phase 1 統合に含める**
 - `review-jj-robustness-whole.md` — review-jj-robustness-whole facet の出力 (観点⑧ jj-workspace robustness、順位247)。mtime staleness / CARGO_MANIFEST_DIR 実行時読み / --repo 無し gh / colocated .git 前提。**findings として Phase 1 統合に含める**
 - `file-length-watchlist.md` — file-length-watchlist facet の出力 (PR-W0 拡張、順位154。deterministic な `.rs` 800 行 + `docs/todo*.md` 50KB scan)。本 watchlist は LLM 判断による findings ではなく機械的観測のため、Phase 1 統合では findings には含めず、Phase 2 の "file size watchlist" 専用 section として weekly report に転載する
+- `ledger-candidates.md` — ledger-candidates step の出力 (2026-08-17 追加。`docs/todo-summary*.md` の全順位から自律実行台帳の現行タスク表に載っている順位を引いた差集合)。**findings に含めない** — 未掲載であること自体は欠陥ではなく、台帳へ載せるか / lane を `✅` `—` のどちらにするかは人間の割り当て判断だから (ADR-072 決定 18)。file size watchlist と同様に**専用 section へ件数と参照だけを転載**する (全件表は 250 行規模になるため本文へは展開しない)
 - `workspace-hygiene-scan.md` — workspace-hygiene-scan facet の出力 (2026-08-14 追加。root 直下 allowlist 突合 + scratch pattern whole-tree + ignored 資産サイズの deterministic scan)。扱いは 2 分される: **root 直下の想定外ファイルと scratch pattern 合致は findings として Phase 1 統合に含める** (severity は report 記載の目安に従う。削除の実行判断をユーザーの採否フローに乗せるため)。**ignored 資産サイズは機械的観測**であり findings に含めず、file size watchlist と同様に専用 section へ転載する
 
 ### Context
@@ -147,7 +148,7 @@ Markdown は人間 / Claude が読む summary 層。findings table を severity 
 ### スコープ
 - 対象ツリー: `src/` / `scripts/` / `.claude/` / `.takt/` / `docs/`
 - レビューファセット: simplicity-whole / security-whole / architecture-whole / todo-whole / jj-robustness-whole
-- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB) / workspace-hygiene-scan (root allowlist + scratch pattern + ignored サイズ)
+- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB) / workspace-hygiene-scan (root allowlist + scratch pattern + ignored サイズ) / ledger-candidates (台帳未掲載の順位)
 - 採否方針: Phase C skill `/weekly-review` で AskUserQuestion 経由
 
 ### File Length Watchlist (機械的観測)
@@ -155,6 +156,14 @@ Markdown は人間 / Claude が読む summary 層。findings table を severity 
 `file-length-watchlist.md` の内容を本 section に転載する (header 行は省略、件数表示 + table 部分を再現)。0 件 (clean state) の場合は「現時点で 800 行超 file は存在しない (clean state)」を表示。
 
 詳細は Report Directory の `file-length-watchlist.md` を参照。
+
+### 台帳未掲載の順位 (機械的観測)
+
+`ledger-candidates.md` の**件数行だけ**を本 section に転載し、全件表は Report Directory への参照に留める (250 行規模のため)。0 件の場合は「台帳未掲載の順位なし (clean state)」を表示。exe が失敗して `(未実施: ...)` と報告されている場合は**その旨をそのまま**書く — 0 件と書いてはならない。
+
+**これは findings ではない。** 未掲載であること自体は欠陥ではなく、台帳へ載せるか / lane を `✅` `—` のどちらにするかは人間の割り当て判断である (ADR-072 決定 18)。採否フローには乗せない。
+
+詳細は Report Directory の `ledger-candidates.md` を参照。
 
 ### Workspace Hygiene (機械的観測)
 
@@ -206,11 +215,15 @@ findings 全体がゼロの場合は以下を出力:
 ### スコープ
 - 対象ツリー: `src/` / `scripts/` / `.claude/` / `.takt/` / `docs/`
 - レビューファセット: simplicity-whole / security-whole / architecture-whole / todo-whole / jj-robustness-whole
-- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB) / workspace-hygiene-scan (root allowlist + scratch pattern + ignored サイズ)
+- 決定論的観測: file-length-watchlist (`.rs` 800 行 + `todo*.md` 50KB) / workspace-hygiene-scan (root allowlist + scratch pattern + ignored サイズ) / ledger-candidates (台帳未掲載の順位)
 
 ### File Length Watchlist (機械的観測)
 
 `file-length-watchlist.md` の内容を本 section に転載する (件数表示 + table 部分)。0 件 (clean state) の場合は「現時点で 800 行超 file は存在しない (clean state)」を表示。
+
+### 台帳未掲載の順位 (機械的観測)
+
+`ledger-candidates.md` の件数行を転載する。0 件の場合は「台帳未掲載の順位なし (clean state)」を表示。exe が失敗して `(未実施: ...)` と報告されている場合は**その旨をそのまま**書く (0 件と書かない)。
 
 ### Workspace Hygiene (機械的観測)
 

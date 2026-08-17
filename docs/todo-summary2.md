@@ -196,8 +196,7 @@
 | 459 | 🔧 Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448 と同じ構図) |
 | 460 | 💎 Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 3 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
 | 461 | 💎 Tier 3 | **開発 convention の一括追記 — 本チェーンの手順レベル教訓 (提案 12 件を統合)** | todo23.md | S | 460 (設計原則は ADR 側へ寄せるため先に確定させる。finding_id 埋込の方針が未決) |
-| 463 | 🚀 Tier 1 | **昇格候補集合の構築を決定論層へ移す (台帳未掲載順位一覧の決定論出力)** | todo23.md | S | なし (2026-08-16 採番。LLM 全件判定は 2 週連続で失敗、lane モデルで rescope し差集合出力のみ残った。work-plan PR-3 の summary パーサを流用するため PR-3 の後が楽。lane モデル work-plan PR-5 で実施) |
-| 464 | 💎 Tier 3 | **`review-todo-whole` facet の台帳読み取り精度を決定論層で担保するか判定する** | todo24.md | S | 順位 463 (facet の報告範囲が lane モデルで縮小したため、463 land 後の実走レポートを見て要否を再判定する。不要なら理由を付して削除) |
+| 464 | 🔧 Tier 2 | **`review-todo-whole` facet が読む台帳の事実を `cli-ledger-candidates` の出力へ寄せる** | todo24.md | S | なし (2026-08-17 に再 rescope。Criterion 3-2 は決定論 exe へ置換済み・3-3 のブランチ走査は消滅。残るのは 3-1 の逆向き差集合と `✅` 行の特定で、同 exe に出力を足すだけで足りる) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

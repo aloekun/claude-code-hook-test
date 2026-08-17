@@ -23,6 +23,7 @@ members = [
     "src/cli-autonomy-gate",
     "src/cli-docs-lint",
     "src/cli-finding-classifier",
+    "src/cli-ledger-candidates",
     "src/cli-ledger-cleanup",
     "src/cli-fix-push-gate",
     "src/cli-merge-pipeline",
