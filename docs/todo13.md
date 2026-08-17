@@ -80,13 +80,15 @@
 
 ---
 
-### `rate_limit_signal::cr_clean` の regression test (PR #224 post-merge-feedback T2-1 採用)
+### `evaluate_rate_limit_shortcut` の cr_clean regression test (PR #224 post-merge-feedback T2-1 採用)
 
 > **動機**: PR #224 で CodeRabbit Major 指摘を採用した `evaluate_rate_limit_shortcut` の `cr_clean` 判定拡張 (`unresolved_threads` のみ → `new_comments` / `actionable_comments` も検査) の回帰防止。`unresolved_threads: None` を clean と誤認する silent failure を将来の変更から保護する。
 >
 > **本タスクの位置づけ**: PR #224 post-merge-feedback Tier 2 #1 採用 (severity High / Effort S / Adoption Risk None)。
 >
-> **参照**: `.claude/feedback-reports/224.md` Tier 2 #1、`src/cli-pr-monitor/src/stages/poll/rate_limit_signal.rs` `evaluate_rate_limit_shortcut`、PR #224 fix commit (Fix 3)。
+> **参照**: `.claude/feedback-reports/224.md` Tier 2 #1、`src/cli-pr-monitor/src/stages/poll/rate_limit.rs` の `evaluate_rate_limit_shortcut` (テストは同階層の `rate_limit/tests.rs`)、PR #224 fix commit (Fix 3)。
+>
+> **パス修正 (2026-08-17)**: 起票時の `rate_limit_signal.rs` は **module 分割で消滅しており実在しない**。2026-08-16 の夜間ループ dispatch で agent が実体 (`rate_limit/tests.rs`) を編集した結果、台帳の宣言と一致せず完了検証ゲートが停止した (`[LEDGER_CLEANUP_BLOCK]`)。台帳・順位 table・本エントリの 3 箇所を実パスへ揃えた。
 >
 > **実行優先度**: 🔧 **Tier 2** — Effort S。
 

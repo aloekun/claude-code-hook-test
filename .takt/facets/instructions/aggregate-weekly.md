@@ -238,5 +238,22 @@ findings 全体がゼロの場合は以下を出力:
 
 ## 出力言語
 
+> **本 facet が週次レビューの言語契約点である。** 入力レポートは 8 件 (5 review facet + 決定論 scan 3 つ)
+> で、その言語は**日本語以外が混ざりうるし、それは許容される** — 2026-08-17 の 2 回の実走で、同じ
+> instruction・同じ persona・同じ model でも facet の出力言語が run ごとに揺れることを実測した
+> (入力 8 件のうち日本語だったのは 1 回目 7 件 / 2 回目 6 件。残りは英語で、1 回はハングルの混入もあった)。
+> **内容はどの言語でも正確**であることをコードと突き合わせて確認済みで、言語は表層の差でしかない。
+>
+> **したがって「全 facet が日本語で出ること」は保証しない。日本語で書くのは本 facet の出力だけである。**
+> 混在した入力から**日本語の最終レポートを生成する**こと — 人間が読むのはこの 1 枚であり、ここが
+> 日本語であれば中間レポートの言語は問わない。**日本語以外の finding** (英語・ハングルなど言語を問わない)
+> を統合するときは、**自由記述の全体を内容を落とさず日本語へ訳して**表へ載せる (原文をそのまま貼らない)。
+> `findings.json` の `description` / `proposal` / `rationale` も同じ扱い。
+>
+> **この契約は現時点で instruction による best-effort であり、決定論的な検査はまだ無い** (`weekly-review.yaml`
+> は `aggregation complete` の有無しか見ない)。検査の追加は順位 465 (docs 整合性と output-contract の
+> drift を機械検証) の範囲に含めてある。**「保証」と書いて検査を持たないのは、本節が問題視している
+> 「指示文で守らせようとする」構図そのもの**なので、検査が入るまでは best-effort と明示しておく。
+
 - **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `aggregation complete` (`weekly-review.yaml` の `rules.condition` が英語リテラルで照合)、および Markdown report の section 見出しと表の列名
 - **`findings.json` の自由記述 field も日本語で書く** (`description` / `proposal` / `rationale`)。`/weekly-review` skill はこれらを `docs/todo*.md` のエントリへ展開するため、英語のままだと展開時に翻訳工程が挟まり、原文と登録文が食い違う余地が生まれる。**`id` / `facet` / `severity` / `category` / `decision` / `location` は enum・識別子なので原文のまま**
