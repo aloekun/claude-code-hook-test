@@ -362,25 +362,6 @@
 
 ---
 
-### stale_check_enabled の TOML パーステスト追加 (PR #267 post-merge-feedback T2-1 採用)
-
-> **動機**: PR #267 で追加した `StalenessConfig.stale_check_enabled` のパース経路にテストがなく、silent degrade (機能が黙って無効化) のリスク。既存テストへの数行追加で完備できる。
->
-> **参照**: `.claude/feedback-reports/267.md` Tier 2 #1、`src/hooks-session-start/src/hooks_config.rs` の既存パーステスト
->
-> **実行優先度**: 🔧 Tier 2 — Effort XS。
-
-#### 作業計画
-
-- [ ] 既存 fixture に `stale_check_enabled = true` + assert を追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 新フィールドのパースが regression test で固定されていること。
-
----
-
 ### jj keyword を含む commit message の tokenization edge-case テスト (PR #267 post-merge-feedback T2-2 採用)
 
 > **動機**: 順位 283 (anchor 修正) と表裏。283 の着手有無に関わらず、現行挙動 (既知の限界) を regression test で明示的に固定する価値が独立して残る。
