@@ -12,7 +12,7 @@
 
 | # | PR | 対象順位 | 状態 |
 |---|---|---|---|
-| A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | 444 + 328 + 347 | 未着手 |
+| A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | ~~444~~ + 328 + 347 | **順位 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) で対応中** (本計画とは独立に起票済みだった)。**残りは 328 + 347** |
 | B | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) + 446 | 未着手 |
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 未着手 |
 | D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |
@@ -43,11 +43,15 @@
 
 **束ねる理由**: 3 件とも `cli-merge-pipeline` の post-merge-feedback 経路の欠陥。444 (stale meta による恒久ブロック) と 328 (leftover context.json による誤 bail) は同じ「進行中誤判定」機構の裏表、347 (空 fix commit) も同経路の後始末不備。
 
-**事前準備 (PR 前)**: `.takt/runs/*/meta.json` の start/end から post-merge-feedback の正常実行時間分布を実測する。444 層 2 の閾値は推測で決めてはならない (既知の 2 サンプルは 15〜40 分)。
+> **順位 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) で対応済み** (2026-08-18)。本計画の作成前から独立に起票されていた。**本 PR の残作業は 328 + 347 のみ**で、下記 444 の節は経緯の記録として残す。
+>
+> 実行時間分布の実測は #417 の中で完了した (自身の成果物を書いた完了 run 140 件: 中央値 8.9 分 / p95 16.5 分 / 最大 23.3 分 / 25 分超 0 件、分布は対数正規)。**閾値 1500 秒は実測で裏付けられた**ため変更していない。詳細は `run_registry::running_runs` の doc を参照。
+>
+> 調査の副産物として、**PR 単位の `<pr>.md` を run 単位の成功証拠に使う誤り**が判明し #417 で是正した (feedback 再実行時に、先に死んだ run を後続 run の成果物で「成功」と誤判定する)。また **run が起動直後に死ぬ経路そのものは未解明**で、順位 468 として別途起票した。
 
 ### 順位 444: orphan reaper が success report 検出時に meta.json を running のまま残す
 
-- **不具合**: run がレポート書き込み後・meta 終端化前に死ぬと `status: "running"` のまま残り、以後すべての post-merge-feedback をブロックする。2026-08-13 に PR #396 マージで実発生 (ブロック元は #281 / #374 の 2 run)。原因は `src/hooks-session-start/src/reaper.rs` の `reap_orphans` が `if marker.exists() || success_report.exists() { continue; }` で成功 run を skip し、meta を終端化する経路が無いこと。`cli-merge-pipeline` 側の進行中ガードは meta の `status` だけを見るため判定基準が不一致。
+- **不具合**: run がレポート書き込み後・meta 終端化前に死ぬと `status: "running"` のまま残り、以後すべての post-merge-feedback をブロックする。2026-08-13 に PR #396 マージで実発生 (ブロック元は #281 / #374 の 2 run)。原因は `src/hooks-session-start/src/reaper/mod.rs` の `reap_orphans` が `if marker.exists() || success_report.exists() { continue; }` で成功 run を skip し、meta を終端化する経路が無いこと。`cli-merge-pipeline` 側の進行中ガードは meta の `status` だけを見るため判定基準が不一致。
 - **層 1 (reaper)**: `reap_orphans` に reconcile 分岐を追加 — report あり + meta 非終端なら meta を `completed` 相当へ更新 (marker は書かない)。`endTime` はレポートの mtime から導出。既存テスト `reap_orphans_skips_when_success_report_exists_despite_stale_meta` は「skip する」期待自体を「reconcile する」へ改める (テスト名含め更新)。
 - **層 2 (guard)**: `src/cli-merge-pipeline/src/feedback/markers.rs` の `check_concurrent_run_guard` は「meta パース不能 = fail-open / stale running = fail-closed」と隣接クラスで fail 方向が逆。後者にも fail-open 原則を適用する。ただし**経過時間だけで stale 判定してはならない** (正常な 40 分 run を誤判定する) — `currentStep` の進捗・`logs/` の最終更新・プロセス生存等の**陽性シグナルと複合判定**する (ADR-064 の姿勢)。reaper の `ORPHAN_THRESHOLD_SECS` (1500s) は目的が違う値なので**共有しない**旨を doc に残す。
 - **回帰テスト**: (i) 古く進捗も無い running はブロックしない、(ii) 閾値超でも進捗がある running はブロックする、(iii) 新しい running は従来どおりブロックする。

@@ -231,19 +231,26 @@ L1 の pre-emptive marker 書込み **直前** に process が死んだ場合 (�
 
 - **scan 対象**: `.takt/runs/*/meta.json` の `status: "running"` AND `task` が `"post-merge-feedback for #"` で始まる run
 - **orphan 判定閾値**: `ORPHAN_THRESHOLD_SECS = TAKT_TIMEOUT_SECS + 300 (= 1500s)`。`TAKT_TIMEOUT_SECS` 経過後も `running` のまま放置されている run は abrupt termination で死んだとみなす
-- **reap 動作**: `.claude/feedback-reports/<pr>.md.failed` marker を生成 + `meta.json` の `status` を `"failed"` に更新 (`reaped_by: "hooks-session-start"` field も追加)
-- **marker を書くかどうかと status を直すかどうかは別問題 (2026-08-17 に修正)**: marker はユーザーへの nag なので二重に書かない。一方 `meta.json` の `status` は**機構が読む状態**なので、どの分岐でも必ず終端状態へ確定させる:
+- **reap 動作**: `meta.json` の `status` を終端状態へ確定させ (`reaped_by: "hooks-session-start"` field も追加)、必要なら `.claude/feedback-reports/<pr>.md.failed` marker を生成する。**どちらを行うかは下表で独立に決まる**
+- **marker を書くかどうかと status を直すかどうかは別問題 (2026-08-17 に修正)**: marker はユーザーへの nag なので二重に書かない。一方 `meta.json` の `status` は**機構が読む状態**なので、どの分岐でも必ず終端状態へ確定させる
+- **判定根拠のスコープも両者で異なる (2026-08-18 に修正)**: `status` は **run 単位** (`<run dir>/reports/feedback-report.md` = その run 自身の成果物)、marker は **PR 単位** (`<pr>.md` = その PR の成果物) を見る
 
-  | 既存の成果物 | `.failed` marker | `meta.json` の `status` |
-  |---|---|---|
-  | `.failed` marker がある (L1 もしくは前回 reaper pass で処理済み) | 既存を保持 (上書きしない) | `"failed"` へ確定 |
-  | `<pr>.md` 成功レポートがある | 書かない | `"completed"` へ確定 |
-  | どちらも無い | 新規生成 | `"failed"` へ確定 |
+  | この run 自身の `feedback-report.md` | `<pr>.md` | 既存 `.failed` marker | marker | `meta.json` の `status` |
+  |---|---|---|---|---|
+  | あり | あり | — | 書かない | `"completed"` |
+  | あり | なし | なし | 新規生成 | `"completed"` |
+  | なし | あり | — | 書かない | `"failed"` |
+  | なし | なし | なし | 新規生成 | `"failed"` |
+  | — | — | あり | 既存を保持 (上書きしない) | 上記に同じ |
 
-  `<pr>.md` があるとき marker を書かないのは、上記 Reconciliation 節で記述した「takt parent kill 後に descendants が report 完成」path では実際には成功しており、false-positive の `.failed` marker で `hooks-user-prompt-feedback-recovery` が毎 prompt nag するのが害だから。**ただし stale な `status: "running"` を放置してはならない** — 下記 incident を参照。
-- **nudge**: 検出時は SessionStart の `additionalContext` に `[POST_MERGE_FEEDBACK_REAPER]` tag 付きで通知。marker 新規生成分と、status のみ確定した分は区別して報告する
+  `<pr>.md` があるとき marker を書かないのは、その PR の feedback が既に手に入っており、false-positive の `.failed` marker で `hooks-user-prompt-feedback-recovery` が毎 prompt nag するのが害だから。一方 `status` に `<pr>.md` を使ってはならない — 下記 incident (2026-08-18) を参照。
+
+  **`endTime` は書かない。** reaper は完了時刻を観測していないため、レポートの mtime で代用すると「レポートが書かれた時刻」を「run が終わった時刻」として記録してしまう。`endTime` を持たない run は所要時間の集計から自然に外れ、異常終了した run が分布に混ざらない。
+- **nudge**: 検出時は SessionStart の `additionalContext` に `[POST_MERGE_FEEDBACK_REAPER]` tag 付きで通知。marker 新規生成分と、status のみ確定した分は区別して報告する。**status の書き換えに失敗した run は「確定した」と報告しない** (報告と実体が食い違うと恒久 block の継続に気づけない)
 
 > **incident (2026-08-17)**: 旧実装は marker / 成功レポートのいずれかがあれば orphan 全体を skip しており、**`status` を直すことまで skip していた**。その結果 `20260706-044830-post-merge-feedback-for-249` (成功レポート `249.md` は存在、meta は `running` のまま) が 6 週間残り、下記「並行起動 guard」が以後の post-merge-feedback (#394 / #408) を恒久的に block した。「false-positive nag を避ける」判断と「機構が読む状態を放置する」判断は独立しており、後者は常に確定させる必要がある。
+>
+> **incident (2026-08-18) — PR 単位の成果物を run 単位の成功証拠に使わない**: feedback が再実行された PR では、`<pr>.md` を書くのは**後続の run** である。したがって `<pr>.md` の存在は「この run が成功した」ことを意味しない。実際 #374 (2026-08-09) と #281 (2026-07-16) では 1 本目が analyze 開始 34 秒以内に死んで成果物ゼロだったにもかかわらず、2 本目が書いた `<pr>.md` を根拠に手動復旧が 1 本目を `"completed"` として記録した。#374 では完了時刻をレポートの mtime から導出したため「40.1 分の正常完了」という架空の値まで残り、後日この値が実行時間分布の分析を誤らせた (実際に完走したのは 32 分後に起動された 2 本目で、所要 8.1 分 = 中央値並み)。**run の成否は常にその run 自身のディレクトリにある成果物で判定する。** これは「PR 単位の証拠を run 単位の判定に流用する」という誤りであり、pre-push run / transcript の選定を時刻範囲だけで行っていた同型の欠陥 (順位 336) と根を同じくする。
 
 ##### 責務分離
 
@@ -254,7 +261,7 @@ L1 の pre-emptive marker 書込み **直前** に process が死んだ場合 (�
 | **L2 reaper** (out-of-process) | `hooks-session-start::compute_reaper_nudge` | pre-emptive write 完了前の OOM Killer / power loss / kill -9。Drop guard で救済不可な致命系の backstop |
 | **L2 recovery** (UserPromptSubmit hook) | `hooks-user-prompt-feedback-recovery` | 上記いずれかで生成された `.failed` marker を Claude に通知 |
 
-L1 と L2 は **marker については重複動作しない**: L1 が marker を書いていれば L2 reaper は `marker.exists()` で marker 生成を skip する。marker を新規に書くのは L1 が完全に効かなかった致命系のみ。ただし **`meta.json` の `status` 確定は L2 の専任責務**であり、marker を skip する分岐でも必ず実行する (上記 incident 2026-08-17)。
+L1 と L2 は **marker については重複動作しない**: L1 が marker を書いていれば L2 reaper は `marker.exists()` で marker 生成を skip する。marker を新規に書くのは L1 が完全に効かなかった致命系のうち、その PR の `<pr>.md` がまだ無い場合のみ。ただし **`meta.json` の `status` 確定は L2 の専任責務**であり、marker を skip する分岐でも必ず実行する (上記 incident 2026-08-17)。
 
 ##### SLA (post-merge-feedback の完了/失敗保証)
 
@@ -263,7 +270,9 @@ L1 と L2 は **marker については重複動作しない**: L1 が marker を
 - **完了 (`.claude/feedback-reports/<pr>.md` 生成)**: `pnpm merge-pr` 同期実行内、`TAKT_TIMEOUT_SECS` 以内
 - **失敗 marker 化 (`.failed` marker 残存)**: L1 経路は `feedback::run` の return 時点で確定。L2 経路は **次回 Claude Code SessionStart 時** で確定 (orphan が `ORPHAN_THRESHOLD_SECS` 経過後)
 
-つまり、L1 のみであれば「マージ後 `TAKT_TIMEOUT_SECS` 以内に完了 or marker 化」が保証される。L2 (致命系の backstop) を含めても「次回 SessionStart 時には必ず marker 化」が保証される。実数値は `cli-merge-pipeline::feedback::TAKT_TIMEOUT_SECS` / `ORPHAN_THRESHOLD_SECS` を参照のこと (本 ADR で数値固定するとコード変更時に drift する)。
+つまり、L1 のみであれば「マージ後 `TAKT_TIMEOUT_SECS` 以内に完了 or marker 化」が保証される。L2 (致命系の backstop) を含めても「次回 SessionStart 時には必ず**終端状態へ確定**する」が保証される。
+
+**保証されるのは `meta.json` の `status` が終端になることであって、marker が必ず生成されることではない。** 上表のとおり、その PR の feedback が既に手に入っている場合 (`<pr>.md` あり) に marker は書かれない。marker はユーザーへ再実行を促す nag であり、成果物が既にあるなら不要だからである。実数値は `cli-merge-pipeline::feedback::TAKT_TIMEOUT_SECS` / `ORPHAN_THRESHOLD_SECS` を参照のこと (本 ADR で数値固定するとコード変更時に drift する)。
 
 #### 並行起動 guard (Phase B post-fix で追加、2026-08-11 に判定根拠を変更)
 

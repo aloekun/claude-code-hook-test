@@ -200,8 +200,30 @@ pub(crate) fn latest_run_for_pr(runs_dir: &Path, pr_number: u64) -> Option<Feedb
 ///
 /// out-of-process の回収層 (`hooks-session-start::reaper`) はあるが、それは SessionStart が
 /// 走る環境でしか動かない。**単一の stale file が機構を恒久停止させない**ことを、guard 自身が
-/// 時間で担保する。閾値は reaper と同じ [`ORPHAN_THRESHOLD_SECS`] (takt timeout + 5 分) で、
-/// これを超えた run は reaper の判定と同様「死んでいる」とみなす。
+/// 時間で担保する。
+///
+/// # 閾値 [`ORPHAN_THRESHOLD_SECS`] (1500 秒) の根拠は実測である
+///
+/// 「takt timeout (1200 秒) を超えた run は死んでいるはず」という推論だけでは足りない。
+/// Windows の `child.kill()` は takt の descendants を殺せず、timeout 後も orphan が走り続けて
+/// レポートを完成させる経路が実在する (→ `feedback::run` の Reconciliation 設計)。timeout は
+/// 実効的な上限として機能していない。
+///
+/// そこで `.takt/runs` の実績で裏を取った (2026-08-18、自身の成果物を書いた完了 run 140 件)。
+///
+/// | 指標 | 実測 |
+/// |---|---|
+/// | 中央値 | 8.9 分 |
+/// | p95 | 16.5 分 |
+/// | 最大 | 23.3 分 (timeout 後に orphan が完走した #286) |
+/// | 25 分 (本閾値) 超 | **0 件** |
+///
+/// 分布は正規ではなく対数正規 (歪度 2.65 / 対数変換後 −0.04) なので `mean ± k·sd` では測れない。
+/// 分位点で見て、正当な run が本閾値を超えた実績はゼロである。閾値を動かすときは
+/// **この分布を測り直すこと** — reaper と同値なのは偶然ではないが、根拠は別々に成立している。
+///
+/// 実測の際は `endTime` を持つ run だけを見る。異常終了した run に外から補った完了時刻を混ぜると
+/// 分布が壊れる (実際 2026-08-13 の手動復旧が 40.1 分という架空の値を作り、初回の分析を誤らせた)。
 pub(crate) fn running_runs(runs_dir: &Path, now_unix: i64) -> Vec<FeedbackRun> {
     collect_feedback_runs(runs_dir)
         .into_iter()

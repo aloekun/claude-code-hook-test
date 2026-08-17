@@ -139,16 +139,10 @@ pub fn utc_now_iso8601() -> String {
 /// `days_from_civil` の index 計算が破綻する入力を弾くためであり、呼び手は `None` を
 /// 「時刻が確定できない」として明示的に扱う (silent な epoch 0 fallback を作らない)。
 pub fn iso8601_to_epoch_secs(s: &str) -> Option<i64> {
-    let without_frac = s.strip_suffix('Z')?.split('.').next()?;
+    let without_frac = strip_fractional_secs(s.strip_suffix('Z')?)?;
     let (date, time) = without_frac.split_once('T')?;
-    let mut date_parts = date.split('-');
-    let year: i64 = date_parts.next()?.parse().ok()?;
-    let month: i64 = date_parts.next()?.parse().ok()?;
-    let day: i64 = date_parts.next()?.parse().ok()?;
-    let mut time_parts = time.split(':');
-    let hour: i64 = time_parts.next()?.parse().ok()?;
-    let minute: i64 = time_parts.next()?.parse().ok()?;
-    let second: i64 = time_parts.next()?.parse().ok()?;
+    let [year, month, day] = split_exact_decimals::<3>(date, '-')?;
+    let [hour, minute, second] = split_exact_decimals::<3>(time, ':')?;
     if !(1970..=9999).contains(&year)
         || !(1..=12).contains(&month)
         || !(1..=days_in_month(year, month)).contains(&day)
@@ -165,6 +159,42 @@ pub fn iso8601_to_epoch_secs(s: &str) -> Option<i64> {
             + minute * SECS_PER_MIN as i64
             + second,
     )
+}
+
+/// 小数秒を落とす。`.` が無ければそのまま返す。
+///
+/// `.` がある場合は **1 桁以上の ASCII 数字のみ**を小数部として許す。ここを検証しないと
+/// `2026-01-01T00:00:00.invalidZ` のような壊れた値が「小数秒付き」として通り、
+/// 呼び手が「時刻を確定できた」と誤認する。
+fn strip_fractional_secs(s: &str) -> Option<&str> {
+    let Some((head, frac)) = s.split_once('.') else {
+        return Some(s);
+    };
+    if frac.is_empty() || !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(head)
+}
+
+/// `sep` で**ちょうど `N` 個**に分割し、各要素を 10 進数として読む。
+///
+/// 要素数が `N` に満たない / 超える場合と、ASCII 数字以外 (符号・空白・英字) を含む
+/// 場合は `None`。個数を検証しないと `2026-01-01-extra` の余剰要素が黙って捨てられ、
+/// 構造が壊れた文字列を受理してしまう。
+fn split_exact_decimals<const N: usize>(s: &str, sep: char) -> Option<[i64; N]> {
+    let mut out = [0_i64; N];
+    let mut parts = s.split(sep);
+    for slot in out.iter_mut() {
+        let part = parts.next()?;
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        *slot = part.parse().ok()?;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(out)
 }
 
 /// Hatcher's `days_from_civil`: 暦日 → Unix epoch からの日数。
@@ -285,7 +315,7 @@ mod tests {
 
     #[test]
     fn parse_rejects_out_of_range_and_malformed() {
-        const REJECTED: [(&str, &str); 9] = [
+        const REJECTED: [(&str, &str); 16] = [
             ("1969-12-31T23:59:59Z", "pre-epoch"),
             ("2026-13-01T00:00:00Z", "month > 12"),
             ("2026-00-01T00:00:00Z", "month = 0"),
@@ -295,6 +325,13 @@ mod tests {
             ("2026-01-01 00:00:00Z", "T 区切り無し"),
             ("", "空文字"),
             ("garbage", "非 ISO 8601"),
+            ("2026-01-01-extraT00:00:00Z", "date に 4 個目の要素"),
+            ("2026-01-01T00:00:00:extraZ", "time に 4 個目の要素"),
+            ("2026-01T00:00:00Z", "date が 2 要素しかない"),
+            ("2026-01-01T00:00Z", "time が 2 要素しかない"),
+            ("2026-01-01T00:00:00.invalidZ", "小数部が数字でない"),
+            ("2026-01-01T00:00:00.Z", "小数部が空"),
+            ("2026-01-01T00:00:+0Z", "符号付き要素"),
         ];
         for (input, why) in REJECTED {
             assert_eq!(
