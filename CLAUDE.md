@@ -74,6 +74,7 @@
 - [ADR-071: 未マージの自律 PR 数による背圧 — autonomous-pr クラスの自主減速](docs/adr/adr-071-draft-pr-backpressure.md) *(試験運用)*
 - [ADR-072: 夜間 todo 消化ループ — 無人実装から PR 作成までの決定論経路](docs/adr/adr-072-nightly-todo-loop.md) *(試験運用)*
 - [ADR-073: 作業パッケージの完了条件 — 生んだ運用問題を外へ押し出さない](docs/adr/adr-073-work-package-completion-boundary.md) *(試験運用)*
+- [ADR-074: auto lane 選別基準 — 台帳のどの行を夜間ループに割り当てるか](docs/adr/adr-074-auto-lane-screening-criteria.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
