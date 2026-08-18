@@ -70,6 +70,20 @@ fn task_prefix_matches_canonical_literal() {
     );
 }
 
+/// `cli-merge-pipeline::feedback::run_registry::REPORT_FILE_NAME` と同じ literal を pin する。
+///
+/// 片方の crate だけがファイル名を変えると、reaper は run 自身の成果物を見つけられず
+/// **成功した run を `failed` として確定**するが、それを落とすテストが他に無い。
+#[test]
+fn run_report_file_name_matches_canonical_literal() {
+    assert_eq!(
+        RUN_REPORT_FILE_NAME, "feedback-report.md",
+        "RUN_REPORT_FILE_NAME must match \
+         cli-merge-pipeline::feedback::run_registry::REPORT_FILE_NAME. \
+         If you changed this constant, update the corresponding test in run_registry as well."
+    );
+}
+
 #[test]
 fn orphan_threshold_matches_canonical_value() {
     assert_eq!(

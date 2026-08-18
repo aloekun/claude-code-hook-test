@@ -274,6 +274,21 @@ mod tests {
         dir
     }
 
+    /// `hooks-session-start::reaper::RUN_REPORT_FILE_NAME` と同じ literal を pin する。
+    ///
+    /// reaper は run の成否を「この run 自身が `feedback-report.md` を書いたか」で判定する。
+    /// 片方の crate だけがファイル名を変えると、reaper は成果物を見つけられず**成功した run を
+    /// `failed` として確定**するが、どのテストも落ちない。両 crate で同じ literal を pin して
+    /// drift を検出する (`TAKT_TASK_PREFIX` と同じ方式)。
+    #[test]
+    fn report_file_name_matches_canonical_literal() {
+        assert_eq!(
+            REPORT_FILE_NAME, "feedback-report.md",
+            "REPORT_FILE_NAME must match hooks-session-start::reaper::RUN_REPORT_FILE_NAME. \
+             If you changed this constant, update the corresponding test in reaper as well."
+        );
+    }
+
     /// 全 fixture が共有する `startTime`。in-flight 窓の内外は `now` 側で作り分ける。
     const RUN_START_ISO: &str = "2026-08-10T10:00:00Z";
 

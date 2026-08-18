@@ -250,28 +250,6 @@
 
 ---
 
-### post-merge feedback が成功後に `post-merge-feedback-context.json` を残し次マージの feedback を誤 bail させる (cleanup gap、#296 マージで実観測)
-
-> **動機**: 2026-07-19 の #296 マージで、post_merge_feedback step が「前回の feedback がまだ進行中の可能性 (context.json が 820s 前に書かれた)」と判定して bail し、`.claude/feedback-reports/296.md.failed` marker を残した ([ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) L2 recovery 経路)。原因は **#295 マージの post-merge feedback が正常完了 (295.md 生成) したにもかかわらず自身の `.takt/post-merge-feedback-context.json` を掃除せず残した**こと。約 25 分 (1500s threshold) 以内に次のマージを行うと、前回の leftover context.json を「進行中」と誤判定して feedback が走らない = **連続マージで後発の feedback が構造的に skip される**。今回は手動で context.json 削除 + `--feedback-only 296` で recovery したが、根治は context.json の cleanup。
->
-> **対処案**: post-merge feedback workflow (または cli-merge-pipeline) が feedback の**正常完了時に `post-merge-feedback-context.json` を削除**する。あわせて staleness 判定を「時刻ベース (820s < 1500s)」から「稼働中プロセスの実在確認」等に寄せるか、少なくとも成功時 cleanup で leftover を残さないようにする。fail 時は marker を残す現行 L2 recovery を維持 (真の中断と区別)。
->
-> **参照**: `src/cli-merge-pipeline/src/pipeline.rs` (post_merge_feedback step / context.json の書き出し・cleanup)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) (L1 floor / L2 recovery、marker 運用)、`.takt/post-merge-feedback-context.json`、#296 マージ実観測 (2026-07-19)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (連続マージで後発 PR の再発防止分析が構造的に skip される。今回は手動 recovery で救済したが、気付かなければ feedback が静かに欠落) / Frequency Low〜Medium (連続マージ運用時) / Effort S (成功時 cleanup の追加)。
-
-#### 作業計画
-
-- [ ] 再現テスト: leftover context.json がある状態で 2 回目のマージ feedback が誤 bail することを固定 (base_dir 注入等)。
-- [ ] post-merge feedback の**正常完了時に context.json を削除**する (fail 時は marker を残す現行動作を維持)。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 連続マージ (前回 feedback 成功後 25 分以内) でも 2 回目の post-merge feedback が leftover context.json で誤 bail せず実行されること (回帰テストで seal)。
-
----
-
 ### 新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを追加 (#301 post-merge feedback 採用)
 
 > **動機**: PR-N3 (#301) で、ADR-055 初版が**自ら定義した `decision` 軸 (block/warn = 発火の重み)** と矛盾する除外根拠 (「nudge は block/warn に乗らない」) を採用しており、本 PR で Amendment を追加して除外根拠を撤回する手戻りが発生した。ADR は既に 59 件超を相互参照しており、新規 ADR が既存 ADR の定義・原則と衝突する見落としは他 ADR でも再発しうる。#301 の post-merge feedback が採用候補と判定 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。

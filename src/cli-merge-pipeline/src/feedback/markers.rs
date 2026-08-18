@@ -391,6 +391,28 @@ mod tests {
             assert!(check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok());
         }
 
+        /// **順位 328 の完了基準**: 前回 feedback が残した `context.json` は次を止めない。
+        ///
+        /// 旧 guard は `context.json` の mtime を見て「1500 秒以内に書かれていれば進行中」と
+        /// 判定していた。そのため #295 の feedback が正常完了しても掃除されない
+        /// `context.json` により、25 分以内の連続マージで #296 の feedback が誤 bail した。
+        /// 判定根拠を run の `status` へ移した順位 398 でこの結合は消えているが、**同じ結合を
+        /// 再導入させない**ために、書きたてで放置された `context.json` があっても通ることを固定する。
+        #[test]
+        fn a_leftover_context_file_does_not_block_the_next_feedback() {
+            let root = unique_tmp_path("feedback-guard-leftover-context");
+            let context_path = root.join(crate::feedback::CONTEXT_PATH);
+            fs::create_dir_all(context_path.parent().unwrap()).unwrap();
+            fs::write(&context_path, r#"{"pr_number": 295}"#).unwrap();
+
+            assert!(
+                check_concurrent_run_guard_at(&root, now_while_in_flight()).is_ok(),
+                "context.json の存在・鮮度は進行中判定の根拠にしてはいけない (順位 328)"
+            );
+
+            let _ = fs::remove_dir_all(&root);
+        }
+
         /// **順位 398 の完了基準**: 直前の feedback が完了していれば、25 分待たずに通る。
         #[test]
         fn passes_when_the_previous_run_has_finished() {
