@@ -179,7 +179,6 @@
 | 441 | 🔧 Tier 2 | **cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加** | todo22.md | S-M | なし (2026-08-12 起票。todo14.md の孤児 4 件が 3 週間未検出だった lint 死角。2026-08-16 に採番漏れ 3 件が再発しており価値は上がっている。実装共有先だった本文順位番号 lint は同日 retire) |
 | 442 | 🔧 Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | 💎 Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
-| 444 | 🚀 Tier 1 | **orphan reaper が success report 検出時に meta.json を running のまま残す (feedback ループ恒久停止)** | todo22.md | S | なし (2026-08-13 起票。PR #396 マージで実発生。順位 398 の guard 変更で stale meta が初めてブロック要因化) |
 | 445 | 🔧 Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
 | 446 | 🚀 Tier 1 | **post-merge-feedback の transcript 抽出が並列 jj workspace のセッションを取りこぼす** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。ADR-030 の分析入力が無言欠落、まず切り分け) |
 | 447 | 🚀 Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
@@ -200,6 +199,7 @@
 | 465 | 🔧 Tier 2 | **docs 整合性と output-contract の drift を機械検証する (#409-#414 feedback 系統 A+B を統合)** | todo24.md | S-M | 441 (詳細エントリ ⇄ 台帳行の 1:1 検査と実装先が同じ。統合するか独立かを着手時に判断) |
 | 466 | 💎 Tier 3 | **出力先と検証設計の convention を明文化する (#409-#414 feedback 系統 C+E を統合)** | todo24.md | S | なし (2026-08-17 採用。docs のみ。出力の visible paths / fixture と実データの対 / step outcome の組み合わせ の 3 点) |
 | 467 | 🔧 Tier 2 | **夜間ループとレポート出力の小さな穴を塞ぐ (#409-#414 feedback 系統 D + dispatch 実走 F-2)** | todo24.md | S | なし (2026-08-17 採用。ブランチ削除の事前存在確認 / parse エラー診断強化 / GIT_DIR 警告抑止。D-1 の効果確認は実走が要る) |
+| 468 | 🔧 Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

@@ -130,6 +130,99 @@ pub fn utc_now_iso8601() -> String {
     epoch_secs_to_iso8601(now.as_secs())
 }
 
+/// ISO 8601 UTC 文字列 (`YYYY-MM-DDTHH:MM:SSZ`) → epoch 秒。[`epoch_secs_to_iso8601`] の逆変換。
+///
+/// `2026-08-10T17:32:12.584Z` のような小数秒は truncate する (takt の `meta.json` が
+/// 小数秒付きで書くため。整数秒精度で十分)。末尾 `Z` は必須 (UTC 以外は扱わない)。
+///
+/// 値域外 (year < 1970 / month 13 / 平年の 2/29 等) は `None`。これは
+/// `days_from_civil` の index 計算が破綻する入力を弾くためであり、呼び手は `None` を
+/// 「時刻が確定できない」として明示的に扱う (silent な epoch 0 fallback を作らない)。
+pub fn iso8601_to_epoch_secs(s: &str) -> Option<i64> {
+    let without_frac = strip_fractional_secs(s.strip_suffix('Z')?)?;
+    let (date, time) = without_frac.split_once('T')?;
+    let [year, month, day] = split_exact_decimals::<3>(date, '-')?;
+    let [hour, minute, second] = split_exact_decimals::<3>(time, ':')?;
+    if !(1970..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=days_in_month(year, month)).contains(&day)
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&minute)
+        || !(0..=59).contains(&second)
+    {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    Some(
+        days * SECS_PER_DAY as i64
+            + hour * SECS_PER_HOUR as i64
+            + minute * SECS_PER_MIN as i64
+            + second,
+    )
+}
+
+/// 小数秒を落とす。`.` が無ければそのまま返す。
+///
+/// `.` がある場合は **1 桁以上の ASCII 数字のみ**を小数部として許す。ここを検証しないと
+/// `2026-01-01T00:00:00.invalidZ` のような壊れた値が「小数秒付き」として通り、
+/// 呼び手が「時刻を確定できた」と誤認する。
+fn strip_fractional_secs(s: &str) -> Option<&str> {
+    let Some((head, frac)) = s.split_once('.') else {
+        return Some(s);
+    };
+    if frac.is_empty() || !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(head)
+}
+
+/// `sep` で**ちょうど `N` 個**に分割し、各要素を 10 進数として読む。
+///
+/// 要素数が `N` に満たない / 超える場合と、ASCII 数字以外 (符号・空白・英字) を含む
+/// 場合は `None`。個数を検証しないと `2026-01-01-extra` の余剰要素が黙って捨てられ、
+/// 構造が壊れた文字列を受理してしまう。
+fn split_exact_decimals<const N: usize>(s: &str, sep: char) -> Option<[i64; N]> {
+    let mut out = [0_i64; N];
+    let mut parts = s.split(sep);
+    for slot in out.iter_mut() {
+        let part = parts.next()?;
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        *slot = part.parse().ok()?;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(out)
+}
+
+/// Hatcher's `days_from_civil`: 暦日 → Unix epoch からの日数。
+/// [`epoch_secs_to_iso8601`] が使う `civil_from_days` の逆写像 (同じ定数を共有する)。
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = (if y >= 0 { y } else { y - (YEARS_PER_ERA - 1) }) / YEARS_PER_ERA;
+    let yoe = y - era * YEARS_PER_ERA;
+    let mp = if month > 2 { month - 3 } else { month + 9 };
+    let doy = (MONTH_ENCODE_DIV as i64 * mp + 2) / MONTH_ENCODE_MUL as i64 + day - 1;
+    let doe = yoe * DAYS_PER_YEAR as i64 + yoe / 4 - yoe / 100 + doy;
+    era * DAYS_PER_ERA + doe - CIVIL_EPOCH_OFFSET
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn days_in_month(year: i64, month: i64) -> i64 {
+    const MONTH_DAYS: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let base = MONTH_DAYS[(month - 1) as usize];
+    if month == 2 && is_leap_year(year) {
+        base + 1
+    } else {
+        base
+    }
+}
+
 /// 現在の epoch 秒を返す (stale 判定用)。
 pub fn utc_now_epoch_secs() -> u64 {
     use std::time::SystemTime;
@@ -182,7 +275,80 @@ mod tests {
         assert_eq!(s.chars().nth(16), Some(':'));
     }
 
-    // ─── is_valid_owner_repo ───
+    #[test]
+    fn parse_unix_epoch() {
+        assert_eq!(iso8601_to_epoch_secs("1970-01-01T00:00:00Z"), Some(0));
+    }
+
+    /// `epoch_secs_to_iso8601` との round-trip。片方だけ壊れたら落ちる。
+    ///
+    /// fixture はうるう日 (2024-02-29) / 日境界 / 日終端 / 非うるう世紀年 (2100) を含む。
+    #[test]
+    fn parse_round_trips_with_the_formatter() {
+        const ROUND_TRIP_EPOCHS: [u64; 6] = [
+            0,
+            86_400,
+            1_709_164_800,
+            1_775_044_800,
+            1_775_087_999,
+            4_102_444_800,
+        ];
+        for epoch in ROUND_TRIP_EPOCHS {
+            let iso = epoch_secs_to_iso8601(epoch);
+            assert_eq!(
+                iso8601_to_epoch_secs(&iso),
+                Some(epoch as i64),
+                "round-trip failed for {iso}"
+            );
+        }
+    }
+
+    /// takt の `meta.json` は `"startTime": "2026-08-10T17:32:12.584Z"` と小数秒付きで書く。
+    #[test]
+    fn parse_truncates_fractional_seconds() {
+        assert_eq!(
+            iso8601_to_epoch_secs("2026-08-10T17:32:12.584Z"),
+            iso8601_to_epoch_secs("2026-08-10T17:32:12Z"),
+            "小数秒は reject ではなく truncate すること"
+        );
+    }
+
+    #[test]
+    fn parse_rejects_out_of_range_and_malformed() {
+        const REJECTED: [(&str, &str); 16] = [
+            ("1969-12-31T23:59:59Z", "pre-epoch"),
+            ("2026-13-01T00:00:00Z", "month > 12"),
+            ("2026-00-01T00:00:00Z", "month = 0"),
+            ("2026-02-29T00:00:00Z", "平年の 2/29"),
+            ("2026-01-01T24:00:00Z", "hour = 24"),
+            ("2026-01-01T00:00:00", "末尾 Z 無し"),
+            ("2026-01-01 00:00:00Z", "T 区切り無し"),
+            ("", "空文字"),
+            ("garbage", "非 ISO 8601"),
+            ("2026-01-01-extraT00:00:00Z", "date に 4 個目の要素"),
+            ("2026-01-01T00:00:00:extraZ", "time に 4 個目の要素"),
+            ("2026-01T00:00:00Z", "date が 2 要素しかない"),
+            ("2026-01-01T00:00Z", "time が 2 要素しかない"),
+            ("2026-01-01T00:00:00.invalidZ", "小数部が数字でない"),
+            ("2026-01-01T00:00:00.Z", "小数部が空"),
+            ("2026-01-01T00:00:+0Z", "符号付き要素"),
+        ];
+        for (input, why) in REJECTED {
+            assert_eq!(
+                iso8601_to_epoch_secs(input),
+                None,
+                "{why} は None にすること: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_accepts_leap_day_in_leap_year() {
+        assert_eq!(
+            iso8601_to_epoch_secs("2024-02-29T00:00:00Z"),
+            Some(1_709_164_800)
+        );
+    }
 
     #[test]
     fn valid_owner_repo_accepts_typical_slugs() {

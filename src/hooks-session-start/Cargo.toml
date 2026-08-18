@@ -11,6 +11,7 @@ lib-subprocess = { path = "../lib-subprocess" }
 lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-telemetry = { path = "../lib-telemetry" }
 lib-hook-output = { path = "../lib-hook-output" }
+lib-pending-file = { path = "../lib-pending-file" }
 
 [dev-dependencies]
 proptest = "1"
