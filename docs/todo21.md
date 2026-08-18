@@ -207,48 +207,6 @@
 >
 > **順位 395 (週次レビューでの浮きブランチ検出) も実装済み・削除済み** (2026-08-09)。`cli-stale-branch-scan` として実装し、`pnpm stale-branch-scan` で実行する。設計は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 残存ブランチ検出 が正 — **takt workflow はネットワークを持たない** (`network_access: false`) ため決定論 scan を skill 側 (L3) に置いた経緯もそちらに記録した。
 
-## CI 安定性 (2026-08-09 登録)
-
-### hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす
-
-> **由来**: PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376) の CI で `rust (ubuntu-latest)` が失敗した。`windows-latest` は成功、変更は当該クレートを 1 ファイルも触っていない。
->
-> ```text
-> test malformed_stdin_does_not_block ... FAILED
-> panicked at src/hooks-pre-tool-validate/tests/smoke.rs:137:
->   spawn hooks-pre-tool-validate: Os { code: 26, kind: ExecutableFileBusy,
->                                       message: "Text file busy" }
-> ```
->
-> **機構**: [smoke.rs](../src/hooks-pre-tool-validate/tests/smoke.rs) の 2 テストは cargo 既定で並列実行される。各テストは `stage_hook()` で exe を tempdir へ `fs::copy` してから spawn する。片方の `fs::copy` が**書き込み用 fd を開いている最中に**、もう片方の `Command::spawn()` が fork すると、子プロセスがその fd を継承する。copy 側が fd を閉じても fork された子が exec するまで複製が残るため、copy 側の exec が `ETXTBSY` で落ちる。Linux 固有 (Windows では再現しない)。
->
-> **頻度**: 直近 15 回の `ci.yml` run で初出。恒常的ではないが、**両 OS matrix (ADR-065) が意味を持つのは CI が信頼できるときだけ**で、原因不明の赤が続くと「また flake だろう」と実バグを見落とす経路になる。
->
-> **対処案** (実装時に判断):
->
-> - (a) `ci.yml` の hooks smoke step を `--test-threads=1` にする — 最小・即効だが、他 suite の並列性は保たれるので損失は小さい
-> - (b) `run_hook` の spawn を `ETXTBSY` でリトライする — 根本に近いが、テストコードに retry を持ち込む
-> - (c) staging をやめて `built_exe()` を直接起動する — copy 自体が消えるが、config を tempdir に staging する設計 (テストの副作用隔離) と噛み合うか要確認
->
-> **参照**: [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) (両 OS matrix の意義)、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (実バグではないが CI の信号品質を下げる) / Frequency Low (初観測) / Effort S / Adoption Risk Low (テスト実行方法の変更のみ)。
->
-> **2026-08-10 に Tier 1 へ格上げ (ユーザー判断)**。単発の Severity では Tier 2 相当だが、**flaky テストは「また flake だろう」という読み替えを生み、実バグの見落とし経路になる**。両 OS matrix ([ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)) の信号品質そのものを守る意味で早期に潰す。**WP-18 の完了条件には含めない** (別クレートの既存競合で WP-18 の経路と無関係、計画書 § WP-18 残作業 (3) 参照) が、着手は WP-18 と独立に早める。
-
-#### 作業計画
-
-- [ ] 対処案 (a)-(c) から選び、ローカル (WSL Ubuntu) で並列実行を再現させてから直す
-- [ ] 修正後に同じ再現手順で `ETXTBSY` が出ないことを確認する
-- [ ] 他の smoke/E2E suite に同型の「copy してから spawn」パターンが無いか棚卸しする
-
-#### 完了基準
-
-- hooks smoke suite が Linux で `ETXTBSY` を起こさないこと (再現手順付きで確認)。
-- 同型パターンが他 suite に無いこと、またはあれば同じ対処が入っていること。
-
----
-
 ## post-merge feedback 採用分 (#376/#377/#380/#381/#382、2026-08-10 採否確定)
 
 > **由来**: WP-18 の一連 PR の post-merge feedback で挙がった採用候補を、2026-08-10 に系統別へ分類してユーザーが採否を決定した。**系統 A (観測の完全性) / B (重複実装の予防) / C (shell・config パースの安全性) を採用**、系統 D (workflow セキュリティ標準化) / E (PAT 失効監視) は却下 (様子見)。

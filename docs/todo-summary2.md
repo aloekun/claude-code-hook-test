@@ -134,7 +134,6 @@
 | 390 | 🔧 Tier 2 | **台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI 検証 (#369 T2 採用)** | todo21.md | M | なし (LEDGER_DATA_FRAME_MARKER と ===BEGIN/END_LEDGER_DATA=== が対。片側変更で ADR-072 決定 13 の framing が破れる) |
 | 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |
 | 392 | 🔧 Tier 3 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
-| 396 | 🚀 Tier 1 | **hooks smoke suite の並列実行が Linux で `ETXTBSY` を起こす (flaky テスト、早期修正)** | todo21.md | S | なし (#376 CI で ubuntu のみ失敗、windows は成功、当該クレートは無変更。2 テストが並列に exe を copy→spawn し、fork した子が copy 側の書き込み fd を継承するため exec が Text file busy。直近 15 run で初出だが ADR-065 の両 OS matrix の信号品質を下げる。**flaky を放置すると「また flake だろう」で実バグを見落とす**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断で Tier 1 へ格上げ) |
 | 402 | 🚀 Tier 1 | **「対処後は効果を観測するまで完了と見なさない」を明文化 (系統 A-1)** | todo21.md | S | なし (2026-08-10 採用。決定 11 は投稿の成否だけ見て 10 時間気づけず、決定 15 は同じ症状が続くか確かめる前に解決済みと記録した。fail-open は効果の観測を別に用意して初めて成立する) |
 | 403 | 🚀 Tier 1 | **AI レビューの数値・外部仕様の主張は仮説として扱い実測で二重検証 (系統 A-2)** | todo21.md | S | なし (2026-08-10 採用。組合せ数の指摘は観察は正しいが提示値も誤り (実測 384)、gh のオプション併用提案は実行時エラー、jq 正規表現案はパースエラー。観察と修正手段の確信度は別) |
 | 404 | 🔧 Tier 2 | **外部依存の非同期応答待ちに timeout / retry を明記する convention (系統 A-3)** | todo21.md | S | なし (2026-08-10 採用。cli-stale-branch-scan の初版が timeout 無しで、同期実行経路の無診断ハング要因だった) |

@@ -25,6 +25,7 @@ use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// spawn した hook exe の bounded wait (dev-conventions.md § bounded wait)。
 /// ハングした子プロセスは kill してテストを失敗させ、CI を無期限に止めない。
@@ -99,9 +100,40 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
 
+/// **exe の staging (copy) と spawn (fork〜exec) を相互排除する** ロック。
+///
+/// これが無いと Linux で `ETXTBSY` (`Text file busy`) が出る。機構は次のとおり:
+/// テスト A の `fs::copy` が staging 先 exe への **書き込み用 fd を開いている最中に**、
+/// 並列のテスト B が `Command::spawn` で fork すると、その fd が子プロセスへ複製される。
+/// `O_CLOEXEC` は **execve が完了した時点**で閉じるため、B の子が exec するまでの間は
+/// A の exe が「書き込み用に開かれたファイル」のままで、A がそれを exec しようとすると
+/// カーネルが `ETXTBSY` で拒否する。テストごとに temp dir が別でも起きる
+/// (fd はパスではなくプロセスに紐づくため)。
+///
+/// **ロックが copy と spawn の両方を囲む必要がある**。`Command::spawn` は
+/// posix_spawn 経路でも fork+exec 経路でも「子の exec が完了 (または失敗) するまで」
+/// 親へ返らないので、spawn 呼び出しを囲めば fd 継承の窓が閉じる。片側だけでは意味が無い。
+///
+/// 実測 (WSL Ubuntu-24.04 / ext4、テストバイナリを 200 回実行):
+/// ロック無し = 30 回 ETXTBSY、ロック有り = 0 回。再現手順は
+/// `concurrent_staging_and_spawn_survives_etxtbsy` を参照。
+static EXEC_STAGING_LOCK: Mutex<()> = Mutex::new(());
+
+/// poisoning を無視して `EXEC_STAGING_LOCK` を取る。
+///
+/// このロックが守るのは **fd 継承のタイミング窓**であって共有データの不変条件ではない。
+/// 先に panic したテストがあっても後続を道連れにしないよう、中身をそのまま取り出す
+/// (poisoning で二次的な失敗を増やすと、本当の failure が読みにくくなる)。
+fn exec_staging_guard() -> MutexGuard<'static, ()> {
+    EXEC_STAGING_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
 /// exe と deploy 済 `hooks-config.toml` を temp dir へ配置し、staging 先の exe パスを返す。
 /// 返り値の `TempDir` は生存させ続けること (drop で削除される)。
 fn stage_hook() -> (tempfile::TempDir, PathBuf) {
+    let _guard = exec_staging_guard();
     let tmp = tempfile::tempdir().expect("create temp dir");
 
     let exe_name = built_exe()
@@ -127,7 +159,11 @@ fn stage_hook() -> (tempfile::TempDir, PathBuf) {
 ///
 /// telemetry の kill-switch を立てるのは、staging した config が `[telemetry]` を
 /// enable していても書き込みを起こさないため (テストの副作用を config に依存させない)。
+///
+/// spawn だけを `EXEC_STAGING_LOCK` で囲む (→ ロックの doc)。子の待ち受けまで
+/// ロックを持つと、並列テストが hook の実行時間ぶん直列化されて意味なく遅くなる。
 fn run_hook(exe: &Path, payload: &str) -> (i32, String) {
+    let guard = exec_staging_guard();
     let mut child = Command::new(exe)
         .env("CLAUDE_TELEMETRY_DISABLE", "1")
         .stdin(Stdio::piped())
@@ -135,6 +171,7 @@ fn run_hook(exe: &Path, payload: &str) -> (i32, String) {
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn hooks-pre-tool-validate");
+    drop(guard);
     let stdout_drain = drain_pipe_unlimited(child.stdout.take().expect("child stdout"));
     let stderr_drain = drain_pipe_unlimited(child.stderr.take().expect("child stderr"));
     child
@@ -206,5 +243,64 @@ fn malformed_stdin_does_not_block() {
     assert_ne!(
         code, EXIT_BLOCK,
         "不正な stdin が block (exit 2) になった — 全ツール呼び出しを止めうる"
+    );
+}
+
+/// 並列スレッド数。**この値で検出率が決まる** — ロックを外した状態での実測 (WSL
+/// Ubuntu-24.04 / ext4、10 回試行) は 4 スレッドで 6/10、8 スレッドで 10/10 だった。
+/// ラウンド数を増やしても検出率は上がらず (4 スレッドは 12 → 24 ラウンドで 4/5 → 6/10)、
+/// 効くのは copy と spawn が重なる同時実行数のほうだと判った。
+const STRESS_THREADS: usize = 8;
+/// 1 スレッドあたりの staging + spawn 回数。8 スレッドなら 16 で検出率 10/10 に達し、
+/// 24 に増やしても検出率は変わらず所要時間だけ伸びた (Windows で 9.7s → 14.5s)。
+const STRESS_ROUNDS: usize = 16;
+
+/// **incident 回帰**: 並列な staging と spawn が `ETXTBSY` を起こさないこと。
+///
+/// 由来は PR #376 の CI (ubuntu-latest) で `malformed_stdin_does_not_block` が
+/// `Os { code: 26, kind: ExecutableFileBusy }` で落ちた flake。機構と対処は
+/// `EXEC_STAGING_LOCK` の doc を参照。
+///
+/// **`#[ignore]` にする理由**: 由来する失敗が確率的で、通常テストとして置くと
+/// 「落ちたら実バグ」の信号が濁る。`--ignored` (CI の直列 leg) で回すことで、
+/// ガードを外す変更が入れば検出される。所要時間は Linux 2.1s / Windows 9.7s。
+///
+/// **この seal が効くことの実測** (ADR-049 — 修正前に落ちることを確認する):
+/// `EXEC_STAGING_LOCK` の取得 2 箇所を外して Linux (ext4) で
+/// `cargo test -p hooks-pre-tool-validate --test smoke -- --ignored` を回すと
+/// **10 回中 10 回 ETXTBSY で落ちる**。ロックを戻すと 10 回中 0 回。
+/// `/mnt/c` などの drvfs 上では再現しないので、必ず ext4 上で回すこと。
+#[test]
+#[ignore = "確率的な負荷テスト。--ignored (CI の直列 leg) と手動再現でのみ回す"]
+fn concurrent_staging_and_spawn_survives_etxtbsy() {
+    let results: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..STRESS_THREADS)
+            .map(|_| {
+                scope.spawn(|| {
+                    for _ in 0..STRESS_ROUNDS {
+                        let (_keep, exe) = stage_hook();
+                        let payload = serde_json::json!({
+                            "tool_name": "Bash",
+                            "tool_input": { "command": "ls -la" },
+                        })
+                        .to_string();
+                        let (code, stderr) = run_hook(&exe, &payload);
+                        assert_eq!(
+                            code, EXIT_PASS,
+                            "負荷下で verdict が変わった (exit {code}, stderr: {stderr})"
+                        );
+                    }
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join()).collect()
+    });
+
+    assert!(
+        results.iter().all(Result::is_ok),
+        "並列 staging/spawn でスレッドが panic した ({} / {} 本)。\
+         ETXTBSY なら EXEC_STAGING_LOCK が効いていない",
+        results.iter().filter(|r| r.is_err()).count(),
+        STRESS_THREADS
     );
 }

@@ -29,11 +29,40 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// spawn した hook exe の bounded wait (dev-conventions.md § bounded wait)。
 const HOOK_TIMEOUT_SECS: u64 = 60;
 
 static UNIQUE_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// exe の staging (copy) と spawn (fork〜exec) を相互排除するロック。
+///
+/// このファイルの `#[test]` は **5 本すべてが copy→spawn** で、cargo 既定では並列に走る。
+/// POSIX でこの形は `ETXTBSY` を起こす — copy 側の書き込み fd を、並列 spawn が fork した
+/// 子が継承し、exec 完了まで exe が「書き込み用に開かれたまま」になるため
+/// (機構と実測は `hooks-pre-tool-validate/tests/smoke.rs` の `EXEC_STAGING_LOCK` の doc)。
+///
+/// **本ファイルは現状 `#![cfg(windows)]` なので POSIX のその経路は踏まない**が、同型の
+/// パターンであることに変わりはなく、Windows でも「実行中/オープン中の exe への書き込み」は
+/// sharing violation になりうる。`cfg(windows)` を外して ubuntu leg に載せる変更が入った
+/// 瞬間に smoke.rs と同じ flake が出る箇所なので、先にガードを入れて構造を揃えておく。
+///
+/// **smoke.rs と同型のまま複製しているのは意図的** — [ADR-044](../../../docs/adr/adr-044-subprocess-utility-extraction-boundary.md)
+/// 層 1 で「2 crate 重複」は extract 必須ではなく要 dogfood の区分にあたる。加えて本体は
+/// `Mutex<()>` 1 個で、共有すると **test 専用の同期プリミティブを `lib-subprocess` の
+/// production surface に載せる**ことになる (ロックはプロセス内でしか意味を持たず、
+/// テストバイナリはそれぞれ別プロセスなので共有しても得られる保証は増えない)。
+/// **3 つ目の copy→spawn テストが現れた時点で extract を再評価する。**
+static EXEC_STAGING_LOCK: Mutex<()> = Mutex::new(());
+
+/// poisoning を無視して `EXEC_STAGING_LOCK` を取る (守るのは fd 継承の窓であって
+/// 共有データの不変条件ではないため、先に panic したテストで後続を道連れにしない)。
+fn exec_staging_guard() -> MutexGuard<'static, ()> {
+    EXEC_STAGING_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
 
 /// incident と同じ形の「ルート相対パスを含む step cmd」。
 ///
@@ -55,6 +84,7 @@ fn exe_path() -> PathBuf {
 /// - `<root>/.claude/probe.cmd` — ルート相対で呼ばれる成功 probe
 /// - `<root>/.takt/runs/` — incident の cwd (存在する非ルートディレクトリ)
 fn stage_project(prefix: &str, steps_toml: &str) -> PathBuf {
+    let _guard = exec_staging_guard();
     let n = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!("t7_{}_{}_{}", prefix, std::process::id(), n));
     let claude_dir = root.join(".claude");
@@ -72,7 +102,11 @@ fn stage_project(prefix: &str, steps_toml: &str) -> PathBuf {
 }
 
 /// staging 済み exe を `cwd` から起動し、stdout を返す。
+///
+/// spawn だけを `EXEC_STAGING_LOCK` で囲む (子の待ち受けまで持つと、並列テストが
+/// hook の実行時間ぶん直列化されて意味なく遅くなる)。
 fn run_hook(root: &Path, cwd: &Path) -> String {
+    let guard = exec_staging_guard();
     let mut child = Command::new(root.join(".claude").join("hooks-stop-quality.exe"))
         .current_dir(cwd)
         .stdin(Stdio::piped())
@@ -80,6 +114,7 @@ fn run_hook(root: &Path, cwd: &Path) -> String {
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn hooks-stop-quality");
+    drop(guard);
 
     let stdout = drain_pipe_unlimited(Box::new(child.stdout.take().expect("stdout piped")));
     let stderr = drain_pipe_unlimited(Box::new(child.stderr.take().expect("stderr piped")));

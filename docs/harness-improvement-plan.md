@@ -181,7 +181,7 @@ WP-18 が生んだ / WP-18 の運用で踏む問題の 5 件（順位 397 / 398-
 
 | 内容 | 管理先 | 期限 / 条件 |
 |---|---|---|
-| **順位 396: hooks smoke suite の Linux `ETXTBSY` flake** — WP-18 の CI で見つかったが別クレートの既存テスト競合で、WP-18 の経路とは無関係。**flaky テストは「また flake だろう」で実バグを見落とす経路を作る**ため、両 OS matrix（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）の信号品質を守る意味で**早期に潰す** | [todo21.md](todo21.md) | **高優先度**（WP-18 とは独立に着手） |
+| **順位 396: hooks smoke suite の Linux `ETXTBSY` flake** — WP-18 の CI で見つかったが別クレートの既存テスト競合で、WP-18 の経路とは無関係。**flaky テストは「また flake だろう」で実バグを見落とす経路を作る**ため、両 OS matrix（[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)）の信号品質を守る意味で**早期に潰す** | [smoke.rs](../src/hooks-pre-tool-validate/tests/smoke.rs) の `EXEC_STAGING_LOCK` | **完了**（2026-08-19。staging と spawn を相互排除。WSL Ubuntu-24.04 で 30/200 → 0/200 を実測し、`concurrent_staging_and_spawn_survives_etxtbsy` で seal） |
 | **順位 411: `cargo fmt` を PreToolUse でブロック** — WP-18 作業中の誤実行が発端だが、対象は開発環境全般。**規約ではなく機構で弾く**判断（[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)）。反射的に実行されやすく無関係な差分を生むため**早期に塞ぐ** | [todo21.md](todo21.md) | **高優先度**（WP-18 とは独立に着手） |
 | 順位 402-409（post-merge feedback 採用分のうち一般則。観測の完全性 / 重複実装の予防 / shell·config パースの安全性）。**順位 410 のみ (2) へ分類**した（WP-18 成果物自身の堅牢化のため） | [todo-summary2.md](todo-summary2.md) | リポジトリ全体に適用する一般則 |
 | 順位 382（injection payload regression test。依存先の順位 380 完了で unblock）/ 順位 383（`is_separator_row` のパイプ検証欠落） | [todo-summary2.md](todo-summary2.md) | 🔧 Tier 2、任意 |
