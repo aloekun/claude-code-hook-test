@@ -218,7 +218,10 @@ fn apply_regate_decision(
             run_quality_gate(quality_gate, &[])
         }
         RegateDecision::FixRegression => {
-            log_stage("post_takt_regate", &regression_block_message(regression_reason));
+            log_stage(
+                "post_takt_regate",
+                &regression_block_message(regression_reason),
+            );
             false
         }
     }
@@ -286,11 +289,13 @@ pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> R
     };
 
     let pr_range = config.diff_pr_range();
-    let (decision, regression_reason) = analyze_regate(enabled, override_active, regression, pre_diff, || {
-        fetch_post_diff(config.diff.as_ref(), &pr_range)
-    });
+    let (decision, regression_reason) =
+        analyze_regate(enabled, override_active, regression, pre_diff, || {
+            fetch_post_diff(config.diff.as_ref(), &pr_range)
+        });
 
-    let proceed = apply_regate_decision(decision, regression_reason.as_deref(), &config.quality_gate);
+    let proceed =
+        apply_regate_decision(decision, regression_reason.as_deref(), &config.quality_gate);
     RegateOutcome { decision, proceed }
 }
 
@@ -393,7 +398,9 @@ command = "echo push"
     fn decide_differing_snapshots_is_changed() {
         let pre = file_diff("src/a.rs", 3);
         let post = format!("{}{}", pre, file_diff("src/b.rs", 2));
-        let (d, _) = analyze_regate(true, false, regression_on(), Some(&pre), || Some(post.clone()));
+        let (d, _) = analyze_regate(true, false, regression_on(), Some(&pre), || {
+            Some(post.clone())
+        });
         assert_eq!(d, RegateDecision::Changed, "追加方向の変更は後退ではない");
     }
 
@@ -408,8 +415,9 @@ command = "echo push"
             file_diff("docs/plan.md", 100)
         );
         let post = file_diff("docs/plan.md", 100);
-        let (d, reason) =
-            analyze_regate(true, false, regression_on(), Some(&pre), || Some(post.clone()));
+        let (d, reason) = analyze_regate(true, false, regression_on(), Some(&pre), || {
+            Some(post.clone())
+        });
         assert_eq!(
             d,
             RegateDecision::FixRegression,
@@ -417,8 +425,14 @@ command = "echo push"
              (shrink シグナルと独立に部分脱落を検知する分離検証)"
         );
         let reason = reason.expect("FixRegression は理由を持つ");
-        assert!(reason.contains("2 ファイル"), "脱落ファイル数を報告する: {reason}");
-        assert!(reason.contains("src/lib-x"), "脱落ファイル名を例示する: {reason}");
+        assert!(
+            reason.contains("2 ファイル"),
+            "脱落ファイル数を報告する: {reason}"
+        );
+        assert!(
+            reason.contains("src/lib-x"),
+            "脱落ファイル名を例示する: {reason}"
+        );
     }
 
     /// 全面 revert (post diff が空 = 作業コピーが base に戻った) も脱落として block。
@@ -428,7 +442,11 @@ command = "echo push"
         let (d, _) = analyze_regate(true, false, regression_on(), Some(&pre), || {
             Some(String::new())
         });
-        assert_eq!(d, RegateDecision::FixRegression, "空 diff への後退は最悪ケースとして block");
+        assert_eq!(
+            d,
+            RegateDecision::FixRegression,
+            "空 diff への後退は最悪ケースとして block"
+        );
     }
 
     /// 追加行の大幅削減 (ファイル集合は不変) も block。閾値は「超えたら」block:
@@ -440,7 +458,11 @@ command = "echo push"
         let (d, _) = analyze_regate(true, false, regression_on(), Some(&pre), || {
             Some(at_threshold.clone())
         });
-        assert_eq!(d, RegateDecision::Changed, "ちょうど閾値 (50%) は block しない");
+        assert_eq!(
+            d,
+            RegateDecision::Changed,
+            "ちょうど閾値 (50%) は block しない"
+        );
 
         let over_threshold = file_diff("src/a.rs", 49);
         let (d, reason) = analyze_regate(true, false, regression_on(), Some(&pre), || {
@@ -455,7 +477,9 @@ command = "echo push"
     fn analyze_small_reduction_is_changed_not_regression() {
         let pre = file_diff("src/a.rs", 100);
         let post = file_diff("src/a.rs", 90);
-        let (d, _) = analyze_regate(true, false, regression_on(), Some(&pre), || Some(post.clone()));
+        let (d, _) = analyze_regate(true, false, regression_on(), Some(&pre), || {
+            Some(post.clone())
+        });
         assert_eq!(d, RegateDecision::Changed);
     }
 
@@ -469,7 +493,11 @@ command = "echo push"
         };
         let pre = file_diff("src/a.rs", 100);
         let (d, reason) = analyze_regate(true, false, params, Some(&pre), || Some(String::new()));
-        assert_eq!(d, RegateDecision::Changed, "検知 OFF 時は従来どおり re-gate 実行");
+        assert_eq!(
+            d,
+            RegateDecision::Changed,
+            "検知 OFF 時は従来どおり re-gate 実行"
+        );
         assert!(reason.is_none());
     }
 
@@ -482,7 +510,11 @@ command = "echo push"
         let (d, _) = analyze_regate(true, false, regression_on(), Some(pre), || {
             Some(post.to_string())
         });
-        assert_eq!(d, RegateDecision::FixRegression, "75% 削減は形式によらず block");
+        assert_eq!(
+            d,
+            RegateDecision::FixRegression,
+            "75% 削減は形式によらず block"
+        );
     }
 
     /// 受け入れ基準 (T12) の中核契約: fix の破壊的変更を検出して push を block する。

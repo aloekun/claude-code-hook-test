@@ -29,7 +29,7 @@ pub use markers::write_failed_marker;
 pub use pr_metadata::fetch_pr_diff_summary;
 pub use transcript::project_transcript_dir;
 
-use context::{find_latest_prepush_reports_dir, write_context_file};
+use context::{find_prepush_reports_dirs, write_context_file};
 use markers::{
     check_concurrent_run_guard, cleanup_failed_marker, write_pending_marker_logged,
     FailedMarkerGuard,
@@ -91,9 +91,7 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
         transcript_path.display()
     );
 
-    let prepush_dir = find_latest_prepush_reports_dir(&input.repo_root)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let prepush_dirs = select_prepush_reports_dirs_logged(&input.repo_root, &range);
 
     write_context_file(
         &context_path,
@@ -101,7 +99,7 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
         input.owner_repo,
         &range,
         TRANSCRIPT_PATH,
-        &prepush_dir,
+        &prepush_dirs,
     )?;
 
     let takt_ok = run_takt_workflow(&input.repo_root, input.pr_number, TAKT_TIMEOUT_SECS);
@@ -117,6 +115,21 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
         marker_guard.disarm();
     }
     result
+}
+
+/// この PR の pre-push run を選び、何件選ばれたかをログに残す。
+///
+/// 0 件は異常ではない — 照合できない run は意図的に除外する (→
+/// [`find_prepush_reports_dirs`])。ただし**黙って 0 件になると原因が追えない**ため、
+/// head branch と件数を必ず出す。
+fn select_prepush_reports_dirs_logged(repo_root: &Path, range: &PrTimeRange) -> Vec<PathBuf> {
+    let dirs = find_prepush_reports_dirs(repo_root, range.head_branch.as_deref(), range);
+    eprintln!(
+        "[merge-pipeline] [feedback] pre-push run {} 件を分析対象に選択 (head branch: {})",
+        dirs.len(),
+        range.head_branch.as_deref().unwrap_or("<不明>")
+    );
+    dirs
 }
 
 /// transcript jsonl を filter (source dir 既知時) または空ファイル書込 (source dir 不在時) する。

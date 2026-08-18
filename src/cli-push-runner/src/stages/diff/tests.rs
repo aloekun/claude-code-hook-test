@@ -64,10 +64,9 @@ fn verify_accepts_diff_covering_whole_pr_range() {
 #[test]
 fn verify_normalizes_windows_path_separators() {
     let summary = "M docs\\plan.md\n";
-    assert!(verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || Ok(
-        summary.to_string()
-    ))
-    .is_ok());
+    assert!(
+        verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || Ok(summary.to_string())).is_ok()
+    );
 }
 
 /// SIM-NEW-diff-rs-L146: rename 行 (`R <old> <new>`) は new path だけを
@@ -134,8 +133,7 @@ fn verify_accepts_diff_with_renamed_file() {
 /// summary 取得に失敗したら「網羅している」に倒さない (fail-closed / ADR-043)。
 #[test]
 fn verify_fails_closed_when_summary_unavailable() {
-    let result =
-        verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || Err("jj 失敗".to_string()));
+    let result = verify_diff_covers_pr_range(INCIDENT_TIP_ONLY_DIFF, || Err("jj 失敗".to_string()));
     assert!(
         result.is_err(),
         "検証できないことを検証したものとして扱ってはならない"
@@ -147,9 +145,8 @@ fn verify_fails_closed_when_summary_unavailable() {
 #[test]
 fn verify_fails_closed_when_diff_has_no_git_headers() {
     let plain_format_diff = "Modified regular file docs/plan.md:\n   1    1: -a\n";
-    let result = verify_diff_covers_pr_range(plain_format_diff, || {
-        Ok(INCIDENT_PR_SUMMARY.to_string())
-    });
+    let result =
+        verify_diff_covers_pr_range(plain_format_diff, || Ok(INCIDENT_PR_SUMMARY.to_string()));
     assert!(result.is_err(), "形式不明なら検証済みと扱わない");
 }
 
@@ -488,7 +485,11 @@ mod t6_diff_timeout {
     #[test]
     fn command_within_the_timeout_succeeds() {
         let output = run_diff_cmd("echo diff line", 30).expect("即終了するコマンドは Ok");
-        assert!(output.contains("diff line"), "stdout を返すこと: {:?}", output);
+        assert!(
+            output.contains("diff line"),
+            "stdout を返すこと: {:?}",
+            output
+        );
     }
 
     /// `[diff] timeout` 未指定なら既定値が使われること (既定値の適用漏れ防止)。
@@ -507,7 +508,10 @@ mod t6_diff_timeout {
             config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS),
             DEFAULT_DIFF_TIMEOUT_SECS,
         );
-        assert_eq!(run_diff_with(&config, &test_pr_range(), || Ok(String::new())), DiffResult::HasContent);
+        assert_eq!(
+            run_diff_with(&config, &test_pr_range(), || Ok(String::new())),
+            DiffResult::HasContent
+        );
         let _ = std::fs::remove_file(&config.output_path);
     }
 
@@ -518,7 +522,11 @@ mod t6_diff_timeout {
     #[test]
     fn stderr_is_not_merged_into_the_diff_output() {
         let output = run_diff_cmd(STDOUT_AND_STDERR_CMD, 30).expect("exit 0 なら Ok");
-        assert!(output.contains("real diff"), "stdout は残ること: {:?}", output);
+        assert!(
+            output.contains("real diff"),
+            "stdout は残ること: {:?}",
+            output
+        );
         assert!(
             !output.contains("Concurrent modification"),
             "stderr の警告が diff 内容に混入しないこと: {:?}",

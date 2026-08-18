@@ -275,7 +275,8 @@ mod tests {
         /// **出力行数と拒否行の文面は両 OS で揃えること** — ズレると片側だけ
         /// 「cap の外の拒否行を検知する」という本 mod の主題を検証しなくなる。
         #[cfg(windows)]
-        const REFUSAL_BEYOND_CAP: &str = "(for /L %i in (1,1,40) do @echo Changes to push to origin) \
+        const REFUSAL_BEYOND_CAP: &str =
+            "(for /L %i in (1,1,40) do @echo Changes to push to origin) \
             & echo Warning: Refusing to create new remote bookmark feat/x@origin";
         #[cfg(not(windows))]
         const REFUSAL_BEYOND_CAP: &str =
@@ -337,7 +338,10 @@ mod tests {
                 !push_was_refused(&displayed),
                 "前提の確認: 表示用に cap すると拒否行が落ちる (だから判定は全量で行う)",
             );
-            assert!(push_was_refused(&output), "判定は全量出力に対して真であること");
+            assert!(
+                push_was_refused(&output),
+                "判定は全量出力に対して真であること"
+            );
         }
 
         #[test]
@@ -361,7 +365,9 @@ mod tests {
 
         #[test]
         fn cap_for_log_uses_singular_form_for_one_truncated_line() {
-            let output: String = (0..MAX_LINES + 1).map(|i| format!("line {}\n", i)).collect();
+            let output: String = (0..MAX_LINES + 1)
+                .map(|i| format!("line {}\n", i))
+                .collect();
             assert!(
                 cap_for_log(&output).ends_with("... (1 line truncated)"),
                 "1 行超過は単数形",

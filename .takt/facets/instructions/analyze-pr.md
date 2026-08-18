@@ -22,7 +22,7 @@
   "merged_at": "2026-04-25T10:00:00Z",
   "first_commit_time": "2026-04-25T08:00:00Z",
   "transcript_path": ".takt/post-merge-feedback-transcript.jsonl",
-  "prepush_reports_dir": ".takt/runs/<latest>-pre-push-review/reports"
+  "prepush_reports_dirs": [".takt/runs/<slug>-pre-push-review/reports"]
 }
 ```
 

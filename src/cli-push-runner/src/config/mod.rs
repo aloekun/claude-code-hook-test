@@ -10,15 +10,14 @@ mod scratch_file_warning;
 
 pub(crate) use docs_only_routing::DocsOnlyRoutingConfig;
 pub(crate) use ledger_completion::LedgerCompletionConfig;
-pub(crate) use post_takt_regate::{PostTaktRegateConfig, DEFAULT_MAX_SHRINK_PCT};
 pub(crate) use lint_screen::{
     LintScreenConfig, DEFAULT_LINT_SCREEN_ENDPOINT, DEFAULT_LINT_SCREEN_EXE_PATH,
     DEFAULT_LINT_SCREEN_MAX_DIFF_LINES, DEFAULT_LINT_SCREEN_MODEL, DEFAULT_LINT_SCREEN_OUTPUT_PATH,
     DEFAULT_LINT_SCREEN_TIMEOUT_SECS,
 };
+pub(crate) use post_takt_regate::{PostTaktRegateConfig, DEFAULT_MAX_SHRINK_PCT};
 pub(crate) use pr_size_check::{
-    PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD,
-    DEFAULT_PR_SIZE_WARNING_THRESHOLD,
+    PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD, DEFAULT_PR_SIZE_WARNING_THRESHOLD,
 };
 pub(crate) use scratch_file_warning::ScratchFileWarningConfig;
 

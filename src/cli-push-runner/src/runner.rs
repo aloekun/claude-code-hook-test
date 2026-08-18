@@ -26,4 +26,3 @@ pub(crate) fn run_cmd_inherit(label: &str, program: &str, args: &[&str]) -> bool
         }
     }
 }
-

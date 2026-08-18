@@ -14,7 +14,7 @@
 |---|---|---|---|
 | A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | 444 + 328 + 347 | **完了。** 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) でマージ済み。328 は順位 398 の guard 変更で既に解消済みと判明し、再発防止テストのみ追加。347 は実装済み |
 | B-1 | fix(merge-pipeline): transcript の連結順序を時系列にする | 446 (再定義) | 実装済み |
-| B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | 未着手 |
+| B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | 実装済み |
 | B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | 未着手 |
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 未着手 |
 | D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |

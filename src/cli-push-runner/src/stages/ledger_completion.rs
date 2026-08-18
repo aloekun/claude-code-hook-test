@@ -188,19 +188,17 @@ fn verify_declared_ranks(
             false
         }
         Err(message) => {
-            log_stage("ledger", &format!("台帳完了検証を実行できません: {message}"));
+            log_stage(
+                "ledger",
+                &format!("台帳完了検証を実行できません: {message}"),
+            );
             log_info("  判定できないため push を止めます (fail-closed)");
             false
         }
     }
 }
 
-fn run_exe(
-    exe: &str,
-    ledger: &str,
-    ranks: &str,
-    changed_files_path: &str,
-) -> Result<i32, String> {
+fn run_exe(exe: &str, ledger: &str, ranks: &str, changed_files_path: &str) -> Result<i32, String> {
     let mut child = Command::new(exe)
         .args([
             "--ledger",
@@ -214,17 +212,12 @@ fn run_exe(
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|e| format!("{exe} の起動に失敗: {e}"))?;
-    let status = lib_subprocess::wait_with_timeout_basic(
-        "cli-ledger-cleanup",
-        &mut child,
-        EXE_TIMEOUT_SECS,
-    )
-    .map_err(|e| format!("wait に失敗: {e}"))?;
+    let status =
+        lib_subprocess::wait_with_timeout_basic("cli-ledger-cleanup", &mut child, EXE_TIMEOUT_SECS)
+            .map_err(|e| format!("wait に失敗: {e}"))?;
     match status {
         None => Err(format!("timeout ({EXE_TIMEOUT_SECS}s)")),
-        Some(s) => s
-            .code()
-            .ok_or_else(|| "シグナルで終了しました".to_string()),
+        Some(s) => s.code().ok_or_else(|| "シグナルで終了しました".to_string()),
     }
 }
 
@@ -244,7 +237,10 @@ mod tests {
     #[test]
     fn collects_multiple_trailers_in_declaration_order() {
         let description = "feat: x\n\nLedger-Rank: 240\nLedger-Rank: 203\n";
-        assert_eq!(parse_rank_trailers(description).expect("parse"), vec![240, 203]);
+        assert_eq!(
+            parse_rank_trailers(description).expect("parse"),
+            vec![240, 203]
+        );
     }
 
     #[test]
@@ -295,7 +291,11 @@ mod tests {
     /// config 不在 / 無効は skip (既存の push は挙動不変)。
     #[test]
     fn a_disabled_stage_allows_the_push() {
-        assert!(run_ledger_completion(None, "Ledger-Rank: 203\n", "changed.txt"));
+        assert!(run_ledger_completion(
+            None,
+            "Ledger-Rank: 203\n",
+            "changed.txt"
+        ));
         let disabled = LedgerCompletionConfig {
             enabled: Some(false),
             exe: None,

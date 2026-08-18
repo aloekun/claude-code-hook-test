@@ -1,4 +1,4 @@
-﻿//! Push Runner — takt ベースの pre-push パイプライン
+//! Push Runner — takt ベースの pre-push パイプライン
 //!
 //! pnpm push から呼び出され、以下のステージを実行する:
 //!   Stage -1:  bookmark_check — 非 trunk bookmark の存在を確認 (順位 2)
@@ -161,13 +161,14 @@ fn run_takt_and_regate(
     config: &config::Config,
     workflow: &str,
     diff_gate: &DiffGate,
+    bookmarks: &[String],
     metrics: &mut RunMetrics,
 ) -> Result<(), i32> {
     let DiffGate::RunTakt { pre_diff } = diff_gate else {
         return Ok(());
     };
     metrics.set_takt_workflow(workflow);
-    if !metrics.timed("takt", || run_takt(&config.takt, workflow)) {
+    if !metrics.timed("takt", || run_takt(&config.takt, workflow, bookmarks)) {
         log_info("パイプライン中断: takt ワークフロー失敗。");
         return Err(EXIT_TAKT_FAILURE);
     }
@@ -225,7 +226,10 @@ fn run_stages(metrics: &mut RunMetrics) -> i32 {
     metrics.set_bookmarks(&detected_bookmarks);
 
     let skip_groups = metrics.timed("docs_only_routing", || {
-        run_docs_only_routing(config.docs_only_routing.as_ref(), &config.docs_only_pr_range())
+        run_docs_only_routing(
+            config.docs_only_routing.as_ref(),
+            &config.docs_only_pr_range(),
+        )
     });
     metrics.set_skipped_groups(&skip_groups);
 
@@ -241,7 +245,9 @@ fn run_stages(metrics: &mut RunMetrics) -> i32 {
         Err(code) => return code,
     };
 
-    if let Err(code) = run_takt_and_regate(&config, &workflow, &diff_gate, metrics) {
+    if let Err(code) =
+        run_takt_and_regate(&config, &workflow, &diff_gate, &detected_bookmarks, metrics)
+    {
         return code;
     }
 

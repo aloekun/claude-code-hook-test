@@ -9,6 +9,27 @@ use std::process::{Command, Stdio};
 pub struct PrTimeRange {
     pub first_commit_time: String,
     pub merged_at: String,
+    /// PR の head branch 名 (`headRefName`)。
+    ///
+    /// pre-push run の task label に埋まった bookmark 名と突き合わせて、**この PR の
+    /// run だけ**を分析ソースに選ぶために使う (→ `context::find_prepush_reports_dirs`)。
+    /// 取得できなければ `None` で、その場合はどの run とも照合できず全て除外される。
+    pub head_branch: Option<String>,
+}
+
+impl PrTimeRange {
+    /// head branch を伴わない range を作る。
+    ///
+    /// head branch は pre-push run の照合にしか使わないため、時刻 range だけを扱う
+    /// テストや呼び出し側はこちらを使う。
+    #[cfg(test)]
+    pub(crate) fn without_head_branch(first_commit_time: &str, merged_at: &str) -> Self {
+        Self {
+            first_commit_time: first_commit_time.to_string(),
+            merged_at: merged_at.to_string(),
+            head_branch: None,
+        }
+    }
 }
 
 /// PR の diff summary (#A-2 の trivial PR skip 判定で使用)。
@@ -50,7 +71,7 @@ pub fn fetch_pr_time_range(pr_number: u64, owner_repo: &str) -> Result<PrTimeRan
             "--repo",
             owner_repo,
             "--json",
-            "commits,mergedAt",
+            "commits,mergedAt,headRefName",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -97,6 +118,10 @@ fn parse_pr_time_range(json: &serde_json::Value) -> Result<PrTimeRange, String> 
     Ok(PrTimeRange {
         first_commit_time,
         merged_at,
+        head_branch: json
+            .get("headRefName")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
     })
 }
 

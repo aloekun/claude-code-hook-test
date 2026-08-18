@@ -75,8 +75,7 @@ pub(crate) fn run_docs_only_routing(
     if config.enabled != Some(true) {
         return Vec::new();
     }
-    let override_active =
-        std::env::var(OVERRIDE_ENV_VAR).ok().as_deref() == Some("1");
+    let override_active = std::env::var(OVERRIDE_ENV_VAR).ok().as_deref() == Some("1");
     let decision = decide_routing(config, override_active, || run_jj_diff_summary(pr_range));
     log_and_map(decision, pr_range)
 }
@@ -172,7 +171,10 @@ pub(super) fn run_jj_diff_summary(revset: &str) -> Result<String, String> {
     let stderr = stderr_handle.join().unwrap_or_default();
 
     match status {
-        None => Err(format!("jj diff --summary タイムアウト ({}s)", JJ_TIMEOUT_SECS)),
+        None => Err(format!(
+            "jj diff --summary タイムアウト ({}s)",
+            JJ_TIMEOUT_SECS
+        )),
         Some(s) if s.success() => Ok(stdout),
         Some(_) => Err(stderr.trim().to_string()),
     }
@@ -217,7 +219,9 @@ mod tests {
     #[test]
     fn override_forces_full_run_without_touching_jj() {
         let cfg = config(true, None);
-        let decision = decide_routing(&cfg, true, || panic!("must not call jj when override active"));
+        let decision = decide_routing(&cfg, true, || {
+            panic!("must not call jj when override active")
+        });
         assert_eq!(decision, RoutingDecision::OverrideForced);
         assert!(log_and_map(decision, &test_revset()).is_empty());
     }
@@ -230,7 +234,10 @@ mod tests {
             decision,
             RoutingDecision::DocsOnly(vec!["rust-lint-test".to_string()])
         );
-        assert_eq!(log_and_map(decision, &test_revset()), vec!["rust-lint-test"]);
+        assert_eq!(
+            log_and_map(decision, &test_revset()),
+            vec!["rust-lint-test"]
+        );
     }
 
     #[test]
@@ -244,16 +251,16 @@ mod tests {
     #[test]
     fn mixed_docs_and_code_runs_all_groups() {
         let cfg = config(true, None);
-        let decision =
-            decide_routing(&cfg, false, || Ok("M docs/a.md\nM src/lib.rs".into()));
+        let decision = decide_routing(&cfg, false, || Ok("M docs/a.md\nM src/lib.rs".into()));
         assert_eq!(decision, RoutingDecision::NotDocsOnly);
     }
 
     #[test]
     fn excluded_code_equivalent_path_runs_all_groups() {
         let cfg = config(true, None);
-        let decision =
-            decide_routing(&cfg, false, || Ok("M .takt/facets/instructions/fix.md".into()));
+        let decision = decide_routing(&cfg, false, || {
+            Ok("M .takt/facets/instructions/fix.md".into())
+        });
         assert_eq!(
             decision,
             RoutingDecision::NotDocsOnly,

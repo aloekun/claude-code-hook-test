@@ -446,7 +446,9 @@
 >
 > **(a) 実装済 (2026-07-21)**: PR #311 で 4 回目の再発 (695 行の PR に対しレビュー対象 37 行、security-review が実 diff と矛盾して "docs-only / No dependency changes" と記載) を観測し、`[diff]` stage を修正した。top-level `default_branch` を新設して `diff` / `docs_only_routing` / `pr_size_check` の 3 stage が同一解決を共有し、`[diff] command` は `{{PR_RANGE}}` プレースホルダ経由で範囲を受け取る (config に revset を直書きできない)。加えて生成 diff が PR 範囲の全変更ファイルを含むかを `jj diff --summary` と突き合わせる**範囲カバレッジ検査**を fail-closed で追加し、config の書き方に依存せず「レビュー範囲 < PR 範囲」を検知できるようにした (未更新の派生プロジェクト config も捕まる)。順位 264 (`--git` 形式切替) も同 PR で同時実施 (範囲検査が `diff --git` ヘッダを読む要件と重なるため)。**ADR-027 の射程についてのユーザー判断**: 範囲拡張のレビュー時間コストを実測したところ 37 行 4m32s → 1011 行 4m43s (**+11 秒**) で、ADR-027 の速度改善は arch-review facet 除去によるものであり diff 範囲縮小は寄与していないことが判明したため、範囲拡張を採用した。
 >
-> **残タスク**: 本エントリ本体の「post-merge feedback の全 run 集約」と、上記 (b) `bookmark_check.rs` の祖先未レビュー穴の検証は未着手。
+> **(a) 完了 (2026-08-18)**: 「post-merge feedback の全 run 集約」を実装した。push-runner が takt の task label へ bookmark 名を埋め込み (`build_task_label`)、merge 側が PR の `headRefName` と突き合わせて**この PR の run だけを全件**採る (`find_prepush_reports_dirs`)。`prepush_reports_dir` は配列 `prepush_reports_dirs` へ変更し、facet instruction も複数 dir 対応にした。照合できない run は除外する (誤帰属より欠落を選ぶ)。同時に順位 336 (対象 PR と照合せず辞書順で最新 1 件を採る欠陥) も解消した。
+>
+> **残タスク**: 上記 (b) `bookmark_check.rs` の祖先未レビュー穴の検証のみ。
 >
 > **参照**: `.claude/feedback-reports/268.md` Tier 2 #1 / `.claude/feedback-reports/300.md` Tier1 #1 / `.claude/feedback-reports/301.md` Tier1 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir`)、`push-runner-config.toml` (`[diff]` section)、`src/cli-push-runner/src/stages/diff.rs`・`src/cli-push-runner/src/stages/bookmark_check.rs`、`src/cli-push-runner/src/config/docs_only_routing.rs` (既に PR 範囲へ修正済の対照)、`.takt/facets/instructions/analyze-prepush-reports.md`、[ADR-027](adr/adr-027-push-review-simplicity-focus.md)
 >
@@ -456,8 +458,8 @@
 
 - [x] **`[diff]` stage の diff 範囲を `<default_branch>..@` (PR 範囲) に拡張** — 祖先コミットの code 変更も AI レビュー用 diff に含める (`docs_only_routing` の skip 判定と同基準に揃える)。**PR #311/#313 で実装済** (上記 (a) 参照。範囲カバレッジ検査 + config-load 時の `{{PR_RANGE}}` 必須検証込み)。
 - [ ] `bookmark_check.rs` で `@` 非 trunk 祖先が未レビューのまま push される穴を検証・塞ぐ (T8 / PR #280 と同クラス)。
-- [ ] 対象 PR の pre-push run dir を列挙する関数に拡張。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
-- [ ] context json の `prepush_reports_dir` を配列化 + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)
+- [x] 対象 PR の pre-push run dir を列挙する関数に拡張 (2026-08-18 実装。task label の bookmark 名で照合)。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
+- [x] context json の `prepush_reports_dir` を配列化 (2026-08-18 実装。`prepush_reports_dirs` へ改名、旧形式との互換は持たず移行期間の空振りを許容) + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
