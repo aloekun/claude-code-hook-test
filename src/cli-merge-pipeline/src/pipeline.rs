@@ -280,20 +280,13 @@ fn run_ai_step_for(label: &str, pr_number: u64, owner_repo: &str) -> Result<Path
         return Err(reason);
     }
 
-    let transcript_source_dir = feedback::project_transcript_dir(&repo_root);
-    if transcript_source_dir.is_none() {
-        log_step(
-            label,
-            "INFO",
-            "transcript dir が見つかりません (USERPROFILE 未設定 or session 未生成) — 空 transcript で続行",
-        );
-    }
+    let transcript_sources = resolve_transcript_sources_logged(label, &repo_root);
 
     let input = feedback::FeedbackInput {
         pr_number,
         owner_repo,
         repo_root: repo_root.clone(),
-        transcript_source_dir,
+        transcript_sources,
     };
 
     log_step(
@@ -329,6 +322,33 @@ fn ai_step_should_skip_trivial(label: &str, pr_number: u64, owner_repo: &str) ->
             None
         }
     }
+}
+
+/// transcript の走査対象 workspace を解決し、どれを見るかをログに残す。
+///
+/// **どの workspace を見たかが残らないと、欠落したときに気づけない** (順位 469 の
+/// PR #417 は improve workspace の実装セッションが落ちたが、レポートは正常に見えた)。
+fn resolve_transcript_sources_logged(label: &str, repo_root: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let sources = feedback::workspace_transcript_dirs(repo_root);
+    if sources.is_empty() {
+        log_step(
+            label,
+            "INFO",
+            "transcript dir が見つかりません (USERPROFILE 未設定 or session 未生成) — 空 transcript で続行",
+        );
+        return sources;
+    }
+    let roots = sources
+        .iter()
+        .map(|(_, root)| root.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    log_step(
+        label,
+        "INFO",
+        &format!("transcript 走査対象 {} workspace: {}", sources.len(), roots),
+    );
+    sources
 }
 
 /// `feedback::run` 失敗時に `.failed` marker を書き込み WARN ログを出す。
@@ -739,10 +759,7 @@ mod tests {
         let stale_report = temp.path().join("267.md");
         std::fs::write(&stale_report, "stale report from previous run").unwrap();
 
-        let code = feedback_only_outcome(
-            "test",
-            Err("concurrent run guard trip".to_string()),
-        );
+        let code = feedback_only_outcome("test", Err("concurrent run guard trip".to_string()));
         assert_eq!(code, 1, "stale report が存在しても Err は exit 1");
         assert!(stale_report.exists(), "前提: stale report は存在したまま");
     }

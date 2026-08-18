@@ -143,12 +143,10 @@ fn concurrent_stale_takeover_only_one_wins() {
 
     let path_a = path.clone();
     let path_b = path.clone();
-    let a = std::thread::spawn(move || {
-        acquire_pipeline_lock_at(path_a, "A", 1800, 1_000_000 + 1800)
-    });
-    let b = std::thread::spawn(move || {
-        acquire_pipeline_lock_at(path_b, "B", 1800, 1_000_000 + 1800)
-    });
+    let a =
+        std::thread::spawn(move || acquire_pipeline_lock_at(path_a, "A", 1800, 1_000_000 + 1800));
+    let b =
+        std::thread::spawn(move || acquire_pipeline_lock_at(path_b, "B", 1800, 1_000_000 + 1800));
     let result_a = a.join().unwrap();
     let result_b = b.join().unwrap();
 
@@ -211,8 +209,12 @@ fn takeover_preserves_fresh_lock_that_appeared_during_takeover() {
     let path = temp_lock_path("snapshot-mismatch");
 
     // NOTE: takeover 中に対象が別 takeover 由来の fresh lock へ変わった状況を模す (age=100 < 1800=fresh)。
-    let fresh_lock_from_concurrent_takeover =
-        build_lock_content("cccccccccccccccccccccccccccccccc", 12345, 1_000_100, "other");
+    let fresh_lock_from_concurrent_takeover = build_lock_content(
+        "cccccccccccccccccccccccccccccccc",
+        12345,
+        1_000_100,
+        "other",
+    );
     std::fs::write(&path, &fresh_lock_from_concurrent_takeover).unwrap();
 
     let result = takeover_stale_lock(
@@ -338,7 +340,10 @@ fn reclaim_with_cached_stale_content_leaves_winner_sentinel_intact() {
         winner_fresh,
         "勝者の fresh sentinel は無傷で残る"
     );
-    assert!(!marker_leaked, "出遅れ側が作った reclaim marker は後始末される");
+    assert!(
+        !marker_leaked,
+        "出遅れ側が作った reclaim marker は後始末される"
+    );
 }
 
 /// 孤立 stale sentinel からの自己修復で `Acquired` した後、reclaim marker が残留しない
@@ -355,7 +360,10 @@ fn orphaned_sentinel_selfheal_leaves_no_reclaim_marker() {
     let result = acquire_pipeline_lock_at(path.clone(), "push", 1800, 1_000_000 + 1800);
 
     assert!(matches!(result, PipelineLockResult::Acquired(_)));
-    assert!(!sentinel.exists(), "takeover 完了後に sentinel は除去される");
+    assert!(
+        !sentinel.exists(),
+        "takeover 完了後に sentinel は除去される"
+    );
     assert!(
         !reclaim_gate_path(&sentinel, stale_sentinel).exists(),
         "reclaim marker は takeover 完了後に除去され残留しない"
