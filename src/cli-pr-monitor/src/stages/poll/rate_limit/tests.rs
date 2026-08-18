@@ -463,6 +463,91 @@ fn evaluate_rate_limit_shortcut_passes_when_coderabbit_none() {
     assert!(evaluate_rate_limit_shortcut(None, &m));
 }
 
+/// 順位 228: `actionable_comments` 単独 (Some(1)、他 2 field は clean) で shortcut を抑止。
+/// 既存の `_blocks_when_unresolved_threads_exist` は 3 field 同時に dirty のため
+/// どの field が block を引き起こしたか判別できない — ここでは actionable_comments を分離する。
+#[test]
+fn evaluate_rate_limit_shortcut_blocks_when_actionable_comments_positive_alone() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "commented".into(),
+        new_comments: 0,
+        actionable_comments: Some(1),
+        unresolved_threads: Some(0),
+    };
+    assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228: `unresolved_threads` 単独 (Some(1)、他 2 field は clean) で shortcut を抑止。
+#[test]
+fn evaluate_rate_limit_shortcut_blocks_when_unresolved_threads_positive_alone() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "commented".into(),
+        new_comments: 0,
+        actionable_comments: Some(0),
+        unresolved_threads: Some(1),
+    };
+    assert!(!evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228: `actionable_comments: None` は `unwrap_or(0)` により clean 扱い。
+/// 他 field が clean なら shortcut を許可する現行動作を固定する (silent-clean 誤認の回帰防止)。
+#[test]
+fn evaluate_rate_limit_shortcut_clean_when_actionable_comments_none() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "approved".into(),
+        new_comments: 0,
+        actionable_comments: None,
+        unresolved_threads: Some(0),
+    };
+    assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228: `unresolved_threads: None` は `unwrap_or(0)` により clean 扱い。
+/// 他 field が clean なら shortcut を許可する現行動作を固定する (silent-clean 誤認の回帰防止)。
+#[test]
+fn evaluate_rate_limit_shortcut_clean_when_unresolved_threads_none() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "approved".into(),
+        new_comments: 0,
+        actionable_comments: Some(0),
+        unresolved_threads: None,
+    };
+    assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
+/// 順位 228: `actionable_comments` / `unresolved_threads` が両方 None でも
+/// `new_comments == 0` なら clean 扱い (2 field 同時 None の境界)。
+#[test]
+fn evaluate_rate_limit_shortcut_clean_when_actionable_and_unresolved_both_none() {
+    let m = MergeableStatus {
+        mergeable: "MERGEABLE".into(),
+        merge_state: "CLEAN".into(),
+    };
+    let cr = crate::state::CodeRabbitState {
+        review_state: "approved".into(),
+        new_comments: 0,
+        actionable_comments: None,
+        unresolved_threads: None,
+    };
+    assert!(evaluate_rate_limit_shortcut(Some(&cr), &m));
+}
+
 /// 順位 141: signal format に必須 field が全て含まれ、Claude が AskUserQuestion 化できる。
 #[test]
 fn format_shortcut_signal_includes_required_fields() {
