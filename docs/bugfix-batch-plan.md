@@ -12,7 +12,7 @@
 
 | # | PR | 対象順位 | 状態 |
 |---|---|---|---|
-| A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | ~~444~~ + 328 + 347 | **順位 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) で実装完了・マージ待ち** (本計画とは独立に起票済みだった)。**残りは 328 + 347** |
+| A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | 444 + 328 + 347 | **完了。** 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) でマージ済み。328 は順位 398 の guard 変更で既に解消済みと判明し、再発防止テストのみ追加。347 は実装済み |
 | B | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) + 446 | 未着手 |
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 未着手 |
 | D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |
@@ -41,9 +41,9 @@
 
 ## PR A: fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 (順位 444 + 328 + 347)
 
-**束ねる理由**: 3 件とも `cli-merge-pipeline` の post-merge-feedback 経路の欠陥。444 (stale meta による恒久ブロック) と 328 (leftover context.json による誤 bail) は同じ「進行中誤判定」機構の裏表、347 (空 fix commit) も同経路の後始末不備。
+**束ねた理由 (起案時)**: 3 件とも post-merge-feedback 経路の欠陥で、444 (stale meta による恒久ブロック) と 328 (leftover context.json による誤 bail) は同じ「進行中誤判定」機構の裏表、347 (空 fix commit) も同経路の後始末不備、と見立てていた。**実際には 347 の実装先は `cli-merge-pipeline` ではなく `cli-pr-monitor` だった** (下記 347 の節)。444 / 328 は見立てどおり `cli-merge-pipeline` (と reaper 側の `hooks-session-start`)。
 
-> **順位 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) で実装完了 (2026-08-18)、マージ待ち。** 本計画の作成前から独立に起票されていた。**本 PR の残作業は 328 + 347 のみ**で、下記 444 の節は「当初計画がどう変わったか」の記録として残す (マージ後、台帳の後始末と同じタイミングで削除してよい)。
+> **PR A は完了 (2026-08-18)。** 順位 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) で**マージ済み**。328 は着手時に前提が消えていたため seal のみ。347 は [PR #418](https://github.com/aloekun/claude-code-hook-test/pull/418) で実装。**以下 3 節は「当初計画がどう変わったか」の記録**で、実装内容そのものは各 PR を参照する。
 >
 > 実行時間分布の実測は #417 の中で完了した (自身の成果物を書いた完了 run 140 件: 中央値 8.9 分 / p95 16.5 分 / 最大 23.3 分 / 25 分超 0 件、分布は対数正規)。**閾値 1500 秒は実測で裏付けられた**ため変更していない。詳細は `run_registry::running_runs` の doc を参照。
 >
@@ -57,17 +57,21 @@
 - **回帰テスト**: 再実行シナリオ (1 本目=成果物ゼロ、2 本目=完走) で 1 本目が `failed` になること、`endTime` を捏造しないこと、status 確定の失敗を成功と報告しないこと、`reportDirectory` の `..` で別 run に到達できないこと。
 - **完了基準**: 達成済み。reaper 通過後に run 単位の成果物に基づいて終端化されること、reaper が走らなくても stale running がブロックしないこと、閾値内 running のブロック非退行。
 
-### 順位 328: 成功後に context.json が残り次マージの feedback を誤 bail させる
+### 順位 328 (前提消滅 — 記録): 成功後の context.json 残存による誤 bail
 
-- **不具合**: #295 の feedback が正常完了しても `.takt/post-merge-feedback-context.json` を掃除しないため、1500s 以内の連続マージで次の feedback が「進行中」と誤 bail (#296 で実観測、手動 recovery 済み)。
-- **対処**: `src/cli-merge-pipeline/src/pipeline.rs` の post_merge_feedback step で**正常完了時に context.json を削除**。fail 時は marker を残す現行 L2 recovery (ADR-030) を維持。先に leftover で誤 bail する再現テストを固定 (base_dir 注入等) してから直す。
-- **完了基準**: 連続マージ (成功後 25 分以内) で 2 回目の feedback が誤 bail しないこと (回帰テストで seal)。
+- **不具合 (2026-07-19 #296 で実観測)**: 旧 guard は `context.json` の mtime を見て「1500 秒以内に書かれていれば進行中」と判定していた。#295 の feedback が正常完了しても `context.json` を掃除しないため、25 分以内の連続マージで #296 の feedback が誤 bail した。
+- **着手時の確認で前提が消えていた**: 現行の `check_concurrent_run_guard` は `run_registry::running_runs` (= `meta.json` の `status` + `startTime`) **だけ**を読み、`context.json` を一切参照しない。判定根拠を run の状態へ移した**順位 398 (PR #388) の時点でこの結合は消えている**。`CONCURRENT_RUN_GUARD_SECS` も既に廃止済みで、コード上の残存は doc コメント内の言及のみ。
+- **したがって当初の対処 (成功時に context.json を削除) は実装しなかった**。guard がもう読まない以上、削除で得られるのは後片付けの綺麗さだけである一方、timeout kill を生き延びた orphan takt が `context.json` を読み直す経路が実在するため (ADR-030 § Reconciliation)、消す側にわずかながら実害の芽がある。**利得がほぼ無く risk が非ゼロなので採らない。**
+- **代わりに入れたもの**: 「書きたてで放置された `context.json` があっても guard を通る」ことを固定する回帰テスト (`a_leftover_context_file_does_not_block_the_next_feedback`)。同じ結合を将来再導入させないための seal。
+- **完了基準**: 達成済み (上記テストで seal)。
 
-### 順位 347: CodeRabbit findings が空でも fix commit が生成され abandon される
+### 順位 347 (実装済み): CodeRabbit findings が空でも fix commit が生成され abandon される
 
-- **不具合**: findings 0 件でも fix commit 生成 → abandon の noise (PR #310 で実観測)。
-- **対処**: 該当コードパスを特定 (cli-merge-pipeline / takt fix step、実装時に再調査が必要と明記されている) し、actionable findings 0 (空、または全件 nitpick/informational) なら commit 生成・abandon を skip。actionable 判定はテストで明示する。
-- **完了基準**: 「findings 空」「全 non-actionable」の両ケースで空 fix commit が作られないこと (回帰テストで seal)。
+- **不具合**: findings 0 件でも fix commit 生成 → abandon の noise (PR #310 で実観測。2026-08-18 の PR #417 監視でも再現)。
+- **該当コードパス (再調査の結果)**: `cli-merge-pipeline` ではなく **`src/cli-pr-monitor/src/stages/monitor.rs`** の `invoke_takt_into_outcome`。takt は「CodeRabbit がコメントを投稿した」だけでも起動する (`has_coderabbit_findings` は `new_comments` / `unresolved_threads` でも真になる) ため、findings 0 件のまま `create_fix_commit` が呼ばれていた。
+- **対処**: findings が 0 件なら fix commit の事前作成を skip する。
+- **「全件 non-actionable なら skip」は実装しなかった**: `extract_severity` の `"Info"` は `Critical` / `Major` / `Minor` / `High` / `Low` のどれにも一致しない場合の**受け皿**でもある。severity で絞ると、書式が変わって解析できなかった実指摘まで黙って skip する。判定根拠が確かな件数だけを条件にした。この契約はテストで固定している。
+- **完了基準**: 達成済み。findings 0 件で作成されないこと、`Info` のみでも「対象なし」に倒さないことを回帰テストで seal。
 
 **後始末**: todo22.md「順位 444」節 / todo17.md「post-merge feedback が成功後に…誤 bail させる」節 / todo14.md「CodeRabbit findings が空のとき fix commit 生成を skip」節を削除、todo-summary2.md の 444 / 328 / 347 行を削除。
 

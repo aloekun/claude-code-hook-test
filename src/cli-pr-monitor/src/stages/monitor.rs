@@ -90,7 +90,10 @@ fn try_acquire_monitor_lock() -> AcquireResult {
 
 fn init_or_continue_state(pr_info: &PrInfo, continue_state: bool, pr_label: &str) {
     if continue_state {
-        log_info(&format!("{} の監視を継続 (既存 state の時刻窓を維持)", pr_label));
+        log_info(&format!(
+            "{} の監視を継続 (既存 state の時刻窓を維持)",
+            pr_label
+        ));
         return;
     }
     log_info(&format!("{} の監視を開始", pr_label));
@@ -154,13 +157,37 @@ fn run_takt_stage(
     outcome
 }
 
+/// fix commit を事前作成する価値があるか。**件数だけで決め、severity は見ない。**
+///
+/// takt は「CodeRabbit がコメントを投稿した」だけでも起動する ([`run_takt_stage`] の
+/// `has_coderabbit_findings` は `new_comments` / `unresolved_threads` でも真になる)。
+/// findings が 1 件も無いときは fix step が直すものを持たないため、事前作成した commit は
+/// 空のまま残り、直後に abandon される。この空 commit → abandon は監視ログを汚し、
+/// bookmark をずらす副作用も持つ (順位 386)。
+///
+/// 「nitpick / informational だけなら skip」も検討したが、`extract_severity` の `"Info"` は
+/// **判定不能時の受け皿**でもある (`Critical` / `Major` / `Minor` / `High` / `Low` のどれにも
+/// 一致しなければ `"Info"`)。severity で絞ると、書式が変わって解析できなかった実指摘まで
+/// 黙って skip する。判定根拠が確かな「findings が 0 件」だけを条件にする。
+fn has_findings_to_fix(findings: &[lib_report_formatter::Finding]) -> bool {
+    !findings.is_empty()
+}
+
 fn invoke_takt_into_outcome(
     outcome: &mut TaktOutcome,
     takt_config: &crate::config::TaktConfig,
     pr_info: &PrInfo,
     findings: &[lib_report_formatter::Finding],
 ) {
-    outcome.fix_state = create_fix_commit(pr_info.pr_number, findings);
+    outcome.fix_state = if has_findings_to_fix(findings) {
+        create_fix_commit(pr_info.pr_number, findings)
+    } else {
+        log_info(
+            "[state] findings 0 件のため fix commit の事前作成を skip \
+             (空 commit → abandon の noise を作らない)",
+        );
+        FixCommitState::None
+    };
     outcome.pre_takt_cid = crate::runner::capture_commit_id();
     log_info(&format!(
         "[state] pre_takt_commit_id: {:?}",
@@ -176,23 +203,58 @@ fn invoke_takt_into_outcome(
     }
 }
 
+/// takt 実行後の再 push 経路へ進むか決める。
+///
+/// # findings 0 件のときは re-push 経路へ進まない
+///
+/// [`has_findings_to_fix`] が偽なら fix commit を作らないため `FixCommitState::None` になる。
+/// この状態で [`execute_repush_flow`] へ進むと、`decide_repush_action` の
+/// `(HasChange, _, true)` が `AutoPush` を選び、**分離コミットなしで push される**。
+/// auto push を切っていても `UserConfirmNoSeparation` になり、変更が `@` に混ざる。
+///
+/// findings が無いなら fix step には直す対象が無い。それでも作業ツリーが変わっていたら
+/// **想定外**なので、push せず warning で可視化する (黙って残すと順位 387 と同じ
+/// 「BLOCK したのにローカルは書き換わっている」状態になる)。
 fn finalize_repush(
     outcome: &TaktOutcome,
     findings: &[lib_report_formatter::Finding],
     config: &crate::config::Config,
     pr_label: &str,
 ) {
-    if outcome.takt_succeeded && outcome.has_coderabbit_findings {
-        execute_repush_flow(
-            &config.fix,
-            findings,
-            pr_label,
-            outcome.pre_takt_cid.as_deref(),
-            &outcome.fix_state,
-        );
-    } else if let FixCommitState::Created { commit_id } = &outcome.fix_state {
-        crate::fix_commit::try_abandon_empty_fix_commit("takt 未完了:", Some(commit_id));
+    if !takt_produced_a_result(outcome) {
+        if let FixCommitState::Created { commit_id } = &outcome.fix_state {
+            crate::fix_commit::try_abandon_empty_fix_commit("takt 未完了:", Some(commit_id));
+        }
+        return;
     }
+    if !has_findings_to_fix(findings) {
+        warn_if_takt_changed_the_tree_without_findings();
+        return;
+    }
+    execute_repush_flow(
+        &config.fix,
+        findings,
+        pr_label,
+        outcome.pre_takt_cid.as_deref(),
+        &outcome.fix_state,
+    );
+}
+
+/// takt が結果を出したか (= re-push 判定の土俵に乗るか)。
+fn takt_produced_a_result(outcome: &TaktOutcome) -> bool {
+    outcome.takt_succeeded && outcome.has_coderabbit_findings
+}
+
+/// findings 0 件なのに takt が作業ツリーを変えていたら warning を出す。
+fn warn_if_takt_changed_the_tree_without_findings() {
+    if crate::runner::diff_at_is_empty() {
+        log_info("[state] findings 0 件のため re-push 経路を skip (作業ツリーの変更なし)");
+        return;
+    }
+    log_info(
+        "[warn] findings 0 件なのに takt が作業ツリーを変更しました。push せず残します — \
+         `jj diff` で内容を確認し、不要なら `jj abandon` / `jj restore` で片付けてください",
+    );
 }
 
 // ─── 監視のみモード ───
@@ -416,305 +478,4 @@ fn print_findings_table(findings: &[lib_report_formatter::Finding]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_pr_info(pr: u64, repo: &str, head: Option<&str>) -> PrInfo {
-        PrInfo {
-            pr_number: Some(pr),
-            repo: Some(repo.into()),
-            push_time: None,
-            head_commit: head.map(String::from),
-            fix_push_time: None,
-        }
-    }
-
-    fn make_state(pr: u64, repo: &str, head: Option<&str>) -> PrMonitorState {
-        let mut s = PrMonitorState::new(Some(pr), Some(repo.into()), "t".into());
-        s.head_commit = head.map(String::from);
-        s
-    }
-
-    #[test]
-    fn should_continue_state_true_when_pr_repo_head_match() {
-        let state = make_state(42, "o/r", Some("abc1234"));
-        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
-        assert!(should_continue_state(&state, &pr_info));
-    }
-
-    #[test]
-    fn should_continue_state_false_when_head_differs() {
-        let state = make_state(42, "o/r", Some("abc1234"));
-        let pr_info = make_pr_info(42, "o/r", Some("def5678"));
-        assert!(
-            !should_continue_state(&state, &pr_info),
-            "CR Major #1 由来: head 不一致なら fresh 初期化に倒す (stale な時刻窓を持ち込まない)"
-        );
-    }
-
-    #[test]
-    fn should_continue_state_false_when_state_head_missing() {
-        let state = make_state(42, "o/r", None);
-        let pr_info = make_pr_info(42, "o/r", Some("abc1234"));
-        assert!(
-            !should_continue_state(&state, &pr_info),
-            "legacy state (head_commit None) は安全側で fresh 初期化扱い"
-        );
-    }
-
-    #[test]
-    fn should_continue_state_false_when_pr_info_head_missing() {
-        let state = make_state(42, "o/r", Some("abc1234"));
-        let pr_info = make_pr_info(42, "o/r", None);
-        assert!(
-            !should_continue_state(&state, &pr_info),
-            "current head 取得失敗時は安全側で fresh 初期化扱い"
-        );
-    }
-
-    #[test]
-    fn should_continue_state_false_when_pr_or_repo_differs() {
-        let state = make_state(42, "o/r", Some("abc1234"));
-        let other_pr = make_pr_info(99, "o/r", Some("abc1234"));
-        let other_repo = make_pr_info(42, "x/y", Some("abc1234"));
-        assert!(!should_continue_state(&state, &other_pr));
-        assert!(!should_continue_state(&state, &other_repo));
-    }
-
-    use crate::stages::poll::PollResult;
-    use crate::state::CodeRabbitState;
-    use lib_report_formatter::Finding;
-
-    fn poll_result(
-        action: &str,
-        review_state: Option<&str>,
-        findings: Vec<Finding>,
-    ) -> PollResult {
-        PollResult {
-            action: action.into(),
-            summary: "test".into(),
-            ci: None,
-            coderabbit: review_state.map(|rs| CodeRabbitState {
-                review_state: rs.into(),
-                new_comments: 0,
-                actionable_comments: None,
-                unresolved_threads: None,
-            }),
-            findings,
-            check_output: None,
-            rate_limit: None,
-        }
-    }
-
-    fn finding(severity: &str) -> Finding {
-        Finding {
-            severity: severity.into(),
-            file: "f.rs".into(),
-            line: "1".into(),
-            issue: "test issue".into(),
-            suggestion: "test suggestion".into(),
-            source: "test".into(),
-        }
-    }
-
-    const VERDICT_RATE_LIMITED: &str =
-        "CodeRabbit rate-limit 中でレビュー未実施のため、判定を保留します (後続は GitHub Actions 経路が処理)";
-    const VERDICT_PENDING_REVIEW: &str =
-        "review 未確定のため判定を保留します (後続は GitHub Actions 経路が処理)";
-    const VERDICT_REVIEW_PENDING: &str = "CodeRabbit review が未完了のため、判定を保留します";
-    const VERDICT_NO_PROBLEMS: &str = "問題は見つかりませんでした";
-    const VERDICT_MINOR: &str = "重大な問題は見つかりませんでした。軽微な改善提案があります";
-    const VERDICT_CRITICAL: &str = "修正が必要な指摘があります";
-
-    #[test]
-    fn verdict_rate_limited_takes_precedence_over_review_state() {
-        let r = poll_result("rate_limited", Some("not_found"), vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_RATE_LIMITED);
-    }
-
-    #[test]
-    fn verdict_pending_review_takes_precedence_over_findings() {
-        let r = poll_result("pending_review", Some("not_found"), vec![finding("critical")]);
-        assert_eq!(compute_verdict(&r), VERDICT_PENDING_REVIEW);
-    }
-
-    #[test]
-    fn verdict_pending_when_review_not_found_with_no_findings() {
-        let r = poll_result("continue_monitoring", Some("not_found"), vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
-    }
-
-    #[test]
-    fn verdict_pending_when_review_pending_with_no_findings() {
-        let r = poll_result("continue_monitoring", Some("pending"), vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
-    }
-
-    #[test]
-    fn verdict_pending_when_review_not_found_even_with_findings() {
-        let r = poll_result(
-            "continue_monitoring",
-            Some("not_found"),
-            vec![finding("major")],
-        );
-        assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
-    }
-
-    #[test]
-    fn verdict_no_problems_when_review_success_with_no_findings() {
-        let r = poll_result("stop_monitoring_success", Some("success"), vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
-    }
-
-    #[test]
-    fn verdict_minor_when_review_success_with_low_severity_findings() {
-        let r = poll_result(
-            "stop_monitoring_success",
-            Some("success"),
-            vec![finding("minor")],
-        );
-        assert_eq!(compute_verdict(&r), VERDICT_MINOR);
-    }
-
-    #[test]
-    fn verdict_critical_when_review_success_with_critical_findings() {
-        let r = poll_result(
-            "stop_monitoring_success",
-            Some("success"),
-            vec![finding("critical")],
-        );
-        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
-    }
-
-    #[test]
-    fn verdict_critical_when_severity_is_high() {
-        let r = poll_result(
-            "stop_monitoring_success",
-            Some("success"),
-            vec![finding("high")],
-        );
-        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
-    }
-
-    #[test]
-    fn verdict_critical_when_severity_is_major() {
-        let r = poll_result(
-            "stop_monitoring_success",
-            Some("success"),
-            vec![finding("major")],
-        );
-        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
-    }
-
-    #[test]
-    fn verdict_no_problems_when_review_skipped() {
-        let r = poll_result("stop_monitoring_success", Some("skipped"), vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
-    }
-
-    #[test]
-    fn verdict_no_problems_when_coderabbit_state_absent() {
-        let r = poll_result("stop_monitoring_success", None, vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
-    }
-
-    /// R3 用: 未解決スレッド数と rate-limit を指定できる `PollResult` を組む。
-    fn poll_result_with_unsettled(
-        unresolved_threads: Option<usize>,
-        rate_limit: Option<crate::state::RateLimitState>,
-        findings: Vec<Finding>,
-    ) -> PollResult {
-        PollResult {
-            action: "stop_monitoring_success".into(),
-            summary: "test".into(),
-            ci: None,
-            coderabbit: Some(CodeRabbitState {
-                review_state: "success".into(),
-                new_comments: 0,
-                actionable_comments: None,
-                unresolved_threads,
-            }),
-            findings,
-            check_output: None,
-            rate_limit,
-        }
-    }
-
-    /// PR #309 incident の rate-limit 情報 (第 3 世代書式、57 分待機)。
-    fn pr309_rate_limit() -> crate::state::RateLimitState {
-        crate::state::RateLimitState {
-            until_unix_secs: 1_784_556_707,
-            comment_event_time: "2026-07-20T12:10:47Z".into(),
-            wait_minutes: 57,
-            wait_seconds: 0,
-        }
-    }
-
-    /// R3 (incident 再現): rate-limit 中は findings が空でも「問題なし」と断定しない。
-    ///
-    /// findings が空なのは「レビューして何も無かった」からではなく「レビューが
-    /// 走っていない」からであり、両者を判定文で区別する必要がある。
-    #[test]
-    fn verdict_holds_when_rate_limit_present_even_with_no_findings() {
-        let r = poll_result_with_unsettled(Some(0), Some(pr309_rate_limit()), vec![]);
-        let verdict = compute_verdict(&r);
-        assert!(
-            verdict.contains("レート制限"),
-            "rate-limit 中であることを判定文に出すべき: {}",
-            verdict
-        );
-        assert_ne!(verdict, VERDICT_NO_PROBLEMS);
-    }
-
-    /// R3 (incident 再現): 「未解決スレッド2件」を表示しながら同一レポートで
-    /// 「問題は見つかりませんでした」と断定していた矛盾を塞ぐ (PR #307/#309 実観測)。
-    #[test]
-    fn verdict_holds_when_unresolved_threads_remain_with_no_findings() {
-        let r = poll_result_with_unsettled(Some(2), None, vec![]);
-        let verdict = compute_verdict(&r);
-        assert_eq!(verdict, "未解決スレッドが2件残っているため、判定を保留します");
-    }
-
-    /// findings が Minor のみでも、未解決スレッドが残っていれば
-    /// 「重大な問題は見つかりませんでした」と断定しない。
-    #[test]
-    fn verdict_holds_when_unresolved_threads_remain_with_minor_findings() {
-        let r = poll_result_with_unsettled(Some(1), None, vec![finding("minor")]);
-        let verdict = compute_verdict(&r);
-        assert_ne!(verdict, VERDICT_MINOR);
-        assert!(verdict.contains("未解決スレッドが1件"), "verdict={}", verdict);
-    }
-
-    /// 重大な指摘がある場合は、未解決スレッドより「修正が必要」を優先する
-    /// (どちらも行動を促す文言だが、より強い方を出す)。
-    #[test]
-    fn verdict_critical_takes_precedence_over_unresolved_threads() {
-        let r = poll_result_with_unsettled(Some(2), None, vec![finding("critical")]);
-        assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
-    }
-
-    /// 新 guard が効きすぎないこと: 未解決スレッド 0 件・rate-limit なし・findings 空
-    /// なら従来どおり「問題は見つかりませんでした」を出す。
-    #[test]
-    fn verdict_no_problems_when_no_unsettled_signals_remain() {
-        let r = poll_result_with_unsettled(Some(0), None, vec![]);
-        assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
-    }
-
-    /// 順位 141: `resume_fix_push_time_or_started_at` Case A —
-    /// state に `fix_push_time` が設定済みの場合、fallback の `started_at` ではなく
-    /// state の値が返されることを検証する。
-    #[test]
-    fn resume_returns_fix_push_time_from_state_when_set() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let mut s = PrMonitorState::new(Some(1), None, "t".into());
-        s.fix_push_time = Some("2026-05-22T06:06:00Z".into());
-        std::fs::write(tmp.path(), serde_json::to_string(&s).unwrap()).unwrap();
-        let result = resume_fix_push_time_or_started_at("2026-05-22T06:00:00Z", tmp.path());
-        assert_eq!(
-            result.as_deref(),
-            Some("2026-05-22T06:06:00Z"),
-            "state に fix_push_time がある場合、fallback の started_at ではなく state の値が返る"
-        );
-    }
-}
+mod tests;

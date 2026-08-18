@@ -344,29 +344,6 @@
 
 ---
 
-### CodeRabbit findings が空のとき fix commit 生成を skip
-
-> **動機**: CodeRabbit findings が空でも fix commit が生成され abandoned になる挙動を PR #310 monitor で実観測した。空 commit → abandon は workflow noise / レビュー時の不確実性という UX 劣化を招く。PR #310 post-merge feedback Tier2 #3 で採用。
->
-> **対処案**: **actionable findings が 0 の場合** (findings が空、または全 findings が non-actionable〔nitpick / informational のみ〕) に fix commit 生成・abandon をスキップする。actionable 判定を作業計画とテストで明示する。該当コードパス (cli-merge-pipeline または該当 takt fix step) は実装時に再調査が必要。
->
-> **参照**: `.claude/feedback-reports/310.md` Tier2 #3、`src/cli-merge-pipeline` (post_merge_feedback / fix state 処理周辺)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (該当コードパスは実装時に再調査)。
-
-#### 作業計画
-
-- [ ] 空 fix commit を生成しているコードパスを特定 (cli-merge-pipeline / takt fix step)
-- [ ] findings が空、または actionable findings が 0 (全 non-actionable) の場合に commit 作成・abandon をスキップするよう修正 (actionable 判定を明示)
-- [ ] 「findings 空」と「全 non-actionable」の両ケースをテストスコープに追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- CodeRabbit findings が空、または全 findings が non-actionable のとき、空 fix commit が作成されず abandon 処理も走らないこと (両ケースを回帰テストで seal)。
-
----
-
 ### CodeRabbit marker / GitHub event state の統合契約 doc + ADR-042 実例追記
 
 > **動機**: PR #310 の pre-push simplicity review が新 gate を「internally consistent」と評価した一方、marker format 変更時の無音失敗リスクが PR analysis で指摘された。CodeRabbit の marker 文字列 (summarize / rate-limited 等) と GitHub event state fields への依存が複数箇所に散在している。PR #310 post-merge feedback Tier3 #1 で採用。
