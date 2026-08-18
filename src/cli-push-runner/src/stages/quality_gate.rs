@@ -55,10 +55,7 @@ pub(crate) fn run_group(group: &GroupConfig, timeout: u64) -> (String, bool, Dur
 /// docs-only routing (T11) が返した skip 対象を除いた実行対象 group を返す。
 /// skip 対象の group 名を 1 件でも実 group にマッチさせられなかった場合は
 /// warning を出す (skip_groups の typo が silent no-op になるのを防ぐ)。
-fn effective_groups<'a>(
-    groups: &'a [GroupConfig],
-    skip_groups: &[String],
-) -> Vec<&'a GroupConfig> {
+fn effective_groups<'a>(groups: &'a [GroupConfig], skip_groups: &[String]) -> Vec<&'a GroupConfig> {
     if skip_groups.is_empty() {
         return groups.iter().collect();
     }
@@ -98,7 +95,11 @@ fn effective_groups<'a>(
     retained
 }
 
-fn run_groups(groups: &[&GroupConfig], timeout: u64, parallel: bool) -> Vec<(String, bool, Duration)> {
+fn run_groups(
+    groups: &[&GroupConfig],
+    timeout: u64,
+    parallel: bool,
+) -> Vec<(String, bool, Duration)> {
     if parallel {
         let handles: Vec<_> = groups
             .iter()
@@ -271,10 +272,7 @@ mod tests {
             ],
         };
         assert!(
-            !run_quality_gate(
-                &config,
-                &["keep".to_string(), "rust-lint-test".to_string()]
-            ),
+            !run_quality_gate(&config, &["keep".to_string(), "rust-lint-test".to_string()]),
             "全 group skip 指定でも失敗 group は実行され gate は落ちる (fail-closed)"
         );
     }

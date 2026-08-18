@@ -24,8 +24,7 @@
 use std::process::{Command, Stdio};
 
 use crate::config::{
-    PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD,
-    DEFAULT_PR_SIZE_WARNING_THRESHOLD,
+    PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD, DEFAULT_PR_SIZE_WARNING_THRESHOLD,
 };
 use crate::log::{log_info, log_stage};
 
@@ -145,12 +144,10 @@ fn run_jj_diff_stat(revset: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("jj diff --stat 起動失敗: {}", e))?;
 
-    let stdout_handle = lib_subprocess::drain_pipe_unlimited(
-        child.stdout.take().expect("stdout must be piped"),
-    );
-    let stderr_handle = lib_subprocess::drain_pipe_unlimited(
-        child.stderr.take().expect("stderr must be piped"),
-    );
+    let stdout_handle =
+        lib_subprocess::drain_pipe_unlimited(child.stdout.take().expect("stdout must be piped"));
+    let stderr_handle =
+        lib_subprocess::drain_pipe_unlimited(child.stderr.take().expect("stderr must be piped"));
 
     let status =
         lib_subprocess::wait_with_timeout_basic("jj diff --stat", &mut child, JJ_TIMEOUT_SECS)
@@ -160,7 +157,10 @@ fn run_jj_diff_stat(revset: &str) -> Result<String, String> {
     let stderr = stderr_handle.join().unwrap_or_default();
 
     match status {
-        None => Err(format!("jj diff --stat タイムアウト ({}s)", JJ_TIMEOUT_SECS)),
+        None => Err(format!(
+            "jj diff --stat タイムアウト ({}s)",
+            JJ_TIMEOUT_SECS
+        )),
         Some(s) if s.success() => Ok(extract_summary_line(&stdout)),
         Some(_) => Err(stderr.trim().to_string()),
     }

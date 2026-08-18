@@ -236,10 +236,7 @@ mod tests {
     }
 
     fn range_covering_0900_to_0930() -> PrTimeRange {
-        PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        }
+        PrTimeRange::without_head_branch("2026-04-25T08:00:00.000Z", "2026-04-25T10:00:00.000Z")
     }
 
     #[test]
@@ -256,59 +253,59 @@ mod tests {
 
     #[test]
     fn entry_matches_user_in_range() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         let line = r#"{"type":"user","timestamp":"2026-04-25T09:00:00.000Z"}"#;
         assert!(entry_matches_filter(line, &range));
     }
 
     #[test]
     fn entry_skips_assistant_outside_range() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         let line = r#"{"type":"assistant","timestamp":"2026-04-25T11:00:00.000Z"}"#;
         assert!(!entry_matches_filter(line, &range));
     }
 
     #[test]
     fn entry_skips_queue_operation() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         let line = r#"{"type":"queue-operation","timestamp":"2026-04-25T09:00:00.000Z"}"#;
         assert!(!entry_matches_filter(line, &range));
     }
 
     #[test]
     fn entry_skips_attachment() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         let line = r#"{"type":"attachment","timestamp":"2026-04-25T09:00:00.000Z"}"#;
         assert!(!entry_matches_filter(line, &range));
     }
 
     #[test]
     fn entry_skips_invalid_json() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         assert!(!entry_matches_filter("not-json", &range));
     }
 
     #[test]
     fn entry_includes_boundary_timestamps() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         let lower = r#"{"type":"user","timestamp":"2026-04-25T08:00:00.000Z"}"#;
         let upper = r#"{"type":"user","timestamp":"2026-04-25T10:00:00.000Z"}"#;
         assert!(entry_matches_filter(lower, &range));
@@ -317,20 +314,16 @@ mod tests {
 
     #[test]
     fn entry_includes_lower_boundary_with_mixed_precision() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00Z".into(),
-            merged_at: "2026-04-25T10:00:00Z".into(),
-        };
+        let range =
+            PrTimeRange::without_head_branch("2026-04-25T08:00:00Z", "2026-04-25T10:00:00Z");
         let at_lower = r#"{"type":"user","timestamp":"2026-04-25T08:00:00.000Z"}"#;
         assert!(entry_matches_filter(at_lower, &range));
     }
 
     #[test]
     fn entry_excludes_past_upper_boundary_with_mixed_precision() {
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00Z".into(),
-            merged_at: "2026-04-25T10:00:00Z".into(),
-        };
+        let range =
+            PrTimeRange::without_head_branch("2026-04-25T08:00:00Z", "2026-04-25T10:00:00Z");
         let past_upper = r#"{"type":"user","timestamp":"2026-04-25T10:00:00.500Z"}"#;
         assert!(!entry_matches_filter(past_upper, &range));
     }
@@ -362,10 +355,10 @@ mod tests {
         fs::write(&session_path, content).unwrap();
 
         let out_path = dir.join("filtered.jsonl");
-        let range = PrTimeRange {
-            first_commit_time: "2026-04-25T08:00:00.000Z".into(),
-            merged_at: "2026-04-25T10:00:00.000Z".into(),
-        };
+        let range = PrTimeRange::without_head_branch(
+            "2026-04-25T08:00:00.000Z",
+            "2026-04-25T10:00:00.000Z",
+        );
         let written = filter_transcripts(&dir, &range, &out_path).unwrap();
         assert_eq!(written, 2);
 

@@ -89,7 +89,10 @@ output_path = ".takt/d.txt"
     #[test]
     fn blank_top_level_falls_back_to_default() {
         let config = parse("default_branch = \"\"\n", "");
-        assert_eq!(config.diff_pr_range(), format!("{}..@", DEFAULT_BASE_BRANCH));
+        assert_eq!(
+            config.diff_pr_range(),
+            format!("{}..@", DEFAULT_BASE_BRANCH)
+        );
     }
 
     /// SIM-NEW-config-mod-rs-L69: section override が top-level / 他 section と
@@ -444,7 +447,7 @@ fn validate_rejects_empty_groups() {
         diff: None,
         lint_screen: None,
         scratch_file_warning: None,
-            ledger_completion: None,
+        ledger_completion: None,
         pr_size_check: None,
         pre_push_review: None,
         docs_only_routing: None,
@@ -480,7 +483,7 @@ fn validate_rejects_empty_commands() {
         diff: None,
         lint_screen: None,
         scratch_file_warning: None,
-            ledger_completion: None,
+        ledger_completion: None,
         pr_size_check: None,
         pre_push_review: None,
         docs_only_routing: None,

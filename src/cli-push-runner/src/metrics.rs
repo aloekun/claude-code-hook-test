@@ -133,7 +133,12 @@ impl RunMetrics {
     /// 同型の副作用注入。ADR-055 § 副作用注入)。
     #[cfg(test)]
     fn record_to(&self, base_dir: &std::path::Path, now_epoch: u64) {
-        lib_telemetry::record_metric_gated_to(base_dir, PUSH_RUN_PREFIX, &self.to_record(), now_epoch);
+        lib_telemetry::record_metric_gated_to(
+            base_dir,
+            PUSH_RUN_PREFIX,
+            &self.to_record(),
+            now_epoch,
+        );
     }
 }
 

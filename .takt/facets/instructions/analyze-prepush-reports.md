@@ -11,30 +11,39 @@ PR がマージされる前の最終 push 時に生成された pre-push-review 
 
 ## Input
 
-`.takt/post-merge-feedback-context.json` を Read で読み、`prepush_reports_dir` を確認する:
+`.takt/post-merge-feedback-context.json` を Read で読み、`prepush_reports_dirs` を確認する:
 
 ```json
 {
   "pr_number": 123,
-  "prepush_reports_dir": ".takt/runs/20260425-094925-pre-push-review/reports"
+  "prepush_reports_dirs": [
+    ".takt/runs/20260425-094925-pre-push-review/reports",
+    ".takt/runs/20260425-153012-pre-push-review/reports"
+  ]
 }
 ```
 
-`prepush_reports_dir` が空 / dir が存在しない場合は:
+**配列である。** 同じ PR に複数回 push した場合、その回数だけ pre-push run が存在し、すべてが分析対象になる。**古い順 (run の開始時刻の昇順) に並んでいる。**
+
+`prepush_reports_dirs` が空配列の場合は:
 
 ```markdown
 ## Pre-Push Reports Analysis
 
 ### Status
 
-pre-push-review の reports が見つかりませんでした。
+この PR に紐づく pre-push-review の reports が見つかりませんでした。
 ```
 
 を出力し `analysis complete` で次へ進める。
 
+**空配列は異常ではない。** 対象 PR の branch と照合できた run だけが渡される仕様で、照合できない run は意図的に除外されている。**存在しないレポートを他の場所から探しに行かないこと** — 別 PR の run を拾うと、誤った PR の知見がレポートに混入する。
+
 ## Phase 1: レポートの収集
 
-Glob で `<prepush_reports_dir>/*.md` を列挙し、それぞれ Read で内容を取得する。
+`prepush_reports_dirs` の**各要素について** Glob で `<dir>/*.md` を列挙し、それぞれ Read で内容を取得する。
+
+複数ある場合は push の回数だけレビューが行われたことを意味する。**後の run で解消された指摘を「未解決」として報告しない**よう、同じ指摘が複数 run に現れる場合は最新の状態を優先する。
 
 典型的なレポート:
 - `simplicity-review.md` — 簡潔性レビューの指摘

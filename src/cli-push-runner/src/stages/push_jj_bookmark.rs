@@ -150,16 +150,13 @@ fn run_jj(args: &[&str], error_prefix: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("{}: {}", error_prefix, e))?;
 
-    let stdout_handle = lib_subprocess::drain_pipe_unlimited(
-        child.stdout.take().expect("stdout must be piped"),
-    );
-    let stderr_handle = lib_subprocess::drain_pipe_unlimited(
-        child.stderr.take().expect("stderr must be piped"),
-    );
+    let stdout_handle =
+        lib_subprocess::drain_pipe_unlimited(child.stdout.take().expect("stdout must be piped"));
+    let stderr_handle =
+        lib_subprocess::drain_pipe_unlimited(child.stderr.take().expect("stderr must be piped"));
 
-    let status =
-        lib_subprocess::wait_with_timeout_basic(error_prefix, &mut child, JJ_TIMEOUT_SECS)
-            .map_err(|e| format!("{}: {}", error_prefix, e))?;
+    let status = lib_subprocess::wait_with_timeout_basic(error_prefix, &mut child, JJ_TIMEOUT_SECS)
+        .map_err(|e| format!("{}: {}", error_prefix, e))?;
 
     let stdout_text = stdout_handle.join().unwrap_or_default();
     let stderr_text = stderr_handle.join().unwrap_or_default();

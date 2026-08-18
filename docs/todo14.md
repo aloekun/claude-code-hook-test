@@ -121,29 +121,6 @@
 
 ---
 
-### post-merge-feedback の分析ソース選定を対象 PR の commit/bookmark 照合ベースに修正
-
-> **動機**: post-merge-feedback の `find_latest_prepush_reports_dir` と session transcript 選定が**時刻範囲のみ**で対象 PR を照合しないため、同日並行 push 運用 (#311/#312/#313) で他 PR の pre-push レポート・transcript を誤って分析ソースに取り込む。#311/#312 の feedback aggregation で実地検証済み (#311 の feedback に #313 の `summary_line_new_path` 等・現行 repo に不在のコードが混入)。post-merge-feedback の分析範囲欠陥として過去 3 回 recurrence した先行 todo と同型かつ、一部祖先未レビューでなく無関係 PR 知見の丸ごと誤帰属という**より深刻な形態**。
->
-> **対処案**: `cli-merge-pipeline` の `context.json` 生成で、対象 PR の commit range / bookmark 名と pre-push run・transcript を突き合わせて選定する。不一致は該当 section を unverified 表示に落とす (fail-open な助言層)。先行 todo は `prepush_reports_dir` のみ言及だが、session transcript 側も同種の照合を要する。ADR-042 の decision framework では mechanizable=Yes (commit range 照合で構造的検出可) / FP 緩和=Yes (不一致は unverified 表示) で仕組み化が推奨される。
->
-> **参照**: `.claude/feedback-reports/311.md` Tier1 #1、`.claude/feedback-reports/312.md` Tier2 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir` + transcript 時刻範囲フィルタ)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High (誤 PR への feedback 誤帰属 = データ整合性違反) / Frequency High (並行 push は記録済みの日常運用) / Effort M / Adoption Risk: runner 複雑化。#311 feedback は ✅ 採用候補・#312 feedback は 🤔 様子見と判定が割れたが、両者とも実害を実地確認済み。
-
-#### 作業計画
-
-- [ ] `context.json` 生成で対象 PR の commit range / bookmark と pre-push run・transcript を照合するロジックを追加
-- [ ] 照合に外れた run/transcript は分析ソースから除外 or unverified 表示に落とす
-- [ ] #311/#312 で観測した混入シナリオの回帰テストを追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 並行 push された PR の post-merge-feedback が、時刻範囲でなく対象 PR の commit/bookmark 照合で pre-push run・transcript を選定し、他 PR 知見の混入が起きないこと (混入シナリオの回帰テストで seal)。
-
----
-
 ### 並行テストで thread::spawn 結果を collect 後に判定するパターンを custom lint 強制
 
 > **動機**: #312 で 8-thread stress test の遅延イテレータ (`map`/`filter`/`count`) が、まだ実行中のスレッドを傍から drop して「2 Acquired」偽陽性を生んだ実績あり (`pipeline_lock/tests.rs` で `Vec::collect` により回避)。`thread::spawn` は `lib-jj-helpers` / `cli-pr-monitor` / `hooks-stop-quality` 等 8 ファイルで使用され、同型の偽陽性が再発しうる。
