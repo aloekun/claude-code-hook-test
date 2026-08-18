@@ -80,31 +80,6 @@
 
 ---
 
-### `evaluate_rate_limit_shortcut` の cr_clean regression test (PR #224 post-merge-feedback T2-1 採用)
-
-> **動機**: PR #224 で CodeRabbit Major 指摘を採用した `evaluate_rate_limit_shortcut` の `cr_clean` 判定拡張 (`unresolved_threads` のみ → `new_comments` / `actionable_comments` も検査) の回帰防止。`unresolved_threads: None` を clean と誤認する silent failure を将来の変更から保護する。
->
-> **本タスクの位置づけ**: PR #224 post-merge-feedback Tier 2 #1 採用 (severity High / Effort S / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/224.md` Tier 2 #1、`src/cli-pr-monitor/src/stages/poll/rate_limit.rs` の `evaluate_rate_limit_shortcut` (テストは同階層の `rate_limit/tests.rs`)、PR #224 fix commit (Fix 3)。
->
-> **パス修正 (2026-08-17)**: 起票時の `rate_limit_signal.rs` は **module 分割で消滅しており実在しない**。2026-08-16 の夜間ループ dispatch で agent が実体 (`rate_limit/tests.rs`) を編集した結果、台帳の宣言と一致せず完了検証ゲートが停止した (`[LEDGER_CLEANUP_BLOCK]`)。台帳・順位 table・本エントリの 3 箇所を実パスへ揃えた。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。
-
-#### 作業計画
-
-- [ ] `unresolved_threads` / `actionable_comments` の None / Some(0) / Some(1)、`new_comments` (型は `usize`) の 0 / 1 を直交させ、各境界で `cr_clean` の true/false を assert する test 追加
-- [ ] 既存 `evaluate_rate_limit_shortcut_blocks_when_new_comments_exist` (Fix 3 で追加) との重複排除、各 field 独立の discriminating test
-- [ ] `cargo test -p cli-pr-monitor` pass
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 3 field 各々の clean/dirty 境界が test で保護され、None ケースの silent-clean 誤認が regression として検出可能。
-
----
-
 ### ADR-022 拡張 — pre-create cleanup flow の具体例 + agent fmt スコープ指針 (PR #224 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #224 で CodeRabbit が `create_fix_commit` の「空 findings でも commit 作成」を bug と誤判定した (ADR-022 の意図的な pre-create 設計を知らなかったため、却下した CR#2)。また分割 agent が無差別 `cargo fmt` を実行した事象も ADR-022 の責務分離原則で説明可能。両事象とも将来再発が見込まれる。
