@@ -34,9 +34,7 @@ pub fn resolve_git_dir(workspace_root: &std::path::Path) -> GitDirResolution {
     let repo_store = if repo_entry.is_file() {
         match std::fs::read_to_string(&repo_entry) {
             Ok(content) => resolve_relative_to(content.trim(), &workspace_root.join(".jj")),
-            Err(e) => {
-                return GitDirResolution::Unresolved(format!(".jj/repo 読み取り失敗: {}", e))
-            }
+            Err(e) => return GitDirResolution::Unresolved(format!(".jj/repo 読み取り失敗: {}", e)),
         }
     } else if repo_entry.is_dir() {
         repo_entry
@@ -84,9 +82,7 @@ pub fn resolve_git_dir(workspace_root: &std::path::Path) -> GitDirResolution {
 ///
 /// `GIT_DIR` を扱う [`resolve_git_dir`] と違い最終 store ではなく **workspace root** を返す点、
 /// および colocated root を `Resolved` ではなく入力そのまま返す点で用途が異なる。
-pub fn resolve_main_workspace_root(
-    workspace_root: &std::path::Path,
-) -> Option<std::path::PathBuf> {
+pub fn resolve_main_workspace_root(workspace_root: &std::path::Path) -> Option<std::path::PathBuf> {
     let repo_entry = workspace_root.join(".jj").join("repo");
     if repo_entry.is_dir() {
         return Some(workspace_root.to_path_buf());
@@ -164,6 +160,62 @@ pub fn inject_git_dir_for_gh(log_info: fn(&str)) {
             ));
         }
     }
+}
+
+/// このリポジトリの全 workspace root を絶対パスで返す (ADR-045 の並列 workspace 運用)。
+///
+/// `jj workspace list -T 'self.root()'` の出力をそのまま使う。**パスの導出を自前で
+/// 組み立てない** — `.jj/repo/workspace_store/index` は内部形式で、jj のバージョン間で
+/// 変わりうるため。
+///
+/// `--ignore-working-copy` で working copy の暗黙 snapshot を回避する (read-only を
+/// 意図した helper が snapshot を誘発しないよう、`discover.rs` の
+/// `run_jj_workspace_list` と同じ safeguard を適用)。
+///
+/// 失敗時 (jj 不在 / リポジトリ外 / 非ゼロ終了) は空 `Vec`。呼び手は「列挙できなければ
+/// 従来どおり cwd 由来の 1 つだけを使う」ようにフォールバックできる。
+pub fn list_workspace_roots() -> Vec<std::path::PathBuf> {
+    let output = match std::process::Command::new("jj")
+        .args([
+            "workspace",
+            "list",
+            "--ignore-working-copy",
+            "-T",
+            r#"self.root() ++ "\n""#,
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(std::path::PathBuf::from)
+        .collect()
+}
+
+/// `path` が `root` と同じか、その配下にあるか。**大文字小文字を無視して比較する。**
+///
+/// # なぜ前方一致か / なぜ case を無視するか (2026-08-18 実測)
+///
+/// transcript の全 89,625 エントリの `cwd` を集計した結果:
+///
+/// - サブディレクトリで起動したセッションが実在する (main workspace だけで **26 種類**、
+///   `src/...` や `.takt/...` 等)。完全一致にすると 800 件超を落とす
+/// - 同一 workspace でもドライブレターの case が揺れる
+///   (`C:\Users\...` が 68,312 件、`c:\Users\...` が 5,653 件)。case を見ると取りこぼす
+pub fn is_inside_workspace(path: &str, root: &std::path::Path) -> bool {
+    let normalize = |s: &str| s.to_lowercase().replace('\\', "/");
+    let root = normalize(&root.to_string_lossy());
+    let path = normalize(path);
+    let Some(rest) = path.strip_prefix(&root) else {
+        return false;
+    };
+    rest.is_empty() || rest.starts_with('/')
 }
 
 #[cfg(test)]
@@ -471,6 +523,60 @@ mod tests {
                 main.canonicalize().unwrap(),
                 "colocated main は自身の root を返す"
             );
+        }
+    }
+
+    mod inside_workspace {
+        use super::super::is_inside_workspace;
+        use std::path::Path;
+
+        #[test]
+        fn accepts_the_root_itself() {
+            let root = Path::new(r"C:\Users\owner\work\repo");
+            assert!(is_inside_workspace(r"C:\Users\owner\work\repo", root));
+        }
+
+        /// サブディレクトリで起動したセッションを落とさない (実測で main だけで 26 種類)。
+        #[test]
+        fn accepts_subdirectories() {
+            let root = Path::new(r"C:\Users\owner\work\repo");
+            assert!(is_inside_workspace(r"C:\Users\owner\work\repo\src", root));
+            assert!(is_inside_workspace(
+                r"C:\Users\owner\work\repo\.takt\runs\x",
+                root
+            ));
+        }
+
+        /// ドライブレターの case 揺れを吸収する (実測で `C:` と `c:` が混在)。
+        #[test]
+        fn ignores_case_differences() {
+            let root = Path::new(r"C:\Users\owner\work\repo");
+            assert!(is_inside_workspace(r"c:\users\owner\work\repo\src", root));
+        }
+
+        /// **名前が前方一致するだけの別 workspace を受理しない。**
+        ///
+        /// `repo` と `repo-improve` は文字列としては前方一致するが別の workspace。
+        /// 区切りまで見ないと、secondary workspace のセッションを main のものとして
+        /// 取り込んでしまう。
+        #[test]
+        fn rejects_sibling_workspace_with_a_shared_prefix() {
+            let root = Path::new(r"C:\Users\owner\work\repo");
+            assert!(!is_inside_workspace(
+                r"C:\Users\owner\work\repo-improve",
+                root
+            ));
+            assert!(!is_inside_workspace(
+                r"C:\Users\owner\work\repo-improve\src",
+                root
+            ));
+        }
+
+        #[test]
+        fn rejects_unrelated_paths() {
+            let root = Path::new(r"C:\Users\owner\work\repo");
+            assert!(!is_inside_workspace(r"C:\Users\owner\work\other", root));
+            assert!(!is_inside_workspace("", root));
         }
     }
 }

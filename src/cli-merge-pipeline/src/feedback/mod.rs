@@ -27,7 +27,7 @@ mod transcript;
 
 pub use markers::write_failed_marker;
 pub use pr_metadata::fetch_pr_diff_summary;
-pub use transcript::project_transcript_dir;
+pub use transcript::workspace_transcript_dirs;
 
 use context::{find_prepush_reports_dirs, write_context_file};
 use markers::{
@@ -52,9 +52,10 @@ pub struct FeedbackInput<'a> {
     pub owner_repo: &'a str,
     /// リポジトリルート (`.takt/`, `.claude/` の親)。通常は `std::env::current_dir()`。
     pub repo_root: PathBuf,
-    /// transcript ファイルが置かれるディレクトリ (`~/.claude/projects/<project-id>/`)。
-    /// `None` なら transcript filter をスキップする (空 jsonl を出力)。
-    pub transcript_source_dir: Option<PathBuf>,
+    /// transcript の走査対象。`(transcript dir, その workspace root)` の組を
+    /// **全 workspace 分**持つ (順位 469)。空なら transcript filter をスキップする
+    /// (空 jsonl を出力)。
+    pub transcript_sources: Vec<(PathBuf, PathBuf)>,
 }
 
 /// 全工程を実行する高水準エントリポイント。
@@ -80,11 +81,7 @@ pub fn run(input: &FeedbackInput) -> Result<PathBuf, String> {
     let range = fetch_pr_time_range(input.pr_number, input.owner_repo)
         .map_err(|e| format!("PR 時刻 range 取得失敗: {}", e))?;
 
-    let written = prepare_transcript(
-        input.transcript_source_dir.as_deref(),
-        &range,
-        &transcript_path,
-    )?;
+    let written = prepare_transcript(&input.transcript_sources, &range, &transcript_path)?;
     eprintln!(
         "[merge-pipeline] [feedback] transcript filter 完了 ({} entries → {})",
         written,
@@ -137,21 +134,19 @@ fn select_prepush_reports_dirs_logged(repo_root: &Path, range: &PrTimeRange) -> 
 /// 戻り値は書き込んだ行数 (空ファイル時は 0)。source dir 不在のケースは facet 側の
 /// 「データなし」分岐に流すため、エラーではなく 0 行で成功扱いとする。
 fn prepare_transcript(
-    transcript_source_dir: Option<&Path>,
+    transcript_sources: &[(PathBuf, PathBuf)],
     range: &PrTimeRange,
     transcript_path: &Path,
 ) -> Result<usize, String> {
-    match transcript_source_dir {
-        Some(dir) => filter_transcripts(dir, range, transcript_path)
-            .map_err(|e| format!("transcript filter 失敗: {}", e)),
-        None => {
-            if let Some(parent) = transcript_path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let _ = fs::write(transcript_path, "");
-            Ok(0)
+    if transcript_sources.is_empty() {
+        if let Some(parent) = transcript_path.parent() {
+            let _ = fs::create_dir_all(parent);
         }
+        let _ = fs::write(transcript_path, "");
+        return Ok(0);
     }
+    filter_transcripts(transcript_sources, range, transcript_path)
+        .map_err(|e| format!("transcript filter 失敗: {}", e))
 }
 
 /// takt 完了後の report コピーと reconciliation。

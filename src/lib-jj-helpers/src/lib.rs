@@ -50,5 +50,6 @@ pub use bookmarks::{
     TRUNK_BOOKMARKS,
 };
 pub use workspace::{
-    inject_git_dir_for_gh, resolve_git_dir, resolve_main_workspace_root, GitDirResolution,
+    inject_git_dir_for_gh, is_inside_workspace, list_workspace_roots, resolve_git_dir,
+    resolve_main_workspace_root, GitDirResolution,
 };

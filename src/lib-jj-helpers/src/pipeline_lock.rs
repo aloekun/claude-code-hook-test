@@ -84,8 +84,13 @@ impl Drop for PipelineLock {
 /// (lock は Stop hook への advisory であり、pipeline の実行可否を左右しない)。
 pub enum PipelineLockResult {
     Acquired(PipelineLock),
-    Busy { holder_pid: u32, holder_age_secs: i64 },
-    Unavailable { reason: String },
+    Busy {
+        holder_pid: u32,
+        holder_age_secs: i64,
+    },
+    Unavailable {
+        reason: String,
+    },
 }
 
 /// `claude_dir` (通常 `<repo>/.claude`) に pipeline lock を取得する。
@@ -174,11 +179,13 @@ fn takeover_stale_lock(
     let sentinel = takeover_sentinel_path(&path);
     match acquire_takeover_sentinel(&sentinel, now_unix) {
         SentinelGate::Acquired { reclaim_marker } => {
-            let result =
-                perform_takeover(&path, token, &content, stale_threshold_secs, now_unix);
+            let result = perform_takeover(&path, token, &content, stale_threshold_secs, now_unix);
             if let Err(e) = std::fs::remove_file(&sentinel) {
                 if e.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("[pipeline-lock] takeover sentinel の除去に失敗 (継続): {}", e);
+                    eprintln!(
+                        "[pipeline-lock] takeover sentinel の除去に失敗 (継続): {}",
+                        e
+                    );
                 }
             }
             if let Some(marker) = reclaim_marker {
@@ -349,7 +356,10 @@ fn reap_orphaned_reclaim_marker(reclaim: &Path, now_unix: i64) {
 /// 同じ (sentinel path, content) を読んだスレッドは必ず同じ path に collide する
 /// (`DefaultHasher` は固定キーで決定論的、`RandomState` と異なる)。
 fn reclaim_gate_path(sentinel: &Path, content: &str) -> PathBuf {
-    suffixed_path(sentinel, &format!(".reclaim.{:016x}", content_fingerprint(content)))
+    suffixed_path(
+        sentinel,
+        &format!(".reclaim.{:016x}", content_fingerprint(content)),
+    )
 }
 
 fn content_fingerprint(content: &str) -> u64 {
