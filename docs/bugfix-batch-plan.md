@@ -13,7 +13,9 @@
 | # | PR | 対象順位 | 状態 |
 |---|---|---|---|
 | A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | 444 + 328 + 347 | **完了。** 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) でマージ済み。328 は順位 398 の guard 変更で既に解消済みと判明し、再発防止テストのみ追加。347 は実装済み |
-| B | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) + 446 | 未着手 |
+| B-1 | fix(merge-pipeline): transcript の連結順序を時系列にする | 446 (再定義) | 実装済み |
+| B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | 未着手 |
+| B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | 未着手 |
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 未着手 |
 | D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |
 | E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | 未着手 |
@@ -79,16 +81,19 @@
 
 ## PR B: fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 (順位 336 + 288(a) + 446)
 
-**束ねる理由**: 3 件とも `src/cli-merge-pipeline/src/feedback/` の context.rs / transcript.rs が「時刻範囲だけで分析ソースを選ぶ」同一欠陥。336 の commit/bookmark 照合と 288(a) の全 run 集約は同じ関数 (`find_latest_prepush_reports_dir`) の変更で、446 の transcript 探索にも同じ陽性一致原則を適用する。
+**束ねる理由 (起案時)**: 3 件とも `src/cli-merge-pipeline/src/feedback/` の context.rs / transcript.rs が「時刻範囲だけで分析ソースを選ぶ」同一欠陥、と見立てていた。**446 は切り分けの結果この見立てから外れた** (下記)。
 
-**着手順: 446 の切り分けを最初に行う** (実装方針に影響するため)。
+**着手順: 446 の切り分けを最初に行う** (実装方針に影響するため) — 実施済み。
 
-### 順位 446: transcript 抽出が並列 jj workspace のセッションを取りこぼす (まず切り分け)
+> **PR B は 3 本に分割した (2026-08-18、ユーザー判断)。** 446 の切り分けで、実障害の原因と当初仮説が別物だと判明したため。**B-1 = 実障害の修正** (連結順序、下記)、**B-2 = 分析ソース選定の修正** (順位 336 + 288(a))、**B-3 = 将来リスクの予防** (workspace 横断の可視性 = 新規順位 469)。実障害の修正と未発現リスクへの予防を同じ diff に入れると切り戻し単位が粗くなる。
 
-- **不具合疑い**: transcript 抽出は cwd 由来の**単一 project-id フォルダ**しか見ないが、ADR-045 の並列 workspace 運用で `~/.claude/projects/` には複数 project-id が実在する。PR #395 の feedback で `session_data_unavailable` が実発生。
-- **切り分け**: project-id 群と jj workspace 一覧を突合し、PR #395 の実装セッションの所在を特定。取りこぼしが確認できなければ**別原因として再定義するか、negative result を永続化して閉じる** (dev-conventions の見送り convention)。
-- **対処の制約**: 探索候補は「広げる」のではなく「束縛する」— repo root / workspace path / PR 番号 / bookmark / session metadata の**陽性一致を必須条件**に課す。全 project-id 走査や時刻範囲だけの検索は無関係セッションを引き込み、誤った知見が台帳に入る (transcript が無いより悪い)。
-- **完了基準**: fixture テストだけでは完了としない — 実際に複数 project-id を用意し **exe 実行の実経路**で対象 transcript が選ばれ、無関係な project-id が選ばれないことを確認する。
+### 順位 446 (切り分けで再定義 — B-1 で実装): transcript の連結順序が時系列でない
+
+- **当初仮説は誤りだった (negative result)**: 「並列 workspace のセッションが不可視」が原因と想定していたが、PR #395 のブランチ名を両 project-id フォルダで grep したところ**メイン workspace 側にのみ出現**し、抽出対象フォルダの選択は正しかった。
+- **真因**: `collect_jsonl_paths_in_deterministic_order` はファイルを `(mtime, path)` 順に読み、その順のまま連結する。**決定論的ではあるが時系列ではない。** #395 の範囲を再現した実測では、1189 行中 **11 箇所で時刻が逆行**し最大 **560 分**巻き戻っていた。先頭行は `15:18` だが真の最古は `15:02`。
+- **なぜ気づきにくいか**: 抽出そのものは正しく、**行数は合っている** (session-analysis の報告 1189 行 = 実測 1189 行)。誤るのは範囲だけで、facet はこの非単調な列から「2.5 分しか無い」と判断し `session_data_unavailable` を報告した。報告された 2.5 分は 27 ファイル中 1 本の span と正確に一致していた。
+- **対処**: 出力を timestamp 昇順にする。同一 timestamp は `(file_index, line_index)` で tie-break するため決定論は失わない。
+- **完了基準**: 達成済み。実データ (#395 の範囲) で逆行 0 回・先頭が真の最古 `15:02:41Z` になることを確認。単体テストで「ファイル順に引きずられない」「同時刻は決定論的」「同一ファイル内は元の行順」を seal。
 
 ### 順位 336: pre-push run / transcript の選定を対象 PR の commit/bookmark 照合に変更
 

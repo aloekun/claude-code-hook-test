@@ -38,6 +38,21 @@ pub fn project_transcript_dir(cwd: &Path) -> Option<PathBuf> {
 /// 入力: `source_dir` 配下の `*.jsonl`
 /// 出力: `out_path` に [first_commit_time, merged_at] かつ type が user/assistant の行のみ
 /// 戻り値: 書き込んだ行数
+///
+/// # 出力は timestamp 昇順であることを保証する (2026-08-18)
+///
+/// 旧実装はファイルを `(mtime, path)` 順に読み、その順のまま連結していた。これは
+/// **決定論的ではあるが時系列ではない** — セッションが並行していれば、あるファイルが
+/// 14 時間を覆う一方で別ファイルが数分を覆い、連結列の時刻が飛び飛びに前後する。
+///
+/// 実測 (PR #395 の範囲を再現): 1189 行中 **11 箇所で時刻が逆行**し、最大 **560 分**
+/// 巻き戻っていた。先頭行は 15:18 だが実際の最古エントリは 15:02 と、先頭・末尾を見て
+/// 範囲を推定すると誤る。実際 `session-analysis` facet はこの列を読み、14 時間分
+/// (1189 行) が揃っているのに「2.5 分しか無い」と判断して `session_data_unavailable`
+/// を報告した。**行数は合っていたのに範囲だけが誤る**ため、欠落として気づきにくい。
+///
+/// 決定論は失っていない。同一 timestamp は `(file_index, line_index)` で tie-break する
+/// ため、同じ入力からは常に同じ出力になる ([`MatchedEntry::sort_key`])。
 pub fn filter_transcripts(
     source_dir: &Path,
     range: &PrTimeRange,
@@ -52,28 +67,60 @@ pub fn filter_transcripts(
         .map(std::io::BufWriter::new)
         .map_err(|e| format!("出力ファイル作成失敗 {}: {}", out_path.display(), e))?;
 
-    let mut written = 0usize;
     let jsonl_paths = collect_jsonl_paths_in_deterministic_order(source_dir)?;
+    let mut entries = collect_matching_entries(&jsonl_paths, range);
+    entries.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
 
-    for path in jsonl_paths {
-        let file = match fs::File::open(&path) {
-            Ok(f) => f,
-            Err(_) => continue,
-        };
-        let reader = BufReader::new(file);
-        for line in reader.lines().map_while(Result::ok) {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if entry_matches_filter(&line, range) {
-                writeln!(writer, "{}", line).map_err(|e| format!("出力書込失敗: {}", e))?;
-                written += 1;
-            }
-        }
+    let written = entries.len();
+    for entry in entries {
+        writeln!(writer, "{}", entry.line).map_err(|e| format!("出力書込失敗: {}", e))?;
     }
 
     writer.flush().map_err(|e| format!("flush 失敗: {}", e))?;
     Ok(written)
+}
+
+/// range に入る 1 行と、並べ替えに必要な位置情報。
+struct MatchedEntry {
+    /// 精度を揃えた timestamp (→ [`normalize_timestamp_for_comparison`])。
+    timestamp: String,
+    /// [`collect_jsonl_paths_in_deterministic_order`] が決めたファイル順の index。
+    file_index: usize,
+    /// ファイル内での出現順。
+    line_index: usize,
+    line: String,
+}
+
+impl MatchedEntry {
+    fn sort_key(&self) -> (&str, usize, usize) {
+        (&self.timestamp, self.file_index, self.line_index)
+    }
+}
+
+/// 各ファイルを走査し、range に入る user/assistant 行を集める。
+fn collect_matching_entries(jsonl_paths: &[PathBuf], range: &PrTimeRange) -> Vec<MatchedEntry> {
+    let mut entries = Vec::new();
+    for (file_index, path) in jsonl_paths.iter().enumerate() {
+        let Ok(file) = fs::File::open(path) else {
+            continue;
+        };
+        let reader = BufReader::new(file);
+        for (line_index, line) in reader.lines().map_while(Result::ok).enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Some(timestamp) = matched_timestamp(&line, range) else {
+                continue;
+            };
+            entries.push(MatchedEntry {
+                timestamp,
+                file_index,
+                line_index,
+                line,
+            });
+        }
+    }
+    entries
 }
 
 /// `source_dir` 内の `*.jsonl` を決定論的な順序で収集する。
@@ -123,27 +170,21 @@ fn normalize_timestamp_for_comparison(ts: &str) -> String {
     }
 }
 
-/// transcript の 1 行が時刻 range + type filter に該当するかを判定する。
-fn entry_matches_filter(line: &str, range: &PrTimeRange) -> bool {
-    let value: serde_json::Value = match serde_json::from_str(line) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
+/// transcript の 1 行が時刻 range + type filter に該当すれば、正規化した timestamp を返す。
+///
+/// 並べ替えにも timestamp が要るため、判定と同時に取り出す (判定後に再パースしない)。
+fn matched_timestamp(line: &str, range: &PrTimeRange) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
 
     let entry_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if !matches!(entry_type, "user" | "assistant") {
-        return false;
+        return None;
     }
 
-    let timestamp = match value.get("timestamp").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => return false,
-    };
-
-    let ts = normalize_timestamp_for_comparison(timestamp);
+    let ts = normalize_timestamp_for_comparison(value.get("timestamp").and_then(|v| v.as_str())?);
     let lower = normalize_timestamp_for_comparison(range.first_commit_time.as_str());
     let upper = normalize_timestamp_for_comparison(range.merged_at.as_str());
-    ts >= lower && ts <= upper
+    (ts >= lower && ts <= upper).then_some(ts)
 }
 
 #[cfg(test)]
@@ -168,6 +209,30 @@ mod tests {
         let line = format!(r#"{{"type":"user","timestamp":"{timestamp}","id":"{id}"}}"#);
         fs::write(&path, format!("{line}\n")).unwrap();
         path
+    }
+
+    /// 1 行が range + type filter に該当するか (判定だけを見るテスト用の薄い包み)。
+    fn entry_matches_filter(line: &str, range: &PrTimeRange) -> bool {
+        matched_timestamp(line, range).is_some()
+    }
+
+    /// `read_first` を `read_second` より古い mtime にする。
+    ///
+    /// **`thread::sleep` で差をつけない。** mtime 分解能の粗い filesystem では同値になり得て、
+    /// 同値だと旧実装 (ファイル順のまま連結) も path 順で `aaa` を先に出すため、
+    /// [`filter_transcripts_orders_entries_chronologically_across_files`] が**旧実装でも
+    /// 通ってしまう**。回帰テストの識別力を filesystem の分解能に委ねない。
+    fn set_mtimes_so_the_later_timestamp_is_read_first(read_first: &Path, read_second: &Path) {
+        filetime::set_file_mtime(
+            read_first,
+            filetime::FileTime::from_unix_time(1_745_571_600, 0),
+        )
+        .unwrap();
+        filetime::set_file_mtime(
+            read_second,
+            filetime::FileTime::from_unix_time(1_745_571_601, 0),
+        )
+        .unwrap();
     }
 
     fn range_covering_0900_to_0930() -> PrTimeRange {
@@ -314,59 +379,58 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// **順位 446 の核心**: 出力は timestamp 昇順で、ファイルの読み順に引きずられない。
+    ///
+    /// fixture は「後に書かれた (= mtime が新しい) ファイルの方が古い timestamp を持つ」
+    /// 交差ケース。旧実装はファイル順のまま連結したため出力の時刻が逆行し、先頭・末尾から
+    /// 範囲を推定する消費側が誤った (PR #395 実測: 11 箇所逆行 / 最大 560 分巻き戻り)。
     #[test]
-    fn filter_transcripts_orders_by_mtime_not_filename() {
+    fn filter_transcripts_orders_entries_chronologically_across_files() {
         let dir = unique_temp_dir("order");
 
-        write_transcript_line(
+        let zzz_path = write_transcript_line(
             &dir,
             "zzz-session.jsonl",
-            "2026-04-25T09:00:00.000Z",
-            "first-written",
+            "2026-04-25T09:05:00.000Z",
+            "later-timestamp",
         );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        write_transcript_line(
+        let aaa_path = write_transcript_line(
             &dir,
             "aaa-session.jsonl",
-            "2026-04-25T09:05:00.000Z",
-            "second-written",
+            "2026-04-25T09:00:00.000Z",
+            "earlier-timestamp",
         );
+        set_mtimes_so_the_later_timestamp_is_read_first(&zzz_path, &aaa_path);
 
         let out_path = dir.join("filtered.jsonl");
         let written = filter_transcripts(&dir, &range_covering_0900_to_0930(), &out_path).unwrap();
         assert_eq!(written, 2);
 
         let out = fs::read_to_string(&out_path).unwrap();
-        let first_pos = out
-            .find("first-written")
-            .expect("first-written 行が存在する");
-        let second_pos = out
-            .find("second-written")
-            .expect("second-written 行が存在する");
+        let earlier_pos = out
+            .find("earlier-timestamp")
+            .expect("earlier-timestamp 行が存在する");
+        let later_pos = out
+            .find("later-timestamp")
+            .expect("later-timestamp 行が存在する");
         assert!(
-            first_pos < second_pos,
-            "mtime が古いファイルが filename の alphabetical 順に関わらず先に処理されるべき: {out}"
+            earlier_pos < later_pos,
+            "mtime / filename に関わらず timestamp の昇順で並ぶべき: {out}"
         );
 
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// timestamp が同値のときだけ、ファイル順 (mtime → path) が順序を決める。
+    ///
+    /// 時系列順にしても決定性を失わないことの担保。
     #[test]
-    fn filter_transcripts_breaks_mtime_ties_by_path_deterministically() {
+    fn filter_transcripts_breaks_timestamp_ties_by_file_order_deterministically() {
         let dir = unique_temp_dir("tie");
 
-        let zzz_path = write_transcript_line(
-            &dir,
-            "zzz-session.jsonl",
-            "2026-04-25T09:00:00.000Z",
-            "zzz-line",
-        );
-        let aaa_path = write_transcript_line(
-            &dir,
-            "aaa-session.jsonl",
-            "2026-04-25T09:05:00.000Z",
-            "aaa-line",
-        );
+        let same_timestamp = "2026-04-25T09:00:00.000Z";
+        let zzz_path = write_transcript_line(&dir, "zzz-session.jsonl", same_timestamp, "zzz-line");
+        let aaa_path = write_transcript_line(&dir, "aaa-session.jsonl", same_timestamp, "aaa-line");
 
         let shared_mtime = filetime::FileTime::from_unix_time(1_745_571_600, 0);
         filetime::set_file_mtime(&zzz_path, shared_mtime).unwrap();
@@ -381,7 +445,33 @@ mod tests {
         let zzz_pos = out.find("zzz-line").expect("zzz-line 行が存在する");
         assert!(
             aaa_pos < zzz_pos,
-            "mtime 同値のとき二次キー PathBuf の昇順 (aaa < zzz) で決定論的に処理されるべき: {out}"
+            "timestamp 同値なら mtime 同値の二次キー PathBuf 昇順 (aaa < zzz) で決まるべき: {out}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 同一ファイル内で timestamp が同値の行は、元の出現順を保つ。
+    #[test]
+    fn filter_transcripts_keeps_original_line_order_within_a_file() {
+        let dir = unique_temp_dir("within-file");
+
+        let same_timestamp = "2026-04-25T09:00:00.000Z";
+        let path = dir.join("session.jsonl");
+        let body = format!(
+            "{{\"type\":\"user\",\"timestamp\":\"{same_timestamp}\",\"id\":\"line-1\"}}\n\
+             {{\"type\":\"user\",\"timestamp\":\"{same_timestamp}\",\"id\":\"line-2\"}}\n"
+        );
+        fs::write(&path, body).unwrap();
+
+        let out_path = dir.join("filtered.jsonl");
+        let written = filter_transcripts(&dir, &range_covering_0900_to_0930(), &out_path).unwrap();
+        assert_eq!(written, 2);
+
+        let out = fs::read_to_string(&out_path).unwrap();
+        assert!(
+            out.find("line-1").unwrap() < out.find("line-2").unwrap(),
+            "同一ファイル・同一 timestamp は元の行順を保つべき: {out}"
         );
 
         let _ = fs::remove_dir_all(&dir);
