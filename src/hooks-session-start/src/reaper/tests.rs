@@ -488,6 +488,105 @@ fn reap_orphans_does_not_report_a_failed_settle_as_settled() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// `meta.json` が JSON object でない場合、書き換えていないのに成功を返さない。
+#[test]
+fn settle_meta_status_fails_when_meta_is_not_a_json_object() {
+    let root = unique_temp_root("settle-non-object");
+    let run = root.join(".takt/runs/20260513-100000-post-merge-feedback-for-211");
+    std::fs::create_dir_all(&run).unwrap();
+    let meta_path = run.join("meta.json");
+    std::fs::write(&meta_path, "[1, 2, 3]").unwrap();
+
+    let feedback_dir = root.join(FEEDBACK_DIR_REPO_RELATIVE);
+    std::fs::create_dir_all(&feedback_dir).unwrap();
+    std::fs::write(feedback_dir.join("211.md"), "# feedback report").unwrap();
+
+    let orphans = vec![OrphanRun {
+        meta_path: meta_path.clone(),
+        pr_number: 211,
+        age_secs: ORPHAN_THRESHOLD_SECS + 60,
+        report_directory: None,
+    }];
+    let outcome = reap_orphans(&root, &orphans);
+
+    assert!(
+        outcome.settled_only.is_empty(),
+        "object でない meta.json を確定済みとして報告してはいけない"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&meta_path).unwrap(),
+        "[1, 2, 3]",
+        "書き換えられないこと"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// marker を書いた経路でも status 確定の失敗を握り潰さない。
+#[test]
+fn reap_orphans_reports_settle_failure_on_the_marker_path() {
+    let root = unique_temp_root("marker-path-settle-failure");
+    let run = root.join(".takt/runs/20260513-100000-post-merge-feedback-for-212");
+    std::fs::create_dir_all(&run).unwrap();
+    std::fs::write(run.join("meta.json"), "not-valid-json{").unwrap();
+
+    let orphans = vec![OrphanRun {
+        meta_path: run.join("meta.json"),
+        pr_number: 212,
+        age_secs: ORPHAN_THRESHOLD_SECS + 60,
+        report_directory: None,
+    }];
+    let outcome = reap_orphans(&root, &orphans);
+
+    assert_eq!(
+        outcome.marked_failed,
+        vec![(212, ORPHAN_THRESHOLD_SECS + 60)],
+        "marker は実際に書いたので報告する"
+    );
+    assert_eq!(
+        outcome.settle_failed,
+        vec![212],
+        "status 確定の失敗を別枠で可視化する (block が続いていることに気づけるように)"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `reportDirectory` の `..` で別 run のレポートを成功証拠にできない。
+#[test]
+fn run_report_path_rejects_parent_dir_escape_to_another_run() {
+    let root = unique_temp_root("report-dir-escape");
+    let runs = root.join(".takt/runs");
+    let dead = runs.join("20260809-055921-post-merge-feedback-for-375");
+    let other = runs.join("20260809-063122-post-merge-feedback-for-375");
+    let start_iso = "2026-08-09T05:59:21Z";
+    write_meta(&dead, "post-merge-feedback for #375", "running", start_iso);
+    write_run_report(&other);
+
+    let escaping = OrphanRun {
+        meta_path: dead.join("meta.json"),
+        pr_number: 375,
+        age_secs: ORPHAN_THRESHOLD_SECS + 60,
+        report_directory: Some(
+            ".takt/runs/20260809-055921-post-merge-feedback-for-375/../\
+             20260809-063122-post-merge-feedback-for-375/reports"
+                .to_string(),
+        ),
+    };
+    let outcome = reap_orphans(&root, &[escaping]);
+
+    let updated: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dead.join("meta.json")).unwrap()).unwrap();
+    assert_eq!(
+        updated.get("status").and_then(|v| v.as_str()),
+        Some("failed"),
+        "`..` で別 run のレポートに到達しても completed にしない"
+    );
+    assert_eq!(outcome.marked_failed.len(), 1);
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn compute_reaper_nudge_returns_none_when_no_orphans() {
     let root = unique_temp_root("nudge-none");

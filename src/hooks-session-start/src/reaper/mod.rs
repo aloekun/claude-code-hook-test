@@ -172,16 +172,20 @@ fn settle_meta_status(meta_path: &Path, terminal_status: &str) -> std::io::Resul
     let content = std::fs::read_to_string(meta_path)?;
     let mut value: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert(
-            "status".to_string(),
-            serde_json::Value::String(terminal_status.to_string()),
-        );
-        obj.insert(
-            "reaped_by".to_string(),
-            serde_json::Value::String("hooks-session-start".to_string()),
-        );
-    }
+    let Some(obj) = value.as_object_mut() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "meta.json が JSON object ではないため status を確定できません",
+        ));
+    };
+    obj.insert(
+        "status".to_string(),
+        serde_json::Value::String(terminal_status.to_string()),
+    );
+    obj.insert(
+        "reaped_by".to_string(),
+        serde_json::Value::String("hooks-session-start".to_string()),
+    );
     let serialized = serde_json::to_string_pretty(&value).map_err(std::io::Error::other)?;
     std::fs::write(meta_path, serialized)
 }
@@ -229,6 +233,12 @@ pub(crate) struct ReapOutcome {
     pub(crate) marked_failed: Vec<(u64, u64)>,
     /// marker は書かず、meta.json の stale な `status` だけを終端状態へ確定させた PR 番号。
     pub(crate) settled_only: Vec<u64>,
+    /// marker は書いたが `status` の確定に失敗した PR 番号。
+    ///
+    /// この run は `"running"` のまま残るため、`cli-merge-pipeline` の並行起動 guard を
+    /// 閾値経過まで塞ぎ続ける。marker の nag だけでは「block がまだ続いている」ことが
+    /// 伝わらないため、別枠で報告する。
+    pub(crate) settle_failed: Vec<u64>,
 }
 
 /// 検出された orphan run の `.failed` marker と meta.json `status` を確定させる。
@@ -288,10 +298,12 @@ pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> ReapOutco
         if !write_new_marker_file(&marker, &body) {
             continue;
         }
-        settle_meta_status_logged(&orphan.meta_path, terminal_status);
         outcome
             .marked_failed
             .push((orphan.pr_number, orphan.age_secs));
+        if !settle_meta_status_logged(&orphan.meta_path, terminal_status) {
+            outcome.settle_failed.push(orphan.pr_number);
+        }
     }
     outcome
 }
@@ -300,6 +312,9 @@ pub(crate) fn reap_orphans(repo_root: &Path, orphans: &[OrphanRun]) -> ReapOutco
 ///
 /// `reportDirectory` が run ディレクトリの外を指す場合は `<run dir>/reports` へ落とす。
 /// 別 run のディレクトリを指す値を信じると、判定根拠を run 単位に閉じた意味が失われる。
+///
+/// `..` を含む値は [`Path::starts_with`] が component 単位の前方一致しか見ず正規化しないため、
+/// `.takt/runs/<この run>/../<別 run>/reports` が前方一致を通過してしまう。**先に拒否する。**
 fn run_report_path(orphan: &OrphanRun, repo_root: &Path) -> PathBuf {
     let run_dir = orphan
         .meta_path
@@ -308,10 +323,18 @@ fn run_report_path(orphan: &OrphanRun, repo_root: &Path) -> PathBuf {
     orphan
         .report_directory
         .as_deref()
+        .filter(|relative| !has_parent_dir_component(relative))
         .map(|relative| repo_root.join(relative))
         .filter(|resolved| resolved.starts_with(run_dir))
         .unwrap_or_else(|| run_dir.join(RUN_REPORTS_SUBDIR))
         .join(RUN_REPORT_FILE_NAME)
+}
+
+/// path 文字列が親ディレクトリ参照 (`..`) を含むか。
+fn has_parent_dir_component(relative: &str) -> bool {
+    Path::new(relative)
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
 }
 
 /// `settle_meta_status` の失敗を silent drop せず stderr に残す。戻り値は成功可否。
@@ -339,7 +362,10 @@ pub(crate) fn compute_reaper_nudge(repo_root: &Path, now_unix: i64) -> Option<St
     let runs_dir = repo_root.join(TAKT_RUNS_DIR);
     let orphans = find_orphan_post_merge_feedback_runs(&runs_dir, now_unix);
     let outcome = reap_orphans(repo_root, &orphans);
-    if outcome.marked_failed.is_empty() && outcome.settled_only.is_empty() {
+    if outcome.marked_failed.is_empty()
+        && outcome.settled_only.is_empty()
+        && outcome.settle_failed.is_empty()
+    {
         return None;
     }
     let mut lines = vec!["[POST_MERGE_FEEDBACK_REAPER]".to_string()];
@@ -361,6 +387,17 @@ pub(crate) fn compute_reaper_nudge(repo_root: &Path, now_unix: i64) -> Option<St
             outcome.settled_only.len()
         ));
         for pr in &outcome.settled_only {
+            lines.push(format!("  - PR #{}", pr));
+        }
+    }
+    if !outcome.settle_failed.is_empty() {
+        lines.push(format!(
+            "**{} 件は meta.json の status 確定に失敗しました** — 当該 run は `running` の \
+             まま残り、閾値経過まで merge pipeline の並行起動 guard を塞ぎ続けます。\
+             meta.json の権限 / 内容を確認してください (詳細は stderr)",
+            outcome.settle_failed.len()
+        ));
+        for pr in &outcome.settle_failed {
             lines.push(format!("  - PR #{}", pr));
         }
     }

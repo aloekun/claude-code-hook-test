@@ -272,6 +272,8 @@ L1 と L2 は **marker については重複動作しない**: L1 が marker を
 
 つまり、L1 のみであれば「マージ後 `TAKT_TIMEOUT_SECS` 以内に完了 or marker 化」が保証される。L2 (致命系の backstop) を含めても「次回 SessionStart 時には必ず**終端状態へ確定**する」が保証される。
 
+**ただし L2 の保証は「reaper が回収できる orphan」に限られる。** `find_orphan_post_merge_feedback_runs` は meta.json がパース可能で `status` / `task` / `startTime` をすべて読めた run しか拾わない。abrupt kill で書き込み途中に壊れた meta.json や `startTime` を欠く run は検出対象外で、終端状態へ確定しない (→ 下記「reaper のセーフティネットが効く範囲」)。この場合も並行起動 guard 側は「進行中とみなさない」へ倒れるため、恒久 block にはならない。
+
 **保証されるのは `meta.json` の `status` が終端になることであって、marker が必ず生成されることではない。** 上表のとおり、その PR の feedback が既に手に入っている場合 (`<pr>.md` あり) に marker は書かれない。marker はユーザーへ再実行を促す nag であり、成果物が既にあるなら不要だからである。実数値は `cli-merge-pipeline::feedback::TAKT_TIMEOUT_SECS` / `ORPHAN_THRESHOLD_SECS` を参照のこと (本 ADR で数値固定するとコード変更時に drift する)。
 
 #### 並行起動 guard (Phase B post-fix で追加、2026-08-11 に判定根拠を変更)
@@ -293,7 +295,7 @@ cross-invocation context overwrite race の予防として、`feedback::run` の
 
 > **reaper のセーフティネットが効く範囲 (2026-08-11 レビュー指摘で明記)**: L2 の orphan reaper が拾えるのは **meta.json がパース可能で `status` / `startTime` を読めた run のみ**である (`reaper::read_takt_meta` はパース失敗を `None` にして skip する。本 guard と同じ前提)。meta.json が構文レベルで壊れている場合 (abrupt kill による書き込み途中の破損等) は reaper も拾わないため、次に読める内容へ書き戻されるまで「進行中とみなさない」側へ倒れ続ける。これは reaper が必ず回収する保証があるからではなく、**許容している既知のギャップ**である。
 
-guard の目的 (進行中の takt が読んでいる context.json を上書きしない) は変えていない。時間経過を見る必要が無くなったため `CONCURRENT_RUN_GUARD_SECS` は廃止した (`ORPHAN_THRESHOLD_SECS` は L2 reaper 側で引き続き使う)。`--feedback-only` も同じ guard を通るため、**進行中でなければ手動のファイル削除なしに復旧できる**。
+guard の目的 (進行中の takt が読んでいる context.json を上書きしない) は変えていない。**廃止したのは「context.json の鮮度だけで判定する」方式であって、時間判定そのものではない** — `CONCURRENT_RUN_GUARD_SECS` (context.json の mtime を見る定数) は廃止したが、現行 guard は上記の足切りで `ORPHAN_THRESHOLD_SECS` と各 run の `startTime` を使う。**同じ閾値を L2 reaper と guard が共有している**が、両者の根拠は別々に成立している (reaper = 「orphan と見なしてよい古さ」、guard = 「正当な run がこの時間を超えた実績がゼロ」→ `run_registry::running_runs` の doc に実測を記載)。`--feedback-only` も同じ guard を通るため、**進行中でなければ手動のファイル削除なしに復旧できる**。
 
 #### run の特定は PR 番号で束縛する (2026-08-11 追加)
 
