@@ -43,12 +43,36 @@ pub(crate) fn push_to_remote(push_command: &str) -> bool {
     }
 
     let (ok, output) = run_cmd_direct(parts[0], &parts[1..], &[], DEFAULT_PUSH_TIMEOUT_SECS);
-    if ok {
-        log_info("[action] re-push 成功");
-    } else {
+    if !ok {
         log_info(&format!("[action] re-push 失敗: {}", output));
+        return false;
     }
-    ok
+    if push_was_refused(&output) {
+        log_info(&format!(
+            "[action] re-push 失敗: リモートに反映されませんでした (jj が push を拒否): {}",
+            output
+        ));
+        return false;
+    }
+    log_info("[action] re-push 成功");
+    true
+}
+
+/// jj が push を拒否した（が exit 0 を返した）かを出力から判定する。
+///
+/// jj は新規 bookmark の push を default で拒否する際、エラー終了せず
+/// "Refusing to create new remote bookmark" を出力して何もしない。この無言失敗を
+/// 成功と誤報告しないための検知 (`cli-push-runner/src/stages/push.rs` の同名関数と同型、
+/// T5 = PR #282 で発見された sibling bug への対処)。
+///
+/// `run_cmd_direct` は truncate なしの全量出力を返す (`cli-pr-monitor/src/runner.rs`) ため、
+/// `cli-push-runner` 側で必要だった「判定は全量・表示は cap」という分離は不要。
+///
+/// 単純な部分一致に留めるのは fail-closed (ADR-043) の判断。ADR-044 の境界基準 (層 1: 2 crate
+/// 目の使用は「variant 化を検討、要 dogfood」) に従い、本 crate は `run_cmd_direct` (shell なし
+/// direct args) 前提で `cli-push-runner` (shell 経由) と signature が異なるため複製する。
+fn push_was_refused(output: &str) -> bool {
+    output.to_lowercase().contains("refusing to")
 }
 
 /// fix 後の re-push を実行する (既存 API 保持)。
@@ -67,4 +91,39 @@ pub(crate) fn run_push(config: &FixConfig) -> bool {
         return false;
     }
     push_to_remote(&config.push_command)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T5 (PR #282) の sibling bug 再現テスト: 拒否メッセージ + exit 0 の出力が
+    /// `push_to_remote` で失敗扱いになることを assert する (todo 順位324 完了基準)。
+    mod push_refusal_detection {
+        use super::*;
+
+        #[test]
+        fn refused_detects_new_remote_bookmark_warning() {
+            let output = "Warning: Refusing to create new remote bookmark fix/foo@origin\n\
+                Hint: Run `jj bookmark track ...` and try again.\nNothing changed.";
+            assert!(push_was_refused(output));
+        }
+
+        #[test]
+        fn refused_is_case_insensitive() {
+            assert!(push_was_refused("REFUSING TO push a commit"));
+        }
+
+        #[test]
+        fn successful_push_is_not_refused() {
+            let output = "Changes to push to origin:\n  \
+                Add bookmark fix/foo to 3000737e";
+            assert!(!push_was_refused(output));
+        }
+
+        #[test]
+        fn empty_output_is_not_refused() {
+            assert!(!push_was_refused(""));
+        }
+    }
 }
