@@ -140,28 +140,6 @@
 
 ---
 
-### `cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)
-
-> **動機**: T5 (PR #282) の調査で発見された sibling bug (push-pipeline-fix-plan §6 backlog 9 から移管)。jj は新規 bookmark の push 拒否時に **exit 0** を返すことがある (ADR-011 の背景) が、`src/cli-pr-monitor/src/stages/push.rs` の `push_to_remote` は exit code のみで成否判定しており、post-PR の re-push (CodeRabbit 指摘修正後の再 push 等) が**リモート未反映のまま成功扱い**になり得る。T5 が cli-push-runner 側で塞いだ「silent-failure push」= ADR-043 が防ぐ事故そのものと同型の穴。
->
-> **対処**: 出力取得は既に `run_cmd_direct` (全量、truncate 無し) のため、**拒否判定の追加だけ**で済む (T5 と違い truncate 問題は無い)。判定ロジック `push_was_refused` は現在 `cli-push-runner/src/stages/push.rs` の private fn のため、共有化 (lib 移設) か複製かは [ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) の境界基準 (2nd consumer 出現時の共通化判定) で決める。fail-closed 側に倒す `contains` 判定の根拠は同 fn の doc コメントに恒久化済みで、そのまま踏襲する。
->
-> **参照**: `src/cli-pr-monitor/src/stages/push.rs`、T5 実施結果 = PR #282 (`mod t5_truncated_refusal_detection` 回帰テスト 6 本が参考)、#286 feedback report Tier2 #3 (採用候補)、[ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (外部可視の push が無言で未反映になる silent failure。発生は re-push 経路のみ) / Effort XS。
-
-#### 作業計画
-
-- [ ] 再現テストを先に書く (拒否メッセージ + exit 0 の出力で失敗扱いになることを assert。T5 の回帰テスト群を参考にする)。
-- [ ] `push_was_refused` の共有化可否を ADR-044 基準で判定し、`push_to_remote` に拒否判定を追加する。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 拒否メッセージ + exit 0 の push が `push_to_remote` で失敗として報告されること (回帰テストで seal)。
-
----
-
 ### 並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)
 
 > **動機**: R4 の ADR-047 採否判定分析 (2026-07-19、[ADR-047](adr/adr-047-prepush-refute-facet.md) 「却下理由の補強」節) から。直列 refute (verify step) は同日導入の [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) anomaly policy が **inline 反証** (fact-check 義務) として上流で FP を枯らしたため、**26 run で却下 0 件・便益 0** となり却下推奨。これで precision 側 (FP 除去) は ADR-056 が担う体制になったが、**recall 側 (見落とし) は post-PR CodeRabbit 頼みのまま**。一方 reviewers step は並列実行であり、simplicity execute (実測 avg 203s / max 416s) を律速上限として **第 3 の並列レビュアーを wall-clock 追加ゼロで足せる**見込みがある (security execute avg 92s が simplicity の陰に収まっている実績)。観点は「実装内容」ではなく「**設計内容**」— 見落としやすいポイントの指摘・プロジェクト適合性 (ADR / dev-conventions との整合)。
