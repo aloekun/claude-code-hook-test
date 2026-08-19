@@ -224,3 +224,199 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 分類の結果として対処が不要と判断した場合は、その根拠を negative result として永続化して閉じること ([dev-conventions.md](dev-conventions.md) § spike / 実験タスクの見送り (negative result) 永続化 convention)。
 
 ---
+
+## post-merge feedback 採用分 (#417 / #418 / #419 / #420 / #421 / #423 / #424 の 7 PR 分、2026-08-19 採否確定)
+
+> **由来**: 不具合修正バックログ消化計画 (PR A〜D) の 7 PR の post-merge feedback。全 48 提案のうち
+> **採用候補 16 / 様子見 18 / 却下推奨 14**。採用候補を 7 系統に分類し、**5 タスクへ統合**した
+> (様子見・却下推奨はそのまま、個別登録しない)。統合の単位は「そのまま 1 PR になる粒度」。
+>
+> **起票前の実コード確認で 1 件が脱落した** — #417 の「`REPORT_FILE_NAME` / `RUN_REPORT_FILE_NAME` の
+> pin テストを両 crate に追加」は既に両側に実装済みだった (`run_registry.rs` / `reaper/mod.rs` の
+> tests、PR #418 で追加)。同 PR の他 2 提案も大部分が実装済みで、残片のみを順位 471 に載せている。
+> **feedback レポートも台帳と同じく実装が動くほどずれる。**
+
+### 誤帰属と副作用フラグ欠如を決定論ルールで弾く (系統 A)
+
+> **動機**: 2 件とも**過去に実 incident を生んだパターン**の機械検出で、実装先も手法も同じ。
+>
+> - **設定文字列のパス相当フィールドへの `..` 混入**: `reportDirectory` の `..` で別 run の成果物を
+>   成功証拠に誤用した (PR [#417](https://github.com/aloekun/claude-code-hook-test/pull/417) で修正)。
+>   同型の誤帰属は 2026-08-09 #374 / 2026-07-16 #281 でも観測されている
+> - **`jj workspace list` の `--ignore-working-copy` 欠如**: `list_workspace_roots` が `discover.rs` と
+>   違ってフラグを欠いていた (PR [#421](https://github.com/aloekun/claude-code-hook-test/pull/421) で修正)。
+>   並行 jj セッションの op-log divergence による commit 済み作業の silent revert に直結しうる
+>
+> **なぜ 1 タスクか**: 実装先が同じ `.claude/custom-lint-rules.toml` の正規表現層 ([ADR-007](adr/adr-007-custom-linter-layer-boundary.md))
+> で、既存 13 ルールと同水準の単純パターン。fixture も同じ `tests/fixtures/incidents/{bad,good}/` ([ADR-049](adr/adr-049-incident-eval-regression-suite.md))。
+>
+> **将来の false positive に注意**: `--ignore-working-copy` は `update-stale` 等の意図的例外が増えると
+> 誤検出しうる (現時点の例外呼び出しは 0 件)。逃がし方を決めてから有効化する。
+>
+> **参照**: `.claude/feedback-reports/417.md` Tier1 #2、`421.md` Tier1 #1、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) (同型の trust boundary 検出ルール)
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity High (両者とも実 incident 実績) / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `..` 混入検出ルールを正規表現層に追加 + bad/good fixture
+- [ ] `jj workspace list` の `--ignore-working-copy` 欠如検出ルールを追加 + bad/good fixture
+- [ ] **修正前に bad fixture が実際に落ちることを確認する** ([ADR-049](adr/adr-049-incident-eval-regression-suite.md))
+- [ ] 既存コードで違反 0 を確認してから有効化する
+- [ ] 意図的例外が出た場合の逃がし方を決めて doc に書く
+
+#### 完了基準
+
+- 両ルールが bad fixture で発火し、good fixture では発火しないこと
+- 既存コードに違反が無いこと (有効化時点で赤にならない)
+
+### cross-crate 定数 pin と reaper 回帰テストの残片を埋める (系統 B 実装 + C)
+
+> **動機**: 起票前の実コード確認で**大部分が実装済み**と判明したため、**残っているのは次の 3 つだけ**。
+>
+> - `TASK_BOOKMARK_SEPARATOR` の直接 assert が `cli-merge-pipeline` 側に無い。定数は `context.rs` に
+>   あるが assert が無く、`cli-push-runner` 側だけが pin している。**doc コメントの「両 crate の
+>   unit test が pin する」という主張と実装が食い違っている** (doc の嘘)
+> - reaper の「**同一 run の `reportDirectory` は受理される**」の明示 assert (拒否側は実装済み)
+> - `settle_meta_status` の **I/O 失敗**ケース (JSON malformed と「失敗を成功と報告しない」は実装済み)
+>
+> **なぜ 1 タスクか**: いずれも既存テストファイルへの小片追加で、production コードの変更を伴わない。
+>
+> **参照**: `.claude/feedback-reports/417.md` Tier2 #2/#3、`420.md` Tier2 #1
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Low / Effort XS-S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] **着手時に再度実コードを確認する** — 本エントリの元になった 3 提案のうち 1 件は起票時点で既に実装済みだった
+- [ ] `context.rs` の tests に `TASK_BOOKMARK_SEPARATOR` の literal pin assert を追加し、doc コメントの主張と一致させる
+- [ ] `reaper/tests.rs` に「同一 run の `reportDirectory` は受理される」assert を追加
+- [ ] `settle_meta_status` の I/O 失敗 (読み取り不能 / 書き込み不能) ケースを追加
+
+#### 完了基準
+
+- 共有定数が片側だけ変わったとき、両 crate のテストが落ちること
+- reaper の受理/拒否が両方向 assert されていること
+- `settle_meta_status` の I/O 失敗 (読み取り不能 / 書き込み不能) が `Err` として扱われ、**成功と報告されない**ことがテストで固定されていること
+
+### 語彙・テスト作法・判断規律の convention を明文化する (系統 B 規約 + D + E + F 規約)
+
+> **動機**: 8 項目、すべて行き先が [dev-conventions.md](dev-conventions.md) で実装を伴わない。
+>
+> **語義の分離** (同じに見える別物を区別する):
+>
+> - 「コメント投稿の有無 (presence)」と「actionable findings の有無」を混同しない (#418 の根本原因)
+> - ソートキーが「決定論的」なのか「時系列」なのかを doc comment で明示する (#419 の真因。
+>   決定論的ではあるが時系列でない順序が `session_data_unavailable` の誤報を生んだ)
+>
+> **テスト作法**:
+>
+> - cross-crate で共有する canonical constant は producer/consumer 双方で literal pin test を書く (#418)
+> - filesystem の mtime 分解能に依存しないテスト (`filetime::set_file_mtime`) を既定パターンにする (#419)
+>
+> **判断の規律**:
+>
+> - 再利用されるキーを一意識別子として使わない / evidence の scope を実際より狭く見積もらない (#420)
+> - 「将来リスク」分類は着手前の実測で裏付けてから PR 分割・優先順位を決める (#421)
+> - fail-open でも黙って飛ばさない + todo 削除前に完了基準の全項目が実コードに現れているか確認する (#421)
+> - 効きが確認できない修正を入れない / 計画案を実測で棄却し観測ベースで解を選ぶ (#423)
+>
+> **なぜ 1 タスクか**: 行き先が 1 ファイルに閉じ、実装を伴わない。docs 変更はマイルストーンでまとめる運用。
+> 分量が大きくなるなら語義 / テスト作法 / 判断規律の 3 セクションで PR を分けてよい。
+>
+> **様子見だった #424 の「意味的に異なる状態が同じ見え方になるバグクラス」も語義セクションに畳める。**
+> 着手時に採否を判断する。
+>
+> **参照**: `.claude/feedback-reports/418.md` Tier3 #1/#2、`419.md` Tier2 #3・Tier3 #1、`420.md` Tier3 #2、`421.md` Tier3 #1/#2、`423.md` Tier3 #1
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] 語義セクション (2 項目) を追記
+- [ ] テスト作法セクション (2 項目) を追記
+- [ ] 判断規律セクション (4 項目) を追記
+- [ ] **各項に実例 (PR 番号と何が起きたか) を必ず添える** — 一般論だけの規約は守られない
+- [ ] #424 の様子見項目を畳むか判断する
+
+#### 完了基準
+
+- 8 項目が [dev-conventions.md](dev-conventions.md) に順位付きセクションとして載っていること
+- 各項が「なぜ」と実例を持つこと
+- #424 の様子見項目 (「意味的に異なる状態が同じ見え方になるバグクラス」) を**採用 / 保留 / 却下のいずれかに決定し、理由を記録**していること
+
+### テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (系統 F 実装)
+
+> **動機**: PR [#423](https://github.com/aloekun/claude-code-hook-test/pull/423) で `EXEC_STAGING_LOCK` /
+> `exec_staging_guard()` を `smoke.rs` と `t7_cwd_independence.rs` に**意図的に複製した**
+> ([ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) 層 1「2 crate 重複は extract 必須ではなく要 dogfood」)。
+> pre-push レビューと post-merge feedback の双方が DRY 違反として指摘しており、**判断の是非を一度見直す**。
+>
+> **判断が要る点**: 共有化すると **test 専用の同期プリミティブを `lib-subprocess` の production surface に載せる**
+> ことになる。ロックはプロセス内でしか意味を持たず、テストバイナリは別プロセスなので共有しても保証は増えない。
+> #423 時点の決定は「3 つ目の copy→spawn テストが現れた時点で extract を再評価する」。
+>
+> **なぜ独立タスクか**: 前回判断の巻き戻しを含むため、切り戻し単位を分ける。
+>
+> **参照**: `.claude/feedback-reports/423.md` Tier2 #1、`t7_cwd_independence.rs` の `EXEC_STAGING_LOCK` doc
+>
+> **実行優先度**: 💎 **Tier 3** — Severity Low / Frequency Low / Effort S / Adoption Risk Low。
+
+#### 作業計画
+
+- [ ] 3 つ目の copy→spawn テストが出現したかを確認する (#423 の再評価トリガ)
+- [ ] 出ていなければ現状維持と結論し、本エントリを閉じる (negative result の残し方を判断する)
+- [ ] 共有するなら置き場 (`lib-subprocess` の test-support か、新規 dev-dependency crate か) を決める
+
+#### 完了基準
+
+- 複製を残すか共有するかが根拠付きで決まり、コード doc に反映されていること
+
+### 夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (系統 G)
+
+> **動機**: PR D の着手前に、台帳・作業計画書・実装の 3 箇所を人手で横断確認する必要が生じた
+> (2026-08-19)。台帳の順位 176 (auto lane) が PR D と同じ `src/check-ci-coderabbit/src/rate_limit.rs` を
+> 触る想定だったため。結果的に PR D はそのファイルを触らず競合しなかったが、**それを判定するのに
+> 手作業の横断確認が要った**。
+>
+> [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) は lane 割当の判断基準を定めるが、
+> **同一ファイルの並行競合検知は範囲外**で重複しない。
+>
+> **参照**: `.claude/feedback-reports/424.md` Tier2 #1、`lib_ledger::select` (文書順で 1 件選択)
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium (手戻りリスク) / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] 検知の入力を決める (台帳の対象ファイル欄 × open PR の changed files)
+- [ ] 実装先を決める (`nightly-todo.yml` の step か `cli-nightly-task-select` の拡張か)
+- [ ] 競合時の挙動を決める (選定から除外するか、warning に留めるか)
+
+#### 完了基準
+
+- auto lane の選定が、ユーザー割当 PR と同一ファイルを触る順位を**機械的に検知し、選定から除外するか警告として報告する**こと (どちらを採るかは作業計画で決める。warning に留める場合も、検知結果が run log から読めること)
+
+---
+
+## pre-push review 由来 (2026-08-19、bugfix-batch-plan.md 退役準備中に発見)
+
+### `resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する
+
+> **動機**: [bugfix-batch-plan.md](bugfix-batch-plan.md) の `cwd_to_project_id` Linux case 不一致調査 (順位 469 の完了確認) で、**別の未対応の穴**が実測で見つかった。case-sensitive filesystem (WSL Ubuntu-24.04 / ext4 で確認) では `Foo` と `foo` を同じ `projects_root` に置ける。両方が `cwd_to_project_id` の lowercase 比較に一致すると、`resolve_project_dir` (`src/cli-merge-pipeline/src/feedback/transcript.rs:37`) の `.find(...)` は **1 件だけ返し、もう一方を無言で除外する** (どちらが返るかは `read_dir` の順序依存で契約上未規定)。5 回試行して毎回 1 件のみ返ることを確認済み。
+>
+> **発見時点で発現経路は未確認** — case-sensitive FS では同一ディレクトリの綴りが通常一意なため、同じ workspace root から 2 通りの綴りは生まれにくい。ただしこれは推論であり、`~/.claude/projects` を OS 間で持ち込む等の経路は排除できていない。**bugfix-batch-plan.md は退役予定で削除されるため、この観測の記録先を本エントリに移した。**
+>
+> **参照**: [bugfix-batch-plan.md](bugfix-batch-plan.md) § 保留事項、`resolve_project_dir` の doc コメント (`transcript.rs:28-36`)、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed 原則)
+>
+> **実行優先度**: 💎 **Tier 3** — Severity Low (発現経路未確認) / Frequency Low / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `resolve_project_dir` の doc コメントに、複数一致時は 1 件のみ返し他方を無言で除外すること (順序は `read_dir` 依存で未規定) を明記する
+- [ ] `~/.claude/projects` を OS 間で持ち込む等、発現経路が実在するかを再評価する
+- [ ] 発現しうると判断したら、ADR-043 に従い複数一致を loud に検出する実装を追加する。発現しないと判断したら、その根拠を negative result として本エントリに記録して閉じる ([dev-conventions.md](dev-conventions.md) § spike / 実験タスクの見送り (negative result) 永続化 convention)
+
+#### 完了基準
+
+- `resolve_project_dir` の doc コメントが複数一致時の挙動を明記していること
+- 発現経路の評価結果 (対応要否とその根拠) が記録されていること

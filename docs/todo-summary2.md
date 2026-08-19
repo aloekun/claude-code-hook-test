@@ -193,6 +193,12 @@
 | 466 | 💎 Tier 3 | **出力先と検証設計の convention を明文化する (#409-#414 feedback 系統 C+E を統合)** | todo24.md | S | なし (2026-08-17 採用。docs のみ。出力の visible paths / fixture と実データの対 / step outcome の組み合わせ の 3 点) |
 | 467 | 🔧 Tier 2 | **夜間ループとレポート出力の小さな穴を塞ぐ (#409-#414 feedback 系統 D + dispatch 実走 F-2)** | todo24.md | S | なし (2026-08-17 採用。ブランチ削除の事前存在確認 / parse エラー診断強化 / GIT_DIR 警告抑止。D-1 の効果確認は実走が要る) |
 | 468 | 🔧 Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
+| 470 | 🚀 Tier 1 | **誤帰属と副作用フラグ欠如を決定論ルールで弾く (`..` 混入検出 / `jj workspace list` の `--ignore-working-copy` 欠如検出、#417+#421 feedback 採用、系統 A)** | todo24.md | S | なし (両者とも実 incident 実績あり。`.claude/custom-lint-rules.toml` の正規表現層で完結) |
+| 471 | 🔧 Tier 2 | **cross-crate 定数 pin と reaper 回帰テストの残片を埋める (#417+#420 feedback 採用、系統 B 実装 + C)** | todo24.md | XS-S | なし (元 3 提案のうち 1 件は起票時点で実装済みと判明。着手時に再確認する) |
+| 472 | 🔧 Tier 2 | **語彙・テスト作法・判断規律の convention を dev-conventions.md に明文化 (8 項目、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
+| 473 | 💎 Tier 3 | **テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (#423 feedback 採用、系統 F 実装)** | todo24.md | S | なし (ADR-044 層 1 の再評価。#423 の「3 つ目が出たら」判断の見直し) |
+| 474 | 🔧 Tier 2 | **夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (#424 feedback 採用、系統 G)** | todo24.md | S | なし (ADR-074 は lane 割当基準のみで並行競合検知は範囲外) |
+| 475 | 💎 Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (bugfix-batch-plan.md 退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが bugfix-batch-plan.md 削除後も記録を残すため起票) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 
