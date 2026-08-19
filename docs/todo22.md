@@ -415,13 +415,18 @@
 
 #### 作業計画
 
-- [ ] CodeRabbit の応答パターンを分類する (受理 / レート制限 / skip / エラー)。**判別は文言に依存するため脆い** — 変化を検出したら安全側 (未取得扱い) へ倒す設計にする
-- [ ] success 判定を「レビューが始まった陽性証拠」へ寄せるか、warning で可視化に留めるかを決める
-- [ ] 未レビューのまま残った自律 PR を後から拾う経路 (weekly-review) と役割分担する
+- [x] CodeRabbit の応答パターンを分類する (2026-08-20 実装)。`REVIEWED` (walkthrough marker) / `RATE_LIMITED` / `OTHER` の 3 分類とし、`OTHER` (ack・skip 通知・未知 format) は陽性証拠に数えず deadline 到達で red = 安全側 (未取得扱い) へ倒す。
+  - **台帳の前提がずれていた**: 拒否の実体は walkthrough の `Review limit reached` placeholder ではなく **command ack** (`<!-- This is an auto-generated reply by CodeRabbit -->` + `⚠️ Action not completed` + `Review rate limited.`) で、`markers.rs` の `RATE_LIMIT_MARKERS` の**どちらにも一致しない** (PR #387 の実 body を `gh api` で確認)。本 workflow の marker は markers.rs の上位集合とし、`Review rate limited.` を workflow 固有 marker として追加した。
+  - rate-limit の判定は陽性証拠より**先**に行う。#387 では拒否 ack と summarize marker 付き placeholder が 3 秒差で並んでおり、先に陽性証拠を探すと placeholder をレビュー実体と読んで silent success に戻る。
+- [x] success 判定を**陽性証拠へ寄せる**方針に決定 (2026-08-20、ユーザー判断)。レート制限検出時は `[REVIEW_REQUEST_RATE_LIMITED]` を出して **red で落とす**。リトライは作らない (ADR-019 § M5) ため、run の色が「この PR は未レビューのまま残った」の即時信号になる。成功条件を厳しくしたぶん待機上限を 10 分 → 15 分へ延長 (job の `timeout-minutes` も 15 → 20)。
+- [x] weekly-review との役割分担を workflow 先頭に明記 (2026-08-20)。本 workflow は**即時信号のみ**で再要求はせず、未レビュー PR を全体で拾い直すのは weekly-review の自律アクション棚卸し (WP-19 ステップ 3) 側とする。両者は独立に動く。
+- [ ] **実走観測**: 次にレート制限が起きた夜間 run で red + `[REVIEW_REQUEST_RATE_LIMITED]` が出ることを確認してから本エントリを削除する。
 
 #### 完了基準
 
 - レート制限で弾かれた自律 PR が、run の色か後続の棚卸しのいずれかで**未レビューと分かる**こと。
+
+> **現在地 (2026-08-20)**: 実装済み。分類 jq は workflow ファイルから切り出して実 PR (#387 / #426 / #421 / #419) のコメント列へ適用し、**#387 (本エントリの由来 incident) が `RATE_LIMITED` = red、正常レビュー済みの 3 件が `REVIEWED` = green** になることを実測した。marker が複数層に分散する構造なので `scripts/lint-workflows.mjs` に同期検査を追加している (片方だけ変えると silent success に戻るため)。**完了基準の判定は実走観測待ち。**
 
 ### `check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー
 
