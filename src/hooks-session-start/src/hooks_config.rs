@@ -132,6 +132,7 @@ mod tests {
 enabled = true
 fetch_timeout_secs = 5
 default_branch = "main"
+stale_check_enabled = true
 "#;
         let mut f = std::fs::File::create(claude_dir.join("hooks-config.toml")).unwrap();
         f.write_all(toml_str.as_bytes()).unwrap();
@@ -145,6 +146,7 @@ default_branch = "main"
         assert_eq!(staleness.enabled, Some(true));
         assert_eq!(staleness.fetch_timeout_secs, Some(5));
         assert_eq!(staleness.default_branch.as_deref(), Some("main"));
+        assert_eq!(staleness.stale_check_enabled, Some(true));
         let _ = std::fs::remove_dir_all(&root);
     }
 
