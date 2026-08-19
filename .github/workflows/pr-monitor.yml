@@ -79,9 +79,20 @@
 #   (a) issue_comment は CR の walkthrough/summary コメント (summarize marker を含み、かつ
 #       rate-limit placeholder marker を含まないもの) のみ起動。ack (auto-generated reply) /
 #       rate-limit 通知 / コマンド応答は summarize marker を持たないため起動しない。walkthrough は
-#       in-place 更新される (types: [created] のみ購読) ため初回作成で高々 1 回起動し、実レビューの
-#       追加は pull_request_review (submitted) 経路が拾う。
+#       in-place 更新される (types: [created] のみ購読) ため初回作成で高々 1 回起動する。
 #   (b) CLOSED / MERGED の PR では起動しない (issue.state / pull_request.state == 'open')。
+#   (c) pull_request_review は body 空の review では起動しない。CR はレビュースレッドへの
+#       返信 (ack) も review (submitted) として送るため、この経路にも content フィルタが要る。
+#   (d) 同一 head SHA へ既に分析コメントを投稿済みなら起動しない (冪等キー方式)。(a)〜(c) は
+#       event 条件であり、「1 回の walkthrough が issue_comment と pull_request_review の
+#       両方を発火させる」ケースを原理的に区別できない。投稿本文の末尾に workflow 自身が
+#       `<!-- pr-monitor-backstop: sha=<head sha> -->` を付け、起動時にそのマーカーの有無を
+#       見ることで、経路によらず head SHA あたり高々 1 投稿に固定する
+#       (step「Check for an existing backstop post for this head SHA」)。新しい push で
+#       head SHA が変われば再び 1 回投稿する。workflow_dispatch は人間の明示操作なので対象外。
+#   2026-08-12 の dogfood 集計 (#347〜#390 の 29 PR) では 2 投稿以上が 69% で完了基準未達
+#   だった。当時実装済みだったのは (a)(b) のみで、残原因が pull_request_review 経路の
+#   content フィルタ欠落 (= (c)) と、両経路が同じ walkthrough で起動すること (= (d))。
 #   prompt 手順 2 の重複ガードはこの決定論層の二層目 (fallback) に降格。ADR-042 (ルール vs
 #   仕組み化) の観点でガードを助言層から決定論層へ移した形。
 # - Max 枠の暴走ガード: 上記の起動選別 + concurrency で PR 単位に集約 (最新イベントのみ処理)
@@ -127,6 +138,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_review' &&
        github.event.pull_request.state == 'open' &&
+       github.event.review.body != '' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.review.user.login != 'github-actions[bot]' &&
        github.event.review.user.login != 'claude[bot]' &&
@@ -144,6 +156,8 @@ jobs:
       # fix job (Phase B) の actor gate が使う実権限。pull_request_review 経路でのみ
       # 解決される (他経路は下記 reviewer_permission step 参照)。
       reviewer_permission: ${{ steps.reviewer_permission.outputs.permission }}
+      # 冪等ガード (順位 319) の判定結果。fix job (Phase B) もこの判定を継承する。
+      duplicate: ${{ steps.dedup.outputs.duplicate }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -168,6 +182,90 @@ jobs:
         run: |
           IS_CROSS_REPO=$(gh pr view "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --json isCrossRepository --jq '.isCrossRepository')
           echo "is_fork=$IS_CROSS_REPO" >> "$GITHUB_OUTPUT"
+
+      - name: Check for an existing backstop post for this head SHA (dedup guard)
+        # 順位 319 の決定論ガード (d)。設計メモ (d) 参照。
+        #
+        # **判定は PR のコメント列そのものを state store として使う。** 本 job は
+        # contents: read で外部ストアも持たないため、投稿済みかどうかの記録場所は
+        # 「自分が投稿したコメント」しかない。投稿本文の末尾マーカーを検索キーにする。
+        #
+        # **失敗は「投稿済み」側へ倒す (fail-closed)。** head SHA を解決できない /
+        # コメント一覧を取れない場合に投稿へ進むと、ガードが壊れている間だけ重複投稿が
+        # 復活する。判定不能なら投稿しない方向へ倒し、marker を run log に残して
+        # 「意図した skip」と「ガードが壊れた」を後から区別できるようにする
+        # (ADR-043 fail-closed / ADR-064 陽性証拠)。
+        #
+        # **マーカーが残るのは投稿したときだけ。** エージェントが SKIP を返した回は
+        # 投稿が無く、マーカーも残らないので同じ head SHA で次のイベントが来れば再度
+        # 分析が走る。完了基準は「投稿が高々 1 件」なので満たすが、agent run の
+        # 抑止としては投稿済みの SHA にしか効かない。
+        id: dedup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+          # pull_request_review 経路は payload に head sha があるので API を呼ばない。
+          # issue_comment / workflow_dispatch 経路は payload に無いため API で解決する。
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # **`set +e` にはしない。** GitHub Actions は run: を `bash -e {0}` で起動するため、
+          # ここで `set -uo pipefail` と書いても -e は外れない (2026-08-20 に実 run で観測)。
+          # 誤解を招かないよう -e を明示し、失敗を許す箇所は個別に手当てする。
+          set -euo pipefail
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*)
+              echo "[BACKSTOP_DEDUP_UNRESOLVED] PR 番号が整数ではありません: '$PR_NUMBER'。投稿しません"
+              echo "duplicate=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          HEAD_SHA="$EVENT_HEAD_SHA"
+          if [ -z "$HEAD_SHA" ]; then
+            HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo "")
+          fi
+          # hex 以外は受け付けない。この値は下の --jq へ埋め込むため、文字種を自前で
+          # 固めてから使う (他 step の env indirection と同じ趣旨の二重化)。
+          case "$HEAD_SHA" in
+            ''|*[!0-9a-f]*)
+              echo "[BACKSTOP_DEDUP_UNRESOLVED] head SHA を解決できません: '$HEAD_SHA'。投稿しません"
+              echo "duplicate=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "[BACKSTOP_DEDUP] workflow_dispatch は人間の明示操作のため冪等ガードの対象外 (head sha=$HEAD_SHA)"
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 投稿者を github-actions[bot] に限定する。マーカー文字列自体は PR 参加者なら
+          # 誰でも書けるため、投稿者を見ないと第三者のコメント 1 件で backstop を
+          # 黙らせられる。
+          # stderr は混ぜない。`2>&1` にすると gh の警告 1 行が id 列に紛れ込み、
+          # 「マーカー付きコメントが 1 件ある」= 投稿済みと誤判定する。id は数字行だけを
+          # 通す (成功時の出力に非数字が来たら無視する二重化)。
+          if ! EXISTING=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              --jq ".[] | select(.user.login == \"github-actions[bot]\") | select((.body // \"\") | contains(\"<!-- pr-monitor-backstop: sha=${HEAD_SHA} -->\")) | .id" \
+              2> "$RUNNER_TEMP/dedup-err.txt"); then
+            echo "[BACKSTOP_DEDUP_UNRESOLVED] コメント一覧を取得できません。投稿しません"
+            head -3 "$RUNNER_TEMP/dedup-err.txt"
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # **grep をパイプに置かない。** 一致 0 件の grep は exit 1 を返し、pipefail +
+          # `bash -e` の下では step ごと落ちる。マーカー未投稿 = 一致 0 件は**正常系**
+          # (初回投稿の前は必ずこれ) なのに、実 run で job が red になり backstop の投稿が
+          # 消えた (PR #428 で観測)。awk は一致 0 件でも exit 0 なのでこの罠が無い。
+          EXISTING=$(printf '%s\n' "$EXISTING" | awk '/^[0-9]+$/' | sort -n | tail -1)
+          if [ -n "$EXISTING" ]; then
+            echo "[BACKSTOP_DEDUP_SKIP] head sha=$HEAD_SHA には既に分析コメント (id=$EXISTING) があります。再投稿しません"
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "[BACKSTOP_DEDUP] head sha=$HEAD_SHA への分析コメントはまだありません"
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Resolve reviewer repository permission (pull_request_review path)
         # 【SEC-NEW-pr-monitor-fix-author-association-privilege-L323 対策】
@@ -207,7 +305,9 @@ jobs:
       - name: Run PR analysis (read-only; does not post comments itself)
         id: analyze
         uses: anthropics/claude-code-action@v1
-        if: github.event_name != 'issue_comment' || steps.pr_head.outputs.is_fork == 'false'
+        if: >-
+          (github.event_name != 'issue_comment' || steps.pr_head.outputs.is_fork == 'false') &&
+          steps.dedup.outputs.duplicate != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -302,6 +402,7 @@ jobs:
         if: steps.analyze.outcome == 'success'
         env:
           EXECUTION_FILE: ${{ steps.analyze.outputs.execution_file }}
+          HEAD_SHA: ${{ steps.dedup.outputs.head_sha }}
         run: |
           set -euo pipefail
           ANALYSIS_FILE="$RUNNER_TEMP/pr-monitor-analysis.md"
@@ -326,6 +427,16 @@ jobs:
               "$ANALYSIS_FILE" > "$ANALYSIS_FILE.norm"
             mv "$ANALYSIS_FILE.norm" "$ANALYSIS_FILE"
           fi
+
+          # 冪等キー (順位 319 / 設計メモ (d)) を workflow 自身が付ける。次回以降の起動は
+          # dedup step がこのマーカーを検索して「同一 head SHA へ投稿済み」を判定する。
+          # **付ける前に同名マーカーを除去する。** エージェント出力は PR 本文・レビュー
+          # コメント由来のテキストを含みうるので、注入されたマーカー行をそのまま投稿すると
+          # 別 SHA の分析を将来にわたり抑止する細工が成立する (本文は --body-file で
+          # 渡るためシェル注入は起きないが、この経路はデータとしての細工)。
+          sed -i '/<!-- pr-monitor-backstop: sha=/d' "$ANALYSIS_FILE"
+          printf '\n<!-- pr-monitor-backstop: sha=%s -->\n' "$HEAD_SHA" >> "$ANALYSIS_FILE"
+
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Post analysis as PR comment (workflow-authored, not agent-authored)
@@ -377,6 +488,7 @@ jobs:
     # admin/maintain/write のいずれかを要求する。
     if: >-
       needs.analyze.result == 'success' &&
+      needs.analyze.outputs.duplicate != 'true' &&
       vars.AUTONOMY_ENABLED == 'true' &&
       (github.event_name != 'pull_request_review' ||
        contains(fromJSON('["admin", "maintain", "write"]'), needs.analyze.outputs.reviewer_permission))

@@ -52,6 +52,19 @@
 # ADR-072 決定 11 は「投稿できたか」しか見ておらず、bot 投稿が無視されている事実に
 # **10 時間気づけなかった**。本 workflow は投稿後に CodeRabbit の反応を確認し、
 # 無ければ **red で落とす**。助言層なので他を止めはしないが、無音にはしない。
+#
+# ## 反応があったことも成功としない (順位 431)
+#
+# 2026-08-11 の夜間ループ実走 (PR #387) で CodeRabbit が `Review limit reached` を
+# 返したのに、検証が「要求後にコメントが 1 件以上付いたか」だけを見ていたため
+# **拒否も success として記録**され、未レビューの自律 PR がどこにも信号として
+# 残らなかった。検証段は反応の**中身**を 3 分類し、レビューが始まった陽性証拠が
+# 無い限り success にしない (ADR-064 陽性証拠の要求 / ADR-043 fail-closed)。
+#
+# **リトライは作らない** (ADR-019 § M5)。本 workflow が出すのは「この PR が未レビュー
+# のまま残った」という即時信号だけで、再要求はしない。後から未レビュー PR を全体で
+# 拾い直す経路 (weekly-review の自律アクション棚卸し) とは役割が別で、本 workflow が
+# red で落ちても後段の棚卸しは独立に動く。
 name: review-request
 
 on:
@@ -89,7 +102,9 @@ jobs:
       github.event.pull_request.base.repo.full_name == github.repository &&
       vars.AUTONOMY_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 検証段の待機上限 (15 分) + 前段 step の余裕。順位 431 で成功条件を
+    # 「反応があった」から「レビュー実体が来た」へ上げたため上限も広げてある。
+    timeout-minutes: 20
     steps:
       # **checkout しない。** PR のコードは一切取得も実行もしない。
       # 必要なのは PR 番号だけで、それは event payload から得られる。
@@ -197,7 +212,36 @@ jobs:
       # 要求コメントの id を起点に、**それより新しい** CodeRabbit コメントのみを数える
       # (comment id は単調増加)。`--paginate` で 1 ページ目 (既定 30 件) に収まらない
       # PR でも取りこぼさない。
-      - name: Verify CodeRabbit actually responded
+      # **反応を 3 分類する (順位 431)。**
+      #   REVIEWED     — walkthrough marker あり = レビュー実体が来た。ここだけが success。
+      #   RATE_LIMITED — rate-limit marker あり = 未レビュー確定。待っても解除は数十分先で、
+      #                  リトライは作らない方針 (ADR-019 § M5) なので即 red にする。
+      #   OTHER        — ack / skip 通知 / 未知 format。陽性証拠に数えず deadline まで待ち、
+      #                  最後まで REVIEWED が来なければ「未取得」として red。
+      #
+      # **rate-limit の本命 marker は walkthrough ではなく command ack にある。**
+      # `@coderabbitai review` への**直接の応答**は「auto-generated reply」= command ack で、
+      # 拒否時の body は `⚠️ Action not completed` + `Review rate limited.`、受理時は
+      # `✅ Action performed` + `Review finished.` になる (2026-08-10 の PR #387 と
+      # 2026-08-11 の再要求で実観測)。この文言は markers.rs の RATE_LIMIT_MARKERS
+      # (`Rate limit exceeded` / `rate limited by coderabbit.ai`) の**どちらにも一致しない**。
+      # markers.rs が見ているのは walkthrough comment の placeholder であって command ack
+      # ではなく、ack は本 workflow だけが観測する comment class だからである。よって本
+      # workflow の rate-limit marker は markers.rs の**上位集合**になる:
+      #   - `Rate limit exceeded` / `rate limited by coderabbit.ai` … markers.rs と共有。
+      #     walkthrough が placeholder として投稿された場合を拾う。触るときは両方直す
+      #     (片方だけ直すと本 workflow だけが silent success に戻る。
+      #      ADR-034 § CR rate-limit format evolution)。
+      #   - `Review rate limited.` … command ack 専用。本 workflow 固有。
+      #
+      # **rate-limit を陽性証拠より先に見る。** ack が拒否と言っているのに walkthrough
+      # marker を持つコメント (placeholder) が同時に存在しうる — #387 では 3 秒差で
+      # 両方が投稿された。先に陽性証拠を探すと placeholder を「レビュー実体」と読んで
+      # silent success に戻る。markers.rs の is_clean_walkthrough_comment も rate-limit を
+      # 優先して弾いており、判定順序をそちらに揃える。副作用として「解除後 15 分以内に
+      # 本当にレビューが完了した」稀なケースも red になるが、これは意図した安全側
+      # (未取得扱い) の誤りである。
+      - name: Verify CodeRabbit actually reviewed (classify the response)
         if: steps.killswitch.outputs.proceed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -205,6 +249,9 @@ jobs:
           REPO: ${{ github.repository }}
           SINCE_ID: ${{ steps.request.outputs.since_id }}
         run: |
+          # GitHub Actions は run: を `bash -e {0}` で起動するため `set -uo pipefail` と
+          # 書いても -e は外れない (PR #428 で実 run 観測)。-e を明示し、失敗を許す箇所は
+          # 個別に手当てする。
           set -euo pipefail
           case "$SINCE_ID" in
             ''|*[!0-9]*)
@@ -212,22 +259,72 @@ jobs:
               exit 1
               ;;
           esac
-          # 実測レイテンシは 4〜5 秒 (#373 / #378)。10 分は十分な余裕を持った上限で、
-          # ここに達したら「遅い」ではなく「反応していない」と判断してよい。
-          DEADLINE=20
+          # 1 行につき "<comment id> <分類>" を出す。id を残すのは、要求より新しい
+          # コメントだけを見る絞り込みを shell 側で行うため (comment id は単調増加)。
+          JQ_CLASSIFY='
+            .[]
+            | select(.user.login == "coderabbitai[bot]")
+            | (.body // "") as $b
+            | [ (.id | tostring),
+                (if ($b | contains("Rate limit exceeded"))
+                    or ($b | contains("rate limited by coderabbit.ai"))
+                    or ($b | contains("Review rate limited."))
+                 then "RATE_LIMITED"
+                 elif ($b | contains("<!-- This is an auto-generated comment: summarize by coderabbit.ai -->"))
+                 then "REVIEWED"
+                 else "OTHER"
+                 end) ]
+            | join(" ")'
+          # 実測レイテンシは 4〜5 秒 (#373 / #378) だが、それは「反応」までの時間で、
+          # walkthrough 本体の投稿は PR 規模次第でさらにかかる。成功条件を厳しくした
+          # ぶん上限も 10 分 → 15 分へ広げる (job の timeout-minutes も対応済み)。
+          DEADLINE=30
+          SEEN_OTHER=false
           for i in $(seq 1 "$DEADLINE"); do
             # 照会の一時失敗を「反応なし」と読み替えない。API blip で偽の red を出すと、
             # 本当に反応していない夜と区別がつかなくなる (決定 11 と逆向きの同じ誤り)。
             # 判定を下すのは deadline 到達時だけにする。
-            COUNT=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-              --jq ".[] | select(.user.login==\"coderabbitai[bot]\" and .id > ${SINCE_ID}) | .id" \
-              2>/dev/null | wc -l || echo "")
-            if [ -n "$COUNT" ] && [ "$COUNT" -gt 0 ]; then
-              echo "[REVIEW_REQUEST] CodeRabbit の反応を確認しました (${i} 回目の確認、要求後のコメント ${COUNT} 件)"
+            if ! gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                 --jq "$JQ_CLASSIFY" > "$RUNNER_TEMP/cr-classes.txt" 2>/dev/null; then
+              sleep 30
+              continue
+            fi
+            CLASSES=$(awk -v since="$SINCE_ID" '$1 + 0 > since + 0 { print $2 }' "$RUNNER_TEMP/cr-classes.txt")
+            if printf '%s\n' "$CLASSES" | grep -qx 'RATE_LIMITED'; then
+              echo "[REVIEW_REQUEST_RATE_LIMITED] CodeRabbit がレート制限で要求を拒否しました。**この PR は未レビューです**"
+              # 解除見込みが本文にあれば人間が再要求する時刻の手掛かりとして run log に
+              # 残す。**command ack には待ち時間が書かれない** (「Review rate limited.」の
+              # 1 行だけ) ため、walkthrough placeholder 側の文言も併せて拾う。どちらも
+              # 取れなければ黙って諦める (文言 format は変わりうる)。
+              # 一致が無いのは正常系 (ack には待ち時間が書かれない)。grep をパイプに置くと
+              # 一致 0 件の exit 1 が pipefail + -e で step を殺し、この後の案内行が消える。
+              # awk なら一致 0 件でも exit 0 で、件数制限も自前で持てる (head との組み合わせで
+              # 起きる SIGPIPE も避けられる)。
+              gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                --jq '.[] | select(.user.login == "coderabbitai[bot]") | (.body // "")' \
+                > "$RUNNER_TEMP/cr-bodies.txt" 2>/dev/null || true
+              awk 'n < 3 && tolower($0) ~ /review limit reached|available in/ {
+                     print "[REVIEW_REQUEST_RATE_LIMITED] " $0; n++
+                   }' "$RUNNER_TEMP/cr-bodies.txt"
+              echo "[REVIEW_REQUEST_RATE_LIMITED] ADR-019 § M5 によりリトライはしません。解除後に人間が再要求してください"
+              exit 1
+            fi
+            if printf '%s\n' "$CLASSES" | grep -qx 'REVIEWED'; then
+              echo "[REVIEW_REQUEST] CodeRabbit のレビュー実体 (walkthrough) を確認しました (${i} 回目の確認)"
               exit 0
+            fi
+            if [ -n "$CLASSES" ]; then
+              SEEN_OTHER=true
             fi
             sleep 30
           done
+          if [ "$SEEN_OTHER" = "true" ]; then
+            echo "[REVIEW_REQUEST_FAIL] CodeRabbit は反応しましたが、レビュー実体を確認できませんでした ($((DEADLINE * 30)) 秒)"
+            echo "[REVIEW_REQUEST_FAIL] 応答 format が変わった可能性があります。未知の反応は"
+            echo "[REVIEW_REQUEST_FAIL] 安全側 (未取得扱い) へ倒すため red にしています。marker は"
+            echo "[REVIEW_REQUEST_FAIL] src/check-ci-coderabbit/src/markers.rs と対で管理しています。"
+            exit 1
+          fi
           echo "[REVIEW_REQUEST_FAIL] 要求 (comment id=${SINCE_ID}) 後に CodeRabbit が反応しません ($((DEADLINE * 30)) 秒)"
           echo "[REVIEW_REQUEST_FAIL] 投稿者 identity が bot に戻っていないか (PAT の失効 →"
           echo "[REVIEW_REQUEST_FAIL] GITHUB_TOKEN へのフォールバック等)、CodeRabbit 側の"

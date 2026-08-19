@@ -18,7 +18,7 @@
 | B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | **完了** ([PR #421](https://github.com/aloekun/claude-code-hook-test/pull/421)) |
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | **完了** ([PR #423](https://github.com/aloekun/claude-code-hook-test/pull/423))。台帳の 3 案はいずれも副作用があり、copy/spawn の相互排除に切り替えた |
 | D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | 実装済み。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
-| E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | 未着手 |
+| E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | **実装済み。** 319 は案 (a)+(b) 併用 (body 空 review の除外 + head SHA 冪等キー)、431 は rate-limit を red で落とす方式。**431 は台帳の前提がずれていた** (下表参照)。エントリ後始末は実走観測後 |
 | F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | 未着手 |
 | G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | 未着手 |
 | H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | 未着手 |
@@ -56,6 +56,7 @@
 | 336 | 時刻範囲のみで照合しない | 時刻範囲すら使わず**辞書順で最新 1 件** |
 | 318 | 第 3 format 未対応 + silent 化が残る | **4 項目すべて実装済み** (PR #309 ほか)。本丸の既定 30 分 park も入っていた |
 | 320 | check pass の誤報が残る | 決定論層は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) で**実装済み**。残件は facet/prompt 層のみ |
+| 431 | `Review limit reached` を判別すればよい | 拒否の実体は **command ack** (`⚠️ Action not completed` / `Review rate limited.`) で、`markers.rs` の marker の**どちらにも一致しない** |
 
 台帳は起票時点のスナップショットで、実装が動くほどずれる。328 と 446 は、台帳どおりに実装すれば**存在しない不具合を直すか誤った箇所を直す**ところだった。**自分が前日に書いたエントリでも同じ** — 順位 469 の Frequency 評価は実測で覆った。
 
@@ -67,6 +68,8 @@
 いずれも**局所的には正しい変更が、周囲の構造が変わったことで別の意味を持った**。シグネチャ・戻り値・引数の数を変えたら、呼び出し元と下流の `match` を必ず追う。
 
 **識別子を照合キーにするなら、一意性の根拠をリポジトリ全体で確認する。** [PR #420](https://github.com/aloekun/claude-code-hook-test/pull/420) で bookmark 名を一意キーと仮定したが、`claude/nightly-<順位>` は夜間ループが再利用する。CodeRabbit はリポジトリ全体を走査して気づき、私は変更箇所の周辺しか見ていなかった。
+
+**外部 SaaS の marker を流用する前に、自分が観測する comment class の実データを見る。** 順位 431 で `markers.rs` の `RATE_LIMIT_MARKERS` をそのまま使ったが、それは CodeRabbit の **walkthrough placeholder** 向けの marker で、`@coderabbitai review` への直接の応答である **command ack** (`Review rate limited.`) には一致しない。PR #387 のコメント body を実際に `gh api` で読むまで気づかなかった (読まずに land していれば、レート制限を検知できない検知機構ができていた)。同じ SaaS でも comment class ごとに文言体系が違う。
 
 **doc に「機構がある」と書いたら、その機構が実在するか確かめる。** 3 度やった — `RUN_REPORT_FILE_NAME` の pin テスト (存在しなかった / [#418](https://github.com/aloekun/claude-code-hook-test/pull/418) で追加)、fix step が書いた「3 crate を共通化」(1 crate だけだった)、`sort_key` の mtime tie-break (`source_path` へ変えた後も doc が残っていた)。
 

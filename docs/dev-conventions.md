@@ -96,6 +96,19 @@ LLM を step に含む workflow / パイプラインを**新規に組んだと�
 
 **由来** (2026-08-04 WP-17 段 2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録): Phase B 無人 fix push の実走スモークで `workflow_dispatch` を 4 回要し、うち 3 回が上記の静的検査すり抜けバグの検出に費やされた。1〜3 回目は毎回マージしており、それが不要な手戻りだったことも同時に判明した。
 
+## GitHub Actions の `run:` は常に `-e` 付きで起動する
+
+GitHub Actions は `run:` ブロックを **`bash -e {0}`** で起動する。スクリプト内で `set -uo pipefail` と書いても **`-e` は外れない** (外すには `set +e` が要る)。この前提で書かないと、**正常系のはずの分岐で step ごと落ちる**。
+
+1. **`grep` をパイプに置かない (一致 0 件が正常系のとき)** — 一致 0 件の `grep` は exit 1 を返す。`pipefail` + `-e` の下ではコマンド置換の代入ごと失敗し、その行で step が終わる。「まだ無い」ことを調べる検索は**一致 0 件が正常系**なので、必ずここに当たる。`awk '/pattern/'` は一致 0 件でも exit 0 を返すので置き換えられる。件数制限も `awk` 側で持てば `head` との組み合わせで起きる SIGPIPE も避けられる。
+2. **`set -uo pipefail` と書かない** — `-e` を外したつもりの記述は、読む側 (レビュアー・次に触る人) に「失敗が許容されている」と誤読させる。実際に外れていないので、`set -euo pipefail` と書いて、失敗を許す箇所だけ `|| true` などで個別に手当てする。
+3. **`if ! cmd; then` の中は例外** — 条件文脈のコマンド失敗では `-e` は発火しない。エラーを自前で処理する箇所はこの形に寄せる。
+4. **検証は `bash -e` で実際に走らせる** — `run:` ブロックを workflow から切り出し、必要な env を与えて `bash -e` で実行すれば、マージ前にローカルで再現できる。この形の失敗は YAML パースもレビューも通過する。
+
+**由来** (2026-08-20 PR #428、順位 319): `EXISTING=$(printf '%s\n' "$EXISTING" | grep -E '^[0-9]+$' | sort -n | tail -1)` が、マーカー未投稿 (= 初回投稿前は必ずこの状態) のときに step を落とし、**backstop の投稿そのものが消えた**。pre-push review (simplicity / security) も CodeRabbit も js-yaml の構文検査も通過しており、実 run の red で初めて判明した ([ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § の「静的検査は素通りする」と同型)。同 PR の `review-request.yml` でも、`grep` 一致 0 件が後続の案内行を無言で消していた (exit code が偶然一致していたため red の理由が変わらず、ログだけが欠けた)。
+
+**注意** (2026-08-20 同時発見): Git Bash 経由で**複数行の `node -e '...'` を渡すと無言で no-op になる** (終了コード 0、出力なし)。検証スクリプトはファイルに書いて `node script.mjs` で渡す。上記 1 の修正を検証したつもりが、実際には修正前のコードを実行していた。
+
 ## Rust ファイル分割の制約条件 (file-length-enforcement-plan 移設、2026-08-12)
 
 > 出典: docs/file-length-enforcement-plan.md (PR-W0〜W5 全完了により 2026-08-12 削除)。経緯は git log を参照。800 行超 `.rs` file の module 分割 (mechanical file split refactor) に適用する制約・手順の要旨。
