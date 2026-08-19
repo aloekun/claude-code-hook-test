@@ -52,41 +52,6 @@
 
 ---
 
-### CodeRabbit status check は実レビュー有無に関わらず `pass` (PR #287 実観測)
-
-> **動機**: PR #287 で `gh pr checks 287` が一貫して **`CodeRabbit pass`** を返し続けたが、実際にはレビューが 1 度も実行されていなかった (`pulls/287/reviews` = 0 件、インラインコメント = 0 件)。緑チェックが「レビュー済み」を意味しないことが実観測された。
->
-> **実測した表示の変遷 (いずれも `pass`)**:
->
-> | 実態 | checks の表示 |
-> |---|---|
-> | 増分レビュー skip | `pass` — `Review skipped: incremental reviews are disabled` |
-> | **rate limit で未実行** | `pass` — (同上のまま。**本文は `Review limit reached` に更新済みなのに check 行は追従しない**) |
-> | レビュー完了 | `pass` — `Review completed` |
->
-> **2 つの落とし穴**:
->
-> 1. **`pass` は「レビューした」ではなく「CodeRabbit が異常終了しなかった」の意**。skip も rate-limit も pass。緑を根拠に「レビュー通過」と判断すると false-green になる。
-> 2. **check 行の summary は stale になる**。CR は**コメント本文を in-place 更新**する (本件では `updated_at` のみ 13:09:39 に更新) が、check の summary 文字列は更新されない。本セッションでは `Review skipped: incremental reviews are disabled` という古い表示のまま、実態は `Review limit reached` だった。**checks 行だけを見ると誤診する**。
->
-> **正しい判定 source (本件で有効だった順)**: (a) `gh pr view --json reviews` の件数、(b) CR walkthrough 本文の `Configuration used` (`Organization UI` = レビュー未開始の症状 / `Path: .coderabbit.yaml` = 実行された証拠)、(c) 本文の `No actionable comments were generated` / `Review limit reached`。**(b) は本件の診断で決定打になった**。
->
-> **参照**: PR #287 (`Configuration used` が `Organization UI` → `Path: .coderabbit.yaml` に変化)、順位 318 (決定論的 rate-limit 検知)、`.takt/facets/instructions/analyze-coderabbit.md`、`.github/workflows/pr-monitor.yml` prompt 手順 1。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤診の温床) / Effort S。
-
-#### 作業計画
-
-- [ ] `analyze-coderabbit.md` と `pr-monitor.yml` prompt に「**CodeRabbit check の `pass` はレビュー実施の根拠にならない / summary 文字列は stale になり得る**」を明記し、判定 source を上記 (a)(b)(c) に固定する。
-- [ ] `check-ci-coderabbit` に「**レビュー実施の有無**」を `reviews` 件数 + walkthrough marker から判定する関数を追加し、`review_state: success` と実レビュー有無を分離して report する (現状 `review_state` が success でも実体ゼロがあり得る)。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 監視の report で「CR check は pass だが実レビューは 0 件」の状態が判別でき、approved と誤って報告されないこと。
-
----
-
 ### ADR-019/WP-03 クォータ設計の前提 stale + 初回レビュー処理中 push のレビュー欠落穴
 
 > **動機**: PR #287 の rate-limit 調査で、WP-03 (ADR-019 amendment) のクォータ設計に **2 つの前提ズレ**が判明した。

@@ -48,6 +48,7 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 
 ### Summary
 - CI: [status]
+- レビュー実施: 実施 (根拠: findings N 件 / actionable_comments=N) or **未実施 (陽性証拠なし)**
 - CodeRabbit: [N] findings total, [M] applicable after filter
 - Verdict: approved / needs_fix / user_decision
 
@@ -76,7 +77,29 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 1. [Prioritized action items for critical/major findings]
 ```
 
+## Review evidence gate (check this BEFORE the verdict rules)
+
+`approved` は「レビューが走った結果、直すものが無かった」という意味であり、**「レビューが走らなかった」は含まない**。両者は findings が空という同じ見え方をするため、区別せずに `approved` を出すと未レビューの PR を「指摘なし」と誤報する ([ADR-064](../../../docs/adr/adr-064-monitor-success-positive-evidence.md) の陽性証拠原則を、決定論層と同じ趣旨で本 facet にも適用する)。
+
+**レビュー実施の陽性証拠**として採用してよいのは次の 2 つだけ:
+
+- `findings` が 1 件以上ある
+- `coderabbit.actionable_comments` が `null` でない (`0` を含む — 「レビューして 0 件だった」は陽性証拠)
+
+どちらも**今サイクルの CR 出力に限定されている** — 上流の `check-ci-coderabbit` が `parse_actionable_comments` / `parse_new_comments` で `push_time` 以降のものだけを数えるため、過去 push に対するレビュー記録は入り込まない。「現在の head に対してレビューが走った証拠を要求する」という原則は `pr-monitor.yml` の GHA backstop と共通で、判定材料 (あちらは `reviews[].commit_id` と head SHA の照合) が層ごとに違うだけである。
+
+次は**証拠に採用しない**:
+
+- `coderabbit.new_comments > 0` — rate-limit 通知やコマンド応答など、レビュー以外の CR コメントでも増える。本 facet が起動する条件そのものでもあるため、これを証拠に数えると gate が常に素通りになる
+  - **決定論層の `has_review_evidence()` (`src/check-ci-coderabbit/src/decide.rs`) は `new_comments > 0` を証拠に採用しており、本 facet は意図的にそれより厳しい。** 両者は判定の重みが違う — 決定論層が誤ると `continue_monitoring` に倒れる (監視を続けるだけで、外しても回復する) のに対し、本 facet の `approved` は**人間に示す終端 verdict** で、外すと未レビューの PR が「指摘なし」として読まれたまま残る。どちらかに寄せる場合は、この非対称を崩していないか確かめること
+- `coderabbit.unresolved_threads > 0` — 過去サイクルの残骸を含み、今回レビューが走った証拠にならない (ADR-064 と同じ理由)
+- `coderabbit.review_state` の値や CI の緑 — **check が pass でもレビュー実施の根拠にはならない**。これが順位 320 で実観測した誤報の形
+
+**陽性証拠がどちらも無い場合、`approved` を出してはならない。** verdict は `user_decision` とし、レポートの Summary に「CodeRabbit のレビュー未実施 (指摘 0 件ではなく、レビューが走った証拠が無い)」と明記する。`needs_fix` の条件 (applicable な Critical/High/Major) を満たす場合はそちらが優先される — 指摘があるなら証拠は成立している。
+
 ## Verdict Rules (3-way)
+
+> 下記は**上記 review evidence gate を通過した場合の**判定である。verdict は 3 値のまま増やさない (`post-pr-review.yaml` の `rules.condition` がリテラル照合するため)。
 
 - **approved**: No applicable findings, OR all applicable findings are Info/Low severity
   - Output: `approved` condition
@@ -93,7 +116,7 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 - Do NOT modify any code. This is analysis only.
 - Do NOT fabricate findings. Report only what is in the JSON.
 - Do NOT skip the fitness filter. Every finding must be evaluated for project applicability.
-- If the findings array is empty, report "No actionable findings" with verdict `approved`.
+- If the findings array is empty, first apply the **review evidence gate** above. With evidence, report "No actionable findings" with verdict `approved`; without evidence, report the review as not performed with verdict `user_decision`.
 - If the JSON file is missing or empty, report the error and exit.
 - When this is a re-analysis after a fix iteration, compare with previous reports to check for regression or persistence.
 

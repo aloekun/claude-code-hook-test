@@ -251,6 +251,9 @@ jobs:
                - レビュー指摘 (CodeRabbit / 人間 / 他 bot を問わず全レビュアーの指摘) を 1 件ずつプロジェクト適合性でフィルタする。判定観点は .takt/facets/instructions/analyze-coderabbit.md の「Step 2: Project fitness filter」に従う (入力が gh コマンドの結果である点だけが異なる)。intentional design 判定は CLAUDE.md の ADR 一覧から該当 ADR を Read して行う。
                - severity はレビュアーの申告値を維持する (再分類しない)。
                - レビュー指摘がまだ 1 件も無い場合は、CI 状態と diff 概要 (変更ファイル・行数・変更の性質) のみの軽量サマリーにする。CodeRabbit のレビュー未着はその旨を 1 行記すだけでよい (待たない)。
+               - **レビュー実施の陽性証拠を確かめてから Verdict を決める** (analyze-coderabbit.md の「Review evidence gate」と同じ趣旨、ADR-064)。**証拠は必ず現在の head に紐づける** — まず `gh pr view <番号> --json headRefOid` で head SHA を取り、次のいずれかが成立する場合だけ証拠として採用する: (a) `gh api .../pulls/<番号>/reviews` の要素で `commit_id` が head SHA と一致するものがある、(b) その head に対するインライン指摘がある、(c) CodeRabbit の walkthrough / summary コメントが最新 push 以降に投稿されている。**過去の head に対するレビューは証拠にしない** — 古いレビュー記録で「今の差分もレビュー済み」と誤認するのは、ADR-064 が `unresolved_threads` を証拠から外したのと同じ失敗の形。
+               - **CI check の緑や `mergeStateStatus` はレビュー実施の根拠にならない** — 「check は pass だが実レビュー 0 件」を approved と誤報したのが順位 320 の実観測。証拠がどれも無ければ Verdict を `approved` にせず `user_decision` とし、「レビュー状況」行に「未実施 (陽性証拠なし)」と明記する。
+               - **証拠の source が analyze-coderabbit.md と違うのは意図的**。本 backstop は `.takt/review-comments.json` を持たず gh CLI しか使えないため、facet 側の `findings` / `coderabbit.actionable_comments` をそのまま参照できない。また本 backstop の対象は「CodeRabbit / 人間 / 他 bot を問わず全レビュアー」(上記) なので、人間のレビューも証拠に数えてよい。**共通なのは「現在の head に対してレビューが走った陽性証拠を要求する」という原則のほう**で、その判定材料は各層で使えるものを使う。
 
             4. 分析結果を日本語の markdown で、下記のコメントフォーマットに従って最終応答として出力する。**最終応答は前置き・後書き・思考過程を一切含めず、必ず見出し行 `## 🤖 PR Monitor 分析 (GitHub Actions バックストップ)` から書き始めること** (この最終応答テキストがそのままコメント本文として投稿されるため、前置きがあるとコメントに混入し重複ガードの見出し検出も乱す)。あなた自身はコメントを投稿しない — 投稿はこの workflow の後続 step (エージェント外) が、あなたの最終応答テキストをそのまま `--body-file` として渡して行う。
 
