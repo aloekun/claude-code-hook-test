@@ -16,8 +16,8 @@
 | B-1 | fix(merge-pipeline): transcript の連結順序を時系列にする | 446 (再定義) | **完了** ([PR #419](https://github.com/aloekun/claude-code-hook-test/pull/419)) |
 | B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | **完了** ([PR #420](https://github.com/aloekun/claude-code-hook-test/pull/420))。実 run で照合成功を確認済み |
 | B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | **完了** ([PR #421](https://github.com/aloekun/claude-code-hook-test/pull/421)) |
-| C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 実装済み |
-| D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |
+| C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | **完了** ([PR #423](https://github.com/aloekun/claude-code-hook-test/pull/423))。台帳の 3 案はいずれも副作用があり、copy/spawn の相互排除に切り替えた |
+| D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | 実装済み。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
 | E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | 未着手 |
 | F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | 未着手 |
 | G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | 未着手 |
@@ -45,7 +45,7 @@
 
 本計画の PR A〜B-3 (2026-08-18〜19) で実際に踏んだ穴。以降の PR C〜L でも同じ形で再発する。
 
-**台帳の記述をそのまま信じない。** 本計画で着手した 6 件のうち **5 件で台帳と実態がずれていた**。
+**台帳の記述をそのまま信じない。** 本計画で着手した 9 件のうち **7 件で台帳と実態がずれていた**。
 
 | 順位 | 台帳の記述 | 実際 |
 |---|---|---|
@@ -54,6 +54,8 @@
 | 347 | `cli-merge-pipeline` の欠陥 | 実装先は `cli-pr-monitor` |
 | 446 | 並列 workspace のセッションが不可視 | 真因は**連結順序が時系列でないこと** |
 | 336 | 時刻範囲のみで照合しない | 時刻範囲すら使わず**辞書順で最新 1 件** |
+| 318 | 第 3 format 未対応 + silent 化が残る | **4 項目すべて実装済み** (PR #309 ほか)。本丸の既定 30 分 park も入っていた |
+| 320 | check pass の誤報が残る | 決定論層は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) で**実装済み**。残件は facet/prompt 層のみ |
 
 台帳は起票時点のスナップショットで、実装が動くほどずれる。328 と 446 は、台帳どおりに実装すれば**存在しない不具合を直すか誤った箇所を直す**ところだった。**自分が前日に書いたエントリでも同じ** — 順位 469 の Frequency 評価は実測で覆った。
 
@@ -174,6 +176,18 @@
 **束ねる理由**: 320 は 318 に依存 (台帳の依存欄に明記) し、同一 crate `check-ci-coderabbit` の連続した変更。
 
 **⚠ 着手前の lane 調整**: [claude-code-web-tasks.md](claude-code-web-tasks.md) の順位 176 (`✅` auto lane) が同一ファイル `src/check-ci-coderabbit/src/rate_limit.rs` を触る。台帳の規律は「競合する割り当てをしない」— ユーザーに確認して 176 を `—` (human) へ移して本 PR に取り込むか、夜間 PR の land を待つ。
+
+> **着手前の競合確認と実態調査の結果 (2026-08-19)**: **lane 調整は不要になり、実装対象もほぼ消えた。**
+>
+> **競合確認**: 開いている夜間 PR は 2 本 ([#422](https://github.com/aloekun/claude-code-hook-test/pull/422) 順位 228 / [#413](https://github.com/aloekun/claude-code-hook-test/pull/413) 順位 240) で、**どちらも `check-ci-coderabbit` を触らない**。順位 228 は名前が「rate-limit」で紛らわしいが `cli-pr-monitor` 側の別実装 (`src/cli-pr-monitor/src/stages/poll/rate_limit/tests.rs`)。順位 176 は auto lane 25 行中の **22 番目**で、夜間ループは 1 晩 1 件を**文書順**で選ぶ (open PR のある順位のみ skip、`lib_ledger::select`) ため当分回ってこない。実接触は `docs/todo-summary2.md` を両 PR が編集する点のみ (削除行が別なので軽微)。
+>
+> **順位 318 は 4 項目すべて実装済みだった** — ① `extract_next_review_format_wait_time` (rate_limit.rs:120、PR #309 / 2026-07-20)、② 本丸の silent 化解消 (`UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES = 30` + `warn_unknown_wait_time_format()` + `wait_time_parsed`)、③ 第 3 format fixture 3 本 + fallback 2 本、④ ADR-034 の format 一覧 table 行。**計画書が「案を検討」と書いた保守的既定 30 分の park がそのまま入っている。**
+>
+> **順位 320 も決定論層は実装済みだった** — [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) の `has_review_evidence` が decide.rs の R1/R4 ゲートとして「check が pass でもレビュー実施の陽性証拠がなければ success に倒さない」を実現している (計画書の対処 (2))。
+>
+> **残っていたのは対処 (1) の facet 層だけで、影響は誤読リスクに限定**されていた。3 経路を追った結果: (a) 決定論層は倒れない、(b) ローカル takt は起動条件が `has_coderabbit_findings` なので「レビュー無し」では**そもそも到達せず**、verdict は re-push/fix 経路にしか流れない、(c) GHA Phase A は `Verdict: approved` を出しうるが**機械消費されない**コメント文字列 (`pr-monitor.yml` 全体で該当トークンの出現は 1 箇所のみ) で、監視役は approve/merge が禁止 (ADR-022)。
+>
+> **したがって本 PR は「facet gap 修正 + 台帳後始末」に縮小した** (ユーザー判断)。Rust コードは変更しない。
 
 ### 順位 318: rate-limit 第 3 format 未対応 + silent 化
 
