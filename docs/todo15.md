@@ -451,26 +451,6 @@
 
 ---
 
-### cli-pr-monitor の lock.rs を token 方式の所有権検証へ統一
-
-> **動機**: PR #271 で `pipeline_lock.rs` の `Drop` に token ベース所有権検証を追加した (CodeRabbit Major 対応、stale takeover 後に旧プロセスの Drop が新プロセスの lock を誤削除するバグの修正)。`src/cli-pr-monitor/src/lock.rs` の `MonitorLock` の `Drop` (`lock.rs:41-50`) も無条件 `remove_file` で、同型の所有権未検証バグを抱えている。
->
-> **参照**: `src/lib-jj-helpers/src/pipeline_lock.rs` (token 方式の参照実装)、`src/cli-pr-monitor/src/lock.rs:41-50`
->
-> **実行優先度**: 🔧 Tier 2 — Effort S-M。
-
-#### 作業計画
-
-- [ ] `MonitorLock` に token フィールドを追加し、`Drop` を token 一致確認付き削除に変更 (`pipeline_lock.rs` の実装を踏襲)
-- [ ] takeover 後に旧 guard の Drop が新 lock を消さないことを確認する regression test 追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- `cli-pr-monitor` の lock も stale takeover 後の誤削除が起きないことがテストで保証されていること。
-
----
-
 ### push-runner の stack push モード (opt-in、YAGNI につき見送り継続)
 
 > **動機**: `bookmark_check.rs` の `OWN_WORKSPACE_BOOKMARKS_REVSET = "@"` (厳密一致) は、stacked bookmark 運用 (`feature/base` → `feature/api` → `feature/ui` を `@` 先頭で一括 push) では `@` の bookmark だけでは不足するというトレードオフを持つ。現状その運用実績はなく、必要になった時点で明示オプトインの stack push モード (`[push] stack_push` 等) を追加する拡張余地として記録する。

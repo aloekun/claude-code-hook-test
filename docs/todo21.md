@@ -14,29 +14,6 @@
 >
 > いずれも「自動化が別の自動化の前提を崩す」型で、[ADR-022](adr/adr-022-automation-responsibility-separation.md) の責務分離が扱う領域にあたる。
 
-### cli-pr-monitor の lock に liveness check が無く、プロセス死後も最大 30 分監視が skip される
-
-> **動機**: 2026-08-08 の #364 監視中、`cli-pr-monitor` を停止した際に子プロセスが死んで `.claude/pr-monitor.lock` が残り、以降の監視呼び出しがすべて `[lock] 別の cli-pr-monitor が走行中 (pid=42864, age=1242s)、本セッションは skip` で素通りした。**pid 42864 は既に終了していた** (`Get-Process -Id 42864` で確認)。
->
-> **実装確認済み** ([lock.rs:27](../src/cli-pr-monitor/src/lock.rs#L27)): stale 判定は `DEFAULT_STALE_THRESHOLD_SECS = 1800` の**経過時間のみ**で、lock に記録された `pid` の生存確認をしていない。したがって holder が crash / kill された場合、次のインスタンスが takeover できるまで**最大 30 分**かかる。
->
-> **これは設計どおりの挙動でもある** — [lock.rs](../src/cli-pr-monitor/src/lock.rs) の module doc は「プロセス crash 時は file が残るが、stale 判定で threshold 経過後に次インスタンスが takeover できる」と明記しており、既知のトレードオフとして書かれている。したがって本エントリは**バグ報告ではなく、liveness check を足して復帰窓を 30 分から実質 0 へ縮める価値があるかの判断**である。
->
-> **対処案**: takeover 判定に pid の生存確認を追加する。ただし (a) pid 再利用の誤判定、(b) Windows / Linux での実装差、(c) 既存の TOCTOU 設計判断 (順位 301 が「cli-pr-monitor/lock.rs は設計判断済みのため scope 除外必須」と明記) との整合、の 3 点を先に検討すること。**「不要」判断も正規の出口** — 影響は interactive セッション中の監視遅延に限られ、GitHub Actions 経路の pr-monitor は別プロセス・別マシンなので影響を受けない。
->
-> **参照**: [lock.rs](../src/cli-pr-monitor/src/lock.rs)、順位 301 / 303 (同ファイルの lock 設計に関する既存エントリ)、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (助言層は fail-open が正しい — 本 lock は助言層)。
->
-> **実行優先度**: 🔧 Tier 3 — Severity Low (復帰窓 30 分。無人経路は影響なし) / Frequency Low / Effort S / Adoption Risk Low (pid 再利用の誤判定を入れると逆に壊す)。
-
-#### 作業計画
-
-- [ ] pid 生存確認の要否を判断する (不要なら理由を lock.rs の module doc へ追記して閉じる)
-- [ ] 入れる場合、pid 再利用対策 (start_time との併用) と OS 差の吸収を設計する
-- [ ] 順位 301 / 303 の既存判断と衝突しないことを確認する
-
-#### 完了基準
-
-- 採用・不採用のいずれかが根拠つきで `lock.rs` の module doc または ADR に記録されていること。
 
 ### 監視・自動 fix 経路が積む空コミットで bookmark がずれ、`pnpm merge-pr` / `pnpm push` が失敗する
 

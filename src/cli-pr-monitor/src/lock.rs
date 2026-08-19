@@ -9,12 +9,43 @@
 //!   - acquire(): lock file を atomic create。既存 lock が "fresh" (start_time が
 //!     `stale_threshold_secs` 以内) なら None (= 別インスタンスが走行中、skip)。
 //!     stale (timeout 超過) なら overwrite して取得。
-//!   - Drop: lock file を削除。プロセス crash 時は file が残るが、stale 判定で
-//!     `stale_threshold_secs` 経過後に次インスタンスが takeover できる。
+//!   - stale takeover: **実行権を 1 プロセスに絞ってから atomic に置換する**
+//!     (順位 292)。素朴な上書きだと、同じ stale lock を読んだ全プロセスが取得に
+//!     成功する (8 スレッドで 8/8 取得を実測)。
+//!   - Drop: **自分が書いた lock だけ**を削除する (token 一致確認、順位 292)。
+//!     プロセス crash 時は file が残るが、stale 判定で `stale_threshold_secs`
+//!     経過後に次インスタンスが takeover できる。
+//!
+//! ## pid の生存確認を入れない理由 (順位 385、2026-08-20 判断)
+//!
+//! stale 判定は経過時間のみで、lock に記録された pid が生きているかは見ない。
+//! したがって holder が crash / kill されると、次のインスタンスが takeover
+//! できるまで最大 `stale_threshold_secs` (30 分) かかる。2026-08-08 の #364 監視で
+//! 実際に踏んでいる (終了済み pid の lock が残り、以降の監視呼び出しが skip された)。
+//!
+//! **それでも liveness check は入れない。** 判断の根拠:
+//!
+//! 1. **影響範囲が狭い** — 遅延するのは interactive セッション中の監視だけ。
+//!    無人経路 (GitHub Actions の pr-monitor workflow) は別プロセス・別マシンで
+//!    動くため、この lock の影響を受けない。
+//! 2. **入れた場合の失敗が現状より悪い** — pid 生存確認は pid 再利用で誤判定する。
+//!    誤って「死んでいる」と判定すれば **fresh な lock を takeover** し、監視が
+//!    同時に 2 本走って Claude Code Max のレートリミットを浪費する
+//!    (本 lock が防ぐべき当のもの)。回避には pid だけでなくプロセス起動時刻の照合が
+//!    要り、その取得は Windows / Linux で実装が分かれる。**復帰窓 30 分**という
+//!    上限つきの遅延と引き換えにするには釣り合わない。
+//! 3. **本 lock は助言層** — 取得できなければ監視を skip するだけで、ゲートではない
+//!    (ADR-043 の「助言層は fail-open が正しい」)。復帰が遅れても状態は壊れない。
+//! 4. 順位 301 が「`cli-pr-monitor/lock.rs` は設計判断済みのため scope 除外」と
+//!    している既存判断とも整合する。
+//!
+//! **再検討の条件**: 無人経路がこの lock に依存するようになった場合、または
+//! 復帰待ちが実運用で 30 分では収まらない形 (例: threshold の延長) に変わった場合。
 //!
 //! `--mark-notified` は one-shot mutation のため guard 対象外。
 //! single-iteration check + takt を回す `start_monitoring` のみ guard する。
 
+use lib_jj_helpers::pipeline_lock::{acquire_takeover_gate, replace_file_atomically, TakeoverGate};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -28,23 +59,72 @@ const DEFAULT_STALE_THRESHOLD_SECS: i64 = 1800;
 
 #[derive(Serialize, Deserialize)]
 struct LockFile {
+    /// 取得インスタンスを一意識別するランダムトークン (順位 292)。
+    ///
+    /// `serde(default)` は **本フィールド導入前に書かれた lock ファイル**のため。
+    /// 無いと parse に失敗し、旧 lock が「破損 = stale」扱いで即 takeover されて
+    /// しまう (fresh な旧 lock を踏み越えて同時監視が起きる)。既定の空文字は
+    /// どの新規 token とも一致しないので、Drop の所有権確認は安全側に働く。
+    #[serde(default)]
+    token: String,
     pid: u32,
     start_time: String,
     mode: String,
 }
 
-/// Lock 取得成功時に保持する RAII guard。Drop で lock file を削除する。
+/// Lock 取得成功時に保持する RAII guard。Drop で **自分が書いた** lock file のみ削除する。
 pub(crate) struct MonitorLock {
     path: PathBuf,
+    /// 取得インスタンスを一意識別するトークン。Drop の所有権確認に使う。
+    token: String,
 }
 
 impl Drop for MonitorLock {
+    /// **所有権確認付き削除** (順位 292): lock ファイルの token が自分のものと
+    /// 一致した場合のみ削除する。
+    ///
+    /// 無条件削除だと、stale takeover 後 (別プロセス B が同じパスへ B の lock を
+    /// 書いた後) に旧プロセス A の Drop が **B の lock を消す**。B は自分が lock を
+    /// 持っていると思ったまま走り続け、その間に C が取得して同時監視になる。
+    /// `lib_jj_helpers::pipeline_lock` が PR #271 で塞いだのと同型のバグで、
+    /// 同じ token 方式に揃える。
+    ///
+    /// pid / start_time ではなく token を照合するのは pid 再利用による誤一致を
+    /// 避けるため。残余 TOCTOU (read → remove 間の takeover) は fresh な lock が
+    /// takeover されない (stale threshold 到達が takeover の必要条件) ことから
+    /// 実用上起きない — pipeline_lock の Drop と同じ論拠。
     fn drop(&mut self) {
-        if let Err(e) = std::fs::remove_file(&self.path) {
-            // already removed (race) なら無視。それ以外は warn。
-            if e.kind() != std::io::ErrorKind::NotFound {
-                log_info(&format!("[lock] cleanup 失敗: {}", e));
+        match std::fs::read_to_string(&self.path) {
+            Ok(content) => {
+                if !self.owns(&content) {
+                    log_info(
+                        "[lock] cleanup skip: lock は既に別インスタンスへ takeover 済み",
+                    );
+                    return;
+                }
+                if let Err(e) = std::fs::remove_file(&self.path) {
+                    // already removed (race) なら無視。それ以外は warn。
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        log_info(&format!("[lock] cleanup 失敗: {}", e));
+                    }
+                }
             }
+            // 既に消えている (race) なら何もしない。
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => log_info(&format!("[lock] cleanup 時の read 失敗: {}", e)),
+        }
+    }
+}
+
+impl MonitorLock {
+    /// lock ファイルの内容が自分のものか (token 一致) を判定する。
+    ///
+    /// parse できない内容は「自分のものではない」に倒す。書き込み途中の空ファイルや
+    /// 破損 lock を自分のものとみなして消すと、無条件削除に戻ってしまう。
+    fn owns(&self, content: &str) -> bool {
+        match toml::from_str::<LockFile>(content) {
+            Ok(lock) => !lock.token.is_empty() && lock.token == self.token,
+            Err(_) => false,
         }
     }
 }
@@ -78,7 +158,8 @@ pub(crate) fn acquire_at(path: PathBuf, mode: &str, stale_threshold_secs: i64) -
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let content = match build_lock_content(mode) {
+    let token = lib_jj_helpers::pipeline_lock::generate_lock_token();
+    let content = match build_lock_content(&token, mode) {
         Some(c) => c,
         None => {
             return LockResult::Unavailable {
@@ -92,7 +173,7 @@ pub(crate) fn acquire_at(path: PathBuf, mode: &str, stale_threshold_secs: i64) -
             if let Err(e) = f.write_all(content.as_bytes()) {
                 log_info(&format!("[lock] 新規 lock 書き込み失敗 (継続): {}", e));
             }
-            LockResult::Acquired(MonitorLock { path })
+            LockResult::Acquired(MonitorLock { path, token })
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             // fresh な lock が存在する間は後続セッションを skip してレートリミット浪費を防ぐ
@@ -102,12 +183,7 @@ pub(crate) fn acquire_at(path: PathBuf, mode: &str, stale_threshold_secs: i64) -
                     holder_age_secs: age_secs,
                 };
             }
-            // stale takeover: overwrite。複数の takeover が並走しても last write wins で
-            // どれか 1 つの guard が cleanup する (不変条件: lock file は最終的に消える)。
-            if let Err(e) = std::fs::write(&path, content) {
-                log_info(&format!("[lock] takeover 書き込み失敗 (継続): {}", e));
-            }
-            LockResult::Acquired(MonitorLock { path })
+            takeover_stale_lock(path, token, content, stale_threshold_secs)
         }
         Err(e) => {
             // I/O エラー (権限不足等): lock なしで監視は継続可能。
@@ -119,8 +195,72 @@ pub(crate) fn acquire_at(path: PathBuf, mode: &str, stale_threshold_secs: i64) -
     }
 }
 
-fn build_lock_content(mode: &str) -> Option<String> {
+/// stale と判定した lock を **1 プロセスだけが** 置き換える。
+///
+/// **素朴な上書きでは排他にならない。** 旧実装は stale 判定後に `std::fs::write` で
+/// 上書きし、コメントは「複数 takeover が同時に成功しても無害」としていたが、本 lock の
+/// 目的は「1 リポジトリ 1 アクティブ監視」なので同時取得はレートリミット浪費に直結する。
+/// 実測では **8 スレッド中 8 つが `Acquired`** になった (順位 292、CodeRabbit #430 指摘)。
+///
+/// 実行権の選出は `lib_jj_helpers::pipeline_lock::acquire_takeover_gate` に委譲する。
+/// sentinel + 孤立時の reclaim gate まで含む選出ロジックは、8 スレッド高競合の実測で
+/// 2 `Acquired` を潰しながら組み上げたもの (PR #342)。**同じ問題を解く実装を 2 箇所に
+/// 持たない** — 片方だけが後の修正を取り込めないまま残るのが最悪の形なので、共有する。
+///
+/// 実行権を得た後にやることは 2 つ:
+/// 1. **再読込して、まだ stale か確かめる。** gate 待ちの間に別プロセスが lock を確立して
+///    いれば奪わない (fresh を踏み潰すと同時監視に戻る)。
+/// 2. **rename で atomic に置換する。** remove + create_new にすると path が一瞬不在に
+///    なり、その窓で他スレッドの fast-path `create_new` が成功して 2 本とも取得できる。
+fn takeover_stale_lock(
+    path: PathBuf,
+    token: String,
+    content: String,
+    stale_threshold_secs: i64,
+) -> LockResult {
+    let Some(now_unix) = current_unix_secs() else {
+        return LockResult::Unavailable {
+            reason: "system clock を取得できず takeover 判定不能".to_string(),
+        };
+    };
+    match acquire_takeover_gate(&path, now_unix) {
+        TakeoverGate::Acquired(gate) => {
+            if let Some((holder, age_secs)) = read_fresh_lock(&path, stale_threshold_secs) {
+                log_info(
+                    "[lock] takeover 実行権の取得中に別インスタンスが lock を確立したため奪いません",
+                );
+                return LockResult::Busy {
+                    holder_pid: holder.pid,
+                    holder_age_secs: age_secs,
+                };
+            }
+            let result = match replace_file_atomically(&path, &token, &content) {
+                Ok(()) => LockResult::Acquired(MonitorLock { path, token }),
+                Err(e) => LockResult::Unavailable {
+                    reason: format!("takeover の atomic 置換に失敗: {}", e),
+                },
+            };
+            // 置換が終わるまで実行権を保持する (早く手放すと 2 本目の takeover が生まれる)。
+            drop(gate);
+            result
+        }
+        TakeoverGate::Busy => {
+            log_info("[lock] 別インスタンスが takeover 実行中のため skip します");
+            let (holder_pid, holder_age_secs) = read_fresh_lock(&path, stale_threshold_secs)
+                .map(|(holder, age)| (holder.pid, age))
+                .unwrap_or((UNKNOWN_HOLDER_PID, 0));
+            LockResult::Busy {
+                holder_pid,
+                holder_age_secs,
+            }
+        }
+        TakeoverGate::Unavailable(reason) => LockResult::Unavailable { reason },
+    }
+}
+
+fn build_lock_content(token: &str, mode: &str) -> Option<String> {
     let lock = LockFile {
+        token: token.to_string(),
         pid: std::process::id(),
         start_time: crate::util::utc_now_iso8601(),
         mode: mode.to_string(),
@@ -205,6 +345,7 @@ fn holder_still_writing(
 
     Some((
         LockFile {
+            token: String::new(),
             pid: UNKNOWN_HOLDER_PID,
             start_time: String::new(),
             mode: String::new(),
@@ -365,424 +506,12 @@ fn lock_path() -> PathBuf {
     PathBuf::from(LOCK_FILENAME)
 }
 
+// test module は別ファイルへ分離している (本体 800 行ガイドライン、順位 147)。
+// 分割方式は stages/poll/rate_limit.rs と同じ `#[path]` 方式に揃えた。
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn acquire_in_clean_dir_succeeds() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        match acquire_at(path.clone(), "test", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Acquired(_lock) => {
-                assert!(path.exists(), "lock file should be created");
-            }
-            LockResult::Busy { .. } => panic!("expected Acquired in clean dir"),
-            LockResult::Unavailable { reason } => {
-                panic!(
-                    "expected Acquired in clean dir, got Unavailable: {}",
-                    reason
-                )
-            }
-        }
-    }
-
-    #[test]
-    fn drop_removes_lock_file() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        {
-            let _lock = match acquire_at(path.clone(), "test", DEFAULT_STALE_THRESHOLD_SECS) {
-                LockResult::Acquired(l) => l,
-                LockResult::Busy { .. } => panic!("expected Acquired"),
-                LockResult::Unavailable { reason } => {
-                    panic!("expected Acquired, got Unavailable: {}", reason)
-                }
-            };
-            assert!(path.exists());
-        }
-        assert!(!path.exists(), "Drop should remove the lock file");
-    }
-
-    #[test]
-    fn fresh_lock_blocks_second_acquire() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        let _first = match acquire_at(path.clone(), "first", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Acquired(l) => l,
-            LockResult::Busy { .. } => panic!("expected Acquired for first"),
-            LockResult::Unavailable { reason } => {
-                panic!("expected Acquired for first, got Unavailable: {}", reason)
-            }
-        };
-
-        match acquire_at(path.clone(), "second", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Busy { holder_pid, .. } => {
-                assert_eq!(holder_pid, std::process::id());
-            }
-            LockResult::Acquired(_) => panic!("second should be Busy while first holds"),
-            LockResult::Unavailable { reason } => {
-                panic!("second should be Busy, got Unavailable: {}", reason)
-            }
-        }
-    }
-
-    #[test]
-    fn stale_lock_is_taken_over() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        // 古い start_time を持つ lock を仕込む (1980-01-01 = epoch+10年、確実に stale)
-        let stale = LockFile {
-            pid: 999_999,
-            start_time: "1980-01-01T00:00:00Z".into(),
-            mode: "stale-test".into(),
-        };
-        std::fs::write(&path, toml::to_string(&stale).unwrap()).unwrap();
-
-        // threshold=1800s でも 1980 は stale 判定 → takeover 成功
-        match acquire_at(path.clone(), "takeover", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Acquired(_lock) => {
-                let content = std::fs::read_to_string(&path).unwrap();
-                assert!(content.contains(&format!("pid = {}", std::process::id())));
-            }
-            LockResult::Busy { .. } => panic!("stale lock should allow takeover"),
-            LockResult::Unavailable { reason } => {
-                panic!(
-                    "stale lock should allow takeover, got Unavailable: {}",
-                    reason
-                )
-            }
-        }
-    }
-
-    #[test]
-    fn concurrent_acquire_only_one_wins() {
-        // 真の concurrency test: 8 thread が同一 path に同時 acquire を試み、
-        // 1 つだけが Acquired (lock 保持) で残りは Busy になることを確認。
-        // create_new による atomic create が機能していない場合、複数が
-        // Acquired になり test 失敗する。
-        //
-        // 2 barrier 構成の意図: `start` で全 thread 同時に acquire_at に突入させ、
-        // `finish` で全 thread が判定を終えるまで Acquired guard を保持する。
-        // 1 barrier だと先行 thread の guard が判定後に即 drop され、後続 thread が
-        // 逐次 Acquired する flaky window が生じる (CR finding E)。
-        use std::sync::{Arc, Barrier};
-        use std::thread;
-
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        let start = Arc::new(Barrier::new(8));
-        let finish = Arc::new(Barrier::new(8));
-        let mut handles = vec![];
-        for _ in 0..8 {
-            let p = path.clone();
-            let start_b = start.clone();
-            let finish_b = finish.clone();
-            handles.push(thread::spawn(move || {
-                start_b.wait();
-                let result = acquire_at(p, "concurrent", DEFAULT_STALE_THRESHOLD_SECS);
-                let acquired = matches!(result, LockResult::Acquired(_));
-                // 全 thread の判定が終わるまで result (Acquired なら guard) を保持
-                finish_b.wait();
-                acquired
-            }));
-        }
-        let acquired_count = handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .filter(|&v| v)
-            .count();
-        // race-safe な実装なら 1 thread のみが Acquired。
-        // (Drop は thread 終了で走るため、その後の状態は不定 — 取得回数だけを検証)
-        assert_eq!(
-            acquired_count, 1,
-            "exactly one thread should acquire the lock under concurrency"
-        );
-    }
-
-    /// クロックスキュー対策 (CodeRabbit PR #307): mtime が**未来**でも齢 0 とみなすこと。
-    ///
-    /// 旧実装は `duration_since` の `Err` を `None` に潰しており、呼び出し側が
-    /// 「齢不明 = stale」に倒れて空 lock を takeover していた。つまり WP-15 で
-    /// 塞いだ同時取得レースが、クロックスキューという別経路から再発しうる。
-    #[test]
-    fn future_mtime_is_treated_as_just_created() {
-        let now = std::time::SystemTime::now();
-        let future = now + std::time::Duration::from_secs(3600);
-        assert_eq!(
-            age_secs_between(future, now),
-            0,
-            "未来 mtime は「たった今作られた」と解釈すること (stale 誤判定を防ぐ)",
-        );
-    }
-
-    /// 通常経路 (good): 過去の mtime は経過秒をそのまま返すこと。
-    #[test]
-    fn past_mtime_yields_elapsed_seconds() {
-        let now = std::time::SystemTime::now();
-        let past = now - std::time::Duration::from_secs(42);
-        assert_eq!(age_secs_between(past, now), 42);
-    }
-
-    /// WP-15 incident 再現 (bad): `create_new` 直後の**空** lock を stale と誤判定
-    /// しないこと。
-    ///
-    /// 由来: 2026-07-20 の Linux 実測 (WSL Ubuntu 24.04)。`create_new` は atomic
-    /// だが直後のファイルは空で、内容書き込みまでの窓に別スレッドが読むと TOML
-    /// parse に失敗する。これを「壊れている = stale」と扱っていたため全員が
-    /// takeover し、8 スレッド中 6 つが同時に Acquired になった。Windows では
-    /// スケジューリングの差で顕在化していなかっただけで、設計上の欠陥は同じ。
-    ///
-    /// 修正の核心は「parse 不能でも十分新しければ書き込み中 = busy とみなす」。
-    #[test]
-    fn empty_lock_file_is_treated_as_busy_not_stale() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        std::fs::write(&path, "").unwrap();
-
-        let result = acquire_at(path, "probe", DEFAULT_STALE_THRESHOLD_SECS);
-
-        assert!(
-            matches!(result, LockResult::Busy { .. }),
-            "空 lock は「保持者が書き込み中」= Busy とすること。Acquired だと\
-             create_new の排他が無意味になり同時取得が起きる (WP-15 の不具合)",
-        );
-    }
-
-    #[test]
-    fn lock_format_matches_util_iso8601() {
-        // util::utc_now_iso8601() の出力 format と本 module の parse_iso8601 が
-        // round-trip することを確認 (advisor 指摘の "format alignment" check)。
-        let now = crate::util::utc_now_iso8601();
-        let parsed = parse_iso8601(&now);
-        assert!(
-            parsed.is_some(),
-            "util's iso8601 format must parse: {}",
-            now
-        );
-    }
-
-    #[test]
-    fn future_timestamp_lock_is_taken_over() {
-        // 時計巻き戻し / 破損 future timestamp の lock が永続 fresh で塩漬けに
-        // ならず、stale 扱いで takeover されることを確認 (CR finding D)。
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        // 9999 年は確実に未来 (parse_iso8601 上限内)
-        let future = LockFile {
-            pid: 999_999,
-            start_time: "9999-01-01T00:00:00Z".into(),
-            mode: "future-test".into(),
-        };
-        std::fs::write(&path, toml::to_string(&future).unwrap()).unwrap();
-
-        match acquire_at(path.clone(), "takeover", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Acquired(_lock) => {
-                let content = std::fs::read_to_string(&path).unwrap();
-                assert!(
-                    content.contains(&format!("pid = {}", std::process::id())),
-                    "lock should be overwritten with current PID"
-                );
-            }
-            LockResult::Busy {
-                holder_age_secs, ..
-            } => panic!(
-                "future timestamp should be treated as stale, got Busy with age={}s",
-                holder_age_secs
-            ),
-            LockResult::Unavailable { reason } => {
-                panic!(
-                    "future-stale takeover should succeed, got Unavailable: {}",
-                    reason
-                )
-            }
-        }
-    }
-
-    #[test]
-    fn corrupt_lock_is_taken_over() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("pr-monitor.lock");
-        // parse 不能な内容を仕込む
-        std::fs::write(&path, "this is not valid toml :::").unwrap();
-
-        match acquire_at(path.clone(), "takeover", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Acquired(_lock) => {}
-            LockResult::Busy { .. } => panic!("corrupt lock should be treated as stale"),
-            LockResult::Unavailable { reason } => {
-                panic!(
-                    "corrupt lock should allow takeover, got Unavailable: {}",
-                    reason
-                )
-            }
-        }
-    }
-
-    #[test]
-    fn parse_iso8601_round_trip() {
-        // 2026-04-30T00:00:00Z = 56 yr from epoch with leap year handling
-        // 単純にパースが動くことを確認
-        let ts = parse_iso8601("2026-04-30T00:00:00Z").unwrap();
-        // 2026-04-30 should be > 2025-01-01 (1735689600 sec) and < 2027-01-01
-        assert!(ts > 1_735_689_600);
-        assert!(ts < 1_798_761_600);
-    }
-
-    #[test]
-    fn is_leap_correctness() {
-        assert!(is_leap(2024));
-        assert!(!is_leap(2025));
-        assert!(!is_leap(1900)); // century non-leap
-        assert!(is_leap(2000)); // 400-year leap
-    }
-
-    #[test]
-    fn parse_iso8601_rejects_out_of_range_month() {
-        // month=99 would cause index-out-of-bounds in days_from_epoch without bounds check
-        assert_eq!(parse_iso8601("2026-99-30T00:00:00Z"), None);
-    }
-
-    #[test]
-    fn parse_iso8601_rejects_out_of_range_fields() {
-        assert_eq!(parse_iso8601("1969-01-01T00:00:00Z"), None); // year < 1970
-        assert_eq!(parse_iso8601("2026-00-01T00:00:00Z"), None); // month = 0
-        assert_eq!(parse_iso8601("2026-13-01T00:00:00Z"), None); // month > 12
-        assert_eq!(parse_iso8601("2026-01-00T00:00:00Z"), None); // day = 0
-        assert_eq!(parse_iso8601("2026-01-32T00:00:00Z"), None); // day > 31
-        assert_eq!(parse_iso8601("2026-01-01T24:00:00Z"), None); // hour = 24
-        assert_eq!(parse_iso8601("2026-01-01T00:60:00Z"), None); // minute = 60
-        assert_eq!(parse_iso8601("2026-01-01T00:00:60Z"), None); // second = 60
-        assert_eq!(parse_iso8601("2026-02-29T00:00:00Z"), None); // day 29 in non-leap year
-    }
-
-    /// 親に「ディレクトリではなく通常ファイル」を仕込むと、`create_dir_all` は
-    /// silent fail、後続の `open()` が AlreadyExists 以外の I/O error を返し
-    /// `Unavailable` 経路に入る、というシナリオを構築する。
-    #[test]
-    fn io_error_returns_unavailable() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let file_as_dir = tmp.path().join("notadir");
-        std::fs::write(&file_as_dir, "content").unwrap();
-        let path = file_as_dir.join("pr-monitor.lock");
-        match acquire_at(path, "test", DEFAULT_STALE_THRESHOLD_SECS) {
-            LockResult::Unavailable { .. } => {}
-            LockResult::Acquired(_) => panic!("expected Unavailable on I/O error, got Acquired"),
-            LockResult::Busy { .. } => panic!("expected Unavailable on I/O error, got Busy"),
-        }
-    }
-
-    #[test]
-    fn past_time_from_parts_accepts_past() {
-        let pt = PastTime::from_parts(100, 200).expect("then < now should succeed");
-        assert_eq!(pt.age_secs(), 100);
-    }
-
-    #[test]
-    fn past_time_from_parts_accepts_equal() {
-        let pt = PastTime::from_parts(100, 100).expect("then == now should succeed");
-        assert_eq!(pt.age_secs(), 0);
-    }
-
-    #[test]
-    fn past_time_from_parts_rejects_future() {
-        assert_eq!(
-            PastTime::from_parts(200, 100),
-            None,
-            "then > now must be rejected (silent fresh bug 防止)"
-        );
-    }
-
-    #[test]
-    fn past_time_from_iso8601_now_rejects_far_future_year_9999() {
-        assert_eq!(PastTime::from_iso8601_now("9999-01-01T00:00:00Z"), None);
-    }
-
-    #[test]
-    fn past_time_from_iso8601_now_accepts_unix_epoch_origin() {
-        let pt = PastTime::from_iso8601_now("1970-01-01T00:00:00Z").expect("epoch is past");
-        assert!(pt.age_secs() >= 0);
-    }
-}
+#[path = "lock/tests.rs"]
+mod tests;
 
 #[cfg(test)]
-mod proptests {
-    //! Bundle W (順位 34): proptest properties for `parse_iso8601` / `PastTime::from_parts`.
-    //!
-    //! 本 module は spec 層で AI が flaky 実装を書ける窓を塞ぐ regression net。
-    //! 主要 property:
-    //!   - P1: from_parts(then, now) で then <= now → age_secs == now - then
-    //!   - P2: from_parts(then, now) で then > now → None (silent fresh 防止 / Finding D)
-    //!   - P3: parse_iso8601 は任意 string 入力で panic しない
-    //!   - P4: parse_iso8601 は pre-epoch year を必ず reject
-    //!   - P5: parse_iso8601 は有効範囲内の date を必ず accept
-    //!
-    //! proptest case 数は default 256。実行時間は数百 ms 程度 (pre-push pipeline
-    //! 完了基準 +1 秒以内に収まる)。
-
-    use super::*;
-    use proptest::prelude::*;
-
-    proptest! {
-        /// P1: from_parts(then, now) で then <= now のとき age_secs == now - then が成立。
-        /// `saturating_sub` 系の silent semantic mismatch (CR finding D) が混入したら
-        /// このプロパティが落ちる regression net。
-        #[test]
-        fn past_time_age_is_correct_when_in_past(
-            then in -1_000_000_000_000_i64..=1_000_000_000_000_i64,
-            offset in 0_i64..=1_000_000_000_i64,
-        ) {
-            let now = then + offset;
-            let pt = PastTime::from_parts(then, now).expect("then <= now");
-            prop_assert_eq!(pt.age_secs(), offset);
-        }
-
-        /// P2: from_parts(then, now) で then > now のとき必ず None。
-        /// Finding D を直接 encode: future timestamp が fresh 値を生むことは構造的に不可能。
-        #[test]
-        fn past_time_rejects_future(
-            now in -1_000_000_000_i64..=1_000_000_000_i64,
-            future_offset in 1_i64..=1_000_000_i64,
-        ) {
-            let then = now + future_offset;
-            prop_assert_eq!(PastTime::from_parts(then, now), None);
-        }
-
-        /// P3: parse_iso8601 は任意 string で panic しない (corrupt input は None)。
-        /// 過去に `days_from_epoch` の index out-of-bounds panic が発生した
-        /// regression: range check が抜けると proptest がこれを再検出する。
-        #[test]
-        fn parse_iso8601_never_panics(s in ".*") {
-            let _ = parse_iso8601(&s);
-        }
-
-        /// P4: pre-epoch year (< 1970) は必ず reject。
-        #[test]
-        fn parse_iso8601_rejects_pre_epoch_year(
-            year in 0_u32..1970,
-            month in 1_u32..=12,
-            day in 1_u32..=28,
-        ) {
-            let s = format!("{:04}-{:02}-{:02}T00:00:00Z", year, month, day);
-            prop_assert_eq!(parse_iso8601(&s), None);
-        }
-
-        /// P5: 有効範囲内の正規 ISO 8601 は必ず accept (round-trip 基本性質)。
-        /// day を 1..=28 に絞ることで全月で有効な日付に限定 (うるう年判定を回避)。
-        #[test]
-        fn parse_iso8601_accepts_well_formed(
-            year in 1970_u32..=9999,
-            month in 1_u32..=12,
-            day in 1_u32..=28,
-            hour in 0_u32..=23,
-            minute in 0_u32..=59,
-            second in 0_u32..=59,
-        ) {
-            let s = format!(
-                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-                year, month, day, hour, minute, second
-            );
-            prop_assert!(parse_iso8601(&s).is_some(), "should accept: {}", s);
-        }
-    }
-}
+#[path = "lock/proptests.rs"]
+mod proptests;
