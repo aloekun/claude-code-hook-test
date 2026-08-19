@@ -13,10 +13,10 @@
 | # | PR | 対象順位 | 状態 |
 |---|---|---|---|
 | A | fix(merge-pipeline): feedback ループの誤 bail・誤ブロック解消 | 444 + 328 + 347 | **完了。** 444 は [PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) でマージ済み。328 は順位 398 の guard 変更で既に解消済みと判明し、再発防止テストのみ追加。347 は実装済み |
-| B-1 | fix(merge-pipeline): transcript の連結順序を時系列にする | 446 (再定義) | 実装済み |
-| B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | 実装済み |
-| B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | 実装済み |
-| C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 未着手 |
+| B-1 | fix(merge-pipeline): transcript の連結順序を時系列にする | 446 (再定義) | **完了** ([PR #419](https://github.com/aloekun/claude-code-hook-test/pull/419)) |
+| B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | **完了** ([PR #420](https://github.com/aloekun/claude-code-hook-test/pull/420))。実 run で照合成功を確認済み |
+| B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | **完了** ([PR #421](https://github.com/aloekun/claude-code-hook-test/pull/421)) |
+| C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | 実装済み |
 | D | fix(check-ci-coderabbit): rate-limit 第 3 format + 実レビュー有無分離 | 318 + 320 | 未着手 |
 | E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | 未着手 |
 | F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | 未着手 |
@@ -38,6 +38,35 @@
 5. **jj squash は `-u` を付ける** (source/dest 両方に description があると editor 起動で headless hang)。
 6. 各 PR の DoD: `cargo test --workspace` green (+ 該当 crate の clippy)。workflow を触る PR は `pnpm lint:workflows` も。
 7. **夜間ループとの競合**: 着手前に該当ファイルを触る `claude/nightly-*` ブランチが無いか確認する。既知の衝突は PR D の節に記載。
+8. **マージ後は `pnpm build:all` を実行する**。`.claude/*.exe` は gitignore 対象で、**マージしただけでは挙動が変わらない**。PATH に Git の coreutils が要る (`export PATH="$PATH:/c/Program Files/Git/usr/bin"`、`cp.exe` のため)。
+   - **ビルドの成否は exe の mtime で判断しない。** 完了通知とファイル書き込みの間にずれがあり、2026-08-19 に「更新されていない」と誤判定した。中身で確かめる: `grep -c "<その PR で追加した文字列>" .claude/<exe>`
+
+## 着手前に必ずやること
+
+本計画の PR A〜B-3 (2026-08-18〜19) で実際に踏んだ穴。以降の PR C〜L でも同じ形で再発する。
+
+**台帳の記述をそのまま信じない。** 本計画で着手した 6 件のうち **5 件で台帳と実態がずれていた**。
+
+| 順位 | 台帳の記述 | 実際 |
+|---|---|---|
+| 444 | 未着手 | 本計画とは独立に PR #417 として起票済みだった |
+| 328 | leftover context.json で誤 bail する | 順位 398 の guard 変更で**前提が消滅**していた |
+| 347 | `cli-merge-pipeline` の欠陥 | 実装先は `cli-pr-monitor` |
+| 446 | 並列 workspace のセッションが不可視 | 真因は**連結順序が時系列でないこと** |
+| 336 | 時刻範囲のみで照合しない | 時刻範囲すら使わず**辞書順で最新 1 件** |
+
+台帳は起票時点のスナップショットで、実装が動くほどずれる。328 と 446 は、台帳どおりに実装すれば**存在しない不具合を直すか誤った箇所を直す**ところだった。**自分が前日に書いたエントリでも同じ** — 順位 469 の Frequency 評価は実測で覆った。
+
+**自分の修正が下流の分岐を変えていないか追う。** CodeRabbit の Major 指摘 2 件が同じ構造だった。
+
+- [PR #418](https://github.com/aloekun/claude-code-hook-test/pull/418): `FixCommitState::None` を返す変更が、下流 `decide_repush_action` の `(HasChange, _, true) => AutoPush` 経路を開いた (分離コミットなしで push される)
+- [PR #421](https://github.com/aloekun/claude-code-hook-test/pull/421): 走査 source を単数→複数にしたのに `?` を残し、1 ディレクトリの失敗で全 workspace 分が失われる構造になった
+
+いずれも**局所的には正しい変更が、周囲の構造が変わったことで別の意味を持った**。シグネチャ・戻り値・引数の数を変えたら、呼び出し元と下流の `match` を必ず追う。
+
+**識別子を照合キーにするなら、一意性の根拠をリポジトリ全体で確認する。** [PR #420](https://github.com/aloekun/claude-code-hook-test/pull/420) で bookmark 名を一意キーと仮定したが、`claude/nightly-<順位>` は夜間ループが再利用する。CodeRabbit はリポジトリ全体を走査して気づき、私は変更箇所の周辺しか見ていなかった。
+
+**doc に「機構がある」と書いたら、その機構が実在するか確かめる。** 3 度やった — `RUN_REPORT_FILE_NAME` の pin テスト (存在しなかった / [#418](https://github.com/aloekun/claude-code-hook-test/pull/418) で追加)、fix step が書いた「3 crate を共通化」(1 crate だけだった)、`sort_key` の mtime tie-break (`source_path` へ変えた後も doc が残っていた)。
 
 ---
 
@@ -117,9 +146,26 @@
 
 - **不具合**: `src/hooks-pre-tool-validate/tests/smoke.rs` の 2 テストが並列で exe を tempdir へ `fs::copy` → spawn するため、Linux で片方の copy 中の書き込み fd を fork した子が継承し、exec が `Text file busy` (os error 26) で落ちる。PR #376 の CI (ubuntu のみ) で実観測。flaky の放置は「また flake だろう」で実バグを見落とす経路になる (2026-08-10 ユーザー判断で Tier 1 格上げ)。
 - **対処** (実装時に選択): (a) ci.yml の hooks smoke step を `--test-threads=1` (最小・即効)、(b) spawn を ETXTBSY でリトライ、(c) staging をやめて `built_exe()` 直接起動 (config staging 設計との整合要確認)。
-- **手順**: WSL Ubuntu で並列実行を再現させてから直し、同じ手順で消えたことを確認。他の smoke/E2E suite に「copy してから spawn」同型パターンが無いか棚卸しする。
+- **手順**: **まず WSL Ubuntu-24.04 で並列実行を再現させる** — 3 案のどれを採るかは再現の観察 (どの段で落ちるか) に依存するため、再現前に実装へ入らない。環境は導入済み (`wsl -u root` はパスワード不要 / PowerShell から複数行 bash を渡すと壊れるのでスクリプトファイル経由)。再現したら直し、同じ手順で消えたことを確認する。他の smoke/E2E suite に「copy してから spawn」同型パターンが無いか棚卸しする。
+  - **再現しなかった場合は実装に入らずユーザーに相談する。** ETXTBSY は fd 継承のタイミング依存で、ローカル WSL では CI の並列度・I/O 特性が再現しないことがある。測定できないまま 3 案から選ぶと「効いたかどうか確認できない修正」を入れることになり、flaky を Tier 1 に上げた趣旨 (「また flake だろう」で実バグを見落とす経路を塞ぐ) に反する。
 - **完了基準**: Linux で ETXTBSY が出ないこと (再現手順付き)。同型パターンの棚卸し完了。
 - **後始末**: todo21.md「hooks smoke suite の並列実行が…」節 + todo-summary2.md 396 行を削除。
+
+> **実装済み (2026-08-19)。採ったのは 3 案のどれでもなく「copy と spawn の相互排除」だった** — 再現の観察から選び直した。以下は記録。
+>
+> **再現**: WSL Ubuntu-24.04 の **ext4 上** (`~/etxtbsy`) にリポジトリを複製してテストバイナリを 200 回回すと **43 回 ETXTBSY** (別測定で 30/200)。`--test-threads=1` と各テスト単独では 0/100 で、**2 テストの並列実行に固有**と確定した。`/mnt/c` (drvfs) 上では再現しない。
+>
+> **3 案を実測比較した** (各 200 run): (a) `--test-threads=1`、(b) spawn リトライ、(c) 共有 staging (`LazyLock`) — **どれも 0 件**に落ちた。決め手は副作用のほう:
+>
+> - **(a) は穴が残る**。smoke テストは専用 step (ci.yml:175) だけでなく `cargo test --workspace` (ci.yml:168) でも走るので、専用 step だけ直列化しても同じ race が残る。workspace 全体の直列化はコストが大きい。
+> - **(c) は `LazyLock` の `TempDir` が drop されず、実測で 1 run あたり 37MB を `/tmp` に残した** (200 run で 7.2GB)。固定パス staging へ変えればリークは消えるが、「`target/debug` を汚さない」という smoke.rs の設計意図と衝突する。
+> - **(b) は原因 (fd 継承) に触れず症状を待つ形**で、テストコードに retry ループが入る。
+>
+> **採った対処**: `static EXEC_STAGING_LOCK: Mutex<()>` で **copy と spawn (fork〜exec) を相互排除**する。`Command::spawn` は子の exec 完了まで親へ返らないため、spawn 呼び出しを囲めば fd 継承の窓が閉じる。テストごとの tempdir 分離と後始末はそのままで、リークも無い。
+>
+> **回帰 seal**: `concurrent_staging_and_spawn_survives_etxtbsy` (`#[ignore]`、8 スレッド × 16 ラウンド) を追加。**ロックを外すと Linux で 10/10 落ち、戻すと 0/10** (ADR-049 の「修正前に落ちることを確認」)。CI は `--ignored --test-threads=1` の leg で回す。所要 Linux 2.1s / Windows 9.7s。
+>
+> **同型パターンの棚卸し**: リポジトリ全体で「exe を copy してから spawn」は 2 ファイルのみ。`hooks-stop-quality/tests/t7_cwd_independence.rs` は **5 テスト全部が copy→spawn** で、現状 `#![cfg(windows)]` のため POSIX 経路は踏まないが、cfg を外した瞬間に smoke.rs 以上の危険度になるため**同じガードを入れた**。他 (`hooks-post-tool-linter/tests/incident_eval.rs`、`hooks-stop-tool-call-leak/tests/e2e.rs`) は exe をコピーせず直接 spawn するため対象外。
 
 ---
 
@@ -295,6 +341,26 @@
 
 ---
 
+## 保留事項 (PR D 完了時に扱う)
+
+ユーザー判断で PR D まで先送りしたもの。**本計画の外に記録が無いため、ここが唯一の記録である。**
+
+### フィードバック採否 (5 PR 分が滞留)
+
+[PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) / [#418](https://github.com/aloekun/claude-code-hook-test/pull/418) / [#419](https://github.com/aloekun/claude-code-hook-test/pull/419) / [#420](https://github.com/aloekun/claude-code-hook-test/pull/420) / [#421](https://github.com/aloekun/claude-code-hook-test/pull/421) の post-merge-feedback で挙がった採用候補を**未処理で溜めている** (2026-08-18 ユーザー判断: 「PR D まで完了したタイミングで実施」)。レポートは `.claude/feedback-reports/<pr>.md` にある (gitignore 対象なのでローカルのみ)。
+
+PR D 完了時に 5 件分をまとめて採否判定する。件数が多いので、系統ごとに統合してから台帳へ登録する運用が要る (先例: `docs/todo24.md` の「#409-#414 の 5 PR 分」を 3 タスクへ統合した節)。
+
+### `cwd_to_project_id` の Linux での case 不一致
+
+**順位 469 のエントリを削除した際にこの記録も消えたため、ここに移設する** (2026-08-18 ユーザー判断: 「case 問題は D の作業完了後に対応を検討」)。
+
+`src/cli-merge-pipeline/src/feedback/transcript.rs` の `cwd_to_project_id` は path を `to_lowercase()` するが、`~/.claude/projects/` の実フォルダ名は**大文字小文字が保存されている** (`c--Users-owner-...` と `C--Users-owner-...-improve` が併存)。Windows は case-insensitive なので現状は偶然動いているだけで、**case-sensitive filesystem では一致しない**。
+
+- **未検証**: Linux の典型的なパスは全小文字なので `to_lowercase()` が実質 no-op になり、発現しない可能性が高い。WSL Ubuntu で確認できる (→ memory `wsl-linux-verification-setup`)
+- **影響範囲**: [ADR-063](adr/adr-063-linux-portability-release-binaries.md) のクラウドセッションと [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) の Linux CI matrix
+- **B-3 の範囲外とした理由**: 発現条件が限定的で、workspace 横断の本体とは独立に直せるため
+
 ## 残観測トラッキング
 
 完了基準に実走観測を含むタスク。マージ後に観測し、確認できたらエントリ後始末 (todoN.md 節 + summary 行の削除) を docs バッチで行う。
@@ -311,7 +377,9 @@
 1. 進行表の 12 PR がすべてマージ済みであること
 2. [§ 残観測トラッキング](#残観測トラッキング) の 4 項目がすべて消化され、対応するエントリ後始末が完了していること
 3. 順位 288 のエントリ (todo15.md) が PR I 完了時に削除されていること
-4. `grep -rn "bugfix-batch-plan" .` で本ファイルへの参照が残っていないことを確認する (検索対象パス `.` を省くと標準入力待ちになるため必ず付ける)
-5. 本ファイルを物理削除する (削除自体は残観測の最後のエントリ後始末と同じ docs バッチ PR に同乗してよい)
+4. **[§ 保留事項](#保留事項-pr-d-完了時に扱う) が空であること** — 未処理のまま残っていれば、行き先を作ってから削除する (フィードバック採否は消化、`cwd_to_project_id` の case 問題は台帳エントリへ起票)。**本ファイルが唯一の記録である項目を、本ファイルの削除と一緒に消してはならない。** 順位 469 のエントリ削除で実際にこれをやり、記録を一度失った
+5. **[§ 着手前に必ずやること](#着手前に必ずやること) の各項が、本ファイル外へ移送済みであること** — 台帳前提の実測・シグネチャ変更時の下流追跡・照合キーの一意性確認・doc 記述の実在確認はいずれも本計画に固有でない再発防止知見なので、[dev-conventions.md](dev-conventions.md) へ移す
+6. `grep -rn "bugfix-batch-plan" .` で本ファイルへの参照が残っていないことを確認する (検索対象パス `.` を省くと標準入力待ちになるため必ず付ける)
+7. 本ファイルを物理削除する (削除自体は残観測の最後のエントリ後始末と同じ docs バッチ PR に同乗してよい)
 
-永続化すべき知見 (再発防止策・設計判断) は各 PR で ADR / module doc / dev-conventions に書き込む方針のため、本ファイルに永続価値は残らない。
+永続化すべき知見 (再発防止策・設計判断) は各 PR で ADR / module doc / dev-conventions に書き込む方針のため、**上記 4・5 を終えた後の**本ファイルに永続価値は残らない。
