@@ -355,25 +355,31 @@
 
 ---
 
-## 保留事項 (PR D 完了時に扱う)
+## 保留事項 (PR D 完了時に扱う) — すべて消化済み
 
-ユーザー判断で PR D まで先送りしたもの。**本計画の外に記録が無いため、ここが唯一の記録である。**
+ユーザー判断で PR D まで先送りしたもの。**先送りした時点では本計画の外に記録が無く、ここが唯一の記録だった。** 各項の消化にあたって記録先を本計画書の外へ移したため (下記)、現時点で本節の削除により失われる記録は無い — これが退役条件 4 の求める状態である。
 
-### フィードバック採否 (5 PR 分が滞留)
+> **`cwd_to_project_id` の Linux case 不一致は調査のうえ閉じた (2026-08-19、ユーザー判断)。**
+>
+> **課題としては残さない** — 記述されていた欠陥は [PR #421](https://github.com/aloekun/claude-code-hook-test/pull/421) で既に解消済みだった。`resolve_project_dir` が `read_dir` + 両側 lowercase 比較で解決し、`resolve_project_dir_matches_case_insensitively` ほか 2 本のテストで seal されている。**実 Linux (WSL Ubuntu-24.04 / ext4、case-sensitive であることを probe で確認) で 2 本とも pass** し、`cwd_to_project_id` の呼び出し元も `resolve_project_dir` のみと確認した。実障害の観測は無し。
+>
+> **解決の記録は本計画書の外にある** (だから本節の削除で記録は失われない) — 機構と理由は `resolve_project_dir` の doc コメントにあり、Linux で成立し続けることは [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) の ubuntu leg が毎 PR 実行して担保する。**一度きりの観測ではなく機械化された保証**である点が、退役条件 4 が守ろうとしている「本ファイルが唯一の記録である項目」との違い。
+>
+> **残る既知の穴 (実測済み・対応保留)**: case-sensitive filesystem では `Foo` と `foo` を同じ `projects_root` に置ける。両方が lowercase 比較に一致すると `resolve_project_dir` の `.find(...)` は **1 件だけ返し、もう一方を無言で除外する**。WSL Ubuntu-24.04 / ext4 で 5 回試行し、毎回 1 件のみ返ることを確認した (どちらが返るかは `read_dir` の順序依存で、契約上は未規定)。**対応を保留する根拠**は「今のところ発現経路を確認できていない」ことのみ — case-sensitive FS では同一ディレクトリの綴りが一意なので、同じ workspace root から 2 通りの綴りは通常生まれない。**ただしこれは実測ではなく推論であり、`~/.claude/projects` を OS 間で持ち込む等の経路は排除できていない。** 発現したら「複数一致は黙って選ばず loud にする」で塞ぐ ([ADR-043](adr/adr-043-security-gates-fail-closed.md))。**この穴自体の記録は本計画書の外に無かったため、[todo24.md](todo24.md) 順位 475 として起票し、本節の削除後も記録が残るようにした。**
 
-[PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417) / [#418](https://github.com/aloekun/claude-code-hook-test/pull/418) / [#419](https://github.com/aloekun/claude-code-hook-test/pull/419) / [#420](https://github.com/aloekun/claude-code-hook-test/pull/420) / [#421](https://github.com/aloekun/claude-code-hook-test/pull/421) の post-merge-feedback で挙がった採用候補を**未処理で溜めている** (2026-08-18 ユーザー判断: 「PR D まで完了したタイミングで実施」)。レポートは `.claude/feedback-reports/<pr>.md` にある (gitignore 対象なのでローカルのみ)。
+### フィードバック採否 — 消化済み (2026-08-19)
 
-PR D 完了時に 5 件分をまとめて採否判定する。件数が多いので、系統ごとに統合してから台帳へ登録する運用が要る (先例: `docs/todo24.md` の「#409-#414 の 5 PR 分」を 3 タスクへ統合した節)。
+7 PR 分 ([#417](https://github.com/aloekun/claude-code-hook-test/pull/417) / [#418](https://github.com/aloekun/claude-code-hook-test/pull/418) / [#419](https://github.com/aloekun/claude-code-hook-test/pull/419) / [#420](https://github.com/aloekun/claude-code-hook-test/pull/420) / [#421](https://github.com/aloekun/claude-code-hook-test/pull/421) / [#423](https://github.com/aloekun/claude-code-hook-test/pull/423) / [#424](https://github.com/aloekun/claude-code-hook-test/pull/424)) の
+post-merge feedback **全 48 提案**を採否判定した。内訳は **採用候補 16 / 様子見 18 / 却下推奨 14**。
 
-### `cwd_to_project_id` の Linux での case 不一致
+採用分を 7 系統に分類し、**[todo24.md](todo24.md) へ 5 タスク (順位 470-474) として起票した** (ユーザー判断: 全 7 系統を採用)。
+統合の単位は「そのまま 1 PR になる粒度」。様子見・却下推奨は個別登録しない。
 
-**順位 469 のエントリを削除した際にこの記録も消えたため、ここに移設する** (2026-08-18 ユーザー判断: 「case 問題は D の作業完了後に対応を検討」)。
+**起票前の実コード確認で 1 件が脱落した** — #417 の「`REPORT_FILE_NAME` / `RUN_REPORT_FILE_NAME` の pin テスト」は
+既に両 crate に実装済みだった。同 PR の他 2 提案も大部分が実装済みで、残片だけを順位 471 に載せている。
+**feedback レポートも台帳と同じく実装が動くほどずれる** — 本計画の「着手前に必ずやること」がそのまま当てはまる。
 
-`src/cli-merge-pipeline/src/feedback/transcript.rs` の `cwd_to_project_id` は path を `to_lowercase()` するが、`~/.claude/projects/` の実フォルダ名は**大文字小文字が保存されている** (`c--Users-owner-...` と `C--Users-owner-...-improve` が併存)。Windows は case-insensitive なので現状は偶然動いているだけで、**case-sensitive filesystem では一致しない**。
-
-- **未検証**: Linux の典型的なパスは全小文字なので `to_lowercase()` が実質 no-op になり、発現しない可能性が高い。WSL Ubuntu で確認できる (→ memory `wsl-linux-verification-setup`)
-- **影響範囲**: [ADR-063](adr/adr-063-linux-portability-release-binaries.md) のクラウドセッションと [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) の Linux CI matrix
-- **B-3 の範囲外とした理由**: 発現条件が限定的で、workspace 横断の本体とは独立に直せるため
+**これで § 保留事項は空になった** (退役条件 4 を充足)。
 
 ## 残観測トラッキング
 
@@ -391,7 +397,7 @@ PR D 完了時に 5 件分をまとめて採否判定する。件数が多いの
 1. 進行表の 12 PR がすべてマージ済みであること
 2. [§ 残観測トラッキング](#残観測トラッキング) の 4 項目がすべて消化され、対応するエントリ後始末が完了していること
 3. 順位 288 のエントリ (todo15.md) が PR I 完了時に削除されていること
-4. **[§ 保留事項](#保留事項-pr-d-完了時に扱う) が空であること** — 未処理のまま残っていれば、行き先を作ってから削除する (フィードバック採否は消化、`cwd_to_project_id` の case 問題は台帳エントリへ起票)。**本ファイルが唯一の記録である項目を、本ファイルの削除と一緒に消してはならない。** 順位 469 のエントリ削除で実際にこれをやり、記録を一度失った
+4. **[§ 保留事項](#保留事項-pr-d-完了時に扱う--すべて消化済み) が空であること** (2026-08-19 に充足) — 未処理のまま残っていれば、行き先を作ってから削除する (フィードバック採否は消化、`cwd_to_project_id` の case 問題は台帳エントリへ起票)。**本ファイルが唯一の記録である項目を、本ファイルの削除と一緒に消してはならない。** 順位 469 のエントリ削除で実際にこれをやり、記録を一度失った
 5. **[§ 着手前に必ずやること](#着手前に必ずやること) の各項が、本ファイル外へ移送済みであること** — 台帳前提の実測・シグネチャ変更時の下流追跡・照合キーの一意性確認・doc 記述の実在確認はいずれも本計画に固有でない再発防止知見なので、[dev-conventions.md](dev-conventions.md) へ移す
 6. `grep -rn "bugfix-batch-plan" .` で本ファイルへの参照が残っていないことを確認する (検索対象パス `.` を省くと標準入力待ちになるため必ず付ける)
 7. 本ファイルを物理削除する (削除自体は残観測の最後のエントリ後始末と同じ docs バッチ PR に同乗してよい)
