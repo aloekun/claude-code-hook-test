@@ -37,10 +37,11 @@ pub(crate) fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitI
             .unwrap_or("")
             .cmp(rate_limit_event_time(a).unwrap_or(""))
     });
-    let latest = candidates.first()?;
+    let latest = *candidates.first()?;
+    let chosen = prefer_candidate_with_wait_time(&candidates, latest);
 
-    let body = latest.body.as_deref()?;
-    let event_time = rate_limit_event_time(latest)?;
+    let body = chosen.body.as_deref()?;
+    let event_time = rate_limit_event_time(chosen)?;
     let (minutes, seconds, wait_time_parsed) = resolve_wait_time(body);
     if !wait_time_parsed {
         warn_unknown_wait_time_format();
@@ -56,6 +57,55 @@ pub(crate) fn parse_rate_limit(json: &str, push_time: &str) -> Option<RateLimitI
         wait_seconds: seconds,
         wait_time_parsed,
     })
+}
+
+/// ack と placeholder が同じ拒否に対して投稿される間隔の上限 (実測 3〜5 秒)。
+///
+/// この窓に収まる 2 コメントは**同一 rate-limit event の別 comment class**とみなす。
+/// 窓を超えて離れていれば別の拒否 (= 新しい event) なので、古い placeholder の
+/// 待機時間を流用してはならない — 既に解けた reset 時刻を返して即再試行させ、
+/// `max_retries` を無駄に消費する。
+const SAME_EVENT_WINDOW_SECS: i64 = 120;
+
+/// body から待機時間を既知書式で読めるか。
+fn has_known_wait_time(c: &GhComment) -> bool {
+    c.body
+        .as_deref()
+        .map(|b| resolve_wait_time(b).2)
+        .unwrap_or(false)
+}
+
+/// **同一 rate-limit event の中では、待機時間を持つ候補を優先する。**
+///
+/// 候補は event time の降順で渡る。素朴に最新を採ると、placeholder (待機時間あり) の
+/// 直後に command ack (待機時間なし) が更新された場合に ack が選ばれ、読める
+/// `12 minutes and 30 seconds` を捨てて 30 分 fallback に落ちる。ack は
+/// `updated_at` を持つため実際に起こる (PR #387: placeholder 18:22:49 /
+/// ack updated 18:22:51)。
+///
+/// **窓を切るのが要点**。窓なしで「待機時間を持つ候補」を無条件に優先すると、
+/// 数十分前の解け済み placeholder を新しい拒否 ack より優先してしまう。
+fn prefer_candidate_with_wait_time<'a>(
+    candidates: &[&'a GhComment],
+    latest: &'a GhComment,
+) -> &'a GhComment {
+    if has_known_wait_time(latest) {
+        return latest;
+    }
+    let Some(latest_unix) = rate_limit_event_time(latest).and_then(parse_iso8601_to_unix) else {
+        return latest;
+    };
+    candidates
+        .iter()
+        .copied()
+        .find(|c| {
+            has_known_wait_time(c)
+                && rate_limit_event_time(c)
+                    .and_then(parse_iso8601_to_unix)
+                    .map(|t| (latest_unix - t).abs() <= SAME_EVENT_WINDOW_SECS)
+                    .unwrap_or(false)
+        })
+        .unwrap_or(latest)
 }
 
 /// 未知書式で既定値を適用したことを stderr に警告する。
@@ -449,6 +499,140 @@ mod tests {
             before.comment_event_time, after.comment_event_time,
             "編集前後で dedup key が異なるべき"
         );
+    }
+
+    /// command ack の拒否 (第 4 世代 marker、2026-08-20 追加) を検出すること。
+    ///
+    /// body は PR #387 のコメント id=5244249470 (2026-08-10) の実データ。placeholder 側の
+    /// marker (rate limited by coderabbit.ai) を**一切含まない**のが要点で、旧実装は
+    /// これを rate-limit と認識できなかった。
+    ///
+    /// ack には待ち時間が書かれないため、wait time は未知書式 fallback (30 分) に倒れる。
+    /// これは ADR-034 § 未知書式の fail-closed fallback が定めた既定の振る舞い。
+    #[test]
+    fn rate_limit_detected_from_command_ack_without_placeholder_markers() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: a7a38160-dc39-48c1-ab29-9b1020304871 -->\n<details>\n<summary>Action not completed</summary>\n\nReview rate limited.\n\n</details>",
+            "created_at": "2026-08-10T18:22:46Z",
+            "updated_at": "2026-08-10T18:22:51Z"
+        }]"#;
+        let result = parse_rate_limit(json, "2026-08-10T18:00:00Z")
+            .expect("command ack の拒否も rate-limit として検出すること");
+        assert!(
+            !result.wait_time_parsed,
+            "ack には待ち時間が無いので未知書式 fallback に倒れる"
+        );
+        assert_eq!(result.wait_minutes, UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES);
+    }
+
+    /// **受理の ack を rate-limit と誤検出しないこと。** 拒否と受理は同じ auto-generated
+    /// reply の body で、違いは "Review rate limited." と "Review finished." の 1 行だけ。
+    /// body は PR #387 のコメント id=5252180495 の実データ。
+    #[test]
+    fn successful_command_ack_is_not_treated_as_rate_limit() {
+        let json = r#"[{
+            "user": {"login": "coderabbitai[bot]"},
+            "body": "<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: a603ebf1-a2cc-42e7-ae72-ee51fcffb48c -->\n<details>\n<summary>Action performed</summary>\n\nReview finished.\n\n</details>",
+            "created_at": "2026-08-11T10:51:35Z"
+        }]"#;
+        assert!(
+            parse_rate_limit(json, "2026-08-11T00:00:00Z").is_none(),
+            "受理 ack を rate-limit と読むと、レビュー済みの PR が park される"
+        );
+    }
+
+    /// ack と placeholder が**両方**投稿される通常ケース (PR #427 の実データ、3 秒差) では、
+    /// 待ち時間を持つ placeholder 側が採用されること。
+    ///
+    /// ack marker の追加で「待ち時間の分かる方を捨てて 30 分 fallback に落ちる」退行が
+    /// 起きないことを固定する。parse_rate_limit は event time の新しい方を採るため、
+    /// placeholder が後着する限りこの順序で決まる。
+    /// CodeRabbit #429 Major の regression guard: **ack の event time が placeholder より
+    /// 新しくても**、待機時間を持つ placeholder 側が採られること。
+    ///
+    /// ack は `updated_at` を持つため、これは実際に起きる形である (PR #387 の実データ:
+    /// placeholder created 18:22:49 / ack updated 18:22:51)。素朴に「最新を採る」と
+    /// 読める 12 分 30 秒を捨てて 30 分 fallback に落ち、解除時刻が不正確になる。
+    #[test]
+    fn placeholder_wait_time_wins_even_when_ack_is_updated_later() {
+        let json = r#"[
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- This is an auto-generated reply by CodeRabbit -->\n<details>\n<summary>Action not completed</summary>\n\nReview rate limited.\n\n</details>",
+                "created_at": "2026-08-19T18:11:13Z",
+                "updated_at": "2026-08-19T18:11:18Z"
+            },
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n>\n> More reviews will be available in 12 minutes and 30 seconds.",
+                "created_at": "2026-08-19T18:11:16Z"
+            }
+        ]"#;
+        let result = parse_rate_limit(json, "2026-08-19T18:00:00Z")
+            .expect("ack が後着でも rate-limit として検出すること");
+        assert!(
+            result.wait_time_parsed,
+            "ack が後着でも、同一 event 内の placeholder の待機時間を採るべき"
+        );
+        assert_eq!(result.wait_minutes, 12);
+        assert_eq!(result.wait_seconds, 30);
+        // reset 時刻は placeholder の event time 基準で計算される (絶対時刻なので正しい)。
+        let base = parse_iso8601_to_unix("2026-08-19T18:11:16Z").unwrap();
+        assert_eq!(result.until_unix_secs, base + 12 * 60 + 30 + 60);
+    }
+
+    /// 上の優先を**窓で切る**理由の対比: placeholder から十分に離れた ack は
+    /// **別の拒否 (新しい event)** なので、解け済みの古い待機時間を流用しない。
+    ///
+    /// 流用すると既に過ぎた reset 時刻を返し、park が効かず即再試行 → 再び拒否、で
+    /// `max_retries` を無駄に消費する。窓を超えたら未知書式 fallback (30 分) に倒す。
+    #[test]
+    fn old_placeholder_wait_time_is_not_reused_for_a_much_later_ack() {
+        let json = r#"[
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n>\n> More reviews will be available in 12 minutes and 30 seconds.",
+                "created_at": "2026-08-19T18:11:16Z"
+            },
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- This is an auto-generated reply by CodeRabbit -->\n<details>\n<summary>Action not completed</summary>\n\nReview rate limited.\n\n</details>",
+                "created_at": "2026-08-19T18:40:00Z"
+            }
+        ]"#;
+        let result = parse_rate_limit(json, "2026-08-19T18:00:00Z")
+            .expect("後の拒否 ack も rate-limit として検出すること");
+        assert!(
+            !result.wait_time_parsed,
+            "29 分後の ack は別 event。古い placeholder の待機時間を流用しない"
+        );
+        assert_eq!(result.wait_minutes, UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES);
+        assert_eq!(result.comment_event_time, "2026-08-19T18:40:00Z");
+    }
+
+    #[test]
+    fn placeholder_wait_time_wins_when_ack_and_placeholder_coexist() {
+        let json = r#"[
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- This is an auto-generated reply by CodeRabbit -->\n<details>\n<summary>Action not completed</summary>\n\nReview rate limited.\n\n</details>",
+                "created_at": "2026-08-19T18:11:13Z"
+            },
+            {
+                "user": {"login": "coderabbitai[bot]"},
+                "body": "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n> ## Review limit reached\n>\n> More reviews will be available in 12 minutes and 30 seconds.",
+                "created_at": "2026-08-19T18:11:16Z"
+            }
+        ]"#;
+        let result = parse_rate_limit(json, "2026-08-19T18:00:00Z")
+            .expect("placeholder があるケースも従来どおり検出すること");
+        assert!(
+            result.wait_time_parsed,
+            "待ち時間を持つ placeholder 側を採るべき (ack の 30 分 fallback に落ちない)"
+        );
+        assert_eq!(result.wait_minutes, 12);
+        assert_eq!(result.wait_seconds, 30);
     }
 
     #[test]

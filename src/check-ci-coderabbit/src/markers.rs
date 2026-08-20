@@ -7,8 +7,25 @@ use crate::models::GhComment;
 /// CR は format を時間経過で変更するため multi-variant 配列で対応する
 /// (PR #182/#184 で silent regression を実体観測)。詳細は ADR-034 § CR rate-limit
 /// format evolution 参照。
-pub(crate) const RATE_LIMIT_MARKERS: &[&str] =
-    &["Rate limit exceeded", "rate limited by coderabbit.ai"];
+///
+/// **2 つの comment class が混在する。** 前 2 つは walkthrough comment が
+/// placeholder として投稿されたときの marker で、3 つ目は `@coderabbitai review`
+/// への **command ack** (auto-generated reply) の拒否文言。両者は body の語彙が
+/// 全く別で、ack 側は `rate limited by coderabbit.ai` を含まない。
+///
+/// **ack を入れる理由 (2026-08-20 追加)**: placeholder は**同じコメントが後から
+/// 実レビュー本文へ編集される**ため marker が消える。一方 ack は要求 1 回につき
+/// 1 コメントが残る。placeholder が出ない / 既に書き換わった時点では、ack だけが
+/// 唯一の証拠になる。実データで PR #412 (ack 3 件 / placeholder marker 0 件) と
+/// PR #387 (同 1 件 / 0 件) を確認した。ack を持たない旧実装はこの窓で
+/// rate-limit を検出できず、park / 再 trigger 経路に入らないまま polling を
+/// 続けていた (silent success ではない — ADR-064 の陽性証拠 gate が別途効く)。
+pub(crate) const RATE_LIMIT_MARKERS: &[&str] = &[
+    "Rate limit exceeded",
+    "rate limited by coderabbit.ai",
+    // command ack の拒否文言。受理時は "Review finished." になるため衝突しない。
+    "Review rate limited.",
+];
 
 /// 順位 208: CR walkthrough comment が clean 判定を示すときに body に含まれる marker。
 pub(crate) const WALKTHROUGH_CLEAN_MARKER: &str =

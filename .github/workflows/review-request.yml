@@ -226,13 +226,15 @@ jobs:
       # 2026-08-11 の再要求で実観測)。この文言は markers.rs の RATE_LIMIT_MARKERS
       # (`Rate limit exceeded` / `rate limited by coderabbit.ai`) の**どちらにも一致しない**。
       # markers.rs が見ているのは walkthrough comment の placeholder であって command ack
-      # ではなく、ack は本 workflow だけが観測する comment class だからである。よって本
-      # workflow の rate-limit marker は markers.rs の**上位集合**になる:
-      #   - `Rate limit exceeded` / `rate limited by coderabbit.ai` … markers.rs と共有。
-      #     walkthrough が placeholder として投稿された場合を拾う。触るときは両方直す
-      #     (片方だけ直すと本 workflow だけが silent success に戻る。
-      #      ADR-034 § CR rate-limit format evolution)。
-      #   - `Review rate limited.` … command ack 専用。本 workflow 固有。
+      # ではない。当初は「ack は本 workflow だけが観測する comment class」として本 workflow
+      # 固有の marker にしたが、**その前提が誤り**だった: placeholder は同じコメントが後から
+      # 実レビュー本文へ編集されるため marker が消え、ack だけが残る窓がある (PR #412 /
+      # #387 の実データ)。よって ack 文言も markers.rs へ入れ、**3 marker とも共有**にした。
+      #   - `Rate limit exceeded` / `rate limited by coderabbit.ai` … placeholder 側。
+      #   - `Review rate limited.` … command ack 側。受理時は `Review finished.`。
+      # 触るときは markers.rs と同時に直す (片方だけ直すと直さなかった層が silent success に
+      # 戻る。ADR-034 § CR rate-limit format evolution)。同期は
+      # `scripts/lint-workflows.mjs` の CodeRabbit marker 検査が機械的に見る。
       #
       # **rate-limit を陽性証拠より先に見る。** ack が拒否と言っているのに walkthrough
       # marker を持つコメント (placeholder) が同時に存在しうる — #387 では 3 秒差で

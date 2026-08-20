@@ -74,6 +74,17 @@ CR は format を時間経過で変更するため、本リポジトリの実装
 | ~2026 年初頃 (旧 format) | `Rate limit exceeded` (本文先頭、heading なし) | `Please wait \*?\*?(\d+) minutes? and (\d+) seconds?` / 短縮形 `Please wait \*?\*?(\d+) minutes?` |
 | 2026-05 観測 (新 format) | `rate limited by coderabbit.ai` (HTML コメント `<!-- ... -->` 内、`## Review limit reached` heading 併設) | `More reviews will be available in (\d+) minutes? and (\d+) seconds?` / 短縮形 `More reviews will be available in (\d+) minutes?` |
 | 2026-07-20 観測 (第 3 世代、PR #309) | 変わらず `rate limited by coderabbit.ai` (`## Review limit reached` heading も維持) | `Next review available in[:*\s]*(\d+) minutes?...` (`**Next review available in:** **57 minutes**` の形。ラベルと数値の間に markdown 強調が挟まるため区切りを文字クラスで吸収) |
+| 2026-08-20 判明 (**別 comment class**、PR #387/#412/#427 の実データ) | `Review rate limited.` (command ack = `<!-- This is an auto-generated reply by CodeRabbit -->` を持つ auto-generated reply。`Action not completed` の details ブロック内) | **無し** — ack は待ち時間を書かない。`UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES` (30 分) に倒れる |
+
+**2 つの comment class を混同しない (2026-08-20 追加)**: 上表の第 1〜3 世代は **walkthrough comment が placeholder として投稿されたとき**の marker、第 4 世代は **`@coderabbitai review` への command ack** の marker で、body の語彙が全く別 (ack は `rate limited by coderabbit.ai` を含まない)。**「同じ SaaS だから同じ marker で拾える」と仮定してはならない。**
+
+発見の経緯は、順位 431 (review-request の success 判定) を実装する際に `markers.rs` の marker をそのまま流用しようとして、PR #387 の生 body を `gh api` で読んで一致しないことに気づいたもの。読まずに land していれば「レート制限を検知できない検知機構」ができていた。
+
+**ack を marker 集合に入れる理由**: placeholder は**同じコメントが後から実レビュー本文へ編集される**ため marker が消える。一方 ack は要求 1 回につき 1 コメントが残る。実データ (2026-08-20 に PR #340〜#428 を機械集計) では、**#412 が ack 3 件 / placeholder marker 0 件**、#387 が 1 件 / 0 件。この窓では ack だけが唯一の証拠になる。影響は (a) park / 再 trigger 経路に入らず polling を続ける、(b) 事後の棚卸しでレート制限を過少計数する、の 2 つ (silent success には**ならない** — ADR-064 の陽性証拠 gate が別途効く)。
+
+**共存時はどちらを採るか (2026-08-20 追加、PR #429 CodeRabbit Major)**: ack と placeholder は同じ拒否に対して**数秒差で両方投稿される**ことがある (PR #427 で 3 秒差)。素朴に「event time が最新の候補」を採ると、placeholder の直後に ack が `updated_at` を更新した場合に ack が選ばれ、**読める待機時間を捨てて 30 分 fallback に落ちる**。PR #387 の実データがこの形 (placeholder created 18:22:49 / ack updated 18:22:51)。
+
+そこで `parse_rate_limit` は、最新候補が待機時間を持たない場合に限り、**同一 event 窓 (`SAME_EVENT_WINDOW_SECS` = 120 秒) 内で待機時間を持つ候補**を優先する。**窓を切るのが要点**で、窓なしに優先すると数十分前の解け済み placeholder を新しい拒否 ack より優先し、既に過ぎた reset 時刻を返して park が効かず即再試行 → 再拒否で `max_retries` を浪費する。
 
 **未知書式の fail-closed fallback (2026-07-20 追加、WP-15 追補 R2)**: marker は一致したが wait time regex がどれも一致しない場合、旧実装は `parse_rate_limit` が `None` を返し「rate-limit ではない」= 検知の沈黙に倒れていた。書式追随は本質的に後追いになるため、**marker 一致を制限の根拠として採用し、待機時間だけを既定値 (`UNKNOWN_FORMAT_FALLBACK_WAIT_MINUTES` = 30 分) で埋める**方式に変更した。既定値が実際の reset より短い場合は wakeup 後に再検出されて再 park されるだけで、retry は `max_retries` で有界。既定値適用時は checker が stderr に警告を出し (cli-pr-monitor がログ転送)、書式再変更の検知シグナルを兼ねる。これにより「書式変更 → 即 silent success」の経路は構造的に閉じ、書式追随 (下記手順) は待機時間精度の改善に格下げされる。
 

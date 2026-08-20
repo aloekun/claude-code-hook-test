@@ -110,9 +110,11 @@ if (prMonitor) {
 // **1 か所だけ追随すると残りが黙って壊れる**。ここで「全員が同じ文字列を持っている」
 // ことだけを固定する (どの層がどう使うかは各ファイルのコメントが持つ)。
 //
-// 注: `Review rate limited.` (command ack の文言) は review-request.yml 専用で、
-// markers.rs には無い。markers.rs が見ているのは walkthrough comment の placeholder で
-// あって command ack ではないため — 意図的な非共有であり、ここでは検査しない。
+// `Review rate limited.` は当初 review-request.yml 専用だったが、同じ穴が
+// markers.rs 側にもあることが実データで判明したため (PR #412 / #387) 共有 marker へ
+// 格上げした。ack は placeholder と別 comment class だが、**どちらの層も同じ
+// 「レート制限で拒否された」事実を判定している**ので、片方だけ追随すると再び
+// 非対称に戻る。
 const SHARED_CR_MARKERS = [
   {
     marker: 'rate limited by coderabbit.ai',
@@ -120,6 +122,10 @@ const SHARED_CR_MARKERS = [
   },
   {
     marker: 'Rate limit exceeded',
+    files: [join(WORKFLOW_DIR, 'review-request.yml'), MARKERS_RS],
+  },
+  {
+    marker: 'Review rate limited.',
     files: [join(WORKFLOW_DIR, 'review-request.yml'), MARKERS_RS],
   },
   {
