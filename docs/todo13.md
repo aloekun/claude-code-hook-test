@@ -347,28 +347,6 @@
 
 ---
 
-### `takt.rs` の spawn/try_wait `Err(_)` 分岐に eprintln 追加 — 原因握り潰し解消 (PR #230 post-merge-feedback T3-#1 採用)
-
-> **動機**: `takt.rs` の `spawn()` / `try_wait()` の `Err(_) =>` 分岐がエラー詳細を握り潰しており、失敗時に `.failed` marker へ実際の原因 (`pnpm` 未検出 / 権限エラー等) が残らず L2 recovery の debugging が困難 (CodeRabbit findings)。同 crate に確立済の `write_pending_marker_logged` 等の `eprintln!` パターンを踏襲して原因を記録する。
->
-> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #1 採用 (Medium / Frequency Low / Effort XS / Adoption Risk None)。
->
-> **参照**: `.claude/feedback-reports/230.md` Tier 3 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/takt.rs` (対象)、同 crate `write_pending_marker_logged` (踏襲する eprintln パターン)。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort XS。順位 238 と同 crate、1 PR bundle 検討可。
-
-#### 作業計画
-
-- [ ] `takt.rs` の `spawn()` / `try_wait()` の `Err(e)` を `eprintln!` で記録するよう変更 (握り潰しを解消)
-- [ ] `cargo test -p cli-merge-pipeline` pass + `cargo clippy` clean
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- takt spawn/try_wait 失敗時に原因が stderr に記録され `.failed` marker からの debug が可能になる。
-
----
-
 ### binary crate の module symbol を `pub(crate)` 限定 + CLAUDE.md 明文化 (PR #230 post-merge-feedback T3-#2 採用)
 
 > **動機**: PR-W3 の feedback module 分割で `write_failed_marker` / `fetch_pr_diff_summary` / `FeedbackInput` / `run` 等、external consumer が存在しない binary crate 内シンボルが `pub` export されており、`pub(crate)` 方針と乖離している (CodeRabbit findings)。file split refactor PR ごとに繰り返す systemic pattern (Frequency Medium) のため、CLAUDE.md に方針を明文化し、既存 `pub` を `pub(crate)` に揃える。

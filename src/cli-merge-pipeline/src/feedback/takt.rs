@@ -59,7 +59,13 @@ pub fn run_takt_workflow(repo_root: &Path, pr_number: u64, timeout_secs: u64) ->
         .spawn()
     {
         Ok(c) => c,
-        Err(_) => return false,
+        Err(e) => {
+            eprintln!(
+                "[merge-pipeline] [feedback] takt (pnpm exec takt) の起動に失敗 (PR #{}): {}",
+                pr_number, e
+            );
+            return false;
+        }
     };
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
@@ -67,7 +73,13 @@ pub fn run_takt_workflow(repo_root: &Path, pr_number: u64, timeout_secs: u64) ->
         match child.try_wait() {
             Ok(Some(status)) => break Some(status.success()),
             Ok(None) if std::time::Instant::now() >= deadline => break None,
-            Err(_) => break None,
+            Err(e) => {
+                eprintln!(
+                    "[merge-pipeline] [feedback] takt プロセスの状態取得に失敗 (PR #{}): {}",
+                    pr_number, e
+                );
+                break None;
+            }
             Ok(None) => std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS)),
         }
     };
