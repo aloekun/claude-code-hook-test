@@ -126,29 +126,53 @@ pub(super) fn working_copy_is_empty() -> Result<bool, String> {
     Ok(output.trim() == "empty")
 }
 
+/// 前進対象の bookmark を返す: **target と同一コミットを指すものだけ** (順位 376)。
+///
+/// 旧実装は `(trunk()..target) & bookmarks()` で **PR 範囲全体の bookmark** を集めて
+/// すべて target へ移していた。スタック push (feat/pr1 ← feat/pr2) では
+/// **レビュー済みの feat/pr1 まで feat/pr2 の tip へ動かしてしまい**、
+/// 別 PR の範囲に未レビュー変更が混入する (2026-08-06 実観測、gate が止めなければ
+/// silent。Severity High)。
+///
+/// 前進の目的は「takt fix や `jj new` で **自分の** bookmark が置き去りになるのを
+/// 直す」ことなので、対象は target が指すコミットの bookmark で必要十分。
+/// 使い捨て jj リポジトリでの実測 (jj 0.42):
+///
+/// | 構成 | 旧 `(trunk()..target)` | 本実装 (target 直接) |
+/// |---|---|---|
+/// | スタック (pr1=@-, pr2=@) | `feat/pr1, feat/pr2, master` | `feat/pr2` のみ |
+/// | 単一ブランチ (solo=@-, @ 空) | `feat/solo, master` | `feat/solo` |
+///
+/// 単一ブランチ運用の挙動は変わらない (target は既に「@ が空なら @-」で解決済みのため、
+/// 置き去りの bookmark はちょうど target 上にある)。
+///
+/// **trunk 系は本関数が名前で除外する** ([`is_trunk_bookmark`])。旧実装は
+/// `trunk()..target` の revset で範囲から外していたが、target を直接照会する形では
+/// 範囲による除外が効かない — target が trunk bookmark を指す構成 (bookmark 未作成で
+/// 作業を始めた `@`、feature 作成直後で master と同一コミット等) では `master` が
+/// 前進対象に入ってしまう (jj 0.42 実測。CodeRabbit #432 指摘)。
+///
+/// 対象 commit は target と同一なので `jj bookmark set` 自体は実質 no-op だが、
+/// 「bookmark 'master' を … に自動更新」というログが出て、trunk を動かしたように
+/// 読める。除外層を revset から名前へ移したことを実装で明示する。
 fn get_bookmarks_in_range(target: &str) -> Result<Vec<String>, String> {
-    let revsets = [
-        format!("(trunk()..{}) & bookmarks()", target),
-        format!("(main..{}) & bookmarks()", target),
-        format!("(master..{}) & bookmarks()", target),
-    ];
-
-    for revset in &revsets {
-        let template = "local_bookmarks.map(|b| b.name()).join(\",\") ++ \"\\n\"";
-        match run_jj_log(revset, template) {
-            Ok(output) => {
-                let bookmarks = parse_bookmarks_from_template(&output);
-                if !bookmarks.is_empty() {
-                    return Ok(dedup(bookmarks));
-                }
-            }
-            Err(_) => continue,
+    let template = "local_bookmarks.map(|b| b.name()).join(\",\") ++ \"\\n\"";
+    match run_jj_log(target, template) {
+        Ok(output) => Ok(dedup(
+            parse_bookmarks_from_template(&output)
+                .into_iter()
+                .filter(|b| !is_trunk_bookmark(b))
+                .collect(),
+        )),
+        Err(e) => {
+            // (push 自体は続行するので Err を返さず警告に留める)
+            log_info(&format!(
+                "bookmark の照会に失敗し、bookmark 自動更新をスキップします: {}",
+                e
+            ));
+            Ok(Vec::new())
         }
     }
-
-    // (push 自体は続行するので Err を返さず警告に留める)
-    log_info("trunk/main/master bookmark が見つからず、bookmark 自動更新をスキップします");
-    Ok(Vec::new())
 }
 
 fn parse_bookmarks_from_template(raw: &str) -> Vec<String> {
@@ -408,5 +432,170 @@ feat/xyz: abc1234 desc
   @upstream: abc1234 desc
 ";
         assert_eq!(parse_bookmark_list_output(output), vec!["feat/xyz"]);
+    }
+
+    /// 順位 376 の実 jj 回帰テスト (両方向、2026-08-06 実観測の incident 再現)。
+    ///
+    /// スタック push (feat/pr1 ← feat/pr2) で、**レビュー済みの feat/pr1 を
+    /// feat/pr2 の tip へ前進させない**こと。旧実装は `(trunk()..target) & bookmarks()`
+    /// で PR 範囲全体を集めていたため、feat/pr1 が feat/pr2 の tip を指し、別 PR の
+    /// 範囲に未レビュー変更が混入していた (gate が止めなければ silent、Severity High)。
+    mod advance_scope {
+        use super::super::*;
+        use std::path::{Path, PathBuf};
+        use std::process::Command as StdCommand;
+
+        fn jj(dir: &Path, args: &[&str]) {
+            assert!(
+                StdCommand::new("jj")
+                    .args(args)
+                    .current_dir(dir)
+                    .status()
+                    .unwrap_or_else(|e| panic!("jj {:?} 実行失敗: {}", args, e))
+                    .success(),
+                "jj {:?} が失敗",
+                args
+            );
+        }
+
+        fn jj_stdout(dir: &Path, args: &[&str]) -> String {
+            let out = StdCommand::new("jj")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap_or_else(|e| panic!("jj {:?} 実行失敗: {}", args, e));
+            assert!(out.status.success(), "jj {:?} が失敗", args);
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+
+        struct CwdRestore {
+            original: PathBuf,
+        }
+
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+
+        fn enter(dir: &Path) -> CwdRestore {
+            let original = std::env::current_dir().expect("cwd");
+            std::env::set_current_dir(dir).expect("cd");
+            CwdRestore { original }
+        }
+
+        fn commit_of(dir: &Path, revset: &str) -> String {
+            jj_stdout(dir, &["log", "-r", revset, "--no-graph", "-T", "commit_id"])
+        }
+
+        fn init_base(repo: &Path) {
+            std::fs::create_dir_all(repo).unwrap();
+            jj(repo, &["git", "init", "--colocate"]);
+            std::fs::write(repo.join("a.txt"), "base\n").unwrap();
+            jj(repo, &["describe", "-m", "chore: base"]);
+            jj(repo, &["bookmark", "create", "master", "-r", "@"]);
+        }
+
+        /// スタック構成では **@ の bookmark だけ**が前進対象になること。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn stacked_bookmarks_do_not_advance_ancestors() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            jj(&repo, &["new", "-m", "feat: pr1"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/pr1", "-r", "@"]);
+            jj(&repo, &["new", "-m", "feat: pr2"]);
+            std::fs::write(repo.join("c.txt"), "two\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/pr2", "-r", "@"]);
+
+            let pr1_before = commit_of(&repo, "feat/pr1");
+            let _guard = enter(&repo);
+
+            let bookmarks = get_bookmarks_in_range("@").expect("照会は成功するはず");
+            assert_eq!(
+                bookmarks,
+                vec!["feat/pr2".to_string()],
+                "スタックの祖先 bookmark (feat/pr1) を前進対象に含めてはならない"
+            );
+
+            advance_jj_bookmarks().expect("advance は成功するはず");
+            assert_eq!(
+                commit_of(&repo, "feat/pr1"),
+                pr1_before,
+                "レビュー済み feat/pr1 が feat/pr2 の tip へ動いてはならない (順位 376)"
+            );
+        }
+
+        /// CodeRabbit #432 の regression guard: **trunk bookmark を前進対象に含めない**。
+        ///
+        /// 旧実装は `trunk()..target` の revset で trunk を範囲から外していたが、
+        /// target を直接照会する形では範囲による除外が効かない。target が trunk を指す
+        /// 構成 (bookmark 未作成で作業を始めた `@`、feature 作成直後で master と同一
+        /// コミット等) では `master` が対象に入り、「bookmark 'master' を … に自動更新」
+        /// というログが出る (同一 commit なので実害は無いが trunk を動かしたように読める)。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn trunk_bookmark_is_excluded_from_advance_targets() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            let _guard = enter(&repo);
+
+            assert!(
+                get_bookmarks_in_range("@").expect("照会は成功するはず").is_empty(),
+                "@ が master を指す構成で master を前進対象にしてはならない"
+            );
+        }
+
+        /// master と feature が同一コミットにある構成 (bookmark 作成直後) でも、
+        /// feature だけが対象になること。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn only_non_trunk_bookmarks_advance_when_sharing_a_commit_with_trunk() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            jj(&repo, &["new", "-m", "feat: work"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/x", "-r", "@"]);
+            jj(&repo, &["bookmark", "set", "master", "-r", "@", "--allow-backwards"]);
+
+            let _guard = enter(&repo);
+            assert_eq!(
+                get_bookmarks_in_range("@").expect("照会は成功するはず"),
+                vec!["feat/x".to_string()],
+                "trunk と同一コミットでも feature bookmark だけを前進させること"
+            );
+        }
+
+        /// 対比: 単一ブランチ構成では従来どおり前進すること (効きすぎ防止)。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn single_branch_bookmark_still_advances() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            jj(&repo, &["new", "-m", "feat: work"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/solo", "-r", "@"]);
+            // takt fix / 監視経路が @ を進めた状態 (bookmark が置き去り)
+            jj(&repo, &["new", "-m", "feat: more work"]);
+            std::fs::write(repo.join("c.txt"), "two\n").unwrap();
+
+            let head = commit_of(&repo, "@");
+            let solo_before = commit_of(&repo, "feat/solo");
+            assert_ne!(solo_before, head, "前提: bookmark は置き去りになっている");
+
+            let _guard = enter(&repo);
+            advance_jj_bookmarks().expect("advance は成功するはず");
+
+            assert_eq!(
+                commit_of(&repo, "feat/solo"),
+                head,
+                "単一ブランチ運用では従来どおり @ へ前進すること"
+            );
+        }
     }
 }

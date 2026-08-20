@@ -1,4 +1,6 @@
 use serde::Deserialize;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 mod docs_only_routing;
@@ -44,6 +46,136 @@ pub(crate) const DEFAULT_DIFF_TIMEOUT_SECS: u64 = 60;
 /// (実際に `[diff]` だけ PR 範囲を見ておらず、祖先コミットが AI レビュー未経由で
 /// merge される欠陥が 4 回再発した。todo 順位 288 / ADR-051 cross-config coupling)。
 pub(crate) const DEFAULT_BASE_BRANCH: &str = "master";
+
+/// base branch として使う ref を決める: **remote tracking ref (`<branch>@origin`) が
+/// 解決できればそちらを優先**し、無ければローカル bookmark 名のまま返す (順位 254)。
+///
+/// ## なぜローカル bookmark ではいけないか
+///
+/// ローカル `master` は `jj git fetch` では自動追随しない (`git.auto-local-bookmark`
+/// 既定 false)。並列 workspace 運用 (ADR-045) で片方が fetch しただけの状態だと
+/// ローカル `master` が remote より古いまま残り、`master..@` に**他 PR のマージ済み
+/// commit が混入**する。pr_size_check はこれを PR 範囲として計測するため、実 160 行の
+/// PR が 1604 行と判定されて誤 block した (順位 254 実観測)。
+///
+/// 使い捨て jj リポジトリでの実測 (jj 0.42): ローカル master を 3 commit 分遅らせた
+/// 構成で `master..@` = 4 commit / `master@origin..@` = 1 commit。
+///
+/// ADR-013 の `sync_local` が `master@origin` を原則としてテストで固定しているのと
+/// 同じ原則を、push 経路の PR 範囲解決にも適用する。
+///
+/// ## fallback を持つ理由
+///
+/// remote 名が `origin` でない / remote 自体が無い / まだ fetch していない環境では
+/// `<branch>@origin` の revset 解決が **エラーになる** (jj 0.42 実測:
+/// `Revision \`nosuch@origin\` doesn't exist`)。config を `master@origin` に
+/// 書き換える案を採らなかったのはこのためで、解決できないときは静かにローカル名へ
+/// 戻す (派生プロジェクトへ配布しても壊れない)。
+///
+/// `exists` は revset 解決可否の判定関数。テストから注入できるよう引数化する
+/// (jj subprocess を呼ばない pure test を可能にするため)。
+pub(crate) fn preferred_base_ref(branch: &str, exists: impl Fn(&str) -> bool) -> String {
+    // NOTE: 既に remote 修飾されている (`master@origin` 等) なら二重修飾しない。
+    if branch.contains('@') {
+        return branch.to_string();
+    }
+    let remote_ref = format!("{}@{}", branch, DEFAULT_REMOTE);
+    if exists(&remote_ref) {
+        remote_ref
+    } else {
+        branch.to_string()
+    }
+}
+
+/// remote tracking ref の解決先 remote 名。jj / git の慣習どおり `origin` 固定。
+/// 別名 remote を使う環境では [`preferred_base_ref`] の fallback でローカル名に戻る。
+pub(crate) const DEFAULT_REMOTE: &str = "origin";
+
+/// `remote_ref_exists` 用の timeout (I/O)。remote 追跡 ref 解決の軽量な有無チェック
+/// (`--limit 1` の読み取り専用 `jj log`) であり、`push_jj_bookmark.rs::JJ_TIMEOUT_SECS`
+/// (30s、bookmark 一覧取得などより重い呼び出し向け) より短く取る。
+const REMOTE_REF_EXISTS_TIMEOUT_SECS: u64 = 10;
+
+thread_local! {
+    /// `remote_ref_exists` の結果メモ化用プロセス内キャッシュ (SIM-NEW-config-mod-L228)。
+    ///
+    /// `Config::diff_pr_range` / `docs_only_pr_range` / `pr_size_pr_range` は 1 回の push で
+    /// 合計最低 9 回呼ばれるが、同一 push 内で revset の remote 解決結果が変わることはない
+    /// (push-runner は実行中に fetch しない) ため、revset 文字列をキーに `jj log` spawn の
+    /// 結果を使い回して subprocess spawn 回数を stage 数 (3) 相当まで減らす。プロセス内で
+    /// `Config` をスレッドを跨いで共有しない (quality_gate の並列実行は `GroupConfig` のみを
+    /// 子スレッドへ渡す) ため `thread_local` で足りる。
+    static REMOTE_REF_EXISTS_CACHE: RefCell<HashMap<String, bool>> = RefCell::new(HashMap::new());
+}
+
+/// `jj log -r <revset>` が成功するかで revset の解決可否を判定する (I/O)。
+///
+/// タイムアウト無しの同期呼び出しは呼び出し元 (`diff_pr_range` / `pr_size_pr_range` 経由の
+/// pre-check/diff 準備段階、いずれも `DEFAULT_STEP_TIMEOUT_SECS` 等のバックストップ対象外)
+/// を無期限にハングさせ得るため、`push_jj_bookmark.rs::run_jj` と同じ
+/// `lib_subprocess::wait_with_timeout_basic` 経由のタイムアウト付き spawn にする。
+/// 結果は `REMOTE_REF_EXISTS_CACHE` にメモ化する。
+fn remote_ref_exists(revset: &str) -> bool {
+    remote_ref_exists_cached(revset, || {
+        resolve_with_timeout(REMOTE_REF_EXISTS_TIMEOUT_SECS, || {
+            use std::process::Stdio;
+            std::process::Command::new("jj")
+                .args([
+                    "log", "-r", revset, "--no-graph", "-T", "commit_id", "--limit", "1",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        })
+    })
+}
+
+/// [`REMOTE_REF_EXISTS_CACHE`] を通して `resolve` を高々 1 回だけ呼ぶ。
+///
+/// 解決の I/O を closure で受けるのは、**キャッシュが効いているか**を jj に依存せず
+/// テストするため (呼び出し回数を数える closure を注入する)。
+pub(crate) fn remote_ref_exists_cached(revset: &str, resolve: impl FnOnce() -> bool) -> bool {
+    if let Some(cached) = REMOTE_REF_EXISTS_CACHE.with(|cache| cache.borrow().get(revset).copied()) {
+        return cached;
+    }
+    let resolved = resolve();
+    REMOTE_REF_EXISTS_CACHE.with(|cache| cache.borrow_mut().insert(revset.to_string(), resolved));
+    resolved
+}
+
+/// spawn 済み child を **timeout 付きで待ち**、正常終了したかを返す。
+///
+/// spawn 自体を closure で受けるのは、timeout / spawn 失敗の経路を
+/// jj に依存せずテストするため (テストからは `sleep` 等の任意コマンドを注入する)。
+///
+/// **どの失敗経路も `false` に倒す**のが要点。`false` = 「remote tracking ref は
+/// 解決できない」= ローカル bookmark 名へフォールバックであり、
+/// [`preferred_base_ref`] の安全側 (従来挙動) にあたる。
+fn resolve_with_timeout(
+    timeout_secs: u64,
+    spawn: impl FnOnce() -> std::io::Result<std::process::Child>,
+) -> bool {
+    let mut child = match spawn() {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+
+    let stdout_handle =
+        lib_subprocess::drain_pipe_unlimited(child.stdout.take().expect("stdout must be piped"));
+    let stderr_handle =
+        lib_subprocess::drain_pipe_unlimited(child.stderr.take().expect("stderr must be piped"));
+
+    let status = lib_subprocess::wait_with_timeout_basic(
+        "remote_ref_exists",
+        &mut child,
+        timeout_secs,
+    );
+
+    let _ = stdout_handle.join();
+    let _ = stderr_handle.join();
+
+    matches!(status, Ok(Some(s)) if s.success())
+}
 
 /// branch 名を trim し、空文字を `None` に落とす (空白のみの設定値を未設定扱いにする)。
 fn normalize_branch(value: Option<&str>) -> Option<String> {
@@ -119,11 +251,34 @@ impl Config {
     ///
     /// revset literal を各所に散らさないための唯一の組立点
     /// (rule⑫ `no-hardcoded-jj-revset-range` の趣旨を config 側にも適用する)。
+    ///
+    /// base は [`preferred_base_ref`] を通し、**remote tracking ref を優先**する
+    /// (順位 254)。この 1 箇所を通すことで diff / docs_only_routing / pr_size_check の
+    /// 3 stage が同時に直る。
     pub(crate) fn pr_range_revset(&self, section_override: Option<&str>) -> String {
-        format!("{}..@", self.resolve_base_branch(section_override))
+        self.pr_range_revset_with(section_override, remote_ref_exists)
     }
 
-    /// AI レビュー対象 diff の PR 範囲。
+    /// [`Config::pr_range_revset`] の I/O 注入版。
+    ///
+    /// remote tracking ref の解決可否判定 (`exists`) を差し替えられるようにして、
+    /// config 解決の単体テストが**実 jj リポジトリの状態に依存しない**ようにする
+    /// (本 repo では `master@origin` が解決できてしまうため、注入しないと
+    /// 「base の優先順位」を検証する既存テストが環境依存になる)。
+    pub(crate) fn pr_range_revset_with(
+        &self,
+        section_override: Option<&str>,
+        exists: impl Fn(&str) -> bool,
+    ) -> String {
+        format!(
+            "{}..@",
+            preferred_base_ref(&self.resolve_base_branch(section_override), exists)
+        )
+    }
+
+    /// AI レビュー対象 diff の PR 範囲。`remote_ref_exists` 側でメモ化されるため
+    /// 同一 revset に対する 2 回目以降の呼び出しでも `jj log` を再 spawn しない
+    /// (SIM-NEW-config-mod-L228)。
     pub(crate) fn diff_pr_range(&self) -> String {
         self.pr_range_revset(self.diff.as_ref().and_then(|c| c.default_branch.as_deref()))
     }

@@ -82,38 +82,6 @@
 
 ---
 
-### post-merge-feedback が repo root に scratch script を残し scratch guard をすり抜ける (near-miss 実観測)
-
-> **動機**: PR #287 のマージ直後 (2026-07-17 22:49)、post-merge-feedback の takt run が **repo root に `analyze_transcript.py` (3.2KB) を作成して残した**。`.takt/post-merge-feedback-transcript.jsonl` を読んで統計を出す一時解析スクリプトで、プロジェクト資産ではない。jj は auto-snapshot するため、**次のコミットに黙って混入する寸前だった** (本エントリを書くセッションで偶然発見。commit 前の `jj status` 確認で気付かなければ backlog PR に混入していた)。
->
-> **なぜ guard が効かないか (構造的問題)**: `push-runner-config.toml` の `[scratch_file_warning]` は `patterns = ["__*", "_tmp_*"]` という **deny-list (pattern 列挙)** で、`analyze_transcript.py` はどちらにも一致しない。PR #85 で実害が出た「scratch ファイル混入」と**同一クラス**だが、当時の対策が「観測された pattern を列挙する」形だったため、**新しい命名の scratch は素通りする**。順位 5 (AI 生成一時スクリプト pattern) で `_tmp_*` を追加した補完アプローチも同じ限界を持つ — **AI が付ける名前を列挙で先回りするのは原理的に不可能**。
->
-> **今回の生成元は自動化コンポーネント**: 人間や interactive Claude ではなく **post-merge-feedback の takt run** (ADR-030) が生成した。ADR-022 (自動化コンポーネントの責務分離) の観点で、**自動化コンポーネントが repo root を汚す**のは責務違反に近い。takt run の作業ファイルは `.takt/runs/<run>/` 配下か scratchpad に閉じるべき。
->
-> **検討の方向性 (実装前に判断が要る)**:
->
-> - **(a) 生成側を直す (筋が良い)**: post-merge-feedback の instruction facet に「一時スクリプトは repo root に書かない」を明示。ただし instruction = 助言層のため確実性は低い (ADR-042 のルール vs 仕組み化)。
-> - **(b) allow-list 化**: repo root の**追跡外・新規ファイル**を既知の許容リスト以外すべて警告する (deny-list → allow-list の反転)。列挙の限界を構造的に解消できるが、誤検知の運用コストを見積もる必要がある。
-> - **(c) 拡張子/配置ベース**: repo root 直下の `*.py` は本 repo に存在しない (Rust + TS 構成) ため、root の未追跡 `*.py` は高確度で scratch と判定できる。安価だが (b) より弱い。
->
-> **参照**: `push-runner-config.toml` `[scratch_file_warning]`、`src/cli-push-runner/src/stages/scratch_file_warning.rs`、PR #85 (原初の実害)、順位 5 (`_tmp_*` 追加の補完アプローチ)、[ADR-022](adr/adr-022-automation-responsibility-separation.md)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)。退避した実物: 本セッションの scratchpad (`analyze_transcript.py`、削除せず保全)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (実害は未発生だが near-miss。混入すると PR に無関係ファイルが載り、レビュー・履歴を汚す) / Effort S。
-
-#### 作業計画
-
-- [ ] **再現確認を先に行う** (§2 原則 2): post-merge-feedback を再実行し、scratch script が repo root に残ることを再現する。再現しない場合は「その run 固有の挙動」の可能性があるため、頻度を見極めてから着手する。
-- [ ] 方向性 (a)(b)(c) を評価して選択する。**(a) 単独は不可** — instruction は助言層で、AI が別の名前で別のファイルを書けば同じことが起きる。(a) + (b または c) の二層が要る。
-- [ ] `scratch_file_warning` の判定を選択した方式で拡張し、**回帰テストは `analyze_transcript.py` を実 fixture として使う** (ADR-049 の incident→eval 流儀。「今回すり抜けた実物」で固定すれば同型の再発を捕まえられる)。
-- [ ] deny-list の限界を `scratch_file_warning.rs` の module doc に記録する (「観測 pattern の列挙では AI 生成の新規命名を先回りできない」= 本件の教訓)。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- post-merge-feedback / takt run が repo root に一時ファイルを残した場合に、push 前に検出されること (`analyze_transcript.py` fixture で確認)。
-- 検出方式が「pattern 列挙」に依存しない (新しい命名でも捕まる) こと。
-
----
 
 ### `lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)
 

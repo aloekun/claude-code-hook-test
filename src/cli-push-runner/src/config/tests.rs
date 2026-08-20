@@ -36,21 +36,91 @@ output_path = ".takt/d.txt"
             .expect("config should parse")
     }
 
+    /// remote tracking ref が**存在しない**環境を注入して PR 範囲を組み立てる。
+    ///
+    /// 本 mod のテストが検証したいのは「top-level / section override / 既定値の
+    /// 優先順位」であって remote 優先解決ではない。実 jj を見に行くと、この repo では
+    /// `master@origin` が解決できてしまい期待値が環境依存になる (順位 254 の実装後に
+    /// 3 テストが落ちて判明)。remote 優先そのものは
+    /// [`super::preferred_base_ref`] の専用テストで固定する。
+    fn no_remote(_revset: &str) -> bool {
+        false
+    }
+
+    fn diff_range_no_remote(config: &Config) -> String {
+        config.pr_range_revset_with(
+            config.diff.as_ref().and_then(|c| c.default_branch.as_deref()),
+            no_remote,
+        )
+    }
+
+    fn docs_only_range_no_remote(config: &Config) -> String {
+        config.pr_range_revset_with(
+            config
+                .docs_only_routing
+                .as_ref()
+                .and_then(|c| c.default_branch.as_deref()),
+            no_remote,
+        )
+    }
+
+    fn pr_size_range_no_remote(config: &Config) -> String {
+        config.pr_range_revset_with(
+            config
+                .pr_size_check
+                .as_ref()
+                .and_then(|c| c.default_branch.as_deref()),
+            no_remote,
+        )
+    }
+
+    /// 順位 254: remote tracking ref が解決できるなら base はそちらを優先する。
+    #[test]
+    fn base_prefers_remote_tracking_ref_when_it_resolves() {
+        let config = parse("", "");
+        assert_eq!(
+            config.pr_range_revset_with(None, |r| r == "master@origin"),
+            "master@origin..@",
+            "ローカル master の遅延で他 PR のマージ分を合算しないよう remote を優先する"
+        );
+    }
+
+    /// 対比: 解決できない環境ではローカル名へ戻る (派生プロジェクト / remote 無しでも壊れない)。
+    #[test]
+    fn base_falls_back_to_local_name_when_remote_ref_missing() {
+        let config = parse("", "");
+        assert_eq!(
+            config.pr_range_revset_with(None, no_remote),
+            "master..@",
+            "remote が無い環境では従来どおりローカル bookmark 名で解決する"
+        );
+    }
+
+    /// 既に remote 修飾された値は二重修飾しない。
+    #[test]
+    fn base_does_not_double_qualify_remote_ref() {
+        let config = parse("default_branch = \"master@origin\"\n", "");
+        assert_eq!(
+            config.pr_range_revset_with(None, |_| true),
+            "master@origin..@"
+        );
+    }
+
     #[test]
     fn all_stages_share_the_same_range_by_default() {
         let config = parse("", "");
         let expected = format!("{}..@", DEFAULT_BASE_BRANCH);
-        assert_eq!(config.diff_pr_range(), expected);
-        assert_eq!(config.docs_only_pr_range(), expected);
-        assert_eq!(config.pr_size_pr_range(), expected);
+        assert_eq!(diff_range_no_remote(&config), expected);
+        assert_eq!(docs_only_range_no_remote(&config), expected);
+        assert_eq!(pr_size_range_no_remote(&config), expected);
     }
 
     #[test]
     fn top_level_default_branch_applies_to_all_stages() {
         let config = parse("default_branch = \"main\"\n", "");
-        assert_eq!(config.diff_pr_range(), "main..@");
-        assert_eq!(config.docs_only_pr_range(), "main..@");
-        assert_eq!(config.pr_size_pr_range(), "main..@");
+        assert_eq!(diff_range_no_remote(&config), "main..@");
+        assert_eq!(docs_only_range_no_remote(&config), "main..@");
+        assert_eq!(pr_size_range_no_remote(&config), "main..@");
     }
 
     /// 後方互換: 既存の派生プロジェクト config が持つ section 側の
@@ -65,9 +135,9 @@ output_path = ".takt/d.txt"
             "default_branch = \"main\"\n",
             "\n[pr_size_check]\nenabled = true\ndefault_branch = \"develop\"\n",
         );
-        assert_eq!(config.pr_size_pr_range(), "develop..@");
+        assert_eq!(pr_size_range_no_remote(&config), "develop..@");
         assert_eq!(
-            config.diff_pr_range(),
+            diff_range_no_remote(&config),
             "main..@",
             "override は指定した section にのみ効く"
         );
@@ -80,7 +150,7 @@ output_path = ".takt/d.txt"
             "\n[pr_size_check]\nenabled = true\ndefault_branch = \"   \"\n",
         );
         assert_eq!(
-            config.pr_size_pr_range(),
+            pr_size_range_no_remote(&config),
             "main..@",
             "空白のみの override は未設定として扱う (`..@` を作らない)"
         );
@@ -90,7 +160,7 @@ output_path = ".takt/d.txt"
     fn blank_top_level_falls_back_to_default() {
         let config = parse("default_branch = \"\"\n", "");
         assert_eq!(
-            config.diff_pr_range(),
+            diff_range_no_remote(&config),
             format!("{}..@", DEFAULT_BASE_BRANCH)
         );
     }
@@ -133,12 +203,12 @@ output_path = ".takt/d.txt"
              \n[docs_only_routing]\nenabled = true\ndefault_branch = \"main\"\n",
         );
         assert_eq!(
-            config.diff_pr_range(),
+            diff_range_no_remote(&config),
             "main..@",
             "override 未設定の [diff] も全一致値を共有する"
         );
-        assert_eq!(config.docs_only_pr_range(), "main..@");
-        assert_eq!(config.pr_size_pr_range(), "main..@");
+        assert_eq!(docs_only_range_no_remote(&config), "main..@");
+        assert_eq!(pr_size_range_no_remote(&config), "main..@");
         assert!(
             validate_config(&config).is_ok(),
             "一致する section override のみ (top-level 不在) の config は通す"
@@ -551,4 +621,116 @@ fn resolve_workflow_refute_when_enabled() {
 fn resolve_workflow_base_when_enabled_but_no_refute_workflow() {
     let config = config_with_optional_pre_push("[pre_push_review]\nrefute_enabled = true");
     assert_eq!(resolve_takt_workflow(&config), "pre-push-review");
+}
+
+/// 順位 254 の I/O 層: remote tracking ref 解決の timeout / 失敗経路。
+mod remote_ref_resolution {
+    /// simplicity review (PR #432 SIM-NEW-config-mod-L94) の regression guard:
+    /// remote tracking ref の解決が**ハングしても push-runner を止めない**。
+    ///
+    /// この呼び出しは `diff_pr_range` / `pr_size_pr_range` 経由の pre-check 段階で走り、
+    /// `DEFAULT_STEP_TIMEOUT_SECS` 等のバックストップ対象外。timeout が無いと
+    /// push-runner 全体が無期限にハングする。
+    ///
+    /// 応答しない子プロセスを注入して、**timeout 到達で false (= ローカル名へ
+    /// フォールバック = 従来挙動) に倒れ、かつ**子の終了を待ち切らない**ことを固定する。
+    ///
+    /// **直接の子プロセスを spawn する** (シェルを挟まない) のが要点。シェル経由にすると
+    /// 孫プロセスがパイプ handle を握り続け、`kill` 後も drain thread の `join` が孫の
+    /// 終了までブロックする — 実測で 1 秒 timeout に対し 19 秒かかった。これは本 timeout
+    /// の穴ではなく **順位 323 (timeout の孫プロセス穴) の領域**なので、本テストは
+    /// `resolve_with_timeout` が保証する範囲 (直接の子) を固定する。
+    #[test]
+    fn resolve_with_timeout_returns_false_when_child_hangs() {
+        use std::process::Stdio;
+
+        let started = std::time::Instant::now();
+        let hung = crate::config::resolve_with_timeout(1, || {
+            let mut cmd = if cfg!(windows) {
+                let mut c = std::process::Command::new("ping");
+                c.args(["-n", "20", "127.0.0.1"]);
+                c
+            } else {
+                let mut c = std::process::Command::new("sleep");
+                c.arg("20");
+                c
+            };
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
+        });
+
+        assert!(
+            !hung,
+            "timeout した解決は false (ローカル bookmark 名へフォールバック) に倒すこと"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(15),
+            "timeout が効かず子プロセスの終了まで待っている (実測 {:?})",
+            started.elapsed()
+        );
+    }
+
+    /// spawn 自体が失敗しても false に倒れること (jj が PATH に無い環境)。
+    #[test]
+    fn resolve_with_timeout_returns_false_when_spawn_fails() {
+        let result = crate::config::resolve_with_timeout(5, || {
+            std::process::Command::new("definitely-not-an-executable-xyz").spawn()
+        });
+        assert!(!result, "spawn 失敗も安全側 (false) に倒すこと");
+    }
+
+    /// 対比: 正常終了する子プロセスは true (効きすぎ防止)。
+    #[test]
+    fn resolve_with_timeout_returns_true_on_success() {
+        use std::process::Stdio;
+
+        let result = crate::config::resolve_with_timeout(30, || {
+            let mut cmd = if cfg!(windows) {
+                let mut c = std::process::Command::new("cmd");
+                c.args(["/C", "exit 0"]);
+                c
+            } else {
+                std::process::Command::new("true")
+            };
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
+        });
+        assert!(result, "正常終了は true (remote ref が解決できた扱い)");
+    }
+    /// simplicity review (SIM-NEW-config-mod-L228) の regression guard:
+    /// **同一 revset の解決は 1 回だけ spawn する**。
+    ///
+    /// `pr_range_revset` は 1 回の push で最低 9 回呼ばれる (main.rs の pre-check /
+    /// diff 準備、post_takt_regate、validate)。メモ化が外れると同じ `jj log` を
+    /// 毎回 spawn することになる。
+    ///
+    /// 注入版 (`pr_range_revset_with`) はキャッシュを通さない設計なので、ここでは
+    /// メモ化本体 (`remote_ref_exists` のキャッシュ) を直接検証する。
+    #[test]
+    fn remote_ref_exists_memoizes_per_revset() {
+        let calls = std::cell::Cell::new(0u32);
+        let resolved_first = crate::config::remote_ref_exists_cached("test@origin", || {
+            calls.set(calls.get() + 1);
+            true
+        });
+        let resolved_second = crate::config::remote_ref_exists_cached("test@origin", || {
+            calls.set(calls.get() + 1);
+            true
+        });
+
+        assert!(resolved_first && resolved_second, "解決結果は一貫すること");
+        assert_eq!(
+            calls.get(),
+            1,
+            "同一 revset の 2 回目は spawn せずキャッシュを返すこと"
+        );
+    }
+
+    /// 別 revset は別エントリとして解決される (キャッシュが取り違えないこと)。
+    #[test]
+    fn remote_ref_exists_cache_is_keyed_by_revset() {
+        let hit = crate::config::remote_ref_exists_cached("resolvable@origin", || true);
+        let miss = crate::config::remote_ref_exists_cached("missing@origin", || false);
+
+        assert!(hit, "解決できる revset は true");
+        assert!(!miss, "解決できない revset は false (ローカル名へフォールバック)");
+    }
 }

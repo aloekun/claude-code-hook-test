@@ -103,8 +103,15 @@ command = "echo push"
     fn effective_defaults_when_fields_omitted() {
         let toml_str = format!("{}\n[docs_only_routing]\nenabled = true\n", BASE);
         let config = parse(&toml_str);
+        let no_remote_tracking_ref = |_: &str| false;
         assert_eq!(
-            config.docs_only_pr_range(),
+            config.pr_range_revset_with(
+                config
+                    .docs_only_routing
+                    .as_ref()
+                    .and_then(|c| c.default_branch.as_deref()),
+                no_remote_tracking_ref,
+            ),
             format!("{}..@", crate::config::DEFAULT_BASE_BRANCH),
             "section / top-level とも未設定なら共通の既定 base branch に倒れる"
         );
