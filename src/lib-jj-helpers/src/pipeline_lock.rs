@@ -113,7 +113,7 @@ pub fn acquire_pipeline_lock_at(
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let token = generate_token();
+    let token = generate_lock_token();
     let content = build_lock_content(&token, std::process::id(), now_unix, label);
 
     match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -176,25 +176,95 @@ fn takeover_stale_lock(
     stale_threshold_secs: i64,
     now_unix: i64,
 ) -> PipelineLockResult {
-    let sentinel = takeover_sentinel_path(&path);
-    match acquire_takeover_sentinel(&sentinel, now_unix) {
-        SentinelGate::Acquired { reclaim_marker } => {
+    match acquire_takeover_gate(&path, now_unix) {
+        TakeoverGate::Acquired(gate) => {
             let result = perform_takeover(&path, token, &content, stale_threshold_secs, now_unix);
-            if let Err(e) = std::fs::remove_file(&sentinel) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!(
-                        "[pipeline-lock] takeover sentinel の除去に失敗 (継続): {}",
-                        e
-                    );
-                }
-            }
-            if let Some(marker) = reclaim_marker {
-                let _ = std::fs::remove_file(&marker);
-            }
+            // takeover 完了まで sentinel / reclaim marker を保持し、ここで解放する。
+            drop(gate);
             result
         }
-        SentinelGate::Busy => busy_from_disk(&path, stale_threshold_secs, now_unix),
-        SentinelGate::Unavailable(reason) => PipelineLockResult::Unavailable { reason },
+        TakeoverGate::Busy => busy_from_disk(&path, stale_threshold_secs, now_unix),
+        TakeoverGate::Unavailable(reason) => PipelineLockResult::Unavailable { reason },
+    }
+}
+
+/// takeover 実行権の RAII guard。Drop で sentinel と reclaim marker を除去する。
+///
+/// **保持している間だけ takeover を実行してよい。** 早く手放すと、同じ stale content を
+/// 読んだ出遅れスレッドが同一 gate を再作成して 2 本目の takeover 実行権が生まれる
+/// (PR #342 CI で 2 `Acquired` として実測)。
+pub struct TakeoverGuard {
+    sentinel: PathBuf,
+    reclaim_marker: Option<PathBuf>,
+}
+
+impl Drop for TakeoverGuard {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.sentinel) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!(
+                    "[pipeline-lock] takeover sentinel の除去に失敗 (継続): {}",
+                    e
+                );
+            }
+        }
+        if let Some(marker) = self.reclaim_marker.take() {
+            let _ = std::fs::remove_file(&marker);
+        }
+    }
+}
+
+/// [`acquire_takeover_gate`] の結果。
+pub enum TakeoverGate {
+    /// takeover 実行権を得た。guard を保持している間だけ置換してよい。
+    Acquired(TakeoverGuard),
+    /// 別プロセスが takeover 実行中。奪わずに Busy へ倒すこと。
+    Busy,
+    /// I/O エラーで判定不能。
+    Unavailable(String),
+}
+
+/// **stale lock の takeover 実行権を 1 プロセスに絞る。**
+///
+/// `lock_path` から sentinel path (`<lock>.takeover`) を導出し、`create_new` の排他で
+/// 勝者を 1 つに決める。sentinel が孤立していれば content 由来の reclaim gate 経由で
+/// 回収する (自己修復)。この選出ロジックは 8 スレッド高競合の実測で 2 `Acquired` を
+/// 潰しながら組み上げたもの (PR #342、SIM-NEW-pipeline_lock-L146 / L157) で、
+/// **同じ問題を解く実装を各所で書き直さないために公開している** (順位 292)。
+///
+/// 呼び出し側の責務: guard を保持したまま (1) lock を**再読込して**まだ stale か確かめ、
+/// (2) stale なら **rename による atomic 置換**で差し替える。remove + create_new にすると
+/// path が一瞬不在になり、その窓で他スレッドの fast-path `create_new` が成功して 2 本とも
+/// 取得できてしまう ([`perform_takeover`] の doc 参照)。
+pub fn acquire_takeover_gate(lock_path: &Path, now_unix: i64) -> TakeoverGate {
+    let sentinel = takeover_sentinel_path(lock_path);
+    match acquire_takeover_sentinel(&sentinel, now_unix) {
+        SentinelGate::Acquired { reclaim_marker } => TakeoverGate::Acquired(TakeoverGuard {
+            sentinel,
+            reclaim_marker,
+        }),
+        SentinelGate::Busy => TakeoverGate::Busy,
+        SentinelGate::Unavailable(reason) => TakeoverGate::Unavailable(reason),
+    }
+}
+
+/// 新しい lock 内容を temp へ書いてから `rename` で `path` へ atomic 置換する。
+///
+/// [`acquire_takeover_gate`] の guard を保持している間だけ呼ぶこと (temp path の競合を
+/// 避けるため)。`unique_suffix` は同一ディレクトリ内で衝突しない文字列 (token 等)。
+pub fn replace_file_atomically(
+    path: &Path,
+    unique_suffix: &str,
+    content: &str,
+) -> std::io::Result<()> {
+    let tmp = suffixed_path(path, &format!(".new.{unique_suffix}"));
+    std::fs::write(&tmp, content)?;
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
     }
 }
 
@@ -468,11 +538,15 @@ fn busy_from_disk(path: &Path, stale_threshold_secs: i64, now_unix: i64) -> Pipe
 
 /// 取得インスタンスを一意識別する 128bit ランダムトークン (hex)。
 ///
+/// `cli-pr-monitor` の `MonitorLock` も同じ所有権確認方式を採るため公開している
+/// (順位 292)。**同じ用途の token を各所で作り直さない** — 生成方式が分岐すると
+/// 「衝突しない識別子」という前提だけが片側で崩れても気づけない。
+///
 /// `uuid` crate を追加せず std のみで生成する (本 crate は依存ゼロ方針)。
 /// `RandomState` は生成ごとに OS エントロピー由来のハッシュキーで初期化されるため、
 /// 空状態の `finish()` は毎回異なる値を返す。2 つ連結して 128bit の識別子とする。
 /// 暗号用途ではなく「lock インスタンスの衝突しない識別」が目的。
-fn generate_token() -> String {
+pub fn generate_lock_token() -> String {
     use std::hash::{BuildHasher, Hasher};
     let a = std::collections::hash_map::RandomState::new()
         .build_hasher()

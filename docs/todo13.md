@@ -458,34 +458,6 @@
 
 ---
 
-### monitor の CI 完了判定を短絡 — CodeRabbit review-complete + mergeability CLEAN で CI 待機を skip (PR #232 post-merge-feedback T2-1 採用)
-
-> **動機**: 本リポジトリは check が CodeRabbit のみで GitHub Actions 等の実 CI が存在しない構成。この構成で cli-pr-monitor の poll が「CI: pending」を完了と判定できず recheck を上限まで繰り返す。PR #231 / #232 の両方で、GitHub API を直接確認 (`gh pr view --json mergeStateStatus,mergeable` → `CLEAN` / `MERGEABLE`) して merge 可能を人手で確認する必要が生じた (= 幻の CI pending)。
->
-> **本タスクの位置づけ**: PR #232 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。docs-only PR で共通に再現する pattern。
->
-> **参照**: `.claude/feedback-reports/232.md` Tier 2 #1、`src/cli-pr-monitor/src/stages/poll/` (CI 完了判定 + poll ループ)、PR #231 / #232 (幻の CI pending を手動 GitHub API 確認で回避した実例)、ADR-018 (park モデル)。
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 poll ループへの条件分岐追加のみ (parse logic 改修不要)。
-
-#### 設計決定 (案)
-
-- CI 状態が「実 check 不在 or CodeRabbit のみ」かつ CodeRabbit review が完了 (unresolved 0 / actionable 0) かつ mergeability が `CLEAN` / `MERGEABLE` の場合、CI 待機 (pending) を短絡して merge-ready 判定に倒す。
-- 誤短絡防止: 実 CI check が 1 件でも存在し pending なら従来通り待機 (CodeRabbit-only 構成に限定)。
-
-#### 作業計画
-
-- [ ] poll の CI 完了判定に「review-complete + mergeability CLEAN」短絡条件を追加
-- [ ] CodeRabbit-only 構成の判定 (実 CI check の有無) を実装
-- [ ] `cargo test -p cli-pr-monitor` pass + regression test (短絡が誤発火しないこと)
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- CodeRabbit-only 構成の PR で review 完了 + CLEAN なら monitor が recheck を無駄に繰り返さず merge-ready と判定する。実 CI がある場合は従来の pending 待機を維持。
-
----
-
 ### review-jj-robustness-whole facet (観点⑧) の dogfood + bounded-lifetime 評価 (ADR-031 拡張、順位247)
 
 > **動機**: PR-2 で ADR-031 週次レビューに観点⑧ (jj-workspace robustness) の facet を新規追加した。非 colocated / 並列 jj workspace (ADR-045) 特有の silent bug 4 class (mtime staleness / `CARGO_MANIFEST_DIR` 実行時読み / `--repo` 無し gh / colocated `.git` 前提) を whole-tree で検出する。新規実験 facet のため ADR-039 § Bounded Lifetime に従い有効性を dogfood で観測して採否を判定する。

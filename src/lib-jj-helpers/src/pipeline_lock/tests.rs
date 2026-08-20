@@ -97,7 +97,11 @@ fn acquire_writes_a_token() {
 
 #[test]
 fn generate_token_is_unique_per_call() {
-    assert_ne!(generate_token(), generate_token(), "取得ごとに異なる token");
+    assert_ne!(
+        generate_lock_token(),
+        generate_lock_token(),
+        "取得ごとに異なる token"
+    );
 }
 
 /// CodeRabbit Major #271 の regression guard: stale takeover 後に旧プロセスの Drop が

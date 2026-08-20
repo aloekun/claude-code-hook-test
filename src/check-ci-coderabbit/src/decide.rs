@@ -742,3 +742,10 @@ mod tests {
         }
     }
 }
+
+// 順位 246: rollup JSON → decide の連結を固定する regression test。
+// decide.rs 本体の 800 行ガイドラインを維持するため別ファイルへ置く
+// (stages/poll/rate_limit.rs と同じ `#[path]` 方式)。
+#[cfg(test)]
+#[path = "decide/rollup_e2e_tests.rs"]
+mod rollup_e2e_tests;

@@ -19,7 +19,7 @@
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | **完了** ([PR #423](https://github.com/aloekun/claude-code-hook-test/pull/423))。台帳の 3 案はいずれも副作用があり、copy/spawn の相互排除に切り替えた |
 | D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | 実装済み。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
 | E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | **実装済み。** 319 は案 (a)+(b) 併用 (body 空 review の除外 + head SHA 冪等キー)、431 は rate-limit を red で落とす方式。**431 は台帳の前提がずれていた** (下表参照)。エントリ後始末は実走観測後 |
-| F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | 未着手 |
+| F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | **完了 (実装)。** 246 は**前提消滅 + 実装済み**で連結 regression test のみ、292 は token 方式へ統一、385 は**不採用**を module doc へ記録。エントリ後始末も同 PR に含む |
 | G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | 未着手 |
 | H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | 未着手 |
 | I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | 未着手 |
@@ -27,7 +27,7 @@
 | K | fix(subprocess): timeout の孫プロセス穴を塞ぐ | 323 | 未着手 |
 | L | fix(automation): 自動化経路の小穴・ノイズ修正束 | 467 + 181 | 未着手 |
 
-**挿入 (2026-08-20)**: 順位 431 の調査で `markers.rs` の rate-limit marker が CodeRabbit の **command ack 形式**を拾わないことが判明した (PR #412 / #387 の実データ)。検出層の穴なので **PR F を保留して先に別 PR で処理する** (ユーザー判断)。台帳の前提が変わった項目に着手したら、周辺への影響まで確認する — 本計画の 9 件中 7 件でずれが出ている以上、ずれの周辺は常に疑う。
+**挿入 (2026-08-20、完了)**: 順位 431 の調査で `markers.rs` の rate-limit marker が CodeRabbit の **command ack 形式**を拾わないことが判明した (PR #412 / #387 の実データ)。検出層の穴なので PR F を保留し、先に [PR #429](https://github.com/aloekun/claude-code-hook-test/pull/429) として処理した (ユーザー判断)。**台帳の前提が変わった項目に着手したら、周辺への影響まで確認する** — 本計画の 9 件中 7 件でずれが出ている以上、ずれの周辺は常に疑う。この 1 件は「前提が変わった理由を追ったら別の穴が見えた」形だった。
 
 消化順は A → L の表の順。**PR をスタックしない** — 順位 376 (PR H で修正するまで push-runner の bookmark 自動前進がスタック境界を壊す既知バグ) を踏むため、各 PR は前の PR がマージされてから master 起点で作る。
 
@@ -59,6 +59,7 @@
 | 318 | 第 3 format 未対応 + silent 化が残る | **4 項目すべて実装済み** (PR #309 ほか)。本丸の既定 30 分 park も入っていた |
 | 320 | check pass の誤報が残る | 決定論層は [ADR-064](adr/adr-064-monitor-success-positive-evidence.md) で**実装済み**。残件は facet/prompt 層のみ |
 | 431 | `Review limit reached` を判別すればよい | 拒否の実体は **command ack** (`⚠️ Action not completed` / `Review rate limited.`) で、`markers.rs` の marker の**どちらにも一致しない** |
+| 246 | CodeRabbit-only 構成で幻の CI pending が残る | 短絡は**実装済み** (`decide()` の `!ci.runs.is_empty()`)。さらに前提の「実 CI が存在しない構成」自体が [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) の `ci.yml` (paths フィルタ無し) で消滅していた |
 
 台帳は起票時点のスナップショットで、実装が動くほどずれる。328 と 446 は、台帳どおりに実装すれば**存在しない不具合を直すか誤った箇所を直す**ところだった。**自分が前日に書いたエントリでも同じ** — 順位 469 の Frequency 評価は実測で覆った。
 
@@ -243,17 +244,20 @@
 - **不具合**: 実 CI check が無い構成 (docs-only PR で共通) で poll が「CI: pending」を完了と判定できず recheck を上限まで繰り返す。PR #231/#232 で手動の GitHub API 確認 (`mergeStateStatus=CLEAN`) が 2 回必要になった。
 - **対処**: poll の CI 完了判定に「実 check 不在 or CodeRabbit のみ」+「CR review 完了 (unresolved 0 / actionable 0)」+「mergeability CLEAN/MERGEABLE」で短絡する条件分岐を追加。**実 CI check が 1 件でも pending なら従来どおり待機** (誤短絡防止、regression test で固定)。
 - **完了基準**: CodeRabbit-only 構成で無駄 recheck をせず merge-ready 判定。実 CI がある場合は非退行。
+- **結果 (2026-08-20)**: **前提消滅 + 実装済み**。(i) `decide()` は `ci_pending = ci.overall == "pending" && !ci.runs.is_empty()` で空 runs の pending を待機理由にしない。(ii) `parse_ci_rollup` は CodeRabbit の commit status を除外するため、CodeRabbit-only 構成では `runs` が空になる。(iii) そもそも本リポジトリは `ci.yml` に paths フィルタが無く、docs-only PR でも実 CI check が付くため動機の構成自体が無い。**mergeability 短絡は不要** (幻の pending が発生しない)。ただし (i) と (ii) は個別にしか pin されておらず**連結が未固定**だったため、rollup JSON → `decide()` の end-to-end regression test 5 本を追加した (短絡が効く 2 ケース / 効きすぎない 3 ケース)。変異テストで検知を実測済み。
 
 ### 順位 292: lock.rs を token 方式の所有権検証へ統一
 
 - **不具合**: `src/cli-pr-monitor/src/lock.rs` の `MonitorLock::Drop` (L41-50) が無条件 `remove_file` で、stale takeover 後に旧プロセスの Drop が新プロセスの lock を誤削除する (PR #271 で `pipeline_lock.rs` に修正済みの同型バグ)。
 - **対処**: `src/lib-jj-helpers/src/pipeline_lock.rs` の token 方式を踏襲 — token フィールド追加 + Drop を token 一致確認付き削除に変更 + takeover 後の誤削除がないことの regression test。
+- **結果 (2026-08-20)**: 実装済み。token 生成は複製せず `pipeline_lock::generate_lock_token()` を公開して共有した (同用途の識別子を作り直すと片側だけ前提が崩れても気づけない)。**旧 format の lock ファイル**は `#[serde(default)]` で読めるようにした — 必須にすると旧 lock が「破損 = stale」扱いになり、fresh な旧 lock を踏み越えて同時監視が起きる。regression test 3 本 (takeover 後の誤削除 / 旧 format fresh / 旧 format stale) を追加し、変異テストで検知を実測。あわせて `lock.rs` が 800 行を超えたため test module を `lock/tests.rs` `lock/proptests.rs` へ分離した (`stages/poll/rate_limit.rs` と同じ `#[path]` 方式)。
 
 ### 順位 385: lock の liveness check 要否判断
 
 - **位置づけ**: **バグ報告ではなく判断タスク**。stale 判定は経過 1800s のみで pid 生存を見ない (module doc に既知トレードオフとして明記済み)。crash 時の復帰窓が最大 30 分になる。
 - **判断**: pid 生存確認の要否を決める。**「不要」も正規の出口** — 影響は interactive セッションの監視遅延に限られ GitHub Actions 経路は無関係。不要なら根拠を lock.rs の module doc へ追記して閉じる。採用するなら pid 再利用対策 (start_time 併用) + OS 差の吸収を設計し、順位 301/303 の既存 TOCTOU 設計判断と衝突しないことを確認。
 - **完了基準**: 採否いずれかが根拠つきで module doc (または ADR) に記録されていること。
+- **結果 (2026-08-20、ユーザー判断)**: **不採用**。根拠を `lock.rs` の module doc に「pid の生存確認を入れない理由」として記録した (影響は interactive セッションの監視遅延のみ / pid 再利用の誤判定は fresh lock の takeover = 同時監視という**現状より悪い失敗**を招く / 本 lock は助言層で fail-open が正しい / 順位 301 の既存判断と整合)。**再検討の条件**も併記した。
 
 **後始末**: todo13.md 246 節 / todo15.md 292 節 / todo21.md 385 節を削除、todo-summary2.md の 246 / 292 / 385 行を削除。
 
