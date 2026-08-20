@@ -13,4 +13,4 @@ mod sweep;
 
 pub(crate) use abandon::{create_fix_commit, try_abandon_empty_fix_commit};
 pub(crate) use description::FixCommitState;
-pub(crate) use sweep::sweep_empty_commits_in_pr_range;
+pub(crate) use sweep::{sweep_empty_commits_in_pr_range, warn_unpushed_fix_commits};

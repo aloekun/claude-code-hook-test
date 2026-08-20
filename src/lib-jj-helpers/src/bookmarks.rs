@@ -13,16 +13,50 @@ pub fn is_trunk_bookmark(name: &str) -> bool {
     TRUNK_BOOKMARKS.contains(&name)
 }
 
-/// Bookmark 検索に使用する revset のリスト (近い順 = 優先順)。
+/// **ローカル** bookmark 検索に使用する revset のリスト (近い順 = 優先順)。
 ///
 /// [`select_from_revsets`] は先頭から順に試し、最初に (trunk 除外後の)
-/// bookmark が見つかった時点で後続の revset を検索しない
-/// ("@" で見つかれば "@--" は触らない)。
+/// bookmark が見つかった時点で後続の revset を検索しない。
 ///
-/// - `@`: 標準 `git` ブランチ運用、または bookmark が現在のコミット上にある場合
-/// - `@-`: `jj new` で空 `@` を作った直後 (PR #53 で実測)
-/// - `@--`: 連続 `jj new` や中間空コミット運用向けのフォールバック
-pub const BOOKMARK_SEARCH_REVSETS: &[&str] = &["@", "@-", "@--"];
+/// - `@`: 標準運用 (bookmark が現在のコミット上)。共通ケースを深い revset に触れず
+///   即決させるため、および [`select_from_revsets`] の fallback_log (先頭以外で hit
+///   したら通知) の意味を保つために先頭へ残す
+/// - `heads(::@ & bookmarks())`: **@ から祖先方向で最も近い bookmark 付きコミット**。
+///   旧構成 (`["@", "@-", "@--"]`) は 3 段しか遡らず、監視・自動 fix 経路が積む
+///   説明なし空コミットで bookmark が範囲外に出ると検出不能になった (順位 386、
+///   計 9 回実観測。使い捨て jj リポジトリの実測では監視サイクルごとに +1 段ずつ
+///   深くなり、3 サイクル目から検出不能)。深さ非依存 revset は同じ実測で境界
+///   5 ケース (@ 直上 / @- / 子 bookmark / 同一コミット複数 / 祖先 2 段) すべてで
+///   旧構成と同等以上に解決した (jj 0.42 実機確認)
+///
+/// ## 適用範囲の境界 (PR #271 の決定との関係)
+///
+/// この深さ非依存 revset は **読み取り専用の検出 (PR 検索 / --head 解決)** 専用。
+/// push 対象の bookmark 選定 (push-runner の `-b` 付与) は PR #271 の決定どおり
+/// `@` 厳密一致のまま — `::@` は他 workspace が作った未マージコミット上の bookmark を
+/// 含みうるため、**書き込み対象の所有権判定には使わない** (ADR-045 の並列 workspace
+/// 運用)。読み取り側で他 workspace の bookmark を拾った場合の逃げ道は
+/// `--pr <番号>` (順位 397)。
+///
+/// ## 既知の限界 (旧構成にあった挙動の変化)
+///
+/// `heads()` は「bookmark 付きコミットの集合の先端」を返すため、trunk 系 bookmark の
+/// コミットが feature bookmark より @ 側にあると、その祖先の feature bookmark は
+/// 影に入って返らない (trunk 名は [`parse_bookmark_list_output`] が名前で除外するが、
+/// heads の計算はその前段)。squash マージ運用ではマージ済み feature bookmark が
+/// trunk の祖先に来ることは無いため実運用では発生しない構成であり、発生しても
+/// `--pr` で回避できる。
+pub const BOOKMARK_SEARCH_REVSETS: &[&str] = &["@", "heads(::@ & bookmarks())"];
+
+/// **リモート追跡** bookmark 検索に使用する revset のリスト。
+///
+/// [`BOOKMARK_SEARCH_REVSETS`] のリモート版。深い側の revset は
+/// `remote_bookmarks()` でフィルタする — ローカル版の `bookmarks()` を流用すると
+/// 「ローカル bookmark を持つコミット」しか候補にならず、リモート専用 bookmark
+/// (bot が remote に作った PR head、順位 397 の実測) のコミットが**原理的に候補から
+/// 外れる**。旧構成は位置指定 (`@-` 等) で両用できたが、bookmark フィルタを含む
+/// revset はローカル / リモートで分ける必要がある。
+pub const REMOTE_BOOKMARK_SEARCH_REVSETS: &[&str] = &["@", "heads(::@ & remote_bookmarks())"];
 
 /// jj サブプロセスの stderr ハンドリング方針。
 ///
@@ -154,6 +188,46 @@ where
     Vec::new()
 }
 
+/// bookmark 前進 (advance) の移動先: **@ から祖先方向で最も近い、説明のある
+/// コミット** (順位 386 症状 2)。
+///
+/// 旧実装 (「@ が非空なら @、空なら @-」) は **description の有無を見ない**ため、
+/// 監視・自動 fix 経路が積んだ説明なしコミットへ bookmark を移し、push が
+/// `Won't push commit ... since it has no description` で落ちた (#370 実観測)。
+/// jj が push を拒否する条件は description なので、移動先も description で選ぶ。
+///
+/// - @ に説明があれば従来どおり @ (共通ケースは挙動不変)
+/// - @ が説明なしなら、説明なしコミットを何段でも飛ばして直近の説明ありコミットへ
+/// - 説明ありの祖先が無い (root まで説明なし) なら候補 0 件 → advance skip
+///
+/// jj 0.42 実機確認: 線形チェーンで説明なし 3 段 + dirty WC の構成から
+/// ちょうど 1 件 (最近傍の説明ありコミット) を返す。マージ祖先があると複数件を
+/// 返すため、呼び出し側 ([`classify_advance_target`]) は複数を ambiguous として
+/// skip に倒す (旧実装も複数親の `@-` では `jj bookmark set` が解決失敗して
+/// skip だった — 同じ安全側)。
+pub const ADVANCE_TARGET_REVSET: &str = "heads(::@ ~ description(exact:\"\"))";
+
+/// [`resolve_advance_target`] の結果。
+#[derive(Debug, PartialEq, Eq)]
+pub enum AdvanceTarget {
+    /// 一意に解決した。commit id を `jj bookmark set -r` に渡せる。
+    Commit(String),
+    /// マージ祖先等で候補が複数。bookmark をどれに移すべきか決められないため
+    /// advance を skip する (呼び出し側で警告ログ)。
+    Ambiguous(Vec<String>),
+    /// 説明ありコミットが @ の祖先に無い (root まで説明なし)。advance 対象なし。
+    None,
+}
+
+/// 候補 commit id リストを [`AdvanceTarget`] に分類する pure function。
+pub fn classify_advance_target(mut ids: Vec<String>) -> AdvanceTarget {
+    match ids.len() {
+        0 => AdvanceTarget::None,
+        1 => AdvanceTarget::Commit(ids.remove(0)),
+        _ => AdvanceTarget::Ambiguous(ids),
+    }
+}
+
 /// [`BOOKMARK_SEARCH_REVSETS`] を優先順に走査し、最初に見つかった
 /// (trunk 除外後の) bookmark を返す。
 ///
@@ -197,6 +271,7 @@ pub fn get_jj_bookmarks_with_remote_fallback(
 ) -> BookmarkSearch {
     select_with_remote_fallback(
         BOOKMARK_SEARCH_REVSETS,
+        REMOTE_BOOKMARK_SEARCH_REVSETS,
         |r| query_bookmarks_at(r, &stderr_mode),
         |r| query_remote_bookmarks_at(r, &stderr_mode),
         fallback_log,
@@ -206,8 +281,13 @@ pub fn get_jj_bookmarks_with_remote_fallback(
 /// [`get_jj_bookmarks_with_remote_fallback`] の探索順序を、注入した query で検証可能にした pure function。
 ///
 /// `local` / `remote` はそれぞれ revset を受け取り bookmark 名を返す。
+/// ローカル / リモートで revset リストを分けて受ける (順位 386)。
+/// 深い側の revset が bookmark フィルタ (`bookmarks()` / `remote_bookmarks()`) を
+/// 含むようになったため、1 本のリストを両用できない — 詳細は
+/// [`REMOTE_BOOKMARK_SEARCH_REVSETS`] の doc を参照。
 pub fn select_with_remote_fallback<L, R>(
-    revsets: &[&str],
+    local_revsets: &[&str],
+    remote_revsets: &[&str],
     local: L,
     remote: R,
     fallback_log: Option<fn(&str)>,
@@ -216,11 +296,11 @@ where
     L: Fn(&str) -> Vec<String>,
     R: Fn(&str) -> Vec<String>,
 {
-    let found = select_from_revsets(revsets, local, fallback_log);
+    let found = select_from_revsets(local_revsets, local, fallback_log);
     if !found.is_empty() {
         return BookmarkSearch::Local(found);
     }
-    let found = select_from_revsets(revsets, remote, fallback_log);
+    let found = select_from_revsets(remote_revsets, remote, fallback_log);
     if found.is_empty() {
         BookmarkSearch::NotFound
     } else {
@@ -228,374 +308,8 @@ where
     }
 }
 
+// test module は別ファイルへ分離している (本体 800 行ガイドライン、順位 147)。
+// 分割方式は pipeline_lock.rs 等と同じ `#[path]` 方式に揃えた。
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn is_trunk_bookmark_known_names_rejected() {
-        assert!(is_trunk_bookmark("main"));
-        assert!(is_trunk_bookmark("master"));
-        assert!(is_trunk_bookmark("trunk"));
-        assert!(is_trunk_bookmark("develop"));
-        assert!(!is_trunk_bookmark("feat/x"));
-        assert!(!is_trunk_bookmark("main-feature"));
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_empty() {
-        assert!(parse_bookmark_list_output("").is_empty());
-        assert!(parse_bookmark_list_output("\n\n").is_empty());
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_single() {
-        assert_eq!(parse_bookmark_list_output("feat/x\n"), vec!["feat/x"]);
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_csv_on_one_line() {
-        assert_eq!(
-            parse_bookmark_list_output("feat/a,feat/b\n"),
-            vec!["feat/a", "feat/b"]
-        );
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_multiple_lines() {
-        let raw = "feat/current\nfeat/parent\n";
-        assert_eq!(
-            parse_bookmark_list_output(raw),
-            vec!["feat/current", "feat/parent"]
-        );
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_deduplicates() {
-        let raw = "feat/x,feat/x\nfeat/x\n";
-        assert_eq!(parse_bookmark_list_output(raw), vec!["feat/x"]);
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_trims_whitespace() {
-        assert_eq!(
-            parse_bookmark_list_output("  feat/a ,  feat/b  \n"),
-            vec!["feat/a", "feat/b"]
-        );
-    }
-
-    #[test]
-    fn parse_bookmark_list_output_excludes_trunk_bookmarks() {
-        assert!(parse_bookmark_list_output("master\n").is_empty());
-        assert_eq!(
-            parse_bookmark_list_output("master,feat/x\n"),
-            vec!["feat/x"]
-        );
-    }
-
-    #[test]
-    fn select_from_revsets_returns_empty_when_all_revsets_empty() {
-        let result = select_from_revsets(&["@", "@-"], |_| Vec::new(), None);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn select_from_revsets_prefers_current_over_parent() {
-        let result = select_from_revsets(
-            &["@", "@-"],
-            |r| match r {
-                "@" => vec!["feat/current".to_string()],
-                "@-" => vec!["feat/parent".to_string()],
-                _ => Vec::new(),
-            },
-            None,
-        );
-        assert_eq!(result, vec!["feat/current"]);
-    }
-
-    #[test]
-    fn select_from_revsets_falls_back_to_parent_when_current_empty() {
-        // create_pr.rs の --head 自動補完ケース: @ 空 / @- に feature bookmark
-        let result = select_from_revsets(
-            &["@", "@-"],
-            |r| match r {
-                "@" => Vec::new(),
-                "@-" => vec!["feat/parent".to_string()],
-                _ => Vec::new(),
-            },
-            None,
-        );
-        assert_eq!(result, vec!["feat/parent"]);
-    }
-
-    #[test]
-    fn select_from_revsets_stops_at_first_hit() {
-        use std::cell::RefCell;
-        let calls = RefCell::new(Vec::<String>::new());
-        let result = select_from_revsets(
-            &["@", "@-", "@--"],
-            |r| {
-                calls.borrow_mut().push(r.to_string());
-                if r == "@-" {
-                    vec!["feat/hit".to_string()]
-                } else {
-                    Vec::new()
-                }
-            },
-            None,
-        );
-        assert_eq!(result, vec!["feat/hit"]);
-        assert_eq!(*calls.borrow(), vec!["@".to_string(), "@-".to_string()]);
-    }
-
-    #[test]
-    fn select_from_revsets_invokes_fallback_log_when_non_first_hit() {
-        use std::cell::RefCell;
-        thread_local! {
-            static LOGGED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-        }
-        fn record(msg: &str) {
-            LOGGED.with(|l| l.borrow_mut().push(msg.to_string()));
-        }
-        LOGGED.with(|l| l.borrow_mut().clear());
-
-        let result = select_from_revsets(
-            &["@", "@-"],
-            |r| match r {
-                "@" => Vec::new(),
-                "@-" => vec!["feat/parent".to_string()],
-                _ => Vec::new(),
-            },
-            Some(record),
-        );
-        assert_eq!(result, vec!["feat/parent"]);
-        LOGGED.with(|l| {
-            let logged = l.borrow();
-            assert_eq!(logged.len(), 1);
-            assert!(logged[0].contains("'@-'"));
-            assert!(logged[0].contains("feat/parent"));
-        });
-    }
-
-    #[test]
-    fn select_from_revsets_does_not_invoke_fallback_log_for_first_hit() {
-        use std::cell::RefCell;
-        thread_local! {
-            static LOGGED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-        }
-        fn record(msg: &str) {
-            LOGGED.with(|l| l.borrow_mut().push(msg.to_string()));
-        }
-        LOGGED.with(|l| l.borrow_mut().clear());
-
-        let result = select_from_revsets(
-            &["@", "@-"],
-            |r| match r {
-                "@" => vec!["feat/current".to_string()],
-                _ => Vec::new(),
-            },
-            Some(record),
-        );
-        assert_eq!(result, vec!["feat/current"]);
-        LOGGED.with(|l| assert!(l.borrow().is_empty()));
-    }
-
-    /// remote フォールバック (順位 397) の探索順序。
-    ///
-    /// 「ローカルがあればローカル」「無ければリモート」の 2 分岐に加え、
-    /// **ローカルが見つかったらリモートを一切引かない** ことを呼び出し記録で固定する
-    /// (既存 3 クレートへの回帰が無いことの担保。ADR-024)。
-    mod remote_fallback {
-        use super::super::*;
-        use std::cell::RefCell;
-
-        fn none(_: &str) -> Vec<String> {
-            Vec::new()
-        }
-
-        #[test]
-        fn prefers_local_when_present() {
-            let result = select_with_remote_fallback(
-                &["@", "@-"],
-                |r| match r {
-                    "@" => vec!["feat/local".to_string()],
-                    _ => Vec::new(),
-                },
-                |_| vec!["feat/remote".to_string()],
-                None,
-            );
-            assert_eq!(
-                result,
-                BookmarkSearch::Local(vec!["feat/local".to_string()])
-            );
-        }
-
-        /// 夜間ループの PR (`claude/nightly-163@origin`) を人間がマージする状況。
-        #[test]
-        fn falls_back_to_remote_when_no_local_bookmark() {
-            let result = select_with_remote_fallback(
-                &["@", "@-"],
-                none,
-                |r| match r {
-                    "@-" => vec!["claude/nightly-163".to_string()],
-                    _ => Vec::new(),
-                },
-                None,
-            );
-            assert_eq!(
-                result,
-                BookmarkSearch::RemoteOnly(vec!["claude/nightly-163".to_string()])
-            );
-        }
-
-        #[test]
-        fn not_found_when_neither_side_has_bookmark() {
-            let result = select_with_remote_fallback(&["@", "@-"], none, none, None);
-            assert_eq!(result, BookmarkSearch::NotFound);
-        }
-
-        #[test]
-        fn does_not_query_remote_when_local_hits() {
-            let remote_calls = RefCell::new(0u32);
-            let result = select_with_remote_fallback(
-                &["@", "@-", "@--"],
-                |r| match r {
-                    "@-" => vec!["feat/local".to_string()],
-                    _ => Vec::new(),
-                },
-                |_| {
-                    *remote_calls.borrow_mut() += 1;
-                    vec!["feat/remote".to_string()]
-                },
-                None,
-            );
-            assert_eq!(
-                result,
-                BookmarkSearch::Local(vec!["feat/local".to_string()])
-            );
-            assert_eq!(
-                *remote_calls.borrow(),
-                0,
-                "ローカルで解決した場合はリモート探索の jj 呼び出しを行わないこと"
-            );
-        }
-
-        #[test]
-        fn remote_search_also_walks_revsets_in_order() {
-            let result = select_with_remote_fallback(
-                &["@", "@-", "@--"],
-                none,
-                |r| match r {
-                    "@-" => vec!["feat/near".to_string()],
-                    "@--" => vec!["feat/far".to_string()],
-                    _ => Vec::new(),
-                },
-                None,
-            );
-            assert_eq!(
-                result,
-                BookmarkSearch::RemoteOnly(vec!["feat/near".to_string()]),
-                "リモート側も近い revset を優先すること"
-            );
-        }
-    }
-
-    /// 実 jj で「remote 専用 bookmark しか無い」状態を組み、テンプレートと探索が
-    /// jj の実挙動と一致することを確認する統合テスト (順位 397 の回帰テスト)。
-    mod real_jj {
-        use super::super::*;
-        use std::path::{Path, PathBuf};
-        use std::process::Command as StdCommand;
-
-        fn jj(dir: &Path, args: &[&str]) {
-            let ok = StdCommand::new("jj")
-                .args(args)
-                .current_dir(dir)
-                .status()
-                .unwrap_or_else(|e| panic!("jj {:?} 実行失敗: {}", args, e))
-                .success();
-            assert!(ok, "jj {:?} が失敗", args);
-        }
-
-        /// origin 側リポジトリを `master` だけを持つ状態で作る。
-        fn init_origin_with_master(origin: &Path) {
-            std::fs::create_dir_all(origin).unwrap();
-            jj(origin, &["git", "init", "--colocate"]);
-            std::fs::write(origin.join("base.txt"), "base\n").unwrap();
-            jj(origin, &["describe", "-m", "chore: base"]);
-            jj(origin, &["bookmark", "create", "master", "-r", "@"]);
-            jj(origin, &["new"]);
-        }
-
-        /// origin 側へ新しい bookmark を追加する (= bot が remote に PR ブランチを作る)。
-        fn push_new_bookmark_on_origin(origin: &Path, name: &str) {
-            std::fs::write(origin.join("f.txt"), "x\n").unwrap();
-            jj(origin, &["describe", "-m", "feat: x"]);
-            jj(origin, &["bookmark", "create", name, "-r", "@"]);
-            jj(origin, &["new"]);
-        }
-
-        struct CwdRestore {
-            original: PathBuf,
-        }
-
-        impl Drop for CwdRestore {
-            fn drop(&mut self) {
-                let _ = std::env::set_current_dir(&self.original);
-            }
-        }
-
-        fn enter(dir: &Path) -> CwdRestore {
-            let original = std::env::current_dir().expect("cwd");
-            std::env::set_current_dir(dir).expect("cd");
-            CwdRestore { original }
-        }
-
-        /// 再現手順は 2026-08-10 に jj 0.42.0 で実測したもの: origin を clone した後に
-        /// origin へ bookmark を作り clone 側で fetch すると `feat/x@origin [new] untracked`
-        /// となり **ローカル bookmark は作られない** (`git.auto-local-bookmark` 既定値)。
-        /// これが夜間ループの PR をマージする際の状態そのものである。
-        #[test]
-        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
-        fn remote_only_bookmark_is_found_via_fallback() {
-            let tmp = tempfile::tempdir().unwrap();
-            let origin = tmp.path().join("a");
-            let clone = tmp.path().join("b");
-
-            init_origin_with_master(&origin);
-            jj(
-                tmp.path(),
-                &[
-                    "git",
-                    "clone",
-                    origin.to_string_lossy().as_ref(),
-                    clone.to_string_lossy().as_ref(),
-                ],
-            );
-            push_new_bookmark_on_origin(&origin, "feat/x");
-            jj(&clone, &["git", "fetch"]);
-            jj(&clone, &["new", "feat/x@origin"]);
-
-            let _guard = enter(&clone);
-
-            assert!(
-                query_bookmarks_at("@-", &StderrMode::Silent).is_empty(),
-                "fetch しただけの bookmark はローカルには存在しない (これが順位 397 の原因)"
-            );
-            assert_eq!(
-                query_remote_bookmarks_at("@-", &StderrMode::Silent),
-                vec!["feat/x".to_string()],
-                "リモート追跡 bookmark は remote 名を含まない bare な名前で取れること"
-            );
-            assert_eq!(
-                get_jj_bookmarks_with_remote_fallback(StderrMode::Silent, None),
-                BookmarkSearch::RemoteOnly(vec!["feat/x".to_string()]),
-                "jj bookmark track 無しで PR ブランチ名を解決できること"
-            );
-            assert!(
-                get_jj_bookmarks(StderrMode::Silent, None).is_empty(),
-                "ローカルのみの従来 API は空のまま (この差分が順位 397 の症状)"
-            );
-        }
-    }
-}
+#[path = "bookmarks/tests.rs"]
+mod tests;

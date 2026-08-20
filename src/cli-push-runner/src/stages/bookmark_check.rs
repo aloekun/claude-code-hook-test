@@ -26,7 +26,7 @@ use std::process::Command;
 
 use lib_jj_helpers::is_trunk_bookmark;
 
-use super::push_jj_bookmark::{advance_jj_bookmarks, working_copy_is_empty};
+use super::push_jj_bookmark::{advance_jj_bookmarks, head_has_description, working_copy_is_empty};
 use crate::log::{log_info, log_stage};
 
 const JJ_TIMEOUT_SECS: u64 = 30;
@@ -123,10 +123,20 @@ fn query_parent_state() -> ParentState {
 /// (SIM-NEW-bookmark_check-L165 対応: `ParentState` と同じ流儀)。
 #[derive(Debug, PartialEq)]
 enum HeadState {
-    /// `@` は空でない。
+    /// `@` は空でなく、説明もある (push 可能な唯一の状態)。
     NotEmpty,
     /// `@` は空。
     Empty,
+    /// `@` は空でないが説明が無い (順位 386)。jj は説明なしコミットを push
+    /// できないため push 不可。advance が description 基準になった結果、この状態では
+    /// bookmark が `@` に来ない — bookmark 不在と区別しないと
+    /// `jj bookmark create -r @` (push 不能な bookmark を作る操作) へ誤誘導する
+    /// (T8 が空コミットで塞いだ誤案内と同型)。
+    Descless,
+    /// `@` は空でないが、説明の有無を判定できなかった (jj 不調)。push は止めるが
+    /// 「`@` が空」と案内してはいけない — 空判定は成功しており事実と異なる
+    /// (CodeRabbit #431)。
+    DescUnknown,
     /// 判定に失敗した (jj 不調)。`decide_bookmark_check` は `Empty` と同じ扱いにし
     /// push を止める ([ADR-043] fail-closed): 「空でない」に倒すと、bookmark が
     /// 空の `@` に残っているケースで `Proceed` に流れ込み、PR #280 で塞いだ
@@ -150,9 +160,36 @@ fn classify_head_state(result: Result<bool, String>) -> HeadState {
     }
 }
 
-/// `@` の空判定を照会する。判定不能時は fail closed で `HeadState::Unknown` を返す。
+/// `@` の状態 (空 / 説明なし / push 可能) を照会する。判定不能時は fail closed で
+/// `HeadState::Unknown` を返す。空判定を先に行う (空なら説明の有無は問わない —
+/// 案内が「`jj edit @-`」系で確定するため)。
 fn query_head_state() -> HeadState {
-    classify_head_state(working_copy_is_empty())
+    let state = classify_head_state(working_copy_is_empty());
+    if state != HeadState::NotEmpty {
+        return state;
+    }
+    classify_desc_state(head_has_description())
+}
+
+/// `@` の説明有無の判定結果を `HeadState` へ分類する。判定不能は `DescUnknown`
+/// (= push を止める側) に倒す — 「説明あり」に倒すと push stage で
+/// `Won't push commit` の分かりにくい失敗に戻るだけなので、ここで止めて案内を出す。
+///
+/// `Unknown` (空判定自体の失敗) と分けるのは案内文のため: この経路では空判定は
+/// 成功しており `@` は空でないので、「`@` が空です」と出すと事実と異なる
+/// (CodeRabbit #431)。
+fn classify_desc_state(result: Result<bool, String>) -> HeadState {
+    match result {
+        Ok(true) => HeadState::NotEmpty,
+        Ok(false) => HeadState::Descless,
+        Err(e) => {
+            log_info(&format!(
+                "bookmark_check: @ の説明判定に失敗、fail closed で push を止めます: {}",
+                e
+            ));
+            HeadState::DescUnknown
+        }
+    }
 }
 
 /// `@` が空だったときの `@-` の状態。`jj edit @-` を案内してよいかを決める。
@@ -175,6 +212,11 @@ enum BookmarkCheckOutcome {
     EmptyWorkingCopy { parent: ParentState },
     /// `@` は空でないが bookmark が無い。作成案内が正しいケース。
     NoBookmarks,
+    /// `@` は空でないが説明が無い (順位 386)。describe / squash の案内を出す。
+    DesclessWorkingCopy,
+    /// `@` の説明有無を判定できなかった (jj 不調)。push は止めるが、原因が
+    /// 判定失敗であることを案内する (CodeRabbit #431)。
+    UndeterminedWorkingCopy,
 }
 
 /// push 可否を 3 ケースに切り分ける (T8)。
@@ -196,8 +238,13 @@ fn decide_bookmark_check(
     head_state: HeadState,
     parent: impl FnOnce() -> ParentState,
 ) -> BookmarkCheckOutcome {
-    if head_state != HeadState::NotEmpty {
-        return BookmarkCheckOutcome::EmptyWorkingCopy { parent: parent() };
+    match head_state {
+        HeadState::Empty | HeadState::Unknown => {
+            return BookmarkCheckOutcome::EmptyWorkingCopy { parent: parent() };
+        }
+        HeadState::Descless => return BookmarkCheckOutcome::DesclessWorkingCopy,
+        HeadState::DescUnknown => return BookmarkCheckOutcome::UndeterminedWorkingCopy,
+        HeadState::NotEmpty => {}
     }
     if bookmarks_at_head.is_empty() {
         return BookmarkCheckOutcome::NoBookmarks;
@@ -229,6 +276,24 @@ fn report_outcome(outcome: BookmarkCheckOutcome) -> Option<Vec<String>> {
                 "  push 不可: `jj git push` は bookmark が必要です。\n  \
                  対処: `jj bookmark create <name> -r @` で bookmark を作成して再実行してください\n  \
                  例: `jj bookmark create feat/my-feature -r @`",
+            );
+            None
+        }
+        BookmarkCheckOutcome::UndeterminedWorkingCopy => {
+            log_stage("bookmark", "@ の状態を判定できませんでした (push 不可)");
+            log_info(
+                "  push 不可: jj の照会に失敗し、`@` に description があるか確認できませんでした。\n  \
+                 対処: `jj log -r @` で状態を確認し、jj の不調が解消してから再実行してください\n  \
+                 注意: `@` が空とは限りません (空判定自体は成功しています)",
+            );
+            None
+        }
+        BookmarkCheckOutcome::DesclessWorkingCopy => {
+            log_stage("bookmark", "@ に description がありません (push 不可)");
+            log_info(
+                "  push 不可: jj は説明なしコミットを push できません (`Won't push commit ... no description`)。\n  \
+                 対処: `jj describe -m \"<説明>\"` で説明を付けるか、`jj squash -u` で親コミットへ畳んで再実行してください\n  \
+                 注意: この状態で `jj bookmark create -r @` はしないこと (push 不能な bookmark になります)",
             );
             None
         }
@@ -394,6 +459,60 @@ main: jkl desc
     #[test]
     fn classify_head_state_maps_ok_false_to_not_empty() {
         assert_eq!(classify_head_state(Ok(false)), HeadState::NotEmpty);
+    }
+
+    #[test]
+    fn classify_desc_state_maps_described_to_not_empty() {
+        assert_eq!(classify_desc_state(Ok(true)), HeadState::NotEmpty);
+    }
+
+    #[test]
+    fn classify_desc_state_maps_descless_to_descless() {
+        assert_eq!(classify_desc_state(Ok(false)), HeadState::Descless);
+    }
+
+    /// CodeRabbit #431: 説明判定の失敗は push を止めるが、`@` が空とは案内しない。
+    /// `Unknown` (空判定自体の失敗) と混ぜると「`@` が空です」と事実と異なる案内になる。
+    #[test]
+    fn classify_desc_state_maps_err_to_desc_unknown_fail_closed() {
+        assert_eq!(
+            classify_desc_state(Err("timeout".to_string())),
+            HeadState::DescUnknown,
+            "説明判定の失敗は push を止める側へ倒す (Won't push の分かりにくい失敗より早期案内)"
+        );
+    }
+
+    #[test]
+    fn decide_desc_unknown_does_not_claim_empty_working_copy() {
+        let outcome = decide_bookmark_check(Vec::new(), HeadState::DescUnknown, || {
+            panic!("DescUnknown では @- 照会に進まないこと (空前提の案内をしない)")
+        });
+        assert_eq!(
+            outcome,
+            BookmarkCheckOutcome::UndeterminedWorkingCopy,
+            "空判定は成功しているので EmptyWorkingCopy に倒してはいけない"
+        );
+    }
+
+    /// 順位 386: 説明なし `@` は bookmark の有無より先に Descless へ倒し、
+    /// `jj bookmark create -r @` (push 不能 bookmark の作成) へ誤誘導しない。
+    #[test]
+    fn decide_descless_head_yields_descless_outcome_before_bookmark_checks() {
+        let outcome = decide_bookmark_check(Vec::new(), HeadState::Descless, || {
+            panic!("Descless では @- 照会に進まないこと")
+        });
+        assert_eq!(outcome, BookmarkCheckOutcome::DesclessWorkingCopy);
+
+        let outcome = decide_bookmark_check(
+            vec!["feat/x".to_string()],
+            HeadState::Descless,
+            || panic!("Descless では @- 照会に進まないこと"),
+        );
+        assert_eq!(
+            outcome,
+            BookmarkCheckOutcome::DesclessWorkingCopy,
+            "bookmark があっても説明なし @ は push させない"
+        );
     }
 
     #[test]

@@ -122,8 +122,6 @@
 | 377 | 💎 Tier 3 | **夜間ループの防御を検知から防止へ格上げする判断** | todo20.md | M-L | 順位 374 + 2 週間の試験運用 (ADR-072 残課題 3 件。実運用の観測が判断材料で、観測前の着手は過剰設計。「不要」判断も正規の出口) |
 | 382 | 🔧 Tier 2 | **台帳 prompt injection payload の regression test (#363 Tier2 #1)** | todo20.md | M | なし (依存だった順位 380 の framing は 2026-08-08 実装済み = ADR-072 決定 13。順位 378-381 は完了・削除済み) |
 | 383 | 🔧 Tier 2 | **`is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト (#363 Tier2 #2)** | todo20.md | S | なし (2026-08-07 実コード確認済み。bare `---` がセパレータ行として通る) |
-| 386 | 🔧 Tier 2 | **監視・自動 fix 経路が積む空コミットで bookmark がずれ `pnpm merge-pr` / `pnpm push` が失敗する** | todo21.md | M | なし (2026-08-08 セッションで 7 回観測。`BOOKMARK_SEARCH_REVSETS` は @/@-/@-- の 3 段のみ。生成元は監視・自動 fix 経路と確定。深さ非依存 revset へ変える案が本命) |
-| 387 | 🔧 Tier 2 | **自動 fix 経路は push が BLOCK されてもローカル作業コピーを書き換える** | todo21.md | M | なし (2026-08-08 実測。#366 で scope guard BLOCK 後もローカルは fix 版に。push を止めても local 状態は変わる。ADR-022 の後始末責務) |
 | 389 | 🚀 Tier 1 | **`Write(path)` tool-scope 指定子の no-op を検出する settings validator (#369 T1 採用)** | todo21.md | M | なし (CLI 2.1.218 で Write() は no-op = deny の silent 無効化。Edit() のみ機能。ADR-072 決定 12 に事実記録済み) |
 | 390 | 🔧 Tier 2 | **台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI 検証 (#369 T2 採用)** | todo21.md | M | なし (LEDGER_DATA_FRAME_MARKER と ===BEGIN/END_LEDGER_DATA=== が対。片側変更で ADR-072 決定 13 の framing が破れる) |
 | 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |

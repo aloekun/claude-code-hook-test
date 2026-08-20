@@ -66,6 +66,8 @@ pub(crate) fn run_auto_push(
                 reason
             ));
             mark_scope_guard_action_required(pr_label, &reason);
+            // push は止めたが、ローカルの fix commit は残っている (順位 387)。
+            crate::fix_commit::warn_unpushed_fix_commits(&config.sweep.default_branch);
         }
         AutoPushDecision::AbortGateFailure { reason } => {
             log_info(&format!(
@@ -73,6 +75,7 @@ pub(crate) fn run_auto_push(
                 reason
             ));
             mark_gate_failure_action_required(pr_label, &reason);
+            crate::fix_commit::warn_unpushed_fix_commits(&config.sweep.default_branch);
         }
         AutoPushDecision::Proceed => {
             log_info(&format!(
