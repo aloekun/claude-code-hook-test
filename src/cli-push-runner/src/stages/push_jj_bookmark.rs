@@ -1,4 +1,4 @@
-use lib_jj_helpers::is_trunk_bookmark;
+use lib_jj_helpers::{classify_advance_target, is_trunk_bookmark, AdvanceTarget, ADVANCE_TARGET_REVSET};
 use std::process::Command;
 
 use crate::log::{log_info, log_stage};
@@ -79,27 +79,48 @@ fn dispatch_bookmark_advance(
     }
 }
 
+/// advance の移動先: **@ から祖先方向で最も近い、説明のあるコミット** (順位 386)。
+///
+/// 旧規則 (「@ が非空なら @、空なら @-」) は description を見ないため、監視・自動 fix
+/// 経路が積んだ説明なしコミットへ bookmark を移し、push が `Won't push commit ...
+/// since it has no description` で失敗した (#370 実観測)。移動先の選定基準を
+/// jj の push 拒否条件と同じ軸 (description) に揃える。revset と分類の設計根拠は
+/// `lib_jj_helpers::ADVANCE_TARGET_REVSET` の doc を参照。
+///
+/// I/O は本 crate の timeout 付き wrapper (`run_jj_log`) を使い、分類だけを
+/// lib と共有する (subprocess 規律は crate ごと、意味論は 1 箇所)。
 fn determine_target_revision() -> Result<Option<String>, String> {
-    if !working_copy_is_empty()? {
-        return Ok(Some("@".to_string()));
-    }
-    match run_jj_log("@-", "commit_id") {
-        Ok(_) => Ok(Some("@-".to_string())),
-        Err(_) => {
-            log_info("@ が root commit のため bookmark 自動更新をスキップします");
+    let raw = run_jj_log(ADVANCE_TARGET_REVSET, "commit_id ++ \"\\n\"")?;
+    let ids: Vec<String> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    match classify_advance_target(ids) {
+        AdvanceTarget::Commit(id) => Ok(Some(id)),
+        AdvanceTarget::Ambiguous(ids) => {
+            log_info(&format!(
+                "advance 先の候補が複数 (マージ祖先) のため bookmark 自動更新をスキップします: {:?}",
+                ids
+            ));
+            Ok(None)
+        }
+        AdvanceTarget::None => {
+            log_info("説明のあるコミットが @ の祖先に無いため bookmark 自動更新をスキップします");
             Ok(None)
         }
     }
 }
 
-/// `@` が空か (= advance が bookmark を `@-` へ前進させる状態か) を返す。
+/// `@` が空かを返す (bookmark_check の押し止め判定用)。
 ///
-/// bookmark_check と共有する (T8 / PR #279 の dogfood push で発火した incident):
-/// advance は「`@` が空なら `@-`」の規則で前進先を決めるのに、bookmark_check が
-/// `@` 厳密一致で検査していたため、同一 run 内で「bookmark を `@-` に自動更新」と
-/// 「bookmark が見つかりません」が両方出て、`jj bookmark create -r @` (= 空コミットに
-/// bookmark を付ける破壊的操作) へ誤誘導していた。両者が同じ判定を使うことで
-/// 規則の二重定義を防ぐ。
+/// 経緯 (T8 / PR #279): かつて advance も「`@` が空なら `@-`」の規則にこの判定を
+/// 使っており、bookmark_check と共有することで規則の二重定義を防いでいた。
+/// 順位 386 で advance の移動先は description 基準
+/// ([`determine_target_revision`]) に変わったため、本判定を使うのは
+/// bookmark_check の「空 `@` を push させない」ゲート (PR #280 のレビューバイパス
+/// 対策) のみになった。
 pub(super) fn working_copy_is_empty() -> Result<bool, String> {
     let output = run_jj_log("@", "if(empty, \"empty\", \"content\")")?;
     Ok(output.trim() == "empty")
@@ -184,6 +205,18 @@ fn run_jj_log(revset: &str, template: &str) -> Result<String, String> {
         &["log", "-r", revset, "--no-graph", "-T", template],
         "jj log 実行失敗",
     )
+}
+
+/// `@` に説明 (description) があるかを返す (bookmark_check の案内分岐用、順位 386)。
+///
+/// advance が説明なしコミットへ bookmark を移さなくなった結果、「`@` は非空だが
+/// 説明なし」の状態では bookmark が `@` に来ない。この状態を bookmark 不在と
+/// 区別しないと `jj bookmark create -r @` (説明なしコミットへの bookmark 付与 =
+/// push 不能な bookmark を作る操作) へ誤誘導する — T8 が空コミットで塞いだのと
+/// 同型の穴が説明なしコミットで開くため、専用の判定を設ける。
+pub(super) fn head_has_description() -> Result<bool, String> {
+    let output = run_jj_log("@", "if(description, \"described\", \"descless\")")?;
+    Ok(output.trim() == "described")
 }
 
 /// `jj bookmark list` の出力をパースし、非 trunk のローカル bookmark 名を返す。

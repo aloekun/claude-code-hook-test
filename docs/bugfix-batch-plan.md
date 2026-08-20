@@ -19,8 +19,8 @@
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | **完了** ([PR #423](https://github.com/aloekun/claude-code-hook-test/pull/423))。台帳の 3 案はいずれも副作用があり、copy/spawn の相互排除に切り替えた |
 | D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | 実装済み。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
 | E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | **実装済み。** 319 は案 (a)+(b) 併用 (body 空 review の除外 + head SHA 冪等キー)、431 は rate-limit を red で落とす方式。**431 は台帳の前提がずれていた** (下表参照)。エントリ後始末は実走観測後 |
-| F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | **完了 (実装)。** 246 は**前提消滅 + 実装済み**で連結 regression test のみ、292 は token 方式へ統一、385 は**不採用**を module doc へ記録。エントリ後始末も同 PR に含む |
-| G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | 未着手 |
+| F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | **完了** ([PR #430](https://github.com/aloekun/claude-code-hook-test/pull/430))。246 は前提消滅 + 連結 regression test、292 は token 方式 + **takeover 排他化** (レビューで 8/8 同時取得を実測)、385 は不採用を記録 |
+| G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | **実装済み。** 386 は使い捨て jj リポジトリでの実測 (advance なしで 1 サイクル +1 段 / advance が説明なしコミットへ移る) を根拠に、検出の深さ非依存化 + advance の description 基準化の両輪。387 は**警告 (証拠保全)** を採用 |
 | H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | 未着手 |
 | I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | 未着手 |
 | J | fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に | 233 | 未着手 |
@@ -274,14 +274,16 @@
 - **注意**: 2026-08-11 の追加観測で「子コミットに別 bookmark がある」ケースは*近い方を採る規則そのもの*が原因で、**深さ非依存化だけでは解決しない可能性**が指摘されている。検討して残る場合は挙動を明記する (順位 397 の `--pr` 逃げ道は両症状で機能済み)。
 - **回帰テスト**: bookmark が @--- 以深にある構成での解決を固定。
 - **完了基準**: 深い位置の bookmark で `pnpm merge-pr` / `pnpm push` が解決できること (またはその状態自体が発生しなくなること)。採った案の根拠を記録。
+- **結果 (2026-08-20)**: 使い捨て jj リポジトリの実測で因果を確定してから実装した。(i) 監視サイクル (説明なし `jj new`) は advance なしだと **1 サイクルごとに bookmark が +1 段深くなり 3 サイクル目で検出不能** = 症状 1 の機序。(ii) advance の旧規則は description を見ず**説明なしコミットへ bookmark を移す** = 症状 2 の機序。対処は両輪: **検出** (読み取り専用の PR 検索) を `heads(::@ & bookmarks())` へ深さ非依存化 (remote は `remote_bookmarks()` で分離 — 流用すると remote 専用 bookmark が原理的に見つからない)、**advance** の移動先を「@ から最も近い説明ありコミット」(`heads(::@ ~ description(exact:""))`) へ変更 (2 crate の複製を同時に揃え、分類は lib で共有)。**PR #271 の「`::@` を push 対象の所有権判定に使わない」決定は維持** — push-runner の `-b` 選定 (`@` 厳密一致) には触れていない。深さ非依存化は読み取り専用検出のみで、境界は `BOOKMARK_SEARCH_REVSETS` の doc に記録。あわせて push-runner の bookmark_check に「説明なし `@`」の専用案内を追加 (旧来は `jj bookmark create -r @` = push 不能 bookmark の作成へ誤誘導していた)。「子コミットに別 bookmark」ケース (近い方を採る規則そのもの) は `heads()` でも同じ挙動で解決しない — `--pr` が逃げ道として機能済みのため受容し doc に明記。実 jj 統合テスト 3 本 (深さ 4 の検出 / advance の説明なしスキップ / 残置列挙) + 変異テスト 4 件で検知を実測。統合テストは `#[ignore]` 付き (jj を PATH に要求するため通常の `cargo test` では走らない) で、実行は `cargo test -- --ignored --test-threads=1`。advance の候補選定は **ちょうど 1 件のときだけ**移動し、0 件 (説明ありの祖先が無い) / 複数件 (マージ祖先) は skip する。
 
 ### 順位 387: 自動 fix 経路が push BLOCK 後もローカルを書き換えたまま残す
 
 - **不具合**: #366 で scope guard (ADR-054) が push を BLOCK した後も、ローカルに fix コミットと working-copy 変更が残った (気づかなければ次作業に混入)。#369/#370 でも再発。
 - **対処**: 自動 fix / 監視経路の終了パスを洗い、BLOCK・失敗時に (a) fix コミット・空コミットをロールバックする、または (b) 「未 push の自動生成コミットが残っている」と警告する。どちらも ADR-022 の「自動化コンポーネントは自分の副作用を後始末する」責務。
 - **完了基準**: BLOCK / 失敗後にローカルへ未 push の自動生成コミットが残らない、または残ることが明示的に警告されること。
+- **結果 (2026-08-20)**: **(b) 警告を採用、(a) ロールバックは不採用**。scope guard の BLOCK は prompt injection の疑い (ADR-054) であり、**fix commit そのものが「何が書き換えられようとしたか」の調査証拠** — 自動 abandon は証拠隠滅になる。gate FAIL も調査に commit が要る点は同じなので扱いを統一。両 Abort 経路で `default_branch..@` の `fix(review):` commit を change_id つきで列挙し、「自動ロールバックしない理由 + `jj abandon` の手順」まで警告する。**列挙自体に失敗した場合 (jj 不調) も沈黙せず**、残っている可能性と手動確認の revset / 手順を出す (CodeRabbit #431 Major: 初版は無警告で return しており、jj 不調時にだけ本対処の目的が失われていた)。根拠は `fix_commit/sweep.rs` の doc に記録。
 
-**後始末**: todo21.md 386 / 387 の両節を削除、todo-summary2.md の 386 / 387 行を削除。台帳の順位 412 / 426 (auto lane、同 crate 別ファイル) との衝突は低いが、着手時に `claude/nightly-412` / `nightly-426` ブランチの有無を確認する。
+**後始末**: todo21.md 386 / 387 の両節を削除、todo-summary2.md の 386 / 387 行を削除 — 実施済み (2026-08-20)。nightly ブランチとの衝突は着手時に確認済み (nightly-228 / 240 / 324 のみ存在、いずれも本 PR のファイルと重ならない)。
 
 ---
 

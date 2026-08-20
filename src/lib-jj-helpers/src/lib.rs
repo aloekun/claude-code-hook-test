@@ -44,9 +44,11 @@ pub mod pipeline_lock;
 pub mod workspace;
 
 pub use bookmarks::{
-    get_jj_bookmarks, get_jj_bookmarks_with_remote_fallback, is_trunk_bookmark,
-    parse_bookmark_list_output, query_bookmarks_at, query_remote_bookmarks_at, select_from_revsets,
-    select_with_remote_fallback, BookmarkSearch, StderrMode, BOOKMARK_SEARCH_REVSETS,
+    classify_advance_target, get_jj_bookmarks, get_jj_bookmarks_with_remote_fallback,
+    is_trunk_bookmark, parse_bookmark_list_output, query_bookmarks_at,
+    query_remote_bookmarks_at, select_from_revsets, select_with_remote_fallback, AdvanceTarget,
+    BookmarkSearch, StderrMode, ADVANCE_TARGET_REVSET, BOOKMARK_SEARCH_REVSETS,
+    REMOTE_BOOKMARK_SEARCH_REVSETS,
     TRUNK_BOOKMARKS,
 };
 pub use workspace::{

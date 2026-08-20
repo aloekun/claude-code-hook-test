@@ -1,6 +1,89 @@
 use crate::log::log_info;
 use crate::runner::{run_cmd_direct, JJ_CMD_TIMEOUT_SECS};
 
+/// BLOCK / FAIL で push を中止したとき、ローカルに残った自動生成 fix commit を
+/// 列挙して警告する (順位 387、ADR-022「自動化コンポーネントは自分の副作用を後始末する」)。
+///
+/// **ロールバック (自動 abandon) は採らない。** scope guard の BLOCK は prompt
+/// injection の疑い (ADR-054) であり、**fix commit そのものが調査対象の証拠**。
+/// 自動で消すと「何が書き換えられようとしたか」を人間が確認できなくなる
+/// (ADR-068 の human routing とも整合しない)。gate FAIL 側も、なぜテストが落ちる
+/// fix が生成されたかの調査に commit が要る点は同じなので、扱いを揃える。
+/// 残置の危険 (#366: 気づかず次作業に混入) は、残っている事実と change_id を
+/// **明示的に列挙する**ことで塞ぐ — 台帳の対処案 (a) rollback / (b) 警告 のうち
+/// (b) を証拠保全の理由で選んだ形。
+///
+/// fail-open: 列挙自体が失敗しても push 中止という安全側の決定は変わらないため、
+/// warn ログのみで続行する。ただし**沈黙はしない** — 列挙できなかった場合も
+/// 「残っている可能性」と手動確認の revset / 手順を出す (CodeRabbit #431 Major:
+/// 旧実装は列挙失敗時に無警告で return しており、jj 不調時に本関数の目的
+/// = 残置の可視化 が失われていた)。
+pub(crate) fn warn_unpushed_fix_commits(default_branch: &str) {
+    let commits = match list_unpushed_fix_commits(default_branch) {
+        Ok(commits) => commits,
+        Err(e) => {
+            // **列挙できないときこそ黙ってはいけない** (CodeRabbit #431 Major)。
+            // 旧実装は「警告なしで続行」で終わっており、jj 不調時にだけ順位 387 が
+            // 塞いだはずの「気づかず次作業に混入する」経路が復活していた。
+            // 件数は出せなくても、残っている可能性と手動確認の手順は出せる。
+            log_info(&format!(
+                "[action] 残置 fix commit の列挙に失敗しました (jj 不調): {}",
+                e
+            ));
+            log_info(&format!(
+                "[action] 未 push の自動生成 fix commit がローカルに残っている可能性があります。\
+                 `jj log -r '{}..@'` で確認し、不要な `fix(review):` commit は \
+                 `jj abandon <change_id>` で破棄してください",
+                default_branch
+            ));
+            return;
+        }
+    };
+    if commits.is_empty() {
+        return;
+    }
+    log_info(&format!(
+        "[action] 未 push の自動生成 fix commit がローカルに残っています ({} 件): {}",
+        commits.len(),
+        commits.join(" / ")
+    ));
+    log_info(
+        "[action] BLOCK/FAIL は自動ロールバックしません (fix commit は調査対象の証拠、ADR-054)。\
+         内容を確認し、不要なら `jj abandon <change_id>` で破棄してください",
+    );
+}
+
+/// `default_branch..@` に残る `fix(review):` commit を "change_id 説明" 形式で列挙する。
+/// (I/O は本関数に閉じ、警告文の組み立てと分離して統合テスト可能にする)
+pub(crate) fn list_unpushed_fix_commits(default_branch: &str) -> Result<Vec<String>, String> {
+    let revset = format!(
+        "description(substring:\"fix(review):\") & ({}..@)",
+        default_branch
+    );
+    let (ok, out) = run_cmd_direct(
+        "jj",
+        &[
+            "log",
+            "-r",
+            &revset,
+            "--no-graph",
+            "-T",
+            "change_id.short() ++ \" \" ++ description.first_line() ++ \"\\n\"",
+        ],
+        &[],
+        JJ_CMD_TIMEOUT_SECS,
+    );
+    if !ok {
+        return Err(out);
+    }
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 /// `default_branch..@` 範囲の `fix(review):` 空 commit を sweep して全て abandon する (順位 155、PR #174 T1-#1)。
 ///
 /// 既存 `try_abandon_empty_fix_commit` が tracked な単一 fix commit (= 直近 `create_fix_commit`
@@ -16,6 +99,9 @@ use crate::runner::{run_cmd_direct, JJ_CMD_TIMEOUT_SECS};
 ///
 /// fail-open: jj log / abandon の失敗時は warn ログのみで cleanup を継続する
 /// (push を block すると fix loop 全体が止まるため、ローカル副作用は次回再走で吸収する方針)。
+///
+/// **本関数は空 commit の後始末専用**で、非空の fix commit を残置警告するのは
+/// [`warn_unpushed_fix_commits`] (順位 387) の役割。
 pub(crate) fn sweep_empty_commits_in_pr_range(default_branch: &str) {
     let revset = format!(
         "empty() & description(substring:\"fix(review):\") & ({}..@)",
@@ -394,5 +480,112 @@ mod tests {
             "master",
             &["feat: only feat empty", "docs: only docs empty"],
         );
+    }
+}
+
+#[cfg(test)]
+mod leftover_tests {
+    use super::*;
+    use std::env;
+    use std::path::Path;
+    use std::process::Command as StdCommand;
+
+    fn jj(dir: &Path, args: &[&str]) {
+        assert!(
+            StdCommand::new("jj")
+                .args(args)
+                .current_dir(dir)
+                .status()
+                .unwrap_or_else(|e| panic!("jj {:?} 実行失敗: {}", args, e))
+                .success(),
+            "jj {:?} が失敗",
+            args
+        );
+    }
+
+    /// 順位 387 の回帰テスト: BLOCK/FAIL 後に残る fix(review) commit を、警告経路が
+    /// 実際に列挙できること (残置が「無警告で埋もれる」退行の検知)。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn lists_leftover_fix_commits_in_pr_range() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("r");
+        std::fs::create_dir_all(&repo).unwrap();
+        jj(&repo, &["git", "init", "--colocate"]);
+        std::fs::write(repo.join("base.txt"), "base\n").unwrap();
+        jj(&repo, &["describe", "-m", "chore: base"]);
+        jj(&repo, &["bookmark", "create", "master", "-r", "@"]);
+        // 自動 fix 経路が作る形: feature commit + fix(review) commit
+        jj(&repo, &["new", "-m", "feat: work"]);
+        std::fs::write(repo.join("f.txt"), "x\n").unwrap();
+        jj(&repo, &["new", "-m", "fix(review): apply CodeRabbit fixes for #999"]);
+        std::fs::write(repo.join("g.txt"), "y\n").unwrap();
+
+        let original = env::current_dir().expect("cwd");
+        struct CwdRestore {
+            original: std::path::PathBuf,
+        }
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+        let _guard = CwdRestore { original };
+        env::set_current_dir(&repo).expect("cd");
+
+        let commits = list_unpushed_fix_commits("master").expect("列挙は成功するはず");
+        assert_eq!(commits.len(), 1, "fix(review) commit がちょうど 1 件列挙される");
+        assert!(
+            commits[0].contains("fix(review): apply CodeRabbit fixes for #999"),
+            "説明の 1 行目が含まれる: {:?}",
+            commits
+        );
+
+        // 対照: fix(review) を含まないリポジトリ状態では空 (誤検知しない)
+        jj(&repo, &["abandon", "-r", "description(substring:\"fix(review):\")"]);
+        let commits = list_unpushed_fix_commits("master").expect("列挙は成功するはず");
+        assert!(commits.is_empty(), "fix(review) が無ければ空: {:?}", commits);
+    }
+
+    /// CodeRabbit #431 Major の regression guard: **列挙に失敗しても沈黙しない**。
+    ///
+    /// 旧実装は jj 失敗時に「警告なしで続行」で return しており、jj 不調のときだけ
+    /// 順位 387 の目的 (残置の可視化) が失われていた。存在しない revset を渡して
+    /// 列挙を失敗させ、`list_unpushed_fix_commits` が `Err` を返すこと
+    /// (= fallback 警告の分岐に入ること) を固定する。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn enumeration_failure_is_reported_as_error_not_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("r");
+        std::fs::create_dir_all(&repo).unwrap();
+        jj(&repo, &["git", "init", "--colocate"]);
+        std::fs::write(repo.join("base.txt"), "base\n").unwrap();
+        jj(&repo, &["describe", "-m", "chore: base"]);
+
+        let original = env::current_dir().expect("cwd");
+        struct CwdRestore {
+            original: std::path::PathBuf,
+        }
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.original);
+            }
+        }
+        let _guard = CwdRestore { original };
+        env::set_current_dir(&repo).expect("cd");
+
+        // 存在しない bookmark を default_branch に渡すと revset 解決が失敗する。
+        let result = list_unpushed_fix_commits("no-such-branch-xyz");
+        assert!(
+            result.is_err(),
+            "解決できない revset は Err を返すこと (空 Vec に潰すと警告が出ない): {:?}",
+            result
+        );
+
+        // 対照: 正常な branch 名なら Ok (fix commit 無しなので空)。
+        jj(&repo, &["bookmark", "create", "master", "-r", "@"]);
+        let result = list_unpushed_fix_commits("master").expect("正常時は Ok");
+        assert!(result.is_empty());
     }
 }

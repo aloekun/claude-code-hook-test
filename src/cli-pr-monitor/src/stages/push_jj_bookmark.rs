@@ -24,7 +24,10 @@
 //! 後続で `lib-jj-helpers` への集約を検討する (todo.md task 5 の設計メモ参照)。
 use std::process::Command;
 
-use lib_jj_helpers::{is_trunk_bookmark, parse_bookmark_list_output as parse_jj_log_output};
+use lib_jj_helpers::{
+    classify_advance_target, is_trunk_bookmark, parse_bookmark_list_output as parse_jj_log_output,
+    AdvanceTarget, ADVANCE_TARGET_REVSET,
+};
 
 use crate::log::log_info;
 
@@ -104,22 +107,36 @@ fn dispatch_bookmark_advance(
     }
 }
 
+/// advance の移動先: **@ から祖先方向で最も近い、説明のあるコミット** (順位 386)。
+///
+/// 旧規則 (「@ が非空なら @、空なら @-」) は description を見ないため、監視・自動 fix
+/// 経路が積んだ説明なしコミットへ bookmark を移し、push が `Won't push commit ...
+/// since it has no description` で失敗した (#385/#370 実観測 — 本 crate の
+/// `finalize_commit_structure` が積む `jj new` の空 WC child が連なった場合も、
+/// 説明なしコミットを何段でも飛ばして fix commit へ届く)。revset と分類の設計根拠は
+/// `lib_jj_helpers::ADVANCE_TARGET_REVSET` の doc を参照。port 元
+/// (cli-push-runner) と同一の規則 — 片方だけ直すと同じ不具合が別の顔で残る。
 fn determine_target_revision() -> Result<Option<String>, String> {
-    const EMPTY_COMMIT_SENTINEL: &str = "empty";
-    let output = run_jj_log(
-        "@",
-        &format!("if(empty, \"{EMPTY_COMMIT_SENTINEL}\", \"content\")"),
-    )?;
-    if output.trim() == EMPTY_COMMIT_SENTINEL {
-        match run_jj_log("@-", "commit_id") {
-            Ok(_) => Ok(Some("@-".to_string())),
-            Err(_) => {
-                log_info("[state] @ が root commit のため bookmark 自動更新をスキップします");
-                Ok(None)
-            }
+    let raw = run_jj_log(ADVANCE_TARGET_REVSET, "commit_id ++ \"\\n\"")?;
+    let ids: Vec<String> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    match classify_advance_target(ids) {
+        AdvanceTarget::Commit(id) => Ok(Some(id)),
+        AdvanceTarget::Ambiguous(ids) => {
+            log_info(&format!(
+                "[state] advance 先の候補が複数 (マージ祖先) のため bookmark 自動更新をスキップします: {:?}",
+                ids
+            ));
+            Ok(None)
         }
-    } else {
-        Ok(Some("@".to_string()))
+        AdvanceTarget::None => {
+            log_info("[state] 説明のあるコミットが @ の祖先に無いため bookmark 自動更新をスキップします");
+            Ok(None)
+        }
     }
 }
 
