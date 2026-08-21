@@ -137,7 +137,7 @@ fn run_takt_stage(
     if !has_coderabbit_findings {
         return outcome;
     }
-    if !collect_findings(poll_result) {
+    if !collect_findings(poll_result, pr_info) {
         log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
         return outcome;
     }
