@@ -99,6 +99,13 @@ fn cap_for_log(output: &str) -> String {
 ///
 /// それ以外は base をそのまま返す (fail-open: bare `jj git push` は tracked-only で、
 /// 新規 bookmark の無言拒否は `push_was_refused` が検知して失敗報告する)。
+///
+/// `bookmarks.is_empty()` に落ちるのは **base command が対象を明示している派生
+/// プロジェクトの config 経路のみ**になった (順位 288(b))。`bookmark_check` は
+/// 検出に失敗したら `None` を返して pipeline を止めるため、空リストで本関数に
+/// 到達しない — 以前は jj 実行失敗時に `Some(空)` が渡り、bare push が tracked
+/// bookmark を全件送ることでレビュー範囲外の ref が出ていた
+/// (`stages::bookmark_check` の module doc 参照)。
 fn build_push_command(base: &str, bookmarks: &[String]) -> String {
     let is_jj_git_push = base.starts_with("jj ") && base.contains("git push");
     if !is_jj_git_push
