@@ -67,7 +67,6 @@
 | 315 | 💎 Tier 3 | **ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)** | todo16.md | XS | なし (warm-up 期限 2026-08-12 頃 + ADR-062 リンクを `[telemetry]` section コメントに追記。step2/3 は ADR-062 で消化済み) |
 | 316 | 💎 Tier 3 | **ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)** | todo16.md | S | なし (is_truthy の非対称性を case study 化。順位 317 と対) |
 | 317 | 💎 Tier 3 | **utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)** | todo16.md | XS | 順位 316 (ADR-044 明確化と対) |
-| 319 | 🚀 Tier 1 | **pr-monitor.yml バックストップの重複ガードが構造的に機能しない — CR 投稿ごとに分析コメントを再投稿 (PR #287 で 5 件実観測)** | todo17.md | S | なし (ガードが LLM prompt 内にあり、トリガー事象自身が skip 条件を無効化するトートロジー。Status update 2026-08-12: #310 の決定論ガードは dogfood 不合格 — #347〜#390 の 29 PR で 2 投稿以上が 69%。残原因は pull_request_review 経路の content フィルタ欠落、詳細と追加修正案は todo17.md エントリ) |
 | 321 | 🔧 Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo17.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
 | 323 | 🚀 Tier 1 | **`lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)** | todo17.md | S | なし (quality_gate step_timeout / push timeout / cli-merge-pipeline のハング打ち切りが実質無効。#286 post-merge-feedback の orphan/stale marker と同根の実害 1 件観測済。回帰テストに経過時間 assert 必須 = T6 教訓) |
 | 324 | 🚀 Tier 1 | **`cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)** | todo17.md | XS | なし (T5 = PR #282 が cli-push-runner 側で塞いだ silent-failure push と同型の穴。出力は `run_cmd_direct` で全量取得済のため判定追加のみ) |
@@ -189,6 +188,11 @@
 | 473 | 💎 Tier 3 | **テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (#423 feedback 採用、系統 F 実装)** | todo24.md | S | なし (ADR-044 層 1 の再評価。#423 の「3 つ目が出たら」判断の見直し) |
 | 474 | 🔧 Tier 2 | **夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (#424 feedback 採用、系統 G)** | todo24.md | S | なし (ADR-074 は lane 割当基準のみで並行競合検知は範囲外) |
 | 475 | 💎 Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (bugfix-batch-plan.md 退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが bugfix-batch-plan.md 削除後も記録を残すため起票) |
+| 476 | 🚀 Tier 1 | **jj-op-verify が commit message 内の文言を実行と誤認して警告する** | todo24.md | S | なし (本セッション 4 回実観測。`detect_last_mutating_jj_op` が command 全体を split_whitespace して quote 内を除外しないため、`jj describe -m "... jj abandon ..."` を実行と誤認。助言層だが狼少年化で本物の op-log divergence を見逃すリスク。quote 除外は pure function に閉じ決定論的。Severity Medium + Frequency High + Effort S) |
+| 477 | 🚀 Tier 1 | **Git Bash 経由の複数行 `node -e` が silent no-op になるのを PreToolUse でブロックする** | todo24.md | S | なし (本セッション 2 回実観測。終了コード 0・出力なしで未実行になり「修正したつもり」を作る。dev-conventions への明文化後に再発したため助言層では不十分で、決定論層 (hook) が本命。Severity High (silent failure) + Frequency Medium + Effort S) |
+| 478 | 🔧 Tier 2 | **jj 出力の path separator 前提を regression test で固定する (Windows は `\` 区切り)** | todo24.md | S | なし (PR #432 で CodeRabbit が「POSIX は `/`」を根拠に `\` 判定の削除を提案したが、実測では Windows jj 0.42 は `\` 区切り出力。外すと Windows で誤検知。現在 module doc の記述のみで test 未固定のため再提案の余地が残る。Severity Medium + Frequency Low + Effort S + Risk None) |
+| 479 | 🔧 Tier 2 | **手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる** | todo24.md | S | なし (実測で 22 件中 7 件が未記載。うち 3 件は PR #431 以前からの漏れで、単発ではなく継続的にずれる構造。doc を手で直す案は方針 (決定論的で積み上げる) に反するため lint 化で採用。Severity Low + Frequency Medium + Effort S + Risk None) |
+| 480 | 🔧 Tier 2 | **`owns()` が false を返す原因 (Owned / TakenOver / Unreadable) をログで区別する** | todo24.md | S | なし (lock 競合 (#364 型) の調査時にログから経路を再構成できない。判定は pure function に切り出せ unit test で固定可能。Severity Medium + Frequency Medium + Effort S + Risk None) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

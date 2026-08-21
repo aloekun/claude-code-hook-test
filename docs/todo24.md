@@ -420,3 +420,140 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 - `resolve_project_dir` の doc コメントが複数一致時の挙動を明記していること
 - 発現経路の評価結果 (対応要否とその根拠) が記録されていること
+---
+
+### jj-op-verify が commit message 内の文言を実行と誤認して警告する (本セッション 4 回実観測)
+
+> **動機**: `jj describe -m "... jj abandon ..."` のように **commit message の本文にコマンド名を書いただけ**で、`hooks-post-tool-jj-op-verify` が「直前に `jj abandon` を実行した」と誤認し `operation not recorded` 警告を出す。本セッション (PR #429〜#432) で **4 回**発生し、毎回 `jj op log` での手動確認を強いられた。
+>
+> **原因 (実装確認済み)**: [`detect_last_mutating_jj_op`](../src/hooks-post-tool-jj-op-verify/src/main.rs#L61) が `command.split_whitespace()` で**コマンド文字列全体をトークン化**し、その中に変更系 jj サブコマンド名が現れるかだけを見ている。`-m` の引数 (quote 内) を除外していないため、message 本文の文言が実行と区別されない。
+>
+> **実害**: 警告そのものは助言層 (block しない) だが、ADR-045 の op-log divergence は**実在する重大事故クラス**であり、狼少年化すると本物の divergence を見逃す。実際、本セッションでは 4 回とも「hook 警告 → `jj op log` 確認 → 正常」の往復が発生した。
+>
+> **対処案**: quote 内を除外してからトークン化する (`-m` / `--message` の引数、および `"..."` / `'...'` で囲まれた範囲をスキップ)。**false negative 側のトレードオフは軽微** — quote 外に現れる変更系コマンドは従来どおり検出できる。
+>
+> **回帰テスト**: `detect_last_mutating_jj_op` は pure function なので unit test で固定できる。(a) `jj describe -m "fix: jj abandon について"` → None、(b) `jj abandon -r x` → Some(abandon)、(c) `jj describe -m "msg" && jj abandon -r x` → Some(abandon) の 3 方向。
+>
+> **参照**: [`src/hooks-post-tool-jj-op-verify/src/main.rs`](../src/hooks-post-tool-jj-op-verify/src/main.rs)、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) § Known operational risks、PR #431/#432 post-merge feedback (Tier1 #4)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity Medium (誤検知による狼少年化。本物の divergence を見逃すリスク) / Frequency **High** (本セッションだけで 4 回) / Effort S / Adoption Risk Low (quote 除外は決定論的で pure function に閉じる)。
+
+#### 作業計画
+
+- [ ] `detect_last_mutating_jj_op` を quote-aware にする (`-m` / `--message` の引数と quote 範囲を除外)
+- [ ] pure function の unit test を 3 方向 (誤検知しない / 正しく検出する / 複合コマンドで最後の操作を採る) で追加
+- [ ] 変異テストで検知を確認する (quote 除外を外すと誤検知テストが FAILED になること)
+
+#### 完了基準
+
+- commit message にコマンド名を含む `jj describe` で警告が出ないこと。quote 外の変更系コマンドは従来どおり検出されること。両方向が unit test で固定されていること。
+
+---
+
+### Git Bash 経由の複数行 `node -e` が silent no-op になる (本セッション 2 回実観測)
+
+> **動機**: Windows の Git Bash から複数行の `node -e '...'` を渡すと、**終了コード 0・出力なしで何も実行されない**。本セッション (PR #428 / PR #432) で **2 回**踏み、いずれも「修正を適用したつもりが実際には未適用のまま検証していた」状態を作った。1 回目は workflow の抽出スクリプト、2 回目はテスト初期化子の一括置換で、どちらも**失敗が silent なため気づくまでに時間を要した**。
+>
+> **既知の同型**: memory `powershell-set-content-crlf` (PowerShell から複数行 bash を渡すと壊れる) と同じクラス。MSYS の argv 変換が複数行引数を壊すことが原因と推測されるが、**silent に失敗する**点が本件の危険性の本体。
+>
+> **現在の回避策**: スクリプトをファイルに書いて `node script.mjs` で渡す。本セッションではこの形に統一して解決した。
+>
+> **対処案**: (a) 回避策を convention として明文化する (助言層、**単独では不可** — 本セッションでは convention 化した直後に再発した)、(b) **決定論層**: PreToolUse hook で「複数行を含む `node -e` / `python -c` 等」を検出してブロックし、ファイル経由を案内する。(a) は既に `docs/dev-conventions.md` に記載済みだが再発したため、(b) が本命。
+>
+> **回帰テスト**: hook の判定関数を pure function として切り出し、(a) 複数行 `node -e` → block、(b) 単一行 `node -e` → 許可、(c) `node script.mjs` → 許可 の 3 方向で固定する。
+>
+> **参照**: [`docs/dev-conventions.md`](dev-conventions.md) § GitHub Actions の `run:` は常に `-e` 付きで起動する (末尾の注意書き)、`src/hooks-pre-tool-validate/`、PR #431 post-merge feedback (Tier2 #4)。
+>
+> **実行優先度**: 🚀 Tier 1 — Severity **High** (silent failure により「検証したつもり」を作る。実際に誤った検証結果を報告しかけた) / Frequency Medium (複数行スクリプトを渡すたび) / Effort S / Adoption Risk Low (既存 hook への判定追加)。
+
+#### 作業計画
+
+- [ ] `hooks-pre-tool-validate` に「複数行を含む `-e` / `-c` インライン実行」の検出を追加し、ファイル経由を案内してブロックする
+- [ ] 判定を pure function に切り出し、3 方向の unit test で固定する
+- [ ] 変異テストで検知を確認する
+
+#### 完了基準
+
+- 複数行の `node -e` がブロックされ、ファイル経由の案内が出ること。単一行および `node script.mjs` は従来どおり通ること。両方向が unit test で固定されていること。
+
+---
+
+### jj 出力の path separator を前提にするコードのテスト整備 (Windows は `\` 区切り)
+
+> **動機**: PR #432 の CodeRabbit 指摘で「`jj file list` は POSIX の `/` を使うので `is_root_level` の `\` 判定は不要 / 誤判定を生む」と提案されたが、**実測すると Windows の jj 0.42 は `\` 区切りで出力する** (`sub\f.py`)。`\` 判定を外すと Windows でサブディレクトリのファイルを root 直下と誤判定して誤検知が出る。指摘は前提が誤っていた。
+>
+> **問題**: この「両区切りを見る」という判断が**テストで固定されていない**。現在は module doc に理由を書いてあるだけで、将来「POSIX 準拠」を理由に再び外される余地が残る。同型の path 判定は [`extract_basename`](../src/cli-push-runner/src/stages/scratch_file_warning.rs) にもあり、そちらも同じ前提に依存している。
+>
+> **対処案**: jj 出力を parse する箇所の path separator 前提を regression test で固定する。`is_root_level` / `extract_basename` の両方について、(a) `\` 区切りのサブディレクトリパスを root 扱いしない、(b) `/` 区切りも同様に扱う、の 2 方向。可能なら実 jj を使った統合テストで「実際にどちらの区切りが出るか」も固定する (ADR-065 の CI matrix で両 OS を回しているため、OS 差が出れば CI が検出する)。
+>
+> **参照**: [`src/cli-push-runner/src/stages/scratch_file_warning.rs`](../src/cli-push-runner/src/stages/scratch_file_warning.rs) (`is_root_level` の module doc に実測根拠を記録済み)、PR #432 CodeRabbit 指摘、PR #432 post-merge feedback (Tier2 #1 / #3)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤検知 or 検出漏れ。scratch guard は最終防衛層) / Frequency Low (path 判定を触るときだけ) / Effort S / Adoption Risk None (テスト追加のみ)。
+
+#### 作業計画
+
+- [ ] `is_root_level` / `extract_basename` の separator 前提を両方向の unit test で固定する
+- [ ] 実 jj の出力 separator を統合テストで固定できるか検討する (CI matrix で OS 差が出れば検出される形)
+- [ ] 変異テストで検知を確認する (`\` 判定を外すと該当テストが FAILED になること)
+
+#### 完了基準
+
+- `\` 判定を外すと FAILED になる regression test が存在すること。両 OS の CI で green であること。
+
+---
+
+### 手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる
+
+> **動機**: [`src/lib-jj-helpers/src/lib.rs`](../src/lib-jj-helpers/src/lib.rs) の `# 公開 API` doc 一覧が実際の `pub use` とずれていた。機械的に突き合わせた実測 (2026-08-21):
+>
+> ```text
+> re-export されている公開 API: 22 件
+> doc 一覧に載っている:         15 件
+> doc に未記載 (陳腐化):         7 件
+> doc にあるが re-export されていない: 0 件
+> ```
+>
+> **単発の記載漏れではない**: 未記載 7 件のうち 4 件は PR #431 で追加したものだが、残り 3 件 (`GitDirResolution` / `is_inside_workspace` / `list_workspace_roots`) は**それ以前から漏れていた**。つまりこの doc は継続的にずれる構造で、**手で直しても同じことが繰り返される**。
+>
+> **方針 (2026-08-21 ユーザー判断)**: doc を手で埋めるのではなく **lint 化して決定論的に固定する**。「ドキュメントを増やしても確実さは保証されない。改善は常に決定論的で積み上げる形で実現されるべき」という方針に基づく。
+>
+> **対処案**: `pub use` 文から re-export 名を抽出し、doc の `[\`Name\`]` 参照と突き合わせる決定論的検査を追加する。検査ロジックは検証時に実装済み (両集合の差分を双方向に報告する形)。配置先は `scripts/` の既存 lint 群 (`lint-workflows.mjs` と同じ層) が候補。あわせて現在の未記載 7 件を埋める。
+>
+> **注意**: `cargo doc` が生成する API 一覧と二重管理になる面がある。lint を入れるか、手書き一覧そのものを廃止するかは実装時に再評価してよい (どちらも「ずれる doc を無くす」点で方針に合致する)。
+>
+> **参照**: [`src/lib-jj-helpers/src/lib.rs`](../src/lib-jj-helpers/src/lib.rs) `# 公開 API` 節、PR #431 post-merge feedback (Tier1 #2)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Low (doc のずれ。実行時の挙動には影響しない) / Frequency Medium (公開 API を足すたびにずれる。実測で 2 世代分の漏れを確認) / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `pub use` と doc の `[\`Name\`]` を突き合わせる決定論的検査を実装する (双方向の差分を報告)
+- [ ] 現在の未記載 7 件を doc に反映する
+- [ ] 検査を壊して落ちることを確認する (未記載を 1 件作ると FAILED になること)
+- [ ] 手書き一覧の維持コストが見合わなければ、一覧廃止案も比較して判断を記録する
+
+#### 完了基準
+
+- 公開 API を追加して doc を更新し忘れると、決定論的検査が落ちること。現在の 7 件のずれが解消されていること。
+
+---
+
+### `owns()` が false を返す原因をログで区別する (lock の debug 可能性)
+
+> **動機**: [`src/cli-pr-monitor/src/lock.rs`](../src/cli-pr-monitor/src/lock.rs) の `MonitorLock::Drop` は `owns()` が false のとき「lock は既に別インスタンスへ takeover 済み」と 1 種類のログしか出さないが、false になる原因は **(a) 別インスタンスが takeover 済み / (b) lock 内容が parse 不能 (破損・書き込み途中) / (c) token 不一致**の 3 通りある。原因が区別できないと、同時監視の競合 (#364 型) を調査するときにログから経路を再構成できない。
+>
+> **対処案**: false の原因を enum で区別し、ログ文言に反映する。判定は pure function に切り出せるため unit test で固定できる。
+>
+> **参照**: [`src/cli-pr-monitor/src/lock.rs`](../src/cli-pr-monitor/src/lock.rs) (`owns` / `Drop`)、PR #430 post-merge feedback (Tier2 #3)。
+>
+> **実行優先度**: 🔧 Tier 2 — Severity Medium (調査可能性。lock 競合は #364 で実発生済み) / Frequency Medium / Effort S / Adoption Risk None。
+
+#### 作業計画
+
+- [ ] `owns()` の戻り値を 3 状態 (Owned / TakenOver / Unreadable) に分け、ログ文言を分岐させる
+- [ ] pure function の unit test で 3 状態を固定する
+- [ ] 変異テストで検知を確認する
+
+#### 完了基準
+
+- Drop 時のログから false の原因 3 種が区別できること。3 状態が unit test で固定されていること。
