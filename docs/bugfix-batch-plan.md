@@ -17,11 +17,11 @@
 | B-2 | fix(merge-pipeline): 分析ソース選定を陽性照合ベースに統一 | 336 + 288(a) | **完了** ([PR #420](https://github.com/aloekun/claude-code-hook-test/pull/420))。実 run で照合成功を確認済み |
 | B-3 | fix(merge-pipeline): transcript 抽出を workspace 横断にする | 469 (446 から分離) | **完了** ([PR #421](https://github.com/aloekun/claude-code-hook-test/pull/421)) |
 | C | fix(hooks): smoke suite の ETXTBSY 解消 | 396 | **完了** ([PR #423](https://github.com/aloekun/claude-code-hook-test/pull/423))。台帳の 3 案はいずれも副作用があり、copy/spawn の相互排除に切り替えた |
-| D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | 実装済み。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
-| E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | **実装済み。** 319 は案 (a)+(b) 併用 (body 空 review の除外 + head SHA 冪等キー)、431 は rate-limit を red で落とす方式。**431 は台帳の前提がずれていた** (下表参照)。エントリ後始末は実走観測後 |
+| D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | **完了** ([PR #424](https://github.com/aloekun/claude-code-hook-test/pull/424))。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
+| E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | **完了** ([PR #428](https://github.com/aloekun/claude-code-hook-test/pull/428))。 319 は案 (a)+(b) 併用 (body 空 review の除外 + head SHA 冪等キー)、431 は rate-limit を red で落とす方式。**431 は台帳の前提がずれていた** (下表参照)。319 は観測完了で後始末済み、431 は実走観測待ち |
 | F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | **完了** ([PR #430](https://github.com/aloekun/claude-code-hook-test/pull/430))。246 は前提消滅 + 連結 regression test、292 は token 方式 + **takeover 排他化** (レビューで 8/8 同時取得を実測)、385 は不採用を記録 |
 | G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | **完了** ([PR #431](https://github.com/aloekun/claude-code-hook-test/pull/431))。386 は実測を根拠に検出の深さ非依存化 + advance の description 基準化の両輪。387 は**警告 (証拠保全)** を採用 |
-| H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | **実装済み。** 3 件とも台帳と実態のずれなし。376 は案 (a) (@ の bookmark のみ前進)、254 は実装側で remote tracking ref を優先解決、322 は配置ベース検出を第 2 層に追加 (`__*` パターンが gitignore で**デッド**だったことも実測で判明) |
+| H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | **完了** ([PR #432](https://github.com/aloekun/claude-code-hook-test/pull/432))。 3 件とも台帳と実態のずれなし。376 は案 (a) (@ の bookmark のみ前進)、254 は実装側で remote tracking ref を優先解決、322 は配置ベース検出を第 2 層に追加 (`__*` パターンが gitignore で**デッド**だったことも実測で判明) |
 | I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | 未着手 |
 | J | fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に | 233 | 未着手 |
 | K | fix(subprocess): timeout の孫プロセス穴を塞ぐ | 323 | 未着手 |
@@ -399,7 +399,7 @@ post-merge feedback **全 48 提案**を採否判定した。内訳は **採用�
 
 完了基準に実走観測を含むタスク。マージ後に観測し、確認できたらエントリ後始末 (todoN.md 節 + summary 行の削除) を docs バッチで行う。
 
-- [ ] **319** (PR E): マージ後の実 PR 数件で backstop 投稿が walkthrough 1 回につき両経路合算 ≤ 1 件であること → 確認後 todo17.md 319 節 + todo-summary2.md 319 行を削除
+- [x] **319** (PR E): 観測完了 (2026-08-20)。PR #429 / #430 / #431 の 3 件で backstop 投稿は各 1 件 (`<!-- pr-monitor-backstop: sha=... -->` マーカーで機械的に計数)。エントリ後始末済み。
 - [ ] **431** (PR E): 次にレート制限が起きた夜間 run で「未レビュー」が可視化されること → 確認後 todo22.md 431 節 (`review-request` の成功判定…) + todo-summary2.md 431 行を削除
 - [ ] **467 D-1 / F-2** (PR L): 次回 dispatch or schedule 実走で、消えたブランチで job が落ちないこと + GIT_DIR 警告が出ないこと → 確認後 todo24.md 467 節 + todo-summary2.md 467 行を削除
 - [ ] **181** (PR L): 次回 `/weekly-review` で findings.json が raw JSON で出力されること → 確認後 todo12.md 181 節 + **todo-summary.md** (順位 219 以下側) の 181 行を削除。矯正できなければ skill 側 strip へ切替してから完了

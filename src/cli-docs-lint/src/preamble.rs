@@ -10,6 +10,7 @@ use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// preamble 走査の上限行数。区切り (`---` / `###`) が現れないファイルへの backstop。
 const PREAMBLE_SCAN_LINES: usize = 12;
 /// 分割された index の全 part (todo-summary.md / todo-summary2.md / ...) にマッチする prefix。
 /// `is_todo_summary` (ファイル分類) と `check_line` (preamble の summary 参照判定) の両方で使い、
@@ -49,12 +50,22 @@ pub fn check_one(
     let number_re = number_regex();
     content
         .lines()
+        .take_while(|line| !is_preamble_boundary(line))
         .take(PREAMBLE_SCAN_LINES)
         .enumerate()
         .filter_map(|(idx, line)| {
             check_line(path, idx + 1, line, &number_re, expected_total, expected_without_summary)
         })
         .collect()
+}
+
+/// preamble の終端を判定する。
+///
+/// TODO 系 markdown は preamble の直後に `---` 区切りか最初の `###` エントリ見出しが来る。
+/// 固定行数だけで切ると、削除でエントリが繰り上がった際に本文の数詞
+/// (例: 「2 つの前提ズレ」) を preamble の数詞と誤認する。
+fn is_preamble_boundary(line: &str) -> bool {
+    line.trim_end() == "---" || line.starts_with("###")
 }
 
 fn check_line(
@@ -180,6 +191,40 @@ mod tests {
 
     fn write(path: &Path, body: &str) {
         fs::write(path, body).unwrap();
+    }
+
+    /// 由来: 順位 319 のエントリ削除で後続エントリが繰り上がり、本文の
+    /// 「2 つの前提ズレ」が固定 12 行窓に入って preamble の数詞と誤検知された
+    /// (2026-08-20 実観測)。preamble の終端は `---` / `###` で切る。
+    #[test]
+    fn check_one_ignores_numbers_after_the_preamble_boundary() {
+        let content = "# TODO (Part 17)\n\
+                       \n\
+                       > **汎用ルール** (todo.md と同一)\n\
+                       \n\
+                       ---\n\
+                       ### エントリ見出し\n\
+                       \n\
+                       > **動機**: 設計に **2 つの前提ズレ**が判明した。\n";
+        let violations = check_one(Path::new("docs/todo17.md"), content, 23, 21);
+        assert!(
+            violations.is_empty(),
+            "区切り以降の本文は preamble ではない: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn check_one_still_flags_numbers_inside_the_preamble() {
+        let content = "# TODO (Part 17)\n\
+                       \n\
+                       > 本ファイルは todo 系 2 つに分割されている。\n\
+                       \n\
+                       ---\n\
+                       ### エントリ見出し\n";
+        let violations = check_one(Path::new("docs/todo17.md"), content, 23, 21);
+        assert_eq!(violations.len(), 1, "preamble 内の数詞は検出する");
+        assert_eq!(violations[0].line, 3);
     }
 
     #[test]

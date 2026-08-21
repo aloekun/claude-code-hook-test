@@ -7,56 +7,6 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### pr-monitor.yml バックストップの重複ガードが構造的に機能しない (PR #287 実観測)
-
-> **動機**: PR #287 で「🤖 PR Monitor 分析 (GitHub Actions バックストップ)」が **5 件**投稿された。ユーザーから「1 回投稿すれば十分な情報を、CodeRabbit の投稿に反応して毎回投稿する実装になっていないか」と指摘され、実測で裏付けられた。
->
-> **実測 (すべて CR 投稿の直後に発火)**:
->
-> | CR 投稿 | → backstop | 遅延 |
-> |---|---|---|
-> | 12:42:31 | 12:44:13 | +1m42s |
-> | 13:09:32/35 | 13:16:16 | — |
-> | 13:16:36 (ack のみ) | 13:18:11 | +1m35s |
-> | 13:45:03 (ack のみ) | 13:46:09 | +1m06s |
-> | 13:46:25 | **13:49:06** | +2m41s (**マージ 13:48:12 の後**) |
->
-> **根本原因**: 重複ガードは存在する (`.github/workflows/pr-monitor.yml` prompt 手順 2) が、**構造的トートロジー**になっている。ガードの skip 条件は「過去の分析コメント以降に**新しいコメント等の変化が無い**場合」。しかし本 workflow の起動トリガーは `issue_comment (created) by coderabbitai[bot]` であり、**発火した時点で必ず「新しいコメント」が存在する**。よって issue_comment 経路で skip 条件は永久に成立しない。
->
-> **証拠 (agent 自身が無価値と認識しつつ投稿している)**: 13:18:11 の投稿本文は「前回分析以降に生じたのは CodeRabbit による定型 acknowledgment コメント 1 件のみで、レビュー実体の追加は無し」と自ら述べている。ガードが「新規コメントの有無」を見ており「分析価値のある新情報か」を見ていないため、ack 1 件でも再分析・再投稿に進む。
->
-> **副次問題**: (a) PR が **MERGED/CLOSED でも投稿する** (13:49:06 はマージ後)。state ガードが無い。(b) 1 投稿あたり claude-code-action (sonnet / max-turns 30) が 1 run 走るため、**Max 枠を無駄に消費**する (workflow 冒頭コメントが挙げる「Max 枠の暴走ガード」の意図に反する)。
->
-> **設計上の含意**: ガードを LLM prompt 側 (助言層) に置いたことが原因。`concurrency` は同時実行を潰すが逐次の再投稿は防げない。ADR-042 (ルール vs 仕組み化の境界基準) の観点では、**決定論層 (workflow の `if:` 条件) に移すべき類**。
->
-> **参照**: `.github/workflows/pr-monitor.yml` (prompt 手順 2 / `on:` / `jobs.analyze.if:` / concurrency)、[ADR-022](adr/adr-022-automation-responsibility-separation.md) 原則 6、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、PR #287。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (機能は壊れないが noise + Max 枠浪費) / Effort S。
-
-#### 作業計画
-
-- [x] **決定論ガードを `if:` に追加** (LLM prompt に依存しない層へ移す、2026-07-20 実装):
-  - [x] CR の **ack / rate-limit / コマンド応答を除外**する。当初案の denylist (`<!-- ...reply by CodeRabbit -->` を除外) ではなく **positive allowlist** を採用: issue_comment は walkthrough/summary マーカー `<!-- This is an auto-generated comment: summarize by coderabbit.ai -->` を含み、**かつ** rate-limit placeholder マーカー `<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->` を含まない場合のみ起動。マーカーはライブ PR #304/#307 の生 body で実検証。ack (reply) / rate-limit 通知 / command invocation は summarize マーカーを持たないため一括除外される (denylist より確実 — #307 の 5 投稿中 4 件が消え、実レビュー 1 件のみ残る)。
-  - [x] PR が **CLOSED / MERGED なら起動しない**。issue_comment 経路に `github.event.issue.state == 'open'`、pull_request_review 経路に `github.event.pull_request.state == 'open'` を追加。
-- [x] prompt 手順 2 のガード条件を「**新規コメントの有無**」から「**分析価値のある新情報の有無**」へ書き換え、ack / rate-limit / 自身の分析コメントは新情報に数えない旨を明示。決定論ガードを主、prompt ガードを従 (二層目) へ降格。
-- [x] **`pull_request_review` 経路にも起動選別を入れる** (2026-08-20 実装、案 (a)+(b) 併用): 現行 `if:` の同経路には CodeRabbit content フィルタが無く、(i) 1 回の walkthrough が issue_comment と pull_request_review の両方で起動する (= 2 投稿)、(ii) body 空の ack (スレッド返信) が review として通る (= 3 投稿目)。案 (a) body 空 / summarize 相当マーカー無しの review を除外、案 (b) より確実: head SHA + walkthrough 単位の冪等キーで既投稿を判定する決定論ガード (event 条件だけでは「同一 walkthrough の 2 経路」を原理的に区別できないため。ADR-042 の決定論層方針と整合)。あわせて workflow 先頭設計メモ L82-83「追加は pull_request_review (submitted) 経路が拾う」も改訂する。
-  - [x] 案 (a): `jobs.analyze.if:` の `pull_request_review` 経路に `github.event.review.body != ''` を追加 (スレッド返信の ack は body 空の review として届く)。
-  - [x] 案 (b): 投稿本文末尾に `<!-- pr-monitor-backstop: sha=<head sha> -->` を workflow 自身が付け、起動時に既存コメントを同マーカーで検索して skip する dedup step を追加。判定不能時は「投稿済み」側へ倒す (fail-closed)。`workflow_dispatch` は人間の明示操作なので対象外。fix job (Phase B) も `needs.analyze.outputs.duplicate` で同じ判定を継承する。
-  - [x] 「書く側」と「探す側」でマーカーが食い違うと**ガードが黙って無効になる**ため、`scripts/lint-workflows.mjs` に一致検査を追加 (綴りの揺れ / step id の改名の両方を検出することを破壊テストで実測)。
-- [ ] **dogfood 実 PR 確認**後に本エントリ削除 + todo-summary2.md 行削除。
-
-> **現在地 (2026-07-20)**: `.github/workflows/pr-monitor.yml` の `jobs.analyze.if:` / prompt 手順 2 / 先頭設計メモを修正済 (YAML parse + paren balance を node で検証、CodeRabbit マーカーは live API で裏取り)。
->
-> **現在地 (2026-08-20)**: 残っていた `pull_request_review` 経路の起動選別を実装 (案 (a)+(b) 併用)。head SHA 解決・author フィルタ・マーカー検索の各クエリは実 PR (#426 / #421 / #390) に対して実行して挙動を確認済み。**完了基準の判定は実走観測待ち** — マージ後の実 PR 数件で両経路合算 ≤ 1 件を確認してから本エントリを削除する。
->
-> **dogfood 実測 (2026-08-12)**: 修正 land (#310) 後の merged PR #347〜#390 の 29 件で backstop 投稿数を機械集計 (gh api、`## 🤖 PR Monitor` 冒頭コメントを計数) — **0 件 ×4 / 1 件 ×5 / 2 件 ×18 / 3 件 ×2 = 2 件以上が 69%**。**完了基準は未達 (dogfood 不合格)**。マージ後投稿は 0 件で state ガードは有効 (2026-07-20 修正の成果)。ack の一部 (issue_comment 経路) も塞がった。残る原因は `pull_request_review` 経路の content フィルタ欠落 (上記新チェック項目)。当初計画の workflow_dispatch スモークは実 PR 観測で代替済みのためチェック項目から撤去 — なお同スモークの想定 (a)「ack で起動しない」は実測で反証された。
-
-#### 完了基準
-
-- CR の walkthrough 更新 1 回につき backstop の投稿が **issue_comment / pull_request_review の両経路合算で高々 1 件**、ack / マージ後には投稿されないこと (実 PR で確認)。(2026-08-12 明確化: 当初の書き方は経路を区別しておらず、2026-07-20 修正が issue_comment 側だけで終わった一因)
-
----
-
 ### ADR-019/WP-03 クォータ設計の前提 stale + 初回レビュー処理中 push のレビュー欠落穴
 
 > **動機**: PR #287 の rate-limit 調査で、WP-03 (ADR-019 amendment) のクォータ設計に **2 つの前提ズレ**が判明した。
