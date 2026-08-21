@@ -8,6 +8,7 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 - `findings`: Array of structured findings (severity, file, line, issue, suggestion, source)
 - `action`: Terminal action from the monitor ("action_required", "stop_monitoring_success", etc.)
 - `summary`: Human-readable summary
+- `docs_only`: Boolean ADR-035 verdict for the **whole PR**, decided deterministically by `cli-pr-monitor` from GitHub's PR-wide file list (never re-derive it from a diff)
 
 ## Task
 
@@ -19,7 +20,7 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 CodeRabbit sometimes raises findings that are not applicable to this project. Before classifying severity, evaluate each finding against the project context:
 
 1. Read `CLAUDE.md` to understand the project's architecture decisions and constraints
-2. **Determine if the PR is docs-only** under [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md): inspect the diff in `.takt/review-diff.txt`. The PR is docs-only when **all** changed files are `docs/**` / `*.md` / source-code doc comments / yaml comment-only, **and** no executable code logic changes. Excluded paths (`.takt/facets/instructions/**`, `.claude/**`, `.takt/workflows/**.yaml` structural changes, `docs/claude-code-web-tasks.md` = the nightly loop's task ledger per ADR-072) disqualify docs-only treatment even when the file extension is `.md`/`.yaml`
+2. **Read the docs-only verdict** for [ADR-035](../../../docs/adr/adr-035-doc-evaluation-policy.md) from the `docs_only` field of `.takt/review-comments.json`. It is a boolean already decided by the deterministic layer (`cli-pr-monitor` classifies GitHub's PR-wide file list through `lib-docs-policy`, the single implementation of ADR-035's path criteria). **Do not derive it yourself, and do not read `.takt/review-diff.txt`** — that file is a pre-push artifact that can hold a tip-only diff or a leftover from a different PR, which is exactly how a code-bearing PR got misclassified as docs-only (PR #227). If `docs_only` is absent, treat it as `false` (an old exe wrote the file; fail-closed = apply findings normally)
 3. For each finding, check:
    - **Platform scope**: This project targets Windows only. Findings about cross-platform compatibility (e.g., `.exe` hardcoding) are NOT applicable -- downgrade to `Info`
    - **Intentional design**: Check if the finding contradicts an ADR decision. If so, mark as `not_applicable`

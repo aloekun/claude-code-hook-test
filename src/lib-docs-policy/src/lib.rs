@@ -10,6 +10,10 @@
 //! - `cli-pr-monitor` の auto-push 前 gate (fix diff が docs-only なら gate skip)
 //! - `cli-push-runner` の docs_only_routing stage (PR 範囲が docs-only なら
 //!   docs で結果が変わり得ない quality_gate group を skip)
+//! - `cli-pr-monitor` の collect stage (PR 全体が docs-only かを判定し
+//!   `.takt/review-comments.json` の `docs_only` として post-pr-review へ渡す。
+//!   順位 233: 以前は analyze facet が `.takt/review-diff.txt` を目視分類しており、
+//!   その diff が tip 限定 / 別 PR の残骸になり得たため誤判定した)
 //!
 //! ## 本 crate が判定する範囲 (path 基準のみ)
 //!
@@ -40,6 +44,38 @@ pub fn is_docs_only_summary(summary: &str) -> bool {
         if !matches!(status, "M" | "A" | "D") {
             return false;
         }
+        if !is_docs_only_path(path) {
+            return false;
+        }
+    }
+    saw_any
+}
+
+/// 変更ファイルの**パス一覧**が docs-only か判定する (ADR-035 path 基準)。
+///
+/// [`is_docs_only_summary`] と判定規則は同一で、入力形式だけが違う: `jj diff --summary`
+/// のように status を持たない source (例 `gh pr view --json files`) から呼ぶための入口。
+/// 判定を [`is_docs_only_path`] の単一実装に集約するのが目的で、呼び出し側がパスを
+/// 自前で分類し始めると ADR-035 が防ごうとした drift を再生産する。
+///
+/// fail-closed: 空イテレータ (= 変更ファイルを 1 つも観測できなかった) は `false`。
+/// 「取得に失敗した」と「本当に docs だけだった」を同じ `true` に潰さないための線引きで、
+/// 呼び出し側は docs-only 向けの緩い経路ではなく通常経路へ倒れる ([ADR-043])。
+///
+/// **`is_docs_only_summary` を本関数へ委譲させない** (pre-push simplicity review の
+/// 非 blocking 指摘に対する判断)。ループ制御は同形だが、空要素の扱いが違う: 本関数は
+/// 空文字を「要素なし」として読み飛ばす一方、summary 版は `M ` のような**パスが欠けた
+/// 行をパース不能として `false` に倒す**。委譲に置き換えると `M \nM docs/a.md` が
+/// `true` に変わり、summary 版が持つ「壊れた行を見たら docs-only を主張しない」性質が
+/// 緩む。共有すべきなのは判定規則 (= `is_docs_only_path`) であって、入力形式ごとの
+/// 妥当性検査ではない。
+pub fn is_docs_only_paths<'a, I: IntoIterator<Item = &'a str>>(paths: I) -> bool {
+    let mut saw_any = false;
+    for path in paths {
+        if path.trim().is_empty() {
+            continue;
+        }
+        saw_any = true;
         if !is_docs_only_path(path) {
             return false;
         }
@@ -154,5 +190,61 @@ mod tests {
     fn docs_only_normalizes_windows_backslash_paths() {
         assert!(is_docs_only_summary("M docs\\notes.md"));
         assert!(!is_docs_only_summary("M .takt\\facets\\instructions\\fix.md"));
+    }
+
+    /// 順位 233: status を持たない source (`gh pr view --json files`) からの入口。
+    /// 判定規則は summary 版と同一であることを、同じ入力の対で固定する。
+    mod rank233_paths_entry_point {
+        use super::*;
+
+        #[test]
+        fn paths_accepts_all_docs_paths() {
+            assert!(is_docs_only_paths([
+                "docs/adr/adr-001.md",
+                "docs/guide.md",
+                "README.md"
+            ]));
+        }
+
+        #[test]
+        fn paths_rejects_mixed_docs_and_source() {
+            assert!(!is_docs_only_paths(["docs/a.md", "src/lib.rs"]));
+        }
+
+        #[test]
+        fn paths_rejects_excluded_code_equivalent_paths() {
+            assert!(!is_docs_only_paths([".takt/facets/instructions/fix.md"]));
+            assert!(!is_docs_only_paths(["docs/claude-code-web-tasks.md"]));
+        }
+
+        /// fail-closed: 1 件も観測できなかった入力を「docs だけだった」に潰さない。
+        #[test]
+        fn paths_rejects_empty_input() {
+            assert!(!is_docs_only_paths(std::iter::empty()));
+            assert!(!is_docs_only_paths(["", "   "]));
+        }
+
+        /// 2 関数を統合しない理由 (`is_docs_only_paths` の doc) を実行可能にする。
+        /// summary 版はパスが欠けた行を「壊れた入力」として `false` に倒す一方、
+        /// paths 版は空要素を読み飛ばす — この非対称が委譲を許さない根拠なので、
+        /// 委譲へ書き換えたら落ちる形で固定する。
+        #[test]
+        fn summary_rejects_a_path_less_line_that_paths_would_skip() {
+            assert!(!is_docs_only_summary("M \nM docs/a.md"));
+            assert!(is_docs_only_paths(["", "docs/a.md"]));
+        }
+
+        /// summary 版と同じ規則であることの対照 (drift 検知)。
+        #[test]
+        fn paths_agrees_with_summary_on_the_same_files() {
+            assert_eq!(
+                is_docs_only_paths(["docs/a.md", "src/lib.rs"]),
+                is_docs_only_summary("M docs/a.md\nM src/lib.rs")
+            );
+            assert_eq!(
+                is_docs_only_paths(["docs/a.md", "docs/b.md"]),
+                is_docs_only_summary("M docs/a.md\nM docs/b.md")
+            );
+        }
     }
 }

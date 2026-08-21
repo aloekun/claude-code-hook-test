@@ -83,7 +83,12 @@ New files (post-only) and files absent from `@-` are reported `metrics_check: sk
 
 After completing all fixes (Edit/Write operations) AND before emitting the `convergence_verdict` line, refresh `.takt/review-diff.txt` so the next reviewer iteration (if `convergence_verdict: partial`) sees the post-fix state:
 
-    jj diff -r @ > .takt/review-diff.txt
+    jj diff --git -r 'trunk()..@' > .takt/review-diff.txt
+
+Both parts of that command are load-bearing — it must reproduce the scope and format `cli-push-runner` used when it first wrote the file, not a narrower one:
+
+- **`trunk()..@` (the whole PR), not `-r @`.** `-r @` writes the tip commit only, so on a multi-commit PR the ancestors' changes vanish from the file the next iteration reads. Reviewers then judge a PR they can only partly see, and the `analyze-coderabbit` step used to misread such a diff as a docs-only PR (todo 順位 233 / PR #227). `trunk()` is a jj builtin that resolves the remote trunk bookmark, so this works unchanged in derived projects whose default branch is `main`
+- **`--git` (unified diff), not jj's default format.** The default format loses `+`/`-` markers once colour is stripped, and LLM reviewers read deletions as additions (todo 順位 264)
 
 This refresh is **unconditional**:
 
