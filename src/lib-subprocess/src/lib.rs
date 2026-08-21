@@ -18,6 +18,7 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -47,6 +48,51 @@ pub fn combine_output(stdout: &str, stderr: &str) -> String {
 
 const POLL_INTERVAL_MS: u64 = 100;
 
+/// timeout / wait 失敗の経路で reader thread の回収に許す上限 (順位 323)。
+///
+/// [`kill_process_tree`] が成功していればパイプは即座に閉じるので、この猶予は
+/// **tree kill が失敗したときの backstop** として効く。上限を設けないと、timeout の
+/// 保証が「kill が成功すること」に依存した条件付きのものになる ([ADR-043])。
+const JOIN_GRACE_MS: u64 = 500;
+
+/// プロセスを**子孫ごと**強制終了する (順位 323)。
+///
+/// `shell_command` の child はシェルで、実際のコマンド (cargo / jj / ping) は**孫**に
+/// なる。`Child::kill` はシェルしか殺さないため、孫はパイプの書き込み端を握ったまま
+/// 生き残り、reader thread の `join()` が孫の自然終了までブロックする = timeout が
+/// 事実上無効になる (実測: timeout 1s に対し制御が戻るまで 9.59s)。
+///
+/// 実装は外部コマンド経由で、`libc` 依存を増やさない (`check-ci-coderabbit` の
+/// `kill_process_by_id` と同じ方針)。
+/// - Windows: `taskkill /T` が子孫まで辿る
+/// - Unix: [`shell_command`] が `process_group(0)` で child をプロセスグループの
+///   リーダーにしているため、pgid == child の pid。負の pid でグループ全体へ送る
+///
+/// direct argv で spawn した child (シェルを挟まない callsite) に対しても安全に
+/// 呼べる: Unix ではその child はグループリーダーではないので `kill -- -<pid>` は
+/// 対象なしで失敗するだけ (pgid `<pid>` は「pid `<pid>` のプロセスがリーダーの
+/// 場合」にしか存在せず、それは自分自身なので他人のグループを撃つことはない)。
+///
+/// kill 自体の失敗は握り潰す — 既に自然終了していれば失敗するのが正常。
+pub fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill")
+            .args(["-9", "--", &format!("-{}", pid)])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
 /// 子プロセスの終了を timeout 付きで待機する。Err 経路 (try_wait 失敗) で
 /// child を kill + wait してから Err を返す **safe** variant。
 ///
@@ -55,9 +101,14 @@ const POLL_INTERVAL_MS: u64 = 100;
 /// - `Ok(None)`: timeout (child は kill + wait 済)
 /// - `Err(msg)`: try_wait 失敗 (child は kill + wait 済)
 ///
-/// timeout / try_wait エラーの両経路で `child.kill()` + `child.wait()` を実施し、
-/// 子プロセスと呼び出し側 reader スレッドが zombie 化するのを防ぐ。
-/// subprocess lifecycle の strictness を要求する callsite で使用する。
+/// timeout / try_wait エラーの両経路で [`kill_process_tree`] + `child.kill()` +
+/// `child.wait()` を実施し、子プロセスと呼び出し側 reader スレッドが zombie 化するのを
+/// 防ぐ。subprocess lifecycle の strictness を要求する callsite で使用する。
+///
+/// **両経路とも孫まで殺す** (PR #436 CodeRabbit Major): 本 variant は
+/// `cli-push-runner` の diff stage が `shell_command` の child に対して使うため、
+/// try_wait 失敗の経路でもシェルの孫が残り得る。timeout 側だけ孫を殺すと、
+/// 「どちらの失敗経路でも child は残らない」という本 variant の売りが片肺になる。
 pub fn wait_with_timeout_safe(
     label: &str,
     child: &mut std::process::Child,
@@ -69,6 +120,7 @@ pub fn wait_with_timeout_safe(
             Ok(Some(status)) => return Ok(Some(status)),
             Ok(None) => {
                 if Instant::now() >= deadline {
+                    kill_process_tree(child.id());
                     let _ = child.kill();
                     let _ = child.wait();
                     return Ok(None);
@@ -76,6 +128,7 @@ pub fn wait_with_timeout_safe(
                 std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
             }
             Err(e) => {
+                kill_process_tree(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(format!("Failed to wait for {}: {}", label, e));
@@ -92,9 +145,15 @@ pub fn wait_with_timeout_safe(
 /// - `Ok(None)`: timeout (child は kill + wait 済)
 /// - `Err(msg)`: try_wait 失敗 (child は kill されない、呼び出し側で扱う)
 ///
-/// timeout 経路のみ `child.kill()` + `child.wait()` を実施する。
+/// timeout 経路のみ [`kill_process_tree`] + `child.kill()` + `child.wait()` を実施する。
 /// try_wait 失敗時の child cleanup は呼び出し側が制御する設計の callsite で使用する。
 /// `_safe` との 2 variant 並立は 173b 時点での保存対応で、merge 可否は 173e で判断する。
+///
+/// **Err 経路で孫を殺さないのは意図的** (PR #436 CodeRabbit Major への回答): cleanup を
+/// 呼び出し側に委ねるのが本 variant の契約そのもので、ここで殺すと `_safe` との差が
+/// 消える。シェル child を渡す唯一の呼び出し元 `run_cmd_shell_with` は Err を
+/// [`kill_and_join_err`] で受けて孫まで殺しており、それ以外の呼び出し元はいずれも
+/// direct argv (シェルを挟まない = 孫が生まれない) であることを確認済み。
 pub fn wait_with_timeout_basic(
     label: &str,
     child: &mut std::process::Child,
@@ -106,6 +165,7 @@ pub fn wait_with_timeout_basic(
             Ok(Some(status)) => return Ok(Some(status)),
             Ok(None) => {
                 if Instant::now() >= deadline {
+                    kill_process_tree(child.id());
                     let _ = child.kill();
                     let _ = child.wait();
                     return Ok(None);
@@ -120,17 +180,25 @@ pub fn wait_with_timeout_basic(
 /// 子プロセスの stdout / stderr パイプを別スレッドで全量読込し、行末空白を trim した
 /// 文字列を返す **unlimited** variant。
 ///
-/// `read_to_string` で全データを単一バッファに読み込むため出力サイズ制限なし。
+/// 全データを単一バッファに読み込むため出力サイズ制限なし。
 /// JSON 等の構造化出力を pipe 経由で完全パースする callsite (例: check-ci-coderabbit
 /// の JSON 受け取り) で使用する。出力過大時にメモリ消費が線形成長する点に注意。
+///
+/// **不正な UTF-8 は置換文字にする (`from_utf8_lossy`)**。旧実装は `read_to_string`
+/// で読んでいたが、これは不正な UTF-8 に当たると `Err` を返し、その際 **buf を元の
+/// 長さへ戻す** — つまり読めていた分も含めて**全出力が無言で消える**。本 variant は
+/// doc が示すとおり「出力を control flow 判定に使う」callsite 用なので、その全損は
+/// 判定の破綻に直結する (実測: Windows の `ping` (Shift-JIS 出力) で本関数は 0 バイト、
+/// `drain_pipe_capped` は 444 バイトを返した)。capped 系は元から `from_utf8_lossy`
+/// なので、本修正は 3 variant の挙動を揃えるものでもある。
 pub fn drain_pipe_unlimited(
     pipe: impl Read + Send + 'static,
 ) -> JoinHandle<String> {
     thread::spawn(move || {
-        let mut output = String::new();
+        let mut bytes = Vec::new();
         let mut reader = BufReader::new(pipe);
-        let _ = reader.read_to_string(&mut output);
-        output.trim_end().to_string()
+        let _ = reader.read_to_end(&mut bytes);
+        String::from_utf8_lossy(&bytes).trim_end().to_string()
     })
 }
 
@@ -231,11 +299,49 @@ fn kill_and_join_err(
     stderr_handle: JoinHandle<String>,
     error: String,
 ) -> (bool, String) {
+    kill_process_tree(child.id());
     let _ = child.kill();
     let _ = child.wait();
-    let _ = stdout_handle.join();
-    let _ = stderr_handle.join();
+    let _ = join_within_grace(stdout_handle, stderr_handle);
     (false, error)
+}
+
+/// reader thread 2 本を **上限付き**で回収する (順位 323)。
+///
+/// [`kill_process_tree`] が成功していれば孫も死んでパイプが閉じるため、実際にはほぼ
+/// 即座に返る。上限が要るのは kill が失敗し得るから (権限 / race / `taskkill` 不在):
+/// 素の `join()` はその場合に孫の自然終了までブロックし、**timeout の保証が
+/// 「kill が成功すること」に依存した条件付き**のものになる ([ADR-043])。
+///
+/// 猶予は 2 本で共有する ([`JOIN_GRACE_MS`] を全体の deadline とする)。1 本ずつ
+/// 上限を与えると最悪 2 倍待つことになり、上限の意味が薄れる。
+/// 回収できなかった thread は detach され、プロセス終了時に道連れになる。
+fn join_within_grace(
+    stdout_handle: JoinHandle<String>,
+    stderr_handle: JoinHandle<String>,
+) -> (String, String) {
+    let deadline = Instant::now() + Duration::from_millis(JOIN_GRACE_MS);
+    let stdout_rx = forward_join(stdout_handle);
+    let stderr_rx = forward_join(stderr_handle);
+    (
+        recv_until(&stdout_rx, deadline),
+        recv_until(&stderr_rx, deadline),
+    )
+}
+
+/// `JoinHandle` を channel に載せ替えて、時間制限付きで待てるようにする
+/// (`std` の `JoinHandle` に時限 join が無いため)。
+fn forward_join(handle: JoinHandle<String>) -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(handle.join().unwrap_or_default());
+    });
+    rx
+}
+
+fn recv_until(rx: &mpsc::Receiver<String>, deadline: Instant) -> String {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    rx.recv_timeout(remaining).unwrap_or_default()
 }
 
 /// コマンド文字列を OS のシェル経由で実行する `Command` を組み立てる (WP-15)。
@@ -252,6 +358,12 @@ fn kill_and_join_err(
 /// **cmd.exe と sh でシェル構文は互換ではない**点に注意 (`%VAR%` vs `$VAR`、
 /// パス区切り、`&` の意味)。config に書く step の `cmd` は両者で解釈が一致する
 /// 書き方 (プレーンなコマンド + `/` 区切り相対パス) に揃えること。
+///
+/// Unix では child を新しいプロセスグループのリーダーにする (`process_group(0)`、
+/// 順位 323)。[`kill_process_tree`] が孫まで終了させるのに pgid を必要とするため —
+/// Windows の `taskkill /T` に相当する「子孫を辿る」手段が Unix には無い。
+/// 副作用として child は端末のジョブ制御から外れるが、本 crate の callsite は
+/// すべて非対話 (gate / hook / pipeline) なので影響しない。
 pub fn shell_command(cmd: &str) -> Command {
     #[cfg(windows)]
     {
@@ -261,8 +373,10 @@ pub fn shell_command(cmd: &str) -> Command {
     }
     #[cfg(not(windows))]
     {
+        use std::os::unix::process::CommandExt;
         let mut command = Command::new("sh");
         command.args(["-c", cmd]);
+        command.process_group(0);
         command
     }
 }
@@ -279,6 +393,25 @@ pub fn shell_command(cmd: &str) -> Command {
 /// 受け、child の kill + reap と reader thread の join を行う。timeout 経路は
 /// `wait_with_timeout_basic` 自身が kill + reap する。結果として **どの失敗経路でも
 /// child は残らない**。
+///
+/// ## 失敗経路で孫まで殺す理由 (順位 323)
+///
+/// 失敗経路では [`kill_process_tree`] で**子孫ごと**終了させ、reader thread の回収は
+/// [`join_within_grace`] で上限付きにする。素朴に `child.kill()` + `join()` すると、
+/// シェルの孫がパイプを握ったまま生き残って join がブロックし、timeout が事実上
+/// 無効になっていた (実測: timeout 1s に対し 3 variant とも 9.59s)。
+///
+/// **採らなかった案: 失敗経路で join せず detach する。** 制御は確実に戻るが、
+/// 孫は孤児として走り続ける。本 crate の callsite (quality_gate / push / merge) は
+/// cargo や jj のような重いコマンドを起動するので、孤児が残ると次の実行と資源を
+/// 奪い合い、`.failed` marker を残す orphan takt (#286) と同じクラスの実害を生む。
+/// tree kill なら制御が戻る速さ**と**孤児の除去を同時に満たせるため、そちらを採った。
+/// detach は「kill が失敗したら」の保険としてのみ [`join_within_grace`] に残っている。
+///
+/// **テストで固定していない経路**: `kill_process_tree` 自体が失敗したとき
+/// ([`join_within_grace`] の猶予が効く経路) は回帰テストで固定できていない —
+/// kill の失敗を決定論的に再現する手段が無いため。tree kill が成功する経路は
+/// `orphan_tests` が、上限付き join の存在は本 doc が担保する。
 fn run_cmd_shell_with<F>(label: &str, cmd: &str, timeout_secs: u64, drain: F) -> (bool, String)
 where
     F: Fn(Box<dyn Read + Send>) -> JoinHandle<String>,
@@ -300,8 +433,13 @@ where
         Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
     };
 
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
+    let (stdout, stderr) = match exit_status {
+        None => join_within_grace(stdout_handle, stderr_handle),
+        Some(_) => (
+            stdout_handle.join().unwrap_or_default(),
+            stderr_handle.join().unwrap_or_default(),
+        ),
+    };
     let combined = combine_output(&stdout, &stderr);
 
     match exit_status {
@@ -371,297 +509,12 @@ pub fn run_cmd_shell_unlimited(label: &str, cmd: &str, timeout_secs: u64) -> (bo
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    #[test]
-    fn combine_output_both_present_inserts_newline() {
-        assert_eq!(combine_output("out", "err"), "out\nerr");
-    }
+#[cfg(test)]
+#[path = "non_utf8_tests.rs"]
+mod non_utf8_tests;
 
-    #[test]
-    fn combine_output_only_stdout_returns_stdout() {
-        assert_eq!(combine_output("out", ""), "out");
-    }
-
-    #[test]
-    fn combine_output_only_stderr_returns_stderr() {
-        assert_eq!(combine_output("", "err"), "err");
-    }
-
-    #[test]
-    fn combine_output_both_empty_returns_empty() {
-        assert_eq!(combine_output("", ""), "");
-    }
-
-    #[test]
-    fn combine_output_stdout_trailing_newline_does_not_insert_separator() {
-        assert_eq!(combine_output("out\n", "err"), "out\nerr");
-    }
-
-    use std::process::Stdio;
-
-    /// timeout 経路を踏ませるための「十分に長く走る」コマンド (両 OS で約 10 秒、WP-15)。
-    ///
-    /// `exit 0` / `exit 1` / `echo hello` は cmd.exe と POSIX sh の双方で同じ意味に
-    /// 解釈されるためテスト内に直接書けるが、「長時間走る」「N 行吐く」は構文が非互換
-    /// なので cfg で出し分ける。**振る舞い (所要時間 / 出力行数) は両 OS で揃えること** —
-    /// ここがズレると片方の OS だけ timeout / truncation を検証しない抜け穴になる。
-    #[cfg(windows)]
-    const LONG_RUNNING_CMD: &str = "ping 127.0.0.1 -n 10";
-    #[cfg(not(windows))]
-    const LONG_RUNNING_CMD: &str = "sleep 10";
-
-    /// capped variant の cap (40 行) を超える 60 行を吐くコマンド。
-    /// POSIX 側は `seq` が無い最小環境でも動くよう while ループで書く。
-    #[cfg(windows)]
-    const EMIT_60_LINES_CMD: &str = "(for /L %i in (1,1,60) do @echo line %i)";
-    #[cfg(not(windows))]
-    const EMIT_60_LINES_CMD: &str = "i=1; while [ $i -le 60 ]; do echo line $i; i=$((i+1)); done";
-
-    fn spawn_quick_exit() -> std::process::Child {
-        shell_command("exit 0")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to spawn quick-exit command")
-    }
-
-    fn spawn_long_running() -> std::process::Child {
-        shell_command(LONG_RUNNING_CMD)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to spawn long-running command")
-    }
-
-    #[test]
-    fn wait_with_timeout_safe_returns_exit_status_on_quick_completion() {
-        let mut child = spawn_quick_exit();
-        let result = wait_with_timeout_safe("test", &mut child, 10).expect("safe wait failed");
-        assert!(result.is_some(), "child should have exited cleanly");
-        assert!(result.unwrap().success(), "exit 0 should report success");
-    }
-
-    #[test]
-    fn wait_with_timeout_safe_kills_child_on_timeout() {
-        let mut child = spawn_long_running();
-        let result = wait_with_timeout_safe("test", &mut child, 1).expect("safe wait failed");
-        assert!(result.is_none(), "timeout path should return Ok(None)");
-        assert!(
-            child.try_wait().expect("try_wait after kill failed").is_some(),
-            "child should be reaped after safe-variant timeout",
-        );
-    }
-
-    #[test]
-    fn wait_with_timeout_basic_returns_exit_status_on_quick_completion() {
-        let mut child = spawn_quick_exit();
-        let result = wait_with_timeout_basic("test", &mut child, 10).expect("basic wait failed");
-        assert!(result.is_some(), "child should have exited cleanly");
-        assert!(result.unwrap().success(), "exit 0 should report success");
-    }
-
-    #[test]
-    fn wait_with_timeout_basic_kills_child_on_timeout() {
-        let mut child = spawn_long_running();
-        let result = wait_with_timeout_basic("test", &mut child, 1).expect("basic wait failed");
-        assert!(result.is_none(), "timeout path should return Ok(None)");
-        assert!(
-            child.try_wait().expect("try_wait after kill failed").is_some(),
-            "child should be reaped after basic-variant timeout",
-        );
-    }
-
-    use std::io::Cursor;
-
-    #[test]
-    fn drain_pipe_unlimited_reads_entire_input_and_trims_trailing_whitespace() {
-        let input = Cursor::new(b"line1\nline2\nline3\n".to_vec());
-        let handle = drain_pipe_unlimited(input);
-        assert_eq!(handle.join().unwrap(), "line1\nline2\nline3");
-    }
-
-    #[test]
-    fn drain_pipe_unlimited_preserves_long_output_without_truncation() {
-        let input: String = (0..500).map(|i| format!("line{}\n", i)).collect();
-        let expected: String = (0..500)
-            .map(|i| format!("line{}", i))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let handle = drain_pipe_unlimited(Cursor::new(input.into_bytes()));
-        assert_eq!(handle.join().unwrap(), expected);
-    }
-
-    #[test]
-    fn drain_pipe_capped_truncates_silently_at_max_lines() {
-        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
-        let handle = drain_pipe_capped(input, 3);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc");
-    }
-
-    #[test]
-    fn drain_pipe_capped_returns_all_lines_when_under_cap() {
-        let input = Cursor::new(b"only\ntwo\n".to_vec());
-        let handle = drain_pipe_capped(input, 100);
-        assert_eq!(handle.join().unwrap(), "only\ntwo");
-    }
-
-    #[test]
-    fn truncation_notice_uses_plural_form_for_multiple_lines() {
-        assert_eq!(truncation_notice(2), "... (2 lines truncated)");
-    }
-
-    #[test]
-    fn truncation_notice_uses_singular_form_for_one_line() {
-        assert_eq!(truncation_notice(1), "... (1 line truncated)");
-    }
-
-    #[test]
-    fn drain_pipe_capped_reporting_appends_truncation_summary_when_over_cap() {
-        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
-        let handle = drain_pipe_capped_reporting(input, 3);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc\n... (2 lines truncated)");
-    }
-
-    #[test]
-    fn drain_pipe_capped_reporting_omits_summary_when_within_cap() {
-        let input = Cursor::new(b"a\nb\n".to_vec());
-        let handle = drain_pipe_capped_reporting(input, 10);
-        assert_eq!(handle.join().unwrap(), "a\nb");
-    }
-
-    #[test]
-    fn drain_pipe_capped_n_minus_1_keeps_all() {
-        let input = Cursor::new(b"a\nb\nc\nd\n".to_vec());
-        let handle = drain_pipe_capped(input, 5);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd");
-    }
-
-    #[test]
-    fn drain_pipe_capped_n_keeps_all() {
-        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
-        let handle = drain_pipe_capped(input, 5);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd\ne");
-    }
-
-    #[test]
-    fn drain_pipe_capped_n_plus_1_truncates_one() {
-        let input = Cursor::new(b"a\nb\nc\nd\ne\nf\n".to_vec());
-        let handle = drain_pipe_capped(input, 5);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd\ne");
-    }
-
-    #[test]
-    fn drain_pipe_capped_reporting_n_minus_1_keeps_all_omits_summary() {
-        let input = Cursor::new(b"a\nb\nc\nd\n".to_vec());
-        let handle = drain_pipe_capped_reporting(input, 5);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd");
-    }
-
-    #[test]
-    fn drain_pipe_capped_reporting_n_keeps_all_omits_summary() {
-        let input = Cursor::new(b"a\nb\nc\nd\ne\n".to_vec());
-        let handle = drain_pipe_capped_reporting(input, 5);
-        assert_eq!(handle.join().unwrap(), "a\nb\nc\nd\ne");
-    }
-
-    #[test]
-    fn drain_pipe_capped_reporting_n_plus_1_truncates_one_appends_summary() {
-        let input = Cursor::new(b"a\nb\nc\nd\ne\nf\n".to_vec());
-        let handle = drain_pipe_capped_reporting(input, 5);
-        assert_eq!(
-            handle.join().unwrap(),
-            "a\nb\nc\nd\ne\n... (1 line truncated)",
-        );
-    }
-
-    #[test]
-    fn run_cmd_shell_capped_returns_true_on_exit_zero() {
-        let (ok, _output) = run_cmd_shell_capped("test", "exit 0", 10, 40);
-        assert!(ok, "exit 0 should report success");
-    }
-
-    #[test]
-    fn run_cmd_shell_capped_returns_false_on_exit_nonzero() {
-        let (ok, _output) = run_cmd_shell_capped("test", "exit 1", 10, 40);
-        assert!(!ok, "exit 1 should report failure");
-    }
-
-    #[test]
-    fn run_cmd_shell_capped_captures_stdout_within_cap() {
-        let (ok, output) = run_cmd_shell_capped("test", "echo hello", 10, 40);
-        assert!(ok);
-        assert!(
-            output.contains("hello"),
-            "stdout should be captured: {:?}",
-            output,
-        );
-    }
-
-    #[test]
-    fn run_cmd_shell_capped_reports_timeout_with_message() {
-        let (ok, output) = run_cmd_shell_capped("test", LONG_RUNNING_CMD, 1, 40);
-        assert!(!ok, "timeout should report failure");
-        assert!(
-            output.starts_with("timed out after 1s"),
-            "timeout message expected: {:?}",
-            output,
-        );
-    }
-
-    #[test]
-    fn run_cmd_shell_capped_reporting_returns_true_on_exit_zero() {
-        let (ok, _output) = run_cmd_shell_capped_reporting("test", "exit 0", 10, 40);
-        assert!(ok, "exit 0 should report success");
-    }
-
-    #[test]
-    fn run_cmd_shell_capped_reporting_reports_timeout_with_message() {
-        let (ok, output) = run_cmd_shell_capped_reporting("test", LONG_RUNNING_CMD, 1, 40);
-        assert!(!ok, "timeout should report failure");
-        assert!(
-            output.starts_with("timed out after 1s"),
-            "timeout message expected: {:?}",
-            output,
-        );
-    }
-
-    #[test]
-    fn run_cmd_shell_unlimited_returns_true_on_exit_zero() {
-        let (ok, _output) = run_cmd_shell_unlimited("test", "exit 0", 10);
-        assert!(ok, "exit 0 should report success");
-    }
-
-    #[test]
-    fn run_cmd_shell_unlimited_returns_false_on_exit_nonzero() {
-        let (ok, _output) = run_cmd_shell_unlimited("test", "exit 1", 10);
-        assert!(!ok, "exit 1 should report failure");
-    }
-
-    /// 本 variant の存在理由: capped variant が silent truncate する行数を超えても
-    /// 全行が戻り値に残ること (= control flow 判定に使える)。
-    #[test]
-    fn run_cmd_shell_unlimited_preserves_output_beyond_the_capped_variant_cap() {
-        let cmd = EMIT_60_LINES_CMD;
-        let (ok, output) = run_cmd_shell_unlimited("test", cmd, 30);
-        assert!(ok, "command should succeed: {:?}", output);
-        assert_eq!(
-            output.lines().count(),
-            60,
-            "all lines must survive; unlimited variant must not truncate: {:?}",
-            output,
-        );
-    }
-
-    #[test]
-    fn run_cmd_shell_unlimited_reports_timeout_with_message() {
-        let (ok, output) = run_cmd_shell_unlimited("test", LONG_RUNNING_CMD, 1);
-        assert!(!ok, "timeout should report failure");
-        assert!(
-            output.starts_with("timed out after 1s"),
-            "timeout message expected: {:?}",
-            output,
-        );
-    }
-}
+#[cfg(test)]
+#[path = "orphan_tests.rs"]
+mod orphan_tests;
