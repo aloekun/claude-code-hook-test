@@ -396,38 +396,6 @@
 
 ---
 
-### post-merge feedback の pre-push reports を対象 PR の全 run 集約に拡張 (PR #268 post-merge-feedback T2-1 採用)
-
-> **動機**: `find_latest_prepush_reports_dir()` は「最新 1 run」のみを feedback の分析ソースにするため、複数回 push した PR では最後の push 分に分析が偏る。PR #267 の feedback でも「参照した pre-push run は WP-11 status 更新 (docs-only の最終 push) のみが対象」という evidence-scope 注記が付いた実観測あり。対象 PR の commit 範囲内の全 pre-push-review run を集約し、`post-merge-feedback-context.json` の `prepush_reports_dir` を配列化、`analyze-prepush-reports.md` facet も複数 dir 対応に更新する。
->
-> **再発・優先度見直し (2026-07-19、#300/#301 feedback)**: PR-N2 (#300) / PR-N3 (#301) の feedback で同型 gap が Severity High で再発。根因は本エントリの集約範囲より上流の **push-runner `[diff]` stage** (`push-runner-config.toml` の `[diff] command = "jj diff -r @"`) が **tip コミットのみ**を AI レビュー用 diff に書き出す点。複数コミットを 1 回の `pnpm push` でまとめて送ると、tip 以外の祖先コミット (例 #300 の `resolve_main_workspace_root()` 実装、#301 の `Cargo.toml`/`main.rs` 変更) が local security/simplicity レビューを一度も経ずに merge される (security-review.md が実 diff と矛盾して "docs-only / No dependency changes" と記載)。**単一 push では pre-push run 自体が 1 回のみ**のため、本エントリの「全 run 集約」だけでは救えない。よって本エントリの実装時に、(a) `[diff]` stage の diff 範囲を `docs_only_routing` と同様に `<default_branch>..@` (PR 範囲) へ拡張し、(b) `bookmark_check.rs` の `@` 非 trunk 祖先が未レビューのまま push される穴 (T8 / PR #280 と同クラス) の検証を併せて行う。`docs_only_routing.rs` の skip 判定は既に `<default_branch>..@` に修正済みだが `[diff]` stage 自体は未修正で非対称。ADR-027 (push-time review を diff-local に限定し範囲外は CodeRabbit backstop) の trade-off 射程が security-review にも及ぶかはユーザー判断待ち。
->
-> **(a) 実装済 (2026-07-21)**: PR #311 で 4 回目の再発 (695 行の PR に対しレビュー対象 37 行、security-review が実 diff と矛盾して "docs-only / No dependency changes" と記載) を観測し、`[diff]` stage を修正した。top-level `default_branch` を新設して `diff` / `docs_only_routing` / `pr_size_check` の 3 stage が同一解決を共有し、`[diff] command` は `{{PR_RANGE}}` プレースホルダ経由で範囲を受け取る (config に revset を直書きできない)。加えて生成 diff が PR 範囲の全変更ファイルを含むかを `jj diff --summary` と突き合わせる**範囲カバレッジ検査**を fail-closed で追加し、config の書き方に依存せず「レビュー範囲 < PR 範囲」を検知できるようにした (未更新の派生プロジェクト config も捕まる)。順位 264 (`--git` 形式切替) も同 PR で同時実施 (範囲検査が `diff --git` ヘッダを読む要件と重なるため)。**ADR-027 の射程についてのユーザー判断**: 範囲拡張のレビュー時間コストを実測したところ 37 行 4m32s → 1011 行 4m43s (**+11 秒**) で、ADR-027 の速度改善は arch-review facet 除去によるものであり diff 範囲縮小は寄与していないことが判明したため、範囲拡張を採用した。
->
-> **(a) 完了 (2026-08-18)**: 「post-merge feedback の全 run 集約」を実装した。push-runner が takt の task label へ bookmark 名を埋め込み (`build_task_label`)、merge 側が PR の `headRefName` と突き合わせて**この PR の run だけを全件**採る (`find_prepush_reports_dirs`)。`prepush_reports_dir` は配列 `prepush_reports_dirs` へ変更し、facet instruction も複数 dir 対応にした。照合できない run は除外する (誤帰属より欠落を選ぶ)。同時に順位 336 (対象 PR と照合せず辞書順で最新 1 件を採る欠陥) も解消した。
->
-> **残タスク**: 上記 (b) `bookmark_check.rs` の祖先未レビュー穴の検証のみ。
->
-> **参照**: `.claude/feedback-reports/268.md` Tier 2 #1 / `.claude/feedback-reports/300.md` Tier1 #1 / `.claude/feedback-reports/301.md` Tier1 #1、`src/cli-merge-pipeline/src/feedback/context.rs` (`find_latest_prepush_reports_dir`)、`push-runner-config.toml` (`[diff]` section)、`src/cli-push-runner/src/stages/diff.rs`・`src/cli-push-runner/src/stages/bookmark_check.rs`、`src/cli-push-runner/src/config/docs_only_routing.rs` (既に PR 範囲へ修正済の対照)、`.takt/facets/instructions/analyze-prepush-reports.md`、[ADR-027](adr/adr-027-push-review-simplicity-focus.md)
->
-> **実行優先度**: 🚀 Tier 1 — Severity High (review gate の silent 覆域縮小が 3 PR 連続で再発) / Frequency Medium (複数コミットを 1 push する運用で恒常発生) / Effort M。context スキーマ変更 + facet 更新 + `[diff]` stage 修正 + テストを伴うため独立 PR 推奨 (旧 Tier 2 から昇格)。
-
-#### 作業計画
-
-- [x] **`[diff]` stage の diff 範囲を `<default_branch>..@` (PR 範囲) に拡張** — 祖先コミットの code 変更も AI レビュー用 diff に含める (`docs_only_routing` の skip 判定と同基準に揃える)。**PR #311/#313 で実装済** (上記 (a) 参照。範囲カバレッジ検査 + config-load 時の `{{PR_RANGE}}` 必須検証込み)。
-- [ ] `bookmark_check.rs` で `@` 非 trunk 祖先が未レビューのまま push される穴を検証・塞ぐ (T8 / PR #280 と同クラス)。
-- [x] 対象 PR の pre-push run dir を列挙する関数に拡張 (2026-08-18 実装。task label の bookmark 名で照合)。時刻範囲のみでの絞り込みは対象外 run の混入・対象 run の欠落を招くため、対象 PR のコミット範囲や関連 bookmark 名など複数の識別根拠を突き合わせて対象 run を判定すること (`.takt/runs/*-pre-push-review`)
-- [x] context json の `prepush_reports_dir` を配列化 (2026-08-18 実装。`prepush_reports_dirs` へ改名、旧形式との互換は持たず移行期間の空振りを許容) + facet instruction を複数 dir 対応に (スキーマ契約変更のため: 全 reader の列挙 + 旧 string 形式との後方互換 or schema versioning + 空配列時の挙動を明記)
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 複数 push した PR の feedback が、時刻範囲だけでなく対象 PR のコミット範囲等の追加の識別根拠に基づいて集約された、全 pre-push run のレポートを分析対象にすること。
-- 複数コミットを 1 回で push した PR でも、tip 以外の祖先コミットの code 変更が pre-push AI レビュー (security/simplicity) の diff に含まれること (#300/#301 の "docs-only 誤認" が起きないこと)。
-- `bookmark_check` が `<default_branch>..@` の各祖先コミットと pre-push review 証跡を対応付け、いずれかが未レビューなら **fail-closed** で push を拒否すること ([ADR-043](adr/adr-043-security-gates-fail-closed.md))。レビュー済み・未レビュー祖先の両ケースを回帰テストで seal。
-
----
-
 ### push-runner の stack push モード (opt-in、YAGNI につき見送り継続)
 
 > **動機**: `bookmark_check.rs` の `OWN_WORKSPACE_BOOKMARKS_REVSET = "@"` (厳密一致) は、stacked bookmark 運用 (`feature/base` → `feature/api` → `feature/ui` を `@` 先頭で一括 push) では `@` の bookmark だけでは不足するというトレードオフを持つ。現状その運用実績はなく、必要になった時点で明示オプトインの stack push モード (`[push] stack_push` 等) を追加する拡張余地として記録する。

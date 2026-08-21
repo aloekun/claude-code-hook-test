@@ -10,13 +10,35 @@
 //! Stage 配置: `run_pipeline` の最早期 (scratch_file_warning の前)。bookmark 不在
 //! は push 自体が不可能な状態のため、最優先で fail-fast する。
 //!
-//! 中断理由は 2 ケースあり、案内文を出し分ける (T8 / `BookmarkCheckOutcome`)。
-//! 両者を同じ文面に潰すと、`@` が空のときに `jj bookmark create -r @` (= 空コミットに
-//! bookmark を付ける破壊的操作) へ誤誘導する。中断メッセージは本 stage が出力し、
-//! `main.rs` 側では重複させない。
+//! 中断理由は複数あり、案内文を出し分ける (T8 / `BookmarkCheckOutcome` の全 variant)。
+//! 数を doc に書かない: 変種が増えるたびに数値だけが古くなり、`BookmarkCheckOutcome`
+//! の定義が唯一の真実源であるべきところを doc が上書きしてしまう。異なる原因を同じ
+//! 文面に潰すと、`@` が空のときに `jj bookmark create -r @` (= 空コミットに bookmark を
+//! 付ける破壊的操作) へ誤誘導する。中断メッセージは本 stage が出力し、`main.rs` 側では
+//! 重複させない。
 //!
-//! fail-open: `jj bookmark list` 実行失敗 (timeout / 起動失敗) 時は warning ログ
-//! のみで push を続行する。jj 不調で push 自体を止めない設計。
+//! fail-closed: `jj bookmark list` 実行失敗 (timeout / 起動失敗) 時は push を止める
+//! (順位 288(b) / [ADR-043])。旧実装は warning ログのみで `Some(空)` を返して続行して
+//! いたが、この 1 経路が**本 stage の判定を丸ごと迂回する**穴だった:
+//!
+//! - 空リストは `push` stage の `build_push_command` が `-b <name>` を組み立てられない
+//!   条件で、base command (`jj git push`) がそのまま実行される。jj 0.42 の bare push は
+//!   **tracked bookmark を全件**送るため、レビュー範囲 (`<default_branch>..@`) の外にある
+//!   他 workspace / 夜間ループの bookmark まで push される (ADR-045 事故で `--all` を
+//!   廃止した理由そのもの)。
+//! - `@` の空判定・description 判定 (`HeadState::Unknown` / `DescUnknown` を fail-closed に
+//!   倒す分岐) は list 成功後にしか走らないため、この経路では一度も評価されない。
+//!
+//! 発火条件は現実的で、並列 workspace 運用 (ADR-045) の jj lock 競合による timeout は
+//! diff stage が T6 で塞いだものと同クラス。`Ok` 側の挙動は従来どおりで、jj が復調すれば
+//! 再実行で通るためバイパス手段 (env override) は設けない (他の fail-closed 判定と同じ流儀)。
+//!
+//! 順位 288 の「祖先が未レビューのまま push される穴」のうち、レビュー対象 diff の範囲
+//! そのものは本 stage ではなく `[diff]` stage 側で閉じている: config load 時に
+//! `{{PR_RANGE}}` の使用を必須化 (`config::validate_diff_pr_range`) し、生成 diff が PR
+//! 範囲の全変更ファイルを含むかを `verify_diff_covers_pr_range` が fail-closed で検査する。
+//! 本 stage の責務は「**push が実際に送る ref を、レビューした範囲に対応する 1 件へ絞る**」
+//! ことで、絞れなかったときに続行しないのが上記の fail-closed である。
 //!
 //! 設計上の non-config: `jj git push` は bookmark を必須とする仕様で、本 stage を
 //! バイパスする正当な use case は存在しない。よって `[bookmark_check]` config
@@ -80,25 +102,38 @@ fn advance_lagging_bookmark() {
 /// 検出した名前は push stage の `-b <name>` 組み立てに使う (ADR-045 事故 follow-up:
 /// `--all` push が他 workspace の bookmark を巻き込む問題の対策)。
 ///
-/// fail-open: jj 実行失敗時は warning ログのみで `Some(空)` を返し、push 自体は止めない
-/// (push stage は空リストなら base コマンドをそのまま実行する)。
+/// fail-closed: jj 実行失敗時も `None` を返して push を止める (順位 288(b) / [ADR-043])。
+/// 理由は module doc 参照。
+///
+/// **戻り値の不変条件**: `Some` を返すとき、中身は必ず 1 件以上ある
+/// (`BookmarkCheckOutcome::Proceed` は非空のときしか作られず、`Some(空)` を作る経路は
+/// 上記 fail-closed 化で消えた)。push stage の「空リストなら base コマンドをそのまま
+/// 実行する」fallback は、`-b`/`--all` 等を明示する派生プロジェクトの config 専用の
+/// 経路として残っている。
 fn detect_own_workspace_bookmarks() -> Option<Vec<String>> {
-    let raw = match run_jj_bookmark_list(OWN_WORKSPACE_BOOKMARKS_REVSET) {
-        Ok(output) => output,
-        Err(e) => {
-            log_info(&format!(
-                "bookmark_check: jj bookmark list 失敗、検査を skip して push を続行します: {}",
-                e
-            ));
-            return Some(Vec::new());
-        }
-    };
-    let outcome = decide_bookmark_check(
-        parse_non_trunk_bookmarks(&raw),
-        query_head_state(),
+    let outcome = decide_from_bookmark_list(
+        run_jj_bookmark_list(OWN_WORKSPACE_BOOKMARKS_REVSET),
+        query_head_state,
         query_parent_state,
     );
     report_outcome(outcome)
+}
+
+/// `jj bookmark list` の実行結果を `BookmarkCheckOutcome` に落とす。jj 実行から
+/// 切り離して単体テスト可能にする (`decide_bookmark_check` と同じ流儀)。
+///
+/// `head_state` を closure で受けるのは、list に失敗した時点で `@` の状態照会
+/// (更に 2 回の jj 実行) を走らせないため — 中断は既に確定しており、不調な jj を
+/// もう一度叩いても案内は変わらない。
+fn decide_from_bookmark_list(
+    raw: Result<String, String>,
+    head_state: impl FnOnce() -> HeadState,
+    parent: impl FnOnce() -> ParentState,
+) -> BookmarkCheckOutcome {
+    match raw {
+        Ok(raw) => decide_bookmark_check(parse_non_trunk_bookmarks(&raw), head_state(), parent),
+        Err(reason) => BookmarkCheckOutcome::BookmarkListUnavailable { reason },
+    }
 }
 
 /// `@-` の状態を照会する。照会失敗と「親はあるが bookmark 無し」を潰さない
@@ -217,6 +252,9 @@ enum BookmarkCheckOutcome {
     /// `@` の説明有無を判定できなかった (jj 不調)。push は止めるが、原因が
     /// 判定失敗であることを案内する (CodeRabbit #431)。
     UndeterminedWorkingCopy,
+    /// `jj bookmark list` 自体が失敗し、push 対象 bookmark を特定できなかった
+    /// (順位 288(b))。`@` の状態は照会していないので、状態については何も主張しない。
+    BookmarkListUnavailable { reason: String },
 }
 
 /// push 可否を 3 ケースに切り分ける (T8)。
@@ -253,7 +291,7 @@ fn decide_bookmark_check(
 }
 
 fn report_outcome(outcome: BookmarkCheckOutcome) -> Option<Vec<String>> {
-    match outcome {
+    let aborted = match outcome {
         BookmarkCheckOutcome::Proceed(bookmarks) => {
             log_stage(
                 "bookmark",
@@ -263,41 +301,72 @@ fn report_outcome(outcome: BookmarkCheckOutcome) -> Option<Vec<String>> {
                     bookmarks.join(", ")
                 ),
             );
-            Some(bookmarks)
+            return Some(bookmarks);
         }
-        BookmarkCheckOutcome::EmptyWorkingCopy { parent } => {
-            log_stage("bookmark", &empty_working_copy_summary(&parent));
-            log_info(&empty_working_copy_hint(&parent));
-            None
+        other => other,
+    };
+    let (summary, hint) = abort_report(aborted);
+    log_stage("bookmark", &summary);
+    log_info(&hint);
+    None
+}
+
+/// `Proceed` 以外の `BookmarkCheckOutcome` から (stage ログ用 summary, 対処案内) を
+/// 組み立てる。
+///
+/// 出力を戻り値にして `report_outcome` の副作用から切り離す: 案内文の内容
+/// (「`@` が空」と言ってよいか、`jj edit @-` を勧めてよいか) が過去 3 度の
+/// 誤案内の火元なので、ログを見ずに単体テストで直接 assert できるようにする。
+fn abort_report(outcome: BookmarkCheckOutcome) -> (String, String) {
+    match outcome {
+        BookmarkCheckOutcome::Proceed(_) => {
+            unreachable!("Proceed は report_outcome が先に処理する")
         }
-        BookmarkCheckOutcome::NoBookmarks => {
-            log_stage("bookmark", "ローカル bookmark (非 trunk) が見つかりません");
-            log_info(
-                "  push 不可: `jj git push` は bookmark が必要です。\n  \
-                 対処: `jj bookmark create <name> -r @` で bookmark を作成して再実行してください\n  \
-                 例: `jj bookmark create feat/my-feature -r @`",
-            );
-            None
-        }
-        BookmarkCheckOutcome::UndeterminedWorkingCopy => {
-            log_stage("bookmark", "@ の状態を判定できませんでした (push 不可)");
-            log_info(
-                "  push 不可: jj の照会に失敗し、`@` に description があるか確認できませんでした。\n  \
-                 対処: `jj log -r @` で状態を確認し、jj の不調が解消してから再実行してください\n  \
-                 注意: `@` が空とは限りません (空判定自体は成功しています)",
-            );
-            None
-        }
-        BookmarkCheckOutcome::DesclessWorkingCopy => {
-            log_stage("bookmark", "@ に description がありません (push 不可)");
-            log_info(
-                "  push 不可: jj は説明なしコミットを push できません (`Won't push commit ... no description`)。\n  \
-                 対処: `jj describe -m \"<説明>\"` で説明を付けるか、`jj squash -u` で親コミットへ畳んで再実行してください\n  \
-                 注意: この状態で `jj bookmark create -r @` はしないこと (push 不能な bookmark になります)",
-            );
-            None
-        }
+        BookmarkCheckOutcome::EmptyWorkingCopy { parent } => (
+            empty_working_copy_summary(&parent),
+            empty_working_copy_hint(&parent),
+        ),
+        BookmarkCheckOutcome::NoBookmarks => (
+            "ローカル bookmark (非 trunk) が見つかりません".to_string(),
+            "  push 不可: `jj git push` は bookmark が必要です。\n  \
+             対処: `jj bookmark create <name> -r @` で bookmark を作成して再実行してください\n  \
+             例: `jj bookmark create feat/my-feature -r @`"
+                .to_string(),
+        ),
+        BookmarkCheckOutcome::UndeterminedWorkingCopy => (
+            "@ の状態を判定できませんでした (push 不可)".to_string(),
+            "  push 不可: jj の照会に失敗し、`@` に description があるか確認できませんでした。\n  \
+             対処: `jj log -r @` で状態を確認し、jj の不調が解消してから再実行してください\n  \
+             注意: `@` が空とは限りません (空判定自体は成功しています)"
+                .to_string(),
+        ),
+        BookmarkCheckOutcome::DesclessWorkingCopy => (
+            "@ に description がありません (push 不可)".to_string(),
+            "  push 不可: jj は説明なしコミットを push できません (`Won't push commit ... no description`)。\n  \
+             対処: `jj describe -m \"<説明>\"` で説明を付けるか、`jj squash -u` で親コミットへ畳んで再実行してください\n  \
+             注意: この状態で `jj bookmark create -r @` はしないこと (push 不能な bookmark になります)"
+                .to_string(),
+        ),
+        BookmarkCheckOutcome::BookmarkListUnavailable { reason } => (
+            format!("jj bookmark list に失敗しました (push 不可): {}", reason),
+            bookmark_list_unavailable_hint(),
+        ),
     }
+}
+
+/// `jj bookmark list` 失敗時の対処案内 (順位 288(b))。
+///
+/// **「なぜ止めるか」を書く**のは、この中断が jj の不調という一見無関係な理由で
+/// 出るため: 理由が分からないと override 手段を探す方向に人が動く。実害
+/// (レビュー範囲外の ref が push される) を明示して、jj の復調を待つ方へ誘導する。
+fn bookmark_list_unavailable_hint() -> String {
+    "  push 不可: push 対象の bookmark を特定できませんでした。\n  \
+     このまま続行すると `jj git push` が tracked bookmark を全件送るため、\n  \
+     レビュー範囲 (`<default_branch>..@`) 外のコミット (他 workspace / 夜間ループの\n  \
+     bookmark) が AI レビューを経ずに push されます。\n  \
+     対処: `jj bookmark list -r @` が通ることを確認し、jj の不調 (lock 競合 / 応答遅延) が\n  \
+     解消してから再実行してください"
+        .to_string()
 }
 
 fn empty_working_copy_summary(parent: &ParentState) -> String {
@@ -382,316 +451,4 @@ fn run_jj_bookmark_list(revset: &str) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_non_trunk_typical_output() {
-        let output = "\
-feat/xyz: abc1234 add feature
-  @origin: abc1234 add feature
-main: def5678 initial
-  @origin: def5678 initial
-";
-        assert_eq!(parse_non_trunk_bookmarks(output), vec!["feat/xyz"]);
-    }
-
-    #[test]
-    fn parse_non_trunk_multiple_feature_bookmarks() {
-        let output = "\
-feat/a: 111 desc
-feat/b: 222 desc
-main: 333 desc
-";
-        assert_eq!(parse_non_trunk_bookmarks(output), vec!["feat/a", "feat/b"]);
-    }
-
-    #[test]
-    fn parse_non_trunk_only_trunk_returns_empty() {
-        let output = "main: abc123 desc\nmaster: def456 desc\n";
-        assert!(parse_non_trunk_bookmarks(output).is_empty());
-    }
-
-    #[test]
-    fn parse_non_trunk_empty_output_returns_empty() {
-        assert!(parse_non_trunk_bookmarks("").is_empty());
-    }
-
-    #[test]
-    fn parse_non_trunk_skips_indented_remote_lines() {
-        let output = "\
-feat/xyz: abc1234 desc
-  @origin: abc1234 desc
-  @upstream: abc1234 desc
-";
-        assert_eq!(parse_non_trunk_bookmarks(output), vec!["feat/xyz"]);
-    }
-
-    #[test]
-    fn parse_non_trunk_filters_out_master_and_main() {
-        let output = "\
-feat/branch1: abc desc
-master: def desc
-feat/branch2: ghi desc
-main: jkl desc
-";
-        assert_eq!(
-            parse_non_trunk_bookmarks(output),
-            vec!["feat/branch1", "feat/branch2"]
-        );
-    }
-
-    #[test]
-    fn parse_non_trunk_handles_single_feature_bookmark() {
-        let output = "feat/single: abc desc\n";
-        assert_eq!(parse_non_trunk_bookmarks(output), vec!["feat/single"]);
-    }
-
-    /// `classify_head_state` (SIM-NEW-bookmark_check-L165 対応): jj 実行結果から
-    /// `HeadState` への分類を jj subprocess から切り離して直接検証する。
-    /// `query_head_state()`/`working_copy_is_empty()` 自体は実 jj repo が要るため
-    /// 単体テストできないが、fail closed 判定の核心はこの分類ロジックにある。
-    #[test]
-    fn classify_head_state_maps_ok_true_to_empty() {
-        assert_eq!(classify_head_state(Ok(true)), HeadState::Empty);
-    }
-
-    #[test]
-    fn classify_head_state_maps_ok_false_to_not_empty() {
-        assert_eq!(classify_head_state(Ok(false)), HeadState::NotEmpty);
-    }
-
-    #[test]
-    fn classify_desc_state_maps_described_to_not_empty() {
-        assert_eq!(classify_desc_state(Ok(true)), HeadState::NotEmpty);
-    }
-
-    #[test]
-    fn classify_desc_state_maps_descless_to_descless() {
-        assert_eq!(classify_desc_state(Ok(false)), HeadState::Descless);
-    }
-
-    /// CodeRabbit #431: 説明判定の失敗は push を止めるが、`@` が空とは案内しない。
-    /// `Unknown` (空判定自体の失敗) と混ぜると「`@` が空です」と事実と異なる案内になる。
-    #[test]
-    fn classify_desc_state_maps_err_to_desc_unknown_fail_closed() {
-        assert_eq!(
-            classify_desc_state(Err("timeout".to_string())),
-            HeadState::DescUnknown,
-            "説明判定の失敗は push を止める側へ倒す (Won't push の分かりにくい失敗より早期案内)"
-        );
-    }
-
-    #[test]
-    fn decide_desc_unknown_does_not_claim_empty_working_copy() {
-        let outcome = decide_bookmark_check(Vec::new(), HeadState::DescUnknown, || {
-            panic!("DescUnknown では @- 照会に進まないこと (空前提の案内をしない)")
-        });
-        assert_eq!(
-            outcome,
-            BookmarkCheckOutcome::UndeterminedWorkingCopy,
-            "空判定は成功しているので EmptyWorkingCopy に倒してはいけない"
-        );
-    }
-
-    /// 順位 386: 説明なし `@` は bookmark の有無より先に Descless へ倒し、
-    /// `jj bookmark create -r @` (push 不能 bookmark の作成) へ誤誘導しない。
-    #[test]
-    fn decide_descless_head_yields_descless_outcome_before_bookmark_checks() {
-        let outcome = decide_bookmark_check(Vec::new(), HeadState::Descless, || {
-            panic!("Descless では @- 照会に進まないこと")
-        });
-        assert_eq!(outcome, BookmarkCheckOutcome::DesclessWorkingCopy);
-
-        let outcome = decide_bookmark_check(
-            vec!["feat/x".to_string()],
-            HeadState::Descless,
-            || panic!("Descless では @- 照会に進まないこと"),
-        );
-        assert_eq!(
-            outcome,
-            BookmarkCheckOutcome::DesclessWorkingCopy,
-            "bookmark があっても説明なし @ は push させない"
-        );
-    }
-
-    #[test]
-    fn classify_head_state_maps_err_to_unknown_fail_closed() {
-        assert_eq!(
-            classify_head_state(Err("jj bookmark list タイムアウト (30s)".to_string())),
-            HeadState::Unknown
-        );
-    }
-
-    /// T8 incident 再現テスト群 (ADR-049 の流儀: 1 test = 1 failure mode + good/bad)。
-    ///
-    /// 由来 incident: PR #279 (T1) の dogfood push で発火した以下の状態。
-    ///
-    /// ```text
-    /// @   zxxkpomz (empty) "WIP: next work"      ← 空の working copy
-    /// @-  nvmysvqk perf/lint-screen-evals-opt-in ← bookmark はここ
-    /// ```
-    ///
-    /// `advance_jj_bookmarks` が「bookmark を `@-` に自動更新」と報告した直後に、
-    /// bookmark_check が `@` 厳密一致で「bookmark が見つかりません」と報告し、
-    /// `jj bookmark create <name> -r @` (= 空コミットに bookmark を付ける破壊的操作)
-    /// へ誤誘導していた。`docs/push-pipeline-fix-plan.md` §4 T8 の再現記録が仕様。
-    mod t8_empty_head_misdirection {
-        use super::*;
-
-        fn parent_without_bookmarks() -> ParentState {
-            ParentState::Available {
-                bookmarks: Vec::new(),
-            }
-        }
-
-        fn parent_with(name: &str) -> ParentState {
-            ParentState::Available {
-                bookmarks: vec![name.to_string()],
-            }
-        }
-
-        /// incident 再現 (bad): `@` が空 + bookmark が `@-`。
-        /// 「bookmark 皆無」(= 作成案内が正しいケース) と取り違えてはならない。
-        #[test]
-        fn decide_empty_head_with_parent_bookmark_is_not_no_bookmarks() {
-            let outcome = decide_bookmark_check(Vec::new(), HeadState::Empty, || {
-                parent_with("perf/lint-screen-evals-opt-in")
-            });
-            assert_eq!(
-                outcome,
-                BookmarkCheckOutcome::EmptyWorkingCopy {
-                    parent: parent_with("perf/lint-screen-evals-opt-in")
-                }
-            );
-        }
-
-        /// 前段の別症状 (good): bookmark が皆無かつ `@` が空でない場合は
-        /// 既存の作成案内が正しいので `NoBookmarks` のまま維持する。
-        #[test]
-        fn decide_no_bookmarks_when_head_is_not_empty() {
-            let outcome =
-                decide_bookmark_check(Vec::new(), HeadState::NotEmpty, parent_without_bookmarks);
-            assert_eq!(outcome, BookmarkCheckOutcome::NoBookmarks);
-        }
-
-        /// `@` が空 + `@-` にも bookmark が無い場合も push 不可。
-        #[test]
-        fn decide_empty_head_without_parent_bookmark_reports_empty_working_copy() {
-            let outcome =
-                decide_bookmark_check(Vec::new(), HeadState::Empty, parent_without_bookmarks);
-            assert_eq!(
-                outcome,
-                BookmarkCheckOutcome::EmptyWorkingCopy {
-                    parent: parent_without_bookmarks()
-                }
-            );
-        }
-
-        /// 既存の成功経路 (good): `@` が非空で bookmark があれば続行する。
-        #[test]
-        fn decide_proceeds_when_head_is_not_empty_and_has_bookmark() {
-            let outcome =
-                decide_bookmark_check(vec!["feat/xyz".to_string()], HeadState::NotEmpty, || {
-                    panic!("`@` が非空なら @- を照会してはならない")
-                });
-            assert_eq!(
-                outcome,
-                BookmarkCheckOutcome::Proceed(vec!["feat/xyz".to_string()])
-            );
-        }
-
-        /// PR #280 CodeRabbit Major: bookmark が空の `@` に付いていても中断する。
-        /// 続行すると `jj diff -r @` が空になり、祖先の未 push 変更が AI レビューを
-        /// 経ずに push される (レビューバイパス)。
-        #[test]
-        fn decide_empty_head_with_bookmark_at_head_still_aborts() {
-            let outcome = decide_bookmark_check(
-                vec!["feat/xyz".to_string()],
-                HeadState::Empty,
-                parent_without_bookmarks,
-            );
-            assert_eq!(
-                outcome,
-                BookmarkCheckOutcome::EmptyWorkingCopy {
-                    parent: parent_without_bookmarks()
-                }
-            );
-        }
-
-        /// SIM-NEW-bookmark_check-L165 再現テスト (bad→fixed): `working_copy_is_empty()`
-        /// が jj 不調で失敗し `HeadState::Unknown` になった場合でも、bookmark が `@` に
-        /// 付いていれば以前は fail-open で `Proceed` に流れ込み、レビューバイパスを
-        /// 再生産していた。fail closed に直した今は `Unknown` も `Empty` と同じく中断する。
-        #[test]
-        fn decide_unknown_head_state_with_bookmark_at_head_still_aborts() {
-            let outcome = decide_bookmark_check(
-                vec!["feat/xyz".to_string()],
-                HeadState::Unknown,
-                parent_without_bookmarks,
-            );
-            assert_eq!(
-                outcome,
-                BookmarkCheckOutcome::EmptyWorkingCopy {
-                    parent: parent_without_bookmarks()
-                }
-            );
-        }
-
-        /// 2 ケースの取り違えを防ぐ核心: 案内文が bookmark の所在 (`@-`) を名指しする。
-        #[test]
-        fn summary_names_the_parent_bookmark_so_the_two_cases_are_distinguishable() {
-            let summary = empty_working_copy_summary(&parent_with("perf/xyz"));
-            assert!(summary.contains("perf/xyz"), "summary was: {}", summary);
-            assert!(summary.contains("@-"), "summary was: {}", summary);
-        }
-
-        #[test]
-        fn summary_without_parent_bookmark_omits_bookmark_name() {
-            let summary = empty_working_copy_summary(&parent_without_bookmarks());
-            assert!(summary.contains("空"), "summary was: {}", summary);
-        }
-
-        /// PR #280 CodeRabbit Major: `@-` を確認できないのに `jj edit @-` を案内しない。
-        #[test]
-        fn hint_does_not_advise_editing_parent_when_parent_is_unavailable() {
-            let hint = empty_working_copy_hint(&ParentState::Unavailable);
-            assert!(!hint.contains("jj edit @-"), "hint was: {}", hint);
-        }
-
-        /// `@-` を確認できた場合は実証済みの回避策 `jj edit @-` を案内する。
-        #[test]
-        fn hint_advises_editing_parent_when_parent_is_available() {
-            let hint = empty_working_copy_hint(&parent_with("perf/xyz"));
-            assert!(hint.contains("jj edit @-"), "hint was: {}", hint);
-        }
-
-        /// PR #280 simplicity-review warning: `@-` に bookmark が無い場合、`jj edit @-`
-        /// だけでは次に `NoBookmarks` で止まるため、bookmark 作成まで案内する。
-        #[test]
-        fn hint_also_advises_creating_bookmark_when_parent_has_none() {
-            let hint = empty_working_copy_hint(&parent_without_bookmarks());
-            assert!(hint.contains("jj edit @-"), "hint was: {}", hint);
-            assert!(hint.contains("jj bookmark create"), "hint was: {}", hint);
-        }
-
-        /// `@-` に bookmark がある場合は移動だけで足りるので、作成案内は出さない。
-        #[test]
-        fn hint_omits_bookmark_creation_when_parent_already_has_one() {
-            let hint = empty_working_copy_hint(&parent_with("perf/xyz"));
-            assert!(!hint.contains("jj bookmark create"), "hint was: {}", hint);
-        }
-
-        /// 親を確認できない場合の summary も `@-` の所在を騙らない。
-        #[test]
-        fn summary_when_parent_unavailable_does_not_claim_a_parent_bookmark() {
-            let summary = empty_working_copy_summary(&ParentState::Unavailable);
-            assert!(summary.contains("空"), "summary was: {}", summary);
-            assert!(
-                !summary.contains("@- にあります"),
-                "summary was: {}",
-                summary
-            );
-        }
-    }
-}
+mod tests;

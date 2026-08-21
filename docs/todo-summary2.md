@@ -45,7 +45,6 @@
 | 285 | 🔧 Tier 2 | **jj keyword を含む commit message の tokenization edge-case テスト (PR #267 post-merge-feedback T2-2 採用)** | todo15.md | S | なし (順位 283 と表裏。283 の着手有無に関わらず現行挙動を regression test で固定する価値が独立して残る。283 と同一 PR 消化が効率的) |
 | 286 | 🔧 Tier 2 | **config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)** | todo15.md | M | なし (FIXED 済 cwd-config bug の regression guard。既存テストは pure parser のみで file-lookup 経路未カバー。Severity High、Adoption Risk = OS 依存) |
 | 287 | 💎 Tier 3 | **「config 読み hook は exe-relative 解決必須」convention の明文化 (PR #267 post-merge-feedback T3-1 採用)** | todo15.md | XS | なし (順位 281 の文書層補完。**281 と同一 PR bundle 推奨**、別作業に切り出す価値は低い) |
-| 288 | 🚀 Tier 1 | **pre-push review が PR 全体をカバーしない — bookmark_check の祖先未レビュー穴 (PR #268/#300/#301 feedback 採用)** | todo15.md | M | なし (【(a) 完了】`[diff]` stage の PR 範囲化は 2026-07-21、全 run 集約は 2026-08-18 に実装済み。**残は (b) `bookmark_check.rs` の `@` 非 trunk 祖先が未レビューのまま push される穴**) |
 | 293 | ⏳ Tier 5 | **push-runner の stack push モード (opt-in、YAGNI につき見送り継続)** | todo15.md | M | なし (stacked bookmark 運用の実績が現状なく、必要になった時点で着手する opt-in 拡張として記録のみ) |
 | 294 | 💎 Tier 3 | **jj-op-verify hook の位置づけ再整理 — 並列 workspace 安全化ではなく混線緩和層として再分類** | todo15.md | S | なし (検知対象は出力混線の症状であり並列 workspace とは独立に価値を持つ。ADR-045→ADR-053 の枠組みへ紐付け直すドキュメント再整理のみ) |
 | 295 | 💎 Tier 3 | **ADR-045 にコミット消失事故の「並列原因」診断が未検証である旨の注記追加** | todo15.md | XS | なし (診断は事後の自己分析に依拠し一次証拠未到達。混線起因の可能性も残ることを confirmation bias の記録として注記) |
