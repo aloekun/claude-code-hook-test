@@ -20,8 +20,8 @@
 | D | fix(coderabbit-review): レビュー実施の陽性証拠を facet/prompt 層にも要求する | 318 + 320 | 実装済み。**318 は全項目・320 は決定論層が既に実装済みだった**ため、facet gap 修正 + 後始末に縮小 |
 | E | fix(ci): 監視系 workflow の誤動作修正 | 319 + 431 | **実装済み。** 319 は案 (a)+(b) 併用 (body 空 review の除外 + head SHA 冪等キー)、431 は rate-limit を red で落とす方式。**431 は台帳の前提がずれていた** (下表参照)。エントリ後始末は実走観測後 |
 | F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | **完了** ([PR #430](https://github.com/aloekun/claude-code-hook-test/pull/430))。246 は前提消滅 + 連結 regression test、292 は token 方式 + **takeover 排他化** (レビューで 8/8 同時取得を実測)、385 は不採用を記録 |
-| G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | **実装済み。** 386 は使い捨て jj リポジトリでの実測 (advance なしで 1 サイクル +1 段 / advance が説明なしコミットへ移る) を根拠に、検出の深さ非依存化 + advance の description 基準化の両輪。387 は**警告 (証拠保全)** を採用 |
-| H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | 未着手 |
+| G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | **完了** ([PR #431](https://github.com/aloekun/claude-code-hook-test/pull/431))。386 は実測を根拠に検出の深さ非依存化 + advance の description 基準化の両輪。387 は**警告 (証拠保全)** を採用 |
+| H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | **実装済み。** 3 件とも台帳と実態のずれなし。376 は案 (a) (@ の bookmark のみ前進)、254 は実装側で remote tracking ref を優先解決、322 は配置ベース検出を第 2 層に追加 (`__*` パターンが gitignore で**デッド**だったことも実測で判明) |
 | I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | 未着手 |
 | J | fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に | 233 | 未着手 |
 | K | fix(subprocess): timeout の孫プロセス穴を塞ぐ | 323 | 未着手 |
@@ -296,11 +296,13 @@
 - **不具合**: 2026-08-06 実観測。スタック push 時に **@ の祖先にあたる非 trunk bookmark をすべて @ へ前進**させ、レビュー済み PR #361 の bookmark が #363 の tip を指した (gate が止めなければ silent 混入)。Severity High。
 - **対処**: 自動前進の対象を絞る — 案 (a) 「@ と同一コミットを指す bookmark」のみ、案 (b) push 対象として解決した 1 本のみ。どちらも単一ブランチ運用の挙動は不変。実装は bookmark stage。
 - **回帰テスト**: スタック構成で前進しないこと + 単一ブランチ構成で従来どおり前進すること (**両方向**)。
+- **結果 (2026-08-21)**: **案 (a)** を採用。前進対象を `(trunk()..target) & bookmarks()` から **target が指すコミットの bookmark のみ**へ変更した。使い捨て jj リポジトリで実測すると、スタック構成 (pr1=@-, pr2=@) で旧実装は `feat/pr1, feat/pr2, master` を返し**レビュー済み pr1 まで前進**していたのに対し、新実装は `feat/pr2` のみ。単一ブランチ構成 (solo=@-, @ 空) では両者とも `feat/solo` を返し**挙動不変**。実 jj 統合テスト 2 本 (両方向) + 変異テストで、旧実装へ戻すとスタック側だけが FAILED し単一ブランチ側は ok のままになることを実測。
 
 ### 順位 254: pr_size_check の base をローカル master から remote tracking ref へ
 
 - **不具合**: `[pr_size_check] default_branch = "master"` がローカル bookmark 基準のため、並列 workspace でローカル master が遅延すると merge 済み PR 分を合算 (実 160 行 → 1604 行と誤 block、実害あり)。ADR-013 の `sync_local` は `master@origin` 原則を test で固定済み — 同じ原則を適用する。
 - **対処**: config を `master@origin` に変更するか、pr_size_check 側で remote tracking ref を優先解決する fallback を実装 (着手時判断)。`[file_length_gate] base` も同点検。ローカル master 遅延を模した revset 解決レベルの test を検討。
+- **結果 (2026-08-21、ユーザー判断)**: **実装側で remote tracking ref を優先解決**する方を採った。config を `master@origin` に書き換える案は、remote が無い / 名前が違う環境で revset 解決が**エラーになる** (jj 0.42 実測) ため派生プロジェクトへの配布で壊れる。実装は `Config::pr_range_revset` (revset 組立の唯一の点) に `preferred_base_ref` を挟む形で、**diff / docs_only_routing / pr_size_check の 3 stage が同時に直る**。解決できなければローカル名へ静かに戻す。再現も実測した — ローカル master を 3 commit 遅らせた構成で `master..@` = 4 commit / `master@origin..@` = 1 commit (台帳の「実 160 行 → 1604 行」と同じ構造)。**副次発見**: 既存の base 解決テスト 3 件が実 jj の `master@origin` 解決可否に依存していたため、I/O 注入版 (`pr_range_revset_with`) を足して環境非依存に戻した。
 
 ### 順位 322: scratch_file_warning が pattern 列挙 (deny-list) で新規命名をすり抜ける
 
@@ -308,8 +310,9 @@
 - **対処**: 先に再現確認 (post-merge-feedback 再実行で再現するか)。方式は (a) instruction facet への禁止明記 (助言層、**単独では不可**) + (b) repo root の追跡外新規ファイルを allow-list 以外すべて警告 (誤検知コスト見積もり要) または (c) root 未追跡 `*.py` 等の配置ベース判定 (本 repo は Rust + TS 構成なので高確度)。(a) + (b or c) の二層。
 - **回帰テスト**: `analyze_transcript.py` (同名再作成でよい) を実 fixture として固定 (ADR-049 流儀)。deny-list の限界を `scratch_file_warning.rs` の module doc に記録。
 - **完了基準**: takt run が root に残した一時ファイルが push 前に検出され、検出方式が pattern 列挙に依存しないこと。
+- **結果 (2026-08-21、ユーザー判断)**: **(c) 配置ベース**を第 2 層として採用 (pattern 層は subdirectory の `__scratch.rs` 等を拾うため残す)。root 直下 + スクリプト拡張子 (`py` / `sh` / `ps1` / `rb` / `pl`) を allow-list 以外すべて検出する。本 repo は Rust + TS 構成で root にスクリプトを置かないため誤検知が小さい。**台帳に無かった実測結果**: `.gitignore` に `__*` があるため `__foo.py` は `jj file list -r @` に現れず、**`__*` パターンは事実上デッド**だった (本 stage は @ commit のファイルを検査するため)。つまり pattern 層で実際に効いていたのは `_tmp_*` だけで、台帳の「列挙で先回りするのは原理的に不可能」は想定より深刻だった。この限界は `scratch_file_warning.rs` の module doc と config コメントに記録。回帰テストは `analyze_transcript.py` を実 fixture として固定し (ADR-049 流儀)、**旧 pattern では捕まらないことを対のテストで固定**した。
 
-**後始末**: todo20.md 376 節 / todo15.md 254 節 / todo17.md 322 節を削除、todo-summary2.md の 376 / 254 / 322 行を削除。
+**後始末**: todo20.md 376 節 / todo15.md 254 節 / todo17.md 322 節を削除、todo-summary2.md の 376 / 254 / 322 行を削除 — 実施済み (2026-08-21)。
 
 ---
 

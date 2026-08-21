@@ -22,6 +22,27 @@
 //! 順位 5 (AI 生成一時スクリプト pattern の pre-push 検出) は本 stage の patterns
 //! 拡張で補完的に実装する設計 (Bundle 3 で `_tmp_*` 追加済)。
 //!
+//! # deny-list (pattern 列挙) の限界 — 順位 322 で実測
+//!
+//! **名前の列挙で AI が付ける名前を先回りするのは原理的に不可能。** post-merge-feedback
+//! の takt run が repo root へ残した `analyze_transcript.py` は `__*` / `_tmp_*` の
+//! どちらにも一致せず素通りした (near-miss)。
+//!
+//! さらに実測 (jj 0.42) で構造的な穴が判明した: `.gitignore` に `__*` があるため
+//! `__foo.py` は **`jj file list -r @` に現れない**。本 stage は @ commit のファイルを
+//! 検査するので、**`__*` パターンは事実上デッド**である。実際に効いていたのは
+//! `_tmp_*` だけだった。
+//!
+//! ```text
+//! __probe.py         -> jj file list -r @ に出ない (gitignore __*) -> 検出不可
+//! _tmp_probe.txt     -> 出る -> 検出される
+//! analyze_probe.py   -> 出る -> pattern に一致せず素通り (これが順位 322)
+//! ```
+//!
+//! 対策として [`root_script_violations`] の**配置ベース判定**を第 2 層に足した。
+//! 名前ではなく「repo root 直下 + スクリプト拡張子」で見るため、命名を先回りする
+//! 必要が無い。pattern 層は subdirectory の `__scratch.rs` 等を拾うため残す。
+//!
 //! ADR-007 (custom linter layer boundary) との関係:
 //! - 本 stage = pre-push 時点で `@` commit 内の file path を `jj file list -r @` で
 //!   列挙して basename match で検査 (= push 直前の最終防衛層)
@@ -66,7 +87,7 @@ pub(crate) fn run_scratch_file_warning(config: Option<&ScratchFileWarningConfig>
             return true;
         }
     };
-    let violations = find_violations(&files, &patterns);
+    let violations = all_violations(&files, &patterns, &effective_root_allowlist(config));
     if violations.is_empty() {
         log_stage("scratch", "scratch ファイル検出なし");
         return true;
@@ -192,6 +213,116 @@ fn check_suffix(name: &str, suffix: &str) -> bool {
     suffix.is_empty() || name.ends_with(suffix)
 }
 
+/// repo root 直下で「本 repo の構成では現れないはず」のスクリプト拡張子 (順位 322)。
+///
+/// 本 repo は Rust + TypeScript 構成で、root 直下にこれらの拡張子のファイルは置かない
+/// (`scripts/` 配下の `.mjs` / `.ts` / `.sh` は対象外 = root 直下だけを見る)。
+pub(crate) const ROOT_SCRIPT_EXTENSIONS: &[&str] = &["py", "sh", "ps1", "rb", "pl"];
+
+/// [`ROOT_SCRIPT_EXTENSIONS`] に該当しても許可する root 直下のファイル名。
+pub(crate) const DEFAULT_ROOT_SCRIPT_ALLOWLIST: &[&str] = &[];
+
+/// **配置ベースの scratch 検出** (順位 322)。
+///
+/// ## deny-list (pattern 列挙) の限界
+///
+/// 既存の `patterns` は `__*` / `_tmp_*` のような**名前の列挙**で、
+/// **AI が付ける名前を先回りするのは原理的に不可能**。実際 post-merge-feedback の
+/// takt run が repo root に残した `analyze_transcript.py` はどの pattern にも
+/// 一致せず素通りした (順位 322 の near-miss)。
+///
+/// さらに実測で判明した構造的な穴: `.gitignore` に `__*` があるため、
+/// `__foo.py` は **`jj file list -r @` に現れない**。本 stage は @ commit の
+/// ファイルを検査するので、**`__*` パターンは事実上デッド**である
+/// (jj 0.42 実測: `__probe.py` は列挙されず、`_tmp_probe.txt` /
+/// `analyze_probe.py` は列挙される)。つまり pattern 層で実際に効いていたのは
+/// `_tmp_*` だけだった。
+///
+/// ## 配置ベースにした理由
+///
+/// 名前ではなく**置き場所と拡張子**で判定する。本 repo は Rust + TypeScript 構成で
+/// root 直下にスクリプトを置かない (`scripts/` 配下に集約) ため、
+/// 「root 直下の `.py` / `.sh` / `.ps1` 等」は高確度で一時ファイルである。
+/// 名前を先回りする必要が無く、AI が新しい命名を使っても捕まる。
+///
+/// allow-list は config で拡張できる (正当な root スクリプトが増えた場合)。
+pub(crate) fn root_script_violations(files: &[String], allowlist: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| is_root_level(file))
+        .filter(|file| {
+            let name = extract_basename(file);
+            has_script_extension(name) && !allowlist.iter().any(|a| a == name)
+        })
+        .cloned()
+        .collect()
+}
+
+/// repo root 直下か (サブディレクトリを含まないか)。
+/// **両方の区切り文字を見る。** Windows の jj 0.42 は `jj file list -r @` の出力に
+/// `\` を使う (実測: `sub\f.py` / `src\cli-push-runner\...`)。`/` だけを見ると
+/// **サブディレクトリのファイルを root 直下と誤判定**して誤検知になる。既存の
+/// [`extract_basename`] も両区切りを見ており、それと揃えている。
+///
+/// 逆に POSIX では `\` はファイル名に使える文字なので、`analyze\transcript.py` の
+/// ような名前を「サブディレクトリ」と読む理論上の誤判定がある (CodeRabbit #432 指摘)。
+/// **見送った** — 本 repo は Windows + WSL 運用でその名前は現れず、現れても結果は
+/// scratch 警告が出るだけの安全側で、`\` 判定を外したときの Windows 側の誤検知の方が
+/// 実害が大きい。OS で分岐させる案も、ADR-065 の CI matrix で両 OS を回している以上
+/// 「振る舞いが OS で変わる」形になるため採らない。
+fn is_root_level(path: &str) -> bool {
+    !path.contains('/') && !path.contains('\\')
+}
+
+/// [`ROOT_SCRIPT_EXTENSIONS`] のいずれかの拡張子を持つか (大文字小文字非依存)。
+fn has_script_extension(name: &str) -> bool {
+    match name.rsplit_once('.') {
+        Some((_, ext)) => {
+            let ext = ext.to_ascii_lowercase();
+            ROOT_SCRIPT_EXTENSIONS.contains(&ext.as_str())
+        }
+        None => false,
+    }
+}
+
+/// pattern 層 (deny-list) と配置ベース層の両方を適用し、重複を除いて返す (順位 322)。
+///
+/// 二層にするのは、どちらか片方では取りこぼすため:
+/// - pattern 層だけ: AI が付ける新しい名前 (`analyze_transcript.py` 等) を先回りできない
+/// - 配置ベース層だけ: サブディレクトリに置かれた `__scratch.rs` 等を拾えない
+pub(crate) fn all_violations(
+    files: &[String],
+    patterns: &[String],
+    root_allowlist: &[String],
+) -> Vec<String> {
+    let mut violations = find_violations(files, patterns);
+    for file in root_script_violations(files, root_allowlist) {
+        if !violations.contains(&file) {
+            violations.push(file);
+        }
+    }
+    violations
+}
+
+/// config の allow-list (未設定なら [`DEFAULT_ROOT_SCRIPT_ALLOWLIST`])。
+fn effective_root_allowlist(config: Option<&ScratchFileWarningConfig>) -> Vec<String> {
+    let configured: Vec<String> = config
+        .and_then(|c| c.root_script_allowlist.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if configured.is_empty() {
+        DEFAULT_ROOT_SCRIPT_ALLOWLIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        configured
+    }
+}
+
 fn find_violations(files: &[String], patterns: &[String]) -> Vec<String> {
     let mut violations = Vec::new();
     for file in files {
@@ -249,327 +380,8 @@ fn run_jj_file_list_at() -> Result<String, String> {
     }
 }
 
+// test module は別ファイルへ分離している (本体 800 行ガイドライン、順位 147)。
+// 分割方式は lock.rs 等と同じ `#[path]` 方式に揃えた。
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_file_list_basic() {
-        let raw = "src/main.rs\nsrc/lib.rs\n";
-        assert_eq!(
-            parse_file_list_output(raw),
-            vec!["src/main.rs", "src/lib.rs"]
-        );
-    }
-
-    #[test]
-    fn parse_file_list_skips_empty_lines() {
-        let raw = "src/main.rs\n\n\nsrc/lib.rs\n";
-        assert_eq!(
-            parse_file_list_output(raw),
-            vec!["src/main.rs", "src/lib.rs"]
-        );
-    }
-
-    #[test]
-    fn parse_file_list_trims_whitespace() {
-        let raw = "  src/main.rs  \n\tsrc/lib.rs\t\n";
-        assert_eq!(
-            parse_file_list_output(raw),
-            vec!["src/main.rs", "src/lib.rs"]
-        );
-    }
-
-    #[test]
-    fn parse_file_list_empty_returns_empty() {
-        assert_eq!(parse_file_list_output(""), Vec::<String>::new());
-    }
-
-    #[test]
-    fn extract_basename_forward_slash() {
-        assert_eq!(extract_basename("src/foo/bar.rs"), "bar.rs");
-    }
-
-    #[test]
-    fn extract_basename_backslash() {
-        assert_eq!(extract_basename(r"src\foo\bar.rs"), "bar.rs");
-    }
-
-    #[test]
-    fn extract_basename_no_separator() {
-        assert_eq!(extract_basename("foo.rs"), "foo.rs");
-    }
-
-    #[test]
-    fn extract_basename_mixed_separators() {
-        assert_eq!(extract_basename(r"src/foo\bar.rs"), "bar.rs");
-        assert_eq!(extract_basename(r"src\foo/bar.rs"), "bar.rs");
-    }
-
-    #[test]
-    fn extract_basename_trailing_separator_returns_empty() {
-        assert_eq!(extract_basename("src/foo/"), "");
-    }
-
-    #[test]
-    fn matches_glob_prefix_wildcard() {
-        assert!(matches_glob("__foo", "__*"));
-        assert!(matches_glob("__", "__*"));
-        assert!(!matches_glob("foo__", "__*"));
-        assert!(!matches_glob("_foo", "__*"));
-    }
-
-    #[test]
-    fn matches_glob_suffix_wildcard() {
-        assert!(matches_glob("foo.tmp", "*.tmp"));
-        assert!(matches_glob(".tmp", "*.tmp"));
-        assert!(!matches_glob("foo.tmpx", "*.tmp"));
-    }
-
-    #[test]
-    fn matches_glob_prefix_and_suffix_wildcards() {
-        assert!(matches_glob("_tmp_file.ps1", "_tmp_*"));
-        assert!(matches_glob("__file.py", "__*.py"));
-        assert!(!matches_glob("__file.ps1", "__*.py"));
-    }
-
-    #[test]
-    fn matches_glob_single_middle_wildcard() {
-        assert!(matches_glob("foobazbar", "foo*bar"));
-        assert!(matches_glob("foobar", "foo*bar"));
-        assert!(!matches_glob("fooXY", "foo*bar"));
-    }
-
-    #[test]
-    fn matches_glob_three_part_pattern() {
-        assert!(matches_glob("mytest_x.ps1", "*test*.ps1"));
-        assert!(matches_glob("test.ps1", "*test*.ps1"));
-        assert!(!matches_glob("foo.ps1", "*test*.ps1"));
-    }
-
-    #[test]
-    fn matches_glob_no_wildcard_exact() {
-        assert!(matches_glob("foo", "foo"));
-        assert!(!matches_glob("foo.bar", "foo"));
-        assert!(!matches_glob("foo", "bar"));
-    }
-
-    #[test]
-    fn matches_glob_only_wildcard_matches_anything() {
-        assert!(matches_glob("anything", "*"));
-        assert!(matches_glob("", "*"));
-    }
-
-    #[test]
-    fn matches_glob_empty_pattern_exact() {
-        assert!(matches_glob("", ""));
-        assert!(!matches_glob("foo", ""));
-    }
-
-    #[test]
-    fn find_violations_detects_default_pattern() {
-        let files = vec![
-            "src/main.rs".to_string(),
-            "__test.ps1".to_string(),
-            "docs/__draft.md".to_string(),
-            "src/__scratch.rs".to_string(),
-        ];
-        let patterns = vec!["__*".to_string()];
-        let violations = find_violations(&files, &patterns);
-        assert_eq!(
-            violations,
-            vec![
-                "__test.ps1".to_string(),
-                "docs/__draft.md".to_string(),
-                "src/__scratch.rs".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn find_violations_empty_when_no_match() {
-        let files = vec!["src/main.rs".to_string(), "Cargo.toml".to_string()];
-        let patterns = vec!["__*".to_string()];
-        assert!(find_violations(&files, &patterns).is_empty());
-    }
-
-    #[test]
-    fn find_violations_multiple_patterns() {
-        let files = vec![
-            "__test.ps1".to_string(),
-            "_tmp_log.txt".to_string(),
-            "src/main.rs".to_string(),
-        ];
-        let patterns = vec!["__*".to_string(), "_tmp_*".to_string()];
-        let violations = find_violations(&files, &patterns);
-        assert_eq!(violations.len(), 2);
-        assert!(violations.contains(&"__test.ps1".to_string()));
-        assert!(violations.contains(&"_tmp_log.txt".to_string()));
-    }
-
-    #[test]
-    fn find_violations_reports_file_only_once_when_matching_multiple_patterns() {
-        let files = vec!["__test.tmp".to_string()];
-        let patterns = vec!["__*".to_string(), "*.tmp".to_string()];
-        let violations = find_violations(&files, &patterns);
-        assert_eq!(violations.len(), 1);
-    }
-
-    #[test]
-    fn find_violations_matches_basename_in_any_subdirectory() {
-        let files = vec![
-            "subdir/__hidden.txt".to_string(),
-            r"win\path\__hidden.txt".to_string(),
-            "__top.txt".to_string(),
-        ];
-        let patterns = vec!["__*".to_string()];
-        assert_eq!(find_violations(&files, &patterns).len(), 3);
-    }
-
-    #[test]
-    fn find_violations_ignores_dirname_prefix_match_when_basename_does_not_match() {
-        let files = vec!["__src/main.rs".to_string()];
-        let patterns = vec!["__*".to_string()];
-        assert!(find_violations(&files, &patterns).is_empty());
-    }
-
-    #[test]
-    fn find_violations_detects_tmp_prefix_pattern() {
-        let files = vec![
-            "_tmp_dump.txt".to_string(),
-            "_tmp_log.ps1".to_string(),
-            "_tmp_script.py".to_string(),
-            "src/main.rs".to_string(),
-        ];
-        let patterns = vec!["_tmp_*".to_string()];
-        let violations = find_violations(&files, &patterns);
-        assert_eq!(violations.len(), 3);
-        assert!(violations.contains(&"_tmp_dump.txt".to_string()));
-        assert!(violations.contains(&"_tmp_log.ps1".to_string()));
-        assert!(violations.contains(&"_tmp_script.py".to_string()));
-    }
-
-    #[test]
-    fn find_violations_with_dunder_and_tmp_patterns_combined() {
-        let files = vec![
-            "__scratch.ps1".to_string(),
-            "_tmp_dump.txt".to_string(),
-            "src/main.rs".to_string(),
-            "Cargo.toml".to_string(),
-        ];
-        let patterns = vec!["__*".to_string(), "_tmp_*".to_string()];
-        let violations = find_violations(&files, &patterns);
-        assert_eq!(violations.len(), 2);
-        assert!(violations.contains(&"__scratch.ps1".to_string()));
-        assert!(violations.contains(&"_tmp_dump.txt".to_string()));
-    }
-
-    #[test]
-    fn find_violations_tmp_pattern_does_not_match_underscore_only() {
-        let files = vec!["_underscore_var.txt".to_string(), "_tmp.txt".to_string()];
-        let patterns = vec!["_tmp_*".to_string()];
-        let violations = find_violations(&files, &patterns);
-        assert!(violations.is_empty());
-    }
-
-    #[test]
-    fn parse_override_env_truthy() {
-        for v in [
-            "1", "true", "TRUE", "yes", "YES", "on", "On", " true ", "\tyes\n",
-        ] {
-            assert!(parse_override_env(Some(v)), "'{}' should be truthy", v);
-        }
-    }
-
-    #[test]
-    fn parse_override_env_falsy() {
-        for v in ["0", "false", "no", "off", "", "   ", "maybe", "enable"] {
-            assert!(!parse_override_env(Some(v)), "'{}' should be falsy", v);
-        }
-    }
-
-    #[test]
-    fn parse_override_env_none_is_false() {
-        assert!(!parse_override_env(None));
-    }
-
-    #[test]
-    fn effective_patterns_default_when_none() {
-        let p = effective_patterns(None);
-        assert_eq!(p, vec!["__*".to_string()]);
-    }
-
-    #[test]
-    fn effective_patterns_default_when_no_patterns_field() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: None,
-        };
-        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
-    }
-
-    #[test]
-    fn effective_patterns_default_when_empty_list() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: Some(vec![]),
-        };
-        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
-    }
-
-    #[test]
-    fn effective_patterns_uses_config_when_provided() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: Some(vec!["__*".to_string(), "_tmp_*".to_string()]),
-        };
-        assert_eq!(
-            effective_patterns(Some(&config)),
-            vec!["__*".to_string(), "_tmp_*".to_string()]
-        );
-    }
-
-    #[test]
-    fn effective_patterns_all_blank_falls_back_to_default() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: Some(vec!["".to_string(), "  ".to_string(), "\t".to_string()]),
-        };
-        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
-    }
-
-    #[test]
-    fn effective_patterns_mixed_blank_and_valid_keeps_only_valid() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: Some(vec![
-                "".to_string(),
-                "__*".to_string(),
-                "   ".to_string(),
-                "_tmp_*".to_string(),
-            ]),
-        };
-        assert_eq!(
-            effective_patterns(Some(&config)),
-            vec!["__*".to_string(), "_tmp_*".to_string()]
-        );
-    }
-
-    #[test]
-    fn effective_patterns_whitespace_padded_is_trimmed() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: Some(vec!["  __*  ".to_string()]),
-        };
-        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
-    }
-
-    #[test]
-    fn effective_patterns_mixed_filter_to_empty_falls_back_to_default() {
-        let config = ScratchFileWarningConfig {
-            enabled: Some(true),
-            patterns: Some(vec!["  ".to_string(), "\t".to_string()]),
-        };
-        assert_eq!(effective_patterns(Some(&config)), vec!["__*".to_string()]);
-    }
-}
+#[path = "scratch_file_warning/tests.rs"]
+mod tests;

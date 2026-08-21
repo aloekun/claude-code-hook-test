@@ -338,33 +338,6 @@
 - 4 項目がいずれも「由来 (どの PR のどの指摘か)」付きで dev-conventions.md に存在すること。
 - 既存 convention との重複記述が無いこと。
 
-### push-runner の bookmark 自動前進がスタック境界を壊す
-
-> **動機**: 2026-08-06 に実観測。#363 を #361 のブランチにスタックして `pnpm push` した際、push-runner が **@ の祖先にあたる非 trunk bookmark をすべて @ へ前進させた**。結果 `feat/draft-pr-backpressure` (#361、レビュー済み・push 済み) が #363 の tip を指す状態になった。
->
-> 今回は直後の PR size gate が停止したため remote への影響は無かったが、**gate を通っていれば #361 に #363 のコミットが混入していた**。レビュー済み PR の内容が silent に変わる経路であり、気付けるとは限らない。
->
-> 該当ログは push-runner の bookmark stage が出す「bookmark ... を @ に自動更新」2 行と「非 trunk bookmark 検出 (2 件)」。
->
-> なお当初は「全 bookmark を無差別に動かす」と誤認したが、#362 の push 時 (@ が別系統) には #361 の bookmark は動いていない。実際は **@ の祖先にあたる bookmark を前進させる**挙動で、スタック PR のときだけ境界を壊す。
->
-> **対処案**: 自動前進の対象を絞る。案 (a) 「@ と同一コミットを指す bookmark」のみ、案 (b) push 対象として解決した 1 本のみ。どちらでも通常運用 (単一ブランチ) の挙動は変わらず、スタック時のみ挙動が変わる。実装は `src/cli-push-runner` の bookmark stage。
->
-> **参照**: [ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md) (新規 bookmark push 戦略)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) (push-runner)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity High (レビュー済み PR の内容が silent に変わる) / Frequency Low (スタック PR を使うときのみ) / Effort S / Adoption Risk Low。
-
-#### 作業計画
-
-- [ ] bookmark stage の自動前進ロジックを特定し、対象を絞る条件を決める
-- [ ] スタック構成 (@ の祖先に別 bookmark がある) で前進しないことを回帰テストで固定する
-- [ ] 単一ブランチ構成で従来どおり前進することも同時に固定する (両方向の確認)
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- @ の祖先にある非 trunk bookmark が push 時に動かないこと。
-- 単一ブランチ運用の挙動が変わらないこと (回帰テストで両方向を固定)。
 
 ### 夜間ループの防御を検知から防止へ格上げする判断
 

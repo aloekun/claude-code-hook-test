@@ -15,6 +15,11 @@ use serde::Deserialize;
 pub(crate) struct ScratchFileWarningConfig {
     pub(crate) enabled: Option<bool>,
     pub(crate) patterns: Option<Vec<String>>,
+    /// repo root 直下で**許可する**スクリプト拡張子付きファイル名 (順位 322)。
+    ///
+    /// 配置ベース判定 (`root_script_violations`) の例外リスト。未設定なら
+    /// [`DEFAULT_ROOT_SCRIPT_ALLOWLIST`] を使う。
+    pub(crate) root_script_allowlist: Option<Vec<String>>,
 }
 
 #[cfg(test)]

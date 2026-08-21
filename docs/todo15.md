@@ -118,29 +118,6 @@
 
 ---
 
-### pr_size_check の base を remote tracking ref に変更 — 並列 workspace のローカル master 遅延による誤計測解消 (順位242 push で実観測)
-
-> **動機**: `push-runner-config.toml` `[pr_size_check]` の `default_branch = "master"` が revset `master..@` のローカル bookmark 基準のため、ADR-045 並列 workspace 運用でローカル `master` (workspace 間共有) が誰にも advance されず遅延していると、過去の merge 済み PR 分を合算して誤計測する。順位 242 の push で実害: 実 diff +123/-35 (~160 行) が「1604 行 > block_threshold 1500」と誤 block され、直前の PR #239/#240 push でも warning 閾値 (800) を静かに誤超過していた。ADR-013 では `sync_local` が「remote tracking ref (`master@origin`) を使い bare local bookmark を使わない」を test で固定済みで、同じ原則を pr_size_check にも適用すべき。
->
-> **参照**: `push-runner-config.toml` `[pr_size_check]`、`src/cli-push-runner` の pr_size_check stage、ADR-013 (sync_local の master@origin 原則 + 固定 test)、ADR-021 / 順位 250 (base branch config/arg 化の明文化、相補)、ADR-045 調整ポイント 2 (ローカル master 共有と遅延の前提)。
->
-> **実行優先度**: 🔧 Tier 2 — Effort XS-S。並列 workspace 運用が続く限り再発する (今回は手動 `jj bookmark set master -r master@origin` で復旧)。
-
-#### 作業計画
-
-- [ ] `[pr_size_check] default_branch` を `master@origin` に変更 (config 1 行) または pr_size_check 側で remote tracking ref を優先解決する fallback を実装 (着手時に判断、`[file_length_gate] base` も同点検)
-- [ ] ローカル master 遅延状態を模した test (revset 解決の単体レベル) を検討
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- ローカル `master` が遅延していても pr_size_check が「master@origin 以降の実 diff」だけを計測すること。
-
-#### 詰まっている箇所
-
-- なし (根因・復旧手順・実測値あり)。
-
----
 
 ### ADR-040 の実測値を新 GPU (RTX PRO 5000 48GB) で再 calibration (ADR-046 WP-01 スパイクで陳腐化を観測)
 
