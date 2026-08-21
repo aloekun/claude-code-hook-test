@@ -51,6 +51,22 @@ mod collect;
 
 use classify::{BranchVerdict, ClassifiedBranch};
 
+/// gh のために `GIT_DIR` を注入する。
+///
+/// **`--repo` があるときは導出失敗を警告しない** (順位 467 F-2)。警告文は
+/// 「gh の repo 解決が失敗しうる」という予測だが、`--repo <owner/name>` を渡していれば
+/// gh は git からリポジトリを解決しないので予測が成り立たず、毎回のノイズにしかならない
+/// (夜間 workflow は jj リポジトリ外で走るため実際に毎晩出ていた)。
+///
+/// 注入自体は `--repo` の有無に関わらず行う。`git ls-remote origin` のように **git 側が**
+/// リポジトリを要る経路は独立に残るため、注入まで止めるとそちらを壊す。
+fn inject_git_dir(cli: &Cli) {
+    lib_jj_helpers::inject_git_dir_for_gh_with(
+        |message| eprintln!("[stale-branch-scan] {message}"),
+        cli.repo.is_none(),
+    );
+}
+
 const USAGE: &str = "usage: cli-stale-branch-scan [--remote <name|url>] [--repo <owner/name>] \
      [--prefix <p>] [--deletable-only]";
 const DEFAULT_REMOTE: &str = "origin";
@@ -132,7 +148,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    lib_jj_helpers::inject_git_dir_for_gh(|message| eprintln!("[stale-branch-scan] {message}"));
+    inject_git_dir(&cli);
     let branches = match collect::fetch_remote_branches(&cli.remote) {
         Ok(branches) => branches,
         Err(message) => fail(&message),

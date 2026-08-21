@@ -111,6 +111,14 @@ category が複数該当する場合は最も特徴的な 1 つを採用、補�
 
 JSON は ADR-031 § Findings スキーマ準拠で `findings.json` というファイル名で write する (workflow の output contract では `name: findings.json` + `format: findings-json` として宣言されている — `findings.json` がファイル名、`findings-json` が契約 (format) 名)。
 
+**`findings.json` は raw JSON のみを書くこと。ファイルの先頭は `{`、末尾は `}`。**
+` ```json ` などのコードフェンスで囲んではならない。囲むと `/weekly-review` skill が
+ファイルを JSON parser にそのまま渡せず、手作業の strip が要る (2026-05-30 dogfood で
+実観測、todo 順位 181)。**この直後の JSON 例がフェンスの中にあるのは、この指示書を
+読みやすくするためであって、出力の形ではない** — 例のフェンス行 (` ```json ` と
+` ``` `) は書き出す内容に含めない。同じことが Phase 4 の Markdown report にも当てはまる
+(report 本文をフェンスで包まない)。
+
 > **`report_path` の所有権**: 下記 JSON 例の `report_path` field は **Phase C skill `/weekly-review` が copy 後の canonical location** を指す (`.claude/weekly-reviews/<date>.md`)。本 facet は `edit: false` のため自身で copy できないので、`report_path` field は将来 location を予告する形で記述する (= 「skill copy 後に存在する場所」を意味する forward-pointing 記述)。Phase C skill (`~/.claude/skills/weekly-review/SKILL.md`) Phase 2 が Report Directory から `.claude/weekly-reviews/<date>.md` に copy する責務を持つ。Phase C 未実装時 (= Phase B のみ稼働) は `report_path` は dead pointer になるが、Phase C skill が land した後は資源が realize される (PR #182 pre-push reviewer P-1 finding の Phase C 対応):
 
 ```json

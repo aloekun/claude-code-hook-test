@@ -137,6 +137,21 @@ fn strip_windows_verbatim_prefix(p: &std::path::Path) -> std::path::PathBuf {
 /// - 導出失敗 → warning ログのみで続行 (fail-soft — colocated では本機能自体が
 ///   不要であり、失敗時の挙動は従来と同じ「gh が repo 解決に失敗」に留まるため)
 pub fn inject_git_dir_for_gh(log_info: fn(&str)) {
+    inject_git_dir_for_gh_with(log_info, true);
+}
+
+/// [`inject_git_dir_for_gh`] と同じ注入を行い、**導出失敗の警告を出すかを選べる** 版
+/// (順位 467 F-2)。
+///
+/// `warn_when_unresolved = false` にするのは、呼び出し側が `gh --repo <owner/name>` の
+/// ように**リポジトリを明示していて、git からの解決を必要としない**場合。導出失敗の
+/// 警告は「gh の repo 解決が失敗しうる」という予測なので、その予測が成り立たない
+/// 呼び出しで出すと毎回のノイズにしかならない (夜間 workflow は jj リポジトリ外で
+/// 走るため、実際に毎晩出ていた)。
+///
+/// 注入そのものは条件に関わらず行う。`--repo` を渡していても `git ls-remote origin`
+/// のように git 側がリポジトリを要る経路は残るため、注入まで止めると別の経路を壊す。
+pub fn inject_git_dir_for_gh_with(log_info: fn(&str), warn_when_unresolved: bool) {
     if std::env::var_os("GIT_DIR").is_some() {
         return;
     }
@@ -154,10 +169,12 @@ pub fn inject_git_dir_for_gh(log_info: fn(&str)) {
             ));
         }
         GitDirResolution::Unresolved(reason) => {
-            log_info(&format!(
-                "[env] GIT_DIR 導出失敗 (gh の repo 解決は失敗する可能性): {}",
-                reason
-            ));
+            if warn_when_unresolved {
+                log_info(&format!(
+                    "[env] GIT_DIR 導出失敗 (gh の repo 解決は失敗する可能性): {}",
+                    reason
+                ));
+            }
         }
     }
 }

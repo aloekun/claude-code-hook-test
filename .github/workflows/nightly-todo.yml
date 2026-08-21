@@ -152,10 +152,65 @@ jobs:
           fi
           # 削除は App token で行う。job の GITHUB_TOKEN は contents: read しか持たない
           # (決定 8 § 副次効果 — agent が触れる唯一の資格情報を read-only に保つ)。
+          #
+          # **push は使い捨ての空リポジトリから行う。** checkout は 2 つとも `path:` 指定
+          # (master-ref / work) なので job の既定 cwd はリポジトリではなく、そこから
+          # `git push <url>` すると `fatal: not a git repository` (exit 128) で死ぬ
+          # (実測)。掃除対象が 1 件以上あった run は過去 40 回で 0 件のため、この経路は
+          # 一度も実行されておらず露見していなかった。checkout 側 (`git -C master-ref`)
+          # を使わないのは、actions/checkout が仕込む extraheader の資格情報が URL に
+          # 埋めた App token より優先されうるため — 空リポジトリなら継承する config が無い。
+          #
+          # 掃除対象の一覧は exe が別の ls-remote から作るため、そこから削除までの間に
+          # ref が動く / 消える窓がある。ここで守るのは 2 つ:
+          #
+          # 1. **他経路が push した作業を消さない**。観測した SHA を lease にして
+          #    compare-and-delete する。ref が動いていれば削除は拒否される
+          #    (実測: `! [rejected] (delete) -> X (stale info)` + exit 1 で ref は残る)。
+          # 2. **「既に消えている」で step 全体を落とさない** (決定 10: 設計された結末と
+          #    インフラ障害を同じ扱いにしない)。ネットワーク / 認証エラーは従来どおり落とす。
+          #
+          # lease の失敗は「消えた」と「動いた」を**区別しない** (実測: どちらも
+          # `stale info`)。よって失敗したら ls-remote で分類する — git の文言ではなく
+          # ref の実在で判定するので、メッセージの変更に引きずられない。
+          PUSH_URL="https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git"
+          # 出力に URL が混じっても token を露出させない (Actions の自動マスクへの多重防御)。
+          redact() { sed 's#x-access-token:[^@]*@#x-access-token:***@#g'; }
+          CLEANUP_REPO="$RUNNER_TEMP/cleanup-repo"
+          git init -q "$CLEANUP_REPO"
+          # ls-remote は URL 指定ならリポジトリ外でも動く (実測)。一致なしでも exit 0 +
+          # 空出力になるため、非 0 は「取得失敗」として落とす。
+          observe_ref() {
+            git ls-remote --heads "$PUSH_URL" "refs/heads/$1" 2>&1 | redact | head -n 1
+          }
           while IFS= read -r branch; do
             [ -n "$branch" ] || continue
-            git push "https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git" \
-              --delete "refs/heads/$branch"
+            if ! OBSERVED=$(observe_ref "$branch"); then
+              printf '%s\n' "$OBSERVED" >&2
+              echo "[NIGHTLY] ref の存在確認に失敗: $branch" >&2
+              exit 1
+            fi
+            if [ -z "$OBSERVED" ]; then
+              echo "[NIGHTLY] 既に削除済みのため skip: $branch"
+              continue
+            fi
+            EXPECTED_SHA=$(printf '%s' "$OBSERVED" | cut -f1)
+            if ! DELETE_OUTPUT=$(git -C "$CLEANUP_REPO" push \
+              --force-with-lease="refs/heads/$branch:$EXPECTED_SHA" \
+              "$PUSH_URL" --delete "refs/heads/$branch" 2>&1 | redact); then
+              if ! RECHECK=$(observe_ref "$branch"); then
+                printf '%s\n' "$RECHECK" >&2
+                echo "[NIGHTLY] 削除失敗後の再確認に失敗: $branch" >&2
+                exit 1
+              fi
+              if [ -z "$RECHECK" ]; then
+                echo "[NIGHTLY] 削除直前に消えていたため skip: $branch"
+                continue
+              fi
+              printf '%s\n' "$DELETE_OUTPUT" >&2
+              echo "[NIGHTLY] 削除を中止: $branch (観測後に ref が動いた = 他経路の作業がある)" >&2
+              exit 1
+            fi
             echo "[NIGHTLY] 削除: $branch"
           done < "$RUNNER_TEMP/deletable-branches.txt"
 
