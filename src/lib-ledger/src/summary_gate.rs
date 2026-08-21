@@ -102,8 +102,12 @@ fn summary_table_header(lines: &[&str], index: usize) -> Result<Option<usize>, S
     };
     if index + 1 >= lines.len() || !crate::is_separator_row(lines[index + 1]) {
         return Err(format!(
-            "{} 行目: 順位 table のヘッダ行の直後に区切り行がありません",
-            index + 1
+            "{}: 順位 table のヘッダ行の直後に区切り行がありません",
+            SourceLine {
+                number: index + 1,
+                text: lines[index],
+            }
+            .describe()
         ));
     }
     Ok(Some(rank_column))
@@ -135,11 +139,50 @@ fn consume_rows(
         entries.push(take_entry(
             &crate::split_cells(line),
             rank_column,
-            index + 1,
+            SourceLine {
+                number: index + 1,
+                text: line,
+            },
         )?);
         index += 1;
     }
     Ok(index)
+}
+
+/// エラーメッセージに載せる「どの行か」の情報 (順位 467 D-2)。
+///
+/// 行番号だけだと、summary が数千行あるうえ table が複数あるため、報告を受けた側は
+/// 結局ファイルを開いて数えることになる。**行の中身も一緒に出す**ことで、ログだけで
+/// 「何が読めなかったか」まで分かるようにする。
+pub(crate) struct SourceLine<'a> {
+    pub(crate) number: usize,
+    pub(crate) text: &'a str,
+}
+
+impl SourceLine<'_> {
+    /// エラー本文の先頭に付ける位置 + 中身の表示。
+    fn describe(&self) -> String {
+        format!("{} 行目 ({})", self.number, clip_for_message(self.text))
+    }
+}
+
+/// エラーメッセージに載せる文字列を上限で切り、切ったことを明示する。
+///
+/// 黙って切ると「これが全部」と誤読されるので必ず注記を付ける。
+///
+/// **メッセージに載る文字列はすべて本関数を通すこと** (PR #437 CodeRabbit Minor):
+/// 行全体だけを切って個々のセルを素通しにすると、長いセルが 1 つあるだけで上限が
+/// 意味を失う。実際、当初は順位セル (`{raw:?}`) が本関数を通っておらず、
+/// 「長い行は切る」という保証がその経路で崩れていた。
+fn clip_for_message(text: &str) -> String {
+    const MAX_CHARS: usize = 120;
+    let trimmed = text.trim();
+    let shown: String = trimmed.chars().take(MAX_CHARS).collect();
+    if trimmed.chars().count() > MAX_CHARS {
+        format!("{shown} …(以下略)")
+    } else {
+        shown
+    }
 }
 
 /// 順位 table の 1 行を [`SummaryEntry`] にする。
@@ -149,15 +192,21 @@ fn consume_rows(
 fn take_entry(
     cells: &[String],
     rank_column: usize,
-    line_number: usize,
+    line: SourceLine<'_>,
 ) -> Result<SummaryEntry, String> {
-    let raw = cells
-        .get(rank_column)
-        .ok_or_else(|| format!("{line_number} 行目: 順位 table の行に順位列がありません"))?;
-    let rank = raw
-        .trim()
-        .parse::<u32>()
-        .map_err(|_| format!("{line_number} 行目: 順位を整数として読めません: {raw:?}"))?;
+    let raw = cells.get(rank_column).ok_or_else(|| {
+        format!(
+            "{}: 順位 table の行に順位列がありません",
+            line.describe()
+        )
+    })?;
+    let rank = raw.trim().parse::<u32>().map_err(|_| {
+        format!(
+            "{}: 順位を整数として読めません: {:?}",
+            line.describe(),
+            clip_for_message(raw),
+        )
+    })?;
     let cell = |offset: usize| {
         cells
             .get(rank_column + offset)
@@ -332,6 +381,78 @@ mod tests {
     fn a_header_without_a_separator_row_is_an_error() {
         let markdown = "| 順位 | Tier | タスク | ファイル |\n| 203 | T2 | x | todo3.md |\n";
         assert!(parse_summary_ranks(markdown).is_err());
+    }
+
+    /// 順位 467 D-2: parse エラーの診断。
+    ///
+    /// summary は数千行あり table も複数あるため、行番号だけでは報告を受けた側が
+    /// ファイルを開いて数える羽目になる。**行の中身まで**メッセージに載せる。
+    mod rank467_parse_error_diagnostics {
+        use super::*;
+
+        fn error_of(markdown: &str) -> String {
+            parse_summary_ranks(markdown).expect_err("parse should fail")
+        }
+
+        /// 読めなかった行そのものがメッセージに出ること (bad → 診断可能)。
+        #[test]
+        fn a_non_numeric_rank_error_names_the_line_and_shows_it() {
+            let message = error_of(&summary(
+                "| 二百三 | T2 | テスト追加 | todo3.md | XS | なし |",
+            ));
+            assert!(message.contains("行目"), "{message}");
+            assert!(
+                message.contains("二百三"),
+                "読めなかった行の中身がメッセージに無い: {message}",
+            );
+        }
+
+        /// 区切り行欠落もヘッダ行の中身を出す (どの table か特定できるように)。
+        #[test]
+        fn a_missing_separator_error_shows_the_header_line() {
+            let message =
+                error_of("| 順位 | Tier | タスク | ファイル |\n| 203 | T2 | x | todo3.md |\n");
+            assert!(message.contains("行目"), "{message}");
+            assert!(
+                message.contains("順位") && message.contains("Tier"),
+                "ヘッダ行の中身がメッセージに無い: {message}",
+            );
+        }
+
+        /// 順位セル自体が長い場合も切ること (PR #437 CodeRabbit Minor)。
+        ///
+        /// 当初のテストは長い文字列を**タイトル列**に置いていたため、順位セルを
+        /// そのまま載せる経路 (`{raw:?}`) を一度も通っておらず、上限の保証が
+        /// 崩れていることに気づけなかった。**どのセル経由でも切れること**を固定する。
+        #[test]
+        fn a_very_long_rank_cell_is_truncated_too() {
+            let long_rank = "壱".repeat(400);
+            let message = error_of(&summary(&format!(
+                "| {long_rank} | T2 | テスト追加 | todo3.md | XS | なし |"
+            )));
+            assert!(message.contains("以下略"), "{message}");
+            assert!(
+                message.chars().count() < long_rank.chars().count(),
+                "順位セルがそのまま出ている: {} 文字",
+                message.chars().count(),
+            );
+        }
+
+        /// 長い行はログを潰さないよう切るが、**切ったことを明示する**。
+        /// 黙って切ると「この行が全部」と誤読される。
+        #[test]
+        fn a_very_long_line_is_truncated_and_says_so() {
+            let long_title = "あ".repeat(400);
+            let message = error_of(&summary(&format!(
+                "| 二百三 | T2 | {long_title} | todo3.md | XS | なし |"
+            )));
+            assert!(message.contains("以下略"), "{message}");
+            assert!(
+                message.chars().count() < long_title.chars().count(),
+                "長い行がそのまま出ている: {} 文字",
+                message.chars().count(),
+            );
+        }
     }
 
     /// 順位 220 以降は 2 つ目のファイルにある。呼び手が和集合を取ることを前提に、
