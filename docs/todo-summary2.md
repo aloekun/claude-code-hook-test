@@ -66,7 +66,6 @@
 | 316 | 💎 Tier 3 | **ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)** | todo16.md | S | なし (is_truthy の非対称性を case study 化。順位 317 と対) |
 | 317 | 💎 Tier 3 | **utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)** | todo16.md | XS | 順位 316 (ADR-044 明確化と対) |
 | 321 | 🔧 Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo17.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
-| 323 | 🚀 Tier 1 | **`lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)** | todo17.md | S | なし (quality_gate step_timeout / push timeout / cli-merge-pipeline のハング打ち切りが実質無効。#286 post-merge-feedback の orphan/stale marker と同根の実害 1 件観測済。回帰テストに経過時間 assert 必須 = T6 教訓) |
 | 324 | 🚀 Tier 1 | **`cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)** | todo17.md | XS | なし (T5 = PR #282 が cli-push-runner 側で塞いだ silent-failure push と同型の穴。出力は `run_cmd_direct` で全量取得済のため判定追加のみ) |
 | 326 | 🔧 Tier 2 | **並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)** | todo17.md | S (Phase 0) / M (Phase 1 条件付き) | なし (Phase 0 の需要調査で見落とし実績ゼロなら見送り = negative result 永続化。ADR-047 却下確定 = refute.yaml 削除 revert PR とは独立に進められる) |
 | 327 | 🔧 Tier 3 | **多段コミットの ADR/observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用: status 同期 / plain-text 参照 / セクション同期)** | todo17.md | S | なし (実害は各 PR review/feedback で捕捉済。doc checklist のみ、機械化は再発観測後にエスカレーション) |

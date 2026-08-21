@@ -32,37 +32,6 @@
 
 ---
 
-
-### `lib-subprocess` `run_cmd_shell_*` の timeout が wall-clock を縛れない — 孫プロセス残存で join がブロック (push-pipeline-fix-plan §6 backlog 10 移管)
-
-> **動機**: T6 (PR #283、diff stage の timeout 追加) の実装中に発見された共有 lib 側の同種欠陥 (push-pipeline-fix-plan §6 backlog 10 から移管。計画ファイルは T99 で削除予定のため要点を本エントリに転記済)。`lib-subprocess` の `run_cmd_shell_with` (= `run_cmd_shell_capped` / `_capped_reporting` / `_unlimited` 3 variant の共通骨格) は timeout 検知後に `child.kill()` → reader thread join するが、`cmd /c <command>` の**孫プロセス (実際の `cargo` / `jj` 等) は kill 対象外**で pipe の書き込み端を保持し続けるため EOF が来ず、**join が孫の自然終了までブロック**する。実測: `run_cmd_shell_capped` に `timeout_secs = 1` を指定したテストが返るまで 9.23s (`ping -n 10` の自然終了待ち)。既存テストは経過時間を assert しないため素通りしている。
->
-> **影響**: cli-push-runner の quality_gate (`step_timeout = 300`) と push (`timeout = 300`)、cli-merge-pipeline の step 実行 — ハングした `cargo test` / `jj git push` を timeout で打ち切れない (gate のハング保護が実質無効 = ADR-043 fail-closed の空洞化)。**同じ「Windows の `child.kill()` はプロセスツリーを殺せない」根因の実害が 2026-07-17 の post-merge-feedback #286 で発生**: `feedback::run_takt_workflow` の timeout kill (1200s) も descendants を殺せず (`feedback/mod.rs` が PR #78 時点から明記)、orphan takt が kill の約 3 分後に report を完成させたが、reconciliation は kill 直後の 1 回のみのため `.failed` marker が stale に残留。marker 記載の復旧手順 (takt 再実行) は context が後続 PR に上書き済みで誤 PR 分析を誘発する状態だった (2026-07-18 に orphan report の手動 copy で復旧済)。
->
-> **対処案** (§6 backlog 10 の分析より):
->
-> - **(a) T6 と同じ「失敗経路では join せず detach」**: 実績ある方式だが、`_capped` 系は表示用出力を捨てることになるためトレードオフの判断が要る (T6 の diff は timeout 時に出力不要だったので単純に採れた)。
-> - **(b) 孫まで殺す (`taskkill /T /F` or Job Object)**: orphan の発生自体を止められるため、post-merge-feedback の stale marker 問題 (上記) にも波及効果がある。Windows 固有実装の複雑さを見積もること。
-> - (b) を採らない場合、`feedback::reconcile_takt_output` の「reconciliation が kill 直後 1 回のみ」の穴 (orphan が後から report を完成させると marker が stale 残留し、以後誰も再チェックしない) への緩和策を別途検討する。
->
-> **参照**: `src/lib-subprocess/src/` (`run_cmd_shell_with`)、`src/cli-merge-pipeline/src/feedback/takt.rs` (`TAKT_TIMEOUT_SECS`) / `feedback/mod.rs` (reconciliation 設計)、T6 実施結果 = PR #283 (経過時間 assert の教訓)、#286 feedback report Tier1 #2 (「優先度を上げて todo 化」推奨)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium-High (ハング保護の実質無効化 + stale marker の実害 1 件観測済) / Effort S。
-
-#### 作業計画
-
-- [ ] **経過時間 assert 付きの再現テストを先に書く** (T6 の教訓: timeout の回帰テストは Err の内容だけでなく経過時間を assert する。無いと本件は再び素通りする)。
-- [ ] (a) detach vs (b) process-tree kill を評価して選択する。判断は `_capped` 系の出力保全要否と Windows 実装コストの比較で行い、選ばなかった側の理由を `run_cmd_shell_with` の doc に記録する。
-- [ ] 3 variant + 呼び出し元 (cli-push-runner quality_gate / push、cli-merge-pipeline) で回帰確認。サンドボックス実機 E2E は `ping -t` 差し替え + before/after 経過時間比較 (dev-conventions 記載の手法) で行う。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- `timeout_secs = 1` 指定時、孫プロセスが生存していても制御が 1s + ε で戻ること (経過時間 assert で seal)。
-- ハングするコマンド (`ping -t` stub) が quality_gate / push / merge-pipeline の timeout で実際に打ち切られること。
-
----
-
 ### `cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)
 
 > **動機**: T5 (PR #282) の調査で発見された sibling bug (push-pipeline-fix-plan §6 backlog 9 から移管)。jj は新規 bookmark の push 拒否時に **exit 0** を返すことがある (ADR-011 の背景) が、`src/cli-pr-monitor/src/stages/push.rs` の `push_to_remote` は exit code のみで成否判定しており、post-PR の re-push (CodeRabbit 指摘修正後の再 push 等) が**リモート未反映のまま成功扱い**になり得る。T5 が cli-push-runner 側で塞いだ「silent-failure push」= ADR-043 が防ぐ事故そのものと同型の穴。
