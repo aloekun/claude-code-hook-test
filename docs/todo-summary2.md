@@ -194,6 +194,8 @@
 | 483 | 🔧 Tier 2 | **エラーメッセージの無制限 debug 補間を lint で検出する (PR #437 T1-1 採用)** | todo25.md | S | なし (`clip_for_message` を導入したのに順位セル `{raw:?}` だけ経由せず切り詰め保証が崩れていた。検出範囲の絞り込み方が設計の肝で、全 `{:?}` を禁じると誤検知だらけになる) |
 | 484 | 🔧 Tier 2 | **push stage の bare push フォールバック不変条件を seal する (PR #434 T2-1 採用)** | todo25.md | M | なし (fail-closed の判定結果である空リストが上流 fallback に無視される execution-contract 違反が PR #434 の根因。修正済みだが不変条件はテスト未固定。**非空を型で表現できるなら型が良い**) |
 | 485 | 🔧 Tier 2 | **PR L で追加した実装のテスト補強 (PR #437 T2-1 + T2-2 採用)** | todo25.md | S | なし (`warn_when_unresolved` の false 側テストが無い + `clip_for_message` がタイトル列でしかテストされず順位セル経由の穴を見逃した。どちらも「追加した機能の一部の経路しかテストしていない」形) |
+| 486 | 🚀 Tier 1 | **auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-20 の run が順位 383 を選び `src/lib-ledger/src/lib.rs` の変更で `[NIGHTLY_DENY]` 停止。auto lane 22 行の全件照合で 5 行が deny リスト該当 (383 / 454 / 368 / 360 / 361)。ADR-074 決定 2 クラス 3 の判定を決定論化する — 同 ADR 決定 6 が「決定論だが未実装」と自認している穴。**実装先が deny リスト配下のため auto lane に載せない**) |
+| 487 | 🚀 Tier 1 | **nightly-todo の master 参照を SHA で pin する (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-21 の run で master-ref=`7539551f` / work=`868c9316` と 31 秒差の別コミットを読み、その間に順位 228 の実装 PR #422 がマージされて変更 0 件で停止。master を 3 回別々に読むのに pin が無い。**`.github/workflows/` が deny リスト該当のため auto lane に載せない**) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 
