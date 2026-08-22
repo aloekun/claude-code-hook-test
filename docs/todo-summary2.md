@@ -189,6 +189,11 @@
 | 478 | 🔧 Tier 2 | **jj 出力の path separator 前提を regression test で固定する (Windows は `\` 区切り)** | todo24.md | S | なし (PR #432 で CodeRabbit が「POSIX は `/`」を根拠に `\` 判定の削除を提案したが、実測では Windows jj 0.42 は `\` 区切り出力。外すと Windows で誤検知。現在 module doc の記述のみで test 未固定のため再提案の余地が残る。Severity Medium + Frequency Low + Effort S + Risk None) |
 | 479 | 🔧 Tier 2 | **手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる** | todo24.md | S | なし (実測で 22 件中 7 件が未記載。うち 3 件は PR #431 以前からの漏れで、単発ではなく継続的にずれる構造。doc を手で直す案は方針 (決定論的で積み上げる) に反するため lint 化で採用。Severity Low + Frequency Medium + Effort S + Risk None) |
 | 480 | 🔧 Tier 2 | **`owns()` が false を返す原因 (Owned / TakenOver / Unreadable) をログで区別する** | todo24.md | S | なし (lock 競合 (#364 型) の調査時にログから経路を再構成できない。判定は pure function に切り出せ unit test で固定可能。Severity Medium + Frequency Medium + Effort S + Risk None) |
+| 481 | 🚀 Tier 1 | **`lib-subprocess` の失敗経路を塞ぎ切る (PR #436 post-merge-feedback T1-1 + T2-1/T2-3 採用)** | todo25.md | S | なし (正常終了経路の join だけ `join_within_grace` を経由せず無制限のまま残存 = 同 PR が直した Major と同型のギャップ。Severity High / Effort XS。あわせて既存 timeout テストへの elapsed assert 追加と非 UTF-8 テストの変異確認) |
+| 482 | 🚀 Tier 1 | **外部コマンド呼び出しの落とし穴を lint で塞ぐ (PR #435 T1-1 + PR #437 T1-3 採用)** | todo25.md | M | なし (`gh pr view --json files` の 100 件無言切り捨てと、ref を破壊する push の lease 欠落。**後者は削除系 (`--delete` / `:refs/...`) と非 fast-forward 更新系 (`--force` / `+refs/...`) の 2 種類**で同じパターンでは捕まらない — PR L で実際に踏んだのは削除系。**規約でなく lint で塞ぐ**判断 = 規約追記は再発を防げなかった実証あり。ADR-007 の層判定を先に行う) |
+| 483 | 🔧 Tier 2 | **エラーメッセージの無制限 debug 補間を lint で検出する (PR #437 T1-1 採用)** | todo25.md | S | なし (`clip_for_message` を導入したのに順位セル `{raw:?}` だけ経由せず切り詰め保証が崩れていた。検出範囲の絞り込み方が設計の肝で、全 `{:?}` を禁じると誤検知だらけになる) |
+| 484 | 🔧 Tier 2 | **push stage の bare push フォールバック不変条件を seal する (PR #434 T2-1 採用)** | todo25.md | M | なし (fail-closed の判定結果である空リストが上流 fallback に無視される execution-contract 違反が PR #434 の根因。修正済みだが不変条件はテスト未固定。**非空を型で表現できるなら型が良い**) |
+| 485 | 🔧 Tier 2 | **PR L で追加した実装のテスト補強 (PR #437 T2-1 + T2-2 採用)** | todo25.md | S | なし (`warn_when_unresolved` の false 側テストが無い + `clip_for_message` がタイトル列でしかテストされず順位セル経由の穴を見逃した。どちらも「追加した機能の一部の経路しかテストしていない」形) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 
