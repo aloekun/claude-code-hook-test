@@ -154,3 +154,243 @@ ADR-012 に「lib-* の責務カテゴリと判定順序」を追記する。既
 #### 完了基準
 
 `docs/todo*.md` を 51200 B 超へ書き足す編集がその場でブロックされること。既に超過しているファイルの**縮小方向の編集は通る**こと。両方をテストで固定。
+
+## post-merge feedback 採用分 (PR #434 / #435 / #436 / #437 の 4 PR 分、2026-08-22 採否確定)
+
+> 不具合修正バックログ消化計画 (PR I-L) の post-merge feedback **全 40 提案**を採否判定した。
+> 内訳は表に載った 36 件 (**採用候補 21 / 様子見 7 / 却下推奨 8**) + analyzer が Phase 1 品質
+> フィルタで表から除外した 4 件 (#435 で 3 件、#437 で 1 件)。さらに採用候補のうち 1 件は
+> 実コード確認で脱落した (#437 T1-4「parse エラーに行番号 + 行の中身」は PR L の D-2 で実装済み)。
+>
+> **件数は数え直すこと** (PR #439 CodeRabbit Minor): 当初ここに「全 48 提案 / 様子見 11 /
+> 却下 12」と書いたが、それは前回バッチ (PR E-H) の数字を数え直さずに流用したもので、
+> 内訳の合計が総数と合っていなかった。レポートを機械的に数えれば 5 秒で分かる値だった。
+>
+> **ユーザー判断 (2026-08-22)**: Tier 1 (決定論的防止) は全 4 件採用、Tier 2 (テスト/自動化) は
+> **実装の穴埋めに直結する 5 件**を採用、**Tier 3 (ドキュメント/ルール) は 8 件すべて却下**。
+> 却下の根拠は本 feedback 自身が示した実証 — 「routing 更新チェックリスト」は既に
+> `docs/dev-conventions.md` に存在したのに **3 件目の再発を防げなかった**。規約追記の有効性が
+> 否定的に実証された以上、同じ形の 8 件を足す理由が無い。内容は各 PR の doc コメントと
+> PR 本文に記録済みで、失われるものは無い。
+>
+> 統合の単位は「そのまま 1 PR になる粒度」。
+
+### `lib-subprocess` の失敗経路を塞ぎ切る (順位 481)
+
+> **動機**: PR #436 (順位 323) で timeout の孫プロセス穴を塞いだが、**正常終了経路
+> (`Some(_)` 分岐) の reader thread join だけが `join_within_grace` を経由せず無制限のまま**
+> 残っている (実コードで現存を確認済み)。同 PR が修正した Major と同型のギャップで、
+> バックグラウンド化した孫がパイプを握り続けるケースで同じ hang が理論上再発する。
+> あわせて、同 PR のテストが 2 度空振りした経験から、テスト側の補強も同じ単位で行う。
+>
+> **本タスクの位置づけ**: post-merge feedback 採用 (#436 Tier1 #1 = bug_fix / Severity High /
+> Effort XS、#436 Tier2 #1・#3 = test_addition / Severity Medium / Effort S)。
+>
+> **参照**: `.claude/feedback-reports/436.md`、`src/lib-subprocess/src/lib.rs` (`run_cmd_shell_with`)、
+> [PR #436](https://github.com/aloekun/claude-code-hook-test/pull/436)
+
+#### 背景
+
+`run_cmd_shell_with` は失敗経路 (timeout / wait 失敗) では `kill_process_tree` + `join_within_grace`
+で上限付きに回収するが、正常終了経路は素の `.join()` のまま。実 callsite に該当パターンは
+未観測 (Frequency Low) だが、**同型のギャップが 1 箇所だけ残っている**状態は次に触る人を誤らせる。
+
+#### 設計決定 (案)
+
+- **正常終了経路も上限付きにする。「理由を doc に書いて無制限のまま残す」は選択肢にしない**
+  (PR #439 CodeRabbit Major)。子が終了しても子孫がパイプを握れば hang するのは失敗経路と同じで、
+  文書化ではその hang を 1 ミリ秒も縮められない。当初案は「上限を入れるか、入れない理由を doc に
+  記録する」と両論併記していたが、**後者は問題を解決しない**
+- 上限値を失敗経路と同じにするかは決める。正常終了では出力を取りこぼす損失が失敗経路より重いので、
+  猶予を長くするか、**上限に達したこと自体を戻り値や警告で可視化する**かを検討する
+  (黙って切ると「コマンドの全出力」と誤読される)
+- 既存 timeout テストに **elapsed time assert** を追加する。戻り値の文言だけを見るテストは
+  PR #436 で実際に穴を素通りさせた (T6 / PR #283 と同型)
+- 非 UTF-8 fixture は `Cursor` で直接バイト列を流す形を維持し、**生成→読み取り→検証の全経路**が
+  変異テストで判別することを確認する (シェル経由版はクォートが崩れて不正バイトを 1 つも
+  出しておらず、変異テストで素通りした)
+
+- [ ] 正常終了経路の join を上限付きにする
+- [ ] 正常終了時に上限へ達した場合の扱い (猶予値 / 可視化) を決める
+- [ ] **子孫がパイプを握ったまま子が正常終了するケース**の決定論的テストを追加する
+      (`orphan_tests` のプローブを流用できる — 孫だけ生かして親を exit 0 で終わらせる)
+- [ ] 既存 timeout テストへ elapsed assert を追加
+- [ ] 非 UTF-8 テストの全経路を変異テストで確認
+- [ ] `cargo test --workspace` green / 実 Linux (WSL) でも確認
+
+#### 完了基準
+
+**子孫がパイプを握ったまま子が正常終了しても、上限時間内に制御が戻ることをテストで固定**する
+(経過時間 assert)。上限を外す変異を入れるとそのテストが落ちること。
+`run_cmd_shell_with` のすべての join 経路について、上限値と理由が doc から追える。
+
+---
+
+### 外部コマンド呼び出しの落とし穴を lint で塞ぐ (順位 482)
+
+> **動機**: PR #435 と #437 で、外部コマンドの**無言の切り捨て / 破壊**を 2 件続けて踏んだ。
+> (1) `gh pr view --json files` は 100 件で無言に切り捨てる (実測: 185 ファイルの PR で 100 件)。
+> (2) `git push --delete` を lease 無しで撃つと、観測から削除までの間に他経路が push した作業を
+> 消す。どちらも「書いた時点では気づけず、実行時に静かに壊れる」形。
+>
+> **本タスクの位置づけ**: post-merge feedback 採用 (#435 Tier1 #1 / Severity High / Effort M、
+> #437 Tier1 #3 / Severity High / Effort M)。**規約 (Tier 3) ではなく lint で塞ぐ**判断
+> (ユーザー判断: 規約追記は再発を防げなかった実証がある)。
+>
+> **参照**: `.claude/feedback-reports/435.md` / `437.md`、`.claude/custom-lint-rules.toml`、
+> [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (正規表現層 / AST 層の線引き)
+
+#### 背景
+
+`gh` の pagination 無し呼び出しは repo 全体に散在する (`check-ci-coderabbit` / `cli-merge-pipeline` /
+`cli-pr-monitor` / `cli-stale-branch-scan`)。ref を破壊する push は現状 workflow の shell が主だが、
+Rust 側から撃つ経路が増えれば同じ穴が開く。
+
+**lease を要求すべき対象は 2 種類あり、同じパターンでは捕まらない** (PR #439 CodeRabbit Major)。
+feedback の原文は `--force` だけを挙げていたが、**PR L で実際に踏んだのは `--delete`** だった:
+
+| 対象 | 破壊するもの | lease 無しの実害 |
+|---|---|---|
+| ref の削除 (`--delete` / `:refs/...` の refspec) | ref そのもの | 観測から削除までの間に他経路が push した作業が消える (PR L で実測) |
+| 非 fast-forward な更新 (`--force` / `+refs/...`) | ref の履歴 | 他経路の commit が到達不能になる |
+
+`--delete` は `--force` を含まないので、`--force` だけを見る規則では**削除経路が丸ごと素通り**する。
+refspec 形式 (`:refs/heads/X` / `+refs/heads/X`) も同じ意味を持つため、フラグ名だけの照合では足りない。
+
+#### 設計決定 (案)
+
+- **ADR-007 の層判定を先に行う**。`gh api` / `gh pr view --json` の引数照合は正規表現層で足りるか、
+  AST 層が要るかを判断してから実装する。`.rs` の文字列リテラル内の引数列を見るだけなら正規表現層
+- **ref を破壊する push は上表の 2 種類すべてを対象にする**。フラグ形式 (`--delete` / `--force`) と
+  refspec 形式 (`:refs/...` / `+refs/...`) の両方を捕まえ、`--force-with-lease=<ref>:<sha>` が
+  付随することを要求する。**2 種類で規則を分けるか 1 つにまとめるかは実装時に決める** —
+  分けたほうがメッセージを具体的にできるが、規則が増えると保守点も増える
+- **false positive の逃げ道を用意する** — 意図的に pagination 不要な呼び出し (単一 ref の
+  `ls-remote` 等) や、lease が不要な push を許可する手段が無いと、lint が邪魔になって無効化される
+
+- [ ] ADR-007 の判定フローで層を決める
+- [ ] `gh` の pagination 検査を実装
+- [ ] ref 削除 (`--delete` / `:refs/...`) の lease 検査を実装
+- [ ] 非 fast-forward 更新 (`--force` / `+refs/...`) の lease 検査を実装
+- [ ] 既存の全 `gh` 呼び出しと push 呼び出しを新 lint に通し、false positive を洗い出す
+- [ ] 例外指定の手段を用意する
+
+#### 完了基準
+
+pagination 無しの `gh` 呼び出しと lease 無しの `--force` が、書いた時点でブロックされる。
+既存コードが false positive を出さない。
+
+---
+
+### エラーメッセージの無制限 debug 補間を lint で検出する (順位 483)
+
+> **動機**: PR #437 で `clip_for_message()` を導入したのに、順位セル (`{raw:?}`) だけがそれを
+> 経由しておらず、長い非数値セルで切り詰め保証が崩れていた (CodeRabbit Minor)。**当初のテストは
+> 長い文字列をタイトル列に置いていたためこの経路を一度も通らず、誤った安心を与えていた**。
+>
+> **本タスクの位置づけ**: post-merge feedback 採用 (#437 Tier1 #1 / custom_lint_rule /
+> Severity Medium / Frequency Medium / Effort S)。
+>
+> **参照**: `.claude/feedback-reports/437.md`、`src/lib-ledger/src/summary_gate.rs` (`clip_for_message`)
+
+#### 背景
+
+truncation wrapper を導入しても、**載せる文字列の一部がそれを通らなければ上限は意味を失う**。
+人間のレビューでも見落とされ、CodeRabbit が拾った。
+
+#### 設計決定 (案)
+
+エラー / ログ macro の引数内で、truncation を経由しない `{:?}` / `{}` 補間を検出する。
+**どこまでを対象にするかが設計の肝** — 全 `{:?}` を禁じると誤検知だらけになるので、
+「truncation wrapper が存在する module 内」等の絞り込みが要る。ADR-007 の層判定を先に行う。
+
+- [ ] 検出範囲の絞り込み方を決める (module 単位 / 関数単位 / 型単位)
+- [ ] ADR-007 の判定フローで層を決める
+- [ ] 実装 + 既存コードでの false positive 確認
+
+#### 完了基準
+
+truncation wrapper を持つ module で、それを経由しない補間が書いた時点で検出される。
+
+---
+
+### push stage の bare push フォールバック不変条件を seal する (順位 484)
+
+> **動機**: PR #434 (順位 288(b)) で `bookmark_check` の fail-open を塞いだ結果、
+> `run_bookmark_check()` は `Some` を返すとき必ず 1 件以上、という不変条件が成立した。
+> しかし **`build_push_command` 側にはその前提を固定するテストが無い** — 空リストで
+> bare push にフォールバックする経路が残っており、そこへ到達しないことが保証されていない。
+>
+> **本タスクの位置づけ**: post-merge feedback 採用 (#434 Tier2 #1 / test_addition /
+> Severity High / Frequency Medium / Effort M)。
+>
+> **参照**: `.claude/feedback-reports/434.md`、`src/cli-push-runner/src/stages/push.rs`
+> (`build_push_command`)、`src/cli-push-runner/src/stages/bookmark_check.rs`
+
+#### 背景
+
+fail-closed の判定結果 (空リスト) が上流の fallback logic に無視される、という execution-contract
+違反が PR #434 の incident の直接の根因だった。修正はしたが、**不変条件はテストで固定されていない**
+ため、将来 `Some(空)` を返す経路が復活しても気づけない。
+
+#### 設計決定 (案)
+
+- `BookmarkCheckOutcome::Proceed` が空リストを運ばないことを型か テストで固定する
+  (**型で表現できるなら型が良い** — 非空 Vec 型にすればテスト無しで保証できる)
+- `build_push_command` の空リスト fallback は派生プロジェクト config 専用の経路であることを
+  テストで明示する (現状は doc コメントのみ)
+
+- [ ] 非空を型で表現できるか検討する
+- [ ] 型で無理ならテストで seal する
+- [ ] `build_push_command` の fallback 到達条件をテストで明示
+
+#### 完了基準
+
+`Some(空)` を返す変異を入れると、いずれかのテストが落ちる。
+
+---
+
+### PR L で追加した実装のテスト補強 (順位 485)
+
+> **動機**: PR #437 で追加した 2 つの実装にテストの穴がある。(1) `inject_git_dir_for_gh_with` の
+> `warn_when_unresolved` は条件パラメータなのに、**false 側 (警告抑止) のテストが無い**。
+> (2) `clip_for_message` は導入時にタイトル列でしかテストされず、順位セル経由の穴を見逃した
+> (CodeRabbit が指摘し PR 内で修正済みだが、**同じ形の見落としを繰り返さない仕組み**が要る)。
+>
+> **本タスクの位置づけ**: post-merge feedback 採用 (#437 Tier2 #1・#2 / test_addition /
+> Severity Medium / Effort S)。
+>
+> **参照**: `.claude/feedback-reports/437.md`、`src/lib-jj-helpers/src/workspace.rs`、
+> `src/lib-ledger/src/summary_gate.rs`
+
+#### 背景
+
+どちらも「**追加した機能の一部の経路しかテストしていない**」形。順位 483 の lint 化と相補で、
+こちらは実際のテストを足す側。
+
+#### 設計決定 (案)
+
+- `inject_git_dir_for_gh_with`: (条件 true/false) × (resolved / unresolved) の 4 通りをテストする。
+  ログ出力を観測するため、logger を注入可能にする必要があるかを確認する
+  (現状 `fn(&str)` なので closure が capture できない)
+- **プロセス全体状態の隔離が先に要る** (PR #439 CodeRabbit Major)。本関数は `GIT_DIR` 環境変数と
+  cwd を**読み書きする**ため、`cargo test` の既定 (並列) では他テストと競合し、**書いた本人だけが
+  通って他テストを壊す**形になりうる。隔離せずにテストを足すと、今回のセッションで 2 度踏んだ
+  「テストが空振りする」の別型 (今度は他テストを巻き込む) を作る
+  - 復元は Drop guard で行う ([ADR-025](adr/adr-025-cwd-restore-drop-guard.md) の `CwdRestore` が前例)。
+    **`GIT_DIR` は「未設定」も状態**なので、`Some`/`None` を区別して復元する
+  - 変更から復元までを共有 mutex で直列化する ([ADR-041](adr/adr-041-test-isolation-patterns.md))
+- `clip_for_message`: **メッセージに載る全フィールド種別**でテストする。どの種別があるかを
+  列挙してから書く (数えるのを人間の記憶に頼らない)
+
+- [ ] `GIT_DIR` (未設定を含む) と cwd を保存・復元する Drop guard を用意する
+- [ ] 状態変更から復元までを共有 mutex で直列化する
+- [ ] `warn_when_unresolved` の 4 通りをテスト
+- [ ] `clip_for_message` を通る全フィールドを列挙し、それぞれでテスト
+- [ ] 変異テストで各テストの判別力を確認
+- [ ] **並列実行 (`cargo test` 既定) と直列実行の両方で green** — 片方だけで通るなら隔離が不完全
+
+#### 完了基準
+
+条件パラメータの両方の値、および truncation を通る全フィールドについて、変異を入れると
+テストが落ちる。**かつ `cargo test` の並列実行で他テストを壊さない** (並列 / 直列の両方で green)。
