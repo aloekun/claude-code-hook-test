@@ -402,11 +402,11 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ### `resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する
 
-> **動機**: [bugfix-batch-plan.md](bugfix-batch-plan.md) の `cwd_to_project_id` Linux case 不一致調査 (順位 469 の完了確認) で、**別の未対応の穴**が実測で見つかった。case-sensitive filesystem (WSL Ubuntu-24.04 / ext4 で確認) では `Foo` と `foo` を同じ `projects_root` に置ける。両方が `cwd_to_project_id` の lowercase 比較に一致すると、`resolve_project_dir` (`src/cli-merge-pipeline/src/feedback/transcript.rs:37`) の `.find(...)` は **1 件だけ返し、もう一方を無言で除外する** (どちらが返るかは `read_dir` の順序依存で契約上未規定)。5 回試行して毎回 1 件のみ返ることを確認済み。
+> **動機**: 不具合修正バックログ消化計画 (PR A〜L) での `cwd_to_project_id` Linux case 不一致調査 (順位 469 の完了確認、2026-08-19) で、**別の未対応の穴**が実測で見つかった。case-sensitive filesystem (WSL Ubuntu-24.04 / ext4 で確認) では `Foo` と `foo` を同じ `projects_root` に置ける。両方が `cwd_to_project_id` の lowercase 比較に一致すると、`resolve_project_dir` (`src/cli-merge-pipeline/src/feedback/transcript.rs:37`) の `.find(...)` は **1 件だけ返し、もう一方を無言で除外する** (どちらが返るかは `read_dir` の順序依存で契約上未規定)。5 回試行して毎回 1 件のみ返ることを確認済み。
 >
 > **発見時点で発現経路は未確認** — case-sensitive FS では同一ディレクトリの綴りが通常一意なため、同じ workspace root から 2 通りの綴りは生まれにくい。ただしこれは推論であり、`~/.claude/projects` を OS 間で持ち込む等の経路は排除できていない。**bugfix-batch-plan.md は退役予定で削除されるため、この観測の記録先を本エントリに移した。**
 >
-> **参照**: [bugfix-batch-plan.md](bugfix-batch-plan.md) § 保留事項、`resolve_project_dir` の doc コメント (`transcript.rs:28-36`)、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed 原則)
+> **参照**: `resolve_project_dir` の doc コメント (`transcript.rs:28-36`)、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed 原則)
 >
 > **実行優先度**: 💎 **Tier 3** — Severity Low (発現経路未確認) / Frequency Low / Effort S / Adoption Risk None。
 
