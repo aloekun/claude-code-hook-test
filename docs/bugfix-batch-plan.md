@@ -22,10 +22,10 @@
 | F | fix(pr-monitor): cli-pr-monitor 小修正束 | 246 + 292 + 385 | **完了** ([PR #430](https://github.com/aloekun/claude-code-hook-test/pull/430))。246 は前提消滅 + 連結 regression test、292 は token 方式 + **takeover 排他化** (レビューで 8/8 同時取得を実測)、385 は不採用を記録 |
 | G | fix(jj-helpers): bookmark 探索の深さ非依存化 + 自動 fix 後始末 | 386 + 387 | **完了** ([PR #431](https://github.com/aloekun/claude-code-hook-test/pull/431))。386 は実測を根拠に検出の深さ非依存化 + advance の description 基準化の両輪。387 は**警告 (証拠保全)** を採用 |
 | H | fix(push-runner): push 経路 stage 修正束 | 376 + 254 + 322 | **完了** ([PR #432](https://github.com/aloekun/claude-code-hook-test/pull/432))。 3 件とも台帳と実態のずれなし。376 は案 (a) (@ の bookmark のみ前進)、254 は実装側で remote tracking ref を優先解決、322 は配置ベース検出を第 2 層に追加 (`__*` パターンが gitignore で**デッド**だったことも実測で判明) |
-| I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | 未着手 |
-| J | fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に | 233 | 未着手 |
-| K | fix(subprocess): timeout の孫プロセス穴を塞ぐ | 323 | 未着手 |
-| L | fix(automation): 自動化経路の小穴・ノイズ修正束 | 467 + 181 | 未着手 |
+| I | fix(push-runner): bookmark_check の未レビュー祖先 fail-closed | 288(b) | **完了** ([PR #434](https://github.com/aloekun/claude-code-hook-test/pull/434))。**台帳の (b) は (a) 側で既に閉じていた** (`{{PR_RANGE}}` 必須化 + 範囲カバレッジ検査)。実在した穴は `jj bookmark list` 失敗時の fail-open で、そちらを fail-closed 化した |
+| J | fix(pr-monitor): post-pr-review の docs-only 判定を PR 全体基準に | 233 | **完了** ([PR #435](https://github.com/aloekun/claude-code-hook-test/pull/435))。台帳の推定 (`[diff]` stage) は PR #311 で解消済みで、真因は `fix.md` の tip 限定 refresh と `review-diff.txt` の残骸だった。判定を決定論層へ引き上げた。CodeRabbit Major で `gh pr view --json files` の 100 件無言切り捨てが判明し、件数一致検査を追加 |
+| K | fix(subprocess): timeout の孫プロセス穴を塞ぐ | 323 | **完了** ([PR #436](https://github.com/aloekun/claude-code-hook-test/pull/436))。**台帳どおり** (3 variant とも timeout 1s に対し 9.59s)。tree-kill + join 上限で解決。調査中に `drain_pipe_unlimited` の非 UTF-8 全損も判明し同梱。**テスト自身の空振りを 2 度踏み**、いずれも変異テストで発覚した |
+| L | fix(automation): 自動化経路の小穴・ノイズ修正束 | 467 + 181 | **完了** ([PR #437](https://github.com/aloekun/claude-code-hook-test/pull/437))。**D-1 の台帳前提は誤り** — フル ref 名では exit 0 で、真の破綻は cwd がリポジトリでないこと (exit 128) だった。掃除経路は過去 40 run で一度も実行されていなかった。lease による compare-and-delete も追加 |
 
 **挿入 (2026-08-20、完了)**: 順位 431 の調査で `markers.rs` の rate-limit marker が CodeRabbit の **command ack 形式**を拾わないことが判明した (PR #412 / #387 の実データ)。検出層の穴なので PR F を保留し、先に [PR #429](https://github.com/aloekun/claude-code-hook-test/pull/429) として処理した (ユーザー判断)。**台帳の前提が変わった項目に着手したら、周辺への影響まで確認する** — 本計画の 9 件中 7 件でずれが出ている以上、ずれの周辺は常に疑う。この 1 件は「前提が変わった理由を追ったら別の穴が見えた」形だった。
 
@@ -401,8 +401,8 @@ post-merge feedback **全 48 提案**を採否判定した。内訳は **採用�
 
 - [x] **319** (PR E): 観測完了 (2026-08-20)。PR #429 / #430 / #431 の 3 件で backstop 投稿は各 1 件 (`<!-- pr-monitor-backstop: sha=... -->` マーカーで機械的に計数)。エントリ後始末済み。
 - [ ] **431** (PR E): 次にレート制限が起きた夜間 run で「未レビュー」が可視化されること → 確認後 todo22.md 431 節 (`review-request` の成功判定…) + todo-summary2.md 431 行を削除
-- [ ] **467 D-1 / F-2** (PR L): 次回 dispatch or schedule 実走で、消えたブランチで job が落ちないこと + GIT_DIR 警告が出ないこと → 確認後 todo24.md 467 節 + todo-summary2.md 467 行を削除
-- [ ] **181** (PR L): 次回 `/weekly-review` で findings.json が raw JSON で出力されること → 確認後 todo12.md 181 節 + **todo-summary.md** (順位 219 以下側) の 181 行を削除。矯正できなければ skill 側 strip へ切替してから完了
+- [ ] **467** (PR L): **F-2 は観測完了** (2026-08-22)。実 run の前後比較で `GIT_DIR 導出失敗` が 1 件 → 0 件 (2026-08-20 の run 32401510711 vs 2026-08-21 の run 32511788731)。**D-1 が未観測** — 掃除対象が 1 件以上ある run が過去 40 回で 0 件だったため。PR #422 のマージで `claude/nightly-228` が対象になり条件は整った (`cli-stale-branch-scan --deletable-only` で列挙されることを確認済み) ので、次の定時 run で発火する見込み。**D-1 の観測後**に todo24.md 467 節 + todo-summary2.md 467 行を削除
+- [x] **181** (PR L): 観測完了 (2026-08-22)。`/weekly-review` 実走で findings.json が raw JSON (先頭 `{` / 末尾 `}` / fence 行 0) で出力され、`JSON.parse` が手動 strip なしで成功した。**修正前は 3 run すべて fence 付き** (2026-08-15 / 08-17 / 08-17-rerun) だったので、instruction 修正だけで矯正できたと言える (skill 側 strip への切替は不要)。エントリ後始末済み
 
 ## 本計画書の退役手順
 
