@@ -333,6 +333,39 @@ mod tests {
         assert!(!verify_enabled("not toml ["), "パース失敗は OFF (fail-open)");
     }
 
+    /// 既知の限界 (順位 283 で anchor 修正予定、feedback-reports/267.md Tier 1 #3):
+    /// `split_whitespace` は quote を認識しないため、commit message 内に埋め込まれた
+    /// jj keyword が実コマンドより後に走査されると検出結果を上書きしてしまう。
+    /// 本 test は現行挙動を regression として固定するもので、283 着手後は新挙動
+    /// (message 内 keyword を無視) を固定するよう更新すること。
+    #[test]
+    fn tokenization_known_limitation_jj_keyword_inside_commit_message() {
+        let op = detect_last_mutating_jj_op(
+            r#"jj describe -m "note: mention jj new keyword here""#,
+        )
+        .unwrap();
+        assert_eq!(
+            op.verb, "new",
+            "quote 非対応により message 内の 'jj new' が実コマンド 'jj describe' を上書きする"
+        );
+    }
+
+    #[test]
+    fn tokenization_requires_exact_jj_token_no_substring_match() {
+        assert!(
+            detect_last_mutating_jj_op("jjnew -m 'x'").is_none(),
+            "'jjnew' は単一 token であり 'jj' と完全一致しないため検出されない"
+        );
+    }
+
+    #[test]
+    fn tokenization_requires_exact_jj_token_trailing_punctuation_breaks_match() {
+        assert!(
+            detect_last_mutating_jj_op("see jj, new commit").is_none(),
+            "'jj,' はカンマ付きのため 'jj' と完全一致せず検出されない"
+        );
+    }
+
     #[test]
     fn hook_input_parses_bash_payload() {
         let input: HookInput = serde_json::from_str(
