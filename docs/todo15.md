@@ -339,25 +339,6 @@
 
 ---
 
-### jj keyword を含む commit message の tokenization edge-case テスト (PR #267 post-merge-feedback T2-2 採用)
-
-> **動機**: 順位 283 (anchor 修正) と表裏。283 の着手有無に関わらず、現行挙動 (既知の限界) を regression test で明示的に固定する価値が独立して残る。
->
-> **参照**: `.claude/feedback-reports/267.md` Tier 2 #2、`src/hooks-post-tool-jj-op-verify/src/main.rs` の tests module
->
-> **実行優先度**: 🔧 Tier 2 — Effort S。283 と同一 PR での消化が効率的。
-
-#### 作業計画
-
-- [ ] `token_detection_ignores_jj_in_message_quotes` 等の edge-case テスト追加 (283 実施後は新挙動を固定)
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- tokenization の既知の限界/修正後挙動がテストで明文化されていること。
-
----
-
 ### config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)
 
 > **動機**: PR #267 で FIXED 済の `SIM-NEW-jjopverify-cwd-config-L179` は、既存テストが pure parser のみで file-lookup 経路を未カバーだったため混入した。非 repo-root cwd から hook を起動して config が読み込まれることを検証する統合テストは、cwd drift シナリオ (ADR-045 の核心リスク) の re-incident 検知網になる。
