@@ -394,3 +394,146 @@ fail-closed の判定結果 (空リスト) が上流の fallback logic に無視
 
 条件パラメータの両方の値、および truncation を通る全フィールドについて、変異を入れると
 テストが落ちる。**かつ `cargo test` の並列実行で他テストを壊さない** (並列 / 直列の両方で green)。
+
+---
+
+## 夜間ループ停止の調査由来 (2026-08-22)
+
+> 2026-08-20 / 08-21 の `nightly-todo` run 2 本 (run 87837551740 / 88134039080) が
+> ともに `[NIGHTLY_DENY]` で停止した件の原因調査から起票した。**停止理由は 2 晩で別**で、
+> 8/20 は Guard 禁止パスの変更 (順位 383)、8/21 は変更 0 件 (順位 228) だった。
+>
+> **ガードレールは設計どおり fail-closed で働いている。** 汚染された PR は 1 本も作られて
+> いない。問題は「毎晩 agent を 1 回まるごと走らせて最後に必ず落ちる」経路が台帳側に
+> 残っていること (Max 枠の空費) と、master の読み取りが pin されていないことである。
+>
+> 台帳の lane 引き取り (順位 383 / 454 / 368 / 360 / 361 を `✅` → `—`) と
+> `claude/nightly-383` marker の削除は**即時の運用対処**として別途行う。本節の 2 件は
+> その再発防止にあたる。
+
+### auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く (順位 486)
+
+> **動機**: 2026-08-20 の run が順位 383 を選び、agent が `src/lib-ledger/src/lib.rs` を
+> 変更し、Guard step が `[NIGHTLY_DENY] 自律動作のガードレールを変更しているため push しません`
+> で落とした。383 は**構造的に完了不能**である — 実装すれば Guard が拒否し、実装しなければ
+> 「変更がありません」で落ちる。それが `✅` (auto lane) で割り当てられていた。
+>
+> **単発ではない**: auto lane 22 行を deny リストと全件照合したところ、**5 行が該当**した
+> (383 / 454 / 368 / 360 / 361)。383 は発火済み、残り 4 件は未発火の地雷である。
+>
+> **本タスクの位置づけ**: [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2
+> クラス 3 の判定を決定論化する。同 ADR 決定 6 の表がこの検査を
+> 「**✅ 決定論だが未実装**」と自認しており、今回その穴が実際に発火した。
+>
+> **参照**: [`.github/workflows/nightly-todo.yml`](../.github/workflows/nightly-todo.yml)
+> (Guard step の deny 正規表現 / agent プロンプトの禁止パス)、
+> [`src/lib-ledger/src/deployed_ledger.rs`](../src/lib-ledger/src/deployed_ledger.rs)
+> (実台帳を `cargo test` で検査する既存 precedent)、
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity Medium (PR 汚染は起きない。実害は Max 枠の空費と
+> 人間の marker 後始末) / Frequency **High** (残り 4 件が順に選ばれる) / Effort S /
+> Adoption Risk None。
+
+#### 背景
+
+ADR-074 の**判定契約そのものは正しく書かれている** — 「そのタスクが変更するファイルのパスを
+取り、Guard 禁止パスと比較する」。誤ったのは適用のほうで、2026-08-17 の選別は deny リストの
+うち `.github/workflows/` としか比較していない。同 ADR は順位 360 / 361 / 454 について
+「成果物が Rust ファイルなので誤除外するところだった」と記録しているが、その Rust ファイルの
+パス (`src/lib-autonomy-policy/` / `src/cli-nightly-task-select/`) が**deny リストの別の
+エントリに当たること**は見ていない。
+
+**人手で正しく適用し続けることを前提にした契約は、この形で外れる。**
+
+#### 設計決定 (案)
+
+- 判定は「対象ファイル欄から変更対象パスを抽出 → deny リスト全体と比較」。抽出は
+  `lib-ledger` の `parse_target_files` が既に持っている (注釈の丸括弧は本体から外れる契約)
+- **deny リストの出所を 1 箇所にハードコードしない。** 同じリストは workflow の Guard step /
+  agent プロンプト / ADR-072 決定 6 の 3 箇所にあり、その 3 点同期の検査は順位 454 が担当する。
+  本タスクが 4 つ目の写しを作ると、454 が検査すべき対象が増えたのに 454 は知らない状態になる。
+  454 と実装順を決めるか、リストの単一定義先を先に決める
+- 検査の置き場所は 2 択。実装時に選ぶ
+  - (a) `cargo test` で実台帳の全 `✅` 行を検査する (`deployed_ledger.rs` と同型。台帳を
+    書き換えた時点で落ちる = 最も早く止まる)
+  - (b) `cli-ledger-candidates` の出力に警告として載せる (選別作業の支援どまり)
+  - **(a) を推す** — ADR-042 の「ルールではなく仕組み」に沿う。ADR-074 が人手適用で外れた
+    のが本件の根因なので、支援情報を増やす (b) は同じ失敗を繰り返しうる
+- **本タスク自身を auto lane に載せてはいけない** — 実装先 (`src/lib-ledger/` または
+  `src/cli-ledger-candidates/`) が deny リストに当たる。この規則の最初の適用対象が本タスク自身である
+
+- [ ] deny リストの単一定義先を決める (順位 454 との関係を先に整理する)
+- [ ] 対象ファイル欄 × deny リストの照合を実装する
+- [ ] **lane 引き取り前の台帳** (PR #440 の parent 時点) を fixture にして 383 / 454 / 368 / 360 / 361 の 5 件が検出されることを確認する
+- [ ] **現行台帳では 5 件が既に `—`** のため検査が green になることを確認する
+- [ ] deny 該当行を 1 行足すと落ちることを確認する (変異テスト)
+
+#### 完了基準
+
+Guard 禁止パスを成果物とする行に `✅` を付けると、**台帳を書き換えた時点で**決定論的に
+検出されること。lane 引き取り前の台帳を fixture にすると 5 件が検出でき、現行台帳では
+green になること。検査を外す変異で落ちること。
+
+---
+
+### nightly-todo の master 参照を SHA で pin する (順位 487)
+
+> **動機**: 2026-08-21 の run が順位 228 を選んだが、228 は**その run の最中にマージされた
+> PR #422 で実装済み**になり、agent は変更 0 件で終わった
+> (`[NIGHTLY_DENY] 変更がありません`)。workflow は master を 3 回別々に読むのに、その間で
+> SHA を pin していない。
+>
+> **実測 (run 88134039080 のログ)**:
+>
+> | 時刻 (UTC) | 読み取り | SHA |
+> |---|---|---|
+> | 18:08:28 | `master-ref` checkout (台帳・ゲートの調達元) | `7539551f` (#437) |
+> | 18:08:33 | — | **PR #422 がマージ** → `868c9316` |
+> | 18:08:57 | `git ls-remote` の着手済み判定 | `claude/nightly-228` は削除済 → 除外から外れる |
+> | 18:08:57 | 台帳から選択 (**古い** master-ref を読む) | 228 を未実装として選択 |
+> | 18:08:59 | `work` checkout (agent の作業ツリー) | `868c9316` = **実装済み** |
+>
+> 除外リストの推移も裏づけている — 8/20 は `着手済み順位=[228,324]`、8/21 は `[324,383]`。
+>
+> **本タスクの位置づけ**: 選択の入力 (台帳) と実装の対象 (作業ツリー) が別コミットを見る
+> 経路を塞ぐ。31 秒の窓にマージが挟まれば再発する。
+>
+> **参照**: [`.github/workflows/nightly-todo.yml`](../.github/workflows/nightly-todo.yml)
+> (`Checkout master (source of truth)` / `Count open claude/ PRs` / `work` の checkout)、
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) § 信頼境界の要
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity Medium (実害は空振り 1 回 + marker の後始末。
+> 誤った実装が push される経路ではない) / Frequency Low (マージが窓に挟まったときのみ。
+> 実測 1 回) / Effort S / Adoption Risk Low (workflow の checkout 引数のみ)。
+
+#### 背景
+
+3 つの読み取りのうち、**信頼境界上 master-ref が正**である (ADR-072 § 信頼境界の要 —
+台帳・ゲート exe・config はすべて master ref の写しから調達する)。したがって pin の向きは
+「work と ls-remote を master-ref の SHA に合わせる」であって逆ではない。
+
+#### 設計決定 (案)
+
+- `master-ref` の checkout 後に `git rev-parse HEAD` を step output へ出し、`work` の
+  checkout を `ref: <その SHA>` にする
+- **`ls-remote` による着手済み判定は SHA で pin できない** (リモートの現在のブランチ集合を
+  見る操作であり、過去の SHA 時点の集合は取れない)。ここは別の扱いが要る。少なくとも
+  「選択した順位が work 側で既に実装済みだった」場合を**空振りではなく識別可能な終了**に
+  する。実装時に (a) marker を作らず正常終了扱いにする / (b) 専用の終了メッセージを出す
+  のどちらかを決める
+- BASE_SHA (publish-tree が checkout する基点) との整合を確認する。現状は work の HEAD を
+  使っている。master-ref へ pin すると基点が数十秒古くなるため、push 時の
+  non-fast-forward の有無を実装時に確認する
+- **本タスクを auto lane に載せてはいけない** — `.github/workflows/` は deny リストに当たる
+
+- [ ] `master-ref` の SHA を step output へ出す
+- [ ] `work` の checkout をその SHA へ pin する
+- [ ] BASE_SHA との整合を確認する (push が non-fast-forward にならないこと)
+- [ ] 「選択した順位が既に実装済み」の終了経路を空振りと区別する
+- [ ] `pnpm lint:workflows` green
+
+#### 完了基準
+
+台帳を読む step と agent が触る作業ツリーが**同一 SHA を見ている**ことがログから確認できる
+こと。run の途中で master が進んでも選択と実装がずれないこと。
