@@ -537,3 +537,197 @@ green になること。検査を外す変異で落ちること。
 
 台帳を読む step と agent が触る作業ツリーが**同一 SHA を見ている**ことがログから確認できる
 こと。run の途中で master が進んでも選択と実装がずれないこと。
+
+---
+
+## 自動化経路の観測性・誤警告 (2026-08-23 夜間ループ障害調査で判明、優先枠)
+
+> 3 晩連続で夜間ループが停止した件の調査中に、**調査そのものを妨げた 4 件**が判明した。
+> いずれも「機構は動いているが、観測結果が人間に正しく届かない」形である。
+>
+> **本節の 4 件は [bugfix-batch-plan.md](bugfix-batch-plan.md) の優先枠 (PR T〜W) として、
+> 既存の第 2 バッチ (PR M〜S) より先に実施する。** 理由は、これらが**他の不具合の発見を
+> 遅らせる層**にあるため — 順位 488 が無ければ 3 晩の停止に気づけず、489 / 490 の誤警告は
+> 本物の事故シグナルを埋もれさせ、491 が無ければ台帳の腐敗が着手時まで露見しない。
+
+### nightly-todo の「着手して失敗した夜」が run status から見えない (順位 488)
+
+> **動機**: 2026-08-20 / 21 / 22 の 3 晩、夜間ループは PR を 1 本も作れなかったが、
+> **run 一覧はすべて green だった**。ユーザーが個別にログを開くまで誰も気づかなかった。
+>
+> **実測 (3 run の 1 行サマリと conclusion)**:
+>
+> | run | conclusion | guard | handoff | 実態 |
+> |---|---|---|---|---|
+> | 32589642740 | success | **failure** | success | Guard deny (着手して失敗) |
+> | 32622369420 | failure | success | success | 完了検証ブロック |
+> | 32630971313 | success | success | **skipped** | 完走 |
+>
+> **現状は設計どおりであってバグではない** — [ADR-072](adr/adr-072-nightly-todo-loop.md)
+> 決定 10 が「背圧 deny / 該当タスク無し / **guard deny** / 空 diff」を設計上の正常な結末と
+> して green + NIGHTLY_SKIP に分類している。しかも同節は pre-push review の同種の指摘に
+> 対し「現状を維持する」と明記している。**本タスクは決定 10 の改訂を伴う。**
+>
+> **改訂の根拠**: 決定 10 が green に並べた 4 つは性質が違う。背圧 deny / タスク無しは
+> **agent を回していない** (Max 枠の消費なし = 本当に「何もすることが無かった夜」)。
+> guard deny / 空 diff は **agent を 1 回まるごと回して捨てている**。決定 10 の理由づけ
+> (「何もすることが無かった夜と混ざる」) は前者にしか当てはまらない。
+>
+> **参照**: [`.github/workflows/nightly-todo.yml`](../.github/workflows/nightly-todo.yml)
+> (Guard the guardrails の continue-on-error / Leave a handoff marker の if 条件)、
+> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 10
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity **High** (障害が 3 晩気づかれなかった。他の
+> 不具合の発見を遅らせる層) / Frequency High (停止のたび) / Effort S / Adoption Risk Low。
+
+#### 背景
+
+判別子は**すでに実装されている**。handoff step の if 条件が
+implement.outcome == success かつ publish.outcome != success を含んでおり、
+step 名自体が "stopped after implementing" と言っている。これが「着手して失敗した夜」の
+定義そのものである。
+
+#### 設計決定 (案)
+
+- handoff step の後に、handoff が実行された場合のみ exit 1 する step を足す
+- 背圧 deny / タスク無しは handoff に到達しないため **green のまま**残る (決定 10 の意図を保持)
+- ADR-072 決定 10 の表に「implement 後の停止 → red」の行を足す
+- **確認事項**: guard deny 時に Mint App token が走っている (handoff marker 作成のため)。
+  red 化しても marker 作成と後始末が先に完了することを step 順で確かめる
+
+- [ ] handoff 実行時に落ちる step を追加する
+- [ ] 背圧 deny / タスク無しの run が green のままであることを実走で確認する
+- [ ] ADR-072 決定 10 を改訂する
+- [ ] `pnpm lint:workflows` green
+
+#### 完了基準
+
+agent を回して PR に到達しなかった run が **red** になり、agent を回していない run
+(背圧 deny / タスク無し) は **green** のままであること。両方を実走で確認する。
+
+**あわせて例外経路を確認する**: red 化しても **handoff marker が作成され、App token の後始末
+(`Post Mint App token`) が完了する**こと。red 化によってこれらが飛ぶと、失敗した順位が
+再選択され続ける (marker 不在) か token が残留する。**実走ログで step の実行順と結果を確認する。**
+
+**auto lane に載せない** — `.github/workflows/` は Guard 禁止パス。
+
+---
+
+### jj-op-verify の照合窓が付随 op に押し下げられて誤警告する (順位 489)
+
+> **動機**: 変更系 jj 操作の後に **op log へ operation を書く別のコマンド**が走ると、
+> `jj op log --limit 1` の先頭がそちらに占められ、「operation not recorded」の誤警告が出る。
+> 本セッションで **4 回発火中 2 回が誤警告**だった。
+>
+> **実データ** (`jj describe -m ... && pnpm push` の直後):
+>
+> ```text
+> c8d83850 | 17:28:59 | push bookmark ... to git remote origin   ← 先頭 (hook が見る唯一の行)
+> 02edb0ec | 17:25:45 | describe commit 75b52ec7...              ← 2 件目 (記録されている)
+> ```
+>
+> **根本原因**: `jj git fetch` / `jj git push` は**検出対象から意図的に外されている**が、
+> 外れているのは「検出のトリガー」としてだけで、**これらは op log に operation を書く**。
+> モジュール doc にこの点の記述が無い。押し下げるのは fetch/push だけでなく
+> `snapshot working copy` も含む — 直近 40 op のうち **28 件 (70%) が付随 op** だった
+> (snapshot 17 / push 5 / fetch 5 / import git refs 1)。
+>
+> **警告の性質**: 「op log 先頭に対応する operation がありません」という**観測の記述は正しい**。
+> 誤っているのは結論部分 (「コマンドが実際には実行されていない可能性があります」) — 実行は
+> されている。**観測が正しく推論が誤っている**形。
+>
+> **順位 476 とは別物** — 476 は commit message 内の文言を実行と誤認する**検出**の問題で、
+> 対処は quote 除外。本件は**照合窓**の問題。**476 を実装しても本件は塞がらない。**
+> ただし同一ファイルなので実装順の調整は要る。
+>
+> **参照**: [`src/hooks-post-tool-jj-op-verify/src/main.rs`](../src/hooks-post-tool-jj-op-verify/src/main.rs)
+> (fetch_op_head の --limit 1 / モジュール doc の「対象外」記述)、順位 476 / 283 / 285
+>
+> **実行優先度**: 🔧 **Tier 2** — Severity Medium (狼少年化により本物の op-log divergence
+> を見逃す。ADR-045 の事故クラスは実在する) / Frequency **High** (誤警告率 50%) /
+> Effort S / Adoption Risk Low。
+
+#### 設計決定 (案)
+
+- **案 B 起点 (ユーザー判断 2026-08-23)**: 付随 op (snapshot working copy /
+  fetch from git remote / push bookmark ... to git remote / import git refs) を
+  読み飛ばし、最初の非付随 op を照合する。skip リストは上記の実測 40 件が根拠
+- 窓を無制限に広げると**偽陰性**が出る (過去の同種 op がマッチして「記録済み」と誤判定)。
+  遡る上限を決める
+- **本案で塞がらない既知の限界を doc に明記する** (ユーザー指摘 2026-08-23)
+  - 検証されるのは検出した **1 件だけ**。現在の実装は検出結果を上書きし続けるため
+    チェーン内の**最後の 1 件しか追跡していない** (`jj describe && jj new` なら new のみ)。
+    途中の操作が黙って落ちても捕捉できない
+  - **サブプロセスが作る op は予見不可能**。`pnpm push` の中で `jj git push` が走る経路は、
+    コマンド文字列をどう解析しても事前に分からない
+
+- [ ] 付随 op の skip リストを実装し、遡る上限を決める
+- [ ] 誤警告 2 ケース (forget + fetch / describe + pnpm push) を回帰テストで固定する
+- [ ] 偽陰性方向 (本物の未記録) が従来どおり検出されることを固定する
+- [ ] 上記 2 つの既知の限界をモジュール doc に明記する
+
+#### 完了基準
+
+付随 op が head を占めても誤警告が出ないこと。本物の未記録は従来どおり警告されること。
+両方向が unit test で固定され、**本案で塞がらない限界が doc から追えること**。
+
+---
+
+### post-pr-monitor が「takt が作業ツリーを変更した」と誤警告する (順位 490)
+
+> **動機**: findings 0 件の再 push のたびに次の警告が出る。本セッションで **2 回**発生した。
+>
+> ```text
+> [warn] findings 0 件なのに takt が作業ツリーを変更しました。push せず残します —
+> jj diff で内容を確認し、不要なら jj abandon / jj restore で片付けてください
+> ```
+>
+> **実際には takt は何も変更していない** (ローカル @ と origin が同一コミット、差分 0 件で確認)。
+>
+> **根本原因**: 判定が**別の問いを聞いている**。コメントは「takt が作業ツリーを変更したか」
+> = before/after の比較を意図しているが、実装は
+> [`diff_at_is_empty()`](../src/cli-pr-monitor/src/runner.rs) が
+> jj log -r @ のテンプレート empty 判定で「**@ が空コミットか**」を聞いている。
+> feature ブランチでは @ が PR の中身そのものなので empty は常に false になり、
+> **takt が何もしなくても必ず「変更した」と判定される**。
+>
+> 前提が成り立つのは「takt 実行前の @ が空」の文脈だけ。`pnpm push` 経路では
+> push-runner が bookmark を @ に進めるため @ = push したコミット本体になり、前提が崩れる。
+>
+> **実害**: log_info で出るだけで push は止めないが、**文言が jj abandon / jj restore を
+> 案内している**。額面どおり実行すると **PR の中身を失う**。助言層だが誤誘導の実害がある。
+>
+> **材料は既にある**: TaktOutcome に pre_takt_cid が捕捉されており
+> ([monitor.rs](../src/cli-pr-monitor/src/stages/monitor.rs))、execute_repush_flow には
+> 渡されている。warn_if_takt_changed_the_tree_without_findings が引数を受け取っていない
+> ため使えていないだけ。同種の正しい比較は **同一 crate 内の
+> [scope_guard.rs](../src/cli-pr-monitor/src/stages/scope_guard.rs)** が
+> jj diff --from pre_takt_cid --to @ --summary で実装済み。
+>
+> **参照**: [`src/cli-pr-monitor/src/stages/monitor.rs`](../src/cli-pr-monitor/src/stages/monitor.rs)、
+> [`src/cli-pr-monitor/src/runner.rs`](../src/cli-pr-monitor/src/runner.rs)
+>
+> **実行優先度**: 🚀 **Tier 1** — Severity **High** (案内どおり操作すると作業を失う) /
+> Frequency High (findings 0 件の再 push ごと。実測 2/2) / Effort S / Adoption Risk Low。
+
+#### 設計決定 (案)
+
+- warn_if_takt_changed_the_tree_without_findings に pre_takt_cid を渡し、
+  jj diff --from pre_takt_cid --to @ が空かで判定する (scope_guard と同じ呼び方)
+- **pre_takt_cid が None (捕捉失敗) のときの扱いを決める** — fail-closed (警告を出す) と
+  fail-open (出さない) のどちらが正しいかは、誤誘導の実害を踏まえて判断する
+- diff_at_is_empty の他の呼び出し元が同じ誤解をしていないか確認する
+
+- [ ] pre_takt_cid ベースの比較へ差し替える
+- [ ] pre_takt_cid が None のときの方針を決めて doc に残す
+- [ ] diff_at_is_empty の全呼び出し元を確認する
+- [ ] 「takt が変更した / していない」の両方向を回帰テストで固定する
+
+#### 完了基準
+
+takt が作業ツリーを変更していない再 push で警告が出ないこと。実際に変更した場合は従来どおり
+警告されること。両方向がテストで固定されていること。
+
+**`pre_takt_cid` が `None` の経路もテスト対象に含める** — 基準コミットが取れないときに
+fail-closed (警告を出す) か fail-open (出さない) かを決め、**決めた方の挙動をテストで固定する**。
+ここを未定義のまま残すと、比較材料が無い状況で従来と同じ誤警告に戻りうる。
