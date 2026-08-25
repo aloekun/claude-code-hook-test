@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-08-06、2026-08-09 に停止点を draft PR から通常 PR へ変更、2026-08-10 にレビュー要求経路を確立、2026-08-16 に担当管理を lane モデルへ移行 = 決定 18〜20)
+試験運用 (2026-08-06、2026-08-09 に停止点を draft PR から通常 PR へ変更、2026-08-10 にレビュー要求経路を確立、2026-08-16 に担当管理を lane モデルへ移行 = 決定 18〜20、2026-08-25 に決定 10 を改訂して implement 後の停止を red 化 = 順位 488)
 
 > [ADR-052](adr-052-autonomy-execution-boundary-classes.md) の自動実行可クラスのうち **PR 作成 (autonomous-pr クラス)** を、[ADR-066](adr-066-autonomy-global-kill-switch.md) の kill-switch と [ADR-071](adr-071-draft-pr-backpressure.md) の背圧の上に実装する。無人 fix push ([ADR-067](adr-067-phase-b-unattended-fix-push.md)) の次の段で、**自律 actor が初めて「新しい成果物」を作る**経路になる。
 >
@@ -214,15 +214,30 @@ clone は shallow にしない。新規ブランチの push で shallow update �
 
 ### 10. 「設計された停止」と「インフラ障害」を run の色で区別する
 
-停止点のうち **設計上の正常な結末**（背圧 deny / 該当タスク無し / guard deny / 空 diff）は `continue-on-error` で受け、green + `[NIGHTLY_SKIP]` として終える。一方 **インフラ障害**（`gh` や network の失敗、clone 失敗）は `continue-on-error` を付けず red のまま落とす。
+停止点のうち **agent を回していない結末**（背圧 deny / 該当タスク無し）は `continue-on-error` で受け、green + `[NIGHTLY_SKIP]` として終える。一方 **インフラ障害**（`gh` や network の失敗、clone 失敗）は `continue-on-error` を付けず red のまま落とす。**agent を回して PR に到達しなかった結末**（guard deny / 空 diff / verify 失敗 / ledger-completion 未完了）も red で落とす。
+
+> 初版 (2026-08-06) は 1 行目を「**設計上の正常な結末**（背圧 deny / 該当タスク無し / guard deny / 空 diff）は green」と書いていた。**2026-08-25 に guard deny / 空 diff を red 側へ移した** (→ [§ 2026-08-25 改訂](#2026-08-25-改訂-境界は設計された結末かではなくagent-を回したか順位-488))。以下の表と本文はすべて改訂後の分類である。
 
 両者を同じ扱いにすると、run 一覧から「本当に壊れた夜」と「何もすることが無かった夜」の区別が消える。毎晩回る無人ループでは、この 2 つが混ざった時点で run 一覧が読まれなくなる。
 
 | 結末 | 色 | 根拠 |
 |---|---|---|
-| 背圧 deny / タスク無し / guard deny / 空 diff | green + `[NIGHTLY_SKIP]` | 設計された結末。毎晩起こりうる |
+| 背圧 deny / タスク無し | green + `[NIGHTLY_SKIP]` | 設計された結末。**agent を回していない** = 本当に何もすることが無かった夜 |
+| **implement 後の停止 (guard deny / 空 diff / verify 失敗 / ledger-completion 未完了)** | **red** + `[NIGHTLY_HANDOFF]` | **agent を 1 回まるごと回して捨てている** (2026-08-25 改訂、順位 488) |
 | `gh` / network / clone の失敗 | **red** | インフラ障害。設計された結末ではない |
 | **ゲート資産の改ざん検知 (決定 7)** | **red** | 「何かがゲートを無効化しようとした」— この系が出しうる最も大きい信号 |
+
+#### 2026-08-25 改訂: 境界は「設計された結末か」ではなく「agent を回したか」(順位 488)
+
+初版は guard deny / 空 diff を green 側に置いていた。**3 晩 (2026-08-20 / 21 / 22) 連続で PR が 1 本も作られなかったのに run 一覧はすべて green で、ユーザーが個別にログを開くまで誰も気づかなかった。**
+
+初版の理由づけ (「本当に壊れた夜」と「何もすることが無かった夜」が混ざると run 一覧が読まれなくなる) は正しいが、green に並べた 4 つは性質が違った。背圧 deny / タスク無しは **agent を回していない** (Max 枠の消費なし)。guard deny / 空 diff は **agent を 1 回まるごと回して捨てている** — これは「何もすることが無かった夜」ではない。**分類軸を「設計された結末か」から「agent を回したか」へ改める。**
+
+判別子は新設していない。決定 19 の handoff step の `if` (implement が success かつ publish が非 success) が「着手して失敗した夜」の定義そのもので、**その step が発火したかどうかがそのまま色になる**。したがって背圧 deny / タスク無しは handoff に到達せず green のまま残り、初版が守ろうとした区別は失われない。
+
+**色の分類は shell から exe (`cli-nightly-outcome`) へ移した。** 移送前は `Report outcome` step の `if [ "${PUBLISH_OUTCOME}" = "success" ]` 連鎖が色を決めており、**この判定に回帰テストを書く場が無かった** — 決定 1 が選択ロジックを exe に置いたのと同じ理由が、同じ workflow の中で守られていなかった。移送後は分類が純関数になり、「guard deny は red」「背圧 deny は green のまま」の両方を unit test + 実 exe の E2E で固定している。
+
+**red 化は最終 step で行う。** handoff marker の作成は `Report outcome` より前に完了しており、`Post Mint App token` は post step なので本 step の失敗後も走る。red 化によって marker 不在で同じ順位が翌晩再選択される事故は起きない。
 
 改ざん検知を red にするのは初版で落としていた。`continue-on-error: true` + 下流の `if: steps.integrity.outcome == 'success'` で push は止まる (fail-closed は成立している) が、**green で終わるため run 一覧上は「何もすることが無かった夜」と区別が付かない**。決定 10 を書いたことで、その分類にこの結末が入っていないことが露出した (§ 静的レビューが捕捉した件 #10)。
 
@@ -483,7 +498,9 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 対象は **verify 失敗 / ledger-completion 未完了 / guard deny / 空 diff**。agent 起動前に記録済みの base commit (`git -C work rev-parse HEAD`) を指す ref `claude/nightly-<順位>` を `gh api -X POST /repos/{owner}/{repo}/git/refs` で 1 回作る。**コードは push しない** — 完遂できなかった成果物を人間のレビュー面へ出す意味はなく、必要なのは「この順位は人間の確認待ちである」という 1 ビットだけである。
 
-マーカーがある限り決定 3 の除外 (`git ls-remote` によるブランチ存在確認) がそのまま効くため、**selector 側の変更は要らない**。run の色は決定 10 に従い green のままだが、`[NIGHTLY_SKIP]` とは**別のマーカー** (`[NIGHTLY_HANDOFF]`) で `Report outcome` に出す — 「何もすることが無かった夜」と「人間の確認が要る夜」を run 一覧で区別するためで、決定 10 が色でやったことを、同じ色の中でもう 1 段分けている。
+マーカーがある限り決定 3 の除外 (`git ls-remote` によるブランチ存在確認) がそのまま効くため、**selector 側の変更は要らない**。`[NIGHTLY_SKIP]` とは**別のマーカー** (`[NIGHTLY_HANDOFF]`) で `Report outcome` に出す — 「何もすることが無かった夜」と「人間の確認が要る夜」を run 一覧で区別するためである。
+
+> **2026-08-25 改訂 (順位 488)**: 起票時は「run の色は決定 10 に従い green のまま、同じ色の中で marker を分ける」としていたが、**green のままでは 3 晩の停止が誰にも届かなかった**。決定 10 の改訂により、handoff step が発火した run は **red** になる。marker による区別はそのまま残り、色と marker の 2 軸で見分ける形になった。
 
 **implement より前の停止はマーカーを作らない。** kill-switch / 背圧 deny / タスク無し / インフラ障害 (network / gh / clone) はいずれも agent が走る前に決着するため、翌晩そのまま再試行されるのが正しい。
 

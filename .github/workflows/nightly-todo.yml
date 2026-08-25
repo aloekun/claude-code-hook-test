@@ -79,7 +79,7 @@ jobs:
           set -euo pipefail
           cargo build --release \
             -p cli-nightly-task-select -p cli-autonomy-gate -p cli-ledger-cleanup \
-            -p cli-stale-branch-scan \
+            -p cli-stale-branch-scan -p cli-nightly-outcome \
             --manifest-path master-ref/Cargo.toml
           # 改ざん検知の基準値。Implement ステップ (agent) が master-ref/ 配下のゲート
           # exe/config を書き換えていないか、後段の Verify gate integrity で照合する。
@@ -87,8 +87,13 @@ jobs:
           # exe なので、書き換えられると #394 の再発防止そのものが無効化される) ため、
           # cli-autonomy-gate と同じ基準値に含める (pre-push simplicity review
           # SIM-NEW-nightly-todo-yml-L421)。
+          #
+          # cli-nightly-outcome も同じ理由で含める (順位 488)。run の色を決める exe なので、
+          # 書き換えられると「失敗した夜が green で終わる」= 順位 488 そのものが復活する。
+          # agent は master-ref/ を触れない (決定 12) が、可視性の要は多層で守る。
           sha256sum master-ref/target/release/cli-autonomy-gate master-ref/autonomy-config.toml \
             master-ref/target/release/cli-ledger-cleanup \
+            master-ref/target/release/cli-nightly-outcome \
             > "$RUNNER_TEMP/gate-integrity.sha256"
 
       # ── 掃除用の App token (1 回目の mint、ADR-072 決定 20) ──────────────────
@@ -217,8 +222,9 @@ jobs:
       # 背圧の実測値と、着手済み順位の除外リストを 1 回の問い合わせから作る。
       # 数える主体 (本 step) と判断する主体 (ゲート exe) を分けるのは ADR-067 と同型。
       #
-      # **本 step には意図的に continue-on-error を付けない。** 他の停止点 (背圧 deny /
-      # タスク無し / guard deny) は設計上の正常な結末なので green + [NIGHTLY_SKIP] で終える
+      # **本 step には意図的に continue-on-error を付けない。** agent を回していない停止
+      # (背圧 deny / タスク無し) は green + [NIGHTLY_SKIP] で終える (2026-08-25 改訂で
+      # guard deny はこの側から外れ red へ移った、順位 488)
       # が、gh や network の失敗は**インフラ障害**であって設計された結末ではない。red で
       # 出したほうが「見に行くべきものがある」と伝わる。両者を同じ扱いにすると、本当に
       # 壊れた夜と何もすることが無かった夜の区別が run 一覧から消える (ADR-072 決定 10)。
@@ -866,6 +872,23 @@ jobs:
       # 通常 PR は .coderabbit.yaml の auto_review.enabled: true が拾うので明示トリガーは不要。
 
       # 無音で終わらせない (ADR-064 と同じ論理)。どの段で止まったかを 1 行で出す。
+      #
+      # **判定は exe、表示も exe** (順位 488、ADR-072 決定 10 改訂)。移送前はここの shell が
+      # `if [ "${PUBLISH_OUTCOME}" = "success" ]` の連鎖で run の色を決めており、その判定に
+      # 回帰テストを書く場が無かった。実際、agent を 1 回まるごと回して捨てた夜が green に
+      # 落ち、2026-08-20 / 21 / 22 の 3 晩の停止が run 一覧から見えなかった。決定 1 が選択
+      # ロジックを exe に置いたのと同じ理由で、色の分類も exe へ移した (回帰テストの場が
+      # 無い判定を無人経路に置かない)。分類の中身と根拠は cli-nightly-outcome の
+      # module doc にある。
+      #
+      # **本 step の exit code がそのまま run の色になる** — continue-on-error は付けない。
+      # exe が exit 1 を返すのは (a) implement 後の停止 (handoff 発火)、(b) handoff marker の
+      # 作成失敗、(c) step outcome が未知の値、の 3 つ。背圧 deny / 該当タスク無しは handoff に
+      # 到達しないため green のまま残る (決定 10 の意図の保持)。
+      #
+      # **最終 step に置くことが red 化の前提**である。handoff marker の作成は本 step より
+      # 前に完了しており、`Post Mint App token` の後始末は post step なので本 step の失敗後も
+      # 走る。red 化によって marker 不在で同じ順位が再選択される事故は起きない。
       - name: Report outcome
         if: '!cancelled()'
         env:
@@ -877,6 +900,7 @@ jobs:
           PUBLISH_TREE_OUTCOME: ${{ steps.publish-tree.outcome }}
           GUARD_OUTCOME: ${{ steps.guard.outcome }}
           INTEGRITY_OUTCOME: ${{ steps.integrity.outcome }}
+          LEDGER_COMPLETION_OUTCOME: ${{ steps.ledger-completion.outcome }}
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           APP_TOKEN_OUTCOME: ${{ steps.app-token.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
@@ -884,23 +908,5 @@ jobs:
           RANK: ${{ steps.select.outputs.rank }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          echo "[NIGHTLY] cleanup=${CLEANUP_OUTCOME:-<未実行>} preflight=${PREFLIGHT_OUTCOME:-<未実行>} select=${SELECT_OUTCOME:-<未実行>} implement=${IMPLEMENT_OUTCOME:-<未実行>} verify=${VERIFY_OUTCOME:-<未実行>} publish_tree=${PUBLISH_TREE_OUTCOME:-<未実行>} guard=${GUARD_OUTCOME:-<未実行>} integrity=${INTEGRITY_OUTCOME:-<未実行>} gate=${GATE_OUTCOME:-<未実行>} app_token=${APP_TOKEN_OUTCOME:-<未実行>} publish=${PUBLISH_OUTCOME:-<未実行>} handoff=${HANDOFF_OUTCOME:-<未実行>}"
-          if [ "${PUBLISH_OUTCOME:-}" = "success" ]; then
-            echo "[NIGHTLY] PR を作成しました。"
-            exit 0
-          fi
-          # 実装まで到達して停止した run は「何も無かった夜」ではなく**人間の確認待ち**。
-          # [NIGHTLY_SKIP] と別のマーカーで出すのは、run 一覧でこの 2 つを見分けるため
-          # (ADR-072 決定 19)。
-          if [ "${HANDOFF_OUTCOME:-}" = "success" ]; then
-            # **dry_run では marker を作っていない** (handoff step 側で列挙のみ)。
-            # ここで「マーカーがある」と書くと、実際には翌晩も同じ順位が選ばれる run を
-            # 「確認待ちで止まっている」と読ませてしまう (CodeRabbit #412)。
-            if [ "${DRY_RUN:-}" = "true" ]; then
-              echo "[NIGHTLY_HANDOFF] 順位 ${RANK:-<不明>} は implement 後に停止しました。**dry_run のためマーカーは作成していません** (実走なら人間の確認待ちになる経路)。"
-              exit 0
-            fi
-            echo "[NIGHTLY_HANDOFF] 順位 ${RANK:-<不明>} は人間の確認待ちです。マーカーがある間その順位は再選択されません。"
-            exit 0
-          fi
-          echo "[NIGHTLY_SKIP] 本 run は PR を作りませんでした。上の 1 行で停止段を特定してください。"
+          set -euo pipefail
+          ./master-ref/target/release/cli-nightly-outcome
