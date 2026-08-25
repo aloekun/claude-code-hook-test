@@ -1,0 +1,15 @@
+[package]
+name = "cli-nightly-outcome"
+version = "0.1.0"
+edition = "2021"
+
+# 本体は依存なし。step outcome の文字列を受けて色を決めるだけの決定論層で、外部 I/O も
+# シリアライズも要らない (ADR-072 決定 1 と同じ理由で shell から exe へ移した層)。
+[dependencies]
+
+[dev-dependencies]
+# 実 exe を spawn する E2E テスト (tests/e2e.rs) の bounded wait + pipe drain
+# (docs/dev-conventions.md § bounded wait)。
+lib-subprocess = { path = "../lib-subprocess" }
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

@@ -550,69 +550,6 @@ green になること。検査を外す変異で落ちること。
 > 遅らせる層**にあるため — 順位 488 が無ければ 3 晩の停止に気づけず、489 / 490 の誤警告は
 > 本物の事故シグナルを埋もれさせ、491 が無ければ台帳の腐敗が着手時まで露見しない。
 
-### nightly-todo の「着手して失敗した夜」が run status から見えない (順位 488)
-
-> **動機**: 2026-08-20 / 21 / 22 の 3 晩、夜間ループは PR を 1 本も作れなかったが、
-> **run 一覧はすべて green だった**。ユーザーが個別にログを開くまで誰も気づかなかった。
->
-> **実測 (3 run の 1 行サマリと conclusion)**:
->
-> | run | conclusion | guard | handoff | 実態 |
-> |---|---|---|---|---|
-> | 32589642740 | success | **failure** | success | Guard deny (着手して失敗) |
-> | 32622369420 | failure | success | success | 完了検証ブロック |
-> | 32630971313 | success | success | **skipped** | 完走 |
->
-> **現状は設計どおりであってバグではない** — [ADR-072](adr/adr-072-nightly-todo-loop.md)
-> 決定 10 が「背圧 deny / 該当タスク無し / **guard deny** / 空 diff」を設計上の正常な結末と
-> して green + NIGHTLY_SKIP に分類している。しかも同節は pre-push review の同種の指摘に
-> 対し「現状を維持する」と明記している。**本タスクは決定 10 の改訂を伴う。**
->
-> **改訂の根拠**: 決定 10 が green に並べた 4 つは性質が違う。背圧 deny / タスク無しは
-> **agent を回していない** (Max 枠の消費なし = 本当に「何もすることが無かった夜」)。
-> guard deny / 空 diff は **agent を 1 回まるごと回して捨てている**。決定 10 の理由づけ
-> (「何もすることが無かった夜と混ざる」) は前者にしか当てはまらない。
->
-> **参照**: [`.github/workflows/nightly-todo.yml`](../.github/workflows/nightly-todo.yml)
-> (Guard the guardrails の continue-on-error / Leave a handoff marker の if 条件)、
-> [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 10
->
-> **実行優先度**: 🚀 **Tier 1** — Severity **High** (障害が 3 晩気づかれなかった。他の
-> 不具合の発見を遅らせる層) / Frequency High (停止のたび) / Effort S / Adoption Risk Low。
-
-#### 背景
-
-判別子は**すでに実装されている**。handoff step の if 条件が
-implement.outcome == success かつ publish.outcome != success を含んでおり、
-step 名自体が "stopped after implementing" と言っている。これが「着手して失敗した夜」の
-定義そのものである。
-
-#### 設計決定 (案)
-
-- handoff step の後に、handoff が実行された場合のみ exit 1 する step を足す
-- 背圧 deny / タスク無しは handoff に到達しないため **green のまま**残る (決定 10 の意図を保持)
-- ADR-072 決定 10 の表に「implement 後の停止 → red」の行を足す
-- **確認事項**: guard deny 時に Mint App token が走っている (handoff marker 作成のため)。
-  red 化しても marker 作成と後始末が先に完了することを step 順で確かめる
-
-- [ ] handoff 実行時に落ちる step を追加する
-- [ ] 背圧 deny / タスク無しの run が green のままであることを実走で確認する
-- [ ] ADR-072 決定 10 を改訂する
-- [ ] `pnpm lint:workflows` green
-
-#### 完了基準
-
-agent を回して PR に到達しなかった run が **red** になり、agent を回していない run
-(背圧 deny / タスク無し) は **green** のままであること。両方を実走で確認する。
-
-**あわせて例外経路を確認する**: red 化しても **handoff marker が作成され、App token の後始末
-(`Post Mint App token`) が完了する**こと。red 化によってこれらが飛ぶと、失敗した順位が
-再選択され続ける (marker 不在) か token が残留する。**実走ログで step の実行順と結果を確認する。**
-
-**auto lane に載せない** — `.github/workflows/` は Guard 禁止パス。
-
----
-
 ### jj-op-verify の照合窓が付随 op に押し下げられて誤警告する (順位 489)
 
 > **動機**: 変更系 jj 操作の後に **op log へ operation を書く別のコマンド**が走ると、

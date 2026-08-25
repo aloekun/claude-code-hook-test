@@ -27,6 +27,7 @@ members = [
     "src/cli-ledger-cleanup",
     "src/cli-fix-push-gate",
     "src/cli-merge-pipeline",
+    "src/cli-nightly-outcome",
     "src/cli-nightly-task-select",
     "src/cli-pr-monitor",
     "src/cli-push-runner",
