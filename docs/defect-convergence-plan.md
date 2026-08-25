@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 が進行中 (PR T = マージ済み / V = 実装済み・未マージ / W・U = 未着手)、Phase 1 以降は未着手。**PR 総数は新規 7 本 (機構 4 + ルール撤廃 3)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 が進行中 (PR T・V = マージ済み / W = 実装済み・未マージ / U = 未着手)、Phase 1 以降は未着手。**PR 総数は新規 7 本 (機構 4 + ルール撤廃 3)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -66,7 +66,7 @@
 
 ## Phase 0 — 優先枠 T〜W (既存 4 本)
 
-**進捗 (2026-08-25)**: **T = マージ済み ([#445](https://github.com/aloekun/claude-code-hook-test/pull/445))**、**V = 実装済み (未マージ)**、W / U = 未着手。T は緑/赤分類を新 crate `cli-nightly-outcome` へ移し `Report outcome` step を exe 呼び出しへ縮退させた。V は `diff_at_is_empty()` を I/O 層と判定層に分け、takt 前後の比較を `pre_takt_cid` 基準の pure function にした。
+**進捗 (2026-08-25)**: **T ([#445](https://github.com/aloekun/claude-code-hook-test/pull/445)) / V ([#446](https://github.com/aloekun/claude-code-hook-test/pull/446)) = マージ済み**、**W = 実装済み (未マージ)**、U = 未着手。T は緑/赤分類を新 crate `cli-nightly-outcome` へ移し `Report outcome` step を exe 呼び出しへ縮退させた。V は `diff_at_is_empty()` を I/O 層と判定層に分け、takt 前後の比較を `pre_takt_cid` 基準の pure function にした。W は台帳の実体整合 2 検査を `lib-ledger` に追加した (PR R = 順位 486 とは統合しない判断。根拠は bugfix-batch-plan.md § PR W)。
 
 実施内容・完了基準・後始末は bugfix-batch-plan.md § 優先枠を正とする。ただし**以下の実装方針変更が同計画の記載に優先する**:
 
