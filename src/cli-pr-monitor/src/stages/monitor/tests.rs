@@ -345,3 +345,96 @@ fn resume_returns_fix_push_time_from_state_when_set() {
         "state に fix_push_time がある場合、fallback の started_at ではなく state の値が返る"
     );
 }
+
+// ─── 順位 490: takt 前後の作業ツリー変更判定 ───
+
+/// **順位 490 の実観測の再現** — feature ブランチで `@` が PR の中身そのもの (= 非空) でも、
+/// takt が何も変えていなければ「変更なし」と判定されること。移送前はここが必ず警告だった。
+#[test]
+fn an_untouched_tree_is_unchanged_even_when_at_is_not_an_empty_commit() {
+    let verdict = judge_tree_change(Some("abc123"), |from| {
+        assert_eq!(from, "abc123", "捕捉済みの pre_takt_cid を基準に比較すること");
+        Ok(String::new())
+    });
+    assert_eq!(verdict, TreeChange::Unchanged);
+}
+
+/// jj が空白のみを返す場合も「変更なし」。
+#[test]
+fn a_whitespace_only_summary_is_unchanged() {
+    let verdict = judge_tree_change(Some("abc123"), |_| Ok("\n  \n".to_string()));
+    assert_eq!(verdict, TreeChange::Unchanged);
+}
+
+/// **stderr の警告だけでは `Changed` にならない** (CodeRabbit #446)。
+///
+/// `capture_diff_summary` は成功時 stdout だけを返すので、jj が警告を出しても判定に届く
+/// summary は空のままになる。ここでは判定側の契約 (空 summary → `Unchanged`) を、
+/// 警告文字列が混ざった場合と対にして固定する。
+#[test]
+fn a_stderr_warning_must_not_be_mistaken_for_a_change() {
+    let clean = judge_tree_change(Some("abc123"), |_| Ok(String::new()));
+    assert_eq!(clean, TreeChange::Unchanged);
+
+    let contaminated = judge_tree_change(Some("abc123"), |_| {
+        Ok("Warning: unrecognized config option\n".to_string())
+    });
+    assert_eq!(
+        contaminated,
+        TreeChange::Changed,
+        "判定側は非空を Changed と読む。だから I/O 層が stderr を混ぜてはいけない"
+    );
+}
+
+/// 逆方向: takt が実際に変更した場合は従来どおり警告する。
+#[test]
+fn a_modified_tree_is_changed() {
+    let verdict = judge_tree_change(Some("abc123"), |_| Ok("M src/lib.rs\n".to_string()));
+    assert_eq!(verdict, TreeChange::Changed);
+}
+
+/// `pre_takt_cid` が None のときは「変更された」と言わない (2026-08-25 ユーザー決定)。
+/// **fetch は呼ばれない** — 基準が無い状態で jj を叩いても意味がないため。
+#[test]
+fn a_missing_base_commit_is_undeterminable_and_skips_the_diff() {
+    let verdict = judge_tree_change(None, |_| panic!("基準が無いのに jj を呼んではいけない"));
+    assert!(matches!(verdict, TreeChange::Undeterminable { .. }));
+    assert_ne!(verdict, TreeChange::Changed);
+}
+
+/// jj の失敗も「判定不能」であって「変更された」ではない。
+#[test]
+fn a_failed_diff_is_undeterminable() {
+    let verdict = judge_tree_change(Some("abc123"), |_| Err("jj: no such revision".to_string()));
+    let TreeChange::Undeterminable { reason } = &verdict else {
+        panic!("判定不能に倒れていない: {verdict:?}");
+    };
+    assert!(reason.contains("no such revision"), "失敗理由を握り潰さない: {reason}");
+}
+
+/// **判定不能では片付けコマンドを案内しない** — 額面どおり実行すると PR の中身を失うため
+/// (順位 490 の実害)。
+#[test]
+fn the_undeterminable_message_never_suggests_discarding_work() {
+    let message = tree_change_message(&TreeChange::Undeterminable {
+        reason: "取得失敗".to_string(),
+    });
+    assert!(!message.contains("jj abandon"), "{message}");
+    assert!(!message.contains("jj restore"), "{message}");
+    assert!(message.contains("判定できません"), "{message}");
+}
+
+/// 変更ありのときは従来どおり片付けを案内してよい (材料が揃っているため)。
+#[test]
+fn the_changed_message_keeps_the_cleanup_guidance() {
+    let message = tree_change_message(&TreeChange::Changed);
+    assert!(message.starts_with("[warn]"), "{message}");
+    assert!(message.contains("jj abandon"), "{message}");
+}
+
+/// 変更なしは warning ではなく state ログ (run ログの noise にしない)。
+#[test]
+fn the_unchanged_message_is_not_a_warning() {
+    let message = tree_change_message(&TreeChange::Unchanged);
+    assert!(message.starts_with("[state]"), "{message}");
+}

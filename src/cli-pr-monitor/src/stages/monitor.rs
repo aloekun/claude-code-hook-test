@@ -228,7 +228,7 @@ fn finalize_repush(
         return;
     }
     if !has_findings_to_fix(findings) {
-        warn_if_takt_changed_the_tree_without_findings();
+        report_tree_change_without_findings(outcome.pre_takt_cid.as_deref());
         return;
     }
     execute_repush_flow(
@@ -245,16 +245,76 @@ fn takt_produced_a_result(outcome: &TaktOutcome) -> bool {
     outcome.takt_succeeded && outcome.has_coderabbit_findings
 }
 
-/// findings 0 件なのに takt が作業ツリーを変えていたら warning を出す。
-fn warn_if_takt_changed_the_tree_without_findings() {
-    if crate::runner::diff_at_is_empty() {
-        log_info("[state] findings 0 件のため re-push 経路を skip (作業ツリーの変更なし)");
-        return;
+/// takt が作業ツリーを変更したかの判定 (順位 490)。
+#[derive(Debug, PartialEq, Eq)]
+enum TreeChange {
+    /// takt 実行前後で差分なし。findings 0 件なら正常な結末。
+    Unchanged,
+    /// takt が変更した。findings 0 件なのに変わっているので人間に見せる。
+    Changed,
+    /// 比較材料が無い / 取得に失敗した。**「変更された」とは言わない**。
+    Undeterminable { reason: String },
+}
+
+/// takt 前後で作業ツリーが変わったか判定する (I/O なし)。
+///
+/// # 何と何を比べるか
+///
+/// **takt 実行直前に捕捉した `pre_takt_cid` と現在の `@`** である。移送前はここが
+/// `diff_at_is_empty()` = 「`@` が空コミットか」になっており、**別の問いを聞いていた**。
+/// feature ブランチでは `@` が PR の中身そのものなので empty は常に false になり、
+/// takt が何もしなくても必ず「変更した」と判定されていた (順位 490、実測 2/2 で誤警告)。
+///
+/// # 材料が無いときに「変更された」と言わない理由
+///
+/// 警告文が `jj abandon` / `jj restore` を案内するため、**額面どおり実行すると PR の
+/// 中身を失う**。ここは push を止めないログだけの助言層で、
+/// [ADR-043](../../../../docs/adr/adr-043-security-gates-fail-closed.md) が
+/// 「fail-closed はゲート関数のみ、助言層は fail-open」と定めている。とはいえ黙るのも
+/// 「takt が本当に変更した夜」を見逃すので、**判定不能をそれとして出す第 3 の状態**を持つ
+/// (2026-08-25 ユーザー決定)。
+fn judge_tree_change(
+    pre_cid: Option<&str>,
+    fetch_summary: impl FnOnce(&str) -> Result<String, String>,
+) -> TreeChange {
+    let Some(pre) = pre_cid else {
+        return TreeChange::Undeterminable {
+            reason: "takt 実行前の commit id を捕捉できていない".to_string(),
+        };
+    };
+    match fetch_summary(pre) {
+        Ok(summary) if summary.trim().is_empty() => TreeChange::Unchanged,
+        Ok(_) => TreeChange::Changed,
+        Err(reason) => TreeChange::Undeterminable {
+            reason: format!("jj diff の取得に失敗した: {reason}"),
+        },
     }
-    log_info(
-        "[warn] findings 0 件なのに takt が作業ツリーを変更しました。push せず残します — \
-         `jj diff` で内容を確認し、不要なら `jj abandon` / `jj restore` で片付けてください",
-    );
+}
+
+/// 判定結果をログ 1 行にする (I/O なし)。
+///
+/// **`Undeterminable` では片付けコマンドを案内しない。** 判定できていない状態で
+/// `jj abandon` / `jj restore` を勧めると、順位 490 の実害 (PR の中身を失う) がそのまま残る。
+fn tree_change_message(verdict: &TreeChange) -> String {
+    match verdict {
+        TreeChange::Unchanged => {
+            "[state] findings 0 件のため re-push 経路を skip (takt 前後で作業ツリーの変更なし)"
+                .to_string()
+        }
+        TreeChange::Changed => "[warn] findings 0 件なのに takt が作業ツリーを変更しました。push せず残します — \
+             `jj diff` で内容を確認し、不要なら `jj abandon` / `jj restore` で片付けてください"
+            .to_string(),
+        TreeChange::Undeterminable { reason } => format!(
+            "[warn] takt 前後で作業ツリーが変わったか判定できません ({reason})。\
+             push はしていません — 必要なら `jj diff` で確認してください (片付けは案内しません)"
+        ),
+    }
+}
+
+/// findings 0 件のときに takt 前後の作業ツリー変更を報告する (副作用: jj diff + ログ)。
+fn report_tree_change_without_findings(pre_cid: Option<&str>) {
+    let verdict = judge_tree_change(pre_cid, crate::runner::capture_diff_summary);
+    log_info(&tree_change_message(&verdict));
 }
 
 // ─── 監視のみモード ───

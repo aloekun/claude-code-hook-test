@@ -22,7 +22,6 @@ use lib_scope_guard::{find_out_of_scope, parse_changed_files};
 use serde::Deserialize;
 
 use crate::log::log_info;
-use crate::runner::{run_cmd_direct, JJ_CMD_TIMEOUT_SECS};
 
 /// kill-switch: この環境変数が "1" のとき scope guard を skip する (緊急バイパス用)。
 /// 既存の `PR_MONITOR_GATE_DISABLE` とは独立 — 品質 gate と scope guard を別々に停止できる。
@@ -104,17 +103,12 @@ fn decide_violation(config: &ScopeGuardConfig, reason: &str, out_of_scope: Vec<S
 }
 
 /// fix diff (pre_cid → @) の summary を取得する。jj 失敗は Err に倒す (fail-closed)。
+///
+/// 取得そのものは [`crate::runner::capture_diff_summary`] と同一の jj 呼び出しなので共有する。
+/// **Err をどう扱うかは呼び手側の policy** — ここでは block、順位 490 の作業ツリー変更判定では
+/// 「判定不能」の助言に留める。
 fn fetch_diff_summary(pre_cid: &str) -> Result<String, String> {
-    let (ok, out) = run_cmd_direct(
-        "jj",
-        &["diff", "--from", pre_cid, "--to", "@", "--summary"],
-        &[],
-        JJ_CMD_TIMEOUT_SECS,
-    );
-    if !ok {
-        return Err(out.trim().to_string());
-    }
-    Ok(out)
+    crate::runner::capture_diff_summary(pre_cid)
 }
 
 /// fix diff の変更ファイル一覧を解決する。判定不能 (pre_cid 不明 / jj 失敗 /
