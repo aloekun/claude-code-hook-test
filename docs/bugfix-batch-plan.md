@@ -105,7 +105,14 @@
 | R | `feat(ledger): auto lane の対象ファイルが Guard 禁止パスに当たる行を弾く` | 486 | 未着手 |
 | S | `fix(nightly-todo): master 参照を SHA で pin する` | 487 | 未着手 |
 
-消化順は **優先枠 T → V → W → U を先に片付けてから、通常枠 Q → N → M → P → O → R → S** (各表の順)。
+消化順は次のとおり (**2026-08-25 変更**。優先枠と通常枠の間に [defect-convergence-plan.md](defect-convergence-plan.md) の機構 PR を挟む形に改めた。順序の記述は本行に集約する):
+
+**T → V → W → U → 機1 → 機2 → 機3 → 機4 → 撤1 → 撤2 → 撤3 → Q → N → M → P → O → R → S**
+
+- 前半の T / V / W / U が本計画の優先枠、後半の Q〜S が本計画の通常枠 (各表の順)
+- 中央の 機1〜撤3 は defect-convergence-plan.md の新規 7 本 (機構 4 + ルール撤廃 3)
+- **PR T / V / S の実装方針は同計画の変更が優先する** (T = 緑/赤分類の exe 移送、V = `diff_at_is_empty` の pure function 化、S = exe 移送)
+- 撤1〜撤3 は他と独立なため、PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は Q と入れ替えてよい
 
 **Q を先頭に置く理由**: Q は完了基準に実走観測を含み、発火率が 142 run 中 2 件 (1.4%) と低い。マージが遅いほど観測完了も遅れるため、観測窓を先に開ける。第 1 バッチの順位 431 が「能動的に起こせず待つしかない」状態で止まっている前例に倣った判断である。
 
@@ -220,6 +227,7 @@
   - **D-1 が未観測**: 掃除ループが「既に消えたブランチ」で job を落とさないこと + lease による compare-and-delete が働くこと。掃除対象が 1 件以上ある run が過去 40 回で 0 件だったため一度も実行されていない
   - **条件は整った**: [PR #422](https://github.com/aloekun/claude-code-hook-test/pull/422) のマージで `claude/nightly-228` が決着済み PR のブランチになり、`cli-stale-branch-scan --deletable-only` が対象として列挙することを確認済み。次の定時 run (毎日 18:00 UTC) で発火する見込み
   - **注意**: この観測のために `claude/nightly-228` を**意図的に残している**。週次レビューの残存ブランチ scan が削除候補として挙げるが、D-1 の観測が済むまで削除しないこと
+  - **2026-08-25 実測**: 2026-08-22 18:05 UTC の run 32589642740 の掃除ループが `claude/nightly-228` を**既に削除済み** (上記の注意は過去のものになった)。削除経路の実走と lease 一致削除は観測済み。「既に消えたブランチで落とさない」skip 2 分岐と障害経路は未観測で、TOCTOU レース待ちのため自然発火は期待できない — 決着は [defect-convergence-plan.md](defect-convergence-plan.md) Phase 3 (exe 移送 + unit test) に委ねる
   - **後始末**: **D-1 の観測後**に todo24.md の 467 節 + todo-summary2.md の 467 行を削除
 
 ## 退役手順
