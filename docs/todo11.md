@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)
+### 順位 157: Bundle 1 dogfood checklist 実行 — `__test.ps1` block + override env 確認 (PR #174 T2-#2 採用、ADR-039 bounded lifetime data point #1)
 
 > **動機**: PR #174 で実装した `scratch_file_warning` stage は ADR-039 § 3 Bounded lifetime 準拠で「3-5 PR の dogfood 後に default-ON 昇格 or 却下を判定」する設計。PR #174 の PR body に未消化の dogfood checklist が残っており (`__test.ps1` を意図的に作って push し block 動作確認 / override env でバイパス確認)、これが ADR-039 bounded lifetime の初回データポイント。次の PR (Bundle 2 等) merge 前の前提条件として消化が必要。
 >
@@ -52,7 +52,7 @@
 
 ---
 
-### docs-governance.md に「ADR multi-variant pattern section 追加時の checklist」を codify (PR #176 T3-#1 採用)
+### 順位 160: docs-governance.md に「ADR multi-variant pattern section 追加時の checklist」を codify (PR #176 T3-#1 採用)
 
 > **動機**: PR #175 (Minor: variant 網羅性不足) + PR #176 (Nitpick: 擬似コード vs 実コード齟齬) の 2 連続観測で、ADR の multi-variant pattern section を追加する際の「参照実装リスト完全性」「実装コード例の表記精度」取りこぼしが pattern 化された。本 PR #176 で追加した ADR-041 § State Preservation Invariant section が CR Nitpick を受けた事例も同パターン。Frequency Medium (2 観測) + Effort XS で採用条件成立。
 >
@@ -94,7 +94,7 @@
 
 ---
 
-### Subprocess timeout+kill lifecycle 検証テスト追加 (PR #177 T2-#1 採用)
+### 順位 161: Subprocess timeout+kill lifecycle 検証テスト追加 (PR #177 T2-#1 採用)
 
 > **動機**: PR #177 で CR Major #2 「`run_jj_with_timeout` が timeout 後に jj 子プロセスを kill しない」を fix push したが、修正の正当性 (child process が timeout 到達時に確実に terminate される) を OS レベルで assert する回帰テストが現在ゼロ。fix は `spawn()` + `try_wait()` polling + timeout 時 `kill()` + `wait()` に書き換えたが、テストなしでは将来の変更で同型 leak 再導入が silent regression する。
 >
@@ -140,7 +140,7 @@
 
 ---
 
-### fail-closed error path (Option::None) 個別テスト追加 (PR #177 T2-#2 採用)
+### 順位 162: fail-closed error path (Option::None) 個別テスト追加 (PR #177 T2-#2 採用)
 
 > **動機**: PR #177 の CR Major #1 「`check_todo_staleness` / `build_todo_staleness_message` が `behind.unwrap_or(0) > 0` で None を non-stale 扱いし fail-closed をバイパス」については現状コード (`src/hooks-pre-tool-validate/src/main.rs:796, 846-849`) で `check_todo_staleness` 側が依然 `behind.unwrap_or(0) > 0` のまま gate バイパスの可能性が残り、`build_todo_staleness_message` 側は `if behind.is_none() { return None; }` で early return しているが回帰テスト不在。本タスクは **実装側 fix (unwrap_or → map_or(true, ...) への修正)** + **回帰テスト追加** の両方を scope に含める。security gate 関数 (Option 返値 + jj 呼び出し) の error path 検証は今後の hook でも反復必要。
 >
@@ -184,7 +184,7 @@
 
 ---
 
-### `pnpm create-pr` PR body truncation 回避を検証する e2e/integration test 追加 (PR #181 T2-#1 採用)
+### 順位 165: `pnpm create-pr` PR body truncation 回避を検証する e2e/integration test 追加 (PR #181 T2-#1 採用)
 
 > **動機**: PR #134 + #181 で 2 回観測された `pnpm create-pr` (= `cli-pr-monitor.exe` の PR 作成モード) における PR body 切り詰め問題。複数 section・複数行の body を `--body "..."` で渡すと shell argument 解釈で改行が delimiter 処理されて body が途中で切れる silent UX 劣化が発生する。memory `feedback_pnpm_create_pr_body` で `--body-file <path>` workaround を採用済だが、回避策が正常動作することを担保する自動 regression gate が存在しない。
 >
@@ -231,7 +231,7 @@
 
 ---
 
-### `git-workflow.md § Multi-PR chaining` を「1 PR 内 multi-commit + intent 明記」パターンに拡張 (PR #183 T3-#1 採用)
+### 順位 170: `git-workflow.md § Multi-PR chaining` を「1 PR 内 multi-commit + intent 明記」パターンに拡張 (PR #183 T3-#1 採用)
 
 > **動機**: PR #119/#120/#121 + 本 PR #183 で **4 回観測された** multi-commit single-PR bundling パターンを `~/.claude/rules/common/git-workflow.md` § Multi-PR chaining に codify する。現状の同 section は「複数 PR の分割」を扱うが、「1 PR 内で commit を分離する判断基準」「各 commit message での intent 明記の重要性」が未記載。reviewer (CodeRabbit / 人間) が PR diff を読む際、commit description 単位の intent が明確だと review 効率が向上する。Frequency High に到達したため Tier 3 codify 条件成立。
 >
@@ -269,7 +269,7 @@
 
 ---
 
-### `docs-governance.md` に「Operational reference vs Pointer reference」区別 section を追加 (PR #183 T3-#2 採用) ★ Bundle DG-RULES
+### 順位 171: `docs-governance.md` に「Operational reference vs Pointer reference」区別 section を追加 (PR #183 T3-#2 採用) ★ Bundle DG-RULES
 
 > **動機**: PR #183 で A01 修正 (8 ADR の ephemeral todo 参照を permanent reference に置換) を実施する際、各 reference が以下のどちらに該当するか判定する作業が発生した:
 > - **operational reference**: workflow / behavior が ephemeral artifact をどう扱うかを記述するもの (例: 「ADR-031 workflow が `docs/todo.md` に追記する」)。dead-pointer リスクなし、保持可能
@@ -316,7 +316,7 @@
 
 ---
 
-### CR ephemeral artifact Nitpick の統一 skip 基準を memory に codify (PR #183 T3-#3 採用) ★ Bundle DG-RULES
+### 順位 172: CR ephemeral artifact Nitpick の統一 skip 基準を memory に codify (PR #183 T3-#3 採用) ★ Bundle DG-RULES
 
 > **動機**: PR #183 で CodeRabbit が docs/todo9.md (= ephemeral artifact) 内の行番号参照 (`lines 1298-1370` 等) を Nitpick として指摘した。これは「行番号は将来 drift する」という general principle としては正しいが、**ephemeral artifact (todo entry) は完了時に削除される設計** のため、永続化を求めるルールを適用するのは over-engineering。本 PR では skip 判断したが、同パターンが構造的に recurring と予想される (CR は ephemeral artifact を permanent doc と同等に扱う傾向)。判断基準を memory entry に codify することで、将来のセッションで一貫した skip 判断が可能になる。
 >

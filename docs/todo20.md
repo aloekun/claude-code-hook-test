@@ -12,7 +12,7 @@
 
 > WP-17 段 2 完了時に 7 レポート (#350/#351/#352/#353/#354/#356/#357) の採用候補 24 件を棚卸しし、採用 19 件を **実装時の PR 粒度**で 8 エントリへまとめたもの。却下 5 件は下記「却下した候補」を参照。
 
-### dev-conventions 集中バッチ — post-merge feedback の convention 8 件
+### 順位 365: dev-conventions 集中バッチ — post-merge feedback の convention 8 件
 
 > **動機**: #350〜#357 の 7 レポートが独立に提案した convention 追記のうち、採用と判断した 8 件。いずれも docs のみの変更で相互依存が無く、1 PR にまとめた方がレビュー・採番のコストが下がる (ADR-035 docs-only PR 評価ポリシー、[[batch-doc-prs-for-iteration-speed]] のバッチ方針)。
 >
@@ -41,7 +41,7 @@
 
 - 8 件がいずれも「由来 (どの PR のどの指摘か)」付きで dev-conventions.md に存在すること。7 が既存 convention と重複記述になっていないこと。
 
-### `gh api` 誤用を防ぐ custom lint rule 2 件
+### 順位 366: `gh api` 誤用を防ぐ custom lint rule 2 件
 
 > **動機**: WP-17 段 2 の実走で `gh api` の誤用が 2 回連続で本番経路を止めた。(a) `--slurp` と `--jq` の併用不可 (#356、Phase B が findings 取得直前で停止)、(b) list-endpoint での `--paginate` 欠落 (#352、30 件超で silent に欠落)。どちらも **pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過**しており、レビューでは止まらないことが実証済み。ADR-042 の「ルールでなく仕組みで守る」に該当する。
 >
@@ -67,7 +67,7 @@
 
 - #352 / #356 の実 incident コードがルールで検知され、修正後のコードは検知されないことが fixture テストで固定されていること。
 
-### jj 出力形式契約の回帰テスト + fixture provenance の明示
+### 順位 367: jj 出力形式契約の回帰テスト + fixture provenance の明示
 
 > **動機**: PR #350 の incident — jj の rename summary が波括弧形式 (`R src\{old => new}\file.rs`) であることを 1 年間未検証のまま前提にしており、rename を含む PR が一律 push 不能になっていた。fixture の値が「実測値」か「推定値」かが区別されておらず、誤った前提が長期間検出されなかった。
 >
@@ -91,7 +91,7 @@
 
 - jj の出力形式が変わった場合にテストが (WARNING または失敗で) 検知できること。全 fixture の値の由来が読み取れること。
 
-### cli-fix-push-gate の軸出力一貫性 regression test
+### 順位 368: cli-fix-push-gate の軸出力一貫性 regression test
 
 > **動機**: `describe_axes()` (deny 行の 4 軸表示) と `evaluate()` (実際の allow/deny 判定) が別関数として実装されており、両者が食い違うと **「deny 行が示す理由と実際の判定が一致しない」** という最悪の観測性劣化が起きる。ADR-067 § 決定 4 は「4 軸すべての状態が deny 行に出るため、なぜ動かないかが 1 run の log で完結する」ことを設計の利点として挙げており、その前提を機械で固定する。
 >
@@ -110,7 +110,7 @@
 
 - `describe_axes()` と `evaluate()` の判定が食い違う変更が入るとテストが落ちること。
 
-### pr-monitor の出力形式バリアンス + rate-limit 分岐テスト
+### 順位 369: pr-monitor の出力形式バリアンス + rate-limit 分岐テスト
 
 > **動機**: 2 点とも WP-17 段 2 由来。(a) findings agent の出力がコードフェンスで囲まれ `jq` が失敗した #357 の incident は、修正 (決定論層でのフェンス除去) を入れたが **retroactive なテストが無い**。(b) cli-pr-monitor の rate-limit 分岐 `until_unix_secs` 過去値 (即時 retrigger 経路) は実装自体は正しかったが運用手順の誤記で混乱が生じており、挙動をテストで固定しておく価値がある。
 >
@@ -133,7 +133,7 @@
 
 - フェンス付き出力が決定論層で正しく剥がされ、無効 JSON は fail-closed で止まることがテストで固定されていること。
 
-### ADR-069 試験運用判断基準の具体化
+### 順位 370: ADR-069 試験運用判断基準の具体化
 
 > **動機**: CodeRabbit が #352 で ADR-069 の 3 箇所 (外部計画文書による宣言の扱い / missing-consumer 検査の降格条件 / 本採用への移行基準) について判断基準が曖昧だと指摘した。ADR-039 の試験運用標準パターンは bounded lifetime に decision trigger を要求しており、現状の ADR-069 はこれを満たしきれていない。
 >
@@ -153,7 +153,7 @@
 
 - ADR-069 の試験運用を「継続 / 本採用 / 却下」のどれに倒すかが、記載された基準だけで判定できること。
 
-### weekly-review reminder の doc-drift 同期 (post-ADR-070 用語)
+### 順位 371: weekly-review reminder の doc-drift 同期 (post-ADR-070 用語)
 
 > **動機**: ADR-070 が weekly-review reminder の意味を「実行トリガー」から「監査リマインダー」へ、閾値を 7 日から 30 日へ再定義したが、`WeeklyReviewReminderConfig` の doc comment と ADR-031 本文が旧用語のまま残っている。実装 (`weekly_review.rs`) は新用語を採用済みで、**doc だけが取り残されている**状態。
 >
@@ -173,7 +173,7 @@
 
 - reminder の意味・閾値について、実装 / struct doc / ADR-031 / ADR-070 の 4 箇所が同じことを述べていること。
 
-### templates の陳腐化 example 削除 + simplicity-review facet への同期チェック追加
+### 順位 372: templates の陳腐化 example 削除 + simplicity-review facet への同期チェック追加
 
 > **動機**: WP-17 PR 3 で廃止した `poll_interval_secs` / `max_duration_secs` が `templates/hooks-config-{python,typescript}.toml` の `[post_pr_monitor]` example に残っている。派生プロジェクトがこの example をコピーすると存在しないオプションを設定することになる。pre-push レビューは #353 を APPROVE しており、**設定オプション削除時に templates が同期されていないことを検知する層が無い**ことが判明した。
 >
@@ -199,7 +199,7 @@
 
 ## ハーネス改善 (2026-08-04 セッション発案)
 
-### Rust exe の自動再ビルド — PostToolUse の cargo check + Stop hook の build/deploy 2 層
+### 順位 373: Rust exe の自動再ビルド — PostToolUse の cargo check + Stop hook の build/deploy 2 層
 
 > **動機**: `.claude/*.exe` は .gitignore された生成物で、`pnpm build:all` を明示実行しない限り古いバイナリが使われ続ける。2026-08-04 の実測では `cli-fix-push-gate` (3/3 ファイル)・`cli-autonomy-gate` (1/1)・`hooks-session-start` (1/8) の 3 パッケージで exe がソースより古かった。`hooks-session-start` は SessionStart hook として実際に走るため、**変更した挙動が反映されないまま気付かない**。あわせて Rust ソースの編集直後に compile error を検知する層が無く、誤った修正が push 直前の quality gate まで表面化しない。
 >
@@ -274,7 +274,7 @@
 >
 > **表記**: `ADR-072` は #363 で追加されるため、本エントリ群では markdown link ではなく code span で書く。#363 マージ後の docs バッチでリンク化してよい。
 
-### WP-18 夜間ループの実走スモーク実施
+### 順位 374: WP-18 夜間ループの実走スモーク実施
 
 > **動機**: WP-18 の受け入れ基準の中核でありながら**未実施**。#363 の時点では (a) workflow が master に無い、(b) 台帳の無人可マークが master に無い、の両方が未達だった。#361 / #362 のマージで (b) は解消し、#363 のマージで (a) が解消する。
 >
@@ -305,7 +305,7 @@
 - **`AUTONOMY_ENABLED` の 3 状態 (`'true'` / `'false'` / 未設定) すべてで実走の観測結果が記帳されていること。** 無効 2 状態では workflow job・ブランチ・draft PR・App token のいずれも作られないことを確認する。
 - 計画書の WP-18 受け入れ基準表から「未実施」が消えていること。
 
-### レビュー指摘への対応時チェックリスト
+### 順位 375: レビュー指摘への対応時チェックリスト
 
 > **動機**: WP-18 の 3 PR で**同型の失敗が 4 件**発生した。いずれも「変更の影響範囲を、指摘された 1 点だけで見積もった」ことが共通項。
 >
@@ -339,7 +339,7 @@
 - 既存 convention との重複記述が無いこと。
 
 
-### 夜間ループの防御を検知から防止へ格上げする判断
+### 順位 377: 夜間ループの防御を検知から防止へ格上げする判断
 
 > **動機**: `ADR-072` の残課題 3 件。いずれも**実運用の観測が判断材料**で、観測前に着手すると過剰設計になりうる。
 >
@@ -376,7 +376,7 @@
 >
 > 発生源の背景 (382 のために残す): 夜間ループは台帳 (`docs/claude-code-web-tasks.md`) の自由記述フィールドを無人 agent のプロンプトへ埋め込む。決定 12-14 の防御は実装済みで、**それが効き続けることを固定する**のが 382 の役割。
 
-### 台帳 prompt injection payload の regression test
+### 順位 382: 台帳 prompt injection payload の regression test
 
 > **動機**: 順位 380 で入れる framing が**実際に効くこと**を固定する。framing は文言の変更で静かに壊れるため、テストが無いと退行に気づけない。
 >
@@ -397,7 +397,7 @@
 - [ ] **自然言語 adversarial payload** と **shell / パース形式 payload** を別 fixture に分ける (前者が prompt injection の本命、後者はパース堅牢性)
 - [ ] fixture は **good / bad の対**で用意し、**1 fixture = 1 条件**に保つ (assert は最小限、payload の由来をコメントで辿れるようにする)
 
-### `is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト
+### 順位 383: `is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト
 
 > **動機**: `is_table_row` は行頭 `|` を要求するのに対し、`is_separator_row` は `split_cells` の結果だけを見るため**パイプを 1 つも含まない行が通る**。`split_cells("---")` は `["---"]` を返し、全セルが `-` のみなので真になる。
 >

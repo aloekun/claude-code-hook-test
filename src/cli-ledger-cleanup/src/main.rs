@@ -444,7 +444,7 @@ mod tests {
         write(
             &docs,
             "todo10.md",
-            "# TODO\n\n---\n\n### タイトル A\n\n> 動機\n\n---\n\n### タイトル B\n\n> 動機\n",
+            "# TODO\n\n---\n\n### 順位 203: タイトル A\n\n> 動機\n\n---\n\n### 順位 240: タイトル B\n\n> 動機\n",
         );
         docs
     }

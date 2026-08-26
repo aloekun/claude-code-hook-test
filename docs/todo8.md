@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### rule⑧ への paths filter 適用範囲検討 (順位 102 land 時に意図的保留、follow-up)
+### 順位 118: rule⑧ への paths filter 適用範囲検討 (順位 102 land 時に意図的保留、follow-up)
 
 > **動機**: 順位 102 (PR #148 想定で land 中、Phase D D-3) で paths filter が lint runner に実装されたが、当初計画した rule⑧ への `paths = ["docs/**/*.md"]` migration は **意図的に保留**。理由: D-2 (PR #146、順位 101) で追加した「root-level MD (CLAUDE.md / README.md) からの `../docs/` 参照を fire = true positive で扱う」design intent が、`paths = ["docs/**/*.md"]` 適用で scope narrow されて壊れる (root-level MD の実 path が docs/ 配下ではないため rule 対象外になり、broken link 検出を失う)。本タスクで以下のいずれを採用するか検討する:
 >
@@ -37,7 +37,7 @@
 
 ---
 
-### `coding-style.md § Cross-File Reference Lifecycle` に「ephemeral → permanent 知識移管 edit order」追記 (PR #145 T3-#3 採用)
+### 順位 117: `coding-style.md § Cross-File Reference Lifecycle` に「ephemeral → permanent 知識移管 edit order」追記 (PR #145 T3-#3 採用)
 
 > **動機**: PR #145 で lib.rs L128-139 dogfood evolution コメントを ADR-040 に migrate した際、edit 順序が曖昧だった (ADR-040 を先に作るべきか、lib.rs 側の参照削除を先にすべきか)。同パターンが (1) lib.rs コメント → ADR-040、(2) Phase C/D empirical data → ADR-040 で 2 回観測。既存の Cross-File Reference Lifecycle ルール は「参照方向の制約」(permanent → ephemeral 禁止) に特化しており、移管作業の edit order checklist は complementary で重複なし。次回同型の永続化作業 (ephemeral 計画書 retire 時の permanent value 移管 等) で再発防止策として codify する。
 >
@@ -67,7 +67,7 @@
 
 ---
 
-### CLAUDE.md § Cross-File Reference Lifecycle に多ファイル同時削除 retirement condition checklist を追加 (PR #153 T3-#2 採用)
+### 順位 128: CLAUDE.md § Cross-File Reference Lifecycle に多ファイル同時削除 retirement condition checklist を追加 (PR #153 T3-#2 採用)
 
 > **動機**: PR #153 で旧 `docs/local-llm-offload-analysis.md` を `phase-d-outcomes.md` に分割した際 (3 ファイルは Phase E 採用昇格 = 2026-05-15 に retire 済)、retirement clause を **3 ファイル (analysis.md / history.md / phase-d-outcomes.md) 同時削除** に統一する作業が developer/AI の手動 review でしか担保されていなかった。advisor 指摘で明示的に「3 ファイルすべてに同じ retirement clause を書く」ステップを踏んだが、これは structural pattern として再利用可能 (今後の docs/* 50KB 分割でも同じ checklist が必要)。同パターンが drift すると ephemeral artifact の lifecycle 整合が崩れ、stale pointer が増殖するリスクあり。
 >
@@ -95,7 +95,7 @@
 
 ---
 
-### docs-governance §Retirement Workflow に「diff context 由来 false alarm 防止 = 必ず grep で実ファイル確認」を明記 (PR #156 T3 #1 採用)
+### 順位 133: docs-governance §Retirement Workflow に「diff context 由来 false alarm 防止 = 必ず grep で実ファイル確認」を明記 (PR #156 T3 #1 採用)
 
 > **動機**: PR #156 で ephemeral 4 ファイル retire を実施した際、`grep` 結果に含まれる **diff context 行が実ファイルの最新内容ではなく PR 直前の状態を反映する** ため、削除対象ファイルへの参照が「残存」と誤検出される false alarm が 5 件以上発生。fact-check の grep 実行に時間を要した。XS の文言追加で将来セッションの reviewer / Claude が同一の確認コストを繰り返すことを防止できる。ephemeral 退役ワークフローは今後も繰り返されるため Frequency Medium。
 >
@@ -125,7 +125,7 @@
 
 ---
 
-### todo entry の ADR 番号 hardcode 撤廃 — 「ADR-NNN (採番未確定、land 時に確定)」placeholder 採用 (順位 78 番号 conflict 2026-05-16 観測由来)
+### 順位 135: todo entry の ADR 番号 hardcode 撤廃 — 「ADR-NNN (採番未確定、land 時に確定)」placeholder 採用 (順位 78 番号 conflict 2026-05-16 観測由来)
 
 > **動機**: 順位 78 (旧 ADR-038 Rust timestamp arithmetic safety、PR #115 T3-1) は entry 登録時 (2026 年序盤) に新規 ADR として ADR-038 を予約のつもりで hardcode していたが、queue 滞留中に Bundle Z 系列の連続採用で `ADR-037 / 038 / 039 / 040` がすべて占有され、2026-05-16 セッションで番号 conflict が顕在化 (ADR-041 へ振り直し)。さらに 2026-05-22 に順位 139 (PR #168 follow-up) が ADR-041 を取得したため順位 78 を再 placeholder 化 = **同一 entry が 3 回 (038 → 041 → NNN) 番号変更を経た実証ベース**で、queue 深度と滞留期間の積に比例して同型 conflict が再発する構造リスクを convention で予防する必要がある。
 >
@@ -165,7 +165,7 @@
 
 ---
 
-### ADR-NNN (採番未確定、land 時に確定): ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment (PR #169 T3-#2 採用)
+### 順位 140: ADR-NNN (採番未確定、land 時に確定): ADR Numbering Strategy — Placeholder Policy for Multi-PR Race-Free Assignment (PR #169 T3-#2 採用)
 
 > **動機**: 順位 135 で codify された「ADR 番号は entry 登録時に hardcode せず `ADR-NNN (採番未確定)` placeholder で記述し、land 時 PR で空き番号を確定する」運用が、PR #111 / PR #132 / PR #169 の **3+ PR で適用実証済**になった。特に PR #169 では同一 entry (順位 78) が `ADR-038 → 041 → NNN` の **3 段振り直し** を経た live dogfood が完了し、queue 滞留 entry と後発 PR の採番衝突を convention 層で完全予防できる状態が確立された。現在 policy は `~/.claude/rules/common/docs-governance.md` の 2-3 行追記として ephemeral todo (順位 135) 内で codify されているが、ephemeral artifact 限りでは派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) への transferability に欠ける。正式 ADR に昇格して永続化する。
 >
@@ -213,7 +213,7 @@
 ---
 
 
-### 複言語 fixture helper 標準化 (hooks-post-tool-linter-tests) (PR #171 T2-#4 採用) ★ Bundle 171
+### 順位 143: 複言語 fixture helper 標準化 (hooks-post-tool-linter-tests) (PR #171 T2-#4 採用) ★ Bundle 171
 
 > **動機**: PR #151 (`byte_offset_to_line` char-boundary panic 発見) + PR #171 (`build_violation_json` defensive test 追加) の 2 PR 横断で multi-byte content fixture を手動で組み立てるコストが顕在化。Japanese / emoji / combining chars の各 sample を helper として標準化することで、新規 string-processing 関数追加時の boundary test 実装コストを低減し silent regression を early detection できる。
 >
@@ -252,7 +252,7 @@
 
 ---
 
-### preset matrix test 追加 — default fallback vs config-selectable の 2 軸 classification 検証 (PR #172 T2-#1 採用)
+### 順位 145: preset matrix test 追加 — default fallback vs config-selectable の 2 軸 classification 検証 (PR #172 T2-#1 採用)
 
 > **動機**: PR #172 で `jj-message-required` preset 実装の Phase 3 において、当初 `is_blocked("jj new")` (default config 使用) で block を assert する test を書いたが、`jj-message-required` が `default_preset_names()` の fallback list に含まれない opt-in preset であることを前提とせず、test rewrite が必要になった。preset architecture の implicit assumption (always-enabled vs config-selectable) を test 設計レベルで codify することで、将来の新 preset 追加時の design misalignment を構造的に防止する。
 >

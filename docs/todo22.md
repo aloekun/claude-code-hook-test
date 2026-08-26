@@ -42,7 +42,7 @@
 
 ---
 
-### 系統 A-1: 「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化する
+### 順位 414: 系統 A-1: 「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化する
 
 > **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で PR タイトルという 3 つ目の公開面が増えた際、既存の `screen_for_public_output` を流用できないことが判明した。あちらの無害化は**「workflow がコードスパンで囲む」ことが前提**で `@mention` と markdown を verbatim に残す設計だったが、**タイトルはコードスパンにできない**。
 >
@@ -64,7 +64,7 @@
 
 - 新しい出力面を足す人が、既存 screening を流用してよいかを**表を見るだけで判断できる**こと。
 
-### 系統 A-2: PR 検出源を広げる変更の信頼スコープ検査チェックリスト
+### 順位 415: 系統 A-2: PR 検出源を広げる変更の信頼スコープ検査チェックリスト
 
 > **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push security review が、`get_jj_bookmarks_with_remote_fallback()` は **origin への push 権限と同等の信頼度を持つソースまで PR 検出を拡張する**点を明示的に指摘した。今回は問題なかったが、検出源を広げる変更は信頼境界の設計判断を伴う。
 >
@@ -83,7 +83,7 @@
 
 - 検出源を追加する PR のレビューで、チェックリストを埋めるだけで信頼境界の判断が残ること。
 
-### 系統 A-3: 新規 screening 関数は実 exe を 1 回動かしてから test / doc を書く
+### 順位 416: 系統 A-3: 新規 screening 関数は実 exe を 1 回動かしてから test / doc を書く
 
 > **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で `screen_for_public_output` の改行処理を**実装を読まず推測でテストした**ため、テストの期待値と実挙動が食い違った (改行を空白化すると思い込んでいたが、実際は除去していた)。マージ前に対照テストが落ちて気づけたが、落ちなければ誤った理解のまま doc に書いていた。
 >
@@ -106,7 +106,7 @@
 
 ---
 
-### 系統 B-1: 出力契約 3 層の同期を CI で検証する
+### 順位 417: 系統 B-1: 出力契約 3 層の同期を CI で検証する
 
 > **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で `pr_title_display` 出力キーを追加した際、**(1) Rust exe の出力キー / (2) workflow の grep allowlist / (3) 出力契約の検証 step** の 3 層すべてを更新する必要があった。片方だけだと**新しい出力が黙って捨てられ、毎晩フォールバックし続ける**形で劣化する。
 >
@@ -128,7 +128,7 @@
 
 - 3 層のいずれか 1 つだけを更新した状態が CI で落ちること (変異テストで確認)。
 
-### 系統 B-2: 出力契約 3 層追跡パターンを再利用可能な形で文書化する
+### 順位 418: 系統 B-2: 出力契約 3 層追跡パターンを再利用可能な形で文書化する
 
 > **動機**: 順位 417 の CI テストは nightly-todo に固有だが、**「exe が出す → workflow が拾う → 検証が確かめる」の 3 層構造そのものは他の workflow にも現れる**。同期責務が exe 実装者 / CI テンプレート / 検証 step 実装者に分散しており、なぜ 3 層検査が必要かを知らないと片方だけ直す。
 >
@@ -149,7 +149,7 @@
 
 ---
 
-### 系統 C-1: takt run の解決規約 (PR 束縛 / status 判定) を全コンポーネント共通の convention にする
+### 順位 419: 系統 C-1: takt run の解決規約 (PR 束縛 / status 判定) を全コンポーネント共通の convention にする
 
 > **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) で確立した「**run を task label の PR 番号で束縛する**」「**`meta.json` の `status` で進行中を判定する**」は post-merge-feedback 固有ではない。同じロジックが `cli-merge-pipeline::feedback` (実装済)、orphan reaper (`hooks-session-start`、実装済)、将来の `cli-pr-monitor` takt 移行 (未実装) の**3 箇所以上**で必要になる。
 >
@@ -171,7 +171,7 @@
 
 - takt run を扱う新規コンポーネントの実装者が、lex-latest を選ばない理由と正しい解決手順を文書から辿れること。
 
-### 系統 C-2: run binding が並行起動下で破れないことの integration test
+### 順位 420: 系統 C-2: run binding が並行起動下で破れないことの integration test
 
 > **動機**: WP-18 の dogfood で run 解決のインシデントが**2 件**起きた (順位 398-400: guard が run 状態を見ず誤 refuse / 順位 388: lex-latest で別 PR の run を掴む)。PR #388 で修正したが、**既存テストは単一セッション想定**で、複数セッション同時実行時の regression を検知できない。
 >
@@ -193,7 +193,7 @@
 
 - 並行起動下で run binding が破れないことがテストで固定され、**意図的に壊すと落ちる**ことが確認されていること。
 
-### 系統 C-3: marker の命名・状態遷移・recovery ポリシーを統一規約にする
+### 順位 421: 系統 C-3: marker の命名・状態遷移・recovery ポリシーを統一規約にする
 
 > **動機**: marker 生成の責務が Rust (`cli-merge-pipeline`) と takt workflow の複数箇所に分散し、post-pr-review / post-merge-feedback の 2 系統で形式が揺れている (WP-18 dogfood で判明)。`.md.failed` / `.md.pending` 等の意味と遷移が 1 か所にまとまっていない。
 >
@@ -214,7 +214,7 @@
 
 ---
 
-### 系統 D-1: cross-system parity テストの設計原則を文書化する
+### 順位 422: 系統 D-1: cross-system parity テストの設計原則を文書化する
 
 > **動機**: `workflow_awk_parity.rs` の実装に **8 反復**を要した。根本原因は 2 つの設計原則が未文書化だったこと。(1) **fragment boundary 最小化の罠** — 抽出範囲を狭く取ると判定ロジックをテスト側に書き写すことになり、原本が緩んでも検出できない (`ENABLED_VALUE=` で切ったため `case` の緩和を見逃す形になっていた)。(2) **directional asymmetry** — 2 実装の差は許容方向が非対称で、単純な双方向 assertion は fail-open 逆転を隠す。
 >
@@ -233,7 +233,7 @@
 
 - 次に cross-system parity テストを書く人が、境界の取り方と非対称の扱いを文書から辿れること。
 
-### 系統 D-2: CI matrix で `#[cfg(unix)]` テストの実行を保証する
+### 順位 423: 系統 D-2: CI matrix で `#[cfg(unix)]` テストの実行を保証する
 
 > **動機**: `workflow_awk_parity.rs` は `#[cfg(unix)]` で、Windows ではテストバイナリは走るが**中身が 0 件**になる。現状は ubuntu ジョブが担保しているが、**「0 件実行」と「全件成功」は CI 出力上ほぼ見分けがつかない**。cfg で落とした範囲が意図せず広がっても気づけない。
 >
@@ -254,7 +254,7 @@
 
 ---
 
-### 系統 E-1: UNC パス復元ロジックを Windows 実機で検証する
+### 順位 424: 系統 E-1: UNC パス復元ロジックを Windows 実機で検証する
 
 > **動機**: `strip_windows_verbatim_prefix` の UNC 復元 (`\\?\UNC\server\share` → `\\server\share`) は **Linux では検証不可**で Windows 実機が要る。PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) では純関数テストで固定したが、実際のネットワーク共有上のリポジトリでの動作は未確認。
 >
@@ -275,7 +275,7 @@
 
 - UNC 経路の動作が実機で確認されているか、確認しない判断が根拠つきで記録されていること。
 
-### 系統 E-2: jj の `git.auto-local-bookmark` 既定値への依存を CI で固定する
+### 順位 425: 系統 E-2: jj の `git.auto-local-bookmark` 既定値への依存を CI で固定する
 
 > **動機**: 順位 397 の対処 (リモート追跡 bookmark へのフォールバック) は、**jj の `git.auto-local-bookmark` 既定値が false** であることに依存している。fetch しただけの bookmark がローカルに作られないからこそフォールバックが要る。この既定値が変わると前提が崩れるが、**気づく仕組みが無い**。
 >
@@ -294,7 +294,7 @@
 
 - jj の既定値が変わった場合に CI が落ちること。
 
-### 系統 E-3: `lib-jj-helpers` 分割の call site 回帰統合テスト
+### 順位 426: 系統 E-3: `lib-jj-helpers` 分割の call site 回帰統合テスト
 
 > **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) で `lib.rs` を `bookmarks.rs` / `workspace.rs` へ分割し、re-export ファサードで API 互換を維持した。**実 call site (push-runner / pr-monitor) での import 挙動を固定する自動テストが無い**ため、将来の refactor で壊れても `cargo build` が通る範囲では気づけない可能性がある。
 >
@@ -315,7 +315,7 @@
 
 ---
 
-### 系統 F-1: `BookmarkSearch::RemoteOnly` への変異操作を検出する
+### 順位 427: 系統 F-1: `BookmarkSearch::RemoteOnly` への変異操作を検出する
 
 > **動機**: [ADR-013](adr/adr-013-merge-pipeline.md) の設計契約では、**リモート専用 bookmark は読み取り専用**であり `jj bookmark set` / `delete` 等の変異操作の対象にしてはいけない。`BookmarkSearch` enum で型は区別したが、**呼び出し側の誤用までは防げない**。
 >
@@ -334,7 +334,7 @@
 
 - リモート専用 bookmark への変異操作が、lint か型のいずれかで防がれていること。
 
-### 系統 F-2: PR 番号を取る CLI の不正値を PreToolUse で検出する
+### 順位 428: 系統 F-2: PR 番号を取る CLI の不正値を PreToolUse で検出する
 
 > **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) で `--pr 0` を引数エラーとして拒否する契約を得たが (GitHub の PR 番号は 1 始まり)、**同型パターンを持つ他 CLI を追加したときの漏れ**は防げない。
 >
@@ -355,7 +355,7 @@
 
 ---
 
-### 系統 G-1: 「optional 列」の意味を明記する
+### 順位 429: 系統 G-1: 「optional 列」の意味を明記する
 
 > **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で `pr_title` を optional 列として足した際、`Columns::max_index()` への反映を忘れて **index out of bounds で panic** した (実 exe で再現し修正済み)。原因は「optional」という語の解釈の齟齬だった。
 >
@@ -375,7 +375,7 @@
 
 - optional 列を足す人が、列数検証への反映を忘れない手順を文書から辿れること。
 
-### 系統 G-2: CLI フラグ解析の `Mode` enum + validator パターンを convention 化する
+### 順位 430: 系統 G-2: CLI フラグ解析の `Mode` enum + validator パターンを convention 化する
 
 > **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) で `--pr` を足した際、既存の `parse_feedback_only` を段階的に拡張する形だと分岐が重複するため `Mode` enum + 共通 validator へ整理した。**フラグ解析の段階的拡張による複製は本 PR に限らず再発する**パターン。
 >
@@ -399,7 +399,7 @@
 
 ## セッション由来 (レポート外、2026-08-11 採用)
 
-### `review-request` の成功判定を初回レビュー取得まで遅らせる
+### 順位 431: `review-request` の成功判定を初回レビュー取得まで遅らせる
 
 > **動機**: 2026-08-11 の夜間ループ実走 (PR [#387](https://github.com/aloekun/claude-code-hook-test/pull/387)) で、CodeRabbit がレート制限により `Review limit reached` を返した。`review-request` の検証は**要求後に CodeRabbit のコメントが 1 件以上付いたか**だけを見るため、**拒否も success として記録**され、run は緑で終わった。
 >
@@ -428,7 +428,7 @@
 
 > **現在地 (2026-08-20)**: 実装済み。分類 jq は workflow ファイルから切り出して実 PR (#387 / #426 / #421 / #419) のコメント列へ適用し、**#387 (本エントリの由来 incident) が `RATE_LIMITED` = red、正常レビュー済みの 3 件が `REVIEWED` = green** になることを実測した。marker が複数層に分散する構造なので `scripts/lint-workflows.mjs` に同期検査を追加している (片方だけ変えると silent success に戻るため)。**完了基準の判定は実走観測待ち。**
 
-### `check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー
+### 順位 432: `check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー
 
 > **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) の pre-push review (simplicity、non-blocking) の指摘。`check_concurrent_run_guard` は呼ばれるたびに `.takt/runs/*` を**全ディレクトリ走査し各 `meta.json` を JSON パース**する。旧実装は `context.json` の mtime を 1 回読む O(1) だった。
 >
@@ -471,7 +471,7 @@
 
 > **由来**: docs/ 直下の一時作業ドキュメント全件棚卸し (2026-08-12) の採否確定分。旧 todo2.md の ADR-032 ブロック (docs-only 高速パス) は [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) が別設計で実現したため退役し、独立価値の残る 2 タスクのみ本ファイルへ移送した。加えて棚卸しが発見した構造問題 7 件を起票した。
 
-### GitHub Branch Protection 整備 — ブロックを Required status checks へ集約 (旧 docs-only 高速パス計画 Phase pre から独立化)
+### 順位 6: GitHub Branch Protection 整備 — ブロックを Required status checks へ集約 (旧 docs-only 高速パス計画 Phase pre から独立化)
 
 > **設計方針** (2026-04-27 改訂、移送元 todo2.md から継承): 個人開発 + コーディングエージェント前提では、**Required reviewers (人間レビュー必須) は anti-pattern**。実装/テスト/PR 作成が AI で自動化される一方、人間レビューだけが同期処理として律速になるため。Required reviewers を外し、ブロックは **CI (Required status checks) に集約**する。人間レビューは event-driven (バグ / 大きい変更 / 設計変更時のみ)、定常レビューは ADR-031 週次レビューで補完。
 >
@@ -490,7 +490,7 @@
 
 - branch protection が上記構成で有効になっており、gh api で確認できること。運用方針が明文化されていること。
 
-### broken-link-check + Markdown 内部アンカー検査の quality_gate 統合 (旧 docs-only 高速パス計画 Phase broken-link から独立化)
+### 順位 10: broken-link-check + Markdown 内部アンカー検査の quality_gate 統合 (旧 docs-only 高速パス計画 Phase broken-link から独立化)
 
 > **動機** (PR #85 T2-1 finding、移送元 todo2.md から継承): todo ファイルが旧日付アンカーを参照したまま merge された事案があり、URL 切れだけでなく **`#anchor` 参照先の存在確認**も検査対象に含める。リポジトリに link check は現在も皆無 (lychee / markdown-link-check / `lint:links` いずれも 0 hit、2026-08-12 再確認)。
 >
@@ -511,7 +511,7 @@
 
 - docs の broken link / broken anchor が push 時に決定論的に検出されること。
 
-### 旧グローバル rules (.claude_old) の採否判断と再配置
+### 順位 437: 旧グローバル rules (.claude_old) の採否判断と再配置
 
 > **動機**: マシン移行により `~/.claude/rules/common/*.md` と `~/.claude/CLAUDE.md` が現環境に存在しない。旧 snapshot は `C:\Users\owner\work\syncthing\.claude_old` (2026-06-17 凍結、ECC 由来の汎用部分 + 本リポジトリで育てた自育部分のハイブリッド)。現リポジトリの **ADR 9 本 + Rust ソース 5 箇所 + hook 実行時メッセージ 1 箇所を含む 25 箇所超**が rules への dead pointer を持ち、台帳のグローバル文書対象タスク約 16 件 (各エントリに 2026-08-12 の Status update 注記済み) の実施先が未定のまま滞留する。
 >
@@ -530,7 +530,7 @@
 
 - rules の配置先が確定し、参照 25 箇所超が生きた参照になっている (または repo 転記で置換されている) こと。
 
-### 孤立ブランチの回収と後始末 (nightly 未マージクローズ 3 本 + 実装孤立 2 本)
+### 順位 438: 孤立ブランチの回収と後始末 (nightly 未マージクローズ 3 本 + 実装孤立 2 本)
 
 > **動機**: 2026-08-12 の `pnpm stale-branch-scan` + gh 突合で、nightly 無人実装のうち **3 本が未マージのまま PR クローズ** (draft 属性事故 = #365/#373、CodeRabbit 自動レビュー不発 = #378/#379) されて実装が宙に浮いていると判明。別途、`hooks_config.rs` の TOML パーステスト実装が放棄気味のブランチ 2 本 (`claude/select-next-task-a9aiam` = open PR #324 / `claude/cloudharness-e2e-validation-sptfc7` = closed #320) に孤立している。#324 のコード hunk は master に無衝突で当たることを確認済み (コンフリクトは docs 台帳側のみ)。
 >
@@ -549,7 +549,7 @@
 
 - 未マージクローズの実装がすべて master に回収 (または明示的に破棄判断) され、残存ブランチが scan の削除候補 0 件になること。
 
-### 決定論 gate 結果の telemetry 統合 (観測不能の再発防止)
+### 順位 439: 決定論 gate 結果の telemetry 統合 (観測不能の再発防止)
 
 > **動機**: auto-push gate の B1-loop 採否判定 (ADR-043 amendment 2026-08-12) が「6 週間の dogfood で gate FAIL の観測記録 0 件」で終わった。実態は FAIL が無かったのではなく、**cli-pr-monitor が lib-telemetry 未統合で gate 結果 (`[gate] PASS/FAIL`) が stdout にしか出ず消える**ため観測不能だった。ADR-067 Phase B の `cli-fix-push-gate` も同型の構造で、bounded-lifetime 判定を持つ機構の観測が再び失われるリスクがある。
 >
@@ -567,7 +567,7 @@
 
 - gate の PASS/FAIL が `.claude/telemetry/` で事後集計でき、bounded-lifetime 判定が stdout 手動転記に依存しないこと。
 
-### weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)
+### 順位 440: weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)
 
 > **動機**: `.claude/weekly-review-last-run.json` は `report_path: .claude/weekly-reviews/2026-07-27.md` を指すが**そのファイルが存在しない** (dead pointer。ディレクトリには 2026-07-19.md のみ)。また ADR-070 で分析フェーズを cloud routine へ移行 (#354、2026-08-04) して以降の成果物保存先が未確認で、2026-08 のレポートが 1 件も無い理由 (未実行か保存先変更か) が切り分けられていない。この欠落が `review-jj-robustness-whole` facet の bounded-lifetime 判定 (todo13.md、新期限 2026-09-30) を阻害している。
 >
@@ -585,7 +585,7 @@
 
 - weekly-review の成果物が毎回追跡可能な場所に残り、facet 別 findings の事後集計ができること。
 
-### cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加
+### 順位 441: cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加
 
 > **動機**: todo14.md に台帳 (todo-summary*.md) の順位行を持たない孤児エントリが 4 件、約 3 週間検出されずに滞留していた (2026-08-12 の棚卸しで発見、同日採番して解消)。既存の cli-docs-lint validator は preamble (数詞照合) / cross_ref / priority_inversion の 3 種のみで、詳細エントリと台帳行の対応は検査されない。ADR-033 の「絶対番号は table のみ」規約は、対応検査が無いと片側だけの登録を許してしまう。
 >
@@ -605,7 +605,7 @@
 
 - 台帳行の無い詳細エントリ (またはその逆) が push 時に決定論検出されること。
 
-### security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加
+### 順位 442: security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加
 
 > **動機**: PR #313 で pre-push の security reviewer が新規追加の fail-closed 検査コードを名指しで分析し「coverage バイパス経路は無い」と結論して APPROVE したが、CodeRabbit が同ファイルに **coverage バイパスを許す Critical 3 件**を検出した (ADR-056 確定判定 2026-08-12 の二重 miss 分析)。「自分が新規追加した安全機構そのものの抜け」は、二重 miss 10 件の中で最も再現性の高い失敗パターン。
 >
@@ -622,7 +622,7 @@
 
 - 新規 fail-closed 検査を含む diff で、当該観点の分析がレビューレポートに現れること (次の該当 PR で確認)。
 
-### fix 検証縮小 × re-gate 全 group 再実行が flaky テストの当たり面を広げる問題の対策検討
+### 順位 443: fix 検証縮小 × re-gate 全 group 再実行が flaky テストの当たり面を広げる問題の対策検討
 
 > **動機**: ADR-058 確定判定 (2026-08-12) で、25 日間唯一の changed_block が「PR が触っていない別 crate の flaky 並行性テスト (失敗率 10% を 30 連実行で実測) による誤 block」と判明。ADR-037 trust shortcut (fix は影響 crate のみ検証) と re-gate の全 group 再実行の組み合わせは、fix 発生のたびに workspace 全体の flaky に当たる構造を持つ。当該 flaky 自体は実在の race を露呈させ PR #312 で修正済みだが、構造は残る。
 >

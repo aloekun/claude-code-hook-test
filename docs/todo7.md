@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### `parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2
+### 順位 49: `parse_findings` 系の error-path test infrastructure (PR #101 T2-1) ★ Bundle a Sub-PR 2
 
 > **動機**: PR #101 で `run_list_findings` が `unwrap_or_else(|_| "[]")` で gh api 失敗を `[]` に潰していて CR Major finding を受けた。99.md でも `silent fail` (Windows path mismatch で early return) として類似言及あり。**`unwrap_or_else(|_| empty)` の anti-pattern が複数 PR で再発**。test 層で機械検証することで未然に塞ぐ。本タスクは Bundle a Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) で同 API を消費するので、同一 PR land で test 二重投資なし。
 >
@@ -54,7 +54,7 @@
 
 ---
 
-### comment-lint hook の MultiEdit 対応 (順位 50 follow-up)
+### 順位 52: comment-lint hook の MultiEdit 対応 (順位 50 follow-up)
 
 > **動機**: 順位 50 で comment-lint hook の scope を変更行に限定する v1 実装を完了した。v1 は Edit (single new_string) のみフィルタ対象とし、MultiEdit は whole-file lint にフォールバックする (no-regression)。MultiEdit が頻繁に使われる場合、複数 edit の `edits[].new_string` を順次適用して累積 range を計算する拡張が望ましい。
 >
@@ -89,7 +89,7 @@
 
 ---
 
-### analyze-session の transcript filter 絞り込み (旧 #A-3)
+### 順位 60: analyze-session の transcript filter 絞り込み (旧 #A-3)
 
 > **動機**: `cli-merge-pipeline` が生成する `.takt/post-merge-feedback-transcript.jsonl` は **session 全履歴** を含むため、analyze-session step が読み込む input token が大きい。当該 PR に直接関連する範囲のみ filter すれば input token 削減 = post-merge-feedback の cache_read 削減。
 >
@@ -133,7 +133,7 @@
 
 ---
 
-### `check-ci-coderabbit` に CR review.body parse 機能追加 — outside-diff-range finding の programmatic 検出 (PR #108 T2-1 採用、PR #172 仕組み化方針切替 2026-05-25)
+### 順位 61: `check-ci-coderabbit` に CR review.body parse 機能追加 — outside-diff-range finding の programmatic 検出 (PR #108 T2-1 採用、PR #172 仕組み化方針切替 2026-05-25)
 
 > **動機**: PR #108 で CodeRabbit が `Outside diff range comment` として review body 内に投稿した Minor finding (`docs/todo4.md` line 371/378 の retire 済前提と旧フロー混在) を、takt の `analyze-coderabbit` step が検出漏れした。`analyze-coderabbit` は `pulls/N/comments` (= inline review comment) ベースで動作するため、review.body 内のコメントは parse 対象外。結果、PR #108 で line 371/378 の修正が merge 後 follow-up commit (`vokyspww`) になった。
 >

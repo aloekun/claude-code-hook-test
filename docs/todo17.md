@@ -7,7 +7,7 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### ADR-019/WP-03 クォータ設計の前提 stale + 初回レビュー処理中 push のレビュー欠落穴
+### 順位 321: ADR-019/WP-03 クォータ設計の前提 stale + 初回レビュー処理中 push のレビュー欠落穴
 
 > **動機**: PR #287 の rate-limit 調査で、WP-03 (ADR-019 amendment) のクォータ設計に **2 つの前提ズレ**が判明した。
 >
@@ -32,7 +32,7 @@
 
 ---
 
-### `cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)
+### 順位 324: `cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)
 
 > **動機**: T5 (PR #282) の調査で発見された sibling bug (push-pipeline-fix-plan §6 backlog 9 から移管)。jj は新規 bookmark の push 拒否時に **exit 0** を返すことがある (ADR-011 の背景) が、`src/cli-pr-monitor/src/stages/push.rs` の `push_to_remote` は exit code のみで成否判定しており、post-PR の re-push (CodeRabbit 指摘修正後の再 push 等) が**リモート未反映のまま成功扱い**になり得る。T5 が cli-push-runner 側で塞いだ「silent-failure push」= ADR-043 が防ぐ事故そのものと同型の穴。
 >
@@ -54,7 +54,7 @@
 
 ---
 
-### 並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)
+### 順位 326: 並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)
 
 > **動機**: R4 の ADR-047 採否判定分析 (2026-07-19、[ADR-047](adr/adr-047-prepush-refute-facet.md) 「却下理由の補強」節) から。直列 refute (verify step) は同日導入の [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) anomaly policy が **inline 反証** (fact-check 義務) として上流で FP を枯らしたため、**26 run で却下 0 件・便益 0** となり却下推奨。これで precision 側 (FP 除去) は ADR-056 が担う体制になったが、**recall 側 (見落とし) は post-PR CodeRabbit 頼みのまま**。一方 reviewers step は並列実行であり、simplicity execute (実測 avg 203s / max 416s) を律速上限として **第 3 の並列レビュアーを wall-clock 追加ゼロで足せる**見込みがある (security execute avg 92s が simplicity の陰に収まっている実績)。観点は「実装内容」ではなく「**設計内容**」— 見落としやすいポイントの指摘・プロジェクト適合性 (ADR / dev-conventions との整合)。
 >
@@ -86,7 +86,7 @@
 
 ---
 
-### 多段コミットの ADR / observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用)
+### 順位 327: 多段コミットの ADR / observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用)
 
 > **動機**: R4 (ADR-047 却下 / ADR-056 延長) を「判定ドラフト → 却下理由補強 → plan2.md 反映 → 却下確定・撤去 → 観測ツール」と複数コミット・複数 PR に分割して進めた際、齟齬が複数回発生した — (a) timing doc が ADR-047 を「却下」と断定したが該当ブランチの ADR status header は未確定だった (PR #295 の pre-push review が REJECT → fix step が訂正)、(b) timing doc の `docs/takt-step-timings.md` への参照を markdown link にすると中間コミットで cross-ref が壊れるため plain-text に統一する必要があった、(c) ADR status 行と「採否判定」セクションの同期。ADR 58 件超・活発な多段階判定運用の本 repo では同型の反復が見込まれる。#295 と #296 の post-merge feedback がいずれも採用候補と判定。
 >
@@ -107,7 +107,7 @@
 
 ---
 
-### 新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを追加 (#301 post-merge feedback 採用)
+### 順位 329: 新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを追加 (#301 post-merge feedback 採用)
 
 > **動機**: PR-N3 (#301) で、ADR-055 初版が**自ら定義した `decision` 軸 (block/warn = 発火の重み)** と矛盾する除外根拠 (「nudge は block/warn に乗らない」) を採用しており、本 PR で Amendment を追加して除外根拠を撤回する手戻りが発生した。ADR は既に 59 件超を相互参照しており、新規 ADR が既存 ADR の定義・原則と衝突する見落としは他 ADR でも再発しうる。#301 の post-merge feedback が採用候補と判定 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。
 >
@@ -128,7 +128,7 @@
 
 ---
 
-### 「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)
+### 順位 330: 「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)
 
 > **動機**: PR-N1 (#299) で、ユーザー行動を要求する nudge (weekly reminder) を `additionalContext` (モデル向け) だけでなく `systemMessage` (ユーザー向け) の 2 チャネルで返す設計 ([ADR-059](adr/adr-059-hook-system-message-visibility.md)) を確立し、その過程で `compute_weekly_review_reminder_nudge` の戻り値を「additional_context + system_message」の struct (`WeeklyReviewNudge`) に変更した。ADR-059 の第2弾展開 (PR monitor catch-up / post-merge recovery / failed marker) で同型パターンの再利用が見込まれる。weekly reminder が 4 週間気付かれなかった実害 (Severity Medium) の再発防止として設計原則を明文化する。#299 の post-merge feedback が採用候補と判定 (Effort XS / Adoption Risk None)。
 >
@@ -149,7 +149,7 @@
 
 ---
 
-### hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テストを追加 (#299 post-merge feedback 採用)
+### 順位 331: hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テストを追加 (#299 post-merge feedback 採用)
 
 > **動機**: PR-N1 (#299) で systemMessage 可視化 (ADR-059) を追加したが、テストは `build_session_start_json` の pure function レベルに留まり、**実 config パースを含む exe 実駆動レベルの検証がない** (`src/hooks-session-start/tests/` 自体が未作成)。ADR-059 の第2弾展開で同型の 2 チャネル JSON contract が複製される見込みで、JSON contract の regression を exe レベルで seal する価値がある。#299 の post-merge feedback が採用候補と判定 (Effort S / Adoption Risk None)。
 >
@@ -170,7 +170,7 @@
 
 ---
 
-### `pnpm build:all` 前に git usr/bin (cp.exe) の PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)
+### 順位 332: `pnpm build:all` 前に git usr/bin (cp.exe) の PATH 未設定を自動検出・追加 (#301 post-merge feedback 採用)
 
 > **動機**: `pnpm build:all` (及び per-crate `build:*`) は `cp target/release/X.exe .claude/X.exe` で Unix `cp` を使うが、pnpm は Windows で `cmd.exe` 経由で script を実行するため `cp` が解決できず copy step が失敗する (`'cp' is not recognized`)。memory `windows-build-cp-path-gotcha.md` に既記録だが、PR-N3 (#301) の実装でも**再度手動で PATH 追加が必要になった (再発 2 回目)**。ビルド阻害という Severity Medium と再発 Frequency Medium が揃う。#301 の post-merge feedback が採用候補と判定。
 >

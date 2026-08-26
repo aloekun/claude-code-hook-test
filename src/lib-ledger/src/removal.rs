@@ -12,17 +12,24 @@
 //!
 //! # 詳細エントリの特定
 //!
-//! 順位 table の行が持つ**タイトル**と**ファイル名**を鍵にする。タイトルは詳細エントリの
-//! `### ` 見出しと完全一致することを要求し、一致が 0 件でも 2 件以上でも `Err` にする。
-//! 前方一致や部分一致に緩めると、似た名前の別タスクを消しうる — 消す操作は取り返しが
-//! つかないので、曖昧さは停止側へ倒す ([ADR-043](../../../docs/adr/adr-043-security-gates-fail-closed.md))。
+//! **順位**と、順位 table の行が持つ**ファイル名**を鍵にする。詳細エントリの見出しは
+//! `### 順位 N: <タイトル>` の形で、N が一致する見出しが 0 件でも 2 件以上でも `Err` にする
+//! — 消す操作は取り返しがつかないので、曖昧さは停止側へ倒す
+//! ([ADR-043](../../../docs/adr/adr-043-security-gates-fail-closed.md))。
+//!
+//! **タイトルは鍵ではない (2026-08-26 に移送)。** 移送前はタイトル文字列の完全一致で
+//! 特定していたが、同じ文字列を順位 table と詳細エントリの 2 か所で人手が保つ形になり、
+//! 実測で **257 件中 141 件 (55%) が既に drift** していた。夜間ループは選択・除外・
+//! ブランチ名・`--ranks` まですべて順位で通しているのに、ここだけが自由記述に落ちていた。
+//! 経緯は [ADR-033](../../../docs/adr/adr-033-todo-numbering-simplification.md) § 2026-08-26 改訂。
 
 /// 順位 table の 1 行から取り出した、詳細エントリを引くための鍵。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SummaryRow {
     /// 詳細エントリを収める `docs/todoN.md` のファイル名 (パスではなく名前)。
     pub detail_file: String,
-    /// 詳細エントリの `### ` 見出しと完全一致するタイトル。
+    /// 順位 table の「タスク」列。**表示用であって詳細エントリの鍵ではない**
+    /// (鍵は順位。2026-08-26 の移送で降格した)。
     pub title: String,
 }
 
@@ -136,7 +143,7 @@ fn validate_detail_file_name(detail_file: &str, rank: u32) -> Result<(), String>
     Ok(())
 }
 
-/// 詳細エントリ (`### <title>` から次の同レベル見出しの手前まで) を取り除く。
+/// 詳細エントリ (`### 順位 N: <タイトル>` から次の同レベル見出しの手前まで) を取り除く。
 ///
 /// エントリ間は「本文 → `---` → 空行 → 次の見出し」で区切られる。見出しから次の見出しの
 /// 手前までを消すと**自分の後ろの区切りが一緒に落ちる**ので、前の区切りはそのまま残す
@@ -144,21 +151,34 @@ fn validate_detail_file_name(detail_file: &str, rank: u32) -> Result<(), String>
 ///
 /// 例外は**最後のエントリ**で、後ろに区切りが無いため前の区切りを落とす。残すと文書末尾に
 /// 宙ぶらりんの `---` が残る。
-pub fn remove_detail_entry(markdown: &str, title: &str) -> Result<String, String> {
+///
+/// # なぜ順位で照合するか (2026-08-26 に移送)
+///
+/// 移送前は順位 table の「タスク」列の文字列と `### ` 見出しの**完全一致**で特定していた。
+/// 夜間ループは選択・除外・ブランチ名・`--ranks` まですべて順位で通しているのに、
+/// **最後の 1 ホップだけが自由記述に落ちていた**。文字列は人手で 2 か所に保たれるため
+/// drift し、実測では summary 行 257 件中 **141 件 (55%) が既に不一致**だった。
+/// 順位 193 は実際にこれで夜間ループを 2 晩止めている。
+///
+/// タイトルは表示用であり、書き換えても後始末は壊れない。
+pub fn remove_detail_entry(markdown: &str, rank: u32) -> Result<String, String> {
     let lines: Vec<&str> = markdown.lines().collect();
-    let heading = format!("### {title}");
     let matches: Vec<usize> = lines
         .iter()
         .enumerate()
-        .filter(|(_, l)| l.trim_end() == heading)
+        .filter(|(_, l)| heading_rank(l) == Some(rank))
         .map(|(i, _)| i)
         .collect();
     let start = match matches.as_slice() {
         [only] => *only,
-        [] => return Err(format!("詳細エントリの見出しが見つかりません: {heading:?}")),
+        [] => {
+            return Err(format!(
+                "順位 {rank} の詳細エントリが見つかりません (見出しは `### 順位 {rank}: <タイトル>` の形)"
+            ))
+        }
         many => {
             return Err(format!(
-                "詳細エントリの見出しが {} 件あります (どれを消すか決まりません): {heading:?}",
+                "順位 {rank} の詳細エントリが {} 件あります (どれを消すか決まりません)",
                 many.len()
             ))
         }
@@ -173,6 +193,15 @@ pub fn remove_detail_entry(markdown: &str, title: &str) -> Result<String, String
     out.extend_from_slice(&lines[..start]);
     out.extend_from_slice(&lines[end..]);
     Ok(join_preserving_trailing_newline(&out, markdown))
+}
+
+/// `### 順位 N: ...` の N を読む (I/O なし)。それ以外の行は `None`。
+///
+/// **コロンまでを厳密に見る。** 前方一致だと `順位 19:` の照合が `順位 193:` に当たる。
+fn heading_rank(line: &str) -> Option<u32> {
+    let rest = line.trim_end().strip_prefix("### 順位 ")?;
+    let (digits, _) = rest.split_once(':')?;
+    digits.trim().parse::<u32>().ok()
 }
 
 /// 次の `### ` 見出し (= 同レベルの次エントリ) か `## ` 見出しの位置を返す。
@@ -330,10 +359,10 @@ mod tests {
 
     fn detail() -> String {
         "# TODO\n\n---\n\n\
-         ### タイトル A\n\n\
+         ### 順位 10: タイトル A\n\n\
          > 動機: ...\n\n\
          #### 作業計画\n\n- [ ] やる\n\n---\n\n\
-         ### タイトル B\n\n\
+         ### 順位 20: タイトル B\n\n\
          > 動機: ...\n"
             .to_string()
     }
@@ -342,9 +371,9 @@ mod tests {
     /// それが次のエントリの前置きになる — 区切りの本数はエントリ数と釣り合ったままになる。
     #[test]
     fn removing_a_middle_entry_leaves_exactly_one_separator() {
-        let out = remove_detail_entry(&detail(), "タイトル A").expect("remove");
+        let out = remove_detail_entry(&detail(), 10).expect("remove");
         assert!(!out.contains("タイトル A"));
-        assert!(out.contains("### タイトル B"), "次のエントリまで消えている");
+        assert!(out.contains("### 順位 20: タイトル B"), "次のエントリまで消えている");
         assert!(!out.contains("#### 作業計画"), "本文が残っている");
         assert_eq!(
             out.matches("---").count(),
@@ -352,7 +381,7 @@ mod tests {
             "区切りの本数が合わない: {out:?}"
         );
         assert!(
-            out.contains("---\n\n### タイトル B"),
+            out.contains("---\n\n### 順位 20: タイトル B"),
             "残った区切りが次エントリの前置きになっていない: {out:?}"
         );
     }
@@ -361,8 +390,8 @@ mod tests {
     /// 残すと文書末尾に宙ぶらりんの `---` が残る。
     #[test]
     fn removing_the_last_entry_drops_its_preceding_separator() {
-        let out = remove_detail_entry(&detail(), "タイトル B").expect("remove");
-        assert!(out.contains("### タイトル A"));
+        let out = remove_detail_entry(&detail(), 20).expect("remove");
+        assert!(out.contains("### 順位 10: タイトル A"));
         assert!(!out.contains("タイトル B"));
         assert!(
             !out.trim_end().ends_with("---"),
@@ -371,26 +400,58 @@ mod tests {
         assert_eq!(out.matches("---").count(), 1, "{out:?}");
     }
 
-    /// 見出しが無ければ何も消さない。前方一致に緩めると似た名前の別タスクを消しうる。
+    /// 該当する順位が無ければ何も消さない。
     #[test]
-    fn a_missing_heading_is_an_error() {
-        assert!(remove_detail_entry(&detail(), "タイトル").is_err());
-        assert!(remove_detail_entry(&detail(), "タイトル A の続き").is_err());
+    fn a_missing_rank_is_an_error() {
+        assert!(remove_detail_entry(&detail(), 99).is_err());
     }
 
     #[test]
-    fn a_duplicated_heading_is_an_error() {
-        let duplicated = format!("{}\n---\n\n### タイトル A\n\n> 別物\n", detail());
-        assert!(remove_detail_entry(&duplicated, "タイトル A").is_err());
+    fn a_duplicated_rank_is_an_error() {
+        let duplicated = format!("{}\n---\n\n### 順位 10: 別物\n\n> 別物\n", detail());
+        assert!(remove_detail_entry(&duplicated, 10).is_err());
     }
 
     /// `## ` セクションの手前で止まる (次のエントリが無い場合に後続セクションを巻き込まない)。
     #[test]
     fn removal_stops_at_the_next_level_two_heading() {
-        let markdown = "# TODO\n\n---\n\n### タイトル A\n\n> 動機\n\n## 別セクション\n\n本文\n";
-        let out = remove_detail_entry(markdown, "タイトル A").expect("remove");
+        let markdown =
+            "# TODO\n\n---\n\n### 順位 10: タイトル A\n\n> 動機\n\n## 別セクション\n\n本文\n";
+        let out = remove_detail_entry(markdown, 10).expect("remove");
         assert!(out.contains("## 別セクション"));
         assert!(out.contains("本文"));
         assert!(!out.contains("動機"));
+    }
+
+    /// **本移送の要点**: タイトルが順位 table と食い違っていても後始末が壊れないこと。
+    ///
+    /// 移送前はこの状態で `[LEDGER_CLEANUP_BLOCK]` になり、夜間ループが agent を 1 回
+    /// まるごと回してから落ちていた (順位 193、2026-08-25 / 26 の 2 run で実測)。
+    #[test]
+    fn a_title_that_drifted_from_the_summary_row_no_longer_breaks_removal() {
+        let markdown = "# TODO\n\n---\n\n### 順位 193: 見出し側だけ書き換わったタイトル ★ Bundle\n\n> 動機\n";
+        let out = remove_detail_entry(markdown, 193).expect("タイトルは照合に使わない");
+        assert!(!out.contains("見出し側だけ書き換わったタイトル"));
+        assert!(!out.contains("動機"));
+    }
+
+    /// **前方一致にしない** — `順位 19:` の照合が `順位 193:` に当たってはいけない。
+    #[test]
+    fn a_rank_prefix_does_not_match_a_longer_rank() {
+        let markdown = "# TODO\n\n---\n\n### 順位 193: タイトル\n\n> 動機\n";
+        assert!(
+            remove_detail_entry(markdown, 19).is_err(),
+            "順位 19 が 順位 193 の見出しに当たっている"
+        );
+    }
+
+    #[test]
+    fn heading_rank_reads_only_the_prefixed_form() {
+        assert_eq!(heading_rank("### 順位 10: タイトル"), Some(10));
+        assert_eq!(heading_rank("### 順位 193: タイトル"), Some(193));
+        assert_eq!(heading_rank("### タイトル (順位 10)"), None, "後置形は採らない");
+        assert_eq!(heading_rank("#### 順位 10: タイトル"), None, "見出しレベルが違う");
+        assert_eq!(heading_rank("### 順位 abc: タイトル"), None);
+        assert_eq!(heading_rank("### 順位 10 タイトル"), None, "コロンが要る");
     }
 }

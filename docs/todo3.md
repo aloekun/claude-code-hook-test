@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### `vitest` を devDependencies に固定 (PR #88 T2-3)
+### 順位 16: `vitest` を devDependencies に固定 (PR #88 T2-3)
 
 > **動機**: Stop hook の `pnpm test` → `npx vitest run` が `pnpm-lock.yaml` に vitest なしのため npx がネット DL を試みて偽陽性 FAIL する事象を観測。ネット環境・キャッシュ依存の不確実性を排除し、Stop gate を deterministic にする。
 >
@@ -53,7 +53,7 @@
 
 ---
 
-### `pnpm create-pr` 必須引数未指定時のヘルプ改善 (PR #88 T2-5)
+### 順位 17: `pnpm create-pr` 必須引数未指定時のヘルプ改善 (PR #88 T2-5)
 
 > **動機**: 引数なしで `pnpm create-pr` を実行すると `gh pr create` が `must provide --title and --body (or --fill or fill-first or --fillverbose)` エラーのみ出力し、使用例が示されない。今回 PR 作成時に手動ワークアラウンド (`pnpm prepare-pr-body` で `.tmp-pr-body.md` 生成 → `pnpm create-pr -- --title "..." --body-file .tmp-pr-body.md`) が必要になった。`gh` のエラーをそのまま流す現設計だと、Claude や人間が次の手を察するのに余計な往復が発生する。
 >
@@ -104,7 +104,7 @@ Hint:
 
 ---
 
-### `.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)
+### 順位 18: `.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)
 
 > **動機**: ADR-030 で確立した soft-fail 機構 (`<pr>.md.failed` marker + L2 recovery) は PR #89 セッションで実際に発火し、UserPromptSubmit hook 経由で recovery が機能することが実証された。しかし現状の marker file は識別子のみで、recovery に必要な手順 (再実行コマンド、必要な引数、想定所要時間、よくある失敗原因) が外部 (ADR-030 / skill SKILL.md) を参照しないと分からない。marker 自体に手順を埋め込めば、将来 (ドキュメント所在を忘れた時 / ADR-030 が改訂された時 / 派生プロジェクトでの再現時) の recovery が省力化される。
 >

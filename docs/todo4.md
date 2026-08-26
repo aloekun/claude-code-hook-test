@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky)
+### 順位 36: cargo-mutants を post-PR pipeline に統合 — test ⇄ impl 制約の機械測定 (PR #96 T2-flaky)
 
 > **動機**: Bundle W (PBT + 型) で書かれた properties が「実装を本当に制約しているか」を後段で機械的に測定する layer。`cargo mutants` は production code に微小変異を注入し、全 mutant が少なくとも 1 つの test で fail することを要求する。survivor mutant は「test がこのコードを制約していない」の直接的証拠で、PBT の弱さや coverage gap を mechanical に暴く。Bundle W で「仕様を articulate」、Bundle X で「articulate された仕様の強さを測定」の二層構造を完成させる。
 >
@@ -58,7 +58,7 @@
 
 ---
 
-### pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky)
+### 順位 37: pre-push concurrency stress runner (N=100) — scheduling space の random sampling (PR #96 T2-flaky)
 
 > **動機**: PR #96 Finding E (concurrency test の guard 即 drop) は scheduling 空間の race を逐次実行で誤魔化していた。`#[stress] N=100` で同 test を 100 回回すと、scheduler の偶然性で flaky window が露出する確率が劇的に向上する。pre-push に組み込めば AI が flaky concurrency test を書いた瞬間に push が止まる。
 >
@@ -101,7 +101,7 @@
 
 ---
 
-### L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)
+### 順位 38: L3 weekly: cargo-mutants workspace 全体 + stress N=1000 を ADR-031 週次レビューに統合 (PR #96 T3-flaky)
 
 > **動機**: Bundle W (PBT + 型) と Bundle X (mutants + stress) は per-PR / per-push の防御層だが、long-tail flake (N=100 では catch されないが N=1000 で出る) と workspace 全体の coverage gap (PR で触らない crate の test 弱さ) は別途 audit が必要。ADR-031 (週次レビュー、本採用 2026-06-01) に facet 拡張 / aggregate 前 pre-step として組込むことで、週次の人間不在時間に 30-60 分の audit を回す。
 >
@@ -146,7 +146,7 @@
 
 ---
 
-### prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)
+### 順位 40: prepare-pr skill Step 1 bookmark 存在チェック強化 (PR #98 T1-2)
 
 > **動機**: PR #98 セッションで、Bundle Y2 commit の `jj describe` 後の `pnpm push` がローカル bookmark 未作成のまま実行され、`jj git push` の default revset (`remote_bookmarks(remote=origin)..@`) で対象 0 件 → "Nothing changed" warning となり実質 push 失敗。push-runner は bookmark 自動採番ロジックを持たず、prepare-pr skill の Step 1 fallback (bookmark `<type>/<summary-slug>` 自動採番) でリカバリしたが、Step 1 の state 確認コマンド一覧に `jj bookmark list` の output 確認が明示されておらず、検出が「Step 1 fallback 表の `local_bookmarks` 空判定」に依存していた。
 >
@@ -184,7 +184,7 @@
 
 ---
 
-### PreToolUse hook で `gh` CLI の token-bloat パターンを検出する `gh-token-efficiency` preset 追加 (計画書 #D-1、PR #172 仕組み化方針切替 2026-05-25)
+### 順位 44: PreToolUse hook で `gh` CLI の token-bloat パターンを検出する `gh-token-efficiency` preset 追加 (計画書 #D-1、PR #172 仕組み化方針切替 2026-05-25)
 
 > **動機**: PR #97 / #99 セッションで観測された gh tool_result の token bloat (POST 応答 24KB / GET 過剰 metadata 44KB) を、当初 rule 追加 (`~/.claude/rules/common/git-workflow.md`) で抑制する計画だった。しかし PR #172 で 順位 144 (`jj-message-required` preset) の dogfood が成功し、「rule 化は session 毎に読み込みコストがかかり、別セッションでも結果が一定にならない」課題が顕在化。仕組み化 (PreToolUse hook) に方針切替する (`feedback_pipeline_over_rules.md` 適用)。
 >

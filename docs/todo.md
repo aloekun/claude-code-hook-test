@@ -384,7 +384,7 @@
 
 ##### 完了基準: CLAUDE.md ADR index が ADR-031 → ADR-032 (欠番明示) → ADR-033 で連続化、ADR-033 の `ADR-032 PR-β` 参照 4 箇所が dead-pointer ではなくなる、`grep -rn 'ADR-032'` で残存 dead-pointer 0 件
 
-### (追って) ADR-030 の takt-test-vc 反映
+### 順位 28: (追って) ADR-030 の takt-test-vc 反映
 
 > **参照**: [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
 >

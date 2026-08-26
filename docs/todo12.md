@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### check-ci-coderabbit format extraction 関数への variant fixture 追加 (PR #185 T2-#4 採用)
+### 順位 176: check-ci-coderabbit format extraction 関数への variant fixture 追加 (PR #185 T2-#4 採用)
 
 > **動機**: PR #185 (Bundle CR-RL) で `extract_old_format_wait_time` / `extract_new_format_wait_time` の 2 helper 関数に分離し 3 新規 fixture (full / minutes-only / 旧新混在) を追加したが、analyzer (post-merge-feedback) は **bold-wrapper variant** (例: `**More reviews will be available in N minutes and S seconds**`) や **その他の組合せ variant** の coverage gap を指摘。PR #182 (30+ 分 polling 浪費の実観測) + PR #185 (format 多様性対応) の 2 PR 連続観測で、CR の format は引き続き variants を生む可能性が高く、防御的 fixture coverage 追加が systemic 価値あり。
 >
@@ -64,7 +64,7 @@ regex 拡張アプローチ (#1) vs fixture のみ追加 (#2) の選択。本タ
 
 ---
 
-### `state.rs` の behavioral invariant test を ADR-041 pattern で追加 (週次レビュー 2026-05-30 S02 採用)
+### 順位 178: `state.rs` の behavioral invariant test を ADR-041 pattern で追加 (週次レビュー 2026-05-30 S02 採用)
 
 > **動機**: 週次レビュー WR-2026-05-30-S02 で検出。`src/cli-pr-monitor/src/state.rs:226-510` の test は JSON round-trip (serde 直列化 / 逆直列化) のみを検証し、**behavioral invariant** (例: `rate_limit` が `Some` の場合に `update_state_from_check_result()` が `ci` field を populate しない) を test していない。状態遷移 regression が test suite を通り抜ける構造的リスク。ADR-041 (Test Isolation Patterns for Multi-Condition Guards) で確立された「sentinel 事前投入 + mutation 不在を assert」pattern が本リポジトリの canonical 対策。
 >
@@ -108,7 +108,7 @@ regex 拡張アプローチ (#1) vs fixture のみ追加 (#2) の選択。本タ
 
 ---
 
-### rate-limit retry decision boundary test を rstest parameterized で追加 (週次レビュー 2026-05-30 S03 採用)
+### 順位 179: rate-limit retry decision boundary test を rstest parameterized で追加 (週次レビュー 2026-05-30 S03 採用)
 
 > **動機**: 週次レビュー WR-2026-05-30-S03 で検出。`src/cli-pr-monitor/src/config.rs:94-122` の rate-limit retry logic + `stages/poll.rs` 周辺で、`max_retries=3` (固定値) のみが test されており **decision boundary** (`max_retries=0` で retry されない / `max_retries=1` で 1 回だけ retry / `max_retries=3` で boundary 通過後 `action_required` 遷移) が未検証。off-by-one error (`<` vs `<=`) が silent regression として通る構造的リスク。rstest crate は既に本リポジトリで使用済のため新 dep 不要。
 >
@@ -157,7 +157,7 @@ regex 拡張アプローチ (#1) vs fixture のみ追加 (#2) の選択。本タ
 
 ---
 
-### `lib-report-formatter` に markdown pipe / newline escape を追加 (週次レビュー 2026-05-30 C01 採用)
+### 順位 180: `lib-report-formatter` に markdown pipe / newline escape を追加 (週次レビュー 2026-05-30 C01 採用)
 
 > **動機**: 週次レビュー WR-2026-05-30-C01 で検出。`src/lib-report-formatter/src/lib.rs:51-79` の `format_table()` が PR title / commit message を markdown table 行に直接埋め込むが、`|` / `\n` を escape していない。「`Fix | Critical | src/main.rs`」のような PR title が markdown table 構造を破壊し、**downstream AI facet が malformed row を Read 時に misinterpret する prompt injection リスク** が存在。PR title は外部 actor (= PR 作成者) が制御可能な input source のため defense-in-depth 重要。
 >
@@ -206,7 +206,7 @@ regex 拡張アプローチ (#1) vs fixture のみ追加 (#2) の選択。本タ
 
 ---
 
-### `/weekly-review` skill に重複検出 (簡易 grep) を Phase 4 で追加 (Phase D dogfood D-B 採用)
+### 順位 182: `/weekly-review` skill に重複検出 (簡易 grep) を Phase 4 で追加 (Phase D dogfood D-B 採用)
 
 > **動機**: Phase D dogfood (週次レビュー 2026-05-30 実行) で **WR-2026-05-30-S05 (`combine_output` dead-code) が既存 順位 173 (PR #182 dry-run S01 採用) と完全重複**であることを実観測。ADR-031 § Phase 4 で「**重複検出は MVP では実装しない**」と明示済だが、本 dogfood で「2 PR で同じ finding が出る」を実証したため、最低限の grep ベース簡易検出を後追い追加する妥当性が確立。MVP は description 先頭 40 chars の grep ヒットを警告表示するのみで、自動 merge は行わない (user 判断に委ねる ADR-031 原則維持)。
 >
@@ -257,7 +257,7 @@ regex 拡張アプローチ (#1) vs fixture のみ追加 (#2) の選択。本タ
 
 ---
 
-### Companion helper group 署名整合 compile-time validation test (PR #196 T2-1 採用)
+### 順位 193: Companion helper group 署名整合 compile-time validation test (PR #196 T2-1 採用)
 
 > **動機**: Bundle 195-FB (PR #196) で `count_empty_in_pr_range` だけ `default_branch` 引数化が漏れていた問題 (CR Major + pre-push F-1) を rule⑫ で **literal hardcode 層** では機械検出するようになったが、companion helper group (`assert_descriptions_absent/present_in_pr_range` / `count_empty_in_pr_range` / 将来追加される helper) の **API signature 整合性** は lint rule では catch できない (= AST レベル complexity)。4 番目以降の helper 追加時に signature drift が発生しても rule⑫ は fire しない silent regression リスク。
 >
@@ -308,7 +308,7 @@ fn companion_helpers_share_default_branch_signature() {
 
 ---
 
-### development-workflow.md 「1. Plan First」に「task 着手前に grep で既存 section 確認」step 追記 (PR #196 T3-5 採用)
+### 順位 194: development-workflow.md 「1. Plan First」に「task 着手前に grep で既存 section 確認」step 追記 (PR #196 T3-5 採用)
 
 > **動機**: PR #196 pre-push reviewer OBS-1 で「tasks 191/192 が既実装 sections を再度計画対象としていた」と指摘 (実態は cleanup diff の誤読だが、similar pattern は PR #123 でも観測済で Frequency Medium)。task 計画段階で「対象 section が既に global rules / ADR に存在するか `grep` で確認する」step を `~/.claude/rules/common/development-workflow.md` "1. Plan First" に追記し、後続 task 計画時の redundant 提案を構造的に予防する。
 >

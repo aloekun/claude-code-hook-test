@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### ADR-NNN (採番未確定、land 時に確定): Rust timestamp arithmetic safety + CLAUDE.md security 拡充 (PR #115 T3-1 採用) ★ Bb-3 follow-up
+### 順位 78: ADR-NNN (採番未確定、land 時に確定): Rust timestamp arithmetic safety + CLAUDE.md security 拡充 (PR #115 T3-1 採用) ★ Bb-3 follow-up
 
 <!--
 番号 history: 2026 年序盤 entry 登録時 ADR-038 予約 → Local LLM 系列で占有 → 2026-05-16 に ADR-041
@@ -63,7 +63,7 @@ PR で空き番号を取得する運用に統一。
 
 ---
 
-### docs-governance.md § Retirement Workflow に「残タスクの lifecycle 整合」要件明記 (PR #117 T3-1 採用)
+### 順位 79: docs-governance.md § Retirement Workflow に「残タスクの lifecycle 整合」要件明記 (PR #117 T3-1 採用)
 
 > **動機**: PR #117 (`docs/coderabbit-monitoring-efficiency.md` retirement) で順位 15 (cli-pr-monitor 通知 Recovery 経路) を「Bb-3 SessionStart catch-up nudge で吸収済」として priority table から削除した際、現 `~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2「残タスクを priority table に登録」は **priority table から除外するケース (= 完了/意図的 deprioritize/defer) を未定義**。reviewer (post-merge-feedback agent) は私の commit message に「Bb-3 で吸収済」と書かれていることは認識したが、rule として 3 値分類が明文化されていない点を指摘。
 >
@@ -106,7 +106,7 @@ PR で空き番号を取得する運用に統一。
 
 ---
 
-### cli-pr-monitor: CR 投稿エラー (`Failed to post review comments`) auto-retry 拡張 (PR #120 T1-2 採用) ★ Bundle f (defer)
+### 順位 81: cli-pr-monitor: CR 投稿エラー (`Failed to post review comments`) auto-retry 拡張 (PR #120 T1-2 採用) ★ Bundle f (defer)
 
 > **動機**: PR #120 dogfood で CR walkthrough overlay が `Failed to post review comments` (rate-limit ではない transient failure) を表示するも `parse_rate_limit_status` が detected せず、auto-retry が発火しなかった。1 観測だが auto-retry の silent failure として機能不全。
 >

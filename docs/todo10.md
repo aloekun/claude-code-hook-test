@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### ADR-NNN (採番未確定、land 時に確定): Timestamp invariant safety — 時刻計算 silent failure class の codify (PR #199 post-merge-feedback T3-2 採用、PR #203 T3-1 で 3 観測目に昇格)
+### 順位 198: ADR-NNN (採番未確定、land 時に確定): Timestamp invariant safety — 時刻計算 silent failure class の codify (PR #199 post-merge-feedback T3-2 採用、PR #203 T3-1 で 3 観測目に昇格)
 
 > **動機**: PR #96 Finding D (`cli-pr-monitor::lock` の `parse_age_secs` で `saturating_sub` silent semantic mismatch)、PR #199 Bundle W (`cli-pr-monitor::lock` に PastTime newtype + proptest で構造的予防)、PR #203 (`hooks-session-start` に PastTime + proptest 移植) で同型 bug class が **3 件観測 (Frequency High)**。本 ADR は「時刻計算における silent failure class と型レベル防御」を永続化し、派生プロジェクト (techbook-ledger / auto-review-fix-vc) への transferability を確保する。
 >
@@ -64,7 +64,7 @@
 
 ---
 
-### multi-byte 文字を含む string window test の標準 coverage requirement 化 (PR #200 post-merge-feedback T2-1 採用)
+### 順位 199: multi-byte 文字を含む string window test の標準 coverage requirement 化 (PR #200 post-merge-feedback T2-1 採用)
 
 > **動機**: PR #200 で `priority_inversion::has_resolved_marker_after` の window 計算が **byte 演算** で、日本語 1 文字 = 3 bytes のため「80 文字」のつもりが実質 ~27 文字に縮退する Major bug が発生 (CR が指摘、char-based に修正済)。PR #199 でも `parse_age_secs` 周辺で byte/char 混乱があり、Frequency Medium (2 観測) で systemic。char-based fix と regression test (`is_resolved_detects_marker_across_multibyte_gap`) は PR #200 で完了済だが、**将来の新規 validator が同パターンで実装されたとき multi-byte test が無指定で欠落するリスク** を構造的に塞ぐ。
 >
@@ -105,7 +105,7 @@
 
 ---
 
-### `~/.claude/rules/rust/patterns.md` に「String Indexing with Multi-byte Characters」section 追加 (PR #200 post-merge-feedback T3-1 採用)
+### 順位 200: `~/.claude/rules/rust/patterns.md` に「String Indexing with Multi-byte Characters」section 追加 (PR #200 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #200 で `priority_inversion::has_resolved_marker_after` の byte/char 混同 Major bug を fix した際、`char_indices().nth(N)` パターンが Rust の canonical solution として有効と判明。同パターンは現在 `~/.claude/rules/rust/` に未記述で、将来の lint rule 著者が同型 bug を再生産するリスクあり。PR #199 (parse_age_secs 周辺) + PR #200 (priority_inversion) で 2 観測 = Frequency Medium。
 >
@@ -143,7 +143,7 @@
 
 ---
 
-### ADR-007 に「Regex は loop 内で `LazyLock<Regex>` 必須」guideline 追記 (PR #200 post-merge-feedback T3-2 採用)
+### 順位 201: ADR-007 に「Regex は loop 内で `LazyLock<Regex>` 必須」guideline 追記 (PR #200 post-merge-feedback T3-2 採用)
 
 > **動機**: PR #200 で `priority_inversion::parse_tier` / `extract_referenced_ranks` が per-row `Regex::new()` 再 compile していた問題を `LazyLock<Regex>` で module 初期化時の 1 回 compile に修正 (F-2)。同パターンの guideline は ADR-007 (custom linter regex/AST 層の線引き) に未記述で、将来の custom lint rule 著者が同型 bug を再生産するリスクあり。小規模 table では無害だが 1000+ 行 table では顕著な遅延。
 >
@@ -180,7 +180,7 @@
 
 ---
 
-### `~/.claude/rules/common/testing.md` に「multi-path test fixture isolation」section 追記 (PR #200 post-merge-feedback T3-3 採用)
+### 順位 202: `~/.claude/rules/common/testing.md` に「multi-path test fixture isolation」section 追記 (PR #200 post-merge-feedback T3-3 採用)
 
 > **動機**: PR #200 pre-push reviewer non-blocking finding F-3 で、test fixture が **意図せず複数 path をカバー** していると、将来 fixture 変更時に test 経路が silent shift する fragility が指摘された。修正は fixture を resolved-marker 非含有に変更し missing-rank 経路を厳密に exercise する形にした。この設計手法は sentinel pattern (`feedback_test_dry_antipattern` 起源、testing.md 既記述) と独立な「Path A を exercise する場合は Path B トリガー条件を意図的に除外」 pattern として汎用化できる。
 >
@@ -220,7 +220,7 @@
 
 ---
 
-### ADR-007 に exception field + 専用 pattern の設計方針 codify (PR #201 post-merge-feedback T3-2 採用)
+### 順位 204: ADR-007 に exception field + 専用 pattern の設計方針 codify (PR #201 post-merge-feedback T3-2 採用)
 
 > **動機**: Rust 標準 regex crate は negative lookahead 非対応のため、相互排他的な regex pattern を扱う際は `BlockedPattern.exception` field + 専用 pattern の 2 段判定が canonical solution。順位 144 `jj-message-required` (PR #171) で導入され、順位 146 `secret-detection` (PR #201) で Anthropic `sk-ant-` を OpenAI `sk-` から除外するのに再利用。2 PR で再利用 = Frequency Medium で ADR codify 妥当。将来の custom linter 実装者が negative lookahead を試みて iteration を浪費するのを防ぐ。
 >
@@ -258,7 +258,7 @@
 
 ---
 
-### `~/.claude/rules/common/git-workflow.md` に jj auto-snapshot onboarding rule 追記 (PR #201 post-merge-feedback T3-4 採用)
+### 順位 205: `~/.claude/rules/common/git-workflow.md` に jj auto-snapshot onboarding rule 追記 (PR #201 post-merge-feedback T3-4 採用)
 
 > **動機**: jj は git の staging-area モデルと異なり working tree 全体を即座に @ commit に取り込む (auto-snapshot)。この挙動を知らない agent / ユーザーが「prior session の docs commit (順位 199-202)」と「本セッションの impl 変更 (順位 146 secret-detection)」を同 @ commit に混入させ、結果として bundle PR にせざるを得ない事象が PR #201 で発生 (advisor 助言で bundle 化に収束)。
 >
@@ -299,7 +299,7 @@
 
 ---
 
-### `~/.claude/rules/common/development-workflow.md` § 1. Plan First に「todo*.md 分割時の todo-summary.md 同一 commit 更新」checklist 追加 (PR #204 post-merge-feedback T3-1 採用)
+### 順位 206: `~/.claude/rules/common/development-workflow.md` § 1. Plan First に「todo*.md 分割時の todo-summary.md 同一 commit 更新」checklist 追加 (PR #204 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #133 (`todo.md` → `todo.md` + `todo2.md` 分割)、PR #153 (`*-analysis.md` 3-way split)、PR #204 (本 PR、`todo10.md` → `todo10.md` + `todo12.md` 分割) の **3 PR 連続観測** で「multi-file artifact split 時に `docs/todo-summary.md` の file-column pointer 更新が漏れて pre-push reviewer / CR に指摘される」事象が systemic 化 (Frequency Medium 閾値到達)。`~/.claude/rules/common/development-workflow.md` § 1. Plan First に「分割時の cross-file reference 更新手順」を 3 step checklist として追記し、後続の split 作業で reviewer iteration を構造的に削減する。
 >
@@ -344,7 +344,7 @@
 
 ---
 
-### `~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 に「mechanical lint は ADR-039 scope 外」境界 case 追加 (PR #204 post-merge-feedback T3-2 採用)
+### 順位 207: `~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 に「mechanical lint は ADR-039 scope 外」境界 case 追加 (PR #204 post-merge-feedback T3-2 採用)
 
 > **動機**: PR #204 で project-local `docs/adr/adr-039-experimental-feature-standard-pattern.md` に § 1.b (mechanical lint 例外) を追加したが、global rules (`~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須) には mechanical lint 境界 case の記述がない。派生プロジェクト (techbook-ledger / auto-review-fix-vc) で同型の ADR-039 over-application (= 順位 177 file_size_check が default OFF にされた事象) が再発する構造リスク。global rules に boundary case を投影することで派生プロジェクト全体に予防効果を波及。
 >
@@ -398,7 +398,7 @@ ADR-039 (Experimental Feature 標準パターン) は「behavior の妥当性が
 
 ---
 
-### `~/.claude/rules/common/testing.md` に「単複・閾値・時制で出力形式が変わる関数は N=0 / N=1 / N≥2 の 3 境界 variant 必須」guideline 追加 (PR #210 post-merge-feedback T3-2 採用)
+### 順位 211: `~/.claude/rules/common/testing.md` に「単複・閾値・時制で出力形式が変わる関数は N=0 / N=1 / N≥2 の 3 境界 variant 必須」guideline 追加 (PR #210 post-merge-feedback T3-2 採用)
 
 > **動機**: PR #210 で `drain_pipe_capped_reporting_n_plus_1_truncates_one_appends_summary` test が当初 `"1 lines truncated"` (= 単数で複数形を使用) を期待値として誤って書いてしまい、takt-fix iter 1 → iter 2 で auto-fix された実観測。境界値テスト (N=N+1) を書いたが「N=1 のとき出力形式が変わる」 (single → no `s`) という単複境界を忘れた。一般化すれば「数値に応じて出力形式が変化する関数」全般に共通する盲点。
 >
