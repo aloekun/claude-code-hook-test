@@ -25,6 +25,7 @@ const ENV_NAMES: &[&str] = &[
     "GUARD_OUTCOME",
     "INTEGRITY_OUTCOME",
     "LEDGER_COMPLETION_OUTCOME",
+    "LEDGER_REMOVAL_OUTCOME",
     "GATE_OUTCOME",
     "APP_TOKEN_OUTCOME",
     "PUBLISH_OUTCOME",
@@ -98,7 +99,7 @@ fn a_backpressure_deny_exits_zero() {
     assert!(run.stdout.contains("[NIGHTLY_SKIP]"), "stdout:\n{}", run.stdout);
 }
 
-/// サマリ行は未実行の step を `<未実行>` で埋め、全 13 列を必ず出す。
+/// サマリ行は未実行の step を `<未実行>` で埋め、全 14 列を必ず出す。
 #[test]
 fn the_summary_line_lists_every_step() {
     let run = run_exe(&[("PREFLIGHT_OUTCOME", "success")]);
@@ -110,7 +111,7 @@ fn the_summary_line_lists_every_step() {
     assert!(summary.contains("preflight=success"), "{summary}");
     assert!(summary.contains("handoff=<未実行>"), "{summary}");
     assert!(summary.contains("ledger_completion=<未実行>"), "{summary}");
-    assert_eq!(summary.matches('=').count(), 13, "{summary}");
+    assert_eq!(summary.matches('=').count(), 14, "{summary}");
 }
 
 /// **red になった夜がどこで止まったかをサマリだけで特定できること** (CodeRabbit #445)。
@@ -140,6 +141,41 @@ fn a_ledger_completion_stop_is_identifiable_from_the_summary() {
     assert!(summary.contains("ledger_completion=failure"), "{summary}");
     assert!(summary.contains("verify=success"), "{summary}");
     assert!(summary.contains("guard=success"), "{summary}");
+}
+
+/// **順位 193 の実観測の再現** (2026-08-25 18:08 UTC の定時 run / 2026-08-26 14:22 UTC の
+/// dispatch run)。台帳削除で `[LEDGER_CLEANUP_BLOCK]` が出た夜。
+///
+/// **移送前はここが `[NIGHTLY_SKIP]` だった** — 台帳削除の失敗が handoff の発火条件に
+/// 入っておらず、agent を 1 回まるごと回して捨てた夜が「何もすることが無かった夜」の
+/// マーカーで報告されていた。D1 で handoff の対象に加えたので `[NIGHTLY_HANDOFF]` になる。
+#[test]
+fn a_ledger_removal_failure_is_reported_as_a_handoff() {
+    let run = run_exe(&[
+        ("SELECT_OUTCOME", "success"),
+        ("IMPLEMENT_OUTCOME", "success"),
+        ("VERIFY_OUTCOME", "success"),
+        ("GUARD_OUTCOME", "success"),
+        ("INTEGRITY_OUTCOME", "success"),
+        ("LEDGER_COMPLETION_OUTCOME", "success"),
+        ("LEDGER_REMOVAL_OUTCOME", "failure"),
+        ("PUBLISH_OUTCOME", "skipped"),
+        ("HANDOFF_OUTCOME", "success"),
+        ("RANK", "193"),
+    ]);
+    assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
+    assert!(run.stdout.contains("[NIGHTLY_HANDOFF]"), "stdout:\n{}", run.stdout);
+    assert!(!run.stdout.contains("[NIGHTLY_SKIP]"), "stdout:\n{}", run.stdout);
+    let summary = run
+        .stdout
+        .lines()
+        .find(|l| l.starts_with("[NIGHTLY] "))
+        .expect("サマリ行が無い");
+    assert!(
+        summary.contains("ledger_removal=failure"),
+        "停止段がサマリだけで特定できること: {summary}"
+    );
+    assert!(summary.contains("ledger_completion=success"), "{summary}");
 }
 
 /// 未知の outcome 値は green へ倒さない。

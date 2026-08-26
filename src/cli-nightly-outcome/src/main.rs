@@ -35,8 +35,8 @@ use classify::{classify, render, summary_line};
 /// **順序がそのままサマリ行の順序**で、workflow の step 実行順に並べてある。
 ///
 /// **handoff の発火条件に出てくる step はすべてここに要る。** handoff は verify / guard /
-/// ledger-completion のいずれかが非 success なら発火するため、3 つ揃っていないと
-/// 「red になったがどこで止まったか分からない」サマリになる (CodeRabbit #445)。
+/// ledger-completion / ledger-removal のいずれかで止まったときに発火するため、4 つ揃って
+/// いないと「red になったがどこで止まったか分からない」サマリになる (CodeRabbit #445)。
 /// この対応は [`tests::the_summary_contract_covers_every_outcome_the_workflow_passes`] が
 /// 実 workflow と照合して固定している。
 const OUTCOME_FIELDS: &[(&str, &str)] = &[
@@ -49,6 +49,7 @@ const OUTCOME_FIELDS: &[(&str, &str)] = &[
     ("guard", "GUARD_OUTCOME"),
     ("integrity", "INTEGRITY_OUTCOME"),
     ("ledger_completion", "LEDGER_COMPLETION_OUTCOME"),
+    ("ledger_removal", "LEDGER_REMOVAL_OUTCOME"),
     ("gate", "GATE_OUTCOME"),
     ("app_token", "APP_TOKEN_OUTCOME"),
     ("publish", "PUBLISH_OUTCOME"),
@@ -110,6 +111,48 @@ mod tests {
         assert!(envs.iter().all(|e| e.ends_with("_OUTCOME")));
     }
 
+    /// **handoff step の発火条件に、marker を残すべき停止段がすべて挙がっていること。**
+    ///
+    /// 本 crate の判定は `publish` / `handoff` の 2 つしか見ないため、**どの停止段で handoff が
+    /// 発火するかは workflow 側の `if` にしか無い**。その条件を消してもここ以外のテストは
+    /// すべて通る (CodeRabbit #449 の指摘。実測で確認した)。条件を実ファイルから読んで
+    /// 固定しないと、marker が作られなくなっても誰も気づかない — それは
+    /// [ADR-072](../../../docs/adr/adr-072-nightly-todo-loop.md) 決定 19 が防ごうとした
+    /// 「失敗した run が先頭を独占する」状態そのものである。
+    ///
+    /// cwd 依存のため `--ignored` (ADR-041)。
+    #[test]
+    #[ignore = "cwd 依存: リポジトリルートの .github/workflows/nightly-todo.yml を読む。--test-threads=1 で実行"]
+    fn the_handoff_condition_covers_every_stop_that_needs_a_marker() {
+        let condition = handoff_step_condition(&read_nightly_workflow());
+        for step in ["verify", "guard", "ledger-completion", "ledger-removal"] {
+            assert!(
+                condition.contains(&format!("steps.{step}.outcome")),
+                "handoff の発火条件に {step} が無い — この段で止まると marker が残らず、\
+                 同じ順位が翌晩も選ばれる (ADR-072 決定 19)。条件:\n{condition}"
+            );
+        }
+    }
+
+    fn read_nightly_workflow() -> String {
+        let rel = ".github/workflows/nightly-todo.yml";
+        std::fs::read_to_string(format!("../../{rel}"))
+            .or_else(|_| std::fs::read_to_string(rel))
+            .expect("nightly-todo.yml を読めない")
+    }
+
+    /// handoff step の `if:` ブロックだけを切り出す (`env:` の手前まで)。
+    fn handoff_step_condition(content: &str) -> String {
+        content
+            .split("- name: Leave a handoff marker")
+            .nth(1)
+            .expect("handoff step が無い")
+            .lines()
+            .take_while(|line| !line.trim_start().starts_with("env:"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// **workflow が渡す `*_OUTCOME` env と [`OUTCOME_FIELDS`] が過不足なく一致すること。**
     ///
     /// 片方だけ増減すると「渡しているのに出ない」列や「出そうとして常に `<未実行>` の列」が
@@ -121,10 +164,7 @@ mod tests {
     #[test]
     #[ignore = "cwd 依存: リポジトリルートの .github/workflows/nightly-todo.yml を読む。--test-threads=1 で実行"]
     fn the_summary_contract_covers_every_outcome_the_workflow_passes() {
-        let rel = ".github/workflows/nightly-todo.yml";
-        let content = std::fs::read_to_string(format!("../../{rel}"))
-            .or_else(|_| std::fs::read_to_string(rel))
-            .expect("nightly-todo.yml を読めない");
+        let content = read_nightly_workflow();
         let step = content
             .split("- name: Report outcome")
             .nth(1)

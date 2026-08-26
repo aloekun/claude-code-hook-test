@@ -814,7 +814,16 @@ jobs:
       # なぜ要るか: verify 段で落ちた run はブランチも PR も残さないため、翌晩まったく同じ
       # タスクが再選択される。無人ループは毎晩同じ場所で失敗し続け、後続のタスクへ進まない。
       #
-      # 対象は verify 失敗 / guard deny (空 diff を含む) / ledger-completion 未完了 の 3 つ。
+      # 対象は verify 失敗 / guard deny (空 diff を含む) / ledger-completion 未完了 /
+      # **台帳削除の失敗** の 4 つ。
+      #
+      # **台帳削除の失敗を 2026-08-26 に追加した (順位 193 の実観測)。** `cli-ledger-cleanup` は
+      # 順位 table のタイトルと詳細エントリの `###` 見出しを完全一致で照合しており、文字列が
+      # 食い違うと `[LEDGER_CLEANUP_BLOCK]` で落ちる。これは**決定論的に再現する**ので、
+      # マーカーが無いと同じ順位が毎晩選ばれ、agent を 1 回まるごと回してから同じ場所で
+      # 落ち続ける (2026-08-25 / 26 の 2 run で実測)。台帳の文字列は agent が直せない
+      # (Guard 禁止パス) ため、人間の確認待ちに固定するのが正しい。根治は
+      # docs/defect-convergence-plan.md § Phase D の D2 (結合キーを順位へ移す)。
       # **gate deny (kill-switch / 背圧) と integrity 検知は含めない** — 前者は「今夜は
       # 動かない」という設計された停止で翌晩の再試行が正しく、後者は red で人間を呼ぶ
       # セキュリティ事象なのでマーカーで静かに除外してはならない。
@@ -844,7 +853,8 @@ jobs:
           steps.integrity.outcome != 'failure' &&
           (steps.verify.outcome != 'success' ||
            steps.guard.outcome != 'success' ||
-           steps.ledger-completion.outcome != 'success')
+           steps.ledger-completion.outcome != 'success' ||
+           steps.ledger-removal.outcome == 'failure')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BRANCH: ${{ steps.select.outputs.branch }}
@@ -853,7 +863,7 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           set -euo pipefail
-          echo "[NIGHTLY_HANDOFF] 順位 ${RANK} は implement 後に停止しました (verify/guard/ledger-completion のいずれか)。"
+          echo "[NIGHTLY_HANDOFF] 順位 ${RANK} は implement 後に停止しました (verify/guard/ledger-completion/台帳削除 のいずれか)。"
           if [ "${DRY_RUN:-}" = "true" ]; then
             echo "[NIGHTLY_HANDOFF] dry_run のためマーカー (${BRANCH} → ${BASE_SHA}) は作成しません。"
             exit 0
@@ -901,6 +911,7 @@ jobs:
           GUARD_OUTCOME: ${{ steps.guard.outcome }}
           INTEGRITY_OUTCOME: ${{ steps.integrity.outcome }}
           LEDGER_COMPLETION_OUTCOME: ${{ steps.ledger-completion.outcome }}
+          LEDGER_REMOVAL_OUTCOME: ${{ steps.ledger-removal.outcome }}
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           APP_TOKEN_OUTCOME: ${{ steps.app-token.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}

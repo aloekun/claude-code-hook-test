@@ -496,11 +496,17 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 **決定: implement 完了後に publish へ到達しなかった run は、空 ref を作って停止する。**
 
-対象は **verify 失敗 / ledger-completion 未完了 / guard deny / 空 diff**。agent 起動前に記録済みの base commit (`git -C work rev-parse HEAD`) を指す ref `claude/nightly-<順位>` を `gh api -X POST /repos/{owner}/{repo}/git/refs` で 1 回作る。**コードは push しない** — 完遂できなかった成果物を人間のレビュー面へ出す意味はなく、必要なのは「この順位は人間の確認待ちである」という 1 ビットだけである。
+対象は **verify 失敗 / ledger-completion 未完了 / guard deny / 空 diff / 台帳削除の失敗**。agent 起動前に記録済みの base commit (`git -C work rev-parse HEAD`) を指す ref `claude/nightly-<順位>` を `gh api -X POST /repos/{owner}/{repo}/git/refs` で 1 回作る。**コードは push しない** — 完遂できなかった成果物を人間のレビュー面へ出す意味はなく、必要なのは「この順位は人間の確認待ちである」という 1 ビットだけである。
 
 マーカーがある限り決定 3 の除外 (`git ls-remote` によるブランチ存在確認) がそのまま効くため、**selector 側の変更は要らない**。`[NIGHTLY_SKIP]` とは**別のマーカー** (`[NIGHTLY_HANDOFF]`) で `Report outcome` に出す — 「何もすることが無かった夜」と「人間の確認が要る夜」を run 一覧で区別するためである。
 
 > **2026-08-25 改訂 (順位 488)**: 起票時は「run の色は決定 10 に従い green のまま、同じ色の中で marker を分ける」としていたが、**green のままでは 3 晩の停止が誰にも届かなかった**。決定 10 の改訂により、handoff step が発火した run は **red** になる。marker による区別はそのまま残り、色と marker の 2 軸で見分ける形になった。
+>
+> **2026-08-26 改訂: 台帳削除の失敗を対象に追加した。** 初版の対象 4 つは「実装が不十分だった」形の停止で揃えており、**後始末そのものが落ちる形**が抜けていた。`cli-ledger-cleanup` は順位 table のタイトルと詳細エントリの `###` 見出しを完全一致で照合するため、文字列が食い違うと `[LEDGER_CLEANUP_BLOCK]` で落ちる。
+>
+> これは本節が防ごうとした「失敗した run が先頭を独占する」そのものだった — 2026-08-25 18:08 UTC と 2026-08-26 14:22 UTC の 2 run が順位 193 で**同じ場所を再現**し、いずれも agent を 1 回まるごと回してから落ちていた。marker が無いため翌晩も同じ順位が選ばれる。
+>
+> **台帳の文字列は agent が直せない** (決定 6 の Guard 禁止パス) ため、transient ではなく「人間の確認待ち」に固定するのが正しい。なお**根治は結合キーの側にある** — 詳細エントリに順位が無く自由記述のタイトルで照合していることが原因で、実測では summary 行 257 件中 141 件 (55%) が既に不一致だった。本改訂は被害の限定にとどまり、結合キーを順位へ移す作業は `docs/defect-convergence-plan.md` § Phase D の D2 が担う。
 
 **implement より前の停止はマーカーを作らない。** kill-switch / 背圧 deny / タスク無し / インフラ障害 (network / gh / clone) はいずれも agent が走る前に決着するため、翌晩そのまま再試行されるのが正しい。
 
@@ -533,7 +539,7 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 | 決定 | 実装先 | 要点 |
 |---|---|---|
-| 19 (失敗マーカー) | `nightly-todo.yml` の `Leave a handoff marker…` step | 条件は **implement 成功 かつ publish 未達 かつ (verify / guard / ledger-completion のいずれかが非成功)**。`gh api -X POST .../git/refs` で base commit を指す空 ref を 1 本作る |
+| 19 (失敗マーカー) | `nightly-todo.yml` の `Leave a handoff marker…` step | 条件は **implement 成功 かつ publish 未達 かつ (verify / guard / ledger-completion のいずれかが非成功、または ledger-removal が失敗)**。`gh api -X POST .../git/refs` で base commit を指す空 ref を 1 本作る |
 | 19 (対象外の停止) | 同 step の `if` | **gate deny (kill-switch / 背圧) と integrity 検知はマーカーを作らない**。前者は「今夜は動かない」という設計された停止で翌晩の再試行が正しく、後者は red で人間を呼ぶセキュリティ事象なのでマーカーで静かに除外してはならない |
 | 20 (掃除) | `Clean up branches of settled PRs` step | `cli-stale-branch-scan --prefix claude/nightly- --deletable-only` の出力を消費。**選択より前**に置く (直後の in-flight 集計が `git ls-remote` から除外順位を作るため、後だと消したはずのブランチで除外され続ける) |
 | 20 (判定と実行の分離) | `cli-stale-branch-scan` | 「PR が 1 件も無いブランチは候補にしない」既存規則がそのまま失敗マーカーを守る。出力は `git push --delete` の引数になるため、**ブランチ名の allowlist を満たさないものは出力しない** (markdown レポートのコピペ経路と同じ injection 面) |
