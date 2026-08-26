@@ -7,7 +7,7 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### subprocess stress test (>64KB stdout) を ADR-031 weekly-review pipeline 経由で週次実行 (PR #217 post-merge-feedback T2-1 採用)
+### 順位 220: subprocess stress test (>64KB stdout) を ADR-031 weekly-review pipeline 経由で週次実行 (PR #217 post-merge-feedback T2-1 採用)
 
 > **動機**: PR #217 (refactor PR-3a) の post-pr-review iter 2 で 2 module (`hooks-session-start/src/jj_helpers.rs` + `hooks-pre-tool-validate/src/todo_staleness.rs`) に同型の subprocess deadlock 脆弱性が independent 観測された。具体的な脆弱性は、`Command::new("jj")` を `.stdout(Stdio::piped())` で spawn したあと parent process が `try_wait` ループで wait しつつ child の stdout を drain せず終了後にまとめて read するため、jj log の出力が pipe buffer (Linux default 64KB / Windows 4-64KB) を超えると child が write block → 親が wait block → deadlock。
 >
@@ -56,7 +56,7 @@
 
 ---
 
-### ADR-NNN (採番未確定、land 時に確定): Safe Subprocess Stdout Pattern を ADR-016 appendix or 新 ADR で codify (PR #217 post-merge-feedback T3-1 採用)
+### 順位 221: ADR-NNN (採番未確定、land 時に確定): Safe Subprocess Stdout Pattern を ADR-016 appendix or 新 ADR で codify (PR #217 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #217 takt-fix iter 2 で 2 module 同型の subprocess deadlock を fix した実例 (順位 220 参照) から、`Stdio::piped()` を伴う child process の安全な扱い方を ADR で永続化する必要が判明した。同 pattern は本 PR 以前にも `lib-subprocess` 内部で `drain_pipe_unlimited` + `wait_with_timeout_basic` として codify されていたが、**新規 subprocess spawn を書く著者が pipe buffer 制約を知らない場合の防御層が欠落** していた。
 >
@@ -113,7 +113,7 @@
 
 ---
 
-### `~/.claude/CLAUDE.md` に「複数セッション跨ぎの計画文書作成時は AI が先走らずユーザー確認後に方針報告し GO/NO-GO を得る」ルール追加 (PR #218 post-merge-feedback #5 採用)
+### 順位 222: `~/.claude/CLAUDE.md` に「複数セッション跨ぎの計画文書作成時は AI が先走らずユーザー確認後に方針報告し GO/NO-GO を得る」ルール追加 (PR #218 post-merge-feedback #5 採用)
 
 > **動機**: PR #218 (docs PR、ファイルサイズチェックフロー改善計画 + 順位 220/221 採用) のセッション内で、Plan file (`docs/file-length-enforcement-plan.md`、同計画は 2026-08-12 に削除済み。要旨は docs/dev-conventions.md § Rust ファイル分割の制約条件へ移設) 作成完了報告後、AI (Claude) が **ユーザー承認なしに PR-W0 (weekly audit step 追加) の実装着手を開始** し、ユーザーが `[Request interrupted by user]` で停止 + 「勝手に作業を進めないでください」と明示的に course correction する事案が発生した。Auto mode 下でも「計画書 / planning doc 作成のような **大きな task 完了時** は GO/NO-GO の確認待ちが必須」という規範を CLAUDE.md に明文化することで、本セッション内の事例を後続セッションで再発防止する。
 >
@@ -183,7 +183,7 @@
 
 ---
 
-### `ACTIVE_RUN_FRESH_THRESHOLD_SECS` と `ORPHAN_THRESHOLD_SECS` の compile-time 同期 (PR #222 post-merge-feedback T1-1 採用)
+### 順位 223: `ACTIVE_RUN_FRESH_THRESHOLD_SECS` と `ORPHAN_THRESHOLD_SECS` の compile-time 同期 (PR #222 post-merge-feedback T1-1 採用)
 
 > **動機**: PR #222 で hooks-stop-quality に追加した `ACTIVE_RUN_FRESH_THRESHOLD_SECS = 1500` は、hooks-session-start reaper の `ORPHAN_THRESHOLD_SECS = 1500` と **同値である必要がある** (Stop hook が「active」と判定する window と、reaper が「orphan」と判定する threshold が非対称になると、その隙間に挟まった run が両方の防御層から漏れる)。現状は `hooks-stop-quality/src/main.rs:67` のコメント (「reaper の `ORPHAN_THRESHOLD_SECS` (= 1500s) と同値」) で同期を「人間が読んで覚える」契約に留まり、片方を変更したときに他方を追従する mechanical enforcement が欠落している。
 >
@@ -231,7 +231,7 @@
 
 ---
 
-### ADR-043 (Security/Quality Gate Fail-Closed) に hooks-stop-quality の error handling を具体例として追記 (PR #222 post-merge-feedback T3-1 採用)
+### 順位 224: ADR-043 (Security/Quality Gate Fail-Closed) に hooks-stop-quality の error handling を具体例として追記 (PR #222 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #222 で hooks-stop-quality に追加した `meta_is_fresh()` / `meta_is_active_run()` / `takt_subsession_active()` は、すべての error path で `false` を返却することで「gate が effective (= skip しない)」状態に倒す **fail-closed pattern** を踏襲している。具体的には mtime 取得失敗 / system clock skew (future timestamp) / malformed JSON / file read error すべてが「active subsession ではないと判定」→「quality gate を skip しない」= 安全側に倒れる。
 >

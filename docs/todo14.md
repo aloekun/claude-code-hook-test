@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)
+### 順位 433: cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)
 
 > **動機**: 月次ハーネス ROI レビュー実装 (PR #335-338) の post-merge feedback で cli-telemetry-report に決定論的な堅牢化余地が挙がった。特に Phase C (snapshot 保持) の根本シナリオ = 月中に無効化→翌月再有効化される機構が既存 3 テストで未カバー (High)。Phase D の `confirmed_streak = zero_streak - partial` は前提 (`partial ⇒ zero_streak≥1`) が別関数依存で局所防御が無く、将来のリファクタで release build の silent underflow wrap により誤った deactivation 判定を招き得る。加えて `zero_firing_list` の MD/JSON 二重計算は出力乖離の温床。
 >
@@ -35,7 +35,7 @@
 
 ---
 
-### telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)
+### 順位 434: telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)
 
 > **動機**: 月次 ROI レビュー実装で判明した「snapshot は実行時点の状態≠対象期間の状態」という時間語義の混同 (Phase C の根本原因) と、streak 不変条件 (`partial ⇒ zero_streak≥1`) が未文書化。また「main root からの monthly review は常に degraded、回避は secondary workspace 実行」という運用事実が ADR-062 amendment / memory / SKILL.md の 5+ 箇所に分散し、PR #335-338 で反復的に扱われた (Frequency High)。
 >
@@ -57,7 +57,7 @@
 
 ---
 
-### jj workspace/bookmark semantics の文書化 + pr-monitor 回帰テスト
+### 順位 435: jj workspace/bookmark semantics の文書化 + pr-monitor 回帰テスト
 
 > **動機**: PR #335-338 の 5 段階 stacked push で、jj bookmark の `@` semantics (並行操作での位置変化・shared store 挙動) と、stacked commit で `@` が最上段にあると下段 bookmark を見失う pr-monitor 検出限界が反復観測された。既存 memory (`pr-monitor-bookmark-detection-pitfalls` / `parallel-workspace-shared-store-changes-under-you`) に続き 3 件目の類似事象で systemic pattern と判断。
 >
@@ -78,7 +78,7 @@
 
 ---
 
-### 開発ワークフロー規約の補強 (polling 禁止 / CodeRabbit→ADR timing)
+### 順位 436: 開発ワークフロー規約の補強 (polling 禁止 / CodeRabbit→ADR timing)
 
 > **動機**: `polling-anti-pattern` hook は稼働中だが dev-conventions.md に [ADR-016](adr/adr-016-long-running-command-strategy.md) / [ADR-018](adr/adr-018-pr-monitor-takt-migration.md) への導線が無く、本セッションでも block 後に手探りで代替パターンを発見した。また PR #338 で「設計決定 4 の ADR 未記載」を merge 直前の simplicity reviewer 監査で発見し E commit で急遽補足した (類似事象 #336 / #338)。外部レビュー指摘対応の ADR 反映タイミング規約が無い。
 >
@@ -99,7 +99,7 @@
 ---
 
 
-### post-merge-feedback の transcript 分析を cli-merge-pipeline 生成の summary index に置換
+### 順位 335: post-merge-feedback の transcript 分析を cli-merge-pipeline 生成の summary index に置換
 
 > **動機**: post-merge-feedback の session-analysis facet が、大きな transcript (#303 マージ時は約 1.5MB / 427 行) で 25K token limit に衝突し、Grep + 手動パースの避難措置を要した (aggregate 工程の自己観測)。cli-merge-pipeline は既に transcript filter を実施済みのため、index 出力の追加は自然な拡張。#303 post-merge feedback で採用。
 >
@@ -121,7 +121,7 @@
 
 ---
 
-### 並行テストで thread::spawn 結果を collect 後に判定するパターンを custom lint 強制
+### 順位 337: 並行テストで thread::spawn 結果を collect 後に判定するパターンを custom lint 強制
 
 > **動機**: #312 で 8-thread stress test の遅延イテレータ (`map`/`filter`/`count`) が、まだ実行中のスレッドを傍から drop して「2 Acquired」偽陽性を生んだ実績あり (`pipeline_lock/tests.rs` で `Vec::collect` により回避)。`thread::spawn` は `lib-jj-helpers` / `cli-pr-monitor` / `hooks-stop-quality` 等 8 ファイルで使用され、同型の偽陽性が再発しうる。
 >
@@ -143,7 +143,7 @@
 
 ---
 
-### CodeRabbit rate-limit format の fixture ライブラリ化 + 新世代 format 検出の定期 CI 検証
+### 順位 338: CodeRabbit rate-limit format の fixture ライブラリ化 + 新世代 format 検出の定期 CI 検証
 
 > **動機**: CodeRabbit は 2026-01 → 05 → 07 で 3 回 format を変更しており、新世代 format が silent に不適合を起こす drift を proactive に検知する仕組みが無い。#311 で ADR-049 準拠の実 incident fixture 化は実施済みだが、CI での定期検証まで拡張されていない。
 >
@@ -166,7 +166,7 @@
 
 ---
 
-### decide.rs/main.rs の境界値・parameter threading テスト拡充 (#311 post-merge feedback 採用)
+### 順位 340: decide.rs/main.rs の境界値・parameter threading テスト拡充 (#311 post-merge feedback 採用)
 
 > **動機**: 前回 incident の根本原因は parameter threading の欠落 (`parse_rate_limit()` はするが `decide()` に渡さない) だった。同クラスのリグレッションを防ぐテストが、インシデント発生ドメイン (rate-limit 判定) 直下で不足している。positive evidence の複合シナリオ、呼び出し側 (`main.rs`) が `decide()` に `rate_limit` を正しく構成することの検証が未固定。
 >
@@ -188,7 +188,7 @@
 
 ---
 
-### Silent Fallback 排除原則を開発 convention に明文化
+### 順位 341: Silent Fallback 排除原則を開発 convention に明文化
 
 > **動機**: #311/#309 の実インシデント (rate-limit marker を検知しつつ wait 解析失敗で `None` に落ち「対象外」と誤認 = fail-open) の再発防止。自動 lint 化は意味論解析 (複数 parse 試行 + `Option` 返却の組合せ) が必要で false positive 過多のため却下され、人間向けガイドラインで担保する方針。
 >
@@ -210,7 +210,7 @@
 
 ---
 
-### Positive Evidence Requirement を CLAUDE.md/ADR に明文化
+### 順位 342: Positive Evidence Requirement を CLAUDE.md/ADR に明文化
 
 > **動機**: #311 の incident は「commit status pass を review 実行と同一視」した fail-open が根因。外部システム監視で「成功の定義」を single source (commit status / exit code) に依存させない原則が未整備。今後の外部 tool 監視 (GitHub Actions status 拡張、Slack 通知読取り等 ADR-009/018/034 系列) にも適用可能。
 >
@@ -232,7 +232,7 @@
 
 ---
 
-### ADR-034 に「新世代 CR format 対応の SOP」セクション追加
+### 順位 343: ADR-034 に「新世代 CR format 対応の SOP」セクション追加
 
 > **動機**: CodeRabbit は 3 世代 format 変更実績があり、新世代対応の手順が明文化されていないと missed case のリスクがある。
 >
@@ -254,7 +254,7 @@
 
 ---
 
-### 並行性バグの root cause 分析で推測を禁止し観測的再現を要求するルール追加
+### 順位 344: 並行性バグの root cause 分析で推測を禁止し観測的再現を要求するルール追加
 
 > **動機**: #312 の当初 doc comment は「128-bit token 衝突」という現実的に発生しない条件で root cause を誤って説明していた (3 回推論を外した後、atomic 計装で実測確定して修正)。誤った分析のまま fix すると再発防止にならず Severity High。
 >
@@ -276,7 +276,7 @@
 
 ---
 
-### deploy 時の exe/config feature 互換性診断 (内容ベース、mtime 不使用)
+### 順位 345: deploy 時の exe/config feature 互換性診断 (内容ベース、mtime 不使用)
 
 > **動機**: deployed `.claude/*.exe` が古く、tracked config (`.claude/hooks-config.toml`) が要求する新 feature (例: `{{CLAUDE_DIR}}` プレースホルダー展開) を満たさないと、silent `command not found` で quality gate が誤 block する。本セッションで 2 回実観測 (PR #307 の `{{CLAUDE_DIR}}` 機能追加時、2026-07-20 WP-15 rebase 時、いずれも MEMORY.md 記録済)。PR #310 post-merge feedback Tier1 #1 で採用。
 >
@@ -299,7 +299,7 @@
 
 ---
 
-### pre-merge checklist に「Deferred Tests Completed」ブロッカー項目を追加
+### 順位 346: pre-merge checklist に「Deferred Tests Completed」ブロッカー項目を追加
 
 > **動機**: PR #310 自体が workflow_dispatch スモークテスト等の検証を post-merge に defer しており、defer した検証の実施漏れリスクが実在する。PR #310 post-merge feedback Tier2 #2 で採用。
 >
@@ -321,7 +321,7 @@
 
 ---
 
-### CodeRabbit marker / GitHub event state の統合契約 doc + ADR-042 実例追記
+### 順位 348: CodeRabbit marker / GitHub event state の統合契約 doc + ADR-042 実例追記
 
 > **動機**: PR #310 の pre-push simplicity review が新 gate を「internally consistent」と評価した一方、marker format 変更時の無音失敗リスクが PR analysis で指摘された。CodeRabbit の marker 文字列 (summarize / rate-limited 等) と GitHub event state fields への依存が複数箇所に散在している。PR #310 post-merge feedback Tier3 #1 で採用。
 >
@@ -343,7 +343,7 @@
 
 ---
 
-### pr-monitor.yml に state semantics / if 式 / hardening 意図のインラインコメント追加
+### 順位 349: pr-monitor.yml に state semantics / if 式 / hardening 意図のインラインコメント追加
 
 > **動機**: 本セッション中に pr-monitor.yml の `state == 'open'` guard が「redundant」と誤認される、折り畳まれた多条件 if 式が誤読される、という混乱が 2 件 (ローカルレビュアー) 実発生した。PR #310 post-merge feedback Tier3 #2 で採用。
 >
@@ -364,7 +364,7 @@
 
 ---
 
-### 新 config directive と要求最小 exe version の CHANGELOG/FEATURES 記録
+### 順位 350: 新 config directive と要求最小 exe version の CHANGELOG/FEATURES 記録
 
 > **動機**: 本 batch の deploy 互換性診断エントリ (exe/config feature 互換性チェック機構) と対になる human-readable な契約が無い。新 config directive (`{{CLAUDE_DIR}}` 等) 導入時に要求される最小 exe version が記録されておらず、stale-exe を 2 回実観測した。PR #310 post-merge feedback Tier3 #3 で採用。
 >
@@ -386,7 +386,7 @@
 
 ---
 
-### local LLM review の network 分離制約を明記し unverifiable finding を skip 運用
+### 順位 351: local LLM review の network 分離制約を明記し unverifiable finding を skip 運用
 
 > **動機**: PR #310 で local LLM review (network 分離) が「summarize マーカーは実在しないかも」という false positive を報告し、author が手動で live PR (#304/#307) の生 body を確認して否定した実例がある。local LLM は live PR body / CodeRabbit marker の存在確認を行えない。PR #310 post-merge feedback Tier3 #4 で採用。
 >
@@ -407,7 +407,7 @@
 
 ---
 
-### フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加
+### 順位 352: フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加
 
 > **動機**: PR #333 (Phase 4) で計画文書 `docs/monthly-harness-roi-review-plan.md` の 3 user-decisions + 5 design-decisions (計 8 項目) + 検証観点を ADR-062 へ手動 transpose した際、プラン doc にしか無かった決定が漏れかけ、Phase 4 の照合で発見・補完した。本 repo は 60+ の ADR を Phase 1〜4 等の多段階で運用しており、plan→ADR 同期漏れは今後の phase-completion で再発が見込まれる。#333 post-merge feedback Tier3 #2 で採用。
 >
@@ -429,7 +429,7 @@
 
 ---
 
-### ADR amendment 時の「§ Amendment」節追加を dev-conventions.md のチェックリストに追加
+### 順位 353: ADR amendment 時の「§ Amendment」節追加を dev-conventions.md のチェックリストに追加
 
 > **動機**: PR #332 で ADR-062 が ADR-053/055/061 を amend し、PR #333 でも ADR-053/061 への追記を手動で実施したが、被 amend 側 ADR への追記が都度アドホックに行われている。CLAUDE.md の ADR 索引には既に (Supersedes/Superseded by) 注記が多数あり、Amendment 明記の convention 化は低コストで一貫性向上に資する。#332 post-merge feedback Tier3 #2 で採用。
 >
@@ -451,7 +451,7 @@
 
 ---
 
-### todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加
+### 順位 354: todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加
 
 > **動機**: PR #332 で todo16.md の複数セクション削除時に lint:md を 3 回以上再実行する非効率を観測した。todo ファイルの段階的削除と都度 lint:md 実行の手順が明文化されておらず、削除漏れ・lint 崩れ・summary 行との不整合が起きやすい。#332 post-merge feedback Tier3 #8 で採用。専用スクリプト化 (#332 Tier2 #1) は ADR-033 効果待ちで様子見だが、チェックリスト明記自体は Effort XS の無リスク即応策として独立採用可能。
 >
@@ -474,7 +474,7 @@
 
 ---
 
-### 新規スキル作成チェックリストを dev-conventions.md に追加
+### 順位 355: 新規スキル作成チェックリストを dev-conventions.md に追加
 
 > **動機**: PR #332 で monthly-review skill を新規作成した際、weekly-review skill を都度参照して構造 (SKILL.md / evals.json / trigger_eval.json の 3 点セット、Phase 構成、deploy 前 sync check) を確認する手戻りを観測した。3 点セット要件を明記したチェックリストがあれば都度の参照往復を削減できる。#332 post-merge feedback Tier3 #9 で採用。
 >
@@ -495,7 +495,7 @@
 
 ---
 
-### weekly/monthly staleness 判定の共通 fixture parametrized test を追加
+### 順位 356: weekly/monthly staleness 判定の共通 fixture parametrized test を追加
 
 > **動機**: PR #331 で追加した `monthly_review.rs` の staleness 判定ロジックは `weekly_review.rs` と逐語的に重複しており (`last_run_state_from_content` / staleness 判定 / main-root canonical / 未来 timestamp 等)、片方だけの独立バグ修正で挙動が乖離するリスクがある。#331 post-merge feedback Tier2 #1 で採用。
 >
@@ -517,7 +517,7 @@
 
 ---
 
-### CLAUDE.md の ADR index ステータスタグと ADR 本体ステータスの整合チェックを追加
+### 順位 357: CLAUDE.md の ADR index ステータスタグと ADR 本体ステータスの整合チェックを追加
 
 > **動機**: PR #340 で CLAUDE.md の ADR-047 index タグが `*(試験運用)*` のまま、ADR-047 本体のステータス「却下 (2026-07-19 確定)」と乖離して残存していることを、pre-push simplicity review と post-merge 分析が独立に指摘した (実害継続を Read で確認済み)。index タグと本体ステータスの整合は手動更新に依存しており、ステータス遷移 (試験運用 → 採用/却下) のたびに再発しうる。#340 post-merge feedback Tier1 #1 で採用。
 >
@@ -540,7 +540,7 @@
 
 ---
 
-### Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化
+### 順位 358: Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化
 
 > **動機**: PR #340 の計画書スリム化で、CodeRabbit から「WP-14 の永続移管先未記載」「外部 SaaS 事実の移管方針」「WP-02 の todo 移管先未記録」の 3 件が指摘された。ephemeral 計画文書から permanent 成果物への知識移行の手順は「見送り」ケース限定の順位 261 convention にしか存在せず、完了/委譲ケースの移管先明記が規約の空白だったことが構造要因。#340 post-merge feedback Tier3 #1 で採用。
 >
@@ -561,7 +561,7 @@
 
 ---
 
-### WP-16 系 post-merge feedback 文書系 10 件の docs バッチ (dev-conventions 集中)
+### 順位 359: WP-16 系 post-merge feedback 文書系 10 件の docs バッチ (dev-conventions 集中)
 
 > **動機**: PR #342 (CI matrix / ADR-065)・#343 (監視 CI 観測修正)・#344 (pipeline_lock レース修正) の post-merge feedback で採用確定した文書系 10 件を、1 本の docs バッチ PR に集約する (2026-08-02 方針決定。per-PR の細切れ doc PR を避け milestone でまとめる運用)。全件 `docs/dev-conventions.md` 中心の追記で、GitHub 仕様の gotcha など Severity High 2 件を含む。
 >
@@ -594,7 +594,7 @@
 
 ---
 
-### push-runner と ci.yml の cargo test コマンド等価性検証テスト
+### 順位 360: push-runner と ci.yml の cargo test コマンド等価性検証テスト
 
 > **動機**: `push-runner-config.toml` の rust-test group は `cargo test`、`.github/workflows/ci.yml` は `cargo test --workspace` を使い、両者は root `Cargo.toml` に `[workspace] default-members` が**無い**ことに依存して偶然等価になっている。ADR-065 § 決定 2 は「CI とローカルでコマンドが違うと、どちらかの緑が嘘になる」を設計原則とするが、この等価は機械検証されていない。#342 T2-1 と #343 T2-3 が連続 2 PR で独立に指摘し Frequency High。
 >
@@ -616,7 +616,7 @@
 
 ---
 
-### JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト
+### 順位 361: JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト
 
 > **動機**: jj バージョン (0.42.0) は `.github/workflows/ci.yml` と `scripts/cloud-setup.sh` の 2 ファイル + ローカル検証環境の 3 箇所論理結合 (ADR-065 § 決定 3、ADR-051 型)。「上げるときは必ず揃える」の手動運用に依存しており、片方だけの更新は「テストが緑でも本番挙動が違う」を生む。#342 T2-2 採用 (supervisor 補正: 版文字列を持つのは 2 ファイルのみ、3 箇所目 = ローカル環境は静的検出不可)。
 >
@@ -638,7 +638,7 @@
 
 ---
 
-### git subprocess のブランチ名依存引数を検出する custom lint rule
+### 順位 362: git subprocess のブランチ名依存引数を検出する custom lint rule
 
 > **動機**: PR #343 で、exe 内部の `git branch --show-current` subprocess が jj colocated 環境 (git HEAD が detached) で常に空文字を返し、CI 観測が恒久 pending 化する silent 欠陥が実在した。PreToolUse hook は Claude の tool 呼び出し層にのみ効き exe 内部の subprocess には無効なため、`src/**/*.rs` を対象とする custom lint rule (正規表現層、ADR-007) で同型再発を防ぐ。#343 T1-1 採用 (supervisor が PreToolUse 案から再構成済み)。
 >
@@ -660,7 +660,7 @@
 
 ---
 
-### check-ci-coderabbit の detached HEAD 回帰統合テスト
+### 順位 363: check-ci-coderabbit の detached HEAD 回帰統合テスト
 
 > **動機**: PR #343 で修正した「jj colocated (detached HEAD) 環境で CI 状態が恒久 pending 化する」バグの regression test が皆無 (`src/check-ci-coderabbit/tests/` 自体が不在)。再発時は監視の自律ループが再び silent に破綻する。#343 T2-1 採用。
 >
@@ -682,7 +682,7 @@
 
 ---
 
-### ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)
+### 順位 364: ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)
 
 > **動機**: pre-push の takt fix step には「finding 由来 allowlist との fix diff 照合」の決定論層が無く、instruction (fix.md の scope allowlist) 頼み。2026-08-02 の WP-17 PR 2a incident (fix が finding 対象外の lib crate 2 つを丸ごと削除し gate 全 PASS で push) で顕在化した。[ADR-068](adr/adr-068-fix-step-authority-boundary.md) の後退検知 backstop は削除系 (ファイル脱落 / 追加行削減) のみ検知する 80/20 の暫定で、**追加系の injection (finding 対象外ファイルへの書き込み・config 書き換え) は検知できない**。PR #348 security review の non-blocking 注記 (fix step が push-runner-config.toml の `max_added_line_shrink_pct` / `enabled` を書き換えて backstop 自体を自己弱体化できる経路が instruction 頼み) もこれで閉じる。
 >

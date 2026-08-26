@@ -7,7 +7,7 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### Pipeline 段階間の状態遷移 E2E テスト (271.md T2-3 採用)
+### 順位 297: Pipeline 段階間の状態遷移 E2E テスト (271.md T2-3 採用)
 
 > **動機**: PR #271 で bookmark 検出の revset 厳密化 (`@` 限定) が push-runner の後続 stage の前提と衝突した実例 (simplicity reviewer が `SIM-NEW-bookmark_check-L43` として検出) があった。Stage -1〜Stage 3 の各段階終了後状態と次段階の前提を突合するテストを追加し、bookmark が `@` に遅延した状態遷移を明示的にカバーする。
 >
@@ -27,7 +27,7 @@
 
 ---
 
-### token ベース ownership check の convention 化 (271.md T3-1 採用)
+### 順位 298: token ベース ownership check の convention 化 (271.md T3-1 採用)
 
 > **動機**: PR #271 で CodeRabbit Major が指摘した「PID は OS によって再利用されうる」という知見は、`lib-jj-helpers` 以外の multi-process coordination コード追加時にも再発しうる pattern。dev-conventions.md に一般化して記載する価値がある。
 >
@@ -46,7 +46,7 @@
 
 ---
 
-### revset で workspace 所有権を判定できない旨の convention 明記 (271.md T3-2 採用)
+### 順位 299: revset で workspace 所有権を判定できない旨の convention 明記 (271.md T3-2 採用)
 
 > **動機**: `bookmark_check.rs` の `@` 厳密一致方式 (revset による所有権推定を諦める設計判断) は、将来の jj 運用で参照価値が高い negative result。「共有履歴上の bookmark は他 workspace のものが混ざりうる」旨を project-specific convention として `CLAUDE.md` に追記する。
 >
@@ -65,7 +65,7 @@
 
 ---
 
-### Push pipeline 段階間依存性チェック項目の追加 (271.md T3-3 採用)
+### 順位 300: Push pipeline 段階間依存性チェック項目の追加 (271.md T3-3 採用)
 
 > **動機**: PR #271 の hidden coupling incident (revset 厳密化が Stage 3 の前提と衝突) から得た教訓を恒久化する。Pipeline stage 修正時に「この stage の変更が後続 stage の前提を破らないか」を確認する convention を明文化する。
 >
@@ -84,7 +84,7 @@
 
 ---
 
-### TOCTOU (remove+create_new) パターン検出 lint rule — exclusive lock 実装限定 (273.md T1-1 採用)
+### 順位 301: TOCTOU (remove+create_new) パターン検出 lint rule — exclusive lock 実装限定 (273.md T1-1 採用)
 
 > **動機**: PR #273 の二重 Acquired バグ (`remove_file` 直前の状態再検証欠落) は data integrity violation の根本原因だった。`remove_file` の直前に安全性を示す justification コメントが無い exclusive lock 実装を検出する custom lint rule (rule⑩ `no-write-result-discard` と同型の comment-presence 検出) を追加する。
 >
@@ -112,7 +112,7 @@
 
 ---
 
-### `takeover_stale_lock_skips_remove_when_snapshot_is_stale` パターンを deterministic concurrency test テンプレートとして記録 (273.md T2-3 採用)
+### 順位 302: `takeover_stale_lock_skips_remove_when_snapshot_is_stale` パターンを deterministic concurrency test テンプレートとして記録 (273.md T2-3 採用)
 
 > **動機**: PR #273 で追加した決定論的 regression test (`stale_snapshot` を意図的に不一致にして takeover レースを注入的に再現するパターン) は、実スレッドタイミングに依存する flaky test (`concurrent_stale_takeover_only_one_wins`) より再現性が高い。次の並行処理系 PR で同型テストが必要になった際のテンプレートとして記録する。
 >
@@ -131,7 +131,7 @@
 
 ---
 
-### Advisory lock (fail-open) の TOCTOU window 許容可否を明示コメントで残す設計チェックリスト (273.md T3-1 採用)
+### 順位 303: Advisory lock (fail-open) の TOCTOU window 許容可否を明示コメントで残す設計チェックリスト (273.md T3-1 採用)
 
 > **動機**: `cli-pr-monitor/src/lock.rs` の `MonitorLock` は「stale takeover の race は benign」という判断を既にコメントで明示済みだが、これは実践のみでチェックリスト化されていない。既に実践されている practice を明文化すれば、将来の advisory lock 実装での判断ミス (許容可否を検討せず TOCTOU を放置する、あるいは過剰に厳格化する) を構造的に防止できる。
 >
@@ -150,7 +150,7 @@
 
 ---
 
-### quality gate 実行中に発見したバグ修正が別 PR に混入した際の `jj split` + `jj rebase` 復旧パターンを記録 (273.md T3-3 採用)
+### 順位 304: quality gate 実行中に発見したバグ修正が別 PR に混入した際の `jj split` + `jj rebase` 復旧パターンを記録 (273.md T3-3 採用)
 
 > **動機**: PR #272 (docs-only) の push 中に quality gate が実行した `cargo test --workspace` で PR #273 相当のバグを発見し、その場で修正した結果 docs コミットに混入した。`jj split` + `jj rebase` で低コストに復旧できた実務パターンを記録する。ADR-045 の並列 workspace リスクとは別種の事故 (単一 session 内の混入) であり、区別して記録する価値がある。
 >
@@ -171,7 +171,7 @@
 
 ---
 
-### Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)
+### 順位 305: Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)
 
 > **動機**: metrics 系 gate (`file_size_check` / `file_length_gate` 等) が複数稼働中の本リポジトリでは、violation が先行 PR/feature 由来の pre-existing なものか、今回の変更に起因するものかを判定して override する場面が繰り返し発生する。PR #273 では 4 件の violation が PR #271 由来の pre-existing として人手判断で正しく override されたが、判定基準 (対象 revset の選び方・feature 境界の見極め方) が曖昧なまま自動化すると誤判定リスクがある。判定基準の明文化は Tier 2 #5 (自動 exemption 機構) の検討の前提を整える。
 >
@@ -191,7 +191,7 @@
 
 ---
 
-### quality gate isolation 機構を見送り、recovery による risk acceptance とした判断の記録 (negative result) (273.md T3-5 採用)
+### 順位 306: quality gate isolation 機構を見送り、recovery による risk acceptance とした判断の記録 (negative result) (273.md T3-5 採用)
 
 > **動機**: PR #273 の post-merge-feedback は「quality gate 実行を commit group ごとに isolated working copy で行う構造的防止機構」(Tier 2 #4) を提案したが、Effort L・runner 複雑化という Adoption Risk に見合わず却下した。spike 見送り (negative result) 永続化 convention に従い、この却下判断を記録する。
 >
@@ -216,7 +216,7 @@
 
 ---
 
-### custom-regex preset の生 regex が telemetry id に流れる privacy footgun の是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)
+### 順位 310: custom-regex preset の生 regex が telemetry id に流れる privacy footgun の是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)
 
 > **動機**: PR #275 の pre-push simplicity review 非ブロッキング warning（= セッション中に検出された「非ブロッキング follow-up」）。`tag_source(name, ...)` の `name` が named preset 名でなく `blocked_patterns` の生正規表現文字列の場合、その regex テキストがそのまま telemetry の `id` フィールドに載り、ADR-055 の「コマンド本文・内容は非記録」プライバシー原則と緊張する。現行 `hooks-config.toml` は named preset のみのため**非発火**だが、派生プロジェクトが raw-regex エントリを足すと該当する latent footgun。
 >
@@ -237,7 +237,7 @@
 
 ---
 
-### 逐語的関数複製（3+ コピー）を pre-push 検出する DRY lint rule (275.md T1-3 採用)
+### 順位 311: 逐語的関数複製（3+ コピー）を pre-push 検出する DRY lint rule (275.md T1-3 採用)
 
 > **動機**: PR #275 で `is_truthy` が `lib-telemetry` / `hooks-post-tool-comment-lint-rust` / `hooks-stop-tool-call-leak` の 3 crate に逐語一致で存在していた（simplicity review が検出 → fix loop が `lib_telemetry::is_truthy` へ統一）。ADR-007 の regex 層に「同一関数コピーが threshold（3+）を超える」ことを検出するルールを追加すれば、次回同型の DRY を pre-push 段階で先回り検出できる。
 >
@@ -259,7 +259,7 @@
 
 ---
 
-### `is_truthy` 三重複製を ADR-049 incident suite の fixture として記録 (275.md T2-4 採用)
+### 順位 313: `is_truthy` 三重複製を ADR-049 incident suite の fixture として記録 (275.md T2-4 採用)
 
 > **動機**: PR #275 の `is_truthy` 三重複製を [ADR-049](adr/adr-049-incident-eval-regression-suite.md) の「カスタムルールの由来 incident 再現テスト」convention に沿って fixture 化する。順位 311（DRY lint rule）実装時に good/bad fixture として抱き合わせるのが自然。
 >
@@ -278,7 +278,7 @@
 
 ---
 
-### bookmark 未作成での push 失敗（exit 7）のエラーメッセージ改善 (275.md T2-5 採用)
+### 順位 314: bookmark 未作成での push 失敗（exit 7）のエラーメッセージ改善 (275.md T2-5 採用)
 
 > **動機**: PR #275 のセッションで、新規ブランチの bookmark を作らずに `pnpm push` して exit code 7 で失敗する process friction が実発生した（`jj bookmark create feat/firing-telemetry -r @` を手動実行して再試行）。push-runner の bookmark 自動作成は [ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md) の「明示的命名で ambiguity を避ける」設計意図と緊張するため対象外とし、**エラーメッセージの改善のみ**を行う（`jj bookmark create <name> -r @` を命名規約とともに具体的に提示）。
 >
@@ -297,7 +297,7 @@
 
 ---
 
-### ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)
+### 順位 315: ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)
 
 > **動機**: ADR-055 の telemetry は 28 日 warm-up 後に WP-12 step 2/3 で棚卸しする bounded lifetime 機能。運用者が期限を見落とさないよう、具体日付（収集開始 2026-07-15 + 28 日 = 2026-08-12 頃、ADR-062 と統一）と [ADR-062](adr/adr-062-monthly-harness-roi-review.md)（step 2/3 を消化した月次レビュー）へのリンクを `.claude/hooks-config.toml` の `[telemetry]` section コメントに追記する。
 >
@@ -316,7 +316,7 @@
 
 ---
 
-### ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)
+### 順位 316: ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)
 
 > **動機**: PR #275 で UTC helper では ADR-044 の「2 番目の消費者」トリガを明示的に論じたのに `is_truthy` では同じ規律を見落とすという非対称性が実発生した（現在は統一済み）。「同一シグネチャ/logic の関数は 2nd consumer 時点で共有 crate に切り出す」という判定基準を明示化し、`is_truthy` を case study として記載する。
 >
@@ -335,7 +335,7 @@
 
 ---
 
-### utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)
+### 順位 317: utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)
 
 > **動機**: 順位 316（ADR-044 明確化）と対で、新規 helper 追加時の実務チェックを `docs/dev-conventions.md` に追加する。「新 helper 追加前に workspace 内の類似パターンを grep し、2+ 箇所に既存すれば ADR-044 に従い共有化を検討する」。
 >

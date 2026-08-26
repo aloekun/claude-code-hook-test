@@ -55,7 +55,7 @@ pub(crate) fn plan_removal(
     let detail_path = docs_dir.join(&row.detail_file);
     let detail_before = std::fs::read_to_string(&detail_path)
         .map_err(|e| format!("詳細エントリのファイルを読めません ({}): {e}", detail_path.display()))?;
-    let detail_after = lib_ledger::remove_detail_entry(&detail_before, &row.title)
+    let detail_after = lib_ledger::remove_detail_entry(&detail_before, rank)
         .map_err(|e| format!("{} : {e}", detail_path.display()))?;
     Ok(PlannedRemoval {
         files: vec![
@@ -134,7 +134,7 @@ mod tests {
         .expect("write summary2");
         std::fs::write(
             docs.join("todo10.md"),
-            "# TODO\n\n---\n\n### タイトル A\n\n> 動機\n\n---\n\n### 別タスク\n\n> 動機\n",
+            "# TODO\n\n---\n\n### 順位 203: タイトル A\n\n> 動機\n\n---\n\n### 順位 240: 別タスク\n\n> 動機\n",
         )
         .expect("write detail");
         docs
@@ -162,7 +162,7 @@ mod tests {
 
         let detail = std::fs::read_to_string(docs.join("todo10.md")).expect("read");
         assert!(!detail.contains("タイトル A"));
-        assert!(detail.contains("### 別タスク"), "隣のエントリまで消えている");
+        assert!(detail.contains("### 順位 240: 別タスク"), "隣のエントリまで消えている");
     }
 
     /// 詳細エントリの見出しが見つからない場合、**台帳も順位 table も書き換わらない**。
@@ -172,7 +172,7 @@ mod tests {
         let docs = fixture_dir("missing-detail");
         std::fs::write(
             docs.join("todo10.md"),
-            "# TODO\n\n---\n\n### 別の見出し\n\n> 動機\n",
+            "# TODO\n\n---\n\n### 順位 999: 別の順位\n\n> 動機\n",
         )
         .expect("rewrite detail");
         let path = ledger_path(&docs);

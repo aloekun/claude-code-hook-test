@@ -21,7 +21,7 @@
 
 > WP-18 の prompt injection 対策 PR (#369 / #370) の post-merge feedback が挙げた採用候補のうち、セッション中に未対応で価値の高い 3 件をユーザー承認 (2026-08-09) のうえ登録する。narrow-fix 教訓 (#369/#370 T3) は順位 375 の 5 項目目へ取り込んだため本節には立てない。
 
-### `Write(path)` tool-scope 指定子の no-op を検出する settings validator
+### 順位 389: `Write(path)` tool-scope 指定子の no-op を検出する settings validator
 
 > **動機**: `--allowedTools` / `--disallowedTools` および settings.json の permission で、**`Write(path)` 指定子はファイル権限チェックにマッチせず no-op** である (CLI 2.1.218 で実測、`Edit(path)` が Write を含む全編集ツールをカバー)。順位 379 の実装で `Write(work/**)` / `Write(master-ref/**)` を並べており、**deny のつもりの設定が黙って無効化される silent security failure** になっていた。CLI 自身は警告を出すが、CI ログに埋もれて気づけない。
 >
@@ -42,7 +42,7 @@
 - `Write(path)` 指定子を含む設定が検知され、**必須 CI check が失敗する**こと (warning 止まりにしない)。
 - `Edit(path)` / `Read(path)` は検知されないこと。
 
-### 台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI で検証
+### 順位 390: 台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI で検証
 
 > **動機**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13 の framing は、`ledger.rs` の `LEDGER_DATA_FRAME_MARKER` と `.github/workflows/nightly-todo.yml` の `===BEGIN/END_LEDGER_DATA===` が**対**になって初めて成立する。片方だけ変えると framing が破れる (agent プロンプトの信頼境界が開く) が、現状は doc comment の相互参照だけで機械検証が無い。[ADR-069](adr/adr-069-pr-chain-declaration.md) 決定 7 の sha256 gate-asset check と同格の cross-file 不変量。
 >
@@ -61,7 +61,7 @@
 
 - 定数とリテラルが不一致になる変更が入るとテストが落ちること。
 
-### jj の落とし穴 (squash の方向・空コミットでの bookmark ずれ) を dev-conventions へ
+### 順位 391: jj の落とし穴 (squash の方向・空コミットでの bookmark ずれ) を dev-conventions へ
 
 > **動機**: 本セッション (#364〜#371) で jj 運用の落とし穴を繰り返し踏んだ。(a) `jj squash --into <bookmark>` の方向が直感と逆で、ターゲットが description なしの新コミットへ移動する / (b) `jj bookmark set` の後退拒否と `jj abandon` による bookmark 消失・復旧 / (c) `jj new master` を「コミット確定」のつもりで実行して変更を前コミットに取り残す。いずれも復旧に op log 参照が要った。memory には別の jj squash gotcha (headless editor hang) が既に記録済みで、jj 運用の落とし穴は systemic に再発している。
 >
@@ -85,7 +85,7 @@
 
 ## WP-18 失敗頻度分析の follow-up (2026-08-09 登録)
 
-### push パイプラインの terminal outcome を telemetry へ記録し、失敗回数・原因を機械集計可能にする
+### 順位 392: push パイプラインの terminal outcome を telemetry へ記録し、失敗回数・原因を機械集計可能にする
 
 > **動機**: 2026-08-09 の WP-18 失敗頻度分析で、**パイプライン失敗の回数・原因に構造化記録が無い**ことが判明した。定量は `.takt/runs/` のディレクトリ数からの推定に頼り (pre-push run 数 ÷ マージ PR 数 = 08-07 は 18 run/1 PR でベースライン 1.9 の約 9 倍)、失敗の内訳 (レビュー REJECT / quality gate / jj push 段の bookmark 解決失敗など) は trace.md と todo エントリの突き合わせでしか復元できなかった。[ADR-055](adr/adr-055-firing-telemetry-collection.md) の telemetry は rule/preset/hook の**発火**のみを記録し、パイプラインの**結末**は対象外。
 >
@@ -131,7 +131,7 @@
 > - **系統 D (workflow セキュリティ標準化)** / **系統 E (PAT 失効監視)** — 様子見。有用だが緊急性が低い。
 > - **trunk 保護の drift 対処 2 件** (`cli-push-runner` と `cli-stale-branch-scan` の `effective_default_branch()` クロスクレート一致テスト / `lib-config` 抽出) — **却下 (2026-08-10 ユーザー判断)**。pre-push review と post-merge feedback の双方が独立に指摘した Severity High の項目だが、(1) 予防側は順位 405 (新規 crate 実装時の重複確認) で押さえた、(2) 共有 lib 化は `cli-stale-branch-scan` の意図的な network isolation 設計 ([ADR-031](adr/adr-031-weekly-review-pipeline.md)) と抵触しうる、の 2 点から見送る。**再採用条件: 同型の drift が今後も再発する場合**。
 
-### 系統 A-1: 「対処後は効果を観測するまで完了と見なさない」を明文化する
+### 順位 402: 系統 A-1: 「対処後は効果を観測するまで完了と見なさない」を明文化する
 
 > **動機**: 本セッションで**同じ誤りを 2 回**踏んだ。[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 は `@coderabbitai review` の投稿が成功したことだけを見て、**相手が反応していない事実に 10 時間気づけなかった**。決定 15 は draft を廃止した後に**同じ症状が続くかを確かめる前**に「解決した」と記録し、原因が別 (author が bot) だと後から判明した。
 >
@@ -154,7 +154,7 @@
 
 - 「対処したが効果を確認していない」状態を完了と記録してよいか、convention から判断できること。
 
-### 系統 A-2: AI レビューが出す数値・仕様の主張は仮説として扱い実測で二重検証する
+### 順位 403: 系統 A-2: AI レビューが出す数値・仕様の主張は仮説として扱い実測で二重検証する
 
 > **動機**: 2026-08-10 に CodeRabbit が「`3 × 15 × 4 × 2` は 360 なので 216 は誤り」と指摘した。**観察は正しかったが提示された数値も誤り**で、実際に列挙を数えると **384** だった (外部フラグは `None` + 7 + 8 = 16 通りで、因数の 15 も誤っていた)。指摘をそのまま採用していれば誤った数値を land させていた。
 >
@@ -177,7 +177,7 @@
 
 - AI レビューの finding を採用する際、どこまでを信頼しどこから実測するかが ADR-050 から読み取れること。
 
-### 系統 A-3: 外部依存の非同期応答待ちに timeout / retry を明記する convention
+### 順位 404: 系統 A-3: 外部依存の非同期応答待ちに timeout / retry を明記する convention
 
 > **動機**: `src/cli-stale-branch-scan/src/collect.rs` の初版は `git ls-remote` / `gh pr list` に timeout を持たず、pre-push review が「weekly-review skill 内で同期実行されるため、ここが止まるとパイプライン全体が無診断でハングする」と指摘した。同 PR で `lib_subprocess::wait_with_timeout_basic` による 60 秒 timeout を入れた。
 >
@@ -198,7 +198,7 @@
 
 - 新規に外部サービスを待つコードを書くとき、timeout の要否と失敗時の扱いが convention から決まること。
 
-### 系統 B-1: 新規 crate / exe 実装時に既存同種コンポーネントとの重複を確認する
+### 順位 405: 系統 B-1: 新規 crate / exe 実装時に既存同種コンポーネントとの重複を確認する
 
 > **動機**: `cli-stale-branch-scan` が `push-runner-config.toml` の `default_branch` 解決ロジックを `cli-push-runner` から手で複製した。**CodeRabbit 指摘で 1 度直した後、同一 PR 内で再び同型の漏れ**が出ている (top-level のみ読む → section override も読む)。既存実装の存在を先に確認していれば避けられた。
 >
@@ -219,7 +219,7 @@
 
 - 新規 crate を作るとき、既存重複の確認とミラー宣言が手順として踏まれること。
 
-### 系統 B-2: 旧 API 廃止時に enum / config key / CLI flag の 3 形態すべての reject をテストで固定する
+### 順位 406: 系統 B-2: 旧 API 廃止時に enum / config key / CLI flag の 3 形態すべての reject をテストで固定する
 
 > **動機**: `draft-pr` から `autonomous-pr` への改名で、`Operation::parse` と config キーの旧名 reject は unit test で固定したが、**CLI フラグの旧名だけが exe drill 確認どまり**で test suite に入っていなかった。CodeRabbit 指摘で追加した (PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376))。
 >
@@ -240,7 +240,7 @@
 
 - 改名 PR で 3 形態の reject テストが揃っていることをレビューで確認できること。
 
-### 系統 B-3: 旧語彙が live code に出現したら reject するカスタムリントルール
+### 順位 407: 系統 B-3: 旧語彙が live code に出現したら reject するカスタムリントルール
 
 > **動機**: `draft-pr` から `autonomous-pr` への改名 (12 ファイル 132 箇所) で、**CodeRabbit が同一 PR 内だけで 4 箇所の取りこぼしを段階的に指摘**した。10 ファイル以上に跨る rename は本リポジトリで反復的に発生する。
 >
@@ -264,7 +264,7 @@
 
 - 旧語彙を live code に書くと hook が reject し、docs では reject されないこと。
 
-### 系統 C-1: safety-critical な config 比較に shell glob を禁止し exact-match を必須化する
+### 順位 408: 系統 C-1: safety-critical な config 比較に shell glob を禁止し exact-match を必須化する
 
 > **動機**: `.github/workflows/review-request.yml` の kill-switch 判定が glob による**部分一致**だった。この形では `enabled = false` の行に `true` を含むコメントが付くだけで判定が反転し、**fail-closed を謳う step 自身が fail-open** する。pre-push review が検出し、コメントと空白を除いた値の厳密一致へ修正した (PR [#380](https://github.com/aloekun/claude-code-hook-test/pull/380))。
 >
@@ -285,7 +285,7 @@
 
 - 安全装置の判定を shell で書くとき、比較方法の選択が ADR-043 から決まること。
 
-### 系統 C-2: shell の部分一致比較を検出するカスタムリントルール
+### 順位 409: 系統 C-2: shell の部分一致比較を検出するカスタムリントルール
 
 > **動機**: 順位 408 と同じ実例。**規約だけでは同じ形を再び書く**ため、決定論層で検出する。
 >
@@ -306,7 +306,7 @@
 
 - 採用・不採用のいずれかが根拠つきで記録され、採用時は false positive が実運用で問題にならないこと。
 
-### 系統 F (形を変えて採用): `cargo fmt` を PreToolUse でブロックし正しいコマンドを提示する
+### 順位 411: 系統 F (形を変えて採用): `cargo fmt` を PreToolUse でブロックし正しいコマンドを提示する
 
 > **動機**: 本リポジトリは **rustfmt を意図的に適用しない** (引数ペアを 1 行に保つ独自整形)。2026-08-10 に `cargo fmt` を誤実行し、無関係な 3 ファイルに整形差分が入って巻き戻しに工数を要した。
 >
@@ -341,7 +341,7 @@
 
 > **由来**: 順位 397 の PR ([#385](https://github.com/aloekun/claude-code-hook-test/pull/385)) で出た指摘のうち、**PR の性質 (逐語移動が大半) を理由に本 PR では扱わなかった**もの。どちらも指摘自体は妥当で、スレッドに理由を返信済み。
 
-### `resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う
+### 順位 412: `resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う
 
 > **動機**: [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の CodeRabbit 指摘。`resolve_main_workspace_root` は `.jj/repo` が**ディレクトリ (colocated)** なら入力パスをそのまま返し、**ファイル (secondary workspace)** なら `canonicalize()` + verbatim prefix 剥がしを通す。同じチェックアウトでも入口によって返るパス文字列の形が変わる。
 >
@@ -370,7 +370,7 @@
 
 - 同じチェックアウトに対し、colocated 経路と secondary 経路が同じ形式のパスを返すこと。
 
-### `CwdRestore` Drop guard がリポジトリ全体で 8 定義 / 6 ファイルに複製されている
+### 順位 413: `CwdRestore` Drop guard がリポジトリ全体で 8 定義 / 6 ファイルに複製されている
 
 > **動機**: [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push review 指摘 (non-blocking)。テストで cwd を退避・復元する `CwdRestore` / `CwdGuard` 相当の struct が **8 箇所で定義されている** (2026-08-10 実測: `fix_commit/abandon.rs` に 3 個、`fix_commit/sweep.rs` / `stages/push_jj_bookmark.rs` / `stages/repush.rs` / `stages/scope_guard.rs` に各 1 個、加えて本 PR の `lib-jj-helpers/src/bookmarks.rs`)。レビューは「6 個目」と表現したが、これはファイル数を数えた場合の値。
 >

@@ -7,7 +7,7 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### `~/.claude/rules/common/coding-style.md` に「Defensive State Reset in State Machines」section 追加 (PR #214 post-merge-feedback T3-1 採用)
+### 順位 215: `~/.claude/rules/common/coding-style.md` に「Defensive State Reset in State Machines」section 追加 (PR #214 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #214 round 2 で CR Major #4 (`既存 state 再利用時も現在の push 情報に更新してください`) の fix として `finalize_initial_review_park` 内で `read_state()` 後に `state.pr` / `state.repo` / `state.started_at` を `ctx` 値で **無条件上書き** する pattern を land した。この pattern は同 function 内の既存 reset と同型 (CR Major #1 fix で `head_commit` 上書き、CR Major #2 fix で `review_recheck_count = 0`) で、現時点で 3 field に適用済の確立された defensive pattern。
 >
@@ -51,7 +51,7 @@
 
 ---
 
-### `~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle に config file comments の permanent artifact 扱い明記 + workstream sequence 禁止例追加 (PR #216 post-merge-feedback T3-1 採用)
+### 順位 217: `~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle に config file comments の permanent artifact 扱い明記 + workstream sequence 禁止例追加 (PR #216 post-merge-feedback T3-1 採用)
 
 > **動機**: 既存 `coding-style.md` § Cross-File Reference Lifecycle は markdown 内 cross-reference (docs/ADR/README 等) を主に想定して書かれており、**config file comments (`.toml`/`.json`/`.yaml`) も permanent artifact** であることが暗黙的にしか扱われていない。PR #216 で `hooks-config.toml` comment に "PR-1" / "PR-3" ephemeral workstream sequence を embed した違反は、author が「config の comment は注釈であって rule の対象外」と暗黙的に判断していた可能性が高い。
 >
@@ -105,7 +105,7 @@
 
 ---
 
-### ADR-039 § Bounded Lifetime + `~/.claude/rules/common/patterns.md` に provisional `enabled` 変更時の todo entry 必須化を追加 (PR #216 post-merge-feedback T3-2 採用)
+### 順位 218: ADR-039 § Bounded Lifetime + `~/.claude/rules/common/patterns.md` に provisional `enabled` 変更時の todo entry 必須化を追加 (PR #216 post-merge-feedback T3-2 採用)
 
 > **動機**: PR #216 で `weekly_review_reminder.enabled = false → true` を「次 PR-3 (`[features].enabled` allow-list 移行) で真の opt-in 切り替えになるまでの暫定」として config comment に rationale を残したが、対応する `docs/todo*.md` の **移行 tracking entry を作成していなかった**。
 >
@@ -161,7 +161,7 @@
 
 ---
 
-### `~/.claude/rules/common/development-workflow.md` § 設計 doc/実装の同期チェック に「commit description 言及 ≠ 実装完了」明文化 (PR #216 post-merge-feedback T3-3 採用)
+### 順位 219: `~/.claude/rules/common/development-workflow.md` § 設計 doc/実装の同期チェック に「commit description 言及 ≠ 実装完了」明文化 (PR #216 post-merge-feedback T3-3 採用)
 
 > **動機**: PR #216 cleanup 作業中、analyzer (Claude) が「PR #215 commit description で 順位 215 を言及している = 実装完了」と naïve に判断し、当初 6 entries (147/151/212/213/214/215) 削除計画を立てた。実際にはユーザーの修正 + grep `"Defensive State Reset" ~/.claude/rules/common/coding-style.md` による実体確認の結果、順位 215 は **todo entry が PR #215 で追加されただけ** で実装は未着手だった (5 entries 削除が正解)。
 >

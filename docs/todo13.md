@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### fmt baseline cleanup + `cargo fmt --check` gate 導入 + rustfmt 固定 (PR #224 セッション合意)
+### 順位 226: fmt baseline cleanup + `cargo fmt --check` gate 導入 + rustfmt 固定 (PR #224 セッション合意)
 
 > **動機**: PR #224 で分割 agent の `cargo fmt` が分割対象外の 5 ファイルに整形差分を混入した (revert で対処)。調査の結果、fmt enforcement がリポジトリのどこにも無く (Stop gate / push pipeline / CI / package.json いずれも `cargo fmt --check` 不在)、ワークスペース全体で **29 ファイル**が rustfmt-clean でないドリフトを蓄積していると判明。
 >
@@ -45,7 +45,7 @@
 
 ---
 
-### rule⑬: 非テストコードでの理由なし `#[allow(...)]` 禁止 custom lint (PR #224 セッション合意)
+### 順位 227: rule⑬: 非テストコードでの理由なし `#[allow(...)]` 禁止 custom lint (PR #224 セッション合意)
 
 > **動機**: PR #224 で分割 agent が dead な再エクスポートを残すため `#[allow(unused_imports)]` を付与していた (= clippy が検知した未使用 import を抑制、削除で対処)。`#[allow]` は本質的に「lint の握り潰し」で、既存の swallowed-error 系 custom rule (rule③ 空 catch / rule④ SilentlyContinue / rule⑩ `let _ = write_*`) と同じ philosophy で決定論的に防げる。
 >
@@ -80,7 +80,7 @@
 
 ---
 
-### ADR-022 拡張 — pre-create cleanup flow の具体例 + agent fmt スコープ指針 (PR #224 post-merge-feedback T3-1 採用)
+### 順位 231: ADR-022 拡張 — pre-create cleanup flow の具体例 + agent fmt スコープ指針 (PR #224 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #224 で CodeRabbit が `create_fix_commit` の「空 findings でも commit 作成」を bug と誤判定した (ADR-022 の意図的な pre-create 設計を知らなかったため、却下した CR#2)。また分割 agent が無差別 `cargo fmt` を実行した事象も ADR-022 の責務分離原則で説明可能。両事象とも将来再発が見込まれる。
 >
@@ -103,7 +103,7 @@
 
 ---
 
-### post-merge-feedback / workflow agent の repo 作業ツリー書込禁止 + 検知安全網 (PR #224 セッション合意)
+### 順位 232: post-merge-feedback / workflow agent の repo 作業ツリー書込禁止 + 検知安全網 (PR #224 セッション合意)
 
 > **動機**: PR #224 の merge 時、post-merge-feedback workflow の analyze-session agent が transcript 解析用の Python スクリプト (`parse_transcript.py`) を repo root に生成し後始末しなかった (PR-specific throwaway、本セッションで削除済)。merge は日常工程のため、その都度 scratch / 中間ファイルが残ると repo にゴミが累積し、コーディングエージェントが全ファイルを読む性質上、不要なコンテキスト消費・意図せぬ挙動の原因になる。
 >
@@ -137,7 +137,7 @@
 
 ---
 
-### memory `feedback-di-over-ambient-global-tests` に serialization primitive 例外境界 + PR #227 具体例を追記 (PR #227 post-merge-feedback T3-1 採用)
+### 順位 234: memory `feedback-di-over-ambient-global-tests` に serialization primitive 例外境界 + PR #227 具体例を追記 (PR #227 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #227 (cli-pr-monitor 並列テスト flaky 修正) の post-merge-feedback で採用候補 (T3-1) として浮上。既存 memory `feedback-di-over-ambient-global-tests` の「DI over ambient global」原則が、直感的には「通常 test helper は複製推奨」原則と矛盾するように見える問題を解消する。PR #227 は本原則の 2 例目 (PR #224 の env_override_lock 関連も同根)。
 >
@@ -167,7 +167,7 @@
 
 ---
 
-### ADR-022 に Serialization Primitive Single-Instance Rule の Appendix 追加 (PR #227 post-merge-feedback T3-2 採用)
+### 順位 235: ADR-022 に Serialization Primitive Single-Instance Rule の Appendix 追加 (PR #227 post-merge-feedback T3-2 採用)
 
 > **動機**: PR #227 と PR #224 T2-2 (共有 env_override_lock helper 抽出) で同根の serialization primitive 単一化問題が 2 PR 観測 (Frequency Medium)。`OnceLock<Mutex<()>>` 等の serialization primitive をプロセス内で複製すると各々が独立した Mutex になり競合排除機能が破壊される。通常の helper function 複製推奨 (DRY) との例外境界が ADR-022 に未明文化。
 >
@@ -200,7 +200,7 @@
 
 ---
 
-### tempfile mandate + PID+ms 命名 block の custom lint (PR #229 post-merge-feedback T1-1 採用)
+### 順位 236: tempfile mandate + PID+ms 命名 block の custom lint (PR #229 post-merge-feedback T1-1 採用)
 
 > **動機**: PR #227 で temp file collision flaky (`body_with_literal_newline_converted`) を `tempfile` 一意化で修正したが、将来同型の PID+ms カスタム命名 (`gh-pr-body-{PID}-{ms}.md` 等) が再導入されると flaky が再発する。実際 PR #229 で本 flaky が push pipeline の `cargo test` を **3 回ブロックした実害**あり (push retry 3 回)。custom lint で `tempfile::NamedTempFile` / `tempfile::Builder` を mandate し、手動 PID+ms temp 命名を block して構造的に予防する。
 >
@@ -235,7 +235,7 @@
 
 ---
 
-### create_pr flaky の高並列 regression test (PR #229 post-merge-feedback T2-1 採用)
+### 順位 237: create_pr flaky の高並列 regression test (PR #229 post-merge-feedback T2-1 採用)
 
 > **動機**: PR #227 で temp file collision flaky を `tempfile` + per-test `tempfile::tempdir()` 注入で修正したが、将来 collision-prone な命名が再導入された場合の**検出網がない**。`body_with_literal_newline_converted` 系を高並列 (`--test-threads` 高 / concurrent run) で回す regression test を追加し、collision を恒常的に trap する。順位 236 (lint = 予防) と本タスク (test = 検出) の二層防御。
 >
@@ -258,7 +258,7 @@
 
 ---
 
-### `Command::new("gh")` 直叩き禁止 + timeout wrapper 必須の custom lint (PR #230 post-merge-feedback T1-#1 採用)
+### 順位 238: `Command::new("gh")` 直叩き禁止 + timeout wrapper 必須の custom lint (PR #230 post-merge-feedback T1-#1 採用)
 
 > **動機**: PR-W3 (cli-merge-pipeline 分割) で移動した `fetch_pr_time_range` / `fetch_pr_diff_summary` (pr_metadata.rs) と `run_gh_logged` / `delete_remote_branch` (github.rs) の計 4 箇所が `Command::new("gh").output()` を timeout なしで同期実行しており、ネットワーク不調や gh 側停止時に merge pipeline を無期限にハングさせる (CodeRabbit Major #2/#3、ADR-016 long-running command strategy 違反)。同 crate の pipeline.rs は既に `run_cmd_shell_capped_reporting` (timeout ラッパー) を使用しているため、直叩きを custom lint で検出して timeout 経路へ寄せる。
 >
@@ -289,7 +289,7 @@
 
 ---
 
-### binary crate の module symbol を `pub(crate)` 限定 + CLAUDE.md 明文化 (PR #230 post-merge-feedback T3-#2 採用)
+### 順位 241: binary crate の module symbol を `pub(crate)` 限定 + CLAUDE.md 明文化 (PR #230 post-merge-feedback T3-#2 採用)
 
 > **動機**: PR-W3 の feedback module 分割で `write_failed_marker` / `fetch_pr_diff_summary` / `FeedbackInput` / `run` 等、external consumer が存在しない binary crate 内シンボルが `pub` export されており、`pub(crate)` 方針と乖離している (CodeRabbit findings)。file split refactor PR ごとに繰り返す systemic pattern (Frequency Medium) のため、CLAUDE.md に方針を明文化し、既存 `pub` を `pub(crate)` に揃える。
 >
@@ -312,7 +312,7 @@
 
 ---
 
-### `pub(crate)` vs `pub` 可視性チェックリストを module split 手順に追加 (PR #231 post-merge-feedback T3-1 採用)
+### 順位 243: `pub(crate)` vs `pub` 可視性チェックリストを module split 手順に追加 (PR #231 post-merge-feedback T3-1 採用)
 
 > **動機**: W-series (file-length enforcement Phase 1) の module split で cross-module visibility の判断が都度必要になる。crate 内で他 module から参照する共有シンボルは `pub(crate)`、`pub` は同一 crate 内の他 module からは有効だが (binary crate では `pub(crate)` と実質同等の可視性)、library target がある場合にのみ公開 API surface になる — この違いを具体例付きのチェックリストとして明示する。
 >
@@ -335,7 +335,7 @@
 
 ---
 
-### per-module test helper 複製方針を coding-style.md に明文化 (PR #231 post-merge-feedback T3-2 採用)
+### 順位 244: per-module test helper 複製方針を coding-style.md に明文化 (PR #231 post-merge-feedback T3-2 採用)
 
 > **動機**: `unique_temp_root` / `write_meta` / `parked_state` 等の test helper は各 test module に独立複製し、共有 util module を抽出しない方針 (memory `feedback_test_dry_antipattern`) が前提知識化しておらず、module split の度に混乱が再発する。coupling vs isolation のトレードオフ根拠と split レビュー時の確認項目を coding-style に追記する。
 >
@@ -357,7 +357,7 @@
 
 ---
 
-### `PR_SIZE_CHECK_OVERRIDE=1` 適用ポリシーを push-runner-config.toml に明文化 (PR #231 post-merge-feedback T3-3 採用)
+### 順位 245: `PR_SIZE_CHECK_OVERRIDE=1` 適用ポリシーを push-runner-config.toml に明文化 (PR #231 post-merge-feedback T3-3 採用)
 
 > **動機**: `PR_SIZE_CHECK_OVERRIDE=1` の使い方が「知っている人だけが知る」暗黙知になっており、機械的 refactor のたびに手探りが再発する。mechanical refactor (削除≒追加の line-neutral) の定義と override 判断基準を push-runner-config.toml の `[pr_size_check]` コメントまたは docs に明記する。
 >
@@ -378,7 +378,7 @@
 
 ---
 
-### review-jj-robustness-whole facet (観点⑧) の dogfood + bounded-lifetime 評価 (ADR-031 拡張、順位247)
+### 順位 247: review-jj-robustness-whole facet (観点⑧) の dogfood + bounded-lifetime 評価 (ADR-031 拡張、順位247)
 
 > **動機**: PR-2 で ADR-031 週次レビューに観点⑧ (jj-workspace robustness) の facet を新規追加した。非 colocated / 並列 jj workspace (ADR-045) 特有の silent bug 4 class (mtime staleness / `CARGO_MANIFEST_DIR` 実行時読み / `--repo` 無し gh / colocated `.git` 前提) を whole-tree で検出する。新規実験 facet のため ADR-039 § Bounded Lifetime に従い有効性を dogfood で観測して採否を判定する。
 >

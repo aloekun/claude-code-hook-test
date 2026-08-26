@@ -31,7 +31,7 @@
 >
 > 同セッションで登録済みの 2 件 ([docs/todo23.md](todo23.md) § 週次レビュー由来) — facet 出力言語の明記 / 昇格候補集合の決定論化 — は本ファイルには重複させない。
 
-### `review-todo-whole` facet の台帳読み取りが現物と食い違う — 報告の信頼性を担保する
+### 順位 464: `review-todo-whole` facet の台帳読み取りが現物と食い違う — 報告の信頼性を担保する
 
 > **動機**: 2026-08-15 の run で、`review-todo-whole` facet が台帳の `無人可` 列を**誤読した**。順位 284 を `✅` と報告したが、[docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の現物は `—` であり、しかも同ファイルの § 無人可としなかった…理由 表に 284 が条件 3 違反として明記されている。facet は**自分が読んだはずのファイルに書いてある反証を見落として**逆の報告を出した。
 >
@@ -80,7 +80,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **F-1 (順位 228 の台帳パス修正) は本バッチで実施済み** — 台帳がガード対象で夜間ループが自分で直せず、放置すると毎晩同じ順位で停止するため先行対応した。
 
-### docs 整合性と output-contract の drift を機械検証する (系統 A + B)
+### 順位 465: docs 整合性と output-contract の drift を機械検証する (系統 A + B)
 
 > **動機**: 同じクラスの drift を 2 つの経路で踏んだ。(1) **todo preamble の pointer 整合性** — 「現在の追加先」を指す記述が 3 ファイルで stale になっており、PR #409 で手作業修正した。skill 側にも同じ固定参照があり、そちらも修正した。(2) **facet 免除リストと workflow condition の不一致** — PR #410 で 19 instruction 全部に汎用リストを貼り、実在しない値を書き実在する値を落とした。どちらも「複数箇所に散った同じ事実が一致しているか」の検査で、機械的に照合できる。
 >
@@ -118,7 +118,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 - 順位 441 との統合可否 (実装先が同じなので分けると重複しうる)
 
-### 出力先と検証設計の convention を明文化する (系統 C + E)
+### 順位 466: 出力先と検証設計の convention を明文化する (系統 C + E)
 
 > **動機**: lane モデルの 5 PR で、同じ種類の設計ミスを 3 回踏んだ。(1) **出力先の見落とし** — 警告を stdout に出したが、workflow が stdout を捨てて許可リストの行だけ転送する設計だったため、最も見せたい経路 (exit 3) で警告が消えていた。(2) **fixture が実データを代表していない** — 順位 table 途中の空行という実データの癖を fixture が持たず、初版パーサが順位 193 以降を全部取りこぼした。実 exe を実ファイルに当てて初めて露見した。(3) **step outcome の組み合わせ** — `publish-tree` 失敗時に下流が `skipped` になり、`skipped != 'success'` で失敗マーカーが誤作成される経路を踏んだ。
 >
@@ -148,7 +148,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 なし
 
-### 夜間ループとレポート出力の小さな穴を塞ぐ (系統 D + F-2)
+### 順位 467: 夜間ループとレポート出力の小さな穴を塞ぐ (系統 D + F-2)
 
 > **動機**: lane モデルの 5 PR で残った小さな欠陥。いずれも実害は限定的だが、放置すると無人経路のノイズか停止につながる。
 >
@@ -186,7 +186,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ## PR #417 の調査で判明した残課題 (2026-08-18 起票)
 
-### post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない
+### 順位 468: post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない
 
 > **動機**: PR #417 (順位 444 = stale meta による恒久 block) の原因調査で、**block の原因になった run 自体がなぜ死んだのかは未解明**であることが判明した。順位 444 は「壊れた後に機構が止まらない」ようにする回復層の修正であり、この死亡そのものには触れていない。
 >
@@ -236,7 +236,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 > tests、PR #418 で追加)。同 PR の他 2 提案も大部分が実装済みで、残片のみを順位 471 に載せている。
 > **feedback レポートも台帳と同じく実装が動くほどずれる。**
 
-### 誤帰属と副作用フラグ欠如を決定論ルールで弾く (系統 A)
+### 順位 470: 誤帰属と副作用フラグ欠如を決定論ルールで弾く (系統 A)
 
 > **動機**: 2 件とも**過去に実 incident を生んだパターン**の機械検出で、実装先も手法も同じ。
 >
@@ -270,7 +270,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 両ルールが bad fixture で発火し、good fixture では発火しないこと
 - 既存コードに違反が無いこと (有効化時点で赤にならない)
 
-### cross-crate 定数 pin と reaper 回帰テストの残片を埋める (系統 B 実装 + C)
+### 順位 471: cross-crate 定数 pin と reaper 回帰テストの残片を埋める (系統 B 実装 + C)
 
 > **動機**: 起票前の実コード確認で**大部分が実装済み**と判明したため、**残っているのは次の 3 つだけ**。
 >
@@ -299,7 +299,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - reaper の受理/拒否が両方向 assert されていること
 - `settle_meta_status` の I/O 失敗 (読み取り不能 / 書き込み不能) が `Err` として扱われ、**成功と報告されない**ことがテストで固定されていること
 
-### 語彙・テスト作法・判断規律の convention を明文化する (系統 B 規約 + D + E + F 規約)
+### 順位 472: 語彙・テスト作法・判断規律の convention を明文化する (系統 B 規約 + D + E + F 規約)
 
 > **動機**: 8 項目、すべて行き先が [dev-conventions.md](dev-conventions.md) で実装を伴わない。
 >
@@ -345,7 +345,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 各項が「なぜ」と実例を持つこと
 - #424 の様子見項目 (「意味的に異なる状態が同じ見え方になるバグクラス」) を**採用 / 保留 / 却下のいずれかに決定し、理由を記録**していること
 
-### テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (系統 F 実装)
+### 順位 473: テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (系統 F 実装)
 
 > **動機**: PR [#423](https://github.com/aloekun/claude-code-hook-test/pull/423) で `EXEC_STAGING_LOCK` /
 > `exec_staging_guard()` を `smoke.rs` と `t7_cwd_independence.rs` に**意図的に複製した**
@@ -372,7 +372,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 - 複製を残すか共有するかが根拠付きで決まり、コード doc に反映されていること
 
-### 夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (系統 G)
+### 順位 474: 夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (系統 G)
 
 > **動機**: PR D の着手前に、台帳・作業計画書・実装の 3 箇所を人手で横断確認する必要が生じた
 > (2026-08-19)。台帳の順位 176 (auto lane) が PR D と同じ `src/check-ci-coderabbit/src/rate_limit.rs` を
@@ -400,7 +400,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ## pre-push review 由来 (2026-08-19、bugfix-batch-plan.md 退役準備中に発見)
 
-### `resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する
+### 順位 475: `resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する
 
 > **動機**: 不具合修正バックログ消化計画 (PR A〜L) での `cwd_to_project_id` Linux case 不一致調査 (順位 469 の完了確認、2026-08-19) で、**別の未対応の穴**が実測で見つかった。case-sensitive filesystem (WSL Ubuntu-24.04 / ext4 で確認) では `Foo` と `foo` を同じ `projects_root` に置ける。両方が `cwd_to_project_id` の lowercase 比較に一致すると、`resolve_project_dir` (`src/cli-merge-pipeline/src/feedback/transcript.rs:37`) の `.find(...)` は **1 件だけ返し、もう一方を無言で除外する** (どちらが返るかは `read_dir` の順序依存で契約上未規定)。5 回試行して毎回 1 件のみ返ることを確認済み。
 >
@@ -422,7 +422,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 発現経路の評価結果 (対応要否とその根拠) が記録されていること
 ---
 
-### jj-op-verify が commit message 内の文言を実行と誤認して警告する (本セッション 4 回実観測)
+### 順位 476: jj-op-verify が commit message 内の文言を実行と誤認して警告する (本セッション 4 回実観測)
 
 > **動機**: `jj describe -m "... jj abandon ..."` のように **commit message の本文にコマンド名を書いただけ**で、`hooks-post-tool-jj-op-verify` が「直前に `jj abandon` を実行した」と誤認し `operation not recorded` 警告を出す。本セッション (PR #429〜#432) で **4 回**発生し、毎回 `jj op log` での手動確認を強いられた。
 >
@@ -450,7 +450,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ---
 
-### Git Bash 経由の複数行 `node -e` が silent no-op になる (本セッション 2 回実観測)
+### 順位 477: Git Bash 経由の複数行 `node -e` が silent no-op になる (本セッション 2 回実観測)
 
 > **動機**: Windows の Git Bash から複数行の `node -e '...'` を渡すと、**終了コード 0・出力なしで何も実行されない**。本セッション (PR #428 / PR #432) で **2 回**踏み、いずれも「修正を適用したつもりが実際には未適用のまま検証していた」状態を作った。1 回目は workflow の抽出スクリプト、2 回目はテスト初期化子の一括置換で、どちらも**失敗が silent なため気づくまでに時間を要した**。
 >
@@ -478,7 +478,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ---
 
-### jj 出力の path separator を前提にするコードのテスト整備 (Windows は `\` 区切り)
+### 順位 478: jj 出力の path separator を前提にするコードのテスト整備 (Windows は `\` 区切り)
 
 > **動機**: PR #432 の CodeRabbit 指摘で「`jj file list` は POSIX の `/` を使うので `is_root_level` の `\` 判定は不要 / 誤判定を生む」と提案されたが、**実測すると Windows の jj 0.42 は `\` 区切りで出力する** (`sub\f.py`)。`\` 判定を外すと Windows でサブディレクトリのファイルを root 直下と誤判定して誤検知が出る。指摘は前提が誤っていた。
 >
@@ -502,7 +502,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ---
 
-### 手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる
+### 順位 479: 手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる
 
 > **動機**: [`src/lib-jj-helpers/src/lib.rs`](../src/lib-jj-helpers/src/lib.rs) の `# 公開 API` doc 一覧が実際の `pub use` とずれていた。機械的に突き合わせた実測 (2026-08-21):
 >
@@ -538,7 +538,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ---
 
-### `owns()` が false を返す原因をログで区別する (lock の debug 可能性)
+### 順位 480: `owns()` が false を返す原因をログで区別する (lock の debug 可能性)
 
 > **動機**: [`src/cli-pr-monitor/src/lock.rs`](../src/cli-pr-monitor/src/lock.rs) の `MonitorLock::Drop` は `owns()` が false のとき「lock は既に別インスタンスへ takeover 済み」と 1 種類のログしか出さないが、false になる原因は **(a) 別インスタンスが takeover 済み / (b) lock 内容が parse 不能 (破損・書き込み途中) / (c) token 不一致**の 3 通りある。原因が区別できないと、同時監視の競合 (#364 型) を調査するときにログから経路を再構成できない。
 >

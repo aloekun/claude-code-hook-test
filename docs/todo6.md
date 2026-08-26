@@ -10,7 +10,7 @@
 
 ## 現在進行中
 
-### scale-aware eval fixtures (200+ 行) — 大規模 diff dogfood 信頼性継続改善 (PR #132 T2-#5 採用) ★ Bundle i
+### 順位 92: scale-aware eval fixtures (200+ 行) — 大規模 diff dogfood 信頼性継続改善 (PR #132 T2-#5 採用) ★ Bundle i
 
 > **動機**: PR #132 smoke dogfood で 868 行の現実 PR diff を mistral:7b に流したところ、JSON 出力が不完全 (`missing field 'screen_decision'`) になり fallback path が作動した。Phase b' eval fixtures (10-30 行/件) では出ない failure mode で、本番 PR 投入時に頻発するリスクが顕在化していた。fixture 化することで再現可能化し、§8.D prompt v3 / v4 改善ループの reference point として固定する。
 >
@@ -54,7 +54,7 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 
 ---
 
-### `development-workflow.md` に 「同一ファイル複数編集の 1 task 統合」 + 「partial completion + 後続 PR 追補明記」 を追補 (PR #139 T3-#1 採用)
+### 順位 100: `development-workflow.md` に 「同一ファイル複数編集の 1 task 統合」 + 「partial completion + 後続 PR 追補明記」 を追補 (PR #139 T3-#1 採用)
 
 > **動機**: PR #139 (Bundle h+g-2 land) の post-merge-feedback で 2 つの暗黙知が systemic に観測された:
 >
@@ -88,7 +88,7 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 
 ---
 
-### グローバル CLAUDE.md に lint runner サポートフィールド一覧表 (PR #140 T3-#2 採用)
+### 順位 105: グローバル CLAUDE.md に lint runner サポートフィールド一覧表 (PR #140 T3-#2 採用)
 
 > **動機**: 派生プロジェクト (techbook-ledger / auto-review-fix-vc 等) で hooks を porting する際、lint runner がサポートするフィールド (`pattern` / `extensions` / `severity` / `message` / `why`、planned: `paths`) を一目で把握できる reference が グローバル CLAUDE.md に存在しない。順位 103 (code comment) と相補的で、cross-project 可視性を即時向上。
 >
@@ -125,7 +125,7 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 
 ---
 
-### `development-workflow.md` に PR #125→#141 anti-pattern 事例補強 (PR #141 T3-#2 採用)
+### 順位 107: `development-workflow.md` に PR #125→#141 anti-pattern 事例補強 (PR #141 T3-#2 採用)
 
 > **動機**: memory `feedback_verify_task_not_already_done.md` (PR #141 セッションで追加) は session-scoped で「PR #125 → #141 で 4 日間 stale todo 残存 → P-3 起動時に手動発見」事例を含むが、`~/.claude/rules/common/development-workflow.md` の central rule 側には反映されていない。`feedback_todo_no_history.md` と合わせて central 化することで、memory file 閉鎖の structural risk を軽減する。
 >
@@ -151,7 +151,7 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 
 ---
 
-### CLAUDE.md に「Tier 2 偽装検知 + 却下パターン」table (PR #141 T3-#3 採用)
+### 順位 108: CLAUDE.md に「Tier 2 偽装検知 + 却下パターン」table (PR #141 T3-#3 採用)
 
 > **動機**: PR #140 / PR #141 で post-merge-feedback agent が Tier 2 (テスト/自動化) と称した提案を出したが、中身は ルール追加 / checklist 必須化 等の **unenforced rule** で、ユーザー判断で却下相当 (memory `feedback_no_unenforced_rules.md` で codify 済)。memory ファイルは session-scoped で新セッション AI からは見えにくく「Tier 2 = 採用必須」と誤解する構造的リスクがある。グローバル CLAUDE.md に signal + 却下パターン table を可視化し、policy をユーザー可視 + 新セッション AI からも逆引き可能にする。
 >
@@ -189,7 +189,7 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 ---
 
 
-### pure function test pattern template を `testing.md` に追記 (PR #142 T2-#3 採用)
+### 順位 110: pure function test pattern template を `testing.md` に追記 (PR #142 T2-#3 採用)
 
 > **動機**: Phase A (PR #142) の `overflow_hint()` は副作用なしの純粋関数で、境界値 (90%) / None (metadata 欠落) / 閾値未満 (90% 未満) の 3 パターンで test 化できる構造になっていた。このパターンを `~/.knee/rules/common/testing.md` にテンプレ化することで、Rust lib 全般で副作用分離と test 容易性が促進される。
 >
@@ -211,7 +211,7 @@ baseline は Phase a/b' と同じく Claude Code 一次起案 → ユーザー�
 
 ---
 
-### `docs-governance.md` に todo5/todo6 routing rule 明文化 (PR #142 T3-#1 採用)
+### 順位 111: `docs-governance.md` に todo5/todo6 routing rule 明文化 (PR #142 T3-#1 採用)
 
 > **動機**: PR #142 で CR Minor #2 として「todo-summary.md 順位 106-108 が todo5.md を指すが intro policy は todo6.md」の bifurcation 指摘あり、本 PR 内で修正済。しかし routing rule が文書化されておらず次回も同型 bifurcation の再発リスクがある。docs-governance.md に「新規詳細は todo6.md」routing rule + 50KB 超過時の対応方針を明文化することで構造的予防。
 >

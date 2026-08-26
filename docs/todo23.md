@@ -24,7 +24,7 @@
 >
 > **系統 1 (決定論的検査) は 9 件中 4 件のみ採用。** 残り 5 件 (rustdoc link 検査 / finding_id 埋込検知 / Actions outcome 検査 / serial numbering CI / dry-run gate) は、本セッションで実害が観測されておらず、推測で lint を増やすと誤検出と保守コストが先に来るため見送った。
 
-### 自律実行ガードレールの 3 点同期を機械検証する
+### 順位 454: 自律実行ガードレールの 3 点同期を機械検証する
 
 > **動機**: 禁止リストが 3 箇所 (`.github/workflows/nightly-todo.yml` の Guard step grep / 同ファイルの agent プロンプト / [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6) に重複している。[#403](https://github.com/aloekun/claude-code-hook-test/pull/403) と [#405](https://github.com/aloekun/claude-code-hook-test/pull/405) で新しい crate を追加した際、いずれも 3 箇所を手で揃えた。**片方だけ更新すると保護が静かに緩む** — #403 では実際に、抽出でパースの実体が禁止リストの外へ出る事故が起きかけた。
 >
@@ -54,7 +54,7 @@
 
 なし
 
-### 一時ファイルの弱い一意性を検知する lint
+### 順位 455: 一時ファイルの弱い一意性を検知する lint
 
 > **動機**: `std::env::temp_dir().join(<固定名>)` を [#405](https://github.com/aloekun/claude-code-hook-test/pull/405) で **production とテストの両方で踏んだ**。production 側は [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) が支える並行 `pnpm push` で互いのスナップショットを上書きし合う race、テスト側は入力長から名前を作って `/` 版と `\` 版が衝突する形だった。1 つ直した直後に同型を別の場所で作っており、**人手の注意では止まらない**。
 >
@@ -90,7 +90,7 @@
 
 一意性の担保方法が未確定 (プロセス ID 単体では不足。用途名との組み合わせか crate 導入か)
 
-### workflow の guard なし `git commit` を検知する
+### 順位 456: workflow の guard なし `git commit` を検知する
 
 > **動機**: [#406](https://github.com/aloekun/claude-code-hook-test/pull/406) で **Critical を 2 度**踏んだ。(1) pathspec 無しの `git commit` が Guard step の `git add -A` で stage された全ツリーを取り込み、後段の commit が空になって **PR が 1 つも作られなくなる**。(2) ステージが空の場合に無条件 commit が非ゼロで落ち、検証済みの実装ごと job が落ちる。どちらも「単体では正しいが前後の文脈で破綻する」型で、レビューが無ければ夜間ループが停止していた。
 >
@@ -125,7 +125,7 @@
 
 なし
 
-### lint rule の宣言拡張子が test_coverage で網羅されているか検査する
+### 順位 457: lint rule の宣言拡張子が test_coverage で網羅されているか検査する
 
 > **動機**: [#402](https://github.com/aloekun/claude-code-hook-test/pull/402) で rule⑬ を追加した際、`extensions` に `json` を挙げながら `test_coverage` に json のテストが無い状態を作り、CodeRabbit に指摘された。既存 3 検査は「rule → fixture」「rule → test」の向きしか見ておらず、**宣言した拡張子の一部にテストが無い状態を素通り**する。#402 で追加した孤児 fixture 検査と対になる、もう 1 つの非対称。
 >
@@ -155,7 +155,7 @@
 
 なし
 
-### `cli-ledger-cleanup` の統合テスト suite
+### 順位 458: `cli-ledger-cleanup` の統合テスト suite
 
 > **動機**: 新規 crate に crate 全体を通す統合テストが無い。[#405](https://github.com/aloekun/claude-code-hook-test/pull/405)/[#406](https://github.com/aloekun/claude-code-hook-test/pull/406) では実台帳のコピーを使った手動の実測で確認したが、**その手順は記録に残るだけで再実行されない**。台帳削除は取り返しがつかない操作なので、安全側の挙動こそ自動で回り続ける必要がある。
 >
@@ -186,7 +186,7 @@
 
 なし
 
-### weekly-review 周辺の決定論層テスト
+### 順位 459: weekly-review 周辺の決定論層テスト
 
 > **動機**: weekly-review に足した決定論層 (workspace-hygiene-scan / 7 レポート統合 など) は instruction 層に散っており、**壊れても次の週次実行まで気づかない**。[#401](https://github.com/aloekun/claude-code-hook-test/pull/401) の scan は `2>/dev/null` でエラーを握り潰しており、失敗と 0 件を判別できなかった (指摘を受けて修正済みだが、回帰テストが無い)。
 >
@@ -224,7 +224,7 @@
 
 scan 失敗テストの検証対象が未確定 (shell か exe か)
 
-### 外部入力の信頼境界と fail-closed の徒定形を ADR 化する
+### 順位 460: 外部入力の信頼境界と fail-closed の徒定形を ADR 化する
 
 > **動機**: 本チェーンで踏んだ Critical 2 件は、いずれも**同じ 1 つの原則の欠落**から来ている。(1) 順位 table のファイル列を未検証で `Path::join` に渡してパストラバーサルを作った、(2) 3 箇所の削除を 1 ファイルずつ書いて孤児を作りうる形にした。加えて整合性検証を完了検証より後に置き、**検証していない道具で判定する**順序も作った。個別の修正はしたが、原則として書き残さないと同じ判断を毎回やり直す。
 >
@@ -261,7 +261,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 
 なし
 
-### 開発 convention の一括追記 (本チェーンの手順レベル教訓)
+### 順位 461: 開発 convention の一括追記 (本チェーンの手順レベル教訓)
 
 > **動機**: 本チェーンで繰り返し効いた手順を convention 化する。**いずれも「守らなかったときに実際に事故った」もの**に限る。
 >
@@ -305,7 +305,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **登録時に判明した前提の欠落 (重要)**: レポートの Tier2 #1 / #2 は「キーワード走査」「昇格 OR ロジック」への回帰テストを新規テストファイルに書く前提だが、**どちらも Rust 実装が存在しない**。2026-08-14 に `src/` 全体を検索して確認した — 4 語キーワード (「再選定」「着手時判断」「見積り」「検討」) を走査するコードも、昇格経路を評価するコードも無い。条件 1 の判定も昇格判定も instruction 層 (人間 + facet LLM) にあり、`cli-nightly-task-select` の台帳パーサは `無人可` マーク列を読むだけで `注意` 列を照合しない。したがって該当 2 件は**「何を検証対象にするか」を決める作業から始まる**。レポートの記述をそのまま着手すると、存在しない対象のテストを書こうとして詰まる。
 
-### 台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出する (出典: PR #400 Tier1 #2)
+### 順位 447: 台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出する (出典: PR #400 Tier1 #2)
 
 > **動機**: CodeRabbit 指摘 (#400 の 2 件目) — 無人可判定の条件 1 は `注意` 欄の 4 語走査だけを見るため、同義表現 (「未定」「複数案あり」) はすり抜ける。#400 で正準タグ `「着手時判断: <原文>」` を規約化したが、**規約は instruction 層にあり機械強制が無い**。人間がタグを付け忘れれば従来どおりすり抜ける。
 >
@@ -342,7 +342,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 なし
 
-### 判断留保キーワード検査の回帰テスト (出典: PR #400 Tier2 #1)
+### 順位 448: 判断留保キーワード検査の回帰テスト (出典: PR #400 Tier2 #1)
 
 > **動機**: CodeRabbit 指摘 (#400 の 2 件目) の回帰テスト。canonical 4 語 / 正準タグ付き同義語 / タグなし同義語の 3 分類で、検出・非検出の境界を固定する。
 >
@@ -384,7 +384,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 前提タスク (決定論層の実装先確定) 待ち
 
-### push-runner の bookmark 不在を早期検出し fallback のノイズを除去する (出典: PR #400 Tier2 #3)
+### 順位 450: push-runner の bookmark 不在を早期検出し fallback のノイズを除去する (出典: PR #400 Tier2 #3)
 
 > **動機**: #400 のセッションで実際に発生 — 新規ブランチの初 push で `pnpm push` が exit 7 (`push 可能な bookmark がありません`) で中断した。パイプラインは pre_checks 段階で止まるため実害は小さいが、ユーザーが受け取るのは「push が失敗した」という結果である。
 >
@@ -415,7 +415,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 なし
 
-### OR 条件の不成立を主張するときは全経路を明示する convention (出典: PR #400 Tier3 #1)
+### 順位 451: OR 条件の不成立を主張するときは全経路を明示する convention (出典: PR #400 Tier3 #1)
 
 > **動機**: #400 の CodeRabbit 指摘は 3 箇所すべてが**同じ欠陥**を指していた — 複数経路の OR で「どれも駄目」と結論するのに、片方の経路しか検査していない。台帳側には書式規約を入れたが、それは台帳固有の記述であり、同型の判断は他の場所でも起きうる。
 >
@@ -445,7 +445,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 なし
 
-### 本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (出典: PR #400 Tier3 #2)
+### 順位 452: 本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (出典: PR #400 Tier3 #2)
 
 > **動機**: #400 では 1 つの規約変更を **3 面** (本リポの台帳 + facet instruction / スキルリポの `SKILL.md` / デプロイ先 `~/.claude/skills/`) へ同時反映する必要があった。今回は手動確認で漏れなく済んだが、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (クロスシステム設定 coupling) が扱う型そのもので、concrete checklist が無い。
 >
@@ -479,7 +479,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 
 ## セッション由来 (2026-08-14 起票)
 
-### post-merge-feedback 分析 agent の書き込み先制約 — read-only facet がリポジトリ root へ一時ファイルを残せる
+### 順位 453: post-merge-feedback 分析 agent の書き込み先制約 — read-only facet がリポジトリ root へ一時ファイルを残せる
 
 > **動機**: 2026-08-14 の PR #400 マージ時、post-merge-feedback workflow の分析 agent (analyze-session) が transcript 解析用の一時スクリプト `analyze_transcript.py` を**リポジトリ root に生成し、そのまま残した**。該当 step は `edit: false` (read-only 意図) だが、この設定は takt の Edit 系ツールを制限するだけで、**Bash / Write 経由のファイル生成は制限されない**。jj auto-snapshot が新規ファイルを即 working copy commit に取り込むため、次の commit への混入経路になる (今回は人間のレビューで偶然発見)。
 >
