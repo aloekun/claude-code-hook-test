@@ -12,6 +12,7 @@
 //!
 //! PR #133 で検出された 2 種類の docs 整合性問題を機械的に再発防止する。
 
+pub mod entry_pairing;
 pub mod cross_ref;
 pub mod preamble;
 pub mod priority_inversion;

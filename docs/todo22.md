@@ -585,26 +585,6 @@
 
 - weekly-review の成果物が毎回追跡可能な場所に残り、facet 別 findings の事後集計ができること。
 
-### 順位 441: cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加
-
-> **動機**: todo14.md に台帳 (todo-summary*.md) の順位行を持たない孤児エントリが 4 件、約 3 週間検出されずに滞留していた (2026-08-12 の棚卸しで発見、同日採番して解消)。既存の cli-docs-lint validator は preamble (数詞照合) / cross_ref / priority_inversion の 3 種のみで、詳細エントリと台帳行の対応は検査されない。ADR-033 の「絶対番号は table のみ」規約は、対応検査が無いと片側だけの登録を許してしまう。
->
-> **対処案**: todoN.md の `### ` 見出しタイトルと summary の「タスク」列の突合 (完全一致は求めず、summary 側がタイトル文字列を含む等の許容度設計が必要)。~~todo14.md 起票済みの「本文の順位番号表記を検出する custom lint rule」と実装を共有できる可能性がある~~ → 当該 lint rule は [ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 (2026-08-16) で不要になり retire したため、本タスクは単独で実装する。
->
-> **2026-08-16 追記**: 同じ採番漏れが再発した (lane モデル PR-1 で登録した詳細エントリ 3 件に順位行が無く、手作業で 462-464 を採番して解消)。**孤児の発生源は「順位を後から付ける運用」そのもの**であり、検査を入れるまで再発し続ける。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (台帳整合性) / Frequency Low〜Medium / Effort S-M。
-
-#### 作業計画
-
-- [ ] 突合ロジックの許容度を設計する (見出し末尾の由来注記 / 太字 / Bundle マークの正規化)
-- [ ] cli-docs-lint に検査を実装 + 良性/違反 fixture のテスト
-- [ ] 既存違反 0 を確認して有効化する
-
-#### 完了基準
-
-- 台帳行の無い詳細エントリ (またはその逆) が push 時に決定論検出されること。
-
 ### 順位 442: security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加
 
 > **動機**: PR #313 で pre-push の security reviewer が新規追加の fail-closed 検査コードを名指しで分析し「coverage バイパス経路は無い」と結論して APPROVE したが、CodeRabbit が同ファイルに **coverage バイパスを許す Critical 3 件**を検出した (ADR-056 確定判定 2026-08-12 の二重 miss 分析)。「自分が新規追加した安全機構そのものの抜け」は、二重 miss 10 件の中で最も再現性の高い失敗パターン。

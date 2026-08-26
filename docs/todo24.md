@@ -97,11 +97,11 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - **B-2**: `aggregate-weekly` の `findings=0` 分岐と `findings>0` 分岐が同じ見出し構造を出すことを固定する
 - **B-3**: **最終レポートの言語を決定論的に検査する** — `weekly-review.md` と `findings.json` の自由記述 field が日本語かを機械判定する。[docs/dev-conventions.md](dev-conventions.md) § 契約は最終成果物に置く で契約点を 1 枚へ集約したが、**その 1 枚を見る機械がまだ無い**。閾値未満なら warning としてレポートへ明記する (助言層なので run は止めない = [ADR-043](adr/adr-043-security-gates-fail-closed.md))
 - **A-2 は着手しない**: 提案された `crates/docs-parser` は本リポに存在せず、範囲記法の展開は facet instruction 側の話。A-1 に吸収する
-- 実装先は `cli-docs-lint` の validator 追加を第一候補とし、順位 441 との統合可否を着手時に判断する
+- 実装先は `cli-docs-lint` の validator 追加を第一候補とする。**順位 441 は 2026-08-26 に `entry_pairing` として実装済み** (defect-convergence-plan.md § Phase D の D3)。同 module の隣へ足すか独立 validator にするかを着手時に判断する
 
 #### 作業計画
 
-- [ ] 順位 441 (詳細エントリ ⇄ 台帳行の 1:1 検査) と統合するか、独立 validator にするかを決める
+- [ ] 実装済みの `entry_pairing` (順位 441 の成果) へ相乗りするか、独立 validator にするかを決める
 - [ ] A-1 (preamble pointer 整合) を実装 + fixture テスト
 - [ ] B-1 (免除リスト ⇄ workflow condition) を実装 + fixture テスト
 - [ ] B-2 (テンプレート分岐の見出し一致) を実装
@@ -116,7 +116,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 #### 詰まっている箇所
 
-- 順位 441 との統合可否 (実装先が同じなので分けると重複しうる)
+- 実装済みの `entry_pairing` との統合可否 (実装先が同じなので分けると重複しうる)
 
 ### 順位 466: 出力先と検証設計の convention を明文化する (系統 C + E)
 
