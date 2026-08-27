@@ -28,7 +28,7 @@
 //!   default-ON 昇格 or 却下を判定する。判定結果は本 module doc と
 //!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
-use cli_docs_lint::{cross_ref, preamble, priority_inversion, Violation};
+use cli_docs_lint::{cross_ref, entry_pairing, preamble, priority_inversion, Violation};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -38,6 +38,7 @@ enum CheckMode {
     Preamble,
     CrossRef,
     PriorityInversion,
+    EntryPairing,
 }
 
 #[derive(Debug)]
@@ -59,10 +60,11 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                     "preamble" => CheckMode::Preamble,
                     "cross-ref" => CheckMode::CrossRef,
                     "priority-inversion" => CheckMode::PriorityInversion,
+                    "entry-pairing" => CheckMode::EntryPairing,
                     "all" => CheckMode::All,
                     other => {
                         return Err(format!(
-                            "--check は preamble / cross-ref / priority-inversion / all のいずれか (got: {})",
+                            "--check は preamble / cross-ref / priority-inversion / entry-pairing / all のいずれか (got: {})",
                             other
                         ))
                     }
@@ -87,7 +89,7 @@ fn print_help() {
     eprintln!(
         "cli-docs-lint — docs/ 整合性チェッカー\n\n\
          Usage:\n  \
-           cli-docs-lint [--check preamble|cross-ref|priority-inversion|all] [--docs-dir <path>]\n\n\
+           cli-docs-lint [--check preamble|cross-ref|priority-inversion|entry-pairing|all] [--docs-dir <path>]\n\n\
          Checks:\n  \
            preamble            TODO 系 markdown の preamble 数詞 vs 実ファイル数\n  \
            cross-ref           docs/**/*.md の relative link validator (directory-aware)\n  \
@@ -105,6 +107,9 @@ fn run(args: &CliArgs) -> Result<Vec<Violation>, String> {
     }
     if matches!(args.mode, CheckMode::All | CheckMode::PriorityInversion) {
         violations.extend(priority_inversion::check(&args.docs_dir)?);
+    }
+    if matches!(args.mode, CheckMode::All | CheckMode::EntryPairing) {
+        violations.extend(entry_pairing::check(&args.docs_dir)?);
     }
     Ok(violations)
 }
@@ -169,10 +174,11 @@ fn main() -> ExitCode {
 
 fn describe_mode(mode: &CheckMode) -> &'static str {
     match mode {
-        CheckMode::All => "preamble + cross-ref + priority-inversion",
+        CheckMode::All => "preamble + cross-ref + priority-inversion + entry-pairing",
         CheckMode::Preamble => "preamble only",
         CheckMode::CrossRef => "cross-ref only",
         CheckMode::PriorityInversion => "priority-inversion only",
+        CheckMode::EntryPairing => "entry-pairing only",
     }
 }
 

@@ -12,7 +12,7 @@
 
 ## 週次レビュー採用 (2026-08-22)
 
-### jj の working copy materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる
+### 順位 493: jj の working copy materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる
 
 > **動機**: `fetch_head_is_recent()` が `.git/FETCH_HEAD` の mtime を「最後に fetch した時刻」として扱っているが、jj が working copy を materialize する際 (`jj new` 等) に全ファイルの mtime が checkout 時刻へ書き換わる。同じ根因で `holder_still_writing()` が空ロックファイルの「書き込み中」判定に mtime を使っており、プロセスクラッシュ後に残った古い空ロックファイルが「たった今作成された」と誤認される。
 >
@@ -41,7 +41,7 @@ mtime を書き換えても両判定の結果が変わらないこと。変異�
 
 ---
 
-### ADR-032 の「永久欠番」決定が CLAUDE.md の ADR index へ未反映
+### 順位 494: ADR-032 の「永久欠番」決定が CLAUDE.md の ADR index へ未反映
 
 > **動機**: ADR-032 は 2026-08-12 に「docs-only fast-path として reserved」と判定され、実装は別設計の ADR-057 が実現した。todo.md では「永久欠番として扱う」と決定済みだが、CLAUDE.md の ADR index 等へ未反映で、決定と実態が乖離している。
 >
@@ -66,7 +66,7 @@ ADR index を通読して 032 が意図的欠番と分かること。番号の�
 
 ---
 
-### lib-* crate の責務分類基準が ADR-012 に無い
+### 順位 495: lib-* crate の責務分類基準が ADR-012 に無い
 
 > **動機**: 現行の `lib-*` crate は shared utility / jj helper / domain logic / state management / external integration の 5 種の責務に分散しているが、ADR-012 (src/ ディレクトリの命名規約) には新規 crate がどのカテゴリに属するかの判定基準が無い。新しい lib-* を足すときに置き場所の判断が属人的になる。
 >
@@ -94,7 +94,7 @@ ADR-012 に「lib-* の責務カテゴリと判定順序」を追記する。既
 
 ## docs ファイルサイズの是正 (2026-08-22 週次レビューの決定論 scan 由来)
 
-### 50KB 超過 3 ファイルの物理分割
+### 順位 496: 50KB 超過 3 ファイルの物理分割
 
 > **動機**: file-length watchlist が `docs/todo-summary2.md` (70969 B) / `docs/todo22.md` (60685 B) / `docs/todo14.md` (60518 B) の 3 ファイルを 50KB (51200 B) 超過として検出した。**削除漏れではない** — 節数と summary 参照数がほぼ一致しており (14: 31 節/33 参照、22: 30/31)、中身は全て生きたタスクである。刈り込みでは解決せず物理分割が要る。
 >
@@ -126,7 +126,7 @@ ADR-012 に「lib-* の責務カテゴリと判定順序」を追記する。既
 
 ---
 
-### PostToolUse で docs ファイルの 50KB 超過を即時ブロックする
+### 順位 497: PostToolUse で docs ファイルの 50KB 超過を即時ブロックする
 
 > **動機**: 現在 file-length の検査は**週次レビューの報告のみ**で、超過しても何も止まらない。そのため超過に気づくのは最大 7 日後で、その間に書き足しが進んで分割コストが膨らむ。`.rs` は既に PostToolUse hook (`comment-lint-rust` の `RUST_FILE_TOO_LONG`、800 行) で**書いた瞬間にブロック**されており、同じ機構を docs へ広げれば週次を待つ必要がなくなる (ユーザー判断、2026-08-22)。
 >

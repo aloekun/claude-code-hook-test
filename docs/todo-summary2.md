@@ -154,7 +154,6 @@
 | 438 | 🚀 Tier 1 | **孤立ブランチの回収と後始末 (nightly 未マージクローズ 3 本 + 実装孤立 2 本)** | todo22.md | M | なし (2026-08-12 scan + gh 突合。⚠ nightly ブランチの先行削除は夜間ループの再選択事故を誘発するため回収 PR マージ後にのみ削除) |
 | 439 | 🔧 Tier 2 | **決定論 gate 結果の telemetry 統合 (観測不能の再発防止)** | todo22.md | M | なし (2026-08-12 起票。B1-loop NO-GO 判定が「観測手段の欠落」で立証不能に終わった再発防止。ADR-043 § Amendment 2026-08-12 参照) |
 | 440 | 🔧 Tier 2 | **weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)** | todo22.md | S-M | なし (2026-08-12 起票。last-run の指す 2026-07-27.md が不在、ADR-070 移行後の保存先未確認。jj-robustness facet の bounded-lifetime 判定 = todo13.md の blocker) |
-| 441 | 🔧 Tier 2 | **cli-docs-lint に「詳細エントリ ⇄ 台帳行」の 1:1 対応検査を追加** | todo22.md | S-M | なし (2026-08-12 起票。todo14.md の孤児 4 件が 3 週間未検出だった lint 死角。2026-08-16 に採番漏れ 3 件が再発しており価値は上がっている。実装共有先だった本文順位番号 lint は同日 retire) |
 | 442 | 🔧 Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | 💎 Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
 | 445 | 🔧 Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
@@ -173,7 +172,7 @@
 | 460 | 💎 Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 3 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
 | 461 | 💎 Tier 3 | **開発 convention の一括追記 — 本チェーンの手順レベル教訓 (提案 12 件を統合)** | todo23.md | S | 460 (設計原則は ADR 側へ寄せるため先に確定させる。finding_id 埋込の方針が未決) |
 | 464 | 🔧 Tier 2 | **`review-todo-whole` facet が読む台帳の事実を `cli-ledger-candidates` の出力へ寄せる** | todo24.md | S | なし (2026-08-17 に再 rescope。Criterion 3-2 は決定論 exe へ置換済み・3-3 のブランチ走査は消滅。残るのは 3-1 の逆向き差集合と `✅` 行の特定で、同 exe に出力を足すだけで足りる) |
-| 465 | 🔧 Tier 2 | **docs 整合性と output-contract の drift を機械検証する (#409-#414 feedback 系統 A+B を統合)** | todo24.md | S-M | 441 (詳細エントリ ⇄ 台帳行の 1:1 検査と実装先が同じ。統合するか独立かを着手時に判断) |
+| 465 | 🔧 Tier 2 | **docs 整合性と output-contract の drift を機械検証する (#409-#414 feedback 系統 A+B を統合)** | todo24.md | S-M | なし (旧依存だった順位 441 は 2026-08-26 に `cli-docs-lint` の `entry_pairing` として実装済み。実装先が同じなので、同 module へ相乗りするか独立 validator にするかを着手時に判断) |
 | 466 | 💎 Tier 3 | **出力先と検証設計の convention を明文化する (#409-#414 feedback 系統 C+E を統合)** | todo24.md | S | なし (2026-08-17 採用。docs のみ。出力の visible paths / fixture と実データの対 / step outcome の組み合わせ の 3 点) |
 | 467 | 🔧 Tier 2 | **夜間ループとレポート出力の小さな穴を塞ぐ (#409-#414 feedback 系統 D + dispatch 実走 F-2)** | todo24.md | S | なし (2026-08-17 採用。ブランチ削除の事前存在確認 / parse エラー診断強化 / GIT_DIR 警告抑止。D-1 の効果確認は実走が要る) |
 | 468 | 🔧 Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
@@ -196,6 +195,11 @@
 | 486 | 🚀 Tier 1 | **auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-20 の run が順位 383 を選び `src/lib-ledger/src/lib.rs` の変更で `[NIGHTLY_DENY]` 停止。auto lane 22 行の全件照合で 5 行が deny リスト該当 (383 / 454 / 368 / 360 / 361)。ADR-074 決定 2 クラス 3 の判定を決定論化する — 同 ADR 決定 6 が「決定論だが未実装」と自認している穴。**実装先が deny リスト配下のため auto lane に載せない**) |
 | 487 | 🚀 Tier 1 | **nightly-todo の master 参照を SHA で pin する (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-21 の run で master-ref=`7539551f` / work=`868c9316` と 31 秒差の別コミットを読み、その間に順位 228 の実装 PR #422 がマージされて変更 0 件で停止。master を 3 回別々に読むのに pin が無い。**`.github/workflows/` が deny リスト該当のため auto lane に載せない**) |
 | 492 | 🔧 Tier 2 | **agent プロンプトの禁止パス列挙から台帳が欠落している** | todo26.md | XS | なし (ADR-072 決定 6 の禁止パスは 3 箇所に写しがあり、Guard 正規表現と ADR は 9 件だが agent プロンプトの列挙だけ 8 件で `docs/claude-code-web-tasks.md` を欠く。2026-08-25 に 3 箇所を突き合わせて実測。**強制層 = Guard 正規表現はずれていないため fail-closed は成立**しており、実害は agent が台帳を触って Guard deny に当たり run を 1 回捨てること。順位 486 と同じクラスの損失を別の入り口から作る。順位 454 の 3 点同期検査が最初に検出するはずの現存ずれで、454 と同一 PR にしてもよい。`.github/workflows/` が Guard 禁止パスのため auto lane 不可) |
+| 493 | 🚀 Tier 1 | **jj materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる** | todo25.md | S | なし (週次レビュー WR-2026-08-22-J01 / J02、severity=high、facet=jj-robustness。`fetch_head_is_recent()` と `holder_still_writing()` の 2 件は「jj が working copy を materialize すると全ファイルの mtime が checkout 時刻へ書き換わる」という同一根因。bugfix-batch-plan.md の PR P が担当) |
+| 494 | 🚀 Tier 1 | **ADR-032 の「永久欠番」決定が CLAUDE.md の ADR index へ未反映** | todo25.md | XS | なし (週次レビュー WR-2026-08-22-A01、severity=high、facet=architecture、category=adr-alignment) |
+| 495 | 🔧 Tier 2 | **`lib-*` crate の責務分類基準が ADR-012 に無い** | todo25.md | S | なし (週次レビュー WR-2026-08-22-A04、severity=medium、facet=architecture、category=module-boundary) |
+| 496 | 🔧 Tier 2 | **docs の 50KB 超過 3 ファイルを物理分割する** | todo25.md | M | なし (2026-08-22 週次レビューの決定論 scan 由来。`todo-summary2.md` は優先度表 1 枚のため節ではなく順位で切る必要がある) |
+| 497 | 🔧 Tier 2 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 
