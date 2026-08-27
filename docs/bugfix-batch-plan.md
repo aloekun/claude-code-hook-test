@@ -38,7 +38,7 @@
 
 | # | PR | 対象順位 | 状態 |
 |---|---|---|---|
-| T | `fix(nightly-todo): 着手して失敗した夜を red にする` | 488 | **マージ済み ([#445](https://github.com/aloekun/claude-code-hook-test/pull/445))** — 実走確認のみ残 |
+| T | `fix(nightly-todo): 着手して失敗した夜を red にする` | 488 | **マージ済み ([#445](https://github.com/aloekun/claude-code-hook-test/pull/445))** — 実走確認も完了 (2026-08-26) |
 | V | `fix(pr-monitor): takt 前後の比較で作業ツリー変更を判定する` | 490 | **マージ済み ([#446](https://github.com/aloekun/claude-code-hook-test/pull/446))** |
 | W | `test(ledger): 台帳の実体整合を cargo test で検査する` | 491 | **マージ済み ([#447](https://github.com/aloekun/claude-code-hook-test/pull/447))** |
 | U | `fix(jj-op-verify): 付随 op を読み飛ばして照合する` | 489 | **マージ済み ([#448](https://github.com/aloekun/claude-code-hook-test/pull/448))** |
@@ -63,9 +63,8 @@
 (guard deny → red / 背圧 deny → green) を pure function の unit test と**実 exe を起動する E2E**
 で固定してある。ADR-072 決定 10 / 決定 19 も改訂済み。
 
-**残るのは実走確認だけ** — マージ後に `workflow_dispatch` を dry_run で起動し、step の実行順
-(handoff marker 作成 → Report outcome → `Post Mint App token`) と色をログで確かめる。
-→ [§ 残観測トラッキング](#残観測トラッキング)
+**実走確認も完了 (2026-08-26)** — step の実行順と新 exe の配線は dispatch run で、完走 green は
+夜間 run 33000789454 で確認した。詳細は [§ 残観測トラッキング](#残観測トラッキング)。
 
 **後始末**: todo25.md の 488 節 + todo-summary2.md の 488 行を削除 — **実施済み (2026-08-25)**。
 
@@ -268,10 +267,11 @@ PR M の前提だが、283 は 476 と同一内容で auto lane に残すと夜�
 
 下記 3 件のうち 431 / 467 は**第 1 バッチ (PR A〜L) 由来**、488 は**第 2 バッチ PR T** 由来である。第 2 バッチではさらに **PR Q (順位 468)** が観測待ちになるため、マージ時に本節へ追記する。
 
-- [ ] **488** (PR T で実装、2026-08-25)
-  - **観測すること**: マージ後に `workflow_dispatch` を **dry_run** で起動し、(a) 完走経路が green のまま終わること、(b) step の実行順が `Leave a handoff marker` → `Report outcome` → `Post Mint App token` (post step) であること、(c) `[NIGHTLY]` サマリ行が exe から出ていることをログで確認する
-  - **red 経路は dry_run では起こせない** — handoff の発火には実際の guard deny / verify 失敗が要る。色そのものは実 exe を起動する E2E (`src/cli-nightly-outcome/tests/e2e.rs`) で固定済みなので、実走で見るのは**配線と step 順**である。実 red は次に夜間ループが implement 後に停止した run で確認する
-  - **後始末**: 追跡はここだけ。todo25.md / todo-summary2.md の 488 エントリは実装 PR で削除済み
+- [x] **488** (PR T で実装、2026-08-25) — **観測完了 (2026-08-26)**
+  - **完走 green**: 夜間 run 33000789454 (2026-08-26 18:38 UTC) が success で完走し、順位 193 の [PR #451](https://github.com/aloekun/claude-code-hook-test/pull/451) を作成した。2 晩落ち続けていた 193 が defect-convergence-plan.md § Phase D の D2 マージ後に台帳削除まで通ったことによる
+  - **step の実行順と新 exe の配線**: 2026-08-26 14:22 UTC の dispatch run で確認済み。`Leave a handoff marker` → `Report outcome` → post steps の順で、サマリ行が `./master-ref/target/release/cli-nightly-outcome` から出ている (PR [#445](https://github.com/aloekun/claude-code-hook-test/pull/445) で追加した `ledger_completion=` 列が根拠)
+  - **red 経路**: 2026-08-25 / 26 の 2 run が順位 193 で red になり、D1 マージ後は handoff marker も残る。色そのものは `src/cli-nightly-outcome/tests/e2e.rs` が実 exe で固定している
+  - **後始末**: todo25.md / todo-summary2.md の 488 エントリは実装 PR で削除済み。本項目も次に本ファイルを触る PR で削除してよい
 
 - [ ] **431** (PR E で実装、[PR #428](https://github.com/aloekun/claude-code-hook-test/pull/428))
   - **観測すること**: 次にレート制限が起きた夜間 run で「未レビュー」が可視化されること (rate-limit 拒否を red で落とす方式に変更済み)
