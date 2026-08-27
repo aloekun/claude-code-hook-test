@@ -17,6 +17,7 @@
 //! 試験運用 (ADR-039): MVP は severity=warning 相当、cli-docs-lint exit code 1 で
 //! 報告するが kill-switch (`CLI_DOCS_LINT_DISABLE=1`) で skip 可能。
 
+use crate::docs_files::list_summary_files;
 use crate::Violation;
 use regex::Regex;
 use std::collections::HashMap;
@@ -32,10 +33,6 @@ static TIER_REGEX: LazyLock<Regex> =
 /// 「順位 NN」または「順位 NN/MM」から rank 番号を抽出する regex。
 static RANK_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"順位\s*(\d+)(?:/(\d+))?").expect("static rank regex must compile"));
-
-/// 分割された index の全 part にマッチする name prefix。
-/// `todo-summary.md` / `todo-summary2.md` / 将来の `todo-summary3.md` を含む。
-const SUMMARY_FILE_PREFIX: &str = "todo-summary";
 
 /// 依存記述近傍で「解決済」を示す substring。順位参照の **直後 RESOLUTION_WINDOW_CHARS
 /// 文字以内** にいずれかが含まれていれば、その順位参照は resolved 扱い (= inversion
@@ -58,27 +55,6 @@ pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
         rows.extend(parse_table_rows(&content, &path));
     }
     Ok(check_rows(&rows))
-}
-
-/// `docs/todo-summary*.md` を name 順に列挙する (分割された index の全 part)。
-fn list_summary_files(docs_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let entries = fs::read_dir(docs_dir)
-        .map_err(|e| format!("docs ディレクトリ読み込み失敗 {}: {}", docs_dir.display(), e))?;
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if name.starts_with(SUMMARY_FILE_PREFIX) && name.ends_with(".md") {
-            paths.push(path);
-        }
-    }
-    paths.sort();
-    Ok(paths)
 }
 
 /// 与えられた単一ファイルの markdown 内容から inversion violations を抽出する。
@@ -436,21 +412,6 @@ mod tests {
         assert_eq!(violations.len(), 1, "Tier 2 → Tier 3 is an inversion");
         assert!(violations[0].message.contains("順位 100"));
         assert!(violations[0].message.contains("順位 90"));
-    }
-
-    #[test]
-    fn list_summary_files_returns_all_parts_sorted() {
-        let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("todo-summary.md"), "").unwrap();
-        fs::write(tmp.path().join("todo-summary2.md"), "").unwrap();
-        fs::write(tmp.path().join("todo.md"), "").unwrap();
-        fs::write(tmp.path().join("README.md"), "").unwrap();
-        let files = list_summary_files(tmp.path()).unwrap();
-        let names: Vec<String> = files
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(names, vec!["todo-summary.md", "todo-summary2.md"]);
     }
 
     /// 分割された index (todo-summary.md + todo-summary2.md) を跨ぐ inversion を

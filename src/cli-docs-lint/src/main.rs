@@ -1,9 +1,8 @@
 //! cli-docs-lint — docs/ 整合性チェッカー CLI
 //!
 //! 使い方:
-//!   cli-docs-lint                           全 check (preamble + cross-ref) 実行
-//!   cli-docs-lint --check preamble          preamble 検査のみ
-//!   cli-docs-lint --check cross-ref         cross-reference 検査のみ
+//!   cli-docs-lint                           全 check 実行 (登録簿 `CHECKS` の順)
+//!   cli-docs-lint --check <name>            単一 check のみ (name は `--help` 参照)
 //!   cli-docs-lint --docs-dir <path>         検査対象 docs/ ディレクトリ (default: ./docs)
 //!
 //! 終了コード:
@@ -29,22 +28,67 @@
 //!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
 use cli_docs_lint::{cross_ref, entry_pairing, preamble, priority_inversion, Violation};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+/// 1 つの check の定義。
+///
+/// **新しい check を足すときに触るのは [`CHECKS`] の 1 行だけ**にする。統合前は
+/// `CheckMode` の variant / `parse_args` の match / エラーメッセージ / `print_help` の
+/// Usage 行 / 同 Checks 一覧 / `run` の if 節 / `describe_mode` の arm の **7 箇所**へ
+/// 同じ事実を書き写す必要があり、実際に `entry-pairing` は `print_help` の Checks
+/// 一覧だけ書き漏れて help から消えていた (defect-convergence-plan.md § Phase F の F1)。
+struct CheckSpec {
+    /// `--check` に渡す名前。
+    name: &'static str,
+    /// `--help` に出す 1 行説明。
+    summary: &'static str,
+    /// 実行本体。全 validator が同じ署名を持つ。
+    run: fn(&Path) -> Result<Vec<Violation>, String>,
+}
+
+/// 実行順に並べた全 check。**ここが唯一の登録簿**。
+const CHECKS: &[CheckSpec] = &[
+    CheckSpec {
+        name: "preamble",
+        summary: "TODO 系 markdown の preamble 数詞 vs 実ファイル数",
+        run: preamble::check,
+    },
+    CheckSpec {
+        name: "cross-ref",
+        summary: "docs/**/*.md の relative link validator (directory-aware)",
+        run: cross_ref::check,
+    },
+    CheckSpec {
+        name: "priority-inversion",
+        summary: "todo-summary*.md table の Tier N→Tier N+k 依存を検知",
+        run: priority_inversion::check,
+    },
+    CheckSpec {
+        name: "entry-pairing",
+        summary: "順位 table 行 ⇄ todoN.md 詳細エントリの 1:1 対応 (順位 441)",
+        run: entry_pairing::check,
+    },
+];
 
 #[derive(Debug, PartialEq, Eq)]
 enum CheckMode {
     All,
-    Preamble,
-    CrossRef,
-    PriorityInversion,
-    EntryPairing,
+    /// [`CHECKS`] の index。
+    Single(usize),
 }
 
 #[derive(Debug)]
 struct CliArgs {
     mode: CheckMode,
     docs_dir: PathBuf,
+}
+
+/// `--check` に指定できる名前の一覧 (`all` を含む)。
+fn check_names(separator: &str) -> String {
+    let mut names: Vec<&str> = CHECKS.iter().map(|c| c.name).collect();
+    names.push("all");
+    names.join(separator)
 }
 
 fn parse_args(args: &[String]) -> Result<CliArgs, String> {
@@ -56,19 +100,7 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
             "--check" => {
                 i += 1;
                 let raw = args.get(i).ok_or("--check には引数が必要です")?;
-                mode = match raw.as_str() {
-                    "preamble" => CheckMode::Preamble,
-                    "cross-ref" => CheckMode::CrossRef,
-                    "priority-inversion" => CheckMode::PriorityInversion,
-                    "entry-pairing" => CheckMode::EntryPairing,
-                    "all" => CheckMode::All,
-                    other => {
-                        return Err(format!(
-                            "--check は preamble / cross-ref / priority-inversion / entry-pairing / all のいずれか (got: {})",
-                            other
-                        ))
-                    }
-                };
+                mode = parse_check_mode(raw)?;
             }
             "--docs-dir" => {
                 i += 1;
@@ -85,33 +117,54 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
     Ok(CliArgs { mode, docs_dir })
 }
 
-fn print_help() {
-    eprintln!(
+fn parse_check_mode(raw: &str) -> Result<CheckMode, String> {
+    if raw == "all" {
+        return Ok(CheckMode::All);
+    }
+    CHECKS
+        .iter()
+        .position(|c| c.name == raw)
+        .map(CheckMode::Single)
+        .ok_or_else(|| {
+            format!("--check は {} のいずれか (got: {})", check_names(" / "), raw)
+        })
+}
+
+fn help_text() -> String {
+    // 列幅は登録簿から取る (名前の最長に合わせる)。固定値だと check 追加で崩れる。
+    let width = CHECKS.iter().map(|c| c.name.len()).max().unwrap_or(0) + 2;
+    let checks: Vec<String> = CHECKS
+        .iter()
+        .map(|c| format!("  {:<width$}{}", c.name, c.summary, width = width))
+        .collect();
+    format!(
         "cli-docs-lint — docs/ 整合性チェッカー\n\n\
          Usage:\n  \
-           cli-docs-lint [--check preamble|cross-ref|priority-inversion|entry-pairing|all] [--docs-dir <path>]\n\n\
-         Checks:\n  \
-           preamble            TODO 系 markdown の preamble 数詞 vs 実ファイル数\n  \
-           cross-ref           docs/**/*.md の relative link validator (directory-aware)\n  \
-           priority-inversion  todo-summary.md table の Tier N→Tier N+k 依存を検知"
-    );
+           cli-docs-lint [--check {}] [--docs-dir <path>]\n\n\
+         Checks:\n{}",
+        check_names("|"),
+        checks.join("\n")
+    )
+}
+
+fn print_help() {
+    eprintln!("{}", help_text());
 }
 
 fn run(args: &CliArgs) -> Result<Vec<Violation>, String> {
     let mut violations = Vec::new();
-    if matches!(args.mode, CheckMode::All | CheckMode::Preamble) {
-        violations.extend(preamble::check(&args.docs_dir)?);
-    }
-    if matches!(args.mode, CheckMode::All | CheckMode::CrossRef) {
-        violations.extend(cross_ref::check(&args.docs_dir)?);
-    }
-    if matches!(args.mode, CheckMode::All | CheckMode::PriorityInversion) {
-        violations.extend(priority_inversion::check(&args.docs_dir)?);
-    }
-    if matches!(args.mode, CheckMode::All | CheckMode::EntryPairing) {
-        violations.extend(entry_pairing::check(&args.docs_dir)?);
+    for spec in selected_checks(&args.mode) {
+        violations.extend((spec.run)(&args.docs_dir)?);
     }
     Ok(violations)
+}
+
+/// mode が選ぶ check 群 (`All` は登録順に全件)。
+fn selected_checks(mode: &CheckMode) -> Vec<&'static CheckSpec> {
+    match mode {
+        CheckMode::All => CHECKS.iter().collect(),
+        CheckMode::Single(i) => vec![&CHECKS[*i]],
+    }
 }
 
 const KILL_SWITCH_ENV: &str = "CLI_DOCS_LINT_DISABLE";
@@ -172,14 +225,15 @@ fn main() -> ExitCode {
     }
 }
 
-fn describe_mode(mode: &CheckMode) -> &'static str {
+fn describe_mode(mode: &CheckMode) -> String {
     match mode {
-        CheckMode::All => "preamble + cross-ref + priority-inversion + entry-pairing",
-        CheckMode::Preamble => "preamble only",
-        CheckMode::CrossRef => "cross-ref only",
-        CheckMode::PriorityInversion => "priority-inversion only",
-        CheckMode::EntryPairing => "entry-pairing only",
+        CheckMode::All => check_names_of(CHECKS).join(" + "),
+        CheckMode::Single(i) => format!("{} only", CHECKS[*i].name),
     }
+}
+
+fn check_names_of(specs: &[CheckSpec]) -> Vec<&'static str> {
+    specs.iter().map(|c| c.name).collect()
 }
 
 #[cfg(test)]
@@ -199,16 +253,71 @@ mod tests {
         assert_eq!(parsed.docs_dir, PathBuf::from("docs"));
     }
 
+    /// 登録簿の全 check が `--check <name>` で選べる。**新しい check を足しても
+    /// このテストは書き換え不要**で、登録漏れ側だけが落ちる。
     #[test]
-    fn parses_preamble_mode() {
-        let parsed = parse_args(&args(&["--check", "preamble"])).unwrap();
-        assert_eq!(parsed.mode, CheckMode::Preamble);
+    fn every_registered_check_is_selectable_by_name() {
+        for (i, spec) in CHECKS.iter().enumerate() {
+            let parsed = parse_args(&args(&["--check", spec.name])).unwrap();
+            assert_eq!(parsed.mode, CheckMode::Single(i), "{}", spec.name);
+        }
     }
 
+    /// `--help` の Checks 一覧に全 check が出る。**`entry-pairing` が help から
+    /// 漏れていた実害 (F1) の回帰テスト。**
     #[test]
-    fn parses_cross_ref_mode() {
-        let parsed = parse_args(&args(&["--check", "cross-ref"])).unwrap();
-        assert_eq!(parsed.mode, CheckMode::CrossRef);
+    fn help_lists_every_registered_check() {
+        let help = help_text();
+        for spec in CHECKS {
+            assert!(help.contains(spec.name), "{} が help に無い:
+{help}", spec.name);
+            assert!(help.contains(spec.summary), "{} の説明が help に無い", spec.name);
+        }
+    }
+
+    /// `all` は登録簿の全件を実行する (実行漏れの検知)。
+    #[test]
+    fn all_mode_selects_every_registered_check() {
+        let selected = selected_checks(&CheckMode::All);
+        assert_eq!(selected.len(), CHECKS.len());
+        let described = describe_mode(&CheckMode::All);
+        for spec in CHECKS {
+            assert!(described.contains(spec.name), "{} が describe_mode に無い", spec.name);
+        }
+    }
+
+    /// 登録名の重複は `--check` の解決を先勝ちで壊す。
+    #[test]
+    fn registered_names_are_unique() {
+        let mut names = check_names_of(CHECKS);
+        names.sort_unstable();
+        let count = names.len();
+        names.dedup();
+        assert_eq!(names.len(), count, "{names:?}");
+    }
+
+    /// `lib.rs` に生えた check module が [`CHECKS`] へ登録されないと、その検査は
+    /// **静かに実行されなくなる** (false-green)。module 宣言と登録簿の対応をここで固定する。
+    ///
+    /// module 名 → check 名は `_` → `-` の機械変換で、この対応自体もここが唯一の規定。
+    #[test]
+    fn every_check_module_is_registered() {
+        /// check を持たない共有 module (登録簿に載らないのが正しいもの)。
+        /// **追加は意図的な判断**であり、素通しさせないためここへ明示する。
+        const NON_CHECK_MODULES: &[&str] = &["docs_files"];
+
+        let registered = check_names_of(CHECKS);
+        let modules = include_str!("lib.rs")
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("pub mod ").and_then(|r| r.strip_suffix(';')))
+            .filter(|m| !NON_CHECK_MODULES.contains(m));
+        for module in modules {
+            let name = module.replace('_', "-");
+            assert!(
+                registered.contains(&name.as_str()),
+                "module {module} が CHECKS に未登録です (期待する check 名: {name})"
+            );
+        }
     }
 
     #[test]
