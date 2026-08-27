@@ -5,6 +5,9 @@
 //! CodeRabbit Minor finding 2 件 (fix commit `4889413`)。TODO 系 markdown 分割
 //! が今後も繰り返される pattern のため CI 層で機械的に再発防止する。
 
+use crate::docs_files::{
+    is_summary_file_name, is_todo_file_name, list_docs_files, SUMMARY_FILE_PREFIX,
+};
 use crate::Violation;
 use regex::Regex;
 use std::fs;
@@ -12,10 +15,6 @@ use std::path::{Path, PathBuf};
 
 /// preamble 走査の上限行数。区切り (`---` / `###`) が現れないファイルへの backstop。
 const PREAMBLE_SCAN_LINES: usize = 12;
-/// 分割された index の全 part (todo-summary.md / todo-summary2.md / ...) にマッチする prefix。
-/// `is_todo_summary` (ファイル分類) と `check_line` (preamble の summary 参照判定) の両方で使い、
-/// 判定基準を一致させる (Phase 3 simplicity-review: 完全一致と prefix-match の混在は landmine)。
-const TODO_SUMMARY_PREFIX: &str = "todo-summary";
 
 /// `docs/` 配下の preamble 整合性を検査する。
 pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
@@ -89,7 +88,7 @@ fn check_line(
         ));
     };
 
-    let includes_summary = line.contains(TODO_SUMMARY_PREFIX);
+    let includes_summary = line.contains(SUMMARY_FILE_PREFIX);
     let expected = if includes_summary {
         expected_total
     } else {
@@ -126,31 +125,12 @@ fn number_regex() -> Regex {
 }
 
 fn is_todo_summary(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|s| s.to_str())
-        .map(|name| name.starts_with(TODO_SUMMARY_PREFIX) && name.ends_with(".md"))
-        .unwrap_or(false)
+    path.file_name().and_then(|s| s.to_str()).map(is_summary_file_name).unwrap_or(false)
 }
 
 /// `docs/todo*.md` を name 順に列挙する (todo-summary.md も含む)。
 pub fn list_todo_files(docs_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let entries = fs::read_dir(docs_dir)
-        .map_err(|e| format!("docs ディレクトリ読み込み失敗 {}: {}", docs_dir.display(), e))?;
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if name.starts_with("todo") && name.ends_with(".md") {
-            paths.push(path);
-        }
-    }
-    paths.sort();
-    Ok(paths)
+    list_docs_files(docs_dir, is_todo_file_name)
 }
 
 /// 漢数字 / アラビア数字を数値に変換する。一〜二十 をサポート。
@@ -372,7 +352,7 @@ mod tests {
     }
 
     /// preamble が todo-summary.md を含まず todo-summary2.md のみを参照する場合でも
-    /// prefix-match (`TODO_SUMMARY_PREFIX`) で summary 参照と判定し expected_total と
+    /// prefix-match (`SUMMARY_FILE_PREFIX`) で summary 参照と判定し expected_total と
     /// 照合することを保証する回帰テスト (Phase 3 simplicity-review 指摘の follow-up)。
     #[test]
     fn check_line_detects_summary_via_prefix_when_only_todo_summary2_referenced() {

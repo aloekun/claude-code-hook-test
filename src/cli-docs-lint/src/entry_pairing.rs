@@ -35,38 +35,11 @@
 //! 見出しを書き換えずに済み、規約を守る義務を人間に課さない
 //! ([ADR-042](../../../docs/adr/adr-042-rule-vs-mechanism-boundary.md))。
 
+use crate::docs_files::{list_docs_files, list_summary_files};
 use crate::Violation;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
-
-/// 順位 table ファイルの name prefix。`todo-summary.md` / `todo-summary2.md` / 将来の
-/// `todo-summary3.md` を含む (`priority_inversion.rs` の `SUMMARY_FILE_PREFIX` と同じ契約)。
-/// 固定 2 要素配列だと分割時に本 validator だけ追従漏れし、新 part の行が方向A
-/// (見逃し) と方向B1 (誤検出) の両方を引き起こす (simplicity-review SIM-NEW-entry_pairing-L44)。
-const SUMMARY_FILE_PREFIX: &str = "todo-summary";
-
-/// `docs_dir` 直下の 順位 table ファイル (`todo-summary*.md`) を name 順に列挙する。
-fn list_summary_files(docs_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let dir = fs::read_dir(docs_dir)
-        .map_err(|e| format!("docs ディレクトリを読めません ({}): {e}", docs_dir.display()))?;
-    let mut paths = Vec::new();
-    for entry in dir {
-        let entry = entry.map_err(|e| format!("docs ディレクトリの走査に失敗しました: {e}"))?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if name.starts_with(SUMMARY_FILE_PREFIX) && name.ends_with(".md") {
-            paths.push(path);
-        }
-    }
-    paths.sort();
-    Ok(paths)
-}
+use std::path::Path;
 
 /// 順位 table の 1 行。
 struct SummaryEntry {
@@ -194,15 +167,9 @@ pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
 /// 参照の有無に関係なく全件を読む。
 fn read_all_detail_files(docs_dir: &Path) -> Result<HeadingsByFile, String> {
     let mut out = HeadingsByFile::new();
-    let dir = fs::read_dir(docs_dir)
-        .map_err(|e| format!("docs ディレクトリを読めません ({}): {e}", docs_dir.display()))?;
-    for entry in dir {
-        let entry = entry.map_err(|e| format!("docs ディレクトリの走査に失敗しました: {e}"))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !is_detail_file_name(&name) {
-            continue;
-        }
-        let content = fs::read_to_string(entry.path())
+    for path in list_docs_files(docs_dir, is_detail_file_name)? {
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let content = fs::read_to_string(&path)
             .map_err(|e| format!("詳細ファイルを読めません ({name}): {e}"))?;
         out.insert(name, detail_headings(&content));
     }
