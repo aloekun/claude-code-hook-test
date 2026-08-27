@@ -10,7 +10,7 @@
 
 開発環境の作業効率への貢献度を基準にした推奨実行順序。詳細は各タスク冒頭の **「実行優先度」** 行を参照。
 
-> **順位 220 以降は [docs/todo-summary2.md](todo-summary2.md) を参照** (2026-07-20 docs 50KB 超過解消の 2 分割。cli-docs-lint の priority-inversion / preamble check は両ファイルを統合検査)。
+> **順位 220 以降は [docs/todo-summary2.md](todo-summary2.md) を参照** (2026-07-20 docs 50KB 超過解消の 2 分割。cli-docs-lint の priority-inversion / preamble / entry-pairing check は両ファイルを統合検査)。
 
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|

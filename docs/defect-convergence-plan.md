@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D は完了 (**実走確認も 2026-08-26 の夜間 run 33000789454 で取得済み**)。**次は Phase F の F1 / F6**、Phase 1 以降は未着手。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F6、その後 Phase 1**。Phase 1 以降は未着手。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -13,8 +13,8 @@
 | D1 | `fix(nightly-todo): 台帳削除の失敗も handoff marker の対象にする` | D | **マージ済み ([#449](https://github.com/aloekun/claude-code-hook-test/pull/449))** |
 | D2 | `feat(ledger): 詳細エントリに順位を付与し結合キーを移す` | D | **マージ済み ([#450](https://github.com/aloekun/claude-code-hook-test/pull/450))** |
 | D3 | `feat(docs-lint): 順位 ⇄ 詳細エントリの 1:1 対応検査 (順位 441 の実装)` | D | **マージ済み ([#452](https://github.com/aloekun/claude-code-hook-test/pull/452))** |
-| F1 | `refactor(docs-lint): 順位 table prefix の重複定義を解消し多点同期を検査する` | F | 未着手 |
-| F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | F | 未着手 |
+| F1 | `refactor(docs-lint): 順位 table prefix の重複定義を解消し check 登録簿へ集約する` | F | **マージ済み ([#454](https://github.com/aloekun/claude-code-hook-test/pull/454))** |
+| F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | F | **完了 (本 PR)** |
 | 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | 未着手 |
 | 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | 未着手 |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
@@ -66,9 +66,20 @@
   - **[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス該当** — 載せると実装しても push が拒否され構造的に完了不能になる ([ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2 クラス 3)。**機3** (`.github/workflows/`) と **機4** (`src/lib-ledger/`) の 2 本が該当する
   - **禁止パス非該当だが方針として載せない** — 機1 / 機2 (`src/cli-push-runner/` = push ゲート自身)、撤2 (`src/hooks-pre-tool-validate/` = hook の判定層)、撤1 / 撤3。無人経路が自分を縛る層を書き換える形になるため
 
+## feedback の採否タイミング
+
+**post-merge feedback の採否は 1 PR ごとに行わず、[§ Phase 4](#phase-4--機4-効果測定-新規-1-本) の 機4 がマージされた時点でまとめて判断する** (2026-08-28 ユーザー決定)。それまでに出たレポートは保留のまま溜める。
+
+- **例外**: 致命的な不具合が判明した場合は、まとめ待ちにせず優先して対応する
+- レポートの置き場は `.claude/feedback-reports/<PR番号>.md` (`.gitignore` 除外の内部 artifact)。**この計画の PR は連番で進むため、保留分は PR 番号から機械的に列挙できる**
+- **Claude は採否を単独で確定しない** — レポートの Recommendation 列は analyzer の推奨であり、採用・却下いずれもユーザーの明示承認を待つ (ADR-030 の運用どおり)
+- docs-only PR の feedback はそもそも採否判断ごと行わない (memory `no-feedback-adoption-for-doc-prs`)
+
+**保留中の分**: [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) (Tier 1 に `read_dir(...).flatten()` fail-open の横断検知 = 採用候補、他 4 件は却下推奨)。
+
 ## 全体順序
 
-**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1→F6 → Phase 1 → F3→F4→F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
+**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 → Phase 1 → F3→F4→F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
 
 - **Phase F は 2 つに割れる** (2026-08-27 ユーザー判断)。**F1 / F6 は軽い後始末なので Phase 1 の前**に片付ける — F1 は D3 の takt fix step が作った重複定義の解消 (XS〜S)、F6 は既存機構の記述 (XS)。**F3 / F4 / F2 / F5 は Phase 1 の後**に置く — 機1 が検出条件と allowlist を確定させ、**F5 はその条件を実コードで検証・補強する側**に回るため (逆順にすると F5 が機1 の未確定な条件を先取りすることになる)。機1 の allowlist 実測は F3 / F4 の内容にも影響する
 - Phase 5 の 3 本は他 Phase と独立。**PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は通常枠と入れ替えてよい**
@@ -96,7 +107,9 @@
 
 **進捗 (2026-08-27): Phase D は完了。** D1 ([#449](https://github.com/aloekun/claude-code-hook-test/pull/449)) / D2 ([#450](https://github.com/aloekun/claude-code-hook-test/pull/450)) / D3 ([#452](https://github.com/aloekun/claude-code-hook-test/pull/452)) すべてマージ済み。
 
-**実走で確認済み**: 夜間 run 33000789454 (2026-08-26 18:38 UTC) が success で完走し、2 晩落ち続けていた順位 193 の [PR #451](https://github.com/aloekun/claude-code-hook-test/pull/451) を作成した。D2 のマージにより台帳削除まで通っている。Phase 0 の PR T で取れていなかった「完走 green」の実走観測も、これで取れた (bugfix-batch-plan.md § 残観測トラッキング の 488 は観測完了として後始末できる)。
+**実走で確認済み**: 夜間 run 33000789454 (2026-08-26 18:38 UTC) が success で完走し、2 晩落ち続けていた順位 193 の [PR #451](https://github.com/aloekun/claude-code-hook-test/pull/451) を作成した。D2 のマージにより台帳削除まで通っている。
+
+**その PR #451 は 2026-08-27 にマージ済みで、Phase D の効果は一周した。** マージ差分は台帳行 / 順位 table 行 / 詳細エントリ (`### 順位 193:` の前置形) の 3 点セットを揃えて削除しており、D2 の順位ベース照合が正しく効いたことの実物である。マージ後も `lib-ledger` の実台帳検査 144 件と D3 の `entry-pairing` は green のままだった。Phase 0 の PR T で取れていなかった「完走 green」の実走観測も、これで取れた (bugfix-batch-plan.md § 残観測トラッキング の 488 は観測完了として後始末できる)。
 
 **D2 の移送結果**: 移行対象は「**順位 table に行を持つ詳細エントリ**」257 件 (`todoN.md` の `### ` 見出しは全 276 件で、順位 table に行が無い 19 件は対象外。D3 で分類し、うち 5 件は採番漏れとして順位 493-497 を採番した)。対象 257 件すべてへ `### 順位 N: <タイトル>` を付与し、`remove_detail_entry` を順位照合へ差し替えた。段 4 は当初 34 件だったが、todo21 / todo22 の 26 件が「summary は `(系統 A-1)` 末尾 / 見出しは `系統 A-1:` 前置」という**系統的なリネーム**と判明し規則で解決できたため、手動確定は **8 件**で済んだ (2026-08-26 ユーザー承認)。実測で **257 件すべてが順位で一意に引ける**ことを確認済み。移送スクリプトは使い捨てとし残していない。
 
@@ -233,13 +246,15 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 | F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | #446 T2-3 | `cli-pr-monitor` | M |
 | F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | #450 T3-2 / #447 T3-2 | ADR-033 / dev-conventions.md | XS |
 
-### F1 — prefix の重複定義と多点同期
+### F1 — prefix の重複定義と多点同期 (完了)
 
-3 件とも「**同じ値・宣言が複数箇所にある**ことの管理」である。
+**[PR #454](https://github.com/aloekun/claude-code-hook-test/pull/454) でマージ済み (2026-08-27)。** 3 件とも「**同じ値・宣言が複数箇所にある**ことの管理」だった。
 
-- `todo-summary` prefix が **3 箇所で独立に定義**されている (`entry_pairing.rs` の `SUMMARY_FILE_PREFIX` / `priority_inversion.rs` の同名 const / `preamble.rs` の `TODO_SUMMARY_PREFIX`)。共有定義へ統合する
-- 統合後、**3 ファイルが同じ定義を参照していること**を統合テストで固定する (統合前の「値の一致」検査は不要になる)
-- 新しい check / mode を足したときの多点同期 (`lib.rs` の `pub mod` 宣言順 / `print_help()` の usage テキスト / `CheckMode` の match 網羅) を custom lint rule で検査する
+- `todo-summary` prefix の **3 箇所の独立定義** (`entry_pairing.rs` / `priority_inversion.rs` の `SUMMARY_FILE_PREFIX` / `preamble.rs` の `TODO_SUMMARY_PREFIX`) を共有 module `docs_files` へ統合した。写経されていた列挙処理 4 箇所も 1 本化した
+- **3 validator が同じ定義を参照すること**を、`todo-summary3.md` を 3 者がそろって認識する挙動で固定した (値の一致検査では固定できない — 統合前も 3 箇所とも同じ値だった)
+- 多点同期は **custom lint rule ではなく check 登録簿 `CHECKS` で潰した**。check 1 個の追加につき 7 箇所へ同じ事実を書き写す形だったものを、登録簿からの導出に変え drift 自体を起こらなくした ([ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))。**実際に `entry-pairing` は `--help` の Checks 一覧から漏れており**、この PR で復旧した。「`lib.rs` の `pub mod` が登録簿に未登録 = その検査が静かに走らない」形もテストで塞いだ
+
+**副産物として fail-open を 1 件塞いだ**: 統合前の `priority_inversion` / `preamble` は `read_dir().flatten()` で entry エラーを握り潰しており、読めないファイルが静かに検査対象から外れて false-green になり得た ([ADR-043](adr/adr-043-security-gates-fail-closed.md))。**同型の `read_dir(...).flatten()` は他クレートにも残存する** (post-merge feedback が 6 クレート 14 箇所以上と報告)。採否は [§ feedback の採否タイミング](#feedback-の採否タイミング) の方針に従い保留中。
 
 **この重複は D3 の pre-push takt fix step が作った。** 私が書いた固定 2 要素配列を prefix 走査へ書き換えた際 (`SIM-NEW-entry_pairing-L44`)、既存 2 箇所と同じ値を 3 つ目として定義した。**fix step の出力をレビューせずマージした**ことが直接の原因である (memory `dont-trust-takt-fix-output` の再発)。
 
@@ -268,12 +283,18 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 
 **Phase 1 (機1) との関係**: 機1 は「I/O と判定が同居する関数」を push で止める一般機構、F5 は**分離済みの層の間を繋ぐ統合テスト**である。機1 は分離されていれば通すので、F5 が塞ぐ穴 (繋ぎ目が未固定) は機1 の射程外にある。**F5 は Phase 1 の後**に置き、機1 が確定させた検出条件を実コードで検証・補強する側に回る。
 
-### F6 — 既存機構の記述 (新しい義務は課さない)
+### F6 — 既存機構の記述 (新しい義務は課さない、完了)
 
-どちらも**既に機械が強制していることの説明**であり、人間に新しい義務を課すルールではない。撤1-③ の宣言行は最初から「機械化: …」と書ける。
+**本 docs バッチ PR で完了。** どちらも**既に機械が強制していることの説明**であり、人間に新しい義務を課すルールではない。宣言行は最初から「機械化: …」の形で書いた (撤1-③ が置くゲートの対象を自分で増やさないため)。
 
-- `### 順位 N:` の syntax 仕様 (コロン必須・前方一致不可・N は `u32`) を ADR-033 へ追記する。強制しているのは `lib-ledger` と `cli-docs-lint` の `heading_rank` 2 箇所
-- 台帳の `照合除外:` マーカーの使用規約 (理由必須・fail-closed) を dev-conventions.md へ記載する。強制しているのは `deployed_ledger.rs` の `parse_review_exclusions`
+- `### 順位 N:` の syntax 仕様 (コロン必須・前方一致不可・N は `u32`) を [ADR-033](adr/adr-033-todo-numbering-simplification.md) § 見出しの syntax 仕様 へ追記した。強制しているのは `lib-ledger` の `removal.rs` と `cli-docs-lint` の `entry_pairing.rs` の `heading_rank` 2 箇所で、**両者は同一契約** (片方だけ変えると検査と削除がずれる) であることも書いた
+- 台帳の `照合除外:` マーカーの使用規約 (理由必須・fail-closed) を [dev-conventions.md](dev-conventions.md) へ記載した。強制しているのは `deployed_ledger.rs` の `parse_review_exclusions`
+
+**同じバッチに入れた後始末** (いずれも記述の実測との突き合わせ):
+
+- ADR-033 の「順位 table に行を持たない見出し **53 件**」を **19 件**へ訂正した (`276 - 257 = 19`)。#452 で本計画側の数値は直したが ADR 側に 2 箇所残っていた。**この種の数値ずれを機械で押さえるのが F4** である
+- `todo-summary.md` / `todo-summary2.md` の「両ファイルを統合検査するのは priority-inversion / preamble」という記述に `entry-pairing` を加えた (D3 で 3 つ目が加わっていた)
+- `templates/push-runner-config.toml` に **top-level `default_branch` の文書ブロック**を追加した (CodeRabbit #313 の follow-up)。section 側の `default_branch` は後方互換の override であり新規に書かない、という実装側の方針が template から読めなかった
 
 ### auto lane
 
