@@ -346,6 +346,19 @@ mod tests {
             .count()
     }
 
+    /// Companion helper group (`assert_descriptions_absent/present_in_pr_range` /
+    /// `count_empty_in_pr_range`) の signature 整合を compile-time で強制する
+    /// witness test (順位 193、PR #196 T2-1)。関数ポインタへの cast は型検査のみで
+    /// 実行時コストは無いが、signature drift が起きると本 test が compile error で
+    /// 落ちる。新しい `*_in_pr_range` helper を group に追加する際は、ここに同型の
+    /// cast を 1 行追加すること。
+    #[test]
+    fn companion_helpers_share_pr_range_signature() {
+        let _: fn(&std::path::Path, &str, &[&str]) = assert_descriptions_absent_in_pr_range;
+        let _: fn(&std::path::Path, &str, &[&str]) = assert_descriptions_present_in_pr_range;
+        let _: fn(&std::path::Path, &str) -> usize = count_empty_in_pr_range;
+    }
+
     /// 統合: PR 範囲 (`<default_branch>..@`) に空 commit が無いとき sweep は no-op (非空 commit を保持)。
     #[test]
     #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]

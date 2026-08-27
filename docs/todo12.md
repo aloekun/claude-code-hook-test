@@ -257,57 +257,6 @@ regex 拡張アプローチ (#1) vs fixture のみ追加 (#2) の選択。本タ
 
 ---
 
-### 順位 193: Companion helper group 署名整合 compile-time validation test (PR #196 T2-1 採用)
-
-> **動機**: Bundle 195-FB (PR #196) で `count_empty_in_pr_range` だけ `default_branch` 引数化が漏れていた問題 (CR Major + pre-push F-1) を rule⑫ で **literal hardcode 層** では機械検出するようになったが、companion helper group (`assert_descriptions_absent/present_in_pr_range` / `count_empty_in_pr_range` / 将来追加される helper) の **API signature 整合性** は lint rule では catch できない (= AST レベル complexity)。4 番目以降の helper 追加時に signature drift が発生しても rule⑫ は fire しない silent regression リスク。
->
-> **本タスクの位置づけ**: PR #196 post-merge-feedback Tier 2 #2 採用 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None、2026-06-05 ユーザー承認)。test-level validation で構造強制、Bundle 195-FB Layer 1 (rule⑫) + Layer 2 (parameterize) の seal 層として位置付け。analyzer は Tier 1 lint rule (item 1) を ROI 不釣合いとして却下推奨済、本 test approach は Tier 2 内 alternative。
->
-> **参照**: `.claude/feedback-reports/196.md` Tier 2 #2、`src/cli-pr-monitor/src/fix_commit.rs` (test module 内 companion helper group)、PR #195 commit `9663dd68` (前 2 関数の修正)、PR #196 commit `qntnzyxt` (Layer 2 = 3 関数目の整合)
->
-> **実行優先度**: 🔧 **Tier 2** — Effort S。compile-time witness (関数ポインタキャスト) で signature drift を test 不通過にする構造。
-
-#### 設計決定 (案)
-
-Rust の compile-time check で signature drift を検出する pattern:
-
-```rust
-#[test]
-fn companion_helpers_share_default_branch_signature() {
-    // Compile-time witness: 各 helper が (&Path, &str, ...) signature を取ることを強制。
-    // 新 helper を group に追加した際は本 test の末尾に同型 cast を追加して compile-time
-    // 整合性を seal する。signature が drift すると本 test が compile error で落ちる。
-    let _: fn(&std::path::Path, &str, &[&str]) = assert_descriptions_absent_in_pr_range;
-    let _: fn(&std::path::Path, &str, &[&str]) = assert_descriptions_present_in_pr_range;
-    let _: fn(&std::path::Path, &str) -> usize = count_empty_in_pr_range;
-}
-```
-
-- 関数ポインタへの cast は compile-time check (= test 関数 body 内の statement だが実行時 cost ≒ 0)
-- signature drift → compile error → cargo test 不通過
-- 新 helper 追加時の運用: companion group の prefix (`*_in_pr_range` 等) で命名一致するなら本 test に 1 行追加を **`code-review.md` § Review Checklist** で reviewer 注意喚起 (rule⑫ + 本 test + Reviewer 注意の 3 層防御)
-
-#### 作業計画
-
-- [ ] `src/cli-pr-monitor/src/fix_commit.rs` の `#[cfg(test)] mod tests` 内に `companion_helpers_share_default_branch_signature` test を追加
-- [ ] `cargo test --bin cli-pr-monitor fix_commit::tests::companion_helpers_share_default_branch_signature` で pass 確認
-- [ ] mutation regression check: 意図的に 1 関数の signature を変更 (例: `count_empty_in_pr_range(&Path) -> usize`) して compile error で落ちることを手動確認
-- [ ] `~/.claude/rules/common/code-review.md` § Review Checklist の末尾に「companion helper group の signature 整合は compile-time witness test で seal、新 helper 追加時は test に 1 行追加」を 1 項目追加 (3 層防御の reviewer 喚起層)
-- [ ] cargo clippy clean
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- compile-time witness test が `fix_commit.rs` test module に追加され pass
-- signature 意図変更で compile error 観測 (dogfood)
-- code-review.md § Review Checklist に reviewer 注意項目追加 (global rule、派生プロジェクト波及)
-
-#### 詰まっている箇所
-
-なし。Effort S、3-5 行 test 追加 + code-review.md 1 行追加で完結。
-
----
-
 ### 順位 194: development-workflow.md 「1. Plan First」に「task 着手前に grep で既存 section 確認」step 追記 (PR #196 T3-5 採用)
 
 > **動機**: PR #196 pre-push reviewer OBS-1 で「tasks 191/192 が既実装 sections を再度計画対象としていた」と指摘 (実態は cleanup diff の誤読だが、similar pattern は PR #123 でも観測済で Frequency Medium)。task 計画段階で「対象 section が既に global rules / ADR に存在するか `grep` で確認する」step を `~/.claude/rules/common/development-workflow.md` "1. Plan First" に追記し、後続 task 計画時の redundant 提案を構造的に予防する。
