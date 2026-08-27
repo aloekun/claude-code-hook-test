@@ -1,6 +1,6 @@
 # TODO 推奨実行順序サマリー (続き、順位 220 以降)
 
-> **本ファイルの位置付け**: [docs/todo-summary.md](todo-summary.md) の推奨実行順序 table を docs 50KB 超過解消のため 2 分割した後半 (順位 220 以降を収容、2026-07-20)。全体の位置付け・更新方針・順位 6-219・anchor は [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。新規行 (高 順位) の追加・順位再採番は本ファイル (末尾) で行い、todo-summary.md 側の更新方針に従う。cli-docs-lint の priority-inversion / preamble check は両ファイルを統合して検査する。
+> **本ファイルの位置付け**: [docs/todo-summary.md](todo-summary.md) の推奨実行順序 table を docs 50KB 超過解消のため 2 分割した後半 (順位 220 以降を収容、2026-07-20)。全体の位置付け・更新方針・順位 6-219・anchor は [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。新規行 (高 順位) の追加・順位再採番は本ファイル (末尾) で行い、todo-summary.md 側の更新方針に従う。cli-docs-lint の priority-inversion / preamble / entry-pairing check は両ファイルを統合して検査する。
 
 ## 推奨実行順序サマリー (続き、順位 220 以降)
 

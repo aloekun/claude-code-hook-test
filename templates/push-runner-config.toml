@@ -6,6 +6,21 @@
 # プロジェクトに合わせて quality_gate.groups の commands を変更すること。
 
 # ---------------------------------------------------------------------------
+# top-level `default_branch` — 全 stage 共通の PR base branch (CodeRabbit #313)。
+#
+# PR 範囲 (`<default_branch>..@`) を決める値で、diff / docs_only_routing /
+# pr_size_check が共通で使う。未設定なら "master"。main 系のプロジェクトでは
+# ここで "main" を指定する。
+#
+# **section 側の `default_branch` は後方互換のための override であり、新規に
+# 書かないこと。** 既存の派生 config が `[pr_size_check] default_branch` 等を
+# 持つため受理は続けるが、値を各 section へ写経すると「同期する義務」を config
+# 側に作ることになる。stage 間で override が食い違う場合は load 時に fail-closed
+# で拒否する。
+# ---------------------------------------------------------------------------
+# default_branch = "master"
+
+# ---------------------------------------------------------------------------
 # [docs_only_routing] — docs-only PR の決定論 routing (ADR-057、2026-08-12 採用・default-ON)。
 # PR 範囲 (`<default_branch>..@`) が docs-only (ADR-035 path 基準) のとき、diff で結果が
 # 変わり得ない Rust の quality_gate group (既定 `rust-lint-test`) を quality_gate 前に
