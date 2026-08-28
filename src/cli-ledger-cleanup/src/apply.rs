@@ -17,9 +17,18 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub(crate) struct PlannedRemoval {
     files: Vec<(PathBuf, String)>,
+    /// 順位 table の「タスク」列。**後始末の報告に出すためだけに持つ** (鍵は順位)。
+    /// 夜間ループのログには順位しか出ておらず、どのタスクが消えたのかを追うのに
+    /// 台帳の履歴を引き直す必要があった。
+    title: String,
 }
 
 impl PlannedRemoval {
+    /// 報告に出すタスク名。
+    pub(crate) fn title(&self) -> &str {
+        &self.title
+    }
+
     /// 計画した内容をすべて書き出す。
     pub(crate) fn write_all(&self) -> Result<Vec<String>, String> {
         let mut written = Vec::new();
@@ -63,6 +72,7 @@ pub(crate) fn plan_removal(
             (summary_path, summary_after),
             (detail_path, detail_after),
         ],
+        title: row.title,
     })
 }
 
@@ -142,6 +152,17 @@ mod tests {
 
     fn ledger_path(docs: &Path) -> PathBuf {
         docs.join("claude-code-web-tasks.md")
+    }
+
+    /// **計画は順位 table のタスク名を運ぶ** (F4)。報告に出す唯一の経路なので、
+    /// ここが落ちると `main.rs` の完了報告から名前が消える。太字マーカーは落として持つ。
+    #[test]
+    fn the_plan_carries_the_task_title_from_the_summary_row() {
+        let docs = fixture_dir("title");
+        let ledger = ledger_path(&docs);
+        let markdown = std::fs::read_to_string(&ledger).expect("read ledger");
+        let plan = plan_removal(&ledger, &markdown, &docs, 203).expect("plan");
+        assert_eq!(plan.title(), "タイトル A");
     }
 
     #[test]

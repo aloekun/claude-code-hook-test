@@ -212,7 +212,7 @@ fn apply_removals(cli: &Cli, markdown: &str, verdicts: &[(u32, RankOutcome)]) ->
     };
     match plan.write_all() {
         Ok(files) => {
-            println!("{MARKER_OK} 順位 {rank} を後始末しました: {}", files.join(", "));
+            println!("{}", removal_report(rank, plan.title(), &files));
             EXIT_COMPLETE
         }
         Err(message) => block(
@@ -221,6 +221,19 @@ fn apply_removals(cli: &Cli, markdown: &str, verdicts: &[(u32, RankOutcome)]) ->
             false,
         ),
     }
+}
+
+/// 後始末の完了報告 1 行を組み立てる (I/O なし)。
+///
+/// **順位だけでなくタスク名を出す。** 夜間ループのログに残るのはこの行で、順位しか
+/// 無いと「何が消えたのか」を台帳の履歴から引き直すことになる。タスク名は順位 table の
+/// 「タスク」列 (`SummaryRow::title`) で、鍵ではなく表示用である
+/// ([ADR-033](../../../docs/adr/adr-033-todo-numbering-simplification.md) § 2026-08-26 改訂)。
+fn removal_report(rank: u32, title: &str, files: &[String]) -> String {
+    format!(
+        "{MARKER_OK} 順位 {rank} ({title}) を後始末しました: {}",
+        files.join(", ")
+    )
 }
 
 /// 1 順位ぶんの判定結果。台帳から消えている順位は「完了」と同じ結末 (後始末してよい) だが、
@@ -337,6 +350,25 @@ fn block(code: i32, message: &str, with_usage: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **タスク名が報告に出る** (F4)。`SummaryRow::title` は D2 で表示用へ降格したが、
+    /// 実測すると本番コードから一度も読まれておらず write-only だった。読み手をここに置き、
+    /// 消えたら落ちるようにする。
+    #[test]
+    fn the_removal_report_names_the_task() {
+        let report = removal_report(193, "companion helper の署名整合", &["docs/todo.md".to_string()]);
+        assert!(report.contains("順位 193"), "{report}");
+        assert!(report.contains("companion helper の署名整合"), "{report}");
+        assert!(report.contains("docs/todo.md"), "{report}");
+    }
+
+    /// 複数ファイルは従来どおり `, ` 区切りで並べる。
+    #[test]
+    fn the_removal_report_lists_every_written_file() {
+        let files = vec!["a.md".to_string(), "b.md".to_string(), "c.md".to_string()];
+        let report = removal_report(1, "t", &files);
+        assert!(report.ends_with("a.md, b.md, c.md"), "{report}");
+    }
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|s| (*s).to_string()).collect()
