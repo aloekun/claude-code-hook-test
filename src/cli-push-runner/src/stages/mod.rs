@@ -10,6 +10,7 @@ mod push_jj_bookmark;
 mod quality_gate;
 mod scratch_file_warning;
 mod takt;
+mod testability_gate;
 
 pub(crate) use bookmark_check::run_bookmark_check;
 pub(crate) use diff::{run_diff, DiffResult};
@@ -22,3 +23,4 @@ pub(crate) use push::run_push;
 pub(crate) use quality_gate::run_quality_gate;
 pub(crate) use scratch_file_warning::run_scratch_file_warning;
 pub(crate) use takt::run_takt;
+pub(crate) use testability_gate::run_testability_gate;

@@ -222,8 +222,10 @@ dependencies = [
  "lib-jj-helpers",
  "lib-subprocess",
  "lib-telemetry",
+ "proc-macro2",
  "serde",
  "serde_json",
+ "syn",
  "tempfile",
  "toml",
 ]

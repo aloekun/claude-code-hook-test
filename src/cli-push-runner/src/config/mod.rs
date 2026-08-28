@@ -9,6 +9,7 @@ mod lint_screen;
 mod post_takt_regate;
 mod pr_size_check;
 mod scratch_file_warning;
+mod testability_gate;
 
 pub(crate) use docs_only_routing::DocsOnlyRoutingConfig;
 pub(crate) use ledger_completion::LedgerCompletionConfig;
@@ -22,6 +23,9 @@ pub(crate) use pr_size_check::{
     PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD, DEFAULT_PR_SIZE_WARNING_THRESHOLD,
 };
 pub(crate) use scratch_file_warning::ScratchFileWarningConfig;
+pub(crate) use testability_gate::{
+    validate_testability_gate_mode, TestabilityGateConfig, DEFAULT_TESTABILITY_GATE_MODE,
+};
 
 use lint_screen::{apply_lint_screen_env_override, ENV_LINT_SCREEN_ENABLED};
 
@@ -201,6 +205,7 @@ pub(crate) struct Config {
     pub(crate) pre_push_review: Option<PrePushReviewConfig>,
     pub(crate) docs_only_routing: Option<DocsOnlyRoutingConfig>,
     pub(crate) post_takt_regate: Option<PostTaktRegateConfig>,
+    pub(crate) testability_gate: Option<TestabilityGateConfig>,
 }
 
 impl Config {
@@ -429,6 +434,7 @@ fn validate_config(config: &Config) -> Result<(), String> {
     }
     validate_diff_command_uses_pr_range(config)?;
     validate_base_branch_ranges_agree(config)?;
+    validate_testability_gate_mode(config.testability_gate.as_ref())?;
     Ok(())
 }
 

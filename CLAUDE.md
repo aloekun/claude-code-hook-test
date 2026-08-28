@@ -76,6 +76,7 @@
 - [ADR-073: 作業パッケージの完了条件 — 生んだ運用問題を外へ押し出さない](docs/adr/adr-073-work-package-completion-boundary.md) *(試験運用)*
 - [ADR-074: auto lane 選別基準 — 台帳のどの行を夜間ループに割り当てるか](docs/adr/adr-074-auto-lane-screening-criteria.md) *(試験運用)*
 - [ADR-075: 着手前の前提検証 — 台帳・フィードバックの記述を実測で確かめる](docs/adr/adr-075-verify-premises-before-acting.md)
+- [ADR-076: testability gate — I/O 出力のインライン解釈を push で止める](docs/adr/adr-076-testability-gate.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
