@@ -1,12 +1,14 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F3→F4→F2→F5 (Phase F の後半)、その後 Phase 2**。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F4→F2→F5、その後 Phase 2**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
 > **目的**: bugfix-batch-plan.md の作業中に新しい不具合が見つかり収束しないループの根治。到達目標は在庫削減ではなく「**実装時に不具合を混入させ、後追いで発覚する**」状態の停止 (2026-08-25 ユーザー決定)。improvement 由来の起票増加は問題にしない。
 
 ## 進行表
+
+**行は実行順に並べる** (Phase 別のグルーピングではない)。表だけを見た実装セッションが次の 1 本を取り違えないようにするための編集規則で、順序の根拠は [§ 全体順序](#全体順序) にある。
 
 | # | PR | Phase | 状態 |
 |---|---|---|---|
@@ -15,14 +17,14 @@
 | D3 | `feat(docs-lint): 順位 ⇄ 詳細エントリの 1:1 対応検査 (順位 441 の実装)` | D | **マージ済み ([#452](https://github.com/aloekun/claude-code-hook-test/pull/452))** |
 | F1 | `refactor(docs-lint): 順位 table prefix の重複定義を解消し check 登録簿へ集約する` | F | **マージ済み ([#454](https://github.com/aloekun/claude-code-hook-test/pull/454))** |
 | F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | F | **マージ済み ([#455](https://github.com/aloekun/claude-code-hook-test/pull/455))** |
-| 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | **完了 (本 PR)** |
+| 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | **マージ済み ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456))** |
+| F3 | `fix(ledger): 索引の自己汚染を防ぎ照合の回帰テストを足す` | F | **完了 (本 PR)** |
+| F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | 未着手 |
+| F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | 未着手 |
+| F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | 未着手 |
 | 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | 未着手 |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
 | 機4 | `feat(ledger): 起票由来タグと defect 流入の週次計測` | 4 | 未着手 |
-| F3 | `fix(ledger): 索引の自己汚染を防ぎ照合の回帰テストを足す` | F | 未着手 (Phase 1 の後) |
-| F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | 未着手 (Phase 1 の後) |
-| F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | 未着手 (Phase 1 の後) |
-| F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | 未着手 (Phase 1 の後) |
 | 撤1 | `feat(lint): workflow/facet/convention のルール 3 件を lint へ移す` | 5 | 未着手 |
 | 撤2 | `feat(pre-tool-validate): cargo fmt / Set-Content / jj squash の deny` | 5 | 未着手 |
 | 撤3 | `fix(automation): 順位 445 実装 + create-pr --body 削除 + docs-only feedback 接続` | 5 | 未着手 |
@@ -79,7 +81,7 @@
 
 ## 全体順序
 
-**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3→F4→F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
+**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4→F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
 
 - **Phase F は 2 つに割れる** (2026-08-27 ユーザー判断)。**F1 / F6 は軽い後始末なので Phase 1 の前**に片付ける — F1 は D3 の takt fix step が作った重複定義の解消 (XS〜S)、F6 は既存機構の記述 (XS)。**F3 / F4 / F2 / F5 は Phase 1 の後**に置く — 機1 が検出条件と allowlist を確定させ、**F5 はその条件を実コードで検証・補強する側**に回るため (逆順にすると F5 が機1 の未確定な条件を先取りすることになる)。機1 の allowlist 実測は F3 / F4 の内容にも影響する
 - Phase 5 の 3 本は他 Phase と独立。**PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は通常枠と入れ替えてよい**
@@ -265,10 +267,34 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 
 **F1 の後に置く** — 統合された共有定義を前提に書くため。
 
-### F3 — lib-ledger の照合まわり
+### F3 — lib-ledger の照合まわり (完了)
 
-- `repository_text()` が `#[cfg(test)]` モジュール内のテスト用識別子例示を無差別に索引へ取り込む。**PR W (順位 491) の実装中に実際に踏んだ罠**で、doc コメントに書いた実在の識別子が索引を汚染し順位 180 を誤検出した。当時は例示を書き換えて回避したが、構造としては残っている
-- 系統リネームパターン (`系統 A-1` 等のトークン) の段階照合を回帰テストで固定する
+**本 PR で完了。** 実台帳の検査 B (内容欄が名指す識別子の漂流判定) が使う**索引の自己汚染**を塞いだ。
+
+- `repository_text()` がファイルを丸ごと連結していたため、**テストコードと doc コメントに書いた識別子まで「リポジトリに在る」**と読んでいた。新設した純粋層 [`rust_source::production_code`](../src/lib-ledger/src/rust_source.rs) で、行/ブロックコメントと `#[cfg(test)]` item を落としてから索引する。**実測で索引は 3,269,890 → 1,249,428 バイト (62% が非本番テキスト)**
+- **既存 28 行の分類変化は 0 件**だった。現時点の誤判定を直したのではなく、PR W (順位 491) で実際に踏んだ罠の構造を塞いだ変更である。効果は incident 再現テスト (doc コメント言及 / テスト module 内の識別子が漂流に見えないこと) と、**strip が効きすぎていないことの対照テスト** (本番コードに在る識別子は従来どおり漂流として検出) で固定した
+- **配線の回帰テストを別に持つ** — 純関数のテストだけでは呼び出し側が strip を外しても気づけない (#452 で同型の穴を踏んだ)。テスト module にしか無い目印が索引に載らないことを実測する
+- lib-ledger は**外部 crate 依存を持たない**設計制約があるため (`Cargo.toml` のコメント)、`syn` は使わず字句スキャナを手書きした。文字列・raw 文字列・文字リテラル・入れ子ブロックコメント・非 ASCII を個別のテストで固定してある
+
+**pre-push レビューが 2 件追加させた** (どちらも実測で妥当性を確認した):
+
+- **親ファイル側の `#[cfg(test)] mod name;` で丸ごとテスト扱いになるファイル**は、1 ファイル単体を見る `production_code` では判定できない。**このリポジトリ自身がその形** (`lib.rs` の `#[cfg(test)] mod deployed_ledger;`) で、900 行超のテスト専用ファイルが本番コードとして索引に載っていた。純粋層に `cfg_test_module_declarations` (宣言の抽出、I/O なし) を足し、パス解決とファイル存在確認は呼び出し側 (I/O を持つ層) に置いた。索引はさらに 1,526,822 → **1,249,428 バイト**へ縮み、素の索引比で **62% が非本番テキスト**だった
+- `end_of_item` の `depth -= 1` が **0 から underflow する**入力があった (構造体フィールドや enum variant への `#[cfg(test)]` は `{`/`}` を経由しない)。debug では panic、release では巻き戻って**残りファイル全体が索引から無音で欠落**する。ガードを追加し、ガードを外すとテストが panic することを実測した
+- **CodeRabbit がさらに 2 件**: (a) 非ルート module (`foo.rs`) の子は `foo/` の下に在るのに宣言元のディレクトリで探しており、`stages/bookmark_check/tests.rs` 等 9 ファイル以上のテストコードが索引に残っていた (実測で確認 → 解決規則を crate root / `mod.rs` / それ以外で分けた)。(b) field / enum variant への `#[cfg(test)]` は `,` で終わるため、止めないと後続の本番 field まで落ちていた
+
+
+**800 行ゲートに当たり module を分割した** — `deployed_ledger.rs` が 1093 行になったため、識別子の抽出・分類を [`identifiers`](../src/lib-ledger/src/identifiers.rs)、索引の組み立てを [`repo_index`](../src/lib-ledger/src/repo_index.rs) へ責務ごとに切り出した (**分割前 1093 行 → 3 ファイル計 1119 行**。差の 26 行は各 module の doc と `use` 宣言)。**新 module も crate root で `#[cfg(test)]` 宣言する** — こうすると本 PR が入れた除外規則が自分自身に効き、テスト専用ファイルが索引へ戻らない。
+
+**宣言先と索引で扱いを変える** (着手時の実測で判明):
+
+| 層 | 問い | テストコードの扱い |
+|---|---|---|
+| 宣言先 (`declared_text`) | 宣言した成果物がそのファイルに在るか | **数える** |
+| 索引 (`repository_text`) | その識別子がリポジトリの他所に在るか | **数えない** |
+
+宣言先まで strip すると **順位 457 が漂流に化ける** — 成果物そのものが `#[cfg(test)]` の中に在る「検査を足す」型のタスクだからである (実測で確認)。台帳にはこの型の行が複数あるため、非対称は意図的に残す。
+
+**2 点目 (系統リネームパターンの段階照合を回帰テストで固定する) は実施しない。** 着手時の実測で、対象となる照合ロジックが**リポジトリに存在しない**ことを確認した — D2 の移送で使った 5 段照合は使い捨てスクリプトで、[§ Phase D](#phase-d--台帳-drift-の根治-新規-3-本) に「移送スクリプトは使い捨てとし残していない」と記録済みである。移送後の結合キーは順位で、その 1:1 対応は D3 の `entry-pairing` 検査が担っている。**存在しないコードの回帰テストは書けない。**
 
 ### F4 — cli-ledger-cleanup の後始末
 

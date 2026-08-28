@@ -23,6 +23,12 @@ mod completion;
 #[cfg(test)]
 mod deployed_ledger;
 mod rank_lookup;
+#[cfg(test)]
+mod identifiers;
+#[cfg(test)]
+mod repo_index;
+#[cfg(test)]
+mod rust_source;
 mod removal;
 mod screening;
 mod summary_gate;

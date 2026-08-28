@@ -25,9 +25,12 @@
 //! 増えない。
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-fn repo_root() -> PathBuf {
+use crate::identifiers::{classify_identifier, content_identifiers, parse_review_exclusions, IdentifierState, REVIEW_EXCLUSION_MARKER};
+use crate::repo_index::{declared_text, raw_repository_text, repository_text};
+
+pub(crate) fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
@@ -171,147 +174,6 @@ struct TaskRow {
     note: String,
 }
 
-/// 内容欄が名指す識別子の、宣言先から見た状態。
-#[derive(Debug, PartialEq, Eq)]
-enum IdentifierState {
-    /// 宣言先に在る。健全。
-    Declared,
-    /// **宣言先には無いが、リポジトリの他所には在る** = 漂流。
-    Drifted,
-    /// リポジトリのどこにも無い = これから作る成果物。検査対象外。
-    NotYetCreated,
-}
-
-/// 内容欄のバッククォート引用から、照合対象の識別子を取り出す (I/O なし)。
-///
-/// **Rust 識別子の形だけを採る。** 内容欄のバッククォートには識別子以外も入る —
-/// 型の一部 (`Option::None`)、CLI 引数 (`--pr 0`)、パス (`src/foo.rs`)、
-/// 文字列リテラル (`"custom-block"`)。2026-08-25 の実測では、素朴に全部を識別子として
-/// 扱うと 30 行中 12 行が偽陽性になり、この絞り込みで 3 行まで落ちた。
-///
-/// 末尾の `(...)` は落とす (`some_fn(&str)` → `some_fn`)。**例に実在の識別子を書かないこと** —
-/// 本ファイル自身がリポジトリ索引に入るため、台帳が名指す識別子をここへ書くと
-/// 「これから作る」行が「リポジトリに在る」= 漂流へ誤分類される (2026-08-25 に実際に踏んだ)。
-/// 3 文字以下は一般語との衝突が多いので採らない。
-fn content_identifiers(content: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for span in backtick_spans(content) {
-        let bare = match span.split_once('(') {
-            Some((head, _)) => head,
-            None => span.as_str(),
-        };
-        if bare.len() > 3 && is_rust_identifier(bare) {
-            out.push(bare.to_string());
-        }
-    }
-    out
-}
-
-/// バッククォートで囲まれた区間を列挙する (I/O なし)。閉じていない引用は捨てる。
-fn backtick_spans(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = text;
-    while let Some(open) = rest.find('`') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('`') else {
-            break;
-        };
-        out.push(after[..close].to_string());
-        rest = &after[close + 1..];
-    }
-    out
-}
-
-fn is_rust_identifier(candidate: &str) -> bool {
-    let mut chars = candidate.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-/// 識別子 1 件を分類する (I/O なし。ファイルの中身は呼び出し元が読んで渡す)。
-///
-/// **「リポジトリのどこにも無い」を漂流に数えない**のが要点。台帳は*これからやる作業*を
-/// 書く場所なので、内容欄が名指す識別子には「既存コード (漂流の signal)」と
-/// 「これから作るもの (ただの予定)」が混ざる。両者を構文では見分けられないが、
-/// **リポジトリ全体に在るかどうか**が決定的な差になる。
-fn classify_identifier(identifier: &str, declared: &str, repository: &str) -> IdentifierState {
-    if contains_token(declared, identifier) {
-        IdentifierState::Declared
-    } else if contains_token(repository, identifier) {
-        IdentifierState::Drifted
-    } else {
-        IdentifierState::NotYetCreated
-    }
-}
-
-/// `haystack` が `identifier` を**トークンとして**含むか (I/O なし)。
-///
-/// 素の [`str::contains`] は部分一致なので、`render_row` が `render_rows` に当たる。
-/// これは**漂流を見逃す**向きに効く — 宣言先から `render_row` が消えても、同じファイルに
-/// `render_rows` が残っていれば `Declared` と読んでしまう (CodeRabbit #447)。
-/// 前後が識別子文字でないことを確かめて、接頭辞・接尾辞一致を弾く。
-fn contains_token(haystack: &str, identifier: &str) -> bool {
-    let bytes = haystack.as_bytes();
-    let width = identifier.len();
-    haystack.match_indices(identifier).any(|(start, _)| {
-        let before_ok = start == 0 || !is_identifier_byte(bytes[start - 1]);
-        let after = start + width;
-        let after_ok = after >= bytes.len() || !is_identifier_byte(bytes[after]);
-        before_ok && after_ok
-    })
-}
-
-fn is_identifier_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-/// 注意欄の照合除外マーカー。
-///
-/// 書式: `照合除外: ` + バッククォート識別子 + `（理由）`。**理由は必須**で、
-/// 空だと [`Err`] に倒す — 理由の無い除外は「なぜ通しているか分からない穴」になり、
-/// 検査を骨抜きにする経路がそこだけ無検査になる。
-///
-/// 除外を台帳の行に置くのは、行を削除すれば除外も一緒に消えるため。テスト側の allowlist に
-/// 置くと、台帳から行が消えても除外だけが残って腐る。
-const REVIEW_EXCLUSION_MARKER: &str = "照合除外:";
-
-/// 注意欄から照合除外の識別子を読む (I/O なし)。理由が無ければ `Err`。
-fn parse_review_exclusions(note: &str) -> Result<BTreeSet<String>, String> {
-    let mut out = BTreeSet::new();
-    for chunk in note.split(REVIEW_EXCLUSION_MARKER).skip(1) {
-        let Some(identifier) = backtick_spans(chunk).into_iter().next() else {
-            return Err(format!(
-                "{REVIEW_EXCLUSION_MARKER} の後にバッククォート引用の識別子がありません"
-            ));
-        };
-        let after_ident = chunk
-            .split_once(&format!("`{identifier}`"))
-            .map(|(_, tail)| tail)
-            .unwrap_or("");
-        if reason_of(after_ident).is_empty() {
-            return Err(format!(
-                "照合除外 `{identifier}` に理由 (全角丸括弧) がありません"
-            ));
-        }
-        out.insert(identifier);
-    }
-    Ok(out)
-}
-
-/// 除外マーカー直後の全角丸括弧から理由を読む (I/O なし)。
-fn reason_of(after_identifier: &str) -> String {
-    let Some(open) = after_identifier.find('（') else {
-        return String::new();
-    };
-    let tail = &after_identifier[open + '（'.len_utf8()..];
-    let Some(close) = tail.find('）') else {
-        return String::new();
-    };
-    tail[..close].trim().to_string()
-}
 
 /// タスク表のデータ行を読む。列は見出し名で解決する (列順の変更に追随するため)。
 ///
@@ -446,64 +308,6 @@ fn no_auto_lane_rank_is_also_listed_as_out_of_scope() {
     );
 }
 
-/// リポジトリ索引から外すディレクトリ。ビルド生成物・VCS 内部・実行ログは実体ではない。
-const INDEX_SKIP_DIRS: &[&str] = &["target", "node_modules", ".git", ".jj", ".takt", "docs"];
-
-/// リポジトリ索引に入れる拡張子。**`.md` は入れない** — 台帳と todo 自身が識別子を
-/// 名指しているため、含めると「これから作る識別子」まで「リポジトリに在る」= 漂流と読む
-/// (2026-08-25 実測: 除外前は 3 件すべてが漂流に誤分類された)。
-const INDEX_EXTENSIONS: &[&str] = &["rs", "toml", "mjs", "ts", "yml", "sh"];
-
-fn has_indexed_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| INDEX_EXTENSIONS.contains(&e))
-}
-
-/// ディレクトリ配下のファイル内容を連結して読む。読めないファイルは飛ばす。
-fn concat_files(root: &Path, indexed_only: bool, out: &mut String) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if path.is_dir() {
-            if !INDEX_SKIP_DIRS.contains(&name.as_ref()) {
-                concat_files(&path, indexed_only, out);
-            }
-        } else if !indexed_only || has_indexed_extension(&path) {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                out.push_str(&text);
-                out.push('\n');
-            }
-        }
-    }
-}
-
-/// 宣言パス群の中身を連結して読む (ディレクトリ宣言はその配下すべて)。
-fn declared_text(paths: &[String]) -> String {
-    let root = repo_root();
-    let mut text = String::new();
-    for relative in paths {
-        let path = root.join(relative);
-        if path.is_dir() {
-            concat_files(&path, false, &mut text);
-        } else if let Ok(content) = std::fs::read_to_string(&path) {
-            text.push_str(&content);
-            text.push('\n');
-        }
-    }
-    text
-}
-
-/// リポジトリ全体のコードを 1 本の文字列として索引する。
-fn repository_text() -> String {
-    let mut text = String::new();
-    concat_files(&repo_root(), true, &mut text);
-    text
-}
 
 /// 1 行を照合し、漂流している識別子を返す (I/O なし)。
 fn drifted_identifiers(row: &TaskRow, declared: &str, repository: &str) -> Result<Vec<String>, String> {
@@ -595,115 +399,6 @@ fn assert_control_case_is_detected(repository: &str) {
 mod integrity_tests {
     use super::*;
 
-    /// 識別子でないバッククォートは照合対象にしない (2026-08-25 実測の偽陽性 7 種)。
-    #[test]
-    fn only_rust_identifiers_are_collected_from_the_content_cell() {
-        let content = "`Option::None` と `--pr 0` と `src/foo.rs` と `\"custom-block\"` を直す";
-        assert!(content_identifiers(content).is_empty(), "{:?}", content_identifiers(content));
-    }
-
-    /// 末尾の引数リストは落として本体だけを採る。
-    #[test]
-    fn a_trailing_argument_list_is_stripped() {
-        assert_eq!(content_identifiers("`render_row(&str)` を pub 化"), vec!["render_row"]);
-    }
-
-    /// 3 文字以下は一般語と衝突するので採らない。
-    #[test]
-    fn very_short_identifiers_are_ignored() {
-        assert!(content_identifiers("`id` と `run` を直す").is_empty());
-    }
-
-    /// 閉じていないバッククォートで後続を巻き込まない。
-    #[test]
-    fn an_unclosed_backtick_does_not_swallow_the_rest() {
-        assert_eq!(content_identifiers("`alpha` と `beta"), vec!["alpha"]);
-    }
-
-    /// **検査 B の核**: 宣言先に無く、リポジトリの他所に在れば漂流。
-    #[test]
-    fn an_identifier_missing_from_the_declared_path_but_present_elsewhere_is_drift() {
-        assert_eq!(
-            classify_identifier("check_todo_staleness", "fn main() {}", "fn check_todo_staleness()"),
-            IdentifierState::Drifted
-        );
-    }
-
-    /// **これから作る識別子は漂流ではない** — 台帳は未着手の作業を書く場所なので、
-    /// ここを漂流に数えると未着手行がすべて赤くなる (実測 30 行中 12 行)。
-    #[test]
-    fn an_identifier_absent_from_the_whole_repository_is_not_yet_created() {
-        assert_eq!(
-            classify_identifier("brand_new_helper", "fn main() {}", "fn main() {}"),
-            IdentifierState::NotYetCreated
-        );
-    }
-
-    /// **接頭辞一致で漂流を見逃さない** (CodeRabbit #447)。素の `contains` だと
-    /// `render_row` が `render_rows` に当たり、宣言先から消えていても `Declared` と読む。
-    #[test]
-    fn a_longer_name_sharing_the_prefix_does_not_count_as_a_match() {
-        assert_eq!(
-            classify_identifier("render_row", "fn render_rows() {}", "fn render_row() {}"),
-            IdentifierState::Drifted
-        );
-    }
-
-    /// 接尾辞側も同じ。`row_id` が `first_row_id` に当たってはいけない。
-    #[test]
-    fn a_longer_name_sharing_the_suffix_does_not_count_as_a_match() {
-        assert!(!contains_token("let first_row_id = 1;", "row_id"));
-    }
-
-    /// 識別子文字でない区切り (`::` / `(` / 行頭行末) は境界として通す。
-    #[test]
-    fn non_identifier_neighbours_are_valid_boundaries() {
-        assert!(contains_token("std::env::current_dir()", "current_dir"));
-        assert!(contains_token("current_dir", "current_dir"));
-        assert!(contains_token("fn current_dir(", "current_dir"));
-    }
-
-    /// 同じ行に接頭辞一致と真の一致が混在しても検出できる。
-    #[test]
-    fn a_true_match_after_a_prefix_match_is_still_found() {
-        assert!(contains_token("render_rows(); render_row();", "render_row"));
-    }
-
-    #[test]
-    fn an_identifier_present_at_the_declared_path_is_declared() {
-        assert_eq!(
-            classify_identifier("alpha", "fn alpha() {}", "fn alpha() {}"),
-            IdentifierState::Declared
-        );
-    }
-
-    #[test]
-    fn a_note_without_a_marker_excludes_nothing() {
-        assert_eq!(parse_review_exclusions("ふつうの注意書き"), Ok(BTreeSet::new()));
-    }
-
-    #[test]
-    fn a_marker_with_a_reason_excludes_the_identifier() {
-        let note = "検出対象の説明。照合除外: `current_dir`（lint rule の検出対象であって成果物ではない）";
-        assert_eq!(
-            parse_review_exclusions(note),
-            Ok(BTreeSet::from(["current_dir".to_string()]))
-        );
-    }
-
-    /// **理由の無い除外は拒否する。** 通すと「なぜ通しているか分からない穴」が残り、
-    /// 検査を骨抜きにする経路がそこだけ無検査になる。
-    #[test]
-    fn a_marker_without_a_reason_is_rejected() {
-        let error = parse_review_exclusions("照合除外: `current_dir`").unwrap_err();
-        assert!(error.contains("理由"), "{error}");
-    }
-
-    #[test]
-    fn a_marker_without_an_identifier_is_rejected() {
-        let error = parse_review_exclusions("照合除外: current_dir（理由）").unwrap_err();
-        assert!(error.contains("識別子"), "{error}");
-    }
 
     /// 除外された識別子は漂流に数えない。
     #[test]
@@ -797,3 +492,164 @@ mod integrity_tests {
         assert!(ranks_in_out_of_scope(markdown).contains(&162));
     }
 }
+
+/// 索引からテストコードとコメントを落としたことで、分類が変わった識別子を数える (実測用)。
+///
+/// `cargo test -p lib-ledger -- --ignored index_pollution --nocapture`
+#[test]
+#[ignore = "measurement only"]
+fn index_pollution_probe() {
+    let markdown = read_ledger();
+    let rows = task_rows(&markdown).expect("台帳");
+    let cells: std::collections::BTreeMap<u32, String> =
+        target_file_cells(&markdown).into_iter().collect();
+    let stripped = repository_text();
+    let raw = raw_repository_text();
+
+    let mut changed = Vec::new();
+    for row in &rows {
+        let Some(cell) = cells.get(&row.rank) else {
+            continue;
+        };
+        let Ok(paths) = super::parse_target_files(cell) else {
+            continue;
+        };
+        let declared = declared_text(&paths);
+        for identifier in content_identifiers(&row.content) {
+            let before = classify_identifier(&identifier, &declared, &raw);
+            let after = classify_identifier(&identifier, &declared, &stripped);
+            if before != after {
+                changed.push(format!("順位 {}: {identifier} {before:?} -> {after:?}", row.rank));
+            }
+        }
+    }
+    for line in &changed {
+        println!("CHANGED {line}");
+    }
+    println!(
+        "--- rows={} changed={} raw_bytes={} stripped_bytes={}",
+        rows.len(),
+        changed.len(),
+        raw.len(),
+        stripped.len()
+    );
+}
+
+/// **索引の配線の回帰テスト。** `repository_text()` が strip を通っていることを、
+/// テスト module の中にしか無い目印で確かめる。純関数側 (`production_code`) のテストだけ
+/// では、呼び出し側が strip を外しても気づけない (#452 で同型の穴を踏んでいる)。
+///
+/// 対照の本番識別子には `completion.rs` の `evaluate` を使う — `deployed_ledger` /
+/// `rust_source` は `lib.rs` 側で `#[cfg(test)] mod ..;` と宣言されファイル全体が
+/// テスト扱いなので、自ファイルの識別子を対照に使うと索引の自己汚染バグを覆い隠す
+/// (SIM-NEW-lib-ledger-rust_source-L75)。
+#[test]
+fn the_repository_index_drops_test_code() {
+    let index = repository_text();
+    assert!(
+        !index.contains(crate::rust_source::tests::INDEX_PROBE_TOKEN),
+        "索引にテストコードが載っています (strip の配線が外れています)"
+    );
+    assert!(
+        index.contains("fn evaluate"),
+        "索引から本番コードまで落ちています"
+    );
+}
+
+/// **索引の自己汚染の回帰テスト (自 module 版)。**
+///
+/// `lib.rs` の `#[cfg(test)] mod deployed_ledger;` により、このファイル全体は本番ビルドに
+/// 一切含まれないテストコードである。ファイル単体にはインラインの `#[cfg(test)]` が無いため、
+/// 旧 strip (ファイル単位の [`crate::rust_source::production_code`] だけ) はこの形の
+/// テスト専用ファイルを本番コードとして索引に残していた (SIM-NEW-lib-ledger-rust_source-L75)。
+const SELF_MODULE_INDEX_PROBE_TOKEN: &str = "deployed_ledger_self_module_probe_token";
+
+#[test]
+fn the_repository_index_excludes_a_file_gated_by_the_parents_mod_declaration() {
+    let index = repository_text();
+    assert!(
+        !index.contains(SELF_MODULE_INDEX_PROBE_TOKEN),
+        "lib.rs の `#[cfg(test)] mod deployed_ledger;` で丸ごとテスト扱いのこのファイルが、\
+         インライン `#[cfg(test)]` が無いという理由で索引に残っています"
+    );
+}
+
+/// **索引の自己汚染の回帰テスト (F3)。**
+///
+/// 由来: PR W (順位 491) の実装中に踏んだ罠。別ファイルの doc コメントへ例示として書いた
+/// 実在の識別子が索引に載り、「宣言先には無いがリポジトリには在る」= 漂流と誤検出した。
+/// 当時は例示の文言を書き換えて回避したが、構造は残っていた。
+#[test]
+fn an_identifier_mentioned_only_in_a_doc_comment_is_not_drift() {
+    let declared = "fn unrelated() {}\n";
+    let elsewhere = "/// 例示: `render_row` のように書く\nfn other() {}\n";
+
+    assert_eq!(
+        classify_identifier("render_row", declared, elsewhere),
+        IdentifierState::Drifted,
+        "素の索引ではコメントの言及が漂流に見える (これが誤検出の正体)"
+    );
+    assert_eq!(
+        classify_identifier(
+            "render_row",
+            declared,
+            &crate::rust_source::production_code(elsewhere)
+        ),
+        IdentifierState::NotYetCreated,
+        "コメントを落とせば「まだ作っていない」に戻る"
+    );
+}
+
+/// テスト module の中だけに在る識別子も、索引では「リポジトリに在る」と数えない。
+#[test]
+fn an_identifier_only_in_a_test_module_is_not_drift() {
+    let declared = "fn unrelated() {}\n";
+    let elsewhere = "fn other() {}\n#[cfg(test)]\nmod tests {\n    fn calls_render_row() { render_row(); }\n}\n";
+
+    assert_eq!(
+        classify_identifier("render_row", declared, elsewhere),
+        IdentifierState::Drifted
+    );
+    assert_eq!(
+        classify_identifier(
+            "render_row",
+            declared,
+            &crate::rust_source::production_code(elsewhere)
+        ),
+        IdentifierState::NotYetCreated
+    );
+}
+
+/// **本番コードに在る識別子は従来どおり漂流として検出する** (strip が効きすぎていないこと)。
+/// この対照が無いと「全部落として緑」でもテストが通ってしまう。
+#[test]
+fn an_identifier_in_production_code_elsewhere_is_still_drift() {
+    let declared = "fn unrelated() {}\n";
+    let elsewhere = "pub fn render_row(row: &str) -> String { row.to_string() }\n";
+
+    assert_eq!(
+        classify_identifier(
+            "render_row",
+            declared,
+            &crate::rust_source::production_code(elsewhere)
+        ),
+        IdentifierState::Drifted
+    );
+}
+
+/// 宣言先はテストコードも数える (成果物自体がテストの行がある。順位 457 が実例)。
+#[test]
+fn the_declared_side_counts_test_code() {
+    let declared_with_test_only_artifact =
+        "#[cfg(test)]\nmod tests {\n    #[test]\n    fn rule_test_coverage_check() {}\n}\n";
+    assert_eq!(
+        classify_identifier(
+            "rule_test_coverage_check",
+            declared_with_test_only_artifact,
+            ""
+        ),
+        IdentifierState::Declared,
+        "宣言先まで strip すると『検査を足す』型のタスクが漂流に化ける"
+    );
+}
+
