@@ -353,6 +353,7 @@ command = "echo push"
             pre_push_review: None,
             docs_only_routing: None,
             post_takt_regate: None,
+            testability_gate: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),

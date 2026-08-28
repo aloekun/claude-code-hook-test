@@ -310,6 +310,28 @@ output_path = ".takt/lint-screen-report.md"
 [post_takt_regate]
 enabled = true
 
+
+# ---------------------------------------------------------------------------
+# [testability_gate] — 機1 (ADR-076): 「I/O 出力をその場で解釈して判定を返す関数」の
+# 新規混入を push 時に止める。docs/defect-convergence-plan.md § Phase 1。
+#
+# 対象は push 範囲で変更された .rs のみ (既存コードは見ない)。既存 8 件は code 側の
+# BASELINE で凍結してあり、増やせない ratchet になっている。
+#
+# ADR-039 3 点セット:
+# - Config opt-in: default `enabled = false` (template では section ごと無し)。
+#   本リポジトリのみ dogfood のため true。
+# - Kill-switch: `enabled = false` で恒久停止 / env `TESTABILITY_GATE_OVERRIDE=1` で
+#   個別 push のバイパス。
+# - Bounded lifetime: 導入時は `mode = "warning"` 固定で 4 週間発火を観測し、
+#   FP 率 < 10% なら `mode = "deny"` へ昇格。超えるなら検出条件を絞るか物理削除する
+#   (ADR-042 § Mechanism graveyard prevention)。判定は monthly-review に載せ、
+#   結果は docs/adr/adr-076-testability-gate.md に書く。
+# ---------------------------------------------------------------------------
+[testability_gate]
+enabled = true
+mode = "warning"
+
 [takt]
 workflow = "pre-push-review"
 task = "pre-push review"

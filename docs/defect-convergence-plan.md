@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F6、その後 Phase 1**。Phase 1 以降は未着手。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F3→F4→F2→F5 (Phase F の後半)、その後 Phase 2**。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -14,8 +14,8 @@
 | D2 | `feat(ledger): 詳細エントリに順位を付与し結合キーを移す` | D | **マージ済み ([#450](https://github.com/aloekun/claude-code-hook-test/pull/450))** |
 | D3 | `feat(docs-lint): 順位 ⇄ 詳細エントリの 1:1 対応検査 (順位 441 の実装)` | D | **マージ済み ([#452](https://github.com/aloekun/claude-code-hook-test/pull/452))** |
 | F1 | `refactor(docs-lint): 順位 table prefix の重複定義を解消し check 登録簿へ集約する` | F | **マージ済み ([#454](https://github.com/aloekun/claude-code-hook-test/pull/454))** |
-| F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | F | **完了 (本 PR)** |
-| 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | 未着手 |
+| F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | F | **マージ済み ([#455](https://github.com/aloekun/claude-code-hook-test/pull/455))** |
+| 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | **完了 (本 PR)** |
 | 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | 未着手 |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
 | 機4 | `feat(ledger): 起票由来タグと defect 流入の週次計測` | 4 | 未着手 |
@@ -79,7 +79,7 @@
 
 ## 全体順序
 
-**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 → Phase 1 → F3→F4→F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
+**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3→F4→F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
 
 - **Phase F は 2 つに割れる** (2026-08-27 ユーザー判断)。**F1 / F6 は軽い後始末なので Phase 1 の前**に片付ける — F1 は D3 の takt fix step が作った重複定義の解消 (XS〜S)、F6 は既存機構の記述 (XS)。**F3 / F4 / F2 / F5 は Phase 1 の後**に置く — 機1 が検出条件と allowlist を確定させ、**F5 はその条件を実コードで検証・補強する側**に回るため (逆順にすると F5 が機1 の未確定な条件を先取りすることになる)。機1 の allowlist 実測は F3 / F4 の内容にも影響する
 - Phase 5 の 3 本は他 Phase と独立。**PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は通常枠と入れ替えてよい**
@@ -285,7 +285,7 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 
 ### F6 — 既存機構の記述 (新しい義務は課さない、完了)
 
-**本 docs バッチ PR で完了。** どちらも**既に機械が強制していることの説明**であり、人間に新しい義務を課すルールではない。宣言行は最初から「機械化: …」の形で書いた (撤1-③ が置くゲートの対象を自分で増やさないため)。
+**[PR #455](https://github.com/aloekun/claude-code-hook-test/pull/455) でマージ済み (2026-08-27)。** どちらも**既に機械が強制していることの説明**であり、人間に新しい義務を課すルールではない。宣言行は最初から「機械化: …」の形で書いた (撤1-③ が置くゲートの対象を自分で増やさないため)。
 
 - `### 順位 N:` の syntax 仕様 (コロン必須・前方一致不可・N は `u32`) を [ADR-033](adr/adr-033-todo-numbering-simplification.md) § 見出しの syntax 仕様 へ追記した。強制しているのは `lib-ledger` の `removal.rs` と `cli-docs-lint` の `entry_pairing.rs` の `heading_rank` 2 箇所で、**両者は同一契約** (片方だけ変えると検査と削除がずれる) であることも書いた
 - 台帳の `照合除外:` マーカーの使用規約 (理由必須・fail-closed) を [dev-conventions.md](dev-conventions.md) へ記載した。強制しているのは `deployed_ledger.rs` の `parse_review_exclusions`
@@ -306,44 +306,79 @@ F1 / F5 / F6 は禁止パス非該当 (`src/cli-docs-lint/` / `src/cli-pr-monito
 
 ## Phase 1 — 機1: testability gate (新規 1 本)
 
+**実装済み (2026-08-28)。設計と判定の記録先は [ADR-076](adr/adr-076-testability-gate.md)。** 以下は着手時の実測で計画から変わった点を含む。
+
 **何を止めるか**: G1 の新規混入 — 「判定ロジックが I/O と同居していてテストを書く場が無い」形の Rust 関数が push を通ること。
 
-**設置**: [src/cli-push-runner/src/stages/](../src/cli-push-runner/src/stages/) に新 stage `testability_gate.rs`。`lint_screen` / `pr_size_check` と同列の diff スコープ決定論検査 (対象は push 範囲 `<base>..@` で変更された `.rs` ファイルのみ。既存コードは見ない)。stage の配線は `stages/mod.rs` と `push-runner-config.toml` の既存 stage を踏襲。
+**設置**: [src/cli-push-runner/src/stages/testability_gate/](../src/cli-push-runner/src/stages/testability_gate/)。`lint_screen` / `pr_size_check` と同列の diff スコープ決定論検査 (対象は push 範囲で変更された `.rs` のみ。既存コードは見ない)。
 
-**検出条件**: 「**本体に I/O 呼び出し (`Command::new` / `run_cmd_*` / `fs::` / `env::var`) と、その出力への分岐 (エラー処理以外) が同居する、判定型 (`bool` / `Option<T>` / `Result<bool, _>`) を返す関数**」。
+### 検出条件 (着手時の実測で確定)
+
+計画時の文言「I/O 呼び出し + その出力への分岐 (エラー処理以外) + 判定型」は**そのままでは使えなかった**。ゆるく実装すると 53 件が当たり、その大半が**正しく分離済みの関数**だったためである。実コードを読んで分類した結果、識別子は「I/O の有無」ではなく「**解釈が純関数へ切り出されているか**」だと分かった (PR V が実際に採った remedy そのもの)。確定した条件:
+
+1. 返り値が `bool` / `Option<bool>` / `Result<bool, _>`
+2. I/O 由来の値がある (I/O 原子の直接呼び出し、または**同一ファイル内で I/O 原子を含む関数**の呼び出し = 1 ホップ)
+3. **返り値の式そのもの**がその値からインラインで導かれている
+
+汚染は「同一ファイル内の I/O を持たない関数への呼び出し」で止まる (そこがテストの場)。外部 crate の呼び出し (`serde_json::from_str` 等) は解釈の場を作らないので汚染を通す。
+
+**射程外にしたもの** (FP が支配的になるため意図的に追わない): 分岐して literal を返す形 / bool 以外の判定型 (独自 enum・タプル・`Option<Vec<T>>`) / I/O の成否をそのまま返す形 / 呼び出し側での解釈 / 別ファイルの I/O ヘルパ経由。
+
 「引数なし + I/O + 判定型」の 3 条件案は**採用しない** — ダミー引数 1 つで回避できる (2026-08-25 評価で棄却済み。再検討しない)。
 
-**AST 手段の選定 (本 PR 内の設計判断)**: repo に `ast-grep` は未配線、`syn` 依存も無い (2026-08-25 実測)。[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) は「正規表現層 / ast-grep 外部委譲」の 2 層しか想定していないため、**`syn` を Rust exe に組み込む第 3 の形を採る場合は ADR-007 の改訂を本 PR に同乗**させる。
+**回避操作が望ましい refactor と一致する**のが本 gate の性質である。1 行の純関数へ切り出せば通るが、それが作りたかったテストの場である。ただし保証するのは「テストが書ける形」までで、「テストがあること」は強制しない。
 
-**FP の扱い (段階導入)**:
+### AST 手段
+
+`syn` を `cli-push-runner` に直接依存させた。`syn` は `serde_derive` 経由で既に `Cargo.lock` に在るため**新しい第三者 crate は増えず**、`full` + `visit` の feature 追加で済む。ADR-007 が想定していない第 3 の形なので、同 ADR に Amendment を追記した (2026-08-28)。
+
+### FP の扱い (段階導入)
 
 - 導入時は **warning** (push は通し stderr + telemetry [ADR-055](adr/adr-055-firing-telemetry-collection.md) に発火記録)。試験運用 4 週で FP 率を実測し、**FP < 10% ([ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) Step 2 の経験則) で deny へ昇格**、超えるなら検出条件を絞って再測。昇格判定は monthly-review に載せる
-- allowlist は**既存分の凍結専用**で、新規追加はできない (cargo test が allowlist の中身を既知集合と照合し、**差分が「削除のみ」であることを assert** する ratchet)。初期登録 6 件: `diff_at_is_empty` / `run_bookmark_check` / `working_copy_is_empty` / `head_has_description` / `pipeline_is_running` / `is_kill_switch_enabled` (Phase 0 の V と通常枠 O のマージで減る)
-  - **この 6 件は根因表 (§ 根因) の G1 6 件とは別の母集団**である。偶然どちらも 6 件だが、重なるのは `diff_at_is_empty` / `run_bookmark_check` の 2 件だけ。根因表は**第 2 バッチで実際に不具合として発現した site**、こちらは**検出条件に当たる既存関数を 2026-08-25 に grep で洗い出した集合** (発現していないものを含む)。着手時は実測で採り直すこと
+- **試験運用中に CI 経由で実質 deny にしない**。リポジトリ全体を走査する検査は `#[ignore]` にしてあり、既定の `cargo test` は BASELINE の stale 検査だけを行う
+- allowlist (`BASELINE`) は**既存分の凍結専用**で、新規追加はできない (`baseline_never_grows` が件数増加を拒否する ratchet)
 
-**完了基準 (最重要)**: [ADR-049](adr/adr-049-incident-eval-regression-suite.md) の incident→eval 方式で、**修正前の実不具合コードを入力にすると検出が発火する**回帰テストを固定する。fixture の採取元は **2026-08-25 時点の master `dd86b697`** の次の 2 関数 (行番号は当時点、関数名を正とする):
+**初期登録は実測 8 件** (2026-08-28、197 ファイル / parse 失敗 0)。計画時の想定 6 件とは母集団が違い、一致したのは `working_copy_is_empty` / `head_has_description` の 2 件だけだった。`diff_at_is_empty` は PR V が既に直しており、`is_kill_switch_enabled` / `pipeline_is_running` は解釈を純関数へ委譲済みで発火しない。
 
-- `src/cli-pr-monitor/src/runner.rs` の `diff_at_is_empty` (191 行付近、順位 490)
-- `src/cli-push-runner/src/stages/bookmark_check.rs` の `run_bookmark_check` (83 行付近、順位 484)
+| ファイル | 関数 |
+|---|---|
+| `src/cli-pr-monitor/src/fix_commit/abandon.rs` | `parent_commit_id_is` |
+| `src/cli-pr-monitor/src/runner.rs` | `diff_is_empty` |
+| `src/cli-push-runner/src/stages/push_jj_bookmark.rs` | `working_copy_is_empty` / `head_has_description` |
+| `src/hooks-session-start/src/jj_helpers.rs` | `fetch_head_is_recent` |
+| `src/hooks-stop-quality/src/takt_subsession.rs` | `meta_status_is_running` / `meta_is_fresh` |
+| `src/lib-telemetry/src/lib.rs` | `telemetry_enabled` |
 
-採取は `jj file show -r dd86b697 <path>` で行い、good fixture (発火しない側: pure 化後の形) と対で ADR-049 の `tests/fixtures/incidents/{bad,good}/` 配置規則に倣う。**2 件とも発火しなければ本 PR は完了ではない。**
+`diff_is_empty` は **PR V が直した `diff_at_is_empty` と同じファイルの隣の関数**で、同型の欠陥が残っていた実例である。
 
-**順位 481 (`run_cmd_shell_with`) は本 gate の射程外**である。同関数の戻り値は `(bool, String)` で上記の判定型に当たらず、欠陥も判定の誤りではなく I/O ヘルパ内の liveness 欠陥 (正常終了経路の reader thread join が上限なし) である。**タプル戻り値を検出条件へ足して射程に入れることはしない** — `(bool, String)` を返す I/O ヘルパは正当な形として多数あり、FP が跳ね上がるため。481 は通常枠 PR N の経過時間 assert 付き決定論テストで塞ぐ。
+### 完了基準と回帰 fixture (計画から変更)
 
-**G1 の 6 件を誰が直すか** — 機構と修正は別物なので混同しないこと。**機1 は既存 6 件を 1 つも直さない**。機1 がするのは「今後 同型が新しく入るのを止める」ことだけで、既存分は次の 6 本が個別に直す:
+[ADR-049](adr/adr-049-incident-eval-regression-suite.md) の incident→eval 方式で、**修正前の実不具合コードで発火する**ことを固定した。fixture は `detect.rs` のテストに Rust ソース文字列として持つ (`INCIDENT_490` = master `dd86b697` の `diff_at_is_empty`、`REMEDY_490` = PR V 修正後の形)。
+
+**計画が指定していた 2 件目 (`run_bookmark_check`) は fixture にしていない。** 実測すると `dd86b697` 時点で既に分離済み (`decide_from_bookmark_list` + 注入された query closure) であり、順位 484 の中身も「push stage の bare push フォールバック不変条件」で I/O 癒着とは別の欠陥だった。史実の `b69f7a3a80f6` (PR #175) 版は I/O をヘルパ経由で取ったうえで `bookmarks.is_empty()` で**分岐して literal を返す**形であり、上記の射程外に当たる。**「合成が関数内にある」問題は本 gate の射程ではない**という線引きの実例として ADR-076 に記録した。
+
+代わりに、**分離済みの形で発火しないこと**を good fixture 側で固定してある (委譲 / 注入 / I/O 成否 / bool 以外 / test module)。分類が正しいという担保が無ければ warning は信用されないためで、これは計画に無い追加である。
+
+### G1 の 6 件を誰が直すか
+
+機構と修正は別物なので混同しないこと。**機1 は既存 8 件を 1 つも直さない**。機1 がするのは「今後 同型が新しく入るのを止める」ことだけで、既存分は次が個別に直す:
 
 | G1 の site | 直す PR |
 |---|---|
-| `diff_at_is_empty` (490) | Phase 0 の **PR V** |
+| `diff_at_is_empty` (490) | Phase 0 の **PR V** (完了) |
 | `run_bookmark_check` (484) | 通常枠 **PR O** |
 | `run_cmd_shell_with` (481) | 通常枠 **PR N** |
-| nightly-todo の緑/赤分類 (488) | Phase 0 の **PR T** |
+| nightly-todo の緑/赤分類 (488) | Phase 0 の **PR T** (完了) |
 | nightly-todo の master 参照 (487) | 通常枠 **PR S** |
 | nightly-todo の掃除ループ (D-1) | **機3** |
 
-**機3 が直すのは掃除ループ (D-1) の 1 件だけ**である (488 は PR T、487 は PR S が担当)。機1 は 490 / 484 の修正前コードを**回帰 fixture として使う**が、修正そのものは PR V / PR O が行う。
+**順位 481 (`run_cmd_shell_with`) は本 gate の射程外**である。戻り値が `(bool, String)` で判定型に当たらず、欠陥も判定の誤りではなく I/O ヘルパ内の liveness 欠陥 (正常終了経路の reader thread join が上限なし)。**タプル戻り値を検出条件へ足して射程に入れることはしない** — `(bool, String)` を返す I/O ヘルパは正当な形として多数あり、FP が跳ね上がる。481 は通常枠 PR N の経過時間 assert 付き決定論テストで塞ぐ。
 
-**限界の明記 (doc コメントに書く)**: thin I/O wrapper (取得だけして値を返す層) との線引きは曖昧領域として残り、本 gate は完全ではなく ratchet である。だから Phase 4 で測定を続ける。
+### 効果の見積り (実装後に確定)
+
+過去の G1 6 件のうち、本 gate が書いた時点で止められたのは **1 件** (`diff_at_is_empty`) である。**着手前の見積りは 2 件だったが、射程を確定させたら 1 件だった** — `run_bookmark_check` は PR #175 当時の形も「I/O → 純パーサ → 分岐して literal を返す」で射程外に当たる。残りは shell 判定 3 件 (Rust でないため **機3 が exe へ移して初めて射程の候補**になり、当たるかは移してみるまで分からない) と射程外決定済みの 1 件。
+
+**1/6 は小さい。** それでも入れるのは、止める対象が「過去 6 件」ではなく今後書かれる同型であり、回避操作が望ましい refactor と一致するためである。**4 週間の測定で発火 0 件または FP 率 10% 超なら物理削除する** (ADR-039 の bounded lifetime)。詳細は [ADR-076](adr/adr-076-testability-gate.md) § 帰結。
 
 ## Phase 2 — 機2: open-questions gate (新規 1 本)
 

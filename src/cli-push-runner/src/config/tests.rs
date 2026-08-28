@@ -522,6 +522,7 @@ fn validate_rejects_empty_groups() {
         pre_push_review: None,
         docs_only_routing: None,
         post_takt_regate: None,
+        testability_gate: None,
         takt: TaktConfig {
             workflow: "w".into(),
             task: "t".into(),
@@ -558,6 +559,7 @@ fn validate_rejects_empty_commands() {
         pre_push_review: None,
         docs_only_routing: None,
         post_takt_regate: None,
+        testability_gate: None,
         takt: TaktConfig {
             workflow: "w".into(),
             task: "t".into(),
