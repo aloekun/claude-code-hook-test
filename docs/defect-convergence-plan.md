@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F2→F5、その後 Phase 2**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F5、その後 Phase 2**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -20,7 +20,7 @@
 | 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | **マージ済み ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456))** |
 | F3 | `fix(ledger): 索引の自己汚染を防ぎ照合の回帰テストを足す` | F | **完了 (本 PR)** |
 | F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | **完了 (本 PR)** |
-| F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | 未着手 |
+| F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | **完了 (本 PR)** |
 | F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | 未着手 |
 | 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | 未着手 |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
@@ -81,7 +81,7 @@
 
 ## 全体順序
 
-**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4 (完了) → F2→F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
+**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4 (完了) → F2 (完了) → F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
 
 - **Phase F は 2 つに割れる** (2026-08-27 ユーザー判断)。**F1 / F6 は軽い後始末なので Phase 1 の前**に片付ける — F1 は D3 の takt fix step が作った重複定義の解消 (XS〜S)、F6 は既存機構の記述 (XS)。**F3 / F4 / F2 / F5 は Phase 1 の後**に置く — 機1 が検出条件と allowlist を確定させ、**F5 はその条件を実コードで検証・補強する側**に回るため (逆順にすると F5 が機1 の未確定な条件を先取りすることになる)。機1 の allowlist 実測は F3 / F4 の内容にも影響する
 - Phase 5 の 3 本は他 Phase と独立。**PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は通常枠と入れ替えてよい**
@@ -260,12 +260,15 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 
 **この重複は D3 の pre-push takt fix step が作った。** 私が書いた固定 2 要素配列を prefix 走査へ書き換えた際 (`SIM-NEW-entry_pairing-L44`)、既存 2 箇所と同じ値を 3 つ目として定義した。**fix step の出力をレビューせずマージした**ことが直接の原因である (memory `dont-trust-takt-fix-output` の再発)。
 
-### F2 — multi-file validator のテスト基盤
+### F2 — multi-file validator のテスト基盤 (完了)
 
-- 同一 key が複数ファイルへ分散するシナリオを標準ケースとして持つ fixture template を整備する。今後の validator 追加 (順位 465 等) で再利用する
-- `todo-summary3.md` 相当のダミーを使い、**台帳分割後も既存 validator 群 (entry_pairing / priority_inversion / preamble) が false-green / false-positive を出さない**ことを検証する。**置き場所は着手時に決める** — `src/cli-docs-lint/tests/` に閉じれば禁止パス非該当、CI matrix / nightly (`.github/workflows/`) へ置くなら禁止パス該当で auto lane 不可になる
+**本 PR で完了。** 着手時の実測で **F1 が中核を先に埋めていた**ため、範囲を未カバー分へ絞った (2026-08-29 ユーザー判断)。
 
-**F1 の後に置く** — 統合された共有定義を前提に書くため。
+- **置き場所は [`src/cli-docs-lint/tests/split_ledger.rs`](../src/cli-docs-lint/tests/split_ledger.rs)** (crate 内の統合テスト)。`.github/workflows/` は触らないので **[ADR-072](adr/adr-072-nightly-todo-loop.md) の禁止パス非該当**で、本 PR は auto lane に載せられる形になった (ただし本計画の PR は方針として載せない)
+- **F1 との重複を作らない。** 「3 validator が `todo-summary3.md` をそろって認識する」は F1 が `lib.rs` の `shared_summary_definition_tests` で固定済みなので、ここでは**未カバーの分割形**だけを扱う: 詳細ファイル (`todoN.md`) 側の分割 / part 番号の欠番 (`todo-summary2.md` が無い) / 分割後に足した詳細ファイルの走査 / 順位 table が 1 行も読めない構成 (fail-closed で `Err`)
+- **fixture template は最小ヘルパー 1 つ**に留めた (`docs_with` = tempdir へファイル一式を書くだけ)。順位 465 (docs 整合性と output-contract の drift 検証) が実際に来た時点で必要な形へ広げる — 使われないシナリオ集を先に作らない
+- **実 exe を 2 ケースで回す** (`CARGO_BIN_EXE_cli-docs-lint`)。公開 API 経由のテストだけでは、CLI の引数解決や check の配線が外れても気づけない。違反なしで exit 0 / 詳細エントリ欠落で exit 1 の対を固定した
+- 変異で噛むことを確認した: 詳細ファイルの走査を空へ差し替えると `a_detail_file_added_after_the_split_is_still_scanned` が落ちる (#452 で実際に素通りした変異と同型)
 
 ### F3 — lib-ledger の照合まわり (完了)
 
@@ -337,7 +340,7 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 
 **F3 / F4 は auto lane 不可** — `src/lib-ledger/` / `src/cli-ledger-cleanup/` が [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス。
 
-**F2 も auto lane 不可** — 台帳分割シナリオの検証を `.github/workflows/` (ci.yml の matrix か nightly) へ置くため、同じく禁止パスに当たる。**成果物を `src/cli-docs-lint/tests/` だけに閉じる設計を選ぶなら禁止パス非該当になる** — どちらにするかは着手時に決め、`.github/workflows/` を触ると決めた時点で auto lane から外すこと。
+**F2 は禁止パス非該当だった** — 着手時に成果物を `src/cli-docs-lint/tests/` へ閉じる設計を選んだため (2026-08-29 ユーザー判断)。`.github/workflows/` は触っていない。
 
 F1 / F5 / F6 は禁止パス非該当 (`src/cli-docs-lint/` / `src/cli-pr-monitor/` / docs)。
 
