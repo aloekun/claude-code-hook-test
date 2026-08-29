@@ -463,3 +463,178 @@ fn matching_declarations_yield_no_orphans() {
     let existing = declared.clone();
     assert!(orphans_for_kind("bad", &declared, &existing).is_empty());
 }
+
+/// 1 つの rule について、`extensions` に挙げた拡張子のうち `test_coverage` で
+/// 網羅されていないものを列挙する (逆向き coverage 検査: extension → test)。
+///
+/// [`check_main_ext_coverage`] / [`check_other_ext_coverage`] は「主要拡張子を
+/// 1 つも targets しない rule」でだけ `other_ext_tests` 非空を要求する
+/// (`targets_main_empty` ゲート)。そのため、主要拡張子と非主要拡張子を**両方**
+/// targets する rule (例: rule⑬ の `toml`/`yaml`/`yml` + `jsonc`) は、非主要拡張子側の
+/// test が 1 件も無くても `rule_test_coverage_check` を素通りする。#402 で rule⑬ に
+/// `json` を追加した際、実際にこのすり抜けが起きて CodeRabbit に指摘された。
+/// 本関数は `targets_main` の状態に関係なく、`extensions` に出現する拡張子ごとに
+/// 個別に coverage を要求することでこの非対称を閉じる。
+#[cfg(test)]
+fn extension_coverage_gaps(rule: &CustomRule) -> Vec<String> {
+    let coverage = rule.test_coverage.clone().unwrap_or_default();
+    let mut gaps: Vec<String> = Vec::new();
+    for ext in &rule.extensions {
+        let is_main = MAIN_EXTENSIONS.iter().any(|m| ext.eq_ignore_ascii_case(m));
+        if is_main {
+            let has_test = coverage
+                .main_ext_tests
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(ext.as_str()))
+                .is_some_and(|(_, v)| !v.is_empty());
+            if !has_test {
+                gaps.push(format!(
+                    "rule `{}` declares main extension `{}` in `extensions` but \
+                     `test_coverage.main_ext_tests.{}` has no test",
+                    rule.id, ext, ext
+                ));
+            }
+        } else if coverage.other_ext_tests.is_empty() {
+            gaps.push(format!(
+                "rule `{}` declares non-main extension `{}` in `extensions` but \
+                 `test_coverage.other_ext_tests` is empty",
+                rule.id, ext
+            ));
+        }
+    }
+    gaps
+}
+
+/// 逆向き coverage ゲート ([`rule_test_coverage_check`] を extension 起点で補完)。
+///
+/// allowlist は持たない: 現行 12 rule はいずれも `extensions` の全拡張子が
+/// coverage 済みであり ([`rule_test_coverage_check`] が個別に main ext を検証、
+/// 本検査が非主要拡張子側の見逃しを塞ぐ)、免除が要る incident-derived でない
+/// rule ([`NON_INCIDENT_RULES`] 相当のケース) も extension coverage の要件までは
+/// 免除されない — 拡張子を宣言した以上、その拡張子に対する test は必須という
+/// 単純な原則のため。
+#[cfg(test)]
+#[test]
+fn extension_test_coverage_check() {
+    let rules = load_deployed_custom_rules();
+    let mut gaps: Vec<String> = Vec::new();
+    for rule in &rules {
+        gaps.extend(extension_coverage_gaps(rule));
+    }
+    assert!(
+        gaps.is_empty(),
+        "extensions declared without test coverage ({} issue(s)):\n  - {}",
+        gaps.len(),
+        gaps.join("\n  - ")
+    );
+}
+
+#[cfg(test)]
+fn rule_with_extensions_and_coverage(
+    id: &str,
+    extensions: &[&str],
+    coverage: CustomRuleTestCoverage,
+) -> CustomRule {
+    CustomRule {
+        id: id.into(),
+        pattern: "x".into(),
+        severity: "warning".into(),
+        message: "test message".into(),
+        why: String::new(),
+        extensions: extensions.iter().map(|e| e.to_string()).collect(),
+        paths: None,
+        fix: None,
+        example: None,
+        test_coverage: Some(coverage),
+        incident: None,
+    }
+}
+
+/// #402 で実際に起きたギャップの再現: 主要拡張子 (`toml`) と非主要拡張子 (`jsonc`) を
+/// 両方 targets する rule で、`jsonc` 側の `other_ext_tests` が空だと検出されること。
+#[cfg(test)]
+#[test]
+fn extension_coverage_gaps_detects_missing_non_main_test_when_main_ext_present() {
+    let mut main_ext_tests = std::collections::BTreeMap::new();
+    main_ext_tests.insert("toml".to_string(), vec!["some_toml_test".to_string()]);
+    let rule = rule_with_extensions_and_coverage(
+        "mixed-ext-rule",
+        &["toml", "jsonc"],
+        CustomRuleTestCoverage {
+            main_ext_tests,
+            other_ext_tests: Vec::new(),
+        },
+    );
+    let gaps = extension_coverage_gaps(&rule);
+    assert_eq!(gaps.len(), 1, "{gaps:?}");
+    assert!(gaps[0].contains("jsonc"), "{gaps:?}");
+}
+
+/// 主要拡張子側の見逃しも (既存 `rule_test_coverage_check` と重複する形だが) 検出する。
+#[cfg(test)]
+#[test]
+fn extension_coverage_gaps_detects_missing_main_ext_test() {
+    let rule = rule_with_extensions_and_coverage(
+        "main-only-rule",
+        &["rs"],
+        CustomRuleTestCoverage::default(),
+    );
+    let gaps = extension_coverage_gaps(&rule);
+    assert_eq!(gaps.len(), 1, "{gaps:?}");
+    assert!(gaps[0].contains("rs"), "{gaps:?}");
+}
+
+/// 主要・非主要拡張子とも coverage が揃っていればギャップ 0 件 (正常系の固定)。
+#[cfg(test)]
+#[test]
+fn extension_coverage_gaps_empty_when_fully_covered() {
+    let mut main_ext_tests = std::collections::BTreeMap::new();
+    main_ext_tests.insert("toml".to_string(), vec!["some_toml_test".to_string()]);
+    let rule = rule_with_extensions_and_coverage(
+        "fully-covered-rule",
+        &["toml", "jsonc"],
+        CustomRuleTestCoverage {
+            main_ext_tests,
+            other_ext_tests: vec!["some_jsonc_test".to_string()],
+        },
+    );
+    assert!(extension_coverage_gaps(&rule).is_empty());
+}
+
+/// **非主要拡張子は「rule あたり 1 件」で足りる** — これが現行の契約であることを固定する
+/// (CodeRabbit #461)。
+///
+/// `main_ext_tests` は `BTreeMap<拡張子, Vec<テスト名>>` で拡張子ごとに持てるが、
+/// `other_ext_tests` は `Vec<テスト名>` で**拡張子との対応を持たない**。したがって
+/// 「`jsonc` と `json` を宣言し `jsonc` 用テストだけ登録した」状態は、現行スキーマでは
+/// 検出できない。これは本検査の実装漏れではなく**契約そのもの**である
+/// (`.claude/custom-lint-rules.toml` の順位 137 由来コメント: 非主要拡張子は
+/// 「rule あたり 1+ positive test」)。
+///
+/// 拡張子ごとの検証へ強化するには `other_ext_tests` を map 化するスキーマ移行が要り、
+/// 既存 rule の設定をすべて書き換えることになるため**順位 498 として別起票した**。
+/// 本テストは、その移行が入るまでの契約を明示し、意図せず緩んだ / 強まった場合に落とす。
+#[cfg(test)]
+#[test]
+fn non_main_extension_coverage_is_per_rule_not_per_extension() {
+    let rule = rule_with_extensions_and_coverage(
+        "two-non-main-extensions",
+        &["jsonc", "json"],
+        CustomRuleTestCoverage {
+            main_ext_tests: std::collections::BTreeMap::new(),
+            other_ext_tests: vec!["one_test_for_both".to_string()],
+        },
+    );
+    assert!(
+        extension_coverage_gaps(&rule).is_empty(),
+        "非主要拡張子 2 つに対しテスト 1 件は現行契約では充足 (順位 498 で強化予定)"
+    );
+
+    let uncovered = rule_with_extensions_and_coverage(
+        "two-non-main-extensions-uncovered",
+        &["jsonc", "json"],
+        CustomRuleTestCoverage::default(),
+    );
+    let gaps = extension_coverage_gaps(&uncovered);
+    assert_eq!(gaps.len(), 2, "0 件なら拡張子ごとに不足を報告する: {gaps:?}");
+}

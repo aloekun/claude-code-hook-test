@@ -538,3 +538,27 @@ green になること。検査を外す変異で落ちること。
 台帳を読む step と agent が触る作業ツリーが**同一 SHA を見ている**ことがログから確認できる
 こと。run の途中で master が進んでも選択と実装がずれないこと。
 
+
+### 順位 498: 非主要拡張子の coverage を拡張子ごとに要求する (`other_ext_tests` の map 化)
+
+> **実行優先度**: 🔧 **Tier 2** — 検査の穴であり実害はまだ出ていないが、rule に非主要拡張子を足したときに coverage 不足を見逃す。
+
+**動機**: `custom-lint-rules.toml` の `test_coverage` は主要拡張子 (`rs` / `toml` / `yaml` / `yml`) を `main_ext_tests: BTreeMap<拡張子, Vec<テスト名>>` で拡張子ごとに持つ一方、非主要拡張子は `other_ext_tests: Vec<テスト名>` で**拡張子との対応を持たない**。そのため `jsonc` と `json` を宣言し `jsonc` 用テストだけを登録した rule が検査を通る (PR [#461](https://github.com/aloekun/claude-code-hook-test/pull/461) の CodeRabbit 指摘)。
+**これは実装漏れではなく契約**である — 順位 137 が定めた非主要拡張子の要件は「rule あたり 1+ positive test」で、`.claude/custom-lint-rules.toml` のコメントにもそう書いてある。契約を強める作業なので別起票にした。現行契約は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定しており、意図せず緩んだ場合はそこで落ちる。
+
+#### 作業内容
+
+1. `CustomRuleTestCoverage::other_ext_tests` を `Vec<String>` から `BTreeMap<String, Vec<String>>` (拡張子 → テスト名) へ変える
+2. `.claude/custom-lint-rules.toml` の既存 rule をすべて新形式へ移す。**平坦なリストを拡張子へ割り当て直すには、各テストがどの拡張子の fixture を実際に通しているかを読む必要がある** — ここが本タスクで一番時間を使う部分で、機械的な変換ではない
+3. `extension_coverage_gaps` / `check_other_ext_coverage` を拡張子ごとの判定へ更新する
+4. 契約を固定していた `non_main_extension_coverage_is_per_rule_not_per_extension` を、新契約 (拡張子ごと) を固定するテストへ差し替える
+
+#### 完了基準
+
+- `jsonc` と `json` を宣言し `jsonc` 用テストだけを持つ rule が **検査で落ちる**ことを、fixture ベースのテストで固定する
+- 既存 rule のすべてが新形式で `rule_test_coverage_check` を通る (移行漏れがないこと)
+- 実 `.claude/custom-lint-rules.toml` を読む検査が green のままであること
+
+#### 無人可にしない理由
+
+対象ファイルは Guard 禁止パスに当たらないが、**手順 2 が判断を要する** (どのテストがどの拡張子を通しているかの読み取り)。機械的な置換ではないため人間の lane に置く ([ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2)。
