@@ -175,6 +175,11 @@ pub(crate) fn diff_is_empty(from: &str, to: &str) -> bool {
     out.trim().is_empty()
 }
 
+/// `run_cmd_capture` と同じ形の呼び出し口。**繋ぎのテストで stub を差し込むために置く。**
+///
+/// 実 I/O を差し替えられるようにするのが目的で、本番は [`run_cmd_capture`] をそのまま渡す。
+type Capture<'a> = &'a dyn Fn(&str, &[&str], &[String], u64) -> CmdCapture;
+
 /// `from` から `@` までの変更ファイル一覧 (`jj diff --summary`) を取る (I/O のみ)。
 ///
 /// **失敗を「空」に潰さない。** 呼び手によって失敗の扱いが逆になる — scope guard は
@@ -188,8 +193,18 @@ pub(crate) fn diff_is_empty(from: &str, to: &str) -> bool {
 /// 結合したままだと**順位 490 の誤警告 (と `jj restore` の案内) がそのまま再発する**
 /// (CodeRabbit #446)。失敗時だけ stderr と timeout 情報を結合して診断に回す。
 pub(crate) fn capture_diff_summary(from: &str) -> Result<String, String> {
+    capture_diff_summary_with(from, &run_cmd_capture)
+}
+
+/// [`capture_diff_summary`] の繋ぎ (I/O は `capture` から注入する)。
+///
+/// **この層をテストで固定するのが F5 の目的。** 部品 ([`run_cmd_capture`] /
+/// [`interpret_capture`]) はそれぞれ単体テストがあるが、両者を繋ぐここが
+/// `run_cmd_direct` (stdout と stderr を結合する) へ書き換わっても、部品のテストは
+/// すべて green のままになる。そのとき戻るのが CodeRabbit #446 / 順位 490 の誤警告である。
+fn capture_diff_summary_with(from: &str, capture: Capture<'_>) -> Result<String, String> {
     interpret_capture(
-        run_cmd_capture(
+        capture(
             "jj",
             &["diff", "--from", from, "--to", "@", "--summary"],
             &[],
@@ -239,7 +254,15 @@ fn failure_detail(cap: &CmdCapture, timeout_secs: u64) -> String {
 /// `@` が PR の中身そのものである経路で before/after の代わりに使うと必ず「非空」になる
 /// (順位 490 の誤警告)。前後比較が要る場合は [`diff_is_empty`] に基準コミットを渡すこと。
 pub(crate) fn diff_at_is_empty() -> bool {
-    let raw = query_at_emptiness();
+    diff_at_is_empty_with(&run_cmd_capture)
+}
+
+/// [`diff_at_is_empty`] の繋ぎ (I/O は `capture` から注入する)。
+///
+/// 判定不能は `false` (= diff あり扱い) に倒し、その理由をログへ出す。ログ出力を
+/// ここに置くのは、`interpret_at_emptiness` を I/O なしのまま保つためである。
+fn diff_at_is_empty_with(capture: Capture<'_>) -> bool {
+    let raw = query_at_emptiness_with(capture);
     if let Err(reason) = &raw {
         crate::log::log_info(&format!(
             "[state] diff_at_is_empty 判定失敗 (diff あり扱いで abandon をスキップ): {reason}"
@@ -255,24 +278,25 @@ pub(crate) fn diff_at_is_empty() -> bool {
 /// [`capture_diff_summary`] と同じ理由で**成功時は stdout だけを返す** — jj が警告を出すと
 /// 結合出力は `"true"` と一致しなくなり、空の `@` を「diff あり」と読んで abandon を
 /// 取りこぼす (CodeRabbit #446 と同型)。
-fn query_at_emptiness() -> Result<String, String> {
+fn query_at_emptiness_with(capture: Capture<'_>) -> Result<String, String> {
     interpret_capture(
-        run_cmd_capture(
-            "jj",
-            &[
-                "log",
-                "-r",
-                "@",
-                "--no-graph",
-                "-T",
-                "if(empty, \"true\", \"false\")",
-            ],
-            &[],
-            JJ_CMD_TIMEOUT_SECS,
-        ),
+        capture("jj", AT_EMPTINESS_ARGS, &[], JJ_CMD_TIMEOUT_SECS),
         JJ_CMD_TIMEOUT_SECS,
     )
 }
+
+/// `@` が空かを `"true"` / `"false"` の 1 語で返させる jj 引数。
+///
+/// **テンプレートと [`interpret_at_emptiness`] は対になっている。** ここを変えると
+/// 判定側の `== "true"` が黙って一致しなくなり、空の `@` を「diff あり」と読む。
+const AT_EMPTINESS_ARGS: &[&str] = &[
+    "log",
+    "-r",
+    "@",
+    "--no-graph",
+    "-T",
+    "if(empty, \"true\", \"false\")",
+];
 
 /// `@` の empty 判定 (I/O なし。ログ出力も呼び出し元に置く)。
 ///
@@ -344,6 +368,142 @@ pub(crate) fn checker_exe_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 繋ぎのテストで注入する stub。呼ばれた引数を記録し、決められた [`CmdCapture`] を返す。
+    struct CaptureStub {
+        result: std::cell::RefCell<Option<CmdCapture>>,
+        calls: std::cell::RefCell<Vec<(String, Vec<String>)>>,
+    }
+
+    impl CaptureStub {
+        fn returning(cap: CmdCapture) -> Self {
+            Self {
+                result: std::cell::RefCell::new(Some(cap)),
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn capture_fn(&self) -> impl Fn(&str, &[&str], &[String], u64) -> CmdCapture + '_ {
+            move |program, args, _extra, _timeout| {
+                self.calls.borrow_mut().push((
+                    program.to_string(),
+                    args.iter().map(|a| a.to_string()).collect(),
+                ));
+                self.result.borrow_mut().take().expect("stub は 1 回だけ呼ばれる")
+            }
+        }
+
+        fn only_call(&self) -> (String, Vec<String>) {
+            let calls = self.calls.borrow();
+            assert_eq!(calls.len(), 1, "呼び出し回数: {calls:?}");
+            calls[0].clone()
+        }
+    }
+
+    fn ok_capture(stdout: &str, stderr: &str) -> CmdCapture {
+        CmdCapture {
+            ok: true,
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            timed_out: false,
+        }
+    }
+
+    fn failed_capture(stdout: &str, stderr: &str, timed_out: bool) -> CmdCapture {
+        CmdCapture {
+            ok: false,
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            timed_out,
+        }
+    }
+
+    /// **成功時に stderr を混ぜない** (CodeRabbit #446 / 順位 490 の誤警告の再発防止)。
+    ///
+    /// 部品 (`run_cmd_capture` / `interpret_capture`) の単体テストは、この繋ぎが
+    /// `run_cmd_direct` (stdout と stderr を結合する) へ書き換わっても緑のままになる。
+    /// jj の警告 1 行を「差分あり」と読む形が戻るのはそのときである。
+    #[test]
+    fn the_diff_summary_seam_drops_stderr_on_success() {
+        let stub = CaptureStub::returning(ok_capture(
+            "M src/lib.rs\n",
+            "warning: 作業コピーを更新しました\n",
+        ));
+        let summary = capture_diff_summary_with("abc123", &stub.capture_fn()).expect("ok");
+        assert_eq!(summary, "M src/lib.rs\n", "stderr が混ざっている");
+    }
+
+    /// 失敗は「空」に潰さず `Err` にする (呼び手が fail-closed / 助言を選べるように)。
+    #[test]
+    fn the_diff_summary_seam_reports_failures_as_errors() {
+        let stub = CaptureStub::returning(failed_capture("", "jj: No such revision\n", false));
+        let error = capture_diff_summary_with("abc123", &stub.capture_fn()).unwrap_err();
+        assert!(error.contains("No such revision"), "{error}");
+    }
+
+    /// timeout も `Err` で、診断に timeout の事実が残る。
+    #[test]
+    fn the_diff_summary_seam_marks_timeouts() {
+        let stub = CaptureStub::returning(failed_capture("", "", true));
+        let error = capture_diff_summary_with("abc123", &stub.capture_fn()).unwrap_err();
+        assert!(error.contains("timeout"), "{error}");
+    }
+
+    /// 渡す jj コマンドの形を固定する。`--from <cid> --to @ --summary` が崩れると、
+    /// 比較の基準が変わって「takt が作業ツリーを変えたか」の判定そのものが別物になる。
+    #[test]
+    fn the_diff_summary_seam_asks_jj_for_the_expected_range() {
+        let stub = CaptureStub::returning(ok_capture("", ""));
+        let _ = capture_diff_summary_with("abc123", &stub.capture_fn());
+        let (program, args) = stub.only_call();
+        assert_eq!(program, "jj");
+        assert_eq!(
+            args,
+            vec!["diff", "--from", "abc123", "--to", "@", "--summary"]
+        );
+    }
+
+    /// **`@` の空判定も成功時は stdout だけを見る。** jj の警告が混ざると `"true"` と
+    /// 一致しなくなり、空の `@` を「diff あり」と読んで abandon を取りこぼす。
+    #[test]
+    fn the_at_emptiness_seam_drops_stderr_on_success() {
+        let stub = CaptureStub::returning(ok_capture("true\n", "warning: 何らかの警告\n"));
+        assert!(diff_at_is_empty_with(&stub.capture_fn()));
+    }
+
+    /// 判定不能は `false` (= diff あり扱い) に倒す。`true` に倒すと `jj abandon` が走り、
+    /// takt が部分的に amend した child commit ごと消える。
+    #[test]
+    fn the_at_emptiness_seam_treats_failure_as_not_empty() {
+        let stub = CaptureStub::returning(failed_capture("", "jj: error\n", false));
+        assert!(!diff_at_is_empty_with(&stub.capture_fn()));
+    }
+
+    /// 未知の出力も「空ではない」側へ倒す。
+    #[test]
+    fn the_at_emptiness_seam_treats_unknown_output_as_not_empty() {
+        let stub = CaptureStub::returning(ok_capture("maybe\n", ""));
+        assert!(!diff_at_is_empty_with(&stub.capture_fn()));
+    }
+
+    /// `"true"` / `"false"` を返させるテンプレートを固定する。ここが変わると
+    /// [`interpret_at_emptiness`] の `== "true"` が黙って一致しなくなる。
+    ///
+    /// `AT_EMPTINESS_ARGS` を経由せず独立リテラルで比較する — production 側と同じ
+    /// 定数を比較すると `AT_EMPTINESS_ARGS` 自体の値変更（テンプレート文字列の破壊等）
+    /// を検出できないトートロジーになるため (兄弟テスト
+    /// `the_diff_summary_seam_asks_jj_for_the_expected_range` と同じ流儀)。
+    #[test]
+    fn the_at_emptiness_seam_asks_jj_with_the_paired_template() {
+        let stub = CaptureStub::returning(ok_capture("false\n", ""));
+        let _ = diff_at_is_empty_with(&stub.capture_fn());
+        let (program, args) = stub.only_call();
+        assert_eq!(program, "jj");
+        assert_eq!(
+            args,
+            vec!["log", "-r", "@", "--no-graph", "-T", "if(empty, \"true\", \"false\")"]
+        );
+    }
 
     /// PR #238 regression: stderr の警告ログが stdout の機械可読出力に
     /// 混入しないことを分離キャプチャで保証する。
