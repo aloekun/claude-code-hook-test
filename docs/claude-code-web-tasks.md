@@ -179,6 +179,7 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |  |
 | 272 | T1 | — | cli-docs-lint に ADR 重複採番検出 + CLAUDE.md 索引整合チェック（新規 validator module） | `src/cli-docs-lint/src/adr_consistency.rs`（新規）+ `src/cli-docs-lint/src/main.rs`（CheckMode dispatch 拡張） | S-M | 中核（validator + fixture test）は cargo test で完結。「pnpm lint:docs 経由の発火確認」は Web 外だが成功条件ではない。CLAUDE.md は docs_dir の親なので TempDir で fake 構造を組む |  |
 | 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `src/cli-pr-monitor/src/config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
+| 498 | T2 | — | `other_ext_tests` を拡張子ごとの map へ移し、非主要拡張子も 1 つずつ coverage を要求する | `src/hooks-post-tool-linter/src/custom_rules/types.rs` + `src/hooks-post-tool-linter/src/custom_rules/coverage.rs` + `.claude/custom-lint-rules.toml` | M | 現行契約は「非主要拡張子は rule あたり 1+ test」で、`jsonc` と `json` を宣言し `jsonc` 用テストだけでも通る (PR #461 CodeRabbit 指摘)。既存の平坦な `other_ext_tests` を拡張子へ割り当て直す作業は、各テストがどの拡張子を実際に通しているか読む判断が要るため無人可にしない。契約の現状は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定している | test(post-tool-linter): 非主要拡張子の coverage を拡張子ごとに要求する |  |
 
 ### 無人可としなかった理由
 
