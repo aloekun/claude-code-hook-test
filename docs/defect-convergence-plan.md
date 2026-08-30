@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 は完了。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は F5、その後 Phase 2**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 2 (機2)**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -21,7 +21,7 @@
 | F3 | `fix(ledger): 索引の自己汚染を防ぎ照合の回帰テストを足す` | F | **完了 (本 PR)** |
 | F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | **完了 (本 PR)** |
 | F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | **完了 (本 PR)** |
-| F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | 未着手 |
+| F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | **完了 (本 PR)** |
 | 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | 未着手 |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
 | 機4 | `feat(ledger): 起票由来タグと defect 流入の週次計測` | 4 | 未着手 |
@@ -81,7 +81,7 @@
 
 ## 全体順序
 
-**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4 (完了) → F2 (完了) → F5 → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
+**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4 (完了) → F2 (完了) → F5 (完了) → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
 
 - **Phase F は 2 つに割れる** (2026-08-27 ユーザー判断)。**F1 / F6 は軽い後始末なので Phase 1 の前**に片付ける — F1 は D3 の takt fix step が作った重複定義の解消 (XS〜S)、F6 は既存機構の記述 (XS)。**F3 / F4 / F2 / F5 は Phase 1 の後**に置く — 機1 が検出条件と allowlist を確定させ、**F5 はその条件を実コードで検証・補強する側**に回るため (逆順にすると F5 が機1 の未確定な条件を先取りすることになる)。機1 の allowlist 実測は F3 / F4 の内容にも影響する
 - Phase 5 の 3 本は他 Phase と独立。**PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は通常枠と入れ替えてよい**
@@ -315,13 +315,30 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 
 なお本計画自身の数値は着手時に実測で確認した — 進行表 16 行、内訳 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6) の合計も 16 で一致している。
 
-### F5 — I/O 層と判定層の境界
+### F5 — I/O 層と判定層の境界 (完了)
 
-`run_cmd_capture` (I/O) → `query_at_emptiness` → `interpret_at_emptiness` (判定) の**境界を統合テストで固定する**。
+**本 PR で完了。** 着手時の実測で、**部品はすべてテスト済みで、未固定なのは繋ぎだけ**だと分かった。
 
-**本セッションで 4 回踏んだ穴に直接効く。** #445 (`OUTCOME_FIELDS` ⇄ workflow env) / #447 (`capture_diff_summary` の stdout-only 契約) / #449 (handoff の `if` 条件) / #452 (どのファイルを読むかを決める層) は、いずれも「**両側の部品はテスト済みだが、それらを繋ぐ層が固定されていない**」形だった。4 件とも CodeRabbit が拾っており、こちらの変異テストは自分が書いた純関数の内側しか壊していなかった。
+| 層 | 着手前の状態 |
+|---|---|
+| `run_cmd_capture` (stdout / stderr 分離) | 単体テスト済み |
+| `interpret_capture` (成功 = stdout のみ / 失敗 = 診断) | 単体テスト済み |
+| `interpret_at_emptiness` (判定) | 単体テスト済み |
+| `judge_tree_change` | fetcher を引数で受ける形 (注入済み) |
+| 実 jj の統合テスト | `#[ignore]` で 6 本 (品質ゲートは `cargo test -- --ignored` を回す) |
+| **`query_at_emptiness` / `capture_diff_summary` の繋ぎ** | **未固定** |
 
-**Phase 1 (機1) との関係**: 機1 は「I/O と判定が同居する関数」を push で止める一般機構、F5 は**分離済みの層の間を繋ぐ統合テスト**である。機1 は分離されていれば通すので、F5 が塞ぐ穴 (繋ぎ目が未固定) は機1 の射程外にある。**F5 は Phase 1 の後**に置き、機1 が確定させた検出条件を実コードで検証・補強する側に回る。
+**残っていた穴**: 両関数が `interpret_capture` (stdout のみ) ではなく `run_cmd_direct` (stdout + stderr 結合) を呼ぶ形へ書き換わっても、**既存テストは全部 green のまま**だった。守っていたのは doc コメントだけで、CodeRabbit #446 / 順位 490 の誤警告 (jj の警告 1 行を「差分あり」と読む) がそのまま戻る。
+
+`run_cmd_capture` を引数で受ける形へ分け (`capture_diff_summary_with` / `diff_at_is_empty_with`)、繋ぎを stub で固定した — `bookmark_check` の query closure 注入や `judge_tree_change` と同じ流儀である。固定したのは 3 点:
+
+1. **stdout-only 契約** — 成功時に stderr を混ぜない
+2. **渡すコマンドの形** — `jj diff --from <cid> --to @ --summary` と `@` 空判定のテンプレート (`if(empty, "true", "false")`)。テンプレートと `interpret_at_emptiness` の `== "true"` は対であり、片方だけ変わると黙って一致しなくなる
+3. **失敗の向き** — `capture_diff_summary` は `Err` (呼び手が fail-closed / 助言を選べる)、`diff_at_is_empty` は `false` (= diff あり扱いで abandon を見送る)
+
+**変異で噛むことを確認した** (どちらも従来のテスト構成では緑のまま通った変異): `interpret_capture` を結合へ戻すと 4 件、繋ぎを `run_cmd_direct` へ差し替えると 4 件が落ちる。
+
+**計画が挙げる 4 件の穴のうち、cli-pr-monitor に該当するのは #447 (`capture_diff_summary` の stdout-only 契約) と 順位 490 系だけ**だった (実測)。#445 は `cli-nightly-outcome` + workflow env、#449 は nightly-todo の handoff marker で別クレート / 別経路、#452 は cli-docs-lint で **F2 が統合テストで塞ぎ済み**である。F5 の対象は計画の実装先どおり cli-pr-monitor に閉じた。
 
 ### F6 — 既存機構の記述 (新しい義務は課さない、完了)
 
