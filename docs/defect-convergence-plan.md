@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 2 (機2)**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 / 機2 は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 3 (機3)**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -22,7 +22,7 @@
 | F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | **完了 (本 PR)** |
 | F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | **完了 (本 PR)** |
 | F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | **完了 (本 PR)** |
-| 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | 未着手 |
+| 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | **完了 (本 PR)** |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
 | 機4 | `feat(ledger): 起票由来タグと defect 流入の週次計測` | 4 | 未着手 |
 | 撤1 | `feat(lint): workflow/facet/convention のルール 3 件を lint へ移す` | 5 | 未着手 |
@@ -81,7 +81,7 @@
 
 ## 全体順序
 
-**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4 (完了) → F2 (完了) → F5 (完了) → Phase 2 → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
+**Phase 0 (T→V→W→U、完了) → Phase D (D1→D2→D3、完了) → F1 (完了) → F6 (完了) → Phase 1 (完了) → F3 (完了) → F4 (完了) → F2 (完了) → F5 (完了) → Phase 2 (完了) → 3 → 4 → 5 (撤1→撤2→撤3) → 通常枠 Q→N→M→P→O→R→S**
 
 - **Phase F は 2 つに割れる** (2026-08-27 ユーザー判断)。**F1 / F6 は軽い後始末なので Phase 1 の前**に片付ける — F1 は D3 の takt fix step が作った重複定義の解消 (XS〜S)、F6 は既存機構の記述 (XS)。**F3 / F4 / F2 / F5 は Phase 1 の後**に置く — 機1 が検出条件と allowlist を確定させ、**F5 はその条件を実コードで検証・補強する側**に回るため (逆順にすると F5 が機1 の未確定な条件を先取りすることになる)。機1 の allowlist 実測は F3 / F4 の内容にも影響する
 - Phase 5 の 3 本は他 Phase と独立。**PR Q の観測窓 (発火率 1.4%) を早く開けたい場合は通常枠と入れ替えてよい**
@@ -439,32 +439,38 @@ F1 / F5 / F6 は禁止パス非該当 (`src/cli-docs-lint/` / `src/cli-pr-monito
 
 ## Phase 2 — 機2: open-questions gate (新規 1 本)
 
+**実装済み (2026-08-31)。設計と採否の記録先は [ADR-077](adr/adr-077-open-questions-gate.md)。**
+
 **何を止めるか**: 実装中に見つけた設計の穴 (「この判定の比較対象は何か」等) が、ユーザーに確認されないまま仮定で実装されて push されること。
 
-**成果物**: `docs/open-questions.md` (新規)。エントリ形式:
+**成果物**: [docs/open-questions.md](open-questions.md) (新規)。エントリ形式:
 
 - `## Q-<連番>: <問い>` 見出し + `関連:` (ファイルパス) + `仮定:` (回答が得られるまで実装に置いた前提) の 3 要素
 - 解消 = ユーザーの回答を得て、回答内容を然るべき場所 (ADR / 対象コードの doc comment / 本計画) に書き、**エントリを削除する**。エントリに回答を書き溜めない (ファイルは常に「未解決の問いだけ」を含む)
 
-**ゲート**: push-runner 新 stage `open_questions_gate.rs`。`docs/open-questions.md` に見出しが 1 つ以上あれば deny し、問いの一覧を表示する。ファイル不在または見出し 0 = pass。判定は pure function (入力: ファイル内容文字列) + unit test。
+**ゲート**: push-runner の新 stage [`open_questions_gate`](../src/cli-push-runner/src/stages/open_questions_gate/mod.rs)。見出しが 1 つ以上あれば deny し、問いの一覧 (`関連:` / `仮定:` 込み) を表示する。ファイル不在または見出し 0 = pass。判定は pure function (入力: ファイル内容文字列) + unit test。
 
-**境界 (doc コメントに書く)**: 「問うべきなのに書かなかった」は検出不能。本機構の保証は「**書かれた問いは必ず push 前にユーザーへ届く**」まで。問いが浮上すること自体は機1 の pure 化作業に依存する (Phase 0 PR V で実地検証済みであること)。
+**書式の不備では通さない** — `関連:` / `仮定:` が欠けていてもエントリとして数える。不備を理由に通すと、gate が守ろうとしている性質が崩れる。
+
+**fence の内側は読まない (dogfood で判明)**: `docs/open-questions.md` 自身が「書き方」の節でエントリ例を示すため、コードブロック内の例を問いと数えると**書き方を説明した時点で gate が常に発火する**。実 exe に実ファイルを通して初めて出た穴で、単体テストだけでは見えなかった。
+
+**ADR-039 の 3 点セット**: config `[open_questions_gate]` は**既定で有効** (機1 と違い誤検出の余地が無く、書いた本人が消せば通るため warning 期間を置かない) / kill-switch は `enabled = false` + env `OPEN_QUESTIONS_GATE_OVERRIDE=1` / 3〜5 PR の dogfood で「問いが実際に書かれるか」「バイパス頻度」を観測し ADR-077 に記録。**問いが 1 件も書かれないまま終わったら却下して物理削除**する。
+
+**境界 (doc コメントに書いた)**: 「問うべきなのに書かなかった」は検出不能。本機構の保証は「**書かれた問いは必ず push 前にユーザーへ届く**」まで。問いが浮上すること自体は機1 の pure 化作業に依存する。
 
 ### Phase 0 PR V で実地に浮上した問い (2026-08-25、エントリ形式の検証材料)
 
-**新規ファイルは作らない** (ユーザー決定)。`docs/open-questions.md` は機2 の実装 PR で新規作成し、本節はその**最初の入力**として使う。
-
-PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いずれも**その場でユーザーに確認して解消済み**である。エントリ形式 (`## Q-<連番>` + `関連:` + `仮定:`) がこの 2 件を表現できるかが、機2 実装時の受け入れ確認になる。
+PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いずれも**その場でユーザーに確認して解消済み**である。エントリ形式 (`## Q-<連番>` + `関連:` + `仮定:`) がこの 2 件を表現できるかが受け入れ確認だった。
 
 | 問い | 関連 | 当時置いた仮定 | 得た回答 (2026-08-25) |
 |---|---|---|---|
-| **比較材料 (`pre_takt_cid`) が `None` のとき、警告を出すか出さないか** | [monitor.rs](../src/cli-pr-monitor/src/stages/monitor.rs) `judge_tree_change` | ADR-043 に従い助言層なので fail-open | **どちらでもない第 3 の状態**を持つ。「判定不能」を専用文言で出し、`jj abandon` / `jj restore` は案内しない (fail-open だと本当の変更を見逃し、fail-closed だと順位 490 の実害が残るため) |
-| **`diff_at_is_empty()` の pure 化はどこまでやるか** (判定層だけか、関数ごと I/O と分離するか) | [runner.rs](../src/cli-pr-monitor/src/runner.rs) | 呼び出し元が 2 系統あるため warning 経路だけ切り出す | **関数ごと I/O と判定を分離する**。機1 の allowlist 初期登録から `diff_at_is_empty` が 1 件減る |
+| **比較材料 (`pre_takt_cid`) が `None` のとき、警告を出すか出さないか** | [monitor.rs](../src/cli-pr-monitor/src/stages/monitor.rs) `judge_tree_change` | ADR-043 に従い助言層なので fail-open | **どちらでもない第 3 の状態**を持つ。「判定不能」を専用文言で出し、`jj abandon` / `jj restore` は案内しない |
+| **`diff_at_is_empty()` の pure 化はどこまでやるか** | [runner.rs](../src/cli-pr-monitor/src/runner.rs) | 呼び出し元が 2 系統あるため warning 経路だけ切り出す | **関数ごと I/O と判定を分離する** |
 
-**この 2 件から分かったこと (機2 の設計に反映すること)**:
+**この 2 件から分かったこと (実装に反映済み)**:
 
-1. **問いには「回答」だけでなく「置いた仮定」が要る** — どちらの問いも、答えを待たずに実装を進めるための仮定を置いていた。仮定を書かないと、回答が来たときにどのコードを直すべきか分からない。現行のエントリ形式 (`仮定:` を必須要素にしている) はこの点を満たしている
-2. **二択に見えて三択のことがある** — 1 件目は「fail-closed か fail-open か」の二択として起票されていた (todo25.md の 490 節) が、実際の答えはどちらでもなかった。**エントリ形式に選択肢を書く欄を設けない**のは正しい (選択肢を書くと答えがその中にあると誤読させる)
+1. **問いには「回答」だけでなく「置いた仮定」が要る** — 現行のエントリ形式は `仮定:` を必須要素にしている
+2. **二択に見えて三択のことがある** — エントリ形式に選択肢を書く欄を設けない (選択肢を書くと答えがその中にあると誤読させる)
 3. **`関連:` はファイルパスだけで足りた** — 行番号を書くと実装中にずれる
 
 ## Phase 3 — 機3: shell 判定の exe 移送 (新規 1 本)

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 mod docs_only_routing;
 mod ledger_completion;
 mod lint_screen;
+mod open_questions_gate;
 mod post_takt_regate;
 mod pr_size_check;
 mod scratch_file_warning;
@@ -18,6 +19,7 @@ pub(crate) use lint_screen::{
     DEFAULT_LINT_SCREEN_MAX_DIFF_LINES, DEFAULT_LINT_SCREEN_MODEL, DEFAULT_LINT_SCREEN_OUTPUT_PATH,
     DEFAULT_LINT_SCREEN_TIMEOUT_SECS,
 };
+pub(crate) use open_questions_gate::OpenQuestionsGateConfig;
 pub(crate) use post_takt_regate::{PostTaktRegateConfig, DEFAULT_MAX_SHRINK_PCT};
 pub(crate) use pr_size_check::{
     PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD, DEFAULT_PR_SIZE_WARNING_THRESHOLD,
@@ -206,6 +208,7 @@ pub(crate) struct Config {
     pub(crate) docs_only_routing: Option<DocsOnlyRoutingConfig>,
     pub(crate) post_takt_regate: Option<PostTaktRegateConfig>,
     pub(crate) testability_gate: Option<TestabilityGateConfig>,
+    pub(crate) open_questions_gate: Option<OpenQuestionsGateConfig>,
 }
 
 impl Config {

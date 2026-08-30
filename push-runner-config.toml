@@ -331,6 +331,24 @@ enabled = true
 [testability_gate]
 enabled = true
 mode = "warning"
+# ---------------------------------------------------------------------------
+# [open_questions_gate] — 機2 (ADR-077): 未解決の設計の問いが残ったまま push されるのを
+# 止める。docs/defect-convergence-plan.md § Phase 2。
+#
+# docs/open-questions.md に `## Q-<連番>:` のエントリが 1 件でもあれば deny する。
+# ファイル不在 / エントリ 0 件は pass。書式の不備 (関連: / 仮定: の欠落) では通さない。
+#
+# ADR-039 3 点セット:
+# - Config: **既定で有効** (本 section 不在 / enabled 未設定も有効)。判定は「ファイルに
+#   問いが書いてあるか」だけで誤検出の余地が無いため、機1 のような warning 期間を置かない。
+# - Kill-switch: `enabled = false` で恒久停止 / env `OPEN_QUESTIONS_GATE_OVERRIDE=1` で
+#   個別 push のバイパス (確認より先に push する必要があるとき)。
+# - Bounded lifetime: 3〜5 PR の dogfood で「問いが実際に書かれるか」「バイパスの頻度」を
+#   観測し、ADR-077 に判定を書く。**問いが 1 件も書かれないまま終わったら却下**して
+#   機構を物理削除する (ADR-042 § Mechanism graveyard prevention)。
+# ---------------------------------------------------------------------------
+[open_questions_gate]
+enabled = true
 
 [takt]
 workflow = "pre-push-review"

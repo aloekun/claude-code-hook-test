@@ -354,6 +354,7 @@ command = "echo push"
             docs_only_routing: None,
             post_takt_regate: None,
             testability_gate: None,
+            open_questions_gate: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),

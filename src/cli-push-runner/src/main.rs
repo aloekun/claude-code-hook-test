@@ -24,6 +24,7 @@
 //!   8 - pr_size_check が block_threshold 超過 (override env で bypass 可能)
 //!   9 - ledger_completion: 台帳が宣言する成果物に未変更のものがある
 //!   10 - testability_gate が deny モードで発火 (試験運用中は warning のため出ない)
+//!   11 - open_questions_gate: docs/open-questions.md に未解決の問いがある
 
 mod config;
 mod log;
@@ -38,7 +39,8 @@ use log::log_info;
 use metrics::RunMetrics;
 use stages::{
     run_bookmark_check, run_diff, run_docs_only_routing, run_ledger_completion, run_lint_screen,
-    run_post_takt_regate, run_pr_size_check, run_push, run_quality_gate, run_scratch_file_warning,
+    run_open_questions_gate, run_post_takt_regate, run_pr_size_check, run_push, run_quality_gate,
+    run_scratch_file_warning,
     run_testability_gate,
     run_takt, DiffResult,
 };
@@ -55,6 +57,8 @@ const EXIT_PR_SIZE_EXCEEDED: i32 = 8;
 const EXIT_LEDGER_INCOMPLETE: i32 = 9;
 /// 機1 (testability gate) が deny モードで発火した (試験運用中は warning のため出ない)。
 const EXIT_TESTABILITY_GATE: i32 = 10;
+/// 機2 (open-questions gate) が未解決の問いを検出した。
+const EXIT_OPEN_QUESTIONS: i32 = 11;
 
 /// diff stage の結果。takt / post-takt re-gate を走らせるかを表す。
 enum DiffGate {
@@ -115,6 +119,12 @@ fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
         );
         return Err(EXIT_PR_SIZE_EXCEEDED);
     }
+    if !run_open_questions_gate(config.open_questions_gate.as_ref()) {
+        log_info(
+            "パイプライン中断: 未解決の問いが残っています。ユーザーへ確認し、回答を書いてから\n             docs/open-questions.md のエントリを削除してください (バイパスは OPEN_QUESTIONS_GATE_OVERRIDE=1)。",
+        );
+        return Err(EXIT_OPEN_QUESTIONS);
+    }
     if !run_testability_gate(config.testability_gate.as_ref(), &config.pr_size_pr_range()) {
         log_info(
             "パイプライン中断: testability_gate (機1) が push を止めました。理由は直前のログを参照してください。\n             解釈を純関数へ出す / 走査できない原因を解消する / `TESTABILITY_GATE_OVERRIDE=1` のいずれかで再実行してください。",
@@ -156,7 +166,7 @@ fn start_pipeline(config: &config::Config) -> String {
     let has_diff = config.diff.is_some();
     let workflow = resolve_takt_workflow(config);
     log_info(&format!(
-        "パイプライン開始: bookmark → testability → docs_only_routing → quality_gate → {} takt ({}) → push",
+        "パイプライン開始: bookmark → open-questions → testability → docs_only_routing → quality_gate → {} takt ({}) → push",
         if has_diff { "diff →" } else { "" },
         workflow,
     ));
