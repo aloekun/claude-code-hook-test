@@ -75,17 +75,21 @@ pub fn resolve_git_dir(workspace_root: &std::path::Path) -> GitDirResolution {
 /// [`resolve_git_dir`] と同じ layout 解釈 (相対パス基準、verbatim prefix 剥がし) を共有する:
 ///
 /// 1. `<root>/.jj/repo` がディレクトリ → この root 自身がメイン (colocated) workspace →
-///    `Some(root)` をそのまま返す
+///    `canonicalize()` (失敗時は入力のまま) を返す
 /// 2. `<root>/.jj/repo` がファイル → 内容が main repo store への (相対なら `<root>/.jj/` 基準の)
 ///    パス (`<main>/.jj/repo`)。その 2 階層上がメイン workspace root
 /// 3. `.jj/repo` 不在 / 読み取り失敗 / 導出パス不存在 → `None` (caller は現 root に fail-open)
 ///
-/// `GIT_DIR` を扱う [`resolve_git_dir`] と違い最終 store ではなく **workspace root** を返す点、
-/// および colocated root を `Resolved` ではなく入力そのまま返す点で用途が異なる。
+/// `GIT_DIR` を扱う [`resolve_git_dir`] と違い最終 store ではなく **workspace root** を返す点で
+/// 用途が異なる。colocated / secondary いずれの経路も `canonicalize()` + verbatim prefix 剥がしで
+/// 揃える (順位 412 — #385 では入口ごとに正規化の粒度が異なっていた)。
 pub fn resolve_main_workspace_root(workspace_root: &std::path::Path) -> Option<std::path::PathBuf> {
     let repo_entry = workspace_root.join(".jj").join("repo");
     if repo_entry.is_dir() {
-        return Some(workspace_root.to_path_buf());
+        return Some(match workspace_root.canonicalize() {
+            Ok(p) => strip_windows_verbatim_prefix(&p),
+            Err(_) => workspace_root.to_path_buf(),
+        });
     }
     if !repo_entry.is_file() {
         return None;
@@ -447,7 +451,36 @@ mod tests {
             make_colocated_main(tmp.path());
             let resolved = resolve_main_workspace_root(tmp.path())
                 .expect("colocated main (.jj/repo がディレクトリ) は自身を返す");
-            assert_eq!(resolved.as_path(), tmp.path());
+            assert_eq!(
+                resolved,
+                strip_windows_verbatim_prefix(&tmp.path().canonicalize().unwrap()),
+                "期待値も verbatim prefix を剥がして比べる。Windows の canonicalize() は
+                 verbatim 付きを返すため、生値と比べると production 側の剥がし処理と必ず
+                 食い違う (単一 OS の事前フィルタでは Linux 側だけ一致して通り抜ける)"
+            );
+            assert!(
+                !resolved.to_string_lossy().starts_with(r"\\?\"),
+                "verbatim prefix は剥がされていること: {:?}",
+                resolved
+            );
+        }
+
+        /// 順位 412: colocated 経路と secondary 経路が同じ形式のパスを返すことを固定する
+        /// (#385 の CodeRabbit 指摘 — 以前は colocated が入力そのまま、secondary のみ canonicalize)。
+        #[test]
+        fn colocated_and_secondary_paths_agree_on_normalization() {
+            let tmp = tempfile::tempdir().unwrap();
+            let main = tmp.path().join("main");
+            let ws = tmp.path().join("ws");
+            make_colocated_main(&main);
+            make_secondary_workspace(&ws, "../../main/.jj/repo");
+
+            let via_colocated = resolve_main_workspace_root(&main).expect("colocated 経路");
+            let via_secondary = resolve_main_workspace_root(&ws).expect("secondary 経路");
+            assert_eq!(
+                via_colocated, via_secondary,
+                "同じチェックアウトに対し、colocated 経路と secondary 経路は同じ形式のパスを返すこと"
+            );
         }
 
         #[test]
