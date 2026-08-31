@@ -220,6 +220,7 @@ version = "0.1.0"
 dependencies = [
  "lib-docs-policy",
  "lib-jj-helpers",
+ "lib-pending-file",
  "lib-subprocess",
  "lib-telemetry",
  "proc-macro2",

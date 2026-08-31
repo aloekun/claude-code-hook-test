@@ -10,6 +10,7 @@ mod open_questions_gate;
 mod post_takt_regate;
 mod pr_size_check;
 mod scratch_file_warning;
+mod takt_verdict_gate;
 mod testability_gate;
 
 pub(crate) use docs_only_routing::DocsOnlyRoutingConfig;
@@ -25,6 +26,7 @@ pub(crate) use pr_size_check::{
     PrSizeCheckConfig, DEFAULT_PR_SIZE_BLOCK_THRESHOLD, DEFAULT_PR_SIZE_WARNING_THRESHOLD,
 };
 pub(crate) use scratch_file_warning::ScratchFileWarningConfig;
+pub(crate) use takt_verdict_gate::TaktVerdictGateConfig;
 pub(crate) use testability_gate::{
     validate_testability_gate_mode, TestabilityGateConfig, DEFAULT_TESTABILITY_GATE_MODE,
 };
@@ -209,6 +211,7 @@ pub(crate) struct Config {
     pub(crate) post_takt_regate: Option<PostTaktRegateConfig>,
     pub(crate) testability_gate: Option<TestabilityGateConfig>,
     pub(crate) open_questions_gate: Option<OpenQuestionsGateConfig>,
+    pub(crate) takt_verdict_gate: Option<TaktVerdictGateConfig>,
 }
 
 impl Config {

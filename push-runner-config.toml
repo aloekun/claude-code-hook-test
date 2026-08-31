@@ -350,6 +350,30 @@ mode = "warning"
 [open_questions_gate]
 enabled = true
 
+# ---------------------------------------------------------------------------
+# [takt_verdict_gate] — 順位 499 (ADR-078): takt のレビューが APPROVE で終わっていない
+# まま push されるのを止める。
+#
+# takt stage はプロセスの成否しか見ておらず、fix step が権限上直せない finding を抱えた
+# ままの workflow (status=completed) を成功と判定して push していた (2026-08-30 実測)。
+# この push で起動した run を meta.json の内容 (piece + startTime) で特定し、
+# reports/*.md の `## Result:` を読む。1 つでも APPROVE 以外なら deny。
+# verdict を読めない場合 (run 不在 / レポート 0 件) も deny (ADR-043)。
+# takt を skip した経路では検査しない。
+#
+# ADR-039 3 点セット:
+# - Config: **既定で有効** (本 section 不在 / enabled 未設定も有効)。既知の穴を塞ぐもので
+#   warning 期間を置く意味がない。
+# - Kill-switch: `enabled = false` で恒久停止 / env `TAKT_VERDICT_GATE_OVERRIDE=1` で
+#   個別 push のバイパス。指摘が妥当でも fix step が直せない場合に、人が手で直してから
+#   押し切る経路として要る。
+# - Bounded lifetime: 3〜5 PR の dogfood で「REJECT を止めた回数」「バイパス頻度」を
+#   観測し ADR-078 に記録。バイパスが常用されるなら fix step の編集可能 zone を広げる案へ
+#   再検討する。
+# ---------------------------------------------------------------------------
+[takt_verdict_gate]
+enabled = true
+
 [takt]
 workflow = "pre-push-review"
 task = "pre-push review"

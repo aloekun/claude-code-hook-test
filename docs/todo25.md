@@ -562,3 +562,33 @@ green になること。検査を外す変異で落ちること。
 #### 無人可にしない理由
 
 対象ファイルは Guard 禁止パスに当たらないが、**手順 2 が判断を要する** (どのテストがどの拡張子を通しているかの読み取り)。機械的な置換ではないため人間の lane に置く ([ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2)。
+
+### 順位 499: takt の verdict を push-runner が読み、REJECT のまま push される経路を塞ぐ
+
+> **実行優先度**: 🚀 **Tier 1** — [defect-convergence-plan.md](defect-convergence-plan.md) の前提「強制点 = push ゲート」を崩す穴。
+
+**動機**: 2026-08-30、PR [#463](https://github.com/aloekun/claude-code-hook-test/pull/463) の作業中に実測した経路。takt の simplicity レビューが blocking finding を出したが、fix step は `push-runner-config.toml` が read-only zone のため編集を拒否し ([ADR-068](adr/adr-068-fix-step-authority-boundary.md) の human routing)、同じ finding が carry-over のまま **7 イテレーション**空転した。workflow は `status: completed` で終了し、push-runner の takt stage は **`run_cmd_inherit` の bool (プロセスの成否) しか見ない**ため成功と判定して **push が実行された**。
+
+**「fix step が権限上直せない finding」は、ループを消費した後に REJECT のまま push される。** エスカレーションは動いたが、宛先の人間へ届く経路が無い。
+
+#### 実測した判定材料
+
+| 材料 | 結果 |
+|---|---|
+| `meta.json` の `status` | REJECT 時も APPROVE 時も `"completed"` — 使えない |
+| `reports/*.md` の `## Result:` | 8/30 run = `simplicity-review.md: REJECT` / 8/31 run = 両方 `APPROVE` — 使える |
+
+#### 作業内容
+
+1. 新 stage `takt_verdict` を `takt` の直後に置く。判定部は純関数 (入力: ファイル名とテキストの配列)
+2. run の特定は `meta.json` の `piece` 一致 + `startTime` が takt 起動時刻以降で行う (ディレクトリの mtime に依存しない — 並行 run と取り違えないため)
+3. 窓は `started_at <= startTime <= now` で閉じ、`reportDirectory` が `.takt/runs/` 配下であることを検証し、窓に 2 件以上入ったら deny する (遠未来の偽 run による恒久バイパスを防ぐ。security review が Critical で指摘)
+4. `## Result:` が 1 つでも APPROVE 以外なら deny。**takt が走ったのに run / レポートが見つからない場合も deny** (「レビューしたはずなのに verdict が読めない」は本 incident と同じ状態)
+4. takt を skip した経路 (`DiffGate::SkipTakt` 等) では本 stage も skip する
+5. [ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) 3 点セット: config `[takt_verdict_gate]` 既定 ON / `enabled = false` + `TAKT_VERDICT_GATE_OVERRIDE=1` / 3〜5 PR の dogfood を ADR-078 に記録
+
+#### 完了基準
+
+- **incident 再現** ([ADR-049](adr/adr-049-incident-eval-regression-suite.md)): 8/30 run のレポート実物 (REJECT) で deny、8/31 run のレポート実物 (両方 APPROVE) で pass
+- レポート 0 件で deny / takt skip 経路では検査しない
+- takt のレポート書式が変わったら落ちる回帰テストを実レポートのテキストで持つ ([ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) の output-contract 結合が 1 本増えるため)
