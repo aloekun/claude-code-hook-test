@@ -148,40 +148,6 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 なし
 
-### 順位 467: 夜間ループとレポート出力の小さな穴を塞ぐ (系統 D + F-2)
-
-> **動機**: lane モデルの 5 PR で残った小さな欠陥。いずれも実害は限定的だが、放置すると無人経路のノイズか停止につながる。
->
-> **参照**: `.claude/feedback-reports/412.md` Tier1 #2、`.claude/feedback-reports/411.md` Tier1 #1、2026-08-16 の dispatch 実走ログ
->
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Low-Medium / Effort S / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- **D-1 ブランチ削除の事前存在確認** (`.github/workflows/nightly-todo.yml`): 掃除ループで `git push --delete` の前に `git ls-remote` で ref の存在を確認し、既に消えていれば warning で skip する。現状は `set -euo pipefail` により step 全体が中断する。**4 ソースが同一指摘**
-  - **失敗の種別を潰さないこと。** 「対象 ref が既に消えている」だけを warning + 継続にし、**ネットワーク / 認証エラーは従来どおり失敗させる** ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 10 — インフラ障害は設計された結末ではないので red)。`git push --delete` の非ゼロを一律に握り潰すと、App token の失効やネットワーク断が「掃除対象なし」に化ける
-  - 事前確認と削除の間に他経路がブランチを消す競合は残る (TOCTOU)。その場合も上記の種別判定で「既に消えている」として扱えれば実害はない
-- **D-2 parse エラーの診断強化** (`src/lib-ledger/src/summary_gate.rs`): 行番号と文脈を含める。現状は「順位を整数として読めません」等で、どの行かは出るが周辺が分からない
-- **F-2 `[env] GIT_DIR 導出失敗` の抑止** (`src/cli-stale-branch-scan/`): `--repo` を明示している場合は gh の repo 解決に GIT_DIR が不要なので警告を出さない。夜間 workflow は jj リポジトリ外で走るため毎晩出る
-
-#### 作業計画
-
-- [ ] D-1 を実装 (ls-remote 確認 + warning skip)
-- [ ] D-2 を実装 + テスト
-- [ ] F-2 を実装 (`--repo` 指定時は警告抑止)
-- [ ] `cargo test --workspace` green / `pnpm lint:workflows` OK
-- [ ] 次回 dispatch or schedule 実走で D-1 / F-2 の効果を確認
-
-#### 完了基準
-
-- 掃除ループが「既に消えたブランチ」で job を落とさない。**かつネットワーク / 認証エラーでは従来どおり落ちる** (両方をテストか実走で確認する)
-- 夜間 run のログに実害の無い警告が出ない
-- parse エラーから問題箇所が特定できる
-
-#### 詰まっている箇所
-
-- D-1 の効果確認は実走が要る (workflow 変更は実走でしか検証できない)
-
 ---
 
 ## PR #417 の調査で判明した残課題 (2026-08-18 起票)
