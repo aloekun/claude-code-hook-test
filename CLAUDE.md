@@ -78,6 +78,7 @@
 - [ADR-075: 着手前の前提検証 — 台帳・フィードバックの記述を実測で確かめる](docs/adr/adr-075-verify-premises-before-acting.md)
 - [ADR-076: testability gate — I/O 出力のインライン解釈を push で止める](docs/adr/adr-076-testability-gate.md) *(試験運用)*
 - [ADR-077: open-questions gate — 未解決の設計の問いが push を止める](docs/adr/adr-077-open-questions-gate.md) *(試験運用)*
+- [ADR-078: takt verdict gate — REJECT のまま push されるのを止める](docs/adr/adr-078-takt-verdict-gate.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

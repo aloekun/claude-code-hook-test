@@ -355,6 +355,7 @@ command = "echo push"
             post_takt_regate: None,
             testability_gate: None,
             open_questions_gate: None,
+            takt_verdict_gate: None,
             takt: TaktConfig {
                 workflow: "w".into(),
                 task: "t".into(),

@@ -25,6 +25,7 @@
 //!   9 - ledger_completion: 台帳が宣言する成果物に未変更のものがある
 //!   10 - testability_gate が deny モードで発火 (試験運用中は warning のため出ない)
 //!   11 - open_questions_gate: docs/open-questions.md に未解決の問いがある
+//!   12 - takt_verdict_gate: レビューが APPROVE で終わっていない
 
 mod config;
 mod log;
@@ -42,7 +43,7 @@ use stages::{
     run_open_questions_gate, run_post_takt_regate, run_pr_size_check, run_push, run_quality_gate,
     run_scratch_file_warning,
     run_testability_gate,
-    run_takt, DiffResult,
+    run_takt, run_takt_verdict_gate, DiffResult,
 };
 
 const EXIT_SUCCESS: i32 = 0;
@@ -59,6 +60,8 @@ const EXIT_LEDGER_INCOMPLETE: i32 = 9;
 const EXIT_TESTABILITY_GATE: i32 = 10;
 /// 機2 (open-questions gate) が未解決の問いを検出した。
 const EXIT_OPEN_QUESTIONS: i32 = 11;
+/// 順位 499 (takt verdict gate): レビューが APPROVE で終わっていない。
+const EXIT_TAKT_VERDICT: i32 = 12;
 
 /// diff stage の結果。takt / post-takt re-gate を走らせるかを表す。
 enum DiffGate {
@@ -188,9 +191,19 @@ fn run_takt_and_regate(
         return Ok(());
     };
     metrics.set_takt_workflow(workflow);
+    let takt_started_at = lib_pending_file::utc_now_iso8601();
     if !metrics.timed("takt", || run_takt(&config.takt, workflow, bookmarks)) {
         log_info("パイプライン中断: takt ワークフロー失敗。");
         return Err(EXIT_TAKT_FAILURE);
+    }
+    if !metrics.timed("takt_verdict", || {
+        run_takt_verdict_gate(config.takt_verdict_gate.as_ref(), workflow, &takt_started_at)
+    }) {
+        log_info(
+            "パイプライン中断: レビューが APPROVE で終わっていません。指摘に対応してから再実行して\
+             ください (対応済み / 意図的に押し切る場合のみ TAKT_VERDICT_GATE_OVERRIDE=1)。",
+        );
+        return Err(EXIT_TAKT_VERDICT);
     }
     let regate = metrics.timed("post_takt_regate", || {
         run_post_takt_regate(config, pre_diff.as_deref())
