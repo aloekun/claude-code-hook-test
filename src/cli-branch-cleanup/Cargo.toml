@@ -1,0 +1,13 @@
+[package]
+name = "cli-branch-cleanup"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cli-branch-cleanup"
+path = "src/main.rs"
+
+[dependencies]
+lib-subprocess = { path = "../lib-subprocess" }
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

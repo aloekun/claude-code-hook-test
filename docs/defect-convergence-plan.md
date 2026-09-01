@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 / 機2 は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 3 (機3)**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 / 機2 / 機3 は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 4 (機4)**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -18,12 +18,12 @@
 | F1 | `refactor(docs-lint): 順位 table prefix の重複定義を解消し check 登録簿へ集約する` | F | **マージ済み ([#454](https://github.com/aloekun/claude-code-hook-test/pull/454))** |
 | F6 | `docs: 順位見出しの syntax と照合除外マーカーを記録する` | F | **マージ済み ([#455](https://github.com/aloekun/claude-code-hook-test/pull/455))** |
 | 機1 | `feat(push-runner): testability gate — I/O 癒着判定の混入を止める` | 1 | **マージ済み ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456))** |
-| F3 | `fix(ledger): 索引の自己汚染を防ぎ照合の回帰テストを足す` | F | **完了 (本 PR)** |
-| F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | **完了 (本 PR)** |
-| F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | **完了 (本 PR)** |
-| F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | **完了 (本 PR)** |
-| 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | **完了 (本 PR)** |
-| 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | 未着手 |
+| F3 | `fix(ledger): 索引の自己汚染を防ぎ照合の回帰テストを足す` | F | **マージ済み ([#457](https://github.com/aloekun/claude-code-hook-test/pull/457))** |
+| F4 | `test(ledger-cleanup): title の write-only 化とドキュメント数値の一貫性を検査する` | F | **マージ済み ([#458](https://github.com/aloekun/claude-code-hook-test/pull/458))** |
+| F2 | `test(docs-lint): multi-file validator の fixture template と台帳分割シナリオ` | F | **マージ済み ([#460](https://github.com/aloekun/claude-code-hook-test/pull/460))** |
+| F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | **マージ済み ([#462](https://github.com/aloekun/claude-code-hook-test/pull/462))** |
+| 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | **マージ済み ([#463](https://github.com/aloekun/claude-code-hook-test/pull/463))** |
+| 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | **完了 (本 PR)** |
 | 機4 | `feat(ledger): 起票由来タグと defect 流入の週次計測` | 4 | 未着手 |
 | 撤1 | `feat(lint): workflow/facet/convention のルール 3 件を lint へ移す` | 5 | 未着手 |
 | 撤2 | `feat(pre-tool-validate): cargo fmt / Set-Content / jj squash の deny` | 5 | 未着手 |
@@ -473,11 +473,11 @@ PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いず
 2. **二択に見えて三択のことがある** — エントリ形式に選択肢を書く欄を設けない (選択肢を書くと答えがその中にあると誤読させる)
 3. **`関連:` はファイルパスだけで足りた** — 行番号を書くと実装中にずれる
 
-## Phase 3 — 機3: shell 判定の exe 移送 (新規 1 本)
+## Phase 3 — 機3: shell 判定の exe 移送 (新規 1 本、完了)
 
 **何を止めるか**: `.github/workflows/nightly-todo.yml` の掃除ループ (`Clean up branches of settled PRs` step) に shell 判定として実装された 3 分岐が、テスト不能なまま残ること。
 
-**背景 (実測 2026-08-25)**: 掃除ループは 2026-08-22 18:05 UTC の run 32589642740 で初めて実走し (`claude/nightly-228` を削除)、削除経路と lease 一致削除は観測済み。だが「既に消えたブランチで落とさない」skip 2 分岐と障害経路は **TOCTOU レース (実測窓 約 1.3 秒) でしか通らず自然発火を期待できない**。順位 467 D-1 の残観測はこの状態で止まっている。
+**背景 (実測 2026-08-25)**: 掃除ループは 2026-08-22 18:05 UTC の run 32589642740 で初めて実走し (`claude/nightly-228` を削除)、削除経路と lease 一致削除は観測済み。だが残りの分岐は**どれも自然発火を期待できない** — 「既に消えたブランチで落とさない」skip 2 分岐と ref 移動は **TOCTOU レース (実測窓 約 1.3 秒)** を要し、障害経路はネットワーク断・token 失効といった**外部障害** (TOCTOU とは別の条件) を要する。順位 467 D-1 の残観測はこの状態で止まっている。
 
 **実装**: scan → ref 観測 → lease 付き削除 → 結果分類 (ref 不在→skip / ref 移動→中止 / ネットワーク・認証失敗→red) を新 crate `cli-branch-cleanup` へ移し、分類判定を pure function + unit test で固定する。workflow step は exe 呼び出しと結果表示のみに縮退させる。
 
@@ -486,6 +486,24 @@ PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いず
 - **通常枠 PR S (順位 487、master SHA pin) も実装方針を shell 修正から exe 移送へ変更する** (PR 自体は通常枠のまま)
 
 **後始末 (機3 のマージで実施 — 本計画を追加した PR ではない)**: 機3 が exe + unit test で skip 2 分岐と障害経路を固定した時点で順位 467 の残観測は構造的に決着する。**その確認が済んでから** todo24.md の 467 節 + todo-summary2.md の 467 行を削除し、bugfix-batch-plan.md § 残観測トラッキングの 467 項も削除する。テストが未固定の状態で追跡記録を先に消してはならない。
+
+### 実装 (2026-09-01、本 PR)
+
+新 crate `cli-branch-cleanup` (推奨どおり `cli-stale-branch-scan` へは統合せず、ADR-022 の scan = 提案 / cleanup = 実行を保った)。判定は `classify.rs` の純関数 `classify(observation, delete, recheck)` に集約し、workflow step の shell は約 60 行 → exe 呼び出し 1 本へ縮退した。
+
+- **固定した分岐** — **入力 7 ケース → `Outcome` 6 種類**。削除成功 / 観測時点で不在 (skip) / 削除直前に消失 (skip) / ref 移動による中止 / **削除の拒否** / 観測失敗 / 再確認失敗 の 7 ケースを、後ろ 2 つが同じ `Outcome::Failed` (detail が違う) に落ちる形で分類する。TOCTOU レースも外部障害も再現せずに unit test で通る
+  - **ref が在るだけでは「動いた」と言えない** — lease の失敗文言は「消えた」「動いた」「拒否された」を区別しない (実測: どれも `stale info`) ため ref の実在で判定していたが、branch protection / 権限不足 / server-side hook による拒否では **ref は観測時の SHA のまま残る**。SHA まで見て初めて「他経路の作業がある」と言える (CodeRabbit #466)。**red で止める挙動は変えていない — 変えたのは人間に出す診断だけ**で、旧 shell より 1 段細かくなっている
+- **段の欠落は失敗に倒す** — `delete` / `recheck` を呼ばずに `None` で来た場合、成功ではなく `Outcome::Failed` にする (「削除していないのに成功」を作らない)
+- **失敗の種別は潰さない** — 順位 467 D-1 の設計決定どおり、「既に消えている」だけを skip にし、ネットワーク / 認証失敗は exit 1 で red (ADR-072 決定 10)
+- **意味論は移送で変えない** — `--force-with-lease=refs/heads/<b>:<観測 SHA>` の compare-and-delete、App token を URL に埋める形、dry-run の列挙のみ挙動、**最初の失敗で打ち切る fail-fast** (旧 shell の `set -euo pipefail` + `exit 1`) を保った。token は git の出力を必ず `redact` に通してから表示する
+  - **初版は fail-fast を落としていた** (全件処理してから集約判定にしていた) — pre-push review が「移送で意味論を変えない」という本節の主張との食い違いとして検出した。打ち切りに戻したうえで、ループ制御を注入 (`run_branches` に処理を渡す) で I/O 無しにテストしている。続行すると、失効した token のような**残り全件でも同じく失敗する原因**に対して削除 push を投げ続けることになる
+- **exe の配線** — workflow の `Build deterministic gates from master` に `-p cli-branch-cleanup` を追加し、**sha256 の tamper-detection baseline にも入れた** (ref を削除する = 外部可視の実行を担う exe なので、書き換えられると lease 判定を無効化して他経路の作業を消せる)
+- **移送で落としかけた前提 1 件** — `git push` はリポジトリの外では動かない (`fatal: not a git repository`、exit 128)。job の既定 cwd は checkout 先ではないため、移送前の shell は使い捨ての空リポジトリを `git init` して `git -C` で push していた。**exe の初版はこれを引き継いでおらず**、必須引数 `--work-dir` を足して同じ形に直した (この前提は移送前の shell が実測して残したコメントが出所。本セッションでは git コマンドが hook で塞がれているため再実測はしていない)
+- **実装中に自分のテストが捕まえた不具合 2 件** — `observe_from_output` が行頭を trim して空の SHA 欄を ref 名と誤読していた (SHA の 16 進形検査を追加)、`redact(text, "")` が全文字間に `***` を挿入して診断を読めなくしていた
+
+**ADR-072 決定 1 の充足**: 「回帰テストの場が無い判定を無人経路に置かない」— 掃除ループの判定は全分岐がテスト下に入った。
+
+**通常枠 PR S (順位 487、master SHA pin) の方針変更は据え置き** — 本 PR は掃除ループのみを移送しており、pin の実装方針変更は PR S 側で行う。
 
 ## Phase 4 — 機4: 効果測定 (新規 1 本)
 

@@ -21,6 +21,7 @@ resolver = "2"
 members = [
     "src/check-ci-coderabbit",
     "src/cli-autonomy-gate",
+    "src/cli-branch-cleanup",
     "src/cli-docs-lint",
     "src/cli-finding-classifier",
     "src/cli-ledger-candidates",

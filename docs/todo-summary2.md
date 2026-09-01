@@ -174,7 +174,6 @@
 | 464 | 🔧 Tier 2 | **`review-todo-whole` facet が読む台帳の事実を `cli-ledger-candidates` の出力へ寄せる** | todo24.md | S | なし (2026-08-17 に再 rescope。Criterion 3-2 は決定論 exe へ置換済み・3-3 のブランチ走査は消滅。残るのは 3-1 の逆向き差集合と `✅` 行の特定で、同 exe に出力を足すだけで足りる) |
 | 465 | 🔧 Tier 2 | **docs 整合性と output-contract の drift を機械検証する (#409-#414 feedback 系統 A+B を統合)** | todo24.md | S-M | なし (旧依存だった順位 441 は 2026-08-26 に `cli-docs-lint` の `entry_pairing` として実装済み。実装先が同じなので、同 module へ相乗りするか独立 validator にするかを着手時に判断) |
 | 466 | 💎 Tier 3 | **出力先と検証設計の convention を明文化する (#409-#414 feedback 系統 C+E を統合)** | todo24.md | S | なし (2026-08-17 採用。docs のみ。出力の visible paths / fixture と実データの対 / step outcome の組み合わせ の 3 点) |
-| 467 | 🔧 Tier 2 | **夜間ループとレポート出力の小さな穴を塞ぐ (#409-#414 feedback 系統 D + dispatch 実走 F-2)** | todo24.md | S | なし (2026-08-17 採用。ブランチ削除の事前存在確認 / parse エラー診断強化 / GIT_DIR 警告抑止。D-1 の効果確認は実走が要る) |
 | 468 | 🔧 Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
 | 470 | 🚀 Tier 1 | **誤帰属と副作用フラグ欠如を決定論ルールで弾く (`..` 混入検出 / `jj workspace list` の `--ignore-working-copy` 欠如検出、#417+#421 feedback 採用、系統 A)** | todo24.md | S | なし (両者とも実 incident 実績あり。`.claude/custom-lint-rules.toml` の正規表現層で完結) |
 | 471 | 🔧 Tier 2 | **cross-crate 定数 pin と reaper 回帰テストの残片を埋める (#417+#420 feedback 採用、系統 B 実装 + C)** | todo24.md | XS-S | なし (元 3 提案のうち 1 件は起票時点で実装済みと判明。着手時に再確認する) |
