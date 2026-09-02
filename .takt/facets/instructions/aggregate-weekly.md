@@ -1,6 +1,6 @@
 # Aggregate Weekly Review
 
-5 つの whole-tree レビュー facet (simplicity / security / architecture / todo / jj-robustness) と決定論 scan 2 つ (file-length / workspace-hygiene) を統合し、週次レビューレポートと構造化 findings JSON を生成する。
+5 つの whole-tree レビュー facet (simplicity / security / architecture / todo / jj-robustness) と決定論 scan 3 つ (file-length / workspace-hygiene / ledger-candidates) を統合し、週次レビューレポートと構造化 findings JSON を生成する。
 
 ADR-031 § Findings スキーマ + § 採否フロー の input source として findings JSON を produce する設計。skill 側 (Phase C 予定) が JSON を読んで AskUserQuestion で採否を確認するため、本 facet は構造化データの単一 source。
 
@@ -18,7 +18,7 @@ ADR-031 § Findings スキーマ + § 採否フロー の input source として
 
 ### Report Directory (takt が提供)
 
-本 step (`pass_previous_response: false`) は前 step の response を受け取らない。代わりに Report Directory に保存された 7 reports を Read で読み取る:
+本 step (`pass_previous_response: false`) は前 step の response を受け取らない。代わりに Report Directory に保存された 8 reports を Read で読み取る:
 
 - `simplicity-whole-review.md` — review-simplicity-whole facet の出力
 - `security-whole-review.md` — review-security-whole facet の出力
@@ -172,6 +172,7 @@ Markdown は人間 / Claude が読む summary 層。findings table を severity 
 **これは findings ではない。** 未掲載であること自体は欠陥ではなく、台帳へ載せるか / lane を `✅` `—` のどちらにするかは人間の割り当て判断である (ADR-072 決定 18)。採否フローには乗せない。
 
 詳細は Report Directory の `ledger-candidates.md` を参照。
+
 
 ### Workspace Hygiene (機械的観測)
 

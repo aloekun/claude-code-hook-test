@@ -6,6 +6,7 @@
     "lint": "npx oxlint src/",
     "lint:md": "npx --no-install markdownlint-cli2 \"**/*.md\"",
     "lint:docs": "node scripts/run-artifact.mjs cli-docs-lint",
+    "ledger-residue-scan": "node scripts/ledger-residue-scan.mjs",
     "lint:workflows": "node scripts/lint-workflows.mjs",
     "test": "npx vitest run",
     "test:e2e": "npx tsx scripts/e2e.ts",
