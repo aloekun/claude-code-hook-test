@@ -42,6 +42,7 @@ pub use removal::{
 use screening::is_bidi_or_invisible_format_char;
 pub use screening::{screen_for_public_output, screen_for_title};
 pub use summary_gate::{
+    parse_origin, Origin, ORIGIN_BOUNDARY_RANK,
     parse_summary_entries, parse_summary_ranks, select_listed_in_summary, Selection, SummaryEntry,
 };
 pub use target_files::parse_target_files;

@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 regex = "1"
+lib-ledger = { path = "../lib-ledger" }
 
 [dev-dependencies]
 tempfile = "3"

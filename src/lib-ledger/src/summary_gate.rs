@@ -45,6 +45,70 @@ pub struct SummaryEntry {
     pub tier: String,
     pub title: String,
     pub detail_file: String,
+    /// 起票の由来 ([`Origin`])。タイトルセル先頭のマーカーから読む。マーカーが無ければ `None`。
+    pub origin: Option<Origin>,
+}
+
+/// 起票の由来。**機構の効果測定 (機4) の唯一の集計軸**である。
+///
+/// # なぜ機械が読む形にするか
+///
+/// defect-convergence-plan.md の退出基準は「機構導入後も defect 由来の起票が減っているか」で、
+/// 減っていなければ機構は儀式だったことになる。この判定を人の記憶や印象で行うと、**測るたびに
+/// 答えが変わる**。集計軸を summary 行のマーカーとして固定し、決定論で数えられるようにする。
+///
+/// # 分類が主観だと退出基準は自分で無効化できる
+///
+/// defect を `[improvement]` に付け替えるだけで「減った」を作れてしまうため、**`[defect:*]` を
+/// 名乗れる条件を機械検査に落とす** (詳細エントリに実観測の証拠があること)。検査は floor で
+/// あって証明ではない — 最終的な妥当性は人間が見るが、**証拠を書かずに defect を名乗ることは
+/// できない**状態にする。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// 不具合由来。**テストを書く場が無かった** (I/O 癒着 / shell 判定)。
+    DefectG1,
+    /// 不具合由来。**テストの場はあったが入力空間を覆っていなかった**。
+    DefectG2,
+    /// 不具合ではない改善 (機能追加 / 整理 / 予防)。
+    Improvement,
+}
+
+impl Origin {
+    /// 由来を表すマーカー文字列。
+    pub fn marker(self) -> &'static str {
+        match self {
+            Origin::DefectG1 => "[defect:G1]",
+            Origin::DefectG2 => "[defect:G2]",
+            Origin::Improvement => "[improvement]",
+        }
+    }
+
+    /// 不具合由来か。**証拠の要求はこの 2 つにだけ課す**。
+    pub fn is_defect(self) -> bool {
+        matches!(self, Origin::DefectG1 | Origin::DefectG2)
+    }
+
+    /// 既知のマーカーをすべて返す (エラーメッセージと検査の網羅に使う)。
+    pub fn all() -> [Origin; 3] {
+        [Origin::DefectG1, Origin::DefectG2, Origin::Improvement]
+    }
+}
+
+/// この順位**以降**の新規行に由来マーカーを必須とする境界。
+///
+/// **既存行は触らない** (2026-09-02 ユーザー決定)。導入時点の最大採番 499 の次を境界に置く
+/// ことで、遡及の書き換えを起こさずに「今日以降の起票」だけを測定対象にする。値を下げると
+/// 既存行が一斉に違反になるため、**下げてはならない**。
+pub const ORIGIN_BOUNDARY_RANK: u32 = 500;
+
+/// タイトルセルの先頭から由来マーカーを読む (I/O なし)。
+///
+/// 先頭に限るのは、本文中に出てくる `[improvement]` の**言及**をマーカーと取り違えないため。
+pub fn parse_origin(title: &str) -> Option<Origin> {
+    let head = title.trim().trim_start_matches('*').trim_start();
+    Origin::all()
+        .into_iter()
+        .find(|origin| head.starts_with(origin.marker()))
 }
 
 /// 順位 table に載っている順位の集合を返す。
@@ -213,10 +277,12 @@ fn take_entry(
             .map(|c| c.trim().trim_matches('*').trim().to_string())
             .unwrap_or_default()
     };
+    let title = cell(2);
     Ok(SummaryEntry {
         rank,
         tier: cell(1),
-        title: cell(2),
+        origin: parse_origin(&title),
+        title,
         detail_file: cell(3),
     })
 }
