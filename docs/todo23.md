@@ -125,36 +125,6 @@
 
 なし
 
-### 順位 457: lint rule の宣言拡張子が test_coverage で網羅されているか検査する
-
-> **動機**: [#402](https://github.com/aloekun/claude-code-hook-test/pull/402) で rule⑬ を追加した際、`extensions` に `json` を挙げながら `test_coverage` に json のテストが無い状態を作り、CodeRabbit に指摘された。既存 3 検査は「rule → fixture」「rule → test」の向きしか見ておらず、**宣言した拡張子の一部にテストが無い状態を素通り**する。#402 で追加した孤児 fixture 検査と対になる、もう 1 つの非対称。
->
-> **統合した提案**: `extension_test_coverage_check` (#402 Tier1 #1)。
->
-> **参照**: `.claude/feedback-reports/402.md`、`src/hooks-post-tool-linter/src/custom_rules/coverage.rs`
->
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- `coverage.rs` に検査を追加する (既存 `orphan_fixture_check` と同じ場所・同じ形)
-- 主要拡張子は `main_ext_tests.<ext>`、非主要は `other_ext_tests` でカバーされているかを見る
-- **`no-console-log` のような例外の扱いを先に決める** — 既存の順方向検査は `NON_INCIDENT_RULES` allowlist を持つが、この検査に同じ例外が要るかは自明でない
-
-#### 作業計画
-
-- [ ] 現行 12 rule で検査が緑になることを確認する
-- [ ] 意図的に 1 拡張子のテストを外して赤くなることを実測する
-- [ ] 例外 allowlist の要否を決める
-
-#### 完了基準
-
-- `extensions` に挙げた拡張子でテストが無いものがあると `cargo test` が赤くなる
-
-#### 詰まっている箇所
-
-なし
-
 ### 順位 458: `cli-ledger-cleanup` の統合テスト suite
 
 > **動機**: 新規 crate に crate 全体を通す統合テストが無い。[#405](https://github.com/aloekun/claude-code-hook-test/pull/405)/[#406](https://github.com/aloekun/claude-code-hook-test/pull/406) では実台帳のコピーを使った手動の実測で確認したが、**その手順は記録に残るだけで再実行されない**。台帳削除は取り返しがつかない操作なので、安全側の挙動こそ自動で回り続ける必要がある。

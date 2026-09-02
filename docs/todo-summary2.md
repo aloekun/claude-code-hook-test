@@ -64,7 +64,6 @@
 | 316 | 💎 Tier 3 | **ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)** | todo16.md | S | なし (is_truthy の非対称性を case study 化。順位 317 と対) |
 | 317 | 💎 Tier 3 | **utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)** | todo16.md | XS | 順位 316 (ADR-044 明確化と対) |
 | 321 | 🔧 Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo17.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
-| 324 | 🚀 Tier 1 | **`cli-pr-monitor::push_to_remote` に push 拒否検知が無く post-PR re-push が無言で失敗し得る (push-pipeline-fix-plan §6 backlog 9 移管)** | todo17.md | XS | なし (T5 = PR #282 が cli-push-runner 側で塞いだ silent-failure push と同型の穴。出力は `run_cmd_direct` で全量取得済のため判定追加のみ) |
 | 326 | 🔧 Tier 2 | **並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)** | todo17.md | S (Phase 0) / M (Phase 1 条件付き) | なし (Phase 0 の需要調査で見落とし実績ゼロなら見送り = negative result 永続化。ADR-047 却下確定 = refute.yaml 削除 revert PR とは独立に進められる) |
 | 327 | 🔧 Tier 3 | **多段コミットの ADR/observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用: status 同期 / plain-text 参照 / セクション同期)** | todo17.md | S | なし (実害は各 PR review/feedback で捕捉済。doc checklist のみ、機械化は再発観測後にエスカレーション) |
 | 329 | 💎 Tier 3 | **新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを dev-conventions に追加 (#301 post-merge feedback 採用)** | todo17.md | S | なし (ADR-055 初版が自定義の `decision` 軸と矛盾する除外根拠を採用→Amendment 撤回の手戻り。ADR 59件超で同型見落とし再発しうる。#327 と対の doc-only 対処) |
@@ -125,7 +124,6 @@
 | 408 | 🚀 Tier 1 | **safety-critical な config 比較に shell glob を禁止し exact-match を必須化 (系統 C-1)** | todo21.md | S | なし (2026-08-10 採用。kill-switch 判定の部分一致で fail-closed を謳う step 自身が fail-open だった。該当コメントが無かったため症状が出ず潜伏していた) |
 | 409 | 🔧 Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
 | 411 | 🚀 Tier 1 | **`cargo fmt` を PreToolUse でブロックし正しい対処を提示 (系統 F、規約ではなく機構)** | todo21.md | S | なし (2026-08-10 ユーザー判断で提案の形を変更。規約は毎セッション読まれコンテキストを圧迫するが hook は発火時のみコストが出る。ADR-042 へこの非対称を追記するのも本エントリの範囲。**反射的に実行されやすく無関係な差分を生む**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断) |
-| 412 | 💎 Tier 3 | **`resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う** | todo21.md | S | なし (2026-08-10 PR #385 の CodeRabbit 指摘。colocated は入力をそのまま返し file 経路は canonicalize する。現行 caller に破綻経路は見当たらないが、caller が文字列比較を始めた時点で分裂しうる。PR #385 は逐語移動 PR のため見送り) |
 | 413 | 🔧 Tier 2 | **`CwdRestore` Drop guard が 8 定義 / 6 ファイルに複製。ADR-025 の統合トリガーと再評価期限を超過** | todo21.md | S-M | なし (2026-08-10 PR #385 の pre-push review 指摘。ADR-025 自身が「2 例目で `lib-test-helpers` へ統合」と定め再評価期限 2026-07-31 も過ぎている。抽出するか ADR-025 の status を更新するかの判断が要る) |
 | 414 | 🚀 Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
 | 415 | 🔧 Tier 2 | **PR 検出源を広げる変更の信頼スコープ検査チェックリスト (系統 A-2)** | todo22.md | XS | なし (2026-08-11 採用。#385 の security review が「origin push 権限と同等の信頼度のソースまで検出を拡張する」点を指摘。検出源追加時の確認項目を明文化) |
@@ -166,7 +164,6 @@
 | 454 | 🚀 Tier 1 | **自律実行ガードレールの 3 点同期を機械検証する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#403/#405 で 3 箇所を手で揃えた。片方漏れで保護が静かに緩み、#403 では実際に抽出で実体が保護外へ出かけた) |
 | 455 | 🚀 Tier 1 | **一時ファイルの弱い一意性を検知する lint (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#405 で production/test の両方で踏んだ。1 つ直した直後に同型を別箇所で作っており人手の注意では止まらない。regex 層の限界を先に見積もる) |
 | 456 | 🚀 Tier 1 | **workflow の guard なし `git commit` を検知する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#406 で Critical を 2 度。レビューが無ければ夜間ループが停止していた) |
-| 457 | 🔧 Tier 2 | **lint rule の宣言拡張子が test_coverage で網羅されているか検査 (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#402 の孤児 fixture 検査と対になる、もう 1 つの非対称。例外 allowlist の要否を着手時に決める) |
 | 458 | 🔧 Tier 2 | **`cli-ledger-cleanup` の統合テスト suite (提案 10 件を統合)** | todo23.md | M | なし (2026-08-15 採用。手動実測した安全側 3 ケースの自動化が起点。削除は取り返しがつかないため安全側こそ回り続ける必要がある) |
 | 459 | 🔧 Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448 と同じ構図) |
 | 460 | 💎 Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 3 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
