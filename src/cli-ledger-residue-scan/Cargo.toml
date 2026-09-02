@@ -1,0 +1,14 @@
+[package]
+name = "cli-ledger-residue-scan"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cli-ledger-residue-scan"
+path = "src/main.rs"
+
+[dependencies]
+lib-ledger = { path = "../lib-ledger" }
+serde_json = "1.0"
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

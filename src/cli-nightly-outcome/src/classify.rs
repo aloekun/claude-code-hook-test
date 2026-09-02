@@ -103,6 +103,35 @@ pub fn classify(publish_raw: &str, handoff_raw: &str) -> Verdict {
     }
 }
 
+/// 台帳残骸 (マージ済みなのに台帳へ残る順位) の観測。**色に対して直交する**。
+///
+/// verdict とは独立に red へ倒す。残骸があると夜間ループはその順位を実装済みのまま
+/// 選び直し、空 diff で 1 晩を捨てる (2026-09-01 の run 90894308468)。**除外はしたので
+/// その晩の作業は進む**が、台帳が壊れている事実は人間に届かないと直らない。
+///
+/// 走査結果 (`ranks=` の csv) をそのまま受ける。空なら残骸なし。
+pub fn residue_ranks(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// 残骸の説明行。`ranks` が空なら何も出さない。
+pub fn residue_lines(ranks: &[String]) -> Vec<String> {
+    if ranks.is_empty() {
+        return Vec::new();
+    }
+    vec![
+        format!(
+            "[NIGHTLY_ERROR] 台帳に残骸があります (順位 {}): 実装がマージ済みなのに行が残っています。",
+            ranks.join(" / ")
+        ),
+        "[NIGHTLY_ERROR] 本 run では選択から除外しました。cli-ledger-cleanup --apply で台帳を直すまで毎晩報告されます。".to_string(),
+    ]
+}
+
 /// 1 行サマリ。どの段で止まったかを run ログの先頭 1 行で特定できるようにする (ADR-064)。
 ///
 /// 値が空 (step が実行されなかった) の場合は `<未実行>` を出す。移送前の shell が

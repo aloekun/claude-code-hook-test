@@ -185,6 +185,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-ledger-residue-scan"
+version = "0.1.0"
+dependencies = [
+ "lib-ledger",
+ "serde_json",
+]
+
+[[package]]
 name = "cli-merge-pipeline"
 version = "0.1.0"
 dependencies = [

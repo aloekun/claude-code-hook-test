@@ -80,6 +80,7 @@ jobs:
           cargo build --release \
             -p cli-nightly-task-select -p cli-autonomy-gate -p cli-ledger-cleanup \
             -p cli-stale-branch-scan -p cli-nightly-outcome -p cli-branch-cleanup \
+            -p cli-ledger-residue-scan \
             --manifest-path master-ref/Cargo.toml
           # 改ざん検知の基準値。Implement ステップ (agent) が master-ref/ 配下のゲート
           # exe/config を書き換えていないか、後段の Verify gate integrity で照合する。
@@ -95,10 +96,15 @@ jobs:
           # cli-branch-cleanup も同じ基準値に含める (pre-push simplicity review
           # SIM-NEW-nightly-todo-yml-L80)。App token を使って branch 削除 push を行う
           # 外部可視の実行を担う exe であり、他の gate exe と同じ信頼境界にある。
+          #
+          # cli-ledger-residue-scan も可視性の要なので含める (決定 21)。書き換えられると
+          # 「台帳に残骸があるのに残骸なし」と報告され、夜間ループが同じ順位を選び続ける
+          # 状態が run 一覧から見えなくなる — cli-nightly-outcome と同じクラスの穴。
           sha256sum master-ref/target/release/cli-autonomy-gate master-ref/autonomy-config.toml \
             master-ref/target/release/cli-ledger-cleanup \
             master-ref/target/release/cli-nightly-outcome \
             master-ref/target/release/cli-branch-cleanup \
+            master-ref/target/release/cli-ledger-residue-scan \
             > "$RUNNER_TEMP/gate-integrity.sha256"
 
       # ── 掃除用の App token (1 回目の mint、ADR-072 決定 20) ──────────────────
@@ -224,6 +230,38 @@ jobs:
           echo "exclude_ranks=$EXCLUDE" >> "$GITHUB_OUTPUT"
           echo "[NIGHTLY] open claude/ PRs=$OPEN_AUTONOMOUS_PRS / 着手済み順位=[$EXCLUDE]"
 
+      # 台帳の残骸 (実装がマージ済みなのに残っている順位) を洗い出す (ADR-072 決定 21)。
+      #
+      # **選択より前に置く。** 残骸を選ぶと、実装済みなので agent の diff が空になり、
+      # guard deny で 1 晩まるごと捨てる (2026-09-01 の run 90894308468 が順位 324 で
+      # これを踏んだ)。ここで見つけた順位は下段の `--exclude-ranks` へ合流させる。
+      #
+      # **取得は shell、判定は exe** (決定 1)。`Count open claude/ PRs` と同じ形で、
+      # gh の呼び出しだけをここに置き、順位の照合は exe が持つ。
+      #
+      # **`--limit` は exe 側でも検査する。** 取得件数が上限に張り付くと数え落としが
+      # 起こり、残骸を「無し」と報告してしまう (背圧計数と同じ fail-closed)。
+      # 値は実測で決めた — 2026-09-02 時点でマージ済み PR は **453 件**あり、`--limit 300`
+      # では飽和して exit 2 になることを実行して確認した。1000 は当面の余裕込みで、
+      # 到達したらこの step が赤くなるので黙って数え落とすことはない。
+      #
+      # **continue-on-error を付けない。** 走査そのものの失敗はインフラ障害であって
+      # 設計された結末ではない (決定 10)。残骸の発見は exit 0 + `ranks=` で伝わるので、
+      # ここが赤くなるのは「走査できなかった」ときだけである。
+      - name: Scan ledger residue (merged but still listed)
+        id: residue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LIMIT=1000
+          gh pr list --repo "${{ github.repository }}" --state merged --limit "$LIMIT" \
+            --json number,headRefName,mergedAt > "$RUNNER_TEMP/merged-prs.json"
+          master-ref/target/release/cli-ledger-residue-scan \
+            --ledger master-ref/docs/claude-code-web-tasks.md \
+            --merged-prs "$RUNNER_TEMP/merged-prs.json" \
+            --limit "$LIMIT" >> "$GITHUB_OUTPUT"
+
       # 背圧の pre-flight 判定。**push の権威ではない** (権威は下段の Gate PR creation)。
       # ここで先に見るのは Max 枠の節約のため — 背圧が飽和しているのに agent を起動すると、
       # 捨てることが確定した実装のためにサブスク枠を消費する (ADR-071 § コンテキスト)。
@@ -260,9 +298,17 @@ jobs:
           # **順位 220 以降は todo-summary2.md にあるので両方渡す** — 片方だけだと、
           # もう一方に載っている順位が「消えた」と判定されて候補から落ちる。
           # exe 側は 1 つでも読めなければ exit 2 (fail-closed)。
+          # 着手済み順位 (ブランチの存在) に、台帳残骸の順位を合流させる。
+          # **空要素を作らない** — `--exclude-ranks` は空要素を引数不正として弾くため、
+          # 片方が空のときにカンマだけが残ると select が exit 2 で落ちる。
+          EXCLUDE=$(printf '%s\n%s\n' \
+            "${{ steps.inflight.outputs.exclude_ranks }}" \
+            "${{ steps.residue.outputs.ranks }}" \
+            | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sort -un | paste -sd, -)
+          echo "[NIGHTLY] 選択から除外する順位=[$EXCLUDE]"
           master-ref/target/release/cli-nightly-task-select \
             --ledger master-ref/docs/claude-code-web-tasks.md \
-            --exclude-ranks "${{ steps.inflight.outputs.exclude_ranks }}" \
+            --exclude-ranks "$EXCLUDE" \
             --summary-file master-ref/docs/todo-summary.md \
             --summary-file master-ref/docs/todo-summary2.md \
             > "$RUNNER_TEMP/selected.txt"
@@ -875,6 +921,9 @@ jobs:
           HANDOFF_OUTCOME: ${{ steps.handoff.outcome }}
           RANK: ${{ steps.select.outputs.rank }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          # 台帳残骸は step outcome ではなく観測結果なので `*_OUTCOME` の並びに入れない。
+          # 色に対して直交し、PR を作れた夜でも red にする (ADR-072 決定 21)。
+          LEDGER_RESIDUE_RANKS: ${{ steps.residue.outputs.ranks }}
         run: |
           set -euo pipefail
           ./master-ref/target/release/cli-nightly-outcome

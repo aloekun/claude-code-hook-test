@@ -32,6 +32,7 @@ const ENV_NAMES: &[&str] = &[
     "HANDOFF_OUTCOME",
     "RANK",
     "DRY_RUN",
+    "LEDGER_RESIDUE_RANKS",
 ];
 
 struct Run {
@@ -184,4 +185,35 @@ fn an_unknown_outcome_exits_one() {
     let run = run_exe(&[("PUBLISH_OUTCOME", "succeeded")]);
     assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
     assert!(run.stdout.contains("[NIGHTLY_ERROR]"), "stdout:\n{}", run.stdout);
+}
+
+/// **台帳残骸は色に対して直交する** (ADR-072 決定 21)。PR を作れた夜でも、マージ済みの
+/// 順位が台帳に残っていれば red で伝える — 2026-08-30 の 3 本 (#427/#459/#461) は
+/// 13 日間誰にも気づかれず、順位 324 の空振り run で初めて露見した。
+#[test]
+fn ledger_residue_turns_a_created_pr_red() {
+    let run = run_exe(&[
+        ("SELECT_OUTCOME", "success"),
+        ("IMPLEMENT_OUTCOME", "success"),
+        ("PUBLISH_OUTCOME", "success"),
+        ("RANK", "455"),
+        ("LEDGER_RESIDUE_RANKS", "324,412"),
+    ]);
+    assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
+    assert!(run.stdout.contains("[NIGHTLY] PR を作成しました。"), "stdout:\n{}", run.stdout);
+    assert!(run.stdout.contains("順位 324 / 412"), "stdout:\n{}", run.stdout);
+}
+
+/// 残骸が無ければ色は変わらない (空文字を「残骸あり」と読まない)。
+#[test]
+fn an_empty_residue_list_keeps_the_night_green() {
+    let run = run_exe(&[
+        ("SELECT_OUTCOME", "success"),
+        ("IMPLEMENT_OUTCOME", "success"),
+        ("PUBLISH_OUTCOME", "success"),
+        ("RANK", "455"),
+        ("LEDGER_RESIDUE_RANKS", ""),
+    ]);
+    assert_eq!(run.code, 0, "stdout:\n{}", run.stdout);
+    assert!(!run.stdout.contains("台帳に残骸"), "stdout:\n{}", run.stdout);
 }
