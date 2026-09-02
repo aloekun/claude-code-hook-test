@@ -85,6 +85,24 @@ PR size gate (block 1500 行) に当たって PR を分割する場合の規約 
 
 **由来** (2026-08-02 WP-17 PR 2 の実装セッション): 同一セッション中に 3 回発生した。関連して、同セッションでは `pnpm push` を timeout 600000ms + background で実行する ([ADR-016](adr/adr-016-long-running-command-strategy.md))、PR 作成・マージはユーザー承認を得る ([ADR-028](adr/adr-028-pnpm-create-pr-gate.md)) も併せて運用している。VSCode では AskUserQuestion の preview や同一ターンに出した本文が見えないことがあるため、**PR 本文の draft はツール呼び出しを伴わない単独メッセージで提示する**。
 
+## 夜間 PR のリベースは `pnpm rebase-nightly` で行う
+
+**`claude/nightly-<順位>` の PR を手でリベースしない。**
+
+```bash
+pnpm rebase-nightly -- --pr <PR番号>
+```
+
+夜間 PR は `chore(ledger) 台帳削除` (親) → `実装` (子) の **2 コミット構成**である。`jj rebase -r <先端>` は**指定コミットだけ**を移すため親が置き去りになり、実装だけがマージされて台帳行が残る。
+
+**2026-08-30 に 3 本連続で発生した** ([#427](https://github.com/aloekun/claude-code-hook-test/pull/427) / [#459](https://github.com/aloekun/claude-code-hook-test/pull/459) / [#461](https://github.com/aloekun/claude-code-hook-test/pull/461))。**衝突は一度も起きていない** — 判断を誤ったのではなく手順が揺らいだ形なので、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) の区分では「ルールの再強化」ではなく「揺らげない形にする」側で塞ぐ。残骸は 13 日間気づかれず、夜間 run が実装済みの順位を選び直して red で止まって初めて露見した ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 21)。
+
+スクリプトがすること: `jj git fetch` → **ブランチ全体**のリベース (`-b`) → **リベース前後のコミット集合が同一である**ことの検証 → 対象ブランチをチェックアウトして `cli-ledger-removal-check` で台帳後始末の**状態**を検証。
+
+しないこと: push / マージ / 衝突の解決。push は `pnpm push` (レビューゲートを通す)、マージは commitment 点なので人間の明示操作 ([ADR-028](adr/adr-028-pnpm-create-pr-gate.md))。衝突時は「台帳削除コミットを捨てて `cli-ledger-cleanup --apply` で再導出する」手順を出力して止まる — 削除は順位で引くため最新の master に対していつでも作り直せる。
+
+**実行後は作業コピーが対象ブランチへ移る** (検証がブランチの状態を見るため)。元へ戻すには `jj edit <元の commit>`。
+
 ## LLM を含む自動化経路は実走でしか検証できない (ADR-067)
 
 LLM を step に含む workflow / パイプラインを**新規に組んだとき、および既存経路の LLM step を追加・変更したとき**は、**静的検査の通過を完了条件にしない**。実走スモークを必須の受け入れ基準として設計する。本 convention の由来となった 3 件はいずれも**既存 workflow への変更**であり、新規作成に限った規約では取りこぼす:

@@ -46,6 +46,7 @@
     "check-ci": "node scripts/run-artifact.mjs check-ci-coderabbit",
     "takt-timings": "node scripts/run-artifact.mjs cli-takt-timings",
     "telemetry-report": "node scripts/run-artifact.mjs cli-telemetry-report",
+    "rebase-nightly": "node scripts/rebase-nightly-pr.mjs",
     "ledger-candidates": "node scripts/run-artifact.mjs cli-ledger-candidates --ledger docs/claude-code-web-tasks.md --summary-file docs/todo-summary.md --summary-file docs/todo-summary2.md",
     "stale-branch-scan": "node scripts/run-artifact.mjs cli-stale-branch-scan",
     "autonomy-status": "node scripts/run-artifact.mjs cli-autonomy-gate --operation fix-push --config autonomy-config.toml",
