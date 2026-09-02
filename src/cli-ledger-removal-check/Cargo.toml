@@ -1,0 +1,16 @@
+[package]
+name = "cli-ledger-removal-check"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cli-ledger-removal-check"
+path = "src/main.rs"
+
+[dependencies]
+lib-ledger = { path = "../lib-ledger" }
+# docs/ の列挙と「どれが順位 table か」の定義を借りる。定義を増やさないための依存で、
+# cli-docs-lint 側の docs_files が唯一の定義 (Phase F の F1)。
+cli-docs-lint = { path = "../cli-docs-lint" }
+
+# [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

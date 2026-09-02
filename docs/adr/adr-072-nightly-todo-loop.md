@@ -559,6 +559,23 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 | タスク選択時に台帳へ試行日を直 push する (試行日列の新設) | 決定 6 のガード対象ファイルへ自律 actor が書き込む経路の新設にあたる。同型の案は [ADR-070](adr-070-weekly-review-cloud-routine.md) で却下済み |
 | 再挑戦上限 N 回 | 再投入が人間の操作になったため、回数を数える主体も置き場所も無くなった |
 
+### 21. 後始末がマージされたかをマージ境界で検査する (2026-09-02)
+
+**完了を表現するのは台帳削除コミットのマージだけ**である (決定 19)。ところがその削除は**ブランチに載って運ばれるデータ**なので、運搬中に失われても検知する層が無かった。
+
+**実際に失われた (2026-08-30)。** 夜間 PR は `chore(ledger) 台帳削除` (親) → `実装` (子) の 2 コミット構成である。人間が `jj rebase -r <先端>` でリベースしたため**親が置き去りになり**、[#427](https://github.com/aloekun/claude-code-hook-test/pull/427) / [#459](https://github.com/aloekun/claude-code-hook-test/pull/459) / [#461](https://github.com/aloekun/claude-code-hook-test/pull/461) の 3 本すべてで実装だけがマージされた。**衝突は 1 度も起きていない** — 捨てたのではなく拾い忘れた形である。
+
+結果、順位 324 / 412 / 457 が台帳・順位 table・詳細エントリの 3 箇所とも残り、2026-09-01 の夜間 run が順位 324 を再選択した。実装は既に master に在るので agent は 5 ターン・30 秒で何も変更せず終わり、空 diff として red になった (run 90894308468)。**既存の防御はどれも当たらない** — 除外集合はリモートブランチの存在だけを見る (マージすると消える)、順位 table 照合 (決定 18 の backstop) は台帳と順位 table が**両方残る**と素通り、`cli-ledger-cleanup` の採点はブランチの diff だけを見て master の内容を見ない。
+
+**したがって、マージ境界に検査を置く。** `claude/nightly-<順位>` を head とする PR に対し、CI (`ci.yml` の `Verify nightly ledger cleanup`) が `cli-ledger-removal-check` を走らせ、**その順位が台帳・順位 table・詳細エントリのどこにも残っていないこと**を要求する。
+
+- **diff ではなく head の状態を見る。** 「削除行が diff に在るか」ではなく「順位がどこにも無いか」を見るので、行番号にも文脈行にも運び方 (リベース / squash / 手作業) にも依存しない
+- **順位で引く。** 決定 18 以降、選択・除外・ブランチ名・`--ranks`・詳細エントリの照合はすべて順位に統一されている ([ADR-033](adr-033-todo-numbering-simplification.md))。検査もその鍵に乗る
+- **書式の解釈を増やさない。** 詳細エントリの見出し判定は `cli-ledger-cleanup` が消すときに使う関数 (`lib_ledger::detail_entry_ranks`) をそのまま使い、順位 table の識別は `cli_docs_lint::docs_files` から借りる。消す側と見る側で解釈が割れると検査が意味を失う
+- **夜間ブランチ以外は exe が SKIP を出して緑で抜ける** (early-success)。job/step を条件で回さない形にはしない — GitHub は「回さなかった」を success ではなく pending として扱うため、required check にすると PR が永久にマージ不能になる
+
+**残る射程外**: 人間が別名ブランチで同じ作業を実装して後始末を忘れた場合は、ブランチ名から順位が引けないため検査できない。この経路は weekly-review / 夜間 preflight での「merged PR × 台帳」照合が受け持つ (別途実装)。
+
 ## 試験運用判断基準 (ADR-039)
 
 | 項目 | 内容 |

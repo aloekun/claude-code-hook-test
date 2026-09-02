@@ -177,6 +177,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-ledger-removal-check"
+version = "0.1.0"
+dependencies = [
+ "cli-docs-lint",
+ "lib-ledger",
+]
+
+[[package]]
 name = "cli-merge-pipeline"
 version = "0.1.0"
 dependencies = [

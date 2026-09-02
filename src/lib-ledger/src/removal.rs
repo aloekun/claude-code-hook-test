@@ -23,6 +23,8 @@
 //! ブランチ名・`--ranks` まですべて順位で通しているのに、ここだけが自由記述に落ちていた。
 //! 経緯は [ADR-033](../../../docs/adr/adr-033-todo-numbering-simplification.md) § 2026-08-26 改訂。
 
+use std::collections::BTreeSet;
+
 /// 順位 table の 1 行から取り出した、詳細エントリを引くための鍵。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SummaryRow {
@@ -193,6 +195,15 @@ pub fn remove_detail_entry(markdown: &str, rank: u32) -> Result<String, String> 
     out.extend_from_slice(&lines[..start]);
     out.extend_from_slice(&lines[end..]);
     Ok(join_preserving_trailing_newline(&out, markdown))
+}
+
+/// markdown が宣言している詳細エントリの順位をすべて返す (I/O なし)。
+///
+/// 見出しの読み方は [`remove_detail_entry`] と**同一の関数**を使う。後始末が済んだかを
+/// 検証する側 (`cli-ledger-removal-check`) が見出し書式の判定を自前で持つと、消す側と
+/// 見る側で書式の解釈が割れる — F1 が prefix の多点定義で踏んだのと同じ形になる。
+pub fn detail_entry_ranks(markdown: &str) -> BTreeSet<u32> {
+    markdown.lines().filter_map(heading_rank).collect()
 }
 
 /// `### 順位 N: ...` の N を読む (I/O なし)。それ以外の行は `None`。
