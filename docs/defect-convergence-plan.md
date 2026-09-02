@@ -1,6 +1,6 @@
 # 不具合収束計画 — 後追い発覚ループの根治
 
-> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 / 機2 / 機3 は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 4 (機4)**。進行表の行は実行順に並べてある。**PR 総数は新規 16 本 (機構 4 + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
+> **状態**: Phase 0 / Phase D / F1 / F6 / 機1 ([#456](https://github.com/aloekun/claude-code-hook-test/pull/456)) / F3 / F4 / F2 / F5 / 機2 / 機3 / 機4a は完了 (**Phase F 完了**)。**Phase 0 / Phase D は実走確認も取得済み** (2026-08-26 の夜間 run 33000789454。この run は [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) より前の master なので **F1 の裏付けにはならない** — F1 の検証は PR 内のテストと実 exe E2E による)。**次は Phase 4 の 機4b**。進行表の行は実行順に並べてある。**PR 総数は新規 17 本 (機構 5 = 機1/機2/機3/機4a/機4b + ルール撤廃 3 + 台帳 drift 3 + feedback 採用 6)**。既存の第 2 バッチ 11 本 ([bugfix-batch-plan.md](bugfix-batch-plan.md)) と交錯して進める (→ [§ 全体順序](#全体順序))。
 >
 > **本ファイルは ephemeral な作業計画書**であり、**本ファイルと参照先の repo 内ドキュメントだけで作業に着手できる**ことを編集方針とする (実装セッションは本計画の策定会話を参照できない)。退役条件は [§ 退役手順](#退役手順)。
 >
@@ -24,7 +24,8 @@
 | F5 | `test(pr-monitor): I/O 層と判定層の境界を固定する` | F | **マージ済み ([#462](https://github.com/aloekun/claude-code-hook-test/pull/462))** |
 | 機2 | `feat(push-runner): open-questions gate — 未解決の問いが push を止める` | 2 | **マージ済み ([#463](https://github.com/aloekun/claude-code-hook-test/pull/463))** |
 | 機3 | `fix(nightly-todo): 掃除ループの判定を exe へ移す` | 3 | **完了 (本 PR)** |
-| 機4 | `feat(ledger): 起票由来タグと defect 流入の週次計測` | 4 | 未着手 |
+| 機4a | `feat(ledger): 起票由来タグの契約と fail-closed 検査` | 4 | **完了 (本 PR)** |
+| 機4b | `feat(ledger): defect 流入の週次集計と退出基準の判定` | 4 | 未着手 |
 | 撤1 | `feat(lint): workflow/facet/convention のルール 3 件を lint へ移す` | 5 | 未着手 |
 | 撤2 | `feat(pre-tool-validate): cargo fmt / Set-Content / jj squash の deny` | 5 | 未着手 |
 | 撤3 | `fix(automation): 順位 445 実装 + create-pr --body 削除 + docs-only feedback 接続` | 5 | 未着手 |
@@ -70,7 +71,7 @@
 
 ## feedback の採否タイミング
 
-**post-merge feedback の採否は 1 PR ごとに行わず、[§ Phase 4](#phase-4--機4-効果測定-新規-1-本) の 機4 がマージされた時点でまとめて判断する** (2026-08-28 ユーザー決定)。それまでに出たレポートは保留のまま溜める。
+**post-merge feedback の採否は 1 PR ごとに行わず、[§ Phase 4](#phase-4--機4-効果測定-新規-2-本) の 機4 がマージされた時点でまとめて判断する** (2026-08-28 ユーザー決定)。それまでに出たレポートは保留のまま溜める。
 
 - **例外**: 致命的な不具合が判明した場合は、まとめ待ちにせず優先して対応する
 - レポートの置き場は `.claude/feedback-reports/<PR番号>.md` (`.gitignore` 除外の内部 artifact)。**この計画の PR は連番で進むため、保留分は PR 番号から機械的に列挙できる**
@@ -505,7 +506,12 @@ PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いず
 
 **通常枠 PR S (順位 487、master SHA pin) の方針変更は据え置き** — 本 PR は掃除ループのみを移送しており、pin の実装方針変更は PR S 側で行う。
 
-## Phase 4 — 機4: 効果測定 (新規 1 本)
+## Phase 4 — 機4: 効果測定 (新規 2 本)
+
+**PR を 2 本に分割した (2026-09-03 ユーザー決定)**。合計 1000 行超の見込みで pr_size_check の警告域に入るため、**状態ベースの検査 (機4a)** と **履歴ベースの集計・判定 (機4b)** で切った。切断点をここに置いたのは、再分類ガードが「前の版と比べて」でしか判定できず、週次集計の `jj file annotate` と同じ履歴アクセスを要するためである (ADR-069 の「抽出と最初の呼び手の間で切らない」に照らしても、契約と集計は独立して成立する)。
+
+- **機4a (完了、本 PR)**: 由来タグの契約と fail-closed 検査 → [ADR-079](adr/adr-079-defect-origin-tagging.md)
+- **機4b (未着手)**: 週次集計 + 退出基準の判定 + 再分類ガード + weekly-review 配線
 
 **何を測るか**: 機構導入後も defect 由来の起票が減っているか。減っていなければ機構は儀式であり、G2 対策 (対象外に置いた網羅性強制) の再提案が要る — その判断材料を決定論で取る。
 

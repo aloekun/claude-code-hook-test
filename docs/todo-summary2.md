@@ -1,6 +1,8 @@
 # TODO 推奨実行順序サマリー (続き、順位 220 以降)
 
 > **本ファイルの位置付け**: [docs/todo-summary.md](todo-summary.md) の推奨実行順序 table を docs 50KB 超過解消のため 2 分割した後半 (順位 220 以降を収容、2026-07-20)。全体の位置付け・更新方針・順位 6-219・anchor は [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。新規行 (高 順位) の追加・順位再採番は本ファイル (末尾) で行い、todo-summary.md 側の更新方針に従う。cli-docs-lint の priority-inversion / preamble / entry-pairing check は両ファイルを統合して検査する。
+>
+> **順位 500 以降の新規行は、タスク列の冒頭に起票由来のマーカーを付ける** ([ADR-079](adr/adr-079-defect-origin-tagging.md))。`[defect:G1]` (テストを書く場が無かった) / `[defect:G2]` (テストの場はあったが入力空間を覆っていなかった) / `[improvement]` (不具合ではない改善) の 3 択で、迷う defect は G1 に倒す。`[defect:*]` は**詳細エントリに実観測の証拠** (`#123` / `run 32589642740` / `発火: 4 回` のいずれか) が要る — 無ければ `[improvement]` としてしか登録できない。`pnpm lint:docs` が fail-closed で検査する。**順位 499 以前の既存行は対象外**。
 
 ## 推奨実行順序サマリー (続き、順位 220 以降)
 

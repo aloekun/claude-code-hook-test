@@ -234,6 +234,7 @@ mod tests {
         SummaryEntry {
             rank,
             tier: "🔧 Tier 2".to_string(),
+            origin: lib_ledger::parse_origin(title),
             title: title.to_string(),
             detail_file: "todo24.md".to_string(),
         }

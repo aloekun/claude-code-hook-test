@@ -15,6 +15,7 @@
 pub mod cross_ref;
 pub mod docs_files;
 pub mod entry_pairing;
+pub mod origin_markers;
 pub mod preamble;
 pub mod priority_inversion;
 

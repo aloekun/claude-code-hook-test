@@ -79,6 +79,7 @@
 - [ADR-076: testability gate — I/O 出力のインライン解釈を push で止める](docs/adr/adr-076-testability-gate.md) *(試験運用)*
 - [ADR-077: open-questions gate — 未解決の設計の問いが push を止める](docs/adr/adr-077-open-questions-gate.md) *(試験運用)*
 - [ADR-078: takt verdict gate — REJECT のまま push されるのを止める](docs/adr/adr-078-takt-verdict-gate.md) *(試験運用)*
+- [ADR-079: 起票由来タグ — 機構の効果を印象でなく数で測る](docs/adr/adr-079-defect-origin-tagging.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 

@@ -27,7 +27,7 @@
 //!   default-ON 昇格 or 却下を判定する。判定結果は本 module doc と
 //!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
-use cli_docs_lint::{cross_ref, entry_pairing, preamble, priority_inversion, Violation};
+use cli_docs_lint::{cross_ref, entry_pairing, origin_markers, preamble, priority_inversion, Violation};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -63,6 +63,11 @@ const CHECKS: &[CheckSpec] = &[
         name: "priority-inversion",
         summary: "todo-summary*.md table の Tier N→Tier N+k 依存を検知",
         run: priority_inversion::check,
+    },
+    CheckSpec {
+        name: "origin-markers",
+        summary: "順位 table の起票由来タグと defect の証拠要求 (機4)",
+        run: origin_markers::check,
     },
     CheckSpec {
         name: "entry-pairing",
