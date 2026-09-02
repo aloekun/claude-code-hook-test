@@ -341,35 +341,6 @@
 
 > **由来**: 順位 397 の PR ([#385](https://github.com/aloekun/claude-code-hook-test/pull/385)) で出た指摘のうち、**PR の性質 (逐語移動が大半) を理由に本 PR では扱わなかった**もの。どちらも指摘自体は妥当で、スレッドに理由を返信済み。
 
-### 順位 412: `resolve_main_workspace_root` の colocated 経路と file 経路で正規化の粒度が違う
-
-> **動機**: [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の CodeRabbit 指摘。`resolve_main_workspace_root` は `.jj/repo` が**ディレクトリ (colocated)** なら入力パスをそのまま返し、**ファイル (secondary workspace)** なら `canonicalize()` + verbatim prefix 剥がしを通す。同じチェックアウトでも入口によって返るパス文字列の形が変わる。
->
-> **現時点で破綻経路は見当たらない**: `cli-telemetry-report` は入力・出力の両方を `canonicalize_or_as_is()` に通すため差分を吸収する。`weekly_review` / `monthly_review` は返り値を `join()` してファイル I/O にしか使っておらず、文字列比較のキーにしていないため OS が等価パスを同じ実体へ解決する。**caller が文字列比較を始めた時点で分裂する**のが本質的なリスク。
->
-> **なぜ #385 で直さなかったか**: `workspace.rs` は `lib.rs` の 800 行超過に伴う**移動で作られたファイル**で、#385 は diff 2203 行のうち約 1700 行がこの移動、サイズゲートを override して通している。移動 PR に挙動変更を積み増すほどレビューの前提が崩れるため、**同じ移動ファイル内でも線を引いた**:
->
-> | 指摘 | #385 での扱い | 線引きの理由 |
-> |---|---|---|
-> | `strip_windows_verbatim_prefix` の UNC 未対応 ([該当スレッド](https://github.com/aloekun/claude-code-hook-test/pull/385#discussion_r3751110198)) | **修正した** | 「ネットワーク共有上で `GIT_DIR` が壊れる」という具体的な失敗経路がある明確なバグで、純関数のテストで固定でき、非 UNC パスの挙動は変わらない |
-> | 本エントリ (colocated 経路の正規化) | **見送り** | doc comment が「colocated root は入力そのまま返す」と**意図的な設計として明記**しており、変更には caller 3 箇所の検証が要る。現行 caller に破綻経路も見当たらない |
->
-> **対処案**: colocated 経路も `canonicalize()` し、失敗時は入力のまま返す (現行 caller の fail-open を維持)。合わせて caller 3 箇所が正規化前提に依存していないことを確認する。
->
-> **参照**: [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) (状態ファイルの workspace 分裂対策)、[workspace.rs](../src/lib-jj-helpers/src/workspace.rs)、[#385 の該当スレッド](https://github.com/aloekun/claude-code-hook-test/pull/385#discussion_r3751110189)。
->
-> **実行優先度**: 💎 Tier 3 — Severity Low (現行 caller に破綻経路なし) / Frequency Low / Effort S / Adoption Risk Low (caller 3 箇所の確認が要る)。
-
-#### 作業計画
-
-- [ ] colocated 経路の返り値を `canonicalize()` + verbatim prefix 剥がしに揃える
-- [ ] caller 3 箇所 (`cli-telemetry-report` / `weekly_review` / `monthly_review`) が正規化形に依存していないことを確認する
-- [ ] colocated / secondary の両経路が同じ形のパスを返すことを固定するテストを追加する
-
-#### 完了基準
-
-- 同じチェックアウトに対し、colocated 経路と secondary 経路が同じ形式のパスを返すこと。
-
 ### 順位 413: `CwdRestore` Drop guard がリポジトリ全体で 8 定義 / 6 ファイルに複製されている
 
 > **動機**: [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push review 指摘 (non-blocking)。テストで cwd を退避・復元する `CwdRestore` / `CwdGuard` 相当の struct が **8 箇所で定義されている** (2026-08-10 実測: `fix_commit/abandon.rs` に 3 個、`fix_commit/sweep.rs` / `stages/push_jj_bookmark.rs` / `stages/repush.rs` / `stages/scope_guard.rs` に各 1 個、加えて本 PR の `lib-jj-helpers/src/bookmarks.rs`)。レビューは「6 個目」と表現したが、これはファイル数を数えた場合の値。
