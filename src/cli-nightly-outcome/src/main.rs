@@ -28,7 +28,7 @@
 
 mod classify;
 
-use classify::{classify, render, summary_line};
+use classify::{classify, render, residue_lines, residue_ranks, summary_line};
 
 /// `Report outcome` step が渡す step outcome の env 名と、サマリ行での表示名。
 ///
@@ -80,7 +80,11 @@ fn main() {
     for line in render(&verdict, &env_or_empty("RANK"), is_dry_run(&env_or_empty("DRY_RUN"))) {
         println!("{line}");
     }
-    if verdict.is_red() {
+    let residue = residue_ranks(&env_or_empty("LEDGER_RESIDUE_RANKS"));
+    for line in residue_lines(&residue) {
+        println!("{line}");
+    }
+    if verdict.is_red() || !residue.is_empty() {
         std::process::exit(1);
     }
 }

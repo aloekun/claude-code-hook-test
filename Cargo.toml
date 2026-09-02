@@ -27,6 +27,7 @@ members = [
     "src/cli-ledger-candidates",
     "src/cli-ledger-cleanup",
     "src/cli-ledger-removal-check",
+    "src/cli-ledger-residue-scan",
     "src/cli-fix-push-gate",
     "src/cli-merge-pipeline",
     "src/cli-nightly-outcome",

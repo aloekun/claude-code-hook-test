@@ -20,9 +20,6 @@
 
 use std::collections::BTreeSet;
 
-/// 夜間ブランチの命名規約。
-const NIGHTLY_BRANCH_PREFIX: &str = "claude/nightly-";
-
 /// 順位が残っていた場所の種別。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Place {
@@ -52,17 +49,10 @@ pub(crate) struct Scan {
     pub(crate) ranks: BTreeSet<u32>,
 }
 
-/// ブランチ名から順位を読む (I/O なし)。夜間ブランチでなければ `None`。
-///
-/// **数字だけを受ける。** `claude/nightly-324-retry` のような派生名を順位 324 と
-/// 読むと、別物の PR に後始末を要求してしまう。
-pub(crate) fn rank_from_branch(branch: &str) -> Option<u32> {
-    let digits = branch.trim().strip_prefix(NIGHTLY_BRANCH_PREFIX)?;
-    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    digits.parse().ok()
-}
+/// ブランチ名から順位を読む。**定義は [`lib_ledger::rank_from_nightly_branch`] が唯一**で、
+/// 構築側 (`Task::branch`) と同居している。ここで解釈を作り直すと、作る側と読む側で
+/// 名前の規約が割れる。
+pub(crate) use lib_ledger::rank_from_nightly_branch as rank_from_branch;
 
 /// 順位が残っている箇所を列挙する (I/O なし)。空なら後始末済み。
 pub(crate) fn residue(rank: u32, scans: &[Scan]) -> Vec<&Scan> {

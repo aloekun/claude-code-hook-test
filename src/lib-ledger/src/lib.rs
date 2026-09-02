@@ -77,12 +77,29 @@ pub struct Task {
     pub pr_title: String,
 }
 
+/// 自律 actor のブランチ名 prefix。**構築 ([`Task::branch`]) と解釈
+/// ([`rank_from_nightly_branch`]) が同じ定義を使う**ため、片方だけ変わって
+/// 「作るときと読むときで別の名前」になることがない。
+pub const NIGHTLY_BRANCH_PREFIX: &str = "claude/nightly-";
+
 impl Task {
     /// 自律 actor が使うブランチ名。順位を埋め込むのは、次回以降の run が
     /// 「このタスクは着手済み」を open PR の一覧だけから機械的に判定できるようにするため。
     pub fn branch(&self) -> String {
-        format!("claude/nightly-{}", self.rank)
+        format!("{NIGHTLY_BRANCH_PREFIX}{}", self.rank)
     }
+}
+
+/// 夜間ブランチ名から順位を読む (I/O なし)。夜間ブランチでなければ `None`。
+///
+/// **数字だけを受ける。** `claude/nightly-324-retry` のような派生名を順位 324 と読むと、
+/// 別物の PR やブランチを「順位 324 の作業」と取り違える。
+pub fn rank_from_nightly_branch(branch: &str) -> Option<u32> {
+    let digits = branch.trim().strip_prefix(NIGHTLY_BRANCH_PREFIX)?;
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 /// 無人可の列を持つ表から、除外順位に含まれない最初のタスクを選ぶ。
