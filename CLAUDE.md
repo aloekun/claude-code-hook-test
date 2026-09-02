@@ -82,7 +82,7 @@
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)、takt facet の出力言語は各 instruction に直書きする、GitHub Actions の `run:` は常に `-e` 付きで起動する (順位 319)、台帳の `照合除外:` マーカー (理由必須・fail-closed)
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)、takt facet の出力言語は各 instruction に直書きする、GitHub Actions の `run:` は常に `-e` 付きで起動する (順位 319)、台帳の `照合除外:` マーカー (理由必須・fail-closed)、夜間 PR のリベースは `pnpm rebase-nightly` で行う (ADR-072 決定 21)
 
 ## Build
 
