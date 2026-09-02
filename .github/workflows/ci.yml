@@ -178,3 +178,30 @@ jobs:
       - name: Run ignored (integration) tests
         shell: bash
         run: cargo test --workspace -- --ignored --test-threads=1
+
+      # 夜間 PR (claude/nightly-<順位>) に台帳の後始末が含まれているかを見る。
+      #
+      # **完了を表現するのは台帳削除コミットのマージだけ** (ADR-072 決定 19) なのに、
+      # その削除はブランチに載って運ばれるデータなので、運搬中に失われても誰も
+      # 気づかなかった。2026-08-30 に `jj rebase -r <先端>` が親の `chore(ledger)`
+      # コミットを置き去りにし、#427 / #459 / #461 の 3 本で実装だけがマージされ、
+      # 2026-09-01 の夜間 run が残った台帳行から順位 324 を再選択して red で終わった
+      # (ADR-072 決定 21)。
+      #
+      # **ubuntu だけで回す。** 判定は markdown の走査で OS 差が無く、両 OS で回しても
+      # 同じ結果にしかならない。step の skip は job の状態に影響しないため、required
+      # check の pending 問題 (§ 冒頭の paths フィルタの注記) も起きない。
+      #
+      # **夜間ブランチ以外では exe 自身が SKIP を出して exit 0 で終わる** (early-success)。
+      # job/step を条件で回さない形にはしない — 「回さない」と「緑」は区別できないため。
+      - name: Verify nightly ledger cleanup
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          # pull_request では head_ref、push では ref_name。どちらも無い場合は
+          # 夜間ブランチ名にならないので検査対象外として緑で抜ける。
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cargo run --release -p cli-ledger-removal-check -- \
+            --branch "$BRANCH" --docs-dir docs
