@@ -435,7 +435,7 @@ jobs:
             範囲外の変更を含む PR より、変更なしで止まる方が望ましい結果です。
 
             進め方:
-            1. `work/docs/todo-summary.md` / `work/docs/todo-summary2.md` で該当順位の行を探し、
+            1. `work/docs/todo-summary.md` / `work/docs/todo-summary2.md` / `work/docs/todo-summary3.md` で該当順位の行を探し、
                詳細エントリのある `work/docs/todoN.md` を読んで完了条件を確認する
             2. 対象ファイルを読み、台帳の「注意」に書かれた既知の落とし穴を踏まえて実装する
 

@@ -118,4 +118,4 @@
 | 391 | 🔧 Tier 3 | **jj の落とし穴 (squash 方向・空コミットでの bookmark ずれ) を dev-conventions へ (#369 T3 採用)** | todo21.md | S | なし (本セッションで複数回踏んだ。コミット確定は describe+bookmark set、new は新作業時のみ、を明文化) |
 | 392 | 🔧 Tier 3 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
 
-**戦略**: 本 part は順位 400 以降を収容する。全体の戦略と Bundle 履歴は [docs/todo-summary3.md](todo-summary3.md) を参照。
+**戦略**: 本 part は順位 220-399 を収容する (新規行の追加先は [docs/todo-summary3.md](todo-summary3.md))。全体の戦略と Bundle 履歴は [docs/todo-summary3.md](todo-summary3.md) を参照。

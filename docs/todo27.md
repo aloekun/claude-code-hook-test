@@ -63,7 +63,7 @@
 
 > **動機**: PR #332 で todo16.md の複数セクション削除時に lint:md を 3 回以上再実行する非効率を観測した。todo ファイルの段階的削除と都度 lint:md 実行の手順が明文化されておらず、削除漏れ・lint 崩れ・summary 行との不整合が起きやすい。#332 post-merge feedback Tier3 #8 で採用。専用スクリプト化 (#332 Tier2 #1) は ADR-033 効果待ちで様子見だが、チェックリスト明記自体は Effort XS の無リスク即応策として独立採用可能。
 >
-> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (**該当順位を収める `docs/todo-summary.md` または `docs/todo-summary2.md`**。順位 220 未満は前者) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 削除する順位を指す本文参照を残さない ([ADR-033](adr/adr-033-todo-numbering-simplification.md) § アンチパターン)」のチェックリストを追加する。
+> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (**該当順位を収める `docs/todo-summary*.md` の part** (順位 219 以前 / 220-399 / 400 以降の 3 分割)。順位 220 未満は前者) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 削除する順位を指す本文参照を残さない ([ADR-033](adr/adr-033-todo-numbering-simplification.md) § アンチパターン)」のチェックリストを追加する。
 >
 > **2026-08-16 更新**: 当初の対処案 (3) は「順位番号を本文に書かない」だったが、[ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 が本文参照の禁止を緩和したため、**削除済み順位への参照を残さない**へ置き換えた。相補関係にあった順位番号 lint rule のタスクは同日 retire している。
 >
@@ -74,7 +74,7 @@
 #### 作業計画
 
 - [ ] `docs/dev-conventions.md` に todo ファイル削除・更新チェックリストを追加 (詳細/summary の対更新・段階削除+都度 lint:md・削除済み順位への本文参照を残さない)
-- [ ] 本エントリ削除 + 該当順位を収める summary index (`docs/todo-summary.md` または `docs/todo-summary2.md`) の行削除
+- [ ] 本エントリ削除 + 該当順位を収める summary index (`docs/todo-summary*.md` の該当 part) の行削除
 
 #### 完了基準
 
@@ -214,7 +214,7 @@
 
 ### 順位 432: `check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー
 
-> **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) の pre-push review (simplicity、non-blocking) の指摘。`check_concurrent_run_guard` は呼ばれるたびに `.takt/runs/*` を**全ディレクトリ走査し各 `meta.json` を JSON パース**する。旧実装は `context.json` の mtime を 1 回読む O(1) だった。
+> **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) の pre-push review (simplicity、non-blocking) の指摘。`check_concurrent_run_guard` は呼ばれるたびに `.takt/runs/*` を**全ディレクトリ走査し各 `meta.json` を JSON としてパース**する。旧実装は `context.json` の mtime を 1 回読む O(1) だった。
 >
 > **実測 (2026-08-11)**:
 >
@@ -250,10 +250,6 @@
   - **案 2**: 保持ポリシーにより `.takt/runs` の run 数に上限が定まっていること
 
 ---
-
-## 台帳整理バッチ (2026-08-12): todo2.md 退役に伴う移送 2 件 + docs 棚卸しの新規起票 7 件
-
-> **由来**: docs/ 直下の一時作業ドキュメント全件棚卸し (2026-08-12) の採否確定分。旧 todo2.md の ADR-032 ブロック (docs-only 高速パス) は [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) が別設計で実現したため退役し、独立価値の残る 2 タスクのみ本ファイルへ移送した。加えて棚卸しが発見した構造問題 7 件を起票した。
 
 ### 順位 445: todo preamble と facet routing 記述の整合を lint で機械検証する
 
