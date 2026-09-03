@@ -45,7 +45,7 @@
 >
 > **受け入れ基準 (Phase 1)**: ①採用された設計 finding ≥1 件/実験期間、②fix loop 率が現行 8.3% から有意に悪化しない、③wall-clock が simplicity 律速のまま (design execute ≤ simplicity execute を `scripts/analyze-takt-timings.ps1` で確認 — 別コミットの観測ツール)。計測は R3 の `push-runs-*.jsonl` (総時間・fix 発生) + step 別 timing 抽出で機械的に行う。
 >
-> **参照**: [ADR-047](adr/adr-047-prepush-refute-facet.md) §却下理由の補強 (一般反証機構との構成差・本案の出自)、[ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) (inline 反証 = 規律の移植元)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (Phase 0 需要調査の根拠)、`docs/takt-step-timings.md` (step 別実測、別コミット)、[push-pipeline-fix-plan2.md](push-pipeline-fix-plan2.md) R4。
+> **参照**: [ADR-047](adr/adr-047-prepush-refute-facet.md) §却下理由の補強 (一般反証機構との構成差・本案の出自)、[ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) (inline 反証 = 規律の移植元)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (Phase 0 需要調査の根拠)、`docs/takt-step-timings.md` (step 別実測、別コミット)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) § 検討して採らなかった方向 R4。
 >
 > **実行優先度**: 🔧 Tier 2 — Severity Low〜Medium (現行に実害はない: recall 穴は post-PR CodeRabbit が受けている。改善余地の探索) / Effort: Phase 0 = S、Phase 1 = M (条件付き)。
 

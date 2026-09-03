@@ -207,6 +207,13 @@
 | 504 | 🔧 Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
 | 505 | 🔧 Tier 2 | **[defect:G2] telemetry の id 契約と TOML 構造の回帰を足す** | todo26.md | S | なし (PR #463 / #456 feedback。セクション分断を実際に起こした。ADR-055 への識別子判定基準の追記を同乗) |
 | 506 | 🔧 Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
+| 507 | 🚀 Tier 1 | **[defect:G1] 夜間 agent の `Edit(work/**)` がドット始まりディレクトリを覆わない** | todo26.md | M | なし (run 33665621808 で permission_denials_count: 2。順位 281/455 が構造的に完了不能で human lane へ退避済み。着手時判断: 原因の実測確認と `.github/` を allow に含めるかの整理が要る) |
+| 508 | 🔧 Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | todo26.md | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
+| 509 | 🚀 Tier 1 | **[defect:G1] `cli-merge-pipeline` の gh 呼び出しが非 colocated workspace で解決に失敗する** | todo26.md | S | なし (weekly-review WR-2026-09-03-J01。順位 467 F-2 / PR #470 と同型で 3 度目。着手時判断: `detect_owner_repo` は `--repo` が循環するため代替経路の選択が要る。順位 502 の lint との前後関係も決める) |
+| 510 | 🚀 Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | todo26.md | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか) |
+| 511 | 🔧 Tier 2 | **[improvement] `todo-summary2.md` を 3 分割し明示列挙の呼び出し元を追随させる** | todo26.md | M | なし (79KB。機構は F1 で 3 分割対応済みだが `--repo` ならぬ `--summary-file` の明示列挙が package.json と nightly-todo.yml に残る。workflow を触るため auto lane 不可。着手時判断: どの順位で切るか) |
+| 512 | 💎 Tier 3 | **[improvement] 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する** | todo26.md | M | なし (61KB / 59KB。移動したエントリの順位 table「ファイル」列の追随が必須で entry_pairing が強制する。着手時判断: 分割か孤児削除かを先に測る) |
+| 513 | 💎 Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 

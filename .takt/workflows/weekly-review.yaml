@@ -5,7 +5,7 @@ description: >
   が見ない whole-tree 観点 (累積複雑度 / 横断的 ADR 整合性 / ハーネス遵守 /
   test 設計) を補完する。
   5 つの whole-tree review facet (simplicity / security / architecture / todo / jj-robustness)
-  と決定論的 scan 2 つ (file-size / workspace-hygiene) を parallel で走らせて
+  と決定論的 scan 3 つ (file-size / workspace-hygiene / ledger-candidates) を parallel で走らせて
   aggregate-weekly が findings JSON + markdown を生成する。post-merge-feedback.yaml の構造を流用。
   fix loop なし: コードではなく findings レポートを生成するため
   reviewers/fix の構造は不要。
@@ -29,7 +29,8 @@ steps:
   # ---------------------------------------------------------------------------
   # Step 1: reviewers (parallel)
   #   5 つの whole-tree review facet (simplicity / security / architecture / todo /
-  #   jj-robustness) と決定論的 scan 2 つ (file-size / workspace-hygiene) を並列実行する。
+  #   jj-robustness) と決定論的 scan 3 つ (file-size / workspace-hygiene / ledger-candidates) を
+  #   並列実行する。
   #   各 review facet は独立した観点でソースツリー / todo corpus を Glob/Read/Grep し、
   #   findings を articulate する。
   #   Report Directory には simplicity-whole-review.md / security-whole-review.md /

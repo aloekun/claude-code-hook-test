@@ -114,6 +114,48 @@ push 戦略 (どの bookmark を、どの経路で push してよいか) は **h
 
 補足 — ADR-011 との整合: ADR-011 (jj 0.37 前提) は新規 bookmark push を `remotes.origin.auto-track-bookmarks` 設定で解決する戦略だったが、その後の実装は config コメントベースで `--all` を採用し、ADR-011 と乖離していた。jj 0.42 では `jj git push -b <name>` が未 tracking の新規 bookmark を自動 track するため、auto-track 設定も `--all` も不要になり、本追記の `-b` 明示方式で両者の課題が解消される。
 
+## push パイプラインの所要時間 — before / after (2026-09-03 記録)
+
+`docs/push-pipeline-fix-plan.md` / `push-pipeline-fix-plan2.md` (ephemeral 計画、2026-09-03 に削除条件充足で削除) が持っていた**唯一の実測記録**をここへ移した。同計画の削除条件 3 が「after 計測とベースラインの 3 点比較を関連 ADR に記録すること」を求めていたため、その記録先が本節である。
+
+### 計測方法
+
+- **before**: 2026-07-16 時点の `.takt/runs/` 直近 20 run を、各 run の `meta.json` の startTime/endTime と `trace.md` の `- Started:` / `- Completed:` 行から集計
+- **after**: 2026-08-20 以降の 108 run を `.claude/telemetry/push-runs-*.jsonl` (T0/R3 で追加した stage 別計測ログ) から集計。書式の定義元は `src/cli-push-runner/src/log.rs` の `format_stage_elapsed()`
+
+**計測基盤そのものが本計画の成果である** — before は手作業の run 走査、after は永続化された JSONL からの集計で、同じ手順では取れていない。値の比較は「同じ対象を測っている」範囲で読むこと。
+
+### 3 点比較
+
+| 指標 | before (2026-07-16、n=20) | after (2026-08-20〜、n=108) | 目標 | 判定 |
+|---|---|---|---|---|
+| takt 部分 中央値 | 3.8 分 | **3.3 分** | — | 改善 |
+| コード変更 push (fix あり) | 5.5〜14.6 分 (**範囲**) | **中央値 4.7 分** (n=95) | 7 分以下 | **達成** |
+| docs-only push | (計測なし) | **中央値 3.0 分** (n=13) | 1 分台 | **未達** |
+
+**before と after で統計量が違う。** before の原典 (削除した計画の §1) は fix あり run を**範囲**でしか持たず、中央値は残っていない。したがって上表の 2 行目は「範囲の下端 5.5 分」と「中央値 4.7 分」の比較であり、**中央値どうしの比較ではない**。目標 (7 分以下) との判定は after の中央値で行っている。takt 部分だけは before/after とも中央値で揃っている。
+
+### docs-only の目標は再解釈する
+
+**「docs-only push 1 分台」は総時間としては達成しない。** [ADR-057](adr-057-docs-only-deterministic-routing.md) の routing を入れた後も「docs-only でも takt レビューは skip しない」ことをユーザーが決めており (docs の事実誤りを takt が実際に検出した実績があるため)、**takt が支配項として残る**。
+
+したがって目標は「**決定論ゲート部分の短縮**」へ読み替える。gate 部分の実測は 3.0 秒で、総時間 3.0 分の大半は takt が占める。旧計画の学び「見積も目標も実測で見直す」をここに適用した。
+
+### 残る観測
+
+- takt の最大値は 21.1 分 (after)。中央値は改善したが**裾は伸びている** — fix step の iteration 数に律速され、REJECT が続いた run で長くなる
+- `post_takt_regate` は集計対象 108 run すべてで発火している ([ADR-058](adr-058-post-takt-regate.md))
+
+## 検討して採らなかった方向 (2026-09-03 移送)
+
+削除した ephemeral 計画 (`push-pipeline-fix-plan.md` § 7) が持っていた**非推奨判断**。いずれも「やらないと決めた理由」であり、同じ提案が再び出たときに再検討のコストを払わないために残す。
+
+| 方向 | 採らない理由 |
+|---|---|
+| **takt 離脱** (Rust 直オーケストレーション + `claude -p` 直呼び) | 判断材料が未取得。[ADR-055](adr-055-firing-telemetry-collection.md) の telemetry と `check-ci-coderabbit --list-findings` で「pre-push APPROVE 後に CodeRabbit が何を出したか」を突合してから判断する |
+| **pre-push AI レビューの廃止** (CodeRabbit 全面依存) | CodeRabbit の rate-limit ([ADR-019](adr-019-coderabbit-review-hybrid-policy.md) 記録: 解除待ち 20〜40 分が頻発) により、push は速くなっても**PR マージまでの総時間が悪化する公算が大きい** |
+| **review + fix の単一エージェント統合** | [ADR-036](adr-036-bundle-z-three-layer-review.md) が特定した self-review 盲点 (6 iteration アウトライアの根因) を再導入するため |
+
 ## 次ステップ (スコープ外)
 
 - **cli-pr-monitor の takt 化**: daemon ポーリング完了後に takt ワークフローで CodeRabbit 指摘の自動分析・修正 (Phase 2)

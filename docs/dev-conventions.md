@@ -85,6 +85,15 @@ PR size gate (block 1500 行) に当たって PR を分割する場合の規約 
 
 **由来** (2026-08-02 WP-17 PR 2 の実装セッション): 同一セッション中に 3 回発生した。関連して、同セッションでは `pnpm push` を timeout 600000ms + background で実行する ([ADR-016](adr/adr-016-long-running-command-strategy.md))、PR 作成・マージはユーザー承認を得る ([ADR-028](adr/adr-028-pnpm-create-pr-gate.md)) も併せて運用している。VSCode では AskUserQuestion の preview や同一ターンに出した本文が見えないことがあるため、**PR 本文の draft はツール呼び出しを伴わない単独メッセージで提示する**。
 
+## timeout 経路のテストは経過時間まで assert する
+
+**「Err が返った」だけを assert しない。** timeout を入れたつもりで実際には無限待ちのままでも、別の理由 (コマンド不在・引数不正) で `Err` になればテストは緑になる。**timeout が効いた証拠は経過時間**であり、それを見ないテストは「timeout が消えても落ちないテスト」になる。
+
+- 長時間コマンドの fixture で `Err` を確認したうえで、**経過が上限付近に収まっていること**を assert する
+- 上限値そのものを assert しない (環境差で揺れる)。「上限 + 余裕」を超えていないことを見る
+
+**由来** (2026-07-17、旧 `push-pipeline-fix-plan.md` の T6): `run_diff_cmd` が `Command::output()` の無限待ちで、他 stage (jj 系 30s / gate 600s / push 300s) だけが timeout を持っていた。修正時にこの教訓を得た。ephemeral 計画の削除 (2026-09-03) にあたって本ファイルへ移送した。
+
 ## 夜間 PR のリベースは `pnpm rebase-nightly` で行う
 
 **`claude/nightly-<順位>` の PR を手でリベースしない。**

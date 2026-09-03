@@ -243,7 +243,9 @@ Guard 正規表現 / ADR-072 決定 6 / agent プロンプトの 3 箇所が**�
 
 Node script 側 (B4):
 
-- `process.exit()` が `finally` を飛ばさないこと (一時ディレクトリ後始末) — **実測済み、固定するだけ**
+- **一時ディレクトリの後始末が保証されること** — `process.exit()` は `finally` を実行せずに
+  プロセスを終えるため、`try`/`finally` の中で呼ぶとリークする (実測で 4 個の残存を確認)。
+  終了コードは `process.exitCode = main()` の経路で返す。**この形を固定する** (実測済み)
 - `spawnSync` の timeout 動作 (`ETIMEDOUT`) — **実測済み、固定するだけ**
 - コミット同一性検証が `change_id` を使っていること / `compareCommitSets` の双方向 — **実測済み、固定するだけ**
 - `jj rebase -r` で親コミットが落ちる合成ブランチを CI で自動生成し、`pnpm rebase-nightly` が
@@ -253,3 +255,271 @@ Node script 側 (B4):
 
 - 上記の各挙動を潰すと落ちるテストが揃っている
 - 合成ブランチによる `-r` 事故の検出が CI で自動的に回っている
+
+---
+
+### 順位 507: 夜間 agent の `Edit(work/**)` がドット始まりディレクトリを覆わない
+
+> **動機**: 2026-09-02 の夜間 run 33665621808 が順位 455 を選び、agent が **34 ターン・5.8 分・
+> $1.75 を消費して 0 変更**で終わった。結果 JSON に `permission_denials_count: 2` が記録されている。
+> 順位 455 の成果物は `.claude/custom-lint-rules.toml` + `tests/fixtures/incidents/{bad,good}/` で、
+> agent の tool scope は `--allowedTools "Read(work/**),Edit(work/**),Glob,Grep"` である。
+> **glob の `*` がドット始まりディレクトリにマッチしないため `.claude/` 配下を編集できない**、
+> というのが denial の説明として最も整合する。
+>
+> **実害の規模**: auto lane に載っているのに構造的に完了できない行がもう 1 件ある (順位 281、
+> 同じ `.claude/custom-lint-rules.toml` 構成)。両方とも 2026-09-03 に human lane へ退避したが、
+> **custom lint rule の追加タスクは今後すべて夜間ループに載せられない**状態が残る。
+>
+> **由来**: `[defect:G1]`。証拠 = run 33665621808 (`permission_denials_count: 2`)。
+> tool scope の設定はテストを書く場が無く、実走でしか確認できない。
+
+#### 着手時に確定させること
+
+- **原因の確定**: glob の不一致は推定である。`workflow_dispatch` の `dry_run=true` で
+  `.claude/` 配下を対象とする順位を選ばせ、denial が再現するかを実測してから直す
+  ([ADR-067](adr/adr-067-phase-b-unattended-fix-push.md): LLM を含む経路は実走でしか検証できない)
+- **`.github/` との関係**: ドット始まりを許すと `.github/` も allow 側に入る。**Guard 禁止パス
+  ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6) との二重防御の関係を整理する** — deny 側で
+  `.github/**` を明示するか、allow を `.claude/**` に限定して列挙するかの選択がある
+- 決定 12 の「保護の主体は deny 側」という設計を崩さないこと
+
+#### 完了基準
+
+- `.claude/custom-lint-rules.toml` を成果物とするタスクが夜間ループで完走する (実走で確認)
+- `master-ref/` への書き込みが従来どおり deny されることを実測で再確認している
+- 順位 281 / 455 を auto lane へ戻せる状態になっている
+
+---
+
+### 順位 508: 台帳追加候補の除外クラスを決定論で機械適用する
+
+> **動機**: 2026-09-03 の weekly-review で、台帳未掲載 238 件から追加候補を選ぶ作業を人手で行った。
+> [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) の除外クラス 1〜5 のうち複数は決定論で
+> 判定できる (同 決定 6 が「対象パスの実在検査は決定論」と分類済み) のに、`ledger-candidates`
+> step は**差集合を出すだけ**で絞り込みをしていない。結果、weekly-review の報告時点では
+> 「238 件」という数しか見えず、**候補の見落としが構造的に起きる**。
+>
+> **由来**: `[improvement]`。実際に見落とした観測はまだ無く、運用改善のための機械化である。
+
+#### 設計方針 (2026-09-03 ユーザー決定)
+
+**LLM に適格判定をさせない。** [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18 が
+「skill は昇格を提案しない」と定めた由来は、LLM に適格判定を強制した旧方式が 2 週連続で失敗した
+ことである (164 件中約 50 件 / 251 件中 13 件しか判定せず、いずれも「候補 0 件」と報告)。
+したがって**禁じられたのは LLM による判定**であって、決定論による絞り込みではない。
+
+決定 18 は「**LLM が適格判定しない**」と読み替え、skill の制約 (「件数と report パスを提示する
+だけ」) を改訂する。
+
+#### 機械適用する除外クラス
+
+| クラス | 判定方法 |
+|---|---|
+| 1 グローバル `~/.claude` の編集 | 本文の語彙 |
+| 2 実行環境依存 (hook 発火 / 実走 / `pnpm push` / e2e) | 本文の語彙 |
+| 3 Guard 禁止パスの**書き換え** | 対象ファイル欄 × deny リスト (順位 486 が実装する検査と同一) |
+| 4 ADR の起票・改訂 | 対象ファイルが `docs/adr/` |
+| 5 判断留保 (再選定 / 検討 / 未定 / 複数案 / 着手時判断 / 要設計) | 注意欄・本文のキーワード走査 (順位 447 が実装する検査と同一) |
+| **新規: `.claude/` 配下の書き換え** | 対象ファイル欄。順位 507 が解決するまでの暫定 |
+
+**決定 3 の 3 種 (文書タスク / 並行性・ロックのテスト / 完了基準が二択) は機械適用しない** —
+ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人間が判断する。
+
+#### 着手時判断
+
+- 順位 486 / 447 が実装する検査と**同じ判定ロジックを 2 度書かない**こと。どちらを先に実装するか、
+  共通化するかは着手時に決める
+- 出力は `ledger-candidates.md` に統合するか、別 report にするかを決める
+
+#### 完了基準
+
+- weekly-review の報告に、除外クラス適用後の候補一覧 (順位 / Tier / 内容 / 除外されなかった理由) が出る
+- 除外されたものは件数とクラス別内訳が出る (「0 件」と「未実施」を読み手が区別できる)
+- ADR-072 決定 18 と weekly-review skill の制約が改訂されている
+
+---
+
+### 順位 509: `cli-merge-pipeline` の gh 呼び出しが非 colocated workspace で解決に失敗する
+
+> **動機**: 2026-09-03 の weekly-review finding WR-2026-09-03-J01 (severity high)。
+> [`src/cli-merge-pipeline/src/github.rs`](../src/cli-merge-pipeline/src/github.rs) の
+> `detect_owner_repo()` と `detect_pr_number()` が `gh` を `--repo` なしで呼んでおり、
+> 非 colocated jj workspace ([ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の並列
+> セッション運用) では `.git` が無いため gh がリポジトリを解決できない。
+>
+> **順位 467 F-2 / PR [#470](https://github.com/aloekun/claude-code-hook-test/pull/470) と同型**。
+> 同じ穴を 3 度踏んでいる。
+>
+> **由来**: `[defect:G1]`。証拠 = PR #470 (同型の実観測) / weekly-review finding J01。
+> gh のリポジトリ解決は実行環境に依存し、テストを書く場が無かった。
+
+#### 着手時に確定させること
+
+**2 つの関数は性質が違う。同じ修正を当てられない。**
+
+| 関数 | 状況 |
+|---|---|
+| `detect_pr_number()` (137 行) | `owner_repo` が既知なら `--repo` を渡せる。**素直に直せる** |
+| `detect_owner_repo()` (81 行) | **リポジトリを特定する関数自身**なので `--repo` は循環する。`gh` に頼らず `jj git remote list` 等から導出するか、環境変数 `GH_REPO` を受けるかの選択がある |
+
+順位 502 が追加する「`gh --repo` 欠落検出」の lint は、**この 2 箇所を最初に検出する現存違反**に
+あたる。502 を先に入れると赤くなるため、lint 側に例外を置くか本タスクを先に片付けるかを決める。
+
+#### 完了基準
+
+- 非 colocated workspace で `cli-merge-pipeline` がリポジトリと PR 番号を解決できる (実測で確認)
+- `detect_owner_repo()` の解決経路が gh のリポジトリ自動解決に依存しない
+- 順位 502 の lint と矛盾しない (例外を置くならその根拠が書かれている)
+
+---
+
+### 順位 510: 夜間ループの稼働状況を週次レビューで見張る
+
+> **動機**: 直近 8 晩の夜間 run のうち **5 晩が red**、うち**直近 4 晩は連続**している
+> (2026-08-30 / 08-31 / 09-01 / 09-02)。ところが 2026-09-03 の weekly-review が出した
+> findings 8 件のうち、**夜間ループに言及したものは 0 件**だった。
+>
+> **なぜ気づけないか**: `weekly-review.yaml` は全 provider に `network_access: false` を課しており、
+> facet はソースツリーしか読めない。**run の結果はネットワークの向こう側**にあるため、
+> 現在の構成では原理的に観測できない。
+>
+> **実害**: 夜間ループは**開発作業で生まれたタスクの消化を助ける補助**であって、止まっても主線の
+> 開発は進む。だからこそ**無音のまま何晩も過ぎる**。1 晩の red は agent 1 回分 (実測で
+> 5.8 分・$1.75、run 33665621808) を捨てており、その間タスクの消化も進まない。
+>
+> 実際、2026-09-03 のセッションで見つかった 2 件はどちらも**人間がログを手で読んで初めて**
+> 判明した — 順位 455 の権限拒否 (run 33665621808、`permission_denials_count: 2`) と、
+> 順位 324 の空振り (run 90894308468)。weekly-review の出力には一度も現れていない。
+>
+> **由来**: `[defect:G1]`。証拠 = run 33665621808 / run 90894308468。観測の場そのものが無かった。
+
+#### 置き場所
+
+**L3 (skill) の決定論 scan** に置く。`gh` が要るため L2 (takt workflow) には置けない
+([ADR-031](adr/adr-031-weekly-review-pipeline.md) § L2 に置けない決定論 scan は L3 が直接呼ぶ)。
+`pnpm stale-branch-scan` / `pnpm ledger-residue-scan` と同じ配置になる。
+
+#### 出す材料 (案)
+
+- 直近 7 日の run の `conclusion` 集計 (success / failure / 未実行)
+- red の run について `[NIGHTLY] cleanup=... publish=... handoff=...` のサマリ行 (どの段で止まったか)
+- handoff marker の現存一覧と、それが指す順位
+- 連続 red の日数 (「今週たまたま 1 晩落ちた」と「4 晩連続で助けが止まっている」を区別する)
+
+#### 着手時判断
+
+- **どこまでログを読むか**。run の `conclusion` だけなら `gh run list` で軽いが、停止段まで出すには
+  各 run のログ取得が要る (1 run 数 MB)。直近 7 日ぶんを毎週取るコストと得られる情報を比較して決める
+- agent の消費 (`num_turns` / `total_cost_usd`) を出すかどうか。出せば「回して捨てた量」が見えるが、
+  ログ本文の取得が前提になる
+
+#### 完了基準
+
+- red が続いている週に、weekly-review の報告へ必ずその事実が現れる
+- 停止段が分かる粒度で出る (「red が 4 晩」だけでなく「guard で 3 晩、verify で 1 晩」)
+- 取得に失敗した週は「未確認」と明示される (「0 件」と書かない)
+
+---
+
+### 順位 511: `todo-summary2.md` を 3 分割し、明示列挙している呼び出し元を追随させる
+
+> **動機**: `docs/todo-summary2.md` が **79KB** に達した (50KB が Claude Code の読み取り安定閾値)。
+> 2026-07-20 に `todo-summary.md` から分割した後半で、順位が増えるたびに伸び続ける。
+>
+> **機構側は「一部だけ」3 分割へ対応済み**。Phase F の F1 で name prefix を `SUMMARY_FILE_PREFIX`
+> 1 箇所に集約し、`docs_files.rs` の列挙は `todo-summary*.md` を glob するため、**cli-docs-lint の
+> 各 check は新しい part を追加するだけで拾う** (テストは `todo-summary3.md` を fixture に使う)。
+>
+> **一方、台帳削除の経路は 2 ファイル決め打ちのままである。**
+> [`src/cli-ledger-cleanup/src/apply.rs`](../src/cli-ledger-cleanup/src/apply.rs) の `plan_summary_removal`
+> は `["todo-summary.md", "todo-summary2.md"]` を配列でハードコードしており (88 行)、**3 分割すると
+> 第 3 part に載った順位の後始末が「順位 table にありません」で失敗する** (CodeRabbit #473)。
+> 夜間ループのマージ経路が壊れるため、分割と同じ PR で直す必要がある。
+>
+> **由来**: `[improvement]`。閾値超過は観測しているが、読み取りが実際に壊れた観測はまだない。
+
+#### 追随が要る「明示列挙している呼び出し元」
+
+glob ではなく 2 ファイルを並べている 3 箇所は手で足す必要がある。
+
+- `package.json` の `ledger-candidates` スクリプト (`--summary-file` ×2)
+- `.github/workflows/nightly-todo.yml` の `Select task from the ledger` step (`--summary-file` ×2)
+- **`src/cli-ledger-cleanup/src/apply.rs` の `plan_summary_removal`** (配列のハードコード。ここが漏れると台帳の後始末が失敗する)
+
+加えて `docs/todo.md` の preamble routing 表を更新する。
+
+#### 着手時判断
+
+- **どこで切るか**。順位の境界をどこに置くかは、ファイルサイズと「よく参照する範囲」の兼ね合いで決める
+- workflow を触るため [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パスに該当し、**auto lane には載せられない**
+
+#### 完了基準
+
+- 3 つの part すべてが `pnpm lint:docs` / `cargo test` の検査対象に入っている (`todo-summary3.md` を足しても検査が素通りしない)
+- 夜間ループの選択が 3 part すべてを見ている (`--summary-file` の追随漏れがない)
+- **第 3 part に載った順位を `cli-ledger-cleanup --apply` が後始末できる** (`apply.rs` のハードコードが解消されている)
+- 2 ファイル決め打ちが再発しないよう、列挙は `docs_files.rs` の共有層を使うか、使えない理由が書かれている
+
+---
+
+### 順位 512: 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する
+
+> **動機**: `docs/todo14.md` (61KB) と `docs/todo22.md` (59KB) が閾値を超えている。どちらも
+> 「編集・完了削除専用」で新規追加はされないが、既存エントリが残る限り縮まない。
+>
+> **由来**: `[improvement]`。
+
+#### 作業の性質
+
+**詳細エントリの移動は順位 table の「ファイル」列とセットである。** 移動した各エントリについて
+`docs/todo-summary*.md` の該当行が指すファイル名を更新しないと、`entry_pairing` 検査 (順位 441 /
+Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例して差分が増える。
+
+#### 着手時判断
+
+- **分割するか、完了エントリの削除で足りるかを先に測る**。両ファイルの全エントリについて、
+  対応する順位が順位 table に現存するかを確認し、孤児があればまず削除する
+- 分割する場合の新ファイル名 (連番の次) と、`docs/todo.md` preamble への追記
+
+#### 完了基準
+
+- 両ファイルが 50KB 未満
+- `pnpm lint:docs` の entry-pairing が緑 (移動したエントリの参照がすべて追随している)
+
+---
+
+### 順位 513: 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める
+
+> **動機**: 週次の file-length watchlist は `docs/todo*.md` と `src/**/*.rs` しか見ていないため、
+> **より大きい恒久ドキュメントを構造的に見逃している**。2026-09-03 の実測:
+>
+> | サイズ | ファイル | 性質 |
+> |---|---|---|
+> | 126KB | `docs/adr/adr-072-nightly-todo-loop.md` | 恒久 ADR。決定と検証記録が追記され続ける |
+> | 60KB | `docs/claude-code-web-tasks.md` | 台帳。恒久 |
+> | 67KB | `.github/workflows/nightly-todo.yml` | workflow。コメントが厚いこと自体が価値 |
+> | 64KB | `.github/workflows/pr-monitor.yml` | 同上 |
+>
+> **由来**: `[improvement]`。
+>
+> **watchlist の走査範囲そのものが問題**である。閾値を超えたファイルに気づけない構造が
+> 週次レビューに残っている (2026-09-03 のセッションで、報告されていた 3 件より大きい
+> 4 件が見えていなかった)。
+
+#### 着手時判断
+
+**機械的な分割では済まない。** 以下をタスクごとに決める必要がある。
+
+- **ADR-072**: 決定本文と検証記録を分けるか。ADR は 1 決定 1 ファイルが原則で、分割は参照の
+  付け替えを伴う。「検証記録だけを appendix ファイルへ出す」案が最有力だが設計判断
+- **台帳**: 恒久かつ夜間ループの選択元。分割は選択ロジックに影響する
+- **workflow 2 件**: コメントを削ると設計意図が失われる。「コメントを ADR へ移して本体を薄くする」
+  のは可能だが、**その場で読める価値**とのトレードオフ
+- **watchlist の走査範囲拡張**: `docs/**/*.md` と `.github/workflows/*.yml` を対象に加えるか。
+  加えると恒久ファイルが毎週報告され続けるため、「閾値超過が N 週続いたら報告」等の設計が要る
+
+#### 完了基準
+
+- 4 ファイルそれぞれについて「分割する / しない (理由つき)」が決まっている
+- watchlist の走査範囲が、決めた方針と整合している
