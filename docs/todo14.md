@@ -10,31 +10,6 @@
 
 ## 現在進行中
 
-### 順位 433: cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)
-
-> **動機**: 月次ハーネス ROI レビュー実装 (PR #335-338) の post-merge feedback で cli-telemetry-report に決定論的な堅牢化余地が挙がった。特に Phase C (snapshot 保持) の根本シナリオ = 月中に無効化→翌月再有効化される機構が既存 3 テストで未カバー (High)。Phase D の `confirmed_streak = zero_streak - partial` は前提 (`partial ⇒ zero_streak≥1`) が別関数依存で局所防御が無く、将来のリファクタで release build の silent underflow wrap により誤った deactivation 判定を招き得る。加えて `zero_firing_list` の MD/JSON 二重計算は出力乖離の温床。
->
-> **対処案**: 下記 作業計画。いずれも既存テストモジュール / 局所コードへの追加で Effort 小。
->
-> **参照**: PR #337 (Phase C+D) / PR #336 (Phase A) / PR #338 (Phase E)、`.claude/feedback-reports/337.md` (Tier1 #1 / Tier2 #1,#2)、`.claude/feedback-reports/336.md` (Tier1 #1 / Tier2 #1)、`.claude/feedback-reports/338.md` (Tier2 #2)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、`src/cli-telemetry-report/src/{aggregate,verdict,report,registry}.rs`。
->
-> **実行優先度**: 🔧 Tier 2 — Severity High〜Low (越境テストのみ High) / Frequency Low〜Medium / Effort S〜XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] [High] aggregate.rs: 月中 無効化→翌月 再有効化トグルが `resolve_snapshot` を正しく通過する月間境界越境テストを追加 (#337 Tier2-1)
-- [ ] verdict.rs: `confirmed_streak` 計算を `checked_sub` ベースの明示処理にし release build でも underflow を防止、`debug_assert!` (`partial ⇒ zero_streak≥1`) は診断用に併設 (#337 Tier1-1 + CodeRabbit PR #339)
-- [ ] verdict.rs tests: `current_month_partial==0` の境界を明示テスト化し `confirmed_streak==zero_streak` 等価を保証 (#337 Tier2-2)
-- [ ] report.rs: `zero_firing_list` の共有計算を `render()` で一度だけ実行し MD/JSON フォーマッタへ結果を渡す構造に抽出 (#336 Tier1-1)
-- [ ] report.rs tests: MD/JSON 両出力で zero_firing (id集合 / provenance / last_fired_month) + source_failures 一致の回帰テスト (#336 Tier2-1)
-- [ ] registry.rs tests: rule / preset / hook の 3 供給源が空・欠落時に同一 fail-open 挙動 (source_failures 計上) をすることを 1 テストで統一検証 (#338 Tier2-2、実装本体は #336 で対応済)
-
-#### 完了基準
-
-- 月中トグルシナリオ・streak 不変条件 (release-mode での判定保証を検証する回帰テストを含む)・MD/JSON 一致・3 供給源 fail-open が回帰テストで固定され、`cargo test --workspace` / clippy を通過すること。
-
----
-
 ### 順位 434: telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)
 
 > **動機**: 月次 ROI レビュー実装で判明した「snapshot は実行時点の状態≠対象期間の状態」という時間語義の混同 (Phase C の根本原因) と、streak 不変条件 (`partial ⇒ zero_streak≥1`) が未文書化。また「main root からの monthly review は常に degraded、回避は secondary workspace 実行」という運用事実が ADR-062 amendment / memory / SKILL.md の 5+ 箇所に分散し、PR #335-338 で反復的に扱われた (Frequency High)。
@@ -276,29 +251,6 @@
 
 ---
 
-### 順位 345: deploy 時の exe/config feature 互換性診断 (内容ベース、mtime 不使用)
-
-> **動機**: deployed `.claude/*.exe` が古く、tracked config (`.claude/hooks-config.toml`) が要求する新 feature (例: `{{CLAUDE_DIR}}` プレースホルダー展開) を満たさないと、silent `command not found` で quality gate が誤 block する。本セッションで 2 回実観測 (PR #307 の `{{CLAUDE_DIR}}` 機能追加時、2026-07-20 WP-15 rebase 時、いずれも MEMORY.md 記録済)。PR #310 post-merge feedback Tier1 #1 で採用。
->
-> **対処案**: deploy step で exe 埋め込みバージョン文字列と config 側 `min_exe_version` フィールドを**内容ベースで比較**する診断チェックを追加する。**mtime 比較は使わない** — jj tracked config は `jj workspace add`/checkout で mtime がリセットされ偽陽性/偽陰性を生む (既知の mtime-staleness 問題と同型)。将来的に [ADR-051](adr/adr-051-cross-system-config-coupling.md) の隣接領域として ADR 化も検討可。
->
-> **参照**: `.claude/feedback-reports/310.md` Tier1 #1、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`.claude/hooks-config.toml`、`scripts/deploy-artifacts.mjs`。
->
-> **実行優先度**: 🚀 Tier 1 — Severity High (silent command-not-found で quality gate 誤 block) / Frequency Medium (2 回実観測) / Effort M / Adoption Risk None (mtime 回避設計であれば)。
-
-#### 作業計画
-
-- [ ] exe にビルドバージョン文字列を埋め込み、`.claude/hooks-config.toml` に `min_exe_version` フィールドを追加
-- [ ] deploy step (`scripts/deploy-artifacts.mjs` or cli-merge-pipeline の deploy 処理) で内容ベースの互換性チェックを実装 (mtime 不使用)
-- [ ] 互換性違反時に silent でなく明確なエラーで停止することを確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- config が要求する feature を満たさない古い exe が deploy されている場合、内容ベース比較で検出され silent `command not found` にならないこと。
-
----
-
 ### 順位 346: pre-merge checklist に「Deferred Tests Completed」ブロッカー項目を追加
 
 > **動機**: PR #310 自体が workflow_dispatch スモークテスト等の検証を post-merge に defer しており、defer した検証の実施漏れリスクが実在する。PR #310 post-merge feedback Tier2 #2 で採用。
@@ -451,29 +403,6 @@
 
 ---
 
-### 順位 354: todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加
-
-> **動機**: PR #332 で todo16.md の複数セクション削除時に lint:md を 3 回以上再実行する非効率を観測した。todo ファイルの段階的削除と都度 lint:md 実行の手順が明文化されておらず、削除漏れ・lint 崩れ・summary 行との不整合が起きやすい。#332 post-merge feedback Tier3 #8 で採用。専用スクリプト化 (#332 Tier2 #1) は ADR-033 効果待ちで様子見だが、チェックリスト明記自体は Effort XS の無リスク即応策として独立採用可能。
->
-> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (**該当順位を収める `docs/todo-summary.md` または `docs/todo-summary2.md`**。順位 220 未満は前者) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 削除する順位を指す本文参照を残さない ([ADR-033](adr/adr-033-todo-numbering-simplification.md) § アンチパターン)」のチェックリストを追加する。
->
-> **2026-08-16 更新**: 当初の対処案 (3) は「順位番号を本文に書かない」だったが、[ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 が本文参照の禁止を緩和したため、**削除済み順位への参照を残さない**へ置き換えた。相補関係にあった順位番号 lint rule のタスクは同日 retire している。
->
-> **参照**: `.claude/feedback-reports/332.md` Tier3 #8、`docs/dev-conventions.md`、[ADR-033](adr/adr-033-todo-numbering-simplification.md)。
->
-> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に todo ファイル削除・更新チェックリストを追加 (詳細/summary の対更新・段階削除+都度 lint:md・削除済み順位への本文参照を残さない)
-- [ ] 本エントリ削除 + 該当順位を収める summary index (`docs/todo-summary.md` または `docs/todo-summary2.md`) の行削除
-
-#### 完了基準
-
-- todo ファイルの削除・更新時に段階削除と整合確認の手順が checklist 化され、削除漏れ・lint 崩れ・summary 不整合が防止されること。
-
----
-
 ### 順位 355: 新規スキル作成チェックリストを dev-conventions.md に追加
 
 > **動機**: PR #332 で monthly-review skill を新規作成した際、weekly-review skill を都度参照して構造 (SKILL.md / evals.json / trigger_eval.json の 3 点セット、Phase 構成、deploy 前 sync check) を確認する手戻りを観測した。3 点セット要件を明記したチェックリストがあれば都度の参照往復を削減できる。#332 post-merge feedback Tier3 #9 で採用。
@@ -517,29 +446,6 @@
 
 ---
 
-### 順位 357: CLAUDE.md の ADR index ステータスタグと ADR 本体ステータスの整合チェックを追加
-
-> **動機**: PR #340 で CLAUDE.md の ADR-047 index タグが `*(試験運用)*` のまま、ADR-047 本体のステータス「却下 (2026-07-19 確定)」と乖離して残存していることを、pre-push simplicity review と post-merge 分析が独立に指摘した (実害継続を Read で確認済み)。index タグと本体ステータスの整合は手動更新に依存しており、ステータス遷移 (試験運用 → 採用/却下) のたびに再発しうる。#340 post-merge feedback Tier1 #1 で採用。
->
-> **対処案**: CLAUDE.md の ADR index 行のステータスタグと、対応 ADR ファイル本体の「ステータス」見出しの一致を検証する doc-consistency チェックを pre-push 経路に追加する。[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) の正規表現層/AST 層はいずれも単一ファイル起点設計のため、`custom-lint-rules.toml` への追加ではなく独立チェック (cli-docs-lint 拡張 or 専用スクリプト/test) として実装する。**責務分界 (PR #341 CodeRabbit 指摘で明文化)**: 本 entry はステータスタグ整合のみを扱い、採番重複/索引存在/番号一致は順位 272 の責務。実装は同一 validator module への同居が可能で相補。
->
-> **参照**: `.claude/feedback-reports/340.md` Tier1 #1、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-047](adr/adr-047-prepush-refute-facet.md)、順位 272 (同居実装候補)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] CLAUDE.md の ADR-047 タグを `*(試験運用)*` → `*(却下)*` に修正 (実残存の不整合解消、着手時の即修正)
-- [ ] ADR index タグと ADR 本体「ステータス」見出しの整合チェックを実装 (cli-docs-lint 拡張 or 独立スクリプト、順位 272 と同居検討)
-- [ ] pre-push 経路 (lint:docs) への組込みと、不整合 fixture での検知確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- CLAUDE.md の ADR index タグと ADR 本体ステータスの乖離が pre-push で機械検知されること (採番/索引存在/番号一致の検知は順位 272 の完了基準で扱い、本 entry の対象外)。
-
----
-
 ### 順位 358: Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化
 
 > **動機**: PR #340 の計画書スリム化で、CodeRabbit から「WP-14 の永続移管先未記載」「外部 SaaS 事実の移管方針」「WP-02 の todo 移管先未記録」の 3 件が指摘された。ephemeral 計画文書から permanent 成果物への知識移行の手順は「見送り」ケース限定の順位 261 convention にしか存在せず、完了/委譲ケースの移管先明記が規約の空白だったことが構造要因。#340 post-merge feedback Tier3 #1 で採用。
@@ -558,39 +464,6 @@
 #### 完了基準
 
 - ephemeral 計画文書の完了/委譲/見送りいずれのケースでも、永続移管先の明記と参照方向の規律が checklist で確認できること。
-
----
-
-### 順位 359: WP-16 系 post-merge feedback 文書系 10 件の docs バッチ (dev-conventions 集中)
-
-> **動機**: PR #342 (CI matrix / ADR-065)・#343 (監視 CI 観測修正)・#344 (pipeline_lock レース修正) の post-merge feedback で採用確定した文書系 10 件を、1 本の docs バッチ PR に集約する (2026-08-02 方針決定。per-PR の細切れ doc PR を避け milestone でまとめる運用)。全件 `docs/dev-conventions.md` 中心の追記で、GitHub 仕様の gotcha など Severity High 2 件を含む。
->
-> **内容 (10 件)**:
->
-> 1. `[workspace] default-members` 不在で `cargo test` = `cargo test --workspace` という暗黙不変条件の明記 + `push-runner-config.toml` への inline comment (#342 T3-1。順位 360 のテストと対)
-> 2. ADR-051 (cross-system config coupling) をチェックリストに登録 — 3 系統以上のインフラ設定を跨ぐ変更時の確認項目 (#342 T3-3)
-> 3. ambient/auto-detect 環境状態 (git ブランチ名・`GH_REPO`・cwd) に依存せず明示引数を使う設計原則 — PR #238/#247/#343 の 3 例目で systemic (#343 T3-1)
-> 4. 並行バグ調査の標準テストパターン — 決定論再現テスト + stress の aggregate 計測 + low-core CI でのみ再現するレースの扱い (#344 T2-1)
-> 5. TOCTOU + 2 層防御 (verify-before-destroy + deferred cleanup、最終 fallback は `create_new` 排他へ収束) の設計原則 (#344 T3-1)
-> 6. CI 失敗の introduced-by-this-change / pre-existing を diff で切り分けるチェックリスト (#344 T3-2)
-> 7. `paths:` フィルタ付き check を required 化すると skip が pending 扱いで PR が永久ブロックされる GitHub gotcha + early-success 代替 (#342 T3-2、Severity High)
-> 8. exe-spawn テストは exe + deploy 済 config を temp dir へ staging する規約 — 既存 bounded wait 規約と対 (#342 T3-4、Severity High)
-> 9. cross-platform matrix の `fail-fast: false` 既定 (#342 T3-5)
-> 10. shell 抽象化確認済み cfg ガードの除去可否ガイダンス + レビュー層がコード内コメント根拠で false positive 判定する際の前提再検証手順 (#342 T3-7)
->
-> **参照**: `.claude/feedback-reports/342.md` / `343.md` / `344.md` (各 Rationale)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。
->
-> **実行優先度**: 💎 Tier 3 — 各件 Effort XS〜S・合計 M / Adoption Risk None。Severity High 2 件 (#7, #8) を含むため docs バッチとしては早めの実施が望ましい。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` へ 10 件を追記 (既存 convention の書式に合わせる)
-- [ ] `push-runner-config.toml` へ #1 対応の inline comment を追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 10 件すべてが dev-conventions.md (+ inline comment 1 箇所) に反映され、`pnpm lint:docs` / markdownlint が clean であること。
 
 ---
 
@@ -681,26 +554,3 @@
 - detached HEAD 環境で CI 状態が pending に固着する回帰が、テスト失敗として land 前に検出されること。
 
 ---
-
-### 順位 364: ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)
-
-> **動機**: pre-push の takt fix step には「finding 由来 allowlist との fix diff 照合」の決定論層が無く、instruction (fix.md の scope allowlist) 頼み。2026-08-02 の WP-17 PR 2a incident (fix が finding 対象外の lib crate 2 つを丸ごと削除し gate 全 PASS で push) で顕在化した。[ADR-068](adr/adr-068-fix-step-authority-boundary.md) の後退検知 backstop は削除系 (ファイル脱落 / 追加行削減) のみ検知する 80/20 の暫定で、**追加系の injection (finding 対象外ファイルへの書き込み・config 書き換え) は検知できない**。PR #348 security review の non-blocking 注記 (fix step が push-runner-config.toml の `max_added_line_shrink_pct` / `enabled` を書き換えて backstop 自体を自己弱体化できる経路が instruction 頼み) もこれで閉じる。
->
-> **対処案**: `cli-push-runner` の post_takt_regate 段 (または直前の専用 stage) で、`.takt/runs/` の最新 findings レポートから `Location` 列を抽出して allowlist を導出し、takt 前後の diff 差分の変更ファイルを照合する。判定コアは `lib-scope-guard` (WP-17 再分割 PR で land 予定) を再利用し、cli-pr-monitor の post-pr 経路と判定の同一性を保つ (ADR-054 の drift 防止)。violation は ADR-068 の `[FIX_REGRESSION]` と同様の loud block + 独立 kill-switch。findings レポートのパース失敗は fail-closed。
->
-> **参照**: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) § 決定 3 / 残課題、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) § 欠点 (pre-push 展開の予告元)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (post-pr 側の先行実装)、PR #348 security review 注記。依存: WP-17 再分割 PR (lib-scope-guard の land) 後が効率的。
->
-> **実行優先度**: 🔧 Tier 2 — Severity High (injection 防御の穴) / Frequency Low (fix 発生時のみ) / Effort M / Adoption Risk Low (既存 stage への追加、kill-switch つき)。
-
-#### 作業計画
-
-- [ ] findings レポート (.takt/runs/ 最新 run) から Location 列を抽出する parser (fail-closed)
-- [ ] lib-scope-guard で allowlist 照合、violation は loud block + 独立 kill-switch
-- [ ] incident 再現テスト: (a) finding 対象外ファイルへの変更が**変更種別 3 種 (追加 = 新規ファイル作成 / 書き換え = 既存ファイル編集、config 自己弱体化含む / 削除) のいずれでも** block されること、(b) `ALWAYS_ALLOWED` 対象ファイル (`.takt/review-diff.txt` 等) への変更は finding allowlist 外でも block されないこと、の両方を固定する (完了基準の「追加・書き換え・削除いずれも」に対応)
-- [ ] fix.md / fix-supervisor.md の「pre-push は後退検知のみ」記述を更新
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- fix step が finding 対象外ファイルを変更 (追加・書き換え・削除いずれも) した push が、決定論的に block されること。ADR-068 の後退検知では通ってしまう「追加系 injection」ケースがテストで固定されていること。
-- `ALWAYS_ALLOWED` (post-pr 側の先行実装 `src/cli-pr-monitor/src/stages/scope_guard.rs` で定義済み、現状 `.takt/review-diff.txt` のみ) は、fix step が本 instruction (fix.md 「Pre-completion diff refresh」) に従って正当に書き換える中間ファイルの例外リストである。pre-push 側の実装も finding allowlist に加えてこのリストを常に許可し、post-pr 側と同一のリストを共有すること (ADR-054 の drift 防止)。この例外により (a) の block 判定が誤って `.takt/review-diff.txt` 自体の正当な refresh まで block しないことをテストで固定する。

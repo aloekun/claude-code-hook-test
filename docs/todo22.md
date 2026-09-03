@@ -42,28 +42,6 @@
 
 ---
 
-### 順位 414: 系統 A-1: 「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化する
-
-> **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で PR タイトルという 3 つ目の公開面が増えた際、既存の `screen_for_public_output` を流用できないことが判明した。あちらの無害化は**「workflow がコードスパンで囲む」ことが前提**で `@mention` と markdown を verbatim に残す設計だったが、**タイトルはコードスパンにできない**。
->
-> **systemic pattern である**: 3 ソース (PR diff / セッション / pre-push security review) が独立に同じ原則を指摘した。過去にも同型が起きている — [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 14 の初版は「公開面 = PR 本文」と狭く見て **step ログを見落とし**、`tee` 経由の露出を後から塞いだ。**公開面は塞ぐたびに次が見つかる**。
->
-> **対処案**: (a) 「新しい出力面を足すときは、既存 screening を流用してよいかを**囲いの有無**から判断する」を convention として明文化、(b) [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) へ **output surface × wrapping context の対応表**を追記する (どの出口がどんな囲いを持ち、それゆえ何を追加処理すべきか)。
->
-> **参照**: [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 14 § 3 つ目の公開面、[screening.rs](../src/lib-ledger/src/screening.rs) (2 関数の対照が実装済み)。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Frequency **High** (出力面は増え続ける) / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` へ「出力面ごとの screening」節を追加する (囲いの有無から必要処理を導く判断手順)
-- [ ] ADR-054 へ output surface × wrapping context の対応表を追記する
-- [ ] 既存の出力面 (PR 本文 / step ログ / PR タイトル / marker 本文) を棚卸しし、表の初期値を埋める
-
-#### 完了基準
-
-- 新しい出力面を足す人が、既存 screening を流用してよいかを**表を見るだけで判断できる**こと。
-
 ### 順位 415: 系統 A-2: PR 検出源を広げる変更の信頼スコープ検査チェックリスト
 
 > **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push security review が、`get_jj_bookmarks_with_remote_fallback()` は **origin への push 権限と同等の信頼度を持つソースまで PR 検出を拡張する**点を明示的に指摘した。今回は問題なかったが、検出源を広げる変更は信頼境界の設計判断を伴う。
@@ -399,78 +377,6 @@
 
 ## セッション由来 (レポート外、2026-08-11 採用)
 
-### 順位 431: `review-request` の成功判定を初回レビュー取得まで遅らせる
-
-> **動機**: 2026-08-11 の夜間ループ実走 (PR [#387](https://github.com/aloekun/claude-code-hook-test/pull/387)) で、CodeRabbit がレート制限により `Review limit reached` を返した。`review-request` の検証は**要求後に CodeRabbit のコメントが 1 件以上付いたか**だけを見るため、**拒否も success として記録**され、run は緑で終わった。
->
-> **契約どおりではある**: この検証は決定 11 の失敗 (10 時間の無反応に気づけなかった) への対策で、workflow のコメントにも「投稿の成否ではなく CodeRabbit の反応を待つ」と明記されている。**設計の欠陥ではない。**
->
-> **問題は残る**: 結果として「レビューが付かないまま success で終わった自律 PR」がどこにも信号として残らない。[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § M5 の方針でリトライ機構を持たないため、解除後に自動で再要求されることもない。翌朝レビューする人間は、PR を開くまで未レビューだと分からない。
->
-> **対処案**: (a) 反応の**中身**を判別し、レート制限による拒否は success としない (run を warning か failure にする)、(b) 未レビューの自律 PR を検出する信号を別に持つ (weekly-review の自律アクション棚卸しに載せる = WP-19 ステップ 3)、(c) 解除見込み時刻を run log に出して人間が再要求できるようにする。**リトライ機構の作り込みは § M5 の方針に反する**ため、検出と可視化に留めること。
->
-> **参照**: [review-request.yml](../.github/workflows/review-request.yml)、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 定常運用 2 巡目の実走観測、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する / § M5、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) (陽性証拠の要求)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (未レビューの自律 PR が可視化されない) / Frequency Medium (人間が 2 本マージした夜) / Effort S-M / Adoption Risk Low (判別を厳しくしすぎると正常な反応まで failure にする)。
-
-#### 作業計画
-
-- [x] CodeRabbit の応答パターンを分類する (2026-08-20 実装)。`REVIEWED` (walkthrough marker) / `RATE_LIMITED` / `OTHER` の 3 分類とし、`OTHER` (ack・skip 通知・未知 format) は陽性証拠に数えず deadline 到達で red = 安全側 (未取得扱い) へ倒す。
-  - **台帳の前提がずれていた**: 拒否の実体は walkthrough の `Review limit reached` placeholder ではなく **command ack** (`<!-- This is an auto-generated reply by CodeRabbit -->` + `⚠️ Action not completed` + `Review rate limited.`) で、`markers.rs` の `RATE_LIMIT_MARKERS` の**どちらにも一致しない** (PR #387 の実 body を `gh api` で確認)。本 workflow の marker は markers.rs の上位集合とし、`Review rate limited.` を workflow 固有 marker として追加した。
-  - rate-limit の判定は陽性証拠より**先**に行う。#387 では拒否 ack と summarize marker 付き placeholder が 3 秒差で並んでおり、先に陽性証拠を探すと placeholder をレビュー実体と読んで silent success に戻る。
-- [x] success 判定を**陽性証拠へ寄せる**方針に決定 (2026-08-20、ユーザー判断)。レート制限検出時は `[REVIEW_REQUEST_RATE_LIMITED]` を出して **red で落とす**。リトライは作らない (ADR-019 § M5) ため、run の色が「この PR は未レビューのまま残った」の即時信号になる。成功条件を厳しくしたぶん待機上限を 10 分 → 15 分へ延長 (job の `timeout-minutes` も 15 → 20)。
-- [x] weekly-review との役割分担を workflow 先頭に明記 (2026-08-20)。本 workflow は**即時信号のみ**で再要求はせず、未レビュー PR を全体で拾い直すのは weekly-review の自律アクション棚卸し (WP-19 ステップ 3) 側とする。両者は独立に動く。
-- [ ] **実走観測**: 次にレート制限が起きた夜間 run で red + `[REVIEW_REQUEST_RATE_LIMITED]` が出ることを確認してから本エントリを削除する。
-
-#### 完了基準
-
-- レート制限で弾かれた自律 PR が、run の色か後続の棚卸しのいずれかで**未レビューと分かる**こと。
-
-> **現在地 (2026-08-20)**: 実装済み。分類 jq は workflow ファイルから切り出して実 PR (#387 / #426 / #421 / #419) のコメント列へ適用し、**#387 (本エントリの由来 incident) が `RATE_LIMITED` = red、正常レビュー済みの 3 件が `REVIEWED` = green** になることを実測した。marker が複数層に分散する構造なので `scripts/lint-workflows.mjs` に同期検査を追加している (片方だけ変えると silent success に戻るため)。**完了基準の判定は実走観測待ち。**
-
-### 順位 432: `check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー
-
-> **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) の pre-push review (simplicity、non-blocking) の指摘。`check_concurrent_run_guard` は呼ばれるたびに `.takt/runs/*` を**全ディレクトリ走査し各 `meta.json` を JSON パース**する。旧実装は `context.json` の mtime を 1 回読む O(1) だった。
->
-> **実測 (2026-08-11)**:
->
-> | 項目 | 値 |
-> |---|---|
-> | run ディレクトリ数 | **538** |
-> | 内訳 | pre-push-review 268 / post-pr-review 147 / その他 |
-> | 最古の run | 2026-06-26 (46 日分が蓄積) |
-> | `.takt/runs` の総容量 | **174 MB** |
-> | クリーンアップ機構 | **無し** |
->
-> **現時点で実害は無い** (538 ファイルのパースは 1 秒未満、マージは 1 日数回)。問題は**増加が単調で削除する仕組みが無い**こと。
->
-> **対処案** (独立に進められる 2 方向):
->
-> 1. **走査を絞る** — dir 名に workflow 名が含まれる規約 ([ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § task labeling convention) を使い、`meta.json` を読む前に名前でフィルタする。数行で定数が 1/4 以下になる。**局所改善で低リスク**
-> 2. **保持ポリシーを作る** — 週次レビュー等で古い run を畳む。174MB の削減にもなるが、run log は障害調査の資料でもあるため**保持期間の判断が要る** (どこまで遡って調査するかの実績を先に見るべき)
->
-> **参照**: [markers.rs](../src/cli-merge-pipeline/src/feedback/markers.rs) (`check_concurrent_run_guard`)、[run_registry.rs](../src/cli-merge-pipeline/src/feedback/run_registry.rs) (`collect_feedback_runs`)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § task labeling convention、[ADR-031](adr/adr-031-weekly-review-pipeline.md) (週次の棚卸し先)。
->
-> **実行優先度**: 💎 Tier 3 — Severity Low (現時点で実害なし) / Frequency Medium (単調増加) / Effort S (案 1) 〜 M (案 2) / Adoption Risk Low。
-
-#### 作業計画
-
-- [ ] 案 1 (名前フィルタ) を先に入れる。実測で効果を確認する (パース回数の削減)
-- [ ] 案 2 の保持ポリシーは、run log を実際に何日前まで遡ったかの実績を確認してから期間を決める
-- [ ] `.takt/runs` の容量を定期的に見る仕組みが要るかを判断する (週次レビューへ載せるか)
-
-#### 完了基準
-
-- 次のいずれかが達成され、どちらを採ったかが根拠つきで記録されていること。
-  - **案 1**: `meta.json` の**パース件数**が post-merge-feedback の run 数まで減っていること (実測で確認)。ディレクトリの列挙自体は残るため **O(n) は解消しない** — 削減できるのは読み取り / パース回数である
-  - **案 2**: 保持ポリシーにより `.takt/runs` の run 数に上限が定まっていること
-
----
-
-## 台帳整理バッチ (2026-08-12): todo2.md 退役に伴う移送 2 件 + docs 棚卸しの新規起票 7 件
-
-> **由来**: docs/ 直下の一時作業ドキュメント全件棚卸し (2026-08-12) の採否確定分。旧 todo2.md の ADR-032 ブロック (docs-only 高速パス) は [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) が別設計で実現したため退役し、独立価値の残る 2 タスクのみ本ファイルへ移送した。加えて棚卸しが発見した構造問題 7 件を起票した。
-
 ### 順位 6: GitHub Branch Protection 整備 — ブロックを Required status checks へ集約 (旧 docs-only 高速パス計画 Phase pre から独立化)
 
 > **設計方針** (2026-04-27 改訂、移送元 todo2.md から継承): 個人開発 + コーディングエージェント前提では、**Required reviewers (人間レビュー必須) は anti-pattern**。実装/テスト/PR 作成が AI で自動化される一方、人間レビューだけが同期処理として律速になるため。Required reviewers を外し、ブロックは **CI (Required status checks) に集約**する。人間レビューは event-driven (バグ / 大きい変更 / 設計変更時のみ)、定常レビューは ADR-031 週次レビューで補完。
@@ -620,38 +526,5 @@
 #### 完了基準
 
 - 対処案の採否が根拠つきで決まり、採用案が実装または明文化されていること。
-
----
-
-### 順位 445: todo preamble と facet routing 記述の整合を lint で機械検証する
-
-> **動機**: `docs/todo.md` preamble が列挙する todo ファイル群 (新規追加先 / 編集専用 / 列挙範囲) と、それを参照する `.takt/facets/instructions/review-todo-whole.md` の routing 記述が**独立に手で維持されており、片方だけ古くなる**。
->
-> 2026-08-13 の PR #395 で実際に発生した: preamble の新規追加先が更新される一方、facet 側には `todo6.md` / `todo2-7.md` という**旧世代の固定値**が残り、whole-tree review が古い送付先を案内していた。`cli-docs-lint` は preamble の数詞は見るが**列挙範囲と実ファイル群の集合一致は検証しない**ため、この class は機械層に穴がある。weekly-review が 50KB 超過のたびに todo ファイルを増やす構造上、再発は継続的に起こる。
->
-> **参照**: [review-todo-whole.md](../.takt/facets/instructions/review-todo-whole.md) (routing 記述)、[docs/todo.md](todo.md) preamble、`src/cli-docs-lint/`、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (正規表現層/AST 層の線引き)、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 (本タスクが入るまでの暫定 convention)。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤誘導であり実行時破壊ではない) / Frequency **Medium** (todo ファイルは継続的に増える) / Effort S / Adoption Risk None。
-
-#### 設計決定
-
-`cli-docs-lint` に検査を追加する (custom lint rule ではなく docs-lint 側。preamble 解析は既に同 exe が持っているため)。
-
-**集合の作り方を先に固定する。** ここを曖昧にすると誤検出か検査漏れのどちらかが必ず出る:
-
-- **対象は番号付きの詳細ファイルのみ** — `docs/todo*.md` の素の glob は `docs/todo-summary.md` / `docs/todo-summary2.md` も拾う。これらは順位 table であって詳細エントリの追加先ではないので、`todo<数字>.md` に限定する (`todo.md` 本体の扱いも明示的に決める)。
-- **範囲表記は展開してから比較する** — preamble と facet instruction はどちらも `todo3.md 〜 todo23.md` / `todo3-23.md` のような範囲表記を使う。文字列のまま集合比較すると常に不一致になるため、範囲を展開して要素の集合へ落とす。
-- **数詞と列挙範囲は別の検査** — 既存 `cli-docs-lint` は数詞 (「24 つ」) を見ているが、列挙範囲が実ファイル集合と一致するかは見ていない。本タスクで足すのは後者。
-
-- [ ] 集合抽出規則を実装する (番号付き詳細ファイルのみ / 範囲表記の展開)
-- [ ] preamble の列挙集合と `docs/todo<数字>.md` の実ファイル集合を比較する
-- [ ] facet instruction 側の routing 記述に含まれる `todoN.md` 参照を抽出し、preamble の集合と矛盾しないか検査する
-- [ ] fixture テスト (good / bad) を追加する。**bad 側に「summary ファイルを誤って含む」「範囲表記が未展開」の 2 ケースを必ず入れる** (本タスクの取りこぼし要因そのもの)
-- [ ] 本タスク land 後、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 の routing 該当部分を撤去する (ADR-042 のルール vs 仕組み化)
-
-#### 完了基準
-
-- preamble と実ファイル群、preamble と facet routing 記述の不一致が `pnpm lint:docs` で検出されること。
-- 検出が fixture テストで固定され、`cargo test --workspace` が green であること。
 
 ---

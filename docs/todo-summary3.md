@@ -20,7 +20,7 @@
 | 409 | 🔧 Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
 | 411 | 🚀 Tier 1 | **`cargo fmt` を PreToolUse でブロックし正しい対処を提示 (系統 F、規約ではなく機構)** | todo21.md | S | なし (2026-08-10 ユーザー判断で提案の形を変更。規約は毎セッション読まれコンテキストを圧迫するが hook は発火時のみコストが出る。ADR-042 へこの非対称を追記するのも本エントリの範囲。**反射的に実行されやすく無関係な差分を生む**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断) |
 | 413 | 🔧 Tier 2 | **`CwdRestore` Drop guard が 8 定義 / 6 ファイルに複製。ADR-025 の統合トリガーと再評価期限を超過** | todo21.md | S-M | なし (2026-08-10 PR #385 の pre-push review 指摘。ADR-025 自身が「2 例目で `lib-test-helpers` へ統合」と定め再評価期限 2026-07-31 も過ぎている。抽出するか ADR-025 の status を更新するかの判断が要る) |
-| 414 | 🚀 Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
+| 414 | 🚀 Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo27.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
 | 415 | 🔧 Tier 2 | **PR 検出源を広げる変更の信頼スコープ検査チェックリスト (系統 A-2)** | todo22.md | XS | なし (2026-08-11 採用。#385 の security review が「origin push 権限と同等の信頼度のソースまで検出を拡張する」点を指摘。検出源追加時の確認項目を明文化) |
 | 416 | 🔧 Tier 2 | **新規 screening 関数は実 exe を 1 回動かしてから test / doc を書く (系統 A-3)** | todo22.md | XS | なし (2026-08-11 採用。#389 で既存関数の挙動を推測でテストし期待値が実挙動と食い違った。ADR-067 の「実走でしか検証できない」を純関数の挙動確認まで広げる) |
 | 417 | 🚀 Tier 1 | **出力契約 3 層 (exe 出力キー ⊆ workflow allowlist ⊆ 検証 step) の同期を CI で検証 (系統 B-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で片方だけ更新すると新出力が黙って捨てられる構造が判明。workflow のコメント自身が警告していた = 機構で守るべき対象。cross-file 検査は ADR-007 の regex 層外のため CI test 形式) |
@@ -37,9 +37,9 @@
 | 428 | 🔧 Tier 2 | **PR 番号を取る CLI の不正値 (`--pr 0` 等) を PreToolUse で検出する (系統 F-2)** | todo22.md | S | なし (2026-08-11 採用。#385 で exe 側は契約を得たが同型 CLI 追加時の漏れは防げない。exe の拒否で足りるなら不採用も正規の出口) |
 | 429 | 💎 Tier 3 | **「optional 列」の意味 (ヘッダに無くてよい ≠ 行に無くてよい) を明記 (系統 G-1)** | todo22.md | XS | なし (2026-08-11 採用。#389 で max_index() への反映漏れから index out of bounds panic が発生。語の解釈の齟齬が原因) |
 | 430 | 💎 Tier 3 | **CLI フラグ解析の `Mode` enum + validator パターンを convention 化 (系統 G-2)** | todo22.md | XS | なし (2026-08-11 採用。フラグの段階的拡張による分岐の複製は再発パターン。lint 化は false positive リスクで却下済み、doc 化で代替) |
-| 431 | 🔧 Tier 2 | **`review-request` の成功判定を初回レビュー取得まで遅らせる** | todo22.md | S-M | なし (2026-08-11 実走で判明。レート制限による拒否も success として記録され、未レビューの自律 PR が信号として残らない。ADR-019 § M5 の方針によりリトライは作らず検出と可視化に留める) |
-| 432 | 💎 Tier 3 | **`check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー** | todo22.md | S-M | なし (2026-08-11 実測: run 538 件 / 174MB / 最古 46 日前 / クリーンアップ機構なし。現時点で実害は無いが単調増加。案 1 = 名前フィルタで走査を絞る、案 2 = 保持ポリシー) |
-| 433 | 🔧 Tier 2 | **cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)** | todo14.md | S | なし (2026-08-12 採番 — 詳細エントリのみ登録され台帳行が無い孤児状態で約 3 週間滞留していたものを回復。検出機構の欠落は別起票の docs-lint 1:1 検査を参照) |
+| 431 | 🔧 Tier 2 | **`review-request` の成功判定を初回レビュー取得まで遅らせる** | todo27.md | S-M | なし (2026-08-11 実走で判明。レート制限による拒否も success として記録され、未レビューの自律 PR が信号として残らない。ADR-019 § M5 の方針によりリトライは作らず検出と可視化に留める) |
+| 432 | 💎 Tier 3 | **`check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー** | todo27.md | S-M | なし (2026-08-11 実測: run 538 件 / 174MB / 最古 46 日前 / クリーンアップ機構なし。現時点で実害は無いが単調増加。案 1 = 名前フィルタで走査を絞る、案 2 = 保持ポリシー) |
+| 433 | 🔧 Tier 2 | **cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)** | todo27.md | S | なし (2026-08-12 採番 — 詳細エントリのみ登録され台帳行が無い孤児状態で約 3 週間滞留していたものを回復。検出機構の欠落は別起票の docs-lint 1:1 検査を参照) |
 | 434 | 💎 Tier 3 | **telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)** | todo14.md | XS | なし (2026-08-12 採番 — 孤児エントリの回復) |
 | 435 | 🔧 Tier 2 | **jj workspace/bookmark semantics の文書化 + pr-monitor 回帰テスト** | todo14.md | S-M | なし (2026-08-12 採番 — 孤児エントリの回復) |
 | 436 | 💎 Tier 3 | **開発ワークフロー規約の補強 (polling 禁止 / CodeRabbit→ADR timing)** | todo14.md | XS-S | なし (2026-08-12 採番 — 孤児エントリの回復) |
@@ -49,7 +49,7 @@
 | 440 | 🔧 Tier 2 | **weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)** | todo22.md | S-M | なし (2026-08-12 起票。last-run の指す 2026-07-27.md が不在、ADR-070 移行後の保存先未確認。jj-robustness facet の bounded-lifetime 判定 = todo13.md の blocker) |
 | 442 | 🔧 Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | 💎 Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
-| 445 | 🔧 Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo22.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
+| 445 | 🔧 Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo27.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
 | 447 | 🚀 Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
 | 448 | 🔧 Tier 2 | **判断留保キーワード検査の回帰テスト (canonical / tagged / untagged の 3 分類) (PR #400 T2-1)** | todo23.md | S | 447 (検証対象が 447 の成果物。走査の実体が現状 Rust に無いため単独着手は不可) |
 | 450 | 🔧 Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
