@@ -200,6 +200,13 @@
 | 497 | 🔧 Tier 2 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |
 | 498 | 🔧 Tier 2 | **非主要拡張子の coverage を拡張子ごとに要求する (`other_ext_tests` の map 化)** | todo25.md | M | なし (PR #461 の CodeRabbit 指摘由来。現行契約は「rule あたり 1+ test」で、その契約自体は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定済み) |
 | 499 | 🚀 Tier 1 | **takt の verdict を push-runner が読み、REJECT のまま push される経路を塞ぐ** | todo25.md | S-M | なし (2026-08-30 に PR #463 の作業中で実測。defect-convergence-plan の前提「強制点 = push ゲート」を崩す穴のため Tier 1) |
+| 500 | 🚀 Tier 1 | **[defect:G2] `cfg(test)` 判定を ident 単位にし testability gate の fail-closed 経路を固定する** | todo26.md | S | なし (PR #456 feedback。文字列マッチが `#[cfg(test_util)]` にも当たる。判定層にテストはあったが ident 境界の軸が未カバー) |
+| 501 | 🚀 Tier 1 | **[defect:G2] 由来タグ判定の単語境界と rustdoc 相対リンクの段数を検査する** | todo26.md | S | なし (PR #472 / #463 feedback。`rerun` が run ID に当たる = 証拠検査が緩む向きの誤り。段数ずれは cross-ref も通る) |
+| 502 | 🚀 Tier 1 | **[defect:G1] silent drop / `gh --repo` 欠落 / `spawnSync` timeout 未指定を lint で塞ぐ** | todo26.md | M | なし (PR #454 / #470 feedback。3 件とも実際に踏んだ欠陥で、検査の場が無かった。`extensions` への `mjs` 追加が前提) |
+| 503 | 🔧 Tier 2 | **[improvement] doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)** | todo26.md | M | なし (PR #456 / #464 feedback。実際に壊れた観測はまだ無く、予防のための検査) |
+| 504 | 🔧 Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
+| 505 | 🔧 Tier 2 | **[defect:G2] telemetry の id 契約と TOML 構造の回帰を足す** | todo26.md | S | なし (PR #463 / #456 feedback。セクション分断を実際に起こした。ADR-055 への識別子判定基準の追記を同乗) |
+| 506 | 🔧 Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
 
