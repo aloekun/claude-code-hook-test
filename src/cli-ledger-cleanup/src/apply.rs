@@ -13,6 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
+use cli_docs_lint::docs_files::{is_summary_file_name, list_docs_files, SUMMARY_FILE_PREFIX};
+
 /// 削除対象 1 順位ぶんの、書き戻し前の状態。
 #[derive(Debug)]
 pub(crate) struct PlannedRemoval {
@@ -76,17 +78,21 @@ pub(crate) fn plan_removal(
     })
 }
 
-/// 順位 table 2 ファイルのどちらに行があるかを解決する。
+/// 順位 table のどの part に行があるかを解決する。
 ///
-/// 両方にあるのは採番が壊れている状態なので `Err`。どちらにも無いのも `Err` —
+/// 複数にあるのは採番が壊れている状態なので `Err`。どれにも無いのも `Err` —
 /// 台帳には載っているのに順位 table から消えている順位は、後始末の前に人間が見るべき。
+///
+/// **part を決め打ちで列挙しない。** かつては `["todo-summary.md", "todo-summary2.md"]` の
+/// 配列で 2 ファイルを固定しており、2026-09-03 の 3 分割で第 3 part の順位を後始末できなく
+/// なる状態だった (CodeRabbit #473 が land 前に検出)。列挙は F1 が唯一の定義に集約した
+/// [`cli_docs_lint::docs_files`] を使い、**part が増えても修正が要らない形**にしてある。
 fn plan_summary_removal(
     docs_dir: &Path,
     rank: u32,
 ) -> Result<(PathBuf, String, lib_ledger::SummaryRow), String> {
     let mut hits = Vec::new();
-    for name in ["todo-summary.md", "todo-summary2.md"] {
-        let path = docs_dir.join(name);
+    for path in list_docs_files(docs_dir, is_summary_file_name)? {
         let before = std::fs::read_to_string(&path)
             .map_err(|e| format!("順位 table を読めません ({}): {e}", path.display()))?;
         if let Some((after, row)) = lib_ledger::remove_summary_row(&before, rank)
@@ -98,7 +104,7 @@ fn plan_summary_removal(
     match hits.len() {
         1 => Ok(hits.remove(0)),
         0 => Err(format!(
-            "順位 {rank} の行が順位 table (todo-summary.md / todo-summary2.md) にありません"
+            "順位 {rank} の行がどの順位 table (`{SUMMARY_FILE_PREFIX}*.md`) にもありません"
         )),
         n => Err(format!(
             "順位 {rank} の行が順位 table の {n} ファイルに重複しています"
@@ -235,11 +241,42 @@ mod tests {
         let error = plan_removal(&path, &markdown, &docs, 240)
             .expect_err("順位 table のどちらにも無いので失敗する");
         assert!(
-            error.contains("にありません"),
+            error.contains("にもありません"),
             "0 件経路のメッセージになっていない: {error}"
         );
     }
 
+
+    /// **第 3 part に載った順位を後始末できる** (CodeRabbit #473)。
+    ///
+    /// 以前は `["todo-summary.md", "todo-summary2.md"]` の決め打ちで、2026-09-03 の
+    /// 3 分割 (`todo-summary3.md` 新設) で第 3 part の順位が「どこにもありません」で
+    /// 失敗する状態だった。列挙を共有層へ寄せたので、part が増えても拾う。
+    #[test]
+    fn a_rank_in_the_third_summary_part_is_cleaned_up() {
+        let docs = fixture_dir("third-part");
+        std::fs::write(
+            docs.join("todo-summary3.md"),
+            "# サマリー 3\n\n\
+             | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n\
+             | 240 | 🔧 Tier 2 | **タイトル B** | todo10.md | M | なし |\n",
+        )
+        .expect("write summary3");
+        std::fs::write(
+            docs.join("todo-summary2.md"),
+            "# サマリー 2\n\n\
+             | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
+             |---|---|---|---|---|---|\n",
+        )
+        .expect("rewrite summary2");
+        let path = ledger_path(&docs);
+        let markdown = std::fs::read_to_string(&path).expect("read");
+        let plan = plan_removal(&path, &markdown, &docs, 240).expect("第 3 part の順位を計画できる");
+        plan.write_all().expect("write");
+        let third = std::fs::read_to_string(docs.join("todo-summary3.md")).expect("read");
+        assert!(!third.contains("| 240 |"), "第 3 part から消えていない: {third}");
+    }
     /// 順位 table には行があるが、指し先の詳細ファイルが実在しない場合。
     /// 上の 0 件経路とは別の失敗要因なので、テストも分ける。
     #[test]
