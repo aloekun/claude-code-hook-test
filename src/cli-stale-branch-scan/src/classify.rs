@@ -42,11 +42,37 @@ impl PrState {
 }
 
 /// 1 件の PR。判定に要る最小限だけを持つ。
+///
+/// `head_oid` は PR の head commit。**PR を「ブランチ名」ではなく「name + commit」で
+/// 束ねるために要る** ([`RemoteBranch`] の doc を参照)。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrRecord {
     pub number: u64,
     pub head_ref: String,
+    pub head_oid: String,
     pub state: PrState,
+}
+
+/// remote ブランチ 1 本。**名前と現在の commit を必ず組で運ぶ。**
+///
+/// # なぜ名前だけでは足りないか
+///
+/// PR の履歴は head ref **名**で永続する。ブランチが消えても、同名の ref を後から作れば
+/// 過去の PR がそのまま紐づいて見える。初版は名前だけで束ねていたため、決着済み PR と
+/// 同名の ref はすべて「その PR のブランチ」= 削除候補になっていた。
+///
+/// これが [ADR-072](../../../docs/adr/adr-072-nightly-todo-loop.md) 決定 19 の**失敗マーカーを
+/// 消していた**。マーカーは base commit を指す空 ref で、同じ順位で過去に PR が出ていれば
+/// 名前が衝突する。実測: 順位 324 は PR [#427](https://github.com/aloekun/claude-code-hook-test/pull/427)
+/// が 2026-08-30 にマージされた後、2026-08-31 / 09-01 の 2 晩とも「掃除 → 同じ順位を再選択 →
+/// agent を 1 回まるごと回して空 diff → マーカー作成」を繰り返した。決定 20 は「境界は
+/// 『PR があるか』の 1 点」としていたが、**一度 PR が出た順位では、その 1 点が常に真になる**。
+///
+/// commit を併せて見れば、マーカー (base commit) と PR の head は別物として区別できる。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteBranch {
+    pub name: String,
+    pub sha: String,
 }
 
 /// ブランチ 1 本の分類結果。
@@ -56,16 +82,26 @@ pub enum BranchVerdict {
     Protected,
     /// open (または解釈不能) な PR が紐づく。まだ作業中なので触らない。
     Active { open_prs: Vec<u64> },
-    /// 紐づく PR がすべて closed / merged。**削除提案の対象**。
+    /// 紐づく PR がすべて closed / merged で、**そのうち 1 本は現在の ref を指している**。
+    /// 削除提案の対象。
     Stale { closed_prs: Vec<u64> },
+    /// 決着済み PR は紐づくが、**どれも現在の ref とは別の commit を指す**。
+    /// **提案対象にしない** ([`RemoteBranch`] の doc を参照)。
+    Diverged { settled_prs: Vec<u64> },
     /// PR が 1 件も無い。**提案対象にしない** (§ なぜ提案しないか を参照)。
     NoPullRequest,
 }
 
 /// 分類済みの 1 行。
+///
+/// **判定した時点の commit を必ず持ち回る。** 削除を実行するのは呼び手 (`cli-branch-cleanup`)
+/// であり、名前だけを渡すと実行側が**自分で観測し直した** ref を消す。判定と実行の間に ref が
+/// 動いていれば、それは分類していない別の物である ([`crate::main`] の module doc § 削除はしない)。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassifiedBranch {
     pub branch: String,
+    /// 判定に使った commit (`git ls-remote` の観測値)。
+    pub sha: String,
     pub verdict: BranchVerdict,
 }
 
@@ -94,14 +130,15 @@ fn is_protected(branch: &str, configured_trunk: Option<&str>) -> bool {
 ///
 /// 出力はブランチ名の昇順で決定論的に並ぶ (同じ入力なら同じレポートになる)。
 pub fn classify(
-    remote_branches: &[String],
+    remote_branches: &[RemoteBranch],
     prs: &[PrRecord],
     configured_trunk: Option<&str>,
 ) -> Vec<ClassifiedBranch> {
     let mut out: Vec<ClassifiedBranch> = remote_branches
         .iter()
         .map(|branch| ClassifiedBranch {
-            branch: branch.clone(),
+            branch: branch.name.clone(),
+            sha: branch.sha.clone(),
             verdict: verdict_for(branch, prs, configured_trunk),
         })
         .collect();
@@ -128,19 +165,44 @@ fn prs_for_branch(branch: &str, prs: &[PrRecord]) -> Vec<u64> {
     sorted(prs.iter().filter(|pr| pr.head_ref == branch).map(|pr| pr.number).collect())
 }
 
-fn verdict_for(branch: &str, prs: &[PrRecord], configured_trunk: Option<&str>) -> BranchVerdict {
-    if is_protected(branch, configured_trunk) {
+fn verdict_for(
+    branch: &RemoteBranch,
+    prs: &[PrRecord],
+    configured_trunk: Option<&str>,
+) -> BranchVerdict {
+    if is_protected(&branch.name, configured_trunk) {
         return BranchVerdict::Protected;
     }
-    let all_prs = prs_for_branch(branch, prs);
+    let all_prs = prs_for_branch(&branch.name, prs);
     if all_prs.is_empty() {
         return BranchVerdict::NoPullRequest;
     }
-    let alive = prs_keeping_branch_alive(branch, prs);
+    let alive = prs_keeping_branch_alive(&branch.name, prs);
     if !alive.is_empty() {
         return BranchVerdict::Active { open_prs: alive };
     }
+    if !a_pr_points_at(branch, prs) {
+        return BranchVerdict::Diverged { settled_prs: all_prs };
+    }
     BranchVerdict::Stale { closed_prs: all_prs }
+}
+
+/// 紐づく PR のいずれかが、**このブランチの現在の commit** を head にしているか。
+///
+/// **open PR には課さない。** open PR がブランチを守るのは名前の一致だけで足りる
+/// ([`prs_keeping_branch_alive`])。open PR の `headRefOid` は push のたびに GitHub 側で
+/// 更新されるが、その反映と本 scan の `ls-remote` の間には窓がある。ここで commit 一致を
+/// 要求すると、**作業中のブランチが「PR に守られていない」側へ倒れる** — 誤りの向きが
+/// 逆になるため、条件は決着済み PR の削除判定にだけ効かせる。
+///
+/// 空文字どうしを一致と読まない。取得層は空 SHA の行を捨て、`headRefOid` の欠損を `Err` に
+/// するため通常は起こらないが、**空 == 空で「PR の head と同じ」に化ける**のは
+/// 最も危ない誤りなので値の側でも塞ぐ。
+fn a_pr_points_at(branch: &RemoteBranch, prs: &[PrRecord]) -> bool {
+    !branch.sha.is_empty()
+        && prs
+            .iter()
+            .any(|pr| pr.head_ref == branch.name && pr.head_oid == branch.sha)
 }
 
 fn sorted(mut v: Vec<u64>) -> Vec<u64> {
@@ -156,17 +218,47 @@ pub fn deletion_candidates(classified: &[ClassifiedBranch]) -> Vec<&ClassifiedBr
         .collect()
 }
 
+/// テスト用の値づくり。`crate::main` 側の test module とも共有する。
+///
+/// **既定では「ブランチの現在 commit = その名前の PR の head」に揃える。** commit の一致は
+/// 通常運用の姿 (PR を出したブランチがそのまま残っている) であり、既定を一致にしておけば
+/// 各テストは「名前と状態」という本来の関心だけを書ける。**ずれている状況を見るテストは
+/// SHA を明示的に渡す** — そこが本 module の新しい判定点なので、明示された箇所だけを読めば
+/// 差が分かる。
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::{PrRecord, PrState, RemoteBranch};
+
+    /// ブランチ名から決定論的な「そのブランチの head commit」を作る。
+    pub(crate) fn head_sha(branch: &str) -> String {
+        format!("sha-of-{branch}")
+    }
+
+    pub(crate) fn pr(number: u64, head: &str, state: &str) -> PrRecord {
+        PrRecord {
+            number,
+            head_ref: head.to_string(),
+            head_oid: head_sha(head),
+            state: PrState::parse(state),
+        }
+    }
+
+    /// PR の head と同じ commit を指すブランチ (= 通常運用の姿)。
+    pub(crate) fn branches(names: &[&str]) -> Vec<RemoteBranch> {
+        names.iter().map(|name| at(name, &head_sha(name))).collect()
+    }
+
+    /// commit を明示するブランチ。ハンドオフマーカーのように PR の head と別の commit を
+    /// 指す ref を作るために使う。
+    pub(crate) fn at(name: &str, sha: &str) -> RemoteBranch {
+        RemoteBranch { name: name.to_string(), sha: sha.to_string() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_support::{at, branches, head_sha, pr};
     use super::*;
-
-    fn pr(number: u64, head: &str, state: &str) -> PrRecord {
-        PrRecord { number, head_ref: head.to_string(), state: PrState::parse(state) }
-    }
-
-    fn branches(names: &[&str]) -> Vec<String> {
-        names.iter().map(|s| s.to_string()).collect()
-    }
 
     fn verdict(branch: &str, prs: &[PrRecord]) -> BranchVerdict {
         classify(&branches(&[branch]), prs, None).remove(0).verdict
@@ -242,6 +334,85 @@ mod tests {
             Some("release"),
         );
         assert_eq!(classified[0].verdict, BranchVerdict::Protected);
+    }
+
+    /// **順位 324 の再現** ([`RemoteBranch`] の doc)。マージ済み PR #427 と同名の ref が、
+    /// base commit を指すハンドオフマーカーとして後から作られた形。名前だけで束ねていた
+    /// 頃はこれが `Stale` = 削除候補になり、2 晩にわたって同じ順位が再選択された。
+    #[test]
+    fn a_handoff_marker_sharing_a_name_with_a_merged_pr_is_not_proposed() {
+        let marker = at("claude/nightly-324", "base-commit-of-that-night");
+        let classified = classify(
+            std::slice::from_ref(&marker),
+            &[pr(427, "claude/nightly-324", "MERGED")],
+            None,
+        );
+        assert_eq!(
+            classified[0].verdict,
+            BranchVerdict::Diverged { settled_prs: vec![427] }
+        );
+        assert!(
+            deletion_candidates(&classified).is_empty(),
+            "決着済み PR と同名なだけの ref を削除候補に出している"
+        );
+    }
+
+    /// 対照: **同じ入力で commit だけを PR の head に揃えると `Stale` になる。**
+    /// 上のテストが「PR 判定そのものが壊れたから通った」のではないことを固定する
+    /// (掃除が一切効かなくなる方向の退行は、削除漏れとして静かに積み上がる)。
+    #[test]
+    fn the_same_branch_at_the_prs_head_is_still_proposed() {
+        let at_head = at("claude/nightly-324", &head_sha("claude/nightly-324"));
+        let classified = classify(
+            std::slice::from_ref(&at_head),
+            &[pr(427, "claude/nightly-324", "MERGED")],
+            None,
+        );
+        assert_eq!(classified[0].verdict, BranchVerdict::Stale { closed_prs: vec![427] });
+        assert_eq!(deletion_candidates(&classified).len(), 1);
+    }
+
+    /// **open PR は commit がずれていてもブランチを守る。** open PR の `headRefOid` は
+    /// push のたびに更新されるため、`ls-remote` との間に窓がある。ここで一致を要求すると
+    /// 作業中のブランチが提案対象へ落ちる ([`a_pr_points_at`] の doc)。
+    #[test]
+    fn an_open_pr_protects_the_branch_even_when_the_commit_moved() {
+        let moved = at("feat/x", "just-pushed-commit");
+        let classified = classify(std::slice::from_ref(&moved), &[pr(7, "feat/x", "OPEN")], None);
+        assert_eq!(classified[0].verdict, BranchVerdict::Active { open_prs: vec![7] });
+    }
+
+    /// 決着済み PR が複数あり、**そのうち 1 本でも現在の commit を指していれば** `Stale`。
+    /// close → 別 PR を開いて close、のように履歴が積もったブランチで、最後の PR の head に
+    /// 留まっているものを掃除できなくしない。
+    #[test]
+    fn one_settled_pr_at_the_current_commit_is_enough_to_propose() {
+        let branch = at("feat/x", "second-head");
+        let prs = [
+            pr(1, "feat/x", "CLOSED"),
+            PrRecord {
+                number: 2,
+                head_ref: "feat/x".to_string(),
+                head_oid: "second-head".to_string(),
+                state: PrState::Closed,
+            },
+        ];
+        assert_eq!(
+            classify(std::slice::from_ref(&branch), &prs, None)[0].verdict,
+            BranchVerdict::Stale { closed_prs: vec![1, 2] }
+        );
+    }
+
+    /// 空 SHA どうしを一致と読まない。取得層が塞いでいる形だが、**空 == 空で「PR の head と
+    /// 同じ」に化ける**のが最も危ない誤りなので値の側でも固める。
+    #[test]
+    fn an_empty_sha_never_counts_as_pointing_at_a_pr() {
+        let empty = at("feat/x", "");
+        let mut settled = pr(1, "feat/x", "CLOSED");
+        settled.head_oid = String::new();
+        let classified = classify(std::slice::from_ref(&empty), &[settled], None);
+        assert_eq!(classified[0].verdict, BranchVerdict::Diverged { settled_prs: vec![1] });
+        assert!(deletion_candidates(&classified).is_empty());
     }
 
     /// PR が 1 件も無いブランチは提案しない。作業中の WIP や、まだ PR を開いていない

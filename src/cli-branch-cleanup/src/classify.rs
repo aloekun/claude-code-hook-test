@@ -73,7 +73,7 @@ impl Outcome {
                 format!("削除直前に消えていたため skip: {branch}")
             }
             Outcome::AbortedRefMoved(detail) => format!(
-                "削除を中止: {branch} (観測後に ref が動いた = 他経路の作業がある): {detail}"
+                "削除を中止: {branch} (分類後に ref が動いた = 分類したものとは別の物になっている): {detail}"
             ),
             Outcome::DeleteRejected(detail) => format!(
                 "削除を拒否された: {branch} (ref は観測時のまま。branch protection / 権限 / hook を疑う): {detail}"
@@ -85,9 +85,25 @@ impl Outcome {
 
 /// 観測 → 削除 → (失敗時のみ) 再確認 の結果を 1 つの [`Outcome`] にする (I/O なし)。
 ///
+/// `expected` は **`cli-stale-branch-scan` が分類に使った commit**。標準入力から
+/// `<ブランチ名>\t<commit>` で渡ってくる。
+///
+/// # なぜ自分の観測ではなく分類時の commit を基準にするか
+///
+/// 削除してよいと決めたのは scan であり、その判断は**特定の commit を指す ref** に対して
+/// 下されている。実行側が自分で観測し直した値を基準にすると、分類と実行の間に ref が
+/// 入れ替わっても気づかず、**分類していない物を消す**。lease (`--force-with-lease`) は
+/// 「自分が観測してから動いていないこと」しか保証せず、この窓は塞がない。
+///
+/// 夜間ループでは PR ブランチ → ハンドオフマーカー (別 commit) への入れ替わりがこの形に
+/// なる ([ADR-072](../../../docs/adr/adr-072-nightly-todo-loop.md) 決定 19/20)。ずれていたら
+/// 削除を試みずに [`Outcome::AbortedRefMoved`] で止める — **lease の失敗に頼らず、
+/// 判定として先に落とす** (lease の失敗文言は「消えた」「動いた」を区別しない)。
+///
 /// `delete` / `recheck` は、前段の結果によって呼ばれないことがあるため [`Option`] で受ける。
 /// **呼ばれなかった段が `None`** であり、呼び出し側の I/O 層はこの契約に従って値を渡す。
 pub(crate) fn classify(
+    expected: &str,
     observation: &RefObservation,
     delete: Option<&DeleteAttempt>,
     recheck: Option<&RefObservation>,
@@ -95,6 +111,9 @@ pub(crate) fn classify(
     match observation {
         RefObservation::Failed(detail) => Outcome::Failed(detail.clone()),
         RefObservation::Absent => Outcome::SkippedAlreadyGone,
+        RefObservation::Present(observed) if observed != expected => Outcome::AbortedRefMoved(
+            format!("分類時 {expected} → 現在 {observed}"),
+        ),
         RefObservation::Present(observed) => match delete {
             Some(DeleteAttempt::Succeeded) => Outcome::Deleted,
             Some(DeleteAttempt::Failed(detail)) => {
@@ -103,6 +122,48 @@ pub(crate) fn classify(
             None => Outcome::Failed("削除を試行していません (呼び出し側の契約違反)".to_string()),
         },
     }
+}
+
+/// 標準入力の 1 行 = 削除対象。`cli-stale-branch-scan --deletable-only` の出力形式。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeletionTarget {
+    pub(crate) branch: String,
+    /// scan が分類に使った commit。lease の期待値になる。
+    pub(crate) expected_sha: String,
+}
+
+/// 標準入力を [`DeletionTarget`] の並びへ解釈する (I/O なし)。
+///
+/// **1 行でも形式を外したら、1 本も削除せずに `Err`。** 途中まで消してから止まると、
+/// 「どこまで消えたか」が入力の行順に依存する。加えて、形式違反は**呼び手の版ずれ**
+/// (commit を付けない旧 scan からの入力) を意味しうるので、その状態で名前だけを頼りに
+/// 消してはならない — 本 exe が塞いだはずの窓がそのまま開く
+/// ([ADR-043](../../../docs/adr/adr-043-security-gates-fail-closed.md))。
+pub(crate) fn parse_targets(input: &str) -> Result<Vec<DeletionTarget>, String> {
+    let mut targets = Vec::new();
+    for raw in input.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((branch, sha)) = line.split_once('\t') else {
+            return Err(format!(
+                "入力の形式が違います (期待: <ブランチ名>\\t<commit>): {line:?}"
+            ));
+        };
+        let (branch, sha) = (branch.trim(), sha.trim());
+        if branch.is_empty() {
+            return Err(format!("ブランチ名が空です: {line:?}"));
+        }
+        if !is_object_id(sha) {
+            return Err(format!("commit が object id の形ではありません: {line:?}"));
+        }
+        targets.push(DeletionTarget {
+            branch: branch.to_string(),
+            expected_sha: sha.to_string(),
+        });
+    }
+    Ok(targets)
 }
 
 /// 削除が失敗した後の分岐。**再確認の結果でしか区別できない**。
@@ -159,14 +220,26 @@ fn is_object_id(candidate: &str) -> bool {
 mod tests {
     use super::*;
 
+    const EXPECTED: &str = "3000737e0c1a";
+
+    /// 分類時と同じ commit を期待値にして [`classify`] を呼ぶ (= 分類と実行の間に ref が
+    /// 動いていない、通常の姿)。ずれている場合を見るテストは `classify` を直接呼ぶ。
+    fn classify_matching(
+        observation: &RefObservation,
+        delete: Option<&DeleteAttempt>,
+        recheck: Option<&RefObservation>,
+    ) -> Outcome {
+        classify(EXPECTED, observation, delete, recheck)
+    }
+
     fn present() -> RefObservation {
-        RefObservation::Present("3000737e0c1a".to_string())
+        RefObservation::Present(EXPECTED.to_string())
     }
 
     /// 通常経路: ref が在り、削除が成功する (2026-08-22 の run で実走観測済み)。
     #[test]
     fn a_present_ref_deleted_successfully_is_deleted() {
-        let outcome = classify(&present(), Some(&DeleteAttempt::Succeeded), None);
+        let outcome = classify_matching(&present(), Some(&DeleteAttempt::Succeeded), None);
         assert_eq!(outcome, Outcome::Deleted);
         assert!(!outcome.is_failure());
     }
@@ -174,7 +247,7 @@ mod tests {
     /// **skip 分岐 1**: 観測時点で既に無い。TOCTOU レースでしか自然発火しない経路。
     #[test]
     fn an_absent_ref_is_skipped() {
-        let outcome = classify(&RefObservation::Absent, None, None);
+        let outcome = classify_matching(&RefObservation::Absent, None, None);
         assert_eq!(outcome, Outcome::SkippedAlreadyGone);
         assert!(!outcome.is_failure());
     }
@@ -182,7 +255,7 @@ mod tests {
     /// **skip 分岐 2**: 削除は失敗したが、再確認したら消えていた (レースの正常側)。
     #[test]
     fn a_ref_that_vanished_during_delete_is_skipped() {
-        let outcome = classify(
+        let outcome = classify_matching(
             &present(),
             Some(&DeleteAttempt::Failed("stale info".to_string())),
             Some(&RefObservation::Absent),
@@ -194,7 +267,7 @@ mod tests {
     /// **中止**: 観測後に ref が動いた。他経路の作業があるので消さない。
     #[test]
     fn a_moved_ref_aborts_instead_of_deleting() {
-        let outcome = classify(
+        let outcome = classify_matching(
             &present(),
             Some(&DeleteAttempt::Failed("stale info".to_string())),
             Some(&RefObservation::Present("beef1234".to_string())),
@@ -208,7 +281,7 @@ mod tests {
     /// (CodeRabbit #466)。止めることは変わらない。
     #[test]
     fn a_rejected_delete_is_not_reported_as_a_moved_ref() {
-        let outcome = classify(
+        let outcome = classify_matching(
             &present(),
             Some(&DeleteAttempt::Failed("protected branch".to_string())),
             Some(&present()),
@@ -225,7 +298,7 @@ mod tests {
     /// **障害経路 1**: 観測そのものが失敗した (ネットワーク / 認証)。
     #[test]
     fn a_failed_observation_is_a_failure() {
-        let outcome = classify(
+        let outcome = classify_matching(
             &RefObservation::Failed("could not read Username".to_string()),
             None,
             None,
@@ -237,7 +310,7 @@ mod tests {
     /// **障害経路 2**: 削除失敗後の再確認が失敗した。
     #[test]
     fn a_failed_recheck_is_a_failure() {
-        let outcome = classify(
+        let outcome = classify_matching(
             &present(),
             Some(&DeleteAttempt::Failed("push failed".to_string())),
             Some(&RefObservation::Failed("timeout".to_string())),
@@ -249,13 +322,89 @@ mod tests {
     /// 呼び出し側が段を飛ばしたら失敗に倒す (「削除していないのに成功」を作らない)。
     #[test]
     fn missing_stages_are_failures_not_successes() {
-        assert!(classify(&present(), None, None).is_failure());
-        assert!(classify(
+        assert!(classify_matching(&present(), None, None).is_failure());
+        assert!(classify_matching(
             &present(),
             Some(&DeleteAttempt::Failed("x".to_string())),
             None
         )
         .is_failure());
+    }
+
+    /// **分類後に ref が動いていたら、削除を試みずに中止する。**
+    ///
+    /// scan が分類したのは `EXPECTED` を指す ref であって、いま在る別の commit ではない。
+    /// 夜間ループでは PR ブランチ → ハンドオフマーカーへの入れ替わりがこの形になる。
+    #[test]
+    fn a_ref_that_no_longer_matches_the_classified_commit_aborts_before_deleting() {
+        let outcome = classify(EXPECTED, &RefObservation::Present("beef1234".to_string()), None, None);
+        let Outcome::AbortedRefMoved(detail) = &outcome else {
+            panic!("分類時と違う commit は中止に倒すこと: {outcome:?}");
+        };
+        assert!(detail.contains(EXPECTED) && detail.contains("beef1234"), "{detail}");
+        assert!(outcome.is_failure(), "分類していない物に触れたら赤で止める");
+    }
+
+    /// 対照: commit が一致していれば従来どおり削除へ進む (照合が過剰に効いていないこと)。
+    #[test]
+    fn a_ref_still_at_the_classified_commit_is_deleted() {
+        assert_eq!(
+            classify(EXPECTED, &present(), Some(&DeleteAttempt::Succeeded), None),
+            Outcome::Deleted
+        );
+    }
+
+    /// ref が既に無い場合は、期待値と照合するまでもなく skip (削除は目的を達している)。
+    #[test]
+    fn an_absent_ref_is_skipped_regardless_of_the_expected_commit() {
+        assert_eq!(
+            classify("beef1234", &RefObservation::Absent, None, None),
+            Outcome::SkippedAlreadyGone
+        );
+    }
+
+    /// 標準入力は `<ブランチ名>\t<commit>`。
+    #[test]
+    fn targets_are_parsed_from_tab_separated_lines() {
+        let targets = parse_targets("claude/nightly-1\tabc123\n\nfeat/x\tdef456\n").expect("parse");
+        assert_eq!(
+            targets,
+            vec![
+                DeletionTarget {
+                    branch: "claude/nightly-1".to_string(),
+                    expected_sha: "abc123".to_string()
+                },
+                DeletionTarget {
+                    branch: "feat/x".to_string(),
+                    expected_sha: "def456".to_string()
+                },
+            ]
+        );
+        assert!(parse_targets("").expect("空入力は 0 件").is_empty());
+    }
+
+    /// **commit の無い行は受け取らない。** commit を付けない旧 `cli-stale-branch-scan` からの
+    /// 入力がこの形になる。名前だけで消し始めると、分類と実行のずれを見る仕組みが
+    /// そのまま無効化される。
+    #[test]
+    fn a_line_without_a_commit_is_rejected() {
+        for input in [
+            "claude/nightly-1\n",
+            "claude/nightly-1\t\n",
+            "claude/nightly-1\tnot-hex\n",
+            "\tabc123\n",
+        ] {
+            assert!(parse_targets(input).is_err(), "{input:?} が Err にならない");
+        }
+    }
+
+    /// **1 行でも形式を外したら 1 件も返さない。** 途中まで消してから止まると、
+    /// どこまで消えたかが入力の行順に依存する。
+    #[test]
+    fn one_malformed_line_rejects_the_whole_input() {
+        let err = parse_targets("good/branch\tabc123\nbad-line-without-commit\n")
+            .expect_err("混在入力は Err");
+        assert!(err.contains("bad-line-without-commit"), "{err}");
     }
 
     /// `git ls-remote` の実出力形式から SHA を読む。

