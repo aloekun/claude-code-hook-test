@@ -295,9 +295,14 @@ jobs:
           # --summary-file は順位 table の照合先。台帳に残っているのに順位 table から
           # 消えた順位は「完了/取り下げ済みなのに後始末が漏れた行」なので選ばせない
           # (人間が手で実装してマージした場合、台帳の後始末は人手のため漏れる)。
-          # **順位 220 以降は todo-summary2.md にあるので両方渡す** — 片方だけだと、
-          # もう一方に載っている順位が「消えた」と判定されて候補から落ちる。
-          # exe 側は 1 つでも読めなければ exit 2 (fail-closed)。
+          # **順位 table は part に分かれているので全 part を渡す** (2026-09-03 時点で 3 つ:
+          # ~219 / 220-399 / 400-)。1 つでも欠けると、そこに載っている順位が「消えた」と
+          # 判定されて候補から落ちる。exe 側は 1 つでも読めなければ exit 2 (fail-closed)。
+          #
+          # **part を増やしたらここも足す。** 順位 table の列挙は 3 箇所で手管理になっている
+          # (本 step / `package.json` の `ledger-candidates` / `cli-ledger-cleanup` の後始末)。
+          # うち後始末側は 2026-09-03 に共有層 (`cli_docs_lint::docs_files`) へ寄せて自動追随に
+          # したが、shell から渡す本 step と package.json は列挙のままである。
           # 着手済み順位 (ブランチの存在) に、台帳残骸の順位を合流させる。
           # **空要素を作らない** — `--exclude-ranks` は空要素を引数不正として弾くため、
           # 片方が空のときにカンマだけが残ると select が exit 2 で落ちる。
@@ -311,6 +316,7 @@ jobs:
             --exclude-ranks "$EXCLUDE" \
             --summary-file master-ref/docs/todo-summary.md \
             --summary-file master-ref/docs/todo-summary2.md \
+            --summary-file master-ref/docs/todo-summary3.md \
             > "$RUNNER_TEMP/selected.txt"
           # 許可リスト方式 — exe が出す key のうち、ここに列挙したものだけを転送する。
           # 想定外の key 注入を防ぐ fail-closed だが、**exe 側に出力を足したらここも足す**
@@ -429,7 +435,7 @@ jobs:
             範囲外の変更を含む PR より、変更なしで止まる方が望ましい結果です。
 
             進め方:
-            1. `work/docs/todo-summary.md` / `work/docs/todo-summary2.md` で該当順位の行を探し、
+            1. `work/docs/todo-summary.md` / `work/docs/todo-summary2.md` / `work/docs/todo-summary3.md` で該当順位の行を探し、
                詳細エントリのある `work/docs/todoN.md` を読んで完了条件を確認する
             2. 対象ファイルを読み、台帳の「注意」に書かれた既知の落とし穴を踏まえて実装する
 

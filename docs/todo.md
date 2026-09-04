@@ -2,10 +2,11 @@
 
 > **運用ルール**: 各タスクには **やろうとしたこと / 現在地 / 詰まっている箇所** を必ず書く。完了タスクは ADR か仕組みに反映後、このファイルから削除する。過去の経緯は git log で追跡可能。
 >
-> **本ファイル + [docs/todo3.md](todo3.md) 〜 [docs/todo25.md](todo25.md) + [docs/todo-summary.md](todo-summary.md) + [docs/todo-summary2.md](todo-summary2.md) の使い分け** (todo2.md は 2026-08-12 退役) (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加、2026-07-20 docs 50KB 超過解消で todo13.md を todo15/16/17・todo10.md を todo18/19 へ物理分割、2026-08-04 todo14.md の 50KB 超過で todo20.md 追加、2026-08-08 todo20.md の 50KB 超過で todo21.md 追加、2026-08-11 todo21.md の 50KB 超過で todo22.md 追加、2026-08-13 todo22.md の 50KB 超過で todo23.md 追加、2026-08-16 todo23.md の 50KB 超過で todo24.md 追加):
+> **本ファイル + [docs/todo3.md](todo3.md) 〜 [docs/todo27.md](todo27.md) + [docs/todo-summary.md](todo-summary.md) + [docs/todo-summary2.md](todo-summary2.md) + [docs/todo-summary3.md](todo-summary3.md) の使い分け** (todo2.md は 2026-08-12 退役) (PR #83 T3-2 で恒久化、2026-04-28 強化、PR #88 で todo3.md 追加、PR #96 セッションで todo4.md 追加、PR #101 セッションで todo5.md 追加、PR #123 セッションで todo6.md 追加、2026-05-09 に todo-summary.md 切り出し + todo5.md 分割で todo7.md 追加、PR #143 = 2026-05-11 で todo8.md 追加、PR #172 仕組み化方針切替 = 2026-05-25 で todo9.md 追加、PR #185 land 後 2026-05-29 で todo10.md 追加、2026-06-06 todo9.md 分割で todo11.md 追加、2026-06-12 PR #204 で todo10.md 分割により todo12.md 追加、2026-06-29 PR #224 セッションで todo13.md 追加、2026-07-19 週次レビュー WR-2026-07-19-T02 採用で todo14.md 追加、2026-07-20 docs 50KB 超過解消で todo13.md を todo15/16/17・todo10.md を todo18/19 へ物理分割、2026-08-04 todo14.md の 50KB 超過で todo20.md 追加、2026-08-08 todo20.md の 50KB 超過で todo21.md 追加、2026-08-11 todo21.md の 50KB 超過で todo22.md 追加、2026-08-13 todo22.md の 50KB 超過で todo23.md 追加、2026-08-16 todo23.md の 50KB 超過で todo24.md 追加):
 >
 > - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)、順位 6-219 を収容。既存行編集・順位再採番はここで行う。
-> - **docs/todo-summary2.md**: todo-summary.md の table を 2026-07-20 に docs 50KB 超過解消で分割した後半 (順位 220 以降を収容)。新規行追加は末尾 = 本ファイルで行う。cli-docs-lint の priority-inversion / preamble は両 summary を統合検査。
+> - **docs/todo-summary2.md**: todo-summary.md の table を 2026-07-20 に docs 50KB 超過解消で分割した part 2 (順位 220-399 を収容)。**新規行は追加しない** (2026-09-03 に再分割し、追加先は todo-summary3.md へ移った)。既存行の編集・完了削除専用。
+> - **docs/todo-summary3.md**: todo-summary2.md の table を 2026-09-03 に docs 50KB 超過解消で再分割した part 3 (順位 400 以降を収容)。**新規行追加は末尾 = 本ファイルで行う**。cli-docs-lint の priority-inversion / preamble / entry-pairing / origin-markers は `todo-summary*.md` を glob して全 part を統合検査する。
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: **退役済み (2026-08-12 削除)**。主内容の ADR-032 ブロックは ADR-057 が別設計で実現したため廃止、独立価値の残る 2 タスクは todo22.md へ移送した (経緯は git log)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)
@@ -31,9 +32,10 @@
 > - **docs/todo23.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (52690B に到達したため、2026-08-16 以降の新規エントリは todo24.md へ。2026-08-13 todo22.md の 50KB 超過で新設、週次レビュー WR-2026-08-13-M01 採用)
 > - **docs/todo24.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50869B = 閾値まで残り 331B に到達したため、2026-08-22 以降の新規エントリは todo25.md へ。2026-08-16 todo23.md の 50KB 超過で新設)
 > - **docs/todo25.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (2026-08-22 todo24.md の閾値接近で新設、週次レビュー 2026-08-22 実行セッションで検出。2026-08-23 に 50121 B = 閾値まで残り 1079 B へ到達し todo26.md へ移行)
+> - **docs/todo27.md**: todo14.md / todo22.md が 50KB を超えたため、2026-09-03 に両ファイルの大きいエントリ 10 件を移した先 (順位 512)。**新規タスクは追加しない** — 移送したエントリの編集・完了削除専用。
 > - **docs/todo26.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加 (2026-08-23 todo25.md の閾値接近で新設)
 > - 例外: 既存 todo.md / todo3.md 〜 todo25.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo3-26.md / todo-summary.md / todo-summary2.md。todo2.md は 2026-08-12 退役)
+> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo3-27.md / todo-summary.md / todo-summary2.md / todo-summary3.md。todo2.md は 2026-08-12 退役)
 
 ---
 

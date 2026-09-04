@@ -174,6 +174,7 @@ dependencies = [
 name = "cli-ledger-cleanup"
 version = "0.1.0"
 dependencies = [
+ "cli-docs-lint",
  "lib-ledger",
 ]
 
