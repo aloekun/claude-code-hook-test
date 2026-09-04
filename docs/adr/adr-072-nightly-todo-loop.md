@@ -529,6 +529,20 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 **PR の無いブランチは削除しない。** それは決定 19 の失敗マーカーであり、掃除すると人間の確認を待たずに再投入される。**したがって境界は「PR があるか」の 1 点だけ**になる — PR があれば掃除、無ければ残す。判定は `cli-stale-branch-scan` が既に持つ規則 (「PR が 1 件も無いブランチは提案対象外」) をそのまま使う。**shell で PR 状態をパースしない** — 決定 1 が選択ロジックを exe に置いたのと同じ理由で、回帰テストの場が無い判定を無人経路に置かない。
 
+> **2026-09-05 改訂: 境界は「PR があるか」ではなく「ref がその PR の head を指しているか」。** 上の 1 点は**一度 PR が出た順位では常に真になる**。PR の履歴は head ref **名**で永続するため、マージ / close でブランチが消えた後に同じ順位でマーカー (base commit を指す空 ref) を作ると、過去の PR がそのまま紐づいて見え、翌晩の掃除がマーカーを消す。
+>
+> **実測: 順位 324 で 2 晩繰り返した。** PR [#427](https://github.com/aloekun/claude-code-hook-test/pull/427) が 2026-08-30 にマージされた後、08-30 の run が空 diff で停止してマーカーを作り、08-31 の掃除が `[NIGHTLY] 削除: claude/nightly-324` でそれを消し、同じ順位を再選択してまた空 diff で停止 — これを 09-01 まで繰り返した。**決定 19 が防ごうとした「失敗した run が先頭を独占する」そのものが、決定 20 の掃除によって復活していた。**
+>
+> `cli-stale-branch-scan` に PR の `headRefOid` と `git ls-remote` の SHA を持たせ、**決着済み PR のうち 1 本でも現在の ref を指しているときだけ削除候補にする**。指していなければ新しい判定 `Diverged` として提案対象外にする。**open PR には課さない** — open PR の `headRefOid` は push のたびに更新され `ls-remote` との間に窓があるため、一致を要求すると作業中のブランチが提案対象へ落ちる (誤りの向きが逆になる)。
+>
+> **マーカーの名前空間は分けなかった。** `claude/handoff-<順位>` のように別名にすれば名前の衝突自体が消えるが、人間の運用手順 (§ 再投入の意思表示の表) とブランチ存在による除外 (決定 3) の両方が `claude/nightly-<順位>` を前提にしており、変更面が 3 箇所に広がる。**同名であることは問題ではなく、同名を同一物と読んだことが問題**なので、読み方の側を直した。
+>
+> なお、この穴が**選択の側で顕在化する経路**は決定 21 (台帳残骸の scan) が別に塞いでいる。324 が毎晩選ばれたのは台帳の行が残っていたためで、残骸 scan はその行を除外集合へ回す。本改訂が塞ぐのはマーカーが消えること自体であり、**両者は別の層で、どちらか一方では 324 の形を止められない**。
+>
+> **判定した commit は実行側まで運ぶ。** `--deletable-only` の出力を `<ブランチ名>\t<判定に使った commit>` に変え、`cli-branch-cleanup` は現在の ref がその commit と一致するときだけ削除する。**lease ではこの窓を塞げない** — `--force-with-lease` が保証するのは「**自分が観測してから**動いていないこと」であって、分類と実行が別の観測を持つ限り、その間の入れ替わりは素通りする。分類したのは特定の commit を指す ref であり、名前ではない。ずれていたら削除を試みずに `AbortedRefMoved` で止める (CodeRabbit [#476](https://github.com/aloekun/claude-code-hook-test/pull/476))。
+>
+> **形式を外した入力は 1 本も消さずに落とす。** commit を付けない旧 scan からの入力がその形になるため、名前だけを頼りに消し始めると本改訂が無効化される (ADR-043)。両 exe は同じ job 内で同じ checkout からビルドされるので版ずれは起きない構成だが、**構成に頼らず入力側で塞ぐ**。
+
 **追記 (2026-09-01、機3)**: 上の段落は「PR 状態のパースを shell に書かない」と書いたが、**掃除ループ自身の結果分類 (ref 不在 → skip / ref 移動 → 中止 / 障害 → red) は shell に書かれていた**。**どれも実走で発火する見込みが無かった** — ref 不在 / ref 移動は TOCTOU レース (実測窓 約 1.3 秒) を要し、障害 → red はネットワーク断・token 失効といった**外部障害**を要する (TOCTOU とは別の条件で、こちらは意図して起こせない)。順位 467 D-1 の残観測はそのまま実走待ちで止まっていた。観測 → lease 付き削除 → 分類を新 crate `cli-branch-cleanup` へ移し、分類を純関数 + unit test で固定した (workflow step は exe 呼び出しへ縮退)。**決定 1 のこの適用範囲は規範から機構になった** — ただし「無人経路の判定を exe に置く」という規則自体は依然として人間が守るものである。push 側の [ADR-076](adr-076-testability-gate.md) testability gate は Rust の I/O 癒着しか見ないため、**workflow の shell に新しい判定が増える経路は機械では止まらない**。
 
 したがって **lane を auto のまま close する = 再投入の意思表示**になる。掃除がブランチを消し、翌晩の選択で同じ順位が再び候補に入る。この含意は人間が close 画面で思い出せないと機能しないため、nightly PR の body テンプレートに 1 行の案内を入れる。
@@ -544,7 +558,7 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 | 19 (失敗マーカー) | `nightly-todo.yml` の `Leave a handoff marker…` step | 条件は **implement 成功 かつ publish 未達 かつ (verify / guard / ledger-completion のいずれかが非成功、または ledger-removal が失敗)**。`gh api -X POST .../git/refs` で base commit を指す空 ref を 1 本作る |
 | 19 (対象外の停止) | 同 step の `if` | **gate deny (kill-switch / 背圧) と integrity 検知はマーカーを作らない**。前者は「今夜は動かない」という設計された停止で翌晩の再試行が正しく、後者は red で人間を呼ぶセキュリティ事象なのでマーカーで静かに除外してはならない |
 | 20 (掃除) | `Clean up branches of settled PRs` step | `cli-stale-branch-scan --prefix claude/nightly- --deletable-only` の出力を消費。**選択より前**に置く (直後の in-flight 集計が `git ls-remote` から除外順位を作るため、後だと消したはずのブランチで除外され続ける) |
-| 20 (判定と実行の分離) | `cli-stale-branch-scan` | 「PR が 1 件も無いブランチは候補にしない」既存規則がそのまま失敗マーカーを守る。出力は `git push --delete` の引数になるため、**ブランチ名の allowlist を満たさないものは出力しない** (markdown レポートのコピペ経路と同じ injection 面) |
+| 20 (判定と実行の分離) | `cli-stale-branch-scan` | 「PR が 1 件も無いブランチは候補にしない」既存規則がそのまま失敗マーカーを守る (2026-09-05 改訂: これに加えて「決着済み PR が現在の ref を指していない」`Diverged` も候補にしない)。出力は `git push --delete` の引数になるため、**ブランチ名の allowlist を満たさないものは出力しない** (markdown レポートのコピペ経路と同じ injection 面) |
 | App token の 2 段化 | `cleanup-token` / `app-token` step | 掃除用を job 冒頭、publish + マーカー用を implement 後に mint。1 つで賄わないのは寿命 1 時間に対し implement が最大 60 ターン走るため (決定 8)。**2 回目は gate 通過を条件にしない** — implement 後に停止した run こそマーカーが要る |
 | dry_run の扱い | 掃除 / マーカーの両 step | どちらも `dry_run` では**対象を列挙するだけで書き込まない**。観測はできるが副作用は無い形にして、実走確認を安全に 1 回で済ませる |
 

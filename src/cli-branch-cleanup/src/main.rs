@@ -41,7 +41,10 @@ mod classify;
 use std::io::Read;
 use std::process::{Command, Stdio};
 
-use classify::{classify, observe_from_output, DeleteAttempt, Outcome, RefObservation};
+use classify::{
+    classify, observe_from_output, parse_targets, DeleteAttempt, DeletionTarget, Outcome,
+    RefObservation,
+};
 
 const EXIT_FAILURE: i32 = 1;
 const EXIT_USAGE: i32 = 2;
@@ -59,23 +62,20 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::from(EXIT_USAGE as u8);
         }
     };
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
-        eprintln!("[branch-cleanup] 標準入力を読めません");
-        return std::process::ExitCode::from(EXIT_USAGE as u8);
-    }
-    let branches: Vec<&str> = input
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    if branches.is_empty() {
+    let targets = match read_targets() {
+        Ok(targets) => targets,
+        Err(code) => return code,
+    };
+    if targets.is_empty() {
         eprintln!("[branch-cleanup] 掃除対象はありません");
         return std::process::ExitCode::SUCCESS;
     }
     if cli.dry_run {
-        for branch in &branches {
-            eprintln!("[branch-cleanup] dry-run のため削除しません: {branch}");
+        for target in &targets {
+            eprintln!(
+                "[branch-cleanup] dry-run のため削除しません: {} ({})",
+                target.branch, target.expected_sha
+            );
         }
         return std::process::ExitCode::SUCCESS;
     }
@@ -89,19 +89,40 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::from(EXIT_USAGE as u8);
     }
 
-    delete_all(&cli, &token, &branches)
+    delete_all(&cli, &token, &targets)
+}
+
+/// 標準入力を読み、削除対象へ解釈する。**失敗は 1 本も削除せずに終了コードへ倒す。**
+///
+/// 形式違反を [`EXIT_USAGE`] にするのは、それが**呼び手の版ずれ** (commit を付けない旧
+/// `cli-stale-branch-scan` からの入力) を意味しうるため。名前だけを頼りに消し始めると、
+/// 本 exe が塞いだはずの窓がそのまま開く ([`parse_targets`] の doc)。
+fn read_targets() -> Result<Vec<DeletionTarget>, std::process::ExitCode> {
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        eprintln!("[branch-cleanup] 標準入力を読めません");
+        return Err(std::process::ExitCode::from(EXIT_USAGE as u8));
+    }
+    parse_targets(&input).map_err(|message| {
+        eprintln!("[branch-cleanup] {message}");
+        eprintln!(
+            "[branch-cleanup] cli-stale-branch-scan --deletable-only の出力をそのまま渡してください \
+             (1 本も削除していません)"
+        );
+        std::process::ExitCode::from(EXIT_USAGE as u8)
+    })
 }
 
 /// 先頭から順にブランチを処理し、**異常を検知した時点で以降のブランチには一切触れず
 /// red で終える** (旧 shell の `exit 1` と同じ fail-fast、意味論は移送で変えない)。
-fn delete_all(cli: &Cli, token: &str, branches: &[&str]) -> std::process::ExitCode {
+fn delete_all(cli: &Cli, token: &str, targets: &[DeletionTarget]) -> std::process::ExitCode {
     let push_url = format!("https://x-access-token:{token}@github.com/{}.git", cli.repo);
     if let Err(detail) = init_work_repo(token, &cli.work_dir) {
         eprintln!("[branch-cleanup] push 用の空リポジトリを作れません: {detail}");
         return std::process::ExitCode::from(EXIT_FAILURE as u8);
     }
-    if run_branches(branches, |branch| {
-        process_branch(&push_url, token, &cli.work_dir, branch)
+    if run_branches(targets, |target| {
+        process_branch(&push_url, token, &cli.work_dir, target)
     }) {
         std::process::ExitCode::from(EXIT_FAILURE as u8)
     } else {
@@ -117,10 +138,13 @@ fn delete_all(cli: &Cli, token: &str, branches: &[&str]) -> std::process::ExitCo
 ///
 /// 処理の実体を引数で受けるのは、この打ち切り自体を I/O 無しでテストするため
 /// (F5 と同じ注入の seam)。
-fn run_branches(branches: &[&str], mut process: impl FnMut(&str) -> Outcome) -> bool {
-    for branch in branches {
-        let outcome = process(branch);
-        eprintln!("[branch-cleanup] {}", outcome.message(branch));
+fn run_branches(
+    targets: &[DeletionTarget],
+    mut process: impl FnMut(&DeletionTarget) -> Outcome,
+) -> bool {
+    for target in targets {
+        let outcome = process(target);
+        eprintln!("[branch-cleanup] {}", outcome.message(&target.branch));
         if outcome.is_failure() {
             return true;
         }
@@ -182,18 +206,29 @@ fn init_work_repo(token: &str, work_dir: &str) -> Result<(), String> {
 
 /// 1 ブランチ分の観測 → 削除 → (失敗時のみ) 再確認 を行い、分類を返す。
 ///
+/// **観測が分類時の commit と違ったら、削除を試みずに止める。** 判定を下したのは
+/// `cli-stale-branch-scan` で、その判断は特定の commit を指す ref に対して下されている
+/// ([`classify`] の doc)。lease は自分の観測からの移動しか見ないので、この確認は
+/// lease では代替できない。
+///
 /// **段の呼び分けは [`classify`] の契約に合わせる** — 呼ばなかった段は `None` を渡す。
-fn process_branch(push_url: &str, token: &str, work_dir: &str, branch: &str) -> Outcome {
-    let observation = observe_ref(push_url, token, branch);
-    let RefObservation::Present(_) = observation else {
-        return classify(&observation, None, None);
-    };
-    let delete = delete_ref(push_url, token, work_dir, branch, &observation);
+fn process_branch(
+    push_url: &str,
+    token: &str,
+    work_dir: &str,
+    target: &DeletionTarget,
+) -> Outcome {
+    let expected = target.expected_sha.as_str();
+    let observation = observe_ref(push_url, token, &target.branch);
+    if !matches!(&observation, RefObservation::Present(sha) if sha == expected) {
+        return classify(expected, &observation, None, None);
+    }
+    let delete = delete_ref(push_url, token, work_dir, &target.branch, expected);
     let DeleteAttempt::Failed(_) = delete else {
-        return classify(&observation, Some(&delete), None);
+        return classify(expected, &observation, Some(&delete), None);
     };
-    let recheck = observe_ref(push_url, token, branch);
-    classify(&observation, Some(&delete), Some(&recheck))
+    let recheck = observe_ref(push_url, token, &target.branch);
+    classify(expected, &observation, Some(&delete), Some(&recheck))
 }
 
 fn observe_ref(push_url: &str, token: &str, branch: &str) -> RefObservation {
@@ -214,17 +249,17 @@ fn observe_ref(push_url: &str, token: &str, branch: &str) -> RefObservation {
 
 /// lease 付きの削除 push。**空リポジトリ (`work_dir`) から実行する** — job の既定 cwd は
 /// リポジトリではなく、そこから push すると `fatal: not a git repository` で死ぬ。
+///
+/// `expected_sha` は scan が分類に使った commit。呼び手 ([`process_branch`]) が
+/// 「現在の観測 == 分類時」を確かめてから呼ぶので、lease は**分類した物**に対して張られる。
 fn delete_ref(
     push_url: &str,
     token: &str,
     work_dir: &str,
     branch: &str,
-    observed: &RefObservation,
+    expected_sha: &str,
 ) -> DeleteAttempt {
-    let RefObservation::Present(sha) = observed else {
-        return DeleteAttempt::Failed("観測できていない ref を削除しようとしました".to_string());
-    };
-    let lease = format!("--force-with-lease=refs/heads/{branch}:{sha}");
+    let lease = format!("--force-with-lease=refs/heads/{branch}:{expected_sha}");
     match run_git(
         token,
         &[
@@ -341,14 +376,25 @@ mod tests {
         assert!(parse_args(&args).is_err());
     }
 
+    /// ループの打ち切りだけを見るテスト用の削除対象。commit の値は使わない。
+    fn targets(branches: &[&str]) -> Vec<DeletionTarget> {
+        branches
+            .iter()
+            .map(|b| DeletionTarget {
+                branch: (*b).to_string(),
+                expected_sha: "abc123".to_string(),
+            })
+            .collect()
+    }
+
     /// **最初の失敗で打ち切る** (移送前の shell の `set -e` + `exit 1` と同じ)。
     /// 続けると、失効した token のような全件共通の原因に対して削除 push を投げ続ける。
     #[test]
     fn the_loop_stops_at_the_first_failure() {
         let mut seen = Vec::new();
-        let failed = run_branches(&["a", "b", "c"], |branch| {
-            seen.push(branch.to_string());
-            if branch == "b" {
+        let failed = run_branches(&targets(&["a", "b", "c"]), |target| {
+            seen.push(target.branch.clone());
+            if target.branch == "b" {
                 Outcome::Failed("could not read Username".to_string())
             } else {
                 Outcome::Deleted
@@ -362,8 +408,8 @@ mod tests {
     #[test]
     fn skipped_branches_do_not_stop_the_loop() {
         let mut seen = Vec::new();
-        let failed = run_branches(&["a", "b"], |branch| {
-            seen.push(branch.to_string());
+        let failed = run_branches(&targets(&["a", "b"]), |target| {
+            seen.push(target.branch.clone());
             Outcome::SkippedAlreadyGone
         });
         assert!(!failed);

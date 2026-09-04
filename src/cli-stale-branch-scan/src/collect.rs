@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 
 use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_basic};
 
-use crate::classify::{PrRecord, PrState};
+use crate::classify::{PrRecord, PrState, RemoteBranch};
 
 /// **1 ブランチあたり**の PR 取得上限。到達したら数え落としの可能性があるため [`Err`] にする。
 ///
@@ -34,23 +34,32 @@ pub const BRANCH_SCAN_LIMIT: usize = 100;
 
 pub type CollectResult<T> = Result<T, String>;
 
-/// `git ls-remote --heads <remote>` の生出力から branch 名を取り出す。
+/// `git ls-remote --heads <remote>` の生出力から branch 名と現在の commit を取り出す。
 ///
 /// 行の形は `<sha>\trefs/heads/<name>`。`refs/heads/` 前置きでない行は無視する
 /// (remote によっては注記行が混ざる)。
-pub fn parse_ls_remote(raw: &str) -> Vec<String> {
+///
+/// **SHA が空の行も捨てる。** 名前だけを拾って SHA を空のまま通すと、判定側の
+/// 「PR の head と同じ commit か」が空文字比較に化ける ([`crate::classify`] の
+/// `a_pr_points_at`)。片方が欠けた行は行ごと落とし、値が揃ったものだけを判定へ渡す。
+pub fn parse_ls_remote(raw: &str) -> Vec<RemoteBranch> {
     raw.lines()
-        .filter_map(|line| line.split('\t').nth(1))
-        .filter_map(|reference| reference.strip_prefix("refs/heads/"))
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
+        .filter_map(|line| {
+            let (sha, reference) = line.split_once('\t')?;
+            let name = reference.strip_prefix("refs/heads/")?.trim();
+            let sha = sha.trim();
+            (!name.is_empty() && !sha.is_empty())
+                .then(|| RemoteBranch { name: name.to_string(), sha: sha.to_string() })
+        })
         .collect()
 }
 
-/// `gh pr list --json number,headRefName,state` の出力を [`PrRecord`] へ変換する。
+/// `gh pr list --json number,headRefName,headRefOid,state` の出力を [`PrRecord`] へ変換する。
 ///
-/// **要素の欠損は握り潰さず [`Err`]**。number / headRefName / state のいずれかが読めない PR が
-/// 混ざると、そのブランチが「PR 無し」と誤判定されて削除提案に載りうる。
+/// **要素の欠損は握り潰さず [`Err`]**。number / headRefName / headRefOid / state のいずれかが
+/// 読めない PR が混ざると、そのブランチが「PR 無し」と誤判定されて削除提案に載りうる。
+/// `headRefOid` を欠損許容にすると、逆に「どの PR も現在の commit を指していない」= 保護側へ
+/// 静かに倒れて掃除が効かなくなるため、こちらも同じく `Err` にする。
 pub fn parse_pr_list(raw: &str) -> CollectResult<Vec<PrRecord>> {
     let parsed: serde_json::Value =
         serde_json::from_str(raw).map_err(|e| format!("gh pr list の JSON を parse できません: {e}"))?;
@@ -75,11 +84,17 @@ pub fn parse_pr_list(raw: &str) -> CollectResult<Vec<PrRecord>> {
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| format!("PR #{number} の headRefName を読めません"))?
                 .to_string();
+            let head_oid = item
+                .get("headRefOid")
+                .and_then(serde_json::Value::as_str)
+                .filter(|oid| !oid.is_empty())
+                .ok_or_else(|| format!("PR #{number} の headRefOid を読めません"))?
+                .to_string();
             let state_raw = item
                 .get("state")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| format!("PR #{number} の state を読めません"))?;
-            Ok(PrRecord { number, head_ref, state: PrState::parse(state_raw) })
+            Ok(PrRecord { number, head_ref, head_oid, state: PrState::parse(state_raw) })
         })
         .collect()
 }
@@ -133,7 +148,7 @@ fn run(program: &str, args: &[&str]) -> CollectResult<String> {
     }
 }
 
-pub fn fetch_remote_branches(remote: &str) -> CollectResult<Vec<String>> {
+pub fn fetch_remote_branches(remote: &str) -> CollectResult<Vec<RemoteBranch>> {
     Ok(parse_ls_remote(&run("git", &["ls-remote", "--heads", remote])?))
 }
 
@@ -141,7 +156,10 @@ pub fn fetch_remote_branches(remote: &str) -> CollectResult<Vec<String>> {
 ///
 /// 全件取得しないのは [`PR_FETCH_LIMIT_PER_BRANCH`] の doc に書いたとおり。ブランチ数が
 /// [`BRANCH_SCAN_LIMIT`] を超える場合は呼び出し嵐を避けて停止する。
-pub fn fetch_pull_requests_for(branches: &[String], repo: Option<&str>) -> CollectResult<Vec<PrRecord>> {
+pub fn fetch_pull_requests_for(
+    branches: &[RemoteBranch],
+    repo: Option<&str>,
+) -> CollectResult<Vec<PrRecord>> {
     if branches.len() > BRANCH_SCAN_LIMIT {
         return Err(format!(
             "remote ブランチが {} 本あり上限 ({BRANCH_SCAN_LIMIT}) を超えています。\
@@ -151,7 +169,7 @@ pub fn fetch_pull_requests_for(branches: &[String], repo: Option<&str>) -> Colle
     }
     let mut all = Vec::new();
     for branch in branches {
-        all.extend(fetch_pull_requests_for_branch(branch, repo)?);
+        all.extend(fetch_pull_requests_for_branch(&branch.name, repo)?);
     }
     Ok(all)
 }
@@ -175,7 +193,7 @@ where
     let limit = PR_FETCH_LIMIT_PER_BRANCH.to_string();
     let mut args = vec![
         "pr", "list", "--state", "all", "--head", branch, "--limit", &limit,
-        "--json", "number,headRefName,state",
+        "--json", "number,headRefName,headRefOid,state",
     ];
     if let Some(repo) = repo {
         args.push("--repo");
@@ -190,10 +208,27 @@ where
 mod tests {
     use super::*;
 
+    fn names(branches: &[RemoteBranch]) -> Vec<&str> {
+        branches.iter().map(|b| b.name.as_str()).collect()
+    }
+
+    /// **SHA と名前を組で取り出す。** 判定側は「PR の head と同じ commit か」を見るため、
+    /// ここで SHA を落とすと下流が名前だけの判定へ戻る。
     #[test]
-    fn ls_remote_lines_yield_branch_names() {
+    fn ls_remote_lines_yield_branch_names_with_their_commits() {
         let raw = "abc123\trefs/heads/master\ndef456\trefs/heads/claude/nightly-203\n";
-        assert_eq!(parse_ls_remote(raw), vec!["master", "claude/nightly-203"]);
+        let branches = parse_ls_remote(raw);
+        assert_eq!(names(&branches), vec!["master", "claude/nightly-203"]);
+        assert_eq!(branches[0].sha, "abc123");
+        assert_eq!(branches[1].sha, "def456");
+    }
+
+    /// SHA が空の行は行ごと捨てる。名前だけ拾って空 SHA を通すと、判定側の commit 一致が
+    /// 空文字比較に化ける。
+    #[test]
+    fn a_line_without_a_sha_is_dropped() {
+        assert!(parse_ls_remote("\trefs/heads/feat/x\n").is_empty());
+        assert!(parse_ls_remote("   \trefs/heads/feat/x\n").is_empty());
     }
 
     /// 一致なしの空出力は「0 本」。ここで `Err` にしないのは、空が正常な結果でもあるため。
@@ -206,27 +241,33 @@ mod tests {
     #[test]
     fn non_head_refs_are_ignored() {
         let raw = "abc\trefs/tags/v1\ndef\trefs/heads/feat/x\nghi\tgarbage\n";
-        assert_eq!(parse_ls_remote(raw), vec!["feat/x"]);
+        assert_eq!(names(&parse_ls_remote(raw)), vec!["feat/x"]);
     }
 
     #[test]
     fn pr_list_json_maps_to_records() {
-        let raw = r#"[{"number":365,"headRefName":"claude/nightly-203","state":"CLOSED"}]"#;
+        let raw = r#"[{"number":365,"headRefName":"claude/nightly-203","headRefOid":"deadbeef","state":"CLOSED"}]"#;
         let prs = parse_pr_list(raw).expect("parse");
         assert_eq!(prs.len(), 1);
         assert_eq!(prs[0].number, 365);
         assert_eq!(prs[0].head_ref, "claude/nightly-203");
+        assert_eq!(prs[0].head_oid, "deadbeef");
         assert_eq!(prs[0].state, PrState::Closed);
     }
 
     /// 欠損フィールドを握り潰さない。潰すとそのブランチが「PR 無し」に見え、
     /// 削除提案の判定が静かに変わる。
+    ///
+    /// **`headRefOid` の欠損・空文字も同じ扱い。** これを許すと「どの PR も現在の commit を
+    /// 指していない」= 保護側へ静かに倒れ、掃除が効かなくなったことに誰も気づけない。
     #[test]
     fn a_pr_with_missing_fields_is_an_error() {
         for raw in [
-            r#"[{"headRefName":"feat/x","state":"OPEN"}]"#,
-            r#"[{"number":1,"state":"OPEN"}]"#,
-            r#"[{"number":1,"headRefName":"feat/x"}]"#,
+            r#"[{"headRefName":"feat/x","headRefOid":"a","state":"OPEN"}]"#,
+            r#"[{"number":1,"headRefOid":"a","state":"OPEN"}]"#,
+            r#"[{"number":1,"headRefName":"feat/x","headRefOid":"a"}]"#,
+            r#"[{"number":1,"headRefName":"feat/x","state":"OPEN"}]"#,
+            r#"[{"number":1,"headRefName":"feat/x","headRefOid":"","state":"OPEN"}]"#,
         ] {
             assert!(parse_pr_list(raw).is_err(), "{raw} が Err にならない");
         }
@@ -259,7 +300,9 @@ mod tests {
     /// ネットワークに触らないことを、実行が即 `Err` で返ることで確認する。
     #[test]
     fn too_many_branches_stops_before_calling_gh() {
-        let branches: Vec<String> = (0..=BRANCH_SCAN_LIMIT).map(|i| format!("b{i}")).collect();
+        let branches: Vec<RemoteBranch> = (0..=BRANCH_SCAN_LIMIT)
+            .map(|i| RemoteBranch { name: format!("b{i}"), sha: format!("sha{i}") })
+            .collect();
         let err = fetch_pull_requests_for(&branches, None).expect_err("上限超過は Err");
         assert!(err.contains("上限"), "{err}");
     }
@@ -298,7 +341,11 @@ mod tests {
     fn the_injected_runner_is_used_for_the_success_path() {
         let prs = fetch_pull_requests_for_branch_with("feat/x", None, |args| {
             assert!(args.contains(&"--head"), "--head が渡っていない: {args:?}");
-            Ok(r#"[{"number":1,"headRefName":"feat/x","state":"OPEN"}]"#.to_string())
+            assert!(
+                args.iter().any(|a| a.contains("headRefOid")),
+                "--json に headRefOid が入っていない (判定側の commit 一致が常に偽になる): {args:?}"
+            );
+            Ok(r#"[{"number":1,"headRefName":"feat/x","headRefOid":"a1","state":"OPEN"}]"#.to_string())
         })
         .expect("ok");
         assert_eq!(prs.len(), 1);
