@@ -35,23 +35,32 @@ pub(crate) fn default_preset_names() -> Vec<String> {
     ]
 }
 
-pub(crate) fn resolve_preset_or_custom(name: &str) -> Vec<BlockedPattern> {
+/// preset 名を解決し、telemetry id に使う source tag と patterns を返す。
+///
+/// named preset は名前そのものを source tag として使う。custom-regex fallback
+/// (未知の `name` を生 regex として解釈する分岐) では、生 regex 文字列をそのまま
+/// telemetry id に載せると ADR-055 のプライバシー原則 (コマンド本文・内容は非記録) に
+/// config 由来の入力で抵触するため、合成 id `"custom-block"` に正規化する
+/// (順位 310、275.md Tier 1 #2)。
+pub(crate) fn resolve_preset_or_custom(name: &str) -> (String, Vec<BlockedPattern>) {
     match name {
-        "default" => preset_default(),
-        "git" => preset_git(),
-        "jj-immutable" => preset_jj_immutable(),
-        "jj-main-guard" => preset_jj_main_guard(),
-        "jj-push-guard" => preset_jj_push_guard(),
-        "gh-pr-create-guard" => preset_gh_pr_create_guard(),
-        "gh-pr-merge-guard" => preset_gh_pr_merge_guard(),
-        "gh-repo-env-guard" => preset_gh_repo_env_guard(),
-        "jj-message-required" => preset_jj_message_required(),
-        "secret-detection" => preset_secret_detection(),
-        "polling-anti-pattern" => preset_polling_anti_pattern(),
-        "exe-help-block" => preset_exe_help_block(),
-        "electron" => preset_electron(),
-        "powershell-destructive-write-block" => preset_powershell_destructive_write(),
-        custom => custom_regex_pattern(custom),
+        "default" => (name.to_string(), preset_default()),
+        "git" => (name.to_string(), preset_git()),
+        "jj-immutable" => (name.to_string(), preset_jj_immutable()),
+        "jj-main-guard" => (name.to_string(), preset_jj_main_guard()),
+        "jj-push-guard" => (name.to_string(), preset_jj_push_guard()),
+        "gh-pr-create-guard" => (name.to_string(), preset_gh_pr_create_guard()),
+        "gh-pr-merge-guard" => (name.to_string(), preset_gh_pr_merge_guard()),
+        "gh-repo-env-guard" => (name.to_string(), preset_gh_repo_env_guard()),
+        "jj-message-required" => (name.to_string(), preset_jj_message_required()),
+        "secret-detection" => (name.to_string(), preset_secret_detection()),
+        "polling-anti-pattern" => (name.to_string(), preset_polling_anti_pattern()),
+        "exe-help-block" => (name.to_string(), preset_exe_help_block()),
+        "electron" => (name.to_string(), preset_electron()),
+        "powershell-destructive-write-block" => {
+            (name.to_string(), preset_powershell_destructive_write())
+        }
+        custom => ("custom-block".to_string(), custom_regex_pattern(custom)),
     }
 }
 

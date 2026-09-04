@@ -41,7 +41,10 @@ pub(crate) fn build_blocked_patterns(config: &Config) -> Vec<SourcedPattern> {
         .unwrap_or_else(default_preset_names);
     preset_names
         .iter()
-        .flat_map(|name| tag_source(name, resolve_preset_or_custom(name.as_str())))
+        .flat_map(|name| {
+            let (source, patterns) = resolve_preset_or_custom(name.as_str());
+            tag_source(&source, patterns)
+        })
         .collect()
 }
 
@@ -115,5 +118,15 @@ mod tests {
         let patterns = patterns_with_presets(&["git"]);
         let hit = validate_command("git push", &patterns).unwrap();
         assert_eq!(hit.source, "git");
+    }
+
+    /// 順位 310: custom-regex fallback の source は生 regex 文字列ではなく合成 id
+    /// `"custom-block"` に正規化される (ADR-055 プライバシー原則、config 由来入力にも適用)。
+    #[test]
+    fn custom_regex_source_is_normalized_not_raw_regex() {
+        let patterns = patterns_with_presets(&[r"docker\s+rm"]);
+        let hit = validate_command("docker rm -f container", &patterns).unwrap();
+        assert_eq!(hit.source, "custom-block");
+        assert_ne!(hit.source, r"docker\s+rm");
     }
 }
