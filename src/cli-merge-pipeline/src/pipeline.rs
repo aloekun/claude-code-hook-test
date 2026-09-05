@@ -535,15 +535,28 @@ fn sync_already_merged(settings: &PipelineSettings, ctx: &PipelineContext) -> i3
     if rc != 0 {
         return rc;
     }
-    if let Err(code) = run_steps(
+    if let Err(code) = run_post_steps(settings, ctx) {
+        return code;
+    }
+    0
+}
+
+/// post_steps を実行し、**成否によらず**作業ツリーへの残骸を報告する。
+///
+/// 失敗経路でも確認するのは、途中で落ちた agent がファイルを置いたまま終わることがあるため
+/// (むしろ後始末の機会が無い分そちらの方が残りやすい)。step が 1 つも無いときは確認しない —
+/// 何も走っていない状態を見てもログが 1 行増えるだけである ([`crate::stray::report`])。
+fn run_post_steps(settings: &PipelineSettings, ctx: &PipelineContext) -> Result<(), i32> {
+    let result = run_steps(
         "post-merge ステップ",
         &settings.post_steps,
         settings.timeout,
         Some(ctx),
-    ) {
-        return code;
+    );
+    if !settings.post_steps.is_empty() {
+        crate::stray::report();
     }
-    0
+    result
 }
 
 /// OPEN PR の pre_steps → マージ → ローカル同期 → post_steps を実行する。
@@ -566,12 +579,7 @@ fn merge_open_pr(settings: &PipelineSettings, ctx: &PipelineContext) -> i32 {
         return rc;
     }
 
-    if let Err(code) = run_steps(
-        "post-merge ステップ",
-        &settings.post_steps,
-        settings.timeout,
-        Some(ctx),
-    ) {
+    if let Err(code) = run_post_steps(settings, ctx) {
         return code;
     }
 
