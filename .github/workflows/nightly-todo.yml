@@ -886,7 +886,15 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           set -euo pipefail
-          echo "[NIGHTLY_HANDOFF] 順位 ${RANK} は implement 後に停止しました (verify/guard/ledger-completion/台帳削除 のいずれか)。"
+          # **どの段で止まったかはここでは名乗らない。** 判定は `Report outcome` step の
+          # cli-nightly-outcome が全 step outcome を読んで行い、段の名前と次に見る場所を
+          # 1 行で出す (ADR-072 決定 1: 回帰テストの場が無い判定を無人経路の shell に置かない)。
+          # ここで 4 択を並べていた頃は、毎回ログを読んで段を特定し直していた。
+          #
+          # **誘導先は位置ではなくタグで書く。** `Report outcome` の後には post-cleanup step
+          # (`Post Mint App token` 等) が走るため、停止段の行は job の最終行にはならない
+          # (SIM-NEW-handoff-final-line-mismatch)。
+          echo "[NIGHTLY_HANDOFF] 順位 ${RANK} は implement 後に停止しました (停止段は Report outcome step のログの [NIGHTLY_HANDOFF] 停止段: 行を参照)。"
           if [ "${DRY_RUN:-}" = "true" ]; then
             echo "[NIGHTLY_HANDOFF] dry_run のためマーカー (${BRANCH} → ${BASE_SHA}) は作成しません。"
             exit 0

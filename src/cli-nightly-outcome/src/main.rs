@@ -28,7 +28,7 @@
 
 mod classify;
 
-use classify::{classify, render, residue_lines, residue_ranks, summary_line};
+use classify::{classify, render, residue_lines, residue_ranks, stop_stage, summary_line};
 
 /// `Report outcome` step が渡す step outcome の env 名と、サマリ行での表示名。
 ///
@@ -77,7 +77,12 @@ fn main() {
     let publish = env_or_empty("PUBLISH_OUTCOME");
     let handoff = env_or_empty("HANDOFF_OUTCOME");
     let verdict = classify(&publish, &handoff);
-    for line in render(&verdict, &env_or_empty("RANK"), is_dry_run(&env_or_empty("DRY_RUN"))) {
+    for line in render(
+        &verdict,
+        &env_or_empty("RANK"),
+        is_dry_run(&env_or_empty("DRY_RUN")),
+        stop_stage(&pairs),
+    ) {
         println!("{line}");
     }
     let residue = residue_ranks(&env_or_empty("LEDGER_RESIDUE_RANKS"));
@@ -129,11 +134,28 @@ mod tests {
     #[ignore = "cwd 依存: リポジトリルートの .github/workflows/nightly-todo.yml を読む。--test-threads=1 で実行"]
     fn the_handoff_condition_covers_every_stop_that_needs_a_marker() {
         let condition = handoff_step_condition(&read_nightly_workflow());
-        for step in ["verify", "guard", "ledger-completion", "ledger-removal"] {
+        for stage in classify::STOP_STAGES {
+            let step = stage.workflow_step();
             assert!(
                 condition.contains(&format!("steps.{step}.outcome")),
                 "handoff の発火条件に {step} が無い — この段で止まると marker が残らず、\
                  同じ順位が翌晩も選ばれる (ADR-072 決定 19)。条件:\n{condition}"
+            );
+        }
+    }
+
+    /// **停止段の列名がサマリ行に在ること。** `stop_stage` はサマリ行と同じ
+    /// `(列名, outcome)` の並びを引くので、列名がずれると**段を特定できない側**へ倒れる
+    /// (もっともらしい段を出さない設計なので、黙って「特定できませんでした」になる)。
+    #[test]
+    fn every_stop_stage_has_a_column_in_the_summary_line() {
+        let labels: Vec<&str> = OUTCOME_FIELDS.iter().map(|(label, _)| *label).collect();
+        for stage in classify::STOP_STAGES {
+            assert!(
+                labels.contains(&stage.label()),
+                "停止段 {:?} の列名 {} がサマリ行に無い",
+                stage,
+                stage.label()
             );
         }
     }

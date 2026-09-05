@@ -239,6 +239,18 @@ clone は shallow にしない。新規ブランチの push で shallow update �
 
 **red 化は最終 step で行う。** handoff marker の作成は `Report outcome` より前に完了しており、`Post Mint App token` は post step なので本 step の失敗後も走る。red 化によって marker 不在で同じ順位が翌晩再選択される事故は起きない。
 
+#### 2026-09-05 追記: 色の次に「どの段で止まったか」も exe が出す
+
+色は届くようになったが、**停止段は届いていなかった。** 説明行は「verify/guard/ledger-completion/台帳削除 のいずれか」の 4 択のままで、段が分かれば次に見る場所が決まるのに毎回ログを読んで特定し直していた (2026-09-04 の調査では 5 晩ぶんを分類するのに `gh run view --log` を 1 run ずつ引いた)。**答えは既にサマリ行に出ている** — 読み方が機械の側に無かっただけである。
+
+`cli-nightly-outcome` に `stop_stage` (純関数) を足し、サマリ行と同じ `(列名, outcome)` の並びから**最初に非成功になった段**を読み出して、段の名前と**次に見る場所を 1 行**で出す。`ledger_removal` だけ `== failure` で見るのは、ledger-completion が落ちると removal は `if` 未充足で skip され、`!= success` では常に真になって**最後の段を名指してしまう**ため (workflow の handoff `if` も同じ理由で removal だけ `== 'failure'` を使っている)。
+
+**これは § 検討して捨てた案 の「失敗理由を transient / タスク不適合に分類する分類器」ではない。** 却下したのは失敗に**新しい意味づけを与える**判定器で、ここでやるのは決定 19 の「run のどこで止まったかが、そのまま分類になっている」をそのまま読み出すことである。色を決める `classify` は従来どおり `publish` / `handoff` の 2 つしか見ず、段の読み出しは表示専用で色に影響しない。
+
+**特定できない場合はもっともらしい段を出さない。** handoff が発火したのに段が決まらないのは workflow の `if` と exe がずれた合図で、適当な段を出すとその不一致が隠れる。ずれ自体を申告して直し方を書く。あわせて workflow の handoff step からは 4 択の列挙を外した — 同じことを 2 か所が別々に説明する状態を作らない。
+
+**段の列挙は 1 か所 (`STOP_STAGES`) に持ち、2 方向で照合する。** サマリ行の列名との一致 (ずれると段を特定できない側へ倒れる) と、実 workflow の handoff `if` に全段が挙がっていること (ずれると marker が作られない、決定 19) を、それぞれテストが実ファイルを読んで固定する。
+
 改ざん検知を red にするのは初版で落としていた。`continue-on-error: true` + 下流の `if: steps.integrity.outcome == 'success'` で push は止まる (fail-closed は成立している) が、**green で終わるため run 一覧上は「何もすることが無かった夜」と区別が付かない**。決定 10 を書いたことで、その分類にこの結末が入っていないことが露出した (§ 静的レビューが捕捉した件 #10)。
 
 **同じ露出が 3 step 続いた。** 表を追加した PR (#366) の CodeRabbit レビューが、「`gh` / network / clone の失敗 → red」の行に対して `Prepare a clean publish tree` (clone) / `Mint App token` (GitHub API) / `Push branch and open draft PR` (push + PR 作成) の 3 つが `continue-on-error: true` で green に落ちていることを指摘し、除去した。いずれもネットワーク I/O であり設計された結末ではない。**表を書いた著者自身は 1 件 (改ざん検知) しか見つけられず、残り 3 件は他者のレビューで出た** — 分類の明文化は露出の必要条件であって十分条件ではない。
