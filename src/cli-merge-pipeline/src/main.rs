@@ -24,6 +24,7 @@ mod config;
 mod feedback;
 mod github;
 mod pipeline;
+mod stray;
 
 /// 解析済みのコマンドライン引数。
 #[derive(Debug, PartialEq, Eq)]

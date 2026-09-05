@@ -119,21 +119,35 @@
 - **(2) 検知安全網**: merge pipeline (`cli-merge-pipeline`) の post_steps または Stop hook で「workflow 実行後に root 直下 (or tracked dir 外) へ新規 untracked ファイルが出現したら warning + 一覧表示」を追加 → commit 前にゴミを surface (block はしない、ADR-039 mechanical-lint 例外パターン)。
 - **(3) gitignore**: ad-hoc 名は予測不能なので gitignore 単独では不十分。(1)+(2) が本質、gitignore は補助。
 
+#### 3 回目の観測 (2026-09-05)
+
+PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-29 `parse_transcript.py`、2 回目 2026-08-14 `analyze_transcript.py`)。**2 か月で 3 回、間隔は縮んでいる。**
+
+**発火は非決定的である。** 同日に post-merge-feedback を 3 回 (#476 / #477 / #478) 回したが stray が出たのは #478 だけで、#477 の直後は作業コピーが空だった。したがって旧作業計画の `dogfood: 次回 merge で stray を残さないことを確認` は**検証にならない** — 1 回きれいでも何も証明しない。検証は「stray を意図的に置いて検知が発火すること」で行う。
+
+#### 詰まっている箇所 — 解消済み (2026-09-05)
+
+旧記載は「(2) の実装場所 = merge pipeline post_step か Stop hook か」で止まっていた。**答えは各 read-only workflow の呼び手側**で、`cli-merge-pipeline` だけが欠けていた。
+
+- 同型の検知は既に 2 箇所にある: `cli-pr-monitor` の `judge_tree_change` (post-pr-review 用) と `cli-push-runner` の `post_takt_regate` (pre-push-review 用)
+- Stop hook は不適。pre-push-review の fix step は**設計上ツリーを書き換える**し、ユーザーの正当な新規ファイルを誤検知する
+- merge pipeline は基準線が自明。`gh pr merge` → `jj git fetch` → `jj new <trunk>@origin` → post_steps の順なので、post_steps 開始時点で作業コピーは空。前後 snapshot が要らず、既存ファイルによる誤検知が原理的に起きない
+
 #### 作業計画
 
-- [ ] (1) analyze-session.md + 関連 feedback facets に「repo 書込禁止 + in-context/scratch 使用」を追記
-- [ ] (2) post_steps / Stop hook に root 直下新規 untracked 検知 + warning を実装
-- [ ] dogfood: 次回 merge で feedback workflow が repo root に stray を残さないことを確認
-- [ ] (3) 必要なら gitignore に補助パターン追加
+- [x] (1) analyze-session.md + 関連 feedback facets (analyze-pr / aggregate-feedback) に「repo 書込禁止 + in-context/scratch 使用」を追記 (2026-09-05)
+- [x] (2) `cli-merge-pipeline` の post_steps 後に作業ツリーの残骸を検知して列挙 (`src/cli-merge-pipeline/src/stray.rs`、2026-09-05)
+  - 判定は純関数 + unit test。`Clean` / `Stray` / `Undeterminable` の 3 状態で、**判定不能を「残った」と言わない** (順位 490 と同じ理由 — 片付けを促す文面を判定不能時に出すと額面どおり実行して作業を失う)
+  - block はしない。マージは既に完了しており、成功後の非ゼロ終了は誤解を招く。代わりに残骸パスを列挙して loud に出す (順位 488 の「green に紛れた警告は届かない」への対処)
+  - step が 0 件のときは確認しない (何も走っていない状態を見てもログが増えるだけ)
+- [ ] dogfood: **stray を意図的に置いた状態で実 merge を回し、検知が発火することを確認** (非決定的なので「出なかった」は検証にならない)。unit test が固定するのは判定と文面だけで、**実 workflow との接続は実マージでしか確かめられない**。確認項目は 3 つ — (a) post_steps 成功時に `[WARN]` が全パスを列挙する、(b) post_steps 失敗時にも検知が走る、(c) いずれの場合もマージ処理自体はブロックされない
+- [x] (3) gitignore は追加しない — ad-hoc 名は予測不能で、既存の `__*` パターンは 3 件を 1 つも捕まえていない。(1)+(2) が本質という旧判断のとおり
 - [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
 - post-merge-feedback workflow が repo 作業ツリーに stray ファイルを残さない。万一残った場合も検知ステップが commit 前に warning で surface。
-
-#### 詰まっている箇所
-
-- (2) の「新規 untracked 検知」の実装場所 = merge pipeline post_step (merge 文脈限定) vs Stop hook (全 workflow 横断) のどちらが適切か。merge 以外の workflow (pre-push-review / weekly-review 等) も同型リスクがあるなら Stop hook 側が広くカバーするが、誤検知 (正当な新規ファイル) との切り分けが要る。
+- **(1) は保証ではない。** [dev-conventions.md](dev-conventions.md) の一般則「LLM への指示は『届けば守られる』ものではない。守らせる層と保証する層を分け、契約は決定論的に確認できる 1 点に置く」に従い、(1) は発生源を減らす層、(2) が保証層である。
 
 ---
 
