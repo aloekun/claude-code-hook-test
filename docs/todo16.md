@@ -216,27 +216,6 @@
 
 ---
 
-### 順位 310: custom-regex preset の生 regex が telemetry id に流れる privacy footgun の是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)
-
-> **動機**: PR #275 の pre-push simplicity review 非ブロッキング warning（= セッション中に検出された「非ブロッキング follow-up」）。`tag_source(name, ...)` の `name` が named preset 名でなく `blocked_patterns` の生正規表現文字列の場合、その regex テキストがそのまま telemetry の `id` フィールドに載り、ADR-055 の「コマンド本文・内容は非記録」プライバシー原則と緊張する。現行 `hooks-config.toml` は named preset のみのため**非発火**だが、派生プロジェクトが raw-regex エントリを足すと該当する latent footgun。
->
-> **参照**: `.claude/feedback-reports/275.md` Tier 1 #2、`src/hooks-pre-tool-validate/src/blocked_patterns.rs`（`tag_source`）、`src/hooks-pre-tool-validate/src/handlers.rs`（`record_preset_block`）、[ADR-055](adr/adr-055-firing-telemetry-collection.md) § プライバシー。
->
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort S。
-
-#### 作業計画
-
-- [ ] custom-regex fallback branch では `source` を合成 id（例 `"custom-block"`）に正規化し、生 regex を telemetry id に載せない。
-- [ ] hooks-config パース時に raw-regex な `blocked_patterns` エントリを検出したら警告する config validation を追加（任意）。
-- [ ] [ADR-055](adr/adr-055-firing-telemetry-collection.md) に「Configuration-Driven Privacy Risks（custom config 変更時のプライバシー implications、派生プロジェクトの責務）」セクションを追記。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- custom-regex な `blocked_patterns` を設定しても生 regex 文字列が telemetry `id` に記録されず、ADR-055 のプライバシー原則が config 由来入力に対しても保たれること。
-
----
-
 ### 順位 311: 逐語的関数複製（3+ コピー）を pre-push 検出する DRY lint rule (275.md T1-3 採用)
 
 > **動機**: PR #275 で `is_truthy` が `lib-telemetry` / `hooks-post-tool-comment-lint-rust` / `hooks-stop-tool-call-leak` の 3 crate に逐語一致で存在していた（simplicity review が検出 → fix loop が `lib_telemetry::is_truthy` へ統一）。ADR-007 の regex 層に「同一関数コピーが threshold（3+）を超える」ことを検出するルールを追加すれば、次回同型の DRY を pre-push 段階で先回り検出できる。

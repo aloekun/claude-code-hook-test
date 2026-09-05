@@ -58,7 +58,6 @@
 | 304 | 💎 Tier 3 | **quality gate 実行中に発見したバグ修正が別 PR に混入した際の jj split + jj rebase 復旧パターンを記録 (273.md T3-3 採用)** | todo16.md | XS | なし (PR #272/#273 分離で実証済みの復旧手順、ADR-045 の並列 workspace リスクとは別種の単一 session 内混入事故。復旧は事後対応であり、分離後は混在した変更に対する gate 実行結果を無効化し各 PR で再実行する手順を含む) |
 | 305 | 💎 Tier 3 | **Metrics violation の pre-existing 判定基準の明文化 (273.md T3-4 採用)** | todo16.md | XS | なし (file_size_check / file_length_gate 等 metrics 系 gate が複数稼働中で反復しうる override 正当性の判定基準を明文化) |
 | 306 | 💎 Tier 3 | **quality gate isolation 機構を見送り、recovery による risk acceptance とした判断の記録 (negative result) (273.md T3-5 採用)** | todo16.md | S | なし (spike 見送り convention に従い、isolation 機構を却下し recovery コストの低さ (順位304) を理由に risk acceptance した根拠を記録。recovery は isolation の代替ではなく、予防機能の欠如という残存リスクと再検討条件を明記する) |
-| 310 | 🚀 Tier 1 | **custom-regex preset の生 regex が telemetry id に流れる privacy footgun 是正（非ブロッキング follow-up 統合）(275.md T1-2 採用)** | todo16.md | S | なし (現行 config は named preset のみで非発火だが派生プロジェクトの latent footgun。fallback を合成 id〔"custom-block"〕に正規化 + ADR-055 に config privacy 注記) |
 | 311 | 🚀 Tier 1 | **逐語的関数複製（3+ コピー）を pre-push 検出する DRY lint rule (275.md T1-3 採用)** | todo16.md | M | なし (is_truthy 三重複製事案。ADR-007 regex 層に threshold 検出追加。順位 313 の fixture と抱き合わせ) |
 | 313 | 🔧 Tier 2 | **is_truthy 三重複製を ADR-049 incident fixture 化 (275.md T2-4 採用)** | todo16.md | XS | 順位 311 (DRY lint rule と抱き合わせ) |
 | 314 | 🔧 Tier 2 | **bookmark 未作成での push 失敗（exit 7）のエラーメッセージ改善 (275.md T2-5 採用)** | todo16.md | S | なし (本セッションで実発生。bookmark 自動作成は ADR-011 の明示命名意図と緊張するためメッセージ改善のみ) |
