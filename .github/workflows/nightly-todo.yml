@@ -447,6 +447,9 @@ jobs:
             「人間の補助なしで完結する」と人間が判断済みのタスクです。台帳の記述と対象ファイルの現物から
             実装内容が一意に決まるはずです。**決まらないと感じた場合は、推測で広げずに何も変更せず終了してください** —
             範囲外の変更を含む PR より、変更なしで止まる方が望ましい結果です。
+            **変更せず終了するときは、最終メッセージの先頭行を `[NIGHTLY_AGENT_STOP] ` で始め、何が決まらなかったかを
+            1 行で書いてください** (台帳のどの記述が現物と合わないか、など)。この 1 行だけが run ログに出て、
+            人間が翌日に台帳を直す手がかりになります。
 
             進め方:
             1. `work/docs/todo-summary.md` / `work/docs/todo-summary2.md` / `work/docs/todo-summary3.md` で該当順位の行を探し、
@@ -952,6 +955,10 @@ jobs:
           # 台帳残骸は step outcome ではなく観測結果なので `*_OUTCOME` の並びに入れない。
           # 色に対して直交し、PR を作れた夜でも red にする (ADR-072 決定 21)。
           LEDGER_RESIDUE_RANKS: ${{ steps.residue.outputs.ranks }}
+          # 空 diff で終わった agent の停止理由 (SDK 出力の JSON 配列)。exe は最終メッセージの
+          # 先頭行が `[NIGHTLY_AGENT_STOP]` で始まるときだけ、その 1 行を screening して出す
+          # (ADR-072 決定 14 と同じ関数)。読めなくても色は変わらない。
+          AGENT_EXECUTION_FILE: ${{ steps.implement.outputs.execution_file }}
         run: |
           set -euo pipefail
           ./master-ref/target/release/cli-nightly-outcome

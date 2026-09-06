@@ -33,6 +33,7 @@ const ENV_NAMES: &[&str] = &[
     "RANK",
     "DRY_RUN",
     "LEDGER_RESIDUE_RANKS",
+    "AGENT_EXECUTION_FILE",
 ];
 
 struct Run {
@@ -202,6 +203,59 @@ fn ledger_residue_turns_a_created_pr_red() {
     assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
     assert!(run.stdout.contains("[NIGHTLY] PR を作成しました。"), "stdout:\n{}", run.stdout);
     assert!(run.stdout.contains("順位 324 / 412"), "stdout:\n{}", run.stdout);
+}
+
+/// 空 diff で止まった夜に、agent が書いた停止理由の 1 行が **env → ファイル → 説明行** の
+/// 配線で届くこと (順位 356 の 2026-09-05 停止で欲しかった形)。色は従来どおり red のまま。
+#[test]
+fn the_agents_stop_reason_reaches_the_handoff_lines() {
+    let path = std::env::temp_dir().join(format!(
+        "nightly-outcome-e2e-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(
+        &path,
+        r#"[{"type":"system","subtype":"init"},
+            {"type":"assistant","message":{"content":[{"type":"text","text":"[NIGHTLY_AGENT_STOP] 注釈が挙げる staleness.rs は本タスクと無関係\n詳細は省略"}]}},
+            {"type":"result","subtype":"success"}]"#,
+    )
+    .expect("execution file を書けない");
+    let run = run_exe(&[
+        ("SELECT_OUTCOME", "success"),
+        ("IMPLEMENT_OUTCOME", "success"),
+        ("GUARD_OUTCOME", "failure"),
+        ("PUBLISH_OUTCOME", "skipped"),
+        ("HANDOFF_OUTCOME", "success"),
+        ("RANK", "356"),
+        ("AGENT_EXECUTION_FILE", path.to_str().expect("utf-8 path")),
+    ]);
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
+    assert!(
+        run.stdout.contains("agent の停止理由: 注釈が挙げる staleness.rs は本タスクと無関係"),
+        "stdout:\n{}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("詳細は省略"), "先頭行以外を出している:\n{}", run.stdout);
+}
+
+/// execution file を渡さない呼び手では出力が増えない (旧 workflow との互換)。
+#[test]
+fn no_execution_file_adds_no_reason_line() {
+    let run = run_exe(&[
+        ("SELECT_OUTCOME", "success"),
+        ("IMPLEMENT_OUTCOME", "success"),
+        ("GUARD_OUTCOME", "failure"),
+        ("PUBLISH_OUTCOME", "skipped"),
+        ("HANDOFF_OUTCOME", "success"),
+        ("RANK", "356"),
+    ]);
+    assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
+    assert!(!run.stdout.contains("停止理由"), "stdout:\n{}", run.stdout);
 }
 
 /// 残骸が無ければ色は変わらない (空文字を「残骸あり」と読まない)。

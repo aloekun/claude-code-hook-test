@@ -212,7 +212,9 @@ dependencies = [
 name = "cli-nightly-outcome"
 version = "0.1.0"
 dependencies = [
+ "lib-ledger",
  "lib-subprocess",
+ "serde_json",
 ]
 
 [[package]]
