@@ -424,28 +424,6 @@
 
 ---
 
-### 順位 356: weekly/monthly staleness 判定の共通 fixture parametrized test を追加
-
-> **動機**: PR #331 で追加した `monthly_review.rs` の staleness 判定ロジックは `weekly_review.rs` と逐語的に重複しており (`last_run_state_from_content` / staleness 判定 / main-root canonical / 未来 timestamp 等)、片方だけの独立バグ修正で挙動が乖離するリスクがある。#331 post-merge feedback Tier2 #1 で採用。
->
-> **対処案**: weekly/monthly 両流路の staleness 判定を、同一 fixture (threshold 境界・Missing・Stale・Unreadable・未来 timestamp・main-root canonical 等) で検証する parametrized test を追加する。**配置は各モジュール自身の test module の 2 箇所** — `src/hooks-session-start/src/monthly_review.rs` の inline `mod tests`、および `src/hooks-session-start/src/weekly_review/mod.rs` が `mod tests;` で宣言する `src/hooks-session-start/src/weekly_review/tests.rs` (2026-09-05 実測。旧記載の「両モジュールの inline」は weekly 側がディレクトリモジュールへ分割されて陳腐化していた。子モジュールなので親の private fn は見える)。**fixture の表は両 test module に同じものを置き、共有はしない** (判定ロジックのファイルは変更しない。各モジュールの private fn を子モジュールから直接呼ぶため)。「乖離が検出される」とは、片方のロジックを変えるとその側の test が fixture との不一致で落ちることを指す。既存 test パターン踏襲のみで Effort S。
->
-> **参照**: `.claude/feedback-reports/331.md` Tier2 #1、`src/hooks-session-start/src/monthly_review.rs` (`last_run_state_from_content` / `monthly_review_staleness_hits`)、`src/hooks-session-start/src/weekly_review/mod.rs` (`last_run_state_from_content` / `weekly_review_staleness_hits`)。**`src/hooks-session-start/src/staleness.rs` は無関係** — 順位 136 の working-copy staleness (jj の commit 数) で、本タスクの staleness (last_run_at の経過日数) とは別物。09-05 の夜間 run はこれを候補に挙げた台帳注釈を読んで 2 ターンで停止した。
->
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] weekly/monthly の staleness 判定を同一 fixture で検証する parametrized test を追加 (threshold 境界 / Missing / Stale / Unreadable / 未来値 / main-root canonical)
-- [ ] 片方だけのロジック変更で乖離が検出されることを確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- weekly/monthly の staleness 判定が同一 fixture で検証され、片方のロジック変更による挙動乖離がテストで検知されること。
-
----
-
 ### 順位 358: Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化
 
 > **動機**: PR #340 の計画書スリム化で、CodeRabbit から「WP-14 の永続移管先未記載」「外部 SaaS 事実の移管方針」「WP-02 の todo 移管先未記録」の 3 件が指摘された。ephemeral 計画文書から permanent 成果物への知識移行の手順は「見送り」ケース限定の順位 261 convention にしか存在せず、完了/委譲ケースの移管先明記が規約の空白だったことが構造要因。#340 post-merge feedback Tier3 #1 で採用。
