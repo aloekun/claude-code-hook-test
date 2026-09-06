@@ -40,7 +40,7 @@ fn ledger_path() -> PathBuf {
     repo_root().join("docs").join("claude-code-web-tasks.md")
 }
 
-fn read_ledger() -> String {
+pub(crate) fn read_ledger() -> String {
     let path = ledger_path();
     std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
@@ -55,7 +55,7 @@ fn read_ledger() -> String {
 /// セル分解と列解決は本体の関数をそのまま使う。あいまい列は本体と同じくエラーへ倒す —
 /// ここで先頭を黙って採用すると、実際の [`super::select`] がエラーになる台帳を検査だけが
 /// 通してしまう。
-fn target_file_cells(markdown: &str) -> Vec<(u32, String)> {
+pub(crate) fn target_file_cells(markdown: &str) -> Vec<(u32, String)> {
     let mut cells = Vec::new();
     let mut columns: Option<(usize, usize)> = None;
     for line in markdown.lines() {
@@ -167,11 +167,11 @@ fn deployed_ledger_task_ranks_are_unique() {
 ///
 /// タスク表 1 行分。実体整合の検査に要る列だけを持つ。
 #[derive(Debug)]
-struct TaskRow {
-    rank: u32,
-    lane: String,
-    content: String,
-    note: String,
+pub(crate) struct TaskRow {
+    pub(crate) rank: u32,
+    pub(crate) lane: String,
+    pub(crate) content: String,
+    pub(crate) note: String,
 }
 
 
@@ -184,7 +184,7 @@ struct TaskRow {
 /// を経由して `cargo test` の失敗メッセージへ無検査で埋め込まれ、その出力を読む下流の
 /// fix ステップ agent の trust boundary を破りうる (SIM-NEW-lib-ledger-deployed_ledger-L281)。
 /// 違反行は `TaskRow` を作らず即座に `Err` へ倒す (fail-closed)。
-fn task_rows(markdown: &str) -> Result<Vec<TaskRow>, String> {
+pub(crate) fn task_rows(markdown: &str) -> Result<Vec<TaskRow>, String> {
     let mut rows = Vec::new();
     let mut columns: Option<[usize; 4]> = None;
     for (index, line) in markdown.lines().enumerate() {
@@ -270,7 +270,7 @@ fn ranks_mentioned_in(line: &str) -> Vec<u32> {
 }
 
 /// auto lane を表す印。台帳の凡例 (§ 無人可列は担当割り当てである) と同じ。
-fn is_auto_lane(lane: &str) -> bool {
+pub(crate) fn is_auto_lane(lane: &str) -> bool {
     lane.trim() == "✅"
 }
 

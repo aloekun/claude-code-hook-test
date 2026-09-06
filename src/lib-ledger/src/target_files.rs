@@ -67,6 +67,55 @@ pub fn parse_target_files(cell: &str) -> Result<Vec<String>, String> {
     Ok(paths.into_iter().collect())
 }
 
+/// 末尾 `/` のディレクトリ宣言か ([`crate::completion`] は配下のいずれかの変更で充足とみなす)。
+///
+/// 実台帳を読む検査 C (`annotation_check`、`#[cfg(test)]`) だけが使うため、本番ビルドには含めない
+/// (`identifiers` / `repo_index` と同じ扱い。公開面を増やさない)。
+#[cfg(test)]
+pub(crate) fn is_directory_declaration(path: &str) -> bool {
+    path.ends_with('/')
+}
+
+/// 丸括弧の**注釈の中身**だけを取り出す ([`strip_annotations`] の対)。
+///
+/// 検査 C (`deployed_ledger`) が「ディレクトリ宣言の注釈に既存ファイルを列挙していないか」を
+/// 見るために要る。括弧の対応規則は [`strip_annotations`] と同じで、揃えるために同じ走査を
+/// 逆向きに使う — 本体と注釈の境界が 2 か所で別々に決まると、片方だけ通る文字列が生まれる。
+///
+/// 検査 C (`#[cfg(test)]`) 専用。本番ビルドには含めない。
+#[cfg(test)]
+pub(crate) fn annotations(cell: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    for ch in cell.chars() {
+        match ch {
+            '（' | '(' => {
+                if depth > 0 {
+                    current.push(ch);
+                }
+                depth += 1;
+            }
+            '）' | ')' => {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| format!("閉じ括弧が余分です: {cell:?}"))?;
+                if depth == 0 {
+                    out.push(std::mem::take(&mut current));
+                } else {
+                    current.push(ch);
+                }
+            }
+            _ if depth > 0 => current.push(ch),
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return Err(format!("括弧が閉じていません: {cell:?}"));
+    }
+    Ok(out)
+}
+
 /// 丸括弧の注釈を落とす。全角『（）』と半角 `()` の両方を扱う。
 ///
 /// 対応が取れない括弧はエラーにする。閉じ忘れを黙って許すと、以降のセル全体が注釈として

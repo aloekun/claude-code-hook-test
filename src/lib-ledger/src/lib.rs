@@ -22,6 +22,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod completion;
 #[cfg(test)]
 mod deployed_ledger;
+#[cfg(test)]
+mod annotation_check;
 mod rank_lookup;
 #[cfg(test)]
 mod identifiers;
