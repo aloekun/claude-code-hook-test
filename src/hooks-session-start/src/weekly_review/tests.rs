@@ -483,3 +483,111 @@ fn build_weekly_review_system_message_combines_staleness_and_marker() {
     assert!(msg.as_str().contains("失敗"));
     assert!(msg.as_str().contains("2 件"));
 }
+
+/// monthly_review と逐語的に重複する staleness 判定ロジックを、同一形の fixture 表で検証する
+/// (#331 post-merge feedback Tier2 #1)。片方だけの独立した判定変更は、対応する fixture 行との
+/// 不一致でこのテストが落ちて検知される。fixture 表は monthly 側にも同じ形で存在するが、
+/// 共有はしない (各モジュールの private fn を直接呼ぶため)。
+#[test]
+fn weekly_review_staleness_hits_fixture_table() {
+    struct Case {
+        label: &'static str,
+        state: WeeklyLastRunState,
+        threshold_days: u64,
+        expect_hits: bool,
+    }
+    let cases = [
+        Case {
+            label: "missing state always hits",
+            state: WeeklyLastRunState::Missing,
+            threshold_days: 7,
+            expect_hits: true,
+        },
+        Case {
+            label: "stale state always hits",
+            state: WeeklyLastRunState::Stale,
+            threshold_days: 7,
+            expect_hits: true,
+        },
+        Case {
+            label: "unreadable state never hits (fail-open)",
+            state: WeeklyLastRunState::Unreadable,
+            threshold_days: 7,
+            expect_hits: false,
+        },
+        Case {
+            label: "elapsed below threshold does not hit",
+            state: WeeklyLastRunState::ElapsedDays(6),
+            threshold_days: 7,
+            expect_hits: false,
+        },
+        Case {
+            label: "elapsed at threshold boundary hits",
+            state: WeeklyLastRunState::ElapsedDays(7),
+            threshold_days: 7,
+            expect_hits: true,
+        },
+        Case {
+            label: "elapsed above threshold hits",
+            state: WeeklyLastRunState::ElapsedDays(8),
+            threshold_days: 7,
+            expect_hits: true,
+        },
+    ];
+    for case in cases {
+        assert_eq!(
+            weekly_review_staleness_hits(&case.state, case.threshold_days),
+            case.expect_hits,
+            "{}",
+            case.label
+        );
+    }
+}
+
+/// `last_run_state_from_content` (Missing field / 不正値 / 未来 timestamp / 経過日数導出) を
+/// 同一形の fixture 表で検証する。monthly 側と逐語的に重複する parse ロジックの乖離を検知する。
+#[test]
+fn weekly_review_last_run_state_from_content_fixture_table() {
+    struct Case {
+        label: &'static str,
+        content: &'static str,
+        now_offset_days: i64,
+        expect_elapsed_days: Option<u64>,
+    }
+    let base = parse_iso8601_to_unix("2026-06-01T00:00:00Z").unwrap();
+    let cases = [
+        Case {
+            label: "field absent is None (caller treats as Stale)",
+            content: "{}",
+            now_offset_days: 0,
+            expect_elapsed_days: None,
+        },
+        Case {
+            label: "unparseable date is None (caller treats as Stale)",
+            content: "{\"last_run_at\": \"not-a-date\"}",
+            now_offset_days: 0,
+            expect_elapsed_days: None,
+        },
+        Case {
+            label: "future timestamp is None (caller treats as Stale)",
+            content: "{\"last_run_at\": \"2026-06-02T00:00:00Z\"}",
+            now_offset_days: 0,
+            expect_elapsed_days: None,
+        },
+        Case {
+            label: "past timestamp resolves to elapsed days",
+            content: "{\"last_run_at\": \"2026-06-01T00:00:00Z\"}",
+            now_offset_days: 7,
+            expect_elapsed_days: Some(7),
+        },
+    ];
+    for case in cases {
+        let now = base + case.now_offset_days * 86_400;
+        let state = last_run_state_from_content(case.content, now);
+        let actual_elapsed = match state {
+            Some(WeeklyLastRunState::ElapsedDays(d)) => Some(d),
+            _ => None,
+        };
+        assert_eq!(actual_elapsed, case.expect_elapsed_days, "{}", case.label);
+    }
+}
