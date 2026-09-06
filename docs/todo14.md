@@ -428,9 +428,9 @@
 
 > **動機**: PR #331 で追加した `monthly_review.rs` の staleness 判定ロジックは `weekly_review.rs` と逐語的に重複しており (`last_run_state_from_content` / staleness 判定 / main-root canonical / 未来 timestamp 等)、片方だけの独立バグ修正で挙動が乖離するリスクがある。#331 post-merge feedback Tier2 #1 で採用。
 >
-> **対処案**: weekly/monthly 両流路の staleness 判定を、同一 fixture (threshold 境界・Missing・Stale・Unreadable・未来 timestamp・main-root canonical 等) で検証する parametrized test を追加する。両モジュールの inline `#[cfg(test)] mod tests` に配置する (PR report が示した `src/tests/` は不在で、実態は inline test module)。既存 test パターン踏襲のみで Effort S。
+> **対処案**: weekly/monthly 両流路の staleness 判定を、同一 fixture (threshold 境界・Missing・Stale・Unreadable・未来 timestamp・main-root canonical 等) で検証する parametrized test を追加する。**配置は各モジュール自身の test module の 2 箇所** — `src/hooks-session-start/src/monthly_review.rs` の inline `mod tests`、および `src/hooks-session-start/src/weekly_review/mod.rs` が `mod tests;` で宣言する `src/hooks-session-start/src/weekly_review/tests.rs` (2026-09-05 実測。旧記載の「両モジュールの inline」は weekly 側がディレクトリモジュールへ分割されて陳腐化していた。子モジュールなので親の private fn は見える)。**fixture の表は両 test module に同じものを置き、共有はしない** (判定ロジックのファイルは変更しない。各モジュールの private fn を子モジュールから直接呼ぶため)。「乖離が検出される」とは、片方のロジックを変えるとその側の test が fixture との不一致で落ちることを指す。既存 test パターン踏襲のみで Effort S。
 >
-> **参照**: `.claude/feedback-reports/331.md` Tier2 #1、`src/hooks-session-start/src/monthly_review.rs` / `weekly_review.rs` (inline test module)。
+> **参照**: `.claude/feedback-reports/331.md` Tier2 #1、`src/hooks-session-start/src/monthly_review.rs` (`last_run_state_from_content` / `monthly_review_staleness_hits`)、`src/hooks-session-start/src/weekly_review/mod.rs` (`last_run_state_from_content` / `weekly_review_staleness_hits`)。**`src/hooks-session-start/src/staleness.rs` は無関係** — 順位 136 の working-copy staleness (jj の commit 数) で、本タスクの staleness (last_run_at の経過日数) とは別物。09-05 の夜間 run はこれを候補に挙げた台帳注釈を読んで 2 ターンで停止した。
 >
 > **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
