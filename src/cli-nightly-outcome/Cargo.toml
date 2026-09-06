@@ -6,6 +6,11 @@ edition = "2021"
 # 本体は依存なし。step outcome の文字列を受けて色を決めるだけの決定論層で、外部 I/O も
 # シリアライズも要らない (ADR-072 決定 1 と同じ理由で shell から exe へ移した層)。
 [dependencies]
+# 空 diff で終わった agent の停止理由 1 行を公開ログへ出す前の無害化 (ADR-072 決定 14 と同じ
+# screening を同じ関数で行う。別実装にすると 2 つの公開面で処理がずれる)。
+lib-ledger = { path = "../lib-ledger" }
+# claude-code-action の execution_file (SDK メッセージの JSON 配列) を読む。
+serde_json = "1.0"
 
 [dev-dependencies]
 # 実 exe を spawn する E2E テスト (tests/e2e.rs) の bounded wait + pipe drain

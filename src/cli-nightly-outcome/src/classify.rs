@@ -253,17 +253,19 @@ pub fn summary_line(outcomes: &[(&str, &str)]) -> String {
 
 /// 結末の説明行。`rank` が空なら `<不明>`、`dry_run` は marker 未作成の注記に効く。
 ///
-/// `stop` は [`stop_stage`] の結果。implement 後の停止以外では使わない。
+/// `stop` は [`stop_stage`] の結果、`reason` は agent が書いた停止理由
+/// ([`crate::agent_reason`])。どちらも implement 後の停止以外では使わない。
 pub fn render(
     verdict: &Verdict,
     rank: &str,
     dry_run: bool,
     stop: Option<StopStage>,
+    reason: &crate::agent_reason::AgentReason,
 ) -> Vec<String> {
     let rank = if rank.trim().is_empty() { "<不明>" } else { rank.trim() };
     match verdict {
         Verdict::PrCreated => vec!["[NIGHTLY] PR を作成しました。".to_string()],
-        Verdict::StoppedAfterImplementing => render_handoff(rank, dry_run, stop),
+        Verdict::StoppedAfterImplementing => render_handoff(rank, dry_run, stop, reason),
         Verdict::HandoffFailed => vec![
             format!("[NIGHTLY_ERROR] 順位 {rank} の handoff marker 作成に失敗しました。"),
             "[NIGHTLY_ERROR] マーカーが無いため同じ順位が翌晩も再選択されます。手動で marker を作るか台帳の 無人可 を — へ変更してください。".to_string(),
@@ -280,7 +282,12 @@ pub fn render(
 
 /// implement 後に停止した run の説明。**dry_run では marker を作っていない** ことを明示する
 /// (CodeRabbit #412: 実際には翌晩も同じ順位が選ばれる run を「確認待ち」と読ませてしまう)。
-fn render_handoff(rank: &str, dry_run: bool, stop: Option<StopStage>) -> Vec<String> {
+fn render_handoff(
+    rank: &str,
+    dry_run: bool,
+    stop: Option<StopStage>,
+    reason: &crate::agent_reason::AgentReason,
+) -> Vec<String> {
     let mut lines = if dry_run {
         vec![format!(
             "[NIGHTLY_HANDOFF] 順位 {rank} は implement 後に停止しました。**dry_run のためマーカーは作成していません** (実走なら人間の確認待ちになる経路)。"
@@ -294,6 +301,8 @@ fn render_handoff(rank: &str, dry_run: bool, stop: Option<StopStage>) -> Vec<Str
         Some(stage) => format!("[NIGHTLY_HANDOFF] 停止段: {} — {}", stage.label(), stage.hint()),
         None => "[NIGHTLY_HANDOFF] 停止段を特定できませんでした。上のサマリ行と handoff step の発火条件がずれています (どちらかの変更を戻すか、cli-nightly-outcome の STOP_STAGES を合わせてください)。".to_string(),
     });
+    // NOTE: 停止段の直後に置く — 「段」が場所を、「理由」が原因を言う。
+    lines.extend(crate::agent_reason::render_line(reason));
     lines.push(
         "[NIGHTLY_HANDOFF] agent を 1 回まるごと回して PR に到達しなかったため、本 run は red で終えます (ADR-072 決定 10)。".to_string(),
     );
@@ -303,6 +312,10 @@ fn render_handoff(rank: &str, dry_run: bool, stop: Option<StopStage>) -> Vec<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_reason::AgentReason;
+
+    /// env 未設定 (= 理由行を足さない) 状態。render の既存テストは理由に関心が無いのでこれを渡す。
+    const NO_REASON: AgentReason = AgentReason::NotProvided;
 
     #[test]
     fn parses_the_four_github_outcome_values() {
@@ -394,7 +407,7 @@ mod tests {
     /// dry_run では marker を作っていないことを本文で明示する (CodeRabbit #412)。
     #[test]
     fn the_handoff_message_says_no_marker_was_created_on_dry_run() {
-        let lines = render(&Verdict::StoppedAfterImplementing, "488", true, None);
+        let lines = render(&Verdict::StoppedAfterImplementing, "488", true, None, &NO_REASON);
         assert!(lines[0].contains("順位 488"));
         assert!(lines[0].contains("マーカーは作成していません"));
         assert!(lines[2].contains("red"));
@@ -402,20 +415,20 @@ mod tests {
 
     #[test]
     fn the_handoff_message_says_a_human_is_awaited_on_a_real_run() {
-        let lines = render(&Verdict::StoppedAfterImplementing, "488", false, None);
+        let lines = render(&Verdict::StoppedAfterImplementing, "488", false, None, &NO_REASON);
         assert!(lines[0].contains("人間の確認待ち"));
         assert!(!lines[0].contains("dry_run"));
     }
 
     #[test]
     fn a_missing_rank_renders_as_unknown() {
-        let lines = render(&Verdict::StoppedAfterImplementing, "", false, None);
+        let lines = render(&Verdict::StoppedAfterImplementing, "", false, None, &NO_REASON);
         assert!(lines[0].contains("順位 <不明>"));
     }
 
     #[test]
     fn the_nothing_to_do_message_keeps_the_skip_marker() {
-        let lines = render(&Verdict::NothingToDo, "", false, None);
+        let lines = render(&Verdict::NothingToDo, "", false, None, &NO_REASON);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].starts_with("[NIGHTLY_SKIP]"));
     }
@@ -492,7 +505,7 @@ mod tests {
     /// 停止段が読み取れない場合、もっともらしい段を出さずに**ずれを申告する**。
     #[test]
     fn an_undeterminable_stage_reports_the_mismatch_instead_of_guessing() {
-        let lines = render(&Verdict::StoppedAfterImplementing, "488", false, None);
+        let lines = render(&Verdict::StoppedAfterImplementing, "488", false, None, &NO_REASON);
         assert!(lines[1].contains("停止段を特定できませんでした"), "{lines:?}");
         assert!(lines[1].contains("STOP_STAGES"), "直し方が書かれていない: {lines:?}");
     }
@@ -505,6 +518,7 @@ mod tests {
             "310",
             false,
             Some(StopStage::LedgerCompletion),
+            &NO_REASON,
         );
         assert!(lines[1].contains("停止段: ledger_completion"), "{lines:?}");
         assert!(lines[1].contains("[LEDGER_CLEANUP_BLOCK]"), "{lines:?}");

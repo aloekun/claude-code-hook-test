@@ -19,15 +19,20 @@
 //! # 何を「しない」か
 //!
 //! 停止理由の再分類はしない。marker の作成もしない (handoff step の担当)。本 exe は
-//! **既に確定した step outcome を読んで色を返すだけ**で、外部 I/O を一切行わない。
+//! **既に確定した step outcome を読んで色を返すだけ**で、色の判定に外部 I/O を使わない。
+//!
+//! 例外は説明行のための 1 回のファイル読み取り ([`agent_reason`]): 空 diff で終わった agent の
+//! 停止理由を `AGENT_EXECUTION_FILE` から取り出す。**読めなくても色は変わらない** (fail-open)。
 //!
 //! # exit コード
 //!
 //! - `0` = green (PR 作成 / agent を回していない停止)
 //! - `1` = red (implement 後の停止 / handoff 失敗 / 分類不能)
 
+mod agent_reason;
 mod classify;
 
+use agent_reason::read_reason;
 use classify::{classify, render, residue_lines, residue_ranks, stop_stage, summary_line};
 
 /// `Report outcome` step が渡す step outcome の env 名と、サマリ行での表示名。
@@ -77,11 +82,13 @@ fn main() {
     let publish = env_or_empty("PUBLISH_OUTCOME");
     let handoff = env_or_empty("HANDOFF_OUTCOME");
     let verdict = classify(&publish, &handoff);
+    let reason = read_reason(&env_or_empty("AGENT_EXECUTION_FILE"));
     for line in render(
         &verdict,
         &env_or_empty("RANK"),
         is_dry_run(&env_or_empty("DRY_RUN")),
         stop_stage(&pairs),
+        &reason,
     ) {
         println!("{line}");
     }
@@ -207,6 +214,52 @@ mod tests {
         assert_eq!(
             passed, declared,
             "workflow の Report outcome step が渡す env と OUTCOME_FIELDS が食い違っている"
+        );
+    }
+
+    /// **agent プロンプトが停止理由の接頭辞を要求していること。** 接頭辞の定義は exe 側
+    /// ([`agent_reason::STOP_PREFIX`]) が唯一の出所で、プロンプト側の文字列がそこからずれると
+    /// agent は正しく書いても exe が「理由行なし」と読む。
+    ///
+    /// cwd 依存のため `--ignored` (ADR-041)。
+    #[test]
+    #[ignore = "cwd 依存: リポジトリルートの .github/workflows/nightly-todo.yml を読む。--test-threads=1 で実行"]
+    fn the_agent_prompt_asks_for_the_stop_prefix() {
+        let content = read_nightly_workflow();
+        let prompt = content
+            .split("- name: Implement the task")
+            .nth(1)
+            .expect("Implement step が無い")
+            .split("claude_args:")
+            .next()
+            .expect("prompt の終端が無い");
+        assert!(
+            prompt.contains(agent_reason::STOP_PREFIX),
+            "agent プロンプトに {} が無い — agent が理由を書いても exe が読めない",
+            agent_reason::STOP_PREFIX
+        );
+    }
+
+    /// **Report outcome step が execution file を渡していること。** 渡さないと exe は
+    /// `NotProvided` で黙り、「agent が理由を書かなかった」のか「配線が外れた」のか
+    /// 区別が付かないまま従来の 4 択に戻る。
+    #[test]
+    #[ignore = "cwd 依存: リポジトリルートの .github/workflows/nightly-todo.yml を読む。--test-threads=1 で実行"]
+    fn the_report_step_passes_the_execution_file() {
+        let content = read_nightly_workflow();
+        let step = content
+            .split("- name: Report outcome")
+            .nth(1)
+            .expect("Report outcome step が無い");
+        let env_block: String = step
+            .lines()
+            .take_while(|line| !line.trim_start().starts_with("run:"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            env_block.contains("AGENT_EXECUTION_FILE:")
+                && env_block.contains("steps.implement.outputs.execution_file"),
+            "Report outcome が AGENT_EXECUTION_FILE を implement step の execution_file から渡していない:\n{env_block}"
         );
     }
 }
