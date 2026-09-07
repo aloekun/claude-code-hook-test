@@ -15,7 +15,7 @@
 >
 > **参照**: `.claude/feedback-reports/234.md` Tier 3 #1、`docs/adr/adr-043-security-gates-fail-closed.md` (fail-closed 原則)、順位 249 (ADR-043 コード例追記、相補)、custom lint ⑫ `no-hardcoded-jj-revset-range`。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。
+> **実行優先度**: **Tier 3** — Effort S。
 
 #### 作業計画
 
@@ -37,7 +37,7 @@
 >
 > **参照**: `.claude/feedback-reports/234.md` Tier 3 #2、`docs/adr/adr-043-security-gates-fail-closed.md` (追記先)、順位 248 (Gate Function Design Checklist)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。
+> **実行優先度**: **Tier 3** — Effort S。
 
 #### 作業計画
 
@@ -58,7 +58,7 @@
 >
 > **参照**: `.claude/feedback-reports/234.md` Tier 3 #3、`docs/adr/adr-021-jj-change-detection-principles.md` (追記先)、custom lint ⑫ `no-hardcoded-jj-revset-range`。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。
+> **実行優先度**: **Tier 3** — Effort XS。
 
 #### 作業計画
 
@@ -77,7 +77,7 @@
 >
 > **参照**: PR #238 (実害) / PR #239 (preset 実装 + feedback 提案 #1)、ADR-045 § PR 運用時の追加設定、`.claude/hooks-config.toml` gh-repo-env-guard preset。
 >
-> **実行優先度**: 💎 Tier 3 — Effort S。Severity Medium + Frequency Medium + Adoption Risk None (PR #239 post-merge-feedback T3-1、ユーザー採用 2026-07-03)。
+> **実行優先度**: Tier 3 — Effort S。Severity Medium + Frequency Medium + Adoption Risk None (PR #239 post-merge-feedback T3-1、ユーザー採用 2026-07-03)。
 
 #### 作業計画
 
@@ -101,7 +101,7 @@
 >
 > **参照**: PR #238 (実害) / PR #239 (`src/cli-merge-pipeline/src/pipeline.rs` の `AiStepContext::SkipWithMarker`)、ADR-030 (失敗マーカーによる recovery)。
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。Severity Low (既修正) + Frequency Low (PR #239 post-merge-feedback T3-2、ユーザー採用 2026-07-03)。次回 ADR-030 を参照・編集する PR への同乗で消化可。
+> **実行優先度**: Tier 3 — Effort XS。Severity Low (既修正) + Frequency Low (PR #239 post-merge-feedback T3-2、ユーザー採用 2026-07-03)。次回 ADR-030 を参照・編集する PR への同乗で消化可。
 
 #### 作業計画
 
@@ -125,7 +125,7 @@
 >
 > **参照**: ADR-040 (Local LLM Context Size、実測値元)、ADR-046 (WP-01 スパイク、4 モデルの VRAM・latency 実測を保持)、ADR-038 (現行 classifier、RTX 3070 前提の記述)、memory `gpu-upgrade-rtx-pro-5000`。
 >
-> **実行優先度**: 💎 Tier 3 — Effort S。実装変更を伴わず ADR amendment 中心。分類層 (ADR-038) の運用に直接の不具合はないが、num_ctx 再選定や派生プロジェクト porting 時に誤った RTX 3070 前提を引き継ぐリスクを解消する。
+> **実行優先度**: Tier 3 — Effort S。実装変更を伴わず ADR amendment 中心。分類層 (ADR-038) の運用に直接の不具合はないが、num_ctx 再選定や派生プロジェクト porting 時に誤った RTX 3070 前提を引き継ぐリスクを解消する。
 
 #### 作業計画
 
@@ -205,7 +205,7 @@
 >
 > **関連 (重複ではない)**: 順位 135 (todo8.md、ADR-NNN placeholder policy) は todo entry 側の採番 hardcode を防ぐ「ルール」であり、本 entry は land 済みファイル群の衝突を検知する「仕組み」(ADR-042 の役割分担で相補)。feedback report Tier 2 #2 (ADR sanity テスト新設) は本 entry と目的重複のため却下済み。順位 357 (todo14.md、index ステータスタグ ⇔ ADR 本体ステータスの整合) はチェック対象が異なる別 entry — 本 entry の責務は a/b/c (採番重複/索引存在/番号一致) のみでステータスタグは扱わない。実装は同一 validator module への同居が可能 (PR #341 CodeRabbit 指摘で責務分界を明文化)。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort S。既存 cli-docs-lint 骨格の流用で新規 module 1 つ + fixture テスト。
+> **実行優先度**: **Tier 1** — Effort S。既存 cli-docs-lint 骨格の流用で新規 module 1 つ + fixture テスト。
 
 #### 作業計画
 
@@ -227,7 +227,7 @@
 >
 > **参照**: `.claude/feedback-reports/265.md` Tier 2 #1、`src/cli-finding-classifier/src/lib.rs` (StubOllama)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (integration パターン)、ADR-041 (test isolation patterns)、ADR-025 (CwdRestore)、ADR-044 (共通化と分離の線引き — shared crate 化の境界判定に適用)
 >
-> **実行優先度**: 🔧 Tier 2 — Effort M。WP-17 着手前の実施が効果的。
+> **実行優先度**: Tier 2 — Effort M。WP-17 着手前の実施が効果的。
 
 #### 作業計画
 
@@ -248,7 +248,7 @@
 >
 > **参照**: `.claude/feedback-reports/265.md` Tier 3 #2、`docs/adr/adr-007-custom-linter-layer-boundary.md` (既存 Q1-Q3 判断フロー形式で拡張)、`src/hooks-post-tool-comment-lint-rust` (Bundle Z #B-α)
 >
-> **実行優先度**: 💎 Tier 3 — Effort S。doc のみ、バッチ PR で消化可。
+> **実行優先度**: Tier 3 — Effort S。doc のみ、バッチ PR で消化可。
 
 #### 作業計画
 
@@ -267,7 +267,7 @@
 >
 > **参照**: `.claude/feedback-reports/265.md` Tier 3 #3、`docs/dev-conventions.md` (追記先)、ADR-028 (external-output 実行フロー)、`src/cli-pr-monitor/src/stages/create_pr.rs` (--body-file パススルー実装)
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。doc のみ、バッチ PR で消化可 (並列安全化 PR の docs への相乗りも可)。
+> **実行優先度**: Tier 3 — Effort XS。doc のみ、バッチ PR で消化可 (並列安全化 PR の docs への相乗りも可)。
 
 #### 作業計画
 
@@ -287,7 +287,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 1 #1、`.claude/custom-lint-rules.toml` (新規ルール)、順位 287 (convention 明文化、同一 PR bundle 推奨)
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High / Effort S。
+> **実行優先度**: Tier 1 — Severity High / Effort S。
 
 #### 作業計画
 
@@ -307,7 +307,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 1 #2、`src/hooks-post-tool-jj-op-verify/src/main.rs` (match 文)。**拡張時は `expected_op_keyword` を実際の `jj op log` 出力と要照合**
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort M。
+> **実行優先度**: Tier 1 — Severity Medium / Effort M。
 
 #### 作業計画
 
@@ -326,7 +326,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 1 #3、`src/hooks-post-tool-jj-op-verify/src/main.rs:detect_last_mutating_jj_op`、順位 285 (edge-case テスト、表裏の関係)
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort S。
+> **実行優先度**: Tier 1 — Severity Medium / Effort S。
 
 #### 作業計画
 
@@ -345,7 +345,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 2 #3、`hooks-post-tool-jj-op-verify` test suite。Adoption Risk: OS 依存 (temp dir / path 形式)
 >
-> **実行優先度**: 🔧 Tier 2 — Severity High / Effort M。
+> **実行優先度**: Tier 2 — Severity High / Effort M。
 
 #### 作業計画
 
@@ -364,7 +364,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 3 #1。**順位 281 と同一 PR での bundle 実装を推奨** (別作業に切り出す価値は低い)
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -403,7 +403,7 @@
 >
 > **参照**: `docs/adr/adr-045-jj-workspace-parallel-sessions.md` § Known operational risks、`docs/adr/adr-053-stop-tool-call-leak-detection.md`、`src/hooks-post-tool-jj-op-verify/src/main.rs`
 >
-> **実行優先度**: 💎 Tier 3 — Effort S (ドキュメント再整理のみ、hook 実装は変更不要)。
+> **実行優先度**: Tier 3 — Effort S (ドキュメント再整理のみ、hook 実装は変更不要)。
 
 #### 作業計画
 
@@ -423,7 +423,7 @@
 >
 > **参照**: `docs/adr/adr-045-jj-workspace-parallel-sessions.md` § Known operational risks、本セッションの調査 (transcript `ed897a3e-85b5-44d1-a78c-ff23973f207e.jsonl` 系列、独立 subagent 検証)
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -442,7 +442,7 @@
 >
 > **参照**: `.claude/feedback-reports/271.md` Tier 2 #2、`src/lib-jj-helpers/src/pipeline_lock.rs` の tests モジュール
 >
-> **実行優先度**: 🔧 Tier 2 — Effort M。
+> **実行優先度**: Tier 2 — Effort M。
 
 #### 作業計画
 

@@ -17,7 +17,7 @@
 >
 > **参照**: `.coderabbit.yaml` 冒頭コメント、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § WP-03 / § 手動 fix push は手動トリガーが必要、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、`docs/dev-conventions.md` 順位 262 (外部 SaaS 無料枠 / 制限の調査チェックリスト)、PR #287。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Effort S。
+> **実行優先度**: Tier 2 — Severity Medium / Effort S。
 
 #### 作業計画
 
@@ -47,7 +47,7 @@
 >
 > **参照**: [ADR-047](adr/adr-047-prepush-refute-facet.md) §却下理由の補強 (一般反証機構との構成差・本案の出自)、[ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) (inline 反証 = 規律の移植元)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (Phase 0 需要調査の根拠)、`docs/takt-step-timings.md` (step 別実測、別コミット)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) § 検討して採らなかった方向 R4。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Low〜Medium (現行に実害はない: recall 穴は post-PR CodeRabbit が受けている。改善余地の探索) / Effort: Phase 0 = S、Phase 1 = M (条件付き)。
+> **実行優先度**: Tier 2 — Severity Low〜Medium (現行に実害はない: recall 穴は post-PR CodeRabbit が受けている。改善余地の探索) / Effort: Phase 0 = S、Phase 1 = M (条件付き)。
 
 #### 作業計画
 
@@ -72,7 +72,7 @@
 >
 > **参照**: `.claude/feedback-reports/295.md` Tier3 #2 / `.claude/feedback-reports/296.md` Tier3 #2、`docs/dev-conventions.md`、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (plain-text 参照統一の先例は本 R4 で ADR-047/056 に適用済)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Low / Frequency Medium / Effort S (doc checklist の追加のみ、機械化はしない)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort S (doc checklist の追加のみ、機械化はしない)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
 
 #### 作業計画
 
@@ -93,7 +93,7 @@
 >
 > **参照**: `.claude/feedback-reports/301.md` Tier3 #1、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (§計装スコープ の `decision` 軸定義と Amendment (2026-07-19) の除外根拠撤回)、`docs/dev-conventions.md`、#327 (関連 checklist)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S (doc checklist のみ、機械化はしない。ADR 相互参照数が多く同型見落としが再発しうるが、実害は各 PR review/feedback で捕捉できているため機械化は再発観測後にエスカレーション)。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S (doc checklist のみ、機械化はしない。ADR 相互参照数が多く同型見落としが再発しうるが、実害は各 PR review/feedback で捕捉できているため機械化は再発観測後にエスカレーション)。
 
 #### 作業計画
 
@@ -114,7 +114,7 @@
 >
 > **参照**: `.claude/feedback-reports/299.md` Tier3 #1、[ADR-059](adr/adr-059-hook-system-message-visibility.md)、`src/hooks-session-start/src/weekly_review.rs` (`WeeklyReviewNudge`)、`docs/dev-conventions.md`。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort XS (dev-conventions への 1 節追記のみ、ADR-059 第2弾展開で再利用見込み)。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort XS (dev-conventions への 1 節追記のみ、ADR-059 第2弾展開で再利用見込み)。
 
 #### 作業計画
 
@@ -135,7 +135,7 @@
 >
 > **参照**: `.claude/feedback-reports/299.md` Tier2 #1、[ADR-059](adr/adr-059-hook-system-message-visibility.md)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md) (exe-spawn E2E 先例)、`src/hooks-session-start/src/main.rs` (`build_session_start_json`)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S (既存 exe-spawn E2E convention を流用可能、tests/ 新設)。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S (既存 exe-spawn E2E convention を流用可能、tests/ 新設)。
 
 #### 作業計画
 
@@ -156,7 +156,7 @@
 >
 > **参照**: `.claude/feedback-reports/301.md` Tier1 #2、`package.json` (`build:all` / `build:*` scripts)、memory `windows-build-cp-path-gotcha.md` (既記録・再発)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (ビルド阻害) / Frequency Medium (再発 2 回目) / Effort S (Windows 限定 if 分岐、他 OS 非影響、Adoption Risk は OS 依存分岐のみ)。
+> **実行優先度**: Tier 2 — Severity Medium (ビルド阻害) / Frequency Medium (再発 2 回目) / Effort S (Windows 限定 if 分岐、他 OS 非影響、Adoption Risk は OS 依存分岐のみ)。
 
 #### 作業計画
 

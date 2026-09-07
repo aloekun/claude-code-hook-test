@@ -20,7 +20,7 @@
 >
 > **参照**: `.claude/feedback-reports/132.md` Tier 2 #5、`src/cli-finding-classifier/evals/lint-screen-evals.json` (eval セット)、`src/cli-finding-classifier/tests/lint_screen_evals.rs` (compare ロジック)、PR #132 PR body §smoke dogfood 結果 (868 行 diff の fallback 観測)、ADR-038 (採用昇格 PR #156)
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。順位 91 land 済のため独立着手可。Phase d 運用中の継続改善として位置付け。
+> **実行優先度**: **Tier 2** — Effort M。順位 91 land 済のため独立着手可。Phase d 運用中の継続改善として位置付け。
 
 #### 追加する fixture 案 (3 件以上)
 

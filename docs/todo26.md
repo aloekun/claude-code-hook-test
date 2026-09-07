@@ -40,7 +40,7 @@
 > (Guard step の deny 正規表現 / agent プロンプトの制約列挙)、
 > [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6、順位 454 / 順位 486
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Low (fail-closed は成立しており、汚染は起きない) /
+> **実行優先度**: **Tier 2** — Severity Low (fail-closed は成立しており、汚染は起きない) /
 > Frequency Low (agent が台帳を触ろうとしたときだけ) / Effort **XS** / Adoption Risk None。
 
 #### 設計決定 (案)

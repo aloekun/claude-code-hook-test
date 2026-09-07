@@ -197,7 +197,7 @@ mod tests {
     }
 
     fn row(rank: u32, title: &str) -> String {
-        format!("| {rank} | 🔧 Tier 2 | **{title}** | todo1.md | S | なし |\n")
+        format!("| {rank} | Tier 2 | **{title}** | todo1.md | S | なし |\n")
     }
 
     fn entry(rank: u32, body: &str) -> String {

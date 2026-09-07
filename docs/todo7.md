@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/feedback-reports/101.md` Tier 2 #1、`.claude/feedback-reports/99.md`、`~/.claude/rules/common/coding-style.md` "Never silently swallow errors"
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。新 test ファイル + gh API モック。Sub-PR 2 と一体実装。
+> **実行優先度**: **Tier 2** — Effort M。新 test ファイル + gh API モック。Sub-PR 2 と一体実装。
 
 #### 設計決定 (案)
 
@@ -62,7 +62,7 @@
 >
 > **参照**: 順位 50 PR (`src/hooks-post-tool-comment-lint-rust/src/main.rs` の `compute_changed_lines`)、Claude Code MultiEdit tool spec
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。`compute_changed_lines` に MultiEdit branch を追加。
+> **実行優先度**: **Tier 3** — Effort S。`compute_changed_lines` に MultiEdit branch を追加。
 
 #### 設計決定 (案)
 
@@ -97,7 +97,7 @@
 >
 > **参照**: (削除済) `docs/pipeline-token-efficiency.md` #A-3 セクション、`src/cli-merge-pipeline/` の transcript 生成ロジック
 >
-> **実行優先度**: 💎 **Tier 3** — Effort M。ROI ★★★ で優先度中程度、dogfood 実測が必要。
+> **実行優先度**: **Tier 3** — Effort M。ROI ★★★ で優先度中程度、dogfood 実測が必要。
 
 #### 設計決定 (案)
 
@@ -143,7 +143,7 @@
 >
 > **参照**: `.claude/feedback-reports/108.md` Tier 2 #1、PR #108 review (`Outside diff range comments` セクション、reviewer comment id 4217897113)、`src/check-ci-coderabbit/src/main.rs` (`parse_findings` 系 + `--list-findings` mode = 順位 45)、`.takt/facets/instructions/analyze-coderabbit.md`、PR #172 (順位 144 hook 化の dogfood 成功事例)
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。`check-ci-coderabbit` 既存 crate への parse 機能追加 + analyze-coderabbit 連携。
+> **実行優先度**: **Tier 2** — Effort M。`check-ci-coderabbit` 既存 crate への parse 機能追加 + analyze-coderabbit 連携。
 
 #### 設計決定 (案)
 

@@ -137,7 +137,7 @@ mod tests {
             "# サマリー\n\n\
              | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
              |---|---|---|---|---|---|\n\
-             | 203 | 🔧 Tier 2 | **タイトル A** | todo10.md | XS | なし |\n",
+             | 203 | Tier 2 | **タイトル A** | todo10.md | XS | なし |\n",
         )
         .expect("write summary");
         std::fs::write(
@@ -145,7 +145,7 @@ mod tests {
             "# サマリー 2\n\n\
              | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
              |---|---|---|---|---|---|\n\
-             | 240 | 🔧 Tier 2 | **タイトル B** | todo13.md | M | なし |\n",
+             | 240 | Tier 2 | **タイトル B** | todo13.md | M | なし |\n",
         )
         .expect("write summary2");
         std::fs::write(
@@ -260,7 +260,7 @@ mod tests {
             "# サマリー 3\n\n\
              | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
              |---|---|---|---|---|---|\n\
-             | 240 | 🔧 Tier 2 | **タイトル B** | todo10.md | M | なし |\n",
+             | 240 | Tier 2 | **タイトル B** | todo10.md | M | なし |\n",
         )
         .expect("write summary3");
         std::fs::write(

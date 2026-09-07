@@ -124,32 +124,32 @@ docs-only PR。ユーザーの運用方針 (doc 変更はマイルストーン�
 
 以下、各エントリのドラフト (todo22.md の既存エントリの体裁に合わせて整形する):
 
-**(1) pre-push review verdict の telemetry 化** — 🔧 Tier 2 / Effort S-M
+**(1) pre-push review verdict の telemetry 化** — Tier 2 / Effort S-M
 
 - 動機: pre-push review の APPROVE/REJECT・warning 件数が `.takt/runs/*/reports/*.md` に散在し機械集計不能 (Insights「レビュー履歴が監査不能」指摘)。順位 392 (push パイプライン terminal outcome の telemetry 化) と同一基盤 (ADR-055 firings JSONL) の隣接項目。
 - 対処案: cli-push-runner または takt 後処理で、workflow 名・PR/change id・verdict・warning 件数を firings JSONL へ記録。実装時に順位 392 との統合を検討 (同時着手なら 1 PR で両方)。
 - 参照: ADR-055、ADR-062 (月次 ROI レビューの入力になる)、順位 392。
 - summary2 行の注記: 「なし (2026-08-12 Insights 採用。順位 392 と同一基盤、実装時に統合検討)」
 
-**(2) committed docs → ephemeral 参照の既存違反棚卸し** — 💎 Tier 3 / Effort M
+**(2) committed docs → ephemeral 参照の既存違反棚卸し** — Tier 3 / Effort M
 
 - 動機: 2-1 の規律制定時点で、todo13/16/18/20 等に `.claude/feedback-reports/<pr>.md Tier N #M` 形式の参照が多数残存。一括修正は範囲が大きく規律制定と分離した (2026-08-12 ユーザー判断)。
 - 対処案: `grep -rn "feedback-reports\|\.takt/runs\|weekly-reviews" docs/` で全違反を列挙 → 要旨転記 or 参照削除を機械的に適用。件数が多ければ複数バッチに分割可。
 - 参照: dev-conventions.md の新節 (2-1)、ADR-035。
 
-**(3) security-review / supervisor-validation の output-contract 整備** — 🔧 Tier 2 / Effort S
+**(3) security-review / supervisor-validation の output-contract 整備** — Tier 2 / Effort S
 
 - 動機: `.takt/facets/output-contracts/` には `simplicity-review.md` しかなく、`security-review` / `supervisor-validation` は `.takt/workflows/pre-push-review.yaml` (79 / 153 行目付近) で `format:` 名だけ宣言され契約ファイル不在。verdict 欄の書式が facet の自由記述に委ねられている (Insights「rubric 暗黙」指摘の残件)。
 - 対処案: `simplicity-review.md` を雛形に 2 ファイルを新設。作成時チェックリスト (memory `takt-output-contract-checklist` より転記): ① builtin security-review の列構造・casing をミラー (snake_case field id + Title Case ラベルの混在は意図的)、② 全 finding セクションで列セット統一、③ finding_id は new/persists/resolved/reopened を通じて不変と明記、④ 追加 PR 自身の pre-push で dogfood。
 - 参照: ADR-048、ADR-056。
 
-**(4) feedback 4 軸 (Severity/Frequency/Effort/Adoption Risk) の値域定義** — 💎 Tier 3 / Effort XS-S
+**(4) feedback 4 軸 (Severity/Frequency/Effort/Adoption Risk) の値域定義** — Tier 3 / Effort XS-S
 
 - 動機: `.takt/facets/instructions/aggregate-feedback.md` (155-175 行目付近) の Recommendation 表は 4 軸の列を持つが各軸の値域・境界が未定義 (「Medium とは何か」が書かれていない)。判定の一貫性が analyzer 依存。
 - 対処案: 各軸に 3〜4 段階の値域と 1 行判定基準を同ファイルへ追記 (例: Frequency = High: 直近 1 か月で 2 回以上再発 / Medium: 過去に同型あり / Low: 初出)。
 - 参照: ADR-030、ADR-062。
 
-**(5) 蓄積 feedback レポートの横断 mining (承認付き)** — 💎 Tier 3 / Effort M
+**(5) 蓄積 feedback レポートの横断 mining (承認付き)** — Tier 3 / Effort M
 
 - 動機: `.claude/feedback-reports/` に 100+ 件が蓄積済みだが分析は per-PR のみ。横断クラスタリングで recurring anti-pattern (同型指摘の反復、却下理由の傾向等) を抽出できる (Insights Horizon 3 の承認境界維持版)。
 - 対処案: ローカル実行の分析 (skill or takt facet) で系統別クラスタと防止策案を**提案レポートまで**生成。台帳登録・ルール化は従来通りユーザー承認必須 (`aggregate-feedback.md` の承認規約と ADR-072 信頼境界を変更しない)。完全自動化 (承認なしの rule 生成) は不採用と決定済み (2026-08-12)。

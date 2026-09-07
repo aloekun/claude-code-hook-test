@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn parse_row_extracts_rank_tier_dep() {
-        let line = "| 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |";
+        let line = "| 34 | Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |";
         let row = parse_row(line).unwrap();
         assert_eq!(row.0, 34);
         assert_eq!(row.1, 1);
@@ -248,11 +248,24 @@ mod tests {
         assert!(parse_row(line).is_none());
     }
 
+    /// 本リポジトリの現書式 (絵文字なし)。2026-09-07 に台帳から絵文字を落とした。
     #[test]
-    fn parse_tier_extracts_number_from_emoji_prefix() {
+    fn parse_tier_reads_the_plain_form() {
+        assert_eq!(parse_tier("Tier 1"), Some(1));
+        assert_eq!(parse_tier("Tier 2"), Some(2));
+        assert_eq!(parse_tier("Tier 3"), Some(3));
+    }
+
+    /// **旧書式 (絵文字つき) も読める。** `cli-docs-lint` は `pnpm deploy:hooks` で派生
+    /// プロジェクトへ配布され、そちらの台帳には絵文字が残っている。本リポジトリの表記を
+    /// 変えたことを理由に配布先を壊さない。
+    #[test]
+    fn parse_tier_still_reads_the_legacy_emoji_form() {
         assert_eq!(parse_tier("🚀 Tier 1"), Some(1));
         assert_eq!(parse_tier("🔧 Tier 2"), Some(2));
         assert_eq!(parse_tier("💎 Tier 3"), Some(3));
+        let legacy_row = "| 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |";
+        assert_eq!(parse_row(legacy_row).map(|r| (r.0, r.1)), Some((34, 1)));
     }
 
     #[test]
@@ -318,9 +331,9 @@ mod tests {
         let content = "\
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 19 | 🔧 Tier 2 | REJECT-ESCALATE | todo3.md | M | なし |
-| 34 | 🚀 Tier 1 | proptest 導入 | todo4.md | M | 順位 19 land 後推奨 |
-| 35 | 🚀 Tier 1 | 型で意味を表現 | todo4.md | S | 順位 34 と同 PR |
+| 19 | Tier 2 | REJECT-ESCALATE | todo3.md | M | なし |
+| 34 | Tier 1 | proptest 導入 | todo4.md | M | 順位 19 land 後推奨 |
+| 35 | Tier 1 | 型で意味を表現 | todo4.md | S | 順位 34 と同 PR |
 ";
         let violations = check_content(fake_path(), content);
         assert_eq!(violations.len(), 1, "expected 1 inversion (34 → 19), got {:#?}", violations);
@@ -336,8 +349,8 @@ mod tests {
         let content = "\
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 19 | 🔧 Tier 2 | task | todo3.md | M | なし |
-| 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 済 (2026-06-07) |
+| 19 | Tier 2 | task | todo3.md | M | なし |
+| 34 | Tier 1 | task | todo4.md | M | 順位 19 land 済 (2026-06-07) |
 ";
         let violations = check_content(fake_path(), content);
         assert!(violations.is_empty(), "resolved dep should be skipped, got {:#?}", violations);
@@ -348,8 +361,8 @@ mod tests {
         let content = "\
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 19 | 🔧 Tier 2 | task | todo3.md | M | なし |
-| 38 | 💎 Tier 3 | task | todo4.md | S | 順位 19 land 後 |
+| 19 | Tier 2 | task | todo3.md | M | なし |
+| 38 | Tier 3 | task | todo4.md | S | 順位 19 land 後 |
 ";
         let violations = check_content(fake_path(), content);
         assert!(violations.is_empty(), "Tier 3 → Tier 2 is not inversion, got {:#?}", violations);
@@ -365,7 +378,7 @@ mod tests {
         let content = "\
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |
+| 34 | Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |
 ";
         let violations = check_content(fake_path(), content);
         assert!(violations.is_empty(), "missing rank ref should be skipped");
@@ -386,8 +399,8 @@ mod tests {
         let content = "\
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 118 | 💎 Tier 3 | task | todo.md | XS | なし |
-| 150 | 🔧 Tier 2 | task | todo.md | M | なし (順位 102 paths filter + 順位 118 適用範囲検討と整合) |
+| 118 | Tier 3 | task | todo.md | XS | なし |
+| 150 | Tier 2 | task | todo.md | M | なし (順位 102 paths filter + 順位 118 適用範囲検討と整合) |
 ";
         let violations = check_content(fake_path(), content);
         assert!(violations.is_empty(), "「なし」で始まる行は context note 扱いで skip、got {:#?}", violations);
@@ -405,8 +418,8 @@ mod tests {
         let content = "\
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
-| 90 | 💎 Tier 3 | task | todo.md | S | なし |
-| 100 | 🔧 Tier 2 | task | todo.md | M | 順位 90 land 後 |
+| 90 | Tier 3 | task | todo.md | S | なし |
+| 100 | Tier 2 | task | todo.md | M | 順位 90 land 後 |
 ";
         let violations = check_content(fake_path(), content);
         assert_eq!(violations.len(), 1, "Tier 2 → Tier 3 is an inversion");
@@ -424,14 +437,14 @@ mod tests {
             tmp.path().join("todo-summary.md"),
             "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
              |---|---|---|---|---|---|\n\
-             | 19 | 🔧 Tier 2 | task | todo3.md | M | なし |\n",
+             | 19 | Tier 2 | task | todo3.md | M | なし |\n",
         )
         .unwrap();
         fs::write(
             tmp.path().join("todo-summary2.md"),
             "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
              |---|---|---|---|---|---|\n\
-             | 220 | 🚀 Tier 1 | task | todo14.md | M | 順位 19 land 後推奨 |\n",
+             | 220 | Tier 1 | task | todo14.md | M | 順位 19 land 後推奨 |\n",
         )
         .unwrap();
         let violations = check(tmp.path()).unwrap();
@@ -458,8 +471,8 @@ mod tests {
             tmp.path().join("todo-summary.md"),
             "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
              |---|---|---|---|---|---|\n\
-             | 19 | 🔧 Tier 2 | task | todo3.md | M | なし |\n\
-             | 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |\n",
+             | 19 | Tier 2 | task | todo3.md | M | なし |\n\
+             | 34 | Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |\n",
         )
         .unwrap();
         let violations = check(tmp.path()).unwrap();

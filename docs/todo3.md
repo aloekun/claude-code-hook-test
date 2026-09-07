@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/feedback-reports/88.md` の Tier 2 #3 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 Small。Stop gate の偽陽性 FAIL を排除する効果は中-高 (毎回の Stop で発生する潜在リスクの解消)。
+> **実行優先度**: **Tier 2** — 工数 Small。Stop gate の偽陽性 FAIL を排除する効果は中-高 (毎回の Stop で発生する潜在リスクの解消)。
 
 #### 背景
 
@@ -61,7 +61,7 @@
 >
 > **参照**: `.claude/feedback-reports/88.md` の Tier 2 #5 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 Small。daily efficiency への影響中 (PR 作成は頻繁ではないが、エラー時の摩擦が高い)。
+> **実行優先度**: **Tier 2** — 工数 Small。daily efficiency への影響中 (PR 作成は頻繁ではないが、エラー時の摩擦が高い)。
 
 #### 背景
 
@@ -112,7 +112,7 @@ Hint:
 >
 > **参照**: `.claude/feedback-reports/90.md` の Tier 2 #2 finding
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。rate-limit 系 task (cli-pr-monitor ポーリング延長 PR #88 T2-4、完了済 / post-pr-review rate-limit 自動検出) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
+> **実行優先度**: **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。rate-limit 系 task (cli-pr-monitor ポーリング延長 PR #88 T2-4、完了済 / post-pr-review rate-limit 自動検出) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
 
 #### 背景
 

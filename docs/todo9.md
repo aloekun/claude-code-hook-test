@@ -26,7 +26,7 @@
 >
 > **参照**: `~/.claude/rules/common/testing.md` § Minimum Test Coverage、`push-runner-config.toml` (新 step 追加候補)、`.github/workflows/` (未存在の場合 CI workflow 新設)、`cargo-llvm-cov` crate
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S-M。実測カバレッジ次第で段階導入計画が必要 (現状未測定)。
+> **実行優先度**: **Tier 2** — Effort S-M。実測カバレッジ次第で段階導入計画が必要 (現状未測定)。
 
 #### 設計決定 (案)
 
@@ -69,7 +69,7 @@
 >
 > **参照**: `~/.claude/rules/common/development-workflow.md` § 長時間 subprocess pipe truncate 禁止、`src/hooks-pre-tool-validate/src/main.rs` (`preset_exe_help_block` を template に拡張)、PR #109 SIGPIPE 事故 (ADR-030 root cause)
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 preset 拡張 ~30 行 + test。
+> **実行優先度**: **Tier 2** — Effort S。既存 preset 拡張 ~30 行 + test。
 
 #### 設計決定 (案)
 
@@ -117,7 +117,7 @@
 >
 > **参照**: `~/.claude/rules/common/coding-style.md` § Magic Numbers、`.claude/custom-lint-rules.toml` (新 rule 追加候補)、順位 102 paths filter 実装、順位 118 rule⑧ paths filter 適用範囲検討
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。custom lint rule 1 件追加 + paths filter design + test coverage 必要。
+> **実行優先度**: **Tier 2** — Effort M。custom lint rule 1 件追加 + paths filter design + test coverage 必要。
 
 #### 設計決定 (案)
 
@@ -171,7 +171,7 @@
 >
 > **参照**: `.claude/feedback-reports/173.md` Tier 2 #1、順位 136 entry (本ファイル内)、PR #173 セッションで実施した実装 grep 検証 (rank 125 = `run_custom_rules_line_number_correct_with_multibyte_content` test 存在 / rank 139 = `docs/adr/adr-041-test-isolation-patterns.md` 存在 / rank 141 = `fix_push_time` + `RATE_LIMIT_BUT_MERGEABLE` シグナル存在)、ADR-042 (rule vs mechanism boundary)、memory `feedback_pipeline_over_rules.md`
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort XS-S。順位 136 に統合する場合は追加 ~15 行 (edit 種別判定 + delete branch)、独立 hook の場合は ~40 行 (構造的に分離)。
+> **実行優先度**: **Tier 2** — Effort XS-S。順位 136 に統合する場合は追加 ~15 行 (edit 種別判定 + delete branch)、独立 hook の場合は ~40 行 (構造的に分離)。
 
 #### 設計決定 (案)
 
@@ -218,7 +218,7 @@
 >
 > **参照**: ADR-031 (週次レビュー設計、本採用 2026-06-01)、順位 146-151 Bundle 既存ルール仕組み化、`feedback_no_unenforced_rules.md`、`feedback_pipeline_over_rules.md`
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S。ADR-031 本採用後 (2026-06-01) のさらに 2-3 週 dogfood 後に着手判断。
+> **実行優先度**: **Tier 2** — Effort S。ADR-031 本採用後 (2026-06-01) のさらに 2-3 週 dogfood 後に着手判断。
 
 #### 設計決定 (案)
 

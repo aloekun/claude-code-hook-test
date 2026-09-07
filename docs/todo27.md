@@ -19,7 +19,7 @@
 >
 > **参照**: PR #337 (Phase C+D) / PR #336 (Phase A) / PR #338 (Phase E)、`.claude/feedback-reports/337.md` (Tier1 #1 / Tier2 #1,#2)、`.claude/feedback-reports/336.md` (Tier1 #1 / Tier2 #1)、`.claude/feedback-reports/338.md` (Tier2 #2)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、`src/cli-telemetry-report/src/{aggregate,verdict,report,registry}.rs`。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity High〜Low (越境テストのみ High) / Frequency Low〜Medium / Effort S〜XS / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity High〜Low (越境テストのみ High) / Frequency Low〜Medium / Effort S〜XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -44,7 +44,7 @@
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier1 #1、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`.claude/hooks-config.toml`、`scripts/deploy-artifacts.mjs`。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High (silent command-not-found で quality gate 誤 block) / Frequency Medium (2 回実観測) / Effort M / Adoption Risk None (mtime 回避設計であれば)。
+> **実行優先度**: Tier 1 — Severity High (silent command-not-found で quality gate 誤 block) / Frequency Medium (2 回実観測) / Effort M / Adoption Risk None (mtime 回避設計であれば)。
 
 #### 作業計画
 
@@ -69,7 +69,7 @@
 >
 > **参照**: `.claude/feedback-reports/332.md` Tier3 #8、`docs/dev-conventions.md`、[ADR-033](adr/adr-033-todo-numbering-simplification.md)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -90,7 +90,7 @@
 >
 > **参照**: `.claude/feedback-reports/340.md` Tier1 #1、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-047](adr/adr-047-prepush-refute-facet.md)、順位 272 (同居実装候補)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -124,7 +124,7 @@
 >
 > **参照**: `.claude/feedback-reports/342.md` / `343.md` / `344.md` (各 Rationale)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。
 >
-> **実行優先度**: 💎 Tier 3 — 各件 Effort XS〜S・合計 M / Adoption Risk None。Severity High 2 件 (#7, #8) を含むため docs バッチとしては早めの実施が望ましい。
+> **実行優先度**: Tier 3 — 各件 Effort XS〜S・合計 M / Adoption Risk None。Severity High 2 件 (#7, #8) を含むため docs バッチとしては早めの実施が望ましい。
 
 #### 作業計画
 
@@ -146,7 +146,7 @@
 >
 > **参照**: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) § 決定 3 / 残課題、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) § 欠点 (pre-push 展開の予告元)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (post-pr 側の先行実装)、PR #348 security review 注記。依存: WP-17 再分割 PR (lib-scope-guard の land) 後が効率的。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity High (injection 防御の穴) / Frequency Low (fix 発生時のみ) / Effort M / Adoption Risk Low (既存 stage への追加、kill-switch つき)。
+> **実行優先度**: Tier 2 — Severity High (injection 防御の穴) / Frequency Low (fix 発生時のみ) / Effort M / Adoption Risk Low (既存 stage への追加、kill-switch つき)。
 
 #### 作業計画
 
@@ -171,7 +171,7 @@
 >
 > **参照**: [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 14 § 3 つ目の公開面、[screening.rs](../src/lib-ledger/src/screening.rs) (2 関数の対照が実装済み)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Frequency **High** (出力面は増え続ける) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity Medium / Frequency **High** (出力面は増え続ける) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -195,7 +195,7 @@
 >
 > **参照**: [review-request.yml](../.github/workflows/review-request.yml)、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 定常運用 2 巡目の実走観測、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する / § M5、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) (陽性証拠の要求)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (未レビューの自律 PR が可視化されない) / Frequency Medium (人間が 2 本マージした夜) / Effort S-M / Adoption Risk Low (判別を厳しくしすぎると正常な反応まで failure にする)。
+> **実行優先度**: Tier 2 — Severity Medium (未レビューの自律 PR が可視化されない) / Frequency Medium (人間が 2 本マージした夜) / Effort S-M / Adoption Risk Low (判別を厳しくしすぎると正常な反応まで failure にする)。
 
 #### 作業計画
 
@@ -235,7 +235,7 @@
 >
 > **参照**: [markers.rs](../src/cli-merge-pipeline/src/feedback/markers.rs) (`check_concurrent_run_guard`)、[run_registry.rs](../src/cli-merge-pipeline/src/feedback/run_registry.rs) (`collect_feedback_runs`)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § task labeling convention、[ADR-031](adr/adr-031-weekly-review-pipeline.md) (週次の棚卸し先)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low (現時点で実害なし) / Frequency Medium (単調増加) / Effort S (案 1) 〜 M (案 2) / Adoption Risk Low。
+> **実行優先度**: Tier 3 — Severity Low (現時点で実害なし) / Frequency Medium (単調増加) / Effort S (案 1) 〜 M (案 2) / Adoption Risk Low。
 
 #### 作業計画
 
@@ -259,7 +259,7 @@
 >
 > **参照**: [review-todo-whole.md](../.takt/facets/instructions/review-todo-whole.md) (routing 記述)、[docs/todo.md](todo.md) preamble、`src/cli-docs-lint/`、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (正規表現層/AST 層の線引き)、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 (本タスクが入るまでの暫定 convention)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤誘導であり実行時破壊ではない) / Frequency **Medium** (todo ファイルは継続的に増える) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (誤誘導であり実行時破壊ではない) / Frequency **Medium** (todo ファイルは継続的に増える) / Effort S / Adoption Risk None。
 
 #### 設計決定
 

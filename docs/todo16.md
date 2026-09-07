@@ -13,7 +13,7 @@
 >
 > **参照**: `.claude/feedback-reports/271.md` Tier 2 #3、`src/cli-push-runner/tests/pipeline_integration_test.rs` (新設)
 >
-> **実行優先度**: 🔧 Tier 2 — Effort M。
+> **実行優先度**: Tier 2 — Effort M。
 
 #### 作業計画
 
@@ -33,7 +33,7 @@
 >
 > **参照**: `.claude/feedback-reports/271.md` Tier 3 #1、`docs/dev-conventions.md`
 >
-> **実行優先度**: 💎 Tier 3 — Effort S。
+> **実行優先度**: Tier 3 — Effort S。
 
 #### 作業計画
 
@@ -52,7 +52,7 @@
 >
 > **参照**: `.claude/feedback-reports/271.md` Tier 3 #2、`CLAUDE.md`
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -71,7 +71,7 @@
 >
 > **参照**: `.claude/feedback-reports/271.md` Tier 3 #3、`CLAUDE.md` / `docs/dev-conventions.md`
 >
-> **実行優先度**: 💎 Tier 3 — Effort S。
+> **実行優先度**: Tier 3 — Effort S。
 
 #### 作業計画
 
@@ -94,7 +94,7 @@
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 1 #1、`.claude/feedback-reports/271.md` Tier 1 #1 (関連する過去の却下判断)、`src/lib-jj-helpers/src/pipeline_lock.rs` (今回の fix)、`.claude/custom-lint-rules.toml`
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High / Effort S。
+> **実行優先度**: Tier 1 — Severity High / Effort S。
 
 #### 作業計画
 
@@ -118,7 +118,7 @@
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 2 #3、`src/lib-jj-helpers/src/pipeline_lock.rs` の `takeover_stale_lock_skips_remove_when_snapshot_is_stale`
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -137,7 +137,7 @@
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 3 #1、`src/cli-pr-monitor/src/lock.rs`、`src/lib-jj-helpers/src/pipeline_lock.rs` (takeover_stale_lock の doc comment)
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -156,7 +156,7 @@
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 3 #3、本セッションの復旧手順 (`jj split -m ... <file>` → `jj rebase -s <docs-commit> -d <docs-parent>` → `jj rebase -s <fix-commit> -d master`)
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -177,7 +177,7 @@
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 3 #4、Tier 2 #5、`docs/dev-conventions.md`
 >
-> **実行優先度**: 💎 Tier 3 — Effort XS。
+> **実行優先度**: Tier 3 — Effort XS。
 
 #### 作業計画
 
@@ -199,7 +199,7 @@
 >
 > **参照**: `.claude/feedback-reports/273.md` Tier 2 #4 (却下 recommendation)、Tier 3 #5、docs/dev-conventions.md § spike 見送り (negative result) 永続化 convention、`jj split`/`jj rebase` 復旧パターンを記録するタスク (本ファイル内)
 >
-> **実行優先度**: 💎 Tier 3 — Effort S。
+> **実行優先度**: Tier 3 — Effort S。
 
 #### 作業計画
 
@@ -224,7 +224,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 1 #3、`.claude/custom-lint-rules.toml`、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Effort M。
+> **実行優先度**: Tier 1 — Severity Medium / Effort M。
 
 #### 作業計画
 
@@ -244,7 +244,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 2 #4、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)、順位 311（DRY lint rule）。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Low / Effort XS。
+> **実行優先度**: Tier 2 — Severity Low / Effort XS。
 
 #### 作業計画
 
@@ -263,7 +263,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 2 #5、`src/cli-push-runner`（bookmark 未検出時のエラー出力）、[ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Low / Effort S。
+> **実行優先度**: Tier 2 — Severity Low / Effort S。
 
 #### 作業計画
 
@@ -282,7 +282,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 3 #1、`.claude/hooks-config.toml`（`[telemetry]` section）、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Effort XS。
+> **実行優先度**: Tier 3 — Severity Low / Effort XS。
 
 #### 作業計画
 
@@ -301,7 +301,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 3 #2、`CLAUDE.md`、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Effort S。順位 317（チェックリスト）と対で実施すると効果的。
+> **実行優先度**: Tier 3 — Severity Low / Effort S。順位 317（チェックリスト）と対で実施すると効果的。
 
 #### 作業計画
 
@@ -320,7 +320,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 3 #3、`docs/dev-conventions.md`、順位 316。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Effort XS。
+> **実行優先度**: Tier 3 — Severity Low / Effort XS。
 
 #### 作業計画
 

@@ -37,7 +37,7 @@ fn docs_with(files: &[(&str, String)]) -> tempfile::TempDir {
 }
 
 fn summary_row(rank: u32, detail_file: &str) -> String {
-    format!("| {rank} | 🚀 Tier 1 | **タスク {rank}** | {detail_file} | S | なし |\n")
+    format!("| {rank} | Tier 1 | **タスク {rank}** | {detail_file} | S | なし |\n")
 }
 
 fn detail_entry(rank: u32) -> String {

@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/feedback-reports/337.md` (Tier3 #1,#2)、`.claude/feedback-reports/338.md` (Tier3 #1)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、`CLAUDE.md`。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium〜Low / Frequency Medium〜High / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium〜Low / Frequency Medium〜High / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -40,7 +40,7 @@
 >
 > **参照**: `.claude/feedback-reports/336.md` (Tier2 #2 / Tier3 #2)、`.claude/feedback-reports/337.md` (Tier3 #3)、`.claude/feedback-reports/338.md` (Tier2 #1)、memory `pr-monitor-bookmark-detection-pitfalls` / `parallel-workspace-shared-store-changes-under-you`、`src/cli-pr-monitor/`、`docs/dev-conventions.md`。
 >
-> **実行優先度**: 🔧 Tier 2〜3 — Severity Medium / Frequency High / Effort S〜M / Adoption Risk None。
+> **実行優先度**: Tier 2〜3 — Severity Medium / Frequency High / Effort S〜M / Adoption Risk None。
 
 #### 作業計画
 
@@ -61,7 +61,7 @@
 >
 > **参照**: `.claude/feedback-reports/337.md` (Tier3 #4)、`.claude/feedback-reports/338.md` (Tier3 #4)、[ADR-016](adr/adr-016-long-running-command-strategy.md) / [ADR-018](adr/adr-018-pr-monitor-takt-migration.md)、`docs/dev-conventions.md`、`CLAUDE.md`。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium / Frequency Medium / Effort XS〜S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort XS〜S / Adoption Risk None。
 
 #### 作業計画
 
@@ -82,7 +82,7 @@
 >
 > **参照**: `.claude/feedback-reports/303.md` Tier2 #1、`src/cli-merge-pipeline` (Phase 0 transcript filter 出力)、`.takt/facets/instructions/analyze-session.md` (消費側 facet)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency High (毎回のマージ feedback で発生し得る) / Effort M / Adoption Risk None (既存 filter の自然な拡張)。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency High (毎回のマージ feedback で発生し得る) / Effort M / Adoption Risk None (既存 filter の自然な拡張)。
 
 #### 作業計画
 
@@ -104,7 +104,7 @@
 >
 > **参照**: `.claude/feedback-reports/312.md` Tier1 #1、`src/lib-jj-helpers/src/pipeline_lock/tests.rs` (collect 回避例とコメント)、`.claude/custom-lint-rules.toml`。
 >
-> **実行優先度**: 🔧 Tier 2 (analyzer の `Tier 1: Hooks/Linter` = mechanical enforcement のため `feedback_tier_classification` per project Tier 2 に再分類) — Severity Medium / Frequency Medium / Effort M / Adoption Risk: false positive (対象限定で軽減可能)。
+> **実行優先度**: Tier 2 (analyzer の `Tier 1: Hooks/Linter` = mechanical enforcement のため `feedback_tier_classification` per project Tier 2 に再分類) — Severity Medium / Frequency Medium / Effort M / Adoption Risk: false positive (対象限定で軽減可能)。
 
 #### 作業計画
 
@@ -126,7 +126,7 @@
 >
 > **参照**: `.claude/feedback-reports/311.md` Tier1 #3、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)、`src/check-ci-coderabbit/src/{decide,rate_limit}.rs`。
 >
-> **実行優先度**: 🔧 Tier 2 (analyzer の `Tier 1` だが ci_step = automation のため project Tier 2) — Severity Medium / Frequency Medium (3 世代実績) / Effort M / Adoption Risk None。CI matrix は [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) で整備済 (PR / master push で両 OS の `cargo test` が回る) のため、定期検証の載せ先はこの workflow を土台にできる。
+> **実行優先度**: Tier 2 (analyzer の `Tier 1` だが ci_step = automation のため project Tier 2) — Severity Medium / Frequency Medium (3 世代実績) / Effort M / Adoption Risk None。CI matrix は [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) で整備済 (PR / master push で両 OS の `cargo test` が回る) のため、定期検証の載せ先はこの workflow を土台にできる。
 
 #### 作業計画
 
@@ -149,7 +149,7 @@
 >
 > **参照**: `.claude/feedback-reports/311.md` Tier2 #2、`src/check-ci-coderabbit/src/{decide,main}.rs`。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (インシデントドメイン直下) / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (インシデントドメイン直下) / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -171,7 +171,7 @@
 >
 > **参照**: `.claude/feedback-reports/311.md` Tier3 #1、`src/check-ci-coderabbit/src/rate_limit.rs` (参考実装)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity High (実インシデント) / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity High (実インシデント) / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -195,7 +195,7 @@
 >
 > **参照**: `.claude/feedback-reports/311.md` Tier3 #2、`.claude/feedback-reports/479.md` Tier3 #1、`src/check-ci-coderabbit/src/decide.rs` (`has_review_evidence`)、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -220,7 +220,7 @@
 >
 > **参照**: `.claude/feedback-reports/311.md` Tier3 #3、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -242,7 +242,7 @@
 >
 > **参照**: `.claude/feedback-reports/312.md` Tier3 #1、`src/lib-jj-helpers/src/pipeline_lock.rs` (実測確定後の doc)、`docs/dev-conventions.md`。
 >
-> **実行優先度**: 💎 Tier 3 — Severity High (誤分析のまま fix = 再発防止にならない) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity High (誤分析のまま fix = 再発防止にならない) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -264,7 +264,7 @@
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier2 #2、[docs/todo17.md](todo17.md) の pr-monitor 重複ガード dogfood タスク (defer した workflow_dispatch 検証の追跡先)、`docs/dev-conventions.md` (配置先、既存チェックリスト集)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -286,7 +286,7 @@
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier3 #1、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、`.github/workflows/pr-monitor.yml` (marker/state 依存の実装)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -308,7 +308,7 @@
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier3 #2、`.github/workflows/pr-monitor.yml` (PR #310 で追加した決定論ガード)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (実害根拠あり)。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (実害根拠あり)。
 
 #### 作業計画
 
@@ -329,7 +329,7 @@
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier3 #3、[docs/todo14.md](todo14.md) の deploy 互換性診断エントリ (対となる互換性チェック機構)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk (派生プロジェクト deploy の配布作業レベル、weak)。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk (派生プロジェクト deploy の配布作業レベル、weak)。
 
 #### 作業計画
 
@@ -351,7 +351,7 @@
 >
 > **参照**: `.claude/feedback-reports/310.md` Tier3 #4、review-local / local-review スキル運用 doc。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -372,7 +372,7 @@
 >
 > **参照**: `.claude/feedback-reports/333.md` Tier3 #2、`docs/dev-conventions.md` (既存チェックリスト集)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) (Phase 4 で本照合を実施した実例)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -394,7 +394,7 @@
 >
 > **参照**: `.claude/feedback-reports/332.md` Tier3 #2、`docs/dev-conventions.md`、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) / ADR-053 / ADR-055 / ADR-061 (amendment 実例)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -416,7 +416,7 @@
 >
 > **参照**: `.claude/feedback-reports/332.md` Tier3 #9、`docs/dev-conventions.md`、skill-sync-check スキル、weekly-review / monthly-review skill (構造 template)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -437,7 +437,7 @@
 >
 > **参照**: `.claude/feedback-reports/340.md` Tier3 #1、`docs/dev-conventions.md` (順位 261 convention)、`docs/harness-improvement-plan.md` (退役手順の実例)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -458,7 +458,7 @@
 >
 > **参照**: `.claude/feedback-reports/342.md` Tier2 #1 / `.claude/feedback-reports/343.md` Tier2 #3、`push-runner-config.toml` (rust-test group)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 2。順位 359 の #1 (文書化) と対。順位 361 と同一 PR (A 系統) にまとめてよい。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency High / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency High / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -480,7 +480,7 @@
 >
 > **参照**: `.claude/feedback-reports/342.md` Tier2 #2、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 3、[ADR-051](adr/adr-051-cross-system-config-coupling.md)。順位 360 と同一 PR (A 系統) にまとめてよい。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -502,7 +502,7 @@
 >
 > **参照**: `.claude/feedback-reports/343.md` Tier1 #1、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) Amendment (欠測と正常が同じ出力になる構成の教訓)。順位 363 と同一 PR (B 系統) にまとめてよい。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -524,7 +524,7 @@
 >
 > **参照**: `.claude/feedback-reports/343.md` Tier2 #1、`src/check-ci-coderabbit/src/main.rs` (`fetch_ci`) / `src/check-ci-coderabbit/src/parsers.rs` (`parse_ci_rollup` 単体テスト群 = 既存資産)。順位 362 と同一 PR (B 系統) にまとめてよい。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort M / Adoption Risk None。
 
 #### 作業計画
 
