@@ -82,6 +82,7 @@ fn a_guard_deny_after_implementing_exits_one() {
     let run = run_exe(&[
         ("SELECT_OUTCOME", "success"),
         ("IMPLEMENT_OUTCOME", "success"),
+        ("VERIFY_OUTCOME", "success"),
         ("GUARD_OUTCOME", "failure"),
         ("PUBLISH_OUTCOME", "skipped"),
         ("HANDOFF_OUTCOME", "success"),
@@ -207,6 +208,10 @@ fn ledger_residue_turns_a_created_pr_red() {
 
 /// 空 diff で止まった夜に、agent が書いた停止理由の 1 行が **env → ファイル → 説明行** の
 /// 配線で届くこと (順位 356 の 2026-09-05 停止で欲しかった形)。色は従来どおり red のまま。
+///
+/// `VERIFY_OUTCOME` を明示するのは、未設定だと `<未実行>` = 非成功として**停止段が verify に
+/// なる**ため。guard 停止の夜を模す fixture が verify 停止を作っていた (2026-09-07 に理由行を
+/// 段限定へ変えたとき露見)。空 diff の夜も verify 自体は通っている。
 #[test]
 fn the_agents_stop_reason_reaches_the_handoff_lines() {
     let path = std::env::temp_dir().join(format!(
@@ -227,6 +232,7 @@ fn the_agents_stop_reason_reaches_the_handoff_lines() {
     let run = run_exe(&[
         ("SELECT_OUTCOME", "success"),
         ("IMPLEMENT_OUTCOME", "success"),
+        ("VERIFY_OUTCOME", "success"),
         ("GUARD_OUTCOME", "failure"),
         ("PUBLISH_OUTCOME", "skipped"),
         ("HANDOFF_OUTCOME", "success"),
@@ -244,11 +250,15 @@ fn the_agents_stop_reason_reaches_the_handoff_lines() {
 }
 
 /// execution file を渡さない呼び手では出力が増えない (旧 workflow との互換)。
+///
+/// 理由行を出す段 (`guard`) で確かめる — 出さない段で確かめても、env の有無に関わらず
+/// 行が無いため何も守らない。
 #[test]
 fn no_execution_file_adds_no_reason_line() {
     let run = run_exe(&[
         ("SELECT_OUTCOME", "success"),
         ("IMPLEMENT_OUTCOME", "success"),
+        ("VERIFY_OUTCOME", "success"),
         ("GUARD_OUTCOME", "failure"),
         ("PUBLISH_OUTCOME", "skipped"),
         ("HANDOFF_OUTCOME", "success"),
