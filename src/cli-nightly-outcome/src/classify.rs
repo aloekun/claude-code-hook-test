@@ -302,11 +302,46 @@ fn render_handoff(
         None => "[NIGHTLY_HANDOFF] 停止段を特定できませんでした。上のサマリ行と handoff step の発火条件がずれています (どちらかの変更を戻すか、cli-nightly-outcome の STOP_STAGES を合わせてください)。".to_string(),
     });
     // NOTE: 停止段の直後に置く — 「段」が場所を、「理由」が原因を言う。
-    lines.extend(crate::agent_reason::render_line(reason));
+    lines.extend(reason_line_for_stage(stop, reason));
     lines.push(
         "[NIGHTLY_HANDOFF] agent を 1 回まるごと回して PR に到達しなかったため、本 run は red で終えます (ADR-072 決定 10)。".to_string(),
     );
     lines
+}
+
+/// 停止段に対して停止理由行をどう出すか。
+///
+/// [`crate::agent_reason`] の接頭辞は workflow のプロンプトで**「変更せず終了するとき」**に
+/// 限って書かせている。変更が無い停止は `guard` 段なので、理由行が説明として成立するのは
+/// `guard` と、段を特定できなかった `None` (矛盾を示せない) だけである。
+///
+/// `verify` / `ledger_completion` / `ledger_removal` は**変更があったのに停止した**段で、
+/// そこでは理由行を出さない。`Unstated` (接頭辞なし) はその段では正常な状態であり、
+/// 「理由を書きませんでした」と言うと落ち度があるように読める。
+///
+/// ただし `Stated` だけは別で、黙って落とすと証拠が消える — 「変更せず終了した」という
+/// 申告と、変更がある段で止まったという実態が食い違っている。理由の中身ではなく
+/// **食い違いそのもの**を 1 行にする (過少申告を静かに通さない: #478/#482 と同じ是正)。
+///
+/// `Unreadable` は段によらず出す。execution file を読めないのは agent の申告ではなく
+/// 配線の故障で、guard 段の夜まで見えないままにすると次に必要なときに使えない。
+fn reason_line_for_stage(
+    stop: Option<StopStage>,
+    reason: &crate::agent_reason::AgentReason,
+) -> Vec<String> {
+    use crate::agent_reason::AgentReason;
+    let changed_stage = match stop {
+        Some(StopStage::Verify | StopStage::LedgerCompletion | StopStage::LedgerRemoval) => stop,
+        _ => None,
+    };
+    match (changed_stage, reason) {
+        (Some(stage), AgentReason::Stated(_)) => vec![format!(
+            "[NIGHTLY_HANDOFF] agent は「変更せず終了」の停止理由を書きましたが、停止段は {} です (変更がある段なので申告と実態が食い違っています。理由行は出しません — execution file を確認してください)。",
+            stage.label()
+        )],
+        (Some(_), AgentReason::Unstated | AgentReason::NotProvided) => Vec::new(),
+        _ => crate::agent_reason::render_line(reason).into_iter().collect(),
+    }
 }
 
 #[cfg(test)]
@@ -523,6 +558,76 @@ mod tests {
         assert!(lines[1].contains("停止段: ledger_completion"), "{lines:?}");
         assert!(lines[1].contains("[LEDGER_CLEANUP_BLOCK]"), "{lines:?}");
         assert!(lines[1].contains("ADR-074"), "宣言粒度への導線が無い: {lines:?}");
+    }
+
+    /// 停止理由行を出す段は `guard` と「特定できず」だけ。**段を 1 つ足したときに
+    /// 既定で出る側へ falling through しないよう、全段 × 全 reason を 1 表で押さえる。**
+    ///
+    /// 由来: pre-push review が 1st run で「理由は guard 段限定のはずが全 4 段で無条件出力」
+    /// と警告したが、テストが `guard` の 1 ケースしか無かったため実装の側が直らなかった。
+    #[test]
+    fn the_stop_reason_line_appears_only_where_it_explains_the_stop() {
+        let stated = AgentReason::Stated("完了済みだった".to_string());
+        for stage in STOP_STAGES {
+            let lines = render(
+                &Verdict::StoppedAfterImplementing,
+                "310",
+                false,
+                Some(*stage),
+                &stated,
+            );
+            let joined = lines.join("\n");
+            if *stage == StopStage::Guard {
+                assert!(joined.contains("agent の停止理由: 完了済みだった"), "{joined}");
+            } else {
+                assert!(!joined.contains("完了済みだった"), "理由の中身を出している: {joined}");
+                assert!(joined.contains("食い違っています"), "食い違いを黙って落としている: {joined}");
+            }
+        }
+        let unknown_stage = render(&Verdict::StoppedAfterImplementing, "310", false, None, &stated);
+        assert!(
+            unknown_stage.join("\n").contains("agent の停止理由: 完了済みだった"),
+            "段が不明なら食い違いを主張できない: {unknown_stage:?}"
+        );
+    }
+
+    /// 接頭辞なし (`Unstated`) は guard 段でだけ言う — 変更がある段では接頭辞が無いのが
+    /// 正常で、「書きませんでした」と出すと落ち度があるように読める。読めない
+    /// (`Unreadable`) は配線の故障なので段によらず出す。
+    #[test]
+    fn an_unstated_reason_is_only_reported_where_it_was_expected() {
+        for stage in STOP_STAGES {
+            let unstated =
+                render(&Verdict::StoppedAfterImplementing, "310", false, Some(*stage), &AgentReason::Unstated)
+                    .join("\n");
+            assert_eq!(
+                unstated.contains("停止理由を書きませんでした"),
+                *stage == StopStage::Guard,
+                "{stage:?}: {unstated}"
+            );
+            let unreadable = render(
+                &Verdict::StoppedAfterImplementing,
+                "310",
+                false,
+                Some(*stage),
+                &AgentReason::Unreadable("execution file を読めません".to_string()),
+            )
+            .join("\n");
+            assert!(unreadable.contains("読めませんでした"), "{stage:?}: {unreadable}");
+        }
+    }
+
+    /// env 未設定なら段によらず 1 行も足さない (古い呼び手の出力を変えない)。
+    ///
+    /// 3 行 = 確認待ちの案内 / 停止段 / red で終える宣言。理由行はこの外側に足される。
+    #[test]
+    fn a_missing_execution_file_env_adds_no_line() {
+        for stage in STOP_STAGES {
+            let lines =
+                render(&Verdict::StoppedAfterImplementing, "310", false, Some(*stage), &NO_REASON);
+            assert_eq!(lines.len(), 3, "{stage:?}: 理由行が足されている {lines:?}");
+            assert!(!lines.join("\n").contains("停止理由"), "{stage:?}: {lines:?}");
+        }
     }
 
     /// 段の名前は重複せず、workflow の step id も 1:1 であること。

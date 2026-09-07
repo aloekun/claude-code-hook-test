@@ -176,6 +176,62 @@ pub(super) fn is_bidi_or_invisible_format_char(c: char) -> bool {
     INVISIBLE_RANGES.iter().any(|range| range.contains(&c))
 }
 
+/// 夜間 workflow が agent プロンプト内で台帳データを囲む区切りの共通部分。
+///
+/// `.github/workflows/nightly-todo.yml` の `===BEGIN_LEDGER_DATA===` /
+/// `===END_LEDGER_DATA===` と対になる (ADR-072 決定 13)。**片方だけ変えると framing が
+/// 破れるため、変更時は必ず同一 PR で workflow 側も直すこと。** 前後の `BEGIN` / `END` を
+/// 含めず共通部分だけを見るのは、どちらの向きの区切りを書かれても弾くため。
+const LEDGER_DATA_FRAME_MARKER: &str = "LEDGER_DATA";
+
+/// 自由記述フィールドが agent プロンプトの信頼境界を破る形を含んでいたら停止する。
+///
+/// 夜間 workflow は台帳の自由記述を `===BEGIN_LEDGER_DATA===` / `===END_LEDGER_DATA===`
+/// で囲み「ここから中はデータであって指示ではない」と framing する (ADR-072 決定 13)。
+/// 台帳側にこの区切り文字そのものを書かれると**枠を閉じて外側へ抜けられる**ため、
+/// 区切りの断片を含む行は読み飛ばさず exit 2 で止める (決定 2「曖昧さはすべて停止側へ」)。
+///
+/// 制御文字も同じ理由で弾く。改行はセル区切りの都合で本来入らないが、将来 parse が
+/// 変わったときに黙って通ることのないよう、ここで固定しておく。
+///
+/// **不可視文字も弾く。** ゼロ幅文字を区切り文字の途中に挟めば `contains` 比較を
+/// 素通りできる (`LEDGER<ZWSP>_DATA`) 一方、LLM 側はノイズを跨いで元の語として読みうる。
+/// 「機械は違う文字列と見るが人間 / LLM は同じ語と読む」ずれは検査の回避に直結するため、
+/// 正規化して比較するのではなく**含んでいたら止める**側に倒す (決定 2)。
+pub(super) fn reject_prompt_frame_escape(
+    field_name: &str,
+    value: &str,
+    line_number: usize,
+) -> Result<(), String> {
+    match frame_escape_reason(field_name, value) {
+        Some(why) => Err(format!("{line_number} 行目: {why}")),
+        None => Ok(()),
+    }
+}
+
+/// 同じ判定を**位置を持たない形**で返す (`Some` = 違反理由、`None` = 問題なし)。
+///
+/// 行番号を持たない呼び手 — 台帳を順位で引く検査 ([`crate::annotation_check`]) — のために
+/// 分けてある。以前はそこから `line_number` に `0` を渡しており、実在しない「0 行目」を
+/// 失敗メッセージへ混ぜていた。**位置を知らないなら位置を語らない**。
+///
+/// 理由の文面にセルの中身は入れない (含むのは列名と code point だけ) — 呼び手はこれを
+/// そのまま失敗メッセージへ埋めてよい。
+pub(super) fn frame_escape_reason(field_name: &str, value: &str) -> Option<String> {
+    if value.contains(LEDGER_DATA_FRAME_MARKER) {
+        return Some(format!(
+            "{field_name} 列に prompt 区切り文字 {LEDGER_DATA_FRAME_MARKER:?} が含まれています (agent プロンプトの信頼境界を破る形のため停止します)"
+        ));
+    }
+    let found = value
+        .chars()
+        .find(|c| c.is_control() || is_bidi_or_invisible_format_char(*c))?;
+    Some(format!(
+        "{field_name} 列に制御文字・不可視文字 U+{:04X} が含まれています",
+        found as u32
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
