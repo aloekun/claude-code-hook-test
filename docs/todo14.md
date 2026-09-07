@@ -124,9 +124,9 @@
 >
 > **対処案**: ADR-034 の既知 CR format 一覧を fixture 化し、`.github/workflows/coderabbit-format-check.yml` (新規) で本リポジトリの PR が得る実 CR walkthrough が既知 marker/regex いずれかにマッチすることを検証する。あわせて `check-ci-coderabbit` の `decide`/`rate_limit` に fixture tests を追加。新世代対応手順は ADR-034 の SOP 化 (別エントリ) と相補。
 >
-> **参照**: `.claude/feedback-reports/311.md` Tier1 #3、`adr/adr-034-coderabbit-auto-monitoring.md`、`src/check-ci-coderabbit/src/{decide,rate_limit}.rs`。
+> **参照**: `.claude/feedback-reports/311.md` Tier1 #3、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)、`src/check-ci-coderabbit/src/{decide,rate_limit}.rs`。
 >
-> **実行優先度**: 🔧 Tier 2 (analyzer の `Tier 1` だが ci_step = automation のため project Tier 2) — Severity Medium / Frequency Medium (3 世代実績) / Effort M / Adoption Risk None。CI matrix は `adr/adr-065-ci-matrix-cross-os-regression.md` で整備済 (PR / master push で両 OS の `cargo test` が回る) のため、定期検証の載せ先はこの workflow を土台にできる。
+> **実行優先度**: 🔧 Tier 2 (analyzer の `Tier 1` だが ci_step = automation のため project Tier 2) — Severity Medium / Frequency Medium (3 世代実績) / Effort M / Adoption Risk None。CI matrix は [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) で整備済 (PR / master push で両 OS の `cargo test` が回る) のため、定期検証の載せ先はこの workflow を土台にできる。
 
 #### 作業計画
 
@@ -191,7 +191,9 @@
 >
 > **対処案**: `CLAUDE.md` または新規 ADR に「外部システム監視実装時は成功の定義を明示し、commit status 等の単一ソースで充足させず陽性証拠を別途要求する」を明文化。#311 の `has_review_evidence` (commit status pass でも review 実行の陽性証拠を別要求) を参考実装として cite。
 >
-> **参照**: `.claude/feedback-reports/311.md` Tier3 #2、`src/check-ci-coderabbit/src/decide.rs` (`has_review_evidence`)、`adr/adr-034-coderabbit-auto-monitoring.md`。
+> **射程の拡張 (2026-09-07、#479 Tier3 #1 採用)**: 同じ原則は**検知機構をテストで検証するとき**にも及ぶ。「異常が出なかったこと」は検知が働いた証拠にならない — 検知が壊れていても同じ結果になるからである。**意図的に条件を作り、検知が発火することを観測する**のが陽性証拠にあたる。#479 の迷子ファイル検知は「マージして WARN が出なかった」で確認したが、これは検知が無効でも成立してしまう (dogfood は順位 232 に未完で残っている)。同型は cache 無効化・race condition・fail-closed ゲートの検証でも繰り返す。実装側の陽性証拠 (#311) と検証側の陽性証拠 (#479) は同じ 1 つの原則の 2 つの適用先なので、**別エントリを立てず本エントリで 1 本化する**。
+>
+> **参照**: `.claude/feedback-reports/311.md` Tier3 #2、`.claude/feedback-reports/479.md` Tier3 #1、`src/check-ci-coderabbit/src/decide.rs` (`has_review_evidence`)、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md)。
 >
 > **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
 
@@ -199,11 +201,14 @@
 
 - [ ] Positive Evidence Requirement を `CLAUDE.md` または新規 ADR に明文化
 - [ ] `has_review_evidence` を参考実装として cite
+- [ ] **検証側の適用 (「出なかったこと」は検証にならない) を同じ文書に書く** — 参考実装は
+      #484 の変異テスト (テストを守る対象ごとに壊して、狙ったテストだけが落ちることを観測した)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
 - 外部システム監視実装で「成功の定義」を単一ソースに依存させず陽性証拠を要求する原則が文書化されること。
+- 検知機構の検証でも同じ要求 (意図的に条件を作って発火を観測する) が同じ文書から読めること。
 
 ---
 
@@ -211,9 +216,9 @@
 
 > **動機**: CodeRabbit は 3 世代 format 変更実績があり、新世代対応の手順が明文化されていないと missed case のリスクがある。
 >
-> **対処案**: `adr/adr-034-coderabbit-auto-monitoring.md` に「新世代対応の SOP」節を追加する: (1) 観測時に既知 format table へ行追加 (出典 URL / discovered_date / marker / regex)、(2) 新 extract 関数追加 (テンプレート化、ADR-049 fixture 併設)、(3) 既存 test suite に新 fixture 追加、(4) ADR 更新を done 記録。format-check CI 化エントリと相補。
+> **対処案**: [ADR-034](adr/adr-034-coderabbit-auto-monitoring.md) に「新世代対応の SOP」節を追加する: (1) 観測時に既知 format table へ行追加 (出典 URL / discovered_date / marker / regex)、(2) 新 extract 関数追加 (テンプレート化、ADR-049 fixture 併設)、(3) 既存 test suite に新 fixture 追加、(4) ADR 更新を done 記録。format-check CI 化エントリと相補。
 >
-> **参照**: `.claude/feedback-reports/311.md` Tier3 #3、`adr/adr-034-coderabbit-auto-monitoring.md`。
+> **参照**: `.claude/feedback-reports/311.md` Tier3 #3、[ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)。
 >
 > **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
