@@ -148,6 +148,10 @@ pub(crate) fn extract_old_format_wait_time(body: &str) -> Option<(u64, u64)> {
 
 /// 新 format (`More reviews will be available in N minutes? and M seconds?`) を抽出。
 /// PR #182/#184 で実観測した CR 新フォーマット。
+///
+/// minutes を伴わない秒のみの短時間 rate-limit (`... in N seconds`) も defensive に
+/// カバーする (未観測だが CR は短時間の rate-limit を分単位に切り上げず秒単位で
+/// 表現する可能性があるため)。
 pub(crate) fn extract_new_format_wait_time(body: &str) -> Option<(u64, u64)> {
     let re_full =
         regex::Regex::new(r"More reviews will be available in (\d+) minutes? and (\d+) seconds?")
@@ -158,9 +162,14 @@ pub(crate) fn extract_new_format_wait_time(body: &str) -> Option<(u64, u64)> {
         return Some((m, s));
     }
     let re_min = regex::Regex::new(r"More reviews will be available in (\d+) minutes?").ok()?;
-    let caps = re_min.captures(body)?;
-    let m: u64 = caps.get(1)?.as_str().parse().ok()?;
-    Some((m, 0))
+    if let Some(caps) = re_min.captures(body) {
+        let m: u64 = caps.get(1)?.as_str().parse().ok()?;
+        return Some((m, 0));
+    }
+    let re_sec = regex::Regex::new(r"More reviews will be available in (\d+) seconds?").ok()?;
+    let caps = re_sec.captures(body)?;
+    let s: u64 = caps.get(1)?.as_str().parse().ok()?;
+    Some((0, s))
 }
 
 /// 第 3 世代 format (`**Next review available in:** **N minutes**`) を抽出。
@@ -713,6 +722,40 @@ mod tests {
     fn wait_time_next_review_format_without_markdown_emphasis() {
         let body = "Next review available in 12 minutes.";
         assert_eq!(extract_wait_time(body), Some((12, 0)));
+    }
+
+    /// 新 format 全体が `**...**` で bold-wrap されても検出できること。
+    /// (フレーズ両端の `**` は正規表現の部分一致なので影響しない)
+    #[test]
+    fn wait_time_new_format_bold_wrapper() {
+        let body = "**More reviews will be available in 15 minutes and 30 seconds**";
+        assert_eq!(extract_wait_time(body), Some((15, 30)));
+    }
+
+    /// 短時間 rate-limit で minutes を伴わず秒のみで表現される新 format 短形態。
+    /// regex を意図的に秒のみ対応前の状態に戻すとこの test は落ちる。
+    #[test]
+    fn wait_time_new_format_seconds_only() {
+        let body =
+            "More reviews will be available in 45 seconds before requesting another review.";
+        assert_eq!(extract_wait_time(body), Some((0, 45)));
+    }
+
+    /// marker は一致し得る文脈でも、待機時間の数値が本文に一切無ければ
+    /// `extract_wait_time` は None を返すべき (graceful failure)。
+    #[test]
+    fn wait_time_new_format_graceful_failure_no_wait_text() {
+        let body = "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n\
+            > [!WARNING]\n> ## Review limit reached";
+        assert_eq!(extract_wait_time(body), None);
+    }
+
+    /// 旧 format の "Please wait" に続く語が数値でない (非構造化文言) 場合も
+    /// panic せず None を返すこと (graceful failure)。
+    #[test]
+    fn wait_time_old_format_graceful_failure_non_numeric() {
+        let body = "Please wait a moment before requesting another review.";
+        assert_eq!(extract_wait_time(body), None);
     }
 
     #[test]
