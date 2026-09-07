@@ -27,7 +27,7 @@ pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitC
     }
     let patterns = build_blocked_patterns(config);
     if let Some(hit) = validate_command(&command, &patterns) {
-        record_preset_block(&hit.source);
+        record_preset_block(hit.source);
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
@@ -48,7 +48,7 @@ pub(crate) fn handle_powershell_tool(config: &Config, tool_input: &ToolInput) ->
     }
     let patterns = build_blocked_patterns(config);
     if let Some(hit) = validate_command(&command, &patterns) {
-        record_preset_block(&hit.source);
+        record_preset_block(hit.source);
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
@@ -110,7 +110,7 @@ fn check_secret_in_content(config: &Config, tool_input: &ToolInput) -> Option<Ex
     }
     let secret_patterns = tag_source("secret-detection", preset_secret_detection());
     let hit = validate_command(&scan_text, &secret_patterns)?;
-    record_preset_block(&hit.source);
+    record_preset_block(hit.source);
     let _ = io::stderr().write_all(hit.inner.message.as_bytes());
     Some(ExitCode::from(2))
 }

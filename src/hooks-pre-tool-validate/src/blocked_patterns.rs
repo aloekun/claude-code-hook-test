@@ -1,7 +1,7 @@
 //! `BlockedPattern` 型定義と pattern build / validate ロジック。
 
 use crate::config::Config;
-use crate::presets::{default_preset_names, resolve_preset_or_custom};
+use crate::presets::{default_preset_names, normalize_source_tag, resolve_preset_or_custom};
 use regex::Regex;
 
 pub(crate) struct BlockedPattern {
@@ -16,19 +16,23 @@ pub(crate) struct BlockedPattern {
 /// `BlockedPattern` に発火元の preset 名を付与したもの。発火テレメトリ (WP-12) が
 /// 「どの preset が block したか」を id として記録するため、build 層で source をタグ付けする。
 /// preset コンストラクタ (14+ 箇所の struct literal) を無変更に保つための薄い newtype。
+///
+/// `source` が `&'static str` なのは意図的である。config 由来の `String` を代入できない
+/// ので、生 regex が telemetry id に載る経路が型で塞がる ([`crate::presets::normalize_source_tag`])。
 pub(crate) struct SourcedPattern {
-    pub(crate) source: String,
+    pub(crate) source: &'static str,
     pub(crate) inner: BlockedPattern,
 }
 
 /// `BlockedPattern` 群を発火元 preset 名で `SourcedPattern` に包む。
+///
+/// 受けた名前は [`normalize_source_tag`] を必ず通す — allowlist に無い名前は
+/// `custom-block` になり、呼び手の文字列がそのまま残ることはない。
 pub(crate) fn tag_source(source: &str, patterns: Vec<BlockedPattern>) -> Vec<SourcedPattern> {
+    let source = normalize_source_tag(source);
     patterns
         .into_iter()
-        .map(|inner| SourcedPattern {
-            source: source.to_string(),
-            inner,
-        })
+        .map(|inner| SourcedPattern { source, inner })
         .collect()
 }
 
@@ -128,5 +132,60 @@ mod tests {
         let hit = validate_command("docker rm -f container", &patterns).unwrap();
         assert_eq!(hit.source, "custom-block");
         assert_ne!(hit.source, r"docker\s+rm");
+    }
+
+    /// allowlist と `resolve_preset_or_custom` の match arm が 1:1 であること。
+    ///
+    /// 名前を消す / 綴りを変える側のずれをここで捕まえる。逆向き (arm を足して
+    /// allowlist に載せ忘れる) は `tag_source` が `custom-block` へ倒すので**穴にはならない** —
+    /// telemetry でその preset が `custom-block` に混ざるのが載せ忘れの合図になる。
+    #[test]
+    fn every_known_preset_name_resolves_to_itself() {
+        for name in crate::presets::KNOWN_PRESET_NAMES {
+            let (source, patterns) = resolve_preset_or_custom(name);
+            assert_eq!(&source, name, "allowlist の名前が custom へ落ちている");
+            assert!(!patterns.is_empty(), "{name}: preset が空");
+        }
+        assert!(
+            !crate::presets::KNOWN_PRESET_NAMES.contains(&crate::presets::CUSTOM_BLOCK_SOURCE),
+            "合成 id を preset 名の allowlist に混ぜない"
+        );
+    }
+
+    /// 既定で有効な名前はすべて allowlist の中にある (既定が `custom-block` に落ちない)。
+    #[test]
+    fn the_default_preset_names_are_all_known() {
+        for name in default_preset_names() {
+            assert!(
+                crate::presets::KNOWN_PRESET_NAMES.contains(&name.as_str()),
+                "{name} が allowlist に無い"
+            );
+        }
+    }
+
+    /// **config 由来の文字列は source tag にならない。** `tag_source` へ直接渡しても
+    /// allowlist の要素へ落ちる — 将来 `resolve_preset_or_custom` に arm を足した人が
+    /// config の値を返しても、telemetry には出ない (ADR-043 の fail-closed をプライバシー側に)。
+    ///
+    /// ブロック自体は続くことも併せて確認する。fail-closed にするのは記録に対してであって、
+    /// ゲートに対してではない。
+    #[test]
+    fn a_config_derived_tag_never_reaches_telemetry() {
+        let leaky = r"(?i)api[_-]?key\s*=\s*['\x22][A-Za-z0-9]{20,}";
+        let tagged = tag_source(leaky, crate::presets::custom_regex_pattern(leaky));
+        assert_eq!(tagged.len(), 1, "パターンが落ちている");
+        assert_eq!(tagged[0].source, "custom-block");
+        assert!(
+            crate::presets::KNOWN_PRESET_NAMES
+                .iter()
+                .chain(std::iter::once(&crate::presets::CUSTOM_BLOCK_SOURCE))
+                .any(|allowed| *allowed == tagged[0].source),
+            "allowlist 外の tag が付いた: {}",
+            tagged[0].source
+        );
+        assert!(
+            validate_command("export api_key='ABCDEFGHIJKLMNOPQRSTUVWXYZ'", &tagged).is_some(),
+            "記録を絞ったせいでブロックまで止めている"
+        );
     }
 }
