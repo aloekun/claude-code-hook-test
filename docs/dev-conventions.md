@@ -94,24 +94,6 @@ PR size gate (block 1500 行) に当たって PR を分割する場合の規約 
 
 **由来** (2026-07-17、旧 `push-pipeline-fix-plan.md` の T6): `run_diff_cmd` が `Command::output()` の無限待ちで、他 stage (jj 系 30s / gate 600s / push 300s) だけが timeout を持っていた。修正時にこの教訓を得た。ephemeral 計画の削除 (2026-09-03) にあたって本ファイルへ移送した。
 
-## 夜間 PR のリベースは `pnpm rebase-nightly` で行う
-
-**`claude/nightly-<順位>` の PR を手でリベースしない。**
-
-```bash
-pnpm rebase-nightly -- --pr <PR番号>
-```
-
-夜間 PR は `chore(ledger) 台帳削除` (親) → `実装` (子) の **2 コミット構成**である。`jj rebase -r <先端>` は**指定コミットだけ**を移すため親が置き去りになり、実装だけがマージされて台帳行が残る。
-
-**2026-08-30 に 3 本連続で発生した** ([#427](https://github.com/aloekun/claude-code-hook-test/pull/427) / [#459](https://github.com/aloekun/claude-code-hook-test/pull/459) / [#461](https://github.com/aloekun/claude-code-hook-test/pull/461))。**衝突は一度も起きていない** — 判断を誤ったのではなく手順が揺らいだ形なので、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) の区分では「ルールの再強化」ではなく「揺らげない形にする」側で塞ぐ。残骸は 13 日間気づかれず、夜間 run が実装済みの順位を選び直して red で止まって初めて露見した ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 21)。
-
-スクリプトがすること: `jj git fetch` → **ブランチ全体**のリベース (`-b`) → **リベース前後のコミット集合が同一である**ことの検証 → 対象ブランチをチェックアウトして `cli-ledger-removal-check` で台帳後始末の**状態**を検証。
-
-しないこと: push / マージ / 衝突の解決。push は `pnpm push` (レビューゲートを通す)、マージは commitment 点なので人間の明示操作 ([ADR-028](adr/adr-028-pnpm-create-pr-gate.md))。衝突時は「台帳削除コミットを捨てて `cli-ledger-cleanup --apply` で再導出する」手順を出力して止まる — 削除は順位で引くため最新の master に対していつでも作り直せる。
-
-**実行後は作業コピーが対象ブランチへ移る** (検証がブランチの状態を見るため)。元へ戻すには `jj edit <元の commit>`。
-
 ## LLM を含む自動化経路は実走でしか検証できない (ADR-067)
 
 LLM を step に含む workflow / パイプラインを**新規に組んだとき、および既存経路の LLM step を追加・変更したとき**は、**静的検査の通過を完了条件にしない**。実走スモークを必須の受け入れ基準として設計する。本 convention の由来となった 3 件はいずれも**既存 workflow への変更**であり、新規作成に限った規約では取りこぼす:
@@ -236,17 +218,3 @@ config が未指定のときに code default へ解決される (`config.foo.unw
 
 **一般則**: LLM への指示は「届けば守られる」ものではない。**守らせる層と保証する層を分け、契約は決定論的に確認できる 1 点に置く。** これは [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) のルール vs 仕組みの境界を、出力言語という別クラスの対象へ適用した例である。同じ構図で失敗したのが昇格候補の全件判定 (指示文で強制して 2 週連続で失敗し、決定論 exe へ移した) であり、**指示文で保証しようとすると必ず同じ壁に当たる**。
 
-## 台帳の `照合除外:` マーカー (理由必須・fail-closed)
-
-**機械化**: [`lib-ledger`](../src/lib-ledger/src/deployed_ledger.rs) の `parse_review_exclusions` が push 時と CI で実台帳 (`docs/claude-code-web-tasks.md`) を毎回 parse し、書式を外した除外を `Err` にする。本節は**その機械が既に強制している内容の説明**であり、人間に新しい義務を課すものではない。
-
-実台帳の各行は「宣言した成果物が実在するか」の照合を受ける。**成果物ではない識別子** (例: lint rule の検出対象そのもの) を宣言に含めたい場合だけ、注意欄に除外を書く。
-
-- **書式**: `照合除外: ` + バッククォート引用の識別子 + `（理由）`。理由の括弧は**全角丸括弧**
-- **理由は必須**。空・括弧なしは `Err` で落ちる — 理由の無い除外は「なぜ通しているか分からない穴」になり、そこだけ無検査の経路が残る
-- **置き場は台帳の行**であってテスト側の allowlist ではない。**行を削除すれば除外も一緒に消える**ためで、allowlist に置くと行が消えた後も除外だけが残って腐る
-- 1 行に複数書ける (マーカーごとに識別子 1 個 + 理由 1 個)
-
-実例は順位 281 の行 — 注意欄に ``照合除外: `current_dir`（lint rule が検出する対象であって本タスクの成果物ではないため、宣言先に実在しなくてよい）`` と書いてある。
-
-**由来** (Phase 0 の PR W = 順位 491、[defect-convergence-plan.md](defect-convergence-plan.md) § Phase F の F6): 実台帳の実体整合検査を入れた際、検出対象として書いた識別子が「実在しない成果物」として落ちた。除外の仕組みを作るなら理由を必須にする、という判断を検査側に埋め込んである。

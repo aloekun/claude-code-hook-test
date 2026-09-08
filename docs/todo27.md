@@ -59,29 +59,6 @@
 
 ---
 
-### 順位 354: todo ファイル削除・更新時のチェックリストを dev-conventions.md に追加
-
-> **動機**: PR #332 で todo16.md の複数セクション削除時に lint:md を 3 回以上再実行する非効率を観測した。todo ファイルの段階的削除と都度 lint:md 実行の手順が明文化されておらず、削除漏れ・lint 崩れ・summary 行との不整合が起きやすい。#332 post-merge feedback Tier3 #8 で採用。専用スクリプト化 (#332 Tier2 #1) は ADR-033 効果待ちで様子見だが、チェックリスト明記自体は Effort XS の無リスク即応策として独立採用可能。
->
-> **対処案**: `docs/dev-conventions.md` に「todo ファイルの削除・更新時は (1) 詳細エントリ (todoNN.md) と summary 行 (**該当順位を収める `docs/todo-summary*.md` の part** (順位 219 以前 / 220-399 / 400 以降の 3 分割)。順位 220 未満は前者) を対で更新、(2) 段階的に削除し都度 lint:md で整合確認、(3) 削除する順位を指す本文参照を残さない ([ADR-033](adr/adr-033-todo-numbering-simplification.md) § アンチパターン)」のチェックリストを追加する。
->
-> **2026-08-16 更新**: 当初の対処案 (3) は「順位番号を本文に書かない」だったが、[ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 が本文参照の禁止を緩和したため、**削除済み順位への参照を残さない**へ置き換えた。相補関係にあった順位番号 lint rule のタスクは同日 retire している。
->
-> **参照**: `.claude/feedback-reports/332.md` Tier3 #8、`docs/dev-conventions.md`、[ADR-033](adr/adr-033-todo-numbering-simplification.md)。
->
-> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に todo ファイル削除・更新チェックリストを追加 (詳細/summary の対更新・段階削除+都度 lint:md・削除済み順位への本文参照を残さない)
-- [ ] 本エントリ削除 + 該当順位を収める summary index (`docs/todo-summary*.md` の該当 part) の行削除
-
-#### 完了基準
-
-- todo ファイルの削除・更新時に段階削除と整合確認の手順が checklist 化され、削除漏れ・lint 崩れ・summary 不整合が防止されること。
-
----
-
 ### 順位 357: CLAUDE.md の ADR index ステータスタグと ADR 本体ステータスの整合チェックを追加
 
 > **動機**: PR #340 で CLAUDE.md の ADR-047 index タグが `*(試験運用)*` のまま、ADR-047 本体のステータス「却下 (2026-07-19 確定)」と乖離して残存していることを、pre-push simplicity review と post-merge 分析が独立に指摘した (実害継続を Read で確認済み)。index タグと本体ステータスの整合は手動更新に依存しており、ステータス遷移 (試験運用 → 採用/却下) のたびに再発しうる。#340 post-merge feedback Tier1 #1 で採用。
@@ -128,13 +105,13 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` へ 10 件を追記 (既存 convention の書式に合わせる)
+- [ ] **10 件のうち #7 (`paths:` フィルタ付き required check が skip=pending で PR を永久ブロックする GitHub gotcha、Severity High) のみ ADR 化**し、残り 9 件は落とす (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] `push-runner-config.toml` へ #1 対応の inline comment を追加
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- 10 件すべてが dev-conventions.md (+ inline comment 1 箇所) に反映され、`pnpm lint:docs` / markdownlint が clean であること。
+- #7 (`paths:` フィルタ付き required check の GitHub gotcha) が ADR に記録され、残り 9 件を落とした判断が本エントリの履歴から追えること。
 
 ---
 
@@ -175,7 +152,7 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` へ「出力面ごとの screening」節を追加する (囲いの有無から必要処理を導く判断手順)
+- [ ] 「出力面ごとの screening」の判断手順 (囲いの有無から必要処理を導く) も **ADR-054 へ同時に書く** (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] ADR-054 へ output surface × wrapping context の対応表を追記する
 - [ ] 既存の出力面 (PR 本文 / step ログ / PR タイトル / marker 本文) を棚卸しし、表の初期値を埋める
 

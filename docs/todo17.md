@@ -21,7 +21,7 @@
 
 #### 作業計画
 
-- [ ] **(a) 前提の是正**: 現行プラン (Pro) と adaptive limit の実態を調査し (`docs/dev-conventions.md` 順位 262 のチェックリストを適用)、`.coderabbit.yaml` 冒頭と ADR-019 § WP-03 の根拠記述を実態に合わせて更新する。**「無料枠 3〜4 レビュー/時」を前提にした設計判断が今も妥当かを再評価する** (adaptive limit なら「PR あたりの削減」より「PR 投入ペース」の方が支配的な可能性)。
+- [ ] **(a) 前提の是正**: 現行プラン (Pro) と adaptive limit の実態を調査し (順位 262 の外部 SaaS 制限調査チェックリストを適用)、`.coderabbit.yaml` 冒頭と ADR-019 § WP-03 の根拠記述を実態に合わせて更新する。**「無料枠 3〜4 レビュー/時」を前提にした設計判断が今も妥当かを再評価する** (adaptive limit なら「PR あたりの削減」より「PR 投入ペース」の方が支配的な可能性)。
 - [ ] **(b) 欠落穴の仕組み化を検討**: 手動 push 後の `@coderabbitai review` 投稿は現状「規約」。ADR-042 の境界基準で仕組み化の是非を判定する。候補: push-runner の push stage 後に「CR 再トリガーが必要」を**警告表示**する (助言層 / fail-open)、または `head_already_reviewed()` を使って未レビュー head を検出し警告する (`review_trigger.rs` に既存の照会ロジックあり)。**自動投稿はレート枠を消費するため慎重に** — ADR-019 § 同一 HEAD への再投稿はレート枠の無駄 と整合させること。
 - [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
@@ -76,54 +76,12 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に上記 3 項目のチェックリストを追加 (WP-06/07/08 の既存 checklist と同形式)。
+- [ ] 上記 3 項目を **cli-docs-lint の検査として実装**する — ② (中間コミットで壊れる参照) は既存 cross_ref の隣、①③ (ADR status の同期) は新規 validator (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)。
 - [ ] 本エントリ削除 + todo-summary2.md 行削除。
 
 #### 完了基準
 
-- 多段コミットで ADR/observability doc を更新する運用者が、status 同期・plain-text 参照・セクション同期の 3 点を dev-conventions のチェックリストで確認できること。
-
----
-
-### 順位 329: 新規 ADR 起案時の「判断根拠 × 既存 ADR 定義」矛盾チェックリストを追加 (#301 post-merge feedback 採用)
-
-> **動機**: PR-N3 (#301) で、ADR-055 初版が**自ら定義した `decision` 軸 (block/warn = 発火の重み)** と矛盾する除外根拠 (「nudge は block/warn に乗らない」) を採用しており、本 PR で Amendment を追加して除外根拠を撤回する手戻りが発生した。ADR は既に 59 件超を相互参照しており、新規 ADR が既存 ADR の定義・原則と衝突する見落としは他 ADR でも再発しうる。#301 の post-merge feedback が採用候補と判定 (Severity Medium / Frequency Medium / Effort S / Adoption Risk None)。
->
-> **対処案**: `CLAUDE.md` または `docs/dev-conventions.md` に「新規 ADR 起案時のチェックリスト」を追加する。項目案: ① ADR が用いる用語・軸 (例 `decision` = 発火の重み) が**既存 ADR の定義と衝突していないか**、② 除外/非除外・採用/却下などの判断根拠が、参照先 ADR が既に定義した原則から**演繹的に導けるか** (別解釈を新設していないか)、③ 衝突が**新規 ADR 初版の誤り**由来なら起案時に初版で解消する。ただし既存 ADR が陳腐化した等で**方針を意図的に変更・supersede する**正当なケースは別扱いとし、Amendment / superseding ADR による明示的更新を妨げない (「初版の誤り」と「既存方針の意図的変更」を区別する項目を設ける)。#327 (多段コミットの ADR/observability 更新チェックリスト) と対をなす doc-only 対処で、同セクションにまとめると発見性が良い。
->
-> **参照**: `.claude/feedback-reports/301.md` Tier3 #1、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (§計装スコープ の `decision` 軸定義と Amendment (2026-07-19) の除外根拠撤回)、`docs/dev-conventions.md`、#327 (関連 checklist)。
->
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S (doc checklist のみ、機械化はしない。ADR 相互参照数が多く同型見落としが再発しうるが、実害は各 PR review/feedback で捕捉できているため機械化は再発観測後にエスカレーション)。
-
-#### 作業計画
-
-- [ ] `CLAUDE.md` または `docs/dev-conventions.md` に上記 3 項目のチェックリストを追加 (#327 と同セクションにまとめる)。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 新規 ADR 起案者が、用語・軸の既存 ADR 定義との整合と判断根拠の演繹可能性をチェックリストで確認でき、ADR-055 型の初版自己矛盾 → Amendment 撤回の手戻りを防げること。
-
----
-
-### 順位 330: 「行動要求 nudge は 2 チャネル返却」+「多義的戻り値は struct 化」convention の明文化 (#299 post-merge feedback 採用)
-
-> **動機**: PR-N1 (#299) で、ユーザー行動を要求する nudge (weekly reminder) を `additionalContext` (モデル向け) だけでなく `systemMessage` (ユーザー向け) の 2 チャネルで返す設計 ([ADR-059](adr/adr-059-hook-system-message-visibility.md)) を確立し、その過程で `compute_weekly_review_reminder_nudge` の戻り値を「additional_context + system_message」の struct (`WeeklyReviewNudge`) に変更した。ADR-059 の第2弾展開 (PR monitor catch-up / post-merge recovery / failed marker) で同型パターンの再利用が見込まれる。weekly reminder が 4 週間気付かれなかった実害 (Severity Medium) の再発防止として設計原則を明文化する。#299 の post-merge feedback が採用候補と判定 (Effort XS / Adoption Risk None)。
->
-> **対処案**: `docs/dev-conventions.md` に 2 点を追記する。① **ユーザーの行動を要求する nudge は systemMessage (ユーザー可視) と additionalContext (モデル可視) の 2 チャネルで返す** (ADR-059 の可視化チャネル分離)、② **戻り値が複数の意味役割を持つ場合は tuple/多値 flag ではなく struct 化して役割を命名する** (`WeeklyReviewNudge { additional_context, system_message }` の先例)。
->
-> **参照**: `.claude/feedback-reports/299.md` Tier3 #1、[ADR-059](adr/adr-059-hook-system-message-visibility.md)、`src/hooks-session-start/src/weekly_review.rs` (`WeeklyReviewNudge`)、`docs/dev-conventions.md`。
->
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort XS (dev-conventions への 1 節追記のみ、ADR-059 第2弾展開で再利用見込み)。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に上記 2 点の convention を追記。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 行動要求 nudge を実装する運用者が、2 チャネル返却と多義的戻り値の struct 化を dev-conventions で確認できること。
+- 多段コミットで ADR/observability doc を更新したとき、status 同期・中間コミットで壊れる参照・セクション同期の 3 点のずれが `pnpm lint:docs` で検出されること。
 
 ---
 

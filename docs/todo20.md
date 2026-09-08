@@ -12,35 +12,6 @@
 
 > WP-17 段 2 完了時に 7 レポート (#350/#351/#352/#353/#354/#356/#357) の採用候補 24 件を棚卸しし、採用 19 件を **実装時の PR 粒度**で 8 エントリへまとめたもの。却下 5 件は下記「却下した候補」を参照。
 
-### 順位 365: dev-conventions 集中バッチ — post-merge feedback の convention 8 件
-
-> **動機**: #350〜#357 の 7 レポートが独立に提案した convention 追記のうち、採用と判断した 8 件。いずれも docs のみの変更で相互依存が無く、1 PR にまとめた方がレビュー・採番のコストが下がる (ADR-035 docs-only PR 評価ポリシー、[[batch-doc-prs-for-iteration-speed]] のバッチ方針)。
->
-> **対処案**: `docs/dev-conventions.md` に以下を追記する。順位は追って採番。
->
-> 1. **ライブラリ crate 抽出前の pre-check チェックリスト** (#351) — ADR 引用の実在確認 / 2+ caller 確認 / 責務共有確認 / workspace Cargo.toml 一括更新。ADR-024 / ADR-044 が示す抽出基準を着手前チェックへ落とす
-> 2. **ADR 引用時の実装適用確認** (#352) — 新規 ADR を引用する際はその ADR が既に実装へ適用済みか codebase で確認する。仮定・計画段階の ADR の引用は禁止
-> 3. **fail-close path を持つ関数には理由を doc comment に明記** (#353) — `finalize_posted_retrigger` (fail-close) と `finalize_waiting_reset` / `finalize_pending_review` (fail-open) の非対称設計が読み取れなかった実例に対応
-> 4. **大規模機能削除コミット時の同時更新** (#353) — 関連 ADR・ハーネス計画・テンプレート example の検証残を同一 PR で更新する (ADR cross-reference 整合チェック込み)
-> 5. **ADR の trigger/scope 再定義時の同期** (#354) — ある ADR が他 ADR の trigger/scope を再定義したら、旧 ADR 本文の該当セクションと関連 struct doc comment を同一 PR 内で同期する
-> 6. **`gh api --paginate --slurp` → 外部 `jq` パイプ** (#356) — 正しいパターンと `--jq` 併用不可の理由 (`the --slurp option is not supported with --jq or --template`) を明記
-> 7. **LLM workflow の output-contract は 2 層で保証** (#357) — 指示層 (prompt) だけに委ねず仕組み層 (決定論的な後処理) を必ず置く。**2026-08-04 に land 済の「LLM を含む自動化経路は実走でしか検証できない」convention と統合できるか検討してから書く** (重複記述を作らない)
-> 8. **外部 SaaS API の状態判定を指示層に書く際の実測確認** (#357) — exe 実装と現在の戻り値を実測してから指示を書く、をチェックリスト化
->
-> **参照**: `.claude/feedback-reports/{351,352,353,354,356,357}.md` の Tier 3 節、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — これらは全て「ルール」側なので機械 lint 化しない判断込み)。
->
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (docs-only)。
-
-#### 作業計画
-
-- [ ] 8 件を `docs/dev-conventions.md` へ追記 (7 は既存 convention との統合可否を先に判断)
-- [ ] CLAUDE.md の dev-conventions 行に主要項目を追記
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 8 件がいずれも「由来 (どの PR のどの指摘か)」付きで dev-conventions.md に存在すること。7 が既存 convention と重複記述になっていないこと。
-
 ### 順位 366: `gh api` 誤用を防ぐ custom lint rule 2 件
 
 > **動機**: WP-17 段 2 の実走で `gh api` の誤用が 2 回連続で本番経路を止めた。(a) `--slurp` と `--jq` の併用不可 (#356、Phase B が findings 取得直前で停止)、(b) list-endpoint での `--paginate` 欠落 (#352、30 件超で silent に欠落)。どちらも **pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過**しており、レビューでは止まらないことが実証済み。ADR-042 の「ルールでなく仕組みで守る」に該当する。
@@ -248,7 +219,7 @@
 |---|---|---|
 | #350 Tier 1 #1 | Parser fixture の OBSERVED / ESTIMATED マーカー必須化 (custom lint rule) | ルール寄りで効果が不確実。自由記述コメントの regex マッチは false positive が読めない。同 PR の Tier 2 #2 (provenance コメントの手動付与) で実質同じ効果が得られ、そちらは採用済み (順位 367) |
 | #350 Tier 2 #3 | 複数モジュールのパーサ挙動一貫性 integration test | 対象モジュール間で入力の意味が異なり (push-runner は diff summary、lib-docs-policy は path 判定)、「一貫している」の定義自体が曖昧。順位 367 の fixture 固定で個別に守る |
-| #350 Tier 3 #1 | Parser が外部ツール出力に依存する場合の契約明文化 ADR | 順位 365 の convention 2 (ADR 引用時の実装適用確認) および順位 367 の provenance と重複。ADR を新規起票するほどの独立性が無い |
+| #350 Tier 3 #1 | Parser が外部ツール出力に依存する場合の契約明文化 ADR | ~~順位 365 の convention 2~~ (2026-09-08 に却下・削除。ADR 引用時の実装適用確認) および順位 367 の provenance と重複。ADR を新規起票するほどの独立性が無い |
 | #352 Tier 2 #1 | pagination / jq 集約ロジックのフィクスチャテスト | 順位 366 の custom lint rule 2 件と守備範囲が重なる。lint で誤用を止める方が実行時テストより早く安く効く |
 | #356 Tier 1 #2 | Phase B smoke の CI schedule 定期実行 | agent 2 run 分の Max 枠を定期的に消費し続ける一方、検知対象 (外部 CLI の互換性変化) の発生頻度が低い。ROI が見合わない。ADR-067 の bounded lifetime 観測 (3〜5 run) で実運用の発火実績を見てから再検討する |
 
@@ -328,15 +299,13 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` にチェックリストを 1 本追記 (4 項目、由来 PR 付き)
-- [ ] CLAUDE.md の dev-conventions 行に主要項目を追記
-- [ ] 既存 convention (「LLM を含む自動化経路は実走でしか検証できない」等) と重複記述にならないか確認
+- [ ] **項目 2 のみ仕組み化する** — `check-ci` の finding 出力に本文全体 (スコープ語を含む) を載せ、summary で切れないようにする。残り 4 項目 (fix step 後の文書確認 / 検査との衝突 / 技術的前提の検証 / narrow 修正の隣接穴) は落とす — 5 は順位 514 が扱う (2026-09-08 に出口を再設計)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- 4 項目がいずれも「由来 (どの PR のどの指摘か)」付きで dev-conventions.md に存在すること。
-- 既存 convention との重複記述が無いこと。
+- 項目 2 (finding 本文のスコープが summary で切れる) が `check-ci` の出力で機械的に解消されていること。
+- 残り 4 項目を落とした判断が本エントリから追えること (項目 5 は順位 514 が扱う)。
 
 
 ### 順位 377: 夜間ループの防御を検知から防止へ格上げする判断

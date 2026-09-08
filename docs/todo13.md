@@ -339,13 +339,13 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 #### 作業計画
 
 - [ ] `pub(crate)` (cross-module 共有) / module-private / `pub` (library API のみ) の判断チェックリストを具体例付きで作成
-- [ ] 恒久配置先を決定 (coding-style.md / CLAUDE.md、現暫定 = dev-conventions.md § Rust ファイル分割の制約条件)
+- [ ] **チェックリストではなく lint で強制する** — rustc の `unreachable_pub` を workspace で有効化し、`pub` が crate 外へ届かない箇所を機械検出する (2026-09-08 に出口を再設計。未設定であることを確認済み)
 - [ ] 順位 241 との重複を統合 (bundle 検討)
 - [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- module split 時に visibility scoping を迷わず判断できるチェックリストが恒久 doc に存在する。
+- `unreachable_pub` が workspace で有効になり、crate 外へ届かない `pub` が機械検出されること。
 
 ---
 

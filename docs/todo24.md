@@ -105,9 +105,9 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - [ ] A-1 (preamble pointer 整合) を実装 + fixture テスト
 - [ ] B-1 (免除リスト ⇄ workflow condition) を実装 + fixture テスト
 - [ ] B-2 (テンプレート分岐の見出し一致) を実装
-- [ ] B-3 (最終レポートの言語検査) を実装 — 実装後、`docs/dev-conventions.md` の「best-effort であり検査は無い」旨の記述を更新する
+- [ ] B-3 (最終レポートの言語検査) を実装 — 実装後、`docs/dev-conventions.md` § takt facet の出力言語 の「best-effort であり検査は無い」旨の記述を**撤去する** (仕組みができたらルールは撤去する、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))
 - [ ] 既存違反 0 を確認して有効化する
-- [ ] A-3 として範囲記法の展開規則を `docs/dev-conventions.md` に明記する
+- [ ] A-3 (範囲記法の展開規則) は A-1 の実装コードとテストに閉じる (2026-09-08: dev-conventions.md への明記は行わない)
 
 #### 完了基準
 
@@ -130,19 +130,19 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 #### 設計決定 (案)
 
-- **C-1 出力の visible paths チェックリスト** (`docs/dev-conventions.md`): stdout / stderr / exit code / ファイル / ログ のそれぞれについて「誰が読むか」「誰が捨てるか」を実装前に確認する。呼び手が stdout をリダイレクトする経路では、診断は stderr へ出す
-- **C-2 fixture と実データの対**  (`docs/dev-conventions.md`): parser / validator を実装したら、fixture テストに加えて**実 exe を実ファイルに当てる**。fixture は実データの癖を代表しないことがある (実例: 順位 table 途中の空行)
+- ~~**C-1 出力の visible paths チェックリスト** (`docs/dev-conventions.md`)~~ **(2026-09-08 に却下)** — 実害が 1 件で機械化もできないため落とす
+- ~~**C-2 fixture と実データの対** (`docs/dev-conventions.md`)~~ **(2026-09-08 に順位 514 へ統合)** — パーサ堅牢化を仕組みで担保できるかの検討に含めた
 - **E-1 step outcome の組み合わせ** (ADR-072 へ追記): `skipped` は `success` ではない。上流が失敗して下流が skip された場合と、下流自身が deny した場合を条件式で区別する。現状は `nightly-todo.yml` のコードコメントに埋没している
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に C-1 / C-2 を追記 (由来つき)
+- [ ] C-1 (出力の visible paths) は落とす。C-2 (fixture と実データの対) は順位 514 へ統合済み (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] ADR-072 に E-1 を追記 (決定 19 の実装節が適切)
 - [ ] `pnpm lint:docs` + markdownlint clean
 
 #### 完了基準
 
-- 3 件とも恒久文書に記録され、コードコメントにしか無い状態が解消している
+- E-1 (`skipped` は `success` ではない) が ADR-072 に記録され、コードコメントにしか無い状態が解消している。C-1 は却下、C-2 は順位 514 へ統合した。
 
 #### 詰まっている箇所
 
