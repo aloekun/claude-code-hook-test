@@ -83,7 +83,9 @@
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)、takt facet の出力言語は各 instruction に直書きする、GitHub Actions の `run:` は常に `-e` 付きで起動する (順位 319)、台帳の `照合除外:` マーカー (理由必須・fail-closed)、夜間 PR のリベースは `pnpm rebase-nightly` で行う (ADR-072 決定 21)
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)、takt facet の出力言語は各 instruction に直書きする、GitHub Actions の `run:` は常に `-e` 付きで起動する (順位 319)
+
+> **本ファイルは縮小方向で運用する。** 決定事項は ADR、それ以外は仕組みで担保し、**新規の convention は追加しない**。仕組みができた項目は撤去する ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。撤去の進め方は順位 515。2026-09-08 に「夜間 PR のリベース」(`scripts/rebase-nightly-pr.mjs` が持つ) と「台帳の `照合除外:` マーカー」(`lib-ledger` が fail-closed で検査) の 2 節を撤去した。
 
 ## Build
 

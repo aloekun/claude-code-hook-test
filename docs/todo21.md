@@ -61,28 +61,6 @@
 
 - 定数とリテラルが不一致になる変更が入るとテストが落ちること。
 
-### 順位 391: jj の落とし穴 (squash の方向・空コミットでの bookmark ずれ) を dev-conventions へ
-
-> **動機**: 本セッション (#364〜#371) で jj 運用の落とし穴を繰り返し踏んだ。(a) `jj squash --into <bookmark>` の方向が直感と逆で、ターゲットが description なしの新コミットへ移動する / (b) `jj bookmark set` の後退拒否と `jj abandon` による bookmark 消失・復旧 / (c) `jj new master` を「コミット確定」のつもりで実行して変更を前コミットに取り残す。いずれも復旧に op log 参照が要った。memory には別の jj squash gotcha (headless editor hang) が既に記録済みで、jj 運用の落とし穴は systemic に再発している。
->
-> **対処案**: [dev-conventions.md](dev-conventions.md) に「jj 運用の落とし穴と復旧」チェックリストを 1 本追加する。**コミット確定は `jj describe` + `jj bookmark set/create`、`jj new` は新しい作業を始めるときだけ**、`jj squash` は方向を確認、bookmark がずれたら `jj edit <bookmark>` で戻す、を明文化。順位 386 (空コミットでの bookmark ずれ) の機構側対処とは別に、運用ルール側で人間 / agent を守る。
->
-> **参照**: `.claude/feedback-reports/369.md` Tier 3 #1、memory `jj-squash-editor-hang-headless` / `jj-concurrent-session-op-divergence`、順位 386 (機構側対処)、[ADR-021](adr/adr-021-jj-change-detection-principles.md)。
->
-> **実行優先度**: Tier 3 — Severity Medium (作業の取り残し・bookmark 消失。ただし loud で復旧可) / Frequency High (本セッションで複数回) / Effort S / Adoption Risk None (docs-only)。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に「jj 運用の落とし穴と復旧」チェックリストを追記 (由来セッション付き)
-- [ ] 既存 memory (squash hang / op divergence) と重複せず補完する形にする
-- [ ] **操作例は再現可能な最小の初期状態つきで書く** (#372 CodeRabbit 指摘)。`jj squash --into` / `jj new master` の結果は jj バージョン・git リモートの有無・コミットグラフ・bookmark 位置・ワークツリー状態に依存するため、「@ が bookmark より N 段先の空コミットにある」等、読者が実際に再現・検証できる前提条件を明記する。断定形の「必ずこうなる」ではなく前提つきで書く
-
-#### 完了基準
-
-- コミット確定・squash 方向・bookmark ずれ復旧の 3 点が、**再現可能な初期状態つきで**根拠を添えて dev-conventions に存在すること。
-
----
-
 ## WP-18 失敗頻度分析の follow-up (2026-08-09 登録)
 
 ### 順位 392: push パイプラインの terminal outcome を telemetry へ記録し、失敗回数・原因を機械集計可能にする
@@ -131,29 +109,6 @@
 > - **系統 D (workflow セキュリティ標準化)** / **系統 E (PAT 失効監視)** — 様子見。有用だが緊急性が低い。
 > - **trunk 保護の drift 対処 2 件** (`cli-push-runner` と `cli-stale-branch-scan` の `effective_default_branch()` クロスクレート一致テスト / `lib-config` 抽出) — **却下 (2026-08-10 ユーザー判断)**。pre-push review と post-merge feedback の双方が独立に指摘した Severity High の項目だが、(1) 予防側は順位 405 (新規 crate 実装時の重複確認) で押さえた、(2) 共有 lib 化は `cli-stale-branch-scan` の意図的な network isolation 設計 ([ADR-031](adr/adr-031-weekly-review-pipeline.md)) と抵触しうる、の 2 点から見送る。**再採用条件: 同型の drift が今後も再発する場合**。
 
-### 順位 402: 系統 A-1: 「対処後は効果を観測するまで完了と見なさない」を明文化する
-
-> **動機**: 本セッションで**同じ誤りを 2 回**踏んだ。[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 は `@coderabbitai review` の投稿が成功したことだけを見て、**相手が反応していない事実に 10 時間気づけなかった**。決定 15 は draft を廃止した後に**同じ症状が続くかを確かめる前**に「解決した」と記録し、原因が別 (author が bot) だと後から判明した。
->
-> **問題の型**: 「対処を実施した」と「対処が効いた」を同一視している。助言層を fail-open にすること自体は [ADR-043](adr/adr-043-security-gates-fail-closed.md) に沿って正しいが、**fail-open は効果の観測を別に用意して初めて成立する**。
->
-> **対処案**: `docs/dev-conventions.md` に「対処の完了条件は**対処後の観測**である」旨を追記する。最低限含める点: (1) 症状ベースの問題では対処後に同じ症状が消えたことを確認するまで完了としない、(2) 外部サービス依存の対処は「送った」ではなく「相手が反応した」を観測する、(3) 観測できない対処は完了扱いにせず未確定として記録する。
->
-> **既に機構化された部分**: `.github/workflows/review-request.yml` は投稿後に CodeRabbit の反応を待ち、無ければ red で落とす (決定 16)。本エントリはこれを**一般則として言語化**するもの。
->
-> **参照**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 (撤回) / 決定 15 (前提の訂正) / 決定 16、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (本件は判断を伴うため rule 側)。
->
-> **実行優先度**: Tier 1 — Severity High (誤った「解決済み」記録が次の判断を汚染する) / Frequency Medium (本セッションだけで 2 回) / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に節を追加し、上記 3 点を具体例 (決定 11 / 決定 15) 付きで書く
-- [ ] 既存の「LLM を含む自動化経路は実走でしか検証できない」節との重複を整理する
-
-#### 完了基準
-
-- 「対処したが効果を確認していない」状態を完了と記録してよいか、convention から判断できること。
-
 ### 順位 403: 系統 A-2: AI レビューが出す数値・仕様の主張は仮説として扱い実測で二重検証する
 
 > **動機**: 2026-08-10 に CodeRabbit が「`3 × 15 × 4 × 2` は 360 なので 216 は誤り」と指摘した。**観察は正しかったが提示された数値も誤り**で、実際に列挙を数えると **384** だった (外部フラグは `None` + 7 + 8 = 16 通りで、因数の 15 も誤っていた)。指摘をそのまま採用していれば誤った数値を land させていた。
@@ -191,12 +146,12 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に timeout 必須の旨を追記する
+- [ ] **custom lint で強制する** — 外部コマンドを spawn して `lib_subprocess::wait_with_timeout_*` を通さない箇所を検出する (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] 既存の外部待ち経路を棚卸しし、timeout 不在の箇所を列挙する (対処は別エントリでもよい)
 
 #### 完了基準
 
-- 新規に外部サービスを待つコードを書くとき、timeout の要否と失敗時の扱いが convention から決まること。
+- 外部コマンドを spawn して `lib_subprocess::wait_with_timeout_*` を通していない箇所が、lint で検出されること。
 
 ### 順位 405: 系統 B-1: 新規 crate / exe 実装時に既存同種コンポーネントとの重複を確認する
 
@@ -218,27 +173,6 @@
 #### 完了基準
 
 - 新規 crate を作るとき、既存重複の確認とミラー宣言が手順として踏まれること。
-
-### 順位 406: 系統 B-2: 旧 API 廃止時に enum / config key / CLI flag の 3 形態すべての reject をテストで固定する
-
-> **動機**: `draft-pr` から `autonomous-pr` への改名で、`Operation::parse` と config キーの旧名 reject は unit test で固定したが、**CLI フラグの旧名だけが exe drill 確認どまり**で test suite に入っていなかった。CodeRabbit 指摘で追加した (PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376))。
->
-> **問題の型**: 1 つの概念が **enum variant / config key / CLI flag** の 3 形態で表に出る設計では、改名時に**どれか 1 つが漏れる**。漏れた形態が「別名として通る」と fail-open になる。
->
-> **対処案**: `docs/dev-conventions.md` に「旧 API 廃止時は 3 形態すべての reject をテストで固定する」チェックリストを追加する。本リポジトリでは rename が頻出 (ADR 一覧に rename 系決定が多数)。
->
-> **参照**: [ADR-071](adr/adr-071-draft-pr-backpressure.md) の unit test 節 (3 形態の reject を固定した実例)、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376)。
->
-> **実行優先度**: Tier 2 — Severity Medium (改名漏れが fail-open になる) / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` へチェックリストを追加する
-- [ ] 順位 407 (旧語彙 lint) と役割分担を明確にする (lint = live code の検出、本エントリ = reject のテスト固定)
-
-#### 完了基準
-
-- 改名 PR で 3 形態の reject テストが揃っていることをレビューで確認できること。
 
 ### 順位 407: 系統 B-3: 旧語彙が live code に出現したら reject するカスタムリントルール
 
@@ -279,7 +213,7 @@
 #### 作業計画
 
 - [ ] ADR-043 へ追記する (実例と、なぜ症状が出ずに潜伏するかを含める)
-- [ ] `docs/dev-conventions.md` へ shell や awk での config パース時の注意を書く
+- [ ] shell や awk での config パース時の注意も **ADR-043 へ同時に書く** (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 
 #### 完了基準
 

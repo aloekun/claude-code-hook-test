@@ -44,35 +44,14 @@
 
 #### 作業計画
 
-- [ ] docs/dev-conventions.md に jj bookmark / workspace の `@` semantics (並行操作での位置変化・shared store 挙動) を状態図形式で整理 (#336 Tier3-2 + #337 Tier3-3)
+- [ ] 文書化は行わない (2026-09-08 に出口を再設計)。`@` semantics の知識は memory (`pr-monitor-bookmark-detection-pitfalls` / `parallel-workspace-shared-store-changes-under-you`) と [ADR-021](adr/adr-021-jj-change-detection-principles.md) が既に持つ
 - [ ] cli-pr-monitor: stacked commit + 複数層 bookmark 時の PR 検出限界を regression test で固定化 (既知の false negative を明示記録、検出改善はスコープ外) (#336 Tier2-2 + #338 Tier2-1)
 
 #### 完了基準
 
-- jj bookmark semantics が dev-conventions.md に構造化され、pr-monitor の stacked-commit 検出挙動が回帰テストで固定されること。
+- pr-monitor の stacked-commit 検出挙動が回帰テストで固定されていること (jj bookmark semantics の文書化は 2026-09-08 に対象から外した — memory と ADR-021 が持つ)。
 
 ---
-
-### 順位 436: 開発ワークフロー規約の補強 (polling 禁止 / CodeRabbit→ADR timing)
-
-> **動機**: `polling-anti-pattern` hook は稼働中だが dev-conventions.md に [ADR-016](adr/adr-016-long-running-command-strategy.md) / [ADR-018](adr/adr-018-pr-monitor-takt-migration.md) への導線が無く、本セッションでも block 後に手探りで代替パターンを発見した。また PR #338 で「設計決定 4 の ADR 未記載」を merge 直前の simplicity reviewer 監査で発見し E commit で急遽補足した (類似事象 #336 / #338)。外部レビュー指摘対応の ADR 反映タイミング規約が無い。
->
-> **対処案**: dev-conventions.md / CLAUDE.md への軽量な規約・導線追加 (仕組みは既存の hook が担い、本エントリは導線と timing 規約のみ、ADR-042 整合)。
->
-> **参照**: `.claude/feedback-reports/337.md` (Tier3 #4)、`.claude/feedback-reports/338.md` (Tier3 #4)、[ADR-016](adr/adr-016-long-running-command-strategy.md) / [ADR-018](adr/adr-018-pr-monitor-takt-migration.md)、`docs/dev-conventions.md`、`CLAUDE.md`。
->
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort XS〜S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] docs/dev-conventions.md に polling 禁止 + `run_in_background` 必須の規約を追加し ADR-016/018 への参照リンクを付与 (block 前の自己解決を促進) (#337 Tier3-4)
-- [ ] CLAUDE.md に「CodeRabbit 等の外部レビュー指摘への実装対応は、ADR への反映を完了させてから PR を merge する」timing 規約を追加 (#338 Tier3-4)
-
-#### 完了基準
-
-- polling 代替パターンへの導線が dev-conventions.md に整備され、外部レビュー指摘の ADR 反映タイミング規約が CLAUDE.md に明記されること。
----
-
 
 ### 順位 335: post-merge-feedback の transcript 分析を cli-merge-pipeline 生成の summary index に置換
 
@@ -234,50 +213,6 @@
 
 ---
 
-### 順位 344: 並行性バグの root cause 分析で推測を禁止し観測的再現を要求するルール追加
-
-> **動機**: #312 の当初 doc comment は「128-bit token 衝突」という現実的に発生しない条件で root cause を誤って説明していた (3 回推論を外した後、atomic 計装で実測確定して修正)。誤った分析のまま fix すると再発防止にならず Severity High。
->
-> **対処案**: `CLAUDE.md` または `docs/dev-conventions.md` に「並行性バグの root cause は推測 (could / might) でなく観測的再現 (race timeline / stress test failure / atomic 計装) で確定してから fix する」ルールを追加。pre-push gate 等の機械強制化は「推論か観測かの判定は semantic / NLP が必要 = 機械化不可」(ADR-042 Step1) に該当するため rule docs 化のみ (mechanism 化は見送り)。
->
-> **参照**: `.claude/feedback-reports/312.md` Tier3 #1、`src/lib-jj-helpers/src/pipeline_lock.rs` (実測確定後の doc)、`docs/dev-conventions.md`。
->
-> **実行優先度**: Tier 3 — Severity High (誤分析のまま fix = 再発防止にならない) / Frequency Low / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] 並行性バグの root cause は観測的再現を要求するルールを `CLAUDE.md` / `dev-conventions.md` に追加
-- [ ] #312 の「128-bit 衝突」誤説明 → atomic 計装での確定を実例として cite
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 並行性バグの修正が観測的再現に基づくことを convention が要求し、レビュアーが「推測ベースの root cause」を land 前に指摘できること。
-
----
-
-### 順位 346: pre-merge checklist に「Deferred Tests Completed」ブロッカー項目を追加
-
-> **動機**: PR #310 自体が workflow_dispatch スモークテスト等の検証を post-merge に defer しており、defer した検証の実施漏れリスクが実在する。PR #310 post-merge feedback Tier2 #2 で採用。
->
-> **対処案**: 配置先は `docs/dev-conventions.md` (CLAUDE.md から責務分離済みの既存運用 convention・チェックリスト集、順位261/262 と同型構成) に一本化する。新規ファイル `docs/pre-merge-checklist.md` の起こしは行わず、`CLAUDE.md` (ADR index 専用、チェックリストは非搭載方針) への直接追記も行わない。`docs/dev-conventions.md` に「Deferred Tests Completed」ブロッカー項目の見出しを新設し、defer した検証 (workflow_dispatch スモーク等) の実施をマージ前に確認する運用として位置付ける。
->
-> **参照**: `.claude/feedback-reports/310.md` Tier2 #2、[docs/todo17.md](todo17.md) の pr-monitor 重複ガード dogfood タスク (defer した workflow_dispatch 検証の追跡先)、`docs/dev-conventions.md` (配置先、既存チェックリスト集)。
->
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に「Deferred Tests Completed」ブロッカー項目の見出しを新設 (`pre-merge-checklist.md` の新規作成・`CLAUDE.md` への追記は行わない)
-- [ ] defer した検証 (workflow_dispatch スモーク、pr-monitor 重複ガード dogfood 等) を必須チェック項目として明示的に列挙し、完了基準と対応付ける
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- defer した検証がマージ前に checklist で可視化され、実施漏れが防止されること。
-
----
-
 ### 順位 348: CodeRabbit marker / GitHub event state の統合契約 doc + ADR-042 実例追記
 
 > **動機**: PR #310 の pre-push simplicity review が新 gate を「internally consistent」と評価した一方、marker format 変更時の無音失敗リスクが PR analysis で指摘された。CodeRabbit の marker 文字列 (summarize / rate-limited 等) と GitHub event state fields への依存が複数箇所に散在している。PR #310 post-merge feedback Tier3 #1 で採用。
@@ -364,28 +299,6 @@
 
 ---
 
-### 順位 352: フェーズ完了時の plan doc → ADR 転記照合チェックリストを dev-conventions.md に追加
-
-> **動機**: PR #333 (Phase 4) で計画文書 `docs/monthly-harness-roi-review-plan.md` の 3 user-decisions + 5 design-decisions (計 8 項目) + 検証観点を ADR-062 へ手動 transpose した際、プラン doc にしか無かった決定が漏れかけ、Phase 4 の照合で発見・補完した。本 repo は 60+ の ADR を Phase 1〜4 等の多段階で運用しており、plan→ADR 同期漏れは今後の phase-completion で再発が見込まれる。#333 post-merge feedback Tier3 #2 で採用。
->
-> **対処案**: `docs/dev-conventions.md` に「フェーズ完了 (plan doc 削除) 前に、計画文書の実装決定事項 (user-decisions / design-decisions / 実装上の決定) がすべて最終設計文書 (ADR) に転記済みかを 1 項目ずつ照合する」チェックリスト規約を追加する。lint 化は非現実的 (ADR ごとに記述形式が異なる) だが、既存の番号付きチェックリスト規約 (順位261/262/274 等) と同型で overhead 最小。
->
-> **参照**: `.claude/feedback-reports/333.md` Tier3 #2、`docs/dev-conventions.md` (既存チェックリスト集)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) (Phase 4 で本照合を実施した実例)。
->
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に plan→ADR 転記照合チェックリストを追加 (照合単位 = user-decisions / design-decisions / 実装上の決定、plan doc 削除前に全項目の ADR 記載を確認)
-- [ ] ADR-062 / Phase 4 を実例として cite
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- フェーズ完了 (plan doc 削除) 前に、plan doc の実装決定が ADR に漏れなく転記されているかを convention が要求し、レビュアーが参照できること。
-
----
-
 ### 順位 353: ADR amendment 時の「§ Amendment」節追加を dev-conventions.md のチェックリストに追加
 
 > **動機**: PR #332 で ADR-062 が ADR-053/055/061 を amend し、PR #333 でも ADR-053/061 への追記を手動で実施したが、被 amend 側 ADR への追記が都度アドホックに行われている。CLAUDE.md の ADR 索引には既に (Supersedes/Superseded by) 注記が多数あり、Amendment 明記の convention 化は低コストで一貫性向上に資する。#332 post-merge feedback Tier3 #2 で採用。
@@ -398,34 +311,13 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に ADR amendment 時の § Amendment 追加 + 双方向リンクのチェックリストを追加
+- [ ] **cli-docs-lint に検査を実装**する — ある ADR が他 ADR を amend/supersede すると書いたら、被 amend 側に § Amendment と逆リンクがあることを要求する (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] ADR-062 の amendment 群を実例として cite
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- ADR が他 ADR を amend する際、被 amend 側への § Amendment 追記漏れを convention で防げること。
-
----
-
-### 順位 355: 新規スキル作成チェックリストを dev-conventions.md に追加
-
-> **動機**: PR #332 で monthly-review skill を新規作成した際、weekly-review skill を都度参照して構造 (SKILL.md / evals.json / trigger_eval.json の 3 点セット、Phase 構成、deploy 前 sync check) を確認する手戻りを観測した。3 点セット要件を明記したチェックリストがあれば都度の参照往復を削減できる。#332 post-merge feedback Tier3 #9 で採用。
->
-> **対処案**: `docs/dev-conventions.md` (スキル開発 convention セクション) に「新規スキル作成時は (1) SKILL.md / evals.json / trigger_eval.json の 3 点セット、(2) Phase 構成、(3) deploy 前の /skill-sync-check、を満たす」チェックリストを追加する。
->
-> **参照**: `.claude/feedback-reports/332.md` Tier3 #9、`docs/dev-conventions.md`、skill-sync-check スキル、weekly-review / monthly-review skill (構造 template)。
->
-> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に新規スキル作成チェックリスト (3 点セット / Phase 構成 / deploy 前 sync check) を追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 新規スキル作成時に 3 点セット等の必須要素が checklist で確認でき、template skill への参照往復が削減されること。
+- ADR が他 ADR を amend/supersede すると書いたのに被 amend 側に § Amendment と逆リンクが無い状態を、`cli-docs-lint` が検出すること。
 
 ---
 
@@ -441,12 +333,12 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に Cross-File Reference Lifecycle の checklist を追加 (順位 261 convention の拡張として整理)
+- [ ] **cli-docs-lint に検査を実装**する — 恒久文書から ephemeral な計画文書への参照を検出する (移管先の明記漏れはこの向きの参照として現れる) (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- ephemeral 計画文書の完了/委譲/見送りいずれのケースでも、永続移管先の明記と参照方向の規律が checklist で確認できること。
+- 恒久文書から ephemeral な計画文書への参照 (= 移管先の明記漏れが現れる向き) を `cli-docs-lint` が検出すること。
 
 ---
 

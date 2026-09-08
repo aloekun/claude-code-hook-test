@@ -54,35 +54,12 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` へチェックリストを追加する
+- [ ] **ADR 化**する — 順位 460 (信頼境界の定形) の ADR に統合する (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] 既存の検出源 (ローカル bookmark / リモート追跡 bookmark / `gh pr view` / 台帳) を表で対照し、信頼度を明示する
 
 #### 完了基準
 
-- 検出源を追加する PR のレビューで、チェックリストを埋めるだけで信頼境界の判断が残ること。
-
-### 順位 416: 系統 A-3: 新規 screening 関数は実 exe を 1 回動かしてから test / doc を書く
-
-> **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で `screen_for_public_output` の改行処理を**実装を読まず推測でテストした**ため、テストの期待値と実挙動が食い違った (改行を空白化すると思い込んでいたが、実際は除去していた)。マージ前に対照テストが落ちて気づけたが、落ちなければ誤った理解のまま doc に書いていた。
->
-> **問題の型**: assumption-driven test は「テストが通った」を「仕様を理解した」と誤認させる。特に**既存関数の挙動を前提にする新規実装**で危ない。
->
-> **対処案**: 「新規 screening / 変換関数を実装したら、テストを書く前に実 exe か unit test 1 本で**実挙動を 1 回観測する**」を手順として明文化する。本リポジトリは既に「LLM を含む自動化経路は実走でしか検証できない」(ADR-067) を convention に持っており、その適用範囲を純関数の挙動確認まで広げる形になる。
->
-> **参照**: [dev-conventions.md](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない、順位 403 (AI の主張は実測で二重検証)。
->
-> **実行優先度**: Tier 2 — Severity Medium (仕様誤解が doc へ固着する) / Frequency Low / Effort XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` の既存節へ「純関数でも実挙動を 1 回見る」を追記する
-- [ ] 順位 416 (本項) と順位 403 の記述が重複しないよう、どちらに寄せるか決める
-
-#### 完了基準
-
-- 既存関数の挙動を前提にする実装で、推測ベースのテストを書く前に観測する手順が文書化されていること。
-
----
+- 検出源を追加する PR のレビューで、(a) 誰が書き込めるか (b) 既存検出源と同じ信頼度か (c) commitment 操作に直結するか の判断が ADR から辿れること。
 
 ### 順位 417: 系統 B-1: 出力契約 3 層の同期を CI で検証する
 
@@ -100,32 +77,11 @@
 
 - [ ] 3 層それぞれからキー集合を抽出する方法を決める (exe は `--help` 相当が無いため、ソースの `println!("key=` を走査するか、専用の dump フラグを足すか)
 - [ ] 包含関係を検証するテストを追加し、意図的に 1 層だけ欠いた変異で落ちることを確認する
-- [ ] 順位 418 (パターンの文書化) と同一 PR で扱う
+- [ ] ~~順位 418 (パターンの文書化) と同一 PR で扱う~~ — 順位 418 は 2026-09-08 に却下・削除 (出力契約の drift 検証は順位 465 が扱う)
 
 #### 完了基準
 
 - 3 層のいずれか 1 つだけを更新した状態が CI で落ちること (変異テストで確認)。
-
-### 順位 418: 系統 B-2: 出力契約 3 層追跡パターンを再利用可能な形で文書化する
-
-> **動機**: 順位 417 の CI テストは nightly-todo に固有だが、**「exe が出す → workflow が拾う → 検証が確かめる」の 3 層構造そのものは他の workflow にも現れる**。同期責務が exe 実装者 / CI テンプレート / 検証 step 実装者に分散しており、なぜ 3 層検査が必要かを知らないと片方だけ直す。
->
-> **対処案**: パターンとして文書化する。(a) 出力を足すときに触る 3 箇所、(b) 片方だけ変えたときの劣化の仕方 (黙ってフォールバック / 空文字)、(c) 検証 step は**値ではなく行の存在**を見る (空値が正常なケースがあるため)。
->
-> **参照**: 順位 417、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17。
->
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` へパターンを追加する
-- [ ] 順位 417 の CI テストと相互参照する
-
-#### 完了基準
-
-- 新しい出力キーを足す人が、触るべき 3 箇所と検査方法を文書から辿れること。
-
----
 
 ### 順位 419: 系統 C-1: takt run の解決規約 (PR 束縛 / status 判定) を全コンポーネント共通の convention にする
 
@@ -141,7 +97,7 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` へ takt run 解決の convention を追加する
+- [ ] takt run 解決の規約を **ADR-030 へ書く** (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] ADR-030 へ thread safety の保証範囲 (どこまでが保証で、どこからが呼び手の責務か) を補足する
 - [ ] `run_registry` の共有 lib 化は ADR-044 の判定に従い、3 箇所目が出るまで保留すると明記する
 
@@ -184,11 +140,11 @@
 #### 作業計画
 
 - [ ] 現存する marker を棚卸しする (feedback / weekly-review / monthly-review 系)
-- [ ] 命名・遷移・recovery 入口を表にして `docs/dev-conventions.md` か ADR-030 へ置く
+- [ ] 命名・遷移・recovery 入口を表にして **ADR-030 へ置く** (2026-09-08 に出口を再設計。dev-conventions.md は選択肢から外した)
 
 #### 完了基準
 
-- marker を新設する人が、命名と遷移を既存規約に合わせられること。
+- marker を新設する人が、命名と遷移を ADR-030 の表に合わせられること。
 
 ---
 
@@ -204,7 +160,7 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` へ 2 原則を追加する
+- [ ] 2 原則を **ADR 化**する (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] 変異テストで実効性を確認する手順も併記する (原本を緩めてテストが落ちることを見る)
 
 #### 完了基準
@@ -330,48 +286,6 @@
 #### 完了基準
 
 - 採用・不採用のいずれかが根拠つきで記録されていること。
-
----
-
-### 順位 429: 系統 G-1: 「optional 列」の意味を明記する
-
-> **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で `pr_title` を optional 列として足した際、`Columns::max_index()` への反映を忘れて **index out of bounds で panic** した (実 exe で再現し修正済み)。原因は「optional」という語の解釈の齟齬だった。
->
-> **確立した理解**: **「optional」はヘッダに列が無くてよいという意味であって、ヘッダにあるのに行に無くてよいのではない。**
->
-> **対処案**: 上記を `docs/dev-conventions.md` へ明記する。表パーサに optional 列を足すときのチェック項目 (列数検証への反映) も併記する。
->
-> **参照**: [lib.rs](../src/lib-ledger/src/lib.rs) (`max_index` の doc に教訓を記録済み)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17。
->
-> **実行優先度**: Tier 3 — Severity Low (テストで捕捉済み) / Frequency Medium (今後の列追加で再発見込み) / Effort XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` へ追記する
-
-#### 完了基準
-
-- optional 列を足す人が、列数検証への反映を忘れない手順を文書から辿れること。
-
-### 順位 430: 系統 G-2: CLI フラグ解析の `Mode` enum + validator パターンを convention 化する
-
-> **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) で `--pr` を足した際、既存の `parse_feedback_only` を段階的に拡張する形だと分岐が重複するため `Mode` enum + 共通 validator へ整理した。**フラグ解析の段階的拡張による複製は本 PR に限らず再発する**パターン。
->
-> **lint 化は却下済み**: 実装パターンの多様性に対し regex/AST での汎用検出は false positive リスクが強い (#385 T1-3)。doc 化なら低コストで同等の抑止力が得られる。
->
-> **対処案**: `docs/dev-conventions.md` へ「CLI にフラグを 2 つ以上足すときは `Mode` enum + 共通 validator へ寄せる」を追加する。
->
-> **参照**: [main.rs](../src/cli-merge-pipeline/src/main.rs) (`Mode` / `parse_pr_flag`)。
->
-> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` へ追記する
-
-#### 完了基準
-
-- 次に CLI フラグを足す人が、分岐を複製せず enum へ寄せる判断を文書から辿れること。
 
 ---
 

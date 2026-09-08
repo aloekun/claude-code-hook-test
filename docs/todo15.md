@@ -261,26 +261,6 @@
 
 ---
 
-### 順位 277: PR body 配置タイミング規約を dev-conventions に明記 (PR #265 post-merge-feedback T3-3 採用)
-
-> **動機**: PR #265 の push パイプライン実行中に working copy へ `__pr-body.md` を作成し、jj snapshot 直前の退避で commit 混入をかろうじて回避したヒヤリハットが実発生。混入すると repo 履歴に残る。「PR body は push 完了後に scratchpad で準備し、`pnpm create-pr -- --body-file` に絶対パスで渡す (push 実行中の working copy に置かない)」というタイミング規約が未文書化。
->
-> **参照**: `.claude/feedback-reports/265.md` Tier 3 #3、`docs/dev-conventions.md` (追記先)、ADR-028 (external-output 実行フロー)、`src/cli-pr-monitor/src/stages/create_pr.rs` (--body-file パススルー実装)
->
-> **実行優先度**: Tier 3 — Effort XS。doc のみ、バッチ PR で消化可 (並列安全化 PR の docs への相乗りも可)。
-
-#### 作業計画
-
-- [ ] dev-conventions.md に PR body 配置タイミング規約を追記 (scratchpad + 絶対パス推奨 / repo 直下 `__` ファイルは push 完了後のみ)
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- PR body ファイルが push パイプラインの snapshot に混入しない手順が規約として参照可能になっていること。
-
----
-
-
 ### 順位 281: config-reading hook の `current_dir()` 解決を検出する lint rule (PR #267 post-merge-feedback T1-1 採用)
 
 > **動機**: PR #267 で新規 hook (jj-op-verify) が既存 3 hook と異なる `current_dir()` ベースの config 解決を実装し、pre-push simplicity-review が REJECT (`SIM-NEW-jjopverify-cwd-config-L179`、High) → fix step が `current_exe().parent()` へ修正した実例。Bash の cwd drift による silent fail-open (`enabled=false` 扱い) は新規 hook 追加のたびに再発しうる。

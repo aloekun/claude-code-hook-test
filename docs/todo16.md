@@ -37,12 +37,12 @@
 
 #### 作業計画
 
-- [ ] token ベース ownership check (PID/start_unix 回避) の convention を `docs/dev-conventions.md` に追記
+- [ ] token ベース ownership check (PID/start_unix 回避) を **ADR 化**する — 順位 460 (外部入力の信頼境界と fail-closed の定形) の ADR に同梱するか、独立 ADR にするかを着手時に決める (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- 将来 multi-process coordination コードを書く際に参照できる convention が存在すること。
+- token ベース ownership の判断根拠が ADR に残り、将来 multi-process coordination コードを書く人が参照できること。
 
 ---
 
@@ -65,25 +65,6 @@
 
 ---
 
-### 順位 300: Push pipeline 段階間依存性チェック項目の追加 (271.md T3-3 採用)
-
-> **動機**: PR #271 の hidden coupling incident (revset 厳密化が Stage 3 の前提と衝突) から得た教訓を恒久化する。Pipeline stage 修正時に「この stage の変更が後続 stage の前提を破らないか」を確認する convention を明文化する。
->
-> **参照**: `.claude/feedback-reports/271.md` Tier 3 #3、`CLAUDE.md` / `docs/dev-conventions.md`
->
-> **実行優先度**: Tier 3 — Effort S。
-
-#### 作業計画
-
-- [ ] `CLAUDE.md` または `docs/dev-conventions.md` に pipeline stage 修正時の段階間依存性チェック項目を追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- Pipeline stage 修正時のレビュー観点として、段階間依存性チェックが明文化されていること。
-
----
-
 ### 順位 301: TOCTOU (remove+create_new) パターン検出 lint rule — exclusive lock 実装限定 (273.md T1-1 採用)
 
 > **動機**: PR #273 の二重 Acquired バグ (`remove_file` 直前の状態再検証欠落) は data integrity violation の根本原因だった。`remove_file` の直前に安全性を示す justification コメントが無い exclusive lock 実装を検出する custom lint rule (rule⑩ `no-write-result-discard` と同型の comment-presence 検出) を追加する。
@@ -101,73 +82,14 @@
 - [ ] `.claude/custom-lint-rules.toml` に「`remove_file` 呼び出し directly 手前の N 行以内に、読込 (`read_to_string` 等) → 比較 (`==`/`if let` 等) の出現順序があること」を要求する pattern 検出ルールを追加 (単純な comment-presence ではなく構造的な出現順序を見る、paths を exclusive-lock 実装限定)
 - [ ] `cli-pr-monitor/src/lock.rs` を誤検出しないことを確認する negative fixture 追加
 - [ ] 「justification コメントはあるが再読込・比較コードが無い」ケースが lint により検出される (= コメントのみでは通過しない) ことを示す negative fixture を追加
-- [ ] lint 検出時に CODE REVIEW で「lock safety pattern verified」を人手確認する運用を `docs/dev-conventions.md` に明文化し、本 rule の false negative となりうるケース (カバレッジ限界) を rule 定義コメントに記録
+- [ ] 本 rule の false negative となりうるケース (カバレッジ限界) を rule 定義コメントに記録する (2026-09-08: 「人手確認する運用を dev-conventions.md に明文化」は落とした — 逃げ道を作らない)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
 - 「読込→比較→remove_file」という構造そのものを欠く新規 exclusive lock 実装が、lint rule (pattern 検出) により push 前に検出されること。
 - 「justification コメントのみで再検証コードを欠く」実装が、コメントの存在にかかわらず lint で検出される (= 通過しない) ことが negative fixture で証明されていること。
-- 上記 pattern 検出にも false negative となりうるケースが残るため、lint 検出時に CODE REVIEW で「lock safety pattern verified」であることを人手確認する運用が明文化されていること、かつ本 rule のカバレッジ限界が記録されていること。
-
----
-
-### 順位 302: `takeover_stale_lock_skips_remove_when_snapshot_is_stale` パターンを deterministic concurrency test テンプレートとして記録 (273.md T2-3 採用)
-
-> **動機**: PR #273 で追加した決定論的 regression test (`stale_snapshot` を意図的に不一致にして takeover レースを注入的に再現するパターン) は、実スレッドタイミングに依存する flaky test (`concurrent_stale_takeover_only_one_wins`) より再現性が高い。次の並行処理系 PR で同型テストが必要になった際のテンプレートとして記録する。
->
-> **参照**: `.claude/feedback-reports/273.md` Tier 2 #3、`src/lib-jj-helpers/src/pipeline_lock.rs` の `takeover_stale_lock_skips_remove_when_snapshot_is_stale`
->
-> **実行優先度**: Tier 3 — Effort XS。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に「並行処理の regression test は実スレッドレースより、内部関数を直接呼び状態不一致を注入する決定論的パターンを優先する」旨とコード例を追記
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 次の並行処理系バグ修正で、決定論的テストパターンが参照可能な形で存在すること。
-
----
-
-### 順位 303: Advisory lock (fail-open) の TOCTOU window 許容可否を明示コメントで残す設計チェックリスト (273.md T3-1 採用)
-
-> **動機**: `cli-pr-monitor/src/lock.rs` の `MonitorLock` は「stale takeover の race は benign」という判断を既にコメントで明示済みだが、これは実践のみでチェックリスト化されていない。既に実践されている practice を明文化すれば、将来の advisory lock 実装での判断ミス (許容可否を検討せず TOCTOU を放置する、あるいは過剰に厳格化する) を構造的に防止できる。
->
-> **参照**: `.claude/feedback-reports/273.md` Tier 3 #1、`src/cli-pr-monitor/src/lock.rs`、`src/lib-jj-helpers/src/pipeline_lock.rs` (takeover_stale_lock の doc comment)
->
-> **実行優先度**: Tier 3 — Effort XS。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に「advisory lock の TOCTOU window に触れる実装は、許容可否の判断根拠を doc comment に残す」チェックリストを追加
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- advisory lock 実装時に参照できるチェックリストが存在すること。
-
----
-
-### 順位 304: quality gate 実行中に発見したバグ修正が別 PR に混入した際の `jj split` + `jj rebase` 復旧パターンを記録 (273.md T3-3 採用)
-
-> **動機**: PR #272 (docs-only) の push 中に quality gate が実行した `cargo test --workspace` で PR #273 相当のバグを発見し、その場で修正した結果 docs コミットに混入した。`jj split` + `jj rebase` で低コストに復旧できた実務パターンを記録する。ADR-045 の並列 workspace リスクとは別種の事故 (単一 session 内の混入) であり、区別して記録する価値がある。
->
-> **参照**: `.claude/feedback-reports/273.md` Tier 3 #3、本セッションの復旧手順 (`jj split -m ... <file>` → `jj rebase -s <docs-commit> -d <docs-parent>` → `jj rebase -s <fix-commit> -d master`)
->
-> **実行優先度**: Tier 3 — Effort XS。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` に「push/merge パイプライン実行中に無関係なバグを発見・修正した場合、`jj split` で分離し、それぞれ独立した bookmark/PR にする」復旧手順を追記
-- [ ] `jj split`/`jj rebase` は**混入後の事後対応**であり、混在した変更に対して既に実行された quality gate / pre-push review の結果は汚染されている (予防はできていない) ため、分離後は当該結果を破棄し、分離後の各コミット/PR で quality gate / pre-push review を個別に再実行する手順を追記
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 同種の混入が今後発生した際に、参照できる復旧手順が存在すること。
-- 復旧手順に「混在した変更に対する gate 実行結果は無効であり、分離後に各 PR で個別に再実行する」ことが明記されていること (CodeRabbit 指摘: 復旧は予防の代替ではなく、汚染された gate 結果をそのまま信頼してはならない)。
+- 上記 pattern 検出にも false negative となりうるケースが残ることが、rule 定義コメントに記録されていること (2026-09-08: 「lint 検出時に CODE REVIEW で人手確認する運用」は完了基準から外した — 逃げ道を作らない)。
 
 ---
 
@@ -181,13 +103,13 @@
 
 #### 作業計画
 
-- [ ] `docs/dev-conventions.md` に「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加 (基準時点/現時点の計測結果・差分、判定理由、判定者・判定日時、レビュー承認者を記録する audit trail 要件を含み、証跡が揃わない場合は override 不可とする)
+- [ ] **ADR 化**する (2026-09-08 に出口を再設計。dev-conventions.md へは書かない) — 「metrics violation が pre-existing と判断する際の判定基準 (対象 revset の選び方、feature 境界の見極め方など)」チェックリストを追加 (基準時点/現時点の計測結果・差分、判定理由、判定者・判定日時、レビュー承認者を記録する audit trail 要件を含み、証跡が揃わない場合は override 不可とする)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- metrics 系 gate の violation を pre-existing として override する際に、判断根拠として参照できる基準が存在すること。
-- 上記基準に加え、override 判定時に「基準時点と現時点の計測結果・差分」「pre-existing と判断した理由」「判定者・判定日時」「レビュー承認者」を PR/MR コメントまたは `docs/override-log.md` に記録し、これらの証跡が揃わない限り override できないチェックリストになっていること (同一メトリクスの反復 violation を将来 anomaly として検知できるようにするため)。
+- metrics 系 gate の violation を pre-existing として override する際の判定基準が ADR に残っていること。
+- 上記基準に加え、override 判定時に「基準時点と現時点の計測結果・差分」「pre-existing と判断した理由」「判定者・判定日時」「レビュー承認者」を PR/MR コメントまたは `docs/override-log.md` に記録し、これらの証跡が揃わない限り override できない要件として ADR に書かれていること (同一メトリクスの反復 violation を将来 anomaly として検知できるようにするため)。
 
 ---
 
@@ -301,7 +223,7 @@
 >
 > **参照**: `.claude/feedback-reports/275.md` Tier 3 #2、`CLAUDE.md`、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md)。
 >
-> **実行優先度**: Tier 3 — Severity Low / Effort S。順位 317（チェックリスト）と対で実施すると効果的。
+> **実行優先度**: Tier 3 — Severity Low / Effort S。
 
 #### 作業計画
 
@@ -314,19 +236,3 @@
 
 ---
 
-### 順位 317: utility 関数追加前のチェックリスト（workspace grep）(275.md T3-3 採用)
-
-> **動機**: 順位 316（ADR-044 明確化）と対で、新規 helper 追加時の実務チェックを `docs/dev-conventions.md` に追加する。「新 helper 追加前に workspace 内の類似パターンを grep し、2+ 箇所に既存すれば ADR-044 に従い共有化を検討する」。
->
-> **参照**: `.claude/feedback-reports/275.md` Tier 3 #3、`docs/dev-conventions.md`、順位 316。
->
-> **実行優先度**: Tier 3 — Severity Low / Effort XS。
-
-#### 作業計画
-
-- [ ] `docs/dev-conventions.md` のチェックリストに utility 追加前の grep 手順を追記。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- 新規 utility 追加時に既存重複を事前確認する手順が明文化されていること。
