@@ -2,11 +2,22 @@
 #
 # CodeRabbit configuration — WP-03 CodeRabbit クォータ設計 (ADR-019 amendment)
 #
-# 目的: 無料枠レートリミット (3〜4 レビュー/時) の解除待ちを構造的に削減する。
-# 方針 (balanced): 初回 PR は自動レビューを維持し、fix push での自動増分レビューだけを
-#   抑止する。修正を 1 push に束ねた後、監視 (cli-pr-monitor) が `@coderabbitai review` を
-#   1 回だけ明示投稿して再レビューを発火する
+# 目的: レビュー回数の上限に当たる頻度を下げる。
+# 方針 (balanced): fix push での自動増分レビューを抑止し、修正を 1 push に束ねてから
+#   1 回だけ再レビューを発火する
 #   (pr-monitor-config.toml [fix] trigger_review_after_push = true と結合)。
+#
+# **2026-09-08: 前提を 2 つ実測で訂正した (順位 321)。**
+#
+# 1. **無料枠ではない。** 申告プランは 2026-08 に `Pro`、09-07 に `Team`、09-08 に
+#    `Advanced` と短期間で 3 回変わっている。**プラン名を設計の根拠にしない** — 変わるため。
+#    上限の実体は「レビュー回数に上限があり、解除までの告知時間は当てにならない」
+#    (実測の告知は 30 分 / 27 分 / 56 分でばらつく) に留める。
+# 2. **star 10 未満のリポジトリは自動レビューを受けられない。** 下の
+#    `auto_review.enabled: true` は現在**効いていない**。CodeRabbit は代わりに
+#    「🔍 Trigger review」チェックボックス付きのコメントを出し、チェックするまで
+#    レビューしない。`cli-pr-monitor` が PR 作成後にこれを入れる (順位 321 で実装)。
+#    star が 10 に達すれば本キーが再び効く。
 #
 # 注意: .coderabbit.yaml はダッシュボード設定を上書きし、未指定キーは CodeRabbit の
 #   既定値になる。language を明示しないと既定 en-US に戻るため ja-JP を固定する。
@@ -16,11 +27,19 @@ language: "ja-JP"
 reviews:
   auto_review:
     # 初回 PR (open) は自動レビュー。false にすると初回も手動トリガーが必要になる。
+    #
+    # **2026-09-08 時点では効いていない** — star 10 未満のため CodeRabbit 側が
+    # 自動レビューを止めており、全 PR がトリガー待ちになる。star が 10 に達したときに
+    # 再び効く設定として残す (冒頭の訂正 2 を参照)。
     enabled: true
     # draft PR は自動レビュー対象外 (既定 false だが意図を明示)。
     drafts: false
     # fix push ごとの自動再レビューを抑止 (レート消費の主因)。
     # 再レビューは修正束ね後の明示 `@coderabbitai review` で 1 回だけ発火する。
+    #
+    # **本キーも star 10 未満の間は効かない** (抑止すべき自動増分レビューが起きないため)。
+    # 削除せず残すのは、star 回復時にレビュー欠落穴 (初回レビュー処理中の push で新 head が
+    # 未レビューになる) が再び問題になるためで、そのときの設計判断を消さないでおく。
     auto_incremental_review: false
     # レビュー済みコミットが N を超えたら自動レビューを一時停止する暴走ガード。
     auto_pause_after_reviewed_commits: 5

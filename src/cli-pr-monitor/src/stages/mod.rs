@@ -1,6 +1,7 @@
 pub(crate) mod auto_push;
 pub(crate) mod collect;
 mod create_pr;
+pub(crate) mod trigger_review;
 pub(crate) mod gate;
 mod mark_notified;
 mod monitor;
