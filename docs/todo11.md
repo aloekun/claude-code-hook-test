@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/feedback-reports/174.md` Tier 2 #2、PR #174 PR body の Test Plan unchecked items、`docs/adr/adr-039-experimental-feature-standard-pattern.md` § 3 Bounded lifetime、`src/cli-push-runner/src/stages/scratch_file_warning.rs` (`SCRATCH_FILE_WARNING_OVERRIDE` env)
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort XS。手動 dogfood 1 セット、~10 分。
+> **実行優先度**: **Tier 2** — Effort XS。手動 dogfood 1 セット、~10 分。
 
 #### 設計決定 (案)
 
@@ -60,7 +60,7 @@
 >
 > **参照**: `.claude/feedback-reports/176.md` Tier 3 #1、PR #175 CR Minor finding 1 件、PR #176 CR Nitpick 1 件、`~/.claude/rules/common/docs-governance.md` (global rule、本リポジトリ外)
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。global rule への 5-8 行追記、本リポジトリ外 (`~/.claude/`) ファイル編集。
+> **実行優先度**: **Tier 3** — Effort XS。global rule への 5-8 行追記、本リポジトリ外 (`~/.claude/`) ファイル編集。
 
 #### 設計決定 (案)
 
@@ -102,7 +102,7 @@
 >
 > **参照**: `.claude/feedback-reports/177.md` Tier 2 #1、PR #177 CR Major finding (id 3309140888 hooks-session-start / 関連 fix in hooks-pre-tool-validate)、`src/hooks-session-start/src/main.rs` `run_jj_with_timeout` / `src/hooks-pre-tool-validate/src/main.rs` `run_jj_with_timeout` (両方が同一 pattern)
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。両 hook test module で integration test 風の subprocess lifecycle 検証 (~80-120 行 + helper)。
+> **実行優先度**: **Tier 2** — Effort M。両 hook test module で integration test 風の subprocess lifecycle 検証 (~80-120 行 + helper)。
 
 #### 設計決定 (案)
 
@@ -148,7 +148,7 @@
 >
 > **参照**: `.claude/feedback-reports/177.md` Tier 2 #2、PR #177 CR Major finding (id 3309140878)、`src/hooks-pre-tool-validate/src/main.rs` の `check_todo_staleness` / `build_todo_staleness_message` / `count_commits_branch_ahead`
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S。test module への追加 ~30-50 行、unit test で独立検証可能。
+> **実行優先度**: **Tier 2** — Effort S。test module への追加 ~30-50 行、unit test で独立検証可能。
 
 #### 設計決定 (案)
 
@@ -192,7 +192,7 @@
 >
 > **参照**: `.claude/feedback-reports/181.md` Tier 2 #1、memory `feedback_pnpm_create_pr_body`、`src/cli-pr-monitor/src/main.rs` (PR 作成モード本体)、`src/cli-pr-monitor/src/stages/` 周辺の `run_create_pr` 実装、PR #134 / #181 の create-pr 実行例
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S。既存 cli-pr-monitor test infra の流用、shell argument truncation 境界の fixture 測定。
+> **実行優先度**: **Tier 2** — Effort S。既存 cli-pr-monitor test infra の流用、shell argument truncation 境界の fixture 測定。
 
 #### 設計決定 (案)
 

@@ -18,7 +18,7 @@
 >
 > **参照**: PR #96 セッション内議論、ユーザーフィードバック「mutation scope を 変更ファイル + 依存モジュール 1 層 に拡大」。
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 Medium。post-PR pipeline (post-pr-monitor の前後) に組み込み、PR 単位で 1-5 分追加。user 待機 0 (async)。
+> **実行優先度**: **Tier 2** — 工数 Medium。post-PR pipeline (post-pr-monitor の前後) に組み込み、PR 単位で 1-5 分追加。user 待機 0 (async)。
 
 #### 背景
 
@@ -66,7 +66,7 @@
 >
 > **参照**: PR #96 セッション内議論、ユーザーフィードバック「stress test は scheduling 空間の探索」。
 >
-> **実行優先度**: 🔧 **Tier 2** — 工数 Small。cli-push-runner に +~1 秒 step として追加。Bundle W で書かれた loom test と相補的 (loom は in-memory 限定、stress は filesystem も含む実環境 race)。
+> **実行優先度**: **Tier 2** — 工数 Small。cli-push-runner に +~1 秒 step として追加。Bundle W で書かれた loom test と相補的 (loom は in-memory 限定、stress は filesystem も含む実環境 race)。
 
 #### 背景
 
@@ -111,7 +111,7 @@
 >
 > **参照**: PR #96 セッション内議論、ADR-031 (週次レビューパイプライン、本採用 2026-06-01、PR #192)。
 >
-> **実行優先度**: 💎 **Tier 3** — 工数 Small (ADR-031 への追加扱い)。Bundle X land 後に着手。
+> **実行優先度**: **Tier 3** — 工数 Small (ADR-031 への追加扱い)。Bundle X land 後に着手。
 
 #### 背景
 
@@ -156,7 +156,7 @@
 >
 > **参照**: `.claude/feedback-reports/98.md` Tier 1 #2、PR #175 Bundle 2 (push-runner bookmark_check stage 実装)
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort XS。SKILL.md Step 1 に確認コマンド 1 行 + fallback 表への明示マッピング追加のみ。Status update により push-runner との二重防御 / 派生プロジェクト向け knowledge transfer として位置付け。
+> **実行優先度**: **Tier 1** — Effort XS。SKILL.md Step 1 に確認コマンド 1 行 + fallback 表への明示マッピング追加のみ。Status update により push-runner との二重防御 / 派生プロジェクト向け knowledge transfer として位置付け。
 
 #### 設計決定 (案)
 
@@ -198,7 +198,7 @@
 >
 > **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、PR #99 / #97 session log (token bloat 実観測)、PR #172 (順位 144 = `jj-message-required` preset 実装事例)、`src/hooks-pre-tool-validate/src/main.rs` の `preset_jj_message_required` を template に追加
 >
-> **実行優先度**: 💎 **Tier 3** — Effort M (順位 144 と同型実装で工数把握済、~90 分見込み)。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
+> **実行優先度**: **Tier 3** — Effort M (順位 144 と同型実装で工数把握済、~90 分見込み)。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
 
 #### 設計決定 (案、順位 144 hook 実装を template に踏襲)
 

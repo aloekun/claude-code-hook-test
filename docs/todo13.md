@@ -18,7 +18,7 @@
 >
 > **参照**: PR #224 (`1c0f345b`)、`.claude/hooks-config.toml` `[stop_quality]` (clippy はあるが fmt 無し)、`push-runner-config.toml` `[quality_gate]` (fmt 無し)、`package.json` scripts (lint/build/test は TS 向け)、ADR-017 (バージョン固定哲学 = rustfmt 固定の根拠)。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort M。29 ファイルの一括正規化 (機械) + gate 1 step + toolchain 固定。
+> **実行優先度**: **Tier 1** — Effort M。29 ファイルの一括正規化 (機械) + gate 1 step + toolchain 固定。
 
 #### 設計決定 (案)
 
@@ -53,7 +53,7 @@
 >
 > **参照**: PR #224 (`1c0f345b`)、`.claude/custom-lint-rules.toml` (追加先、rule③/④/⑩ と同型)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` struct + test)、ADR-007 (正規表現層)、Bundle Z #B-α philosophy。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
+> **実行優先度**: **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
 
 #### 設計決定 (案)
 
@@ -88,7 +88,7 @@
 >
 > **参照**: `.claude/feedback-reports/224.md` Tier 3 #1、`docs/adr/adr-022-automation-responsibility-separation.md` (追記対象)、`src/cli-pr-monitor/src/fix_commit/abandon.rs` (`create_fix_commit` → takt amend → `try_abandon_empty_fix_commit` のシーケンス、cite 対象 + integration test 参照)、PR #224 CR#2 却下 reply (pull/224 discussion_r3487797338)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。doc-only。
+> **実行優先度**: **Tier 3** — Effort S。doc-only。
 
 #### 作業計画
 
@@ -111,7 +111,7 @@
 >
 > **参照**: PR #224 merge (`1c0f345b` land 後)、`.takt/facets/instructions/analyze-session.md` (+ analyze-pr / aggregate-feedback、修正対象)、`.takt/workflows/post-merge-feedback.yaml` (workflow)、`.takt/post-merge-feedback-transcript.jsonl` (gitignore 済の transcript = jq で直接読めば script 不要)、`cli-merge-pipeline` post_steps (検知ステップ追加候補)。
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S-M。facet instruction 追記 (S) + 検知ステップ実装 (S-M)。
+> **実行優先度**: **Tier 2** — Effort S-M。facet instruction 追記 (S) + 検知ステップ実装 (S-M)。
 
 #### 設計決定 (案)
 
@@ -159,7 +159,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/227.md` Tier 3 #1、memory `~/.claude/projects/C--Users-owner-work-ccht-improve/memory/feedback-di-over-ambient-global-tests.md`、PR #227 (state path DI)、PR #224 (env_override_lock)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。memory への数行追記。
+> **実行優先度**: **Tier 3** — Effort XS。memory への数行追記。
 
 #### 設計決定 (案)
 
@@ -189,7 +189,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/227.md` Tier 3 #2、`docs/adr/adr-022-automation-responsibility-separation.md`、PR #224 T2-2 (env_override_lock)、PR #227 (state path DI)、順位 234 (memory 拡張、相補)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。ADR-022 への Appendix 追加。
+> **実行優先度**: **Tier 3** — Effort S。ADR-022 への Appendix 追加。
 
 #### 設計決定 (案)
 
@@ -222,7 +222,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/229.md` Tier 1 #1、PR #227 (`3d8e2aac`、flaky fix)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/cli-pr-monitor/src/stages/create_pr.rs` (tempfile 移行の実例)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-007 (正規表現層)。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
+> **実行優先度**: **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
 
 #### 設計決定 (案)
 
@@ -257,7 +257,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/229.md` Tier 2 #1、PR #227 (`3d8e2aac`)、`src/cli-pr-monitor/src/stages/create_pr.rs` test module。
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort M。
+> **実行優先度**: **Tier 2** — Effort M。
 
 #### 作業計画
 
@@ -280,7 +280,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/230.md` Tier 1 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/pr_metadata.rs` / `src/cli-merge-pipeline/src/github.rs` (対象)、`src/lib-subprocess/` `run_cmd_shell_capped_reporting` (推奨 wrapper)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-016。
 >
-> **実行優先度**: 🚀 **Tier 1** — Effort M。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。順位 240 と同 crate、1 PR bundle 検討可。
+> **実行優先度**: **Tier 1** — Effort M。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。順位 240 と同 crate、1 PR bundle 検討可。
 
 #### 設計決定 (案)
 
@@ -311,7 +311,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、docs/dev-conventions.md § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § 制約条件の pub(crate) ガイド、2026-08-12 移設)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。
+> **実行優先度**: **Tier 3** — Effort S。
 
 #### 作業計画
 
@@ -334,7 +334,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § 制約条件の「Cross-module visibility は pub(crate)」、2026-08-12 移設)、順位 241。**注意**: 旧 file-length-enforcement-plan.md は 2026-08-12 に削除済み。暫定配置先は docs/dev-conventions.md § Rust ファイル分割の制約条件になった。恒久配置 (coding-style.md / CLAUDE.md) は着手時に判断。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。
+> **実行優先度**: **Tier 3** — Effort XS。
 
 #### 作業計画
 
@@ -357,7 +357,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § test helper は per-module duplicate、2026-08-12 移設)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。
+> **実行優先度**: **Tier 3** — Effort XS。
 
 #### 作業計画
 
@@ -379,7 +379,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § push 手順の override use case、2026-08-12 移設)。
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。
+> **実行優先度**: **Tier 3** — Effort XS。
 
 #### 作業計画
 

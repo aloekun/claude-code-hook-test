@@ -29,7 +29,7 @@
 >
 > **参照**: `.claude/feedback-reports/369.md` Tier 1 #2、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12 (Write no-op の実測記録)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (regex 層)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High (deny の silent 無効化) / Frequency Low / Effort M / Adoption Risk Low (派生プロジェクト deploy のみ)。
+> **実行優先度**: Tier 1 — Severity High (deny の silent 無効化) / Frequency Low / Effort M / Adoption Risk Low (派生プロジェクト deploy のみ)。
 
 #### 作業計画
 
@@ -50,7 +50,7 @@
 >
 > **参照**: `.claude/feedback-reports/369.md` Tier 2 #1、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (cross-system coupling の機械検証)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (framing の片側破れ) / Frequency Low / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (framing の片側破れ) / Frequency Low / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -69,7 +69,7 @@
 >
 > **参照**: `.claude/feedback-reports/369.md` Tier 3 #1、memory `jj-squash-editor-hang-headless` / `jj-concurrent-session-op-divergence`、順位 386 (機構側対処)、[ADR-021](adr/adr-021-jj-change-detection-principles.md)。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium (作業の取り残し・bookmark 消失。ただし loud で復旧可) / Frequency High (本セッションで複数回) / Effort S / Adoption Risk None (docs-only)。
+> **実行優先度**: Tier 3 — Severity Medium (作業の取り残し・bookmark 消失。ただし loud で復旧可) / Frequency High (本セッションで複数回) / Effort S / Adoption Risk None (docs-only)。
 
 #### 作業計画
 
@@ -95,7 +95,7 @@
 >
 > **参照**: [ADR-055](adr/adr-055-firing-telemetry-collection.md)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) (push-runner)、順位 386/387/376 (効果測定の対象となる再発防止策)。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Low (観測の欠落であり機能障害ではない) / Frequency Medium (push のたびに記録機会) / Effort M / Adoption Risk Low (fail-open を守る限り本体に影響しない)。順位 386/387 の対処より先に入れると効果測定のベースラインが取れる点は考慮に値する。
+> **実行優先度**: Tier 2 — Severity Low (観測の欠落であり機能障害ではない) / Frequency Medium (push のたびに記録機会) / Effort M / Adoption Risk Low (fail-open を守る限り本体に影響しない)。順位 386/387 の対処より先に入れると効果測定のベースラインが取れる点は考慮に値する。
 
 #### 作業計画
 
@@ -143,7 +143,7 @@
 >
 > **参照**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 11 (撤回) / 決定 15 (前提の訂正) / 決定 16、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (本件は判断を伴うため rule 側)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High (誤った「解決済み」記録が次の判断を汚染する) / Frequency Medium (本セッションだけで 2 回) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity High (誤った「解決済み」記録が次の判断を汚染する) / Frequency Medium (本セッションだけで 2 回) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -166,7 +166,7 @@
 >
 > **参照**: [ADR-050](adr/adr-050-iteration-aware-decision-criteria.md)、[ADR-047](adr/adr-047-prepush-refute-facet.md) (反証機構の射程)、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377) / [#380](https://github.com/aloekun/claude-code-hook-test/pull/380) (実例)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (誤った修正を land させる) / Frequency Medium (本セッションで 3 回) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity Medium (誤った修正を land させる) / Frequency Medium (本セッションで 3 回) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -187,7 +187,7 @@
 >
 > **参照**: [ADR-016](adr/adr-016-long-running-command-strategy.md) (長時間コマンド実行戦略)、`src/lib-subprocess/`、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (無診断ハング) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (無診断ハング) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -208,7 +208,7 @@
 >
 > **参照**: [ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) (共通化と分離の線引き)、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (silent drift の温床) / Frequency Medium (2 回再発) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (silent drift の温床) / Frequency Medium (2 回再発) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -229,7 +229,7 @@
 >
 > **参照**: [ADR-071](adr/adr-071-draft-pr-backpressure.md) の unit test 節 (3 形態の reject を固定した実例)、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (改名漏れが fail-open になる) / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (改名漏れが fail-open になる) / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -252,7 +252,7 @@
 >
 > **参照**: [ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium (rename のたび) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium (rename のたび) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -274,7 +274,7 @@
 >
 > **参照**: [ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) (kill-switch の 2 面契約)、PR [#380](https://github.com/aloekun/claude-code-hook-test/pull/380)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High (安全装置の silent fail-open) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity High (安全装置の silent fail-open) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -295,7 +295,7 @@
 >
 > **参照**: [ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、順位 408。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S-M / Adoption Risk Medium (false positive)。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort S-M / Adoption Risk Medium (false positive)。
 
 #### 作業計画
 
@@ -318,7 +318,7 @@
 >
 > **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、[ADR-001](adr/adr-001-hooks-implementation-language.md)、`src/hooks-pre-tool-validate/src/presets/basic.rs`、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376) (誤実行の実例)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (無関係な差分混入。レビュー負荷と巻き戻し工数) / Frequency Medium (fmt は反射的に実行されやすい) / Effort S / Adoption Risk Low (例外実行の手段を残すこと)。
+> **実行優先度**: Tier 1 — Severity Medium (無関係な差分混入。レビュー負荷と巻き戻し工数) / Frequency Medium (fmt は反射的に実行されやすい) / Effort S / Adoption Risk Low (例外実行の手段を残すこと)。
 >
 > **早期着手する (2026-08-10 ユーザー判断)**。`cargo fmt` は**反射的に実行されやすい**ため、規約が無い状態が続くほど誤実行の機会が増える。**WP-18 の完了条件には含めない** (対象は開発環境全般で WP-18 の機構と無関係、計画書 § WP-18 残作業 (3) 参照) が、着手は WP-18 と独立に早める。
 
@@ -351,7 +351,7 @@
 >
 > **参照**: [ADR-025](adr/adr-025-cwd-restore-drop-guard.md)、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) (共通化と分離の線引き)、[#385](https://github.com/aloekun/claude-code-hook-test/pull/385) の pre-push review。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (ADR の判断基準が形骸化する) / Frequency Low / Effort S-M / Adoption Risk Low。
+> **実行優先度**: Tier 2 — Severity Medium (ADR の判断基準が形骸化する) / Frequency Low / Effort S-M / Adoption Risk Low。
 
 #### 作業計画
 

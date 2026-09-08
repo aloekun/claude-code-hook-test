@@ -313,8 +313,8 @@ mod tests {
         "# サマリー\n\n\
          | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
          |---|---|---|---|---|---|\n\
-         | 203 | 🔧 Tier 2 | **タイトル A** | todo10.md | XS | なし |\n\
-         | 240 | 🔧 Tier 2 | **タイトル B** | todo13.md | M | なし |\n"
+         | 203 | Tier 2 | **タイトル A** | todo10.md | XS | なし |\n\
+         | 240 | Tier 2 | **タイトル B** | todo13.md | M | なし |\n"
             .to_string()
     }
 
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_duplicated_rank_in_the_summary_is_an_error() {
-        let duplicated = format!("{}| 203 | 🔧 Tier 2 | **重複** | todo9.md | XS | なし |\n", summary());
+        let duplicated = format!("{}| 203 | Tier 2 | **重複** | todo9.md | XS | なし |\n", summary());
         assert!(remove_summary_row(&duplicated, 203).is_err());
     }
 
@@ -359,7 +359,7 @@ mod tests {
                 "# サマリー\n\n\
                  | 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
                  |---|---|---|---|---|---|\n\
-                 | 203 | 🔧 Tier 2 | **タイトル A** | {detail_file} | XS | なし |\n"
+                 | 203 | Tier 2 | **タイトル A** | {detail_file} | XS | なし |\n"
             );
             assert!(
                 remove_summary_row(&poisoned, 203).is_err(),

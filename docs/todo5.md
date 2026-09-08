@@ -25,7 +25,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: PR #115 CR Major #1+#2 解消経緯、`.claude/feedback-reports/115.md` Tier 3 #1、CLAUDE.md `security.md` (input validation)、ADR-022 (責務分離原則) の延長
 >
-> **実行優先度**: 💎 **Tier 3** — Effort S。順位 76 / 77 が land した後の codification PR。
+> **実行優先度**: **Tier 3** — Effort S。順位 76 / 77 が land した後の codification PR。
 
 #### 設計決定 (案)
 
@@ -71,7 +71,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: PR #117 retirement の経緯 (`docs/coderabbit-monitoring-efficiency.md` 削除)、`.claude/feedback-reports/117.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。1 セクションに 5-10 行追記。
+> **実行優先度**: **Tier 3** — Effort XS。1 セクションに 5-10 行追記。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -112,7 +112,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: PR #120 walkthrough comment (16:41Z 投稿)、`.claude/feedback-reports/120.md` Tier 1 #2、[ADR-018 §追記 2026-05-08](adr/adr-018-pr-monitor-takt-migration.md)
 >
-> **実行優先度**: 🚀 **Tier 1 (defer)** — §A-2 P-5 PR (2026-05-08) で Defer 判定。1 観測のみで systemic 性未確認のため、ユーザー方針 `feedback_no_unenforced_rules` (機械検知不可なら何もしない方がマシ) と整合させて 3 PR 観測閾値到達まで待つ。
+> **実行優先度**: **Tier 1 (defer)** — §A-2 P-5 PR (2026-05-08) で Defer 判定。1 観測のみで systemic 性未確認のため、ユーザー方針 `feedback_no_unenforced_rules` (機械検知不可なら何もしない方がマシ) と整合させて 3 PR 観測閾値到達まで待つ。
 >
 > **Re-trigger 条件**: `Failed to post review comments` (またはそれに類する rate-limit 以外の CR transient failure) が他の PR で 1 件以上追加観測 (合計 2 件以上) されたら本タスクを再活性化、実装に着手。
 

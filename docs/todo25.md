@@ -431,7 +431,7 @@ fail-closed の判定結果 (空リスト) が上流の fallback logic に無視
 > (実台帳を `cargo test` で検査する既存 precedent)、
 > [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity Medium (PR 汚染は起きない。実害は Max 枠の空費と
+> **実行優先度**: **Tier 1** — Severity Medium (PR 汚染は起きない。実害は Max 枠の空費と
 > 人間の marker 後始末) / Frequency **High** (残り 4 件が順に選ばれる) / Effort S /
 > Adoption Risk None。
 
@@ -503,7 +503,7 @@ green になること。検査を外す変異で落ちること。
 > (`Checkout master (source of truth)` / `Count open claude/ PRs` / `work` の checkout)、
 > [ADR-072](adr/adr-072-nightly-todo-loop.md) § 信頼境界の要
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity Medium (実害は空振り 1 回 + marker の後始末。
+> **実行優先度**: **Tier 1** — Severity Medium (実害は空振り 1 回 + marker の後始末。
 > 誤った実装が push される経路ではない) / Frequency Low (マージが窓に挟まったときのみ。
 > 実測 1 回) / Effort S / Adoption Risk Low (workflow の checkout 引数のみ)。
 
@@ -541,7 +541,7 @@ green になること。検査を外す変異で落ちること。
 
 ### 順位 498: 非主要拡張子の coverage を拡張子ごとに要求する (`other_ext_tests` の map 化)
 
-> **実行優先度**: 🔧 **Tier 2** — 検査の穴であり実害はまだ出ていないが、rule に非主要拡張子を足したときに coverage 不足を見逃す。
+> **実行優先度**: **Tier 2** — 検査の穴であり実害はまだ出ていないが、rule に非主要拡張子を足したときに coverage 不足を見逃す。
 
 **動機**: `custom-lint-rules.toml` の `test_coverage` は主要拡張子 (`rs` / `toml` / `yaml` / `yml`) を `main_ext_tests: BTreeMap<拡張子, Vec<テスト名>>` で拡張子ごとに持つ一方、非主要拡張子は `other_ext_tests: Vec<テスト名>` で**拡張子との対応を持たない**。そのため `jsonc` と `json` を宣言し `jsonc` 用テストだけを登録した rule が検査を通る (PR [#461](https://github.com/aloekun/claude-code-hook-test/pull/461) の CodeRabbit 指摘)。
 **これは実装漏れではなく契約**である — 順位 137 が定めた非主要拡張子の要件は「rule あたり 1+ positive test」で、`.claude/custom-lint-rules.toml` のコメントにもそう書いてある。契約を強める作業なので別起票にした。現行契約は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定しており、意図せず緩んだ場合はそこで落ちる。
@@ -565,7 +565,7 @@ green になること。検査を外す変異で落ちること。
 
 ### 順位 499: takt の verdict を push-runner が読み、REJECT のまま push される経路を塞ぐ
 
-> **実行優先度**: 🚀 **Tier 1** — [defect-convergence-plan.md](defect-convergence-plan.md) の前提「強制点 = push ゲート」を崩す穴。
+> **実行優先度**: **Tier 1** — [defect-convergence-plan.md](defect-convergence-plan.md) の前提「強制点 = push ゲート」を崩す穴。
 
 **動機**: 2026-08-30、PR [#463](https://github.com/aloekun/claude-code-hook-test/pull/463) の作業中に実測した経路。takt の simplicity レビューが blocking finding を出したが、fix step は `push-runner-config.toml` が read-only zone のため編集を拒否し ([ADR-068](adr/adr-068-fix-step-authority-boundary.md) の human routing)、同じ finding が carry-over のまま **7 イテレーション**空転した。workflow は `status: completed` で終了し、push-runner の takt stage は **`run_cmd_inherit` の bool (プロセスの成否) しか見ない**ため成功と判定して **push が実行された**。
 

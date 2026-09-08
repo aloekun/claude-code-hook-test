@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-05-30.md` § Findings、`src/cli-pr-monitor/src/state.rs:226-510` (既存 test、JSON round-trip のみ)、`docs/adr/adr-041-test-isolation-patterns.md` (適用 pattern source)
 >
-> **実行優先度**: 🔧 **Tier 2** — Effort S。3-5 test 追加で済む、既存 ADR-041 pattern 流用。
+> **実行優先度**: **Tier 2** — Effort S。3-5 test 追加で済む、既存 ADR-041 pattern 流用。
 
 #### 設計決定 (案)
 
@@ -211,7 +211,7 @@
 >
 > **参照**: `.claude/feedback-reports/196.md` Tier 3 #5、PR #196 pre-push OBS-1 (`.takt/runs/20260605-054100-pre-push-review/`)、PR #123 同型事象 (analyzer report 内 cite)、memory `feedback_global_config_backup` (snapshot 必須)
 >
-> **実行優先度**: 💎 **Tier 3** — Effort XS。global rule への 1-2 行追記。
+> **実行優先度**: **Tier 3** — Effort XS。global rule への 1-2 行追記。
 
 #### 設計決定 (案)
 

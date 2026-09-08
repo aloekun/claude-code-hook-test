@@ -410,12 +410,12 @@ mod tests {
     #[test]
     fn entries_carry_the_columns_a_human_needs_to_decide() {
         let entries = parse_summary_entries(&summary(
-            "| 203 | 🔧 Tier 2 | **テスト追加 (PR #201)** | todo10.md | XS | なし |",
+            "| 203 | Tier 2 | **テスト追加 (PR #201)** | todo10.md | XS | なし |",
         ))
         .expect("parse");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].rank, 203);
-        assert_eq!(entries[0].tier, "🔧 Tier 2");
+        assert_eq!(entries[0].tier, "Tier 2");
         assert_eq!(entries[0].title, "テスト追加 (PR #201)");
         assert_eq!(entries[0].detail_file, "todo10.md");
     }

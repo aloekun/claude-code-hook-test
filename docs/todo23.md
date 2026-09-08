@@ -32,7 +32,7 @@
 >
 > **参照**: `.claude/feedback-reports/403.md`、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -62,7 +62,7 @@
 >
 > **参照**: `.claude/feedback-reports/405.md`、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -98,7 +98,7 @@
 >
 > **参照**: `.claude/feedback-reports/406.md`
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 1** — Severity High / Frequency Low / Effort S / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -133,7 +133,7 @@
 >
 > **参照**: `.claude/feedback-reports/405.md`、`.claude/feedback-reports/406.md`
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity High / Frequency Medium / Effort M / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity High / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -164,7 +164,7 @@
 >
 > **参照**: `.claude/feedback-reports/401.md`、`.claude/feedback-reports/404.md`
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -202,7 +202,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.claude/feedback-reports/404.md`、`.claude/feedback-reports/406.md`、`.claude/feedback-reports/{481,482,483}.md`、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -245,7 +245,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.claude/feedback-reports/{402,403,404,405,406}.md`
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -292,7 +292,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 1 #2、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1、[docs/claude-code-web-tasks.md](claude-code-web-tasks.md) § 自律実行可否の 2 段階分類
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。夜間ループが人間の意図と違うタスクを実装する経路を塞ぐ。
+> **実行優先度**: **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。夜間ループが人間の意図と違うタスクを実装する経路を塞ぐ。
 
 #### 設計決定 (案)
 
@@ -327,7 +327,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 2 #1
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity High / Frequency Medium / Effort S / Adoption Risk None (前提タスク依存)。
+> **実行優先度**: **Tier 2** — Severity High / Frequency Medium / Effort S / Adoption Risk None (前提タスク依存)。
 
 #### 設計決定 (案)
 
@@ -369,7 +369,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 2 #3、[ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md)、`src/cli-push-runner`
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Low / Effort S / Adoption Risk None。開発体験の劣化であり機能欠陥ではない。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Low / Effort S / Adoption Risk None。開発体験の劣化であり機能欠陥ではない。
 
 #### 設計決定 (案)
 
@@ -400,7 +400,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 3 #1
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Medium / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: **Tier 3** — Severity Medium / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -430,7 +430,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 3 #2、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`/skill-sync-check` skill
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Medium / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: **Tier 3** — Severity Medium / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -464,7 +464,7 @@ finding_id 埋込の方針が未決 (現状維持か統一か)
 >
 > **参照**: `.takt/facets/instructions/analyze-session.md`、`.takt/workflows/post-merge-feedback.yaml`、[ADR-022](adr/adr-022-automation-responsibility-separation.md)
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Low (観測 1 回) / Effort S / Adoption Risk None。backstop が先に入っているため緊急度は低い。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Low (観測 1 回) / Effort S / Adoption Risk None。backstop が先に入っているため緊急度は低い。
 
 #### 設計決定 (案)
 

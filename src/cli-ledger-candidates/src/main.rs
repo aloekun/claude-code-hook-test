@@ -233,7 +233,7 @@ mod tests {
     fn entry(rank: u32, title: &str) -> SummaryEntry {
         SummaryEntry {
             rank,
-            tier: "🔧 Tier 2".to_string(),
+            tier: "Tier 2".to_string(),
             origin: lib_ledger::parse_origin(title),
             title: title.to_string(),
             detail_file: "todo24.md".to_string(),
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn a_pipe_in_a_title_cannot_break_the_table() {
         let out = render(&[entry(462, "a | b")], &BTreeSet::new());
-        assert!(out.contains("| 462 | 🔧 Tier 2 | a / b | todo24.md |"));
+        assert!(out.contains("| 462 | Tier 2 | a / b | todo24.md |"));
     }
 
     #[test]

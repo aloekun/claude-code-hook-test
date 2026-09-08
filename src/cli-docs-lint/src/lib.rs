@@ -62,11 +62,11 @@ mod shared_summary_definition_tests {
         let files = [
             (
                 "todo-summary.md",
-                format!("{TABLE_HEADER}| 30 | 🔧 Tier 2 | **C** | todo1.md | S | なし |\n"),
+                format!("{TABLE_HEADER}| 30 | Tier 2 | **C** | todo1.md | S | なし |\n"),
             ),
             (
                 "todo-summary3.md",
-                format!("{TABLE_HEADER}| 20 | 🚀 Tier 1 | **B** | todo1.md | S | 順位 30 待ち |\n"),
+                format!("{TABLE_HEADER}| 20 | Tier 1 | **B** | todo1.md | S | 順位 30 待ち |\n"),
             ),
             (
                 "todo1.md",

@@ -50,7 +50,7 @@
 >
 > **参照**: [ADR-013](adr/adr-013-merge-pipeline.md) § PR 検出のフォールバックと逃げ道、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) 決定 3 (master ref の写しを読む信頼境界)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (信頼境界の設計判断) / Frequency Low / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (信頼境界の設計判断) / Frequency Low / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -71,7 +71,7 @@
 >
 > **参照**: [dev-conventions.md](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない、順位 403 (AI の主張は実測で二重検証)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (仕様誤解が doc へ固着する) / Frequency Low / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (仕様誤解が doc へ固着する) / Frequency Low / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -94,7 +94,7 @@
 >
 > **参照**: [nightly-todo.yml](../.github/workflows/nightly-todo.yml) (allowlist と検証 step)、[main.rs](../src/cli-nightly-task-select/src/main.rs) (`report_selected` の出力)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17 § 出力契約の注意。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity **High** (silent data loss) / Frequency Medium (出力キーは増える) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity **High** (silent data loss) / Frequency Medium (出力キーは増える) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -114,7 +114,7 @@
 >
 > **参照**: 順位 417、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -137,7 +137,7 @@
 >
 > **参照**: [run_registry.rs](../src/cli-merge-pipeline/src/feedback/run_registry.rs)、[reaper/mod.rs](../src/hooks-session-start/src/reaper/mod.rs)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § run の特定は PR 番号で束縛する、[ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium / Frequency **High** (3 箇所以上で必要) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity Medium / Frequency **High** (3 箇所以上で必要) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -159,7 +159,7 @@
 >
 > **参照**: [run_registry.rs](../src/cli-merge-pipeline/src/feedback/run_registry.rs)、[markers.rs](../src/cli-merge-pipeline/src/feedback/markers.rs) (`check_concurrent_run_guard`)、[ADR-041](adr/adr-041-test-isolation-patterns.md)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity **High** (誤った PR のレポート生成 = 誤情報の永続化) / Frequency Medium / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 1 — Severity **High** (誤った PR のレポート生成 = 誤情報の永続化) / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -179,7 +179,7 @@
 >
 > **参照**: [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) §L1/§L2、[markers.rs](../src/cli-merge-pipeline/src/feedback/markers.rs)、`hooks-user-prompt-feedback-recovery`。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -200,7 +200,7 @@
 >
 > **参照**: [workflow_awk_parity.rs](../src/lib-autonomy-policy/tests/workflow_awk_parity.rs)、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) § 4 の例外、[ADR-043](adr/adr-043-security-gates-fail-closed.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -219,7 +219,7 @@
 >
 > **参照**: [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md)、[ci.yml](../.github/workflows/ci.yml)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (silent skip が success に見える) / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (silent skip が success に見える) / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -242,7 +242,7 @@
 >
 > **参照**: [workspace.rs](../src/lib-jj-helpers/src/workspace.rs)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、memory `windows-build-cp-path-gotcha` / `jj-revset-cmd-vs-sh-quoting`。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium (Windows gotcha は再発する) / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium (Windows gotcha は再発する) / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -261,7 +261,7 @@
 >
 > **参照**: [bookmarks.rs](../src/lib-jj-helpers/src/bookmarks.rs) (`real_jj` テスト module)、[ADR-017](adr/adr-017-takt-version-pinning.md) (バージョン固定の先例)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (前提崩壊に気づけない) / Frequency Low / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (前提崩壊に気づけない) / Frequency Low / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -280,7 +280,7 @@
 >
 > **参照**: [lib.rs](../src/lib-jj-helpers/src/lib.rs) (ファサード)、[ADR-024](adr/adr-024-shared-jj-helpers-library.md) § モジュール分割と API 追加。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -301,7 +301,7 @@
 >
 > **参照**: [bookmarks.rs](../src/lib-jj-helpers/src/bookmarks.rs) (`BookmarkSearch`)、[ADR-013](adr/adr-013-merge-pipeline.md)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (jj 状態の汚染) / Frequency Low / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (jj 状態の汚染) / Frequency Low / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -320,7 +320,7 @@
 >
 > **参照**: [main.rs](../src/cli-merge-pipeline/src/main.rs) (`parse_pr_flag`)、`src/hooks-pre-tool-validate/src/presets/`、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -343,7 +343,7 @@
 >
 > **参照**: [lib.rs](../src/lib-ledger/src/lib.rs) (`max_index` の doc に教訓を記録済み)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low (テストで捕捉済み) / Frequency Medium (今後の列追加で再発見込み) / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Low (テストで捕捉済み) / Frequency Medium (今後の列追加で再発見込み) / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -363,7 +363,7 @@
 >
 > **参照**: [main.rs](../src/cli-merge-pipeline/src/main.rs) (`Mode` / `parse_pr_flag`)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
 #### 作業計画
 
@@ -389,7 +389,7 @@
 >
 > **Status update (2026-08-12)**: 旧親タスク (ADR-032 docs-only 高速パス) は ADR-057 が別設計で実現し廃止。本タスクは GitHub 側設定の独立タスクとして todo2.md (退役) から移送。設計方針の詳細表・リスク許容の記述は git log の旧 todo2.md を参照。
 >
-> **実行優先度**: 🚀 Tier 1 — 設定のみ、依存タスクは完了済。
+> **実行優先度**: Tier 1 — 設定のみ、依存タスクは完了済。
 
 #### 作業計画
 
@@ -408,7 +408,7 @@
 >
 > **Status update (2026-08-12)**: 旧親タスク廃止に伴い独立タスク化して todo2.md (退役) から移送。
 >
-> **実行優先度**: 🔧 Tier 2 — Effort S-M。markdownlint の clean baseline 確立済みのため着手可能。
+> **実行優先度**: Tier 2 — Effort S-M。markdownlint の clean baseline 確立済みのため着手可能。
 
 #### 作業計画
 
@@ -429,7 +429,7 @@
 >
 > **選択肢** (2026-08-12 棚卸しの評価): (1) 全体採用 — 最速だが機械強制済み 14 節の二重管理と実在しない agents 表を持ち込む。(2) **自育部分のみ採用** (棚卸し推奨) — docs-governance 全体 / git-workflow の jj・gh 節 / code-review・testing の自育節 / security / 頻度判定節を配置し、ECC 汎用・言語別・agents 表・機械強制済み節は除外。選別記録を dev-conventions.md に残す。(3) repo 転記 — VCS 管理下で消失が再発しないが参照 path 書き換え (ADR amendment 含む) が大きい。
 >
-> **実行優先度**: 🚀 Tier 1 — グローバル文書対象タスク群と dead pointer 解消のブロッカー。Effort M (判断 + 配置 + 記録)。
+> **実行優先度**: Tier 1 — グローバル文書対象タスク群と dead pointer 解消のブロッカー。Effort M (判断 + 配置 + 記録)。
 
 #### 作業計画
 
@@ -448,7 +448,7 @@
 >
 > **⚠ 順序制約**: `claude/nightly-*` ブランチを先に削除すると夜間ループ (ADR-072 決定 3) が同一タスクを再選択して重複 PR を生成する事故が文書化済み。**ブランチ削除は回収 PR のマージ + 台帳該当行の削除が済んでから**。それまで stale-branch-scan は毎週この 3 本を削除候補として報告し続けるが実行しないこと。
 >
-> **実行優先度**: 🚀 Tier 1 — 実装済み成果物の逸失防止。Effort M (回収 PR 最大 4 本)。
+> **実行優先度**: Tier 1 — 実装済み成果物の逸失防止。Effort M (回収 PR 最大 4 本)。
 
 #### 作業計画
 
@@ -467,7 +467,7 @@
 >
 > **参照**: [ADR-043](adr/adr-043-security-gates-fail-closed.md) § Amendment (2026-08-12)、[ADR-055](adr/adr-055-firing-telemetry-collection.md) (record kind 追加の前例 = push-runs)、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (判定基盤の欠落) / Frequency Low / Effort M。
+> **実行優先度**: Tier 2 — Severity Medium (判定基盤の欠落) / Frequency Low / Effort M。
 
 #### 作業計画
 
@@ -485,7 +485,7 @@
 >
 > **参照**: [ADR-070](adr/adr-070-weekly-review-cloud-routine.md)、[ADR-031](adr/adr-031-weekly-review-pipeline.md)、todo13.md の jj-robustness facet エントリ。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (判定データの逸失) / Frequency Medium (毎週) / Effort S-M。
+> **実行優先度**: Tier 2 — Severity Medium (判定データの逸失) / Frequency Medium (毎週) / Effort S-M。
 
 #### 作業計画
 
@@ -503,7 +503,7 @@
 >
 > **参照**: [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) § 確定判定 (2026-08-12)、`.takt/facets/instructions/review-security.md` (追記先)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium〜High / Frequency Low / Effort S。
+> **実行優先度**: Tier 2 — Severity Medium〜High / Frequency Low / Effort S。
 
 #### 作業計画
 
@@ -522,7 +522,7 @@
 >
 > **参照**: [ADR-058](adr/adr-058-post-takt-regate.md) § 確定判定、[ADR-037](adr/adr-037-takt-fix-trust-shortcut.md)、PR #312。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Low (発生率 1/34) / Frequency Low / Effort S-M。
+> **実行優先度**: Tier 3 — Severity Low (発生率 1/34) / Frequency Low / Effort S-M。
 
 #### 作業計画
 

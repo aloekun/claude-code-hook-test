@@ -43,7 +43,7 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/runs/20260815-100604-weekly-review-2026-08-15/reports/review-todo-whole.md` (Criterion 3-3 の表)、`.takt/workflows/weekly-review.yaml` (`model: haiku`)、`src/lib-ledger/`、`src/cli-ledger-candidates/`
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium (毎週) / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium (毎週) / Effort S / Adoption Risk None。
 
 #### rescope (2026-08-17): 残る範囲を確定した — 逆向き差集合の決定論化
 
@@ -88,7 +88,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/409.md` Tier1 #1・Tier3 #1、`.claude/feedback-reports/410.md` Tier2 #1、`.claude/feedback-reports/414.md` Tier2 #2、順位 441、`docs/dev-conventions.md` § takt facet の出力言語
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -126,7 +126,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/411.md` Tier3 #1・#2、`.claude/feedback-reports/412.md` Tier3 #2、ADR-043 / ADR-057 / ADR-064 (stdout/exit code の扱いを扱う既存 ADR 群)
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Low-Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 3** — Severity Low-Medium / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 設計決定 (案)
 
@@ -176,7 +176,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § L2 / § 並行起動 guard、[PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417)、順位 323 (timeout が孫プロセスを縛れない — 同じ takt 実行経路の別欠陥)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (実害は最大 25 分のブロック + 再実行 1 回。データ破壊は無い) / Frequency Low (142 run 中 2 件 = 1.4%) / Effort S (まず観測の追加のみ) / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (実害は最大 25 分のブロック + 再実行 1 回。データ破壊は無い) / Frequency Low (142 run 中 2 件 = 1.4%) / Effort S (まず観測の追加のみ) / Adoption Risk None。
 
 #### 作業計画
 
@@ -221,7 +221,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/417.md` Tier1 #2、`421.md` Tier1 #1、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) (同型の trust boundary 検出ルール)
 >
-> **実行優先度**: 🚀 **Tier 1** — Severity High (両者とも実 incident 実績) / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 1** — Severity High (両者とも実 incident 実績) / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -250,7 +250,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/417.md` Tier2 #2/#3、`420.md` Tier2 #1
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Low / Effort XS-S / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Low / Effort XS-S / Adoption Risk None。
 
 #### 作業計画
 
@@ -295,7 +295,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/418.md` Tier3 #1/#2、`419.md` Tier2 #3・Tier3 #1、`420.md` Tier3 #2、`421.md` Tier3 #1/#2、`423.md` Tier3 #1
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
 
 #### 作業計画
 
@@ -326,7 +326,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/423.md` Tier2 #1、`t7_cwd_independence.rs` の `EXEC_STAGING_LOCK` doc
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Low / Frequency Low / Effort S / Adoption Risk Low。
+> **実行優先度**: **Tier 3** — Severity Low / Frequency Low / Effort S / Adoption Risk Low。
 
 #### 作業計画
 
@@ -350,7 +350,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `.claude/feedback-reports/424.md` Tier2 #1、`lib_ledger::select` (文書順で 1 件選択)
 >
-> **実行優先度**: 🔧 **Tier 2** — Severity Medium (手戻りリスク) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 2** — Severity Medium (手戻りリスク) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -374,7 +374,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: `resolve_project_dir` の doc コメント (`transcript.rs:28-36`)、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed 原則)
 >
-> **実行優先度**: 💎 **Tier 3** — Severity Low (発現経路未確認) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: **Tier 3** — Severity Low (発現経路未確認) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -402,7 +402,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: [`src/hooks-post-tool-jj-op-verify/src/main.rs`](../src/hooks-post-tool-jj-op-verify/src/main.rs)、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) § Known operational risks、PR #431/#432 post-merge feedback (Tier1 #4)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity Medium (誤検知による狼少年化。本物の divergence を見逃すリスク) / Frequency **High** (本セッションだけで 4 回) / Effort S / Adoption Risk Low (quote 除外は決定論的で pure function に閉じる)。
+> **実行優先度**: Tier 1 — Severity Medium (誤検知による狼少年化。本物の divergence を見逃すリスク) / Frequency **High** (本セッションだけで 4 回) / Effort S / Adoption Risk Low (quote 除外は決定論的で pure function に閉じる)。
 
 #### 作業計画
 
@@ -430,7 +430,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: [`docs/dev-conventions.md`](dev-conventions.md) § GitHub Actions の `run:` は常に `-e` 付きで起動する (末尾の注意書き)、`src/hooks-pre-tool-validate/`、PR #431 post-merge feedback (Tier2 #4)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity **High** (silent failure により「検証したつもり」を作る。実際に誤った検証結果を報告しかけた) / Frequency Medium (複数行スクリプトを渡すたび) / Effort S / Adoption Risk Low (既存 hook への判定追加)。
+> **実行優先度**: Tier 1 — Severity **High** (silent failure により「検証したつもり」を作る。実際に誤った検証結果を報告しかけた) / Frequency Medium (複数行スクリプトを渡すたび) / Effort S / Adoption Risk Low (既存 hook への判定追加)。
 
 #### 作業計画
 
@@ -454,7 +454,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: [`src/cli-push-runner/src/stages/scratch_file_warning.rs`](../src/cli-push-runner/src/stages/scratch_file_warning.rs) (`is_root_level` の module doc に実測根拠を記録済み)、PR #432 CodeRabbit 指摘、PR #432 post-merge feedback (Tier2 #1 / #3)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤検知 or 検出漏れ。scratch guard は最終防衛層) / Frequency Low (path 判定を触るときだけ) / Effort S / Adoption Risk None (テスト追加のみ)。
+> **実行優先度**: Tier 2 — Severity Medium (誤検知 or 検出漏れ。scratch guard は最終防衛層) / Frequency Low (path 判定を触るときだけ) / Effort S / Adoption Risk None (テスト追加のみ)。
 
 #### 作業計画
 
@@ -489,7 +489,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: [`src/lib-jj-helpers/src/lib.rs`](../src/lib-jj-helpers/src/lib.rs) `# 公開 API` 節、PR #431 post-merge feedback (Tier1 #2)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Low (doc のずれ。実行時の挙動には影響しない) / Frequency Medium (公開 API を足すたびにずれる。実測で 2 世代分の漏れを確認) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Low (doc のずれ。実行時の挙動には影響しない) / Frequency Medium (公開 API を足すたびにずれる。実測で 2 世代分の漏れを確認) / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -512,7 +512,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **参照**: [`src/cli-pr-monitor/src/lock.rs`](../src/cli-pr-monitor/src/lock.rs) (`owns` / `Drop`)、PR #430 post-merge feedback (Tier2 #3)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (調査可能性。lock 競合は #364 で実発生済み) / Frequency Medium / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (調査可能性。lock 競合は #364 で実発生済み) / Frequency Medium / Effort S / Adoption Risk None。
 
 #### 作業計画
 

@@ -29,7 +29,7 @@
 >
 > **参照**: `.claude/feedback-reports/{351,352,353,354,356,357}.md` の Tier 3 節、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — これらは全て「ルール」側なので機械 lint 化しない判断込み)。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (docs-only)。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None (docs-only)。
 
 #### 作業計画
 
@@ -54,7 +54,7 @@
 >
 > **参照**: `.claude/feedback-reports/352.md` Tier 1 #1、`.claude/feedback-reports/356.md` Tier 1 #1、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 (実走で検出した経緯)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (regex 層の線引き)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity High (本番経路の停止を 2 回起こした) / Frequency Medium / Effort S / Adoption Risk Low (regex 層、false positive は既存ルールと同じ運用で調整)。
+> **実行優先度**: Tier 2 — Severity High (本番経路の停止を 2 回起こした) / Frequency Medium / Effort S / Adoption Risk Low (regex 層、false positive は既存ルールと同じ運用で調整)。
 
 #### 作業計画
 
@@ -78,7 +78,7 @@
 >
 > **参照**: `.claude/feedback-reports/350.md` Tier 2 #1 / #2、[[dont-trust-takt-fix-output]] (parser の finding は入力空間全体を一度に固める)、`docs/dev-conventions.md` § 外部 fixture 参照テストは値まで assert (順位274) — 本エントリはその「外部 CLI 出力版」。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity High (1 年間気付かれなかった前提誤り) / Frequency Low (jj のバージョンアップ時) / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity High (1 年間気付かれなかった前提誤り) / Frequency Low (jj のバージョンアップ時) / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -99,7 +99,7 @@
 >
 > **参照**: `.claude/feedback-reports/351.md` Tier 2 #1、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 決定 4 / § 利点。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium (観測性の劣化。誤 allow は起きない) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (観測性の劣化。誤 allow は起きない) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -121,7 +121,7 @@
 >
 > **参照**: `.claude/feedback-reports/357.md` Tier 2 #1 / #2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 (段 2 の 2 回目)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) (rate-limit の判定文保証)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -141,7 +141,7 @@
 >
 > **参照**: `.claude/feedback-reports/352.md` Tier 3 #2、[ADR-069](adr/adr-069-pr-chain-declaration.md)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) § bounded lifetime。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None (docs-only)。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None (docs-only)。
 
 #### 作業計画
 
@@ -161,7 +161,7 @@
 >
 > **参照**: `.claude/feedback-reports/354.md` Tier 3 #1、[ADR-070](adr/adr-070-weekly-review-cloud-routine.md)、[ADR-031](adr/adr-031-weekly-review-pipeline.md)。本エントリと同時に採用した「ADR の trigger/scope 再定義時の同期」convention (dev-conventions 集中バッチの 5) が、この type の drift を今後防ぐ側の対処。
 >
-> **実行優先度**: 🔧 Tier 3 — Severity Medium (誤誘導。実装は正しい) / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 3 — Severity Medium (誤誘導。実装は正しい) / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
@@ -184,7 +184,7 @@
 >
 > **参照**: `.claude/feedback-reports/353.md` Tier 1 #1 / template_fix、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (設定の論理結合)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (派生プロジェクトへの誤誘導) / Frequency Low / Effort S / Adoption Risk Low。
+> **実行優先度**: Tier 2 — Severity Medium (派生プロジェクトへの誤誘導) / Frequency Low / Effort S / Adoption Risk Low。
 
 #### 作業計画
 
@@ -222,7 +222,7 @@
 >
 > **参照**: [ADR-010](adr/adr-010-hooks-layout-and-build-strategy-v2.md) (exe の配置とビルド戦略)、[ADR-004](adr/adr-004-stop-hook-quality-gate.md) (Stop hook 品質ゲート)、[ADR-002](adr/adr-002-post-tool-use-linter-composition.md) (PostToolUse リンター構成)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (config opt-in + kill-switch)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (古い exe による silent な挙動不一致) / Frequency High (Rust を触るたび) / Effort M / Adoption Risk Low (両層とも config opt-in + kill-switch を付ける)。
+> **実行優先度**: Tier 2 — Severity Medium (古い exe による silent な挙動不一致) / Frequency High (Rust を触るたび) / Effort M / Adoption Risk Low (両層とも config opt-in + kill-switch を付ける)。
 
 #### 作業計画
 
@@ -286,7 +286,7 @@
 >
 > **参照**: `ADR-072` の実走スモーク節 / 試験運用判断基準節、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) (WP-17 残課題 2 件の出所)、[dev-conventions.md](dev-conventions.md)。
 >
-> **実行優先度**: 🚀 Tier 1 — Severity High (未実施のまま schedule が回ると無検証の自律動作が毎晩走る) / Frequency 一度きり / Effort M / Adoption Risk Low (dry_run と kill-switch がある)。
+> **実行優先度**: Tier 1 — Severity High (未実施のまま schedule が回ると無検証の自律動作が毎晩走る) / Frequency 一度きり / Effort M / Adoption Risk Low (dry_run と kill-switch がある)。
 
 #### 作業計画
 
@@ -324,7 +324,7 @@
 >
 > **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — いずれも機械 lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk None (docs-only)。
+> **実行優先度**: Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk None (docs-only)。
 
 #### 作業計画
 
@@ -353,7 +353,7 @@
 >
 > **参照**: `ADR-072` の残課題節 / 欠点・留意点節、[ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 (背圧の契約)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (bounded lifetime)。
 >
-> **実行優先度**: 💎 Tier 3 — Severity Medium / Frequency Low / Effort M-L (1 は構造変更) / Adoption Risk Medium (観測前の着手は過剰設計)。**実走スモークと 2 週間の試験運用より後**。
+> **実行優先度**: Tier 3 — Severity Medium / Frequency Low / Effort M-L (1 は構造変更) / Adoption Risk Medium (観測前の着手は過剰設計)。**実走スモークと 2 週間の試験運用より後**。
 
 #### 作業計画
 
@@ -389,7 +389,7 @@
 >
 > **依存**: 解消済み — 順位 380 の framing は 2026-08-08 実装済み ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13)。着手可能。決定 13 の unit test (marker / 不可視文字の拒否) は parse 層のみを固定しており、**prompt 組立と自然言語 adversarial payload の系統は未固定**なので本エントリの価値は残る。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
 
 #### 作業計画
 
@@ -407,7 +407,7 @@
 >
 > **対処案**: `is_separator_row` へ `is_table_row` 同等のパイプ検証 guard を追加する。
 >
-> **実行優先度**: 🔧 Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort S / Adoption Risk None。
 
 #### 作業計画
 
