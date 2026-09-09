@@ -747,3 +747,62 @@ toml = [
 ]
 yaml = ["no_workstream_seq_names_in_config_detects_yaml_comment"]
 yml = ["no_workstream_seq_names_in_config_detects_yml_comment"]
+
+# ─── ルール⑭: integration test での無期限 child wait 禁止 (bounded wait) ───
+#
+# 由来: PR #254 / WP-08 (ADR-049) で codebase 初の exe-spawn E2E テスト (incident_eval.rs) を
+# 書いた際、timeout 境界が欠落し CodeRabbit nitpick になった。子プロセスが hang すると
+# `wait_with_output()` / `child.wait()` は CI を無期限にブロックする (job timeout まで赤にならない)。
+# 同パターンは hooks smoke test (ADR-065) 等へ流用が続くため、convention (旧 dev-conventions.md
+# § 外部 exe を spawn する integration test の bounded wait) から決定論層へ移した (順位 515、ADR-042)。
+#
+# Scope 限定 (extensions = ["rs"]、paths = tests/ 配下のみ):
+# - 対象は integration test (`src/<crate>/tests/**/*.rs`) だけ。本体コードの `child.wait()` は
+#   lib-subprocess の timeout 実装自身や reaper 経路など正当な用途があるため対象外。
+# - `.wait()` は receiver を `child` に限定する。`Barrier::wait()` / `Condvar::wait()` 等の
+#   同名メソッドを誤検知しないため (lock/tests.rs の `start_b.wait()` が実例)。
+#   `child` 以外の変数名で `Child::wait()` を呼ぶと素通りする既知の穴だが、本リポジトリの
+#   spawn 系テストは `child` 命名で統一されている。
+# - `Command::output()` は対象外 (spawn せず同期実行する短命コマンド用途が多く、
+#   `-- --ignored` の jj 系テストで誤検知が多い)。
+
+[[rules]]
+id = "no-unbounded-child-wait"
+pattern = '\.wait_with_output\(\)|\bchild\.wait\(\)'
+severity = "error"
+message = "integration test で子プロセスを無期限 wait しています。lib-subprocess::wait_with_timeout_safe(label, &mut child, secs) で timeout 付き wait にし、出力が必要なら drain_pipe_unlimited で別スレッド drain してください"
+why = "子プロセスが hang すると `wait_with_output()` / `child.wait()` は CI を無期限ブロックし、job timeout まで失敗にならない。PR #254 (WP-08、ADR-049) で incident_eval.rs に timeout 境界が欠落し指摘された。同パターンの E2E は hooks smoke test (ADR-065) 等へ流用が続くため決定論層で固定する (ADR-007 の正規表現層、順位 515)"
+extensions = ["rs"]
+paths = ["src/*/tests/**/*.rs"]
+
+[rules.fix]
+strategy = "lib-subprocess の timeout 付き wait に置換"
+steps = [
+  "Cargo.toml の [dev-dependencies] に lib-subprocess を追加 (tests/*.rs は [dependencies] も見えるが、test 専用なら dev 側に置く)",
+  "`child.wait_with_output()` → stdout/stderr を `drain_pipe_unlimited(child.stdout.take()...)` で先に drain し、`wait_with_timeout_safe(\"label\", &mut child, 30)` で待つ",
+  "`child.wait()` → `wait_with_timeout_safe(\"label\", &mut child, 30)` に置換し、戻り値 `None` (timeout) を assert で失敗させる",
+]
+
+[rules.example]
+bad = "let output = child.wait_with_output().expect(\"wait\");"
+good = "let status = wait_with_timeout_safe(\"my-exe\", &mut child, 30).expect(\"wait\"); assert!(status.is_some(), \"my-exe hung\");"
+
+[rules.incident]
+pr = 254
+bad_fixture = "no-unbounded-child-wait.rs"
+good_fixture = "no-unbounded-child-wait.rs"
+adr = "adr-049"
+
+[rules.test_coverage]
+# rule⑭ は rs のみ (主要拡張子)。wait_with_output / child.wait の positive と、
+# timeout 付き wait / Barrier の `.wait()` / tests 外パス の negative を網羅。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_unbounded_child_wait_detects_wait_with_output",
+  "no_unbounded_child_wait_detects_child_wait",
+  "no_unbounded_child_wait_detects_chained_wait_with_output",
+  "no_unbounded_child_wait_skips_wait_with_timeout_safe",
+  "no_unbounded_child_wait_skips_barrier_wait",
+  "no_unbounded_child_wait_paths_match_integration_tests_only",
+]

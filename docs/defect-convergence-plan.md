@@ -540,8 +540,8 @@ PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いず
 
 ### 撤1 — lint 系 (型 A)
 
-1. **順位 319 の `-e` convention を機構化**: [dev-conventions.md](dev-conventions.md) §「GitHub Actions の `run:` は常に `-e` 付きで起動する」の要求を [scripts/lint-workflows.mjs](../scripts/lint-workflows.mjs) の契約検査 3 として実装 (検査内容は同節の記述を正とする)。実装後、同節は「機械化: lint-workflows 契約検査 3」の宣言に縮小
-2. **takt facet の言語指定検査**: `.takt/facets/instructions/*.md` の各ファイルに出力言語の指定行が存在することを検査 (dev-conventions §「takt facet の出力言語は各 instruction に直書きする」の機構化)。検査パターンは既存 instruction の実態から確定し、非準拠 facet には同 PR で指定行を足す
+1. **順位 319 の `-e` convention を機構化**: [dev-conventions.md](dev-conventions.md) §「GitHub Actions の `run:` は常に `-e` 付きで起動する」の要求を [scripts/lint-workflows.mjs](../scripts/lint-workflows.mjs) の契約検査 3 として実装 (検査内容は同節の記述を正とする)。実装後、同節は「機械化: lint-workflows 契約検査 3」の宣言に縮小 **2026-09-09 検査は実装済み** (`scripts/lint-workflows-run-blocks.mjs`、`pnpm lint:workflows` を push-runner の lint group に接続)。同節の宣言への縮小と CLAUDE.md の追随は撤1-③ と同じ PR で行う
+2. **takt facet の言語指定検査**: `.takt/facets/instructions/*.md` の各ファイルに出力言語の指定行が存在することを検査 (dev-conventions §「takt facet の出力言語は各 instruction に直書きする」の機構化)。検査パターンは既存 instruction の実態から確定し、非準拠 facet には同 PR で指定行を足す **2026-09-09 検査は実装済み** (`scripts/lint-takt-facets.mjs`、`pnpm lint:takt-facets` を同 group に接続。20 facet 全てが準拠済みで追記不要だった)。同節の縮小は撤1-③ と同じ PR で行う
 3. **ルール台帳ゲート (本命)**: [cli-docs-lint](../src/cli-docs-lint/) に「dev-conventions.md の各 `##` 節は `機械化: <機構名>` または `機械化不能: <ADR-042 Step1/2 の判定理由>` の宣言行を持つ」検査を追加。既存の `##` 節 (2026-08-25 時点で 15 個。着手時に実測し直すこと) への宣言付与が導入作業で、その過程が撤廃候補の棚卸しを兼ねる。**これにより「ルールを書いて溜飲を下げる」経路自体が塞がる** (新ルールを書くたび機械化判定が強制される)
 
 ### 撤2 — pre-tool-validate 系 (型 A)

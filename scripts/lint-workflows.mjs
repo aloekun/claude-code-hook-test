@@ -17,10 +17,15 @@
 //   - CodeRabbit の marker: review-request.yml / pr-monitor.yml / markers.rs の 3 か所。
 //     CodeRabbit 側の format 変更は外部要因で、追随漏れは silent success を招く
 //     (ADR-034 § CR rate-limit format evolution、ADR-051 のクロスシステム結合)。
+//   - run: ブロックの -e 前提 (契約検査 3、順位 515): `set -uo pipefail` は -e を外さず、
+//     パイプラインの grep は一致 0 件で step を落とす。shell 未宣言で実効 shell が静的に
+//     決まらない step も報告する。検査本体は lint-workflows-run-blocks.mjs。
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+
+import { checkRunBlock, collectRunSteps } from './lint-workflows-run-blocks.mjs';
 
 // js-yaml 5.x は CommonJS のみで default export を持たない。ESM の `import yaml from` は
 // SyntaxError になるため require で取る。
@@ -153,6 +158,37 @@ for (const { marker, files } of SHARED_CR_MARKERS) {
 }
 if (failures === 0) {
   console.log(`[lint-workflows] CodeRabbit marker の同期 OK (${SHARED_CR_MARKERS.length} 件、順位 431)`);
+}
+
+// --- 契約検査 3: run: ブロックは常に -e 付きで走る (順位 515 / 撤1-①) -------------------
+//
+// GitHub Actions は run: を `bash -e {0}` で起動し、`set -uo pipefail` と書いても -e は
+// 外れない。この前提を外して書いた分岐は **正常系で step ごと落ちる** (PR #428 で backstop の
+// 投稿が消えた)。検査本体と fixture テストは lint-workflows-run-blocks.mjs 側にある。
+//
+// shell 未宣言の step は runs-on で実効 shell が変わる (POSIX ランナーなら bash -e、Windows
+// なら pwsh)。OS が静的に決まらない step へ bash 前提の検査を当てると誤検知になるので、
+// **検査せず `shell:` の明示を求める** — bash 前提のスクリプトが Windows で pwsh として
+// 走れば実行時に壊れるため、曖昧さ自体が ADR-065 の cross-OS 退行にあたる。
+let runBlockCount = 0;
+for (const [name, document] of documents) {
+  const { bash, ambiguous } = collectRunSteps(document);
+  for (const { job, step, run } of bash) {
+    runBlockCount += 1;
+    for (const { line, message } of checkRunBlock(run)) {
+      fail(`${name}: job=${job} step=${step} run: の ${line} 行目: ${message}`);
+    }
+  }
+  for (const { job, step, runnerOs } of ambiguous) {
+    fail(
+      `${name}: job=${job} step=${step} が shell を宣言していません (runs-on=${runnerOs})。` +
+        'GitHub 既定は POSIX ランナーで bash、Windows で pwsh のため実効 shell が静的に決まりません。' +
+        '`shell: bash` 等を明示してください (明示するまで run: ブロックの -e 検査を当てられません)',
+    );
+  }
+}
+if (failures === 0) {
+  console.log(`[lint-workflows] run: ブロックの -e 前提 OK (${runBlockCount} step、順位 515)`);
 }
 
 if (failures > 0) {

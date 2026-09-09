@@ -3,7 +3,7 @@
 //! Test helper (`make_test_rule` 等) は memory `feedback_test_dry_antipattern` に従って
 //! per-module で複製している (sibling module 間で共有しない)。
 
-use super::engine::{compile_rule, run_custom_rules};
+use super::engine::{compile_rule, rule_matches_path, run_custom_rules};
 use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix};
 
 fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
@@ -612,4 +612,89 @@ fn no_workstream_seq_names_in_config_skips_github_pr_reference() {
     let rules = compile_test_rules(vec![no_workstream_seq_names_in_config_rule()]);
     let violations = run_custom_rules(file.to_str().unwrap(), &rules);
     assert!(violations.is_empty());
+}
+
+// ─── rule⑭: no-unbounded-child-wait ───
+
+fn no_unbounded_child_wait_rule() -> CustomRule {
+    let mut rule = make_test_rule(
+        "no-unbounded-child-wait",
+        r"\.wait_with_output\(\)|\bchild\.wait\(\)",
+        &["rs"],
+    );
+    rule.paths = Some(vec!["src/*/tests/**/*.rs".to_string()]);
+    rule
+}
+
+/// paths filter を外した rule。regex 単体の positive / negative は tempdir の相対パスで
+/// 回すため (repo 配下でない tempdir は glob に一致しない)、filter 無しで検査する。
+/// filter 自体は `no_unbounded_child_wait_paths_match_integration_tests_only` が固定する。
+fn no_unbounded_child_wait_rule_without_paths() -> CustomRule {
+    let mut rule = no_unbounded_child_wait_rule();
+    rule.paths = None;
+    rule
+}
+
+fn run_unbounded_wait_rule_on(source: &str) -> usize {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "e2e.rs", source);
+    let rules = compile_test_rules(vec![no_unbounded_child_wait_rule_without_paths()]);
+    run_custom_rules(file.to_str().unwrap(), &rules).len()
+}
+
+#[test]
+fn no_unbounded_child_wait_detects_wait_with_output() {
+    let source = "let output = child.wait_with_output().expect(\"wait\");\n";
+    assert_eq!(run_unbounded_wait_rule_on(source), 1);
+}
+
+#[test]
+fn no_unbounded_child_wait_detects_child_wait() {
+    let source = "let status = child.wait().expect(\"wait\");\n";
+    assert_eq!(run_unbounded_wait_rule_on(source), 1);
+}
+
+/// `spawn()?.wait_with_output()` のように receiver が変数でない chain 形でも検知する。
+#[test]
+fn no_unbounded_child_wait_detects_chained_wait_with_output() {
+    let source = "let out = Command::new(exe).spawn().unwrap().wait_with_output().unwrap();\n";
+    assert_eq!(run_unbounded_wait_rule_on(source), 1);
+}
+
+#[test]
+fn no_unbounded_child_wait_skips_wait_with_timeout_safe() {
+    let source = "let status = wait_with_timeout_safe(\"exe\", &mut child, 30).expect(\"wait\");\n\
+                  assert!(status.is_some());\n";
+    assert_eq!(run_unbounded_wait_rule_on(source), 0);
+}
+
+/// `Barrier::wait()` / `Condvar::wait()` は子プロセスと無関係。receiver を `child` に
+/// 限定しているのはこの negative を守るため (lock/tests.rs の `start_b.wait()` が実例)。
+#[test]
+fn no_unbounded_child_wait_skips_barrier_wait() {
+    let source = "start_b.wait();\nfinish_b.wait();\nlet g = cvar.wait(guard).unwrap();\n";
+    assert_eq!(run_unbounded_wait_rule_on(source), 0);
+}
+
+/// paths filter は integration test (`src/<crate>/tests/**`) だけに当たる。本体コードの
+/// `child.wait()` (lib-subprocess の timeout 実装自身や reaper 経路) を巻き込まないため。
+#[test]
+fn no_unbounded_child_wait_paths_match_integration_tests_only() {
+    let compiled = compile_rule(no_unbounded_child_wait_rule()).expect("rule must compile");
+    let cwd = std::env::current_dir().expect("cwd");
+    let root = cwd.to_string_lossy().replace('\\', "/");
+    let abs = |rel: &str| format!("{root}/{rel}");
+    for rel in [
+        "src/hooks-stop-quality/tests/e2e.rs",
+        "src/cli-pr-monitor/tests/nested/smoke.rs",
+    ] {
+        assert!(rule_matches_path(&compiled, &abs(rel)), "should match: {rel}");
+    }
+    for rel in [
+        "src/lib-subprocess/src/lib.rs",
+        "src/cli-pr-monitor/src/lock/tests.rs",
+        "src/hooks-stop-quality/tests/e2e.md",
+    ] {
+        assert!(!rule_matches_path(&compiled, &abs(rel)), "should not match: {rel}");
+    }
 }

@@ -33,9 +33,9 @@ struct Case {
     fixture: &'static str,
     /// 1-indexed line the bad fixture fires on.
     expected_line: u64,
-    /// `Some(rel)` when the rule has a `.takt/workflows/*.yaml` path filter (rule 9):
-    /// the fixture must be staged at this repo-relative path under a temp CWD so the
-    /// path filter is exercised. `None` for rules without a path filter.
+    /// `Some(rel)` when the rule has a `paths` filter (rule 9: `.takt/workflows/*.yaml`,
+    /// rule 14: `src/*/tests/**/*.rs`): the fixture must be staged at this repo-relative
+    /// path under a temp CWD so the path filter is exercised. `None` for rules without one.
     workflow_rel: Option<&'static str>,
 }
 
@@ -52,6 +52,7 @@ const CASES: &[Case] = &[
     Case { rule_type: "NO_JJ_TEMPLATE_FIRST_LINE", severity: "error", fixture: "no-jj-template-first-line.toml", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_HARDCODED_JJ_REVSET_RANGE", severity: "warning", fixture: "no-hardcoded-jj-revset-range.rs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_WORKSTREAM_SEQ_NAMES_IN_CONFIG", severity: "warning", fixture: "no-workstream-seq-names-in-config.toml", expected_line: 2, workflow_rel: None },
+    Case { rule_type: "NO_UNBOUNDED_CHILD_WAIT", severity: "error", fixture: "no-unbounded-child-wait.rs", expected_line: 2, workflow_rel: Some("src/incident-eval/tests/e2e.rs") },
 ];
 
 fn repo_root() -> PathBuf {
@@ -93,8 +94,8 @@ fn ensure_rules_toml_beside_exe() {
 /// spawn under, and the `file_path` to send in the hook JSON.
 ///
 /// - No path filter: pass the fixture's absolute path directly; CWD is irrelevant.
-/// - Path filter (rule 9): copy the fixture to `<tmp>/<workflow_rel>` and invoke the
-///   relative path under `<tmp>` so `paths = [".takt/workflows/*.yaml"]` matches.
+/// - Path filter (any rule with `paths`): copy the fixture to `<tmp>/<workflow_rel>` and
+///   invoke the relative path under `<tmp>` so the rule's `paths` glob matches.
 fn stage(fixture: &Path, workflow_rel: Option<&str>) -> (Option<tempfile::TempDir>, PathBuf, String) {
     match workflow_rel {
         None => (

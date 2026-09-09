@@ -292,7 +292,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEWER: ${{ github.event.review.user.login }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if PERMISSION=$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${REVIEWER}/permission" --jq '.permission' 2> "$RUNNER_TEMP/perm-err.txt"); then
             echo "[PHASE_B_ACTOR] reviewer=${REVIEWER} permission=${PERMISSION}"
           else
