@@ -112,6 +112,32 @@ pub(crate) fn parse_pr_number_from_url(output: &str) -> Option<u64> {
     None
 }
 
+/// PR URL (`https://github.com/<owner>/<repo>/pull/123`) から `owner/repo` を抽出する。
+///
+/// **作成先リポジトリは checkout から推測しない。** `gh pr create --repo <other>` は現在の
+/// checkout と別のリポジトリへ PR を作れるため、`gh api repos/{owner}/{repo}/...` の
+/// placeholder に委ねると**別リポジトリの同番号 PR**を指しうる。見つからないだけなら無害だが、
+/// その番号の PR が向こうに実在すると**無関係な PR へ書き込む**ことになる。
+///
+/// 取れなければ [`None`] — 呼び手は推測せず処理を諦める。
+pub(crate) fn parse_repo_from_pr_url(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        let Some(pull_pos) = trimmed.rfind("/pull/") else {
+            continue;
+        };
+        let before = &trimmed[..pull_pos];
+        let mut segments = before.rsplit('/');
+        let repo = segments.next()?;
+        let owner = segments.next()?;
+        if repo.is_empty() || owner.is_empty() || owner.contains(':') {
+            continue;
+        }
+        return Some(format!("{owner}/{repo}"));
+    }
+    None
+}
+
 /// 現在の jj change に紐づく全ブックマーク名を取得する。
 ///
 /// `lib_jj_helpers::BOOKMARK_SEARCH_REVSETS` の順で検索し、最初に非空の結果が
@@ -169,6 +195,38 @@ mod tests {
     #[test]
     fn parse_pr_url_empty() {
         assert_eq!(parse_pr_number_from_url(""), None);
+    }
+
+    /// **番号とリポジトリは同じ URL から取る。** 別々の出所にすると、`--repo` 指定時に
+    /// 「向こうのリポジトリの番号」と「こちらのリポジトリ名」が組み合わさりうる。
+    #[test]
+    fn parse_repo_and_number_come_from_the_same_url() {
+        let output = "https://github.com/aloekun/claude-code-hook-test/pull/490\n";
+        assert_eq!(parse_repo_from_pr_url(output), Some("aloekun/claude-code-hook-test".to_string()));
+        assert_eq!(parse_pr_number_from_url(output), Some(490));
+    }
+
+    /// `gh pr create --repo <other>` は現在の checkout と別のリポジトリへ PR を作る。
+    /// URL から読めば作成先が取れる (checkout から推測しない)。
+    #[test]
+    fn parse_repo_follows_the_url_not_the_checkout() {
+        let output = "https://github.com/other-owner/other-repo/pull/7\n";
+        assert_eq!(parse_repo_from_pr_url(output), Some("other-owner/other-repo".to_string()));
+    }
+
+    #[test]
+    fn parse_repo_ignores_prefix_lines_and_enterprise_hosts() {
+        let output = "Warning: something\nhttps://ghe.example.com/team/tool/pull/3\n";
+        assert_eq!(parse_repo_from_pr_url(output), Some("team/tool".to_string()));
+    }
+
+    /// **読めなければ `None`。** 呼び手は推測せず諦める — 誤ったリポジトリへ書くより
+    /// トリガーしない方が安全。
+    #[test]
+    fn parse_repo_returns_none_when_the_url_is_unusable() {
+        assert_eq!(parse_repo_from_pr_url(""), None);
+        assert_eq!(parse_repo_from_pr_url("no url here"), None);
+        assert_eq!(parse_repo_from_pr_url("https://github.com/pull/12"), None);
     }
 
     // ─── bookmark 検出ロジック (lib-jj-helpers に集約済) ───

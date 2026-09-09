@@ -8,7 +8,8 @@ use crate::runner::{run_cmd_direct, run_gh_quiet};
 use crate::stages::monitor::start_monitoring;
 use crate::state::{state_file_path, write_state_to, PrMonitorState};
 use crate::util::{
-    get_jj_bookmarks, get_pr_head_commit, get_pr_info, parse_pr_number_from_url, utc_now_iso8601,
+    get_jj_bookmarks, get_pr_head_commit, get_pr_info, parse_pr_number_from_url,
+    parse_repo_from_pr_url, utc_now_iso8601,
     PrInfo,
 };
 
@@ -51,7 +52,7 @@ fn reassemble_split_body(args: &[String]) -> Vec<String> {
 /// `tempfile` は `O_EXCL` + ランダム名 + 衝突時リトライでファイルを作るため、
 /// 並列 `cargo test` (同一プロセス・同一 ms) でも本番の並列実行 (別セッション /
 /// サブエージェント) でも名前が構造的に衝突しない (順位 230 flaky 修正)。
-fn write_body_tempfile(dir: &Path, content: &str) -> std::io::Result<TempPath> {
+pub(crate) fn write_body_tempfile(dir: &Path, content: &str) -> std::io::Result<TempPath> {
     let path = tempfile::Builder::new()
         .prefix("gh-pr-body-")
         .suffix(".md")
@@ -199,7 +200,22 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
     }
 
     let pr_info = build_pr_info_from_gh_output(&output);
+    // NOTE: 監視の前に置く — 監視は PR の状態を待つ側で、レビューはここで発火させないと始まらない (順位 321)
+    trigger_review_for_created_pr(&output, pr_info.pr_number);
     start_monitoring(&pr_info)
+}
+
+/// 作成した PR に対してレビューを発火させる。
+///
+/// **リポジトリは `gh pr create` が出力した URL から取る。** `--repo` で別リポジトリへ
+/// 作れるため、`gh api` の `{owner}/{repo}` placeholder (= checkout / `GH_REPO` から解決) に
+/// 委ねると別リポジトリの同番号 PR を指しうる。URL から読めなければ**推測せず諦める**。
+fn trigger_review_for_created_pr(gh_output: &str, pr_number: Option<u64>) {
+    let (Some(number), Some(repo)) = (pr_number, parse_repo_from_pr_url(gh_output)) else {
+        log_info("[trigger-review] PR の番号かリポジトリを出力から読めないため、レビューのトリガーを行いません (PR 作成は成功しています)。");
+        return;
+    };
+    crate::stages::trigger_review::trigger_review_after_create(&repo, number);
 }
 
 fn write_early_reset_state() {

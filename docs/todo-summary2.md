@@ -58,7 +58,6 @@
 | 314 | Tier 2 | **bookmark 未作成での push 失敗（exit 7）のエラーメッセージ改善 (275.md T2-5 採用)** | todo16.md | S | なし (本セッションで実発生。bookmark 自動作成は ADR-011 の明示命名意図と緊張するためメッセージ改善のみ) |
 | 315 | Tier 3 | **ADR-055 telemetry の bounded lifetime 期限を config コメントに明記 (275.md T3-1 採用)** | todo16.md | XS | なし (warm-up 期限 2026-08-12 頃 + ADR-062 リンクを `[telemetry]` section コメントに追記。step2/3 は ADR-062 で消化済み) |
 | 316 | Tier 3 | **ADR-044「2nd consumer で共通化」原則の明確化・判定基準の例示 (275.md T3-2 採用)** | todo16.md | S | なし (is_truthy の非対称性を case study 化。順位 317 は 2026-09-08 に却下・削除 — 抽出基準は ADR-044 が持つ) |
-| 321 | Tier 2 | **ADR-019/WP-03 クォータ設計の前提 stale (無料枠 → Pro + adaptive limit) + 初回レビュー処理中 push のレビュー欠落穴** | todo17.md | S | なし (dev-conventions 順位 262「外部 SaaS 無料枠/制限の調査チェックリスト」の適用対象) |
 | 326 | Tier 2 | **並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)** | todo17.md | S (Phase 0) / M (Phase 1 条件付き) | なし (Phase 0 の需要調査で見落とし実績ゼロなら見送り = negative result 永続化。ADR-047 却下確定 = refute.yaml 削除 revert PR とは独立に進められる) |
 | 327 | Tier 3 | **多段コミットの ADR/observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用: status 同期 / plain-text 参照 / セクション同期)** | todo17.md | S | なし (実害は各 PR review/feedback で捕捉済。doc checklist のみ、機械化は再発観測後にエスカレーション) |
 | 331 | Tier 2 | **hooks-session-start に systemMessage を含む JSON 出力の exe-spawn E2E テスト追加 (#299 post-merge feedback 採用)** | todo17.md | S | なし (現状 pure function レベルのみ、実 config パース込み exe 駆動の検証なし。ADR-049 exe-spawn E2E 先例流用。UI 実描画確認は別途 dogfood) |

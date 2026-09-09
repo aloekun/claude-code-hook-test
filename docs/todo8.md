@@ -252,53 +252,6 @@
 
 ---
 
-### 順位 145: preset matrix test 追加 — default fallback vs config-selectable の 2 軸 classification 検証 (PR #172 T2-#1 採用)
-
-> **動機**: PR #172 で `jj-message-required` preset 実装の Phase 3 において、当初 `is_blocked("jj new")` (default config 使用) で block を assert する test を書いたが、`jj-message-required` が `default_preset_names()` の fallback list に含まれない opt-in preset であることを前提とせず、test rewrite が必要になった。preset architecture の implicit assumption (always-enabled vs config-selectable) を test 設計レベルで codify することで、将来の新 preset 追加時の design misalignment を構造的に防止する。
->
-> **本タスクの位置づけ**: PR #172 post-merge-feedback Tier 2 #1 採用 (Severity Medium / Frequency Low / Effort M / Adoption Risk None)。matrix test で preset 分類を明示する mechanical enforcement 層を追加。
->
-> **参照**: `.claude/feedback-reports/172.md` Tier 2 #1、`src/hooks-pre-tool-validate/src/main.rs` の `default_preset_names()` + test module、PR #172 Phase 3 (test rewrite 経緯)
->
-> **実行優先度**: **Tier 2** — Effort M。Bundle 171 残タスク (順位 142 + 143) との並列実施可能。
-
-#### 設計決定 (案)
-
-- **配置先**: `src/hooks-pre-tool-validate/src/main.rs` の test module (feedback report は lib.rs と記載するが本 crate は binary crate のため main.rs を採用)
-- **matrix 構成** (2 軸):
-  - axis 1: `default fallback (always-enabled)` vs `config-selectable (opt-in)`
-  - axis 2: 各 preset 名
-- **classification 期待値** (本セッション時点):
-  - always-enabled (`default_preset_names()` 内): `default` / `git` / `jj-immutable` / `jj-main-guard` / `jj-push-guard` / `electron`
-  - config-selectable: `gh-pr-create-guard` / `gh-pr-merge-guard` / `polling-anti-pattern` / `exe-help-block` / `jj-message-required`
-- **test 案**:
-  - `preset_default_fallback_classification`: 各 always-enabled preset 名が `default_preset_names()` の return に含まれることを assert
-  - `preset_config_selectable_opt_in_classification`: 各 config-selectable preset 名が `default_preset_names()` に含まれないことを assert
-  - `preset_matrix_full_coverage`: 既知 preset 名の全集合が classification 表 (always-enabled ∪ config-selectable) と一致することを assert (= 新 preset 追加時に matrix 更新を強制)
-
-#### 作業計画
-
-- [ ] preset 分類表を const として定義 (`ALWAYS_ENABLED_PRESETS` + `CONFIG_SELECTABLE_PRESETS`)
-- [ ] matrix test 関数 3 件追加 (default fallback / config-selectable / full coverage)
-- [ ] 既存 test (`default_config_enables_all_presets` / `jj_message_required_not_in_default_fallback_is_opt_in` 等) との重複整理 (削除 or matrix への移行)
-- [ ] `resolve_preset_or_custom` の dispatch arm 列挙との整合性確認 (matrix の preset 名 = dispatch arm 名)
-- [ ] 派生プロジェクト transferability 考慮 (porting 時に preset 分類を即把握できる)
-- [ ] 本エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- preset の分類 (always-enabled vs config-selectable) が test レベルで codify される
-- 将来の新 preset 追加時に classification 表を更新せざるを得ない構造になり、design misalignment が構造的に検出される
-- 既存 test (158 件) との regression なし
-- `resolve_preset_or_custom` の arm 列挙との不整合 (preset 追加忘れ等) が test で catch される
-
-#### 詰まっている箇所
-
-- feedback report は target を `src/hooks-pre-tool-validate/src/lib.rs` と記載するが、本 crate は binary crate (main.rs のみ) で lib.rs は存在しない → main.rs を採用 (target 是正)
-- 「config-selectable preset 名が default に含まれない」test は `jj_message_required_not_in_default_fallback_is_opt_in` で 1 件既存。matrix 化で全 5 preset に拡張する
-
----
-
 ## 既知課題 (記録のみ、本セッションで未対応)
 
 ### post-merge-feedback workflow が長時間 stale marker を残す問題 (PR #119 marker observed 2026-05-15)

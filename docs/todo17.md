@@ -7,31 +7,6 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### 順位 321: ADR-019/WP-03 クォータ設計の前提 stale + 初回レビュー処理中 push のレビュー欠落穴
-
-> **動機**: PR #287 の rate-limit 調査で、WP-03 (ADR-019 amendment) のクォータ設計に **2 つの前提ズレ**が判明した。
->
-> **(a) 前提が stale**: `.coderabbit.yaml` 冒頭は「**無料枠レートリミット (3〜4 レビュー/時)** の解除待ちを構造的に削減する」と書かれているが、CR の実際の応答は **`Plan: Pro`**。かつ課金プランのレート制限は固定値ではなく **adaptive per-developer limit** (CR docs: 直近の PR レビュー活動が全ユーザーの 95 パーセンタイル以上に達すると追加レビューの解放が緩やかになる)。**ADR-040 の GPU 前提が stale だった件と同型**で、設計根拠が現状と食い違っている。本件では #276〜#287 の **12 PR を約 24 時間**で投入したことが引き金と強く示唆される (CR 内部カウンタは外部から不可視のため断定はできない)。WP-03 は *PR あたり*のレビュー回数は減らせるが、*developer 単位の rolling window* 枯渇には効かない。
->
-> **(b) レビュー欠落穴**: `auto_incremental_review: false` と「初回レビュー処理中の push」が組み合わさると、**新 head が誰にもレビューされない**状態になる。PR #287 の実際の経緯: 12:44 時点で CR は初回レビューを処理中 (`Currently processing new changes... please wait`) → その直後に手動 push で head 差し替え → 新 head は増分レビュー対象外 (設定どおり) → 初回レビューは宙に浮く → 手動 `@coderabbitai review` が必要になり、そこで rate limit に到達。ADR-019 は「**手動 push 後は `@coderabbitai review` を手動投稿**」(§ 手動 fix push は手動トリガーが必要) と規定しているが、**規約 (人間の記憶) に依存**しており仕組み化されていない。
->
-> **参照**: `.coderabbit.yaml` 冒頭コメント、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § WP-03 / § 手動 fix push は手動トリガーが必要、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、`docs/dev-conventions.md` 順位 262 (外部 SaaS 無料枠 / 制限の調査チェックリスト)、PR #287。
->
-> **実行優先度**: Tier 2 — Severity Medium / Effort S。
-
-#### 作業計画
-
-- [ ] **(a) 前提の是正**: 現行プラン (Pro) と adaptive limit の実態を調査し (順位 262 の外部 SaaS 制限調査チェックリストを適用)、`.coderabbit.yaml` 冒頭と ADR-019 § WP-03 の根拠記述を実態に合わせて更新する。**「無料枠 3〜4 レビュー/時」を前提にした設計判断が今も妥当かを再評価する** (adaptive limit なら「PR あたりの削減」より「PR 投入ペース」の方が支配的な可能性)。
-- [ ] **(b) 欠落穴の仕組み化を検討**: 手動 push 後の `@coderabbitai review` 投稿は現状「規約」。ADR-042 の境界基準で仕組み化の是非を判定する。候補: push-runner の push stage 後に「CR 再トリガーが必要」を**警告表示**する (助言層 / fail-open)、または `head_already_reviewed()` を使って未レビュー head を検出し警告する (`review_trigger.rs` に既存の照会ロジックあり)。**自動投稿はレート枠を消費するため慎重に** — ADR-019 § 同一 HEAD への再投稿はレート枠の無駄 と整合させること。
-- [ ] 本エントリ削除 + todo-summary2.md 行削除。
-
-#### 完了基準
-
-- `.coderabbit.yaml` / ADR-019 のクォータ設計根拠が実プラン・実制限と一致していること。
-- 手動 push で新 head が未レビューのまま放置される経路に、警告または仕組みによる検出があること。
-
----
-
 ### 順位 326: 並列設計レビュアー (design-fit reviewer) の実験起案 — 見落とし実績の事前調査付き (R4/ADR-047 却下分析の代替案)
 
 > **動機**: R4 の ADR-047 採否判定分析 (2026-07-19、[ADR-047](adr/adr-047-prepush-refute-facet.md) 「却下理由の補強」節) から。直列 refute (verify step) は同日導入の [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) anomaly policy が **inline 反証** (fact-check 義務) として上流で FP を枯らしたため、**26 run で却下 0 件・便益 0** となり却下推奨。これで precision 側 (FP 除去) は ADR-056 が担う体制になったが、**recall 側 (見落とし) は post-PR CodeRabbit 頼みのまま**。一方 reviewers step は並列実行であり、simplicity execute (実測 avg 203s / max 416s) を律速上限として **第 3 の並列レビュアーを wall-clock 追加ゼロで足せる**見込みがある (security execute avg 92s が simplicity の陰に収まっている実績)。観点は「実装内容」ではなく「**設計内容**」— 見落としやすいポイントの指摘・プロジェクト適合性 (ADR / dev-conventions との整合)。
