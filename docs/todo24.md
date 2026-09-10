@@ -388,34 +388,6 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 発現経路の評価結果 (対応要否とその根拠) が記録されていること
 ---
 
-### 順位 476: jj-op-verify が commit message 内の文言を実行と誤認して警告する (本セッション 4 回実観測)
-
-> **動機**: `jj describe -m "... jj abandon ..."` のように **commit message の本文にコマンド名を書いただけ**で、`hooks-post-tool-jj-op-verify` が「直前に `jj abandon` を実行した」と誤認し `operation not recorded` 警告を出す。本セッション (PR #429〜#432) で **4 回**発生し、毎回 `jj op log` での手動確認を強いられた。
->
-> **原因 (実装確認済み)**: [`detect_last_mutating_jj_op`](../src/hooks-post-tool-jj-op-verify/src/main.rs#L61) が `command.split_whitespace()` で**コマンド文字列全体をトークン化**し、その中に変更系 jj サブコマンド名が現れるかだけを見ている。`-m` の引数 (quote 内) を除外していないため、message 本文の文言が実行と区別されない。
->
-> **実害**: 警告そのものは助言層 (block しない) だが、ADR-045 の op-log divergence は**実在する重大事故クラス**であり、狼少年化すると本物の divergence を見逃す。実際、本セッションでは 4 回とも「hook 警告 → `jj op log` 確認 → 正常」の往復が発生した。
->
-> **対処案**: quote 内を除外してからトークン化する (`-m` / `--message` の引数、および `"..."` / `'...'` で囲まれた範囲をスキップ)。**false negative 側のトレードオフは軽微** — quote 外に現れる変更系コマンドは従来どおり検出できる。
->
-> **回帰テスト**: `detect_last_mutating_jj_op` は pure function なので unit test で固定できる。(a) `jj describe -m "fix: jj abandon について"` → None、(b) `jj abandon -r x` → Some(abandon)、(c) `jj describe -m "msg" && jj abandon -r x` → Some(abandon) の 3 方向。
->
-> **参照**: [`src/hooks-post-tool-jj-op-verify/src/main.rs`](../src/hooks-post-tool-jj-op-verify/src/main.rs)、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) § Known operational risks、PR #431/#432 post-merge feedback (Tier1 #4)。
->
-> **実行優先度**: Tier 1 — Severity Medium (誤検知による狼少年化。本物の divergence を見逃すリスク) / Frequency **High** (本セッションだけで 4 回) / Effort S / Adoption Risk Low (quote 除外は決定論的で pure function に閉じる)。
-
-#### 作業計画
-
-- [ ] `detect_last_mutating_jj_op` を quote-aware にする (`-m` / `--message` の引数と quote 範囲を除外)
-- [ ] pure function の unit test を 3 方向 (誤検知しない / 正しく検出する / 複合コマンドで最後の操作を採る) で追加
-- [ ] 変異テストで検知を確認する (quote 除外を外すと誤検知テストが FAILED になること)
-
-#### 完了基準
-
-- commit message にコマンド名を含む `jj describe` で警告が出ないこと。quote 外の変更系コマンドは従来どおり検出されること。両方向が unit test で固定されていること。
-
----
-
 ### 順位 477: Git Bash 経由の複数行 `node -e` が silent no-op になる (本セッション 2 回実観測)
 
 > **動機**: Windows の Git Bash から複数行の `node -e '...'` を渡すと、**終了コード 0・出力なしで何も実行されない**。本セッション (PR #428 / PR #432) で **2 回**踏み、いずれも「修正を適用したつもりが実際には未適用のまま検証していた」状態を作った。1 回目は workflow の抽出スクリプト、2 回目はテスト初期化子の一括置換で、どちらも**失敗が silent なため気づくまでに時間を要した**。
