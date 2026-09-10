@@ -73,25 +73,64 @@ struct MutatingJjOp {
     expected_op_keyword: &'static str,
 }
 
+/// コマンド文字列を、quote (`"..."` / `'...'`) で囲まれた範囲を 1 トークンとして扱いつつ
+/// 空白で分割する。`split_whitespace` と異なり、quote 内の文言 (例: commit message 本文) が
+/// 別トークンへ分割されて jj サブコマンド名と誤認されることがない (順位 476)。
+/// 閉じない quote は文字列終端まで 1 トークンとして扱う (fail-open: パースエラーで panic しない)。
+fn tokenize_respecting_quotes(command: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_token = false;
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' | '\'' => {
+                in_token = true;
+                for quoted in chars.by_ref() {
+                    if quoted == c {
+                        break;
+                    }
+                    current.push(quoted);
+                }
+            }
+            c if c.is_whitespace() => {
+                if in_token {
+                    tokens.push(std::mem::take(&mut current));
+                    in_token = false;
+                }
+            }
+            c => {
+                in_token = true;
+                current.push(c);
+            }
+        }
+    }
+    if in_token {
+        tokens.push(current);
+    }
+    tokens
+}
+
 /// コマンド文字列から最後の変更系 jj 操作を検出する (複合コマンドでは最後の操作の op が
-/// op head に来るため)。読み取り系サブコマンドは検出しない。
+/// op head に来るため)。読み取り系サブコマンドは検出しない。quote 内の文言 (commit message
+/// 本文など) はトークナイズの時点で 1 トークンに畳まれるため、サブコマンド名として誤認しない。
 fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
-    let tokens: Vec<&str> = command.split_whitespace().collect();
+    let tokens = tokenize_respecting_quotes(command);
     let mut found = None;
     for (i, token) in tokens.iter().enumerate() {
-        if *token != "jj" {
+        if token != "jj" {
             continue;
         }
         let Some(sub) = tokens.get(i + 1) else {
             continue;
         };
-        let detected = match *sub {
+        let detected = match sub.as_str() {
             "new" => Some(("new", "new empty commit")),
             "describe" => Some(("describe", "describe commit")),
             "abandon" => Some(("abandon", "abandon commit")),
             "rebase" => Some(("rebase", "rebase commit")),
             "squash" => Some(("squash", "squash")),
-            "bookmark" => match tokens.get(i + 2).copied() {
+            "bookmark" => match tokens.get(i + 2).map(String::as_str) {
                 Some("create") => Some(("bookmark create", "create bookmark")),
                 Some("set") => Some(("bookmark set", "point bookmark")),
                 Some("delete") => Some(("bookmark delete", "delete bookmark")),
@@ -513,21 +552,35 @@ mod tests {
         assert!(!verify_enabled("not toml ["), "パース失敗は OFF (fail-open)");
     }
 
-    /// 既知の限界 (順位 283 で anchor 修正予定、feedback-reports/267.md Tier 1 #3):
-    /// `split_whitespace` は quote を認識しないため、commit message 内に埋め込まれた
-    /// jj keyword が実コマンドより後に走査されると検出結果を上書きしてしまう。
-    /// 本 test は現行挙動を regression として固定するもので、283 着手後は新挙動
-    /// (message 内 keyword を無視) を固定するよう更新すること。
+    /// 順位 476 の回帰テスト・方向 1 (誤検知しない): commit message 本文に別の jj サブコマンド名
+    /// が書かれていても、quote 内は 1 トークンに畳まれるため実コマンドを上書きしない。
     #[test]
-    fn tokenization_known_limitation_jj_keyword_inside_commit_message() {
+    fn quoted_commit_message_containing_jj_keyword_is_not_misdetected() {
         let op = detect_last_mutating_jj_op(
             r#"jj describe -m "note: mention jj new keyword here""#,
         )
         .unwrap();
         assert_eq!(
-            op.verb, "new",
-            "quote 非対応により message 内の 'jj new' が実コマンド 'jj describe' を上書きする"
+            op.verb, "describe",
+            "quote 内の 'jj new' は無視され、実コマンド 'jj describe' を検出する"
         );
+    }
+
+    /// 順位 476 の回帰テスト・方向 2 (正しく検出する): quote を含まない直接コマンドは
+    /// 従来どおり検出される。
+    #[test]
+    fn direct_command_without_quotes_is_still_detected() {
+        let op = detect_last_mutating_jj_op("jj abandon -r x").unwrap();
+        assert_eq!(op.verb, "abandon");
+    }
+
+    /// 順位 476 の回帰テスト・方向 3 (複合コマンドで最後の操作を採る): quote 内の message を
+    /// 含む先行コマンドがあっても、複合コマンドの最後の変更系操作を正しく検出する。
+    #[test]
+    fn compound_command_with_quoted_message_still_detects_last_op() {
+        let op =
+            detect_last_mutating_jj_op(r#"jj describe -m "msg" && jj abandon -r x"#).unwrap();
+        assert_eq!(op.verb, "abandon");
     }
 
     #[test]
