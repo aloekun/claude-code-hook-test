@@ -31,7 +31,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-/// spawn した hook exe の bounded wait (dev-conventions.md § bounded wait)。
+/// spawn した hook exe の bounded wait (custom lint rule `no-unbounded-child-wait`)。
 const HOOK_TIMEOUT_SECS: u64 = 60;
 
 static UNIQUE_COUNTER: AtomicU32 = AtomicU32::new(0);

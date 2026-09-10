@@ -753,8 +753,9 @@ yml = ["no_workstream_seq_names_in_config_detects_yml_comment"]
 # 由来: PR #254 / WP-08 (ADR-049) で codebase 初の exe-spawn E2E テスト (incident_eval.rs) を
 # 書いた際、timeout 境界が欠落し CodeRabbit nitpick になった。子プロセスが hang すると
 # `wait_with_output()` / `child.wait()` は CI を無期限にブロックする (job timeout まで赤にならない)。
-# 同パターンは hooks smoke test (ADR-065) 等へ流用が続くため、convention (旧 dev-conventions.md
-# § 外部 exe を spawn する integration test の bounded wait) から決定論層へ移した (順位 515、ADR-042)。
+# 同パターンは hooks smoke test (ADR-065) 等へ流用が続くため、旧 dev-conventions.md の同名
+# convention を決定論層へ移した (順位 515、ADR-042)。規約の中身は本 rule が正で、
+# dev-conventions.md 側は § 機構への索引 の 1 行だけを持つ。
 #
 # Scope 限定 (extensions = ["rs"]、paths = tests/ 配下のみ):
 # - 対象は integration test (`src/<crate>/tests/**/*.rs`) だけ。本体コードの `child.wait()` は

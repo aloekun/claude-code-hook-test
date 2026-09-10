@@ -9,7 +9,8 @@
 // 対処は「各 instruction に 1 行ずつ直書き」しかない。takt が facet へ渡すのは当該 instruction
 // の本文だけで、共通ファイルを参照させても中身は届かないからである。直書きの代償は分散で、
 // 新しい facet を足すときに 1 行を落としても誰も気づかない。この検査はその穴を塞ぐ
-// (旧 dev-conventions.md §「takt facet の出力言語は各 instruction に直書きする」の機構化、ADR-042)。
+// (旧 dev-conventions.md の同名 convention を機構化したもの。規約の中身は本ファイルが正で、
+// dev-conventions.md 側は § 機構への索引 の 1 行だけを持つ、ADR-042)。
 //
 // 検査する契約は **言語指定と免除リストの対**: workflow の `rules.condition` は
 // `analysis complete` / `approved` / `needs_fix` 等を英語リテラルで照合するので、「日本語で書く」

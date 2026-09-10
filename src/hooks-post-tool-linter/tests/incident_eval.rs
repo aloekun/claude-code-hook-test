@@ -19,7 +19,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Bounded wait for the spawned linter exe (dev-conventions.md § bounded wait): a hung
+/// Bounded wait for the spawned linter exe (custom lint rule `no-unbounded-child-wait`): a hung
 /// child is killed and the test fails rather than blocking CI indefinitely.
 const LINTER_TIMEOUT_SECS: u64 = 30;
 

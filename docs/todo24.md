@@ -23,7 +23,7 @@
 > | PR-3 (順位 table 存在照合ゲート) | [#411](https://github.com/aloekun/claude-code-hook-test/pull/411) |
 > | PR-4 (失敗マーカー + ブランチ自動掃除) | [#412](https://github.com/aloekun/claude-code-hook-test/pull/412) |
 > | PR-5 (台帳未掲載順位一覧の決定論出力) | [#414](https://github.com/aloekun/claude-code-hook-test/pull/414) で `src/cli-ledger-candidates` を新設し、weekly-review workflow の機械 step `ledger-candidates` (LLM 判断なし) に配線済み。facet `review-todo-whole` の Criterion 3-2 は本 exe の出力（未掲載順位の件数）を参照する記述に置き換え済み ([.takt/facets/instructions/review-todo-whole.md:97](../.takt/facets/instructions/review-todo-whole.md))。docs/todo23.md 側の rescope 済みエントリ（昇格候補集合の決定論化）も削除済み |
-> | 実走確認 1 (facet 出力言語) | 2026-08-17 に weekly-review を 2 回実走。判定基準を「全 facet が日本語」から「最終成果物が日本語」へ改めたうえで合格 (→ [docs/dev-conventions.md](dev-conventions.md) § 契約は最終成果物に置く) |
+> | 実走確認 1 (facet 出力言語) | 2026-08-17 に weekly-review を 2 回実走。判定基準を「全 facet が日本語」から「最終成果物が日本語」へ改めたうえで合格 (→ [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 出力言語の契約点) |
 > | 実走確認 2 (夜間ループの経路) | 2026-08-16 の `workflow_dispatch` (dry_run) で掃除 → 選択 → 停止の 5 観測点を照合。失敗マーカー経路も発火して確認済み |
 > | skill リポ反映 | `$CLAUDE_SKILLS_REPO` の `weekly-review` skill に Phase 4 展開先変更と昇格フロー縮小を反映し commit 済み。`/skill-sync-check` は全 21 スキル同期済みを報告 |
 >
@@ -86,7 +86,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **なぜ 1 タスクか**: 検査対象は違うが**実装先と手法が同じ** (`cli-docs-lint` の validator 追加 + grep ベースの集合照合)。既存の順位 441 (詳細エントリ ⇄ 台帳行の 1:1 対応検査) とも実装先が同じで、3 つまとめて 1 つの validator 群にするのが自然。
 >
-> **参照**: `.claude/feedback-reports/409.md` Tier1 #1・Tier3 #1、`.claude/feedback-reports/410.md` Tier2 #1、`.claude/feedback-reports/414.md` Tier2 #2、順位 441、`docs/dev-conventions.md` § takt facet の出力言語
+> **参照**: `.claude/feedback-reports/409.md` Tier1 #1・Tier3 #1、`.claude/feedback-reports/410.md` Tier2 #1、`.claude/feedback-reports/414.md` Tier2 #2、順位 441、`scripts/lint-takt-facets.mjs` (免除リストの規約本文はここが正)
 >
 > **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
 
@@ -95,7 +95,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - **A-1**: `docs/todo*.md` の preamble にある「新規追加先」参照が全ファイルで一致するかを検査する。`docs/todo.md` の routing 表を正とし、他ファイルの記述との不一致を報告する
 - **B-1**: 各 facet instruction の免除リストが、`.takt/workflows/*.yaml` の対応する `rules.condition` リテラルを網羅しているか照合する。対応表は `instruction:` と `- condition:` の対から機械的に作れる (`docs/dev-conventions.md` に手順を明記済み)
 - **B-2**: `aggregate-weekly` の `findings=0` 分岐と `findings>0` 分岐が同じ見出し構造を出すことを固定する
-- **B-3**: **最終レポートの言語を決定論的に検査する** — `weekly-review.md` と `findings.json` の自由記述 field が日本語かを機械判定する。[docs/dev-conventions.md](dev-conventions.md) § 契約は最終成果物に置く で契約点を 1 枚へ集約したが、**その 1 枚を見る機械がまだ無い**。閾値未満なら warning としてレポートへ明記する (助言層なので run は止めない = [ADR-043](adr/adr-043-security-gates-fail-closed.md))
+- **B-3**: **最終レポートの言語を決定論的に検査する** — `weekly-review.md` と `findings.json` の自由記述 field が日本語かを機械判定する。[ADR-031](adr/adr-031-weekly-review-pipeline.md) § 出力言語の契約点 で契約点を 1 枚へ集約したが、**その 1 枚を見る機械がまだ無い**。閾値未満なら warning としてレポートへ明記する (助言層なので run は止めない = [ADR-043](adr/adr-043-security-gates-fail-closed.md))
 - **A-2 は着手しない**: 提案された `crates/docs-parser` は本リポに存在せず、範囲記法の展開は facet instruction 側の話。A-1 に吸収する
 - 実装先は `cli-docs-lint` の validator 追加を第一候補とする。**順位 441 は 2026-08-26 に `entry_pairing` として実装済み** (defect-convergence-plan.md § Phase D の D3)。同 module の隣へ足すか独立 validator にするかを着手時に判断する
 
@@ -105,7 +105,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - [ ] A-1 (preamble pointer 整合) を実装 + fixture テスト
 - [ ] B-1 (免除リスト ⇄ workflow condition) を実装 + fixture テスト
 - [ ] B-2 (テンプレート分岐の見出し一致) を実装
-- [ ] B-3 (最終レポートの言語検査) を実装 — 実装後、`docs/dev-conventions.md` § takt facet の出力言語 の「best-effort であり検査は無い」旨の記述を**撤去する** (仕組みができたらルールは撤去する、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))
+- [ ] B-3 (最終レポートの言語検査) を実装 — 最終成果物 1 枚の言語契約は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 出力言語の契約点 が「まだ機械が見ていない」と記録しているので、実装後に同節の当該記述を**更新する** (仕組みができたらルールは撤去する、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))
 - [ ] 既存違反 0 を確認して有効化する
 - [ ] A-3 (範囲記法の展開規則) は A-1 の実装コードとテストに閉じる (2026-09-08: dev-conventions.md への明記は行わない)
 
@@ -428,7 +428,9 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 >
 > **回帰テスト**: hook の判定関数を pure function として切り出し、(a) 複数行 `node -e` → block、(b) 単一行 `node -e` → 許可、(c) `node script.mjs` → 許可 の 3 方向で固定する。
 >
-> **参照**: [`docs/dev-conventions.md`](dev-conventions.md) § GitHub Actions の `run:` は常に `-e` 付きで起動する (末尾の注意書き)、`src/hooks-pre-tool-validate/`、PR #431 post-merge feedback (Tier2 #4)。
+> **事実** (2026-08-20 観測、2026-09-11 に本エントリへ移送): Git Bash 経由で**複数行の `node -e '...'` を渡すと無言で no-op になる** (終了コード 0、出力なし)。修正を検証したつもりが、実際には修正前のコードを実行していた。同型は 2026-09-10 の順位 515 の作業中にも再発した — `python` 不在で注入スクリプトが走らず、また `node -e` が無出力で終わり、いずれも空出力を「該当なし」と読み違えた。**注入や検査の成否は必ず可視の出力で確認する**必要がある。
+>
+> **参照**: `src/hooks-pre-tool-validate/`、PR #431 post-merge feedback (Tier2 #4)。
 >
 > **実行優先度**: Tier 1 — Severity **High** (silent failure により「検証したつもり」を作る。実際に誤った検証結果を報告しかけた) / Frequency Medium (複数行スクリプトを渡すたび) / Effort S / Adoption Risk Low (既存 hook への判定追加)。
 

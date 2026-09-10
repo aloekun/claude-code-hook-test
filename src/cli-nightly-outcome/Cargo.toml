@@ -14,7 +14,7 @@ serde_json = "1.0"
 
 [dev-dependencies]
 # 実 exe を spawn する E2E テスト (tests/e2e.rs) の bounded wait + pipe drain
-# (docs/dev-conventions.md § bounded wait)。
+# (custom lint rule `no-unbounded-child-wait`)。
 lib-subprocess = { path = "../lib-subprocess" }
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

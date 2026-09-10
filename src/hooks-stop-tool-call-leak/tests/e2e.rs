@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Once;
 
-/// spawn した exe の bounded wait (dev-conventions.md § bounded wait)
+/// spawn した exe の bounded wait (custom lint rule `no-unbounded-child-wait`)
 const HOOK_TIMEOUT_SECS: u64 = 30;
 
 /// 実 leak を再現する text (87387df2 セッション由来の synthetic data)

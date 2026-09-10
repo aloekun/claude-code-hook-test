@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-/// spawn した hook exe の bounded wait (dev-conventions.md § bounded wait)。
+/// spawn した hook exe の bounded wait (custom lint rule `no-unbounded-child-wait`)。
 /// ハングした子プロセスは kill してテストを失敗させ、CI を無期限に止めない。
 const HOOK_TIMEOUT_SECS: u64 = 30;
 
