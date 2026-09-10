@@ -31,9 +31,14 @@ multi-iteration workflow の各判定 step の decision criteria は、**評価 
 
 ### 原則
 
-1. **既定は `current-iteration-only`** — 特に明示しない限り、判定は現 iteration の report (`{filename}` suffix なし、
-   最新) のみを対象とする。過去 iteration の archived report (`{filename}.{timestamp}`) は参照しない
-   ([dev-conventions.md](../dev-conventions.md) の Report Directory アクセスパターンと整合)。
+1. **既定は `current-iteration-only`** — 特に明示しない限り、判定は現 iteration の report のみを対象とする。
+   Report Directory には現 iteration が suffix なしの `{filename}`、過去 iteration が `{filename}.{timestamp}` として
+   同居するため、**`{filename}` を直接 Read する**。Glob で `{filename}.*` を拾う形にすると archived 側だけが
+   集まり、現 iteration の report を読み落とす。
+   過去 iteration も読む step は `cumulative` / `sliding-window` として明示すること。既存例は `fix.md` で、
+   persists / reopened の傾向を見るために descending timestamp 順で最大 2 件を読む sliding-window であり、
+   既定とは別枠である。**どちらの scope かを暗黙にしない** — 曖昧さは判定ミスに直結する
+   (PR #250 で `supervise.md` のフィルタ欠落が CodeRabbit Major 指摘となった)。
 2. **scope 宣言を instruction に明記** — decision criteria セクション冒頭で、どの scope で評価するかを 1-2 行の
    negative/positive specification で宣言する (例: supervise.md「本セクションは current iteration の report のみを
    判定対象とし、前 iteration の convergence_verdict とは比較しない」)。

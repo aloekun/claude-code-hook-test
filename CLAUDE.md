@@ -83,9 +83,9 @@
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — spike 見送り (negative result) 永続化 convention (順位261)、外部 SaaS 無料枠 / 制限の調査チェックリスト (順位262)、外部 fixture 参照テストは値まで assert (順位274)、PR chain の分割と宣言 (ADR-069)、LLM を含む自動化経路は実走でしか検証できない (ADR-067)、takt facet の出力言語は各 instruction に直書きする、GitHub Actions の `run:` は常に `-e` 付きで起動する (順位 319)
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — 残る 10 節。各節は冒頭に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を持ち、`pnpm lint:docs` の `convention-declaration` 検査が fail-closed で強制する (順位 515)
 
-> **本ファイルは縮小方向で運用する。** 決定事項は ADR、それ以外は仕組みで担保し、**新規の convention は追加しない**。仕組みができた項目は撤去する ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。撤去の進め方は順位 515。2026-09-08 に「夜間 PR のリベース」(`scripts/rebase-nightly-pr.mjs` が持つ) と「台帳の `照合除外:` マーカー」(`lib-ledger` が fail-closed で検査) の 2 節を撤去した。
+> **本ファイルは縮小方向で運用する。** 決定事項は ADR、それ以外は仕組みで担保し、**新規の convention は追加しない**。仕組みができた項目は撤去する ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。2026-09-10 に順位 515 を完了し、16 節 220 行 → 10 節 112 行へ縮小した (機構化 3 節は宣言へ、単発 incident 由来の 5 節と ADR に内容がある 1 節は撤去)。以後の増加は `convention-declaration` 検査が「機械化の判断」を強制することで抑える。
 
 ## Build
 
