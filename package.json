@@ -8,6 +8,7 @@
     "lint:docs": "node scripts/run-artifact.mjs cli-docs-lint",
     "ledger-residue-scan": "node scripts/ledger-residue-scan.mjs",
     "lint:workflows": "node scripts/lint-workflows.mjs",
+    "lint:takt-facets": "node scripts/lint-takt-facets.mjs",
     "test": "npx vitest run",
     "test:e2e": "npx tsx scripts/e2e.ts",
     "build": "npx --no-install tsc --noEmit --pretty",
