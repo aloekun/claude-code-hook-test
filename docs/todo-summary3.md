@@ -99,7 +99,6 @@
 | 512 | Tier 3 | **[improvement] 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する** | todo26.md | M | なし (61KB / 59KB。移動したエントリの順位 table「ファイル」列の追随が必須で entry_pairing が強制する。着手時判断: 分割か孤児削除かを先に測る) |
 | 513 | Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |
 | 514 | Tier 2 | **[improvement] パーサ堅牢化を仕組みで担保できるか調べる** | todo26.md | S | なし (#479 / #313 の 2 件が同型。規約でなく型の網羅性 / fixture 契約 / 計測の 3 案を比較してから決める) |
-| 515 | Tier 3 | **[improvement] `docs/dev-conventions.md` を縮小する** | todo26.md | M | なし (2026-09-08 に新規追加を停止し 2 節 32 行を撤去済み。残り 16 節 220 行を節ごとに判断する) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

@@ -107,4 +107,3 @@ instruction / 規約層のみの変更のため config opt-in は無い（kill-s
 - [ADR-050](adr-050-iteration-aware-decision-criteria.md) — decision criteria の scope 明示パターンの先行例
 - [ADR-044](adr-044-subprocess-utility-extraction-boundary.md) — lib 抽出の境界基準。切断点ヒューリスティクス 1 の根拠
 - [ADR-035](adr-035-doc-evaluation-policy.md) — docs-only 判定。YAGNI 検査の scope 境界の先行定義
-- 開発 convention: [dev-conventions.md](../dev-conventions.md) § PR chain の分割と宣言

@@ -421,6 +421,12 @@ mod t6_diff_timeout {
 
     /// incident 再現 (bad): 応答しないコマンドを **timeout で打ち切る**こと。
     /// 修正前は `Command::output()` が返るまで待ち続け、本 assert には到達しなかった。
+    ///
+    /// **「Err が返った」だけを assert しない。** timeout を入れたつもりで実際には無限待ちの
+    /// ままでも、別の理由 (コマンド不在・引数不正) で `Err` になればテストは緑になる。
+    /// timeout が効いた証拠は経過時間であり、それを見ないテストは「timeout が消えても
+    /// 落ちないテスト」になる。上限値そのものは環境差で揺れるので assert せず、
+    /// 「上限 + 余裕」を超えていないことを見る。
     #[test]
     fn hanging_command_times_out_instead_of_waiting_forever() {
         let started = Instant::now();
