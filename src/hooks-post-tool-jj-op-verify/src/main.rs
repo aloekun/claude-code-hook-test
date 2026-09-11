@@ -73,10 +73,36 @@ struct MutatingJjOp {
     expected_op_keyword: &'static str,
 }
 
+/// 開いた quote の中身を閉じ quote まで読み進め、`current` へ積む。
+///
+/// **二重引用符の中だけ backslash を escape として解釈する** (POSIX の quoting 規則)。
+/// これが無いと `jj describe -m "note: \" jj new \" here"` の `\"` を終端と誤読し、
+/// message 本文の `jj new` が独立したコマンドとして検出される (PR #494 CodeRabbit 指摘)。
+/// **単一引用符では解釈しない** — POSIX では `'...'` 内の backslash は普通の文字であり、
+/// ここで escape 扱いすると `'a \' b'` の閉じ quote を読み飛ばして逆向きに壊れる。
+///
+/// 閉じ quote が無ければ文字列終端まで読む (fail-open: パースエラーで panic しない)。
+fn consume_quoted(chars: &mut std::str::Chars<'_>, quote: char, current: &mut String) {
+    let honors_escape = quote == '"';
+    let mut escaped = false;
+    for quoted in chars.by_ref() {
+        if escaped {
+            current.push(quoted);
+            escaped = false;
+        } else if honors_escape && quoted == '\\' {
+            escaped = true;
+        } else if quoted == quote {
+            return;
+        } else {
+            current.push(quoted);
+        }
+    }
+}
+
 /// コマンド文字列を、quote (`"..."` / `'...'`) で囲まれた範囲を 1 トークンとして扱いつつ
 /// 空白で分割する。`split_whitespace` と異なり、quote 内の文言 (例: commit message 本文) が
 /// 別トークンへ分割されて jj サブコマンド名と誤認されることがない (順位 476)。
-/// 閉じない quote は文字列終端まで 1 トークンとして扱う (fail-open: パースエラーで panic しない)。
+/// quote 内の読み進めと escape の扱いは [`consume_quoted`] が持つ。
 fn tokenize_respecting_quotes(command: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -86,12 +112,7 @@ fn tokenize_respecting_quotes(command: &str) -> Vec<String> {
         match c {
             '"' | '\'' => {
                 in_token = true;
-                for quoted in chars.by_ref() {
-                    if quoted == c {
-                        break;
-                    }
-                    current.push(quoted);
-                }
+                consume_quoted(&mut chars, c, &mut current);
             }
             c if c.is_whitespace() => {
                 if in_token {
@@ -581,6 +602,49 @@ mod tests {
         let op =
             detect_last_mutating_jj_op(r#"jj describe -m "msg" && jj abandon -r x"#).unwrap();
         assert_eq!(op.verb, "abandon");
+    }
+
+    /// 順位 476 の回帰テスト・方向 4 (PR #494 CodeRabbit 指摘): 二重引用符の中の `\"` は
+    /// 終端ではない。escape を解釈しないと message 本文の `jj new` が独立コマンドとして
+    /// 検出され、実際の `describe` に対して「operation not recorded」の誤警告が出る。
+    #[test]
+    fn escaped_quote_inside_a_double_quoted_message_does_not_end_the_quote() {
+        let op = detect_last_mutating_jj_op(r#"jj describe -m "note: \" jj new \" here""#)
+            .expect("describe が検出されること");
+        assert_eq!(
+            op.verb, "describe",
+            "escape された quote は終端ではなく、message 内の 'jj new' は無視される"
+        );
+    }
+
+    /// 同じ入力を token 単位でも固定する。`jj new` が独立 token として現れないこと。
+    #[test]
+    fn escaped_quote_keeps_the_message_in_a_single_token() {
+        let tokens = tokenize_respecting_quotes(r#"jj describe -m "a \" jj new \" b""#);
+        assert_eq!(
+            tokens,
+            vec!["jj", "describe", "-m", r#"a " jj new " b"#],
+            "message 全体が 1 token に畳まれること"
+        );
+    }
+
+    /// **単一引用符では backslash を escape にしない** (POSIX)。ここで解釈すると
+    /// 閉じ quote を読み飛ばし、二重引用符の修正が逆向きの壊れ方を生む。
+    #[test]
+    fn backslash_is_literal_inside_single_quotes() {
+        let tokens = tokenize_respecting_quotes(r#"jj describe -m 'a \' && jj new"#);
+        assert_eq!(
+            tokens,
+            vec!["jj", "describe", "-m", r#"a \"#, "&&", "jj", "new"],
+            "単一引用符は backslash の直後でも閉じる"
+        );
+    }
+
+    /// 閉じない二重引用符は終端まで 1 token (fail-open)。escape 追加後も維持する。
+    #[test]
+    fn unterminated_double_quote_still_folds_to_the_end() {
+        let tokens = tokenize_respecting_quotes(r#"jj describe -m "a \" jj new"#);
+        assert_eq!(tokens, vec!["jj", "describe", "-m", r#"a " jj new"#]);
     }
 
     #[test]
