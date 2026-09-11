@@ -4,7 +4,21 @@
 >
 > **本ファイルは縮小方向で運用し、新規の節は追加しない。** 決定事項は ADR、それ以外は仕組みで担保する ([ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))。
 >
-> **各節は冒頭に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を持つ。** `pnpm lint:docs` の `convention-declaration` 検査が fail-closed で強制する (順位 515)。節を書くたびに「機械化できるのか、できないならなぜか」を明示させることで、判断を経ずにルールだけが増える経路を閉じている。`機械化:` の節は**機構への索引**であって守らせる対象ではない — 中身は機構が持つ。
+> **各節は冒頭に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を持つ。** `pnpm lint:docs` の `convention-declaration` 検査が fail-closed で強制する (順位 515)。節を書くたびに「機械化できるのか、できないならなぜか」を明示させることで、判断を経ずにルールだけが増える経路を閉じている。
+>
+> **退役条件**: `機械化不能:` と `機械化予定:` の節が**ともに 0** (= 全節が `機械化:`) になったら本ファイルを削除し、§ 機構への索引 を CLAUDE.md へ畳む。`機械化予定:` を条件から外すと、**未実装の規約を残したままファイルごと消せてしまう**。機械化済みの規約は機構が中身を持つため、索引だけなら ADR index の隣で足り、独立したファイルを維持する理由が無くなる。判断は節数という**数**で決まり、印象では決まらない。
+
+## 機構への索引
+
+機械化: 下表の各機構。
+
+**本節は索引であって、守らせる対象ではない。** 規約の中身は機構側が持つ — custom lint rule なら `why` / `message` / `fix.steps`、検査スクリプトなら module コメントと検査メッセージである。ここへ要旨や由来を書き写すと、片方だけが古くなる ([同一事実が複数箇所に分散する場合の変更手順](#同一事実が複数箇所に分散する場合の変更手順) がまさにその失敗)。
+
+| 規約 | 強制している機構 | 中身の在り処 |
+|---|---|---|
+| 外部 exe を spawn する統合テストは無期限に待たない | custom lint rule `no-unbounded-child-wait` | [.claude/custom-lint-rules.toml](../.claude/custom-lint-rules.toml) |
+| GitHub Actions の `run:` は常に `-e` 付きで起動する | `pnpm lint:workflows` の契約検査 3 | [scripts/lint-workflows-run-blocks.mjs](../scripts/lint-workflows-run-blocks.mjs) |
+| takt facet の出力言語は各 instruction に直書きする | `pnpm lint:takt-facets` | [scripts/lint-takt-facets.mjs](../scripts/lint-takt-facets.mjs) |
 
 ## spike / 実験タスクの見送り (negative result) 永続化 convention (順位261)
 
@@ -18,12 +32,6 @@ spike・実験タスクを見送る (採用しない) と判断したときは�
 
 **確立事例** (2 例で成立): WP-01 → [ADR-046](adr/adr-046-local-llm-review-spike.md) / WP-04 → [ADR-038](adr/adr-038-local-llm-finding-classification.md) § classify モデル格上げの評価と見送り。
 
-## 外部 exe を spawn する integration test の bounded wait (WP-08 feedback)
-
-機械化: custom lint rule `no-unbounded-child-wait` (`.claude/custom-lint-rules.toml`、`src/*/tests/**/*.rs` の `wait_with_output()` / `child.wait()` を error)。
-
-規約の内容は rule の `message` / `fix.steps` が持つ。要旨は `lib_subprocess::wait_with_timeout_safe` で待ち、出力が必要なら `drain_pipe_unlimited` で別スレッド drain すること。
-
 ## 外部 fixture 参照テストは値まで assert (順位274)
 
 機械化不能: fixture ごとにスキーマが異なり、「どの値がテストの前提か」は regex でも AST でも判定できない (ADR-042 Step 1)。
@@ -33,11 +41,11 @@ spike・実験タスクを見送る (採用しない) と判断したときは�
 1. **存在チェックだけでは silent break する** — 「section がある」だけを assert すると、外部ファイル側で値が変わってもテストは緑のまま、前提の乖離が別テストの原因の見えない失敗として遅れて表面化する。
 2. **値ずれ時に更新箇所を指し示す** — assert メッセージに「この値を変えたらどのテストの期待値を更新すべきか」を明記する。
 
-**由来** (PR #261 T3-#2、[ADR-041](adr/adr-041-test-isolation-patterns.md)): `hooks-stop-tool-call-leak` の E2E が `[stop_tool_call_leak]` section の存在しか assert しておらず、`enabled` / `max_consecutive_blocks` の値変更が cap 境界テストを原因の見えない形で silent break させるリスクを 3 ソースが独立指摘した。
+**由来** (PR #261 T3-#2): `hooks-stop-tool-call-leak` の E2E が `[stop_tool_call_leak]` section の存在しか assert しておらず、`enabled` / `max_consecutive_blocks` の値変更が cap 境界テストを原因の見えない形で silent break させるリスクを 3 ソースが独立指摘した。関連する test isolation の一般原則は [ADR-041](adr/adr-041-test-isolation-patterns.md) を参照。実装例は `src/hooks-stop-tool-call-leak/tests/e2e.rs`。
 
 ## jj: ファイル編集を始める前に `jj new` する
 
-機械化不能: 「`@` が前ターン以前に確定した別作業のコミットか」はセッション文脈に依存し、hook から判定できない (ADR-042 Step 1)。`jj new` 直後の `@` も description を持つため、状態だけでは区別がつかない。
+機械化不能: 「`@` が前ターン以前に確定した別作業のコミットか」はセッション文脈に依存し、hook から判定できない (ADR-042 Step 1)。`jj new` 直後の `@` も description を持つため、状態だけでは区別がつかない。**順位 516 で、セッション開始時の change_id を記録して判定する案を評価する。**
 
 **別作業で作られた既存コミットが `@` の状態でファイルを編集しない。** 編集を始める前に `jj new -m "wip: <内容>"` でそのターンの作業コミットを作る。
 
@@ -56,19 +64,11 @@ LLM を step に含む workflow を**新規に組んだとき、および既存�
 3. **反復は ref 指定の dispatch で行い、マージを検証の前提にしない** — `workflow_dispatch` は ref を選べる。
 4. **最初の失敗で停止する経路では、1 回の実走で見つかるバグは高々 1 個** — n 個のバグには n 回の実走が要る。並列実行や `continue-on-error` の経路では当てはまらないので、**対象経路の停止条件を確認してから見積もる**。
 
-**由来** (2026-08-04 WP-17 段 2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録): 実走スモークで `workflow_dispatch` を 4 回要し、うち 3 回が静的検査すり抜けバグの検出に費やされた。
-
-## GitHub Actions の `run:` は常に `-e` 付きで起動する
-
-機械化: `scripts/lint-workflows-run-blocks.mjs` (`pnpm lint:workflows` の契約検査 3)。`set -uo pipefail` 形式、パイプラインに置かれた `grep`、shell 未宣言で実効 shell が静的に決まらない step を検出する。
-
-規約の内容は同スクリプトの module コメントと検査メッセージが持つ。要旨は、GitHub が `run:` を `bash -e {0}` で起動するため `set -uo pipefail` では `-e` が外れないこと、一致 0 件が正常系の `grep` は `-e` / `pipefail` に拾われて step を落とすことの 2 点。
-
-**由来** (2026-08-20 PR #428、順位 319): マーカー未投稿という初回は必ず通る状態で `grep` の一致 0 件が step を落とし、backstop の投稿そのものが消えた。pre-push review も CodeRabbit も YAML 構文検査も通過しており、実 run の red で初めて判明した。
+実測記録は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 が持つ。
 
 ## Rust ファイル分割の制約条件
 
-機械化不能: 「behavior 不変の機械的な移動か」「その `pub(crate)` が妥当か」は diff の意味を読む必要があり、regex / AST では判定できない (ADR-042 Step 1)。関数長 50 行・ファイル長 800 行・非 doc コメント禁止は既に機構が強制しているため、本節からは外した。
+機械化不能: 「behavior 不変の機械的な移動か」「その `pub(crate)` が妥当か」は diff の意味を読む必要があり、regex / AST では判定できない (ADR-042 Step 1)。関数長 50 行・ファイル長 800 行・非 doc コメント禁止は既に機構が強制しているため、本節からは外した。項目 1 の test count 一致だけは機械化しうるため、順位 517 で spike する。
 
 800 行超 `.rs` file の module 分割に適用する制約:
 
@@ -87,8 +87,9 @@ LLM を step に含む workflow を**新規に組んだとき、および既存�
 1. **変更前に反映先を数え上げる** — `grep` で当該の値・ポインタを含む全ファイルを洗い出し、PR 内で反映先を列挙する。
 2. **「暫定措置」と書いた記述は、恒久化した時点で必ず書き換える** — 条件付き記述を残したまま条件が消えると、レビュアーが毎回「未文書化の暫定措置」として誤検出する。
 3. **反映先リストを ADR 側に残す** — 次に変更する人が数え上げからやり直さずに済む。
+4. **記述を撤去するときは、その記述を指す参照も同時に消す** — 節を消して参照を残すと、次に読む人が存在しない節を探す。撤去前に `grep` で `§ <節名>` を洗う。
 
-**由来** (2026-08-13、PR #395 / #396 の post-merge feedback で独立に 2 件観測): (a) preamble の routing 更新に対し facet 側の固定値が取り残された。(b) weekly reminder の閾値 7 日が 4 箇所に分散し、うち 3 箇所が古い前提のままで週次レビューが誤検出した。
+**由来** (2026-08-13、PR #395 / #396 の post-merge feedback で独立に 2 件観測): (a) preamble の routing 更新に対し facet 側の固定値が取り残された。(b) weekly reminder の閾値 7 日が 4 箇所に分散し、うち 3 箇所が古い前提のままで週次レビューが誤検出した。項目 4 は 2026-09-11 に本ファイル自身で踏んだ (PR #492 で節末尾の注意書きを消し、それを指す台帳エントリが宙に浮いた)。
 
 ## 複合タスクの仕様には各項目の処置と除外根拠を書く
 
@@ -100,13 +101,3 @@ LLM を step に含む workflow を**新規に組んだとき、および既存�
 2. **除外は消さずに残す** — 除外した項目を仕様から削ると、次に読む人が「なぜこれは対象外なのか」を再調査することになる。
 
 **由来** (2026-08-13 PR #395、PR diff + pre-push simplicity の 2 ソースが独立指摘): 5 行を降格対象と記述する一方、実装タスクは 4 行のみを扱い、1 行の処置が仕様にも実装にも現れない状態だった。
-
-## takt facet の出力言語は各 instruction に直書きする
-
-機械化: `scripts/lint-takt-facets.mjs` (`pnpm lint:takt-facets`)。全 instruction が「日本語で書く」と「訳さない」を同一行に持つことを検査する。
-
-共通ファイルへ切り出して参照させる形は採らない — takt が facet へ渡すのは当該 instruction の本文であり、参照先の中身は届かない。届かない指定は存在しないのと同じ。
-
-**言語指定と免除リストは対で書く。** workflow の `rules.condition` は `analysis complete` / `convergence_verdict: fully_resolved` / `approved` / `needs_fix` などを英語リテラルで照合する。「日本語で書く」だけを指示すると、モデルがこれらまで訳して gate が通らなくなる。**免除リストは facet ごとに実値を確認して書く** — 照合される値は facet ごとに違い、実在しない値を書けば免除は効かず、実在する値を落とせばその facet だけ gate が壊れる (PR [#410](https://github.com/aloekun/claude-code-hook-test/pull/410) で実際に発生)。免除リストの中身が workflow の condition と一致するかの検査は順位 465 B-1 の範囲。
-
-**契約は最終成果物 1 枚に置く。** instruction の言語指定は best-effort であり確率的に破られる。日本語を求めるのは `aggregate-weekly` の出力 1 枚だけで、中間レポートの言語は問わない。設計判断と 2 回の実走観測は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 出力言語の契約点 が持つ。

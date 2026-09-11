@@ -5,8 +5,8 @@
 // 正常系のはずの分岐で step ごと落ちる (2026-08-20 PR #428、順位 319: マーカー未投稿という
 // 初回は必ず通る状態で `grep` の一致 0 件が step を落とし、backstop の投稿そのものが消えた)。
 // pre-push review / CodeRabbit / YAML parse はいずれも通過しており、実 run の red で初めて
-// 判明した。旧 dev-conventions.md §「GitHub Actions の `run:` は常に `-e` 付きで起動する」を
-// 決定論層へ移したもの (ADR-042)。
+// 判明した。旧 dev-conventions.md の同名 convention を決定論層へ移したもので、規約の中身は
+// 本ファイルが正となる (dev-conventions.md 側は § 機構への索引 の 1 行だけを持つ、ADR-042)。
 //
 // 検査は 2 つ。どちらも **`\` 継続行を結合した論理行** 単位で見る (多行パイプラインや
 // `if ! grep ... \ || ! grep ...` の条件文脈を物理行で見ると誤判定する)。
