@@ -200,8 +200,27 @@ jobs:
           # 新しい端点 (`gh api user` 等) を preflight に足さないのは、本 PAT の
           # fine-grained 権限で通る保証が無いため。**既に通る実績のあるこの呼び出し**を
           # そのまま診断点に使う。
+          #
+          # **部分一致で探さない。** `contains` だと、コマンド名に言及しているだけの
+          # コメントを既存のレビュー要求と誤認する。実際に PR #494 で 2 件誤マッチした:
+          #   - CodeRabbit の skip 通知「To trigger a single review, invoke the
+          #     `@coderabbitai review` command.」(bot 作成 PR には必ず付く)
+          #   - pr-monitor の分析コメント (本文でコマンド名を引用する)
+          # 誤認すると「既に要求済み」と判断して投稿を飛ばし、**レビューが永久に走らない**。
+          # skip 通知は本 workflow の起動と数秒差で投稿されるため、部分一致のままだと
+          # 競合の結果次第で挙動が変わる (2026-09-10 の run は起動 18:14:33 / 通知 18:14:34)。
+          #
+          # そこで **投稿者と本文の厳密一致**で判定する:
+          #   - 本文が前後の空白を除いて `@coderabbitai review` と完全一致すること
+          #   - 投稿者が Bot でないこと (本 workflow は PAT の人間 identity で投稿する。
+          #     誤マッチした 2 件はどちらも Bot だった)
+          #
+          # 空白の除去に `\s` を使わない。**jq は `\s` を文字列エスケープとして受け付けず**、
+          # `sub("^\\s+";"")` は parse エラーになって**全件が 0 件に落ちる** (2026-09-11 に実測)。
+          # 0 件は「既存要求なし」と読まれるため、壊れていても投稿は続き、失敗が静かになる。
+          # POSIX 文字クラスなら backslash を挟まずに書ける。
           if ! EXISTING=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-            --jq '.[] | select(.body | contains("@coderabbitai review")) | .id' \
+            --jq '.[] | select(.user.type != "Bot") | select((.body | sub("^[[:space:]]+";"") | sub("[[:space:]]+$";"")) == "@coderabbitai review") | .id' \
             2> "$RUNNER_TEMP/pat-err.txt" | sort -n | tail -1); then
             echo "[REVIEW_REQUEST] レビュー要求の前段 (既存コメントの確認) に失敗しました"
             echo "[REVIEW_REQUEST] gh の応答:"
