@@ -189,9 +189,39 @@ jobs:
           # `--slurp` は `--jq` と併用できない (gh 2.95.0 で実測)。`--paginate` 単体だと
           # jq はページごとに適用され出力が連結されるため、**id をストリームで出して
           # shell 側で畳む**。これなら全ページを取りこぼさない。
-          EXISTING=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          #
+          # **空でないことと、使えることは別。** 上の `-z` ガードは未設定しか見ない。
+          # secret が登録済みでも期限切れなら、この最初の API 呼び出しが
+          # `gh: Bad credentials (HTTP 401)` という gh の生エラーだけを残して落ち、
+          # **どの secret の話か・何をすれば直るかがログから読めない**。
+          # 2026-09-06〜09-10 に実際そうなり、夜間 PR 3 本がレビュー 0 件のまま進んだ
+          # (うち 2 本はマージ済み)。失効を名指しで報告するため、ここで応答を分類する。
+          #
+          # 新しい端点 (`gh api user` 等) を preflight に足さないのは、本 PAT の
+          # fine-grained 権限で通る保証が無いため。**既に通る実績のあるこの呼び出し**を
+          # そのまま診断点に使う。
+          if ! EXISTING=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
             --jq '.[] | select(.body | contains("@coderabbitai review")) | .id' \
-            | sort -n | tail -1)
+            2> "$RUNNER_TEMP/pat-err.txt" | sort -n | tail -1); then
+            echo "[REVIEW_REQUEST] レビュー要求の前段 (既存コメントの確認) に失敗しました"
+            echo "[REVIEW_REQUEST] gh の応答:"
+            sed 's/^/[REVIEW_REQUEST]   /' "$RUNNER_TEMP/pat-err.txt"
+            if grep -qE 'HTTP 401|Bad credentials' "$RUNNER_TEMP/pat-err.txt"; then
+              echo "[REVIEW_REQUEST] 原因: secret CODERABBIT_TRIGGER_PAT の認証エラー (GitHub が資格情報を拒否)"
+              echo "[REVIEW_REQUEST]       secret は登録済みだが値が使えない = 期限切れ / 失効の可能性が高い"
+              echo "[REVIEW_REQUEST] 対処: fine-grained PAT を再発行し、リポジトリの"
+              echo "[REVIEW_REQUEST]       Settings > Secrets and variables > Actions > CODERABBIT_TRIGGER_PAT を更新する"
+              echo "[REVIEW_REQUEST]       権限は Pull requests: Read and write のみ / 対象は本リポジトリのみ (ADR-072 決定 16)"
+            elif grep -qE 'HTTP 403' "$RUNNER_TEMP/pat-err.txt"; then
+              echo "[REVIEW_REQUEST] 原因: 認証は通ったが権限が足りない (HTTP 403)"
+              echo "[REVIEW_REQUEST] 対処: PAT の対象リポジトリと Pull requests: Read and write の付与を確認する"
+            else
+              echo "[REVIEW_REQUEST] 原因: 認証エラー以外の失敗 (上の応答を参照)"
+            fi
+            echo "[REVIEW_REQUEST] この step が通らない限り bot 作成 PR は CodeRabbit にスキップされ、"
+            echo "[REVIEW_REQUEST] レビューが一度も走らないまま PR が進む (ADR-043 に従い fail-closed で止める)"
+            exit 1
+          fi
           if [ -n "$EXISTING" ]; then
             echo "[REVIEW_REQUEST] 既にレビュー要求が存在します (comment id=${EXISTING})。再投稿しません"
             echo "since_id=${EXISTING}" >> "$GITHUB_OUTPUT"
@@ -199,8 +229,18 @@ jobs:
           fi
           # `gh api` で投稿するのは、**作成したコメントの id を得る**ため。
           # 検証段はこの id より新しい CodeRabbit コメントだけを数える。
-          NEW_ID=$(gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-            -f body='@coderabbitai review' --jq '.id')
+          # 読み取りが通っても投稿が 403 になる形 (権限不足) があるため、投稿側にも
+          # 同じ粒度の診断を置く。ここで黙って落ちると「読めたのに投稿されていない」と
+          # いう最も追いにくい状態になる。
+          if ! NEW_ID=$(gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body='@coderabbitai review' --jq '.id' 2> "$RUNNER_TEMP/pat-post-err.txt"); then
+            echo "[REVIEW_REQUEST] レビュー要求の投稿に失敗しました"
+            echo "[REVIEW_REQUEST] gh の応答:"
+            sed 's/^/[REVIEW_REQUEST]   /' "$RUNNER_TEMP/pat-post-err.txt"
+            echo "[REVIEW_REQUEST] 対処: CODERABBIT_TRIGGER_PAT に Pull requests: Read and write が"
+            echo "[REVIEW_REQUEST]       付与され、対象リポジトリに本リポジトリが含まれるかを確認する"
+            exit 1
+          fi
           echo "[REVIEW_REQUEST] PR #${PR_NUMBER} へレビュー要求を投稿しました (comment id=${NEW_ID})"
           echo "since_id=${NEW_ID}" >> "$GITHUB_OUTPUT"
 
