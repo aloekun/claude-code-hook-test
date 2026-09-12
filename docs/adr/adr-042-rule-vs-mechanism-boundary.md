@@ -71,8 +71,9 @@ memory は session-specific 補足の位置付けで、派生プロジェクト�
 
 - 検知方法が **regex / structural / AST / runtime check** で表現可能か?
 - 検知失敗時の **graceful degradation** が可能か? (fail-soft で work 続行)
+- 検知した先に **防げる実害** があるか? (2026-09-12 改訂で追加。検知は成立するが実害の経路に届かない機構は、発火しない複雑度を増やすだけ — § 改訂 (2026-09-12) の順位 516 が実例)
 
-両者 Yes なら mechanizable。一方でも No なら mechanism 化困難 = rule docs 維持。
+**3 条件すべて Yes なら mechanizable。** 1 つでも No なら mechanism 化困難 = rule docs 維持。
 
 #### Step 2: False positive 緩和分析
 
@@ -166,6 +167,33 @@ Frequency Low の場合は **観測継続** (3 観測で再評価) を default �
 - `~/.claude/rules/common/` への直接的な追記は本 ADR では行わない。本 ADR は `docs/adr/` 内に閉じ、派生プロジェクトは本 ADR を reference として参照する
 - 派生プロジェクト (techbook-ledger / auto-review-fix-vc) が独自 rule / mechanism 提案する際、本 ADR criteria を参照する想定
 - memory rules (`feedback_no_unenforced_rules.md` 等) は global location (`~/.claude/.../memory/`) で派生プロジェクトに自動波及するため、ADR と memory の両方が transferability 経路として機能
+
+## 改訂 (2026-09-12): 機械化不能と判定済みの規約に、実害の観測なしで再挑戦しない
+
+### 経緯
+
+順位 515 で `docs/dev-conventions.md` の各節に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を強制したのち、「`機械化不能:` の節が 0 になったら退役」という条件を置いた。この条件が、**機械化不能と判定済みの 2 節を機械化する起票** (順位 516: `jj new` 忘れの hook 検知 / 順位 517: 分割 refactor の test count 一致の spike) を生んだ。どちらも実害の観測ではなく「ファイルを短くしたい」が動機だった。
+
+### 実測 (順位 516)
+
+- change_id の性質は成立する: ファイル編集と `jj describe` では不変、`jj new` / `jj squash` / `jj abandon` で変わる (2026-09-12、使い捨てリポジトリで実測)。
+- しかし SessionStart 時点の `@` を基準にすると、由来 incident (2026-08-02、同一セッション内で作業を重ねた 3 回) の経路には届かない。`pnpm merge-pr` が同期時に空の `@` を作るため、検知できる経路 (残骸コミットからの開始) はほぼ発生せず、**発火しない機構になる**。
+- 由来以降の再発記録は feedback レポート・台帳ともに 0 件。害は「コミットの説明と中身がずれる」に留まる (混入した変更自体は push-runner が `master..@` 全体をレビューする)。
+- 代案「push 済みコミットへの編集を検知」は、push 後に同じ `@` を修正して再 push する通常フロー (CodeRabbit 対応) と衝突し、毎回誤検知になるため不採用。
+
+### 判断 (順位 517)
+
+機械は「分割 PR か」を判定できず、機構は「全 PR でテスト数を減らさない」ゲートに変わる。規約の不変条件とは別物で、誤発火のコストが読めず、削減効果は 1 行で節自体は残る。spike を走らせず取り下げた。
+
+### 決定
+
+1. **`機械化不能:` と宣言済みの規約を機械化する起票は、その規約が守れなかった実害の観測 (incident / feedback report) を伴う場合に限る。** 宣言を「悲観的すぎる」と評価するには、宣言した側の判断を上回る証拠が要る。
+2. `docs/dev-conventions.md` の縮小の終点は「判断を要する規約だけが残った状態」であり、節数 0 ではない。退役条件をそのように改めた。
+3. 再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案を、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案を、それぞれ再評価する (順位 518 で追跡)。
+
+### 本改訂が Step 1 に加えたもの
+
+§ Decision framework の Step 1 に第 3 の問い **「検知した先に防げる実害があるか」** を追加し、判定を「両者 Yes」から「3 条件すべて Yes」に改めた (本改訂で Step 1 本文を直接更新済み)。検知は成立するが実害の経路に届かない機構 (516 の change_id 案) は、この問いで No となり Step 1 を通過しない。
 
 ## 関連 ADR
 

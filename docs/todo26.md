@@ -567,76 +567,28 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
 
 ---
 
-### 順位 516: `jj new` 忘れを hook で検知する
+### 順位 518: 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)
 
-> **動機**: `docs/dev-conventions.md` § jj: ファイル編集を始める前に `jj new` する は「セッション文脈に
-> 依存し hook から判定できない」として `機械化不能:` を宣言している。しかしこの判定は**セッション開始時の
-> `@` を記録すれば決定論になる**。前提の再評価で機械化できると分かった例であり、成功すれば同節を
-> § 機構への索引 の 1 行へ畳める (順位 515 の縮小方針の継続)。
+> **動機**: 順位 516 (`jj new` 忘れの hook 検知) と 517 (分割 refactor の test count 一致の spike) を
+> 2026-09-12 に取り下げた。どちらも実害の観測ではなく「dev-conventions.md を短くしたい」が動機で、
+> 前提検証の結果、解くべき問題が無いと判断した。見送りの根拠と実測は
+> [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 改訂 2026-09-12 が持つ。
+> 本エントリは順位 261 の 3 点セット (ADR 記録 / 計画文書の状態更新 / 再評価トリガー付き follow-up) の
+> 3 つ目にあたる。**「現時点では見送り」を表現するための行であり、着手対象ではない。**
 >
-> **由来**: `[improvement]`。順位 515 完了後の棚卸しで、`機械化不能:` 宣言の一部が悲観的すぎると判明した。
+> **由来**: `[improvement]`。
 >
-> **参照**: [dev-conventions.md](dev-conventions.md) § jj: ファイル編集を始める前に `jj new` する、
-> [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (3 step 判定)、
-> [ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (試験運用 3 点セット)。
->
-> **実行優先度**: Tier 3 — Severity Low-Medium (混入は push 前に diff で気づける) / Frequency Medium
-> (同一セッション中に 3 回発生した実績あり) / Effort M / Adoption Risk Low。
+> **実行優先度**: Tier 5 — トリガーが観測されるまで着手しない。
 
-#### 着手時判断
+#### 再評価トリガー (どちらかが観測されたときのみ)
 
-**部品は揃っていることを確認済み** (2026-09-11 実測): `hooks-session-start` は既にセッション ID を状態
-ファイルへ書く経路を持ち (`main.rs` の `sid_path`)、`hooks-pre-tool-validate` は `Write` / `Edit` /
-`Replace` を `handle_write_edit_tool` で処理している。新規 crate は要らない。
-
-**判定の形**: SessionStart が起動時の `@` の change_id を記録し、PreToolUse が編集時に「`@` が記録した
-change_id のままで、かつ空でない」なら警告する。
-
-**block ではなく warn にする。** 前ターンの作業を意図的に続ける正当なケースがあり、block すると
-その経路が塞がる。誤検知のコストが「push が止まる」になる設計は避ける ([ADR-043](adr/adr-043-security-gates-fail-closed.md)
-の fail-closed はゲート限定であり、本件は助言層)。
-
-**着手前に確かめること**: 記録した change_id は `jj describe` や `jj squash` で変わりうる。change_id は
-rewrite でも保存される識別子だが、`jj new` で新しいコミットへ移ったことを確実に検知できるかを
-実測してから実装する ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。
+- **516 の案**: `jj new` 忘れによる別作業の混入が、feedback レポートか incident として再度観測されたとき。
+  再評価時は SessionStart 方式ではなく、同一セッション内の作業境界を捉えられる設計から考え直す
+  (SessionStart 方式が由来 incident に届かないことは ADR-042 の改訂に実測済み)。
+- **517 の案**: 分割 refactor でテストが消えたまま merge された事例が観測されたとき。
+  再評価時は「全 PR に効くゲートへスコープが変わる」代償を、観測された実害と比較する。
 
 #### 完了基準
 
-- セッション開始後に `jj new` せず編集したとき警告が出て、`jj new` 後は出ないことが実測で確認できる
-- ADR-039 の 3 点セット (config opt-in / kill-switch / bounded lifetime) が適用されている
-- `dev-conventions.md` の該当節が § 機構への索引 の 1 行へ畳まれている
-
----
-
-### 順位 517: 分割 refactor の test count 一致を機械化できるか調べる (spike)
-
-> **動機**: `docs/dev-conventions.md` § Rust ファイル分割の制約条件 の項目 1 は「test count も分割前後で
-> 一致させる」を含む。これは数を数えるだけなので機械化できそうに見えるが、**機構にするとスコープが
-> 変わる**。機械は「この PR は分割 refactor か」を判定できないため、実装できるのはリポジトリ全体で
-> 「テスト数を減らさない」ゲートであり、convention の言う不変条件とは別物になる。
->
-> **先に実装しないのは、誤発火のコストが読めないため**。正当なテスト削除・統合で発火すれば override が
-> 要り、`PR_SIZE_CHECK_OVERRIDE` と同じ運用負荷が増える。spike 見送りの 3 点セット (順位 261) を
-> 適用できる形で評価する。
->
-> **由来**: `[improvement]`。順位 515 完了後の棚卸しで、`機械化不能:` 宣言の一部が悲観的すぎると判明した。
->
-> **参照**: [dev-conventions.md](dev-conventions.md) § Rust ファイル分割の制約条件、
-> [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、§ spike / 実験タスクの見送り (negative result) 永続化 convention。
->
-> **実行優先度**: Tier 4 — Severity Low / Frequency Low / Effort S (実測のみ) / Adoption Risk Medium
-> (採用すると全 PR に効くゲートが増える)。
-
-#### 着手時判断
-
-**測るのは誤発火率**。過去の PR で master 基準の test count がどう動いたかを実測し、「減少した PR」の
-うち何件が正当な削除・統合だったかを数える。誤発火が多ければ見送り、少なければゲート化を提案する。
-
-**削減効果は 1 行**であることも判断材料に入れる。節の 3 項目のうち機械化できるのは項目 1 の一部だけで、
-behavior 不変と `pub(crate)` は残るため**節自体は撤去できない**。ゲートを 1 つ増やす対価として
-見合うかを、誤発火率と併せて判断する。
-
-#### 完了基準
-
-- 過去 PR の test count 推移が実測され、誤発火率の見積りが数で残っている
-- 採用 / 見送りが決まり、見送る場合は順位 261 の 3 点セット (ADR 記録 + 再評価トリガー付き follow-up) が実施されている
+- トリガーが観測されて再評価し、その結果が ADR-042 に追記されている
+- または、トリガーが観測されないまま次の月次 ROI レビュー (ADR-062) 2 回分を経過し、本行を削除した
