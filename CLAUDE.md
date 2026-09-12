@@ -83,9 +83,9 @@
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — 残る 10 節。各節は冒頭に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を持ち、`pnpm lint:docs` の `convention-declaration` 検査が fail-closed で強制する (順位 515)
+- [開発 convention / チェックリスト](docs/dev-conventions.md) — 残る 8 節 (機構への索引 1 + 機械化不能 6 + 機械化予定 1)。各節は冒頭に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を持ち、`pnpm lint:docs` の `convention-declaration` 検査が fail-closed で強制する (順位 515)。**終点は本ファイルの廃止**で、判断を要する規約は ADR へ移す (移設先の対応表は順位 445 の作業計画)
 
-> **本ファイルは縮小方向で運用する。** 決定事項は ADR、それ以外は仕組みで担保し、**新規の convention は追加しない**。仕組みができた項目は撤去する ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。2026-09-10 に順位 515 を完了し、16 節 220 行 → 10 節 112 行へ縮小した (機構化 3 節は宣言へ、単発 incident 由来の 5 節と ADR に内容がある 1 節は撤去)。以後の増加は `convention-declaration` 検査が「機械化の判断」を強制することで抑える。
+> **本ファイルは縮小方向で運用する。** 決定事項は ADR、それ以外は仕組みで担保し、**新規の convention は追加しない**。仕組みができた項目は撤去する ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。2026-09-10 に順位 515 を完了し、16 節 220 行 → 10 節 112 行へ縮小した (機構化 3 節は宣言へ、単発 incident 由来の 5 節と ADR に内容がある 1 節は撤去)。以後の増加は `convention-declaration` 検査が「機械化の判断」を強制することで抑える。2026-09-12 に終点を**廃止**と決めた ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md) 決定 2): 機械化不能の規約は機械化しないが本ファイルにも残さず、守備範囲の合う ADR へ移し、索引 2 表だけになった時点で本節へ畳んで削除する。
 
 ## Build
 
