@@ -98,8 +98,7 @@
 | 512 | Tier 3 | **[improvement] 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する** | todo26.md | M | なし (61KB / 59KB。移動したエントリの順位 table「ファイル」列の追随が必須で entry_pairing が強制する。着手時判断: 分割か孤児削除かを先に測る) |
 | 513 | Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |
 | 514 | Tier 2 | **[improvement] パーサ堅牢化を仕組みで担保できるか調べる** | todo26.md | S | なし (#479 / #313 の 2 件が同型。規約でなく型の網羅性 / fixture 契約 / 計測の 3 案を比較してから決める) |
-| 516 | Tier 3 | **[improvement] `jj new` 忘れを hook で検知する** | todo26.md | M | なし (順位 515 の棚卸しで `機械化不能:` 宣言が悲観的すぎると判明。SessionStart が起動時 `@` の change_id を記録し PreToolUse が warn する。block ではなく warn。成功すれば dev-conventions の 1 節を索引へ畳める) |
-| 517 | Tier 4 | **[improvement] 分割 refactor の test count 一致を機械化できるか調べる (spike)** | todo26.md | S | なし (機構にするとスコープが「分割 PR の不変条件」から「全 PR でテスト数を減らさない」へ変わる。過去 PR の誤発火率を実測してから採否を決める。削減効果は 1 行) |
+| 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
