@@ -236,7 +236,7 @@
 >
 > **参照**: [review-todo-whole.md](../.takt/facets/instructions/review-todo-whole.md) (routing 記述)、[docs/todo.md](todo.md) preamble、`src/cli-docs-lint/`、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (正規表現層/AST 層の線引き)、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 (本タスクが入るまでの暫定 convention)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (誤誘導であり実行時破壊ではない) / Frequency **Medium** (todo ファイルは継続的に増える) / Effort S / Adoption Risk None。
+> **実行優先度**: Tier 2 — Severity Medium (誤誘導であり実行時破壊ではない) / Frequency **Medium** (todo ファイルは継続的に増える) / Effort **M** (2026-09-12 に S から改訂 — dev-conventions.md の ADR 移設と廃止を同じ PR で行うため。lint 単体なら S) / Adoption Risk None。
 
 #### 設計決定
 
@@ -252,11 +252,40 @@
 - [ ] preamble の列挙集合と `docs/todo<数字>.md` の実ファイル集合を比較する
 - [ ] facet instruction 側の routing 記述に含まれる `todoN.md` 参照を抽出し、preamble の集合と矛盾しないか検査する
 - [ ] fixture テスト (good / bad) を追加する。**bad 側に「summary ファイルを誤って含む」「範囲表記が未展開」の 2 ケースを必ず入れる** (本タスクの取りこぼし要因そのもの)
-- [ ] 本タスク land 後、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 の routing 該当部分を撤去する (ADR-042 のルール vs 仕組み化)
+- [ ] 本タスクの ADR に、[dev-conventions.md](dev-conventions.md) § 同一事実が複数箇所に分散する場合の変更手順 の**全項目** (routing の機械検査と、機械化できない項目 1〜4) を移す。本タスク land 後に同節は撤去する (下の追記計画)
+
+
+#### 作業計画 (2026-09-12 追記): dev-conventions.md を ADR へ移して廃止する
+
+> 本タスクの land と同じ PR で行う (docs 変更はバッチにまとめる方針)。方針の決定は
+> [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 改訂 2026-09-12 決定 2 — 判断を要する規約も
+> 決定として成立するものは ADR が持ち、dev-conventions.md は ADR 以外の受け皿にならない。
+> 移設先は 2026-09-12 のヒアリングで確定した。
+
+| dev-conventions.md の節 | 移設先 |
+|---|---|
+| spike / 実験タスクの見送り 3 点セット (順位 261) | ADR-042 amendment |
+| 外部 fixture 参照テストは値まで assert (順位 274) | ADR-041 amendment (§ 原則 3) |
+| jj: ファイル編集を始める前に `jj new` する | ADR-045 § 運用ルール |
+| LLM を含む自動化経路は実走でしか検証できない | ADR-067 amendment |
+| Rust ファイル分割の制約条件 | 新規 ADR (小)。仮題「Rust module 分割の不変条件 — behavior 不変 / `pub(crate)` / test helper は複製」。**番号は作成時に採番する** (2026-09-12 時点の最大は ADR-079。予約すると着手までに入る他の ADR と衝突するため予約しない) |
+| 同一事実が複数箇所に分散する場合の変更手順 | **本タスクの ADR**。仮題「同一事実の分散を lint と手順で抑える — todo preamble ⇄ facet routing の集合比較 (機械) + 数え上げ / 暫定記述の書き換え / 参照の同時撤去 (手順)」。番号は同上 |
+| 複合タスクの仕様には各項目の処置と除外根拠を書く | ADR-073 amendment |
+
+- [ ] 上表のとおり各節を移す。由来 (PR 番号と何が起きたか) は移設先 ADR に持たせ、dev-conventions.md には残さない
+- [ ] 新規 ADR 2 本を `docs/adr/` に作成し、**CLAUDE.md § Architecture Decisions の index に追加する** (index に無い ADR は参照されず存在しないのと同じ。既存 ADR への amendment は index の行を変えない)
+- [ ] 前書きの来歴文 (CLAUDE.md から分離した…)、Rust 分割節末尾の所在案内、`jj new` 節と Rust 分割節の ADR-042 ポインタ 2 文を削除する
+- [ ] dev-conventions.md を「機構への索引」「ADR へ移した規約の索引」の 2 表にし、CLAUDE.md § 開発 convention へ畳んで**削除する**。`convention-declaration` 検査はファイル不在を許容済み (テスト `passes_when_the_conventions_file_is_absent`)
+- [ ] dev-conventions.md を参照する箇所を移設先へ付け替える。**一覧は実行時に `grep -rl dev-conventions` (runs / feedback-reports / weekly-reviews を除く) で作るのが正**で、以下は 2026-09-12 の実測 (38 ファイル) を分類したもの。手書きの列挙は 2 回続けて漏れを出したので (ADR-050 の誤記、台帳 3 ファイルの脱落)、列挙を信じず grep を信じること (同節の項目 4 の適用)。
+  - **付け替える** — 節の中身を根拠として指す現役参照: CLAUDE.md / `.claude/hooks-config.toml` / `.claude/custom-lint-rules.toml` / `.takt/facets/instructions/file-length-watchlist.md` / ADR-042・045・071・072 / 計画文書 3 件 (defect-convergence / harness-improvement / insights-followup) / `scripts/lint-workflows.mjs`・`lint-workflows-run-blocks.mjs`・`lint-takt-facets.mjs` / src 7 ファイルの doc コメント (cli-docs-lint 2、cli-pr-monitor 1、cli-push-runner 2、hooks-post-tool-comment-lint-rust 1、hooks-stop-tool-call-leak 1) / weekly-review skill (スキルリポ側) / **`docs/todo.md` のエントリ本文** (800 行閾値の分散エントリが § 同一事実分散 を根拠に引く。`dev-conventions.md:140` という行番号参照は既に存在しない行で、移設先 ADR の由来へ向け直す)
+  - **タイトルを直す** — 2026-09-08 に出口を再設計済みなのに、タイトルが旧出口「dev-conventions に追加」のままの現役行: `todo-summary2.md` の順位 298 / 327 / 353 / 358 / 359、`todo-summary3.md` の順位 472 (477 の注記も同様に確認)。行の存廃は各エントリの再設計結果に従う
+  - **残してよい** — 詳細エントリ (todo13〜27) 内の、起票時の経緯として dev-conventions を挙げただけの**地の文**。ただし「§ 節名」で中身を指しているもの、および markdown リンクは上の付け替え対象に含める (ADR-050 は #492 で参照を外し済みのため対象外)
+  - **計画文書自身** — 本エントリ (todo27.md 順位 445) には `[dev-conventions.md](dev-conventions.md)` のリンクが 2 箇所ある (冒頭の参照行と、上の「本タスクの ADR に…全項目を移す」項目)。ファイル削除後は `pnpm lint:docs` の cross_ref が壊れたリンクとして落とすので、**削除と同じ PR で移設先 ADR へのリンクに付け替える**。本計画の地の文にある「dev-conventions.md」という語はリンクでない限り経緯として残してよい。**「現役参照 0 件」の判定はリンクと「§ 節名」参照を数え、地の文の語は数えない** — cross_ref が green であることがその機械的な証拠になる
 
 #### 完了基準
 
 - preamble と実ファイル群、preamble と facet routing 記述の不一致が `pnpm lint:docs` で検出されること。
 - 検出が fixture テストで固定され、`cargo test --workspace` が green であること。
+- **上の追記計画 (2026-09-12) が同じ PR で完了していること**: 7 節が対応表の移設先へ移り、新規 ADR 2 本が CLAUDE.md の ADR index に載り、`docs/dev-conventions.md` が削除され、CLAUDE.md § 開発 convention に索引 2 表が畳まれ、`grep -rl dev-conventions` の現役参照 (リンクと「§ 節名」参照。地の文の語は除く) が 0 件で、`pnpm lint:docs` の cross_ref が green である。lint の実装だけでは本タスクを完了としない
 
 ---

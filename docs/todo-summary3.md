@@ -42,7 +42,7 @@
 | 440 | Tier 2 | **weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)** | todo22.md | S-M | なし (2026-08-12 起票。last-run の指す 2026-07-27.md が不在、ADR-070 移行後の保存先未確認。jj-robustness facet の bounded-lifetime 判定 = todo13.md の blocker) |
 | 442 | Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
-| 445 | Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証** | todo27.md | S | なし (2026-08-13 起票。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
+| 445 | Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証 + dev-conventions.md を ADR へ移して廃止** | todo27.md | M | なし (2026-08-13 起票。2026-09-12 に dev-conventions.md の移設・廃止計画を同 PR の範囲として追記し S → M。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
 | 447 | Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
 | 448 | Tier 2 | **判断留保キーワード検査の回帰テスト (canonical / tagged / untagged の 3 分類) (PR #400 T2-1)** | todo23.md | S | 447 (検証対象が 447 の成果物。走査の実体が現状 Rust に無いため単独着手は不可) |
 | 450 | Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
