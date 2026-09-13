@@ -299,13 +299,13 @@
 
 ---
 
-### 順位 353: ADR amendment 時の「§ Amendment」節追加を dev-conventions.md のチェックリストに追加
+### 順位 353: ADR amendment 時の「§ Amendment」節追加を cli-docs-lint の検査にする
 
 > **動機**: PR #332 で ADR-062 が ADR-053/055/061 を amend し、PR #333 でも ADR-053/061 への追記を手動で実施したが、被 amend 側 ADR への追記が都度アドホックに行われている。CLAUDE.md の ADR 索引には既に (Supersedes/Superseded by) 注記が多数あり、Amendment 明記の convention 化は低コストで一貫性向上に資する。#332 post-merge feedback Tier3 #2 で採用。
 >
-> **対処案**: `docs/dev-conventions.md` (または CLAUDE.md convention セクション) に「ADR が他 ADR を override/amend する場合、被 amend 側 ADR に § Amendment セクションを追加し双方向リンクを張る」チェックリスト項目を追加する。
+> **対処案** (2026-09-08 に出口を再設計。文書への追記ではなく `cli-docs-lint` の検査にする。convention 集は 2026-09-13 に廃止、順位 445): 「ADR が他 ADR を override/amend する場合、被 amend 側 ADR に § Amendment セクションを追加し双方向リンクを張る」チェックリスト項目を追加する。
 >
-> **参照**: `.claude/feedback-reports/332.md` Tier3 #2、`docs/dev-conventions.md`、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) / ADR-053 / ADR-055 / ADR-061 (amendment 実例)。
+> **参照**: `.claude/feedback-reports/332.md` Tier3 #2、`src/cli-docs-lint/`、[ADR-062](adr/adr-062-monthly-harness-roi-review.md) / ADR-053 / ADR-055 / ADR-061 (amendment 実例)。
 >
 > **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort XS / Adoption Risk None。
 
@@ -321,13 +321,13 @@
 
 ---
 
-### 順位 358: Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を dev-conventions.md に明文化
+### 順位 358: Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を明文化 + cli-docs-lint の検査にする
 
 > **動機**: PR #340 の計画書スリム化で、CodeRabbit から「WP-14 の永続移管先未記載」「外部 SaaS 事実の移管方針」「WP-02 の todo 移管先未記録」の 3 件が指摘された。ephemeral 計画文書から permanent 成果物への知識移行の手順は「見送り」ケース限定の順位 261 convention にしか存在せず、完了/委譲ケースの移管先明記が規約の空白だったことが構造要因。#340 post-merge feedback Tier3 #1 で採用。
 >
-> **対処案**: `docs/dev-conventions.md` の順位 261 convention (spike 見送り 3 点セット) を拡張し、Cross-File Reference Lifecycle として明文化する: (1) permanent 成果物を先に作成・validate、(2) permanent→ephemeral 方向の参照を除去し、移管先 (ADR / todo 順位 / crate doc 等) を ephemeral 側の状態列に明記 (完了/委譲/見送りの全ケース対象)、(3) 計画文書の退役条件 (全状態確定 + 永続成果物からの参照ゼロ + 残タスクの lifecycle 整合) を含める。
+> **対処案** (2026-09-08 に出口を再設計。検査として実装する。convention 集は 2026-09-13 に廃止し、spike 見送り 3 点セットは [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 2026-09-13 が持つ、順位 445): 同 3 点セットを拡張する形で Cross-File Reference Lifecycle として明文化する: (1) permanent 成果物を先に作成・validate、(2) permanent→ephemeral 方向の参照を除去し、移管先 (ADR / todo 順位 / crate doc 等) を ephemeral 側の状態列に明記 (完了/委譲/見送りの全ケース対象)、(3) 計画文書の退役条件 (全状態確定 + 永続成果物からの参照ゼロ + 残タスクの lifecycle 整合) を含める。
 >
-> **参照**: `.claude/feedback-reports/340.md` Tier3 #1、`docs/dev-conventions.md` (順位 261 convention)、`docs/harness-improvement-plan.md` (退役手順の実例)。
+> **参照**: `.claude/feedback-reports/340.md` Tier3 #1、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13)、`docs/harness-improvement-plan.md` (退役手順の実例)。
 >
 > **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 

@@ -34,20 +34,20 @@
 
 #### 完了基準
 
-- Phase 0 の需要調査結果 (実績数と判定) が記録されていること。見送りなら negative result が dev-conventions convention で永続化されていること。
+- Phase 0 の需要調査結果 (実績数と判定) が記録されていること。見送りなら negative result が [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13) の 3 点セットで永続化されていること。
 - Phase 1 に進んだ場合: design-review が並列で動き、受け入れ基準 ①〜③ の計測データに基づく採否判定が ADR に記録されていること。
 
 ---
 
-### 順位 327: 多段コミットの ADR / observability 更新チェックリストを dev-conventions に追加 (#295/#296 post-merge feedback 採用)
+### 順位 327: 多段コミットの ADR / observability 更新チェックリストを cli-docs-lint の検査にする (#295/#296 post-merge feedback 採用)
 
 > **動機**: R4 (ADR-047 却下 / ADR-056 延長) を「判定ドラフト → 却下理由補強 → plan2.md 反映 → 却下確定・撤去 → 観測ツール」と複数コミット・複数 PR に分割して進めた際、齟齬が複数回発生した — (a) timing doc が ADR-047 を「却下」と断定したが該当ブランチの ADR status header は未確定だった (PR #295 の pre-push review が REJECT → fix step が訂正)、(b) timing doc の `docs/takt-step-timings.md` への参照を markdown link にすると中間コミットで cross-ref が壊れるため plain-text に統一する必要があった、(c) ADR status 行と「採否判定」セクションの同期。ADR 58 件超・活発な多段階判定運用の本 repo では同型の反復が見込まれる。#295 と #296 の post-merge feedback がいずれも採用候補と判定。
 >
-> **対処案**: `docs/dev-conventions.md` に「多段コミット/多段 PR で ADR・観測 doc を更新するときのチェックリスト」を追加する。項目案: ① doc が外部 ADR の status (試験運用/却下等) に言及する場合は、参照先 ADR の**現行 status header と同期**しているか (未確定を「確定」と書かない)、② 別コミット/別 PR にまたがるファイルへの参照は **markdown link ではなく plain-text パス**にして中間コミットの cross-ref 破壊を避ける (docs-lint cross-ref は markdown link のみ検査)、③ ADR の status 行と「採否判定」セクションの記述を同時更新する。dev-conventions には WP-06/07/08 由来の同種 checklist 先例が複数あり同形式で追加可能。
+> **対処案** (2026-09-08 に出口を再設計。文書チェックリストではなく検査として実装する。convention 集は 2026-09-13 に廃止、順位 445): 下の 3 項目を `cli-docs-lint` の検査にする。項目案: ① doc が外部 ADR の status (試験運用/却下等) に言及する場合は、参照先 ADR の**現行 status header と同期**しているか (未確定を「確定」と書かない)、② 別コミット/別 PR にまたがるファイルへの参照は **markdown link ではなく plain-text パス**にして中間コミットの cross-ref 破壊を避ける (docs-lint cross-ref は markdown link のみ検査)、③ ADR の status 行と「採否判定」セクションの記述を同時更新する。dev-conventions には WP-06/07/08 由来の同種 checklist 先例が複数あり同形式で追加可能。
 >
-> **参照**: `.claude/feedback-reports/295.md` Tier3 #2 / `.claude/feedback-reports/296.md` Tier3 #2、`docs/dev-conventions.md`、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (plain-text 参照統一の先例は本 R4 で ADR-047/056 に適用済)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
+> **参照**: `.claude/feedback-reports/295.md` Tier3 #2 / `.claude/feedback-reports/296.md` Tier3 #2、`src/cli-docs-lint/`、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (plain-text 参照統一の先例は本 R4 で ADR-047/056 に適用済)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
 >
-> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort S (doc checklist の追加のみ、機械化はしない)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
+> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort S (cli-docs-lint の検査 3 本)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
 
 #### 作業計画
 

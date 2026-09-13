@@ -1,6 +1,6 @@
 // .github/workflows/*.yml の構文と最小構造を検査する。
 //
-// 動機: workflow の変更は実走でしか意味的な検証ができない (docs/dev-conventions.md) が、
+// 動機: workflow の変更は実走でしか意味的な検証ができない (ADR-067) が、
 // **構文エラーだけは実走を待つ必要がない**。GitHub は push されるまで parse しないため、
 // 壊れた YAML は「次の schedule 実行が黙って起きない」形で現れる。ローカルで parse だけでも
 // 通しておけば、その失敗モードを 1 つ減らせる。
@@ -11,8 +11,8 @@
 // parse に加えて、**同じ文字列を 2 か所以上で持つ契約**を検査する (順位 319 / 431)。
 // どちらも「片方だけ直しても動いているように見えるが、実際には黙って機能しなくなる」
 // 形の結合であり、実走観測でしか気づけない失敗モードを決定論層で潰す (ADR-042)。
-// docs/dev-conventions.md「同一事実が複数箇所に分散する場合の変更手順」4 (機械検証
-// できるものは lint へ寄せる) の実装にあたる。
+// ADR-081 (同一事実の分散を lint と手順で抑える) の決定 1「機械検証できるものは
+// lint へ寄せる」の実装にあたる。
 //   - pr-monitor.yml の冪等マーカー: 投稿時に「書く側」と起動時に「探す側」が別 step。
 //   - CodeRabbit の marker: review-request.yml / pr-monitor.yml / markers.rs の 3 か所。
 //     CodeRabbit 側の format 変更は外部要因で、追随漏れは silent success を招く

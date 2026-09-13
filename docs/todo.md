@@ -51,13 +51,13 @@
 
 #### file-length 800 行閾値の single source of truth 化 (週次レビュー WR-2026-08-15-A01 採用)
 
-> **動機**: 800 行閾値が `.claude/hooks-config.toml` `[file_length_gate]`、`src/hooks-post-tool-comment-lint-rust/src/modified_files_check.rs` (`MAX_FILE_LINES=800`)、`src/cli-push-runner/src/stages/pr_size_check.rs` (別建ての 800/1500 行 PR 範囲チェック)、`docs/dev-conventions.md` の 4 箇所に独立定義されている。さらに 50KB の `file_size_check` と 800 行の `file_length_gate` という別物の閾値が、役割の違いを文書化しないまま混在している。
+> **動機**: 800 行閾値が `.claude/hooks-config.toml` `[file_length_gate]`、`src/hooks-post-tool-comment-lint-rust/src/modified_files_check.rs` (`MAX_FILE_LINES=800`)、`src/cli-push-runner/src/stages/pr_size_check.rs` (別建ての 800/1500 行 PR 範囲チェック)、convention 集 (2026-09-13 廃止、内容は [ADR-080](adr/adr-080-rust-module-split-invariants.md) へ移設) の 4 箇所に独立定義されている。さらに 50KB の `file_size_check` と 800 行の `file_length_gate` という別物の閾値が、役割の違いを文書化しないまま混在している。
 >
 > **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A01 で採用 (severity=high, facet=architecture, category=docs-source-drift)
 >
 > **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.claude/hooks-config.toml` (`[file_length_gate]`)
 
-##### 背景: `docs/dev-conventions.md` 自身が「同一事実が複数箇所に分散する場合の変更手順」を anti-pattern として明記しており、本件はその実例に該当する
+##### 背景: [ADR-081](adr/adr-081-single-fact-dispersion.md) 自身が「同一事実が複数箇所に分散する場合の変更手順」を anti-pattern として明記しており、本件はその実例に該当する
 
 ##### 設計決定: 800 行定数を共有 `lib-*` crate へ集約し、`modified_files_check.rs` と `pr_size_check.rs` の双方から参照する
 
@@ -69,11 +69,11 @@
 
 #### weekly-review reminder 閾値の共有定数化と値の test 固定 (週次レビュー WR-2026-08-15-A02 採用)
 
-> **動機**: `reminder_threshold_days` が `src/hooks-session-start/src/weekly_review.rs` の Rust default、`.claude/hooks-config.toml:61`、ADR-070 の決定本文、ADR-059 の 4 箇所以上に同期機構なしで分散している。`docs/dev-conventions.md:140` は 2026-08-13 に code default (30) と config (7) が実際に乖離し手動で調整した incident を記録済み。
+> **動機**: `reminder_threshold_days` が `src/hooks-session-start/src/weekly_review.rs` の Rust default、`.claude/hooks-config.toml:61`、ADR-070 の決定本文、ADR-059 の 4 箇所以上に同期機構なしで分散している。[ADR-081](adr/adr-081-single-fact-dispersion.md) § コンテキスト は 2026-08-13 に code default (30) と config (7) が実際に乖離し手動で調整した incident を記録済み。
 >
 > **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A02 で採用 (severity=high, facet=architecture, category=docs-source-drift)
 >
-> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.claude/hooks-config.toml:61`、`docs/dev-conventions.md:140` (2026-08-13 の乖離 incident)
+> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.claude/hooks-config.toml:61`、[ADR-081](adr/adr-081-single-fact-dispersion.md) § コンテキスト (2026-08-13 の乖離 incident)
 
 ##### 背景: 実際に乖離した実績のある分散定義。WR-2026-08-15-A01 と同じ SSOT 欠如の系統だが、こちらは incident が既に起きている点で優先度が高い
 
@@ -88,7 +88,7 @@
 
 #### lint rule ⑥ の拡張子リスト/テスト同期義務を ADR-007 へ昇格 (週次レビュー WR-2026-08-15-A03 採用)
 
-> **動機**: lint rule ⑥ (`no-ephemeral-todo-reference`) の拡張子リストとテスト同期の義務が `.claude/custom-lint-rules.toml:257-265` の TOML コメントにしか書かれておらず、ADR-007・`docs/dev-conventions.md`・テストモジュール自身のいずれにも無い。新しい拡張子を追加した開発者が `rule_test_coverage_check` を回さずローカル `cargo test` を通し、必要なテストなしでマージし得る — ADR-007 § Lint rule 最小テストチェックリストが警告している当の anti-pattern。
+> **動機**: lint rule ⑥ (`no-ephemeral-todo-reference`) の拡張子リストとテスト同期の義務が `.claude/custom-lint-rules.toml:257-265` の TOML コメントにしか書かれておらず、ADR-007・テストモジュール自身のいずれにも無い。新しい拡張子を追加した開発者が `rule_test_coverage_check` を回さずローカル `cargo test` を通し、必要なテストなしでマージし得る — ADR-007 § Lint rule 最小テストチェックリストが警告している当の anti-pattern。
 >
 > **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-A03 で採用 (severity=medium, facet=architecture, category=harness-duplication)
 >
@@ -322,7 +322,7 @@
 >
 > **⚠ 計画書 PR-W5 との整合 (競合注意)**: 旧 file-length-enforcement-plan の PR-W5 は `[stop_quality.steps]` に **file-length step を追加**する予定だった。analyzer 推奨の Option A (`[stop_quality]` 全削除) をそのまま採ると file-length step の受け皿が消えて競合する。**Option A' (整合版)**: 重複する lint/clippy/test step のみ削除し、session 固有チェック (file-length gate 等) の受け皿として `[stop_quality]` セクション自体は残す。
 >
-> **Status update (2026-08-12)**: **ブロッカー解消 — 着手可能**。PR-W5 は #234 で land 済みで `[stop_quality.steps]` に file-length step が実在し、file_length gate は本採用確定 (計画書は削除済み、分割制約は dev-conventions.md へ移設)。「PR-W5 確定待ち」の前提は消えた。
+> **Status update (2026-08-12)**: **ブロッカー解消 — 着手可能**。PR-W5 は #234 で land 済みで `[stop_quality.steps]` に file-length step が実在し、file_length gate は本採用確定 (計画書は削除済み、分割制約は [ADR-080](adr/adr-080-rust-module-split-invariants.md) へ移設)。「PR-W5 確定待ち」の前提は消えた。
 >
 > **参照**: `.claude/weekly-reviews/2026-07-01.md` WR-2026-07-01-A01、`.claude/hooks-config.toml` `[stop_quality]` (修正対象)、`push-runner-config.toml` `[quality_gate]` (lint/test single authority 候補)、ADR-004 (Stop hook 品質ゲート)、ADR-015 (push-runner 移行)、ADR-022 (責務分離)
 

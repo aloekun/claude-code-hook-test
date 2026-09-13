@@ -1,9 +1,19 @@
-//! convention-declaration check — `docs/dev-conventions.md` のルール台帳ゲート
+//! convention-declaration check — 開発 convention 集のルール台帳ゲート
 //! (順位 515 / defect-convergence-plan.md § Phase 5 の撤1-③)。
+//!
+//! # 対象ファイルは廃止済み — 本検査は復活に対する backstop である
+//!
+//! 対象の [`CONVENTIONS_FILE`] は 2026-09-13 (順位 445) に**廃止**された。判断を要する規約は
+//! 守備範囲の合う ADR へ移し、機構への索引は CLAUDE.md § 開発 convention が持つ
+//! ([ADR-042](adr-042) § 改訂 2026-09-12 決定 2)。ファイル不在は違反にしない (下の
+//! [`check`] と `passes_when_the_conventions_file_is_absent`)。
+//!
+//! **それでも検査を残すのは、同じ形のファイルが再び生えたときに無宣言で育たせないため**である。
+//! 廃止したのは「置き場」であって「宣言を要求する規律」ではない。
 //!
 //! # なぜ検査するか — 「ルールを書いて溜飲を下げる」経路を塞ぐ
 //!
-//! 本リポジトリは「強制力のないルール追加は即却下」を方針に持ちながら、`dev-conventions.md`
+//! 本リポジトリは「強制力のないルール追加は即却下」を方針に持ちながら、convention 集
 //! は 16 節 220 行まで育った。**「ルールを作らないルール」自身が強制されていなかった**ためで
 //! ある (defect-convergence-plan.md § 根因)。
 //!

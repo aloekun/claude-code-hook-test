@@ -52,7 +52,7 @@ fn ensure_config_beside_exe() {
 /// E2E fixture (実 config) が本テスト群の前提とする具体値と一致することを検証する。
 /// section 存在だけでなく `enabled` / `max_consecutive_blocks` の値まで assert し、
 /// config retuning や kill-switch flip (`enabled = false`) が cap 境界テストを原因の
-/// 見えない形で silent break させるのを防ぐ (ADR-041、dev-conventions.md § 外部 fixture
+/// 見えない形で silent break させるのを防ぐ (ADR-041 § 原則 3: 外部 fixture
 /// 参照テストは値まで assert)。値を変えたら assert メッセージが更新箇所を指し示す。
 fn assert_leak_config_matches_test_assumptions(content: &str) {
     let config: toml::Value = toml::from_str(content)

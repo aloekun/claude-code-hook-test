@@ -29,6 +29,7 @@
 
 use cli_docs_lint::{
     convention_declaration, cross_ref, entry_pairing, origin_markers, preamble, priority_inversion,
+    todo_routing,
     Violation,
 };
 use std::path::{Path, PathBuf};
@@ -74,13 +75,18 @@ const CHECKS: &[CheckSpec] = &[
     },
     CheckSpec {
         name: "convention-declaration",
-        summary: "dev-conventions.md の各節が機械化の宣言を持つか (順位 515)",
+        summary: "convention 集が復活した場合に各節の機械化宣言を強制 (順位 515)",
         run: convention_declaration::check,
     },
     CheckSpec {
         name: "entry-pairing",
         summary: "順位 table 行 ⇄ todoN.md 詳細エントリの 1:1 対応 (順位 441)",
         run: entry_pairing::check,
+    },
+    CheckSpec {
+        name: "todo-routing",
+        summary: "preamble / facet の routing 列挙 ⇄ 実 todoN.md の集合比較 (順位 445)",
+        run: todo_routing::check,
     },
 ];
 

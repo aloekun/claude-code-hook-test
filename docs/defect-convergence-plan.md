@@ -41,7 +41,7 @@
 
 **ルール追加では直らないことの実証** (本計画がルールでなく機構を選ぶ根拠):
 
-1. TDD の convention は [dev-conventions.md](dev-conventions.md) に存在しなかった (grep 0 件) — 「無視された」以前に書かれてもいなかった
+1. TDD の convention は当時の convention 集に存在しなかった (grep 0 件) — 「無視された」以前に書かれてもいなかった
 2. [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1「回帰テストの場が無い判定を無人経路に置かない」は存在したが、467 D-1 の掃除ループは**決定 1 を引用するコメントの直下で** shell 判定を増やした
 3. memory `feedback_no_unenforced_rules`「強制力のないルール追加は即却下」が存在するのに、dev-conventions.md は **`##` 節が 15 個** (`###` 込みで 19 個。2026-08-25 に `grep -c "^## "` で実測) まで成長した — **「ルールを作らないルール」自身が強制されていない**
 
@@ -346,7 +346,7 @@ D1 (`.github/workflows/`) と D2 / D3 (`src/lib-ledger/` / `src/cli-docs-lint/`)
 **[PR #455](https://github.com/aloekun/claude-code-hook-test/pull/455) でマージ済み (2026-08-27)。** どちらも**既に機械が強制していることの説明**であり、人間に新しい義務を課すルールではない。宣言行は最初から「機械化: …」の形で書いた (撤1-③ が置くゲートの対象を自分で増やさないため)。
 
 - `### 順位 N:` の syntax 仕様 (コロン必須・前方一致不可・N は `u32`) を [ADR-033](adr/adr-033-todo-numbering-simplification.md) § 見出しの syntax 仕様 へ追記した。強制しているのは `lib-ledger` の `removal.rs` と `cli-docs-lint` の `entry_pairing.rs` の `heading_rank` 2 箇所で、**両者は同一契約** (片方だけ変えると検査と削除がずれる) であることも書いた
-- 台帳の `照合除外:` マーカーの使用規約 (理由必須・fail-closed) を [dev-conventions.md](dev-conventions.md) へ記載した。強制しているのは `deployed_ledger.rs` の `parse_review_exclusions`
+- 台帳の `照合除外:` マーカーの使用規約 (理由必須・fail-closed) を当時の convention 集へ記載した (同集は 2026-09-13 に廃止、順位 445)。強制しているのは `deployed_ledger.rs` の `parse_review_exclusions`
 
 **同じバッチに入れた後始末** (いずれも記述の実測との突き合わせ):
 
@@ -545,8 +545,8 @@ PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いず
 2 値だと**機械化できるが未実装**の節がどちらとも名乗れず、嘘の宣言を書くか検査を外すかの二択になるため
 (該当は「同一事実が複数箇所に分散する場合の変更手順」= 順位 445 待ちの 1 節)。
 
-1. **順位 319 の `-e` convention を機構化**: [dev-conventions.md](dev-conventions.md) §「GitHub Actions の `run:` は常に `-e` 付きで起動する」の要求を [scripts/lint-workflows.mjs](../scripts/lint-workflows.mjs) の契約検査 3 として実装 (検査内容は同節の記述を正とする)。**2026-09-09 実装済み** (`scripts/lint-workflows-run-blocks.mjs`、`pnpm lint:workflows` を push-runner の lint group に接続)。同節は 2026-09-11 に § 機構への索引 の 1 行へ畳んだ
-2. **takt facet の言語指定検査**: `.takt/facets/instructions/*.md` の各ファイルに出力言語の指定行が存在することを検査 (dev-conventions §「takt facet の出力言語は各 instruction に直書きする」の機構化)。検査パターンは既存 instruction の実態から確定し、非準拠 facet には同 PR で指定行を足す **2026-09-09 検査は実装済み** (`scripts/lint-takt-facets.mjs`、`pnpm lint:takt-facets` を同 group に接続。20 facet 全てが準拠済みで追記不要だった)。同節は 2026-09-11 に § 機構への索引 の 1 行へ畳んだ
+1. **順位 319 の `-e` convention を機構化**: convention 集の「GitHub Actions の `run:` は常に `-e` 付きで起動する」の要求を [scripts/lint-workflows.mjs](../scripts/lint-workflows.mjs) の契約検査 3 として実装 (検査内容は同節の記述を正とする)。**2026-09-09 実装済み** (`scripts/lint-workflows-run-blocks.mjs`、`pnpm lint:workflows` を push-runner の lint group に接続)。同節は 2026-09-11 に § 機構への索引 の 1 行へ畳んだ
+2. **takt facet の言語指定検査**: `.takt/facets/instructions/*.md` の各ファイルに出力言語の指定行が存在することを検査 (convention 集の「takt facet の出力言語は各 instruction に直書きする」の機構化)。検査パターンは既存 instruction の実態から確定し、非準拠 facet には同 PR で指定行を足す **2026-09-09 検査は実装済み** (`scripts/lint-takt-facets.mjs`、`pnpm lint:takt-facets` を同 group に接続。20 facet 全てが準拠済みで追記不要だった)。同節は 2026-09-11 に § 機構への索引 の 1 行へ畳んだ
 3. **ルール台帳ゲート (本命)**: [cli-docs-lint](../src/cli-docs-lint/) に「dev-conventions.md の各 `##` 節は `機械化:` / `機械化不能:` / `機械化予定:` の宣言行を持つ」検査を追加。**これにより「ルールを書いて溜飲を下げる」経路自体が塞がる** (新ルールを書くたび機械化判定が強制される) **2026-09-10 実装済み** (`src/cli-docs-lint/src/convention_declaration.rs`、check 名 `convention-declaration`)。宣言は**節の最初の非空行**であることと、接頭辞だけでなく**値を持つ**ことまで要求する (位置を固定しないと長い節の末尾に埋めても通り、値を許さないと 4 文字を書く儀式に退化する)。棚卸しの結果は 16 節中、機構化により宣言へ縮小 3 節 / 単発 incident 由来で撤去 5 節 / ADR に内容が既にあり撤去 1 節 / 存置 7 節。残る 10 節の宣言内訳は `機械化:` 3 / `機械化不能:` 6 / `機械化予定:` 1
 
 ### 撤2 — pre-tool-validate 系 (型 A)
@@ -560,7 +560,7 @@ PR V の pure 化作業で実際に浮上した問いは次の 2 件で、いず
 
 ### 撤3 — 残り (型 B / A / C)
 
-6. **順位 445 の実装** (型 A): todo preamble と facet routing 記述の整合 lint (todo22.md の 445 節が仕様)。実装後、dev-conventions §「同一事実が複数箇所に分散する場合の変更手順 (順位 445 実装までの暫定 convention)」の節を削除。順位 445 のエントリ後始末も同乗
+6. ~~**順位 445 の実装** (型 A): todo preamble と facet routing 記述の整合 lint~~ — **2026-09-13 完了**。`pnpm lint:docs` の `todo-routing` 検査として実装し ([ADR-081](adr/adr-081-single-fact-dispersion.md) 決定 1)、convention 集は同 PR で廃止した
 7. **create-pr の `--body` を物理削除** (型 B): [create_pr.rs](../src/cli-pr-monitor/src/stages/create_pr.rs) の `--body` 受け付け (改行再結合 workaround を含む) を撤去し `--body-file` のみ残す。1 行目切り捨て事故 (memory `create-pr-multiline-body-truncation`) の footgun 除去。呼び出し側の案内 (prepare-pr skill 等) も追随
 8. **docs-only PR の feedback skip を機構化** (型 C): [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) の決定論 docs-only 判定を [cli-merge-pipeline](../src/cli-merge-pipeline/) の feedback 起動判定へ接続し、docs-only PR では post-merge feedback を起動しない。根拠: memory `no-feedback-adoption-for-doc-prs` (ユーザー決定済みの運用)。判定ロジックは push-runner 側 `docs_only_routing.rs` と重複させず lib 化を検討 ([ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) の境界判定に従う)
 

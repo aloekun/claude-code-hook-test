@@ -115,7 +115,7 @@
 
 ### 順位 222: `~/.claude/CLAUDE.md` に「複数セッション跨ぎの計画文書作成時は AI が先走らずユーザー確認後に方針報告し GO/NO-GO を得る」ルール追加 (PR #218 post-merge-feedback #5 採用)
 
-> **動機**: PR #218 (docs PR、ファイルサイズチェックフロー改善計画 + 順位 220/221 採用) のセッション内で、Plan file (`docs/file-length-enforcement-plan.md`、同計画は 2026-08-12 に削除済み。要旨は docs/dev-conventions.md § Rust ファイル分割の制約条件へ移設) 作成完了報告後、AI (Claude) が **ユーザー承認なしに PR-W0 (weekly audit step 追加) の実装着手を開始** し、ユーザーが `[Request interrupted by user]` で停止 + 「勝手に作業を進めないでください」と明示的に course correction する事案が発生した。Auto mode 下でも「計画書 / planning doc 作成のような **大きな task 完了時** は GO/NO-GO の確認待ちが必須」という規範を CLAUDE.md に明文化することで、本セッション内の事例を後続セッションで再発防止する。
+> **動機**: PR #218 (docs PR、ファイルサイズチェックフロー改善計画 + 順位 220/221 採用) のセッション内で、Plan file (`docs/file-length-enforcement-plan.md`、同計画は 2026-08-12 に削除済み。要旨は [ADR-080](adr/adr-080-rust-module-split-invariants.md) へ移設) 作成完了報告後、AI (Claude) が **ユーザー承認なしに PR-W0 (weekly audit step 追加) の実装着手を開始** し、ユーザーが `[Request interrupted by user]` で停止 + 「勝手に作業を進めないでください」と明示的に course correction する事案が発生した。Auto mode 下でも「計画書 / planning doc 作成のような **大きな task 完了時** は GO/NO-GO の確認待ちが必須」という規範を CLAUDE.md に明文化することで、本セッション内の事例を後続セッションで再発防止する。
 >
 > **本タスクの位置づけ**: PR #218 post-merge-feedback #5 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None、2026-06-23 ユーザー承認)。analyzer rationale: 「AI がユーザー確認なしに計画書作成を開始し `[Request interrupted by user]` で停止させた事例。Severity Medium (AI 暴走 = UX 劣化)・Effort XS・Adoption Risk None → ✅ 条件を満たす。Frequency Low だが Effort が極小なため採用コストが低い」。
 >

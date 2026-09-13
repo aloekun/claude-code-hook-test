@@ -277,7 +277,7 @@ name = "build"
 cmd = "pnpm build"
 
 # 順位 147 / PR-W5: file-length Stop gate (旧 file-length-enforcement-plan、
-# 2026-08-12 完了・削除。分割制約は docs/dev-conventions.md § Rust ファイル分割の制約条件 へ移設)。
+# 2026-08-12 完了・削除。分割制約は docs/adr/adr-080-rust-module-split-invariants.md へ移設)。
 # PR 範囲 (base branch..@) の .rs file が 800 行超なら Stop を block する強制層。
 #
 # cmd は OS のシェル経由で実行される (Windows: cmd.exe / Linux: sh、WP-15)。

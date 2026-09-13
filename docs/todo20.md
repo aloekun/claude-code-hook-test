@@ -47,7 +47,7 @@
 > 1. **jj バージョンアップ時の出力形式変化を検知する E2E テスト** — 現行 jj 0.42.0 の実測値を fixture として固定し、`jj --version` 相違時は WARNING ログ (fail はしない)。CI step としても実行
 > 2. **fixture に provenance コメントを追加** — 値の由来を `observed:` (jj 実測、バージョン / 日付付き) / `assumed:` (未観測の推定) で明示。PR #350 で導入済みの `OBSERVED_RENAME_SUMMARY` const 命名パターンを他 fixture にも拡張
 >
-> **参照**: `.claude/feedback-reports/350.md` Tier 2 #1 / #2、[[dont-trust-takt-fix-output]] (parser の finding は入力空間全体を一度に固める)、`docs/dev-conventions.md` § 外部 fixture 参照テストは値まで assert (順位274) — 本エントリはその「外部 CLI 出力版」。
+> **参照**: `.claude/feedback-reports/350.md` Tier 2 #1 / #2、[[dont-trust-takt-fix-output]] (parser の finding は入力空間全体を一度に固める)、[ADR-041](adr/adr-041-test-isolation-patterns.md) § 原則3: 外部 fixture 参照テストは値まで assert (順位274) — 本エントリはその「外部 CLI 出力版」。
 >
 > **実行優先度**: Tier 2 — Severity High (1 年間気付かれなかった前提誤り) / Frequency Low (jj のバージョンアップ時) / Effort M / Adoption Risk None。
 
@@ -249,13 +249,13 @@
 
 > **動機**: WP-18 の受け入れ基準の中核でありながら**未実施**。#363 の時点では (a) workflow が master に無い、(b) 台帳の無人可マークが master に無い、の両方が未達だった。#361 / #362 のマージで (b) は解消し、#363 のマージで (a) が解消する。
 >
-> [dev-conventions.md](dev-conventions.md) の「LLM を含む自動化経路は実走でしか検証できない」が本エントリの根拠。#363 は unit test 25 件・実データ選択・改ざん検知 drill 4 シナリオを通しているが、**agent が実際に何を書くか**と **GitHub Actions ランタイム上の挙動**はどれも捕捉できない。
+> [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § LLM を含む自動化経路は実走でしか検証できない が本エントリの根拠。#363 は unit test 25 件・実データ選択・改ざん検知 drill 4 シナリオを通しているが、**agent が実際に何を書くか**と **GitHub Actions ランタイム上の挙動**はどれも捕捉できない。
 >
 > **対処案**: #363 マージ後、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) 段 2 の知見 2 に従い**マージせずブランチ ref への `workflow_dispatch`** で反復する (`dry_run` 入力でゲート通過まで走らせ push を止められる)。1 バグ 1 サイクルの手戻りを避けるため、マージは完走を確認してから 1 回だけ行う。
 >
 > **観測項目の一覧は `ADR-072` の実走スモーク節にある表が正**。本エントリには複製しない (同じチェックリストを 2 箇所で管理すると必ず drift する — #362 の post-merge feedback が指摘した single source-of-truth 問題と同型)。現時点で 8 項目あり、うち 2 件は WP-17 から引き継いだ残課題。
 >
-> **参照**: `ADR-072` の実走スモーク節 / 試験運用判断基準節、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) (WP-17 残課題 2 件の出所)、[dev-conventions.md](dev-conventions.md)。
+> **参照**: `ADR-072` の実走スモーク節 / 試験運用判断基準節、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) (WP-17 残課題 2 件の出所、および § LLM を含む自動化経路は実走でしか検証できない)。
 >
 > **実行優先度**: Tier 1 — Severity High (未実施のまま schedule が回ると無検証の自律動作が毎晩走る) / Frequency 一度きり / Effort M / Adoption Risk Low (dry_run と kill-switch がある)。
 
@@ -285,7 +285,7 @@
 > 3. **意図的に古い情報を残す表と、それを走査する検査の衝突** — #362 で「削除済み順位を監査記録として意図的に残す棚卸し履歴節」を新設しながら、同一 PR で「台帳の表の各順位を land 済みか照合する」検査を書いた。結果その 2 件を毎週検出し続ける恒久的な誤検知になり、CodeRabbit が Major で指摘した
 > 4. **レビュー指摘の技術的前提を検証せずに設計変更した** — #363 の security review が「`Bash(cargo test:*)` は前方一致でシェルを解釈しないため任意コマンドを連結できる」と主張し、これを検証せずに agent から Bash を落とす設計変更を行い、`ADR-072` 決定 5 の根拠として記録した。2026-08-06 に公式ドキュメントで確認したところ**この前提は誤り**で、Claude Code は shell operator を解釈し各サブコマンドが独立にルールへ一致することを要求する。さらにこの誤った前提のまま「同じ形が production の `pr-monitor.yml` にもある」と横展開の警告まで出していた (実際には穴ではない)
 >
-> **対処案**: [dev-conventions.md](dev-conventions.md) に「レビュー指摘への対応時チェックリスト」を 1 本追加する。4 件を個別 convention にすると読まれないので、対応フローの 1 チェックリストへ束ねる。
+> **対処案** (2026-09-13 に出口を再設計 — convention 集は廃止した、順位 445): **下の 5 項目それぞれについて行き先を決める**。項目 2 は下の作業計画で `check-ci` の機械化を予定、項目 5 は順位 514 へ統合済み、残る 1 / 3 / 4 は守備範囲の合う ADR へ移すか、実害の観測が無ければ落とす。4 件を個別 convention にすると読まれないので、対応フローの 1 チェックリストへ束ねる。
 >
 > 1. **fix step が走ったら**、ADR / commit message / 計画書が今のコードと一致するか確認する。コードと文書のどちらが正かが分かれた状態で push しない。あわせて `jj diff -r <commit> --name-only` でコミット境界が崩れていないか見る
 > 2. **finding に対応したら**、`url` (discussion アンカー) を開いて本文のスコープ語 (「両方の」「N 箇所」「同様に」) を確認する。修正後は本文が挙げた全箇所を grep で再確認してから「対応済み」と報告する
@@ -293,7 +293,7 @@
 > 4. **指摘が技術的前提 (ツールの挙動・仕様) に依拠しているなら、対処より先にその前提を検証する**。とくに設計変更や他経路への横展開を伴う場合。一次情報 (公式ドキュメント / 実測) に当たり、伝聞で設計を動かさない。検証結果は「真だった」場合も含めて ADR へ記録する
 > 5. **narrow な修正を入れたら、隣接エッジに穴が残っていないか確認する** (#369/#370 で複数回再演、memory `dont-trust-takt-fix-output` と同根)。fix step / 自分の修正が「指摘された 1 点」だけを塞ぐと、同じクラスの入力空間の別の点が素通りになる。実例: 不可視文字の除去を公開面だけに入れ parse 側の枠検査を素通りさせた / 出力先を 1 つ (PR 本文) 塞いで step ログを見落とした。**入力空間・出力経路を「点」ではなく「クラス / 経路の集合」として一度に固める**。
 >
-> **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — いずれも機械 lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
+> **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — 項目 2 は `check-ci` 側で機械化できる。残りは lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
 >
 > **実行優先度**: Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk None (docs-only)。
 

@@ -19,6 +19,7 @@ pub mod entry_pairing;
 pub mod origin_markers;
 pub mod preamble;
 pub mod priority_inversion;
+pub mod todo_routing;
 
 use std::fmt;
 

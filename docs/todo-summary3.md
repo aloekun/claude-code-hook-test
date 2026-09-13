@@ -42,7 +42,6 @@
 | 440 | Tier 2 | **weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)** | todo22.md | S-M | なし (2026-08-12 起票。last-run の指す 2026-07-27.md が不在、ADR-070 移行後の保存先未確認。jj-robustness facet の bounded-lifetime 判定 = todo13.md の blocker) |
 | 442 | Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
-| 445 | Tier 2 | **todo preamble と facet routing 記述の整合を lint で機械検証 + dev-conventions.md を ADR へ移して廃止** | todo27.md | M | なし (2026-08-13 起票。2026-09-12 に dev-conventions.md の移設・廃止計画を同 PR の範囲として追記し S → M。PR #395 feedback 採用。dev-conventions の暫定 convention を置換する) |
 | 447 | Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
 | 448 | Tier 2 | **判断留保キーワード検査の回帰テスト (canonical / tagged / untagged の 3 分類) (PR #400 T2-1)** | todo23.md | S | 447 (検証対象が 447 の成果物。走査の実体が現状 Rust に無いため単独着手は不可) |
 | 450 | Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
@@ -60,11 +59,11 @@
 | 468 | Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
 | 470 | Tier 1 | **誤帰属と副作用フラグ欠如を決定論ルールで弾く (`..` 混入検出 / `jj workspace list` の `--ignore-working-copy` 欠如検出、#417+#421 feedback 採用、系統 A)** | todo24.md | S | なし (両者とも実 incident 実績あり。`.claude/custom-lint-rules.toml` の正規表現層で完結) |
 | 471 | Tier 2 | **cross-crate 定数 pin と reaper 回帰テストの残片を埋める (#417+#420 feedback 採用、系統 B 実装 + C)** | todo24.md | XS-S | なし (元 3 提案のうち 1 件は起票時点で実装済みと判明。着手時に再確認する) |
-| 472 | Tier 2 | **語彙・テスト作法・判断規律の convention を dev-conventions.md に明文化 (8 項目、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
+| 472 | Tier 2 | **語彙・テスト作法・判断規律の convention 8 項目の行き先を決める (移設先 ADR or 却下、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
 | 473 | Tier 3 | **テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (#423 feedback 採用、系統 F 実装)** | todo24.md | S | なし (ADR-044 層 1 の再評価。#423 の「3 つ目が出たら」判断の見直し) |
 | 474 | Tier 2 | **夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (#424 feedback 採用、系統 G)** | todo24.md | S | なし (ADR-074 は lane 割当基準のみで並行競合検知は範囲外) |
 | 475 | Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (bugfix-batch-plan.md 退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが bugfix-batch-plan.md 削除後も記録を残すため起票) |
-| 477 | Tier 1 | **Git Bash 経由の複数行 `node -e` が silent no-op になるのを PreToolUse でブロックする** | todo24.md | S | なし (本セッション 2 回実観測。終了コード 0・出力なしで未実行になり「修正したつもり」を作る。dev-conventions への明文化後に再発したため助言層では不十分で、決定論層 (hook) が本命。Severity High (silent failure) + Frequency Medium + Effort S) |
+| 477 | Tier 1 | **Git Bash 経由の複数行 `node -e` が silent no-op になるのを PreToolUse でブロックする** | todo24.md | S | なし (本セッション 2 回実観測。終了コード 0・出力なしで未実行になり「修正したつもり」を作る。convention への明文化後に再発したため助言層では不十分で、決定論層 (hook) が本命。Severity High (silent failure) + Frequency Medium + Effort S) |
 | 478 | Tier 2 | **jj 出力の path separator 前提を regression test で固定する (Windows は `\` 区切り)** | todo24.md | S | なし (PR #432 で CodeRabbit が「POSIX は `/`」を根拠に `\` 判定の削除を提案したが、実測では Windows jj 0.42 は `\` 区切り出力。外すと Windows で誤検知。現在 module doc の記述のみで test 未固定のため再提案の余地が残る。Severity Medium + Frequency Low + Effort S + Risk None) |
 | 479 | Tier 2 | **手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる** | todo24.md | S | なし (実測で 22 件中 7 件が未記載。うち 3 件は PR #431 以前からの漏れで、単発ではなく継続的にずれる構造。doc を手で直す案は方針 (決定論的で積み上げる) に反するため lint 化で採用。Severity Low + Frequency Medium + Effort S + Risk None) |
 | 480 | Tier 2 | **`owns()` が false を返す原因 (Owned / TakenOver / Unreadable) をログで区別する** | todo24.md | S | なし (lock 競合 (#364 型) の調査時にログから経路を再構成できない。判定は pure function に切り出せ unit test で固定可能。Severity Medium + Frequency Medium + Effort S + Risk None) |

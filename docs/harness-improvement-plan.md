@@ -135,7 +135,7 @@ Anthropic 公式のハーネスエンジニアリング指針（決定論的基�
 
 **この段から得た 3 つの知見**（詳細は [ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 / § 段 2 で閉じた課題）:
 
-1. **静的検査は LLM を含む経路を素通りする** — 検出した 3 件はすべて pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過していた。さらに 3 件目の修正時には **ADR-067 に書かれていた修正方針そのもの**が pre-push security review で REJECT された（raw な bot テキストを write 権限の agent に晒す誤り）。convention 化済み（[dev-conventions.md](dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない）。
+1. **静的検査は LLM を含む経路を素通りする** — 検出した 3 件はすべて pre-push simplicity / security review・CodeRabbit・js-yaml 構文検証の 4 種を通過していた。さらに 3 件目の修正時には **ADR-067 に書かれていた修正方針そのもの**が pre-push security review で REJECT された（raw な bot テキストを write 権限の agent に晒す誤り）。convention 化済み（[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § LLM を含む自動化経路は実走でしか検証できない）。
 2. **反復はマージせず ref 指定の dispatch で行う** — 1〜3 回目は毎回マージしており、1 バグあたり 1 サイクルの手戻りだった。4 回目は PR #358 をマージせずブランチ ref に dispatch し、完走を確認してから 1 回だけマージした。
 3. **無人 fix の出力は実測検証する** — 仕込んだ 3 点を過不足なく修正し範囲外の編集ゼロであることを確認した（[ADR-068](adr/adr-068-fix-step-authority-boundary.md) § Phase B 1 run 目での確認）。
 

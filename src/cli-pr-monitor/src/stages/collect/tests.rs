@@ -22,7 +22,7 @@ mod rank233_docs_only_verdict {
     #[test]
     fn mixed_docs_and_code_is_not_docs_only() {
         assert!(!classify_docs_only(Some(&file_list(&[
-            "docs/dev-conventions.md",
+            "docs/adr/adr-042-rule-vs-mechanism-boundary.md",
             "src/cli-pr-monitor/src/stages/create_pr.rs"
         ]))));
     }
@@ -31,7 +31,7 @@ mod rank233_docs_only_verdict {
     #[test]
     fn all_docs_is_docs_only() {
         assert!(classify_docs_only(Some(&file_list(&[
-            "docs/dev-conventions.md",
+            "docs/adr/adr-042-rule-vs-mechanism-boundary.md",
             "docs/adr/adr-035-doc-evaluation-policy.md"
         ]))));
     }
