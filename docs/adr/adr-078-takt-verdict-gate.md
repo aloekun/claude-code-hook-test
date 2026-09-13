@@ -83,7 +83,7 @@ fix 可能かどうかに関係なく REJECT が push を止まる。takt のレ
 
 ## 関連
 
-- 順位 499 (`docs/todo25.md`) — 起票と完了基準
+- 順位 499 — 起票と完了基準。[#464](https://github.com/aloekun/claude-code-hook-test/pull/464) で実装し、詳細エントリは完了に伴い削除済み (2026-09-13)
 - [ADR-068](adr-068-fix-step-authority-boundary.md) — fix step の権限境界 (本 incident の前段)
 - [ADR-048](adr-048-facet-findings-handoff-markdown-contract.md) — facet の output-contract
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) / [ADR-043](adr-043-security-gates-fail-closed.md) / [ADR-049](adr-049-incident-eval-regression-suite.md)
