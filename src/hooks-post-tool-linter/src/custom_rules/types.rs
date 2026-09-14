@@ -1,6 +1,6 @@
 //! `custom-lint-rules.toml` の `[[rules]]` エントリ型定義と compiled 形式。
 //!
-//! **サポート field 一覧** (rule author 向け reference、`.claude/custom-lint-rules.toml` 冒頭コメントと整合):
+//! **サポート field 一覧** (rule author 向け reference、`config/custom-lint-rules.toml` 冒頭コメントと整合):
 //!
 //! | field | 必須 | semantics |
 //! |---|---|---|
@@ -97,7 +97,7 @@ pub(crate) struct CustomRuleIncident {
 ///
 /// 各 rule が「主要拡張子 (`rs` / `toml` / `yaml` / `yml`) のうち targets するもの」に対して
 /// **少なくとも 1 個の対応 test 関数** を明示宣言する。`rule_test_coverage_check` cargo test が
-/// deploy 済 `.claude/custom-lint-rules.toml` を読んで、宣言された test 関数が module 群に
+/// deploy 済 `config/custom-lint-rules.toml` を読んで、宣言された test 関数が module 群に
 /// 存在することと、必須カバレッジ (main ext ごとに 1+ test、非 main 専用 rule には
 /// `other_ext_tests` 1+) を機械検証する。
 ///

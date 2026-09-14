@@ -1,6 +1,6 @@
 //! `rule_test_coverage_check` cargo test の実装。
 //!
-//! 順位 137 (PR #163 T1-#1 採用): `.claude/custom-lint-rules.toml` の各 rule に対して、
+//! 順位 137 (PR #163 T1-#1 採用): `config/custom-lint-rules.toml` の各 rule に対して、
 //! `[rules.test_coverage]` meta field で宣言された対応 test 関数が deploy 済 module 群に
 //! 存在し、かつ必須カバレッジ (主要拡張子ごとに 1+ test、非主要専用 rule には
 //! `other_ext_tests` 1+) が満たされていることを機械検証する。
@@ -24,7 +24,7 @@ fn load_deployed_custom_rules() -> Vec<CustomRule> {
     let toml_path = manifest_dir
         .join("..")
         .join("..")
-        .join(".claude")
+        .join(lib_config_path::CONFIG_DIR)
         .join("custom-lint-rules.toml");
     let toml_content = std::fs::read_to_string(&toml_path).unwrap_or_else(|e| {
         panic!(
@@ -608,7 +608,7 @@ fn extension_coverage_gaps_empty_when_fully_covered() {
 /// `other_ext_tests` は `Vec<テスト名>` で**拡張子との対応を持たない**。したがって
 /// 「`jsonc` と `json` を宣言し `jsonc` 用テストだけ登録した」状態は、現行スキーマでは
 /// 検出できない。これは本検査の実装漏れではなく**契約そのもの**である
-/// (`.claude/custom-lint-rules.toml` の順位 137 由来コメント: 非主要拡張子は
+/// (`config/custom-lint-rules.toml` の順位 137 由来コメント: 非主要拡張子は
 /// 「rule あたり 1+ positive test」)。
 ///
 /// 拡張子ごとの検証へ強化するには `other_ext_tests` を map 化するスキーマ移行が要り、

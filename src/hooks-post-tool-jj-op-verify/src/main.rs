@@ -35,7 +35,7 @@
 
 use serde::Deserialize;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 const JJ_OP_LOG_TIMEOUT_SECS: u64 = 5;
@@ -270,14 +270,10 @@ fn fetch_op_log_output() -> Option<String> {
     status.filter(|s| s.success()).map(|_| output)
 }
 
-/// 設定ファイルのパス解決 (exe ディレクトリ基準 — cwd に依存しない)。
-/// 他の config 読込 hook (post-tool-linter / pre-tool-validate / stop-quality) と同じ規約。
+/// 設定ファイルのパス解決 (exe の位置基準 — cwd に依存しない)。
+/// 探索順序は [`lib_config_path`] が 1 箇所で持つ。
 fn config_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("hooks-config.toml")
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 fn verify_enabled(config_text: &str) -> bool {

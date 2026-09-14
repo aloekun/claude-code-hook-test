@@ -155,7 +155,7 @@ PR タイトルが context に含まれていない場合は、レポート内�
 
 | # | Type | Description | Target | Severity | Frequency | Effort | Adoption Risk | Recommendation | Rationale |
 |---|------|-------------|--------|----------|-----------|--------|---------------|----------------|-----------|
-| 1 | custom_lint_rule | ... | .claude/custom-lint-rules.toml | Medium | High | S | None | ✅ 採用候補 | PR diff; Session; ... |
+| 1 | custom_lint_rule | ... | config/custom-lint-rules.toml | Medium | High | S | None | ✅ 採用候補 | PR diff; Session; ... |
 
 #### Tier 2: テスト/自動化
 

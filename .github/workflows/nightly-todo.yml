@@ -462,7 +462,8 @@ jobs:
 
             制約 (逸脱すると後続の決定論ゲートが push を拒否します):
             - **自律動作のガードレール自体を変更しないこと**: `autonomy-config.toml`、
-              `.github/workflows/**`、`src/cli-autonomy-gate/**`、`src/lib-autonomy-policy/**`、
+              `.github/workflows/**`、`docs/claude-code-web-tasks.md`、
+              `src/cli-autonomy-gate/**`、`src/lib-autonomy-policy/**`、
               `src/cli-fix-push-gate/**`、`src/cli-nightly-task-select/**`、`src/lib-ledger/**`、
               `src/cli-ledger-cleanup/**`
             - コミット・push・ブランチ操作・PR 操作は行わないこと (あなたの権限外)
@@ -574,6 +575,11 @@ jobs:
           # 決める仕組みであり、config や gate exe と同じく **自分を縛る側**にある。agent が
           # 台帳を書き換えた diff が PR に紛れ、人間が見落としてマージすると、以後の
           # タスク選択が静かに汚染される (ADR-072 決定 6)。
+          # hooks-config.toml は .claude/ に残す (2026-09-15、ADR-006 § 改訂)。agent の
+          # `Edit(work/**)` はドット始まりに当たらず到達不能で、これが現行の保護である。
+          # config/ へ出すと「セッション中に無効化 → 作業 → 復元」が最終 diff に残らず、
+          # 本 deny-list では捕まえられない (deny は diff しか見ないため)。
+          # config/custom-lint-rules.toml は agent の作業対象なので deny しない。
           if grep -Eq '^(autonomy-config\.toml|\.github/workflows/|docs/claude-code-web-tasks\.md|src/cli-autonomy-gate/|src/lib-autonomy-policy/|src/cli-fix-push-gate/|src/cli-nightly-task-select/|src/lib-ledger/|src/cli-ledger-cleanup/)' \
             "$RUNNER_TEMP/changed.txt"; then
             echo "[NIGHTLY_DENY] 自律動作のガードレールを変更しているため push しません"

@@ -91,7 +91,7 @@
 
 | 規約 | 強制している機構 | 中身の在り処 |
 |---|---|---|
-| 外部 exe を spawn する統合テストは無期限に待たない | custom lint rule `no-unbounded-child-wait` | [.claude/custom-lint-rules.toml](.claude/custom-lint-rules.toml) |
+| 外部 exe を spawn する統合テストは無期限に待たない | custom lint rule `no-unbounded-child-wait` | [config/custom-lint-rules.toml](config/custom-lint-rules.toml) |
 | GitHub Actions の `run:` は常に `-e` 付きで起動する | `pnpm lint:workflows` の契約検査 3 | [scripts/lint-workflows-run-blocks.mjs](scripts/lint-workflows-run-blocks.mjs) |
 | takt facet の出力言語は各 instruction に直書きする | `pnpm lint:takt-facets` | [scripts/lint-takt-facets.mjs](scripts/lint-takt-facets.mjs) |
 | todo preamble と facet の routing 列挙を実ファイルと突き合わせる | `pnpm lint:docs` の `todo-routing` | [src/cli-docs-lint/src/todo_routing.rs](src/cli-docs-lint/src/todo_routing.rs) |

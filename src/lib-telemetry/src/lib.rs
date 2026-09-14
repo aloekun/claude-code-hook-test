@@ -154,8 +154,8 @@ pub fn record_to(base_dir: &Path, firing: &Firing, now_epoch: u64) -> io::Result
         decision: firing.decision.as_str(),
         session_id: firing.session_id,
     };
-    let line =
-        serde_json::to_string(&record).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let line = serde_json::to_string(&record)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     append_partitioned(base_dir, FIRINGS_PREFIX, &line, now_epoch)
 }
 
@@ -204,7 +204,9 @@ fn append_partitioned(
     buf.push_str(line.trim_end_matches('\n'));
     buf.push('\n');
 
-    let _guard = WRITE_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let _guard = WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let mut file = OpenOptions::new().append(true).create(true).open(&path)?;
     file.write_all(buf.as_bytes())?;
     Ok(())
@@ -282,21 +284,32 @@ pub fn record_gated_to(base_dir: &Path, firing: &Firing, now_epoch: u64) {
 /// telemetry が有効かを判定する。
 ///
 /// 1. env `CLAUDE_TELEMETRY_DISABLE` が truthy → 常に false (kill-switch)。
-/// 2. `base_dir/hooks-config.toml` の `[telemetry] enabled`。ファイル無し / 読めない /
-///    parse 失敗 / section 無し / `enabled` 未指定 → false (default OFF、opt-in 契約)。
+/// 2. [`hooks_config_path`] が解決した `hooks-config.toml` の `[telemetry] enabled`。
+///    ファイル無し / 読めない / parse 失敗 / section 無し / `enabled` 未指定 →
+///    false (default OFF、opt-in 契約)。
 pub fn telemetry_enabled(base_dir: &Path) -> bool {
     if let Ok(v) = std::env::var(KILL_SWITCH_ENV) {
         if is_truthy(&v) {
             return false;
         }
     }
-    let Ok(content) = std::fs::read_to_string(base_dir.join("hooks-config.toml")) else {
+    let Ok(content) = std::fs::read_to_string(hooks_config_path(base_dir)) else {
         return false;
     };
     let Ok(config) = toml::from_str::<HooksConfig>(&content) else {
         return false;
     };
     config.telemetry.and_then(|t| t.enabled).unwrap_or(false)
+}
+
+/// `hooks-config.toml` の所在。優先順位は [`lib_config_path`] が 1 箇所で持つ。
+///
+/// `base_dir` は実運用では [`exe_dir`] (= `.claude/`) だが、**`.claude/` と決め打たない** —
+/// 呼び出し元は任意のディレクトリを渡す (push-runner の metrics テストは tempdir を base に
+/// する)。`hooks-config.toml` は `lib_config_path` の新配置 (`config/`) 移設ホワイトリストに
+/// 含まれないため、`config/` は候補に入らず常に `base_dir` 自身を返す。
+fn hooks_config_path(base_dir: &Path) -> PathBuf {
+    lib_config_path::resolve_config_from_exe_dir(base_dir, "hooks-config.toml")
 }
 
 /// `1|true|yes|on` (前後空白無視・大小無視) を truthy として受理する。
@@ -452,7 +465,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         record_to(dir.path(), &sample("git"), T_2026_04_01_1200).unwrap();
         record_to(dir.path(), &sample("jj-push-guard"), T_2026_04_01_1200).unwrap();
-        assert_eq!(read_firings(dir.path(), T_2026_04_01_1200).lines().count(), 2);
+        assert_eq!(
+            read_firings(dir.path(), T_2026_04_01_1200).lines().count(),
+            2
+        );
     }
 
     #[test]
@@ -460,7 +476,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         record_to(dir.path(), &sample("git"), T_2026_04_01_1200).unwrap();
         let tdir = dir.path().join(TELEMETRY_DIR);
-        let entries: Vec<_> = fs::read_dir(&tdir).unwrap().filter_map(Result::ok).collect();
+        let entries: Vec<_> = fs::read_dir(&tdir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
         assert_eq!(entries.len(), 1);
         let name = entries[0].file_name().into_string().unwrap();
         assert!(name.starts_with("firings-"));
@@ -507,63 +526,99 @@ mod tests {
         }
     }
 
+    /// `base_dir` (= `.claude/` 相当) を返す。`hooks_config_path` は `base_dir.parent()` を
+    /// リポジトリルートとして解決するため、テストも実運用と同じ 2 階層構造
+    /// (`root/.claude/`) を用意する。ルートは呼び出しごとに新しい tempdir なので、
+    /// OS 共有の temp 直下を探索して他テストの fixture を拾う心配がない。
+    fn claude_dir_under_fresh_root() -> (tempfile::TempDir, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let claude_dir = root.path().join(".claude");
+        fs::create_dir_all(&claude_dir).unwrap();
+        (root, claude_dir)
+    }
+
     #[test]
     fn enabled_false_when_no_config() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(!telemetry_enabled(dir.path()));
+        let (_root, base_dir) = claude_dir_under_fresh_root();
+        assert!(!telemetry_enabled(&base_dir));
     }
 
     #[test]
     fn enabled_false_when_config_disables() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = false\n",
         )
         .unwrap();
-        assert!(!telemetry_enabled(dir.path()));
+        assert!(!telemetry_enabled(&base_dir));
     }
 
     #[test]
     fn enabled_true_when_config_enables() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = true\n",
         )
         .unwrap();
-        assert!(telemetry_enabled(dir.path()));
+        assert!(telemetry_enabled(&base_dir));
     }
 
     #[test]
     fn enabled_false_when_section_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("hooks-config.toml"), "[other]\nfoo = 1\n").unwrap();
-        assert!(!telemetry_enabled(dir.path()));
+        let (_root, base_dir) = claude_dir_under_fresh_root();
+        fs::write(base_dir.join("hooks-config.toml"), "[other]\nfoo = 1\n").unwrap();
+        assert!(!telemetry_enabled(&base_dir));
+    }
+
+    /// 回帰テスト (fail-closed): `config/hooks-config.toml` が存在していても無視され、
+    /// `.claude/hooks-config.toml` が使われる (無ければ telemetry は OFF のまま)。
+    /// `hooks-config.toml` は保護ゲートの設定を持つため、agent が到達可能な `config/` から
+    /// 拾えてしまうとゲートを無効化する設定を外から与えられる (ADR-006 § 改訂 (2026-09-15)
+    /// 決定 1 / セキュリティレビュー finding `SEC-NEW-lib-config-path-hooks-config-override`
+    /// の再発防止)。
+    #[test]
+    fn new_config_location_is_ignored_even_when_present() {
+        let (root, base_dir) = claude_dir_under_fresh_root();
+        let config_dir = root.path().join(lib_config_path::CONFIG_DIR);
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("hooks-config.toml"),
+            "[telemetry]\nenabled = true\n",
+        )
+        .unwrap();
+        assert!(
+            !telemetry_enabled(&base_dir),
+            "config/hooks-config.toml は候補外のはずが拾われている"
+        );
     }
 
     #[test]
     fn record_gated_to_noop_when_disabled() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = false\n",
         )
         .unwrap();
-        record_gated_to(dir.path(), &sample("git"), T_2026_04_01_1200);
-        assert!(!dir.path().join(TELEMETRY_DIR).exists());
+        record_gated_to(&base_dir, &sample("git"), T_2026_04_01_1200);
+        assert!(!base_dir.join(TELEMETRY_DIR).exists());
     }
 
     #[test]
     fn record_gated_to_writes_when_enabled() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = true\n",
         )
         .unwrap();
-        record_gated_to(dir.path(), &sample("git"), T_2026_04_01_1200);
-        assert_eq!(read_firings(dir.path(), T_2026_04_01_1200).lines().count(), 1);
+        record_gated_to(&base_dir, &sample("git"), T_2026_04_01_1200);
+        assert_eq!(
+            read_firings(&base_dir, T_2026_04_01_1200).lines().count(),
+            1
+        );
     }
 
     #[test]
@@ -629,19 +684,19 @@ mod tests {
 
     #[test]
     fn record_metric_gated_to_noop_when_disabled() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = false\n",
         )
         .unwrap();
         record_metric_gated_to(
-            dir.path(),
+            &base_dir,
             "push-runs",
             &serde_json::json!({ "exit_code": 0 }),
             T_2026_04_01_1200,
         );
-        assert!(!dir.path().join(TELEMETRY_DIR).exists());
+        assert!(!base_dir.join(TELEMETRY_DIR).exists());
     }
 
     #[test]
@@ -672,20 +727,20 @@ mod tests {
 
     #[test]
     fn record_metric_gated_to_writes_when_enabled() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = true\n",
         )
         .unwrap();
         record_metric_gated_to(
-            dir.path(),
+            &base_dir,
             "push-runs",
             &serde_json::json!({ "exit_code": 0 }),
             T_2026_04_01_1200,
         );
         assert_eq!(
-            read_partition(dir.path(), "push-runs", T_2026_04_01_1200)
+            read_partition(&base_dir, "push-runs", T_2026_04_01_1200)
                 .lines()
                 .count(),
             1
@@ -716,17 +771,17 @@ mod tests {
     #[test]
     #[ignore = "env var はプロセス全域のため直列実行 (--test-threads=1) が必要 (ADR-041)"]
     fn kill_switch_env_forces_disabled() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, base_dir) = claude_dir_under_fresh_root();
         fs::write(
-            dir.path().join("hooks-config.toml"),
+            base_dir.join("hooks-config.toml"),
             "[telemetry]\nenabled = true\n",
         )
         .unwrap();
-        assert!(telemetry_enabled(dir.path()));
+        assert!(telemetry_enabled(&base_dir));
 
         std::env::set_var(KILL_SWITCH_ENV, "1");
-        assert!(!telemetry_enabled(dir.path()));
+        assert!(!telemetry_enabled(&base_dir));
         std::env::remove_var(KILL_SWITCH_ENV);
-        assert!(telemetry_enabled(dir.path()));
+        assert!(telemetry_enabled(&base_dir));
     }
 }

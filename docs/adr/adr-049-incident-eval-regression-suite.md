@@ -6,7 +6,7 @@
 
 ## コンテキスト
 
-カスタムリントルール ([.claude/custom-lint-rules.toml](../../.claude/custom-lint-rules.toml)、`hooks-post-tool-linter` が適用) は
+カスタムリントルール ([config/custom-lint-rules.toml](../../config/custom-lint-rules.toml)、`hooks-post-tool-linter` が適用) は
 12 本あり、うち **11 本は実 incident (過去 PR で発生した具体的な事故) を由来**とする ([ADR-007](adr-007-custom-linter-layer-boundary.md) の正規表現層)。
 既存の `rule_test_coverage_check` は「各ルールが対応 test 関数を宣言していること」をゲート化するが、
 **ルールが由来 incident を今も検出できるか (= ハーネス自身の退行)** を機械検出する仕組みは無かった。
@@ -22,7 +22,7 @@ linter の fixture corpus (ESLint / Clippy 等の「引っかかる例 / clean �
 
 ### 1. provenance の構造化 ([rules.incident])
 
-`[.claude/custom-lint-rules.toml](../../.claude/custom-lint-rules.toml)` の incident 由来 11 ルールに
+`[config/custom-lint-rules.toml](../../config/custom-lint-rules.toml)` の incident 由来 11 ルールに
 `[rules.incident]` meta field を追加し、`CustomRule.incident: Option<CustomRuleIncident>` として parse する:
 
 ```toml

@@ -78,7 +78,7 @@ PR diff + レビューコメントを分析し、再発防止に役立つ知見�
 | Type | 対象ファイル | 説明 |
 |------|------------|------|
 | `block_pattern` | `.claude/hooks-config.toml` | PreToolUse のコマンド実行ブロック正規表現 |
-| `custom_lint_rule` | `.claude/custom-lint-rules.toml` | PostToolUse のリテラル検出ルール |
+| `custom_lint_rule` | `config/custom-lint-rules.toml` | PostToolUse のリテラル検出ルール |
 | `linter_pipeline` | `.claude/hooks-config.toml` | リンターパイプラインへのステップ追加 |
 
 #### Tier 2: テスト/自動化 (半決定論的)

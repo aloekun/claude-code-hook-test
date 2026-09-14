@@ -56,7 +56,8 @@ project-root/
 │   ├── settings.local.json              # hooks 設定（生成ファイル）
 │   ├── settings.local.json.template     # テンプレート
 │   ├── hooks-config.toml               # ランタイム設定
-│   ├── custom-lint-rules.toml          # カスタムリントルール
+│   │                                    # (custom-lint-rules.toml は 2026-09-15 に
+│   │                                    #  config/ へ移設。ADR-006 § 改訂)
 │   ├── hooks-pre-tool-validate.exe      # ビルド済み exe（.gitignore）
 │   ├── hooks-post-tool-linter.exe
 │   ├── hooks-stop-quality.exe
@@ -89,7 +90,8 @@ project-root/
 - バージョン管理するもの:
   - `src/*/Cargo.toml` と `src/*/src/` 以下のソースコード
   - `.claude/settings.local.json.template`（hooks 設定テンプレート）
-  - `.claude/hooks-config.toml`（ランタイム設定）
+  - `.claude/hooks-config.toml`（ランタイム設定。保護ゲートの設定を持つため `.claude/` 固定、ADR-006 § 改訂 2026-09-15）
+  - `config/custom-lint-rules.toml`（カスタムリントルール。2026-09-15 に `.claude/` から移設）
 
 ## Consequences
 

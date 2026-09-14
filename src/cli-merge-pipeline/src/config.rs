@@ -1,7 +1,7 @@
 //! hooks-config.toml の `[merge_pipeline]` セクション読み込みと定数。
 
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// hooks-config.toml のトップレベル構造
 #[derive(Deserialize, Default)]
@@ -43,17 +43,9 @@ pub(crate) const DEFAULT_MERGE_TIMEOUT_SECS: u64 = 300;
 /// サブプロセス出力の最大収集行数（メモリ保護）
 pub(crate) const MAX_LINES: usize = 200;
 
+/// 設定ファイルのパス解決 ([`lib_config_path`] が探索順序を持つ)。
 fn config_path() -> PathBuf {
-    config_dir().join("hooks-config.toml")
-}
-
-/// exe と設定・pending file を配置するディレクトリ (`.claude/`)。
-fn config_dir() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_path_buf()
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 pub(crate) fn load_config() -> Result<Config, String> {

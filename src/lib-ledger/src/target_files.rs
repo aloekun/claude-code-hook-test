@@ -40,6 +40,7 @@ const ALLOWED_ROOTS: &[&str] = &[
     ".claude",
     ".github",
     ".takt",
+    "config",
     "docs",
     "scripts",
     "src",

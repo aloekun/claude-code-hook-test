@@ -74,7 +74,7 @@ fn diff_at_is_empty() -> bool {
 
 ## 検討した選択肢
 
-### A. 正規表現層 (`.claude/custom-lint-rules.toml`)
+### A. 正規表現層 (`config/custom-lint-rules.toml`)
 
 「返り値が I/O 出力から導かれたか」は複数行のデータフロー判定であり、[ADR-007](adr-007-custom-linter-layer-boundary.md) の判断フローどおり正規表現層では表現できない。ゆるい近似 (I/O 呼び出し + 判定型) では 2026-08-25 実測で 53 件が当たり、その大半が正しく分離済みの関数だった。
 

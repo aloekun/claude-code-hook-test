@@ -1,4 +1,4 @@
-//! Deployed artifact (workspace `.claude/custom-lint-rules.toml` /
+//! Deployed artifact (workspace `config/custom-lint-rules.toml` /
 //! `.takt/workflows/*.yaml` / `src/**/*.rs`) に対する regression seal tests。
 
 use super::engine::{
@@ -61,7 +61,7 @@ fn no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-        .join(".claude")
+        .join(lib_config_path::CONFIG_DIR)
         .join("custom-lint-rules.toml");
 
     assert!(
@@ -93,7 +93,7 @@ fn deployed_custom_rules_pass_powershell_case_insensitive_validation() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-        .join(".claude")
+        .join(lib_config_path::CONFIG_DIR)
         .join("custom-lint-rules.toml");
     let content = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read deployed custom-lint-rules.toml: {e}"));

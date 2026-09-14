@@ -1,6 +1,6 @@
 //! Custom lint rule の compile / matching engine。
 //!
-//! `.claude/custom-lint-rules.toml` から `CustomRule` を読み込み、regex + paths glob を
+//! `config/custom-lint-rules.toml` から `CustomRule` を読み込み、regex + paths glob を
 //! pre-compile して `CompiledRule` を作る。`run_custom_rules` が file の content に対して
 //! 全 rule を順次評価し、`LintViolation` の JSON 文字列の Vec を返す。
 
@@ -14,13 +14,9 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use std::path::{Path, PathBuf};
 
-/// カスタムルール設定ファイルのパス解決
+/// カスタムルール設定ファイルのパス解決 ([`lib_config_path`] が探索順序を持つ)。
 fn custom_rules_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("custom-lint-rules.toml")
+    lib_config_path::resolve_config("custom-lint-rules.toml")
 }
 
 /// `CustomRule::paths` を GlobSet に compile する。

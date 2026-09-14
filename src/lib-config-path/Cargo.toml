@@ -1,0 +1,11 @@
+[package]
+name = "lib-config-path"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lib_config_path"
+path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "3"

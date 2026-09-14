@@ -5,7 +5,7 @@
 //! (1) 発火が止まって窓外に落ちた id (went-quiet) と (2) 一度も発火していない機構 (never-fired) が
 //! どちらも不可視になる。レジストリは 3 供給源から「あるべき id」を静的に列挙してこの盲点を塞ぐ:
 //!
-//! - **rule**: `.claude/custom-lint-rules.toml` の全 rule id ([`crate::incident::read_all_rule_ids`])。
+//! - **rule**: `config/custom-lint-rules.toml` の全 rule id ([`crate::incident::read_all_rule_ids`])。
 //! - **preset**: `hooks-config.toml` の `[pre_tool_validate] blocked_patterns` 宣言。telemetry の
 //!   preset firing は `hit.source` (= blocked_patterns の宣言文字列) を id に記録するため、宣言を
 //!   そのまま列挙すれば発火 id と突き合う (`hooks-pre-tool-validate` の `record_preset_block` 実装で確認)。
@@ -14,7 +14,7 @@
 //! 各供給源の読取失敗は fail-open で skip しつつ、レポートに欠落を明示する (never-fired 判定不能の
 //! 注記)。silent fallback を排除し「読めなかった」と「id が 0 件」を区別する (設計決定 1)。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -58,9 +58,17 @@ pub fn preset_ids_from_str(content: &str) -> Option<Vec<String>> {
     )
 }
 
-/// `config_base/hooks-config.toml` から preset id を読む (I/O)。読取 / parse 失敗は `None`。
+/// `hooks-config.toml` の所在。優先順位は [`lib_config_path`] が 1 箇所で持つ。
+/// `config_base` は exe 隣接 `.claude/` を渡す前提。`hooks-config.toml` は `lib_config_path` の
+/// 新配置 (`config/`) 移設ホワイトリストに含まれないため、`config/` は候補に入らず常に
+/// `config_base` 自身 (`.claude/hooks-config.toml`) を返す。
+fn hooks_config_path(config_base: &Path) -> PathBuf {
+    lib_config_path::resolve_config_from_exe_dir(config_base, "hooks-config.toml")
+}
+
+/// [`hooks_config_path`] から preset id を読む (I/O)。読取 / parse 失敗は `None`。
 fn read_preset_ids(config_base: &Path) -> Option<Vec<String>> {
-    let content = std::fs::read_to_string(config_base.join("hooks-config.toml")).ok()?;
+    let content = std::fs::read_to_string(hooks_config_path(config_base)).ok()?;
     preset_ids_from_str(&content)
 }
 
@@ -131,7 +139,14 @@ mod tests {
 blocked_patterns = ["git", "default", "jj-push-guard"]
 "#;
         let ids = preset_ids_from_str(toml).unwrap();
-        assert_eq!(ids, vec!["git".to_string(), "default".to_string(), "jj-push-guard".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "git".to_string(),
+                "default".to_string(),
+                "jj-push-guard".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -144,22 +159,39 @@ blocked_patterns = ["git", "default", "jj-push-guard"]
         assert!(preset_ids_from_str("not = [ toml").is_none());
     }
 
+    /// `config_base` (= `.claude/` 相当) を返す。[`hooks_config_path`] / 呼び出し先の
+    /// [`crate::incident::read_all_rule_ids`] はいずれも `config_base.parent()` を
+    /// リポジトリルートとして解決するため、テストも実運用と同じ 2 階層構造
+    /// (`root/.claude/`) を用意する。ルートは呼び出しごとに新しい tempdir なので、
+    /// OS 共有の temp 直下を探索して他テストの fixture を拾う心配がない。
+    fn claude_dir_under_fresh_root() -> (tempfile::TempDir, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let claude_dir = root.path().join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        (root, claude_dir)
+    }
+
     #[test]
     fn build_registry_tags_kinds_and_notes_missing_sources() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, config_base) = claude_dir_under_fresh_root();
         std::fs::write(
-            dir.path().join("custom-lint-rules.toml"),
+            config_base.join("custom-lint-rules.toml"),
             "[[rules]]\nid = \"no-console-log\"\n",
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("hooks-config.toml"),
+            config_base.join("hooks-config.toml"),
             "[pre_tool_validate]\nblocked_patterns = [\"git\"]\n",
         )
         .unwrap();
-        let reg = build_registry(dir.path(), &["reaper".to_string()]);
+        let reg = build_registry(&config_base, &["reaper".to_string()]);
         assert!(reg.source_failures.is_empty(), "両供給源が読めれば欠落なし");
-        let find = |id: &str| reg.entries.iter().find(|e| e.id == id).map(|e| e.kind.as_str());
+        let find = |id: &str| {
+            reg.entries
+                .iter()
+                .find(|e| e.id == id)
+                .map(|e| e.kind.as_str())
+        };
         assert_eq!(find("no-console-log"), Some("rule"));
         assert_eq!(find("git"), Some("preset"));
         assert_eq!(find("reaper"), Some("hook"));
@@ -167,9 +199,13 @@ blocked_patterns = ["git", "default", "jj-push-guard"]
 
     #[test]
     fn build_registry_notes_unreadable_rule_source() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("hooks-config.toml"), "[pre_tool_validate]\n").unwrap();
-        let reg = build_registry(dir.path(), &["reaper".to_string()]);
+        let (_root, config_base) = claude_dir_under_fresh_root();
+        std::fs::write(
+            config_base.join("hooks-config.toml"),
+            "[pre_tool_validate]\n",
+        )
+        .unwrap();
+        let reg = build_registry(&config_base, &["reaper".to_string()]);
         assert_eq!(reg.source_failures.len(), 1);
         assert!(reg.source_failures[0].contains("rule 供給源"));
         assert!(!reg.entries.iter().any(|e| e.kind == "rule"));
@@ -177,25 +213,32 @@ blocked_patterns = ["git", "default", "jj-push-guard"]
 
     #[test]
     fn build_registry_notes_empty_hook_ids_as_missing_source() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_root, config_base) = claude_dir_under_fresh_root();
         std::fs::write(
-            dir.path().join("custom-lint-rules.toml"),
+            config_base.join("custom-lint-rules.toml"),
             "[[rules]]\nid = \"no-console-log\"\n",
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("hooks-config.toml"),
+            config_base.join("hooks-config.toml"),
             "[pre_tool_validate]\nblocked_patterns = [\"git\"]\n",
         )
         .unwrap();
-        let reg = build_registry(dir.path(), &[]);
+        let reg = build_registry(&config_base, &[]);
         assert!(
-            reg.source_failures.iter().any(|f| f.contains("hook 供給源")),
+            reg.source_failures
+                .iter()
+                .any(|f| f.contains("hook 供給源")),
             "空 hook_ids は供給源欠落として明示する"
         );
-        assert!(!reg.entries.iter().any(|e| e.kind == "hook"), "hook entry は積まれない");
         assert!(
-            !reg.source_failures.iter().any(|f| f.contains("rule 供給源") || f.contains("preset 供給源")),
+            !reg.entries.iter().any(|e| e.kind == "hook"),
+            "hook entry は積まれない"
+        );
+        assert!(
+            !reg.source_failures
+                .iter()
+                .any(|f| f.contains("rule 供給源") || f.contains("preset 供給源")),
             "rule / preset は読めているので欠落注記は出ない"
         );
     }

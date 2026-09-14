@@ -8,7 +8,7 @@
 //! 「検証不能」として扱い続ける。無言で自動化の対象外が増えると「自動化したのに半分手作業」へ寄る。
 //!
 //! そこで **push 時と CI で毎回、実台帳の全行を parse し直す**。書式を外した行を足した時点で
-//! 赤くなるので、書いた人へ即座に返る (`.claude/custom-lint-rules.toml` を実読する
+//! 赤くなるので、書いた人へ即座に返る (`config/custom-lint-rules.toml` を実読する
 //! `rule_test_coverage_check` / `orphan_fixture_check` と同じ形)。
 //!
 //! # なぜ統合テストではなくクレート内 `#[cfg(test)]` なのか

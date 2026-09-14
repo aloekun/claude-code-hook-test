@@ -86,8 +86,9 @@ pub(crate) struct HooksConfig {
     pub(crate) session_start: Option<SessionStartConfig>,
 }
 
+/// `hooks-config.toml` の所在。優先順位は [`lib_config_path`] が 1 箇所で持つ。
 fn hooks_config_path(repo_root: &Path) -> PathBuf {
-    repo_root.join(".claude").join("hooks-config.toml")
+    lib_config_path::resolve_config_from_root(repo_root, "hooks-config.toml")
 }
 
 pub(crate) fn read_hooks_config(repo_root: &Path) -> HooksConfig {

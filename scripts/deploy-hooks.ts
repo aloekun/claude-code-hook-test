@@ -76,8 +76,15 @@ function copyFile(src: string, dest: string): void {
   logger.info(`  copied: ${basename(src)}`);
 }
 
-function notifyIfMissing(path: string, missing: string, hint: string): void {
-  if (!existsSync(path)) {
+/**
+ * `paths` のいずれも存在しなければ案内を出す。
+ *
+ * 複数候補を取るのは設定の探索順序 (config/ → exe 隣接の後方互換、ADR-006) に
+ * 合わせるため。1 パスだけを見ると、旧配置のまま正常に動いている派生プロジェクトへ
+ * 「設定が無い」と誤報する。
+ */
+function notifyIfMissing(paths: string[], missing: string, hint: string): void {
+  if (!paths.some((p) => existsSync(p))) {
     logger.info(`  NOTE: ${missing}`);
     logger.info(`        ${hint}`);
   }
@@ -105,20 +112,33 @@ function deployTo(targetDir: string): boolean {
     copyFile(src, join(targetClaude, exe));
   }
 
+  // hooks-config.toml は NEW_LOCATION_ELIGIBLE (lib-config-path) に載っておらず、
+  // config/ を候補に含めない — .claude/ 固定でしか resolver は読まない。保護ゲート
+  // (block preset 等) の設定を持つため、agent が到達できる config/ に置けると
+  // ゲート無効化を外から与えられてしまう (ADR-006 § 改訂 (2026-09-15) 決定 1、ADR-043)。
   notifyIfMissing(
-    join(targetClaude, "hooks-config.toml"),
+    [join(targetClaude, "hooks-config.toml")],
     "hooks-config.toml not found — please create one for this project",
-    "See templates/ directory for language-specific examples"
+    "Place it beside the hook exes at .claude/hooks-config.toml (see templates/ for language-specific examples)"
   );
 
   notifyIfMissing(
-    join(targetDir, "push-runner-config.toml"),
+    [
+      join(targetDir, "config", "custom-lint-rules.toml"),
+      join(targetClaude, "custom-lint-rules.toml"),
+    ],
+    "custom-lint-rules.toml not found — custom lint rules will be skipped",
+    "Place it at config/custom-lint-rules.toml"
+  );
+
+  notifyIfMissing(
+    [join(targetDir, "push-runner-config.toml")],
     "push-runner-config.toml not found — takt push-runner requires this at repo root",
     "See templates/push-runner-config.toml for a starting point"
   );
 
   notifyIfMissing(
-    join(targetDir, "pr-monitor-config.toml"),
+    [join(targetDir, "pr-monitor-config.toml")],
     "pr-monitor-config.toml not found — takt pr-monitor requires this at repo root",
     "See templates/pr-monitor-config.toml for a starting point"
   );

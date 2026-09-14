@@ -9,7 +9,8 @@
 .claude/*.exe
 # Linux / macOS のバイナリには拡張子が無く *.exe では捕まらないため、名前で無視する
 # (WP-15: クラウドセッションで cloud-setup.sh が配置したバイナリを jj が snapshot して
-# しまうのを防ぐ)。設定ファイルを巻き込むのは hooks-config.toml だけなので negate で戻す。
+# しまうのを防ぐ)。設定ファイルを巻き込むのは hooks-config.toml だけなので negate で戻す
+# (custom-lint-rules.toml は 2026-09-15 に config/ へ移設した。ADR-006 § 改訂)。
 .claude/check-ci-coderabbit
 .claude/cli-*
 .claude/hooks-*

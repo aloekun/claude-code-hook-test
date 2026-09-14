@@ -40,7 +40,7 @@ Q3. パターンはリテラル文字列のマッチのみで表現できるか�
 
 - **用途**: リテラル文字列のマッチのみ
 - **速度**: ~1ms（プロセス起動なし）
-- **設定**: `.claude/custom-lint-rules.toml`
+- **設定**: `config/custom-lint-rules.toml` (2026-09-15 に `.claude/` から移設、ADR-006 § 改訂)
 - **適用例**:
   - `console.log(` — トークンが固定、コメント内に書く動機がない
   - `from '../../../` — 深い相対パスの文字列マッチ
@@ -175,7 +175,7 @@ PR #98 (Bundle Y2) post-merge-feedback で `post-pr-review.yaml` supervise step 
 
 ### 列挙漏れリスクへの対策（多層防御）
 
-1. **TOML rule 本体に field 拡張手順をコメント記述**（順位 120）: `.claude/custom-lint-rules.toml` の rule⑨ 上に 4 ステップの保守手順を明記。次回 schema 拡張時に reviewer が即時に手順を読める状態。
+1. **TOML rule 本体に field 拡張手順をコメント記述**（順位 120）: `config/custom-lint-rules.toml` の rule⑨ 上に 4 ステップの保守手順を明記。次回 schema 拡張時に reviewer が即時に手順を読める状態。
 2. **個別 fixture test を `[rules.test_coverage.main_ext_tests.yaml]` に宣言**（順位 121）: alternation の各 field について `takt_workflow_persona_detects_<field>_violation` 命名で個別 test を確保し、`rule_test_coverage_check` cargo test で test 名宣言の機械検証を実施。alternation から特定 field を削除した場合は対応 test fail で検出。
 3. **clean baseline test**（既存）: `deployed_takt_workflows_have_clean_baseline_for_persona_model_rule` で実際の `.takt/workflows/*.yaml` 全件が rule で fire しないこと（= 既存 workflow が規約を満たすこと）を継続確認。
 

@@ -122,13 +122,9 @@ fn kill_switch_active() -> bool {
     }
 }
 
-/// exe と同じディレクトリの hooks-config.toml パス (hooks-stop-quality と同方式)
+/// hooks-config.toml のパス解決 ([`lib_config_path`] が探索順序を持つ)。
 fn config_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("hooks-config.toml")
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 /// 設定を読み込む。読み込み / parse 失敗時は default (= disabled) を返す

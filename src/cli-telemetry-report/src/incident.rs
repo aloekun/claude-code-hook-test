@@ -1,11 +1,11 @@
 //! incident 由来ルール id の抽出 (設計決定 2d、ADR-049)。
 //!
-//! `.claude/custom-lint-rules.toml` の `[[rules]]` のうち `[rules.incident]` サブテーブルを
+//! `config/custom-lint-rules.toml` の `[[rules]]` のうち `[rules.incident]` サブテーブルを
 //! 持つルールは「実 incident 由来」であり、発火 0 でも抑止力として維持推奨とする (ADR-049 の
 //! 思想)。真実源を custom-lint-rules.toml 側に一本化し、本 exe には id リストを複製しない。
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -21,10 +21,18 @@ struct RuleEntry {
     incident: Option<toml::Value>,
 }
 
-/// `config_base/custom-lint-rules.toml` から incident 由来ルール id 集合を読む。
+/// `custom-lint-rules.toml` の所在。優先順位は [`lib_config_path`] が 1 箇所で持つ。
+/// `config_base` は exe 隣接 `.claude/` を渡す前提で、その親をリポジトリルートとして
+/// `config/custom-lint-rules.toml` → `.claude/custom-lint-rules.toml` (`config_base` 自身)
+/// の順に探す。
+fn custom_lint_rules_path(config_base: &Path) -> PathBuf {
+    lib_config_path::resolve_config_from_exe_dir(config_base, "custom-lint-rules.toml")
+}
+
+/// [`custom_lint_rules_path`] から incident 由来ルール id 集合を読む。
 /// ファイル不在 / parse 失敗は空集合 (fail-open、維持推奨マークが付かないだけ)。
 pub fn incident_rule_ids(config_base: &Path) -> BTreeSet<String> {
-    std::fs::read_to_string(config_base.join("custom-lint-rules.toml"))
+    std::fs::read_to_string(custom_lint_rules_path(config_base))
         .ok()
         .map(|c| incident_ids_from_str(&c))
         .unwrap_or_default()
@@ -50,7 +58,7 @@ pub fn incident_ids_from_str(content: &str) -> BTreeSet<String> {
 /// 異なり、レジストリは供給源欠落を「never-fired 判定不能」としてレポートに明示するため、
 /// 「読めなかった」と「rule が 0 本」を区別する必要がある。
 pub fn read_all_rule_ids(config_base: &Path) -> Option<Vec<String>> {
-    let content = std::fs::read_to_string(config_base.join("custom-lint-rules.toml")).ok()?;
+    let content = std::fs::read_to_string(custom_lint_rules_path(config_base)).ok()?;
     all_rule_ids_from_str(&content)
 }
 
@@ -104,7 +112,13 @@ id = "no-personal-paths"
 pr = 75
 "#;
         let ids = all_rule_ids_from_str(toml).unwrap();
-        assert_eq!(ids, vec!["no-console-log".to_string(), "no-personal-paths".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "no-console-log".to_string(),
+                "no-personal-paths".to_string()
+            ]
+        );
     }
 
     #[test]
