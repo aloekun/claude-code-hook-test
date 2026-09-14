@@ -98,9 +98,12 @@ filter 済み jsonl でも実測で 10 MB を超えることがある (2026-08-1
 
 docs-only PR。ユーザーの運用方針 (doc 変更はマイルストーンで束ねる) に従い 1 本にまとめる。**PR 1 マージ後・post-merge feedback の完走確認後**に実施し、本計画書の削除もここに含める。
 
-### 2-1. 順位 358 の消化: Cross-File Reference Lifecycle を dev-conventions.md へ明文化
+### 2-1. 順位 358 の消化: Cross-File Reference Lifecycle を明文化
 
-`docs/dev-conventions.md` へ新節を追加する。趣旨 (文面は整えてよい):
+> **行き先は再設計が要る (2026-09-13、順位 445)**: 当初の行き先だった convention 集は廃止した。
+> 下の趣旨は守備範囲の合う ADR へ置くか、機械化できる部分を検査へ寄せる。
+
+趣旨 (文面は整えてよい):
 
 ```markdown
 ## committed docs から ephemeral 成果物への参照規律 (順位358)
@@ -135,7 +138,7 @@ docs-only PR。ユーザーの運用方針 (doc 変更はマイルストーン�
 
 - 動機: 2-1 の規律制定時点で、todo13/16/18/20 等に `.claude/feedback-reports/<pr>.md Tier N #M` 形式の参照が多数残存。一括修正は範囲が大きく規律制定と分離した (2026-08-12 ユーザー判断)。
 - 対処案: `grep -rn "feedback-reports\|\.takt/runs\|weekly-reviews" docs/` で全違反を列挙 → 要旨転記 or 参照削除を機械的に適用。件数が多ければ複数バッチに分割可。
-- 参照: dev-conventions.md の新節 (2-1)、ADR-035。
+- 参照: 2-1 の新節 (移設先は着手時に決める)、ADR-035。
 
 **(3) security-review / supervisor-validation の output-contract 整備** — Tier 2 / Effort S
 
@@ -169,12 +172,12 @@ docs-only PR。ユーザーの運用方針 (doc 変更はマイルストーン�
 
 - [ ] PR 1 マージ済み (facet 修正 + スクリプト 2 本削除)
 - [ ] PR 1 マージ直後の post-merge feedback が token limit 衝突なしに完走 (`.claude/feedback-reports/<pr>.md` 生成 or 「知見なし」報告。`.failed` marker が残らないこと)
-- [ ] PR 2 マージ済み (dev-conventions 新節 + 順位 358 エントリ/索引行削除 + 台帳 5 件登録 + 順位 335 注記 + **本計画書削除**)
+- [ ] PR 2 マージ済み (2-1 の新節 + 順位 358 エントリ/索引行削除 + 台帳 5 件登録 + 順位 335 注記 + **本計画書削除**)
 - [ ] `docs/todo-summary2.md` の索引と todo22.md の詳細エントリが 1:1 対応 (cli-docs-lint が通ること)
 
 ## 実施時の運用注意
 
-- ファイル編集前に `jj new` (dev-conventions.md 規約)。push は `pnpm push`、PR 作成・マージは ADR-028/052 のゲートに従いユーザー確認を経る。
+- ファイル編集前に `jj new` ([ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) § ファイル編集を始める前に `jj new` する)。push は `pnpm push`、PR 作成・マージは ADR-028/052 のゲートに従いユーザー確認を経る。
 - PR タイトル・本文の粒度提示規約 (PR N 本、うち新規 M 本) — 本計画は承認済みなので変更が生じた場合のみ再提示。
 - `docs/todo22.md` が 50KB に近づいた場合は todo23.md 新設の運用 (todo.md 冒頭ルール) に従う。
 - 本計画書が PR 1 の diff に混入するのは許容 (jj の自動 snapshot 下で分離コストをかけない)。PR 2 で削除されるため一時的なコミットで問題ない。

@@ -63,7 +63,7 @@ pub fn check_one(
 /// TODO 系 markdown は preamble の直後に `---` 区切りか最初の `###` エントリ見出しが来る。
 /// 固定行数だけで切ると、削除でエントリが繰り上がった際に本文の数詞
 /// (例: 「2 つの前提ズレ」) を preamble の数詞と誤認する。
-fn is_preamble_boundary(line: &str) -> bool {
+pub(crate) fn is_preamble_boundary(line: &str) -> bool {
     line.trim_end() == "---" || line.starts_with("###")
 }
 

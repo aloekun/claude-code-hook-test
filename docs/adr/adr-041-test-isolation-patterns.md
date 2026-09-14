@@ -46,6 +46,25 @@ PR #120 W-001 で初発見された問題: 当初のテスト `enrich_with_class
 
 片方が不発になる条件を test 内で **明示的に assert** または **コメント** で記述すると、将来 guard 順序が変わったり追加 guard が増えたりした場合に「test の前提が崩れた」ことを早期検出できる。
 
+### 原則 3: 外部 fixture 参照テストは値まで assert (2026-09-13 追記)
+
+テストが外部ファイル (実 config / 共有 fixture 等) を参照する場合、「section / キーの存在」
+だけでなく **テストの前提とする具体値まで assert** する。
+
+1. **存在チェックだけでは silent break する** — 「section がある」だけを assert すると、
+   外部ファイル側で値が変わってもテストは緑のまま、前提の乖離が別テストの原因の見えない
+   失敗として遅れて表面化する。
+2. **値ずれ時に更新箇所を指し示す** — assert メッセージに「この値を変えたらどのテストの
+   期待値を更新すべきか」を明記する。
+
+**由来** (PR #261 T3-#2): `hooks-stop-tool-call-leak` の E2E が `[stop_tool_call_leak]` section の
+存在しか assert しておらず、`enabled` / `max_consecutive_blocks` の値変更が cap 境界テストを
+原因の見えない形で silent break させるリスクを 3 ソースが独立指摘した。実装例は
+`src/hooks-stop-tool-call-leak/tests/e2e.rs`。
+
+> 本原則を検査として機械化しない判断: fixture ごとにスキーマが異なり、「どの値がテストの
+> 前提か」は regex でも AST でも判定できない ([ADR-042](adr-042-rule-vs-mechanism-boundary.md) Step 1)。
+
 ### 実装例 (poll.rs の `enrich_with_classifier` 2 variants)
 
 `enrich_with_classifier_skips_when_disabled` (左 arm = `!enabled` 単独発火):

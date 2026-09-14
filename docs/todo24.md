@@ -27,7 +27,7 @@
 > | 実走確認 2 (夜間ループの経路) | 2026-08-16 の `workflow_dispatch` (dry_run) で掃除 → 選択 → 停止の 5 観測点を照合。失敗マーカー経路も発火して確認済み |
 > | skill リポ反映 | `$CLAUDE_SKILLS_REPO` の `weekly-review` skill に Phase 4 展開先変更と昇格フロー縮小を反映し commit 済み。`/skill-sync-check` は全 21 スキル同期済みを報告 |
 >
-> 恒久的な決定は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18〜20 / [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) / [ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 / [docs/claude-code-web-tasks.md](claude-code-web-tasks.md) / [docs/dev-conventions.md](dev-conventions.md) にある。
+> 恒久的な決定は [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18〜20 / [ADR-052](adr/adr-052-autonomy-execution-boundary-classes.md) / [ADR-033](adr/adr-033-todo-numbering-simplification.md) § 改訂 / [docs/claude-code-web-tasks.md](claude-code-web-tasks.md) にある。
 >
 > 同セッションで登録済みの 2 件 ([docs/todo23.md](todo23.md) § 週次レビュー由来) — facet 出力言語の明記 / 昇格候補集合の決定論化 — は本ファイルには重複させない。
 
@@ -187,7 +187,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 #### 完了基準
 
 - 起動直後に死んだ run について、**なぜ止まったか**が run ディレクトリの記録だけで判別できること。
-- 分類の結果として対処が不要と判断した場合は、その根拠を negative result として永続化して閉じること ([dev-conventions.md](dev-conventions.md) § spike / 実験タスクの見送り (negative result) 永続化 convention)。
+- 分類の結果として対処が不要と判断した場合は、その根拠を negative result として永続化して閉じること ([ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 2026-09-13 § spike / 実験タスクの見送り (negative result) 永続化 convention)。
 
 ---
 
@@ -267,7 +267,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ### 順位 472: 語彙・テスト作法・判断規律の convention を明文化する (系統 B 規約 + D + E + F 規約)
 
-> **動機**: 8 項目、すべて行き先が [dev-conventions.md](dev-conventions.md) で実装を伴わない。
+> **動機**: 8 項目、すべて文書化のみで実装を伴わない。**行き先は再設計が要る** — 当初の行き先だった convention 集は 2026-09-13 に廃止した (順位 445)。各項目を守備範囲の合う ADR へ振るか、実害の観測が無いものを落とすかを着手時に決める。
 >
 > **語義の分離** (同じに見える別物を区別する):
 >
@@ -307,7 +307,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 #### 完了基準
 
-- 8 項目が [dev-conventions.md](dev-conventions.md) に順位付きセクションとして載っていること
+- 8 項目それぞれについて、移設先の ADR に載ったか、根拠つきで落としたかが決まっていること
 - 各項が「なぜ」と実例を持つこと
 - #424 の様子見項目 (「意味的に異なる状態が同じ見え方になるバグクラス」) を**採用 / 保留 / 却下のいずれかに決定し、理由を記録**していること
 
@@ -380,7 +380,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 - [ ] `resolve_project_dir` の doc コメントに、複数一致時は 1 件のみ返し他方を無言で除外すること (順序は `read_dir` 依存で未規定) を明記する
 - [ ] `~/.claude/projects` を OS 間で持ち込む等、発現経路が実在するかを再評価する
-- [ ] 発現しうると判断したら、ADR-043 に従い複数一致を loud に検出する実装を追加する。発現しないと判断したら、その根拠を negative result として本エントリに記録して閉じる ([dev-conventions.md](dev-conventions.md) § spike / 実験タスクの見送り (negative result) 永続化 convention)
+- [ ] 発現しうると判断したら、ADR-043 に従い複数一致を loud に検出する実装を追加する。発現しないと判断したら、その根拠を negative result として本エントリに記録して閉じる ([ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13): spike / 実験タスクの見送り (negative result) を永続化する)
 
 #### 完了基準
 

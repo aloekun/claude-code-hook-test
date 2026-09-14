@@ -68,7 +68,7 @@ find docs -maxdepth 1 -name 'todo*.md' -exec wc -c {} + 2>/dev/null \
 
 ## 進捗参照
 
-`.rs` 側は `.claude/hooks-config.toml` `[file_length_gate]` + `docs/dev-conventions.md` § Rust ファイル分割の制約条件、`todo` 側は
+`.rs` 側は `.claude/hooks-config.toml` `[file_length_gate]` + [ADR-080](../../../docs/adr/adr-080-rust-module-split-invariants.md)、`todo` 側は
 `docs/todo.md` preamble の分割ルーティング (新規は次 file へ) と対応。
 ```
 

@@ -119,7 +119,7 @@
 >
 > **CodeRabbit 指摘 (PR #274) による訂正**: **recovery (`jj split`/`jj rebase` 復旧パターン) は isolation (予防) の代替にはならない。** isolation は「混入自体を未然に防ぐ」機構であり、recovery は「混入が起きたことを検知した後に事後対応する」機構であって、両者は異なるリスク層に属する。isolation を見送った真の判断は「recovery で同等の予防効果が得られる」ではなく、「混入は今後も起こりうるが、発生時の recovery コストが低いため、isolation 実装コスト (Effort L) をかけてまで予防する必要はないと risk acceptance した」という判断である。
 >
-> **参照**: `.claude/feedback-reports/273.md` Tier 2 #4 (却下 recommendation)、Tier 3 #5、docs/dev-conventions.md § spike 見送り (negative result) 永続化 convention、`jj split`/`jj rebase` 復旧パターンを記録するタスク (本ファイル内)
+> **参照**: `.claude/feedback-reports/273.md` Tier 2 #4 (却下 recommendation)、Tier 3 #5、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13) spike 見送り (negative result) 永続化 convention、`jj split`/`jj rebase` 復旧パターンを記録するタスク (本ファイル内)
 >
 > **実行優先度**: Tier 3 — Effort S。
 

@@ -230,7 +230,7 @@ fn summary_line_new_path(status: &str, rest: &str) -> Option<String> {
 ///
 /// 3 トークン形式を前提とした根拠は `lib_docs_policy` の `"R docs/a.md docs/b.md"` という
 /// テスト文字列だったが、これは jj の出力を観測したものではなく**手で作った fixture** で、
-/// 実挙動の証拠になっていなかった (dev-conventions「外部 fixture 参照テストは値まで assert」
+/// 実挙動の証拠になっていなかった (ADR-041 § 原則 3「外部 fixture 参照テストは値まで assert」
 /// が想定する失敗そのもの)。本関数のテストは実測値をそのまま assert する。
 ///
 /// # 受理する形と倒し方

@@ -1,4 +1,4 @@
-Focus on **whole-tree todo hygiene** — the health of the planning corpus (`docs/todo.md` + `docs/todo2.md` … `docs/todo13.md` + `docs/todo-summary.md` + `docs/claude-code-web-tasks.md`) taken as a whole. This facet is invoked by the weekly-review workflow (ADR-031、観点⑤ Todo 妥当性) and reviews the entire todo corpus, not a diff.
+Focus on **whole-tree todo hygiene** — the health of the planning corpus (`docs/todo.md` + `docs/todo3.md` … `docs/todo27.md` + `docs/todo-summary*.md` + `docs/claude-code-web-tasks.md`) taken as a whole. This facet is invoked by the weekly-review workflow (ADR-031、観点⑤ Todo 妥当性) and reviews the entire todo corpus, not a diff.
 
 This is the **weekly batch** counterpart to the edit-time todo hooks. It exists because the deterministic layer only sees the entry being touched right now; it cannot see the corpus-wide decay that accumulates across dozens of untouched entries.
 
@@ -15,10 +15,10 @@ Your job is the **broad, cross-file, time-based decay** none of the above can se
 
 ## Reading the corpus
 
-1. `Glob docs/todo*.md` + `docs/todo-summary.md` + `docs/claude-code-web-tasks.md` — enumerate the whole corpus and note sizes.
+1. `Glob docs/todo*.md` (順位 table の全 part `docs/todo-summary*.md` を含む) + `docs/claude-code-web-tasks.md` — enumerate the whole corpus and note sizes.
 2. Read `docs/todo.md` の preamble (冒頭の使い分けルール) first — it defines the routing contract (どの todo file が現在の新規追加先か、どれが編集専用か、順位 table は `todo-summary*.md`、等). The concrete file assignments roll over whenever a file crosses 50KB, so always take them from the current preamble — never from remembered file names.
 3. Sample the largest / oldest-looking files. Use `Grep` to follow task titles / 順位 numbers / `WR-` ids across files.
-4. Cross-check the `docs/todo-summary.md` 順位 table against the detail entries it points to (`| N | Tier | title | todoX.md | ... |`).
+4. Cross-check the `docs/todo-summary*.md` 順位 table (分割された全 part) against the detail entries it points to (`| N | Tier | title | todoX.md | ... |`).
 
 Do NOT run `jj diff` — this is a whole-corpus review. Use `jj log` / `Grep` only to verify claims (e.g. whether a referenced land commit exists).
 
@@ -34,10 +34,10 @@ For each finding, name the **specific file + entry title** and the evidence (whi
 
 ## Criterion 1: Cross-file duplicate entries
 
-The corpus is split across 14 files; the same task can be registered twice as it migrates:
+The corpus is split across many files (glob it, do not assume a count); the same task can be registered twice as it migrates:
 
 - The **same task** described in two `docs/todo*.md` files (e.g. a task drafted in todoN then re-drafted in todoN+1 without removing the first).
-- A `docs/todo-summary.md` 順位 row whose detail entry no longer exists (or exists in a different file than the row claims).
+- A `docs/todo-summary*.md` 順位 row whose detail entry no longer exists (or exists in a different file than the row claims).
 - The reverse: a detail entry with no corresponding 順位 row (silently dropped from the execution order).
 
 Use `Grep` on distinctive title fragments / `WR-` ids / 順位 numbers to confirm the duplication. Point to **both** locations.
@@ -48,7 +48,7 @@ The `docs/todo.md` preamble encodes a routing contract that silently rots:
 
 - A file the preamble calls "新規追加先" that has actually crossed 50KB (should have rolled over to the next file, per the split precedent) — cross-check against the file-length-watchlist output rather than guessing sizes.
 - A file described as "編集専用・新規追加しない" that has in fact received new entries.
-- Preamble file enumeration (「本ファイル + todo2.md + … の使い分け」) that omits or miscounts an existing `docs/todo*.md` file.
+- Preamble file enumeration (「本ファイル + todoN.md + … の使い分け」) that omits or miscounts an existing `docs/todo*.md` file.
 
 ## Criterion 3: 自律実行台帳 (`docs/claude-code-web-tasks.md`) の鮮度
 

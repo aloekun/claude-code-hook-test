@@ -110,7 +110,7 @@ src の大規模分割 (メイン) と lint/facet/docs (改善) は編集領域�
 ### 並列運用の調整ポイント
 
 1. **bookmark 名は workspace 間で共有 namespace**。タスクごとに別名 (メイン = `pr-w3-...` / `pr-w4-...`、改善 = `fix-<task>` / `lint-<rule>` 等) を付け、別 PR として独立させる。同名 bookmark を両 workspace で作らない。
-2. **ローカル `master` bookmark は共有**。片方が `pnpm merge-pr` で land すると `master@origin` が進む。もう片方は `jj git fetch` + `jj rebase -d master@origin` で取り込んでから push する (`docs/dev-conventions.md` § Rust ファイル分割の制約条件 内の Cargo.lock 競合 rebase 手順と同型。旧 file-length-enforcement-plan から移設)。
+2. **ローカル `master` bookmark は共有**。片方が `pnpm merge-pr` で land すると `master@origin` が進む。もう片方は `jj git fetch` + `jj rebase -d master@origin` で取り込んでから push する ([ADR-080](adr-080-rust-module-split-invariants.md) が指す Cargo.lock 競合 rebase 手順と同型。旧 file-length-enforcement-plan から移設)。
 3. **state / lock / monitor は workspace ごとに独立** (gitignore + per-checkout)。並列の post-PR monitor / CronCreate が互いの state を壊さない。
 4. **op log は共有**であり、並行操作の扱いは jj 公式の並行モデルに従う (2026-07-13 是正。当初の「並行操作は jj が安全にマージする」という記述は不正確だった)。公式モデル: jj は lock-free 設計で、並行操作は op log の分岐 (divergent operation heads) として記録され、次のコマンドが自動 3-way マージする。干渉は「stale working copy」(エラーで停止 → `jj workspace update-stale` で recovery commit が作られ変更は保全される) と「bookmark 競合」(競合状態として可視化) の 2 形態で表面化する。ただし **colocated リポジトリの同時編集は upstream が「十分にテストされていない」と明記する領域**であり (本リポジトリの default workspace は colocated)、公式保証の外側がある。「§ Known operational risks」を参照。
 
@@ -136,6 +136,22 @@ src の大規模分割 (メイン) と lint/facet/docs (改善) は編集領域�
 7. 出力混線 (重複・欠落・身に覚えのないテキスト) を発見したら、直ちに両セッションを停止し、`jj op log` と会話ログを保存してから再開する
 
 補足 — Stop hook との競合は機構で防止済み (2026-07-13、順位 280 実装): merge-pipeline / push-runner は実行区間で `.claude/pipeline.lock` を保持し、hooks-stop-quality は fresh な lock を検知すると品質ゲートを skip する (fail-open、`lib-jj-helpers::pipeline_lock`)。これにより「background の merge pipeline がローカル同期の checkout 実行中に、ターン終了で発火した Stop hook の cargo/jj が Concurrent checkout を誘発する」事故 (PR #267 マージで実観測) は構造的に再発しない。lock 実装前の暫定運用だった「merge をターン保持 (foreground 相当) で実行する」は不要になった。stale threshold は 30 分 (クラッシュした pipeline の lock は自動失効)。
+
+### ファイル編集を始める前に `jj new` する (2026-09-13 追記)
+
+**別作業で作られた既存コミットが `@` の状態でファイルを編集しない。** 編集を始める前に
+`jj new -m "wip: <内容>"` でそのターンの作業コミットを作る。
+
+理由: jj は working copy をそのままコミットへ反映するため、既存コミットが `@` のままだと
+編集内容がそのコミットへ吸収される。その後 `jj describe` を実行すると**そのコミットの
+メッセージが上書きされ**、無関係な変更が既存コミットへ混入した状態で push されうる。
+
+**由来** (2026-08-02 WP-17 PR 2 の実装セッション): 同一セッション中に 3 回発生した。
+
+> hook で機械化しない判断: 「`@` が前ターン以前に確定した別作業のコミットか」は
+> セッション文脈に依存し、hook から判定できない。`jj new` 直後の `@` も description を
+> 持つため状態だけでは区別がつかない。セッション開始時の change_id を記録する案の実測と
+> 見送りは [ADR-042](adr-042-rule-vs-mechanism-boundary.md) § 改訂 (2026-09-12) が持つ。
 
 ### Operation Verification Checklist (2026-07-13 新設、暫定手順)
 

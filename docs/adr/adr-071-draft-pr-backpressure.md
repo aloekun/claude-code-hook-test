@@ -100,7 +100,7 @@ toml の parse はファイル単位なので、本キーが型違い (文字列
 | **Kill-switch** | autonomous-pr クラスだけ止めるなら `max_open_autonomous_prs = 0`。全自律動作を止めるなら `enabled = false` または Actions variable `AUTONOMY_ENABLED` の削除 (ADR-066 の操作反射をそのまま使う。新しい停止操作を増やさない) |
 | **Bounded lifetime** | decision trigger: 夜間ループ稼働後に (a) 閾値未満で PR 作成が通ること、(b) **閾値到達で実際に次の run が `backpressure-saturated` で止まること**、(c) deny 理由が run log 1 行で切り分けられること、(d) 閾値 3 が運用実態 (滞留時間・採用率) に合っていること、を確認したら本採用。**2026-11-06 までに判定材料が集まらなければ延長 / 却下を判断する** |
 
-(b) は本 ADR に固有の観測点である。(a) と (c) は exe 単体 drill で固定できるが、**閾値に到達する状態は夜間ループが実際に PR を積まないと作れない**。閾値 3 は初期値であり、[dev-conventions](../dev-conventions.md) § LLM を含む自動化経路は実走でしか検証できない、の適用対象。
+(b) は本 ADR に固有の観測点である。(a) と (c) は exe 単体 drill で固定できるが、**閾値に到達する状態は夜間ループが実際に PR を積まないと作れない**。閾値 3 は初期値であり、[ADR-067](adr-067-phase-b-unattended-fix-push.md) § LLM を含む自動化経路は実走でしか検証できない、の適用対象。
 
 ## 検証記録
 

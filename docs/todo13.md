@@ -147,7 +147,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 #### 完了基準
 
 - post-merge-feedback workflow が repo 作業ツリーに stray ファイルを残さない。万一残った場合も検知ステップが commit 前に warning で surface。
-- **(1) は保証ではない。** [dev-conventions.md](dev-conventions.md) の一般則「LLM への指示は『届けば守られる』ものではない。守らせる層と保証する層を分け、契約は決定論的に確認できる 1 点に置く」に従い、(1) は発生源を減らす層、(2) が保証層である。
+- **(1) は保証ではない。** 一般則「LLM への指示は『届けば守られる』ものではない。守らせる層と保証する層を分け、契約は決定論的に確認できる 1 点に置く」に従い、(1) は発生源を減らす層、(2) が保証層である。
 
 ---
 
@@ -307,9 +307,9 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 
 > **動機**: PR-W3 の feedback module 分割で `write_failed_marker` / `fetch_pr_diff_summary` / `FeedbackInput` / `run` 等、external consumer が存在しない binary crate 内シンボルが `pub` export されており、`pub(crate)` 方針と乖離している (CodeRabbit findings)。file split refactor PR ごとに繰り返す systemic pattern (Frequency Medium) のため、CLAUDE.md に方針を明文化し、既存 `pub` を `pub(crate)` に揃える。
 >
-> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort S / Adoption Risk None)。docs/dev-conventions.md § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan から 2026-08-12 移設) の分割制約「Cross-module visibility は pub(crate)」の恒久 codify に相当。
+> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort S / Adoption Risk None)。[ADR-080](adr/adr-080-rust-module-split-invariants.md) (旧 file-length-enforcement-plan から 2026-08-12 に convention 集へ移設し、2026-09-13 に ADR 化) の分割制約「Cross-module visibility は pub(crate)」の恒久 codify に相当。
 >
-> **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、docs/dev-conventions.md § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § 制約条件の pub(crate) ガイド、2026-08-12 移設)。
+> **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、[ADR-080](adr/adr-080-rust-module-split-invariants.md) § 2: cross-module visibility は pub(crate) (旧 file-length-enforcement-plan § 制約条件の pub(crate) ガイド、2026-08-12 に convention 集へ移設、2026-09-13 に ADR 化)。
 >
 > **実行優先度**: **Tier 3** — Effort S。
 
@@ -317,7 +317,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 
 - [ ] binary crate (cli-merge-pipeline) 内で external consumer 不在の `pub` シンボルを `pub(crate)` に変更
 - [ ] `cargo build` / `cargo clippy --workspace -- -D warnings` clean を確認 (未使用 pub 警告含む)
-- [ ] CLAUDE.md に「binary crate では cross-module 共有シンボルは pub(crate)、pub は使わない」方針を明文化
+- [ ] ~~CLAUDE.md に方針を明文化~~ — **不要 (2026-09-13)**。恒久配置は [ADR-080](adr/adr-080-rust-module-split-invariants.md) § 2 が持つ。本タスクに残るのは実装と検証のみ
 - [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
@@ -332,7 +332,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #1 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。file-length 強制が継続する限り split は今後も発生。順位 241 (binary crate の pub(crate) 方針 + CLAUDE.md 明文化) と相補。
 >
-> **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § 制約条件の「Cross-module visibility は pub(crate)」、2026-08-12 移設)、順位 241。**注意**: 旧 file-length-enforcement-plan.md は 2026-08-12 に削除済み。暫定配置先は docs/dev-conventions.md § Rust ファイル分割の制約条件になった。恒久配置 (coding-style.md / CLAUDE.md) は着手時に判断。
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、[ADR-080](adr/adr-080-rust-module-split-invariants.md) (旧 file-length-enforcement-plan § 制約条件の「Cross-module visibility は pub(crate)」、2026-08-12 移設)、順位 241。**注意**: 旧 file-length-enforcement-plan.md は 2026-08-12 に削除済み。配置先は [ADR-080](adr/adr-080-rust-module-split-invariants.md) § 2: cross-module visibility は pub(crate) になった (2026-08-12 に一旦 convention 集へ移設、2026-09-13 に ADR 化して恒久配置が確定)。
 >
 > **実行優先度**: **Tier 3** — Effort XS。
 
@@ -355,14 +355,13 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #2 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。memory `feedback_test_dry_antipattern` の恒久 codify。
 >
-> **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § test helper は per-module duplicate、2026-08-12 移設)。
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、[ADR-080](adr/adr-080-rust-module-split-invariants.md) § 3: test helper は per-module に複製する (旧 file-length-enforcement-plan § test helper は per-module duplicate、2026-08-12 に convention 集へ移設、2026-09-13 に ADR 化)。
 >
 > **実行優先度**: **Tier 3** — Effort XS。
 
 #### 作業計画
 
-- [ ] coding-style.md に「test helper は各 module 複製、shared util module は anti-pattern」を根拠 (coupling < isolation) 付きで追記
-- [ ] split レビュー時の確認項目 (helper が複製されているか) を明示
+- [ ] ~~coding-style.md への追記と split レビュー確認項目の明示~~ — **不要 (2026-09-13)**。同内容は [ADR-080](adr/adr-080-rust-module-split-invariants.md) § 3 が持つ。本エントリは索引の付け替えのみで閉じてよい
 - [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
@@ -377,7 +376,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **本タスクの位置づけ**: PR #231 post-merge-feedback Tier 3 #3 採用 (Low / Frequency Medium / Effort XS / Adoption Risk None)。file-length 強制が続く限り機械 refactor の override 判断は今後も発生。
 >
-> **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、`docs/dev-conventions.md` § Rust ファイル分割の制約条件 (旧 file-length-enforcement-plan § push 手順の override use case、2026-08-12 移設)。
+> **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、[ADR-069](adr/adr-069-pr-chain-declaration.md) § 3: 切断点ヒューリスティクス (`PR_SIZE_CHECK_OVERRIDE` の正当な use case、旧 file-length-enforcement-plan § push 手順の override use case、2026-08-12 に convention 集へ移設、2026-09-13 に ADR-069 へ再移設)。
 >
 > **実行優先度**: **Tier 3** — Effort XS。
 

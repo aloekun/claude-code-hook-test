@@ -80,12 +80,35 @@
 - [ADR-077: open-questions gate — 未解決の設計の問いが push を止める](docs/adr/adr-077-open-questions-gate.md) *(試験運用)*
 - [ADR-078: takt verdict gate — REJECT のまま push されるのを止める](docs/adr/adr-078-takt-verdict-gate.md) *(試験運用)*
 - [ADR-079: 起票由来タグ — 機構の効果を印象でなく数で測る](docs/adr/adr-079-defect-origin-tagging.md) *(試験運用)*
+- [ADR-080: Rust module 分割の不変条件 — behavior 不変 / `pub(crate)` / test helper は複製](docs/adr/adr-080-rust-module-split-invariants.md)
+- [ADR-081: 同一事実の分散を lint と手順で抑える — routing 列挙の集合比較 + 変更手順](docs/adr/adr-081-single-fact-dispersion.md)
 
 ## 開発 convention / チェックリスト
 
-- [開発 convention / チェックリスト](docs/dev-conventions.md) — 残る 8 節 (機構への索引 1 + 機械化不能 6 + 機械化予定 1)。各節は冒頭に `機械化:` / `機械化不能:` / `機械化予定:` の宣言を持ち、`pnpm lint:docs` の `convention-declaration` 検査が fail-closed で強制する (順位 515)。**終点は本ファイルの廃止**で、判断を要する規約は ADR へ移す (移設先の対応表は順位 445 の作業計画)
+**独立した convention 集は 2026-09-13 (順位 445) に廃止した。** 規約は機構か ADR のどちらかが持つ ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md) § 改訂 2026-09-12 決定 2)。以下は索引であり、**規約の中身は各行の移設先が持つ** — ここへ要旨を書き写すと片方だけが古くなる ([ADR-081](docs/adr/adr-081-single-fact-dispersion.md))。
 
-> **本ファイルは縮小方向で運用する。** 決定事項は ADR、それ以外は仕組みで担保し、**新規の convention は追加しない**。仕組みができた項目は撤去する ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。2026-09-10 に順位 515 を完了し、16 節 220 行 → 10 節 112 行へ縮小した (機構化 3 節は宣言へ、単発 incident 由来の 5 節と ADR に内容がある 1 節は撤去)。以後の増加は `convention-declaration` 検査が「機械化の判断」を強制することで抑える。2026-09-12 に終点を**廃止**と決めた ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md) 決定 2): 機械化不能の規約は機械化しないが本ファイルにも残さず、守備範囲の合う ADR へ移し、索引 2 表だけになった時点で本節へ畳んで削除する。
+### 機構が強制する規約
+
+| 規約 | 強制している機構 | 中身の在り処 |
+|---|---|---|
+| 外部 exe を spawn する統合テストは無期限に待たない | custom lint rule `no-unbounded-child-wait` | [.claude/custom-lint-rules.toml](.claude/custom-lint-rules.toml) |
+| GitHub Actions の `run:` は常に `-e` 付きで起動する | `pnpm lint:workflows` の契約検査 3 | [scripts/lint-workflows-run-blocks.mjs](scripts/lint-workflows-run-blocks.mjs) |
+| takt facet の出力言語は各 instruction に直書きする | `pnpm lint:takt-facets` | [scripts/lint-takt-facets.mjs](scripts/lint-takt-facets.mjs) |
+| todo preamble と facet の routing 列挙を実ファイルと突き合わせる | `pnpm lint:docs` の `todo-routing` | [src/cli-docs-lint/src/todo_routing.rs](src/cli-docs-lint/src/todo_routing.rs) |
+
+### ADR が持つ規約 (機械化しないと判定したもの)
+
+| 規約 | 移設先 |
+|---|---|
+| spike / 実験タスクの見送り (negative result) の 3 点セット | [ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13) |
+| 外部 fixture 参照テストは値まで assert | [ADR-041](docs/adr/adr-041-test-isolation-patterns.md) § 原則 3 |
+| ファイル編集を始める前に `jj new` する | [ADR-045](docs/adr/adr-045-jj-workspace-parallel-sessions.md) § ファイル編集を始める前に `jj new` する |
+| LLM を含む自動化経路は実走でしか検証できない | [ADR-067](docs/adr/adr-067-phase-b-unattended-fix-push.md) § LLM を含む自動化経路は実走でしか検証できない |
+| Rust ファイル分割の制約条件 | [ADR-080](docs/adr/adr-080-rust-module-split-invariants.md) |
+| 同一事実が複数箇所に分散する場合の変更手順 | [ADR-081](docs/adr/adr-081-single-fact-dispersion.md) |
+| 複合タスクの仕様には各項目の処置と除外根拠を書く | [ADR-073](docs/adr/adr-073-work-package-completion-boundary.md) § 決定 5 |
+
+> **新規の convention は追加しない。** 機械化できるものは機構へ、判断を要するものは守備範囲の合う ADR へ置く ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。convention 集が再び生えた場合は `pnpm lint:docs` の `convention-declaration` 検査が各節に機械化の宣言を要求する (順位 515)。
 
 ## Build
 
