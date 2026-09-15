@@ -807,3 +807,61 @@ rs = [
   "no_unbounded_child_wait_skips_barrier_wait",
   "no_unbounded_child_wait_paths_match_integration_tests_only",
 ]
+
+# ─── ルール⑮: `temp_dir().join(<固定名>)` の弱い一意性検出 ───
+#
+# 由来: PR #405 で `std::env::temp_dir().join(<固定名>)` を production とテストの両方で
+# 踏んだ (順位 455)。production 側は ADR-045 が支える並行 `pnpm push` が互いのスナップショットを
+# 上書きし合うレース、テスト側は入力長から名前を作って `/` 版と `\` 版が衝突する形だった。
+# 1 つ直した直後に同型を別の場所で作っており、人手の注意では止まらないため決定論層へ移す
+# (ADR-007 の正規表現層)。
+#
+# 検出スコープ (regex 層の限界を先に見積もった結果):
+# `temp_dir().join("<文字列リテラル>")` の直呼び (= 引数が呼び出しのたびに不変な literal) だけを
+# 検出する。`.join(format!(...))` や `.join(some_var)` は literal 直後に `"` が来ないため
+# 対象外 (= 動的組立は「弱い一意性でない」とみなし false positive を避ける)。
+# `join` が複数行にまたがる書き方 (`\s*` で改行を許容するため単純な改行分割は追えるが、
+# 引数側に変数や関数呼び出しが挟まる形は正規表現では判定できない) はこの層の既知の限界。
+#
+# `process::id()` を「これを付ければ済む」条件にしないこと (着手時の設計メモ、順位 455):
+# プロセス ID が分けるのはプロセス間だけで、同一プロセスが複数の一時ファイルを作る場合は
+# 衝突する。本 rule は「literal な固定名」だけを機械検出し、`process::id()` 単体で十分かは
+# fix 側のガイダンス (用途名 / カウンタとの組合せ、または `tempfile` crate) に委ねる。
+
+[[rules]]
+id = "no-weak-temp-uniqueness"
+pattern = 'temp_dir\(\)\s*\.join\(\s*"[^"]*"\s*\)'
+severity = "error"
+message = "temp_dir() に文字列リテラルの固定名を join しています。呼び出しごとに一意な名前にしてください"
+why = "PR #405 で std::env::temp_dir().join(<固定名>) を production (ADR-045 が支える並行 pnpm push によるスナップショット上書きレース) とテスト (入力から名前を作り区切り文字違いで衝突) の両方で踏んだ。1 つ直した直後に同型を別箇所で作っており、人手の注意では止まらない。process::id() 単体では同一プロセス内の複数回呼び出しで不足するため、fix 側で用途名 / カウンタとの組合せ、または tempfile crate への切替を促す"
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "process ID + 用途名の組み合わせ、または tempfile crate の一時ファイル/ディレクトリ生成に置換"
+steps = [
+  "同一プロセス内で 1 度しか呼ばれない場合: format!(\"<用途名>-{}.json\", std::process::id()) に変える",
+  "同一プロセスが複数回呼ぶ場合: 単調増加カウンタ (AtomicU64 等) を process id と組み合わせるか、tempfile::Builder / tempfile::NamedTempFile で生成自体に一意性を持たせる",
+  "テストで衝突する場合: 呼び出しごとに異なる用途名 (test 関数名由来など) を name に含める",
+]
+
+[rules.example]
+bad = "let path = std::env::temp_dir().join(\"push-runner-snapshot.json\");"
+good = "let path = std::env::temp_dir().join(format!(\"push-runner-snapshot-{}.json\", std::process::id()));"
+
+[rules.incident]
+pr = 405
+bad_fixture = "no-weak-temp-uniqueness.rs"
+good_fixture = "no-weak-temp-uniqueness.rs"
+adr = "adr-045"
+
+[rules.test_coverage]
+# rule⑮ は rs のみ (主要拡張子)。literal 直呼び (positive) と動的組立 / 非 temp_dir join (negative) を網羅。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_weak_temp_uniqueness_detects_fixed_literal_join",
+  "no_weak_temp_uniqueness_detects_bare_env_temp_dir_prefix",
+  "no_weak_temp_uniqueness_skips_format_with_process_id",
+  "no_weak_temp_uniqueness_skips_non_temp_dir_join",
+  "no_weak_temp_uniqueness_only_targets_rust_extension",
+]
