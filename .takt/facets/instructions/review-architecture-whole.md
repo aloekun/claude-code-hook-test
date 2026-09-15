@@ -16,7 +16,7 @@ Hook + pipeline + rule entry points to enumerate:
 
 - `~/.claude/rules/common/*.md` — global rules (referenced via `Read` if needed; do not modify)
 - `CLAUDE.md` — project rules
-- `.claude/custom-lint-rules.toml` + `.claude/hooks-config.toml` — declarative hook config
+- `config/custom-lint-rules.toml` + `.claude/hooks-config.toml` — declarative hook config
 - `src/cli-push-runner/src/stages/*.rs` — push-time stages
 - `src/hooks-*/src/main.rs` — hook implementations
 - `.takt/workflows/*.yaml` — facet-time review prompts (rules expressed as LLM instructions)

@@ -97,7 +97,7 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
   (c) config enabled / exe 配備
   状態の **snapshot** (「0 = 上流修正」と「0 = 無効化・未配備」の誤読防止)、(d) incident 由来ルール
   ([ADR-049](adr-049-incident-eval-regression-suite.md)) の「発火 0 でも維持推奨」マーク、
-  (e) 判定候補。incident 由来ルールの真実源は `.claude/custom-lint-rules.toml` の `[rules.incident]`
+  (e) 判定候補。incident 由来ルールの真実源は `config/custom-lint-rules.toml` の `[rules.incident]`
   サブテーブル (id を exe 側に複製しない、ADR-049 思想と整合)。snapshot は集計実行時点の状態であり
   単体では月内の有効性を証明しないため、**月次 rollup 確定時に当月の snapshot を rollup JSON にも
   保存**し、判定はこの月別記録を参照する。
@@ -111,7 +111,7 @@ weekly-review にあった `.failed` marker / resume 機構は**不採用**と�
 後半が実装で満たされていなかった)。機構レジストリで母集合を静的に列挙してこの盲点を塞ぐ:
 
 - **機構レジストリ (3 供給源、すべて exe 隣接 `config_base` 基準)**:
-  - **rule**: `.claude/custom-lint-rules.toml` の全 rule id。incident 判定 (`incident.rs`) と同じ読み口
+  - **rule**: `config/custom-lint-rules.toml` の全 rule id。incident 判定 (`incident.rs`) と同じ読み口
     (`RulesFile`) を共有する。telemetry の rule firing id は `hooks-post-tool-linter` の
     `lib_telemetry::record` が `id: &rule.id` で記録する (= rule の `id` フィールドそのもの)。
   - **preset**: `hooks-config.toml` の `[pre_tool_validate] blocked_patterns` 宣言。preset firing は

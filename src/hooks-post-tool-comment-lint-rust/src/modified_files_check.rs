@@ -142,13 +142,9 @@ fn load_gate_config() -> GateConfigFile {
     toml::from_str(&content).unwrap_or_default()
 }
 
-/// `hooks-config.toml` のパス解決。current_exe の親 directory を優先し、
-/// 取得不能時は cwd 相対にフォールバック。
+/// `hooks-config.toml` のパス解決 ([`lib_config_path`] が探索順序を持つ)。
 fn config_path() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("hooks-config.toml")))
-        .unwrap_or_else(|| PathBuf::from("hooks-config.toml"))
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 /// `jj diff -r '<base>..@' --name-only` で PR 範囲の変更 file を取得し `.rs` のみ返す。

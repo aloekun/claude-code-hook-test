@@ -80,7 +80,7 @@ fn exe_path() -> PathBuf {
 /// ADR-010 の実配置 (`<root>/.claude/<hook>.exe`) を temp に組み立て、root を返す。
 ///
 /// - `<root>/.claude/hooks-stop-quality.exe` — 被テスト exe (exe-relative 解決の起点)
-/// - `<root>/.claude/hooks-config.toml` — 与えられた step 定義
+/// - `<root>/.claude/hooks-config.toml` — 与えられた step 定義 (実配置と同じ位置)
 /// - `<root>/.claude/probe.cmd` — ルート相対で呼ばれる成功 probe
 /// - `<root>/.takt/runs/` — incident の cwd (存在する非ルートディレクトリ)
 fn stage_project(prefix: &str, steps_toml: &str) -> PathBuf {

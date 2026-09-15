@@ -74,7 +74,6 @@
 | 485 | Tier 2 | **PR L で追加した実装のテスト補強 (PR #437 T2-1 + T2-2 採用)** | todo25.md | S | なし (`warn_when_unresolved` の false 側テストが無い + `clip_for_message` がタイトル列でしかテストされず順位セル経由の穴を見逃した。どちらも「追加した機能の一部の経路しかテストしていない」形) |
 | 486 | Tier 1 | **auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-20 の run が順位 383 を選び `src/lib-ledger/src/lib.rs` の変更で `[NIGHTLY_DENY]` 停止。auto lane 22 行の全件照合で 5 行が deny リスト該当 (383 / 454 / 368 / 360 / 361)。ADR-074 決定 2 クラス 3 の判定を決定論化する — 同 ADR 決定 6 が「決定論だが未実装」と自認している穴。**実装先が deny リスト配下のため auto lane に載せない**) |
 | 487 | Tier 1 | **nightly-todo の master 参照を SHA で pin する (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-21 の run で master-ref=`7539551f` / work=`868c9316` と 31 秒差の別コミットを読み、その間に順位 228 の実装 PR #422 がマージされて変更 0 件で停止。master を 3 回別々に読むのに pin が無い。**`.github/workflows/` が deny リスト該当のため auto lane に載せない**) |
-| 492 | Tier 2 | **agent プロンプトの禁止パス列挙から台帳が欠落している** | todo26.md | XS | なし (ADR-072 決定 6 の禁止パスは 3 箇所に写しがあり、Guard 正規表現と ADR は 9 件だが agent プロンプトの列挙だけ 8 件で `docs/claude-code-web-tasks.md` を欠く。2026-08-25 に 3 箇所を突き合わせて実測。**強制層 = Guard 正規表現はずれていないため fail-closed は成立**しており、実害は agent が台帳を触って Guard deny に当たり run を 1 回捨てること。順位 486 と同じクラスの損失を別の入り口から作る。順位 454 の 3 点同期検査が最初に検出するはずの現存ずれで、454 と同一 PR にしてもよい。`.github/workflows/` が Guard 禁止パスのため auto lane 不可) |
 | 493 | Tier 1 | **jj materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる** | todo25.md | S | なし (週次レビュー WR-2026-08-22-J01 / J02、severity=high、facet=jj-robustness。`fetch_head_is_recent()` と `holder_still_writing()` の 2 件は「jj が working copy を materialize すると全ファイルの mtime が checkout 時刻へ書き換わる」という同一根因。bugfix-batch-plan.md の PR P が担当) |
 | 494 | Tier 1 | **ADR-032 の「永久欠番」決定が CLAUDE.md の ADR index へ未反映** | todo25.md | XS | なし (週次レビュー WR-2026-08-22-A01、severity=high、facet=architecture、category=adr-alignment) |
 | 495 | Tier 2 | **`lib-*` crate の責務分類基準が ADR-012 に無い** | todo25.md | S | なし (週次レビュー WR-2026-08-22-A04、severity=medium、facet=architecture、category=module-boundary) |
@@ -88,7 +87,6 @@
 | 504 | Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
 | 505 | Tier 2 | **[defect:G2] telemetry の id 契約と TOML 構造の回帰を足す** | todo26.md | S | なし (PR #463 / #456 feedback。セクション分断を実際に起こした。ADR-055 への識別子判定基準の追記を同乗) |
 | 506 | Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
-| 507 | Tier 1 | **[defect:G1] 夜間 agent の `Edit(work/**)` がドット始まりディレクトリを覆わない** | todo26.md | M | なし (run 33665621808 で permission_denials_count: 2。順位 281/455 が構造的に完了不能で human lane へ退避済み。着手時判断: 原因の実測確認と `.github/` を allow に含めるかの整理が要る) |
 | 508 | Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | todo26.md | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
 | 509 | Tier 1 | **[defect:G1] `cli-merge-pipeline` の gh 呼び出しが非 colocated workspace で解決に失敗する** | todo26.md | S | なし (weekly-review WR-2026-09-03-J01。順位 467 F-2 / PR #470 と同型で 3 度目。着手時判断: `detect_owner_repo` は `--repo` が循環するため代替経路の選択が要る。順位 502 の lint との前後関係も決める) |
 | 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | todo26.md | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか) |
@@ -97,6 +95,7 @@
 | 513 | Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |
 | 514 | Tier 2 | **[improvement] パーサ堅牢化を仕組みで担保できるか調べる** | todo26.md | S | なし (#479 / #313 の 2 件が同型。規約でなく型の網羅性 / fixture 契約 / 計測の 3 案を比較してから決める) |
 | 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
+| 519 | Tier 4 | **[improvement] `config/` 移設で夜間 agent の書き込み権限が実際に届くかを実走で確認する** | todo26.md | XS | なし (順位 507 の後始末。hooks 側の設定読込は 2026-09-15 に実走確認済みだが、agent の `Edit(work/**)` が `work/config/**` に届くかは未確認。夜間 run が順位 455 / 281 を完走すれば確認できる、ADR-067) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

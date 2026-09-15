@@ -47,6 +47,7 @@ members = [
     "src/hooks-stop-tool-call-leak",
     "src/hooks-user-prompt-feedback-recovery",
     "src/lib-autonomy-policy",
+    "src/lib-config-path",
     "src/lib-docs-policy",
     "src/lib-hook-output",
     "src/lib-jj-helpers",

@@ -185,13 +185,9 @@ fn normalize_cwd_to_project_root() {
     }
 }
 
-/// 設定ファイルのパス解決
+/// 設定ファイルのパス解決 ([`lib_config_path`] が探索順序を持つ)。
 fn config_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("hooks-config.toml")
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 /// 設定ファイルを読み込む。(Config, ファイルが存在したか) を返す
@@ -330,7 +326,7 @@ fn warn_no_steps_configured(config_found: bool) {
         eprintln!(
             "[stop-quality] Warning: hooks-config.toml not found. Quality gate is disabled."
         );
-        eprintln!("[stop-quality] Place hooks-config.toml in the same directory as this exe.");
+        eprintln!("[stop-quality] Place hooks-config.toml beside this exe at <repo root>/.claude/ (ADR-006).");
     } else {
         eprintln!(
             "[stop-quality] Warning: No quality steps configured. Quality gate is disabled."

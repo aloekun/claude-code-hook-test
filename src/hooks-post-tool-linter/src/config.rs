@@ -5,13 +5,13 @@
 //!
 //! - **Layer 0.5** (`[post_tool_use.file_size_check]`): PostToolUse Edit / Write 直後の
 //!   ファイルサイズ閾値検出。default OFF (ADR-039 opt-in pattern)。
-//! - **Layer 1** (`[post_tool_linter]` 配下の custom rules): `.claude/custom-lint-rules.toml`
+//! - **Layer 1** (`[post_tool_linter]` 配下の custom rules): `config/custom-lint-rules.toml`
 //!   経由の regex ベースのカスタムリンタ。
 //! - **Layer 2** (`[post_tool_linter].pipelines`): 拡張子ごとの biome / oxlint / ruff /
 //!   markdownlint パイプライン実行。
 
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Deserialize, Default)]
 pub(crate) struct Config {
@@ -148,13 +148,9 @@ fn default_py_pipeline() -> PipelineConfig {
     }
 }
 
-/// 設定ファイルのパス解決
+/// 設定ファイルのパス解決 ([`lib_config_path`] が探索順序を持つ)。
 fn config_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("hooks-config.toml")
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 /// 設定ファイルを読み込む

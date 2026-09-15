@@ -6,7 +6,7 @@
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
-//! - [`deployed_tests`]: `.claude/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
+//! - [`deployed_tests`]: `config/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
 //!   deployed artifact に対する regression seal tests
 
 pub(crate) mod coverage;

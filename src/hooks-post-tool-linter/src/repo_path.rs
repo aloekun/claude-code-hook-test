@@ -2,7 +2,7 @@
 //!
 //! # なぜ必要か
 //!
-//! `.claude/hooks-config.toml` の `paths` や `.claude/custom-lint-rules.toml` の `paths` は
+//! `.claude/hooks-config.toml` の `paths` や `config/custom-lint-rules.toml` の `paths` は
 //! **リポジトリ相対の glob** (`docs/**/*.md` / `.takt/workflows/*.yaml`) で書く。一方
 //! Claude Code が PostToolUse hook に渡す `tool_input.file_path` は **絶対パス**
 //! (`C:/Users/.../repo/docs/guide.md`) である。

@@ -86,7 +86,8 @@ fn generate_and_write(
     let current_month = timekit::epoch_secs_to_month(now);
     let snapshot = snapshot::compute_snapshot(config_base, &config.mechanisms);
     let rollups = update_rollups(discovery, &snapshot, &current_month, now)?;
-    let retention_deleted = aggregate::apply_retention(&discovery.roots, config.retention_days, now);
+    let retention_deleted =
+        aggregate::apply_retention(&discovery.roots, config.retention_days, now);
     finish_report(
         config_base,
         config,
@@ -192,9 +193,15 @@ fn print_summary(summary: &Summary, discovery: &RootDiscovery) {
     println!("  月次 rollup: {} 月分", summary.rollup_count);
     println!("  retention 削除: {} 件", summary.retention_deleted);
     if discovery.is_degraded() {
-        println!("  root 発見: degraded ({} 件の理由) — 判定候補の promote は抑止", discovery.degraded.len());
+        println!(
+            "  root 発見: degraded ({} 件の理由) — 判定候補の promote は抑止",
+            discovery.degraded.len()
+        );
     } else {
-        println!("  root 発見: 完全（判定候補 promote {} 件）", summary.promote_count);
+        println!(
+            "  root 発見: 完全（判定候補 promote {} 件）",
+            summary.promote_count
+        );
     }
 }
 
@@ -221,9 +228,17 @@ fn exe_dir() -> Option<PathBuf> {
         .and_then(|p| p.parent().map(Path::to_path_buf))
 }
 
-/// exe 隣接 hooks-config.toml から `[telemetry_report]` を読む。読めなければ default (レポートのみ)。
+/// `hooks-config.toml` の所在。優先順位は [`lib_config_path`] が 1 箇所で持つ。
+/// `config_base` は exe 隣接 `.claude/` を渡す前提。`hooks-config.toml` は `lib_config_path` の
+/// 新配置 (`config/`) 移設ホワイトリストに含まれないため、`config/` は候補に入らず常に
+/// `config_base` 自身 (`.claude/hooks-config.toml`) を返す。
+fn hooks_config_path(config_base: &Path) -> PathBuf {
+    lib_config_path::resolve_config_from_exe_dir(config_base, "hooks-config.toml")
+}
+
+/// [`hooks_config_path`] から `[telemetry_report]` を読む。読めなければ default (レポートのみ)。
 fn load_config(config_base: &Path) -> TelemetryReportConfig {
-    std::fs::read_to_string(config_base.join("hooks-config.toml"))
+    std::fs::read_to_string(hooks_config_path(config_base))
         .ok()
         .map(|c| config::parse_config(&c))
         .unwrap_or_default()
@@ -249,8 +264,60 @@ mod tests {
 
     #[test]
     fn parse_args_ignores_unknown_and_bad_value() {
-        let args = vec!["--foo".to_string(), "--now-epoch".to_string(), "notnum".to_string()];
+        let args = vec![
+            "--foo".to_string(),
+            "--now-epoch".to_string(),
+            "notnum".to_string(),
+        ];
         assert!(parse_args(&args).now_epoch.is_none());
+    }
+
+    /// `config_base` (= `.claude/` 相当) を返す。[`hooks_config_path`] は `config_base.parent()` を
+    /// リポジトリルートとして解決するため、テストも実運用と同じ 2 階層構造 (`root/.claude/`) を
+    /// 用意する。ルートは呼び出しごとに新しい tempdir なので、OS 共有の temp 直下を探索して
+    /// 他テストの fixture を拾う心配がない。
+    fn claude_dir_under_fresh_root() -> (tempfile::TempDir, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let claude_dir = root.path().join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        (root, claude_dir)
+    }
+
+    #[test]
+    fn load_config_falls_back_to_legacy_location() {
+        let (_root, config_base) = claude_dir_under_fresh_root();
+        std::fs::write(
+            config_base.join("hooks-config.toml"),
+            "[telemetry_report]\nretention_days = 30\n",
+        )
+        .unwrap();
+        let config = load_config(&config_base);
+        assert_eq!(config.retention_days, Some(30));
+    }
+
+    /// 回帰テスト (fail-closed): `config/hooks-config.toml` が存在していても無視され、
+    /// `.claude/hooks-config.toml` が使われる。`hooks-config.toml` は `[pre_tool_validate]` の
+    /// block preset など保護ゲートの設定を持つため、agent が到達可能な `config/` から
+    /// 拾えてしまうとゲートを無効化する設定を外から与えられる
+    /// (ADR-006 § 改訂 (2026-09-15) 決定 1 / セキュリティレビュー finding
+    /// `SEC-NEW-lib-config-path-hooks-config-override` の再発防止)。
+    #[test]
+    fn load_config_ignores_new_config_location_even_when_present() {
+        let (root, config_base) = claude_dir_under_fresh_root();
+        let new_config_dir = root.path().join(lib_config_path::CONFIG_DIR);
+        std::fs::create_dir_all(&new_config_dir).unwrap();
+        std::fs::write(
+            new_config_dir.join("hooks-config.toml"),
+            "[telemetry_report]\nretention_days = 45\n",
+        )
+        .unwrap();
+        std::fs::write(
+            config_base.join("hooks-config.toml"),
+            "[telemetry_report]\nretention_days = 30\n",
+        )
+        .unwrap();
+        let config = load_config(&config_base);
+        assert_eq!(config.retention_days, Some(30));
     }
 
     #[test]

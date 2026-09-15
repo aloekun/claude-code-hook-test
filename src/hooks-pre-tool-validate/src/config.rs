@@ -5,7 +5,7 @@
 //! の Option<bool> は明示 true 指定が無ければ skip する。
 
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Deserialize, Default)]
 pub(crate) struct Config {
@@ -33,13 +33,9 @@ pub(crate) const TODO_STALENESS_DEFAULT_BRANCH: &str = "master";
 pub(crate) const TODO_STALENESS_DEFAULT_GREP_LIMIT: u64 = 20;
 pub(crate) const TODO_STALENESS_JJ_TIMEOUT_SECS: u64 = 5;
 
-/// 設定ファイルのパス解決: exe のあるディレクトリ / hooks-config.toml
+/// 設定ファイルのパス解決 ([`lib_config_path`] が探索順序を持つ)。
 pub(crate) fn config_path() -> PathBuf {
-    std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join("hooks-config.toml")
+    lib_config_path::resolve_config("hooks-config.toml")
 }
 
 /// 設定ファイルを読み込む (存在しない場合はデフォルト)

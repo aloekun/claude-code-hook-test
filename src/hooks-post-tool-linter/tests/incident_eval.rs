@@ -12,7 +12,7 @@
 //!
 //! Fixtures live under `tests/fixtures/incidents/{bad,good}/` and are synthetic test
 //! data reproducing the real incident each rule was created for (see the fixture
-//! headers and `[rules.incident]` in `.claude/custom-lint-rules.toml`).
+//! headers and `[rules.incident]` in `config/custom-lint-rules.toml`).
 
 use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};
 use std::io::Write;
@@ -76,7 +76,7 @@ fn fixture_path(kind: &str, name: &str) -> PathBuf {
 /// the freshly built binary lives in `target/debug/` without the deployed toml, so copy
 /// it beside the exe before spawning (false-green guard on a missing source toml).
 fn ensure_rules_toml_beside_exe() {
-    let src = repo_root().join(".claude").join("custom-lint-rules.toml");
+    let src = repo_root().join("config").join("custom-lint-rules.toml");
     assert!(
         src.exists(),
         "deployed custom-lint-rules.toml missing at {} (false-green guard)",
@@ -245,7 +245,7 @@ fn incident_eval_all_incident_rules() {
 #[test]
 fn cases_cover_every_incident_rule() {
     let toml = std::fs::read_to_string(
-        repo_root().join(".claude").join("custom-lint-rules.toml"),
+        repo_root().join("config").join("custom-lint-rules.toml"),
     )
     .expect("read deployed custom-lint-rules.toml");
     let incident_rule_count = toml

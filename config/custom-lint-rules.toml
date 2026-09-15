@@ -1,6 +1,6 @@
 # custom-lint-rules.toml — プロジェクト固有のカスタムリントルール
 #
-# このファイルは .claude/ 直下に配置し、hooks-post-tool-linter が読み込みます。
+# このファイルは リポジトリルートの config/ に配置し、hooks-post-tool-linter が読み込みます。
 # プロジェクトごとに異なるルールセットを定義できます。
 #
 # サポート field の semantic / parse 仕様は lint runner 側 (`src/hooks-post-tool-linter/src/main.rs`)
