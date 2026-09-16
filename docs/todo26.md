@@ -533,3 +533,58 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
 
 - 上記いずれかの順位で夜間 run が完走し、`config/` 配下への編集が成功したことを run の記録で確認できている
 - 失敗した場合は本エントリに実測を残し、権限側の対処 (allow へ `config/**` を明示する等) を検討する
+
+---
+
+### 順位 520: CodeRabbit の auto レビュー再開に review-request / 再レビュー経路を追従させる
+
+> **動機**: CodeRabbit が 2026-09-10 頃から、star 10 未満・bot 作成 PR でも **PR 作成直後
+> (7〜8 秒) に自発 walkthrough を出す**ようになった。これは `.coderabbit.yaml` と
+> review-request.yml が土台にしてきた「star 10 未満 → auto レビューされない → 人間 PAT で
+> `@coderabbitai review` を要求する」(2026-09-08 実測、ADR-019 amendment) という前提の崩壊である。
+>
+> **実測 (bot PR の初動)**: #477 (09-04) は要求→ack→walkthrough で review-request success (旧挙動)。
+> #483 (09-06) / #487 (09-07) は RATE-LIMITED (「already reviewed commits は再レビューしない」=
+> auto が動き始めた兆候)。**#494 (09-10) / #502 (09-15) は自発 walkthrough が要求より前に出て、
+> review-request が failure**。境界は 09-06〜09-10。
+>
+> **今の failure の直接原因**: (a) auto walkthrough の後に review-request が要求を重ねる二重依頼、
+> (b) 判定が `comment_id > SINCE_ID` で「要求より後のレビュー」しか見ず、要求の数秒前に出た
+> walkthrough を構造的に見落として 900 秒で red。レビュー自体は成功している (誤 red)。
+>
+> **由来**: `[improvement]`。証拠 = 上記 PR 群の初動タイムライン。CodeRabbit の挙動は
+> `.coderabbit.yaml` 冒頭が記録するとおり短期間で何度も変わるため、**特定の挙動を前提に
+> 固定するのではなく、実測で吸収する形**にするのが本タスクの主眼。
+
+#### 設計方針 (2026-09-16 ヒアリングで決定: fallback 化)
+
+3 経路すべてが「auto が効かない」前提に立つ。**auto が効くかを 1 つの共有判定関数で確かめ、
+効いていれば各経路は自分の起動を skip する** fallback 化にする (即撤去はしない — auto の
+継続性は n=2 の観測で、CodeRabbit 挙動は変わりうるため)。判定を 1 箇所に集約するのは
+[ADR-081](adr/adr-081-single-fact-dispersion.md) の分散解消でもある。
+
+| 経路 | 現在の前提 | 追従後 |
+|---|---|---|
+| review-request.yml | bot PR は auto されない → PAT 要求 | 要求前に現 head の auto walkthrough を確認 → あれば要求せず success |
+| cli-pr-monitor trigger_review.rs (順位 321) | star 10 未満 → Trigger review チェックボックスが出る | チェックボックスが無ければ (= auto 済み) skip |
+| cli-pr-monitor review_trigger.rs / rate_limit.rs | `auto_incremental_review: false` が効かない | fix push 後の再レビューが auto で来るなら明示要求を skip |
+
+#### 作業計画
+
+- [ ] 「現 head が CodeRabbit にレビュー済みか」の判定を 1 関数へ集約する
+      (`review_trigger.rs::head_already_reviewed` が近い。3 経路で共有できる形にする)
+- [ ] review-request.yml: 要求前に判定を挟み、auto 済みなら要求せず success で終える。
+      判定不能 / 未レビューなら従来どおり PAT 要求 (auto が止まった夜への保険を残す)
+- [ ] `SINCE_ID` より前の walkthrough も成功証拠として見る (要求前に出たレビューの取りこぼし防止)
+- [ ] ack の `Review finished.` / 「already reviewed commits」を成功分類に加える
+- [ ] `.coderabbit.yaml` 冒頭の「star 10 未満で効かない」注記を実測 (09-10〜) に合わせて更新
+- [ ] ADR-019 amendment に「auto 挙動は実測で吸収する (特定挙動に固定しない)」旨を追記
+
+#### 完了基準
+
+- bot PR で auto walkthrough が出た場合、review-request が二重依頼せず success で終える
+- auto が来なかった場合 (rate-limit 等) は従来どおり PAT 要求が走る (両挙動に耐える)
+- 3 経路が同一の判定関数を通り、判定ロジックの写経が無い (ADR-081)
+
+> **注記**: review-request.yml / nightly-todo.yml は Guard 禁止パス、cli-pr-monitor は
+> `src/cli-pr-monitor/` で Guard 対象外だが判定共有の設計を伴う。実装は human lane。

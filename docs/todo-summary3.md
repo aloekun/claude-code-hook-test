@@ -96,6 +96,7 @@
 | 514 | Tier 2 | **[improvement] パーサ堅牢化を仕組みで担保できるか調べる** | todo26.md | S | なし (#479 / #313 の 2 件が同型。規約でなく型の網羅性 / fixture 契約 / 計測の 3 案を比較してから決める) |
 | 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
 | 519 | Tier 4 | **[improvement] `config/` 移設で夜間 agent の書き込み権限が実際に届くかを実走で確認する** | todo26.md | XS | なし (順位 507 の後始末。hooks 側の設定読込は 2026-09-15 に実走確認済みだが、agent の `Edit(work/**)` が `work/config/**` に届くかは未確認。夜間 run が順位 455 / 281 を完走すれば確認できる、ADR-067) |
+| 520 | Tier 3 | **[improvement] CodeRabbit の auto レビュー再開に review-request / 再レビュー経路を追従させる** | todo26.md | M | なし (2026-09-10 頃から bot PR も auto レビューされるようになり review-request が誤 red。3 経路が「auto が効かない」前提に立つため、auto 有無を共有判定で吸収する fallback 化。ADR-019 / ADR-081) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
