@@ -99,6 +99,15 @@ workflow が `master-ref/autonomy-config.toml` として参照し、ハッシュ
 `push-runner-config.toml` / `pr-monitor-config.toml` は移動可能だが、agent が編集するタスクが無く、
 移動しても deny が要るため見送った。
 
+### 実走確認 (2026-09-16)
+
+本移設が狙った「agent の `Edit(work/**)` が設定ファイルに届く」ことは、2026-09-16 の夜間 run
+(`rank=281` → PR [#504](https://github.com/aloekun/claude-code-hook-test/pull/504)) が
+`config/custom-lint-rules.toml` と fixtures を編集して PR 作成まで到達したことで確認できた。
+移設前に同じクラスのタスクが `permission_denials_count: 2` で 0 変更に終わっていたのと対になる実測である。
+agent の権限経路は実走でしか検証できない ([ADR-067](adr-067-phase-b-unattended-fix-push.md)) ため、
+推論ではなくこの run をもって解消とする。
+
 ## 影響
 
 - 派生プロジェクトから Rust ソースと cargo ビルド環境を撤去可能
