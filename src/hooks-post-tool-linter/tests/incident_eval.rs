@@ -53,6 +53,7 @@ const CASES: &[Case] = &[
     Case { rule_type: "NO_HARDCODED_JJ_REVSET_RANGE", severity: "warning", fixture: "no-hardcoded-jj-revset-range.rs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_WORKSTREAM_SEQ_NAMES_IN_CONFIG", severity: "warning", fixture: "no-workstream-seq-names-in-config.toml", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_UNBOUNDED_CHILD_WAIT", severity: "error", fixture: "no-unbounded-child-wait.rs", expected_line: 2, workflow_rel: Some("src/incident-eval/tests/e2e.rs") },
+    Case { rule_type: "NO_WEAK_TEMP_UNIQUENESS", severity: "error", fixture: "no-weak-temp-uniqueness.rs", expected_line: 2, workflow_rel: None },
 ];
 
 fn repo_root() -> PathBuf {

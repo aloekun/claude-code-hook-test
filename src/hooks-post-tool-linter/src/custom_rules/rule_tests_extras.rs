@@ -698,3 +698,61 @@ fn no_unbounded_child_wait_paths_match_integration_tests_only() {
         assert!(!rule_matches_path(&compiled, &abs(rel)), "should not match: {rel}");
     }
 }
+
+// ─── rule⑮: no-weak-temp-uniqueness ───
+
+fn no_weak_temp_uniqueness_rule() -> CustomRule {
+    make_test_rule(
+        "no-weak-temp-uniqueness",
+        r#"temp_dir\(\)\s*\.join\(\s*"[^"]*"\s*\)"#,
+        &["rs"],
+    )
+}
+
+fn run_weak_temp_uniqueness_rule_on(source: &str) -> usize {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "snapshot.rs", source);
+    let rules = compile_test_rules(vec![no_weak_temp_uniqueness_rule()]);
+    run_custom_rules(file.to_str().unwrap(), &rules).len()
+}
+
+#[test]
+fn no_weak_temp_uniqueness_detects_fixed_literal_join() {
+    let source = "let path = std::env::temp_dir().join(\"push-runner-snapshot.json\");\n";
+    assert_eq!(run_weak_temp_uniqueness_rule_on(source), 1);
+}
+
+/// prefix (`std::env::` 等) の有無に関わらず `temp_dir()` の部分一致で検出する。
+#[test]
+fn no_weak_temp_uniqueness_detects_bare_env_temp_dir_prefix() {
+    let source = "let path = env::temp_dir().join(\"cli-nightly-task-select-absent\");\n";
+    assert_eq!(run_weak_temp_uniqueness_rule_on(source), 1);
+}
+
+/// `format!` 等の動的組立は literal 直呼びでないため対象外 (`.join(` の直後が `"` でない)。
+#[test]
+fn no_weak_temp_uniqueness_skips_format_with_process_id() {
+    let source = "let path = std::env::temp_dir().join(format!(\"snapshot-{}.json\", std::process::id()));\n";
+    assert_eq!(run_weak_temp_uniqueness_rule_on(source), 0);
+}
+
+/// `temp_dir()` を経由しない通常の `.join(\"literal\")` (例: 既存 `PathBuf` への相対結合) は
+/// 本 rule のスコープ外 (temp file の一意性問題ではない)。
+#[test]
+fn no_weak_temp_uniqueness_skips_non_temp_dir_join() {
+    let source = "let path = repo_root().join(\"config\").join(\"custom-lint-rules.toml\");\n";
+    assert_eq!(run_weak_temp_uniqueness_rule_on(source), 0);
+}
+
+#[test]
+fn no_weak_temp_uniqueness_only_targets_rust_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(
+        dir.path(),
+        "notes.md",
+        "let path = std::env::temp_dir().join(\"push-runner-snapshot.json\");\n",
+    );
+    let rules = compile_test_rules(vec![no_weak_temp_uniqueness_rule()]);
+    let violations = run_custom_rules(file.to_str().unwrap(), &rules);
+    assert!(violations.is_empty());
+}

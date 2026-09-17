@@ -54,42 +54,6 @@
 
 なし
 
-### 順位 455: 一時ファイルの弱い一意性を検知する lint
-
-> **動機**: `std::env::temp_dir().join(<固定名>)` を [#405](https://github.com/aloekun/claude-code-hook-test/pull/405) で **production とテストの両方で踏んだ**。production 側は [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) が支える並行 `pnpm push` で互いのスナップショットを上書きし合う race、テスト側は入力長から名前を作って `/` 版と `\` 版が衝突する形だった。1 つ直した直後に同型を別の場所で作っており、**人手の注意では止まらない**。
->
-> **統合した提案**: `temp_dir().join(<固定 or 弱い一意性>)` の検知 (#405 Tier1 #4)、テスト用一時ファイルの命名規則 (#405 Tier3 #4 の機械強制部分)。
->
-> **参照**: `.claude/feedback-reports/405.md`、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)
->
-> **実行優先度**: **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- custom lint rule (`.claude/custom-lint-rules.toml`)。`temp_dir()` を含む行の近傍に `process::id()` 等の一意化子が無い形を検出する
-- **regex 層の限界を先に見積もる** ([ADR-007](adr/adr-007-custom-linter-layer-boundary.md))。`join` が複数行に分かれる書き方は正規表現で追えない。追えない形が現行コードにどれだけあるか grep で測ってから、rule にするか cargo test にするかを決める
-
-#### 作業計画
-
-- [ ] 現行コードの `temp_dir()` 利用箇所を全件洗い、regex で追える形の割合を測る
-- [ ] rule 化するなら fixture 3 点セット + dogfood
-- [ ] 追えない形が多ければ cargo test (AST でなく実ファイル走査) へ切り替える
-
-#### 完了基準
-
-- 固定名の一時ファイル生成を足すと、その場で機械的に止まる
-
-> **`process::id()` を「これを付ければ済む」条件にしないこと。** プロセス ID が分けるのは
-> プロセス間だけで、**同一プロセスが複数の一時ファイルを作る場合は衝突する**。入力値から
-> 名前を導くのも不可 — `/` 区切りと `\` 区切りのように、異なる入力が同じ名前になりうる
-> (実際に #405 のテストで踏んだ)。検査で要求するのは「呼び出しごとに一意」であり、
-> プロセス ID + 用途名、あるいは `tempfile` crate の一時ディレクトリなど、
-> **何を一意性の源にするかは着手時に決める**。
-
-#### 詰まっている箇所
-
-一意性の担保方法が未確定 (プロセス ID 単体では不足。用途名との組み合わせか crate 導入か)
-
 ### 順位 456: workflow の guard なし `git commit` を検知する
 
 > **動機**: [#406](https://github.com/aloekun/claude-code-hook-test/pull/406) で **Critical を 2 度**踏んだ。(1) pathspec 無しの `git commit` が Guard step の `git add -A` で stage された全ツリーを取り込み、後段の commit が空になって **PR が 1 つも作られなくなる**。(2) ステージが空の場合に無条件 commit が非ゼロで落ち、検証済みの実装ごと job が落ちる。どちらも「単体では正しいが前後の文脈で破綻する」型で、レビューが無ければ夜間ループが停止していた。
