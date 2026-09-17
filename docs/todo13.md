@@ -220,32 +220,49 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **本タスクの位置づけ**: PR #229 post-merge-feedback Tier 1 #1 採用 (High / Effort S / Adoption Risk None)。順位 230 (flaky 修正、#227 land) の予防層。順位 237 (regression test = 検出層) と二層防御。
 >
-> **参照**: `.claude/feedback-reports/229.md` Tier 1 #1、PR #227 (`3d8e2aac`、flaky fix)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/cli-pr-monitor/src/stages/create_pr.rs` (tempfile 移行の実例)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-007 (正規表現層)。
+> **参照**: `.claude/feedback-reports/229.md` Tier 1 #1、PR #227 (`3d8e2aac`、flaky fix)、`config/custom-lint-rules.toml` (追加先、rule①〜⑯ と同型)、`src/cli-pr-monitor/src/stages/create_pr.rs` (tempfile 移行の実例)、`src/hooks-post-tool-linter/src/custom_rules/` (`CustomRule` + test module)、ADR-007 (正規表現層)。
 >
-> **実行優先度**: **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
+> **実行優先度**: **Tier 1** — Effort S。`config/custom-lint-rules.toml` に 1 rule + `src/hooks-post-tool-linter/src/custom_rules/` の test module に positive/negative test + 該当 1 箇所の `tempfile` 移行。
 
-#### 設計決定 (案)
+#### 設計決定 (2026-09-18 確定 — 455 とは統合しない)
 
-- **pattern**: temp file path を PID+ms で手動生成するパターン (例: `format!("...{}-{}...", std::process::id(), ...as_millis())` 系の temp 命名) を検出。`tempfile` crate (O_EXCL + ランダム名 + 衝突リトライ = industry standard、FP 極小) の使用を促す。
-- **severity**: warning (reviewer 判断補助)。block 化も検討。
-- **scope**: extensions=["rs"]。test code を含めるかは着手時判断。
-- **必須**: `rule_test_coverage_check` 用の positive (PID+ms 命名検出) / negative (tempfile 使用は skip) test を main.rs に追加。
+- **455 との境界は時刻成分の有無**。455 (`no-weak-temp-uniqueness`) の pattern は
+  `temp_dir\(\)\s*\.join\(\s*"[^"]*"\s*\)` で、**文字列リテラルの固定名しか見ない**ため PID+時刻形は
+  素通りする。捕まえる失敗も違う — 455 は固定名によるプロセス**間**衝突、本 rule は
+  **同一プロセス内**で一意にならないこと (同じミリ秒に 2 回呼ぶと衝突する) である。
+- **pattern**: `temp_dir()` 起点で **PID と時刻を両方含む**手動命名
+  (`format!("...{}-{}...", std::process::id(), ...as_millis()/as_nanos())` 系) を検出する。
+- **PID 単独の命名は対象外**。455 の `[rules.fix]` が推奨する形であり (`good` 例が
+  `format!("push-runner-snapshot-{}.json", std::process::id())`)、`src/` に `process::id()` は
+  64 箇所ある。ここを検出対象に含めると **455 が推奨して直した箇所を後から違反にする**。
+- **severity**: error (455 と揃える)。
+- **scope**: extensions=["rs"]。テストコードも対象 — 現時点の唯一の該当箇所がテストである。
+- **必須**: `rule_test_coverage_check` 用の positive (PID+時刻の併用を検出) / negative
+  (PID 単独は skip / `tempfile` 使用は skip) test を追加する。
 
 #### 作業計画
 
-- [ ] PID+ms temp 命名パターンを検出する rule を custom-lint-rules.toml に追加
-- [ ] main.rs に positive/negative test 追加
-- [ ] 既存 `.rs` の PID+ms temp 命名を grep して false positive 計測
+- [ ] `temp_dir()` 起点かつ PID+時刻の併用を検出する rule を `config/custom-lint-rules.toml` に追加
+- [ ] positive / negative test を `src/hooks-post-tool-linter/src/custom_rules/` の test module に追加
+      (helper は per-module 複製、800 行を超えるなら新 module へ分割 — [ADR-080](adr/adr-080-rust-module-split-invariants.md))
+- [ ] `tests/fixtures/incidents/{bad,good}/` に fixture を置き `incident_eval.rs` の `CASES` に 1 行追加
+- [ ] 唯一の該当箇所 `src/cli-nightly-outcome/tests/e2e.rs:217` を `tempfile` へ置き換える
+- [ ] `grep -rn "process::id()" --include=*.rs src/` の 64 箇所に**当たらない**ことを確認 (false positive 計測)
 - [ ] `cargo test -p hooks-post-tool-linter` pass
 - [ ] 本 entry 削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- PID+ms カスタム temp 命名が Write 時 (PostToolUse) に検出され `tempfile` crate 使用が促される。順位 237 (regression test) と二層防御を構成。
+- PID+時刻の手動 temp 命名が Write 時 (PostToolUse) に検出され `tempfile` の使用が促される。順位 237 (regression test) と二層防御を構成。
+- PID 単独の命名 (455 の推奨形) では発火しないことが negative test で固定されている。
 
-#### 詰まっている箇所
+#### 詰まっている箇所 — 解消済み (2026-09-18)
 
-- PID+ms 命名パターンの regex 表現 (false positive を抑えつつ手動 temp 命名を捕捉)。`process::id()` + `as_millis()` の組合せを近傍で検出する multiline pattern が要検討。
+- 「455 と統合するか」は**統合しない**で確定した (上記 設計決定)。判断留保が無くなったため auto lane へ移した。
+- regex の false positive 懸念は**スコープで解く**: `temp_dir()` 起点で PID と時刻の**両方**が近傍に出る形だけを見る。
+  PID 単独 (`src/` に 64 箇所) を除くことで、455 が推奨する命名と衝突しない。基準となる実測は
+  `grep -rn "as_millis\|as_nanos" --include=*.rs src/` が 2 箇所、PID と時刻の併用は 1 箇所
+  (`src/cli-nightly-outcome/tests/e2e.rs:217`)。
 
 ---
 
