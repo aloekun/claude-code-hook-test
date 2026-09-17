@@ -865,3 +865,81 @@ rs = [
   "no_weak_temp_uniqueness_skips_non_temp_dir_join",
   "no_weak_temp_uniqueness_only_targets_rust_extension",
 ]
+
+# ─── ルール⑯: hooks-* が config パスを自前で組み立てるのを禁止 (lib_config_path 経由を強制) ───
+#
+# 由来: PR #267 で新規 hook (jj-op-verify) が既存 hook と異なる `current_dir()` ベースの
+# 独自 config 解決を実装し、pre-push simplicity-review が REJECT (High) → fix step で
+# `current_exe().parent()` へ修正した実例。その後 `lib_config_path` (順位 455/236 系列) が
+# 導入され、探索順序の決定は 1 箇所に集約された (ADR-006 § 改訂 2026-09-15)。
+# 解決口が 1 本化された現在、`current_dir()` / `current_exe()` から自前で `.join(...)` を
+# 重ねて `*-config.toml` を組み立てるコードは **旧 incident の再発**であり、
+# `lib_config_path::resolve_config` / `resolve_config_from_exe_dir` / `resolve_config_from_root`
+# を経由していないことを意味する。
+#
+# Bundle Z #B-α と同じ「決定論的防止層」哲学 (ADR-007 の正規表現層)。
+#
+# 検出ロジック (co-occurrence, 片方向, 同一式内):
+# `current_dir()` / `current_exe()` の呼び出し直後 (400 文字以内) に
+# `.join("<...>config.toml")` が続く形を検出する。間隙は `[^;{}]` — `;` (文の終わり) と
+# 波括弧 (ブロック/関数の境界) を跨がないため、別関数の `current_exe()` と無関係な
+# `dir.join("hooks-config.toml")` が誤ってペアになることはない (PR #504 CodeRabbit 指摘)。
+# 改行は許す (rustfmt が method chain を複数行に割るため)。パス文字クラスに `/` を含むのは
+# `.join(".claude/hooks-config.toml")` の単一 join 形も同じ bug class だから (同上)。
+# `lib_config_path::resolve_config(...)` は
+# 関数呼び出し構文 (`resolve_config(` に文字列を渡す) であり `.join(` を経由しないため、
+# 正しい経路はこの pattern に一致しない。逆方向 (`.join` が先で `current_exe()` が後) は
+# 対象外 — 本リポジトリの実装は一貫して起点取得 → join の順で書かれており、この順序で
+# 十分カバーできる (rule⑦ と同じ direction-specific scope 限定)。
+#
+# Scope 限定 (extensions = ["rs"]、paths = hooks-* crate 配下のみ):
+# 判定対象は `hooks-*` crate の `.rs` に限定する。`lib_config_path` 自身の実装
+# (`src/lib-config-path/src/lib.rs`) は `current_exe()` を正当に使うが `hooks-*` 配下ではないため
+# 対象外になる。`hooks-*` 配下のテストコード (`.join("hooks-config.toml")` で fixture を
+# 組み立てる箇所) は、`current_dir()` / `current_exe()` を伴わず `tempdir()` /
+# `CARGO_MANIFEST_DIR` 由来のパスから組み立てているため、co-occurrence 条件で誤検知しない
+# (`hooks-session-start/src/hooks_config.rs` の test module 等で確認済み)。
+
+[[rules]]
+id = "no-manual-hooks-config-path"
+pattern = 'current_(?:dir|exe)\(\)[^;{}]{0,400}?\.join\(\s*"[\w./-]*config\.toml"\s*\)'
+severity = "error"
+message = "hooks-* hook が config パスを current_dir()/current_exe() から自前で組み立てています。lib_config_path::resolve_config (または resolve_config_from_exe_dir / resolve_config_from_root) を経由してください"
+why = "PR #267 で新規 hook が既存 hook と異なる cwd 基準の config 解決を実装し pre-push simplicity-review REJECT (High) の実例。その後 lib_config_path へ解決口が 1 本化された (ADR-006 § 改訂 2026-09-15) ため、自前 join は旧 incident の再発にあたる。決定論的防止層 (ADR-007 の正規表現層)"
+extensions = ["rs"]
+paths = ["src/hooks-*/**/*.rs"]
+
+[rules.fix]
+strategy = "lib_config_path::resolve_config (または resolve_config_from_exe_dir / resolve_config_from_root) への置換"
+steps = [
+  "exe 隣接の探索でよい場合: `lib_config_path::resolve_config(\"hooks-config.toml\")` に置換",
+  "別の base dir (staging 済み exe の隣等) を明示したい場合: `resolve_config_from_exe_dir(&exe_dir, \"hooks-config.toml\")`",
+  "repo root が既知の呼び出し元の場合: `resolve_config_from_root(&repo_root, \"hooks-config.toml\")`",
+  "自前の current_dir()/current_exe() + join チェーンを削除する",
+]
+
+[rules.example]
+bad = "std::env::current_dir().unwrap_or_default().join(\".claude\").join(\"hooks-config.toml\")"
+good = "lib_config_path::resolve_config(\"hooks-config.toml\")"
+
+[rules.incident]
+pr = 267
+bad_fixture = "no-manual-hooks-config-path.rs"
+good_fixture = "no-manual-hooks-config-path.rs"
+adr = "adr-006"
+
+[rules.test_coverage]
+# rule⑯ は rs のみ (主要拡張子)。current_dir/current_exe の positive variant と、
+# resolve_config 経由 / join 起点なし / hooks-* 外パス の negative を網羅。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_manual_hooks_config_path_detects_current_dir_join_chain",
+  "no_manual_hooks_config_path_detects_current_exe_join_chain",
+  "no_manual_hooks_config_path_skips_resolve_config_call",
+  "no_manual_hooks_config_path_skips_join_without_current_dir_or_exe",
+  "no_manual_hooks_config_path_skips_unrelated_current_exe_usage",
+  "no_manual_hooks_config_path_skips_separate_functions",
+  "no_manual_hooks_config_path_detects_single_join_with_slash_path",
+  "no_manual_hooks_config_path_paths_match_hooks_crates_only",
+]

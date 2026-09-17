@@ -6,6 +6,7 @@
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
+//! - [`rule_tests_manual_config_path`]: rule⑯ (no-manual-hooks-config-path) の tests
 //! - [`deployed_tests`]: `config/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
 //!   deployed artifact に対する regression seal tests
 
@@ -21,5 +22,7 @@ mod engine_tests;
 mod rule_tests;
 #[cfg(test)]
 mod rule_tests_extras;
+#[cfg(test)]
+mod rule_tests_manual_config_path;
 
 pub(crate) use engine::run_custom_rules_layer;
