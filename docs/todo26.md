@@ -566,3 +566,95 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
 
 > **注記**: review-request.yml / nightly-todo.yml は Guard 禁止パス、cli-pr-monitor は
 > `src/cli-pr-monitor/` で Guard 対象外だが判定共有の設計を伴う。実装は human lane。
+
+---
+
+### 順位 521: `scope_guard` の bounded-lifetime 判定に必要な実績が 47 日集まっていない
+
+> **動機**: ADR-054 の prompt injection 防御 layer 3 (`scope_guard`) は `enabled=true` / `mode="enforce"` で
+> 稼働しているが、enforce mode 開始 (2026-08-01) から 2026-09-18 までの 47 日間、fix step の実行実績が
+> 0 件で、ADR-054 が定める bounded-lifetime の決定トリガー「enforce mode で 3〜5 PR」を満たせていない。
+> 設計そのものは健全だが効果を検証したデータが存在せず、**決定期限が事実上無期限に延びている**。
+> ADR-039 の experimental feature 標準パターンは bounded lifetime を要求しており、期限が動かない状態は
+> その逸脱にあたる。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-09-18-C01 で採用 (severity=medium, facet=security, category=prompt-injection)
+>
+> **参照**: `.claude/weekly-reviews/2026-09-18.md`、`src/cli-pr-monitor/src/stages/scope_guard.rs`、
+> [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、
+> [ADR-039](adr/adr-039-experimental-feature-standard-pattern.md)、
+> [ADR-055](adr/adr-055-firing-telemetry-collection.md) (発火実績の観測基盤)
+
+#### 背景
+
+`scope_guard` は post-pr の fix step が「レビュー指摘と無関係なファイルを書き換える」ことを block する層で、
+判定機会は fix step が走ったときにしか来ない。つまり**この層の検証は fix step の発生頻度に従属**しており、
+頻度が低いまま期限だけが過ぎる構造になっている。ADR-039 は「期限までに判定材料が集まらなければ既定 OFF へ
+revert する」ことを求めているので、**材料が集まらなかったこと自体を判定結果として扱う**必要がある。
+
+なお「実績 0 件」は今回 facet が読んだ範囲での観測であり、決定論的な計数ではない。次回以降は印象でなく
+数で読めるようにしておく必要がある。
+
+#### 設計決定 (案)
+
+- bounded-lifetime の決定期限を 2026-10-31 として ADR-054 に明記する
+- 期限までに fix step が 1 度も発生しなければ `scope_guard` を既定 OFF へ revert し、
+  理由 (検証機会が来なかった) を ADR-054 に記録する。「効果が無かった」とは書かない — 観測できていないだけ
+- `scope_guard` の判定結果 (許可 / block / skip) を telemetry (ADR-055) の発火として記録するか判断する。
+  記録すれば「実績 0 件」を週次レビューと月次 ROI レビューの両方で機械的に読める
+- **着手時判断**: telemetry 記録の追加を先に入れるか、期限の再設定だけで済ませるかは着手時に決める。
+  前者は ADR-055 の id 契約に触れるため、月次レビュー (ADR-062) の集計軸との整合を確認してから入れる
+
+- [ ] ADR-054 に bounded-lifetime の決定期限 (2026-10-31) と、材料が集まらなかった場合の既定 OFF revert を明記する
+- [ ] `scope_guard` の判定結果を telemetry 発火として記録するか判断し、採るなら実装する
+- [ ] 期限到来時に enforce 継続 / 既定 OFF revert のどちらかを決め、理由を ADR-054 に残す
+
+#### 完了基準
+
+ADR-054 に決定期限と「材料が集まらなかった場合の既定 OFF revert」が書かれており、期限到来時の判定が
+印象ではなく観測値で行える状態になっている。
+
+---
+
+### 順位 522: Stop hook に docs-only routing が無く、docs のみの変更でも Rust の lint/test が走る
+
+> **動機**: push-runner の `quality_gate` は ADR-057 (docs_only_routing) により docs のみの変更では
+> rust-lint-test group を skip するが、`.claude/hooks-config.toml` の `[stop_quality]` には同等の判定が無い。
+> そのため interactive session の Stop 時には docs-only の変更でも `cargo clippy` / `cargo test` が無条件に
+> 走り、docs 変更が続く作業では毎ターン待ち時間が乗る。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-09-18-A02 で採用 (severity=medium, facet=architecture, category=harness-duplication)
+>
+> **参照**: `.claude/weekly-reviews/2026-09-18.md`、`.claude/hooks-config.toml` `[stop_quality]`、
+> `push-runner-config.toml` (`[quality_gate]` の docs-only routing)、
+> [ADR-057](adr/adr-057-docs-only-deterministic-routing.md)、[ADR-081](adr/adr-081-single-fact-dispersion.md)
+
+#### 背景
+
+ADR-057 は docs-only routing を「instruction 規約から決定論機構への昇格」として push 経路に入れた。
+Stop hook は同じ判定を持たないため、**「この変更は docs-only か」という同一の事実が push 経路にしか
+無い**状態になっている (ADR-081 が扱う分散の一形態だが、ここでは写経ではなく**片側欠落**)。
+
+> **⚠ 既存エントリとの競合**: `docs/todo.md`「週次レビュー採用 (2026-07-01)」の
+> WR-2026-07-01-A01 (Stop hook `[stop_quality]` と push-runner `[quality_gate]` の lint/test 重複を解消) は、
+> 設計決定 Option A' として **`[stop_quality]` から重複する lint/clippy/test step を削除する**方針を採っている。
+> これを先に実施すると本タスクの対象 (Stop hook の rust-lint-test) 自体が消えて不要になる。
+> **着手時判断**: A01 の処置を確定してから本件を再評価する。A01 が Option B (意図的 defense-in-depth として
+> 両方残す) を採った場合にのみ、本件の routing 追加が要る。
+
+#### 設計決定 (案)
+
+- A01 が Option A' (重複 step 削除) を採る → 本タスクは不要。クローズして理由を残す
+- A01 が Option B (両方残す) を採る → `[stop_quality]` に docs-only 判定を足し、`docs/**` + `*.md` のみの
+  変更なら rust-lint-test 相当を skip する。判定ロジックは push-runner 側と共有し、写経しない (ADR-081)
+- どちらに決まったかを ADR-057 に書く。現状の ADR-057 は push 経路のみを扱っており、Stop hook を
+  適用範囲外とする判断だったのか単に未検討だったのかが読み取れない
+
+- [ ] 既存 WR-2026-07-01-A01 の処置 (Option A' / Option B) を確定する
+- [ ] Option B を採る場合のみ、docs-only 判定を push-runner 側と共有する形で `[stop_quality]` に足す
+- [ ] ADR-057 に Stop hook との関係 (適用範囲外 / 適用済み) を明記する
+
+#### 完了基準
+
+`[stop_quality]` の rust-lint-test が「削除された」か「docs-only で skip される」かのどちらかに決着し、
+ADR-057 に Stop hook との関係が書かれている。A01 と本件のどちらを採ったかが文書から追える。

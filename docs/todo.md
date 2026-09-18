@@ -128,6 +128,14 @@
 > **本タスクの位置づけ**: 週次レビュー WR-2026-08-15-J01 で採用 (severity=medium, facet=jj-robustness, category=jj-manifest-dir)
 >
 > **参照**: `.claude/weekly-reviews/2026-08-15.md`、`src/lib-ledger/src/deployed_ledger.rs:30-34`
+>
+> **Status update (2026-09-18)**: 2026-09-18 の週次レビューで **severity=high として再検出**
+> (WR-2026-09-18-J02、facet=jj-robustness、category=jj-manifest-dir)。採用から約 5 週間、下のチェックリストは
+> 3 項目とも未着手。今回の facet は panic 経路として (a) 非コロケーテッド jj workspace、
+> (b) 共有 `target/` での並列 workspace 構成 を新たに挙げ、修正方針として
+> `lib_jj_helpers::resolve_main_workspace_root()` 相当の共通ロジックへ寄せる案を出している
+> (下の「設計決定」の marker 上方探索と同趣旨だが、**探索ロジックを自前で持たず共通化する**点が追加)。
+> 重複起票を避けるため新規エントリは作らず、本エントリへ集約した (週次レビュー 2026-09-18 の採否判断)
 
 ##### 背景: `CARGO_MANIFEST_DIR` のコンパイル時読みは ADR-045 が明示する脆弱性リストの 1 つ。現状は panic = fail-closed なので silent 破壊ではないが、脆弱性そのものは残る
 
