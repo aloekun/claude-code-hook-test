@@ -943,3 +943,74 @@ rs = [
   "no_manual_hooks_config_path_detects_single_join_with_slash_path",
   "no_manual_hooks_config_path_paths_match_hooks_crates_only",
 ]
+
+# ─── ルール⑰: `temp_dir()` 起点で PID+時刻を両方含む手動命名を禁止 (同一プロセス内衝突防止) ───
+#
+# 由来: PR #227 で temp file collision flaky (`body_with_literal_newline_converted`) を
+# `tempfile` 一意化で修正したが、PR #229 で同型の PID+ms カスタム命名 (`gh-pr-body-{PID}-{ms}.md`
+# 等) が push pipeline の `cargo test` を 3 回ブロックした実害がある (順位 236、PR #229
+# post-merge-feedback Tier 1 #1 採用)。rule⑮ (順位 455) の予防層と対で、順位 237 の高並列
+# regression test (検出層) と二層防御を構成する。
+#
+# 455 (no-weak-temp-uniqueness) との境界は **時刻成分の有無** (2026-09-18 確定):
+# 455 の pattern `temp_dir\(\)\s*\.join\(\s*"[^"]*"\s*\)` は文字列リテラルの固定名しか見ないため
+# PID+時刻形は素通りする。捕まえる失敗も異なる — 455 は固定名によるプロセス**間**衝突、
+# 本 rule は同一プロセスが短時間に 2 回呼ぶと衝突する **プロセス内**の弱い一意性を捕まえる。
+#
+# PID 単独の命名は対象外 (重要な自己限定):
+# 455 の `[rules.fix]` が推奨する形そのもの (`good` 例が
+# `format!("push-runner-snapshot-{}.json", std::process::id())`) であり、`src/` に
+# `process::id()` は 64 箇所ある。ここを検出対象に含めると 455 が推奨して直した箇所を
+# 後から違反にしてしまうため、PID と時刻 (`as_millis()` / `as_nanos()`) の**両方**が
+# 同一 `temp_dir().join(format!(...))` 呼び出し内に出る形だけを見る。
+#
+# Direction-specific 設計 (rule⑦・rule⑯ と同じ scope 限定):
+# 本リポジトリの実装は一貫して `format!(<template>, pid, time)` の順 (PID が先、時刻が後) で
+# 書かれているため、この順序だけを見れば十分カバーできる (逆順は対象外)。
+# 間隙は `[^;]` — 文の終わり (`;`) を跨がない。rule⑯ と異なり `{}`/`}` は除外しない
+# (format! の template 文字列自体が `{}` プレースホルダを含むため、`[^;{}]` にすると
+# template 直後で window が閉じてしまい false negative になる)。
+
+[[rules]]
+id = "no-pid-timestamp-temp-naming"
+pattern = 'temp_dir\(\)\s*\.join\(\s*format!\((?:[^;]{0,400}?process::id\(\)[^;]{0,400}?as_(?:millis|nanos|secs)\(\)|[^;]{0,400}?as_(?:millis|nanos|secs)\(\)[^;]{0,400}?process::id\(\))'
+severity = "error"
+message = "temp_dir() に PID と時刻を組み合わせた手動命名を渡しています。同一プロセス内で短時間に複数回呼ぶと衝突します"
+why = "PR #227 で temp file collision flaky を tempfile 一意化で修正したが、PR #229 で同型の PID+ms 手動命名が再導入され push pipeline の cargo test を 3 回ブロックした実害がある (順位 236)。process::id() は同一プロセス内の複数回呼び出しでは変わらず、時刻成分を足しても解像度不足 (同一秒/ミリ秒/ナノ秒内の複数回呼び出しで衝突しうる) なため、tempfile::NamedTempFile / tempfile::Builder への切替を促す。rule⑮ (no-weak-temp-uniqueness、固定リテラル名) とは時刻成分の有無で棲み分ける。**引数順と時刻単位の両軸を一度に閉じてある** — PID 先行 / 時刻先行のどちらでも、また as_secs / as_millis / as_nanos のいずれでも検出する。片方の順序だけを見る pattern は、逆順で書いた新規コードを素通りさせる (PR #507 の CodeRabbit 指摘)"
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "tempfile::NamedTempFile / tempfile::Builder への置換"
+steps = [
+  "tempfile crate を [dev-dependencies] (テストコードの場合) または [dependencies] に追加する",
+  "`temp_dir().join(format!(\"...{}-{}...\", pid, time))` を `tempfile::NamedTempFile::new()` または `tempfile::Builder::new().prefix(\"<用途名>\").tempfile()` に置換する",
+  "path 文字列が必要な呼び出し先には `.path()` / `.path().to_str()` を渡す",
+]
+
+[rules.example]
+bad = "let path = std::env::temp_dir().join(format!(\"nightly-outcome-e2e-{}-{}.json\", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));"
+good = "let temp_file = tempfile::NamedTempFile::new().expect(\"tempfile\"); let path = temp_file.path();"
+
+[rules.incident]
+pr = 229
+bad_fixture = "no-pid-timestamp-temp-naming.rs"
+good_fixture = "no-pid-timestamp-temp-naming.rs"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule⑰ は rs のみ (主要拡張子)。PID+時刻併用 (positive、引数順 2 通り × 時刻単位 3 通り
+# + 複数行 format!) と PID 単独 / temp_dir() 非経由 /
+# tempfile 使用 (negative) の variant を網羅。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "no_pid_timestamp_temp_naming_detects_pid_and_nanos_combo",
+  "no_pid_timestamp_temp_naming_detects_pid_and_millis_combo",
+  "no_pid_timestamp_temp_naming_detects_timestamp_before_pid",
+  "no_pid_timestamp_temp_naming_detects_secs_in_either_order",
+  "no_pid_timestamp_temp_naming_detects_multiline_format",
+  "no_pid_timestamp_temp_naming_skips_pid_only",
+  "no_pid_timestamp_temp_naming_skips_tempfile_usage",
+  "no_pid_timestamp_temp_naming_skips_non_temp_dir_join",
+  "no_pid_timestamp_temp_naming_only_targets_rust_extension",
+]

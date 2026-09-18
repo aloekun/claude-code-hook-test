@@ -7,6 +7,7 @@
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
 //! - [`rule_tests_manual_config_path`]: rule⑯ (no-manual-hooks-config-path) の tests
+//! - [`rule_tests_pid_timestamp_temp_naming`]: rule⑰ (no-pid-timestamp-temp-naming) の tests
 //! - [`deployed_tests`]: `config/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
 //!   deployed artifact に対する regression seal tests
 
@@ -24,5 +25,7 @@ mod rule_tests;
 mod rule_tests_extras;
 #[cfg(test)]
 mod rule_tests_manual_config_path;
+#[cfg(test)]
+mod rule_tests_pid_timestamp_temp_naming;
 
 pub(crate) use engine::run_custom_rules_layer;
