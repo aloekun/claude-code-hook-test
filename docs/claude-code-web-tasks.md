@@ -140,7 +140,17 @@ close は「この成果物は採らない」という判断であって、「�
 
 **粒度（2026-09-04 追記、[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 4）**: 宣言は「独立した成果物」ごとに、**確実に予測できる最も細かい単位**で書く。完了判定が実効的に守るのは rule 本体 / fixture / test のような独立成果物の欠落（#394）であり、同一 crate 内でどのファイルに変更が着地するかは守れない（宣言先に無意味な 1 行を足せば通るため）。着地ファイルが実装判断で変わり得るときは、ファイルを当て推量で書かずに crate の `src/` をディレクトリで宣言する。当て推量が外れると**正しい実装だけが落ちる**（2026-08-17〜09-03 に順位 228 / 356 / 310 で 3 回発生。同時期に順位 162 も同じ `[LEDGER_CLEANUP_BLOCK]` で停止したが、原因はファイルの当て推量ではなく既存ファイルが移動した参照パスの漂流であり、本粒度原則の対象外）。
 
-**ディレクトリ宣言の注釈で、既存ファイルを候補として列挙しない**（2026-09-06 追記）。列挙は「どこに着地するか」の予測を宣言から注釈へ移すだけで、外れる余地は消えない。2026-09-05 の順位 356 は注釈が挙げた `staleness.rs`（順位 136 の working-copy staleness、本タスクと無関係）を agent が最初に読んで「台帳が現物と合わない」と判断し、2 ターンで停止した。配置は詳細エントリの対処案が持つ（そこが一意に定めていなければ auto lane に置けない）。注釈に書くのは、宣言の粒度を変えた理由と、変更してはならないものの明示に限る。
+**ディレクトリ宣言の注釈に、ファイル名を書かない**（2026-09-06 追記、2026-09-18 に「既存」の限定を撤去）。列挙は「どこに着地するか」の予測を宣言から注釈へ移すだけで、外れる余地は消えない。2026-09-05 の順位 356 は注釈が挙げた `staleness.rs`（順位 136 の working-copy staleness、本タスクと無関係）を agent が最初に読んで「台帳が現物と合わない」と判断し、2 ターンで停止した。配置は詳細エントリの対処案が持つ（そこが一意に定めていなければ auto lane に置けない）。**注釈に書くのは、宣言の粒度を変えた理由に限る。**
+
+**未実在のファイル名も書かない**（2026-09-18 追記）。初版の機械強制は「実在するものだけ」を弾いており、順位 426 の「例 `facade_reexports.rs`」はその隙間を通っていた。2026-09-17 の run 35257221949 で agent が例示どおりの名前でファイルを作り、**成果物そのものが列挙として報告されて** `verify=failure` で停止した。**「実在しない」は状態であって性質ではない** — 例示した名前は agent が採用した瞬間に実在化する。検査は実在を見なくなり、台帳の文字列だけで判定する。
+
+**「変更してはならないもの」の明示は「注意」列へ書く**（2026-09-18 追記、移設）。これは本来ファイル名を名指す用途であり、注釈に残すと機構は「候補として挙げた名前」と区別できない。区別しようとすれば語彙の意味解釈が機構に入り、規約が「書くな」から「正しく書け」へ後退する。順位 426 は既に注意列へ書いている（「統合テストなので `lib.rs` 自体は変更しない」）。
+
+**判定はセル単位である。** ディレクトリ宣言が 1 つでもあるセルでは、ファイル宣言側に付けた注釈も検査対象になる。混在セル（順位 236 の形）では、どの注釈にもファイル名を書けない。
+
+**バッククォート引用の有無は問わない**（2026-09-18 追記、[#506](https://github.com/aloekun/claude-code-hook-test/pull/506) CodeRabbit 指摘）。初版の機械強制は引用符付きの名前しか見ておらず、`（helper.rs を参照）` のように素で書いた名前が素通りしていた。agent が読むのは prompt に載る生の文字列で、markdown の装飾は害の成立に関係ない。**詳細エントリへのポインタ（markdown リンクで `todoN.md` を指す形）も注釈には書かない** — リンク記法だけを除外すると、同じ記法でソースファイル名を書けば素通りできるうえ、所在は注意列が持てばよい（夜間 workflow の prompt が `docs/todoN.md` を読むよう agent に指示済み）。
+
+**拡張子を持たない語は対象外である。** `tempfile` のような語は crate 名・関数名・識別子とテキスト上区別できず、本節の書式が注釈にそれらを書くことを明示的に許している。検出側へ倒すと正当な注釈を落とし、規約が「書くな」から「正しく書け」へ後退する。拡張子は「英数のみ・英字を 1 文字以上含む」に限る（版番号 `0.42.0` をファイル名と取り違えないため）。
 
 例:
 
@@ -168,7 +178,7 @@ close は「この成果物は採らない」という判断であって、「�
 | 236 | T1 | ✅ | `temp_dir()` 起点で **PID と時刻を両方含む**手動命名（同一プロセス内で一意にならない）を検知する custom lint rule を追加 | `config/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/` + `tests/fixtures/incidents/{bad,good}/` + `src/cli-nightly-outcome/tests/e2e.rs`（最後の 1 本は唯一の該当箇所を `tempfile` へ置き換える分）| S | 455 と同じ 3 点セット。**2026-09-18 に 455 との境界を確定して human → auto**: 455 (`no-weak-temp-uniqueness`) は `temp_dir().join("<固定名>")` だけを見るため PID+時刻形は素通りする。本 rule は **時刻成分の有無**で 455 と分かれる。**PID 単独の命名は対象外** — 455 の `[rules.fix]` が推奨する形であり、`src/` に 64 箇所ある。検出対象は現時点で 1 箇所 (`src/cli-nightly-outcome/tests/e2e.rs:217`) で、これを `tempfile` へ直すところまでが範囲 | feat(lint): PID+時刻の手動 temp 命名を検知する rule を追加する |
 | 368 | T3 | — | `describe_axes()`（deny 行の 4 軸表示）と `evaluate()`（実際の allow/deny 判定）が同一入力で食い違わないことを assert する regression test を追加 | `src/cli-fix-push-gate/src/checks.rs`（既存 `mod tests` 内） | S | 純関数どうしの一貫性検査。Allow / Denied の双方向を書く。誤 allow は起きず観測性の劣化のみなので Severity は中。**2026-08-23 auto → human へ変更**: 成果物 `src/cli-fix-push-gate/src/checks.rs` が [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス `src/cli-fix-push-gate/` に当たる（[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2 クラス 3）。機械検査は順位 486 | test(fix-push-gate): describe_axes と evaluate の一貫性を固定する |
 | 360 | T2 | — | push 経路の `cargo test` と CI の `cargo test --workspace` が同じ対象集合を回すことを assert するテストを追加 | `src/lib-autonomy-policy/tests/cargo_test_scope_parity.rs`（新規ファイル。既存の `workflow_awk_parity.rs` と同じ crate に置く。読む対象は `push-runner-config.toml` の `[[quality_gate.groups]]` `name = "rust-lint-test"`、`.github/workflows/ci.yml` の `cargo test --workspace`、ルート `Cargo.toml`） | S | 361 と同型。素の `cargo test` が `--workspace` と等価なのはルート `Cargo.toml` に `default-members` が無いため。**その不在を assert する**のが実質の検査。3 ファイルとも読むだけ。意図的に `default-members` を足すと fail することまで確認する。**2026-08-23 auto → human へ変更**: 成果物 `src/lib-autonomy-policy/tests/cargo_test_scope_parity.rs` が [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス `src/lib-autonomy-policy/` に当たる（[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2 クラス 3）。同 ADR は本順位を「成果物が Rust ファイルなので誤除外するところだった」と記録しているが、その Rust ファイル自身が deny リストの別エントリに当たることを見ていなかった。機械検査は順位 486 | test(workspace): push と CI の cargo test 対象集合の一致を固定する |
-| 426 | T2 | ✅ | `lib-jj-helpers` 分割後、ファサード経由の re-export を壊す変更を検出する回帰統合テストを追加 | `src/lib-jj-helpers/tests/`（新規ディレクトリ。統合テストのファイル名は agent が決める、例 `facade_reexports.rs`。crate は `[lib]` なので `tests/` 配下は cargo が自動で拾う。2026-09-04 にファイル名の当て推量をやめてディレクトリ宣言へ変更） | M | 利用側 3 crate が使う API を `src/lib-jj-helpers/src/lib.rs` の `pub use` から洗い出してから、ファサード経由の import を固定する。**個別モジュールへの直接 import ではなく `lib_jj_helpers::` 経由で書く**（そうしないと re-export が消えても落ちない）。統合テストなので `lib.rs` 自体は変更しない | test(jj-helpers): ファサード re-export の回帰テストを追加する |
+| 426 | T2 | ✅ | `lib-jj-helpers` 分割後、ファサード経由の re-export を壊す変更を検出する回帰統合テストを追加 | `src/lib-jj-helpers/tests/`（新規ディレクトリ。統合テストのファイル名は agent が決める。crate は `[lib]` なので `tests/` 配下は cargo が自動で拾う。2026-09-04 にファイル名の当て推量をやめてディレクトリ宣言へ変更、2026-09-18 に例示していたファイル名を除去） | M | 利用側 3 crate が使う API を `src/lib-jj-helpers/src/lib.rs` の `pub use` から洗い出してから、ファサード経由の import を固定する。**個別モジュールへの直接 import ではなく `lib_jj_helpers::` 経由で書く**（そうしないと re-export が消えても落ちない）。統合テストなので `lib.rs` 自体は変更しない | test(jj-helpers): ファサード re-export の回帰テストを追加する |
 | 361 | T2 | — | jj のバージョン文字列が `.github/workflows/ci.yml` と `scripts/cloud-setup.sh` で一致することを assert するテストを追加 | `src/lib-autonomy-policy/tests/jj_version_parity.rs`（新規ファイル。既存の `workflow_awk_parity.rs` と同じ crate に置く。読む対象は `.github/workflows/ci.yml` の `JJ_VERSION: "0.42.0"` と `scripts/cloud-setup.sh` の `readonly JJ_VERSION="${CLOUD_SETUP_JJ_VERSION:-0.42.0}"`） | S | **2 ファイルは読むだけで書き換えない**（`.github/**` は Guard の禁止パス）。ADR-051 の cross-system coupling 検査にあたる。片方だけ変えた状態で fail することまで確認する。**2026-08-23 auto → human へ変更**: 注意欄は `.github/**` が禁止パスであることを見ていたが、成果物 `src/lib-autonomy-policy/tests/jj_version_parity.rs` 自身も [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス `src/lib-autonomy-policy/` に当たる（[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2 クラス 3）。**deny リストの一部だけと照合したのが誤り**。機械検査は順位 486 | test(jj-helpers): jj バージョンの ci.yml / cloud-setup.sh 一致を固定する |
 | 447 | T2 | — | 台帳の `✅無人可` と判断留保キーワード (再選定 / 着手時判断 / 見積り / 検討) の矛盾を決定論層で検出する | `src/lib-ledger/src/deployed_ledger.rs` | S | 転記規約 (本ファイル § 自律実行可否の 2 段階分類) の機械強制。検査は台帳を読むだけで書き換えない。順位 486 と同一ファイル・同一層なので実装順の調整が要る。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (順位 383 と同じ理由、ADR-074 除外クラス 3) | test(ledger): 無人可と判断留保キーワードの矛盾を検出する |
 | 486 | T2 | — | auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く | `src/lib-ledger/src/deployed_ledger.rs` | S | **着手時判断: 禁止パスの単一定義先 (順位 454) が未決着**。deny リストをどこから読むかを着手時に決める必要がある。順位 447 と同一ファイル・同一層。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (ADR-074 除外クラス 3) | test(ledger): auto lane の対象パスが Guard 禁止パスに当たる行を弾く |
@@ -335,6 +345,21 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 507 | (台帳外) | 実装により削除、確認は順位 519 へ | ドット始まりディレクトリの権限問題は本移設で解消した**見込み**。**agent 側の実走確認は未了**なので、`docs/todo26.md` に順位 519 (Tier 4) を起こして確認方法と失敗時の戻し先を残した ([ADR-067](adr/adr-067-phase-b-unattended-fix-push.md): agent の権限経路は実走でしか検証できない) |
 
 **移したのは `custom-lint-rules.toml` だけ。** `hooks-config.toml` は `.claude/` に残した — `[pre_tool_validate]` の block preset (secret-detection / `git` / `rm -rf`) と `[stop_quality]` を持ち、agent が到達できる場所へ出すと「セッション中に無効化 → 作業 → 復元」が最終 diff に残らず、Guard の deny-list (diff しか見ない) では捕まえられないため (pre-push security review の指摘、[ADR-006](adr/adr-006-config-driven-hooks.md) § 改訂 決定 1)。Guard 禁止パスは変更していない。
+
+### 2026-09-18
+
+2026-09-17 の run 35257221949 が順位 426 で `verify=failure` 停止した。**agent の実装は正しく、追加した統合テスト 9 件も通っていた。** 落ちたのは台帳の書き方を検査する検査 C (`lib-ledger` の `annotation_check`) だけで、失敗メッセージは順位 426 の注釈が挙げた名前が `src/lib-jj-helpers/tests/` 配下に実在する、というものだった — **agent が台帳の注釈にあった例示どおりの名前でファイルを作ったため、その成果物が「既存ファイルの列挙」として報告された**。
+
+原因は 2 つある。**(1) 規約と機構がずれていた** — 規約は実在を問わず候補を禁じているのに、機構だけ「実在するものだけ」に緩めており、426 の「例 `facade_reexports.rs`」はその隙間にあった。**(2) 実在を見る限り検査の結果は評価するツリーに依存する** — 夜間 verify step はそれを agent の成果物ツリーで評価するため、「実在する」の意味が「着手前からあった無関係なファイル」から「このタスクの成果物」へ入れ替わる。
+
+| 順位 | 節 | 判定 | 根拠 |
+|---|---|---|---|
+| 426 | Batch 1 | 注釈から例示ファイル名を除去 | 対象ファイル欄の「例 `facade_reexports.rs`」を削除した。実装の指示は変わらない (ファイル名は agent が決める)。handoff marker `claude/nightly-426` を削除して再投入する |
+
+機構側は実在確認を撤去し、注釈のファイル名を実在不問で弾くようにした (§ 「対象ファイル」列の書き方、[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 4 の 2026-09-18 追記)。検査は台帳の文字列だけを見る純粋な判定になり、評価時点への依存が構造的に消えた。併せて「変更してはならないものの明示」は注釈から**注意**欄へ移した。
+
+**台帳検査を agent 成果物の verify から外す案は今回採らなかった。** 台帳は agent にとって Guard 禁止パスで不変なので、agent verify で検査 A / C を回しても新しい情報は生まれない。ただし外すと (a) 検査 B の「agent の変更が他行の前提を壊す」検出が PR の CI まで遅れ、(b) verify と CI の `cargo test --workspace` の対象集合がずれ、その除外自体を機械で固定する層が別に要る。規約違反の注釈を消す方が本筋なので、除外は独立した設計判断として切り離した。
+
 ---
 
 ## 未完了のままマージされた順位
