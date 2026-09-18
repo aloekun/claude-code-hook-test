@@ -216,6 +216,7 @@ dependencies = [
  "lib-ledger",
  "lib-subprocess",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

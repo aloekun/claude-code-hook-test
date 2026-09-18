@@ -55,6 +55,7 @@ const CASES: &[Case] = &[
     Case { rule_type: "NO_UNBOUNDED_CHILD_WAIT", severity: "error", fixture: "no-unbounded-child-wait.rs", expected_line: 2, workflow_rel: Some("src/incident-eval/tests/e2e.rs") },
     Case { rule_type: "NO_WEAK_TEMP_UNIQUENESS", severity: "error", fixture: "no-weak-temp-uniqueness.rs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_MANUAL_HOOKS_CONFIG_PATH", severity: "error", fixture: "no-manual-hooks-config-path.rs", expected_line: 2, workflow_rel: Some("src/hooks-incident-eval/src/main.rs") },
+    Case { rule_type: "NO_PID_TIMESTAMP_TEMP_NAMING", severity: "error", fixture: "no-pid-timestamp-temp-naming.rs", expected_line: 2, workflow_rel: None },
 ];
 
 fn repo_root() -> PathBuf {
