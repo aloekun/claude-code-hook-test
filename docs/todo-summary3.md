@@ -96,7 +96,7 @@
 | 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
 | 520 | Tier 3 | **[improvement] CodeRabbit の auto レビュー再開に review-request / 再レビュー経路を追従させる** | todo26.md | M | なし (2026-09-10 頃から bot PR も auto レビューされるようになり review-request が誤 red。3 経路が「auto が効かない」前提に立つため、auto 有無を共有判定で吸収する fallback 化。ADR-019 / ADR-081) |
 | 521 | Tier 3 | **[improvement] `scope_guard` の bounded-lifetime 判定に必要な実績が 47 日集まっていない** | todo26.md | S | なし (週次レビュー WR-2026-09-18-C01、severity=medium、facet=security。enforce mode 開始 2026-08-01 から fix step 実行実績 0 件で、ADR-054 の決定トリガー「enforce mode で 3〜5 PR」が満たせず期限が無期限に延びている。着手時判断: telemetry 記録 (ADR-055) の追加を先に入れるか期限の再設定だけで済ませるかは着手時に決める) |
-| 522 | Tier 2 | **[improvement] Stop hook に docs-only routing が無く docs のみの変更でも Rust の lint/test が走る** | todo26.md | S | なし (週次レビュー WR-2026-09-18-A02、severity=medium、facet=architecture。ただし順位未採番の既存エントリ docs/todo.md「週次レビュー採用 (2026-07-01)」= WR-2026-07-01-A01 と解が競合する。着手時判断: A01 が Option A' (重複 step 削除) を採ると本件は不要になるため、A01 の処置を確定してから再評価する) |
+| 522 | Tier 2 | **[improvement] Stop hook に docs-only routing が無く docs のみの変更でも Rust の lint/test が走る** | todo26.md | S | なし (週次レビュー WR-2026-09-18-A02、severity=medium、facet=architecture。ただし順位未採番の既存エントリ docs/todo28.md「週次レビュー採用 (2026-07-01)」= WR-2026-07-01-A01 と解が競合する。着手時判断: A01 が Option A' (重複 step 削除) を採ると本件は不要になるため、A01 の処置を確定してから再評価する) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

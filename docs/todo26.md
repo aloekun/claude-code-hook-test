@@ -635,7 +635,7 @@ ADR-057 は docs-only routing を「instruction 規約から決定論機構へ�
 Stop hook は同じ判定を持たないため、**「この変更は docs-only か」という同一の事実が push 経路にしか
 無い**状態になっている (ADR-081 が扱う分散の一形態だが、ここでは写経ではなく**片側欠落**)。
 
-> **⚠ 既存エントリとの競合**: `docs/todo.md`「週次レビュー採用 (2026-07-01)」の
+> **⚠ 既存エントリとの競合**: `docs/todo28.md`「週次レビュー採用 (2026-07-01)」の
 > WR-2026-07-01-A01 (Stop hook `[stop_quality]` と push-runner `[quality_gate]` の lint/test 重複を解消) は、
 > 設計決定 Option A' として **`[stop_quality]` から重複する lint/clippy/test step を削除する**方針を採っている。
 > これを先に実施すると本タスクの対象 (Stop hook の rust-lint-test) 自体が消えて不要になる。
