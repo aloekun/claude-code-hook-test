@@ -569,11 +569,12 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
 
 ---
 
-### 順位 521: `scope_guard` の bounded-lifetime 判定に必要な実績が 47 日集まっていない
+### 順位 521: `scope_guard` の bounded-lifetime 判定に必要な実績が 48 日集まっていない
 
 > **動機**: ADR-054 の prompt injection 防御 layer 3 (`scope_guard`) は `enabled=true` / `mode="enforce"` で
-> 稼働しているが、enforce mode 開始 (2026-08-01) から 2026-09-18 までの 47 日間、fix step の実行実績が
-> 0 件で、ADR-054 が定める bounded-lifetime の決定トリガー「enforce mode で 3〜5 PR」を満たせていない。
+> 稼働しているが、enforce mode 開始 (2026-08-01) から観測時点 (2026-09-18) までの 48 日間
+> (両端を含めない日付差) で fix step の実行実績が 0 件で、ADR-054 が定める bounded-lifetime の
+> 決定トリガー「enforce mode で 3〜5 PR」を満たせていない。
 > 設計そのものは健全だが効果を検証したデータが存在せず、**決定期限が事実上無期限に延びている**。
 > ADR-039 の experimental feature 標準パターンは bounded lifetime を要求しており、期限が動かない状態は
 > その逸脱にあたる。

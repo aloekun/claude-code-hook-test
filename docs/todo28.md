@@ -45,18 +45,18 @@
 
 #### docs/todo23.md を新設し、新規追加先ポインタを更新する — todo22.md 50KB 超過 (週次レビュー WR-2026-08-13-M01 採用)
 
-> **動機**: `docs/todo22.md` が 54179B (>50KB) だが `docs/todo.md:30` の新規追加先ポインタが todo22.md のまま。routing 契約が実ファイルサイズに追随していない。
+> **動機**: `docs/todo22.md` が 54179B (>50KB) だが `docs/todo.md` preamble の routing リスト (「新規タスクの追加先」の行) が todo22.md を指したまま。routing 契約が実ファイルサイズに追随していない。
 >
 > **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-M01 で採用 (severity=medium, facet=multi, category=todo-preamble-drift)。file-length-watchlist の機械観測と review-todo-whole の記述矛盾を突合して検出。
 >
-> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/todo.md:30`、`docs/todo22.md`
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/todo.md` preamble の routing リスト (「新規タスクの追加先」の行)、`docs/todo22.md`
 
 ##### 背景: todo20→21→22 と同じ 50KB 分割パターンの継続。preamble routing の drift 解消
 
-##### 設計決定: `docs/todo23.md` を作成し、`docs/todo.md:30` の新規追加先を todo23.md へ更新する。todo22.md は「編集専用・新規追加しない」へ
+##### 設計決定: `docs/todo23.md` を作成し、`docs/todo.md` preamble の routing リストの新規追加先を todo23.md へ更新する。todo22.md は「編集専用・新規追加しない」へ
 
 - [ ] todo23.md 新設
-- [ ] todo.md preamble (L30 周辺) の routing 更新 — 使い分けリストへの todo23.md 行追加と、冒頭の列挙範囲 (「本ファイル + todo3.md 〜 todoN.md」) の両方 (cli-docs-lint は列挙範囲と実ファイル数の一致を検証しないため手動確認)
+- [ ] todo.md preamble の routing リスト更新 — 使い分けリストへの todo23.md 行追加と、冒頭の列挙範囲 (「本ファイル + todo3.md 〜 todoN.md」) の両方 (cli-docs-lint は列挙範囲と実ファイル数の一致を検証しないため手動確認)
 
 ##### 完了基準: 新規追加先が todo23.md を指し、todo22.md が編集専用に切り替わり、preamble の列挙範囲が実ファイル群と一致する
 
@@ -78,11 +78,11 @@
 
 #### todo.md の Tier-5 zero-priority entry を backlog へ移動 or retire (週次レビュー WR-2026-08-13-T03 採用)
 
-> **動機**: `docs/todo.md:160-171` の Tier-5/optional・zero-priority entry (追って ADR-030 の takt-test-vc 反映) が 2 か月以上進捗なくメイン corpus に残り視覚ノイズになっている。
+> **動機**: `docs/todo.md` の「順位 28: (追って) ADR-030 の takt-test-vc 反映」= Tier-5/optional・zero-priority entry が 2 か月以上進捗なくメイン corpus に残り視覚ノイズになっている。
 >
 > **本タスクの位置づけ**: 週次レビュー WR-2026-08-13-T03 で採用 (severity=low, facet=todo, category=todo-preamble-drift)。aggregate 推奨は ❌却下だったがユーザー判断で採用。
 >
-> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/todo.md:160-171`
+> **参照**: `.claude/weekly-reviews/2026-08-13.md`、`docs/todo.md` の「順位 28: (追って) ADR-030 の takt-test-vc 反映」
 
 ##### 背景: entry 自体は self-aware で正しくスコープされているが、配置がメイン corpus でノイズ
 
