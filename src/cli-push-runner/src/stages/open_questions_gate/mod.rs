@@ -103,6 +103,7 @@ fn record_firing() {
         id: "open_questions_gate:fired",
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 

@@ -98,6 +98,7 @@ fn record_file_length_block() {
         id: "file-length",
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 

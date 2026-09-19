@@ -222,6 +222,7 @@ fn record_nudge_firing(id: &str, session_id: &str) {
         id,
         decision: lib_telemetry::Decision::Warn,
         session_id: Some(session_id),
+        reason: None,
     });
 }
 

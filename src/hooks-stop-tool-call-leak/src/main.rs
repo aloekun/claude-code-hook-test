@@ -249,6 +249,7 @@ fn record_block_firing() {
         id: "hooks-stop-tool-call-leak",
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 
@@ -261,6 +262,7 @@ fn record_recovery_firing() {
         id: "hooks-stop-tool-call-leak/prompt-recovery",
         decision: lib_telemetry::Decision::Warn,
         session_id: None,
+        reason: None,
     });
 }
 

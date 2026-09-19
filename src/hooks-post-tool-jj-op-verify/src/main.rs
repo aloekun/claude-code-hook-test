@@ -324,6 +324,7 @@ fn record_not_recorded_warning() {
         id: "jj-op-verify",
         decision: lib_telemetry::Decision::Warn,
         session_id: None,
+        reason: None,
     });
 }
 

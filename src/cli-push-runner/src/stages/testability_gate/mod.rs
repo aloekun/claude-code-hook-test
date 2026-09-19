@@ -193,11 +193,23 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     }
     let summary = match run_jj_diff_summary(pr_range) {
         Ok(s) => s,
-        Err(e) => return scan_incomplete(config, &format!("jj diff --summary 失敗: {e}")),
+        Err(e) => {
+            return scan_incomplete(
+                config,
+                REASON_DIFF_FAILED,
+                &format!("jj diff --summary 失敗: {e}"),
+            )
+        }
     };
     let paths = match changed_paths(&summary) {
         Ok(p) => p,
-        Err(e) => return scan_incomplete(config, &format!("変更ファイルを読み取れません: {e}")),
+        Err(e) => {
+            return scan_incomplete(
+                config,
+                REASON_UNPARSABLE_STATUS,
+                &format!("変更ファイルを読み取れません: {e}"),
+            )
+        }
     };
     let (violations, skipped) =
         scan_changed_files(&paths, |p| std::fs::read_to_string(Path::new(p)).ok());
@@ -208,6 +220,7 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     // NOTE: 走査できなかったファイルの違反は検出できない。成功扱いにせず走査不成立と同じ扱いへ倒す。
     let skipped_ok = scan_incomplete(
         config,
+        REASON_FILES_UNSCANNABLE,
         &format!(
             "{} 件を走査できません: {}",
             skipped.len(),
@@ -217,16 +230,31 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     violations_ok && skipped_ok
 }
 
+/// `scan-incomplete` の発火経路ラベル。**telemetry に載るのはこの固定語彙だけ**で、
+/// 詳細 (パスを含む) は stderr のログにしか出さない (ADR-055 § プライバシー)。
+///
+/// 経路を区別せずに記録していたため、2026-09-19 の月次 ROI レビューでは 8 件の発火が
+/// どの経路だったかを commit 履歴から推定するしかなかった。
+const REASON_DIFF_FAILED: &str = "diff-failed";
+const REASON_UNPARSABLE_STATUS: &str = "unparsable-status";
+const REASON_FILES_UNSCANNABLE: &str = "files-unscannable";
+
 /// 走査そのものが成立しなかったとき。
 ///
 /// **「検査できなかった」を「違反なし」と同じ緑に潰さない** ([ADR-043])。ただし倒し方は
 /// mode で変える: warning 中は push を止めず telemetry へ `scan-incomplete` を残して
 /// 頻度を測り、deny 昇格後は止める。warning 期間に止めると、測りたかった FP と
 /// 環境要因の停止が混ざる。
-fn scan_incomplete(config: Option<&TestabilityGateConfig>, reason: &str) -> bool {
+///
+/// `reason` は telemetry に載せる固定ラベル、`detail` は人が読むログ本文。
+fn scan_incomplete(
+    config: Option<&TestabilityGateConfig>,
+    reason: &'static str,
+    detail: &str,
+) -> bool {
     let deny = is_deny(config);
-    log_stage(STAGE, &format!("検査できませんでした: {reason}"));
-    record_firing("scan-incomplete", deny);
+    log_stage(STAGE, &format!("検査できませんでした[{reason}]: {detail}"));
+    record_firing_with_reason("scan-incomplete", deny, Some(reason));
     if deny {
         log_info("  対処: 原因を解消して再実行するか、`TESTABILITY_GATE_OVERRIDE=1` で明示的にバイパスしてください");
         return false;
@@ -272,17 +300,23 @@ fn report(config: Option<&TestabilityGateConfig>, violations: &[Violation]) -> b
 
 /// `reason` は telemetry `id` に埋め込む固定カテゴリ名 (呼び出し側リテラルの閉集合)。
 /// diff 由来の内容 (関数名等) を渡さないこと ([ADR-055] のメタデータのみ原則)。
-fn record_firing(reason: &str, deny: bool) {
+fn record_firing(event: &str, deny: bool) {
+    record_firing_with_reason(event, deny, None);
+}
+
+/// `reason` は同一 id の発火経路を区別する固定ラベル (telemetry に載る)。
+fn record_firing_with_reason(event: &str, deny: bool, reason: Option<&'static str>) {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "cli-push-runner",
         kind: lib_telemetry::FiringKind::Hook,
-        id: &format!("testability_gate:{reason}"),
+        id: &format!("testability_gate:{event}"),
         decision: if deny {
             lib_telemetry::Decision::Block
         } else {
             lib_telemetry::Decision::Warn
         },
         session_id: None,
+        reason,
     });
 }
 
@@ -361,8 +395,16 @@ mod tests {
             scan_changed_files(&["src/broken.rs".to_string()], read_from(files));
         assert!(violations.is_empty());
         assert_eq!(skipped.len(), 1);
-        assert!(scan_incomplete(Some(&config_with(None)), "broken"));
-        assert!(!scan_incomplete(Some(&config_with(Some("deny"))), "broken"));
+        assert!(scan_incomplete(
+            Some(&config_with(None)),
+            REASON_FILES_UNSCANNABLE,
+            "broken"
+        ));
+        assert!(!scan_incomplete(
+            Some(&config_with(Some("deny"))),
+            REASON_FILES_UNSCANNABLE,
+            "broken"
+        ));
     }
 
     #[test]
@@ -612,13 +654,21 @@ mod tests {
     /// 走査が成立しなかったとき、warning 中は push を止めない (測定を優先する)。
     #[test]
     fn scan_incomplete_does_not_block_in_warning_mode() {
-        assert!(scan_incomplete(Some(&config_with(None)), "jj 失敗"));
+        assert!(scan_incomplete(
+            Some(&config_with(None)),
+            REASON_DIFF_FAILED,
+            "jj 失敗"
+        ));
     }
 
     /// deny 昇格後は「検査できなかった」を緑に潰さない (ADR-043)。
     #[test]
     fn scan_incomplete_blocks_in_deny_mode() {
-        assert!(!scan_incomplete(Some(&config_with(Some("deny"))), "jj 失敗"));
+        assert!(!scan_incomplete(
+            Some(&config_with(Some("deny"))),
+            REASON_DIFF_FAILED,
+            "jj 失敗"
+        ));
     }
 
     /// mode 未指定は warning 扱い (導入時の既定)。

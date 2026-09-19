@@ -14,8 +14,8 @@
 //!   派生プロジェクト配布は section 省略で自動的に OFF。
 //! - **kill-switch**: 恒久停止は `enabled = false`、緊急停止は env `CLAUDE_TELEMETRY_DISABLE`
 //!   (truthy 値)。
-//! - **プライバシー**: 記録はメタデータのみ (hook / kind / id / decision / timestamp、任意
-//!   session_id)。ファイルパス・編集内容・コマンド本文は記録しない (custom rule ②
+//! - **プライバシー**: 記録はメタデータのみ (hook / kind / id / decision / timestamp、任意の
+//!   session_id / reason)。ファイルパス・編集内容・コマンド本文は記録しない (custom rule ②
 //!   no-personal-paths と同じ思想)。
 //!
 //! # 副作用注入 (テスト可能性)
@@ -91,6 +91,12 @@ pub struct Firing<'a> {
     pub decision: Decision,
     /// 相関用の session id (任意)。`None` の場合 [`record`] が `.claude/.session-id` から補完する。
     pub session_id: Option<&'a str>,
+    /// 同じ id が複数経路で発火するときに**経路を区別する固定ラベル** (任意)。
+    ///
+    /// **有限の語彙だけを載せる** — 呼び出し側の `const` を渡す想定。実行時に組み立てた
+    /// 文字列、とりわけファイルパス・コマンド本文・エラー本文は**載せてはならない**
+    /// (ADR-055 § 記録フィールドとプライバシー の「メタデータのみ」原則)。詳細は stderr へ。
+    pub reason: Option<&'a str>,
 }
 
 /// JSONL 1 行の serde 表現。id が custom-lint-rules.toml 由来のユーザ入力を含み得るため、
@@ -104,6 +110,9 @@ struct TelemetryRecord<'a> {
     decision: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     session_id: Option<&'a str>,
+    /// 省略時は行に現れないため既存行の形が変わらない (集計側は未知フィールドを無視する)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'a str>,
 }
 
 /// hooks-config.toml のトップレベル (telemetry section のみ関心)。
@@ -134,6 +143,7 @@ pub fn record(firing: &Firing) {
         id: firing.id,
         decision: firing.decision,
         session_id,
+        reason: firing.reason,
     };
     let _ = record_to(&base_dir, &enriched, utc_now_epoch_secs());
 }
@@ -153,6 +163,7 @@ pub fn record_to(base_dir: &Path, firing: &Firing, now_epoch: u64) -> io::Result
         id: firing.id,
         decision: firing.decision.as_str(),
         session_id: firing.session_id,
+        reason: firing.reason,
     };
     let line = serde_json::to_string(&record)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -439,6 +450,7 @@ mod tests {
             id,
             decision: Decision::Block,
             session_id: None,
+            reason: None,
         }
     }
 
@@ -497,6 +509,7 @@ mod tests {
             id: "x",
             decision: Decision::Warn,
             session_id: Some("abc-123"),
+            reason: None,
         };
         record_to(dir.path(), &firing, T_2026_04_01_1200).unwrap();
         let content = read_firings(dir.path(), T_2026_04_01_1200);

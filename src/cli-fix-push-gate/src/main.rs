@@ -174,6 +174,7 @@ fn record_deny(reason: &DenyReason) {
         id: reason.code(),
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 
