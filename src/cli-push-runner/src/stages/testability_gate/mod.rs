@@ -65,9 +65,54 @@ fn is_baselined(path: &str, function: &str) -> bool {
         .any(|(file, name)| *name == function && norm.ends_with(file))
 }
 
+/// rename / copy 行のパス表記に現れる矢印。前後の空白を含めた形で照合する。
+const RENAME_ARROW: &str = " => ";
+
+/// `R` / `C` 行のパス表記から **移動後のパス**を取り出す。
+///
+/// jj は共通部分を括って `prefix{old => new}suffix` と書く。実際に本リポジトリの履歴へ
+/// 現れた 4 形すべてを [`tests::changed_paths_resolves_real_jj_rename_shapes`] で固定して
+/// ある。括りが無い `old => new` 形も受ける。
+///
+/// **`=>` を含まない行は `Err`** にする。git 風の `old -> new` のような未知の表記を
+/// 移動先不明のまま通すと、走査対象を取り違えたまま緑になるため ([ADR-043])。
+///
+/// 戻り値は区切りを `/` に正規化し、空セグメントを畳む。`{old => }suffix` のように
+/// 片側が空になる形で区切りが重複するため。jj の出力は repo 相対パスなので、先頭の
+/// 空セグメント除去が絶対パスを壊すことはない。
+fn rename_target(path: &str) -> Result<String, String> {
+    let new = match path.find('{') {
+        Some(open) => {
+            let Some(close) = path[open..].find('}').map(|i| open + i) else {
+                return Err(format!("rename 表記の括りが閉じていません: {path:?}"));
+            };
+            let Some((_, moved_to)) = path[open + 1..close].split_once(RENAME_ARROW) else {
+                return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
+            };
+            format!("{}{}{}", &path[..open], moved_to, &path[close + 1..])
+        }
+        None => {
+            let Some((_, moved_to)) = path.split_once(RENAME_ARROW) else {
+                return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
+            };
+            moved_to.to_string()
+        }
+    };
+    let norm = normalize(new.trim());
+    let joined = norm.split('/').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/");
+    if joined.is_empty() {
+        return Err(format!("rename 後のパスが空です: {path:?}"));
+    }
+    Ok(joined)
+}
+
 /// `jj diff --summary` の出力から変更ファイルのパスを取り出す。
 ///
-/// status が `M` / `A` / `D` 以外の行 (rename 等) やパス欠落は `Err` にする。**戻り値の
+/// `R` (rename) / `C` (copy) は**移動後のパスへ解決して走査対象に含める** ([`rename_target`])。
+/// jj はファイル移動を日常的に出すので (ADR-080 の module 分割・config 移設)、これを
+/// 「解釈できない行」に倒すと**移動を 1 件含むだけで PR 全体が未走査**になる。
+///
+/// それ以外の未知 status やパス欠落、解決できない rename 表記は `Err` にする。**戻り値の
 /// `Err` を空リストへ潰さないのが要点**で、「1 行も変更が無かった」と「読めなかった」を
 /// 呼び出し側が区別できるようにしてある。区別した先の扱い ([`scan_incomplete`]) は
 /// mode によって変わる。
@@ -81,13 +126,12 @@ fn changed_paths(summary: &str) -> Result<Vec<String>, String> {
         let Some((status, path)) = line.split_once(' ') else {
             return Err(format!("jj diff --summary の行を解釈できません: {line:?}"));
         };
-        if !matches!(status, "M" | "A" | "D") {
-            return Err(format!("未知の status です: {line:?}"));
+        match status {
+            "D" => continue,
+            "M" | "A" => out.push(path.to_string()),
+            "R" | "C" => out.push(rename_target(path)?),
+            _ => return Err(format!("未知の status です: {line:?}")),
         }
-        if status == "D" {
-            continue;
-        }
-        out.push(path.to_string());
     }
     Ok(out)
 }
@@ -331,10 +375,77 @@ mod tests {
     }
 
     /// fail-closed: 解釈できない行を見たら「変更なし」に潰さない。
+    ///
+    /// `R a -> b` は git 風の表記で、jj は出さない。移動先を取り出せない表記を
+    /// 通すと走査対象を取り違えるため、`R` を受けるようにした後も `Err` のまま。
     #[test]
     fn changed_paths_rejects_unknown_status() {
         assert!(changed_paths("R src/a.rs -> src/b.rs\n").is_err());
         assert!(changed_paths("M\n").is_err());
+        assert!(changed_paths("X src/a.rs\n").is_err());
+        assert!(changed_paths("R src/{a => b.rs\n").is_err());
+    }
+
+    /// 出所: 本リポジトリの実履歴から採取した `jj diff --summary` の rename 行 4 形
+    /// (jj 0.42、Windows のため区切りは `\`)。
+    ///
+    /// - `e5bf94c6` (PR #501, config 移設) — 括りが先頭
+    /// - `src\{cli-autonomy-gate => lib-autonomy-policy}\src\decision.rs` — 括りが中間
+    /// - `src\{cli-nightly-task-select\src\ledger => lib-ledger\src}\screening.rs` — 括り内に区切り
+    /// - `src\{cli-nightly-task-select\src\ledger.rs => lib-ledger\src\lib.rs}` — 括りが末尾
+    #[test]
+    fn changed_paths_resolves_real_jj_rename_shapes() {
+        let bs = char::from(92u8);
+        let summary = [
+            format!("R {{.claude => config}}{bs}custom-lint-rules.toml"),
+            format!("R src{bs}{{cli-autonomy-gate => lib-autonomy-policy}}{bs}src{bs}decision.rs"),
+            format!("R src{bs}{{cli-nightly-task-select{bs}src{bs}ledger => lib-ledger{bs}src}}{bs}screening.rs"),
+            format!("R src{bs}{{cli-nightly-task-select{bs}src{bs}ledger.rs => lib-ledger{bs}src{bs}lib.rs}}"),
+        ]
+        .join("\n");
+        assert_eq!(
+            changed_paths(&summary).unwrap(),
+            vec![
+                "config/custom-lint-rules.toml".to_string(),
+                "src/lib-autonomy-policy/src/decision.rs".to_string(),
+                "src/lib-ledger/src/screening.rs".to_string(),
+                "src/lib-ledger/src/lib.rs".to_string(),
+            ]
+        );
+    }
+
+    /// copy (`C`) は rename と同じ表記で、走査対象は複製**先**。
+    /// 片側が空になる形は区切りが重複するので畳む。
+    #[test]
+    fn changed_paths_resolves_copy_and_collapses_empty_segments() {
+        let bs = char::from(92u8);
+        assert_eq!(
+            changed_paths(&format!("C src{bs}{{old => new}}{bs}f.rs")).unwrap(),
+            vec!["src/new/f.rs".to_string()]
+        );
+        assert_eq!(
+            changed_paths(&format!("R src{bs}{{old => }}{bs}f.rs")).unwrap(),
+            vec!["src/f.rs".to_string()]
+        );
+        assert_eq!(
+            changed_paths("R old/a.rs => new/a.rs\n").unwrap(),
+            vec!["new/a.rs".to_string()]
+        );
+    }
+
+    /// 移動を 1 件含むだけで PR 全体が未走査になっていた退行 (2026-09-14 の
+    /// `scan-incomplete` 発火 8 件、PR #501 では .rs 22 件が素通り) を固定する。
+    #[test]
+    fn a_rename_no_longer_discards_the_rest_of_the_diff() {
+        let bs = char::from(92u8);
+        let summary = format!(
+            "M src{bs}a.rs\nR {{.claude => config}}{bs}custom-lint-rules.toml\nA src{bs}b.rs\n"
+        );
+        let paths = changed_paths(&summary).expect("rename を含む diff が解釈できること");
+        assert!(
+            paths.contains(&format!("src{bs}a.rs")) && paths.contains(&format!("src{bs}b.rs")),
+            "rename 行の前後の変更が落ちています: {paths:?}"
+        );
     }
 
     #[test]
