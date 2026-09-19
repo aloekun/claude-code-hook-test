@@ -72,9 +72,9 @@ fn diff_at_is_empty() -> bool {
 
 **試験運用中に CI 経由で実質 deny にしない。** 実リポジトリ全体を走査する検査 (`repo_has_no_unlisted_firings`) は `#[ignore]` にしてあり、既定の `cargo test` では BASELINE の stale 検査だけを行う。warning と決めた期間に hard fail の経路を残すと、測定したかった FP がそのまま作業の停止になる。
 
-### 改訂 (2026-09-19): rename / copy は「解釈できない status 行」ではない
+### 改訂 (2026-09-19): rename は「解釈できない status 行」ではない
 
-**ファイル移動 (`R`) と複製 (`C`) は移動後のパスへ解決して走査対象に含める。** 上の「解釈できない status 行」から除外する。
+**ファイル移動 (`R`) は移動後のパスへ解決して走査対象に含める。** 上の「解釈できない status 行」から除外する。
 
 初版は `M` / `A` / `D` 以外をすべて解釈不能として `scan-incomplete` へ倒していた。しかし jj の `R` 行は `prefix{old => new}suffix` という**情報として完全な表記**で、移動後のパスを取り出せる。しかも `changed_paths` は最初の解釈不能行で打ち切るため、**移動を 1 件含むだけで、その push の全ファイルが未走査**になっていた。
 
@@ -82,7 +82,9 @@ fn diff_at_is_empty() -> bool {
 
 これは環境要因ではなく**この構成が日常的に行う操作**である — [ADR-080](adr-080-rust-module-split-invariants.md) の module 分割、config の移設はいずれも rename を生む。deny へ昇格すると、移動を含む PR が毎回ブロックされ `TESTABILITY_GATE_OVERRIDE=1` の常用を招く。**本改訂は deny 昇格の前提条件**である。
 
-fail-closed の方向は変えない。移動後のパスを取り出せない表記 (git 風の `old -> new` 等)・未知の status・パス欠落は従来どおり `Err` にする。移動先を取り違えたまま緑にするのは [ADR-043](adr-043-security-gates-fail-closed.md) に反する。
+**扱うのは実測した表記だけにする。** jj 0.42 の出力を空の repo で実測したところ、rename は**共通部分が 1 つも無い場合でも必ず括り形式** (`R {alpha.txt => zulu.md}`) で出し、copy は `C` ではなく `A` で出た。そこで括り形式のみを解決し、括りなしの `old => new`・`C` status・git 風の `old -> new`・将来の新形式は**推測で解決せず `Err`** に倒す。
+
+fail-closed の方向は変えない。移動先を取り違えたまま緑にするのは [ADR-043](adr-043-security-gates-fail-closed.md) に反する。倒した先は同時に入れた `scan-incomplete` の経路ラベル (`unparsable-status`、[ADR-055](adr-055-firing-telemetry-collection.md)) として telemetry に残るため、**jj が表記を変えれば観測から気づける**。
 
 ## 検討した選択肢
 

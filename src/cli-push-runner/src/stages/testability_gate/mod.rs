@@ -65,39 +65,42 @@ fn is_baselined(path: &str, function: &str) -> bool {
         .any(|(file, name)| *name == function && norm.ends_with(file))
 }
 
-/// rename / copy 行のパス表記に現れる矢印。前後の空白を含めた形で照合する。
+/// rename 行のパス表記に現れる矢印。前後の空白を含めた形で照合する。
 const RENAME_ARROW: &str = " => ";
 
-/// `R` / `C` 行のパス表記から **移動後のパス**を取り出す。
+/// `R` (rename) 行のパス表記から **移動後のパス**を取り出す。
 ///
-/// jj は共通部分を括って `prefix{old => new}suffix` と書く。実際に本リポジトリの履歴へ
-/// 現れた 4 形すべてを [`tests::changed_paths_resolves_real_jj_rename_shapes`] で固定して
-/// ある。括りが無い `old => new` 形も受ける。
+/// # 実測した表記 (jj 0.42)
 ///
-/// **`=>` を含まない行は `Err`** にする。git 風の `old -> new` のような未知の表記を
-/// 移動先不明のまま通すと、走査対象を取り違えたまま緑になるため ([ADR-043])。
+/// **rename は必ず括り形式 `prefix{old => new}suffix`** で出る。本リポジトリの履歴から
+/// 採取した 4 形 (括りが先頭 / 中間 / 末尾、括り内に区切りを含む) を
+/// [`tests::changed_paths_resolves_real_jj_rename_shapes`] で固定してある。**共通部分が
+/// 1 つも無い rename でも括る** — 空の repo で `alpha.txt` → `zulu.md` を実測すると
+/// `R {alpha.txt => zulu.md}` になり、括りなしの `old => new` は出なかった。
+///
+/// **copy は `C` ではなく `A` で出る**。同じ実測で `cp` したファイルは `A` だった。
+///
+/// # 扱わない表記は `Err`
+///
+/// 上記以外 (括りなし・`C` status・git 風の `old -> new`・将来の新形式) は**推測で
+/// 解決せずに `Err`** へ倒す。移動先を取り違えたまま緑にするのは [ADR-043] に反する。
+/// 倒した先は `scan-incomplete` の `unparsable-status` として telemetry に残るので、
+/// 新しい表記が現れれば観測から気づける。
 ///
 /// 戻り値は区切りを `/` に正規化し、空セグメントを畳む。`{old => }suffix` のように
 /// 片側が空になる形で区切りが重複するため。jj の出力は repo 相対パスなので、先頭の
 /// 空セグメント除去が絶対パスを壊すことはない。
 fn rename_target(path: &str) -> Result<String, String> {
-    let new = match path.find('{') {
-        Some(open) => {
-            let Some(close) = path[open..].find('}').map(|i| open + i) else {
-                return Err(format!("rename 表記の括りが閉じていません: {path:?}"));
-            };
-            let Some((_, moved_to)) = path[open + 1..close].split_once(RENAME_ARROW) else {
-                return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
-            };
-            format!("{}{}{}", &path[..open], moved_to, &path[close + 1..])
-        }
-        None => {
-            let Some((_, moved_to)) = path.split_once(RENAME_ARROW) else {
-                return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
-            };
-            moved_to.to_string()
-        }
+    let Some(open) = path.find('{') else {
+        return Err(format!("rename 表記に括りがありません: {path:?}"));
     };
+    let Some(close) = path[open..].find('}').map(|i| open + i) else {
+        return Err(format!("rename 表記の括りが閉じていません: {path:?}"));
+    };
+    let Some((_, moved_to)) = path[open + 1..close].split_once(RENAME_ARROW) else {
+        return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
+    };
+    let new = format!("{}{}{}", &path[..open], moved_to, &path[close + 1..]);
     let norm = normalize(new.trim());
     let joined = norm.split('/').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/");
     if joined.is_empty() {
@@ -108,9 +111,10 @@ fn rename_target(path: &str) -> Result<String, String> {
 
 /// `jj diff --summary` の出力から変更ファイルのパスを取り出す。
 ///
-/// `R` (rename) / `C` (copy) は**移動後のパスへ解決して走査対象に含める** ([`rename_target`])。
+/// `R` (rename) は**移動後のパスへ解決して走査対象に含める** ([`rename_target`])。
 /// jj はファイル移動を日常的に出すので (ADR-080 の module 分割・config 移設)、これを
 /// 「解釈できない行」に倒すと**移動を 1 件含むだけで PR 全体が未走査**になる。
+/// copy は jj 0.42 では `A` で出るため (`rename_target` の実測を参照)、専用の扱いは持たない。
 ///
 /// それ以外の未知 status やパス欠落、解決できない rename 表記は `Err` にする。**戻り値の
 /// `Err` を空リストへ潰さないのが要点**で、「1 行も変更が無かった」と「読めなかった」を
@@ -129,7 +133,7 @@ fn changed_paths(summary: &str) -> Result<Vec<String>, String> {
         match status {
             "D" => continue,
             "M" | "A" => out.push(path.to_string()),
-            "R" | "C" => out.push(rename_target(path)?),
+            "R" => out.push(rename_target(path)?),
             _ => return Err(format!("未知の status です: {line:?}")),
         }
     }
@@ -456,23 +460,27 @@ mod tests {
         );
     }
 
-    /// copy (`C`) は rename と同じ表記で、走査対象は複製**先**。
-    /// 片側が空になる形は区切りが重複するので畳む。
+    /// 片側が空になる形 (`{old => }`) は連結で区切りが重複するので畳む。
     #[test]
-    fn changed_paths_resolves_copy_and_collapses_empty_segments() {
+    fn changed_paths_collapses_empty_segments() {
         let bs = char::from(92u8);
-        assert_eq!(
-            changed_paths(&format!("C src{bs}{{old => new}}{bs}f.rs")).unwrap(),
-            vec!["src/new/f.rs".to_string()]
-        );
         assert_eq!(
             changed_paths(&format!("R src{bs}{{old => }}{bs}f.rs")).unwrap(),
             vec!["src/f.rs".to_string()]
         );
-        assert_eq!(
-            changed_paths("R old/a.rs => new/a.rs\n").unwrap(),
-            vec!["new/a.rs".to_string()]
-        );
+    }
+
+    /// 実測 (jj 0.42) していない表記は推測で解決せず `Err` に倒す。倒した先は
+    /// `scan-incomplete` の `unparsable-status` として telemetry に残る。
+    ///
+    /// - 括りなし `old => new`: 共通部分が 1 つも無い rename (`alpha.txt` → `zulu.md`) でも
+    ///   jj は `R {alpha.txt => zulu.md}` と括るため、この形は出ない
+    /// - `C` status: `cp` したファイルは `A` で出るため、copy 専用の status は出ない
+    #[test]
+    fn changed_paths_rejects_unmeasured_notations() {
+        let bs = char::from(92u8);
+        assert!(changed_paths("R old/a.rs => new/a.rs\n").is_err());
+        assert!(changed_paths(&format!("C src{bs}{{old => new}}{bs}f.rs")).is_err());
     }
 
     /// 移動を 1 件含むだけで PR 全体が未走査になっていた退行 (2026-09-14 の
