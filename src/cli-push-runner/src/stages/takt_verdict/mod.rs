@@ -187,6 +187,7 @@ fn record_firing() {
         id: "takt_verdict_gate:fired",
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 

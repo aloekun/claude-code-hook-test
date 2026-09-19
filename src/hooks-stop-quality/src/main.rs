@@ -122,6 +122,7 @@ fn record_block_firing() {
         id: "hooks-stop-quality",
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 

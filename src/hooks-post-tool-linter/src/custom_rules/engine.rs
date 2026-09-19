@@ -232,6 +232,7 @@ fn record_rule_firing(rule: &CustomRule) {
         id: &rule.id,
         decision,
         session_id: None,
+        reason: None,
     });
 }
 

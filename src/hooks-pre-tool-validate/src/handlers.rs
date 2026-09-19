@@ -17,6 +17,7 @@ fn record_preset_block(source: &str) {
         id: source,
         decision: lib_telemetry::Decision::Block,
         session_id: None,
+        reason: None,
     });
 }
 

@@ -65,9 +65,58 @@ fn is_baselined(path: &str, function: &str) -> bool {
         .any(|(file, name)| *name == function && norm.ends_with(file))
 }
 
+/// rename 行のパス表記に現れる矢印。前後の空白を含めた形で照合する。
+const RENAME_ARROW: &str = " => ";
+
+/// `R` (rename) 行のパス表記から **移動後のパス**を取り出す。
+///
+/// # 実測した表記 (jj 0.42)
+///
+/// **rename は必ず括り形式 `prefix{old => new}suffix`** で出る。本リポジトリの履歴から
+/// 採取した 4 形 (括りが先頭 / 中間 / 末尾、括り内に区切りを含む) を
+/// [`tests::changed_paths_resolves_real_jj_rename_shapes`] で固定してある。**共通部分が
+/// 1 つも無い rename でも括る** — 空の repo で `alpha.txt` → `zulu.md` を実測すると
+/// `R {alpha.txt => zulu.md}` になり、括りなしの `old => new` は出なかった。
+///
+/// **copy は `C` ではなく `A` で出る**。同じ実測で `cp` したファイルは `A` だった。
+///
+/// # 扱わない表記は `Err`
+///
+/// 上記以外 (括りなし・`C` status・git 風の `old -> new`・将来の新形式) は**推測で
+/// 解決せずに `Err`** へ倒す。移動先を取り違えたまま緑にするのは [ADR-043] に反する。
+/// 倒した先は `scan-incomplete` の `unparsable-status` として telemetry に残るので、
+/// 新しい表記が現れれば観測から気づける。
+///
+/// 戻り値は区切りを `/` に正規化し、空セグメントを畳む。`{old => }suffix` のように
+/// 片側が空になる形で区切りが重複するため。jj の出力は repo 相対パスなので、先頭の
+/// 空セグメント除去が絶対パスを壊すことはない。
+fn rename_target(path: &str) -> Result<String, String> {
+    let Some(open) = path.find('{') else {
+        return Err(format!("rename 表記に括りがありません: {path:?}"));
+    };
+    let Some(close) = path[open..].find('}').map(|i| open + i) else {
+        return Err(format!("rename 表記の括りが閉じていません: {path:?}"));
+    };
+    let Some((_, moved_to)) = path[open + 1..close].split_once(RENAME_ARROW) else {
+        return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
+    };
+    let new = format!("{}{}{}", &path[..open], moved_to, &path[close + 1..]);
+    let norm = normalize(new.trim());
+    let joined = norm.split('/').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/");
+    if joined.is_empty() {
+        return Err(format!("rename 後のパスが空です: {path:?}"));
+    }
+    Ok(joined)
+}
+
 /// `jj diff --summary` の出力から変更ファイルのパスを取り出す。
 ///
-/// status が `M` / `A` / `D` 以外の行 (rename 等) やパス欠落は `Err` にする。**戻り値の
+/// `R` (rename) は**移動後のパスへ解決して走査対象に含める** ([`rename_target`])。
+/// jj はファイル移動を日常的に出すので (ADR-080 の module 分割・config 移設)、これを
+/// 「解釈できない行」に倒すと**移動を 1 件含むだけで PR 全体が未走査**になる。
+/// copy は jj 0.42 では `A` で出るため (`rename_target` の実測を参照)、専用の扱いは持たない。
+///
+/// それ以外の未知 status やパス欠落、解決できない rename 表記は `Err` にする。**戻り値の
 /// `Err` を空リストへ潰さないのが要点**で、「1 行も変更が無かった」と「読めなかった」を
 /// 呼び出し側が区別できるようにしてある。区別した先の扱い ([`scan_incomplete`]) は
 /// mode によって変わる。
@@ -81,13 +130,12 @@ fn changed_paths(summary: &str) -> Result<Vec<String>, String> {
         let Some((status, path)) = line.split_once(' ') else {
             return Err(format!("jj diff --summary の行を解釈できません: {line:?}"));
         };
-        if !matches!(status, "M" | "A" | "D") {
-            return Err(format!("未知の status です: {line:?}"));
+        match status {
+            "D" => continue,
+            "M" | "A" => out.push(path.to_string()),
+            "R" => out.push(rename_target(path)?),
+            _ => return Err(format!("未知の status です: {line:?}")),
         }
-        if status == "D" {
-            continue;
-        }
-        out.push(path.to_string());
     }
     Ok(out)
 }
@@ -149,11 +197,23 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     }
     let summary = match run_jj_diff_summary(pr_range) {
         Ok(s) => s,
-        Err(e) => return scan_incomplete(config, &format!("jj diff --summary 失敗: {e}")),
+        Err(e) => {
+            return scan_incomplete(
+                config,
+                REASON_DIFF_FAILED,
+                &format!("jj diff --summary 失敗: {e}"),
+            )
+        }
     };
     let paths = match changed_paths(&summary) {
         Ok(p) => p,
-        Err(e) => return scan_incomplete(config, &format!("変更ファイルを読み取れません: {e}")),
+        Err(e) => {
+            return scan_incomplete(
+                config,
+                REASON_UNPARSABLE_STATUS,
+                &format!("変更ファイルを読み取れません: {e}"),
+            )
+        }
     };
     let (violations, skipped) =
         scan_changed_files(&paths, |p| std::fs::read_to_string(Path::new(p)).ok());
@@ -164,6 +224,7 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     // NOTE: 走査できなかったファイルの違反は検出できない。成功扱いにせず走査不成立と同じ扱いへ倒す。
     let skipped_ok = scan_incomplete(
         config,
+        REASON_FILES_UNSCANNABLE,
         &format!(
             "{} 件を走査できません: {}",
             skipped.len(),
@@ -173,16 +234,31 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     violations_ok && skipped_ok
 }
 
+/// `scan-incomplete` の発火経路ラベル。**telemetry に載るのはこの固定語彙だけ**で、
+/// 詳細 (パスを含む) は stderr のログにしか出さない (ADR-055 § プライバシー)。
+///
+/// 経路を区別せずに記録していたため、2026-09-19 の月次 ROI レビューでは 8 件の発火が
+/// どの経路だったかを commit 履歴から推定するしかなかった。
+const REASON_DIFF_FAILED: &str = "diff-failed";
+const REASON_UNPARSABLE_STATUS: &str = "unparsable-status";
+const REASON_FILES_UNSCANNABLE: &str = "files-unscannable";
+
 /// 走査そのものが成立しなかったとき。
 ///
 /// **「検査できなかった」を「違反なし」と同じ緑に潰さない** ([ADR-043])。ただし倒し方は
 /// mode で変える: warning 中は push を止めず telemetry へ `scan-incomplete` を残して
 /// 頻度を測り、deny 昇格後は止める。warning 期間に止めると、測りたかった FP と
 /// 環境要因の停止が混ざる。
-fn scan_incomplete(config: Option<&TestabilityGateConfig>, reason: &str) -> bool {
+///
+/// `reason` は telemetry に載せる固定ラベル、`detail` は人が読むログ本文。
+fn scan_incomplete(
+    config: Option<&TestabilityGateConfig>,
+    reason: &'static str,
+    detail: &str,
+) -> bool {
     let deny = is_deny(config);
-    log_stage(STAGE, &format!("検査できませんでした: {reason}"));
-    record_firing("scan-incomplete", deny);
+    log_stage(STAGE, &format!("検査できませんでした[{reason}]: {detail}"));
+    record_firing_with_reason("scan-incomplete", deny, Some(reason));
     if deny {
         log_info("  対処: 原因を解消して再実行するか、`TESTABILITY_GATE_OVERRIDE=1` で明示的にバイパスしてください");
         return false;
@@ -228,17 +304,23 @@ fn report(config: Option<&TestabilityGateConfig>, violations: &[Violation]) -> b
 
 /// `reason` は telemetry `id` に埋め込む固定カテゴリ名 (呼び出し側リテラルの閉集合)。
 /// diff 由来の内容 (関数名等) を渡さないこと ([ADR-055] のメタデータのみ原則)。
-fn record_firing(reason: &str, deny: bool) {
+fn record_firing(event: &str, deny: bool) {
+    record_firing_with_reason(event, deny, None);
+}
+
+/// `reason` は同一 id の発火経路を区別する固定ラベル (telemetry に載る)。
+fn record_firing_with_reason(event: &str, deny: bool, reason: Option<&'static str>) {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "cli-push-runner",
         kind: lib_telemetry::FiringKind::Hook,
-        id: &format!("testability_gate:{reason}"),
+        id: &format!("testability_gate:{event}"),
         decision: if deny {
             lib_telemetry::Decision::Block
         } else {
             lib_telemetry::Decision::Warn
         },
         session_id: None,
+        reason,
     });
 }
 
@@ -317,8 +399,16 @@ mod tests {
             scan_changed_files(&["src/broken.rs".to_string()], read_from(files));
         assert!(violations.is_empty());
         assert_eq!(skipped.len(), 1);
-        assert!(scan_incomplete(Some(&config_with(None)), "broken"));
-        assert!(!scan_incomplete(Some(&config_with(Some("deny"))), "broken"));
+        assert!(scan_incomplete(
+            Some(&config_with(None)),
+            REASON_FILES_UNSCANNABLE,
+            "broken"
+        ));
+        assert!(!scan_incomplete(
+            Some(&config_with(Some("deny"))),
+            REASON_FILES_UNSCANNABLE,
+            "broken"
+        ));
     }
 
     #[test]
@@ -331,10 +421,81 @@ mod tests {
     }
 
     /// fail-closed: 解釈できない行を見たら「変更なし」に潰さない。
+    ///
+    /// `R a -> b` は git 風の表記で、jj は出さない。移動先を取り出せない表記を
+    /// 通すと走査対象を取り違えるため、`R` を受けるようにした後も `Err` のまま。
     #[test]
     fn changed_paths_rejects_unknown_status() {
         assert!(changed_paths("R src/a.rs -> src/b.rs\n").is_err());
         assert!(changed_paths("M\n").is_err());
+        assert!(changed_paths("X src/a.rs\n").is_err());
+        assert!(changed_paths("R src/{a => b.rs\n").is_err());
+    }
+
+    /// 出所: 本リポジトリの実履歴から採取した `jj diff --summary` の rename 行 4 形
+    /// (jj 0.42、Windows のため区切りは `\`)。
+    ///
+    /// - `e5bf94c6` (PR #501, config 移設) — 括りが先頭
+    /// - `src\{cli-autonomy-gate => lib-autonomy-policy}\src\decision.rs` — 括りが中間
+    /// - `src\{cli-nightly-task-select\src\ledger => lib-ledger\src}\screening.rs` — 括り内に区切り
+    /// - `src\{cli-nightly-task-select\src\ledger.rs => lib-ledger\src\lib.rs}` — 括りが末尾
+    #[test]
+    fn changed_paths_resolves_real_jj_rename_shapes() {
+        let bs = char::from(92u8);
+        let summary = [
+            format!("R {{.claude => config}}{bs}custom-lint-rules.toml"),
+            format!("R src{bs}{{cli-autonomy-gate => lib-autonomy-policy}}{bs}src{bs}decision.rs"),
+            format!("R src{bs}{{cli-nightly-task-select{bs}src{bs}ledger => lib-ledger{bs}src}}{bs}screening.rs"),
+            format!("R src{bs}{{cli-nightly-task-select{bs}src{bs}ledger.rs => lib-ledger{bs}src{bs}lib.rs}}"),
+        ]
+        .join("\n");
+        assert_eq!(
+            changed_paths(&summary).unwrap(),
+            vec![
+                "config/custom-lint-rules.toml".to_string(),
+                "src/lib-autonomy-policy/src/decision.rs".to_string(),
+                "src/lib-ledger/src/screening.rs".to_string(),
+                "src/lib-ledger/src/lib.rs".to_string(),
+            ]
+        );
+    }
+
+    /// 片側が空になる形 (`{old => }`) は連結で区切りが重複するので畳む。
+    #[test]
+    fn changed_paths_collapses_empty_segments() {
+        let bs = char::from(92u8);
+        assert_eq!(
+            changed_paths(&format!("R src{bs}{{old => }}{bs}f.rs")).unwrap(),
+            vec!["src/f.rs".to_string()]
+        );
+    }
+
+    /// 実測 (jj 0.42) していない表記は推測で解決せず `Err` に倒す。倒した先は
+    /// `scan-incomplete` の `unparsable-status` として telemetry に残る。
+    ///
+    /// - 括りなし `old => new`: 共通部分が 1 つも無い rename (`alpha.txt` → `zulu.md`) でも
+    ///   jj は `R {alpha.txt => zulu.md}` と括るため、この形は出ない
+    /// - `C` status: `cp` したファイルは `A` で出るため、copy 専用の status は出ない
+    #[test]
+    fn changed_paths_rejects_unmeasured_notations() {
+        let bs = char::from(92u8);
+        assert!(changed_paths("R old/a.rs => new/a.rs\n").is_err());
+        assert!(changed_paths(&format!("C src{bs}{{old => new}}{bs}f.rs")).is_err());
+    }
+
+    /// 移動を 1 件含むだけで PR 全体が未走査になっていた退行 (2026-09-14 の
+    /// `scan-incomplete` 発火 8 件、PR #501 では .rs 22 件が素通り) を固定する。
+    #[test]
+    fn a_rename_no_longer_discards_the_rest_of_the_diff() {
+        let bs = char::from(92u8);
+        let summary = format!(
+            "M src{bs}a.rs\nR {{.claude => config}}{bs}custom-lint-rules.toml\nA src{bs}b.rs\n"
+        );
+        let paths = changed_paths(&summary).expect("rename を含む diff が解釈できること");
+        assert!(
+            paths.contains(&format!("src{bs}a.rs")) && paths.contains(&format!("src{bs}b.rs")),
+            "rename 行の前後の変更が落ちています: {paths:?}"
+        );
     }
 
     #[test]
@@ -501,13 +662,21 @@ mod tests {
     /// 走査が成立しなかったとき、warning 中は push を止めない (測定を優先する)。
     #[test]
     fn scan_incomplete_does_not_block_in_warning_mode() {
-        assert!(scan_incomplete(Some(&config_with(None)), "jj 失敗"));
+        assert!(scan_incomplete(
+            Some(&config_with(None)),
+            REASON_DIFF_FAILED,
+            "jj 失敗"
+        ));
     }
 
     /// deny 昇格後は「検査できなかった」を緑に潰さない (ADR-043)。
     #[test]
     fn scan_incomplete_blocks_in_deny_mode() {
-        assert!(!scan_incomplete(Some(&config_with(Some("deny"))), "jj 失敗"));
+        assert!(!scan_incomplete(
+            Some(&config_with(Some("deny"))),
+            REASON_DIFF_FAILED,
+            "jj 失敗"
+        ));
     }
 
     /// mode 未指定は warning 扱い (導入時の既定)。
