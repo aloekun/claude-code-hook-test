@@ -1,4 +1,4 @@
-Focus on **whole-tree todo hygiene** — the health of the planning corpus (`docs/todo.md` + `docs/todo3.md` … `docs/todo27.md` + `docs/todo-summary*.md` + `docs/claude-code-web-tasks.md`) taken as a whole. This facet is invoked by the weekly-review workflow (ADR-031、観点⑤ Todo 妥当性) and reviews the entire todo corpus, not a diff.
+Focus on **whole-tree todo hygiene** — the health of the planning corpus (`docs/todo.md` + `docs/todo3.md` … `docs/todo28.md` + `docs/todo-summary*.md` + `docs/claude-code-web-tasks.md`) taken as a whole. This facet is invoked by the weekly-review workflow (ADR-031、観点⑤ Todo 妥当性) and reviews the entire todo corpus, not a diff.
 
 This is the **weekly batch** counterpart to the edit-time todo hooks. It exists because the deterministic layer only sees the entry being touched right now; it cannot see the corpus-wide decay that accumulates across dozens of untouched entries.
 
