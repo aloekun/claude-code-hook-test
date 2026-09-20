@@ -24,6 +24,9 @@
 //! temp dir へ確定的に書けるようにする (`lib-jj-helpers::pipeline_lock` の
 //! `acquire_pipeline_lock_at` と同思想)。
 
+mod reason;
+pub use reason::Reason;
+
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -91,12 +94,9 @@ pub struct Firing<'a> {
     pub decision: Decision,
     /// 相関用の session id (任意)。`None` の場合 [`record`] が `.claude/.session-id` から補完する。
     pub session_id: Option<&'a str>,
-    /// 同じ id が複数経路で発火するときに**経路を区別する固定ラベル** (任意)。
-    ///
-    /// **有限の語彙だけを載せる** — 呼び出し側の `const` を渡す想定。実行時に組み立てた
-    /// 文字列、とりわけファイルパス・コマンド本文・エラー本文は**載せてはならない**
-    /// (ADR-055 § 記録フィールドとプライバシー の「メタデータのみ」原則)。詳細は stderr へ。
-    pub reason: Option<&'a str>,
+    /// 同じ id が複数経路で発火するときに**経路を区別する固定ラベル** (任意)。保証の内容と、
+    /// lifetime だけでは守れなかった経緯は [`Reason`] の module doc を参照。
+    pub reason: Option<Reason>,
 }
 
 /// JSONL 1 行の serde 表現。id が custom-lint-rules.toml 由来のユーザ入力を含み得るため、
@@ -163,7 +163,7 @@ pub fn record_to(base_dir: &Path, firing: &Firing, now_epoch: u64) -> io::Result
         id: firing.id,
         decision: firing.decision.as_str(),
         session_id: firing.session_id,
-        reason: firing.reason,
+        reason: firing.reason.map(Reason::as_str),
     };
     let line = serde_json::to_string(&record)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

@@ -258,7 +258,7 @@ fn scan_incomplete(
 ) -> bool {
     let deny = is_deny(config);
     log_stage(STAGE, &format!("検査できませんでした[{reason}]: {detail}"));
-    record_firing_with_reason("scan-incomplete", deny, Some(reason));
+    record_firing_with_reason("scan-incomplete", deny, lib_telemetry::Reason::new(reason));
     if deny {
         log_info("  対処: 原因を解消して再実行するか、`TESTABILITY_GATE_OVERRIDE=1` で明示的にバイパスしてください");
         return false;
@@ -309,7 +309,7 @@ fn record_firing(event: &str, deny: bool) {
 }
 
 /// `reason` は同一 id の発火経路を区別する固定ラベル (telemetry に載る)。
-fn record_firing_with_reason(event: &str, deny: bool, reason: Option<&'static str>) {
+fn record_firing_with_reason(event: &str, deny: bool, reason: Option<lib_telemetry::Reason>) {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "cli-push-runner",
         kind: lib_telemetry::FiringKind::Hook,
