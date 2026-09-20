@@ -28,7 +28,7 @@ fn written_line(dir: &std::path::Path) -> String {
     std::fs::read_to_string(path).expect("読み取り")
 }
 
-fn firing<'a>(reason: Option<&'a str>) -> Firing<'a> {
+fn firing(reason: Option<&'static str>) -> Firing<'static> {
     Firing {
         hook: "cli-push-runner",
         kind: FiringKind::Hook,

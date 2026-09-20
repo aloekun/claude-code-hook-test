@@ -93,10 +93,10 @@ pub struct Firing<'a> {
     pub session_id: Option<&'a str>,
     /// 同じ id が複数経路で発火するときに**経路を区別する固定ラベル** (任意)。
     ///
-    /// **有限の語彙だけを載せる** — 呼び出し側の `const` を渡す想定。実行時に組み立てた
-    /// 文字列、とりわけファイルパス・コマンド本文・エラー本文は**載せてはならない**
+    /// **有限の語彙だけを載せる** — ファイルパス・コマンド本文・エラー本文は載せない
     /// (ADR-055 § 記録フィールドとプライバシー の「メタデータのみ」原則)。詳細は stderr へ。
-    pub reason: Option<&'a str>,
+    /// `&'static str` は契約を型で守るため — 実行時に組んだ `String` は渡せない (CodeRabbit #509)。
+    pub reason: Option<&'static str>,
 }
 
 /// JSONL 1 行の serde 表現。id が custom-lint-rules.toml 由来のユーザ入力を含み得るため、

@@ -58,6 +58,12 @@ warm-up 後に実データで棚卸し (step 2/3) を後続 PR で行う。本 A
 発火 8 件がどの経路だったかを commit 履歴から推定するしかなかった** — 発火を測るための層が、
 自分の発火理由を測れていなかった。
 
+**この契約は型で守る。** `Firing::reason` の型は `Option<&'static str>` で、safe Rust では
+実行時に組み立てた `String` を渡せない (`const` か literal しか入らない)。初版は
+`Option<&'a str>` にしており、契約を doc comment だけで守らせる形になっていた — PR #509 の
+CodeRabbit 指摘を受けて型へ移した。**プライバシー契約をレビューの目視に依存させない**
+([ADR-042](adr-042-rule-vs-mechanism-boundary.md) の「機械化できるものは機構へ」)。
+
 **プライバシー**: 記録はメタデータのみとし、**ファイルパス・編集内容・コマンド本文は記録
 しない**。custom rule ② no-personal-paths (PII パス混入禁止) と同じ思想で、ローカル運用
 データであっても個人情報を残さない。
