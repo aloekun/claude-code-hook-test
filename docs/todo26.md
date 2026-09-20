@@ -549,14 +549,29 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
 
 #### 作業計画
 
-- [ ] 「現 head が CodeRabbit にレビュー済みか」の判定を 1 関数へ集約する
-      (`review_trigger.rs::head_already_reviewed` が近い。3 経路で共有できる形にする)
+- [x] 「現 head が CodeRabbit にレビュー済みか」の判定を 1 関数へ集約する
+      (`src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` の `head_already_reviewed` /
+      `should_skip_request`。`trigger_review.rs` / `review_trigger.rs` /
+      `poll/rate_limit.rs` の 3 経路が呼ぶ)
 - [ ] review-request.yml: 要求前に判定を挟み、auto 済みなら要求せず success で終える。
       判定不能 / 未レビューなら従来どおり PAT 要求 (auto が止まった夜への保険を残す)
 - [ ] `SINCE_ID` より前の walkthrough も成功証拠として見る (要求前に出たレビューの取りこぼし防止)
 - [ ] ack の `Review finished.` / 「already reviewed commits」を成功分類に加える
 - [ ] `.coderabbit.yaml` 冒頭の「star 10 未満で効かない」注記を実測 (09-10〜) に合わせて更新
 - [ ] ADR-019 amendment に「auto 挙動は実測で吸収する (特定挙動に固定しない)」旨を追記
+
+#### PR チェーン宣言 (ADR-069 決定 1)
+
+本項目は 3 PR に分割する。抽出↔呼び手のペアリングを先に名指ししておく。
+
+| PR | 内容 | 呼び手 / 消費者 |
+|---|---|---|
+| 1 | `stages/coderabbit_reviewed.rs` (`head_already_reviewed` / `should_skip_request`) | 同 PR 内の `trigger_review.rs` / `review_trigger.rs` / `poll/rate_limit.rs` |
+| 2 | `review-request.yml` の auto 判定 + head 固定の成功証拠 + `scripts/lint-workflows.mjs` の marker 契約追加 | PR 1 の module doc が予告する契約検査の実体 |
+| 3 | `.coderabbit.yaml` 冒頭注記 / ADR-019 amendment / 本エントリのクローズ | — |
+
+PR 1 の `coderabbit_reviewed.rs` module doc は「lint 契約は後続 PR」と明記しており、
+PR 2 が land するまでその検査は存在しない。
 
 #### 完了基準
 

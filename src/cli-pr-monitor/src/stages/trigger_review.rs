@@ -4,10 +4,15 @@
 //!
 //! CodeRabbit は 2026-09-08 に **star 10 未満のリポジトリへの自動レビューを停止**した。
 //! それまでは `.coderabbit.yaml` の `auto_review.enabled: true` で初回 PR は自動レビュー
-//! され、fix push だけ手動トリガーを要する設計だった (ADR-019 § WP-03)。今は**初回から
-//! トリガーが要る**ため、その設計の前提が崩れている。
+//! され、fix push だけ手動トリガーを要する設計だった (ADR-019 § WP-03)。
 //!
-//! 停止時、CodeRabbit は PR へ次の形のコメントを出す。チェックを入れるとレビューが始まる:
+//! **2026-09-10 頃に auto が戻った** (順位 520)。bot 作成 PR でも PR 作成の 2〜8 秒後に
+//! 自発 walkthrough が出る (#494 / #502 / #507 / #510 の初動で実測、4/4)。よって本 module は
+//! **「トリガーが要るかどうかを毎回実測する」** 形に倒してある — auto が効いていれば何もせず
+//! 戻り、効いていなければ従来どおりチェックを入れる。CodeRabbit の挙動は短期間で何度も
+//! 変わるため、どちらか一方の挙動を前提に固定しない。
+//!
+//! auto が効かないとき、CodeRabbit は PR へ次の形のコメントを出す。チェックを入れるとレビューが始まる:
 //!
 //! ```text
 //! > - [ ] <!-- {"checkboxId":"..."} --> 🔍 Trigger review
@@ -37,6 +42,7 @@
 use crate::config::DEFAULT_STEP_TIMEOUT_SECS;
 use crate::log::log_info;
 use crate::runner::{run_cmd_direct, run_gh_quiet};
+use crate::stages::coderabbit_reviewed::should_skip_request;
 use crate::stages::create_pr::write_body_tempfile;
 
 /// CodeRabbit のトリガー用チェックボックスの状態。
@@ -113,38 +119,96 @@ const POLL_INTERVAL_SECS: u64 = 15;
 /// **失敗しても呼び手は止めない** (module doc の fail-open)。見つからない・既にチェック
 /// 済み・API 失敗のいずれも、理由を 1 行出して戻る。
 pub(crate) fn trigger_review_after_create(repo: &str, pr_number: u64) {
+    if should_skip_request(pr_number, Some(repo), "[trigger-review]") {
+        return;
+    }
     for attempt in 1..=POLL_ATTEMPTS {
         match find_trigger_comment(repo, pr_number) {
-            Some((comment_id, body)) => {
+            TriggerLookup::Found(comment_id, body) => {
                 apply_check(repo, comment_id, &body);
                 return;
             }
-            None if attempt < POLL_ATTEMPTS => {
+            TriggerLookup::AlreadyChecked => {
+                log_info("[trigger-review] 既にチェック済みでした (二重発火させません)。");
+                return;
+            }
+            TriggerLookup::AutoActive => {
+                log_info(
+                    "[trigger-review] CodeRabbit は反応済みでトリガー行がありません。自動レビューが効いているため何もしません (PR 作成は成功しています)。",
+                );
+                return;
+            }
+            TriggerLookup::Silent if attempt < POLL_ATTEMPTS => {
                 std::thread::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECS));
             }
-            None => log_info(
-                "[trigger-review] CodeRabbit のトリガーコメントが見つかりません。自動レビューが効いているか、コメントがまだ出ていません (PR 作成は成功しています)。",
+            TriggerLookup::Silent => log_info(
+                "[trigger-review] CodeRabbit のコメントが出ていません。自動レビューも手動トリガーも始まっていません (PR 作成は成功しています)。",
             ),
         }
     }
 }
 
-/// トリガー行を持つ CodeRabbit コメントの `(id, body)` を返す。
-fn find_trigger_comment(repo: &str, pr_number: u64) -> Option<(u64, String)> {
-    let raw = run_gh_quiet(&[
+/// [`find_trigger_comment`] の 4 分類。
+///
+/// **「トリガー行が無い」と「CodeRabbit がまだ何も言っていない」を分ける。** 前者は
+/// 自動レビューが効いている状態 (順位 520 で 2026-09-10 以降の既定になった) で、待っても
+/// トリガー行は出ない。両者を `None` に潰していた頃は auto が効く PR でも毎回 90 秒
+/// (6 回 × 15 秒) 待ってから「見つかりません」と報告していた。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TriggerLookup {
+    /// 未チェックのトリガー行を持つコメント。
+    Found(u64, String),
+    /// トリガー行はあるが既にチェック済み。触らない。
+    AlreadyChecked,
+    /// CodeRabbit は反応しているがトリガー行が無い = 自動レビューが効いている。
+    AutoActive,
+    /// CodeRabbit のコメントがまだ無い (照会失敗も含む)。待てば変わりうる。
+    Silent,
+}
+
+/// CodeRabbit のコメント群からトリガー行の状態を読む。
+///
+/// 照会失敗は [`TriggerLookup::Silent`] に倒す — 「反応が無い」と「聞けなかった」を
+/// 区別できないため、待つ側 (安全側) へ寄せる。
+fn find_trigger_comment(repo: &str, pr_number: u64) -> TriggerLookup {
+    let Some(raw) = run_gh_quiet(&[
         "api",
         &format!("repos/{repo}/issues/{pr_number}/comments"),
         "--jq",
         r#".[] | select(.user.login=="coderabbitai[bot]") | "\(.id)\t\(.body|@base64)""#,
-    ])?;
-    for line in raw.lines() {
-        let (id, encoded) = line.split_once('\t')?;
-        let body = decode_base64(encoded)?;
-        if classify(&body) == TriggerCheckbox::Unchecked {
-            return Some((id.parse().ok()?, body));
+    ]) else {
+        return TriggerLookup::Silent;
+    };
+    classify_comments(&raw)
+}
+
+/// `"<id>\t<base64 body>"` 行の列を [`TriggerLookup`] へ畳む純粋関数 (I/O なし)。
+fn classify_comments(raw: &str) -> TriggerLookup {
+    let mut seen_coderabbit = false;
+    let mut seen_checked = false;
+    for line in raw.lines().filter(|l| !l.trim().is_empty()) {
+        seen_coderabbit = true;
+        let Some((id, encoded)) = line.split_once('\t') else {
+            continue;
+        };
+        let Some(body) = decode_base64(encoded) else {
+            continue;
+        };
+        match classify(&body) {
+            TriggerCheckbox::Unchecked => {
+                if let Ok(id) = id.parse() {
+                    return TriggerLookup::Found(id, body);
+                }
+            }
+            TriggerCheckbox::Checked => seen_checked = true,
+            TriggerCheckbox::Absent => {}
         }
     }
-    None
+    match (seen_checked, seen_coderabbit) {
+        (true, _) => TriggerLookup::AlreadyChecked,
+        (false, true) => TriggerLookup::AutoActive,
+        (false, false) => TriggerLookup::Silent,
+    }
 }
 
 /// 本文を base64 で受けるのは、コメントに改行・タブ・引用符が混ざるため。
@@ -286,6 +350,64 @@ mod tests {
         let label_only = "> - [ ] Trigger review";
         assert_eq!(classify(marker_only), TriggerCheckbox::Absent);
         assert_eq!(classify(label_only), TriggerCheckbox::Absent);
+    }
+
+    /// `"<id>\t<base64 body>"` 行を組む (実装の `--jq` 出力形式に合わせる)。
+    /// base64 は `classify_comments` が使う decoder と同じ表を避けるため、
+    /// テスト内で独立に組まず既知値を持たない — ここでは decoder の正しさではなく
+    /// **分類の分岐**を見るので、`decode_base64` を通せれば十分。
+    fn encode_line(id: u64, body: &str) -> String {
+        const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes = body.as_bytes();
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(TABLE[((n >> (18 - 6 * i)) & 0x3f) as usize] as char);
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        format!("{id}\t{out}")
+    }
+
+    /// 順位 520: CodeRabbit が反応しているがトリガー行が無い = 自動レビューが効いている。
+    /// **待たずに戻る**。ここが `Silent` に倒れると auto が効く PR で毎回 90 秒を捨てる。
+    #[test]
+    fn a_walkthrough_without_a_trigger_line_means_auto_review_is_active() {
+        let raw = encode_line(1, "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n## Walkthrough\n");
+        assert_eq!(classify_comments(&raw), TriggerLookup::AutoActive);
+    }
+
+    /// CodeRabbit のコメントが 1 件も無い場合だけ待つ。
+    #[test]
+    fn no_coderabbit_comment_yet_means_silent() {
+        assert_eq!(classify_comments(""), TriggerLookup::Silent);
+        assert_eq!(classify_comments("\n  \n"), TriggerLookup::Silent);
+    }
+
+    /// 未チェックのトリガー行があれば id と本文を返す。
+    #[test]
+    fn an_unchecked_trigger_line_is_returned_with_its_id() {
+        let raw = encode_line(4242, &real_body());
+        match classify_comments(&raw) {
+            TriggerLookup::Found(id, body) => {
+                assert_eq!(id, 4242);
+                assert_eq!(classify(&body), TriggerCheckbox::Unchecked);
+            }
+            other => panic!("Found を期待したが {other:?}"),
+        }
+    }
+
+    /// 既にチェック済みのトリガー行は `AlreadyChecked` — 待たずに戻る (二重発火させない)。
+    #[test]
+    fn a_checked_trigger_line_is_reported_as_already_checked() {
+        let checked = check(&real_body()).expect("1 回目のチェック");
+        let raw = encode_line(7, &checked);
+        assert_eq!(classify_comments(&raw), TriggerLookup::AlreadyChecked);
     }
 
     /// `decode_base64` 自体を直接叩く round-trip test。既存テストは `classify`/`check`

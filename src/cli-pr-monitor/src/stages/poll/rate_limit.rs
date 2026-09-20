@@ -20,6 +20,7 @@ use std::path::Path;
 use crate::config::RateLimitConfig;
 use crate::log::log_info;
 use crate::runner::run_gh_quiet;
+use crate::stages::coderabbit_reviewed::should_skip_request;
 use crate::state::{write_state_to, PrMonitorState};
 use crate::util::PrInfo;
 
@@ -79,7 +80,12 @@ fn dispatch_rate_limit_outcome(
 ) -> PollResult {
     match handle_rate_limit_retry(rl, state, pr_info) {
         RateLimitOutcome::Posted => {
-            finalize_posted_retrigger(state, rl, pr_info, result, state_path)
+            let summary = posted_summary(state.rate_limit_retries);
+            finalize_posted_retrigger(state, rl, pr_info, result, state_path, &summary)
+        }
+        RateLimitOutcome::SkippedAlreadyReviewed => {
+            let summary = skipped_summary(state.rate_limit_retries);
+            finalize_posted_retrigger(state, rl, pr_info, result, state_path, &summary)
         }
         RateLimitOutcome::WaitingReset => {
             finalize_waiting_reset(state, rl, pr_info, result, state_path)
@@ -98,26 +104,50 @@ fn dispatch_rate_limit_outcome(
     }
 }
 
-/// retrigger を投稿した後の terminal 化。
+/// retrigger を投稿したときの summary (I/O なし)。
+fn posted_summary(retries: u32) -> String {
+    format!(
+        "rate-limit へ retrigger を投稿 (retry={}/state 参照)。review 再実行の後続は GitHub Actions 経路が処理",
+        retries
+    )
+}
+
+/// 現 HEAD が既にレビュー済みで retrigger を投稿しなかったときの summary (順位 520、I/O なし)。
+///
+/// **「投稿した」と書かない。** 投稿していないのに投稿したと報告すると、state を読む側が
+/// レート枠の消費実績を誤る。terminal の形 (`pending_review` + dedup marker) は投稿時と
+/// 同じでよい — どちらも「次の poll でレビュー結果を拾う」に落ちるため。
+fn skipped_summary(retries: u32) -> String {
+    format!(
+        "現 HEAD は既に CodeRabbit レビュー済みのため retrigger を投稿せず (retry={}/state 参照)。結果の取得は次の poll が処理",
+        retries
+    )
+}
+
+/// retrigger 判断の後の terminal 化。
 ///
 /// 旧実装は「retrigger 後の review 完了待ち」を park していたが (順位 80 fix)、
 /// single-shot モデルでは retrigger 済みであることを報告して終了する。
 /// 再レビュー到着は GitHub Actions 経路が処理する。silent exit ではない点は
 /// 旧実装と同じ (ADR-064)。
+///
+/// `summary` は呼び手が作る — 投稿した場合と、既レビューで投稿を省いた場合
+/// (順位 520) で文言が変わる。**投稿していないのに「投稿した」と報告しない**:
+/// state を読む側がレート枠の消費実績を誤る。dedup marker
+/// (`rate_limit_last_retriggered_at`) はどちらでも立てる — 同じ rate-limit comment に
+/// 対して判断をやり直す意味が無いため。
 fn finalize_posted_retrigger(
     state: &mut PrMonitorState,
     rl: &crate::state::RateLimitState,
     pr_info: &PrInfo,
     result: &serde_json::Value,
     state_path: &Path,
+    summary: &str,
 ) -> PollResult {
     state.rate_limit_last_retriggered_at = Some(rl.comment_event_time.clone());
     state.record_head_commit(pr_info.head_commit.as_deref());
     state.action = "pending_review".into();
-    state.summary = format!(
-        "rate-limit へ retrigger を投稿 (retry={}/state 参照)。review 再実行の後続は GitHub Actions 経路が処理",
-        state.rate_limit_retries
-    );
+    state.summary = summary.to_string();
 
     if let Err(e) = write_state_to(state_path, state) {
         log_info(&format!(
@@ -338,6 +368,8 @@ pub(super) fn make_action_required_result(
 pub(crate) enum RateLimitOutcome {
     /// 即時 retrigger を投稿した (reset 時刻は既に過去だった)。
     Posted,
+    /// 現 HEAD が既にレビュー済みで、明示要求を投稿しなかった (順位 520)。
+    SkippedAlreadyReviewed,
     /// reset 時刻が未来のため何もしない (terminal な rate_limited 報告へ)。
     WaitingReset,
     Failed(String),
@@ -372,6 +404,10 @@ pub(super) fn handle_rate_limit_retry(
 
 /// `sleep_secs <= 0` 経路の即時 `@coderabbitai review` 投稿を担う helper。
 fn post_review_immediately(pr: u64, state: &mut PrMonitorState) -> RateLimitOutcome {
+    if should_skip_request(pr, state.repo.as_deref(), "[rate_limit]") {
+        return RateLimitOutcome::SkippedAlreadyReviewed;
+    }
+
     log_info(&format!(
         "[rate_limit] reset 時刻は既に過去、即時 retrigger (retry={})",
         state.rate_limit_retries + 1
