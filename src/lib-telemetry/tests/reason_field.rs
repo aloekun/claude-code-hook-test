@@ -3,13 +3,14 @@
 //! `src/lib.rs` は 800 行ゲートの上限際 (ADR-080) のため、本ファイルを統合テストとして
 //! 分けている。`record_to` / `Firing` はいずれも `pub` なので外から組める。
 //!
-//! 固定したいのは 2 点:
+//! 固定したいのは 3 点:
 //!
 //! - `reason` を渡した行にだけフィールドが出る (集計側の後方互換。`cli-telemetry-report`
 //!   の `FiringRecord` は未知フィールドを無視するため、既存行の形が変わらないことが前提)
 //! - 渡さない行には**現れない** (全 hook の既存行が 1 バイトも変わらない)
+//! - 実行時に組み立てた文字列は `Box::leak` を経由しても**行に出ない** (PR #511)
 
-use lib_telemetry::{record_to, Decision, Firing, FiringKind};
+use lib_telemetry::{record_to, Decision, Firing, FiringKind, Reason};
 
 /// 2026-04-01T12:00:00Z。partition 名を決定論にするため固定する。
 const T: u64 = 1_775_044_800;
@@ -28,7 +29,7 @@ fn written_line(dir: &std::path::Path) -> String {
     std::fs::read_to_string(path).expect("読み取り")
 }
 
-fn firing(reason: Option<&'static str>) -> Firing<'static> {
+fn firing(reason: Option<Reason>) -> Firing<'static> {
     Firing {
         hook: "cli-push-runner",
         kind: FiringKind::Hook,
@@ -42,7 +43,7 @@ fn firing(reason: Option<&'static str>) -> Firing<'static> {
 #[test]
 fn reason_is_serialized_when_present() {
     let dir = tempfile::tempdir().unwrap();
-    record_to(dir.path(), &firing(Some("unparsable-status")), T).unwrap();
+    record_to(dir.path(), &firing(Reason::new("unparsable-status")), T).unwrap();
     let line = written_line(dir.path());
     assert!(
         line.contains(r#""reason":"unparsable-status""#),
@@ -58,5 +59,20 @@ fn reason_is_absent_when_none() {
     assert!(
         !line.contains("reason"),
         "reason を渡していないのに行へ出ています (既存行の形が変わります): {line}"
+    );
+}
+
+/// 初版は `reason` を `&'static str` にして「実行時文字列は渡せない」としたが、
+/// `Box::leak` が素通りし `"reason":"src/secret/path.rs"` が書かれた (PR #511 の指摘)。
+/// 検査を [`Reason`] に移した今、同じ入力がフィールドごと落ちることを固定する。
+#[test]
+fn a_leaked_runtime_path_never_reaches_the_line() {
+    let leaked: &'static str = Box::leak(format!("src/secret/{}.rs", "path").into_boxed_str());
+    let dir = tempfile::tempdir().unwrap();
+    record_to(dir.path(), &firing(Reason::new(leaked)), T).unwrap();
+    let line = written_line(dir.path());
+    assert!(
+        !line.contains("secret") && !line.contains("reason"),
+        "実行時に組み立てたパスが行へ出ています: {line}"
     );
 }
