@@ -553,10 +553,33 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
       (`src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` の `head_already_reviewed` /
       `should_skip_request`。`trigger_review.rs` / `review_trigger.rs` /
       `poll/rate_limit.rs` の 3 経路が呼ぶ)
-- [ ] review-request.yml: 要求前に判定を挟み、auto 済みなら要求せず success で終える。
-      判定不能 / 未レビューなら従来どおり PAT 要求 (auto が止まった夜への保険を残す)
-- [ ] `SINCE_ID` より前の walkthrough も成功証拠として見る (要求前に出たレビューの取りこぼし防止)
-- [ ] ack の `Review finished.` / 「already reviewed commits」を成功分類に加える
+- [x] review-request.yml: 要求前に判定を挟み、auto 済みなら要求せず success で終える。
+      判定不能 / 未レビューなら従来どおり PAT 要求 (auto が止まった夜への保険を残す)。
+      `autocheck` step が 75 秒 (15 秒間隔で 6 回照会) の猶予で自発 walkthrough を探し、
+      見つかれば `auto_active=true` を出して要求 step を `if:` で飛ばす
+- [x] 要求前に出たレビューの取りこぼしを防ぐ。**当初案 (「`SINCE_ID` より前の walkthrough も
+      成功証拠として見る」) は採らなかった** — walkthrough marker は placeholder にも付くため、
+      窓を広げると「レビューが始まった」を「終わった」と読む誤りが残る。代わりに
+      **現 HEAD に紐づく完了証拠** (commit status の `CodeRabbit`=success / reviews API の
+      `commit_id` 一致) を成功条件にした。コメントの投稿順に依存せず、ADR-064 の陽性証拠
+      要求も満たす
+- [x] ack の `Review finished.` を成功分類に加える (要求を投げた run でのみ、`SINCE_ID` で絞る)。
+      「already reviewed commits」は同じ ack 本文の一部なので独立の分類にはしていない
+- [x] **commit status の `state` だけで「レビュー済み」と読まない。** 2026-09-21 に PR #510 /
+      #513 の status 履歴で実測したところ、CodeRabbit は skip も `success` で通知していた
+      (`Review skipped: bot user not eligible for review` / `Review skipped: incremental
+      reviews are disabled`)。完了は `success` + description `Review completed` のときだけ。
+      除外リスト方式ではなく完了を求める形にし、未知の文言は「完了ではない」へ倒す
+- [x] auto 判定も HEAD に紐づける。CodeRabbit はレビュー開始時に HEAD へ
+      `pending` / `Review in progress` を付ける (PR 作成の 9 秒後、#510 実測)。
+      コメントの walkthrough marker で判定すると、HEAD 更新後の re-run で旧 HEAD の
+      walkthrough を現 HEAD の auto と読み違える
+- [x] ack は**この run が要求を新規投稿した場合のみ**成功証拠にする (`posted=true`)。
+      既存要求を再利用した run で `SINCE_ID` だけを条件にすると、前回 run が受けた
+      旧 HEAD への ack で green になる
+- [x] 2 層 (workflow の bash / `coderabbit_reviewed.rs`) が同じ 2 系統を見ることを
+      `pnpm lint:workflows` の契約検査 4 が集合比較で固定する。コメント行を除いてから
+      照合する (注記だけで検査が満たされる形を変異で確認して塞いだ)
 - [ ] `.coderabbit.yaml` 冒頭の「star 10 未満で効かない」注記を実測 (09-10〜) に合わせて更新
 - [ ] ADR-019 amendment に「auto 挙動は実測で吸収する (特定挙動に固定しない)」旨を追記
 
@@ -570,8 +593,10 @@ Phase D の D3) が 1:1 対応の破れとして落とす。件数に比例し�
 | 2 | `review-request.yml` の auto 判定 + head 固定の成功証拠 + `scripts/lint-workflows.mjs` の marker 契約追加 | PR 1 の module doc が予告する契約検査の実体 |
 | 3 | `.coderabbit.yaml` 冒頭注記 / ADR-019 amendment / 本エントリのクローズ | — |
 
-PR 1 の `coderabbit_reviewed.rs` module doc は「lint 契約は後続 PR」と明記しており、
-PR 2 が land するまでその検査は存在しない。
+`coderabbit_reviewed.rs` の module doc は PR 1 の時点では「lint 契約は後続 PR」と
+書き、PR 2 がその検査を足すのと同時に記述を現在形へ直す。**どちらの PR を単体で見ても
+doc と diff が一致する**ようにするため、doc の書き換え自体を PR 2 の diff に含める
+(ADR-069 決定 1 の名前一致要件)。
 
 #### 完了基準
 

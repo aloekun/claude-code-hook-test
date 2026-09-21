@@ -26,11 +26,10 @@
 //!
 //! 4 つ目の経路である `.github/workflows/review-request.yml` は `pull_request_target`
 //! で動き、**checkout もコード実行もしない**設計 (PAT を持つ job の信頼境界) のため
-//! この関数を呼べない。同じ 2 系統を bash で照会する形になるが、共有する文字列は
-//! **後続 PR** で `scripts/lint-workflows.mjs` の CodeRabbit marker 契約検査へ足し、
-//! 集合比較で固定する — [ADR-081](../../../../docs/adr/adr-081-single-fact-dispersion.md)
-//! 決定 1 の「機械で照合できる 1 種類は検査にする」線に合わせる。
-//! **本 PR の時点でその検査はまだ無い** (チェーン宣言は本 PR の台帳エントリが持つ)。
+//! この関数を呼べない。同じ 2 系統を bash で照会する形になるが、両者がずれないことは
+//! `scripts/lint-workflows.mjs` の契約検査 4 が集合比較で固定する
+//! ([ADR-081](../../../../docs/adr/adr-081-single-fact-dispersion.md) 決定 1 の
+//! 「機械で照合できる 1 種類は検査にする」線)。
 //!
 //! # fail-open
 //!
@@ -40,6 +39,14 @@
 //! ここには適用しない。
 
 use crate::log::log_info;
+
+/// CodeRabbit が **レビュー完了** を示すときの commit status description (2026-09-21 実測)。
+///
+/// `state` は skip 時も `success` になるため、完了の判定にはこの文言が要る
+/// ([`parse_commit_status_reviewed`] に実測した 4 種類の表がある)。
+/// `.github/workflows/review-request.yml` の検証段が同じ文言を bash 側で見ており、
+/// 両者の同期は `scripts/lint-workflows.mjs` の契約検査が固定する (ADR-081 決定 1)。
+const STATUS_COMPLETED: &str = "Review completed";
 
 /// 現 HEAD が既に CodeRabbit にレビュー済みか判定する (WP-05 follow-up / 順位258、再トリガー抑止)。
 ///
@@ -124,22 +131,40 @@ fn is_head_in_reviewed(head: &str, reviewed_commit_ids: &str) -> bool {
 /// GitHub combined status API (`repos/{repo}/commits/{sha}/status`) の JSON から
 /// CodeRabbit がその commit をレビュー完了済みか判定する純粋関数。
 ///
-/// `statuses[]` に context が `CodeRabbit` (ASCII 大文字小文字無視) かつ state が `success` の
-/// エントリがあれば `Some(true)` (実測 description は `Review completed`)。エントリはあるが
-/// 該当なしは `Some(false)`。JSON parse 不能 / `statuses` 欠落は `None` (fail-open)。
+/// `statuses[]` に context が `CodeRabbit` (ASCII 大文字小文字無視)、state が `success`、
+/// かつ description が [`STATUS_COMPLETED`] を含むエントリがあれば `Some(true)`。
+/// エントリはあるが該当なしは `Some(false)`。JSON parse 不能 / `statuses` 欠落は
+/// `None` (fail-open)。
+///
+/// **`state == "success"` だけでは足りない。** CodeRabbit は skip も success で通知する。
+/// 2026-09-21 に PR #510 / #513 の status 履歴で実測した description は 4 種類:
+///
+/// | state | description | 意味 |
+/// |---|---|---|
+/// | `success` | `Review completed` | 完了 (これだけが陽性) |
+/// | `success` | `Review skipped: bot user not eligible for review` | 未レビュー |
+/// | `success` | `Review skipped: incremental reviews are disabled` | 未レビュー |
+/// | `pending` | `Review in progress` | 進行中 |
+///
+/// state だけを見ると後ろの 3 つも「レビュー済み」になり、**レビューが走っていない PR で
+/// 明示要求を skip する** (= 再レビューが永久に来ない)。
+///
+/// **「skip を除く」ではなく「完了を求める」形にする。** 除外リスト方式だと CodeRabbit が
+/// 新しい skip 文言を足したとき黙って陽性へ倒れる。未知の文言は「完了ではない」= 要求する
+/// 側へ落ちる方が安全である。
 fn parse_commit_status_reviewed(status_json: &str) -> Option<bool> {
     let value: serde_json::Value = serde_json::from_str(status_json).ok()?;
     let statuses = value.get("statuses")?.as_array()?;
     Some(statuses.iter().any(|entry| {
-        let context = entry
-            .get("context")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let state = entry
-            .get("state")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        context.eq_ignore_ascii_case("CodeRabbit") && state == "success"
+        let field = |key: &str| {
+            entry
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+        };
+        field("context").eq_ignore_ascii_case("CodeRabbit")
+            && field("state") == "success"
+            && field("description").contains(STATUS_COMPLETED)
     }))
 }
 
@@ -201,9 +226,54 @@ mod tests {
         );
     }
 
+    /// **skip も `success` で来る。** 2026-09-21 に PR #510 / #513 の status 履歴で実測した
+    /// 3 つの非完了 description を固定する。`state` だけで判定する実装に戻すと、この
+    /// テストが落ちる — 戻した場合はレビューが走っていない PR で明示要求を skip し、
+    /// 再レビューが永久に来なくなる。
+    #[test]
+    fn parse_commit_status_rejects_success_states_that_are_not_completions() {
+        for description in [
+            "Review skipped: bot user not eligible for review",
+            "Review skipped: incremental reviews are disabled",
+        ] {
+            let json = format!(
+                r#"{{"statuses": [{{"context": "CodeRabbit", "state": "success", "description": "{description}"}}]}}"#
+            );
+            assert_eq!(
+                parse_commit_status_reviewed(&json),
+                Some(false),
+                "success でも skip はレビュー済みではない: {description}"
+            );
+        }
+        let in_progress =
+            r#"{"statuses": [{"context": "CodeRabbit", "state": "pending", "description": "Review in progress"}]}"#;
+        assert_eq!(
+            parse_commit_status_reviewed(in_progress),
+            Some(false),
+            "進行中は完了ではない"
+        );
+    }
+
+    /// description が欠落 / 未知の文言なら「完了ではない」へ倒す (要求する側 = 安全側)。
+    #[test]
+    fn parse_commit_status_rejects_unknown_or_missing_description() {
+        let missing = r#"{"statuses": [{"context": "CodeRabbit", "state": "success"}]}"#;
+        assert_eq!(
+            parse_commit_status_reviewed(missing),
+            Some(false),
+            "description 欠落は完了と見なさない"
+        );
+        let unknown = r#"{"statuses": [{"context": "CodeRabbit", "state": "success", "description": "Review done"}]}"#;
+        assert_eq!(
+            parse_commit_status_reviewed(unknown),
+            Some(false),
+            "未知の文言は完了と見なさない (除外リスト方式なら黙って陽性に倒れる)"
+        );
+    }
+
     #[test]
     fn parse_commit_status_is_case_insensitive_for_context() {
-        let json = r#"{"statuses": [{"context": "coderabbit", "state": "success"}]}"#;
+        let json = r#"{"statuses": [{"context": "coderabbit", "state": "success", "description": "Review completed"}]}"#;
         assert_eq!(
             parse_commit_status_reviewed(json),
             Some(true),

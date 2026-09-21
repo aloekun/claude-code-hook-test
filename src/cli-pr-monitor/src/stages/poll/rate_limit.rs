@@ -81,11 +81,11 @@ fn dispatch_rate_limit_outcome(
     match handle_rate_limit_retry(rl, state, pr_info) {
         RateLimitOutcome::Posted => {
             let summary = posted_summary(state.rate_limit_retries);
-            finalize_posted_retrigger(state, rl, pr_info, result, state_path, &summary)
+            finalize_retrigger_decision(state, rl, pr_info, result, state_path, &summary)
         }
         RateLimitOutcome::SkippedAlreadyReviewed => {
             let summary = skipped_summary(state.rate_limit_retries);
-            finalize_posted_retrigger(state, rl, pr_info, result, state_path, &summary)
+            finalize_retrigger_decision(state, rl, pr_info, result, state_path, &summary)
         }
         RateLimitOutcome::WaitingReset => {
             finalize_waiting_reset(state, rl, pr_info, result, state_path)
@@ -136,7 +136,7 @@ fn skipped_summary(retries: u32) -> String {
 /// state を読む側がレート枠の消費実績を誤る。dedup marker
 /// (`rate_limit_last_retriggered_at`) はどちらでも立てる — 同じ rate-limit comment に
 /// 対して判断をやり直す意味が無いため。
-fn finalize_posted_retrigger(
+fn finalize_retrigger_decision(
     state: &mut PrMonitorState,
     rl: &crate::state::RateLimitState,
     pr_info: &PrInfo,
@@ -187,11 +187,11 @@ fn finalize_posted_retrigger(
 /// 依存しない。
 ///
 /// **state 書き込み失敗時は fail-open** (log のみで続行し、通常どおり `rate_limited` を
-/// 返す) — このパスは `finalize_posted_retrigger` と異なり `@coderabbitai review` 投稿
+/// 返す) — このパスは `finalize_retrigger_decision` と異なり `@coderabbitai review` 投稿
 /// のような副作用を伴わないため、書き込み失敗を理由に checker 呼び出し済みの判定結果を
 /// 破棄する必要がない (`finalize_pending_review` (mod.rs) と同じ fail-open 方針)。
 /// head_commit の継続性 (`should_continue_state`) が失われるリスクは残るが、次回
-/// `--monitor-only` 再実行時に fresh 初期化へ倒れるだけで、`finalize_posted_retrigger` の
+/// `--monitor-only` 再実行時に fresh 初期化へ倒れるだけで、`finalize_retrigger_decision` の
 /// 二重投稿リスクのような不可逆な問題にはならない (SIM-NEW-rate_limit-L158)。
 fn finalize_waiting_reset(
     state: &mut PrMonitorState,
