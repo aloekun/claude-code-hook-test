@@ -13,11 +13,27 @@
 #    `Advanced` と短期間で 3 回変わっている。**プラン名を設計の根拠にしない** — 変わるため。
 #    上限の実体は「レビュー回数に上限があり、解除までの告知時間は当てにならない」
 #    (実測の告知は 30 分 / 27 分 / 56 分でばらつく) に留める。
-# 2. **star 10 未満のリポジトリは自動レビューを受けられない。** 下の
-#    `auto_review.enabled: true` は現在**効いていない**。CodeRabbit は代わりに
+# 2. **star 10 未満のリポジトリは自動レビューを受けられない。** CodeRabbit は代わりに
 #    「🔍 Trigger review」チェックボックス付きのコメントを出し、チェックするまで
 #    レビューしない。`cli-pr-monitor` が PR 作成後にこれを入れる (順位 321 で実装)。
-#    star が 10 に達すれば本キーが再び効く。
+#
+# **2026-09-21: 上の 2 は再び覆った。auto が戻っている。**
+#
+# 2026-09-10 頃から、**bot 作成 PR でも** PR 作成の 2〜8 秒後に自発 walkthrough が出る
+# (PR #494 / #502 / #507 / #510 の初動で実測、4/4)。下の `auto_review.enabled: true` は
+# 効いている。ただし**この挙動も固定ではない** — 09-08 に止まり 09-10 に戻った以上、
+# また変わりうる。
+#
+# したがって**設定も機構も「どちらか一方の挙動」を前提に置かない**。明示要求を投げる
+# 4 経路 (cli-pr-monitor の 3 経路 + review-request.yml) は、起動前に「現 HEAD が
+# レビュー済み / レビュー中か」を **commit status で実測**し、効いていれば自分の起動を
+# skip する。効いていなければ従来どおり要求する (順位 520)。
+#
+# **`state` だけで判定しないこと。** CodeRabbit は skip も `success` で通知する
+# (`Review skipped: incremental reviews are disabled` 等)。完了は `success` かつ
+# description が `Review completed` のときだけである。判定の実体と実測した 4 状態の表は
+# `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` が持つ。
+# 経緯と決定は ADR-019 § auto レビューの再開と、挙動を実測で吸収する方針 にある。
 #
 # 注意: .coderabbit.yaml はダッシュボード設定を上書きし、未指定キーは CodeRabbit の
 #   既定値になる。language を明示しないと既定 en-US に戻るため ja-JP を固定する。
