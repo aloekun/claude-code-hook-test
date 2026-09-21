@@ -306,7 +306,7 @@ fn finalize_posted_retrigger_persists_head_commit() {
     };
 
     let outcome =
-        finalize_posted_retrigger(&mut state, &rl, &pr_info, &serde_json::Value::Null, &state_path);
+        finalize_posted_retrigger(&mut state, &rl, &pr_info, &serde_json::Value::Null, &state_path, "投稿 summary");
 
     assert_eq!(outcome.action, "pending_review");
     assert_eq!(state.head_commit.as_deref(), Some("cafef00d"));
@@ -315,6 +315,72 @@ fn finalize_posted_retrigger_persists_head_commit() {
         persisted.head_commit.as_deref(),
         Some("cafef00d"),
         "head_commit が persist されないと should_continue_state が次回 fresh 初期化に倒れる"
+    );
+}
+
+/// 順位 520: 既レビューで投稿を省いたときの summary は「投稿した」と主張しない。
+///
+/// terminal の形 (`pending_review` + dedup marker) は投稿時と同じなので、両者を
+/// 区別できる唯一の手掛かりが summary になる。ここが投稿を主張すると、state を読む側が
+/// レート枠の消費実績を誤る。
+#[test]
+fn skipped_summary_does_not_claim_a_post() {
+    let skipped = skipped_summary(2);
+    assert!(
+        skipped.contains("投稿せず"),
+        "投稿を省いたことが読めない: {skipped}"
+    );
+    assert!(
+        !skipped.contains("retrigger を投稿 "),
+        "投稿していないのに投稿したと報告している: {skipped}"
+    );
+    assert!(
+        skipped.contains("retry=2"),
+        "retry 回数が埋まっていない: {skipped}"
+    );
+    assert!(
+        posted_summary(2).contains("retrigger を投稿 "),
+        "投稿した場合は投稿したと報告する: {}",
+        posted_summary(2)
+    );
+}
+
+/// dedup marker は投稿の有無に関わらず立てる — 同じ rate-limit comment に対して
+/// 判断をやり直さない。summary を呼び手から受け取る形になった後もここは不変。
+#[test]
+fn finalize_posted_retrigger_marks_dedup_and_uses_the_callers_summary() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state_path = tmp.path().join("state.json");
+    let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
+    let rl = RateLimitState {
+        until_unix_secs: 0,
+        comment_event_time: "2026-09-20T00:00:00Z".into(),
+        wait_minutes: 0,
+        wait_seconds: 0,
+    };
+    let pr_info = crate::util::PrInfo {
+        pr_number: Some(42),
+        repo: Some("o/r".into()),
+        head_commit: Some("cafef00d".into()),
+        push_time: None,
+        fix_push_time: None,
+    };
+
+    let outcome = finalize_posted_retrigger(
+        &mut state,
+        &rl,
+        &pr_info,
+        &serde_json::Value::Null,
+        &state_path,
+        &skipped_summary(1),
+    );
+
+    assert_eq!(outcome.action, "pending_review");
+    assert_eq!(outcome.summary, skipped_summary(1));
+    assert_eq!(
+        state.rate_limit_last_retriggered_at.as_deref(),
+        Some("2026-09-20T00:00:00Z"),
+        "dedup marker は投稿時と同じく立てる (同じ comment を再判断しない)"
     );
 }
 
@@ -353,6 +419,7 @@ fn finalize_posted_retrigger_action_required_when_write_state_fails() {
         &pr_info,
         &serde_json::Value::Null,
         &bad_path,
+        "投稿 summary",
     );
 
     assert_eq!(
