@@ -134,7 +134,7 @@ pub(crate) fn trigger_review_after_create(repo: &str, pr_number: u64) {
             }
             TriggerLookup::AutoActive => {
                 log_info(
-                    "[trigger-review] CodeRabbit は反応済みでトリガー行がありません。自動レビューが効いているため何もしません (PR 作成は成功しています)。",
+                    "[trigger-review] CodeRabbit は反応済みですがトリガー行がありません。待っても出ないため何もしません (自動レビューが効いているか、rate-limit 等の別応答です。PR 作成は成功しています)。",
                 );
                 return;
             }
@@ -152,15 +152,17 @@ pub(crate) fn trigger_review_after_create(repo: &str, pr_number: u64) {
 ///
 /// **「トリガー行が無い」と「CodeRabbit がまだ何も言っていない」を分ける。** 前者は
 /// 自動レビューが効いている状態 (順位 520 で 2026-09-10 以降の既定になった) で、待っても
-/// トリガー行は出ない。両者を `None` に潰していた頃は auto が効く PR でも毎回 90 秒
-/// (6 回 × 15 秒) 待ってから「見つかりません」と報告していた。
+/// トリガー行は出ない。両者を `None` に潰していた頃は auto が効く PR でも毎回 75 秒
+/// (15 秒間隔で 6 回照会) 待ってから「見つかりません」と報告していた。
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TriggerLookup {
     /// 未チェックのトリガー行を持つコメント。
     Found(u64, String),
     /// トリガー行はあるが既にチェック済み。触らない。
     AlreadyChecked,
-    /// CodeRabbit は反応しているがトリガー行が無い = 自動レビューが効いている。
+    /// CodeRabbit は反応しているがトリガー行が無い。典型は自動レビューが効いている状態だが、
+    /// rate-limit 通知など別の応答だけが付いた場合もここに入る。**どちらでも処置は同じ** —
+    /// 待ってもトリガー行は出ないので、ポーリングを打ち切る。
     AutoActive,
     /// CodeRabbit のコメントがまだ無い (照会失敗も含む)。待てば変わりうる。
     Silent,

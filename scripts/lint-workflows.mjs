@@ -17,6 +17,9 @@
 //   - CodeRabbit の marker: review-request.yml / pr-monitor.yml / markers.rs の 3 か所。
 //     CodeRabbit 側の format 変更は外部要因で、追随漏れは silent success を招く
 //     (ADR-034 § CR rate-limit format evolution、ADR-051 のクロスシステム結合)。
+//   - 「レビュー済み」判定の 2 系統 (契約検査 4、順位 520): review-request.yml (bash) と
+//     cli-pr-monitor の coderabbit_reviewed.rs (Rust) が同じ 2 系統を見る。workflow は
+//     checkout しない設計で Rust を呼べないため、判定が 2 言語に存在する。
 //   - run: ブロックの -e 前提 (契約検査 3、順位 515): `set -uo pipefail` は -e を外さず、
 //     パイプラインの grep は一致 0 件で step を落とす。shell 未宣言で実効 shell が静的に
 //     決まらない step も報告する。検査本体は lint-workflows-run-blocks.mjs。
@@ -158,6 +161,80 @@ for (const { marker, files } of SHARED_CR_MARKERS) {
 }
 if (failures === 0) {
   console.log(`[lint-workflows] CodeRabbit marker の同期 OK (${SHARED_CR_MARKERS.length} 件、順位 431)`);
+}
+
+// --- 契約検査 4: 「レビュー済み」判定の 2 系統が workflow と Rust の両方にある (順位 520) ---
+//
+// 「現 HEAD が CodeRabbit にレビュー済みか」を、この repo は 2 つの層で判定する:
+//
+//   - `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` (`head_already_reviewed`)
+//   - `.github/workflows/review-request.yml` の検証 step
+//
+// **後者は前者を呼べない。** review-request.yml は `pull_request_target` で動き、PAT を
+// 持つ job で checkout もコード実行もしない設計のため、Rust 関数を起動する手段が無い
+// (リリースバイナリを落として実行すれば呼べるが、それは PAT job の信頼境界を変える)。
+// したがって同じ判定が 2 言語に存在する。ADR-081 決定 1 の線引きに従い、**機械で照合
+// できる部分を検査にする**: 判定に使う 2 系統 (reviews API / commit status) が
+// 両方の層に残っていること。
+//
+// 片方の層から 1 系統が落ちると、その層だけが「レビュー済みでない」と読む。指摘ゼロの
+// レビューは commit status でしか完了を通知しないため (2026-07-05 実測)、commit status を
+// 落とした層は正常なレビューを取りこぼして red / 二重依頼に倒れる。
+//
+// **この検査だけで Rust 側の改名は捕まらない** — test fixture が同じ文字列を持つため、
+// 実装の定数だけを書き換えてもファイルには残る (2026-09-21 に変異で確認)。その形は
+// `cargo test` が落とす (fixture の期待値と実装がずれるため)。両方が CI で走ることで
+// 塞がる契約であり、**この検査を単独の砦と読まないこと**。本検査が捕まえるのは
+// 「片方の層が系統ごと落ちた」形である (workflow 側の変異で確認済み)。
+// **コメント行を除いてから照合する。** どちらの層も判定の由来を長い注記で説明して
+// おり、素の `includes` だと注記だけで検査が満たされる。実際に検査を書いた時点で、
+// commit status の端点をコードから消しても doc コメントの `repos/{repo}/commits/{sha}/status`
+// が残って素通りした (2026-09-21 に変異で確認)。行頭コメントだけを落とす保守的な処理に
+// するのは、文字列中の `#` / `//` を誤って切らないため。
+const stripCommentLines = (source, prefixes) =>
+  source
+    .split(/\r?\n/)
+    .filter((line) => !prefixes.some((prefix) => line.trimStart().startsWith(prefix)))
+    .join('\n');
+
+const REVIEWED_EVIDENCE_LAYERS = [
+  { file: join(WORKFLOW_DIR, 'review-request.yml'), commentPrefixes: ['#'] },
+  { file: 'src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs', commentPrefixes: ['//'] },
+];
+const REVIEWED_EVIDENCE_TOKENS = [
+  { token: 'coderabbitai[bot]', why: '投稿者の絞り込み' },
+  { token: '/reviews', why: 'reviews API 系統' },
+  { token: 'commit_id', why: 'reviews API 系統の HEAD 一致判定' },
+  { token: '/status', why: 'commit status 系統' },
+  // CodeRabbit は skip も `state: success` で通知する
+  // (`Review skipped: incremental reviews are disabled` を実測)。完了の判定には
+  // description のこの文言が要る。片方の層がこれを落とすと、その層だけが未レビューの
+  // PR を「レビュー済み」と読む (ADR-064 が禁じる silent success)。
+  { token: 'Review completed', why: 'commit status の完了判定 (state だけでは skip と区別できない)' },
+];
+for (const { file, commentPrefixes } of REVIEWED_EVIDENCE_LAYERS) {
+  let source;
+  try {
+    source = stripCommentLines(readFileSync(file, 'utf8'), commentPrefixes);
+  } catch (error) {
+    fail(`${file}: 読み取れません (レビュー済み判定 2 系統の検査)\n  ${error.message}`);
+    continue;
+  }
+  for (const { token, why } of REVIEWED_EVIDENCE_TOKENS) {
+    if (!source.includes(token)) {
+      fail(
+        `${file} に "${token}" (${why}) がありません。「現 HEAD がレビュー済みか」の判定は ` +
+          'workflow (bash) と cli-pr-monitor (Rust) の 2 層が同じ 2 系統 (reviews API / ' +
+          'commit status) を見る契約です。片方から系統が落ちると、その層だけが正常な ' +
+          'レビューを取りこぼして誤 red / 二重依頼に倒れます (順位 520)',
+      );
+    }
+  }
+}
+if (failures === 0) {
+  console.log(
+    `[lint-workflows] レビュー済み判定 2 系統の同期 OK (${REVIEWED_EVIDENCE_LAYERS.length} 層、順位 520)`,
+  );
 }
 
 // --- 契約検査 3: run: ブロックは常に -e 付きで走る (順位 515 / 撤1-①) -------------------

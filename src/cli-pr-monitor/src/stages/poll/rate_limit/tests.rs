@@ -284,10 +284,10 @@ fn finalize_waiting_reset_survives_write_failure() {
     );
 }
 
-/// state-continuity-drop 回帰 (SIM-NEW-rate_limit-L154): `finalize_posted_retrigger` も
+/// state-continuity-drop 回帰 (SIM-NEW-rate_limit-L154): `finalize_retrigger_decision` も
 /// 同様に head_commit を persist する (retrigger 投稿後の継続判定も同じ invariant に従う)。
 #[test]
-fn finalize_posted_retrigger_persists_head_commit() {
+fn finalize_retrigger_decision_persists_head_commit() {
     let tmp = tempfile::tempdir().unwrap();
     let state_path = tmp.path().join("state.json");
     let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
@@ -306,7 +306,7 @@ fn finalize_posted_retrigger_persists_head_commit() {
     };
 
     let outcome =
-        finalize_posted_retrigger(&mut state, &rl, &pr_info, &serde_json::Value::Null, &state_path, "投稿 summary");
+        finalize_retrigger_decision(&mut state, &rl, &pr_info, &serde_json::Value::Null, &state_path, "投稿 summary");
 
     assert_eq!(outcome.action, "pending_review");
     assert_eq!(state.head_commit.as_deref(), Some("cafef00d"));
@@ -348,7 +348,7 @@ fn skipped_summary_does_not_claim_a_post() {
 /// dedup marker は投稿の有無に関わらず立てる — 同じ rate-limit comment に対して
 /// 判断をやり直さない。summary を呼び手から受け取る形になった後もここは不変。
 #[test]
-fn finalize_posted_retrigger_marks_dedup_and_uses_the_callers_summary() {
+fn finalize_retrigger_decision_marks_dedup_and_uses_the_callers_summary() {
     let tmp = tempfile::tempdir().unwrap();
     let state_path = tmp.path().join("state.json");
     let mut state = PrMonitorState::new(Some(42), Some("o/r".into()), "t".into());
@@ -366,7 +366,7 @@ fn finalize_posted_retrigger_marks_dedup_and_uses_the_callers_summary() {
         fix_push_time: None,
     };
 
-    let outcome = finalize_posted_retrigger(
+    let outcome = finalize_retrigger_decision(
         &mut state,
         &rl,
         &pr_info,
@@ -390,7 +390,7 @@ fn finalize_posted_retrigger_marks_dedup_and_uses_the_callers_summary() {
 /// state 永続化の成否で重複投稿を防ぐ必要がある (`finalize_waiting_reset` の
 /// fail-open とは対照的な fail-closed 方針)。
 #[test]
-fn finalize_posted_retrigger_action_required_when_write_state_fails() {
+fn finalize_retrigger_decision_action_required_when_write_state_fails() {
     let bad_path = std::env::temp_dir()
         .join(format!(
             "test-rl-posted-retrigger-fail-{}",
@@ -413,7 +413,7 @@ fn finalize_posted_retrigger_action_required_when_write_state_fails() {
         fix_push_time: None,
     };
 
-    let outcome = finalize_posted_retrigger(
+    let outcome = finalize_retrigger_decision(
         &mut state,
         &rl,
         &pr_info,
