@@ -306,6 +306,81 @@ WP-05 の再トリガー抑止ガードは HEAD レビュー済み判定を **re
 
 rate 解除待ちの発生が 1 回/日未満になること。導入後の実績で確認する。未達なら `auto_pause` 値 / トリガー条件を調整、または `enabled = false` (フル手動トリガー) への切替を再検討する。
 
+### auto レビューの再開と、挙動を実測で吸収する方針 (2026-09-21 追記、順位 520)
+
+**auto レビューが戻った。** 2026-09-08 に「star 10 未満は自動レビューを受けられない」と
+訂正したが、**2026-09-10 頃からは bot 作成 PR でも PR 作成の 2〜8 秒後に自発 walkthrough が
+出る**。夜間ループの PR で連続 4/4 観測した:
+
+| PR | PR 作成〜自発 walkthrough | 要求との前後 |
+|---|---|---|
+| [#494](https://github.com/aloekun/claude-code-hook-test/pull/494) (09-11) | 自発が先 | 要求の 1 日前 |
+| [#502](https://github.com/aloekun/claude-code-hook-test/pull/502) (09-15) | 3 秒 | 自発が先 |
+| [#507](https://github.com/aloekun/claude-code-hook-test/pull/507) (09-18) | 4 秒 | 自発が先 |
+| [#510](https://github.com/aloekun/claude-code-hook-test/pull/510) (09-19) | 2 秒 | 自発が先 |
+
+4 件とも `review-request.yml` が誤 red になった。判定が「要求コメントより新しい walkthrough」
+しか見ておらず、**要求の数秒前に出た自発レビューを構造的に見落とす**ためである。レビュー自体は
+成功していた。
+
+#### 決定 1: 特定の挙動を前提に固定せず、毎回実測して吸収する
+
+CodeRabbit の auto 挙動はこの 1 か月で 2 回反転している (09-08 停止 → 09-10 再開)。したがって
+**「auto は効く」「auto は効かない」のどちらも設計の前提に置かない**。明示要求を投げる経路は
+起動前に「現 HEAD が既にレビュー済み / レビュー中か」を実測し、効いていれば自分の起動を
+skip する。効いていなければ従来どおり要求する。即時撤去ではなく fallback 化にしたのは、
+再び止まる夜に備えるためである。
+
+判定は 1 か所に集約する — `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs`。3 つの Rust
+経路 (PR 作成後のトリガー / auto-push 後の再レビュー / rate-limit reset 後の再投稿) が同じ
+関数を通る。4 つ目の `review-request.yml` は `pull_request_target` で **checkout も
+コード実行もしない**設計 (PAT を持つ job の信頼境界) のため Rust を呼べず、同じ 2 系統を
+bash で照会する。2 層がずれないことは `scripts/lint-workflows.mjs` の契約検査が集合比較で
+固定する ([ADR-081](adr-081-single-fact-dispersion.md) 決定 1)。
+
+#### 決定 2: commit status の `state` だけで「レビュー済み」と判定しない
+
+順位258 で commit status を判定ソースに加えたとき、実測値として
+`state: success` / `description: Review completed` を記録した。**しかし実装は `state` しか
+見ていなかった。** 2026-09-21 に status 履歴を洗ったところ、CodeRabbit は skip も `success` で
+通知することが分かった:
+
+| state | description | 完了か (ゲート層) | 要求を控えるか (助言層) |
+|---|---|---|---|
+| `success` | `Review completed` | ✅ 完了 | 控える |
+| `pending` | `Review in progress` | ❌ 未完了 | **控える** |
+| `success` | `Review skipped: bot user not eligible for review` | ❌ 未レビュー | 要求する |
+| `success` | `Review skipped: incremental reviews are disabled` | ❌ 未レビュー | 要求する |
+
+**2 つの層で問いが違う。** `review-request.yml` の検証段は「レビューが**完了**したか」を
+問うゲート層なので、進行中を成功証拠にしない (完了を待って、来なければ red)。一方、
+明示要求を投げる 4 経路は「これ以上**要求する必要があるか**」を問う助言層なので、
+進行中も「控える」に倒す — 走っているレビューへ要求を重ねてもレート枠を消費するだけで
+結果は変わらない。同じ status を読みながら判定が異なるのは意図したものである。
+
+進行中の判定は `state == "pending"` だけで行い、description を条件にしない。片方の層だけが
+進行中の文言に依存すると、CodeRabbit がその文言を変えたときに 2 層の挙動が割れる。
+
+`state` だけの判定は、**レビューが走っていない PR を「レビュー済み」と読む**。助言層では
+明示要求を skip して再レビューが永久に来なくなり、ゲート層 (`review-request.yml` の検証段) では
+未レビューのまま green になる — [ADR-064](adr-064-monitor-success-positive-evidence.md) が
+禁じる silent success そのものである。
+
+判定は **「skip を除く」ではなく「完了を求める」形にする**。除外リスト方式だと CodeRabbit が
+新しい skip 文言を足したときに黙って陽性へ倒れる。未知の文言は「完了ではない」= 安全側
+(要求する / red にする) へ落ちる ([ADR-043](adr-043-security-gates-fail-closed.md))。
+
+#### 決定 3: 「レビューが始まった」は commit status で head-anchored に取る
+
+CodeRabbit は**レビュー開始時点で HEAD に `pending` / `Review in progress` を付ける**
+(PR #510 実測で PR 作成の 9 秒後、完了はその 3 分後)。auto が効いているかの判定に
+walkthrough コメントを使うと、HEAD が進んだ後の再実行で**旧 HEAD の walkthrough を現 HEAD の
+auto と読み違える**。開始の signal が head-anchored で得られるので、コメントを見る必要はない。
+
+同じ理由で、要求への ack (`Review finished.`) を成功証拠に数えるのは**その run が要求を
+新規投稿した場合だけ**に限る。既存要求を再利用した run で ack を数えると、前回 run が受けた
+旧 HEAD への ack で green になる。
+
 ## 影響
 
 ### 採用される構成要素
