@@ -214,58 +214,6 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 
 ---
 
-### 順位 236: tempfile mandate + PID+ms 命名 block の custom lint (PR #229 post-merge-feedback T1-1 採用)
-
-> **動機**: PR #227 で temp file collision flaky (`body_with_literal_newline_converted`) を `tempfile` 一意化で修正したが、将来同型の PID+ms カスタム命名 (`gh-pr-body-{PID}-{ms}.md` 等) が再導入されると flaky が再発する。実際 PR #229 で本 flaky が push pipeline の `cargo test` を **3 回ブロックした実害**あり (push retry 3 回)。custom lint で `tempfile::NamedTempFile` / `tempfile::Builder` を mandate し、手動 PID+ms temp 命名を block して構造的に予防する。
->
-> **本タスクの位置づけ**: PR #229 post-merge-feedback Tier 1 #1 採用 (High / Effort S / Adoption Risk None)。順位 230 (flaky 修正、#227 land) の予防層。順位 237 (regression test = 検出層) と二層防御。
->
-> **参照**: `.claude/feedback-reports/229.md` Tier 1 #1、PR #227 (`3d8e2aac`、flaky fix)、`config/custom-lint-rules.toml` (追加先、rule①〜⑯ と同型)、`src/cli-pr-monitor/src/stages/create_pr.rs` (tempfile 移行の実例)、`src/hooks-post-tool-linter/src/custom_rules/` (`CustomRule` + test module)、ADR-007 (正規表現層)。
->
-> **実行優先度**: **Tier 1** — Effort S。`config/custom-lint-rules.toml` に 1 rule + `src/hooks-post-tool-linter/src/custom_rules/` の test module に positive/negative test + 該当 1 箇所の `tempfile` 移行。
-
-#### 設計決定 (2026-09-18 確定 — 455 とは統合しない)
-
-- **455 との境界は時刻成分の有無**。455 (`no-weak-temp-uniqueness`) の pattern は
-  `temp_dir\(\)\s*\.join\(\s*"[^"]*"\s*\)` で、**文字列リテラルの固定名しか見ない**ため PID+時刻形は
-  素通りする。捕まえる失敗も違う — 455 は固定名によるプロセス**間**衝突、本 rule は
-  **同一プロセス内**で一意にならないこと (同じミリ秒に 2 回呼ぶと衝突する) である。
-- **pattern**: `temp_dir()` 起点で **PID と時刻を両方含む**手動命名
-  (`format!("...{}-{}...", std::process::id(), ...as_millis()/as_nanos())` 系) を検出する。
-- **PID 単独の命名は対象外**。455 の `[rules.fix]` が推奨する形であり (`good` 例が
-  `format!("push-runner-snapshot-{}.json", std::process::id())`)、`src/` に `process::id()` は
-  64 箇所ある。ここを検出対象に含めると **455 が推奨して直した箇所を後から違反にする**。
-- **severity**: error (455 と揃える)。
-- **scope**: extensions=["rs"]。テストコードも対象 — 現時点の唯一の該当箇所がテストである。
-- **必須**: `rule_test_coverage_check` 用の positive (PID+時刻の併用を検出) / negative
-  (PID 単独は skip / `tempfile` 使用は skip) test を追加する。
-
-#### 作業計画
-
-- [ ] `temp_dir()` 起点かつ PID+時刻の併用を検出する rule を `config/custom-lint-rules.toml` に追加
-- [ ] positive / negative test を `src/hooks-post-tool-linter/src/custom_rules/` の test module に追加
-      (helper は per-module 複製、800 行を超えるなら新 module へ分割 — [ADR-080](adr/adr-080-rust-module-split-invariants.md))
-- [ ] `tests/fixtures/incidents/{bad,good}/` に fixture を置き `incident_eval.rs` の `CASES` に 1 行追加
-- [ ] 唯一の該当箇所 `src/cli-nightly-outcome/tests/e2e.rs:217` を `tempfile` へ置き換える
-- [ ] `grep -rn "process::id()" --include=*.rs src/` の 64 箇所に**当たらない**ことを確認 (false positive 計測)
-- [ ] `cargo test -p hooks-post-tool-linter` pass
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- PID+時刻の手動 temp 命名が Write 時 (PostToolUse) に検出され `tempfile` の使用が促される。順位 237 (regression test) と二層防御を構成。
-- PID 単独の命名 (455 の推奨形) では発火しないことが negative test で固定されている。
-
-#### 詰まっている箇所 — 解消済み (2026-09-18)
-
-- 「455 と統合するか」は**統合しない**で確定した (上記 設計決定)。判断留保が無くなったため auto lane へ移した。
-- regex の false positive 懸念は**スコープで解く**: `temp_dir()` 起点で PID と時刻の**両方**が近傍に出る形だけを見る。
-  PID 単独 (`src/` に 64 箇所) を除くことで、455 が推奨する命名と衝突しない。基準となる実測は
-  `grep -rn "as_millis\|as_nanos" --include=*.rs src/` が 2 箇所、PID と時刻の併用は 1 箇所
-  (`src/cli-nightly-outcome/tests/e2e.rs:217`)。
-
----
-
 ### 順位 237: create_pr flaky の高並列 regression test (PR #229 post-merge-feedback T2-1 採用)
 
 > **動機**: PR #227 で temp file collision flaky を `tempfile` + per-test `tempfile::tempdir()` 注入で修正したが、将来 collision-prone な命名が再導入された場合の**検出網がない**。`body_with_literal_newline_converted` 系を高並列 (`--test-threads` 高 / concurrent run) で回す regression test を追加し、collision を恒常的に trap する。順位 236 (lint = 予防) と本タスク (test = 検出) の二層防御。

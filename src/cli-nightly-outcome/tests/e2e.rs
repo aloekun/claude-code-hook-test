@@ -214,16 +214,9 @@ fn ledger_residue_turns_a_created_pr_red() {
 /// 段限定へ変えたとき露見)。空 diff の夜も verify 自体は通っている。
 #[test]
 fn the_agents_stop_reason_reaches_the_handoff_lines() {
-    let path = std::env::temp_dir().join(format!(
-        "nightly-outcome-e2e-{}-{}.json",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let temp_file = tempfile::NamedTempFile::new().expect("execution file を作れない");
     std::fs::write(
-        &path,
+        temp_file.path(),
         r#"[{"type":"system","subtype":"init"},
             {"type":"assistant","message":{"content":[{"type":"text","text":"[NIGHTLY_AGENT_STOP] 注釈が挙げる staleness.rs は本タスクと無関係\n詳細は省略"}]}},
             {"type":"result","subtype":"success"}]"#,
@@ -237,9 +230,8 @@ fn the_agents_stop_reason_reaches_the_handoff_lines() {
         ("PUBLISH_OUTCOME", "skipped"),
         ("HANDOFF_OUTCOME", "success"),
         ("RANK", "356"),
-        ("AGENT_EXECUTION_FILE", path.to_str().expect("utf-8 path")),
+        ("AGENT_EXECUTION_FILE", temp_file.path().to_str().expect("utf-8 path")),
     ]);
-    let _ = std::fs::remove_file(&path);
     assert_eq!(run.code, 1, "stdout:\n{}", run.stdout);
     assert!(
         run.stdout.contains("agent の停止理由: 注釈が挙げる staleness.rs は本タスクと無関係"),

@@ -16,5 +16,7 @@ serde_json = "1.0"
 # 実 exe を spawn する E2E テスト (tests/e2e.rs) の bounded wait + pipe drain
 # (custom lint rule `no-unbounded-child-wait`)。
 lib-subprocess = { path = "../lib-subprocess" }
+# execution file 用の一意な temp file 生成 (custom lint rule `no-pid-timestamp-temp-naming`、順位 236)。
+tempfile = "3"
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
