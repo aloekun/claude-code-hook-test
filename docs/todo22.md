@@ -228,27 +228,6 @@
 
 - jj の既定値が変わった場合に CI が落ちること。
 
-### 順位 426: 系統 E-3: `lib-jj-helpers` 分割の call site 回帰統合テスト
-
-> **動機**: PR [#385](https://github.com/aloekun/claude-code-hook-test/pull/385) で `lib.rs` を `bookmarks.rs` / `workspace.rs` へ分割し、re-export ファサードで API 互換を維持した。**実 call site (push-runner / pr-monitor) での import 挙動を固定する自動テストが無い**ため、将来の refactor で壊れても `cargo build` が通る範囲では気づけない可能性がある。
->
-> **対処案**: 3 クレートが実際に使う API を import して呼ぶ統合テストを `lib-jj-helpers/tests/` へ置く。ファサード経由のパス (`lib_jj_helpers::get_jj_bookmarks`) を明示的に使い、モジュールパス直参照との両方を固定する。
->
-> **参照**: [lib.rs](../src/lib-jj-helpers/src/lib.rs) (ファサード)、[ADR-024](adr/adr-024-shared-jj-helpers-library.md) § モジュール分割と API 追加。
->
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort M / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] 3 クレートが使う API を洗い出す
-- [ ] ファサード経由の import を固定する統合テストを追加する
-
-#### 完了基準
-
-- re-export を壊す変更がテストで検出されること。
-
----
-
 ### 順位 427: 系統 F-1: `BookmarkSearch::RemoteOnly` への変異操作を検出する
 
 > **動機**: [ADR-013](adr/adr-013-merge-pipeline.md) の設計契約では、**リモート専用 bookmark は読み取り専用**であり `jj bookmark set` / `delete` 等の変異操作の対象にしてはいけない。`BookmarkSearch` enum で型は区別したが、**呼び出し側の誤用までは防げない**。
