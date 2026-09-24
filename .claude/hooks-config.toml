@@ -292,6 +292,24 @@ cmd = "pnpm build"
 name = "file-length"
 cmd = '{{CLAUDE_DIR}}/hooks-post-tool-comment-lint-rust{{EXE_SUFFIX}} --check-modified-files'
 
+# 順位 345 / ADR-082: .claude/ の exe がソースより古くないかの検査 (試験運用)。
+# deploy-artifacts.mjs が記録した入力フィンガープリントを今のツリーと突き合わせ、
+# 古い exe があれば block して `pnpm build:<bin>` を案内する。古い exe は config が
+# 要求する新機能を満たさず、品質ゲートを `command not found` で誤 block させる。
+# exe のパスではなく `node scripts/...` で起動するので、この step 自体は古い
+# hooks-stop-quality からでも (プレースホルダー展開なしで) 動く。
+#
+# ADR-039 3 点セット:
+#   - Config opt-in (default OFF): この step を置いたプロジェクトだけが検査する。
+#     本 repo は dogfood のため有効。派生プロジェクトは hooks-config.toml を持ち込まない。
+#   - Kill-switch: 恒久停止はこの step を外す。緊急バイパスは env
+#     EXE_FRESHNESS_CHECK_OVERRIDE=1 (truthy 値、受理集合 1|true|yes|on)。
+#   - Bounded lifetime: 順位 373 (PR 2) で自動再ビルドの step に置き換える。
+#     置き換え時点で「検出のみ」の本 step は役目を終える。
+[[stop_quality.steps]]
+name = "exe-freshness"
+cmd = "node scripts/check-exe-freshness.mjs"
+
 # ─── PR-W5: file-length Stop gate 設定 (ADR-039 experimental feature 標準パターン) ───
 #
 # hooks-post-tool-comment-lint-rust.exe --check-modified-files が参照する opt-in gate。

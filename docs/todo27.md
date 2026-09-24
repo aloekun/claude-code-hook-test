@@ -36,29 +36,6 @@
 
 ---
 
-### 順位 345: deploy 時の exe/config feature 互換性診断 (内容ベース、mtime 不使用)
-
-> **動機**: deployed `.claude/*.exe` が古く、tracked config (`.claude/hooks-config.toml`) が要求する新 feature (例: `{{CLAUDE_DIR}}` プレースホルダー展開) を満たさないと、silent `command not found` で quality gate が誤 block する。本セッションで 2 回実観測 (PR #307 の `{{CLAUDE_DIR}}` 機能追加時、2026-07-20 WP-15 rebase 時、いずれも MEMORY.md 記録済)。PR #310 post-merge feedback Tier1 #1 で採用。
->
-> **対処案**: deploy step で exe 埋め込みバージョン文字列と config 側 `min_exe_version` フィールドを**内容ベースで比較**する診断チェックを追加する。**mtime 比較は使わない** — jj tracked config は `jj workspace add`/checkout で mtime がリセットされ偽陽性/偽陰性を生む (既知の mtime-staleness 問題と同型)。将来的に [ADR-051](adr/adr-051-cross-system-config-coupling.md) の隣接領域として ADR 化も検討可。
->
-> **参照**: `.claude/feedback-reports/310.md` Tier1 #1、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`.claude/hooks-config.toml`、`scripts/deploy-artifacts.mjs`。
->
-> **実行優先度**: Tier 1 — Severity High (silent command-not-found で quality gate 誤 block) / Frequency Medium (2 回実観測) / Effort M / Adoption Risk None (mtime 回避設計であれば)。
-
-#### 作業計画
-
-- [ ] exe にビルドバージョン文字列を埋め込み、`.claude/hooks-config.toml` に `min_exe_version` フィールドを追加
-- [ ] deploy step (`scripts/deploy-artifacts.mjs` or cli-merge-pipeline の deploy 処理) で内容ベースの互換性チェックを実装 (mtime 不使用)
-- [ ] 互換性違反時に silent でなく明確なエラーで停止することを確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- config が要求する feature を満たさない古い exe が deploy されている場合、内容ベース比較で検出され silent `command not found` にならないこと。
-
----
-
 ### 順位 357: CLAUDE.md の ADR index ステータスタグと ADR 本体ステータスの整合チェックを追加
 
 > **動機**: PR #340 で CLAUDE.md の ADR-047 index タグが `*(試験運用)*` のまま、ADR-047 本体のステータス「却下 (2026-07-19 確定)」と乖離して残存していることを、pre-push simplicity review と post-merge 分析が独立に指摘した (実害継続を Read で確認済み)。index タグと本体ステータスの整合は手動更新に依存しており、ステータス遷移 (試験運用 → 採用/却下) のたびに再発しうる。#340 post-merge feedback Tier1 #1 で採用。
