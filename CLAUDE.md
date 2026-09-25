@@ -82,6 +82,7 @@
 - [ADR-079: 起票由来タグ — 機構の効果を印象でなく数で測る](docs/adr/adr-079-defect-origin-tagging.md) *(試験運用)*
 - [ADR-080: Rust module 分割の不変条件 — behavior 不変 / `pub(crate)` / test helper は複製](docs/adr/adr-080-rust-module-split-invariants.md)
 - [ADR-081: 同一事実の分散を lint と手順で抑える — routing 列挙の集合比較 + 変更手順](docs/adr/adr-081-single-fact-dispersion.md)
+- [ADR-082: deploy 済み exe の鮮度を入力フィンガープリントで判定する](docs/adr/adr-082-exe-freshness-fingerprint.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
