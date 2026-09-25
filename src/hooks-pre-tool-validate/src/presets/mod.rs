@@ -18,8 +18,8 @@ pub(crate) use jj::{
     preset_jj_immutable, preset_jj_main_guard, preset_jj_message_required, preset_jj_push_guard,
 };
 pub(crate) use safety::{
-    preset_exe_help_block, preset_polling_anti_pattern, preset_powershell_destructive_write,
-    preset_secret_detection,
+    preset_exe_help_block, preset_node_eval_cmd_meta, preset_polling_anti_pattern,
+    preset_powershell_destructive_write, preset_secret_detection,
 };
 
 /// **telemetry の source tag に出してよい名前の全量。**
@@ -45,7 +45,20 @@ pub(crate) const KNOWN_PRESET_NAMES: &[&str] = &[
     "exe-help-block",
     "electron",
     "powershell-destructive-write-block",
+    "node-eval-cmd-meta-block",
 ];
+
+/// Windows でだけ有効にする preset。原因が Windows 固有 (Volta の shim が cmd.exe を経由する等) で、
+/// 他の OS で有効にすると正しいコマンドを止めるだけになるもの。
+///
+/// 無効化は [`preset_applies_on_this_os`] を通して `build_blocked_patterns` で行う。preset 関数の
+/// 中で空を返さないのは、パターン自体を両 OS のテストで検査できるようにするため。
+pub(crate) const WINDOWS_ONLY_PRESET_NAMES: &[&str] = &["node-eval-cmd-meta-block"];
+
+/// この OS で `name` の preset を有効にするか。
+pub(crate) fn preset_applies_on_this_os(name: &str) -> bool {
+    cfg!(windows) || !WINDOWS_ONLY_PRESET_NAMES.contains(&name)
+}
 
 /// 名前が [`KNOWN_PRESET_NAMES`] に無いときに使う合成 id。
 pub(crate) const CUSTOM_BLOCK_SOURCE: &str = "custom-block";
@@ -82,6 +95,7 @@ pub(crate) fn default_preset_names() -> Vec<String> {
         "electron".to_string(),
         "secret-detection".to_string(),
         "powershell-destructive-write-block".to_string(),
+        "node-eval-cmd-meta-block".to_string(),
     ]
 }
 
@@ -110,6 +124,7 @@ pub(crate) fn resolve_preset_or_custom(name: &str) -> (String, Vec<BlockedPatter
         "powershell-destructive-write-block" => {
             (name.to_string(), preset_powershell_destructive_write())
         }
+        "node-eval-cmd-meta-block" => (name.to_string(), preset_node_eval_cmd_meta()),
         custom => (CUSTOM_BLOCK_SOURCE.to_string(), custom_regex_pattern(custom)),
     }
 }
