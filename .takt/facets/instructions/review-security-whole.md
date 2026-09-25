@@ -68,7 +68,7 @@ Use `Grep` to find sibling entry points that perform conceptually similar operat
 2. Read selectively; follow references via `Grep` rather than depth-first traversal.
 3. For each pattern, verify the concrete exploit path (input control, files traversed, what becomes possible).
 4. Classify each verified concern by severity (`critical` / `high` / `medium` / `low`) per ADR-031 § Findings スキーマ.
-5. Write the report per the output contract (`security-whole-review.md`). End with `analysis complete`.
+5. Compose the report per the output contract (`security-whole-review.md`) and return it as your response text. Do not create the report file with the Write tool (or any other file) — takt runs a separate report phase after this step and saves your response to the Report Directory. End with `analysis complete`.
 
 ## Scope boundary
 

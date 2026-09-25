@@ -54,7 +54,7 @@ Grep will over-match: most `.modified()` / `gh` / `env!` uses are benign. This f
 2. Read each candidate; classify as real hazard vs. benign, naming the breaking workspace operation.
 3. For each finding: what it is, where (file + line), the workspace operation that triggers it, the observable failure, and the proposed fix.
 4. Classify severity per ADR-031 § Findings スキーマ (silent-fresh / data-access failures are typically `high`; cosmetic robustness gaps `low`–`medium`).
-5. Write the report per the output contract (`review-jj-robustness-whole.md`). End with `analysis complete`.
+5. Compose the report per the output contract (`review-jj-robustness-whole.md`) and return it as your response text. Do not create the report file with the Write tool (or any other file) — takt runs a separate report phase after this step and saves your response to the Report Directory. End with `analysis complete`.
 
 ## Output contract
 

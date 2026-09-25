@@ -81,7 +81,7 @@ Conversely, if reading the tree leaves you with a concrete unease that you can a
 3. For each section read, note any pattern matching Criteria 0-3.
 4. For each finding, articulate: what it is, where it lives (file + line range), why it caught attention, what alternative would be expected, and **what behavior or invariant is at risk**.
 5. Classify each finding by severity (`critical` / `high` / `medium` / `low`) per ADR-031 § Findings スキーマ.
-6. Write the report per the output contract (`simplicity-whole-review.md`). End with `analysis complete`.
+6. Compose the report per the output contract (`simplicity-whole-review.md`) and return it as your response text. Do not create the report file with the Write tool (or any other file) — takt runs a separate report phase after this step and saves your response to the Report Directory. End with `analysis complete`.
 
 ## 出力言語
 

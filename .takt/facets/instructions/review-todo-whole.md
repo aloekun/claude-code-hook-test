@@ -88,7 +88,7 @@ If a finding needs natural-language judgment about task intent (「これはも�
 2. Gather evidence with `Grep` / `jj log` — never raise a corpus-decay finding without a verified pointer. Every criterion, Criterion 3 included, is answerable from repository contents alone; no remote bookmark or PR lookup is required (or wanted — see Criterion 3-3).
 3. For each finding, articulate: what it is, where it lives (file + entry title/順位), the verifying evidence, and the proposed action (remove / merge / re-route / re-number).
 4. Classify each finding by severity (`critical` / `high` / `medium` / `low`) per ADR-031 § Findings スキーマ. Todo-hygiene findings are typically `low`–`medium` (corpus noise, not production risk); reserve `high` for a duplicate that could cause conflicting work.
-5. Write the report per the output contract (`review-todo-whole.md`). End with `analysis complete`.
+5. Compose the report per the output contract (`review-todo-whole.md`) and return it as your response text. Do not create the report file with the Write tool (or any other file) — takt runs a separate report phase after this step and saves your response to the Report Directory. End with `analysis complete`.
 
 ## Output contract
 
