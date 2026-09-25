@@ -1,7 +1,9 @@
 //! `BlockedPattern` 型定義と pattern build / validate ロジック。
 
 use crate::config::Config;
-use crate::presets::{default_preset_names, normalize_source_tag, resolve_preset_or_custom};
+use crate::presets::{
+    default_preset_names, normalize_source_tag, preset_applies_on_this_os, resolve_preset_or_custom,
+};
 use regex::Regex;
 
 pub(crate) struct BlockedPattern {
@@ -45,6 +47,7 @@ pub(crate) fn build_blocked_patterns(config: &Config) -> Vec<SourcedPattern> {
         .unwrap_or_else(default_preset_names);
     preset_names
         .iter()
+        .filter(|name| preset_applies_on_this_os(name))
         .flat_map(|name| {
             let (source, patterns) = resolve_preset_or_custom(name.as_str());
             tag_source(&source, patterns)
@@ -150,6 +153,27 @@ mod tests {
             !crate::presets::KNOWN_PRESET_NAMES.contains(&crate::presets::CUSTOM_BLOCK_SOURCE),
             "合成 id を preset 名の allowlist に混ぜない"
         );
+    }
+
+    /// Windows 専用 preset は Windows でだけ効き、他の OS では config に書かれていても外れる。
+    #[test]
+    fn a_windows_only_preset_is_active_only_on_windows() {
+        let multi_line = "node -e 'console.log(1)\nconsole.log(2)'";
+        assert_eq!(
+            is_blocked_with(multi_line, &["node-eval-cmd-meta-block"]),
+            cfg!(windows)
+        );
+    }
+
+    /// Windows 専用の一覧は既知の preset 名だけを指す (綴り違いで無言に効かなくなるのを防ぐ)。
+    #[test]
+    fn windows_only_preset_names_are_all_known() {
+        for name in crate::presets::WINDOWS_ONLY_PRESET_NAMES {
+            assert!(
+                crate::presets::KNOWN_PRESET_NAMES.contains(name),
+                "{name} が allowlist に無い"
+            );
+        }
     }
 
     /// 既定で有効な名前はすべて allowlist の中にある (既定が `custom-block` に落ちない)。

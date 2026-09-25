@@ -116,6 +116,10 @@ system_message_enabled = true
 #                              自動注入 / --repo フラグに誘導 (GH_REPO は引数なし
 #                              gh repo view に効かず非 colocated jj workspace で
 #                              silent 部分故障を招く、PR #238 実例 / ADR-045)
+#   "node-eval-cmd-meta-block" — (Windows のみ) node -e / --eval / -p / --print の引用符内に
+#                              改行か cmd.exe のメタ文字があればブロックしファイル経由に誘導
+#                              (Volta shim が cmd.exe を経由し、複数行は 1 行目だけ実行・`>` は
+#                               空ファイル生成になる。PR #517 の `setTimeout(d` 混入 / 順位 477)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -131,6 +135,7 @@ blocked_patterns = [
   "jj-message-required",
   "secret-detection",
   "gh-repo-env-guard",
+  "node-eval-cmd-meta-block",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)
