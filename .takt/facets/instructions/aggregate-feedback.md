@@ -6,7 +6,7 @@
 
 **重要な原則:**
 - 読み取り専用。コードの修正は一切行わない (実装は L2 recovery / ユーザー判断で行う)
-- **gitignore されていない場所へファイルを増やさない** — 解析用の中間ファイル・スクリプトは作らない。**最終レポートの `.claude/feedback-reports/<pr_number>.md` は対象外** (gitignore 済で、§ 次のアクション が保存先として指定している成果物)。その他の書き出しが要る場合は `.takt/` 配下に限る。由来と検知層は `analyze-session.md` の同項目を参照
+- **ファイルを一切書かない** — 解析用の中間ファイル・スクリプトも、レポートファイルも作らない。レポートは応答本文として返せば、takt が後段のレポートフェーズで Report Directory へ保存し、`cli-merge-pipeline` がそれを `.claude/feedback-reports/<pr_number>.md` へコピーする (本 step が書く必要はない)。由来と検知層は `analyze-session.md` の同項目を参照
 - 知見がない場合は「提案なし」で正常終了する。無理に提案を捻出しない
 - 重複する提案はマージし、根拠 (rationale) を統合する
 - Tier 1 を最優先で提案する。Tier 3 のみの提案は価値が低い
@@ -51,6 +51,18 @@ PR タイトルが context に含まれていない場合は、レポート内�
    - 対象ファイルが read-only zone (`.takt/`, `docs/adr/`, `templates/`) のみで具体的な編集箇所が示せないもの
      - **判定方法**: `Target` 列に含まれるパスを基準に、**編集可能 (write zone) なパスが一つでも含まれる場合は除外しない**
      - 逆に、`Target` が上記 read-only zone に**完全に限定**され、かつ編集可能な行/差分/コードブロックが示されない提案のみ除外する
+
+## Phase 1.5: 実装済みでないか、根拠の事実が正しいかを確かめる (必須)
+
+先行レポートは「未実装」「本 PR で X が起きた」と書いていても、確かめずに書いていることがある。そのまま載せると、既にある機構を再提案したり、起きていない事象を根拠にしたりする (実例: PR #515 で実装済みの孤立 exe 検出を「未実装」と提案し撤回 / PR #518 で振る舞い不変のコード移動を「同種バグの再発」と記述)。Phase 1 を通った提案すべてに、次の 2 点を行う:
+
+1. **実装済みでないか**: 提案が足そうとしている機構 (lint rule / hook の判定 / テスト / facet の記述) を、`Target` とその周辺を Grep / Read して探す。探したパターンと結果を記録する
+   - 提案が求める振る舞いと適用条件まで実装済みと確認できた → 表に載せず、§ 除外 (実装済み) へ `file:line` 付きで移す
+   - 一部だけ実装済み (似た処理がある / 別の条件でだけ効く / 文書にあるが機構がない 等) → 未実装の部分だけを提案として表に残し、`Rationale` に `未実装根拠: <実装済みの部分の file:line> は <条件> を扱うが <未実装の部分> は無い` のように書く
+   - 見つからない → 表に載せ、`Rationale` に `未実装根拠: Grep <pattern> → 0 件` のように探した内容を書く
+2. **根拠の事実**: `Rationale` に書く「本 PR で〜が起きた」「〜で観測された」は、先行 3 レポートのいずれかに書かれているものだけにする。先行レポート同士が食い違う場合、またはコードを Read して食い違いに気づいた場合は、確かめられた側だけを書く
+
+確かめられないまま残す提案は `🤔 様子見` にし、`Rationale` に「未確認」と明記する。
 
 ## Phase 2: 各提案に Severity / Frequency / Adoption Risk / Recommendation を付与
 
@@ -126,10 +138,11 @@ PR タイトルが context に含まれていない場合は、レポート内�
 従来の `Source` 表記 + **採用判断の根拠** を 1-2 文で記述する。Format:
 
 ```text
-<Source>; <採用根拠>
+<Source>; 未実装根拠: <探したパターンと結果>; <採用根拠>
 ```
 
 - Source 凡例: `PR diff` / `Review comment` / `Session` / `Prepush:simplicity` / `Prepush:security` (複数は `;` 区切りで 1 つの Source に集約してから採用根拠を続ける)
+- 未実装根拠: Phase 1.5 の 1 で探した内容 (例: `Grep "node -e" src/hooks-pre-tool-validate → 0 件`)。確かめられなかった場合は `未確認`
 - 採用根拠: なぜ Severity × Frequency × Effort × Adoption Risk から Recommendation に至ったか
 
 例:
@@ -167,6 +180,12 @@ PR タイトルが context に含まれていない場合は、レポート内�
 | # | Type | Description | Target | Severity | Frequency | Effort | Adoption Risk | Recommendation | Rationale |
 |---|------|-------------|--------|----------|-----------|--------|---------------|----------------|-----------|
 
+### 除外 (実装済み)
+
+| 提案 | Source | 実装済みの根拠 |
+|------|--------|----------------|
+| <提案の要約> | <Source> | `<file>:<line>` が同じことを既に行っている (何をしているかを 1 文で) |
+
 ### 次のアクション
 
 **重要**: 本 report の Recommendation 列はすべて analyzer の推奨であり、ユーザー明示承認なしに採用・却下を確定してはならない。Claude / 他 AI agent は report を読んだだけで `docs/todo*.md` への entry 追加、実装着手、ADR 編集等を実行してはならず、**必ずユーザー承認 (AskUserQuestion 回答 or テキスト承認のいずれか) を待つこと**。
@@ -177,7 +196,7 @@ PR タイトルが context に含まれていない場合は、レポート内�
 - このレポートは `.claude/feedback-reports/<pr_number>.md` に保存される (`.gitignore` 除外、内部 artifact)
 ```
 
-提案がない Tier はセクションごと省略する。
+提案がない Tier はセクションごと省略する。§ 除外 (実装済み) も該当がなければ省略する。
 
 提案がゼロの場合は以下:
 
@@ -194,4 +213,4 @@ PR タイトルが context に含まれていない場合は、レポート内�
 
 ## 出力言語
 
-- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `aggregation complete` (`post-merge-feedback.yaml` の `rules.condition` が英語リテラルで照合)、および Required output の section 見出しと表の列名 (`Type` / `Description` / `Target` / `Severity` / `Frequency` / `Effort` / `Adoption Risk` / `Recommendation` / `Rationale`)
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 完了条件の `aggregation complete` (`post-merge-feedback.yaml` の `rules.condition` が英語リテラルで照合)、および Required output の section 見出しと表の列名 (`Type` / `Description` / `Target` / `Severity` / `Frequency` / `Effort` / `Adoption Risk` / `Recommendation` / `Rationale` / `Source`)

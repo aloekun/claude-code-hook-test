@@ -93,7 +93,7 @@ For each finding, name the specific files / crates and propose the smallest rest
 2. Start with Criterion 0 (harness adherence) — this is the MVP top priority and the continuous source of "既存ルール仕組み化" candidates.
 3. For each suspected pattern, verify the file evidence (`Grep` for symbol existence, `Read` ADR sections referenced).
 4. Classify each verified concern by severity (`critical` / `high` / `medium` / `low`) and category (one of: `harness-duplication` / `adr-alignment` / `docs-internal` / `docs-source-drift` / `module-boundary` / `cyclic-dep` / `layer-violation` / `adr-naming`).
-5. Write the report per the output contract (`architecture-whole-review.md`). End with `analysis complete`.
+5. Compose the report per the output contract (`architecture-whole-review.md`) and return it as your response text. Do not create the report file with the Write tool (or any other file) — takt runs a separate report phase after this step and saves your response to the Report Directory. End with `analysis complete`.
 
 ## Scope boundary
 
