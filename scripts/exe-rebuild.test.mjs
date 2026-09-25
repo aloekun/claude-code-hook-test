@@ -5,7 +5,9 @@
  * 一時ディレクトリで固定する。
  */
 
+import { spawn } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -26,6 +28,9 @@ import { hashPackageDir, parseStamp } from "./exe-fingerprint.mjs";
 import { planRebuild, summarizeBuildErrors } from "./rebuild-stale-exes.mjs";
 
 const EXE_SUFFIX = process.platform === "win32" ? ".exe" : "";
+
+/** 子プロセスの起動・終了を待つ上限 (無期限に待たない)。 */
+const CHILD_START_TIMEOUT_MS = 10_000;
 
 let root;
 
@@ -122,6 +127,47 @@ describe("replaceFile", () => {
     expect(readFileSync(dest, "utf8")).toBe("v1");
     expect(existsSync(`${dest}.old`)).toBe(false);
   });
+
+  /**
+   * 本物の実行中プロセスの exe を差し替える (ADR-082 決定 4 の前提を実測で固定する)。
+   * 両 OS に確実にある実行ファイルとして Node 自身をコピーして起動する。差し替えの後も
+   * 実行中のプロセスは退避した旧いファイルで動き続け、dest は新しい中身になる。
+   *
+   * 負の対照 (直接の上書きが失敗すること) は Windows でだけ断言する。Windows では実行中の
+   * exe への書き込みが確実に EBUSY になる。Linux の ETXTBSY はカーネルの版で扱いが
+   * 変わった経緯があり、CI の runner で必ず失敗するとは言い切れない。
+   */
+  it("実行中の exe でも差し替えられ、実行中のプロセスは生き続ける", async () => {
+    const dest = join(root, `running${EXE_SUFFIX}`);
+    const src = join(root, "replacement.bin");
+    copyFileSync(process.execPath, dest);
+    writeFileSync(src, "new-content");
+    const child = spawn(dest, ["-e", "process.stdout.write('ready'); setInterval(() => {}, 1000)"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const exited = new Promise((done) => child.once("exit", done));
+    try {
+      await new Promise((ready, fail) => {
+        const timer = setTimeout(() => fail(new Error("child did not start")), CHILD_START_TIMEOUT_MS);
+        child.stdout.once("data", () => {
+          clearTimeout(timer);
+          ready();
+        });
+        child.once("error", fail);
+      });
+      if (process.platform === "win32") {
+        expect(() => copyFileSync(src, dest)).toThrow();
+      }
+      replaceFile(src, dest);
+      expect(readFileSync(dest, "utf8")).toBe("new-content");
+      // シグナルで終了した場合も exitCode は null なので、signalCode も見る (CodeRabbit #517)。
+      expect(child.exitCode).toBeNull();
+      expect(child.signalCode).toBeNull();
+    } finally {
+      child.kill();
+      await Promise.race([exited, new Promise((done) => setTimeout(done, CHILD_START_TIMEOUT_MS))]);
+    }
+  }, 30_000);
 
   it("前回の差し替えで残った .old を片付ける", () => {
     const src = join(root, "new.bin");

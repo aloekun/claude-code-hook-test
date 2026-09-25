@@ -1,8 +1,9 @@
 # ci — Windows / Linux の 2 OS matrix による移植退行防止ゲート
 #
-# 役割: PR と master push で Rust 成果物 (clippy / cargo test / hooks smoke test) を
-# **windows-latest と ubuntu-latest の両方**で実行し、片方の OS でしか通らないコードが
-# land するのを止める。設計根拠は docs/adr/adr-065-ci-matrix-cross-os-regression.md。
+# 役割: PR と master push で Rust 成果物 (clippy / cargo test / hooks smoke test) と、
+# Node 製のハーネス部品 (`scripts/*.mjs`) の vitest を **windows-latest と ubuntu-latest の
+# 両方**で実行し、片方の OS でしか通らないコードが land するのを止める。設計根拠は
+# docs/adr/adr-065-ci-matrix-cross-os-regression.md。
 #
 # 設計メモ:
 # - **両 OS を回す理由は実例に基づく**: Linux 実測で cli-pr-monitor の lock が同時取得を
@@ -40,6 +41,13 @@
 #   public リポジトリの Actions は無料・無制限のため、現状の余剰は CPU 時間のみ。
 # - **required check 化はまだしない**: 数 run 分の安定性 (実行時間・flake の有無) を観測して
 #   から Branch Protection の Required status checks に登録する (段階の根拠は ADR-065 § 決定 5)。
+# - **vitest は rust job と別の `node` job にする** (順位 16、ADR-065 § 追記 2026-09-25):
+#   Node 製の部品 (exe の鮮度判定と自動再ビルド、workflow / facet の lint など) は Stop の
+#   品質ゲートと push の quality_gate で手元の Windows だけが走らせていて、Linux では
+#   一度も実行されていなかった。Rust のキャッシュや jj の準備に依存しないので、別 job に
+#   して並列に回し、run の一覧で独立に赤/緑が読めるようにする。vitest は devDependencies に
+#   版を固定し、`pnpm install --frozen-lockfile` で lockfile どおりに入れる (npx の
+#   キャッシュやネットワークから最新版を取る経路を持たない)。
 
 name: ci
 
@@ -67,6 +75,11 @@ env:
   # scripts/cloud-setup.sh と同じバージョンに固定する (ADR-017 と同型の版固定)。
   # 3 箇所の論理結合なので、上げるときは必ず揃えて上げること (ADR-051)。
   JJ_VERSION: "0.42.0"
+  # node job の実行環境。Node は手元の開発環境 (v24) に合わせる。pnpm は
+  # scripts/cloud-setup.sh の PNPM_SPEC (pnpm@11) と同じくメジャーだけを固定する
+  # (lockfileVersion 9.0 は pnpm 9-11 が互換)。2 箇所の論理結合なので揃えて上げること (ADR-051)。
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11"
 
 jobs:
   rust:
@@ -205,3 +218,38 @@ jobs:
           set -euo pipefail
           cargo run --release -p cli-ledger-removal-check -- \
             --branch "$BRANCH" --docs-dir docs
+
+  node:
+    name: node (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Run vitest
+        shell: bash
+        run: pnpm test

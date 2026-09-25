@@ -12,6 +12,8 @@ if (!existsSync(".env.e2e")) {
   process.exit(0);
 }
 
-execFileSync("npx", ["vitest", "run", "--config", "vitest.e2e.config.ts"], {
+// vitest は devDependencies に固定してある (順位 16)。--no-install で、未導入のときに
+// npx がネットワークから最新版を取りに行く経路を塞ぐ (package.json の test と揃える)。
+execFileSync("npx", ["--no-install", "vitest", "run", "--config", "vitest.e2e.config.ts"], {
   stdio: "inherit",
 });
