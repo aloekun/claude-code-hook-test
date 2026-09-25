@@ -43,7 +43,9 @@ steps:
               - Read
               - Glob
               - Grep
-              - Bash
+              - "Bash(gh pr diff:*)"
+              - "Bash(gh pr view:*)"
+              - "Bash(gh api:*)"
         instruction: analyze-pr
         output_contracts:
           report:

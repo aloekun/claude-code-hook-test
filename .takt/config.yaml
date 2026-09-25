@@ -1,0 +1,12 @@
+# takt プロジェクト設定 (ADR-083)。
+#
+# takt 0.35.3 は Claude プロバイダの既定 permission mode を組み込みで `edit` にしており、
+# `edit: false` の step も Claude の `acceptEdits` (Edit / Write を確認なしで通す) で動く。
+# workflow の `allowed_tools` は「確認なしで許可する」一覧で、禁止リストではないため、
+# それだけでは readonly の step の書き込みを止められない。
+#
+# 既定を `readonly` (Claude の `default`) にし、書き込みが要る step は
+# `required_permission_mode: edit` を宣言して下限で `edit` を確保する。
+provider_profiles:
+  claude:
+    default_permission_mode: readonly
