@@ -16,7 +16,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 /** 記録形式の版。ハッシュの取り方を変えたら上げ、旧い記録を一律「古い」扱いにする。 */
@@ -91,8 +91,12 @@ export function listPackageFiles(pkgDir) {
         if (isTop && EXCLUDED_TOP_DIRS.has(entry.name)) continue;
         if (existsSync(join(full, "Cargo.toml"))) continue;
         walk(full, false);
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
+        // シンボリックリンクは辿らず、リンク先のパス文字列を中身として扱う (hashPackageDir)。
         files.push(relative(pkgDir, full).split(sep).join("/"));
+      } else {
+        // 読み飛ばすと、その変更を検出できない (fail-closed)。
+        throw new Error(`ハッシュできない種類のファイル: ${full}`);
       }
     }
   };
@@ -104,7 +108,10 @@ export function listPackageFiles(pkgDir) {
 export function hashPackageDir(pkgDir) {
   const hash = createHash("sha256");
   for (const rel of listPackageFiles(pkgDir)) {
-    const bytes = readFileSync(join(pkgDir, ...rel.split("/")));
+    const path = join(pkgDir, ...rel.split("/"));
+    const bytes = lstatSync(path).isSymbolicLink()
+      ? Buffer.from(`symlink:${readlinkSync(path)}`)
+      : readFileSync(path);
     hash.update(`${rel}\0${bytes.length}\0`);
     hash.update(bytes);
   }

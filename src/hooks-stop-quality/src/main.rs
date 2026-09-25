@@ -67,6 +67,9 @@ struct StopQualityConfig {
 struct QualityStepConfig {
     name: String,
     cmd: String,
+    /// この step だけの timeout (秒)。省略時は `step_timeout`。release ビルドを伴う
+    /// `exe-freshness` step (ADR-082) のように、他の step より長く掛かるものに使う。
+    timeout: Option<u64>,
 }
 
 /// デフォルトのステップタイムアウト（秒）
@@ -391,9 +394,10 @@ fn run_quality_steps(steps: &[QualityStepConfig], timeout: u64) -> Vec<StepFailu
             let step_name = step.name.clone();
             let thread_name = step.name.clone();
             let raw_cmd = step.cmd.clone();
+            let step_timeout = step.timeout.unwrap_or(timeout);
             let handle = std::thread::spawn(move || {
                 let cmd = expand_step_placeholders(&raw_cmd);
-                run_cmd_shell_capped(&thread_name, &cmd, timeout, MAX_LINES)
+                run_cmd_shell_capped(&thread_name, &cmd, step_timeout, MAX_LINES)
             });
             (step_name, handle)
         })
@@ -629,18 +633,22 @@ cmd = "pnpm test"
             QualityStepConfig {
                 name: "pass-a".into(),
                 cmd: "exit 0".into(),
+                timeout: None,
             },
             QualityStepConfig {
                 name: "fail-b".into(),
                 cmd: "exit 1".into(),
+                timeout: None,
             },
             QualityStepConfig {
                 name: "pass-c".into(),
                 cmd: "exit 0".into(),
+                timeout: None,
             },
             QualityStepConfig {
                 name: "fail-d".into(),
                 cmd: "exit 1".into(),
+                timeout: None,
             },
         ];
 
@@ -661,6 +669,19 @@ cmd = "pnpm test"
             !failures.iter().any(|f| f.message.contains("pass-")),
             "成功ステップは failure に含まれない"
         );
+    }
+
+    /// step の `timeout` が `step_timeout` より優先されること (ADR-082)。全体 1 秒では
+    /// 打ち切られる 2 秒の step が、step 側の 30 秒で最後まで走り成功する。
+    #[test]
+    fn step_timeout_overrides_the_global_timeout() {
+        let sleep_2s = if cfg!(windows) { "ping -n 3 127.0.0.1 >nul" } else { "sleep 2" };
+        let steps = vec![QualityStepConfig {
+            name: "slow".into(),
+            cmd: sleep_2s.into(),
+            timeout: Some(30),
+        }];
+        assert!(run_quality_steps(&steps, 1).is_empty());
     }
 
     /// 順位309: 実際にステップが失敗した場合 (panic ではない) は `QualityViolation`

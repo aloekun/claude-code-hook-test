@@ -20,6 +20,9 @@
 # deploy-artifacts.mjs が exe ごとに書く入力フィンガープリント (ADR-082)。
 # hooks-* / cli-* は上の行で捕まるが、check-ci-coderabbit は名前指定のため明示する
 .claude/*.fingerprint
+# deploy-artifacts.mjs が実行中の exe を差し替えるときの一時ファイルと退避先 (ADR-082)
+.claude/*.new
+.claude/*.old
 
 # Deploy targets (contains local paths; create from deploy-targets.template.json)
 scripts/deploy-targets.json
