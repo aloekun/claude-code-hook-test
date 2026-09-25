@@ -1,94 +1,21 @@
-//! transcript jsonl の時刻 range filter とプロジェクト ID 解決。
+//! transcript jsonl の時刻 range filter。
 //!
 //! `~/.claude/projects/<project-id>/*.jsonl` を commit 時刻 range で抽出し、
-//! workflow が読む合成 transcript を書き出す。
+//! workflow が読む合成 transcript を書き出す。置き場所の解決は [`super::project_dir`]、
+//! 各行の縮約は [`super::transcript_compact`] が持つ。
 
 use crate::feedback::pr_metadata::PrTimeRange;
+use crate::feedback::transcript_compact::compact_entry;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-/// `cwd` パス → `~/.claude/projects/` の project ID 形式へ変換する。
-///
-/// Windows: `E:\work\claude-code-hook-test` → `e--work-claude-code-hook-test`
-/// (lowercase、`:` `\` `/` をすべて `-` に置換)。
-pub fn cwd_to_project_id(cwd: &Path) -> String {
-    cwd.to_string_lossy()
-        .to_lowercase()
-        .replace([':', '\\', '/'], "-")
-}
-
-/// `~/.claude/projects/<project-id>/` を返す。`USERPROFILE` 未設定なら `None`。
-pub(crate) fn project_transcript_dir(cwd: &Path) -> Option<PathBuf> {
-    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
-    let projects_root = PathBuf::from(home).join(".claude").join("projects");
-    resolve_project_dir(&projects_root, cwd)
-}
-
-/// `projects_root` 配下から `cwd` に対応する project-id ディレクトリを探す。
-///
-/// # なぜ完全一致で `join` しないか (順位 469 完了基準)
-///
-/// [`cwd_to_project_id`] は比較用に `to_lowercase()` するが、実フォルダ名は元の `cwd` の
-/// 大文字小文字をそのまま保存している (例: `C--Users-owner-…-improve`)。Windows は
-/// ファイルシステムが case-insensitive なので `join` + `is_dir()` でも偶然一致するが、
-/// Linux では一致せずセッションが無言で拾えなくなる。`read_dir` で実在するフォルダ名を
-/// 列挙し、lowercase 比較で対応するものを探すことで OS を問わず解決する。
-fn resolve_project_dir(projects_root: &Path, cwd: &Path) -> Option<PathBuf> {
-    let project_id = cwd_to_project_id(cwd);
-    fs::read_dir(projects_root)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.is_dir()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.to_lowercase() == project_id)
-        })
-}
-
-/// このリポジトリの**全 workspace** の transcript ディレクトリと、その workspace root。
-///
-/// # なぜ cwd 由来の 1 つでは足りないか (順位 469)
-///
-/// [ADR-045](../../../../docs/adr/adr-045-jj-workspace-parallel-sessions.md) の並列 workspace
-/// 運用では、workspace ごとに別の project-id フォルダができる。実装をある workspace で行い
-/// 別の workspace から `pnpm merge-pr` すると、**実装セッションが分析入力から丸ごと落ちる**。
-///
-/// 2026-08-18 の実測: PR #417 は `improve` workspace で実装され (編集 31 件)、main から
-/// マージされたため実装セッションが欠落した。**しかも feedback レポートは正常に生成され、
-/// 欠落を示す痕跡が何も残らない**。
-///
-/// # 広げるだけにしない
-///
-/// フォルダを増やすと無関係なセッションを引き込む危険が裏表で生じる。返り値に workspace
-/// root を添えるのは、呼び手が **`cwd` がその root 配下にあること**を必須条件として課せる
-/// ようにするため ([ADR-064](../../../../docs/adr/adr-064-monitor-success-positive-evidence.md)
-/// の陽性証拠要求)。
-///
-/// workspace を列挙できない場合 (jj 不在など) は `cwd` 由来の 1 つへフォールバックする。
-pub fn workspace_transcript_dirs(cwd: &Path) -> Vec<(PathBuf, PathBuf)> {
-    let roots = lib_jj_helpers::list_workspace_roots();
-    let roots = if roots.is_empty() {
-        vec![cwd.to_path_buf()]
-    } else {
-        roots
-    };
-    let mut dirs: Vec<(PathBuf, PathBuf)> = roots
-        .into_iter()
-        .filter_map(|root| project_transcript_dir(&root).map(|dir| (dir, root)))
-        .collect();
-    dirs.sort();
-    dirs.dedup();
-    dirs
-}
-
 /// transcript jsonl をフィルタして書き出す。
 ///
 /// 入力: `sources` の各 transcript dir 配下の `*.jsonl`
-/// 出力: `out_path` に [first_commit_time, merged_at] かつ type が user/assistant の行のみ
+/// 出力: `out_path` に [first_commit_time, merged_at] かつ type が user/assistant の行のみ。
+/// 各行は [`compact_entry`] で縮約してから書く (重複・暗号化 thinking・付帯データを捨て、
+/// 長い正常 tool_result の中ほどを省略する)
 /// 戻り値: 書き込んだ行数
 ///
 /// # 複数 workspace を横断する (順位 469)
@@ -194,7 +121,7 @@ impl MatchedEntry {
 }
 
 /// 各ファイルを走査し、range に入る user/assistant 行のうち **`workspace_root` 配下の
-/// セッションのもの**だけを集める。
+/// セッションのもの**だけを集め、縮約した形で保持する。
 fn collect_matching_entries(
     jsonl_paths: &[PathBuf],
     range: &PrTimeRange,
@@ -210,14 +137,17 @@ fn collect_matching_entries(
             if line.trim().is_empty() {
                 continue;
             }
-            let Some(timestamp) = matched_timestamp(&line, range, workspace_root) else {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(timestamp) = matched_timestamp(&value, range, workspace_root) else {
                 continue;
             };
             entries.push(MatchedEntry {
                 timestamp,
                 source_path: path.clone(),
                 line_index,
-                line,
+                line: compact_entry(&value).to_string(),
             });
         }
     }
@@ -274,16 +204,20 @@ fn normalize_timestamp_for_comparison(ts: &str) -> String {
 /// transcript の 1 行が時刻 range + type filter + workspace 所属を満たせば、
 /// 正規化した timestamp を返す。
 ///
-/// 並べ替えにも timestamp が要るため、判定と同時に取り出す (判定後に再パースしない)。
+/// 並べ替えにも timestamp が要るため、判定と同時に取り出す。パースは呼び手が 1 回だけ行い、
+/// 同じ値を縮約にも使う。
 ///
 /// # `cwd` は必須 (順位 469)
 ///
 /// 複数の project-id フォルダを走査するようになったため、**エントリがどの workspace の
 /// ものかを本文で確認する**。`cwd` を持たない行は判定できないので通さない (実測では
-/// 全 89,625 エントリが `cwd` を持つため、実質的な取りこぼしは無い)。
-fn matched_timestamp(line: &str, range: &PrTimeRange, workspace_root: &Path) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
-
+/// 全 89,625 エントリが `cwd` を持つため、実質的な取りこぼしは無い)。`cwd` は判定にだけ
+/// 使い、縮約で出力からは落とす。
+fn matched_timestamp(
+    value: &serde_json::Value,
+    range: &PrTimeRange,
+    workspace_root: &Path,
+) -> Option<String> {
     let entry_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if !matches!(entry_type, "user" | "assistant") {
         return None;
@@ -324,6 +258,7 @@ mod tests {
         write_transcript_line_with_cwd(dir, name, timestamp, id, WORKSPACE_ROOT)
     }
 
+    /// 目印の `id` は `message.content` に置く (最上位の未知フィールドは縮約で落ちるため)。
     fn write_transcript_line_with_cwd(
         dir: &Path,
         name: &str,
@@ -332,8 +267,9 @@ mod tests {
         cwd: &str,
     ) -> PathBuf {
         let path = dir.join(name);
-        let line =
-            format!(r#"{{"type":"user","timestamp":"{timestamp}","id":"{id}","cwd":"{cwd}"}}"#);
+        let line = format!(
+            r#"{{"type":"user","timestamp":"{timestamp}","cwd":"{cwd}","message":{{"role":"user","content":"{id}"}}}}"#
+        );
         fs::write(&path, format!("{line}\n")).unwrap();
         path
     }
@@ -345,7 +281,10 @@ mod tests {
 
     /// 1 行が range + type filter に該当するか (判定だけを見るテスト用の薄い包み)。
     fn entry_matches_filter(line: &str, range: &PrTimeRange) -> bool {
-        matched_timestamp(line, range, Path::new(WORKSPACE_ROOT)).is_some()
+        serde_json::from_str(line)
+            .ok()
+            .and_then(|value| matched_timestamp(&value, range, Path::new(WORKSPACE_ROOT)))
+            .is_some()
     }
 
     /// `read_first` を `read_second` より古い mtime にする。
@@ -369,51 +308,6 @@ mod tests {
 
     fn range_covering_0900_to_0930() -> PrTimeRange {
         PrTimeRange::without_head_branch("2026-04-25T08:00:00.000Z", "2026-04-25T10:00:00.000Z")
-    }
-
-    #[test]
-    fn project_id_windows_drive() {
-        let p = Path::new("E:\\work\\claude-code-hook-test");
-        assert_eq!(cwd_to_project_id(p), "e--work-claude-code-hook-test");
-    }
-
-    #[test]
-    fn project_id_unix_path() {
-        let p = Path::new("/home/user/project");
-        assert_eq!(cwd_to_project_id(p), "-home-user-project");
-    }
-
-    /// **順位 469 完了基準**: 実フォルダ名が大文字小文字を保存していても
-    /// (Linux の case-sensitive filesystem を模した fixture) 解決できること。
-    #[test]
-    fn resolve_project_dir_matches_case_insensitively() {
-        let root = unique_temp_dir("case-insensitive-root");
-        let actual_dir_name = "C--Users-owner-Improve";
-        fs::create_dir_all(root.join(actual_dir_name)).unwrap();
-
-        let cwd = Path::new("C:\\Users\\owner\\Improve");
-        let resolved = resolve_project_dir(&root, cwd);
-
-        assert_eq!(
-            resolved,
-            Some(root.join(actual_dir_name)),
-            "cwd 由来の lowercase project-id と実フォルダ名の大文字小文字が異なっても一致するべき"
-        );
-
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn resolve_project_dir_returns_none_when_no_match() {
-        let root = unique_temp_dir("case-insensitive-no-match");
-        fs::create_dir_all(root.join("C--Users-owner-Other")).unwrap();
-
-        let cwd = Path::new("C:\\Users\\owner\\Improve");
-        let resolved = resolve_project_dir(&root, cwd);
-
-        assert_eq!(resolved, None, "対応するフォルダが無ければ None を返すべき");
-
-        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -538,6 +432,39 @@ mod tests {
         assert!(!out.contains("07:00:00"));
         assert!(!out.contains("11:00:00"));
         assert!(!out.contains("queue-operation"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 書き出す行は縮約済みであること (配線の確認。縮約規則自体は `transcript_compact` のテスト)。
+    #[test]
+    fn filter_transcripts_writes_compacted_entries() {
+        let dir = unique_temp_dir("compact");
+        let line = r#"{"type":"assistant","timestamp":"2026-04-25T09:00:00.000Z","cwd":"/repo","uuid":"u-1","toolUseResult":{"stdout":"dup"},"message":{"role":"assistant","usage":{"input_tokens":1},"content":[{"type":"thinking","thinking":"","signature":"sig"},{"type":"text","text":"kept"}]}}"#;
+        fs::write(dir.join("session.jsonl"), format!("{line}\n")).unwrap();
+
+        let out_path = dir.join("filtered.jsonl");
+        let written = filter_transcripts(
+            &single_source(&dir),
+            &range_covering_0900_to_0930(),
+            &out_path,
+        )
+        .unwrap();
+        assert_eq!(written, 1);
+
+        let out: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&out_path).unwrap().trim()).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "type": "assistant",
+                "timestamp": "2026-04-25T09:00:00.000Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [{ "type": "text", "text": "kept" }],
+                },
+            })
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -759,9 +686,11 @@ mod tests {
         let same_timestamp = "2026-04-25T09:00:00.000Z";
         let path = dir.join("session.jsonl");
         let body = format!(
-            "{{\"type\":\"user\",\"timestamp\":\"{same_timestamp}\",\"id\":\"line-1\",\
+            "{{\"type\":\"user\",\"timestamp\":\"{same_timestamp}\",\
+             \"message\":{{\"role\":\"user\",\"content\":\"line-1\"}},\
              \"cwd\":\"{WORKSPACE_ROOT}\"}}\n\
-             {{\"type\":\"user\",\"timestamp\":\"{same_timestamp}\",\"id\":\"line-2\",\
+             {{\"type\":\"user\",\"timestamp\":\"{same_timestamp}\",\
+             \"message\":{{\"role\":\"user\",\"content\":\"line-2\"}},\
              \"cwd\":\"{WORKSPACE_ROOT}\"}}\n"
         );
         fs::write(&path, body).unwrap();

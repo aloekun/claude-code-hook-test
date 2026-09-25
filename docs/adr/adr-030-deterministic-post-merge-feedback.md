@@ -170,6 +170,25 @@ global rules 編集の pre-merge 検証は本 ADR の scope 外だが、補完�
 
 具体的なファイル所在: `~/.claude/projects/<project-id>/<session-id>.jsonl` (1 session = 1 file、UUID 命名)。本プロジェクトでは `%USERPROFILE%\.claude\projects\e--work-claude-code-hook-test\` 配下。
 
+#### 追記 (2026-09-25): 抽出した行を縮約してから書き出す
+
+時刻 range filter だけでは 1 PR 分が **2.14 MB / 449 行 (1 行最大 85 KB)** になり (PR #517 実測)、haiku の `analyze-session` は全体を読み切れなかった。どこを読み飛ばすかが実行ごとに無作為に決まり、読み切れないことが解析スクリプトの書き出しも誘っていた。そこで `cli-merge-pipeline` が各行を縮約してから書き出す (`src/cli-merge-pipeline/src/feedback/transcript_compact.rs`)。
+
+| 要素 | PR #517 での量 | 扱い | 失うもの |
+|---|---|---|---|
+| 最上位の `toolUseResult` | 478 KB | 捨てる | なし (`message.content` の tool_result と同内容の重複) |
+| `thinking` block | 282 KB | 捨てる | なし (上表のとおり暗号化済み) |
+| `uuid` / `cwd` / `message.usage` 等の付帯データ | 残りの大半 | 捨てる (残すのは `type` / `timestamp` / `sessionId` / `message.role` / `message.content`) | なし (facet のスキーマが使わない) |
+| エラーの tool_result (`is_error`) | 6 件 / 1.9 KB | 全文残す | なし |
+| 正常な tool_result | 中央値 335 字、4 KB 超は 19 件 | 2,000 字を超えたら先頭 1,000 字 + `[… N 文字省略 …]` + 末尾 1,000 字 | **長い正常出力の中ほど** |
+| 画像 block | — | `[画像省略]` に置き換える | なし (テキストとして読む facet には意味を持たない) |
+
+結果は **2.14 MB → 457 KB (79% 減)**。
+
+- **末尾も残す理由**: cargo test の失敗要約やスタックトレースは出力の末尾に出る。先頭だけを残すと「何が失敗したか」を捨ててしまう。
+- **`tool_use` の入力とユーザー発話は切らない**: global rules の編集は Edit / Write の入力でしか見えず (上記 § Global rules editing の追跡)、ユーザーの指示は知見抽出の主対象だから。
+- **情報損失を許容する根拠**: 縮約前も facet は全体を読めておらず、欠落は無作為に起きていた。縮約後は欠落が「長い正常出力の中ほど」に固定され、マーカーで明示される。
+
 ### 失敗ポリシー: soft
 
 `takt` 失敗時の挙動:
