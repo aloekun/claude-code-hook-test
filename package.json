@@ -9,7 +9,7 @@
     "ledger-residue-scan": "node scripts/ledger-residue-scan.mjs",
     "lint:workflows": "node scripts/lint-workflows.mjs",
     "lint:takt-facets": "node scripts/lint-takt-facets.mjs",
-    "test": "npx vitest run",
+    "test": "vitest run",
     "test:e2e": "npx tsx scripts/e2e.ts",
     "build": "npx --no-install tsc --noEmit --pretty",
     "build:hooks-pre-tool-validate": "cargo build --release -p hooks-pre-tool-validate && node scripts/deploy-artifacts.mjs hooks-pre-tool-validate",
@@ -64,6 +64,7 @@
     "js-yaml": "^5.3.0",
     "markdownlint-cli2": "^0.22.1",
     "takt": "0.35.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "5.0.1"
   }
 }

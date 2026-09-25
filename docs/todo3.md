@@ -10,49 +10,6 @@
 
 ## 現在進行中
 
-### 順位 16: `vitest` を devDependencies に固定 (PR #88 T2-3)
-
-> **動機**: Stop hook の `pnpm test` → `npx vitest run` が `pnpm-lock.yaml` に vitest なしのため npx がネット DL を試みて偽陽性 FAIL する事象を観測。ネット環境・キャッシュ依存の不確実性を排除し、Stop gate を deterministic にする。
->
-> **本タスクの位置づけ**: PR #88 で markdownlint-cli2 を `--no-install` で安定化させたのと同じ思想。テスト実行が外部 DL なしで完結する状態を維持する。
->
-> **参照**: `.claude/feedback-reports/88.md` の Tier 2 #3 finding
->
-> **実行優先度**: **Tier 2** — 工数 Small。Stop gate の偽陽性 FAIL を排除する効果は中-高 (毎回の Stop で発生する潜在リスクの解消)。
-
-#### 背景
-
-- `package.json` の `"test": "npx vitest run"` は vitest がローカルにあれば走るが、なければ npx が DL を試みる
-- ネット未接続環境やプロキシ環境で偽陽性 FAIL → 開発体験悪化
-- markdownlint-cli2 は PR #88 で `--no-install` を付けて DL を抑止、devDependencies で版固定済 → 同じパターンを vitest にも適用
-
-#### 設計決定 (案)
-
-- 案 A: `vitest` を devDependencies に追加し `pnpm-lock.yaml` に固定。`pnpm test` script は変更不要 (`npx --no-install vitest run` とするか `vitest run` 直呼びにするかは実装時判断)
-- 案 B: `pnpm test` script を `npx --no-install vitest run` に変更し、明示的にローカル参照を強制
-- 推奨: 案 A + script 側を `--no-install` 付きに変更 (二重防御)
-- 既存テストが現行通り動作することを確認 (既存の vitest 設定は不変、依存固定のみ)
-
-#### 作業計画
-
-- [ ] `vitest` の現行バージョン確認 (`npx vitest --version` 等)
-- [ ] `pnpm add -D vitest` (またはインスタンス化済バージョンで固定)
-- [ ] `package.json` の test script を `npx --no-install vitest run` に更新
-- [ ] `pnpm test` 動作確認
-- [ ] 本 todo3.md エントリを削除
-
-#### 完了基準
-
-- `pnpm test` がローカルの vitest のみで動作 (ネット切断状態で実行可)
-- Stop hook の偽陽性 FAIL が発生しなくなる
-- `pnpm-lock.yaml` に vitest が固定されている
-
-#### 詰まっている箇所
-
-なし (Effort Small、devDep 追加 + script 修正のみ)
-
----
-
 ### 順位 17: `pnpm create-pr` 必須引数未指定時のヘルプ改善 (PR #88 T2-5)
 
 > **動機**: 引数なしで `pnpm create-pr` を実行すると `gh pr create` が `must provide --title and --body (or --fill or fill-first or --fillverbose)` エラーのみ出力し、使用例が示されない。今回 PR 作成時に手動ワークアラウンド (`pnpm prepare-pr-body` で `.tmp-pr-body.md` 生成 → `pnpm create-pr -- --title "..." --body-file .tmp-pr-body.md`) が必要になった。`gh` のエラーをそのまま流す現設計だと、Claude や人間が次の手を察するのに余計な往復が発生する。

@@ -214,6 +214,30 @@ Actions は無料・無制限なので、現状の余剰コストは CPU 時間�
   Linux 側の同等検証には POSIX 版テストの追加が必要になる。
 - required check 化 (§ 決定 5) と、観測結果に基づく cache 戦略の調整。
 
+## 追記 (2026-09-25): Node 製部品の vitest を `node` job として matrix に加える
+
+本 ADR の matrix は Rust 成果物だけを対象にしていた。Node 製のハーネス部品
+(`scripts/*.mjs`: exe の鮮度判定と自動再ビルド ([ADR-082](adr-082-exe-freshness-fingerprint.md))、
+`pnpm lint:workflows` / `pnpm lint:takt-facets` の検査本体など) の vitest は、Stop の品質ゲートと
+push の quality_gate で**手元の Windows だけ**が走らせており、Linux では一度も実行されて
+いなかった。JS のテストを CI から除くという決定は無く、単に追加されていなかった
+(PR #516 の post-merge feedback で発見)。
+
+- **別 job にする**: Rust のキャッシュや jj の準備に依存しないので、`rust` job と同じ
+  2 OS matrix を持つ `node` job を新設し、並列に回す。run の一覧で独立に赤/緑が読める
+- **版を固定する (順位 16)**: vitest は devDependencies に無く、`npx vitest run` が npx の
+  キャッシュにある版を使い、無ければネットワークから最新版を取っていた (取得失敗で Stop
+  ゲートが誤 FAIL する事象を観測済み)。`vitest` を devDependencies に完全一致の版で固定し、
+  `test` スクリプトは `vitest run` を直接呼ぶ。pnpm のスクリプトは `node_modules/.bin` を
+  PATH に入れるので、未導入なら「見つからない」で失敗し、ダウンロードには行かない
+  (台帳が推奨した `npx --no-install` と同じ効果を、より単純な形で得る)
+- CI では `pnpm install --frozen-lockfile` で lockfile どおりに入れる。Node は手元の開発環境
+  (v24) に合わせる。pnpm は `scripts/cloud-setup.sh` の `PNPM_SPEC` (`pnpm@11`) と同じく
+  メジャーだけを固定する (2 箇所の論理結合、[ADR-051](adr-051-cross-system-config-coupling.md))
+- 実行中の exe を改名で差し替える処理 (ADR-082 決定 4) は、Linux では推論にとどまって
+  いた。本追記と同時に、Node 本体のコピーを起動したまま差し替えるテストを加え、両 OS の
+  `node` job で実測する
+
 ## 関連
 
 - [ADR-063](adr-063-linux-portability-release-binaries.md) — Linux 可搬性レイヤ / nightly

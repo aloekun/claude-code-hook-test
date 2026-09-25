@@ -16,7 +16,6 @@
 |---|---|---|---|---|---|
 | 6 | Tier 1 | GitHub Branch Protection 整備 — ブロックを Required status checks へ集約 | todo22.md | 設定のみ | なし (依存タスクは完了済。2026-08-12: 旧親 ADR-032 は ADR-057 置換で欠番、独立タスク化して todo2.md (退役) から移送) |
 | 10 | Tier 2 | broken-link-check + Markdown 内部アンカー検査の quality_gate 統合 | todo22.md | Small-中 | なし (clean baseline 確立済。2026-08-12: 独立タスク化して todo2.md (退役) から移送) |
-| 16 | Tier 2 | **`vitest` を devDependencies に固定 (PR #88 T2-3)** | todo3.md | Small | なし |
 | 17 | Tier 2 | **`pnpm create-pr` 必須引数ヘルプ改善 (PR #88 T2-5)** | todo3.md | Small | なし |
 | 18 | Tier 2 | **`.failed` marker への recovery 手順自己文書化 (PR #90 T2-2)** | todo3.md | S | なし |
 | 28 | ⏳ Tier 5 | (追って) ADR-030 の takt-test-vc 反映 | todo.md | 中 | なし (2026-08-12: 前提の Phase E/F は決着 — Phase E 廃止は撤回 (ADR-030 § 撤回記録)、Phase F は長期運用実績で充足。着手は任意) |
