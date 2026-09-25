@@ -21,13 +21,15 @@
 mod context;
 mod markers;
 mod pr_metadata;
+mod project_dir;
 mod run_registry;
 mod takt;
 mod transcript;
+mod transcript_compact;
 
 pub use markers::write_failed_marker;
 pub use pr_metadata::fetch_pr_diff_summary;
-pub use transcript::workspace_transcript_dirs;
+pub use project_dir::workspace_transcript_dirs;
 
 use context::{find_prepush_reports_dirs, write_context_file};
 use markers::{

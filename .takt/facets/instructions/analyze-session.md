@@ -45,7 +45,7 @@ ADR-030 §transcript 抽出戦略に基づく Phase 0 で確認済の方針:
 
 `transcript_path` を Read で読む。**JSONL** 形式 (1 行 1 entry)。
 
-各 entry のスキーマ (Phase 0 確認済):
+各 entry のスキーマ (Rust 側で縮約済みの形):
 
 ```json
 {
@@ -56,7 +56,6 @@ ADR-030 §transcript 抽出戦略に基づく Phase 0 で確認済の方針:
     "role": "user" | "assistant",
     "content": [
       { "type": "text", "text": "..." },
-      { "type": "thinking", "thinking": "", "signature": "<encrypted>" },
       { "type": "tool_use", "name": "Bash", "input": {...} }
     ]
   }
@@ -64,9 +63,11 @@ ADR-030 §transcript 抽出戦略に基づく Phase 0 で確認済の方針:
 ```
 
 注意:
-- `thinking` の content は encrypted (`thinking` field は空)。chain-of-thought は抽出不可
+- Rust 側で縮約済み。各 entry が持つのは `type` / `timestamp` / `sessionId` / `message` (`role` / `content`) だけで、`thinking` block (暗号化済みで本文は空) は除去されている
+- **正常な `tool_result` の本文が 2,000 字を超える場合は、先頭 1,000 字と末尾 1,000 字だけが残り、間に `[… N 文字省略 …]` が入る。** 省略は Rust 側の意図した処理であり、データ欠落として報告しない。`is_error: true` の `tool_result`、ユーザー発話、`tool_use` の入力は全文残る
+- 画像 block は `[画像省略]` の text block に置き換わっている
 - `type: queue-operation` / `type: attachment` は Rust 側で除外済の想定だが、出現したら無視する
-- 1.7 MB / 数百行になり得る。重要な箇所だけ要約する
+- 縮約後も数百 KB / 数百行になり得る。重要な箇所だけ要約する
 
 ## Phase 2: 知見抽出
 
