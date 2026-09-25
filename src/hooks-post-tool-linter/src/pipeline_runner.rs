@@ -37,9 +37,30 @@ fn run_command(program: &str, args: &[String]) -> (String, String) {
     }
 }
 
-/// args 内の {file} プレースホルダーをファイルパスに置換
+/// args 内のプレースホルダーを置換する。
+/// - `{file}`: 編集されたファイルのパス
+/// - `{{CLAUDE_DIR}}`: 本 exe が置かれた `.claude/` の絶対パス。本 hook は cwd を正規化
+///   しないため、リポジトリ内のスクリプトを cwd に依存せず指すのに使う (順位 287 の
+///   exe-relative 解決、ADR-082)
 fn resolve_args(args: &[String], file: &str) -> Vec<String> {
-    args.iter().map(|a| a.replace("{file}", file)).collect()
+    let claude_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.to_string_lossy().into_owned()));
+    resolve_args_with(args, file, claude_dir.as_deref())
+}
+
+/// [`resolve_args`] のテスト可能な芯。`{{CLAUDE_DIR}}` を先に置換するので、ファイル
+/// パスに同じ文字列が含まれていても展開されない。`claude_dir` が `None` なら残す。
+fn resolve_args_with(args: &[String], file: &str, claude_dir: Option<&str>) -> Vec<String> {
+    args.iter()
+        .map(|a| {
+            let a = match claude_dir {
+                Some(dir) => a.replace("{{CLAUDE_DIR}}", dir),
+                None => a.clone(),
+            };
+            a.replace("{file}", file)
+        })
+        .collect()
 }
 
 /// パイプラインを実行
@@ -176,6 +197,27 @@ mod tests {
         let args = vec!["--fix".to_string()];
         let resolved = resolve_args(&args, "src/app.ts");
         assert_eq!(resolved, vec!["--fix"]);
+    }
+
+    #[test]
+    fn resolve_args_expands_claude_dir() {
+        let args = vec!["{{CLAUDE_DIR}}/../scripts/x.mjs".to_string(), "{file}".to_string()];
+        let resolved = resolve_args_with(&args, "src/main.rs", Some("/repo/.claude"));
+        assert_eq!(resolved, vec!["/repo/.claude/../scripts/x.mjs", "src/main.rs"]);
+    }
+
+    /// ファイルパス由来の文字列は展開しない (placeholder は config 側の args だけに効く)。
+    #[test]
+    fn resolve_args_does_not_expand_claude_dir_inside_the_file_path() {
+        let args = vec!["{file}".to_string()];
+        let resolved = resolve_args_with(&args, "{{CLAUDE_DIR}}.rs", Some("/repo/.claude"));
+        assert_eq!(resolved, vec!["{{CLAUDE_DIR}}.rs"]);
+    }
+
+    #[test]
+    fn resolve_args_leaves_claude_dir_when_unresolvable() {
+        let args = vec!["{{CLAUDE_DIR}}/x".to_string()];
+        assert_eq!(resolve_args_with(&args, "f", None), vec!["{{CLAUDE_DIR}}/x"]);
     }
 
     #[test]

@@ -168,49 +168,6 @@
 
 - 全 template から廃止済みオプションが除去されていること。設定オプション削除を含む diff で simplicity-review が templates の同期に言及すること。
 
-## ハーネス改善 (2026-08-04 セッション発案)
-
-### 順位 373: Rust exe の自動再ビルド — PostToolUse の cargo check + Stop hook の build/deploy 2 層
-
-> **動機**: `.claude/*.exe` は .gitignore された生成物で、`pnpm build:all` を明示実行しない限り古いバイナリが使われ続ける。2026-08-04 の実測では `cli-fix-push-gate` (3/3 ファイル)・`cli-autonomy-gate` (1/1)・`hooks-session-start` (1/8) の 3 パッケージで exe がソースより古かった。`hooks-session-start` は SessionStart hook として実際に走るため、**変更した挙動が反映されないまま気付かない**。あわせて Rust ソースの編集直後に compile error を検知する層が無く、誤った修正が push 直前の quality gate まで表面化しない。
->
-> **対処案**: 2 層に分ける。層の割り当ては 2026-08-04 の実測に基づく:
->
-> | 操作 | 小パッケージ (cli-autonomy-gate) | 大パッケージ (cli-pr-monitor、30 ファイル) |
-> |---|---|---|
-> | `cargo build --release` (変更あり) | 4.3 秒 | 9.9 秒 |
-> | `cargo build --release` (変更なし) | 0.18 秒 | — |
-> | `cargo check` | 0.39 秒 | 0.70 秒 |
->
-> 1. **PostToolUse** (`.rs` 編集時): `cargo check -p <pkg>` — 0.4〜0.7 秒。既存の `post_tool_linter.pipelines` へ `extensions = ["rs"]` のパイプラインを追加し、ファイルパスから `-p <pkg>` を解決する薄いラッパー (`scripts/cargo-check-for-file.mjs` 等) を噛ませる。**新規 exe は不要**
-> 2. **Stop hook** (ターン終了時): `jj status` の変更ファイルから**影響を受ける bin target を解決**し、該当分のみ `cargo build --release -p <pkg>` + `node scripts/deploy-artifacts.mjs <pkg>`。既存の `hooks-stop-quality.exe` ([ADR-004](adr/adr-004-stop-hook-quality-gate.md)) と同じ層なので統合も検討する
->
-> **影響 target の解決は `src/<pkg>/**/*.rs` 限定にしない** (#359 CodeRabbit 指摘): `Cargo.toml` / `Cargo.lock` / `build.rs` / workspace の shared crate (`lib-*`) の変更でも再ビルドが要る。とくに lib crate は複数 bin から依存されるため、変更 1 件が複数 target へ波及する ([ADR-026](adr/adr-026-cargo-workspace.md) の workspace 構成)。`cargo metadata` の依存グラフから逆引きするのが確実。
->
-> **PostToolUse で build しない理由** (当初案からの変更): (a) 編集ごとに 4〜10 秒かかり、1 機能の変更で 5 ファイル触れば 20〜50 秒がビルドに消える (同一パッケージでも編集のたびに再コンパイルされるため 2 回目以降も同コスト)、(b) 関数の分割中・型の変更中の compile error は「正常」であり、毎回 additionalContext で報告するとモデルが壊れていると誤認して不要な修正を始めるリスクがある、(c) deploy も毎回走る。**Stop hook はターン終了時点の状態だけを検査するため (b) のノイズが構造的に発生しない**。
->
-> **`pnpm build:all` / `pnpm deploy:hooks` を経由しない理由** (#359 CodeRabbit 指摘への回答): `build:all` は**全パッケージをビルドする**ため、「変更のあった target だけをビルドする」という本エントリの設計目的そのものに反する (全ビルドなら現状の手動運用と変わらず Stop hook にする意味がない)。ただし**配布経路の乖離という論点は妥当**で、`.claude/` への staging と派生プロジェクト配布のロジックが `deploy-artifacts.mjs` と `deploy:hooks` の 2 系統に分かれないよう、実装時に共通化するか `deploy:hooks` へ単一パッケージ指定の口を足すかを判断する。
->
-> **参照**: [ADR-010](adr/adr-010-hooks-layout-and-build-strategy-v2.md) (exe の配置とビルド戦略)、[ADR-004](adr/adr-004-stop-hook-quality-gate.md) (Stop hook 品質ゲート)、[ADR-002](adr/adr-002-post-tool-use-linter-composition.md) (PostToolUse リンター構成)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) (config opt-in + kill-switch)。
->
-> **実行優先度**: Tier 2 — Severity Medium (古い exe による silent な挙動不一致) / Frequency High (Rust を触るたび) / Effort M / Adoption Risk Low (両層とも config opt-in + kill-switch を付ける)。
-
-#### 作業計画
-
-- [ ] PostToolUse: `.rs` パイプライン + パス→パッケージ解決ラッパー
-- [ ] Stop hook: `cargo metadata` の依存グラフから影響 bin target を解決 (`Cargo.toml` / `Cargo.lock` / `build.rs` / `lib-*` の変更も入力に含める) + build + deploy
-- [ ] deploy ロジックが `deploy-artifacts.mjs` と `pnpm deploy:hooks` の 2 系統へ分岐しないよう共通化方針を決める
-- [ ] 両層に config opt-in / kill-switch を付ける (ADR-039 3 点セット)
-- [ ] ビルド失敗時の出力形式 (additionalContext / block の使い分け) を決める
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- Rust ソースを編集したターンの終了時に、該当パッケージの `.claude/*.exe` が最新化されていること。
-- **`lib-*` crate や `Cargo.toml` を変更したターンでは、それに依存する全 bin の exe が最新化されていること** (`src/<pkg>/**/*.rs` 限定の検出では取りこぼす経路をテストで固定する)。
-- compile error のあるコードを書いた直後に PostToolUse で検知されること。
-- 中間状態 (編集途中の compile error) が Stop hook で報告されないこと。
-
 ## 却下した候補 (2026-08-04、記録のみ)
 
 再提案時に同じ検討を繰り返さないための記録。

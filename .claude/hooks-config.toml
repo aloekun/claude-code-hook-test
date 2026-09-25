@@ -212,6 +212,24 @@ steps = [
   { cmd = "npx", args = ["--no-install", "markdownlint-cli2", "{file}"], fix = false },
 ]
 
+# 順位 373 / ADR-082: .rs を編集するたびに、その package だけを cargo check する (試験運用)。
+# compile error があるときだけ件数と先頭 5 行を additionalContext に出す (成功時は無出力)。
+# 編集途中の一時的な error もあり得るので、出力に「編集を続けてよい」と明記する。
+# 本物のゲートは Stop の lint:rust / exe-freshness で、こちらは助言層 (判定できなければ無出力)。
+# 本 hook は cwd を正規化しないため、スクリプトは {{CLAUDE_DIR}} (exe の置き場所) から辿る。
+#
+# ADR-039 3 点セット:
+#   - Config opt-in (default OFF): このパイプラインを置いたプロジェクトだけが走らせる。
+#   - Kill-switch: 恒久停止はこのパイプラインを外す。緊急バイパスは env
+#     CARGO_CHECK_ON_EDIT_OVERRIDE=1 (truthy 値、受理集合 1|true|yes|on)。
+#   - Bounded lifetime: 2026-11-30 に評価する。編集途中の error 報告を受けて、不要な修正を
+#     始めた事例の有無を見て、本採用か撤去かを決める。
+[[post_tool_linter.pipelines]]
+extensions = ["rs"]
+steps = [
+  { cmd = "node", args = ["{{CLAUDE_DIR}}/../scripts/cargo-check-for-file.mjs", "{file}"], fix = false },
+]
+
 # ─── tool call leak 検知 (ADR-053 / ADR-061、試験運用) ───
 #
 # ツール呼び出しが tool_use block ではなくテキスト領域に `<invoke ...>` XML として
@@ -292,23 +310,27 @@ cmd = "pnpm build"
 name = "file-length"
 cmd = '{{CLAUDE_DIR}}/hooks-post-tool-comment-lint-rust{{EXE_SUFFIX}} --check-modified-files'
 
-# 順位 345 / ADR-082: .claude/ の exe がソースより古くないかの検査 (試験運用)。
-# deploy-artifacts.mjs が記録した入力フィンガープリントを今のツリーと突き合わせ、
-# 古い exe があれば block して `pnpm build:<bin>` を案内する。古い exe は config が
-# 要求する新機能を満たさず、品質ゲートを `command not found` で誤 block させる。
+# 順位 345 / 373、ADR-082: .claude/ の古い exe を検出し、その分だけ再ビルドして deploy
+# する (試験運用)。deploy-artifacts.mjs が記録した入力フィンガープリントを今のツリーと
+# 突き合わせ、古い exe の所属 package を 1 回の cargo build --release でまとめてビルドする。
+# 古い exe が無ければ約 0.2 秒で終わる。ビルドに失敗したとき・ソースツリーから消えた
+# bin の exe があるとき・判定できないときは block する。
 # exe のパスではなく `node scripts/...` で起動するので、この step 自体は古い
 # hooks-stop-quality からでも (プレースホルダー展開なしで) 動く。
+# release ビルドを伴うため、この step だけ timeout を延ばす (Stop hook 全体は 300 秒)。
 #
 # ADR-039 3 点セット:
 #   - Config opt-in (default OFF): この step を置いたプロジェクトだけが検査する。
 #     本 repo は dogfood のため有効。派生プロジェクトは hooks-config.toml を持ち込まない。
-#   - Kill-switch: 恒久停止はこの step を外す。緊急バイパスは env
+#   - Kill-switch: 恒久停止はこの step を外す。検出だけに戻すなら cmd を
+#     `node scripts/check-exe-freshness.mjs` にする。緊急バイパスは env
 #     EXE_FRESHNESS_CHECK_OVERRIDE=1 (truthy 値、受理集合 1|true|yes|on)。
-#   - Bounded lifetime: 順位 373 (PR 2) で自動再ビルドの step に置き換える。
-#     置き換え時点で「検出のみ」の本 step は役目を終える。
+#   - Bounded lifetime: 2026-11-30 に評価する。再ビルドが Stop を 240 秒の timeout まで
+#     延ばした事例と、誤って古いと判定した事例の有無を見て、本採用か撤去かを決める。
 [[stop_quality.steps]]
 name = "exe-freshness"
-cmd = "node scripts/check-exe-freshness.mjs"
+cmd = "node scripts/rebuild-stale-exes.mjs"
+timeout = 240
 
 # ─── PR-W5: file-length Stop gate 設定 (ADR-039 experimental feature 標準パターン) ───
 #

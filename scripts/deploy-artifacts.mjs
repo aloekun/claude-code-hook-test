@@ -10,15 +10,16 @@
  *
  * コピーした exe ごとに入力フィンガープリントを `.claude/<crate-name>.fingerprint` へ
  * 記録する (ADR-082)。Stop 品質ゲートの `exe-freshness` step がこれを今のソースと
- * 突き合わせ、古い exe を検出する。
+ * 突き合わせ、古い exe を検出して再ビルドする (`rebuild-stale-exes.mjs` も本モジュールの
+ * `deployArtifacts` を使う)。
  *
  * 使い方: node scripts/deploy-artifacts.mjs <crate-name> [<crate-name> ...]
  *   例: node scripts/deploy-artifacts.mjs hooks-stop-quality
  */
 
-import { copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { computeFingerprints, formatStamp, loadWorkspace, STAMP_SUFFIX } from "./exe-fingerprint.mjs";
 
@@ -30,37 +31,106 @@ const ROOT = resolve(SCRIPTS_DIR, "..");
 const RELEASE_DIR = join(ROOT, "target", "release");
 const CLAUDE_DIR = join(ROOT, ".claude");
 
-function main() {
-  const names = process.argv.slice(2);
-  if (names.length === 0) {
-    console.error("usage: node scripts/deploy-artifacts.mjs <crate-name> [<crate-name> ...]");
-    process.exit(2);
+/**
+ * `dest` を `src` の中身へ差し替える。`dest` が実行中でも失敗しない。
+ *
+ * 実行中の exe は Windows では上書きもできず、Linux では上書きすると ETXTBSY になる。
+ * どちらの OS でも**改名はできる**ので、新しい中身を `<dest>.new` へ置いてから、
+ * 旧い `dest` を `<dest>.old` へ退避し、`<dest>.new` を `dest` へ改名する。実行中の
+ * プロセスは退避した旧いファイルを使い続ける。`<dest>.old` は次回の差し替えで消す
+ * (まだ実行中で消せなければ残す)。
+ *
+ * 退避の後で `<dest>.new` の改名に失敗したら、旧い `dest` を戻してから投げる。戻さないと
+ * exe が無い状態が残り、その exe を使う hook が次から毎回「見つからない」で失敗する
+ * (CodeRabbit #516)。`rename` はテストが 2 回目の改名だけを失敗させるための差し替え口。
+ */
+export function replaceFile(src, dest, rename = renameSync) {
+  const staged = `${dest}.new`;
+  const aside = `${dest}.old`;
+  try {
+    rmSync(aside, { force: true });
+  } catch {
+    // 前回退避した exe がまだ実行中。下の rename が失敗すれば、そこで理由が出る。
   }
+  copyFileSync(src, staged);
+  const hadDest = existsSync(dest);
+  if (hadDest) {
+    rename(dest, aside);
+  }
+  try {
+    rename(staged, dest);
+  } catch (err) {
+    if (hadDest && !existsSync(dest)) {
+      try {
+        rename(aside, dest);
+      } catch {
+        // 復元にも失敗した。元の改名エラーのほうが原因を表すので、そちらを投げる。
+      }
+    }
+    throw err;
+  }
+  try {
+    rmSync(aside, { force: true });
+  } catch {
+    // 実行中なので残す。次回の差し替えで消す。
+  }
+}
 
-  // ビルド直後のツリーから計算する。ビルドから deploy までの数秒の間にソースを
-  // 編集すると、古い exe に新しい記録が付く (ADR-082 § 既知の限界)。
-  const { graph, workspaceRoot } = loadWorkspace(ROOT);
-  const fingerprints = computeFingerprints(graph, workspaceRoot);
-
+/**
+ * `names` の exe を `releaseDir` から `claudeDir` へ置き、記録を書く。問題があれば投げる。
+ *
+ * @param {string[]} names crate (= bin) 名
+ * @param {Map<string, { fingerprint: string }>} fingerprints 記録する値。呼び出し側が
+ *   **ビルド前**に計算した値を渡すと、ビルド中にソースが変わっても古い exe に新しい
+ *   記録が付かない (ADR-082 § 既知の限界)
+ */
+export function deployArtifacts(names, fingerprints, { releaseDir, claudeDir }) {
   for (const name of names) {
     const fileName = `${name}${EXE_SUFFIX}`;
-    const src = join(RELEASE_DIR, fileName);
-    const dest = join(CLAUDE_DIR, fileName);
+    const src = join(releaseDir, fileName);
     if (!existsSync(src)) {
-      console.error(`error: build artifact not found: ${src}`);
-      console.error("       run the corresponding `cargo build --release -p <name>` first");
-      process.exit(1);
+      throw new Error(
+        `build artifact not found: ${src}\n       run the corresponding \`cargo build --release -p ${name}\` first`,
+      );
     }
     const entry = fingerprints.get(name);
     if (!entry) {
-      console.error(`error: ${name} is not a bin target of this workspace; cannot record its fingerprint`);
-      process.exit(1);
+      throw new Error(`${name} is not a bin target of this workspace; cannot record its fingerprint`);
     }
-    copyFileSync(src, dest);
-    // exe のコピーが済んでから記録する。コピーに失敗したら旧い記録が旧い exe に残る。
-    writeFileSync(join(CLAUDE_DIR, `${name}${STAMP_SUFFIX}`), formatStamp(entry.fingerprint));
+    replaceFile(src, join(claudeDir, fileName));
+    // exe の差し替えが済んでから記録する。差し替えに失敗したら旧い記録が旧い exe に残る。
+    writeFileSync(join(claudeDir, `${name}${STAMP_SUFFIX}`), formatStamp(entry.fingerprint));
     console.log(`deployed: ${fileName} -> .claude/`);
   }
 }
 
-main();
+function main() {
+  const names = process.argv.slice(2);
+  if (names.length === 0) {
+    console.error("usage: node scripts/deploy-artifacts.mjs <crate-name> [<crate-name> ...]");
+    return 2;
+  }
+
+  // 手動の `pnpm build:*` はビルドの後に本スクリプトを呼ぶので、ビルド直後のツリーから
+  // 計算する。ビルドから deploy までの数秒の間にソースを編集すると、古い exe に新しい
+  // 記録が付く (ADR-082 § 既知の限界。Stop の自動再ビルドはビルド前の値を渡して塞ぐ)。
+  let fingerprints;
+  try {
+    const { graph, workspaceRoot } = loadWorkspace(ROOT);
+    fingerprints = computeFingerprints(graph, workspaceRoot);
+  } catch (err) {
+    console.error(`error: cannot compute exe fingerprints (cargo metadata failed?): ${err.message}`);
+    return 1;
+  }
+  try {
+    deployArtifacts(names, fingerprints, { releaseDir: RELEASE_DIR, claudeDir: CLAUDE_DIR });
+  } catch (err) {
+    console.error(`error: ${err.message}`);
+    return 1;
+  }
+  return 0;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(main());
+}

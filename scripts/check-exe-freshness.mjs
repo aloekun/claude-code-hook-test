@@ -1,15 +1,13 @@
 /**
  * `.claude/` に deploy した exe が今のソースツリーより古くないかを検査する (ADR-082、順位 345)。
  *
- * Stop 品質ゲートの step として走る (`.claude/hooks-config.toml` の `exe-freshness`)。
- * 古い exe (記録が無い / フィンガープリントが一致しない) が 1 つでもあれば exit 1 で
- * block し、再ビルドのコマンドを案内する。古い exe は config が要求する新機能を
- * 満たさず、`command not found` などで品質ゲートを誤 block させる (2 回の実観測)。
+ * 古い exe (記録が無い / フィンガープリントが一致しない / ソースツリーから消えた) が
+ * 1 つでもあれば exit 1 で終わり、再ビルドのコマンドを案内する。古い exe は config が
+ * 要求する新機能を満たさず、`command not found` などで品質ゲートを誤 block させる。
  *
- * 検査を行わないとき (exit 0):
- * - `.claude/BUILD_INFO` がある: cloud-setup.sh が展開した prebuilt バイナリ (ADR-063)。
- *   鮮度は release 側が持ち、手元のツリーとは比べられない。
- * - env `EXE_FRESHNESS_CHECK_OVERRIDE` が truthy: 緊急バイパス (ADR-039 kill-switch)。
+ * Stop 品質ゲートの `exe-freshness` step は `rebuild-stale-exes.mjs` (検出 + 自動再ビルド、
+ * 順位 373) が担う。本スクリプトは検出だけを手動で行うときに使い、判定の部品
+ * (`readDeployedStamps` / `formatStaleReport` / `skipReason`) をそちらへ提供する。
  *
  * 使い方: node scripts/check-exe-freshness.mjs
  */
@@ -92,13 +90,25 @@ export function readDeployedStamps(claudeDir, graphBins) {
   return stamps;
 }
 
-function main() {
-  if (existsSync(join(CLAUDE_DIR, "BUILD_INFO"))) {
-    console.log("exe-freshness: prebuilt バイナリ (BUILD_INFO あり) のため検査しない");
-    return 0;
+/**
+ * 検査しない理由を返す (検査するなら null)。`rebuild-stale-exes.mjs` と共有する。
+ * - `BUILD_INFO` がある: prebuilt バイナリ (ADR-063)。鮮度は release 側が持つ
+ * - `EXE_FRESHNESS_CHECK_OVERRIDE` が truthy: 緊急バイパス (ADR-039 kill-switch)
+ */
+export function skipReason(claudeDir, env) {
+  if (existsSync(join(claudeDir, "BUILD_INFO"))) {
+    return "prebuilt バイナリ (BUILD_INFO あり) のため検査しない";
   }
-  if (TRUTHY.has((process.env.EXE_FRESHNESS_CHECK_OVERRIDE ?? "").toLowerCase())) {
-    console.log("exe-freshness: EXE_FRESHNESS_CHECK_OVERRIDE により検査しない");
+  if (TRUTHY.has((env.EXE_FRESHNESS_CHECK_OVERRIDE ?? "").toLowerCase())) {
+    return "EXE_FRESHNESS_CHECK_OVERRIDE により検査しない";
+  }
+  return null;
+}
+
+function main() {
+  const skip = skipReason(CLAUDE_DIR, process.env);
+  if (skip) {
+    console.log(`exe-freshness: ${skip}`);
     return 0;
   }
   const { graph, workspaceRoot } = loadWorkspace(ROOT);
