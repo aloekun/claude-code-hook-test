@@ -63,7 +63,7 @@ scratchpad に最小の takt プロジェクトを作り、本 ADR の config �
 | post-pr-review の analyze | なし (facet が Bash のコマンドを使わない) |
 | weekly-review の ledger-candidates | `Bash(pnpm ledger-candidates)` |
 | weekly-review の review-todo-whole / review-jj-robustness-whole | `Bash(jj log:*)` |
-| weekly-review の file-length-watchlist / workspace-hygiene-scan | 素の `Bash` を残す (下記) |
+| weekly-review の file-length-watchlist / workspace-hygiene-scan | `Bash(pnpm weekly-scan:file-length)` / `Bash(pnpm weekly-scan:workspace-hygiene)` (下記) |
 
 リポジトリを cwd にした spike (2026-09-26、haiku) で確かめた:
 
@@ -76,7 +76,15 @@ scratchpad に最小の takt プロジェクトを作り、本 ADR の config �
 | `Bash(find:*)` + `Bash(jj file list:*)` + `Bash(du:*)` | `find ... -exec wc -l {} +` を含むパイプ | 拒否 ("find with '-exec' ... cannot be auto-allowed by a Bash(find:*) prefix rule") |
 | 同上 | `if FILES="$(jj file list -r @)"; then ...; fi; for ...` | 拒否 ("Contains shell syntax ... that cannot be statically analyzed") |
 
-最後の 2 行が、file-length-watchlist と workspace-hygiene-scan に素の `Bash` を残す理由である。両 step の facet は固定スクリプト (`find -exec`、`if` / `for` / `$(...)`) を実行し、コマンド単位の許可では拒否される。**readonly step に Bash のコマンドを足すときは、`Bash(<prefix>:*)` を足し、同じ構文で拒否されないかを実走で確かめる。**
+最後の 2 行のとおり、file-length-watchlist と workspace-hygiene-scan が facet に持っていた固定スクリプト (`find -exec`、`if` / `for` / `$(...)`) は、コマンド単位の許可では拒否される。そこで両 scan を [scripts/weekly-scan.mjs](../../scripts/weekly-scan.mjs) に移し、step は `pnpm weekly-scan:<mode>` を 1 回呼ぶだけにした (2026-09-26、当初は素の `Bash` を残していた)。名前に `:` を含む規則も完全一致として効くことを別の spike で確かめた:
+
+| 実行 | 結果 |
+|---|---|
+| `pnpm weekly-scan:file-length` / `pnpm weekly-scan:workspace-hygiene` | 成功 |
+| `pnpm weekly-scan:file-length && echo x > <file>` | 拒否 (リダイレクトを遮断) |
+| `pnpm weekly-scan:other-mode` | 拒否 ("This command requires approval") |
+
+**readonly step に Bash のコマンドを足すときは、`Bash(<prefix>:*)` を足し、同じ構文で拒否されないかを実走で確かめる。** 複合構文が要るなら、スクリプトに切り出して単一のコマンドとして許可する。
 
 ## 却下した案
 
@@ -90,6 +98,6 @@ scratchpad に最小の takt プロジェクトを作り、本 ADR の config �
 
 ### 既知の限界
 
-- **素の `Bash` を残した 2 step は、Bash 経由で書き込める** (決定 4)。weekly-review の file-length-watchlist と workspace-hygiene-scan が該当する。どちらも LLM の判断を挟まない固定スクリプトの実行なので、スクリプトを決定論 exe (`cli-*`) へ移し、step は出力を読むだけにするのが根本対処になる
+- **許可したコマンド自体が書き込むなら止められない**: 決定 4 は「どのコマンドを実行できるか」を絞るだけで、許可したコマンドの中身までは見ない。`pnpm ledger-candidates` / `pnpm weekly-scan:*` は読み取り専用に作ってあるが、それを保証しているのはスクリプトの実装とレビューである
 - **takt の組み込み既定値に依存する**: 本 ADR は 0.35.3 の `DEFAULT_PROVIDER_PERMISSION_PROFILES` と `applyRequiredPermissionFloor` の挙動を前提にする。takt を更新するときは ([ADR-017](adr-017-takt-version-pinning.md))、この 2 つが変わっていないかを確認する。確認は、readonly step のセッションログに `"permissionMode":"default"` が記録されるかで行える
 - **派生プロジェクトには配布していない**: `.takt/config.yaml` は本リポジトリにだけ置いた。takt を使う派生プロジェクトは同じ状態のまま
