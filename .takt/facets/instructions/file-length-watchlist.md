@@ -22,20 +22,17 @@ LLM が判断する余地はなく、shell command 出力を markdown に整形�
 
 ## Phase 1: scan 実行
 
-以下の shell command を実行 (Bash tool)。出力は整形済みなので、そのまま次 Phase で転記する。
+次のコマンドを **1 回だけ**実行する (Bash tool)。出力は整形済みなので、そのまま次 Phase で転記する。
 
 ```bash
-echo "### rs-lines (>800)"
-find src -name '*.rs' -not -path '*/target/*' -exec wc -l {} + 2>/dev/null \
-  | awk '$1 > 800 && $2 != "total" { print $0 }' \
-  | sort -rn
-echo "### todo-bytes (>=49152 = 48KB, 閾値 50KB=51200)"
-find docs -maxdepth 1 -name 'todo*.md' -exec wc -c {} + 2>/dev/null \
-  | awk '$1 >= 49152 && $2 != "total" { print $1, $2 }' \
-  | sort -rn
+pnpm weekly-scan:file-length
 ```
 
-各 section が空出力のとき: その次元は 0 件 (clean)。
+出力は `### rs-lines (>800)` と `### todo-bytes (>=49152 = 48KB, 閾値 50KB=51200)` の 2 section で、各行は `<行数またはバイト数> <パス>`。各 section が空出力のとき: その次元は 0 件 (clean)。
+
+読めなかったディレクトリ・ファイルがあると、3 つ目の section `### scan-errors` に `(取得失敗: <パス> — <理由>)` の行が出る。この section が出たときは、Phase 2 の report 末尾に「## 走査できなかったパス」として全行をそのまま転記し、**両次元を「0 件 (clean state)」と書かない** (「0 件 (一部未走査)」と書く)。コマンド自体が 0 以外で終了したときは、両次元とも「**未実施** (理由: stderr の文言)」と書く。
+
+**本 step が許可されている Bash はこのコマンドだけ** (ADR-083 決定 4)。`find` / `wc` などで自前に数え直さない。scan の中身は [scripts/weekly-scan.mjs](../../../scripts/weekly-scan.mjs) が持つ。
 
 ## Phase 2: markdown 整形
 
@@ -86,5 +83,5 @@ scan 完了 + markdown 出力で `analysis complete` を articulate (他 facet �
 ## 重要な原則
 
 - **読み取り専用 (`edit: false`)**。コード / todo の修正は行わない (= watchlist 報告のみ)
-- **LLM 判断の余地なし**: 命令通りに Bash を実行し、出力を転記するだけ。file の中身を解釈しない
+- **LLM 判断の余地なし**: 命令通りに `pnpm weekly-scan:file-length` を実行し、出力を転記するだけ。file の中身を解釈しない
 - **両次元とも件数 0 でも section を生成**: aggregate-weekly が常に Read 可能な前提を満たすため

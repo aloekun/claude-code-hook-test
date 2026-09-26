@@ -50,6 +50,8 @@
     "rebase-nightly": "node scripts/rebase-nightly-pr.mjs",
     "ledger-candidates": "node scripts/run-artifact.mjs cli-ledger-candidates --ledger docs/claude-code-web-tasks.md --summary-file docs/todo-summary.md --summary-file docs/todo-summary2.md --summary-file docs/todo-summary3.md",
     "stale-branch-scan": "node scripts/run-artifact.mjs cli-stale-branch-scan",
+    "weekly-scan:file-length": "node scripts/weekly-scan.mjs file-length",
+    "weekly-scan:workspace-hygiene": "node scripts/weekly-scan.mjs workspace-hygiene",
     "autonomy-status": "node scripts/run-artifact.mjs cli-autonomy-gate --operation fix-push --config autonomy-config.toml",
     "prepare-pr-body": "node scripts/run-artifact.mjs cli-pr-monitor --prepare-pr-body",
     "prepare-pr-body:cleanup": "node scripts/run-artifact.mjs cli-pr-monitor --prepare-pr-body-cleanup",

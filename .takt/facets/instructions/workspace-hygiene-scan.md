@@ -24,56 +24,24 @@ jj は auto-snapshot で新規ファイルを即 commit に取り込むため、
 
 ## Phase 1: scan 実行
 
-以下の shell command を実行 (Bash tool)。**git コマンドは使わない** (jj リポジトリ規約により pre-tool hook が遮断する)。
-
-**scan 失敗を 0 件として扱わない**のが本 script の設計要件: `jj file list` の一覧を**一度だけ**取得して成否を `scan-status` に明示し、失敗時は各検査を `(未実施: ...)` と出力する。`grep` の exit 1 (= 一致なし) だけを正常 (0 件) として扱い、それ以外の失敗は `(未実施: ...)` に落とす。`du` の失敗も握り潰さない。
+次のコマンドを **1 回だけ**実行する (Bash tool)。
 
 ```bash
-echo "### scan-status"
-if FILES="$(jj file list -r @)"; then JJ_STATUS=OK; else JJ_STATUS=FAILED; fi
-echo "jj_file_list: $JJ_STATUS"
-NORM="$(printf '%s\n' "$FILES" | tr '\134' '/')"
-echo "### root-unexpected (allowlist 突合)"
-if [ "$JJ_STATUS" = OK ]; then
-  OUT="$(printf '%s\n' "$NORM" | grep -v / | grep -vxF \
-    -e .coderabbit.yaml \
-    -e .gitignore \
-    -e .markdownlint-cli2.jsonc \
-    -e CLAUDE.md \
-    -e Cargo.lock \
-    -e Cargo.toml \
-    -e README.md \
-    -e autonomy-config.toml \
-    -e package.json \
-    -e pnpm-lock.yaml \
-    -e pr-monitor-config.toml \
-    -e push-runner-config.toml \
-    -e tsconfig.json)"; RC=$?
-  if [ "$RC" -le 1 ]; then [ -n "$OUT" ] && printf '%s\n' "$OUT" || echo "(0 件)"; else echo "(未実施: grep 失敗 rc=$RC)"; fi
-else
-  echo "(未実施: jj file list 失敗)"
-fi
-echo "### scratch-pattern (__* / _tmp_*)"
-if [ "$JJ_STATUS" = OK ]; then
-  OUT2="$(printf '%s\n' "$NORM" | grep -E '(^|/)__[^/]*$|(^|/)_tmp_[^/]*$')"; RC2=$?
-  if [ "$RC2" -le 1 ]; then [ -n "$OUT2" ] && printf '%s\n' "$OUT2" || echo "(0 件)"; else echo "(未実施: grep 失敗 rc=$RC2)"; fi
-else
-  echo "(未実施: jj file list 失敗)"
-fi
-echo "### ignored-size (報告のみ)"
-for d in .takt/runs target; do
-  if [ -d "$d" ]; then du -sh "$d" || echo "(取得失敗: $d)"; else echo "(不在: $d — cloud 実行では正常)"; fi
-done
+pnpm weekly-scan:workspace-hygiene
 ```
 
-> **パス区切りの正規化に `tr '\134' '/'` (8 進表記) を使う理由**: Windows の `jj file list` は
-> `\` 区切りを出力するが、`\\` リテラルを含む awk/sed 正規表現は quoting 層 (agent への
-> コマンド転送) を跨ぐ際に `\` へ潰れて壊れることを 2026-08-14 に実測した。8 進表記なら
-> バックスラッシュの連続がそもそも現れない。正規化後は `/` だけを扱えばよく、cloud (Linux)
-> 実行でもそのまま動く。
->
-> **allowlist の保守**: root 直下に正当なファイルを追加した PR では、本 allowlist にも同じ PR で
-> 追加する。突合は完全一致 (`grep -vxF`) であり、パターン解釈による誤除外は起きない。
+出力は `### scan-status` / `### root-unexpected (allowlist 突合)` / `### scratch-pattern (__* / _tmp_*)` / `### ignored-size (報告のみ)` の 4 section。scan の中身は [scripts/weekly-scan.mjs](../../../scripts/weekly-scan.mjs) が持ち、次の設計要件を守る:
+
+- **scan 失敗を 0 件として扱わない**: `jj file list -r @` を**一度だけ**実行して成否を `scan-status` に出し、失敗時は一覧を使う 2 検査 (root-unexpected / scratch-pattern) を `(未実施: ...)` と出す。ignored-size は一覧を使わないので、失敗時も続けて出る
+- **サイズ取得の失敗を握り潰さない**: `(取得失敗: <dir> — <理由>)` と出す。サイズはファイルの見かけの合計で、`du` とは 1〜2 割ずれる (報告専用)
+- Windows の `jj file list` が出す `\` 区切りは `/` にそろえてから判定する
+
+コマンド自体が 0 以外で終了したときは、3 検査とも「**未実施** (理由: stderr の文言)」と書く。
+
+**本 step が許可されている Bash はこのコマンドだけ** (ADR-083 決定 4)。`jj` / `grep` / `du` などで自前に調べ直さない。
+
+> **allowlist の保守**: root 直下に正当なファイルを追加した PR では、`scripts/weekly-scan.mjs` の
+> `ROOT_ALLOWLIST` にも同じ PR で追加する。突合は完全一致であり、パターン解釈による誤除外は起きない。
 
 ## Phase 2: markdown 整形
 
@@ -137,6 +105,5 @@ scan 完了 + markdown 出力で `analysis complete` を articulate (他 facet �
 ## 重要な原則
 
 - **読み取り専用 (`edit: false`)**。ファイルの削除・移動・`.gitignore` 編集は行わない (= 列挙報告のみ)
-- **LLM 判断の余地なし**: 命令通りに Bash を実行し、出力を転記するだけ。ファイルの中身を解釈しない。「これは消してよさそう」という推測を書かない
-- **git コマンド禁止**: jj リポジトリ規約 (pre-tool hook が遮断)。列挙は `jj file list`、サイズは `du` で完結させる
+- **LLM 判断の余地なし**: 命令通りに `pnpm weekly-scan:workspace-hygiene` を実行し、出力を転記するだけ。ファイルの中身を解釈しない。「これは消してよさそう」という推測を書かない
 - **3 検査とも件数 0 でも section を生成**: aggregate-weekly が常に Read 可能な前提を満たすため
