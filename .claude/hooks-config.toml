@@ -116,6 +116,9 @@ system_message_enabled = true
 #                              自動注入 / --repo フラグに誘導 (GH_REPO は引数なし
 #                              gh repo view に効かず非 colocated jj workspace で
 #                              silent 部分故障を招く、PR #238 実例 / ADR-045)
+#   "powershell-destructive-write-block" — PowerShell の WriteAllText / Out-File / Set-Content -Value を
+#                              ブロック (null を渡すと対象ファイルを 0 byte に消す。PR #213 で 2369 行を消失、
+#                              順位 212)。既定では有効だが、本 list への追記漏れで導入 (#215) から 2026-09-26 まで無効だった
 #   "node-eval-cmd-meta-block" — (Windows のみ) node -e / --eval / -p / --print の引用符内に
 #                              改行か cmd.exe のメタ文字があればブロックしファイル経由に誘導
 #                              (Volta shim が cmd.exe を経由し、複数行は 1 行目だけ実行・`>` は
@@ -135,6 +138,7 @@ blocked_patterns = [
   "jj-message-required",
   "secret-detection",
   "gh-repo-env-guard",
+  "powershell-destructive-write-block",
   "node-eval-cmd-meta-block",
 ]
 

@@ -1,7 +1,12 @@
 //! Tool 別 handler (Bash / Write / Edit / PowerShell)。
 
-use crate::blocked_patterns::{build_blocked_patterns, tag_source, validate_command};
+use crate::blocked_patterns::{
+    build_blocked_patterns, tag_source, validate_command, SourcedPattern,
+};
 use crate::config::Config;
+use crate::presets::safety::powershell::{
+    is_bare_grep_or_rg_search, POWERSHELL_DESTRUCTIVE_WRITE_PRESET,
+};
 use crate::presets::{default_preset_names, preset_secret_detection};
 use crate::protected_files::is_protected_config;
 use crate::todo_staleness::check_todo_staleness;
@@ -26,13 +31,23 @@ pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitC
     if command.trim().is_empty() {
         return ExitCode::SUCCESS;
     }
-    let patterns = build_blocked_patterns(config);
+    let patterns = patterns_for_bash(config, &command);
     if let Some(hit) = validate_command(&command, &patterns) {
         record_preset_block(hit.source);
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
     ExitCode::SUCCESS
+}
+
+/// Bash で照合する preset。PowerShell 用の preset も既定で適用し (fail-closed)、
+/// 素の `grep` / `rg` 検索のときだけ外す ([`is_bare_grep_or_rg_search`] を参照)。
+fn patterns_for_bash(config: &Config, command: &str) -> Vec<SourcedPattern> {
+    let skip_powershell_preset = is_bare_grep_or_rg_search(command);
+    build_blocked_patterns(config)
+        .into_iter()
+        .filter(|p| !skip_powershell_preset || p.source != POWERSHELL_DESTRUCTIVE_WRITE_PRESET)
+        .collect()
 }
 
 /// 順位 212: PowerShell tool 用ハンドラ。`handle_bash_tool` と同形で
@@ -177,6 +192,62 @@ pub(crate) fn is_secret_detection_enabled(config: &Config) -> bool {
 mod tests {
     use super::*;
     use crate::config::PreToolValidateConfig;
+
+    fn config_with_powershell_preset() -> Config {
+        Config {
+            pre_tool_validate: Some(PreToolValidateConfig {
+                blocked_patterns: Some(vec![POWERSHELL_DESTRUCTIVE_WRITE_PRESET.to_string()]),
+                extra_protected_files: None,
+                todo_staleness: None,
+            }),
+        }
+    }
+
+    fn blocked_in_bash(command: &str) -> bool {
+        let config = config_with_powershell_preset();
+        validate_command(command, &patterns_for_bash(&config, command)).is_some()
+    }
+
+    /// PR #522 CodeRabbit 指摘: 語を文字列として含むだけの Bash コマンドは止めない。
+    #[test]
+    fn bash_does_not_apply_the_powershell_preset_to_plain_commands() {
+        assert!(!blocked_in_bash(r#"grep -rn "Out-File" src/"#));
+        assert!(!blocked_in_bash(r#"rg "Set-Content -Path x -Value" docs/"#));
+    }
+
+    /// Bash から PowerShell を呼び出す経路は従来どおり止める。
+    #[test]
+    fn bash_applies_the_powershell_preset_when_it_invokes_powershell() {
+        assert!(blocked_in_bash(
+            r#"powershell -Command "Get-Process | Out-File p.txt""#
+        ));
+        assert!(blocked_in_bash(
+            r#"pwsh.exe -c "[System.IO.File]::WriteAllText('a.rs', $x)""#
+        ));
+        assert!(blocked_in_bash(
+            r#"cd work && "C:\Program Files\PowerShell\7\pwsh.exe" -c "Set-Content -Path a -Value $x""#
+        ));
+    }
+
+    /// PR #522 security review 指摘: シェル変数経由の間接呼び出しも、本体のパターン
+    /// (`WriteAllText(` 等) が文字列として残るので止まる。
+    #[test]
+    fn bash_blocks_powershell_invoked_through_a_shell_variable() {
+        assert!(blocked_in_bash(
+            r#"p=pwsh; $p -c "[System.IO.File]::WriteAllText('critical.rs',$null)""#
+        ));
+    }
+
+    /// grep で始まっても、改行やバックグラウンド実行で別のコマンドを続けるものは止める。
+    #[test]
+    fn bash_blocks_a_grep_followed_by_another_command() {
+        assert!(blocked_in_bash(
+            "grep x src/\npwsh -c \"[System.IO.File]::WriteAllText('a.rs', $null)\""
+        ));
+        assert!(blocked_in_bash(
+            r#"grep x src/ & pwsh -c "Get-Process | Out-File p.txt""#
+        ));
+    }
 
     #[test]
     fn is_secret_detection_enabled_returns_true_when_listed_in_blocked_patterns() {

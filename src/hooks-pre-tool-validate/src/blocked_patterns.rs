@@ -176,6 +176,33 @@ mod tests {
         }
     }
 
+    /// **本リポジトリの config は既定で有効な preset をすべて列挙している。**
+    ///
+    /// `.claude/hooks-config.toml` は `blocked_patterns` を明示列挙しており、列挙すると
+    /// [`default_preset_names`] は使われない。既定で有効な preset を足したときに toml への
+    /// 追記を忘れると、その preset は本リポジトリでだけ無言で無効になる
+    /// (`powershell-destructive-write-block` は導入 (#215) から 2026-09-26 まで無効だった)。
+    #[test]
+    fn the_repository_config_lists_every_default_preset() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.claude/hooks-config.toml");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} を読めない: {e}", path.display()));
+        let config: Config = toml::from_str(&text).expect("hooks-config.toml を parse できる");
+        let listed = config
+            .pre_tool_validate
+            .and_then(|c| c.blocked_patterns)
+            .expect("本リポジトリは blocked_patterns を明示列挙している");
+        let missing: Vec<String> = default_preset_names()
+            .into_iter()
+            .filter(|name| !listed.contains(name))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "既定で有効な preset が .claude/hooks-config.toml の blocked_patterns に無い: {missing:?}"
+        );
+    }
+
     /// 既定で有効な名前はすべて allowlist の中にある (既定が `custom-block` に落ちない)。
     #[test]
     fn the_default_preset_names_are_all_known() {
