@@ -24,6 +24,34 @@ src/check-ci-coderabbit/src/main.rs (2369 行) を消失させた。
 
 設計判断 (順位 212): memory `feedback_no_powershell_inplace_edit` の機械強制層。"#;
 
+pub(crate) const POWERSHELL_DESTRUCTIVE_WRITE_PRESET: &str = "powershell-destructive-write-block";
+
+/// Bash のコマンドが、本 preset を外してよい「素の `grep` / `rg` 検索」か。
+///
+/// 本 preset のパターン (`\bOut-File\b` 等) はシェルを見ないため、Bash でそのまま照合すると
+/// `grep "Out-File"` のように語を検索文字列として含むだけのコマンドまで止める
+/// (PR #522 CodeRabbit 指摘)。Bash でも本 preset は**既定で適用し** (fail-closed、ADR-043)、
+/// この関数が真のときだけ外す。
+///
+/// PowerShell の呼び出しを検出して「呼んでいなければ外す」判定にはしない。`p=pwsh; $p -c ...`
+/// のようなシェル変数経由の呼び出しを検出できず、PR #213 と同型の消失を許すため
+/// (PR #522 security review 指摘)。
+///
+/// 真になるのは、`grep` / `rg` で始まり、別のコマンドを実行しうる要素を含まないときだけ:
+/// - コマンドの区切り・連結: `;` `&` (`&&` とバックグラウンド実行) `|` 改行
+/// - コマンド置換・プロセス置換: `` ` `` `$(` `<(` `>(`
+/// - `rg --pre <command>` (ファイルごとに任意のコマンドを実行する)
+pub(crate) fn is_bare_grep_or_rg_search(command: &str) -> bool {
+    static STARTS_WITH_GREP: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"^\s*(?:grep|rg)\s").unwrap());
+    const RUNS_ANOTHER_COMMAND: [&str; 10] =
+        [";", "&", "|", "\n", "\r", "`", "$(", "<(", ">(", "--pre"];
+    STARTS_WITH_GREP.is_match(command)
+        && !RUNS_ANOTHER_COMMAND
+            .iter()
+            .any(|token| command.contains(token))
+}
+
 /// プリセット: powershell-destructive-write-block (PowerShell からの破壊的ファイル書込防止)
 ///
 /// 順位 212 (PR #213 post-merge-feedback feedback-T1-1 + session 派生統合採用):
@@ -89,8 +117,46 @@ pub(crate) fn preset_powershell_destructive_write() -> Vec<BlockedPattern> {
 
 #[cfg(test)]
 mod tests {
+    use super::is_bare_grep_or_rg_search;
     use crate::blocked_patterns::{build_blocked_patterns, validate_command, SourcedPattern};
     use crate::config::{Config, PreToolValidateConfig};
+
+    #[test]
+    fn is_bare_grep_or_rg_search_allows_plain_grep_and_rg_invocations() {
+        for command in [
+            r#"grep -rn "Out-File" src/"#,
+            r#"rg "Set-Content -Path x -Value" docs/"#,
+        ] {
+            assert!(is_bare_grep_or_rg_search(command), "{command}");
+        }
+    }
+
+    /// 別のコマンドを実行しうる要素を含むものは、grep / rg で始まっても外さない (fail-closed)。
+    #[test]
+    fn is_bare_grep_or_rg_search_rejects_anything_that_can_run_another_command() {
+        for command in [
+            r#"grep -rn "Out-File" src/ && pwsh -c "Out-File x""#,
+            r#"grep x; p=pwsh; $p -c "[System.IO.File]::WriteAllText('a.rs', $null)""#,
+            r#"grep x | powershell -Command "Out-File x""#,
+            "grep x src/\npwsh -c x",
+            "grep x src/ & pwsh -c x",
+            "grep x $(pwsh -c x)",
+            "grep x <(pwsh -c x)",
+            "rg --pre ./run.sh Out-File src/",
+        ] {
+            assert!(!is_bare_grep_or_rg_search(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn is_bare_grep_or_rg_search_rejects_non_grep_commands() {
+        for command in [
+            r#"powershell -Command "Get-Process | Out-File p.txt""#,
+            r#"p=pwsh; $p -c "[System.IO.File]::WriteAllText('critical.rs', $null)""#,
+        ] {
+            assert!(!is_bare_grep_or_rg_search(command), "{command}");
+        }
+    }
 
     fn patterns_with_presets(presets: &[&str]) -> Vec<SourcedPattern> {
         let config = Config {
