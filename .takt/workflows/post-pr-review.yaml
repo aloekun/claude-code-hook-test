@@ -49,7 +49,6 @@ steps:
           - Read
           - Glob
           - Grep
-          - Bash
     instruction: analyze-coderabbit
     output_contracts:
       report:

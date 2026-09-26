@@ -335,6 +335,7 @@ ADR-027 の本質的判断 (push 時に重い arch review を走らせない) �
 L2 (takt) と L3 (skill) の副作用範囲は ADR-022 原則 1 の枠内に収まる:
 
 - **takt facets**: 全て `edit: false`、Read/Glob/Grep のみ → 副作用なし
+  - **注記 (2026-09-26)**: この前提は [ADR-083](adr-083-takt-readonly-permission-mode.md) まで成り立っていなかった。takt の既定 permission mode が `edit` で、`edit: false` の step も書き込めた。ADR-083 で既定を `readonly` にし、Bash をコマンド単位の許可に絞った後も、固定スクリプトを実行する 2 step (file-length-watchlist / workspace-hygiene-scan) は素の `Bash` を持ち、Bash 経由で書き込める
 - **aggregate-weekly facet**: `.claude/weekly-reviews/<date>.md` と pending JSON への書き込み → **新規 artifact への自己記述**
 - **skill Phase 4**: docs/todo.md への追記 → **既存 artifact だが意図表現ではない作業ファイルへの追記**、かつユーザー採否承認を経た後の確定
 

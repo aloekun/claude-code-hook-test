@@ -120,6 +120,9 @@ steps:
         provider_options:
           claude:
             allowed_tools:
+              # 無制限の Bash を残す (ADR-083 § 既知の限界): 本 step の固定スクリプトは find -exec /
+              # if・for・$(...) を含み、コマンド単位の許可では「静的に解析できない」として拒否される
+              # (2026-09-26 spike で実測)。書き込み経路は残るため、決定論 exe への移設が根本対処
               - Bash
               - Read
         instruction: file-length-watchlist
@@ -145,6 +148,9 @@ steps:
         provider_options:
           claude:
             allowed_tools:
+              # 無制限の Bash を残す (ADR-083 § 既知の限界): 本 step の固定スクリプトは find -exec /
+              # if・for・$(...) を含み、コマンド単位の許可では「静的に解析できない」として拒否される
+              # (2026-09-26 spike で実測)。書き込み経路は残るため、決定論 exe への移設が根本対処
               - Bash
               - Read
         instruction: workspace-hygiene-scan
@@ -170,7 +176,7 @@ steps:
         provider_options:
           claude:
             allowed_tools:
-              - Bash
+              - "Bash(pnpm ledger-candidates)"
               - Read
         instruction: ledger-candidates
         output_contracts:
@@ -197,7 +203,7 @@ steps:
               - Read
               - Glob
               - Grep
-              - Bash
+              - "Bash(jj log:*)"
         instruction: review-todo-whole
         output_contracts:
           report:
@@ -221,7 +227,7 @@ steps:
               - Read
               - Glob
               - Grep
-              - Bash
+              - "Bash(jj log:*)"
         instruction: review-jj-robustness-whole
         output_contracts:
           report:
