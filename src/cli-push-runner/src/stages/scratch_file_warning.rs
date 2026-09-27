@@ -43,6 +43,23 @@
 //! 名前ではなく「repo root 直下 + スクリプト拡張子」で見るため、命名を先回りする
 //! 必要が無い。pattern 層は subdirectory の `__scratch.rs` 等を拾うため残す。
 //!
+//! # 拡張子なし / 0 バイトの層 — PR #517 の `setTimeout(d` 混入
+//!
+//! `node -e "...setTimeout(d => ...)"` の `>` を cmd.exe がリダイレクトと解釈し、
+//! repo root に **0 バイトで拡張子の無い** `setTimeout(d` が生まれて PR に混入した。
+//! 第 2 層はスクリプト拡張子しか見ないので素通りし、止めたのは LLM の simplicity
+//! review だけだった。#520 は発生元 (`node -e`) を塞いだが、シェルの誤リダイレクト
+//! 全般は同じ形の残骸を作る。そこで形で見る層を 2 つ足した:
+//!
+//! - 第 3 層 [`root_extensionless_violations`]: root 直下の拡張子なしファイル
+//!   (本 repo の root 直下は全ファイルが拡張子を持つ。`LICENSE` 等の定番は組み込み例外)
+//! - 第 4 層 [`empty_file_violations`]: 場所を問わず 0 バイトのファイル
+//!   (`.gitkeep` 等の定番は組み込み例外)
+//!
+//! どちらもリダイレクトで作られたファイルを対象にするため、Edit/Write を契機に走る
+//! PostToolUse の custom_lint_rule では捕まらない (シェルが直接作ったファイルは hook を
+//! 通らない)。push 前にファイルの実在を見る本 stage が受け持つ。
+//!
 //! ADR-007 (custom linter layer boundary) との関係:
 //! - 本 stage = pre-push 時点で `@` commit 内の file path を `jj file list -r @` で
 //!   列挙して basename match で検査 (= push 直前の最終防衛層)
@@ -87,11 +104,22 @@ pub(crate) fn run_scratch_file_warning(config: Option<&ScratchFileWarningConfig>
             return true;
         }
     };
-    let violations = all_violations(&files, &patterns, &effective_root_allowlist(config));
+    let empty_files = zero_byte_files(&files);
+    let violations = all_violations(
+        &files,
+        &empty_files,
+        &patterns,
+        &effective_root_allowlist(config),
+    );
     if violations.is_empty() {
         log_stage("scratch", "scratch ファイル検出なし");
         return true;
     }
+    report_violations(&violations)
+}
+
+/// 検出結果をログに出し、override env が立っていれば続行 (`true`) を返す。
+fn report_violations(violations: &[String]) -> bool {
     log_stage(
         "scratch",
         &format!(
@@ -99,7 +127,7 @@ pub(crate) fn run_scratch_file_warning(config: Option<&ScratchFileWarningConfig>
             violations.len()
         ),
     );
-    for v in &violations {
+    for v in violations {
         log_info(&format!("  - {}", v));
     }
     let raw = std::env::var(OVERRIDE_ENV_VAR).ok();
@@ -115,7 +143,10 @@ pub(crate) fn run_scratch_file_warning(config: Option<&ScratchFileWarningConfig>
             "  対処:\n  \
              (a) `.gitignore` に該当 pattern を追加 + `jj abandon @ && jj new` で再記述\n  \
              (b) ファイル自体を削除\n  \
-             (c) 意図的 commit なら env {}=1 を設定して再実行",
+             (c) root 直下のスクリプト / 拡張子なし / 0 バイトとして検出された正当なファイルなら\n  \
+                 push-runner-config.toml の root_script_allowlist にファイル名を追加\n  \
+                 (`__*` / `_tmp_*` 等の pattern 一致には効かない。pattern 側を見直すか (a)(b)(d) で対処)\n  \
+             (d) 今回だけ意図的に commit するなら env {}=1 を設定して再実行",
             OVERRIDE_ENV_VAR
         ));
         false
@@ -285,23 +316,88 @@ fn has_script_extension(name: &str) -> bool {
     }
 }
 
-/// pattern 層 (deny-list) と配置ベース層の両方を適用し、重複を除いて返す (順位 322)。
+/// 第 3 層で組み込みの例外にする、root 直下に置かれるのが普通な拡張子なしファイル名。
+const WELL_KNOWN_EXTENSIONLESS: &[&str] = &["LICENSE", "Makefile", "Dockerfile", "Justfile"];
+
+/// 第 4 層で組み込みの例外にする、中身が空であること自体に意味があるファイル名。
+const WELL_KNOWN_EMPTY: &[&str] = &[".gitkeep", ".keep", "__init__.py", "py.typed"];
+
+/// **root 直下の拡張子なしファイル** (第 3 層、PR #517 の `setTimeout(d`)。
 ///
-/// 二層にするのは、どちらか片方では取りこぼすため:
+/// 本 repo の root 直下は `Cargo.toml` / `.gitignore` 等すべて `.` を含む名前なので、
+/// `.` を含まない名前は誤リダイレクトの残骸と見なす。`LICENSE` 等の定番と
+/// `allowlist` に載せた名前は許可する。
+pub(crate) fn root_extensionless_violations(files: &[String], allowlist: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| is_root_level(file))
+        .filter(|file| {
+            let name = extract_basename(file);
+            !name.contains('.') && !is_allowed(name, WELL_KNOWN_EXTENSIONLESS, allowlist)
+        })
+        .cloned()
+        .collect()
+}
+
+/// **0 バイトのファイル** (第 4 層)。`empty_files` は [`zero_byte_files`] が
+/// 実ファイルのサイズから選んだパス。ここでは例外の除外だけを行う (I/O を持たない)。
+pub(crate) fn empty_file_violations(empty_files: &[String], allowlist: &[String]) -> Vec<String> {
+    empty_files
+        .iter()
+        .filter(|file| !is_allowed(extract_basename(file), WELL_KNOWN_EMPTY, allowlist))
+        .cloned()
+        .collect()
+}
+
+fn is_allowed(name: &str, well_known: &[&str], allowlist: &[String]) -> bool {
+    well_known.contains(&name) || allowlist.iter().any(|a| a == name)
+}
+
+/// pattern 層 (deny-list)・配置ベース層・拡張子なし層・0 バイト層を適用し、
+/// 重複を除いて返す (順位 322 / PR #517)。
+///
+/// 層を重ねるのは、どれか 1 つでは取りこぼすため:
 /// - pattern 層だけ: AI が付ける新しい名前 (`analyze_transcript.py` 等) を先回りできない
 /// - 配置ベース層だけ: サブディレクトリに置かれた `__scratch.rs` 等を拾えない
+/// - 上の 2 つだけ: 誤リダイレクトが作る拡張子なしの空ファイル (`setTimeout(d`) を拾えない
 pub(crate) fn all_violations(
     files: &[String],
+    empty_files: &[String],
     patterns: &[String],
     root_allowlist: &[String],
 ) -> Vec<String> {
     let mut violations = find_violations(files, patterns);
-    for file in root_script_violations(files, root_allowlist) {
+    let layered = root_script_violations(files, root_allowlist)
+        .into_iter()
+        .chain(root_extensionless_violations(files, root_allowlist))
+        .chain(empty_file_violations(empty_files, root_allowlist));
+    for file in layered {
         if !violations.contains(&file) {
             violations.push(file);
         }
     }
     violations
+}
+
+/// `files` のうち実ファイルが 0 バイトのものを返す。
+///
+/// `jj file list -r @` のパスは cwd 相対で、`@` は working copy なのでディスク上の
+/// サイズがそのまま `@` の内容に一致する。metadata が取れないファイル (列挙後に
+/// 消えた等) は判定できないので skip する (本 stage の fail-open 方針に揃える)。
+///
+/// **シンボリックリンクはたどらない** (`symlink_metadata`)。リンクの中身はリンク先の
+/// パスで空ではないため、空ファイルを指すリンクを 0 バイトと報告すると誤検知になる
+/// (PR #525 CodeRabbit 指摘)。リンクは `is_file()` が偽になり対象外になる。
+fn zero_byte_files(files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| {
+            std::fs::symlink_metadata(file.as_str())
+                .map(|m| m.is_file() && m.len() == 0)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect()
 }
 
 /// config の allow-list (未設定なら [`DEFAULT_ROOT_SCRIPT_ALLOWLIST`])。
@@ -347,6 +443,17 @@ fn parse_override_env(raw: Option<&str>) -> bool {
     )
 }
 
+/// `jj file list` の stdout を**打ち切らずに**読む。
+///
+/// 旧実装はログ表示用の `drain_pipe_capped(.., MAX_LINES = 40)` で読んでおり、
+/// 先頭 40 ファイルしか検査していなかった (超過分は無言で捨てられる)。本 repo の
+/// tracked ファイルは 551 件 (2026-09-27 実測) で、root 直下の `_tmp_guard.txt`
+/// (44 行目) や `setTimeout(d` (196 行目) は検査範囲外になり push を素通りした。
+/// 一覧は判定の入力なので全件が要る。
+fn drain_file_list(pipe: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
+    lib_subprocess::drain_pipe_unlimited(pipe)
+}
+
 fn run_jj_file_list_at() -> Result<String, String> {
     use std::process::Stdio;
 
@@ -357,10 +464,7 @@ fn run_jj_file_list_at() -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("jj file list 起動失敗: {}", e))?;
 
-    let stdout_handle = lib_subprocess::drain_pipe_capped(
-        child.stdout.take().expect("stdout must be piped"),
-        crate::runner::MAX_LINES,
-    );
+    let stdout_handle = drain_file_list(child.stdout.take().expect("stdout must be piped"));
     let stderr_handle = lib_subprocess::drain_pipe_capped(
         child.stderr.take().expect("stderr must be piped"),
         crate::runner::MAX_LINES,

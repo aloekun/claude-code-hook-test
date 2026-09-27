@@ -15,10 +15,13 @@ use serde::Deserialize;
 pub(crate) struct ScratchFileWarningConfig {
     pub(crate) enabled: Option<bool>,
     pub(crate) patterns: Option<Vec<String>>,
-    /// repo root 直下で**許可する**スクリプト拡張子付きファイル名 (順位 322)。
+    /// 形で判定する層が**許可する**ファイル名 (順位 322 / PR #517)。
     ///
-    /// 配置ベース判定 (`root_script_violations`) の例外リスト。未設定なら
-    /// [`DEFAULT_ROOT_SCRIPT_ALLOWLIST`] を使う。
+    /// 配置ベース判定 (`root_script_violations`)・root 直下の拡張子なし判定
+    /// (`root_extensionless_violations`)・0 バイト判定 (`empty_file_violations`) に
+    /// 共通の例外リストで、basename で照合する。未設定なら
+    /// [`DEFAULT_ROOT_SCRIPT_ALLOWLIST`] を使う。`LICENSE` / `.gitkeep` 等の定番は
+    /// 各層の組み込み例外なので列挙不要。
     pub(crate) root_script_allowlist: Option<Vec<String>>,
 }
 
