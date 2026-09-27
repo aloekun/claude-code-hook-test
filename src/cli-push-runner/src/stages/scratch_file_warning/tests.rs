@@ -412,7 +412,7 @@ fn all_violations_combines_both_layers_without_duplicates() {
         "src/main.rs".to_string(),
     ];
     let patterns = vec!["__*".to_string(), "_tmp_*".to_string()];
-    let violations = all_violations(&files, &patterns, &[]);
+    let violations = all_violations(&files, &[], &patterns, &[]);
     assert_eq!(violations.len(), 3, "{:?}", violations);
     assert!(violations.contains(&"analyze_transcript.py".to_string()));
     assert!(violations.contains(&"_tmp_dump.txt".to_string()));
@@ -423,5 +423,131 @@ fn all_violations_combines_both_layers_without_duplicates() {
 fn all_violations_reports_root_script_once_when_pattern_also_matches() {
     let files = vec!["_tmp_dump.py".to_string()];
     let patterns = vec!["_tmp_*".to_string()];
-    assert_eq!(all_violations(&files, &patterns, &[]).len(), 1);
+    assert_eq!(all_violations(&files, &[], &patterns, &[]).len(), 1);
+}
+
+/// PR #517 の incident 再現 (ADR-049 流儀): `node -e "...setTimeout(d => ...)"` の `>` を
+/// cmd.exe がリダイレクトと解釈し、repo root に 0 バイトの `setTimeout(d` が生まれた。
+/// 拡張子なし層と 0 バイト層の両方に当たるが、報告は 1 件に畳まれること。
+#[test]
+fn all_violations_detects_the_settimeout_incident_file_once() {
+    let files = vec![
+        "setTimeout(d".to_string(),
+        "Cargo.toml".to_string(),
+        "src/main.rs".to_string(),
+    ];
+    let empty_files = vec!["setTimeout(d".to_string()];
+    let patterns = vec!["__*".to_string(), "_tmp_*".to_string()];
+    assert_eq!(
+        all_violations(&files, &empty_files, &patterns, &[]),
+        vec!["setTimeout(d".to_string()]
+    );
+}
+
+/// 既存の 2 層では取りこぼしていたことを対比で固定する (PR #517 で止めたのは LLM review だけ)。
+#[test]
+fn pattern_and_root_script_layers_miss_the_settimeout_incident_file() {
+    let files = vec!["setTimeout(d".to_string()];
+    let patterns = vec!["__*".to_string(), "_tmp_*".to_string()];
+    assert!(find_violations(&files, &patterns).is_empty());
+    assert!(root_script_violations(&files, &[]).is_empty());
+}
+
+#[test]
+fn root_extensionless_detects_root_file_without_dot() {
+    let files = vec!["setTimeout(d".to_string(), "leftover".to_string()];
+    assert_eq!(
+        root_extensionless_violations(&files, &[]),
+        vec!["setTimeout(d".to_string(), "leftover".to_string()]
+    );
+}
+
+/// root 直下でない拡張子なしファイル・`.` を含む名前・定番名・allow-list は対象外。
+#[test]
+fn root_extensionless_ignores_subdirs_dotted_names_and_allowed_names() {
+    let files = vec![
+        "scripts/tool".to_string(),
+        r"src\bin\tool".to_string(),
+        ".gitignore".to_string(),
+        "Cargo.toml".to_string(),
+        "LICENSE".to_string(),
+        "Makefile".to_string(),
+        "VERSION".to_string(),
+    ];
+    let allowlist = vec!["VERSION".to_string()];
+    assert!(
+        root_extensionless_violations(&files, &allowlist).is_empty(),
+        "{:?}",
+        root_extensionless_violations(&files, &allowlist)
+    );
+}
+
+#[test]
+fn empty_file_detects_zero_byte_files_in_any_directory() {
+    let empty_files = vec!["src/leftover.rs".to_string(), r"docs\x".to_string()];
+    assert_eq!(empty_file_violations(&empty_files, &[]), empty_files);
+}
+
+/// 中身が空であること自体に意味がある定番名と allow-list は対象外 (basename で照合)。
+#[test]
+fn empty_file_ignores_well_known_and_allowed_names() {
+    let empty_files = vec![
+        "fixtures/.gitkeep".to_string(),
+        r"pkg\__init__.py".to_string(),
+        "pkg/py.typed".to_string(),
+        "tests/fixtures/empty.txt".to_string(),
+    ];
+    let allowlist = vec!["empty.txt".to_string()];
+    assert!(empty_file_violations(&empty_files, &allowlist).is_empty());
+}
+
+/// I/O 側: 実ファイルのサイズで 0 バイトだけを選び、存在しないパスとディレクトリは落とす。
+#[test]
+fn zero_byte_files_selects_only_existing_empty_regular_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("setTimeout(d");
+    let non_empty = dir.path().join("main.rs");
+    let sub = dir.path().join("sub");
+    std::fs::write(&empty, "").unwrap();
+    std::fs::write(&non_empty, "fn main() {}").unwrap();
+    std::fs::create_dir(&sub).unwrap();
+    let path_of = |p: &std::path::Path| p.to_string_lossy().into_owned();
+    let files = vec![
+        path_of(&empty),
+        path_of(&non_empty),
+        path_of(&sub),
+        path_of(&dir.path().join("missing")),
+    ];
+    assert_eq!(zero_byte_files(&files), vec![path_of(&empty)]);
+}
+
+/// 一覧の読み取りが `MAX_LINES` (40) で打ち切られないこと。旧実装は先頭 40 ファイル
+/// しか検査しておらず、551 ファイル中 44 行目の `_tmp_guard.txt` も素通りさせた。
+#[test]
+fn drain_file_list_reads_every_line_beyond_log_cap() {
+    let total = crate::runner::MAX_LINES * 15;
+    let listing: String = (0..total).map(|i| format!("dir/f{}.rs\n", i)).collect();
+    let raw = drain_file_list(std::io::Cursor::new(listing.into_bytes()))
+        .join()
+        .unwrap();
+    let files = parse_file_list_output(&raw);
+    assert_eq!(files.len(), total);
+    assert_eq!(files.last().unwrap(), &format!("dir/f{}.rs", total - 1));
+}
+
+/// 空ファイルを指すシンボリックリンクは対象外 (リンクの中身はリンク先のパスで空ではない)。
+/// Windows は symlink 作成に権限が要るため unix のみで検証する (CI matrix の ubuntu で走る)。
+#[cfg(unix)]
+#[test]
+fn zero_byte_files_does_not_follow_symlinks_to_empty_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("empty-target");
+    let link = dir.path().join("link-to-empty");
+    std::fs::write(&target, "").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let path_of = |p: &std::path::Path| p.to_string_lossy().into_owned();
+    assert_eq!(
+        zero_byte_files(&[path_of(&link), path_of(&target)]),
+        vec![path_of(&target)]
+    );
 }
