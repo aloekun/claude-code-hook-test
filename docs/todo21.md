@@ -81,10 +81,12 @@
 - [ ] ADR-055 の firing event と同居させるか別ファイルにするかを、`cli-telemetry-report` パーサの後方互換を確認して決める
 - [ ] outcome 記録を実装し、記録失敗がパイプラインの exit code を変えないことをテストで固定する
 - [ ] `cli-telemetry-report` に期間指定の失敗集計 (回数・stage 別内訳) を追加する
+- [ ] **pre-push review の verdict も同じ記録に載せる** (2026-09-28 に統合。Claude Code Insights 2026-08-11 の「レビュー履歴が監査不能」指摘への対処として 2026-08-12 に採用し、同一基盤のため本項へ畳んだ)。workflow 名・change id・verdict (APPROVE / REJECT)・warning 件数を残す。現状は [ADR-078](adr/adr-078-takt-verdict-gate.md) の gate が REJECT で止めたときだけ発火を記録しており (`takt_verdict/mod.rs` の `record_firing`)、APPROVE と warning 件数は `.takt/runs/*/reports/*.md` にしか無い
 
 #### 完了基準
 
 - `pnpm push` の各試行が terminal outcome (成功 / 失敗 stage + reason code) を機械可読で残すこと。
+- pre-push review の verdict と warning 件数が、REJECT 以外も含めて機械集計できること。
 - `cli-telemetry-report` で月次レビューが失敗率・内訳を読めること。
 - telemetry 書き込み失敗時もパイプライン本体の挙動・exit code が変わらないこと (fail-open のテストで固定)。
 

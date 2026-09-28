@@ -6,7 +6,7 @@
 
 ## コンテキスト
 
-[defect-convergence-plan.md](../defect-convergence-plan.md) の到達目標は「実装時に不具合を混入させ、後追いで発覚する」状態の停止である。混入経路のひとつが、**実装中に見つけた設計の穴を仮定で埋めたまま push すること**だった。
+不具合収束計画 (2026-08-25〜09-28、退役済み。到達目標と効果測定は [ADR-079](adr-079-defect-origin-tagging.md) § コンテキスト) の到達目標は「実装時に不具合を混入させ、後追いで発覚する」状態の停止である。混入経路のひとつが、**実装中に見つけた設計の穴を仮定で埋めたまま push すること**だった。
 
 実例は Phase 0 の PR V (順位 490 の pure 化) で 2 件浮上している。
 
@@ -75,7 +75,6 @@ push の後になるため、レビュアーが読む時点で既に実装が固
 
 ## 関連
 
-- [defect-convergence-plan.md](../defect-convergence-plan.md) § Phase 2 — 位置づけと受け入れ確認
 - [ADR-076](adr-076-testability-gate.md) — 機1 (組で効く)
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用の標準パターン
 - [ADR-042](adr-042-rule-vs-mechanism-boundary.md) — ルール vs 仕組み化の境界

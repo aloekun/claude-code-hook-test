@@ -1,4 +1,4 @@
-//! origin-markers check — 起票由来タグの契約を検査する (機4a、defect-convergence-plan.md § Phase 4)。
+//! origin-markers check — 起票由来タグの契約を検査する (機4a、ADR-079)。
 //!
 //! # 何のためのタグか
 //!

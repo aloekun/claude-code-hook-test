@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-/// 機1 (testability gate) の config。ADR-076 / defect-convergence-plan.md § Phase 1。
+/// 機1 (testability gate) の config。ADR-076。
 ///
 /// ADR-039 (Experimental feature 標準パターン) 3 点セット準拠:
 /// - **Config opt-in**: 試験運用のため default `enabled = false`。section 不在 /

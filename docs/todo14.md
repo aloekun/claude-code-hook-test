@@ -62,6 +62,8 @@
 > **参照**: `.claude/feedback-reports/303.md` Tier2 #1、`src/cli-merge-pipeline` (Phase 0 transcript filter 出力)、`.takt/facets/instructions/analyze-session.md` (消費側 facet)。
 >
 > **実行優先度**: Tier 2 — Severity Medium / Frequency High (毎回のマージ feedback で発生し得る) / Effort M / Adoption Risk None (既存 filter の自然な拡張)。
+>
+> **暫定対処の現在地 (2026-09-28)**: 根本対処 (本項) の手前で 3 段の暫定対処が入った — analyze-session facet の抽出先行手順 (2026-08-12、Claude Code Insights フォローアップ)、transcript の縮約 (#518: 2.14 MB → 457 KB)、最初から分割して読む指示 (#524)。#524 の実測でも縮約後 407 KB / 394 行が約 37,700 tokens で 1 回の Read に収まらず、1 行の長さに上限も無い。**本項は根本対処として有効なまま**。
 
 #### 作業計画
 
@@ -327,7 +329,7 @@
 >
 > **対処案** (2026-09-08 に出口を再設計。検査として実装する。convention 集は 2026-09-13 に廃止し、spike 見送り 3 点セットは [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 2026-09-13 が持つ、順位 445): 同 3 点セットを拡張する形で Cross-File Reference Lifecycle として明文化する: (1) permanent 成果物を先に作成・validate、(2) permanent→ephemeral 方向の参照を除去し、移管先 (ADR / todo 順位 / crate doc 等) を ephemeral 側の状態列に明記 (完了/委譲/見送りの全ケース対象)、(3) 計画文書の退役条件 (全状態確定 + 永続成果物からの参照ゼロ + 残タスクの lifecycle 整合) を含める。
 >
-> **参照**: `.claude/feedback-reports/340.md` Tier3 #1、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13)、`docs/harness-improvement-plan.md` (退役手順の実例)。
+> **参照**: `.claude/feedback-reports/340.md` Tier3 #1、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 (2026-09-13)、ハーネス改善計画 (2026-09-28 退役。§ 7 の退役手順が実例、git log で参照できる)。
 >
 > **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
 

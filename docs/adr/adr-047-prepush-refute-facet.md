@@ -122,7 +122,7 @@ refute_workflow = "pre-push-review-refute"
 
 判定期限 2026-07-31 に先立ち、dogfood 実データで判定基準を評価した (計測は
 `.takt/runs/*/meta.json` の `piece` + `reports/refutation-report.md` + `logs/*.jsonl`、
-step 別所要は `docs/takt-step-timings.md` 参照 — 別コミットの観測ツールで追加)。
+step 別所要は [step 別所要時間の観測記録](adr-056-step-timings.md) 参照 — 別コミットの観測ツールで追加)。
 
 ### 実測データ (dogfood 2026-07-17〜18)
 
@@ -184,7 +184,7 @@ step 別所要は `docs/takt-step-timings.md` 参照 — 別コミットの観�
 - したがって正確な結論は「反証が無効」ではなく「**この位置 (直列 post-reviewers) にこの構成
   (単独 haiku・証拠優位なし) で置く必要が、ADR-056 の成功によって消滅した**」。
 
-**timing 実測 (理想 vs 実態)** — step 別所要は `docs/takt-step-timings.md` (別コミットの観測ツール):
+**timing 実測 (理想 vs 実態)** — step 別所要は [step 別所要時間の観測記録](adr-056-step-timings.md) (別コミットの観測ツール):
 
 | | 理想 (設計意図) | 実態 (26 run) |
 |---|---|---|

@@ -463,6 +463,11 @@ ADR-074 の**判定契約そのものは正しく書かれている** — 「そ
 - **本タスク自身を auto lane に載せてはいけない** — 実装先 (`src/lib-ledger/` または
   `src/cli-ledger-candidates/`) が deny リストに当たる。この規則の最初の適用対象が本タスク自身である
 
+- **順位 491 (台帳の実体整合検査、#447) とは統合しない** (2026-08-25 判断)。置き場所
+  (`deployed_ledger.rs`) と走行タイミング (毎 `cargo test`) は共有するが判定ロジックは重ならない
+  (486 = 宣言パス × deny リスト / 491-A = 順位集合の矛盾 / 491-B = 宣言パス × 実ファイルの中身)。
+  共有部分の「対象ファイル欄 → パス抽出」は `parse_target_files` として実装済み
+
 - [ ] deny リストの単一定義先を決める (順位 454 との関係を先に整理する)
 - [ ] 対象ファイル欄 × deny リストの照合を実装する
 - [ ] **lane 引き取り前の台帳** (PR #440 の parent 時点) を fixture にして 383 / 454 / 368 / 360 / 361 の 5 件が検出されることを確認する
@@ -526,6 +531,11 @@ green になること。検査を外す変異で落ちること。
   使っている。master-ref へ pin すると基点が数十秒古くなるため、push 時の
   non-fast-forward の有無を実装時に確認する
 - **本タスクを auto lane に載せてはいけない** — `.github/workflows/` は deny リストに当たる
+- **実装方針の変更 (2026-08-25)**: shell の修正ではなく、**判定を exe へ移してテストの場を作る**形で
+  実装する。掃除ループを `cli-branch-cleanup` へ移した #466 (ADR-072 決定 1「回帰テストの場が無い判定を
+  無人経路に置かない」) と同じ扱いで、本件は G1 (判定が I/O と癒着) の残り site である
+  ([ADR-079](adr/adr-079-defect-origin-tagging.md) § G1 / G2 の出所)。上の設計決定 (案) の
+  step output / checkout 引数は、exe が返す SHA を workflow が受ける形に読み替える
 
 - [ ] `master-ref` の SHA を step output へ出す
 - [ ] `work` の checkout をその SHA へ pin する

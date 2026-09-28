@@ -227,7 +227,7 @@ T10 の受け入れ基準に準拠する:
 ## 採否判定ドラフト (2026-07-18)
 
 判定期限 2026-07-31 に先立ち、dogfood 実データで T10 受け入れ基準を評価した (step 別所要は
-`docs/takt-step-timings.md` (別コミットの観測ツール)、refutation report は `.takt/runs/*/reports/`)。
+[step 別所要時間の観測記録](adr-056-step-timings.md) (別コミットの観測ツール)、refutation report は `.takt/runs/*/reports/`)。
 
 ### 実測データ (dogfood 2026-07-17〜18, refute 期 24 run)
 
@@ -253,7 +253,7 @@ T10 の受け入れ基準に準拠する:
 2. **速度達成を理由に採用もしない**: raw 平均が目標を満たしていない以上、基準を満たしたとは書けない。
 3. → **判定期限 (07-31) までに 2 点を詰めて確定する**:
    - **diff 正規化した execute 比較** — 同程度の diff 行数で anomaly policy 有無を比較 (baseline の
-     checklist era run と対照)。`docs/takt-step-timings.md` の抽出を diff サイズ
+     checklist era run と対照)。[step 別所要時間の観測記録](adr-056-step-timings.md) の抽出を diff サイズ
      付きに拡張して算出。
    - **double-miss の CodeRabbit 突合** — pre-push が APPROVE したが CodeRabbit が blocking を出した
      PR を洗い、policy 撤去で拾えなくなった真の問題が無いかを確認。

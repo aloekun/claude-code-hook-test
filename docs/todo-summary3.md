@@ -60,7 +60,7 @@
 | 472 | Tier 2 | **語彙・テスト作法・判断規律の convention 8 項目の行き先を決める (移設先 ADR or 却下、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
 | 473 | Tier 3 | **テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (#423 feedback 採用、系統 F 実装)** | todo24.md | S | なし (ADR-044 層 1 の再評価。#423 の「3 つ目が出たら」判断の見直し) |
 | 474 | Tier 2 | **夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (#424 feedback 採用、系統 G)** | todo24.md | S | なし (ADR-074 は lane 割当基準のみで並行競合検知は範囲外) |
-| 475 | Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (bugfix-batch-plan.md 退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが bugfix-batch-plan.md 削除後も記録を残すため起票) |
+| 475 | Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (不具合修正計画の退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが 不具合修正計画の削除後も記録を残すため起票) |
 | 478 | Tier 2 | **jj 出力の path separator 前提を regression test で固定する (Windows は `\` 区切り)** | todo24.md | S | なし (PR #432 で CodeRabbit が「POSIX は `/`」を根拠に `\` 判定の削除を提案したが、実測では Windows jj 0.42 は `\` 区切り出力。外すと Windows で誤検知。現在 module doc の記述のみで test 未固定のため再提案の余地が残る。Severity Medium + Frequency Low + Effort S + Risk None) |
 | 479 | Tier 2 | **手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる** | todo24.md | S | なし (実測で 22 件中 7 件が未記載。うち 3 件は PR #431 以前からの漏れで、単発ではなく継続的にずれる構造。doc を手で直す案は方針 (決定論的で積み上げる) に反するため lint 化で採用。Severity Low + Frequency Medium + Effort S + Risk None) |
 | 480 | Tier 2 | **`owns()` が false を返す原因 (Owned / TakenOver / Unreadable) をログで区別する** | todo24.md | S | なし (lock 競合 (#364 型) の調査時にログから経路を再構成できない。判定は pure function に切り出せ unit test で固定可能。Severity Medium + Frequency Medium + Effort S + Risk None) |
@@ -71,7 +71,7 @@
 | 485 | Tier 2 | **PR L で追加した実装のテスト補強 (PR #437 T2-1 + T2-2 採用)** | todo25.md | S | なし (`warn_when_unresolved` の false 側テストが無い + `clip_for_message` がタイトル列でしかテストされず順位セル経由の穴を見逃した。どちらも「追加した機能の一部の経路しかテストしていない」形) |
 | 486 | Tier 1 | **auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-20 の run が順位 383 を選び `src/lib-ledger/src/lib.rs` の変更で `[NIGHTLY_DENY]` 停止。auto lane 22 行の全件照合で 5 行が deny リスト該当 (383 / 454 / 368 / 360 / 361)。ADR-074 決定 2 クラス 3 の判定を決定論化する — 同 ADR 決定 6 が「決定論だが未実装」と自認している穴。**実装先が deny リスト配下のため auto lane に載せない**) |
 | 487 | Tier 1 | **nightly-todo の master 参照を SHA で pin する (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-21 の run で master-ref=`7539551f` / work=`868c9316` と 31 秒差の別コミットを読み、その間に順位 228 の実装 PR #422 がマージされて変更 0 件で停止。master を 3 回別々に読むのに pin が無い。**`.github/workflows/` が deny リスト該当のため auto lane に載せない**) |
-| 493 | Tier 1 | **jj materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる** | todo25.md | S | なし (週次レビュー WR-2026-08-22-J01 / J02、severity=high、facet=jj-robustness。`fetch_head_is_recent()` と `holder_still_writing()` の 2 件は「jj が working copy を materialize すると全ファイルの mtime が checkout 時刻へ書き換わる」という同一根因。bugfix-batch-plan.md の PR P が担当) |
+| 493 | Tier 1 | **jj materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる** | todo25.md | S | なし (週次レビュー WR-2026-08-22-J01 / J02、severity=high、facet=jj-robustness。`fetch_head_is_recent()` と `holder_still_writing()` の 2 件は「jj が working copy を materialize すると全ファイルの mtime が checkout 時刻へ書き換わる」という同一根因。不具合修正計画 (2026-09-28 退役) の PR P が担当) |
 | 494 | Tier 1 | **ADR-032 の「永久欠番」決定が CLAUDE.md の ADR index へ未反映** | todo25.md | XS | なし (週次レビュー WR-2026-08-22-A01、severity=high、facet=architecture、category=adr-alignment) |
 | 495 | Tier 2 | **`lib-*` crate の責務分類基準が ADR-012 に無い** | todo25.md | S | なし (週次レビュー WR-2026-08-22-A04、severity=medium、facet=architecture、category=module-boundary) |
 | 496 | Tier 2 | **docs の 50KB 超過 3 ファイルを物理分割する** | todo25.md | M | なし (2026-08-22 週次レビューの決定論 scan 由来。`todo-summary2.md` は優先度表 1 枚のため節ではなく順位で切る必要がある) |
@@ -86,7 +86,7 @@
 | 506 | Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
 | 508 | Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | todo26.md | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
 | 509 | Tier 1 | **[defect:G1] `cli-merge-pipeline` の gh 呼び出しが非 colocated workspace で解決に失敗する** | todo26.md | S | なし (weekly-review WR-2026-09-03-J01。順位 467 F-2 / PR #470 と同型で 3 度目。着手時判断: `detect_owner_repo` は `--repo` が循環するため代替経路の選択が要る。順位 502 の lint との前後関係も決める) |
-| 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | todo26.md | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか) |
+| 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | todo26.md | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか。2026-09-28 にハーネス改善計画 WP-19 ステップ 3 = 自律 PR の棚卸しと無人 PR 採用率の測定 (ADR-072 の判定期限 2026-11-06) を統合) |
 | 511 | Tier 2 | **[improvement] `todo-summary2.md` を 3 分割し明示列挙の呼び出し元を追随させる** | todo26.md | M | なし (79KB。機構は F1 で 3 分割対応済みだが `--repo` ならぬ `--summary-file` の明示列挙が package.json と nightly-todo.yml に残る。workflow を触るため auto lane 不可。着手時判断: どの順位で切るか) |
 | 512 | Tier 3 | **[improvement] 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する** | todo26.md | M | なし (61KB / 59KB。移動したエントリの順位 table「ファイル」列の追随が必須で entry_pairing が強制する。着手時判断: 分割か孤児削除かを先に測る) |
 | 513 | Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |
@@ -94,8 +94,13 @@
 | 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
 | 521 | Tier 3 | **[improvement] `scope_guard` の bounded-lifetime 判定に必要な実績が 48 日集まっていない** | todo26.md | S | なし (週次レビュー WR-2026-09-18-C01、severity=medium、facet=security。enforce mode 開始 2026-08-01 から観測時点 2026-09-18 まで 48 日 (両端を含めない日付差) で fix step 実行実績 0 件で、ADR-054 の決定トリガー「enforce mode で 3〜5 PR」が満たせず期限が無期限に延びている。着手時判断: telemetry 記録 (ADR-055) の追加を先に入れるか期限の再設定だけで済ませるかは着手時に決める) |
 | 522 | Tier 2 | **[improvement] Stop hook に docs-only routing が無く docs のみの変更でも Rust の lint/test が走る** | todo26.md | S | なし (週次レビュー WR-2026-09-18-A02、severity=medium、facet=architecture。ただし順位未採番の既存エントリ docs/todo28.md「週次レビュー採用 (2026-07-01)」= WR-2026-07-01-A01 と解が競合する。着手時判断: A01 が Option A' (重複 step 削除) を採ると本件は不要になるため、A01 の処置を確定してから再評価する) |
+| 523 | Tier 2 | **[improvement] defect 流入の週次集計と退出基準の判定 (機4b)** | todo26.md | M | なし (2026-09-28 に不具合収束計画の退役で移送。判定の定義は ADR-079 § 退出基準。マージ時に保留中の post-merge feedback を一括採否する) |
+| 524 | Tier 3 | **[improvement] `-u` 無しの `jj squash` を PreToolUse で止める** | todo26.md | S | なし (2026-09-28 移送。headless で結合 editor が開いて止まる。ADR-042 § 撤廃の型 A) |
+| 525 | Tier 2 | **[improvement] `pnpm create-pr` の `--body` 引数を物理削除する** | todo26.md | S | なし (2026-09-28 移送。複数行本文の切り捨て事故の入口を消す。ADR-042 § 撤廃の型 B) |
+| 526 | Tier 2 | **[improvement] docs-only PR では post-merge feedback を起動しない** | todo26.md | S | なし (2026-09-28 移送。lib-docs-policy の判定を merge-pipeline の起動判定へ繋ぐ。ADR-042 § 撤廃の型 C) |
+| 527 | Tier 3 | **[improvement] 永続文書から揮発性の成果物への参照を棚卸しする** | todo26.md | M | 順位 358 (規律と検査) (2026-09-28 に Claude Code Insights フォローアップの退役で移送。docs/ から揮発パスへの参照 247 件) |
+| 528 | Tier 2 | **[improvement] security-review / supervisor-validation の output-contract を用意する** | todo26.md | S | なし (2026-09-28 移送。format 名だけ宣言され契約ファイルが無い) |
+| 529 | Tier 3 | **[improvement] 蓄積した feedback レポートを横断して反復する指摘を抽出する (承認付き)** | todo26.md | M | なし (2026-09-28 移送。提案レポートまでを自動化し、登録はユーザー承認を経る) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
-
-**Bundle 履歴**: 完了済 Bundle / post-merge-feedback 反映の経緯詳細は [docs/bundle-history.md](bundle-history.md) を参照 (2026-05-25 分離、本ファイルの index 責務集中のため)。

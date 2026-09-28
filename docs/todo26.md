@@ -333,9 +333,23 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 - agent の消費 (`num_turns` / `total_cost_usd`) を出すかどうか。出せば「回して捨てた量」が見えるが、
   ログ本文の取得が前提になる
 
+#### 統合した材料: 自律アクションの週次棚卸し (2026-09-28、ハーネス改善計画 WP-19 ステップ 3)
+
+ハーネス改善計画 (2026-09-28 退役) の WP-19 ステップ 3「自律アクション一覧を weekly-review の入力に
+足し、自律動作の週次棚卸しを人間のレビューポイントとして固定する」は、本エントリと同じ scan・同じ
+置き場所になるため、新しい順位を立てずにここへ統合した。追加で出す材料:
+
+- `claude/` ブランチの PR 一覧と状態 (open / merged / closed-without-merge)。浮きブランチ検出は
+  `cli-stale-branch-scan` (#377) が既に持つので、重複させず出力を合流させる
+- **無人 PR の採用率** (人間がマージした割合) — [ADR-072](adr/adr-072-nightly-todo-loop.md) § 試験運用判断基準
+  の decision trigger。**判定期限は 2026-11-06**、測定起点は 2026-08-10
+- 日付ごとの run 有無 — PC 電源オフの週末をまたいでも schedule run が欠けずに回っているか
+  (WP-17 の受け入れ基準で未検証のまま残った項目)
+
 #### 完了基準
 
 - red が続いている週に、weekly-review の報告へ必ずその事実が現れる
+- 無人 PR の採用率が週次の報告に数値で出る (ADR-072 の判定期限までに判定できる)
 - 停止段が分かる粒度で出る (「red が 4 晩」だけでなく「guard で 3 晩、verify で 1 晩」)
 - 取得に失敗した週は「未確認」と明示される (「0 件」と書かない)
 
@@ -604,3 +618,118 @@ Stop hook は同じ判定を持たないため、**「この変更は docs-only 
 
 `[stop_quality]` の rust-lint-test が「削除された」か「docs-only で skip される」かのどちらかに決着し、
 ADR-057 に Stop hook との関係が書かれている。A01 と本件のどちらを採ったかが文書から追える。
+
+---
+
+## 不具合収束計画・Claude Code Insights フォローアップの退役に伴う移送 (2026-09-28)
+
+> 2 つの ephemeral 計画書を退役させた際、未着手の作業を順位として移したもの。設計判断は [ADR-079](adr/adr-079-defect-origin-tagging.md) (効果測定) と [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) § 追記 2026-09-28 (ルール撤廃の型) にある。**いずれも auto lane に載せない** — 523 は `src/lib-ledger/` 系、524-526 は hook / PR 作成 / マージ経路という、無人経路が自分を縛る層を書き換えるため。
+
+### 順位 523: defect 流入の週次集計と退出基準の判定 (機4b)
+
+> **動機**: [ADR-079](adr/adr-079-defect-origin-tagging.md) は由来タグの付与と検査 (機4a、#472) までを実装し、集計と判定を本項へ分けた。タグが溜まらないと集計の設計を実データで確かめられないためである。これが無いと「機構を足したから defect が減った」を印象でしか言えない。
+>
+> **参照**: ADR-079 § 退出基準 (週次判定の定義) / § 再分類は緩める向きだけ根拠を要求する、`src/lib-ledger/src/summary_gate.rs` (`ORIGIN_BOUNDARY_RANK`)、`src/cli-ledger-candidates/`
+
+- [ ] `cli-ledger-candidates` に境界順位以降の `[defect:*]` 行を ISO 週別に数える集計を足す (起票日は行を追加したコミットの author date)
+- [ ] 退出基準の判定 (4 週非増加かつ `w4 < w1`、全週 0 件は充足、観測なし週は除外して窓を伸ばす) を純関数で実装する
+- [ ] `[defect:*]` → `[improvement]` の再分類に `再分類根拠:` を要求する検査を足す (前の版との比較が要る)
+- [ ] weekly-review の決定論 scan から呼ぶ
+- [ ] マージ後、保留中の post-merge feedback を一括で採否する (ADR-079 § post-merge feedback の採否は機4b のマージ時にまとめて行う。#454 の `read_dir(...).flatten()` 横断検知が採用候補)
+
+#### 完了基準
+
+weekly-review の報告に defect 流入の週別件数と退出基準の判定結果が出ること。緩める向きの再分類が根拠なしで通らないこと。
+
+---
+
+### 順位 524: `-u` 無しの `jj squash` を PreToolUse で止める
+
+> **動機**: source と destination の両方に description があると `jj squash` は結合用の editor を開き、headless のセッションでは応答が返らず止まる。回避策 (`-u` = `--use-destination-message` か `-m`) は memory にしか無く、ルールのまま残っている (ADR-042 § 撤廃の 3 つの型 の型 A)。
+>
+> **参照**: `src/hooks-pre-tool-validate/src/presets/`、`.claude/hooks-config.toml` `[pre_tool_validate] blocked_patterns`、memory `jj-squash-editor-hang-headless`
+
+- [ ] `jj squash` で `-u` / `--use-destination-message` / `-m` / `--message` のどれも無い形を検出する preset を足す
+- [ ] ブロック時の案内に代替コマンドを出す
+- [ ] 既存 preset と同じく good / bad の両方をテストで固定し、toml への登録漏れを既存テストで捕まえる (#522)
+
+#### 完了基準
+
+`-u` 等の無い `jj squash` がブロックされ、付けた形は通ること。
+
+---
+
+### 順位 525: `pnpm create-pr` の `--body` 引数を物理削除する
+
+> **動機**: `--body` は複数行の本文を 1 行目で切り捨てる事故を起こし、改行を再結合する workaround で延命している。安全な `--body-file` 経路が既にあり、prepare-pr skill もそちらを使う。誤用される入口そのものを消す (ADR-042 § 撤廃の 3 つの型 の型 B)。
+>
+> **参照**: `src/cli-pr-monitor/src/stages/create_pr.rs` (`--body` の受け付けと再結合)、prepare-pr skill、memory `create-pr-multiline-body-truncation`
+
+- [ ] `create_pr.rs` から `--body` の受け付けと再結合 workaround を撤去し、`--body` 指定時は `--body-file` を案内して失敗させる
+- [ ] 呼び出し側の案内 (skill / ADR-028 周辺の記述) を `--body-file` に揃える
+- [ ] 再結合のテストを「`--body` は拒否される」テストへ置き換える
+
+#### 完了基準
+
+`pnpm create-pr --body ...` が本文を作らずに失敗し、`--body-file` を案内すること。
+
+---
+
+### 順位 526: docs-only PR では post-merge feedback を起動しない
+
+> **動機**: docs-only PR の post-merge feedback は採否判断ごと行わない運用 (ユーザー決定) だが、merge-pipeline は起動してしまい Max 枠と時間を使う。docs-only の決定論判定は [ADR-057](adr/adr-057-docs-only-deterministic-routing.md) の `lib-docs-policy` に既にあるので、起動判定へ繋ぐだけでよい (ADR-042 § 撤廃の 3 つの型 の型 C)。
+>
+> **参照**: `src/cli-merge-pipeline/` (feedback 起動判定)、`src/lib-docs-policy/src/lib.rs` (`is_docs_only_summary`)、memory `no-feedback-adoption-for-doc-prs`
+
+- [ ] merge-pipeline の feedback 起動前に PR の変更範囲を `lib-docs-policy` で判定し、docs-only なら skip して理由を 1 行出す
+- [ ] 判定を写経せず `lib-docs-policy` を呼ぶ (ADR-081)
+- [ ] docs-only / 混在の両方をテストで固定する
+
+#### 完了基準
+
+docs-only PR のマージで post-merge feedback が起動せず、skip 理由がログに残ること。
+
+---
+
+### 順位 527: 永続文書から揮発性の成果物への参照を棚卸しする
+
+> **動機**: `docs/` から gitignored の `.claude/feedback-reports/` / `.takt/runs/` / `.claude/weekly-reviews/` への参照が 247 件ある (2026-09-28 実測)。clone 先・CI・クラウドには参照先が無く、根拠を辿れない。規律と検査は順位 358 が担当し、本項は既存違反の後始末を分けたもの (Claude Code Insights 2026-08-11 の「レビュー履歴が監査不能」指摘、2026-08-12 採用)。
+>
+> **参照**: 順位 358、`rg -n "feedback-reports/|\.takt/runs/|weekly-reviews/" docs`
+
+- [ ] 違反を列挙し、根拠の要旨を committed 側へ転記するか参照を削るかを 1 件ずつ決める (件数が多ければ複数バッチに分ける)
+- [ ] 「転記 + 出典として揮発パスを添える」は許容、「参照のみ」を無くす
+
+#### 完了基準
+
+`docs/` の各参照について、揮発パスを読まなくても根拠の要旨が committed 側で読めること。
+
+---
+
+### 順位 528: security-review / supervisor-validation の output-contract を用意する
+
+> **動機**: `.takt/facets/output-contracts/` には `simplicity-review.md` しか無く、`pre-push-review.yaml` の `security-review` / `supervisor-validation` は `format:` 名だけ宣言して契約ファイルが無い (2026-09-28 確認)。verdict 欄の書式が facet の自由記述に委ねられている (Insights「rubric が暗黙」指摘の残件、2026-08-12 採用)。
+>
+> **参照**: [ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md)、[ADR-056](adr/adr-056-review-policy-anomaly-shadow.md)、memory `takt-output-contract-checklist`
+
+- [ ] `simplicity-review.md` を雛形に 2 ファイルを作る (builtin の列構造と casing をミラー / 全 finding 節で列を揃える / finding_id は new・persists・resolved・reopened を通じて不変と明記)
+- [ ] 追加 PR 自身の pre-push で dogfood する
+
+#### 完了基準
+
+`pre-push-review.yaml` が宣言する `format:` のすべてに契約ファイルがあること。
+
+---
+
+### 順位 529: 蓄積した feedback レポートを横断して反復する指摘を抽出する (承認付き)
+
+> **動機**: `.claude/feedback-reports/` に 100 件超のレポートがあるが、分析は PR ごとに閉じている。同型の指摘の反復や却下理由の傾向は横断しないと見えない (Insights Horizon 提案のうち承認境界を保つ版、2026-08-12 採用)。完全自動化 (承認なしのルール生成) は不採用と決定済み。
+>
+> **参照**: `.takt/facets/instructions/aggregate-feedback.md` (承認規約)、[ADR-072](adr/adr-072-nightly-todo-loop.md) (台帳登録はユーザー承認必須の信頼境界)、順位 403 (レポートの主張は実測で二重検証)
+
+- [ ] ローカル実行の分析 (skill か takt facet) で系統別のクラスタと防止策案を**提案レポートまで**生成する
+- [ ] 台帳登録・機構化は従来どおりユーザー承認を経る。提案の根拠は実測で確かめる (ADR-075)
+
+#### 完了基準
+
+横断分析の提案レポートが 1 回生成され、採否がユーザー判断で決まること。ルールを足すだけの提案は ADR-042 § 追記 2026-09-28 により却下扱いになる。

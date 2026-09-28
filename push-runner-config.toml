@@ -323,7 +323,7 @@ enabled = true
 
 # ---------------------------------------------------------------------------
 # [testability_gate] — 機1 (ADR-076): 「I/O 出力をその場で解釈して判定を返す関数」の
-# 新規混入を push 時に止める。docs/defect-convergence-plan.md § Phase 1。
+# 新規混入を push 時に止める。
 #
 # 対象は push 範囲で変更された .rs のみ (既存コードは見ない)。既存 8 件は code 側の
 # BASELINE で凍結してあり、増やせない ratchet になっている。
@@ -343,7 +343,7 @@ enabled = true
 mode = "warning"
 # ---------------------------------------------------------------------------
 # [open_questions_gate] — 機2 (ADR-077): 未解決の設計の問いが残ったまま push されるのを
-# 止める。docs/defect-convergence-plan.md § Phase 2。
+# 止める。
 #
 # docs/open-questions.md に `## Q-<連番>:` のエントリが 1 件でもあれば deny する。
 # ファイル不在 / エントリ 0 件は pass。書式の不備 (関連: / 仮定: の欠落) では通さない。
