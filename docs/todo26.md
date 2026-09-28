@@ -282,13 +282,19 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 | `detect_pr_number()` (137 行) | `owner_repo` が既知なら `--repo` を渡せる。**素直に直せる** |
 | `detect_owner_repo()` (81 行) | **リポジトリを特定する関数自身**なので `--repo` は循環する。`gh` に頼らず `jj git remote list` 等から導出するか、環境変数 `GH_REPO` を受けるかの選択がある |
 
-順位 502 が追加する「`gh --repo` 欠落検出」の lint は、**この 2 箇所を最初に検出する現存違反**に
+**範囲を cli-pr-monitor へ広げる (2026-09-28、週次レビュー WR-2026-07-19-J02 を統合)**: 同じ穴が
+`src/cli-pr-monitor/src/util.rs` にも 2 箇所ある — `get_pr_info` (`gh repo view`。`detect_owner_repo()` と
+同じ循環問題) と `find_pr_via_jj_bookmarks` (`gh pr list --head`)。`cli-merge-pipeline` の
+`pr_number_for_bookmark` (`gh pr list --head`) も `--repo` を付けていない。
+
+順位 502 が追加する「`gh --repo` 欠落検出」の lint は、**これらを最初に検出する現存違反**に
 あたる。502 を先に入れると赤くなるため、lint 側に例外を置くか本タスクを先に片付けるかを決める。
 
 #### 完了基準
 
-- 非 colocated workspace で `cli-merge-pipeline` がリポジトリと PR 番号を解決できる (実測で確認)
-- `detect_owner_repo()` の解決経路が gh のリポジトリ自動解決に依存しない
+- 非 colocated workspace で `cli-merge-pipeline` と `cli-pr-monitor` がリポジトリと PR 番号を解決できる (実測で確認)
+- `detect_owner_repo()` と `cli-pr-monitor` の `get_pr_info` の解決経路が gh のリポジトリ自動解決に依存しない
+- `pr_number_for_bookmark` (`cli-merge-pipeline`) と `find_pr_via_jj_bookmarks` (`cli-pr-monitor`) の `gh pr list --head` が `--repo` を渡す
 - 順位 502 の lint と矛盾しない (例外を置くならその根拠が書かれている)
 
 ---
@@ -573,51 +579,6 @@ revert する」ことを求めているので、**材料が集まらなかっ�
 
 ADR-054 に決定期限と「材料が集まらなかった場合の既定 OFF revert」が書かれており、期限到来時の判定が
 印象ではなく観測値で行える状態になっている。
-
----
-
-### 順位 522: Stop hook に docs-only routing が無く、docs のみの変更でも Rust の lint/test が走る
-
-> **動機**: push-runner の `quality_gate` は ADR-057 (docs_only_routing) により docs のみの変更では
-> rust-lint-test group を skip するが、`.claude/hooks-config.toml` の `[stop_quality]` には同等の判定が無い。
-> そのため interactive session の Stop 時には docs-only の変更でも `cargo clippy` / `cargo test` が無条件に
-> 走り、docs 変更が続く作業では毎ターン待ち時間が乗る。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-09-18-A02 で採用 (severity=medium, facet=architecture, category=harness-duplication)
->
-> **参照**: `.claude/weekly-reviews/2026-09-18.md`、`.claude/hooks-config.toml` `[stop_quality]`、
-> `push-runner-config.toml` (`[quality_gate]` の docs-only routing)、
-> [ADR-057](adr/adr-057-docs-only-deterministic-routing.md)、[ADR-081](adr/adr-081-single-fact-dispersion.md)
-
-#### 背景
-
-ADR-057 は docs-only routing を「instruction 規約から決定論機構への昇格」として push 経路に入れた。
-Stop hook は同じ判定を持たないため、**「この変更は docs-only か」という同一の事実が push 経路にしか
-無い**状態になっている (ADR-081 が扱う分散の一形態だが、ここでは写経ではなく**片側欠落**)。
-
-> **⚠ 既存エントリとの競合**: `docs/todo28.md`「週次レビュー採用 (2026-07-01)」の
-> WR-2026-07-01-A01 (Stop hook `[stop_quality]` と push-runner `[quality_gate]` の lint/test 重複を解消) は、
-> 設計決定 Option A' として **`[stop_quality]` から重複する lint/clippy/test step を削除する**方針を採っている。
-> これを先に実施すると本タスクの対象 (Stop hook の rust-lint-test) 自体が消えて不要になる。
-> **着手時判断**: A01 の処置を確定してから本件を再評価する。A01 が Option B (意図的 defense-in-depth として
-> 両方残す) を採った場合にのみ、本件の routing 追加が要る。
-
-#### 設計決定 (案)
-
-- A01 が Option A' (重複 step 削除) を採る → 本タスクは不要。クローズして理由を残す
-- A01 が Option B (両方残す) を採る → `[stop_quality]` に docs-only 判定を足し、`docs/**` + `*.md` のみの
-  変更なら rust-lint-test 相当を skip する。判定ロジックは push-runner 側と共有し、写経しない (ADR-081)
-- どちらに決まったかを ADR-057 に書く。現状の ADR-057 は push 経路のみを扱っており、Stop hook を
-  適用範囲外とする判断だったのか単に未検討だったのかが読み取れない
-
-- [ ] 既存 WR-2026-07-01-A01 の処置 (Option A' / Option B) を確定する
-- [ ] Option B を採る場合のみ、docs-only 判定を push-runner 側と共有する形で `[stop_quality]` に足す
-- [ ] ADR-057 に Stop hook との関係 (適用範囲外 / 適用済み) を明記する
-
-#### 完了基準
-
-`[stop_quality]` の rust-lint-test が「削除された」か「docs-only で skip される」かのどちらかに決着し、
-ADR-057 に Stop hook との関係が書かれている。A01 と本件のどちらを採ったかが文書から追える。
 
 ---
 

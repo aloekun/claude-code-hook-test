@@ -258,7 +258,7 @@ other_ext_tests = [
 # extensions に新規拡張子を追加 / 削除する場合、同 PR で対応する positive test
 # (= 新拡張子ファイルで rule が fire することの assertion) と negative test (= 同
 # 拡張子で permanent 参照は fire しないこと) を
-# `src/hooks-post-tool-linter/src/main.rs` テストモジュールの
+# `src/hooks-post-tool-linter/src/custom_rules/` のテストモジュール (`deployed_tests.rs` / `rule_tests_extras.rs`) の
 # `no_ephemeral_todo_detects_*` / `no_ephemeral_todo_skips_*` / `no_ephemeral_todo_<ext>_*`
 # 系列に追加すること。test 不在のまま extensions を変更すると検出力 regression が
 # silent に発生する (yaml/yml = PR #110、toml = PR #151 で実観測の gap)。

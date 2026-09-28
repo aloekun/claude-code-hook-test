@@ -292,5 +292,5 @@ task 4 (takt fix のレビュー修正コミット分離) の実装により、t
 
 - **post-merge-feedback (ADR-014) 実装時の参照**: merge 後の AI ステップで既存 commit の description にタッチしないよう、本 ADR を設計原則として参照する
 - **ADR-015 の push-runner 見直し**: 同原則で軽くレビューし、副作用の過剰な箇所がないか確認 (必要なら別 ADR)
-- **takt fix による最終 commit message 草案生成機能の実装**: child commit の description が「機械ログ化」する問題を緩和するため、takt fix の report phase で「最終的に人間が採用する統合 commit message の草案」を `.takt/runs/*/reports/final-commit-message-draft.md` 等に書き出す。`prepare-pr` skill が起動時にこれを読み込み draft 初稿の元ネタとする。原則 1 改訂版の「草案生成」で許可されており、別 PR で実装
+- ~~**takt fix による最終 commit message 草案生成機能の実装**~~ **実施しない (2026-09-28)**: マージは squash (`gh pr merge --squash`) なので fix の子コミットは master に残らず、fix コミットの description にも `Resolved findings:` の一覧が入る。旧 todo.md の同項目は取り下げた。以下は当時の案として残す (実施予定は無い) — child commit の description が「機械ログ化」する問題を緩和するため、takt fix の report phase で「最終的に人間が採用する統合 commit message の草案」を `.takt/runs/*/reports/final-commit-message-draft.md` 等に書き出す。`prepare-pr` skill が起動時にこれを読み込み draft 初稿の元ネタとする。原則 1 改訂版の「草案生成」で許可されており、別 PR で実装
 - **auto-rebase / auto-squash / auto-format commit history の検討**: 原則 1 改訂版の緩和条項 (可逆・事前ポリシー・意図不変) を満たす範囲で将来実装可能。必要になった時点で別 ADR を作成し運用ポリシーを明示してから実装
