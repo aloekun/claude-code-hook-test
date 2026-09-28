@@ -45,7 +45,7 @@ mod shared_summary_definition_tests {
     //! 値の一致 (`assert_eq!(A, B)`) では固定できない — 統合前は 3 箇所とも同じ値だったが、
     //! 片方だけ書き換えられた瞬間に validator の走査範囲がずれる、という形の事故だった。
     //! ここでは**新しい分割 part (`todo-summary3.md`) を 3 validator がそろって認識する**
-    //! ことを見る (defect-convergence-plan.md § Phase F の F1)。
+    //! ことを見る (#454)。
 
     use super::{entry_pairing, preamble, priority_inversion};
 

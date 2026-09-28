@@ -41,7 +41,7 @@ use std::process::ExitCode;
 /// `CheckMode` の variant / `parse_args` の match / エラーメッセージ / `print_help` の
 /// Usage 行 / 同 Checks 一覧 / `run` の if 節 / `describe_mode` の arm の **7 箇所**へ
 /// 同じ事実を書き写す必要があり、実際に `entry-pairing` は `print_help` の Checks
-/// 一覧だけ書き漏れて help から消えていた (defect-convergence-plan.md § Phase F の F1)。
+/// 一覧だけ書き漏れて help から消えていた (#454)。
 struct CheckSpec {
     /// `--check` に渡す名前。
     name: &'static str,

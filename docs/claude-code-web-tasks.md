@@ -324,7 +324,7 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 
 | 順位 | 節 | 判定 | 根拠 |
 |---|---|---|---|
-| 283 | Batch 1 | 完了により削除 | 順位 476 へ統合済み (2026-08-25、[bugfix-batch-plan.md](bugfix-batch-plan.md) § 着手前に片付ける 3 件)。476 は夜間 PR [#494](https://github.com/aloekun/claude-code-hook-test/pull/494) でマージ済み。todo15.md のエントリと todo-summary2.md の行も削除 |
+| 283 | Batch 1 | 完了により削除 | 順位 476 へ統合済み (2026-08-25、不具合修正計画 (2026-09-28 退役) の着手前に片付ける 3 件)。476 は夜間 PR [#494](https://github.com/aloekun/claude-code-hook-test/pull/494) でマージ済み。todo15.md のエントリと todo-summary2.md の行も削除 |
 | 302 | Batch 1 | 対象消滅により削除 | 対象の `takeover_stale_lock_skips_remove_when_snapshot_is_stale` は [#312](https://github.com/aloekun/claude-code-hook-test/pull/312) の takeover 再設計で置き換えられ、現在の `pipeline_lock/tests.rs` に存在しない。後継の各テストは `///` doc コメントに前提を持つ。詳細エントリ・summary 行は既に無い |
 | 499 | Batch 2 | 完了により削除 | [#464](https://github.com/aloekun/claude-code-hook-test/pull/464) で実装 ([ADR-078](adr/adr-078-takt-verdict-gate.md))。todo25.md のエントリと todo-summary3.md の行も削除 |
 

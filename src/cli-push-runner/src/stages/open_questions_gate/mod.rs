@@ -1,7 +1,7 @@
 //! open-questions gate stage (機2) — 未解決の設計の問いが残ったまま push されるのを止める。
 //!
 //! 設計と採否の記録先は [ADR-077](../../../../docs/adr/adr-077-open-questions-gate.md)、
-//! 位置づけは `docs/defect-convergence-plan.md` § Phase 2。
+//! 機構群としての効果測定は ADR-079 (defect 流入の退出基準)。
 //!
 //! # 何を保証するか (そして何を保証しないか)
 //!

@@ -215,6 +215,34 @@ WP-04 → [ADR-038](adr-038-local-llm-finding-classification.md) § classify モ
 > (§ Decision framework Step 1)。決定の有無は人の頭の中にあり、コードにも diff にも痕跡が出ない。
 > 本追記は上の Step 1 に第 3 の問い (実害があるか) を加えた 2026-09-12 改訂と同じ線引きに従う。
 
+## 追記 (2026-09-28): ルール撤廃の 3 つの型と、ルールを足すだけの提案を採らない判断
+
+不具合収束計画 (2026-08-25〜09-28、退役済み。経緯は git log) で固まった判断を、計画書の退役に合わせて移した。
+
+### 「ルールを作らないルール」自身が強制されていなかった
+
+2026-08-25 の実測で、次の 3 点が同時に成り立っていた。本 ADR がルールでなく機構を選ぶ根拠の実例である。
+
+1. TDD の convention は当時の convention 集に存在しなかった (grep 0 件) — 無視された以前に、書かれてもいなかった
+2. [ADR-072](adr-072-nightly-todo-loop.md) 決定 1「回帰テストの場が無い判定を無人経路に置かない」は存在したが、掃除ループは**決定 1 を引用するコメントの直下で** shell 判定を増やした
+3. memory `feedback_no_unenforced_rules`「強制力のないルール追加は即却下」があるのに、convention 集は `##` 節 15 個まで育っていた
+
+### ルールを追加するだけの提案は採らない (2026-08-27 ユーザー決定)
+
+post-merge feedback の提案のうち、**ルール文書を足すだけのものは却下する**。「これまでにもルールを追加して溜飲を下げ、ルールを破るケースが多発した」ためである。2026-08-27 の一括採否では analyzer の採用候補 24 件のうち 10 件をこの理由で却下した (関係検証 validator の設計規約 / multi-file validator の設計パターン ADR / 分散する契約の更新パターン / テストユーティリティの抽象度ガイド / 表の改訂時は隣接本文も同時レビュー / 計画ドキュメント修正後の cross-grep チェックリスト / docstring に I/O 副作用を明記 / 既知限界のテストコメント形式 / 「無人経路の判定は exe + test 化」の明記 / framing 検証の convention 化)。**同型の提案が来たら同じ判断をする。** うち 3 件は、採用側の機構 (check 登録簿への集約 #454 / 後始末報告の純関数化 #458 / I/O 層と判定層の繋ぎの注入 #462) が同じ問題を塞いだ。
+
+### 撤廃の 3 つの型
+
+ハーネスで強制できるのに文章のままのルールは、次のいずれかで機構へ置き換える (2026-08-25 の棚卸しで該当は約 30 件)。
+
+| 型 | 置き換え方 | 実例 |
+|---|---|---|
+| **A: 検査を足す** | lint / hook / push ゲートで違反を止める | GHA の `run:` の `-e` 検査、facet の出力言語検査、convention 節の宣言ゲート (順位 515、#491 / #492)。`jj squash` の `-u` 無し deny (順位 524)。既存ファイルへの `Set-Content -Value` は #522 で有効化した `powershell-destructive-write-block` が止める |
+| **B: footgun 自体を除去する** | 誤用される入口をコードから消す | `pnpm create-pr --body` の物理削除 (順位 525) |
+| **C: 既存機構に吸収する** | 既にある決定論判定を別の起動判定へ接続する | docs-only PR の post-merge feedback を起動しない (順位 526、[ADR-057](adr-057-docs-only-deterministic-routing.md) の判定を流用) |
+
+**撤廃できないもの**: [ADR-075](adr-075-verify-premises-before-acting.md) の前提検証、[ADR-067](adr-067-phase-b-unattended-fix-push.md) の「実走でしか検証できない」、[ADR-073](adr-073-work-package-completion-boundary.md) の「複合タスクの仕様に除外根拠を書く」等、認識論的なルール約 8 件は § Decision framework Step 1 (regex / AST / runtime check で表現できない) を通らない。これらは残す — 目的はルールをゼロにすることではなく、**機構にできるのに文章のままのもの**を無くすことである。
+
 ## 関連 ADR
 
 - [ADR-022 (自動化責務分離)](adr-022-automation-responsibility-separation.md) — runtime 自動化の責務境界、本 ADR と直交 scope

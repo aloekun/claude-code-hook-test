@@ -91,6 +91,7 @@ decision trigger は `pr-monitor-config.toml` の `[fix.scope_guard]` section �
 
 - observe 期間 (2026-07-12 有効化〜2026-08-01): post-pr-review 実行 30 回、うち fix step 実行 5 回。violation (OBSERVE ログ) の観測 0 件 = 誤検知ゼロ。
 - 2026-08-01: `mode = "enforce"` へ昇格。以降が decision trigger (enforce で 3-5 PR) の計測期間。fix step の発生頻度が低下しているため (直近 2 週間は 0 回)、判定材料の蓄積は fix 発生ベースで待つ。
+- **2026-08-08: enforce 下で BLOCK を 1 件観測** ([#366](https://github.com/aloekun/claude-code-hook-test/pull/366)、夜間ループ)。自動 fix の push が「finding 対象外ファイルへの変更を検知 (injection の疑い): `.github/workflows/nightly-todo.yml`」で止まった。CodeRabbit finding の anchor (`docs/adr/adr-072`) と remedy (workflow) が別ファイルだったためで、allowlist が `allowlist_from_paths(findings.iter().map(|f| f.file))` = **finding の anchor 位置だけ**で作られる現行設計どおりの挙動である (§ 欠点 / 留意点 の 1 点目)。**ただし止めた remedy は正当な修正だったので、§ bounded lifetime の採用基準 (「正当な関連ファイル修正を block」を 1 件も出さない) に照らせば過剰 block の 1 件にあたる。** 「設計どおりの保守的 deny として維持するか」と「採用基準を満たしたか」は別の判断であり、前者を理由に後者の件数から外してはならない。status 更新時は、この 1 件を過剰 block として数えたうえで、(a) anchor だけの allowlist を受け入れて基準自体を改める、(b) remedy のファイルも allowlist に含める設計へ直す (§ 却下 の再設計案)、のどちらかを決める (2026-09-28 記録。ハーネス改善計画 WP-11 の残作業を本 ADR へ移した)。判定材料が集まらない問題は順位 521 が追う
 - 観測ギャップ: violation 記録は monitor の stderr のみで永続化されない (ADR-055 telemetry は cli-pr-monitor 未計装)。採否判定を機械化する必要が生じた場合は lib-telemetry 計装が候補。
 
 ## ADR-043 との線引き

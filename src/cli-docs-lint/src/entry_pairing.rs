@@ -1,5 +1,5 @@
 //! entry_pairing check — 順位 table の行と `docs/todoN.md` の詳細エントリの 1:1 対応を検査する
-//! (順位 441、defect-convergence-plan.md § Phase D の D3)。
+//! (順位 441、#452)。
 //!
 //! # 由来
 //!
@@ -437,7 +437,7 @@ mod tests {
         assert!(is_detail_file_name("todo25.md"));
         assert!(!is_detail_file_name("todo-summary.md"));
         assert!(!is_detail_file_name("todo-summary2.md"));
-        assert!(!is_detail_file_name("bugfix-batch-plan.md"));
+        assert!(!is_detail_file_name("some-plan.md"));
         assert!(!is_detail_file_name("todo25.txt"));
     }
 

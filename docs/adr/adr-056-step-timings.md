@@ -1,9 +1,11 @@
 # takt step/phase 別所要時間の観測 (2026-07-18 スナップショット)
 
+> **本ファイルの位置付け**: [ADR-056](adr-056-review-policy-anomaly-shadow.md) (と却下済みの [ADR-047](adr-047-prepush-refute-facet.md)) の判定材料になった観測記録。2026-09-28 に `docs/takt-step-timings.md` から移した (内容は変えていない)。以後の更新は想定しない — 新しい計測は `pnpm takt-timings` で取り直す。
+>
 > push パイプラインの takt 部分 (AI レビュー) の **内部 step/phase 粒度**の所要時間を run ログから
 > 決定論的に抽出したもの。「どの処理にどれだけ時間がかかっているか」を明示し、最適化の leverage
 > 点特定と「重いが必要な処理」の許容判断の材料にする。R3 の per-run JSONL
-> (push-runs、[ADR-055](adr/adr-055-firing-telemetry-collection.md)) が決定論 stage (quality_gate / takt 全体 / push)
+> (push-runs、[ADR-055](adr-055-firing-telemetry-collection.md)) が決定論 stage (quality_gate / takt 全体 / push)
 > を持つのに対し、本ドキュメントは takt **内部** (reviewers / verify / fix / supervise) を補完する。
 
 ## 計測方法
@@ -14,7 +16,7 @@
 
 **本表は 2026-07-18 時点の観測スナップショット** (R4 判定の現在地: **ADR-047 は 2026-07-19 に
 却下確定・refute workflow 撤去済み**。ADR-056 の判定は同 ADR のステータス行を参照 — 経緯は
-同 ADR と [ADR-015](adr/adr-015-push-runner-takt-migration.md) § push パイプラインの所要時間 を参照)。
+同 ADR と [ADR-015](adr-015-push-runner-takt-migration.md) § push パイプラインの所要時間 を参照)。
 本 doc を publish する push 自身が run 集合に混入して観測対象を変えて
 しまう問題を避けるため、`--until` でこのスナップショット取得時点以降の push の run を除外して
 再現する:
@@ -69,14 +71,14 @@ pnpm takt-timings -- --piece pre-push-review --since 2000-01-01 --until 2026-07-
 3. **report / judge phase はいずれも軽量** (各 6〜16s)。最適化対象ではない (合計占有も小さい)。
    judge の haiku 化 (R2) が効くのは所要ではなく model コスト面。
 4. **verify (refute の追加 step) は 24 run 中 2 run しか発火せず** (発火時 execute 75s)。合計占有は
-   最小。ただし発火が稀 = **効果も稀** (却下 0 件、[ADR-047](adr/adr-047-prepush-refute-facet.md) の
+   最小。ただし発火が稀 = **効果も稀** (却下 0 件、[ADR-047](adr-047-prepush-refute-facet.md) の
    R4 判定参照)。追加コスト自体は小さいが便益も観測されていない。
 5. **fix の execute は発火時に高価** (baseline 15 run で avg 312s、refute 2 run で 134s)。fix loop の
    発生頻度が総所要の最大の変動要因。findings を減らす施策 (anomaly policy 等) が fix コストを直接
    下げる。
 6. **execute 時間は diff サイズ支配** (min 36s 〜 max 416s)。したがって **run 間比較は diff サイズ
    正規化が前提**で、生の avg 同士の比較だけで優劣は断定できない。
-   [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) の受け入れ基準「simplicity execute
+   [ADR-056](adr-056-review-policy-anomaly-shadow.md) の受け入れ基準「simplicity execute
    **203s (ADR-056 の基準参照値、単一コード diff の 1 run)** → 150s 以下」に対し、refute 期の生 avg は
    **203.4s** で、**raw では未達だが diff サイズ交絡のため policy 起因の未達とは断定できない**。
    ⚠ **この基準参照値 203s は本表の baseline 平均 (164.4s、全期間・全 diff サイズ混在) とは別物**
@@ -85,6 +87,6 @@ pnpm takt-timings -- --piece pre-push-review --since 2000-01-01 --until 2026-07-
 
 ## 関連
 
-- [ADR-055](adr/adr-055-firing-telemetry-collection.md) — telemetry 収集層 (R3 の push-runs は決定論 stage を担当)
-- [ADR-047](adr/adr-047-prepush-refute-facet.md) / [ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) — 本データの消費者 (R4 採否判定)
-- [ADR-015](adr/adr-015-push-runner-takt-migration.md) § push パイプラインの所要時間 — before/after の実測記録 (push パイプライン改善計画は 2026-09-03 に削除条件充足で削除、記録はここへ移送)
+- [ADR-055](adr-055-firing-telemetry-collection.md) — telemetry 収集層 (R3 の push-runs は決定論 stage を担当)
+- [ADR-047](adr-047-prepush-refute-facet.md) / [ADR-056](adr-056-review-policy-anomaly-shadow.md) — 本データの消費者 (R4 採否判定)
+- [ADR-015](adr-015-push-runner-takt-migration.md) § push パイプラインの所要時間 — before/after の実測記録 (push パイプライン改善計画は 2026-09-03 に削除条件充足で削除、記録はここへ移送)

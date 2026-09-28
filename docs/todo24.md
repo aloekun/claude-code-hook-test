@@ -97,7 +97,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - **B-2**: `aggregate-weekly` の `findings=0` 分岐と `findings>0` 分岐が同じ見出し構造を出すことを固定する
 - **B-3**: **最終レポートの言語を決定論的に検査する** — `weekly-review.md` と `findings.json` の自由記述 field が日本語かを機械判定する。[ADR-031](adr/adr-031-weekly-review-pipeline.md) § 出力言語の契約点 で契約点を 1 枚へ集約したが、**その 1 枚を見る機械がまだ無い**。閾値未満なら warning としてレポートへ明記する (助言層なので run は止めない = [ADR-043](adr/adr-043-security-gates-fail-closed.md))
 - **A-2 は着手しない**: 提案された `crates/docs-parser` は本リポに存在せず、範囲記法の展開は facet instruction 側の話。A-1 に吸収する
-- 実装先は `cli-docs-lint` の validator 追加を第一候補とする。**順位 441 は 2026-08-26 に `entry_pairing` として実装済み** (defect-convergence-plan.md § Phase D の D3)。同 module の隣へ足すか独立 validator にするかを着手時に判断する
+- 実装先は `cli-docs-lint` の validator 追加を第一候補とする。**順位 441 は 2026-08-26 に `entry_pairing` として実装済み** (#452)。同 module の隣へ足すか独立 validator にするかを着手時に判断する
 
 #### 作業計画
 
@@ -177,6 +177,8 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 > **参照**: [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § L2 / § 並行起動 guard、[PR #417](https://github.com/aloekun/claude-code-hook-test/pull/417)、順位 323 (timeout が孫プロセスを縛れない — 同じ takt 実行経路の別欠陥)。
 >
 > **実行優先度**: Tier 2 — Severity Medium (実害は最大 25 分のブロック + 再実行 1 回。データ破壊は無い) / Frequency Low (142 run 中 2 件 = 1.4%) / Effort S (まず観測の追加のみ) / Adoption Risk None。
+>
+> **実装面の注記 (2026-09-28、不具合修正計画の退役に伴い移送)**: 対象は `src/cli-merge-pipeline/src/feedback/takt.rs` の `run_takt_workflow` に閉じる。この関数は `lib-subprocess` を経由せず生の `Command` + `Stdio::inherit()` を使っている (2026-08-22 確認) ため、同じ subprocess 系の順位 481 とは実装面の接点が無く、束ねない。完了基準に実走観測を含み発火率が低い (1.4%) ので、**着手が遅いほど観測の完了も遅れる** — 他より先に着手して観測窓を開ける。
 
 #### 作業計画
 
@@ -364,13 +366,13 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 ---
 
-## pre-push review 由来 (2026-08-19、bugfix-batch-plan.md 退役準備中に発見)
+## pre-push review 由来 (2026-08-19、不具合修正計画の退役準備中に発見)
 
 ### 順位 475: `resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する
 
 > **動機**: 不具合修正バックログ消化計画 (PR A〜L) での `cwd_to_project_id` Linux case 不一致調査 (順位 469 の完了確認、2026-08-19) で、**別の未対応の穴**が実測で見つかった。case-sensitive filesystem (WSL Ubuntu-24.04 / ext4 で確認) では `Foo` と `foo` を同じ `projects_root` に置ける。両方が `cwd_to_project_id` の lowercase 比較に一致すると、`resolve_project_dir` (`src/cli-merge-pipeline/src/feedback/transcript.rs:37`) の `.find(...)` は **1 件だけ返し、もう一方を無言で除外する** (どちらが返るかは `read_dir` の順序依存で契約上未規定)。5 回試行して毎回 1 件のみ返ることを確認済み。
 >
-> **発見時点で発現経路は未確認** — case-sensitive FS では同一ディレクトリの綴りが通常一意なため、同じ workspace root から 2 通りの綴りは生まれにくい。ただしこれは推論であり、`~/.claude/projects` を OS 間で持ち込む等の経路は排除できていない。**bugfix-batch-plan.md は退役予定で削除されるため、この観測の記録先を本エントリに移した。**
+> **発見時点で発現経路は未確認** — case-sensitive FS では同一ディレクトリの綴りが通常一意なため、同じ workspace root から 2 通りの綴りは生まれにくい。ただしこれは推論であり、`~/.claude/projects` を OS 間で持ち込む等の経路は排除できていない。**不具合修正計画は退役で削除されるため、この観測の記録先を本エントリに移した。**
 >
 > **参照**: `resolve_project_dir` の doc コメント (`transcript.rs:28-36`)、[ADR-043](adr/adr-043-security-gates-fail-closed.md) (fail-closed 原則)
 >

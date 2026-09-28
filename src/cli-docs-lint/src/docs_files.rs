@@ -7,7 +7,7 @@
 //! `priority_inversion` の summary、`preamble` の todo)。定義が割れると
 //! 「validator A は `todo-summary3.md` を読むが B は読まない」という**片側だけの
 //! 追従漏れ**が起きる — 台帳分割はこの先も繰り返す操作なので、そのたびに全 validator
-//! を手で揃える運用は破れる (defect-convergence-plan.md § Phase F の F1)。
+//! を手で揃える運用は破れる (#454)。
 //!
 //! **列挙を 1 箇所に集めることで、追従漏れの起きる場所そのものを無くす**
 //! ([ADR-042](../../../docs/adr/adr-042-rule-vs-mechanism-boundary.md): 人間に同期の

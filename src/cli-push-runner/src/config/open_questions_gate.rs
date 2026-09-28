@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-/// 機2 (open-questions gate) の config。ADR-077 / defect-convergence-plan.md § Phase 2。
+/// 機2 (open-questions gate) の config。ADR-077。
 ///
 /// ADR-039 (Experimental feature 標準パターン) 3 点セット:
 /// - **Config opt-in**: 本 gate は**既定で有効** (section 不在 / `enabled` 未設定 = 有効)。

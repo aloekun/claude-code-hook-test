@@ -6,7 +6,7 @@
 
 ## コンテキスト
 
-[defect-convergence-plan.md](../defect-convergence-plan.md) § 根因 の実測では、第 2 バッチの判定層不具合 8 件のうち **6 件が G1** — 「判定ロジックが I/O と同居していて、テストを書く場が最初から無い」形だった。ルール追加では直らないことも同計画で実証済みで、強制点は push ゲートに置くと決めた (2026-08-25 ユーザー決定)。
+不具合収束計画 (2026-08-25〜09-28、退役済み) の実測 ([ADR-079](adr-079-defect-origin-tagging.md) § G1 / G2 の出所) では、第 2 バッチの判定層不具合 8 件のうち **6 件が G1** — 「判定ロジックが I/O と同居していて、テストを書く場が最初から無い」形だった。ルール追加では直らないことも同計画で実証済みで ([ADR-042](adr-042-rule-vs-mechanism-boundary.md) § 追記 2026-09-28)、強制点は push ゲートに置くと決めた (2026-08-25 ユーザー決定)。
 
 典型例は 順位 490 (`cli-pr-monitor` の `diff_at_is_empty`) である。
 
@@ -109,7 +109,7 @@ ADR-007 が想定していた形だが、repo に未配線であり、パター�
 
 ## 関連
 
-- [defect-convergence-plan.md](../defect-convergence-plan.md) § Phase 1 — 位置づけと完了基準
+- [ADR-079](adr-079-defect-origin-tagging.md) — 本 gate を含む機構群の効果測定 (退出基準)
 - [ADR-007](adr-007-custom-linter-layer-boundary.md) — 正規表現層 / AST 層の線引き (本 ADR で第 3 の形を追記)
 - [ADR-039](adr-039-experimental-feature-standard-pattern.md) — 試験運用の標準パターン
 - [ADR-042](adr-042-rule-vs-mechanism-boundary.md) — ルール vs 仕組み化の境界
