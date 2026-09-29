@@ -93,7 +93,6 @@
 | 514 | Tier 2 | **[improvement] パーサ堅牢化を仕組みで担保できるか調べる** | todo26.md | S | なし (#479 / #313 の 2 件が同型。規約でなく型の網羅性 / fixture 契約 / 計測の 3 案を比較してから決める) |
 | 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
 | 521 | Tier 3 | **[improvement] `scope_guard` の bounded-lifetime 判定に必要な実績が 48 日集まっていない** | todo26.md | S | なし (週次レビュー WR-2026-09-18-C01、severity=medium、facet=security。enforce mode 開始 2026-08-01 から観測時点 2026-09-18 まで 48 日 (両端を含めない日付差) で fix step 実行実績 0 件で、ADR-054 の決定トリガー「enforce mode で 3〜5 PR」が満たせず期限が無期限に延びている。着手時判断: telemetry 記録 (ADR-055) の追加を先に入れるか期限の再設定だけで済ませるかは着手時に決める) |
-| 522 | Tier 2 | **[improvement] Stop hook に docs-only routing が無く docs のみの変更でも Rust の lint/test が走る** | todo26.md | S | なし (週次レビュー WR-2026-09-18-A02、severity=medium、facet=architecture。ただし順位未採番の既存エントリ docs/todo28.md「週次レビュー採用 (2026-07-01)」= WR-2026-07-01-A01 と解が競合する。着手時判断: A01 が Option A' (重複 step 削除) を採ると本件は不要になるため、A01 の処置を確定してから再評価する) |
 | 523 | Tier 2 | **[improvement] defect 流入の週次集計と退出基準の判定 (機4b)** | todo26.md | M | なし (2026-09-28 に不具合収束計画の退役で移送。判定の定義は ADR-079 § 退出基準。マージ時に保留中の post-merge feedback を一括採否する) |
 | 524 | Tier 3 | **[improvement] `-u` 無しの `jj squash` を PreToolUse で止める** | todo26.md | S | なし (2026-09-28 移送。headless で結合 editor が開いて止まる。ADR-042 § 撤廃の型 A) |
 | 525 | Tier 2 | **[improvement] `pnpm create-pr` の `--body` 引数を物理削除する** | todo26.md | S | なし (2026-09-28 移送。複数行本文の切り捨て事故の入口を消す。ADR-042 § 撤廃の型 B) |
@@ -101,6 +100,9 @@
 | 527 | Tier 3 | **[improvement] 永続文書から揮発性の成果物への参照を棚卸しする** | todo26.md | M | 順位 358 (規律と検査) (2026-09-28 に Claude Code Insights フォローアップの退役で移送。docs/ から揮発パスへの参照 247 件) |
 | 528 | Tier 2 | **[improvement] security-review / supervisor-validation の output-contract を用意する** | todo26.md | S | なし (2026-09-28 移送。format 名だけ宣言され契約ファイルが無い) |
 | 529 | Tier 3 | **[improvement] 蓄積した feedback レポートを横断して反復する指摘を抽出する (承認付き)** | todo26.md | M | なし (2026-09-28 移送。提案レポートまでを自動化し、登録はユーザー承認を経る) |
+| 530 | Tier 3 | **[improvement] テストのリポジトリルート解決をコンパイル時の値から実行時の探索へ移す** | todo28.md | S | なし (2026-09-28 に順位なしエントリの仕分けから採番。週次レビュー WR-2026-08-15-J01 / J02、WR-2026-09-18-J02 で再検出。範囲は lib-ledger と post-tool-linter coverage.rs の 2 ファイル。着手前に発症を実測し、しなければ負の結果として閉じる) |
+| 531 | Tier 3 | **[improvement] Stop hook と push gate の二重検査を意図した二層として明文化する** | todo28.md | S | なし (2026-09-28 採番。WR-2026-07-01-A01 を「両方残す」で決着 = ユーザー判断。ADR-004 への役割追記と push-runner-config の古いコメント修正。これに依存していた順位 522 は前提誤りで取り下げ。Stop の Rust は clippy だけで全体約 2 秒 (ADR-004 WP-05 の実測) のため、docs-only で飛ばしても 1 秒未満しか縮まない) |
+| 532 | Tier 3 | **[improvement] analyze-coderabbit facet の「Windows only」前提を Linux 対応後の実態に合わせる** | todo28.md | S | なし (2026-09-28 の仕分け中に発見。ADR-063 / 065 の後も cross-platform 指摘を Info へ落とす規則が残る。正当な指摘が落とされた事例はまず探す) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

@@ -128,16 +128,18 @@
 
 > **動機**: ADR-070 が weekly-review reminder の意味を「実行トリガー」から「監査リマインダー」へ、閾値を 7 日から 30 日へ再定義したが、`WeeklyReviewReminderConfig` の doc comment と ADR-031 本文が旧用語のまま残っている。実装 (`weekly_review.rs`) は新用語を採用済みで、**doc だけが取り残されている**状態。
 >
-> **対処案**: `src/hooks-session-start/src/hooks_config.rs` の `WeeklyReviewReminderConfig` doc comment と `docs/adr/adr-031-weekly-review-pipeline.md` の該当セクションを、post-ADR-070 の用語 (30 日 / cloud routine / 監査) に合わせて更新する。
+> **対処案**: `src/hooks-session-start/src/hooks_config.rs` の `WeeklyReviewReminderConfig` doc comment と `docs/adr/adr-031-weekly-review-pipeline.md` の該当セクションを、post-ADR-070 の用語 (7 日 / cloud routine / 監査。閾値は #396 で 7 日に戻った — 下の前提の訂正を参照) に合わせて更新する。
 >
 > **参照**: `.claude/feedback-reports/354.md` Tier 3 #1、[ADR-070](adr/adr-070-weekly-review-cloud-routine.md)、[ADR-031](adr/adr-031-weekly-review-pipeline.md)。本エントリと同時に採用した「ADR の trigger/scope 再定義時の同期」convention (dev-conventions 集中バッチの 5) が、この type の drift を今後防ぐ側の対処。
 >
 > **実行優先度**: Tier 3 — Severity Medium (誤誘導。実装は正しい) / Frequency Low / Effort S / Adoption Risk None。
+>
+> **前提の訂正 (2026-09-28)**: 上の動機の「7 日から 30 日へ再定義」は起票時点の状態で、その後 ADR-070 決定 2 の改訂 (#396、2026-08-13) で**既定は 7 日に戻った** (`src/hooks-session-start/src/weekly_review/mod.rs` の `WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS = 7`、テストで固定済み)。同期先の正は「7 日 / cloud routine / 監査」である。**週次レビュー WR-2026-08-15-A04 を本項へ統合した**: `docs/adr/adr-031-weekly-review-pipeline.md` 7 行目の「監査リマインダー (既定 30 日)」が今も残っている (2026-09-28 確認)。
 
 #### 作業計画
 
 - [ ] `hooks_config.rs` の doc comment を更新
-- [ ] ADR-031 の該当セクションを更新
+- [ ] ADR-031 の該当セクションを更新 (7 行目の「既定 30 日」を 7 日へ)
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準

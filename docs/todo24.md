@@ -103,7 +103,7 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 
 - [ ] 実装済みの `entry_pairing` (順位 441 の成果) へ相乗りするか、独立 validator にするかを決める
 - [ ] A-1 (preamble pointer 整合) を実装 + fixture テスト
-- [ ] B-1 (免除リスト ⇄ workflow condition) を実装 + fixture テスト
+- [ ] B-1 (免除リスト ⇄ workflow condition) を実装 + fixture テスト。**対応表を作るときに、`instruction:` の参照先が `.takt/facets/instructions/` に実在することも検査する** (2026-09-28 に旧 todo.md の「instruction 参照整合性 lint」「verdict 値の整合性 lint (PR #41 CodeRabbit Major 由来)」を統合)。takt は project の facet が見つからないとエラーを出さず、builtin の同名 facet (`fix` / `fix-supervisor` 等) か名前の文字列そのものを instruction として使うため、参照切れが黙って別の指示にすり替わる (`node_modules/takt/dist/infra/config/loaders/pieceParser.js` → faceted-prompting の `resolve.js`)。事故の観測は 0 件
 - [ ] B-2 (テンプレート分岐の見出し一致) を実装
 - [ ] B-3 (最終レポートの言語検査) を実装 — 最終成果物 1 枚の言語契約は [ADR-031](adr/adr-031-weekly-review-pipeline.md) § 出力言語の契約点 が「まだ機械が見ていない」と記録しているので、実装後に同節の当該記述を**更新する** (仕組みができたらルールは撤去する、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))
 - [ ] 既存違反 0 を確認して有効化する
