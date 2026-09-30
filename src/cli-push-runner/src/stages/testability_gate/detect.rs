@@ -141,23 +141,45 @@ fn collect_fns<'a>(items: &'a [Item], out: &mut Vec<FnItem<'a>>) {
     }
 }
 
+/// テストビルドでしかコンパイルされない module か (= `cfg` 条件が `test` を**含意**する)。
+///
+/// 旧実装はトークン列に `"test"` が**部分文字列として**含まれるかを見ていたため、
+/// `#[cfg(test_util)]` / `#[cfg(not(test))]` / `#[cfg(any(test, feature = "x"))]` の
+/// ような**本番でもコンパイルされる** module まで検査対象外にしていた (順位 500、
+/// PR #456 feedback)。いずれも検査が緩む向きの誤りなので、条件を構文として評価する。
+///
+/// 読めない条件は「test ではない」= 検査する側へ倒す ([ADR-043] fail-closed)。
 fn has_cfg_test(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|a| {
-        let path = path_string(a.path());
-        path == "cfg" && a.to_token_stream_string().contains("test")
+    attrs.iter().filter(|a| a.path().is_ident("cfg")).any(|a| {
+        a.parse_args::<syn::Meta>()
+            .is_ok_and(|m| cfg_implies_test(&m))
     })
 }
 
-trait AttrExt {
-    fn to_token_stream_string(&self) -> String;
-}
-
-impl AttrExt for syn::Attribute {
-    fn to_token_stream_string(&self) -> String {
-        match &self.meta {
-            syn::Meta::List(list) => list.tokens.to_string(),
-            _ => String::new(),
+/// `cfg` の述語が真なら必ず `test` も真か。
+///
+/// - `test` → 含意する (`test_util` のような別 ident は含意しない)
+/// - `all(..)` → いずれかの項が含意すれば含意する
+/// - `any(..)` → すべての項が含意するときだけ含意する (1 項でも本番側があれば本番に入る)
+/// - `not(..)` / `feature = ".."` / その他 → 含意しない
+fn cfg_implies_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(p) => p.is_ident("test"),
+        syn::Meta::List(list) => {
+            let Ok(items) = list.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            ) else {
+                return false;
+            };
+            if list.path.is_ident("all") {
+                items.iter().any(cfg_implies_test)
+            } else if list.path.is_ident("any") {
+                !items.is_empty() && items.iter().all(cfg_implies_test)
+            } else {
+                false
+            }
         }
+        syn::Meta::NameValue(_) => false,
     }
 }
 
@@ -687,6 +709,56 @@ mod tests {
             }
         "#;
         assert!(names(src).is_empty(), "{:?}", names(src));
+    }
+
+    /// `cfg` 属性付き module の中に incident 形の関数を置いたソース。
+    fn incident_inside_cfg(cfg: &str) -> String {
+        format!(
+            r#"
+            #[cfg({cfg})]
+            mod m {{
+                fn helper() -> bool {{
+                    let (_, out) = run_cmd_direct("jj", &[], &[], 30);
+                    out.trim() == "x"
+                }}
+            }}
+            "#
+        )
+    }
+
+    /// 順位 500: 本番でもコンパイルされる module は検査する。旧実装は `"test"` の
+    /// 部分文字列一致で、これらを全部テストコードとして素通りさせていた。
+    #[test]
+    fn scans_modules_whose_cfg_is_not_test_only() {
+        for cfg in [
+            "test_util",
+            "not(test)",
+            "any(test, feature = \"x\")",
+            "feature = \"test\"",
+            "all(unix, not(test))",
+        ] {
+            assert_eq!(
+                names(&incident_inside_cfg(cfg)),
+                vec!["helper"],
+                "#[cfg({cfg})] は本番でもコンパイルされるので検査対象",
+            );
+        }
+    }
+
+    /// `test` を含意する条件はテスト専用として扱う (`all` の 1 項 / `any` の全項)。
+    #[test]
+    fn skips_modules_whose_cfg_implies_test() {
+        for cfg in [
+            "test",
+            "all(test, windows)",
+            "all(unix, test)",
+            "any(test, all(test, unix))",
+        ] {
+            assert!(
+                names(&incident_inside_cfg(cfg)).is_empty(),
+                "#[cfg({cfg})] はテストビルド専用なので対象外",
+            );
+        }
     }
 
     #[test]

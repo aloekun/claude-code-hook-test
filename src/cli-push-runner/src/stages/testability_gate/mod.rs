@@ -217,7 +217,19 @@ pub(crate) fn run_testability_gate(config: Option<&TestabilityGateConfig>, pr_ra
     };
     let (violations, skipped) =
         scan_changed_files(&paths, |p| std::fs::read_to_string(Path::new(p)).ok());
-    let violations_ok = report(config, &violations);
+    gate_verdict(config, &violations, &skipped)
+}
+
+/// 走査結果から push を続行してよいかを決める (順位 500 で I/O から切り出した)。
+///
+/// 切り出す前は「走査できなかったファイルを `scan_incomplete` へ倒す」配線が I/O と
+/// 同じ関数にあり、`skipped` を無視する変異を入れてもテストが素通りした。
+fn gate_verdict(
+    config: Option<&TestabilityGateConfig>,
+    violations: &[Violation],
+    skipped: &[String],
+) -> bool {
+    let violations_ok = report(config, violations);
     if skipped.is_empty() {
         return violations_ok;
     }
@@ -572,6 +584,53 @@ mod tests {
     #[test]
     fn no_violations_passes_in_any_mode() {
         assert!(report(Some(&config_with(Some("deny"))), &[]));
+    }
+
+    /// 順位 500: 走査できないファイルがあれば、違反 0 でも deny では止める。
+    /// **「検査できなかった」を「違反なし」の緑に潰さない**配線そのものを固定する
+    /// (`skipped` を無視する変異が素通りしていた)。
+    #[test]
+    fn skipped_files_alone_block_in_deny_mode() {
+        let skipped = vec!["src/broken.rs (parse error)".to_string()];
+        assert!(!gate_verdict(
+            Some(&config_with(Some("deny"))),
+            &[],
+            &skipped
+        ));
+    }
+
+    #[test]
+    fn skipped_files_do_not_block_in_warning_mode() {
+        let skipped = vec!["src/broken.rs (parse error)".to_string()];
+        assert!(gate_verdict(Some(&config_with(None)), &[], &skipped));
+    }
+
+    /// 対照: 違反も skip も無ければ deny でも通る (上の 2 本が常に false / true を
+    /// 返す実装で通っていないことの確認)。
+    #[test]
+    fn a_clean_scan_passes_in_deny_mode() {
+        assert!(gate_verdict(Some(&config_with(Some("deny"))), &[], &[]));
+    }
+
+    /// 違反は skip の有無に関わらず deny で止める (skip 側の判定が違反を上書きしない)。
+    #[test]
+    fn violations_block_even_when_nothing_was_skipped() {
+        assert!(!gate_verdict(
+            Some(&config_with(Some("deny"))),
+            &one_violation(),
+            &[]
+        ));
+    }
+
+    /// 読めないファイル (`read` が `None`) も skip に数える。parse 失敗と同じく
+    /// 「検査できなかった」側へ倒れること。
+    #[test]
+    fn unreadable_files_are_counted_as_skipped() {
+        let (violations, skipped) =
+            scan_changed_files(&["src/gone.rs".to_string()], read_from(HashMap::new()));
+        assert!(violations.is_empty());
+        assert_eq!(skipped.len(), 1, "{skipped:?}");
+        assert!(skipped[0].starts_with("src/gone.rs"), "{skipped:?}");
     }
 
     fn collect_rs(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
