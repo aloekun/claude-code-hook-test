@@ -16,28 +16,6 @@
 > 同順位は 2026-09-15 に完了・削除した。以後の起票もこの見出しの下へ追記している。
 
 
-### 順位 500: `cfg(test)` 判定を ident 単位にし testability gate の fail-closed 経路を固定する
-
-> **動機**: `has_cfg_test` が文字列マッチで `#[cfg(test)]` を探しており、`#[cfg(test_util)]` の
-> ような別の属性にも当たる。PR [#456](https://github.com/aloekun/claude-code-hook-test/pull/456)
-> の post-merge feedback が指摘した。判定層にはテストがあったが、**ident 境界という入力の軸が
-> 覆われていなかった** (G2)。
->
-> **由来**: `[defect:G2]`。証拠 = PR #456。
-
-#### 作業内容
-
-- `has_cfg_test` の文字列マッチを ident のトークン単位比較へ変更する (`syn` で読んでいる情報を使う)
-- `is_scan_target` の除外規則 (root 直下 `tests.rs` / `tests/foo.rs`) の回帰テストを追加する
-- `scan_incomplete` を含む fail-closed 経路の回帰・統合テストを追加する
-
-#### 完了基準
-
-- `#[cfg(test_util)]` が `#[cfg(test)]` と誤認されないことをテストが固定している
-- 除外規則と fail-closed 経路が、実装を潰すと落ちるテストで覆われている
-
----
-
 ### 順位 501: 由来タグ判定の単語境界と rustdoc 相対リンクの段数を検査する
 
 > **動機**: 2 件の判定精度の欠陥。いずれも PR [#472](https://github.com/aloekun/claude-code-hook-test/pull/472)
@@ -592,7 +570,7 @@ ADR-054 に決定期限と「材料が集まらなかった場合の既定 OFF r
 >
 > **参照**: ADR-079 § 退出基準 (週次判定の定義) / § 再分類は緩める向きだけ根拠を要求する、`src/lib-ledger/src/summary_gate.rs` (`ORIGIN_BOUNDARY_RANK`)、`src/cli-ledger-candidates/`
 
-- [ ] `cli-ledger-candidates` に境界順位以降の `[defect:*]` 行を ISO 週別に数える集計を足す (起票日は行を追加したコミットの author date)
+- [ ] `cli-ledger-candidates` に境界順位以降の `[defect:*]` 行を ISO 週別に数える集計を足す (起票日は行を追加したコミットの author date)。**完了した `[defect:*]` 行は台帳から削除される** (初例: 順位 500、2026-09-30) ため、現在の summary だけを読むと完了済みの流入が数えられない。行の追加を履歴から数えること
 - [ ] 退出基準の判定 (4 週非増加かつ `w4 < w1`、全週 0 件は充足、観測なし週は除外して窓を伸ばす) を純関数で実装する
 - [ ] `[defect:*]` → `[improvement]` の再分類に `再分類根拠:` を要求する検査を足す (前の版との比較が要る)
 - [ ] weekly-review の決定論 scan から呼ぶ
