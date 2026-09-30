@@ -52,7 +52,7 @@
 > | 欠陥 | 実観測 |
 > |---|---|
 > | `read_dir(..).flatten()` が I/O エラーを黙って捨てる (fail-open) | PR [#454](https://github.com/aloekun/claude-code-hook-test/pull/454) — 統合前の `priority_inversion` / `preamble` が該当 |
-> | `gh` 呼び出しの `--repo` 欠落 (非 colocated jj でリポジトリ解決に失敗) | PR [#470](https://github.com/aloekun/claude-code-hook-test/pull/470) — 順位 467 F-2 に続く 2 度目 |
+> | `gh` 呼び出しの `--repo` 欠落 (非 colocated jj でリポジトリ解決に失敗) | PR [#470](https://github.com/aloekun/claude-code-hook-test/pull/470) — 順位 467 F-2 に続く 2 度目。**いずれも Node スクリプト** (Rust の exe ではない。下の注記) |
 > | `spawnSync` の timeout 未指定 (ネットワーク停止で無期限待機) | PR #470 |
 >
 > **由来**: `[defect:G1]`。証拠 = PR #454 / #470。
@@ -62,12 +62,24 @@
 - 上記 3 パターンの custom-lint rule を `.claude/custom-lint-rules.toml` へ追加する
   (`spawnSync` は gh / network 呼び出しに限定し、ローカル実行の spawn を巻き込まない)
 - `extensions` に `mjs` を足す (現状 js/jsx/ts/tsx のみで `scripts/*.mjs` が対象外)
-- `cli-stale-branch-scan` が持つ `--repo` 明示パターンを他の gh wrapper へ展開する
+- **`--repo` 欠落 rule の対象は Node スクリプト (`scripts/*.mjs`) に絞る** (2026-09-30、旧順位 509 の検証で判明)。
+  gh を呼ぶ Rust の exe (`cli-merge-pipeline` / `cli-pr-monitor` / `check-ci-coderabbit` /
+  `cli-stale-branch-scan`) は、**gh を起動する経路に入る前に** `GIT_DIR` を注入し、非 colocated
+  workspace でもリポジトリを解決する (ADR-045、実測: 副 workspace で
+  `check-ci-coderabbit.exe --list-findings --pr 530` が `--repo` 無しで解決した)。注入の位置は exe ごとに違う:
+  `cli-merge-pipeline` / `check-ci-coderabbit` は `main` 冒頭で `lib_jj_helpers::inject_git_dir_for_gh`、
+  `cli-pr-monitor` は gh を呼ばない `--prepare-pr-body*` の早期 return の後で同関数、
+  `cli-stale-branch-scan` は引数解析の後で `inject_git_dir_for_gh_with` を呼ぶ。Rust 側で `--repo` を
+  要求すると、注入で守られている呼び出しを誤検知する。Rust で検査するなら「gh を起動する経路より
+  前に注入が走るか」を見る形にする (`main` 冒頭だけを見ると上の 2 つを取りこぼす)
+- **現存違反**: `scripts/rebase-nightly-pr.mjs` の `gh pr view` は `--repo` も `GIT_DIR` も無く、
+  cwd = スクリプトのある workspace root で gh を起動する。副 workspace から使うと失敗する
+  (エラーとして表に出る = silent ではない)。rule 導入時に同 PR で直すこと
 
 #### 完了基準
 
 - 3 rule とも、違反コードを入れると lint が落ちることを fixture で固定している
-- 既存の `scripts/*.mjs` が新 rule で false positive を出さない
+- 既存の `scripts/*.mjs` が新 rule で false positive を出さない (`rebase-nightly-pr.mjs` は真の違反として修正済みであること)
 
 ---
 
@@ -234,46 +246,6 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 - weekly-review の報告に、除外クラス適用後の候補一覧 (順位 / Tier / 内容 / 除外されなかった理由) が出る
 - 除外されたものは件数とクラス別内訳が出る (「0 件」と「未実施」を読み手が区別できる)
 - ADR-072 決定 18 と weekly-review skill の制約が改訂されている
-
----
-
-### 順位 509: `cli-merge-pipeline` の gh 呼び出しが非 colocated workspace で解決に失敗する
-
-> **動機**: 2026-09-03 の weekly-review finding WR-2026-09-03-J01 (severity high)。
-> [`src/cli-merge-pipeline/src/github.rs`](../src/cli-merge-pipeline/src/github.rs) の
-> `detect_owner_repo()` と `detect_pr_number()` が `gh` を `--repo` なしで呼んでおり、
-> 非 colocated jj workspace ([ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) の並列
-> セッション運用) では `.git` が無いため gh がリポジトリを解決できない。
->
-> **順位 467 F-2 / PR [#470](https://github.com/aloekun/claude-code-hook-test/pull/470) と同型**。
-> 同じ穴を 3 度踏んでいる。
->
-> **由来**: `[defect:G1]`。証拠 = PR #470 (同型の実観測) / weekly-review finding J01。
-> gh のリポジトリ解決は実行環境に依存し、テストを書く場が無かった。
-
-#### 着手時に確定させること
-
-**2 つの関数は性質が違う。同じ修正を当てられない。**
-
-| 関数 | 状況 |
-|---|---|
-| `detect_pr_number()` (137 行) | `owner_repo` が既知なら `--repo` を渡せる。**素直に直せる** |
-| `detect_owner_repo()` (81 行) | **リポジトリを特定する関数自身**なので `--repo` は循環する。`gh` に頼らず `jj git remote list` 等から導出するか、環境変数 `GH_REPO` を受けるかの選択がある |
-
-**範囲を cli-pr-monitor へ広げる (2026-09-28、週次レビュー WR-2026-07-19-J02 を統合)**: 同じ穴が
-`src/cli-pr-monitor/src/util.rs` にも 2 箇所ある — `get_pr_info` (`gh repo view`。`detect_owner_repo()` と
-同じ循環問題) と `find_pr_via_jj_bookmarks` (`gh pr list --head`)。`cli-merge-pipeline` の
-`pr_number_for_bookmark` (`gh pr list --head`) も `--repo` を付けていない。
-
-順位 502 が追加する「`gh --repo` 欠落検出」の lint は、**これらを最初に検出する現存違反**に
-あたる。502 を先に入れると赤くなるため、lint 側に例外を置くか本タスクを先に片付けるかを決める。
-
-#### 完了基準
-
-- 非 colocated workspace で `cli-merge-pipeline` と `cli-pr-monitor` がリポジトリと PR 番号を解決できる (実測で確認)
-- `detect_owner_repo()` と `cli-pr-monitor` の `get_pr_info` の解決経路が gh のリポジトリ自動解決に依存しない
-- `pr_number_for_bookmark` (`cli-merge-pipeline`) と `find_pr_via_jj_bookmarks` (`cli-pr-monitor`) の `gh pr list --head` が `--repo` を渡す
-- 順位 502 の lint と矛盾しない (例外を置くならその根拠が書かれている)
 
 ---
 

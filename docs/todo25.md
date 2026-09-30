@@ -41,32 +41,6 @@ mtime を書き換えても両判定の結果が変わらないこと。変異�
 
 ---
 
-### 順位 494: ADR-032 の「永久欠番」決定が CLAUDE.md の ADR index へ未反映
-
-> **動機**: ADR-032 は 2026-08-12 に「docs-only fast-path として reserved」と判定され、実装は別設計の ADR-057 が実現した。todo.md では「永久欠番として扱う」と決定済みだが、CLAUDE.md の ADR index 等へ未反映で、決定と実態が乖離している。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-08-22-A01 で採用 (severity=high, facet=architecture, category=adr-alignment)。
->
-> **参照**: `.claude/weekly-reviews/2026-08-22.md`、`CLAUDE.md` (ADR index)
-
-#### 背景
-
-CLAUDE.md の ADR index は ADR-001 から ADR-074 まで連番で並ぶが、ADR-032 の行が無いまま番号だけが飛んでいる。読み手には「抜けている」のか「意図的な欠番」なのか判別できず、新規 ADR を起こす人が 032 を再利用しかねない。
-
-#### 設計決定 (案)
-
-CLAUDE.md の ADR index に ADR-032 の行を **欠番として明示**して戻す (例: `ADR-032: (永久欠番 — docs-only fast-path は ADR-057 が別設計で実現)`)。番号の再利用を防ぐのが目的なので、リンク先の実ファイルは作らない。
-
-- [ ] CLAUDE.md の ADR index に欠番行を追加
-- [ ] 他に ADR-032 を参照している箇所が無いか確認 (`grep -rn "ADR-032"`)。ADR-033 には「ADR-032 PR-β」をタスク名の例として出す箇所が 5 つある (2026-09-28 時点。リンクではない) — 欠番表記へ書き換えるかは着手時に決める
-- [ ] **同じ索引の ADR-030 行から、撤回済みの `Supersedes ADR-014 full, ADR-029 partial` 注記を外す** (週次レビュー WR-2026-08-13-A01 を 2026-09-28 に統合。ADR-030 本体は 7-10 行目で撤回済みなのに、`CLAUDE.md` の索引に注記が残っている)。WR-2026-06-01-A01 (ADR-032 欠番の明示) も本項と同内容のため統合した
-
-#### 完了基準
-
-ADR index を通読して 032 が意図的欠番と分かること。番号の再利用が起きない。ADR-030 の行に撤回済みの Supersedes 注記が残っていないこと (WR-2026-08-13-A01 の統合分)。
-
----
-
 ### 順位 495: lib-* crate の責務分類基準が ADR-012 に無い
 
 > **動機**: 現行の `lib-*` crate は shared utility / jj helper / domain logic / state management / external integration の 5 種の責務に分散しているが、ADR-012 (src/ ディレクトリの命名規約) には新規 crate がどのカテゴリに属するかの判定基準が無い。新しい lib-* を足すときに置き場所の判断が属人的になる。
