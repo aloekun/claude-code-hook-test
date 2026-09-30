@@ -55,6 +55,20 @@ const POLL_INTERVAL_MS: u64 = 100;
 /// 保証が「kill が成功すること」に依存した条件付きのものになる ([ADR-043])。
 const JOIN_GRACE_MS: u64 = 500;
 
+/// child が**自力で終了した**経路で reader thread の回収に許す上限 (順位 481)。
+///
+/// child が終了した時点でパイプに残るデータは OS のパイプバッファ分 (数 KB〜64 KB) が
+/// 上限なので、読み切りはほぼ即座に終わる。それでも [`JOIN_GRACE_MS`] より長く取るのは、
+/// ここで打ち切ると**成功したコマンドの出力を失う**から — 失敗経路 (既に失敗が確定
+/// している) より取りこぼしの損失が重い。負荷の高い CI でスレッドが待たされる分を
+/// 吸収できる長さにする。
+const EXIT_JOIN_GRACE_MS: u64 = 3000;
+
+/// 正常終了後も子孫がパイプを握り続け、[`EXIT_JOIN_GRACE_MS`] 内に出力を回収できな
+/// かったときに戻り値へ載せる注記 (順位 481)。
+pub const OUTPUT_PIPE_HELD_NOTICE: &str =
+    "exited, but a descendant process still holds the output pipe (output incomplete)";
+
 /// プロセスを**子孫ごと**強制終了する (順位 323)。
 ///
 /// `shell_command` の child はシェルで、実際のコマンド (cargo / jj / ping) は**孫**に
@@ -302,31 +316,46 @@ fn kill_and_join_err(
     kill_process_tree(child.id());
     let _ = child.kill();
     let _ = child.wait();
-    let _ = join_within_grace(stdout_handle, stderr_handle);
+    let _ = join_within(stdout_handle, stderr_handle, JOIN_GRACE_MS);
     (false, error)
 }
 
-/// reader thread 2 本を **上限付き**で回収する (順位 323)。
+/// reader thread 2 本の回収結果。
+struct JoinedOutput {
+    stdout: String,
+    stderr: String,
+    /// 2 本とも上限内に回収できたか。`false` なら回収できなかった側は空文字で、
+    /// 出力は欠けている。
+    complete: bool,
+}
+
+/// reader thread 2 本を **上限付き**で回収する (順位 323 / 481)。
 ///
-/// [`kill_process_tree`] が成功していれば孫も死んでパイプが閉じるため、実際にはほぼ
-/// 即座に返る。上限が要るのは kill が失敗し得るから (権限 / race / `taskkill` 不在):
-/// 素の `join()` はその場合に孫の自然終了までブロックし、**timeout の保証が
-/// 「kill が成功すること」に依存した条件付き**のものになる ([ADR-043])。
+/// 失敗経路 ([`JOIN_GRACE_MS`]) では、[`kill_process_tree`] が成功していれば孫も死んで
+/// パイプが閉じるため、実際にはほぼ即座に返る。上限が要るのは kill が失敗し得るから
+/// (権限 / race / `taskkill` 不在): 素の `join()` はその場合に孫の自然終了まで
+/// ブロックし、**timeout の保証が「kill が成功すること」に依存した条件付き**のものに
+/// なる ([ADR-043])。正常終了経路 ([`EXIT_JOIN_GRACE_MS`]) で上限が要る理由は
+/// [`run_cmd_shell_with`] の doc を参照。
 ///
-/// 猶予は 2 本で共有する ([`JOIN_GRACE_MS`] を全体の deadline とする)。1 本ずつ
+/// 猶予は 2 本で共有する (`grace_ms` を全体の deadline とする)。1 本ずつ
 /// 上限を与えると最悪 2 倍待つことになり、上限の意味が薄れる。
 /// 回収できなかった thread は detach され、プロセス終了時に道連れになる。
-fn join_within_grace(
+fn join_within(
     stdout_handle: JoinHandle<String>,
     stderr_handle: JoinHandle<String>,
-) -> (String, String) {
-    let deadline = Instant::now() + Duration::from_millis(JOIN_GRACE_MS);
+    grace_ms: u64,
+) -> JoinedOutput {
+    let deadline = Instant::now() + Duration::from_millis(grace_ms);
     let stdout_rx = forward_join(stdout_handle);
     let stderr_rx = forward_join(stderr_handle);
-    (
-        recv_until(&stdout_rx, deadline),
-        recv_until(&stderr_rx, deadline),
-    )
+    let stdout = recv_until(&stdout_rx, deadline);
+    let stderr = recv_until(&stderr_rx, deadline);
+    JoinedOutput {
+        complete: stdout.is_some() && stderr.is_some(),
+        stdout: stdout.unwrap_or_default(),
+        stderr: stderr.unwrap_or_default(),
+    }
 }
 
 /// `JoinHandle` を channel に載せ替えて、時間制限付きで待てるようにする
@@ -339,9 +368,9 @@ fn forward_join(handle: JoinHandle<String>) -> mpsc::Receiver<String> {
     rx
 }
 
-fn recv_until(rx: &mpsc::Receiver<String>, deadline: Instant) -> String {
+fn recv_until(rx: &mpsc::Receiver<String>, deadline: Instant) -> Option<String> {
     let remaining = deadline.saturating_duration_since(Instant::now());
-    rx.recv_timeout(remaining).unwrap_or_default()
+    rx.recv_timeout(remaining).ok()
 }
 
 /// コマンド文字列を OS のシェル経由で実行する `Command` を組み立てる (WP-15)。
@@ -397,7 +426,7 @@ pub fn shell_command(cmd: &str) -> Command {
 /// ## 失敗経路で孫まで殺す理由 (順位 323)
 ///
 /// 失敗経路では [`kill_process_tree`] で**子孫ごと**終了させ、reader thread の回収は
-/// [`join_within_grace`] で上限付きにする。素朴に `child.kill()` + `join()` すると、
+/// [`join_within`] で上限付きにする。素朴に `child.kill()` + `join()` すると、
 /// シェルの孫がパイプを握ったまま生き残って join がブロックし、timeout が事実上
 /// 無効になっていた (実測: timeout 1s に対し 3 variant とも 9.59s)。
 ///
@@ -406,12 +435,31 @@ pub fn shell_command(cmd: &str) -> Command {
 /// cargo や jj のような重いコマンドを起動するので、孤児が残ると次の実行と資源を
 /// 奪い合い、`.failed` marker を残す orphan takt (#286) と同じクラスの実害を生む。
 /// tree kill なら制御が戻る速さ**と**孤児の除去を同時に満たせるため、そちらを採った。
-/// detach は「kill が失敗したら」の保険としてのみ [`join_within_grace`] に残っている。
+/// detach は「kill が失敗したら」の保険としてのみ [`join_within`] に残っている。
 ///
 /// **テストで固定していない経路**: `kill_process_tree` 自体が失敗したとき
-/// ([`join_within_grace`] の猶予が効く経路) は回帰テストで固定できていない —
+/// ([`join_within`] の猶予が効く経路) は回帰テストで固定できていない —
 /// kill の失敗を決定論的に再現する手段が無いため。tree kill が成功する経路は
 /// `orphan_tests` が、上限付き join の存在は本 doc が担保する。
+///
+/// ## 正常終了経路も上限付きで join する理由 (順位 481)
+///
+/// child が自力で終了しても、パイプの書き込み端を継承した子孫 (`cmd &` /
+/// `start /b`) が生きている間は EOF が来ず、素の `join()` は子孫の終了まで
+/// ブロックする。この待ちは timeout の外側で起きるので **timeout では止まらない**
+/// (実測: 即座に exit 0 するコマンドで、子孫の寿命どおり 14.1s ブロック)。
+/// よって [`EXIT_JOIN_GRACE_MS`] で上限を切る。
+///
+/// - **tree kill はしない**: child は既に reap 済みで、Windows ではその pid が別の
+///   プロセスに再利用され得る。無関係なプロセスツリーを撃つ危険のほうが重い。
+///   子孫はコマンド自身が意図して残したものとして detach する
+/// - **上限に達したら失敗として返す** ([`OUTPUT_PIPE_HELD_NOTICE`] を先頭行に置く):
+///   回収できなかった側の出力は丸ごと欠ける (drain thread は EOF まで結果を返さない)。
+///   終了コードだけを見て成功と返すと、出力を control flow 判定に使う callsite が
+///   空の出力で無言に誤判定する ([ADR-043] fail-closed)
+///
+/// 「上限を入れず理由を doc に書く」案は採らない (PR #439 CodeRabbit Major):
+/// 文書化では hang を 1 ミリ秒も縮められない。
 fn run_cmd_shell_with<F>(label: &str, cmd: &str, timeout_secs: u64, drain: F) -> (bool, String)
 where
     F: Fn(Box<dyn Read + Send>) -> JoinHandle<String>,
@@ -433,24 +481,29 @@ where
         Err(e) => return kill_and_join_err(&mut child, stdout_handle, stderr_handle, e),
     };
 
-    let (stdout, stderr) = match exit_status {
-        None => join_within_grace(stdout_handle, stderr_handle),
-        Some(_) => (
-            stdout_handle.join().unwrap_or_default(),
-            stderr_handle.join().unwrap_or_default(),
-        ),
+    let grace_ms = match exit_status {
+        None => JOIN_GRACE_MS,
+        Some(_) => EXIT_JOIN_GRACE_MS,
     };
-    let combined = combine_output(&stdout, &stderr);
+    let joined = join_within(stdout_handle, stderr_handle, grace_ms);
+    let combined = combine_output(&joined.stdout, &joined.stderr);
 
     match exit_status {
-        None => {
-            let mut msg = format!("timed out after {}s", timeout_secs);
-            if !combined.is_empty() {
-                msg = format!("{}\n{}", msg, combined);
-            }
-            (false, msg)
-        }
+        None => (
+            false,
+            prefix_notice(&format!("timed out after {}s", timeout_secs), &combined),
+        ),
+        Some(_) if !joined.complete => (false, prefix_notice(OUTPUT_PIPE_HELD_NOTICE, &combined)),
         Some(status) => (status.success(), combined),
+    }
+}
+
+/// 失敗理由の注記を先頭行に置き、回収できた出力があれば続ける。
+fn prefix_notice(notice: &str, combined: &str) -> String {
+    if combined.is_empty() {
+        notice.to_string()
+    } else {
+        format!("{}\n{}", notice, combined)
     }
 }
 
