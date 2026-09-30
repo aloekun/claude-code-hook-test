@@ -229,15 +229,38 @@ fn run_cmd_shell_capped_captures_stdout_within_cap() {
     );
 }
 
-#[test]
-fn run_cmd_shell_capped_reports_timeout_with_message() {
-    let (ok, output) = run_cmd_shell_capped("test", LONG_RUNNING_CMD, 1, 40);
-    assert!(!ok, "timeout should report failure");
+/// timeout 1s のテストで制御が戻るまでに許す上限。`LONG_RUNNING_CMD` の寿命 (10s) より
+/// 十分小さく取る。
+///
+/// 戻り値の文言だけを見る timeout テストは、制御が戻るのが遅れても通る — PR #436 で
+/// 実際に穴を素通りさせた (T6 / PR #283 と同型)。よって経過時間も assert する (順位 481)。
+const TIMEOUT_TEST_MAX_ELAPSED_SECS: u64 = 4;
+
+/// `run` を実行し、1s の timeout として報告され、かつ上限内に制御が戻ったことを確かめる。
+fn assert_times_out_promptly(label: &str, run: impl FnOnce() -> (bool, String)) {
+    let started = std::time::Instant::now();
+    let (ok, output) = run();
+    let elapsed = started.elapsed();
+    assert!(!ok, "{}: timeout should report failure", label);
     assert!(
         output.starts_with("timed out after 1s"),
-        "timeout message expected: {:?}",
+        "{}: timeout message expected: {:?}",
+        label,
         output,
     );
+    assert!(
+        elapsed.as_secs() < TIMEOUT_TEST_MAX_ELAPSED_SECS,
+        "{}: timeout=1s なのに制御が戻るまで {:?} かかった",
+        label,
+        elapsed,
+    );
+}
+
+#[test]
+fn run_cmd_shell_capped_reports_timeout_with_message() {
+    assert_times_out_promptly("capped", || {
+        run_cmd_shell_capped("test", LONG_RUNNING_CMD, 1, 40)
+    });
 }
 
 #[test]
@@ -248,13 +271,9 @@ fn run_cmd_shell_capped_reporting_returns_true_on_exit_zero() {
 
 #[test]
 fn run_cmd_shell_capped_reporting_reports_timeout_with_message() {
-    let (ok, output) = run_cmd_shell_capped_reporting("test", LONG_RUNNING_CMD, 1, 40);
-    assert!(!ok, "timeout should report failure");
-    assert!(
-        output.starts_with("timed out after 1s"),
-        "timeout message expected: {:?}",
-        output,
-    );
+    assert_times_out_promptly("capped_reporting", || {
+        run_cmd_shell_capped_reporting("test", LONG_RUNNING_CMD, 1, 40)
+    });
 }
 
 #[test]
@@ -286,13 +305,9 @@ fn run_cmd_shell_unlimited_preserves_output_beyond_the_capped_variant_cap() {
 
 #[test]
 fn run_cmd_shell_unlimited_reports_timeout_with_message() {
-    let (ok, output) = run_cmd_shell_unlimited("test", LONG_RUNNING_CMD, 1);
-    assert!(!ok, "timeout should report failure");
-    assert!(
-        output.starts_with("timed out after 1s"),
-        "timeout message expected: {:?}",
-        output,
-    );
+    assert_times_out_promptly("unlimited", || {
+        run_cmd_shell_unlimited("test", LONG_RUNNING_CMD, 1)
+    });
 }
 
 /// 順位 323: timeout が孫プロセスに素通りする穴。
@@ -372,5 +387,110 @@ mod rank323_grandchild_outliving_the_shell {
         let (ok, output) = run_cmd_shell_unlimited("test", "echo hello", 10);
         assert!(ok, "exit 0 should still succeed: {:?}", output);
         assert_eq!(output.trim(), "hello");
+    }
+}
+
+/// 順位 481: **正常終了経路**でも reader thread の join が無制限だった穴。
+///
+/// 順位 323 は失敗経路 (timeout / wait 失敗) の join に上限を入れたが、child が
+/// 自力で終了した経路は素の `join()` のまま残っていた。child がパイプの書き込み端を
+/// 子孫へ継承させて終了すると (`cmd &` / `start /b`)、子孫が生きている間 EOF が
+/// 来ず、join がブロックする — timeout の外側で起きるので **timeout では止まらない**。
+///
+/// 経過時間を assert する (戻り値だけを見るテストは PR #436 で穴を素通りさせた)。
+///
+/// ## 子孫を残したままテストを終えない
+///
+/// Windows では子孫が**テストプロセスの継承可能ハンドルも**受け継ぐ。テストを
+/// `run_cmd_shell_*` 経由で起動した側 (push-runner の quality gate が `cargo test` を
+/// 起動する) のパイプまで子孫が握るので、テストが先に終わると**呼び出し側が本修正の
+/// 上限に当たって gate が落ちる** (初回 push で実際に落ちた)。よって各テストは
+/// drain thread が EOF に達する = 子孫がパイプを離すまで待ってから終わる。
+/// 待つために公開 variant ではなく共通骨格 `run_cmd_shell_with` を直接呼び、各
+/// variant の drain を EOF 通知付きで包む。
+mod rank481_descendant_outliving_a_clean_exit {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    /// timeout は十分長く取る。本テストの経路は timeout に達しないことが前提。
+    const TIMEOUT_SECS: u64 = 60;
+
+    /// 正常終了後の猶予 (3s) + CI の負荷変動の余裕。子孫の寿命 (約 8s) より小さく取り、
+    /// join でブロックしたら必ず落ちるようにする。
+    const MAX_ELAPSED_SECS: u64 = 6;
+
+    /// 子孫がパイプを離すのを待つ上限。寿命 (約 8s) に十分な余裕を足した値。
+    const RELEASE_WAIT_SECS: u64 = 30;
+
+    /// 子孫にパイプを握らせたまま、シェル自身は exit 0 で即座に終わるコマンド。
+    /// 子孫の寿命は両 OS で約 8s に揃える (`ping -n 9` は 8 秒)。
+    #[cfg(windows)]
+    const DESCENDANT_HOLDS_PIPE_CMD: &str = "start /b ping 127.0.0.1 -n 9 & exit 0";
+    #[cfg(not(windows))]
+    const DESCENDANT_HOLDS_PIPE_CMD: &str = "sleep 8 & exit 0";
+
+    /// `drain` の結果を返す thread を、EOF に達したら `released` へ通知する thread で包む。
+    fn notify_on_eof(drain: JoinHandle<String>, released: mpsc::Sender<()>) -> JoinHandle<String> {
+        thread::spawn(move || {
+            let output = drain.join().unwrap_or_default();
+            let _ = released.send(());
+            output
+        })
+    }
+
+    /// `drain` 戦略で子孫の残るコマンドを走らせ、制御が戻るまでの時間と戻り値を検査し、
+    /// 最後に stdout / stderr の両パイプが離されるまで待つ。
+    fn assert_bounded_and_wait_for_release<D>(label: &str, drain: D)
+    where
+        D: Fn(Box<dyn Read + Send>) -> JoinHandle<String>,
+    {
+        let (tx, rx) = mpsc::channel();
+        let started = Instant::now();
+        let (ok, output) =
+            run_cmd_shell_with("test", DESCENDANT_HOLDS_PIPE_CMD, TIMEOUT_SECS, |pipe| {
+                notify_on_eof(drain(pipe), tx.clone())
+            });
+        let elapsed = started.elapsed();
+        drop(tx);
+
+        for _ in 0..2 {
+            rx.recv_timeout(Duration::from_secs(RELEASE_WAIT_SECS))
+                .expect("子孫プロセスがパイプを離さない (テスト後に孤児が残る)");
+        }
+
+        assert!(
+            elapsed.as_secs() < MAX_ELAPSED_SECS,
+            "{}: child は即座に終了したのに制御が戻るまで {:?} かかった。\
+             子孫プロセスがパイプを握っている間 join がブロックしている",
+            label,
+            elapsed,
+        );
+        // 出力を読み切れていないのに成功と返すと、出力を control flow 判定に使う
+        // callsite が空の出力で誤判定する。
+        assert!(!ok, "{}: 出力を回収できていないのに成功扱い: {:?}", label, output);
+        assert!(
+            output.contains(OUTPUT_PIPE_HELD_NOTICE),
+            "{}: 上限到達の理由が出力に無い: {:?}",
+            label,
+            output,
+        );
+    }
+
+    #[test]
+    fn capped_returns_promptly_when_a_descendant_outlives_a_clean_exit() {
+        assert_bounded_and_wait_for_release("capped", |pipe| drain_pipe_capped(pipe, 40));
+    }
+
+    #[test]
+    fn capped_reporting_returns_promptly_when_a_descendant_outlives_a_clean_exit() {
+        assert_bounded_and_wait_for_release("capped_reporting", |pipe| {
+            drain_pipe_capped_reporting(pipe, 40)
+        });
+    }
+
+    #[test]
+    fn unlimited_returns_promptly_when_a_descendant_outlives_a_clean_exit() {
+        assert_bounded_and_wait_for_release("unlimited", drain_pipe_unlimited);
     }
 }
