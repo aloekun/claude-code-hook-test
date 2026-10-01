@@ -1027,11 +1027,24 @@ rs = [
 # 否定 (「フラグが付いていない」) は Rust regex で書けないため、`exception` field の
 # 2 段判定を使う (ADR-007 § 否定判定の手段)。pattern は引数配列の `[` から `]` まで、
 # または `.arg(..)` の連鎖全体を範囲に取る — フラグがどの位置にあっても範囲に入るように。
+# 連鎖の `.arg(..)` は変数 (`.arg(template)`) や括弧 1 段の呼び出し (`.arg(format!(..))`)
+# も範囲に含める。含めないと範囲がそこで切れ、後ろのフラグを見落として準拠した呼び出しを
+# 誤検知する (PR #532 CodeRabbit)。
+#
+# マッチ範囲はコメントも含むため、exception は「その行でフラグより前に `//` が無い」場合
+# だけ一致させる。コメントアウトしたフラグで違反を逃がさない (同)。単独の `/` (パス文字列)
+# は許す。限界: フラグより前の文字列リテラルに `//` (URL 等) があると、準拠していても
+# error になる (安全側)。`/* .. */` で囲んだフラグは逃がす。
+#
+# 対象を `Command::new("jj")` 直後に絞らない。このリポジトリには `run_jj(&[..])` /
+# `run_jj_with_timeout(&[..], ..)` のような slice を受けるラッパーが複数あり、絞ると
+# ラッパー経由の呼び出しが素通りする。jj 以外で `"workspace", "list"` が連続する引数配列は
+# 2026-10-01 時点で 0 件。
 
 [[rules]]
 id = "jj-workspace-list-without-ignore-working-copy"
-pattern = '\[[^\]]*"workspace",\s*"list"[^\]]*\]|(?:\.arg\("[^"]*"\)\s*)*\.arg\("workspace"\)\s*\.arg\("list"\)(?:\s*\.arg\("[^"]*"\))*'
-exception = '"--ignore-working-copy"'
+pattern = '\[[^\]]*"workspace",\s*"list"[^\]]*\]|(?:\.arg\((?:[^()]|\([^()]*\))*\)\s*)*\.arg\("workspace"\)\s*\.arg\("list"\)(?:\s*\.arg\((?:[^()]|\([^()]*\))*\))*'
+exception = '(?m)^(?:[^/\n]|/[^/\n])*"--ignore-working-copy"'
 severity = "error"
 message = "`jj workspace list` に --ignore-working-copy が付いていません。一覧を読むだけでも working copy を snapshot し、並行 jj セッションと operation が分岐します"
 why = "PR #421 で list_workspace_roots が --ignore-working-copy を欠いていた (discover.rs は付いていた)。snapshot が作る operation は並行セッションの operation と分岐し、commit 済みの作業を silent revert しうる。読み取り専用の一覧取得に snapshot は不要なので、フラグを必須にする (順位 470)"
@@ -1069,6 +1082,12 @@ rs = [
   "jj_workspace_list_skips_flag_before_subcommand",
   "jj_workspace_list_skips_flag_in_arg_chain",
   "jj_workspace_list_skips_flag_before_subcommand_in_arg_chain",
+  "jj_workspace_list_skips_flag_after_variable_arg_in_chain",
+  "jj_workspace_list_skips_flag_after_nested_call_arg_in_chain",
+  "jj_workspace_list_skips_flag_after_single_slash_string",
+  "jj_workspace_list_detects_commented_out_flag_in_args_array",
+  "jj_workspace_list_detects_commented_out_flag_in_arg_chain",
+  "jj_workspace_list_detects_wrapper_slice_without_flag",
   "jj_workspace_list_skips_other_workspace_subcommands",
   "jj_workspace_list_deployed_rule_has_exception",
 ]

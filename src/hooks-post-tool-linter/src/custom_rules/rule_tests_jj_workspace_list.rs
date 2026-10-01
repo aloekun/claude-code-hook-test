@@ -116,5 +116,54 @@ fn jj_workspace_list_skips_other_workspace_subcommands() {
 #[test]
 fn jj_workspace_list_deployed_rule_has_exception() {
     let rule = rule_from_repo_config(RULE_ID);
-    assert_eq!(rule.exception.as_deref(), Some(r#""--ignore-working-copy""#));
+    assert!(
+        rule.exception
+            .as_deref()
+            .is_some_and(|e| e.contains("--ignore-working-copy")),
+        "exception must target the flag: {:?}",
+        rule.exception
+    );
+}
+
+/// 連鎖の途中に変数引数があっても範囲が切れない (PR #532 CodeRabbit)。切れると後ろの
+/// フラグが範囲外になり、準拠した呼び出しを誤検知する。
+#[test]
+fn jj_workspace_list_skips_flag_after_variable_arg_in_chain() {
+    let src = "let out = Command::new(\"jj\")\n    .arg(\"workspace\")\n    .arg(\"list\")\n    .arg(\"-T\")\n    .arg(template)\n    .arg(\"--ignore-working-copy\")\n    .output();\n";
+    assert!(violation_lines(src).is_empty());
+}
+
+#[test]
+fn jj_workspace_list_skips_flag_after_nested_call_arg_in_chain() {
+    let src = "let out = Command::new(\"jj\").arg(\"workspace\").arg(\"list\").arg(format!(\"{}\", t)).arg(\"--ignore-working-copy\").output();\n";
+    assert!(violation_lines(src).is_empty());
+}
+
+/// exception はコメントを除くために `//` を見るが、単独の `/` (パス文字列) は許す。
+#[test]
+fn jj_workspace_list_skips_flag_after_single_slash_string() {
+    let src = "let out = run_jj(&[\"workspace\", \"list\", \"-R\", \"a/b\", \"--ignore-working-copy\"]);\n";
+    assert!(violation_lines(src).is_empty());
+}
+
+/// コメントアウトしたフラグは効いていない。範囲にはコメントも入るので、exception が
+/// コメント内のフラグに一致すると違反を逃がす (PR #532 CodeRabbit)。
+#[test]
+fn jj_workspace_list_detects_commented_out_flag_in_args_array() {
+    let src = "let out = Command::new(\"jj\").args([\n    \"workspace\",\n    \"list\",\n    // \"--ignore-working-copy\",\n    \"-T\",\n    template,\n]).output();\n";
+    assert_eq!(violation_lines(src), vec![1]);
+}
+
+#[test]
+fn jj_workspace_list_detects_commented_out_flag_in_arg_chain() {
+    let src = "let out = Command::new(\"jj\")\n    .arg(\"workspace\")\n    .arg(\"list\")\n    // .arg(\"--ignore-working-copy\")\n    .output();\n";
+    assert_eq!(violation_lines(src), vec![2]);
+}
+
+/// 対象を `Command::new("jj")` 直後に絞らない理由。slice を受けるラッパー経由の
+/// 呼び出しも検出する。
+#[test]
+fn jj_workspace_list_detects_wrapper_slice_without_flag() {
+    let src = "let out = run_jj_with_timeout(&[\"workspace\", \"list\", \"-T\", t], 5);\n";
+    assert_eq!(violation_lines(src), vec![1]);
 }
