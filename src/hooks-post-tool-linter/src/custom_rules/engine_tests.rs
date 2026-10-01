@@ -29,6 +29,7 @@ pub(super) fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> Cu
         }),
         test_coverage: None,
         incident: None,
+        exception: None,
     }
 }
 
@@ -549,4 +550,76 @@ fn paths_filter_rejects_absolute_path_outside_repo() {
         cwd.to_string_lossy().replace('\\', "/")
     );
     assert!(!rule_matches_path(&compiled, &outside));
+}
+
+// ─── exception field (順位 470) ───
+
+fn make_test_rule_with_exception(pattern: &str, exception: &str) -> CustomRule {
+    let mut rule = make_test_rule("test-exception", pattern, &["rs"]);
+    rule.exception = Some(exception.into());
+    rule
+}
+
+fn run_on_rs(content: &str, rule: CustomRule) -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("exception.rs");
+    std::fs::write(&file, content).unwrap();
+    let rules = compile_test_rules(vec![rule]);
+    assert_eq!(rules.len(), 1, "rule must compile");
+    run_custom_rules(file.to_str().unwrap(), &rules)
+}
+
+#[test]
+fn exception_suppresses_match_whose_span_contains_it() {
+    let rule = make_test_rule_with_exception(r#"call\([^)]*\)"#, "--safe");
+    assert!(run_on_rs("call(\"x\", \"--safe\");\n", rule).is_empty());
+}
+
+#[test]
+fn exception_keeps_match_whose_span_lacks_it() {
+    let rule = make_test_rule_with_exception(r#"call\([^)]*\)"#, "--safe");
+    assert_eq!(run_on_rs("call(\"x\");\n", rule).len(), 1);
+}
+
+/// exception はファイル全体ではなく match 範囲だけを見る。
+///
+/// 全体を見る実装だと、同じファイルの別の呼び出しがフラグを持つだけで違反側も
+/// 見逃す。2 行目だけが違反として残ることを行番号まで固定する。
+#[test]
+fn exception_is_evaluated_per_match_not_per_file() {
+    let rule = make_test_rule_with_exception(r#"call\([^)]*\)"#, "--safe");
+    let violations = run_on_rs("call(\"--safe\");\ncall(\"x\");\n", rule);
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
+    assert_eq!(v["location"]["line"], 2);
+}
+
+#[test]
+fn exception_text_outside_the_span_does_not_suppress() {
+    let rule = make_test_rule_with_exception(r#"call\([^)]*\)"#, "--safe");
+    assert_eq!(run_on_rs("call(\"x\"); // --safe\n", rule).len(), 1);
+}
+
+#[test]
+fn invalid_exception_regex_drops_the_rule() {
+    let rule = make_test_rule_with_exception("call", "(unclosed");
+    assert!(compile_rule(rule).is_none());
+}
+
+#[test]
+fn exception_field_parses_from_toml() {
+    let config: CustomRulesConfig = toml::from_str(
+        r#"
+[[rules]]
+id = "r"
+pattern = "a"
+severity = "error"
+message = "m"
+extensions = ["rs"]
+exception = "b"
+"#,
+    )
+    .unwrap();
+    let rule = config.rules.unwrap().remove(0);
+    assert_eq!(rule.exception.as_deref(), Some("b"));
 }

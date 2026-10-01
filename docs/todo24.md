@@ -204,40 +204,6 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 > tests、PR #418 で追加)。同 PR の他 2 提案も大部分が実装済みで、残片のみを順位 471 に載せている。
 > **feedback レポートも台帳と同じく実装が動くほどずれる。**
 
-### 順位 470: 誤帰属と副作用フラグ欠如を決定論ルールで弾く (系統 A)
-
-> **動機**: 2 件とも**過去に実 incident を生んだパターン**の機械検出で、実装先も手法も同じ。
->
-> - **設定文字列のパス相当フィールドへの `..` 混入**: `reportDirectory` の `..` で別 run の成果物を
->   成功証拠に誤用した (PR [#417](https://github.com/aloekun/claude-code-hook-test/pull/417) で修正)。
->   同型の誤帰属は 2026-08-09 #374 / 2026-07-16 #281 でも観測されている
-> - **`jj workspace list` の `--ignore-working-copy` 欠如**: `list_workspace_roots` が `discover.rs` と
->   違ってフラグを欠いていた (PR [#421](https://github.com/aloekun/claude-code-hook-test/pull/421) で修正)。
->   並行 jj セッションの op-log divergence による commit 済み作業の silent revert に直結しうる
->
-> **なぜ 1 タスクか**: 実装先が同じ `.claude/custom-lint-rules.toml` の正規表現層 ([ADR-007](adr/adr-007-custom-linter-layer-boundary.md))
-> で、既存 13 ルールと同水準の単純パターン。fixture も同じ `tests/fixtures/incidents/{bad,good}/` ([ADR-049](adr/adr-049-incident-eval-regression-suite.md))。
->
-> **将来の false positive に注意**: `--ignore-working-copy` は `update-stale` 等の意図的例外が増えると
-> 誤検出しうる (現時点の例外呼び出しは 0 件)。逃がし方を決めてから有効化する。
->
-> **参照**: `.claude/feedback-reports/417.md` Tier1 #2、`421.md` Tier1 #1、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) (同型の trust boundary 検出ルール)
->
-> **実行優先度**: **Tier 1** — Severity High (両者とも実 incident 実績) / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `..` 混入検出ルールを正規表現層に追加 + bad/good fixture
-- [ ] `jj workspace list` の `--ignore-working-copy` 欠如検出ルールを追加 + bad/good fixture
-- [ ] **修正前に bad fixture が実際に落ちることを確認する** ([ADR-049](adr/adr-049-incident-eval-regression-suite.md))
-- [ ] 既存コードで違反 0 を確認してから有効化する
-- [ ] 意図的例外が出た場合の逃がし方を決めて doc に書く
-
-#### 完了基準
-
-- 両ルールが bad fixture で発火し、good fixture では発火しないこと
-- 既存コードに違反が無いこと (有効化時点で赤にならない)
-
 ### 順位 471: cross-crate 定数 pin と reaper 回帰テストの残片を埋める (系統 B 実装 + C)
 
 > **動機**: 起票前の実コード確認で**大部分が実装済み**と判明したため、**残っているのは次の 3 つだけ**。
