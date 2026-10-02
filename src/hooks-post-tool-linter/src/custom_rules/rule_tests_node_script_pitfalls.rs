@@ -101,6 +101,36 @@ fn gh_without_repo_ignores_rust_files() {
     assert!(violation_lines(GH_REPO, "rs", src).is_empty());
 }
 
+/// JS では単一引用符も普通に使う (scripts/weekly-scan.mjs 等)。引用符の種類で素通りさせない。
+#[test]
+fn gh_without_repo_detects_single_quoted_call() {
+    let src = "const r = spawnSync('gh', ['pr', 'view', pr], { timeout: T });\n";
+    assert_eq!(violation_lines(GH_REPO, "mjs", src), vec![1]);
+}
+
+/// `--repo=値` の 1 文字列形式も --repo の指定 (PR #534 CodeRabbit)。
+#[test]
+fn gh_without_repo_skips_repo_equals_forms() {
+    let double = "spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--repo=owner/repo\"], { timeout: T });\n";
+    let single = "spawnSync('gh', ['pr', 'view', pr, '--repo', REPO], { timeout: T });\n";
+    let template = "spawnSync(\"gh\", [\"pr\", \"view\", pr, `--repo=${REPO}`], { timeout: T });\n";
+    assert!(violation_lines(GH_REPO, "mjs", double).is_empty());
+    assert!(violation_lines(GH_REPO, "mjs", single).is_empty());
+    assert!(violation_lines(GH_REPO, "mjs", template).is_empty());
+}
+
+#[test]
+fn gh_without_repo_skips_attached_short_repo_flag() {
+    let src = "spawnSync(\"gh\", [\"issue\", \"list\", \"-Rowner/repo\"], { timeout: T });\n";
+    assert!(violation_lines(GH_REPO, "mjs", src).is_empty());
+}
+
+#[test]
+fn network_spawn_detects_single_quoted_call() {
+    let src = "const r = spawnSync('gh', ['pr', 'list', '--repo', REPO], { encoding: 'utf8' });\n";
+    assert_eq!(violation_lines(SPAWN_TIMEOUT, "mjs", src), vec![1]);
+}
+
 #[test]
 fn network_spawn_detects_gh_without_timeout() {
     let src = "const r = spawnSync(\"gh\", [\"pr\", \"list\", \"--repo\", REPO], { encoding: \"utf8\" });\n";

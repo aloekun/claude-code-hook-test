@@ -1233,12 +1233,15 @@ yaml = ["ref_push_detects_shell_delete_in_yml"]
 # 範囲は `"gh", [` から `]` まで。spawnSync / execFileSync の直接呼び出しに加え、
 # `runOrFail("gh", [...])` のようなラッパー呼び出しも同じ形なので検出できる。
 # 対象はリポジトリの解決が要るサブコマンドだけ (`gh api` は URL にリポジトリを書く)。
+# 文字列の引用符は `"` / `'` / `` ` `` のどれでも受け付ける (JS では単一引用符も普通に使う)。
+# --repo は `"--repo", REPO` / `"--repo=owner/repo"` / `` `--repo=${REPO}` `` / `"-R"` /
+# `"-Rowner/repo"` のどの書き方でも逃がす (PR #534 CodeRabbit)。
 # 限界: 引数配列を変数で渡す呼び出しと、シェル文字列 (`execSync("gh pr ...")`) は見ない。
 
 [[rules]]
 id = "gh-without-repo-in-node-script"
-pattern = '(?m)^[^\n]*?"gh",\s*\[\s*"(?:pr|issue|run|workflow|release)"[^\]]*\]'
-exception = '"(?:--repo|-R)"|^\s*(?://|\*)'
+pattern = '(?m)^[^\n]*?["\x27`]gh["\x27`],\s*\[\s*["\x27`](?:pr|issue|run|workflow|release)["\x27`][^\]]*\]'
+exception = '["\x27`](?:--repo(?:=[^"\x27`]*)?|-R[^"\x27`]*)["\x27`]|^\s*(?://|\*)'
 severity = "error"
 message = "Node スクリプトの gh 呼び出しに --repo がありません。cwd の git からリポジトリを解決するため、副 workspace (非 colocated の jj) で失敗します"
 why = "PR #470 で、順位 467 F-2 に続いて 2 度目の --repo 欠落を踏んだ。非 colocated の jj workspace では gh が git リポジトリを見つけられない。Rust の exe は GIT_DIR 注入で守られているが、Node スクリプトには同等の仕組みが無い (順位 502)"
@@ -1273,6 +1276,9 @@ other_ext_tests = [
   "gh_without_repo_skips_gh_api",
   "gh_without_repo_skips_comment_line",
   "gh_without_repo_ignores_rust_files",
+  "gh_without_repo_detects_single_quoted_call",
+  "gh_without_repo_skips_repo_equals_forms",
+  "gh_without_repo_skips_attached_short_repo_flag",
 ]
 
 # ─── ルール㉒: ネットワークを使う spawnSync / execFileSync の timeout 未指定検出 (順位 502) ───
@@ -1290,7 +1296,7 @@ other_ext_tests = [
 
 [[rules]]
 id = "network-spawn-without-timeout"
-pattern = '(?m)^[^\n]*?\b(?:spawnSync|execFileSync)\(\s*"(?:gh"|git",\s*\[(?:\s*"-C",\s*[^,\]]+,)?\s*"(?:fetch|push|pull|clone|ls-remote)"|jj",\s*\[\s*"git",\s*"(?:fetch|push|clone)")[^;]*'
+pattern = '(?m)^[^\n]*?\b(?:spawnSync|execFileSync)\(\s*["\x27`](?:gh["\x27`]|git["\x27`],\s*\[(?:\s*["\x27`]-C["\x27`],\s*[^,\]]+,)?\s*["\x27`](?:fetch|push|pull|clone|ls-remote)["\x27`]|jj["\x27`],\s*\[\s*["\x27`]git["\x27`],\s*["\x27`](?:fetch|push|clone)["\x27`])[^;]*'
 exception = '\btimeout\s*:|^\s*(?://|\*)'
 severity = "error"
 message = "gh / git の通信を伴う spawnSync / execFileSync に timeout がありません。ネットワークが止まると無期限に待ちます"
@@ -1325,6 +1331,7 @@ other_ext_tests = [
   "network_spawn_detects_exec_file_sync",
   "network_spawn_detects_multiline_call",
   "network_spawn_detects_jj_git_fetch",
+  "network_spawn_detects_single_quoted_call",
   "network_spawn_skips_timeout_option",
   "network_spawn_skips_local_commands",
   "network_spawn_skips_comment_line",
