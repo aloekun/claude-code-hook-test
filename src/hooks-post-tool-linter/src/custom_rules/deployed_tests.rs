@@ -113,8 +113,8 @@ fn collect_rust_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>)
         Ok(e) => e,
         Err(_) => return,
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for entry in entries {
+        let path = entry.expect("ディレクトリの entry を読めません (検査対象が欠けたまま通さない)").path();
         let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if file_name == "target" || file_name == "node_modules" || file_name.starts_with('.') {
             continue;

@@ -637,8 +637,8 @@ mod tests {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
+        for entry in entries {
+            let path = entry.expect("ディレクトリの entry を読めません (検査対象が欠けたまま通さない)").path();
             if path.is_dir() {
                 collect_rs(&path, out);
             } else if is_scan_target(&path.to_string_lossy()) {

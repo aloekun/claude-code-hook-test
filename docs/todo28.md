@@ -92,3 +92,23 @@ ADR-004 から二層の役割と両方残す根拠が読めること。push-runn
 #### 完了基準
 
 analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落とさないこと。
+
+### 順位 533: `network-spawn-without-timeout` が `timeout: 0` を timeout 指定として通す
+
+> **動機**: custom-lint の rule㉒ `network-spawn-without-timeout` (`config/custom-lint-rules.toml`) は、
+> exception で options に `timeout:` というキーがあるかだけを見ている。Node の `spawnSync` /
+> `execFileSync` は `timeout: 0` を「timeout なし」として扱うので、`timeout: 0` と書くと無期限に
+> 待つ呼び出しが検査を通る。PR #534 の pre-push review (simplicity facet、非ブロッキング) が指摘した。
+>
+> **由来**: `[defect:G2]`。証拠 = PR #534。判定層にテストはあったが、値の入力空間 (`0`) を覆っていなかった。
+
+- [ ] exception を「値が 1〜9 で始まる数値か、定数名 (識別子)」に絞り、`timeout: 0` を検出する
+- [ ] `timeout: undefined` / `null` のような識別子の形は lookahead の無い Rust regex では除外できない。
+  rule の注記に限界として書く (実在するかは `scripts/` を grep して確かめる)
+- [ ] `timeout: 0` の positive test を `spawnSync` と `execFileSync` の両方で足し、`timeout: GH_TIMEOUT_MS` /
+  `timeout: 30_000` の negative test を足す
+
+#### 完了基準
+
+`timeout: 0` を付けた通信系の `spawnSync` と `execFileSync` が、どちらも rule㉒ で検出されること
+(Node はどちらの API でも `timeout` が 0 より大きいときだけ timeout を効かせる)。

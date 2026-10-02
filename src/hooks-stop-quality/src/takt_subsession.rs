@@ -39,13 +39,20 @@ struct TaktMetaPartial {
 /// 1 件以上見つかった時点で短絡 return する。malformed JSON / non-dir / read error は skip。
 /// freshness check で「abrupt termination で残った orphan run が永続的に品質ゲートを
 /// skip させる」問題を防ぐ (CR PR #222 Major 指摘の根本対策)。
+///
+/// 読めない entry を skip するのは、`false` (= 品質ゲートを走らせる) 側へ倒すため。本関数が
+/// `true` を返すと gate が skip されるので、読み損じで `true` に寄ることは無い (順位 502)。
 pub fn takt_subsession_active(repo_root: &Path) -> bool {
     let runs_dir = repo_root.join(TAKT_RUNS_DIR);
     let entries = match std::fs::read_dir(&runs_dir) {
         Ok(e) => e,
         Err(_) => return false,
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        // NOTE: 読めない entry は active ではない側 (品質ゲートが走る側) に倒す (順位 502)
+        let Ok(entry) = entry else {
+            continue;
+        };
         let path = entry.path();
         if !path.is_dir() {
             continue;

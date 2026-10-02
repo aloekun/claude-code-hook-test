@@ -18,8 +18,7 @@ const T: u64 = 1_775_044_800;
 fn written_line(dir: &std::path::Path) -> String {
     let entries = std::fs::read_dir(dir.join("telemetry")).expect("telemetry ディレクトリ");
     let path = entries
-        .filter_map(Result::ok)
-        .map(|e| e.path())
+        .map(|e| e.expect("telemetry ディレクトリの entry を読めません").path())
         .find(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())

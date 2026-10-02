@@ -165,9 +165,8 @@ pub(crate) fn collect_feedback_runs(runs_dir: &Path) -> Vec<FeedbackRun> {
     let Ok(entries) = std::fs::read_dir(runs_dir) else {
         return Vec::new();
     };
-    let mut dirs: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
+    let mut dirs: Vec<PathBuf> = readable_paths(entries.map(|entry| entry.map(|e| e.path())))
+        .into_iter()
         .filter(|p| p.is_dir())
         .collect();
     dirs.sort();
@@ -176,6 +175,26 @@ pub(crate) fn collect_feedback_runs(runs_dir: &Path) -> Vec<FeedbackRun> {
         .filter_map(|dir| {
             let meta = read_meta(&dir.join("meta.json"))?;
             to_feedback_run(dir, meta)
+        })
+        .collect()
+}
+
+/// 一覧の entry のうち読めたものを返す。**読めない entry は log に出して飛ばす** (順位 502)。
+///
+/// 飛ばすのは本 module の方針どおり「取りこぼす側」に倒すため — 読めない entry で guard を
+/// 止めると、その 1 件が残る限り後続の feedback が恒久的に止まる (#417 の incident と同じ形)。
+/// 実害は「同時に 2 つ走りうる」に留まる。黙って飛ばすと取りこぼしに気づけないので log は残す。
+fn readable_paths(entries: impl IntoIterator<Item = std::io::Result<PathBuf>>) -> Vec<PathBuf> {
+    entries
+        .into_iter()
+        .filter_map(|entry| match entry {
+            Ok(path) => Some(path),
+            Err(e) => {
+                crate::pipeline::log_info(&format!(
+                    "[feedback] .takt/runs の entry を読めないため run 一覧から除外します: {e}"
+                ));
+                None
+            }
         })
         .collect()
 }
@@ -612,5 +631,19 @@ mod tests {
         let text = describe(&run);
         assert!(text.contains("#8"), "{text}");
         assert!(text.contains("20260810-100000"), "{text}");
+    }
+
+    /// 読めない entry は「取りこぼす側」に倒す (guard を恒久停止させない、順位 502)。
+    #[test]
+    fn unreadable_entries_are_dropped_and_readable_ones_kept() {
+        let entries = vec![
+            Ok(PathBuf::from("runs/a")),
+            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied")),
+            Ok(PathBuf::from("runs/b")),
+        ];
+        assert_eq!(
+            readable_paths(entries),
+            vec![PathBuf::from("runs/a"), PathBuf::from("runs/b")]
+        );
     }
 }

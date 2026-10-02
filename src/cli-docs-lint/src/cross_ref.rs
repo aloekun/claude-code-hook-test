@@ -109,8 +109,7 @@ fn collect_md_files(root: &Path) -> Result<Vec<PathBuf>, String> {
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir)
         .map_err(|e| format!("ディレクトリ読み込み失敗 {}: {}", dir.display(), e))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for path in checked_paths(entries.map(|entry| entry.map(|e| e.path())), dir)? {
         if path.is_dir() {
             walk(&path, out)?;
             continue;
@@ -125,6 +124,21 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// ディレクトリ一覧の各 entry をパスにする。**1 件でも読めなければ `Err`** (順位 502)。
+///
+/// 読めない entry を飛ばすと、その文書のリンクを検査しないまま lint が成功する。
+fn checked_paths(
+    entries: impl IntoIterator<Item = std::io::Result<PathBuf>>,
+    dir: &Path,
+) -> Result<Vec<PathBuf>, String> {
+    entries
+        .into_iter()
+        .map(|entry| {
+            entry.map_err(|e| format!("ディレクトリの entry 読み込み失敗 {}: {}", dir.display(), e))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -321,5 +335,25 @@ mod tests {
         write(&docs.join("b.md"), "ok");
         let v = check(&docs).unwrap();
         assert!(v.is_empty(), "expected no violations, got {:?}", v);
+    }
+
+    /// 読めない entry は飛ばさずに失敗させる (順位 502)。飛ばすとその文書を検査しないまま通る。
+    #[test]
+    fn an_unreadable_entry_fails_the_walk() {
+        let entries = vec![
+            Ok(PathBuf::from("docs/a.md")),
+            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied")),
+        ];
+        let err = checked_paths(entries, Path::new("docs")).unwrap_err();
+        assert!(err.contains("entry 読み込み失敗"), "{err}");
+    }
+
+    #[test]
+    fn readable_entries_become_paths() {
+        let entries = vec![Ok(PathBuf::from("docs/a.md")), Ok(PathBuf::from("docs/b.md"))];
+        assert_eq!(
+            checked_paths(entries, Path::new("docs")).unwrap(),
+            vec![PathBuf::from("docs/a.md"), PathBuf::from("docs/b.md")]
+        );
     }
 }
