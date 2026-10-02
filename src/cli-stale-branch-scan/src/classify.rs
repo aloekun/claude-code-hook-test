@@ -230,8 +230,14 @@ pub(crate) mod test_support {
     use super::{PrRecord, PrState, RemoteBranch};
 
     /// ブランチ名から決定論的な「そのブランチの head commit」を作る。
+    ///
+    /// 実物と同じ 16 進 40 桁にする。レポートは commit の形を確かめてから削除コマンドに
+    /// 埋め込むので、形の違う値ではコマンドが生成されず、レポートの検証ができない。
     pub(crate) fn head_sha(branch: &str) -> String {
-        format!("sha-of-{branch}")
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        branch.hash(&mut hasher);
+        format!("{:016x}{:024x}", hasher.finish(), 0)
     }
 
     pub(crate) fn pr(number: u64, head: &str, state: &str) -> PrRecord {

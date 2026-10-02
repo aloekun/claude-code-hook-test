@@ -6,6 +6,8 @@
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
+//! - [`rule_tests_external_command_pitfalls`]: rule⑲ (gh-json-files-truncated) / rule⑳
+//!   (ref-destroying-push-without-lease) の tests
 //! - [`rule_tests_jj_workspace_list`]: rule⑱ (jj-workspace-list-without-ignore-working-copy) の tests
 //! - [`rule_tests_manual_config_path`]: rule⑯ (no-manual-hooks-config-path) の tests
 //! - [`rule_tests_pid_timestamp_temp_naming`]: rule⑰ (no-pid-timestamp-temp-naming) の tests
@@ -24,6 +26,8 @@ mod engine_tests;
 mod rule_tests;
 #[cfg(test)]
 mod rule_tests_extras;
+#[cfg(test)]
+mod rule_tests_external_command_pitfalls;
 #[cfg(test)]
 mod rule_tests_jj_workspace_list;
 #[cfg(test)]
