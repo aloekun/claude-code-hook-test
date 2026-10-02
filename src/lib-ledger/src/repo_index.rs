@@ -41,11 +41,20 @@ pub(crate) fn indexable_text(path: &Path, text: &str) -> String {
 /// 親ファイル側の `#[cfg(test)] mod name;` で丸ごとテスト扱いになるファイル群。
 /// [`indexable_text`] は 1 ファイル単体しか見えないため、この判定はできない
 /// (SIM-NEW-lib-ledger-rust_source-L75)。
+/// 一覧の entry を取り出す。**読めなければ panic** (順位 502)。
+///
+/// 本 module はテスト (台帳の実ファイル検査) 専用の索引である。読めない entry を飛ばすと
+/// 索引が欠けたまま検査が走り、結果が何を見たのか分からなくなる。テストなので落として知らせる。
+fn readable_entry(entry: std::io::Result<std::fs::DirEntry>, root: &Path) -> std::fs::DirEntry {
+    entry.unwrap_or_else(|e| panic!("{} の entry を読めません: {e}", root.display()))
+}
+
 pub(crate) fn concat_files(root: &Path, indexed_only: bool, out: &mut String, excluded: &HashSet<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = readable_entry(entry, root);
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -70,7 +79,8 @@ pub(crate) fn cfg_test_only_files(root: &Path, out: &mut HashSet<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = readable_entry(entry, root);
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -170,7 +180,8 @@ pub(crate) fn concat_files_verbatim(root: &Path, out: &mut String) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = readable_entry(entry, root);
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -210,7 +221,8 @@ pub(crate) fn concat_files_raw(root: &Path, out: &mut String) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = readable_entry(entry, root);
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();

@@ -1336,3 +1336,73 @@ other_ext_tests = [
   "network_spawn_skips_local_commands",
   "network_spawn_skips_comment_line",
 ]
+
+# ─── ルール㉓: read_dir の entry エラーを黙って捨てる書き方の検出 (順位 502) ───
+#
+# 由来: PR #454。`read_dir(..)` の各 entry は `io::Result` で、`.flatten()` /
+# `.filter_map(Result::ok)` は読めなかった entry を記録なしで捨てる。プログラムからは、
+# そのファイルが最初から無かったように見える。gate では「確認すべきファイルを確認しないまま
+# 合格」に倒れる (takt_verdict で REJECT のレポートだけが一覧から消えると push が通る)。
+#
+# 連鎖の形 (`read_dir(p)?.flatten()`) と、変数を挟む 2 段の形 (`let entries = read_dir(p)?;`
+# の後の `entries.flatten()`) の両方を検出する。2 段の形は変数名 (`*entries`) で見分ける
+# (このリポジトリの既存 13 箇所はすべてこの名前)。限界: 別の名前の変数は見ない。
+#
+# 範囲は `paths` で gate・判定系の crate とテストに絞る。集計・補助の処理 (merge-pipeline の
+# feedback 系 / takt-timings / telemetry-report / lib-telemetry / feedback 系 hook) は対象外:
+# 読み損じても件数がわずかに減るだけで判定は変わらない (2026-10-02 ユーザー判断)。
+# 意図して飛ばす箇所は、読めない entry をどちらへ倒すかを明示したコードにする
+# (`let Ok(entry) = entry else { continue; }` + 理由。takt_subsession / run_registry が例)。
+
+[[rules]]
+id = "read-dir-entry-error-dropped"
+pattern = '(?m)^[^\n]*?(?:\bread_dir\([^;]*?|\b\w*entries\s*)\.\s*(?:flatten\(\)|filter_map\(\s*(?:Result::ok|\|\w+\|\s*\w+\.ok\(\))\s*\))'
+exception = '^\s*//'
+severity = "error"
+message = "read_dir の entry エラーを .flatten() / .filter_map(Result::ok) で黙って捨てています。読めなかったファイルが最初から無かったように扱われます"
+why = "PR #454 で、read_dir(..).flatten() が I/O エラーを記録なしで捨てる fail-open が見つかった。gate では確認すべきファイルを確認しないまま合格に倒れる。検査の場が無く人手のレビュー頼みだった (順位 502、[defect:G1])"
+extensions = ["rs"]
+paths = [
+  "src/cli-push-runner/**/*.rs",
+  "src/cli-docs-lint/**/*.rs",
+  "src/cli-merge-pipeline/src/feedback/run_registry.rs",
+  "src/hooks-stop-quality/**/*.rs",
+  "src/lib-ledger/**/*.rs",
+  "src/hooks-post-tool-linter/**/*.rs",
+  "src/*/tests/**/*.rs",
+]
+
+[rules.fix]
+strategy = "読めない entry の扱いを明示する"
+steps = [
+  "gate・判定系: 読めない entry を「検査できなかった」として失敗に倒す (Err を返す / blocker として残す)",
+  "意図して飛ばす場合: どちらへ倒すかと理由を書いて `let Ok(entry) = entry else { continue; }` にする (飛ばした事実を log に出すとなお良い)",
+  "テスト: `entry.expect(\"...\")` で落とす",
+]
+
+[rules.example]
+bad = "for entry in entries.flatten() { check(entry.path()); }"
+good = "for entry in entries { let path = entry.map_err(|e| format!(\"entry を読めません: {e}\"))?.path(); check(path); }"
+
+[rules.incident]
+pr = 454
+bad_fixture = "read-dir-entry-error-dropped.rs"
+good_fixture = "read-dir-entry-error-dropped.rs"
+adr = "adr-043"
+
+[rules.test_coverage]
+# rule㉓ は rs のみ (主要拡張子)。連鎖 / 2 段 / 複数行 / filter_map の 2 形の positive、
+# 明示的な扱い / コメント行 / paths 外 / read_dir と無関係な名前の negative。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "read_dir_drop_detects_chained_flatten",
+  "read_dir_drop_detects_entries_variable_flatten",
+  "read_dir_drop_detects_multiline_entries_flatten",
+  "read_dir_drop_detects_filter_map_result_ok",
+  "read_dir_drop_detects_filter_map_closure_ok",
+  "read_dir_drop_skips_explicit_handling",
+  "read_dir_drop_skips_comment_line",
+  "read_dir_drop_skips_unrelated_flatten",
+  "read_dir_drop_ignores_paths_outside_scope",
+]

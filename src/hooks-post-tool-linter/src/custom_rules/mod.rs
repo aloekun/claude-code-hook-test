@@ -13,6 +13,7 @@
 //! - [`rule_tests_node_script_pitfalls`]: rule㉑ (gh-without-repo-in-node-script) / rule㉒
 //!   (network-spawn-without-timeout) の tests
 //! - [`rule_tests_pid_timestamp_temp_naming`]: rule⑰ (no-pid-timestamp-temp-naming) の tests
+//! - [`rule_tests_read_dir_drop`]: rule㉓ (read-dir-entry-error-dropped) の tests
 //! - [`deployed_tests`]: `config/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
 //!   deployed artifact に対する regression seal tests
 
@@ -38,5 +39,7 @@ mod rule_tests_manual_config_path;
 mod rule_tests_node_script_pitfalls;
 #[cfg(test)]
 mod rule_tests_pid_timestamp_temp_naming;
+#[cfg(test)]
+mod rule_tests_read_dir_drop;
 
 pub(crate) use engine::run_custom_rules_layer;
