@@ -57,6 +57,12 @@ const COMMAND_TIMEOUT_MS = 120_000;
 /** リベース先。本スクリプトはここへ固定的に寄せるため、base が違う PR は受けない。 */
 const DEFAULT_BRANCH = "master";
 
+/**
+ * gh に渡すリポジトリ。cwd からの解決に頼らない — 副 workspace (非 colocated の jj) から
+ * 起動すると gh がリポジトリを見つけられない (順位 502、ledger-residue-scan.mjs と同じ扱い)。
+ */
+const REPO = "aloekun/claude-code-hook-test";
+
 const SCRIPTS_DIR = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(SCRIPTS_DIR, "..");
 
@@ -210,7 +216,15 @@ export function validatePrView(view, pr) {
 
 /** PR からブランチ名を引く。**ブランチ名を人が打たない** — 打ち間違いの余地を消す。 */
 function branchOfPr(pr) {
-  const result = runOrFail("gh", ["pr", "view", pr, "--json", "headRefName,baseRefName,state"]);
+  const result = runOrFail("gh", [
+    "pr",
+    "view",
+    pr,
+    "--repo",
+    REPO,
+    "--json",
+    "headRefName,baseRefName,state",
+  ]);
   if (result.error) {
     return result;
   }
