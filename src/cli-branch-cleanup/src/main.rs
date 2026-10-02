@@ -252,6 +252,9 @@ fn observe_ref(push_url: &str, token: &str, branch: &str) -> RefObservation {
 ///
 /// `expected_sha` は scan が分類に使った commit。呼び手 ([`process_branch`]) が
 /// 「現在の観測 == 分類時」を確かめてから呼ぶので、lease は**分類した物**に対して張られる。
+///
+/// lease は引数配列の中に直接書く。変数に出すと custom-lint の
+/// `ref-destroying-push-without-lease` が配列の範囲に lease を見られず誤検知する。
 fn delete_ref(
     push_url: &str,
     token: &str,
@@ -259,14 +262,13 @@ fn delete_ref(
     branch: &str,
     expected_sha: &str,
 ) -> DeleteAttempt {
-    let lease = format!("--force-with-lease=refs/heads/{branch}:{expected_sha}");
     match run_git(
         token,
         &[
             "-C",
             work_dir,
             "push",
-            &lease,
+            &format!("--force-with-lease=refs/heads/{branch}:{expected_sha}"),
             push_url,
             "--delete",
             &format!("refs/heads/{branch}"),

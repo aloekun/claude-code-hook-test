@@ -186,8 +186,8 @@ fn filter_by_prefix(branches: Vec<RemoteBranch>, prefix: Option<&str>) -> Vec<Re
 /// 区切りが tab なのは `git ls-remote` の出力形式に合わせたため。
 ///
 /// **名前が [`is_safe_branch_name`] を満たさないものは出さない。** 呼び手 (`nightly-todo.yml`)
-/// はこの出力を `git push origin --delete "$branch"` の引数に使うため、markdown レポートの
-/// コピペ経路と同じ injection 面がある。危険な名前は候補から落とし、落とした事実を stderr へ
+/// はこの出力を `cli-branch-cleanup` に渡し、名前が lease 付きの削除 push の引数になるため、
+/// markdown レポートのコピペ経路と同じ injection 面がある。危険な名前は候補から落とし、落とした事実を stderr へ
 /// 出す — 黙って落とすと「掃除されないブランチがある」ことに誰も気づけない。
 fn render_deletable(classified: &[ClassifiedBranch]) -> String {
     let mut out = String::new();
@@ -396,15 +396,33 @@ fn proposal_section(classified: &[ClassifiedBranch], remote: &str) -> String {
             continue;
         };
         let prs = closed_prs.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ");
-        let command_cell = if is_safe_branch_name(&candidate.branch) {
-            format!("`git push {remote} --delete -- {}`", candidate.branch)
-        } else {
-            "⚠️ ブランチ名に不審な文字を含むため削除コマンドの自動生成を省略。手動で確認してください".to_string()
-        };
+        let command_cell = delete_command_cell(remote, &candidate.branch, &candidate.sha);
         out.push_str(&format!("| {} | {} | {} |\n", branch_cell(&candidate.branch), prs, command_cell));
     }
     out.push('\n');
     out
+}
+
+/// 手動実行用の削除コマンド。**分類に使った commit で lease を張る** (順位 482)。
+///
+/// lease が無いと、レポートを読んでから実行するまでの間に誰かが push した作業も消す。
+/// `cli-branch-cleanup` の自動削除と同じく、分類した物だけを消す形にする。
+/// commit もブランチ名と同じくコピペ実行される文字列に埋め込むので、形を確かめてから使う。
+fn delete_command_cell(remote: &str, branch: &str, sha: &str) -> String {
+    if !is_safe_branch_name(branch) {
+        return "⚠️ ブランチ名に不審な文字を含むため削除コマンドの自動生成を省略。手動で確認してください"
+            .to_string();
+    }
+    if !is_hex_object_id(sha) {
+        return "⚠️ 分類に使った commit を確認できないため削除コマンドの自動生成を省略。手動で確認してください"
+            .to_string();
+    }
+    format!("`git push {remote} --force-with-lease=refs/heads/{branch}:{sha} --delete -- {branch}`")
+}
+
+/// git の object id (SHA-1 の 40 桁 / SHA-256 の 64 桁、16 進) か。
+fn is_hex_object_id(sha: &str) -> bool {
+    matches!(sha.len(), 40 | 64) && sha.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn section(
@@ -434,7 +452,8 @@ fn section(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use classify::test_support::{branches, head_sha, pr};
+    use classify::test_support::{at, branches, head_sha, pr};
+    use classify::PrRecord;
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
@@ -550,7 +569,7 @@ mod tests {
         );
     }
 
-    /// 呼び手は出力を `git push origin --delete "$branch"` に渡す。危険な文字を含む名前は
+    /// 出力の名前は `cli-branch-cleanup` で削除 push の引数になる。危険な文字を含む名前は
     /// 候補から落とす (markdown レポートのコピペ経路と同じ injection 面)。
     #[test]
     fn an_unsafe_branch_name_is_withheld_from_the_machine_readable_output() {
@@ -564,7 +583,7 @@ mod tests {
     }
 
     /// **削除コマンドは提案として出すだけ**。出力に含まれることと、exe が実行しないことは別。
-    /// レポートに `git push --delete` の文字列が載ることをここで固定し、同時に
+    /// レポートに lease 付きの削除コマンドが載ることをここで固定し、同時に
     /// 「削除は行わない」旨の断り書きが必ず添うことも固定する。
     #[test]
     fn a_stale_branch_is_reported_with_a_manual_delete_command() {
@@ -577,7 +596,14 @@ mod tests {
             None,
         );
         let report = render(&classified, "origin");
-        assert!(report.contains("git push origin --delete -- claude/nightly-203"), "{report}");
+        let lease = format!(
+            "--force-with-lease=refs/heads/claude/nightly-203:{}",
+            head_sha("claude/nightly-203")
+        );
+        assert!(
+            report.contains(&format!("{lease} --delete -- claude/nightly-203`")),
+            "{report}"
+        );
         assert!(report.contains("**削除は行いません**"), "{report}");
         assert!(report.contains("#365"), "{report}");
         assert!(!report.contains("--delete master"), "trunk が提案に載ってはならない");
@@ -598,7 +624,33 @@ mod tests {
             None,
         );
         let report = render(&classified, "origin");
-        assert!(report.contains("git push origin --delete -- --force"), "{report}");
+        assert!(report.contains("--delete -- --force`"), "{report}");
+    }
+
+    /// **lease を張る commit も、コピペ実行される文字列に埋め込む。** 16 進の object id で
+    /// なければコマンドを生成しない (ブランチ名と同じく形を確かめてから使う、順位 482)。
+    #[test]
+    fn a_non_hex_commit_gets_no_paste_ready_command() {
+        let classified = classify::classify(
+            &[at("claude/nightly-203", "$(evil)")],
+            &[PrRecord {
+                head_oid: "$(evil)".to_string(),
+                ..pr(365, "claude/nightly-203", "CLOSED")
+            }],
+            None,
+        );
+        let report = render(&classified, "origin");
+        assert!(!report.contains("--force-with-lease"), "{report}");
+        assert!(report.contains("commit を確認できない"), "{report}");
+    }
+
+    #[test]
+    fn hex_object_ids_of_both_hash_algorithms_are_accepted() {
+        assert!(is_hex_object_id(&"a".repeat(40)));
+        assert!(is_hex_object_id(&"0".repeat(64)));
+        assert!(!is_hex_object_id(&"a".repeat(39)));
+        assert!(!is_hex_object_id(&"g".repeat(40)));
+        assert!(!is_hex_object_id(""));
     }
 
     /// ブランチ名に shell メタ文字が混ざっている場合、削除コマンドを自動生成しない
@@ -612,7 +664,7 @@ mod tests {
             None,
         );
         let report = render(&classified, "origin");
-        assert!(!report.contains("git push origin --delete"), "{report}");
+        assert!(!report.contains("--force-with-lease"), "{report}");
         assert!(report.contains("手動で確認してください"), "{report}");
     }
 

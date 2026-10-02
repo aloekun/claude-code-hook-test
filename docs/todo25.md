@@ -150,62 +150,6 @@ ADR-012 に「lib-* の責務カテゴリと判定順序」を追記する。既
 >
 > 統合の単位は「そのまま 1 PR になる粒度」。
 
-### 順位 482: 外部コマンド呼び出しの落とし穴を lint で塞ぐ (順位 482)
-
-> **動機**: PR #435 と #437 で、外部コマンドの**無言の切り捨て / 破壊**を 2 件続けて踏んだ。
-> (1) `gh pr view --json files` は 100 件で無言に切り捨てる (実測: 185 ファイルの PR で 100 件)。
-> (2) `git push --delete` を lease 無しで撃つと、観測から削除までの間に他経路が push した作業を
-> 消す。どちらも「書いた時点では気づけず、実行時に静かに壊れる」形。
->
-> **本タスクの位置づけ**: post-merge feedback 採用 (#435 Tier1 #1 / Severity High / Effort M、
-> #437 Tier1 #3 / Severity High / Effort M)。**規約 (Tier 3) ではなく lint で塞ぐ**判断
-> (ユーザー判断: 規約追記は再発を防げなかった実証がある)。
->
-> **参照**: `.claude/feedback-reports/435.md` / `437.md`、`.claude/custom-lint-rules.toml`、
-> [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (正規表現層 / AST 層の線引き)
-
-#### 背景
-
-`gh` の pagination 無し呼び出しは repo 全体に散在する (`check-ci-coderabbit` / `cli-merge-pipeline` /
-`cli-pr-monitor` / `cli-stale-branch-scan`)。ref を破壊する push は現状 workflow の shell が主だが、
-Rust 側から撃つ経路が増えれば同じ穴が開く。
-
-**lease を要求すべき対象は 2 種類あり、同じパターンでは捕まらない** (PR #439 CodeRabbit Major)。
-feedback の原文は `--force` だけを挙げていたが、**PR L で実際に踏んだのは `--delete`** だった:
-
-| 対象 | 破壊するもの | lease 無しの実害 |
-|---|---|---|
-| ref の削除 (`--delete` / `:refs/...` の refspec) | ref そのもの | 観測から削除までの間に他経路が push した作業が消える (PR L で実測) |
-| 非 fast-forward な更新 (`--force` / `+refs/...`) | ref の履歴 | 他経路の commit が到達不能になる |
-
-`--delete` は `--force` を含まないので、`--force` だけを見る規則では**削除経路が丸ごと素通り**する。
-refspec 形式 (`:refs/heads/X` / `+refs/heads/X`) も同じ意味を持つため、フラグ名だけの照合では足りない。
-
-#### 設計決定 (案)
-
-- **ADR-007 の層判定を先に行う**。`gh api` / `gh pr view --json` の引数照合は正規表現層で足りるか、
-  AST 層が要るかを判断してから実装する。`.rs` の文字列リテラル内の引数列を見るだけなら正規表現層
-- **ref を破壊する push は上表の 2 種類すべてを対象にする**。フラグ形式 (`--delete` / `--force`) と
-  refspec 形式 (`:refs/...` / `+refs/...`) の両方を捕まえ、`--force-with-lease=<ref>:<sha>` が
-  付随することを要求する。**2 種類で規則を分けるか 1 つにまとめるかは実装時に決める** —
-  分けたほうがメッセージを具体的にできるが、規則が増えると保守点も増える
-- **false positive の逃げ道を用意する** — 意図的に pagination 不要な呼び出し (単一 ref の
-  `ls-remote` 等) や、lease が不要な push を許可する手段が無いと、lint が邪魔になって無効化される
-
-- [ ] ADR-007 の判定フローで層を決める
-- [ ] `gh` の pagination 検査を実装
-- [ ] ref 削除 (`--delete` / `:refs/...`) の lease 検査を実装
-- [ ] 非 fast-forward 更新 (`--force` / `+refs/...`) の lease 検査を実装
-- [ ] 既存の全 `gh` 呼び出しと push 呼び出しを新 lint に通し、false positive を洗い出す
-- [ ] 例外指定の手段を用意する
-
-#### 完了基準
-
-pagination 無しの `gh` 呼び出しと lease 無しの `--force` が、書いた時点でブロックされる。
-既存コードが false positive を出さない。
-
----
-
 ### 順位 483: エラーメッセージの無制限 debug 補間を lint で検出する (順位 483)
 
 > **動機**: PR #437 で `clip_for_message()` を導入したのに、順位セル (`{raw:?}`) だけがそれを

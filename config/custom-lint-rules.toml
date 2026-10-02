@@ -1091,3 +1091,131 @@ rs = [
   "jj_workspace_list_skips_other_workspace_subcommands",
   "jj_workspace_list_deployed_rule_has_exception",
 ]
+
+# ─── ルール⑲: `gh` の `--json files` (100 件で無言に切り捨て) 検出 (順位 482) ───
+#
+# 由来: PR #435。`gh pr view --json files` は 100 件で**無言に**切り捨てる (実測: 185
+# ファイルの PR で 100 件)。エラーにも警告にもならないので、書いた時点でも実行時にも
+# 気づけない。全件が要るなら REST の `gh api --paginate repos/{owner}/{repo}/pulls/{n}/files`
+# を使う (cli-pr-monitor の collect.rs が precedent)。件数だけなら `changedFiles` で足りる。
+#
+# 引数配列 (`"--json", "files,..."`) とシェル文字列 (`--json files`) の両方を検出する。
+# pattern は行頭から範囲を取り、exception で行頭がコメント (`//` / `#` / `*`) の行を除く —
+# doc コメントでの言及 (「`--json files` を使わない理由」等) を検出しないため。
+
+[[rules]]
+id = "gh-json-files-truncated"
+pattern = '(?m)^[^\n]*?(?:"--json",\s*"[^"]*\bfiles\b[^"]*"|--json[= ]+[\x27"]?[A-Za-z,]*\bfiles\b)'
+exception = '^\s*(?://|#|\*)'
+severity = "error"
+message = "`gh ... --json files` は 100 件で無言に切り捨てます。全件が要るなら `gh api --paginate repos/{owner}/{repo}/pulls/{n}/files` を使ってください"
+why = "PR #435 で `gh pr view --json files` が 185 ファイルの PR で 100 件しか返さないことを実測した。切り捨てはエラーにも警告にもならず、ファイル一覧に基づく判定 (docs-only 判定等) が静かに誤る。規約の追記では再発を防げなかったため lint で塞ぐ (順位 482、ユーザー判断)"
+extensions = ["rs", "mjs", "js", "ts", "yml", "yaml", "sh"]
+
+[rules.fix]
+strategy = "REST の paginate に置換"
+steps = [
+  "ファイル一覧が要る場合: `gh api --paginate repos/{owner}/{repo}/pulls/{n}/files --jq '.[].filename'` で全件を取る",
+  "件数だけが要る場合: `--json changedFiles` (切り捨てられない数値) を使う",
+]
+
+[rules.example]
+bad = "Command::new(\"gh\").args([\"pr\", \"view\", &n, \"--json\", \"files,commits\"])"
+good = "Command::new(\"gh\").args([\"api\", \"--paginate\", &files_path, \"--jq\", \".[].filename\"])"
+
+[rules.incident]
+pr = 435
+bad_fixture = "gh-json-files-truncated.rs"
+good_fixture = "gh-json-files-truncated.rs"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule⑲ は rs / yml / yaml (主要拡張子) と mjs / js / ts / sh (非主要)。引数配列 (同一行 /
+# 複数行) とシェル文字列の positive、`changedFiles` / 他フィールド / コメント内の言及の negative。
+other_ext_tests = ["gh_json_files_detects_args_array_in_mjs", "gh_json_files_skips_shell_comment_in_sh"]
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "gh_json_files_detects_args_array",
+  "gh_json_files_detects_multiline_args_array",
+  "gh_json_files_skips_changed_files_count",
+  "gh_json_files_skips_other_fields",
+  "gh_json_files_skips_doc_comment_mention",
+]
+yml = ["gh_json_files_detects_shell_form_in_yml"]
+yaml = ["gh_json_files_detects_shell_form_in_yml"]
+
+# ─── ルール⑳: lease 無しで ref を壊す push の検出 (順位 482) ───
+#
+# 由来: PR #437 (PR L)。`git push --delete` を lease 無しで撃つと、観測から削除までの間に
+# 他経路が push した作業を消す。ref を壊す push は 2 種類あり、どちらも
+# `--force-with-lease=<ref>:<sha>` を要求する:
+#
+# | 種類 | 形 |
+# |---|---|
+# | ref の削除 | `--delete` / `-d` / `:refs/...` の refspec |
+# | 非 fast-forward な更新 | `--force` / `-f` / `+refs/...` の refspec |
+#
+# `--delete` は `--force` を含まないので、`--force` だけを見る規則では削除経路が素通りする
+# (PR #439 CodeRabbit)。1 ルールにまとめたのは、要求する対処 (lease) が同じだから。
+#
+# 引数配列は `[` から `]` まで、シェル文字列は行頭から行末 (`\` 継続行を含む) までを範囲に
+# 取る。exception は lease の有無に加え、行頭がコメントの行と `jj git push` を除く —
+# jj は観測した ref を自分で lease として渡す (`--deleted` は単語境界で `--delete` と区別)。
+# 限界: lease を変数で組み立てて配列に入れると範囲に literal が無く誤検知する。配列の中で
+# `&format!("--force-with-lease=...")` と書く (cli-branch-cleanup の delete_ref)。
+
+[[rules]]
+id = "ref-destroying-push-without-lease"
+pattern = '(?m)\[[^\]]*"push",[^\]]*?(?:"--delete"|"-d"|"--force"|"-f"|"\+[^"]*"|":[^"]*")[^\]]*\]|^[^\n]*?\bgit\s+push\b(?:\\\r?\n|[^\n])*?(?:\s--delete\b|\s-d\b|\s--force(?:\s|$|[\x27"`])|\s-f\b|\s\+[^\s\x27"]|\s:[^\s\x27"])(?:\\\r?\n|[^\n])*'
+exception = '--force-with-lease=|^\s*(?://|#|\*)|\bjj\s+git\s+push\b'
+severity = "error"
+message = "ref を削除 / 強制更新する push に `--force-with-lease=<ref>:<観測した sha>` がありません。観測から実行までの間に他経路が push した作業を消します"
+why = "PR #437 (PR L) で lease 無しの `git push --delete` が、観測から削除までの間に他経路が push した作業を消しうることが分かった。削除 (`--delete` / `:refs`) と非 fast-forward 更新 (`--force` / `+refs`) は別の形なので両方を見る (PR #439 CodeRabbit)。規約の追記では再発を防げなかったため lint で塞ぐ (順位 482、ユーザー判断)"
+extensions = ["rs", "mjs", "js", "ts", "yml", "yaml", "sh"]
+
+[rules.fix]
+strategy = "観測した sha で lease を付ける"
+steps = [
+  "削除前 / 更新前に対象 ref の sha を観測する (`git ls-remote` 等)",
+  "`--force-with-lease=refs/heads/<branch>:<観測した sha>` を同じ push に付ける。引数配列では `&format!(\"--force-with-lease=...\")` と配列内に書く (変数に出すと lint が lease を見られない)",
+  "jj で済むなら `jj git push` を使う (jj が lease を扱う)",
+]
+
+[rules.example]
+bad = "Command::new(\"git\").args([\"push\", url, \"--delete\", &refspec])"
+good = "Command::new(\"git\").args([\"push\", &format!(\"--force-with-lease=refs/heads/{b}:{sha}\"), url, \"--delete\", &refspec])"
+
+[rules.incident]
+pr = 437
+bad_fixture = "ref-destroying-push-without-lease.rs"
+good_fixture = "ref-destroying-push-without-lease.rs"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule⑳ は rs / yml / yaml (主要) と mjs / js / ts / sh (非主要)。削除 (--delete / -d /
+# :refspec) と強制更新 (--force / -f / +refspec) を配列・シェルの両形で positive、lease 付き /
+# --force-with-lease の部分一致 / jj git push --deleted / コメント行 / 継続行の lease を negative。
+other_ext_tests = ["ref_push_detects_delete_in_mjs_args_array", "ref_push_detects_shell_force_in_sh"]
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "ref_push_detects_delete_in_args_array",
+  "ref_push_detects_force_in_args_array",
+  "ref_push_detects_colon_refspec_in_args_array",
+  "ref_push_detects_plus_refspec_in_args_array",
+  "ref_push_skips_lease_in_args_array",
+  "ref_push_skips_plain_push_in_args_array",
+  "ref_push_detects_delete_in_format_string",
+  "ref_push_skips_lease_in_format_string",
+  "ref_push_skips_doc_comment_mention",
+]
+yml = [
+  "ref_push_detects_shell_delete_in_yml",
+  "ref_push_detects_shell_short_flags_in_yml",
+  "ref_push_skips_shell_lease_in_yml",
+  "ref_push_skips_lease_on_continuation_line_in_yml",
+  "ref_push_skips_jj_git_push_deleted_in_yml",
+  "ref_push_detects_bare_force_with_lease_with_delete_in_yml",
+]
+yaml = ["ref_push_detects_shell_delete_in_yml"]

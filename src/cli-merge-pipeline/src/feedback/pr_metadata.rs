@@ -127,6 +127,9 @@ fn parse_pr_time_range(json: &serde_json::Value) -> Result<PrTimeRange, String> 
 
 /// gh api から PR の diff summary (commit 数 / 行数 / 拡張子) を取得する (#A-2)。
 ///
+/// ファイル一覧は `gh pr view --json files` ではなく REST の paginate で取る。前者は
+/// 100 件で無言に切り捨てる (PR #435 で実測、custom-lint `gh-json-files-truncated`)。
+///
 /// 失敗時は `Err` を返す (caller は通常 flow に fallback)。
 pub fn fetch_pr_diff_summary(pr_number: u64, owner_repo: &str) -> Result<PrDiffSummary, String> {
     let pr_str = pr_number.to_string();
@@ -138,7 +141,7 @@ pub fn fetch_pr_diff_summary(pr_number: u64, owner_repo: &str) -> Result<PrDiffS
             "--repo",
             owner_repo,
             "--json",
-            "files,commits,additions,deletions",
+            "commits,additions,deletions",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -155,11 +158,41 @@ pub fn fetch_pr_diff_summary(pr_number: u64, owner_repo: &str) -> Result<PrDiffS
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("gh 出力 JSON パース失敗: {}", e))?;
 
-    parse_pr_diff_summary(&json)
+    let file_paths = fetch_pr_file_paths(pr_number, owner_repo)?;
+    parse_pr_diff_summary(&json, &file_paths)
 }
 
-/// `gh pr view --json files,commits,additions,deletions` の応答を `PrDiffSummary` に変換する。
-fn parse_pr_diff_summary(json: &serde_json::Value) -> Result<PrDiffSummary, String> {
+/// PR の変更ファイルのパスを全件取る (REST の paginate、1 行 1 パス)。
+fn fetch_pr_file_paths(pr_number: u64, owner_repo: &str) -> Result<Vec<String>, String> {
+    let endpoint = format!("repos/{owner_repo}/pulls/{pr_number}/files");
+    let output = Command::new("gh")
+        .args(["api", "--paginate", &endpoint, "--jq", ".[].filename"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("gh コマンド起動失敗: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "gh api (PR files) 失敗: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// `gh pr view --json commits,additions,deletions` の応答と変更ファイルのパス一覧を
+/// `PrDiffSummary` に変換する。
+fn parse_pr_diff_summary(
+    json: &serde_json::Value,
+    file_paths: &[String],
+) -> Result<PrDiffSummary, String> {
     let commits = json
         .get("commits")
         .and_then(|v| v.as_array())
@@ -174,18 +207,10 @@ fn parse_pr_diff_summary(json: &serde_json::Value) -> Result<PrDiffSummary, Stri
         .and_then(|v| v.as_u64())
         .ok_or("deletions が応答に含まれていません")?;
 
-    let files = json
-        .get("files")
-        .and_then(|v| v.as_array())
-        .ok_or("files が応答に含まれていません")?;
-
-    let all_md = !files.is_empty()
-        && files.iter().all(|f| {
-            f.get("path")
-                .and_then(|v| v.as_str())
-                .map(|p| p.to_lowercase().ends_with(".md"))
-                .unwrap_or(false)
-        });
+    let all_md = !file_paths.is_empty()
+        && file_paths
+            .iter()
+            .all(|p| p.to_lowercase().ends_with(".md"));
 
     Ok(PrDiffSummary {
         commit_count: commits.len(),
@@ -238,17 +263,18 @@ mod tests {
         assert!(!summary.is_trivial());
     }
 
+    fn paths(list: &[&str]) -> Vec<String> {
+        list.iter().map(|p| p.to_string()).collect()
+    }
+
     #[test]
     fn parse_diff_summary_recognizes_trivial_doc_pr() {
         let json = serde_json::json!({
             "commits": [{ "oid": "abc" }],
             "additions": 10,
             "deletions": 5,
-            "files": [
-                { "path": "docs/sample.md", "additions": 10, "deletions": 5 }
-            ],
         });
-        let summary = parse_pr_diff_summary(&json).unwrap();
+        let summary = parse_pr_diff_summary(&json, &paths(&["docs/sample.md"])).unwrap();
         assert_eq!(summary.commit_count, 1);
         assert_eq!(summary.total_lines_changed, 15);
         assert!(summary.all_files_are_markdown);
@@ -261,11 +287,8 @@ mod tests {
             "commits": [{ "oid": "abc" }],
             "additions": 1,
             "deletions": 0,
-            "files": [
-                { "path": "README.MD", "additions": 1, "deletions": 0 }
-            ],
         });
-        let summary = parse_pr_diff_summary(&json).unwrap();
+        let summary = parse_pr_diff_summary(&json, &paths(&["README.MD"])).unwrap();
         assert!(summary.all_files_are_markdown);
     }
 
@@ -275,12 +298,9 @@ mod tests {
             "commits": [{ "oid": "abc" }],
             "additions": 20,
             "deletions": 10,
-            "files": [
-                { "path": "docs/sample.md", "additions": 10, "deletions": 5 },
-                { "path": "src/main.rs",  "additions": 10, "deletions": 5 }
-            ],
         });
-        let summary = parse_pr_diff_summary(&json).unwrap();
+        let summary =
+            parse_pr_diff_summary(&json, &paths(&["docs/sample.md", "src/main.rs"])).unwrap();
         assert!(!summary.all_files_are_markdown);
         assert!(!summary.is_trivial());
     }
@@ -291,9 +311,8 @@ mod tests {
             "commits": [{ "oid": "abc" }],
             "additions": 0,
             "deletions": 0,
-            "files": [],
         });
-        let summary = parse_pr_diff_summary(&json).unwrap();
+        let summary = parse_pr_diff_summary(&json, &[]).unwrap();
         assert!(!summary.all_files_are_markdown);
         assert!(!summary.is_trivial());
     }
@@ -303,8 +322,7 @@ mod tests {
         let json = serde_json::json!({
             "commits": [{ "oid": "abc" }],
             "additions": 10,
-            "files": [],
         });
-        assert!(parse_pr_diff_summary(&json).is_err());
+        assert!(parse_pr_diff_summary(&json, &paths(&["docs/a.md"])).is_err());
     }
 }
