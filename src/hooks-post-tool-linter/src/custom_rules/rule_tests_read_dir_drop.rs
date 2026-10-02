@@ -61,13 +61,16 @@ fn read_dir_drop_detects_entries_variable_flatten() {
         "let Ok(entries) = std::fs::read_dir(p) else { return; };\n",
         "for entry in entries.flat", "ten() { use_it(entry); }\n",
     );
-    assert_eq!(violation_lines(src), vec![2]);
+    assert_eq!(violation_lines(src), vec![1], "違反は束縛の行で報告される");
 }
 
 /// run_registry の修正前と同じ、改行を挟んだ形。
 #[test]
 fn read_dir_drop_detects_multiline_entries_flatten() {
     let src = concat!(
+        "let Ok(entries) = std::fs::read_dir(runs_dir) else {\n",
+        "    return Vec::new();\n",
+        "};\n",
         "let dirs: Vec<PathBuf> = entries\n",
         "    .flat", "ten()\n",
         "    .map(|e| e.path())\n",
@@ -79,8 +82,43 @@ fn read_dir_drop_detects_multiline_entries_flatten() {
 /// lib-telemetry/tests/reason_field.rs の修正前と同じ形。
 #[test]
 fn read_dir_drop_detects_filter_map_result_ok() {
-    let src = concat!("let path = entries\n", "    .filter_map(Result::", "ok)\n", "    .next();\n");
+    let src = concat!(
+        "let entries = std::fs::read_dir(dir.join(\"telemetry\")).expect(\"dir\");\n",
+        "let path = entries\n",
+        "    .filter_map(Result::", "ok)\n",
+        "    .next();\n",
+    );
     assert_eq!(violation_lines(src), vec![1]);
+}
+
+/// read_dir と無関係な `entries` は検出しない (PR #535 CodeRabbit)。
+#[test]
+fn read_dir_drop_skips_unrelated_entries_variable() {
+    let src = concat!(
+        "let entries = vec![Some(1)].into_iter();\n",
+        "let values: Vec<_> = entries.flat", "ten().collect();\n",
+    );
+    assert!(violation_lines(src).is_empty());
+}
+
+/// 文字列リテラルの中の例は検出しない (PR #535 CodeRabbit)。
+#[test]
+fn read_dir_drop_skips_string_literals() {
+    let src = concat!(
+        "let a = \"entries.flat", "ten()\";\n",
+        "let b = \"read_dir(p).flat", "ten()\";\n",
+    );
+    assert!(violation_lines(src).is_empty());
+}
+
+/// 束縛と呼び出しが別の関数にあるときは結び付けない。
+#[test]
+fn read_dir_drop_skips_entries_in_another_function() {
+    let src = concat!(
+        "fn a() { let entries = std::fs::read_dir(p).unwrap(); use_it(entries); }\n",
+        "fn b(entries: std::vec::IntoIter<Option<u8>>) -> Vec<u8> { entries.flat", "ten().collect() }\n",
+    );
+    assert!(violation_lines(src).is_empty());
 }
 
 #[test]

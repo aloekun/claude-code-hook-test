@@ -1345,8 +1345,13 @@ other_ext_tests = [
 # 合格」に倒れる (takt_verdict で REJECT のレポートだけが一覧から消えると push が通る)。
 #
 # 連鎖の形 (`read_dir(p)?.flatten()`) と、変数を挟む 2 段の形 (`let entries = read_dir(p)?;`
-# の後の `entries.flatten()`) の両方を検出する。2 段の形は変数名 (`*entries`) で見分ける
-# (このリポジトリの既存 13 箇所はすべてこの名前)。限界: 別の名前の変数は見ない。
+# の後の `entries.flatten()`) の両方を検出する。2 段の形は「`let ... entries = ... read_dir(`
+# で束縛し、同じ関数の中 (間に `fn` を挟まない) で `entries.flatten()` を呼ぶ」までを 1 つの範囲
+# として取る。Rust regex に後方参照が無く同じ変数名を照合できないため、束縛と呼び出しを一続きで
+# 見る (PR #535 CodeRabbit: 変数名だけで見ると read_dir と無関係な `entries` も検出していた)。
+# 連鎖の形は直前が `"` のもの (文字列リテラルの中) を除く。
+# 限界: `*entries` 以外の名前の変数は見ない (既存 13 箇所はすべてこの名前)。束縛と呼び出しの
+# 間に別の `entries` の再束縛があっても区別しない。
 #
 # 範囲は `paths` で gate・判定系の crate とテストに絞る。集計・補助の処理 (merge-pipeline の
 # feedback 系 / takt-timings / telemetry-report / lib-telemetry / feedback 系 hook) は対象外:
@@ -1356,7 +1361,7 @@ other_ext_tests = [
 
 [[rules]]
 id = "read-dir-entry-error-dropped"
-pattern = '(?m)^[^\n]*?(?:\bread_dir\([^;]*?|\b\w*entries\s*)\.\s*(?:flatten\(\)|filter_map\(\s*(?:Result::ok|\|\w+\|\s*\w+\.ok\(\))\s*\))'
+pattern = '(?m)^[^\n]*?(?:[^"\w]read_dir\([^;]*?\.\s*(?:flatten\(\)|filter_map\(\s*(?:Result::ok|\|\w+\|\s*\w+\.ok\(\))\s*\))|\blet\s+(?:Ok\(\s*)?(?:mut\s+)?\w*entries\b[^;]*?\bread_dir\((?:[^f]|f[^n]|fn\w)*?\b\w*entries\s*\.\s*(?:flatten\(\)|filter_map\(\s*(?:Result::ok|\|\w+\|\s*\w+\.ok\(\))\s*\)))'
 exception = '^\s*//'
 severity = "error"
 message = "read_dir の entry エラーを .flatten() / .filter_map(Result::ok) で黙って捨てています。読めなかったファイルが最初から無かったように扱われます"
@@ -1381,8 +1386,8 @@ steps = [
 ]
 
 [rules.example]
-bad = "for entry in entries.flatten() { check(entry.path()); }"
-good = "for entry in entries { let path = entry.map_err(|e| format!(\"entry を読めません: {e}\"))?.path(); check(path); }"
+bad = "let Ok(entries) = std::fs::read_dir(dir) else { return; }; for entry in entries.flatten() { check(entry.path()); }"
+good = "let Ok(entries) = std::fs::read_dir(dir) else { return; }; for entry in entries { let path = entry.map_err(|e| format!(\"entry を読めません: {e}\"))?.path(); check(path); }"
 
 [rules.incident]
 pr = 454
@@ -1405,4 +1410,7 @@ rs = [
   "read_dir_drop_skips_comment_line",
   "read_dir_drop_skips_unrelated_flatten",
   "read_dir_drop_ignores_paths_outside_scope",
+  "read_dir_drop_skips_unrelated_entries_variable",
+  "read_dir_drop_skips_string_literals",
+  "read_dir_drop_skips_entries_in_another_function",
 ]

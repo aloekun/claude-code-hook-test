@@ -105,8 +105,10 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 - [ ] exception を「値が 1〜9 で始まる数値か、定数名 (識別子)」に絞り、`timeout: 0` を検出する
 - [ ] `timeout: undefined` / `null` のような識別子の形は lookahead の無い Rust regex では除外できない。
   rule の注記に限界として書く (実在するかは `scripts/` を grep して確かめる)
-- [ ] `timeout: 0` の positive test と、`timeout: GH_TIMEOUT_MS` / `timeout: 30_000` の negative test を足す
+- [ ] `timeout: 0` の positive test を `spawnSync` と `execFileSync` の両方で足し、`timeout: GH_TIMEOUT_MS` /
+  `timeout: 30_000` の negative test を足す
 
 #### 完了基準
 
-`timeout: 0` を付けた通信系の `spawnSync` が rule㉒ で検出されること。
+`timeout: 0` を付けた通信系の `spawnSync` と `execFileSync` が、どちらも rule㉒ で検出されること
+(Node はどちらの API でも `timeout` が 0 より大きいときだけ timeout を効かせる)。
