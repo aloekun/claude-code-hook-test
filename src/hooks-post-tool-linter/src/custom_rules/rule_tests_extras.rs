@@ -25,6 +25,7 @@ fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
         }),
         test_coverage: None,
         incident: None,
+        exception: None,
     }
 }
 

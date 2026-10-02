@@ -220,44 +220,6 @@
 
 ---
 
-### 順位 204: ADR-007 に exception field + 専用 pattern の設計方針 codify (PR #201 post-merge-feedback T3-2 採用)
-
-> **動機**: Rust 標準 regex crate は negative lookahead 非対応のため、相互排他的な regex pattern を扱う際は `BlockedPattern.exception` field + 専用 pattern の 2 段判定が canonical solution。順位 144 `jj-message-required` (PR #171) で導入され、順位 146 `secret-detection` (PR #201) で Anthropic `sk-ant-` を OpenAI `sk-` から除外するのに再利用。2 PR で再利用 = Frequency Medium で ADR codify 妥当。将来の custom linter 実装者が negative lookahead を試みて iteration を浪費するのを防ぐ。
->
-> **本タスクの位置づけ**: PR #201 post-merge-feedback Tier 3 #2 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-10 ユーザー承認)。ADR-007 への section 追加で、本リポジトリの lint runner サポートと整合。
->
-> **参照**: `.claude/feedback-reports/201.md` Tier 3 #2、[docs/adr/adr-007-custom-linter-layer-boundary.md](adr/adr-007-custom-linter-layer-boundary.md) (拡張先)、`src/hooks-pre-tool-validate/src/main.rs` の `preset_jj_message_required` / `preset_secret_detection` (参照実装)
->
-> **実行優先度**: **Tier 3** — Effort XS。ADR-007 に 1 sub-section (10-15 行) 追記のみ。
-
-#### 設計決定 (案)
-
-- **配置**: `docs/adr/adr-007-custom-linter-layer-boundary.md` の「正規表現層」section に新 sub-section「Mutual exclusion via `exception` field + dedicated pattern」を追加
-- **記述内容**:
-  - **原則**: 相互排他的な regex pattern (例: OpenAI `sk-` ⊃ Anthropic `sk-ant-`) を扱う際は negative lookahead ではなく `exception` field を使う
-  - **canonical pattern**: BlockedPattern { pattern: ..., exception: Some(...), message: ... } の 2 段判定
-  - **defense in depth**: exception で除外した側を専用 pattern で別途検出 (Anthropic 専用 `\bsk-ant-[A-Za-z0-9_-]{20,}\b`)
-  - **由来**: PR #171 順位 144 (`jj-message-required` 導入) + PR #201 順位 146 (`secret-detection` 再利用)
-  - **関連**: 順位 201 ADR-007 LazyLock guideline と相補的に「正規表現層」section 内で 2 つの canonical pattern として共存
-
-#### 作業計画
-
-- [ ] `docs/adr/adr-007-custom-linter-layer-boundary.md` を Read で確認 (現状の section 構成)
-- [ ] 「正規表現層」section に新 sub-section を追加
-- [ ] BAD (negative lookahead を試みる anti-pattern) / GOOD (exception field + 専用 pattern) code sample + PR #171 / #201 引用を記述
-- [ ] 本 todo10.md エントリ削除 + todo-summary.md 行削除
-
-#### 完了基準
-
-- ADR-007 に exception field + 専用 pattern 設計方針が codify される
-- 順位 144 / 146 の実装が参照実装として cite される
-
-#### 詰まっている箇所
-
-なし。Effort XS、ADR への docs 追記のみ。
-
----
-
 ### 順位 205: `~/.claude/rules/common/git-workflow.md` に jj auto-snapshot onboarding rule 追記 (PR #201 post-merge-feedback T3-4 採用)
 
 > **動機**: jj は git の staging-area モデルと異なり working tree 全体を即座に @ commit に取り込む (auto-snapshot)。この挙動を知らない agent / ユーザーが「prior session の docs commit (順位 199-202)」と「本セッションの impl 変更 (順位 146 secret-detection)」を同 @ commit に混入させ、結果として bundle PR にせざるを得ない事象が PR #201 で発生 (advisor 助言で bundle 化に収束)。

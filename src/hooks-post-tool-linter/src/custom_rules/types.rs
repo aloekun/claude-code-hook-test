@@ -14,6 +14,7 @@
 //! | `fix` | optional | `CustomRuleFix` (strategy + steps) |
 //! | `example` | optional | `CustomRuleExample` (bad + good) |
 //! | `test_coverage` | optional | `CustomRuleTestCoverage`。rule が targets する main ext (`rs` / `toml` / `yaml` / `yml`) ごとに対応 test 関数名を明示宣言する meta field (順位 137 land 済) |
+//! | `exception` | optional | `pattern` に一致した**範囲**にこの正規表現も一致すれば発火しない (順位 470)。「呼び出しにフラグが付いていない」のような否定を、lookahead 無しで書くための 2 段判定。照合対象はファイル全体ではなくマッチ範囲なので、範囲がフラグの位置まで届く `pattern` にすること (ADR-007 § 否定判定の手段) |
 //!
 //! **glob syntax** (`globset` crate 準拠):
 //!
@@ -54,6 +55,10 @@ pub(crate) struct CustomRule {
     #[serde(default)]
     #[allow(dead_code)]
     pub(crate) incident: Option<CustomRuleIncident>,
+    /// `pattern` のマッチ範囲にこの正規表現が一致したら、その match を違反にしない。
+    /// PreToolUse の `BlockedPattern.exception` (順位 144) と同じ 2 段判定。
+    #[serde(default)]
+    pub(crate) exception: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -122,5 +127,6 @@ pub(crate) struct CustomRuleTestCoverage {
 pub(crate) struct CompiledRule {
     pub(crate) rule: CustomRule,
     pub(crate) regex: Regex,
+    pub(crate) exception: Option<Regex>,
     pub(crate) paths_glob: Option<GlobSet>,
 }

@@ -54,6 +54,16 @@ pub(crate) fn compile_rule(rule: CustomRule) -> Option<CompiledRule> {
             return None;
         }
     };
+    let exception = match rule.exception.as_deref().map(Regex::new).transpose() {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!(
+                "[post-tool-linter] Warning: Invalid exception regex in rule '{}', dropping rule: {}",
+                rule.id, e
+            );
+            return None;
+        }
+    };
     let paths_glob = match compile_paths_glob(&rule.paths) {
         Ok(g) => g,
         Err(msg) => {
@@ -67,6 +77,7 @@ pub(crate) fn compile_rule(rule: CustomRule) -> Option<CompiledRule> {
     Some(CompiledRule {
         rule,
         regex,
+        exception,
         paths_glob,
     })
 }
@@ -174,6 +185,17 @@ fn build_violation_json(
     serde_json::to_string(&violation).ok()
 }
 
+/// match 範囲が rule の `exception` にも一致するか。
+///
+/// ファイル全体ではなく match 範囲だけを見る。全体を見ると、同じファイルの別の呼び出しが
+/// フラグを持っているだけで違反側の呼び出しまで見逃す。
+fn is_excepted(compiled: &CompiledRule, matched: &str) -> bool {
+    compiled
+        .exception
+        .as_ref()
+        .is_some_and(|exception| exception.is_match(matched))
+}
+
 fn collect_violations_for_rule(
     file: &str,
     content: &str,
@@ -183,6 +205,9 @@ fn collect_violations_for_rule(
     for m in compiled.regex.find_iter(content) {
         if violations.len() >= MAX_CUSTOM_VIOLATIONS {
             return;
+        }
+        if is_excepted(compiled, m.as_str()) {
+            continue;
         }
         if let Some(json) = build_violation_json(file, &compiled.rule, m, content) {
             violations.push(json);

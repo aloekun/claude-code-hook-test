@@ -6,6 +6,7 @@
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
+//! - [`rule_tests_jj_workspace_list`]: rule⑱ (jj-workspace-list-without-ignore-working-copy) の tests
 //! - [`rule_tests_manual_config_path`]: rule⑯ (no-manual-hooks-config-path) の tests
 //! - [`rule_tests_pid_timestamp_temp_naming`]: rule⑰ (no-pid-timestamp-temp-naming) の tests
 //! - [`deployed_tests`]: `config/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
@@ -23,6 +24,8 @@ mod engine_tests;
 mod rule_tests;
 #[cfg(test)]
 mod rule_tests_extras;
+#[cfg(test)]
+mod rule_tests_jj_workspace_list;
 #[cfg(test)]
 mod rule_tests_manual_config_path;
 #[cfg(test)]

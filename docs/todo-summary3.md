@@ -55,7 +55,6 @@
 | 465 | Tier 2 | **docs 整合性と output-contract の drift を機械検証する (#409-#414 feedback 系統 A+B を統合)** | todo24.md | S-M | なし (旧依存だった順位 441 は 2026-08-26 に `cli-docs-lint` の `entry_pairing` として実装済み。実装先が同じなので、同 module へ相乗りするか独立 validator にするかを着手時に判断) |
 | 466 | Tier 3 | **出力先と検証設計の convention を明文化する (#409-#414 feedback 系統 C+E を統合)** | todo24.md | S | なし (2026-08-17 採用。docs のみ。出力の visible paths / fixture と実データの対 / step outcome の組み合わせ の 3 点) |
 | 468 | Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
-| 470 | Tier 1 | **誤帰属と副作用フラグ欠如を決定論ルールで弾く (`..` 混入検出 / `jj workspace list` の `--ignore-working-copy` 欠如検出、#417+#421 feedback 採用、系統 A)** | todo24.md | S | なし (両者とも実 incident 実績あり。`.claude/custom-lint-rules.toml` の正規表現層で完結) |
 | 471 | Tier 2 | **cross-crate 定数 pin と reaper 回帰テストの残片を埋める (#417+#420 feedback 採用、系統 B 実装 + C)** | todo24.md | XS-S | なし (元 3 提案のうち 1 件は起票時点で実装済みと判明。着手時に再確認する) |
 | 472 | Tier 2 | **語彙・テスト作法・判断規律の convention 8 項目の行き先を決める (移設先 ADR or 却下、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
 | 473 | Tier 3 | **テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (#423 feedback 採用、系統 F 実装)** | todo24.md | S | なし (ADR-044 層 1 の再評価。#423 の「3 つ目が出たら」判断の見直し) |

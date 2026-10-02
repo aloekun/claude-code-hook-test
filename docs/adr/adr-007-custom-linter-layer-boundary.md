@@ -187,3 +187,45 @@ PR #98 (Bundle Y2) post-merge-feedback で `post-pr-review.yaml` supervise step 
 - TOML rule コメントに field 拡張手順を 4 ステップで記述（grep → alternation 追加 → test helper 追加 → fixture test + TOML test 宣言追加）
 - 各 field について `<rule>_detects_<field>_violation` 命名規約で個別 fixture test を確保（一括 test では削除回帰が検知不可能）
 - `[rules.test_coverage.main_ext_tests]` 宣言で test 名を機械強制レイヤに接続する
+
+## Amendment (2026-10-01, 順位 470 / 204 由来): 否定判定の手段 — `exception` field
+
+Rust 標準の `regex` crate は lookahead を持たない。「呼び出しに `--ignore-working-copy` が**付いていない**」のような否定を正規表現層で書く手段を、ここに一本化する。
+
+### 手段の使い分け
+
+| 手段 | 向く否定 | 例 |
+|---|---|---|
+| **列挙による否定** (上の Case study) | 「直後に来るものが X **以外**」— 来うるものが有限で列挙できる | rule⑨: `persona:` の次の field が `model:` 以外 |
+| **`exception` field** (本 Amendment) | 「範囲の中に X が**無い**」— 位置が決まらない、または来うるものが列挙できない | rule⑱: 引数配列に `--ignore-working-copy` が無い |
+
+`exception` は PreToolUse の `BlockedPattern.exception` (順位 144、参照実装は [`jj.rs`](../../src/hooks-pre-tool-validate/src/presets/jj.rs) の `jj-message-required` = `-m` が無い `jj new` を止める) と同じ 2 段判定で、`pattern` に一致した後、**そのマッチ範囲**に `exception` も一致すれば違反にしない。両 hook で意味を揃えた。
+
+### 照合対象はマッチ範囲 (ファイル全体ではない)
+
+ファイル全体に当てると、同じファイルの別の呼び出しがフラグを持つだけで違反側まで見逃す。マッチ範囲だけを見るため、**`pattern` の範囲がフラグの来うる位置まで届いていること**が正しさの前提になる。rule⑱ は引数配列の `[` から `]` まで (と `.arg(..)` の連鎖全体) を範囲に取り、フラグが subcommand の前にあっても後にあっても範囲に入るようにしている。
+
+範囲の取り方には次の限界がある。`exception` を使うルールは、該当するものを rule の注記に書く:
+
+- ラッパー関数経由 (`run(cmd, args)` のように実引数が別の場所で組み立てられる) は範囲に入らない
+- 範囲の終端を文字クラスで決める場合 (`[^\]]*`)、引数の文字列リテラル自体が終端文字を含むと範囲が途中で切れる
+- 繰り返しの単位を文字列リテラルに限ると (`\.arg\("[^"]*"\)`)、変数や呼び出しの引数 (`.arg(template)`) で範囲が切れ、後ろのフラグを見落として準拠した呼び出しを誤検知する (PR #532 CodeRabbit)
+- マッチ範囲は**コメントも含む**。`exception` が単にフラグの文字列だと、コメントアウトしたフラグで違反を逃がす (同)。rule⑱ は「その行でフラグより前に `//` が無い」場合だけ一致させている
+
+### 書き方の規律
+
+- `exception` の正規表現が不正なら、その rule は**丸ごと読み込まない** (`pattern` が不正な場合と同じ。警告を出す)
+- テストは「範囲内の `exception` で逃がす」「範囲外の `exception` では逃がさない」「同じファイルの準拠呼び出しに引きずられない」の 3 点を最低限そろえる (engine_tests の `exception_*`)
+- 意図的に例外を作る呼び出しが現れた場合は、行単位の抑止コメントを足すのではなく、`exception` か `pattern` の側で表現できないかを先に検討する。行単位の抑止は、検査を骨抜きにする安易な回避手段になるため 2026-10-01 時点では入れていない
+
+### 正規表現層に置かなかった提案: 実行時データへの `..` 混入 (順位 470 の半分)
+
+順位 470 は、本 Amendment で入れたルール⑱と、「設定文字列のパス相当フィールドへの `..` 混入を正規表現で検出する」の 2 件を束ねていた。後者は**実装せずに台帳から外した** (2026-10-01、ユーザー判断)。
+
+由来の PR #417 で `..` が入っていたのは、人が書いたソースや設定ではなく、takt が**実行時に生成する** `.takt/runs/<run>/meta.json` の `reportDirectory` だった。custom-lint はファイルの書き込み時に、そのファイルの内容を照合する。実行時に生成されるデータは照合の対象に入らないので、どの正規表現を書いてもこの incident は捕まえられない。この種の欠陥は、値を読む側のコードで防ぐ。#417 は `..` を含む値を拒否してから包含判定する形に直している (`hooks-session-start` の reaper、`has_parent_dir_component`)。
+
+同型の提案 (「生成物や外部入力に X が混入するのを lint で検出する」) は、照合対象が書き込み時のソースかどうかを先に確かめる。ソースでなければ正規表現層の守備範囲ではない。
+
+### 相互排他的な pattern の扱い (順位 204)
+
+`exception` には範囲内の否定とは別の使い道もある。包含関係にある 2 つの pattern (OpenAI の `sk-` ⊃ Anthropic の `sk-ant-`) を分けたいとき、広い側に `exception` として狭い側を与え、狭い側は専用の `pattern` で別に検出する (PreToolUse の [`secret.rs`](../../src/hooks-pre-tool-validate/src/presets/safety/secret.rs) の `sk-` / `sk-ant-` の 2 pattern、PR #171 / #201)。lookahead で片方を除外する書き方は Rust regex では書けない。

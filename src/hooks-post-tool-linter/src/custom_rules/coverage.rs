@@ -547,6 +547,7 @@ fn rule_with_extensions_and_coverage(
         example: None,
         test_coverage: Some(coverage),
         incident: None,
+        exception: None,
     }
 }
 

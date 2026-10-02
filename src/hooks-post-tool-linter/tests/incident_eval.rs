@@ -56,6 +56,7 @@ const CASES: &[Case] = &[
     Case { rule_type: "NO_WEAK_TEMP_UNIQUENESS", severity: "error", fixture: "no-weak-temp-uniqueness.rs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NO_MANUAL_HOOKS_CONFIG_PATH", severity: "error", fixture: "no-manual-hooks-config-path.rs", expected_line: 2, workflow_rel: Some("src/hooks-incident-eval/src/main.rs") },
     Case { rule_type: "NO_PID_TIMESTAMP_TEMP_NAMING", severity: "error", fixture: "no-pid-timestamp-temp-naming.rs", expected_line: 2, workflow_rel: None },
+    Case { rule_type: "JJ_WORKSPACE_LIST_WITHOUT_IGNORE_WORKING_COPY", severity: "error", fixture: "jj-workspace-list-without-ignore-working-copy.rs", expected_line: 2, workflow_rel: None },
 ];
 
 fn repo_root() -> PathBuf {
