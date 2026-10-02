@@ -1219,3 +1219,120 @@ yml = [
   "ref_push_detects_bare_force_with_lease_with_delete_in_yml",
 ]
 yaml = ["ref_push_detects_shell_delete_in_yml"]
+
+# ─── ルール㉑: Node スクリプトの gh 呼び出しの --repo 欠落検出 (順位 502) ───
+#
+# 由来: PR #470 (CodeRabbit)。順位 467 F-2 に続く 2 度目。`gh pr` / `gh issue` 等は
+# --repo が無いと cwd の git からリポジトリを解決する。非 colocated の jj workspace
+# (ADR-045 の副 workspace) では git が見つからず失敗する。
+#
+# 対象は Node スクリプト (mjs / js / ts) に限る。gh を呼ぶ Rust の exe は gh を起動する
+# 経路より前に GIT_DIR を注入しており (lib_jj_helpers::inject_git_dir_for_gh)、--repo を
+# 要求すると誤検知になる (旧順位 509 の検証)。
+#
+# 範囲は `"gh", [` から `]` まで。spawnSync / execFileSync の直接呼び出しに加え、
+# `runOrFail("gh", [...])` のようなラッパー呼び出しも同じ形なので検出できる。
+# 対象はリポジトリの解決が要るサブコマンドだけ (`gh api` は URL にリポジトリを書く)。
+# 文字列の引用符は `"` / `'` / `` ` `` のどれでも受け付ける (JS では単一引用符も普通に使う)。
+# --repo は `"--repo", REPO` / `"--repo=owner/repo"` / `` `--repo=${REPO}` `` / `"-R"` /
+# `"-Rowner/repo"` のどの書き方でも逃がす (PR #534 CodeRabbit)。
+# 限界: 引数配列を変数で渡す呼び出しと、シェル文字列 (`execSync("gh pr ...")`) は見ない。
+
+[[rules]]
+id = "gh-without-repo-in-node-script"
+pattern = '(?m)^[^\n]*?["\x27`]gh["\x27`],\s*\[\s*["\x27`](?:pr|issue|run|workflow|release)["\x27`][^\]]*\]'
+exception = '["\x27`](?:--repo(?:=[^"\x27`]*)?|-R[^"\x27`]*)["\x27`]|^\s*(?://|\*)'
+severity = "error"
+message = "Node スクリプトの gh 呼び出しに --repo がありません。cwd の git からリポジトリを解決するため、副 workspace (非 colocated の jj) で失敗します"
+why = "PR #470 で、順位 467 F-2 に続いて 2 度目の --repo 欠落を踏んだ。非 colocated の jj workspace では gh が git リポジトリを見つけられない。Rust の exe は GIT_DIR 注入で守られているが、Node スクリプトには同等の仕組みが無い (順位 502)"
+extensions = ["mjs", "js", "ts"]
+
+[rules.fix]
+strategy = "--repo <owner>/<repo> を引数に加える"
+steps = [
+  "スクリプトにリポジトリ名の定数を置く (例: `const REPO = \"owner/repo\";`、scripts/ledger-residue-scan.mjs が precedent)",
+  "gh の引数配列に `\"--repo\", REPO` を加える",
+]
+
+[rules.example]
+bad = "spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--json\", \"state\"], { timeout: 30_000 });"
+good = "spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--repo\", REPO, \"--json\", \"state\"], { timeout: 30_000 });"
+
+[rules.incident]
+pr = 470
+bad_fixture = "gh-without-repo-in-node-script.mjs"
+good_fixture = "gh-without-repo-in-node-script.mjs"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule㉑ は mjs / js / ts (すべて非主要拡張子)。直接呼び出し / 複数行 / ラッパー呼び出しの
+# positive、--repo / -R / gh api / コメント行の negative。
+other_ext_tests = [
+  "gh_without_repo_detects_spawn_sync_pr_view",
+  "gh_without_repo_detects_multiline_args",
+  "gh_without_repo_detects_wrapper_call",
+  "gh_without_repo_skips_repo_flag",
+  "gh_without_repo_skips_short_repo_flag",
+  "gh_without_repo_skips_gh_api",
+  "gh_without_repo_skips_comment_line",
+  "gh_without_repo_ignores_rust_files",
+  "gh_without_repo_detects_single_quoted_call",
+  "gh_without_repo_skips_repo_equals_forms",
+  "gh_without_repo_skips_attached_short_repo_flag",
+]
+
+# ─── ルール㉒: ネットワークを使う spawnSync / execFileSync の timeout 未指定検出 (順位 502) ───
+#
+# 由来: PR #470 (CodeRabbit)。timeout の無い spawnSync はネットワークが止まると無期限に
+# 待ち、呼び出し元 (weekly-review 等) 全体が止まる。
+#
+# 対象は gh と、git の通信系サブコマンド (fetch / push / pull / clone / ls-remote)、jj の
+# 通信系サブコマンド (git fetch / git push / git clone) の直接呼び出しに限る。cargo / ローカル
+# exe の起動と、jj / git のローカル操作 (log / status 等) はネットワークを待たないので対象外。
+# 範囲は呼び出しの行頭から文末の `;` まで (options の object を含む)。
+# 限界: `run(command, args)` のように command を変数で受けるラッパーは見ない — ラッパー
+# 定義側の spawnSync に timeout があることを人が確かめる (2026-10-02 時点の
+# scripts/rebase-nightly-pr.mjs はラッパーに COMMAND_TIMEOUT_MS を付けている)。
+
+[[rules]]
+id = "network-spawn-without-timeout"
+pattern = '(?m)^[^\n]*?\b(?:spawnSync|execFileSync)\(\s*["\x27`](?:gh["\x27`]|git["\x27`],\s*\[(?:\s*["\x27`]-C["\x27`],\s*[^,\]]+,)?\s*["\x27`](?:fetch|push|pull|clone|ls-remote)["\x27`]|jj["\x27`],\s*\[\s*["\x27`]git["\x27`],\s*["\x27`](?:fetch|push|clone)["\x27`])[^;]*'
+exception = '\btimeout\s*:|^\s*(?://|\*)'
+severity = "error"
+message = "gh / git の通信を伴う spawnSync / execFileSync に timeout がありません。ネットワークが止まると無期限に待ちます"
+why = "PR #470 で、timeout の無い spawnSync がネットワーク停止時に weekly-review 全体を無期限に止めうることが指摘された (CodeRabbit)。spawnSync は timeout を指定しない限り子プロセスの終了を待ち続ける (順位 502)"
+extensions = ["mjs", "js", "ts"]
+
+[rules.fix]
+strategy = "options に timeout を付ける"
+steps = [
+  "スクリプトに timeout の定数を置く (例: `const GH_TIMEOUT_MS = 60_000;`)",
+  "spawnSync / execFileSync の options に `timeout: GH_TIMEOUT_MS` を加え、timeout 時の `result.error` を失敗として扱う",
+]
+
+[rules.example]
+bad = "const r = spawnSync(\"gh\", [\"pr\", \"list\", \"--repo\", REPO], { encoding: \"utf8\" });"
+good = "const r = spawnSync(\"gh\", [\"pr\", \"list\", \"--repo\", REPO], { encoding: \"utf8\", timeout: GH_TIMEOUT_MS });"
+
+[rules.incident]
+pr = 470
+bad_fixture = "network-spawn-without-timeout.mjs"
+good_fixture = "network-spawn-without-timeout.mjs"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule㉒ は mjs / js / ts (すべて非主要拡張子)。gh / git fetch / git -C dir ls-remote /
+# execFileSync / 複数行の positive、timeout 付き / ローカル実行 (cargo / jj / git status) /
+# コメント行の negative。
+other_ext_tests = [
+  "network_spawn_detects_gh_without_timeout",
+  "network_spawn_detects_git_fetch_without_timeout",
+  "network_spawn_detects_git_dash_c_ls_remote",
+  "network_spawn_detects_exec_file_sync",
+  "network_spawn_detects_multiline_call",
+  "network_spawn_detects_jj_git_fetch",
+  "network_spawn_detects_single_quoted_call",
+  "network_spawn_skips_timeout_option",
+  "network_spawn_skips_local_commands",
+  "network_spawn_skips_comment_line",
+]

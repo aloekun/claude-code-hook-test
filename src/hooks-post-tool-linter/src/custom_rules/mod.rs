@@ -10,6 +10,8 @@
 //!   (ref-destroying-push-without-lease) の tests
 //! - [`rule_tests_jj_workspace_list`]: rule⑱ (jj-workspace-list-without-ignore-working-copy) の tests
 //! - [`rule_tests_manual_config_path`]: rule⑯ (no-manual-hooks-config-path) の tests
+//! - [`rule_tests_node_script_pitfalls`]: rule㉑ (gh-without-repo-in-node-script) / rule㉒
+//!   (network-spawn-without-timeout) の tests
 //! - [`rule_tests_pid_timestamp_temp_naming`]: rule⑰ (no-pid-timestamp-temp-naming) の tests
 //! - [`deployed_tests`]: `config/custom-lint-rules.toml` + workspace `.takt/workflows/` などの
 //!   deployed artifact に対する regression seal tests
@@ -32,6 +34,8 @@ mod rule_tests_external_command_pitfalls;
 mod rule_tests_jj_workspace_list;
 #[cfg(test)]
 mod rule_tests_manual_config_path;
+#[cfg(test)]
+mod rule_tests_node_script_pitfalls;
 #[cfg(test)]
 mod rule_tests_pid_timestamp_temp_naming;
 

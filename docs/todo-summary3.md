@@ -74,7 +74,7 @@
 | 497 | Tier 2 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |
 | 498 | Tier 2 | **非主要拡張子の coverage を拡張子ごとに要求する (`other_ext_tests` の map 化)** | todo25.md | M | なし (PR #461 の CodeRabbit 指摘由来。現行契約は「rule あたり 1+ test」で、その契約自体は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定済み) |
 | 501 | Tier 1 | **[defect:G2] 由来タグ判定の単語境界と rustdoc 相対リンクの段数を検査する** | todo26.md | S | なし (PR #472 / #463 feedback。`rerun` が run ID に当たる = 証拠検査が緩む向きの誤り。段数ずれは cross-ref も通る) |
-| 502 | Tier 1 | **[defect:G1] silent drop / `gh --repo` 欠落 / `spawnSync` timeout 未指定を lint で塞ぐ** | todo26.md | M | なし (PR #454 / #470 feedback。3 件とも実際に踏んだ欠陥で、検査の場が無かった。`extensions` への `mjs` 追加が前提) |
+| 502 | Tier 1 | **[defect:G1] silent drop / `gh --repo` 欠落 / `spawnSync` timeout 未指定を lint で塞ぐ** | todo26.md | M | なし (PR #454 / #470 feedback。`gh --repo` と timeout は 先行 PR で完了、残りは `read_dir` の silent drop 13 箇所 (後続 PR)) |
 | 503 | Tier 2 | **[improvement] doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)** | todo26.md | M | なし (PR #456 / #464 feedback。実際に壊れた観測はまだ無く、予防のための検査) |
 | 504 | Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
 | 505 | Tier 2 | **[defect:G2] telemetry の id 契約と TOML 構造の回帰を足す** | todo26.md | S | なし (PR #463 / #456 feedback。セクション分断を実際に起こした。ADR-055 への識別子判定基準の追記を同乗) |

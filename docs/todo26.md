@@ -57,29 +57,45 @@
 >
 > **由来**: `[defect:G1]`。証拠 = PR #454 / #470。
 
-#### 作業内容
+#### 現在地 (2026-10-02)
 
-- 上記 3 パターンの custom-lint rule を `.claude/custom-lint-rules.toml` へ追加する
-  (`spawnSync` は gh / network 呼び出しに限定し、ローカル実行の spawn を巻き込まない)
-- `extensions` に `mjs` を足す (現状 js/jsx/ts/tsx のみで `scripts/*.mjs` が対象外)
-- **`--repo` 欠落 rule の対象は Node スクリプト (`scripts/*.mjs`) に絞る** (2026-09-30、旧順位 509 の検証で判明)。
-  gh を呼ぶ Rust の exe (`cli-merge-pipeline` / `cli-pr-monitor` / `check-ci-coderabbit` /
-  `cli-stale-branch-scan`) は、**gh を起動する経路に入る前に** `GIT_DIR` を注入し、非 colocated
-  workspace でもリポジトリを解決する (ADR-045、実測: 副 workspace で
-  `check-ci-coderabbit.exe --list-findings --pr 530` が `--repo` 無しで解決した)。注入の位置は exe ごとに違う:
-  `cli-merge-pipeline` / `check-ci-coderabbit` は `main` 冒頭で `lib_jj_helpers::inject_git_dir_for_gh`、
-  `cli-pr-monitor` は gh を呼ばない `--prepare-pr-body*` の早期 return の後で同関数、
-  `cli-stale-branch-scan` は引数解析の後で `inject_git_dir_for_gh_with` を呼ぶ。Rust 側で `--repo` を
-  要求すると、注入で守られている呼び出しを誤検知する。Rust で検査するなら「gh を起動する経路より
-  前に注入が走るか」を見る形にする (`main` 冒頭だけを見ると上の 2 つを取りこぼす)
-- **現存違反**: `scripts/rebase-nightly-pr.mjs` の `gh pr view` は `--repo` も `GIT_DIR` も無く、
-  cwd = スクリプトのある workspace root で gh を起動する。副 workspace から使うと失敗する
-  (エラーとして表に出る = silent ではない)。rule 導入時に同 PR で直すこと
+3 件を PR 2 本に分けた。**`gh --repo` 欠落と `spawnSync` timeout 未指定は先行 PR で完了した**
+(`config/custom-lint-rules.toml` の rule㉑ `gh-without-repo-in-node-script` / rule㉒
+`network-spawn-without-timeout`、`scripts/rebase-nightly-pr.mjs` の `--repo` 欠落を修正)。
+`--repo` 欠落 rule は Node スクリプトに絞った — gh を呼ぶ Rust の exe は gh を起動する経路より前に
+`GIT_DIR` を注入しており、`--repo` を要求すると誤検知する (旧順位 509 の検証)。
+
+残りは `read_dir(..)` の silent drop (後続 PR)。
+
+#### 残作業: `read_dir(..)` の silent drop (後続 PR)
+
+着手前の実測で、`read_dir` の結果を `.flatten()` / `.filter_map(Result::ok)` で捨てている箇所は
+**23 箇所**あった (動機の表の 5 箇所ではなく、`let entries = read_dir(..)?;` の後に
+`entries.flatten()` と 2 段で書く形が多い)。読み損じがどちらに倒れるかで分けて、13 箇所を直す
+(2026-10-02 ユーザー判断):
+
+| 分類 | 箇所 | 処置 |
+|---|---|---|
+| 通す側に倒れる | `cli-push-runner` の `takt_verdict` `reports`、`cli-docs-lint` の `cross_ref` `walk`、`cli-merge-pipeline` の `run_registry` `collect_feedback_runs` | 読めない entry を「検査できなかった」として失敗に倒す。同じ関数で**ディレクトリを開けなかった場合も**空を返して通しているので一緒に直す (存在しないことが正常な場合は区別する) |
+| すでに安全側 | `takt_verdict` `run_metas` (run が無ければ block)、`hooks-stop-quality` の `takt_subsession` (読み損じても gate は走る)、`lib-ledger` の `repo_index` ×4 (識別子が見つからず報告が増える) | 挙動を保ったまま、読めない entry の扱いを明示的なコードにする。`run_metas` は読み損じで別の run を選ばないよう block に揃える |
+| テスト | `testability_gate` の test 内 `collect_rs`、`hooks-post-tool-linter` の `coverage.rs` / `deployed_tests.rs`、`lib-telemetry/tests/reason_field.rs` | 読めなければ `expect` でテストを落とす |
+
+**対象外にした 10 箇所**: `cli-merge-pipeline` の feedback 系 (context / project_dir / transcript)、
+`cli-takt-timings` ×2、`cli-telemetry-report` ×2、`lib-telemetry`、`hooks-stop-feedback-dispatch`、
+`hooks-user-prompt-feedback-recovery`。集計・補助の処理で、読み損じても件数がわずかに減るだけで
+判定は変わらない。行単位の抑止を入れていないため、rule は `paths` で 13 箇所を含むファイル /
+crate とテストに絞る。
+
+- [ ] `paths` で絞った範囲にある `.flatten()` を全件数え、`read_dir` と無関係なもの (`Option` の
+  flatten 等) で誤検知しないことを確かめる
+- [ ] rule を追加する (連鎖の形と 2 段の形の両方) + bad/good fixture
+- [ ] 13 箇所を上表のとおり直し、「通す側に倒れる」3 箇所には読み損じで失敗する回帰テストを付ける
 
 #### 完了基準
 
-- 3 rule とも、違反コードを入れると lint が落ちることを fixture で固定している
-- 既存の `scripts/*.mjs` が新 rule で false positive を出さない (`rebase-nightly-pr.mjs` は真の違反として修正済みであること)
+- rule が違反コードで発火することを fixture で固定している
+- 「通す側に倒れる」3 箇所で、読み損じ (entry とディレクトリの両方) が失敗になる
+- rule の範囲で既存コードの違反が 0
 
 ---
 
