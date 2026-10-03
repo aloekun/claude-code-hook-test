@@ -16,5 +16,6 @@ lib-pending-file = { path = "../lib-pending-file" }
 
 [dev-dependencies]
 proptest = "1"
+tempfile = "3"
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

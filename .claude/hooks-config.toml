@@ -21,7 +21,7 @@
 [session_start.staleness]
 enabled = true
 fetch_timeout_secs = 3        # jj git fetch 全体の timeout (network 異常で session 起動を阻害しない)
-fetch_cache_secs = 300        # FETCH_HEAD mtime が N 秒以内なら fetch をスキップ (network cost 抑制)
+fetch_cache_secs = 300        # 前回の fetch 成功 (.claude/session-start-last-fetch に記録) から N 秒以内なら fetch をスキップ (network cost 抑制)
 default_branch = "master"     # trunk-based 前提、feature branch 運用では変更
 # workspace stale 検知 nudge (ADR-045 § Known operational risks、C2)。並列 workspace の操作で
 # working copy が stale になったら `jj workspace update-stale` を促す (自動実行はしない)。

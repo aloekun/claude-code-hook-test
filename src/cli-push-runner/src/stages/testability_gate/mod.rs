@@ -20,7 +20,7 @@ use crate::stages::docs_only_routing::run_jj_diff_summary;
 const STAGE: &str = "testability";
 const OVERRIDE_ENV_VAR: &str = "TESTABILITY_GATE_OVERRIDE";
 
-/// 2026-08-28 に実測した既存の発火箇所 (8 件)。**この表は増やさない。**
+/// 2026-08-28 に実測した既存の発火箇所 (当時 8 件)。**この表は増やさない。**
 ///
 /// 新しい行を足すことは「テストの場が無い判定をもう 1 つ増やした」と同義なので、
 /// [`baseline_never_grows`](tests::baseline_never_grows) が件数の増加を機械的に拒否する。
@@ -30,15 +30,18 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/cli-pr-monitor/src/runner.rs", "diff_is_empty"),
     ("src/cli-push-runner/src/stages/push_jj_bookmark.rs", "working_copy_is_empty"),
     ("src/cli-push-runner/src/stages/push_jj_bookmark.rs", "head_has_description"),
-    ("src/hooks-session-start/src/jj_helpers.rs", "fetch_head_is_recent"),
     ("src/hooks-stop-quality/src/takt_subsession.rs", "meta_status_is_running"),
     ("src/hooks-stop-quality/src/takt_subsession.rs", "meta_is_fresh"),
     ("src/lib-telemetry/src/lib.rs", "telemetry_enabled"),
 ];
 
-/// 凍結時点の件数。`BASELINE` はここから増やせない。
+/// `BASELINE` の上限。ここから増やせない。行を直して削ったら、この値も同じだけ下げる
+/// (下げないと空いた枠に新しい行を足せてしまう)。
+///
+/// 8 (2026-08-28 の凍結時点) → 7 (2026-10-03、順位 493 で `fetch_head_is_recent` を
+/// 純関数 `recorded_fetch_is_recent` に置き換えた)。
 #[cfg(test)]
-const BASELINE_FROZEN_LEN: usize = 8;
+const BASELINE_FROZEN_LEN: usize = 7;
 
 /// 検査対象の Rust ファイルか。テストコードは対象外にする。
 ///

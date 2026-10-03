@@ -1,4 +1,4 @@
-//! jj subprocess helpers — timeout 付き `jj` 呼び出し + revset commit count + FETCH_HEAD freshness。
+//! jj subprocess helpers — timeout 付き `jj` 呼び出し + revset commit count + fetch の鮮度。
 //!
 //! staleness / その他 jj 依存処理が共有する低レイヤ。failure mode は fail-open
 //! (network 異常 / fetch timeout / parse 失敗等で session 起動を阻害しない)。
@@ -9,19 +9,47 @@ use std::process::Command;
 
 const STALENESS_JJ_LOG_TIMEOUT_SECS: u64 = 5;
 
-pub(crate) fn fetch_head_is_recent(repo_root: &Path, cache_secs: u64) -> bool {
-    let fetch_head = repo_root.join(".git").join("FETCH_HEAD");
-    let metadata = match std::fs::metadata(&fetch_head) {
-        Ok(m) => m,
-        Err(_) => return false,
+/// 最後に fetch が成功した時刻 (UNIX 秒) を**内容として**持つ記録 (repo root からの相対パス)。
+///
+/// 以前は `.git/FETCH_HEAD` の mtime で判定していたが、**`jj git fetch` は FETCH_HEAD を
+/// 書かない** (`jj git clone` も作らない。2026-10-02 に実測、順位 493)。そのためキャッシュは
+/// 一度も効かず、セッション開始のたびに fetch していた。mtime は他の操作でも動くので、
+/// 時刻は内容で持つ。
+const LAST_FETCH_RECORD: &str = ".claude/session-start-last-fetch";
+
+/// 最後の fetch 成功から `cache_secs` 秒以内か。記録が無い / 読めない / 壊れている場合は
+/// `false` (= fetch する。staleness の判定が古いデータに基づかない側へ倒す)。
+pub(crate) fn fetch_is_recent(repo_root: &Path, cache_secs: u64) -> bool {
+    let Ok(content) = std::fs::read_to_string(repo_root.join(LAST_FETCH_RECORD)) else {
+        return false;
     };
-    match metadata.modified().and_then(|t| {
-        t.elapsed()
-            .map_err(|e| std::io::Error::other(e.to_string()))
-    }) {
-        Ok(elapsed) => elapsed.as_secs() < cache_secs,
-        Err(_) => false,
+    recorded_fetch_is_recent(&content, now_unix_secs(), cache_secs)
+}
+
+/// 記録の内容 (UNIX 秒) が `now` から見て `cache_secs` 秒以内か。未来の時刻は `false`
+/// (時計の巻き戻りや壊れた記録で、fetch が恒久的に止まらないようにする)。
+pub(crate) fn recorded_fetch_is_recent(content: &str, now: u64, cache_secs: u64) -> bool {
+    let Ok(fetched_at) = content.trim().parse::<u64>() else {
+        return false;
+    };
+    fetched_at <= now && now - fetched_at < cache_secs
+}
+
+/// fetch の成功を記録する。書き込みに失敗しても、次のセッションで fetch し直すだけなので
+/// 結果は捨てる (fail-open。セッション起動を阻害しない)。
+pub(crate) fn record_successful_fetch(repo_root: &Path) {
+    let path = repo_root.join(LAST_FETCH_RECORD);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok();
     }
+    std::fs::write(&path, now_unix_secs().to_string()).ok();
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub(crate) fn run_jj_with_timeout(args: &[&str], timeout_secs: u64) -> Option<String> {
@@ -102,25 +130,59 @@ pub(crate) fn count_commits_in_revset(revset: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
-    fn unique_temp_root(prefix: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
-        std::env::temp_dir().join(format!(
-            "jj-helpers-{}-{}-{}",
-            prefix,
-            std::process::id(),
-            nanos
-        ))
+    const CACHE_SECS: u64 = 300;
+    const NOW: u64 = 1_790_000_000;
+
+    #[test]
+    fn fetch_is_not_recent_without_a_record() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!fetch_is_recent(root.path(), CACHE_SECS));
     }
 
     #[test]
-    fn fetch_head_is_recent_returns_false_when_file_missing() {
-        let root = unique_temp_root("fetch-head-missing");
-        assert!(!fetch_head_is_recent(&root, 300));
+    fn a_recorded_fetch_is_recent_until_the_cache_expires() {
+        assert!(recorded_fetch_is_recent(&NOW.to_string(), NOW, CACHE_SECS));
+        assert!(recorded_fetch_is_recent(&(NOW - (CACHE_SECS - 1)).to_string(), NOW, CACHE_SECS));
+        assert!(!recorded_fetch_is_recent(&(NOW - CACHE_SECS).to_string(), NOW, CACHE_SECS));
+    }
+
+    /// 未来の時刻・壊れた内容は fetch する側 (`false`) に倒す。
+    #[test]
+    fn future_or_malformed_records_are_not_recent() {
+        assert!(!recorded_fetch_is_recent(&(NOW + 1).to_string(), NOW, CACHE_SECS));
+        assert!(!recorded_fetch_is_recent("", NOW, CACHE_SECS));
+        assert!(!recorded_fetch_is_recent("yesterday", NOW, CACHE_SECS));
+    }
+
+    #[test]
+    fn recording_a_fetch_makes_it_recent() {
+        let root = tempfile::tempdir().unwrap();
+        record_successful_fetch(root.path());
+        assert!(fetch_is_recent(root.path(), CACHE_SECS));
+    }
+
+    /// **mtime ではなく内容で判定する** (順位 493)。jj は FETCH_HEAD を書かず、mtime は
+    /// 他の操作でも動く。古い記録を新しい mtime で、新しい記録を古い mtime で書いても、
+    /// 判定は内容どおりになる。
+    #[test]
+    fn the_judgement_ignores_the_file_mtime() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(LAST_FETCH_RECORD);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        std::fs::write(&path, (now_unix_secs() - 10 * CACHE_SECS).to_string()).unwrap();
+        assert!(!fetch_is_recent(root.path(), CACHE_SECS), "古い記録は mtime が新しくても期限切れ");
+
+        record_successful_fetch(root.path());
+        let long_ago = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+        assert!(fetch_is_recent(root.path(), CACHE_SECS), "新しい記録は mtime が古くても有効");
     }
 
     #[test]
@@ -138,19 +200,5 @@ mod tests {
         assert!(!stderr_indicates_stale(""));
         assert!(!stderr_indicates_stale("Concurrent modification detected, resolving automatically."));
         assert!(!stderr_indicates_stale("Error: Revision `@` doesn't exist"));
-    }
-
-    #[test]
-    fn fetch_head_is_recent_returns_true_for_fresh_file() {
-        use std::io::Write;
-        let root = unique_temp_root("fetch-head-fresh");
-        let git_dir = root.join(".git");
-        std::fs::create_dir_all(&git_dir).unwrap();
-        let fetch_head = git_dir.join("FETCH_HEAD");
-        let mut f = std::fs::File::create(&fetch_head).unwrap();
-        writeln!(f, "fake content").unwrap();
-        drop(f);
-        assert!(fetch_head_is_recent(&root, 3600));
-        let _ = std::fs::remove_dir_all(&root);
     }
 }
