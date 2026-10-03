@@ -7,7 +7,8 @@ use std::path::Path;
 
 use crate::hooks_config::StalenessConfig;
 use crate::jj_helpers::{
-    count_commits_in_revset, fetch_head_is_recent, run_jj_with_timeout, working_copy_is_stale,
+    count_commits_in_revset, fetch_is_recent, record_successful_fetch, run_jj_with_timeout,
+    working_copy_is_stale,
 };
 
 const STALENESS_DEFAULT_FETCH_TIMEOUT_SECS: u64 = 3;
@@ -42,8 +43,10 @@ pub(crate) fn compute_staleness_nudge(
         .fetch_cache_secs
         .unwrap_or(STALENESS_DEFAULT_FETCH_CACHE_SECS);
 
-    if !fetch_head_is_recent(repo_root, fetch_cache) {
-        let _ = run_jj_with_timeout(&["git", "fetch", "--quiet"], fetch_timeout);
+    if !fetch_is_recent(repo_root, fetch_cache)
+        && run_jj_with_timeout(&["git", "fetch", "--quiet"], fetch_timeout).is_some()
+    {
+        record_successful_fetch(repo_root);
     }
 
     let revset = format!("@-..{}", default_branch);

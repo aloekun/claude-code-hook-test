@@ -12,35 +12,6 @@
 
 ## 週次レビュー採用 (2026-08-22)
 
-### 順位 493: jj の working copy materialize による mtime リセットで「最近 fetch した」「書き込み中」判定が壊れる
-
-> **動機**: `fetch_head_is_recent()` が `.git/FETCH_HEAD` の mtime を「最後に fetch した時刻」として扱っているが、jj が working copy を materialize する際 (`jj new` 等) に全ファイルの mtime が checkout 時刻へ書き換わる。同じ根因で `holder_still_writing()` が空ロックファイルの「書き込み中」判定に mtime を使っており、プロセスクラッシュ後に残った古い空ロックファイルが「たった今作成された」と誤認される。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-08-22-J01 / WR-2026-08-22-J02 で採用 (severity=high, facet=jj-robustness, category=jj-mtime-staleness)。**2 件は同一の根因クラス**なので 1 タスクとして扱う。
->
-> **参照**: `.claude/weekly-reviews/2026-08-22.md`、`src/hooks-session-start/src/jj_helpers.rs` (`fetch_head_is_recent`)、`src/cli-pr-monitor/src/lock.rs` (`holder_still_writing`)
-
-#### 背景
-
-どちらも「ファイルの mtime = そのファイルに対する最後の意味ある操作の時刻」を前提にしている。jj はこの前提を破る — working copy を materialize するとき、内容が変わっていないファイルも含めて mtime が更新されうる。ADR-021 (jj 変更検出ロジックの設計原則) が「commit_id 単独比較の限界」を扱っているのと同じ系統の問題で、**mtime を状態の代理として使うこと自体**が jj 環境では成立しない。
-
-#### 設計決定 (案)
-
-- `fetch_head_is_recent()`: mtime ではなく fetch 実行側が残す明示的な記録 (タイムスタンプファイル / state JSON) を真実源にする。あるいは `jj git fetch` の実行そのものを記録する
-- `holder_still_writing()`: 空ロックファイルの「書き込み中」判定を mtime から切り離す。lock 取得側が PID や開始時刻を**内容として**書き、空ファイル = 未完了と扱う (現状は空ファイルを Held 扱いにする設計が memory `verify-concurrency-by-observation` にある — その方針と整合させる)
-- **どちらも実測で確かめる**: jj の materialize が実際に mtime を書き換えることを観測してから直す (推論で直すと、直っていないことに気づけない)
-
-- [ ] jj materialize による mtime 書き換えを実測で再現する
-- [ ] `fetch_head_is_recent()` を mtime 非依存にする
-- [ ] `holder_still_writing()` を mtime 非依存にする
-- [ ] 両方に回帰テスト (mtime を人為的に巻き戻しても判定が変わらないこと)
-
-#### 完了基準
-
-mtime を書き換えても両判定の結果が変わらないこと。変異テストで、mtime 依存へ戻すとテストが落ちること。
-
----
-
 ### 順位 495: lib-* crate の責務分類基準が ADR-012 に無い
 
 > **動機**: 現行の `lib-*` crate は shared utility / jj helper / domain logic / state management / external integration の 5 種の責務に分散しているが、ADR-012 (src/ ディレクトリの命名規約) には新規 crate がどのカテゴリに属するかの判定基準が無い。新しい lib-* を足すときに置き場所の判断が属人的になる。

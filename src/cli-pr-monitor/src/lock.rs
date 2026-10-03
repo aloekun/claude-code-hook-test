@@ -320,6 +320,10 @@ fn file_age_secs(path: &PathBuf) -> Option<i64> {
 /// 空の側にも `LOCK_WRITE_WINDOW_SECS` の齢制限を掛ける。create 直後に保持者が
 /// crash すると空ファイルが残るが、この制限が無いと以降の取得が永久に阻まれるため。
 ///
+/// 齢は mtime で測るが、jj の checkout はこの判定を狂わせない。lock は gitignore 済みで、
+/// jj が checkout で書き換えるのは追跡ファイルだけである (2026-10-02 に実測: checkout を
+/// 往復しても ignored ファイルの mtime は変わらず、追跡ファイルだけが更新された。順位 493)。
+///
 /// pid は内容が読めない以上 unknown。
 fn holder_still_writing(
     path: &PathBuf,

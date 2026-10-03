@@ -49,6 +49,8 @@ src/*/Cargo.lock
 .claude/pipeline.lock
 .claude/pr-monitor.lock
 .claude/scheduled_tasks.lock
+# hooks-session-start: 最後に jj git fetch が成功した時刻 (fetch キャッシュ判定、順位 493)
+.claude/session-start-last-fetch
 # ADR-029: post-merge-feedback の pending file (cli-merge-pipeline 生成、skill が consume する一時 artifact)
 # 旧経路。Phase E で機構ごと廃止予定 (ADR-030 supersede)
 .claude/post-merge-feedback-pending.json
