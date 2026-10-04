@@ -70,6 +70,20 @@ const CASES: &[Case] = &[
         expect_block: false,
     },
     Case {
+        name: "Bash: cargo fmt を block する (本リポジトリの opt-in preset、順位 411)",
+        tool_name: "Bash",
+        field: "command",
+        value: "cargo fmt --all",
+        expect_block: true,
+    },
+    Case {
+        name: "Bash: cargo build は pass する (cargo-fmt-block の過剰ブロック退行ガード)",
+        tool_name: "Bash",
+        field: "command",
+        value: "cargo build --release",
+        expect_block: false,
+    },
+    Case {
         name: "Write: 保護対象ファイルを block する",
         tool_name: "Write",
         field: "file_path",

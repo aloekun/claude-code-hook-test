@@ -243,6 +243,15 @@ post-merge feedback の提案のうち、**ルール文書を足すだけのも�
 
 **撤廃できないもの**: [ADR-075](adr-075-verify-premises-before-acting.md) の前提検証、[ADR-067](adr-067-phase-b-unattended-fix-push.md) の「実走でしか検証できない」、[ADR-073](adr-073-work-package-completion-boundary.md) の「複合タスクの仕様に除外根拠を書く」等、認識論的なルール約 8 件は § Decision framework Step 1 (regex / AST / runtime check で表現できない) を通らない。これらは残す — 目的はルールをゼロにすることではなく、**機構にできるのに文章のままのもの**を無くすことである。
 
+## 追記 (2026-10-04): 規約と hook のコストは時間の形が違う
+
+Step 3 の維持コスト (rule = session 毎の read コスト × 期間) を、比較の形で補う。
+
+- **規約**は、書いた時点から毎セッション読まれ、違反が起きるかどうかに関係なくコンテキストを消費し続ける。しかも、違反の瞬間に思い出される保証は無い
+- **PreToolUse hook** は、該当するコマンドが実行されるまでコストがゼロである。発火した瞬間にブロックし、**同じメッセージで正しい対処を返せる**。読み手は規約を覚えていなくても正しい経路に着く
+
+規約のコストは期間に比例して積み上がるが、hook のコストは発火した回数にしか比例しない。コマンド文字列の一致で判定できる誤操作では、この差が規約より hook を選ぶ理由になる (Frequency による着手判断は Step 3 のまま変えない)。実例は `cargo fmt` の block (順位 411、preset `cargo-fmt-block`) である。このリポジトリは rustfmt を適用しておらず、`cargo fmt --all` は無関係な 134 ファイルを整形する (2026-10-04 実測)。これを規約として CLAUDE.md に書かず、hook のメッセージに「なぜ非適用か」と「変更した行だけを手で直す」を載せた (2026-08-10 ユーザー判断)。
+
 ## 関連 ADR
 
 - [ADR-022 (自動化責務分離)](adr-022-automation-responsibility-separation.md) — runtime 自動化の責務境界、本 ADR と直交 scope

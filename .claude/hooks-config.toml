@@ -123,6 +123,10 @@ system_message_enabled = true
 #                              改行か cmd.exe のメタ文字があればブロックしファイル経由に誘導
 #                              (Volta shim が cmd.exe を経由し、複数行は 1 行目だけ実行・`>` は
 #                               空ファイル生成になる。PR #517 の `setTimeout(d` 混入 / 順位 477)
+#   "cargo-fmt-block" — (opt-in、既定では無効) cargo fmt / cargo-fmt / rustfmt をブロックし、
+#                              変更行だけを手で直す対処に誘導する。本リポジトリは rustfmt を
+#                              適用しておらず、`cargo fmt --all` は無関係な 134 ファイルを整形する
+#                              (2026-10-04 実測。PR #376 で誤実行 / 順位 411)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -140,6 +144,7 @@ blocked_patterns = [
   "gh-repo-env-guard",
   "powershell-destructive-write-block",
   "node-eval-cmd-meta-block",
+  "cargo-fmt-block",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)

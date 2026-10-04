@@ -82,6 +82,19 @@ GUI アプリケーションは Claude Code のヘッドレス環境では動作
 
 詳細は CLAUDE.md の "Electron E2E Testing" セクションを参照してください。"#;
 
+const CARGO_FMT_MSG: &str = r#"**cargo fmt / rustfmt がブロックされました**
+
+このリポジトリは rustfmt を適用していません (引数のペアを 1 行に保つなど、独自の整形を使っています)。
+`cargo fmt --all` を実行すると、今回の変更と無関係な 100 以上のファイルが整形され、差分に混ざります。
+
+**正しい対処:**
+- 整形が必要な箇所は、Edit で手で直してください。周りのコードの書き方に合わせ、変更した行だけを直します
+- `--check` も止めています。リポジトリ全体が rustfmt に従っていないので、結果は常に失敗になり、判断材料になりません
+
+**どうしても実行したい場合:**
+- この hook は Claude Code のツール呼び出しにだけ効きます。必要ならユーザーに、手元の端末での実行を依頼してください
+- 方針そのものを変えるなら、`.claude/hooks-config.toml` の `blocked_patterns` から `cargo-fmt-block` を外す変更を PR にしてください"#;
+
 /// プリセット: default (rm -rf, cd /d)
 pub(crate) fn preset_default() -> Vec<BlockedPattern> {
     vec![
@@ -124,6 +137,27 @@ pub(crate) fn preset_git() -> Vec<BlockedPattern> {
             message: GIT_DIRECT_MSG,
         },
     ]
+}
+
+/// プリセット: cargo-fmt-block (rustfmt を適用しないリポジトリ向け、opt-in。順位 411)
+///
+/// rustfmt を適用しない方針はリポジトリごとに違うので、既定には入れない。
+///
+/// 検出範囲: コマンド位置 (行頭 / `&&` `;` `||` `|` `&` の後。環境変数代入・`command` /
+/// `env` 前置きを許す) にある `cargo fmt` / `cargo +<toolchain> fmt` /
+/// `rustup run <toolchain> cargo fmt` / `cargo-fmt` / `rustfmt` (それぞれ `.exe` 付きも)。
+/// 引数は問わない — `--check` も止める。exception はコマンド全体に効くため、`--check` を
+/// 例外にすると `cargo fmt --check && cargo fmt` が素通りする。
+/// 限界: `bash -c "cargo fmt"` のようなシェルラッパーと、`$(...)` / サブシェルの中は見ない。
+pub(crate) fn preset_cargo_fmt() -> Vec<BlockedPattern> {
+    vec![BlockedPattern {
+        pattern: Regex::new(
+            r"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:rustup(?:\.exe)?\s+run\s+\S+\s+)?(?:cargo(?:\.exe)?(?:\s+\+\S+)?\s+fmt|cargo-fmt(?:\.exe)?|rustfmt(?:\.exe)?)(?:\s|$)",
+        )
+        .unwrap(),
+        exception: None,
+        message: CARGO_FMT_MSG,
+    }]
 }
 
 /// プリセット: electron (Electron GUI 実行ブロック)
@@ -374,5 +408,60 @@ mod tests {
     #[test]
     fn allows_pnpm_lint() {
         assert!(!is_blocked("pnpm lint"));
+    }
+
+    fn is_blocked_fmt(command: &str) -> bool {
+        is_blocked_with(command, &["cargo-fmt-block"])
+    }
+
+    /// 順位 411: rustfmt を書き込む全形態を止める (検出範囲は `preset_cargo_fmt` の doc)。
+    #[test]
+    fn cargo_fmt_block_blocks_every_invocation_form() {
+        for command in [
+            "cargo fmt",
+            "cargo fmt --all",
+            "cargo fmt -p hooks-pre-tool-validate",
+            "cargo +stable fmt",
+            "rustup run stable cargo fmt",
+            "cargo-fmt --all",
+            "rustfmt src/main.rs",
+            "cargo.exe fmt",
+            "rustfmt.exe src/main.rs",
+            "cd /e/work && cargo fmt",
+            "cargo build; cargo fmt",
+            "RUSTFLAGS=-D cargo fmt",
+            "env cargo fmt",
+        ] {
+            assert!(is_blocked_fmt(command), "{command}");
+        }
+    }
+
+    /// `--check` も止める。exception はコマンド全体に効くので、例外にすると
+    /// `cargo fmt --check && cargo fmt` が素通りする。
+    #[test]
+    fn cargo_fmt_block_blocks_check_mode_too() {
+        assert!(is_blocked_fmt("cargo fmt --all -- --check"));
+        assert!(is_blocked_fmt("cargo fmt --check && cargo fmt"));
+    }
+
+    /// コマンド位置にない言及と、名前が似た別コマンドは止めない。
+    #[test]
+    fn cargo_fmt_block_allows_mentions_and_other_commands() {
+        for command in [
+            "cargo build --release",
+            "cargo clippy --workspace",
+            "cargo test -p cli-docs-lint",
+            "grep -rn 'cargo fmt' docs/",
+            "echo cargo fmt",
+            "cargo fmtx",
+        ] {
+            assert!(!is_blocked_fmt(command), "{command}");
+        }
+    }
+
+    /// opt-in のプリセット: 既定の設定では止めない (rustfmt を使う派生プロジェクト向け)。
+    #[test]
+    fn cargo_fmt_block_is_not_enabled_by_default() {
+        assert!(!is_blocked("cargo fmt --all"));
     }
 }

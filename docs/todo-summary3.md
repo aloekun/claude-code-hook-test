@@ -16,7 +16,6 @@
 | 407 | Tier 2 | **旧語彙が live code に出現したら reject するカスタムリントルール (系統 B-3)** | todo21.md | S | なし (2026-08-10 採用。132 箇所の改名で CodeRabbit が同一 PR 内だけで 4 箇所の取りこぼしを指摘。ADR-007 の既存 regex 基盤で足り docs は extensions で自然に除外) |
 | 408 | Tier 1 | **safety-critical な config 比較に shell glob を禁止し exact-match を必須化 (系統 C-1)** | todo21.md | S | なし (2026-08-10 採用。kill-switch 判定の部分一致で fail-closed を謳う step 自身が fail-open だった。該当コメントが無かったため症状が出ず潜伏していた) |
 | 409 | Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
-| 411 | Tier 1 | **`cargo fmt` を PreToolUse でブロックし正しい対処を提示 (系統 F、規約ではなく機構)** | todo21.md | S | なし (2026-08-10 ユーザー判断で提案の形を変更。規約は毎セッション読まれコンテキストを圧迫するが hook は発火時のみコストが出る。ADR-042 へこの非対称を追記するのも本エントリの範囲。**反射的に実行されやすく無関係な差分を生む**ため WP-18 とは独立に早期着手する = 2026-08-10 ユーザー判断) |
 | 413 | Tier 2 | **`CwdRestore` Drop guard が 8 定義 / 6 ファイルに複製。ADR-025 の統合トリガーと再評価期限を超過** | todo21.md | S-M | なし (2026-08-10 PR #385 の pre-push review 指摘。ADR-025 自身が「2 例目で `lib-test-helpers` へ統合」と定め再評価期限 2026-07-31 も過ぎている。抽出するか ADR-025 の status を更新するかの判断が要る) |
 | 414 | Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo27.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
 | 415 | Tier 2 | **PR 検出源を広げる変更の信頼スコープ検査チェックリスト (系統 A-2)** | todo22.md | XS | なし (2026-08-11 採用。#385 の security review が「origin push 権限と同等の信頼度のソースまで検出を拡張する」点を指摘。検出源追加時の確認項目を明文化) |
