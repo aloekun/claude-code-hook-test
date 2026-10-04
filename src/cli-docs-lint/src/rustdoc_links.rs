@@ -68,16 +68,26 @@ pub fn check_file(path: &Path, content: &str) -> Vec<Violation> {
         .collect()
 }
 
+/// `////` 以上は rustdoc ではなく通常のコメントなので除く (PR #538 CodeRabbit)。
 fn is_doc_comment(line: &str) -> bool {
     let trimmed = line.trim_start();
-    trimmed.starts_with("///") || trimmed.starts_with("//!")
+    (trimmed.starts_with("///") && !trimmed.starts_with("////")) || trimmed.starts_with("//!")
 }
 
+/// シンボリックリンクは辿らない (`symlink_metadata`)。`is_dir` はリンク先を見るので、
+/// 祖先を指すリンクがあると同じディレクトリへ再帰し続ける (PR #538 CodeRabbit)。
+/// メタデータを読めない entry は `Err` にする — 飛ばすと検査しないまま成功する。
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir)
         .map_err(|e| format!("ディレクトリ読み込み失敗 {}: {}", dir.display(), e))?;
     for path in checked_paths(entries.map(|entry| entry.map(|e| e.path())), dir)? {
-        if path.is_dir() {
+        let file_type = fs::symlink_metadata(&path)
+            .map_err(|e| format!("メタデータ読み込み失敗 {}: {}", path.display(), e))?
+            .file_type();
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
             let skipped = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -150,6 +160,29 @@ mod tests {
                       /// [web](https://example.com/a.md)\n";
         let root = repo("crate/src/x.rs", source);
         assert!(violations(&root).is_empty());
+    }
+
+    /// `////` は rustdoc ではないので見ない。`///` / `//!` は見る (PR #538 CodeRabbit)。
+    #[test]
+    fn quadruple_slash_comments_are_not_doc_comments() {
+        let root = repo(
+            "crate/src/x.rs",
+            "//// [x](../nowhere.md)\n/// [y](../nowhere.md)\n//! [z](../nowhere.md)\n",
+        );
+        let lines: Vec<usize> = violations(&root).iter().map(|v| v.line).collect();
+        assert_eq!(lines, vec![2, 3]);
+    }
+
+    /// 祖先を指すシンボリックリンクがあっても再帰し続けない (PR #538 CodeRabbit)。
+    /// Windows ではリンク作成に権限が要るので unix でだけ回す。
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_not_followed() {
+        let root = repo("crate/src/x.rs", "//! [x](../nowhere.md)\n");
+        let src = root.path().join("src");
+        std::os::unix::fs::symlink(&src, src.join("crate/loop")).expect("symlink");
+        let found = violations(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
     }
 
     /// `target/` 配下は走査しない (生成物に古いリンクが残っていても落とさない)。
