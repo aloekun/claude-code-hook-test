@@ -13,7 +13,7 @@
 //! # 書式への依存を 1 行に絞る
 //!
 //! 読むのは `## Result: <verdict>` の 1 行のみ。takt の output-contract
-//! ([ADR-048](../../../../docs/adr/adr-048-facet-findings-handoff-markdown-contract.md)) への
+//! ([ADR-048](../../../../../docs/adr/adr-048-facet-findings-handoff-markdown-contract.md)) への
 //! 結合が 1 本増えるため、**依存する面をできるだけ狭くし、書式が変わったら落ちる回帰
 //! テストを実レポートのテキストで持つ**。
 

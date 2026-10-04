@@ -5,7 +5,7 @@
 //! `## Q-<連番>: <問い>` の見出しだけを問いとして数える。見出し配下の `関連:` / `仮定:` は
 //! 表示のために拾うが、**欠けていてもエントリとしては数える** — 書式の不備を理由に push を
 //! 通すと、gate が守ろうとしている「書かれた問いは必ず push 前に届く」が崩れるためである
-//! ([ADR-077](../../../../docs/adr/adr-077-open-questions-gate.md))。
+//! ([ADR-077](../../../../../docs/adr/adr-077-open-questions-gate.md))。
 //!
 //! # コードブロックは読まない
 //!
@@ -17,7 +17,7 @@
 //!
 //! 説明用の `##` 節 (「書き方」等) と問いを区別する必要がある。`Q-` 前置を鍵にすることで、
 //! 説明文をいくら足しても誤検出しない。`### 順位 N:` を鍵にした
-//! [`lib-ledger`](../../../../src/lib-ledger/src/removal.rs) の `heading_rank` と同じ流儀。
+//! [`lib-ledger`](../../../../../src/lib-ledger/src/removal.rs) の `heading_rank` と同じ流儀。
 
 /// 未解決の問い 1 件。
 #[derive(Debug, Clone, PartialEq, Eq)]

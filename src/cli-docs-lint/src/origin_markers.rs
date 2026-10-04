@@ -55,17 +55,41 @@ fn contains_firing_count(text: &str) -> bool {
 }
 
 /// `#<数字>` を含むか (PR / issue 参照)。
+///
+/// **前後を単語境界で区切る** (順位 501)。`CR#2` (CodeRabbit の指摘番号) や `&#123;` は
+/// 直前の文字で、`#1e90ff` (色コード) は数字の直後の文字で除く。境界が無いと、証拠でない
+/// 文字列を証拠として通す向き (fail-open) に誤る。
+/// 限界: 数字だけの色コード (`#123456`) は PR 番号と区別できない。
 fn contains_pr_reference(text: &str) -> bool {
-    text.split('#')
-        .skip(1)
-        .any(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
+    bounded_number_after(text, "#", 1, |prev| !is_word_char(prev) && prev != '&')
 }
 
 /// `run <6 桁以上の数字>` を含むか (GitHub Actions の run ID)。
+///
+/// `rerun 123456` のように `run` が語の途中にあるものは除く (順位 501、PR #472 の feedback)。
 fn contains_run_id(text: &str) -> bool {
-    text.split("run ").skip(1).any(|rest| {
-        rest.chars().take_while(char::is_ascii_digit).count() >= 6
+    bounded_number_after(text, "run ", 6, |prev| !is_word_char(prev))
+}
+
+/// `prefix` の直後に `min_digits` 桁以上の数字があり、その数字が英数字に続いていない箇所が
+/// あるか。`prefix` の直前の文字 (文頭なら判定しない) は `accepts_prev` が認めたものに限る。
+fn bounded_number_after(
+    text: &str,
+    prefix: &str,
+    min_digits: usize,
+    accepts_prev: impl Fn(char) -> bool,
+) -> bool {
+    text.match_indices(prefix).any(|(at, _)| {
+        let prev_ok = text[..at].chars().next_back().is_none_or(&accepts_prev);
+        let rest = &text[at + prefix.len()..];
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        let next_ok = !rest[digits..].chars().next().is_some_and(is_word_char);
+        prev_ok && digits >= min_digits && next_ok
     })
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
 
 /// `### 順位 N:` 見出しから次の同レベル見出しの手前までを取り出す。
@@ -284,6 +308,38 @@ mod tests {
         for body in ["3 件の指摘があった", "4 回中 2 回で再現", "#hashtag だけ"] {
             let dir = docs_dir(&row(500, "[defect:G1] 不具合"), &entry(500, body));
             assert_eq!(check(dir.path()).expect("check").len(), 1, "body={body}");
+        }
+    }
+
+    /// **語の途中や英数字に続く形は証拠にしない** (順位 501)。`rerun` は run ではなく、
+    /// `CR#2` は CodeRabbit の指摘番号、`#1e90ff` は色コードである。
+    #[test]
+    fn evidence_lookalikes_inside_words_are_not_evidence() {
+        for body in [
+            "`rerun 123456` で再実行した",
+            "run 1234567abc の形",
+            "却下した CR#2 を参照",
+            "色は #1e90ff",
+            "実体参照 &#123; を含む",
+        ] {
+            let dir = docs_dir(&row(500, "[defect:G1] 不具合"), &entry(500, body));
+            assert_eq!(check(dir.path()).expect("check").len(), 1, "body={body}");
+        }
+    }
+
+    /// 単語境界は句読点・括弧・全角文字・文頭文末で成立する。
+    #[test]
+    fn evidence_delimited_by_punctuation_or_japanese_is_accepted() {
+        for body in [
+            "#472",
+            "(#472) で判明",
+            "PR #463/#472 の feedback",
+            "PR #472。",
+            "夜間の(run 90894308468)で観測",
+            "run 33665621808、再現した",
+        ] {
+            let dir = docs_dir(&row(500, "[defect:G2] 不具合"), &entry(500, body));
+            assert!(check(dir.path()).expect("check").is_empty(), "body={body}");
         }
     }
 

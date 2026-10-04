@@ -53,7 +53,7 @@ pub fn check_file(path: &Path, content: &str, link_re: &Regex) -> Vec<Violation>
         .collect()
 }
 
-fn validate_link(
+pub(crate) fn validate_link(
     source: &Path,
     parent: &Path,
     line_no: usize,
@@ -95,7 +95,7 @@ fn is_absolute_url(target: &str) -> bool {
         .any(|prefix| target.starts_with(prefix))
 }
 
-fn inline_link_regex() -> Regex {
+pub(crate) fn inline_link_regex() -> Regex {
     Regex::new(r#"(?:^|[^!])\[([^\]]*?)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#).unwrap()
 }
 
@@ -129,7 +129,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
 /// ディレクトリ一覧の各 entry をパスにする。**1 件でも読めなければ `Err`** (順位 502)。
 ///
 /// 読めない entry を飛ばすと、その文書のリンクを検査しないまま lint が成功する。
-fn checked_paths(
+pub(crate) fn checked_paths(
     entries: impl IntoIterator<Item = std::io::Result<PathBuf>>,
     dir: &Path,
 ) -> Result<Vec<PathBuf>, String> {

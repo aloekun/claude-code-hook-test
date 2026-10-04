@@ -29,6 +29,7 @@
 
 use cli_docs_lint::{
     convention_declaration, cross_ref, entry_pairing, origin_markers, preamble, priority_inversion,
+    rustdoc_links,
     todo_routing,
     Violation,
 };
@@ -87,6 +88,11 @@ const CHECKS: &[CheckSpec] = &[
         name: "todo-routing",
         summary: "preamble / facet の routing 列挙 ⇄ 実 todoN.md の集合比較 (順位 445)",
         run: todo_routing::check,
+    },
+    CheckSpec {
+        name: "rustdoc-links",
+        summary: "src/**/*.rs の doc comment 相対リンクの `../` 段数 (順位 501)",
+        run: rustdoc_links::check,
     },
 ];
 

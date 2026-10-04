@@ -1,6 +1,6 @@
 //! open-questions gate stage (機2) — 未解決の設計の問いが残ったまま push されるのを止める。
 //!
-//! 設計と採否の記録先は [ADR-077](../../../../docs/adr/adr-077-open-questions-gate.md)、
+//! 設計と採否の記録先は [ADR-077](../../../../../docs/adr/adr-077-open-questions-gate.md)、
 //! 機構群としての効果測定は ADR-079 (defect 流入の退出基準)。
 //!
 //! # 何を保証するか (そして何を保証しないか)
@@ -57,7 +57,7 @@ fn run_open_questions_gate_with(
     report(&open_questions(&content))
 }
 
-/// 既定は有効。`enabled = false` で恒久停止する ([ADR-039](../../../../docs/adr/adr-039-experimental-feature-standard-pattern.md))。
+/// 既定は有効。`enabled = false` で恒久停止する ([ADR-039](../../../../../docs/adr/adr-039-experimental-feature-standard-pattern.md))。
 fn enabled(config: Option<&OpenQuestionsGateConfig>) -> bool {
     config.and_then(|c| c.enabled).unwrap_or(true)
 }
@@ -90,7 +90,7 @@ fn report(questions: &[OpenQuestion]) -> bool {
     false
 }
 
-/// 発火を telemetry へ記録する ([ADR-055](../../../../docs/adr/adr-055-firing-telemetry-collection.md))。
+/// 発火を telemetry へ記録する ([ADR-055](../../../../../docs/adr/adr-055-firing-telemetry-collection.md))。
 ///
 /// `id` は呼び出し側リテラルの固定カテゴリ名のみ (`testability_gate::record_firing` と同じ
 /// 閉集合パターン)。`docs/open-questions.md` 由来の見出し `id` はユーザーの自由記述文字列

@@ -1,13 +1,13 @@
 //! takt verdict gate stage (順位 499) — REJECT のまま push されるのを止める。
 //!
-//! 設計と採否の記録先は [ADR-078](../../../../docs/adr/adr-078-takt-verdict-gate.md)。
+//! 設計と採否の記録先は [ADR-078](../../../../../docs/adr/adr-078-takt-verdict-gate.md)。
 //!
 //! # 塞ぐ穴
 //!
 //! takt stage は [`crate::runner::run_cmd_inherit`] の bool しか見ておらず、
 //! **fix step が権限上直せない finding を抱えたまま `status: completed` で終わった
 //! workflow を成功と判定して push していた** (2026-08-30 実測)。エスカレーションは
-//! [ADR-068](../../../../docs/adr/adr-068-fix-step-authority-boundary.md) どおり動いたが、
+//! [ADR-068](../../../../../docs/adr/adr-068-fix-step-authority-boundary.md) どおり動いたが、
 //! 宛先の人間へ届く経路が無かった。
 //!
 //! # 何を見るか
