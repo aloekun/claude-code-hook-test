@@ -1293,13 +1293,19 @@ other_ext_tests = [
 # 限界: `run(command, args)` のように command を変数で受けるラッパーは見ない — ラッパー
 # 定義側の spawnSync に timeout があることを人が確かめる (2026-10-02 時点の
 # scripts/rebase-nightly-pr.mjs はラッパーに COMMAND_TIMEOUT_MS を付けている)。
+# timeout は値まで見る。Node は `timeout` が 0 より大きいときだけ効かせるので、`timeout: 0` は
+# timeout 無しと同じ (順位 533、PR #534 の pre-push review)。exception は値が 1〜9 で始まる数値
+# か識別子 (定数名) のときだけ通す。
+# 限界: `timeout: undefined` / `timeout: null` も識別子の形なので通る — lookahead の無い Rust
+# regex では特定の識別子だけを除けない (2026-10-04 時点の scripts/ に該当は無い)。`timeout: 0.5`
+# は 0 で始まるので検出する (実効は 0.5ms の timeout だが、実在しない書き方として割り切る)。
 
 [[rules]]
 id = "network-spawn-without-timeout"
 pattern = '(?m)^[^\n]*?\b(?:spawnSync|execFileSync)\(\s*["\x27`](?:gh["\x27`]|git["\x27`],\s*\[(?:\s*["\x27`]-C["\x27`],\s*[^,\]]+,)?\s*["\x27`](?:fetch|push|pull|clone|ls-remote)["\x27`]|jj["\x27`],\s*\[\s*["\x27`]git["\x27`],\s*["\x27`](?:fetch|push|clone)["\x27`])[^;]*'
-exception = '\btimeout\s*:|^\s*(?://|\*)'
+exception = '\btimeout\s*:\s*(?:[1-9]|[A-Za-z_$])|^\s*(?://|\*)'
 severity = "error"
-message = "gh / git の通信を伴う spawnSync / execFileSync に timeout がありません。ネットワークが止まると無期限に待ちます"
+message = "gh / git の通信を伴う spawnSync / execFileSync に timeout がありません (`timeout: 0` は timeout 無しと同じ)。ネットワークが止まると無期限に待ちます"
 why = "PR #470 で、timeout の無い spawnSync がネットワーク停止時に weekly-review 全体を無期限に止めうることが指摘された (CodeRabbit)。spawnSync は timeout を指定しない限り子プロセスの終了を待ち続ける (順位 502)"
 extensions = ["mjs", "js", "ts"]
 
@@ -1322,7 +1328,7 @@ adr = "adr-007"
 
 [rules.test_coverage]
 # rule㉒ は mjs / js / ts (すべて非主要拡張子)。gh / git fetch / git -C dir ls-remote /
-# execFileSync / 複数行の positive、timeout 付き / ローカル実行 (cargo / jj / git status) /
+# execFileSync / 複数行 / `timeout: 0` の positive、timeout 付き / ローカル実行 (cargo / jj / git status) /
 # コメント行の negative。
 other_ext_tests = [
   "network_spawn_detects_gh_without_timeout",
@@ -1333,6 +1339,8 @@ other_ext_tests = [
   "network_spawn_detects_jj_git_fetch",
   "network_spawn_detects_single_quoted_call",
   "network_spawn_skips_timeout_option",
+  "network_spawn_detects_timeout_zero",
+  "network_spawn_skips_positive_timeout_values",
   "network_spawn_skips_local_commands",
   "network_spawn_skips_comment_line",
 ]

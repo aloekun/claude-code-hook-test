@@ -174,6 +174,24 @@ fn network_spawn_skips_timeout_option() {
     assert!(violation_lines(SPAWN_TIMEOUT, "mjs", src).is_empty());
 }
 
+/// Node は `timeout: 0` を timeout 無しとして扱う。キーがあるだけで通さない (順位 533)。
+#[test]
+fn network_spawn_detects_timeout_zero() {
+    let spawn = "spawnSync(\"gh\", [\"pr\", \"list\"], { encoding: \"utf8\", timeout: 0 });\n";
+    let exec = "const out = execFileSync(\"git\", [\"fetch\", \"origin\"], { timeout:0 });\n";
+    assert_eq!(violation_lines(SPAWN_TIMEOUT, "mjs", spawn), vec![1]);
+    assert_eq!(violation_lines(SPAWN_TIMEOUT, "ts", exec), vec![1]);
+}
+
+/// 数値リテラル (区切り `_` 付き) と定数名は timeout の指定として通す。
+#[test]
+fn network_spawn_skips_positive_timeout_values() {
+    let literal = "spawnSync(\"gh\", [\"pr\", \"list\"], { timeout: 30_000 });\n";
+    let constant = "execFileSync(\"git\", [\"fetch\"], { timeout: GH_TIMEOUT_MS });\n";
+    assert!(violation_lines(SPAWN_TIMEOUT, "mjs", literal).is_empty());
+    assert!(violation_lines(SPAWN_TIMEOUT, "mjs", constant).is_empty());
+}
+
 /// cargo と、jj / git のローカル操作はネットワークを待たないので対象外。
 #[test]
 fn network_spawn_skips_local_commands() {
