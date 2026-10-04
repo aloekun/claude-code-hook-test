@@ -16,35 +16,6 @@
 > 同順位は 2026-09-15 に完了・削除した。以後の起票もこの見出しの下へ追記している。
 
 
-### 順位 501: 由来タグ判定の単語境界と rustdoc 相対リンクの段数を検査する
-
-> **動機**: 2 件の判定精度の欠陥。いずれも PR [#472](https://github.com/aloekun/claude-code-hook-test/pull/472)
-> / PR [#463](https://github.com/aloekun/claude-code-hook-test/pull/463) の post-merge feedback で
-> 判明した。
->
-> 1. `origin_markers` の `contains_run_id` / `contains_pr_reference` に単語境界の判定が無く、
->    `rerun 123456` のような文字列を run ID と読む。証拠の検査が**緩む向き**の誤りである
-> 2. rustdoc の相対リンク (`../../../docs/adr/...`) の `../` 段数が module の実際の深さと
->    合っているかを誰も見ていない。段数がずれたリンクは docs-lint の cross-ref 検査も通る
->
-> **由来**: `[defect:G2]`。証拠 = PR #472 / #463。どちらも判定層にテストはあったが、入力空間
-> (単語境界 / パス深度) が覆われていなかった。
-
-#### 作業内容
-
-- `contains_run_id` / `contains_pr_reference` に単語境界チェックを入れ、偽陽性の回帰テストを足す
-  (`rerun` vs `run`、hex カラーコード等)
-- GitHub slug 生成 (空白 → ハイフン、句読点除去、**連続空白を畳まない**) をアンカー検証の
-  実装として固定する。PR #472 で照合スクリプトが連続空白を畳んで誤検知を出した実例がある
-- rustdoc 相対リンクの `../` 段数を module の実深さと照合する検査を docs-lint へ追加する
-
-#### 完了基準
-
-- `rerun 123456` が run ID として受理されないことをテストが固定している
-- 段数のずれた rustdoc リンクが検査で落ちる
-
----
-
 ### 順位 503: doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)
 
 > **動機**: module doc に書いた事実が実装から乖離しても誰も気づかない箇所が 2 つある。

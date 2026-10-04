@@ -28,7 +28,7 @@ pub(crate) const DEFAULT_TESTABILITY_GATE_MODE: &str = "warning";
 /// **未知の値を warning へ倒さない** (CodeRabbit #456)。`mode` は文字列なので `"denny"` の
 /// ような typo も parse は通る。「`"deny"` 以外は warning」と解釈すると、deny を意図した
 /// 設定が**黙って無効**になる — 昇格後にこれが起きると gate が在るのに何も止めない状態を
-/// 誰も気づけない。config エラーとして即座に落とす ([ADR-043](../../../docs/adr/adr-043-security-gates-fail-closed.md))。
+/// 誰も気づけない。config エラーとして即座に落とす ([ADR-043](../../../../docs/adr/adr-043-security-gates-fail-closed.md))。
 pub(crate) fn validate_testability_gate_mode(
     config: Option<&TestabilityGateConfig>,
 ) -> Result<(), String> {

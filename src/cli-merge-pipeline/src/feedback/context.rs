@@ -74,7 +74,7 @@ const TASK_BOOKMARK_SEPARATOR: &str = " for ";
 /// # bookmark 名だけでは足りない — 時刻範囲でも絞る
 ///
 /// **bookmark 名は再利用される。** 本リポジトリの夜間ループは `claude/nightly-<順位>` を
-/// 使い、PR を close して再投入すれば同じ名前が戻る ([ADR-072](../../../docs/adr/adr-072-nightly-todo-loop.md))。
+/// 使い、PR を close して再投入すれば同じ名前が戻る ([ADR-072](../../../../docs/adr/adr-072-nightly-todo-loop.md))。
 /// `fix/...` のような手書きの名前も再発しうる。名前だけで照合すると**過去 PR の run を
 /// 掴む**ため、`startTime` が `[first_commit_time, merged_at]` に入ることも要求する。
 ///
