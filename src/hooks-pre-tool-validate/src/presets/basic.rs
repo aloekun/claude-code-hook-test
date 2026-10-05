@@ -148,11 +148,13 @@ pub(crate) fn preset_git() -> Vec<BlockedPattern> {
 /// `rustup run <toolchain> cargo fmt` / `cargo-fmt` / `rustfmt` (それぞれ `.exe` 付きも)。
 /// 引数は問わない — `--check` も止める。exception はコマンド全体に効くため、`--check` を
 /// 例外にすると `cargo fmt --check && cargo fmt` が素通りする。
+/// コマンド名の後ろは空白・行末に加え、区切り記号 (`;` `&` `|` `)`) も境界とする
+/// (`cargo fmt; echo done` / `cargo fmt&& echo done`、PR #539 CodeRabbit)。
 /// 限界: `bash -c "cargo fmt"` のようなシェルラッパーと、`$(...)` / サブシェルの中は見ない。
 pub(crate) fn preset_cargo_fmt() -> Vec<BlockedPattern> {
     vec![BlockedPattern {
         pattern: Regex::new(
-            r"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:rustup(?:\.exe)?\s+run\s+\S+\s+)?(?:cargo(?:\.exe)?(?:\s+\+\S+)?\s+fmt|cargo-fmt(?:\.exe)?|rustfmt(?:\.exe)?)(?:\s|$)",
+            r"(?im)(^|&&|;|\|\||\||&)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+|command\s+|env\s+)*(?:rustup(?:\.exe)?\s+run\s+\S+\s+)?(?:cargo(?:\.exe)?(?:\s+\+\S+)?\s+fmt|cargo-fmt(?:\.exe)?|rustfmt(?:\.exe)?)(?:\s|$|[;&|)])",
         )
         .unwrap(),
         exception: None,
@@ -431,6 +433,21 @@ mod tests {
             "cargo build; cargo fmt",
             "RUSTFLAGS=-D cargo fmt",
             "env cargo fmt",
+        ] {
+            assert!(is_blocked_fmt(command), "{command}");
+        }
+    }
+
+    /// コマンド名の直後が区切り記号でも止める (PR #539 CodeRabbit)。
+    #[test]
+    fn cargo_fmt_block_blocks_when_a_separator_follows_immediately() {
+        for command in [
+            "cargo fmt; echo done",
+            "cargo fmt&& echo done",
+            "cargo fmt|tee log",
+            "cargo-fmt;",
+            "rustfmt&",
+            "(cargo build; cargo fmt)",
         ] {
             assert!(is_blocked_fmt(command), "{command}");
         }
