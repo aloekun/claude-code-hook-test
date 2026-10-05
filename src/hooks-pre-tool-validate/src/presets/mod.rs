@@ -12,7 +12,7 @@ pub(crate) mod gh;
 pub(crate) mod jj;
 pub(crate) mod safety;
 
-pub(crate) use basic::{preset_default, preset_electron, preset_git};
+pub(crate) use basic::{preset_cargo_fmt, preset_default, preset_electron, preset_git};
 pub(crate) use gh::{preset_gh_pr_create_guard, preset_gh_pr_merge_guard, preset_gh_repo_env_guard};
 pub(crate) use jj::{
     preset_jj_immutable, preset_jj_main_guard, preset_jj_message_required, preset_jj_push_guard,
@@ -46,6 +46,7 @@ pub(crate) const KNOWN_PRESET_NAMES: &[&str] = &[
     "electron",
     "powershell-destructive-write-block",
     "node-eval-cmd-meta-block",
+    "cargo-fmt-block",
 ];
 
 /// Windows でだけ有効にする preset。原因が Windows 固有 (Volta の shim が cmd.exe を経由する等) で、
@@ -125,6 +126,7 @@ pub(crate) fn resolve_preset_or_custom(name: &str) -> (String, Vec<BlockedPatter
             (name.to_string(), preset_powershell_destructive_write())
         }
         "node-eval-cmd-meta-block" => (name.to_string(), preset_node_eval_cmd_meta()),
+        "cargo-fmt-block" => (name.to_string(), preset_cargo_fmt()),
         custom => (CUSTOM_BLOCK_SOURCE.to_string(), custom_regex_pattern(custom)),
     }
 }
