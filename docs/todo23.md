@@ -24,36 +24,6 @@
 >
 > **系統 1 (決定論的検査) は 9 件中 4 件のみ採用。** 残り 5 件 (rustdoc link 検査 / finding_id 埋込検知 / Actions outcome 検査 / serial numbering CI / dry-run gate) は、本セッションで実害が観測されておらず、推測で lint を増やすと誤検出と保守コストが先に来るため見送った。
 
-### 順位 454: 自律実行ガードレールの 3 点同期を機械検証する
-
-> **動機**: 禁止リストが 3 箇所 (`.github/workflows/nightly-todo.yml` の Guard step grep / 同ファイルの agent プロンプト / [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6) に重複している。[#403](https://github.com/aloekun/claude-code-hook-test/pull/403) と [#405](https://github.com/aloekun/claude-code-hook-test/pull/405) で新しい crate を追加した際、いずれも 3 箇所を手で揃えた。**片方だけ更新すると保護が静かに緩む** — #403 では実際に、抽出でパースの実体が禁止リストの外へ出る事故が起きかけた。
->
-> **統合した提案**: Guard-list 3 点同期 validator (#403 Tier1 #1)。
->
-> **参照**: `.claude/feedback-reports/403.md`、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6
->
-> **実行優先度**: **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- 3 箇所からパス集合を抽出し、完全一致を要求する cargo test (実ファイルを読む既存 2 検査と同じ形)
-- 抽出は行指向で十分 (grep 行の `^(a|b|c)` 展開 / プロンプトのバッククォート列挙 / ADR の `/` 区切り列挙)
-- **禁止リストは「どの exe か」ではなく「どのロジックが自分を縛るか」で決まる** ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 に追記済み) ため、検査対象に加えるのは「3 箇所が同じ集合か」だけにする。集合の中身が妥当かは人間の判断
-
-#### 作業計画
-
-- [ ] 3 箇所のパーサを書き、現行の集合が一致することを確認する
-- [ ] 意図的に 1 箇所だけ足した状態で赤くなることを実測する
-- [ ] cargo test として追加する
-
-#### 完了基準
-
-- 3 箇所のいずれかだけを変更すると push / CI が赤くなる
-
-#### 詰まっている箇所
-
-なし
-
 ### 順位 456: workflow の guard なし `git commit` を検知する
 
 > **動機**: [#406](https://github.com/aloekun/claude-code-hook-test/pull/406) で **Critical を 2 度**踏んだ。(1) pathspec 無しの `git commit` が Guard step の `git add -A` で stage された全ツリーを取り込み、後段の commit が空になって **PR が 1 つも作られなくなる**。(2) ステージが空の場合に無条件 commit が非ゼロで落ち、検証済みの実装ごと job が落ちる。どちらも「単体では正しいが前後の文脈で破綻する」型で、レビューが無ければ夜間ループが停止していた。

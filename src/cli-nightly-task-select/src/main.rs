@@ -44,6 +44,9 @@ use std::path::PathBuf;
 
 use lib_ledger::{screen_for_public_output, screen_for_title, Task};
 
+#[cfg(test)]
+mod guard_list_sync;
+
 const MARKER_SELECTED: &str = "[NIGHTLY_TASK]";
 const MARKER_SKIP: &str = "[NIGHTLY_SKIP]";
 const MARKER_WARN: &str = "[NIGHTLY_WARN]";

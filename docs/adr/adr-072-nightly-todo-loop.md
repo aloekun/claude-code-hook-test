@@ -112,6 +112,8 @@ draft PR は commitment 点の手前なので人間のレビューが最終防�
 
 対象: `autonomy-config.toml` / `.github/workflows/**` / **`docs/claude-code-web-tasks.md`** / `src/cli-autonomy-gate/**` / `src/lib-autonomy-policy/**` / `src/cli-fix-push-gate/**` / `src/cli-nightly-task-select/**` / `src/lib-ledger/**` / `src/cli-ledger-cleanup/**`。
 
+**この列挙は 3 箇所に重複している** (上の「対象:」行 / `nightly-todo.yml` の Guard step の `grep` / 同ファイルの agent プロンプト)。3 箇所が同じ集合であることは `cli-nightly-task-select` のテスト `the_three_guard_lists_are_identical` が検査し、1 箇所だけ変えると赤くなる (順位 454、2026-10-05)。テストは「対象:」行をバッククォートで解析するので、この行の書式 (1 行に `` ` `` で囲んで列挙) を変えるときはテストも直すこと。
+
 **`src/lib-ledger/**` は 2026-08-14 に追加した。** 台帳パーサを `cli-nightly-task-select` から共有 lib へ抽出した際、パースの実体だけが禁止リストの外へ出た。exe 名で列挙していたため、**中身を別 crate へ動かすと保護が自動では追随しない**。禁止リストは「どの exe か」ではなく「どのロジックが自分を縛るか」で決まる — 台帳の解釈は agent が読む指示そのものを組み立てる位置にあり、exe 側に残った CLI 面と同じ保護が要る。
 
 **台帳 (`docs/claude-code-web-tasks.md`) を含めるのは、それが「次に何を実装するか」を決める仕組みだから。** config や gate exe と同じく*自分を縛る側*にある。agent が台帳を書き換えた diff が draft PR に紛れ、人間が見落としてマージすると、以後のタスク選択が静かに汚染される。初版はここを落としていた (§ 静的レビューが捕捉した件)。
@@ -677,7 +679,7 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 - **`master-ref/` を agent のファイルシステムから外すか (順位 377 の判断材料)**。決定 12 の tool scope で**agent が直接書く経路は予防側で塞いだ**ため、当初の「検知どまり」状態は解消した。残るのは build script 経由の経路で、完全に外すには別 job + artifact 受け渡しへの構造変更が要る。**決定 12 のスコープが実走で効いていることを確認できるまでは、構造変更の要否を判断しない** — 効いていなければ前提が変わる。
 - **authority gate の直前で自律 PR 数を再計数するか**。現状は job 冒頭のスナップショットを使い回す (§ 決定 4)。閾値を 1 件超えて push される事象が実運用で観測されたら入れる。**再計数を入れない現状の根拠**: 超過は最大でも 1 件で、背圧は「積み過ぎを止める」ためのものであって厳密な上限ではない。同一 workflow の並行 run は `concurrency` で直列化済みなので、増分の出所は別経路 (人手 / Phase B) に限られる。CodeRabbit の PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376) レビューが同じ点を指摘したが、この保留は意図であり指摘を受けての新規判断ではない。
 - **ガードレール禁止リストの allowlist 化**。台帳の「対象ファイル」列を機械可読にする (別列に正規化パスを持つ等) のが前提。
-- **禁止リストが YAML に埋まっている**。`cli-nightly-task-select` や専用 exe へ移せば unit test で固定できるが、現状は workflow step の `grep` で、回帰テストが無い。リストが育つようなら extract する ([ADR-044](adr-044-subprocess-utility-extraction-boundary.md) 層 1 の判断基準に従う)。
+- **禁止リストが YAML に埋まっている**。`cli-nightly-task-select` や専用 exe へ移せば unit test で固定できるが、現状は workflow step の `grep` である。3 箇所の一致は 2026-10-05 にテストで固定した (決定 6、順位 454) が、集合の中身が妥当かを見る回帰テストは無い。リストが育つようなら extract する ([ADR-044](adr-044-subprocess-utility-extraction-boundary.md) 層 1 の判断基準に従う)。
 
 ## ドキュメントサイズの方針 (2026-09-03、順位 513)
 
