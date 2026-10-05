@@ -273,7 +273,7 @@ fn scan_incomplete(
 ) -> bool {
     let deny = is_deny(config);
     log_stage(STAGE, &format!("検査できませんでした[{reason}]: {detail}"));
-    record_firing_with_reason("scan-incomplete", deny, lib_telemetry::Reason::new(reason));
+    record_firing_with_reason("testability_gate:scan-incomplete", deny, lib_telemetry::Reason::new(reason));
     if deny {
         log_info("  対処: 原因を解消して再実行するか、`TESTABILITY_GATE_OVERRIDE=1` で明示的にバイパスしてください");
         return false;
@@ -304,7 +304,7 @@ fn report(config: Option<&TestabilityGateConfig>, violations: &[Violation]) -> b
     );
     for v in violations {
         log_info(&format!("  {}:{} {}", v.file, v.line, v.function));
-        record_firing("violation", deny);
+        record_firing("testability_gate:violation", deny);
     }
     log_info(
         "  対処: I/O から取った値の解釈を名前付きの純関数へ出し、その純関数にテストを書いてください\n  \
@@ -317,18 +317,18 @@ fn report(config: Option<&TestabilityGateConfig>, violations: &[Violation]) -> b
     true
 }
 
-/// `reason` は telemetry `id` に埋め込む固定カテゴリ名 (呼び出し側リテラルの閉集合)。
-/// diff 由来の内容 (関数名等) を渡さないこと ([ADR-055] のメタデータのみ原則)。
-fn record_firing(event: &str, deny: bool) {
-    record_firing_with_reason(event, deny, None);
+/// `id` は telemetry の id そのもの (`testability_gate:<event>`) を呼び出し側の固定リテラルで
+/// 渡す。diff 由来の内容 (関数名等) を渡さないこと ([ADR-055] § id の判定基準、順位 505)。
+fn record_firing(id: &'static str, deny: bool) {
+    record_firing_with_reason(id, deny, None);
 }
 
 /// `reason` は同一 id の発火経路を区別する固定ラベル (telemetry に載る)。
-fn record_firing_with_reason(event: &str, deny: bool, reason: Option<lib_telemetry::Reason>) {
+fn record_firing_with_reason(id: &'static str, deny: bool, reason: Option<lib_telemetry::Reason>) {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "cli-push-runner",
         kind: lib_telemetry::FiringKind::Hook,
-        id: &format!("testability_gate:{event}"),
+        id,
         decision: if deny {
             lib_telemetry::Decision::Block
         } else {

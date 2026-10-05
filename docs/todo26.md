@@ -67,33 +67,6 @@
 
 ---
 
-### 順位 505: telemetry の id 契約と TOML 構造の回帰を足す
-
-> **動機**: `record_firing` の `id` に何を渡してよいかの線引きが、コードにも doc にも無い。
-> また `.claude/hooks-config.toml` / `push-runner-config.toml` の `[section]` が編集で分断
-> されても検査が無い — PR [#463](https://github.com/aloekun/claude-code-hook-test/pull/463)
-> で実際に `[testability_gate]` のコメント間へ別セクションを挿入して壊した。
->
-> **由来**: `[defect:G2]`。証拠 = PR #463 / PR [#456](https://github.com/aloekun/claude-code-hook-test/pull/456)。
-> config パーサのテストは書ける場にあったが、セクションの連続性という軸が覆われていなかった。
-
-#### 作業内容
-
-- `record_firing` の呼び出し箇所すべての `id` が既知の安全パターン (固定リテラル) であることの検査
-- 長い自由記述見出しや特殊文字を含む入力でも `record_firing` の出力が固定されることのテスト
-- TOML パース後、各 `[section]` が定義どおりの範囲で連続していることの検査
-- **[ADR-055](adr/adr-055-firing-telemetry-collection.md) に識別子の判定基準を追記**
-  (`id` は呼び出し側の固定リテラルのみ / bookmark 名等の可変値は除外)。ADR-055 は
-  「metadata only」と定めているが**何が識別子として安全か**の線引きが無く、コードからは復元できない
-
-#### 完了基準
-
-- 可変値を `id` に渡すコードが検査で落ちる
-- セクションを分断する編集が検査で落ちる
-- ADR-055 に判定基準の節がある
-
----
-
 ### 順位 506: 夜間ループと Node script 層の境界をテストで固定する
 
 > **動機**: 無人経路と手元スクリプトで、実測して直した挙動がテストで固定されていない。

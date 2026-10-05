@@ -215,7 +215,7 @@ fn combine_system_messages(messages: Vec<SingleLineMessage>) -> Option<SingleLin
 /// `staleness` / `workspace_stale`)。nudge は助言出力のため decision は一律 `Warn`
 /// (「発火の重み」軸であり、実際に停止したかではない。jj-op-verify の非 block warn と同性質)。
 /// 記録失敗・opt-in OFF は lib-telemetry 内部で握りつぶすため hook 本来の出力を妨げない。
-fn record_nudge_firing(id: &str, session_id: &str) {
+fn record_nudge_firing(id: &'static str, session_id: &str) {
     lib_telemetry::record(&lib_telemetry::Firing {
         hook: "hooks-session-start",
         kind: lib_telemetry::FiringKind::Hook,
