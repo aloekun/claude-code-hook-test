@@ -45,7 +45,6 @@
 | 450 | Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
 | 452 | Tier 3 | **本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (PR #400 T3-2)** | todo23.md | XS | なし (2026-08-14 採用。ADR-051 の具体化。スキルリポ側に約 110 行のコミット漏れが滞留していた検出も含める) |
 | 453 | Tier 2 | **post-merge-feedback 分析 agent の書き込み先制約 (read-only facet の一時ファイル生成)** | todo23.md | S | なし (2026-08-14 起票。analyze_transcript.py の実観測。weekly の workspace-hygiene-scan が backstop、本タスクは上流修正で緊急度低) |
-| 454 | Tier 1 | **自律実行ガードレールの 3 点同期を機械検証する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#403/#405 で 3 箇所を手で揃えた。片方漏れで保護が静かに緩み、#403 では実際に抽出で実体が保護外へ出かけた) |
 | 456 | Tier 1 | **workflow の guard なし `git commit` を検知する (#400-#406 feedback 統合)** | todo23.md | S | なし (2026-08-15 採用。#406 で Critical を 2 度。レビューが無ければ夜間ループが停止していた) |
 | 458 | Tier 2 | **`cli-ledger-cleanup` の統合テスト suite (提案 10 件を統合)** | todo23.md | M | なし (2026-08-15 採用。手動実測した安全側 3 ケースの自動化が起点。削除は取り返しがつかないため安全側こそ回り続ける必要がある) |
 | 459 | Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448 と同じ構図) |
