@@ -28,7 +28,8 @@
 //!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
 use cli_docs_lint::{
-    convention_declaration, cross_ref, entry_pairing, origin_markers, preamble, priority_inversion,
+    adr_index, convention_declaration, cross_ref, entry_pairing, origin_markers, preamble,
+    priority_inversion,
     rustdoc_links,
     todo_routing,
     Violation,
@@ -93,6 +94,11 @@ const CHECKS: &[CheckSpec] = &[
         name: "rustdoc-links",
         summary: "src/**/*.rs の doc comment 相対リンクの `../` 段数 (順位 501)",
         run: rustdoc_links::check,
+    },
+    CheckSpec {
+        name: "adr-index",
+        summary: "ADR の採番重複 / CLAUDE.md 索引の整合 / ステータスタグ (順位 272 / 357)",
+        run: adr_index::check,
     },
 ];
 

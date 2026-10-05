@@ -195,32 +195,6 @@
 
 ---
 
-### 順位 272: cli-docs-lint に ADR 重複採番 + CLAUDE.md 索引整合チェック追加 (PR #261 post-merge-feedback T1-#2 採用)
-
-> **動機**: PR #261 で当方が ADR-052 として起草した ADR が、並行 land した PR #260 の ADR-052 (自律実行境界) と採番衝突し、rebase 時にファイル名 + 本文タイトル + ソース内参照 10+ 箇所の置換が発生した実例。ADR は既に 53 件、並行 PR 開発が常態化しており再発頻度 Medium。現状この衝突を機械検知する層が存在しない (発見は rebase 時の CLAUDE.md conflict 頼み)。
->
-> **チェック内容 (案)**: (a) `docs/adr/adr-NNN-*.md` の同一 NNN 重複検出、(b) CLAUDE.md 索引 ⇔ 実ファイルの対応検証 (索引にあるファイルの存在 / 実ファイルの索引掲載)、(c) ファイル名の NNN ⇔ 本文 H1 タイトル番号の一致。
->
-> **参照**: `.claude/feedback-reports/261.md` Tier 1 #2、`src/cli-docs-lint/src/main.rs` (CheckMode 拡張、preamble / cross-ref / priority-inversion の既存 check-mode dispatch と kill-switch 骨格を流用)、ADR-007 (層の線引き)、ADR-039。
->
-> **関連 (重複ではない)**: 順位 135 (todo8.md、ADR-NNN placeholder policy) は todo entry 側の採番 hardcode を防ぐ「ルール」であり、本 entry は land 済みファイル群の衝突を検知する「仕組み」(ADR-042 の役割分担で相補)。feedback report Tier 2 #2 (ADR sanity テスト新設) は本 entry と目的重複のため却下済み。順位 357 (todo14.md、index ステータスタグ ⇔ ADR 本体ステータスの整合) はチェック対象が異なる別 entry — 本 entry の責務は a/b/c (採番重複/索引存在/番号一致) のみでステータスタグは扱わない。実装は同一 validator module への同居が可能 (PR #341 CodeRabbit 指摘で責務分界を明文化)。
->
-> **実行優先度**: **Tier 1** — Effort S。既存 cli-docs-lint 骨格の流用で新規 module 1 つ + fixture テスト。
-
-#### 作業計画
-
-- [ ] `src/cli-docs-lint/src/` に adr_consistency validator module を新設 (check 内容 a/b/c)
-- [ ] 既存 CheckMode dispatch / kill-switch 設定に統合 (ADR-039 パターン)
-- [ ] fixture テスト: 重複採番 / 索引欠落 / 番号不一致の bad fixture + clean fixture
-- [ ] push-runner quality_gate (`pnpm lint:docs`) 経由で発火することを確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- ADR 採番衝突・索引不整合・ファイル名/タイトル番号不一致が push 前に決定論的に検出され、PR #261 型の rebase 時大量置換が再発しない構造になっていること (ステータスタグ整合は順位 357 の完了基準で扱い、本 entry の対象外)。
-
----
-
 ### 順位 275: 層別テストテンプレート (StubOllama パターン・integration 独立性) の共有化 (PR #265 post-merge-feedback T2-1 採用)
 
 > **動機**: WP-11 (PR #265、ADR-054) の多層防御実装で、層別テスト戦略の設計に時間を要した。具体的には (a) 空 responses の `StubOllama` で「LLM が呼ばれていないこと」を証明する短絡検証パターン、(b) tempdir + `jj git init` + CwdRestore で実 jj repo を立てる integration テストの独立性パターン、の 2 つを都度設計した。WP-17 (自律化) で classifier / scope guard 層を拡張する際に同種の設計判断が再発する見込み。

@@ -39,7 +39,7 @@
 - [ADR-035: docs-only PR 評価ポリシー](docs/adr/adr-035-doc-evaluation-policy.md)
 - [ADR-036: Bundle Z — 決定論層 + 制約付き修正 + 異常検知レビュアーの 3 層アーキテクチャ](docs/adr/adr-036-bundle-z-three-layer-review.md) *(試験運用)*
 - [ADR-037: takt fix-trust shortcut — convergence_verdict による Iter 3 短絡](docs/adr/adr-037-takt-fix-trust-shortcut.md) *(試験運用)*
-- [ADR-038: ローカル LLM による CodeRabbit findings classification](docs/adr/adr-038-local-llm-finding-classification.md) *(試験運用)*
+- [ADR-038: ローカル LLM による CodeRabbit findings classification](docs/adr/adr-038-local-llm-finding-classification.md) *(採用)*
 - [ADR-039: Experimental feature 標準パターン (config opt-in + kill-switch + bounded lifetime)](docs/adr/adr-039-experimental-feature-standard-pattern.md) *(試験運用)*
 - [ADR-040: Local LLM Context Size と Resource Trade-off](docs/adr/adr-040-local-llm-context-size.md) *(試験運用)*
 - [ADR-041: Test Isolation Patterns for Multi-Condition Guards](docs/adr/adr-041-test-isolation-patterns.md) *(試験運用)*
@@ -48,7 +48,7 @@
 - [ADR-044: subprocess utility extraction の境界判定 — 共通化と分離の線引き](docs/adr/adr-044-subprocess-utility-extraction-boundary.md) *(試験運用)*
 - [ADR-045: jj workspace による並列セッション運用 — メイン作業と細粒度改善の分離](docs/adr/adr-045-jj-workspace-parallel-sessions.md) *(試験運用)*
 - [ADR-046: ローカル LLM pre-push レビュアー — 選定スパイクと不採用判断](docs/adr/adr-046-local-llm-review-spike.md) *(却下)*
-- [ADR-047: pre-push review の反証（refute）facet](docs/adr/adr-047-prepush-refute-facet.md) *(試験運用)*
+- [ADR-047: pre-push review の反証（refute）facet](docs/adr/adr-047-prepush-refute-facet.md) *(却下)*
 - [ADR-048: reviewers→fix findings handoff の output-contract 標準化（markdown 統一・JSON 却下）](docs/adr/adr-048-facet-findings-handoff-markdown-contract.md) *(試験運用)*
 - [ADR-049: incident→eval 回帰スイート（カスタムルールの由来 incident 再現テスト）](docs/adr/adr-049-incident-eval-regression-suite.md) *(試験運用)*
 - [ADR-050: multi-iteration workflow の decision criteria scope 明示](docs/adr/adr-050-iteration-aware-decision-criteria.md) *(試験運用)*
