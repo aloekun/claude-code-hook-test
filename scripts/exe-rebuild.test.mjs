@@ -39,7 +39,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  // Windows では kill した子プロセスの exe のロックが exit 後も一瞬残り、EPERM になることがある。
+  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe("planRebuild", () => {
