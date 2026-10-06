@@ -28,7 +28,8 @@
 //!   `push-runner-config.toml` の `[cli_docs_lint]` section コメントに反映する。
 
 use cli_docs_lint::{
-    adr_index, convention_declaration, cross_ref, entry_pairing, origin_markers, preamble,
+    adr_index, config_banners, convention_declaration, cross_ref, entry_pairing, origin_markers,
+    preamble,
     priority_inversion,
     rustdoc_links,
     todo_routing,
@@ -99,6 +100,11 @@ const CHECKS: &[CheckSpec] = &[
         name: "adr-index",
         summary: "ADR の採番重複 / CLAUDE.md 索引の整合 / ステータスタグ (順位 272 / 357)",
         run: adr_index::check,
+    },
+    CheckSpec {
+        name: "config-banners",
+        summary: "TOML 設定の見出しコメント `# [name]` と直後のセクションの対応 (順位 505)",
+        run: config_banners::check,
     },
 ];
 

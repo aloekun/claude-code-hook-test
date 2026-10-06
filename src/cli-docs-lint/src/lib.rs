@@ -13,6 +13,7 @@
 //! PR #133 で検出された 2 種類の docs 整合性問題を機械的に再発防止する。
 
 pub mod adr_index;
+pub mod config_banners;
 pub mod convention_declaration;
 pub mod cross_ref;
 pub mod docs_files;

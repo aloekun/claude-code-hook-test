@@ -72,7 +72,6 @@
 | 498 | Tier 2 | **非主要拡張子の coverage を拡張子ごとに要求する (`other_ext_tests` の map 化)** | todo25.md | M | なし (PR #461 の CodeRabbit 指摘由来。現行契約は「rule あたり 1+ test」で、その契約自体は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定済み) |
 | 503 | Tier 2 | **[improvement] doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)** | todo26.md | M | なし (PR #456 / #464 feedback。実際に壊れた観測はまだ無く、予防のための検査) |
 | 504 | Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
-| 505 | Tier 2 | **[defect:G2] telemetry の id 契約と TOML 構造の回帰を足す** | todo26.md | S | なし (PR #463 / #456 feedback。セクション分断を実際に起こした。ADR-055 への識別子判定基準の追記を同乗) |
 | 506 | Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
 | 508 | Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | todo26.md | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
 | 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | todo26.md | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか。2026-09-28 にハーネス改善計画 WP-19 ステップ 3 = 自律 PR の棚卸しと無人 PR 採用率の測定 (ADR-072 の判定期限 2026-11-06) を統合) |
