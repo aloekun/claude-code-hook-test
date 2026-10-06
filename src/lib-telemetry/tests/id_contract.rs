@@ -20,12 +20,28 @@
 //! 新しい非リテラルが現れたら落ちる。許可リストの項目がコードから消えても落ちる (古い
 //! 許可が残ると、同じ形の別の式を素通りさせる)。
 //!
+//! # 走査の方法
+//!
+//! 手書きのスキャナで読む。先に文字列・raw 文字列・文字リテラル・コメントの中身を空白に
+//! 置き換えた写しを作り (ライフタイム `'a` は残す)、`Firing {` の位置・括弧の対応・
+//! フィールドの区切りはその写しの上で探す。式の文字列だけを元のテキストから切り出す。
+//! リテラルやコメントの中の `{` `}` `,` `"` や `Firing {` で構造を読み違えない (PR #543)。
+//!
+//! `syn` を使わないのは、`syn` がマクロ呼び出しの中の式を解析しないため。マクロの中で
+//! `Firing` を組み立てると、AST からは**黙って**見えなくなる。テキストを走査すれば、
+//! 書かれた `Firing {` はすべて対象に入る。解析がずれた場合は「id が見つからない」として
+//! 違反に倒れ、黙って通ることはない。
+//!
 //! # 限界
 //!
-//! 許可リストの式が「本当に入力に依存しないか」は見ない。たとえば `id` を引数で受ける
-//! ラッパー (`record_nudge_firing(id: &'static str, ..)`) は、呼び出し側がリテラルを渡して
-//! いることを人が確かめて許可リストに載せている。`&'static str` は `Box::leak` で作れる
-//! ので型だけでは保証にならない ([`lib_telemetry::Reason`] の module doc)。
+//! - 許可リストの式が「本当に入力に依存しないか」は見ない。たとえば `id` を引数で受ける
+//!   ラッパー (`record_nudge_firing(id: &'static str, ..)`) は、呼び出し側がリテラルを渡して
+//!   いることを人が確かめて許可リストに載せている。`&'static str` は `Box::leak` で作れる
+//!   ので型だけでは保証にならない ([`lib_telemetry::Reason`] の module doc)
+//! - `id:` と式の間や式の後ろにコメントを挟むと、式にコメントが混ざって非リテラル扱いになる
+//!   (違反に倒れる側)
+//! - `lib-telemetry` 自体は走査しない。同 crate の単体テストが変数で `Firing` を組み立てる
+//!   ため。この crate の中で組み立て箇所が増えると検査から漏れる
 
 use std::path::{Path, PathBuf};
 
@@ -97,19 +113,23 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// `text` の中で `Firing {` (型名の一部でないもの、`struct` 定義でないもの) の本体から
 /// `id` フィールドの式を取り出す。省略記法 (`id,`) は式 `id` として扱う。
+///
+/// 構造 (`Firing {` の位置・括弧の対応・フィールドの区切り) は [`mask_literals_and_comments`]
+/// を通した写しの上で探し、式の文字列だけを元のテキストの同じ位置から切り出す。
 fn id_sites(file: &str, text: &str) -> Vec<IdSite> {
+    let masked = mask_literals_and_comments(text);
     let mut sites = Vec::new();
-    for (start, _) in text.match_indices("Firing {") {
-        let before = &text[..start];
+    for (start, _) in masked.match_indices("Firing {") {
+        let before = &masked[..start];
         let prev = before.chars().next_back();
         if prev.is_some_and(|c| c.is_alphanumeric() || c == '_') || before.ends_with("struct ") {
             continue;
         }
         let body_start = start + "Firing {".len();
-        let body_end = closing_brace(&text[body_start..]).map_or(text.len(), |n| body_start + n);
-        let body = &text[body_start..body_end];
-        let line = before.lines().count() + 1;
-        let expr = top_level_fields(body).into_iter().find_map(|field| {
+        let body_end = closing_brace(&masked[body_start..]).map_or(masked.len(), |n| body_start + n);
+        let expr = top_level_fields(&masked[body_start..body_end]).into_iter().find_map(|(from, to)| {
+            let from = skip_leading_blank(&masked[body_start..body_end], from, to);
+            let field = text[body_start + from..body_start + to].trim_end();
             if field == "id" {
                 return Some("id".to_string());
             }
@@ -117,60 +137,173 @@ fn id_sites(file: &str, text: &str) -> Vec<IdSite> {
         });
         sites.push(IdSite {
             file: file.to_string(),
-            line,
+            line: before.matches('\n').count() + 1,
             expr: expr.unwrap_or_else(|| "<id フィールドが見つからない>".to_string()),
         });
     }
     sites
 }
 
-/// 構造体リテラルの本体を、括弧の深さ 0 のカンマでフィールドに分ける (文字列の中は数えない)。
-fn top_level_fields(body: &str) -> Vec<String> {
+/// 構造体リテラルの本体 (マスク済み) を、括弧の深さ 0 のカンマでフィールドに分け、
+/// 各フィールドのバイト範囲を返す。
+fn top_level_fields(masked_body: &str) -> Vec<(usize, usize)> {
     let mut fields = Vec::new();
-    let mut current = String::new();
     let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for c in body.chars() {
-        if in_string {
-            current.push(c);
-            match (escaped, c) {
-                (true, _) => escaped = false,
-                (false, '\\') => escaped = true,
-                (false, '"') => in_string = false,
-                _ => {}
-            }
-            continue;
-        }
-        match c {
-            '"' => in_string = true,
-            '(' | '{' | '[' => depth += 1,
-            ')' | '}' | ']' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                fields.push(current.trim().to_string());
-                current.clear();
-                continue;
+    let mut field_start = 0;
+    for (i, b) in masked_body.bytes().enumerate() {
+        match b {
+            b'(' | b'{' | b'[' => depth += 1,
+            b')' | b'}' | b']' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                fields.push((field_start, i));
+                field_start = i + 1;
             }
             _ => {}
         }
-        current.push(c);
     }
-    fields.push(current.trim().to_string());
+    fields.push((field_start, masked_body.len()));
     fields
 }
 
-/// 本体の先頭から、対応する `}` までのバイト数。
-fn closing_brace(body: &str) -> Option<usize> {
+/// 範囲の先頭の空白を、マスク済みの写しで数えて飛ばした位置を返す。コメントはマスクで空白に
+/// なっているので、フィールドの直前の行末コメント (`note: 1, // ...`) を読み込まずに済む。
+/// 末尾はマスクで数えない — 文字列リテラルの中身も空白になっているため、式ごと削れてしまう。
+fn skip_leading_blank(masked: &str, from: usize, to: usize) -> usize {
+    let slice = &masked[from..to];
+    from + (slice.len() - slice.trim_start().len())
+}
+
+/// 本体 (マスク済み) の先頭から、対応する `}` までのバイト数。
+fn closing_brace(masked_body: &str) -> Option<usize> {
     let mut depth = 0usize;
-    for (i, c) in body.char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' if depth == 0 => return Some(i),
-            '}' => depth -= 1,
+    for (i, b) in masked_body.bytes().enumerate() {
+        match b {
+            b'{' => depth += 1,
+            b'}' if depth == 0 => return Some(i),
+            b'}' => depth -= 1,
             _ => {}
         }
     }
     None
+}
+
+/// 文字列 (`"..."` / `b"..."`)・raw 文字列 (`r#"..."#`)・文字リテラル (`'x'` / `'\n'` /
+/// `'\u{1F600}'`)・コメント (`//` / 入れ子の `/* */`) の中身を空白に置き換えた写しを返す。
+/// バイト長と改行の位置は変えない (元のテキストと同じ添字で切り出せるように)。
+/// ライフタイム (`'a`) は文字リテラルではないので残す (PR #543 CodeRabbit)。
+fn mask_literals_and_comments(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = bytes.to_vec();
+    let mut i = 0;
+    while i < bytes.len() {
+        let end = literal_or_comment_end(bytes, i);
+        match end {
+            Some(end) => {
+                for b in &mut out[i..end] {
+                    if *b != b'\n' {
+                        *b = b' ';
+                    }
+                }
+                i = end;
+            }
+            None => i += 1,
+        }
+    }
+    String::from_utf8(out).expect("ASCII の空白に置き換えたので UTF-8 のまま")
+}
+
+/// `i` から始まるリテラルかコメントの終端 (排他)。始まっていなければ `None`。
+fn literal_or_comment_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let rest = &bytes[i..];
+    let after_ident = i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+    if rest.starts_with(b"//") {
+        return Some(rest.iter().position(|&b| b == b'\n').map_or(bytes.len(), |n| i + n));
+    }
+    if rest.starts_with(b"/*") {
+        return Some(block_comment_end(bytes, i));
+    }
+    if !after_ident {
+        if let Some(end) = raw_string_end(bytes, i) {
+            return Some(end);
+        }
+    }
+    match rest.first() {
+        Some(b'"') => Some(string_end(bytes, i)),
+        Some(b'\'') => char_literal_end(bytes, i),
+        _ => None,
+    }
+}
+
+fn block_comment_end(bytes: &[u8], start: usize) -> usize {
+    let mut depth = 0usize;
+    let mut i = start;
+    while i + 1 < bytes.len() {
+        if bytes[i..].starts_with(b"/*") {
+            depth += 1;
+            i += 2;
+        } else if bytes[i..].starts_with(b"*/") {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                return i;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    bytes.len()
+}
+
+/// `r"..."` / `r#"..."#` / `br"..."` の終端。raw 文字列の始まりでなければ `None`。
+fn raw_string_end(bytes: &[u8], i: usize) -> Option<usize> {
+    let mut j = i + usize::from(bytes.get(i) == Some(&b'b'));
+    if bytes.get(j) != Some(&b'r') {
+        return None;
+    }
+    j += 1;
+    let hashes = bytes[j..].iter().take_while(|&&b| b == b'#').count();
+    j += hashes;
+    if bytes.get(j) != Some(&b'"') {
+        return None;
+    }
+    let closing: Vec<u8> = std::iter::once(b'"').chain(std::iter::repeat_n(b'#', hashes)).collect();
+    let body_start = j + 1;
+    Some(
+        bytes[body_start..]
+            .windows(closing.len())
+            .position(|w| w == closing.as_slice())
+            .map_or(bytes.len(), |n| body_start + n + closing.len()),
+    )
+}
+
+/// `"..."` の終端 (エスケープを読み飛ばす)。
+fn string_end(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// `'x'` / `'\n'` / `'\u{...}'` の終端。ライフタイム (`'a`) なら `None`。
+fn char_literal_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let next = *bytes.get(start + 1)?;
+    if next == b'\\' {
+        let escaped_end = start + 3;
+        let close = bytes.get(escaped_end..)?.iter().take(12).position(|&b| b == b'\'')?;
+        return Some(escaped_end + close + 1);
+    }
+    let char_len = match next {
+        0x00..=0x7F => 1,
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        _ => 4,
+    };
+    (bytes.get(start + 1 + char_len) == Some(&b'\'')).then_some(start + 2 + char_len)
 }
 
 fn is_string_literal(expr: &str) -> bool {
@@ -249,6 +382,56 @@ pub struct Firing { id: String }
 ";
     let exprs: Vec<String> = id_sites("x.rs", text).into_iter().map(|s| s.expr).collect();
     assert_eq!(exprs, vec!["\"fixed-id\"", "id", "&format!(\"x:{y}\")"]);
+}
+
+/// リテラルとコメントの中の括弧・カンマ・引用符・`Firing {` で構造を読み違えないこと。
+/// ライフタイム (`'a`) は文字リテラルとして扱わない (PR #543 CodeRabbit)。
+#[test]
+fn id_sites_ignores_brackets_inside_literals_and_comments() {
+    let text = "\
+// Firing { id: comment_only } はコメントなので数えない
+/* 入れ子 /* Firing { id: nested } */ もコメント */
+record(&Firing {
+    quote: '\"',
+    open: '{',
+    close: '}',
+    escaped: '\\'',
+    unicode: '\\u{7D}',
+    emoji: '😀',
+    life: Wrapper::<'a, 'static> { x: 1 },
+    s: \"} , id: fake\",
+    raw: r#\"} \" , id: fake\"#,
+    bytes: b\"}\",
+    note: 1, // } , id: fake
+    id: \"real-id\",
+});
+";
+    let exprs: Vec<String> = id_sites("x.rs", text).into_iter().map(|s| s.expr).collect();
+    assert_eq!(exprs, vec!["\"real-id\""]);
+}
+
+/// エスケープした文字リテラルは閉じ引用符まで丸ごと消え、ライフタイムは残る。
+#[test]
+fn mask_handles_escaped_chars_and_lifetimes() {
+    let cases = [
+        ("a('\\'')b", "a(    )b"),
+        ("a('\\\\')b", "a(    )b"),
+        ("a('\\u{7D}')b", "a(        )b"),
+        ("f<'a>('x')", "f<'a>(   )"),
+        ("&'static str", "&'static str"),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(mask_literals_and_comments(input), expected, "input={input}");
+    }
+}
+
+/// 行番号は元のテキストの改行で数える (マスクしても改行は残す)。
+#[test]
+fn id_sites_reports_the_original_line() {
+    let text = "/* 1\n2 */\nlet s = \"3\n4\";\nrecord(&Firing { id: \"x\" });\n";
+    let sites = id_sites("x.rs", text);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sites[0].line, 5);
 }
 
 /// 改行・引用符・非 ASCII・長い文字列を含む `id` でも、出力は 1 行の妥当な JSON に固まる
