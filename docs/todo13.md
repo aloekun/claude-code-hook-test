@@ -237,39 +237,6 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 
 ---
 
-### 順位 238: `Command::new("gh")` 直叩き禁止 + timeout wrapper 必須の custom lint (PR #230 post-merge-feedback T1-#1 採用)
-
-> **動機**: PR-W3 (cli-merge-pipeline 分割) で移動した `fetch_pr_time_range` / `fetch_pr_diff_summary` (pr_metadata.rs) と `run_gh_logged` / `delete_remote_branch` (github.rs) の計 4 箇所が `Command::new("gh").output()` を timeout なしで同期実行しており、ネットワーク不調や gh 側停止時に merge pipeline を無期限にハングさせる (CodeRabbit Major #2/#3、ADR-016 long-running command strategy 違反)。同 crate の pipeline.rs は既に `run_cmd_shell_capped_reporting` (timeout ラッパー) を使用しているため、直叩きを custom lint で検出して timeout 経路へ寄せる。
->
-> **本タスクの位置づけ**: PR #230 post-merge-feedback Tier 1 #1 採用 (High / Frequency High / Effort M / Adoption Risk = false positive リスク、`.rs` 限定で軽減)。PR-W3 で deferred した CodeRabbit findings #2/#3 の恒久対策層。
->
-> **参照**: `.claude/feedback-reports/230.md` Tier 1 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/pr_metadata.rs` / `src/cli-merge-pipeline/src/github.rs` (対象)、`src/lib-subprocess/` `run_cmd_shell_capped_reporting` (推奨 wrapper)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-016。
->
-> **実行優先度**: **Tier 1** — Effort M。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。順位 240 と同 crate、1 PR bundle 検討可。
->
-> **現在地 (2026-10-07)**: 2 PR に分けて進めている。**前半 PR (既存コードの修正) は実装済み** — 実測で timeout なしの直叩きは 2 crate 6 箇所あった (動機に挙げた 4 箇所 + `fetch_pr_file_paths` + cli-pr-monitor の `run_gh_quiet`)。cli-pr-monitor の `run_cmd_capture` を `lib_subprocess::run_cmd_direct_capture` へ移し、6 箇所すべてをこれ経由にした。check-ci-coderabbit の `run_gh` は `.spawn()` + 自前の timeout killer で既に bounded なので触っていない。**残りは後半 PR = lint rule の追加**で、検出範囲は「1 文の中で `Command::new("gh")` から `.output()` まで続く形」に絞る (`.spawn()` 後に timeout 付きで待つ書き方は通す)。
-
-#### 設計決定 (案)
-
-- **pattern**: `Command::new("gh")` の直叩き (特に `.output()` / `.spawn()` を timeout 制御なしで呼ぶ経路) を検出。`run_cmd_shell_capped_reporting` 相当の timeout wrapper 使用を促す。
-- **severity**: warning (reviewer 判断補助)。block 化は着手時判断。
-- **scope**: extensions=["rs"]。false positive 軽減のため直叩き pattern を絞る (test code の扱いは着手時判断)。
-- **必須**: `rule_test_coverage_check` 用の positive (`Command::new("gh")` 直叩き検出) / negative (wrapper 経由は skip) test を main.rs に追加。
-
-#### 作業計画
-
-- [ ] `Command::new("gh")` 直叩きを検出する rule を custom-lint-rules.toml に追加
-- [ ] main.rs に positive/negative test 追加
-- [ ] 既存 `.rs` の直叩き箇所を grep して false positive 計測
-- [ ] `cargo test -p hooks-post-tool-linter` pass
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- `gh` の timeout なし直叩きが Write 時 (PostToolUse) に検出され timeout wrapper 使用が促される。将来同型の無期限ハング混入を構造的に予防。
-
----
-
 ### 順位 241: binary crate の module symbol を `pub(crate)` 限定 + CLAUDE.md 明文化 (PR #230 post-merge-feedback T3-#2 採用)
 
 > **動機**: PR-W3 の feedback module 分割で `write_failed_marker` / `fetch_pr_diff_summary` / `FeedbackInput` / `run` 等、external consumer が存在しない binary crate 内シンボルが `pub` export されており、`pub(crate)` 方針と乖離している (CodeRabbit findings)。file split refactor PR ごとに繰り返す systemic pattern (Frequency Medium) のため、CLAUDE.md に方針を明文化し、既存 `pub` を `pub(crate)` に揃える。

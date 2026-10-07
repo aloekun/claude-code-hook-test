@@ -1422,3 +1422,65 @@ rs = [
   "read_dir_drop_skips_string_literals",
   "read_dir_drop_skips_entries_in_another_function",
 ]
+
+# ─── ルール㉔: gh を timeout なしで同期実行する Rust コードの検出 (順位 238) ───
+#
+# 由来: PR #230。cli-merge-pipeline の gh 呼び出し 4 箇所 (実測では 2 crate 6 箇所) が
+# `.output()` を timeout なしで呼んでおり、ネットワークや gh 側が止まると merge pipeline が
+# 無期限にハングし得た (CodeRabbit Major、ADR-016 違反)。PR #545 で全箇所を
+# `lib_subprocess::run_cmd_direct_capture` 経由にしたので、本 rule は再混入を止める。
+#
+# `Command::new("gh")` から始まる 1 つの文 (`;` まで) の中に、子プロセスの終了を待つ
+# `.output()` / `.status()` / `.wait_with_output()` があれば検出する。`.spawn()` で文を終え、
+# 自分で timeout 付きで待つ書き方 (check-ci-coderabbit の `run_gh` = spawn + timeout killer) は
+# 文が `.spawn()` で終わるので通る。コメント行は除く。文字列リテラル内の例は `\"gh\"` と
+# エスケープされるので一致しない。
+# 限界: program を変数や定数で渡す形 (`Command::new(GH)`) は見ない (2026-10-07 時点で該当なし)。
+# 引数の文字列リテラルに `;` を含む場合 (jq フィルタや本文など) は、そこを文の終わりと見なして
+# 以降の `.output()` を見逃す — 文字クラスでは文字列の中と外を区別できない。
+# 生文字列リテラル (`r#"..."#`) の中に書いた例は検出する。
+
+[[rules]]
+id = "gh-output-without-timeout"
+pattern = '(?m)^[^\n]*?\bCommand::new\(\s*"gh"\s*\)[^;]*?\.(?:output|status|wait_with_output)\(\)'
+exception = '^\s*//'
+severity = "warning"
+message = "gh を timeout なしで同期実行しています。ネットワークや gh 側が止まると無期限に待ちます。lib_subprocess::run_cmd_direct_capture (timeout 付き) を使ってください"
+why = "PR #230 で、timeout の無い gh 呼び出しがネットワーク停止時に merge pipeline を無期限にハングさせうることが指摘された (CodeRabbit Major、ADR-016)。PR #545 で全箇所を timeout 付きに直したため、再混入を決定論層で止める (ADR-007 の正規表現層、順位 238)"
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "timeout 付きの実行関数に置き換える"
+steps = [
+  "`lib_subprocess::run_cmd_direct_capture(\"gh\", &args, TIMEOUT_SECS)` に置き換え、`CmdCapture` の `ok` / `timed_out` / `stderr` で結果を判定する",
+  "crate に gh 用の薄い wrapper (例: cli-merge-pipeline の `run_gh`) があればそれを使う",
+  "自前で待つ必要がある場合は `.spawn()` した上で `lib_subprocess::wait_with_timeout_safe` で待つ",
+]
+
+[rules.example]
+bad = "let output = Command::new(\"gh\").args([\"pr\", \"view\", &pr]).output()?;"
+good = "let cap = lib_subprocess::run_cmd_direct_capture(\"gh\", &[\"pr\", \"view\", &pr], GH_CMD_TIMEOUT_SECS);"
+
+[rules.incident]
+pr = 230
+bad_fixture = "gh-output-without-timeout.rs"
+good_fixture = "gh-output-without-timeout.rs"
+adr = "adr-016"
+
+[rules.test_coverage]
+# rule㉔ は rs のみ (主要拡張子)。1 行 / 複数行の builder / status / spawn 直後の
+# wait_with_output の positive、spawn + 自前 timeout / timeout 付き関数 / コメント行 /
+# エスケープされた文字列リテラル / gh 以外の program の negative。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "gh_output_without_timeout_detects_single_line_output",
+  "gh_output_without_timeout_detects_multiline_builder",
+  "gh_output_without_timeout_detects_status",
+  "gh_output_without_timeout_detects_spawn_then_wait_with_output",
+  "gh_output_without_timeout_skips_spawn_with_own_timeout",
+  "gh_output_without_timeout_skips_run_cmd_direct_capture",
+  "gh_output_without_timeout_skips_comment_line",
+  "gh_output_without_timeout_skips_escaped_string_literal",
+  "gh_output_without_timeout_skips_other_programs",
+]

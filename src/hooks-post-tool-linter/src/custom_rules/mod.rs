@@ -8,6 +8,7 @@
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
 //! - [`rule_tests_external_command_pitfalls`]: rule⑲ (gh-json-files-truncated) / rule⑳
 //!   (ref-destroying-push-without-lease) の tests
+//! - [`rule_tests_gh_output_without_timeout`]: rule㉔ (gh-output-without-timeout) の tests
 //! - [`rule_tests_jj_workspace_list`]: rule⑱ (jj-workspace-list-without-ignore-working-copy) の tests
 //! - [`rule_tests_manual_config_path`]: rule⑯ (no-manual-hooks-config-path) の tests
 //! - [`rule_tests_node_script_pitfalls`]: rule㉑ (gh-without-repo-in-node-script) / rule㉒
@@ -31,6 +32,8 @@ mod rule_tests;
 mod rule_tests_extras;
 #[cfg(test)]
 mod rule_tests_external_command_pitfalls;
+#[cfg(test)]
+mod rule_tests_gh_output_without_timeout;
 #[cfg(test)]
 mod rule_tests_jj_workspace_list;
 #[cfg(test)]

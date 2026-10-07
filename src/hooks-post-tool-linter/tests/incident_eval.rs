@@ -62,6 +62,7 @@ const CASES: &[Case] = &[
     Case { rule_type: "GH_WITHOUT_REPO_IN_NODE_SCRIPT", severity: "error", fixture: "gh-without-repo-in-node-script.mjs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "NETWORK_SPAWN_WITHOUT_TIMEOUT", severity: "error", fixture: "network-spawn-without-timeout.mjs", expected_line: 2, workflow_rel: None },
     Case { rule_type: "READ_DIR_ENTRY_ERROR_DROPPED", severity: "error", fixture: "read-dir-entry-error-dropped.rs", expected_line: 2, workflow_rel: Some("src/cli-push-runner/src/incident_eval.rs") },
+    Case { rule_type: "GH_OUTPUT_WITHOUT_TIMEOUT", severity: "warning", fixture: "gh-output-without-timeout.rs", expected_line: 2, workflow_rel: None },
 ];
 
 fn repo_root() -> PathBuf {
