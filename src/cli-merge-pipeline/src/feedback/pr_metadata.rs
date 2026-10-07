@@ -2,7 +2,7 @@
 //!
 //! `gh pr view --json ...` の応答を `PrTimeRange` / `PrDiffSummary` に変換する。
 
-use std::process::{Command, Stdio};
+use crate::github::{gh_failure_detail, run_gh};
 
 /// PR の時刻 range (gh api の出力から取得)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,29 +63,20 @@ impl PrDiffSummary {
 /// 失敗時は `Err` を返す (caller 側で fallback)。
 pub fn fetch_pr_time_range(pr_number: u64, owner_repo: &str) -> Result<PrTimeRange, String> {
     let pr_str = pr_number.to_string();
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "view",
-            &pr_str,
-            "--repo",
-            owner_repo,
-            "--json",
-            "commits,mergedAt,headRefName",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("gh コマンド起動失敗: {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "gh pr view 失敗: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+    let cap = run_gh(&[
+        "pr",
+        "view",
+        &pr_str,
+        "--repo",
+        owner_repo,
+        "--json",
+        "commits,mergedAt,headRefName",
+    ]);
+    if !cap.ok {
+        return Err(format!("gh pr view 失敗: {}", gh_failure_detail(&cap)));
     }
 
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+    let json: serde_json::Value = serde_json::from_str(&cap.stdout)
         .map_err(|e| format!("gh 出力 JSON パース失敗: {}", e))?;
 
     parse_pr_time_range(&json)
@@ -133,29 +124,23 @@ fn parse_pr_time_range(json: &serde_json::Value) -> Result<PrTimeRange, String> 
 /// 失敗時は `Err` を返す (caller は通常 flow に fallback)。
 pub fn fetch_pr_diff_summary(pr_number: u64, owner_repo: &str) -> Result<PrDiffSummary, String> {
     let pr_str = pr_number.to_string();
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "view",
-            &pr_str,
-            "--repo",
-            owner_repo,
-            "--json",
-            "commits,additions,deletions",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("gh コマンド起動失敗: {}", e))?;
-
-    if !output.status.success() {
+    let cap = run_gh(&[
+        "pr",
+        "view",
+        &pr_str,
+        "--repo",
+        owner_repo,
+        "--json",
+        "commits,additions,deletions",
+    ]);
+    if !cap.ok {
         return Err(format!(
             "gh pr view (diff summary) 失敗: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            gh_failure_detail(&cap)
         ));
     }
 
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+    let json: serde_json::Value = serde_json::from_str(&cap.stdout)
         .map_err(|e| format!("gh 出力 JSON パース失敗: {}", e))?;
 
     let file_paths = fetch_pr_file_paths(pr_number, owner_repo)?;
@@ -165,21 +150,13 @@ pub fn fetch_pr_diff_summary(pr_number: u64, owner_repo: &str) -> Result<PrDiffS
 /// PR の変更ファイルのパスを全件取る (REST の paginate、1 行 1 パス)。
 fn fetch_pr_file_paths(pr_number: u64, owner_repo: &str) -> Result<Vec<String>, String> {
     let endpoint = format!("repos/{owner_repo}/pulls/{pr_number}/files");
-    let output = Command::new("gh")
-        .args(["api", "--paginate", &endpoint, "--jq", ".[].filename"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("gh コマンド起動失敗: {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "gh api (PR files) 失敗: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+    let cap = run_gh(&["api", "--paginate", &endpoint, "--jq", ".[].filename"]);
+    if !cap.ok {
+        return Err(format!("gh api (PR files) 失敗: {}", gh_failure_detail(&cap)));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout)
+    Ok(cap
+        .stdout
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())

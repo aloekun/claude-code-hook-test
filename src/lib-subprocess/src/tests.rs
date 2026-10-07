@@ -494,3 +494,70 @@ mod rank481_descendant_outliving_a_clean_exit {
         assert_bounded_and_wait_for_release("unlimited", drain_pipe_unlimited);
     }
 }
+
+// ─── run_cmd_direct_capture (順位 238) ───
+//
+// シェルを挟まない経路なので、長時間コマンドも `ping` / `sleep` を直接起動する。
+// 標準出力と標準エラーの書き分けにはシェルの構文が要るため、そこだけ `cmd /C` / `sh -c`
+// を program として渡す。
+
+#[cfg(windows)]
+const DIRECT_SHELL: (&str, &str) = ("cmd", "/C");
+#[cfg(not(windows))]
+const DIRECT_SHELL: (&str, &str) = ("sh", "-c");
+
+#[cfg(windows)]
+const DIRECT_LONG_RUNNING: (&str, &[&str]) = ("ping", &["127.0.0.1", "-n", "10"]);
+#[cfg(not(windows))]
+const DIRECT_LONG_RUNNING: (&str, &[&str]) = ("sleep", &["10"]);
+
+fn run_direct_script(script: &str) -> CmdCapture {
+    let (program, flag) = DIRECT_SHELL;
+    run_cmd_direct_capture(program, &[flag, script], 30)
+}
+
+/// PR #238 regression: stderr の警告ログが stdout の機械可読出力に混入しない。
+#[test]
+fn run_cmd_direct_capture_separates_stdout_and_stderr() {
+    let cap = run_direct_script("echo OUT&& echo ERR 1>&2");
+    assert!(cap.ok, "stderr: {}", cap.stderr);
+    assert!(!cap.timed_out);
+    assert_eq!(cap.stdout.trim(), "OUT");
+    assert_eq!(cap.stderr.trim(), "ERR");
+}
+
+#[test]
+fn run_cmd_direct_capture_reports_nonzero_exit_as_failure() {
+    let cap = run_direct_script("exit 1");
+    assert!(!cap.ok);
+    assert!(!cap.timed_out);
+}
+
+#[test]
+fn run_cmd_direct_capture_reports_spawn_failure_via_stderr() {
+    let cap = run_cmd_direct_capture("no-such-program-direct-238", &["x"], 5);
+    assert!(!cap.ok);
+    assert!(!cap.timed_out);
+    assert!(cap.stdout.is_empty());
+    assert!(
+        cap.stderr.starts_with("Failed to execute no-such-program-direct-238"),
+        "stderr: {:?}",
+        cap.stderr
+    );
+}
+
+/// timeout を報告するだけでなく、上限内に制御が戻ること (`assert_times_out_promptly` と同じ理由)。
+#[test]
+fn run_cmd_direct_capture_times_out_promptly() {
+    let (program, args) = DIRECT_LONG_RUNNING;
+    let started = std::time::Instant::now();
+    let cap = run_cmd_direct_capture(program, args, 1);
+    let elapsed = started.elapsed();
+    assert!(!cap.ok);
+    assert!(cap.timed_out);
+    assert!(
+        elapsed.as_secs() < TIMEOUT_TEST_MAX_ELAPSED_SECS,
+        "timeout=1s なのに制御が戻るまで {:?} かかった",
+        elapsed
+    );
+}

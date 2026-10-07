@@ -2,9 +2,8 @@
 
 use crate::pipeline::log_info;
 use lib_jj_helpers::{get_jj_bookmarks_with_remote_fallback, BookmarkSearch, StderrMode};
-use lib_subprocess::combine_output;
+use lib_subprocess::{combine_output, CmdCapture};
 use serde::Deserialize;
-use std::process::Command;
 
 /// `gh pr view --json headRefName,isCrossRepository` のレスポンス
 ///
@@ -45,34 +44,46 @@ pub(crate) fn percent_encode_path_segment(s: &str) -> String {
     out
 }
 
+/// `gh` 呼び出しの timeout。`--paginate` で複数ページを取る呼び出しも同じ値で賄うため、
+/// 1 リクエスト分より余裕を持たせる。
+pub(crate) const GH_CMD_TIMEOUT_SECS: u64 = 120;
+
+/// gh を timeout 付きで実行する。**本 crate の gh 呼び出しはすべてここを通す** (順位 238)。
+///
+/// 旧実装は gh を timeout なしの `.output()` で呼んでおり、ネットワーク停止や
+/// gh 側の停止で merge pipeline が無期限にハングし得た (PR #230 CodeRabbit Major、ADR-016)。
+pub(crate) fn run_gh(args: &[&str]) -> CmdCapture {
+    lib_subprocess::run_cmd_direct_capture("gh", args, GH_CMD_TIMEOUT_SECS)
+}
+
+/// 失敗した gh 呼び出しを 1 行の診断にする (I/O なし)。
+///
+/// timeout は stderr が空でも原因が分かるよう明記する。起動失敗は
+/// `run_cmd_direct_capture` が stderr に `"Failed to execute ..."` を入れている。
+pub(crate) fn gh_failure_detail(cap: &CmdCapture) -> String {
+    let stderr = cap.stderr.trim();
+    match (cap.timed_out, stderr.is_empty()) {
+        (true, true) => format!("timeout after {}s", GH_CMD_TIMEOUT_SECS),
+        (true, false) => format!("timeout after {}s: {}", GH_CMD_TIMEOUT_SECS, stderr),
+        (false, _) => stderr.to_string(),
+    }
+}
+
 /// gh コマンドを実行し、失敗時は stderr をログ出力する
 pub(crate) fn run_gh_logged(args: &[&str]) -> Option<String> {
-    let output = match Command::new("gh")
-        .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            log_info(&format!("gh コマンド実行失敗: {} (args: {:?})", e, args));
-            return None;
+    let cap = run_gh(args);
+    if !cap.ok {
+        let detail = gh_failure_detail(&cap);
+        if !detail.is_empty() {
+            log_info(&format!("gh {:?} 失敗: {}", args, detail));
         }
-    };
-
-    if output.status.success() {
-        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if !stderr.is_empty() {
-            log_info(&format!("gh {:?} 失敗: {}", args, stderr));
-        }
+        return None;
+    }
+    let s = cap.stdout.trim();
+    if s.is_empty() {
         None
+    } else {
+        Some(s.to_string())
     }
 }
 
@@ -165,20 +176,12 @@ pub(crate) fn detect_pr_number() -> Result<u64, PrLookupFailure> {
 pub(crate) fn delete_remote_branch(branch_name: &str) {
     let encoded_branch = percent_encode_path_segment(branch_name);
     let ref_path = format!("repos/{{owner}}/{{repo}}/git/refs/heads/{}", encoded_branch);
-    let gh_output = Command::new("gh")
-        .args(["api", &ref_path, "-X", "DELETE"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output();
-    let (del_ok, del_out) = match gh_output {
-        Ok(o) => {
-            let combined = combine_output(
-                String::from_utf8_lossy(&o.stdout).trim(),
-                String::from_utf8_lossy(&o.stderr).trim(),
-            );
-            (o.status.success(), combined)
-        }
-        Err(e) => (false, format!("gh コマンド実行失敗: {}", e)),
+    let cap = run_gh(&["api", &ref_path, "-X", "DELETE"]);
+    let del_ok = cap.ok;
+    let del_out = if cap.timed_out {
+        gh_failure_detail(&cap)
+    } else {
+        combine_output(cap.stdout.trim(), cap.stderr.trim())
     };
     if del_ok {
         log_info(&format!(
@@ -267,5 +270,36 @@ mod tests {
             is_cross_repository: false,
         };
         assert!(!should_skip_branch_delete(&info));
+    }
+
+    fn failed_capture(stderr: &str, timed_out: bool) -> CmdCapture {
+        CmdCapture {
+            ok: false,
+            stdout: String::new(),
+            stderr: stderr.to_string(),
+            timed_out,
+        }
+    }
+
+    /// timeout は stderr が空でも原因が読めること (順位 238)。
+    #[test]
+    fn gh_failure_detail_names_the_timeout_even_without_stderr() {
+        let detail = gh_failure_detail(&failed_capture("", true));
+        assert_eq!(detail, format!("timeout after {}s", GH_CMD_TIMEOUT_SECS));
+    }
+
+    #[test]
+    fn gh_failure_detail_keeps_stderr_alongside_the_timeout() {
+        let detail = gh_failure_detail(&failed_capture("partial\n", true));
+        assert_eq!(
+            detail,
+            format!("timeout after {}s: partial", GH_CMD_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn gh_failure_detail_is_the_trimmed_stderr_for_ordinary_failures() {
+        let detail = gh_failure_detail(&failed_capture("  HTTP 404: Not Found\n", false));
+        assert_eq!(detail, "HTTP 404: Not Found");
     }
 }
