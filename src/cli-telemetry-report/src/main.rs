@@ -115,7 +115,7 @@ fn update_rollups(
 }
 
 /// 判定候補を計算し、レポート (markdown + JSON) を組み立てて main workspace へ書き出す。
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // ALLOW-REASON: main の各収集段の結果を受ける組み立て関数。呼び出しは 1 箇所で、struct にまとめても読みやすさは変わらない
 fn finish_report(
     config_base: &Path,
     config: &TelemetryReportConfig,

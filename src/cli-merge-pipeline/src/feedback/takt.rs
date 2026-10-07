@@ -29,7 +29,6 @@ pub const TAKT_TIMEOUT_SECS: u64 = 1200;
 /// 本 const は canonical 参照値として保持し、out-of-process reaper 実装の
 /// `hooks-session-start::ORPHAN_THRESHOLD_SECS` は同 literal `1500` を pin する
 /// (両 crate の test で drift 検出)。
-#[allow(dead_code)]
 pub const ORPHAN_THRESHOLD_SECS: u64 = TAKT_TIMEOUT_SECS + 300;
 
 const _: () = assert!(

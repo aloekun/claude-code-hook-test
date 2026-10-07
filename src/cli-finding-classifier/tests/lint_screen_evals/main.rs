@@ -47,9 +47,9 @@ struct BaselineFinding {
     rule: String,
     file: String,
     line: u32,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // ALLOW-REASON: 値は読まないが必須項目。fixture の欠落を deserialize 時に検出する
     issue: String,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // ALLOW-REASON: 値は読まないが必須項目。fixture の欠落を deserialize 時に検出する
     suggestion: String,
 }
 

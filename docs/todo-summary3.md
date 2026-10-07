@@ -91,6 +91,7 @@
 | 530 | Tier 3 | **[improvement] テストのリポジトリルート解決をコンパイル時の値から実行時の探索へ移す** | todo28.md | S | なし (2026-09-28 に順位なしエントリの仕分けから採番。週次レビュー WR-2026-08-15-J01 / J02、WR-2026-09-18-J02 で再検出。範囲は lib-ledger と post-tool-linter coverage.rs の 2 ファイル。着手前に発症を実測し、しなければ負の結果として閉じる) |
 | 531 | Tier 3 | **[improvement] Stop hook と push gate の二重検査を意図した二層として明文化する** | todo28.md | S | なし (2026-09-28 採番。WR-2026-07-01-A01 を「両方残す」で決着 = ユーザー判断。ADR-004 への役割追記と push-runner-config の古いコメント修正。これに依存していた順位 522 は前提誤りで取り下げ。Stop の Rust は clippy だけで全体約 2 秒 (ADR-004 WP-05 の実測) のため、docs-only で飛ばしても 1 秒未満しか縮まない) |
 | 532 | Tier 3 | **[improvement] analyze-coderabbit facet の「Windows only」前提を Linux 対応後の実態に合わせる** | todo28.md | S | なし (2026-09-28 の仕分け中に発見。ADR-063 / 065 の後も cross-platform 指摘を Info へ落とす規則が残る。正当な指摘が落とされた事例はまず探す) |
+| 533 | ⏳ Tier 5 | **[improvement] allow-without-reason を属性単位の判定 (構文ベース) へ移す再評価 (トリガー付きの見送り follow-up)** | todo28.md | S | なし (2026-10-08、PR #548 CodeRabbit 指摘への判断で見送り。同じ行の 2 つ目以降 / 他のコードの後ろの allow 属性は rule㉕ の意図的な対象外。再評価トリガー: 対象外の形が rg で 1 件以上見つかる / 1 行に複数 allow を認める方針になる / 同種の属性 rule で同じ限界が問題になる) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

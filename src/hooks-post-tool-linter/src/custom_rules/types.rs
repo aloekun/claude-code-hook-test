@@ -50,10 +50,10 @@ pub(crate) struct CustomRule {
     pub(crate) fix: Option<CustomRuleFix>,
     pub(crate) example: Option<CustomRuleExample>,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // ALLOW-REASON: 読むのは #[cfg(test)] の coverage 検査 (rule_test_coverage_check) だけ
     pub(crate) test_coverage: Option<CustomRuleTestCoverage>,
     #[serde(default)]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // ALLOW-REASON: 読むのは #[cfg(test)] の coverage 検査 (incident_fixture_coverage_check) だけ
     pub(crate) incident: Option<CustomRuleIncident>,
     /// `pattern` のマッチ範囲にこの正規表現が一致したら、その match を違反にしない。
     /// PreToolUse の `BlockedPattern.exception` (順位 144) と同じ 2 段判定。
@@ -85,7 +85,7 @@ pub(crate) struct CustomRuleExample {
 /// この section を持たないルール (例: no-console-log = 汎用サンプルで incident 由来
 /// でない) は fixture 要求から免除される (coverage check の NON_INCIDENT_RULES allowlist)。
 #[derive(Deserialize, Clone, Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // ALLOW-REASON: TOML schema。pr / fixture 名は #[cfg(test)] の検査だけが読み、adr は記録用で誰も読まない
 pub(crate) struct CustomRuleIncident {
     /// ルールを生んだ実 incident の PR 番号。
     pub(crate) pr: u64,
@@ -110,7 +110,7 @@ pub(crate) struct CustomRuleIncident {
 /// `ps_empty_catch_*` / `md_mutable_anchor_*` / `no_ephemeral_todo_*` 等の **異なる命名
 /// 規約が混在する既存テスト** を rule_id とは独立に対応付けできる。
 #[derive(Deserialize, Clone, Default, Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // ALLOW-REASON: TOML schema。読むのは #[cfg(test)] の coverage 検査だけ
 pub(crate) struct CustomRuleTestCoverage {
     /// 主要拡張子 (`rs` / `toml` / `yaml` / `yml`) -> 対応 test 関数名の list。
     #[serde(default)]

@@ -566,7 +566,7 @@ mod tests {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // ALLOW-REASON: test helper。ReportInput のフィールドをそのまま引数に取る
     fn base_input<'a>(
         rollups: &'a [MonthRollup],
         degraded: &'a [String],

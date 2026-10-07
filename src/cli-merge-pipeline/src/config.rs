@@ -25,10 +25,9 @@ pub(crate) struct PipelineStepConfig {
     #[serde(rename = "type")]
     pub(crate) step_type: String,
     pub(crate) cmd: Option<String>,
-    /// 旧 ADR-029 で参照されていた hint。ADR-030 では takt workflow が固定なので未使用だが、
-    /// hooks-config.toml の既存エントリと互換を保つため deserialize 対象として残す。
-    #[allow(dead_code)]
-    pub(crate) prompt: Option<String>,
+    // 旧 ADR-029 の `prompt` (AI step の hint) は ADR-030 で takt workflow が固定になり未使用。
+    // 受け皿のフィールドは外した (順位 227)。`deny_unknown_fields` を付けていないので、
+    // hooks-config.toml の既存エントリにある `prompt = ...` はそのまま読み飛ばされる。
 }
 
 /// デフォルトのブランチ名
@@ -95,7 +94,8 @@ prompt = "analyze_pr_learnings"
         assert_eq!(post.len(), 1);
         assert_eq!(post[0].name, "post_merge_learnings");
         assert_eq!(post[0].step_type, "ai");
-        assert_eq!(post[0].prompt.as_deref(), Some("analyze_pr_learnings"));
+        // 入力 TOML の `prompt = ...` は受け皿が無くても parse が通る (順位 227 で
+        // フィールドを外した後の互換を、この test 自体が固定している)。
     }
 
     #[test]
