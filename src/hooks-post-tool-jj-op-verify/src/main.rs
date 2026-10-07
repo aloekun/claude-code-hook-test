@@ -3,7 +3,8 @@
 //! 並列 workspace 運用の lost-update incident (2026-07-12/13、ADR-045 § Known operational
 //! risks) では、変更系 jj コマンドの「成功出力」が見えたにもかかわらず operation が
 //! op log に記録されていなかった。本 hook は Bash tool で実行されたコマンドに変更系
-//! jj 操作 (`new` / `describe` / `abandon` / `rebase` / `squash` / `bookmark 変更系`) が
+//! jj 操作 (`new` / `describe` / `abandon` / `rebase` / `squash` / `restore` / `split` / `undo` /
+//! `bookmark 変更系`) が
 //! 含まれる場合、直後に `jj op log --limit 1` (snapshot を発生させない読み取り) で
 //! op head を取得し、操作に対応する operation が記録されたかを additionalContext で
 //! 報告する。記録が無ければ「operation not recorded」警告を出し、事故クラスを即時検出する。
@@ -17,6 +18,11 @@
 //! `snapshot working copy` に占められて誤警告を出していた (順位 489、実測で誤警告率 50%)。
 //! 現在は [`INCIDENTAL_OP_PREFIXES`] を読み飛ばして最初の非付随 op と照合する。
 //!
+//! **jj が `Nothing changed.` を出したときは照合しない** (順位 282)。変更の無い `jj restore` や
+//! 既に track 済みの `jj bookmark track` は、成功しても op を作らない (jj 0.42 実測)。fetch を
+//! 検出対象から外したのと同じ理由で、照合すると誤警告になる。判定はコマンドの出力
+//! (`tool_response`) で行う — [`reported_no_change`]。
+//!
 //! # 本 hook が塞げない既知の限界 (2026-08-23 ユーザー指摘)
 //!
 //! 1. **チェーン内の最後の 1 件しか追跡しない。** [`detect_last_mutating_jj_op`] は検出結果を
@@ -26,7 +32,10 @@
 //!    コマンド文字列をどう解析しても事前には分からない。付随 op の読み飛ばしはこの経路の
 //!    **誤警告**を消すが、「サブプロセスが何を書くか」を知った上での検証にはなっていない。
 //!
-//! どちらも「警告が出ない場合に安心してよい範囲」を狭める向きの限界である。警告が**出た**
+//! 3. **複合コマンドでは、どれか 1 つが `Nothing changed.` を出すと全体を照合しない。** 出力は
+//!    コマンド全体で 1 つなので、どの jj 操作が出した行かを区別できない。
+//!
+//! どれも「警告が出ない場合に安心してよい範囲」を狭める向きの限界である。警告が**出た**
 //! ときの観測 (op log 先頭に対応する operation が無い) は従来どおり正しい。
 //!
 //! 試験運用 (ADR-039 準拠): `[post_tool_use.jj_op_verify] enabled` は source default-OFF、
@@ -43,6 +52,9 @@ const JJ_OP_LOG_TIMEOUT_SECS: u64 = 5;
 #[derive(Deserialize)]
 struct HookInput {
     tool_input: Option<ToolInput>,
+    /// Bash の結果 (`stdout` / `stderr` / `interrupted`)。形が想定と違っても hook 全体の
+    /// パースを失敗させないよう、`Value` のまま受けて [`reported_no_change`] で読む。
+    tool_response: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -151,9 +163,15 @@ fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
             "abandon" => Some(("abandon", "abandon commit")),
             "rebase" => Some(("rebase", "rebase commit")),
             "squash" => Some(("squash", "squash")),
+            "restore" => Some(("restore", "restore into commit")),
+            "split" => Some(("split", "split commit")),
+            "undo" => Some(("undo", "undo: restore to operation")),
             "bookmark" => match tokens.get(i + 2).map(String::as_str) {
                 Some("create") => Some(("bookmark create", "create bookmark")),
                 Some("set") => Some(("bookmark set", "point bookmark")),
+                Some("move") => Some(("bookmark move", "point bookmark")),
+                Some("track") => Some(("bookmark track", "track remote bookmark")),
+                Some("untrack") => Some(("bookmark untrack", "untrack remote bookmark")),
                 Some("delete") => Some(("bookmark delete", "delete bookmark")),
                 Some("forget") => Some(("bookmark forget", "forget bookmark")),
                 Some("rename") => Some(("bookmark rename", "rename bookmark")),
@@ -171,9 +189,37 @@ fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
     found
 }
 
+/// jj が「何も変えなかった」と報告したか (I/O なし)。
+///
+/// jj はこの 1 行を stderr に書くが、Bash tool では `2>&1` の有無で stdout 側に入ることも
+/// あるため両方を見る。`tool_response` が無い・形が違うときは `false` (= 従来どおり照合する)。
+fn reported_no_change(tool_response: Option<&serde_json::Value>) -> bool {
+    let Some(response) = tool_response else {
+        return false;
+    };
+    ["stdout", "stderr"].iter().any(|field| {
+        response
+            .get(field)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|text| text.lines().any(|line| line.trim() == "Nothing changed."))
+    })
+}
+
+/// op log の 1 行 (`<op id> <description>`) から description を取り出す (I/O なし)。
+fn op_description(op_line: &str) -> &str {
+    op_line.split_once(' ').map_or("", |(_, rest)| rest).trim()
+}
+
 /// op head の description が操作に対応するか。
+///
+/// **description の前方一致で見る** (順位 282)。部分一致だと `untrack remote bookmark` が
+/// `track remote bookmark` を含むため、`jj bookmark track` が落ちて直前に untrack の op が
+/// 残っていても記録済みと誤判定する。キーワードは jj 0.42 の実機で、各操作の description の
+/// 先頭に来ることを確かめてある (2026-10-07)。
 fn op_matches_expectation(op_head: &str, expected_keyword: &str) -> bool {
-    op_head.to_lowercase().contains(expected_keyword)
+    op_description(op_head)
+        .to_lowercase()
+        .starts_with(expected_keyword)
 }
 
 fn build_ok_message(op: &MutatingJjOp, op_head: &str) -> String {
@@ -221,7 +267,7 @@ const OP_LOG_WINDOW: usize = 10;
 
 /// op log の 1 行が付随 op か (I/O なし)。
 fn is_incidental_op(op_line: &str) -> bool {
-    let description = op_line.split_once(' ').map_or("", |(_, rest)| rest).trim();
+    let description = op_description(op_line);
     INCIDENTAL_OP_PREFIXES
         .iter()
         .any(|prefix| description.starts_with(prefix))
@@ -339,6 +385,9 @@ fn main() {
     let Some(command) = hook_input.tool_input.and_then(|t| t.command) else {
         return;
     };
+    if reported_no_change(hook_input.tool_response.as_ref()) {
+        return;
+    }
 
     let enabled = std::fs::read_to_string(config_path())
         .ok()
@@ -368,304 +417,4 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detects_jj_new() {
-        let op = detect_last_mutating_jj_op("jj new -m 'feat: x'").unwrap();
-        assert_eq!(op.verb, "new");
-        assert_eq!(op.expected_op_keyword, "new empty commit");
-    }
-
-    #[test]
-    fn detects_last_op_in_compound_command() {
-        let op =
-            detect_last_mutating_jj_op("jj describe -m x && jj new -m y 2>&1 | head -3").unwrap();
-        assert_eq!(op.verb, "new", "複合コマンドでは最後の変更系操作を検証する");
-    }
-
-    #[test]
-    fn detects_bookmark_create_but_not_list() {
-        assert!(detect_last_mutating_jj_op("jj bookmark create feat/x -r @").is_some());
-        assert!(detect_last_mutating_jj_op("jj bookmark list").is_none());
-    }
-
-    #[test]
-    fn ignores_read_only_and_boundary_commands() {
-        assert!(detect_last_mutating_jj_op("jj log -r @ --no-graph").is_none());
-        assert!(detect_last_mutating_jj_op("jj op log --limit 1").is_none());
-        assert!(detect_last_mutating_jj_op("jj st").is_none());
-        assert!(
-            detect_last_mutating_jj_op("jj git fetch").is_none(),
-            "fetch は Nothing changed で op を作らない正当ケースがあるため対象外"
-        );
-        assert!(detect_last_mutating_jj_op("jj git push -b feat/x").is_none());
-        assert!(detect_last_mutating_jj_op("cargo test && pnpm lint").is_none());
-    }
-
-    #[test]
-    fn op_match_is_case_insensitive_contains() {
-        assert!(op_matches_expectation(
-            "d2e4a39cd26c describe commit d856d3b5",
-            "describe commit"
-        ));
-        assert!(!op_matches_expectation(
-            "f53cbee0d008 snapshot working copy",
-            "new empty commit"
-        ));
-    }
-
-    fn ops(lines: &[&str]) -> Vec<String> {
-        lines.iter().map(|l| (*l).to_string()).collect()
-    }
-
-    /// 受け入れ基準: 操作に対応する op が無い場合に「operation not recorded」警告を出す。
-    ///
-    /// **付随 op ではない別の操作**が先頭に来ている状態 = 本物の未記録。
-    #[test]
-    fn decide_context_warns_when_operation_not_recorded() {
-        let verdict = decide_context(
-            "jj new -m 'x'",
-            &ops(&["f53cbee0d008 describe commit 75b52ec7"]),
-        )
-        .unwrap();
-        assert!(matches!(verdict, Verdict::NotRecorded(_)));
-        assert!(verdict.message().contains("WARNING: operation not recorded"));
-        assert!(verdict.message().contains("jj op log"));
-    }
-
-    #[test]
-    fn decide_context_confirms_recorded_operation() {
-        let verdict =
-            decide_context("jj new -m 'x'", &ops(&["02911d7f8d4b new empty commit"])).unwrap();
-        assert!(matches!(verdict, Verdict::Recorded(_)));
-        assert!(verdict.message().starts_with("[jj-op-verify] OK"));
-    }
-
-    #[test]
-    fn decide_context_none_for_non_mutating_command() {
-        assert!(decide_context("cargo test", &ops(&["abc op"])).is_none());
-    }
-
-    #[test]
-    fn decide_context_none_when_op_log_unavailable() {
-        assert!(
-            decide_context("jj new -m 'x'", &[]).is_none(),
-            "fail-open: jj 不在 / timeout では警告を出さない (助言層)"
-        );
-    }
-
-
-    /// **実観測の再現 1** (`jj describe -m ... && pnpm push`)。
-    /// push の op が先頭を占めても、その下の `describe commit` と照合して OK を出す。
-    #[test]
-    fn a_push_op_at_the_head_does_not_hide_the_recorded_describe() {
-        let verdict = decide_context(
-            "jj describe -m 'msg' && pnpm push",
-            &ops(&[
-                "c8d83850 push bookmark fix/foo to git remote origin",
-                "02edb0ec describe commit 75b52ec7",
-            ]),
-        )
-        .unwrap();
-        assert!(
-            matches!(verdict, Verdict::Recorded(_)),
-            "{}",
-            verdict.message()
-        );
-    }
-
-    /// **実観測の再現 2** (`jj bookmark forget ... && jj git fetch`)。
-    /// fetch と snapshot が連続しても、その下まで読み飛ばす。
-    #[test]
-    fn consecutive_incidental_ops_are_skipped() {
-        let verdict = decide_context(
-            "jj bookmark forget old && jj git fetch",
-            &ops(&[
-                "aaaaaaaa snapshot working copy",
-                "bbbbbbbb fetch from git remote(s) origin",
-                "cccccccc snapshot working copy",
-                "dddddddd forget bookmark old",
-            ]),
-        )
-        .unwrap();
-        assert!(
-            matches!(verdict, Verdict::Recorded(_)),
-            "{}",
-            verdict.message()
-        );
-    }
-
-    /// **偽陰性を作らない側**: 最初の非付随 op で止まる。その先に一致する op があっても
-    /// 探しに行かない (探すと「本当に落ちた操作」を過去の同種 op で隠す)。
-    #[test]
-    fn the_search_stops_at_the_first_non_incidental_op() {
-        let verdict = decide_context(
-            "jj new",
-            &ops(&[
-                "aaaaaaaa snapshot working copy",
-                "bbbbbbbb describe commit 75b52ec7",
-                "cccccccc new empty commit",
-            ]),
-        )
-        .unwrap();
-        assert!(
-            matches!(verdict, Verdict::NotRecorded(_)),
-            "2 件目の describe で止まるべき: {}",
-            verdict.message()
-        );
-    }
-
-    /// 付随 op しか無ければ照合できない = 無出力 (fail-open)。
-    #[test]
-    fn only_incidental_ops_yields_no_verdict() {
-        assert!(decide_context(
-            "jj new",
-            &ops(&["aaaaaaaa snapshot working copy", "bbbbbbbb import git refs"])
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn incidental_prefixes_are_matched_on_the_description_not_the_id() {
-        assert!(is_incidental_op("aaaaaaaa snapshot working copy"));
-        assert!(is_incidental_op("bbbbbbbb fetch from git remote(s) origin"));
-        assert!(is_incidental_op("cccccccc push bookmark foo to git remote origin"));
-        assert!(is_incidental_op("dddddddd push all bookmarks to git remote origin"));
-        assert!(is_incidental_op("eeeeeeee import git refs"));
-    }
-
-    /// 変更系 op は付随 op に数えない (数えると照合対象が消える)。
-    #[test]
-    fn mutating_ops_are_not_incidental() {
-        assert!(!is_incidental_op("aaaaaaaa new empty commit"));
-        assert!(!is_incidental_op("bbbbbbbb describe commit 75b52ec7"));
-        assert!(!is_incidental_op("cccccccc create bookmark foo pointing to commit 1"));
-    }
-
-    /// **id に付随 op の文言が含まれても誤判定しない** — 照合は description 側で行う。
-    #[test]
-    fn an_id_shaped_line_without_a_description_is_not_incidental() {
-        assert!(!is_incidental_op("snapshot"));
-    }
-
-    #[test]
-    fn blank_lines_in_the_op_log_are_ignored() {
-        let log = ops(&["", "   ", "aaaaaaaa new empty commit"]);
-        let selected = select_op_for_matching(&log);
-        assert_eq!(selected.map(String::as_str), Some("aaaaaaaa new empty commit"));
-    }
-
-    #[test]
-    fn verify_enabled_defaults_off_and_reads_config() {
-        assert!(!verify_enabled(""), "section 不在は OFF (ADR-039 § 1)");
-        assert!(!verify_enabled("[post_tool_use.jj_op_verify]\n"));
-        assert!(!verify_enabled(
-            "[post_tool_use.jj_op_verify]\nenabled = false\n"
-        ));
-        assert!(verify_enabled(
-            "[post_tool_use.jj_op_verify]\nenabled = true\n"
-        ));
-        assert!(!verify_enabled("not toml ["), "パース失敗は OFF (fail-open)");
-    }
-
-    /// 順位 476 の回帰テスト・方向 1 (誤検知しない): commit message 本文に別の jj サブコマンド名
-    /// が書かれていても、quote 内は 1 トークンに畳まれるため実コマンドを上書きしない。
-    #[test]
-    fn quoted_commit_message_containing_jj_keyword_is_not_misdetected() {
-        let op = detect_last_mutating_jj_op(
-            r#"jj describe -m "note: mention jj new keyword here""#,
-        )
-        .unwrap();
-        assert_eq!(
-            op.verb, "describe",
-            "quote 内の 'jj new' は無視され、実コマンド 'jj describe' を検出する"
-        );
-    }
-
-    /// 順位 476 の回帰テスト・方向 2 (正しく検出する): quote を含まない直接コマンドは
-    /// 従来どおり検出される。
-    #[test]
-    fn direct_command_without_quotes_is_still_detected() {
-        let op = detect_last_mutating_jj_op("jj abandon -r x").unwrap();
-        assert_eq!(op.verb, "abandon");
-    }
-
-    /// 順位 476 の回帰テスト・方向 3 (複合コマンドで最後の操作を採る): quote 内の message を
-    /// 含む先行コマンドがあっても、複合コマンドの最後の変更系操作を正しく検出する。
-    #[test]
-    fn compound_command_with_quoted_message_still_detects_last_op() {
-        let op =
-            detect_last_mutating_jj_op(r#"jj describe -m "msg" && jj abandon -r x"#).unwrap();
-        assert_eq!(op.verb, "abandon");
-    }
-
-    /// 順位 476 の回帰テスト・方向 4 (PR #494 CodeRabbit 指摘): 二重引用符の中の `\"` は
-    /// 終端ではない。escape を解釈しないと message 本文の `jj new` が独立コマンドとして
-    /// 検出され、実際の `describe` に対して「operation not recorded」の誤警告が出る。
-    #[test]
-    fn escaped_quote_inside_a_double_quoted_message_does_not_end_the_quote() {
-        let op = detect_last_mutating_jj_op(r#"jj describe -m "note: \" jj new \" here""#)
-            .expect("describe が検出されること");
-        assert_eq!(
-            op.verb, "describe",
-            "escape された quote は終端ではなく、message 内の 'jj new' は無視される"
-        );
-    }
-
-    /// 同じ入力を token 単位でも固定する。`jj new` が独立 token として現れないこと。
-    #[test]
-    fn escaped_quote_keeps_the_message_in_a_single_token() {
-        let tokens = tokenize_respecting_quotes(r#"jj describe -m "a \" jj new \" b""#);
-        assert_eq!(
-            tokens,
-            vec!["jj", "describe", "-m", r#"a " jj new " b"#],
-            "message 全体が 1 token に畳まれること"
-        );
-    }
-
-    /// **単一引用符では backslash を escape にしない** (POSIX)。ここで解釈すると
-    /// 閉じ quote を読み飛ばし、二重引用符の修正が逆向きの壊れ方を生む。
-    #[test]
-    fn backslash_is_literal_inside_single_quotes() {
-        let tokens = tokenize_respecting_quotes(r#"jj describe -m 'a \' && jj new"#);
-        assert_eq!(
-            tokens,
-            vec!["jj", "describe", "-m", r#"a \"#, "&&", "jj", "new"],
-            "単一引用符は backslash の直後でも閉じる"
-        );
-    }
-
-    /// 閉じない二重引用符は終端まで 1 token (fail-open)。escape 追加後も維持する。
-    #[test]
-    fn unterminated_double_quote_still_folds_to_the_end() {
-        let tokens = tokenize_respecting_quotes(r#"jj describe -m "a \" jj new"#);
-        assert_eq!(tokens, vec!["jj", "describe", "-m", r#"a " jj new"#]);
-    }
-
-    #[test]
-    fn tokenization_requires_exact_jj_token_no_substring_match() {
-        assert!(
-            detect_last_mutating_jj_op("jjnew -m 'x'").is_none(),
-            "'jjnew' は単一 token であり 'jj' と完全一致しないため検出されない"
-        );
-    }
-
-    #[test]
-    fn tokenization_requires_exact_jj_token_trailing_punctuation_breaks_match() {
-        assert!(
-            detect_last_mutating_jj_op("see jj, new commit").is_none(),
-            "'jj,' はカンマ付きのため 'jj' と完全一致せず検出されない"
-        );
-    }
-
-    #[test]
-    fn hook_input_parses_bash_payload() {
-        let input: HookInput = serde_json::from_str(
-            r#"{"tool_name":"Bash","tool_input":{"command":"jj new -m 'x'"}}"#,
-        )
-        .unwrap();
-        assert_eq!(input.tool_input.unwrap().command.unwrap(), "jj new -m 'x'");
-    }
-}
+mod tests;
