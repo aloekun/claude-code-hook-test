@@ -235,25 +235,6 @@
 
 ---
 
-### 順位 282: jj-op-verify の変更系 verb 網羅拡大 (PR #267 post-merge-feedback T1-2 採用)
-
-> **動機**: 現行の検出対象 (new/describe/abandon/rebase/squash/bookmark 変更系) に `undo` / `restore` / `split` / `bookmark move` / `bookmark track` / `bookmark untrack` が含まれない。特に `jj undo` の検出漏れは lost-update 再発リスクが高く、Operation Verification Checklist 自動化の対象を狭める。
->
-> **参照**: `.claude/feedback-reports/267.md` Tier 1 #2、`src/hooks-post-tool-jj-op-verify/src/main.rs` (match 文)。**拡張時は `expected_op_keyword` を実際の `jj op log` 出力と要照合**
->
-> **実行優先度**: Tier 1 — Severity Medium / Effort M。
-
-#### 作業計画
-
-- [ ] 各 verb の実際の op description を jj 0.42 実機で確認し keyword map に追加 + テスト
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 変更系 jj 操作の検出網羅率が上がり、`jj undo` 等の op 記録検証が機能すること。
-
----
-
 ### 順位 286: config path 解決の cwd 跨ぎ integration test (PR #267 post-merge-feedback T2-3 採用)
 
 > **動機**: PR #267 で FIXED 済の `SIM-NEW-jjopverify-cwd-config-L179` は、既存テストが pure parser のみで file-lookup 経路を未カバーだったため混入した。非 repo-root cwd から hook を起動して config が読み込まれることを検証する統合テストは、cwd drift シナリオ (ADR-045 の核心リスク) の re-incident 検知網になる。
