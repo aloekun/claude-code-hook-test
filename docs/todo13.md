@@ -246,6 +246,8 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 > **参照**: `.claude/feedback-reports/230.md` Tier 1 #1、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/pr_metadata.rs` / `src/cli-merge-pipeline/src/github.rs` (対象)、`src/lib-subprocess/` `run_cmd_shell_capped_reporting` (推奨 wrapper)、`.claude/custom-lint-rules.toml` (追加先、rule①〜⑫ と同型)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` + test)、ADR-016。
 >
 > **実行優先度**: **Tier 1** — Effort M。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。順位 240 と同 crate、1 PR bundle 検討可。
+>
+> **現在地 (2026-10-07)**: 2 PR に分けて進めている。**前半 PR (既存コードの修正) は実装済み** — 実測で timeout なしの直叩きは 2 crate 6 箇所あった (動機に挙げた 4 箇所 + `fetch_pr_file_paths` + cli-pr-monitor の `run_gh_quiet`)。cli-pr-monitor の `run_cmd_capture` を `lib_subprocess::run_cmd_direct_capture` へ移し、6 箇所すべてをこれ経由にした。check-ci-coderabbit の `run_gh` は `.spawn()` + 自前の timeout killer で既に bounded なので触っていない。**残りは後半 PR = lint rule の追加**で、検出範囲は「1 文の中で `Command::new("gh")` から `.output()` まで続く形」に絞る (`.spawn()` 後に timeout 付きで待つ書き方は通す)。
 
 #### 設計決定 (案)
 

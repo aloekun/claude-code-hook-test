@@ -11,16 +11,23 @@
 //! ADR-026 Cargo workspace + ADR-012 lib-* naming に整合。
 //!
 //! 順位 173e で variant merge を検討予定。
-//! `cli-pr-monitor/src/classifier_runner.rs` の channel-based wait_with_timeout と
-//! `cli-pr-monitor/src/runner.rs` の `run_cmd_direct` (direct args / variant B) は
+//! `cli-pr-monitor/src/classifier_runner.rs` の channel-based wait_with_timeout は
 //! signature と設計意図が異なるため本 lib では別 variant として扱わず、必要なら 173e
 //! で評価する。
+//! 順位 238: direct args の timeout 付き実行 (`run_cmd_direct_capture`) を `direct` module に
+//! 追加。`cli-pr-monitor` の `run_cmd_capture` を移したもので、`cli-merge-pipeline` の
+//! `gh` 呼び出しが 2 crate 目の利用者になった。`cli-pr-monitor` の `run_cmd_direct`
+//! (stdout / stderr を結合して返す互換 API) は本関数の上の薄い wrapper として同 crate に残す
+//! (結合出力を使う呼び出し元が同 crate にしか無いため、ADR-044 層 1 の「1 crate のみ」)。
 
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+mod direct;
+pub use direct::{run_cmd_direct_capture, CmdCapture};
 
 /// stdout と stderr を結合する。
 ///

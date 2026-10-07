@@ -2,91 +2,31 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use lib_subprocess::drain_pipe_unlimited;
+pub(crate) use lib_subprocess::CmdCapture;
 
-const POLL_INTERVAL_MS: u64 = 100;
 pub(crate) const JJ_CMD_TIMEOUT_SECS: u64 = 30;
 
-/// [`run_cmd_capture`] の結果。stdout / stderr を分離して保持する。
-///
-/// stdout を機械可読出力 (JSON 等) としてパースする呼び出しは本構造体を使い、
-/// stderr の警告ログ混入でパースが壊れる事故 (PR #238 実観測) を構造的に防ぐ。
-pub(crate) struct CmdCapture {
-    pub(crate) ok: bool,
-    pub(crate) stdout: String,
-    pub(crate) stderr: String,
-    pub(crate) timed_out: bool,
-}
+/// `gh` 呼び出しの timeout。`--paginate` で複数ページを取る呼び出しも同じ値で賄うため、
+/// 1 リクエスト分より余裕を持たせる (順位 238: 旧 `run_gh_quiet` は timeout なしで、
+/// ネットワーク停止時に監視ループごと無期限に止まり得た)。
+pub(crate) const GH_CMD_TIMEOUT_SECS: u64 = 120;
 
 /// 引数を配列で直接渡し、stdout / stderr を分離キャプチャして返す。
+///
+/// 実体は [`lib_subprocess::run_cmd_direct_capture`]。`fixed_args` / `extra_args` の 2 本立ての
+/// 呼び出し口と、テストで stub を差し込むための [`Capture`] 型をこの crate に残している。
 pub(crate) fn run_cmd_capture(
     program: &str,
     fixed_args: &[&str],
     extra_args: &[String],
     timeout_secs: u64,
 ) -> CmdCapture {
-    let mut child = match Command::new(program)
-        .args(fixed_args)
-        .args(extra_args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return CmdCapture {
-                ok: false,
-                stdout: String::new(),
-                stderr: format!("Failed to execute {} {:?}: {}", program, fixed_args, e),
-                timed_out: false,
-            }
-        }
-    };
-
-    let stdout_handle = drain_pipe_unlimited(child.stdout.take().unwrap());
-    let stderr_handle = drain_pipe_unlimited(child.stderr.take().unwrap());
-
-    let timed_out = wait_child_with_deadline(&mut child, timeout_secs);
-
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-
-    if timed_out {
-        return CmdCapture {
-            ok: false,
-            stdout,
-            stderr,
-            timed_out: true,
-        };
-    }
-
-    let code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1);
-    CmdCapture {
-        ok: code == 0,
-        stdout,
-        stderr,
-        timed_out: false,
-    }
-}
-
-/// 子プロセスを deadline 付きで待機する。timeout 到達時は kill して `true` を返す。
-/// try_wait の失敗も timeout 扱い (fail-safe 方向) に倒す。
-fn wait_child_with_deadline(child: &mut std::process::Child, timeout_secs: u64) -> bool {
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break false,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break true;
-                }
-                std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
-            }
-            Err(_) => break true,
-        }
-    }
+    let args: Vec<&str> = fixed_args
+        .iter()
+        .copied()
+        .chain(extra_args.iter().map(String::as_str))
+        .collect();
+    lib_subprocess::run_cmd_direct_capture(program, &args, timeout_secs)
 }
 
 /// 引数を配列で直接渡す版（スペースを含む引数を正しくハンドリング）。
@@ -111,24 +51,14 @@ pub(crate) fn run_cmd_direct(
     (cap.ok, combined)
 }
 
-/// gh コマンドを静かに実行 (stderr 抑制)
+/// gh コマンドを静かに実行 (stderr は捨てる)。失敗・timeout・空出力はいずれも `None`。
 pub(crate) fn run_gh_quiet(args: &[&str]) -> Option<String> {
-    let output = Command::new("gh")
-        .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    } else {
+    let cap = run_cmd_capture("gh", args, &[], GH_CMD_TIMEOUT_SECS);
+    let s = cap.stdout.trim();
+    if !cap.ok || s.is_empty() {
         None
+    } else {
+        Some(s.to_string())
     }
 }
 
