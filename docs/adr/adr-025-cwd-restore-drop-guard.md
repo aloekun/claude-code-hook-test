@@ -1,10 +1,14 @@
-# ADR-025 (仮): CwdRestore Drop guard パターン
+# ADR-025: CwdRestore Drop guard パターン
 
 ## ステータス
 
-試験運用 (観察開始: 2026-04-17)
+採用 (2026-10-08) — Drop guard パターンは採用し、`src/lib-test-helpers/` への集約は却下する
 
-> 本 ADR は試験運用ステータス。正式採用は他パッケージの統合テストでの使用例出現による。
+> 観察開始: 2026-04-17。2026-07-31 の再評価は実施されないまま期限を過ぎ、その間に `CwdRestore` の定義は 10 個 / 7 ファイルへ増えた (2026-10-08 実測)。下記「正式採用条件」の「2 つ目の使用例が出現 → `lib-test-helpers` 新設」は適用しない。
+>
+> **集約を却下する理由**: テストに共通 helper を入れると、テスト同士がその helper を介して依存する。1 つのテストのために helper を直すと、無関係なテストが壊れる。テストは独立に失敗する方を優先し、`CwdRestore` は使う test module ごとに複製する。方針の本体は [ADR-084](adr-084-test-helper-no-sharing.md) (テスト専用コードは共通化しない) が持ち、下記「決定」「影響」節の集約計画はこの却下により無効である。
+>
+> **「決定」以降の節は 2026-10-08 の採用決定前の試験運用記録 (履歴) である**。2 例目で `src/lib-test-helpers/` へ集約する手順を含むが、現在の運用手順ではない。現在の方針は本ステータス欄と ADR-084 に従う。
 
 ## コンテキスト
 
@@ -51,7 +55,7 @@ let _cwd_guard = CwdRestore { original: original_cwd };
 - cli-push-runner の統合テスト (push flow を dummy repo で検証する際)
 - 他 Rust パッケージで cwd 依存テストが必要になったとき
 
-## 決定 (試験運用方針)
+## 決定 (試験運用方針 — 履歴、2026-10-08 に失効)
 
 ### 観察期間
 
@@ -88,7 +92,7 @@ lib-test-helpers = { path = "../lib-test-helpers" }
 
 ADR-026 (予定) の Cargo workspace 化 を前提とする。
 
-## 影響
+## 影響 (試験運用中の記録 — 履歴)
 
 ### 試験運用中の運用
 
@@ -103,12 +107,12 @@ ADR-026 (予定) の Cargo workspace 化 を前提とする。
 - ADR-012 (src/ ディレクトリの命名規約): `lib-*` prefix に従う
 - ADR-026 (予定): Cargo workspace 化により cross-package dev-dep が自然になる
 
-## 次ステップ (試験運用中に確認すること)
+## 次ステップ (試験運用中に確認すること — 履歴)
 
 - cli-merge-pipeline の post_steps 実装時、テストに cwd 操作が必要か確認
 - integration テストのテンプレート (dummy jj repo, mock takt, etc.) が出現するか観察
 
-## 観察終了条件
+## 観察終了条件 (履歴)
 
 - 2026-07-31 時点で使用例を再評価
 - 正式採用 / 延長 / 廃止 のいずれかを選択し、本 ADR の status を更新

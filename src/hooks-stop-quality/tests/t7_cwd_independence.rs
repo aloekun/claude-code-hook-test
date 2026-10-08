@@ -48,12 +48,12 @@ static UNIQUE_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// sharing violation になりうる。`cfg(windows)` を外して ubuntu leg に載せる変更が入った
 /// 瞬間に smoke.rs と同じ flake が出る箇所なので、先にガードを入れて構造を揃えておく。
 ///
-/// **smoke.rs と同型のまま複製しているのは意図的** — [ADR-044](../../../docs/adr/adr-044-subprocess-utility-extraction-boundary.md)
-/// 層 1 で「2 crate 重複」は extract 必須ではなく要 dogfood の区分にあたる。加えて本体は
-/// `Mutex<()>` 1 個で、共有すると **test 専用の同期プリミティブを `lib-subprocess` の
-/// production surface に載せる**ことになる (ロックはプロセス内でしか意味を持たず、
-/// テストバイナリはそれぞれ別プロセスなので共有しても得られる保証は増えない)。
-/// **3 つ目の copy→spawn テストが現れた時点で extract を再評価する。**
+/// **smoke.rs と同型のまま複製しているのは意図的** — テスト専用コードは test module ごとに
+/// 複製し共通化しない ([ADR-084](../../../docs/adr/adr-084-test-helper-no-sharing.md))。
+/// 共有先の候補だった `lib-subprocess` へ移すと **test 専用の同期プリミティブを同 crate の
+/// production surface に載せる**ことになり、テスト専用 crate を新設する案は ADR-084 が却下している。
+/// どちらの形でも、ロックはプロセス内でしか意味を持たず、テストバイナリはそれぞれ別プロセス
+/// なので共有しても得られる保証は増えない。
 static EXEC_STAGING_LOCK: Mutex<()> = Mutex::new(());
 
 /// poisoning を無視して `EXEC_STAGING_LOCK` を取る (守るのは fd 継承の窓であって

@@ -48,6 +48,7 @@ baseline を測る)。数が減っていれば移動の取りこぼし、増え�
 独立に複製する。共有 test util module は anti-pattern である — helper の変更が
 無関係なテストへ波及し、テストが**独立に失敗しなくなる**
 ([ADR-041](adr-041-test-isolation-patterns.md) の test isolation と同じ理由)。
+分割以外の場面も含めたプロジェクト全体の方針は [ADR-084](adr-084-test-helper-no-sharing.md) が持つ。
 
 ## 帰結
 
