@@ -26,7 +26,7 @@
 - [ADR-022: 自動化コンポーネントの責務分離原則](docs/adr/adr-022-automation-responsibility-separation.md)
 - [ADR-023: CodeRabbit false positive 対応スキル](docs/adr/adr-023-coderabbit-reject-thread-skill.md) *(試験運用)*
 - [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md)
-- [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(試験運用)*
+- [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(採用 — `lib-test-helpers` への集約は却下)*
 - [ADR-026: Cargo workspace による Rust パッケージ統合](docs/adr/adr-026-cargo-workspace.md)
 - [ADR-027: Push-time review を simplicity に限定し architectural review は post-PR に委ねる](docs/adr/adr-027-push-review-simplicity-focus.md)
 - [ADR-028: 外部可視成果物の生成コマンド (PR 作成/マージ) の実行ゲート](docs/adr/adr-028-pnpm-create-pr-gate.md)
@@ -85,6 +85,7 @@
 - [ADR-081: 同一事実の分散を lint と手順で抑える — routing 列挙の集合比較 + 変更手順](docs/adr/adr-081-single-fact-dispersion.md)
 - [ADR-082: deploy 済み exe の鮮度を入力フィンガープリントで判定する](docs/adr/adr-082-exe-freshness-fingerprint.md) *(試験運用)*
 - [ADR-083: takt の readonly step を permission mode で強制する](docs/adr/adr-083-takt-readonly-permission-mode.md) *(試験運用)*
+- [ADR-084: テスト専用コードは共通化しない — test module ごとに複製する](docs/adr/adr-084-test-helper-no-sharing.md)
 
 ## 開発 convention / チェックリスト
 

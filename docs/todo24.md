@@ -279,33 +279,6 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 各項が「なぜ」と実例を持つこと
 - #424 の様子見項目 (「意味的に異なる状態が同じ見え方になるバグクラス」) を**採用 / 保留 / 却下のいずれかに決定し、理由を記録**していること
 
-### 順位 473: テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (系統 F 実装)
-
-> **動機**: PR [#423](https://github.com/aloekun/claude-code-hook-test/pull/423) で `EXEC_STAGING_LOCK` /
-> `exec_staging_guard()` を `smoke.rs` と `t7_cwd_independence.rs` に**意図的に複製した**
-> ([ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) 層 1「2 crate 重複は extract 必須ではなく要 dogfood」)。
-> pre-push レビューと post-merge feedback の双方が DRY 違反として指摘しており、**判断の是非を一度見直す**。
->
-> **判断が要る点**: 共有化すると **test 専用の同期プリミティブを `lib-subprocess` の production surface に載せる**
-> ことになる。ロックはプロセス内でしか意味を持たず、テストバイナリは別プロセスなので共有しても保証は増えない。
-> #423 時点の決定は「3 つ目の copy→spawn テストが現れた時点で extract を再評価する」。
->
-> **なぜ独立タスクか**: 前回判断の巻き戻しを含むため、切り戻し単位を分ける。
->
-> **参照**: `.claude/feedback-reports/423.md` Tier2 #1、`t7_cwd_independence.rs` の `EXEC_STAGING_LOCK` doc
->
-> **実行優先度**: **Tier 3** — Severity Low / Frequency Low / Effort S / Adoption Risk Low。
-
-#### 作業計画
-
-- [ ] 3 つ目の copy→spawn テストが出現したかを確認する (#423 の再評価トリガ)
-- [ ] 出ていなければ現状維持と結論し、本エントリを閉じる (negative result の残し方を判断する)
-- [ ] 共有するなら置き場 (`lib-subprocess` の test-support か、新規 dev-dependency crate か) を決める
-
-#### 完了基準
-
-- 複製を残すか共有するかが根拠付きで決まり、コード doc に反映されていること
-
 ### 順位 474: 夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (系統 G)
 
 > **動機**: PR D の着手前に、台帳・作業計画書・実装の 3 箇所を人手で横断確認する必要が生じた

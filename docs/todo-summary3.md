@@ -16,7 +16,6 @@
 | 407 | Tier 2 | **旧語彙が live code に出現したら reject するカスタムリントルール (系統 B-3)** | todo21.md | S | なし (2026-08-10 採用。132 箇所の改名で CodeRabbit が同一 PR 内だけで 4 箇所の取りこぼしを指摘。ADR-007 の既存 regex 基盤で足り docs は extensions で自然に除外) |
 | 408 | Tier 1 | **safety-critical な config 比較に shell glob を禁止し exact-match を必須化 (系統 C-1)** | todo21.md | S | なし (2026-08-10 採用。kill-switch 判定の部分一致で fail-closed を謳う step 自身が fail-open だった。該当コメントが無かったため症状が出ず潜伏していた) |
 | 409 | Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
-| 413 | Tier 2 | **`CwdRestore` Drop guard が 8 定義 / 6 ファイルに複製。ADR-025 の統合トリガーと再評価期限を超過** | todo21.md | S-M | なし (2026-08-10 PR #385 の pre-push review 指摘。ADR-025 自身が「2 例目で `lib-test-helpers` へ統合」と定め再評価期限 2026-07-31 も過ぎている。抽出するか ADR-025 の status を更新するかの判断が要る) |
 | 414 | Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo27.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
 | 415 | Tier 2 | **PR 検出源を広げる変更の信頼スコープ検査チェックリスト (系統 A-2)** | todo22.md | XS | なし (2026-08-11 採用。#385 の security review が「origin push 権限と同等の信頼度のソースまで検出を拡張する」点を指摘。検出源追加時の確認項目を明文化) |
 | 417 | Tier 1 | **出力契約 3 層 (exe 出力キー ⊆ workflow allowlist ⊆ 検証 step) の同期を CI で検証 (系統 B-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で片方だけ更新すると新出力が黙って捨てられる構造が判明。workflow のコメント自身が警告していた = 機構で守るべき対象。cross-file 検査は ADR-007 の regex 層外のため CI test 形式) |
@@ -55,7 +54,6 @@
 | 468 | Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
 | 471 | Tier 2 | **cross-crate 定数 pin と reaper 回帰テストの残片を埋める (#417+#420 feedback 採用、系統 B 実装 + C)** | todo24.md | XS-S | なし (元 3 提案のうち 1 件は起票時点で実装済みと判明。着手時に再確認する) |
 | 472 | Tier 2 | **語彙・テスト作法・判断規律の convention 8 項目の行き先を決める (移設先 ADR or 却下、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
-| 473 | Tier 3 | **テスト用 staging ロックの 2 crate 重複を共有化するか再評価する (#423 feedback 採用、系統 F 実装)** | todo24.md | S | なし (ADR-044 層 1 の再評価。#423 の「3 つ目が出たら」判断の見直し) |
 | 474 | Tier 2 | **夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (#424 feedback 採用、系統 G)** | todo24.md | S | なし (ADR-074 は lane 割当基準のみで並行競合検知は範囲外) |
 | 475 | Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (不具合修正計画の退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが 不具合修正計画の削除後も記録を残すため起票) |
 | 478 | Tier 2 | **jj 出力の path separator 前提を regression test で固定する (Windows は `\` 区切り)** | todo24.md | S | なし (PR #432 で CodeRabbit が「POSIX は `/`」を根拠に `\` 判定の削除を提案したが、実測では Windows jj 0.42 は `\` 区切り出力。外すと Windows で誤検知。現在 module doc の記述のみで test 未固定のため再提案の余地が残る。Severity Medium + Frequency Low + Effort S + Risk None) |
