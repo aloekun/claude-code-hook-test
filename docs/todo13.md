@@ -45,41 +45,6 @@
 
 ---
 
-### 順位 227: rule⑬: 非テストコードでの理由なし `#[allow(...)]` 禁止 custom lint (PR #224 セッション合意)
-
-> **動機**: PR #224 で分割 agent が dead な再エクスポートを残すため `#[allow(unused_imports)]` を付与していた (= clippy が検知した未使用 import を抑制、削除で対処)。`#[allow]` は本質的に「lint の握り潰し」で、既存の swallowed-error 系 custom rule (rule③ 空 catch / rule④ SilentlyContinue / rule⑩ `let _ = write_*`) と同じ philosophy で決定論的に防げる。
->
-> **本タスクの位置づけ**: PR #224 セッション ユーザー合意 (2026-06-29)。判断2 の仕組み化。
->
-> **参照**: PR #224 (`1c0f345b`)、`.claude/custom-lint-rules.toml` (追加先、rule③/④/⑩ と同型)、`src/hooks-post-tool-linter/src/main.rs` (`CustomRule` struct + test)、ADR-007 (正規表現層)、Bundle Z #B-α philosophy。
->
-> **実行優先度**: **Tier 1** — Effort S。custom-lint-rules.toml に 1 rule + main.rs に positive/negative test。
-
-#### 設計決定 (案)
-
-- **pattern**: justification マーカー (`// ALLOW-JUSTIFIED:` 等) が直前/同行に無い `#[allow(...)]` を検出。Rust regex は lookbehind 非対応のため、マーカー判定は 2 行 multiline pattern or enumeration で実装。
-- **severity**: warning (一律 block は friction 大、reviewer 判断補助)。
-- **scope**: extensions=["rs"]。test code (`#[cfg(test)]` 配下) は `#[allow]` が正当なケースが多いため除外したいが、regex で module スコープ判定は困難 → 着手時に paths filter (test ファイル除外) vs 近傍判定 vs 許容のいずれかを決定。
-- **必須**: rule 追加時の `test_coverage` (positive: 理由なし allow 検出 / negative: justified allow skip) を main.rs に追加 (`rule_test_coverage_check` 機械強制)。
-
-#### 作業計画
-
-- [ ] custom-lint-rules.toml に rule⑬ 追加 (pattern + severity + why + fix + example + test_coverage)
-- [ ] main.rs に positive/negative test 追加 (justification マーカー有無で discriminate)
-- [ ] false positive 計測 (既存コードの `#[allow]` を grep、正当なものに justification マーカー付与 or scope 調整)
-- [ ] `cargo test -p hooks-post-tool-linter` pass
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 理由なし `#[allow(...)]` が Write 時 (PostToolUse) に warning として検出され、justification マーカー付きは skip。`rule_test_coverage_check` が positive/negative test を機械強制。
-
-#### 詰まっている箇所
-
-- `#[cfg(test)]` スコープ判定が regex 層で困難。false positive 計測で既存 `#[allow]` 件数を把握してから severity/scope (test 除外方式) を確定。
-
----
-
 ### 順位 231: ADR-022 拡張 — pre-create cleanup flow の具体例 + agent fmt スコープ指針 (PR #224 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #224 で CodeRabbit が `create_fix_commit` の「空 findings でも commit 作成」を bug と誤判定した (ADR-022 の意図的な pre-create 設計を知らなかったため、却下した CR#2)。また分割 agent が無差別 `cargo fmt` を実行した事象も ADR-022 の責務分離原則で説明可能。両事象とも将来再発が見込まれる。

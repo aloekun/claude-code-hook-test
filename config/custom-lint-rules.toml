@@ -1484,3 +1484,81 @@ rs = [
   "gh_output_without_timeout_skips_escaped_string_literal",
   "gh_output_without_timeout_skips_other_programs",
 ]
+
+# ─── ルール㉕: 理由の書かれていない `#[allow(...)]` の検出 (順位 227) ───
+#
+# 由来: PR #224。分割作業の agent が、clippy が検知した未使用 import を `#[allow(unused_imports)]`
+# で黙らせていた (正しい対処は削除)。`#[allow]` は lint の握り潰しで、空 catch (rule③) /
+# SilentlyContinue (rule④) / `let _ = write_*` (rule⑩) と同じ「エラーを黙らせる」書き方にあたる。
+#
+# 属性と同じ行に `// ALLOW-REASON: <理由>` があれば通す。直前の行に書く形は採らない: engine は
+# 一致範囲の先頭行を違反行として報告するため、2 行をまとめて照合すると `#[allow]` の 1 行上を
+# 指してしまう (2026-10-07 ユーザー判断で同じ行のみ)。
+#
+# 本 rule は「Rust の任意の #[allow] を完全に解析する rule」ではなく、「行頭に置かれた
+# #[allow] に理由を要求する軽量な正規表現 lint」として対象範囲を定義している (2026-10-08、
+# PR #548 CodeRabbit 指摘への判断)。
+# - 対象にする構文: 行頭 (インデント可) の `#[allow(...)]` / `#![allow(...)]` /
+#   `#[cfg_attr(..., allow(...))]`。照合範囲はその属性から行末まで
+# - 意図的に対象外にする構文:
+#   - 同じ行の 2 つ目以降の allow 属性 — 1 行を 1 つの照合範囲として扱うので、行のどこかに
+#     理由があれば行全体が通る (`#[allow(a)] /* ALLOW-REASON: x */ struct S; #[allow(b)] use y;`)
+#   - 他のコードの後ろにある allow 属性 (`struct T; #[allow(b)] use y;`)
+#   - `#[expect(...)]` (不要になると警告が出るので、握り潰しが残り続けない)
+#   - マーカーは同じ行のどこにあっても理由として扱う — 文字列リテラルの中の `ALLOW-REASON:` でも通る
+# - 対象外にする理由: 行頭の属性だけを見ることで、コメント行 (`// #[allow(x)] の例`) や理由の
+#   文中 (`// ALLOW-REASON: 旧 #[allow(x)] の置き換え`) の `#[allow(` を誤検出せずに済む。
+#   「次の `#[` までを 1 属性とみなす」形で範囲を区切ると、コメントや文字列の中の `#[` でその前提が
+#   崩れ、正規表現で Rust の字句解析を始めることになる
+# - 完全に対応するには: 属性単位で理由を判定する構文ベースの実装 (ADR-007 の AST 層) が要る。
+#   移行のトリガーは順位 533 が持つ
+# 上の 2 つの対象外の形は、テスト (`allow_without_reason_known_limitation_*`) で「検出しない」ことを
+# 仕様として固定している。
+
+[[rules]]
+id = "allow-without-reason"
+pattern = '(?m)^[ \t]*#!?\[(?:cfg_attr\([^\n]*?,\s*)?allow\([^\n]*'
+exception = 'ALLOW-REASON:\s*\S'
+severity = "warning"
+message = "理由の書かれていない #[allow(...)] です。まず警告の原因を直し (未使用なら削除)、残す場合は同じ行に `// ALLOW-REASON: <理由>` を書いてください"
+why = "PR #224 で、clippy が検知した未使用 import を #[allow] で黙らせていた。#[allow] は lint の握り潰しで、空 catch / SilentlyContinue / let _ = write_* と同じく原因を隠す。残すなら理由を同じ行に書かせ、レビューで判断できるようにする (ADR-007 の正規表現層、順位 227)"
+extensions = ["rs"]
+
+[rules.fix]
+strategy = "警告の原因を直すか、理由を同じ行に書く"
+steps = [
+  "#[allow] を外してビルドし、何が警告されるかを見る (警告が出なければ #[allow] 自体が不要)",
+  "未使用のコード・フィールドは削除する (serde の構造体は deny_unknown_fields が無ければ、フィールドを消しても入力は読み飛ばされる)",
+  "残す場合は `#[allow(dead_code)] // ALLOW-REASON: <なぜ残すか>` のように同じ行に理由を書く",
+]
+
+[rules.example]
+bad = "#[allow(unused_imports)]"
+good = "#[allow(dead_code)] // ALLOW-REASON: 読むのは #[cfg(test)] の coverage 検査だけ"
+
+[rules.incident]
+pr = 224
+bad_fixture = "allow-without-reason.rs"
+good_fixture = "allow-without-reason.rs"
+adr = "adr-007"
+
+[rules.test_coverage]
+# rule㉕ は rs のみ (主要拡張子)。外側属性 / 内側属性 / インデント付き / cfg_attr の positive、
+# 同じ行の理由 / 空の理由 (positive) / コメント行 / 文字列リテラル / 前の行の理由 (positive) /
+# allow 以外の属性の negative、意図的な対象外 2 形 (known_limitation) の negative。
+
+[rules.test_coverage.main_ext_tests]
+rs = [
+  "allow_without_reason_detects_outer_attribute",
+  "allow_without_reason_detects_inner_attribute",
+  "allow_without_reason_detects_indented_attribute",
+  "allow_without_reason_detects_cfg_attr_allow",
+  "allow_without_reason_detects_empty_reason",
+  "allow_without_reason_detects_reason_on_previous_line_only",
+  "allow_without_reason_skips_reason_on_same_line",
+  "allow_without_reason_skips_comment_line",
+  "allow_without_reason_skips_string_literal",
+  "allow_without_reason_skips_other_attributes",
+  "allow_without_reason_known_limitation_second_allow_on_same_line_is_not_checked",
+  "allow_without_reason_known_limitation_allow_after_code_is_not_checked",
+]

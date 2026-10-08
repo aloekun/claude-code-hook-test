@@ -13,15 +13,10 @@ use crate::function_length::find_function_length_violations;
 use crate::violations::{LintViolation, MAX_VIOLATIONS};
 
 #[derive(Deserialize, Default)]
-#[allow(dead_code)]
 pub(crate) struct ToolInput {
     pub(crate) file_path: Option<String>,
     pub(crate) path: Option<String>,
-    pub(crate) old_string: Option<String>,
     pub(crate) new_string: Option<String>,
-    pub(crate) content: Option<String>,
-    #[serde(default)]
-    pub(crate) replace_all: bool,
 }
 
 /// 順位 50 (PR #102 T1-1): Edit が触れた行のみ lint 対象にするため、`new_string` の出現位置から

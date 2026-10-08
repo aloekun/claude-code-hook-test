@@ -57,7 +57,7 @@ pub(crate) struct FileSizeCheckConfig {
     /// 既存超過ファイルは未編集なら grandfather。`false` (strict) は将来の拡張で
     /// 「全 enabled paths を毎回スキャン」を予定 (MVP では受理のみ、挙動は true と同じ)。
     #[serde(default = "default_file_size_touch_trigger")]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // ALLOW-REASON: 設定項目として受理だけする (MVP では true と同じ挙動、上の doc 参照)
     pub(crate) touch_trigger: bool,
 }
 

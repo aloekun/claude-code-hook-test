@@ -5,6 +5,7 @@
 //! - [`coverage`]: `rule_test_coverage_check` 機械検証 (deploy 済 TOML の test_coverage meta)
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
+//! - [`rule_tests_allow_without_reason`]: rule㉕ (allow-without-reason) の tests
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
 //! - [`rule_tests_external_command_pitfalls`]: rule⑲ (gh-json-files-truncated) / rule⑳
 //!   (ref-destroying-push-without-lease) の tests
@@ -28,6 +29,8 @@ mod deployed_tests;
 mod engine_tests;
 #[cfg(test)]
 mod rule_tests;
+#[cfg(test)]
+mod rule_tests_allow_without_reason;
 #[cfg(test)]
 mod rule_tests_extras;
 #[cfg(test)]

@@ -97,7 +97,6 @@ pub(crate) struct GhStatusItem {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct GhComment {
     pub(crate) user: Option<GhUser>,
     pub(crate) body: Option<String>,
