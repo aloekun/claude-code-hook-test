@@ -111,6 +111,7 @@
 | Rust ファイル分割の制約条件 | [ADR-080](docs/adr/adr-080-rust-module-split-invariants.md) |
 | 同一事実が複数箇所に分散する場合の変更手順 | [ADR-081](docs/adr/adr-081-single-fact-dispersion.md) |
 | 複合タスクの仕様には各項目の処置と除外根拠を書く | [ADR-073](docs/adr/adr-073-work-package-completion-boundary.md) § 決定 5 |
+| テスト専用コードは test module 間で共有しない | [ADR-084](docs/adr/adr-084-test-helper-no-sharing.md) |
 
 > **新規の convention は追加しない。** 機械化できるものは機構へ、判断を要するものは守備範囲の合う ADR へ置く ([ADR-042](docs/adr/adr-042-rule-vs-mechanism-boundary.md))。convention 集が再び生えた場合は `pnpm lint:docs` の `convention-declaration` 検査が各節に機械化の宣言を要求する (順位 515)。
 
