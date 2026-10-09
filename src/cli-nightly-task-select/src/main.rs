@@ -24,6 +24,9 @@
 //! **省略可能にしない**のは `--exclude-ranks` と同じ理由 — 渡し忘れた run が「照合できなかった」
 //! ではなく「全順位が載っている」と解釈して、完了済みタスクを再実装する。
 //!
+//! PR を作る直前に、選んだ順位が最新の master でも未完了かを確かめる別モードがある
+//! (`--check-listed <rank>`、順位 487)。判定と出力は [`check_listed`] を見よ。
+//!
 //! # exit コード
 //!
 //! - `0` = タスクを選んだ (stdout に選択結果)
@@ -44,6 +47,7 @@ use std::path::PathBuf;
 
 use lib_ledger::{screen_for_public_output, screen_for_title, Task};
 
+mod check_listed;
 #[cfg(test)]
 mod guard_list_sync;
 #[cfg(test)]
@@ -119,6 +123,9 @@ fn parse_ranks(raw: &str) -> Result<BTreeSet<u32>, String> {
 }
 
 fn run(args: Vec<String>) -> i32 {
+    if args.iter().any(|arg| arg == check_listed::FLAG) {
+        return check_listed::run(&args);
+    }
     let cli = match parse_args(&args) {
         Ok(cli) => cli,
         Err(message) => return skip(EXIT_USAGE, &format!("引数不正: {message}"), true),

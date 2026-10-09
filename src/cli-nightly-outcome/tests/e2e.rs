@@ -20,6 +20,7 @@ const ENV_NAMES: &[&str] = &[
     "PREFLIGHT_OUTCOME",
     "SELECT_OUTCOME",
     "IMPLEMENT_OUTCOME",
+    "SUPERSEDE_OUTCOME",
     "VERIFY_OUTCOME",
     "PUBLISH_TREE_OUTCOME",
     "GUARD_OUTCOME",
@@ -34,6 +35,7 @@ const ENV_NAMES: &[&str] = &[
     "DRY_RUN",
     "LEDGER_RESIDUE_RANKS",
     "AGENT_EXECUTION_FILE",
+    "SUPERSEDED",
 ];
 
 struct Run {
@@ -102,7 +104,7 @@ fn a_backpressure_deny_exits_zero() {
     assert!(run.stdout.contains("[NIGHTLY_SKIP]"), "stdout:\n{}", run.stdout);
 }
 
-/// サマリ行は未実行の step を `<未実行>` で埋め、全 14 列を必ず出す。
+/// サマリ行は未実行の step を `<未実行>` で埋め、全 15 列を必ず出す。
 #[test]
 fn the_summary_line_lists_every_step() {
     let run = run_exe(&[("PREFLIGHT_OUTCOME", "success")]);
@@ -114,7 +116,7 @@ fn the_summary_line_lists_every_step() {
     assert!(summary.contains("preflight=success"), "{summary}");
     assert!(summary.contains("handoff=<未実行>"), "{summary}");
     assert!(summary.contains("ledger_completion=<未実行>"), "{summary}");
-    assert_eq!(summary.matches('=').count(), 14, "{summary}");
+    assert_eq!(summary.matches('=').count(), 15, "{summary}");
 }
 
 /// **red になった夜がどこで止まったかをサマリだけで特定できること** (CodeRabbit #445)。
@@ -272,4 +274,24 @@ fn an_empty_residue_list_keeps_the_night_green() {
     ]);
     assert_eq!(run.code, 0, "stdout:\n{}", run.stdout);
     assert!(!run.stdout.contains("台帳に残骸"), "stdout:\n{}", run.stdout);
+}
+
+/// **順位 487** — 実行中に別経路で完了した順位は、agent を回していても green で終える。
+/// 実際の配線どおり、verify 以降は skip され、handoff も workflow の `if` で除外されて skip になる。
+#[test]
+fn a_task_completed_elsewhere_during_the_run_exits_zero() {
+    let run = run_exe(&[
+        ("SELECT_OUTCOME", "success"),
+        ("IMPLEMENT_OUTCOME", "success"),
+        ("SUPERSEDE_OUTCOME", "success"),
+        ("VERIFY_OUTCOME", "skipped"),
+        ("PUBLISH_TREE_OUTCOME", "skipped"),
+        ("GATE_OUTCOME", "skipped"),
+        ("PUBLISH_OUTCOME", "skipped"),
+        ("HANDOFF_OUTCOME", "skipped"),
+        ("SUPERSEDED", "true"),
+        ("RANK", "487"),
+    ]);
+    assert_eq!(run.code, 0, "stdout:\n{}", run.stdout);
+    assert!(run.stdout.contains("[NIGHTLY_SUPERSEDED] 順位 487"), "stdout:\n{}", run.stdout);
 }

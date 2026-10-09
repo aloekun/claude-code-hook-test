@@ -64,6 +64,12 @@ pub enum Verdict {
     HandoffFailed,
     /// agent を回していない停止 (背圧 deny / 該当タスク無し)。設計された結末。
     NothingToDo,
+    /// 選んだ順位が**実行中に別経路で完了した**ため PR を作らなかった (順位 487)。
+    ///
+    /// agent を回して捨てているが green にする。決定 10 が「回して捨てた夜」を red にするのは
+    /// 人間の確認を呼ぶためで、ここには確認すべきものが無い — 台帳から順位が消えているので
+    /// 翌晩に同じ順位が選ばれることもない。red にすると、正しく止まった夜が人間を呼ぶ。
+    Superseded,
     /// step outcome に未知の値が入り、色を決められなかった。
     Unclassifiable { field: &'static str, raw: String },
 }
@@ -72,7 +78,7 @@ impl Verdict {
     /// job を red で終えるか (exit code 1 を返すか)。
     pub fn is_red(&self) -> bool {
         match self {
-            Verdict::PrCreated | Verdict::NothingToDo => false,
+            Verdict::PrCreated | Verdict::NothingToDo | Verdict::Superseded => false,
             Verdict::StoppedAfterImplementing
             | Verdict::HandoffFailed
             | Verdict::Unclassifiable { .. } => true,
@@ -80,11 +86,14 @@ impl Verdict {
     }
 }
 
-/// `publish` / `handoff` の 2 つの step outcome から色を決める。
+/// `publish` / `handoff` の 2 つの step outcome と、`superseded` の判定結果から色を決める。
 ///
 /// 他の step の outcome は見ない。それらの失敗は `continue-on-error` を持たない step の
 /// 失敗として **既に job を red にしている**か、handoff の発火条件へ畳み込まれている。
-pub fn classify(publish_raw: &str, handoff_raw: &str) -> Verdict {
+///
+/// `superseded_raw` は `Check the task is still open` step の出力 (`true` / `false` / 未実行の空)。
+/// それ以外の値は分類不能として red に倒す。
+pub fn classify(publish_raw: &str, handoff_raw: &str, superseded_raw: &str) -> Verdict {
     let publish = StepOutcome::parse(publish_raw);
     if publish == StepOutcome::Unknown {
         return Verdict::Unclassifiable { field: "publish", raw: publish_raw.to_string() };
@@ -93,8 +102,16 @@ pub fn classify(publish_raw: &str, handoff_raw: &str) -> Verdict {
     if handoff == StepOutcome::Unknown {
         return Verdict::Unclassifiable { field: "handoff", raw: handoff_raw.to_string() };
     }
+    let superseded = match superseded_raw.trim() {
+        "true" => true,
+        "false" | "" => false,
+        _ => return Verdict::Unclassifiable { field: "superseded", raw: superseded_raw.to_string() },
+    };
     if publish == StepOutcome::Success {
         return Verdict::PrCreated;
+    }
+    if superseded {
+        return Verdict::Superseded;
     }
     match handoff {
         StepOutcome::Success => Verdict::StoppedAfterImplementing,
@@ -273,6 +290,10 @@ pub fn render(
         Verdict::NothingToDo => vec![
             "[NIGHTLY_SKIP] 本 run は PR を作りませんでした。上の 1 行で停止段を特定してください。".to_string(),
         ],
+        Verdict::Superseded => vec![
+            format!("[NIGHTLY_SUPERSEDED] 順位 {rank} は実行中に別経路で完了 (または取り下げ) されたため、PR を作らずに終えました。"),
+            "[NIGHTLY_SUPERSEDED] agent の実装は捨てています。台帳から順位が消えているので翌晩の再選択は無く、人間の対応は要りません。".to_string(),
+        ],
         Verdict::Unclassifiable { field, raw } => vec![
             format!("[NIGHTLY_ERROR] step outcome `{field}` に未知の値 \"{raw}\" が入りました。"),
             "[NIGHTLY_ERROR] 色を決められないため red で終えます (green へ倒すと停止が run 一覧から消えるため)。".to_string(),
@@ -376,7 +397,7 @@ mod tests {
     /// 完走した夜。
     #[test]
     fn a_created_pr_is_green() {
-        let verdict = classify("success", "");
+        let verdict = classify("success", "", "");
         assert_eq!(verdict, Verdict::PrCreated);
         assert!(!verdict.is_red());
     }
@@ -384,7 +405,7 @@ mod tests {
     /// **順位 488 の本体** — guard deny は handoff を発火させるので red になる。
     #[test]
     fn a_guard_deny_after_implementing_is_red() {
-        let verdict = classify("skipped", "success");
+        let verdict = classify("skipped", "success", "");
         assert_eq!(verdict, Verdict::StoppedAfterImplementing);
         assert!(verdict.is_red());
     }
@@ -393,7 +414,7 @@ mod tests {
     /// (決定 10 の意図を保持する側の回帰テスト)。
     #[test]
     fn a_stop_before_implementing_stays_green() {
-        let verdict = classify("", "");
+        let verdict = classify("", "", "");
         assert_eq!(verdict, Verdict::NothingToDo);
         assert!(!verdict.is_red());
     }
@@ -401,13 +422,13 @@ mod tests {
     /// handoff の `if` が満たされず skip された場合も「回していない夜」側。
     #[test]
     fn a_skipped_handoff_stays_green() {
-        assert_eq!(classify("skipped", "skipped"), Verdict::NothingToDo);
+        assert_eq!(classify("skipped", "skipped", ""), Verdict::NothingToDo);
     }
 
     /// marker 作成に失敗すると同じ順位が翌晩も選ばれる。無音にしない。
     #[test]
     fn a_failed_handoff_is_red() {
-        let verdict = classify("skipped", "failure");
+        let verdict = classify("skipped", "failure", "");
         assert_eq!(verdict, Verdict::HandoffFailed);
         assert!(verdict.is_red());
     }
@@ -415,7 +436,7 @@ mod tests {
     /// 未知の値は green へ倒さない (順位 488 の失敗モードの再生産を避ける)。
     #[test]
     fn an_unknown_publish_outcome_is_red() {
-        let verdict = classify("done", "");
+        let verdict = classify("done", "", "");
         assert_eq!(
             verdict,
             Verdict::Unclassifiable { field: "publish", raw: "done".to_string() }
@@ -425,7 +446,7 @@ mod tests {
 
     #[test]
     fn an_unknown_handoff_outcome_is_red_even_when_the_pr_was_created() {
-        let verdict = classify("success", "done");
+        let verdict = classify("success", "done", "");
         assert_eq!(
             verdict,
             Verdict::Unclassifiable { field: "handoff", raw: "done".to_string() }
@@ -459,6 +480,40 @@ mod tests {
     fn a_missing_rank_renders_as_unknown() {
         let lines = render(&Verdict::StoppedAfterImplementing, "", false, None, &NO_REASON);
         assert!(lines[0].contains("順位 <不明>"));
+    }
+
+    /// **順位 487** — 実行中に別経路で完了した順位は、agent を回していても green。
+    /// handoff は発火させない (workflow の `if` が除外する) ので `handoff` は skip。
+    #[test]
+    fn a_task_completed_elsewhere_during_the_run_is_green() {
+        let verdict = classify("skipped", "skipped", "true");
+        assert_eq!(verdict, Verdict::Superseded);
+        assert!(!verdict.is_red());
+    }
+
+    /// `false` / 未実行 (空) は従来の分類に影響しない。
+    #[test]
+    fn a_task_still_open_keeps_the_existing_classification() {
+        assert_eq!(classify("skipped", "success", "false"), Verdict::StoppedAfterImplementing);
+        assert_eq!(classify("success", "", "false"), Verdict::PrCreated);
+        assert_eq!(classify("", "", ""), Verdict::NothingToDo);
+    }
+
+    #[test]
+    fn an_unknown_superseded_value_is_red() {
+        let verdict = classify("skipped", "skipped", "yes");
+        assert_eq!(
+            verdict,
+            Verdict::Unclassifiable { field: "superseded", raw: "yes".to_string() }
+        );
+        assert!(verdict.is_red());
+    }
+
+    #[test]
+    fn the_superseded_message_names_the_rank_and_says_no_action_is_needed() {
+        let lines = render(&Verdict::Superseded, "487", false, None, &NO_REASON);
+        assert!(lines[0].starts_with("[NIGHTLY_SUPERSEDED]") && lines[0].contains("順位 487"));
+        assert!(lines[1].contains("人間の対応は要りません"));
     }
 
     #[test]

@@ -49,6 +49,7 @@ const OUTCOME_FIELDS: &[(&str, &str)] = &[
     ("preflight", "PREFLIGHT_OUTCOME"),
     ("select", "SELECT_OUTCOME"),
     ("implement", "IMPLEMENT_OUTCOME"),
+    ("supersede", "SUPERSEDE_OUTCOME"),
     ("verify", "VERIFY_OUTCOME"),
     ("publish_tree", "PUBLISH_TREE_OUTCOME"),
     ("guard", "GUARD_OUTCOME"),
@@ -81,7 +82,7 @@ fn main() {
 
     let publish = env_or_empty("PUBLISH_OUTCOME");
     let handoff = env_or_empty("HANDOFF_OUTCOME");
-    let verdict = classify(&publish, &handoff);
+    let verdict = classify(&publish, &handoff, &env_or_empty("SUPERSEDED"));
     let reason = read_reason(&env_or_empty("AGENT_EXECUTION_FILE"));
     for line in render(
         &verdict,

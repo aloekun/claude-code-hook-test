@@ -74,6 +74,18 @@ jobs:
           path: master-ref
           persist-credentials: false
 
+      # **work/ をこの SHA に固定するための基準値** (順位 487)。台帳を読む master-ref/ と
+      # agent が実装する work/ が別のコミットを見ると、選択と実装の間にマージが挟まった夜に
+      # 「古い台帳で選び、新しい作業ツリーで実装済みを見る」空振りになる (2026-08-21、
+      # run 88134039080)。信頼境界上の正は master-ref/ なので、work/ をこちらへ合わせる。
+      # 固定すると逆に「古い基点で作り直す」側に倒れるため、implement 後に
+      # `Check the task is still open` が最新の master と照合する。
+      - name: Record the master-ref commit (pins work/ to the same snapshot)
+        id: master-sha
+        run: |
+          set -euo pipefail
+          echo "sha=$(git -C master-ref rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build deterministic gates from master
         run: |
           set -euo pipefail
@@ -100,11 +112,15 @@ jobs:
           # cli-ledger-residue-scan も可視性の要なので含める (決定 21)。書き換えられると
           # 「台帳に残骸があるのに残骸なし」と報告され、夜間ループが同じ順位を選び続ける
           # 状態が run 一覧から見えなくなる — cli-nightly-outcome と同じクラスの穴。
+          #
+          # cli-nightly-task-select も含める (順位 487)。Implement 後に `--check-listed` で
+          # 「PR を作ってよいか」を判定するため、他のゲート exe と同じ信頼境界にある。
           sha256sum master-ref/target/release/cli-autonomy-gate master-ref/autonomy-config.toml \
             master-ref/target/release/cli-ledger-cleanup \
             master-ref/target/release/cli-nightly-outcome \
             master-ref/target/release/cli-branch-cleanup \
             master-ref/target/release/cli-ledger-residue-scan \
+            master-ref/target/release/cli-nightly-task-select \
             > "$RUNNER_TEMP/gate-integrity.sha256"
 
       # ── 掃除用の App token (1 回目の mint、ADR-072 決定 20) ──────────────────
@@ -390,7 +406,8 @@ jobs:
         if: steps.select.outcome == 'success'
         uses: actions/checkout@v4
         with:
-          ref: master
+          # 浮動の `master` にしない — 選択に使った master-ref/ と同じコミットを見る (順位 487)。
+          ref: ${{ steps.master-sha.outputs.sha }}
           path: work
           # agent 実行中に GITHUB_TOKEN を .git/config へ置かない (Phase B と同じ理由)。
           persist-credentials: false
@@ -497,6 +514,49 @@ jobs:
             --allowedTools "Read(work/**),Edit(work/**),Glob,Grep"
             --disallowedTools "Bash,WebFetch,WebSearch,NotebookEdit,Read(master-ref/**),Edit(master-ref/**),Read(publish/**),Edit(publish/**)"
 
+      # **選んだ順位が実行中に別経路で完了していないか** (順位 487)。work/ は master-ref/ の
+      # SHA に固定してあるため、implement の間に同じ順位の実装がマージされると、agent は
+      # 古い基点のまま実装を作り直している。そのまま PR にするとマージ済みの実装と重複する。
+      #
+      # 最新の master から台帳と順位 table だけを取り、判定は exe に任せる (判定を shell に
+      # 置かない、ADR-072 決定 1)。exe は master-ref/ でビルドし sha256 を記録済みのもので、
+      # 使う前にその基準値と照合する (決定 7 の改ざん検知を本 step の手前へ前倒しする)。
+      # 取得先は git のオブジェクトで、agent が触れる work/ は読まない。
+      #
+      # superseded=true は設計された結末 (exit 0)。後続の verify 以降を丸ごと飛ばし、
+      # handoff marker も作らない — 台帳から順位が消えているので翌晩の再選択は起きない。
+      # **continue-on-error は付けない**。clone / 台帳の解釈に失敗した夜は「判定できなかった」
+      # であって「未完了」ではないので、PR 作成へ進めずに job を red にする。
+      - name: Check the task is still open on the latest master
+        id: supersede
+        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RANK: ${{ steps.select.outputs.rank }}
+        run: |
+          set -euo pipefail
+          # 本 step は Verify gate integrity より前に Implement 後の exe を使うため、同じ照合を
+          # 先に行う (pre-push simplicity review SIM-NEW-nightly-todo-yml-L525)。改ざんされた
+          # exe の判定を一度も信じない。
+          if ! sha256sum -c "$RUNNER_TEMP/gate-integrity.sha256"; then
+            echo "[NIGHTLY_DENY] ゲート exe/config が Implement ステップ中に変更されました (改ざん検知)"
+            exit 1
+          fi
+          git clone --depth 1 --filter=blob:none --sparse --branch master \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" latest-master
+          git -C latest-master sparse-checkout set --no-cone \
+            '/docs/claude-code-web-tasks.md' '/docs/todo-summary*.md'
+          # 順位 table の part は列挙せず glob で拾う (part を増やしても追随する)。
+          SUMMARY_ARGS=()
+          for summary in latest-master/docs/todo-summary*.md; do
+            SUMMARY_ARGS+=(--summary-file "$summary")
+          done
+          echo "[NIGHTLY] 最新の master: $(git -C latest-master rev-parse HEAD) / 選択時: ${{ steps.master-sha.outputs.sha }}"
+          master-ref/target/release/cli-nightly-task-select \
+            --check-listed "$RANK" \
+            --ledger latest-master/docs/claude-code-web-tasks.md \
+            "${SUMMARY_ARGS[@]}" >> "$GITHUB_OUTPUT"
+
       # **これは品質保証ではなくコストフィルタである** (ADR-072 決定 8)。
       # ubuntu 単独・`--ignored` 無し・hooks smoke 無しで、ci.yml の真部分集合でしかない。
       # 目的は「コンパイルも通らない変更で PR を作り、背圧の枠 (最大 3 件) と人間の
@@ -511,7 +571,7 @@ jobs:
       - name: Verify deterministically (cost filter; NOT the quality gate)
         id: verify
         continue-on-error: true
-        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success'
+        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success' && steps.supersede.outputs.superseded == 'false'
         run: |
           set -euo pipefail
           cargo test --manifest-path work/Cargo.toml --workspace
@@ -871,6 +931,12 @@ jobs:
       # (`outcome == 'skipped'` は `!= 'success'`) 、素朴な条件では guard deny と区別できず
       # 誤って marker が作られていた。integrity と同様に明示的に除外する。
       #
+      # **supersede が success でない夜と、superseded=true の夜も含めない** (順位 487)。
+      # 前者は publish-tree と同じインフラ障害 (job は既に red)。後者は順位が実行中に別経路で
+      # 完了した設計された結末で、台帳から消えているので marker が無くても再選択されない。
+      # どちらも verify 以降が skip されるため、`verify != success` の素朴な条件では
+      # 停止と区別できない (上の publish-tree と同じ構図)。
+      #
       # implement **前**の停止 (背圧 / タスク無し / インフラ障害) もマーカーを作らない。
       # この境界が「transient か、タスクが不適合か」の分類を run の構造で代替する。
       #
@@ -883,6 +949,8 @@ jobs:
           steps.select.outcome == 'success' &&
           steps.implement.outcome == 'success' &&
           steps.publish.outcome != 'success' &&
+          steps.supersede.outcome == 'success' &&
+          steps.supersede.outputs.superseded != 'true' &&
           steps.publish-tree.outcome != 'failure' &&
           steps.integrity.outcome != 'failure' &&
           (steps.verify.outcome != 'success' ||
@@ -948,6 +1016,7 @@ jobs:
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
           SELECT_OUTCOME: ${{ steps.select.outcome }}
           IMPLEMENT_OUTCOME: ${{ steps.implement.outcome }}
+          SUPERSEDE_OUTCOME: ${{ steps.supersede.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PUBLISH_TREE_OUTCOME: ${{ steps.publish-tree.outcome }}
           GUARD_OUTCOME: ${{ steps.guard.outcome }}
@@ -963,6 +1032,9 @@ jobs:
           # 台帳残骸は step outcome ではなく観測結果なので `*_OUTCOME` の並びに入れない。
           # 色に対して直交し、PR を作れた夜でも red にする (ADR-072 決定 21)。
           LEDGER_RESIDUE_RANKS: ${{ steps.residue.outputs.ranks }}
+          # 実行中に別経路で完了した順位か (`true` / `false` / 未実行の空、順位 487)。
+          # step outcome ではなく判定結果なので `*_OUTCOME` の並びに入れない。
+          SUPERSEDED: ${{ steps.supersede.outputs.superseded }}
           # 空 diff で終わった agent の停止理由 (SDK 出力の JSON 配列)。exe は最終メッセージの
           # 先頭行が `[NIGHTLY_AGENT_STOP]` で始まるときだけ、その 1 行を screening して出す
           # (ADR-072 決定 14 と同じ関数)。読めなくても色は変わらない。
