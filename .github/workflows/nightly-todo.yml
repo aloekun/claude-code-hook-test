@@ -335,6 +335,8 @@ jobs:
           # 許可リスト方式 — exe が出す key のうち、ここに列挙したものだけを転送する。
           # 想定外の key 注入を防ぐ fail-closed だが、**exe 側に出力を足したらここも足す**
           # 必要がある (片方だけ変えると新しい出力が黙って捨てられ、参照側は空文字になる)。
+          # exe の出力 / 本リスト / 次の検証 step / `steps.select.outputs.*` の参照が揃っていることは
+          # cli-nightly-task-select の `output_contract_sync` テストが CI で検査する (順位 417)。
           grep -E '^(rank|branch|target_files|summary|summary_display|pr_title_display|caution)=' "$RUNNER_TEMP/selected.txt" \
             >> "$GITHUB_OUTPUT"
 
