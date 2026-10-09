@@ -487,7 +487,7 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 **出力契約の allowlist にも足すこと**。`cli-nightly-task-select` の新出力 `pr_title_display` は、workflow の `grep -E '^(...)='` 許可リストと出力契約の検証の両方へ同時に足す必要がある。片方だけだと**新しい出力が黙って捨てられ、毎晩フォールバックし続ける**形で劣化する (workflow のコメントが警告していた失敗モードそのもの)。検証 step は `pr_title_display=` の**行の存在**を見る (値は空でもよい)。
 
-> **追記 (2026-10-09、順位 417)**: 同時に足すことは機構で守る。exe の出力 / 許可リスト / 検証 step / `steps.select.outputs.*` の参照の 4 層が揃っていることを `cli-nightly-task-select` の `output_contract_sync` テストが CI で検査し、1 層だけを変えると赤くなる。
+> **追記 (2026-10-09、順位 417)**: 同時に足すことは機構で守る。exe の出力 / 許可リスト / 検証 step / `steps.select.outputs.*` の参照の 4 層を `cli-nightly-task-select` の `output_contract_sync` テストが CI で照合する。赤くなるのは (a) exe の出力と許可リストの集合が一致しないとき (片方だけに key を足す / 消す)、(b) 検証 step・参照が許可リストに無い key を使うとき、(c) 検証 step から `summary_display` / `pr_title_display` の確認を消したとき。**参照を消すだけでは赤くならない** — 使われない出力は捨てられても害が無いため、参照は許可リストの部分集合であることだけを要求する。
 
 ### 18. 台帳は担当割り当て表である — 無人可列を lane として再定義する (2026-08-16)
 

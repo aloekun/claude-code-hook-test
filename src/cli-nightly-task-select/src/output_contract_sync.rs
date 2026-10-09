@@ -39,13 +39,24 @@ fn is_key_char(c: char) -> bool {
 }
 
 /// 1. exe が実際に出す `key=value` 行の key。マーカー行 (`[NIGHTLY_TASK] ...`) は含めない。
+///
+/// **読めない行は除外せずに落とす** (PR #550 CodeRabbit)。`new-key=...` のような key は
+/// 許可リストの `grep` も素通しせず転送されないので、黙って除外すると集合比較が通ったまま
+/// 出力が捨てられる。
 fn exe_keys(lines: &[String]) -> BTreeSet<String> {
     lines
         .iter()
-        .filter_map(|line| line.split_once('='))
-        .map(|(key, _)| key)
-        .filter(|key| !key.is_empty() && key.chars().all(is_key_char))
-        .map(String::from)
+        .filter(|line| !line.starts_with(crate::MARKER_SELECTED))
+        .map(|line| {
+            let (key, _) = line
+                .split_once('=')
+                .unwrap_or_else(|| panic!("`key=value` 形式でない出力行です: {line:?}"));
+            assert!(
+                !key.is_empty() && key.chars().all(is_key_char),
+                "許可リストの書式で表せない出力 key です: {key:?}"
+            );
+            key.to_string()
+        })
         .collect()
 }
 
@@ -123,7 +134,8 @@ fn sample_task() -> Task {
     }
 }
 
-/// **4 層の key が揃っていること。** どれか 1 層だけを変えると赤くなる。
+/// **4 層の key が揃っていること。** exe と許可リストは集合一致、検証 step と参照は許可リストの
+/// 部分集合を要求する。参照を消すだけでは赤くならない (使われない出力は害が無い)。
 #[test]
 fn the_four_layers_of_the_output_contract_agree() {
     let workflow = read_repo_file(WORKFLOW);
@@ -134,6 +146,7 @@ fn the_four_layers_of_the_output_contract_agree() {
     for (name, set, known) in [
         ("exe の出力", &exe, "pr_title_display"),
         ("許可リスト", &allowlist, "pr_title_display"),
+        ("検証 step", &validated, "summary_display"),
         ("検証 step", &validated, "pr_title_display"),
         ("参照", &referenced, "rank"),
     ] {
@@ -186,6 +199,19 @@ fn parsers_extract_each_layer() {
         "summary=a=b".to_string(),
     ];
     assert_eq!(exe_keys(&lines), set(&["rank", "summary"]));
+}
+
+/// 許可リストの書式で表せない key は、除外せずに検査を落とす (除外すると比較が通ってしまう)。
+#[test]
+#[should_panic(expected = "許可リストの書式で表せない出力 key")]
+fn an_output_key_the_allowlist_cannot_express_fails_the_check() {
+    exe_keys(&["rank=1".to_string(), "new-key=value".to_string()]);
+}
+
+#[test]
+#[should_panic(expected = "`key=value` 形式でない出力行")]
+fn an_output_line_without_a_key_fails_the_check() {
+    exe_keys(&["rank=1".to_string(), "stray line".to_string()]);
 }
 
 /// 1 層だけを変えた状態 (= 変異) を、それぞれ食い違いとして報告すること。
