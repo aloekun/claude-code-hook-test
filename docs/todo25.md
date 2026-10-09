@@ -189,53 +189,6 @@ fail-closed の判定結果 (空リスト) が上流の fallback logic に無視
 
 ---
 
-### 順位 485: PR L で追加した実装のテスト補強 (順位 485)
-
-> **動機**: PR #437 で追加した 2 つの実装にテストの穴がある。(1) `inject_git_dir_for_gh_with` の
-> `warn_when_unresolved` は条件パラメータなのに、**false 側 (警告抑止) のテストが無い**。
-> (2) `clip_for_message` は導入時にタイトル列でしかテストされず、順位セル経由の穴を見逃した
-> (CodeRabbit が指摘し PR 内で修正済みだが、**同じ形の見落としを繰り返さない仕組み**が要る)。
->
-> **本タスクの位置づけ**: post-merge feedback 採用 (#437 Tier2 #1・#2 / test_addition /
-> Severity Medium / Effort S)。
->
-> **参照**: `.claude/feedback-reports/437.md`、`src/lib-jj-helpers/src/workspace.rs`、
-> `src/lib-ledger/src/summary_gate.rs`
-
-#### 背景
-
-どちらも「**追加した機能の一部の経路しかテストしていない**」形。順位 483 の lint 化と相補で、
-こちらは実際のテストを足す側。
-
-#### 設計決定 (案)
-
-- `inject_git_dir_for_gh_with`: (条件 true/false) × (resolved / unresolved) の 4 通りをテストする。
-  ログ出力を観測するため、logger を注入可能にする必要があるかを確認する
-  (現状 `fn(&str)` なので closure が capture できない)
-- **プロセス全体状態の隔離が先に要る** (PR #439 CodeRabbit Major)。本関数は `GIT_DIR` 環境変数と
-  cwd を**読み書きする**ため、`cargo test` の既定 (並列) では他テストと競合し、**書いた本人だけが
-  通って他テストを壊す**形になりうる。隔離せずにテストを足すと、今回のセッションで 2 度踏んだ
-  「テストが空振りする」の別型 (今度は他テストを巻き込む) を作る
-  - 復元は Drop guard で行う ([ADR-025](adr/adr-025-cwd-restore-drop-guard.md) の `CwdRestore` が前例)。
-    **`GIT_DIR` は「未設定」も状態**なので、`Some`/`None` を区別して復元する
-  - 変更から復元までを共有 mutex で直列化する ([ADR-041](adr/adr-041-test-isolation-patterns.md))
-- `clip_for_message`: **メッセージに載る全フィールド種別**でテストする。どの種別があるかを
-  列挙してから書く (数えるのを人間の記憶に頼らない)
-
-- [ ] `GIT_DIR` (未設定を含む) と cwd を保存・復元する Drop guard を用意する
-- [ ] 状態変更から復元までを共有 mutex で直列化する
-- [ ] `warn_when_unresolved` の 4 通りをテスト
-- [ ] `clip_for_message` を通る全フィールドを列挙し、それぞれでテスト
-- [ ] 変異テストで各テストの判別力を確認
-- [ ] **並列実行 (`cargo test` 既定) と直列実行の両方で green** — 片方だけで通るなら隔離が不完全
-
-#### 完了基準
-
-条件パラメータの両方の値、および truncation を通る全フィールドについて、変異を入れると
-テストが落ちる。**かつ `cargo test` の並列実行で他テストを壊さない** (並列 / 直列の両方で green)。
-
----
-
 ## 夜間ループ停止の調査由来 (2026-08-22)
 
 > 2026-08-20 / 08-21 の `nightly-todo` run 2 本 (run 87837551740 / 88134039080) が

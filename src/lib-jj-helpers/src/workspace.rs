@@ -156,30 +156,53 @@ pub fn inject_git_dir_for_gh(log_info: fn(&str)) {
 /// 注入そのものは条件に関わらず行う。`--repo` を渡していても `git ls-remote origin`
 /// のように git 側がリポジトリを要る経路は残るため、注入まで止めると別の経路を壊す。
 pub fn inject_git_dir_for_gh_with(log_info: fn(&str), warn_when_unresolved: bool) {
-    if std::env::var_os("GIT_DIR").is_some() {
-        return;
+    let cwd = std::env::current_dir().ok();
+    let plan = plan_git_dir_injection(
+        std::env::var_os("GIT_DIR").is_some(),
+        cwd.as_deref(),
+        warn_when_unresolved,
+    );
+    if let Some(git_dir) = &plan.git_dir {
+        std::env::set_var("GIT_DIR", git_dir);
     }
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(_) => return,
+    if let Some(line) = &plan.log_line {
+        log_info(line);
+    }
+}
+
+/// [`inject_git_dir_for_gh_with`] が行うこと。`None` は「何もしない」。
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InjectionPlan {
+    git_dir: Option<std::path::PathBuf>,
+    log_line: Option<String>,
+}
+
+/// 注入の判定。**プロセスの env / cwd を読み書きしない** — 呼び手が読んだ値を受け取り、
+/// 何をするかだけを返す (順位 485)。テストが `GIT_DIR` と cwd を書き換えずに全分岐を
+/// 通せるようにするためで、書き換えるテストは同じテストバイナリの他のテストと競合する。
+fn plan_git_dir_injection(
+    git_dir_already_set: bool,
+    cwd: Option<&std::path::Path>,
+    warn_when_unresolved: bool,
+) -> InjectionPlan {
+    let Some(cwd) = cwd.filter(|_| !git_dir_already_set) else {
+        return InjectionPlan::default();
     };
-    match resolve_git_dir(&cwd) {
-        GitDirResolution::NotNeeded => {}
-        GitDirResolution::Resolved(git_dir) => {
-            std::env::set_var("GIT_DIR", &git_dir);
-            log_info(&format!(
+    match resolve_git_dir(cwd) {
+        GitDirResolution::NotNeeded => InjectionPlan::default(),
+        GitDirResolution::Resolved(git_dir) => InjectionPlan {
+            log_line: Some(format!(
                 "[env] GIT_DIR 自動注入 (非 colocated jj workspace): {}",
                 git_dir.display()
-            ));
-        }
-        GitDirResolution::Unresolved(reason) => {
-            if warn_when_unresolved {
-                log_info(&format!(
-                    "[env] GIT_DIR 導出失敗 (gh の repo 解決は失敗する可能性): {}",
-                    reason
-                ));
-            }
-        }
+            )),
+            git_dir: Some(git_dir),
+        },
+        GitDirResolution::Unresolved(reason) => InjectionPlan {
+            git_dir: None,
+            log_line: warn_when_unresolved.then(|| {
+                format!("[env] GIT_DIR 導出失敗 (gh の repo 解決は失敗する可能性): {reason}")
+            }),
+        },
     }
 }
 
@@ -426,6 +449,72 @@ mod tests {
                     assert_eq!(p.canonicalize().unwrap(), expected);
                 }
                 other => panic!("Resolved を期待: {}", debug_name(&other)),
+            }
+        }
+    }
+
+    /// [`plan_git_dir_injection`] の全分岐 (順位 485)。`warn_when_unresolved` の true / false と
+    /// 解決できた / できなかったの 4 通りに、注入しない 3 経路を加える。プロセスの env / cwd は
+    /// 書き換えないので、並列実行でも他のテストと競合しない。fixture は `git_dir` と同型。
+    mod injection {
+        use super::super::*;
+        use std::fs;
+
+        fn make_colocated_main(root: &std::path::Path) {
+            fs::create_dir_all(root.join(".git")).unwrap();
+            fs::create_dir_all(root.join(".jj/repo/store")).unwrap();
+            fs::write(root.join(".jj/repo/store/git_target"), "../../../.git").unwrap();
+        }
+
+        fn make_secondary_workspace(ws: &std::path::Path, main_store_rel: &str) {
+            fs::create_dir_all(ws.join(".jj")).unwrap();
+            fs::write(ws.join(".jj/repo"), main_store_rel).unwrap();
+        }
+
+        /// secondary workspace を作り、そのパスを返す (解決できる側の入力)。
+        fn resolvable(tmp: &std::path::Path) -> std::path::PathBuf {
+            make_colocated_main(&tmp.join("main"));
+            let ws = tmp.join("ws");
+            make_secondary_workspace(&ws, "../../main/.jj/repo");
+            ws
+        }
+
+        #[test]
+        fn resolved_injects_and_logs_whether_or_not_warnings_are_wanted() {
+            let tmp = tempfile::tempdir().unwrap();
+            let ws = resolvable(tmp.path());
+            for warn in [true, false] {
+                let plan = plan_git_dir_injection(false, Some(&ws), warn);
+                assert!(plan.git_dir.is_some(), "warn={warn}: 注入は警告の有無に関わらず行う");
+                let line = plan.log_line.expect("注入したことは常に記録する");
+                assert!(line.contains("自動注入"), "warn={warn}: {line}");
+            }
+        }
+
+        #[test]
+        fn unresolved_warns_only_when_asked() {
+            let tmp = tempfile::tempdir().unwrap();
+            let warned = plan_git_dir_injection(false, Some(tmp.path()), true);
+            assert_eq!(warned.git_dir, None);
+            assert!(warned.log_line.expect("警告を出す").contains("導出失敗"));
+
+            let silent = plan_git_dir_injection(false, Some(tmp.path()), false);
+            assert_eq!(silent, InjectionPlan::default(), "--repo を渡す呼び手には警告を出さない");
+        }
+
+        /// 既に `GIT_DIR` がある (手動指定・CI) / cwd が取れない / colocated は何もしない。
+        #[test]
+        fn nothing_happens_when_injection_is_not_needed() {
+            let tmp = tempfile::tempdir().unwrap();
+            let ws = resolvable(tmp.path());
+            let colocated = tmp.path().join("main");
+            for warn in [true, false] {
+                assert_eq!(plan_git_dir_injection(true, Some(&ws), warn), InjectionPlan::default());
+                assert_eq!(plan_git_dir_injection(false, None, warn), InjectionPlan::default());
+                assert_eq!(
+                    plan_git_dir_injection(false, Some(&colocated), warn),
+                    InjectionPlan::default()
+                );
             }
         }
     }
