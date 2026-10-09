@@ -67,8 +67,10 @@ pub enum Verdict {
     /// 選んだ順位が**実行中に別経路で完了した**ため PR を作らなかった (順位 487)。
     ///
     /// agent を回して捨てているが green にする。決定 10 が「回して捨てた夜」を red にするのは
-    /// 人間の確認を呼ぶためで、ここには確認すべきものが無い — 台帳から順位が消えているので
-    /// 翌晩に同じ順位が選ばれることもない。red にすると、正しく止まった夜が人間を呼ぶ。
+    /// 人間の確認を呼ぶためで、ここには確認すべきものが無い — 順位 table に無い順位は選ばれない
+    /// ので、翌晩に同じ順位が選ばれることもない。red にすると、正しく止まった夜が人間を呼ぶ。
+    /// 順位 table からだけ消えて台帳に行が残る場合は、`LEDGER_RESIDUE_RANKS` の残骸検査が
+    /// 翌晩以降に red で報告する (決定 21)。
     Superseded,
     /// step outcome に未知の値が入り、色を決められなかった。
     Unclassifiable { field: &'static str, raw: String },
@@ -291,8 +293,9 @@ pub fn render(
             "[NIGHTLY_SKIP] 本 run は PR を作りませんでした。上の 1 行で停止段を特定してください。".to_string(),
         ],
         Verdict::Superseded => vec![
-            format!("[NIGHTLY_SUPERSEDED] 順位 {rank} は実行中に別経路で完了 (または取り下げ) されたため、PR を作らずに終えました。"),
-            "[NIGHTLY_SUPERSEDED] agent の実装は捨てています。台帳から順位が消えているので翌晩の再選択は無く、人間の対応は要りません。".to_string(),
+            format!("[NIGHTLY_SUPERSEDED] 順位 {rank} は最新の master の台帳または順位 table に無いため、PR を作らずに終えました (実行中に別経路で完了 / 取り下げられた)。"),
+            "[NIGHTLY_SUPERSEDED] agent の実装は捨てています。順位 table に無い順位は選ばれないので、翌晩の再選択はありません。".to_string(),
+            "[NIGHTLY_SUPERSEDED] 順位 table からだけ消えた場合は台帳に行が残っています (後始末の漏れ)。残っていれば cli-ledger-cleanup --apply で削除してください。".to_string(),
         ],
         Verdict::Unclassifiable { field, raw } => vec![
             format!("[NIGHTLY_ERROR] step outcome `{field}` に未知の値 \"{raw}\" が入りました。"),
@@ -509,11 +512,14 @@ mod tests {
         assert!(verdict.is_red());
     }
 
+    /// 順位 table からだけ消えた場合は台帳に行が残るので、「台帳から消えた」と言い切らず
+    /// 残存行の確認を案内する (PR #551 CodeRabbit)。
     #[test]
-    fn the_superseded_message_names_the_rank_and_says_no_action_is_needed() {
+    fn the_superseded_message_does_not_claim_the_ledger_row_is_gone() {
         let lines = render(&Verdict::Superseded, "487", false, None, &NO_REASON);
         assert!(lines[0].starts_with("[NIGHTLY_SUPERSEDED]") && lines[0].contains("順位 487"));
-        assert!(lines[1].contains("人間の対応は要りません"));
+        assert!(lines.iter().any(|l| l.contains("台帳に行が残っています")), "{lines:?}");
+        assert!(!lines.iter().any(|l| l.contains("人間の対応は要りません")), "{lines:?}");
     }
 
     #[test]

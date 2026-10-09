@@ -514,49 +514,6 @@ jobs:
             --allowedTools "Read(work/**),Edit(work/**),Glob,Grep"
             --disallowedTools "Bash,WebFetch,WebSearch,NotebookEdit,Read(master-ref/**),Edit(master-ref/**),Read(publish/**),Edit(publish/**)"
 
-      # **選んだ順位が実行中に別経路で完了していないか** (順位 487)。work/ は master-ref/ の
-      # SHA に固定してあるため、implement の間に同じ順位の実装がマージされると、agent は
-      # 古い基点のまま実装を作り直している。そのまま PR にするとマージ済みの実装と重複する。
-      #
-      # 最新の master から台帳と順位 table だけを取り、判定は exe に任せる (判定を shell に
-      # 置かない、ADR-072 決定 1)。exe は master-ref/ でビルドし sha256 を記録済みのもので、
-      # 使う前にその基準値と照合する (決定 7 の改ざん検知を本 step の手前へ前倒しする)。
-      # 取得先は git のオブジェクトで、agent が触れる work/ は読まない。
-      #
-      # superseded=true は設計された結末 (exit 0)。後続の verify 以降を丸ごと飛ばし、
-      # handoff marker も作らない — 台帳から順位が消えているので翌晩の再選択は起きない。
-      # **continue-on-error は付けない**。clone / 台帳の解釈に失敗した夜は「判定できなかった」
-      # であって「未完了」ではないので、PR 作成へ進めずに job を red にする。
-      - name: Check the task is still open on the latest master
-        id: supersede
-        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RANK: ${{ steps.select.outputs.rank }}
-        run: |
-          set -euo pipefail
-          # 本 step は Verify gate integrity より前に Implement 後の exe を使うため、同じ照合を
-          # 先に行う (pre-push simplicity review SIM-NEW-nightly-todo-yml-L525)。改ざんされた
-          # exe の判定を一度も信じない。
-          if ! sha256sum -c "$RUNNER_TEMP/gate-integrity.sha256"; then
-            echo "[NIGHTLY_DENY] ゲート exe/config が Implement ステップ中に変更されました (改ざん検知)"
-            exit 1
-          fi
-          git clone --depth 1 --filter=blob:none --sparse --branch master \
-            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" latest-master
-          git -C latest-master sparse-checkout set --no-cone \
-            '/docs/claude-code-web-tasks.md' '/docs/todo-summary*.md'
-          # 順位 table の part は列挙せず glob で拾う (part を増やしても追随する)。
-          SUMMARY_ARGS=()
-          for summary in latest-master/docs/todo-summary*.md; do
-            SUMMARY_ARGS+=(--summary-file "$summary")
-          done
-          echo "[NIGHTLY] 最新の master: $(git -C latest-master rev-parse HEAD) / 選択時: ${{ steps.master-sha.outputs.sha }}"
-          master-ref/target/release/cli-nightly-task-select \
-            --check-listed "$RANK" \
-            --ledger latest-master/docs/claude-code-web-tasks.md \
-            "${SUMMARY_ARGS[@]}" >> "$GITHUB_OUTPUT"
-
       # **これは品質保証ではなくコストフィルタである** (ADR-072 決定 8)。
       # ubuntu 単独・`--ignored` 無し・hooks smoke 無しで、ci.yml の真部分集合でしかない。
       # 目的は「コンパイルも通らない変更で PR を作り、背圧の枠 (最大 3 件) と人間の
@@ -571,7 +528,7 @@ jobs:
       - name: Verify deterministically (cost filter; NOT the quality gate)
         id: verify
         continue-on-error: true
-        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success' && steps.supersede.outputs.superseded == 'false'
+        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success'
         run: |
           set -euo pipefail
           cargo test --manifest-path work/Cargo.toml --workspace
@@ -741,8 +698,53 @@ jobs:
               -- docs
           fi
 
+      # **選んだ順位が実行中に別経路で完了していないか** (順位 487)。work/ は master-ref/ の
+      # SHA に固定してあるため、implement の間に同じ順位の実装がマージされると、agent は
+      # 古い基点のまま実装を作り直している。そのまま PR にするとマージ済みの実装と重複する。
+      #
+      # **PR 作成の直前 (Gate の手前) に置く** (PR #551 CodeRabbit)。implement 直後に置くと、
+      # verify から PR 作成までの数分間にマージされた場合を取りこぼす。verify が落ちた夜も
+      # ここまで到達する (verify 以降の停止は continue-on-error で受けているため) ので、
+      # handoff marker を作るかどうかの判断にも使える。
+      #
+      # 最新の master から台帳と順位 table だけを取り、判定は exe に任せる (判定を shell に
+      # 置かない、ADR-072 決定 1)。exe は master-ref/ でビルドし sha256 を記録済みのもので、
+      # 使う前にその基準値と照合する (verify や guard で止まった夜は Verify gate integrity が
+      # 走らないため、本 step で照合する)。取得先は git のオブジェクトで、agent が触れる
+      # work/ は読まない。
+      #
+      # superseded=true は設計された結末 (exit 0)。Gate 以降と handoff marker を飛ばす。
+      # **continue-on-error は付けない**。clone / 台帳の解釈に失敗した夜は「判定できなかった」
+      # であって「未完了」ではないので、PR 作成へ進めずに job を red にする。
+      - name: Check the task is still open on the latest master
+        id: supersede
+        if: steps.select.outcome == 'success' && steps.implement.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RANK: ${{ steps.select.outputs.rank }}
+        run: |
+          set -euo pipefail
+          if ! sha256sum -c "$RUNNER_TEMP/gate-integrity.sha256"; then
+            echo "[NIGHTLY_DENY] ゲート exe/config が Implement ステップ中に変更されました (改ざん検知)"
+            exit 1
+          fi
+          git clone --depth 1 --filter=blob:none --sparse --branch master \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" latest-master
+          git -C latest-master sparse-checkout set --no-cone \
+            '/docs/claude-code-web-tasks.md' '/docs/todo-summary*.md'
+          # 順位 table の part は列挙せず glob で拾う (part を増やしても追随する)。
+          SUMMARY_ARGS=()
+          for summary in latest-master/docs/todo-summary*.md; do
+            SUMMARY_ARGS+=(--summary-file "$summary")
+          done
+          echo "[NIGHTLY] 最新の master: $(git -C latest-master rev-parse HEAD) / 選択時: ${{ steps.master-sha.outputs.sha }}"
+          master-ref/target/release/cli-nightly-task-select \
+            --check-listed "$RANK" \
+            --ledger latest-master/docs/claude-code-web-tasks.md \
+            "${SUMMARY_ARGS[@]}" >> "$GITHUB_OUTPUT"
+
       - name: Stop when the implementation is incomplete
-        if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome != 'success'
+        if: steps.integrity.outcome == 'success' && steps.ledger-completion.outcome != 'success' && steps.supersede.outputs.superseded != 'true'
         run: |
           echo "::error::台帳が宣言する成果物に未変更のものがあります (直前の [LEDGER_CLEANUP_BLOCK] を参照)。実装が不完全な draft PR を作らないため、ここで停止します。" >&2
           exit 1
@@ -753,7 +755,7 @@ jobs:
       - name: Gate PR creation (authority)
         id: gate
         continue-on-error: true
-        if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success' && steps.ledger-completion.outcome == 'success'
+        if: steps.select.outcome == 'success' && steps.guard.outcome == 'success' && steps.integrity.outcome == 'success' && steps.ledger-completion.outcome == 'success' && steps.supersede.outputs.superseded == 'false'
         env:
           AUTONOMY_ENABLED: ${{ vars.AUTONOMY_ENABLED }}
         run: |
@@ -791,12 +793,14 @@ jobs:
       # **2 回目の mint (決定 20 の 2 段化)。** publish だけでなく**失敗マーカー**の作成にも
       # 使うため、gate 通過だけを条件にしない — implement 後に停止した run こそマーカーが要る。
       # 掃除用の 1 回目 (job 冒頭) と分ける理由は寿命 1 時間 (同 step のコメント参照)。
+      # superseded=true の夜は publish も marker も作らないので発行しない (PR #551 CodeRabbit)。
       - name: Mint App token (so ci.yml attaches to the PR)
         id: app-token
         if: >-
           always() &&
           steps.select.outcome == 'success' &&
           steps.implement.outcome == 'success' &&
+          steps.supersede.outputs.superseded != 'true' &&
           github.event.inputs.dry_run != 'true'
         uses: actions/create-github-app-token@v2
         with:
@@ -931,11 +935,11 @@ jobs:
       # (`outcome == 'skipped'` は `!= 'success'`) 、素朴な条件では guard deny と区別できず
       # 誤って marker が作られていた。integrity と同様に明示的に除外する。
       #
-      # **supersede が success でない夜と、superseded=true の夜も含めない** (順位 487)。
-      # 前者は publish-tree と同じインフラ障害 (job は既に red)。後者は順位が実行中に別経路で
-      # 完了した設計された結末で、台帳から消えているので marker が無くても再選択されない。
-      # どちらも verify 以降が skip されるため、`verify != success` の素朴な条件では
-      # 停止と区別できない (上の publish-tree と同じ構図)。
+      # **supersede が failure の夜と、superseded=true の夜も含めない** (順位 487)。
+      # 前者は判定できなかった夜 (clone 失敗・改ざん検知) で、publish-tree と同じく job は
+      # 既に red。後者は順位が実行中に別経路で完了した設計された結末で、台帳と順位 table の
+      # どちらかから消えているので marker が無くても再選択されない。supersede が skip された
+      # 夜 (台帳削除の失敗など、手前の step で job が止まった夜) は従来どおり marker を作る。
       #
       # implement **前**の停止 (背圧 / タスク無し / インフラ障害) もマーカーを作らない。
       # この境界が「transient か、タスクが不適合か」の分類を run の構造で代替する。
@@ -949,7 +953,7 @@ jobs:
           steps.select.outcome == 'success' &&
           steps.implement.outcome == 'success' &&
           steps.publish.outcome != 'success' &&
-          steps.supersede.outcome == 'success' &&
+          steps.supersede.outcome != 'failure' &&
           steps.supersede.outputs.superseded != 'true' &&
           steps.publish-tree.outcome != 'failure' &&
           steps.integrity.outcome != 'failure' &&
@@ -1016,13 +1020,13 @@ jobs:
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
           SELECT_OUTCOME: ${{ steps.select.outcome }}
           IMPLEMENT_OUTCOME: ${{ steps.implement.outcome }}
-          SUPERSEDE_OUTCOME: ${{ steps.supersede.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PUBLISH_TREE_OUTCOME: ${{ steps.publish-tree.outcome }}
           GUARD_OUTCOME: ${{ steps.guard.outcome }}
           INTEGRITY_OUTCOME: ${{ steps.integrity.outcome }}
           LEDGER_COMPLETION_OUTCOME: ${{ steps.ledger-completion.outcome }}
           LEDGER_REMOVAL_OUTCOME: ${{ steps.ledger-removal.outcome }}
+          SUPERSEDE_OUTCOME: ${{ steps.supersede.outcome }}
           GATE_OUTCOME: ${{ steps.gate.outcome }}
           APP_TOKEN_OUTCOME: ${{ steps.app-token.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}

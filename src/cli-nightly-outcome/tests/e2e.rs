@@ -277,16 +277,21 @@ fn an_empty_residue_list_keeps_the_night_green() {
 }
 
 /// **順位 487** — 実行中に別経路で完了した順位は、agent を回していても green で終える。
-/// 実際の配線どおり、verify 以降は skip され、handoff も workflow の `if` で除外されて skip になる。
+/// 実際の配線どおり、判定 step は Gate の手前で走り、Gate 以降と handoff は skip になる。
 #[test]
 fn a_task_completed_elsewhere_during_the_run_exits_zero() {
     let run = run_exe(&[
         ("SELECT_OUTCOME", "success"),
         ("IMPLEMENT_OUTCOME", "success"),
+        ("VERIFY_OUTCOME", "success"),
+        ("PUBLISH_TREE_OUTCOME", "success"),
+        ("GUARD_OUTCOME", "success"),
+        ("INTEGRITY_OUTCOME", "success"),
+        ("LEDGER_COMPLETION_OUTCOME", "success"),
+        ("LEDGER_REMOVAL_OUTCOME", "success"),
         ("SUPERSEDE_OUTCOME", "success"),
-        ("VERIFY_OUTCOME", "skipped"),
-        ("PUBLISH_TREE_OUTCOME", "skipped"),
         ("GATE_OUTCOME", "skipped"),
+        ("APP_TOKEN_OUTCOME", "skipped"),
         ("PUBLISH_OUTCOME", "skipped"),
         ("HANDOFF_OUTCOME", "skipped"),
         ("SUPERSEDED", "true"),
