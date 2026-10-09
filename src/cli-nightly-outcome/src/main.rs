@@ -55,6 +55,7 @@ const OUTCOME_FIELDS: &[(&str, &str)] = &[
     ("integrity", "INTEGRITY_OUTCOME"),
     ("ledger_completion", "LEDGER_COMPLETION_OUTCOME"),
     ("ledger_removal", "LEDGER_REMOVAL_OUTCOME"),
+    ("supersede", "SUPERSEDE_OUTCOME"),
     ("gate", "GATE_OUTCOME"),
     ("app_token", "APP_TOKEN_OUTCOME"),
     ("publish", "PUBLISH_OUTCOME"),
@@ -81,7 +82,7 @@ fn main() {
 
     let publish = env_or_empty("PUBLISH_OUTCOME");
     let handoff = env_or_empty("HANDOFF_OUTCOME");
-    let verdict = classify(&publish, &handoff);
+    let verdict = classify(&publish, &handoff, &env_or_empty("SUPERSEDED"));
     let reason = read_reason(&env_or_empty("AGENT_EXECUTION_FILE"));
     for line in render(
         &verdict,

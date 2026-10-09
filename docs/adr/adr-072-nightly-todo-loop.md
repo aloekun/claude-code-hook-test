@@ -631,6 +631,20 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 **残る射程外**: 人間が別名ブランチで同じ作業を実装して後始末を忘れた場合は、ブランチ名から順位が引けないため**どの層も検出できない**。この限界は走査の出力にも毎回明記し、weekly-review の report へも転記させる — 「0 件」を「台帳は健全」と読み違えさせないため。
 
+### 22. 選択と実装は同じ SHA を見る — 実行中に完了した順位では PR を作らない (2026-10-09、順位 487)
+
+**契機**: 2026-08-21 の run (88134039080) は順位 228 を選んだが、その 31 秒後に 228 の実装 PR #422 がマージされた。台帳は古い `master-ref/` から読み、agent の作業ツリー `work/` は新しい master を checkout したため、agent は実装済みのコードを見て変更 0 件で終わった。workflow は master を別々に読むのに、その間で SHA を固定していなかった。
+
+**決定**:
+
+1. **`work/` を `master-ref/` の SHA に固定する**。信頼境界上の正は `master-ref/` である (決定 1 / 9: 台帳・ゲート exe・config はすべて master ref の写しから調達する) ため、合わせる向きは `work/` → `master-ref/` で逆ではない。publish tree の基点 (`WORK_BASE_SHA`) も同じ SHA になる。PR ブランチは新規作成なので、基点が数十秒古くても non-fast-forward にはならない。
+2. **PR を作る直前 (Gate の手前) に、選んだ順位が最新の master でもまだ台帳と順位 table に載っているかを確かめる** (`Check the task is still open on the latest master` step、`cli-nightly-task-select --check-listed`)。固定すると、同じ競合で agent は**古い基点のまま実装を作り直す**側に倒れ、放置するとマージ済みの実装と重複する PR ができるためである。判定は exe に置く (決定 1: 回帰テストの場が無い判定を無人経路の shell に置かない)。最新の master は台帳と順位 table だけを sparse clone で取り、順位 table の part は glob で拾う。この exe は implement 後に使うので、決定 7 の改ざん検知の基準値に含め、step の冒頭で照合する (verify や guard で止まった夜は Verify gate integrity が走らないため)。
+   - **置き場所を implement の直後にしなかった理由** (PR #551 CodeRabbit): そこだと verify から PR 作成までの数分間にマージされた場合を取りこぼす。Gate の手前なら残る窓は token 発行と push の数秒になる。superseded の夜に verify の時間を節約できなくなるが、稀な夜のための最適化より窓を閉じる方を取った。verify は continue-on-error で受けているので、verify が落ちた夜もこの step まで到達し、handoff marker を作るかの判断に使える。
+3. **消えていれば Gate 以降を飛ばし、PR も handoff marker も作らず green で終える** (`[NIGHTLY_SUPERSEDED]`)。PR 作成用の App token も発行しない。決定 10 は「agent を回して捨てた夜」を red にするが、それは人間の確認を呼ぶためである。ここには確認すべきものが無く、順位 table に無い順位は選ばれないので翌晩の再選択も起きない。順位 table からだけ消えて台帳に行が残る場合は、決定 21 の残骸検査が報告する。`cli-nightly-outcome` の `Verdict::Superseded` がこの色を持つ。
+4. **判定できなかった夜は red** — sparse clone や台帳の解釈に失敗した step には continue-on-error を付けない。「判定できなかった」を「未完了」として PR 作成へ進めない (決定 2)。handoff marker は作らない (publish-tree の障害と同じ扱い)。手前の step (台帳削除など) で job が止まって判定 step が skip された夜は、従来どおり marker を作る。
+
+**射程外**: `git ls-remote` による着手済み判定は「いま存在するブランチ」を見る操作で、過去の SHA に固定できない。本決定はそれを固定する代わりに、PR 作成前の再照合で結末を正しくする。人間が後始末 (台帳の行削除) をせずに同じ順位を実装した場合は、台帳に順位が残るため検出できない (決定 21 の残る射程外と同じ)。
+
 ## 試験運用判断基準 (ADR-039)
 
 | 項目 | 内容 |
