@@ -61,28 +61,6 @@
 
 - 検出源を追加する PR のレビューで、(a) 誰が書き込めるか (b) 既存検出源と同じ信頼度か (c) commitment 操作に直結するか の判断が ADR から辿れること。
 
-### 順位 417: 系統 B-1: 出力契約 3 層の同期を CI で検証する
-
-> **動機**: PR [#389](https://github.com/aloekun/claude-code-hook-test/pull/389) で `pr_title_display` 出力キーを追加した際、**(1) Rust exe の出力キー / (2) workflow の grep allowlist / (3) 出力契約の検証 step** の 3 層すべてを更新する必要があった。片方だけだと**新しい出力が黙って捨てられ、毎晩フォールバックし続ける**形で劣化する。
->
-> **今回は踏まなかったが、踏みかけた**: workflow のコメント自身が「exe 側に出力を足したらここも足す必要がある (片方だけ変えると新しい出力が黙って捨てられる)」と警告していた。**コメントで警告している時点で、機構で守るべき対象**である ([ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md))。
->
-> **対処案**: `exe の出力キー ⊆ workflow allowlist ⊆ verification step` の包含関係を CI で検証するテスト / スクリプトを追加する。cross-file 検査は regex-only な custom-lint-rules.toml の scope 外 ([ADR-007](adr/adr-007-custom-linter-layer-boundary.md)) のため、**CI test 形式**で実装する。
->
-> **参照**: [nightly-todo.yml](../.github/workflows/nightly-todo.yml) (allowlist と検証 step)、[main.rs](../src/cli-nightly-task-select/src/main.rs) (`report_selected` の出力)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 17 § 出力契約の注意。
->
-> **実行優先度**: Tier 1 — Severity **High** (silent data loss) / Frequency Medium (出力キーは増える) / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] 3 層それぞれからキー集合を抽出する方法を決める (exe は `--help` 相当が無いため、ソースの `println!("key=` を走査するか、専用の dump フラグを足すか)
-- [ ] 包含関係を検証するテストを追加し、意図的に 1 層だけ欠いた変異で落ちることを確認する
-- [ ] ~~順位 418 (パターンの文書化) と同一 PR で扱う~~ — 順位 418 は 2026-09-08 に却下・削除 (出力契約の drift 検証は順位 465 が扱う)
-
-#### 完了基準
-
-- 3 層のいずれか 1 つだけを更新した状態が CI で落ちること (変異テストで確認)。
-
 ### 順位 419: 系統 C-1: takt run の解決規約 (PR 束縛 / status 判定) を全コンポーネント共通の convention にする
 
 > **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) で確立した「**run を task label の PR 番号で束縛する**」「**`meta.json` の `status` で進行中を判定する**」は post-merge-feedback 固有ではない。同じロジックが `cli-merge-pipeline::feedback` (実装済)、orphan reaper (`hooks-session-start`、実装済)、将来の `cli-pr-monitor` takt 移行 (未実装) の**3 箇所以上**で必要になる。

@@ -18,7 +18,6 @@
 | 409 | Tier 2 | **shell の部分一致比較を検出するカスタムリントルール (系統 C-2)** | todo21.md | S-M | 順位 408 (規約側)。検出対象を安全装置の判定に絞れるかが採否の分かれ目。絞れなければ却下も正規の出口 (ADR-042 の mechanizable 判定) |
 | 414 | Tier 1 | **「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化 (系統 A-1)** | todo27.md | S | なし (2026-08-11 採用。#389 で PR タイトルが 3 つ目の公開面になり本文用 screening を流用できないと判明。3 ソースが独立に同一原則を指摘。ADR-054 へ output surface × wrapping context の対応表を追記) |
 | 415 | Tier 2 | **PR 検出源を広げる変更の信頼スコープ検査チェックリスト (系統 A-2)** | todo22.md | XS | なし (2026-08-11 採用。#385 の security review が「origin push 権限と同等の信頼度のソースまで検出を拡張する」点を指摘。検出源追加時の確認項目を明文化) |
-| 417 | Tier 1 | **出力契約 3 層 (exe 出力キー ⊆ workflow allowlist ⊆ 検証 step) の同期を CI で検証 (系統 B-1)** | todo22.md | S | なし (2026-08-11 採用。#389 で片方だけ更新すると新出力が黙って捨てられる構造が判明。workflow のコメント自身が警告していた = 機構で守るべき対象。cross-file 検査は ADR-007 の regex 層外のため CI test 形式) |
 | 419 | Tier 1 | **takt run の解決規約 (PR 束縛 / status 判定) を全コンポーネント共通 convention 化 (系統 C-1)** | todo22.md | S | なし (2026-08-11 採用。同ロジックが merge-pipeline / orphan reaper / 将来の pr-monitor の 3 箇所以上で必要。ADR-024 と同じ DRY 昇格パターン。ADR-030 へ thread safety の保証範囲も補足) |
 | 420 | Tier 1 | **run binding が並行起動下で破れないことの integration test (系統 C-2)** | todo22.md | M | なし (2026-08-11 採用。WP-18 dogfood で run 解決のインシデント 2 件が実発生。既存テストは単一セッション想定。並行バグは計装して実測すること = memory verify-concurrency-by-observation) |
 | 421 | Tier 3 | **marker の命名・状態遷移・recovery ポリシーを統一規約にする (系統 C-3)** | todo22.md | XS | なし (2026-08-11 採用。marker 生成が Rust と takt workflow に分散し post-pr-review / post-merge-feedback の 2 系統で形式が揺れている) |

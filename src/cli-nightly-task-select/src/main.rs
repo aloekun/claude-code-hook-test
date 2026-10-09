@@ -46,6 +46,8 @@ use lib_ledger::{screen_for_public_output, screen_for_title, Task};
 
 #[cfg(test)]
 mod guard_list_sync;
+#[cfg(test)]
+mod output_contract_sync;
 
 const MARKER_SELECTED: &str = "[NIGHTLY_TASK]";
 const MARKER_SKIP: &str = "[NIGHTLY_SKIP]";
@@ -206,27 +208,38 @@ fn skip(code: i32, message: &str, with_usage: bool) -> i32 {
     code
 }
 
-/// 選択結果を `GITHUB_OUTPUT` へそのまま append できる `key=value` 形式で出す。
+fn report_selected(task: &Task, ledger_display: &str) {
+    for line in selected_lines(task, ledger_display) {
+        println!("{line}");
+    }
+}
+
+/// 選択結果を `GITHUB_OUTPUT` へそのまま append できる `key=value` 形式の行にする。
 ///
 /// 改行を含みうる値 (summary / caution) は heredoc 形式にせず 1 行へ潰す。台帳の 1 セルは
 /// 定義上 1 行なので改行は入らないが、万一入っても後続の `>> $GITHUB_OUTPUT` が壊れて
 /// 別の key を注入されない形にしておく。
-fn report_selected(task: &Task, ledger_display: &str) {
-    println!(
-        "{MARKER_SELECTED} rank={} branch={} ledger={ledger_display}",
-        task.rank,
-        task.branch()
-    );
-    println!("rank={}", task.rank);
-    println!("branch={}", task.branch());
-    println!("target_files={}", one_line(&task.target_files));
-    println!("summary={}", one_line(&task.summary));
-    println!("caution={}", one_line(&task.caution));
-    println!(
-        "summary_display={}",
-        one_line(&screen_for_public_output(&task.summary))
-    );
-    println!("pr_title_display={}", screen_for_title(&task.pr_title));
+///
+/// **key を足したら workflow の許可リストも足す。** 片方だけだと新しい出力が黙って捨てられる。
+/// 揃っていることは `output_contract_sync` のテストが本関数の出力から検査する (順位 417)。
+fn selected_lines(task: &Task, ledger_display: &str) -> Vec<String> {
+    vec![
+        format!(
+            "{MARKER_SELECTED} rank={} branch={} ledger={ledger_display}",
+            task.rank,
+            task.branch()
+        ),
+        format!("rank={}", task.rank),
+        format!("branch={}", task.branch()),
+        format!("target_files={}", one_line(&task.target_files)),
+        format!("summary={}", one_line(&task.summary)),
+        format!("caution={}", one_line(&task.caution)),
+        format!(
+            "summary_display={}",
+            one_line(&screen_for_public_output(&task.summary))
+        ),
+        format!("pr_title_display={}", screen_for_title(&task.pr_title)),
+    ]
 }
 
 fn one_line(value: &str) -> String {
@@ -353,7 +366,8 @@ mod tests {
     /// パスを間違えた run が毎晩「何もすることが無い」と報告し続けるのを防ぐ。
     #[test]
     fn missing_ledger_file_is_a_usage_error_not_a_no_op() {
-        let dir = std::env::temp_dir().join("cli-nightly-task-select-absent");
+        let dir = std::env::temp_dir()
+            .join(format!("cli-nightly-task-select-absent-{}", std::process::id()));
         let path = dir.join("absent.md");
         let code = run(args(&[
             "--ledger",
@@ -372,7 +386,8 @@ mod tests {
     /// 読み飛ばすと、その run は候補を全部飛ばして毎晩 no-op になる。
     #[test]
     fn an_unreadable_summary_file_is_a_usage_error() {
-        let dir = std::env::temp_dir().join("cli-nightly-task-select-summary");
+        let dir = std::env::temp_dir()
+            .join(format!("cli-nightly-task-select-summary-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let ledger = dir.join("ledger.md");
         std::fs::write(
