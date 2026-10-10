@@ -2,8 +2,8 @@
 //!
 //! 順位 137 (PR #163 T1-#1 採用): `config/custom-lint-rules.toml` の各 rule に対して、
 //! `[rules.test_coverage]` meta field で宣言された対応 test 関数が deploy 済 module 群に
-//! 存在し、かつ必須カバレッジ (主要拡張子ごとに 1+ test、非主要専用 rule には
-//! `other_ext_tests` 1+) が満たされていることを機械検証する。
+//! 存在し、かつ必須カバレッジ (主要拡張子ごとに 1+ test、非主要拡張子ごとに 1+ 検出 test —
+//! 後者の判定は [`super::coverage_ext`]、順位 498) が満たされていることを機械検証する。
 //!
 //! ## Module split を跨いだ test 関数検索
 //!
@@ -475,10 +475,18 @@ fn matching_declarations_yield_no_orphans() {
 /// `json` を追加した際、実際にこのすり抜けが起きて CodeRabbit に指摘された。
 /// 本関数は `targets_main` の状態に関係なく、`extensions` に出現する拡張子ごとに
 /// 個別に coverage を要求することでこの非対称を閉じる。
+///
+/// 非主要拡張子は**拡張子ごと**に、その拡張子のファイルを通す検出テストを要求する
+/// (順位 498)。拡張子は宣言ではなくテスト本体 (`bodies`) から読み取る。判定の中身と、
+/// この検査が保証しないことは [`super::coverage_ext`] の module doc にある。
 #[cfg(test)]
-fn extension_coverage_gaps(rule: &CustomRule) -> Vec<String> {
+fn extension_coverage_gaps(
+    rule: &CustomRule,
+    bodies: &std::collections::HashMap<String, String>,
+) -> Vec<String> {
     let coverage = rule.test_coverage.clone().unwrap_or_default();
     let mut gaps: Vec<String> = Vec::new();
+    let mut non_main_exts: Vec<String> = Vec::new();
     for ext in &rule.extensions {
         let is_main = MAIN_EXTENSIONS.iter().any(|m| ext.eq_ignore_ascii_case(m));
         if is_main {
@@ -494,32 +502,54 @@ fn extension_coverage_gaps(rule: &CustomRule) -> Vec<String> {
                     rule.id, ext, ext
                 ));
             }
-        } else if coverage.other_ext_tests.is_empty() {
-            gaps.push(format!(
-                "rule `{}` declares non-main extension `{}` in `extensions` but \
-                 `test_coverage.other_ext_tests` is empty",
-                rule.id, ext
-            ));
+        } else {
+            non_main_exts.push(ext.clone());
         }
     }
+    gaps.extend(super::coverage_ext::non_main_extension_gaps(
+        &rule.id,
+        &non_main_exts,
+        &coverage.other_ext_tests,
+        bodies,
+    ));
     gaps
+}
+
+/// `src/` 配下の全関数の本体 (関数名 → 本体)。拡張子の読み取りに使う。
+#[cfg(test)]
+fn load_test_fn_bodies() -> std::collections::HashMap<String, String> {
+    let src_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut rust_files: Vec<std::path::PathBuf> = Vec::new();
+    collect_rust_files_recursive(&src_dir, &mut rust_files);
+    let sources: Vec<String> = rust_files
+        .iter()
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
+        })
+        .collect();
+    let bodies = super::coverage_ext::index_fn_bodies(&sources);
+    assert!(
+        bodies.contains_key("extension_test_coverage_check"),
+        "false-green guard: 関数本体の索引にこの検査自身が無い (索引の作成に失敗している)"
+    );
+    bodies
 }
 
 /// 逆向き coverage ゲート ([`rule_test_coverage_check`] を extension 起点で補完)。
 ///
-/// allowlist は持たない: 現行 12 rule はいずれも `extensions` の全拡張子が
-/// coverage 済みであり ([`rule_test_coverage_check`] が個別に main ext を検証、
-/// 本検査が非主要拡張子側の見逃しを塞ぐ)、免除が要る incident-derived でない
-/// rule ([`NON_INCIDENT_RULES`] 相当のケース) も extension coverage の要件までは
+/// allowlist は持たない: 免除が要る incident-derived でない rule
+/// ([`NON_INCIDENT_RULES`] 相当のケース) も extension coverage の要件までは
 /// 免除されない — 拡張子を宣言した以上、その拡張子に対する test は必須という
 /// 単純な原則のため。
 #[cfg(test)]
 #[test]
 fn extension_test_coverage_check() {
     let rules = load_deployed_custom_rules();
+    let bodies = load_test_fn_bodies();
     let mut gaps: Vec<String> = Vec::new();
     for rule in &rules {
-        gaps.extend(extension_coverage_gaps(rule));
+        gaps.extend(extension_coverage_gaps(rule, &bodies));
     }
     assert!(
         gaps.is_empty(),
@@ -566,7 +596,7 @@ fn extension_coverage_gaps_detects_missing_non_main_test_when_main_ext_present()
             other_ext_tests: Vec::new(),
         },
     );
-    let gaps = extension_coverage_gaps(&rule);
+    let gaps = extension_coverage_gaps(&rule, &std::collections::HashMap::new());
     assert_eq!(gaps.len(), 1, "{gaps:?}");
     assert!(gaps[0].contains("jsonc"), "{gaps:?}");
 }
@@ -580,10 +610,11 @@ fn extension_coverage_gaps_detects_missing_main_ext_test() {
         &["rs"],
         CustomRuleTestCoverage::default(),
     );
-    let gaps = extension_coverage_gaps(&rule);
+    let gaps = extension_coverage_gaps(&rule, &std::collections::HashMap::new());
     assert_eq!(gaps.len(), 1, "{gaps:?}");
     assert!(gaps[0].contains("rs"), "{gaps:?}");
 }
+
 
 /// 主要・非主要拡張子とも coverage が揃っていればギャップ 0 件 (正常系の固定)。
 #[cfg(test)]
@@ -596,46 +627,39 @@ fn extension_coverage_gaps_empty_when_fully_covered() {
         &["toml", "jsonc"],
         CustomRuleTestCoverage {
             main_ext_tests,
-            other_ext_tests: vec!["some_jsonc_test".to_string()],
+            other_ext_tests: vec!["x_detects_in_jsonc".to_string()],
         },
     );
-    assert!(extension_coverage_gaps(&rule).is_empty());
+    let bodies: std::collections::HashMap<String, String> = [(
+        "x_detects_in_jsonc".to_string(),
+        r#"write_file(dir.path(), "a.jsonc", "x")"#.to_string(),
+    )]
+    .into();
+    assert!(extension_coverage_gaps(&rule, &bodies).is_empty());
 }
 
-/// **非主要拡張子は「rule あたり 1 件」で足りる** — これが現行の契約であることを固定する
-/// (CodeRabbit #461)。
+/// **非主要拡張子は拡張子ごとに検出テストが要る** (順位 498 の完了基準)。
 ///
-/// `main_ext_tests` は `BTreeMap<拡張子, Vec<テスト名>>` で拡張子ごとに持てるが、
-/// `other_ext_tests` は `Vec<テスト名>` で**拡張子との対応を持たない**。したがって
-/// 「`jsonc` と `json` を宣言し `jsonc` 用テストだけ登録した」状態は、現行スキーマでは
-/// 検出できない。これは本検査の実装漏れではなく**契約そのもの**である
-/// (`config/custom-lint-rules.toml` の順位 137 由来コメント: 非主要拡張子は
-/// 「rule あたり 1+ positive test」)。
-///
-/// 拡張子ごとの検証へ強化するには `other_ext_tests` を map 化するスキーマ移行が要り、
-/// 既存 rule の設定をすべて書き換えることになるため**順位 498 として別起票した**。
-/// 本テストは、その移行が入るまでの契約を明示し、意図せず緩んだ / 強まった場合に落とす。
+/// 旧契約は「rule あたり 1 件」で、`jsonc` と `json` を宣言し `jsonc` 用テストだけを
+/// 登録した rule が検査を通っていた (CodeRabbit #461)。拡張子は宣言ではなくテスト本体から
+/// 読むので、`json` を通すテストが無い限り落ちる。
 #[cfg(test)]
 #[test]
-fn non_main_extension_coverage_is_per_rule_not_per_extension() {
+fn non_main_extension_coverage_is_per_extension() {
     let rule = rule_with_extensions_and_coverage(
         "two-non-main-extensions",
         &["jsonc", "json"],
         CustomRuleTestCoverage {
             main_ext_tests: std::collections::BTreeMap::new(),
-            other_ext_tests: vec!["one_test_for_both".to_string()],
+            other_ext_tests: vec!["x_detects_in_jsonc".to_string()],
         },
     );
-    assert!(
-        extension_coverage_gaps(&rule).is_empty(),
-        "非主要拡張子 2 つに対しテスト 1 件は現行契約では充足 (順位 498 で強化予定)"
-    );
-
-    let uncovered = rule_with_extensions_and_coverage(
-        "two-non-main-extensions-uncovered",
-        &["jsonc", "json"],
-        CustomRuleTestCoverage::default(),
-    );
-    let gaps = extension_coverage_gaps(&uncovered);
-    assert_eq!(gaps.len(), 2, "0 件なら拡張子ごとに不足を報告する: {gaps:?}");
+    let bodies: std::collections::HashMap<String, String> = [(
+        "x_detects_in_jsonc".to_string(),
+        r#"write_file(dir.path(), "a.jsonc", "x")"#.to_string(),
+    )]
+    .into();
+    let gaps = extension_coverage_gaps(&rule, &bodies);
+    assert_eq!(gaps.len(), 1, "{gaps:?}");
+    assert!(gaps[0].contains("`json`"), "{gaps:?}");
 }
