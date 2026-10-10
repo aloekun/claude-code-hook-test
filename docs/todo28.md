@@ -133,3 +133,43 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 
 - トリガーが観測されて再評価し、移行する / しないの判断と根拠が rule㉕ のコメントか ADR-007 に記録されている
 - または、トリガーが観測されないまま次の月次 ROI レビュー (ADR-062) 2 回分を経過し、本行を削除した
+
+## PR D (順位 498) の作業から起票 (2026-10-11)
+
+### 順位 534: rule を書き写したテストを設定ファイル読み込みへ移し、写経の再発を検査で止める
+
+> **動機**: custom lint rule のテストの一部は、`config/custom-lint-rules.toml` の rule ではなく、
+> テスト内に書き写したコピー (`make_test_rule("<rule id>", "<pattern>", &[<拡張子>])`) を検査している。
+> コピーと設定ファイルがずれても、テストは green のまま残る。これは
+> [ADR-081](adr/adr-081-single-fact-dispersion.md) の写経禁止に反し、PR #507 で実際に踏んだ形でもある
+> (新しめのテストファイルは既に設定ファイルを読む方式で、古いファイルだけが取り残されている)。
+>
+> 2026-10-10 の実測では 25 rule 中 16 rule がコピー方式だった。設定ファイルと比べると、ずれていたのは
+> `no-console-log` の 1 件 (pattern と拡張子の両方)。順位 498 (PR D) で、非主要拡張子の coverage を
+> 数えるテストを持つ 9 rule を移行した (`no-console-log` はテストを書き直した)。**本行は残りの移行と
+> 再発防止を扱う。**
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — 2026-10-10 時点で残りのコピーは設定ファイルと一致しており、実害は無い。
+
+#### 作業計画 (2 段。順序を守る)
+
+1. **残りのコピーを設定ファイル読み込みへ移す**。2026-10-10 時点の対象:
+   - 主要拡張子側の 7 rule: `no-time-field-strict-greater` / `no-write-result-discard` /
+     `takt-workflow-persona-without-model` / `no-hardcoded-jj-revset-range` / `no-unbounded-child-wait` /
+     `no-weak-temp-uniqueness` / `no-manual-hooks-config-path`
+   - `deployed_tests.rs` に残るコピー (`no-ephemeral-todo-reference` / `no-write-result-discard` /
+     `takt-workflow-persona-without-model`)
+   - 着手時に `make_test_rule` の呼び出しを全件洗い出し、設定ファイルにある rule id を作っているものを
+     数え直す (上の一覧は 2026-10-10 の静的な照合で、pattern を実行時に組み立てる呼び出しは見落としうる)
+   - `rule_from_repo_config` は [ADR-084](adr/adr-084-test-helper-no-sharing.md) に従いファイルごとに複製する
+2. **1 が全部終わってから**、設定ファイルにある rule id を `make_test_rule` で作ったら落とす検査を足す。
+   途中で入れると、残っているコピーで CI が落ちる。検査を正規表現で済ませられるかは、実際の呼び出し方
+   (id を定数経由で渡す / 呼び出しが複数行にまたがる / コメントや説明文字列に id が出る) を確かめてから
+   決める。呼び出し方が限られていれば、Rust の構文解析までは導入しない
+
+#### 完了基準
+
+- 設定ファイルにある rule を、テスト側で書き写しているテストが 0 件であること
+- 書き写しを足すと CI が落ちること (検査を外す変異で確認する)

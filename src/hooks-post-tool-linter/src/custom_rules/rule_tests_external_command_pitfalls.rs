@@ -235,3 +235,38 @@ fn ref_push_detects_shell_force_in_sh() {
     let src = concat!("git pu", "sh --force origin HEAD:main\n");
     assert_eq!(violation_lines(REF_PUSH, "sh", src), vec![1]);
 }
+
+// ─── 宣言した非主要拡張子ごとの検出テスト (順位 498) ───
+//
+// rule は mjs と同じ書き方を js / ts でも検出する。拡張子ごとに 1 件ずつ置くのは、
+// coverage 検査が「その拡張子のファイルを通す検出テスト」を拡張子ごとに要求するため。
+
+#[test]
+fn gh_json_files_detects_args_array_in_js() {
+    let src = concat!("const r = spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--js", "on\", \"files\"]);\n");
+    assert_eq!(violation_lines(GH_FILES, "js", src), vec![1]);
+}
+
+#[test]
+fn gh_json_files_detects_args_array_in_ts() {
+    let src = concat!("const r = spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--js", "on\", \"files\"]);\n");
+    assert_eq!(violation_lines(GH_FILES, "ts", src), vec![1]);
+}
+
+#[test]
+fn gh_json_files_detects_shell_form_in_sh() {
+    let src = concat!("gh pr view \"$PR\" --js", "on files,title > out.json\n");
+    assert_eq!(violation_lines(GH_FILES, "sh", src), vec![1]);
+}
+
+#[test]
+fn ref_push_detects_delete_in_js_args_array() {
+    let src = concat!("spawnSync(\"git\", [\"pu", "sh\", \"origin\", \"--delete\", branch]);\n");
+    assert_eq!(violation_lines(REF_PUSH, "js", src), vec![1]);
+}
+
+#[test]
+fn ref_push_detects_delete_in_ts_args_array() {
+    let src = concat!("spawnSync(\"git\", [\"pu", "sh\", \"origin\", \"--delete\", branch]);\n");
+    assert_eq!(violation_lines(REF_PUSH, "ts", src), vec![1]);
+}

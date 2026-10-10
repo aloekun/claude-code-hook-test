@@ -588,3 +588,60 @@ fn md_no_docs_relative_detects_root_readme_back_reference() {
     let violations = run_custom_rules(file.to_str().unwrap(), &rules);
     assert_eq!(violations.len(), 1);
 }
+
+/// 宣言した非主要拡張子ごとに、`run_custom_rules` で検出されることを数える。
+fn violation_count(rule_id: &str, file: &std::path::Path, content: &str) -> usize {
+    std::fs::write(file, content).unwrap();
+    let rules = compile_test_rules(vec![rule_from_repo_config(rule_id)]);
+    run_custom_rules(file.to_str().unwrap(), &rules).len()
+}
+
+/// rule① (no-console-log) は ts / tsx / js / jsx を宣言している。config の pattern
+/// (`console\.\s*log\s*\(`) で、4 つの拡張子それぞれが検出されること (順位 498)。
+///
+/// 以前の宣言テストは検査エンジンの汎用テスト (`run_custom_rules_detects_console_log`) で、
+/// テスト内で作った別の pattern (`console\.log\(`) と `ts` だけを使っていた。
+#[test]
+fn no_console_log_detects_in_every_declared_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    for file in [
+        write_file(dir.path(), "a.ts", ""),
+        write_file(dir.path(), "b.tsx", ""),
+        write_file(dir.path(), "c.js", ""),
+        write_file(dir.path(), "d.jsx", ""),
+    ] {
+        let found = violation_count("no-console-log", &file, "const x = 1;\nconsole.log('debug');\n");
+        assert_eq!(found, 1, "{} で検出されない", file.display());
+    }
+}
+
+/// config の pattern は `.` と `(` の前後の空白を許す。書き写した pattern では検出できなかった形。
+#[test]
+fn no_console_log_detects_whitespace_around_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "spaced.ts", "");
+    assert_eq!(violation_count("no-console-log", &file, "console. log ('debug');\n"), 1);
+}
+
+/// rule (no-ephemeral-todo-reference) は rs / toml / yaml / yml のほかに 8 つの非主要拡張子を
+/// 宣言している。それぞれで検出されること (順位 498)。参照先のファイル名はテスト本体に
+/// 直書きしない (この .rs 自体が rule の対象なので、直書きすると自分が検出される)。
+#[test]
+fn no_ephemeral_todo_detects_in_every_non_main_extension() {
+    let stem = "todo";
+    let content = format!("see docs/{stem}3.md\n");
+    let dir = tempfile::tempdir().unwrap();
+    for file in [
+        write_file(dir.path(), "a.jsonc", ""),
+        write_file(dir.path(), "b.json", ""),
+        write_file(dir.path(), "c.ts", ""),
+        write_file(dir.path(), "d.tsx", ""),
+        write_file(dir.path(), "e.js", ""),
+        write_file(dir.path(), "f.jsx", ""),
+        write_file(dir.path(), "g.py", ""),
+        write_file(dir.path(), "h.ps1", ""),
+    ] {
+        let found = violation_count("no-ephemeral-todo-reference", &file, &content);
+        assert_eq!(found, 1, "{} で検出されない", file.display());
+    }
+}
