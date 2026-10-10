@@ -5,7 +5,7 @@
 //! per-module で複製している (sibling module 間で共有しない)。
 
 use super::engine::{compile_rule, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix};
+use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix, CustomRulesConfig};
 
 fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
     CustomRule {
@@ -42,12 +42,29 @@ fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pa
     file
 }
 
+/// **pattern / extensions を写経しない。** `config/custom-lint-rules.toml` から rule を丸ごと
+/// 読む (ADR-081)。テスト側にコピーを置くと、config だけを直したときに古い定義を検証し続けて
+/// green のままになる。見つからなければ panic する (fail-closed)。順位 498 で、
+/// `other_ext_tests` を持つ rule のコピーをこちらへ移した。ADR-084 に従いファイルごとに複製する。
+fn rule_from_repo_config(id: &str) -> CustomRule {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("config")
+        .join("custom-lint-rules.toml");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
+    let config: CustomRulesConfig = toml::from_str(&content)
+        .unwrap_or_else(|e| panic!("parse {} failed: {e}", path.display()));
+    config
+        .rules
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("rule '{id}' not found in {}", path.display()))
+}
+
 fn no_personal_paths_rule() -> CustomRule {
-    make_test_rule(
-        "no-personal-paths",
-        r"C:\\Users\\[A-Za-z][A-Za-z0-9_-]+\\|/home/[a-z][a-z0-9_-]+/",
-        &["md", "txt"],
-    )
+    rule_from_repo_config("no-personal-paths")
 }
 
 #[test]
@@ -90,7 +107,7 @@ fn no_personal_paths_skips_placeholder_paths() {
 }
 
 fn ps_empty_catch_rule() -> CustomRule {
-    make_test_rule("no-empty-powershell-catch", r"(?i)catch\s*\{\s*\}", &["ps1"])
+    rule_from_repo_config("no-empty-powershell-catch")
 }
 
 #[test]
@@ -167,11 +184,7 @@ fn ps_empty_catch_detects_multiline_block() {
 }
 
 fn ps_silent_error_rule() -> CustomRule {
-    make_test_rule(
-        "no-silent-error-action",
-        r"(?i)-ErrorAction\s+SilentlyContinue",
-        &["ps1"],
-    )
+    rule_from_repo_config("no-silent-error-action")
 }
 
 #[test]
@@ -240,7 +253,7 @@ fn ps_silent_error_detects_mixed_case() {
 }
 
 fn md_mutable_anchor_rule() -> CustomRule {
-    make_test_rule("no-mutable-anchor", r"\]\([^)#:]*#[^\x00-\x7F)]+", &["md"])
+    rule_from_repo_config("no-mutable-anchor")
 }
 
 #[test]
@@ -482,7 +495,7 @@ fn rs_time_field_strict_greater_only_targets_rs() {
 }
 
 fn md_no_docs_relative_back_to_docs_rule() -> CustomRule {
-    make_test_rule("no-docs-relative-back-to-docs", r"(?i)\]\(\.\./docs/", &["md"])
+    rule_from_repo_config("no-docs-relative-back-to-docs")
 }
 
 #[test]

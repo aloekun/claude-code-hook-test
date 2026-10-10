@@ -4,7 +4,7 @@
 //! per-module で複製している (sibling module 間で共有しない)。
 
 use super::engine::{compile_rule, rule_matches_path, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix};
+use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix, CustomRulesConfig};
 
 fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
     CustomRule {
@@ -41,16 +41,29 @@ fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pa
     file
 }
 
+/// **pattern / extensions を写経しない。** `config/custom-lint-rules.toml` から rule を丸ごと
+/// 読む (ADR-081)。テスト側にコピーを置くと、config だけを直したときに古い定義を検証し続けて
+/// green のままになる。見つからなければ panic する (fail-closed)。順位 498 で、
+/// `other_ext_tests` を持つ rule のコピーをこちらへ移した。ADR-084 に従いファイルごとに複製する。
+fn rule_from_repo_config(id: &str) -> CustomRule {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("config")
+        .join("custom-lint-rules.toml");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
+    let config: CustomRulesConfig = toml::from_str(&content)
+        .unwrap_or_else(|e| panic!("parse {} failed: {e}", path.display()));
+    config
+        .rules
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("rule '{id}' not found in {}", path.display()))
+}
+
 fn no_ephemeral_todo_reference_rule() -> CustomRule {
-    let stem = "todo";
-    let pattern = format!(r"(?i)docs/{stem}[0-9]*\.md");
-    make_test_rule(
-        "no-ephemeral-todo-reference",
-        &pattern,
-        &[
-            "rs", "toml", "jsonc", "json", "yaml", "yml", "ts", "tsx", "js", "jsx", "py", "ps1",
-        ],
-    )
+    rule_from_repo_config("no-ephemeral-todo-reference")
 }
 
 fn build_concrete_digit_fixture(digit: u32) -> String {
@@ -399,11 +412,7 @@ fn no_write_result_discard_only_targets_rust_extension() {
 }
 
 fn no_jj_template_first_line_rule() -> CustomRule {
-    make_test_rule(
-        "no-jj-template-first-line",
-        r"description\.first_line\(\)",
-        &["toml", "yaml", "md"],
-    )
+    rule_from_repo_config("no-jj-template-first-line")
 }
 
 fn build_first_line_fixture(label: &str) -> String {
@@ -547,11 +556,7 @@ fn no_hardcoded_jj_revset_range_skips_other_branch_literal() {
 /// 連番リテラルは helper 側で組み立てる。テスト本体に直書きすると、この `.rs` 自体は
 /// rule の対象拡張子外とはいえ、同じ形の文字列が repo 内へ増えて grep の見通しが悪くなる。
 fn no_workstream_seq_names_in_config_rule() -> CustomRule {
-    make_test_rule(
-        "no-workstream-seq-names-in-config",
-        r"\bPR-[0-9]+\b",
-        &["toml", "yaml", "yml", "jsonc"],
-    )
+    rule_from_repo_config("no-workstream-seq-names-in-config")
 }
 
 /// `PR-<seq>` 形式 (= 検出対象) のコメント行。
