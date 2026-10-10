@@ -519,6 +519,39 @@ mod tests {
                 message.chars().count(),
             );
         }
+
+        /// 行を載せるエラー経路は 3 つある (順位を読めない行 / 区切り行の無いヘッダ行 /
+        /// 順位列の無いデータ行)。上の 2 テストは 1 つ目しか通らないので、残り 2 つも
+        /// 切れることを固定する (順位 485 — 経路の一部しかテストしない形を繰り返さない)。
+        #[test]
+        fn a_very_long_header_without_separator_is_truncated_too() {
+            let long_header = "見".repeat(400);
+            let message = error_of(&format!(
+                "| 順位 | Tier | タスク | {long_header} |\n| 203 | T2 | x | y |\n"
+            ));
+            assert!(message.contains("区切り行がありません"), "{message}");
+            assert!(message.contains("以下略"), "{message}");
+            assert!(
+                message.chars().count() < long_header.chars().count(),
+                "ヘッダ行がそのまま出ている: {} 文字",
+                message.chars().count(),
+            );
+        }
+
+        #[test]
+        fn a_very_long_row_without_the_rank_column_is_truncated_too() {
+            let long_cell = "欠".repeat(400);
+            let message = error_of(&format!(
+                "| Tier | タスク | 順位 |\n|---|---|---|\n| {long_cell} |\n"
+            ));
+            assert!(message.contains("順位列がありません"), "{message}");
+            assert!(message.contains("以下略"), "{message}");
+            assert!(
+                message.chars().count() < long_cell.chars().count(),
+                "行がそのまま出ている: {} 文字",
+                message.chars().count(),
+            );
+        }
     }
 
     /// 順位 220 以降は 2 つ目のファイルにある。呼び手が和集合を取ることを前提に、
