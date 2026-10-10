@@ -5,7 +5,7 @@
 //! per-module で複製している (sibling module 間で共有しない)。
 
 use super::engine::{compile_rule, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix};
+use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix, CustomRulesConfig};
 
 fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
     CustomRule {
@@ -42,12 +42,29 @@ fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pa
     file
 }
 
+/// **pattern / extensions を写経しない。** `config/custom-lint-rules.toml` から rule を丸ごと
+/// 読む (ADR-081)。テスト側にコピーを置くと、config だけを直したときに古い定義を検証し続けて
+/// green のままになる。見つからなければ panic する (fail-closed)。順位 498 で、
+/// `other_ext_tests` を持つ rule のコピーをこちらへ移した。ADR-084 に従いファイルごとに複製する。
+fn rule_from_repo_config(id: &str) -> CustomRule {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("config")
+        .join("custom-lint-rules.toml");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
+    let config: CustomRulesConfig = toml::from_str(&content)
+        .unwrap_or_else(|e| panic!("parse {} failed: {e}", path.display()));
+    config
+        .rules
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("rule '{id}' not found in {}", path.display()))
+}
+
 fn no_personal_paths_rule() -> CustomRule {
-    make_test_rule(
-        "no-personal-paths",
-        r"C:\\Users\\[A-Za-z][A-Za-z0-9_-]+\\|/home/[a-z][a-z0-9_-]+/",
-        &["md", "txt"],
-    )
+    rule_from_repo_config("no-personal-paths")
 }
 
 #[test]
@@ -90,7 +107,7 @@ fn no_personal_paths_skips_placeholder_paths() {
 }
 
 fn ps_empty_catch_rule() -> CustomRule {
-    make_test_rule("no-empty-powershell-catch", r"(?i)catch\s*\{\s*\}", &["ps1"])
+    rule_from_repo_config("no-empty-powershell-catch")
 }
 
 #[test]
@@ -167,11 +184,7 @@ fn ps_empty_catch_detects_multiline_block() {
 }
 
 fn ps_silent_error_rule() -> CustomRule {
-    make_test_rule(
-        "no-silent-error-action",
-        r"(?i)-ErrorAction\s+SilentlyContinue",
-        &["ps1"],
-    )
+    rule_from_repo_config("no-silent-error-action")
 }
 
 #[test]
@@ -240,7 +253,7 @@ fn ps_silent_error_detects_mixed_case() {
 }
 
 fn md_mutable_anchor_rule() -> CustomRule {
-    make_test_rule("no-mutable-anchor", r"\]\([^)#:]*#[^\x00-\x7F)]+", &["md"])
+    rule_from_repo_config("no-mutable-anchor")
 }
 
 #[test]
@@ -482,7 +495,7 @@ fn rs_time_field_strict_greater_only_targets_rs() {
 }
 
 fn md_no_docs_relative_back_to_docs_rule() -> CustomRule {
-    make_test_rule("no-docs-relative-back-to-docs", r"(?i)\]\(\.\./docs/", &["md"])
+    rule_from_repo_config("no-docs-relative-back-to-docs")
 }
 
 #[test]
@@ -574,4 +587,61 @@ fn md_no_docs_relative_detects_root_readme_back_reference() {
     let rules = compile_test_rules(vec![md_no_docs_relative_back_to_docs_rule()]);
     let violations = run_custom_rules(file.to_str().unwrap(), &rules);
     assert_eq!(violations.len(), 1);
+}
+
+/// 宣言した非主要拡張子ごとに、`run_custom_rules` で検出されることを数える。
+fn violation_count(rule_id: &str, file: &std::path::Path, content: &str) -> usize {
+    std::fs::write(file, content).unwrap();
+    let rules = compile_test_rules(vec![rule_from_repo_config(rule_id)]);
+    run_custom_rules(file.to_str().unwrap(), &rules).len()
+}
+
+/// rule① (no-console-log) は ts / tsx / js / jsx を宣言している。config の pattern
+/// (`console\.\s*log\s*\(`) で、4 つの拡張子それぞれが検出されること (順位 498)。
+///
+/// 以前の宣言テストは検査エンジンの汎用テスト (`run_custom_rules_detects_console_log`) で、
+/// テスト内で作った別の pattern (`console\.log\(`) と `ts` だけを使っていた。
+#[test]
+fn no_console_log_detects_in_every_declared_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    for file in [
+        write_file(dir.path(), "a.ts", ""),
+        write_file(dir.path(), "b.tsx", ""),
+        write_file(dir.path(), "c.js", ""),
+        write_file(dir.path(), "d.jsx", ""),
+    ] {
+        let found = violation_count("no-console-log", &file, "const x = 1;\nconsole.log('debug');\n");
+        assert_eq!(found, 1, "{} で検出されない", file.display());
+    }
+}
+
+/// config の pattern は `.` と `(` の前後の空白を許す。書き写した pattern では検出できなかった形。
+#[test]
+fn no_console_log_detects_whitespace_around_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write_file(dir.path(), "spaced.ts", "");
+    assert_eq!(violation_count("no-console-log", &file, "console. log ('debug');\n"), 1);
+}
+
+/// rule (no-ephemeral-todo-reference) は rs / toml / yaml / yml のほかに 8 つの非主要拡張子を
+/// 宣言している。それぞれで検出されること (順位 498)。参照先のファイル名はテスト本体に
+/// 直書きしない (この .rs 自体が rule の対象なので、直書きすると自分が検出される)。
+#[test]
+fn no_ephemeral_todo_detects_in_every_non_main_extension() {
+    let stem = "todo";
+    let content = format!("see docs/{stem}3.md\n");
+    let dir = tempfile::tempdir().unwrap();
+    for file in [
+        write_file(dir.path(), "a.jsonc", ""),
+        write_file(dir.path(), "b.json", ""),
+        write_file(dir.path(), "c.ts", ""),
+        write_file(dir.path(), "d.tsx", ""),
+        write_file(dir.path(), "e.js", ""),
+        write_file(dir.path(), "f.jsx", ""),
+        write_file(dir.path(), "g.py", ""),
+        write_file(dir.path(), "h.ps1", ""),
+    ] {
+        let found = violation_count("no-ephemeral-todo-reference", &file, &content);
+        assert_eq!(found, 1, "{} で検出されない", file.display());
+    }
 }

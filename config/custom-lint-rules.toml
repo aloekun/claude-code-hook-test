@@ -49,8 +49,12 @@ good = "logger.debug('user data:', userData);"
 
 [rules.test_coverage]
 # rule① は ts/tsx/js/jsx (= 全て非主要拡張子) のため other_ext_tests のみ。
-# 順位 137 の必須カバレッジは「rule あたり 1+ positive test」(主要拡張子 = rs/toml/yaml/yml)。
-other_ext_tests = ["run_custom_rules_detects_console_log"]
+# 非主要拡張子は拡張子ごとに、そのファイルを通す検出テスト (名前に detects) が 1+ 要る
+# (順位 498。拡張子はテスト本体から読む — 判定は coverage_ext.rs)。
+other_ext_tests = [
+  "no_console_log_detects_in_every_declared_extension",
+  "no_console_log_detects_whitespace_around_log",
+]
 
 # ─── ルール②: 個人を特定する絶対パス禁止 (PII) ───
 #
@@ -299,7 +303,10 @@ adr = "adr-007"
 [rules.test_coverage]
 # rule⑥ は主要拡張子 4 つ (rs/toml/yaml/yml) + 非主要 8 つを extensions に含む。
 # 順位 137 PR で yaml/yml の test gap を補填 (positive 2 + negative 1 新規追加)。
-other_ext_tests = ["no_ephemeral_todo_only_targets_listed_extensions_md_skipped"]
+other_ext_tests = [
+  "no_ephemeral_todo_detects_in_every_non_main_extension",
+  "no_ephemeral_todo_only_targets_listed_extensions_md_skipped",
+]
 
 [rules.test_coverage.main_ext_tests]
 rs = [
@@ -1132,7 +1139,13 @@ adr = "adr-007"
 [rules.test_coverage]
 # rule⑲ は rs / yml / yaml (主要拡張子) と mjs / js / ts / sh (非主要)。引数配列 (同一行 /
 # 複数行) とシェル文字列の positive、`changedFiles` / 他フィールド / コメント内の言及の negative。
-other_ext_tests = ["gh_json_files_detects_args_array_in_mjs", "gh_json_files_skips_shell_comment_in_sh"]
+other_ext_tests = [
+  "gh_json_files_detects_args_array_in_mjs",
+  "gh_json_files_detects_args_array_in_js",
+  "gh_json_files_detects_args_array_in_ts",
+  "gh_json_files_detects_shell_form_in_sh",
+  "gh_json_files_skips_shell_comment_in_sh",
+]
 
 [rules.test_coverage.main_ext_tests]
 rs = [
@@ -1196,7 +1209,12 @@ adr = "adr-007"
 # rule⑳ は rs / yml / yaml (主要) と mjs / js / ts / sh (非主要)。削除 (--delete / -d /
 # :refspec) と強制更新 (--force / -f / +refspec) を配列・シェルの両形で positive、lease 付き /
 # --force-with-lease の部分一致 / jj git push --deleted / コメント行 / 継続行の lease を negative。
-other_ext_tests = ["ref_push_detects_delete_in_mjs_args_array", "ref_push_detects_shell_force_in_sh"]
+other_ext_tests = [
+  "ref_push_detects_delete_in_mjs_args_array",
+  "ref_push_detects_delete_in_js_args_array",
+  "ref_push_detects_delete_in_ts_args_array",
+  "ref_push_detects_shell_force_in_sh",
+]
 
 [rules.test_coverage.main_ext_tests]
 rs = [
@@ -1269,6 +1287,8 @@ adr = "adr-007"
 # positive、--repo / -R / gh api / コメント行の negative。
 other_ext_tests = [
   "gh_without_repo_detects_spawn_sync_pr_view",
+  "gh_without_repo_detects_spawn_sync_pr_view_in_js",
+  "gh_without_repo_detects_spawn_sync_pr_view_in_ts",
   "gh_without_repo_detects_multiline_args",
   "gh_without_repo_detects_wrapper_call",
   "gh_without_repo_skips_repo_flag",
@@ -1332,6 +1352,7 @@ adr = "adr-007"
 # コメント行の negative。
 other_ext_tests = [
   "network_spawn_detects_gh_without_timeout",
+  "network_spawn_detects_gh_without_timeout_in_js",
   "network_spawn_detects_git_fetch_without_timeout",
   "network_spawn_detects_git_dash_c_ls_remote",
   "network_spawn_detects_exec_file_sync",

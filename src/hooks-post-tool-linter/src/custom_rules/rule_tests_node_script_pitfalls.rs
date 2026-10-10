@@ -204,3 +204,26 @@ fn network_spawn_skips_comment_line() {
     let src = "// spawnSync(\"gh\", [\"pr\", \"list\"]) は timeout 無しだと止まる\nconst x = 1;\n";
     assert!(violation_lines(SPAWN_TIMEOUT, "mjs", src).is_empty());
 }
+
+// ─── 宣言した非主要拡張子ごとの検出テスト (順位 498) ───
+//
+// rule は mjs と同じ書き方を js / ts でも検出する。拡張子ごとに 1 件ずつ置くのは、
+// coverage 検査が「その拡張子のファイルを通す検出テスト」を拡張子ごとに要求するため。
+
+#[test]
+fn gh_without_repo_detects_spawn_sync_pr_view_in_js() {
+    let src = "const r = spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--json\", \"state\"], { timeout: T });\n";
+    assert_eq!(violation_lines(GH_REPO, "js", src), vec![1]);
+}
+
+#[test]
+fn gh_without_repo_detects_spawn_sync_pr_view_in_ts() {
+    let src = "const r = spawnSync(\"gh\", [\"pr\", \"view\", pr, \"--json\", \"state\"], { timeout: T });\n";
+    assert_eq!(violation_lines(GH_REPO, "ts", src), vec![1]);
+}
+
+#[test]
+fn network_spawn_detects_gh_without_timeout_in_js() {
+    let src = "const r = spawnSync(\"gh\", [\"pr\", \"list\", \"--repo\", REPO], { encoding: \"utf8\" });\n";
+    assert_eq!(violation_lines(SPAWN_TIMEOUT, "js", src), vec![1]);
+}

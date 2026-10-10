@@ -64,7 +64,6 @@
 | 495 | Tier 2 | **`lib-*` crate の責務分類基準が ADR-012 に無い** | todo25.md | S | なし (週次レビュー WR-2026-08-22-A04、severity=medium、facet=architecture、category=module-boundary) |
 | 496 | Tier 2 | **docs の 50KB 超過 3 ファイルを物理分割する** | todo25.md | M | なし (2026-08-22 週次レビューの決定論 scan 由来。`todo-summary2.md` は優先度表 1 枚のため節ではなく順位で切る必要がある) |
 | 497 | Tier 2 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |
-| 498 | Tier 2 | **非主要拡張子の coverage を拡張子ごとに要求する (`other_ext_tests` の map 化)** | todo25.md | M | なし (PR #461 の CodeRabbit 指摘由来。現行契約は「rule あたり 1+ test」で、その契約自体は `non_main_extension_coverage_is_per_rule_not_per_extension` が固定済み) |
 | 503 | Tier 2 | **[improvement] doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)** | todo26.md | M | なし (PR #456 / #464 feedback。実際に壊れた観測はまだ無く、予防のための検査) |
 | 504 | Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
 | 506 | Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
@@ -87,6 +86,7 @@
 | 531 | Tier 3 | **[improvement] Stop hook と push gate の二重検査を意図した二層として明文化する** | todo28.md | S | なし (2026-09-28 採番。WR-2026-07-01-A01 を「両方残す」で決着 = ユーザー判断。ADR-004 への役割追記と push-runner-config の古いコメント修正。これに依存していた順位 522 は前提誤りで取り下げ。Stop の Rust は clippy だけで全体約 2 秒 (ADR-004 WP-05 の実測) のため、docs-only で飛ばしても 1 秒未満しか縮まない) |
 | 532 | Tier 3 | **[improvement] analyze-coderabbit facet の「Windows only」前提を Linux 対応後の実態に合わせる** | todo28.md | S | なし (2026-09-28 の仕分け中に発見。ADR-063 / 065 の後も cross-platform 指摘を Info へ落とす規則が残る。正当な指摘が落とされた事例はまず探す) |
 | 533 | ⏳ Tier 5 | **[improvement] allow-without-reason を属性単位の判定 (構文ベース) へ移す再評価 (トリガー付きの見送り follow-up)** | todo28.md | S | なし (2026-10-08、PR #548 CodeRabbit 指摘への判断で見送り。同じ行の 2 つ目以降 / 他のコードの後ろの allow 属性は rule㉕ の意図的な対象外。再評価トリガー: 対象外の形が rg で 1 件以上見つかる / 1 行に複数 allow を認める方針になる / 同種の属性 rule で同じ限界が問題になる) |
+| 534 | Tier 3 | **[improvement] rule を書き写したテストを設定ファイル読み込みへ移し、写経の再発を検査で止める** | todo28.md | M | なし (2026-10-11、順位 498 の作業で判明。25 rule 中 16 rule のテストが rule のコピーを検査していた (ADR-081 違反)。順位 498 で 9 rule を移行済み。残り 7 rule + `deployed_tests.rs` のコピーを移してから、写経を落とす検査を足す。順序を逆にすると CI が落ちる) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

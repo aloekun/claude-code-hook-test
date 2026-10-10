@@ -3,6 +3,7 @@
 //! - [`types`] : `CustomRule` / `CustomRulesConfig` / `CompiledRule` 等の TOML schema
 //! - [`engine`]: regex compile / matching / `run_custom_rules`
 //! - [`coverage`]: `rule_test_coverage_check` 機械検証 (deploy 済 TOML の test_coverage meta)
+//! - [`coverage_ext`]: 非主要拡張子の coverage をテスト本体から拡張子ごとに判定する純関数群 (順位 498)
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_allow_without_reason`]: rule㉕ (allow-without-reason) の tests
@@ -20,6 +21,8 @@
 //!   deployed artifact に対する regression seal tests
 
 pub(crate) mod coverage;
+#[cfg(test)]
+mod coverage_ext;
 pub(crate) mod engine;
 pub(crate) mod types;
 
