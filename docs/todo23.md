@@ -23,41 +23,8 @@
 > **44 件を系統ごとに統合して 7 タスクへ落とした**。類似提案を 1 タスクにまとめるのは、同じ fixture 基盤・同じ文書へ別々に着手すると実装が重複するため。統合の内訳は各エントリの「統合した提案」に記す。
 >
 > **系統 1 (決定論的検査) は 9 件中 4 件のみ採用。** 残り 5 件 (rustdoc link 検査 / finding_id 埋込検知 / Actions outcome 検査 / serial numbering CI / dry-run gate) は、本セッションで実害が観測されておらず、推測で lint を増やすと誤検出と保守コストが先に来るため見送った。
-
-### 順位 456: workflow の guard なし `git commit` を検知する
-
-> **動機**: [#406](https://github.com/aloekun/claude-code-hook-test/pull/406) で **Critical を 2 度**踏んだ。(1) pathspec 無しの `git commit` が Guard step の `git add -A` で stage された全ツリーを取り込み、後段の commit が空になって **PR が 1 つも作られなくなる**。(2) ステージが空の場合に無条件 commit が非ゼロで落ち、検証済みの実装ごと job が落ちる。どちらも「単体では正しいが前後の文脈で破綻する」型で、レビューが無ければ夜間ループが停止していた。
 >
-> **統合した提案**: workflow YAML の conditional-output step で guard なし `git commit` を検出 (#406 Tier1 #5)、workflow の git-index パターン文書化 (#406 Tier3 #1 の機械強制部分)。
->
-> **参照**: `.claude/feedback-reports/406.md`
->
-> **実行優先度**: **Tier 1** — Severity High / Frequency Low / Effort S / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- 既存 rule⑨ (`takt-workflow-persona-without-model`) が `.takt/workflows/*.yaml` を対象にしているのと同じ形で、`.github/workflows/*.yml` を対象にした rule を足す
-- 検出対象は「`git commit` に pathspec (`-- <path>`) も `--allow-empty` も先行 guard も無い」形
-- ただし **guard の有無を regex で判定できるかは未確認**。判定できなければ検出条件を
-  「pathspec の有無だけ」に狭める。**その場合は完了基準も同じ条件へ揃えること** —
-  検出条件と完了基準がずれていると、実装した本人が「基準を満たしていない」と誤判定する
-
-#### 作業計画
-
-- [ ] 現行 workflow の `git commit` を全件洗い、どの形なら安全と言えるかを決める
-- [ ] guard を regex で判定できるかを実測し、**検出条件を確定させる**
-- [ ] 確定した条件に合わせて本エントリの完了基準を書き換える
-- [ ] rule 化して fixture 3 点セット + dogfood
-- [ ] 意図的に pathspec を外して赤くなることを実測する
-
-#### 完了基準
-
-- **着手時に確定させた検出条件**を満たさない `git commit` を workflow へ足すと、その場で止まる
-  (検出条件は「pathspec 無し」か「pathspec も guard も無し」のいずれか。上の作業計画で確定させる)
-
-#### 詰まっている箇所
-
-なし
+> **順位 456 (workflow の guard なし `git commit` の検知) は 2026-10-11 に見送って削除した** (YAGNI)。同日の実測で、workflow の commit 3 か所はすべて guard 済みだった。`nightly-todo.yml` の 2 か所は step 内の確認 (pathspec `-- docs` + ステージ有無の確認 / `diff --cached --quiet`) で、#406 の Critical 2 件の修正そのもの。`pr-monitor.yml` の Phase B の commit は step 内に確認が無いが、直前の `cli-fix-push-gate` がステージ内容の要約が空なら `empty-fix-diff` で拒否し、ゲート通過から commit までの間にステージを書き換える step も無い。lint で将来の追加を止める必要性は実害が観測されてから判断する (再び踏んだら改めて起票する)。
 
 ### 順位 458: `cli-ledger-cleanup` の統合テスト suite
 
