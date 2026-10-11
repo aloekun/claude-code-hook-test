@@ -39,7 +39,7 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 | 操作 | 根拠 |
 |---|---|
 | docs-only 変更（[ADR-035](adr-035-doc-evaluation-policy.md) の path 基準 + diff 内容基準） | 実行されないテキスト変更。revert 容易 |
-| Tier 3 cleanup（todo taxonomy の 💎 Tier 3 = 低リスクな機械的 refactor / doc / rule / visibility scoping 等） | 意図表現を侵さない局所変更。revert 容易 |
+| Tier 3 cleanup（todo taxonomy の Tier 3 = 低リスクな機械的 refactor / doc / rule / visibility scoping 等） | 意図表現を侵さない局所変更。revert 容易 |
 | `claude/` prefix ブランチへの push | trunk ではない隔離 namespace。ブランチ push は revert 可能で、まだ PR として外部にコミットされていない |
 | `claude/` ブランチからの **PR 作成**（draft / 非 draft を問わない = **autonomous-pr クラス**） | 「無人実装 → 人間レビューへの handoff 点」として設計上の停止地点になる。close は容易で、マージしない限り trunk に影響しない。**背圧（原則 5）の接続が有効化の前提条件** |
 | **自分が作った `claude/` ブランチの削除**（**PR が紐づくものに限る**。closed / merged を問わない） | `claude/**` 空間内で trunk に影響しない。PR があれば成果物と diff は PR 上に残り、GitHub の **Restore branch** で復元できる。PR が紐づく = 人間が close か merge かの判断を済ませたもの（[ADR-072](adr-072-nightly-todo-loop.md) 決定 20） |

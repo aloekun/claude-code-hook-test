@@ -74,7 +74,7 @@
 | 514 | Tier 2 | **[improvement] パーサ堅牢化を仕組みで担保できるか調べる** | todo26.md | S | なし (#479 / #313 の 2 件が同型。規約でなく型の網羅性 / fixture 契約 / 計測の 3 案を比較してから決める) |
 | 518 | Tier 5 | **[improvement] 順位 516・517 の再評価 (実害が観測されたときだけ着手する見送り follow-up)** | todo26.md | S | なし (ADR-042 § 改訂 2026-09-12 で見送り。再評価トリガー: `jj new` 忘れによる混入が再度観測されたら 516 の案、分割 refactor でテストが消えたまま merge された事例が観測されたら 517 の案。観測が無い限り着手しない) |
 | 521 | Tier 3 | **[improvement] `scope_guard` の bounded-lifetime 判定に必要な実績が 48 日集まっていない** | todo26.md | S | なし (週次レビュー WR-2026-09-18-C01、severity=medium、facet=security。enforce mode 開始 2026-08-01 から観測時点 2026-09-18 まで 48 日 (両端を含めない日付差) で fix step 実行実績 0 件で、ADR-054 の決定トリガー「enforce mode で 3〜5 PR」が満たせず期限が無期限に延びている。着手時判断: telemetry 記録 (ADR-055) の追加を先に入れるか期限の再設定だけで済ませるかは着手時に決める) |
-| 523 | Tier 2 | **[improvement] defect 流入の週次集計と退出基準の判定 (機4b)** | todo26.md | M | なし (2026-09-28 に不具合収束計画の退役で移送。判定の定義は ADR-079 § 退出基準。マージ時に保留中の post-merge feedback を一括採否する) |
+| 523 | Tier 2 | **[improvement] defect 流入の週次集計と退出基準の判定 (機4b)** | todo26.md | M | なし (2026-09-28 に不具合収束計画の退役で移送。判定の定義は ADR-079 § 退出基準。保留 feedback の一括採否は 2026-10-12 に本項を待たず実施済み) |
 | 524 | Tier 3 | **[improvement] `-u` 無しの `jj squash` を PreToolUse で止める** | todo26.md | S | なし (2026-09-28 移送。headless で結合 editor が開いて止まる。ADR-042 § 撤廃の型 A) |
 | 525 | Tier 2 | **[improvement] `pnpm create-pr` の `--body` 引数を物理削除する** | todo26.md | S | なし (2026-09-28 移送。複数行本文の切り捨て事故の入口を消す。ADR-042 § 撤廃の型 B) |
 | 526 | Tier 2 | **[improvement] docs-only PR では post-merge feedback を起動しない** | todo26.md | S | なし (2026-09-28 移送。lib-docs-policy の判定を merge-pipeline の起動判定へ繋ぐ。ADR-042 § 撤廃の型 C) |
@@ -84,8 +84,49 @@
 | 530 | Tier 3 | **[improvement] テストのリポジトリルート解決をコンパイル時の値から実行時の探索へ移す** | todo28.md | S | なし (2026-09-28 に順位なしエントリの仕分けから採番。週次レビュー WR-2026-08-15-J01 / J02、WR-2026-09-18-J02 で再検出。範囲は lib-ledger と post-tool-linter coverage.rs の 2 ファイル。着手前に発症を実測し、しなければ負の結果として閉じる) |
 | 531 | Tier 3 | **[improvement] Stop hook と push gate の二重検査を意図した二層として明文化する** | todo28.md | S | なし (2026-09-28 採番。WR-2026-07-01-A01 を「両方残す」で決着 = ユーザー判断。ADR-004 への役割追記と push-runner-config の古いコメント修正。これに依存していた順位 522 は前提誤りで取り下げ。Stop の Rust は clippy だけで全体約 2 秒 (ADR-004 WP-05 の実測) のため、docs-only で飛ばしても 1 秒未満しか縮まない) |
 | 532 | Tier 3 | **[improvement] analyze-coderabbit facet の「Windows only」前提を Linux 対応後の実態に合わせる** | todo28.md | S | なし (2026-09-28 の仕分け中に発見。ADR-063 / 065 の後も cross-platform 指摘を Info へ落とす規則が残る。正当な指摘が落とされた事例はまず探す) |
-| 533 | ⏳ Tier 5 | **[improvement] allow-without-reason を属性単位の判定 (構文ベース) へ移す再評価 (トリガー付きの見送り follow-up)** | todo28.md | S | なし (2026-10-08、PR #548 CodeRabbit 指摘への判断で見送り。同じ行の 2 つ目以降 / 他のコードの後ろの allow 属性は rule㉕ の意図的な対象外。再評価トリガー: 対象外の形が rg で 1 件以上見つかる / 1 行に複数 allow を認める方針になる / 同種の属性 rule で同じ限界が問題になる) |
+| 533 | Tier 5 | **[improvement] allow-without-reason を属性単位の判定 (構文ベース) へ移す再評価 (トリガー付きの見送り follow-up)** | todo28.md | S | なし (2026-10-08、PR #548 CodeRabbit 指摘への判断で見送り。同じ行の 2 つ目以降 / 他のコードの後ろの allow 属性は rule㉕ の意図的な対象外。再評価トリガー: 対象外の形が rg で 1 件以上見つかる / 1 行に複数 allow を認める方針になる / 同種の属性 rule で同じ限界が問題になる) |
 | 534 | Tier 3 | **[improvement] rule を書き写したテストを設定ファイル読み込みへ移し、写経の再発を検査で止める** | todo28.md | M | なし (2026-10-11、順位 498 の作業で判明。25 rule 中 16 rule のテストが rule のコピーを検査していた (ADR-081 違反)。順位 498 で 9 rule を移行済み。残り 7 rule + `deployed_tests.rs` のコピーを移してから、写経を落とす検査を足す。順序を逆にすると CI が落ちる) |
+| 535 | Tier 2 | **[defect:G2] push-runner / pr-monitor がハンドオフマーカー bookmark を前進させる** | todo28.md | M | なし (2026-10-12、#506 feedback。`::trunk()` 上かの構造で判定する。実 jj の `#[ignore]` テストが要るので human lane) |
+| 536 | Tier 2 | **[defect:G2] jj-op-verify が `cd` 後・background 実行のコマンドを誤判定する** | todo28.md | S | なし (2026-10-12、#545 / #494 feedback。`cd` / `-R` / background は照合しない。auto lane) |
+| 537 | Tier 1 | **[defect:G1] merge-pr 後の空コミットを push 前検査で止める (段 1+2)** | todo28.md | M | なし (2026-10-12、#484 / #485。merge-pipeline の基準コミットと ADR-045 の規約の組合せで毎回起きる。自動 abandon はしない) |
+| 538 | Tier 2 | **[improvement] 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)** | todo28.md | M | 順位 537 (基準コミットを機械的に識別する手段と、jj を起動する検査の副作用テストが要る) |
+| 539 | Tier 3 | **[improvement] post_steps 残骸検知を空の基準コミットから切り離せるか調べる (段 4)** | todo28.md | M | 順位 537 (調査。回帰テストが入ってから) |
+| 540 | Tier 3 | **[improvement] stale-branch-scan の冪等性を純関数テストで固定する** | todo28.md | S | なし (2026-10-12、#476 feedback。auto lane) |
+| 541 | Tier 3 | **[improvement] `compact_entry` の e2e で日本語とエラー全文の保持を確かめる** | todo28.md | S | なし (2026-10-12、#518 feedback。auto lane) |
+| 542 | Tier 2 | **[improvement] `rename_target` を曖昧な括りで推測解決しないようにする** | todo28.md | S | なし (2026-10-12、#509 feedback。括りがちょうど 1 組のときだけ解決する。auto lane) |
+| 543 | Tier 2 | **[improvement] cross_ref が symlink を辿り、コード内の例示リンクを検査する** | todo28.md | S | なし (2026-10-12、#538 / #506 feedback。auto lane) |
+| 544 | Tier 3 | **[improvement] 範囲で書いた退役を範囲全体の退役と読み、表駆動テストで固定する** | todo28.md | S | なし (2026-10-12、#500 feedback。範囲全体を退役と読むのはユーザー判断。auto lane) |
+| 545 | Tier 2 | **[improvement] 試験運用 ADR の再評価期限を索引タグに記入する** | todo28.md | M | なし (2026-10-12、#549 feedback。42 件中 34 件は期限の日付が無く、期限切れが 3 件ある。ユーザーと二人三脚) |
+| 546 | Tier 2 | **[improvement] 試験運用 ADR の期限切れと `(仮)` の外し忘れを lint:docs で検出する** | todo28.md | S | 順位 545 (索引タグに期限が入ってから auto lane へ) |
+| 547 | Tier 3 | **[improvement] `parse_tier` の Tier 4 / 5 をテストで固定する** | todo28.md | XS | なし (2026-10-12、#488 feedback。auto lane) |
+| 548 | Tier 3 | **[improvement] lane マーカーを絵文字から文字列へ置き換える (絵文字の全面禁止 段 2)** | todo28.md | M | なし (2026-10-12 ユーザー決定。段 1 = 台帳の Tier 表記は同日実施済み。Guard 禁止パスの改修なので human lane) |
+| 549 | Tier 3 | **[improvement] ドキュメントの絵文字を一掃し、検出したら即時エラーにする (段 3)** | todo28.md | M | 順位 548 (docs の絵文字は 43 ファイル 263 個。facet の出力契約の置き換えを含む) |
+| 550 | Tier 3 | **[improvement] post-merge feedback の判断基準を ADR へ追記する** | todo28.md | S | なし (2026-10-12。ADR-044 / 049 / 041 / 025 / 043 / 064 の 6 項目。機械化できず置き場が ADR しか無いもの) |
+| 551 | Tier 3 | **[improvement] analyze-session facet のスキーマ例と縮約の実装のずれを検査する** | todo29.md | S | なし (2026-10-12、#518 feedback。auto lane) |
+| 552 | Tier 3 | **[improvement] mod 宣言の並び順をテストで検査する** | todo29.md | S | なし (2026-10-12、#490 feedback。既存違反 1 件は同じ PR で直す。auto lane) |
+| 553 | Tier 3 | **[improvement] rule⑲ / ⑳ のリポジトリ全体 clean-baseline テストを足す** | todo29.md | S | なし (2026-10-12、#533 feedback。既存違反 0 件。auto lane) |
+| 554 | Tier 2 | **[improvement] custom-lint rule の exception を外すと incident fixture が落ちることを検査する** | todo29.md | M | なし (2026-10-12、#532 feedback。mutation は exception の除去だけに限る。auto lane) |
+| 555 | Tier 2 | **[improvement] config パス候補の TS と Rust の同期をテストで固定する** | todo29.md | S | なし (2026-10-12、#501 feedback。auto lane) |
+| 556 | Tier 2 | **[improvement] oxlint・tsx・biome を devDependencies に入れて固定する** | todo29.md | S | なし (2026-10-12 の調査で判明。`pnpm lint` と `deploy:hooks` がネットワークから取得している。lockfile の更新なので human lane) |
+| 557 | Tier 3 | **[improvement] `--no-install` の無い `npx` を検査で止める** | todo29.md | S | 順位 556 (既存 3 件が直ってから auto lane へ) |
+| 558 | Tier 3 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | 順位 556 (変更先が `.claude/` なので human lane) |
+| 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
+| 560 | Tier 3 | **[improvement] サンプル由来の `py-test` と `test:e2e` を撤去する** | todo29.md | S | なし (2026-10-12 の調査で判明。`.claude/` の変更を含むので human lane) |
+| 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | 順位 560 (残骸 script が消えてから auto lane へ) |
+| 562 | Tier 2 | **[improvement] 夜間 verify と CI で vitest と lint:workflows を走らせる** | todo29.md | S | なし (2026-10-12。scripts/ 系のテストを auto lane に置くための前提。Guard 禁止パスの変更なので human lane) |
+| 563 | Tier 3 | **[improvement] lint-workflows の検査を強化する** | todo29.md | S | 順位 562 (#496 / #513 feedback。vitest が夜間で走ってから auto lane へ) |
+| 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | 順位 562 (#515 / #516 feedback。vitest が夜間で走ってから auto lane へ) |
+| 565 | Tier 3 | **[improvement] `replaceFile` の Windows 固有の失敗系をテストする** | todo29.md | S | なし (2026-10-12、#516 feedback。Windows 実機での確認が要るので human lane) |
+| 566 | Tier 2 | **[improvement] review-request の依頼済み判定と待機時間の記述を締める** | todo29.md | S | なし (2026-10-12、#496 / #513 feedback。Guard 禁止パスの変更なので human lane) |
+| 567 | Tier 2 | **[improvement] `should_skip_request` の照会回数と head 固定の配線をテストで固定する** | todo29.md | M | なし (2026-10-12、#512 / #513 feedback。gh 呼び出しの注入口を切り出す。auto lane) |
+| 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
+| 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
+| 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
+| 571 | Tier 1 | **[defect:G1] 夜間 PR のレビューを当面つなぐ (人間名義での PR の作り直し)** | todo29.md | S | なし (2026-10-12、#557。CodeRabbit が 2026-09 下旬から seat の無い bot 作者の PR をレビューしない。Free プランでは seat を付け替えられない。bot の PR を close したら続けて同じブランチから人間名義で作る) |
+| 572 | Tier 2 | **[improvement] 第三者レビューの正解データとベンチマークを固定し、計測結果を記録する** | todo29.md | M | なし (2026-10-12 の計測: 直近 100 PR で takt 通過後の指摘が確定 45 件 / 25 PR 修正された。これを正解データにする) |
+| 573 | Tier 2 | **[improvement] 候補レビュアーをベンチマークで採点する** | todo29.md | M | 順位 572 (CodeRabbit / 別 SaaS / 自作 / takt に別プロバイダー。接続の実装量も採点する) |
+| 574 | Tier 2 | **[improvement] 第三者レビューの手段と接続層を ADR にする** | todo29.md | M | 順位 573 (ADR-019 / 027 / 072 の前提の更新を含む。移行・撤去はこの結論から起票) |
+| 575 | Tier 2 | **[improvement] PR #557 を人間名義で作り直してレビューを受け、順位 433 を畳む** | todo29.md | S | 順位 571 (作り直しの手順。ブランチは 433 の扱いを決めるまで消さない) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
