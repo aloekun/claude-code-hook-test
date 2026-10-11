@@ -212,6 +212,19 @@ blocked_patterns = ["git", "default", "jj-push-guard"]
     }
 
     #[test]
+    fn build_registry_all_three_sources_fail_open_uniformly() {
+        // custom-lint-rules.toml / hooks-config.toml のどちらも作らない (rule / preset が欠落)
+        // かつ hook_ids も空 (hook が空) — 3 供給源とも同じ fail-open 挙動になることを 1 テストで確かめる。
+        let (_root, config_base) = claude_dir_under_fresh_root();
+        let reg = build_registry(&config_base, &[]);
+        assert!(reg.entries.is_empty(), "3 供給源とも欠落なら entries は空");
+        assert_eq!(reg.source_failures.len(), 3, "rule / preset / hook の 3 件とも欠落注記される");
+        assert!(reg.source_failures.iter().any(|f| f.contains("rule 供給源")));
+        assert!(reg.source_failures.iter().any(|f| f.contains("preset 供給源")));
+        assert!(reg.source_failures.iter().any(|f| f.contains("hook 供給源")));
+    }
+
+    #[test]
     fn build_registry_notes_empty_hook_ids_as_missing_source() {
         let (_root, config_base) = claude_dir_under_fresh_root();
         std::fs::write(

@@ -495,6 +495,61 @@ mod tests {
         assert!(enabled_of(sep), "当月は毎回現在 snapshot で再スタンプする");
     }
 
+    /// `month` だけを key に持つ空集計 (発火 0 件でも「その月に実行があった」ことを表す raw)。
+    /// 完全に空の `BTreeMap` だと `union_months` が対象月を一切含まず rollup 行自体が
+    /// 作られないため、月キーだけは raw に存在させる。
+    fn raw_present_but_empty(month: &str) -> BTreeMap<String, MonthCounts> {
+        let mut raw = BTreeMap::new();
+        raw.insert(month.to_string(), MonthCounts::new());
+        raw
+    }
+
+    #[test]
+    fn finalize_rollups_round_trip_mid_month_disable_then_reenable_crosses_month_boundary() {
+        // 2026-07 の月初: enabled で実行。
+        let out1 = finalize_rollups(
+            Vec::new(),
+            &raw_present_but_empty("2026-07"),
+            &snapshot_enabled(true),
+            "2026-07",
+            1_000,
+        );
+        let jul1 = out1.iter().find(|r| r.month == "2026-07").unwrap();
+        assert!(!jul1.finalized);
+        assert!(enabled_of(jul1));
+
+        // 2026-07 の月中: disabled に変わってから再実行 (同月の current 再スタンプ、規則 3)。
+        let out2 = finalize_rollups(
+            out1,
+            &raw_present_but_empty("2026-07"),
+            &snapshot_enabled(false),
+            "2026-07",
+            2_000,
+        );
+        let jul2 = out2.iter().find(|r| r.month == "2026-07").unwrap();
+        assert!(!jul2.finalized, "月中はまだ未確定");
+        assert!(!enabled_of(jul2), "月中の無効化が current 再スタンプで反映される");
+
+        // 2026-08 に月が越え、enabled に再有効化された状態で実行 (2026-07 の raw は retention 等で
+        // もう無いが、既存 rollup の ids を保持したまま確定する、規則 4)。
+        let out3 = finalize_rollups(
+            out2,
+            &raw_present_but_empty("2026-08"),
+            &snapshot_enabled(true),
+            "2026-08",
+            3_000,
+        );
+        let jul3 = out3.iter().find(|r| r.month == "2026-07").unwrap();
+        let aug3 = out3.iter().find(|r| r.month == "2026-08").unwrap();
+        assert!(jul3.finalized, "月を越えたので 2026-07 は確定する");
+        assert!(
+            !enabled_of(jul3),
+            "確定時点 (2026-08) の再有効化 snapshot で上書きせず、月中最後の観測 (disabled) を保持する (resolve_snapshot)"
+        );
+        assert!(!aug3.finalized, "2026-08 は新しい当月として未確定");
+        assert!(enabled_of(aug3), "2026-08 は再有効化後の current snapshot を反映する");
+    }
+
     #[test]
     fn is_expired_boundary() {
         assert!(!is_expired(0, 90, 90), "ちょうど 90 日は保持");
