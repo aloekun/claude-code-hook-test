@@ -5,6 +5,11 @@
 > **本ファイルの位置付け**: docs/todo13.md がファイルサイズ約 171KB (50KB 安定読み取り閾値の約 3.4 倍) に達したため、順位 248〜296 のエントリを本ファイルに分離した (2026-07-20 docs 50KB 超過解消の物理分割)。本ファイルは既存タスクの編集・完了削除専用。ほかの todo ファイル (現存する一覧は [docs/todo.md](todo.md) の preamble が正) の既存エントリは引き続き有効、相互に独立。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
+>
+> **取り下げ (2026-10-11)**: 順位 275 (層別テストテンプレート・StubOllama パターンの共有化) は、未着手のまま
+> 取り下げて削除した。テスト専用コードを test module 間で共通化しない方針
+> ([ADR-084](adr/adr-084-test-helper-no-sharing.md)) と矛盾するため。`StubOllama` が 2 箇所に分散しているのは
+> 同 ADR が求める複製であり、解消すべき重複ではない。
 
 ---
 ### 順位 248: Gate Function Design Checklist を新規 guide として追加 (fail-closed パターン集) (PR #234 post-merge-feedback T3-1 採用)
@@ -192,27 +197,6 @@
 #### 詰まっている箇所
 
 - なし (WP-05 で Stop 側は完了、push 側の nextest 適用余地とコスト構造は明確)。
-
----
-
-### 順位 275: 層別テストテンプレート (StubOllama パターン・integration 独立性) の共有化 (PR #265 post-merge-feedback T2-1 採用)
-
-> **動機**: WP-11 (PR #265、ADR-054) の多層防御実装で、層別テスト戦略の設計に時間を要した。具体的には (a) 空 responses の `StubOllama` で「LLM が呼ばれていないこと」を証明する短絡検証パターン、(b) tempdir + `jj git init` + CwdRestore で実 jj repo を立てる integration テストの独立性パターン、の 2 つを都度設計した。WP-17 (自律化) で classifier / scope guard 層を拡張する際に同種の設計判断が再発する見込み。
->
-> **参照**: `.claude/feedback-reports/265.md` Tier 2 #1、`src/cli-finding-classifier/src/lib.rs` (StubOllama)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (integration パターン)、ADR-041 (test isolation patterns)、ADR-025 (CwdRestore)、ADR-044 (共通化と分離の線引き — shared crate 化の境界判定に適用)
->
-> **実行優先度**: Tier 2 — Effort M。WP-17 着手前の実施が効果的。
-
-#### 作業計画
-
-- [ ] 対象パターンの棚卸し (StubOllama / tempdir+jj init+CwdRestore / 層別テストの構成方針)
-- [ ] ADR-044 の境界判定で shared test crate 化 or fixture + doc 化を判断
-- [ ] 切り出し + 既存呼び出し側 (cli-finding-classifier / cli-pr-monitor) の移行
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 新しい LLM 系 / jj 統合系のテストが共有テンプレートを参照して層別テストを組める状態になっていること。
 
 ---
 
