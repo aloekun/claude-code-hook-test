@@ -29,7 +29,6 @@
 | 428 | Tier 2 | **PR 番号を取る CLI の不正値 (`--pr 0` 等) を PreToolUse で検出する (系統 F-2)** | todo22.md | S | なし (2026-08-11 採用。#385 で exe 側は契約を得たが同型 CLI 追加時の漏れは防げない。exe の拒否で足りるなら不採用も正規の出口) |
 | 431 | Tier 2 | **`review-request` の成功判定を初回レビュー取得まで遅らせる** | todo27.md | S-M | なし (2026-08-11 実走で判明。レート制限による拒否も success として記録され、未レビューの自律 PR が信号として残らない。ADR-019 § M5 の方針によりリトライは作らず検出と可視化に留める) |
 | 432 | Tier 3 | **`check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー** | todo27.md | S-M | なし (2026-08-11 実測: run 538 件 / 174MB / 最古 46 日前 / クリーンアップ機構なし。現時点で実害は無いが単調増加。案 1 = 名前フィルタで走査を絞る、案 2 = 保持ポリシー) |
-| 433 | Tier 2 | **cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)** | todo27.md | S | なし (2026-08-12 採番 — 詳細エントリのみ登録され台帳行が無い孤児状態で約 3 週間滞留していたものを回復。検出機構の欠落は別起票の docs-lint 1:1 検査を参照) |
 | 434 | Tier 3 | **telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)** | todo14.md | XS | なし (2026-08-12 採番 — 孤児エントリの回復) |
 | 435 | Tier 2 | **jj workspace/bookmark semantics の文書化 + pr-monitor 回帰テスト** | todo14.md | S-M | なし (2026-08-12 採番 — 孤児エントリの回復) |
 | 437 | Tier 1 | **旧グローバル rules (.claude_old) の採否判断と再配置** | todo22.md | M | なし (2026-08-12 起票。マシン移行で ~/.claude/rules が消失し、ADR 9 本 + Rust ソース + hook メッセージ計 25 箇所超が dead pointer、グローバル文書対象タスク約 16 件の実施先が未定。採否はユーザー判断) |
