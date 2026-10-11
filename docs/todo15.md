@@ -5,6 +5,11 @@
 > **本ファイルの位置付け**: docs/todo13.md がファイルサイズ約 171KB (50KB 安定読み取り閾値の約 3.4 倍) に達したため、順位 248〜296 のエントリを本ファイルに分離した (2026-07-20 docs 50KB 超過解消の物理分割)。本ファイルは既存タスクの編集・完了削除専用。ほかの todo ファイル (現存する一覧は [docs/todo.md](todo.md) の preamble が正) の既存エントリは引き続き有効、相互に独立。
 >
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
+>
+> **取り下げ (2026-10-11)**: 順位 275 (層別テストテンプレート・StubOllama パターンの共有化) は、未着手のまま
+> 取り下げて削除した。テスト専用コードを test module 間で共通化しない方針
+> ([ADR-084](adr/adr-084-test-helper-no-sharing.md)) と矛盾するため。`StubOllama` が 2 箇所に分散しているのは
+> 同 ADR が求める複製であり、解消すべき重複ではない。
 
 ---
 ### 順位 248: Gate Function Design Checklist を新規 guide として追加 (fail-closed パターン集) (PR #234 post-merge-feedback T3-1 採用)

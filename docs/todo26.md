@@ -203,7 +203,9 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 - handoff marker の現存一覧と、それが指す順位
 - 連続 red の日数 (「今週たまたま 1 晩落ちた」と「4 晩連続で助けが止まっている」を区別する)
 - **implement まで到達しなかった夜の連続日数と、その停止理由** (2026-10-11 追加)。サマリ行の
-  `implement=skipped` と、Select の `[NIGHTLY_SKIP]` 行 (タスク無し / 背圧 / 台帳の解釈失敗) で分ける。
+  `implement=skipped` に加えて、停止した段のマーカーで分ける: Pre-flight の `[AUTONOMY_OFF]` 行
+  (背圧の飽和 / kill-switch の停止。この場合 Select は skip される) と、Select の `[NIGHTLY_SKIP]` 行
+  (exit 3 = タスク無し / exit 2 = 台帳の解釈失敗)。
   green の run だけを数えると、タスク切れが「健康」に見える
 - **台帳の自動 lane (`✅`) 行の残数** (2026-10-11 追加)。0 件なら次の夜から止まる。ネットワーク不要で
   ソースツリーから数えられるので、L2 の facet でも出せる
