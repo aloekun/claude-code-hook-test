@@ -167,6 +167,7 @@ close は「この成果物は採らない」という判断であって、「�
 
 | 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 | PRタイトル |
 |---|---|---|---|---|---|---|---|
+| 433 | T2 | ✅ | `cli-telemetry-report` の堅牢化と回帰テスト。(1) aggregate: 月中に無効化して翌月に再有効化した機構が `resolve_snapshot` を正しく通る月またぎテスト (2) verdict: `confirmed_streak` を `checked_sub` で計算して release build の underflow を防ぎ、`debug_assert!` (`partial ⇒ zero_streak≥1`) を併設、`current_month_partial==0` の境界テスト (3) report: `zero_firing_list` を `render()` で 1 回だけ計算して MD / JSON へ渡す形にし、両出力の一致 (id 集合 / provenance / last_fired_month / source_failures) の回帰テスト (4) registry: rule / preset / hook の 3 供給源が空・欠落のとき同じ fail-open (source_failures 計上) になることを 1 テストで検証 | `src/cli-telemetry-report/src/aggregate.rs` + `src/cli-telemetry-report/src/verdict.rs` + `src/cli-telemetry-report/src/report.rs` + `src/cli-telemetry-report/src/registry.rs` | S | **auto にした理由** (2026-10-11): ADR-074 の除外 5 クラスと決定 3 の 3 種のどれにも当たらず、作業計画 6 項目が一意に定まっている。前提は同日に実測で確認した (verdict の素の引き算、report の 2 か所での個別計算が残っている)。4 ファイルはそれぞれ独立した成果物なので個別に宣言した。**report.rs は既に 771 行**あり、テストを足して 800 行を超えるなら ADR-080 の制約 (behavior 不変 / `pub(crate)` / test helper は複製) で test module を別ファイルへ分割する。照合除外: `checked_sub`（これから導入する std のメソッドで、宣言先にはまだ無い）。詳細は todo27.md の順位 433 | test(telemetry-report): 月またぎ・streak 不変条件・MD/JSON 一致の回帰テストを足し、confirmed_streak を checked_sub にする (順位 433) |
 | 180 | T2 | — | `escape_markdown_pipe(&str)` を pub 追加 + `format_table` の user field に適用 + 5 variant test（markdown table 破壊の防止 / prompt injection の緩和 = defense-in-depth の一層） | `src/lib-report-formatter/src/lib.rs` | XS-S | 外部依存ゼロの純 lib。既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を検討 |  |
 | 178 | T2 | — | `state.rs` の behavioral invariant test を ADR-041 pattern（sentinel 事前投入 + mutation 不在 assert）で 3-5 件追加 | `src/cli-pr-monitor/src/state.rs` | S | **todo 提案の invariant #1/#2 は実挙動と不一致**。`update_state_from_check_result` の実挙動を読んで実在する invariant を再選定する |  |
 | 383 | T2 | — | `is_separator_row` にパイプ検証 guard を追加し、bare `---` がセパレータ行として通らないことの回帰テストを足す | `src/lib-ledger/src/lib.rs` | S | **欠陥は 2026-08-07 に実コードで確認済み**（`is_table_row` は行頭 `\|` を要求するが `is_separator_row` は `split_cells` の結果しか見ない）。対処は guard 1 つとテスト。ADR-072 決定 2 の fail-closed の coverage hole。**2026-08-23 auto → human へ変更**: 成果物 `src/lib-ledger/src/lib.rs` が [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス `src/lib-ledger/` に当たり、夜間ループでは実装しても push が拒否される（[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2 クラス 3）。2026-08-20 の run 87837551740 で実際に `[NIGHTLY_DENY]` 停止した。機械検査は順位 486 | fix(ledger): is_separator_row のパイプ検証欠落を塞ぐ |
@@ -352,6 +353,30 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 機構側は実在確認を撤去し、注釈のファイル名を実在不問で弾くようにした (§ 「対象ファイル」列の書き方、[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 4 の 2026-09-18 追記)。検査は台帳の文字列だけを見る純粋な判定になり、評価時点への依存が構造的に消えた。併せて「変更してはならないものの明示」は注釈から**注意**欄へ移した。
 
 **台帳検査を agent 成果物の verify から外す案は今回採らなかった。** 台帳は agent にとって Guard 禁止パスで不変なので、agent verify で検査 A / C を回しても新しい情報は生まれない。ただし外すと (a) 検査 B の「agent の変更が他行の前提を壊す」検出が PR の CI まで遅れ、(b) verify と CI の `cargo test --workspace` の対象集合がずれ、その除外自体を機械で固定する層が別に要る。規約違反の注釈を消す方が本筋なので、除外は独立した設計判断として切り離した。
+
+### 2026-10-11
+
+**自動 lane が空のまま 3 週間経っていた。** 2026-09-20 から 10-10 まで 21 晩連続で、夜間ループは
+「実装可能な無人可タスクがありません」で止まり、何もせずに green で終わっていた (`✅` 行が 0 件)。
+決定 10 で「agent を回していない夜」は green なので、run 一覧からは気づけない。順位 487 (PR #551) の
+実走確認をしようとして判明した。監視の穴は順位 510 に追記した。
+
+補充のため、未掲載 204 件に [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) の基準を当てた。
+語彙で判定できるクラス 1 / 2 / 4 / 5 と決定 3 (文書・並行性) で 180 件を落とし、残る 24 件は詳細エントリの
+本文を読んで判定した。
+
+| 順位 | 判定 | 根拠 |
+|---|---|---|
+| 433 | **✅ で追加** | 除外クラスと決定 3 のどれにも当たらず、作業計画 6 項目が一意。前提 (素の引き算 / 二重計算) を実測で確認 |
+| 390 / 382 | 除外 (クラス 3) | 成果物が `src/lib-ledger/` 配下 |
+| 423 / 425 | 除外 (クラス 3) | 成果物が `.github/workflows/` 配下 |
+| 479 / 483 / 503 / 407 / 362 / 471 | 除外 (クラス 5) | 実装の分岐 (lint か一覧廃止か / 検出範囲 / cargo test か docs-lint か / 語彙と寿命 / regex と除外条件 / 着手時に再確認) が本文で決まっていない |
+| 363 / 332 / 286 | 除外 (クラス 2) | jj の colocated repo を組む統合テスト / Windows 実機 / OS 依存の exe 起動テスト |
+| 525 | 除外 (クラス 1 / 4) | skill と ADR-028 周辺の記述も変える |
+| その他 9 件 | 除外 | 判断を含む作業 (棚卸し / 2 段の判断 / 設計の置き換え) または文書タスク |
+
+**1 件しか残らなかった。** 補充の速度 (人間が判断して `✅` を付ける) が消化の速度 (1 晩 1 件) に
+追いつかない構造は変わっていない。順位 510 の完了基準に「`✅` 行の残数を週次で出す」を加えたのはこのため。
 
 ---
 

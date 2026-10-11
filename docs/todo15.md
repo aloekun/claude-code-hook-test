@@ -195,27 +195,6 @@
 
 ---
 
-### 順位 275: 層別テストテンプレート (StubOllama パターン・integration 独立性) の共有化 (PR #265 post-merge-feedback T2-1 採用)
-
-> **動機**: WP-11 (PR #265、ADR-054) の多層防御実装で、層別テスト戦略の設計に時間を要した。具体的には (a) 空 responses の `StubOllama` で「LLM が呼ばれていないこと」を証明する短絡検証パターン、(b) tempdir + `jj git init` + CwdRestore で実 jj repo を立てる integration テストの独立性パターン、の 2 つを都度設計した。WP-17 (自律化) で classifier / scope guard 層を拡張する際に同種の設計判断が再発する見込み。
->
-> **参照**: `.claude/feedback-reports/265.md` Tier 2 #1、`src/cli-finding-classifier/src/lib.rs` (StubOllama)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (integration パターン)、ADR-041 (test isolation patterns)、ADR-025 (CwdRestore)、ADR-044 (共通化と分離の線引き — shared crate 化の境界判定に適用)
->
-> **実行優先度**: Tier 2 — Effort M。WP-17 着手前の実施が効果的。
-
-#### 作業計画
-
-- [ ] 対象パターンの棚卸し (StubOllama / tempdir+jj init+CwdRestore / 層別テストの構成方針)
-- [ ] ADR-044 の境界判定で shared test crate 化 or fixture + doc 化を判断
-- [ ] 切り出し + 既存呼び出し側 (cli-finding-classifier / cli-pr-monitor) の移行
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- 新しい LLM 系 / jj 統合系のテストが共有テンプレートを参照して層別テストを組める状態になっていること。
-
----
-
 ### 順位 276: ADR-007 に「コメント配置の意思決定フロー」を追加 (PR #265 post-merge-feedback T3-2 採用)
 
 > **動機**: PR #265 実装中に `classify_one` (cli-finding-classifier) と `config.rs` (cli-pr-monitor) の 2 箇所で非 doc コメントを書き、Bundle Z comment-lint (#B-α) に block された (同種ミス 2 回 = パターン化の価値あり)。「この説明は doc コメント (`///`) に書くべきか、識別子名 / 関数分割で表現して削除すべきか」の判断フローが未文書化。linter 自動化 (feedback Tier 1 #2) は意味論的判定 = NLP が必要なため却下済みで、本エントリは人間 / AI の判断補助ドキュメントとしての補完。

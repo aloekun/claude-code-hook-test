@@ -10,41 +10,6 @@
 
 ## 現在進行中
 
-### 順位 226: fmt baseline cleanup + `cargo fmt --check` gate 導入 + rustfmt 固定 (PR #224 セッション合意)
-
-> **動機**: PR #224 で分割 agent の `cargo fmt` が分割対象外の 5 ファイルに整形差分を混入した (revert で対処)。調査の結果、fmt enforcement がリポジトリのどこにも無く (Stop gate / push pipeline / CI / package.json いずれも `cargo fmt --check` 不在)、ワークスペース全体で **29 ファイル**が rustfmt-clean でないドリフトを蓄積していると判明。
->
-> **本タスクの位置づけ**: PR #224 セッション ユーザー合意 (2026-06-29)。file_length plan と同じ「clean baseline → gate」構造。
->
-> **参照**: PR #224 (`1c0f345b`)、`.claude/hooks-config.toml` `[stop_quality]` (clippy はあるが fmt 無し)、`push-runner-config.toml` `[quality_gate]` (fmt 無し)、`package.json` scripts (lint/build/test は TS 向け)、ADR-017 (バージョン固定哲学 = rustfmt 固定の根拠)。
->
-> **実行優先度**: **Tier 1** — Effort M。29 ファイルの一括正規化 (機械) + gate 1 step + toolchain 固定。
-
-#### 設計決定 (案)
-
-- **(A)** 一度きりの `cargo fmt --all` クリーンアップ commit で 29 ファイルを正規化 (mechanical、behavior 不変 = Phase 1 clean state)。
-- **(B)** `cargo fmt --all -- --check` を Stop gate (hooks-config.toml の clippy step と同型) and/or push-runner-config.toml の quality_gate に 1 step 追加。
-- **(C)** `rust-toolchain.toml` で rustfmt バージョン固定 (未固定だとマシン/セッション間で出力が揺れ gate が flaky 化)。
-- **順序必須**: (A) を飛ばして (B) を入れると 29 ファイルで即 fail。
-
-#### 作業計画
-
-- [ ] (A) `cargo fmt --all` 実行 → 29 ファイル正規化 commit (mechanical)
-- [ ] (C) `rust-toolchain.toml` で channel + rustfmt component 固定
-- [ ] (B) fmt `--check` step を Stop gate / push-runner gate に追加
-- [ ] dogfood: 意図的に非整形コードを書き gate が block することを確認
-- [ ] 本 entry 削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- `cargo fmt --all -- --check` が gate で実行され、非整形コードが push/Stop 前に検出される。29 ファイルのドリフトが解消され clean baseline 確立。rustfmt 固定で gate が決定論的。
-
-#### 詰まっている箇所
-
-- (A) のクリーンアップ commit を W3/W4 (cli-merge-pipeline / cli-push-runner の分割) と衝突させないタイミング (分割 PR と fmt 一括が同ファイルに当たると rebase 競合)。
-
----
-
 ### 順位 231: ADR-022 拡張 — pre-create cleanup flow の具体例 + agent fmt スコープ指針 (PR #224 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #224 で CodeRabbit が `create_fix_commit` の「空 findings でも commit 作成」を bug と誤判定した (ADR-022 の意図的な pre-create 設計を知らなかったため、却下した CR#2)。また分割 agent が無差別 `cargo fmt` を実行した事象も ADR-022 の責務分離原則で説明可能。両事象とも将来再発が見込まれる。
