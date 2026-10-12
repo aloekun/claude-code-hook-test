@@ -49,7 +49,7 @@
 
 判定基準:
 
-1. 編集対象がリポ内ファイル（`docs/` 配下 / `.claude/custom-lint-rules.toml` 内コメント / Rust ソースのコメント）
+1. 編集対象がリポ内ファイル（`docs/` 配下 / `config/custom-lint-rules.toml` 内コメント / Rust ソースのコメント）
 2. Rust ビルド / Windows hook / pnpm パイプラインの実行が成功条件に **ならない**
 3. [docs/todo-summary.md](todo-summary.md) の表で採用判定済み（`feedback_no_unenforced_rules.md` 例外として既存実践の明文化に該当）
 
@@ -180,6 +180,13 @@ close は「この成果物は採らない」という判断であって、「�
 | 361 | T2 | — | jj のバージョン文字列が `.github/workflows/ci.yml` と `scripts/cloud-setup.sh` で一致することを assert するテストを追加 | `src/lib-autonomy-policy/tests/jj_version_parity.rs`（新規ファイル。既存の `workflow_awk_parity.rs` と同じ crate に置く。読む対象は `.github/workflows/ci.yml` の `JJ_VERSION: "0.42.0"` と `scripts/cloud-setup.sh` の `readonly JJ_VERSION="${CLOUD_SETUP_JJ_VERSION:-0.42.0}"`） | S | **2 ファイルは読むだけで書き換えない**（`.github/**` は Guard の禁止パス）。ADR-051 の cross-system coupling 検査にあたる。片方だけ変えた状態で fail することまで確認する。**2026-08-23 auto → human へ変更**: 注意欄は `.github/**` が禁止パスであることを見ていたが、成果物 `src/lib-autonomy-policy/tests/jj_version_parity.rs` 自身も [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 6 の Guard 禁止パス `src/lib-autonomy-policy/` に当たる（[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) 決定 2 クラス 3）。**deny リストの一部だけと照合したのが誤り**。機械検査は順位 486 | test(jj-helpers): jj バージョンの ci.yml / cloud-setup.sh 一致を固定する |
 | 447 | T2 | — | 台帳の `✅無人可` と判断留保キーワード (再選定 / 着手時判断 / 見積り / 検討) の矛盾を決定論層で検出する | `src/lib-ledger/src/deployed_ledger.rs` | S | 転記規約 (本ファイル § 自律実行可否の 2 段階分類) の機械強制。検査は台帳を読むだけで書き換えない。順位 486 と同一ファイル・同一層なので実装順の調整が要る。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (順位 383 と同じ理由、ADR-074 除外クラス 3) | test(ledger): 無人可と判断留保キーワードの矛盾を検出する |
 | 486 | T2 | — | auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く | `src/lib-ledger/src/deployed_ledger.rs` | S | **着手時判断: 禁止パスの読み先が未決定** (順位 454 は単一定義を作らず 3 箇所の一致テストで決着した)。deny リストをどこから読むかを着手時に決める必要がある。順位 447 と同一ファイル・同一層。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (ADR-074 除外クラス 3) | test(ledger): auto lane の対象パスが Guard 禁止パスに当たる行を弾く |
+| 540 | T3 | ✅ | stale-branch-scan の分類が scan → cleanup → マーカー作成 → 再 scan を 3 周しても変わらないことを、ls-remote 出力と PR 一覧を fixture にした純関数テストで固定する | `src/cli-stale-branch-scan/src/classify.rs`（`mod tests`） | S | git / jj / gh は起動しない。CI step にはしない (Guard 禁止パス)。決定事項は [docs/todo28.md](todo28.md) § 順位 540 (2026-10-12 確定) | test(stale-branch-scan): scan の冪等性を純関数テストで固定する |
+| 541 | T3 | ✅ | transcript 縮約の e2e に、日本語・マルチバイトを含む entry とエラーの tool_result を含む entry を通し、出力にそのまま残ることを確かめる | `src/cli-merge-pipeline/src/feedback/transcript.rs`（既存 e2e と同じ `mod tests`） | S | 期待値は `transcript_compact.rs` の unit テストが固定済みの性質に合わせる。決定事項は [docs/todo28.md](todo28.md) § 順位 541 | test(merge-pipeline): 縮約 e2e で日本語とエラー全文の保持を確かめる |
+| 547 | T3 | ✅ | `parse_tier` のテストに Tier 4 / 5 を足す。旧書式 (絵文字つき) のテストにも Tier 5 を足す | `src/cli-docs-lint/src/priority_inversion.rs`（`mod tests`） | XS | 旧書式は派生プロジェクトの台帳を読むための互換で、本リポジトリの台帳からは絵文字を外してある。決定事項は [docs/todo28.md](todo28.md) § 順位 547 | test(docs-lint): parse_tier の Tier 4 / 5 を固定する |
+| 553 | T3 | ✅ | custom-lint の rule⑲ (`gh-json-files-truncated`) と rule⑳ (`ref-destroying-push-without-lease`) に、リポジトリ全体の clean-baseline テストを rule ごと 1 本ずつ足す | `src/hooks-post-tool-linter/src/custom_rules/deployed_tests.rs` | S | 走査は `src` / `scripts` / `.github` / `.takt`、除外は `target` / `node_modules` / `tests/fixtures` / `.takt/runs` とほかのドット始まり。rule は `config/custom-lint-rules.toml` から読み、書き写さない (順位 534)。既存違反は 0 件 (2026-10-12 実測)。決定事項は [docs/todo29.md](todo29.md) § 順位 553 | test(custom-lint): rule⑲⑳ のリポジトリ全体 baseline を固定する |
+| 569 | T3 | ✅ | lib-telemetry のテストの残り 3 点を埋める: タイムスタンプのリテラルを命名済み定数に置き換える / ワークスペース走査の除外が効いていることを確かめる / reason の newtype の doctest を足す | `src/lib-telemetry/tests/id_contract.rs` + `src/lib-telemetry/src/reason.rs` | XS | 定数名は同じ crate の慣習 (`T_2026_04_01_1200` の形) に合わせる。決定事項は [docs/todo29.md](todo29.md) § 順位 569 | test(telemetry): id_contract の定数化と除外テスト、reason の doctest |
+| 551 | T3 | ✅ | analyze-session facet の md をテキストとして読み、スキーマ例が縮約の実装 (落とす block type / 残すフィールド / 上限値) と一致することを cargo test で確かめる | `src/cli-merge-pipeline/src/feedback/transcript_compact.rs`（`mod tests`） | S | 読む対象は `.takt/facets/instructions/analyze-session.md` (変更しない)。抽出の目印は「各 entry のスキーマ (Rust 側で縮約済みの形):」の直後の json フェンス。決定事項は [docs/todo29.md](todo29.md) § 順位 551 | test(merge-pipeline): facet のスキーマ例と縮約の実装を照合する |
+| 568 | T2 | ✅ | pre-tool-validate の exe を staging し、ブロック時の telemetry jsonl を検査する e2e を足す (custom regex と allowlist に無い名前は `custom-block` になり元の文字列が残らない / 名前付き preset はその名前になる / kill-switch で書かれない) | `src/hooks-pre-tool-validate/tests/telemetry_e2e.rs`（新規） | S | `tests/smoke.rs` には混ぜない。staging と ETXTBSY 回避のロックは smoke.rs から複製する (ADR-084)。config はテスト内で最小の toml を書く。決定事項は [docs/todo29.md](todo29.md) § 順位 568 | test(pre-tool-validate): telemetry を exe 経由で検査する |
 
 ### Batch 2: 新規実装を伴う（○、要設計判断）
 
@@ -189,6 +196,19 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 |---|---|---|---|---|---|---|---|
 | 340 | T2 | — | `decide.rs` の rate_limit × positive-evidence 複合境界テスト + `main.rs` の rate_limit threading テスト | `src/check-ci-coderabbit/src/{decide,main}.rs` | S | (a) は純関数で容易。(b) は `main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな合成関数抽出リファクタが要る |  |
 | 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `src/cli-pr-monitor/src/config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
+| 536 | T2 | ✅ | jj-op-verify で、`cd` / `-R` / `--repository` を含むコマンドと background 実行のコマンドを照合しないようにする。quote 内の文言と破壊的コマンドを組み合わせた tokenizer テストも足す | `src/hooks-post-tool-jj-op-verify/src/main.rs` + `src/hooks-post-tool-jj-op-verify/src/tests.rs` | S | 判定は既存の tokenizer で行い、`cd` 先を解析して照合先を切り替えることはしない。background は hook 入力の `tool_input.run_in_background` で判定する。module doc の既知の限界へ 1 項足す。決定事項は [docs/todo28.md](todo28.md) § 順位 536 (2026-10-12 確定) | fix(jj-op-verify): cd 後と background のコマンドを照合しない |
+| 542 | T2 | ✅ | testability gate の rename 行の解決を、括りがちょうど 1 組 (`{`・` => `・`}` が各 1 回、この順) のときだけにし、それ以外は Err にする | `src/cli-push-runner/src/stages/testability_gate/mod.rs` | S | Err の経路と分類 (`unparsable-status`) は変えない。決定事項は [docs/todo28.md](todo28.md) § 順位 542 | fix(testability-gate): 曖昧な rename の括りを推測で解決しない |
+| 543 | T2 | ✅ | docs-lint のリンク検査で、ディレクトリ走査が symlink を辿らないようにし、インラインコードと fenced block の中のリンクを検査対象から外す。rustdoc 側にも同じ除外を入れる | `src/cli-docs-lint/src/cross_ref.rs` + `src/cli-docs-lint/src/rustdoc_links.rs` + `src/cli-docs-lint/src/convention_declaration.rs`（fence 判定の可視性を `pub(crate)` にするだけ） | S | symlink は rustdoc 側の既存実装と `#[cfg(unix)]` テストを写す。インラインコードの判定は CommonMark どおり、リンクの開始 `[` がスパン内にあるかで行う。現在の docs で新たな違反は出ない (2026-10-12 実測)。決定事項は [docs/todo28.md](todo28.md) § 順位 543 | fix(docs-lint): symlink を辿らず、コード内の例示リンクを外す |
+| 544 | T3 | ✅ | todo preamble の範囲表記で退役を書いたとき、範囲全体を退役と読むように直し、範囲の書式 × 退役の位置 × 実在の組合せを表駆動テストで固定する | `src/cli-docs-lint/src/todo_routing.rs` | S | 範囲全体を退役と読むのはユーザー判断 (2026-10-12)。テストは `mod tests` 内の表駆動で、proptest は使わない。ファイルが 800 行を超えるならテストを別ファイルへ分ける (ADR-080)。決定事項は [docs/todo28.md](todo28.md) § 順位 544 | fix(docs-lint): 範囲で書いた退役を範囲全体に効かせる |
+| 552 | T3 | ✅ | mod 宣言の並び順を検査する cargo test を足し、既存違反 1 件を並べ直す | `src/cli-docs-lint/tests/mod_order.rs`（新規） + `src/cli-pr-monitor/src/stages/mod.rs` | S | 比較の単位は空行かコメントで区切られた連続ブロック。属性付きの mod は比較から除外し、可視性は区別しない。この条件の既存違反は宣言した 1 ファイルだけ (2026-10-12 実測)。決定事項は [docs/todo29.md](todo29.md) § 順位 552 | test(lint): mod 宣言の並び順を検査する |
+| 554 | T2 | ✅ | custom-lint rule の exception を外したとき、incident fixture の good 側で 1 件以上の違反が出ることを確かめる test module を足す (exception を持つ全 rule が対象) | `src/hooks-post-tool-linter/src/custom_rules/` | M | mutation は exception の除去だけに限る。rule は `config/custom-lint-rules.toml` から読む。2026-10-12 時点で exception を持つ rule は 8 個。決定事項は [docs/todo29.md](todo29.md) § 順位 554 | test(custom-lint): exception が fixture で正当化されているか検査する |
+| 555 | T2 | ✅ | deploy-hooks.ts が探す config の候補と lib-config-path の候補が一致することを、TS をテキストとして読むテストで固定する。post-tool-linter が `config/` の設定を読む e2e も足す | `src/lib-config-path/src/lib.rs`（`mod tests`） + `src/hooks-post-tool-linter/tests/` | S | 比較の仕様は「新しい置き場に移せるファイルは `config/` と `.claude/` の 2 候補、それ以外は `.claude/` だけ」。`scripts/deploy-hooks.ts` は読むだけ。直書き検出の lint は作らない。決定事項は [docs/todo29.md](todo29.md) § 順位 555 | test(config-path): TS と Rust の config 候補の同期を固定する |
+| 567 | T2 | ✅ | CodeRabbit のレビュー済み判定から gh 呼び出しを注入できる版を切り出し、呼び出し経路の数と 1 回の判定の照会数を固定する。head に固定した照会の配線テストも足す | `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` | M | 注入の形は `src/cli-pr-monitor/src/runner.rs` の既存の前例に合わせる。経路の数は `include_str!` で数える (3 経路)。workflow の bash 側は対象外。決定事項は [docs/todo29.md](todo29.md) § 順位 567 | test(pr-monitor): レビュー済み判定の照会回数と head 固定を検査する |
+| 546 | T2 | — | 試験運用 ADR の索引タグの期限が過ぎていれば報告する検査と、採用・却下・Superseded の ADR の H1 に `(仮)` が残っていれば違反にする検査を lint:docs に足す | `src/cli-docs-lint/src/adr_index.rs` + `src/cli-docs-lint/src/lib.rs` + `src/cli-docs-lint/src/main.rs` | S | **順位 545 (期限の記入) の完了後に auto へ移す。** 今日の日付は引数で注入する。`(仮)` は片方向だけ検査する。決定事項は [docs/todo28.md](todo28.md) § 順位 546 | feat(docs-lint): 試験運用 ADR の期限切れと (仮) の外し忘れを検出する |
+| 557 | T3 | — | `--no-install` の無い `npx` を、custom-lint rule と package.json を読む clean-baseline テストの 2 層で検出する | `config/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/` + `tests/fixtures/incidents/{bad,good}/` + `src/hooks-stop-quality/tests/` | S | **順位 556 (devDependencies の導入) の完了後に auto へ移す。** 既存の違反 3 件が残っていると検査を入れられない。決定事項は [docs/todo29.md](todo29.md) § 順位 557 | feat(custom-lint): --no-install の無い npx を検出する |
+| 561 | T3 | — | package.json の名前に test を含む script がすべて ci.yml の run 行に現れることを検査する cargo test を足す | `src/hooks-stop-quality/tests/` | S | **順位 560 (残骸 script の撤去) の完了後に auto へ移す。** ci.yml は読むだけ。決定事項は [docs/todo29.md](todo29.md) § 順位 561 | test(ci): package.json の test script が CI で走ることを検査する |
+| 563 | T3 | — | lint-workflows に jq の PCRE 略記の検出と marker 照合のコメント除去を足し、本体を export 関数に分けて vitest のテスト (契約検査 4 の mutation を含む) を書く | `scripts/lint-workflows.mjs` + `scripts/lint-workflows.test.mjs`（新規） | S | **順位 562 (夜間 verify への vitest 追加) の完了後に auto へ移す。** 決定事項は [docs/todo29.md](todo29.md) § 順位 563 | feat(lint-workflows): jq の PCRE 略記と marker 照合を締める |
+| 564 | T3 | — | exe-fingerprint のテストに cargo metadata の例外系と状態遷移の表駆動テストを足し、cargo-check-for-file の timeout のコメントを実設定に合わせる | `scripts/exe-fingerprint.test.mjs` + `scripts/cargo-check-for-file.mjs` | S | **順位 562 の完了後に auto へ移す。** コメントは 30 秒 → 35 秒 (`.claude/settings.json` の値)。決定事項は [docs/todo29.md](todo29.md) § 順位 564 | test(scripts): exe-fingerprint の例外系と状態遷移を固定する |
 
 ### 無人可としなかった理由
 
@@ -204,6 +224,7 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 180 | 2（実装内容が一意でない） | 「既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を**検討**」 |
 | 340 | 2（実装内容が一意でない） | 「`main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな**合成関数抽出リファクタ**が要る」— 抽出の切り方が未確定 |
 | 199 | 2（実装内容が一意でない） | 台帳の再スコープ（`priority_inversion.rs` へのテスト追加）と [todo10.md](todo10.md) の詳細エントリ（`~/.claude/rules/common/testing.md` への文書追記）が矛盾している。2026-08-24 の run 32760716062 が 0 変更で停止。詳細エントリの書き直しが先（2026-09-04） |
+| 546 / 557 / 561 / 563 / 564 | 前提タスクが未完了 | 実装内容はヒアリングで確定済み (2026-10-12)。前提 (順位 545 / 556 / 560 / 562) が終わるまでは、夜間 verify で検証できないか、既存違反で即座に落ちる。前提が完了した時点で auto へ移す |
 
 ### 対象外（Web では完了不能 / 残価値枯渇）
 
@@ -377,6 +398,16 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 
 **1 件しか残らなかった。** 補充の速度 (人間が判断して `✅` を付ける) が消化の速度 (1 晩 1 件) に
 追いつかない構造は変わっていない。順位 510 の完了基準に「`✅` 行の残数を週次で出す」を加えたのはこのため。
+
+### 2026-10-12
+
+post-merge feedback の一括採否 (順位 535〜570) から、auto lane に 15 行を割り当てた (順位 536 / 540 / 541 / 542 / 543 / 544 / 547 / 551 / 552 / 553 / 554 / 555 / 567 / 568 / 569)。
+
+**曖昧さが理由で human に残りそうな行は、判断点をヒアリングで確定してから auto に置いた。** 着手時判断・設計の二択・期待挙動の未定で auto にできない行について、現物から選択肢を洗い出し、ユーザーに決めてもらった。結論は各詳細エントリの「決定事項」にある。夜間ループはそれに従い、読み替えない。
+
+前提タスクが終われば auto に移せる行が 5 つある (順位 546 / 557 / 561 / 563 / 564)。いまは `—` のまま表に載せ、理由を § 無人可としなかった理由 に書いた。
+
+同日、判定基準 1 の旧パス (`.claude/custom-lint-rules.toml`) を、移設後の `config/custom-lint-rules.toml` に直した。
 
 ---
 
