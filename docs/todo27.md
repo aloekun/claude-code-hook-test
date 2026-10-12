@@ -11,31 +11,6 @@
 > **推奨実行順序**: 全タスク横断のサマリーは [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。
 
 ---
-### 順位 433: cli-telemetry-report コード堅牢化 + 回帰テスト (月次 ROI レビュー PR #336/#337 post-merge feedback 採用)
-
-> **動機**: 月次ハーネス ROI レビュー実装 (PR #335-338) の post-merge feedback で cli-telemetry-report に決定論的な堅牢化余地が挙がった。特に Phase C (snapshot 保持) の根本シナリオ = 月中に無効化→翌月再有効化される機構が既存 3 テストで未カバー (High)。Phase D の `confirmed_streak = zero_streak - partial` は前提 (`partial ⇒ zero_streak≥1`) が別関数依存で局所防御が無く、将来のリファクタで release build の silent underflow wrap により誤った deactivation 判定を招き得る。加えて `zero_firing_list` の MD/JSON 二重計算は出力乖離の温床。
->
-> **対処案**: 下記 作業計画。いずれも既存テストモジュール / 局所コードへの追加で Effort 小。
->
-> **参照**: PR #337 (Phase C+D) / PR #336 (Phase A) / PR #338 (Phase E)、`.claude/feedback-reports/337.md` (Tier1 #1 / Tier2 #1,#2)、`.claude/feedback-reports/336.md` (Tier1 #1 / Tier2 #1)、`.claude/feedback-reports/338.md` (Tier2 #2)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、`src/cli-telemetry-report/src/{aggregate,verdict,report,registry}.rs`。
->
-> **実行優先度**: Tier 2 — Severity High〜Low (越境テストのみ High) / Frequency Low〜Medium / Effort S〜XS / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] [High] aggregate.rs: 月中 無効化→翌月 再有効化トグルが `resolve_snapshot` を正しく通過する月間境界越境テストを追加 (#337 Tier2-1)
-- [ ] verdict.rs: `confirmed_streak` 計算を release build でも underflow しない形にする (clippy の -D warnings を通る書き方で。`checked_sub(..).unwrap_or(0)` は clippy の manual_saturating_arithmetic で落ちるので `saturating_sub` 等を使う。2026-10-11 の dry_run で実測)、`debug_assert!` (`partial ⇒ zero_streak≥1`) は診断用に併設 (#337 Tier1-1 + CodeRabbit PR #339)
-- [ ] verdict.rs tests: `current_month_partial==0` の境界を明示テスト化し `confirmed_streak==zero_streak` 等価を保証 (#337 Tier2-2)
-- [ ] report.rs: `zero_firing_list` の共有計算を `render()` で一度だけ実行し MD/JSON フォーマッタへ結果を渡す構造に抽出 (#336 Tier1-1)
-- [ ] report.rs tests: MD/JSON 両出力で zero_firing (id集合 / provenance / last_fired_month) + source_failures 一致の回帰テスト (#336 Tier2-1)
-- [ ] registry.rs tests: rule / preset / hook の 3 供給源が空・欠落時に同一 fail-open 挙動 (source_failures 計上) をすることを 1 テストで統一検証 (#338 Tier2-2、実装本体は #336 で対応済)
-
-#### 完了基準
-
-- 月中トグルシナリオ・streak 不変条件 (release-mode での判定保証を検証する回帰テストを含む)・MD/JSON 一致・3 供給源 fail-open が回帰テストで固定され、`cargo test --workspace` / clippy を通過すること。
-
----
-
 ### 順位 359: WP-16 系 post-merge feedback 文書系 10 件の docs バッチ
 
 > **動機**: PR #342 (CI matrix / ADR-065)・#343 (監視 CI 観測修正)・#344 (pipeline_lock レース修正) の post-merge feedback で採用確定した文書系 10 件を、1 本の docs バッチ PR に集約する (2026-08-02 方針決定。per-PR の細切れ doc PR を避け milestone でまとめる運用)。全件が当時の convention 集への追記を想定していたが、同集は 2026-09-13 に廃止した (順位 445)。**行き先は着手時に決める**。GitHub 仕様の gotcha など Severity High 2 件を含む。

@@ -61,7 +61,7 @@ fn verdict_for(
     current_month: &str,
 ) -> Verdict {
     let (zero_streak, current_month_partial) = trailing_zero_streak(rollups, mechanism, current_month);
-    let confirmed_streak = zero_streak - u64::from(current_month_partial);
+    let confirmed_streak = confirmed_zero_streak(zero_streak, current_month_partial);
     let status = if degraded {
         VerdictStatus::Suppressed
     } else if confirmed_streak >= zero_streak_months && zero_streak_months > 0 {
@@ -128,6 +128,22 @@ fn parse_year_month(month: &str) -> Option<(i32, u32)> {
     let y: i32 = y.parse().ok()?;
     let m: u32 = m.parse().ok()?;
     (1..=12).contains(&m).then_some((y, m))
+}
+
+/// 閾値判定に使う確定月のみの連続月数 (Phase D)。`current_month_partial` が真なら、
+/// 先頭の未確定当月 1 か月を `zero_streak` から除く。
+///
+/// invariant: `current_month_partial ⇒ zero_streak >= 1` ([`trailing_zero_streak`] が
+/// 未確定当月を数えてから `partial = true` にするため常に成り立つはずだが、将来のリファクタで
+/// 破れても release build で silent underflow wrap させない (`checked_sub(..).unwrap_or(0)` は
+/// clippy の manual_saturating_arithmetic で落ちるため `saturating_sub` を使う)。debug_assert は
+/// 不変条件の破れを開発時に検出するための診断用で、release の安全性には依存しない。
+fn confirmed_zero_streak(zero_streak: u64, current_month_partial: bool) -> u64 {
+    debug_assert!(
+        !current_month_partial || zero_streak >= 1,
+        "current_month_partial ⇒ zero_streak>=1 の不変条件が破れている"
+    );
+    zero_streak.saturating_sub(u64::from(current_month_partial))
 }
 
 /// 当該月が機構の「発火 0 かつ enabled+配備済み」を満たすか。
@@ -288,6 +304,18 @@ mod tests {
             VerdictStatus::Promote,
             "確定 2 か月で閾値到達 (当月部分を除いても 2 か月)"
         );
+    }
+
+    #[test]
+    fn confirmed_zero_streak_equals_zero_streak_when_not_partial() {
+        assert_eq!(confirmed_zero_streak(0, false), 0, "境界: streak 0 かつ非 partial は 0");
+        assert_eq!(confirmed_zero_streak(3, false), 3, "非 partial は確定 streak = zero_streak そのまま");
+    }
+
+    #[test]
+    fn confirmed_zero_streak_subtracts_one_when_partial() {
+        assert_eq!(confirmed_zero_streak(1, true), 0, "境界: 未確定当月のみの streak 1 は確定 0");
+        assert_eq!(confirmed_zero_streak(3, true), 2);
     }
 
     #[test]

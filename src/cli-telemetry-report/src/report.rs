@@ -66,8 +66,23 @@ pub struct ZeroFiring {
 }
 
 /// markdown レポートと機械可読 JSON を組み立てて返す。
+///
+/// `zero_firing_list` はここで 1 回だけ計算し、MD/JSON 双方のフォーマッタへ同じ値を渡す。
+/// 以前は各フォーマッタが個別に再計算しており、入力が同じでも出力が乖離する余地があった。
 pub fn render(input: &ReportInput) -> (String, serde_json::Value) {
-    (format_markdown(input), build_json(input))
+    let window = window_months(input.rollups, input.trend_months);
+    let monitored = monitored_ids(input.mechanisms);
+    let zero_firing = zero_firing_list(
+        input.rollups,
+        &window,
+        input.incident_ids,
+        &monitored,
+        &input.registry.entries,
+    );
+    (
+        format_markdown(input, &window, &zero_firing),
+        build_json(input, &window, &zero_firing),
+    )
 }
 
 /// rollups の末尾から `trend_months` 件の月キーを昇順で返す (直近 N か月窓)。
@@ -284,15 +299,8 @@ fn month_over_month(rollups: &[MonthRollup], window: &[String], id: &str) -> Str
 }
 
 /// (b)+(d) 直近窓で発火 0 の id (never-fired / went-quiet の 2 区分、incident 維持推奨マーク併記)。
-fn format_zero_firing(input: &ReportInput, window: &[String]) -> String {
-    let monitored = monitored_ids(input.mechanisms);
-    let zero = zero_firing_list(
-        input.rollups,
-        window,
-        input.incident_ids,
-        &monitored,
-        &input.registry.entries,
-    );
+/// `zero` は [`render`] が 1 回だけ計算した結果を受け取る (JSON 側と同じ値であることを保証する)。
+fn format_zero_firing(input: &ReportInput, zero: &[ZeroFiring]) -> String {
     let mut out = String::from("\n## (b) 直近窓で発火 0 の id（(d) incident 由来は維持推奨）\n\n");
     if !input.degraded.is_empty() {
         out.push_str(
@@ -307,9 +315,8 @@ fn format_zero_firing(input: &ReportInput, window: &[String]) -> String {
         out.push_str("発火 0 の id はありません。\n");
         return out;
     }
-    let (never, quiet): (Vec<_>, Vec<_>) = zero
-        .into_iter()
-        .partition(|z| z.provenance == Provenance::NeverFired);
+    let (never, quiet): (Vec<&ZeroFiring>, Vec<&ZeroFiring>) =
+        zero.iter().partition(|z| z.provenance == Provenance::NeverFired);
     let groups: Vec<String> = [
         format_zero_group("never-fired（全履歴で発火 0）", &never),
         format_zero_group("went-quiet（過去に発火・窓内 0）", &quiet),
@@ -323,12 +330,12 @@ fn format_zero_firing(input: &ReportInput, window: &[String]) -> String {
 
 /// 発火 0 の 1 区分を小見出し + 箇条書きにする。空区分は空文字を返す (見出しごと省略、
 /// 区分間の空行は呼び出し側が join で挟む)。
-fn format_zero_group(title: &str, items: &[ZeroFiring]) -> String {
+fn format_zero_group(title: &str, items: &[&ZeroFiring]) -> String {
     if items.is_empty() {
         return String::new();
     }
     let mut out = format!("### {title}\n\n");
-    for z in items {
+    for &z in items {
         out.push_str(&format!("- {}\n", format_zero_line(z)));
     }
     out
@@ -415,27 +422,25 @@ fn format_verdicts(input: &ReportInput) -> String {
 }
 
 /// markdown レポート全体を組み立てる。
-fn format_markdown(input: &ReportInput) -> String {
-    let window = window_months(input.rollups, input.trend_months);
-    let mut out = format_header(input, &window);
-    out.push_str(&format_monthly_table(input, &window));
-    out.push_str(&format_zero_firing(input, &window));
+fn format_markdown(input: &ReportInput, window: &[String], zero_firing: &[ZeroFiring]) -> String {
+    let mut out = format_header(input, window);
+    out.push_str(&format_monthly_table(input, window));
+    out.push_str(&format_zero_firing(input, zero_firing));
     out.push_str(&format_snapshot(input));
     out.push_str(&format_verdicts(input));
     out
 }
 
 /// 機械可読 JSON を組み立てる。
-fn build_json(input: &ReportInput) -> serde_json::Value {
-    let window = window_months(input.rollups, input.trend_months);
+fn build_json(input: &ReportInput, window: &[String], zero_firing: &[ZeroFiring]) -> serde_json::Value {
     json!({
         "generated_at": input.generated_at,
         "report_date": input.report_date,
         "roots": input.roots.iter().map(|r| r.display().to_string()).collect::<Vec<_>>(),
         "degraded": { "is_degraded": !input.degraded.is_empty(), "reasons": input.degraded },
         "window_months": window,
-        "monthly": monthly_json(input.rollups, &window),
-        "zero_firing": zero_firing_json(input, &window),
+        "monthly": monthly_json(input.rollups, window),
+        "zero_firing": zero_firing_json(zero_firing),
         "registry": { "source_failures": input.registry.source_failures },
         "snapshot": input.current_snapshot,
         "verdicts": verdicts_json(input.verdicts),
@@ -444,27 +449,21 @@ fn build_json(input: &ReportInput) -> serde_json::Value {
 }
 
 /// 発火 0 リストを JSON 配列にする (provenance / last_fired_month 付き、設計決定 1)。
-fn zero_firing_json(input: &ReportInput, window: &[String]) -> serde_json::Value {
-    let monitored = monitored_ids(input.mechanisms);
-    let entries: Vec<_> = zero_firing_list(
-        input.rollups,
-        window,
-        input.incident_ids,
-        &monitored,
-        &input.registry.entries,
-    )
-    .into_iter()
-    .map(|z| {
-        json!({
-            "id": z.id,
-            "kind": z.kind,
-            "incident": z.incident,
-            "monitored": z.monitored,
-            "provenance": z.provenance.key(),
-            "last_fired_month": z.last_fired_month,
+/// `zero` は [`render`] が 1 回だけ計算した結果を受け取る (MD 側と同じ値であることを保証する)。
+fn zero_firing_json(zero: &[ZeroFiring]) -> serde_json::Value {
+    let entries: Vec<_> = zero
+        .iter()
+        .map(|z| {
+            json!({
+                "id": z.id,
+                "kind": z.kind,
+                "incident": z.incident,
+                "monitored": z.monitored,
+                "provenance": z.provenance.key(),
+                "last_fired_month": z.last_fired_month,
+            })
         })
-    })
-    .collect();
+        .collect();
     serde_json::Value::Array(entries)
 }
 
@@ -757,6 +756,62 @@ mod tests {
         assert_eq!(json["roots"].as_array().unwrap().len(), 2);
         assert_eq!(json["verdicts"][0]["status"], "not_met");
         assert_eq!(json["window_months"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn render_md_and_json_zero_firing_agree() {
+        let rollups = vec![
+            rollup("2026-04", true, &[("wq", stat("hook", 2, 0))]),
+            rollup("2026-05", true, &[]),
+            rollup("2026-06", true, &[]),
+        ];
+        let degraded: Vec<String> = Vec::new();
+        let mechanisms: Vec<MechanismConfig> = Vec::new();
+        let incident = BTreeSet::new();
+        let verdicts: Vec<Verdict> = Vec::new();
+        let snapshot = Snapshot::default();
+        let roots = vec![PathBuf::from("/main")];
+        let registry = Registry {
+            entries: vec![RegistryEntry { id: "no-console-log".to_string(), kind: "rule".to_string() }],
+            source_failures: vec!["preset 供給源が読めない".to_string()],
+        };
+        let mut input = base_input(&rollups, &degraded, &mechanisms, &incident, &verdicts, &snapshot, &roots, &registry);
+        input.trend_months = 2;
+        let (md, json) = render(&input);
+
+        let json_entries = json["zero_firing"].as_array().unwrap();
+        let json_ids: BTreeSet<String> =
+            json_entries.iter().map(|e| e["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(
+            json_ids,
+            ["no-console-log".to_string(), "wq".to_string()].into_iter().collect::<BTreeSet<_>>(),
+            "JSON の id 集合"
+        );
+        for entry in json_entries {
+            let id = entry["id"].as_str().unwrap();
+            assert!(md.contains(&format!("`{id}`")), "MD に id {id} の行が無い (JSON には存在、id 集合不一致)");
+            let provenance = entry["provenance"].as_str().unwrap();
+            if provenance == "went_quiet" {
+                let month = entry["last_fired_month"].as_str().unwrap();
+                assert!(
+                    md.contains(&format!("最終発火: {month}")),
+                    "went-quiet id {id} の last_fired_month が MD と不一致"
+                );
+            } else {
+                assert_eq!(entry["last_fired_month"], serde_json::Value::Null);
+            }
+        }
+
+        let json_failures: Vec<String> = json["registry"]["source_failures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(json_failures, registry.source_failures, "source_failures は JSON/入力で一致");
+        for f in &json_failures {
+            assert!(md.contains(&format!("**供給源欠落**: {f}")), "source_failure {f} が MD に無い");
+        }
     }
 
     #[test]
