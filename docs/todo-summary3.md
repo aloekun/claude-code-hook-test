@@ -121,11 +121,9 @@
 | 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
-| 571 | Tier 1 | **[defect:G1] 夜間 PR のレビューを当面つなぐ (人間名義での PR の作り直し)** | todo29.md | S | なし (2026-10-12、#557。CodeRabbit が 2026-09 下旬から seat の無い bot 作者の PR をレビューしない。Free プランでは seat を付け替えられない。bot の PR を close したら続けて同じブランチから人間名義で作る) |
 | 572 | Tier 2 | **[improvement] 第三者レビューの正解データとベンチマークを固定し、計測結果を記録する** | todo29.md | M | なし (2026-10-12 の計測: 直近 100 PR で takt 通過後の指摘が確定 45 件 / 25 PR 修正された。これを正解データにする) |
 | 573 | Tier 2 | **[improvement] 候補レビュアーをベンチマークで採点する** | todo29.md | M | 順位 572 (CodeRabbit / 別 SaaS / 自作 / takt に別プロバイダー。接続の実装量も採点する) |
 | 574 | Tier 2 | **[improvement] 第三者レビューの手段と接続層を ADR にする** | todo29.md | M | 順位 573 (ADR-019 / 027 / 072 の前提の更新を含む。移行・撤去はこの結論から起票) |
-| 575 | Tier 2 | **[improvement] PR #557 を人間名義で作り直してレビューを受け、順位 433 を畳む** | todo29.md | S | 順位 571 (作り直しの手順。ブランチは 433 の扱いを決めるまで消さない) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
