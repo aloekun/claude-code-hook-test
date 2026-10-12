@@ -121,8 +121,7 @@
 | 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
-| 572 | Tier 2 | **[improvement] 第三者レビューの正解データとベンチマークを固定し、計測結果を記録する** | todo29.md | M | なし (2026-10-12 の計測: 直近 100 PR で takt 通過後の指摘が確定 45 件 / 25 PR 修正された。これを正解データにする) |
-| 573 | Tier 2 | **[improvement] 候補レビュアーをベンチマークで採点する** | todo29.md | M | 順位 572 (CodeRabbit / 別 SaaS / 自作 / takt に別プロバイダー。接続の実装量も採点する) |
+| 573 | Tier 2 | **[improvement] 候補レビュアーをベンチマークで採点する** | todo29.md | M | なし (物差しは順位 572 で `scripts/review-bench/` に固定済み。CodeRabbit / 別 SaaS / 自作 / takt に別プロバイダー。接続の実装量も採点する) |
 | 574 | Tier 2 | **[improvement] 第三者レビューの手段と接続層を ADR にする** | todo29.md | M | 順位 573 (ADR-019 / 027 / 072 の前提の更新を含む。移行・撤去はこの結論から起票) |
 
 
