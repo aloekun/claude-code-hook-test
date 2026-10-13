@@ -121,7 +121,6 @@
 | 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
-| 576 | Tier 2 | **[defect:G1] review-request が seat 不足の拒否をすぐ red にし、作り直しを案内する** | todo29.md | S | なし (2026-10-13、ADR-085 決定 6。#557 で 900 秒待ってから誤った原因を示して red になった。Guard 禁止パスなので human lane) |
 | 577 | Tier 3 | **[improvement] 月次レビューで、夜間 PR の作り直しの数と未レビューのマージを数える** | todo29.md | S | なし (2026-10-13、ADR-085 の再評価のきっかけに気づく仕組み。グローバルのスキルの編集なので human lane) |
 
 

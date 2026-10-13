@@ -117,6 +117,15 @@ jobs:
       # 両方が投稿された。先に陽性証拠を探すと placeholder を「レビュー実体」と読んで
       # silent success に戻る。markers.rs の is_clean_walkthrough_comment も rate-limit を
       # 優先して弾いており、判定順序をそちらに揃える。
+      #
+      # **seat 不足の拒否 (SEAT_REJECTED) は rate-limit の次に見る** (ADR-085 決定 6)。
+      # 2026-09 下旬から CodeRabbit は seat を持たない bot 作者の PR をレビューせず、
+      # 拒否をサマリーコメント (walkthrough marker を持つ) の本文で伝える (#557)。
+      # walkthrough より先に見ないと、拒否を「レビューの開始」と読む。人間が依頼しても
+      # 覆らないので、待っても無駄である。commit status の
+      # `Review skipped: bot user not eligible for review` は seat の問題が出る前から
+      # bot の PR に付いていた表示で、seat 不足とは限らないため判定に使わない。
+      # この文言は workflow の中でだけ使う (Rust 側に同じ判定は無い)。
       JQ_CLASSIFY: >-
         .[]
         | select(.user.login == "coderabbitai[bot]")
@@ -126,6 +135,8 @@ jobs:
                 or ($b | contains("rate limited by coderabbit.ai"))
                 or ($b | contains("Review rate limited."))
              then "RATE_LIMITED"
+             elif ($b | contains("without an assigned CodeRabbit review seat"))
+             then "SEAT_REJECTED"
              elif ($b | contains("Review finished."))
              then "ACK_FINISHED"
              elif ($b | contains("<!-- This is an auto-generated comment: summarize by coderabbit.ai -->"))
@@ -133,6 +144,28 @@ jobs:
              else "OTHER"
              end) ]
         | join(" ")
+      # seat 不足で拒否されたときの案内。auto 検出 step と検証 step の両方が出すので
+      # 1 か所に置く (ADR-081)。そのままコピーして使えるコマンドにする。
+      #
+      # **埋め込む値は PR 番号 (整数) とリポジトリ名 (固定値) だけ。** タイトルとブランチ名は
+      # author / bot が自由に決められ、git のブランチ名はシェルのメタ文字 (`"` `$` `;` 等) を
+      # 禁止していない。案内にそのまま載せると、人間が端末へ貼ったときに意図しないコマンドが
+      # 実行されうる (冒頭の § pull_request_target を使うことの危険と、その封じ方 と同じ理由。
+      # takt の security レビューの指摘)。これらはコマンドの中で `gh pr view` によって取得し、
+      # ダブルクォートした変数として渡す (変数の中身はシェルに再解釈されない)。
+      # 手順の正本は docs/claude-code-web-tasks.md の「夜間 PR を人間名義で作り直す」節。
+      SEAT_GUIDANCE: |
+        [REVIEW_REQUEST_SEAT] CodeRabbit が seat 不足を理由にこの PR のレビューを拒否しました。**この PR は未レビューです**
+        [REVIEW_REQUEST_SEAT] bot が作った PR は、人間が依頼してもレビューされません (ADR-085)。人間名義で作り直してください:
+        [REVIEW_REQUEST_SEAT]   1. PR=${{ github.event.pull_request.number }}; REPO=${{ github.repository }}
+        [REVIEW_REQUEST_SEAT]      TITLE=$(gh pr view "$PR" --repo "$REPO" --json title --jq .title)
+        [REVIEW_REQUEST_SEAT]      HEAD_REF=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName)
+        [REVIEW_REQUEST_SEAT]      BASE_REF=$(gh pr view "$PR" --repo "$REPO" --json baseRefName --jq .baseRefName)
+        [REVIEW_REQUEST_SEAT]      BODY_FILE=$(mktemp)
+        [REVIEW_REQUEST_SEAT]   2. gh pr view "$PR" --repo "$REPO" --json body --jq .body > "$BODY_FILE"   (冒頭に作り直しの旨を足す)
+        [REVIEW_REQUEST_SEAT]   3. gh pr close "$PR" --repo "$REPO" --comment "seat 不足のため人間名義で作り直します (ADR-085)"
+        [REVIEW_REQUEST_SEAT]   4. pnpm create-pr --head "$HEAD_REF" --base "$BASE_REF" --title "$TITLE" --body-file "$BODY_FILE"
+        [REVIEW_REQUEST_SEAT] 3 と 4 の間に夜間 run (18:10 UTC 起動) を挟まないこと。詳細は docs/claude-code-web-tasks.md の「夜間 PR を人間名義で作り直す」節。
     steps:
       # **checkout しない。** PR のコードは一切取得も実行もしない。
       # 必要なのは PR 番号だけで、それは event payload から得られる。
@@ -240,6 +273,13 @@ jobs:
             # 猶予を使い切ったときだけにする (検証段の判定と同じ方針)。
             if CLASSES=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
                  --jq "$JQ_CLASSIFY" 2>/dev/null | awk '{ print $2 }'); then
+              # seat 不足の拒否は依頼より前 (PR 作成の約 9 秒後、#557) に届く。見つけたら
+              # 依頼を投稿しない — 人間が依頼しても覆らず、投稿はレート枠を減らすだけである。
+              # 拒否は PR の author に対するもので HEAD に依らないため、comment id で絞らない。
+              if printf '%s\n' "$CLASSES" | grep -qx 'SEAT_REJECTED'; then
+                printf '%s\n' "$SEAT_GUIDANCE"
+                exit 1
+              fi
               if printf '%s\n' "$CLASSES" | grep -qx 'RATE_LIMITED'; then
                 echo "[REVIEW_REQUEST] CodeRabbit は rate-limit を返しています。auto 扱いにせず従来どおり要求します"
                 echo "auto_active=false" >> "$GITHUB_OUTPUT"
@@ -500,6 +540,12 @@ jobs:
             # 判定を下すのは deadline 到達時だけにする。
             if RAW=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
                  --jq "$JQ_CLASSIFY" 2>/dev/null); then
+              # 拒否が依頼の後に届いた場合も、待ち合わせを打ち切る (ADR-085 決定 6)。
+              # 拒否は PR の author に対するもので HEAD に依らないため、SINCE_ID で絞らない。
+              if printf '%s\n' "$RAW" | awk '$2 == "SEAT_REJECTED" { found = 1 } END { exit !found }'; then
+                printf '%s\n' "$SEAT_GUIDANCE"
+                exit 1
+              fi
               # 下の ACK_FINISHED 判定と同じくこの run に属する rate-limit だけを見る。
               # 要求を投げた run (SINCE_ID あり) では、その要求より前の陳腐化した
               # rate-limit コメントを拾うと、この run で実際に取得できた
