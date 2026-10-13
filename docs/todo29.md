@@ -387,34 +387,42 @@
 >
 > **目的の置き直し (2026-10-12 ユーザー判断)**: CodeRabbit を使うこと自体は目的ではない。目的は **Claude Code とは別の視点のレビュー**を受けることであり、CodeRabbit の廃止、別サービスへの乗り換え、自作のレビュアーも選択肢に入る。CodeRabbit でしか得られない価値があるなら有料 seat も選択肢だが、現時点ではそこまでの優位性は感じていない。
 
-### 順位 574: 第三者レビューの手段を ADR にする (当面は CodeRabbit + 作り直し運用、無料の範囲に限る)
+## ADR-085 (第三者レビューの手段) から起票 (2026-10-13)
 
-> **動機**: 第三者レビューの手段の選び直し (順位 572 / 573) が 2026-10-13 に終わり、当面の手段と判断基準が決まった。CodeRabbit を使い続けると決めた理由と、乗り換える条件を ADR に残す。
->
-> **これまでの結果**: 物差し (正解データ 45 件 / 25 PR) は `scripts/review-bench/` にある。ローカル LLM の採点結果は `scripts/review-bench/results/2026-10-13-local-llm/README.md` にあり、最良の qwen3.8:27b (思考あり) でも CodeRabbit の確定指摘の 18% (Major 14%) しか拾えず、代わりにならない。外部サービス (Copilot code review / PR-Agent + API モデル等) は性質だけを調べて採点していない。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。ADR の起票なので human lane。
+### 順位 576: review-request が seat 不足の拒否をすぐ red にし、作り直しを案内する
 
-#### 決定事項 (2026-10-13 ユーザー判断)
-
-- **当面の手段は CodeRabbit のまま。** 人間の PR は public リポジトリの OSS 扱いで無料でレビューされる。夜間 PR は [docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の「夜間 PR を人間名義で作り直す」節の手順でつなぐ
-- **費用は無料の範囲に限る。** bot 用の有料 seat や、有料の外部サービスは使わない
-- **外部候補は今は試さない。** 採点を再開するのは、下の再評価のきっかけが起きたとき
-- **乗り換えの判断基準: 品質が CodeRabbit と同等なら、接続が楽な方へ乗り換える。** CodeRabbit 固有の部品 (Rust 109 ファイル、ADR 8 本、review-request.yml) の保守を減らす価値を、品質の同等と同じ重さで扱う
-- ローカル LLM の判定は Claude によるものを採用し、個別の検証は省いた (結論が判定のずれに左右されないため)
+> **動機**: CodeRabbit は seat を持たない bot 作者の PR をレビューしない (#557)。今の `.github/workflows/review-request.yml` は拒否の通知を「未知の反応」として扱い、900 秒待ってから red になり、原因も「応答 format が変わった可能性」と誤って示す。[ADR-085](adr/adr-085-third-party-review-means.md) 決定 6 で、拒否を検出したらすぐに red にし、作り直しの手順を案内すると決めた。
+>
+> **由来**: `[defect:G1]`。証拠 = #557 (seat 不足の拒否のあと 900 秒待って red、原因の表示も誤っていた)。拒否の通知を判別する場が無かった。
+>
+> **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
 
 #### 作業計画
 
-- 新しい ADR「第三者レビューの手段」に、上の決定事項と根拠、次の再評価のきっかけを書く
-  - 無料で試せる外部候補が現れた (例: PR-Agent を Gemini API の無料枠で動かす組合せ。今回は試していない)
-  - 作り直しの手作業が負担になった (夜間 PR が増えた、作り直しを忘れて未レビューのままマージされた)
-  - CodeRabbit の無料の扱いがさらに変わった (人間の PR も有料になる等)
-- [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) / [ADR-072](adr/adr-072-nightly-todo-loop.md) の前提を更新する。「人間が依頼すれば bot の PR もレビューされる」は 2026-09 下旬に失効した
-- review-request.yml で、CodeRabbit の seat 拒否の通知 (「without an assigned CodeRabbit review seat」) を検出し、900 秒待たずに原因を名指しする処理を起票する (CodeRabbit を使い続けるため)
-- 乗り換えに備えて、レビュアーとの接続を薄い共通層にする設計は、乗り換えると決めたときに検討する (今は作らない)
+- CodeRabbit の拒否の通知 (本文の「without an assigned CodeRabbit review seat」) を検出したら、待ち合わせを打ち切って red にする。marker は `src/check-ci-coderabbit/src/markers.rs` と対で管理しているので、両方に足し、`scripts/lint-workflows.mjs` の同期検査の対象にする
+- red のメッセージで、[docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の「夜間 PR を人間名義で作り直す」節の手順を案内する
+- 実際の拒否の通知 (#557 のもの) を陽性対照にして、検出が働くことを確かめる
 
 #### 完了基準
 
-- ADR が採用され、移行・撤去の作業が台帳に起票されていること
+- seat 不足の拒否を受けた夜間 PR で、`Request` がすぐに red になり、作り直しの手順を示すこと
+
+### 順位 577: 月次レビューで、夜間 PR の作り直しの数と未レビューのマージを数える
+
+> **動機**: [ADR-085](adr/adr-085-third-party-review-means.md) の再評価のきっかけ (作り直しが負担になった / 未レビューのままマージされた) に気づく仕組みとして、月次のハーネス ROI レビュー ([ADR-062](adr/adr-062-monthly-harness-roi-review.md)) の確認項目に足すと決めた。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort S。月次レビューの手順はグローバルのスキル (`monthly-review`、スキルのリポジトリで管理) にあり、リポジトリの外の編集になるので human lane。
+
+#### 作業計画
+
+- 月次レビューの手順に、前月の次の 2 つを数える確認を足す
+  - 人間名義で作り直した夜間 PR の数 (close された夜間 PR のうち、同じブランチで人間名義の PR がマージされたもの)
+  - CodeRabbit のレビューを受けないままマージされた PR の有無
+- どちらかが増えていたら、ADR-085 の見直しを提案する
+- 外部サービスの動向は確認項目に含めない (ADR-085 の決定)
+
+#### 完了基準
+
+- 月次レビューの報告に上の 2 つの数が出ること

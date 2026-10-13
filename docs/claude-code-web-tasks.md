@@ -103,7 +103,7 @@ close は「この成果物は採らない」という判断であって、「�
 
 ### 夜間 PR を人間名義で作り直す（2026-10-12 からの暫定運用）
 
-**夜間ループが作った PR は、CodeRabbit のレビューを受けられない。** CodeRabbit は 2026-09 下旬から、seat を持たない bot 作者の PR をレビューしなくなった (スキップ通知は「This PR was authored by a bot without an assigned CodeRabbit review seat」)。人間が `@coderabbitai review` / `full review` を投稿しても覆らず、Free プランでは seat を手動で割り当てることもできない。一方、本リポジトリは public なので、人間が作った PR は seat 無しでレビューされる。そこで、第三者レビューの手段を選び直すまで (順位 572〜574) は、夜間 PR を人間名義で作り直してレビューを受ける。初回の適用は #557 → #559 (順位 433) で、CodeRabbit のレビューが完了することを確認した。
+**夜間ループが作った PR は、CodeRabbit のレビューを受けられない。** CodeRabbit は 2026-09 下旬から、seat を持たない bot 作者の PR をレビューしなくなった (スキップ通知は「This PR was authored by a bot without an assigned CodeRabbit review seat」)。人間が `@coderabbitai review` / `full review` を投稿しても覆らず、Free プランでは seat を手動で割り当てることもできない。一方、本リポジトリは public なので、人間が作った PR は seat 無しでレビューされる。そこで、夜間 PR は人間名義で作り直してレビューを受ける ([ADR-085](adr/adr-085-third-party-review-means.md) 決定 2)。初回の適用は #557 → #559 (順位 433) で、CodeRabbit のレビューが完了することを確認した。
 
 **手順**:
 
@@ -121,7 +121,7 @@ close は「この成果物は採らない」という判断であって、「�
 - 作り直した PR も `claude/` で始まるブランチなので、[ADR-071](adr/adr-071-draft-pr-backpressure.md) の背圧には従来どおり数えられる
 - `pnpm merge-pr` で PR 番号を指定するときは `pnpm merge-pr --pr "$PR"` と書く (`PR` に番号を入れる)。`--` を挟むと引数エラーで止まる
 
-順位 574 で第三者レビューの手段が決まったら、この節を廃止するか置き換える。
+この運用は [ADR-085](adr/adr-085-third-party-review-means.md) で当面の手段として採用した。ADR-085 の再評価で手段が変わったら、この節を廃止するか置き換える。
 
 ---
 
