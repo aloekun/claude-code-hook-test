@@ -387,49 +387,33 @@
 >
 > **目的の置き直し (2026-10-12 ユーザー判断)**: CodeRabbit を使うこと自体は目的ではない。目的は **Claude Code とは別の視点のレビュー**を受けることであり、CodeRabbit の廃止、別サービスへの乗り換え、自作のレビュアーも選択肢に入る。CodeRabbit でしか得られない価値があるなら有料 seat も選択肢だが、現時点ではそこまでの優位性は感じていない。
 
-### 順位 573: 候補レビュアーをベンチマークで採点する
+### 順位 574: 第三者レビューの手段を ADR にする (当面は CodeRabbit + 作り直し運用、無料の範囲に限る)
 
-> **動機**: 第三者レビューの手段を、共通の物差しで比べる。物差しは順位 572 (2026-10-12 完了) で `scripts/review-bench/` に置いた。正解データは直近 100 PR (#457〜#556) で採用が確定した CodeRabbit の指摘 45 件 / 25 PR (Major 21) と、各指摘が付いた時点の差分。採点の手順は `scripts/review-bench/score.mjs` の module doc にある (行の近さで候補を絞り、同じ問題か・妥当かは人が判定する)。
+> **動機**: 第三者レビューの手段の選び直し (順位 572 / 573) が 2026-10-13 に終わり、当面の手段と判断基準が決まった。CodeRabbit を使い続けると決めた理由と、乗り換える条件を ADR に残す。
 >
-> **2026-10-12 の計測結果** (判定方法: 人間の返信「指摘のとおり」「対応済み」等か、CodeRabbit の Addressed 印があるものを確定とした。返信が無く指摘行の近くが書き換わったものは推定として別に数えた。推定は確定分の 53% しか当たらない粗い指標):
->
-> - 価値: 100 PR すべてがレビューされた (うち 31 本は指摘ゼロ)。inline の指摘は 119 件。**採用されて修正されたのは確定で 45 件 / 25 PR (Major 21)**、推定を含めた上限は 81 件 / 47 PR。明示的に却下されたのは 2 件。docs 以外で確定した Major は 11 件 / 10 PR (例: #511 の telemetry への秘密パス漏れ、#471 の base branch を見ない rebase)。どれも takt の pre-push レビューを通過した後の指摘である
-> - コスト: CodeRabbit に言及する Rust ファイルが 109、専用の crate が 2 つ (`check-ci-coderabbit` 3,542 行、`cli-finding-classifier` 995 行)、主題にした ADR が 8 本、`review-request.yml` が 594 行。100 PR 中 8 本が配線の保守に使われた。PR 作成から初回レビューまでの待ち時間は、中央値 6.5 分、p90 129 分
-> - 読み取り: 第三者レビューには実効的な価値がある。ただし、それが CodeRabbit 固有の価値かどうかは比較相手が無いので示せない
->
-> ユーザーの見立ては「各サービスの違いはハーネスや GitHub との接続のしやすさだけ」であり、接続の実装量と外部仕様が変わるリスクを採点の項目に含める。
+> **これまでの結果**: 物差し (正解データ 45 件 / 25 PR) は `scripts/review-bench/` にある。ローカル LLM の採点結果は `scripts/review-bench/results/2026-10-13-local-llm/README.md` にあり、最良の qwen3.8:27b (思考あり) でも CodeRabbit の確定指摘の 18% (Major 14%) しか拾えず、代わりにならない。外部サービス (Copilot code review / PR-Agent + API モデル等) は性質だけを調べて採点していない。
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort M。外部サービスの契約や API キーが要るので human lane。
+> **実行優先度**: Tier 2 — Effort S。ADR の起票なので human lane。
+
+#### 決定事項 (2026-10-13 ユーザー判断)
+
+- **当面の手段は CodeRabbit のまま。** 人間の PR は public リポジトリの OSS 扱いで無料でレビューされる。夜間 PR は [docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の「夜間 PR を人間名義で作り直す」節の手順でつなぐ
+- **費用は無料の範囲に限る。** bot 用の有料 seat や、有料の外部サービスは使わない
+- **外部候補は今は試さない。** 採点を再開するのは、下の再評価のきっかけが起きたとき
+- **乗り換えの判断基準: 品質が CodeRabbit と同等なら、接続が楽な方へ乗り換える。** CodeRabbit 固有の部品 (Rust 109 ファイル、ADR 8 本、review-request.yml) の保守を減らす価値を、品質の同等と同じ重さで扱う
+- ローカル LLM の判定は Claude によるものを採用し、個別の検証は省いた (結論が判定のずれに左右されないため)
 
 #### 作業計画
 
-- 候補: (1) CodeRabbit (比較の基準。接続コストと seat の費用を含めて評価する) / (2) 同種の別 SaaS (bot が作った PR をレビューできるか、public リポジトリで無料か、モデルの出自) / (3) GitHub Actions で動く自作のレビュアー (Anthropic 以外のモデルの API。[ADR-046](adr/adr-046-local-llm-review-spike.md) の却下理由との違いを先に書く) / (4) takt の post-PR ステップに別プロバイダーのレビューを足す
-- 採点項目: 再現率 (全体と Major) / 正当な追加の指摘 / ノイズ / 待ち時間 / 費用 / bot が作った PR への対応 / 接続に要る実装量 / 外部仕様が変わるリスク
-- 最低ラインは、上の計測結果を見て決める。目安は「Major の再現率が CodeRabbit の実績を大きく下回らないこと」
-
-#### 完了基準
-
-- 全候補の採点表がそろい、順位 574 の判断に使えること
-
-### 順位 574: 第三者レビューの手段と接続層を ADR にする
-
-> **動機**: 順位 573 の結果から手段を決める。CodeRabbit 固有の配線 (marker、seat、rate limit、auto / manual の判定) を、次の手段で作り直さないための設計もここで決める。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort M。ADR の起票なので human lane。
-
-#### 作業計画
-
-- 新しい ADR「第三者レビューの手段と接続層」に次を書く
-  - 採用する手段と根拠 (順位 573 の採点表)
-  - レビュアーとの接続を薄い共通層にする設計: 指摘の取得・完了の判定・待ち合わせを手段に依存しない形にする
-  - [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) / [ADR-027](adr/adr-027-push-review-simplicity-focus.md) / [ADR-072](adr/adr-072-nightly-todo-loop.md) の前提の更新。「人間が依頼すれば bot の PR もレビューされる」は 2026-09 下旬に失効した。post-PR レビューの役割を誰が引き継ぐかも書く
-  - 夜間 PR の扱い (人間の PR と同じ手段か、別か)
-- [docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の「夜間 PR を人間名義で作り直す」節 (暫定運用) を、決めた手段に合わせて廃止するか置き換える
-- 移行・撤去の作業はこの ADR の結論から起票する。CodeRabbit を残すなら review-request.yml で seat 拒否を検出して原因を名指しする処理、替えるなら CodeRabbit に結合した部品の整理になる
+- 新しい ADR「第三者レビューの手段」に、上の決定事項と根拠、次の再評価のきっかけを書く
+  - 無料で試せる外部候補が現れた (例: PR-Agent を Gemini API の無料枠で動かす組合せ。今回は試していない)
+  - 作り直しの手作業が負担になった (夜間 PR が増えた、作り直しを忘れて未レビューのままマージされた)
+  - CodeRabbit の無料の扱いがさらに変わった (人間の PR も有料になる等)
+- [ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) / [ADR-072](adr/adr-072-nightly-todo-loop.md) の前提を更新する。「人間が依頼すれば bot の PR もレビューされる」は 2026-09 下旬に失効した
+- review-request.yml で、CodeRabbit の seat 拒否の通知 (「without an assigned CodeRabbit review seat」) を検出し、900 秒待たずに原因を名指しする処理を起票する (CodeRabbit を使い続けるため)
+- 乗り換えに備えて、レビュアーとの接続を薄い共通層にする設計は、乗り換えると決めたときに検討する (今は作らない)
 
 #### 完了基準
 

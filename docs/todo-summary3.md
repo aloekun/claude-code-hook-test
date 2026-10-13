@@ -121,8 +121,7 @@
 | 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
-| 573 | Tier 2 | **[improvement] 候補レビュアーをベンチマークで採点する** | todo29.md | M | なし (物差しは順位 572 で `scripts/review-bench/` に固定済み。CodeRabbit / 別 SaaS / 自作 / takt に別プロバイダー。接続の実装量も採点する) |
-| 574 | Tier 2 | **[improvement] 第三者レビューの手段と接続層を ADR にする** | todo29.md | M | 順位 573 (ADR-019 / 027 / 072 の前提の更新を含む。移行・撤去はこの結論から起票) |
+| 574 | Tier 2 | **[improvement] 第三者レビューの手段を ADR にする (当面は CodeRabbit + 作り直し運用、無料の範囲に限る)** | todo29.md | S | なし (2026-10-13 ユーザー判断で決定済み。ローカル LLM は代わりにならず、外部候補は今は試さない。品質が同等なら接続が楽な方へ乗り換える基準を ADR に残す) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

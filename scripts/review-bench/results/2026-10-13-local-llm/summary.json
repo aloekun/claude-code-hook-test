@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-13",
+  "groundTruth": {
+    "file": "scripts/review-bench/ground-truth.json",
+    "range": "#457-#556",
+    "truths": 45,
+    "prs": 25,
+    "major": 21
+  },
+  "conditions": {
+    "runner": "scripts/review-bench/results/2026-10-13-local-llm/run-local.mjs",
+    "engine": "Ollama 0.35.1 (ローカル GPU: RTX PRO 5000 48GB)",
+    "inputScope": "正解の付いたファイル 40 本の差分だけを、ファイル単位で渡す (PR の他のファイルは見せない)",
+    "inputFormat": "hunk の各行に新ファイル側の行番号を付ける。1 ファイル 60,000 文字で打ち切り (今回は打ち切り 0 件)",
+    "prompt": "徹底的なシニアレビュアー (run-local.mjs の PROMPT)。スタイルの指摘は求めない。JSON で {line, severity, text} を返させる",
+    "options": "format: json / temperature 0.1 / num_ctx 32768",
+    "runs": "各候補 1 回 (ばらつきは未計測)",
+    "matchWindow": "行 ±25 で候補を絞り、同じ問題か・妥当かは人が判定する (score.mjs)",
+    "judge": "Claude による判定を採用した (2026-10-13 ユーザー判断: ローカル LLM が CodeRabbit の代わりにならないという結論は判定が多少ずれても変わらないため、個別の検証は省いた)。確かめられない主張はノイズ側に倒した"
+  },
+  "candidates": [
+    {
+      "id": "qwen-think",
+      "model": "qwen3.8:27b-q8_0 (qwen35, 27.3B, Q8_0)",
+      "think": true,
+      "numPredict": 16384,
+      "sheet": "qwen-think.judged.json",
+      "score": { "recall": "8/45", "majorRecall": "3/21", "extraValid": 13, "noise": 8 },
+      "run": { "files": 40, "errors": 1, "zeroFindingFiles": 19, "findings": 29, "medianSec": 114.3, "p90Sec": 208.5, "maxSec": 301.3, "totalMin": 73.9 }
+    },
+    {
+      "id": "qwen-nothink",
+      "model": "qwen3.8:27b-q8_0 (qwen35, 27.3B, Q8_0)",
+      "think": false,
+      "numPredict": 4096,
+      "sheet": "qwen-nothink.judged.json",
+      "score": { "recall": "2/45", "majorRecall": "1/21", "extraValid": 3, "noise": 21 },
+      "run": { "files": 40, "errors": 0, "zeroFindingFiles": 20, "findings": 26, "medianSec": 2.8, "p90Sec": 8.3, "maxSec": 12.4, "totalMin": 2.5 }
+    },
+    {
+      "id": "gemma-nothink",
+      "model": "gemma4:26b-a4b-it-q8_0 (gemma4, 25.8B, Q8_0)",
+      "think": false,
+      "numPredict": 4096,
+      "sheet": "gemma-nothink.judged.json",
+      "score": { "recall": "1/45", "majorRecall": "1/21", "extraValid": 2, "noise": 22 },
+      "run": { "files": 40, "errors": 0, "zeroFindingFiles": 17, "findings": 25, "medianSec": 0.9, "p90Sec": 1.7, "maxSec": 8.7, "totalMin": 0.7 }
+    }
+  ],
+  "notes": [
+    "思考ありモデルを num_predict 4096 で動かすと、長い差分で思考だけで出力枠を使い切り、JSON が途中で切れる (初回の実行で qwen3.8 は 40 本中 19 本、gemma4 は 26 本が失敗)。思考ありは出力枠を広げるか、think: false を明示する",
+    "CodeRabbit の確定指摘を正解にしているため、再現率は『CodeRabbit と同じ問題を拾えるか』を測る。第三者レビューの価値は正当な追加の指摘の側にも現れる (ADR-046 と同じ観察)",
+    "zeroFindingFiles (指摘 0 件のファイル) には、モデルが findings 配列の無い JSON を返した失敗が混じっている可能性がある。この実行は、それを失敗として記録する検査を run-local.mjs に足す前の版で行い、生の応答も保存していないため区別できない。再現率・正当な追加の指摘・ノイズは出てきた指摘だけから数えるので影響しない",
+    "外部サービス (別 SaaS / API モデル) の採点は未実施。2026-10-13 のユーザー判断で、費用は無料の範囲に限り、今は外部を試さないことにした"
+  ]
+}
