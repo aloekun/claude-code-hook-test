@@ -276,22 +276,6 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 
 - 置き換えの可否が根拠つきで記録されていること
 
-### 順位 540: stale-branch-scan の冪等性を純関数テストで固定する
-
-> **動機**: scan → cleanup → マーカー作成 → 再 scan を繰り返したとき、分類が変わらないことを保証するテストが無い (#476 の提案)。CI step での実走案は Guard 禁止パス (`.github/workflows/`) を書き換えるため採らない。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 3 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- `src/cli-stale-branch-scan/src/classify.rs` の `mod tests` に、ls-remote 出力と PR 一覧を fixture にした純関数テストを足し、scan → cleanup → マーカー作成 → 再 scan を 3 周させて分類が変わらないことを確かめる。git / jj / gh は起動しない
-
-#### 完了基準
-
-- 3 周目の分類が 1 周目と一致することを assert するテストがあること
-
 ### 順位 541: `compact_entry` の e2e で日本語とエラー全文の保持を確かめる
 
 > **動機**: transcript 縮約の配線は e2e テスト (`src/cli-merge-pipeline/src/feedback/transcript.rs` の `filter_transcripts_writes_compacted_entries`) で確かめているが、日本語の保持とエラー結果の全文保持は unit テスト止まりである (#518 の提案)。

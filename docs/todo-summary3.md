@@ -90,7 +90,6 @@
 | 537 | Tier 1 | **[defect:G1] merge-pr 後の空コミットを push 前検査で止める (段 1+2)** | todo28.md | M | なし (2026-10-12、#484 / #485。merge-pipeline の基準コミットと ADR-045 の規約の組合せで毎回起きる。自動 abandon はしない) |
 | 538 | Tier 2 | **[improvement] 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)** | todo28.md | M | 順位 537 (基準コミットを機械的に識別する手段と、jj を起動する検査の副作用テストが要る) |
 | 539 | Tier 3 | **[improvement] post_steps 残骸検知を空の基準コミットから切り離せるか調べる (段 4)** | todo28.md | M | 順位 537 (調査。回帰テストが入ってから) |
-| 540 | Tier 3 | **[improvement] stale-branch-scan の冪等性を純関数テストで固定する** | todo28.md | S | なし (2026-10-12、#476 feedback。auto lane) |
 | 541 | Tier 3 | **[improvement] `compact_entry` の e2e で日本語とエラー全文の保持を確かめる** | todo28.md | S | なし (2026-10-12、#518 feedback。auto lane) |
 | 542 | Tier 2 | **[improvement] `rename_target` を曖昧な括りで推測解決しないようにする** | todo28.md | S | なし (2026-10-12、#509 feedback。括りがちょうど 1 組のときだけ解決する。auto lane) |
 | 543 | Tier 2 | **[improvement] cross_ref が symlink を辿り、コード内の例示リンクを検査する** | todo28.md | S | なし (2026-10-12、#538 / #506 feedback。auto lane) |
