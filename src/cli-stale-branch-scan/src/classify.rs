@@ -465,4 +465,40 @@ mod tests {
             BranchVerdict::NoPullRequest
         );
     }
+
+    /// 順位 540 (#476): `scan → cleanup → マーカー作成 → 再 scan` の運用サイクルを
+    /// 3 周させても分類が変わらないことを固定する。git / jj / gh は起動せず、
+    /// `remote_branches` の fixture を手元で書き換えて各段を模す。
+    ///
+    /// 1 周目は実ブランチ ([`RemoteBranch`] が PR の head と同じ commit) が `Stale` と判定され、
+    /// cleanup で remote から取り除かれ、同名のハンドオフマーカー (base commit を指す空 ref、
+    /// [`a_handoff_marker_sharing_a_name_with_a_merged_pr_is_not_proposed`] と同じ形) に
+    /// 置き換わる。これで `Diverged` になり cleanup の対象から外れるので、2 周目・3 周目は
+    /// remote を動かさず、再 scan の結果は 1 周目の再 scan と一致し続けるはずである。
+    /// 一致しなければ、削除済みブランチの名前が毎晩の順位選択に居座り続ける
+    /// (順位 324 の実例と同じ失敗モード)。
+    #[test]
+    fn scan_cleanup_marker_cycle_stays_stable_over_three_rounds() {
+        let prs = [pr(427, "claude/nightly-324", "MERGED")];
+        let mut remote = branches(&["claude/nightly-324"]);
+
+        let mut first_round: Option<Vec<ClassifiedBranch>> = None;
+        for round in 1..=3 {
+            let scanned = classify(&remote, &prs, None);
+            for candidate in deletion_candidates(&scanned) {
+                let name = candidate.branch.clone();
+                remote.retain(|b| b.name != name);
+                remote.push(at(&name, "base-commit-of-that-night"));
+            }
+            let rescanned = classify(&remote, &prs, None);
+
+            match &first_round {
+                None => first_round = Some(rescanned),
+                Some(first) => assert_eq!(
+                    &rescanned, first,
+                    "{round} 周目の分類が 1 周目と一致しない"
+                ),
+            }
+        }
+    }
 }
