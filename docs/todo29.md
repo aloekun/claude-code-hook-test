@@ -387,24 +387,6 @@
 
 ## ADR-085 (第三者レビューの手段) から起票 (2026-10-13)
 
-### 順位 576: review-request が seat 不足の拒否をすぐ red にし、作り直しを案内する
-
-> **動機**: CodeRabbit は seat を持たない bot 作者の PR をレビューしない (#557)。今の `.github/workflows/review-request.yml` は拒否の通知を「未知の反応」として扱い、900 秒待ってから red になり、原因も「応答 format が変わった可能性」と誤って示す。[ADR-085](adr/adr-085-third-party-review-means.md) 決定 6 で、拒否を検出したらすぐに red にし、作り直しの手順を案内すると決めた。
->
-> **由来**: `[defect:G1]`。証拠 = #557 (seat 不足の拒否のあと 900 秒待って red、原因の表示も誤っていた)。拒否の通知を判別する場が無かった。
->
-> **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
-
-#### 作業計画
-
-- CodeRabbit の拒否の通知 (本文の「without an assigned CodeRabbit review seat」) を検出したら、待ち合わせを打ち切って red にする。marker は `src/check-ci-coderabbit/src/markers.rs` と対で管理しているので、両方に足し、`scripts/lint-workflows.mjs` の同期検査の対象にする
-- red のメッセージで、[docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の「夜間 PR を人間名義で作り直す」節の手順を案内する
-- 実際の拒否の通知 (#557 のもの) を陽性対照にして、検出が働くことを確かめる
-
-#### 完了基準
-
-- seat 不足の拒否を受けた夜間 PR で、`Request` がすぐに red になり、作り直しの手順を示すこと
-
 ### 順位 577: 月次レビューで、夜間 PR の作り直しの数と未レビューのマージを数える
 
 > **動機**: [ADR-085](adr/adr-085-third-party-review-means.md) の再評価のきっかけ (作り直しが負担になった / 未レビューのままマージされた) に気づく仕組みとして、月次のハーネス ROI レビュー ([ADR-062](adr/adr-062-monthly-harness-roi-review.md)) の確認項目に足すと決めた。

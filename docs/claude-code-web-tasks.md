@@ -105,6 +105,8 @@ close は「この成果物は採らない」という判断であって、「�
 
 **夜間ループが作った PR は、CodeRabbit のレビューを受けられない。** CodeRabbit は 2026-09 下旬から、seat を持たない bot 作者の PR をレビューしなくなった (スキップ通知は「This PR was authored by a bot without an assigned CodeRabbit review seat」)。人間が `@coderabbitai review` / `full review` を投稿しても覆らず、Free プランでは seat を手動で割り当てることもできない。一方、本リポジトリは public なので、人間が作った PR は seat 無しでレビューされる。そこで、夜間 PR は人間名義で作り直してレビューを受ける ([ADR-085](adr/adr-085-third-party-review-means.md) 決定 2)。初回の適用は #557 → #559 (順位 433) で、CodeRabbit のレビューが完了することを確認した。
 
+**作り直しの合図**: 夜間 PR の `Request` (review-request workflow) が red になり、ログに `[REVIEW_REQUEST_SEAT]` の案内が出る。案内には、その PR の番号とブランチを埋めたコマンドが並ぶ (2026-10-14 から、[ADR-085](adr/adr-085-third-party-review-means.md) 決定 6)。
+
 **手順**:
 
 1. 夜間 PR を close する。理由と「ブランチは削除しない」旨をコメントに残す
