@@ -121,7 +121,6 @@
 | 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
-| 577 | Tier 3 | **[improvement] 月次レビューで、夜間 PR の作り直しの数と未レビューのマージを数える** | todo29.md | S | なし (2026-10-13、ADR-085 の再評価のきっかけに気づく仕組み。グローバルのスキルの編集なので human lane) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
