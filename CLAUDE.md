@@ -86,6 +86,7 @@
 - [ADR-082: deploy 済み exe の鮮度を入力フィンガープリントで判定する](docs/adr/adr-082-exe-freshness-fingerprint.md) *(試験運用)*
 - [ADR-083: takt の readonly step を permission mode で強制する](docs/adr/adr-083-takt-readonly-permission-mode.md) *(試験運用)*
 - [ADR-084: テスト専用コードは共通化しない — test module ごとに複製する](docs/adr/adr-084-test-helper-no-sharing.md)
+- [ADR-085: 第三者レビューの手段 — 当面は CodeRabbit を使い続け、夜間 PR は人間名義で作り直す](docs/adr/adr-085-third-party-review-means.md)
 
 ## 開発 convention / チェックリスト
 
