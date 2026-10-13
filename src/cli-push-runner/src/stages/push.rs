@@ -5,8 +5,12 @@ use crate::config::{PushConfig, DEFAULT_PUSH_TIMEOUT_SECS};
 use crate::log::log_stage;
 use crate::runner::MAX_LINES;
 
-pub(crate) fn run_push(config: &PushConfig, detected_bookmarks: &[String]) -> bool {
-    // NOTE: takt fix や手動 jj describe で @ が進んでも bookmark が旧コミットのまま残る問題の対策
+/// takt fix や手動 jj describe で @ が進んでも bookmark が旧コミットのまま残る問題の対策。
+///
+/// `run_push` から分けて呼び出し元に置くのは、前進後の bookmark で push 範囲を再検査
+/// してから push するため (順位 537、PR #568 の指摘)。事前検査は前進前の bookmark しか
+/// 見ておらず、takt の後に増えたコミットを検査できない。
+pub(crate) fn advance_bookmarks_before_push(config: &PushConfig) {
     if config.command.starts_with("jj ") {
         if let Err(e) = advance_jj_bookmarks() {
             log_stage(
@@ -15,7 +19,9 @@ pub(crate) fn run_push(config: &PushConfig, detected_bookmarks: &[String]) -> bo
             );
         }
     }
+}
 
+pub(crate) fn run_push(config: &PushConfig, detected_bookmarks: &[String]) -> bool {
     let timeout = config.timeout.unwrap_or(DEFAULT_PUSH_TIMEOUT_SECS);
     let command = build_push_command(&config.command, detected_bookmarks);
     log_stage("push", &command);
