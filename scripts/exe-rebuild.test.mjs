@@ -40,7 +40,10 @@ beforeEach(() => {
 
 afterEach(() => {
   // Windows では kill した子プロセスの exe のロックが exit 後も一瞬残り、EPERM になることがある。
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  // 重い処理の直後 (Stop hook の品質ゲートなど) はロックが外れるまで長くかかり、最大約 1.5 秒の
+  // リトライでは足りずに落ちた (2026-10-12 / 10-14)。rmSync の待ちは回数に比例して伸びるので、
+  // 10 回 × 200ms で最大約 11 秒待つ。
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 describe("planRebuild", () => {
