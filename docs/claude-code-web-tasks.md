@@ -221,7 +221,6 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 179 | T2 | — | rate-limit retry 境界（max_retries=0/1/3）で retry 継続 vs `action_required` 遷移の off-by-one を pin する parameterized テスト | `src/cli-pr-monitor/src/stages/poll/rate_limit.rs`（判定 L52）+ `src/cli-pr-monitor/src/config.rs`（L143-155） | S-M | **todo の「rstest 使用済」は誤り**（Cargo.lock に不在）。新 dev-dep 追加 or plain 複数 `#[test]` で代替を着手時判断。gh subprocess を踏まない早期 return 経路で構成する |  |
 | 536 | T2 | ✅ | jj-op-verify で、`cd` / `-R` / `--repository` を含むコマンドと background 実行のコマンドを照合しないようにする。quote 内の文言と破壊的コマンドを組み合わせた tokenizer テストも足す | `src/hooks-post-tool-jj-op-verify/src/main.rs` + `src/hooks-post-tool-jj-op-verify/src/tests.rs` | S | 判定は既存の tokenizer で行い、`cd` 先を解析して照合先を切り替えることはしない。background は hook 入力の `tool_input.run_in_background` で判定する。module doc の既知の限界へ 1 項足す。決定事項は [docs/todo28.md](todo28.md) § 順位 536 (2026-10-12 確定) | fix(jj-op-verify): cd 後と background のコマンドを照合しない |
 | 542 | T2 | ✅ | testability gate の rename 行の解決を、括りがちょうど 1 組 (`{`・` => `・`}` が各 1 回、この順) のときだけにし、それ以外は Err にする | `src/cli-push-runner/src/stages/testability_gate/mod.rs` | S | Err の経路と分類 (`unparsable-status`) は変えない。決定事項は [docs/todo28.md](todo28.md) § 順位 542 | fix(testability-gate): 曖昧な rename の括りを推測で解決しない |
-| 543 | T2 | ✅ | docs-lint のリンク検査で、ディレクトリ走査が symlink を辿らないようにし、インラインコードと fenced block の中のリンクを検査対象から外す。rustdoc 側にも同じ除外を入れる | `src/cli-docs-lint/src/cross_ref.rs` + `src/cli-docs-lint/src/rustdoc_links.rs` + `src/cli-docs-lint/src/convention_declaration.rs`（fence 判定の可視性を `pub(crate)` にするだけ） | S | symlink は rustdoc 側の既存実装と `#[cfg(unix)]` テストを写す。インラインコードの判定は CommonMark どおり、リンクの開始 `[` がスパン内にあるかで行う。現在の docs で新たな違反は出ない (2026-10-12 実測)。決定事項は [docs/todo28.md](todo28.md) § 順位 543 | fix(docs-lint): symlink を辿らず、コード内の例示リンクを外す |
 | 544 | T3 | ✅ | todo preamble の範囲表記で退役を書いたとき、範囲全体を退役と読むように直し、範囲の書式 × 退役の位置 × 実在の組合せを表駆動テストで固定する | `src/cli-docs-lint/src/todo_routing.rs` | S | 範囲全体を退役と読むのはユーザー判断 (2026-10-12)。テストは `mod tests` 内の表駆動で、proptest は使わない。ファイルが 800 行を超えるならテストを別ファイルへ分ける (ADR-080)。決定事項は [docs/todo28.md](todo28.md) § 順位 544 | fix(docs-lint): 範囲で書いた退役を範囲全体に効かせる |
 | 552 | T3 | ✅ | mod 宣言の並び順を検査する cargo test を足し、既存違反 1 件を並べ直す | `src/cli-docs-lint/tests/mod_order.rs`（新規） + `src/cli-pr-monitor/src/stages/mod.rs` | S | 比較の単位は空行かコメントで区切られた連続ブロック。属性付きの mod は比較から除外し、可視性は区別しない。この条件の既存違反は宣言した 1 ファイルだけ (2026-10-12 実測)。決定事項は [docs/todo29.md](todo29.md) § 順位 552 | test(lint): mod 宣言の並び順を検査する |
 | 554 | T2 | ✅ | custom-lint rule の exception を外したとき、incident fixture の good 側で 1 件以上の違反が出ることを確かめる test module を足す (exception を持つ全 rule が対象) | `src/hooks-post-tool-linter/src/custom_rules/` | M | mutation は exception の除去だけに限る。rule は `config/custom-lint-rules.toml` から読む。2026-10-12 時点で exception を持つ rule は 8 個。決定事項は [docs/todo29.md](todo29.md) § 順位 554 | test(custom-lint): exception が fixture で正当化されているか検査する |
@@ -431,6 +430,12 @@ post-merge feedback の一括採否 (順位 535〜570) から、auto lane に 15
 前提タスクが終われば auto に移せる行が 5 つある (順位 546 / 557 / 561 / 563 / 564)。いまは `—` のまま表に載せ、理由を § 無人可としなかった理由 に書いた。
 
 同日、判定基準 1 の旧パス (`.claude/custom-lint-rules.toml`) を、移設後の `config/custom-lint-rules.toml` に直した。
+
+### 2026-10-14
+
+**順位 543 を auto lane から human lane へ引き取り、Web セッションで完了したため行を削除した。** 順位 383 の push が、`pnpm push` の品質ゲート (`lint:docs`) で止まったのが発端。`rustdoc_links.rs` の doc comment にあるインラインコード内の例示リンク (`../../../docs/adr/...`) が、Linux では実在しないパスとして違反になっていた。CI は `lint:docs` を回していないため、Linux で落ちることが見えていなかった。Windows で通っていたのは、末尾のドットを落としてパスを解決するためと推測している (Windows 実機では未確認)。
+
+例示リンクを書き換える対処はコード内に例を書くたびに再発するため、検査の除外を入れる順位 543 を先に PR にし、383 をその上に積んだ (ユーザー判断)。引き取り時点で `claude/nightly-543` は無く、夜間ループとは競合していない。
 
 ---
 
