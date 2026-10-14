@@ -326,28 +326,6 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 
 - ファイル名に `{` / `}` / ` => ` を含む rename 行が Err になり、通常の rename 行は従来どおり解決されることをテストで確認できること
 
-### 順位 543: cross_ref が symlink を辿り、コード内の例示リンクを検査する
-
-> **動機**: `src/cli-docs-lint/src/cross_ref.rs` には 2 つの穴がある。
->
-> 1. `walk` が `path.is_dir()` で symlink の先まで辿る。祖先を指す symlink で再帰が止まらない。`rustdoc_links.rs` は #538 で `symlink_metadata` に直した (#538 の提案)
-> 2. インラインコードと fenced block の中にある markdown リンクの記法も実リンクとして検査する (#506 の提案)。`rustdoc_links.rs` の doc comment にあるコード内のリンクは、Linux では解決しないはずなのに Windows で通っている可能性がある
->
-> **由来**: `[improvement]`。現在の docs では除外しても新たな違反は出ない (コード内のリンク 3 件はいずれも実在先を指す。2026-10-12 実測)。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- symlink: `rustdoc_links.rs` の `symlink_metadata` 判定と `#[cfg(unix)]` テスト (`symlinks_are_not_followed`) をそのまま写す
-- インラインコード: CommonMark どおり同じ長さのバッククォート連続で開閉し、**リンクの開始 `[` がスパン内にあるか**で判定する (リンク文字列だけがコードになっているリンクは検査対象に残す)
-- fenced block の中も除外する。fence の判定は `convention_declaration.rs` の既存関数を `pub(crate)` にして共有する (本番コードなので ADR-084 の対象外)
-- `rustdoc_links.rs` にも同じ除外を入れる
-
-#### 完了基準
-
-- symlink の再帰が止まること、コード内の例示リンクが検査されず、リンク文字列だけがコードのリンクは検査されることをテストで確認できること
-
 ### 順位 544: 範囲で書いた退役を範囲全体の退役と読み、表駆動テストで固定する
 
 > **動機**: `src/cli-docs-lint/src/todo_routing.rs` は「`todo3.md 〜 todo5.md` は退役」を、末尾の 5 だけが退役で 3・4 は宣言と解釈する。人が読む意味と食い違う。`expand_between` と退役判定の相互作用のテストは 1 ケースしかない (#500 の提案)。

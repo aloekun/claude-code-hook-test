@@ -150,13 +150,13 @@ fn empty_value_message(heading: &str, prefix: &str) -> String {
 
 /// 開いているコードフェンスの種類と長さ。
 #[derive(Clone, Copy)]
-struct Fence {
+pub(crate) struct Fence {
     marker: char,
     len: usize,
 }
 
 /// フェンス行を解析した結果。`bare` は fence 文字の後ろが空 (= 閉じフェンスたりうる) か。
-struct FenceRun {
+pub(crate) struct FenceRun {
     marker: char,
     len: usize,
     bare: bool,
@@ -167,7 +167,7 @@ struct FenceRun {
 /// **`~~~` も fence である。** ` ``` ` だけを見る実装は、`~~~` ブロック内の `## ` を節見出しとして
 /// 拾い、正当な `dev-conventions.md` を違反にする (PR #492 CodeRabbit 指摘)。
 /// 字下げ 4 以上はフェンスではなく indented code block なので対象外。
-fn fence_run(line: &str) -> Option<FenceRun> {
+pub(crate) fn fence_run(line: &str) -> Option<FenceRun> {
     let trimmed = line.trim_start();
     if line.len() - trimmed.len() > 3 {
         return None;
@@ -192,7 +192,7 @@ fn fence_run(line: &str) -> Option<FenceRun> {
 /// 閉じられるのは**同じ文字種で、開きフェンス以上の長さで、情報文字列を持たない**行だけ。
 /// 単純なトグルにすると、` ``` ` ブロック内の `~~~` や、開きより短い ` `` ` 行で閉じたことに
 /// なってしまう。
-fn next_fence_state(current: Option<Fence>, run: FenceRun) -> Option<Fence> {
+pub(crate) fn next_fence_state(current: Option<Fence>, run: FenceRun) -> Option<Fence> {
     match current {
         None => Some(Fence {
             marker: run.marker,

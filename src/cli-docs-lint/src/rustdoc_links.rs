@@ -21,7 +21,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cross_ref::{checked_paths, inline_link_regex, validate_link};
+use crate::convention_declaration::{fence_run, next_fence_state, Fence};
+use crate::cross_ref::{checked_paths, inline_link_regex, link_targets_outside_code, validate_link};
 use crate::Violation;
 
 /// 走査しないディレクトリ名 (ビルド成果物と依存物)。
@@ -48,30 +49,49 @@ pub fn check(docs_dir: &Path) -> Result<Vec<Violation>, String> {
 }
 
 /// 1 ファイルのドキュメントコメント行を検査する。
+///
+/// インラインコードとコードフェンスの中のリンクは記法の例示なので見ない (順位 543)。
+/// フェンスはドキュメントコメントが途切れた所で閉じたものとみなす (rustdoc の 1 ブロックの終端)。
 pub fn check_file(path: &Path, content: &str) -> Vec<Violation> {
     let Some(parent) = path.parent() else {
         return Vec::new();
     };
     let link_re = inline_link_regex();
-    content
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| is_doc_comment(line))
-        .flat_map(|(idx, line)| {
-            link_re
-                .captures_iter(line)
-                .filter_map(|cap| cap.get(2).map(|m| m.as_str().to_string()))
+    let mut fence: Option<Fence> = None;
+    let mut violations = Vec::new();
+    for (idx, line) in content.lines().enumerate() {
+        let Some(doc) = doc_comment_body(line) else {
+            fence = None;
+            continue;
+        };
+        if let Some(run) = fence_run(doc) {
+            fence = next_fence_state(fence, run);
+            continue;
+        }
+        if fence.is_some() {
+            continue;
+        }
+        violations.extend(
+            link_targets_outside_code(doc, &link_re)
+                .into_iter()
                 .filter(|target| target.starts_with("../") || target.starts_with("./"))
-                .filter_map(|target| validate_link(path, parent, idx + 1, &target))
-                .collect::<Vec<_>>()
-        })
-        .collect()
+                .filter_map(|target| validate_link(path, parent, idx + 1, &target)),
+        );
+    }
+    violations
 }
 
+/// ドキュメントコメント行なら、`///` / `//!` と直後の空白 1 つを除いた本文を返す。
 /// `////` 以上は rustdoc ではなく通常のコメントなので除く (PR #538 CodeRabbit)。
-fn is_doc_comment(line: &str) -> bool {
+fn doc_comment_body(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
-    (trimmed.starts_with("///") && !trimmed.starts_with("////")) || trimmed.starts_with("//!")
+    if trimmed.starts_with("////") {
+        return None;
+    }
+    let rest = trimmed
+        .strip_prefix("///")
+        .or_else(|| trimmed.strip_prefix("//!"))?;
+    Some(rest.strip_prefix(' ').unwrap_or(rest))
 }
 
 /// シンボリックリンクは辿らない (`symlink_metadata`)。`is_dir` はリンク先を見るので、
@@ -198,5 +218,41 @@ mod tests {
         let root = tempfile::tempdir().expect("tempdir");
         fs::create_dir_all(root.path().join("docs")).expect("mkdir");
         assert!(violations(&root).is_empty());
+    }
+
+    /// インラインコードの中の例示リンクは検査しない。リンク文字列だけがコードのリンクは
+    /// 検査する (順位 543。本ファイル冒頭の例示が Linux でだけ違反になっていた)。
+    #[test]
+    fn links_inside_inline_code_are_not_checked() {
+        // 継続行が `///` で始まると本検査自身が拾うため、各行を `"` から始める。
+        let source = concat!(
+            "//! 例: `[ADR-043](../../../docs/adr/...)` のように書く\n",
+            "/// [`Foo`](../nowhere.md)\n",
+        );
+        let lines: Vec<usize> = violations(&repo("crate/src/x.rs", source))
+            .iter()
+            .map(|v| v.line)
+            .collect();
+        assert_eq!(lines, vec![2]);
+    }
+
+    /// ドキュメントコメント内のフェンスの中は見ない。フェンスはドキュメントコメントが
+    /// 途切れた所で閉じたとみなす。
+    #[test]
+    fn links_inside_doc_code_fences_are_not_checked() {
+        let source = concat!(
+            "/// ```text\n",
+            "/// [x](../nowhere.md)\n",
+            "/// ```\n",
+            "/// [y](../nowhere.md)\n",
+            "//! ```\n",
+            "fn f() {}\n",
+            "/// [z](../nowhere.md)\n",
+        );
+        let lines: Vec<usize> = violations(&repo("crate/src/x.rs", source))
+            .iter()
+            .map(|v| v.line)
+            .collect();
+        assert_eq!(lines, vec![4, 7]);
     }
 }

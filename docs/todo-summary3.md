@@ -93,7 +93,6 @@
 | 540 | Tier 3 | **[improvement] stale-branch-scan の冪等性を純関数テストで固定する** | todo28.md | S | なし (2026-10-12、#476 feedback。auto lane) |
 | 541 | Tier 3 | **[improvement] `compact_entry` の e2e で日本語とエラー全文の保持を確かめる** | todo28.md | S | なし (2026-10-12、#518 feedback。auto lane) |
 | 542 | Tier 2 | **[improvement] `rename_target` を曖昧な括りで推測解決しないようにする** | todo28.md | S | なし (2026-10-12、#509 feedback。括りがちょうど 1 組のときだけ解決する。auto lane) |
-| 543 | Tier 2 | **[improvement] cross_ref が symlink を辿り、コード内の例示リンクを検査する** | todo28.md | S | なし (2026-10-12、#538 / #506 feedback。auto lane) |
 | 544 | Tier 3 | **[improvement] 範囲で書いた退役を範囲全体の退役と読み、表駆動テストで固定する** | todo28.md | S | なし (2026-10-12、#500 feedback。範囲全体を退役と読むのはユーザー判断。auto lane) |
 | 545 | Tier 2 | **[improvement] 試験運用 ADR の再評価期限を索引タグに記入する** | todo28.md | M | なし (2026-10-12、#549 feedback。42 件中 34 件は期限の日付が無く、期限切れが 3 件ある。ユーザーと二人三脚) |
 | 546 | Tier 2 | **[improvement] 試験運用 ADR の期限切れと `(仮)` の外し忘れを lint:docs で検出する** | todo28.md | S | 順位 545 (索引タグに期限が入ってから auto lane へ) |
