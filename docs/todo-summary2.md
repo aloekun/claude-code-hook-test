@@ -83,7 +83,6 @@
 | 375 | Tier 2 | **レビュー指摘への対応時チェックリスト (fix 後の文書整合 / finding スコープ / 意図的 stale 表 / 技術的前提の検証)** | todo20.md | S | なし (WP-18 の 3 PR で同型の失敗が 4 件。いずれも変更の影響範囲を指摘された 1 点だけで見積もったこと、または前提を検証せず動いたことが共通項) |
 | 377 | Tier 3 | **夜間ループの防御を検知から防止へ格上げする判断** | todo20.md | M-L | 順位 374 + 2 週間の試験運用 (ADR-072 残課題 3 件。実運用の観測が判断材料で、観測前の着手は過剰設計。「不要」判断も正規の出口) |
 | 382 | Tier 2 | **台帳 prompt injection payload の regression test (#363 Tier2 #1)** | todo20.md | M | なし (依存だった順位 380 の framing は 2026-08-08 実装済み = ADR-072 決定 13。順位 378-381 は完了・削除済み) |
-| 383 | Tier 2 | **`is_separator_row` のパイプ検証欠落を塞ぐ + 回帰テスト (#363 Tier2 #2)** | todo20.md | S | なし (2026-08-07 実コード確認済み。bare `---` がセパレータ行として通る) |
 | 389 | Tier 1 | **`Write(path)` tool-scope 指定子の no-op を検出する settings validator (#369 T1 採用)** | todo21.md | M | なし (CLI 2.1.218 で Write() は no-op = deny の silent 無効化。Edit() のみ機能。ADR-072 決定 12 に事実記録済み) |
 | 390 | Tier 2 | **台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI 検証 (#369 T2 採用)** | todo21.md | M | なし (LEDGER_DATA_FRAME_MARKER と ===BEGIN/END_LEDGER_DATA=== が対。片側変更で ADR-072 決定 13 の framing が破れる) |
 | 392 | Tier 2 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
