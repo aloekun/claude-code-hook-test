@@ -1,5 +1,5 @@
 /**
- * ビルド済み Rust 成果物を target/release/ から .claude/ へコピーする
+ * ビルド済み Rust 成果物を `<target dir>/release/` から .claude/ へコピーする
  * クロスプラットフォームスクリプト (WP-13: EXE_SUFFIX 抽象化)。
  *
  * 従来 package.json の build:* スクリプトは `cp target/release/<name>.exe .claude/`
@@ -28,8 +28,23 @@ const EXE_SUFFIX = process.platform === "win32" ? ".exe" : "";
 
 const SCRIPTS_DIR = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(SCRIPTS_DIR, "..");
-const RELEASE_DIR = join(ROOT, "target", "release");
 const CLAUDE_DIR = join(ROOT, ".claude");
+
+/**
+ * cargo の成果物ディレクトリ (`<target dir>/release`) を返す (順位 578)。
+ *
+ * `CARGO_TARGET_DIR` が設定されていればそれを使い、無ければ `<root>/target` を使う。
+ * 相対パスは `root` 基準で解決する (cargo は cwd 基準だが、本スクリプト群は `pnpm` 経由で
+ * リポジトリルートから呼ばれる)。決め打ちの `target/release` だと、クラウド環境
+ * (`CARGO_TARGET_DIR=/opt/cargo-target`) で `cargo build` の成果物を見つけられない。
+ *
+ * @param {string} root リポジトリルート
+ * @param {Record<string, string | undefined>} env 環境変数 (テストで差し替える)
+ */
+export function resolveReleaseDir(root, env = process.env) {
+  const targetDir = env.CARGO_TARGET_DIR;
+  return join(targetDir ? resolve(root, targetDir) : join(root, "target"), "release");
+}
 
 /**
  * `dest` を `src` の中身へ差し替える。`dest` が実行中でも失敗しない。
@@ -123,7 +138,7 @@ function main() {
     return 1;
   }
   try {
-    deployArtifacts(names, fingerprints, { releaseDir: RELEASE_DIR, claudeDir: CLAUDE_DIR });
+    deployArtifacts(names, fingerprints, { releaseDir: resolveReleaseDir(ROOT), claudeDir: CLAUDE_DIR });
   } catch (err) {
     console.error(`error: ${err.message}`);
     return 1;
