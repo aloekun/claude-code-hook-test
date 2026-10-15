@@ -377,7 +377,12 @@ fn is_table_row(line: &str) -> bool {
     line.trim_start().starts_with('|')
 }
 
+/// パイプを含まない `---` (markdown の水平線) を区切り行と誤認しないよう、
+/// `is_table_row` と同じく行頭 `|` を要求する。
 fn is_separator_row(line: &str) -> bool {
+    if !is_table_row(line) {
+        return false;
+    }
     let cells = split_cells(line);
     !cells.is_empty()
         && cells
@@ -629,6 +634,37 @@ mod tests {
     fn header_without_separator_row_is_an_error() {
         let markdown = "| 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 |\n| 203 | T2 | ✅ | x | y | XS |\n";
         assert!(select(markdown, &none()).is_err());
+    }
+
+    /// パイプを含まない `---` は markdown の水平線であって区切り行ではない。
+    /// `split_cells("---")` は `["---"]` を返すため、パイプ検証が無いと区切り行として通る。
+    #[test]
+    fn bare_dashes_are_not_a_separator_row() {
+        assert!(!is_separator_row("---"));
+        assert!(!is_separator_row("  :---:  "));
+        assert!(is_separator_row("|---|---|"));
+        assert!(is_separator_row("| :--- | ---: |"));
+    }
+
+    /// ヘッダ行の直後が水平線 `---` の場合、区切り行の欠落として停止する (fail-closed)。
+    #[test]
+    fn header_followed_by_horizontal_rule_is_an_error() {
+        let markdown = "| 順位 | Tier | 無人可 | 内容 | 対象ファイル | 工数 |\n---\n| 203 | T2 | ✅ | x | y | XS |\n";
+        assert!(select(markdown, &none()).is_err());
+    }
+
+    /// 表の直前に水平線があっても、表の解釈と選択は変わらない。
+    #[test]
+    fn horizontal_rule_before_table_does_not_affect_selection() {
+        let markdown = format!(
+            "# 台帳\n\n---\n\n{}",
+            ledger("| 203 | T2 | ✅ | x | y.rs | XS | - |")
+        );
+        let task = select(&markdown, &none())
+            .expect("parse")
+            .expect("selected");
+        assert_eq!(task.rank, 203);
+        assert_eq!(task.target_files, "y.rs");
     }
 
     /// 「対象ファイル」で始まる列が複数あると、どちらを使うべきか決まらないためエラー。
