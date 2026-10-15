@@ -292,22 +292,6 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 
 - 3 周目の分類が 1 周目と一致することを assert するテストがあること
 
-### 順位 541: `compact_entry` の e2e で日本語とエラー全文の保持を確かめる
-
-> **動機**: transcript 縮約の配線は e2e テスト (`src/cli-merge-pipeline/src/feedback/transcript.rs` の `filter_transcripts_writes_compacted_entries`) で確かめているが、日本語の保持とエラー結果の全文保持は unit テスト止まりである (#518 の提案)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 3 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- 既存の e2e と同じ形で、日本語・マルチバイトを含む entry とエラーの tool_result を含む entry を通し、出力にそのまま残ることを assert する。期待値は unit テストが固定済みの性質に合わせる
-
-#### 完了基準
-
-- filter → compact → 出力の経路で、日本語とエラー全文が失われないことを e2e で確認できること
-
 ### 順位 542: `rename_target` を曖昧な括りで推測解決しないようにする
 
 > **動機**: `src/cli-push-runner/src/stages/testability_gate/mod.rs` の `rename_target` は、最初の `{` と次の `}` で括りを決める。ファイル名自体が `{` / `}` / ` => ` を含むと、Err にならずに別のパスへ解決し、走査対象を取り違える (#509 の提案。コードからの推論で、実害の観測はまだ無い)。
