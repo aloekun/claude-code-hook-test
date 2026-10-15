@@ -25,13 +25,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { CARGO_ERROR_LINE } from "./cargo-check-for-file.mjs";
 import { formatStaleReport, readDeployedStamps, skipReason } from "./check-exe-freshness.mjs";
-import { deployArtifacts } from "./deploy-artifacts.mjs";
+import { deployArtifacts, resolveReleaseDir } from "./deploy-artifacts.mjs";
 import { computeFingerprints, findStale, loadWorkspace } from "./exe-fingerprint.mjs";
 
 const SCRIPTS_DIR = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(SCRIPTS_DIR, "..");
 const CLAUDE_DIR = join(ROOT, ".claude");
-const RELEASE_DIR = join(ROOT, "target", "release");
 
 /**
  * cargo build の打ち切り (ミリ秒)。hooks-config.toml の step timeout (240 秒) より短くし、
@@ -94,7 +93,7 @@ function main() {
       console.error(`exe-freshness: 古い exe ${bins.length} 個の再ビルドに失敗した (ADR-082):\n${cause}`);
       return 1;
     }
-    deployArtifacts(bins, before, { releaseDir: RELEASE_DIR, claudeDir: CLAUDE_DIR });
+    deployArtifacts(bins, before, { releaseDir: resolveReleaseDir(ROOT), claudeDir: CLAUDE_DIR });
     console.log(`exe-freshness: 再ビルドして deploy した: ${bins.join(", ")}`);
   }
   if (orphans.length > 0) {

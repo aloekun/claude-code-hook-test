@@ -18,12 +18,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { findPackageName, formatCheckReport, parsePackageName } from "./cargo-check-for-file.mjs";
 import { skipReason } from "./check-exe-freshness.mjs";
-import { deployArtifacts, replaceFile } from "./deploy-artifacts.mjs";
+import { deployArtifacts, replaceFile, resolveReleaseDir } from "./deploy-artifacts.mjs";
 import { hashPackageDir, parseStamp } from "./exe-fingerprint.mjs";
 import { planRebuild, summarizeBuildErrors } from "./rebuild-stale-exes.mjs";
 
@@ -219,6 +219,30 @@ describe("deployArtifacts", () => {
       "not a bin target",
     );
     expect(existsSync(join(claudeDir, `cli-x${EXE_SUFFIX}`))).toBe(false);
+  });
+});
+
+/** 順位 578: クラウドは `CARGO_TARGET_DIR=/opt/cargo-target` で、決め打ちの target/release に成果物が無い。 */
+describe("resolveReleaseDir", () => {
+  const repo = resolve("/repo");
+
+  it("CARGO_TARGET_DIR が無ければ <root>/target/release", () => {
+    expect(resolveReleaseDir(repo, {})).toBe(join(repo, "target", "release"));
+  });
+
+  it("CARGO_TARGET_DIR が空文字なら未設定と同じ", () => {
+    expect(resolveReleaseDir(repo, { CARGO_TARGET_DIR: "" })).toBe(join(repo, "target", "release"));
+  });
+
+  it("絶対パスの CARGO_TARGET_DIR はそのまま使う", () => {
+    const target = resolve("/opt/cargo-target");
+    expect(resolveReleaseDir(repo, { CARGO_TARGET_DIR: target })).toBe(join(target, "release"));
+  });
+
+  it("相対パスの CARGO_TARGET_DIR は root 基準で解決する", () => {
+    expect(resolveReleaseDir(repo, { CARGO_TARGET_DIR: "build/out" })).toBe(
+      join(repo, "build", "out", "release"),
+    );
   });
 });
 
