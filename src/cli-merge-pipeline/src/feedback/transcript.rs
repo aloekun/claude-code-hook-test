@@ -712,4 +712,97 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    /// 日本語・マルチバイトを含む entry が filter → compact → 出力の経路で壊れないこと。
+    ///
+    /// 期待値は `transcript_compact::trims_multibyte_text_on_char_boundaries` が固定した
+    /// 性質 (文字数で中ほどを省略し、文字境界を跨がない) に合わせる。
+    #[test]
+    fn filter_transcripts_keeps_multibyte_text_intact_through_the_pipeline() {
+        let dir = unique_temp_dir("multibyte");
+        let long_text = format!("{}{}", "前".repeat(1500), "後".repeat(1500));
+        let entry = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-04-25T09:00:00.000Z",
+            "cwd": WORKSPACE_ROOT,
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "is_error": false,
+                    "content": long_text,
+                }],
+            },
+        });
+        fs::write(dir.join("session.jsonl"), format!("{entry}\n")).unwrap();
+
+        let out_path = dir.join("filtered.jsonl");
+        let written = filter_transcripts(
+            &single_source(&dir),
+            &range_covering_0900_to_0930(),
+            &out_path,
+        )
+        .unwrap();
+        assert_eq!(written, 1);
+
+        let out: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&out_path).unwrap().trim()).unwrap();
+        let expected_text = format!(
+            "{}\n[… 1000 文字省略 …]\n{}",
+            "前".repeat(1000),
+            "後".repeat(1000)
+        );
+        assert_eq!(
+            out["message"]["content"][0]["content"],
+            serde_json::json!(expected_text),
+            "日本語テキストが文字境界で正しく省略されて出力に残ること"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// エラーの tool_result を含む entry が filter → compact → 出力の経路で全文保持されること。
+    ///
+    /// 期待値は `transcript_compact::keeps_an_error_tool_result_in_full_however_long` が
+    /// 固定した性質 (エラーは縮約せず全文を残す) に合わせる。
+    #[test]
+    fn filter_transcripts_keeps_an_error_tool_result_in_full_through_the_pipeline() {
+        let dir = unique_temp_dir("tool-error");
+        let long_error = "日本語エラー".repeat(1000);
+        let entry = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-04-25T09:00:00.000Z",
+            "cwd": WORKSPACE_ROOT,
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "is_error": true,
+                    "content": long_error,
+                }],
+            },
+        });
+        fs::write(dir.join("session.jsonl"), format!("{entry}\n")).unwrap();
+
+        let out_path = dir.join("filtered.jsonl");
+        let written = filter_transcripts(
+            &single_source(&dir),
+            &range_covering_0900_to_0930(),
+            &out_path,
+        )
+        .unwrap();
+        assert_eq!(written, 1);
+
+        let out: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&out_path).unwrap().trim()).unwrap();
+        assert_eq!(
+            out["message"]["content"][0]["content"],
+            serde_json::json!(long_error),
+            "エラーの tool_result は長さに関わらず全文が出力に残ること"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
