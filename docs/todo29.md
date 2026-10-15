@@ -373,3 +373,45 @@
 #### 完了基準
 
 - custom regex を宣言した構成で、月次レポートが正しい発火数を出すこと
+
+### 順位 578: `deploy-artifacts.mjs` が `CARGO_TARGET_DIR` を見ず、クラウドで `pnpm build:*` の配置が失敗する
+
+> **動機**: `scripts/deploy-artifacts.mjs` は成果物の場所を `const RELEASE_DIR = join(ROOT, "target", "release")` と決め打ちしている。クラウド環境は `CARGO_TARGET_DIR=/opt/cargo-target` を設定しているため、`cargo build --release` の成果物は `/opt/cargo-target/release/` にでき、配置段が `error: build artifact not found: .../target/release/cli-docs-lint` で失敗する。2026-10-14 の Claude Code Web セッションで、`pnpm build:cli-docs-lint` を実行して実際に失敗した。
+>
+> 回避策は `env -u CARGO_TARGET_DIR pnpm build:<name>` で、リポジトリ内の `target/` に cold build することだけ。cache-phase で温めた `/opt/cargo-target` を使えないので、ビルドのたびに依存から作り直すことになる。
+>
+> **由来**: `[defect:G1]`。`deployArtifacts()` のテスト (`scripts/exe-rebuild.test.mjs`) は `releaseDir` を引数で受け取る経路しか見ておらず、モジュール先頭で `RELEASE_DIR` を決める処理にはテストを書く場が無かった。
+>
+> **実行優先度**: Tier 2 — Effort S。クラウドで docs-lint などの CLI 自身を直す PR は、手元で exe を再ビルドしないと品質ゲートを通せないため、この経路は避けられない (順位 543 の PR #569 で実際に必要になった)。
+
+#### 作業計画
+
+- 成果物ディレクトリを `CARGO_TARGET_DIR` (設定されていれば。相対パスはリポジトリルート基準) → `<ROOT>/target` の順に解決する関数に切り出す
+- 解決関数の単体テストを足す (未設定 / 絶対パス / 相対パス)
+- 同じ決め打ちが `scripts/exe-fingerprint.mjs` など他のスクリプトに無いかを grep で確かめ、あれば同じ関数を使う
+
+#### 完了基準
+
+- `CARGO_TARGET_DIR` を設定したままの `pnpm build:cli-docs-lint` が、クラウド環境で成功すること
+
+### 順位 579: `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)
+
+> **動機**: クラウド環境では、`.claude/settings.json` の SessionStart (`startup|resume`) が `scripts/cloud-hook-dispatch.mjs --setup` → `cloud-setup.sh --session-phase` を実行し、nightly release のバイナリを `.claude/` へ展開する。`pnpm push` を通すと、**手元で再ビルドして配置した exe が nightly 版に戻る** (観測済み)。pre-push review は takt 経由で Claude のサブセッションを起動するので、このサブセッションでも同じ SessionStart が走って exe を置き直している、と推定している (原因は未確認)。
+>
+> 2026-10-14 の観測 (PR #569 の push): `pnpm build:cli-docs-lint` で配置した `.claude/cli-docs-lint` (04:26:37) が、`pnpm push` の takt 実行 (04:27:54〜) の後に mtime 12:24:01 (nightly の built_at) の版へ戻っていた。takt のサブセッションが原因という点は時刻の一致からの推定で、サブセッション内の hook 実行ログでは確かめていない。
+>
+> 影響: 品質ゲートは takt より前に走るので、通常の push は通る。しかし fix が書き換えた後に品質ゲートを回し直す post-takt re-gate ([ADR-058](adr/adr-058-post-takt-regate.md)) は、**古い exe で検査する**。CLI 自身を直す PR では、re-gate が修正前の挙動で判定しうる。続けて別の push をする場合も、毎回 exe を配置し直す必要がある。
+>
+> **由来**: `[defect:G1]`。SessionStart の setup と takt のサブセッションの組合せを検査する場が無かった。
+>
+> **実行優先度**: Tier 2 — Effort S〜M。
+
+#### 作業計画
+
+- 推定を確かめる: takt のサブセッションで `cloud-hook-dispatch.mjs --setup` が走ることを、hook のログか dispatcher の一時的な出力で確認する
+- 対処を 1 つ選ぶ。候補は、(a) takt が起動するサブセッションでは setup を skip する (環境変数などで識別する)、(b) `cloud-setup.sh` が `.claude/<name>.fingerprint` ([ADR-082](adr/adr-082-exe-freshness-fingerprint.md)) を見て、手元ビルドの exe を上書きしない、の 2 つ。**着手時判断**
+- 選んだ対処の回帰テストを足す
+
+#### 完了基準
+
+- 手元で再ビルドした exe が、`pnpm push` を通した後も残っていること
