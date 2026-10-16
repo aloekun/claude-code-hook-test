@@ -96,7 +96,6 @@
 | 544 | Tier 3 | **[improvement] 範囲で書いた退役を範囲全体の退役と読み、表駆動テストで固定する** | todo28.md | S | なし (2026-10-12、#500 feedback。範囲全体を退役と読むのはユーザー判断。auto lane) |
 | 545 | Tier 2 | **[improvement] 試験運用 ADR の再評価期限を索引タグに記入する** | todo28.md | M | なし (2026-10-12、#549 feedback。42 件中 34 件は期限の日付が無く、期限切れが 3 件ある。ユーザーと二人三脚) |
 | 546 | Tier 2 | **[improvement] 試験運用 ADR の期限切れと `(仮)` の外し忘れを lint:docs で検出する** | todo28.md | S | 順位 545 (索引タグに期限が入ってから auto lane へ) |
-| 547 | Tier 3 | **[improvement] `parse_tier` の Tier 4 / 5 をテストで固定する** | todo28.md | XS | なし (2026-10-12、#488 feedback。auto lane) |
 | 548 | Tier 3 | **[improvement] lane マーカーを絵文字から文字列へ置き換える (絵文字の全面禁止 段 2)** | todo28.md | M | なし (2026-10-12 ユーザー決定。段 1 = 台帳の Tier 表記は同日実施済み。Guard 禁止パスの改修なので human lane) |
 | 549 | Tier 3 | **[improvement] ドキュメントの絵文字を一掃し、検出したら即時エラーにする (段 3)** | todo28.md | M | 順位 548 (docs の絵文字は 43 ファイル 263 個。facet の出力契約の置き換えを含む) |
 | 550 | Tier 3 | **[improvement] post-merge feedback の判断基準を ADR へ追記する** | todo28.md | S | なし (2026-10-12。ADR-044 / 049 / 041 / 025 / 043 / 064 の 6 項目。機械化できず置き場が ADR しか無いもの) |
