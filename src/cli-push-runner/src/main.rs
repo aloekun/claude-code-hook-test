@@ -2,6 +2,8 @@
 //!
 //! pnpm push から呼び出され、以下のステージを実行する:
 //!   Stage -1:  bookmark_check — 非 trunk bookmark の存在を確認 (順位 2)
+//!   Stage -0.5: push_range_check — push で送るコミットに説明の無いものが無いかを確認 (順位 537)。
+//!               bookmark を前進させた後、Stage 3 の直前にも再検査する
 //!   Stage 0:   scratch_file_warning — `__*` 等の scratch ファイル混入を検査 (順位 1)
 //!   Stage 0.5: docs_only_routing — PR 範囲が docs-only なら Rust の gate group を skip (T11)
 //!   Stage 1:   quality_gate — TOML で定義されたコマンド群をグループ間で並列実行
@@ -26,6 +28,7 @@
 //!   10 - testability_gate が deny モードで発火 (試験運用中は warning のため出ない)
 //!   11 - open_questions_gate: docs/open-questions.md に未解決の問いがある
 //!   12 - takt_verdict_gate: レビューが APPROVE で終わっていない
+//!   13 - push_range_check: push で送るコミットに説明の無いものがある / 確認できない
 
 mod config;
 mod log;
@@ -40,7 +43,8 @@ use log::log_info;
 use metrics::RunMetrics;
 use stages::{
     run_bookmark_check, run_diff, run_docs_only_routing, run_ledger_completion, run_lint_screen,
-    run_open_questions_gate, run_post_takt_regate, run_pr_size_check, run_push, run_quality_gate,
+    run_open_questions_gate, run_post_takt_regate, run_pr_size_check, run_push, run_push_range_check,
+    advance_bookmarks_before_push, run_quality_gate,
     run_scratch_file_warning,
     run_testability_gate,
     run_takt, run_takt_verdict_gate, DiffResult,
@@ -62,6 +66,8 @@ const EXIT_TESTABILITY_GATE: i32 = 10;
 const EXIT_OPEN_QUESTIONS: i32 = 11;
 /// 順位 499 (takt verdict gate): レビューが APPROVE で終わっていない。
 const EXIT_TAKT_VERDICT: i32 = 12;
+/// 順位 537 (push range check): push で送るコミットに説明の無いものがある / 確認できない。
+const EXIT_PUSH_RANGE_UNDESCRIBED: i32 = 13;
 
 /// diff stage の結果。takt / post-takt re-gate を走らせるかを表す。
 enum DiffGate {
@@ -108,6 +114,10 @@ fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
         log_info("パイプライン中断: push 可能な bookmark がありません (対処は直前のログを参照)。");
         return Err(EXIT_BOOKMARK_MISSING);
     };
+    if !run_push_range_check(&detected_bookmarks) {
+        log_info("パイプライン中断: push で送るコミットに説明の無いものがあります (対処は直前のログを参照)。");
+        return Err(EXIT_PUSH_RANGE_UNDESCRIBED);
+    }
     if !run_scratch_file_warning(config.scratch_file_warning.as_ref()) {
         log_info(
             "パイプライン中断: scratch ファイル検出。`.gitignore` 修正 / ファイル削除 / \
@@ -284,7 +294,27 @@ fn run_stages(metrics: &mut RunMetrics) -> i32 {
         return code;
     }
 
-    if !metrics.timed("push", || run_push(&config.push, &detected_bookmarks)) {
+    run_push_after_recheck(&config, &detected_bookmarks, metrics)
+}
+
+/// bookmark を前進させ、前進後の push 範囲を再検査してから push する。
+/// 事前検査 (`run_pre_checks`) は前進前の bookmark しか見ていないため、takt の後に
+/// 加わったコミットはここで初めて検査される (順位 537、PR #568 の指摘)。
+fn run_push_after_recheck(
+    config: &config::Config,
+    detected_bookmarks: &[String],
+    metrics: &mut RunMetrics,
+) -> i32 {
+    let range_ok = metrics.timed("push_range_recheck", || {
+        advance_bookmarks_before_push(&config.push);
+        run_push_range_check(detected_bookmarks)
+    });
+    if !range_ok {
+        log_info("パイプライン中断: takt の後に、push で送るコミットへ説明の無いものが加わりました (対処は直前のログを参照)。");
+        return EXIT_PUSH_RANGE_UNDESCRIBED;
+    }
+
+    if !metrics.timed("push", || run_push(&config.push, detected_bookmarks)) {
         log_info("パイプライン中断: push 失敗。");
         return EXIT_PUSH_FAILURE;
     }

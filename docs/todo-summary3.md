@@ -87,9 +87,8 @@
 | 534 | Tier 3 | **[improvement] rule を書き写したテストを設定ファイル読み込みへ移し、写経の再発を検査で止める** | todo28.md | M | なし (2026-10-11、順位 498 の作業で判明。25 rule 中 16 rule のテストが rule のコピーを検査していた (ADR-081 違反)。順位 498 で 9 rule を移行済み。残り 7 rule + `deployed_tests.rs` のコピーを移してから、写経を落とす検査を足す。順序を逆にすると CI が落ちる) |
 | 535 | Tier 2 | **[defect:G2] push-runner / pr-monitor がハンドオフマーカー bookmark を前進させる** | todo28.md | M | なし (2026-10-12、#506 feedback。`::trunk()` 上かの構造で判定する。実 jj の `#[ignore]` テストが要るので human lane) |
 | 536 | Tier 2 | **[defect:G2] jj-op-verify が `cd` 後・background 実行のコマンドを誤判定する** | todo28.md | S | なし (2026-10-12、#545 / #494 feedback。`cd` / `-R` / background は照合しない。auto lane) |
-| 537 | Tier 1 | **[defect:G1] merge-pr 後の空コミットを push 前検査で止める (段 1+2)** | todo28.md | M | なし (2026-10-12、#484 / #485。merge-pipeline の基準コミットと ADR-045 の規約の組合せで毎回起きる。自動 abandon はしない) |
-| 538 | Tier 2 | **[improvement] 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)** | todo28.md | M | 順位 537 (基準コミットを機械的に識別する手段と、jj を起動する検査の副作用テストが要る) |
-| 539 | Tier 3 | **[improvement] post_steps 残骸検知を空の基準コミットから切り離せるか調べる (段 4)** | todo28.md | M | 順位 537 (調査。回帰テストが入ってから) |
+| 538 | Tier 2 | **[improvement] 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)** | todo28.md | M | なし (依存先の順位 537 は完了。基準コミットを機械的に識別する手段と、jj を起動する検査の副作用テストが要る) |
+| 539 | Tier 3 | **[improvement] post_steps 残骸検知を空の基準コミットから切り離せるか調べる (段 4)** | todo28.md | M | なし (調査。依存先の順位 537 は回帰テストとともに完了) |
 | 540 | Tier 3 | **[improvement] stale-branch-scan の冪等性を純関数テストで固定する** | todo28.md | S | なし (2026-10-12、#476 feedback。auto lane) |
 | 541 | Tier 3 | **[improvement] `compact_entry` の e2e で日本語とエラー全文の保持を確かめる** | todo28.md | S | なし (2026-10-12、#518 feedback。auto lane) |
 | 542 | Tier 2 | **[improvement] `rename_target` を曖昧な括りで推測解決しないようにする** | todo28.md | S | なし (2026-10-12、#509 feedback。括りがちょうど 1 組のときだけ解決する。auto lane) |
