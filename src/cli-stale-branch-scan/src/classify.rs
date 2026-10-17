@@ -492,6 +492,17 @@ mod tests {
             }
             let rescanned = classify(&remote, &prs, None);
 
+            if round == 1 {
+                assert_eq!(
+                    rescanned[0].verdict,
+                    BranchVerdict::Diverged { settled_prs: vec![427] },
+                    "1 周目の cleanup がマーカーへ置き換えていない (Diverged でない)"
+                );
+                assert!(
+                    deletion_candidates(&rescanned).is_empty(),
+                    "1 周目の再 scan に削除候補が残っている"
+                );
+            }
             match &first_round {
                 None => first_round = Some(rescanned),
                 Some(first) => assert_eq!(
