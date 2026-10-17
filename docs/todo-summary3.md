@@ -98,7 +98,6 @@
 | 550 | Tier 3 | **[improvement] post-merge feedback の判断基準を ADR へ追記する** | todo28.md | S | なし (2026-10-12。ADR-044 / 049 / 041 / 025 / 043 / 064 の 6 項目。機械化できず置き場が ADR しか無いもの) |
 | 551 | Tier 3 | **[improvement] analyze-session facet のスキーマ例と縮約の実装のずれを検査する** | todo29.md | S | なし (2026-10-12、#518 feedback。auto lane) |
 | 552 | Tier 3 | **[improvement] mod 宣言の並び順をテストで検査する** | todo29.md | S | なし (2026-10-12、#490 feedback。既存違反 1 件は同じ PR で直す。auto lane) |
-| 553 | Tier 3 | **[improvement] rule⑲ / ⑳ のリポジトリ全体 clean-baseline テストを足す** | todo29.md | S | なし (2026-10-12、#533 feedback。既存違反 0 件。auto lane) |
 | 554 | Tier 2 | **[improvement] custom-lint rule の exception を外すと incident fixture が落ちることを検査する** | todo29.md | M | なし (2026-10-12、#532 feedback。mutation は exception の除去だけに限る。auto lane) |
 | 555 | Tier 2 | **[improvement] config パス候補の TS と Rust の同期をテストで固定する** | todo29.md | S | なし (2026-10-12、#501 feedback。auto lane) |
 | 556 | Tier 2 | **[improvement] oxlint・tsx・biome を devDependencies に入れて固定する** | todo29.md | S | なし (2026-10-12 の調査で判明。`pnpm lint` と `deploy:hooks` がネットワークから取得している。lockfile の更新なので human lane) |
