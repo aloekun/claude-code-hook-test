@@ -254,6 +254,8 @@ mod tests {
         assert_eq!(parse_tier("Tier 1"), Some(1));
         assert_eq!(parse_tier("Tier 2"), Some(2));
         assert_eq!(parse_tier("Tier 3"), Some(3));
+        assert_eq!(parse_tier("Tier 4"), Some(4));
+        assert_eq!(parse_tier("Tier 5"), Some(5));
     }
 
     /// **旧書式 (絵文字つき) も読める。** `cli-docs-lint` は `pnpm deploy:hooks` で派生
@@ -264,6 +266,8 @@ mod tests {
         assert_eq!(parse_tier("🚀 Tier 1"), Some(1));
         assert_eq!(parse_tier("🔧 Tier 2"), Some(2));
         assert_eq!(parse_tier("💎 Tier 3"), Some(3));
+        assert_eq!(parse_tier("🐢 Tier 4"), Some(4));
+        assert_eq!(parse_tier("🐢 Tier 5"), Some(5));
         let legacy_row = "| 34 | 🚀 Tier 1 | task | todo4.md | M | 順位 19 land 後推奨 |";
         assert_eq!(parse_row(legacy_row).map(|r| (r.0, r.1)), Some((34, 1)));
     }
