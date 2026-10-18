@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-08-06、2026-08-09 に停止点を draft PR から通常 PR へ変更、2026-08-10 にレビュー要求経路を確立、2026-08-16 に担当管理を lane モデルへ移行 = 決定 18〜20、2026-08-25 に決定 10 を改訂して implement 後の停止を red 化 = 順位 488)
+試験運用 (2026-08-06、2026-08-09 に停止点を draft PR から通常 PR へ変更、2026-08-10 にレビュー要求経路を確立、2026-08-16 に担当管理を lane モデルへ移行 = 決定 18〜20、2026-08-25 に決定 10 を改訂して implement 後の停止を red 化 = 順位 488、**2026-10-18 に schedule を外して休止** = § 休止)
 
 > [ADR-052](adr-052-autonomy-execution-boundary-classes.md) の自動実行可クラスのうち **PR 作成 (autonomous-pr クラス)** を、[ADR-066](adr-066-autonomy-global-kill-switch.md) の kill-switch と [ADR-071](adr-071-draft-pr-backpressure.md) の背圧の上に実装する。無人 fix push ([ADR-067](adr-067-phase-b-unattended-fix-push.md)) の次の段で、**自律 actor が初めて「新しい成果物」を作る**経路になる。
 >
@@ -647,12 +647,52 @@ public リポジトリでは **fork からの PR でも起動し、その時点�
 
 **射程外**: `git ls-remote` による着手済み判定は「いま存在するブランチ」を見る操作で、過去の SHA に固定できない。本決定はそれを固定する代わりに、PR 作成前の再照合で結末を正しくする。人間が後始末 (台帳の行削除) をせずに同じ順位を実装した場合は、台帳に順位が残るため検出できない (決定 21 の残る射程外と同じ)。
 
+## 休止 (2026-10-18)
+
+**夜間ループを休止した。** `nightly-todo.yml` から `schedule` を外し、毎晩の起動を止めた。`workflow_dispatch` とコード、台帳は残してある。
+
+### 休止した理由
+
+- **夜間 PR が CodeRabbit のレビューを受けられない。** 2026-09 下旬から、CodeRabbit は seat を持たない bot 作者の PR をレビューしない ([ADR-085](adr-085-third-party-review-means.md))。夜間 PR はすべて人間名義で作り直す必要があり、#557 / #563 / #573 / #574 はどれも作り直してからマージした (#559 / #575 / #576 / #577)
+- **作り直すなら、夜間に実装する利点がほとんど残らない。** 人間は作り直しとマージで毎タスク PR に触る。それなら、手の空いたときに Claude Code Web でタスクを直接実行しても手間は変わらない。夜間の実行はサブスクリプションの枠で動き (`CLAUDE_CODE_OAUTH_TOKEN`)、週の上限は日中の作業と共有しているので、夜の消費は無料ではない
+- **成果が少ない。** 2026-09-18〜10-16 の schedule 起動 29 回で、PR になったのは 5 本 (#510 / #557 / #563 / #573 / #574) だった
+
+### 止め方に schedule の削除を選んだ理由
+
+§ 試験運用判断基準 の Kill-switch (`max_open_autonomous_prs = 0` など) では、目的の「無駄な処理を回さない」を満たせない。
+
+| 止め方 | 採らなかった理由 |
+|---|---|
+| `max_open_autonomous_prs = 0` / `enabled = false` | 判定する `Pre-flight gate` は job の途中にある。毎晩、job が起動して gate exe の build、App token の発行、決着済みブランチの掃除まで進んでから止まる。`enabled = false` は Phase B の無人 fix push まで止める |
+| Actions variable `AUTONOMY_ENABLED` の削除 | job は起動しなくなるが、`pr-monitor.yml` の Phase B と `review-request.yml` も止まる。リポジトリの外の状態なので、止まっていることがコードから読めない ([ADR-051](adr-051-cross-system-config-coupling.md)) |
+| `gh workflow disable` | 夜間ループだけを止められるが、リポジトリの外の状態で履歴に残らない |
+
+schedule の削除なら、起動そのものが止まり、他の自律動作に影響せず、停止が履歴に残る。
+
+### 休止中に変わること
+
+- **決着済み PR のブランチの自動掃除 (決定 20) も止まる。** 掃除は夜間 run の冒頭で行っていたため。`claude/nightly-*` のブランチは、必要になったら手で消す
+- **台帳の `無人可` 列はそのままにする。** 列の値を読んで順位を選ぶのは nightly-todo の run だけなので、休止中は手動で実行しない限り読まれない。再開したときにそのまま使える
+- **手動実行 (`workflow_dispatch`) は残すが、休止中は再開前の確認に限り、`dry_run: true` で回す。** `dry_run` の既定値は `false` なので、指定を忘れると PR まで作られる。そうして作られた PR は、ほかの夜間 PR と同じく作り直して扱い、2026-11-06 の判定材料には数えない
+- **休止の時点で open だった夜間 PR #578 (順位 553) は、人間名義で作り直して扱う** ([ADR-085](adr-085-third-party-review-means.md) 決定 2 の手順)
+
+### 再開と撤去
+
+- **再開**: `nightly-todo.yml` の `on:` の直下に次のブロックを戻す。bot が作った PR に第三者レビューが付くようになったとき (ADR-085 の再評価で手段が変わったとき) が目安である
+
+  ```yaml
+  schedule:
+    - cron: '0 18 * * *'
+  ```
+
+- **2026-11-06 の判定** (§ 試験運用判断基準 の Bounded lifetime): 判定材料は schedule 起動の実績に限る。休止中は schedule 起動が無いので、判定材料は増えない。その日に、休止を続けるか、workflow と専用のコードを撤去する (却下) かを決める
+
 ## 試験運用判断基準 (ADR-039)
 
 | 項目 | 内容 |
 |---|---|
 | **Config opt-in** | 3 つの独立した条件がすべて要る: Actions variable `AUTONOMY_ENABLED` = `'true'`、`autonomy-config.toml` の `[autonomy] enabled = true`、同 `max_open_autonomous_prs` の設定。どれか 1 つでも欠ければ PR は作られない |
-| **Kill-switch** | 夜間ループだけ止めるなら `max_open_autonomous_prs = 0`。全自律動作を止めるなら `enabled = false` または Actions variable の削除。**新しい停止操作を増やしていない** — 既存 2 拠点 + 背圧の閾値だけで止まる |
+| **Kill-switch** | 夜間ループだけ止めるなら `max_open_autonomous_prs = 0`。全自律動作を止めるなら `enabled = false` または Actions variable の削除。**新しい停止操作を増やしていない** — 既存 2 拠点 + 背圧の閾値だけで止まる。ただしこれらは job の途中で止める操作で、起動そのものは止めない。休止 (2026-10-18) には schedule の削除を使った (§ 休止) |
 | **Bounded lifetime** | decision trigger: **2 週間の試験運用で無人 PR の採用率 (人間がマージした割合) を測定し、50% 超で継続・拡大、未満なら対象クラスを絞って再試行**。あわせて (a) 選択が意図どおりの順位に当たること、(b) ガードレール禁止リストが誤検知しないこと、(c) 背圧飽和で実際に停止すること、を観測する。**2026-11-06 までに判定材料が集まらなければ延長 / 却下を判断する** |
 
 採用率の測定は weekly-review の自律アクション棚卸しに載せて仕組み化する。載せ先は順位 510 (夜間ループの稼働状況を週次レビューで見張る) で、ハーネス改善計画の WP-19 ステップ 3 を 2026-09-28 に統合した。
