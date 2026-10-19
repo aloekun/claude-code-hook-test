@@ -377,3 +377,22 @@
 #### 完了基準
 
 - 手元で再ビルドした exe が、`pnpm push` を通した後も残っていること
+
+### 順位 580: baseline 走査の fail-closed guard をテストで固定し、`collect_rust_files` の読み飛ばしを塞ぐ
+
+> **動機**: `src/hooks-post-tool-linter/src/custom_rules/deployed_tests.rs` の clean-baseline テストは、#580 で読み取りの失敗を panic させるようにした (`collect_files_with_extensions` の `read_dir` と、`assert_clean_baseline_for_rule` が `run_custom_rules` を呼ぶ前の読み取り確認)。しかし、この guard 自体を確かめるテストが無い。guard が外れると、読めなかったディレクトリやファイルを違反 0 件として数え、検査漏れのまま clean baseline と判定する。また、同じファイルの既存の `collect_rust_files` は `read_dir` が失敗すると今も黙って `return` する (#580 のスコープ外で残した)。
+>
+> **由来**: `[improvement]`。#580 の post-merge feedback の採用候補と、#580 の対応中に見つけた同種の読み飛ばしを 1 件にまとめた。読み飛ばしによる誤判定はまだ観測していない。
+>
+> **実行優先度**: Tier 3 — Effort S。
+
+#### 作業計画
+
+- `collect_rust_files` の `read_dir` の失敗を、`collect_files_with_extensions` と同じく panic させる
+- 存在しないパスを渡して、`collect_files_with_extensions` と `collect_rust_files` が panic することを `#[should_panic]` で確かめる (権限の操作を使わないので、OS に依存しない)
+- 読み取り確認を `assert_clean_baseline_for_rule` のループから小さな関数へ切り出し、存在しないファイルで panic することを確かめる。切り出した関数は同じ test module の中だけで使う ([ADR-084](adr/adr-084-test-helper-no-sharing.md))
+
+#### 完了基準
+
+- 読めないディレクトリ・ファイルで 3 か所の guard がそれぞれ panic することを、テストで確認できること
+- `cargo test -p hooks-post-tool-linter` が通ること
