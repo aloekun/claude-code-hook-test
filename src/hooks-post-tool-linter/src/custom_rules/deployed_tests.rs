@@ -181,10 +181,12 @@ fn collect_files_with_extensions(
     extensions: &[String],
     out: &mut Vec<std::path::PathBuf>,
 ) {
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    let entries = std::fs::read_dir(root).unwrap_or_else(|e| {
+        panic!(
+            "ディレクトリを読めません (検査対象が欠けたまま通さない): {}: {e}",
+            root.display()
+        )
+    });
     for entry in entries {
         let path = entry
             .expect("ディレクトリの entry を読めません (検査対象が欠けたまま通さない)")
@@ -249,6 +251,12 @@ fn assert_clean_baseline_for_rule(rule_id: &str) {
 
     let mut total_violations: Vec<String> = Vec::new();
     for path in &files {
+        if let Err(e) = std::fs::read_to_string(path) {
+            panic!(
+                "ファイルを読めません (検査対象が欠けたまま通さない): {}: {e}",
+                path.display()
+            );
+        }
         let violations = run_custom_rules(path.to_str().unwrap(), &compiled);
         for v in violations {
             total_violations.push(format!("{}: {}", path.display(), v));
