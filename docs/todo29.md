@@ -48,24 +48,6 @@
 
 - 並びの崩れたブロックを作ると落ちるテストがあり、既存違反が 0 件であること
 
-### 順位 553: rule⑲ / ⑳ のリポジトリ全体 clean-baseline テストを足す
-
-> **動機**: `gh-json-files-truncated` (rule⑲) と `ref-destroying-push-without-lease` (rule⑳) は rs / mjs / js / ts / yml / yaml / sh を対象にするが、編集したファイルにしか発火しない。既存コードに違反が無いことを固定するテストが無い (#533 の提案)。2026-10-12 時点の違反は incident fixture の bad 側だけで、修正は要らない。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 3 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- `src/hooks-post-tool-linter/src/custom_rules/deployed_tests.rs` に rule ごと 1 本ずつ足す
-- 走査範囲: `src` / `scripts` / `.github` / `.takt`。除外: `target` / `node_modules` / `tests/fixtures` / `.takt/runs`、ほかのドット始まりディレクトリ
-- rule は `config/custom-lint-rules.toml` から読む。書き写さない (順位 534 の方針)。読み込みの helper は [ADR-084](adr/adr-084-test-helper-no-sharing.md) に従いファイル内に複製する
-
-#### 完了基準
-
-- 2 rule の clean-baseline テストがあり、違反を足すと落ちること
-
 ### 順位 554: custom-lint rule の exception を外すと incident fixture が落ちることを検査する
 
 > **動機**: regex rule の exception が広すぎたり不要だったりしても、気づく仕組みが無い。rule⑱ では pattern と exception の精度の問題がレビューまで残った (#532 の提案)。
