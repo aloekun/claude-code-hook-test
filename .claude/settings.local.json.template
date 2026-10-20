@@ -37,7 +37,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit|Replace",
+        "matcher": "Bash|PowerShell|Write|Edit|Replace",
         "hooks": [
           {
             "type": "command",
@@ -69,7 +69,7 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

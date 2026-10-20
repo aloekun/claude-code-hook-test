@@ -1,12 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(*cli-pr-monitor.exe* --monitor-only)"
+      "Bash(*cli-pr-monitor.exe* --monitor-only)",
+      "PowerShell(*cli-pr-monitor.exe* --monitor-only)"
     ],
     "ask": [
       "Bash(pnpm create-pr*)",
       "Bash(pnpm merge-pr*)",
-      "Bash(*cli-merge-pipeline.exe*)"
+      "Bash(*cli-merge-pipeline*)",
+      "PowerShell(pnpm create-pr*)",
+      "PowerShell(pnpm merge-pr*)",
+      "PowerShell(*cli-merge-pipeline*)"
     ]
   },
   "env": {
@@ -43,7 +47,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit|Replace",
+        "matcher": "Bash|PowerShell|Write|Edit|Replace",
         "hooks": [
           {
             "type": "command",
@@ -75,7 +79,7 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

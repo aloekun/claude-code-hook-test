@@ -394,3 +394,34 @@ fn hook_input_parses_bash_payload() {
     .unwrap();
     assert_eq!(input.tool_input.unwrap().command.unwrap(), "jj new -m 'x'");
 }
+
+/// jj は PowerShell tool からも実行されるので、matcher が Bash だけだと検証が漏れる
+/// (2026-10-20、hooks-pre-tool-validate の PowerShell 配線漏れと同時に発見)。
+/// PowerShell の `tool_response` も `stdout` / `stderr` を持つため、本 hook はそのまま扱える。
+#[test]
+fn the_settings_matcher_passes_both_shell_tools() {
+    for rel in [".claude/settings.json", ".claude/settings.local.json.template"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(rel);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} を読めない: {e}", path.display()));
+        let settings: serde_json::Value = serde_json::from_str(&text).expect("settings は JSON");
+        let matchers: Vec<&str> = settings["hooks"]["PostToolUse"]
+            .as_array()
+            .expect("PostToolUse がある")
+            .iter()
+            .filter(|entry| {
+                entry["hooks"].as_array().is_some_and(|hooks| {
+                    hooks.iter().any(|h| {
+                        h["command"]
+                            .as_str()
+                            .is_some_and(|c| c.contains("hooks-post-tool-jj-op-verify"))
+                    })
+                })
+            })
+            .flat_map(|entry| entry["matcher"].as_str().unwrap_or_default().split('|'))
+            .collect();
+        for tool in ["Bash", "PowerShell"] {
+            assert!(matchers.contains(&tool), "{rel} の jj-op-verify matcher に {tool} が無い");
+        }
+    }
+}

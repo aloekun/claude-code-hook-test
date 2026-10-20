@@ -1,4 +1,4 @@
-//! jj operation 検証 hook (Bash PostToolUse) — ADR-045 § Operation Verification Checklist の自動化。
+//! jj operation 検証 hook (Bash / PowerShell PostToolUse) — ADR-045 § Operation Verification Checklist の自動化。
 //!
 //! 並列 workspace 運用の lost-update incident (2026-07-12/13、ADR-045 § Known operational
 //! risks) では、変更系 jj コマンドの「成功出力」が見えたにもかかわらず operation が
