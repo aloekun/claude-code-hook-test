@@ -195,6 +195,12 @@ interactive session での PR 作成フロー:
 - **PR-D (PR #59 で land、PR #62 で global skill に移管)**: `prepare-pr` skill で「ドラフト提示 → 明示承認 → 実行」フローを標準化
 - **運用レビュー**: 2026-07 に二次防衛層の発火頻度を計測。毎回 prompt 応答が形骸化していないか確認
 
+## 追記 (2026-10-20): ask ルールを PowerShell と拡張子なしの実行ファイルへ広げる
+
+- **PowerShell 版を足した。** ask ルールが `Bash(...)` だけで、PowerShell tool から `pnpm create-pr` などを実行すると本 ADR のゲートを通らなかった。Bash の各ルールに同じ中身の `PowerShell(...)` を並べ、対になっていることを `hooks-pre-tool-validate` のテスト (`settings_wiring.rs`) で検査する (PR #582)
+- **cli-merge-pipeline の捕捉パターンを `*cli-merge-pipeline*` に広げた。** 原則 1 の「`.claude/cli-merge-pipeline.exe` (直接呼び出し)」は Windows の実行ファイル名を前提にしていた。[ADR-063](adr-063-linux-portability-release-binaries.md) 以降の Linux では拡張子なしで配置され、`pnpm merge-pr` の実体であるランチャー (`node scripts/run-artifact.mjs cli-merge-pipeline`) もどちらの OS でも `.exe` を含まないため、旧パターンでは捕捉できなかった (PR #582 の CodeRabbit 指摘)
+- **広げた代償**: `cargo test -p cli-merge-pipeline` のように crate 名を含むだけの開発コマンドも確認を求める。実行経路だけに絞ると書き方次第ですり抜けるため、ゲートは確認を出す側に倒した ([ADR-043](adr-043-security-gates-fail-closed.md))
+
 ## 参照
 
 - ADR-022 (自動化コンポーネントの責務分離): 補完関係にある。automated actor 側の原則

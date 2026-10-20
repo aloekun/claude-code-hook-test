@@ -1,6 +1,6 @@
 //! コマンド検証フック (設定駆動型)
 //!
-//! Bashコマンド実行前に危険なコマンドをブロックします。
+//! Bash / PowerShell コマンド実行前に危険なコマンドをブロックします。
 //! .claude/hooks-config.toml からプリセット選択・追加保護ファイルを読み込みます。
 //!
 //! 終了コード:
@@ -18,10 +18,20 @@ mod config;
 mod handlers;
 mod presets;
 mod protected_files;
+#[cfg(test)]
+mod settings_wiring;
 mod todo_staleness;
 
 use config::load_config;
 use handlers::{handle_bash_tool, handle_powershell_tool, handle_write_edit_tool};
+
+/// `main` が振り分けるツール名 (下の `match` の腕と同じ集合)。
+///
+/// settings の PreToolUse matcher がこのどれかを欠くと、そのツールは本 hook を素通りする。
+/// PowerShell は handler だけ先に入り (順位 212、#215)、matcher への登録が漏れたまま
+/// 2026-10-20 まで一度も呼ばれなかった。`settings_wiring` のテストが settings と突き合わせる。
+#[cfg(test)]
+pub(crate) const HANDLED_TOOLS: [&str; 5] = ["Bash", "PowerShell", "Write", "Edit", "Replace"];
 
 #[derive(Deserialize)]
 struct HookInput {
