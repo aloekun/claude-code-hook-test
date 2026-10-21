@@ -198,27 +198,6 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 
 - `::trunk()` 上を指す bookmark が fallback 経路で前進しないことを、両 crate の統合テストで確認できること
 
-### 順位 536: jj-op-verify が `cd` 後・background 実行のコマンドを誤判定する
-
-> **動機**: `src/hooks-post-tool-jj-op-verify/src/main.rs` は `jj op log` を hook 自身の cwd で起動する。`cd <dir> && jj ...` や `-R` で別リポジトリを操作したコマンド、background 実行で完了前に照合したコマンドは、別の op log と比べて誤警告を出す。
->
-> **由来**: `[defect:G2]`。証拠 = #545 (セッションで誤判定を 2 件観測)。tokenizer のテストは在ったが、cwd を変える入力を覆っていなかった。
->
-> **追加の観測 (2026-10-20、2 件)**: (1) PR #582 の再 push で、`jj describe --stdin < msg && pnpm push` を `run_in_background` で起動した直後に「operation not recorded」が出た。`jj op log` を見ると `describe` は記録済みだった。(2) PR #583 の push で、`jj bookmark create <name> -r @ && pnpm push` を同じく `run_in_background` で起動した直後にも同じ警告が出た (op log 先頭は直前の `describe`)。push 完了後の `jj op log` には `create bookmark` が記録されていた。どちらも hook がコマンドの完了前に照合した誤報である。background 起動時の hook 入力は、`tool_input.run_in_background: true` に加えて `tool_response` が `stdout: ""` / `backgroundTaskId: "<id>"` を持つ (同セッションの transcript で確認)。判定には入力側のフラグを使う決定のままでよいが、`backgroundTaskId` も同じ事実を示す。誤報は telemetry にも `decision: warn` として記録されるため ([ADR-055](adr/adr-055-firing-telemetry-collection.md))、警告件数が実際の op 欠落より多く見える (観測 (1) (2) と同時刻の warn をそれぞれ 1 件確認: 10:28:03Z / 11:27:06Z。どちらも session_id が観測したセッションと一致しないので、紐付けは時刻からの推定)。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- コマンドに `cd` (区切り `&&` / `;` の後を含む) か `-R` / `--repository` があれば照合しない。判定は既存の `tokenize_respecting_quotes` で行う。コマンド文字列から `cd` 先を解析して照合先を切り替える案は採らない (相対パス・`cd -`・サブシェルで誤る)
-- hook 入力の `tool_input.run_in_background` が `true` なら照合しない。`HookInput` に `Option<bool>` を足し、JSON fixture でテストする
-- 「誤警告より沈黙」は `Nothing changed.` を照合しない既存方針と同じ。module doc の既知の限界へ 1 項足す
-- 同じ行で、quote 内の文言と `jj bookmark delete` などの破壊的コマンドを組み合わせた tokenizer テストを足す (#494 の採用分。既存の `jj abandon` 版と同じ形)
-
-#### 完了基準
-
-- `cd` / `-R` / background の各入力で警告が出ないこと、従来の照合対象では従来どおり警告が出ることをテストで確認できること
-
 ### 順位 538: 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)
 
 > **動機**: 順位 537 は混入を push 前に止めるが、発生そのものは防がない。入口で止めれば、空コミットが作られない。

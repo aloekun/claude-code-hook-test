@@ -34,6 +34,13 @@
 //!
 //! 3. **複合コマンドでは、どれか 1 つが `Nothing changed.` を出すと全体を照合しない。** 出力は
 //!    コマンド全体で 1 つなので、どの jj 操作が出した行かを区別できない。
+//! 4. **別の作業コピーを操作したかもしれないコマンドと、background 実行のコマンドは照合しない**
+//!    (順位 536)。本 hook は `jj op log` を自分の cwd で起動するので、`cd <dir> && jj ...` や
+//!    `jj -R <path> ...` で別のリポジトリを操作したコマンドでは、別の op log と比べてしまう。
+//!    `cd` 先を解析して照合先を切り替える案は採らない (相対パス・`cd -`・サブシェルで誤る)。
+//!    `run_in_background` で起動したコマンドは、hook が呼ばれた時点でまだ終わっていない
+//!    (2026-10-20 に 2 件の誤警告を観測)。どちらも `Nothing changed.` と同じく
+//!    「誤警告より沈黙」に倒す ([`skips_verification`])。
 //!
 //! どれも「警告が出ない場合に安心してよい範囲」を狭める向きの限界である。警告が**出た**
 //! ときの観測 (op log 先頭に対応する operation が無い) は従来どおり正しい。
@@ -60,6 +67,9 @@ struct HookInput {
 #[derive(Deserialize)]
 struct ToolInput {
     command: Option<String>,
+    /// Bash tool を `run_in_background: true` で呼んだか。true のとき tool_response は
+    /// 起動直後の空の出力 (+ `backgroundTaskId`) で、コマンドはまだ終わっていない。
+    run_in_background: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -187,6 +197,55 @@ fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
         }
     }
     found
+}
+
+/// トークン列を、シェルの区切り (`;` / `&&` / `||` / `|` / `&`) でコマンド単位に分ける (I/O なし)。
+///
+/// 区切りは単独のトークン (`a && b`) のほか、直前の語に付いた `;` (`cd x; jj new`) も扱う。
+/// サブシェルの開き括弧 (`(cd x && jj new)`) は各コマンドの先頭から外す。
+fn split_into_commands(tokens: &[String]) -> Vec<Vec<&str>> {
+    let mut commands = vec![Vec::new()];
+    for token in tokens {
+        if matches!(token.as_str(), ";" | "&&" | "||" | "|" | "&") {
+            commands.push(Vec::new());
+            continue;
+        }
+        let (word, ends_command) = match token.strip_suffix(';') {
+            Some(word) => (word, true),
+            None => (token.as_str(), false),
+        };
+        let current = commands.last_mut().expect("commands は空にならない");
+        let word = if current.is_empty() { word.trim_start_matches('(') } else { word };
+        if !word.is_empty() {
+            current.push(word);
+        }
+        if ends_command {
+            commands.push(Vec::new());
+        }
+    }
+    commands.retain(|c| !c.is_empty());
+    commands
+}
+
+/// jj が別の作業コピーを操作したかもしれないコマンドか (I/O なし)。
+///
+/// いずれかのコマンドが `cd` / `pushd` で始まるか、`jj` のコマンドに `-R` / `--repository` が
+/// 付いていれば true。`-R` を jj のコマンドの中だけで見るのは、`cp -Rf` や `grep -R` まで
+/// 照合をやめないため。`cd` 先が hook の cwd と同じでも区別しない (先を解析すると誤るため)。
+fn may_target_another_working_copy(command: &str) -> bool {
+    let tokens = tokenize_respecting_quotes(command);
+    split_into_commands(&tokens).iter().any(|words| match words.first() {
+        Some(&("cd" | "pushd")) => true,
+        Some(&"jj") => words.iter().skip(1).any(|w| {
+            *w == "-R" || w.starts_with("--repository") || (w.starts_with("-R") && w.len() > 2)
+        }),
+        _ => false,
+    })
+}
+
+/// 照合をやめて沈黙するか (I/O なし)。module doc の既知の限界 4 を参照。
+fn skips_verification(command: &str, run_in_background: bool) -> bool {
+    run_in_background || may_target_another_working_copy(command)
 }
 
 /// jj が「何も変えなかった」と報告したか (I/O なし)。
@@ -382,9 +441,16 @@ fn main() {
     let Ok(hook_input) = serde_json::from_str::<HookInput>(&input) else {
         return;
     };
-    let Some(command) = hook_input.tool_input.and_then(|t| t.command) else {
+    let Some(tool_input) = hook_input.tool_input else {
         return;
     };
+    let run_in_background = tool_input.run_in_background.unwrap_or(false);
+    let Some(command) = tool_input.command else {
+        return;
+    };
+    if skips_verification(&command, run_in_background) {
+        return;
+    }
     if reported_no_change(hook_input.tool_response.as_ref()) {
         return;
     }
