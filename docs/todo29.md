@@ -415,3 +415,45 @@
 
 - `Remove-Item -Recurse -Force <dir>` とその別名・省略形を、PowerShell tool と Bash の両方で止めるテストがあること
 - 日常の PowerShell コマンド (`Get-ChildItem` / `Remove-Item <単一ファイル>` など) が止まらないこと
+
+### 順位 582: tool call leak 検知 (hooks-stop-tool-call-leak) を撤去する
+
+> **動機**: 2026-10-21 の月次レビュー ([ADR-062](adr/adr-062-monthly-harness-roi-review.md)) で、leak 検知が非アクティブ化候補として promote された。最後の発火は 2026-07 (Stop の block 2 件と UserPromptSubmit の回収 2 件) で、8〜10 月は 0 (10 月は未確定の参考値)。config は有効・exe も配備済みだったので、「無効化していたから 0」ではない。[ADR-053](adr/adr-053-stop-tool-call-leak-detection.md) / [ADR-061](adr/adr-061-tool-call-leak-hardfail-recovery.md) の bounded lifetime は、この promote の時点で hook 登録解除 + crate 削除の revert PR を作ると定めている。同日の PR で `.claude/hooks-config.toml` の `enabled` / `prompt_recovery_enabled` を `false` にして先に止めた。
+>
+> **由来**: `[improvement]`。月次レビュー (`.claude/monthly-reviews/2026-10-21.md`) の判定候補を採用した。
+>
+> **実行優先度**: Tier 3 — Effort S〜M。
+
+#### 作業計画
+
+- `.claude/settings.json` と `.claude/settings.local.json.template` から、`hooks-stop-tool-call-leak` の登録を外す (Stop と UserPromptSubmit の 2 か所)
+- crate (`src/hooks-stop-tool-call-leak`) を削除し、`Cargo.toml` の workspace member と `package.json` の build スクリプト (`build:all` を含む) から外す
+- 配布・起動の経路から外す。`scripts/cloud-hook-dispatch.mjs` の対象一覧、release workflow の対象、`cli-telemetry-report` の機構一覧と snapshot (`[stop_tool_call_leak]` を読む箇所) を確認する
+- `.claude/hooks-config.toml` の `[stop_tool_call_leak]` 節を削除する
+- ADR-053 / ADR-061 のステータスを撤去済みに変え、CLAUDE.md の索引の注記を合わせる
+- 作業を始める前に、10 月が 0 件で確定したことを telemetry で確かめる。1 件でも発火していたら撤去せず、config を `true` に戻して継続する (**着手時判断**)
+
+#### 完了基準
+
+- `pnpm build:all` と `cargo test --workspace` が通り、settings に `hooks-stop-tool-call-leak` の登録が残っていないこと
+- `pnpm lint:docs` が通ること (ADR 索引と状態の整合)
+
+### 順位 583: 一度も発火していない preset `electron` / `gh-repo-env-guard` の扱いを決める
+
+> **動機**: 2026-10-21 の月次レビューで、telemetry の全履歴 (2026-07〜) で一度も発火していない機構のうち、incident 由来でない 4 件を見直した。`electron` (Electron GUI の実行をブロック) と `gh-repo-env-guard` (`GH_REPO` の場当たり使用をブロック) の 2 件を、削除の検討対象として採用した。どちらも本リポジトリの `.claude/hooks-config.toml` の `blocked_patterns` に明示的に載っている。発火 0 は「不要」と「抑止力として効いている」を区別できないので、削除するかは中身を見て決める。
+>
+> **由来**: `[improvement]`。月次レビュー (`.claude/monthly-reviews/2026-10-21.md`) の発火 0 リストから採用した。同じリストの `jj-immutable` / `workspace_stale` は今回は維持とした。
+>
+> **実行優先度**: Tier 4 — Effort S。
+
+#### 作業計画
+
+- 削除の範囲を決める。(a) 本リポジトリの `blocked_patterns` から外すだけ (preset は派生プロジェクト向けに残す)、(b) preset 自体を削除する、のどちらにするかを preset ごとに決める。**着手時判断**
+- `electron`: 本リポジトリで Electron を使う予定が無いかを確かめる。派生プロジェクトのテンプレート (`templates/hooks-config-*.toml`) では使っていない
+- `gh-repo-env-guard`: 由来の PR #238 (非 colocated jj workspace で `GH_REPO` が silent に部分故障する) の事故が、別の仕組みで防がれているかを確かめる。防がれていなければ、発火 0 は抑止力が効いている証拠とみなして維持する
+- 外す場合は、`the_repository_config_lists_every_default_preset` のテスト (既定で有効な preset が toml にすべて載っているかの検査) と矛盾しないようにする。既定で有効な preset を外すなら、既定から外すかテストの例外にするかも決める
+
+#### 完了基準
+
+- 2 件それぞれについて、削除・一覧から外す・維持のどれにしたかと、その根拠が残っていること
+- `cargo test -p hooks-pre-tool-validate` が通ること

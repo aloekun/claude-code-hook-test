@@ -258,20 +258,26 @@ steps = [
 #
 # ADR-039 3 点セット:
 #   - Config opt-in (default OFF): 各機能の code default は false (unwrap_or(false))。
-#     本 repo は dogfood のため有効化。派生プロジェクト deploy 時は default OFF。
+#     本 repo は dogfood のため有効化していたが、2026-10-21 から両経路とも停止中 (下記)。
+#     派生プロジェクト deploy 時は default OFF。
 #   - Kill-switch: 恒久停止は各 enabled = false。緊急バイパスは env
 #     STOP_TOOL_CALL_LEAK_OVERRIDE=1 (truthy 値、両経路共通、FILE_LENGTH_CHECK_OVERRIDE と同 pattern)。
 #   - Bounded lifetime: 根本原因は上流 (Claude Code / モデルのシリアライズ) の不具合。
-#     上流修正の確認、または leak 4 週間非観測で ADR-053 とまとめて撤去を判定する。
+#     上流修正の確認、または月次レビュー (ADR-062) が連続 2 か月発火 0 で promote した時点で、
+#     ADR-053 とまとめて撤去を判定する。
+#
+# 2026-10-21 の月次レビューで非アクティブ化を採用した (最後の発火は 2026-07、8〜10 月は 0)。
+# 両経路とも enabled を false にして止め、hook 登録解除 + crate 削除は順位 582 で行う。
+# leak が再発したら、ここを true に戻せば復帰できる。
 #
 # ループ防止 (Stop): stop_hook_active skip ではなく連続 leak カウント上限で fail-open
 # (ADR-004 からの意図的逸脱、再 leak 実績があるため。詳細は ADR-053)。
 [stop_tool_call_leak]
-enabled = true
+enabled = false
 max_consecutive_blocks = 3    # 連続 block 上限 (到達で fail-open)
 # ADR-061 主因: hard-fail 経路の取り逃がしを UserPromptSubmit で回収する層。
-# code default OFF (prompt_recovery_enabled 未設定で無効)。本 repo は dogfood のため true。
-prompt_recovery_enabled = true
+# code default OFF (prompt_recovery_enabled 未設定で無効)。2026-10-21 の月次レビューで false にした (上記)。
+prompt_recovery_enabled = false
 # 回収時に systemMessage (ユーザー可視 1 行、ADR-059) を出す。source default OFF。
 # systemMessage のみ止めたい場合は false (additionalContext の回収は継続)。
 recovery_system_message_enabled = true

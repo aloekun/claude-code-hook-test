@@ -32,39 +32,58 @@ fn exe_path() -> PathBuf {
 }
 
 /// exe は自 binary の隣の hooks-config.toml を読む。`cargo test` 時の binary は
-/// `target/debug/` にあり deploy 済み config が無いため、repo の config を
-/// 隣に 1 回だけコピーする (並列テストの partial-copy race を Once で回避)。
+/// `target/debug/` にあり deploy 済み config が無いため、repo の config をもとにした
+/// テスト用 config を隣に 1 回だけ書く (並列テストの partial-copy race を Once で回避)。
 fn ensure_config_beside_exe() {
     COPY_CONFIG_ONCE.call_once(|| {
         let src = repo_root().join(".claude").join("hooks-config.toml");
         let content = std::fs::read_to_string(&src)
             .unwrap_or_else(|e| panic!("repo hooks-config.toml read failed: {e}"));
-        assert_leak_config_matches_test_assumptions(&content);
+        let config = enable_both_paths(&content);
+        assert_leak_config_matches_test_assumptions(&config);
         let dst = exe_path()
             .parent()
             .expect("exe has a parent dir")
             .join("hooks-config.toml");
-        std::fs::write(&dst, content)
-            .unwrap_or_else(|e| panic!("copy config beside exe failed: {e}"));
+        let text = toml::to_string(&config).expect("test config を toml に書ける");
+        std::fs::write(&dst, text)
+            .unwrap_or_else(|e| panic!("write config beside exe failed: {e}"));
     });
 }
 
-/// E2E fixture (実 config) が本テスト群の前提とする具体値と一致することを検証する。
-/// section 存在だけでなく `enabled` / `max_consecutive_blocks` の値まで assert し、
-/// config retuning や kill-switch flip (`enabled = false`) が cap 境界テストを原因の
-/// 見えない形で silent break させるのを防ぐ (ADR-041 § 原則 3: 外部 fixture
-/// 参照テストは値まで assert)。値を変えたら assert メッセージが更新箇所を指し示す。
-fn assert_leak_config_matches_test_assumptions(content: &str) {
-    let config: toml::Value = toml::from_str(content)
+/// repo の config の 2 つの経路 (Stop の block / UserPromptSubmit の回収) を有効にした写しを返す。
+///
+/// repo では 2026-10-21 の月次レビュー (ADR-062) で両経路を `false` にした。運用で切り替える
+/// kill-switch に E2E が引きずられないよう、検知ロジックのテストに必要なこの 2 つだけはテストが
+/// 自分で決める。それ以外の値 (`max_consecutive_blocks` 等) は repo の値を使い、
+/// [`assert_leak_config_matches_test_assumptions`] が前提と一致するかを確かめる。
+fn enable_both_paths(content: &str) -> toml::Value {
+    let mut config: toml::Value = toml::from_str(content)
         .unwrap_or_else(|e| panic!("repo hooks-config.toml parse failed: {e}"));
+    let leak = config
+        .get_mut("stop_tool_call_leak")
+        .and_then(toml::Value::as_table_mut)
+        .unwrap_or_else(|| {
+            panic!("repo config に [stop_tool_call_leak] section が必要 (false-green guard)")
+        });
+    leak.insert("enabled".to_string(), toml::Value::Boolean(true));
+    leak.insert("prompt_recovery_enabled".to_string(), toml::Value::Boolean(true));
+    config
+}
+
+/// E2E fixture (repo の config をもとにしたテスト用 config) が本テスト群の前提とする具体値と
+/// 一致することを検証する。section 存在だけでなく `max_consecutive_blocks` などの値まで assert し、
+/// config retuning が cap 境界テストを原因の見えない形で silent break させるのを防ぐ
+/// (ADR-041 § 原則 3: 外部 fixture 参照テストは値まで assert)。値を変えたら assert メッセージが
+/// 更新箇所を指し示す。
+fn assert_leak_config_matches_test_assumptions(config: &toml::Value) {
     let leak = config.get("stop_tool_call_leak").unwrap_or_else(|| {
         panic!("repo config に [stop_tool_call_leak] section が必要 (false-green guard)")
     });
     assert_eq!(
         leak.get("enabled").and_then(toml::Value::as_bool),
         Some(true),
-        "E2E は [stop_tool_call_leak] enabled = true を前提とする。config で無効化するなら \
-         本テスト群 (leak_transcript_blocks_with_reason 等) の期待値も同時に更新すること"
+        "E2E は [stop_tool_call_leak] enabled = true を前提とする (enable_both_paths が設定する)"
     );
     assert_eq!(
         leak.get("max_consecutive_blocks")
@@ -78,8 +97,7 @@ fn assert_leak_config_matches_test_assumptions(content: &str) {
         leak.get("prompt_recovery_enabled")
             .and_then(toml::Value::as_bool),
         Some(true),
-        "E2E は prompt_recovery_enabled = true を前提とする (ADR-061)。無効化するなら \
-         回収 E2E (recovery_mode_emits_additional_context 等) の期待値も同時に更新すること"
+        "E2E は prompt_recovery_enabled = true を前提とする (ADR-061、enable_both_paths が設定する)"
     );
     assert_eq!(
         leak.get("recovery_system_message_enabled")
