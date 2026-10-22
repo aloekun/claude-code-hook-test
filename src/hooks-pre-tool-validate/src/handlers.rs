@@ -4,6 +4,7 @@ use crate::blocked_patterns::{
     build_blocked_patterns, tag_source, validate_command, SourcedPattern,
 };
 use crate::config::Config;
+use crate::deletion_guard::{self, Context, Dialect};
 use crate::presets::safety::powershell::{
     is_bare_grep_or_rg_search, POWERSHELL_DESTRUCTIVE_WRITE_PRESET,
 };
@@ -26,7 +27,7 @@ fn record_preset_block(source: &str) {
     });
 }
 
-pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
+pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput, places: &Context) -> ExitCode {
     let command = tool_input.command.clone().unwrap_or_default();
     if command.trim().is_empty() {
         return ExitCode::SUCCESS;
@@ -37,8 +38,54 @@ pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput) -> ExitC
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
+    check_deletions(config, &command, Dialect::Bash, places)
+}
+
+/// 削除系コマンドを、消す対象の場所で止める ([`crate::deletion_guard`])。`default` preset の
+/// 一部として扱い (旧 `rm -rf` の正規表現の置き換え)、telemetry も `default` で記録する。
+/// 止める削除が無くても、許可リストに無いコマンドがあればユーザーに確認する (ask)。
+fn check_deletions(config: &Config, command: &str, dialect: Dialect, places: &Context) -> ExitCode {
+    if !is_preset_enabled(config, DEFAULT_PRESET) {
+        return ExitCode::SUCCESS;
+    }
+    let extra_allowed = config
+        .pre_tool_validate
+        .as_ref()
+        .and_then(|c| c.allowed_commands.clone())
+        .unwrap_or_default();
+    let found = deletion_guard::inspect(command, dialect, places, &extra_allowed);
+    if !found.violations.is_empty() {
+        record_preset_block(DEFAULT_PRESET);
+        let _ = io::stderr().write_all(deletion_guard::message(&found.violations, places).as_bytes());
+        return ExitCode::from(2);
+    }
+    if found.asks() {
+        ask_permission(&deletion_guard::ask_reason(&found));
+    }
     ExitCode::SUCCESS
 }
+
+/// PreToolUse の permissionDecision `ask` を stdout に出す。実行の前にユーザーの確認を求める。
+fn ask_permission(reason: &str) {
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-pre-tool-validate",
+        kind: lib_telemetry::FiringKind::Preset,
+        id: "default",
+        decision: lib_telemetry::Decision::Warn,
+        session_id: None,
+        reason: None,
+    });
+    let output = serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+        }
+    });
+    let _ = io::stdout().write_all(output.to_string().as_bytes());
+}
+
+const DEFAULT_PRESET: &str = "default";
 
 /// Bash で照合する preset。PowerShell 用の preset も既定で適用し (fail-closed)、
 /// 素の `grep` / `rg` 検索のときだけ外す ([`is_bare_grep_or_rg_search`] を参照)。
@@ -57,7 +104,11 @@ fn patterns_for_bash(config: &Config, command: &str) -> Vec<SourcedPattern> {
 /// `WriteAllText` / `WriteAllBytes` / `WriteAllLines` / `Out-File` / `Set-Content -Value` を
 /// block する。Bash と共通の guard (git push / jj immutable / electron 等) も
 /// 同時に適用される (PowerShell 上で git push 等を叩く case もカバー)。
-pub(crate) fn handle_powershell_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
+pub(crate) fn handle_powershell_tool(
+    config: &Config,
+    tool_input: &ToolInput,
+    places: &Context,
+) -> ExitCode {
     let command = tool_input.command.clone().unwrap_or_default();
     if command.trim().is_empty() {
         return ExitCode::SUCCESS;
@@ -68,7 +119,7 @@ pub(crate) fn handle_powershell_tool(config: &Config, tool_input: &ToolInput) ->
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
     }
-    ExitCode::SUCCESS
+    check_deletions(config, &command, Dialect::PowerShell, places)
 }
 
 pub(crate) fn handle_write_edit_tool(config: &Config, tool_input: &ToolInput) -> ExitCode {
@@ -179,13 +230,18 @@ pub(crate) fn collect_text_for_secret_scan(tool_input: &ToolInput) -> String {
 }
 
 pub(crate) fn is_secret_detection_enabled(config: &Config) -> bool {
+    is_preset_enabled(config, "secret-detection")
+}
+
+/// config の `blocked_patterns` (無ければ既定の一覧) に `name` が入っているか。
+fn is_preset_enabled(config: &Config, name: &str) -> bool {
     let preset_names: Vec<String> = config
         .pre_tool_validate
         .as_ref()
         .and_then(|c| c.blocked_patterns.as_ref())
         .cloned()
         .unwrap_or_else(default_preset_names);
-    preset_names.iter().any(|n| n == "secret-detection")
+    preset_names.iter().any(|n| n == name)
 }
 
 #[cfg(test)]
@@ -199,6 +255,7 @@ mod tests {
                 blocked_patterns: Some(vec![POWERSHELL_DESTRUCTIVE_WRITE_PRESET.to_string()]),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         }
     }
@@ -256,6 +313,7 @@ mod tests {
                 blocked_patterns: Some(vec!["secret-detection".to_string()]),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         };
         assert!(is_secret_detection_enabled(&config));
@@ -268,6 +326,7 @@ mod tests {
                 blocked_patterns: Some(vec!["default".to_string(), "git".to_string()]),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         };
         assert!(!is_secret_detection_enabled(&config));

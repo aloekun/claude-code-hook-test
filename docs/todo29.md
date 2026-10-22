@@ -397,25 +397,6 @@
 - 読めないディレクトリ・ファイルで 3 か所の guard がそれぞれ panic することを、テストで確認できること
 - `cargo test -p hooks-post-tool-linter` が通ること
 
-### 順位 581: PowerShell の再帰強制削除 (`Remove-Item -Recurse -Force`) を default preset で止める
-
-> **動機**: hooks-pre-tool-validate は 2026-10-20 から PowerShell tool も検証するようになった (settings の PreToolUse matcher に `PowerShell` を追加した PR)。そのとき実測した 26 件の PowerShell コマンドでは、Bash で止めているもの (git / `jj git push` / `gh pr merge` / 破壊的書込など) は PowerShell でも同じく止まった。ただし **Bash の再帰強制削除を止める default preset (`src/hooks-pre-tool-validate/src/presets/basic.rs`) に相当する PowerShell の書き方** (`Remove-Item -Recurse -Force src`) だけは、どの preset にもかからず通った。
->
-> **由来**: `[improvement]`。PowerShell 配線漏れの修正中に、実測で見つけた preset の抜け。実害はまだ観測していない。
->
-> **実行優先度**: Tier 3 — Effort S。
-
-#### 作業計画
-
-- パターンの範囲を決める。PowerShell は別名 (`ri` / `rm` / `del` / `erase` / `rd` / `rmdir`)、パラメータの省略形 (`-r` / `-rec` / `-fo`)、順序の入れ替えを受け付ける。cmd 経由の `rd /s /q` も含めるかを含め、**着手時判断**
-- `-Force` を伴わない `Remove-Item -Recurse` も止めるか、`__*` の scratch への削除を例外にするか (powershell-destructive-write-block の例外と揃えるか) を決める。**着手時判断**
-- default preset に追加し、Bash の照合で `grep "Remove-Item"` のような語を含むだけのコマンドを止めないこと (#522 で踏んだ誤検知) をテストで固定する
-
-#### 完了基準
-
-- `Remove-Item -Recurse -Force <dir>` とその別名・省略形を、PowerShell tool と Bash の両方で止めるテストがあること
-- 日常の PowerShell コマンド (`Get-ChildItem` / `Remove-Item <単一ファイル>` など) が止まらないこと
-
 ### 順位 582: tool call leak 検知 (hooks-stop-tool-call-leak) を撤去する
 
 > **動機**: 2026-10-21 の月次レビュー ([ADR-062](adr/adr-062-monthly-harness-roi-review.md)) で、leak 検知が非アクティブ化候補として promote された。最後の発火は 2026-07 (Stop の block 2 件と UserPromptSubmit の回収 2 件) で、8〜10 月は 0 (10 月は未確定の参考値)。config は有効・exe も配備済みだったので、「無効化していたから 0」ではない。[ADR-053](adr/adr-053-stop-tool-call-leak-detection.md) / [ADR-061](adr/adr-061-tool-call-leak-hardfail-recovery.md) の bounded lifetime は、この promote の時点で hook 登録解除 + crate 削除の revert PR を作ると定めている。同日の PR で `.claude/hooks-config.toml` の `enabled` / `prompt_recovery_enabled` を `false` にして先に止めた。

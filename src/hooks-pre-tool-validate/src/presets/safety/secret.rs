@@ -77,6 +77,7 @@ mod tests {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         };
         build_blocked_patterns(&config)
@@ -239,7 +240,7 @@ mod tests {
     fn secret_detection_does_not_affect_other_presets_non_regression() {
         assert!(is_blocked_with("git push", &["git", "secret-detection"]));
         assert!(is_blocked_with(
-            "rm -rf /tmp",
+            r"cd /d e:\work",
             &["default", "secret-detection"]
         ));
         assert!(!is_blocked_with(
