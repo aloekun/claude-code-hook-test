@@ -20,6 +20,12 @@
 //! > This repository does not receive automatic reviews because it has fewer than 10 stars.
 //! ```
 //!
+//! **2026-10-21 に再び止まり、通知が遅れて届くようになった** (順位 584)。#585 では PR 作成の
+//! 16 分後にスキップ通知が付き、ポーリング (75 秒) の間は CodeRabbit が何も言わなかった。
+//! そこで、ポーリングの間ずっと黙っていたときは **`@coderabbitai review` を人間名義で投稿する**
+//! ([`request_review_by_comment`])。手動の依頼は通知を待たずに受け付けられる (#585 で実測:
+//! 投稿の 11 分後に受け付け、18 分後にレビュー完了)。上限は 1 時間に 1 回 (同レビューの告知)。
+//!
 //! **チェックボックスは素の markdown タスクリスト**で、GitHub UI の操作実体は「コメント
 //! 本文の `- [ ]` を `- [x]` に書き換える」だけである。API から同じ編集をしても CodeRabbit
 //! は区別しない (2026-09-08 に PR #489 で実測: PATCH の 1 分 23 秒後にレビュー開始)。
@@ -41,7 +47,7 @@
 
 use crate::config::DEFAULT_STEP_TIMEOUT_SECS;
 use crate::log::log_info;
-use crate::runner::{run_cmd_direct, run_gh_quiet};
+use crate::runner::{run_cmd_capture, run_cmd_direct, run_gh_quiet, GH_CMD_TIMEOUT_SECS};
 use crate::stages::coderabbit_reviewed::should_skip_request;
 use crate::stages::create_pr::write_body_tempfile;
 
@@ -110,7 +116,9 @@ pub(crate) fn check(body: &str) -> Option<String> {
     done.then(|| replaced.join("\n"))
 }
 
-/// CodeRabbit がコメントを出すまでの待ち。実測では PR 作成から 30〜60 秒で現れる。
+/// CodeRabbit がコメントを出すまでの待ち。2026-09 の実測では PR 作成から 30〜60 秒で現れたが、
+/// 2026-10-21 以降は 16 分後まで遅れた例がある。待ち切れなかったときは
+/// [`request_review_by_comment`] で依頼を投稿するので、ここを延ばして PR 作成を待たせはしない。
 const POLL_ATTEMPTS: u32 = 6;
 const POLL_INTERVAL_SECS: u64 = 15;
 
@@ -138,17 +146,45 @@ pub(crate) fn trigger_review_after_create(repo: &str, pr_number: u64) {
                 );
                 return;
             }
-            TriggerLookup::Silent if attempt < POLL_ATTEMPTS => {
+            TriggerLookup::Silent | TriggerLookup::Unavailable if attempt < POLL_ATTEMPTS => {
                 std::thread::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECS));
             }
-            TriggerLookup::Silent => log_info(
-                "[trigger-review] CodeRabbit のコメントが出ていません。自動レビューも手動トリガーも始まっていません (PR 作成は成功しています)。",
-            ),
+            TriggerLookup::Silent => request_review_by_comment(repo, pr_number),
+            TriggerLookup::Unavailable => log_info(&format!(
+                "[trigger-review] CodeRabbit のコメントを照会できなかったため、レビューの依頼は投稿しません (PR 作成は成功しています)。必要なら PR #{pr_number} に手動で @coderabbitai review を投稿してください。",
+            )),
         }
     }
 }
 
-/// [`find_trigger_comment`] の 4 分類。
+/// ポーリングの間 CodeRabbit が黙っていたときに、`@coderabbitai review` を投稿して依頼する。
+///
+/// 待っている間に自動レビューが始まっていれば ([`should_skip_request`] が covered と判定)
+/// 投稿しない。投稿は手元の `gh` の認証、つまり PR を作った人間の名義で行う。失敗しても
+/// PR 作成は止めない (module doc の fail-open)。
+fn request_review_by_comment(repo: &str, pr_number: u64) {
+    if should_skip_request(pr_number, Some(repo), "[trigger-review]") {
+        return;
+    }
+    let pr = pr_number.to_string();
+    if run_gh_quiet(&review_request_args(repo, &pr)).is_some() {
+        log_info(&format!(
+            "[trigger-review] CodeRabbit が黙っていたので @coderabbitai review を投稿しました (PR #{pr})。受け付けまで 10 分前後かかることがあります。",
+        ));
+    } else {
+        log_info(&format!(
+            "[trigger-review] @coderabbitai review を投稿できませんでした (PR 作成は成功しています)。必要なら PR #{pr} に手動で投稿してください。",
+        ));
+    }
+}
+
+/// レビュー依頼を投稿する `gh` の引数 (I/O なし)。**`--repo` を必ず付ける** — 非 colocated の
+/// jj workspace では、付けないと `gh` が別のリポジトリを向くことがある (ADR-045)。
+fn review_request_args<'a>(repo: &'a str, pr: &'a str) -> [&'a str; 7] {
+    ["pr", "comment", pr, "--repo", repo, "--body", "@coderabbitai review"]
+}
+
+/// [`find_trigger_comment`] の 5 分類。
 ///
 /// **「トリガー行が無い」と「CodeRabbit がまだ何も言っていない」を分ける。** 前者は
 /// 自動レビューが効いている状態 (順位 520 で 2026-09-10 以降の既定になった) で、待っても
@@ -164,24 +200,40 @@ enum TriggerLookup {
     /// rate-limit 通知など別の応答だけが付いた場合もここに入る。**どちらでも処置は同じ** —
     /// 待ってもトリガー行は出ないので、ポーリングを打ち切る。
     AutoActive,
-    /// CodeRabbit のコメントがまだ無い (照会失敗も含む)。待てば変わりうる。
+    /// 照会に成功し、CodeRabbit のコメントがまだ無い。待てば変わりうる。待ち切ったら依頼を投稿する。
     Silent,
+    /// 照会に失敗した (gh の失敗・タイムアウト)。待てば変わりうるが、**待ち切っても依頼は
+    /// 投稿しない** — 既に通知や依頼があるかを確かめられないまま投稿すると、二重の依頼で
+    /// 1 時間に 1 回の枠を使ってしまう (PR #586 の CodeRabbit 指摘)。
+    Unavailable,
 }
 
 /// CodeRabbit のコメント群からトリガー行の状態を読む。
 ///
-/// 照会失敗は [`TriggerLookup::Silent`] に倒す — 「反応が無い」と「聞けなかった」を
-/// 区別できないため、待つ側 (安全側) へ寄せる。
+/// 照会の成功と失敗を分ける。`run_gh_quiet` は失敗も空の出力も `None` にするので使わない —
+/// コメントが無いときの `--jq` は空を出すのが正常で、それを失敗と同じに扱うと区別できない。
 fn find_trigger_comment(repo: &str, pr_number: u64) -> TriggerLookup {
-    let Some(raw) = run_gh_quiet(&[
-        "api",
-        &format!("repos/{repo}/issues/{pr_number}/comments"),
-        "--jq",
-        r#".[] | select(.user.login=="coderabbitai[bot]") | "\(.id)\t\(.body|@base64)""#,
-    ]) else {
-        return TriggerLookup::Silent;
-    };
-    classify_comments(&raw)
+    let cap = run_cmd_capture(
+        "gh",
+        &[
+            "api",
+            &format!("repos/{repo}/issues/{pr_number}/comments"),
+            "--jq",
+            r#".[] | select(.user.login=="coderabbitai[bot]") | "\(.id)\t\(.body|@base64)""#,
+        ],
+        &[],
+        GH_CMD_TIMEOUT_SECS,
+    );
+    lookup_from(cap.ok, &cap.stdout)
+}
+
+/// 照会の成否と出力から [`TriggerLookup`] を決める純粋関数 (I/O なし)。
+fn lookup_from(ok: bool, stdout: &str) -> TriggerLookup {
+    if ok {
+        classify_comments(stdout)
+    } else {
+        TriggerLookup::Unavailable
+    }
 }
 
 /// `"<id>\t<base64 body>"` 行の列を [`TriggerLookup`] へ畳む純粋関数 (I/O なし)。
@@ -429,5 +481,34 @@ mod tests {
     #[test]
     fn decode_base64_rejects_invalid_alphabet() {
         assert_eq!(decode_base64("not valid base64!!"), None);
+    }
+
+    /// PR #586 の CodeRabbit 指摘: 照会の失敗を「黙っている」と区別する。失敗は、出力が
+    /// 空でも何かが出ていても `Unavailable` (依頼を投稿しない側) になり、成功した空の結果だけが
+    /// `Silent` (待ち切ったら依頼を投稿する側) になる。
+    #[test]
+    fn a_failed_lookup_is_not_mistaken_for_silence() {
+        assert_eq!(lookup_from(false, ""), TriggerLookup::Unavailable);
+        assert_eq!(lookup_from(false, "partial output"), TriggerLookup::Unavailable);
+        assert_eq!(lookup_from(true, ""), TriggerLookup::Silent);
+        assert_eq!(lookup_from(true, "\n"), TriggerLookup::Silent);
+    }
+
+    /// 順位 584: CodeRabbit が黙っていたときの依頼は、対象の PR とリポジトリを明示して投稿する。
+    /// `--repo` が落ちると、非 colocated の jj workspace で別のリポジトリへ投稿しうる (ADR-045)。
+    #[test]
+    fn the_review_request_names_the_repository_and_the_pr() {
+        assert_eq!(
+            review_request_args("aloekun/claude-code-hook-test", "585"),
+            [
+                "pr",
+                "comment",
+                "585",
+                "--repo",
+                "aloekun/claude-code-hook-test",
+                "--body",
+                "@coderabbitai review"
+            ]
+        );
     }
 }

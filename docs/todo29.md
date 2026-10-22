@@ -457,3 +457,34 @@
 
 - 2 件それぞれについて、削除・一覧から外す・維持のどれにしたかと、その根拠が残っていること
 - `cargo test -p hooks-pre-tool-validate` が通ること
+
+### 順位 585: CodeRabbit のスキップ通知を「レビュー未開始」として扱う
+
+> **動機**: 2026-10-21 から、CodeRabbit は PR に「This repository does not receive automatic reviews because it has fewer than 10 stars」というスキップ通知を付けるようになった ([ADR-085](adr/adr-085-third-party-review-means.md) § 改訂 (2026-10-22))。コードを読む限り、各部品はこの通知を正しく扱えない。(1) `src/check-ci-coderabbit` の `is_kept_new_comment` は、push 後に付いた通知を新しいコメントとして数えるので、`decide` が `action_required` を返す。通知が push より前に付いて後から編集された場合は、陽性証拠が無いので `pending` のまま繰り返す。commit status の description (「Review skipped: manual review required for this OSS repository」) は `GhStatusItem` が読んでいない。(2) `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` が「未レビュー」と明示している description は 2 種類だけで、今回の文言は載っていない (判定は「完了ではない」に倒れるので実害は小さい)。(3) `.github/workflows/review-request.yml` は通知を walkthrough と分類する。待ち時間 900 秒は、手動の依頼からレビュー完了までの実測 (約 18 分) より短い。
+>
+> **由来**: `[improvement]`。コードからの予測で、誤分類による誤判定はまだ観測していない (#585 では、PR 作成時の check-ci は通知が付く前に終わっていた)。
+>
+> **判定の手がかり (2026-10-22、#586 で観測)**: CodeRabbit の状態は、文言 (毎回変わる ASCII アートの格言を含む) ではなく、commit status と本文の隠し目印で見分けられる。#586 では 04:48:36 に status `success`「Review skipped: manual review required for this OSS repository」、Trigger review にチェックを入れた後の 04:48:52 に status `pending`「Review in progress」が付き、04:48:59 にコメントが「Currently processing new changes…」に書き換わった (目印 `<!-- This is an auto-generated comment: review in progress by coderabbit.ai -->`)。**スキップの status が `success` である**点に注意する — state だけを読む `parse_coderabbit_status` は、スキップしか付いていない PR を「success」と読む。
+>
+> | 状態 | commit status | コメントの目印 | レビューが来る見込み |
+> |---|---|---|---|
+> | スキップ (依頼待ち) | `success`、description が「Review skipped」で始まる | `skip review by coderabbit.ai` と未チェックの Trigger review | 依頼しなければ来ない |
+> | 処理中 | `pending`「Review in progress」 | `review in progress by coderabbit.ai` | 高い (#585 は処理中になってから 7 分後に完了) |
+> | 完了 | `success`「Review completed」 | `summarize by coderabbit.ai` の walkthrough、または「No actionable comments」 | 届いている |
+>
+> 既存の部品のうち、`should_skip_request` は status `pending` を covered と扱うので処理中の PR に依頼を重ねない。check-ci-coderabbit は「review in progress」を含むコメントを新しいコメントから外している。どちらも処理中の扱いは正しい。
+>
+> **実行優先度**: Tier 3 — Effort S〜M。
+
+#### 作業計画
+
+- 判定は上の表に沿って、commit status (state と description) と本文の目印で行う。英語の文言 (「fewer than 10 stars」など) には頼らない — 理由の文言は停止のたびに変わってきた (seat / incremental / stars)
+- スキップ通知 (本文の `skip review by coderabbit.ai` の目印) を、check-ci-coderabbit で「新しいコメント」から外し、レビュー未開始として扱う。依頼を出した後の待ちは `pending` でよい
+- commit status の description を読み (`GhStatusItem` に description を足す)、「Review skipped」で始まる `success` を完了と区別する。`coderabbit_reviewed.rs` の未レビューの一覧にも今回の description を足す
+- `review-request.yml` の待ち時間を、実測に合わせて延ばすかを決める (bot の PR だけが対象で、夜間ループは休止中。**着手時判断**)
+- 判定の境目を、#585 の実際の通知本文を fixture にしたテストで固定する
+
+#### 完了基準
+
+- スキップ通知だけが付いた PR で、check-ci-coderabbit が `action_required` を返さないことをテストで確認できること
+- 依頼の後に walkthrough か「Review completed」が付けば、従来どおり完了と判定されること
