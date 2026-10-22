@@ -395,6 +395,81 @@ fn hook_input_parses_bash_payload() {
     assert_eq!(input.tool_input.unwrap().command.unwrap(), "jj new -m 'x'");
 }
 
+/// 順位 536 (#494 の採用分): quote 内の文言と破壊的な bookmark 操作の組み合わせ。
+/// message 本文の `jj new` は無視し、最後の `bookmark delete` を検出する (既存の abandon 版と同じ形)。
+#[test]
+fn compound_command_with_quoted_message_detects_a_trailing_bookmark_delete() {
+    let op = detect_last_mutating_jj_op(r#"jj describe -m "then jj new" && jj bookmark delete old"#)
+        .unwrap();
+    assert_eq!(op.verb, "bookmark delete");
+    assert_eq!(op.expected_op_keyword, "delete bookmark");
+}
+
+/// 順位 536: `cd` で作業ディレクトリを変えたコマンドは、hook の cwd とは別の op log を
+/// 操作したかもしれないので照合しない。区切りの書き方 (`;` の付着 / `&&` / サブシェル) を問わない。
+#[test]
+fn a_command_that_changes_directory_is_not_verified() {
+    for command in [
+        "cd /c/work/other; jj new -m x",
+        "cd /c/work/other && jj describe -m x",
+        "echo start && cd ../other && jj new -m x",
+        "(cd repo && jj abandon -r x)",
+        "pushd repo && jj new -m x",
+        "cd repo\njj new -m x",
+    ] {
+        assert!(skips_verification(command, false), "照合しないこと: {command}");
+    }
+}
+
+/// 順位 536: `jj -R` / `--repository` で別のリポジトリを操作したコマンドも照合しない。
+#[test]
+fn a_jj_command_with_an_explicit_repository_is_not_verified() {
+    for command in [
+        "jj -R ../other new -m x",
+        "jj new -m x -R ../other",
+        "jj --repository ../other describe -m x",
+        "jj --repository=../other describe -m x",
+        "jj -R../other bookmark delete old",
+    ] {
+        assert!(skips_verification(command, false), "照合しないこと: {command}");
+    }
+}
+
+/// 順位 536: background で起動したコマンドは、hook が呼ばれた時点でまだ終わっていない。
+/// 2026-10-20 に観測した誤警告の入力 (`jj describe --stdin < msg && pnpm push`) をそのまま使う。
+#[test]
+fn a_command_run_in_background_is_not_verified() {
+    let input: HookInput = serde_json::from_str(
+        r#"{"tool_name":"Bash","tool_input":{"command":"jj describe --stdin < msg.txt && pnpm push","run_in_background":true},"tool_response":{"stdout":"","stderr":"","interrupted":false,"backgroundTaskId":"bswnpmo0d"}}"#,
+    )
+    .unwrap();
+    let tool_input = input.tool_input.unwrap();
+    assert_eq!(tool_input.run_in_background, Some(true));
+    let command = tool_input.command.unwrap();
+    assert!(skips_verification(&command, true));
+    assert!(!skips_verification(&command, false), "同じコマンドでも foreground なら照合する");
+}
+
+/// 順位 536 の逆向き: 従来の照合対象は従来どおり照合する。`-R` は jj の外 (`cp -Rf`) や
+/// quote の中では効かず、`cd` という語を含むだけの message でも照合をやめない。
+#[test]
+fn ordinary_commands_are_still_verified() {
+    for command in [
+        "jj new -m x",
+        "jj describe -m x && jj new -m y 2>&1 | head -3",
+        "cp -Rf a b && jj new -m x",
+        "grep -R foo src; jj describe -m x",
+        r#"jj describe -m "cd into the repo first""#,
+        r#"jj describe -m "use -R carefully""#,
+        "jj abandon -r x",
+    ] {
+        assert!(!skips_verification(command, false), "照合すること: {command}");
+    }
+    let input: HookInput =
+        serde_json::from_str(r#"{"tool_input":{"command":"jj new -m x"}}"#).unwrap();
+    assert_eq!(input.tool_input.unwrap().run_in_background, None, "フラグが無い入力は foreground");
+}
+
 /// jj は PowerShell tool からも実行されるので、matcher が Bash だけだと検証が漏れる
 /// (2026-10-20、hooks-pre-tool-validate の PowerShell 配線漏れと同時に発見)。
 /// PowerShell の `tool_response` も `stdout` / `stderr` を持つため、本 hook はそのまま扱える。
