@@ -261,6 +261,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cli-review-threads"
+version = "0.1.0"
+dependencies = [
+ "lib-jj-helpers",
+ "lib-pending-file",
+ "lib-subprocess",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cli-stale-branch-scan"
 version = "0.1.0"
 dependencies = [
