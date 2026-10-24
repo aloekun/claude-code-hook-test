@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-05-04)
+試験運用 (2026-05-04)。**2026-10-25 に `pre-push-review` の経路ではやめた** ([ADR-088](adr-088-prepush-rereview-after-fix.md)) — verdict gate (ADR-078) が近道で終えた run の REJECT の report を読んで push を止め、再 push が必要になっていたため。`post-pr-review` の経路は従来どおり
 
 ## コンテキスト
 

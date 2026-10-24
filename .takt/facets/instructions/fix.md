@@ -81,7 +81,7 @@ New files (post-only) and files absent from `@-` are reported `metrics_check: sk
 
 ## Pre-completion diff refresh (REQUIRED — fix→review iteration freshness)
 
-After completing all fixes (Edit/Write operations) AND before emitting the `convergence_verdict` line, refresh `.takt/review-diff.txt` so the next reviewer iteration (if `convergence_verdict: partial`) sees the post-fix state:
+After completing all fixes (Edit/Write operations) AND before emitting the `convergence_verdict` line, refresh `.takt/review-diff.txt` so the next reviewer iteration sees the post-fix state (in `pre-push-review` the reviewers always run again after this step; in `post-pr-review` they run again when `convergence_verdict: partial`):
 
     jj diff --git -r 'trunk()..@' > .takt/review-diff.txt
 
@@ -93,7 +93,7 @@ Both parts of that command are load-bearing — it must reproduce the scope and 
 This refresh is **unconditional**:
 
 - **`convergence_verdict: partial`** — critical. Without refresh, reviewers in the next iteration read the pre-fix snapshot taken by `cli-push-runner` Stage 1.5 and produce false-positive `persists` findings on already-fixed code, escalating the loop to 6-iter outliers (PR #103 observation).
-- **`convergence_verdict: fully_resolved`** — harmless. The next workflow step is COMPLETE, so the refreshed file is not consumed; the ~1s `jj diff` cost is negligible.
+- **`convergence_verdict: fully_resolved`** — critical in `pre-push-review`, where the reviewers re-run after every fix (ADR-088) and must see the fixed code. Harmless in `post-pr-review`, where the next step is COMPLETE and the refreshed file is not consumed; the ~1s `jj diff` cost is negligible.
 
 `.takt/review-diff.txt` is **not** in any read-only zone (the read-only list at the top of this instruction covers `.takt/runs/**`, `.takt/facets/**`, `.takt/workflows/**`, `.takt/config.yaml` — `.takt/review-diff.txt` lives at the `.takt/` root and is an explicitly allowed write target for this step).
 
@@ -125,12 +125,12 @@ This refresh is **unconditional**:
 | out-of-scope edit (finding directed a change outside the allowlist, skipped/reported) | {N} |
 | design-level remedy (escalated to the driver, not applied -- ADR-068) | {N} |
 
-## Convergence verdict (REQUIRED — Phase 3 / #C-2 fix-trust shortcut)
+## Convergence verdict (REQUIRED — post-pr-review の fix-trust shortcut / pre-push-review の再レビューの手がかり)
 
-After completing fixes, evaluate the gate above and emit one of two verdicts. The next workflow step is selected from this verdict, so it must accurately reflect the gate state.
+After completing fixes, evaluate the gate above and emit one of two verdicts. In `post-pr-review` the next workflow step is selected from this verdict; in `pre-push-review` the reviewers re-run either way (ADR-088), and the verdict tells them what to expect. It must accurately reflect the gate state in both.
 
-- **fully_resolved** — `persists == 0` AND `misdirected == 0` AND `out-of-scope edit == 0` AND `design-level remedy == 0`. All findings of this iteration were fixed outright. No remaining work for the analyze step to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
-- **partial** — `persists > 0` OR `misdirected > 0` OR `out-of-scope edit > 0` OR `design-level remedy > 0`. Some findings carried over (still need fixing in a later iteration), were skipped due to misdirection or allowlist scope, or were escalated as design-level remedies (ADR-068 -- the driver must decide, so the workflow must not conclude they are resolved). Re-analysis is required.
+- **fully_resolved** — `persists == 0` AND `misdirected == 0` AND `out-of-scope edit == 0` AND `design-level remedy == 0`. All findings of this iteration were fixed outright. No remaining work for the next review step (analyze in `post-pr-review`, reviewers in `pre-push-review`) to re-examine. (The full-workspace build/test and `--ignored` integration tests are verified by the deterministic re-gate after this workflow, not by this verdict.)
+- **partial** — `persists > 0` OR `misdirected > 0` OR `out-of-scope edit > 0` OR `design-level remedy > 0`. Some findings carried over (still need fixing in a later iteration), were skipped due to misdirection or allowlist scope, or were escalated as design-level remedies (ADR-068 -- the driver must decide, so the workflow must not conclude they are resolved). Re-review is required.
 
 Place the verdict at the **end of your report** as a single bare line in this exact form (no surrounding quotes, no trailing punctuation):
 
@@ -144,8 +144,8 @@ or:
 convergence_verdict: partial
 ```
 
-**Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the affected crate builds), emit `partial` so the analyze step can re-evaluate.
+**Honesty constraint**: In `post-pr-review` this verdict gates whether the analyze step runs again, so reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. In `pre-push-review` the reviewers re-run either way (ADR-088), but a false `fully_resolved` still misleads them and the loop monitor. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the affected crate builds), emit `partial` so the next review step re-evaluates it.
 
 ## 出力言語
 
-- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — `convergence_verdict: fully_resolved` / `convergence_verdict: partial` (ADR-037 の fix-trust shortcut がこの文字列で reviewers 再実行を短絡する)、`Unable to proceed with fixes`、および上記の section 見出し (`## Build results` / `## Test results` / `## Convergence gate` 等)。`pre-push-review.yaml` / `post-pr-review.yaml` の `rules.condition` がこれらを英語リテラルで照合する
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — `convergence_verdict: fully_resolved` / `convergence_verdict: partial` (`post-pr-review` では ADR-037 の fix-trust shortcut がこの文字列で analyze の再実行を短絡する。`pre-push-review` では ADR-088 により reviewers を常に再実行する)、`Unable to proceed with fixes`、および上記の section 見出し (`## Build results` / `## Test results` / `## Convergence gate` 等)。`pre-push-review.yaml` / `post-pr-review.yaml` の `rules.condition` がこれらを英語リテラルで照合する
