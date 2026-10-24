@@ -24,7 +24,7 @@
 - [ADR-020: takt facets (fix/supervise) の pre-push/post-pr 共通化戦略](docs/adr/adr-020-takt-facets-sharing.md)
 - [ADR-021: jj 変更検出ロジックの設計原則](docs/adr/adr-021-jj-change-detection-principles.md)
 - [ADR-022: 自動化コンポーネントの責務分離原則](docs/adr/adr-022-automation-responsibility-separation.md)
-- [ADR-023: CodeRabbit false positive 対応スキル](docs/adr/adr-023-coderabbit-reject-thread-skill.md) *(試験運用)*
+- [ADR-023: CodeRabbit false positive 対応スキル](docs/adr/adr-023-coderabbit-reject-thread-skill.md) *(Superseded by ADR-087)*
 - [ADR-024: 共通 jj ヘルパーライブラリ](docs/adr/adr-024-shared-jj-helpers-library.md)
 - [ADR-025: CwdRestore Drop guard パターン](docs/adr/adr-025-cwd-restore-drop-guard.md) *(採用 — `lib-test-helpers` への集約は却下)*
 - [ADR-026: Cargo workspace による Rust パッケージ統合](docs/adr/adr-026-cargo-workspace.md)
@@ -88,6 +88,7 @@
 - [ADR-084: テスト専用コードは共通化しない — test module ごとに複製する](docs/adr/adr-084-test-helper-no-sharing.md)
 - [ADR-085: 第三者レビューの手段 — 当面は CodeRabbit を使い続け、夜間 PR は人間名義で作り直す](docs/adr/adr-085-third-party-review-means.md)
 - [ADR-086: 削除系コマンドは、消す対象の場所で止める](docs/adr/adr-086-deletion-guard-by-target-place.md)
+- [ADR-087: 対応したレビュースレッドは、push の後に返信して閉じる](docs/adr/adr-087-review-thread-resolution-after-push.md)
 
 ## 開発 convention / チェックリスト
 

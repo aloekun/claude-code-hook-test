@@ -12,7 +12,8 @@
 //!   Stage 2.5: post_takt_regate — takt fix が作業コピーを変えたら quality_gate を再実行 (T12)
 //!   Stage 3:   push         — jj git push
 //!
-//! push 成功後は pnpm スクリプトチェーンにより cli-pr-monitor が起動される。
+//! push 成功後は pnpm スクリプトチェーンにより cli-review-threads (登録したレビュースレッドへの
+//! 返信と resolve、ADR-087) と cli-pr-monitor が起動される。
 //!
 //! 終了コード:
 //!   0 - 全ステージ成功

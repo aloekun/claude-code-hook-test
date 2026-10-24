@@ -3,7 +3,17 @@
     "allow": [
       "Bash(pnpm build:all)",
       "Bash(pnpm check-ci *)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(pnpm threads list*)",
+      "Bash(pnpm threads show*)",
+      "Bash(pnpm threads fixed *)",
+      "Bash(pnpm threads rejected *)",
+      "Bash(pnpm threads forget *)",
+      "PowerShell(pnpm threads list*)",
+      "PowerShell(pnpm threads show*)",
+      "PowerShell(pnpm threads fixed *)",
+      "PowerShell(pnpm threads rejected *)",
+      "PowerShell(pnpm threads forget *)"
     ]
   },
   "hooks": {

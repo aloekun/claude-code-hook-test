@@ -2,7 +2,9 @@
 
 ## ステータス
 
-試験運用 (観察開始: 2026-04-17)
+Superseded by [ADR-087](adr-087-review-thread-resolution-after-push.md) (2026-10-24) — 棄却の返信と resolve は、`pnpm threads rejected` で登録し、`pnpm push` の後に自動で行う
+
+Originally: 試験運用 (観察開始: 2026-04-17)
 
 > 本 ADR は試験運用ステータス。正式採用は発火頻度の観測結果 (下記「評価条件」) による。
 

@@ -34,6 +34,7 @@ members = [
     "src/cli-nightly-task-select",
     "src/cli-pr-monitor",
     "src/cli-push-runner",
+    "src/cli-review-threads",
     "src/cli-stale-branch-scan",
     "src/cli-takt-timings",
     "src/cli-telemetry-report",
