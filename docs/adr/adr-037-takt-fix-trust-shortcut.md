@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-05-04)
+試験運用 (2026-05-04)。**2026-10-25 に `pre-push-review` の経路ではやめた** ([ADR-088](adr-088-prepush-rereview-after-fix.md)) — verdict gate (ADR-078) が近道で終えた run の REJECT の report を読んで push を止め、再 push が必要になっていたため。`post-pr-review` の経路は従来どおり
 
 ## コンテキスト
 
@@ -39,6 +39,8 @@ LLM の self-evaluation 信頼性は本質的に揺らぐが、**機械的に検
 
 ### workflow yaml routing
 
+> **2026-10-25 改訂**: このうち `pre-push-review.yaml` の部分は [ADR-088](adr-088-prepush-rereview-after-fix.md) でやめた。下の規則と、本 ADR の pre-push についての記述は、それ以前の記録として残す。現行の `pre-push-review` は、fix の後に `convergence_verdict` に関わらず reviewers に戻る。`post-pr-review` は下の規則のまま。
+
 `post-pr-review.yaml` + `pre-push-review.yaml` の fix step rules に以下の condition を追加:
 
 ```yaml
@@ -58,7 +60,7 @@ rules:
 
 ### Honesty constraint
 
-`fix.md` の convergence_verdict セクションに以下を明記:
+`fix.md` の convergence_verdict セクションに以下を明記 (当時の文面。ADR-088 で pre-push と post-pr を書き分けたので、現行の文面は `fix.md` を見る):
 
 > **Honesty constraint**: This verdict gates whether the analyze step runs again. Reporting `fully_resolved` while leaving findings unaddressed bypasses the safety re-check. If you are uncertain whether a finding was truly resolved (e.g., you applied a fix but did not verify the build passes), emit `partial` so the analyze step can re-evaluate.
 
@@ -83,7 +85,7 @@ ADR-036 の Bundle Z 3 層アーキテクチャと同じ思想:
 ### Positive
 
 - ✅ post-pr-review の 3-iter outlier 圧縮: 3-iter run → 2-iter (~3 分削減/run)
-- ✅ pre-push-review の reviewers→fix loop 短縮: 全 finding が一発で fix された場合の 2 cycle 目を skip
+- ✅ pre-push-review の reviewers→fix loop 短縮: 全 finding が一発で fix された場合の 2 cycle 目を skip (2026-10-25 に ADR-088 でやめた — verdict gate (ADR-078) が近道で終えた run の REJECT の report を読んで push を止め、再 push が必要になっていた)
 - ✅ 設計原則の明文化: 「LLM 結果の信頼境界」を verdict で portable に表現
 
 ### Negative
@@ -102,7 +104,7 @@ ADR-036 の Bundle Z 3 層アーキテクチャと同じ思想:
 ## 完了状態
 
 - 完了 PR: #106 (Bundle Z Phase 3 と同梱)
-- 影響範囲: `post-pr-review.yaml` / `pre-push-review.yaml` (fix step rules) + `fix.md` (Convergence verdict セクション追加)
+- 影響範囲: `post-pr-review.yaml` / `pre-push-review.yaml` (fix step rules) + `fix.md` (Convergence verdict セクション追加)。`pre-push-review.yaml` の規則は 2026-10-25 に ADR-088 で元に戻した
 - 派生プロジェクトへの展開: facet instructions は本リポジトリと派生プロジェクトで個別更新する運用 (ADR-036 と同じ)
 
 ## 関連 ADR

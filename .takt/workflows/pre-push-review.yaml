@@ -115,17 +115,13 @@ steps:
     pass_previous_response: false
     instruction: fix
     rules:
-      # Phase 3 / #C-2 fix-trust shortcut: fix step が Convergence verdict
-      # `convergence_verdict: fully_resolved` を report したら reviewers 再実行を
-      # skip して直接 COMPLETE。multi-iter の review-fix loop を圧縮する。
+      # ADR-088: fix の後は convergence_verdict に関わらず reviewers を再実行する。
+      # ADR-037 の fix-trust shortcut (fully_resolved なら直接 COMPLETE) は pre-push では
+      # やめた — reviewers の report が REJECT のまま残り、push-runner の verdict gate
+      # (ADR-078) が push を止めるため、PR #587 では 60 回中 37 回の push がやり直しになった。
       - condition: |
-          Report ends with `convergence_verdict: fully_resolved` (Convergence
-          gate shows persists: 0 AND misdirected: 0). All findings of this
-          iteration are fully resolved with no remaining work.
-        next: COMPLETE
-      - condition: |
-          Fixes applied but `convergence_verdict: partial` (some findings
-          persist or were misdirected, re-review needed).
+          Fixes applied (`convergence_verdict: fully_resolved` or
+          `convergence_verdict: partial`). Re-review the post-fix state.
         next: reviewers
       - condition: Unable to proceed with fixes
         next: supervise

@@ -67,4 +67,4 @@ The shift to anomaly detection is meant to remove the duplicative checklist work
 
 ## 出力言語
 
-- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — レポート内の判定語 `APPROVE` / `REJECT`、`pre-push-review.yaml` の `rules.condition` が照合する `approved` / `needs_fix`、severity の `critical` / `high` / `medium` / `low`、`finding_id` の値、出力契約の section 名と表の列名。下流の fix step がこれらを英語リテラルで読むため、訳すと判定と findings の受け渡しが壊れる (ADR-048)
+- **レポート本文は日本語で書く。** コード識別子・ファイルパス・ADR 番号・コマンドはもちろん、**本 facet が出力する固定トークンも訳さない** — 判定の見出し `## Result:` (push-runner の verdict gate (ADR-078) がこの英語の見出しで判定を読む。`## 結果:` と訳すと判定を読めず push が止まる)、レポート内の判定語 `APPROVE` / `REJECT`、`pre-push-review.yaml` の `rules.condition` が照合する `approved` / `needs_fix`、severity の `critical` / `high` / `medium` / `low`、`finding_id` の値、出力契約の section 名と表の列名。下流の fix step がこれらを英語リテラルで読むため、訳すと判定と findings の受け渡しが壊れる (ADR-048)
