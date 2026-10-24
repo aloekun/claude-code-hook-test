@@ -101,6 +101,7 @@ mod tests {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         };
         build_blocked_patterns(&config)

@@ -51,12 +51,12 @@ struct Case {
 }
 
 /// 通す経路ごとに block/pass を 1 対ずつ持つ:
-/// preset 経路 (`blocked_patterns`、default preset の rm -rf ガード)、
+/// preset 経路 (default preset の削除の判定。プロジェクトの外の `rm -rf` を止める、ADR-086)、
 /// protected_files 経路 (機密ファイルの Write ブロック)、
 /// `main.rs` の match default arm (未知の tool は素通し = 過剰ブロックの退行ガード)。
 const CASES: &[Case] = &[
     Case {
-        name: "Bash: rm -rf を block する",
+        name: "Bash: プロジェクトの外の rm -rf を block する",
         tool_name: "Bash",
         field: "command",
         value: "rm -rf /tmp/smoke-test-target",
@@ -177,6 +177,12 @@ fn stage_hook() -> (tempfile::TempDir, PathBuf) {
 /// spawn だけを `EXEC_STAGING_LOCK` で囲む (→ ロックの doc)。子の待ち受けまで
 /// ロックを持つと、並列テストが hook の実行時間ぶん直列化されて意味なく遅くなる。
 fn run_hook(exe: &Path, payload: &str) -> (i32, String) {
+    let (code, _stdout, stderr) = run_hook_capturing_stdout(exe, payload);
+    (code, stderr)
+}
+
+/// [`run_hook`] と同じく spawn し、`(exit code, stdout, stderr)` を返す。
+fn run_hook_capturing_stdout(exe: &Path, payload: &str) -> (i32, String, String) {
     let guard = exec_staging_guard();
     let mut child = Command::new(exe)
         .env("CLAUDE_TELEMETRY_DISABLE", "1")
@@ -196,7 +202,7 @@ fn run_hook(exe: &Path, payload: &str) -> (i32, String) {
         .expect("write stdin payload");
     let status = wait_with_timeout_safe("hooks-pre-tool-validate", &mut child, HOOK_TIMEOUT_SECS)
         .expect("wait_with_timeout_safe errored");
-    let _stdout = stdout_drain.join().expect("stdout drain thread panicked");
+    let stdout = stdout_drain.join().expect("stdout drain thread panicked");
     let stderr = stderr_drain.join().expect("stderr drain thread panicked");
     let status = status.unwrap_or_else(|| {
         panic!("hooks-pre-tool-validate hung > {HOOK_TIMEOUT_SECS}s (killed) — investigate")
@@ -204,7 +210,7 @@ fn run_hook(exe: &Path, payload: &str) -> (i32, String) {
     let code = status
         .code()
         .expect("hook exited via signal instead of an exit code");
-    (code, stderr)
+    (code, stdout, stderr)
 }
 
 #[test]
@@ -243,6 +249,77 @@ fn pre_tool_validate_block_pass_verdicts() {
             );
         }
     }
+}
+
+/// hook stdin の `cwd`/`scratchpad_dir` キーが、実際に deletion_guard の `Context::from_hook`
+/// (main.rs) まで配線されていることを固定する。この 2 キーは他の 8 hook に先例が無い新規フィー
+/// ルド名で、`deletion_guard::tests` は `Context` を直接構築するため実 JSON→Context 経路を
+/// 一度も通さず、キー名が実際の Claude Code の hook 入力と一致しない場合に ADR-086 決定 1
+/// (scratchpad 配下の削除は再帰でも通す) がサイレントに無効化されうる懸念があった
+/// (SIM-NEW-main-rs-L44)。`scratchpad_dir` 配下の再帰削除が pass し、同じ `cwd` でも
+/// scratchpad の外の再帰削除は block されることの両方を見て、配線とその境界を同時に固定する。
+#[test]
+fn cwd_and_scratchpad_dir_hook_fields_are_wired_to_the_deletion_guard() {
+    let (_keep, exe) = stage_hook();
+    let cwd = "/srv/example-project";
+    let scratchpad_dir = "/srv/example-project/.claude-scratch/session-1";
+
+    let inside_scratch = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": format!("rm -rf {scratchpad_dir}/tmp-work") },
+        "cwd": cwd,
+        "scratchpad_dir": scratchpad_dir,
+    })
+    .to_string();
+    let (code, stderr) = run_hook(&exe, &inside_scratch);
+    assert_eq!(
+        code, EXIT_PASS,
+        "scratchpad_dir 配下の再帰削除が block された (exit {code}, stderr: {stderr}) — \
+         scratchpad_dir の配線が外れている可能性"
+    );
+    assert!(stderr.is_empty(), "pass したのに stderr へ出力した: {stderr}");
+
+    let outside_scratch = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "rm -rf ." },
+        "cwd": cwd,
+        "scratchpad_dir": scratchpad_dir,
+    })
+    .to_string();
+    let (code, stderr) = run_hook(&exe, &outside_scratch);
+    assert_eq!(
+        code, EXIT_BLOCK,
+        "cwd (scratchpad の外) の再帰削除が pass した (exit {code}) — \
+         scratchpad_dir と cwd の境界判定が壊れている可能性"
+    );
+    assert!(!stderr.is_empty(), "block したが stderr が空");
+}
+
+/// 許可リストに無いコマンドは、PreToolUse の `permissionDecision: "ask"` を stdout に出して
+/// 確認を求める (ADR-086 決定 5)。exit 0 でなければ Claude Code は JSON を読まないので、
+/// exit code と出力の両方を見る。許可リストのコマンドは何も出さない。
+#[test]
+fn a_command_not_in_the_allowlist_is_asked_through_stdout() {
+    let (_keep, exe) = stage_hook();
+    let payload = |command: &str| {
+        serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": command },
+            "cwd": "/srv/example-project",
+        })
+        .to_string()
+    };
+    let (code, stdout, stderr) = run_hook_capturing_stdout(&exe, &payload("docker ps"));
+    assert_eq!(code, EXIT_PASS, "ask は exit 0 で返す (stderr: {stderr})");
+    let output: serde_json::Value = serde_json::from_str(&stdout).expect("stdout is hook JSON");
+    assert_eq!(output["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "ask");
+    let reason = output["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap_or_default();
+    assert!(reason.contains("`docker`"), "確認の理由にコマンド名が無い: {reason}");
+
+    let (code, stdout, _) = run_hook_capturing_stdout(&exe, &payload("ls -la"));
+    assert_eq!(code, EXIT_PASS);
+    assert!(stdout.is_empty(), "許可リストのコマンドで stdout に出力した: {stdout}");
 }
 
 /// 不正な stdin でも panic せず、かつ **block 側に倒れない**ことを確認する。

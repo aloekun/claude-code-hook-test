@@ -85,6 +85,7 @@ mod tests {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         };
         build_blocked_patterns(&config)
@@ -101,7 +102,7 @@ mod tests {
     #[test]
     fn default_config_enables_all_presets() {
         assert!(is_blocked("git push"));
-        assert!(is_blocked("rm -rf /tmp"));
+        assert!(is_blocked(r"cd /d e:\work"));
         assert!(is_blocked("jj --ignore-immutable rebase"));
         assert!(is_blocked("jj new main"));
         assert!(is_blocked("electron ."));
@@ -111,7 +112,7 @@ mod tests {
     fn empty_presets_blocks_nothing() {
         let patterns = patterns_with_presets(&[]);
         assert!(validate_command("git push", &patterns).is_none());
-        assert!(validate_command("rm -rf /tmp", &patterns).is_none());
+        assert!(validate_command(r"cd /d e:\work", &patterns).is_none());
     }
 
     #[test]

@@ -1,17 +1,7 @@
-//! 基本プリセット: default (rm -rf, cd /d), git, electron。
+//! 基本プリセット: default (cd /d。削除は deletion_guard), git, electron。
 
 use crate::blocked_patterns::BlockedPattern;
 use regex::Regex;
-
-const RM_RF_MSG: &str = r#"**rm -rf コマンドがブロックされました**
-
-このコマンドは再帰的に強制削除を行うため、重要なファイルを失う可能性があります。
-
-**安全な代替方法:**
-- 削除前にファイル一覧を確認: `ls -la <path>`
-- 単一ファイルの削除: `rm <file>`
-- 確認付き削除: `rm -ri <directory>`
-- ゴミ箱への移動を検討"#;
 
 const CD_D_MSG: &str = r#"**cd /d コマンドがブロックされました**
 
@@ -95,25 +85,10 @@ const CARGO_FMT_MSG: &str = r#"**cargo fmt / rustfmt がブロックされまし
 - この hook は Claude Code のツール呼び出しにだけ効きます。必要ならユーザーに、手元の端末での実行を依頼してください
 - 方針そのものを変えるなら、`.claude/hooks-config.toml` の `blocked_patterns` から `cargo-fmt-block` を外す変更を PR にしてください"#;
 
-/// プリセット: default (rm -rf, cd /d)
+/// プリセット: default (cd /d)。削除系コマンドの判定は、同じ default preset の一部として
+/// `crate::deletion_guard` が対象の場所で行う (順位 581。旧 `rm -rf` の正規表現の置き換え)。
 pub(crate) fn preset_default() -> Vec<BlockedPattern> {
     vec![
-        BlockedPattern {
-            pattern: Regex::new(r"(?i)rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s")
-                .unwrap(),
-            exception: None,
-            message: RM_RF_MSG,
-        },
-        BlockedPattern {
-            pattern: Regex::new(r"(?i)rm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*(\s|$)").unwrap(),
-            exception: None,
-            message: RM_RF_MSG,
-        },
-        BlockedPattern {
-            pattern: Regex::new(r"(?i)rm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*(\s|$)").unwrap(),
-            exception: None,
-            message: RM_RF_MSG,
-        },
         BlockedPattern {
             pattern: Regex::new(r"(?im)(^|&&|;|\|\||\||&)\s*cd\s+/d\s").unwrap(),
             exception: None,
@@ -190,6 +165,7 @@ mod tests {
                 blocked_patterns: Some(presets.iter().map(|s| s.to_string()).collect()),
                 extra_protected_files: None,
                 todo_staleness: None,
+                allowed_commands: None,
             }),
         };
         build_blocked_patterns(&config)
@@ -205,24 +181,12 @@ mod tests {
         validate_command(command, &patterns).is_some()
     }
 
+    /// 順位 581: `rm` の判定は正規表現から deletion_guard (対象の場所で決める) に移った。
+    /// default preset の正規表現は、scratchpad の中の `rm -rf` も止めてはいけない。
     #[test]
-    fn blocks_rm_rf_at_start() {
-        assert!(is_blocked("rm -rf /tmp/test"));
-    }
-
-    #[test]
-    fn blocks_rm_rf_after_chain() {
-        assert!(is_blocked("cd /path && rm -rf /tmp"));
-    }
-
-    #[test]
-    fn blocks_rm_split_r_then_f() {
-        assert!(is_blocked("rm -r -f /tmp/test"));
-    }
-
-    #[test]
-    fn blocks_rm_split_f_then_r() {
-        assert!(is_blocked("rm -f -r /tmp/test"));
+    fn default_patterns_no_longer_decide_rm() {
+        assert!(!is_blocked("rm -rf /tmp/test"));
+        assert!(!is_blocked("rm -r -f /tmp/test"));
     }
 
     #[test]
@@ -249,7 +213,7 @@ mod tests {
     #[test]
     fn only_default_preset_allows_git() {
         assert!(!is_blocked_with("git push", &["default"]));
-        assert!(is_blocked_with("rm -rf /tmp", &["default"]));
+        assert!(is_blocked_with(r"cd /d e:\work", &["default"]));
     }
 
     #[test]

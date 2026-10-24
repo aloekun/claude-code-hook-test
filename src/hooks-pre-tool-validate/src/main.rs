@@ -15,6 +15,7 @@ use std::process::ExitCode;
 
 mod blocked_patterns;
 mod config;
+mod deletion_guard;
 mod handlers;
 mod presets;
 mod protected_files;
@@ -22,7 +23,7 @@ mod protected_files;
 mod settings_wiring;
 mod todo_staleness;
 
-use config::load_config;
+use config::{load_config, Config};
 use handlers::{handle_bash_tool, handle_powershell_tool, handle_write_edit_tool};
 
 /// `main` が振り分けるツール名 (下の `match` の腕と同じ集合)。
@@ -37,6 +38,12 @@ pub(crate) const HANDLED_TOOLS: [&str; 5] = ["Bash", "PowerShell", "Write", "Edi
 struct HookInput {
     tool_name: Option<String>,
     tool_input: Option<ToolInput>,
+    /// セッションの作業ディレクトリ。削除の対象の相対パスを解決する起点 (deletion_guard)。
+    cwd: Option<String>,
+    /// このセッションの scratchpad。中の削除は一時ファイルの削除として通す (deletion_guard)。
+    scratchpad_dir: Option<String>,
+    /// transcript のパス。同じディレクトリの `memory/` を Claude の memory として扱う (deletion_guard)。
+    transcript_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -76,10 +83,32 @@ fn main() -> ExitCode {
         new_string: None,
         content: None,
     });
-    match tool_name.as_str() {
-        "Bash" => handle_bash_tool(&config, &tool_input),
-        "Write" | "Edit" | "Replace" => handle_write_edit_tool(&config, &tool_input),
-        "PowerShell" => handle_powershell_tool(&config, &tool_input),
+    let places = deletion_guard::Context::from_hook(
+        hook_input.cwd.as_deref(),
+        hook_input.scratchpad_dir.as_deref(),
+        hook_input.transcript_path.as_deref(),
+    );
+    dispatch_tool(&tool_name, &config, &tool_input, &places)
+}
+
+/// ツール名で振り分けて実行する。`deletion_guard` の解析 (未知の入力でも再帰で潰れないよう
+/// [`deletion_guard::lexer::scan`] に深さの上限を設けたが、ほかの未知の panic にも備えて)
+/// `catch_unwind` で受け止め、`Err` を「判定できない対象は止める」(ADR-043 fail-closed) に合わせて
+/// ブロック (exit code 2) にする。これが無いとクラッシュは exit code 2 以外で終了し、PreToolUse は
+/// ブロックと見なさずフェイルオープンになる (SEC-NEW-scan-rs-L72)。
+fn dispatch_tool(tool_name: &str, config: &Config, tool_input: &ToolInput, places: &deletion_guard::Context) -> ExitCode {
+    let run = || match tool_name {
+        "Bash" => handle_bash_tool(config, tool_input, places),
+        "Write" | "Edit" | "Replace" => handle_write_edit_tool(config, tool_input),
+        "PowerShell" => handle_powershell_tool(config, tool_input, places),
         _ => ExitCode::SUCCESS,
-    }
+    };
+    std::panic::catch_unwind(run).unwrap_or_else(|_| {
+        eprintln!(
+            "**ツール呼び出しがブロックされました**\n\n\
+             検査が途中で異常終了しました。判定できない呼び出しは止めます (ADR-043)。\n\n\
+             コマンドや入力を簡略化するか、ユーザーに確認して手元の端末で実行してください。"
+        );
+        ExitCode::from(2)
+    })
 }

@@ -17,6 +17,8 @@ pub(crate) struct PreToolValidateConfig {
     pub(crate) blocked_patterns: Option<Vec<String>>,
     pub(crate) extra_protected_files: Option<Vec<String>>,
     pub(crate) todo_staleness: Option<TodoStalenessConfig>,
+    /// 削除ガードの許可リストに足すコマンド (ADR-086 決定 5)。`*` で終われば前方一致。
+    pub(crate) allowed_commands: Option<Vec<String>>,
 }
 
 /// 順位 136 案 B: `docs/todo*.md` Edit/Write 時の staleness 検知 + 既実装 grep 提示。

@@ -87,6 +87,7 @@
 - [ADR-083: takt の readonly step を permission mode で強制する](docs/adr/adr-083-takt-readonly-permission-mode.md) *(試験運用)*
 - [ADR-084: テスト専用コードは共通化しない — test module ごとに複製する](docs/adr/adr-084-test-helper-no-sharing.md)
 - [ADR-085: 第三者レビューの手段 — 当面は CodeRabbit を使い続け、夜間 PR は人間名義で作り直す](docs/adr/adr-085-third-party-review-means.md)
+- [ADR-086: 削除系コマンドは、消す対象の場所で止める](docs/adr/adr-086-deletion-guard-by-target-place.md)
 
 ## 開発 convention / チェックリスト
 

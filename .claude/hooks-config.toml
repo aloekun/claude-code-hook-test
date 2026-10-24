@@ -93,7 +93,7 @@ system_message_enabled = true
 
 [pre_tool_validate]
 # ブロックパターンのプリセット名を指定
-#   "default"       — rm -rf, cd /d (ほぼ全プロジェクト共通)
+#   "default"       — 削除系コマンドを消す対象の場所で止める (ADR-086)、cd /d (ほぼ全プロジェクト共通)
 #   "git"           — git コマンドブロック (jj 利用プロジェクト向け)
 #   "jj-immutable"  — jj --ignore-immutable
 #   "jj-main-guard" — jj new main / jj edit main
@@ -149,6 +149,23 @@ blocked_patterns = [
 
 # 追加の保護ファイル (デフォルトリストに追加)
 extra_protected_files = []
+
+# 確認なしで実行してよいコマンドの追加 (ADR-086 決定 5、"default" preset の一部)。
+# 既定の一覧 (src/hooks-pre-tool-validate/src/deletion_guard/allowlist.rs) に無いコマンドは、
+# 実行前にユーザーに確認する (ask)。足したコマンドの削除の機能は読まないので、削除の経路が
+# 無いことを確かめてから足す。`*` で終われば前方一致。
+# 本リポジトリの Rust 製 exe のうち、検証で直接実行していて削除の処理を持たないもの。前方一致
+# (`hooks-*` / `cli-*`) にしないのは、削除の処理を持つ exe があるため (cli-merge-pipeline はマージ後に
+# リモートのブランチを消し、hooks-stop-feedback-dispatch は stale ファイルと lock を消す。CodeRabbit の指摘)
+allowed_commands = [
+  "hooks-post-tool-linter",
+  "hooks-post-tool-comment-lint-rust",
+  "hooks-pre-tool-validate",
+  "hooks-session-start",
+  "hooks-stop-quality",
+  "cli-nightly-task-select",
+  "check-ci-coderabbit",
+]
 
 # 順位 136 案 B (試験運用、ADR-039 experimental pattern 準拠)。
 # Edit/Write の対象が docs/todo*.md 系列のとき、master と @- の lineage 確認

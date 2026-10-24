@@ -14,6 +14,13 @@ extra_protected_files = [
   "hooks-config.toml",
 ]
 
+# 確認なしで実行してよいコマンドの追加 (ADR-086 決定 5)。既定の一覧に無いコマンドは実行前に
+# 確認が出る。足したコマンドの削除の機能は読まないので、削除の経路が無いことを確かめてから足す
+# (例: uv は `uv cache clean`、pip は `pip uninstall` でプロジェクトの外を消すので足さない)。
+# 下の 3 つは確かめて足した: `ruff clean` と `pytest --cache-clear` は削除、mypy のレポート出力と
+# `--cache-dir` は上書きとしてガードが読む。
+allowed_commands = ["ruff", "pytest", "mypy"]
+
 [post_tool_linter]
 
 [[post_tool_linter.pipelines]]
