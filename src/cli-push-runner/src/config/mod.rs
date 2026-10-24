@@ -294,6 +294,11 @@ impl Config {
         self.pr_range_revset(self.diff.as_ref().and_then(|c| c.default_branch.as_deref()))
     }
 
+    /// 再 push の差分レビュー (ADR-089) が有効か (`[diff] incremental_command` がある)。
+    pub(crate) fn incremental_review_enabled(&self) -> bool {
+        self.diff.as_ref().is_some_and(|d| d.incremental_command.is_some())
+    }
+
     /// docs-only routing 判定の PR 範囲。[`Config::diff_pr_range`] と一致していなければ
     /// 「レビューした範囲」と「routing を決めた範囲」がずれる。
     pub(crate) fn docs_only_pr_range(&self) -> String {
@@ -364,12 +369,19 @@ pub(crate) struct DiffConfig {
     /// `+`/`-` マーカーを持たず LLM レビュアーが削除を追加と誤読する問題もある
     /// (todo 順位 264、PR #256 で実害)。
     pub(crate) command: String,
+    /// 再 push のとき、前回承認した commit 以降だけをレビューする diff のコマンド (ADR-089)。
+    /// [`DIFF_FROM_PLACEHOLDER`] が承認した commit に展開される。未設定なら毎回 PR 全体を
+    /// レビューする (派生プロジェクトの既定、ADR-039 の opt-in)。`command` と同じく `--git` 必須。
+    pub(crate) incremental_command: Option<String>,
     pub(crate) output_path: String,
     /// 未指定時は `DEFAULT_DIFF_TIMEOUT_SECS` (T6)。`[push] timeout` と同形。
     pub(crate) timeout: Option<u64>,
     /// PR base branch の section override (後方互換)。未設定なら top-level を使う。
     pub(crate) default_branch: Option<String>,
 }
+
+/// `[diff] incremental_command` の、前回承認した commit のプレースホルダ (ADR-089)。
+pub(crate) const DIFF_FROM_PLACEHOLDER: &str = "{{FROM}}";
 
 #[derive(Deserialize)]
 pub(crate) struct PushConfig {
@@ -439,6 +451,7 @@ fn validate_config(config: &Config) -> Result<(), String> {
         }
     }
     validate_diff_command_uses_pr_range(config)?;
+    validate_incremental_command(config)?;
     validate_base_branch_ranges_agree(config)?;
     validate_testability_gate_mode(config.testability_gate.as_ref())?;
     Ok(())
@@ -466,6 +479,22 @@ fn validate_diff_command_uses_pr_range(config: &Config) -> Result<(), String> {
          レビューし、祖先コミットが未レビューで merge される (todo 順位 288、4 回再発)",
         placeholder = DIFF_PR_RANGE_PLACEHOLDER,
         command = diff.command,
+    ))
+}
+
+/// `[diff] incremental_command` が [`DIFF_FROM_PLACEHOLDER`] と `--git` を含むことを検証する
+/// (ADR-089)。前回承認した commit を使わない command は、差分ではない何かをレビューさせる。
+/// `--git` が無いと範囲カバレッジ検査がファイルを数えられない。
+fn validate_incremental_command(config: &Config) -> Result<(), String> {
+    let Some(command) = config.diff.as_ref().and_then(|d| d.incremental_command.as_deref()) else {
+        return Ok(());
+    };
+    if command.contains(DIFF_FROM_PLACEHOLDER) && command.contains("--git") {
+        return Ok(());
+    }
+    Err(format!(
+        "設定ファイルエラー: [diff] incremental_command は {DIFF_FROM_PLACEHOLDER} と --git を含むこと \
+         (現在: {command:?}、例: \"jj diff --git --from {DIFF_FROM_PLACEHOLDER} --to @\")"
     ))
 }
 

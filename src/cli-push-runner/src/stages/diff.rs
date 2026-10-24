@@ -21,6 +21,7 @@ use std::process::Stdio;
 
 use lib_subprocess::{drain_pipe_unlimited, shell_command, wait_with_timeout_safe};
 
+use super::review_scope::ReviewScope;
 use crate::config::{DiffConfig, DEFAULT_DIFF_TIMEOUT_SECS, DIFF_PR_RANGE_PLACEHOLDER};
 use crate::log::log_stage;
 
@@ -283,9 +284,16 @@ pub(crate) fn parse_git_diff_paths(diff_output: &str) -> std::collections::BTree
 /// `run_diff` と違いファイルには書かない (比較のためメモリ上で保持するだけ)。timeout /
 /// stderr 分離の要件は `run_diff_cmd` と同一 (同 doc 参照)。範囲カバレッジ検査も
 /// 行わない (前後比較が目的で、レビュー入力にはならないため)。
+#[cfg(test)]
 pub(crate) fn capture_diff_snapshot(config: &DiffConfig, pr_range: &str) -> Option<String> {
+    capture_scoped_snapshot(config, &ReviewScope::Full { pr_range: pr_range.to_string() })
+}
+
+/// [`capture_diff_snapshot`] のレビュー範囲版 (ADR-089)。post-takt re-gate の前後比較は、takt の前に
+/// reviewers へ渡した diff と同じ範囲で取らないと、範囲の違いだけで「変化あり」になる。
+pub(crate) fn capture_scoped_snapshot(config: &DiffConfig, scope: &ReviewScope) -> Option<String> {
     let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
-    run_diff_cmd(&resolve_diff_command(&config.command, pr_range), timeout).ok()
+    run_diff_cmd(&scope.command(config), timeout).ok()
 }
 
 /// `[diff] command` の [`DIFF_PR_RANGE_PLACEHOLDER`] を PR 範囲 revset に展開する。
@@ -293,24 +301,34 @@ pub(crate) fn resolve_diff_command(command: &str, pr_range: &str) -> String {
     command.replace(DIFF_PR_RANGE_PLACEHOLDER, pr_range)
 }
 
-pub(crate) fn run_diff(config: &DiffConfig, pr_range: &str) -> DiffResult {
-    run_diff_with(config, pr_range, || {
-        super::docs_only_routing::run_jj_diff_summary(pr_range)
-    })
+/// レビュー範囲 (`scope`、ADR-089) の diff を作り、範囲カバレッジを検査して書き出す。
+pub(crate) fn run_diff(config: &DiffConfig, scope: &ReviewScope) -> DiffResult {
+    run_diff_command_with(config, &scope.command(config), &scope.describe(), || scope.summary())
 }
 
-/// `run_diff` の本体。PR 範囲の summary 取得を注入可能にして、範囲カバレッジ検査を
-/// jj 実行なしでテストできるようにする (`post_takt_regate::analyze_regate` と同じ流儀)。
+/// PR 全体を範囲とする [`run_diff_command_with`] (テスト用の入口)。
+#[cfg(test)]
 fn run_diff_with(
     config: &DiffConfig,
     pr_range: &str,
     fetch_summary: impl FnOnce() -> Result<String, String>,
 ) -> DiffResult {
-    let command = resolve_diff_command(&config.command, pr_range);
+    run_diff_command_with(config, &resolve_diff_command(&config.command, pr_range), pr_range, fetch_summary)
+}
+
+/// `run_diff` の本体。範囲の summary 取得を注入可能にして、範囲カバレッジ検査を
+/// jj 実行なしでテストできるようにする (`post_takt_regate::analyze_regate` と同じ流儀)。
+/// `range_label` は失敗時の表示に使う範囲の説明。
+fn run_diff_command_with(
+    config: &DiffConfig,
+    command: &str,
+    range_label: &str,
+    fetch_summary: impl FnOnce() -> Result<String, String>,
+) -> DiffResult {
     log_stage("diff", &format!("実行: {}", command));
 
     let timeout = config.timeout.unwrap_or(DEFAULT_DIFF_TIMEOUT_SECS);
-    let output = match run_diff_cmd(&command, timeout) {
+    let output = match run_diff_cmd(command, timeout) {
         Ok(output) => output,
         Err(err) => {
             log_stage("diff", "diff コマンド失敗");
@@ -322,7 +340,7 @@ fn run_diff_with(
     };
 
     if let Err(reason) = verify_diff_covers_pr_range(&output, fetch_summary) {
-        report_coverage_failure(pr_range, &reason);
+        report_coverage_failure(range_label, &reason);
         return DiffResult::Error;
     }
 
@@ -341,13 +359,13 @@ fn run_diff_with(
 ///
 /// 「レビュー範囲が PR より狭い」ことは検知できても自動修復はできない
 /// (どこまで広げるべきかは config の意図次第) ため、push を止めて人間に返す。
-fn report_coverage_failure(pr_range: &str, reason: &str) {
+fn report_coverage_failure(range_label: &str, reason: &str) {
     log_stage("diff", &format!("レビュー範囲の検査に失敗: {}", reason));
     eprintln!(
-        "[push-runner] [diff] レビュー対象 diff が PR 範囲 ({}) を網羅していません: {}\n\
+        "[push-runner] [diff] レビュー対象 diff がレビュー範囲 ({}) を網羅していません: {}\n\
          このまま進めると祖先コミットが AI レビューを経ずに merge されます (todo 順位 288)。\n\
          `[diff] command` が `{}` を使っているか、出力が unified diff (--git) 形式かを確認してください。",
-        pr_range, reason, DIFF_PR_RANGE_PLACEHOLDER
+        range_label, reason, DIFF_PR_RANGE_PLACEHOLDER
     );
 }
 

@@ -51,6 +51,8 @@ pub(crate) struct RunMetrics {
     bookmarks: Vec<String>,
     skipped_groups: Vec<String>,
     takt_workflow: Option<String>,
+    /// reviewers に渡した diff の範囲 (`full` / `incremental`、ADR-089)。takt を走らせない run は None。
+    review_scope: Option<&'static str>,
     post_takt_regate: &'static str,
     exit_code: i32,
     total_secs: f64,
@@ -63,6 +65,7 @@ impl RunMetrics {
             bookmarks: Vec::new(),
             skipped_groups: Vec::new(),
             takt_workflow: None,
+            review_scope: None,
             post_takt_regate: REGATE_NOT_RUN,
             exit_code: 0,
             total_secs: 0.0,
@@ -95,6 +98,10 @@ impl RunMetrics {
         self.takt_workflow = Some(workflow.to_string());
     }
 
+    pub(crate) fn set_review_scope(&mut self, scope: &'static str) {
+        self.review_scope = Some(scope);
+    }
+
     pub(crate) fn set_regate_verdict(&mut self, verdict: &'static str) {
         self.post_takt_regate = verdict;
     }
@@ -114,6 +121,7 @@ impl RunMetrics {
             skipped_groups: &self.skipped_groups,
             bookmarks: &self.bookmarks,
             takt_workflow: self.takt_workflow.as_deref(),
+            review_scope: self.review_scope,
             post_takt_regate: self.post_takt_regate,
             stages: self
                 .stages
@@ -154,6 +162,8 @@ struct RunRecord<'a> {
     bookmarks: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     takt_workflow: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_scope: Option<&'a str>,
     post_takt_regate: &'a str,
     stages: BTreeMap<&'a str, f64>,
 }

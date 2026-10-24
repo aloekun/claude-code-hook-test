@@ -90,6 +90,7 @@
 - [ADR-086: 削除系コマンドは、消す対象の場所で止める](docs/adr/adr-086-deletion-guard-by-target-place.md)
 - [ADR-087: 対応したレビュースレッドは、push の後に返信して閉じる](docs/adr/adr-087-review-thread-resolution-after-push.md)
 - [ADR-088: pre-push の fix の後は、再レビューしてから終える](docs/adr/adr-088-prepush-rereview-after-fix.md) *(Supersedes ADR-037 の pre-push 経路部分)*
+- [ADR-089: 再 push は、前回承認した commit 以降の差分だけをレビューする](docs/adr/adr-089-incremental-prepush-review.md)
 
 ## 開発 convention / チェックリスト
 

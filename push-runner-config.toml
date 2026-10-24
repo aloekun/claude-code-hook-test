@@ -234,6 +234,12 @@ commands = [
 #
 # 生成された diff が PR 範囲を網羅していない場合は exit 5 で中断する (fail-closed)。
 command = "jj diff --git -r {{PR_RANGE}}"
+# 再 push のときは、この branch で前回レビューがすべて APPROVE になって push した commit から
+# `@` までの差分だけをレビューする (ADR-089)。`{{FROM}}` がその commit に展開される。前回の承認が
+# 無い・基点 (trunk) が変わった・push する bookmark が 1 つでない・`PUSH_REVIEW_FULL=1` のときは、
+# 上の `command` で PR 全体をレビューする。範囲カバレッジ検査も同じ範囲で行う。
+# 行ごと消せば、毎回 PR 全体をレビューする。
+incremental_command = "jj diff --git --from {{FROM}} --to @"
 output_path = ".takt/review-diff.txt"
 # timeout (T6): 未指定時は 60s (DEFAULT_DIFF_TIMEOUT_SECS)。旧実装は無限待ちで、
 # ADR-045 の並列 workspace 運用で jj lock 競合が起きるとパイプラインが無言ハングした。
