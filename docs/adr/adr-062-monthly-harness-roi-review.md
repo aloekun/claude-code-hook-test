@@ -177,6 +177,8 @@ revert PR は ADR-053/061 bounded lifetime の手順に従う)。ADR-061 の回�
 block + この warn の合算と内訳で見る。全試験運用 ADR の網羅登録は将来拡張とし、MVP はこの 1 件 +
 発火 0 リスト全般で足りる。
 
+> **2026-10-26 追記**: この 1 件は、2026-10-21 の月次レビューの promote を受けて撤去した (順位 582、[ADR-053 § 撤去の記録](adr-053-stop-tool-call-leak-detection.md#撤去の記録-2026-10-26))。いま `.claude/hooks-config.toml` に登録されている mechanism は無い。非アクティブ化候補の提示は、発火 0 リストだけで行う。
+
 ### 4 の amendment (2026-07-31, Phase C): rollup 確定時の snapshot 保持
 
 snapshot は集計実行時点の状態でしかなく、月次カデンツでは月 M の確定を M+1 の初回実行が行う。旧実装は
