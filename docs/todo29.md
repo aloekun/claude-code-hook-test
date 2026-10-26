@@ -397,26 +397,6 @@
 - 読めないディレクトリ・ファイルで 3 か所の guard がそれぞれ panic することを、テストで確認できること
 - `cargo test -p hooks-post-tool-linter` が通ること
 
-### 順位 583: 一度も発火していない preset `electron` / `gh-repo-env-guard` の扱いを決める
-
-> **動機**: 2026-10-21 の月次レビューで、telemetry の全履歴 (2026-07〜) で一度も発火していない機構のうち、incident 由来でない 4 件を見直した。`electron` (Electron GUI の実行をブロック) と `gh-repo-env-guard` (`GH_REPO` の場当たり使用をブロック) の 2 件を、削除の検討対象として採用した。どちらも本リポジトリの `.claude/hooks-config.toml` の `blocked_patterns` に明示的に載っている。発火 0 は「不要」と「抑止力として効いている」を区別できないので、削除するかは中身を見て決める。
->
-> **由来**: `[improvement]`。月次レビュー (`.claude/monthly-reviews/2026-10-21.md`) の発火 0 リストから採用した。同じリストの `jj-immutable` / `workspace_stale` は今回は維持とした。
->
-> **実行優先度**: Tier 4 — Effort S。
-
-#### 作業計画
-
-- 削除の範囲を決める。(a) 本リポジトリの `blocked_patterns` から外すだけ (preset は派生プロジェクト向けに残す)、(b) preset 自体を削除する、のどちらにするかを preset ごとに決める。**着手時判断**
-- `electron`: 本リポジトリで Electron を使う予定が無いかを確かめる。派生プロジェクトのテンプレート (`templates/hooks-config-*.toml`) では使っていない
-- `gh-repo-env-guard`: 由来の PR #238 (非 colocated jj workspace で `GH_REPO` が silent に部分故障する) の事故が、別の仕組みで防がれているかを確かめる。防がれていなければ、発火 0 は抑止力が効いている証拠とみなして維持する
-- 外す場合は、`the_repository_config_lists_every_default_preset` のテスト (既定で有効な preset が toml にすべて載っているかの検査) と矛盾しないようにする。既定で有効な preset を外すなら、既定から外すかテストの例外にするかも決める
-
-#### 完了基準
-
-- 2 件それぞれについて、削除・一覧から外す・維持のどれにしたかと、その根拠が残っていること
-- `cargo test -p hooks-pre-tool-validate` が通ること
-
 ### 順位 585: CodeRabbit のスキップ通知を「レビュー未開始」として扱う
 
 > **動機**: 2026-10-21 から、CodeRabbit は PR に「This repository does not receive automatic reviews because it has fewer than 10 stars」というスキップ通知を付けるようになった ([ADR-085](adr/adr-085-third-party-review-means.md) § 改訂 (2026-10-22))。コードを読む限り、各部品はこの通知を正しく扱えない。(1) `src/check-ci-coderabbit` の `is_kept_new_comment` は、push 後に付いた通知を新しいコメントとして数えるので、`decide` が `action_required` を返す。通知が push より前に付いて後から編集された場合は、陽性証拠が無いので `pending` のまま繰り返す。commit status の description (「Review skipped: manual review required for this OSS repository」) は `GhStatusItem` が読んでいない。(2) `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` が「未レビュー」と明示している description は 2 種類だけで、今回の文言は載っていない (判定は「完了ではない」に倒れるので実害は小さい)。(3) `.github/workflows/review-request.yml` は通知を walkthrough と分類する。待ち時間 900 秒は、手動の依頼からレビュー完了までの実測 (約 18 分) より短い。

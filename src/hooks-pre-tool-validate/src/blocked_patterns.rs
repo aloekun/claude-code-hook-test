@@ -177,12 +177,28 @@ mod tests {
         }
     }
 
+    /// 既定で有効だが、本リポジトリの `blocked_patterns` から意図して外した preset (順位 583)。
+    /// `electron` は Electron アプリの派生プロジェクト向けで、本リポジトリには止める対象が無い。
+    /// 有効のままだと `grep -rn electron docs` のような検索まで止める。
+    const DELIBERATELY_UNLISTED: &[&str] = &["electron"];
+
+    /// 外した preset は既定のまま残っている (外す理由が「本リポジトリに対象が無い」だけなので)。
+    #[test]
+    fn deliberately_unlisted_presets_stay_on_by_default() {
+        let defaults = default_preset_names();
+        for name in DELIBERATELY_UNLISTED {
+            assert!(defaults.iter().any(|d| d == name), "{name} が既定から消えた。DELIBERATELY_UNLISTED から外す");
+        }
+    }
+
     /// **本リポジトリの config は既定で有効な preset をすべて列挙している。**
     ///
     /// `.claude/hooks-config.toml` は `blocked_patterns` を明示列挙しており、列挙すると
     /// [`default_preset_names`] は使われない。既定で有効な preset を足したときに toml への
     /// 追記を忘れると、その preset は本リポジトリでだけ無言で無効になる
     /// (`powershell-destructive-write-block` は導入 (#215) から 2026-09-26 まで無効だった)。
+    ///
+    /// [`DELIBERATELY_UNLISTED`] は、意図して本リポジトリから外した既定の preset。
     #[test]
     fn the_repository_config_lists_every_default_preset() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -194,9 +210,15 @@ mod tests {
             .pre_tool_validate
             .and_then(|c| c.blocked_patterns)
             .expect("本リポジトリは blocked_patterns を明示列挙している");
+        for name in DELIBERATELY_UNLISTED {
+            assert!(
+                !listed.iter().any(|l| l == name),
+                "{name} は意図して外した preset なのに blocked_patterns に載っている (DELIBERATELY_UNLISTED の doc 参照)"
+            );
+        }
         let missing: Vec<String> = default_preset_names()
             .into_iter()
-            .filter(|name| !listed.contains(name))
+            .filter(|name| !listed.contains(name) && !DELIBERATELY_UNLISTED.contains(&name.as_str()))
             .collect();
         assert!(
             missing.is_empty(),
