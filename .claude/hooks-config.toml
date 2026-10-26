@@ -104,7 +104,10 @@ system_message_enabled = true
 #   "exe-help-block" — 本リポジトリの Rust 製 exe (.claude/*.exe) + 単独 --help/-h/?
 #                              をブロックして src/<exe-name>/src/main.rs Read に誘導
 #                              (PR #109 SIGPIPE 事故の直接 trigger を構造的に防止、順位 65 / Bundle c)
-#   "electron"      — Electron GUI 実行ブロック
+#   "electron"      — Electron GUI 実行ブロック。既定では有効だが、本リポジトリでは外している
+#                              (Electron を使わず止める対象が無い。有効のままだと `grep -rn electron docs`
+#                               のような検索まで止める。順位 583、2026-10-26)。Electron アプリの派生
+#                              プロジェクトでは既定のまま効く
 #   "jj-message-required" — jj new / jj split を -m / --message なしでブロック
 #                              (混合 commit 事故 + jj split editor hang を構造的に防止、
 #                               順位 144 / PR #171 T3-#8 採用)
@@ -138,7 +141,6 @@ blocked_patterns = [
   "gh-pr-merge-guard",
   "polling-anti-pattern",
   "exe-help-block",
-  "electron",
   "jj-message-required",
   "secret-detection",
   "gh-repo-env-guard",

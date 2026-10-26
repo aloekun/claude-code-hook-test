@@ -54,6 +54,12 @@ GH_REPO は gh の pr / issue / api 系コマンドにしか効かず、引数�
 ///
 /// PowerShell 構文 (`$env:GH_REPO`) は現状 PreToolUse matcher が Bash 系のみの
 /// ため実質 fire しないが、matcher 拡張時に防御が切れないよう先行して含める。
+///
+/// **発火 0 でも残す (順位 583、2026-10-26 判定)。** pnpm の create-pr / merge-pr などは exe が
+/// `GIT_DIR` を自動注入するので PR #238 の経路では事故が起きないが、`gh api` / `gh pr checks` を
+/// 直接叩くとき、対象リポジトリを `--repo` / `-R` や endpoint で明示せず repository context に頼る
+/// 場合は、`.git` の無い secondary workspace で今も `GIT_DIR` が要る (ADR-045)。そこで
+/// `GH_REPO` に手が伸びるのを止めるのはこの preset だけなので、発火 0 は抑止として効いているとみなす。
 pub(crate) fn preset_gh_repo_env_guard() -> Vec<BlockedPattern> {
     vec![
         BlockedPattern {
