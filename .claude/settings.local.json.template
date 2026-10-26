@@ -36,11 +36,6 @@
             "type": "command",
             "command": "\"{{PROJECT_DIR}}/.claude/hooks-user-prompt-feedback-recovery{{EXE_SUFFIX}}\"",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-tool-call-leak{{EXE_SUFFIX}}\"",
-            "timeout": 5
           }
         ]
       }
@@ -92,11 +87,6 @@
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-tool-call-leak{{EXE_SUFFIX}}\"",
-            "timeout": 5
-          },
           {
             "type": "command",
             "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-quality{{EXE_SUFFIX}}\"",

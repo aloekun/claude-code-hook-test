@@ -261,44 +261,6 @@ steps = [
   { cmd = "node", args = ["{{CLAUDE_DIR}}/../scripts/cargo-check-for-file.mjs", "{file}"], fix = false },
 ]
 
-# ─── tool call leak 検知 (ADR-053 / ADR-061、試験運用) ───
-#
-# ツール呼び出しが tool_use block ではなくテキスト領域に `<invoke ...>` XML として
-# 出力され、実行されないまま turn が終了する不具合を検知する。単一 exe が
-# hook_event_name で 2 経路に分岐する (settings.local.json.template で Stop と
-# UserPromptSubmit の両方に登録):
-#   - Stop (ADR-053): 末尾 leak を検知し block で再実行を促す。
-#   - UserPromptSubmit (ADR-061 主因): 内部リトライも失敗して合成エントリ
-#     (isApiErrorMessage:true / model:"<synthetic>") で turn がエラー終了する hard-fail
-#     経路では Stop hook が発火しない。直後の UserPromptSubmit で取り逃がした leak を検知し、
-#     非ブロッキングな additionalContext (+任意 systemMessage) で再実行を促す。
-#
-# ADR-039 3 点セット:
-#   - Config opt-in (default OFF): 各機能の code default は false (unwrap_or(false))。
-#     本 repo は dogfood のため有効化していたが、2026-10-21 から両経路とも停止中 (下記)。
-#     派生プロジェクト deploy 時は default OFF。
-#   - Kill-switch: 恒久停止は各 enabled = false。緊急バイパスは env
-#     STOP_TOOL_CALL_LEAK_OVERRIDE=1 (truthy 値、両経路共通、FILE_LENGTH_CHECK_OVERRIDE と同 pattern)。
-#   - Bounded lifetime: 根本原因は上流 (Claude Code / モデルのシリアライズ) の不具合。
-#     上流修正の確認、または月次レビュー (ADR-062) が連続 2 か月発火 0 で promote した時点で、
-#     ADR-053 とまとめて撤去を判定する。
-#
-# 2026-10-21 の月次レビューで非アクティブ化を採用した (最後の発火は 2026-07、8〜10 月は 0)。
-# 両経路とも enabled を false にして止め、hook 登録解除 + crate 削除は順位 582 で行う。
-# leak が再発したら、ここを true に戻せば復帰できる。
-#
-# ループ防止 (Stop): stop_hook_active skip ではなく連続 leak カウント上限で fail-open
-# (ADR-004 からの意図的逸脱、再 leak 実績があるため。詳細は ADR-053)。
-[stop_tool_call_leak]
-enabled = false
-max_consecutive_blocks = 3    # 連続 block 上限 (到達で fail-open)
-# ADR-061 主因: hard-fail 経路の取り逃がしを UserPromptSubmit で回収する層。
-# code default OFF (prompt_recovery_enabled 未設定で無効)。2026-10-21 の月次レビューで false にした (上記)。
-prompt_recovery_enabled = false
-# 回収時に systemMessage (ユーザー可視 1 行、ADR-059) を出す。source default OFF。
-# systemMessage のみ止めたい場合は false (additionalContext の回収は継続)。
-recovery_system_message_enabled = true
-
 # ─── Stop: 品質ゲート ───
 
 [stop_quality]
@@ -481,8 +443,6 @@ trend_months = 6              # レポートが遡る月数 (月別表 / 発火 
 # blocked_patterns) は exe が自動列挙するため、自動列挙元が無い hook / nudge 発火 id のみここに静的
 # 列挙する。id は hook 名と一致しない例がある (各 hook の lib_telemetry::record 呼び出しで実確認):
 #   file-length                                = hooks-post-tool-comment-lint-rust (file-length gate)
-#   hooks-stop-tool-call-leak                  = leak 検知 Stop 経路 (block)
-#   hooks-stop-tool-call-leak/prompt-recovery  = leak 回収 UserPromptSubmit 経路 (warn、ADR-061)
 #   jj-op-verify                               = hooks-post-tool-jj-op-verify (operation 未記録 warn)
 #   hooks-stop-quality                         = Stop 品質ゲート (block)
 #   reaper / staleness / workspace_stale / weekly_review_reminder /
@@ -492,8 +452,6 @@ trend_months = 6              # レポートが遡る月数 (月別表 / 発火 
 [telemetry_report.registry]
 hook_ids = [
   "file-length",
-  "hooks-stop-tool-call-leak",
-  "hooks-stop-tool-call-leak/prompt-recovery",
   "jj-op-verify",
   "hooks-stop-quality",
   "reaper",
@@ -503,13 +461,7 @@ hook_ids = [
   "monthly_review_reminder",
 ]
 
-# 初期マッピング 1 件: ADR-053/061 の tool call leak 検知。監視 2 id が連続発火 0 かつ各月
-# enabled+配備済みなら非アクティブ化候補として提示する (crate 撤去 revert PR は ADR-053/061
-# bounded lifetime 手順に従う)。全試験運用 ADR の網羅登録は将来拡張。
-[[telemetry_report.mechanisms]]
-name = "stop_tool_call_leak"
-adr = "ADR-053/061"
-ids = ["hooks-stop-tool-call-leak", "hooks-stop-tool-call-leak/prompt-recovery"]
-enabled_config_keys = ["stop_tool_call_leak.enabled", "stop_tool_call_leak.prompt_recovery_enabled"]
-exe_names = ["hooks-stop-tool-call-leak"]
-proposal = "[stop_tool_call_leak] enabled = false + prompt_recovery_enabled = false（最終的な crate 撤去 revert PR は ADR-053/061 bounded lifetime 手順に従う）"
+
+# 非アクティブ化判定の対象 ([[telemetry_report.mechanisms]]) は、いまは登録が無い。初期の 1 件だった
+# tool call leak 検知 (ADR-053/061) は、2026-10 に撤去した (順位 582)。新しく登録するときの書式は
+# cli-telemetry-report の config.rs のテストを参照する。

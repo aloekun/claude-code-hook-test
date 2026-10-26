@@ -131,7 +131,7 @@ fn build_monthly_review_staleness_lines(
         "[MONTHLY_REVIEW_REMINDER]".to_string(),
         format!(
             "月次ハーネス ROI レビュー (ADR-062) が threshold ({} 日) を超えました (前回からの経過: {})。\n\
-             推奨: `/monthly-review` skill を起動して telemetry (ADR-055) の発火実績を棚卸しし、発火 0 の rule/preset/hook や bounded-lifetime 機構 (例: tool call leak 検知 ADR-053/061) の非アクティブ化候補を確認する (自動無効化はしない。採否は AskUserQuestion を経る、ADR-022/028)。",
+             推奨: `/monthly-review` skill を起動して telemetry (ADR-055) の発火実績を棚卸しし、発火 0 の rule/preset/hook や bounded-lifetime 機構 (ADR-039) の非アクティブ化候補を確認する (自動無効化はしない。採否は AskUserQuestion を経る、ADR-022/028)。",
             threshold_days, elapsed_label,
         ),
     ]

@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-07-28)
+試験運用 (2026-07-28、**2026-10-26 に ADR-053 とまとめて撤去** = [ADR-053 § 撤去の記録](adr-053-stop-tool-call-leak-detection.md#撤去の記録-2026-10-26))
 
 > 本 ADR は [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) に従う。
 > Config opt-in / kill-switch / bounded lifetime の 3 点を満たす。

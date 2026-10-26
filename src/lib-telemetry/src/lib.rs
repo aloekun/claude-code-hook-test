@@ -324,9 +324,8 @@ fn hooks_config_path(base_dir: &Path) -> PathBuf {
 }
 
 /// `1|true|yes|on` (前後空白無視・大小無視) を truthy として受理する。
-/// 既存 hook の kill-switch 受理集合と揃える。`pub`: hooks-post-tool-comment-lint-rust /
-/// hooks-stop-tool-call-leak の override env 判定と共有する (3 crate 個別実装だった
-/// DRY 違反を解消、両 crate は本 crate に既に依存していたため抽出コストが低かった)。
+/// 既存 hook の kill-switch 受理集合と揃える。`pub`: 各 crate の override env 判定と共有する
+/// (crate ごとの個別実装だった DRY 違反を解消した)。
 pub fn is_truthy(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),

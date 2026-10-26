@@ -608,20 +608,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hooks-stop-tool-call-leak"
-version = "0.1.0"
-dependencies = [
- "lib-config-path",
- "lib-hook-output",
- "lib-subprocess",
- "lib-telemetry",
- "serde",
- "serde_json",
- "tempfile",
- "toml",
-]
-
-[[package]]
 name = "hooks-user-prompt-feedback-recovery"
 version = "0.1.0"
 dependencies = [

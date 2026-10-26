@@ -116,7 +116,6 @@
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |
 | 580 | Tier 3 | **[improvement] baseline 走査の fail-closed guard をテストで固定し、`collect_rust_files` の読み飛ばしを塞ぐ** | todo29.md | S | なし (2026-10-19、#580 feedback) |
-| 582 | Tier 3 | **[improvement] tool call leak 検知 (hooks-stop-tool-call-leak) を撤去する** | todo29.md | S-M | なし (2026-10-21 月次レビューで採用。config は同日に無効化済み。10 月の確定値の確認は着手時判断) |
 | 583 | Tier 4 | **[improvement] 一度も発火していない preset `electron` / `gh-repo-env-guard` の扱いを決める** | todo29.md | S | なし (2026-10-21 月次レビューで採用。削除の範囲は着手時判断) |
 | 585 | Tier 3 | **[improvement] CodeRabbit のスキップ通知を「レビュー未開始」として扱う** | todo29.md | S-M | なし (2026-10-22、ADR-085 改訂 (決定 10) で依頼の自動化から分離。review-request.yml の待ち時間は着手時判断) |
 

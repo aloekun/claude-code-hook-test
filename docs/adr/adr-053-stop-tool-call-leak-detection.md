@@ -2,7 +2,7 @@
 
 ## ステータス
 
-試験運用 (2026-07-12)
+試験運用 (2026-07-12、**2026-10-26 に撤去** = § 撤去の記録)
 
 > 本 ADR は [ADR-039 (試験運用標準パターン)](adr-039-experimental-feature-standard-pattern.md) に従う。
 > Config opt-in / kill-switch / bounded lifetime の 3 点を満たす。
@@ -195,6 +195,18 @@ telemetry 発火実績 (id `hooks-stop-tool-call-leak` + ADR-061 の `prompt-rec
 回収層 + `scan_tail` の合成エントリ耐性)。本 ADR の bounded lifetime (撤去判定) は
 ADR-061 と連動する。約 150 セッションの corpus 調査で hard-fail 合成エントリは本 incident の
 2 件のみであり、頻度は稀だが同一コマンド文脈で 2/2 再現している。
+
+## 撤去の記録 (2026-10-26)
+
+§ Bounded lifetime の手順どおり、ADR-061 の回収層とまとめて撤去した (順位 582)。
+
+- **判定**: 2026-10-21 の月次レビュー (ADR-062) が非アクティブ化候補として promote し、ユーザーが採用した。月次レビューの集計では、最後の発火は 2026-07 (Stop の block 2 件と UserPromptSubmit の回収 2 件) で、8〜10 月は 0 件だった。config も exe も有効だった期間の 0 件である。同日、`enabled` / `prompt_recovery_enabled` を `false` にして先に止めた
+- **10 月の確認 (着手時)**: 2026-10-26 時点の firings を 2 workspace とも確かめ、10 月の発火は 0 件だった。同じ検索で 7 月の発火を拾えることも確かめた (陽性対照、ADR-075 決定 6)
+- **外したもの**: `.claude/settings.json` と `.claude/settings.local.json.template` の Stop / UserPromptSubmit の登録、crate `src/hooks-stop-tool-call-leak`、workspace member と build スクリプト、`.claude/hooks-config.toml` の `[stop_tool_call_leak]` 節、telemetry-report の監視 id と非アクティブ化の対象 (mechanism)
+- **戻し方**: leak が再発したら、次の 3 段で戻す。過去の firings jsonl には id が残るが、集計の対象からは外れる (revert で監視 id も戻る)
+  1. この撤去の commit を revert する
+  2. revert で戻る `.claude/hooks-config.toml` の `[stop_tool_call_leak]` は、撤去の前に止めた状態 (`enabled = false` / `prompt_recovery_enabled = false`) なので、両方を `true` にする。revert だけでは検知も回収も再開しない
+  3. `pnpm build:all` で exe を配備し、`.claude/settings.local.json` を作り直す。Claude Code のセッションを開き直すと hook が読み込まれる
 
 ## 関連 ADR
 
