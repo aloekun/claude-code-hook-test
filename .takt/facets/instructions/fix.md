@@ -83,11 +83,16 @@ New files (post-only) and files absent from `@-` are reported `metrics_check: sk
 
 After completing all fixes (Edit/Write operations) AND before emitting the `convergence_verdict` line, refresh `.takt/review-diff.txt` so the next reviewer iteration sees the post-fix state (in `pre-push-review` the reviewers always run again after this step; in `post-pr-review` they run again when `convergence_verdict: partial`):
 
+- **In `pre-push-review`**: run the command recorded in `.takt/review-diff-command.txt` (one line, written by `cli-push-runner` in this push when it created `.takt/review-diff.txt`) and redirect its output to `.takt/review-diff.txt`. If that file does not exist, use the whole-PR command below.
+- **In `post-pr-review`**: always use the whole-PR command below. Do not read `.takt/review-diff-command.txt` there — it is left over from the last `pnpm push` and may describe a narrower range.
+
+The whole-PR command:
+
     jj diff --git -r 'trunk()..@' > .takt/review-diff.txt
 
-Both parts of that command are load-bearing — it must reproduce the scope and format `cli-push-runner` used when it first wrote the file, not a narrower one:
+Both the range and the format are load-bearing — the refresh must reproduce the scope and format `cli-push-runner` used when it first wrote the file, not a narrower one:
 
-- **`trunk()..@` (the whole PR), not `-r @`.** `-r @` writes the tip commit only, so on a multi-commit PR the ancestors' changes vanish from the file the next iteration reads. Reviewers then judge a PR they can only partly see, and the `analyze-coderabbit` step used to misread such a diff as a docs-only PR (todo 順位 233 / PR #227). `trunk()` is a jj builtin that resolves the remote trunk bookmark, so this works unchanged in derived projects whose default branch is `main`
+- **The recorded range, or `trunk()..@` (the whole PR) — never `-r @`.** On a re-push the recorded command reviews only the changes since the last approved push (`jj diff --git --from <commit> --to @`, ADR-089); otherwise it is the whole PR. Do not substitute a different range. `-r @` writes the tip commit only, so on a multi-commit PR the ancestors' changes vanish from the file the next iteration reads. Reviewers then judge a PR they can only partly see, and the `analyze-coderabbit` step used to misread such a diff as a docs-only PR (todo 順位 233 / PR #227). `trunk()` is a jj builtin that resolves the remote trunk bookmark, so this works unchanged in derived projects whose default branch is `main`
 - **`--git` (unified diff), not jj's default format.** The default format loses `+`/`-` markers once colour is stripped, and LLM reviewers read deletions as additions (todo 順位 264)
 
 This refresh is **unconditional**:
@@ -96,6 +101,8 @@ This refresh is **unconditional**:
 - **`convergence_verdict: fully_resolved`** — critical in `pre-push-review`, where the reviewers re-run after every fix (ADR-088) and must see the fixed code. Harmless in `post-pr-review`, where the next step is COMPLETE and the refreshed file is not consumed; the ~1s `jj diff` cost is negligible.
 
 `.takt/review-diff.txt` is **not** in any read-only zone (the read-only list at the top of this instruction covers `.takt/runs/**`, `.takt/facets/**`, `.takt/workflows/**`, `.takt/config.yaml` — `.takt/review-diff.txt` lives at the `.takt/` root and is an explicitly allowed write target for this step).
+
+In `pre-push-review`, `cli-push-runner` checks the result after the workflow ends (ADR-089 decision 5). It rebuilds the diff itself and compares it with `.takt/review-diff.txt`. It also compares `.takt/review-scope.md` with the copy it wrote itself. If either file differs, it stops the push. Write the refreshed diff exactly as the recorded command outputs it: do not edit, trim or summarise it. Run the refresh with the Bash tool, not PowerShell, because PowerShell redirection re-encodes non-ASCII text and the comparison would then fail. Never write `.takt/review-scope.md`, `.takt/review-diff-command.txt` or `.claude/push-review-approved.json`.
 
 ## Required output (include headings)
 

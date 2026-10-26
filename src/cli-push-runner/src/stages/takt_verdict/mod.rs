@@ -116,13 +116,36 @@ fn collect_reports(
     out
 }
 
+/// verdict gate の結果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum VerdictOutcome {
+    /// 検査しなかった (無効化 / `TAKT_VERDICT_GATE_OVERRIDE`)。push は続けるが、承認とは扱わない。
+    Unchecked,
+    /// レビューがすべて APPROVE。`supervised` は supervise を通った run か (fix_supervisor の修正は
+    /// reviewers が見ていない)。
+    Approved { supervised: bool },
+    /// push を止める。
+    Blocked,
+}
+
+impl VerdictOutcome {
+    pub(crate) fn proceeds(self) -> bool {
+        self != VerdictOutcome::Blocked
+    }
+
+    /// push した状態を reviewers がそのまま承認したと言えるか (ADR-089 の承認の記録の条件)。
+    pub(crate) fn approved_as_pushed(self) -> bool {
+        self == VerdictOutcome::Approved { supervised: false }
+    }
+}
+
 /// push を続行してよいか。`workflow` / `started_at` は takt stage が実際に起動した値。
 pub(crate) fn run_takt_verdict_gate(
     config: Option<&TaktVerdictGateConfig>,
     workflow: &str,
     started_at: &str,
-) -> bool {
-    run_takt_verdict_gate_with(
+) -> VerdictOutcome {
+    verdict_outcome_with(
         config,
         workflow,
         started_at,
@@ -131,21 +154,21 @@ pub(crate) fn run_takt_verdict_gate(
     )
 }
 
-fn run_takt_verdict_gate_with(
+fn verdict_outcome_with(
     config: Option<&TaktVerdictGateConfig>,
     workflow: &str,
     started_at: &str,
     now: &str,
     reader: &dyn RunReader,
-) -> bool {
+) -> VerdictOutcome {
     if !enabled(config) {
-        return true;
+        return VerdictOutcome::Unchecked;
     }
     if lib_telemetry::is_truthy(std::env::var(OVERRIDE_ENV_VAR).unwrap_or_default().as_str()) {
         log_info(&format!(
             "takt_verdict_gate: {OVERRIDE_ENV_VAR} により検査を skip します"
         ));
-        return true;
+        return VerdictOutcome::Unchecked;
     }
     let report_directory = match target_report_directory(reader, workflow, started_at, now) {
         Ok(dir) => dir,
@@ -158,7 +181,7 @@ fn run_takt_verdict_gate_with(
             STAGE,
             &format!("レビュー {} 件すべて APPROVE", reports.len()),
         );
-        return true;
+        return VerdictOutcome::Approved { supervised: went_through_supervise(&reports) };
     }
     log_stage(STAGE, "レビューが APPROVE で終わっていません:");
     for (name, verdict) in &blockers {
@@ -170,7 +193,12 @@ fn run_takt_verdict_gate_with(
          対応済み / 意図的に押し切る場合のみ `TAKT_VERDICT_GATE_OVERRIDE=1` を付けてください",
     );
     record_firing();
-    false
+    VerdictOutcome::Blocked
+}
+
+/// supervise を通った run か。supervise の報告 (`supervisor-*.md`) が残る。
+fn went_through_supervise(reports: &[(String, Option<String>)]) -> bool {
+    reports.iter().any(|(name, _)| name.starts_with("supervisor"))
 }
 
 /// この push で起動した run のレポートディレクトリ。特定できなければ block の理由を返す。
@@ -194,14 +222,14 @@ fn target_report_directory(
 
 /// verdict を読めなかった場合。**通さない** — 「レビューしたはずなのに読めない」は
 /// 順位 499 の incident と同じ状態である。
-fn block_unreadable(reason: &str) -> bool {
+fn block_unreadable(reason: &str) -> VerdictOutcome {
     log_stage(STAGE, &format!("verdict を確認できません: {reason}"));
     log_info(&format!(
         "  対処: takt のレポート出力を確認してください。意図的に押し切る場合は \
          `{OVERRIDE_ENV_VAR}=1` を付けてください"
     ));
     record_firing();
-    false
+    VerdictOutcome::Blocked
 }
 
 fn describe(verdict: &Verdict) -> String {
@@ -296,7 +324,7 @@ mod tests {
                 ("simplicity-review.md", REJECT_REPORT),
             ],
         );
-        assert!(!run_takt_verdict_gate_with(None, WORKFLOW, STARTED, NOW, &reader));
+        assert!(!verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &reader).proceeds());
     }
 
     #[test]
@@ -308,7 +336,7 @@ mod tests {
                 ("simplicity-review.md", APPROVE_REPORT),
             ],
         );
-        assert!(run_takt_verdict_gate_with(None, WORKFLOW, STARTED, NOW, &reader));
+        assert!(verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &reader).proceeds());
     }
 
     /// run が見つからない = verdict を読めない → 止める。
@@ -319,14 +347,14 @@ mod tests {
             reports: Vec::new(),
             unreadable_listing: false,
         };
-        assert!(!run_takt_verdict_gate_with(None, WORKFLOW, STARTED, NOW, &reader));
+        assert!(!verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &reader).proceeds());
     }
 
     /// レポートが 0 件でも止める。
     #[test]
     fn an_empty_report_directory_blocks_the_push() {
         let reader = stub("2026-08-31T11:27:51.421Z", &[]);
-        assert!(!run_takt_verdict_gate_with(None, WORKFLOW, STARTED, NOW, &reader));
+        assert!(!verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &reader).proceeds());
     }
 
     /// この push より前に始まった run は採らない → 止める (取り違えより安全側)。
@@ -336,7 +364,7 @@ mod tests {
             "2026-08-30T17:13:39.000Z",
             &[("simplicity-review.md", APPROVE_REPORT)],
         );
-        assert!(!run_takt_verdict_gate_with(None, WORKFLOW, STARTED, NOW, &reader));
+        assert!(!verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &reader).proceeds());
     }
 
     #[test]
@@ -352,13 +380,7 @@ mod tests {
             "2026-08-31T11:27:51.421Z",
             &[("simplicity-review.md", REJECT_REPORT)],
         );
-        assert!(run_takt_verdict_gate_with(
-            Some(&config(Some(false))),
-            WORKFLOW,
-            STARTED,
-            NOW,
-            &reader
-        ));
+        assert!(verdict_outcome_with(Some(&config(Some(false))), WORKFLOW, STARTED, NOW, &reader).proceeds());
     }
 
     /// run の一覧を読めない → 止める (順位 502)。
@@ -366,7 +388,32 @@ mod tests {
     fn an_unreadable_run_listing_blocks_the_push() {
         let mut reader = stub("2026-08-31T11:27:51.421Z", &[("a.md", APPROVE_REPORT)]);
         reader.unreadable_listing = true;
-        assert!(!run_takt_verdict_gate_with(None, WORKFLOW, STARTED, NOW, &reader));
+        assert!(!verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &reader).proceeds());
+    }
+
+    /// supervise を通った run は、APPROVE でも「push した状態をそのまま承認した」とは扱わない
+    /// (fix_supervisor の修正を reviewers が見ていない、ADR-089)。
+    #[test]
+    fn a_supervised_run_is_approved_but_not_as_pushed() {
+        let plain = stub("2026-08-31T11:27:51.421Z", &[("simplicity-review.md", APPROVE_REPORT)]);
+        let outcome = verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &plain);
+        assert!(outcome.proceeds() && outcome.approved_as_pushed());
+
+        let supervised = stub(
+            "2026-08-31T11:27:51.421Z",
+            &[("simplicity-review.md", APPROVE_REPORT), ("supervisor-validation.md", "# 最終検証結果\n\n## Result: APPROVE\n")],
+        );
+        let outcome = verdict_outcome_with(None, WORKFLOW, STARTED, NOW, &supervised);
+        assert_eq!(outcome, VerdictOutcome::Approved { supervised: true });
+        assert!(outcome.proceeds() && !outcome.approved_as_pushed());
+    }
+
+    /// 検査しなかった run (無効化) は push を続けるが、承認とは扱わない。
+    #[test]
+    fn an_unchecked_run_is_not_an_approval() {
+        let reader = stub("2026-08-31T11:27:51.421Z", &[("simplicity-review.md", REJECT_REPORT)]);
+        let outcome = verdict_outcome_with(Some(&config(Some(false))), WORKFLOW, STARTED, NOW, &reader);
+        assert!(outcome.proceeds() && !outcome.approved_as_pushed());
     }
 
     fn unreadable_entry() -> std::io::Result<PathBuf> {

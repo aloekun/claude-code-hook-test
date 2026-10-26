@@ -146,6 +146,9 @@ steps:
     pass_previous_response: false
     output_contracts:
       report:
+        # NOTE: cli-push-runner (takt_verdict::went_through_supervise) は report 名が
+        # `supervisor` で始まるかで「supervise を通った run」を見分け、その run を差分レビューの
+        # 起点として記録しない (ADR-089)。名前を変えるときは、そちらも合わせる。
         - name: supervisor-validation.md
           format: supervisor-validation
     rules:

@@ -30,6 +30,7 @@
 //!   11 - open_questions_gate: docs/open-questions.md に未解決の問いがある
 //!   12 - takt_verdict_gate: レビューが APPROVE で終わっていない
 //!   13 - push_range_check: push で送るコミットに説明の無いものがある / 確認できない
+//!   14 - review_input_check: 最後の reviewers が読んだ差分 / 範囲の説明が、作り直した内容と違う (ADR-089)
 
 mod config;
 mod log;
@@ -44,8 +45,10 @@ use log::log_info;
 use metrics::RunMetrics;
 use stages::{
     run_bookmark_check, run_diff, run_docs_only_routing, run_ledger_completion, run_lint_screen,
-    run_open_questions_gate, run_post_takt_regate, run_pr_size_check, run_push, run_push_range_check,
-    advance_bookmarks_before_push, run_quality_gate,
+    run_open_questions_gate, run_post_takt_regate_scoped, run_pr_size_check, run_push, run_push_range_check,
+    advance_bookmarks_before_push, run_quality_gate, decide_review_scope, discard_if_changed, read_approved_raw,
+    record_approved, run_review_input_check, write_scope_files,
+    ReviewScope, ScopeDecision,
     run_scratch_file_warning,
     run_testability_gate,
     run_takt, run_takt_verdict_gate, DiffResult,
@@ -69,6 +72,8 @@ const EXIT_OPEN_QUESTIONS: i32 = 11;
 const EXIT_TAKT_VERDICT: i32 = 12;
 /// 順位 537 (push range check): push で送るコミットに説明の無いものがある / 確認できない。
 const EXIT_PUSH_RANGE_UNDESCRIBED: i32 = 13;
+/// ADR-089 決定 5: 最後の reviewers が読んだ差分 / 範囲の説明が、作り直した内容と違う。
+const EXIT_REVIEW_INPUT_MISMATCH: i32 = 14;
 
 /// diff stage の結果。takt / post-takt re-gate を走らせるかを表す。
 enum DiffGate {
@@ -76,7 +81,8 @@ enum DiffGate {
     SkipTakt,
     /// takt を実行する。`pre_diff` は post-takt re-gate の変化検出用 snapshot
     /// (`[diff]` 未設定 / 読込失敗時は None → re-gate は fail-closed で再実行)。
-    RunTakt { pre_diff: Option<String> },
+    /// `review` は reviewers に渡した diff の範囲 (ADR-089)。re-gate も同じ範囲で比べる。
+    RunTakt { pre_diff: Option<String>, review: ScopeDecision },
 }
 
 /// diff stage を実行し lint-screen を呼び出す。
@@ -84,12 +90,13 @@ enum DiffGate {
 ///
 /// takt 実行前の diff snapshot を **takt 起動前に**メモリへ確保する (T12): fix が
 /// `[diff] output_path` を上書きするため、比較用の pre 状態は takt 前に読み取る必要がある。
-fn run_diff_and_lint_screen(config: &config::Config) -> Result<DiffGate, i32> {
+fn run_diff_and_lint_screen(config: &config::Config, bookmarks: &[String]) -> Result<DiffGate, i32> {
     let Some(diff_config) = &config.diff else {
-        return Ok(DiffGate::RunTakt { pre_diff: None });
+        let review = ScopeDecision { scope: ReviewScope::Full { pr_range: config.diff_pr_range() }, base_commit: None };
+        return Ok(DiffGate::RunTakt { pre_diff: None, review });
     };
-    let pr_range = config.diff_pr_range();
-    let diff_path = match run_diff(diff_config, &pr_range) {
+    let review = decide_review_scope(config, bookmarks);
+    let diff_path = match run_diff(diff_config, &review.scope) {
         DiffResult::HasContent => diff_config.output_path.as_str(),
         DiffResult::Empty => {
             log_info("diff が空のためレビューをスキップして push に進みます。");
@@ -100,11 +107,15 @@ fn run_diff_and_lint_screen(config: &config::Config) -> Result<DiffGate, i32> {
             return Err(EXIT_DIFF_FAILURE);
         }
     };
+    if let Err(reason) = write_scope_files(&review.scope, &review.scope.command(diff_config)) {
+        log_info(&format!("パイプライン中断: レビュー範囲を reviewers と fix step に伝えられません ({reason})。"));
+        return Err(EXIT_DIFF_FAILURE);
+    }
     if let Some(lint_screen_config) = &config.lint_screen {
         run_lint_screen(lint_screen_config, diff_path);
     }
     let pre_diff = std::fs::read_to_string(diff_path).ok();
-    Ok(DiffGate::RunTakt { pre_diff })
+    Ok(DiffGate::RunTakt { pre_diff, review })
 }
 
 /// quality_gate より前の事前チェック (bookmark / scratch file / pr size) を実行する。
@@ -189,35 +200,48 @@ fn start_pipeline(config: &config::Config) -> String {
 
 /// takt (AI レビュー → fix loop) と post-takt re-gate (T12) を実行する。
 /// diff が空 (`DiffGate::SkipTakt`) の場合は両方 skip する。
-/// Ok(()) で続行、Err(exit_code) で pipeline 中断。metrics に takt workflow と
-/// re-gate 判定を記録する (R3)。
+/// Ok(承認したか) で続行、Err(exit_code) で pipeline 中断。「承認した」は、push する状態を
+/// reviewers がそのまま APPROVE したこと (ADR-089 の承認の記録の条件)。metrics に takt workflow と
+/// re-gate 判定を記録する (R3)。差分レビューが有効なときは、takt の前後で承認の記録を見比べ、
+/// 変わっていたら捨てる (ADR-089 の偽装対策)。reviewers がそのまま承認したときは、最後の reviewers が
+/// 読んだ差分と範囲の説明を作り直した内容と突き合わせる (ADR-089 決定 5)。
 fn run_takt_and_regate(
     config: &config::Config,
     workflow: &str,
     diff_gate: &DiffGate,
     bookmarks: &[String],
     metrics: &mut RunMetrics,
-) -> Result<(), i32> {
-    let DiffGate::RunTakt { pre_diff } = diff_gate else {
-        return Ok(());
+) -> Result<bool, i32> {
+    let DiffGate::RunTakt { pre_diff, review } = diff_gate else {
+        return Ok(false);
     };
     metrics.set_takt_workflow(workflow);
+    metrics.set_review_scope(review.scope.telemetry_label());
     let takt_started_at = lib_pending_file::utc_now_iso8601();
-    if !metrics.timed("takt", || run_takt(&config.takt, workflow, bookmarks)) {
+    let approvals_before = config.incremental_review_enabled().then(read_approved_raw);
+    let takt_ok = metrics.timed("takt", || run_takt(&config.takt, workflow, bookmarks));
+    if let Some(before) = &approvals_before {
+        discard_if_changed(before.as_deref());
+    }
+    if !takt_ok {
         log_info("パイプライン中断: takt ワークフロー失敗。");
         return Err(EXIT_TAKT_FAILURE);
     }
-    if !metrics.timed("takt_verdict", || {
+    let verdict = metrics.timed("takt_verdict", || {
         run_takt_verdict_gate(config.takt_verdict_gate.as_ref(), workflow, &takt_started_at)
-    }) {
+    });
+    if !verdict.proceeds() {
         log_info(
             "パイプライン中断: レビューが APPROVE で終わっていません。指摘に対応してから再実行して\
              ください (対応済み / 意図的に押し切る場合のみ TAKT_VERDICT_GATE_OVERRIDE=1)。",
         );
         return Err(EXIT_TAKT_VERDICT);
     }
+    if verdict.approved_as_pushed() {
+        check_review_inputs(config, &review.scope, metrics)?;
+    }
     let regate = metrics.timed("post_takt_regate", || {
-        run_post_takt_regate(config, pre_diff.as_deref())
+        run_post_takt_regate_scoped(config, pre_diff.as_deref(), &review.scope)
     });
     metrics.set_regate_verdict(regate.telemetry_verdict());
     if !regate.proceed {
@@ -227,7 +251,23 @@ fn run_takt_and_regate(
         );
         return Err(EXIT_QUALITY_GATE_FAILURE);
     }
-    Ok(())
+    Ok(verdict.approved_as_pushed())
+}
+
+/// 最後の reviewers が読んだ差分と範囲の説明を、作り直した内容と突き合わせる (ADR-089 決定 5)。
+/// `[diff]` が無ければ diff stage が takt を走らせないので、ここにも来ない。
+fn check_review_inputs(config: &config::Config, scope: &ReviewScope, metrics: &mut RunMetrics) -> Result<(), i32> {
+    let Some(diff) = config.diff.as_ref() else {
+        return Ok(());
+    };
+    let Err(reason) = metrics.timed("review_input_check", || run_review_input_check(diff, scope)) else {
+        return Ok(());
+    };
+    log_info(&format!(
+        "パイプライン中断: {reason}。最後の reviewers は、push する変更をそのまま見ていません。\
+         `.takt/runs/` の fix レポートで差分の作り直しを確認し、再実行してください (ADR-089)。"
+    ));
+    Err(EXIT_REVIEW_INPUT_MISMATCH)
 }
 
 /// pipeline を実行し、成否によらず per-run メトリクスを 1 行 JSONL へ永続化して exit code を
@@ -284,18 +324,21 @@ fn run_stages(metrics: &mut RunMetrics) -> i32 {
         return EXIT_QUALITY_GATE_FAILURE;
     }
 
-    let diff_gate = match metrics.timed("diff", || run_diff_and_lint_screen(&config)) {
+    let diff_gate = match metrics.timed("diff", || run_diff_and_lint_screen(&config, &detected_bookmarks)) {
         Ok(gate) => gate,
         Err(code) => return code,
     };
 
-    if let Err(code) =
-        run_takt_and_regate(&config, &workflow, &diff_gate, &detected_bookmarks, metrics)
-    {
-        return code;
-    }
+    let approved = match run_takt_and_regate(&config, &workflow, &diff_gate, &detected_bookmarks, metrics) {
+        Ok(approved) => approved,
+        Err(code) => return code,
+    };
 
-    run_push_after_recheck(&config, &detected_bookmarks, metrics)
+    let code = run_push_after_recheck(&config, &detected_bookmarks, metrics);
+    if let (EXIT_SUCCESS, true, DiffGate::RunTakt { review, .. }) = (code, approved, &diff_gate) {
+        record_approved(&detected_bookmarks, review.base_commit.as_deref());
+    }
+    code
 }
 
 /// bookmark を前進させ、前進後の push 範囲を再検査してから push する。

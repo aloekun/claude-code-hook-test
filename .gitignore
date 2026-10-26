@@ -83,6 +83,9 @@ src/*/Cargo.lock
 .claude/monthly-reviews/
 .claude/monthly-review-last-run.json
 
+# ADR-089: 再 push の差分レビューの起点 (cli-push-runner が branch ごとに、前回承認して push した commit を記録)
+.claude/push-review-approved.json
+
 # ADR-030: takt workflow への入力 (cli-merge-pipeline が生成、workflow が読む)
 .takt/post-merge-feedback-context.json
 .takt/post-merge-feedback-transcript.jsonl

@@ -246,6 +246,7 @@ fn run_diff_errors_when_coverage_check_fails() {
     let out_path = std::env::temp_dir().join("test-run-diff-coverage.txt");
     let _ = std::fs::remove_file(&out_path);
     let config = DiffConfig {
+        incremental_command: None,
         command: format!("echo {}", INCIDENT_TIP_ONLY_DIFF.lines().next().unwrap()),
         output_path: out_path.to_string_lossy().into_owned(),
         timeout: Some(30),
@@ -272,6 +273,7 @@ fn run_diff_errors_when_output_empty_but_pr_range_has_changes() {
     let out_path = std::env::temp_dir().join("test-run-diff-empty-but-changes.txt");
     let _ = std::fs::remove_file(&out_path);
     let config = DiffConfig {
+        incremental_command: None,
         command: ZERO_BYTE_OUTPUT_CMD.to_string(),
         output_path: out_path.to_string_lossy().into_owned(),
         timeout: Some(30),
@@ -338,6 +340,7 @@ fn run_diff_returns_empty_when_output_is_empty() {
     let _ = std::fs::remove_file(&out_path);
 
     let config = DiffConfig {
+        incremental_command: None,
         command: ZERO_BYTE_OUTPUT_CMD.to_string(),
         output_path: out_path.to_string_lossy().into_owned(),
         timeout: None,
@@ -362,6 +365,7 @@ fn run_diff_returns_empty_when_output_is_empty() {
 #[test]
 fn capture_diff_snapshot_returns_output_on_success() {
     let config = DiffConfig {
+        incremental_command: None,
         command: "echo snapshot-content".to_string(),
         output_path: String::new(),
         timeout: None,
@@ -380,6 +384,7 @@ fn capture_diff_snapshot_returns_output_on_success() {
 #[test]
 fn capture_diff_snapshot_returns_none_on_failure() {
     let config = DiffConfig {
+        incremental_command: None,
         command: STDERR_THEN_FAIL_CMD.to_string(),
         output_path: String::new(),
         timeout: Some(30),
@@ -469,6 +474,7 @@ mod t6_diff_timeout {
         let _ = std::fs::remove_file(&out_path);
 
         let config = DiffConfig {
+            incremental_command: None,
             command: HANGING_COMMAND.to_string(),
             output_path: out_path.to_string_lossy().into_owned(),
             timeout: Some(SHORT_TIMEOUT_SECS),
@@ -502,6 +508,7 @@ mod t6_diff_timeout {
     #[test]
     fn absent_config_timeout_falls_back_to_the_default() {
         let config = DiffConfig {
+            incremental_command: None,
             command: "echo ok".to_string(),
             output_path: std::env::temp_dir()
                 .join("test-run-diff-default-timeout.txt")

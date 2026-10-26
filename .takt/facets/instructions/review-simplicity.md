@@ -6,6 +6,8 @@ The diff has been pre-collected by push-runner (Rust exe) and saved to `.takt/re
 **Read this file first** using the Read tool. This is the authoritative review target.
 Do NOT run `git diff` or `jj diff` yourself -- the file already contains the correct diff scope.
 
+If `.takt/review-scope.md` exists, **read it before the diff**. It means this is a re-push and the diff covers only the changes since the last push whose review was fully APPROVE (ADR-089). Changes before that point were already approved: do not raise findings on them. Read surrounding files when you need context to judge a changed line.
+
 ## Determinism layer guarantees (do NOT duplicate)
 
 The following dimensions are enforced by deterministic hooks at write time and by `hooks-post-tool-comment-lint-rust --fix-metrics-check` during fix iterations. Skip them — flagging them duplicates the deterministic layer and produces noise:

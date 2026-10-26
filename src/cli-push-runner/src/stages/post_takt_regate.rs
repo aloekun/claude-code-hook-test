@@ -39,7 +39,8 @@
 
 use crate::config::{Config, DiffConfig, QualityGateConfig};
 use crate::log::{log_info, log_stage};
-use crate::stages::diff::{capture_diff_snapshot, parse_git_diff_paths};
+use crate::stages::diff::{capture_scoped_snapshot, parse_git_diff_paths};
+use crate::stages::review_scope::ReviewScope;
 use crate::stages::quality_gate::run_quality_gate;
 
 /// kill-switch: この環境変数が "1" のとき re-gate を skip する (再ゲートを飛ばして push)。
@@ -174,8 +175,10 @@ fn count_added_lines(diff: &str) -> usize {
 
 /// takt 実行後の post-takt diff snapshot を取得する。`[diff]` 未設定時は None
 /// (呼び出し側で Indeterminate = fail-closed に倒れる)。
-fn fetch_post_diff(diff_config: Option<&DiffConfig>, pr_range: &str) -> Option<String> {
-    diff_config.and_then(|c| capture_diff_snapshot(c, pr_range))
+/// takt の前に reviewers へ渡した diff と同じ範囲 (`scope`、ADR-089) で取る。範囲が違うと、
+/// 作業コピーが変わっていなくても前後の diff が食い違い、毎回 quality_gate を再実行してしまう。
+fn fetch_post_diff(diff_config: Option<&DiffConfig>, scope: &ReviewScope) -> Option<String> {
+    diff_config.and_then(|c| capture_scoped_snapshot(c, scope))
 }
 
 /// 判定結果を実行に写像する。skip 系は `true` (push 続行)、実行系は quality_gate の
@@ -272,8 +275,15 @@ impl RegateOutcome {
 /// (main.rs で EXIT_QUALITY_GATE_FAILURE)。
 ///
 /// `pre_diff` は Stage 1.5 が保持した takt 起動前の diff snapshot (`[diff]` 未設定 /
-/// 読込失敗時は None → Indeterminate = fail-closed)。
+/// 読込失敗時は None → Indeterminate = fail-closed)。PR 全体を範囲とする (テスト用の入口)。
+#[cfg(test)]
 pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> RegateOutcome {
+    let scope = ReviewScope::Full { pr_range: config.diff_pr_range() };
+    run_post_takt_regate_scoped(config, pre_diff, &scope)
+}
+
+/// [`run_post_takt_regate`] のレビュー範囲版。`scope` は takt の前に reviewers へ渡した diff の範囲。
+pub(crate) fn run_post_takt_regate_scoped(config: &Config, pre_diff: Option<&str>, scope: &ReviewScope) -> RegateOutcome {
     let enabled = config
         .post_takt_regate
         .as_ref()
@@ -288,10 +298,9 @@ pub(crate) fn run_post_takt_regate(config: &Config, pre_diff: Option<&str>) -> R
             .unwrap_or(crate::config::DEFAULT_MAX_SHRINK_PCT),
     };
 
-    let pr_range = config.diff_pr_range();
     let (decision, regression_reason) =
         analyze_regate(enabled, override_active, regression, pre_diff, || {
-            fetch_post_diff(config.diff.as_ref(), &pr_range)
+            fetch_post_diff(config.diff.as_ref(), scope)
         });
 
     let proceed =
@@ -587,12 +596,13 @@ command = "echo push"
     #[test]
     fn regate_skips_gate_when_no_change_even_if_gate_would_fail() {
         let diff_cfg = DiffConfig {
+            incremental_command: None,
             command: "echo unchanged".to_string(),
             output_path: String::new(),
             timeout: Some(30),
             default_branch: None,
         };
-        let pre = capture_diff_snapshot(&diff_cfg, "trunk()..@").expect("pre snapshot 取得");
+        let pre = crate::stages::diff::capture_diff_snapshot(&diff_cfg, "trunk()..@").expect("pre snapshot 取得");
 
         let config = config_with(true, "exit 1", "echo unchanged");
         let outcome = run_post_takt_regate(&config, Some(&pre));

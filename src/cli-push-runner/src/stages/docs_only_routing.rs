@@ -151,8 +151,17 @@ fn log_and_map(decision: RoutingDecision, revset: &str) -> Vec<String> {
 /// 一覧」という**同一の問い**を扱うため、別実装にすると本 PR が排除した非対称
 /// (stage ごとに違う範囲を見る) を再導入することになる。
 pub(super) fn run_jj_diff_summary(revset: &str) -> Result<String, String> {
+    run_jj_diff_summary_args(&["-r", revset])
+}
+
+/// `jj diff --summary <range_args>`。`range_args` は `["-r", revset]` か、前回承認した commit
+/// 以降の `["--from", commit, "--to", "@"]` (ADR-089)。direct args の要件は
+/// [`run_jj_diff_summary`] と同じ。
+pub(super) fn run_jj_diff_summary_args(range_args: &[&str]) -> Result<String, String> {
     let mut child = Command::new("jj")
-        .args(["diff", "--summary", "-r", revset])
+        .arg("diff")
+        .arg("--summary")
+        .args(range_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

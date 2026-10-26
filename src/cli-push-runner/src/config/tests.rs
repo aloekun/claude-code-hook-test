@@ -398,6 +398,22 @@ command = "jj git push"
     assert!(diff.timeout.is_none());
 }
 
+#[test]
+fn incremental_review_is_enabled_only_by_incremental_command() {
+    let config_with = |diff: &str| -> Config {
+        toml::from_str(&format!(
+            "[quality_gate]\n[[quality_gate.groups]]\nname = \"test\"\ncommands = [\"echo ok\"]\n\n{diff}\n\
+             [takt]\nworkflow = \"pre-push-review\"\ntask = \"pre-push review\"\n\n[push]\ncommand = \"jj git push\"\n"
+        ))
+        .unwrap()
+    };
+    let base = "[diff]\ncommand = \"jj diff --git -r {{PR_RANGE}}\"\noutput_path = \".takt/review-diff.txt\"\n";
+    assert!(!config_with("").incremental_review_enabled(), "[diff] が無い");
+    assert!(!config_with(base).incremental_review_enabled(), "incremental_command が無い");
+    let incremental = format!("{base}incremental_command = \"jj diff --git --from {{{{FROM}}}} --to @\"\n");
+    assert!(config_with(&incremental).incremental_review_enabled());
+}
+
 /// T6: `[diff] timeout` 未指定時は既定値に落ちる (本リポジトリの config は未指定)。
 #[test]
 fn config_diff_timeout_defaults() {
