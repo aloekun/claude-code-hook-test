@@ -2,6 +2,7 @@
 
 use super::*;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 
 /// 呼ばれた引数を記録し、`fail_on` を含む呼び出しだけ失敗させる `gh`。
 #[derive(Default)]
@@ -12,6 +13,8 @@ struct FakeGh {
     input_bodies: RefCell<Vec<String>>,
     /// resolve の応答。`None` なら resolve できた応答を返す。
     resolve_response: Option<&'static str>,
+    /// スレッドの取得 (`reviewThreads`) に順に返す応答。尽きたら `{}` を返す。
+    review_pages: RefCell<VecDeque<String>>,
 }
 
 const RESOLVED: &str = r#"{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}"#;
@@ -28,6 +31,7 @@ impl Gh for FakeGh {
         match self.fail_on {
             Some(needle) if joined.contains(needle) => Err(format!("{needle} で失敗")),
             _ if joined.contains("resolveReviewThread") => Ok(self.resolve_response.unwrap_or(RESOLVED).to_string()),
+            _ if joined.contains("reviewThreads") => Ok(self.review_pages.borrow_mut().pop_front().unwrap_or_else(|| "{}".to_string())),
             _ => Ok("{}".to_string()),
         }
     }
@@ -101,6 +105,71 @@ fn the_last_page_has_no_cursor_and_errors_are_reported() {
     assert_eq!(threads::parse_page(&last).expect("読める").next, None);
     let error = serde_json::json!({"errors": [{"message": "Could not resolve to a PullRequest"}]});
     assert!(threads::parse_page(&error).unwrap_err().contains("Could not resolve"));
+}
+
+/// スレッドの取得の応答 1 ページ。`threads` は (ID, 最初のコメントの ID, 作成日時)。`unreadable` 件だけ、
+/// 最初のコメントの無いスレッドを足す。
+fn review_page(threads: &[(&str, u64, &str)], unreadable: usize, next: Option<&str>) -> String {
+    let mut nodes: Vec<serde_json::Value> = threads
+        .iter()
+        .map(|(id, comment_id, created_at)| {
+            serde_json::json!({"id": id, "isResolved": false, "path": "x.rs", "line": 1,
+                "comments": {"totalCount": 1, "nodes": [{"databaseId": comment_id, "url": "u", "createdAt": created_at, "body": "**指摘**"}]}})
+        })
+        .collect();
+    nodes.extend((0..unreadable).map(|_| serde_json::json!({"id": "PRRT_gone", "isResolved": false, "path": "x.rs", "line": 1, "comments": {"totalCount": 0, "nodes": []}})));
+    serde_json::json!({"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "pageInfo": {"hasNextPage": next.is_some(), "endCursor": next}, "nodes": nodes}}}}})
+    .to_string()
+}
+
+fn fake_with_pages(pages: Vec<String>) -> FakeGh {
+    FakeGh { review_pages: RefCell::new(pages.into()), ..FakeGh::default() }
+}
+
+fn review_thread_calls(gh: &FakeGh) -> Vec<String> {
+    gh.calls.borrow().iter().filter(|c| c.contains("reviewThreads")).cloned().collect()
+}
+
+/// 複数ページは、前のページのカーソルを次の呼び出しに渡してつなぎ、作成順に並べ直す。読めなかった
+/// スレッドはページをまたいで数える (#588 の post-merge feedback)。
+#[test]
+fn pages_are_joined_by_their_cursors_and_sorted_by_creation() {
+    let gh = fake_with_pages(vec![
+        review_page(&[("PRRT_late", 2, "2026-10-24T00:00:09Z")], 1, Some("CUR1")),
+        review_page(&[("PRRT_early", 1, "2026-10-24T00:00:01Z")], 0, Some("CUR2")),
+        review_page(&[("PRRT_mid", 3, "2026-10-24T00:00:05Z")], 2, None),
+    ]);
+    let fetched = threads::fetch(&gh, "o/r", 7).expect("3 ページを読める");
+    let ids: Vec<&str> = fetched.threads.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(ids, ["PRRT_early", "PRRT_mid", "PRRT_late"], "ページの順ではなく作成順");
+    assert_eq!(fetched.unreadable, 3, "読めなかった件数はページをまたいで足す");
+    let calls = review_thread_calls(&gh);
+    assert_eq!(calls.len(), 3);
+    assert!(!calls[0].contains("after="), "最初のページはカーソルを付けない");
+    assert!(calls[1].contains("after=CUR1") && calls[2].contains("after=CUR2"), "前のページのカーソルで続きを読む: {calls:?}");
+}
+
+/// 次のページが尽きないときは、上限のページ数で止めてエラーにする (途中までの件数を全件として返さない)。
+#[test]
+fn more_pages_than_the_limit_are_an_error() {
+    let endless = (0..threads::MAX_PAGES + 5).map(|i| review_page(&[("PRRT_x", i as u64, "t")], 0, Some("MORE"))).collect();
+    let gh = fake_with_pages(endless);
+    let error = threads::fetch(&gh, "o/r", 7).err().expect("上限を超えたらエラー");
+    assert!(error.contains(&threads::MAX_PAGES.to_string()), "{error}");
+    assert_eq!(review_thread_calls(&gh).len(), threads::MAX_PAGES, "上限より多くは呼ばない");
+}
+
+/// 途中のページの取得に失敗したら、そこまでのページを全件として返さずにエラーにする。
+#[test]
+fn a_failed_page_in_the_middle_is_an_error() {
+    let gh = FakeGh {
+        fail_on: Some("after=CUR1"),
+        ..fake_with_pages(vec![review_page(&[("PRRT_a", 1, "t")], 0, Some("CUR1")), review_page(&[], 0, None)])
+    };
+    let error = threads::fetch(&gh, "o/r", 7).err().expect("途中のページの失敗はエラー");
+    assert!(error.contains("after=CUR1 で失敗"), "2 ページ目の失敗が返る: {error}");
+    assert_eq!(review_thread_calls(&gh).len(), 2, "失敗したページで止める");
 }
 
 #[test]
