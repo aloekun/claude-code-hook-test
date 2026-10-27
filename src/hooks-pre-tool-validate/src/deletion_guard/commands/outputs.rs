@@ -17,6 +17,7 @@ pub(crate) fn output_files(name: &str, args: &[Word]) -> Option<Vec<Word>> {
     let file = match name {
         "sort" => option_value(args, "-o", "--output"),
         "iconv" => option_value(args, "-o", "--output"),
+        "tree" => option_value(args, "-o", "-o"),
         "uniq" => positionals(args, &["-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"]).get(1).cloned(),
         "split" => positionals(args, &["-l", "-b", "-C", "-n", "-a", "-t", "--additional-suffix"]).get(1).cloned(),
         "xxd" => positionals(args, &["-c", "-g", "-l", "-s", "-o", "-n"]).get(1).cloned(),

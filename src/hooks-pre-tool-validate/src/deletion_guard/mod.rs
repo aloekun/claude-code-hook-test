@@ -36,6 +36,8 @@ mod tests_cargo;
 #[cfg(test)]
 mod tests_allowlist;
 #[cfg(test)]
+mod tests_allowlist_sync;
+#[cfg(test)]
 mod tests_review;
 #[cfg(test)]
 mod tests_heredoc;

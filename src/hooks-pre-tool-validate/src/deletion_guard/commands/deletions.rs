@@ -42,7 +42,9 @@ pub(crate) fn deletion(name: &str, args: &[Word], dialect: Dialect, state: Optio
         (_, "pnpm" | "npm") => package_cache_deletion(name, args),
         (Dialect::Bash | Dialect::Cmd, "mv") => Some(posix_move(args)),
         (Dialect::PowerShell, "move-item" | "mi" | "move" | "mv") => Some(move_item(args)),
+        (Dialect::PowerShell, "rename-item" | "rni" | "ren") => Some(move_item(args)),
         (Dialect::Cmd, "move") => Some(cmd_move(args)),
+        (Dialect::Cmd, "ren" | "rename") => Some(cmd_move(args)),
         (Dialect::Bash | Dialect::Cmd, "cp") => Some(overwritten(posix_move_parts(args).1)),
         (Dialect::Bash | Dialect::PowerShell | Dialect::Cmd, "ln") if forces_link(args) => {
             Some(overwritten(posix_move_parts(args).1))
@@ -53,11 +55,14 @@ pub(crate) fn deletion(name: &str, args: &[Word], dialect: Dialect, state: Optio
         (_, "sed") => sed_shell_escape(args)
             .or_else(|| sed_in_place(args).then(|| sed_files(args)))
             .or_else(|| output_files(name, args).map(|targets| Deletion { targets, recursive: false })),
-        (_, "sort" | "uniq" | "split" | "xxd" | "iconv" | "rustc" | "tsc" | "mypy") => {
+        (_, "sort" | "uniq" | "split" | "xxd" | "iconv" | "tree" | "rustc" | "tsc" | "mypy") => {
             output_files(name, args).map(|targets| Deletion { targets, recursive: false })
         }
         (Dialect::Bash | Dialect::Cmd, "tee") if !tee_appends(args) => Some(plain(args, false)),
         (Dialect::PowerShell, "tee-object" | "tee" | "set-content") => {
+            Some(Deletion { targets: path_parameter(args), recursive: false })
+        }
+        (Dialect::PowerShell, "out-file") if out_file_replaces(args) => {
             Some(Deletion { targets: path_parameter(args), recursive: false })
         }
         (Dialect::PowerShell, "new-item" | "ni") if has_switch(args, "force") => {
@@ -276,30 +281,30 @@ fn posix_move(args: &[Word]) -> Deletion {
 }
 
 /// PowerShell の `Move-Item` の (移動元, 移動先)。`-Path` / `-LiteralPath` と名前の無い 1 つ目の
-/// 引数が移動元、`-Destination` と名前の無い 2 つ目の引数が移動先。
+/// 引数が移動元、`-Destination` と名前の無い 2 つ目の引数が移動先。`Rename-Item` も移動元を同じ
+/// 形で取る (`-NewName` は値を取るフラグとして読み飛ばす。新しい名前は同じ場所に留まる)。
 fn move_item_parts(args: &[Word]) -> (Vec<Word>, Option<Word>) {
     let mut sources = Vec::new();
     let mut destination = None;
     let mut positionals = Vec::new();
     let mut i = 0;
     while let Some(word) = args.get(i) {
-        let lead = word.leading_lit().to_lowercase();
-        let takes_value = |p: &str| ["filter", "include", "exclude", "credential"].iter().any(|f| p.len() >= 2 && f.starts_with(p));
-        match lead.strip_prefix('-').filter(|p| !p.is_empty()) {
-            Some(p) if "path".starts_with(p) || "literalpath".starts_with(p) || matches!(p, "lp" | "pspath") => {
-                sources.extend(args.get(i + 1).cloned());
-                i += 2;
-            }
-            Some(p) if "destination".starts_with(p) => {
-                destination = args.get(i + 1).cloned();
-                i += 2;
-            }
-            Some(p) if takes_value(p) => i += 2,
-            Some(_) => i += 1,
-            None => {
-                positionals.push(word.clone());
-                i += 1;
-            }
+        let Some((p, inline)) = powershell_parameter(word) else {
+            positionals.push(word.clone());
+            i += 1;
+            continue;
+        };
+        let (value, step) = parameter_value(args, i, inline);
+        if "path".starts_with(&p) || "literalpath".starts_with(&p) || matches!(p.as_str(), "lp" | "pspath") {
+            sources.extend(value);
+            i += step;
+        } else if "destination".starts_with(&p) {
+            destination = value;
+            i += step;
+        } else if takes_value(&p) || (p.len() >= 2 && "newname".starts_with(&p)) {
+            i += step;
+        } else {
+            i += 1;
         }
     }
     let mut positionals = positionals.into_iter();
@@ -331,13 +336,21 @@ pub(crate) fn overwrites(name: &str, args: &[Word], dialect: Dialect) -> bool {
         (Dialect::PowerShell, "copy-item" | "copy" | "cpi" | "cp") => true,
         (Dialect::Cmd, "copy") => true,
         (_, "sed") => (sed_in_place(args) || output_files(name, args).is_some()) && sed_shell_escape(args).is_none(),
-        (_, "sort" | "uniq" | "split" | "xxd" | "iconv" | "rustc" | "tsc" | "mypy") => output_files(name, args).is_some(),
+        (_, "sort" | "uniq" | "split" | "xxd" | "iconv" | "tree" | "rustc" | "tsc" | "mypy") => output_files(name, args).is_some(),
         (_, "git") => git_deletion(args).is_none() && output_files(name, args).is_some(),
         (Dialect::Bash | Dialect::Cmd, "tee") => !tee_appends(args),
         (Dialect::PowerShell, "tee-object" | "tee" | "set-content") => true,
+        (Dialect::PowerShell, "out-file") => out_file_replaces(args),
         (Dialect::PowerShell, "new-item" | "ni") => has_switch(args, "force"),
         _ => false,
     }
+}
+
+/// `Out-File` が書き込み先の中身を置き換えるか。`-Append` (追記) と `-NoClobber` (既にあれば書かない) は
+/// 中身を消さない (`tee -a` と同じ扱い)。どちらも判定を緩めるスイッチなので、確実に有効なとき
+/// ([`switch_is_on`]) だけ置き換えないとみなす (`-Append:$false` は上書きする、#593 の CodeRabbit の指摘)。
+fn out_file_replaces(args: &[Word]) -> bool {
+    !switch_is_on(args, "append") && !switch_is_on(args, "noclobber")
 }
 
 /// `tee -a` (追記するだけで、既にある中身は消えない)。
@@ -378,24 +391,31 @@ fn sed_files(args: &[Word]) -> Deletion {
 
 /// PowerShell の `-Path` / `-FilePath` / `-LiteralPath` の値、無ければ名前の無い 1 つ目の引数。
 /// `-Name` (`New-Item -Path dir -Name f`) があれば、書き込み先は組み合わせで決まるので判定できない。
+/// 値を取るパラメータ ([`takes_value`]) は値ごと読み飛ばす。読み飛ばさないと、`Out-File -ErrorAction
+/// Stop C:\outside\file` の `Stop` を書き込み先と読み、本来の書き込み先の判定が漏れる
+/// (SEC-NEW-deletions-rs-L406)。
 fn path_parameter(args: &[Word]) -> Vec<Word> {
     let mut paths = Vec::new();
     let mut first_positional = None;
     let mut i = 0;
     while let Some(word) = args.get(i) {
-        let lead = word.leading_lit().to_lowercase();
-        match lead.strip_prefix('-').filter(|p| !p.is_empty()) {
-            Some(p) if "path".starts_with(p) || "filepath".starts_with(p) || "literalpath".starts_with(p) => {
-                paths.extend(args.get(i + 1).cloned());
-                i += 2;
-            }
-            Some(p) if p.len() >= 2 && "name".starts_with(p) => return vec![Word { pieces: vec![Piece::Opaque], ..Word::default() }],
-            Some(p) if p.len() >= 2 && ["itemtype", "value", "encoding"].iter().any(|f| f.starts_with(p)) => i += 2,
-            Some(_) => i += 1,
-            None => {
-                first_positional = first_positional.or_else(|| Some(word.clone()));
-                i += 1;
-            }
+        let Some((p, inline)) = powershell_parameter(word) else {
+            first_positional = first_positional.or_else(|| Some(word.clone()));
+            i += 1;
+            continue;
+        };
+        let (value, step) = parameter_value(args, i, inline);
+        if "path".starts_with(&p) || "filepath".starts_with(&p) || "literalpath".starts_with(&p) {
+            paths.extend(value);
+            i += step;
+        } else if p.len() >= 2 && "name".starts_with(&p) {
+            return vec![Word { pieces: vec![Piece::Opaque], ..Word::default() }];
+        } else if (p.len() >= 2 && ["itemtype", "value", "encoding", "inputobject", "width"].iter().any(|f| f.starts_with(&p)))
+            || takes_value(&p)
+        {
+            i += step;
+        } else {
+            i += 1;
         }
     }
     if paths.is_empty() {
@@ -404,13 +424,41 @@ fn path_parameter(args: &[Word]) -> Vec<Word> {
     paths
 }
 
-/// PowerShell のスイッチ (`-Force`) があるか。省略形も受け付ける。
-fn has_switch(args: &[Word], full: &str) -> bool {
-    args.iter().map(|w| w.leading_lit().to_lowercase()).any(|l| {
-        l.strip_prefix('-')
-            .map(|p| p.split(':').next().unwrap_or(p))
-            .is_some_and(|name| !name.is_empty() && full.starts_with(name))
+/// PowerShell のパラメータ (`-Name` / コロンで値を付けた `-Name:value`) を、小文字の名前とコロンの後ろの
+/// 値に分ける。パラメータでなければ `None`。`remove_item` と同じ読み方で、書き込み先・移動元・スイッチ・
+/// 別名の読み取りがすべてこれを使う (#593 の CodeRabbit の指摘: コロン形式を読まない読み取りがあった)。
+pub(super) fn powershell_parameter(word: &Word) -> Option<(String, Option<Word>)> {
+    let param = word.leading_lit().strip_prefix('-').filter(|p| !p.is_empty() && !p.starts_with(':'))?;
+    Some(match param.split_once(':') {
+        Some((name, value)) => (name.to_lowercase(), Some(word.with_head(value))),
+        None => (param.to_lowercase(), None),
     })
+}
+
+/// `args[i]` のパラメータの値と、次に読む位置までの語数。コロンで付けた値があればそれ (1 語)、無ければ
+/// 次の語 (2 語)。
+pub(super) fn parameter_value(args: &[Word], i: usize, inline: Option<Word>) -> (Option<Word>, usize) {
+    match inline {
+        Some(value) => (Some(value), 1),
+        None => (args.get(i + 1).cloned(), 2),
+    }
+}
+
+/// PowerShell のスイッチ (省略形を含む) を探し、コロンで付けた値を返す。無ければ `None`。
+fn switch_value(args: &[Word], full: &str) -> Option<Option<Word>> {
+    args.iter().filter_map(powershell_parameter).find(|(name, _)| full.starts_with(name.as_str())).map(|(_, value)| value)
+}
+
+/// スイッチ (`-Force`) が、明示的に false (`-Force:$false`) でなく付いているか。判定を厳しくする
+/// スイッチに使う (値が分からないときは有効とみなす)。
+fn has_switch(args: &[Word], full: &str) -> bool {
+    switch_value(args, full).is_some_and(|value| !value.as_ref().is_some_and(is_false))
+}
+
+/// スイッチが確実に有効か (値なし、または `$true`)。判定を緩めるスイッチに使う (値が分からないときは
+/// 無効とみなす、ADR-043)。
+fn switch_is_on(args: &[Word], full: &str) -> bool {
+    switch_value(args, full).is_some_and(|value| value.as_ref().is_none_or(is_true))
 }
 
 /// `ln` が既にあるファイルを置き換えるか (`-f` / `--force`)。付けなければ、あるときは失敗する。
@@ -470,15 +518,10 @@ fn remove_item(args: &[Word]) -> Option<Deletion> {
     let mut i = 0;
     while i < args.len() {
         let word = &args[i];
-        let lead = word.leading_lit();
-        let Some(param) = lead.strip_prefix('-').filter(|p| !p.is_empty()) else {
+        let Some((name, inline)) = powershell_parameter(word) else {
             targets.push(word.clone());
             i += 1;
             continue;
-        };
-        let (name, inline) = match param.split_once(':') {
-            Some((n, v)) => (n.to_lowercase(), Some(word.with_head(v))),
-            None => (param.to_lowercase(), None),
         };
         match (RemoveItemParam::parse(&name), inline) {
             (RemoveItemParam::Recurse, inline) => recursive = !inline.as_ref().is_some_and(is_false),
@@ -517,14 +560,14 @@ fn is_true(word: &Word) -> bool {
         || word.literal().as_deref().is_some_and(|s| s.eq_ignore_ascii_case("true"))
 }
 
-/// 値を取る `Remove-Item` のパラメータ。共通パラメータ (`-ErrorAction SilentlyContinue` など) も
-/// 含める。含めないと値を削除の対象と読み、一時ファイルの再帰削除を止めていた (CodeRabbit の指摘)。
-const VALUED: [&str; 15] = [
-    "filter",
-    "include",
-    "exclude",
-    "credential",
-    "stream",
+/// ファイル系のコマンドレット (`Remove-Item` / `Set-Content` / `New-Item` など) の、値を取るパラメータ。
+const PROVIDER_VALUED: [&str; 5] = ["filter", "include", "exclude", "credential", "stream"];
+
+/// 値を取る PowerShell の共通パラメータ (どのコマンドレットにもある)。値ごと読み飛ばさないと、値を対象や
+/// 位置引数と読む。`Remove-Item` では一時ファイルの再帰削除を止め (CodeRabbit の指摘)、[`path_parameter`]
+/// では書き込み先を取り違え (SEC-NEW-deletions-rs-L406)、`Set-Alias` では別名の名前を取り違えていた
+/// (#587 の post-merge feedback)。`aliases.rs` もこの一覧を使う。
+pub(super) const COMMON_VALUED: [&str; 10] = [
     "erroraction",
     "warningaction",
     "informationaction",
@@ -537,8 +580,15 @@ const VALUED: [&str; 15] = [
     "pipelinevariable",
 ];
 
-/// [`VALUED`] の共通パラメータの別名。
-const VALUED_ALIASES: [&str; 10] = ["ea", "wa", "infa", "proga", "ev", "wv", "iv", "ov", "ob", "pv"];
+/// [`COMMON_VALUED`] の別名 (省略形ではなく、決まった短い名前)。
+pub(super) const COMMON_VALUED_ALIASES: [&str; 10] = ["ea", "wa", "infa", "proga", "ev", "wv", "iv", "ov", "ob", "pv"];
+
+/// ファイル系のコマンドレットの、値を取るパラメータか ([`PROVIDER_VALUED`] と [`COMMON_VALUED`]、
+/// 省略形は 2 文字から)。
+fn takes_value(name: &str) -> bool {
+    (name.len() >= 2 && PROVIDER_VALUED.iter().chain(&COMMON_VALUED).any(|full| full.starts_with(name)))
+        || COMMON_VALUED_ALIASES.contains(&name)
+}
 
 enum RemoveItemParam {
     Recurse,
@@ -558,7 +608,7 @@ impl RemoveItemParam {
             RemoveItemParam::WhatIf
         } else if abbreviates("path", 1) || abbreviates("literalpath", 2) || matches!(name, "lp" | "pspath") {
             RemoveItemParam::Path
-        } else if VALUED.iter().any(|full| abbreviates(full, 2)) || VALUED_ALIASES.contains(&name) {
+        } else if takes_value(name) {
             RemoveItemParam::Valued
         } else {
             RemoveItemParam::Switch

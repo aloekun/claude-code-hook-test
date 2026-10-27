@@ -295,6 +295,38 @@ fn cwd_and_scratchpad_dir_hook_fields_are_wired_to_the_deletion_guard() {
     assert!(!stderr.is_empty(), "block したが stderr が空");
 }
 
+/// hook stdin の `transcript_path` が、deletion_guard の memory ディレクトリ (transcript の隣の
+/// `memory/`) まで配線されていることを固定する (#587 の post-merge feedback)。`cwd` / `scratchpad_dir`
+/// と同じく `deletion_guard::tests` は `Context` を直接構築するので、この経路は通らない。memory の中の
+/// 単一ファイルの削除は通り (ADR-086 決定 1)、同じディレクトリでも memory の外は止まる。配線が外れると
+/// 前者も止まるので、両方を見て区別する。
+#[test]
+fn transcript_path_hook_field_is_wired_to_the_memory_directory() {
+    let (_keep, exe) = stage_hook();
+    let cwd = "/srv/example-project";
+    let sessions = "/srv/claude-home/projects/example-project";
+    let transcript_path = format!("{sessions}/session-1.jsonl");
+    let delete = |target: String| {
+        serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": format!("rm {target}") },
+            "cwd": cwd,
+            "transcript_path": transcript_path,
+        })
+        .to_string()
+    };
+
+    let (code, stderr) = run_hook(&exe, &delete(format!("{sessions}/memory/stale-note.md")));
+    assert_eq!(
+        code, EXIT_PASS,
+        "memory の中の単一ファイルの削除が block された (exit {code}, stderr: {stderr}) — \
+         transcript_path の配線が外れている可能性"
+    );
+
+    let (code, _) = run_hook(&exe, &delete(format!("{sessions}/session-1.jsonl")));
+    assert_eq!(code, EXIT_BLOCK, "memory の外 (transcript 自身) の削除が pass した — memory の範囲が広すぎる");
+}
+
 /// 許可リストに無いコマンドは、PreToolUse の `permissionDecision: "ask"` を stdout に出して
 /// 確認を求める (ADR-086 決定 5)。exit 0 でなければ Claude Code は JSON を読まないので、
 /// exit code と出力の両方を見る。許可リストのコマンドは何も出さない。

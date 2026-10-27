@@ -53,8 +53,10 @@ pub(crate) fn expected_scope_note(scope: &ReviewScope) -> Option<String> {
 }
 
 /// reviewers が読んだ入力と、作り直した正しい入力を比べる (I/O を除いた判定)。読めない・作れないときは
-/// 一致を確かめられないので止める (fail-closed、ADR-043)。改行コードの違いは同じとみなす (fix step は
-/// シェルのリダイレクトで書くため)。
+/// 一致を確かめられないので止める (fail-closed、ADR-043)。改行コードの違いと末尾の空白は同じとみなす。
+/// fix step はシェルのリダイレクトで書くので末尾の改行が残るが、push-runner が作り直す差分は
+/// `lib_subprocess::drain_pipe_unlimited` が末尾の空白を落とす (2026-10-27、これを同じとみなさず
+/// fix の後の push をすべて止めていた)。
 pub(crate) fn compare_review_inputs(
     reviewed_diff: Option<&str>,
     actual_diff: Option<&str>,
@@ -81,7 +83,7 @@ pub(crate) fn compare_review_inputs(
 }
 
 fn normalize(text: &str) -> String {
-    text.replace("\r\n", "\n")
+    text.replace("\r\n", "\n").trim_end().to_string()
 }
 
 #[cfg(test)]
@@ -100,6 +102,15 @@ mod tests {
     fn line_endings_alone_do_not_count_as_a_difference() {
         let crlf = DIFF.replace('\n', "\r\n");
         assert_eq!(compare_review_inputs(Some(&crlf), Some(DIFF), None, None), Ok(()));
+    }
+
+    /// fix step がリダイレクトで書いた差分 (末尾に改行) と、push-runner が作り直した差分 (末尾の空白を
+    /// 落とす) は同じとみなす (2026-10-27 の実走で、この違いだけで fix の後の push が止まった)。
+    #[test]
+    fn a_trailing_newline_alone_does_not_count_as_a_difference() {
+        let rebuilt = DIFF.trim_end();
+        assert_eq!(compare_review_inputs(Some(DIFF), Some(rebuilt), None, None), Ok(()));
+        assert!(compare_review_inputs(Some("diff --git a/x b/x\n+fixed\n+more\n"), Some(rebuilt), None, None).is_err());
     }
 
     #[test]
