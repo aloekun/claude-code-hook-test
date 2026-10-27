@@ -708,6 +708,18 @@ fn aliases_defined_in_the_command_are_expanded() {
     assert!(!blocked(r#"Select-String -Pattern "Set-Alias" -Path x.ps1"#, Dialect::PowerShell));
 }
 
+/// `Set-Alias` / `New-Alias` の共通パラメータの値 (`-ErrorAction Stop` など) を、別名の名前や値として
+/// 読まない (#587 の post-merge feedback)。値を 1 語だけ読み飛ばすと、値が名前の位置に入り、別名が
+/// 記録されない。スイッチ (`-Force` / `-PassThru`) は値を取らない。
+#[test]
+fn alias_common_parameters_do_not_shift_the_name_and_value() {
+    for prefix in ["-ErrorAction SilentlyContinue", "-ea Stop", "-OutVariable v", "-ov v", "-WarningAction Ignore"] {
+        let command = format!(r"Set-Alias {prefix} z Remove-Item; z -Recurse C:\important");
+        assert!(blocked(&command, Dialect::PowerShell), "{command}");
+    }
+    assert!(blocked(r"New-Alias -Force -PassThru z ri; z -Recurse C:\important", Dialect::PowerShell));
+}
+
 /// 文字列からコードを作る (`[scriptblock]::Create`、`$ExecutionContext.InvokeCommand`) と、
 /// `Invoke-Command $sb` のように呼び出し方を尽くせないので、作るところで止める。
 #[test]

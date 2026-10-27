@@ -4,6 +4,7 @@
 //! そのまま解析されるので、ここでは扱わない。
 
 use super::super::lexer::{segments, Dialect, Piece, Word};
+use super::deletions::{parameter_value, powershell_parameter, COMMON_VALUED, COMMON_VALUED_ALIASES};
 use super::{command_name, State};
 
 /// 別名の定義なら記録して true。
@@ -43,37 +44,46 @@ fn record_bash_alias(word: &Word, state: &mut State) {
     state.aliases.insert(command_name(name), expansion);
 }
 
+/// `Set-Alias` / `New-Alias` 固有の、値を取るパラメータ (`-Name` / `-Value` を除く)。省略形も受け付ける。
+const ALIAS_VALUED: [&str; 3] = ["scope", "option", "description"];
+
+/// 値を取るパラメータか。共通パラメータ (`-ErrorAction` など) を値ごと読み飛ばさないと、値が別名の
+/// 名前の位置に入る (#587 の post-merge feedback)。
+fn takes_value(p: &str) -> bool {
+    ALIAS_VALUED.iter().any(|full| full.starts_with(p))
+        || (p.len() >= 2 && COMMON_VALUED.iter().any(|full| full.starts_with(p)))
+        || COMMON_VALUED_ALIASES.contains(&p)
+}
+
 /// `Set-Alias [-Name] z [-Value] Remove-Item`。値を取るほかのパラメータは値ごと読み飛ばす。
 fn record_powershell_alias(args: &[Word], state: &mut State) {
     let (mut name, mut value) = (None, None);
     let mut positionals = Vec::new();
     let mut i = 0;
     while let Some(word) = args.get(i) {
-        let lead = word.leading_lit().to_lowercase();
-        let param = lead.strip_prefix('-').filter(|p| !p.is_empty());
-        match param {
-            Some(p) if "name".starts_with(p) => name = args.get(i + 1),
-            Some(p) if "value".starts_with(p) => value = args.get(i + 1),
-            Some(p) if ["scope", "option", "description"].iter().any(|full| full.starts_with(p)) => {}
-            Some(_) => {
-                i += 1;
-                continue;
-            }
-            None => {
-                positionals.push(word);
-                i += 1;
-                continue;
-            }
+        let Some((p, inline)) = powershell_parameter(word) else {
+            positionals.push(word.clone());
+            i += 1;
+            continue;
+        };
+        let (parameter_value, step) = parameter_value(args, i, inline);
+        if "name".starts_with(&p) {
+            name = parameter_value;
+        } else if "value".starts_with(&p) {
+            value = parameter_value;
+        } else if !takes_value(&p) {
+            i += 1;
+            continue;
         }
-        i += 2;
+        i += step;
     }
     let mut positionals = positionals.into_iter();
     let name = name.or_else(|| positionals.next());
     let value = value.or_else(|| positionals.next());
-    let Some(name) = name.and_then(|w| state.resolve(w, Dialect::PowerShell)) else {
+    let Some(name) = name.and_then(|w| state.resolve(&w, Dialect::PowerShell)) else {
         return;
     };
-    let expansion = match value.and_then(|w| state.resolve(w, Dialect::PowerShell)) {
+    let expansion = match value.and_then(|w| state.resolve(&w, Dialect::PowerShell)) {
         Some(v) => vec![Word::lit(&v)],
         None => vec![opaque()],
     };
