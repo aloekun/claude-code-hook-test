@@ -13,7 +13,11 @@
       "PowerShell(pnpm threads show*)",
       "PowerShell(pnpm threads fixed *)",
       "PowerShell(pnpm threads rejected *)",
-      "PowerShell(pnpm threads forget *)"
+      "PowerShell(pnpm threads forget *)",
+      "Bash(pnpm prepare-pr-body)",
+      "Bash(pnpm prepare-pr-body:cleanup)",
+      "PowerShell(pnpm prepare-pr-body)",
+      "PowerShell(pnpm prepare-pr-body:cleanup)"
     ]
   },
   "hooks": {

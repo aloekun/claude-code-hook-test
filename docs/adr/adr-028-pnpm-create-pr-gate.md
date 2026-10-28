@@ -201,6 +201,13 @@ interactive session での PR 作成フロー:
 - **cli-merge-pipeline の捕捉パターンを `*cli-merge-pipeline*` に広げた。** 原則 1 の「`.claude/cli-merge-pipeline.exe` (直接呼び出し)」は Windows の実行ファイル名を前提にしていた。[ADR-063](adr-063-linux-portability-release-binaries.md) 以降の Linux では拡張子なしで配置され、`pnpm merge-pr` の実体であるランチャー (`node scripts/run-artifact.mjs cli-merge-pipeline`) もどちらの OS でも `.exe` を含まないため、旧パターンでは捕捉できなかった (PR #582 の CodeRabbit 指摘)
 - **広げた代償**: `cargo test -p cli-merge-pipeline` のように crate 名を含むだけの開発コマンドも確認を求める。実行経路だけに絞ると書き方次第ですり抜けるため、ゲートは確認を出す側に倒した ([ADR-043](adr-043-security-gates-fail-closed.md))
 
+## 追記 (2026-10-28): 本文の一時ファイルを書く・消すコマンドは確認なしで実行する
+
+- **許可リストに載せた。** `pnpm prepare-pr-body` と `pnpm prepare-pr-body:cleanup` は、作業ディレクトリの `.tmp-pr-body.md` を書くか消すだけで、GitHub には何も書かない。それでも PR を作るたびに確認が出て、確認画面に `pnpm create-pr` と並んで原因として表示されていた (PR #595 の作成時)。`.claude/settings.local.json.template` の `permissions.allow` に、Bash と PowerShell の両方で完全一致のルールを足した
+- **ゲートは変わらない。** 外に見える操作は `pnpm create-pr` で、原則 2 の `permissions.ask` に残る。確認画面に出るのが実際にゲートするコマンドだけになり、何を承認するのかが読みやすくなる
+- **リンクをたどらない。** 「`.tmp-pr-body.md` しか触らない」は、そのパスがシンボリックリンクだと成り立たない (書き出しがリンク先を上書きする。PR #596 の CodeRabbit 指摘)。書き出しは、そのパスにあるのが通常のファイルでなければ書かずに失敗し、通常のファイルは消してから「既にあれば作らない」形で作る。後片付けはリンクそのものを消す (`src/cli-pr-monitor/src/prepare_pr_body.rs`)
+- **完全一致にした。** 前方一致 (`pnpm prepare-pr-body *`) にすると、後ろに続く引数やコマンド名の別の綴りまで許すことになる。本文は標準入力で渡し、引数は取らない
+
 ## 参照
 
 - ADR-022 (自動化コンポーネントの責務分離): 補完関係にある。automated actor 側の原則
