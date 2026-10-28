@@ -381,6 +381,19 @@ auto と読み違える**。開始の signal が head-anchored で得られる�
 新規投稿した場合だけ**に限る。既存要求を再利用した run で ack を数えると、前回 run が受けた
 旧 HEAD への ack で green になる。
 
+### 要約コメントの文言で判断せず、一次資料で確かめる (2026-10-28 追記、#589 feedback)
+
+CodeRabbit の要約コメント (walkthrough の末尾、`Reviews paused` や `Pre-merge checks` の欄) は、レビューのたびに同じコメントが書き換わる。文言が指している範囲は、見た目より狭いか別物であることが多い。2026-10 の PR (#587 以降) では、要約を見て「レビューが止まった」「まだ何か失敗している」と判断しかけたことが続いた:
+
+| 要約の文言 | 実際に指しているもの | 確かめる先 (一次資料) |
+|---|---|---|
+| `Reviews paused` | レビュー済みの commit 数がしきい値 (`.coderabbit.yaml` の `auto_pause_after_reviewed_commits`) を超えたので、自動レビューを止めたという表示。push のたびの自動再レビューは、これとは別に `auto_incremental_review: false` でもともと走らない。`@coderabbitai review` で依頼するレビューは、どちらの影響も受けない | HEAD の commit status (決定 2・3) |
+| `No new commits to review` | 前回のレビューで HEAD まで見終わっている。レビューができなくなったわけではない | HEAD の commit status と PR の head commit |
+| `No actionable comments were generated in the recent review` | 直近 1 回のレビューで指摘が無かったこと。前のレビューの指摘が片付いたかは表さない | `pnpm threads list` の未解決スレッド ([ADR-087](adr-087-review-thread-resolution-after-push.md)) |
+| `Pre-merge checks: Failed N` | 機械的な検査が N 件落ちたこと (#589 では Docstring Coverage)。レビューの指摘ではない。件数だけでは、どの検査か、マージを止めるかは分からない | 要約の該当欄を開いて、落ちた検査の名前と結果を見る。マージを止めるかは、その検査の設定 (`.coderabbit.yaml` の `reviews.pre_merge_checks`。このリポジトリは未設定で既定のまま) と、ブランチ保護・ruleset の必須チェックで確かめる |
+
+レビューが HEAD まで済んだか、未対応の指摘が残っているかは、要約からは判断しない。HEAD の commit status、未解決スレッド、各指摘の本文を確かめてから答える。HEAD のレビューが完了したと言えるのは、commit status が `state: success` かつ description が `Review completed` のときだけである。`pending` はレビュー中、`success` でも description が `Review skipped: ...` などのものは完了ではない (決定 2)。指摘の範囲も、一覧の見出しでなく本文で確かめる (見出しは指摘の一部しか出さないことがある)。
+
 ### bot 作成 PR の前提の失効と、手段の見直し (2026-10-13 追記、[ADR-085](adr-085-third-party-review-means.md))
 
 2026-09 下旬から、CodeRabbit は seat を持たない bot 作者の PR を、人間が依頼してもレビューしなくなった (#557)。本 ADR と [ADR-072](adr-072-nightly-todo-loop.md) 決定 16 の「人間名義で依頼すれば bot 作成 PR もレビューされる」は成り立たない。
