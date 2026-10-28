@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use crate::gh::Gh;
 
 /// 取得するページ数の上限 (1 ページ 100 件)。PR #587 で 51 件だったので、十分に余裕がある。
-const MAX_PAGES: usize = 20;
+pub(crate) const MAX_PAGES: usize = 20;
 
 /// スレッドの取得。コメントは 1 スレッド 30 件まで読む。返信と resolve に使うのは最初のコメントだけで、
 /// 残りは `show` で返信を見るためのもの (CodeRabbit とのやり取りは数往復で、30 件で足りる)。
