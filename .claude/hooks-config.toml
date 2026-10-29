@@ -222,10 +222,10 @@ enabled = true
 
 [post_tool_linter]
 
+# 本リポジトリでは biome を導入しない。oxlint は devDependencies に固定してある (ADR-002 § 追記 2026-10-29)。
 [[post_tool_linter.pipelines]]
 extensions = ["ts", "tsx", "js", "jsx"]
 steps = [
-  { cmd = "npx", args = ["--no-install", "biome", "format", "--write", "{file}"], fix = true },
   { cmd = "npx", args = ["--no-install", "oxlint", "--fix", "{file}"], fix = true },
   { cmd = "npx", args = ["--no-install", "oxlint", "{file}"], fix = false },
 ]

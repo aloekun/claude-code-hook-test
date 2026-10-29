@@ -5,7 +5,7 @@
 
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { logger } from "../src/logger";
+import { logger } from "../src/logger.ts";
 
 if (!existsSync(".env.e2e")) {
   logger.info("Skipped: .env.e2e not found");

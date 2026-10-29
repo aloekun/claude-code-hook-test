@@ -99,9 +99,8 @@
 | 552 | Tier 3 | **[improvement] mod 宣言の並び順をテストで検査する** | todo29.md | S | なし (2026-10-12、#490 feedback。既存違反 1 件は同じ PR で直す。auto lane) |
 | 554 | Tier 2 | **[improvement] custom-lint rule の exception を外すと incident fixture が落ちることを検査する** | todo29.md | M | なし (2026-10-12、#532 feedback。mutation は exception の除去だけに限る。auto lane) |
 | 555 | Tier 2 | **[improvement] config パス候補の TS と Rust の同期をテストで固定する** | todo29.md | S | なし (2026-10-12、#501 feedback。auto lane) |
-| 556 | Tier 2 | **[improvement] oxlint・tsx・biome を devDependencies に入れて固定する** | todo29.md | S | なし (2026-10-12 の調査で判明。`pnpm lint` と `deploy:hooks` がネットワークから取得している。lockfile の更新なので human lane) |
-| 557 | Tier 3 | **[improvement] `--no-install` の無い `npx` を検査で止める** | todo29.md | S | 順位 556 (既存 3 件が直ってから auto lane へ) |
-| 558 | Tier 3 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | 順位 556 (変更先が `.claude/` なので human lane) |
+| 557 | Tier 3 | **[improvement] `--no-install` の無い `npx` を検査で止める** | todo29.md | S | なし (前提の順位 556 は 2026-10-29 完了、既存 3 件は解消済み) |
+| 558 | Tier 3 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | なし (前提の順位 556 は 2026-10-29 完了。変更先が `.claude/` なので human lane) |
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
 | 560 | Tier 3 | **[improvement] サンプル由来の `py-test` と `test:e2e` を撤去する** | todo29.md | S | なし (2026-10-12 の調査で判明。`.claude/` の変更を含むので human lane) |
 | 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | 順位 560 (残骸 script が消えてから auto lane へ) |

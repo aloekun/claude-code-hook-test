@@ -221,7 +221,7 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 555 | T2 | ✅ | deploy-hooks.ts が探す config の候補と lib-config-path の候補が一致することを、TS をテキストとして読むテストで固定する。post-tool-linter が `config/` の設定を読む e2e も足す | `src/lib-config-path/src/lib.rs`（`mod tests`） + `src/hooks-post-tool-linter/tests/` | S | 比較の仕様は「新しい置き場に移せるファイルは `config/` と `.claude/` の 2 候補、それ以外は `.claude/` だけ」。`scripts/deploy-hooks.ts` は読むだけ。直書き検出の lint は作らない。決定事項は [docs/todo29.md](todo29.md) § 順位 555 | test(config-path): TS と Rust の config 候補の同期を固定する |
 | 567 | T2 | ✅ | CodeRabbit のレビュー済み判定から gh 呼び出しを注入できる版を切り出し、呼び出し経路の数と 1 回の判定の照会数を固定する。head に固定した照会の配線テストも足す | `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` | M | 注入の形は `src/cli-pr-monitor/src/runner.rs` の既存の前例に合わせる。経路の数は `include_str!` で数える (3 経路)。workflow の bash 側は対象外。決定事項は [docs/todo29.md](todo29.md) § 順位 567 | test(pr-monitor): レビュー済み判定の照会回数と head 固定を検査する |
 | 546 | T2 | — | 試験運用 ADR の索引タグの期限が過ぎていれば報告する検査と、採用・却下・Superseded の ADR の H1 に `(仮)` が残っていれば違反にする検査を lint:docs に足す | `src/cli-docs-lint/src/adr_index.rs` + `src/cli-docs-lint/src/lib.rs` + `src/cli-docs-lint/src/main.rs` | S | **順位 545 (期限の記入) の完了後に auto へ移す。** 今日の日付は引数で注入する。`(仮)` は片方向だけ検査する。決定事項は [docs/todo28.md](todo28.md) § 順位 546 | feat(docs-lint): 試験運用 ADR の期限切れと (仮) の外し忘れを検出する |
-| 557 | T3 | — | `--no-install` の無い `npx` を、custom-lint rule と package.json を読む clean-baseline テストの 2 層で検出する | `config/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/` + `tests/fixtures/incidents/{bad,good}/` + `src/hooks-stop-quality/tests/` | S | **順位 556 (devDependencies の導入) の完了後に auto へ移す。** 既存の違反 3 件が残っていると検査を入れられない。決定事項は [docs/todo29.md](todo29.md) § 順位 557 | feat(custom-lint): --no-install の無い npx を検出する |
+| 557 | T3 | — | `--no-install` の無い `npx` を、custom-lint rule と package.json を読む clean-baseline テストの 2 層で検出する | `config/custom-lint-rules.toml` + `src/hooks-post-tool-linter/src/custom_rules/` + `tests/fixtures/incidents/{bad,good}/` + `src/hooks-stop-quality/tests/` | S | **順位 556 (devDependencies の導入) は 2026-10-29 に完了し、既存の違反 3 件は解消された。** auto 移行の検討可（lane 判断は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が行う）。決定事項は [docs/todo29.md](todo29.md) § 順位 557 | feat(custom-lint): --no-install の無い npx を検出する |
 | 561 | T3 | — | package.json の名前に test を含む script がすべて ci.yml の run 行に現れることを検査する cargo test を足す | `src/hooks-stop-quality/tests/` | S | **順位 560 (残骸 script の撤去) の完了後に auto へ移す。** ci.yml は読むだけ。決定事項は [docs/todo29.md](todo29.md) § 順位 561 | test(ci): package.json の test script が CI で走ることを検査する |
 | 563 | T3 | — | lint-workflows に jq の PCRE 略記の検出と marker 照合のコメント除去を足し、本体を export 関数に分けて vitest のテスト (契約検査 4 の mutation を含む) を書く | `scripts/lint-workflows.mjs` + `scripts/lint-workflows.test.mjs`（新規） | S | **順位 562 (夜間 verify への vitest 追加) の完了後に auto へ移す。** 決定事項は [docs/todo29.md](todo29.md) § 順位 563 | feat(lint-workflows): jq の PCRE 略記と marker 照合を締める |
 | 564 | T3 | — | exe-fingerprint のテストに cargo metadata の例外系と状態遷移の表駆動テストを足し、cargo-check-for-file の timeout のコメントを実設定に合わせる | `scripts/exe-fingerprint.test.mjs` + `scripts/cargo-check-for-file.mjs` | S | **順位 562 の完了後に auto へ移す。** コメントは 30 秒 → 35 秒 (`.claude/settings.json` の値)。決定事項は [docs/todo29.md](todo29.md) § 順位 564 | test(scripts): exe-fingerprint の例外系と状態遷移を固定する |
@@ -240,7 +240,8 @@ cargo test で検証完結するが、新規 module / lint rule / 軽微リフ�
 | 180 | 2（実装内容が一意でない） | 「既存 private `truncate()` と escape ロジック重複、DRY 整理（共通化 or 役割分担）を**検討**」 |
 | 340 | 2（実装内容が一意でない） | 「`main.rs` の呼び出し側を I/O 無しでテスト可能にする小さな**合成関数抽出リファクタ**が要る」— 抽出の切り方が未確定 |
 | 199 | 2（実装内容が一意でない） | 台帳の再スコープ（`priority_inversion.rs` へのテスト追加）と [todo10.md](todo10.md) の詳細エントリ（`~/.claude/rules/common/testing.md` への文書追記）が矛盾している。2026-08-24 の run 32760716062 が 0 変更で停止。詳細エントリの書き直しが先（2026-09-04） |
-| 546 / 557 / 561 / 563 / 564 | 前提タスクが未完了 | 実装内容はヒアリングで確定済み (2026-10-12)。前提 (順位 545 / 556 / 560 / 562) が終わるまでは、夜間 verify で検証できないか、既存違反で即座に落ちる。前提が完了した時点で auto へ移す |
+| 546 / 561 / 563 / 564 | 前提タスクが未完了 | 実装内容はヒアリングで確定済み (2026-10-12)。前提 (順位 545 / 560 / 562) が終わるまでは、夜間 verify で検証できないか、既存違反で即座に落ちる。前提が完了した時点で auto へ移す |
+| 557 | 前提は解消済み (2026-10-29) | 前提だった順位 556 (devDependencies の導入) が完了し、既存の違反 3 件も解消された。残るのは auto 移行の lane 判断のみ（[ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が決める） |
 
 ### 対象外（Web では完了不能 / 残価値枯渇）
 
@@ -421,7 +422,7 @@ post-merge feedback の一括採否 (順位 535〜570) から、auto lane に 15
 
 **曖昧さが理由で human に残りそうな行は、判断点をヒアリングで確定してから auto に置いた。** 着手時判断・設計の二択・期待挙動の未定で auto にできない行について、現物から選択肢を洗い出し、ユーザーに決めてもらった。結論は各詳細エントリの「決定事項」にある。夜間ループはそれに従い、読み替えない。
 
-前提タスクが終われば auto に移せる行が 5 つある (順位 546 / 557 / 561 / 563 / 564)。いまは `—` のまま表に載せ、理由を § 無人可としなかった理由 に書いた。
+前提タスクが終われば auto に移せる行が 5 つある (順位 546 / 557 / 561 / 563 / 564)。いまは `—` のまま表に載せ、理由を § 無人可としなかった理由 に書いた。**(2026-10-29 追記)** 順位 557 の前提だった順位 556 はこの日に完了し、既存の違反 3 件も解消された。残り 4 行 (546 / 561 / 563 / 564) の前提は未完了のまま。
 
 同日、判定基準 1 の旧パス (`.claude/custom-lint-rules.toml`) を、移設後の `config/custom-lint-rules.toml` に直した。
 

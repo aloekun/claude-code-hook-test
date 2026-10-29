@@ -84,31 +84,13 @@
 
 - 候補の片側だけを変えると落ちるテストと、`config/` から設定を読む e2e があること
 
-### 順位 556: oxlint・tsx・biome を devDependencies に入れて固定する
-
-> **動機**: `package.json` の `lint` と `deploy:hooks` は、導入されていないツールを `npx` でネットワークから取得している (`npx oxlint` / `npx tsx`×2)。oxlint と biome はどこにも入っておらず、post_tool_linter の TS パイプライン (`npx --no-install oxlint` など) はエラーを出し続けているはずである (#517 / #523 の調査で判明)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。lockfile の更新とネットワークを伴うので human lane。
-
-#### 作業計画
-
-- oxlint / tsx (必要なら biome) を devDependencies に追加し、`pnpm-lock.yaml` を更新する
-- `package.json` の 3 件の `npx` を `--no-install` 付きか直接呼び出しに直す
-- post_tool_linter の TS パイプラインが実際に動くことを確かめ、既存ファイルの違反数を数える
-
-#### 完了基準
-
-- `pnpm lint` と `pnpm deploy:hooks` がネットワーク取得なしで動き、post_tool_linter の TS パイプラインがエラーを出さないこと
-
 ### 順位 557: `--no-install` の無い `npx` を検査で止める
 
 > **動機**: `npx` に `--no-install` が無いと、未導入のツールを黙ってネットワークから取得する (#517 の提案)。
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。**順位 556 の完了が前提** (既存 3 件が直るまで検査を入れられない)。それまでは human lane に置く。
+> **実行優先度**: Tier 3 — Effort S。前提だった順位 556 は 2026-10-29 に完了し、`package.json` の既存 3 件は無くなった (oxlint は devDependencies に固定、tsx は Node 本体の実行に置き換え)。検査対象の拡張子に `--no-install` の無い `npx` は残っていない (同日に grep で確認、コメント中の言及を除く)。
 
 #### 決定事項 (2026-10-12)
 
@@ -121,11 +103,11 @@
 
 ### 順位 558: post_tool_linter の対象拡張子に `.mjs` を加える
 
-> **動機**: `.claude/hooks-config.toml` の TS パイプラインは ts / tsx / js / jsx だけを対象にしており、`scripts/` の `.mjs` (20 本) に biome / oxlint が効かない (#523 の提案)。
+> **動機**: `.claude/hooks-config.toml` の TS パイプラインは ts / tsx / js / jsx だけを対象にしており、`scripts/` の `.mjs` (20 本) を編集しても oxlint が走らない (#523 の提案)。本リポジトリでは biome を導入しない ([ADR-002](adr/adr-002-post-tool-use-linter-composition.md) § 追記 2026-10-29)。
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort XS。**順位 556 の完了が前提** (ツールが無いまま足すとエラーが広がるだけ)。変更先が `.claude/` なので human lane。
+> **実行優先度**: Tier 3 — Effort XS。前提だった順位 556 は 2026-10-29 に完了した (oxlint を devDependencies に固定、`pnpm lint` は `scripts/` も対象にした)。変更先が `.claude/` なので human lane。
 
 #### 作業計画
 
