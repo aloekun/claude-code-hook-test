@@ -43,7 +43,7 @@ export function joinContinuationLines(text) {
     } else {
       current.text += ` ${physical.trim()}`;
     }
-    if (/\\$/.test(physical)) {
+    if (physical.endsWith('\\')) {
       current.text = current.text.replace(/\\$/, '');
       return;
     }

@@ -76,6 +76,14 @@ PostToolUse フックはミリ秒〜秒単位で完了する必要があり、
 - プロジェクトルートに `biome.json` / oxlint 設定を置いてルールをカスタマイズ
 - 診断結果の構造化（行番号・ルールID の JSON 化）でより精密なフィードバック
 
+## 追記 (2026-10-29): 本リポジトリでは biome を外し、oxlint を devDependencies に固定する
+
+本リポジトリの `.claude/hooks-config.toml` の TS パイプラインは、biome も oxlint も導入されていないまま `npx --no-install` で呼んでいたため、編集時の lint は動いていなかった (順位 556、2026-10-29 に `node_modules/.bin` に両方とも無いことを確認)。Stop の品質ゲートの `pnpm lint` (`npx oxlint src/`) は版を指定しない npx だったので、ターンごとにレジストリへ問い合わせていた (`npx --loglevel http` で `GET 200 ... (cache revalidated)` を実測)。
+
+- **oxlint は devDependencies に完全一致の版で固定する**。lockfile に載るのは oxlint 本体と OS 別のネイティブバイナリだけで、JS の推移的依存は無い。`pnpm lint` の対象は `src/` と `scripts/` に広げる (それまでハーネス部品の `scripts/` はどの lint にもかかっていなかった)
+- **biome は本リポジトリでは導入しない**。本リポジトリの TS/JS はハーネス部品の `scripts/` が主で、oxlint と役割が重なる整形のために依存を足す理由が無い。二段階構成そのものは派生プロジェクト向けの `templates/hooks-config-typescript.toml` に残す
+- Consequences の「npx 経由で実行するため、プロジェクトごとのバージョン固定が容易」は誤りだった。版を固定するのは lockfile であり、npx は固定しない
+
 ## References
 
 - [ハーネスエンジニアリング実装ガイド - 4つのhookパターン](https://nyosegawa.github.io/posts/harness-engineering-best-practices-2026/#4%E3%81%A4%E3%81%AEhook%E3%83%91%E3%82%BF%E3%83%BC%E3%83%B3)
