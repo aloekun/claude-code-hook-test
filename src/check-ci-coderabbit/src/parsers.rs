@@ -1,6 +1,9 @@
 //! CI / CodeRabbit state + comment JSON parsers (順位 209 / 順位 208 PR A refactor)。
 
-use crate::markers::{is_clean_walkthrough_comment, is_rate_limit_comment};
+use crate::markers::{
+    is_clean_walkthrough_comment, is_rate_limit_comment, is_skip_review_comment,
+    rate_limit_event_time, STATUS_SKIPPED_PREFIX,
+};
 use crate::models::{
     CiRunSummary, CiStatus, GhComment, GhReview, GhRollupItem, GhRunItem, GhStatusItem,
 };
@@ -131,6 +134,10 @@ fn is_failure_run(i: &GhRunItem) -> bool {
 }
 
 /// gh api .../statuses の JSON から CodeRabbit のレビュー状態を返す。
+///
+/// 最新の status が `success` でも、description が [`STATUS_SKIPPED_PREFIX`] で始まれば
+/// `not_started` を返す (順位 585)。CR はスキップも `success` で通知するので、state だけを
+/// 返すとスキップしか付いていない PR を「レビュー済み」と読む。
 pub(crate) fn parse_coderabbit_status(json: &str) -> String {
     let items: Vec<GhStatusItem> = serde_json::from_str(json).unwrap_or_else(|e| {
         eprintln!("[check-ci-coderabbit] statuses JSON パースエラー: {}", e);
@@ -151,16 +158,55 @@ pub(crate) fn parse_coderabbit_status(json: &str) -> String {
         return "not_found".to_string();
     }
 
-    cr_statuses
-        .first()
-        .and_then(|s| s.state.clone())
-        .unwrap_or_else(|| "not_found".to_string())
+    let latest = cr_statuses.first();
+    let is_skipped = latest
+        .and_then(|s| s.description.as_deref())
+        .map(|d| d.starts_with(STATUS_SKIPPED_PREFIX))
+        .unwrap_or(false);
+    match latest.and_then(|s| s.state.clone()) {
+        Some(state) if state == "success" && is_skipped => "not_started".to_string(),
+        Some(state) => state,
+        None => "not_found".to_string(),
+    }
+}
+
+/// commit status が無いときに、comment 側のスキップ通知で `not_found` を `not_started` へ寄せる。
+///
+/// CR は re-push のスキップで commit status を付けず、walkthrough comment に
+/// [`crate::markers::SKIP_REVIEW_MARKER`] の段を足すだけのことがある (#600 で実測)。
+/// 段を足す編集の時刻 (`updated_at`) が `push_time` 以降の comment だけを見る。
+/// `not_found` 以外の状態は commit status のほうが新しい事実なので変えない。
+pub(crate) fn resolve_review_state(status_state: String, comments_json: &str, push_time: &str) -> String {
+    if status_state != "not_found" {
+        return status_state;
+    }
+    let comments: Vec<GhComment> = serde_json::from_str(comments_json).unwrap_or_default();
+    let has_skip_notice = comments.iter().any(|c| {
+        is_coderabbit_comment(c)
+            && is_skip_review_comment(c)
+            && rate_limit_event_time(c).map(|t| t >= push_time).unwrap_or(false)
+    });
+    if has_skip_notice {
+        "not_started".to_string()
+    } else {
+        status_state
+    }
+}
+
+fn is_coderabbit_comment(c: &GhComment) -> bool {
+    c.user
+        .as_ref()
+        .and_then(|u| u.login.as_deref())
+        .map(|l| l == "coderabbitai[bot]")
+        .unwrap_or(false)
 }
 
 /// PR コメントの JSON から push_time 以降の CodeRabbit 新規コメント数を返す。
 ///
 /// 「review in progress」通知コメントと rate-limit コメントは除外する
 /// (含めると `decide()` が action_required を早期 return し rate-limit retry 経路に入らない)。
+/// スキップ通知も除外する (順位 585)。含めると、レビューが始まってもいない PR で
+/// `decide()` が action_required を返す。
 pub(crate) fn parse_new_comments(json: &str, push_time: &str) -> usize {
     let comments: Vec<GhComment> = serde_json::from_str(json).unwrap_or_else(|e| {
         eprintln!("[check-ci-coderabbit] comments JSON パースエラー: {}", e);
@@ -174,12 +220,7 @@ pub(crate) fn parse_new_comments(json: &str, push_time: &str) -> usize {
 }
 
 fn is_kept_new_comment(c: &GhComment, push_time: &str) -> bool {
-    let is_coderabbit = c
-        .user
-        .as_ref()
-        .and_then(|u| u.login.as_deref())
-        .map(|l| l == "coderabbitai[bot]")
-        .unwrap_or(false);
+    let is_coderabbit = is_coderabbit_comment(c);
 
     let after_push_time = c
         .created_at
@@ -195,7 +236,11 @@ fn is_kept_new_comment(c: &GhComment, push_time: &str) -> bool {
 
     let is_rate_limit = is_rate_limit_comment(c);
 
-    is_coderabbit && after_push_time && !is_review_in_progress && !is_rate_limit
+    is_coderabbit
+        && after_push_time
+        && !is_review_in_progress
+        && !is_rate_limit
+        && !is_skip_review_comment(c)
 }
 
 /// 順位 208: CR walkthrough comment body から clean marker を検出する。

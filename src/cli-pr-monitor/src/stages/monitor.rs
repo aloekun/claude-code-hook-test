@@ -446,6 +446,14 @@ fn compute_verdict(result: &crate::stages::poll::PollResult) -> String {
     verdict_for_unsettled_review(result).unwrap_or_else(|| verdict_for_findings(result))
 }
 
+/// CodeRabbit がレビューをスキップした (checker の `not_started`、順位 585) ときの保留判定文。
+///
+/// 依頼しない限りレビューは来ないので、「後続は GitHub Actions 経路が処理」とは書かない。
+/// checker の未確定は [`crate::stages::poll`] で action が `pending_review` に置き換わるので、
+/// その分岐でも review_state を見て本文を選ぶ (PR #601 CodeRabbit)。
+const VERDICT_REVIEW_NOT_STARTED: &str =
+    "CodeRabbit がレビューをスキップしたため (未開始)、判定を保留します。PR の Trigger review で依頼してください";
+
 /// レビューがまだ確定していない場合の保留判定文を返す。確定済みなら `None`。
 ///
 /// findings の中身を見る前に評価する。ここを通過して初めて
@@ -457,6 +465,11 @@ fn verdict_for_unsettled_review(result: &crate::stages::poll::PollResult) -> Opt
                 "CodeRabbit rate-limit 中でレビュー未実施のため、判定を保留します (後続は GitHub Actions 経路が処理)"
                     .to_string(),
             );
+        }
+        "pending_review"
+            if crate::stages::poll::is_review_not_started(result.coderabbit.as_ref()) =>
+        {
+            return Some(VERDICT_REVIEW_NOT_STARTED.to_string());
         }
         "pending_review" => {
             return Some(
@@ -475,6 +488,9 @@ fn verdict_for_unsettled_review(result: &crate::stages::poll::PollResult) -> Opt
     }
 
     let cr = result.coderabbit.as_ref()?;
+    if cr.review_state == "not_started" {
+        return Some(VERDICT_REVIEW_NOT_STARTED.to_string());
+    }
     if cr.review_state == "not_found" || cr.review_state == "pending" {
         return Some("CodeRabbit review が未完了のため、判定を保留します".to_string());
     }

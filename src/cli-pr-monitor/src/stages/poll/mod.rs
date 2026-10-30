@@ -80,6 +80,14 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
     finalize_pending_review(&ctx)
 }
 
+/// checker が CodeRabbit のスキップ (`not_started`、順位 585) を返したか。
+///
+/// スキップは依頼しない限りレビューが来ないので、他の未確定と同じ「GitHub Actions 経路が
+/// 処理」という案内にしない。summary ([`finalize_pending_review`]) と判定文 (monitor) が使う。
+pub(crate) fn is_review_not_started(cr: Option<&CodeRabbitState>) -> bool {
+    cr.is_some_and(|c| c.review_state == "not_started")
+}
+
 /// checker が未確定 (continue_monitoring 相当) を返した場合の terminal 化。
 ///
 /// 旧 park モデルではここで wakeup を予約したが、single-shot モデルでは
@@ -97,9 +105,13 @@ fn finalize_pending_review(ctx: &PollContext<'_>) -> PollResult {
         )
     });
     state.action = "pending_review".into();
-    state.summary =
+    state.summary = if is_review_not_started(state.coderabbit.as_ref()) {
+        "CodeRabbit がレビューをスキップした (未開始)。PR の Trigger review で依頼するまでレビューは来ない"
+            .to_string()
+    } else {
         "review 未確定。後続の PR イベントは GitHub Actions 経路 (pr-monitor workflow) が処理"
-            .to_string();
+            .to_string()
+    };
     state.record_head_commit(ctx.pr_info.head_commit.as_deref());
     state.fix_push_time = state
         .fix_push_time
@@ -157,6 +169,50 @@ mod tests {
             skip_ci: false,
             skip_coderabbit: false,
         }
+    }
+
+    /// 順位 585: checker がスキップ (`not_started`) を返していたら、summary は「GitHub Actions
+    /// 経路が処理」ではなく依頼が要ることを伝える。依頼しない限りレビューは来ない。
+    #[test]
+    fn finalize_pending_review_summary_asks_for_trigger_when_not_started() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        let mut seeded =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        seeded.coderabbit = Some(CodeRabbitState {
+            review_state: "not_started".into(),
+            new_comments: 0,
+            actionable_comments: None,
+            unresolved_threads: Some(0),
+        });
+        crate::state::write_state_to(&state_path, &seeded).unwrap();
+
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: Some("abc1234".into()),
+            fix_push_time: None,
+        };
+        let checker = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
+        let ctx = make_ctx(
+            &checker,
+            &state_path,
+            &pr_info,
+            &rate_limit_config,
+            &classifier_config,
+        );
+
+        let outcome = finalize_pending_review(&ctx);
+
+        assert_eq!(outcome.action, "pending_review");
+        assert!(
+            outcome.summary.contains("Trigger review") && !outcome.summary.contains("GitHub Actions"),
+            "スキップは依頼が要ることを伝える: {}",
+            outcome.summary
+        );
     }
 
     /// PR 3 (wakeup 廃止): 未確定時は park ではなく terminal な `pending_review` を返し、

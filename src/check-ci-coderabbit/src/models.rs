@@ -94,6 +94,8 @@ pub(crate) struct GhRollupItem {
 pub(crate) struct GhStatusItem {
     pub(crate) context: Option<String>,
     pub(crate) state: Option<String>,
+    /// スキップを `success` で通知するため、`state` だけでは完了と区別できない (順位 585)。
+    pub(crate) description: Option<String>,
 }
 
 #[derive(Deserialize)]

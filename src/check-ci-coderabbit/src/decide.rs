@@ -30,6 +30,8 @@ fn has_review_evidence(cr: &CodeRabbitStatus) -> bool {
 ///   3. **rate-limit 検出かつレビュー実施の陽性証拠なし → continue_monitoring** (R1)
 ///   4. review_state == not_found かつ has_actionable → action_required
 ///   5. CI pending or CR pending → continue_monitoring
+///      (CR pending は `pending` / `not_found` / `not_started`。`not_started` は CR がレビューを
+///      スキップした状態で、依頼しない限りレビューは来ない — 順位 585)
 ///   6. review_state failure/error → stop_monitoring_failure
 ///   7. has_actionable → action_required
 ///   8. **レビュー実施の陽性証拠なし → continue_monitoring** (R4)
@@ -72,7 +74,9 @@ pub(crate) fn decide(
         return ("action_required".to_string(), "action_required".to_string());
     }
     let ci_pending = ci.overall == "pending" && !ci.runs.is_empty();
-    let cr_pending = cr.review_state == "pending" || cr.review_state == "not_found";
+    let cr_pending = cr.review_state == "pending"
+        || cr.review_state == "not_found"
+        || cr.review_state == "not_started";
     if ci_pending || cr_pending {
         return ("pending".to_string(), "continue_monitoring".to_string());
     }
@@ -131,6 +135,9 @@ fn build_summary_cr_part(cr: &CodeRabbitStatus) -> String {
     match cr.review_state.as_str() {
         "success" => build_summary_cr_part_with_counts(cr, false),
         "pending" => "CodeRabbitレビュー待ち".to_string(),
+        "not_started" => {
+            "CodeRabbitレビュー未開始 (スキップ通知。PR の Trigger review で依頼が必要)".to_string()
+        }
         "not_found" => build_summary_cr_part_with_counts(cr, true),
         _ => format!("CodeRabbit状態: {}", cr.review_state),
     }
@@ -749,3 +756,7 @@ mod tests {
 #[cfg(test)]
 #[path = "decide/rollup_e2e_tests.rs"]
 mod rollup_e2e_tests;
+
+#[cfg(test)]
+#[path = "decide/skip_notice_e2e_tests.rs"]
+mod skip_notice_e2e_tests;

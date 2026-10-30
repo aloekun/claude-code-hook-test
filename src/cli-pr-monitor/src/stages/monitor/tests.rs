@@ -171,6 +171,32 @@ fn verdict_pending_when_review_pending_with_no_findings() {
     assert_eq!(compute_verdict(&r), VERDICT_REVIEW_PENDING);
 }
 
+/// 順位 585: checker はスキップ通知を `not_started` で返す。findings が空でも
+/// 「問題は見つかりませんでした」と断定せず、依頼が要ることを伝える。
+#[test]
+fn verdict_holds_and_asks_for_trigger_when_review_not_started() {
+    let r = poll_result("continue_monitoring", Some("not_started"), vec![]);
+    let verdict = compute_verdict(&r);
+    assert_ne!(verdict, VERDICT_NO_PROBLEMS);
+    assert!(verdict.contains("Trigger review"), "依頼の手段を伝える: {verdict}");
+}
+
+/// 本番経路: checker の未確定は poll の `finalize_pending_review` で action が
+/// `pending_review` に置き換わる。その形でも依頼を促す文になること (PR #601 CodeRabbit)。
+#[test]
+fn verdict_asks_for_trigger_when_pending_review_carries_not_started() {
+    let r = poll_result("pending_review", Some("not_started"), vec![]);
+    let verdict = compute_verdict(&r);
+    assert_ne!(verdict, VERDICT_PENDING_REVIEW, "汎用の保留文に隠さない");
+    assert!(verdict.contains("Trigger review"), "依頼の手段を伝える: {verdict}");
+}
+
+#[test]
+fn verdict_pending_review_without_not_started_keeps_generic_text() {
+    let r = poll_result("pending_review", Some("pending"), vec![]);
+    assert_eq!(compute_verdict(&r), VERDICT_PENDING_REVIEW);
+}
+
 #[test]
 fn verdict_pending_when_review_not_found_even_with_findings() {
     let r = poll_result(
