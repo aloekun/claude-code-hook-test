@@ -59,6 +59,13 @@ package ディレクトリ直下の `tests/` `benches/` `examples/` は bin の�
 
 - `.claude/BUILD_INFO` がある: cloud-setup.sh が展開した prebuilt バイナリ
   ([ADR-063](adr-063-linux-portability-release-binaries.md))。鮮度は release 側が持つ
+  - **cloud-setup.sh は記録付きの exe を上書きしない** (順位 579)。SessionStart は takt の
+    サブセッションや resume でも走るので、`.claude/` へ直接展開すると `pnpm build:*` で
+    置いた exe が毎回 nightly 版へ戻り、post-takt re-gate ([ADR-058](adr-058-post-takt-regate.md))
+    が古い exe で判定した。展開は一時ディレクトリへ行い、`scripts/place-release-binaries.mjs` が
+    exe と記録の両方がある bin を残して配置する。記録だけが残る bin は nightly 版を置いて記録を
+    消す (残すと以後の setup が nightly 版を手元のビルドとして残し続ける)。クラウドでは本検査が
+    走らないので、残した exe が古くなったら手で `pnpm build:*` し直す
 - env `EXE_FRESHNESS_CHECK_OVERRIDE` が truthy: 緊急バイパス
   ([ADR-039](adr-039-experimental-feature-standard-pattern.md) の kill-switch)
 
