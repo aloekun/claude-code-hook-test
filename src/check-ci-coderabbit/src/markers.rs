@@ -35,6 +35,31 @@ pub(crate) const WALKTHROUGH_CLEAN_MARKER: &str =
 pub(crate) const WALKTHROUGH_HEADER_MARKER: &str =
     "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->";
 
+/// 順位 585: CR がレビューをスキップしたときに walkthrough comment へ足す段の marker。
+///
+/// 文言 (「fewer than 10 stars」/「incremental reviews are disabled」など) はスキップの
+/// 理由ごとに変わるので見ない。段はレビューが完了すると消える (#585 で実測)。
+/// 以前のレビューの walkthrough と同じ comment に同居することがある (#586: clean な
+/// walkthrough + incremental のスキップ)。
+pub(crate) const SKIP_REVIEW_MARKER: &str =
+    "<!-- This is an auto-generated comment: skip review by coderabbit.ai -->";
+
+/// 順位 585: CR がスキップを通知する commit status の description の接頭辞。
+///
+/// state は `success` なので、これを見ないと完了と区別できない。実測した description:
+/// `Review skipped: manual review required for this OSS repository` /
+/// `Review skipped: incremental reviews are disabled` /
+/// `Review skipped: bot user not eligible for review`。
+pub(crate) const STATUS_SKIPPED_PREFIX: &str = "Review skipped";
+
+/// `c.body` に [`SKIP_REVIEW_MARKER`] が含まれていればスキップ通知と判定する。
+pub(crate) fn is_skip_review_comment(c: &GhComment) -> bool {
+    c.body
+        .as_deref()
+        .map(|b| b.contains(SKIP_REVIEW_MARKER))
+        .unwrap_or(false)
+}
+
 /// `c.body` に [`RATE_LIMIT_MARKERS`] のいずれかが含まれていれば rate-limit comment と判定する。
 pub(crate) fn is_rate_limit_comment(c: &GhComment) -> bool {
     c.body
@@ -53,6 +78,10 @@ pub(crate) fn rate_limit_event_time(c: &GhComment) -> Option<&str> {
 }
 
 /// 順位 208: 単一 comment が CR walkthrough の clean marker を持つか判定する pure helper。
+///
+/// [`SKIP_REVIEW_MARKER`] の段がある comment は clean と読まない (順位 585)。段と同居する
+/// clean marker は以前のレビューのもので、段を足す編集で `updated_at` が push 後になる。
+/// 除かないと、レビューされていない push を clean 完了と判定する。
 pub(crate) fn is_clean_walkthrough_comment(c: &GhComment, push_time: &str) -> bool {
     let is_coderabbit = c
         .user
@@ -70,6 +99,9 @@ pub(crate) fn is_clean_walkthrough_comment(c: &GhComment, push_time: &str) -> bo
         return false;
     }
     if is_rate_limit_comment(c) {
+        return false;
+    }
+    if is_skip_review_comment(c) {
         return false;
     }
     let body = c.body.as_deref().unwrap_or("");

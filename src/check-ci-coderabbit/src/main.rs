@@ -35,7 +35,7 @@ use crate::models::{
 };
 use crate::parsers::{
     parse_actionable_comments, parse_ci_rollup, parse_coderabbit_status, parse_new_comments,
-    parse_unresolved_threads, parse_walkthrough_clean_marker,
+    parse_unresolved_threads, parse_walkthrough_clean_marker, resolve_review_state,
 };
 use crate::rate_limit::parse_rate_limit;
 
@@ -254,9 +254,12 @@ fn run_check(args: CliArgs) -> CheckResult {
     };
 
     let ci = fetch_ci(&repo, pr);
-    let cr_state = fetch_coderabbit_commit_state(&repo, pr);
-
     let comments_json = fetch_issue_comments_json(&repo, pr);
+    let cr_state = resolve_review_state(
+        fetch_coderabbit_commit_state(&repo, pr),
+        &comments_json,
+        &args.push_time,
+    );
     let new_comments = parse_new_comments(&comments_json, &args.push_time);
     let walkthrough_clean = parse_walkthrough_clean_marker(&comments_json, &args.push_time);
     let rate_limit = parse_rate_limit(&comments_json, &args.push_time);

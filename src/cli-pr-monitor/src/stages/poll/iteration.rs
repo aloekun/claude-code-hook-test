@@ -202,6 +202,26 @@ fn make_terminal_result(state: PrMonitorState, result: serde_json::Value) -> Pol
     }
 }
 
+/// skip しなかったチェックのどれかが、まだ結果を出していないか。
+///
+/// CodeRabbit の `not_started` (CR がレビューをスキップした状態、順位 585) も未確定に数える。
+/// 依頼しない限りレビューは来ないので、完了扱いにすると未レビューのまま監視が終わる。
+fn any_check_unsettled(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool) -> bool {
+    let ci_pending = !skip_ci
+        && state
+            .ci
+            .as_ref()
+            .map(|c| c.overall == "pending")
+            .unwrap_or(true);
+    let cr_pending = !skip_coderabbit
+        && state
+            .coderabbit
+            .as_ref()
+            .map(|c| matches!(c.review_state.as_str(), "not_found" | "pending" | "not_started"))
+            .unwrap_or(true);
+    ci_pending || cr_pending
+}
+
 /// skip 適用後に、有効なチェックだけを見て action を再導出する
 fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool) -> String {
     let ci_ok = skip_ci
@@ -221,21 +241,7 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
             })
             .unwrap_or(false);
 
-    let ci_pending = !skip_ci
-        && state
-            .ci
-            .as_ref()
-            .map(|c| c.overall == "pending")
-            .unwrap_or(true);
-
-    let cr_pending = !skip_coderabbit
-        && state
-            .coderabbit
-            .as_ref()
-            .map(|c| c.review_state == "not_found" || c.review_state == "pending")
-            .unwrap_or(true);
-
-    if ci_pending || cr_pending {
+    if any_check_unsettled(state, skip_ci, skip_coderabbit) {
         return "continue_monitoring".into();
     }
 
@@ -268,6 +274,33 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
 mod tests {
     use super::*;
     use lib_report_formatter::Finding;
+
+    fn state_with_review(review_state: &str) -> PrMonitorState {
+        let mut s = PrMonitorState::new(Some(1), Some("o/r".into()), "t".into());
+        s.coderabbit = Some(CodeRabbitState {
+            review_state: review_state.into(),
+            new_comments: 0,
+            actionable_comments: None,
+            unresolved_threads: Some(0),
+        });
+        s
+    }
+
+    /// 順位 585: CI を skip しても、CodeRabbit の `not_started` (スキップ通知) は未確定のまま。
+    /// 完了扱いにすると、レビューされていない PR の監視が success で終わる。
+    #[test]
+    fn not_started_review_keeps_monitoring_when_ci_is_skipped() {
+        let state = state_with_review("not_started");
+        assert!(any_check_unsettled(&state, true, false));
+        assert_eq!(recompute_action(&state, true, false), "continue_monitoring");
+    }
+
+    #[test]
+    fn completed_review_settles_when_ci_is_skipped() {
+        let state = state_with_review("success");
+        assert!(!any_check_unsettled(&state, true, false));
+        assert_eq!(recompute_action(&state, true, false), "stop_monitoring_success");
+    }
 
     /// PR #238 regression: checker が stderr に警告 (repo 検出失敗等の fail-soft ログ)
     /// を出しても、stdout の JSON パースが壊れないこと。修正前は stdout+stderr の

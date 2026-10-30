@@ -115,7 +115,7 @@
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |
 | 580 | Tier 3 | **[improvement] baseline 走査の fail-closed guard をテストで固定し、`collect_rust_files` の読み飛ばしを塞ぐ** | todo29.md | S | なし (2026-10-19、#580 feedback) |
-| 585 | Tier 3 | **[improvement] CodeRabbit のスキップ通知を「レビュー未開始」として扱う** | todo29.md | S-M | なし (2026-10-22、ADR-085 改訂 (決定 10) で依頼の自動化から分離。review-request.yml の待ち時間は着手時判断) |
+| 586 | Tier 3 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | todo29.md | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

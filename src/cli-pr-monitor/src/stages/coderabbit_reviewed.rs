@@ -143,6 +143,7 @@ fn is_head_in_reviewed(head: &str, reviewed_commit_ids: &str) -> bool {
 /// | `pending` | `Review in progress` | 片付いている (進行中) |
 /// | `success` | `Review skipped: bot user not eligible for review` | **未レビュー** |
 /// | `success` | `Review skipped: incremental reviews are disabled` | **未レビュー** |
+/// | `success` | `Review skipped: manual review required for this OSS repository` | **未レビュー** (2026-10-21〜、#585 で実測) |
 ///
 /// **`state == "success"` だけでは足りない。** CodeRabbit は skip も success で通知する。
 /// state だけを見ると後ろ 2 つも「レビュー済み」になり、レビューが走っていない PR で
@@ -248,6 +249,7 @@ mod tests {
         for description in [
             "Review skipped: bot user not eligible for review",
             "Review skipped: incremental reviews are disabled",
+            "Review skipped: manual review required for this OSS repository",
         ] {
             let json = format!(
                 r#"{{"statuses": [{{"context": "CodeRabbit", "state": "success", "description": "{description}"}}]}}"#
