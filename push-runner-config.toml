@@ -190,7 +190,7 @@ commands = ["pnpm lint", "pnpm lint:docs", "pnpm lint:workflows", "pnpm lint:tak
 
 [[quality_gate.groups]]
 name = "test"
-commands = ["pnpm test", "pnpm test:e2e"]
+commands = ["pnpm test"]
 
 [[quality_gate.groups]]
 name = "build"

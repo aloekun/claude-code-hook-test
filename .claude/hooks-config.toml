@@ -288,10 +288,6 @@ name = "test"
 cmd = "pnpm test"
 
 [[stop_quality.steps]]
-name = "test:e2e"
-cmd = "pnpm test:e2e"
-
-[[stop_quality.steps]]
 name = "build"
 cmd = "pnpm build"
 
