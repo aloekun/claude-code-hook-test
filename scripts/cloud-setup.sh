@@ -73,6 +73,9 @@ readonly PNPM_SPEC="${CLOUD_SETUP_PNPM_SPEC:-pnpm@11}"
 # 同じくリポ外 HOME 配下に置き、「HOME が snapshot に残存するか」の観測点を兼ねる。
 readonly CACHE_STAMP_HOME="${CLOUD_SETUP_CACHE_STAMP_HOME:-${HOME}/.cache/cloud-setup/cache-phase-stamp}"
 
+# 並列の setup がバイナリ配置のロックを待つ上限 (秒)。配置自体は数秒で終わる。
+readonly PLACE_LOCK_TIMEOUT_SECS=120
+
 # ─── ログ ───
 
 log()  { printf '[cloud-setup] %s\n' "$*"; }
@@ -98,6 +101,7 @@ require_command() {
 require_command curl
 require_command tar
 require_command node
+require_command flock
 
 [ -f "${SETTINGS_TEMPLATE}" ] || die "settings テンプレートがありません: ${SETTINGS_TEMPLATE}"
 
@@ -140,13 +144,28 @@ install_harness_binaries() {
     warn "checksum ファイルを取得できませんでした (検証を skip)"
   fi
 
-  mkdir -p "${CLAUDE_DIR}"
-  tar -xzf "${tmp_dir}/${archive}" -C "${CLAUDE_DIR}"
+  # .claude/ へ直接展開しない (順位 579)。SessionStart は takt のサブセッションや resume でも
+  # 走るので、直接展開すると `pnpm build:*` で置いた exe が毎回 nightly 版へ戻る。
+  # 一時ディレクトリへ展開し、手元で deploy した exe (.fingerprint 付き) を残して配置する。
+  local extract_dir="${tmp_dir}/extract"
+  mkdir -p "${extract_dir}" "${CLAUDE_DIR}"
+  tar -xzf "${tmp_dir}/${archive}" -C "${extract_dir}"
 
   # tar が実行ビットを保持しない環境でも hooks が起動できるようにする。
-  # BUILD_INFO はバイナリではないので対象外。
-  find "${CLAUDE_DIR}" -maxdepth 1 -type f ! -name '*.*' ! -name 'BUILD_INFO' \
+  # BUILD_INFO はバイナリではないので対象外。配置のコピーは mode を引き継ぐ。
+  find "${extract_dir}" -maxdepth 1 -type f ! -name '*.*' ! -name 'BUILD_INFO' \
     -exec chmod +x {} +
+
+  # 配置は flock で直列化する。takt は reviewers を並列に起動するので、SessionStart の setup が
+  # 同じ .claude/ へ同時に走りうる。並行すると replaceFile の固定名 `.new` / `.old` が衝突し、
+  # 片方の改名が ENOENT で落ちて setup が die する (PR #600 CodeRabbit)。ロックファイルは
+  # jj の snapshot に拾われないようリポジトリの外に置く。待ちは有限にし、取れなければ落とす。
+  local lock_file="${TMPDIR:-/tmp}/claude-code-hooks-place.lock"
+  (
+    flock -w "${PLACE_LOCK_TIMEOUT_SECS}" 9 \
+      || { warn "配置のロックを ${PLACE_LOCK_TIMEOUT_SECS} 秒待っても取れませんでした: ${lock_file}"; exit 1; }
+    node "${REPO_ROOT}/scripts/place-release-binaries.mjs" "${extract_dir}" "${CLAUDE_DIR}"
+  ) 9>"${lock_file}" || die "バイナリの配置に失敗しました"
 
   if [ -f "${CLAUDE_DIR}/BUILD_INFO" ]; then
     log "配置したビルドの provenance:"
