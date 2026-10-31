@@ -115,6 +115,8 @@
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |
 | 580 | Tier 3 | **[improvement] baseline 走査の fail-closed guard をテストで固定し、`collect_rust_files` の読み飛ばしを塞ぐ** | todo29.md | S | なし (2026-10-19、#580 feedback) |
 | 586 | Tier 3 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | todo29.md | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
+| 587 | Tier 3 | **[improvement] 手元の deploy と cloud の配置が同時に走っても、手元の exe を nightly 版で上書きしない** | todo29.md | M | なし (2026-10-31、#600 の post-merge feedback。排他の方式を決める判断があるので human lane) |
+| 588 | Tier 3 | **[improvement] サンプル由来の `src/sample.*` と `py-lint` / `py-typecheck` の要否を調べて撤去する** | todo29.md | S | なし (2026-10-31、#602 の post-merge feedback。lint の fixture かを着手時に調べる) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

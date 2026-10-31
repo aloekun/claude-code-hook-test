@@ -84,6 +84,7 @@
 9. **代替の評価は今回は始めない (決定 4 を維持)。** 費用 0 のままレビューを受け続けられるため、乗り換えを急ぐ理由がない
 10. **pr-monitor 側の扱いは別に直す。** check-ci-coderabbit はスキップ通知を新しいコメントとして数え、`action_required` か `pending` のままにする。依頼の自動化とは独立した問題なので、別のタスクにした
     - **2026-10-30 に実施 (順位 585)**: check-ci-coderabbit は、スキップを `review_state = "not_started"` として返す。材料は 2 つで、英語の理由の文言 (stars / incremental / seat) には頼らない。(1) commit status が `success` で、description が `Review skipped` で始まる。(2) commit status が無く、push の後に更新された walkthrough comment に `skip review by coderabbit.ai` の段がある (re-push のスキップは status を付けない、#600)。スキップ通知は新しいコメントに数えない。段と同居する clean な walkthrough は以前のレビューのものなので、完了の証拠にしない (#586)。`decide` は `not_started` を pending として扱い、summary と pr-monitor の判定文は「Trigger review で依頼が必要」と伝える。再 push の後も `not_started` になるので、再レビューを依頼するかは引き続き人間が判断する
+    - **2026-10-31 に追記**: 依頼の後もスキップの段と commit status はしばらく残るため、`not_started` のままだと依頼済みの PR にも「依頼が必要」と出ていた (#602 の作成直後に観測)。push の後に依頼の痕跡 (段の Trigger review 行が `- [x]`、または行頭が `@coderabbitai review` のコメント) があれば `pending` (レビュー待ち) として返す。`not_started` は「依頼していない」の意味だけに使う
     - review-request.yml の分類と待ち時間は、夜間ループの再開前に決める (順位 586)
 
 ### 欠点 / 留意点

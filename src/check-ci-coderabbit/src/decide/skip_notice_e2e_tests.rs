@@ -180,6 +180,122 @@ fn review_completed_after_skip_still_completes() {
     assert_eq!((status.as_str(), action.as_str()), ("complete", "stop_monitoring_success"));
 }
 
+fn checked_skip_block() -> String {
+    SKIP_BLOCK.replacen("- [ ]", "- [x]", 1)
+}
+
+fn request_comment_json(body: &str, created_at: &str) -> String {
+    serde_json::json!([{
+        "user": {"login": "aloekun"},
+        "body": body,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }])
+    .to_string()
+}
+
+fn merge_comments(a: &str, b: &str) -> String {
+    let mut items: Vec<serde_json::Value> = serde_json::from_str(a).unwrap();
+    items.extend(serde_json::from_str::<Vec<serde_json::Value>>(b).unwrap());
+    serde_json::Value::Array(items).to_string()
+}
+
+/// #602: PR 作成時に Trigger review へチェックを入れた直後。status と段はまだスキップを示すが、
+/// 依頼は済んでいるので「依頼してください」ではなくレビュー待ちと伝える。
+#[test]
+fn checked_trigger_after_skip_status_is_pending_without_asking() {
+    let statuses = status_json(&[(
+        "success",
+        "Review skipped: manual review required for this OSS repository",
+    )]);
+    let body = format!("{SUMMARY_HEADER}\n{}", checked_skip_block());
+    let comments = comment_json(&body, AFTER_PUSH, AFTER_PUSH);
+
+    let cr = cr_from(&statuses, &comments);
+    assert_eq!(cr.review_state, "pending");
+    let (status, action) = decide(&ci_success(), &cr, None);
+    assert_eq!((status.as_str(), action.as_str()), ("pending", "continue_monitoring"));
+    let summary = build_summary(&ci_success(), &cr, None);
+    assert!(!summary.contains("依頼"), "依頼済みの PR に依頼を促さない: {summary}");
+}
+
+/// re-push の形 (status 無し、段だけ) でも、チェック済みならレビュー待ち。
+#[test]
+fn checked_trigger_in_skip_block_without_status_is_pending() {
+    let body = format!("{SUMMARY_HEADER}\n{}", checked_skip_block());
+    let comments = comment_json(&body, BEFORE_PUSH, AFTER_PUSH);
+
+    assert_eq!(cr_from("[]", &comments).review_state, "pending");
+}
+
+/// 通知を待たずに `@coderabbitai review` で依頼した場合もレビュー待ち。
+#[test]
+fn review_command_after_push_is_pending() {
+    let statuses = status_json(&[("success", "Review skipped: incremental reviews are disabled")]);
+    let skip = comment_json(&format!("{SUMMARY_HEADER}\n{SKIP_BLOCK}"), AFTER_PUSH, AFTER_PUSH);
+    let comments = merge_comments(&skip, &request_comment_json("@coderabbitai review", AFTER_PUSH));
+
+    assert_eq!(cr_from(&statuses, &comments).review_state, "pending");
+}
+
+/// 通知のコメントが無くても、status がスキップで push 後に依頼していればレビュー待ち。
+#[test]
+fn review_command_after_push_without_notice_is_pending() {
+    let statuses = status_json(&[("success", "Review skipped: incremental reviews are disabled")]);
+    let comments = request_comment_json("@coderabbitai review", AFTER_PUSH);
+
+    assert_eq!(cr_from(&statuses, &comments).review_state, "pending");
+}
+
+/// push 前の依頼を push 後に編集しても、今回の push を依頼したことにならない (#603 の指摘)。
+/// 依頼コメントは `created_at` で見る。
+#[test]
+fn review_command_edited_after_push_keeps_not_started() {
+    let statuses = status_json(&[("success", "Review skipped: incremental reviews are disabled")]);
+    let skip = comment_json(&format!("{SUMMARY_HEADER}\n{SKIP_BLOCK}"), AFTER_PUSH, AFTER_PUSH);
+    let edited = serde_json::json!([{
+        "user": {"login": "aloekun"},
+        "body": "@coderabbitai review",
+        "created_at": BEFORE_PUSH,
+        "updated_at": AFTER_PUSH,
+    }])
+    .to_string();
+
+    assert_eq!(cr_from(&statuses, &merge_comments(&skip, &edited)).review_state, "not_started");
+}
+
+/// push より前の依頼は、今回の push のレビューを頼んだことにならない。
+#[test]
+fn review_command_before_push_keeps_not_started() {
+    let statuses = status_json(&[("success", "Review skipped: incremental reviews are disabled")]);
+    let skip = comment_json(&format!("{SUMMARY_HEADER}\n{SKIP_BLOCK}"), AFTER_PUSH, AFTER_PUSH);
+    let comments = merge_comments(&skip, &request_comment_json("@coderabbitai review", BEFORE_PUSH));
+
+    assert_eq!(cr_from(&statuses, &comments).review_state, "not_started");
+}
+
+/// 依頼の文言を文中で触れただけのコメントは依頼として数えない (行頭のコマンドだけを見る)。
+#[test]
+fn mentioning_review_command_mid_sentence_is_not_a_request() {
+    let statuses = status_json(&[("success", "Review skipped: incremental reviews are disabled")]);
+    let skip = comment_json(&format!("{SUMMARY_HEADER}\n{SKIP_BLOCK}"), AFTER_PUSH, AFTER_PUSH);
+    let note = request_comment_json("必要なら `@coderabbitai review` を投稿する", AFTER_PUSH);
+
+    assert_eq!(cr_from(&statuses, &merge_comments(&skip, &note)).review_state, "not_started");
+}
+
+/// コメントの JSON が壊れていても判定を変えない (status 由来の状態をそのまま返す)。
+#[test]
+fn broken_comments_json_keeps_status_state() {
+    let statuses = status_json(&[(
+        "success",
+        "Review skipped: manual review required for this OSS repository",
+    )]);
+
+    assert_eq!(cr_from(&statuses, "not json").review_state, "not_started");
+    assert_eq!(cr_from("[]", "not json").review_state, "not_found");
+}
+
 /// 判定は description の接頭辞で行い、スキップの理由の文言には頼らない。
 /// 理由は停止のたびに変わってきた (seat / incremental / stars)。
 #[test]
