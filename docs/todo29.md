@@ -386,3 +386,37 @@
 
 - review-request.yml がスキップ通知を walkthrough と分類しないこと
 - 待ち時間が、再開時に実測した依頼から完了までの時間を上回ること
+
+### 順位 587: 手元の deploy と cloud の配置が同時に走っても、手元の exe を nightly 版で上書きしない
+
+> **動機**: `scripts/deploy-artifacts.mjs` の `deployArtifacts` は exe を置いてから `.fingerprint` を書く。cloud セッションで `pnpm build:*` と SessionStart の `scripts/place-release-binaries.mjs` が重なり、その間に配置が走ると、stamp の無い exe と判定して nightly 版で上書きする。その後に deploy が stamp を書くので、nightly 版に手元ビルドの stamp が付き、以後の配置はそれを残し続ける。`scripts/cloud-setup.sh` の flock は配置どうしを直列にするだけで、deploy とは排他にしていない (#600 の CodeRabbit 指摘)。
+>
+> **由来**: `[improvement]`。#600 の post-merge feedback の採用候補 (Tier 2-4)。
+>
+> **実行優先度**: Tier 3 — Effort M。窓は exe の置き換えから stamp の書き込みまでと狭く、cloud で build と SessionStart が重なったときだけ起きる。Node に flock が無いので排他の方式を決める判断がある。human lane。
+
+#### 作業計画
+
+- 排他の方式を決める (lock ファイルの作り方、cloud-setup.sh の flock と同じ lock を共有するか、書き込み順の工夫で済むか)
+- `deployArtifacts` と `placeReleaseBinaries` が重なった場合のテストを足す
+
+#### 完了基準
+
+- deploy の途中で配置が走っても、手元の exe と stamp の組が崩れないこと
+
+### 順位 588: サンプル由来の `src/sample.*` と `py-lint` / `py-typecheck` の要否を調べて撤去する
+
+> **動機**: 順位 560 で `tests/test_sample.py` を消したので、`src/sample.py` はテストの無いまま `py-lint` / `py-typecheck` の対象に残った。`src/sample.ts` と `src/__tests__/sample.test.ts` もサンプル由来の可能性がある (#602 の pre-push レビューと post-merge feedback が指摘)。
+>
+> **由来**: `[improvement]`。#602 の post-merge feedback は検知機構の新設を却下し、直接の撤去を勧めた。
+>
+> **実行優先度**: Tier 3 — Effort S。過去の takt ログに「`src/sample.ts` は lint 違反を意図して入れた fixture」とあり、lint hook の動作確認に使われている可能性があるので、着手時に調べてから決める。human lane。
+
+#### 作業計画
+
+- `src/sample.py` / `src/sample.ts` / `src/__tests__/sample.test.ts` と `py-lint` / `py-typecheck` を参照する箇所 (hook の設定、テスト、CI) を調べる
+- 使われていなければ撤去する。使われていれば、残す理由をそのファイルか参照元に書く
+
+#### 完了基準
+
+- 各ファイルと script が、撤去されたか、残す理由が書かれていること

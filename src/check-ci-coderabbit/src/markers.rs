@@ -60,6 +60,49 @@ pub(crate) fn is_skip_review_comment(c: &GhComment) -> bool {
         .unwrap_or(false)
 }
 
+/// スキップ通知の「🔍 Trigger review」行を見分ける目印。行は次の形で、チェックを入れると
+/// `- [x]` になる (UI でも API の本文編集でも同じ):
+///
+/// ```text
+/// > - [ ] <!-- {"checkboxId":"..."} --> 🔍 Trigger review
+/// ```
+///
+/// 同じ判定を cli-pr-monitor の `stages::trigger_review::classify` も持つ (そちらはチェックを
+/// 入れる側)。crate 間で共有する lib が無いので複製している。行の形が変わったら両方を直す。
+const TRIGGER_CHECKBOX_MARKER: &str = r#"<!-- {"checkboxId"#;
+const TRIGGER_LABEL: &str = "Trigger review";
+
+/// レビューを依頼するコメントの書き出し。cli-pr-monitor の `request_review_by_comment` が
+/// `@coderabbitai review` を投稿する。人間が `full review` で依頼することもある。
+const REVIEW_REQUEST_COMMANDS: &[&str] = &["@coderabbitai review", "@coderabbitai full review"];
+
+/// `c` がスキップ通知で、その Trigger review 行がチェック済みか (順位 585 の後続)。
+///
+/// 依頼の後もスキップの段と commit status はしばらく残るので、これを見ないと依頼済みの
+/// PR にも「依頼してください」と案内してしまう (#602 で実測)。チェックは本文の編集なので、
+/// 依頼した時刻は `updated_at` に出る。
+pub(crate) fn has_checked_trigger(c: &GhComment) -> bool {
+    is_skip_review_comment(c)
+        && c.body.as_deref().unwrap_or("").lines().any(|line| {
+            line.contains(TRIGGER_CHECKBOX_MARKER)
+                && line.contains(TRIGGER_LABEL)
+                && (line.contains("- [x]") || line.contains("- [X]"))
+        })
+}
+
+/// `c` が `@coderabbitai review` で始まる行を持つか (順位 585 の後続)。
+///
+/// 投稿者は問わない (依頼は人間名義で出す — trigger_review の module doc)。依頼した時刻は
+/// `created_at` で、`updated_at` は使わない。push 前の依頼を後から編集しても、今回の
+/// push を依頼したことにはならない (#603 の CodeRabbit 指摘)。
+pub(crate) fn has_review_command(c: &GhComment) -> bool {
+    c.body.as_deref().unwrap_or("").lines().any(|line| {
+        REVIEW_REQUEST_COMMANDS
+            .iter()
+            .any(|cmd| line.trim_start().starts_with(cmd))
+    })
+}
+
 /// `c.body` に [`RATE_LIMIT_MARKERS`] のいずれかが含まれていれば rate-limit comment と判定する。
 pub(crate) fn is_rate_limit_comment(c: &GhComment) -> bool {
     c.body
