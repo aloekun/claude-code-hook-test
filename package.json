@@ -11,7 +11,6 @@
     "lint:workflows": "node scripts/lint-workflows.mjs",
     "lint:takt-facets": "node scripts/lint-takt-facets.mjs",
     "test": "vitest run",
-    "test:e2e": "node scripts/e2e.ts",
     "build": "npx --no-install tsc --noEmit --pretty",
     "build:hooks-pre-tool-validate": "cargo build --release -p hooks-pre-tool-validate && node scripts/deploy-artifacts.mjs hooks-pre-tool-validate",
     "build:hooks-post-tool-linter": "cargo build --release -p hooks-post-tool-linter && node scripts/deploy-artifacts.mjs hooks-post-tool-linter",
@@ -59,9 +58,7 @@
     "prepare-pr-body:cleanup": "node scripts/run-artifact.mjs cli-pr-monitor --prepare-pr-body-cleanup",
     "deploy:hooks": "node scripts/deploy-hooks.ts",
     "py-lint": "ruff check src/",
-    "py-test": "python -m pytest tests/",
-    "py-typecheck": "mypy src/",
-    "py-test:e2e": "echo py-test:e2e placeholder && python -c \"print('E2E smoke test passed')\""
+    "py-typecheck": "mypy src/"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

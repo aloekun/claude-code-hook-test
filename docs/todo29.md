@@ -135,30 +135,13 @@
 
 - templates の 5 個の扱いが明示され、明示なく欠けるとテストが落ちること
 
-### 順位 560: サンプル由来の `py-test` と `test:e2e` を撤去する
-
-> **動機**: `package.json` の `py-test` (`tests/test_sample.py`) と `test:e2e` (存在しない `vitest.e2e.config.ts` を参照する `scripts/e2e.ts`) はサンプル由来の残骸で、CI でも走っていない。`test:e2e` は Stop hook (`.claude/hooks-config.toml`) と push gate (`push-runner-config.toml`) から呼ばれており、`.env.e2e` が無いので素通りしている (#517 の調査で判明)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 3 — Effort S。`.claude/` の変更を含むので human lane。
-
-#### 作業計画
-
-- `package.json` の `py-test` / `py-test:e2e` / `test:e2e`、`tests/test_sample.py`、`scripts/e2e.ts` を消す
-- `.claude/hooks-config.toml` の `[stop_quality]` と `push-runner-config.toml` の `[quality_gate]` から `pnpm test:e2e` を外す。[ADR-004](adr/adr-004-stop-hook-quality-gate.md) の表の該当行を直す
-
-#### 完了基準
-
-- 撤去した script を参照する箇所が 0 件であること
-
 ### 順位 561: package.json の test script が CI で走っていることを検査する
 
 > **動機**: Node のテストが CI で走っていなかった (#517 の提案)。ci.yml には後から手で足されたが、成果物ごとのテストランナーが CI に入っていることを保証する検査は無い。
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。**順位 560 の完了が前提** (残骸 script があると検査が即座に落ちる)。それまでは human lane に置く。
+> **実行優先度**: Tier 3 — Effort S。前提の順位 560 (残骸 script の撤去) は 2026-10-31 に完了した。auto lane への移行は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が判断する。
 
 #### 決定事項 (2026-10-12)
 

@@ -102,8 +102,7 @@
 | 557 | Tier 3 | **[improvement] `--no-install` の無い `npx` を検査で止める** | todo29.md | S | なし (前提の順位 556 は 2026-10-29 完了、既存 3 件は解消済み) |
 | 558 | Tier 3 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | なし (前提の順位 556 は 2026-10-29 完了。変更先が `.claude/` なので human lane) |
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
-| 560 | Tier 3 | **[improvement] サンプル由来の `py-test` と `test:e2e` を撤去する** | todo29.md | S | なし (2026-10-12 の調査で判明。`.claude/` の変更を含むので human lane) |
-| 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | 順位 560 (残骸 script が消えてから auto lane へ) |
+| 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
 | 562 | Tier 2 | **[improvement] 夜間 verify と CI で vitest と lint:workflows を走らせる** | todo29.md | S | なし (2026-10-12。scripts/ 系のテストを auto lane に置くための前提。Guard 禁止パスの変更なので human lane) |
 | 563 | Tier 3 | **[improvement] lint-workflows の検査を強化する** | todo29.md | S | 順位 562 (#496 / #513 feedback。vitest が夜間で走ってから auto lane へ) |
 | 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | 順位 562 (#515 / #516 feedback。vitest が夜間で走ってから auto lane へ) |
