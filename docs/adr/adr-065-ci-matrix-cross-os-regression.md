@@ -237,6 +237,10 @@ push の quality_gate で**手元の Windows だけ**が走らせており、Lin
 - 実行中の exe を改名で差し替える処理 (ADR-082 決定 4) は、Linux では推論にとどまって
   いた。本追記と同時に、Node 本体のコピーを起動したまま差し替えるテストを加え、両 OS の
   `node` job で実測する
+- **`pnpm lint:workflows` も `node` job で回す (2026-11-02、順位 562)**: workflow の構文と
+  契約の検査は手元の push gate でしか走っておらず、push gate を通らない変更 (GitHub の
+  Web 編集など) では抜けていた。依存は vitest と同じ `node_modules` だけなので、別 job に
+  せず同じ job の step として足す
 
 ## 関連
 

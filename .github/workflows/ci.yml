@@ -48,6 +48,9 @@
 #   して並列に回し、run の一覧で独立に赤/緑が読めるようにする。vitest は devDependencies に
 #   版を固定し、`pnpm install --frozen-lockfile` で lockfile どおりに入れる (npx の
 #   キャッシュやネットワークから最新版を取る経路を持たない)。
+# - **`pnpm lint:workflows` も node job で回す** (順位 562): workflow の構文と契約の検査は
+#   手元の push gate でしか走っておらず、push gate を通らない変更 (GitHub の Web 編集など)
+#   では抜けていた。依存は vitest と同じ node_modules (js-yaml) だけなので、同じ job に置く。
 
 name: ci
 
@@ -253,3 +256,7 @@ jobs:
       - name: Run vitest
         shell: bash
         run: pnpm test
+
+      - name: Lint workflows
+        shell: bash
+        run: pnpm lint:workflows
