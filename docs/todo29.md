@@ -153,29 +153,6 @@
 
 - CI で走らない test script を足すと落ちるテストがあること
 
-### 順位 563: lint-workflows の検査を強化する
-
-> **動機**: `scripts/lint-workflows.mjs` には次の穴がある (#496 / #513 の提案)。
->
-> 1. workflow の jq で、jq の regex が対応しない PCRE の略記 (`\s` / `\d` / `\w`) を検出しない。`review-request.yml` は注意書きで避けているだけ
-> 2. `SHARED_CR_MARKERS` の同期判定が素の `includes` で、コメント中の marker でも「同期 OK」になる
-> 3. 本体のテストファイルが無く、契約検査 4 が壊れても気づけない
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 3 — Effort S。auto lane に載せるには、保留中の順位 589 (夜間 verify で vitest を走らせる) が前提。手で着手するなら前提は無い。
-
-#### 決定事項 (2026-10-12)
-
-- `lint-workflows.mjs` を export 関数に分け、`scripts/lint-workflows.test.mjs` (新規) で vitest のテストを書く
-- jq の run ブロック内の `\s` / `\d` / `\w` を違反にする。POSIX 文字クラス (`[[:space:]]` など) へ置き換える旨を出す
-- `SHARED_CR_MARKERS` の照合は、契約検査 4 と同じ `stripCommentLines` を通してから行う
-- 契約検査 4 の mutation テスト: endpoint を片側から消した 2 パターンで検査が落ちることを固定する
-
-#### 完了基準
-
-- 上の 3 つの穴を再現する入力で、それぞれ検査が落ちること
-
 ### 順位 564: deploy scripts のテストの残りを埋める
 
 > **動機**: `scripts/exe-fingerprint.mjs` / `scripts/deploy-artifacts.mjs` まわりのテストに抜けがある (#515 / #516 の提案)。
