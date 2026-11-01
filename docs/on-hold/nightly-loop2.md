@@ -227,7 +227,7 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 >
 > **動機**: 夜間ループの verify は `cargo test` と `cargo clippy` しか走らせない。このため scripts/ の検査やテストを足すタスク (順位 563 / 564 など) は auto lane に置けない (2026-10-12 の調査で判明)。
 >
-> **由来**: `[improvement]`。2026-11-01 に順位 562 から分けた。CI で lint:workflows を走らせる部分は順位 562 に残した。
+> **由来**: `[improvement]`。2026-11-01 に順位 562 から分けた。CI で lint:workflows を走らせる部分は順位 562 に残し、2026-11-02 に済ませた。
 >
 > **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更。
 

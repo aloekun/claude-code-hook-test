@@ -153,22 +153,6 @@
 
 - CI で走らない test script を足すと落ちるテストがあること
 
-### 順位 562: CI で lint:workflows を走らせる
-
-> **動機**: `pnpm lint:workflows` はローカルの push gate でしか走らない。`ci.yml` は vitest を回している (`node` job) が、workflow の契約検査は回していない。push gate を通らない変更 (GitHub の Web 編集など) では、workflow の検査が抜ける (2026-10-12 の調査で判明)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort XS。2026-11-01 に、夜間 verify で vitest と lint:workflows を走らせる部分を順位 589 として保留 ([docs/on-hold/nightly-loop.md](on-hold/nightly-loop.md)) へ分けた。夜間ループが休止中で、その部分は効果が無いため。
-
-#### 作業計画
-
-- `ci.yml` の `node` job で `pnpm lint:workflows` を走らせる
-
-#### 完了基準
-
-- CI で lint:workflows が走ること
-
 ### 順位 563: lint-workflows の検査を強化する
 
 > **動機**: `scripts/lint-workflows.mjs` には次の穴がある (#496 / #513 の提案)。
