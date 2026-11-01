@@ -99,7 +99,6 @@
 | 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | なし (#515 / #516 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
 | 565 | Tier 3 | **[improvement] `replaceFile` の Windows 固有の失敗系をテストする** | todo29.md | S | なし (2026-10-12、#516 feedback。Windows 実機での確認が要るので human lane) |
 | 567 | Tier 2 | **[improvement] `should_skip_request` の照会回数と head 固定の配線をテストで固定する** | todo29.md | M | なし (2026-10-12、#512 / #513 feedback。gh 呼び出しの注入口を切り出す。auto lane) |
-| 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |

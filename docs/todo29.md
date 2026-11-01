@@ -231,24 +231,6 @@
 
 - 経路か照会を 1 つ足すと落ちるテストと、上の配線テストがあること
 
-### 順位 568: pre-tool-validate の telemetry を exe 経由で検査する
-
-> **動機**: config 由来の生 regex が telemetry に載らないことは、型 (`&'static str`) と単体テストで守っているが、`record_preset_block` から telemetry の jsonl までを通しで確かめるテストが無い (#477 の提案)。allowlist に載せ忘れた preset が `custom-block` に落ちることも、telemetry の出力では確かめていない (#485 の提案)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- `src/hooks-pre-tool-validate/tests/telemetry_e2e.rs` (新規) に置く。`tests/smoke.rs` は「exit code と stderr の有無だけを見る」方針なので混ぜない。exe と config の staging と、Linux の ETXTBSY を避けるロックは smoke.rs から複製する (ADR-084)
-- config はテスト内で最小の toml を書く (`[telemetry] enabled = true` と、名前付き preset 1 個 + custom regex 1 個 + allowlist に無い名前 1 個の `blocked_patterns`)。子プロセスからは `CLAUDE_TELEMETRY_DISABLE` を外す
-- assert: custom regex と allowlist に無い名前でブロックしたとき、jsonl の id が `custom-block` で、ファイル全体に元の文字列が含まれないこと / 名前付き preset では id がその名前になること / kill-switch を立てると telemetry ディレクトリが作られないこと
-
-#### 完了基準
-
-- 上の 3 種の assert を持つ e2e があること
-
 ### 順位 569: lib-telemetry のテストの残りを埋める
 
 > **動機**: `src/lib-telemetry` のテストに小さな抜けが残っている (#543 / #511 の提案)。
