@@ -89,35 +89,6 @@
 
 - 新しい出力面を足す人が、既存 screening を流用してよいかを**表を見るだけで判断できる**こと。
 
-### 順位 431: `review-request` の成功判定を初回レビュー取得まで遅らせる
-
-> **動機**: 2026-08-11 の夜間ループ実走 (PR [#387](https://github.com/aloekun/claude-code-hook-test/pull/387)) で、CodeRabbit がレート制限により `Review limit reached` を返した。`review-request` の検証は**要求後に CodeRabbit のコメントが 1 件以上付いたか**だけを見るため、**拒否も success として記録**され、run は緑で終わった。
->
-> **契約どおりではある**: この検証は決定 11 の失敗 (10 時間の無反応に気づけなかった) への対策で、workflow のコメントにも「投稿の成否ではなく CodeRabbit の反応を待つ」と明記されている。**設計の欠陥ではない。**
->
-> **問題は残る**: 結果として「レビューが付かないまま success で終わった自律 PR」がどこにも信号として残らない。[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § M5 の方針でリトライ機構を持たないため、解除後に自動で再要求されることもない。翌朝レビューする人間は、PR を開くまで未レビューだと分からない。
->
-> **対処案**: (a) 反応の**中身**を判別し、レート制限による拒否は success としない (run を warning か failure にする)、(b) 未レビューの自律 PR を検出する信号を別に持つ (weekly-review の自律アクション棚卸しに載せる = WP-19 ステップ 3)、(c) 解除見込み時刻を run log に出して人間が再要求できるようにする。**リトライ機構の作り込みは § M5 の方針に反する**ため、検出と可視化に留めること。
->
-> **参照**: [review-request.yml](../.github/workflows/review-request.yml)、[ADR-072](adr/adr-072-nightly-todo-loop.md) § 定常運用 2 巡目の実走観測、[ADR-019](adr/adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する / § M5、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) (陽性証拠の要求)。
->
-> **実行優先度**: Tier 2 — Severity Medium (未レビューの自律 PR が可視化されない) / Frequency Medium (人間が 2 本マージした夜) / Effort S-M / Adoption Risk Low (判別を厳しくしすぎると正常な反応まで failure にする)。
-
-#### 作業計画
-
-- [x] CodeRabbit の応答パターンを分類する (2026-08-20 実装)。`REVIEWED` (walkthrough marker) / `RATE_LIMITED` / `OTHER` の 3 分類とし、`OTHER` (ack・skip 通知・未知 format) は陽性証拠に数えず deadline 到達で red = 安全側 (未取得扱い) へ倒す。
-  - **台帳の前提がずれていた**: 拒否の実体は walkthrough の `Review limit reached` placeholder ではなく **command ack** (`<!-- This is an auto-generated reply by CodeRabbit -->` + `⚠️ Action not completed` + `Review rate limited.`) で、`markers.rs` の `RATE_LIMIT_MARKERS` の**どちらにも一致しない** (PR #387 の実 body を `gh api` で確認)。本 workflow の marker は markers.rs の上位集合とし、`Review rate limited.` を workflow 固有 marker として追加した。
-  - rate-limit の判定は陽性証拠より**先**に行う。#387 では拒否 ack と summarize marker 付き placeholder が 3 秒差で並んでおり、先に陽性証拠を探すと placeholder をレビュー実体と読んで silent success に戻る。
-- [x] success 判定を**陽性証拠へ寄せる**方針に決定 (2026-08-20、ユーザー判断)。レート制限検出時は `[REVIEW_REQUEST_RATE_LIMITED]` を出して **red で落とす**。リトライは作らない (ADR-019 § M5) ため、run の色が「この PR は未レビューのまま残った」の即時信号になる。成功条件を厳しくしたぶん待機上限を 10 分 → 15 分へ延長 (job の `timeout-minutes` も 15 → 20)。
-- [x] weekly-review との役割分担を workflow 先頭に明記 (2026-08-20)。本 workflow は**即時信号のみ**で再要求はせず、未レビュー PR を全体で拾い直すのは weekly-review の自律アクション棚卸し (WP-19 ステップ 3) 側とする。両者は独立に動く。
-- [ ] **実走観測**: 次にレート制限が起きた夜間 run で red + `[REVIEW_REQUEST_RATE_LIMITED]` が出ることを確認してから本エントリを削除する。
-
-#### 完了基準
-
-- レート制限で弾かれた自律 PR が、run の色か後続の棚卸しのいずれかで**未レビューと分かる**こと。
-
-> **現在地 (2026-08-20)**: 実装済み。分類 jq は workflow ファイルから切り出して実 PR (#387 / #426 / #421 / #419) のコメント列へ適用し、**#387 (本エントリの由来 incident) が `RATE_LIMITED` = red、正常レビュー済みの 3 件が `REVIEWED` = green** になることを実測した。marker が複数層に分散する構造なので `scripts/lint-workflows.mjs` に同期検査を追加している (片方だけ変えると silent success に戻るため)。**完了基準の判定は実走観測待ち。**
-
 ### 順位 432: `check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー
 
 > **動機**: PR [#388](https://github.com/aloekun/claude-code-hook-test/pull/388) の pre-push review (simplicity、non-blocking) の指摘。`check_concurrent_run_guard` は呼ばれるたびに `.takt/runs/*` を**全ディレクトリ走査し各 `meta.json` を JSON としてパース**する。旧実装は `context.json` の mtime を 1 回読む O(1) だった。

@@ -153,22 +153,21 @@
 
 - CI で走らない test script を足すと落ちるテストがあること
 
-### 順位 562: 夜間 verify と CI で vitest と lint:workflows を走らせる
+### 順位 562: CI で lint:workflows を走らせる
 
-> **動機**: 夜間ループの verify は `cargo test` と `cargo clippy` しか走らせない。vitest は PR の CI でしか走らず、`pnpm lint:workflows` はローカルの push gate でしか走らない。このため scripts/ の検査やテストを足すタスクは auto lane に置けない (2026-10-12 の調査で判明)。
+> **動機**: `pnpm lint:workflows` はローカルの push gate でしか走らない。`ci.yml` は vitest を回している (`node` job) が、workflow の契約検査は回していない。push gate を通らない変更 (GitHub の Web 編集など) では、workflow の検査が抜ける (2026-10-12 の調査で判明)。
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。順位 563 / 564 の前提。
+> **実行優先度**: Tier 2 — Effort XS。2026-11-01 に、夜間 verify で vitest と lint:workflows を走らせる部分を順位 589 として保留 ([docs/on-hold/nightly-loop.md](on-hold/nightly-loop.md)) へ分けた。夜間ループが休止中で、その部分は効果が無いため。
 
 #### 作業計画
 
-- `nightly-todo.yml` の verify に `pnpm install --frozen-lockfile` と vitest を足す
-- `ci.yml` と夜間 verify で `pnpm lint:workflows` を走らせる
+- `ci.yml` の `node` job で `pnpm lint:workflows` を走らせる
 
 #### 完了基準
 
-- 夜間 verify と CI で vitest と lint:workflows が走ること
+- CI で lint:workflows が走ること
 
 ### 順位 563: lint-workflows の検査を強化する
 
@@ -180,7 +179,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。**順位 562 の完了が前提** (夜間 verify で vitest が走るまで auto にできない)。それまでは human lane に置く。
+> **実行優先度**: Tier 3 — Effort S。auto lane に載せるには、保留中の順位 589 (夜間 verify で vitest を走らせる) が前提。手で着手するなら前提は無い。
 
 #### 決定事項 (2026-10-12)
 
@@ -199,7 +198,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。**順位 562 の完了が前提**。それまでは human lane に置く。
+> **実行優先度**: Tier 3 — Effort S。auto lane に載せるには、保留中の順位 589 (夜間 verify で vitest を走らせる) が前提。手で着手するなら前提は無い。
 
 #### 決定事項 (2026-10-12)
 
@@ -228,27 +227,6 @@
 #### 完了基準
 
 - 2 つの失敗系で `replaceFile` が中途半端な状態を残さないことを、Windows でテストできること
-
-### 順位 566: review-request の依頼済み判定と待機時間の記述を締める
-
-> **動機**: `.github/workflows/review-request.yml` には次の 2 点がある (#496 / #513 の提案)。
->
-> 1. 既存の依頼コメントの判定が「Bot でない」と本文の一致だけで、投稿者の login を固定していない。第三者が同じ本文を投稿すると依頼を迂回できる
-> 2. sleep の回数・秒数と、説明文の「最大 X 秒」が一致していることを検査していない
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
-
-#### 作業計画
-
-- 依頼コメントの投稿者 login を、依頼を出す主体のものに固定して判定する
-- 「最大 X 秒」の記述と sleep の合計の対応規則を決め、`lint-workflows.mjs` で検査する
-- 同じファイルのコメントに残る旧関数名 `head_already_reviewed` を現在の `head_already_covered` に直す
-
-#### 完了基準
-
-- 投稿者の異なる同文コメントで依頼が省略されないこと、待機時間の記述がずれると検査が落ちること
 
 ### 順位 567: `should_skip_request` の照会回数と head 固定の配線をテストで固定する
 
@@ -367,25 +345,6 @@
 
 - 読めないディレクトリ・ファイルで 3 か所の guard がそれぞれ panic することを、テストで確認できること
 - `cargo test -p hooks-post-tool-linter` が通ること
-
-### 順位 586: 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める
-
-> **動機**: `.github/workflows/review-request.yml` は、CodeRabbit のスキップ通知 (本文の `skip review by coderabbit.ai` の目印、commit status の「Review skipped」) を walkthrough と分類する。また、`@coderabbitai review` の後に完了を待つ時間は 900 秒 (30 秒 × 30 回、job の上限は 20 分) で、#585 で実測した依頼から完了までの時間 (約 18 分) より短い。今のままでは、正常にレビューされる PR でも red になりうる (順位 585 の調査で判明)。
->
-> **由来**: `[improvement]`。順位 585 の作業計画のうち「待ち時間を延ばすかを決める (着手時判断)」を、2026-10-30 のユーザー判断で切り出した。このワークフローは bot が作った PR だけが対象で、夜間ループは 2026-10-18 から休止している ([ADR-072](adr/adr-072-nightly-todo-loop.md)) ため、今は動いていない。実測が 1 件しか無い今より、再開時の実測で決めたほうが根拠のある値にできる。
->
-> **実行優先度**: Tier 3 — Effort S。**夜間ループの再開前に行う**。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
-
-#### 作業計画
-
-- 再開時点の CodeRabbit の挙動 (自動レビューの有無、依頼から完了までの時間) を 1〜2 件の PR で実測する
-- スキップ通知の分類を、check-ci-coderabbit と同じ材料 (commit status の description の接頭辞と本文の目印) に揃える。目印は `src/check-ci-coderabbit/src/markers.rs` の `SKIP_REVIEW_MARKER` / `STATUS_SKIPPED_PREFIX`。workflow 側に入れるなら、`scripts/lint-workflows.mjs` の `SHARED_CR_MARKERS` に足して同期を検査する
-- 実測に合わせて `DEADLINE` と `timeout-minutes` を決める
-
-#### 完了基準
-
-- review-request.yml がスキップ通知を walkthrough と分類しないこと
-- 待ち時間が、再開時に実測した依頼から完了までの時間を上回ること
 
 ### 順位 587: 手元の deploy と cloud の配置が同時に走っても、手元の exe を nightly 版で上書きしない
 

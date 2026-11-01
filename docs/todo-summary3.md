@@ -4,6 +4,8 @@
 >
 > **分割位置の根拠**: 新規順位は常に最後の part に入るため part 3 だけが伸び、part 2 は完了削除で縮む。順位 400 で切ると part 2 = 43.5KB / part 3 = 32.4KB となり、伸びる側に約 17KB (約 45 順位分) の余裕が残る (2026-09-03 実測)。
 >
+> **新規順位の採番は、保留ファイルの順位も含めた最大 + 1 にする** (2026-11-01)。夜間ループの改善タスク 16 行と、新設の順位 589 は [docs/on-hold/nightly-loop.md](on-hold/nightly-loop.md) へ移した。本 table の最大だけを見て採番すると、保留ファイルの順位と重複する。
+>
 > **順位 500 以降の新規行は、タスク列の冒頭に起票由来のマーカーを付ける** ([ADR-079](adr/adr-079-defect-origin-tagging.md))。`[defect:G1]` (テストを書く場が無かった) / `[defect:G2]` (テストの場はあったが入力空間を覆っていなかった) / `[improvement]` (不具合ではない改善) の 3 択で、迷う defect は G1 に倒す。`[defect:*]` は**詳細エントリに実観測の証拠** (`#123` / `run 32589642740` / `発火: 4 回` のいずれか) が要る — 無ければ `[improvement]` としてしか登録できない。`pnpm lint:docs` が fail-closed で検査する。**順位 499 以前の既存行は対象外**。
 
 ## 推奨実行順序サマリー (続き 2、順位 400 以降)
@@ -27,7 +29,6 @@
 | 425 | Tier 2 | **jj の `git.auto-local-bookmark` 既定値への依存を CI で固定する (系統 E-2)** | todo22.md | M | なし (2026-08-11 採用。順位 397 の対処はこの既定値に依存しており、変わると前提が崩れるが気づく仕組みが無い) |
 | 427 | Tier 2 | **`BookmarkSearch::RemoteOnly` への変異操作を検出する (系統 F-1)** | todo22.md | M | なし (2026-08-11 採用。ADR-013 の設計契約では読み取り専用だが呼び出し側の誤用は防げない。lint より型 (newtype) で不可能にする案と比較すること) |
 | 428 | Tier 2 | **PR 番号を取る CLI の不正値 (`--pr 0` 等) を PreToolUse で検出する (系統 F-2)** | todo22.md | S | なし (2026-08-11 採用。#385 で exe 側は契約を得たが同型 CLI 追加時の漏れは防げない。exe の拒否で足りるなら不採用も正規の出口) |
-| 431 | Tier 2 | **`review-request` の成功判定を初回レビュー取得まで遅らせる** | todo27.md | S-M | なし (2026-08-11 実走で判明。レート制限による拒否も success として記録され、未レビューの自律 PR が信号として残らない。ADR-019 § M5 の方針によりリトライは作らず検出と可視化に留める) |
 | 432 | Tier 3 | **`check_concurrent_run_guard` の `.takt/runs` 全走査コストと保持ポリシー** | todo27.md | S-M | なし (2026-08-11 実測: run 538 件 / 174MB / 最古 46 日前 / クリーンアップ機構なし。現時点で実害は無いが単調増加。案 1 = 名前フィルタで走査を絞る、案 2 = 保持ポリシー) |
 | 434 | Tier 3 | **telemetry 時間語義・不変条件・degraded 運用の文書補強 (ADR-062 / CLAUDE.md)** | todo14.md | XS | なし (2026-08-12 採番 — 孤児エントリの回復) |
 | 435 | Tier 2 | **jj workspace/bookmark semantics の文書化 + pr-monitor 回帰テスト** | todo14.md | S-M | なし (2026-08-12 採番 — 孤児エントリの回復) |
@@ -37,36 +38,27 @@
 | 440 | Tier 2 | **weekly-review 成果物の保存問題 (dead pointer + cloud 移行後の保存先)** | todo22.md | S-M | なし (2026-08-12 起票。last-run の指す 2026-07-27.md が不在、ADR-070 移行後の保存先未確認。jj-robustness facet の bounded-lifetime 判定 = todo13.md の blocker) |
 | 442 | Tier 2 | **security facet に「新規 fail-closed 検査の抜けを敵対的に探す」観点を追加** | todo22.md | S | なし (2026-08-12 起票。ADR-056 確定判定の二重 miss 分析で最も再現性の高い失敗パターン = PR #313 Critical 3 件) |
 | 443 | Tier 3 | **fix 検証縮小 × re-gate 全 group 再実行の flaky 当たり面の縮小検討** | todo22.md | S-M | なし (2026-08-12 起票。ADR-058 確定判定で唯一の changed_block が flaky 誤 block と判明。negative result の永続化も正規の出口) |
-| 447 | Tier 1 | **台帳の `✅無人可` と判断留保キーワードの矛盾を決定論層で検出 (PR #400 T1-2)** | todo23.md | S | なし (2026-08-14 採用。#400 の正準タグ規約は instruction 層のみで機械強制が無い。実装先は custom lint rule か ledger.rs の fail-closed 検査かを着手時に決める) |
-| 448 | Tier 2 | **判断留保キーワード検査の回帰テスト (canonical / tagged / untagged の 3 分類) (PR #400 T2-1)** | todo23.md | S | 447 (検証対象が 447 の成果物。走査の実体が現状 Rust に無いため単独着手は不可) |
 | 450 | Tier 2 | **push-runner の bookmark 不在を早期検出し fallback のノイズを除去 (PR #400 T2-3)** | todo23.md | S | なし (2026-08-14 実測。削除済み bookmark への fallback がパースエラーを出してから中断し、対処法が読み取りにくい) |
 | 452 | Tier 3 | **本リポ instruction とスキルリポ SKILL.md の同時反映チェックリスト (PR #400 T3-2)** | todo23.md | XS | なし (2026-08-14 採用。ADR-051 の具体化。スキルリポ側に約 110 行のコミット漏れが滞留していた検出も含める) |
 | 453 | Tier 2 | **post-merge-feedback 分析 agent の書き込み先制約 (read-only facet の一時ファイル生成)** | todo23.md | S | なし (2026-08-14 起票。analyze_transcript.py の実観測。weekly の workspace-hygiene-scan が backstop、本タスクは上流修正で緊急度低) |
 | 458 | Tier 2 | **`cli-ledger-cleanup` の統合テスト suite (提案 10 件を統合)** | todo23.md | M | なし (2026-08-15 採用。手動実測した安全側 3 ケースの自動化が起点。削除は取り返しがつかないため安全側こそ回り続ける必要がある) |
 | 459 | Tier 2 | **weekly-review 周辺の決定論層テスト (提案 4 件を統合)** | todo23.md | S-M | なし (2026-08-15 採用。scan 失敗テストは検証対象が未確定 = shell のままか exe 化か。順位 448 と同じ構図) |
 | 460 | Tier 3 | **外部入力の信頼境界と fail-closed の徒定形を ADR 化 (提案 4 件を統合)** | todo23.md | S | なし (2026-08-15 採用。本チェーンの Critical 2 件の根本にある原則。ADR-043 の具体化として位置づける) |
-| 464 | Tier 2 | **`review-todo-whole` facet が読む台帳の事実を `cli-ledger-candidates` の出力へ寄せる** | todo24.md | S | なし (2026-08-17 に再 rescope。Criterion 3-2 は決定論 exe へ置換済み・3-3 のブランチ走査は消滅。残るのは 3-1 の逆向き差集合と `✅` 行の特定で、同 exe に出力を足すだけで足りる) |
 | 465 | Tier 2 | **docs 整合性と output-contract の drift を機械検証する (#409-#414 feedback 系統 A+B を統合)** | todo24.md | S-M | なし (旧依存だった順位 441 は 2026-08-26 に `cli-docs-lint` の `entry_pairing` として実装済み。実装先が同じなので、同 module へ相乗りするか独立 validator にするかを着手時に判断) |
-| 466 | Tier 3 | **出力先と検証設計の convention を明文化する (#409-#414 feedback 系統 C+E を統合)** | todo24.md | S | なし (2026-08-17 採用。docs のみ。出力の visible paths / fixture と実データの対 / step outcome の組み合わせ の 3 点) |
 | 468 | Tier 2 | **post-merge-feedback の takt run が起動直後に死ぬ経路 — 終了理由が記録されない** | todo24.md | S | なし (2026-08-18 起票。PR #417 の調査で判明。142 run 中 2 件が analyze 起動 34 秒以内に成果物ゼロで死亡。順位 444 は回復層の修正で死因には触れていない。まず終了コード / シグナルの観測を足す) |
 | 471 | Tier 2 | **cross-crate 定数 pin と reaper 回帰テストの残片を埋める (#417+#420 feedback 採用、系統 B 実装 + C)** | todo24.md | XS-S | なし (元 3 提案のうち 1 件は起票時点で実装済みと判明。着手時に再確認する) |
 | 472 | Tier 2 | **語彙・テスト作法・判断規律の convention 8 項目の行き先を決める (移設先 ADR or 却下、#418 / #419 / #420 / #421 / #423 feedback 採用、系統 B 規約 + D + E + F 規約)** | todo24.md | S-M | なし (docs のみ。分量次第で 3 セクションに PR 分割可) |
-| 474 | Tier 2 | **夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (#424 feedback 採用、系統 G)** | todo24.md | S | なし (ADR-074 は lane 割当基準のみで並行競合検知は範囲外) |
 | 475 | Tier 3 | **`resolve_project_dir` の case-sensitive FS 複数一致が無言で 1 件に縮退する (不具合修正計画の退役準備中に発見、2026-08-19)** | todo24.md | S | なし (WSL Ubuntu-24.04 / ext4 で 5 回試行し毎回 1 件のみ返ることを確認。発現経路は未確認だが 不具合修正計画の削除後も記録を残すため起票) |
 | 478 | Tier 2 | **jj 出力の path separator 前提を regression test で固定する (Windows は `\` 区切り)** | todo24.md | S | なし (PR #432 で CodeRabbit が「POSIX は `/`」を根拠に `\` 判定の削除を提案したが、実測では Windows jj 0.42 は `\` 区切り出力。外すと Windows で誤検知。現在 module doc の記述のみで test 未固定のため再提案の余地が残る。Severity Medium + Frequency Low + Effort S + Risk None) |
 | 479 | Tier 2 | **手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる** | todo24.md | S | なし (実測で 22 件中 7 件が未記載。うち 3 件は PR #431 以前からの漏れで、単発ではなく継続的にずれる構造。doc を手で直す案は方針 (決定論的で積み上げる) に反するため lint 化で採用。Severity Low + Frequency Medium + Effort S + Risk None) |
 | 480 | Tier 2 | **`owns()` が false を返す原因 (Owned / TakenOver / Unreadable) をログで区別する** | todo24.md | S | なし (lock 競合 (#364 型) の調査時にログから経路を再構成できない。判定は pure function に切り出せ unit test で固定可能。Severity Medium + Frequency Medium + Effort S + Risk None) |
 | 483 | Tier 2 | **エラーメッセージの無制限 debug 補間を lint で検出する (PR #437 T1-1 採用)** | todo25.md | S | なし (`clip_for_message` を導入したのに順位セル `{raw:?}` だけ経由せず切り詰め保証が崩れていた。検出範囲の絞り込み方が設計の肝で、全 `{:?}` を禁じると誤検知だらけになる) |
 | 484 | Tier 2 | **push stage の bare push フォールバック不変条件を seal する (PR #434 T2-1 採用)** | todo25.md | M | なし (fail-closed の判定結果である空リストが上流 fallback に無視される execution-contract 違反が PR #434 の根因。修正済みだが不変条件はテスト未固定。**非空を型で表現できるなら型が良い**) |
-| 486 | Tier 1 | **auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く (夜間ループ停止調査 2026-08-22 由来)** | todo25.md | S | なし (2026-08-20 の run が順位 383 を選び `src/lib-ledger/src/lib.rs` の変更で `[NIGHTLY_DENY]` 停止。auto lane 22 行の全件照合で 5 行が deny リスト該当 (383 / 454 / 368 / 360 / 361)。ADR-074 決定 2 クラス 3 の判定を決定論化する — 同 ADR 決定 6 が「決定論だが未実装」と自認している穴。**実装先が deny リスト配下のため auto lane に載せない**) |
 | 495 | Tier 2 | **`lib-*` crate の責務分類基準が ADR-012 に無い** | todo25.md | S | なし (週次レビュー WR-2026-08-22-A04、severity=medium、facet=architecture、category=module-boundary) |
 | 496 | Tier 2 | **docs の 50KB 超過 3 ファイルを物理分割する** | todo25.md | M | なし (2026-08-22 週次レビューの決定論 scan 由来。`todo-summary2.md` は優先度表 1 枚のため節ではなく順位で切る必要がある) |
 | 497 | Tier 2 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |
 | 503 | Tier 2 | **[improvement] doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)** | todo26.md | M | なし (PR #456 / #464 feedback。実際に壊れた観測はまだ無く、予防のための検査) |
 | 504 | Tier 2 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
-| 506 | Tier 2 | **[defect:G2] 夜間ループと Node script 層の境界をテストで固定する** | todo26.md | M | なし (PR #466 / #469 / #470 / #471 feedback。B4 の 4 件は実測済みで固定するだけ、合成ブランチの CI 化のみ新規) |
-| 508 | Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | todo26.md | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
-| 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | todo26.md | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか。2026-09-28 にハーネス改善計画 WP-19 ステップ 3 = 自律 PR の棚卸しと無人 PR 採用率の測定 (ADR-072 の判定期限 2026-11-06) を統合。2026-10-11 追記: 09-20〜10-10 の 21 晩は自動 lane の `✅` 行が 0 件で、毎晩 green のまま何もしていなかった。red の監視ではタスク切れが見えないので、implement 未到達の連続日数と `✅` 行の残数も出す) |
 | 511 | Tier 2 | **[improvement] `todo-summary2.md` を 3 分割し明示列挙の呼び出し元を追随させる** | todo26.md | M | なし (79KB。機構は F1 で 3 分割対応済みだが `--repo` ならぬ `--summary-file` の明示列挙が package.json と nightly-todo.yml に残る。workflow を触るため auto lane 不可。着手時判断: どの順位で切るか) |
 | 512 | Tier 3 | **[improvement] 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する** | todo26.md | M | なし (61KB / 59KB。移動したエントリの順位 table「ファイル」列の追随が必須で entry_pairing が強制する。着手時判断: 分割か孤児削除かを先に測る) |
 | 513 | Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |
@@ -103,18 +95,16 @@
 | 558 | Tier 3 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | なし (前提の順位 556 は 2026-10-29 完了。変更先が `.claude/` なので human lane) |
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
 | 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
-| 562 | Tier 2 | **[improvement] 夜間 verify と CI で vitest と lint:workflows を走らせる** | todo29.md | S | なし (2026-10-12。scripts/ 系のテストを auto lane に置くための前提。Guard 禁止パスの変更なので human lane) |
-| 563 | Tier 3 | **[improvement] lint-workflows の検査を強化する** | todo29.md | S | 順位 562 (#496 / #513 feedback。vitest が夜間で走ってから auto lane へ) |
-| 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | 順位 562 (#515 / #516 feedback。vitest が夜間で走ってから auto lane へ) |
+| 562 | Tier 2 | **[improvement] CI で lint:workflows を走らせる** | todo29.md | XS | なし (2026-10-12。2026-11-01 に夜間 verify の部分を順位 589 として保留へ分けた) |
+| 563 | Tier 3 | **[improvement] lint-workflows の検査を強化する** | todo29.md | S | なし (#496 / #513 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
+| 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | なし (#515 / #516 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
 | 565 | Tier 3 | **[improvement] `replaceFile` の Windows 固有の失敗系をテストする** | todo29.md | S | なし (2026-10-12、#516 feedback。Windows 実機での確認が要るので human lane) |
-| 566 | Tier 2 | **[improvement] review-request の依頼済み判定と待機時間の記述を締める** | todo29.md | S | なし (2026-10-12、#496 / #513 feedback。Guard 禁止パスの変更なので human lane) |
 | 567 | Tier 2 | **[improvement] `should_skip_request` の照会回数と head 固定の配線をテストで固定する** | todo29.md | M | なし (2026-10-12、#512 / #513 feedback。gh 呼び出しの注入口を切り出す。auto lane) |
 | 568 | Tier 2 | **[improvement] pre-tool-validate の telemetry を exe 経由で検査する** | todo29.md | S | なし (2026-10-12、#477 / #485 feedback。auto lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |
 | 580 | Tier 3 | **[improvement] baseline 走査の fail-closed guard をテストで固定し、`collect_rust_files` の読み飛ばしを塞ぐ** | todo29.md | S | なし (2026-10-19、#580 feedback) |
-| 586 | Tier 3 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | todo29.md | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
 | 587 | Tier 3 | **[improvement] 手元の deploy と cloud の配置が同時に走っても、手元の exe を nightly 版で上書きしない** | todo29.md | M | なし (2026-10-31、#600 の post-merge feedback。排他の方式を決める判断があるので human lane) |
 | 588 | Tier 3 | **[improvement] サンプル由来の `src/sample.*` と `py-lint` / `py-typecheck` の要否を調べて撤去する** | todo29.md | S | なし (2026-10-31、#602 の post-merge feedback。lint の fixture かを着手時に調べる) |
 

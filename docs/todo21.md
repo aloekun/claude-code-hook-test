@@ -42,25 +42,6 @@
 - `Write(path)` 指定子を含む設定が検知され、**必須 CI check が失敗する**こと (warning 止まりにしない)。
 - `Edit(path)` / `Read(path)` は検知されないこと。
 
-### 順位 390: 台帳 framing 区切りの定数と workflow リテラルの cross-file 一致を CI で検証
-
-> **動機**: [ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13 の framing は、`ledger.rs` の `LEDGER_DATA_FRAME_MARKER` と `.github/workflows/nightly-todo.yml` の `===BEGIN/END_LEDGER_DATA===` が**対**になって初めて成立する。片方だけ変えると framing が破れる (agent プロンプトの信頼境界が開く) が、現状は doc comment の相互参照だけで機械検証が無い。[ADR-069](adr/adr-069-pr-chain-declaration.md) 決定 7 の sha256 gate-asset check と同格の cross-file 不変量。
->
-> **対処案**: 両ファイルから定数 / リテラルを抽出して一致を assert する CI テストを追加する。AST 層 custom linter は overkill で、単純な constant-compare test (Effort M) で同等効果。
->
-> **参照**: `.claude/feedback-reports/369.md` Tier 2 #1、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 13、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (cross-system coupling の機械検証)。
->
-> **実行優先度**: Tier 2 — Severity Medium (framing の片側破れ) / Frequency Low / Effort M / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] `ledger.rs` の `LEDGER_DATA_FRAME_MARKER` と workflow の区切りリテラルを抽出・比較するテストを新設
-- [ ] 片方を変えるとテストが落ちることを確認
-
-#### 完了基準
-
-- 定数とリテラルが不一致になる変更が入るとテストが落ちること。
-
 ## WP-18 失敗頻度分析の follow-up (2026-08-09 登録)
 
 ### 順位 392: push パイプラインの terminal outcome を telemetry へ記録し、失敗回数・原因を機械集計可能にする
