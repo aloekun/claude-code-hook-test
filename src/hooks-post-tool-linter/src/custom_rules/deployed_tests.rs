@@ -109,10 +109,12 @@ fn deployed_custom_rules_pass_powershell_case_insensitive_validation() {
 }
 
 fn collect_rust_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    let entries = std::fs::read_dir(root).unwrap_or_else(|e| {
+        panic!(
+            "ディレクトリを読めません (検査対象が欠けたまま通さない): {}: {e}",
+            root.display()
+        )
+    });
     for entry in entries {
         let path = entry.expect("ディレクトリの entry を読めません (検査対象が欠けたまま通さない)").path();
         let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -141,6 +143,7 @@ fn deployed_src_rust_passes_no_write_result_discard_rule() {
     );
     let mut total_violations: Vec<String> = Vec::new();
     for path in &rust_files {
+        assert_readable_for_scan(path);
         let violations = run_custom_rules(path.to_str().unwrap(), &rules);
         for v in violations {
             total_violations.push(format!("{}: {}", path.display(), v));
@@ -221,6 +224,16 @@ fn load_deployed_rule_by_id(id: &str) -> CustomRule {
         .unwrap_or_else(|| panic!("rule '{id}' not found in deployed custom-lint-rules.toml"))
 }
 
+/// `run_custom_rules` は読めないファイルを違反 0 件として返すため、走査の前に読めることを確かめる。
+fn assert_readable_for_scan(path: &std::path::Path) {
+    if let Err(e) = std::fs::read_to_string(path) {
+        panic!(
+            "ファイルを読めません (検査対象が欠けたまま通さない): {}: {e}",
+            path.display()
+        );
+    }
+}
+
 /// rule⑲ / rule⑳ 共用: deployed rule を `src` / `scripts` / `.github` / `.takt` 全体に当て、
 /// 違反が 0 件であることを固定する (`tests/fixtures` / `.takt/runs` / `target` /
 /// `node_modules` / その他ドット始まりディレクトリは除外)。
@@ -251,12 +264,7 @@ fn assert_clean_baseline_for_rule(rule_id: &str) {
 
     let mut total_violations: Vec<String> = Vec::new();
     for path in &files {
-        if let Err(e) = std::fs::read_to_string(path) {
-            panic!(
-                "ファイルを読めません (検査対象が欠けたまま通さない): {}: {e}",
-                path.display()
-            );
-        }
+        assert_readable_for_scan(path);
         let violations = run_custom_rules(path.to_str().unwrap(), &compiled);
         for v in violations {
             total_violations.push(format!("{}: {}", path.display(), v));
@@ -267,6 +275,31 @@ fn assert_clean_baseline_for_rule(rule_id: &str) {
         "rule '{rule_id}' の既存違反が検出されました。clean baseline が崩れています: {:#?}",
         total_violations
     );
+}
+
+/// 走査 guard の検証用。CARGO_MANIFEST_DIR 直下に存在しないパスを使い、権限操作に頼らない。
+fn missing_scan_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("missing-scan-path-for-guard-test")
+}
+
+#[test]
+#[should_panic(expected = "ディレクトリを読めません")]
+fn collect_rust_files_panics_on_unreadable_dir() {
+    let mut out = Vec::new();
+    collect_rust_files(&missing_scan_path(), &mut out);
+}
+
+#[test]
+#[should_panic(expected = "ディレクトリを読めません")]
+fn collect_files_with_extensions_panics_on_unreadable_dir() {
+    let mut out = Vec::new();
+    collect_files_with_extensions(&missing_scan_path(), &["rs".to_string()], &mut out);
+}
+
+#[test]
+#[should_panic(expected = "ファイルを読めません")]
+fn assert_readable_for_scan_panics_on_unreadable_file() {
+    assert_readable_for_scan(&missing_scan_path().join("missing.rs"));
 }
 
 #[test]
