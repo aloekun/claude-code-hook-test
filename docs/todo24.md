@@ -31,49 +31,6 @@
 >
 > 同セッションで登録済みの 2 件 ([docs/todo23.md](todo23.md) § 週次レビュー由来) — facet 出力言語の明記 / 昇格候補集合の決定論化 — は本ファイルには重複させない。
 
-### 順位 464: `review-todo-whole` facet の台帳読み取りが現物と食い違う — 報告の信頼性を担保する
-
-> **動機**: 2026-08-15 の run で、`review-todo-whole` facet が台帳の `無人可` 列を**誤読した**。順位 284 を `✅` と報告したが、[docs/claude-code-web-tasks.md](claude-code-web-tasks.md) の現物は `—` であり、しかも同ファイルの § 無人可としなかった…理由 表に 284 が条件 3 違反として明記されている。facet は**自分が読んだはずのファイルに書いてある反証を見落として**逆の報告を出した。
->
-> **なぜ問題か**: 本 facet の Criterion 3 は「台帳の外の状態 (未マージブランチ・進行中 PR) を見ないと判定できない」ことを唯一の存在理由にしている。その報告が台帳の現物とすら一致しないなら、外部状態の報告も同じ精度で疑う必要がある。実際 2026-08-15 の run は条件 3 を 3 件「unverified」と正しく報告しており (workflow が `network_access: false` のため `gh` に届かない)、**正しい部分と誤った部分が同じレポートに混在していた**。読み手が現物と突き合わせない限り区別できない。
->
-> **同根の問題**: 同 facet は昇格候補チェックでも 251 件中 13 件しか判定せず、「token 予算不足」という**実測と矛盾する理由**を書いている (実行 2 分 37 秒 / iteration 1 回 / 予算制約の注入なし)。
->
-> **本タスクの位置づけ**: facet は `model: haiku` で動いている (`.takt/workflows/weekly-review.yaml`)。台帳のセル値のような**機械的に読める事実**を LLM に読ませていること自体が設計の問題で、`lib-ledger` が既に台帳パーサを持っている以上、決定論層へ寄せられる。
->
-> **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/runs/20260815-100604-weekly-review-2026-08-15/reports/review-todo-whole.md` (Criterion 3-3 の表)、`.takt/workflows/weekly-review.yaml` (`model: haiku`)、`src/lib-ledger/`、`src/cli-ledger-candidates/`
->
-> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium (毎週) / Effort S / Adoption Risk None。
-
-#### rescope (2026-08-17): 残る範囲を確定した — 逆向き差集合の決定論化
-
-lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 18) で facet の報告範囲を 2 度縮小し、そのうえで**まだ残る機械的読み取り**を確定させた。
-
-| facet の検査 | 現状 | 決定論化の要否 |
-|---|---|---|
-| Criterion 3-2 (未掲載順位の列挙) | `cli-ledger-candidates` の出力への参照に置換済み | **完了** (LLM は数えなくなった) |
-| Criterion 3-3 (未マージブランチ走査) | 撤去済み (条件 3 廃止) | **消滅** |
-| Criterion 3-1 (台帳にあるが順位 table に無い行) | facet が台帳の順位列を読んで summary を grep する | **要** — `cli-ledger-candidates` の**逆向き差集合**そのもので、同じパーサで出せる |
-| Criterion 3-3 (`✅` 行の `注意` 列の読み直し) | facet が `無人可` と `注意` のセルを読む | **一部要** — 判断留保の語を読むのは自然言語判断で LLM が適任だが、**どの行が `✅` か**は機械可読な事実で、2026-08-15 に誤読した (順位 284) のはまさにここ |
-
-**したがって「不要」ではない。** ただし残りは当初より小さく、`cli-ledger-candidates` に逆向き出力 (台帳にあるが順位 table に無い順位) と `✅` 行の一覧を足すだけで足りる見込み。新しい経路の設計は要らない。
-
-#### 作業計画
-
-- [ ] `cli-ledger-candidates` に逆向き差集合 (台帳にあるが順位 table に無い順位) の出力を足す — Criterion 3-1 の置換先
-- [ ] 同 exe に `無人可` 列の値つき行一覧を出す経路を足すか判断する (facet が `✅` 行を自分で読まなくて済むように)
-- [ ] `review-todo-whole` の Criterion 3-1 / 3-3 を、その出力への参照に置き換える
-- [ ] 次回 weekly-review の実走で、facet が報告する台帳の事実が現物と一致することを確認する
-
-#### 完了基準
-
-- facet が報告する台帳の機械可読な事実 (順位・`無人可`) が exe 由来になり、LLM の読み取り精度に依存しない
-- 自然言語判断 (`注意` 欄の判断留保の読み取り) だけが facet に残る
-
-#### 詰まっている箇所
-
-- なし。当初のブロッカーだった PR-5 (`cli-ledger-candidates`) は [#414](https://github.com/aloekun/claude-code-hook-test/pull/414) で着地済み、その後の weekly-review 実走確認も完了した（本ファイル冒頭の完了報告テーブル参照）。本節の作業計画 (逆向き差集合の追加・Criterion 3-1/3-3 の置き換え) 自体は未着手のまま残る
-
 ## post-merge feedback 採用分 (#409-#414 の 5 PR 分、2026-08-17 採否確定)
 
 > **由来**: lane モデル移行の 5 PR (#409 / #410 / #411 / #412 / #414) の post-merge feedback と、2026-08-16 の夜間ループ dispatch 実走で判明した事象。採用候補 14 件・却下推奨 13 件を系統別に精査し、**採用分を 3 タスクへ統合**した (却下推奨はそのまま却下、個別登録しない)。
@@ -117,36 +74,6 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 #### 詰まっている箇所
 
 - 実装済みの `entry_pairing` との統合可否 (実装先が同じなので分けると重複しうる)
-
-### 順位 466: 出力先と検証設計の convention を明文化する (系統 C + E)
-
-> **動機**: lane モデルの 5 PR で、同じ種類の設計ミスを 3 回踏んだ。(1) **出力先の見落とし** — 警告を stdout に出したが、workflow が stdout を捨てて許可リストの行だけ転送する設計だったため、最も見せたい経路 (exit 3) で警告が消えていた。(2) **fixture が実データを代表していない** — 順位 table 途中の空行という実データの癖を fixture が持たず、初版パーサが順位 193 以降を全部取りこぼした。実 exe を実ファイルに当てて初めて露見した。(3) **step outcome の組み合わせ** — `publish-tree` 失敗時に下流が `skipped` になり、`skipped != 'success'` で失敗マーカーが誤作成される経路を踏んだ。
->
-> **なぜ 1 タスクか**: 3 件とも「**書く前に考える対象**」の明文化で、行き先が `docs/dev-conventions.md` と `ADR-072` に閉じる。実装を伴わない。
->
-> **参照**: `.claude/feedback-reports/411.md` Tier3 #1・#2、`.claude/feedback-reports/412.md` Tier3 #2、ADR-043 / ADR-057 / ADR-064 (stdout/exit code の扱いを扱う既存 ADR 群)
->
-> **実行優先度**: **Tier 3** — Severity Low-Medium / Frequency Medium / Effort S / Adoption Risk None。
-
-#### 設計決定 (案)
-
-- ~~**C-1 出力の visible paths チェックリスト** (`docs/dev-conventions.md`)~~ **(2026-09-08 に却下)** — 実害が 1 件で機械化もできないため落とす
-- ~~**C-2 fixture と実データの対** (`docs/dev-conventions.md`)~~ **(2026-09-08 に順位 514 へ統合)** — パーサ堅牢化を仕組みで担保できるかの検討に含めた
-- **E-1 step outcome の組み合わせ** (ADR-072 へ追記): `skipped` は `success` ではない。上流が失敗して下流が skip された場合と、下流自身が deny した場合を条件式で区別する。現状は `nightly-todo.yml` のコードコメントに埋没している
-
-#### 作業計画
-
-- [ ] C-1 (出力の visible paths) は落とす。C-2 (fixture と実データの対) は順位 514 へ統合済み (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
-- [ ] ADR-072 に E-1 を追記 (決定 19 の実装節が適切)
-- [ ] `pnpm lint:docs` + markdownlint clean
-
-#### 完了基準
-
-- E-1 (`skipped` は `success` ではない) が ADR-072 に記録され、コードコメントにしか無い状態が解消している。C-1 は却下、C-2 は順位 514 へ統合した。
-
-#### 詰まっている箇所
-
-なし
 
 ---
 
@@ -278,30 +205,6 @@ lane モデルへの移行 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 1
 - 8 項目それぞれについて、移設先の ADR に載ったか、根拠つきで落としたかが決まっていること
 - 各項が「なぜ」と実例を持つこと
 - #424 の様子見項目 (「意味的に異なる状態が同じ見え方になるバグクラス」) を**採用 / 保留 / 却下のいずれかに決定し、理由を記録**していること
-
-### 順位 474: 夜間 auto lane とユーザー割当 PR の同一ファイル競合を自動検知する (系統 G)
-
-> **動機**: PR D の着手前に、台帳・作業計画書・実装の 3 箇所を人手で横断確認する必要が生じた
-> (2026-08-19)。台帳の順位 176 (auto lane) が PR D と同じ `src/check-ci-coderabbit/src/rate_limit.rs` を
-> 触る想定だったため。結果的に PR D はそのファイルを触らず競合しなかったが、**それを判定するのに
-> 手作業の横断確認が要った**。
->
-> [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) は lane 割当の判断基準を定めるが、
-> **同一ファイルの並行競合検知は範囲外**で重複しない。
->
-> **参照**: `.claude/feedback-reports/424.md` Tier2 #1、`lib_ledger::select` (文書順で 1 件選択)
->
-> **実行優先度**: **Tier 2** — Severity Medium (手戻りリスク) / Frequency Low / Effort S / Adoption Risk None。
-
-#### 作業計画
-
-- [ ] 検知の入力を決める (台帳の対象ファイル欄 × open PR の changed files)
-- [ ] 実装先を決める (`nightly-todo.yml` の step か `cli-nightly-task-select` の拡張か)
-- [ ] 競合時の挙動を決める (選定から除外するか、warning に留めるか)
-
-#### 完了基準
-
-- auto lane の選定が、ユーザー割当 PR と同一ファイルを触る順位を**機械的に検知し、選定から除外するか警告として報告する**こと (どちらを採るかは作業計画で決める。warning に留める場合も、検知結果が run log から読めること)
 
 ---
 

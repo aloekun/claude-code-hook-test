@@ -37,7 +37,11 @@
 > - **docs/todo28.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (2026-09-19 に todo.md から「週次レビュー採用」節を移した先として新設。2026-09-28 に移送分を実測で仕分けて空にし、新規追加先へ転用した。2026-10-12 に 41.9KB へ達し、新規追加先を todo29.md へ移した)
 > - **docs/todo29.md**: 新規タスクの追加先。50KB に到達するまでは本ファイルへ追加 (2026-10-12 に post-merge feedback の一括起票 (順位 535〜570) の後半を収める先として新設)
 > - 例外: 既存 todo.md / todo3.md 〜 todo29.md タスクと **同一ファイル / 同一コンポーネント** を編集する密結合タスクは該当ファイルに追加可 (例: `~/.claude/rules/common/git-workflow.md` 配下のグローバルルール群)
-> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo3-29.md / todo-summary.md / todo-summary2.md / todo-summary3.md。todo2.md は 2026-08-12 退役)
+> - **新セッションでは全 todo ファイルを確認すること** (todo.md / todo3-29.md / todo-summary.md / todo-summary2.md / todo-summary3.md。todo2.md は 2026-08-12 退役)。`docs/on-hold/` は対象外
+>
+> **夜間ループは休止中であり、lane を優先度の根拠にしない** (2026-11-01)。CodeRabbit が seat の無い bot の PR をレビューしなくなったため ([ADR-085](adr/adr-085-third-party-review-means.md))、夜間ループ ([ADR-072](adr/adr-072-nightly-todo-loop.md)) は 2026-10-18 から動いていない。台帳 (`docs/claude-code-web-tasks.md`) の `無人可` 列や、各エントリの「auto lane / human lane」の記述は、auto で実行できるかという属性として残しているだけである。タスクを選ぶときや優先度を付けるときに、「auto lane に置けない」「夜間 verify で走らない」を、上げる理由にも下げる理由にもしない。
+>
+> - **docs/on-hold/nightly-loop.md / nightly-loop2.md**: 夜間ループと auto lane の**仕組み**を改善するタスクの保留置き場 (2026-11-01 に順位 table の行・詳細エントリ・台帳の行ごと移した)。**ユーザーの指示が無い限り読まない・選ばない**。夜間ループの仕組みを改善するタスクを新しく起票するときは、こちらへ置く
 
 ---
 
