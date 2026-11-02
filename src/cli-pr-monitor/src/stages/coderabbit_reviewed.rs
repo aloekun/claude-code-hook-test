@@ -70,19 +70,23 @@ const STATUS_COMPLETED: &str = "Review completed";
 /// 「未レビュー」へ倒れる。同 crate の `fetch_mergeable_status` (`poll/rate_limit.rs`) と
 /// 同じ扱いに揃える。`gh` 呼び出しの `--repo` 欠落は本 repo で 3 度目の同型欠陥
 /// (PR #512 の CodeRabbit 指摘、順位 502 が同じパターンの lint 化を持つ)。
-fn head_already_covered(pr: u64, repo: &str) -> Option<bool> {
+fn head_already_covered(pr: u64, repo: &str, gh: GhQuery<'_>) -> Option<bool> {
     let pr_str = pr.to_string();
-    let head = crate::runner::run_gh_quiet(&[
+    let head = gh(&[
         "pr", "view", &pr_str, "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid",
     ])?;
     let head = head.trim();
     if head.is_empty() {
         return None;
     }
-    let via_reviews = covered_via_reviews_api(pr, repo, head);
-    let via_status = covered_via_commit_status(repo, head);
+    let via_reviews = covered_via_reviews_api(pr, repo, head, gh);
+    let via_status = covered_via_commit_status(repo, head, gh);
     combine_covered(via_reviews, via_status)
 }
+
+/// gh を 1 回呼び、成功なら stdout を返す関数。本番は [`crate::runner::run_gh_quiet`]、
+/// テストは呼ばれた引数を記録する stub を渡す (照会の回数と、head を固定した配線を確かめるため)。
+type GhQuery<'a> = &'a dyn Fn(&[&str]) -> Option<String>;
 
 /// [`head_already_covered`] を state から解決した `(pr, repo)` で呼び、skip 可否を返す。
 ///
@@ -90,10 +94,14 @@ fn head_already_covered(pr: u64, repo: &str) -> Option<bool> {
 /// repo を解決するため、その定型をここに置く。`repo` 未確定は判定不能として `false`
 /// (= 投稿する) に倒す。`reason` は log 行の前置きで、どの経路が skip したかを残す。
 pub(crate) fn should_skip_request(pr: u64, repo: Option<&str>, reason: &str) -> bool {
+    should_skip_request_with(pr, repo, reason, &crate::runner::run_gh_quiet)
+}
+
+fn should_skip_request_with(pr: u64, repo: Option<&str>, reason: &str, gh: GhQuery<'_>) -> bool {
     let Some(repo) = repo else {
         return false;
     };
-    if head_already_covered(pr, repo) != Some(true) {
+    if head_already_covered(pr, repo, gh) != Some(true) {
         return false;
     }
     log_info(&format!(
@@ -103,8 +111,8 @@ pub(crate) fn should_skip_request(pr: u64, repo: Option<&str>, reason: &str) -> 
 }
 
 /// reviews API 経由の「HEAD レビュー済み」判定。gh 照会失敗は `None` (判定不能)。
-fn covered_via_reviews_api(pr: u64, repo: &str, head: &str) -> Option<bool> {
-    let reviewed = crate::runner::run_gh_quiet(&[
+fn covered_via_reviews_api(pr: u64, repo: &str, head: &str, gh: GhQuery<'_>) -> Option<bool> {
+    let reviewed = gh(&[
         "api",
         "--paginate",
         &format!("repos/{}/pulls/{}/reviews", repo, pr),
@@ -115,9 +123,8 @@ fn covered_via_reviews_api(pr: u64, repo: &str, head: &str) -> Option<bool> {
 }
 
 /// commit status 経由の「HEAD レビュー済み」判定。gh 照会失敗・JSON parse 不能は `None`。
-fn covered_via_commit_status(repo: &str, head: &str) -> Option<bool> {
-    let status_json =
-        crate::runner::run_gh_quiet(&["api", &format!("repos/{}/commits/{}/status", repo, head)])?;
+fn covered_via_commit_status(repo: &str, head: &str, gh: GhQuery<'_>) -> Option<bool> {
+    let status_json = gh(&["api", &format!("repos/{}/commits/{}/status", repo, head)])?;
     parse_commit_status_covered(&status_json)
 }
 
@@ -406,5 +413,174 @@ mod tests {
             !should_skip_request(1, None, "[test]"),
             "repo 未確定は判定不能 → skip せず投稿する"
         );
+    }
+
+    const REPO: &str = "octo/sample";
+    const PR: u64 = 7;
+    const HEAD: &str = "head0000aaaa";
+    const STALE: &str = "stale000bbbb";
+
+    /// gh の stub。呼ばれた引数を記録し、照会の種類ごとに決めた stdout を返す。
+    struct GhStub {
+        reviews: String,
+        status: String,
+        calls: std::cell::RefCell<Vec<Vec<String>>>,
+    }
+
+    impl GhStub {
+        fn new(reviews: &str, status: &str) -> Self {
+            Self {
+                reviews: reviews.to_string(),
+                status: status.to_string(),
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn query(&self, args: &[&str]) -> Option<String> {
+            self.calls
+                .borrow_mut()
+                .push(args.iter().map(|a| a.to_string()).collect());
+            match args {
+                ["pr", "view", ..] => Some(format!("{HEAD}\n")),
+                ["api", "--paginate", ..] => Some(self.reviews.clone()),
+                ["api", _] => Some(self.status.clone()),
+                _ => panic!("想定していない gh 呼び出し: {args:?}"),
+            }
+        }
+
+        fn decide(&self, repo: Option<&str>) -> bool {
+            should_skip_request_with(PR, repo, "[test]", &|args| self.query(args))
+        }
+
+        fn calls(&self) -> Vec<Vec<String>> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    fn status_json(state: &str, description: &str) -> String {
+        format!(
+            r#"{{"statuses":[{{"context":"CodeRabbit","state":"{state}","description":"{description}"}}]}}"#
+        )
+    }
+
+    /// 1 回の判定で発行する gh は 3 回 (HEAD / reviews / commit status)。照会を足すと
+    /// 3 経路 x 呼び出し回数だけレート消費が増えるので、ここで落とす (#512 の提案)。
+    #[test]
+    fn one_decision_issues_exactly_three_gh_queries() {
+        let stub = GhStub::new("", &status_json("success", "Review skipped: x"));
+        stub.decide(Some(REPO));
+        assert_eq!(stub.calls().len(), 3, "calls: {:?}", stub.calls());
+    }
+
+    #[test]
+    fn unknown_repo_issues_no_gh_query() {
+        let stub = GhStub::new("", "");
+        assert!(!stub.decide(None));
+        assert!(stub.calls().is_empty(), "calls: {:?}", stub.calls());
+    }
+
+    /// reviews には古い SHA だけ、現 HEAD の status は skip の文言。どちらも「レビュー済み」の
+    /// 証拠にならないので投稿する側になる。照会が pr view で得た HEAD と `--repo` に固定されて
+    /// いることもここで確かめる (#513 の提案)。
+    #[test]
+    fn stale_review_and_skipped_status_do_not_skip_and_queries_are_pinned_to_head() {
+        let stub = GhStub::new(
+            &format!("{STALE}\n"),
+            &status_json("success", "Review skipped: incremental reviews are disabled"),
+        );
+        assert!(!stub.decide(Some(REPO)), "古い SHA と skip の文言では skip しない");
+
+        let calls = stub.calls();
+        let pr_view = &calls[0];
+        let repo_flag = pr_view.iter().position(|a| a == "--repo");
+        assert_eq!(
+            repo_flag.and_then(|i| pr_view.get(i + 1)).map(String::as_str),
+            Some(REPO),
+            "pr view に --repo が渡っていない: {pr_view:?}"
+        );
+        assert!(
+            calls[1].contains(&format!("repos/{REPO}/pulls/{PR}/reviews")),
+            "reviews の照会先: {:?}",
+            calls[1]
+        );
+        assert_eq!(
+            calls[2],
+            vec!["api".to_string(), format!("repos/{REPO}/commits/{HEAD}/status")],
+            "status の URL に pr view で得た HEAD が入っていない"
+        );
+    }
+
+    /// 陽性対照: 同じ配線で、reviews に現 HEAD があれば skip する。
+    #[test]
+    fn review_on_current_head_skips() {
+        let stub = GhStub::new(
+            &format!("{STALE}\n{HEAD}\n"),
+            &status_json("success", "Review skipped: x"),
+        );
+        assert!(stub.decide(Some(REPO)));
+    }
+
+    /// 陽性対照: 同じ配線で、現 HEAD の status が完了なら skip する。
+    #[test]
+    fn completed_status_on_current_head_skips() {
+        let stub = GhStub::new(&format!("{STALE}\n"), &status_json("success", STATUS_COMPLETED));
+        assert!(stub.decide(Some(REPO)));
+    }
+
+    /// crate の `src/` を走査して、`should_skip_request(` の呼び出し箇所をファイルごとに数える。
+    /// 行頭がコメントの行と、定義している本 module は数えない。
+    fn call_sites_by_file() -> std::collections::BTreeMap<String, usize> {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut stack = vec![src.clone()];
+        let mut counts = std::collections::BTreeMap::new();
+        while let Some(dir) = stack.pop() {
+            let entries = std::fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("ディレクトリを読めません: {}: {e}", dir.display()));
+            for entry in entries {
+                let path = entry
+                    .unwrap_or_else(|e| panic!("entry を読めません: {}: {e}", dir.display()))
+                    .path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs")
+                    || path.ends_with("stages/coderabbit_reviewed.rs")
+                {
+                    continue;
+                }
+                let content = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("ファイルを読めません: {}: {e}", path.display()));
+                let n = content
+                    .lines()
+                    .filter(|line| !line.trim_start().starts_with("//"))
+                    .map(|line| line.matches("should_skip_request(").count())
+                    .sum::<usize>();
+                if n > 0 {
+                    let rel = path
+                        .strip_prefix(&src)
+                        .expect("src の下のパス")
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    counts.insert(rel, n);
+                }
+            }
+        }
+        counts
+    }
+
+    /// 明示要求の経路は 3 つ (trigger_review は投稿前と待機後の 2 か所で呼ぶ)。経路を足すと
+    /// 1 回の判定ごとに gh 3 回が上乗せされるので、ここで落とし、レート消費を見直させる。
+    #[test]
+    fn should_skip_request_is_called_from_the_known_paths_only() {
+        let expected: std::collections::BTreeMap<String, usize> = [
+            ("stages/poll/rate_limit.rs", 1),
+            ("stages/review_trigger.rs", 1),
+            ("stages/trigger_review.rs", 2),
+        ]
+        .into_iter()
+        .map(|(file, n)| (file.to_string(), n))
+        .collect();
+        assert_eq!(call_sites_by_file(), expected);
     }
 }

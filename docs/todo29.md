@@ -189,25 +189,6 @@
 
 - 2 つの失敗系で `replaceFile` が中途半端な状態を残さないことを、Windows でテストできること
 
-### 順位 567: `should_skip_request` の照会回数と head 固定の配線をテストで固定する
-
-> **動機**: `src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs` の `should_skip_request` は 3 経路から呼ばれ、1 回の判定で gh を 3 回呼ぶ。経路が増えたり照会が増えたりすると API のレート消費が増えるが、それを固定するテストが無い (#512 の提案)。head に固定した照会 (reviews の `commit_id` 照合、status URL への head の埋め込み、`--repo` の受け渡し) の配線も、純関数テストでは捕まえられない (#513 の提案)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort M。
-
-#### 決定事項 (2026-10-12)
-
-- `head_already_covered` から gh 呼び出しを注入できる版 (`&dyn Fn(&[&str]) -> Option<String>` を受ける) を切り出し、本番からは `run_gh_quiet` を渡す。前例は `src/cli-pr-monitor/src/runner.rs` の `Capture` と `CaptureStub`
-- 回数は 2 種類を固定する: 呼び出し経路の数 (= 3。`include_str!` で `rate_limit.rs` / `review_trigger.rs` / `trigger_review.rs` の呼び出し箇所を数える) と、1 回の判定で発行する gh の数 (= 3。repo が未確定なら 0)
-- 配線テスト: stub で「reviews には古い SHA だけ、現 HEAD の status は skip の文言」を返し、結果が skip しない側になること、status の URL に pr view で得た head が入ること、pr view に `--repo` が渡ることを確かめる
-- workflow の bash 側 (`review-request.yml`) は対象外 (Guard 禁止パス)
-
-#### 完了基準
-
-- 経路か照会を 1 つ足すと落ちるテストと、上の配線テストがあること
-
 ### 順位 569: lib-telemetry のテストの残りを埋める
 
 > **動機**: `src/lib-telemetry` のテストに小さな抜けが残っている (#543 / #511 の提案)。
