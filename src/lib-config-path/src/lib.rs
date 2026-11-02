@@ -70,6 +70,7 @@ pub const LEGACY_CONFIG_DIR: &str = ".claude";
 /// 候補に含めず、常に [`LEGACY_CONFIG_DIR`] 固定で解決する。追加するときは、そのファイルが
 /// 保護ゲートの設定を持たない (agent に到達されても安全) ことを確認すること
 /// ([ADR-006](../../../docs/adr/adr-006-config-driven-hooks.md) § 改訂 (2026-09-15))。
+/// `scripts/deploy-hooks.ts` の案内する候補もこの一覧に合わせる (一致は `deploy_hooks_sync` が検査する)。
 const NEW_LOCATION_ELIGIBLE: &[&str] = &["custom-lint-rules.toml"];
 
 /// `filename` が `config/` への移設を許可されているか。
@@ -157,6 +158,9 @@ fn exe_dir() -> Option<PathBuf> {
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf))
 }
+
+#[cfg(test)]
+mod deploy_hooks_sync;
 
 #[cfg(test)]
 mod tests {
