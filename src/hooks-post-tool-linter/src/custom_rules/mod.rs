@@ -5,6 +5,8 @@
 //! - [`coverage`]: `rule_test_coverage_check` 機械検証 (deploy 済 TOML の test_coverage meta)
 //! - [`coverage_ext`]: 非主要拡張子の coverage をテスト本体から拡張子ごとに判定する純関数群 (順位 498)
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
+//! - [`exception_mutation_tests`]: exception を外すと good fixture で発火するか (= exception が
+//!   fixture で正当化されているか) の検査 (順位 554)
 //! - [`rule_tests`]: 各 deployed rule の positive / negative test (rule ごとに 5-10 tests)
 //! - [`rule_tests_allow_without_reason`]: rule㉕ (allow-without-reason) の tests
 //! - [`rule_tests_extras`]: rule_tests から spillover した rule-specific tests
@@ -30,6 +32,8 @@ pub(crate) mod types;
 mod deployed_tests;
 #[cfg(test)]
 mod engine_tests;
+#[cfg(test)]
+mod exception_mutation_tests;
 #[cfg(test)]
 mod rule_tests;
 #[cfg(test)]

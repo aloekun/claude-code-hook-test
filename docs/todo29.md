@@ -48,24 +48,6 @@
 
 - 並びの崩れたブロックを作ると落ちるテストがあり、既存違反が 0 件であること
 
-### 順位 554: custom-lint rule の exception を外すと incident fixture が落ちることを検査する
-
-> **動機**: regex rule の exception が広すぎたり不要だったりしても、気づく仕組みが無い。rule⑱ では pattern と exception の精度の問題がレビューまで残った (#532 の提案)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort M。
-
-#### 決定事項 (2026-10-12)
-
-- mutation は「exception を外す」の 1 種類に限る。pattern の書き換え (枝の削除や anchor の除去) は regex の構文解析が要り、操作の定義が恣意的になるので採らない
-- 対象は exception を持つ rule (2026-10-12 時点で 8 rule)。exception を外した rule を incident fixture の good 側に当て、1 件以上の違反が出ることを確かめる。出なければ、その exception は fixture で正当化されていないとして落とす
-- rule は `config/custom-lint-rules.toml` から読む。ハーネスは `src/hooks-post-tool-linter/src/custom_rules/` に新しい test module として置く
-
-#### 完了基準
-
-- exception を持つ全 rule について上の検査が走り、正当化されていない exception を足すと落ちること
-
 ### 順位 555: config パス候補の TS と Rust の同期をテストで固定する
 
 > **動機**: `scripts/deploy-hooks.ts` が派生プロジェクトで探す config の候補と、`src/lib-config-path/src/lib.rs` の候補 (`NEW_LOCATION_ELIGIBLE` など) は、コメントで手動同期しているだけである (#501 の提案)。hook を通して `config/` から設定を読む e2e も無い。
