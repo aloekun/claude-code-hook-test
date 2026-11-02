@@ -48,24 +48,6 @@
 
 - 並びの崩れたブロックを作ると落ちるテストがあり、既存違反が 0 件であること
 
-### 順位 555: config パス候補の TS と Rust の同期をテストで固定する
-
-> **動機**: `scripts/deploy-hooks.ts` が派生プロジェクトで探す config の候補と、`src/lib-config-path/src/lib.rs` の候補 (`NEW_LOCATION_ELIGIBLE` など) は、コメントで手動同期しているだけである (#501 の提案)。hook を通して `config/` から設定を読む e2e も無い。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- 同期検査: `lib-config-path` の `mod tests` に、`deploy-hooks.ts` をテキストとして読み、`notifyIfMissing` に渡す `join(...)` の候補を抜き出して比べるテストを置く。比較の仕様は「`NEW_LOCATION_ELIGIBLE` のファイルは `config/` と `.claude/` の 2 候補、それ以外は `.claude/` だけ」。前例は `src/cli-nightly-task-select/src/guard_list_sync.rs` (読むだけ。変更はしない)
-- e2e: post-tool-linter の exe を一時ディレクトリへ staging し、`config/custom-lint-rules.toml` だけを置いた状態で rule が効くことを確かめる (`src/hooks-post-tool-linter/tests/`)
-- 保護 config パスの直書きを検出する lint は作らない。本番コードの直書きは正当な 1 件 (`config_banners.rs`) だけだった
-
-#### 完了基準
-
-- 候補の片側だけを変えると落ちるテストと、`config/` から設定を読む e2e があること
-
 ### 順位 557: `--no-install` の無い `npx` を検査で止める
 
 > **動機**: `npx` に `--no-install` が無いと、未導入のツールを黙ってネットワークから取得する (#517 の提案)。
