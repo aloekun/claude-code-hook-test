@@ -95,7 +95,6 @@
 | 558 | Tier 3 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | なし (前提の順位 556 は 2026-10-29 完了。変更先が `.claude/` なので human lane) |
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
 | 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
-| 563 | Tier 3 | **[improvement] lint-workflows の検査を強化する** | todo29.md | S | なし (#496 / #513 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
 | 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | なし (#515 / #516 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
 | 565 | Tier 3 | **[improvement] `replaceFile` の Windows 固有の失敗系をテストする** | todo29.md | S | なし (2026-10-12、#516 feedback。Windows 実機での確認が要るので human lane) |
 | 567 | Tier 2 | **[improvement] `should_skip_request` の照会回数と head 固定の配線をテストで固定する** | todo29.md | M | なし (2026-10-12、#512 / #513 feedback。gh 呼び出しの注入口を切り出す。auto lane) |
