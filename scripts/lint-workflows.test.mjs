@@ -39,6 +39,40 @@ describe("checkJqShorthand", () => {
     expect(findings[0].line).toBe(3);
   });
 
+  it("flags a shorthand inside a double-quoted --jq program", () => {
+    const run = `N=$(gh api x --jq ".[] | select(.body | test(\\"\\s+\\")) | .id")`;
+    const findings = checkJqShorthand(run);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("受け付けず");
+  });
+
+  it("treats \\\\s in double quotes as a parse error, since bash shrinks it to \\s", () => {
+    const run = `N=$(gh api x --jq ".[] | test(\\"\\\\s+\\")")`;
+    const findings = checkJqShorthand(run);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("受け付けず");
+  });
+
+  it("flags \\\\s in single quotes without calling it a parse error", () => {
+    const run = `N=$(gh api x --jq '.[] | test("\\\\s+")')`;
+    const findings = checkJqShorthand(run);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("式は通ります");
+    expect(findings[0].message).not.toContain("受け付けず");
+  });
+
+  it("follows a line continuation between --jq and its program", () => {
+    const run = "N=$(gh api x \\\n  --jq \\\n  '.[] | test(\"\\\\s\")')";
+    const findings = checkJqShorthand(run);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].line).toBe(3);
+  });
+
+  it("does not take a quoted string from the next command as the program", () => {
+    const run = "T=$(gh pr view 1 --jq .title); sed -E 's/\\s+//' f.txt";
+    expect(checkJqShorthand(run)).toEqual([]);
+  });
+
   it("ignores comment lines that quote the forbidden form", () => {
     const run = "# jq の 'sub(\"^\\\\s+\";\"\")' は parse エラーになる\njq -r '.a' f.json";
     expect(checkJqShorthand(run)).toEqual([]);

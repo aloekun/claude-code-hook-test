@@ -29,7 +29,7 @@
 // 検査の判定は export した関数が持ち、`lint-workflows.test.mjs` が fixture で固定する
 // (順位 563)。ファイルの読み取りと結果の出力は main だけが行う。
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -196,11 +196,22 @@ export function findMissingEvidenceTokens(layers, tokens, readSource) {
 // shell と YAML のクォートを経た後の backslash の数は読み違えやすいので、backslash を
 // 使わない POSIX 文字クラス (`[[:space:]]` / `[[:digit:]]` / `[[:alnum:]_]`) に統一する。
 //
-// jq の式は `jq` / `--jq` の後ろで最初に現れる単一引用符の文字列とみなす (bash の単一引用符は
-// 中に `'` を含められないので、閉じ引用符までが式になる)。式が複数行にわたっても拾える。
+// jq の式は `jq` / `--jq` の後ろで最初に現れる引用符の文字列とみなす。単一引用符と二重引用符の
+// 両方を拾い、式が複数行にわたっても、式の前に `\` の行継続があっても拾う。式の前で
+// `|` / `;` / `&` / `<` / `>` / `)` に当たったら、別のコマンドの文字列なので探すのをやめる。
 // `--arg name 'value'` が式より前にある形は拾い損ねるが、現存の workflow には無い。
-const JQ_PROGRAM = /(?:^|[\s|;&(`])(?:--jq|jq)(?:=|\s)[^'\n]*'([^']*)'/g;
-const JQ_SHORTHAND = /\\[sdw]/;
+const JQ_PROGRAM =
+  /(?:^|[\s|;&(`])(?:--jq|jq)(?:=|\s)(?:[^'"\n\\|;&<>)]|\\\r?\n|\\.)*(?:'([^']*)'|"((?:[^"\\]|\\[\s\S])*)")/g;
+const JQ_SHORTHAND = /(\\+)([sdw])/;
+
+/**
+ * jq が受け取る backslash の数を返す。bash の二重引用符は `\\` を `\` に縮めるので、
+ * `"\\s"` も jq には `\s` として届く。
+ * @param {number} written 式に書かれた連続する backslash の数
+ * @param {boolean} singleQuoted
+ */
+const backslashesSeenByJq = (written, singleQuoted) =>
+  singleQuoted ? written : Math.ceil(written / 2);
 
 /**
  * 1 つの `run:` ブロックから、jq 式の中の `\s` / `\d` / `\w` を探す (空配列 = OK)。
@@ -216,7 +227,8 @@ export function checkJqShorthand(runText) {
     .join('\n');
   const findings = [];
   for (const match of text.matchAll(JQ_PROGRAM)) {
-    const program = match[1];
+    const singleQuoted = match[1] !== undefined;
+    const program = singleQuoted ? match[1] : match[2];
     const shorthand = program.match(JQ_SHORTHAND);
     if (!shorthand) {
       continue;
@@ -224,11 +236,16 @@ export function checkJqShorthand(runText) {
     const programStart = match.index + match[0].length - program.length - 1;
     const offset = programStart + shorthand.index;
     const line = text.slice(0, offset).split('\n').length;
+    const escape = `\\${shorthand[2]}`;
+    const reason =
+      backslashesSeenByJq(shorthand[1].length, singleQuoted) % 2 === 1
+        ? `jq の文字列リテラルは \`${escape}\` をエスケープとして受け付けず、式全体が parse エラーになります`
+        : `jq には \`\\\\${shorthand[2]}\` として届くので式は通りますが、shell と YAML のクォートを` +
+          '経た後の backslash の数は読み違えやすく、1 つ減ると parse エラーになります';
     findings.push({
       line,
       message:
-        `jq の式に \`${shorthand[0]}\` があります。jq の文字列リテラルは \`${shorthand[0]}\` を` +
-        'エスケープとして受け付けず、式全体が parse エラーになります。`[[:space:]]` / ' +
+        `jq の式に \`${shorthand[0]}\` があります。${reason}。\`[[:space:]]\` / ` +
         '`[[:digit:]]` / `[[:alnum:]_]` などの POSIX 文字クラスに置き換えてください',
     });
   }
@@ -388,6 +405,8 @@ function main() {
   console.log('[lint-workflows] OK (全 workflow の parse に成功)');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// node は symlink を解決したパスで module を読むので、argv 側も解決してから比べる
+// (比べ損ねると main() を呼ばずに exit 0 で終わり、検査が素通りする)。
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main();
 }
