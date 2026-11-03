@@ -43,6 +43,12 @@ describe("assertReadable", () => {
     expect(() => assertReadable(escaped, [allowed])).toThrow("許可した場所の外");
   });
 
+  it("allows a child whose name merely starts with `..`", () => {
+    mkdirSync(join(allowed, "..notes"));
+    writeFileSync(join(allowed, "..notes", "entry.json"), "{}");
+    expect(() => assertReadable(join(allowed, "..notes", "entry.json"), [allowed])).not.toThrow();
+  });
+
   it("rejects a sibling whose name only shares the root's prefix", () => {
     const sibling = `${allowed}-evil`;
     mkdirSync(sibling);
@@ -73,10 +79,11 @@ describe("defaultReadRoots", () => {
   it("is the repository, the Claude scratchpad and this repository's own transcript folder, in that order", () => {
     const repo = fileURLToPath(new URL("../..", import.meta.url));
     const projectId = repo.replace(/[\\/]+$/, "").toLowerCase().replace(/[\\/:]/g, "-");
-    expect(defaultReadRoots()).toEqual([
-      repo,
-      join(tmpdir(), "claude"),
-      join(homedir(), ".claude", "projects", projectId),
-    ]);
+    const [repoRoot, scratchpad, transcript, ...rest] = defaultReadRoots();
+    expect(repoRoot).toBe(repo);
+    expect(scratchpad).toBe(join(tmpdir(), "claude"));
+    // 実フォルダ名は元の cwd の大文字小文字を保つので、transcript は大文字小文字を無視して比べる
+    expect(transcript.toLowerCase()).toBe(join(homedir(), ".claude", "projects", projectId).toLowerCase());
+    expect(rest).toEqual([]);
   });
 });

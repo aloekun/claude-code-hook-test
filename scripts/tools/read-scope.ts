@@ -82,16 +82,17 @@ function realRoots(roots: string[]): string[] {
 
 function isWithin(file: string, root: string): boolean {
   const rel = relative(root, file);
-  return rel === "" || (!rel.startsWith("..") && !/^[A-Za-z]:|^[/\\]/.test(rel));
+  return rel === "" || (!/^\.\.(?:[/\\]|$)/.test(rel) && !/^[A-Za-z]:|^[/\\]/.test(rel));
 }
 
 /**
  * `file` の実パスがどれかの root の配下になければ例外を投げる。配下にあれば実パスを返す。
  *
- * 呼び出し元は判定に使った実パスをそのまま読む (check-then-open ではなく resolve-once-then-use)。
- * 判定後に別パスで `readFileSync` すると、判定から読み取りの間に symlink を差し替えられて
- * スコープ外ファイルを読める隙が生まれる (TOCTOU、pre-push の security レビューの指摘、
- * SEC-NEW-read-scope-L649)。
+ * 呼び出し元は、指定されたパスではなく、判定に使った実パスを読む (pre-push の security レビューの
+ * 指摘、SEC-NEW-read-scope-L649)。これで最後の成分の symlink を判定の後に差し替える経路は塞がる。
+ * ただし読み取りはパス指定で開き直すので、判定と読み取りの間に祖先ディレクトリを symlink に
+ * 差し替えられると外を読める。この競合を起こすには並行して任意のコマンドを実行できる必要があり、
+ * そこまでできるならこのツールを経由する必要がないため、ここでは防がない (PR #613 のレビュー)。
  */
 export function assertReadable(file: string, roots: string[] = defaultReadRoots()): string {
   const real = realpathSync.native(file);

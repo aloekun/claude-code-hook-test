@@ -43,14 +43,19 @@ export function headings(lines: string[]): Heading[] {
   const found: Heading[] = [];
   let fence: string | null = null;
   lines.forEach((line, index) => {
-    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker !== undefined) {
-      if (fence === null) fence = marker[0];
-      else if (marker[0] === fence) fence = null;
+    if (fence === null) {
+      const open = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (open !== undefined) {
+        fence = open;
+        return;
+      }
+    } else {
+      // 閉じフェンスは開始と同じ文字で、開始以上の長さ、後ろに情報文字列を持たない行 (CommonMark)
+      const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+      if (close !== undefined && close[0] === fence[0] && close.length >= fence.length) fence = null;
       return;
     }
-    if (fence !== null) return;
-    const m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+    const m = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
     if (m) found.push({ line: index + 1, level: m[1].length, text: m[2] });
   });
   return found;

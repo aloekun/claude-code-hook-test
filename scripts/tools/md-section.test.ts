@@ -32,6 +32,27 @@ describe("headings", () => {
       [12, 2, "次の章"],
     ]);
   });
+
+  it("closes a fence only with the same character, at least as long, and no info string", () => {
+    const lines = [
+      "````md", // 1
+      "```", // 2: 短いので閉じない
+      "# 中 1", // 3
+      "~~~~", // 4: 文字が違うので閉じない
+      "# 中 2", // 5
+      "````sh", // 6: 情報文字列があるので閉じない
+      "# 中 3", // 7
+      "`````", // 8: 閉じる
+      "# 外", // 9
+    ];
+    expect(headings(lines).map((h) => h.line)).toEqual([9]);
+  });
+
+  it("accepts up to three leading spaces before a heading", () => {
+    expect(headings(["   ## 字下げ 3", "    ## 字下げ 4 (コード)"]).map((h) => [h.line, h.text])).toEqual([
+      [1, "字下げ 3"],
+    ]);
+  });
 });
 
 describe("headingMatches", () => {
