@@ -30,24 +30,6 @@
 
 - 定数か例のどちらかだけを変えると落ちるテストがあること
 
-### 順位 552: mod 宣言の並び順をテストで検査する
-
-> **動機**: mod 宣言に新しい mod を差し込むと並び順が崩れる。現に `src/cli-pr-monitor/src/stages/mod.rs` で `trigger_review` が `gate` より前にある (#490 の提案)。custom-lint は行単位の regex で隣接行を比べられず、rustfmt はこのリポジトリでは適用していない (`cargo-fmt-block` で実行もできない)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 3 — Effort S。
-
-#### 決定事項 (2026-10-12)
-
-- `src/cli-docs-lint/tests/mod_order.rs` (新規) から `src/**/*.rs` を走査する cargo test にする (`target` は除外)
-- 比較の単位は、空行かコメントで区切られた連続ブロック。属性付きの mod (`#[cfg(test)]` / `#[path]` など) は比較から除外する。可視性 (`mod` / `pub mod` / `pub(crate) mod`) は区別せず名前で比べる
-- この条件での既存違反は `src/cli-pr-monitor/src/stages/mod.rs` の 1 件だけ (2026-10-12 実測)。同じ PR で並べ直す
-
-#### 完了基準
-
-- 並びの崩れたブロックを作ると落ちるテストがあり、既存違反が 0 件であること
-
 ### 順位 557: `--no-install` の無い `npx` を検査で止める
 
 > **動機**: `npx` に `--no-install` が無いと、未導入のツールを黙ってネットワークから取得する (#517 の提案)。

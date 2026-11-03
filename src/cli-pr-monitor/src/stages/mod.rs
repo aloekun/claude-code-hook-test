@@ -2,7 +2,6 @@ pub(crate) mod auto_push;
 pub(crate) mod coderabbit_reviewed;
 pub(crate) mod collect;
 mod create_pr;
-pub(crate) mod trigger_review;
 pub(crate) mod gate;
 mod mark_notified;
 mod monitor;
@@ -13,6 +12,7 @@ pub(crate) mod repush;
 pub(crate) mod review_trigger;
 pub(crate) mod scope_guard;
 pub(crate) mod takt;
+pub(crate) mod trigger_review;
 
 pub(crate) use create_pr::run_create_pr;
 pub(crate) use mark_notified::run_mark_notified;
