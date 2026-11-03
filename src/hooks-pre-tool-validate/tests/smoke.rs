@@ -84,6 +84,27 @@ const CASES: &[Case] = &[
         expect_block: false,
     },
     Case {
+        name: "Bash: python を block する (本リポジトリの opt-in preset script-runtime-block)",
+        tool_name: "Bash",
+        field: "command",
+        value: "python3 -c 'print(1)'",
+        expect_block: true,
+    },
+    Case {
+        name: "PowerShell: python を block する (script-runtime-block)",
+        tool_name: "PowerShell",
+        field: "command",
+        value: "& python a.py",
+        expect_block: true,
+    },
+    Case {
+        name: "Bash: python を検索するだけなら pass する (script-runtime-block の過剰ブロック退行ガード)",
+        tool_name: "Bash",
+        field: "command",
+        value: "grep -rn python docs/",
+        expect_block: false,
+    },
+    Case {
         name: "Write: 保護対象ファイルを block する",
         tool_name: "Write",
         field: "file_path",
