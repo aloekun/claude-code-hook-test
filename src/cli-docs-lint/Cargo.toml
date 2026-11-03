@@ -17,5 +17,8 @@ lib-ledger = { path = "../lib-ledger" }
 
 [dev-dependencies]
 tempfile = "3"
+# tests/mod_order.rs が mod 宣言を構文解析で取り出し、行番号で連続ブロックを判定する
+syn = { version = "2", features = ["full"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)
