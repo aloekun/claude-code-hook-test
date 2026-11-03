@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(*cli-pr-monitor.exe* --monitor-only)",
-      "PowerShell(*cli-pr-monitor.exe* --monitor-only)"
+      "PowerShell(*cli-pr-monitor.exe* --monitor-only)",
+      "Bash(pnpm -s tool:json-query *)",
+      "Bash(pnpm -s tool:md-section *)",
+      "PowerShell(pnpm -s tool:json-query *)",
+      "PowerShell(pnpm -s tool:md-section *)"
     ],
     "ask": [
       "Bash(pnpm create-pr*)",

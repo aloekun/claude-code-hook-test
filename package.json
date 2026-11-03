@@ -57,6 +57,8 @@
     "prepare-pr-body": "node scripts/run-artifact.mjs cli-pr-monitor --prepare-pr-body",
     "prepare-pr-body:cleanup": "node scripts/run-artifact.mjs cli-pr-monitor --prepare-pr-body-cleanup",
     "deploy:hooks": "node scripts/deploy-hooks.ts",
+    "tool:json-query": "node scripts/tools/json-query.ts",
+    "tool:md-section": "node scripts/tools/md-section.ts",
     "py-lint": "ruff check src/",
     "py-typecheck": "mypy src/"
   },
