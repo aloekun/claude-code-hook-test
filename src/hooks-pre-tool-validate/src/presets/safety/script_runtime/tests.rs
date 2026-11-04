@@ -251,6 +251,7 @@ fn blocks_a_runtime_after_command_double_dash() {
         assert!(blocks(command), "{command}");
     }
     assert!(!blocks("command -v -- python3"));
+    assert!(!blocks("command -- -p python3"), "`--` の後ろの `-p` は実行するコマンドの名前");
 }
 
 /// 順位 590: 限界の仕様。素の名前は小文字なら行頭で止まるので、heredoc やメッセージの本文で

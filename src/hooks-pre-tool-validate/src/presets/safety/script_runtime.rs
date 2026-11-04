@@ -71,7 +71,8 @@ deno / bun と、Windows のスクリプトホスト (cscript / wscript / mshta)
 ///   一般化すると `xargs -0 grep -l python` の `grep` を値として読み飛ばし、検索の `python` を
 ///   実行とみなしてしまう
 /// - `command -v` / `-V` は名前を引くだけで実行しないので、`command` には実行する `-p` と、
-///   オプションの終わりを示す `--` だけを許す
+///   オプションの終わりを示す `--` だけを許す。`--` の後ろはオプションではないので、`command -- -p python3`
+///   の `-p` は実行するコマンドの名前として読む (PR #616 のレビュー)
 /// - `Start-Process` は値を取らない switch (NoNewWindow / PassThru / Wait / LoadUserProfile /
 ///   UseNewEnvironment と、共通パラメータの Verbose / Debug / WhatIf / Confirm) を読み飛ばし、値を取る
 ///   パラメータ (ArgumentList / Credential / WorkingDirectory / WindowStyle / RedirectStandard* / Verb /
@@ -105,7 +106,7 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
     const XARGS: &str = r"xargs(?:\s+(?:(?:-[adEILnPs]|--(?:arg-file|delimiter|eof|replace|max-lines|max-args|max-procs|max-chars|process-slot-var))\s+\S+|-\S+))*";
     const TIME: &str = r"time(?:\s+(?:-[fo]\s+\S+|-\S+))*";
     const EXEC: &str = r"exec(?:\s+(?:-a\s+\S+|-\S+))*";
-    const COMMAND: &str = r"command(?:\s+(?:-p|--))*";
+    const COMMAND: &str = r"command(?:\s+-p)*(?:\s+--)?";
     const START_PROCESS_SWITCH: &str = r"-(?i:(?:n|pa|wai|l|u|verbo|d|wh|co)\w*|vb|wi|cf)(?::\S+)?";
     const START_PROCESS_VALUED: &str =
         r"-(?i:(?:a|cr|wo|win|war|r|e|i|o|p[iv]|pr)\w*|verb|wa|wv)(?::\S+|\s+\S+)";
