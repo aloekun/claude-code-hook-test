@@ -230,3 +230,157 @@
 #### 完了基準
 
 - 各ファイルと script が、撤去されたか、残す理由が書かれていること
+
+---
+
+## post-merge feedback (#604〜#614) の一括採否から起票 (2026-11-04)
+
+> 対象は #604〜#614 の feedback report と、同じセッションで集めた候補である。Tier 1 / 2 の採用候補をユーザーが作業内容ごとに 8 群へまとめて採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。起票の前に、各項目が未実装であることを 2026-11-04 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。#609 の「複数行 pattern rule 横断のパラメータ化テスト」は、既存の `every_exception_is_justified_by_its_good_fixture` が exception を持つ全 rule を走査して fixture のずれを gap として報告するので、前提が成り立たず起票しなかった。
+
+### 順位 590: script-runtime-block の回避形の穴を塞ぎ、誤検知の範囲をテストで固定する
+
+> **動機**: #614 の post-merge feedback が残りの穴を 3 つ挙げた。(1) `START_PROCESS` (`src/hooks-pre-tool-validate/src/presets/safety/script_runtime.rs`) の値を取るパラメータ一覧にある `v` が `-Verbose` にも一致し、次の `python` を値として読み飛ばす。(2) `COMMAND` が `command(?:\s+-p)*` なので、`command -- python3 a.py` が止まらない。旧版の `command(?:\s+-\S+)*` は止めていたので、#614 で入れた後退である。(3) 行頭の小文字の `go` / `py` / `uv` / `bun` / `gem` / `java` は止まるが、その誤検知を固定するテストが無い (大文字の `Go` / `Python` を止めないテストだけがある)。
+>
+> **由来**: `[defect:G2]`。テストの場はあったが、#614 で入力空間を覆っていなかった。
+>
+> **実行優先度**: Tier 2 — Effort S。
+
+#### 作業計画
+
+- `START_PROCESS` の `v` を `-Verb` だけに一致させる。`-Verbose` / `-Debug` / `-WhatIf` の後の `python` が止まるテストを足す
+- `COMMAND` に `--` を許す。`command -- python3 a.py` が止まり、`command -v python3` が止まらないテストを足す
+- 行頭の小文字の言語名が止まることを、仕様として固定するテストを足す
+- ファイルは 330 行あり、300 行の目安を超えている。tests を兄弟ファイルへ分ける ([ADR-080](adr/adr-080-rust-module-split-invariants.md) の不変条件に従う)
+
+#### 完了基準
+
+- 上の 3 つの形がテストで固定されていて、各修正を戻すと対応するテストが落ちること
+
+### 順位 591: custom lint rule の検査の陽性対照を埋め、`.rs` 対象の行単位 regex rule を点検する
+
+> **動機**: 3 つの report が同じ系統の穴を挙げた。(1) #609: `exception_mutation_tests.rs` の `unjustified_exceptions` には分岐が 3 つあり、陽性対照が無いのは `baseline > 0` (exception 付きでも good fixture で発火する) の分岐だけである。(2) #605: `deployed_tests.rs` の 3 か所 (`deployed_custom_rules_pass_powershell_case_insensitive_validation` の `read_to_string`、`load_deployed_rule_by_id` の `read_to_string`、`deployed_takt_workflows_have_clean_baseline_for_persona_model_rule` の `read_dir`) は、読めないと panic するが、`missing_scan_path()` を使う陽性対照が無い。どれもパスを内部で組み立てているので、パスを引数に取る helper へ切り出す必要がある。(3) #612: `mod_order.rs` で、行単位の regex がブロックコメント・raw string・複数行の構造を扱えないことが分かった。`config/custom-lint-rules.toml` の `.rs` を対象にする regex rule に、同じ弱点があるかもしれない。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort M。(3) の点検が M で、(1)(2) は XS〜S。
+
+#### 作業計画
+
+- (1) pattern が good fixture に一致する rule を組み立て、`baseline > 0` の gap が報告されるテストを足す
+- (2) 3 か所の読み取りを、パスを受け取る helper にする。読めないパスで panic する `#[should_panic]` テストを足す
+- (3) `.rs` を対象にする regex rule を [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) の判断フローで点検する。誤検知や見落としの恐れがある rule には境界ケースの fixture を足すか、`syn` 層への移行を起票する
+
+#### 完了基準
+
+- `unjustified_exceptions` の 3 分岐と、`deployed_tests.rs` の読み取り失敗の 3 か所に、それぞれ外すと落ちるテストがあること
+- (3) の点検結果 (rule ごとの処置と、処置しない理由) が PR か ADR-007 に残っていること
+
+### 順位 592: entry_pairing の検査を `docs/on-hold/` にも広げる
+
+> **動機**: `src/cli-docs-lint/src/docs_files.rs` の `list_docs_files` は `docs/` 直下だけを走査し、サブディレクトリを飛ばす。`entry_pairing.rs` の 119 行目は、詳細ファイル名が `todo` で始まる行しか対にしない。このため `docs/on-hold/nightly-loop.md` の順位 table と詳細エントリ (`nightly-loop2.md` を含む) は、1 対 1 の対応を検査されていない (#604 の feedback)。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort M。
+
+#### 作業計画
+
+- `docs/on-hold/` の table と詳細ファイルを、検査対象に加える。table の詳細ファイル列にある `(順位 562 から分割)` のような注記をどう読むかも決める
+- on-hold の行の詳細エントリを消すと落ちるテストを足す
+
+#### 完了基準
+
+- `docs/on-hold/` の table の行と詳細エントリの対応が崩れると、`pnpm lint:docs` が落ちること
+
+### 順位 593: pr-monitor の「レビュー済み」判定のテストの穴を埋める
+
+> **動機**: #610 の CodeRabbit が 3 つの穴を指摘した (`src/cli-pr-monitor/src/stages/coderabbit_reviewed.rs`)。(1) `stale_review_and_skipped_status_do_not_skip_and_queries_are_pinned_to_head` は `pr view` の `--repo` だけを確かめ、PR 番号を確かめていない。(2) `GhStub::query` は常に `Some` を返すので、照会失敗 (`None`) の fail-open 経路を配線の上でテストできない (`combine_covered` の単体テストはある)。(3) `call_sites_by_file` は `should_skip_request(` の文字列一致で数えるので、別名 import や関数値としての参照 (`.map(should_skip_request)`) を数えない。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort S。
+
+#### 作業計画
+
+- (1) `pr view` の引数に PR 番号が入っていることを assert する
+- (2) `GhStub` に照会ごとの失敗を指定できるようにし、reviews の照会が失敗しても commit status が完了なら skip するテストと、両方が失敗したら投稿するテストを足す
+- (3) 識別子 `should_skip_request` を単語境界で数える方式に変え、`use ... as` の別名も数える
+
+#### 完了基準
+
+- 各 assert や数え方を元に戻すと、対応するテストが落ちること
+
+### 順位 594: config の解決と同期のテストの false-green を塞ぐ
+
+> **動機**: #611 の CodeRabbit が 3 つの穴を指摘した。(1) `src/hooks-post-tool-linter/tests/config_dir_e2e.rs` は exe を常に tmp の直下を cwd にして起動するので、cwd がサブディレクトリのときに `config/` を読めなくなる退行を検出できない。(2) 同ファイルの `run_linter` は timeout だけを見て (`status.is_some()`)、非 0 終了を見ない。exe が panic してもテストが通る。(3) `src/lib-config-path/src/deploy_hooks_sync.rs` の `notify_candidates` は配列から `join(` の呼び出しだけを拾うので、TS 側の候補が文字列リテラルや変数に変わっても同期テストが気づかない。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 2 — Effort S。どれも、壊れても黙って緑になる経路である。
+
+#### 作業計画
+
+- (1) tmp の下のサブディレクトリを cwd にして起動し、`config/` の設定が効くテストを足す
+- (2) `run_linter` で `status.success()` も確かめる
+- (3) 配列の要素が `join(...)` 以外なら panic する (既存の fail-closed の panic に揃える)。陽性対照のテストを足す
+
+#### 完了基準
+
+- (1)〜(3) の各条件を壊した入力で、対応するテストが落ちること
+
+### 順位 595: lint-workflows の jq 略記検査とコメント接頭辞のテストを足す
+
+> **動機**: #607 の feedback。(1) `scripts/lint-workflows.mjs` の `JQ_PROGRAM` は長く複雑な正規表現なのに、BOM や CRLF 改行を含む入力のテストが無い。regex の変更による検出漏れを捕まえる mutation 系のテストも無い (`scripts/lint-workflows.test.mjs` の mutation テストは marker 検査用)。(2) `commentPrefixesFor` は `.rs` なら `//`、それ以外なら `#` の二択である。`//` を使う別の拡張子が marker の対象に入ると、コメント行を除けず、marker の存在判定を黙って誤る。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort S。
+
+#### 作業計画
+
+- (1) BOM 付き・CRLF 改行の workflow の fixture で、jq 略記の検出と非検出をテストする。regex の主要な分岐を外すと落ちるケースを足す
+- (2) 対応していない拡張子を `commentPrefixesFor` に渡したら throw する形に変え、テストで固定する
+
+#### 完了基準
+
+- BOM / CRLF の入力と、未対応の拡張子がテストで固定されていること
+
+### 順位 596: 読み取り専用ツールのガードで、子プロセスとネットワークの別経路を拒否する
+
+> **動機**: `scripts/tools/readonly.test.ts` の `violations()` は import 文と `import(` / `require(` だけを見る。`process.getBuiltinModule("node:child_process")` や、import の要らない `fetch` / `WebSocket` / `XMLHttpRequest` は拒否されない。`scripts/tools/` の各ツールは「ネットワークは使わない」と書いているが、ガードはそこまで検査していない。これらのツールは許可リストに入っていて確認なしで走るので、別経路を機械的に塞ぐ価値がある (#613 の CodeRabbit と pre-push レビューの指摘)。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 2 — Effort S。
+
+#### 作業計画
+
+- `violations()` が `getBuiltinModule` と `fetch` / `WebSocket` / `XMLHttpRequest` / `EventSource` を検出し、拒否側の `it.each` にケースを足す
+- `readonly.test.ts` の冒頭の説明を、実際に検査している範囲に合わせる
+
+#### 完了基準
+
+- 上の各 API を使うツールを足すと、`readonly.test.ts` が落ちること
+
+### 順位 597: 作業中に出たハーネスの誤検知と、登録先の取り違えを直す
+
+> **動機**: #604〜#614 のセッションで 4 件を観測した。
+> (1) SessionStart の weekly-review reminder が takt の子セッションにも出て、#614 の feedback report の本文に混入した。`src/hooks-session-start/` には、takt の子セッションかどうかの判定が無い。`src/hooks-stop-quality/src/takt_subsession.rs` の `takt_subsession_active` が前例である。
+> (2) `jj rebase -s X -d master && jj edit X` の後、jj-op-verify が「直前の `jj rebase` に対応する operation が op log 先頭にありません (先頭: edit commit)」と誤警告した (4 回)。`src/hooks-post-tool-jj-op-verify/src/main.rs` の `detect_last_mutating_jj_op` が `edit` を変更系として扱わないためである。
+> (3) bookmark が 3 つあると、`pnpm push` の fallback 更新がスキップされる (`src/cli-push-runner/src/stages/push_jj_bookmark.rs`)。PR を並べて進めるたびに、手で `jj bookmark set` することになる。
+> (4) #613 で、CodeRabbit がスレッドを自動 resolve した後の番号で `pnpm threads fixed 2` を実行し、別のスレッド (#6) に登録した。登録時にタイトルは出すが、番号は一覧を取った時点からずれうるので、番号の指定そのものが危うい。
+>
+> **由来**: `[defect:G2]`。(2) と (4) は #613 / #614 のセッションで実際に誤動作した。
+>
+> **実行優先度**: Tier 2 — Effort M。コンポーネントが 4 つに分かれる。
+
+#### 作業計画
+
+- (1) takt の子セッションでは reminder を出さない。判定を共有するか複製するかは [ADR-084](adr/adr-084-test-helper-no-sharing.md) と lib の構成を見て決める。順位 579 (takt の子セッションの SessionStart が exe を戻す) と原因の場所が同じなので、着手時に関係を確かめる
+- (2) `edit` を変更系の subcommand に加え、ほかに漏れている subcommand (`commit` / `duplicate` など) が無いか jj 0.42 で確かめる
+- (3) 作業コミットの祖先にある bookmark が 1 つに絞れるときは、それを更新する。絞れないときは、どれを選べばよいかを案内する
+- (4) 番号で登録するときの対策を、次の 2 つから着手時に選ぶ。登録したスレッドの URL を出して目で確かめられるようにする案と、一覧を取った後に未解決のスレッドの集合が変わっていたら登録を止める案
+
+#### 完了基準
+
+- (1)〜(4) の各観測をテストで再現でき、修正を戻すと落ちること

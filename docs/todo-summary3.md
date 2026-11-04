@@ -99,6 +99,14 @@
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |
 | 587 | Tier 3 | **[improvement] 手元の deploy と cloud の配置が同時に走っても、手元の exe を nightly 版で上書きしない** | todo29.md | M | なし (2026-10-31、#600 の post-merge feedback。排他の方式を決める判断があるので human lane) |
 | 588 | Tier 3 | **[improvement] サンプル由来の `src/sample.*` と `py-lint` / `py-typecheck` の要否を調べて撤去する** | todo29.md | S | なし (2026-10-31、#602 の post-merge feedback。lint の fixture かを着手時に調べる) |
+| 590 | Tier 2 | **[defect:G2] script-runtime-block の回避形の穴を塞ぎ、誤検知の範囲をテストで固定する** | todo29.md | S | なし (2026-11-04、#614 の post-merge feedback) |
+| 591 | Tier 3 | **[improvement] custom lint rule の検査の陽性対照を埋め、`.rs` 対象の行単位 regex rule を点検する** | todo29.md | M | なし (2026-11-04、#605 / #609 / #612 の post-merge feedback) |
+| 592 | Tier 3 | **[improvement] entry_pairing の検査を `docs/on-hold/` にも広げる** | todo29.md | M | なし (2026-11-04、#604 の post-merge feedback) |
+| 593 | Tier 3 | **[improvement] pr-monitor の「レビュー済み」判定のテストの穴を埋める** | todo29.md | S | なし (2026-11-04、#610 の post-merge feedback) |
+| 594 | Tier 2 | **[improvement] config の解決と同期のテストの false-green を塞ぐ** | todo29.md | S | なし (2026-11-04、#611 の post-merge feedback) |
+| 595 | Tier 3 | **[improvement] lint-workflows の jq 略記検査とコメント接頭辞のテストを足す** | todo29.md | S | なし (2026-11-04、#607 の post-merge feedback) |
+| 596 | Tier 2 | **[improvement] 読み取り専用ツールのガードで、子プロセスとネットワークの別経路を拒否する** | todo29.md | S | なし (2026-11-04、#613 の post-merge feedback) |
+| 597 | Tier 2 | **[defect:G2] 作業中に出たハーネスの誤検知と、登録先の取り違えを直す** | todo29.md | M | なし (2026-11-04、#613 / #614 のセッションで観測。(1) は順位 579 と原因の場所が同じ) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
