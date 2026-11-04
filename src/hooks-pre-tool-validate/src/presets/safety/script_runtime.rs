@@ -70,11 +70,20 @@ deno / bun と、Windows のスクリプトホスト (cscript / wscript / mshta)
 ///   `env -u NAME` / `xargs -a list.txt`)。値を取らないフラグは後ろの語を消費しない。値の有無を
 ///   一般化すると `xargs -0 grep -l python` の `grep` を値として読み飛ばし、検索の `python` を
 ///   実行とみなしてしまう
-/// - `command -v` / `-V` は名前を引くだけで実行しないので、`command` には実行する `-p` だけを許す
+/// - `command -v` / `-V` は名前を引くだけで実行しないので、`command` には実行する `-p` と、
+///   オプションの終わりを示す `--` だけを許す
 /// - `Start-Process` は値を取らない switch (NoNewWindow / PassThru / Wait / LoadUserProfile /
-///   UseNewEnvironment) を読み飛ばし、値を取るパラメータは値ごと読み飛ばす。PowerShell は一意な
-///   省略形も受け付けるので先頭の文字で区別する (`-W` は Wait / WindowStyle / WorkingDirectory で
-///   曖昧なため `wa` / `wi` / `wo` まで見る)。`-ArgumentList python -FilePath node` の `python` は値なので止めない
+///   UseNewEnvironment と、共通パラメータの Verbose / Debug / WhatIf / Confirm) を読み飛ばし、値を取る
+///   パラメータ (ArgumentList / Credential / WorkingDirectory / WindowStyle / RedirectStandard* / Verb /
+///   Environment と、共通パラメータの ErrorAction / WarningAction / InformationAction / *Variable /
+///   OutBuffer / ProgressAction) は値ごと読み飛ばす。PowerShell は一意な省略形も受け付けるので、
+///   区別できるところまで先頭の文字を見る (`-W` は `wai` / `wh` / `wo` / `win` / `war`、`-P` は
+///   `pa` / `pi` / `pv` / `pr`)。省略形にならない別名は完全一致で見る (switch の `-vb` / `-wi` / `-cf`、
+///   値を取る `-wa` / `-wv`)。`-Verb` は値を取り `-Verbose` は取らないので、switch 側は `verbo` まで見る
+///   (`v` だけで値を取る側に入れると `-Verbose python` の `python` を値として読み飛ばす。#614 の穴)。
+///   `-ArgumentList python -FilePath node` の `python` は値なので止めない
+/// - switch と値を取るパラメータの読み方は、どちらか一方で後ろの名前に届けば止まる。区別が効くのは、
+///   値を取るパラメータの値にある名前を、switch の後ろの名前と読み違えない側である
 ///
 /// 名前の後ろは空白・行末・`;`・`&` のどれかでなければならない。`|` と `)` を境界にしないのは、
 /// `grep -E "(ruby|perl)"` のような検索の正規表現を止めないため。
@@ -96,10 +105,15 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
     const XARGS: &str = r"xargs(?:\s+(?:(?:-[adEILnPs]|--(?:arg-file|delimiter|eof|replace|max-lines|max-args|max-procs|max-chars|process-slot-var))\s+\S+|-\S+))*";
     const TIME: &str = r"time(?:\s+(?:-[fo]\s+\S+|-\S+))*";
     const EXEC: &str = r"exec(?:\s+(?:-a\s+\S+|-\S+))*";
-    const COMMAND: &str = r"command(?:\s+-p)*";
-    const START_PROCESS: &str = r"(?i:start-process)(?:\s+(?:-(?i:n|p|wa|l|u)\w*|-(?i:a|cr|wo|wi|r|v|e)\w*(?::\S+|\s+\S+)))*(?:\s+-(?i:f)\w*)?";
+    const COMMAND: &str = r"command(?:\s+(?:-p|--))*";
+    const START_PROCESS_SWITCH: &str = r"-(?i:(?:n|pa|wai|l|u|verbo|d|wh|co)\w*|vb|wi|cf)(?::\S+)?";
+    const START_PROCESS_VALUED: &str =
+        r"-(?i:(?:a|cr|wo|win|war|r|e|i|o|p[iv]|pr)\w*|verb|wa|wv)(?::\S+|\s+\S+)";
+    let start_process = format!(
+        r"(?i:start-process)(?:\s+(?:{START_PROCESS_SWITCH}|{START_PROCESS_VALUED}))*(?:\s+-(?i:f)\w*)?"
+    );
     let wrappers = format!(
-        r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|{ENV}|{SUDO}|{NICE}|{XARGS}|{TIME}|{EXEC}|{COMMAND}|nohup|{START_PROCESS})\s+)*"
+        r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|{ENV}|{SUDO}|{NICE}|{XARGS}|{TIME}|{EXEC}|{COMMAND}|nohup|{start_process})\s+)*"
     );
     const SHELL_STRING: &str = r#"(?:[^\s"';&|]*[\\/])?(?:(?:bash|sh|zsh|dash)(?:\.exe)?\s+-[A-Za-z]*c[A-Za-z]*|(?:pwsh|powershell)(?:\.exe)?\s+(?:-\S+\s+)*?-(?i:c|command)|cmd(?:\.exe)?\s+/[cCkK])\s+["']?\s*"#;
     const FIND_EXEC: &str = r"(?:[^\s;&|]*[\\/])?find(?:\.exe)?\s+(?:[^;&|\n]*?\s)?-(?:exec|execdir|ok|okdir)\s+";
@@ -125,206 +139,5 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::blocked_patterns::{tag_source, validate_command};
-
-    fn blocks(command: &str) -> bool {
-        let patterns = tag_source("script-runtime-block", preset_script_runtime());
-        validate_command(command, &patterns).is_some()
-    }
-
-    #[test]
-    fn blocks_every_runtime_name_at_the_start_of_a_command() {
-        for name in [
-            "python", "python3", "python3.12", "pythonw", "py", "pip", "pip3", "pipx", "uv", "uvx",
-            "perl", "ruby", "gem", "irb", "go", "java", "javac", "jshell", "php", "lua", "R", "Rscript",
-            "deno", "bun", "bunx", "cscript", "wscript", "mshta",
-        ] {
-            let command = format!("{name} x");
-            assert!(blocks(&command), "{command}");
-            assert!(blocks(name), "{name}");
-        }
-    }
-
-    #[test]
-    fn blocks_an_executable_with_a_path_an_exe_suffix_or_quotes() {
-        for command in [
-            "python.exe -V",
-            ".venv/bin/python a.py",
-            r".venv\Scripts\python.exe a.py",
-            r#"& "C:\Program Files\Python312\python.exe" a.py"#,
-            "'/usr/bin/perl' -e 1",
-        ] {
-            assert!(blocks(command), "{command}");
-        }
-    }
-
-    #[test]
-    fn blocks_running_a_script_file_directly() {
-        for command in ["./tool.py", r".\tool.py arg", "scripts/a.pl", "x.rb", "run.vbs", "app.jar"] {
-            assert!(blocks(command), "{command}");
-        }
-    }
-
-    #[test]
-    fn blocks_a_runtime_after_a_separator_or_a_wrapper() {
-        for command in [
-            "cd work && python3 a.py",
-            "echo hi; perl -e 1",
-            "cat a.json | python3 -m json.tool",
-            "false || ruby -e 1",
-            "(go run .)",
-            "echo $(python3 -c 'print(1)')",
-            "echo `python3 -V`",
-            "X=1 python3 a.py",
-            "env -i python3 a.py",
-            "command python3 a.py",
-            "nohup python3 a.py",
-            "ls *.json | xargs -I {} python3 a.py {}",
-            "Start-Process python -ArgumentList a.py",
-            "start-process -FilePath python",
-            "cd work\npython3 a.py",
-            "python3 <<'EOF'\nprint(1)\nEOF",
-        ] {
-            assert!(blocks(command), "{command}");
-        }
-    }
-
-    #[test]
-    fn blocks_a_runtime_inside_a_shell_string_or_find_exec() {
-        for command in [
-            r#"bash -c "python3 a.py""#,
-            "sh -lc 'perl -e 1'",
-            r#"pwsh -NoProfile -Command "python a.py""#,
-            r#"powershell.exe -command "& python a.py""#,
-            "cmd /c python a.py",
-            r"find . -name '*.json' -exec python3 a.py {} \;",
-        ] {
-            assert!(blocks(command), "{command}");
-        }
-    }
-
-    /// 名前を引数として含むだけのコマンド (検索・存在確認など) は止めない。
-    #[test]
-    fn allows_a_runtime_name_that_is_only_an_argument() {
-        for command in [
-            "grep -rn python docs/",
-            "grep -c python a.txt",
-            r#"rg -n "python|perl" src"#,
-            r#"grep -E "(ruby|perl)" a.txt"#,
-            "which python",
-            "Get-Command python",
-            "cat a.py",
-            "ls *.py",
-            r#"echo "use python later""#,
-            "pnpm -s tool:json-query a.json --where lang=go",
-        ] {
-            assert!(!blocks(command), "{command}");
-        }
-    }
-
-    /// 名前の先頭が同じだけの別のコマンドは止めない。
-    #[test]
-    fn allows_a_command_that_only_starts_with_a_runtime_name() {
-        for command in ["goimports -w .", "pyright", "perldoc x", "gem5", "pip-audit", "javascript"] {
-            assert!(!blocks(command), "{command}");
-        }
-    }
-
-    #[test]
-    fn allows_the_languages_this_project_uses() {
-        for command in ["node scripts/x.ts", "pnpm -s tool:md-section a.md --list", "cargo test", "bash scripts/a.sh"] {
-            assert!(!blocks(command), "{command}");
-        }
-    }
-
-    /// PR #614 のレビュー: `&` が空白なしで続く形。
-    #[test]
-    fn blocks_a_runtime_followed_directly_by_an_ampersand() {
-        assert!(blocks("python3&&echo ok"));
-        assert!(blocks("python3 a.py&"));
-        assert!(blocks("R --vanilla"));
-    }
-
-    /// PR #614 のレビュー: パスか `.exe` 付きの大文字の名前と、大文字の拡張子。
-    #[test]
-    fn blocks_an_uppercase_name_with_a_path_or_an_exe_suffix_and_an_uppercase_extension() {
-        for command in [
-            "PYTHON.EXE -V",
-            "Python.exe a.py",
-            r"C:\Python312\Python a.py",
-            r#"& "C:\Program Files\Python312\PYTHON.EXE" a.py"#,
-            "run.PY",
-            "./Tool.Pl",
-        ] {
-            assert!(blocks(command), "{command}");
-        }
-    }
-
-    /// PR #614 のレビュー: 前置きのオプションが値を取る形。
-    #[test]
-    fn blocks_a_runtime_after_a_wrapper_option_that_takes_a_value() {
-        for command in [
-            "sudo -u root python3 a.py",
-            "sudo -E python3 -c 1",
-            "sudo --user root python3 a.py",
-            "nice -n 5 python3 a.py",
-            "env -u NAME python3 a.py",
-            "xargs -a files.txt python3 a.py",
-            "time -o t.txt python3 a.py",
-            "Start-Process -NoNewWindow -FilePath python a.py",
-            "Start-Process -NoNew -Wait python",
-            r"Start-Process -WorkingDirectory C:\work -FilePath python",
-            "Start-Process -WindowStyle Hidden python",
-        ] {
-            assert!(blocks(command), "{command}");
-        }
-    }
-
-    /// 前置きのオプションの値や、名前を引くだけのコマンドにある名前は止めない。
-    #[test]
-    fn allows_a_runtime_name_that_is_an_option_value_or_only_looked_up() {
-        for command in [
-            "Start-Process -ArgumentList python -FilePath node",
-            "xargs -0 grep -l python",
-            "ls | xargs -n 1 grep -c perl",
-            "command -v python3",
-            "command -V perl",
-        ] {
-            assert!(!blocks(command), "{command}");
-        }
-    }
-
-    /// PR #614 のレビュー: コマンドの位置にないシェル文字列と `find -exec` は表示なので止めない。
-    #[test]
-    fn allows_a_shell_string_or_find_exec_that_is_only_displayed() {
-        for command in [
-            r#"echo "bash -c python3 a.py""#,
-            r#"echo "run: sh -c 'perl -e 1'""#,
-            r#"echo "find . -exec python3 {} ;""#,
-            "grep -n -- '-exec python3' notes.txt",
-        ] {
-            assert!(!blocks(command), "{command}");
-        }
-    }
-
-    #[test]
-    fn blocks_a_shell_string_with_a_path_or_after_a_wrapper() {
-        assert!(blocks(r#"/bin/bash -c "python3 a.py""#));
-        assert!(blocks("sudo bash -c 'python3 a.py'"));
-        assert!(blocks("cd x && find . -name '*.json' -exec perl -e 1 {} +"));
-    }
-
-    /// 限界: 引用符の中の `(` の直後も位置とみなす (止めすぎの側。2026-11-04 ユーザー判断)。
-    #[test]
-    fn blocks_a_name_after_a_parenthesis_inside_quotes_as_a_known_limit() {
-        assert!(blocks(r#"echo "(python3 -V)""#));
-    }
-
-    /// 大文字小文字を区別するので、英文の行頭 (`Go to ...`) は止めない。
-    #[test]
-    fn allows_a_capitalized_word_at_the_start_of_a_line() {
-        assert!(!blocks("jj describe --stdin <<'EOF'\nGo to the next step.\nPython is blocked.\nEOF"));
-    }
-}
+#[path = "script_runtime/tests.rs"]
+mod tests;
