@@ -53,7 +53,30 @@ fn candidate_of(args: &[String]) -> Option<PathBuf> {
     }
 }
 
+/// 配列の中身を、括弧の外にあるカンマで要素に分ける (空白を除き、空の要素は捨てる)。
+fn array_elements(array: &str) -> Vec<&str> {
+    let mut elements = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (i, c) in array.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                elements.push(&array[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    elements.push(&array[start..]);
+    elements.into_iter().map(str::trim).filter(|e| !e.is_empty()).collect()
+}
+
 /// 各 `notifyIfMissing([...], ...)` の第 1 引数の配列から、ファイル名ごとの候補を取り出す。
+///
+/// 配列の要素が `join(...)` でなければ panic する。文字列リテラルや変数の候補を読み飛ばすと、
+/// TS 側の候補が変わっても同期テストが気づかない (false-green、順位 594)。
 fn notify_candidates(source: &str) -> BTreeMap<String, Vec<PathBuf>> {
     let mut by_file: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     let calls: Vec<&str> = source.split(NOTIFY_CALL).skip(1).collect();
@@ -67,8 +90,13 @@ fn notify_candidates(source: &str) -> BTreeMap<String, Vec<PathBuf>> {
             continue;
         }
         let array = rest.split_once(']').expect("候補の配列が `]` で閉じていません").0;
-        for join in array.split("join(").skip(1) {
-            let inner = join.split_once(')').expect("`join(` が `)` で閉じていません").0;
+        for element in array_elements(array) {
+            let inner = element
+                .strip_prefix("join(")
+                .and_then(|e| e.strip_suffix(')'))
+                .unwrap_or_else(|| {
+                    panic!("notifyIfMissing の候補が `join(...)` ではありません: {element}")
+                });
             let Some(candidate) = candidate_of(&join_args(inner)) else {
                 continue;
             };
@@ -134,4 +162,29 @@ notifyIfMissing([join(targetDir, "root.toml")], "m", "h");
         found["a.toml"],
         vec![PathBuf::from("config/a.toml"), PathBuf::from(".claude/a.toml")]
     );
+}
+
+/// 陽性対照 (順位 594): 候補が文字列リテラルに変わったら、読み飛ばさずに止まる。
+#[test]
+#[should_panic(expected = "`join(...)` ではありません")]
+fn a_string_literal_candidate_is_rejected() {
+    let source = r#"
+notifyIfMissing(
+  [
+    join(targetDir, "config", "a.toml"),
+    ".claude/a.toml",
+  ],
+  "m",
+  "h"
+);
+"#;
+    notify_candidates(source);
+}
+
+/// 陽性対照 (順位 594): 候補が変数に変わったら、読み飛ばさずに止まる。
+#[test]
+#[should_panic(expected = "`join(...)` ではありません")]
+fn a_variable_candidate_is_rejected() {
+    let source = "notifyIfMissing([join(targetClaude, \"a.toml\"), legacyPath], \"m\", \"h\");";
+    notify_candidates(source);
 }
