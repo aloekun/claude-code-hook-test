@@ -237,25 +237,6 @@
 
 > 対象は #604〜#614 の feedback report と、同じセッションで集めた候補である。Tier 1 / 2 の採用候補をユーザーが作業内容ごとに 8 群へまとめて採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。ここでいう Tier は、feedback report が候補を分類した Tier (1 = hook / linter、2 = テスト / 自動化、3 = ドキュメント / ルール) である。各エントリの「実行優先度: Tier N」は着手の順番を表す別の尺度なので、実行優先度が Tier 3 のエントリ (順位 591 / 592 / 593 / 595) も採用したものである。起票の前に、各項目が未実装であることを 2026-11-04 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。#609 の「複数行 pattern rule 横断のパラメータ化テスト」は、既存の `every_exception_is_justified_by_its_good_fixture` が exception を持つ全 rule を走査して fixture のずれを gap として報告するので、前提が成り立たず起票しなかった。
 
-### 順位 590: script-runtime-block の回避形の穴を塞ぎ、誤検知の範囲をテストで固定する
-
-> **動機**: #614 の post-merge feedback が残りの穴を 3 つ挙げた。(1) `START_PROCESS` (`src/hooks-pre-tool-validate/src/presets/safety/script_runtime.rs`) の値を取るパラメータ一覧にある `v` が `-Verbose` にも一致し、次の `python` を値として読み飛ばす。(2) `COMMAND` が `command(?:\s+-p)*` なので、`command -- python3 a.py` が止まらない。旧版の `command(?:\s+-\S+)*` は止めていたので、#614 で入れた後退である。(3) 行頭の小文字の `go` / `py` / `uv` / `bun` / `gem` / `java` は止まるが、その誤検知を固定するテストが無い (大文字の `Go` / `Python` を止めないテストだけがある)。
->
-> **由来**: `[defect:G2]`。テストの場はあったが、#614 で入力空間を覆っていなかった。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 作業計画
-
-- `START_PROCESS` の `v` を `-Verb` だけに一致させる。`-Verbose` / `-Debug` / `-WhatIf` の後の `python` が止まるテストを足す
-- `COMMAND` に `--` を許す。`command -- python3 a.py` が止まり、`command -v python3` が止まらないテストを足す
-- 行頭の小文字の言語名が止まることを、仕様として固定するテストを足す
-- ファイルは 330 行あり、300 行の目安を超えている。tests を兄弟ファイルへ分ける ([ADR-080](adr/adr-080-rust-module-split-invariants.md) の不変条件に従う)
-
-#### 完了基準
-
-- 上の 3 つの形がテストで固定されていて、各修正を戻すと対応するテストが落ちること
-
 ### 順位 591: custom lint rule の検査の陽性対照を埋め、`.rs` 対象の行単位 regex rule を点検する
 
 > **動機**: 3 つの report が同じ系統の穴を挙げた。(1) #609: `exception_mutation_tests.rs` の `unjustified_exceptions` には分岐が 3 つあり、陽性対照が無いのは `baseline > 0` (exception 付きでも good fixture で発火する) の分岐だけである。(2) #605: `deployed_tests.rs` の 3 か所 (`deployed_custom_rules_pass_powershell_case_insensitive_validation` の `read_to_string`、`load_deployed_rule_by_id` の `read_to_string`、`deployed_takt_workflows_have_clean_baseline_for_persona_model_rule` の `read_dir`) は、読めないと panic するが、`missing_scan_path()` を使う陽性対照が無い。どれもパスを内部で組み立てているので、パスを引数に取る helper へ切り出す必要がある。(3) #612: `mod_order.rs` で、行単位の regex がブロックコメント・raw string・複数行の構造を扱えないことが分かった。`config/custom-lint-rules.toml` の `.rs` を対象にする regex rule に、同じ弱点があるかもしれない。
