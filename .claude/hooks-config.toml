@@ -130,6 +130,11 @@ system_message_enabled = true
 #                              変更行だけを手で直す対処に誘導する。本リポジトリは rustfmt を
 #                              適用しておらず、`cargo fmt --all` は無関係な 134 ファイルを整形する
 #                              (2026-10-04 実測。PR #376 で誤実行 / 順位 411)
+#   "script-runtime-block" — (opt-in、既定では無効) python / perl / ruby / go / java / php / lua / R /
+#                              deno / bun / cscript 等と、.py / .pl 等の直接実行をブロックし、Edit と
+#                              scripts/tools/ の読み取り専用ツールに誘導する。使う言語が Rust と
+#                              TypeScript だけのリポジトリ向け (その場で書いたスクリプトによる
+#                              破壊・外部送信を防ぐ。2026-11-03 ユーザー判断)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -147,6 +152,7 @@ blocked_patterns = [
   "powershell-destructive-write-block",
   "node-eval-cmd-meta-block",
   "cargo-fmt-block",
+  "script-runtime-block",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)
