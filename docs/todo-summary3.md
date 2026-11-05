@@ -103,7 +103,6 @@
 | 592 | Tier 3 | **[improvement] entry_pairing の検査を `docs/on-hold/` にも広げる** | todo29.md | M | なし (2026-11-04、#604 の post-merge feedback) |
 | 593 | Tier 3 | **[improvement] pr-monitor の「レビュー済み」判定のテストの穴を埋める** | todo29.md | S | なし (2026-11-04、#610 の post-merge feedback) |
 | 595 | Tier 3 | **[improvement] lint-workflows の jq 略記検査とコメント接頭辞のテストを足す** | todo29.md | S | なし (2026-11-04、#607 の post-merge feedback) |
-| 596 | Tier 2 | **[improvement] 読み取り専用ツールのガードで、子プロセスとネットワークの別経路を拒否する** | todo29.md | S | なし (2026-11-04、#613 の post-merge feedback) |
 | 597 | Tier 2 | **[defect:G2] 作業中に出たハーネスの誤検知と、登録先の取り違えを直す** | todo29.md | M | なし (2026-11-04、#613 / #614 のセッションで観測。(1) は順位 579 と原因の場所が同じ) |
 
 
