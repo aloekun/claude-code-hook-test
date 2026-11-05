@@ -159,6 +159,9 @@ fn append_cwd_nudges(
 /// weekly / monthly review reminder を評価して `context` に追記し、発火した systemMessage を
 /// 合成して返す。両 reminder は同型 (additionalContext + 任意 systemMessage) で、systemMessage
 /// スロットが出力 JSON に 1 つのため合成する。両 config は独立に opt-in される (片方だけ enable 可)。
+///
+/// takt の子セッション (active な takt run がある間に起動したセッション) では、どちらも出さない
+/// ([`review_reminders_suppressed`])。
 fn append_review_reminder_nudges(
     context: &mut String,
     session_id: &str,
@@ -166,6 +169,9 @@ fn append_review_reminder_nudges(
     session_start: &hooks_config::SessionStartConfig,
     now_unix: i64,
 ) -> Option<SingleLineMessage> {
+    if review_reminders_suppressed(cwd) {
+        return None;
+    }
     let mut system_messages: Vec<SingleLineMessage> = Vec::new();
     if let Some(weekly_config) = session_start.weekly_review_reminder.as_ref() {
         if let Some(weekly_nudge) =
@@ -188,6 +194,16 @@ fn append_review_reminder_nudges(
         }
     }
     combine_system_messages(system_messages)
+}
+
+/// review reminder を出さないか。active な takt run がある間に起動したセッションは、takt の
+/// 子セッションとみなす (判定は hooks-stop-quality と共有の [`lib_takt_runs`])。
+///
+/// 子セッションに reminder を返すと、「ユーザーに一言伝える」指示に従って report の本文へ
+/// 書き込む (#614 の feedback report で実観測、順位 597)。本対話セッションの起動が takt の
+/// 実行中に重なったときも出さないが、reminder は次の起動でまた出るので失うものは小さい。
+fn review_reminders_suppressed(cwd: &Path) -> bool {
+    lib_takt_runs::takt_subsession_active(cwd)
 }
 
 /// 複数の nudge が返した systemMessage を 1 行に合成する (ADR-059: systemMessage スロットは
@@ -485,5 +501,53 @@ mod tests {
         assert_eq!(content, "session-A");
 
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// 両 reminder を必ず発火させる設定 (last-run ファイルが無い = 未実行として stale)。
+    fn always_firing_reminders() -> hooks_config::SessionStartConfig {
+        hooks_config::SessionStartConfig {
+            staleness: None,
+            weekly_review_reminder: Some(hooks_config::WeeklyReviewReminderConfig {
+                enabled: Some(true),
+                reminder_threshold_days: Some(7),
+                failed_marker_check_enabled: Some(false),
+                system_message_enabled: Some(true),
+            }),
+            monthly_review_reminder: Some(hooks_config::MonthlyReviewReminderConfig {
+                enabled: Some(true),
+                threshold_days: Some(28),
+                system_message_enabled: Some(true),
+            }),
+        }
+    }
+
+    fn write_takt_run_meta(root: &Path, status: &str) {
+        let run_dir = root.join(".takt/runs/20261105-000000-pre-push-review");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        std::fs::write(run_dir.join("meta.json"), format!("{{\"status\": \"{status}\"}}")).unwrap();
+    }
+
+    /// 順位 597 (1): takt の子セッションの SessionStart に reminder を返すと、子セッションが
+    /// report の本文に書き込む (#614)。active な run があれば、両 reminder とも出さない。
+    #[test]
+    fn review_reminders_are_not_emitted_while_a_takt_run_is_active() {
+        let root = tempfile::tempdir().unwrap();
+        write_takt_run_meta(root.path(), "running");
+        let mut context = String::new();
+        let message = append_review_reminder_nudges(&mut context, "sid", root.path(), &always_firing_reminders(), 2_000_000_000);
+        assert!(message.is_none());
+        assert_eq!(context, "", "子セッションの additionalContext に reminder を入れない");
+    }
+
+    /// 対照: run が終わっていれば (本対話セッション)、これまでどおり両 reminder を出す。
+    #[test]
+    fn review_reminders_are_emitted_when_no_takt_run_is_active() {
+        let root = tempfile::tempdir().unwrap();
+        write_takt_run_meta(root.path(), "completed");
+        let mut context = String::new();
+        let message = append_review_reminder_nudges(&mut context, "sid", root.path(), &always_firing_reminders(), 2_000_000_000);
+        assert!(message.is_some());
+        assert!(context.contains("[WEEKLY_REVIEW_REMINDER]"), "{context}");
+        assert!(context.contains("[MONTHLY_REVIEW_REMINDER]"), "{context}");
     }
 }

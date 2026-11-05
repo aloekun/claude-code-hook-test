@@ -579,6 +579,7 @@ dependencies = [
  "lib-jj-helpers",
  "lib-pending-file",
  "lib-subprocess",
+ "lib-takt-runs",
  "lib-telemetry",
  "proptest",
  "serde",
@@ -603,6 +604,7 @@ dependencies = [
  "lib-config-path",
  "lib-jj-helpers",
  "lib-subprocess",
+ "lib-takt-runs",
  "lib-telemetry",
  "serde",
  "serde_json",
@@ -904,6 +906,14 @@ version = "0.1.0"
 [[package]]
 name = "lib-subprocess"
 version = "0.1.0"
+
+[[package]]
+name = "lib-takt-runs"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "lib-telemetry"

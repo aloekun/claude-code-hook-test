@@ -30,8 +30,8 @@ const BASELINE: &[(&str, &str)] = &[
     ("src/cli-pr-monitor/src/runner.rs", "diff_is_empty"),
     ("src/cli-push-runner/src/stages/push_jj_bookmark.rs", "working_copy_is_empty"),
     ("src/cli-push-runner/src/stages/push_jj_bookmark.rs", "head_has_description"),
-    ("src/hooks-stop-quality/src/takt_subsession.rs", "meta_status_is_running"),
-    ("src/hooks-stop-quality/src/takt_subsession.rs", "meta_is_fresh"),
+    ("src/lib-takt-runs/src/lib.rs", "meta_status_is_running"),
+    ("src/lib-takt-runs/src/lib.rs", "meta_is_fresh"),
     ("src/lib-telemetry/src/lib.rs", "telemetry_enabled"),
 ];
 

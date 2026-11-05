@@ -11,5 +11,6 @@ toml = "0.8"
 lib-subprocess = { path = "../lib-subprocess" }
 lib-jj-helpers = { path = "../lib-jj-helpers" }
 lib-telemetry = { path = "../lib-telemetry" }
+lib-takt-runs = { path = "../lib-takt-runs" }
 
 # [profile.release] は workspace root (Cargo.toml) に集約 (ADR-026)

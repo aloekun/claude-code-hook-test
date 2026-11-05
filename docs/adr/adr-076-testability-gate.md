@@ -59,7 +59,7 @@ fn diff_at_is_empty() -> bool {
 | `src/cli-pr-monitor/src/runner.rs` | `diff_is_empty` |
 | `src/cli-push-runner/src/stages/push_jj_bookmark.rs` | `working_copy_is_empty` / `head_has_description` |
 | `src/hooks-session-start/src/jj_helpers.rs` | `fetch_head_is_recent` |
-| `src/hooks-stop-quality/src/takt_subsession.rs` | `meta_status_is_running` / `meta_is_fresh` |
+| `src/lib-takt-runs/src/lib.rs` (順位 597 で hooks-stop-quality から移した) | `meta_status_is_running` / `meta_is_fresh` |
 | `src/lib-telemetry/src/lib.rs` | `telemetry_enabled` |
 
 ## ADR-039 の 3 点セット
