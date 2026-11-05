@@ -93,10 +93,10 @@ fn run_show(gh: &dyn Gh, args: &[String]) -> Result<(), String> {
     let all = threads::fetch(gh, &pr.repo, pr.number)?.threads;
     let open = threads::unresolved(&all).len();
     println!("PR #{} のスレッド: {} 件 (未解決 {open} 件)", pr.number, all.len());
-    for t in &all {
+    for (i, t) in all.iter().enumerate() {
         let state = if t.resolved { "解決済み" } else { "未解決" };
         let line = t.line.map(|l| format!(":{l}")).unwrap_or_default();
-        println!("[{state}] {}{line}  {}", t.path, t.title);
+        println!("#{} [{state}] {}{line}  {}", i + 1, t.path, t.title);
         for r in &t.replies {
             println!("    返信 ({}): {}", r.author, threads::title_of(&r.body));
             if full {
@@ -116,16 +116,16 @@ fn run_list(gh: &dyn Gh, args: &[String]) -> Result<(), String> {
     let pr = pr_to_read(gh, args)?;
     let all = threads::fetch(gh, &pr.repo, pr.number)?.threads;
     let entries = pending::load(&pending::default_path()?)?;
-    let open = threads::unresolved(&all);
-    println!("PR #{} の未解決スレッド: {} 件", pr.number, open.len());
-    for (i, t) in open.iter().enumerate() {
+    let open = threads::numbered_unresolved(&all);
+    println!("PR #{} の未解決スレッド: {} 件 (番号は解決済みも含めた作成順で、resolve されても変わらない)", pr.number, open.len());
+    for (number, t) in open {
         let mark = match entries.iter().find(|e| e.thread_id == t.id).map(|e| e.kind) {
             Some(Kind::Fixed) => " [修正で登録済み]",
             Some(Kind::Rejected) => " [棄却で登録済み]",
             None => "",
         };
         let line = t.line.map(|l| format!(":{l}")).unwrap_or_default();
-        println!("#{}{mark} {}{line}  {}\n    {}", i + 1, t.path, t.title, t.url);
+        println!("#{number}{mark} {}{line}  {}\n    {}", t.path, t.title, t.url);
     }
     Ok(())
 }
@@ -143,7 +143,8 @@ fn run_register(gh: &dyn Gh, kind: Kind, args: &[String]) -> Result<(), String> 
     let mut entries = pending::load(&path)?;
     pending::upsert(&mut entries, new_entry(&pr, thread, kind, note));
     pending::save(&path, &entries)?;
-    println!("登録した ({} 件): {} ({})", entries.len(), thread.title, thread.path);
+    let state = if thread.resolved { " [解決済みのスレッド]" } else { "" };
+    println!("登録した ({} 件){state}: {} ({})\n    {}", entries.len(), thread.title, thread.path, thread.url);
     Ok(())
 }
 

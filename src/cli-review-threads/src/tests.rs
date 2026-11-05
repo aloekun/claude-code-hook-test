@@ -188,13 +188,30 @@ fn terminal_control_characters_in_comments_are_dropped_before_printing() {
 #[test]
 fn a_thread_is_found_by_number_url_comment_id_or_node_id() {
     let all = vec![thread("PRRT_a", 11, true), thread("PRRT_b", 12, false), thread("PRRT_c", 13, false)];
-    assert_eq!(threads::find(&all, "1").expect("番号").id, "PRRT_b", "番号は未解決の一覧の順");
-    assert_eq!(threads::find(&all, "2").expect("番号").id, "PRRT_c");
+    assert_eq!(threads::find(&all, "1").expect("番号").id, "PRRT_a", "番号は解決済みも含めた全スレッドの順");
+    assert_eq!(threads::find(&all, "2").expect("番号").id, "PRRT_b");
+    assert_eq!(threads::find(&all, "3").expect("番号").id, "PRRT_c");
     assert_eq!(threads::find(&all, "https://github.com/o/r/pull/7#discussion_r11").expect("URL").id, "PRRT_a");
     assert_eq!(threads::find(&all, "13").expect("コメントの ID").id, "PRRT_c");
     assert_eq!(threads::find(&all, "PRRT_a").expect("node ID").id, "PRRT_a");
     assert!(threads::find(&all, "9").is_err());
     assert!(threads::find(&all, "x").is_err());
+}
+
+/// 順位 597 の観測 (#613): 一覧を取った後に CodeRabbit が #2 を自動で resolve しても、一覧で #3 と
+/// 出ていたスレッドは #3 のまま指せる。未解決の中の順で振っていたときは #3 が #2 に詰まり、
+/// 同じ番号で別のスレッドに登録した。
+#[test]
+fn a_number_keeps_pointing_at_the_same_thread_after_another_thread_is_resolved() {
+    let listed = vec![thread("PRRT_a", 11, false), thread("PRRT_b", 12, false), thread("PRRT_c", 13, false)];
+    let numbers: Vec<(usize, &str)> =
+        threads::numbered_unresolved(&listed).into_iter().map(|(n, t)| (n, t.id.as_str())).collect();
+    assert_eq!(numbers, [(1, "PRRT_a"), (2, "PRRT_b"), (3, "PRRT_c")]);
+
+    let after_auto_resolve = vec![thread("PRRT_a", 11, false), thread("PRRT_b", 12, true), thread("PRRT_c", 13, false)];
+    assert_eq!(threads::find(&after_auto_resolve, "3").expect("番号").id, "PRRT_c");
+    let numbers: Vec<usize> = threads::numbered_unresolved(&after_auto_resolve).into_iter().map(|(n, _)| n).collect();
+    assert_eq!(numbers, [1, 3], "一覧は未解決だけを出し、番号は飛び番になる");
 }
 
 #[test]

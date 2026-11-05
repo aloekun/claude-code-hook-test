@@ -175,12 +175,22 @@ fn strip_control_chars(s: &str) -> String {
     s.chars().filter(|c| !c.is_control() || *c == '\n').collect()
 }
 
-/// 未解決のスレッド (一覧の番号は、この順の 1 始まり)。
+/// 未解決のスレッド。
 pub(crate) fn unresolved(threads: &[Thread]) -> Vec<&Thread> {
     threads.iter().filter(|t| !t.resolved).collect()
 }
 
-/// 登録で指すスレッドを探す。`reference` は未解決の一覧の番号、コメントの URL
+/// 未解決のスレッドを、番号付きで返す。
+///
+/// **番号は、解決済みも含めた全スレッドの作成順の 1 始まり**であり、未解決の中の順ではない
+/// (順位 597)。未解決の中の順で振ると、一覧を取った後に CodeRabbit がスレッドを自動で resolve
+/// しただけで後ろの番号が詰まり、別のスレッドに登録してしまう (#613)。全スレッドの順なら、
+/// resolve されても番号は変わらず、新しいスレッドは末尾に付く。
+pub(crate) fn numbered_unresolved(threads: &[Thread]) -> Vec<(usize, &Thread)> {
+    threads.iter().enumerate().filter(|(_, t)| !t.resolved).map(|(i, t)| (i + 1, t)).collect()
+}
+
+/// 登録で指すスレッドを探す。`reference` は一覧の番号 ([`numbered_unresolved`])、コメントの URL
 /// (`…#discussion_r<ID>`)、コメントの ID、スレッドの node ID (`PRRT_…`) のどれか。
 pub(crate) fn find<'a>(threads: &'a [Thread], reference: &str) -> Result<&'a Thread, String> {
     let reference = reference.trim();
@@ -191,9 +201,8 @@ pub(crate) fn find<'a>(threads: &'a [Thread], reference: &str) -> Result<&'a Thr
         return threads.iter().find(|t| t.comment_id == id).ok_or_else(|| format!("コメント {id} のスレッドが無い"));
     }
     let n: u64 = reference.parse().map_err(|_| format!("番号・URL・スレッド ID のどれでもない: {reference}"))?;
-    let open = unresolved(threads);
-    if let Some(t) = usize::try_from(n).ok().filter(|i| (1..=open.len()).contains(i)).map(|i| open[i - 1]) {
+    if let Some(t) = usize::try_from(n).ok().and_then(|i| i.checked_sub(1)).and_then(|i| threads.get(i)) {
         return Ok(t);
     }
-    threads.iter().find(|t| t.comment_id == n).ok_or_else(|| format!("未解決の一覧の番号にもコメントの ID にも無い: {n}"))
+    threads.iter().find(|t| t.comment_id == n).ok_or_else(|| format!("一覧の番号にもコメントの ID にも無い: {n}"))
 }
