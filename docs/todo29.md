@@ -326,23 +326,6 @@
 
 - BOM / CRLF の入力と、未対応の拡張子がテストで固定されていること
 
-### 順位 596: 読み取り専用ツールのガードで、子プロセスとネットワークの別経路を拒否する
-
-> **動機**: `scripts/tools/readonly.test.ts` の `violations()` は import 文と `import(` / `require(` だけを見る。`process.getBuiltinModule("node:child_process")` や、import の要らない `fetch` / `WebSocket` / `XMLHttpRequest` は拒否されない。`scripts/tools/` の各ツールは「ネットワークは使わない」と書いているが、ガードはそこまで検査していない。これらのツールは許可リストに入っていて確認なしで走るので、別経路を機械的に塞ぐ価値がある (#613 の CodeRabbit と pre-push レビューの指摘)。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 作業計画
-
-- `violations()` が `getBuiltinModule` と `fetch` / `WebSocket` / `XMLHttpRequest` / `EventSource` を検出し、拒否側の `it.each` にケースを足す
-- `readonly.test.ts` の冒頭の説明を、実際に検査している範囲に合わせる
-
-#### 完了基準
-
-- 上の各 API を使うツールを足すと、`readonly.test.ts` が落ちること
-
 ### 順位 597: 作業中に出たハーネスの誤検知と、登録先の取り違えを直す
 
 > **動機**: #604〜#614 のセッションで 4 件を観測した。
