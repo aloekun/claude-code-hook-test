@@ -63,14 +63,19 @@ fn write_rules(dir: &Path, id: &str, pattern: &str) {
     std::fs::write(dir.join(RULES_FILE), rule_toml(id, pattern)).expect("write rules toml");
 }
 
-/// staging 済み linter に `<tmp>/note.md` を渡して spawn し、custom-lint の違反を返す。
+/// staging 済み linter に `<tmp>/note.md` を渡して spawn し、custom-lint の違反を返す (cwd は `<tmp>`)。
 fn run_linter(tmp: &Path, exe: &Path) -> Vec<serde_json::Value> {
+    run_linter_in(tmp, exe, tmp)
+}
+
+/// [`run_linter`] の cwd を `cwd` にしたもの。
+fn run_linter_in(tmp: &Path, exe: &Path, cwd: &Path) -> Vec<serde_json::Value> {
     let target = tmp.join("note.md").to_string_lossy().replace('\\', "/");
     let payload = serde_json::json!({ "tool_input": { "file_path": target } }).to_string();
 
     let guard = exec_staging_guard();
     let mut child = Command::new(exe)
-        .current_dir(tmp)
+        .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -88,10 +93,13 @@ fn run_linter(tmp: &Path, exe: &Path) -> Vec<serde_json::Value> {
     let status = wait_with_timeout_safe("hooks-post-tool-linter", &mut child, LINTER_TIMEOUT_SECS)
         .expect("wait_with_timeout_safe errored");
     let stdout = stdout_drain.join().expect("stdout drain thread panicked");
-    stderr_drain.join().expect("stderr drain thread panicked");
+    let stderr = stderr_drain.join().expect("stderr drain thread panicked");
+    let status = status.unwrap_or_else(|| {
+        panic!("hooks-post-tool-linter hung > {LINTER_TIMEOUT_SECS}s (killed) — investigate")
+    });
     assert!(
-        status.is_some(),
-        "hooks-post-tool-linter hung > {LINTER_TIMEOUT_SECS}s (killed) — investigate"
+        status.success(),
+        "hooks-post-tool-linter が異常終了しました ({status}) — stderr: {stderr}"
     );
     parse_custom_lint_violations(&stdout)
 }
@@ -147,6 +155,19 @@ fn rules_in_the_config_dir_are_applied() {
         .unwrap_or_else(|| panic!("config/ のルールが発火していません: {violations:?}"));
     assert_eq!(hit["severity"], "error");
     assert_eq!(hit["location"]["line"].as_u64(), Some(2));
+}
+
+/// cwd がリポジトリのサブディレクトリでも、`config/` のルールが効く (順位 594)。config は exe の
+/// 場所から解決するので cwd に依存しない。cwd を基準にする退行をこのテストで捕まえる。
+#[test]
+fn rules_in_the_config_dir_are_applied_from_a_subdirectory_cwd() {
+    let (tmp, exe) = stage_linter();
+    write_rules(&tmp.path().join("config"), "e2e-config-dir-marker", "e2e-config-marker");
+    let sub = tmp.path().join("src").join("nested");
+    std::fs::create_dir_all(&sub).expect("create subdirectory cwd");
+
+    let fired = fired_types(&run_linter_in(tmp.path(), &exe, &sub));
+    assert_eq!(fired, vec![CONFIG_RULE.to_string()], "cwd がサブディレクトリでも config/ のルールが発火するはず");
 }
 
 /// `config/` と `.claude/` の両方にあれば `config/` を読み、`.claude/` は読まない。

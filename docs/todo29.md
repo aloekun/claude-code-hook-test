@@ -291,24 +291,6 @@
 
 - 各 assert や数え方を元に戻すと、対応するテストが落ちること
 
-### 順位 594: config の解決と同期のテストの false-green を塞ぐ
-
-> **動機**: #611 の CodeRabbit が 3 つの穴を指摘した。(1) `src/hooks-post-tool-linter/tests/config_dir_e2e.rs` は exe を常に tmp の直下を cwd にして起動するので、cwd がサブディレクトリのときに `config/` を読めなくなる退行を検出できない。(2) 同ファイルの `run_linter` は timeout だけを見て (`status.is_some()`)、非 0 終了を見ない。exe が panic してもテストが通る。(3) `src/lib-config-path/src/deploy_hooks_sync.rs` の `notify_candidates` は配列から `join(` の呼び出しだけを拾うので、TS 側の候補が文字列リテラルや変数に変わっても同期テストが気づかない。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。どれも、壊れても黙って緑になる経路である。
-
-#### 作業計画
-
-- (1) tmp の下のサブディレクトリを cwd にして起動し、`config/` の設定が効くテストを足す
-- (2) `run_linter` で `status.success()` も確かめる
-- (3) 配列の要素が `join(...)` 以外なら panic する (既存の fail-closed の panic に揃える)。陽性対照のテストを足す
-
-#### 完了基準
-
-- (1)〜(3) の各条件を壊した入力で、対応するテストが落ちること
-
 ### 順位 595: lint-workflows の jq 略記検査とコメント接頭辞のテストを足す
 
 > **動機**: #607 の feedback。(1) `scripts/lint-workflows.mjs` の `JQ_PROGRAM` は長く複雑な正規表現なのに、BOM や CRLF 改行を含む入力のテストが無い。regex の変更による検出漏れを捕まえる mutation 系のテストも無い (`scripts/lint-workflows.test.mjs` の mutation テストは marker 検査用)。(2) `commentPrefixesFor` は `.rs` なら `//`、それ以外なら `#` の二択である。`//` を使う別の拡張子が marker の対象に入ると、コメント行を除けず、marker の存在判定を黙って誤る。
