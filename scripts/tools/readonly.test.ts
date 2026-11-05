@@ -12,7 +12,9 @@
  * - import の要らないネットワーク API: `fetch` / `WebSocket` / `XMLHttpRequest` / `EventSource`
  * - 文字列からのコードの組み立て: `eval` / `new Function` (上の名前を文字列にして検査をすり抜けられる)
  *
- * 検査はソースの字面で名前を探す。自分たちで書くツールに誤って入るのを止めるためのもので、
+ * 検査はソースの字面で名前を探す。`process.` や `(` が続くかは見ず、名前が出てくれば拒否する
+ * (`const { binding } = process` の分割代入や、`const run = eval` の括弧なしの参照も通さない)。
+ * 自分たちで書くツールに誤って入るのを止めるためのもので、
  * `globalThis["fe" + "tch"]` のような意図的な難読化までは見ない。
  */
 
@@ -65,9 +67,9 @@ function violations(source: string): string[] {
 /** import を経ずに子プロセス・ネイティブコード・ネットワーク・任意のコードへ届く経路。 */
 const FORBIDDEN_GLOBALS: Array<[RegExp, string]> = [
   [/\bgetBuiltinModule\b/, "getBuiltinModule は使えない"],
-  [/\bprocess\s*\.\s*(?:binding|_linkedBinding|dlopen)\b/, "process の binding / dlopen は使えない"],
+  [/\b(?:binding|_linkedBinding|dlopen)\b/, "process の binding / dlopen は使えない"],
   [/\b(?:fetch|WebSocket|XMLHttpRequest|EventSource)\b/, "ネットワーク API は使えない"],
-  [/\beval\s*\(|\bFunction\s*\(/, "eval / Function は使えない"],
+  [/\b(?:eval|Function)\b/, "eval / Function は使えない"],
 ];
 
 describe("scripts/tools", () => {
@@ -89,12 +91,18 @@ describe("scripts/tools", () => {
     ['const w = process.binding("spawn_wrap");', "process の binding / dlopen は使えない"],
     ['process._linkedBinding("x");', "process の binding / dlopen は使えない"],
     ['process.dlopen(module, "x.node");', "process の binding / dlopen は使えない"],
+    ['const { binding } = process; binding("spawn_wrap");', "process の binding / dlopen は使えない"],
+    ['const { _linkedBinding: lb } = process; lb("x");', "process の binding / dlopen は使えない"],
+    ['const { dlopen } = process; dlopen(module, "x.node");', "process の binding / dlopen は使えない"],
     ['await fetch("https://example.invalid/");', "ネットワーク API は使えない"],
     ['new WebSocket("wss://example.invalid/");', "ネットワーク API は使えない"],
     ["const x = new XMLHttpRequest();", "ネットワーク API は使えない"],
     ['new EventSource("https://example.invalid/");', "ネットワーク API は使えない"],
     ['eval("1");', "eval / Function は使えない"],
     ['const f = new Function("return 1");', "eval / Function は使えない"],
+    ['const run = eval; run("1");', "eval / Function は使えない"],
+    ['const make = Function; make("return 1")();', "eval / Function は使えない"],
+    ['["1"].map(eval);', "eval / Function は使えない"],
   ])("rejects %s", (source, message) => {
     expect(violations(source)).toEqual([message]);
   });
