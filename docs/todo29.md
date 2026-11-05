@@ -308,3 +308,75 @@
 
 - BOM / CRLF の入力と、未対応の拡張子がテストで固定されていること
 
+### 順位 598: post-merge feedback の transcript から takt の子セッションを除き、merge-pr が `--` を受けるようにする
+
+> **動機**: #617 / #618 / #619 の feedback で 3 回続けて提案された。(1) `src/cli-merge-pipeline/src/feedback/transcript.rs` は時刻の範囲で transcript を切り出すだけで、takt の子セッションや分析セッションの entry を除かない。子セッションの user 発話 (`## Execution Context` / `## Workflow Context` で始まるもの) が「セッション知見」として集計され、ユーザーの指示でない内容から提案が作られうる。除外を確かめるテストも無い。(2) `src/cli-merge-pipeline/src/main.rs` の `parse_args` は `--pr` / `--feedback-only` 以外を不明な引数として exit 2 にするため、`pnpm merge-pr -- --pr N` が失敗する。`create-pr` は `--` を受けるので挙動が揃っていない (#616 / #617 の feedback)。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 2 — Effort M。
+
+#### 作業計画
+
+- (1) 子セッションの見分け方を着手前に決める。候補は、user 発話の先頭の見出し (`## Execution Context` など) で見る案と、`.takt/runs` の run の meta とセッション ID を突き合わせる案。決めた方法で除外し、子セッションの entry が除かれることと、実ユーザーの発話が残ることの両方をテストで固定する
+- (2) `parse_args` が先頭の `--` を読み飛ばすようにし、テストで固定する
+
+#### 完了基準
+
+- 子セッションの entry を含む transcript の fixture で、その entry だけが除かれること。除外を外すとテストが落ちること
+- `merge-pr -- --pr N` が `--pr N` と同じに解釈されること
+
+### 順位 599: jj-op-verify の分類を実際の jj で固定し、後ろのヘルプフラグを照合しない
+
+> **動機**: #619 の feedback。(1) `src/hooks-post-tool-jj-op-verify/src/main.rs` の分類 (`classify_jj_invocation`) と op の文言の照合 (`op_matches_expectation`) は、jj 0.42 で一度実測した文言を前提にしている。jj を更新して文言が変わると、誤警告か検証漏れが黙って起きる。`next` / `prev` を `--edit` なしで実行したときの文言も実測していない。(2) `jj edit --help` のように後ろにヘルプのフラグが付くと、何も変更しないのに Mutating に分類され、op log の先頭と照合して誤警告する。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 2 — Effort M。
+
+#### 作業計画
+
+- (1) 使い捨ての jj リポジトリで各 verb を実行し、op log の先頭の文言が照合に通ることを確かめる `#[ignore]` の統合テストを `src/hooks-post-tool-jj-op-verify/src/tests.rs` に足す (`cargo test -- --ignored` で実行)。`next` / `prev` の `--edit` なしも含める
+- (2) `--` より前に `--help` / `-h` があれば Neutral にし、`jj edit --help` のテストで固定する。`--` より後ろの語は jj が path として扱うので、`jj restore -- --help` は Mutating のままにする (Neutral にすると変更操作の検証が省かれる。#621 の CodeRabbit 指摘)
+
+#### 完了基準
+
+- 照合する文言を 1 つ変えると、統合テストが落ちること
+- `jj edit --help` で警告が出ず、`jj restore -- --help` は従来どおり検証されること
+
+### 順位 600: review-threads の番号付けを 1 つの関数にまとめる
+
+> **動機**: #619 の feedback (Severity High)。`src/cli-review-threads/src/main.rs` の `run_show` と `src/cli-review-threads/src/threads.rs` の `numbered_unresolved` が、それぞれ `i + 1` で番号を振っている。`list` の番号で登録する経路 (`find_for_registration`) は `numbered_unresolved` に従うが、`show` の番号は別の実装である。片方だけが変わると、表示した番号と登録先がずれ、順位 597 (4) で直した「別のスレッドに登録する」事故が再び起きる。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 2 — Effort S。
+
+#### 作業計画
+
+- 全スレッドに番号を振る関数を `threads.rs` に 1 つ置き、`run_show` と `numbered_unresolved` の両方がそれを使う
+- `show` と `list` で同じスレッドに同じ番号が付くことをテストで固定する
+
+#### 完了基準
+
+- 番号を振る処理が 1 か所にしかないこと
+- `show` と `list` の番号が食い違う変更を入れると、テストが落ちること
+
+### 順位 601: config の解決と Start-Process の検出のテストの false-green を塞ぐ
+
+> **動機**: (1) #617 の feedback。`src/hooks-post-tool-linter/tests/config_dir_e2e.rs` の `rules_in_the_config_dir_are_applied_from_a_subdirectory_cwd` は、祖先の `src/config` に別のルールが無い構成で検査している。config の解決が「最も近い祖先を探す」形に退行しても、同じルールが見つかるのでテストは通る。(2) #616 の feedback。`src/hooks-pre-tool-validate/src/presets/safety/script_runtime.rs` の `START_PROCESS_SWITCH` と、値を取るパラメータの扱いは代表例の個別テストでしか固定されていない。列挙に無いパラメータや省略形、`command --` / `-p` との組み合わせで検出漏れが起きても気づけない。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort S。
+
+#### 作業計画
+
+- (1) 最も近い祖先の `src/config` に、別 ID のルール (`E2E_CWD_DECOY` など) を置く。祖先探索に退行したらそのルールが適用されて落ちるようにする
+- (2) Start-Process の全パラメータ (switch / 値を取るもの / 省略形) と `command --` / `-p` の組み合わせを表駆動のテストにし、`START_PROCESS_SWITCH` の列挙と突き合わせる
+
+#### 完了基準
+
+- (1) config の解決を祖先探索に変えると、テストが落ちること
+- (2) 列挙からパラメータを 1 つ外すと、表駆動のテストが落ちること
+
