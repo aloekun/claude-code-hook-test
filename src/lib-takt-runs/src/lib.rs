@@ -1,15 +1,22 @@
-//! active takt subsession の検知 (ADR-004 § takt subsession skip)。
+//! lib-takt-runs — active takt subsession の検知 (ADR-004 § takt subsession skip)。
 //!
-//! takt subsession は `edit: false` で起動される read-only 分析セッションが多く
-//! (例: weekly-review whole-tree reviewer / post-merge-feedback analyzer)、Stop hook が
-//! 品質ゲート失敗の「直せ」指示を返すと制約に反して stray edit を試みる事故が発生する
-//! (PR #221 で実観測)。本 module で active subsession を検知し、呼び出し側が品質ゲートを
-//! skip することで、ADR-004 の趣旨 (= 本対話セッションの品質担保) と takt の
-//! `edit: false` 制約の整合を取る。
+//! takt subsession は `edit: false` で起動される read-only 分析セッションが多い
+//! (例: weekly-review whole-tree reviewer / post-merge-feedback analyzer)。本対話セッション
+//! 向けの hook の出力をそのまま返すと、subsession が誤動作する。使う側は 2 つある:
+//!
+//! - hooks-stop-quality: 品質ゲート失敗の「直せ」指示を返すと、制約に反して stray edit を
+//!   試みる (PR #221 で実観測)。active なら品質ゲートを skip する
+//! - hooks-session-start: weekly / monthly review の reminder を返すと、「ユーザーに伝える」
+//!   指示に従って report の本文に書き込む (#614 で実観測、順位 597)。active なら reminder を出さない
+//!
+//! 判定が 2 crate に分かれると、閾値や読み方が片方だけ変わる ([ADR-081]) ので、ここに 1 つだけ置く
+//! (hooks-stop-quality から移した。順位 597)。
 //!
 //! 判定の起点は repo root であり cwd ではない。cwd 基準にすると cwd drift で
-//! active run を黙って見落とす (T7 の incident。`main` の `normalize_cwd_to_project_root`
-//! 参照)。
+//! active run を黙って見落とす (T7 の incident。hooks-stop-quality の `main` の
+//! `normalize_cwd_to_project_root` 参照)。
+//!
+//! [ADR-081]: ../../../docs/adr/adr-081-single-fact-dispersion.md
 
 use serde::Deserialize;
 use std::path::Path;

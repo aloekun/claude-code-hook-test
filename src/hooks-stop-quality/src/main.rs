@@ -27,13 +27,11 @@
 //!   exe-relative 解決は config (`config_path`) / pipeline lock が既に採る規約と同じ
 //!   (順位 287、ADR-010)。
 
-mod takt_subsession;
-
 use lib_subprocess::run_cmd_shell_capped;
+use lib_takt_runs::takt_subsession_active;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use takt_subsession::takt_subsession_active;
 
 // --- 入力 ---
 

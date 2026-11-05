@@ -263,8 +263,8 @@ enum BookmarkCheckOutcome {
 /// `[diff] command = "jj diff -r @"` で取得するため、`@` が空のまま push すると
 /// 祖先の未 push 変更が AI レビューを経ずにリモートへ出る。bookmark が空の `@` に
 /// 付いていても同じ穴が開くため、bookmark の有無より先に `@` の空を弾く
-/// (`advance_jj_bookmarks` は非 trunk bookmark が 2 つ以上あると fallback 更新を
-/// skip するため、bookmark が空の `@` に残る状態は実在する)。
+/// (`advance_jj_bookmarks` は非 trunk bookmark が 2 つ以上あり、祖先にあるものを 1 つに
+/// 絞れないと fallback 更新を skip するため、bookmark が空の `@` に残る状態は実在する)。
 ///
 /// `head_state` は `Empty` だけでなく `Unknown` (jj 実行失敗で判定不能) でも
 /// `EmptyWorkingCopy` に倒す (SIM-NEW-bookmark_check-L165 対応)。`Unknown` を

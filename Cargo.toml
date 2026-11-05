@@ -57,6 +57,7 @@ members = [
     "src/lib-report-formatter",
     "src/lib-scope-guard",
     "src/lib-subprocess",
+    "src/lib-takt-runs",
     "src/lib-telemetry",
 ]
 

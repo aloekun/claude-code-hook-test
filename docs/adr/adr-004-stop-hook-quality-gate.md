@@ -66,7 +66,7 @@ mtime ベースの freshness check (= takt の TAKT_TIMEOUT_SECS 1200s + 5 分�
 
 #### 実装の所在
 
-[src/hooks-stop-quality/src/main.rs](../../src/hooks-stop-quality/src/main.rs) の `should_skip_quality_gate()` で `stop_hook_active` チェック直後に `takt_subsession_active()` を呼ぶ 2 段判定。test 9 件で各種ケース (no runs dir / no meta / status=completed のみ / status=running 混在 / malformed JSON 等) を網羅。
+[src/hooks-stop-quality/src/main.rs](../../src/hooks-stop-quality/src/main.rs) の `should_skip_quality_gate()` で `stop_hook_active` チェック直後に `takt_subsession_active()` を呼ぶ 2 段判定。判定の本体は [src/lib-takt-runs/src/lib.rs](../../src/lib-takt-runs/src/lib.rs) にあり、hooks-session-start も同じ判定で weekly / monthly review の reminder を止める (2026-11-05、順位 597 で hooks-stop-quality から移した)。test で各種ケース (no runs dir / no meta / status=completed のみ / status=running 混在 / malformed JSON 等) を網羅。
 
 #### 由来事例
 

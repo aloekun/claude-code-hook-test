@@ -3,6 +3,8 @@ use std::process::Command;
 
 use crate::log::{log_info, log_stage};
 
+mod fallback;
+
 pub(super) fn advance_jj_bookmarks() -> Result<(), String> {
     let target = match determine_target_revision()? {
         Some(rev) => rev,
@@ -14,7 +16,7 @@ pub(super) fn advance_jj_bookmarks() -> Result<(), String> {
         // Fallback: takt fix が @ を amend すると旧 commit が obsolete になり、
         // revset ベースの検索では発見できない。`jj bookmark list` は obsolete
         // commit 上の bookmark も返すため、こちらで再探索する。
-        return advance_bookmarks_via_list(&target);
+        return fallback::advance_bookmarks_via_list(&target);
     }
 
     apply_bookmarks(&bookmarks, &target, "");
@@ -34,47 +36,6 @@ fn apply_bookmarks(bookmarks: &[String], target: &str, label: &str) {
                     bookmark, label, e
                 ));
             }
-        }
-    }
-}
-
-/// `jj bookmark list` の出力から非 trunk ローカル bookmark を取得し、target に前進させる。
-/// revset ベースの `get_bookmarks_in_range` が空を返した場合のフォールバック。
-///
-/// 安全策: 非 trunk bookmark が 1 つだけの場合のみ前進させる。
-/// 複数ある場合は無関係な bookmark を誤って移動するリスクがあるためスキップする。
-fn advance_bookmarks_via_list(target: &str) -> Result<(), String> {
-    let bookmarks = get_local_bookmarks_from_list()?;
-    dispatch_bookmark_advance(&bookmarks, target, |b, t| {
-        apply_bookmarks(b, t, " (fallback)")
-    });
-    Ok(())
-}
-
-fn dispatch_bookmark_advance(
-    bookmarks: &[String],
-    target: &str,
-    apply: impl FnOnce(&[String], &str),
-) {
-    match bookmarks.len() {
-        0 => {
-            log_info("ローカル bookmark が見つかりません (新規ブランチ等)");
-        }
-        1 => {
-            log_info(&format!(
-                "fallback: bookmark '{}' を {} に前進させます",
-                bookmarks[0], target
-            ));
-            apply(bookmarks, target);
-        }
-        _ => {
-            // 複数の非 trunk bookmark がある場合、無関係な bookmark を
-            // 誤って移動するリスクがあるためスキップする
-            log_info(&format!(
-                "複数の bookmark ({}) が存在するため fallback 更新をスキップします: {}",
-                bookmarks.len(),
-                bookmarks.join(", ")
-            ));
         }
     }
 }
@@ -243,24 +204,6 @@ pub(super) fn head_has_description() -> Result<bool, String> {
     Ok(output.trim() == "described")
 }
 
-/// `jj bookmark list` の出力をパースし、非 trunk のローカル bookmark 名を返す。
-/// 出力形式: "name: commit_id description\n  @origin: commit_id\n"
-/// インデントで始まる行はリモート追跡情報なのでスキップする。
-fn get_local_bookmarks_from_list() -> Result<Vec<String>, String> {
-    let output = run_jj(&["bookmark", "list"], "jj bookmark list 実行失敗")?;
-    Ok(dedup(parse_bookmark_list_output(&output)))
-}
-
-fn parse_bookmark_list_output(output: &str) -> Vec<String> {
-    output
-        .lines()
-        .filter(|line| !line.starts_with(' ') && !line.starts_with('\t'))
-        .filter_map(|line| line.split(':').next())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty() && !is_trunk_bookmark(s))
-        .collect()
-}
-
 fn dedup(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     items
@@ -351,87 +294,6 @@ mod tests {
             parse_bookmarks_from_template("a,a,b\n"),
             vec!["a", "a", "b"]
         );
-    }
-
-    // --- is_trunk_bookmark / TRUNK_BOOKMARKS ---
-    //
-    // lib-jj-helpers に集約済 (ADR-024 本採用、PR-C で移設)。
-    // cli-push-runner 側からは lib_jj_helpers::is_trunk_bookmark を呼び出す。
-
-    // --- parse_bookmark_list_output ---
-
-    #[test]
-    fn parse_bookmark_list_typical_output() {
-        let output = "\
-feat/xyz: abc1234 add feature
-  @origin: abc1234 add feature
-main: def5678 initial
-  @origin: def5678 initial
-";
-        assert_eq!(parse_bookmark_list_output(output), vec!["feat/xyz"]);
-    }
-
-    #[test]
-    fn parse_bookmark_list_multiple_feature_bookmarks() {
-        let output = "\
-feat/a: 111 desc
-feat/b: 222 desc
-main: 333 desc
-";
-        assert_eq!(parse_bookmark_list_output(output), vec!["feat/a", "feat/b"]);
-    }
-
-    #[test]
-    fn parse_bookmark_list_empty_output() {
-        assert_eq!(parse_bookmark_list_output(""), Vec::<String>::new());
-    }
-
-    #[test]
-    fn parse_bookmark_list_only_trunk() {
-        let output = "main: abc123 desc\nmaster: def456 desc\n";
-        assert_eq!(parse_bookmark_list_output(output), Vec::<String>::new());
-    }
-
-    // --- dispatch_bookmark_advance ---
-
-    #[test]
-    fn dispatch_zero_bookmarks_does_not_call_apply() {
-        let called = std::cell::Cell::new(false);
-        dispatch_bookmark_advance(&[], "abc123", |_, _| called.set(true));
-        assert!(!called.get());
-    }
-
-    #[test]
-    fn dispatch_one_bookmark_calls_apply_with_correct_args() {
-        let captured = std::cell::RefCell::new(None::<(Vec<String>, String)>);
-        dispatch_bookmark_advance(&["feat/xyz".to_string()], "abc123", |b, t| {
-            *captured.borrow_mut() = Some((b.to_vec(), t.to_string()))
-        });
-        assert_eq!(
-            *captured.borrow(),
-            Some((vec!["feat/xyz".to_string()], "abc123".to_string()))
-        );
-    }
-
-    #[test]
-    fn dispatch_multiple_bookmarks_does_not_call_apply() {
-        let called = std::cell::Cell::new(false);
-        dispatch_bookmark_advance(
-            &["feat/a".to_string(), "feat/b".to_string()],
-            "abc123",
-            |_, _| called.set(true),
-        );
-        assert!(!called.get());
-    }
-
-    #[test]
-    fn parse_bookmark_list_skips_indented_remote_lines() {
-        let output = "\
-feat/xyz: abc1234 desc
-  @origin: abc1234 desc
-  @upstream: abc1234 desc
-";
-        assert_eq!(parse_bookmark_list_output(output), vec!["feat/xyz"]);
     }
 
     /// 順位 376 の実 jj 回帰テスト (両方向、2026-08-06 実観測の incident 再現)。
@@ -596,6 +458,82 @@ feat/xyz: abc1234 desc
                 head,
                 "単一ブランチ運用では従来どおり @ へ前進すること"
             );
+        }
+
+        /// 順位 597 (3) の実 jj 回帰テスト: master から並べて切った bookmark が 3 つある構成で、
+        /// 作業中のブランチに `jj new` で積んだとき、そのブランチの bookmark だけが前進すること。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn parallel_branches_advance_only_the_ancestor_bookmark() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            for (name, file) in [("feat/a", "a2.txt"), ("feat/b", "b.txt"), ("feat/c", "c.txt")] {
+                jj(&repo, &["new", "master", "-m", &format!("feat: {name}")]);
+                std::fs::write(repo.join(file), "x\n").unwrap();
+                jj(&repo, &["bookmark", "create", name, "-r", "@"]);
+            }
+            jj(&repo, &["new", "feat/b", "-m", "fix: b のレビュー指摘"]);
+            std::fs::write(repo.join("b.txt"), "y\n").unwrap();
+
+            let head = commit_of(&repo, "@");
+            let (a_before, c_before) = (commit_of(&repo, "feat/a"), commit_of(&repo, "feat/c"));
+            let _guard = enter(&repo);
+            advance_jj_bookmarks().expect("advance は成功するはず");
+
+            assert_eq!(commit_of(&repo, "feat/b"), head, "祖先にある feat/b を @ へ前進させること");
+            assert_eq!(commit_of(&repo, "feat/a"), a_before, "別の PR の feat/a を動かしてはならない");
+            assert_eq!(commit_of(&repo, "feat/c"), c_before, "別の PR の feat/c を動かしてはならない");
+        }
+
+        /// 対比: スタックに積んだときは、祖先に 2 つあるので fallback でも動かさない。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn stacked_branches_are_not_advanced_by_the_fallback() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            jj(&repo, &["new", "-m", "feat: pr1"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/pr1", "-r", "@"]);
+            jj(&repo, &["new", "-m", "feat: pr2"]);
+            std::fs::write(repo.join("c.txt"), "two\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/pr2", "-r", "@"]);
+            jj(&repo, &["new", "-m", "fix: pr2 のレビュー指摘"]);
+            std::fs::write(repo.join("c.txt"), "three\n").unwrap();
+
+            let (pr1_before, pr2_before) = (commit_of(&repo, "feat/pr1"), commit_of(&repo, "feat/pr2"));
+            let _guard = enter(&repo);
+            advance_jj_bookmarks().expect("advance は成功するはず");
+
+            assert_eq!(commit_of(&repo, "feat/pr1"), pr1_before);
+            assert_eq!(commit_of(&repo, "feat/pr2"), pr2_before);
+        }
+
+        /// #620 の CodeRabbit 指摘の再現: スタックの上の PR (feat/pr2) の bookmark が古い
+        /// コミットに置き去りになり、作業コミットが feat/pr1 の上に作り直された構成。祖先には
+        /// feat/pr1 しか無いが、その子孫に feat/pr2 があるので、feat/pr1 を動かさない。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn a_stranded_upper_bookmark_keeps_the_lower_one_in_place() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base(&repo);
+            jj(&repo, &["new", "-m", "feat: pr1"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/pr1", "-r", "@"]);
+            jj(&repo, &["new", "-m", "feat: pr2"]);
+            std::fs::write(repo.join("c.txt"), "two\n").unwrap();
+            jj(&repo, &["bookmark", "create", "feat/pr2", "-r", "@"]);
+            jj(&repo, &["new", "feat/pr1", "-m", "feat: pr2 (作り直し)"]);
+            std::fs::write(repo.join("c.txt"), "three\n").unwrap();
+
+            let (pr1_before, pr2_before) = (commit_of(&repo, "feat/pr1"), commit_of(&repo, "feat/pr2"));
+            let _guard = enter(&repo);
+            advance_jj_bookmarks().expect("advance は成功するはず");
+
+            assert_eq!(commit_of(&repo, "feat/pr1"), pr1_before, "レビュー済み feat/pr1 を上の PR の tip へ動かしてはならない");
+            assert_eq!(commit_of(&repo, "feat/pr2"), pr2_before);
         }
     }
 }
