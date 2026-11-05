@@ -190,6 +190,27 @@ pub(crate) fn numbered_unresolved(threads: &[Thread]) -> Vec<(usize, &Thread)> {
     threads.iter().enumerate().filter(|(_, t)| !t.resolved).map(|(i, t)| (i + 1, t)).collect()
 }
 
+/// 登録・取り消しで指すスレッドを探す ([`find`])。ただし**読めなかったスレッドがあるときは、
+/// 一覧の番号での指定を拒否する** (URL・コメントの ID・node ID は使える)。
+///
+/// 番号は読めたスレッドの作成順で振るので、一覧を取った後に前の方のスレッドの最初のコメントが
+/// 消えて読めなくなると、後ろの番号が 1 つずれて別のスレッドを指す (#619 の CodeRabbit 指摘)。
+/// どのスレッドが読めなくなったかは分からないので、番号そのものを使わせない。
+pub(crate) fn find_for_registration<'a>(fetched: &'a Fetched, reference: &str) -> Result<&'a Thread, String> {
+    let is_list_number = reference
+        .trim()
+        .parse::<usize>()
+        .is_ok_and(|n| n >= 1 && n <= fetched.threads.len());
+    if fetched.unreadable > 0 && is_list_number {
+        return Err(format!(
+            "読めないスレッドが {} 件あり、一覧の番号がずれているかもしれないので、番号では登録できない。\
+             `pnpm threads list` に出る URL で指定してください",
+            fetched.unreadable
+        ));
+    }
+    find(&fetched.threads, reference)
+}
+
 /// 登録で指すスレッドを探す。`reference` は一覧の番号 ([`numbered_unresolved`])、コメントの URL
 /// (`…#discussion_r<ID>`)、コメントの ID、スレッドの node ID (`PRRT_…`) のどれか。
 pub(crate) fn find<'a>(threads: &'a [Thread], reference: &str) -> Result<&'a Thread, String> {

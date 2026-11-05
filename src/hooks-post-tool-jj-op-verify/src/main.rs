@@ -160,7 +160,7 @@ enum JjInvocation {
     /// 照合できる変更系操作 (verb, op log の description の先頭の文言)。
     Mutating(&'static str, &'static str),
     /// 照合に影響しない呼び出し。読み取り系と、op が付随 op ([`INCIDENTAL_OP_PREFIXES`]) に
-    /// なるもの (`jj git push` など)、サブコマンドの位置がフラグのもの。
+    /// なるもの (`jj git push` など)。グローバルオプションは分類の前に読み飛ばす ([`jj_subcommand_of`])。
     Neutral,
     /// 文言の分からない変更系かもしれない呼び出し。その op が先頭に来るので、前の操作と照合しない。
     Unknown,
@@ -195,7 +195,6 @@ fn classify_jj_invocation(sub: &str, sub2: Option<&str>) -> JjInvocation {
         }
         "log" | "st" | "status" | "diff" | "show" | "evolog" | "evolution-log" | "interdiff"
         | "help" | "version" | "root" | "config" | "git" | "util" => Neutral,
-        flag if flag.starts_with('-') => Neutral,
         _ => Unknown,
     }
 }
@@ -240,17 +239,18 @@ fn classify_jj_group_invocation(sub: &str, sub2: Option<&str>) -> JjInvocation {
 ///
 /// **文言の分からないサブコマンドが後ろに続いたら照合しない** (順位 597)。その op が先頭に
 /// 来るので、前の操作と照合すると必ず外れる (`jj rebase ... && jj edit X` で 4 回誤警告した)。
+///
+/// 照合をやめる判定が読み違いで効かないよう、**コマンドの先頭にある `jj` だけ**を見る
+/// ([`jj_subcommand_of`])。`grep -rn jj docs` の `jj` や、`jj bookmark && ...` の `&&` を
+/// サブコマンドと読むと、前に検出した操作を黙って捨てる (#619 の CodeRabbit 指摘)。
 fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
     let tokens = tokenize_respecting_quotes(command);
     let mut found = None;
-    for (i, token) in tokens.iter().enumerate() {
-        if token != "jj" {
-            continue;
-        }
-        let Some(sub) = tokens.get(i + 1) else {
+    for words in split_into_commands(&tokens) {
+        let Some((sub, sub2)) = jj_subcommand_of(&words) else {
             continue;
         };
-        match classify_jj_invocation(sub, tokens.get(i + 2).map(String::as_str)) {
+        match classify_jj_invocation(sub, sub2) {
             JjInvocation::Mutating(verb, keyword) => {
                 found = Some(MutatingJjOp {
                     verb,
@@ -262,6 +262,37 @@ fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
         }
     }
     found
+}
+
+/// jj のグローバルオプションのうち、値を別の語で取るもの (jj 0.42 の `jj --help`)。
+const JJ_GLOBAL_OPTIONS_WITH_VALUE: &[&str] =
+    &["-R", "--repository", "--at-operation", "--at-op", "--color", "--config", "--config-file"];
+
+/// 1 つのコマンドが `jj` で始まるなら、そのサブコマンドと 2 語目を返す (I/O なし)。
+///
+/// 先頭の環境変数の代入 (`FOO=1 jj new`) は読み飛ばす。`jj` の直後のグローバルオプション
+/// (`jj --ignore-working-copy edit X`、`jj --at-op @- log`) も値ごと読み飛ばしてから
+/// サブコマンドを決める。オプションをサブコマンドとして扱うと、`edit` を見落とす。
+fn jj_subcommand_of<'a>(words: &[&'a str]) -> Option<(&'a str, Option<&'a str>)> {
+    let mut rest = words.iter().copied().skip_while(|w| is_env_assignment(w));
+    if rest.next()? != "jj" {
+        return None;
+    }
+    let mut rest = rest.peekable();
+    while let Some(word) = rest.next_if(|w| w.starts_with('-')) {
+        if JJ_GLOBAL_OPTIONS_WITH_VALUE.contains(&word) {
+            rest.next();
+        }
+    }
+    let sub = rest.next()?;
+    Some((sub, rest.next()))
+}
+
+/// `NAME=value` の形の環境変数の代入か (I/O なし)。
+fn is_env_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 /// トークン列を、シェルの区切り (`;` / `&&` / `||` / `|` / `&`) でコマンド単位に分ける (I/O なし)。
@@ -340,11 +371,20 @@ fn op_description(op_line: &str) -> &str {
 /// `track remote bookmark` を含むため、`jj bookmark track` が落ちて直前に untrack の op が
 /// 残っていても記録済みと誤判定する。キーワードは jj 0.42 の実機で、各操作の description の
 /// 先頭に来ることを確かめてある (2026-10-07)。
+///
+/// 前方一致では、別の操作の文言が期待の文言を先頭に含むときも一致してしまう。そうした組は
+/// [`SHADOWING_OP_PREFIXES`] で除く (`jj edit` が失敗したとき、直前の `metaedit` の op を
+/// 記録済みと誤判定しない。#619 の CodeRabbit 指摘)。
 fn op_matches_expectation(op_head: &str, expected_keyword: &str) -> bool {
-    op_description(op_head)
-        .to_lowercase()
-        .starts_with(expected_keyword)
+    let description = op_description(op_head).to_lowercase();
+    description.starts_with(expected_keyword)
+        && !SHADOWING_OP_PREFIXES
+            .iter()
+            .any(|(keyword, other)| *keyword == expected_keyword && description.starts_with(other))
 }
+
+/// (期待の文言, それを先頭に含む別の操作の文言)。jj 0.42 の文言で、前方一致が重なる組。
+const SHADOWING_OP_PREFIXES: &[(&str, &str)] = &[("edit commit", "edit commit metadata")];
 
 fn build_ok_message(op: &MutatingJjOp, op_head: &str) -> String {
     format!(

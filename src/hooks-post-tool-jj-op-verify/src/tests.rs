@@ -576,6 +576,62 @@ fn a_neutral_invocation_after_a_detected_op_keeps_it() {
     }
 }
 
+/// #619 の CodeRabbit 指摘: 照合をやめる判定は、コマンドの読み違いで効いてはならない。
+/// 引数の中の `jj` / 語に付いた `;` / サブコマンドの無い `bookmark` の後の `&&` を
+/// サブコマンドと読むと、前に検出した `new` を黙って捨てる (この PR 以前は照合していた)。
+#[test]
+fn only_a_jj_at_the_head_of_a_command_is_classified() {
+    for command in [
+        "jj new && grep -rn jj docs",
+        "jj new && echo jj resolve",
+        "jj new && jj log; echo done",
+        "jj new && jj bookmark && echo done",
+        "jj new; jj st;",
+    ] {
+        let op = detect_last_mutating_jj_op(command).unwrap_or_else(|| panic!("{command}"));
+        assert_eq!(op.verb, "new", "{command}");
+    }
+}
+
+/// 環境変数の代入が前にあっても、`jj` のコマンドとして読む。
+#[test]
+fn an_env_assignment_before_jj_is_skipped() {
+    let op = detect_last_mutating_jj_op("JJ_CONFIG=x jj describe -m y").unwrap();
+    assert_eq!(op.verb, "describe");
+}
+
+/// #619 の CodeRabbit 指摘: グローバルオプションをサブコマンドとして扱うと、`edit` を
+/// 見落として前の `rebase` と照合し、誤警告を出す。値を取るオプションは値ごと読み飛ばす。
+#[test]
+fn global_options_before_the_subcommand_are_skipped() {
+    for (command, verb) in [
+        ("jj rebase -s x -d master && jj --ignore-working-copy edit x", "edit"),
+        ("jj new && jj --at-op @- edit x", "edit"),
+        ("jj new && jj --config ui.color=never --no-pager describe -m y", "describe"),
+        ("jj new && jj --color never bookmark set feat/x -r @", "bookmark set"),
+    ] {
+        assert_eq!(detect_last_mutating_jj_op(command).map(|o| o.verb), Some(verb), "{command}");
+    }
+    assert!(
+        detect_last_mutating_jj_op("jj --at-op @- log").is_none(),
+        "オプションの値 (@-) をサブコマンドと読まない"
+    );
+    let op = detect_last_mutating_jj_op("jj new && jj --at-op @- log").unwrap();
+    assert_eq!(op.verb, "new", "読み取り系は前の検出を残す");
+}
+
+/// #619 の CodeRabbit 指摘: `edit` の文言 `edit commit` は、`metaedit` の文言
+/// `edit commit metadata ...` の先頭と重なる。`jj edit` が失敗して直前の op が metaedit の
+/// ままでも、記録済みと判定しない。
+#[test]
+fn an_edit_is_not_matched_against_a_metaedit_op() {
+    let metaedit = ops(&["aaaaaaaaaaaa edit commit metadata for commit 3bff603e604e"]);
+    let verdict = decide_context("jj edit x", &metaedit).unwrap();
+    assert!(!matches!(verdict, Verdict::Recorded(_)), "{}", verdict.message());
+    let verdict = decide_context("jj metaedit -m x", &metaedit).unwrap();
+    assert!(matches!(verdict, Verdict::Recorded(_)), "metaedit 自身は一致する: {}", verdict.message());
+}
+
 /// jj 0.42 の bookmark の別名 (`jj bookmark --help` の aliases)。
 #[test]
 fn bookmark_aliases_are_detected() {

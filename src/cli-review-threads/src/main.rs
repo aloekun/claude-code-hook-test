@@ -137,8 +137,8 @@ fn run_register(gh: &dyn Gh, kind: Kind, args: &[String]) -> Result<(), String> 
         return Err("返信に書く要約 (棄却なら理由) がない".to_string());
     }
     let pr = current_pr(gh)?;
-    let all = threads::fetch(gh, &pr.repo, pr.number)?.threads;
-    let thread = threads::find(&all, reference)?;
+    let fetched = threads::fetch(gh, &pr.repo, pr.number)?;
+    let thread = threads::find_for_registration(&fetched, reference)?;
     let path = pending::default_path()?;
     let mut entries = pending::load(&path)?;
     pending::upsert(&mut entries, new_entry(&pr, thread, kind, note));
@@ -168,8 +168,8 @@ fn new_entry(pr: &Pr, thread: &Thread, kind: Kind, note: String) -> Entry {
 fn run_forget(gh: &dyn Gh, args: &[String]) -> Result<(), String> {
     let reference = args.first().ok_or("取り消すスレッドの番号か URL がない")?;
     let pr = current_pr(gh)?;
-    let all = threads::fetch(gh, &pr.repo, pr.number)?.threads;
-    let thread = threads::find(&all, reference)?;
+    let fetched = threads::fetch(gh, &pr.repo, pr.number)?;
+    let thread = threads::find_for_registration(&fetched, reference)?;
     let path = pending::default_path()?;
     let mut entries = pending::load(&path)?;
     let before = entries.len();

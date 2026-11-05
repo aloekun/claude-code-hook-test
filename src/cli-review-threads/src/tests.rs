@@ -214,6 +214,25 @@ fn a_number_keeps_pointing_at_the_same_thread_after_another_thread_is_resolved()
     assert_eq!(numbers, [1, 3], "一覧は未解決だけを出し、番号は飛び番になる");
 }
 
+/// #619 の CodeRabbit 指摘: 一覧を取った後に前の方のスレッドの最初のコメントが消えて読めなく
+/// なると、後ろの番号が 1 つずれる。読めないスレッドがあるときは番号での登録を拒否し、
+/// URL・コメントの ID・node ID だけを受ける。
+#[test]
+fn a_number_is_refused_while_some_threads_could_not_be_read() {
+    let shifted = threads::Fetched { threads: vec![thread("PRRT_b", 12, false), thread("PRRT_c", 13, false)], unreadable: 1 };
+    let err = threads::find_for_registration(&shifted, "2").expect_err("番号はずれているかもしれない");
+    assert!(err.contains("URL で指定"), "{err}");
+    assert_eq!(
+        threads::find_for_registration(&shifted, "https://github.com/o/r/pull/7#discussion_r13").expect("URL").id,
+        "PRRT_c"
+    );
+    assert_eq!(threads::find_for_registration(&shifted, "13").expect("コメントの ID").id, "PRRT_c");
+    assert_eq!(threads::find_for_registration(&shifted, "PRRT_b").expect("node ID").id, "PRRT_b");
+
+    let all_read = threads::Fetched { threads: shifted.threads.clone(), unreadable: 0 };
+    assert_eq!(threads::find_for_registration(&all_read, "2").expect("全部読めれば番号を使える").id, "PRRT_c");
+}
+
 #[test]
 fn replies_name_the_commit_or_the_reason() {
     assert_eq!(apply::reply_body(&entry("PRRT_a", 11, 7, Kind::Fixed), TARGET.head), "01234567 で対応しました。\n\n引数を検査するようにした");
