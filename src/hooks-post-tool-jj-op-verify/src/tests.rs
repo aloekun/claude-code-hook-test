@@ -136,10 +136,15 @@ fn other_or_missing_output_still_gets_verified() {
 }
 
 /// `jj op restore` / `jj op revert` は `op` サブコマンドなので、`jj restore` として検出しない。
+/// 順位 597 からは `op` の操作として、実測した自分の文言で検出する。
 #[test]
 fn op_subcommands_are_not_mistaken_for_restore() {
-    assert!(detect_last_mutating_jj_op("jj op restore c29450c43dfe").is_none());
-    assert!(detect_last_mutating_jj_op("jj op revert c29450c43dfe").is_none());
+    let restore = detect_last_mutating_jj_op("jj op restore c29450c43dfe").unwrap();
+    assert_eq!(restore.verb, "op restore");
+    assert_eq!(restore.expected_op_keyword, "restore to operation");
+    let revert = detect_last_mutating_jj_op("jj op revert c29450c43dfe").unwrap();
+    assert_eq!(revert.verb, "op revert");
+    assert_eq!(revert.expected_op_keyword, "revert operation");
 }
 
 fn ops(lines: &[&str]) -> Vec<String> {
@@ -498,5 +503,145 @@ fn the_settings_matcher_passes_both_shell_tools() {
         for tool in ["Bash", "PowerShell"] {
             assert!(matchers.contains(&tool), "{rel} の jj-op-verify matcher に {tool} が無い");
         }
+    }
+}
+
+/// 順位 597 の観測: `jj rebase ... && jj edit X` の後、先頭の `edit commit` を `rebase` と照合して
+/// 誤警告した (4 回)。`edit` を変更系として検出し、記録済みと判定する。
+#[test]
+fn rebase_followed_by_edit_is_verified_against_the_edit() {
+    let command = "jj rebase -s xyz -d master && jj edit xyz";
+    let op = detect_last_mutating_jj_op(command).unwrap();
+    assert_eq!(op.verb, "edit");
+    let verdict =
+        decide_context(command, &ops(&["0b1c2d3e4f5a edit commit 2d38d0a69bd5"])).unwrap();
+    assert!(matches!(verdict, Verdict::Recorded(_)), "{}", verdict.message());
+}
+
+/// 順位 597: jj 0.42 で実測した op の文言 (2026-11-05) と、検出した操作の文言が前方一致する。
+#[test]
+fn measured_op_descriptions_match_the_detected_keywords() {
+    for (command, op_line) in [
+        ("jj edit @-", "aaaaaaaaaaaa edit commit dc30283288caee21"),
+        ("jj commit -m c1", "aaaaaaaaaaaa commit f4cf53d4efcd8e23"),
+        ("jj duplicate @", "aaaaaaaaaaaa duplicate 1 commit(s)"),
+        ("jj absorb", "aaaaaaaaaaaa absorb changes into 1 commits"),
+        ("jj revert -r @- -d @", "aaaaaaaaaaaa revert commit 6571c43a190e41ae"),
+        ("jj metaedit -m x", "aaaaaaaaaaaa edit commit metadata for commit 3bff603e604e"),
+        ("jj parallelize @-::@", "aaaaaaaaaaaa parallelize 2 commits"),
+        ("jj next --edit", "aaaaaaaaaaaa next: 751df5e123f6 -> editing 316e975f86c2"),
+        ("jj prev --edit", "aaaaaaaaaaaa prev: dc30283288ca -> editing fca347514d73"),
+        ("jj file chmod x a.txt", "aaaaaaaaaaaa make paths executable in commit e76e72c0c779"),
+        ("jj op restore @-", "aaaaaaaaaaaa restore to operation 8e27918e5fcf"),
+        ("jj op revert", "aaaaaaaaaaaa revert operation 9c2e02feb97e"),
+    ] {
+        let verdict =
+            decide_context(command, &ops(&[op_line])).unwrap_or_else(|| panic!("{command}"));
+        assert!(matches!(verdict, Verdict::Recorded(_)), "{command}: {}", verdict.message());
+    }
+}
+
+/// 順位 597: 文言の分からないサブコマンドが後ろに続いたら、前の操作と照合しない
+/// (その op が先頭に来るので、照合すると必ず外れる)。
+#[test]
+fn an_unknown_subcommand_after_a_detected_op_skips_verification() {
+    for command in [
+        "jj new && jj resolve a.txt",
+        "jj describe -m x && jj bookmark advance",
+        "jj new && jj workspace add ../ws",
+        "jj new && jj op abandon ..@-",
+        "jj new && jj file track a.txt",
+        "jj new && jj sign -r @",
+    ] {
+        assert!(detect_last_mutating_jj_op(command).is_none(), "{command}");
+    }
+}
+
+/// 順位 597: 読み取り系や付随 op になる呼び出しは、前に検出した操作を残す。
+#[test]
+fn a_neutral_invocation_after_a_detected_op_keeps_it() {
+    let push = ["jj", "git", "push", "-b", "feat/x"].join(" ");
+    for command in [
+        "jj new && jj log -r @".to_string(),
+        "jj new && jj st".to_string(),
+        "jj new && jj op log --limit 1".to_string(),
+        "jj new && jj bookmark list".to_string(),
+        "jj new && jj b l".to_string(),
+        format!("jj new && {push}"),
+        "jj new && jj evolution-log".to_string(),
+        "jj new && jj --ignore-working-copy log".to_string(),
+    ] {
+        let op = detect_last_mutating_jj_op(&command).unwrap_or_else(|| panic!("{command}"));
+        assert_eq!(op.verb, "new", "{command}");
+    }
+}
+
+/// #619 の CodeRabbit 指摘: 照合をやめる判定は、コマンドの読み違いで効いてはならない。
+/// 引数の中の `jj` / 語に付いた `;` / サブコマンドの無い `bookmark` の後の `&&` を
+/// サブコマンドと読むと、前に検出した `new` を黙って捨てる (この PR 以前は照合していた)。
+#[test]
+fn only_a_jj_at_the_head_of_a_command_is_classified() {
+    for command in [
+        "jj new && grep -rn jj docs",
+        "jj new && echo jj resolve",
+        "jj new && jj log; echo done",
+        "jj new && jj bookmark && echo done",
+        "jj new; jj st;",
+    ] {
+        let op = detect_last_mutating_jj_op(command).unwrap_or_else(|| panic!("{command}"));
+        assert_eq!(op.verb, "new", "{command}");
+    }
+}
+
+/// 環境変数の代入が前にあっても、`jj` のコマンドとして読む。
+#[test]
+fn an_env_assignment_before_jj_is_skipped() {
+    let op = detect_last_mutating_jj_op("JJ_CONFIG=x jj describe -m y").unwrap();
+    assert_eq!(op.verb, "describe");
+}
+
+/// #619 の CodeRabbit 指摘: グローバルオプションをサブコマンドとして扱うと、`edit` を
+/// 見落として前の `rebase` と照合し、誤警告を出す。値を取るオプションは値ごと読み飛ばす。
+#[test]
+fn global_options_before_the_subcommand_are_skipped() {
+    for (command, verb) in [
+        ("jj rebase -s x -d master && jj --ignore-working-copy edit x", "edit"),
+        ("jj new && jj --at-op @- edit x", "edit"),
+        ("jj new && jj --config ui.color=never --no-pager describe -m y", "describe"),
+        ("jj new && jj --color never bookmark set feat/x -r @", "bookmark set"),
+    ] {
+        assert_eq!(detect_last_mutating_jj_op(command).map(|o| o.verb), Some(verb), "{command}");
+    }
+    assert!(
+        detect_last_mutating_jj_op("jj --at-op @- log").is_none(),
+        "オプションの値 (@-) をサブコマンドと読まない"
+    );
+    let op = detect_last_mutating_jj_op("jj new && jj --at-op @- log").unwrap();
+    assert_eq!(op.verb, "new", "読み取り系は前の検出を残す");
+}
+
+/// #619 の CodeRabbit 指摘: `edit` の文言 `edit commit` は、`metaedit` の文言
+/// `edit commit metadata ...` の先頭と重なる。`jj edit` が失敗して直前の op が metaedit の
+/// ままでも、記録済みと判定しない。
+#[test]
+fn an_edit_is_not_matched_against_a_metaedit_op() {
+    let metaedit = ops(&["aaaaaaaaaaaa edit commit metadata for commit 3bff603e604e"]);
+    let verdict = decide_context("jj edit x", &metaedit).unwrap();
+    assert!(!matches!(verdict, Verdict::Recorded(_)), "{}", verdict.message());
+    let verdict = decide_context("jj metaedit -m x", &metaedit).unwrap();
+    assert!(matches!(verdict, Verdict::Recorded(_)), "metaedit 自身は一致する: {}", verdict.message());
+}
+
+/// jj 0.42 の bookmark の別名 (`jj bookmark --help` の aliases)。
+#[test]
+fn bookmark_aliases_are_detected() {
+    for (command, verb) in [
+        ("jj b c feat/x -r @", "bookmark create"),
+        ("jj b s feat/x -r @", "bookmark set"),
+        ("jj b m feat/x --to @", "bookmark move"),
+        ("jj b d feat/x", "bookmark delete"),
+        ("jj bookmark t feat/x@origin", "bookmark track"),
+    ] {
+        assert_eq!(detect_last_mutating_jj_op(command).map(|o| o.verb), Some(verb), "{command}");
     }
 }

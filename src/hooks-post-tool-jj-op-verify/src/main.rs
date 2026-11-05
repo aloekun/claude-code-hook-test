@@ -154,49 +154,145 @@ fn tokenize_respecting_quotes(command: &str) -> Vec<String> {
     tokens
 }
 
+/// 1 つの `jj <sub> ...` の呼び出しの分類 (I/O なし)。
+#[derive(Debug, PartialEq)]
+enum JjInvocation {
+    /// 照合できる変更系操作 (verb, op log の description の先頭の文言)。
+    Mutating(&'static str, &'static str),
+    /// 照合に影響しない呼び出し。読み取り系と、op が付随 op ([`INCIDENTAL_OP_PREFIXES`]) に
+    /// なるもの (`jj git push` など)。グローバルオプションは分類の前に読み飛ばす ([`jj_subcommand_of`])。
+    Neutral,
+    /// 文言の分からない変更系かもしれない呼び出し。その op が先頭に来るので、前の操作と照合しない。
+    Unknown,
+}
+
+/// `jj` の後ろのトークンを分類する (I/O なし)。
+///
+/// 文言は jj 0.42 の実測 (2026-11-05、順位 597)。`next` / `prev` は `next: <id> -> editing <id>`、
+/// `metaedit` は `edit commit metadata for commit <id>` を書く。
+fn classify_jj_invocation(sub: &str, sub2: Option<&str>) -> JjInvocation {
+    use JjInvocation::{Mutating, Neutral, Unknown};
+    match sub {
+        "new" => Mutating("new", "new empty commit"),
+        "describe" => Mutating("describe", "describe commit"),
+        "abandon" => Mutating("abandon", "abandon commit"),
+        "rebase" => Mutating("rebase", "rebase commit"),
+        "squash" => Mutating("squash", "squash"),
+        "restore" => Mutating("restore", "restore into commit"),
+        "split" => Mutating("split", "split commit"),
+        "undo" => Mutating("undo", "undo: restore to operation"),
+        "edit" => Mutating("edit", "edit commit"),
+        "commit" => Mutating("commit", "commit"),
+        "duplicate" => Mutating("duplicate", "duplicate"),
+        "absorb" => Mutating("absorb", "absorb changes"),
+        "revert" => Mutating("revert", "revert commit"),
+        "metaedit" => Mutating("metaedit", "edit commit metadata"),
+        "parallelize" => Mutating("parallelize", "parallelize"),
+        "next" => Mutating("next", "next:"),
+        "prev" => Mutating("prev", "prev:"),
+        "bookmark" | "b" | "op" | "operation" | "file" | "workspace" | "tag" | "sparse" => {
+            classify_jj_group_invocation(sub, sub2)
+        }
+        "log" | "st" | "status" | "diff" | "show" | "evolog" | "evolution-log" | "interdiff"
+        | "help" | "version" | "root" | "config" | "git" | "util" => Neutral,
+        _ => Unknown,
+    }
+}
+
+/// 2 語目で操作が決まるサブコマンド (`jj bookmark set` など) を分類する (I/O なし)。
+fn classify_jj_group_invocation(sub: &str, sub2: Option<&str>) -> JjInvocation {
+    use JjInvocation::{Mutating, Neutral, Unknown};
+    match sub {
+        "bookmark" | "b" => match sub2 {
+            Some("create" | "c") => Mutating("bookmark create", "create bookmark"),
+            Some("set" | "s") => Mutating("bookmark set", "point bookmark"),
+            Some("move" | "m") => Mutating("bookmark move", "point bookmark"),
+            Some("track" | "t") => Mutating("bookmark track", "track remote bookmark"),
+            Some("untrack") => Mutating("bookmark untrack", "untrack remote bookmark"),
+            Some("delete" | "d") => Mutating("bookmark delete", "delete bookmark"),
+            Some("forget" | "f") => Mutating("bookmark forget", "forget bookmark"),
+            Some("rename" | "r") => Mutating("bookmark rename", "rename bookmark"),
+            None | Some("list" | "l") => Neutral,
+            Some(_) => Unknown,
+        },
+        "op" | "operation" => match sub2 {
+            Some("restore") => Mutating("op restore", "restore to operation"),
+            Some("revert") => Mutating("op revert", "revert operation"),
+            None | Some("log" | "show" | "diff") => Neutral,
+            Some(_) => Unknown,
+        },
+        "file" => match sub2 {
+            Some("chmod") => Mutating("file chmod", "make paths"),
+            None | Some("show" | "list" | "annotate" | "search") => Neutral,
+            Some(_) => Unknown,
+        },
+        _ => match sub2 {
+            None | Some("list" | "root") => Neutral,
+            Some(_) => Unknown,
+        },
+    }
+}
+
 /// コマンド文字列から最後の変更系 jj 操作を検出する (複合コマンドでは最後の操作の op が
 /// op head に来るため)。読み取り系サブコマンドは検出しない。quote 内の文言 (commit message
 /// 本文など) はトークナイズの時点で 1 トークンに畳まれるため、サブコマンド名として誤認しない。
+///
+/// **文言の分からないサブコマンドが後ろに続いたら照合しない** (順位 597)。その op が先頭に
+/// 来るので、前の操作と照合すると必ず外れる (`jj rebase ... && jj edit X` で 4 回誤警告した)。
+///
+/// 照合をやめる判定が読み違いで効かないよう、**コマンドの先頭にある `jj` だけ**を見る
+/// ([`jj_subcommand_of`])。`grep -rn jj docs` の `jj` や、`jj bookmark && ...` の `&&` を
+/// サブコマンドと読むと、前に検出した操作を黙って捨てる (#619 の CodeRabbit 指摘)。
 fn detect_last_mutating_jj_op(command: &str) -> Option<MutatingJjOp> {
     let tokens = tokenize_respecting_quotes(command);
     let mut found = None;
-    for (i, token) in tokens.iter().enumerate() {
-        if token != "jj" {
-            continue;
-        }
-        let Some(sub) = tokens.get(i + 1) else {
+    for words in split_into_commands(&tokens) {
+        let Some((sub, sub2)) = jj_subcommand_of(&words) else {
             continue;
         };
-        let detected = match sub.as_str() {
-            "new" => Some(("new", "new empty commit")),
-            "describe" => Some(("describe", "describe commit")),
-            "abandon" => Some(("abandon", "abandon commit")),
-            "rebase" => Some(("rebase", "rebase commit")),
-            "squash" => Some(("squash", "squash")),
-            "restore" => Some(("restore", "restore into commit")),
-            "split" => Some(("split", "split commit")),
-            "undo" => Some(("undo", "undo: restore to operation")),
-            "bookmark" => match tokens.get(i + 2).map(String::as_str) {
-                Some("create") => Some(("bookmark create", "create bookmark")),
-                Some("set") => Some(("bookmark set", "point bookmark")),
-                Some("move") => Some(("bookmark move", "point bookmark")),
-                Some("track") => Some(("bookmark track", "track remote bookmark")),
-                Some("untrack") => Some(("bookmark untrack", "untrack remote bookmark")),
-                Some("delete") => Some(("bookmark delete", "delete bookmark")),
-                Some("forget") => Some(("bookmark forget", "forget bookmark")),
-                Some("rename") => Some(("bookmark rename", "rename bookmark")),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some((verb, keyword)) = detected {
-            found = Some(MutatingJjOp {
-                verb,
-                expected_op_keyword: keyword,
-            });
+        match classify_jj_invocation(sub, sub2) {
+            JjInvocation::Mutating(verb, keyword) => {
+                found = Some(MutatingJjOp {
+                    verb,
+                    expected_op_keyword: keyword,
+                });
+            }
+            JjInvocation::Neutral => {}
+            JjInvocation::Unknown => found = None,
         }
     }
     found
+}
+
+/// jj のグローバルオプションのうち、値を別の語で取るもの (jj 0.42 の `jj --help`)。
+const JJ_GLOBAL_OPTIONS_WITH_VALUE: &[&str] =
+    &["-R", "--repository", "--at-operation", "--at-op", "--color", "--config", "--config-file"];
+
+/// 1 つのコマンドが `jj` で始まるなら、そのサブコマンドと 2 語目を返す (I/O なし)。
+///
+/// 先頭の環境変数の代入 (`FOO=1 jj new`) は読み飛ばす。`jj` の直後のグローバルオプション
+/// (`jj --ignore-working-copy edit X`、`jj --at-op @- log`) も値ごと読み飛ばしてから
+/// サブコマンドを決める。オプションをサブコマンドとして扱うと、`edit` を見落とす。
+fn jj_subcommand_of<'a>(words: &[&'a str]) -> Option<(&'a str, Option<&'a str>)> {
+    let mut rest = words.iter().copied().skip_while(|w| is_env_assignment(w));
+    if rest.next()? != "jj" {
+        return None;
+    }
+    let mut rest = rest.peekable();
+    while let Some(word) = rest.next_if(|w| w.starts_with('-')) {
+        if JJ_GLOBAL_OPTIONS_WITH_VALUE.contains(&word) {
+            rest.next();
+        }
+    }
+    let sub = rest.next()?;
+    Some((sub, rest.next()))
+}
+
+/// `NAME=value` の形の環境変数の代入か (I/O なし)。
+fn is_env_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 /// トークン列を、シェルの区切り (`;` / `&&` / `||` / `|` / `&`) でコマンド単位に分ける (I/O なし)。
@@ -275,11 +371,20 @@ fn op_description(op_line: &str) -> &str {
 /// `track remote bookmark` を含むため、`jj bookmark track` が落ちて直前に untrack の op が
 /// 残っていても記録済みと誤判定する。キーワードは jj 0.42 の実機で、各操作の description の
 /// 先頭に来ることを確かめてある (2026-10-07)。
+///
+/// 前方一致では、別の操作の文言が期待の文言を先頭に含むときも一致してしまう。そうした組は
+/// [`SHADOWING_OP_PREFIXES`] で除く (`jj edit` が失敗したとき、直前の `metaedit` の op を
+/// 記録済みと誤判定しない。#619 の CodeRabbit 指摘)。
 fn op_matches_expectation(op_head: &str, expected_keyword: &str) -> bool {
-    op_description(op_head)
-        .to_lowercase()
-        .starts_with(expected_keyword)
+    let description = op_description(op_head).to_lowercase();
+    description.starts_with(expected_keyword)
+        && !SHADOWING_OP_PREFIXES
+            .iter()
+            .any(|(keyword, other)| *keyword == expected_keyword && description.starts_with(other))
 }
+
+/// (期待の文言, それを先頭に含む別の操作の文言)。jj 0.42 の文言で、前方一致が重なる組。
+const SHADOWING_OP_PREFIXES: &[(&str, &str)] = &[("edit commit", "edit commit metadata")];
 
 fn build_ok_message(op: &MutatingJjOp, op_head: &str) -> String {
     format!(
