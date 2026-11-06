@@ -10,6 +10,7 @@
     "ledger-residue-scan": "node scripts/ledger-residue-scan.mjs",
     "lint:workflows": "node scripts/lint-workflows.mjs",
     "lint:takt-facets": "node scripts/lint-takt-facets.mjs",
+    "lint:permissions": "node scripts/lint-permission-rules.mjs",
     "test": "vitest run",
     "build": "npx --no-install tsc --noEmit --pretty",
     "build:hooks-pre-tool-validate": "cargo build --release -p hooks-pre-tool-validate && node scripts/deploy-artifacts.mjs hooks-pre-tool-validate",

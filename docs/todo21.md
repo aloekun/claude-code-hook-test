@@ -17,31 +17,6 @@
 
 ---
 
-## #369/#370 post-merge feedback 採用分 (2026-08-09 登録)
-
-> WP-18 の prompt injection 対策 PR (#369 / #370) の post-merge feedback が挙げた採用候補のうち、セッション中に未対応で価値の高い 3 件をユーザー承認 (2026-08-09) のうえ登録する。narrow-fix 教訓 (#369/#370 T3) は順位 375 の 5 項目目へ取り込んだため本節には立てない。
-
-### 順位 389: `Write(path)` tool-scope 指定子の no-op を検出する settings validator
-
-> **動機**: `--allowedTools` / `--disallowedTools` および settings.json の permission で、**`Write(path)` 指定子はファイル権限チェックにマッチせず no-op** である (CLI 2.1.218 で実測、`Edit(path)` が Write を含む全編集ツールをカバー)。順位 379 の実装で `Write(work/**)` / `Write(master-ref/**)` を並べており、**deny のつもりの設定が黙って無効化される silent security failure** になっていた。CLI 自身は警告を出すが、CI ログに埋もれて気づけない。
->
-> **対処案**: `.claude/settings*.json` と workflow の `claude_args` を検査し、permission rule に `Write(...)` 指定子が現れたら **error (必須 CI check の失敗)** にする。**warning では不十分** — silent security failure（deny の無効化）は [ADR-043](adr/adr-043-security-gates-fail-closed.md) の fail-closed 対象であり、検知しても CI が通ってマージできる状態は穴を残す。ADR-007 の regex 層で足りる (AST 不要)。あわせて [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) / ADR-072 決定 12 に「ファイル編集 scope は Edit(path) で表す」事実を追記済みかを確認する。
->
-> **参照**: `.claude/feedback-reports/369.md` Tier 1 #2、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 12 (Write no-op の実測記録)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (regex 層)。
->
-> **実行優先度**: Tier 1 — Severity High (deny の silent 無効化) / Frequency Low / Effort M / Adoption Risk Low (派生プロジェクト deploy のみ)。
-
-#### 作業計画
-
-- [ ] `Write(...)` 指定子を検出する regex 層ルールを custom-lint-rules.toml に追加
-- [ ] `.claude/settings*.json` と `.github/workflows/*.yml` の `claude_args` を検査対象に含める
-- [ ] 現行リポジトリで false positive が出ないことを確認 (Edit/Read 指定子は許可)
-
-#### 完了基準
-
-- `Write(path)` 指定子を含む設定が検知され、**必須 CI check が失敗する**こと (warning 止まりにしない)。
-- `Edit(path)` / `Read(path)` は検知されないこと。
-
 ## WP-18 失敗頻度分析の follow-up (2026-08-09 登録)
 
 ### 順位 392: push パイプラインの terminal outcome を telemetry へ記録し、失敗回数・原因を機械集計可能にする
