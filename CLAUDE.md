@@ -103,6 +103,7 @@
 | 外部 exe を spawn する統合テストは無期限に待たない | custom lint rule `no-unbounded-child-wait` | [config/custom-lint-rules.toml](config/custom-lint-rules.toml) |
 | GitHub Actions の `run:` は常に `-e` 付きで起動する | `pnpm lint:workflows` の契約検査 3 | [scripts/lint-workflows-run-blocks.mjs](scripts/lint-workflows-run-blocks.mjs) |
 | takt facet の出力言語は各 instruction に直書きする | `pnpm lint:takt-facets` | [scripts/lint-takt-facets.mjs](scripts/lint-takt-facets.mjs) |
+| ファイル編集の権限 scope は `Write(path)` でなく `Edit(path)` で書く | `pnpm lint:permissions` | [scripts/lint-permission-rules.mjs](scripts/lint-permission-rules.mjs) |
 | todo preamble と facet の routing 列挙を実ファイルと突き合わせる | `pnpm lint:docs` の `todo-routing` | [src/cli-docs-lint/src/todo_routing.rs](src/cli-docs-lint/src/todo_routing.rs) |
 
 ### ADR が持つ規約 (機械化しないと判定したもの)

@@ -497,7 +497,7 @@ jobs:
     permissions:
       # Phase A の安全担保の主体は contents: read (push が 403 で決定論的に失敗) だった。
       # Phase B ではその担保が使えないため、以下 4 点で代替する:
-      #   (1) fix agent に Bash / gh / git を一切与えない (allowedTools が Edit/Write/Read のみ)。
+      #   (1) fix agent に Bash / gh / git を一切与えない (allowedTools が Edit/Read のみ。Edit が Write を含む全編集を覆う)。
       #       push を実行できるのは workflow step だけで、LLM は push の主体になれない。
       #   (2) agent の書き込み先を docs/** に scope する (許可ツール自体をパス制限)。
       #   (3) push 直前に cli-fix-push-gate が 4 軸 AND を決定論判定し、非ゼロなら push しない。
@@ -746,7 +746,7 @@ jobs:
           claude_args: |
             --model claude-sonnet-5
             --max-turns 30
-            --allowedTools "Read(pr/docs/**),Edit(pr/docs/**),Write(pr/docs/**),Read(findings-input/findings.json)"
+            --allowedTools "Read(pr/docs/**),Edit(pr/docs/**),Read(findings-input/findings.json)"
             --disallowedTools "Bash,WebFetch,WebSearch,NotebookEdit"
 
       - name: Compute fix diff summary

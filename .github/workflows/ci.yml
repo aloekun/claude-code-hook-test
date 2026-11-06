@@ -51,6 +51,9 @@
 # - **`pnpm lint:workflows` も node job で回す** (順位 562): workflow の構文と契約の検査は
 #   手元の push gate でしか走っておらず、push gate を通らない変更 (GitHub の Web 編集など)
 #   では抜けていた。依存は vitest と同じ node_modules (js-yaml) だけなので、同じ job に置く。
+# - **`pnpm lint:permissions` も node job で回す** (順位 389): permission rule の `Write(path)`
+#   指定子は no-op で、deny に書くと拒否が黙って無効になる。push gate を通らない変更でも
+#   止めるため CI に置く。依存は Node の標準ライブラリだけ。
 
 name: ci
 
@@ -260,3 +263,7 @@ jobs:
       - name: Lint workflows
         shell: bash
         run: pnpm lint:workflows
+
+      - name: Lint permission rules
+        shell: bash
+        run: pnpm lint:permissions

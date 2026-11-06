@@ -184,9 +184,11 @@ step_timeout = 300
 # ADR-039 の kill-switch を持たせない。どちらも本リポジトリ固有の決定論検査で (派生 repo の
 # templates には載せない)、接続時点で既存違反 0、検査対象が workflow 5 本 / facet 20 本と狭く
 # false positive を観測しても該当行の修正が最短経路になるため。無効化はここから外す revert PR。
+# `pnpm lint:permissions` (順位 389) も同じ扱いにする。接続時点の既存違反 1 件 (pr-monitor.yml) は
+# 同じ変更で直した。
 [[quality_gate.groups]]
 name = "lint"
-commands = ["pnpm lint", "pnpm lint:docs", "pnpm lint:workflows", "pnpm lint:takt-facets"]
+commands = ["pnpm lint", "pnpm lint:docs", "pnpm lint:workflows", "pnpm lint:takt-facets", "pnpm lint:permissions"]
 
 [[quality_gate.groups]]
 name = "test"
