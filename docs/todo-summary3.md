@@ -53,7 +53,6 @@
 | 479 | Tier 2 | **手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる** | todo24.md | S | なし (実測で 22 件中 7 件が未記載。うち 3 件は PR #431 以前からの漏れで、単発ではなく継続的にずれる構造。doc を手で直す案は方針 (決定論的で積み上げる) に反するため lint 化で採用。Severity Low + Frequency Medium + Effort S + Risk None) |
 | 480 | Tier 2 | **`owns()` が false を返す原因 (Owned / TakenOver / Unreadable) をログで区別する** | todo24.md | S | なし (lock 競合 (#364 型) の調査時にログから経路を再構成できない。判定は pure function に切り出せ unit test で固定可能。Severity Medium + Frequency Medium + Effort S + Risk None) |
 | 483 | Tier 2 | **エラーメッセージの無制限 debug 補間を lint で検出する (PR #437 T1-1 採用)** | todo25.md | S | なし (`clip_for_message` を導入したのに順位セル `{raw:?}` だけ経由せず切り詰め保証が崩れていた。検出範囲の絞り込み方が設計の肝で、全 `{:?}` を禁じると誤検知だらけになる) |
-| 484 | Tier 2 | **push stage の bare push フォールバック不変条件を seal する (PR #434 T2-1 採用)** | todo25.md | M | なし (fail-closed の判定結果である空リストが上流 fallback に無視される execution-contract 違反が PR #434 の根因。修正済みだが不変条件はテスト未固定。**非空を型で表現できるなら型が良い**) |
 | 495 | Tier 2 | **`lib-*` crate の責務分類基準が ADR-012 に無い** | todo25.md | S | なし (週次レビュー WR-2026-08-22-A04、severity=medium、facet=architecture、category=module-boundary) |
 | 496 | Tier 2 | **docs の 50KB 超過 3 ファイルを物理分割する** | todo25.md | M | なし (2026-08-22 週次レビューの決定論 scan 由来。`todo-summary2.md` は優先度表 1 枚のため節ではなく順位で切る必要がある) |
 | 497 | Tier 2 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |

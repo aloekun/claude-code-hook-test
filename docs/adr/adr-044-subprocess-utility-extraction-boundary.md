@@ -157,6 +157,38 @@ pipe を保持するため join が孫の自然終了までブロックする。
 本 ADR の境界判定とは別軸の実装欠陥であり、対処は
 `docs/push-pipeline-fix-plan.md` §6 backlog 10 に登録済み。
 
+### 実行時のデータを shell 文字列に埋め込まない (2026-11-06、順位 484 / PR #623)
+
+**`run_cmd_shell_*` に渡してよいのは、config が書いたコマンドと、config や実行環境から決まる値 (`{{PR_RANGE}}` / `{{EXE_SUFFIX}}` / `{{CLAUDE_DIR}}` など) までにする。実行時に外から読んだデータ (jj や gh から読んだ bookmark 名・PR タイトル・ファイル名など) は shell 文字列に埋め込まず、`run_cmd_direct_capture` などで argv の要素として渡す。**
+
+shell 文字列に埋め込むと、データごとに許可リストかエスケープが要る。どちらも対症療法にしかならない。
+
+- **許可リスト:** 受け側では正当な値まで拒否する。
+- **エスケープ:** cmd.exe と sh で規則が違い、片方の OS で壊れる (`jj -r "<base>..@"` のクォートが Windows でだけ失敗した前例がある)。
+
+argv で渡せば shell はデータを解釈しないので、検証そのものが要らなくなる。
+
+**実例 (push stage の `-b <bookmark>`)。** 1 つの PR の中で 3 段階を経た。
+
+| 段階 | shell で安全でない名前の扱い | 問題 |
+|---|---|---|
+| 元の実装 | `-b` を付けず `jj git push` をそのまま実行 | tracked bookmark を全件送る (PR #434 と同じ穴) |
+| 許可リストで拒否 (fail-closed) | push を止める | jj で有効な `fix+12` まで、品質ゲートと takt を通った後に拒否する (PR #623 CodeRabbit) |
+| argv で渡す (採用) | 1 つの argv としてそのまま渡る | なし |
+
+**argv にしても、受け側プログラムの解釈層は残る。** jj 0.42 の `git push -b` は、値を文字列パターンの式として読む。既定は glob で、`|` `&` `~` も演算子になる。名前をそのまま渡すと、`*` を含む名前が他の bookmark に一致して push 範囲が広がる。そこで `exact:` と jj の文字列リテラル (`push_range_check::revset_string`) で完全一致させた。一般化すると、**shell を外した後も、受け側の言語でデータをリテラルとして包む**。
+
+**棚卸し (2026-11-06)。** shell 経由の callsite で実行時データを埋め込んでいたのは push stage だけだった。
+
+| callsite | shell に渡すもの |
+|---|---|
+| push-runner quality_gate / diff | config のコマンド (diff は config の default_branch から作る `{{PR_RANGE}}` を含む) |
+| merge-pipeline の command step | config のコマンド |
+| stop-quality | config のコマンド (`{{EXE_SUFFIX}}` / `{{CLAUDE_DIR}}` を展開) |
+| push-runner push | 名前を使わない config (`--all` など対象を明示したもの、jj 以外) のみ。`-b` を付ける経路は argv |
+
+**機械化しない理由。** 検出するには、shell 実行関数へ渡す文字列が実行時データから組み立てられたかを追う必要がある。これはデータフローの判定で、[ADR-007](adr-007-custom-linter-layer-boundary.md) の正規表現層では書けない。再発の兆候が出たら再評価する (§ 再評価 trigger の 5)。
+
 ## 影響
 
 ### 良い影響
@@ -178,6 +210,7 @@ pipe を保持するため join が孫の自然終了までブロックする。
 2. `_basic` variant の dogfood で zombie process / "Failed to wait" 等が `.takt/runs/` に観測される
 3. variant 数が 5+ に増えて self-documenting naming が破綻 (lib-subprocess の export 関数一覧で迷う状態)
 4. 採用判定期限 (2026-12-15) で本採用 / 修正 / 却下を判定
+5. 実行時のデータを shell 文字列に埋め込む callsite が新たに見つかった (§ 実行時のデータを shell 文字列に埋め込まない)。2 件目が出たら、検出を機械化できるか (AST 層の lint か、shell 実行関数の型で禁じるか) を調べる
 
 ## 関連 ADR
 

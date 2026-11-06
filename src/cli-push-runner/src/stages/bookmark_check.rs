@@ -22,7 +22,8 @@
 //! いたが、この 1 経路が**本 stage の判定を丸ごと迂回する**穴だった:
 //!
 //! - 空リストは `push` stage の `build_push_command` が `-b <name>` を組み立てられない
-//!   条件で、base command (`jj git push`) がそのまま実行される。jj 0.42 の bare push は
+//!   条件で、base command (`jj git push`) がそのまま実行されていた (順位 484 で
+//!   `PushBookmarks` を導入し、空リストは push stage まで届かなくなった)。jj 0.42 の bare push は
 //!   **tracked bookmark を全件**送るため、レビュー範囲 (`<default_branch>..@`) の外にある
 //!   他 workspace / 夜間ループの bookmark まで push される (ADR-045 事故で `--all` を
 //!   廃止した理由そのもの)。
@@ -48,6 +49,7 @@ use std::process::Command;
 
 use lib_jj_helpers::is_trunk_bookmark;
 
+use super::push_bookmarks::PushBookmarks;
 use super::push_jj_bookmark::{advance_jj_bookmarks, head_has_description, working_copy_is_empty};
 use crate::log::{log_info, log_stage};
 
@@ -80,7 +82,7 @@ const OWN_WORKSPACE_BOOKMARKS_REVSET: &str = "@";
 /// `jj describe` で `@` が bookmark より先に進んだ状態のまま `pnpm push` を再実行すると、
 /// advance 前に厳密一致で検査してしまい push stage の自動修復が走る前に pipeline が
 /// 中断していた)。`None` = 非 trunk bookmark が無く push 不可 (pipeline 中断)。
-pub(crate) fn run_bookmark_check() -> Option<Vec<String>> {
+pub(crate) fn run_bookmark_check() -> Option<PushBookmarks> {
     advance_lagging_bookmark();
     detect_own_workspace_bookmarks()
 }
@@ -105,12 +107,9 @@ fn advance_lagging_bookmark() {
 /// fail-closed: jj 実行失敗時も `None` を返して push を止める (順位 288(b) / [ADR-043])。
 /// 理由は module doc 参照。
 ///
-/// **戻り値の不変条件**: `Some` を返すとき、中身は必ず 1 件以上ある
-/// (`BookmarkCheckOutcome::Proceed` は非空のときしか作られず、`Some(空)` を作る経路は
-/// 上記 fail-closed 化で消えた)。push stage の「空リストなら base コマンドをそのまま
-/// 実行する」fallback は、`-b`/`--all` 等を明示する派生プロジェクトの config 専用の
-/// 経路として残っている。
-fn detect_own_workspace_bookmarks() -> Option<Vec<String>> {
+/// `Some` を返すとき中身は必ず 1 件以上ある。これは doc ではなく戻り値の型
+/// (`PushBookmarks`) が保証する (順位 484)。
+fn detect_own_workspace_bookmarks() -> Option<PushBookmarks> {
     let outcome = decide_from_bookmark_list(
         run_jj_bookmark_list(OWN_WORKSPACE_BOOKMARKS_REVSET),
         query_head_state,
@@ -241,8 +240,8 @@ enum ParentState {
 /// (`dispatch_bookmark_advance` と同じ closure 注入の流儀)。
 #[derive(Debug, PartialEq)]
 enum BookmarkCheckOutcome {
-    /// `@` が非空で非 trunk bookmark があり push 可能。
-    Proceed(Vec<String>),
+    /// `@` が非空で非 trunk bookmark があり push 可能。空のリストは型で運べない (順位 484)。
+    Proceed(PushBookmarks),
     /// `@` が空で push 不可 (T8 incident)。
     EmptyWorkingCopy { parent: ParentState },
     /// `@` は空でないが bookmark が無い。作成案内が正しいケース。
@@ -284,13 +283,13 @@ fn decide_bookmark_check(
         HeadState::DescUnknown => return BookmarkCheckOutcome::UndeterminedWorkingCopy,
         HeadState::NotEmpty => {}
     }
-    if bookmarks_at_head.is_empty() {
-        return BookmarkCheckOutcome::NoBookmarks;
+    match PushBookmarks::new(bookmarks_at_head) {
+        Some(bookmarks) => BookmarkCheckOutcome::Proceed(bookmarks),
+        None => BookmarkCheckOutcome::NoBookmarks,
     }
-    BookmarkCheckOutcome::Proceed(bookmarks_at_head)
 }
 
-fn report_outcome(outcome: BookmarkCheckOutcome) -> Option<Vec<String>> {
+fn report_outcome(outcome: BookmarkCheckOutcome) -> Option<PushBookmarks> {
     let aborted = match outcome {
         BookmarkCheckOutcome::Proceed(bookmarks) => {
             log_stage(

@@ -150,39 +150,3 @@ truncation wrapper を導入しても、**載せる文字列の一部がそれ�
 #### 完了基準
 
 truncation wrapper を持つ module で、それを経由しない補間が書いた時点で検出される。
-
----
-
-### 順位 484: push stage の bare push フォールバック不変条件を seal する (順位 484)
-
-> **動機**: PR #434 (順位 288(b)) で `bookmark_check` の fail-open を塞いだ結果、
-> `run_bookmark_check()` は `Some` を返すとき必ず 1 件以上、という不変条件が成立した。
-> しかし **`build_push_command` 側にはその前提を固定するテストが無い** — 空リストで
-> bare push にフォールバックする経路が残っており、そこへ到達しないことが保証されていない。
->
-> **本タスクの位置づけ**: post-merge feedback 採用 (#434 Tier2 #1 / test_addition /
-> Severity High / Frequency Medium / Effort M)。
->
-> **参照**: `.claude/feedback-reports/434.md`、`src/cli-push-runner/src/stages/push.rs`
-> (`build_push_command`)、`src/cli-push-runner/src/stages/bookmark_check.rs`
-
-#### 背景
-
-fail-closed の判定結果 (空リスト) が上流の fallback logic に無視される、という execution-contract
-違反が PR #434 の incident の直接の根因だった。修正はしたが、**不変条件はテストで固定されていない**
-ため、将来 `Some(空)` を返す経路が復活しても気づけない。
-
-#### 設計決定 (案)
-
-- `BookmarkCheckOutcome::Proceed` が空リストを運ばないことを型か テストで固定する
-  (**型で表現できるなら型が良い** — 非空 Vec 型にすればテスト無しで保証できる)
-- `build_push_command` の空リスト fallback は派生プロジェクト config 専用の経路であることを
-  テストで明示する (現状は doc コメントのみ)
-
-- [ ] 非空を型で表現できるか検討する
-- [ ] 型で無理ならテストで seal する
-- [ ] `build_push_command` の fallback 到達条件をテストで明示
-
-#### 完了基準
-
-`Some(空)` を返す変異を入れると、いずれかのテストが落ちる。
