@@ -51,7 +51,7 @@ use stages::{
     ReviewScope, ScopeDecision,
     run_scratch_file_warning,
     run_testability_gate,
-    run_takt, run_takt_verdict_gate, DiffResult,
+    run_takt, run_takt_verdict_gate, validate_push_command, DiffResult, PushBookmarks,
 };
 
 const EXIT_SUCCESS: i32 = 0;
@@ -121,7 +121,7 @@ fn run_diff_and_lint_screen(config: &config::Config, bookmarks: &[String]) -> Re
 /// quality_gate より前の事前チェック (bookmark / scratch file / pr size) を実行する。
 /// 成功時は検出した非 trunk bookmark 名 (push stage の `-b` 組み立て用) を返し、
 /// 失敗時は exit code を Err で返して pipeline を中断する。
-fn run_pre_checks(config: &config::Config) -> Result<Vec<String>, i32> {
+fn run_pre_checks(config: &config::Config) -> Result<PushBookmarks, i32> {
     let Some(detected_bookmarks) = run_bookmark_check() else {
         log_info("パイプライン中断: push 可能な bookmark がありません (対処は直前のログを参照)。");
         return Err(EXIT_BOOKMARK_MISSING);
@@ -288,10 +288,18 @@ fn run_pipeline() -> i32 {
     code
 }
 
+/// config を読み、push command が bookmark を argv で渡せる形かも検査する。push の直前では
+/// なく、品質ゲートや takt より前に止めるため (順位 484)。
+fn load_validated_config() -> Result<config::Config, String> {
+    let config = load_config()?;
+    validate_push_command(&config.push.command)?;
+    Ok(config)
+}
+
 /// 各 stage を順に実行し、計測を `metrics` に蓄積して exit code を返す。早期 return も
 /// すべて呼び出し側 `run_pipeline` に戻り、そこで 1 回だけメトリクスが書かれる。
 fn run_stages(metrics: &mut RunMetrics) -> i32 {
-    let config = match load_config() {
+    let config = match load_validated_config() {
         Ok(c) => c,
         Err(e) => {
             log_info(&format!("設定エラー: {}", e));
@@ -346,7 +354,7 @@ fn run_stages(metrics: &mut RunMetrics) -> i32 {
 /// 加わったコミットはここで初めて検査される (順位 537、PR #568 の指摘)。
 fn run_push_after_recheck(
     config: &config::Config,
-    detected_bookmarks: &[String],
+    detected_bookmarks: &PushBookmarks,
     metrics: &mut RunMetrics,
 ) -> i32 {
     let range_ok = metrics.timed("push_range_recheck", || {

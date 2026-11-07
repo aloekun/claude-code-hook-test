@@ -79,8 +79,10 @@ fn range_revset(bookmark: &str) -> String {
     )
 }
 
-/// jj の revset 文字列リテラル。`"` と `\` をエスケープする。
-fn revset_string(s: &str) -> String {
+/// jj の revset 文字列リテラル。`"` と `\` をエスケープする。push stage も
+/// `-b exact:<literal>` の組み立てに使う (順位 484。同じ jj の文字列リテラルを 2 か所で
+/// 書かない)。
+pub(super) fn revset_string(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 

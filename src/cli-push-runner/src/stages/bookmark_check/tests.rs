@@ -4,6 +4,10 @@
 
 use super::*;
 
+fn push_bookmarks(names: &[&str]) -> PushBookmarks {
+    PushBookmarks::new(names.iter().map(|n| n.to_string()).collect()).expect("non-empty test input")
+}
+
 #[test]
 fn parse_non_trunk_typical_output() {
     let output = "\
@@ -216,7 +220,7 @@ mod t8_empty_head_misdirection {
             });
         assert_eq!(
             outcome,
-            BookmarkCheckOutcome::Proceed(vec!["feat/xyz".to_string()])
+            BookmarkCheckOutcome::Proceed(push_bookmarks(&["feat/xyz"]))
         );
     }
 
@@ -358,7 +362,7 @@ mod rank288b_bookmark_list_failure {
         );
         assert_eq!(
             outcome,
-            BookmarkCheckOutcome::Proceed(vec!["feat/xyz".to_string()])
+            BookmarkCheckOutcome::Proceed(push_bookmarks(&["feat/xyz"]))
         );
     }
 
@@ -390,17 +394,17 @@ mod rank288b_bookmark_list_failure {
         assert!(hint.contains("レビュー"), "hint was: {}", hint);
     }
 
-    /// `Some` を返すとき中身は必ず 1 件以上、という不変条件
-    /// (`build_push_command` が `-b` を付けられる前提)。
+    /// list は成功したが非 trunk bookmark が 0 件のとき、`Some(空)` ではなく `None`
+    /// (push を止める) になる。`Some` の中身が空にならないことは `PushBookmarks` が
+    /// 型で保証するので (順位 484)、ここで固定するのは「空は中断に落ちる」側だけ。
     #[test]
-    fn proceed_never_carries_an_empty_bookmark_list() {
+    fn trunk_only_list_stops_the_pipeline_instead_of_proceeding_empty() {
         let outcome = decide_from_bookmark_list(
-            Ok(bookmark_at_head()),
+            Ok("main: def5678 initial\n".to_string()),
             || HeadState::NotEmpty,
             parent_unavailable,
         );
-        let detected = report_outcome(outcome).expect("proceed");
-        assert!(!detected.is_empty());
+        assert_eq!(report_outcome(outcome), None);
     }
 
     fn parent_unavailable() -> ParentState {
