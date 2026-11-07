@@ -117,19 +117,111 @@ describe("replaceFile", () => {
     expect(readFileSync(join(root, "tool.bin"), "utf8")).toBe("v1");
   });
 
-  /** CodeRabbit #516: 退避の後の改名に失敗しても、exe が無い状態を残さない。 */
-  it("新しい中身の改名に失敗したら、旧い dest を戻して投げる", () => {
-    const src = join(root, "new.bin");
-    const dest = join(root, "tool.bin");
-    writeFileSync(src, "v2");
-    writeFileSync(dest, "v1");
-    const failOnStaged = (from, to) => {
-      if (from === `${dest}.new`) throw new Error("EBUSY: simulated");
-      renameSync(from, to);
-    };
-    expect(() => replaceFile(src, dest, failOnStaged)).toThrow("EBUSY: simulated");
-    expect(readFileSync(dest, "utf8")).toBe("v1");
-    expect(existsSync(`${dest}.old`)).toBe(false);
+  /**
+   * 失敗した段ごとに、残るファイルを固定する (`replaceFile` の doc の状態表)。どの段で
+   * 失敗しても、旧い中身 (v1) は `dest` か `.old` のどちらかに残る。
+   */
+  describe("失敗したときの状態", () => {
+    /** `fail(from, to)` が真の改名だけを `code` で失敗させ、他は本当に改名する。 */
+    function renameFailingWhen(fail, code) {
+      return (from, to) => {
+        if (fail(from, to)) throw Object.assign(new Error(`${code}: simulated`), { code });
+        renameSync(from, to);
+      };
+    }
+
+    /** 再試行の待ちとログを止め、Windows の再試行を OS に依らず回す。 */
+    const quiet = { platform: "win32", sleep: () => {}, log: () => {} };
+
+    let src;
+    let dest;
+
+    beforeEach(() => {
+      src = join(root, "new.bin");
+      dest = join(root, "tool.bin");
+      writeFileSync(src, "v2");
+      writeFileSync(dest, "v1");
+    });
+
+    it("段 2: コピーに失敗したら dest はそのまま、.new を残さない", () => {
+      rmSync(src);
+      expect(() => replaceFile(src, dest, quiet)).toThrow();
+      expect(readFileSync(dest, "utf8")).toBe("v1");
+      expect(existsSync(`${dest}.new`)).toBe(false);
+      expect(existsSync(`${dest}.old`)).toBe(false);
+    });
+
+    it("段 3: 退避に失敗し続けたら dest はそのまま、.new を残さない", () => {
+      const rename = renameFailingWhen((from) => from === dest, "EBUSY");
+      expect(() => replaceFile(src, dest, { ...quiet, rename })).toThrow("(6 回試行)");
+      expect(readFileSync(dest, "utf8")).toBe("v1");
+      expect(existsSync(`${dest}.new`)).toBe(false);
+      expect(existsSync(`${dest}.old`)).toBe(false);
+    });
+
+    /** CodeRabbit #516: 退避の後の改名に失敗しても、exe が無い状態を残さない。 */
+    it("段 4→5: 差し替えに失敗したら旧い中身を dest へ戻して投げ、.old と .new を残さない", () => {
+      const rename = renameFailingWhen((from) => from === `${dest}.new`, "EIO");
+      expect(() => replaceFile(src, dest, { ...quiet, rename })).toThrow("EIO: simulated");
+      expect(readFileSync(dest, "utf8")).toBe("v1");
+      expect(existsSync(`${dest}.old`)).toBe(false);
+      expect(existsSync(`${dest}.new`)).toBe(false);
+    });
+
+    /** 順位 565: 確かめた後に dest が外から消えても、exe が 1 つも無い状態を残さない。 */
+    it("段 3: 退避の直前に dest が外から消えていたら、新しい中身を置いて続ける", () => {
+      const rename = (from, to) => {
+        if (from === dest) {
+          rmSync(dest);
+          throw Object.assign(new Error("ENOENT: simulated"), { code: "ENOENT" });
+        }
+        renameSync(from, to);
+      };
+      replaceFile(src, dest, { ...quiet, rename });
+      expect(readFileSync(dest, "utf8")).toBe("v2");
+      expect(existsSync(`${dest}.old`)).toBe(false);
+      expect(existsSync(`${dest}.new`)).toBe(false);
+    });
+
+    /** pre-push simplicity review W-1: dest の中身が新旧どちらとも言えないので、旧い中身を消さない。 */
+    it("段 4: 差し替えの失敗時に dest が外から作られていたら、.old を残して投げる", () => {
+      const rename = (from, to) => {
+        if (from === `${dest}.new`) {
+          writeFileSync(dest, "other");
+          throw Object.assign(new Error("EIO: simulated"), { code: "EIO" });
+        }
+        renameSync(from, to);
+      };
+      expect(() => replaceFile(src, dest, { ...quiet, rename })).toThrow("EIO: simulated");
+      expect(readFileSync(dest, "utf8")).toBe("other");
+      expect(readFileSync(`${dest}.old`, "utf8")).toBe("v1");
+      expect(existsSync(`${dest}.new`)).toBe(false);
+    });
+
+    it("段 4: 一時的な lock が外れれば差し替えに成功する", () => {
+      let failures = 2;
+      const rename = renameFailingWhen((from) => from === `${dest}.new` && failures-- > 0, "EBUSY");
+      replaceFile(src, dest, { ...quiet, rename });
+      expect(readFileSync(dest, "utf8")).toBe("v2");
+      expect(existsSync(`${dest}.old`)).toBe(false);
+    });
+
+    it("段 5: 復元にも失敗したら .old と .new を残し、手で戻す手順を載せて投げる", () => {
+      const rename = renameFailingWhen((_from, to) => to === dest, "EBUSY");
+      let thrown;
+      try {
+        replaceFile(src, dest, { ...quiet, rename });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown?.code).toBe("EBUSY");
+      expect(thrown?.message).toContain(`手で ${dest}.old を ${dest} へ改名してください`);
+      expect(thrown?.message).toContain("差し替えの失敗: EBUSY: simulated (6 回試行)");
+      expect(thrown?.message).toContain("復元の失敗: EBUSY: simulated (6 回試行)");
+      expect(existsSync(dest)).toBe(false);
+      expect(readFileSync(`${dest}.old`, "utf8")).toBe("v1");
+      expect(readFileSync(`${dest}.new`, "utf8")).toBe("v2");
+    });
   });
 
   /**
@@ -172,6 +264,52 @@ describe("replaceFile", () => {
       await Promise.race([exited, new Promise((done) => setTimeout(done, CHILD_START_TIMEOUT_MS))]);
     }
   }, 30_000);
+
+  /**
+   * 順位 565: 前回退避した `.old` がまだ実行中で消せない場合。Windows では実行中の exe を
+   * 消すことも、その上へ改名で被せることもできないので、退避 (段 3) が失敗する。そのときも
+   * dest は旧い中身のまま、実行中の `.old` にも触れず、`.new` を残さない。
+   */
+  it.skipIf(process.platform !== "win32")(
+    "前回の .old が実行中で消せなければ、dest を旧いまま残して投げる",
+    async () => {
+      const dest = join(root, `tool${EXE_SUFFIX}`);
+      const aside = `${dest}.old`;
+      const src = join(root, "replacement.bin");
+      copyFileSync(process.execPath, aside);
+      writeFileSync(dest, "v1");
+      writeFileSync(src, "v2");
+      const child = spawn(aside, ["-e", "process.stdout.write('ready'); setInterval(() => {}, 1000)"], {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const exited = new Promise((done) => child.once("exit", done));
+      try {
+        await new Promise((ready, fail) => {
+          const timer = setTimeout(() => fail(new Error("child did not start")), CHILD_START_TIMEOUT_MS);
+          child.stdout.once("data", () => {
+            clearTimeout(timer);
+            ready();
+          });
+          child.once("error", fail);
+        });
+        let thrown;
+        try {
+          replaceFile(src, dest, { log: () => {} });
+        } catch (err) {
+          thrown = err;
+        }
+        expect(thrown?.code).toBe("EPERM");
+        expect(readFileSync(dest, "utf8")).toBe("v1");
+        expect(existsSync(aside)).toBe(true);
+        expect(existsSync(`${dest}.new`)).toBe(false);
+        expect(child.exitCode).toBeNull();
+      } finally {
+        child.kill();
+        await Promise.race([exited, new Promise((done) => setTimeout(done, CHILD_START_TIMEOUT_MS))]);
+      }
+    },
+    30_000,
+  );
 
   it("前回の差し替えで残った .old を片付ける", () => {
     const src = join(root, "new.bin");
