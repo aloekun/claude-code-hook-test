@@ -23,6 +23,14 @@ pub(crate) fn advance_bookmarks_before_push(config: &PushConfig) {
     }
 }
 
+/// 検出した bookmark を対象に push を実行し、リモートへ反映できたかを返す。
+///
+/// 次のいずれかで `false` (pipeline 失敗) を返す。
+/// - コマンドを組み立てられない (`build_push_command` の `Err`)
+/// - プロセスが失敗した
+/// - 終了コードが 0 でも、jj が push を拒否した (`push_was_refused`)
+///
+/// 拒否の判定は切り詰める前の全量出力で行い、ログに出すときだけ `cap_for_log` で縮める。
 pub(crate) fn run_push(config: &PushConfig, detected_bookmarks: &PushBookmarks) -> bool {
     let timeout = config.timeout.unwrap_or(DEFAULT_PUSH_TIMEOUT_SECS);
     let command = match build_push_command(&config.command, detected_bookmarks) {

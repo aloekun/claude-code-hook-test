@@ -289,6 +289,10 @@ fn decide_bookmark_check(
     }
 }
 
+/// 判定結果をログに出し、push 対象の bookmark を返す。
+///
+/// `Proceed` なら検出した bookmark を `Some` で返す。それ以外は、中断の理由と対処案内を
+/// 出して `None` (pipeline 中断) を返す。
 fn report_outcome(outcome: BookmarkCheckOutcome) -> Option<PushBookmarks> {
     let aborted = match outcome {
         BookmarkCheckOutcome::Proceed(bookmarks) => {
