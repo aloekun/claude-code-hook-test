@@ -264,10 +264,24 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
     } else if cr_action_required {
         "action_required".into()
     } else if ci_ok && cr_ok {
-        "stop_monitoring_success".into()
+        pre_merge_override(state, skip_coderabbit).unwrap_or_else(|| "stop_monitoring_success".into())
     } else {
         state.action.clone()
     }
+}
+
+/// 要約コメントの pre-merge check が失敗していれば、success の代わりの action を返す。
+///
+/// 今の head で測った失敗は `action_required`、古い測定は `continue_monitoring` (再測定待ち)。
+/// check-ci-coderabbit の `pre_merge::apply_pre_merge_gate` と同じ規則で、crate 間で共有する
+/// lib が無いので複製している。規則を変えるときは両方を直す。
+fn pre_merge_override(state: &PrMonitorState, skip_coderabbit: bool) -> Option<String> {
+    if skip_coderabbit {
+        return None;
+    }
+    let checks = state.pre_merge_checks.as_ref().filter(|c| !c.failed.is_empty())?;
+    let action = if checks.stale { "continue_monitoring" } else { "action_required" };
+    Some(action.into())
 }
 
 #[cfg(test)]
@@ -300,6 +314,38 @@ mod tests {
         let state = state_with_review("success");
         assert!(!any_check_unsettled(&state, true, false));
         assert_eq!(recompute_action(&state, true, false), "stop_monitoring_success");
+    }
+
+    fn with_pre_merge_failure(mut state: PrMonitorState, stale: bool) -> PrMonitorState {
+        state.pre_merge_checks = Some(crate::state::PreMergeChecksState {
+            failed: vec![crate::state::PreMergeCheckState {
+                name: "Docstring Coverage".into(),
+                status: "Warning".into(),
+            }],
+            stale,
+        });
+        state
+    }
+
+    /// #623: 指摘 0 件・未解決 0 件でも、失敗した pre-merge check があれば success で終えない。
+    /// CI を skip した経路では action を state から決め直すので、ここでも止める。
+    #[test]
+    fn pre_merge_failure_blocks_success_when_ci_is_skipped() {
+        let current = with_pre_merge_failure(state_with_review("success"), false);
+        assert_eq!(recompute_action(&current, true, false), "action_required");
+        let stale = with_pre_merge_failure(state_with_review("success"), true);
+        assert_eq!(recompute_action(&stale, true, false), "continue_monitoring");
+    }
+
+    /// CodeRabbit 自体を skip するなら、その要約コメントの check も見ない。
+    #[test]
+    fn pre_merge_failure_is_ignored_when_coderabbit_is_skipped() {
+        let mut state = with_pre_merge_failure(state_with_review("success"), false);
+        state.ci = Some(CiState {
+            overall: "success".into(),
+            runs: vec![],
+        });
+        assert_eq!(recompute_action(&state, false, true), "stop_monitoring_success");
     }
 
     /// PR #238 regression: checker が stderr に警告 (repo 検出失敗等の fail-soft ログ)

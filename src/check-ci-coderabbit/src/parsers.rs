@@ -209,7 +209,7 @@ pub(crate) fn resolve_review_state(status_state: String, comments_json: &str, pu
     }
 }
 
-fn is_coderabbit_comment(c: &GhComment) -> bool {
+pub(crate) fn is_coderabbit_comment(c: &GhComment) -> bool {
     c.user
         .as_ref()
         .and_then(|u| u.login.as_deref())

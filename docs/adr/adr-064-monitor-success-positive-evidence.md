@@ -116,6 +116,44 @@ failure だった Windows leg を `pending` と報告し続けることで露見
 と成立しない。欠測と正常が同じ出力になる構成 (ここでは「CI が無い」と「CI が見えない」) は、
 観測対象が現れた瞬間まで誰も気付けない。
 
+## Amendment (2026-11-08): レビューが走っても、失敗した pre-merge check は見えていなかった
+
+**観測**: PR #623 で、CodeRabbit の要約コメントの Pre-merge checks に Docstring Coverage の
+Warning (76.92%、閾値 80%) が残っていた。この失敗はインライン指摘にもスレッドにもならない。
+CodeRabbit は失敗がある間「No actionable comments were generated」を出さず、レビュー本文にも
+その check しか載らない。一方で `check-ci-coderabbit`・`pnpm threads`・`pr-monitor.yml` は
+どれも要約コメントの表を読んでおらず、指摘 0 件・未解決 0 件として扱った。ユーザーが
+マージの判断に使うシグナル (Review skipped / Nitpick のみ / No actionable) がどれも出ないまま、
+どの経路も理由を示さなかった。
+
+本 ADR の陽性証拠は「レビューが走ったこと」を確かめるが、「レビューが走った結果、マージを
+止める失敗が無いこと」は確かめていなかった。両者は別の事実で、後者の入力経路 (要約コメントの
+表) が判定に入っていなかった。前の Amendment と同じく、**欠測と正常が同じ出力になる構成**である。
+
+**決定**:
+
+1. `check-ci-coderabbit` は要約コメントの Pre-merge checks の表を読み (`src/pre_merge.rs`)、
+   状態が `Passed` 以外の check を失敗として出力 JSON の `pre_merge_checks` に載せる。
+   `--list-findings` の出力にも載せる。
+2. 失敗は **success だけを止める**。既存の判定の他の結果 (CI 失敗・監視の継続) は変えない。
+   - 今の head で測った失敗は `action_required`。自動修正の `findings` には入れない — check の
+     失敗はインライン指摘と形が違い、fix step の入力にしない (人間が直す)
+   - 表を書いた commit (隠しマーカーの `coveredCommitId`) が今の head と違えば、古い測定として
+     `continue_monitoring` にし、summary で「Trigger review で再測定が必要」と案内する。
+     incremental review が無効なので、直して再 push しても表は自動では更新されない。success に
+     すると直ったことを確かめずに終わり、`action_required` にすると直した後も止まり続ける
+3. fail-closed ([ADR-043](adr-043-security-gates-fail-closed.md)): 節があるのに行を読めない
+   ときは、読めなかったこと自体を失敗にする。未知の状態名も失敗に数える。測った commit や head
+   を読めないときは古いと見なさない。節が無い (要約コメントがまだ無い・設定で出さない) ときは
+   判定に影響しない。
+4. 同じ規則を、action を state から決め直す `cli-pr-monitor` の `recompute_action` (CI / CodeRabbit
+   を skip する経路) と、LLM が verdict を出す `analyze-coderabbit.md` / `pr-monitor.yml` にも置く。
+   LLM 側は失敗があれば `approved` を出さず `user_decision` にする。
+
+**既知の限界**: 表の書式と隠しマーカーは CodeRabbit の内部仕様で、予告なく変わりうる。行を
+読めなくなった場合は決定 3 で止まるので silent success には戻らないが、マーカーの名前が変わって
+測った commit を読めなくなると、古い測定を今の失敗として止める (再測定するまで止まり続ける)。
+
 ## 教訓 (同種修正のセルフチェック)
 
 1. 修正が**本番 config の経路で実行される**ことをテストで固定する (旧初版は skip 構成でしか
@@ -136,3 +174,4 @@ failure だった Windows leg を `pending` と報告し続けることで露見
   ベースに倒す本決定はその適用)
 - [ADR-049](adr-049-incident-eval-regression-suite.md) — 実データ fixture の原則
 - `src/check-ci-coderabbit/src/decide.rs` — 陽性証拠 gate の実装
+- `src/check-ci-coderabbit/src/pre_merge.rs` — pre-merge check の gate の実装 (Amendment 2026-11-08)

@@ -52,6 +52,27 @@ pub(crate) const SKIP_REVIEW_MARKER: &str =
 /// `Review skipped: bot user not eligible for review`。
 pub(crate) const STATUS_SKIPPED_PREFIX: &str = "Review skipped";
 
+/// 要約コメント (walkthrough) の Pre-merge checks の節の始まりと終わり。
+///
+/// 節には check ごとの表が入る。状態の列は画像で、alt 文字列が状態名になる
+/// (`![Passed](.../pre-merge-checks-passed.svg)` / `![Warning](.../pre-merge-checks-warning.svg)`)。
+/// 失敗した check があると、CodeRabbit は「No actionable comments were generated」を出さず、
+/// レビュー本文にはその check しか載らない (#623 で実測。Docstring Coverage が 76.92% で Warning)。
+pub(crate) const PRE_MERGE_CHECKS_START_MARKER: &str = "<!-- pre_merge_checks_walkthrough_start -->";
+pub(crate) const PRE_MERGE_CHECKS_END_MARKER: &str = "<!-- pre_merge_checks_walkthrough_end -->";
+
+/// 表の状態の列にある画像の URL の一部。これを含むセルの行だけを check の行として読む
+/// (件数を示す見出しの画像 `pre-merge-checks-counter-*` は表の行の外にある)。
+pub(crate) const PRE_MERGE_STATUS_IMAGE_MARKER: &str = "pre-merge-checks-";
+
+/// 通った check の状態名。これ以外 (`Warning` / `Error` / 未知の状態名) はすべて失敗に数える。
+pub(crate) const PRE_MERGE_PASSED_STATUS: &str = "Passed";
+
+/// 要約コメントがどの commit を見て書かれたかを示す隠しマーカー (#623 / #624 で実測)。
+/// 前者を優先し、無ければ後者を使う。どちらも 40 桁の SHA が続く。
+pub(crate) const REVIEW_COVERED_COMMIT_MARKER: &str = r#""coveredCommitId":""#;
+pub(crate) const CHANGE_ASSESSMENT_COMMIT_MARKER: &str = r#"<!-- change_assessment_commit:""#;
+
 /// `c.body` に [`SKIP_REVIEW_MARKER`] が含まれていればスキップ通知と判定する。
 pub(crate) fn is_skip_review_comment(c: &GhComment) -> bool {
     c.body

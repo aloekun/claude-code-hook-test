@@ -18,6 +18,9 @@ pub(crate) struct CheckResult {
     /// PR #89 T2-1: cli-pr-monitor 側で sleep + retrigger の根拠データ
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) rate_limit: Option<RateLimitInfo>,
+    /// 要約コメントに Pre-merge checks の節がある場合のみ Some (`crate::pre_merge`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) pre_merge_checks: Option<PreMergeChecks>,
 }
 
 /// CodeRabbit rate-limit 検出時の制御情報
@@ -105,6 +108,8 @@ pub(crate) struct GhComment {
     pub(crate) created_at: Option<String>,
     /// CodeRabbit が rate-limit comment を編集して待機時間を更新する場合に使用。
     pub(crate) updated_at: Option<String>,
+    /// Pre-merge checks の在り処として人間に示す (`crate::pre_merge`)。
+    pub(crate) html_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -147,4 +152,27 @@ pub(crate) struct ListedFinding {
 #[derive(Serialize)]
 pub(crate) struct ListFindingsOutput {
     pub(crate) findings: Vec<ListedFinding>,
+    /// インライン指摘には出ない失敗なので、一覧に並べて見落としを防ぐ (`crate::pre_merge`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) pre_merge_checks: Option<PreMergeChecks>,
+}
+
+/// 要約コメントの Pre-merge checks の読み取り結果 (`crate::pre_merge`)。
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub(crate) struct PreMergeChecks {
+    /// `Passed` 以外の check。空なら全部通っている
+    pub(crate) failed: Vec<PreMergeCheckFailure>,
+    /// 要約コメントが見た commit。読めなければ None
+    pub(crate) measured_commit: Option<String>,
+    /// `measured_commit` が今の PR head と違う (= 古い測定。再測定が要る)
+    pub(crate) stale: bool,
+    /// 要約コメントの URL
+    pub(crate) summary_url: Option<String>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub(crate) struct PreMergeCheckFailure {
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) explanation: String,
 }

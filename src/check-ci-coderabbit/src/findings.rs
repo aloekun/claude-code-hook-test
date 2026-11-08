@@ -369,7 +369,7 @@ mod tests {
             {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**signature mismatch**", "path": "src/lib.rs", "line": 100, "created_at": "2026-04-01T13:00:00Z", "html_url": "https://github.com/o/r/pull/1#r1"}
         ]"#;
         let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
-        let output = ListFindingsOutput { findings };
+        let output = ListFindingsOutput { findings, pre_merge_checks: None };
         let serialized = serde_json::to_value(&output).unwrap();
         let item = &serialized["findings"][0];
         assert_eq!(item["severity"], "Major");

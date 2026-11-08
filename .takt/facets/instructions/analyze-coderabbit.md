@@ -9,6 +9,7 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 - `action`: Terminal action from the monitor ("action_required", "stop_monitoring_success", etc.)
 - `summary`: Human-readable summary
 - `docs_only`: Boolean ADR-035 verdict for the **whole PR**, decided deterministically by `cli-pr-monitor` from GitHub's PR-wide file list (never re-derive it from a diff)
+- `check_output.pre_merge_checks`: CodeRabbit の要約コメントにある Pre-merge checks の読み取り結果 (`failed` / `measured_commit` / `stale` / `summary_url`)。節が無い PR では欠ける。§ Pre-merge checks gate で使う
 
 ## Task
 
@@ -98,9 +99,19 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 
 **陽性証拠がどちらも無い場合、`approved` を出してはならない。** verdict は `user_decision` とし、レポートの Summary に「CodeRabbit のレビュー未実施 (指摘 0 件ではなく、レビューが走った証拠が無い)」と明記する。`needs_fix` の条件 (applicable な Critical/High/Major) を満たす場合はそちらが優先される — 指摘があるなら証拠は成立している。
 
+## Pre-merge checks gate (check this BEFORE the verdict rules)
+
+失敗した pre-merge check (例: Docstring Coverage が閾値未満) は、インライン指摘にもスレッドにもならないので `findings` には入らない。それでも CodeRabbit は失敗がある間「No actionable comments were generated」を出さず、マージ可能のシグナルにならない (#623 で実測)。
+
+**`check_output.pre_merge_checks.failed` が 1 件以上あるとき、`approved` を出してはならない。** verdict は `user_decision` とし、レポートの Summary に check 名と状態 (例: `Docstring Coverage (Warning)`) と `summary_url` を書く。`needs_fix` にはしない — fix step は `findings` だけを直すので、この失敗は自動修正の対象にならない。applicable な Critical/High/Major の finding が別にある場合は、`needs_fix` の条件が優先される。
+
+`stale` が `true` のときは、その結果は今の head ではなく `measured_commit` を測ったものである。Summary に「古い commit の測定。Trigger review で再測定が必要」と書く (直った可能性があるが、確かめられていない)。
+
+決定論層の `check-ci-coderabbit` も同じ失敗で success を止めている (`src/check-ci-coderabbit/src/pre_merge.rs`)。
+
 ## Verdict Rules (3-way)
 
-> 下記は**上記 review evidence gate を通過した場合の**判定である。verdict は 3 値のまま増やさない (`post-pr-review.yaml` の `rules.condition` がリテラル照合するため)。
+> 下記は**上記 review evidence gate と pre-merge checks gate を通過した場合の**判定である。verdict は 3 値のまま増やさない (`post-pr-review.yaml` の `rules.condition` がリテラル照合するため)。
 
 - **approved**: No applicable findings, OR all applicable findings are Info/Low severity
   - Output: `approved` condition

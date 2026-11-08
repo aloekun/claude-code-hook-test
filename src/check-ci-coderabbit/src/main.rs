@@ -23,6 +23,7 @@ mod findings;
 mod markers;
 mod models;
 mod parsers;
+mod pre_merge;
 mod rate_limit;
 
 use std::process::Command;
@@ -37,6 +38,7 @@ use crate::parsers::{
     parse_actionable_comments, parse_ci_rollup, parse_coderabbit_status, parse_new_comments,
     parse_unresolved_threads, parse_walkthrough_clean_marker, resolve_review_state,
 };
+use crate::pre_merge::{apply_pre_merge_gate, parse_pre_merge_checks, summary_part};
 use crate::rate_limit::parse_rate_limit;
 
 const EPOCH_PUSH_TIME: &str = "1970-01-01T00:00:00Z";
@@ -255,11 +257,13 @@ fn run_check(args: CliArgs) -> CheckResult {
 
     let ci = fetch_ci(&repo, pr);
     let comments_json = fetch_issue_comments_json(&repo, pr);
+    let head_sha = fetch_valid_head_sha(&repo, pr);
     let cr_state = resolve_review_state(
-        fetch_coderabbit_commit_state(&repo, pr),
+        fetch_coderabbit_commit_state(&repo, head_sha.as_deref()),
         &comments_json,
         &args.push_time,
     );
+    let pre_merge_checks = parse_pre_merge_checks(&comments_json, head_sha.as_deref());
     let new_comments = parse_new_comments(&comments_json, &args.push_time);
     let walkthrough_clean = parse_walkthrough_clean_marker(&comments_json, &args.push_time);
     let rate_limit = parse_rate_limit(&comments_json, &args.push_time);
@@ -276,8 +280,11 @@ fn run_check(args: CliArgs) -> CheckResult {
     };
 
     let findings = fetch_findings(&repo, pr, &args.push_time);
-    let (status, action) = decide(&ci, &cr, rate_limit.as_ref());
-    let summary = build_summary(&ci, &cr, rate_limit.as_ref());
+    let (status, action) = apply_pre_merge_gate(
+        decide(&ci, &cr, rate_limit.as_ref()),
+        pre_merge_checks.as_ref(),
+    );
+    let summary = build_full_summary(&ci, &cr, rate_limit.as_ref(), pre_merge_checks.as_ref());
 
     CheckResult {
         status,
@@ -287,6 +294,21 @@ fn run_check(args: CliArgs) -> CheckResult {
         summary,
         findings,
         rate_limit,
+        pre_merge_checks,
+    }
+}
+
+/// CI / CodeRabbit の summary に、pre-merge check の失敗があればその文言を足す。
+fn build_full_summary(
+    ci: &CiStatus,
+    cr: &CodeRabbitStatus,
+    rate_limit: Option<&models::RateLimitInfo>,
+    pre_merge_checks: Option<&models::PreMergeChecks>,
+) -> String {
+    let base = build_summary(ci, cr, rate_limit);
+    match summary_part(pre_merge_checks) {
+        Some(part) => format!("{}。{}", base, part),
+        None => base,
     }
 }
 
@@ -338,6 +360,7 @@ fn build_init_error_result(
         summary,
         findings: vec![],
         rate_limit: None,
+        pre_merge_checks: None,
     }
 }
 
@@ -380,11 +403,15 @@ fn fetch_ci(repo: &str, pr: u64) -> CiStatus {
     }
 }
 
-fn fetch_coderabbit_commit_state(repo: &str, pr: u64) -> String {
-    let head_sha = get_head_sha(repo, pr).unwrap_or_default();
-    if head_sha.is_empty() || !is_valid_sha(&head_sha) {
+/// PR head の SHA。取れない・形が不正なら None (呼び出し側がそれぞれ安全側に倒す)。
+fn fetch_valid_head_sha(repo: &str, pr: u64) -> Option<String> {
+    get_head_sha(repo, pr).ok().filter(|sha| is_valid_sha(sha))
+}
+
+fn fetch_coderabbit_commit_state(repo: &str, head_sha: Option<&str>) -> String {
+    let Some(head_sha) = head_sha else {
         return "not_found".to_string();
-    }
+    };
     let statuses_json = run_gh(&[
         "api",
         &format!("repos/{}/commits/{}/statuses", repo, head_sha),
@@ -460,10 +487,26 @@ fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
         &format!("repos/{}/pulls/{}/comments", repo, pr),
     ])
     .map_err(|e| format!("pull comments 取得失敗: {}", e))?;
+    let comments_json = fetch_issue_comments_strict(&repo, pr)?;
+    let head_sha = fetch_valid_head_sha(&repo, pr);
 
     Ok(ListFindingsOutput {
         findings: parse_listed_findings(&pull_comments_json, &args.push_time),
+        pre_merge_checks: parse_pre_merge_checks(&comments_json, head_sha.as_deref()),
     })
+}
+
+/// issue comments を取る。取れなければエラーで止める (`--list-findings` 用)。
+///
+/// [`fetch_issue_comments_json`] のように `[]` に倒すと、pre-merge check の節が無いときと
+/// 同じ見え方 (None) になり、取れなかったことが「失敗なし」に化ける。
+fn fetch_issue_comments_strict(repo: &str, pr: u64) -> Result<String, String> {
+    run_gh(&[
+        "api",
+        "--paginate",
+        &format!("repos/{}/issues/{}/comments", repo, pr),
+    ])
+    .map_err(|e| format!("issue comments 取得失敗: {}", e))
 }
 
 fn print_json<T: serde::Serialize>(value: &T) {
