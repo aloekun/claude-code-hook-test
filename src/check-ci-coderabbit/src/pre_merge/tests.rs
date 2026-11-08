@@ -215,3 +215,38 @@ fn summary_names_failures_and_asks_for_remeasurement_when_stale() {
     assert_eq!(summary_part(Some(&checks(0, false))), None);
     assert_eq!(summary_part(None), None);
 }
+
+/// fail-closed: 状態を読めない行は、読める `Passed` 行と混ざっていても失敗に数える
+/// (PR #625 CodeRabbit)。見出しと区切り行は check の行として読まない。
+#[test]
+fn unreadable_row_among_passed_rows_counts_as_failure() {
+    let body = all_passed_body().replace(
+        "![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | タイトル",
+        ":warning: 新しい書式 | タイトル",
+    );
+    let parsed = parse_pre_merge_checks(&comments_json(&body), Some(HEAD)).unwrap();
+    assert_eq!(parsed.failed.len(), 1, "{:?}", parsed.failed);
+    assert_eq!(parsed.failed[0].name, "Title check");
+    assert_eq!(parsed.failed[0].status, UNREADABLE_STATUS);
+}
+
+/// 最新の要約コメントを先に選ぶ。最新のものに節が無ければ、古い要約の表は読まない
+/// (PR #625 CodeRabbit)。
+#[test]
+fn newest_summary_without_section_hides_older_tables() {
+    let newest = "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n節の無い要約";
+    let comments = serde_json::json!([
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "body": pr623_summary_body(HEAD),
+            "created_at": "2026-11-06T01:00:00Z",
+        },
+        {
+            "user": {"login": "coderabbitai[bot]"},
+            "body": newest,
+            "created_at": "2026-11-07T01:00:00Z",
+        }
+    ])
+    .to_string();
+    assert_eq!(parse_pre_merge_checks(&comments, Some(HEAD)), None);
+}

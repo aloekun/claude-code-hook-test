@@ -13,12 +13,22 @@ use crate::util::{utc_now_iso8601, PrInfo};
 use super::rate_limit::handle_rate_limit_branch;
 use super::{error_poll_result, PollContext, PollResult};
 
-pub(super) fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
+/// 1 回の checker 呼び出しの結果。
+pub(super) enum Iteration {
+    /// 監視を終える結果。
+    Terminal(Box<PollResult>),
+    /// 未確定。最後の checker 出力を持つ。`pending_review` の結果にも載せ、takt の分析が
+    /// pre-merge checks などを読めるようにする (PR #625 CodeRabbit)。
+    Pending(serde_json::Value),
+}
+
+/// checker を 1 回呼び、監視を終えるか (terminal) 未確定かを返す。
+pub(super) fn run_one_iteration(ctx: &PollContext<'_>) -> Iteration {
     let effective_push_time = ctx.fix_push_time.unwrap_or(ctx.push_time);
     let args = build_checker_args(effective_push_time, ctx.pr_info);
     let result = match invoke_checker(ctx.checker, &args) {
         Ok(r) => r,
-        Err(pr) => return Some(*pr),
+        Err(pr) => return Iteration::Terminal(pr),
     };
     let mut state = build_state_for_iteration(
         ctx.pr_info,
@@ -35,16 +45,16 @@ pub(super) fn run_one_iteration(ctx: &PollContext<'_>) -> Option<PollResult> {
     ));
 
     if state.action != "continue_monitoring" {
-        return Some(make_terminal_result(state, result));
+        return Iteration::Terminal(Box::new(make_terminal_result(state, result)));
     }
 
     if let Some(terminal) =
         handle_rate_limit_branch(&mut state, ctx.rate_limit_config, ctx.pr_info, &result, ctx.state_path)
     {
-        return Some(terminal);
+        return Iteration::Terminal(Box::new(terminal));
     }
 
-    None
+    Iteration::Pending(result)
 }
 
 fn build_checker_args(push_time: &str, pr_info: &PrInfo) -> Vec<String> {

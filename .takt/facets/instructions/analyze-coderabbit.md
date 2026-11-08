@@ -9,7 +9,7 @@ Read `.takt/review-comments.json`. This file contains the output from `check-ci-
 - `action`: Terminal action from the monitor ("action_required", "stop_monitoring_success", etc.)
 - `summary`: Human-readable summary
 - `docs_only`: Boolean ADR-035 verdict for the **whole PR**, decided deterministically by `cli-pr-monitor` from GitHub's PR-wide file list (never re-derive it from a diff)
-- `check_output.pre_merge_checks`: CodeRabbit の要約コメントにある Pre-merge checks の読み取り結果 (`failed` / `measured_commit` / `stale` / `summary_url`)。節が無い PR では欠ける。§ Pre-merge checks gate で使う
+- `check_output.pre_merge_checks`: CodeRabbit の要約コメントにある Pre-merge checks の読み取り結果 (`failed` / `measured_commit` / `stale` / `summary_url`)。節が無い PR では欠ける。監視が未確定 (`pending_review`) で終わった場合も、最後に呼んだ checker の出力が入る。§ Pre-merge checks gate で使う
 
 ## Task
 
@@ -128,7 +128,7 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 - Do NOT modify any code. This is analysis only.
 - Do NOT fabricate findings. Report only what is in the JSON.
 - Do NOT skip the fitness filter. Every finding must be evaluated for project applicability.
-- If the findings array is empty, first apply the **review evidence gate** above. With evidence, report "No actionable findings" with verdict `approved`; without evidence, report the review as not performed with verdict `user_decision`.
+- If the findings array is empty, first apply the **review evidence gate** and the **pre-merge checks gate** above. Only when there is evidence AND `check_output.pre_merge_checks.failed` is empty or absent, report "No actionable findings" with verdict `approved`. Without evidence, report the review as not performed with verdict `user_decision`. With failed pre-merge checks, use verdict `user_decision` and write the failed checks (name, status, `summary_url`) in the Summary.
 - If the JSON file is missing or empty, report the error and exit.
 - When this is a re-analysis after a fix iteration, compare with previous reports to check for regression or persistence.
 

@@ -74,10 +74,10 @@ pub(crate) fn run_poll_loop(full_config: &Config, pr_info: &PrInfo) -> PollResul
         skip_coderabbit: !config.check_coderabbit,
     };
 
-    if let Some(terminal) = iteration::run_one_iteration(&ctx) {
-        return terminal;
+    match iteration::run_one_iteration(&ctx) {
+        iteration::Iteration::Terminal(terminal) => *terminal,
+        iteration::Iteration::Pending(check_output) => finalize_pending_review(&ctx, Some(check_output)),
     }
-    finalize_pending_review(&ctx)
 }
 
 /// checker が CodeRabbit のスキップ (`not_started`、順位 585) を返したか。
@@ -96,7 +96,10 @@ pub(crate) fn is_review_not_started(cr: Option<&CodeRabbitState>) -> bool {
 /// CodeRabbit コメント) は GitHub Actions 経路が処理する。再確認したい場合は
 /// `cli-pr-monitor --monitor-only` を再実行すればよい (時刻窓は state.started_at
 /// アンカーで継続する)。
-fn finalize_pending_review(ctx: &PollContext<'_>) -> PollResult {
+///
+/// `check_output` は最後に呼んだ checker の出力。takt の分析 (`.takt/review-comments.json`)
+/// に渡すため、未確定でも捨てない (PR #625 CodeRabbit)。
+fn finalize_pending_review(ctx: &PollContext<'_>, check_output: Option<serde_json::Value>) -> PollResult {
     let mut state = read_state_from(ctx.state_path).unwrap_or_else(|| {
         crate::state::PrMonitorState::new(
             ctx.pr_info.pr_number,
@@ -112,6 +115,9 @@ fn finalize_pending_review(ctx: &PollContext<'_>) -> PollResult {
         "review 未確定。後続の PR イベントは GitHub Actions 経路 (pr-monitor workflow) が処理"
             .to_string()
     };
+    if let Some(part) = stale_pre_merge_summary(state.pre_merge_checks.as_ref()) {
+        state.summary = format!("{}。{}", state.summary, part);
+    }
     state.record_head_commit(ctx.pr_info.head_commit.as_deref());
     state.fix_push_time = state
         .fix_push_time
@@ -128,9 +134,26 @@ fn finalize_pending_review(ctx: &PollContext<'_>) -> PollResult {
         ci: state.ci,
         coderabbit: state.coderabbit,
         findings: state.findings,
-        check_output: None,
+        check_output,
         rate_limit: state.rate_limit,
     }
+}
+
+/// 古い commit で測った pre-merge check の失敗が残っているときの案内。無ければ None。
+///
+/// 古い測定の失敗は checker が `continue_monitoring` にするので、ここ (`pending_review`) に
+/// 来る。summary を上書きすると「Trigger review で再測定が必要」が消えるので、書き足す。
+fn stale_pre_merge_summary(checks: Option<&crate::state::PreMergeChecksState>) -> Option<String> {
+    let checks = checks.filter(|c| c.stale && !c.failed.is_empty())?;
+    let names: Vec<String> = checks
+        .failed
+        .iter()
+        .map(|f| format!("{} ({})", f.name, f.status))
+        .collect();
+    Some(format!(
+        "pre-merge check 失敗 (古い commit の測定): {}。Trigger review で再測定が必要",
+        names.join("、")
+    ))
 }
 
 pub(super) fn error_poll_result(summary: &str) -> PollResult {
@@ -205,7 +228,7 @@ mod tests {
             &classifier_config,
         );
 
-        let outcome = finalize_pending_review(&ctx);
+        let outcome = finalize_pending_review(&ctx, None);
 
         assert_eq!(outcome.action, "pending_review");
         assert!(
@@ -245,7 +268,7 @@ mod tests {
             &classifier_config,
         );
 
-        let outcome = finalize_pending_review(&ctx);
+        let outcome = finalize_pending_review(&ctx, None);
         let persisted = crate::state::read_state_from(&state_path).unwrap();
 
         assert_eq!(outcome.action, "pending_review");
@@ -294,7 +317,48 @@ mod tests {
             &classifier_config,
         );
 
-        let outcome = finalize_pending_review(&ctx);
+        let outcome = finalize_pending_review(&ctx, None);
         assert_eq!(outcome.action, "pending_review");
+    }
+
+    /// 未確定でも checker の出力を takt に渡し、古い測定の pre-merge check の失敗を summary
+    /// から消さない (PR #625 CodeRabbit)。
+    #[test]
+    fn finalize_pending_review_keeps_check_output_and_stale_pre_merge_note() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state_path = tmp.path().join("state.json");
+        let mut seeded =
+            PrMonitorState::new(Some(42), Some("o/r".into()), "2026-05-01T00:00:00Z".into());
+        seeded.pre_merge_checks = Some(crate::state::PreMergeChecksState {
+            failed: vec![crate::state::PreMergeCheckState {
+                name: "Docstring Coverage".into(),
+                status: "Warning".into(),
+            }],
+            stale: true,
+        });
+        crate::state::write_state_to(&state_path, &seeded).unwrap();
+
+        let pr_info = crate::util::PrInfo {
+            pr_number: Some(42),
+            repo: Some("o/r".into()),
+            push_time: Some("2026-05-01T00:00:00Z".into()),
+            head_commit: None,
+            fix_push_time: None,
+        };
+        let checker = std::path::PathBuf::from("dummy");
+        let rate_limit_config = RateLimitConfig::default();
+        let classifier_config = ClassifierConfig::default();
+        let ctx = make_ctx(&checker, &state_path, &pr_info, &rate_limit_config, &classifier_config);
+
+        let output = serde_json::json!({"action": "continue_monitoring"});
+        let outcome = finalize_pending_review(&ctx, Some(output.clone()));
+
+        assert_eq!(outcome.check_output, Some(output));
+        assert!(
+            outcome.summary.contains("Docstring Coverage (Warning)")
+                && outcome.summary.contains("Trigger review で再測定が必要"),
+            "{}",
+            outcome.summary
+        );
     }
 }

@@ -35,8 +35,9 @@ use crate::models::{
     CheckResult, CiRunSummary, CiStatus, CodeRabbitStatus, ListFindingsOutput,
 };
 use crate::parsers::{
-    parse_actionable_comments, parse_ci_rollup, parse_coderabbit_status, parse_new_comments,
-    parse_unresolved_threads, parse_walkthrough_clean_marker, resolve_review_state,
+    merge_paginated_arrays, parse_actionable_comments, parse_ci_rollup, parse_coderabbit_status,
+    parse_new_comments, parse_unresolved_threads, parse_walkthrough_clean_marker,
+    resolve_review_state,
 };
 use crate::pre_merge::{apply_pre_merge_gate, parse_pre_merge_checks, summary_part};
 use crate::rate_limit::parse_rate_limit;
@@ -249,6 +250,7 @@ fn is_valid_sha(sha: &str) -> bool {
 
 // ─── メインロジック ───
 
+/// 通常監視の 1 回分: CI・CodeRabbit・pre-merge checks を読み、判定と summary を組み立てる。
 fn run_check(args: CliArgs) -> CheckResult {
     let (repo, pr) = match resolve_repo_and_pr(&args) {
         Ok(v) => v,
@@ -327,6 +329,7 @@ fn resolve_repo_and_pr(args: &CliArgs) -> Result<(String, u64), Box<CheckResult>
     Ok((repo, pr))
 }
 
+/// repo / PR 番号を解決できなかったときの結果 (`stop_monitoring_failure`)。
 fn build_init_error_result(
     repo: &str,
     pr: u64,
@@ -408,6 +411,7 @@ fn fetch_valid_head_sha(repo: &str, pr: u64) -> Option<String> {
     get_head_sha(repo, pr).ok().filter(|sha| is_valid_sha(sha))
 }
 
+/// head の commit status から CodeRabbit の状態を読む。head が不明なら `not_found`。
 fn fetch_coderabbit_commit_state(repo: &str, head_sha: Option<&str>) -> String {
     let Some(head_sha) = head_sha else {
         return "not_found".to_string();
@@ -420,20 +424,25 @@ fn fetch_coderabbit_commit_state(repo: &str, head_sha: Option<&str>) -> String {
     parse_coderabbit_status(&statuses_json)
 }
 
+/// issue comments を全ページ取る。取れなければ `[]` (各 parser が「無い」側に倒す)。
+///
+/// 1 ページ (30 件) だけだと、コメントの多い PR で要約コメントや新しいコメントを落とす。
 fn fetch_issue_comments_json(repo: &str, pr: u64) -> String {
-    run_gh(&[
-        "api",
-        &format!("repos/{}/issues/{}/comments", repo, pr),
-    ])
-    .unwrap_or_else(|_| "[]".to_string())
+    fetch_all_pages(&format!("repos/{}/issues/{}/comments", repo, pr)).unwrap_or_else(|e| {
+        eprintln!("[check-ci-coderabbit] issue comments 取得失敗: {}", e);
+        "[]".to_string()
+    })
 }
 
+/// `gh api --paginate` で全ページを取り、1 つの JSON 配列にまとめる ([`merge_paginated_arrays`])。
+fn fetch_all_pages(endpoint: &str) -> Result<String, String> {
+    merge_paginated_arrays(&run_gh(&["api", "--paginate", endpoint])?)
+}
+
+/// `push_time` 以降のレビュー本文から actionable comments の件数を読む (全ページ)。
 fn fetch_actionable_count(repo: &str, pr: u64, push_time: &str) -> Option<usize> {
-    let reviews_json = run_gh(&[
-        "api",
-        &format!("repos/{}/pulls/{}/reviews", repo, pr),
-    ])
-    .unwrap_or_else(|_| "[]".to_string());
+    let reviews_json = fetch_all_pages(&format!("repos/{}/pulls/{}/reviews", repo, pr))
+        .unwrap_or_else(|_| "[]".to_string());
     parse_actionable_comments(&reviews_json, push_time)
 }
 
@@ -454,13 +463,10 @@ fn fetch_unresolved_threads(repo: &str, pr: u64) -> Option<usize> {
     parse_unresolved_threads(&graphql_json)
 }
 
+/// `push_time` 以降のインライン指摘を findings にする (全ページ)。
 fn fetch_findings(repo: &str, pr: u64, push_time: &str) -> Vec<lib_report_formatter::Finding> {
-    let pull_comments_json = run_gh(&[
-        "api",
-        "--paginate",
-        &format!("repos/{}/pulls/{}/comments", repo, pr),
-    ])
-    .unwrap_or_else(|_| "[]".to_string());
+    let pull_comments_json = fetch_all_pages(&format!("repos/{}/pulls/{}/comments", repo, pr))
+        .unwrap_or_else(|_| "[]".to_string());
     parse_findings(&pull_comments_json, push_time)
 }
 
@@ -481,12 +487,8 @@ fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
         .unwrap_or_else(auto_detect_pr)
         .map_err(|e| format!("PR番号取得失敗: {}", e))?;
 
-    let pull_comments_json = run_gh(&[
-        "api",
-        "--paginate",
-        &format!("repos/{}/pulls/{}/comments", repo, pr),
-    ])
-    .map_err(|e| format!("pull comments 取得失敗: {}", e))?;
+    let pull_comments_json = fetch_all_pages(&format!("repos/{}/pulls/{}/comments", repo, pr))
+        .map_err(|e| format!("pull comments 取得失敗: {}", e))?;
     let comments_json = fetch_issue_comments_strict(&repo, pr)?;
     let head_sha = fetch_valid_head_sha(&repo, pr);
 
@@ -501,12 +503,8 @@ fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
 /// [`fetch_issue_comments_json`] のように `[]` に倒すと、pre-merge check の節が無いときと
 /// 同じ見え方 (None) になり、取れなかったことが「失敗なし」に化ける。
 fn fetch_issue_comments_strict(repo: &str, pr: u64) -> Result<String, String> {
-    run_gh(&[
-        "api",
-        "--paginate",
-        &format!("repos/{}/issues/{}/comments", repo, pr),
-    ])
-    .map_err(|e| format!("issue comments 取得失敗: {}", e))
+    fetch_all_pages(&format!("repos/{}/issues/{}/comments", repo, pr))
+        .map_err(|e| format!("issue comments 取得失敗: {}", e))
 }
 
 fn print_json<T: serde::Serialize>(value: &T) {

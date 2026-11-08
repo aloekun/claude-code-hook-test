@@ -524,10 +524,33 @@ fn verdict_for_findings(result: &crate::stages::poll::PollResult) -> String {
         );
     }
 
+    if has_pre_merge_failure(result) {
+        return "失敗した pre-merge check があるため、マージ前に対応が必要です (summary を参照)".to_string();
+    }
+
     if !result.findings.is_empty() {
         return "重大な問題は見つかりませんでした。軽微な改善提案があります".to_string();
     }
     "問題は見つかりませんでした".to_string()
+}
+
+/// checker の出力に、失敗した pre-merge check があるか。
+///
+/// 失敗はインライン指摘にならず findings が空のままなので、見ないと「問題は見つかりません
+/// でした」と断定してしまう (PR #625 CodeRabbit)。CodeRabbit を skip した監視では見ない
+/// (`stages::poll` の skip 経路と同じ扱い)。
+fn has_pre_merge_failure(result: &crate::stages::poll::PollResult) -> bool {
+    let cr_skipped = result
+        .coderabbit
+        .as_ref()
+        .is_some_and(|c| c.review_state == "skipped");
+    !cr_skipped
+        && result
+            .check_output
+            .as_ref()
+            .and_then(|v| v.pointer("/pre_merge_checks/failed"))
+            .and_then(|f| f.as_array())
+            .is_some_and(|f| !f.is_empty())
 }
 
 fn print_findings_table(findings: &[lib_report_formatter::Finding]) {

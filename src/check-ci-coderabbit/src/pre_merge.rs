@@ -30,6 +30,9 @@ use crate::parsers::is_coderabbit_comment;
 /// 表の行を読めなかったときに出す失敗の名前。
 const UNREADABLE_TABLE_NAME: &str = "(Pre-merge checks の表を読めない)";
 
+/// 状態を読めなかったときの状態名。`Passed` ではないので失敗に数える。
+const UNREADABLE_STATUS: &str = "Unknown";
+
 /// issue comments の JSON から、最新の要約コメントの Pre-merge checks を読む。
 ///
 /// `push_time` では絞らない。要約コメントはレビューのたびに同じコメントが書き直されるので、
@@ -42,12 +45,12 @@ pub(crate) fn parse_pre_merge_checks(comments_json: &str, head_sha: Option<&str>
     let summary = comments
         .iter()
         .filter(|c| is_coderabbit_comment(c))
-        .filter(|c| {
-            let body = c.body.as_deref().unwrap_or("");
-            body.contains(WALKTHROUGH_HEADER_MARKER) && body.contains(PRE_MERGE_CHECKS_START_MARKER)
-        })
+        .filter(|c| c.body.as_deref().unwrap_or("").contains(WALKTHROUGH_HEADER_MARKER))
         .max_by(|a, b| rate_limit_event_time(a).cmp(&rate_limit_event_time(b)))?;
     let body = summary.body.as_deref().unwrap_or("");
+    if !body.contains(PRE_MERGE_CHECKS_START_MARKER) {
+        return None;
+    }
     let measured_commit = measured_commit(body);
     let stale = match (measured_commit.as_deref(), head_sha) {
         (Some(measured), Some(head)) => !measured.eq_ignore_ascii_case(head),
@@ -73,12 +76,26 @@ fn pre_merge_section(body: &str) -> &str {
 
 /// 表の行のうち、状態が `Passed` でないものを返す。check の行が 1 行も無ければ、読めなかった
 /// ことを 1 件の失敗として返す。
+///
+/// 見出し (区切り行の直前の行) と区切り行だけを除き、残りの行はすべて check の行として読む。
+/// 状態を読めない行も失敗に数える。読めない行を捨てると、読める `Passed` 行だけが残ったときに
+/// 失敗が消える (PR #625 CodeRabbit)。
 fn failed_checks(section: &str) -> Vec<PreMergeCheckFailure> {
-    let rows: Vec<PreMergeCheckFailure> = section.lines().filter_map(parse_row).collect();
+    let lines: Vec<&str> = section
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with('|'))
+        .collect();
+    let rows: Vec<PreMergeCheckFailure> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| !is_separator_row(line) && !lines.get(i + 1).is_some_and(|next| is_separator_row(next)))
+        .map(|(_, line)| parse_row(line))
+        .collect();
     if rows.is_empty() {
         return vec![PreMergeCheckFailure {
             name: UNREADABLE_TABLE_NAME.to_string(),
-            status: "Unknown".to_string(),
+            status: UNREADABLE_STATUS.to_string(),
             explanation: "Pre-merge checks の節はあるが、check の行を読めなかった。CodeRabbit の書式が変わった可能性がある".to_string(),
         }];
     }
@@ -87,24 +104,30 @@ fn failed_checks(section: &str) -> Vec<PreMergeCheckFailure> {
         .collect()
 }
 
+/// `| :--- | :---: |` のような区切り行か。
+fn is_separator_row(line: &str) -> bool {
+    line.contains('-') && line.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+}
+
 /// `| Docstring Coverage | ![Warning](…pre-merge-checks-warning.svg) | 説明 | 対処 |` を読む。
-/// 状態のセルに [`PRE_MERGE_STATUS_IMAGE_MARKER`] の画像が無い行 (見出し・区切り) は None。
-fn parse_row(line: &str) -> Option<PreMergeCheckFailure> {
-    let line = line.trim();
-    if !line.starts_with('|') {
+/// 状態のセルを読めなければ、状態を [`UNREADABLE_STATUS`] にする (失敗に数える)。
+fn parse_row(line: &str) -> PreMergeCheckFailure {
+    let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+    let cell = |i: usize| cells.get(i).copied().unwrap_or("");
+    PreMergeCheckFailure {
+        name: cell(1).to_string(),
+        status: read_status(cell(2)).unwrap_or(UNREADABLE_STATUS).to_string(),
+        explanation: cell(3).to_string(),
+    }
+}
+
+/// 状態のセル `![Warning](…pre-merge-checks-warning.svg)` から `Warning` を取り出す。
+fn read_status(cell: &str) -> Option<&str> {
+    if !cell.contains(PRE_MERGE_STATUS_IMAGE_MARKER) {
         return None;
     }
-    let cells: Vec<&str> = line.split('|').collect();
-    let status_cell = cells.get(2)?.trim();
-    if !status_cell.contains(PRE_MERGE_STATUS_IMAGE_MARKER) {
-        return None;
-    }
-    let status = status_cell.strip_prefix("![")?.split(']').next()?.trim();
-    Some(PreMergeCheckFailure {
-        name: cells.get(1)?.trim().to_string(),
-        status: status.to_string(),
-        explanation: cells.get(3).map(|c| c.trim().to_string()).unwrap_or_default(),
-    })
+    let status = cell.strip_prefix("![")?.split(']').next()?.trim();
+    (!status.is_empty()).then_some(status)
 }
 
 /// 要約コメントが見た commit の SHA。[`REVIEW_COVERED_COMMIT_MARKER`] を優先する。
@@ -112,6 +135,7 @@ fn measured_commit(body: &str) -> Option<String> {
     sha_after(body, REVIEW_COVERED_COMMIT_MARKER).or_else(|| sha_after(body, CHANGE_ASSESSMENT_COMMIT_MARKER))
 }
 
+/// `marker` の直後に続く 40 桁の 16 進 SHA。40 桁でなければ None。
 fn sha_after(body: &str, marker: &str) -> Option<String> {
     let start = body.find(marker)? + marker.len();
     let sha: String = body[start..].chars().take_while(|c| c.is_ascii_hexdigit()).collect();

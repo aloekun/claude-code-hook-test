@@ -355,6 +355,29 @@ fn verdict_no_problems_when_no_unsettled_signals_remain() {
     assert_eq!(compute_verdict(&r), VERDICT_NO_PROBLEMS);
 }
 
+/// 失敗した pre-merge check があれば、findings が空でも「問題は見つかりませんでした」と
+/// 言わない (PR #625 CodeRabbit)。重大な指摘があればそちらを優先する。
+#[test]
+fn verdict_reports_pre_merge_failure_instead_of_no_problems() {
+    let failed = serde_json::json!({"pre_merge_checks": {"failed": [{"name": "Docstring Coverage"}]}});
+    let mut r = poll_result("action_required", Some("complete"), vec![]);
+    r.check_output = Some(failed.clone());
+    let verdict = compute_verdict(&r);
+    assert!(verdict.contains("pre-merge check"), "{}", verdict);
+    assert_ne!(verdict, VERDICT_NO_PROBLEMS);
+
+    r.findings = vec![finding("major")];
+    assert_eq!(compute_verdict(&r), VERDICT_CRITICAL);
+
+    let mut passed = poll_result("stop_monitoring_success", Some("complete"), vec![]);
+    passed.check_output = Some(serde_json::json!({"pre_merge_checks": {"failed": []}}));
+    assert_eq!(compute_verdict(&passed), VERDICT_NO_PROBLEMS);
+
+    let mut skipped = poll_result("stop_monitoring_success", Some("skipped"), vec![]);
+    skipped.check_output = Some(failed);
+    assert_eq!(compute_verdict(&skipped), VERDICT_NO_PROBLEMS);
+}
+
 /// 順位 141: `resume_fix_push_time_or_started_at` Case A —
 /// state に `fix_push_time` が設定済みの場合、fallback の `started_at` ではなく
 /// state の値が返されることを検証する。
