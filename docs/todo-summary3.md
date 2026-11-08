@@ -92,7 +92,6 @@
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
 | 561 | Tier 3 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
 | 564 | Tier 3 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | なし (#515 / #516 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
-| 565 | Tier 3 | **[improvement] `replaceFile` の Windows 固有の失敗系をテストする** | todo29.md | S | なし (2026-10-12、#516 feedback。Windows 実機での確認が要るので human lane) |
 | 569 | Tier 3 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 3 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
 | 579 | Tier 2 | **[defect:G1] `pnpm push` の後に手元でビルドした exe が nightly 版へ戻る (takt のサブセッションの SessionStart が原因と推定)** | todo29.md | S-M | なし (2026-10-14 に mtime の巻き戻りで観測。原因は時刻の一致からの推定。対処の選択は着手時判断) |
