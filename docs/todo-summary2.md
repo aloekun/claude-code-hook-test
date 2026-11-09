@@ -79,7 +79,7 @@
 | 370 | Tier 3 | **ADR-069 試験運用判断基準の具体化 (#352 採用)** | todo20.md | M | なし (docs-only。2b で得た初回実測を判断材料として明記する。ADR-039 bounded lifetime の decision trigger 要件を充足させる) |
 | 371 | Tier 3 | **weekly-review reminder の doc-drift 同期 — post-ADR-070 用語 (#354 採用)** | todo20.md | S | なし (実装は新用語を採用済みで doc だけ旧用語。再発防止は順位 353 の cli-docs-lint 検査が担う。順位 365 は 2026-09-08 に却下・削除) |
 | 372 | Tier 2 | **templates の陳腐化 example 削除 + simplicity-review facet への同期チェック追加 (#353 採用)** | todo20.md | S | なし (WP-17 PR 3 で廃止した poll_interval_secs / max_duration_secs が派生プロジェクト向け template に残存) |
-| 375 | Tier 2 | **レビュー指摘への対応時チェックリスト (fix 後の文書整合 / finding スコープ / 意図的 stale 表 / 技術的前提の検証)** | todo20.md | S | なし (WP-18 の 3 PR で同型の失敗が 4 件。いずれも変更の影響範囲を指摘された 1 点だけで見積もったこと、または前提を検証せず動いたことが共通項) |
+| 375 | Tier 2 | **CodeRabbit の指摘本文を check-ci と threads show で全文読めるようにする (旧: レビュー指摘への対応時チェックリスト)** | todo20.md | S | なし (WP-18 の 3 PR で同型の失敗が 4 件。いずれも変更の影響範囲を指摘された 1 点だけで見積もったこと、または前提を検証せず動いたことが共通項。2026-11-09 に #622 の post-merge feedback で残作業を作り替えた) |
 | 392 | Tier 2 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
 
 **戦略**: 本 part は順位 220-399 を収容する (新規行の追加先は [docs/todo-summary3.md](todo-summary3.md))。全体の戦略と Bundle 履歴は [docs/todo-summary3.md](todo-summary3.md) を参照。

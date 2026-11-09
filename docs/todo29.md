@@ -292,7 +292,7 @@
 
 ### 順位 598: post-merge feedback の transcript から takt の子セッションを除き、merge-pr が `--` を受けるようにする
 
-> **動機**: #617 / #618 / #619 の feedback で 3 回続けて提案された。(1) `src/cli-merge-pipeline/src/feedback/transcript.rs` は時刻の範囲で transcript を切り出すだけで、takt の子セッションや分析セッションの entry を除かない。子セッションの user 発話 (`## Execution Context` / `## Workflow Context` で始まるもの) が「セッション知見」として集計され、ユーザーの指示でない内容から提案が作られうる。除外を確かめるテストも無い。(2) `src/cli-merge-pipeline/src/main.rs` の `parse_args` は `--pr` / `--feedback-only` 以外を不明な引数として exit 2 にするため、`pnpm merge-pr -- --pr N` が失敗する。`create-pr` は `--` を受けるので挙動が揃っていない (#616 / #617 の feedback)。
+> **動機**: #617 / #618 / #619 の feedback で 3 回続けて提案された。(1) `src/cli-merge-pipeline/src/feedback/transcript.rs` は時刻の範囲で transcript を切り出すだけで、takt の子セッションや分析セッションの entry を除かない。子セッションの user 発話 (`## Execution Context` / `## Workflow Context` で始まるもの) が「セッション知見」として集計され、ユーザーの指示でない内容から提案が作られうる。除外を確かめるテストも無い。(2) `src/cli-merge-pipeline/src/main.rs` の `parse_args` は `--pr` / `--feedback-only` 以外を不明な引数として exit 2 にするため、`pnpm merge-pr -- --pr N` が失敗する。`create-pr` は `--` を受けるので挙動が揃っていない (#616 / #617 の feedback)。2026-11-08 の #625 のマージでも `pnpm merge-pr -- --pr 625` が exit 2 で失敗し、`--` を外した再実行で通った (#625 の feedback。(2) だけなら Effort S で、(1) の設計判断を待たずに着手してよい)。
 >
 > **由来**: `[improvement]`。
 >
@@ -362,3 +362,23 @@
 - (1) config の解決を祖先探索に変えると、テストが落ちること
 - (2) 列挙からパラメータを 1 つ外すと、表駆動のテストが落ちること
 
+
+### 順位 602: pr-monitor の pre-merge check の上書きを、success 以外と失敗 0 件の入力でも固定する
+
+> **動機**: #625 の feedback。`src/cli-pr-monitor/src/stages/poll/iteration.rs` の `pre_merge_override` は、check-ci-coderabbit の `apply_pre_merge_gate` (`src/check-ci-coderabbit/src/pre_merge.rs`) の規則を複製したもので、片方だけを直すと skip 経路でだけ判定が食い違う。呼び出し元の `recompute_action` を通したテストが既に 3 ケースある (今の head での失敗、古い測定の失敗、CodeRabbit を skip したとき)。`apply_pre_merge_gate` 側のテスト (`src/check-ci-coderabbit/src/pre_merge/tests.rs`) と比べると、次の 2 ケースが無い。
+>
+> - success 以外の判定は上書きしない: CI の失敗や CodeRabbit の `action_required` が、pre-merge check の失敗で別の action に変わらない (`gate_leaves_non_success_decisions_alone` に相当)
+> - 失敗 0 件の表は success を通す: `pre_merge_checks` が `Some` で `failed` が空のとき、`stop_monitoring_success` のまま (`gate_passes_success_through_without_failures` に相当)。今あるテストは `pre_merge_checks` が `None` の場合しか見ていない
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 3 — Effort XS。
+
+#### 作業計画
+
+- 上の 2 ケースを、既存の `with_pre_merge_failure` と同じ形で `iteration.rs` の `mod tests` に足す。test helper は check-ci-coderabbit 側から共有せず、複製する ([ADR-084](adr/adr-084-test-helper-no-sharing.md))
+
+#### 完了基準
+
+- `recompute_action` で CI 失敗の判定より先に `pre_merge_override` を見るように変えると、テストが落ちること
+- `pre_merge_override` が `failed` の空を見ずに上書きするように変えると、テストが落ちること

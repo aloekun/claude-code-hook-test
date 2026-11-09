@@ -204,8 +204,10 @@
 >
 > **表記**: `ADR-072` は #363 で追加されるため、本エントリ群では markdown link ではなく code span で書く。#363 マージ後の docs バッチでリンク化してよい。
 
-### 順位 375: レビュー指摘への対応時チェックリスト
+### 順位 375: CodeRabbit の指摘本文を check-ci と threads show で全文読めるようにする
 
+> 旧題は「レビュー指摘への対応時チェックリスト」。2026-11-09 に残作業に合わせて改題した (末尾の作り替えの節を参照)。
+>
 > **動機**: WP-18 の 3 PR で**同型の失敗が 4 件**発生した。いずれも「変更の影響範囲を、指摘された 1 点だけで見積もった」ことが共通項。
 >
 > 1. **takt fix step は設計文書を更新しない** — #363 で 4 サイクルの REJECT から fix により workflow が 3 回書き換わったが、ADR は一度も更新されず、最終的に `ADR-072` 決定 5 が実装と**正反対**の内容 (agent に Bash を許す vs 実際は落とす) のまま残った。commit message も同様に stale になった。さらに fix step は変更を「当時の作業コピー」に書くため、計画書コミットに workflow と Rust ソースの修正が混入し、コミット境界も壊れた
@@ -224,13 +226,22 @@
 > **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — 項目 2 は `check-ci` 側で機械化できる。残りは lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
 >
 > **実行優先度**: Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk None (docs-only)。
+>
+> **2026-11-09 の作り替え (#622 の post-merge feedback)**: 残作業を項目 2 の仕組み化に絞り、`threads show` の側を足した。#622 で、指摘本文を読むために `gh api` を直接 2 回叩くことになり、許可確認で作業が止まった。確認の経路は 2 つあり、どちらも指摘本文を全文出せない。
+>
+> - `pnpm check-ci --list-findings` の `summary` は `extract_summary` (`src/check-ci-coderabbit/src/findings.rs`) が 1 行に潰して 120 文字で切る。元にする `extract_issue` も、太字行が無ければ 100 文字で切る
+> - `pnpm threads show` が出す指摘は、最初のコメントの 1 行目 (`Thread::title`) だけである。`--full` が全文を出すのは返信の本文だけで、指摘本文は `Thread` に保持すらしていない (`src/cli-review-threads/src/threads.rs`)
+>
+> 項目 1 / 3 / 4 は落とす (2026-09-08 に決めた出口のまま)。項目 5 は順位 514 が扱う。
 
 #### 作業計画
 
-- [ ] **項目 2 のみ仕組み化する** — `check-ci` の finding 出力に本文全体 (スコープ語を含む) を載せ、summary で切れないようにする。残り 4 項目 (fix step 後の文書確認 / 検査との衝突 / 技術的前提の検証 / narrow 修正の隣接穴) は落とす — 5 は順位 514 が扱う (2026-09-08 に出口を再設計)
+- [ ] `check-ci --list-findings` の各 finding に、本文全体を別の欄 (`body` など) で載せる。`summary` は今の 1 行のまま残し、読む側が全文を要るときだけ使えるようにする
+- [ ] `threads show --full` で、返信に加えて指摘本文 (最初のコメント) も出す。`Thread` に本文を持たせ、表示は返信と同じ `readable_lines` を通す (折りたたみ部分の除去と、制御文字の無害化を共通にする。コメント本文は信頼できない入力として扱う、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md))
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準
 
-- 項目 2 (finding 本文のスコープが summary で切れる) が `check-ci` の出力で機械的に解消されていること。
-- 残り 4 項目を落とした判断が本エントリから追えること (項目 5 は順位 514 が扱う)。
+- 本文で 2 ファイルを名指しした指摘の fixture で、`check-ci --list-findings` の出力からその 2 ファイル名が読めること。`summary` の長さは今と変わらないこと
+- `threads show --full` の出力に、指摘本文の 2 行目以降が出ること。折りたたみ部分 (`<details>`) は出ないこと
+- 項目 1 / 3 / 4 を落とした判断が本エントリから追えること (項目 5 は順位 514 が扱う)。
