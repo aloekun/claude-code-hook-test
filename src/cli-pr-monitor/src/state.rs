@@ -60,6 +60,29 @@ pub(crate) struct PrMonitorState {
     /// に fallback して挙動を維持する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) fix_push_time: Option<String>,
+    /// check-ci-coderabbit の `pre_merge_checks` (要約コメントの Pre-merge checks)。
+    ///
+    /// checker の `action` は既にこれを織り込んでいるが、CI / CodeRabbit を skip したときは
+    /// `recompute_action` が state から action を決め直すので、ここにも持たせる。持たないと
+    /// skip の経路で失敗した check が消え、success で監視が終わる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pre_merge_checks: Option<PreMergeChecksState>,
+}
+
+/// check-ci-coderabbit の `pre_merge_checks` のうち、action の決め直しに使う部分。
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct PreMergeChecksState {
+    #[serde(default)]
+    pub(crate) failed: Vec<PreMergeCheckState>,
+    /// 測った commit が今の head と違う (= 再測定が要る)
+    #[serde(default)]
+    pub(crate) stale: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub(crate) struct PreMergeCheckState {
+    pub(crate) name: String,
+    pub(crate) status: String,
 }
 
 /// check-ci-coderabbit から伝播する rate-limit 制御情報
@@ -122,6 +145,7 @@ impl PrMonitorState {
             rate_limit_last_retriggered_at: None,
             head_commit: None,
             fix_push_time: None,
+            pre_merge_checks: None,
         }
     }
 
@@ -196,6 +220,9 @@ pub(crate) fn update_state_from_check_result(
     state.rate_limit = result
         .get("rate_limit")
         .and_then(|v| serde_json::from_value::<RateLimitState>(v.clone()).ok());
+    state.pre_merge_checks = result
+        .get("pre_merge_checks")
+        .and_then(|v| serde_json::from_value::<PreMergeChecksState>(v.clone()).ok());
 }
 
 #[cfg(test)]
@@ -258,6 +285,7 @@ mod tests {
             rate_limit_last_retriggered_at: None,
             head_commit: None,
             fix_push_time: None,
+            pre_merge_checks: None,
         };
 
         let json = serde_json::to_string(&state).unwrap();
@@ -507,6 +535,34 @@ mod tests {
         assert_eq!(rl.until_unix_secs, 1_735_689_600);
         assert_eq!(rl.wait_minutes, 5);
         assert_eq!(rl.wait_seconds, 13);
+    }
+
+    /// checker の wire format (`pre_merge_checks`) を読み、出なくなったら消す。
+    #[test]
+    fn update_state_reads_and_clears_pre_merge_checks() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "action": "action_required",
+            "pre_merge_checks": {
+                "failed": [{"name": "Docstring Coverage", "status": "Warning", "explanation": "76.92%"}],
+                "measured_commit": "731c76e5b1bcf0ffbd3da1f83ef06cf86f101581",
+                "stale": false,
+                "summary_url": "https://github.com/o/r/pull/623#issuecomment-1"
+            }
+        });
+        update_state_from_check_result(&mut state, &result);
+        assert_eq!(
+            state.pre_merge_checks,
+            Some(PreMergeChecksState {
+                failed: vec![PreMergeCheckState {
+                    name: "Docstring Coverage".into(),
+                    status: "Warning".into(),
+                }],
+                stale: false,
+            })
+        );
+        update_state_from_check_result(&mut state, &serde_json::json!({ "action": "continue_monitoring" }));
+        assert_eq!(state.pre_merge_checks, None);
     }
 
     #[test]

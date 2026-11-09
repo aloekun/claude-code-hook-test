@@ -209,7 +209,8 @@ pub(crate) fn resolve_review_state(status_state: String, comments_json: &str, pu
     }
 }
 
-fn is_coderabbit_comment(c: &GhComment) -> bool {
+/// CodeRabbit (bot) が書いたコメントか。
+pub(crate) fn is_coderabbit_comment(c: &GhComment) -> bool {
     c.user
         .as_ref()
         .and_then(|u| u.login.as_deref())
@@ -328,6 +329,18 @@ pub(crate) fn parse_unresolved_threads(json: &str) -> Option<usize> {
         .count();
 
     Some(unresolved)
+}
+
+/// `gh api --paginate` の出力を 1 つの JSON 配列にまとめる。
+///
+/// gh の版によって、全ページを結合した 1 つの配列 (`[..]`) を出すものと、ページごとの配列を
+/// 連ねて出すもの (`[..][..]`) がある。どちらも読み、配列でない値が混じればエラーにする。
+pub(crate) fn merge_paginated_arrays(raw: &str) -> Result<String, String> {
+    let mut merged: Vec<serde_json::Value> = Vec::new();
+    for page in serde_json::Deserializer::from_str(raw).into_iter::<Vec<serde_json::Value>>() {
+        merged.extend(page.map_err(|e| format!("ページの JSON 配列を読めない: {}", e))?);
+    }
+    serde_json::to_string(&merged).map_err(|e| format!("結合した配列を書けない: {}", e))
 }
 
 #[cfg(test)]

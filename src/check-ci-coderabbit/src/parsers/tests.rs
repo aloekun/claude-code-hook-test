@@ -471,3 +471,23 @@ fn unresolved_threads_all_resolved() {
 fn unresolved_threads_invalid_json() {
     assert_eq!(parse_unresolved_threads("{}"), None);
 }
+
+/// gh が全ページを結合した 1 つの配列を出す版 (2.95.0 で実測)。
+#[test]
+fn merge_paginated_arrays_reads_single_array() {
+    let merged = merge_paginated_arrays(r#"[{"id":1},{"id":2}]"#).unwrap();
+    assert_eq!(merged, r#"[{"id":1},{"id":2}]"#);
+}
+
+/// ページごとの配列を連ねて出す版。2 ページ目の要約コメントを落とさない (PR #625 CodeRabbit)。
+#[test]
+fn merge_paginated_arrays_joins_pages() {
+    let merged = merge_paginated_arrays("[{\"id\":1}]\n[{\"id\":2},{\"id\":3}]\n").unwrap();
+    assert_eq!(merged, r#"[{"id":1},{"id":2},{"id":3}]"#);
+}
+
+#[test]
+fn merge_paginated_arrays_rejects_non_array() {
+    assert!(merge_paginated_arrays(r#"[{"id":1}]{"message":"Not Found"}"#).is_err());
+    assert!(merge_paginated_arrays("[{\"id\":1}").is_err());
+}
