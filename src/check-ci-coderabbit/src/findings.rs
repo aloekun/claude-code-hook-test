@@ -7,7 +7,7 @@ use crate::models::{GhPullComment, ListedFinding};
 /// PR インラインレビューコメント (pulls/{pr}/comments) を [`Finding`] に変換する。
 ///
 /// CodeRabbit のインラインコメントから severity, issue, suggestion を抽出する。
-/// severity は本文先頭の `_⚠️ Potential issue_ | _🔴 Critical_` パターンから判定。
+/// severity は重大度の行 (タグを除いて最初に空でない行) から判定する ([`extract_severity`])。
 /// suggestion は `<details><summary>💡 修正イメージ</summary>` ブロックから抽出。
 pub(crate) fn parse_findings(json: &str, push_time: &str) -> Vec<Finding> {
     let comments: Vec<GhPullComment> = serde_json::from_str(json).unwrap_or_else(|e| {
@@ -161,39 +161,143 @@ pub(crate) fn extract_summary(body: &str) -> String {
     truncate_str(&single_line, 120)
 }
 
-/// CodeRabbit コメント本文から severity を抽出。
-pub(crate) fn extract_severity(body: &str) -> String {
-    let first_line = body.lines().next().unwrap_or("");
-    if first_line.contains("Critical") || first_line.contains("🔴") {
-        "Critical".to_string()
-    } else if first_line.contains("Major") || first_line.contains("🟠") {
-        "Major".to_string()
-    } else if first_line.contains("Minor") || first_line.contains("🟡") {
-        "Minor".to_string()
-    } else if first_line.contains("High") {
-        "High".to_string()
-    } else if first_line.contains("Low") {
-        "Low".to_string()
-    } else {
-        "Info".to_string()
-    }
+/// 本文の各行から HTML のタグ (`<picture>` / `<!-- … -->` など) を除き、前後の空白を落とす。
+///
+/// CodeRabbit は 2026-11 から、本文の 1 行目に `<!-- coderabbit-ai-generated:v1 -->` を置き、
+/// 重大度の行にアイコンの `<picture>` を埋め込む (#625 / #626 で実測)。タグを残したまま
+/// 読むと、重大度の行が見つからず、見出しの代わりにタグを拾う。
+///
+/// インラインコード (`` `Option<u64>` ``) の中はタグとみなさず残す。山括弧は型の表記であって、
+/// 消すと見出しの意味が変わるため。
+fn plain_lines(body: &str) -> Vec<String> {
+    body.lines()
+        .map(|l| strip_tags_outside_code(l).trim().to_string())
+        .collect()
 }
 
-/// CodeRabbit コメント本文から指摘内容を抽出 (太字行優先、無ければ最初の意味のある行)。
+/// 1 行から、インラインコードの外にある HTML のタグだけを除く。
+///
+/// インラインコードは CommonMark と同じく、n 個連続した `` ` `` から、次に同じ n 個が
+/// 連続する箇所までとする。閉じる側が無ければ、残りはコードではない (タグを除く)。
+fn strip_tags_outside_code(line: &str) -> String {
+    static TAG: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"<[^>]*>").expect("固定の正規表現"));
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(open_at) = rest.find('`') {
+        let run = rest[open_at..].chars().take_while(|&c| c == '`').count();
+        let fence = &rest[open_at..open_at + run];
+        let after_open = &rest[open_at + run..];
+        let Some(close_at) = find_backtick_run(after_open, run) else {
+            break;
+        };
+        out.push_str(&TAG.replace_all(&rest[..open_at], ""));
+        out.push_str(fence);
+        out.push_str(&after_open[..close_at + run]);
+        rest = &after_open[close_at + run..];
+    }
+    out.push_str(&TAG.replace_all(rest, ""));
+    out
+}
+
+/// `text` の中で、ちょうど `run` 個連続した `` ` `` が始まる位置 (前後に `` ` `` が続かないもの)。
+fn find_backtick_run(text: &str, run: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'`' {
+            i += 1;
+            continue;
+        }
+        let len = bytes[i..].iter().take_while(|&&b| b == b'`').count();
+        if len == run {
+            return Some(i);
+        }
+        i += len;
+    }
+    None
+}
+
+/// 重大度の行 = タグを除いて最初に空でない行の位置。
+fn severity_line_index(lines: &[String]) -> Option<usize> {
+    lines.iter().position(|l| !l.is_empty())
+}
+
+/// `**…**` だけの太字の行なら、その中身を返す (`**A** · **B**` のように太字が並ぶ行は除く)。
+fn bold_only(line: &str) -> Option<&str> {
+    let inner = line.strip_prefix("**")?.strip_suffix("**")?;
+    (!inner.trim().is_empty() && !inner.contains("**")).then(|| inner.trim())
+}
+
+/// CodeRabbit コメント本文から severity を抽出。
+///
+/// 書式は 2 つある。
+/// - 新 (2026-11〜): `**<picture>…</picture> Major** · **Functional Correctness** · **Quick win**`。
+///   重大度は先頭の太字の中だけで読む。同じ行の `**Low value**` などの労力の表示を、重大度の
+///   `Low` と取り違えないため
+/// - 旧: `_⚠️ Potential issue_ | _🟠 Major_`。`_` / `|` / 空白で区切った語と絵文字で読む
+///
+/// どちらも部分一致では読まない。重大度の無い本文の先頭が `**Highlight …**` のような見出しでも、
+/// `High` と取り違えないため。読めない場合は `Info` (旧来の既定値)。
+pub(crate) fn extract_severity(body: &str) -> String {
+    let lines = plain_lines(body);
+    let Some(line) = severity_line_index(&lines).map(|i| lines[i].as_str()) else {
+        return "Info".to_string();
+    };
+    let severity = match line.strip_prefix("**").and_then(|rest| rest.split_once("**")) {
+        Some((first_bold, _)) => severity_of_label(first_bold.trim()),
+        None => severity_of_tokens(line),
+    };
+    severity.unwrap_or("Info").to_string()
+}
+
+/// 新書式の先頭の太字。中身全体が重大度の名前と一致するときだけ読む。
+fn severity_of_label(label: &str) -> Option<&'static str> {
+    SEVERITIES.iter().find(|(name, _)| *name == label).map(|(name, _)| *name)
+}
+
+/// 旧書式の行。語に分けて、重大度の名前か絵文字と一致する語を、重い順に探す。
+fn severity_of_tokens(line: &str) -> Option<&'static str> {
+    let tokens: Vec<&str> = line
+        .split(|c: char| c == '_' || c == '|' || c.is_whitespace())
+        .filter(|t| !t.is_empty())
+        .collect();
+    SEVERITIES
+        .iter()
+        .find(|(name, emoji)| tokens.iter().any(|t| t == name || (!emoji.is_empty() && t == emoji)))
+        .map(|(name, _)| *name)
+}
+
+/// 読み取る重大度と、旧書式での絵文字 (重い順)。`Trivial` などの名前は載せず `Info` に落とす。
+const SEVERITIES: [(&str, &str); 5] = [
+    ("Critical", "🔴"),
+    ("Major", "🟠"),
+    ("Minor", "🟡"),
+    ("High", ""),
+    ("Low", ""),
+];
+
+/// CodeRabbit コメント本文から指摘内容を抽出 (太字だけの行を優先、無ければ重大度の行の次の
+/// 意味のある行)。重大度を読めた行 (`**Minor**` だけの行など) は見出しに選ばない。
 pub(crate) fn extract_issue(body: &str) -> String {
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
-            return trimmed[2..trimmed.len() - 2].to_string();
-        }
+    let lines = plain_lines(body);
+    let severity_at = severity_line_index(&lines);
+    let is_severity_label = |i: usize| Some(i) == severity_at && extract_severity(body) != "Info";
+    let heading = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !is_severity_label(*i))
+        .find_map(|(_, l)| bold_only(l));
+    if let Some(heading) = heading {
+        return heading.to_string();
     }
-    for line in body.lines().skip(1) {
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with('_') && !trimmed.starts_with('<') {
-            return truncate_str(trimmed, 100);
-        }
-    }
-    "(詳細はコメント参照)".to_string()
+    let after_severity = severity_at.map_or(0, |i| i + 1);
+    lines
+        .iter()
+        .skip(after_severity)
+        .find(|l| !l.is_empty() && !l.starts_with('_'))
+        .map(|l| truncate_str(l, 100))
+        .unwrap_or_else(|| "(詳細はコメント参照)".to_string())
 }
 
 /// CodeRabbit コメント本文から修正案を抽出。
@@ -270,6 +374,115 @@ mod tests {
     fn extract_summary_normalizes_extra_whitespace() {
         let body = "**summary   with    extra spaces**\n\nrest";
         assert_eq!(extract_summary(body), "summary with extra spaces");
+    }
+
+    /// 2026-11 からの書式 (#625 の Major の指摘の本文から、行の構造を保って抜粋)。
+    /// 1 行目が HTML コメント、重大度の行にアイコンの `<picture>`、見出しは折りたたみの後。
+    const NEW_FORMAT_MAJOR: &str = concat!(
+        "<!-- coderabbit-ai-generated:v1 -->\n",
+        "\n",
+        "**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/major-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\"></picture> Major** · **Functional Correctness** · **Heavy lift**\n",
+        "\n",
+        "<details>\n",
+        "<summary><picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/review-details.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\"></picture> Supported by static analysis</summary>\n",
+        "<dl>\n",
+        "<dd>\n",
+        "<br>\n",
+        "</dl>\n",
+        "</details>\n",
+        "\n",
+        "**通常監視でも全ページのコメントを取得してください。**\n",
+        "\n",
+        "CodeRabbit の要約が最初のページにない場合、失敗した pre-merge check を見落とします。\n",
+    );
+
+    /// 同じ書式の Minor (#626)。同じ行に労力の表示 `**Low value**` がある。
+    const NEW_FORMAT_MINOR_LOW_VALUE: &str = concat!(
+        "<!-- coderabbit-ai-generated:v1 -->\n",
+        "\n",
+        "**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\"></picture> Minor** · **Functional Correctness** · **Low value**\n",
+        "\n",
+        "**`Thread::title` の選択方法を訂正してください。**\n",
+    );
+
+    /// 1 行目が HTML コメントでも、次の空でない行から重大度を読む (#625 の Major が Info になった不具合)。
+    #[test]
+    fn new_format_severity_is_read_after_the_html_comment_line() {
+        assert_eq!(extract_severity(NEW_FORMAT_MAJOR), "Major");
+        assert_eq!(extract_severity(NEW_FORMAT_MINOR_LOW_VALUE), "Minor");
+    }
+
+    /// 労力の表示 (`Low value`) を重大度の `Low` と読まない。先頭の太字だけを見る。
+    #[test]
+    fn new_format_effort_label_is_not_read_as_severity() {
+        let trivial = NEW_FORMAT_MINOR_LOW_VALUE.replace("Minor**", "Trivial**");
+        assert_eq!(extract_severity(&trivial), "Info");
+        assert_eq!(extract_issue(&trivial), "`Thread::title` の選択方法を訂正してください。");
+    }
+
+    /// 重大度の無い本文の先頭の見出しを、部分一致で重大度と読まない (#627 の指摘)。
+    #[test]
+    fn heading_containing_a_severity_word_is_not_a_severity() {
+        let body = "<!-- coderabbit-ai-generated:v1 -->\n**Highlight the failing case**\n\nbody\n";
+        assert_eq!(extract_severity(body), "Info");
+        assert_eq!(extract_issue(body), "Highlight the failing case");
+        assert_eq!(extract_severity("_⚠️ Potential issue_ | _Lowercase only_"), "Info");
+    }
+
+    /// 旧書式は絵文字だけでも読む。
+    #[test]
+    fn old_format_reads_severity_from_emoji_token() {
+        assert_eq!(extract_severity("_⚠️ Potential issue_ | _🔴_"), "Critical");
+    }
+
+    /// インラインコードの中の山括弧はタグとして消さない (#627 の指摘)。外のタグは消す。
+    #[test]
+    fn angle_brackets_inside_inline_code_are_kept() {
+        let body = "**<picture></picture> Minor** · **x**\n\n**`Option<u64>` と ``Vec<`T`>`` を返す<br>**\n";
+        assert_eq!(extract_issue(body), "`Option<u64>` と ``Vec<`T`>`` を返す");
+    }
+
+    /// 閉じていない `` ` `` の後ろはコードではないので、タグを消す。
+    #[test]
+    fn unclosed_backtick_does_not_protect_tags() {
+        assert_eq!(strip_tags_outside_code("a ` b <br> c"), "a ` b  c");
+    }
+
+    /// 見出しには、重大度の行ではなく、太字だけの行を選ぶ。
+    #[test]
+    fn new_format_issue_is_the_heading_not_the_severity_line() {
+        assert_eq!(extract_issue(NEW_FORMAT_MAJOR), "通常監視でも全ページのコメントを取得してください。");
+        assert_eq!(extract_summary(NEW_FORMAT_MINOR_LOW_VALUE), "`Thread::title` の選択方法を訂正してください。");
+    }
+
+    /// 重大度だけの太字の行 (`**Minor**`) も、見出しに選ばない。
+    #[test]
+    fn severity_only_bold_line_is_not_the_heading() {
+        let body = "<!-- coderabbit-ai-generated:v1 -->\n**<picture></picture> Minor**\n\n**本当の見出し**\n";
+        assert_eq!(extract_severity(body), "Minor");
+        assert_eq!(extract_issue(body), "本当の見出し");
+    }
+
+    /// 旧書式 (`_⚠️ Potential issue_ | _🟠 Major_`) の互換。
+    #[test]
+    fn old_format_still_reads_severity_and_heading() {
+        let body = "_⚠️ Potential issue_ | _🟠 Major_\n\n**旧書式の見出し**\n";
+        assert_eq!(extract_severity(body), "Major");
+        assert_eq!(extract_issue(body), "旧書式の見出し");
+    }
+
+    /// `--push-time` 経路 (`parse_findings`) でも、新書式の重大度と見出しが後段へ渡る。
+    #[test]
+    fn parse_findings_reads_new_format_severity_and_issue() {
+        let json = serde_json::json!([{
+            "id": 1, "user": {"login": "coderabbitai[bot]"}, "body": NEW_FORMAT_MAJOR,
+            "path": "src/main.rs", "line": 7, "created_at": "2026-11-08T05:25:25Z"
+        }])
+        .to_string();
+        let findings = parse_findings(&json, "2026-11-08T00:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "Major");
+        assert_eq!(findings[0].issue, "通常監視でも全ページのコメントを取得してください。");
     }
 
     #[test]
