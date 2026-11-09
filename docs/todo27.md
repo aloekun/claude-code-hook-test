@@ -58,6 +58,7 @@
 
 - [ ] findings レポート (.takt/runs/ 最新 run) から Location 列を抽出する parser (fail-closed)
 - [ ] lib-scope-guard で allowlist 照合、violation は loud block + 独立 kill-switch
+- [ ] 設定系パス (`push-runner-config.toml`、`.claude/`、`.takt/`、`.github/`) を finding allowlist より優先して常時 deny にする。`push-runner-config.toml` の quality gate `cmd` は再ゲートでシェル経由で実行されるため、finding が指していても fix に書き換えさせない (週次レビュー WR-2026-11-10-C01 で追記、`.claude/weekly-reviews/2026-11-10.md`)。`ALWAYS_ALLOWED` の `.takt/review-diff.txt` は deny より優先する。着手時判断: 設定系パスを直す正当な finding は block して人間に回す形でよいかを決める
 - [ ] incident 再現テスト: (a) finding 対象外ファイルへの変更が**変更種別 3 種 (追加 = 新規ファイル作成 / 書き換え = 既存ファイル編集、config 自己弱体化含む / 削除) のいずれでも** block されること、(b) `ALWAYS_ALLOWED` 対象ファイル (`.takt/review-diff.txt` 等) への変更は finding allowlist 外でも block されないこと、の両方を固定する (完了基準の「追加・書き換え・削除いずれも」に対応)
 - [ ] fix.md / fix-supervisor.md の「pre-push は後退検知のみ」記述を更新
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
@@ -66,6 +67,7 @@
 
 - fix step が finding 対象外ファイルを変更 (追加・書き換え・削除いずれも) した push が、決定論的に block されること。ADR-068 の後退検知では通ってしまう「追加系 injection」ケースがテストで固定されていること。
 - `ALWAYS_ALLOWED` (post-pr 側の先行実装 `src/cli-pr-monitor/src/stages/scope_guard.rs` で定義済み、現状 `.takt/review-diff.txt` のみ) は、fix step が本 instruction (fix.md 「Pre-completion diff refresh」) に従って正当に書き換える中間ファイルの例外リストである。pre-push 側の実装も finding allowlist に加えてこのリストを常に許可し、post-pr 側と同一のリストを共有すること (ADR-054 の drift 防止)。この例外により (a) の block 判定が誤って `.takt/review-diff.txt` 自体の正当な refresh まで block しないことをテストで固定する。
+- finding が設定系パスを指していても、fix による変更が block されることをテストで固定する。
 
 ### 順位 414: 系統 A-1: 「各出力面は新しい perimeter」原則と screening 関数の出口別分離を明文化する
 

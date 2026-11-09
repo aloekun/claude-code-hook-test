@@ -424,3 +424,86 @@
 - 異常の印が立った入力で、pr-monitor が success を返さないことをテストで固定する
 - `extract_severity` の既定値を `Info` に戻すとテストが落ちること
 - 実際の PR (#625〜#627) で `--list-findings` を回し、重大度が修正前と変わらず、警告が出ないことを確かめる
+
+## 週次レビュー採用 (2026-11-10)
+
+### 順位 604: ISO8601 と暦日の変換を中立の crate に 1 本化する
+
+> **動機**: ISO8601 と暦日の変換が 6 crate で独立に実装されている。本番コードにあるのは `lib-pending-file` / `lib-telemetry` / `cli-telemetry-report` (`timekit.rs`) / `cli-pr-monitor` (`lock.rs`) / `cli-takt-timings` (`timeparse.rs`) / `check-ci-coderabbit` (`rate_limit.rs`) で、小数秒の扱いなどの挙動が揃っていない。`lib-telemetry` のコメントは「3 つ目の消費者が現れたら中立 crate (例 lib-time) への抽出候補」と定めており、この条件は既に満たしている。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-M01 で採用 (severity=high, facet=architecture+simplicity, category=harness-duplication)
+>
+> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/lib-pending-file/src/lib.rs:98-227`、`src/lib-telemetry/src/lib.rs:366-372`、`src/check-ci-coderabbit/src/rate_limit.rs:203-244`
+
+#### 背景
+
+レポートは「7 crate 以上」としているが、`hooks-session-start` の `reaper` は既に `lib_pending_file::iso8601_to_epoch_secs` へ委譲しているので、独立した実装は 6 つである。`cli-pr-monitor` は `lib-pending-file` に依存しているのに、`lock.rs` は自前で解析している。
+
+`lib-telemetry` が `lib-pending-file` に依存しないのは意図的で、観測層を post-merge-feedback 専用の crate に結合させないためである。
+
+#### 設計決定
+
+- 移設先は `lib-pending-file` ではなく、新設する中立の crate (`lib-time`) にする。上記の結合を避けるため。chrono は入れず pure-std のままにする
+- 挙動の差は残すか揃えるかを実装ごとに決める。`rate_limit` は小数秒を受理せず、`cli-takt-timings` は整数ミリ秒で保持している
+- `rate_limit` を統合しない場合は、理由をコードか ADR に残す
+
+- [ ] 6 実装の入出力の差を表にする (小数秒、範囲外の値、紀元前の年、戻り値の型)
+- [ ] 着手時判断: ADR-044 は subprocess utility が題材なので、時刻変換の抽出にそのまま当てはめてよいかを確かめる
+- [ ] `lib-time` を作り、差を確認した順に委譲へ置き換える
+- [ ] ADR-055 に抽出条件へ到達したことを記録する (`lib-telemetry` のコメントが記録先として指定している)
+
+#### 完了基準
+
+- 暦日変換のアルゴリズムの本体が `lib-time` にだけ存在するか、残す実装には残す理由が書かれている
+- 実装ごとに異なっていた挙動 (小数秒、範囲外の値) をテストで固定している
+- 既存の proptest (`cli-pr-monitor` の `lock/proptests.rs`、`hooks-session-start` の `past_time.rs`) が通る
+
+### 順位 605: `create_pr` の PR 情報を、作成した PR の URL から得たリポジトリで組み立てる
+
+> **動機**: `--repo` で別リポジトリへ PR を作ると、`build_pr_info_from_gh_output` が `gh repo view` で cwd のリポジトリを取るため、`PrInfo.repo` が誤る。さらにそのリポジトリを `get_pr_head_commit` へ渡すので、`head_commit` が誤るか `None` になる。同じファイルの `trigger_review_for_created_pr` のコメントは、リポジトリを `gh pr create` の出力 URL から取ると定めており、コードの中で食い違っている。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-J01 で採用 (severity=medium, facet=jj-robustness, category=jj-gh-no-repo)
+>
+> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/cli-pr-monitor/src/stages/create_pr.rs:208-214,257-279`、`src/cli-pr-monitor/src/util.rs:80-96,123`
+
+#### 背景
+
+`parse_repo_from_pr_url` は `util.rs` に実装済みで、別オーナーの URL のテストもある。`get_pr_head_commit` は `repo` が `None` のとき `--repo` を付けないので、`gh` は cwd のリポジトリから解決する。
+
+#### 設計決定
+
+- `PrInfo.repo` は `parse_repo_from_pr_url(output)` の結果を使い、`gh repo view` の呼び出しを消す
+- URL からリポジトリを読めないときは推測しない。`PrInfo.repo` と `head_commit` をともに `None` にする。`get_pr_head_commit(n, None)` は呼ばない (cwd の同番号 PR を指しうるため)
+
+- [ ] `build_pr_info_from_gh_output` を上記のとおり直す
+- [ ] 外部コマンドを呼ばない部分を関数に切り出し、テストできる形にする
+
+#### 完了基準
+
+- cwd と異なるリポジトリの PR URL を与えたとき、`PrInfo.repo` がその URL のリポジトリになることをテストで固定している
+- URL からリポジトリを読めないとき、cwd のリポジトリへ fallback しないことをテストで固定している
+
+### 順位 606: `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす
+
+> **動機**: `cli-ledger-removal-check` と `cli-ledger-cleanup` が、`docs_files` を使うためだけに `cli-docs-lint` へ path 依存している。ADR-012 では `cli-` はスクリプトから呼ぶ CLI、他の crate から参照するものは `lib-` である。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-A01 で採用 (severity=medium, facet=architecture, category=layer-violation)
+>
+> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/cli-ledger-removal-check/Cargo.toml:14`、`src/cli-ledger-cleanup/Cargo.toml:17`、`src/cli-docs-lint/src/docs_files.rs`
+
+#### 背景
+
+`docs_files.rs` は 133 行で、`std` にしか依存していない。`cli-docs-lint` は既に `lib-ledger` へ依存しているので、移しても循環は生じない。
+
+#### 設計決定
+
+- `lib-ledger` の `lib.rs` は 792 行で 800 行の gate に近いため、`docs_files` は独立したモジュールのまま移す
+- 順位 592 も `list_docs_files` を変更するので、同時に着手するときは順序を決める
+
+- [ ] `docs_files.rs` を `lib-ledger` へ移し、`cli-docs-lint` / `cli-ledger-removal-check` / `cli-ledger-cleanup` の参照を置き換える
+- [ ] 2 つの CLI の `Cargo.toml` から `cli-docs-lint` への依存と説明コメントを消す
+
+#### 完了基準
+
+- `src/cli-*/Cargo.toml` に `cli-docs-lint` への path 依存が残っていない
+- `pnpm lint:docs` と `cli-ledger-removal-check` / `cli-ledger-cleanup` のテストが、移設前と同じ結果になる
