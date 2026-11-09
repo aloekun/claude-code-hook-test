@@ -106,6 +106,7 @@
 | 600 | Tier 2 | **[improvement] review-threads の番号付けを 1 つの関数にまとめる** | todo29.md | S | なし (2026-11-06、#619 の post-merge feedback) |
 | 601 | Tier 3 | **[improvement] config の解決と Start-Process の検出のテストの false-green を塞ぐ** | todo29.md | S | なし (2026-11-06、#616 / #617 の post-merge feedback) |
 | 602 | Tier 3 | **[improvement] pr-monitor の pre-merge check の上書きを、success 以外と失敗 0 件の入力でも固定する** | todo29.md | XS | なし (2026-11-09、#625 の post-merge feedback) |
+| 603 | Tier 2 | **[improvement] CodeRabbit の重大度を読めなかった指摘を `Unknown` として出し、全件 `Unknown` なら原因究明を促す** | todo29.md | M | なし (2026-11-10、#627 の post-merge feedback) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
