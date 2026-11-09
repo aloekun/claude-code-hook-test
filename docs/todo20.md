@@ -225,12 +225,12 @@
 >
 > **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — 項目 2 は `check-ci` 側で機械化できる。残りは lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk None (docs-only)。
+> **実行優先度**: Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk Low (2026-11-09 の作り替えで docs-only ではなくなった。`check-ci-coderabbit` と `cli-review-threads` の 2 つの CLI の出力に、欄と行が増える。欄の追加で JSON の読み手は壊れないはずだが、着手時に `--list-findings` を読む facet とスクリプトを確かめる)。
 >
 > **2026-11-09 の作り替え (#622 の post-merge feedback)**: 残作業を項目 2 の仕組み化に絞り、`threads show` の側を足した。#622 で、指摘本文を読むために `gh api` を直接 2 回叩くことになり、許可確認で作業が止まった。確認の経路は 2 つあり、どちらも指摘本文を全文出せない。
 >
 > - `pnpm check-ci --list-findings` の `summary` は `extract_summary` (`src/check-ci-coderabbit/src/findings.rs`) が 1 行に潰して 120 文字で切る。元にする `extract_issue` も、太字行が無ければ 100 文字で切る
-> - `pnpm threads show` が出す指摘は、最初のコメントの 1 行目 (`Thread::title`) だけである。`--full` が全文を出すのは返信の本文だけで、指摘本文は `Thread` に保持すらしていない (`src/cli-review-threads/src/threads.rs`)
+> - `pnpm threads show` が出す指摘は、最初のコメントの見出し 1 行 (`Thread::title`) だけである。見出しは `title_of` が選ぶ。`**…**` だけの太字の行を優先し、無ければ最初の空でない行を使う。`--full` が全文を出すのは返信の本文だけで、指摘本文は `Thread` に保持すらしていない (`src/cli-review-threads/src/threads.rs`)
 >
 > 項目 1 / 3 / 4 は落とす (2026-09-08 に決めた出口のまま)。項目 5 は順位 514 が扱う。
 
@@ -243,5 +243,6 @@
 #### 完了基準
 
 - 本文で 2 ファイルを名指しした指摘の fixture で、`check-ci --list-findings` の出力からその 2 ファイル名が読めること。`summary` の長さは今と変わらないこと
+- 太字の行が無く、100 文字を超える本文の fixture で、新しい欄の値が元の本文全体と一致すること (`extract_issue` の 100 文字の切り詰めを受けないこと)
 - `threads show --full` の出力に、指摘本文の 2 行目以降が出ること。折りたたみ部分 (`<details>`) は出ないこと
 - 項目 1 / 3 / 4 を落とした判断が本エントリから追えること (項目 5 は順位 514 が扱う)。

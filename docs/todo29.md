@@ -368,7 +368,7 @@
 > **動機**: #625 の feedback。`src/cli-pr-monitor/src/stages/poll/iteration.rs` の `pre_merge_override` は、check-ci-coderabbit の `apply_pre_merge_gate` (`src/check-ci-coderabbit/src/pre_merge.rs`) の規則を複製したもので、片方だけを直すと skip 経路でだけ判定が食い違う。呼び出し元の `recompute_action` を通したテストが既に 3 ケースある (今の head での失敗、古い測定の失敗、CodeRabbit を skip したとき)。`apply_pre_merge_gate` 側のテスト (`src/check-ci-coderabbit/src/pre_merge/tests.rs`) と比べると、次の 2 ケースが無い。
 >
 > - success 以外の判定は上書きしない: CI の失敗や CodeRabbit の `action_required` が、pre-merge check の失敗で別の action に変わらない (`gate_leaves_non_success_decisions_alone` に相当)
-> - 失敗 0 件の表は success を通す: `pre_merge_checks` が `Some` で `failed` が空のとき、`stop_monitoring_success` のまま (`gate_passes_success_through_without_failures` に相当)。今あるテストは `pre_merge_checks` が `None` の場合しか見ていない
+> - 失敗 0 件の表は success を通す: `pre_merge_checks` が `Some` で `failed` が空のとき、`stop_monitoring_success` のまま (`gate_passes_success_through_without_failures` に相当)。`stale` が `true` でも同じ (失敗が無ければ、古い測定でも再測定待ちにしない)。今あるテストは `pre_merge_checks` が `None` の場合しか見ていない
 >
 > **由来**: `[improvement]`。
 >
@@ -381,4 +381,4 @@
 #### 完了基準
 
 - `recompute_action` で CI 失敗の判定より先に `pre_merge_override` を見るように変えると、テストが落ちること
-- `pre_merge_override` が `failed` の空を見ずに上書きするように変えると、テストが落ちること
+- `pre_merge_override` が `failed` の空を見ずに上書きするように変えると、テストが落ちること。`stale` が `true` で `failed` が空のときに `continue_monitoring` を返すように変えても、テストが落ちること
