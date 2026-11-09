@@ -409,10 +409,11 @@
    - `SEVERITIES` に `Trivial` を加える。旧書式の絵文字は、着手時に実物の本文で確かめてから入れる
    - `extract_severity` の既定値を `Unknown` にする。`extract_issue` の「重大度を読めた行を見出しから除く」判定 (今は `!= "Info"`) も `Unknown` に合わせる
 2. `--list-findings` と check-ci の出力
-   - `Unknown` の件数を出力に持たせる。1 件以上あれば、件数付きの警告を stderr に出す
-   - 指摘が 1 件以上あり、全件が `Unknown` のときは、出力に異常の印 (例: `severity_unreadable: true`) を立てる。案内文には「CodeRabbit の書式変更か、読み取り処理の不具合の疑い。指摘への対応の前に、本文の実物と `findings.rs` を突き合わせて原因を調べる」を書く
+   - レビュー指摘 (スレッドの根のコメント) のうち `Unknown` の件数を出力に持たせる。1 件以上あれば、件数付きの警告を stderr に出す。`parse_findings` は CodeRabbit の reply も返すが、reply は数えない。reply は重大度の行を持たないので `Unknown` になり、正常な応答を異常と誤報するため
+   - reply を除いたレビュー指摘が 1 件以上あり、全件が `Unknown` のときは、出力に異常の印 (例: `severity_unreadable: true`) を立てる。案内文には「CodeRabbit の書式変更か、読み取り処理の不具合の疑い。指摘への対応の前に、本文の実物と `findings.rs` を突き合わせて原因を調べる」を書く
 3. 利用側
    - `cli-pr-monitor`: 異常の印が立っているときは success で終わらせず、上の案内を出す。`has_findings_to_fix` のコメントにある「`Info` は判定不能時の受け皿」の記述を `Unknown` に書き換える
+   - `verdict_for_findings` (`src/cli-pr-monitor/src/stages/monitor.rs`): `Unknown` が 1 件でもあるときは「重大な問題は見つかりませんでした」と断定せず、重大度を読めなかった指摘の件数を出す。全件が `Unknown` でなければ異常の印は立たないので、混在はここで受ける
    - `.takt/facets/instructions/analyze-coderabbit.md`: `Unknown` を Info/Low と同じ扱いで `approved` にしない。異常の印が立っているときは `user_decision` にし、Summary に原因究明の案内を書く
    - `lib-report-formatter` の `severity_order`: `Trivial` と `Unknown` を並び順に加える。`Unknown` は重大度が分からないので、`Info` より前に置く
 4. `Info` を判定に使っている箇所を、着手時に `rg '"Info"'` で洗い直す。0 件を「無い」の根拠にするときは、既知の 1 箇所 (`findings.rs`) が引っかかることを先に確かめる ([ADR-075](adr/adr-075-verify-premises-before-acting.md) 決定 6)
@@ -421,7 +422,9 @@
 
 - 重大度の行を持たない本文が `Unknown` になり、`Trivial` の本文が `Trivial` になることを、fixture で固定する
 - 指摘が全件 `Unknown` の入力で異常の印が立ち、1 件でも読めた入力では立たないことを、テストで固定する。指摘が 0 件の入力でも立たないこと
+- reply だけの入力では異常の印が立たず、`Unknown` の件数にも数えないことをテストで固定する
 - 異常の印が立った入力で、pr-monitor が success を返さないことをテストで固定する
+- `Unknown` と `Low` が混在する入力で、`verdict_for_findings` が「重大な問題は見つかりませんでした」を返さないことをテストで固定する
 - `extract_severity` の既定値を `Info` に戻すとテストが落ちること
 - 実際の PR (#625〜#627) で `--list-findings` を回し、重大度が修正前と変わらず、警告が出ないことを確かめる
 
@@ -449,7 +452,7 @@
 
 - [ ] 6 実装の入出力の差を表にする (小数秒、範囲外の値、紀元前の年、戻り値の型)
 - [ ] 着手時判断: ADR-044 は subprocess utility が題材なので、時刻変換の抽出にそのまま当てはめてよいかを確かめる
-- [ ] `lib-time` を作り、差を確認した順に委譲へ置き換える
+- [ ] `lib-time` を作り、差を確認した順に委譲へ置き換える。テストを `lib-time` へ移すときは、使っている dev-dependency (`proptest` など) も移す
 - [ ] ADR-055 に抽出条件へ到達したことを記録する (`lib-telemetry` のコメントが記録先として指定している)
 
 #### 完了基準
@@ -468,20 +471,21 @@
 
 #### 背景
 
-`parse_repo_from_pr_url` は `util.rs` に実装済みで、別オーナーの URL のテストもある。`get_pr_head_commit` は `repo` が `None` のとき `--repo` を付けないので、`gh` は cwd のリポジトリから解決する。
+`parse_repo_from_pr_url` は `util.rs` に実装済みで、別オーナーの URL のテストもある。`get_pr_head_commit` は `repo` が `None` のとき `--repo` を付けないので、`gh` は cwd のリポジトリから解決する。監視の checker も同じで (`src/cli-pr-monitor/src/stages/poll/iteration.rs:62`)、`repo: None` のまま監視すると、cwd のリポジトリにある同番号の別 PR の結果を、作成した PR の結果として表示しうる。
 
 #### 設計決定
 
 - `PrInfo.repo` は `parse_repo_from_pr_url(output)` の結果を使い、`gh repo view` の呼び出しを消す
-- URL からリポジトリを読めないときは推測しない。`PrInfo.repo` と `head_commit` をともに `None` にする。`get_pr_head_commit(n, None)` は呼ばない (cwd の同番号 PR を指しうるため)
+- URL から PR 番号かリポジトリを読めないときは推測せず、監視を始めない。`get_pr_info()` への fallback と `get_pr_head_commit(n, None)` も、cwd のリポジトリで解決するので使わない
+- 監視を始めないときも PR の作成は成功しているので、終了コードは 0 のままにする。監視していないことと、`--monitor-only` で監視できることをログに出す (`trigger_review_for_created_pr` の諦め方に揃える)
 
-- [ ] `build_pr_info_from_gh_output` を上記のとおり直す
+- [ ] `build_pr_info_from_gh_output` を上記のとおり直し、`run_create_pr` は番号とリポジトリの両方を読めたときだけ `start_monitoring` を呼ぶ
 - [ ] 外部コマンドを呼ばない部分を関数に切り出し、テストできる形にする
 
 #### 完了基準
 
 - cwd と異なるリポジトリの PR URL を与えたとき、`PrInfo.repo` がその URL のリポジトリになることをテストで固定している
-- URL からリポジトリを読めないとき、cwd のリポジトリへ fallback しないことをテストで固定している
+- URL から番号かリポジトリを読めないとき、cwd のリポジトリへ fallback せず、監視を始めないことをテストで固定している
 
 ### 順位 606: `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす
 
@@ -493,17 +497,19 @@
 
 #### 背景
 
-`docs_files.rs` は 133 行で、`std` にしか依存していない。`cli-docs-lint` は既に `lib-ledger` へ依存しているので、移しても循環は生じない。
+`docs_files.rs` は 133 行で、本体は `std` にしか依存していない。同ファイルのテストは `tempfile` を使うが、`lib-ledger` には dev-dependency が無い。`cli-docs-lint` は既に `lib-ledger` へ依存しているので、移しても循環は生じない。
 
 #### 設計決定
 
 - `lib-ledger` の `lib.rs` は 792 行で 800 行の gate に近いため、`docs_files` は独立したモジュールのまま移す
 - 順位 592 も `list_docs_files` を変更するので、同時に着手するときは順序を決める
 
-- [ ] `docs_files.rs` を `lib-ledger` へ移し、`cli-docs-lint` / `cli-ledger-removal-check` / `cli-ledger-cleanup` の参照を置き換える
+- [ ] `docs_files.rs` をテストごと `lib-ledger` へ移し、`cli-docs-lint` / `cli-ledger-removal-check` / `cli-ledger-cleanup` の参照を置き換える
+- [ ] `lib-ledger` の `[dev-dependencies]` に `tempfile` を加える
 - [ ] 2 つの CLI の `Cargo.toml` から `cli-docs-lint` への依存と説明コメントを消す
 
 #### 完了基準
 
 - `src/cli-*/Cargo.toml` に `cli-docs-lint` への path 依存が残っていない
+- 移したテストを含めて `cargo test -p lib-ledger` が通る
 - `pnpm lint:docs` と `cli-ledger-removal-check` / `cli-ledger-cleanup` のテストが、移設前と同じ結果になる
