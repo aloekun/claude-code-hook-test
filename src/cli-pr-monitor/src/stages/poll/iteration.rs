@@ -274,10 +274,20 @@ fn recompute_action(state: &PrMonitorState, skip_ci: bool, skip_coderabbit: bool
     } else if cr_action_required {
         "action_required".into()
     } else if ci_ok && cr_ok {
-        pre_merge_override(state, skip_coderabbit).unwrap_or_else(|| "stop_monitoring_success".into())
+        pre_merge_override(state, skip_coderabbit)
+            .or_else(|| severity_override(state, skip_coderabbit))
+            .unwrap_or_else(|| "stop_monitoring_success".into())
     } else {
         state.action.clone()
     }
+}
+
+/// 指摘の重大度を全件読めなかったなら、success の代わりに `action_required` を返す (順位 603)。
+///
+/// check-ci-coderabbit の `severity_readout::apply_severity_gate` と同じ規則で、
+/// [`pre_merge_override`] と同じ理由で複製している。規則を変えるときは両方を直す。
+fn severity_override(state: &PrMonitorState, skip_coderabbit: bool) -> Option<String> {
+    (!skip_coderabbit && state.severity_unreadable).then(|| "action_required".into())
 }
 
 /// 要約コメントの pre-merge check が失敗していれば、success の代わりの action を返す。
@@ -351,6 +361,20 @@ mod tests {
     #[test]
     fn pre_merge_failure_is_ignored_when_coderabbit_is_skipped() {
         let mut state = with_pre_merge_failure(state_with_review("success"), false);
+        state.ci = Some(CiState {
+            overall: "success".into(),
+            runs: vec![],
+        });
+        assert_eq!(recompute_action(&state, false, true), "stop_monitoring_success");
+    }
+
+    /// 順位 603: 重大度を全件読めなかったなら、CI を skip した経路でも success で終えない。
+    /// CodeRabbit を skip するなら見ない (findings 自体を捨てるため)。
+    #[test]
+    fn unreadable_severity_blocks_success_when_ci_is_skipped() {
+        let mut state = state_with_review("success");
+        state.severity_unreadable = true;
+        assert_eq!(recompute_action(&state, true, false), "action_required");
         state.ci = Some(CiState {
             overall: "success".into(),
             runs: vec![],

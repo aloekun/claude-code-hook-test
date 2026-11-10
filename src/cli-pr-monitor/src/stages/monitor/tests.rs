@@ -20,9 +20,9 @@ fn make_state(pr: u64, repo: &str, head: Option<&str>) -> PrMonitorState {
 /// takt は CodeRabbit がコメントを投稿しただけでも起動するため、findings が空のまま
 /// ここへ来る経路が実在する (2026-08-18 の PR #417 監視で実観測)。
 ///
-/// あわせて **severity では絞らない**契約も固定する。`extract_severity` の `"Info"` は
-/// 判定不能時の受け皿でもあるため、`Info` だけを「直す対象なし」に倒すと、書式変更で
-/// 解析できなかった実指摘まで黙って skip する。
+/// あわせて **severity では絞らない**契約も固定する。severity は書式変更で読めなくなりうる
+/// (`extract_severity` は読めなかった指摘を `"Unknown"` にする、順位 603)。軽い severity を
+/// 「直す対象なし」に倒すと、書式変更で解析できなかった実指摘まで黙って skip する。
 /// **findings 0 件は re-push 経路へ進ませない** (CodeRabbit PR #418 Major 指摘)。
 ///
 /// fix commit を作らない = `FixCommitState::None` のまま `execute_repush_flow` へ進むと、
@@ -51,7 +51,11 @@ fn only_the_finding_count_decides_whether_a_fix_commit_is_needed() {
     assert!(!has_findings_to_fix(&[]), "0 件なら事前作成しない");
     assert!(
         has_findings_to_fix(&[finding("Info")]),
-        "Info のみでも「直す対象なし」とはしない (Info は判定不能の受け皿)"
+        "Info のみでも「直す対象なし」とはしない (severity では絞らない)"
+    );
+    assert!(
+        has_findings_to_fix(&[finding("Unknown")]),
+        "重大度を読めなかった指摘も直す対象から外さない"
     );
     assert!(has_findings_to_fix(&[finding("Critical")]));
 }
@@ -376,6 +380,28 @@ fn verdict_reports_pre_merge_failure_instead_of_no_problems() {
     let mut skipped = poll_result("stop_monitoring_success", Some("skipped"), vec![]);
     skipped.check_output = Some(failed);
     assert_eq!(compute_verdict(&skipped), VERDICT_NO_PROBLEMS);
+}
+
+/// 順位 603: 重大度を読めなかった指摘があれば、「重大な問題は見つかりませんでした」と
+/// 断定せず件数を出す。読めた Major があればそちらを優先する。
+#[test]
+fn verdict_holds_when_some_severities_are_unknown() {
+    let r = poll_result("action_required", Some("complete"), vec![finding("Unknown"), finding("Minor")]);
+    let verdict = compute_verdict(&r);
+    assert_ne!(verdict, VERDICT_MINOR);
+    assert!(verdict.contains("重大度を読めなかった指摘が1件"), "{verdict}");
+
+    let with_major = poll_result("action_required", Some("complete"), vec![finding("Unknown"), finding("Major")]);
+    assert_eq!(compute_verdict(&with_major), VERDICT_CRITICAL);
+}
+
+/// 順位 603: 全件の重大度を読めなかったときは、指摘の中身ではなく読み取りの仕組みを疑う案内を出す。
+#[test]
+fn verdict_points_to_the_parser_when_no_severity_is_readable() {
+    let r = poll_result("action_required", Some("complete"), vec![finding("Unknown"), finding("Unknown")]);
+    let verdict = compute_verdict(&r);
+    assert!(verdict.contains("指摘2件の重大度を 1 件も読めませんでした"), "{verdict}");
+    assert!(verdict.contains("原因を調べてください"), "{verdict}");
 }
 
 /// 順位 141: `resume_fix_push_time_or_started_at` Case A —

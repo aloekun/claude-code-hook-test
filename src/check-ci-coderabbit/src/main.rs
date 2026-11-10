@@ -25,6 +25,7 @@ mod models;
 mod parsers;
 mod pre_merge;
 mod rate_limit;
+mod severity_readout;
 
 use std::process::Command;
 use std::time::Duration;
@@ -41,6 +42,10 @@ use crate::parsers::{
 };
 use crate::pre_merge::{apply_pre_merge_gate, parse_pre_merge_checks, summary_part};
 use crate::rate_limit::parse_rate_limit;
+use crate::severity_readout::{
+    apply_severity_gate, read_severities, summary_part as severity_summary_part, warn_on_stderr,
+    SeverityReadout,
+};
 
 const EPOCH_PUSH_TIME: &str = "1970-01-01T00:00:00Z";
 
@@ -281,12 +286,9 @@ fn run_check(args: CliArgs) -> CheckResult {
         walkthrough_clean,
     };
 
-    let findings = fetch_findings(&repo, pr, &args.push_time);
-    let (status, action) = apply_pre_merge_gate(
-        decide(&ci, &cr, rate_limit.as_ref()),
-        pre_merge_checks.as_ref(),
-    );
-    let summary = build_full_summary(&ci, &cr, rate_limit.as_ref(), pre_merge_checks.as_ref());
+    let (findings, severity_readout) = fetch_findings(&repo, pr, &args.push_time);
+    let (status, action, summary) =
+        judge(&ci, &cr, rate_limit.as_ref(), pre_merge_checks.as_ref(), &severity_readout);
 
     CheckResult {
         status,
@@ -295,23 +297,43 @@ fn run_check(args: CliArgs) -> CheckResult {
         coderabbit: cr,
         summary,
         findings,
+        severity_readout,
         rate_limit,
         pre_merge_checks,
     }
 }
 
-/// CI / CodeRabbit の summary に、pre-merge check の失敗があればその文言を足す。
+/// 判定 (status, action) と summary を決める。success は pre-merge check の失敗と、重大度を
+/// 全件読めなかったこと (`crate::severity_readout`) で止める。
+fn judge(
+    ci: &CiStatus,
+    cr: &CodeRabbitStatus,
+    rate_limit: Option<&models::RateLimitInfo>,
+    pre_merge_checks: Option<&models::PreMergeChecks>,
+    severity_readout: &SeverityReadout,
+) -> (String, String, String) {
+    let (status, action) = apply_severity_gate(
+        apply_pre_merge_gate(decide(ci, cr, rate_limit), pre_merge_checks),
+        severity_readout,
+    );
+    let summary = build_full_summary(ci, cr, rate_limit, pre_merge_checks, severity_readout);
+    (status, action, summary)
+}
+
+/// CI / CodeRabbit の summary に、pre-merge check の失敗と、重大度を読めなかった指摘があれば
+/// その文言を足す。
 fn build_full_summary(
     ci: &CiStatus,
     cr: &CodeRabbitStatus,
     rate_limit: Option<&models::RateLimitInfo>,
     pre_merge_checks: Option<&models::PreMergeChecks>,
+    severity_readout: &SeverityReadout,
 ) -> String {
-    let base = build_summary(ci, cr, rate_limit);
-    match summary_part(pre_merge_checks) {
-        Some(part) => format!("{}。{}", base, part),
-        None => base,
-    }
+    let parts = [summary_part(pre_merge_checks), severity_summary_part(severity_readout)];
+    std::iter::once(build_summary(ci, cr, rate_limit))
+        .chain(parts.into_iter().flatten())
+        .collect::<Vec<_>>()
+        .join("。")
 }
 
 fn resolve_repo_and_pr(args: &CliArgs) -> Result<(String, u64), Box<CheckResult>> {
@@ -362,6 +384,7 @@ fn build_init_error_result(
         },
         summary,
         findings: vec![],
+        severity_readout: SeverityReadout::default(),
         rate_limit: None,
         pre_merge_checks: None,
     }
@@ -463,11 +486,19 @@ fn fetch_unresolved_threads(repo: &str, pr: u64) -> Option<usize> {
     parse_unresolved_threads(&graphql_json)
 }
 
-/// `push_time` 以降のインライン指摘を findings にする (全ページ)。
-fn fetch_findings(repo: &str, pr: u64, push_time: &str) -> Vec<lib_report_formatter::Finding> {
+/// `push_time` 以降のインライン指摘を findings にし (全ページ)、重大度を読めたかを集計する。
+/// 読めなかった指摘があれば stderr に警告する。
+fn fetch_findings(
+    repo: &str,
+    pr: u64,
+    push_time: &str,
+) -> (Vec<lib_report_formatter::Finding>, SeverityReadout) {
     let pull_comments_json = fetch_all_pages(&format!("repos/{}/pulls/{}/comments", repo, pr))
         .unwrap_or_else(|_| "[]".to_string());
-    parse_findings(&pull_comments_json, push_time)
+    let findings = parse_findings(&pull_comments_json, push_time);
+    let readout = read_severities(&findings, |f| &f.severity);
+    warn_on_stderr(&readout);
+    (findings, readout)
 }
 
 /// `--list-findings` モードの実行: PR インラインコメントを取得して
@@ -492,8 +523,12 @@ fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
     let comments_json = fetch_issue_comments_strict(&repo, pr)?;
     let head_sha = fetch_valid_head_sha(&repo, pr);
 
+    let findings = parse_listed_findings(&pull_comments_json, &args.push_time);
+    let severity_readout = read_severities(&findings, |f| &f.severity);
+    warn_on_stderr(&severity_readout);
     Ok(ListFindingsOutput {
-        findings: parse_listed_findings(&pull_comments_json, &args.push_time),
+        findings,
+        severity_readout,
         pre_merge_checks: parse_pre_merge_checks(&comments_json, head_sha.as_deref()),
     })
 }

@@ -6,6 +6,8 @@
 use lib_report_formatter::Finding;
 use serde::{Deserialize, Serialize};
 
+use crate::severity_readout::SeverityReadout;
+
 #[derive(Serialize)]
 pub(crate) struct CheckResult {
     pub(crate) status: String,
@@ -14,6 +16,8 @@ pub(crate) struct CheckResult {
     pub(crate) coderabbit: CodeRabbitStatus,
     pub(crate) summary: String,
     pub(crate) findings: Vec<Finding>,
+    /// `findings` の重大度を読めたか (`crate::severity_readout`)
+    pub(crate) severity_readout: SeverityReadout,
     /// CodeRabbit rate-limit が検出された場合のみ Some
     /// PR #89 T2-1: cli-pr-monitor 側で sleep + retrigger の根拠データ
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,6 +156,8 @@ pub(crate) struct ListedFinding {
 #[derive(Serialize)]
 pub(crate) struct ListFindingsOutput {
     pub(crate) findings: Vec<ListedFinding>,
+    /// `findings` の重大度を読めたか (`crate::severity_readout`)
+    pub(crate) severity_readout: SeverityReadout,
     /// インライン指摘には出ない失敗なので、一覧に並べて見落としを防ぐ (`crate::pre_merge`)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) pre_merge_checks: Option<PreMergeChecks>,
