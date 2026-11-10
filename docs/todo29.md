@@ -326,24 +326,6 @@
 - 照合する文言を 1 つ変えると、統合テストが落ちること
 - `jj edit --help` で警告が出ず、`jj restore -- --help` は従来どおり検証されること
 
-### 順位 600: review-threads の番号付けを 1 つの関数にまとめる
-
-> **動機**: #619 の feedback (Severity High)。`src/cli-review-threads/src/main.rs` の `run_show` と `src/cli-review-threads/src/threads.rs` の `numbered_unresolved` が、それぞれ `i + 1` で番号を振っている。`list` の番号で登録する経路 (`find_for_registration`) は `numbered_unresolved` に従うが、`show` の番号は別の実装である。片方だけが変わると、表示した番号と登録先がずれ、順位 597 (4) で直した「別のスレッドに登録する」事故が再び起きる。
->
-> **由来**: `[improvement]`。
->
-> **実行優先度**: Tier 2 — Effort S。
-
-#### 作業計画
-
-- 全スレッドに番号を振る関数を `threads.rs` に 1 つ置き、`run_show` と `numbered_unresolved` の両方がそれを使う
-- `show` と `list` で同じスレッドに同じ番号が付くことをテストで固定する
-
-#### 完了基準
-
-- 番号を振る処理が 1 か所にしかないこと
-- `show` と `list` の番号が食い違う変更を入れると、テストが落ちること
-
 ### 順位 601: config の解決と Start-Process の検出のテストの false-green を塞ぐ
 
 > **動機**: (1) #617 の feedback。`src/hooks-post-tool-linter/tests/config_dir_e2e.rs` の `rules_in_the_config_dir_are_applied_from_a_subdirectory_cwd` は、祖先の `src/config` に別のルールが無い構成で検査している。config の解決が「最も近い祖先を探す」形に退行しても、同じルールが見つかるのでテストは通る。(2) #616 の feedback。`src/hooks-pre-tool-validate/src/presets/safety/script_runtime.rs` の `START_PROCESS_SWITCH` と、値を取るパラメータの扱いは代表例の個別テストでしか固定されていない。列挙に無いパラメータや省略形、`command --` / `-p` との組み合わせで検出漏れが起きても気づけない。
@@ -415,32 +397,6 @@
 - 暦日変換のアルゴリズムの本体が `lib-time` にだけ存在するか、残す実装には残す理由が書かれている
 - 実装ごとに異なっていた挙動 (小数秒、範囲外の値) をテストで固定している
 - 既存の proptest (`cli-pr-monitor` の `lock/proptests.rs`、`hooks-session-start` の `past_time.rs`) が通る
-
-### 順位 605: `create_pr` の PR 情報を、作成した PR の URL から得たリポジトリで組み立てる
-
-> **動機**: `--repo` で別リポジトリへ PR を作ると、`build_pr_info_from_gh_output` が `gh repo view` で cwd のリポジトリを取るため、`PrInfo.repo` が誤る。さらにそのリポジトリを `get_pr_head_commit` へ渡すので、`head_commit` が誤るか `None` になる。同じファイルの `trigger_review_for_created_pr` のコメントは、リポジトリを `gh pr create` の出力 URL から取ると定めており、コードの中で食い違っている。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-J01 で採用 (severity=medium, facet=jj-robustness, category=jj-gh-no-repo)
->
-> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/cli-pr-monitor/src/stages/create_pr.rs:208-214,257-279`、`src/cli-pr-monitor/src/util.rs:80-96,123`
-
-#### 背景
-
-`parse_repo_from_pr_url` は `util.rs` に実装済みで、別オーナーの URL のテストもある。`get_pr_head_commit` は `repo` が `None` のとき `--repo` を付けないので、`gh` は cwd のリポジトリから解決する。監視の checker も同じで (`src/cli-pr-monitor/src/stages/poll/iteration.rs:62`)、`repo: None` のまま監視すると、cwd のリポジトリにある同番号の別 PR の結果を、作成した PR の結果として表示しうる。
-
-#### 設計決定
-
-- `PrInfo.repo` は `parse_repo_from_pr_url(output)` の結果を使い、`gh repo view` の呼び出しを消す
-- URL から PR 番号かリポジトリを読めないときは推測せず、監視を始めない。`get_pr_info()` への fallback と `get_pr_head_commit(n, None)` も、cwd のリポジトリで解決するので使わない
-- 監視を始めないときも PR の作成は成功しているので、終了コードは 0 のままにする。監視していないことと、`--monitor-only` で監視できることをログに出す (`trigger_review_for_created_pr` の諦め方に揃える)
-
-- [ ] `build_pr_info_from_gh_output` を上記のとおり直し、`run_create_pr` は番号とリポジトリの両方を読めたときだけ `start_monitoring` を呼ぶ
-- [ ] 外部コマンドを呼ばない部分を関数に切り出し、テストできる形にする
-
-#### 完了基準
-
-- cwd と異なるリポジトリの PR URL を与えたとき、`PrInfo.repo` がその URL のリポジトリになることをテストで固定している
-- URL から番号かリポジトリを読めないとき、cwd のリポジトリへ fallback せず、監視を始めないことをテストで固定している
 
 ### 順位 606: `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす
 

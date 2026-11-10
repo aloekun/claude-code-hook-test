@@ -214,6 +214,27 @@ fn a_number_keeps_pointing_at_the_same_thread_after_another_thread_is_resolved()
     assert_eq!(numbers, [1, 3], "一覧は未解決だけを出し、番号は飛び番になる");
 }
 
+/// 順位 600: `show` (全スレッド)・`list` (未解決)・番号での登録 (`find`) が、同じスレッドに
+/// 同じ番号を付ける。どれかが別の振り方をすると、表示した番号と登録先がずれる。
+#[test]
+fn show_list_and_find_agree_on_every_number() {
+    let all = vec![
+        thread("PRRT_a", 11, true),
+        thread("PRRT_b", 12, false),
+        thread("PRRT_c", 13, true),
+        thread("PRRT_d", 14, false),
+    ];
+    let shown: Vec<(usize, &str)> = threads::numbered(&all).into_iter().map(|(n, t)| (n, t.id.as_str())).collect();
+    assert_eq!(shown, [(1, "PRRT_a"), (2, "PRRT_b"), (3, "PRRT_c"), (4, "PRRT_d")]);
+    for (number, listed) in threads::numbered_unresolved(&all) {
+        assert!(shown.contains(&(number, listed.id.as_str())), "list の #{number} が show と違う");
+        assert_eq!(threads::find(&all, &number.to_string()).expect("番号").id, listed.id);
+    }
+    for (number, id) in &shown {
+        assert_eq!(threads::find(&all, &number.to_string()).expect("番号").id, *id);
+    }
+}
+
 /// #619 の CodeRabbit 指摘: 一覧を取った後に前の方のスレッドの最初のコメントが消えて読めなく
 /// なると、後ろの番号が 1 つずれる。読めないスレッドがあるときは番号での登録を拒否し、
 /// URL・コメントの ID・node ID だけを受ける。

@@ -93,10 +93,10 @@ fn run_show(gh: &dyn Gh, args: &[String]) -> Result<(), String> {
     let all = threads::fetch(gh, &pr.repo, pr.number)?.threads;
     let open = threads::unresolved(&all).len();
     println!("PR #{} のスレッド: {} 件 (未解決 {open} 件)", pr.number, all.len());
-    for (i, t) in all.iter().enumerate() {
+    for (number, t) in threads::numbered(&all) {
         let state = if t.resolved { "解決済み" } else { "未解決" };
         let line = t.line.map(|l| format!(":{l}")).unwrap_or_default();
-        println!("#{} [{state}] {}{line}  {}", i + 1, t.path, t.title);
+        println!("#{number} [{state}] {}{line}  {}", t.path, t.title);
         for r in &t.replies {
             println!("    返信 ({}): {}", r.author, threads::title_of(&r.body));
             if full {

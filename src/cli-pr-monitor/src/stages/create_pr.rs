@@ -4,11 +4,11 @@ use tempfile::TempPath;
 
 use crate::config::DEFAULT_STEP_TIMEOUT_SECS;
 use crate::log::log_info;
-use crate::runner::{run_cmd_direct, run_gh_quiet};
+use crate::runner::run_cmd_direct;
 use crate::stages::monitor::start_monitoring;
 use crate::state::{state_file_path, write_state_to, PrMonitorState};
 use crate::util::{
-    get_jj_bookmarks, get_pr_head_commit, get_pr_info, parse_pr_number_from_url,
+    get_jj_bookmarks, get_pr_head_commit, parse_pr_number_from_url,
     parse_repo_from_pr_url, utc_now_iso8601,
     PrInfo,
 };
@@ -199,23 +199,49 @@ pub(crate) fn run_create_pr(gh_args: &[String]) -> i32 {
         println!("{}", output);
     }
 
-    let pr_info = build_pr_info_from_gh_output(&output);
+    let Some(target) = created_pr_target(&output) else {
+        log_info(
+            "PR の番号かリポジトリを出力から読めないため、レビューのトリガーと監視を行いません \
+             (PR 作成は成功しています)。監視は `cli-pr-monitor --monitor-only` で始められます。",
+        );
+        return 0;
+    };
     // NOTE: 監視の前に置く — 監視は PR の状態を待つ側で、レビューはここで発火させないと始まらない (順位 321)
-    trigger_review_for_created_pr(&output, pr_info.pr_number);
-    start_monitoring(&pr_info)
+    crate::stages::trigger_review::trigger_review_after_create(&target.repo, target.number);
+    let head_commit = get_pr_head_commit(target.number, Some(&target.repo));
+    start_monitoring(&pr_info_for_created_pr(target, head_commit, utc_now_iso8601()))
 }
 
-/// 作成した PR に対してレビューを発火させる。
+/// `gh pr create` が作った PR。番号もリポジトリも、出力の URL から読む。
+#[derive(Debug, PartialEq)]
+struct CreatedPr {
+    number: u64,
+    repo: String,
+}
+
+/// `gh pr create` の出力から、作成した PR の番号とリポジトリを読む。どちらかが読めなければ None。
 ///
-/// **リポジトリは `gh pr create` が出力した URL から取る。** `--repo` で別リポジトリへ
-/// 作れるため、`gh api` の `{owner}/{repo}` placeholder (= checkout / `GH_REPO` から解決) に
-/// 委ねると別リポジトリの同番号 PR を指しうる。URL から読めなければ**推測せず諦める**。
-fn trigger_review_for_created_pr(gh_output: &str, pr_number: Option<u64>) {
-    let (Some(number), Some(repo)) = (pr_number, parse_repo_from_pr_url(gh_output)) else {
-        log_info("[trigger-review] PR の番号かリポジトリを出力から読めないため、レビューのトリガーを行いません (PR 作成は成功しています)。");
-        return;
-    };
-    crate::stages::trigger_review::trigger_review_after_create(&repo, number);
+/// **リポジトリを cwd から解決しない** (順位 605)。`--repo` で別リポジトリへ作れるため、
+/// `gh repo view` や `gh api` の `{owner}/{repo}` placeholder (= checkout / `GH_REPO` から解決) に
+/// 委ねると、cwd のリポジトリにある同番号の別 PR を指しうる。読めなければ推測せず、呼び出し側は
+/// レビューのトリガーも監視も行わない。`get_pr_info()` への fallback も同じ理由で使わない。
+fn created_pr_target(gh_output: &str) -> Option<CreatedPr> {
+    Some(CreatedPr {
+        number: parse_pr_number_from_url(gh_output)?,
+        repo: parse_repo_from_pr_url(gh_output)?,
+    })
+}
+
+/// 作成した PR の監視に渡す [`PrInfo`]。push_time と fix_push_time は作成時刻にそろえる。
+fn pr_info_for_created_pr(target: CreatedPr, head_commit: Option<String>, push_time: String) -> PrInfo {
+    log_info(&format!("PR URL から取得: {}#{}", target.repo, target.number));
+    PrInfo {
+        pr_number: Some(target.number),
+        repo: Some(target.repo),
+        push_time: Some(push_time.clone()),
+        head_commit,
+        fix_push_time: Some(push_time),
+    }
 }
 
 fn write_early_reset_state() {
@@ -252,37 +278,6 @@ fn log_gh_pr_create_invocation(final_args: &[String]) {
         .collect::<Vec<_>>()
         .join(" ");
     log_info(&format!("実行: gh pr create {}", pretty));
-}
-
-fn build_pr_info_from_gh_output(output: &str) -> PrInfo {
-    let pr_number_from_url = parse_pr_number_from_url(output);
-    let push_time = utc_now_iso8601();
-
-    if let Some(n) = pr_number_from_url {
-        log_info(&format!("PR URL から番号を取得: {:?}", pr_number_from_url));
-        let repo = run_gh_quiet(&[
-            "repo",
-            "view",
-            "--json",
-            "nameWithOwner",
-            "-q",
-            ".nameWithOwner",
-        ]);
-        let head_commit = get_pr_head_commit(n, repo.as_deref());
-        return PrInfo {
-            pr_number: pr_number_from_url,
-            repo,
-            push_time: Some(push_time.clone()),
-            head_commit,
-            fix_push_time: Some(push_time),
-        };
-    }
-
-    log_info("PR URL からの番号取得失敗、gh コマンドで検索");
-    let mut info = get_pr_info();
-    info.push_time = Some(push_time.clone());
-    info.fix_push_time = Some(push_time);
-    info
 }
 
 #[cfg(test)]
@@ -541,5 +536,28 @@ mod tests {
         let bookmarks = vec!["my-feature".to_string()];
         let result = ensure_head_arg(args, &bookmarks);
         assert_eq!(result, strs(&["--title", "test", "--head", "my-feature"]));
+    }
+
+    /// 順位 605: `--repo` で cwd と別のリポジトリへ作った PR は、URL のリポジトリで監視する。
+    #[test]
+    fn created_pr_repo_comes_from_the_url_not_the_cwd() {
+        let output = "Creating pull request\nhttps://github.com/other-owner/other-repo/pull/12\n";
+        let target = created_pr_target(output).expect("番号とリポジトリを読める");
+        assert_eq!(target, CreatedPr { number: 12, repo: "other-owner/other-repo".into() });
+
+        let info = pr_info_for_created_pr(target, Some("abc".into()), "2026-11-10T00:00:00Z".into());
+        assert_eq!(info.pr_number, Some(12));
+        assert_eq!(info.repo.as_deref(), Some("other-owner/other-repo"));
+        assert_eq!(info.head_commit.as_deref(), Some("abc"));
+        assert_eq!(info.push_time.as_deref(), Some("2026-11-10T00:00:00Z"));
+        assert_eq!(info.fix_push_time, info.push_time);
+    }
+
+    /// 番号かリポジトリを読めなければ None (= 監視しない)。cwd のリポジトリへ fallback しない。
+    #[test]
+    fn created_pr_target_is_none_when_the_url_is_unreadable() {
+        assert_eq!(created_pr_target(""), None);
+        assert_eq!(created_pr_target("no url here"), None);
+        assert_eq!(created_pr_target("https://github.com/pull/12"), None);
     }
 }

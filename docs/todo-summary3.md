@@ -103,11 +103,9 @@
 | 595 | Tier 3 | **[improvement] lint-workflows の jq 略記検査とコメント接頭辞のテストを足す** | todo29.md | S | なし (2026-11-04、#607 の post-merge feedback) |
 | 598 | Tier 2 | **[improvement] post-merge feedback の transcript から takt の子セッションを除き、merge-pr が `--` を受けるようにする** | todo29.md | M | なし (2026-11-06、#616〜#619 の post-merge feedback。子セッションの見分け方は着手前に決める) |
 | 599 | Tier 2 | **[improvement] jj-op-verify の分類を実際の jj で固定し、後ろのヘルプフラグを照合しない** | todo29.md | M | なし (2026-11-06、#619 の post-merge feedback) |
-| 600 | Tier 2 | **[improvement] review-threads の番号付けを 1 つの関数にまとめる** | todo29.md | S | なし (2026-11-06、#619 の post-merge feedback) |
 | 601 | Tier 3 | **[improvement] config の解決と Start-Process の検出のテストの false-green を塞ぐ** | todo29.md | S | なし (2026-11-06、#616 / #617 の post-merge feedback) |
 | 602 | Tier 3 | **[improvement] pr-monitor の pre-merge check の上書きを、success 以外と失敗 0 件の入力でも固定する** | todo29.md | XS | なし (2026-11-09、#625 の post-merge feedback) |
 | 604 | Tier 3 | **[improvement] ISO8601 と暦日の変換を中立の crate に 1 本化する** | todo29.md | M | なし (2026-11-10、WR-2026-11-10-M01) |
-| 605 | Tier 2 | **[improvement] `create_pr` の PR 情報を、作成した PR の URL から得たリポジトリで組み立てる** | todo29.md | S | なし (2026-11-10、WR-2026-11-10-J01) |
 | 606 | Tier 3 | **[improvement] `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす** | todo29.md | S | 順位 592 と同じ関数を変更するため順序に注意 (2026-11-10、WR-2026-11-10-A01) |
 
 
