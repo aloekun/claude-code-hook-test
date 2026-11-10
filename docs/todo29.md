@@ -382,3 +382,134 @@
 
 - `recompute_action` で CI 失敗の判定より先に `pre_merge_override` を見るように変えると、テストが落ちること
 - `pre_merge_override` が `failed` の空を見ずに上書きするように変えると、テストが落ちること。`stale` が `true` で `failed` が空のときに `continue_monitoring` を返すように変えても、テストが落ちること
+
+### 順位 603: CodeRabbit の重大度を読めなかった指摘を `Unknown` として出し、全件 `Unknown` なら原因究明を促す
+
+> **動機**: #627 の feedback。`check-ci-coderabbit` の `extract_severity` (`src/check-ci-coderabbit/src/findings.rs`) は、重大度を読めなかった本文に `Info` を入れる。`Info` は CodeRabbit の重大度ではなく、読む側の既定値である。CodeRabbit がインライン指摘の書式を変えた後、#625 の Major 2 件を含む全件が約 1 日 `Info` と読まれ、人が気付くまでどこにも検知されなかった (#627 で修正)。問題は 3 つある。
+>
+> - **読めなかったことが見えない**: `Info` は正常な値に見える。post-pr の `analyze-coderabbit` facet は「applicable な指摘がすべて Info/Low なら `approved`」と定めているため、読めなかった Major が承認側へ流れうる
+> - **`Trivial` と区別できない**: CodeRabbit の `Trivial` は読む側の一覧 (Critical / Major / Minor / High / Low) に無く、意図して `Info` に落としている。このため「読めなかった」と「Trivial」が同じ表示になる
+> - **全件が読めないのは仕組みの異常である**: 1 件だけ読めないのは本文の揺れでありうるが、全件が読めないのは書式変更か読み取り処理の不具合である。今は、そのまま監視と fix の判定へ渡る
+>
+> 外部サービスの書式は予告なく変わるので、再発が見込まれる。
+>
+> **由来**: `[improvement]`。
+>
+> **実行優先度**: Tier 2 — Effort M。
+
+#### 決定事項 (2026-11-10、ユーザー確認済み)
+
+- 読めなかったときの既定値は `Info` をやめ、`Unknown` にする。「読めなかった」と分かる値にする
+- `Trivial` は重大度の一覧に加え、`Trivial` のまま出す
+- 全件が `Unknown` のときは、指摘の中身の判断に進まず、読み取りの仕組みに問題が起きたものとして原因究明を促す。エラーで監視を止めるのではなく、利用者が原因究明に舵を切れる案内を出す
+
+#### 作業計画
+
+1. `findings.rs`
+   - `SEVERITIES` に `Trivial` を加える。旧書式の絵文字は、着手時に実物の本文で確かめてから入れる
+   - `extract_severity` の既定値を `Unknown` にする。`extract_issue` の「重大度を読めた行を見出しから除く」判定 (今は `!= "Info"`) も `Unknown` に合わせる
+2. `--list-findings` と check-ci の出力
+   - レビュー指摘 (スレッドの根のコメント) のうち `Unknown` の件数を出力に持たせる。1 件以上あれば、件数付きの警告を stderr に出す。`parse_findings` は CodeRabbit の reply も返すが、reply は数えない。reply は重大度の行を持たないので `Unknown` になり、正常な応答を異常と誤報するため
+   - reply を除いたレビュー指摘が 1 件以上あり、全件が `Unknown` のときは、出力に異常の印 (例: `severity_unreadable: true`) を立てる。案内文には「CodeRabbit の書式変更か、読み取り処理の不具合の疑い。指摘への対応の前に、本文の実物と `findings.rs` を突き合わせて原因を調べる」を書く
+3. 利用側
+   - `cli-pr-monitor`: 異常の印が立っているときは success で終わらせず、上の案内を出す。`has_findings_to_fix` のコメントにある「`Info` は判定不能時の受け皿」の記述を `Unknown` に書き換える
+   - `verdict_for_findings` (`src/cli-pr-monitor/src/stages/monitor.rs`): `Unknown` が 1 件でもあるときは「重大な問題は見つかりませんでした」と断定せず、重大度を読めなかった指摘の件数を出す。全件が `Unknown` でなければ異常の印は立たないので、混在はここで受ける
+   - `.takt/facets/instructions/analyze-coderabbit.md`: `Unknown` を Info/Low と同じ扱いで `approved` にしない。異常の印が立っているときは `user_decision` にし、Summary に原因究明の案内を書く
+   - `lib-report-formatter` の `severity_order`: `Trivial` と `Unknown` を並び順に加える。`Unknown` は重大度が分からないので、`Info` より前に置く
+4. `Info` を判定に使っている箇所を、着手時に `rg '"Info"'` で洗い直す。0 件を「無い」の根拠にするときは、既知の 1 箇所 (`findings.rs`) が引っかかることを先に確かめる ([ADR-075](adr/adr-075-verify-premises-before-acting.md) 決定 6)
+
+#### 完了基準
+
+- 重大度の行を持たない本文が `Unknown` になり、`Trivial` の本文が `Trivial` になることを、fixture で固定する
+- 指摘が全件 `Unknown` の入力で異常の印が立ち、1 件でも読めた入力では立たないことを、テストで固定する。指摘が 0 件の入力でも立たないこと
+- reply だけの入力では異常の印が立たず、`Unknown` の件数にも数えないことをテストで固定する
+- 異常の印が立った入力で、pr-monitor が success を返さないことをテストで固定する
+- `Unknown` と `Low` が混在する入力で、`verdict_for_findings` が「重大な問題は見つかりませんでした」を返さないことをテストで固定する
+- `extract_severity` の既定値を `Info` に戻すとテストが落ちること
+- 実際の PR (#625〜#627) で `--list-findings` を回し、重大度が修正前と変わらず、警告が出ないことを確かめる
+
+## 週次レビュー採用 (2026-11-10)
+
+### 順位 604: ISO8601 と暦日の変換を中立の crate に 1 本化する
+
+> **動機**: ISO8601 と暦日の変換が 6 crate で独立に実装されている。本番コードにあるのは `lib-pending-file` / `lib-telemetry` / `cli-telemetry-report` (`timekit.rs`) / `cli-pr-monitor` (`lock.rs`) / `cli-takt-timings` (`timeparse.rs`) / `check-ci-coderabbit` (`rate_limit.rs`) で、小数秒の扱いなどの挙動が揃っていない。`lib-telemetry` のコメントは「3 つ目の消費者が現れたら中立 crate (例 lib-time) への抽出候補」と定めており、この条件は既に満たしている。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-M01 で採用 (severity=high, facet=architecture+simplicity, category=harness-duplication)
+>
+> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/lib-pending-file/src/lib.rs:98-227`、`src/lib-telemetry/src/lib.rs:366-372`、`src/check-ci-coderabbit/src/rate_limit.rs:203-244`
+
+#### 背景
+
+レポートは「7 crate 以上」としているが、`hooks-session-start` の `reaper` は既に `lib_pending_file::iso8601_to_epoch_secs` へ委譲しているので、独立した実装は 6 つである。`cli-pr-monitor` は `lib-pending-file` に依存しているのに、`lock.rs` は自前で解析している。
+
+`lib-telemetry` が `lib-pending-file` に依存しないのは意図的で、観測層を post-merge-feedback 専用の crate に結合させないためである。
+
+#### 設計決定
+
+- 移設先は `lib-pending-file` ではなく、新設する中立の crate (`lib-time`) にする。上記の結合を避けるため。chrono は入れず pure-std のままにする
+- 挙動の差は残すか揃えるかを実装ごとに決める。`rate_limit` は小数秒を受理せず、`cli-takt-timings` は整数ミリ秒で保持している
+- `rate_limit` を統合しない場合は、理由をコードか ADR に残す
+
+- [ ] 6 実装の入出力の差を表にする (小数秒、範囲外の値、紀元前の年、戻り値の型)
+- [ ] 着手時判断: ADR-044 は subprocess utility が題材なので、時刻変換の抽出にそのまま当てはめてよいかを確かめる
+- [ ] `lib-time` を作り、差を確認した順に委譲へ置き換える。テストを `lib-time` へ移すときは、使っている dev-dependency (`proptest` など) も移す
+- [ ] ADR-055 に抽出条件へ到達したことを記録する (`lib-telemetry` のコメントが記録先として指定している)
+
+#### 完了基準
+
+- 暦日変換のアルゴリズムの本体が `lib-time` にだけ存在するか、残す実装には残す理由が書かれている
+- 実装ごとに異なっていた挙動 (小数秒、範囲外の値) をテストで固定している
+- 既存の proptest (`cli-pr-monitor` の `lock/proptests.rs`、`hooks-session-start` の `past_time.rs`) が通る
+
+### 順位 605: `create_pr` の PR 情報を、作成した PR の URL から得たリポジトリで組み立てる
+
+> **動機**: `--repo` で別リポジトリへ PR を作ると、`build_pr_info_from_gh_output` が `gh repo view` で cwd のリポジトリを取るため、`PrInfo.repo` が誤る。さらにそのリポジトリを `get_pr_head_commit` へ渡すので、`head_commit` が誤るか `None` になる。同じファイルの `trigger_review_for_created_pr` のコメントは、リポジトリを `gh pr create` の出力 URL から取ると定めており、コードの中で食い違っている。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-J01 で採用 (severity=medium, facet=jj-robustness, category=jj-gh-no-repo)
+>
+> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/cli-pr-monitor/src/stages/create_pr.rs:208-214,257-279`、`src/cli-pr-monitor/src/util.rs:80-96,123`
+
+#### 背景
+
+`parse_repo_from_pr_url` は `util.rs` に実装済みで、別オーナーの URL のテストもある。`get_pr_head_commit` は `repo` が `None` のとき `--repo` を付けないので、`gh` は cwd のリポジトリから解決する。監視の checker も同じで (`src/cli-pr-monitor/src/stages/poll/iteration.rs:62`)、`repo: None` のまま監視すると、cwd のリポジトリにある同番号の別 PR の結果を、作成した PR の結果として表示しうる。
+
+#### 設計決定
+
+- `PrInfo.repo` は `parse_repo_from_pr_url(output)` の結果を使い、`gh repo view` の呼び出しを消す
+- URL から PR 番号かリポジトリを読めないときは推測せず、監視を始めない。`get_pr_info()` への fallback と `get_pr_head_commit(n, None)` も、cwd のリポジトリで解決するので使わない
+- 監視を始めないときも PR の作成は成功しているので、終了コードは 0 のままにする。監視していないことと、`--monitor-only` で監視できることをログに出す (`trigger_review_for_created_pr` の諦め方に揃える)
+
+- [ ] `build_pr_info_from_gh_output` を上記のとおり直し、`run_create_pr` は番号とリポジトリの両方を読めたときだけ `start_monitoring` を呼ぶ
+- [ ] 外部コマンドを呼ばない部分を関数に切り出し、テストできる形にする
+
+#### 完了基準
+
+- cwd と異なるリポジトリの PR URL を与えたとき、`PrInfo.repo` がその URL のリポジトリになることをテストで固定している
+- URL から番号かリポジトリを読めないとき、cwd のリポジトリへ fallback せず、監視を始めないことをテストで固定している
+
+### 順位 606: `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす
+
+> **動機**: `cli-ledger-removal-check` と `cli-ledger-cleanup` が、`docs_files` を使うためだけに `cli-docs-lint` へ path 依存している。ADR-012 では `cli-` はスクリプトから呼ぶ CLI、他の crate から参照するものは `lib-` である。
+>
+> **本タスクの位置づけ**: 週次レビュー WR-2026-11-10-A01 で採用 (severity=medium, facet=architecture, category=layer-violation)
+>
+> **参照**: `.claude/weekly-reviews/2026-11-10.md`、`src/cli-ledger-removal-check/Cargo.toml:14`、`src/cli-ledger-cleanup/Cargo.toml:17`、`src/cli-docs-lint/src/docs_files.rs`
+
+#### 背景
+
+`docs_files.rs` は 133 行で、本体は `std` にしか依存していない。同ファイルのテストは `tempfile` を使うが、`lib-ledger` には dev-dependency が無い。`cli-docs-lint` は既に `lib-ledger` へ依存しているので、移しても循環は生じない。
+
+#### 設計決定
+
+- `lib-ledger` の `lib.rs` は 792 行で 800 行の gate に近いため、`docs_files` は独立したモジュールのまま移す
+- 順位 592 も `list_docs_files` を変更するので、同時に着手するときは順序を決める
+
+- [ ] `docs_files.rs` をテストごと `lib-ledger` へ移し、`cli-docs-lint` / `cli-ledger-removal-check` / `cli-ledger-cleanup` の参照を置き換える
+- [ ] `lib-ledger` の `[dev-dependencies]` に `tempfile` を加える
+- [ ] 2 つの CLI の `Cargo.toml` から `cli-docs-lint` への依存と説明コメントを消す
+
+#### 完了基準
+
+- `src/cli-*/Cargo.toml` に `cli-docs-lint` への path 依存が残っていない
+- 移したテストを含めて `cargo test -p lib-ledger` が通る
+- `pnpm lint:docs` と `cli-ledger-removal-check` / `cli-ledger-cleanup` のテストが、移設前と同じ結果になる
