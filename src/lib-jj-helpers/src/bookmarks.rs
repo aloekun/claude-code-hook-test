@@ -308,7 +308,56 @@ where
     }
 }
 
-// test module は別ファイルへ分離している (本体 800 行ガイドライン、順位 147)。
+/// trunk の祖先 (`::trunk()`) を指すローカル bookmark を探す revset (順位 535)。
+pub const ON_TRUNK_BOOKMARKS_REVSET: &str = "::trunk() & bookmarks()";
+
+/// 1 bookmark 1 行の template。ref 名は改行を含めないので、カンマを含む名前も割らずに読める。
+const BOOKMARK_PER_LINE_TEMPLATE: &str = "local_bookmarks.map(|b| b.name() ++ \"\\n\").join(\"\")";
+
+/// trunk の祖先を指すローカル bookmark を `jj log` で取得する (I/O)。
+///
+/// 照会に失敗したら `Err` を返す。bookmark の前進から外すべきものを数えられないので、
+/// 呼び出し側は前進させない側へ倒す (fail-closed)。trunk 系の名前もそのまま含む。
+pub fn query_bookmarks_on_trunk() -> Result<Vec<String>, String> {
+    let output = Command::new("jj")
+        .args(["log", "-r", ON_TRUNK_BOOKMARKS_REVSET, "--no-graph", "-T", BOOKMARK_PER_LINE_TEMPLATE])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("jj コマンド実行失敗: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "trunk 上の bookmark の照会に失敗 (revset={ON_TRUNK_BOOKMARKS_REVSET}): {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let mut names: Vec<String> = Vec::new();
+    for name in String::from_utf8_lossy(&output.stdout).lines().map(str::trim) {
+        if !name.is_empty() && !names.iter().any(|n| n == name) {
+            names.push(name.to_string());
+        }
+    }
+    Ok(names)
+}
+
+/// bookmark の前進候補を、trunk の祖先を指さないもの (前進させてよい) と、指すもの (外す) に
+/// 分ける (順位 535)。順序は `bookmarks` のまま保つ。
+///
+/// **名前ではなく、指すコミットの位置で外す。** 夜間ループのハンドオフマーカー
+/// (`claude/nightly-<順位>`) は base commit (= trunk の祖先) を指すので、前進の fallback
+/// (非 trunk bookmark が 1 つだけなら前進させる) に拾われると動いてしまう (#506 で観測)。
+/// マーカーと夜間 PR のブランチは同じ名前空間にあるので ([ADR-072] 決定 19/20)、接頭辞で
+/// 外すと rebase 後の夜間 PR を人手で push できなくなる。trunk の祖先を指す bookmark は
+/// 進めるべき作業を持たないので、位置で外せば名前に依らず済む。
+///
+/// [`is_trunk_bookmark`] は変えない (stale-branch-scan の保護判定と夜間 PR の検出が使う)。
+///
+/// [ADR-072]: ../../../docs/adr/adr-072-nightly-todo-loop.md
+pub fn partition_off_trunk(bookmarks: Vec<String>, on_trunk: &[String]) -> (Vec<String>, Vec<String>) {
+    bookmarks.into_iter().partition(|b| !on_trunk.contains(b))
+}
+
+// NOTE: test module は別ファイルへ分離している (本体 800 行ガイドライン、順位 147)。
 // 分割方式は pipeline_lock.rs 等と同じ `#[path]` 方式に揃えた。
 #[cfg(test)]
 #[path = "bookmarks/tests.rs"]

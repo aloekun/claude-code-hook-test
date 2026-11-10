@@ -45,10 +45,10 @@ pub mod workspace;
 
 pub use bookmarks::{
     classify_advance_target, get_jj_bookmarks, get_jj_bookmarks_with_remote_fallback,
-    is_trunk_bookmark, parse_bookmark_list_output, query_bookmarks_at,
-    query_remote_bookmarks_at, select_from_revsets, select_with_remote_fallback, AdvanceTarget,
-    BookmarkSearch, StderrMode, ADVANCE_TARGET_REVSET, BOOKMARK_SEARCH_REVSETS,
-    REMOTE_BOOKMARK_SEARCH_REVSETS,
+    is_trunk_bookmark, parse_bookmark_list_output, partition_off_trunk, query_bookmarks_at,
+    query_bookmarks_on_trunk, query_remote_bookmarks_at, select_from_revsets,
+    select_with_remote_fallback, AdvanceTarget, BookmarkSearch, StderrMode, ADVANCE_TARGET_REVSET,
+    BOOKMARK_SEARCH_REVSETS, ON_TRUNK_BOOKMARKS_REVSET, REMOTE_BOOKMARK_SEARCH_REVSETS,
     TRUNK_BOOKMARKS,
 };
 pub use workspace::{
