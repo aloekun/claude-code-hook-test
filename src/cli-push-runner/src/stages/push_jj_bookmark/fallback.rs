@@ -1,7 +1,7 @@
 //! bookmark の自動更新の fallback (順位 597)。revset で target の bookmark が見つからない
 //! ときに `jj bookmark list` から探し、安全に絞れるときだけ前進させる。
 
-use lib_jj_helpers::is_trunk_bookmark;
+use lib_jj_helpers::{is_trunk_bookmark, partition_off_trunk, query_bookmarks_on_trunk};
 
 use super::{apply_bookmarks, dedup, run_jj, run_jj_log};
 use crate::log::log_info;
@@ -20,8 +20,10 @@ use crate::log::log_info;
 /// pr1 しか残らず、pr1 を pr2 の tip へ動かしてしまう (順位 376 の事故と同型。#620 の
 /// CodeRabbit 指摘)。子孫の bookmark が置き去りの自分のものか別の PR のものかは区別
 /// できないので、止めて案内する側へ倒す。照会に失敗したときも止める。
+///
+/// **trunk の祖先を指す bookmark は、最初から候補に入れない** ([`off_trunk`]、順位 535)。
 pub(super) fn advance_bookmarks_via_list(target: &str) -> Result<(), String> {
-    let bookmarks = get_local_bookmarks_from_list()?;
+    let bookmarks = off_trunk(get_local_bookmarks_from_list()?)?;
     let ancestors = if bookmarks.len() > 1 {
         get_ancestor_bookmarks(target)
     } else {
@@ -31,6 +33,24 @@ pub(super) fn advance_bookmarks_via_list(target: &str) -> Result<(), String> {
         apply_bookmarks(b, t, " (fallback)")
     });
     Ok(())
+}
+
+/// trunk の祖先を指す bookmark を前進候補から外す (順位 535、判定は
+/// [`lib_jj_helpers::partition_off_trunk`])。夜間ループのハンドオフマーカーは base commit を
+/// 指すので、外さないと「非 trunk bookmark が 1 つだけ」の経路で動く (#506 で観測)。
+/// 照会に失敗したら `Err` を返し、前進させない (外すべきものを数えられないため)。
+fn off_trunk(listed: Vec<String>) -> Result<Vec<String>, String> {
+    if listed.is_empty() {
+        return Ok(listed);
+    }
+    let (kept, dropped) = partition_off_trunk(listed, &query_bookmarks_on_trunk()?);
+    if !dropped.is_empty() {
+        log_info(&format!(
+            "trunk 上を指す bookmark は前進させません: {}",
+            dropped.join(", ")
+        ));
+    }
+    Ok(kept)
 }
 
 /// fallback の前進先を決める。`ancestors` は target の祖先にある bookmark

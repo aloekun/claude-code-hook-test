@@ -26,7 +26,7 @@ use std::process::Command;
 
 use lib_jj_helpers::{
     classify_advance_target, is_trunk_bookmark, parse_bookmark_list_output as parse_jj_log_output,
-    AdvanceTarget, ADVANCE_TARGET_REVSET,
+    partition_off_trunk, query_bookmarks_on_trunk, AdvanceTarget, ADVANCE_TARGET_REVSET,
 };
 
 use crate::log::log_info;
@@ -71,12 +71,33 @@ fn apply_bookmarks(bookmarks: &[String], target: &str, label: &str) {
 ///
 /// 安全策: 非 trunk bookmark が 1 つだけの場合のみ前進させる。
 /// 複数ある場合は無関係な bookmark を誤って移動するリスクがあるためスキップする。
+///
+/// **trunk の祖先を指す bookmark は、最初から候補に入れない** ([`off_trunk`]、順位 535)。
 fn advance_bookmarks_via_list(target: &str) -> Result<(), String> {
-    let bookmarks = get_local_bookmarks_from_list()?;
+    let bookmarks = off_trunk(get_local_bookmarks_from_list()?)?;
     dispatch_bookmark_advance(&bookmarks, target, |b, t| {
         apply_bookmarks(b, t, " (fallback)")
     });
     Ok(())
+}
+
+/// trunk の祖先を指す bookmark を前進候補から外す (順位 535、判定は
+/// [`lib_jj_helpers::partition_off_trunk`])。夜間ループのハンドオフマーカーは base commit を
+/// 指すので、外さないと「非 trunk bookmark が 1 つだけ」の経路で動く (#506 で観測)。
+/// 照会に失敗したら `Err` を返し、前進させない (外すべきものを数えられないため)。
+/// cli-push-runner の同名関数と同じ規則で、片方だけ直すと同じ不具合が別の顔で残る。
+fn off_trunk(listed: Vec<String>) -> Result<Vec<String>, String> {
+    if listed.is_empty() {
+        return Ok(listed);
+    }
+    let (kept, dropped) = partition_off_trunk(listed, &query_bookmarks_on_trunk()?);
+    if !dropped.is_empty() {
+        log_info(&format!(
+            "[state] trunk 上を指す bookmark は前進させません: {}",
+            dropped.join(", ")
+        ));
+    }
+    Ok(kept)
 }
 
 fn dispatch_bookmark_advance(
@@ -518,5 +539,49 @@ feat/xyz: abc1234 desc
         );
 
         // cwd は `_cwd_guard` の Drop で自動復元される
+    }
+
+    /// 順位 535 (#506 の観測): base commit を指すハンドオフマーカーしかローカル bookmark が
+    /// 無いとき、fallback の「1 つだけなら前進」でマーカーが作業コミットへ動いていた。
+    /// `trunk()` は remote が無いと root に解決されるので、実運用と同じく master を指させる。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn integration_a_handoff_marker_on_trunk_is_not_advanced() {
+        use std::process::Command as StdCommand;
+
+        let jj = |dir: &std::path::Path, args: &[&str]| {
+            let ok = StdCommand::new("jj")
+                .args(args)
+                .current_dir(dir)
+                .status()
+                .unwrap_or_else(|e| panic!("jj {:?} 実行失敗: {}", args, e))
+                .success();
+            assert!(ok, "jj {:?} が失敗", args);
+        };
+        let temp = tempfile::tempdir().expect("tempdir 作成失敗");
+        let repo_dir = temp.path();
+        jj(repo_dir, &["git", "init", "--colocate"]);
+        jj(repo_dir, &["config", "set", "--repo", "revset-aliases.\"trunk()\"", "master"]);
+        std::fs::write(repo_dir.join("a.txt"), "base\n").expect("write a.txt 失敗");
+        jj(repo_dir, &["describe", "-m", "chore: base"]);
+        jj(repo_dir, &["bookmark", "create", "master", "-r", "@"]);
+        jj(repo_dir, &["bookmark", "create", "claude/nightly-12", "-r", "@"]);
+        jj(repo_dir, &["new", "-m", "feat: work"]);
+        std::fs::write(repo_dir.join("b.txt"), "one\n").expect("write b.txt 失敗");
+
+        let marker_before = bookmark_commit_id(repo_dir, "claude/nightly-12").expect("マーカーの id 取得失敗");
+        let original_cwd = std::env::current_dir().expect("cwd 取得失敗");
+        std::env::set_current_dir(repo_dir).expect("cd 失敗");
+        let _cwd_guard = CwdRestore {
+            original: original_cwd,
+        };
+
+        advance_jj_bookmarks().expect("advance は成功するはず");
+
+        assert_eq!(
+            bookmark_commit_id(repo_dir, "claude/nightly-12"),
+            Some(marker_before),
+            "trunk 上を指すマーカーを作業コミットへ動かしてはならない"
+        );
     }
 }

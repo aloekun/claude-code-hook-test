@@ -180,24 +180,6 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **auto lane へ割り当てた行は、着手時の判断をヒアリングで確定済みである。** 各エントリの「決定事項」がその結論で、実装はそれに従う。読み替えや再選定はしない。
 
-### 順位 535: push-runner / pr-monitor がハンドオフマーカー bookmark を前進させる
-
-> **動機**: push 時の bookmark 前進は trunk bookmark だけを除外している (`src/lib-jj-helpers/src/bookmarks.rs` の `is_trunk_bookmark`)。target に bookmark が無いときの fallback 経路は、ローカルに非 trunk の bookmark が 1 件だけあればそれを前進させるため、base commit を指す夜間ループのハンドオフマーカー (`claude/nightly-<順位>`) が動きうる。同じロジックが `cli-push-runner` と `cli-pr-monitor` の `push_jj_bookmark.rs` に重複している。
->
-> **由来**: `[defect:G2]`。証拠 = #506 (セッションでマーカーの前進を観測)。前進のテストは在ったが、マーカーが混ざる入力を覆っていなかった。
->
-> **実行優先度**: Tier 2 — Effort M。
-
-#### 決定事項 (2026-10-12)
-
-- 除外は**名前ではなく構造で判定する**: bookmark が指すコミットが `::trunk()` に含まれていれば前進対象から外す。マーカーと夜間 PR ブランチは同じ名前空間 ([ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 19/20) なので、接頭辞で外すと rebase 後の夜間 PR を人手で push できなくなる
-- 判定は `lib-jj-helpers` に共有関数として置き、両 crate の fallback 経路に適用する。`is_trunk_bookmark` は変えない (stale-branch-scan の保護判定と夜間 PR 検出が依存している)。`bookmark_check.rs` の検出側には入れない
-- 回帰テストは実 jj を使う `#[ignore]` テストになる。夜間 verify は `--ignored` を回さないため human lane とする (2026-10-12 ユーザー判断)
-
-#### 完了基準
-
-- `::trunk()` 上を指す bookmark が fallback 経路で前進しないことを、両 crate の統合テストで確認できること
-
 ### 順位 538: 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)
 
 > **動機**: 順位 537 は混入を push 前に止めるが、発生そのものは防がない。入口で止めれば、空コミットが作られない。

@@ -535,5 +535,59 @@ mod tests {
             assert_eq!(commit_of(&repo, "feat/pr1"), pr1_before, "レビュー済み feat/pr1 を上の PR の tip へ動かしてはならない");
             assert_eq!(commit_of(&repo, "feat/pr2"), pr2_before);
         }
+
+        /// 実運用と同じく `trunk()` を master に解決させる (remote が無いと root になる)。
+        fn init_base_with_trunk(repo: &Path) {
+            init_base(repo);
+            jj(repo, &["config", "set", "--repo", "revset-aliases.\"trunk()\"", "master"]);
+        }
+
+        /// 順位 535 (#506 の観測): base commit を指すハンドオフマーカーしかローカル bookmark が
+        /// 無いとき、fallback の「1 つだけなら前進」でマーカーが作業コミットへ動いていた。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn a_handoff_marker_on_trunk_is_not_advanced() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base_with_trunk(&repo);
+            jj(&repo, &["bookmark", "create", "claude/nightly-12", "-r", "master"]);
+            jj(&repo, &["new", "-m", "feat: work"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+
+            let marker_before = commit_of(&repo, "claude/nightly-12");
+            let _guard = enter(&repo);
+            advance_jj_bookmarks().expect("advance は成功するはず");
+
+            assert_eq!(
+                commit_of(&repo, "claude/nightly-12"),
+                marker_before,
+                "trunk 上を指すマーカーを作業コミットへ動かしてはならない"
+            );
+        }
+
+        /// 対比: 除外は名前ではなく位置で決まる。マーカーと同じ名前空間の bookmark でも、
+        /// trunk より先 (rebase 後の夜間 PR) を指していれば従来どおり前進する。マーカーが
+        /// 並んでいても、それを数えずに前進先を 1 つに決める。
+        #[test]
+        #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+        fn a_branch_off_trunk_still_advances_next_to_a_marker() {
+            let tmp = tempfile::tempdir().unwrap();
+            let repo = tmp.path().join("r");
+            init_base_with_trunk(&repo);
+            jj(&repo, &["bookmark", "create", "claude/nightly-12", "-r", "master"]);
+            jj(&repo, &["new", "-m", "feat: nightly 13"]);
+            std::fs::write(repo.join("b.txt"), "one\n").unwrap();
+            jj(&repo, &["bookmark", "create", "claude/nightly-13", "-r", "@"]);
+            jj(&repo, &["new", "-m", "fix: 13 のレビュー指摘"]);
+            std::fs::write(repo.join("b.txt"), "two\n").unwrap();
+
+            let head = commit_of(&repo, "@");
+            let marker_before = commit_of(&repo, "claude/nightly-12");
+            let _guard = enter(&repo);
+            advance_jj_bookmarks().expect("advance は成功するはず");
+
+            assert_eq!(commit_of(&repo, "claude/nightly-13"), head, "trunk より先の bookmark は前進すること");
+            assert_eq!(commit_of(&repo, "claude/nightly-12"), marker_before);
+        }
     }
 }

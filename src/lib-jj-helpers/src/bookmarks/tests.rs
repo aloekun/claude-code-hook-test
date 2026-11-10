@@ -331,6 +331,19 @@ mod remote_fallback {
     }
 }
 
+/// 順位 535: trunk の祖先を指す bookmark だけを外し、順序は保つ。
+#[test]
+fn partition_off_trunk_drops_only_bookmarks_on_trunk() {
+    let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let (kept, dropped) = partition_off_trunk(
+        names(&["feat/b", "claude/nightly-12", "feat/a"]),
+        &names(&["master", "claude/nightly-12"]),
+    );
+    assert_eq!(kept, names(&["feat/b", "feat/a"]));
+    assert_eq!(dropped, names(&["claude/nightly-12"]));
+    assert_eq!(partition_off_trunk(names(&["feat/a"]), &[]), (names(&["feat/a"]), vec![]));
+}
+
 /// 実 jj で「remote 専用 bookmark しか無い」状態を組み、テンプレートと探索が
 /// jj の実挙動と一致することを確認する統合テスト (順位 397 の回帰テスト)。
 mod real_jj {
@@ -508,5 +521,30 @@ mod real_jj {
             get_jj_bookmarks(StderrMode::Silent, None).is_empty(),
             "ローカルのみの従来 API は空のまま (この差分が順位 397 の症状)"
         );
+    }
+
+    /// 順位 535: trunk の祖先を指す bookmark (base commit のハンドオフマーカー) は拾い、
+    /// trunk より先を指す bookmark は拾わない。`trunk()` は remote が無いと root に解決される
+    /// ので、実運用 (`master@origin`) と同じく master を指すよう alias を置く。
+    #[test]
+    #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
+    fn bookmarks_on_trunk_include_the_marker_and_exclude_branch_work() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("r");
+        std::fs::create_dir_all(&repo).unwrap();
+        jj(&repo, &["git", "init", "--colocate"]);
+        jj(&repo, &["config", "set", "--repo", "revset-aliases.\"trunk()\"", "master"]);
+        std::fs::write(repo.join("base.txt"), "base\n").unwrap();
+        jj(&repo, &["describe", "-m", "chore: base"]);
+        jj(&repo, &["bookmark", "create", "master", "-r", "@"]);
+        jj(&repo, &["bookmark", "create", "claude/nightly-12", "-r", "@"]);
+        jj(&repo, &["new", "-m", "feat: work"]);
+        std::fs::write(repo.join("f.txt"), "x\n").unwrap();
+        jj(&repo, &["bookmark", "create", "feat/x", "-r", "@"]);
+
+        let _guard = enter(&repo);
+        let on_trunk = query_bookmarks_on_trunk().expect("照会は成功するはず");
+        assert!(on_trunk.contains(&"claude/nightly-12".to_string()), "{on_trunk:?}");
+        assert!(!on_trunk.contains(&"feat/x".to_string()), "{on_trunk:?}");
     }
 }
