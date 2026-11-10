@@ -1,10 +1,16 @@
 //! Inline review comments → Finding / ListedFinding 変換 (順位 209 / 順位 208 PR A refactor)。
 
+pub(crate) use lib_report_formatter::UNKNOWN_SEVERITY;
 use lib_report_formatter::Finding;
 
 use crate::models::{GhPullComment, ListedFinding};
 
 /// PR インラインレビューコメント (pulls/{pr}/comments) を [`Finding`] に変換する。
+///
+/// 対象はスレッドの根 (= レビュー指摘) だけで、CodeRabbit の reply は含めない。reply は
+/// 重大度の行を持たないので `Unknown` になり、指摘の重大度を読めなかったと誤って数えるため
+/// (順位 603。CodeRabbit は対応の返信ごとに reply を付けるので、fix push 後の監視ではほぼ毎回
+/// 混ざる)。reply は以前も `Info` に落ちて fix の対象にならなかったので、外しても fix は変わらない。
 ///
 /// CodeRabbit のインラインコメントから severity, issue, suggestion を抽出する。
 /// severity は重大度の行 (タグを除いて最初に空でない行) から判定する ([`extract_severity`])。
@@ -37,7 +43,8 @@ fn is_finding_candidate(c: &GhPullComment, push_time: &str) -> bool {
         .as_deref()
         .map(|t| t >= push_time)
         .unwrap_or(false);
-    is_coderabbit && after_push_time
+    let is_thread_root = c.in_reply_to_id.is_none();
+    is_coderabbit && after_push_time && is_thread_root
 }
 
 fn comment_to_finding(c: &GhPullComment) -> Finding {
@@ -238,17 +245,20 @@ fn bold_only(line: &str) -> Option<&str> {
 /// - 旧: `_⚠️ Potential issue_ | _🟠 Major_`。`_` / `|` / 空白で区切った語と絵文字で読む
 ///
 /// どちらも部分一致では読まない。重大度の無い本文の先頭が `**Highlight …**` のような見出しでも、
-/// `High` と取り違えないため。読めない場合は `Info` (旧来の既定値)。
+/// `High` と取り違えないため。読めない場合は [`UNKNOWN_SEVERITY`]。
+///
+/// 既定値を `Info` にしていた頃は、CodeRabbit の書式変更で全件が `Info` と読まれても正常な値に
+/// 見え、Major の指摘が承認側へ流れうる状態が約 1 日続いた (#625 / #627)。
 pub(crate) fn extract_severity(body: &str) -> String {
     let lines = plain_lines(body);
     let Some(line) = severity_line_index(&lines).map(|i| lines[i].as_str()) else {
-        return "Info".to_string();
+        return UNKNOWN_SEVERITY.to_string();
     };
     let severity = match line.strip_prefix("**").and_then(|rest| rest.split_once("**")) {
         Some((first_bold, _)) => severity_of_label(first_bold.trim()),
         None => severity_of_tokens(line),
     };
-    severity.unwrap_or("Info").to_string()
+    severity.unwrap_or(UNKNOWN_SEVERITY).to_string()
 }
 
 /// 新書式の先頭の太字。中身全体が重大度の名前と一致するときだけ読む。
@@ -268,13 +278,17 @@ fn severity_of_tokens(line: &str) -> Option<&'static str> {
         .map(|(name, _)| *name)
 }
 
-/// 読み取る重大度と、旧書式での絵文字 (重い順)。`Trivial` などの名前は載せず `Info` に落とす。
-const SEVERITIES: [(&str, &str); 5] = [
+/// 読み取る重大度と、旧書式での絵文字 (重い順)。
+///
+/// `Trivial` の旧書式の絵文字は載せない。#560〜#628 のインライン指摘 (約 170 件) に、`Trivial` の
+/// 実物が 1 件も無く、絵文字を確かめられなかったため (順位 603)。名前の語なら旧書式でも読む。
+const SEVERITIES: [(&str, &str); 6] = [
     ("Critical", "🔴"),
     ("Major", "🟠"),
     ("Minor", "🟡"),
     ("High", ""),
     ("Low", ""),
+    ("Trivial", ""),
 ];
 
 /// CodeRabbit コメント本文から指摘内容を抽出 (太字だけの行を優先、無ければ重大度の行の次の
@@ -282,7 +296,8 @@ const SEVERITIES: [(&str, &str); 5] = [
 pub(crate) fn extract_issue(body: &str) -> String {
     let lines = plain_lines(body);
     let severity_at = severity_line_index(&lines);
-    let is_severity_label = |i: usize| Some(i) == severity_at && extract_severity(body) != "Info";
+    let is_severity_label =
+        |i: usize| Some(i) == severity_at && extract_severity(body) != UNKNOWN_SEVERITY;
     let heading = lines
         .iter()
         .enumerate()
@@ -415,18 +430,37 @@ mod tests {
     /// 労力の表示 (`Low value`) を重大度の `Low` と読まない。先頭の太字だけを見る。
     #[test]
     fn new_format_effort_label_is_not_read_as_severity() {
+        let unlisted = NEW_FORMAT_MINOR_LOW_VALUE.replace("Minor**", "Cosmetic**");
+        assert_eq!(extract_severity(&unlisted), UNKNOWN_SEVERITY);
+    }
+
+    /// `Trivial` は `Trivial` のまま読み、重大度の行は見出しに選ばない (順位 603)。
+    /// 以前は一覧に無く `Info` に落ち、読めなかった指摘と同じ表示になっていた。
+    #[test]
+    fn trivial_is_read_as_its_own_severity() {
         let trivial = NEW_FORMAT_MINOR_LOW_VALUE.replace("Minor**", "Trivial**");
-        assert_eq!(extract_severity(&trivial), "Info");
+        assert_eq!(extract_severity(&trivial), "Trivial");
         assert_eq!(extract_issue(&trivial), "`Thread::title` の選択方法を訂正してください。");
+        assert_eq!(extract_severity("_🧹 Nitpick_ | _Trivial_"), "Trivial");
+    }
+
+    /// 重大度を読めない本文は `Unknown` にする。`Info` に落とすと、正常な値と見分けられない
+    /// (順位 603。#625 の Major が全件 `Info` と読まれた)。
+    #[test]
+    fn unreadable_severity_is_unknown_not_info() {
+        let no_severity_line = "<!-- coderabbit-ai-generated:v1 -->\n\nこの関数は境界を見ていません。\n";
+        assert_eq!(extract_severity(no_severity_line), UNKNOWN_SEVERITY);
+        assert_eq!(extract_severity(""), UNKNOWN_SEVERITY);
+        assert_eq!(UNKNOWN_SEVERITY, "Unknown");
     }
 
     /// 重大度の無い本文の先頭の見出しを、部分一致で重大度と読まない (#627 の指摘)。
     #[test]
     fn heading_containing_a_severity_word_is_not_a_severity() {
         let body = "<!-- coderabbit-ai-generated:v1 -->\n**Highlight the failing case**\n\nbody\n";
-        assert_eq!(extract_severity(body), "Info");
+        assert_eq!(extract_severity(body), UNKNOWN_SEVERITY);
         assert_eq!(extract_issue(body), "Highlight the failing case");
-        assert_eq!(extract_severity("_⚠️ Potential issue_ | _Lowercase only_"), "Info");
+        assert_eq!(extract_severity("_⚠️ Potential issue_ | _Lowercase only_"), UNKNOWN_SEVERITY);
     }
 
     /// 旧書式は絵文字だけでも読む。
@@ -483,6 +517,23 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, "Major");
         assert_eq!(findings[0].issue, "通常監視でも全ページのコメントを取得してください。");
+    }
+
+    /// `parse_findings` は CodeRabbit の reply を指摘に含めない (順位 603)。reply は重大度の行を
+    /// 持たず `Unknown` になるので、含めると「重大度を読めない指摘」と誤って数える。
+    #[test]
+    fn parse_findings_excludes_coderabbit_replies() {
+        let json = serde_json::json!([
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": NEW_FORMAT_MAJOR,
+             "path": "src/main.rs", "line": 7, "created_at": "2026-11-08T05:25:25Z"},
+            {"id": 2, "user": {"login": "coderabbitai[bot]"}, "in_reply_to_id": 1,
+             "body": "<!-- coderabbit-ai-generated:v1 -->\n\n@aloekun 対応ありがとうございます。",
+             "path": "src/main.rs", "line": 7, "created_at": "2026-11-08T06:00:00Z"}
+        ])
+        .to_string();
+        let findings = parse_findings(&json, "2026-11-08T00:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "Major");
     }
 
     #[test]
@@ -582,7 +633,11 @@ mod tests {
             {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**signature mismatch**", "path": "src/lib.rs", "line": 100, "created_at": "2026-04-01T13:00:00Z", "html_url": "https://github.com/o/r/pull/1#r1"}
         ]"#;
         let findings = parse_listed_findings(json, "2026-04-01T12:00:00Z");
-        let output = ListFindingsOutput { findings, pre_merge_checks: None };
+        let output = ListFindingsOutput {
+            severity_readout: crate::severity_readout::read_severities(&findings, |f| &f.severity),
+            findings,
+            pre_merge_checks: None,
+        };
         let serialized = serde_json::to_value(&output).unwrap();
         let item = &serialized["findings"][0];
         assert_eq!(item["severity"], "Major");
@@ -590,5 +645,8 @@ mod tests {
         assert_eq!(item["line"], 100);
         assert_eq!(item["summary"], "signature mismatch");
         assert_eq!(item["url"], "https://github.com/o/r/pull/1#r1");
+        assert_eq!(serialized["severity_readout"]["review_findings"], 1);
+        assert_eq!(serialized["severity_readout"]["unknown"], 0);
+        assert_eq!(serialized["severity_readout"]["unreadable"], false);
     }
 }

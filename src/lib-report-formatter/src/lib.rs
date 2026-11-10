@@ -20,7 +20,17 @@ pub struct Finding {
     pub source: String,
 }
 
+/// 重大度を読めなかった指摘の severity (順位 603)。`Info` などの正常な値と見分けられるようにする。
+///
+/// check-ci-coderabbit が出し、cli-pr-monitor と本 crate が読む。値を 1 か所に置き、出す側と
+/// 読む側が文字列リテラルを別々に持ってずれないようにする (#629 の CodeRabbit 指摘)。ずれると、
+/// 読めなかった指摘が「重大な問題は見つかりませんでした」に戻る。値は check-ci の出力 JSON と
+/// takt facet (`analyze-coderabbit.md`) が使う wire format なので、変えるときは facet も直す。
+pub const UNKNOWN_SEVERITY: &str = "Unknown";
+
 /// Severity の表示順序（高い方が先）
+///
+/// [`UNKNOWN_SEVERITY`] は重大度が分からず Major の可能性もあるので、`Trivial` / `Info` より前に置く。
 fn severity_order(s: &str) -> u8 {
     match s {
         "Critical" => 0,
@@ -29,10 +39,17 @@ fn severity_order(s: &str) -> u8 {
         "Medium" => 3,
         "Minor" => 4,
         "Low" => 5,
-        "Info" => 6,
-        _ => 7,
+        UNKNOWN_SEVERITY => UNKNOWN_ORDER,
+        "Trivial" => 7,
+        "Info" => 8,
+        _ => 9,
     }
 }
+
+const UNKNOWN_ORDER: u8 = 6;
+
+/// [`severity_order`] が返す値の個数 (Critical から一覧外の Other まで)。
+const SEVERITY_BUCKETS: usize = 10;
 
 /// Findings を severity 順にソート（Critical が先頭）
 pub fn sort_by_severity(findings: &mut [Finding]) {
@@ -87,6 +104,7 @@ pub fn format_json(findings: &[Finding]) -> String {
 /// 判定文を生成する
 ///
 /// - Critical/High/Major が1件以上 → 「修正が必要な指摘があります」
+/// - 重大度を読めなかった (`Unknown`) 指摘がある → 件数を示し、「重大な問題は無い」と断定しない
 /// - Medium 以下のみ → 「重大な問題は見つかりませんでした。軽微な改善提案があります」
 /// - 指摘が0件 → 「問題は見つかりませんでした」
 pub fn format_verdict(findings: &[Finding]) -> String {
@@ -94,7 +112,7 @@ pub fn format_verdict(findings: &[Finding]) -> String {
         return "問題は見つかりませんでした".to_string();
     }
 
-    let mut counts = [0u32; 8]; // Critical, High, Major, Medium, Minor, Low, Info, Other
+    let mut counts = [0u32; SEVERITY_BUCKETS];
     for f in findings {
         let idx = severity_order(&f.severity) as usize;
         if idx < counts.len() {
@@ -116,6 +134,11 @@ pub fn format_verdict(findings: &[Finding]) -> String {
             parts.push(format!("Major: {}", counts[2]));
         }
         format!("修正が必要な指摘があります ({})", parts.join(", "))
+    } else if counts[UNKNOWN_ORDER as usize] > 0 {
+        format!(
+            "重大度を読めなかった指摘が{}件あるため、判定を保留します (本文を確認してください)",
+            counts[UNKNOWN_ORDER as usize]
+        )
     } else {
         "重大な問題は見つかりませんでした。軽微な改善提案があります".to_string()
     }
@@ -251,6 +274,41 @@ mod tests {
         }];
         let verdict = format_verdict(&findings);
         assert!(verdict.contains("重大な問題は見つかりませんでした"));
+    }
+
+    fn finding_of(severity: &str) -> Finding {
+        Finding {
+            severity: severity.into(),
+            file: "a.rs".into(),
+            line: "1".into(),
+            issue: "x".into(),
+            suggestion: "".into(),
+            source: "".into(),
+        }
+    }
+
+    /// 順位 603: 重大度の分からない `Unknown` は、`Trivial` / `Info` より前に並べる。
+    #[test]
+    fn unknown_sorts_before_trivial_and_info() {
+        let mut findings = vec![finding_of("Info"), finding_of("Trivial"), finding_of("Unknown"), finding_of("Low")];
+        sort_by_severity(&mut findings);
+        let order: Vec<&str> = findings.iter().map(|f| f.severity.as_str()).collect();
+        assert_eq!(order, ["Low", "Unknown", "Trivial", "Info"]);
+    }
+
+    /// 順位 603: `Unknown` があるときは「重大な問題は見つかりませんでした」と断定しない。
+    #[test]
+    fn format_verdict_does_not_clear_unknown_findings() {
+        let verdict = format_verdict(&[finding_of("Unknown"), finding_of("Minor")]);
+        assert!(!verdict.contains("重大な問題は見つかりませんでした"), "{verdict}");
+        assert!(verdict.contains("重大度を読めなかった指摘が1件"), "{verdict}");
+        assert!(format_verdict(&[finding_of("Trivial")]).contains("重大な問題は見つかりませんでした"));
+    }
+
+    /// `UNKNOWN_SEVERITY` は check-ci の出力 JSON と takt facet が読む wire format なので、値を固定する。
+    #[test]
+    fn unknown_severity_wire_value_is_fixed() {
+        assert_eq!(UNKNOWN_SEVERITY, "Unknown");
     }
 
     #[test]

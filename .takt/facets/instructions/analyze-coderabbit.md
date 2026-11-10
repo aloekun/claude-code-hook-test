@@ -5,11 +5,12 @@
 Read `.takt/review-comments.json`. This file contains the output from `check-ci-coderabbit.exe`, including:
 - `ci`: GitHub Actions CI status (overall + per-run results)
 - `coderabbit`: CodeRabbit review state (review_state, new_comments, actionable_comments, unresolved_threads)
-- `findings`: Array of structured findings (severity, file, line, issue, suggestion, source)
+- `findings`: Array of structured findings (severity, file, line, issue, suggestion, source)。スレッドの根 (= レビュー指摘) だけで、CodeRabbit の reply は含まない。`severity` が `Unknown` の指摘は、checker が重大度を読めなかったもの (CodeRabbit の重大度ではない)
 - `action`: Terminal action from the monitor ("action_required", "stop_monitoring_success", etc.)
 - `summary`: Human-readable summary
 - `docs_only`: Boolean ADR-035 verdict for the **whole PR**, decided deterministically by `cli-pr-monitor` from GitHub's PR-wide file list (never re-derive it from a diff)
 - `check_output.pre_merge_checks`: CodeRabbit の要約コメントにある Pre-merge checks の読み取り結果 (`failed` / `measured_commit` / `stale` / `summary_url`)。節が無い PR では欠ける。監視が未確定 (`pending_review`) で終わった場合も、最後に呼んだ checker の出力が入る。§ Pre-merge checks gate で使う
+- `check_output.severity_readout`: 指摘の重大度を読めたかの集計 (`review_findings` / `unknown` / `unreadable`)。`unreadable` は指摘が 1 件以上あり、全件の重大度を読めなかったことを示す。古い exe の出力では欠ける。§ Severity readout gate で使う
 
 ## Task
 
@@ -37,7 +38,9 @@ Mark each finding as:
 
 ### Step 3: Severity classification
 For both `applicable` and `user_decision_path` findings, take the severity from CodeRabbit's `severity` field (do not reclassify):
-- Critical > High > Major > Medium > Minor > Low > Info
+- Critical > High > Major > Medium > Minor > Low > Unknown > Trivial > Info
+
+`Unknown` は重大度を読めなかった指摘であり、軽い指摘という意味ではない。Major の可能性もあるので、Info / Low / Trivial と同じ扱いにしない (§ Verdict Rules)。本文 (`issue`) から重大度を推測して付け替えない。
 
 The severity is preserved on `user_decision_path` findings so the user can prioritize their manual decision (a Critical `.claude/` finding still warrants attention even though auto-fix cannot apply it). For `not_applicable` findings, severity is irrelevant and may be omitted from the report.
 
@@ -109,16 +112,24 @@ The severity is preserved on `user_decision_path` findings so the user can prior
 
 決定論層の `check-ci-coderabbit` も同じ失敗で success を止めている (`src/check-ci-coderabbit/src/pre_merge.rs`)。
 
+## Severity readout gate (check this BEFORE the verdict rules)
+
+指摘の重大度を全件読めないのは、指摘の中身の問題ではなく、CodeRabbit の書式変更か checker の読み取り処理の不具合である。#625 では書式変更の後、Major を含む全件が約 1 日、軽い重大度と読まれて誰も気付かなかった。
+
+**`check_output.severity_readout.unreadable` が `true` のとき、`approved` も `needs_fix` も出してはならない。** verdict は `user_decision` とし、レポートの Summary に次を書く: 「指摘 N 件の重大度を 1 件も読めなかった。CodeRabbit の書式変更か、読み取り処理の不具合の疑い。指摘への対応の前に、コメント本文の実物と `src/check-ci-coderabbit/src/findings.rs` を突き合わせて原因を調べる」。重大度が分からないまま fix step へ渡さないため、この gate は `needs_fix` の条件より優先する。
+
+決定論層の `check-ci-coderabbit` も同じ条件で success を止めている (`src/check-ci-coderabbit/src/severity_readout.rs`)。
+
 ## Verdict Rules (3-way)
 
-> 下記は**上記 review evidence gate と pre-merge checks gate を通過した場合の**判定である。verdict は 3 値のまま増やさない (`post-pr-review.yaml` の `rules.condition` がリテラル照合するため)。
+> 下記は**上記 review evidence gate・pre-merge checks gate・severity readout gate を通過した場合の**判定である。verdict は 3 値のまま増やさない (`post-pr-review.yaml` の `rules.condition` がリテラル照合するため)。
 
-- **approved**: No applicable findings, OR all applicable findings are Info/Low severity
+- **approved**: No applicable findings, OR all applicable findings are Info/Low/Trivial severity (`Unknown` を含む場合は approved にしない)
   - Output: `approved` condition
 - **needs_fix**: Any applicable Critical, High, or Major finding exists (excluding `user_decision_path`)
   - Output: `needs_fix` condition
   - These will be automatically fixed in the next step
-- **user_decision**: Only Medium or lower applicable findings exist, OR all remaining findings are `user_decision_path` (sensitive-file protected) regardless of severity
+- **user_decision**: Only Medium or lower applicable findings exist, OR an applicable `Unknown` finding exists (重大度を読めなかった指摘。Summary に件数を書き、本文の確認を促す), OR all remaining findings are `user_decision_path` (sensitive-file protected) regardless of severity
   - Output: `user_decision` condition
   - These are reported but NOT auto-fixed; the user decides
   - **Important**: A `.claude/` finding of any severity routes here to prevent fix loop pathology (auto-fix would attempt 4+ Edit calls all blocked by sensitive-file protection, wasting iterations)

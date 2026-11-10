@@ -165,9 +165,9 @@ fn run_takt_stage(
 /// 空のまま残り、直後に abandon される。この空 commit → abandon は監視ログを汚し、
 /// bookmark をずらす副作用も持つ (順位 386)。
 ///
-/// 「nitpick / informational だけなら skip」も検討したが、`extract_severity` の `"Info"` は
-/// **判定不能時の受け皿**でもある (`Critical` / `Major` / `Minor` / `High` / `Low` のどれにも
-/// 一致しなければ `"Info"`)。severity で絞ると、書式が変わって解析できなかった実指摘まで
+/// 「nitpick / informational だけなら skip」も検討したが、severity は書式が変わると読めなく
+/// なる (`extract_severity` は重大度を読めなかった指摘を `"Unknown"` にする。順位 603 までは
+/// `"Info"` に落としていた)。severity で絞ると、書式が変わって解析できなかった実指摘まで
 /// 黙って skip する。判定根拠が確かな「findings が 0 件」だけを条件にする。
 fn has_findings_to_fix(findings: &[lib_report_formatter::Finding]) -> bool {
     !findings.is_empty()
@@ -511,6 +511,9 @@ fn verdict_for_findings(result: &crate::stages::poll::PollResult) -> String {
     if critical_major > 0 {
         return "修正が必要な指摘があります".to_string();
     }
+    if let Some(verdict) = unknown_severity_verdict(&result.findings) {
+        return verdict;
+    }
 
     let unresolved_threads = result
         .coderabbit
@@ -532,6 +535,32 @@ fn verdict_for_findings(result: &crate::stages::poll::PollResult) -> String {
         return "重大な問題は見つかりませんでした。軽微な改善提案があります".to_string();
     }
     "問題は見つかりませんでした".to_string()
+}
+
+/// 重大度を読めなかった (`Unknown`) 指摘があれば、件数を示す判定文を返す (順位 603)。
+///
+/// 重大度が分からない指摘は Major かもしれないので、「重大な問題は見つかりませんでした」と
+/// 断定しない。全件が `Unknown` なら、指摘の中身ではなく読み取りの仕組みを疑う案内にする。
+/// findings は check-ci-coderabbit がスレッドの根だけに絞っており、reply は含まない。
+fn unknown_severity_verdict(findings: &[lib_report_formatter::Finding]) -> Option<String> {
+    let unknown = findings
+        .iter()
+        .filter(|f| f.severity == lib_report_formatter::UNKNOWN_SEVERITY)
+        .count();
+    if unknown == 0 {
+        return None;
+    }
+    if unknown == findings.len() {
+        return Some(format!(
+            "指摘{}件の重大度を 1 件も読めませんでした。CodeRabbit の書式変更か読み取り処理の不具合の疑いがあるため、\
+             指摘への対応の前に原因を調べてください (summary を参照)",
+            unknown
+        ));
+    }
+    Some(format!(
+        "重大度を読めなかった指摘が{}件あるため、判定を保留します (本文を確認してください)",
+        unknown
+    ))
 }
 
 /// checker の出力に、失敗した pre-merge check があるか。

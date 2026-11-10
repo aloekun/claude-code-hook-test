@@ -67,6 +67,12 @@ pub(crate) struct PrMonitorState {
     /// skip の経路で失敗した check が消え、success で監視が終わる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) pre_merge_checks: Option<PreMergeChecksState>,
+    /// check-ci-coderabbit の `severity_readout.unreadable` (指摘の重大度を全件読めなかった、順位 603)。
+    ///
+    /// `pre_merge_checks` と同じ理由で持たせる。skip の経路で消えると、重大度の分からない指摘を
+    /// 残したまま success で監視が終わる。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) severity_unreadable: bool,
 }
 
 /// check-ci-coderabbit の `pre_merge_checks` のうち、action の決め直しに使う部分。
@@ -146,6 +152,7 @@ impl PrMonitorState {
             head_commit: None,
             fix_push_time: None,
             pre_merge_checks: None,
+            severity_unreadable: false,
         }
     }
 
@@ -223,6 +230,10 @@ pub(crate) fn update_state_from_check_result(
     state.pre_merge_checks = result
         .get("pre_merge_checks")
         .and_then(|v| serde_json::from_value::<PreMergeChecksState>(v.clone()).ok());
+    state.severity_unreadable = result
+        .pointer("/severity_readout/unreadable")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 }
 
 #[cfg(test)]
@@ -286,6 +297,7 @@ mod tests {
             head_commit: None,
             fix_push_time: None,
             pre_merge_checks: None,
+            severity_unreadable: true,
         };
 
         let json = serde_json::to_string(&state).unwrap();
@@ -563,6 +575,20 @@ mod tests {
         );
         update_state_from_check_result(&mut state, &serde_json::json!({ "action": "continue_monitoring" }));
         assert_eq!(state.pre_merge_checks, None);
+    }
+
+    /// 順位 603: checker の `severity_readout.unreadable` を読み、出なくなったら下ろす。
+    #[test]
+    fn update_state_reads_and_clears_severity_unreadable() {
+        let mut state = PrMonitorState::new(Some(1), None, "t".into());
+        let result = serde_json::json!({
+            "action": "action_required",
+            "severity_readout": {"review_findings": 2, "unknown": 2, "unreadable": true}
+        });
+        update_state_from_check_result(&mut state, &result);
+        assert!(state.severity_unreadable);
+        update_state_from_check_result(&mut state, &serde_json::json!({ "action": "continue_monitoring" }));
+        assert!(!state.severity_unreadable);
     }
 
     #[test]
