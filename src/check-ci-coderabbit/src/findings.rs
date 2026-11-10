@@ -1,11 +1,9 @@
 //! Inline review comments → Finding / ListedFinding 変換 (順位 209 / 順位 208 PR A refactor)。
 
+pub(crate) use lib_report_formatter::UNKNOWN_SEVERITY;
 use lib_report_formatter::Finding;
 
 use crate::models::{GhPullComment, ListedFinding};
-
-/// 重大度を読めなかった指摘の severity。`Info` などの正常な値と見分けられるようにする (順位 603)。
-pub(crate) const UNKNOWN_SEVERITY: &str = "Unknown";
 
 /// PR インラインレビューコメント (pulls/{pr}/comments) を [`Finding`] に変換する。
 ///

@@ -20,10 +20,17 @@ pub struct Finding {
     pub source: String,
 }
 
+/// 重大度を読めなかった指摘の severity (順位 603)。`Info` などの正常な値と見分けられるようにする。
+///
+/// check-ci-coderabbit が出し、cli-pr-monitor と本 crate が読む。値を 1 か所に置き、出す側と
+/// 読む側が文字列リテラルを別々に持ってずれないようにする (#629 の CodeRabbit 指摘)。ずれると、
+/// 読めなかった指摘が「重大な問題は見つかりませんでした」に戻る。値は check-ci の出力 JSON と
+/// takt facet (`analyze-coderabbit.md`) が使う wire format なので、変えるときは facet も直す。
+pub const UNKNOWN_SEVERITY: &str = "Unknown";
+
 /// Severity の表示順序（高い方が先）
 ///
-/// `Unknown` は check-ci-coderabbit が重大度を読めなかった指摘に付ける値 (順位 603)。重大度が
-/// 分からず Major の可能性もあるので、`Trivial` / `Info` より前に置く。
+/// [`UNKNOWN_SEVERITY`] は重大度が分からず Major の可能性もあるので、`Trivial` / `Info` より前に置く。
 fn severity_order(s: &str) -> u8 {
     match s {
         "Critical" => 0,
@@ -32,7 +39,7 @@ fn severity_order(s: &str) -> u8 {
         "Medium" => 3,
         "Minor" => 4,
         "Low" => 5,
-        "Unknown" => UNKNOWN_ORDER,
+        UNKNOWN_SEVERITY => UNKNOWN_ORDER,
         "Trivial" => 7,
         "Info" => 8,
         _ => 9,
@@ -296,6 +303,12 @@ mod tests {
         assert!(!verdict.contains("重大な問題は見つかりませんでした"), "{verdict}");
         assert!(verdict.contains("重大度を読めなかった指摘が1件"), "{verdict}");
         assert!(format_verdict(&[finding_of("Trivial")]).contains("重大な問題は見つかりませんでした"));
+    }
+
+    /// `UNKNOWN_SEVERITY` は check-ci の出力 JSON と takt facet が読む wire format なので、値を固定する。
+    #[test]
+    fn unknown_severity_wire_value_is_fixed() {
+        assert_eq!(UNKNOWN_SEVERITY, "Unknown");
     }
 
     #[test]

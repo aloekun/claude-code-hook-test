@@ -543,7 +543,10 @@ fn verdict_for_findings(result: &crate::stages::poll::PollResult) -> String {
 /// 断定しない。全件が `Unknown` なら、指摘の中身ではなく読み取りの仕組みを疑う案内にする。
 /// findings は check-ci-coderabbit がスレッドの根だけに絞っており、reply は含まない。
 fn unknown_severity_verdict(findings: &[lib_report_formatter::Finding]) -> Option<String> {
-    let unknown = findings.iter().filter(|f| f.severity == "Unknown").count();
+    let unknown = findings
+        .iter()
+        .filter(|f| f.severity == lib_report_formatter::UNKNOWN_SEVERITY)
+        .count();
     if unknown == 0 {
         return None;
     }
