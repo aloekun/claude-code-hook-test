@@ -536,6 +536,46 @@ mod tests {
         assert_eq!(findings[0].severity, "Major");
     }
 
+    /// reply の本文が重大度の語を含んでも指摘に数えない。#625 では礼の返信の
+    /// 「Critical / High / Major」を `Critical` と読んでいた。
+    #[test]
+    fn a_reply_quoting_severity_words_is_not_a_finding() {
+        let json = serde_json::json!([
+            {"id": 1, "user": {"login": "coderabbitai[bot]"}, "body": NEW_FORMAT_MAJOR,
+             "path": "src/main.rs", "line": 7, "created_at": "2026-11-08T05:25:25Z"},
+            {"id": 2, "user": {"login": "coderabbitai[bot]"}, "in_reply_to_id": 1,
+             "body": "<!-- coderabbit-ai-generated:v1 -->\n\n_🔴 Critical_\n\nCritical / High / Major の指摘はすべて対応済みです。",
+             "path": "src/main.rs", "line": 7, "created_at": "2026-11-08T06:00:00Z"}
+        ])
+        .to_string();
+        let findings = parse_findings(&json, "2026-11-08T00:00:00Z");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, "Major");
+        let listed = parse_listed_findings(&json, "2026-11-08T00:00:00Z");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].severity, "Major");
+    }
+
+    /// 読み取る重大度はすべて `lib-report-formatter` の並び順に載っている。載っていない語は
+    /// 末尾の「不明な値」に落ち、`Unknown` より後ろへ並んでしまう。
+    #[test]
+    fn every_read_severity_has_a_place_in_the_formatter_order() {
+        let names = SEVERITIES.iter().map(|(name, _)| *name).chain([UNKNOWN_SEVERITY]);
+        for name in names {
+            let finding = |severity: &str| Finding {
+                severity: severity.to_string(),
+                file: String::new(),
+                line: String::new(),
+                issue: String::new(),
+                suggestion: String::new(),
+                source: String::new(),
+            };
+            let mut findings = vec![finding("not-a-severity"), finding(name)];
+            lib_report_formatter::sort_by_severity(&mut findings);
+            assert_eq!(findings[0].severity, name, "{name} は並び順に無い");
+        }
+    }
+
     #[test]
     fn parse_listed_findings_includes_thread_root_only() {
         let json = r#"[
