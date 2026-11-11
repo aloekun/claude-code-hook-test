@@ -106,6 +106,7 @@
 | 602 | Tier 3 | **[improvement] pr-monitor の pre-merge check の上書きを、success 以外と失敗 0 件の入力でも固定する** | todo29.md | XS | なし (2026-11-09、#625 の post-merge feedback) |
 | 604 | Tier 3 | **[improvement] ISO8601 と暦日の変換を中立の crate に 1 本化する** | todo29.md | M | なし (2026-11-10、WR-2026-11-10-M01) |
 | 606 | Tier 3 | **[improvement] `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす** | todo29.md | S | 順位 592 と同じ関数を変更するため順序に注意 (2026-11-10、WR-2026-11-10-A01) |
+| 607 | Tier 3 | **[improvement] pr-monitor の bookmark 前進の主経路を、push-runner (順位 376) と同じ target 直接照会に揃える** | todo29.md | S | なし (2026-11-11、#631 の post-merge feedback 採否中にテストで観測) |
 
 
 **戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)

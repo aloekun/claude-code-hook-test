@@ -424,3 +424,32 @@
 - `src/cli-*/Cargo.toml` に `cli-docs-lint` への path 依存が残っていない
 - 移したテストを含めて `cargo test -p lib-ledger` が通る
 - `pnpm lint:docs` と `cli-ledger-removal-check` / `cli-ledger-cleanup` のテストが、移設前と同じ結果になる
+
+### 順位 607: pr-monitor の bookmark 前進の主経路を、push-runner (順位 376) と同じ target 直接照会に揃える
+
+> **動機**: bookmark 前進の主経路が 2 crate で食い違っている。push-runner は順位 376 で「target 自身を指す bookmark だけ」に変えたが、pr-monitor は `(trunk()..target) & bookmarks()` のまま残っている。そのため pr-monitor では、fallback が前進させられる bookmark が順位 535 (#631) の後は 1 つも無い。またスタック push で下の PR の bookmark まで動かす、順位 376 が直した不具合も残っている。
+>
+> **本タスクの位置づけ**: #631 の post-merge feedback (Tier 2 #1「pr-monitor に対比テストを足す」) の採否中に、テストを書いて観測した。pr-monitor では対比テストの前提が成り立たないため、差し替えて本タスクを起票した
+>
+> **参照**: `src/cli-pr-monitor/src/stages/push_jj_bookmark.rs` (`get_bookmarks_in_range` / `advance_bookmarks_via_list`)、`src/cli-push-runner/src/stages/push_jj_bookmark.rs` (`get_bookmarks_in_range` の doc に順位 376 の実測表)、`.claude/feedback-reports/631.md`
+
+#### 背景
+
+- 両 crate の fallback は `jj bookmark set -r <target> -- <name>` を `--allow-backwards` なしで呼ぶ。jj は、元の位置が target の祖先でない bookmark の移動を `Refusing to move bookmark backwards or sideways` で拒否する
+- push-runner の主経路は target 自身の bookmark だけを見る。target の祖先にある bookmark (`jj new` で置き去りになった作業 bookmark) は主経路で見つからず fallback に入り、前方向の移動として成功する。順位 535 の対比テスト (`a_branch_off_trunk_still_advances_next_to_a_marker`) はこの経路を通る
+- pr-monitor の主経路は `trunk()..target` なので、target の祖先にある非 trunk bookmark は主経路で見つかる。fallback に入るのは trunk 上の bookmark か、target の祖先でない bookmark だけである。前者は順位 535 で外し、後者は jj が移動を拒否する
+- 2026-11-11 に実 jj で確かめた。pr-monitor で作業 bookmark を target の祖先でない位置に置いて fallback に入れると、`fallback: bookmark '...' を ... に前進させます` のログの後で jj の拒否により更新に失敗した
+- fallback が救済するはずだった PR #53 の形 (旧 commit に取り残された bookmark) が横方向の移動なら、両 crate とも現行の jj では拒否される。#53 の当時の jj で通っていたかは確かめていない
+
+#### 設計決定
+
+- pr-monitor の `get_bookmarks_in_range` を push-runner と同じ「target を直接照会し、trunk 系を名前で外す」形にする。push-runner の `get_bookmarks_in_range` の doc にある順位 376 の理由 (スタック push で下の PR の bookmark を動かす) が pr-monitor にもそのまま当てはまる
+
+- [ ] pr-monitor の主経路を target 直接照会に変える
+- [ ] pr-monitor にも、マーカーと並ぶ作業 bookmark が fallback で前進する対比テスト (push-runner の `a_branch_off_trunk_still_advances_next_to_a_marker` と同じ構成) を足す
+- [ ] スタック push で下の PR の bookmark を動かさないことを pr-monitor でもテストで固定する
+
+#### 完了基準
+
+- 両 crate の `get_bookmarks_in_range` が同じ照会になっている
+- pr-monitor の対比テストが fallback を通って前進し、名前で外す回帰 (`claude/` 接頭辞で候補から外す等) を入れると落ちることを確かめている
