@@ -453,3 +453,25 @@
 
 - 両 crate の `get_bookmarks_in_range` が同じ照会になっている
 - pr-monitor の対比テストが fallback を通って前進し、名前で外す回帰 (`claude/` 接頭辞で候補から外す等) を入れると落ちることを確かめている
+
+### 順位 608: push-runner の対比テストに、fallback を通った証拠を assert で入れる
+
+> **動機**: 順位 535 の対比テスト `a_branch_off_trunk_still_advances_next_to_a_marker` は、bookmark の移動先しか assert していない。fallback を通ることは、doc コメントと 2026-11-11 の手作業の確認 (ログの `自動更新 (fallback)` と陽性対照) でしか保証されていない。#631 と #632 の 2 PR で続けて「テスト名やコメントが主張する経路を実際には通っていない」誤りが出たので、経路をテスト自身に確かめさせる。
+>
+> **本タスクの位置づけ**: #632 の post-merge feedback (Tier 2 #1、様子見) の採否中に、証拠の取り方が決まったので起票した。緊急度は低い
+>
+> **参照**: `src/cli-push-runner/src/stages/push_jj_bookmark.rs` (`advance_jj_bookmarks` / `get_bookmarks_in_range` / テスト `a_branch_off_trunk_still_advances_next_to_a_marker`)、`.claude/feedback-reports/632.md`
+
+#### 設計決定
+
+- 証拠はログの捕捉でなく、主経路の照会結果で取る。`advance_jj_bookmarks` は `get_bookmarks_in_range(&target)` が空のときだけ fallback に入るので、advance の前に同じ照会が空であることを assert すれば、fallback を通ったことが言える。`get_bookmarks_in_range` は同じモジュールのテストから呼べる
+- target はテスト内で `commit_of(&repo, "@")` (説明のある `@`) を使う。`determine_target_revision` と同じ値になることも assert する
+- pr-monitor 側の同じテストは順位 607 で足すので、本タスクでは扱わない (607 の対比テストにも同じ assert を入れる)
+
+- [ ] テストに、主経路の照会が空であることの assert を足す
+- [ ] 陽性対照: 主経路で見つかる構成 (`claude/nightly-13` を target 自身に置く) にすると、足した assert が落ちることを確かめる
+
+#### 完了基準
+
+- `a_branch_off_trunk_still_advances_next_to_a_marker` が、移動先に加えて「主経路では見つからない」ことを assert している
+- 陽性対照の結果を PR 本文に書いている
