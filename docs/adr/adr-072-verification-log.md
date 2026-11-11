@@ -166,11 +166,20 @@ CodeRabbit の反応の中身は `Review limit reached` (レート制限、`Next
 | `NIGHTLY_APP_ID` | repository **variable** (Actions → Variables) |
 | `NIGHTLY_APP_PRIVATE_KEY` | repository **secret** (Actions → Secrets) |
 | `AUTONOMY_ENABLED` | repository **variable** (Actions → Variables)。現在値 `'true'` |
-| `CODERABBIT_TRIGGER_PAT` | repository **secret** (Actions → Secrets)。2026-08-10 登録。**fine-grained PAT / 対象リポジトリ 1 つ (`claude-code-hook-test`) / `Pull requests: Read and write` のみ / 期限あり**。用途は [`review-request.yml`](../../.github/workflows/review-request.yml) からのレビュー要求コメント投稿だけ (決定 16) |
+| `CODERABBIT_TRIGGER_PAT` | repository **secret** (Actions → Secrets)。2026-08-10 登録。**fine-grained PAT / 対象リポジトリ 1 つ (`claude-code-hook-test`) / `Pull requests: Read and write` のみ / 期限あり**。用途は [`review-request.yml`](../../.github/workflows/review-request.yml) からのレビュー要求コメント投稿だけ (決定 16)。**2026-11 に期限切れで失効させた (更新しない)** — § PAT の失効 (2026-11-11 決定) |
 
 **PAT は push もマージもできない。** どちらも `Contents: write` が必要で、本 PAT には付与していない。決定 8 が PAT を却下した理由 ([ADR-067](adr-067-phase-b-unattended-fix-push.md) の ruleset backstop 迂回) は、**push に使う PAT** に対するものであって権限を絞った PAT には当たらない。この非対称が決定 16 を成立させている。
 
 **期限切れは沈黙しない。** PAT が失効すると `review-request.yml` の投稿 step が失敗し、workflow が red になる。投稿できても CodeRabbit が反応しなければ検証 step が red になる (決定 16)。どちらの経路でも run 一覧から気づける。
+
+#### PAT の失効 (2026-11-11 決定)
+
+`CODERABBIT_TRIGGER_PAT` は 2026-11 の期限で失効させ、更新しない。secret の登録は残すので、失効後は認証エラーになる。
+
+- **日常の PR には影響しない。** `review-request.yml` の job は PR の作成者が Bot のときだけ起動する。人間が `pnpm create-pr` で作る PR では skip され (#628〜#632 の run はすべて `skipped`)、CodeRabbit の起動は cli-pr-monitor が手元の `gh` 認証で行う
+- **PAT を使う経路は動いていない。** nightly-todo は 2026-10-18 に schedule を外して休止した (最後の実行は 2026-10-17)。2026-11-11 時点で、直近 40 件の PR に Bot が作ったものは無い
+- **`AUTONOMY_ENABLED` は `'true'` のまま残している。** nightly-todo を `workflow_dispatch` で手動起動すると Bot の PR ができ、`review-request.yml` が認証エラーで red になる。黙って失敗はしない (投稿 step が原因と更新手順をログに出す)
+- **夜間ループを再開するときは、PAT を再発行して secret を更新する。** 権限は上表と同じ (対象リポジトリ 1 つ、`Pull requests: Read and write` のみ、期限あり) にする。ただし [ADR-085](adr-085-third-party-review-means.md) 決定 6 のとおり、CodeRabbit は seat を持たない Bot の PR をレビューしない。再開の前に、PAT より先にこの前提を見直す
 
 **付与権限は決定 8 の設計意図と完全に一致していた。** 同決定は「Contents: write / Pull requests: write / Metadata: read のみ。**Workflows は付けない**」と書いており、実体もそのとおりだった。Workflows が No access であることは、`.github/workflows/**` を含む push が権限層でも通らないことを意味し、決定 6 の禁止リストと二重の防御になっている。
 
