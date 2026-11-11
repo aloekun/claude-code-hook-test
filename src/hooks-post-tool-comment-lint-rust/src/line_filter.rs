@@ -16,6 +16,7 @@ use crate::violations::{LintViolation, MAX_VIOLATIONS};
 pub(crate) struct ToolInput {
     pub(crate) file_path: Option<String>,
     pub(crate) path: Option<String>,
+    pub(crate) old_string: Option<String>,
     pub(crate) new_string: Option<String>,
 }
 
@@ -26,7 +27,11 @@ pub(crate) struct ToolInput {
 /// - `None`: フィルタなし (= ファイル全体を lint)。Write / MultiEdit / 不明 tool / `new_string` が
 ///   見つからない場合 (line ending 差異等) のフォールバック。
 /// - `Some(ranges)`: 1-indexed inclusive 範囲のみ lint。
-/// - `Some(empty)`: lint をスキップ (Edit で `new_string` が空 = 純削除)。
+/// - `Some(empty)`: lint をスキップ (Edit で `new_string` が空 = 純削除、または中身の変わった行が無い)。
+///
+/// `old_string` があれば、`new_string` のうち `old_string` と前後で一致する行を範囲から外す
+/// ([`changed_line_span`])。Edit の文字列は照合のために変えていない行を前後に含むので、
+/// 外さないと既存のコメントや既存の長い関数を「触った」と判定する (#631 / #632 の作業で 3 回観測)。
 pub(crate) fn compute_changed_lines(
     tool_name: Option<&str>,
     tool_input: &ToolInput,
@@ -40,13 +45,55 @@ pub(crate) fn compute_changed_lines(
             }
             let ranges = locate_string_line_ranges(post_source, new_string);
             if ranges.is_empty() {
-                None
-            } else {
-                Some(ranges)
+                return None;
+            }
+            match tool_input.old_string.as_deref() {
+                Some(old) => Some(narrow_to_changed_lines(&ranges, old, new_string)),
+                None => Some(ranges),
             }
         }
         _ => None,
     }
+}
+
+/// `new_string` の出現範囲 (ファイルの行番号) を、中身の変わった行だけに縮める。
+fn narrow_to_changed_lines(ranges: &[(usize, usize)], old: &str, new: &str) -> Vec<(usize, usize)> {
+    let Some((first, end)) = changed_line_span(old, new) else {
+        return Vec::new();
+    };
+    ranges
+        .iter()
+        .map(|&(start, last)| (start + first, (start + end - 1).min(last)))
+        .filter(|(s, e)| s <= e)
+        .collect()
+}
+
+/// `new_string` を行に分けたとき、`old_string` と前後で一致する行を除いた部分を
+/// `[first, end)` (0 始まり) で返す。変わった行が無ければ (行の削除だけなど) `None`。
+///
+/// 行は改行を含めて分ける (`split_inclusive`)。`split('\n')` だと改行で終わる文字列の末尾に
+/// 行でない空の分割片が生じ、`"x\n"` → `"x\n\n"` で足した空行をそれと一致させて取りこぼす (#633)。
+///
+/// 後ろからの一致は、前からの一致と重ならない数までに抑える。`old` が `"a\nb\n"`、`new` が
+/// `"a\nb\nb\n"` のとき、重なりを許すと増えた行を一致と数えて取りこぼす。
+pub(crate) fn changed_line_span(old: &str, new: &str) -> Option<(usize, usize)> {
+    let old_lines: Vec<&str> = old.split_inclusive('\n').collect();
+    let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
+    let prefix = old_lines
+        .iter()
+        .zip(&new_lines)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let max_suffix = old_lines.len().min(new_lines.len()) - prefix;
+    let suffix = old_lines
+        .iter()
+        .rev()
+        .zip(new_lines.iter().rev())
+        .take(max_suffix)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let end = new_lines.len() - suffix;
+    (prefix < end).then_some((prefix, end))
 }
 
 pub(crate) fn locate_string_line_ranges(source: &str, needle: &str) -> Vec<(usize, usize)> {
@@ -308,6 +355,77 @@ mod tests {
         let t = tool_input_with(None);
         let result = compute_changed_lines(Some("Edit"), &t, "fn foo() {}\n");
         assert_eq!(result, None);
+    }
+
+    fn edit(old: &str, new: &str) -> ToolInput {
+        ToolInput {
+            old_string: Some(old.to_string()),
+            new_string: Some(new.to_string()),
+            ..ToolInput::default()
+        }
+    }
+
+    /// 照合のために含めた既存のコメント行は、範囲に入らない (#631 で `// NOTE:` を付けて回避した形)。
+    #[test]
+    fn unchanged_context_lines_are_not_in_the_range() {
+        let old = "    // existing\n    let y = 2;\n    let z = 3;";
+        let new = "    // existing\n    let y = 20;\n    let z = 3;";
+        let post = "fn foo() {\n    // existing\n    let y = 20;\n    let z = 3;\n}\n";
+        assert_eq!(compute_changed_lines(Some("Edit"), &edit(old, new), post), Some(vec![(3, 3)]));
+        let violations = collect_all_violations("a.rs", post, Some(&[(3, 3)]));
+        assert!(violations.is_empty(), "既存のコメントを報告した ({} 件)", violations.len());
+        assert!(
+            !collect_all_violations("a.rs", post, Some(&[(2, 2)])).is_empty(),
+            "対照: コメントの行が範囲に入れば報告される"
+        );
+    }
+
+    /// 行を消しただけの Edit は、残った行を変えていないので lint しない。`new_string` が `}` だけの
+    /// ときに、ファイル中のすべての `}` の行を範囲にして既存の長い関数を報告していた (#632)。
+    #[test]
+    fn a_deletion_that_keeps_only_context_lines_skips_lint() {
+        let old = "\n    fn removed() {\n        let a = 1;\n    }\n}";
+        let mut post = String::from("fn long() {\n");
+        for i in 0..(MAX_FUNCTION_LINES + 5) {
+            post.push_str(&format!("    let _x{i} = {i};\n"));
+        }
+        post.push_str("}\n");
+        assert_eq!(compute_changed_lines(Some("Edit"), &edit(old, "}"), &post), Some(Vec::new()));
+    }
+
+    #[test]
+    fn an_inserted_line_is_the_only_changed_line() {
+        assert_eq!(changed_line_span("a\nc", "a\nb\nc"), Some((1, 2)));
+        assert_eq!(changed_line_span("a\nb\n", "a\nb\nb\n"), Some((2, 3)));
+        assert_eq!(changed_line_span("a\nb", "a\nb\nb"), Some((1, 2)));
+        assert_eq!(changed_line_span("a\nb\nc", "a\nc"), None);
+        assert_eq!(changed_line_span("x", "y"), Some((0, 1)));
+    }
+
+    /// `new_string` が改行で終わると、最後の分割片は次の行に当たる。出現範囲の外へ広げない。
+    #[test]
+    fn the_range_does_not_pass_the_end_of_the_occurrence() {
+        let post = "fn foo() {}\nlet a = 1;\nlet b = 2;\nfn bar() {}\n";
+        let t = edit("let a = 1;\n", "let a = 1;\nlet b = 2;\n");
+        assert_eq!(compute_changed_lines(Some("Edit"), &t, post), Some(vec![(3, 3)]));
+    }
+
+    /// 末尾に足した空行は変わった行として残る。空の範囲にすると lint 全体を飛ばし、空行で
+    /// 関数長やファイル長の上限を超えても報告しない (#633 の CodeRabbit 指摘)。
+    #[test]
+    fn an_appended_blank_line_is_a_changed_line() {
+        assert_eq!(changed_line_span("let x = 1;\n", "let x = 1;\n\n"), Some((1, 2)));
+        let post = "let x = 1;\n\nfn f() {}\n";
+        let t = edit("let x = 1;\n", "let x = 1;\n\n");
+        assert_eq!(compute_changed_lines(Some("Edit"), &t, post), Some(vec![(2, 2)]));
+    }
+
+    /// `replace_all` で複数箇所に出現するときは、出現ごとに同じ位置の行だけを範囲にする。
+    #[test]
+    fn each_occurrence_is_narrowed_the_same_way() {
+        let post = "// keep\nlet x = 2;\nfn f() {}\n// keep\nlet x = 2;\n";
+        let t = edit("// keep\nlet x = 1;", "// keep\nlet x = 2;");
+        assert_eq!(compute_changed_lines(Some("Edit"), &t, post), Some(vec![(2, 2), (5, 5)]));
     }
 
     #[test]

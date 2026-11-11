@@ -173,6 +173,7 @@ mod tests {
         let t = parsed.tool_input.unwrap();
         assert_eq!(t.file_path.as_deref(), Some("/tmp/x.rs"));
         assert_eq!(t.new_string.as_deref(), Some("let x = 2; // comment"));
+        assert_eq!(t.old_string.as_deref(), Some("let x = 1;"));
     }
 
     #[test]
