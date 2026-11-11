@@ -178,7 +178,7 @@ CodeRabbit の反応の中身は `Review limit reached` (レート制限、`Next
 
 - **日常の PR には影響しない。** `review-request.yml` の job は PR の作成者が Bot のときだけ起動する。人間が `pnpm create-pr` で作る PR では skip され (#628〜#632 の run はすべて `skipped`)、CodeRabbit の起動は cli-pr-monitor が手元の `gh` 認証で行う
 - **PAT を使う経路は動いていない。** nightly-todo は 2026-10-18 に schedule を外して休止した (最後の実行は 2026-10-17)。2026-11-11 時点で、直近 40 件の PR に Bot が作ったものは無い
-- **`AUTONOMY_ENABLED` は `'true'` のまま残している。** nightly-todo を `workflow_dispatch` で手動起動すると Bot の PR ができ、`review-request.yml` が認証エラーで red になる。黙って失敗はしない (投稿 step が原因と更新手順をログに出す)
+- **`AUTONOMY_ENABLED` は `'true'` のまま残している。** 休止中の手動実行は `dry_run=true` に限っていて (`nightly-todo.yml` 冒頭のコメント)、dry_run では PR を作らないので PAT も使わない。`dry_run=false` で手動起動して各ゲートを通ると Bot の PR ができ、`review-request.yml` が失効した PAT で認証エラーになって red になる。黙って失敗はしない (投稿 step が原因と更新手順をログに出す)
 - **夜間ループを再開するときは、PAT を再発行して secret を更新する。** 権限は上表と同じ (対象リポジトリ 1 つ、`Pull requests: Read and write` のみ、期限あり) にする。ただし [ADR-085](adr-085-third-party-review-means.md) 決定 6 のとおり、CodeRabbit は seat を持たない Bot の PR をレビューしない。再開の前に、PAT より先にこの前提を見直す
 
 **付与権限は決定 8 の設計意図と完全に一致していた。** 同決定は「Contents: write / Pull requests: write / Metadata: read のみ。**Workflows は付けない**」と書いており、実体もそのとおりだった。Workflows が No access であることは、`.github/workflows/**` を含む push が権限層でも通らないことを意味し、決定 6 の禁止リストと二重の防御になっている。
