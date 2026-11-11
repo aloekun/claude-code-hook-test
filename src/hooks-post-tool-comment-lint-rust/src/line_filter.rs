@@ -71,11 +71,14 @@ fn narrow_to_changed_lines(ranges: &[(usize, usize)], old: &str, new: &str) -> V
 /// `new_string` を行に分けたとき、`old_string` と前後で一致する行を除いた部分を
 /// `[first, end)` (0 始まり) で返す。変わった行が無ければ (行の削除だけなど) `None`。
 ///
-/// 後ろからの一致は、前からの一致と重ならない数までに抑える。`old` が `"a\nb"`、`new` が
-/// `"a\nb\nb"` のとき、重なりを許すと増えた行を一致と数えて取りこぼす。
+/// 行は改行を含めて分ける (`split_inclusive`)。`split('\n')` だと改行で終わる文字列の末尾に
+/// 行でない空の分割片が生じ、`"x\n"` → `"x\n\n"` で足した空行をそれと一致させて取りこぼす (#633)。
+///
+/// 後ろからの一致は、前からの一致と重ならない数までに抑える。`old` が `"a\nb\n"`、`new` が
+/// `"a\nb\nb\n"` のとき、重なりを許すと増えた行を一致と数えて取りこぼす。
 pub(crate) fn changed_line_span(old: &str, new: &str) -> Option<(usize, usize)> {
-    let old_lines: Vec<&str> = old.split('\n').collect();
-    let new_lines: Vec<&str> = new.split('\n').collect();
+    let old_lines: Vec<&str> = old.split_inclusive('\n').collect();
+    let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
     let prefix = old_lines
         .iter()
         .zip(&new_lines)
@@ -393,7 +396,8 @@ mod tests {
     #[test]
     fn an_inserted_line_is_the_only_changed_line() {
         assert_eq!(changed_line_span("a\nc", "a\nb\nc"), Some((1, 2)));
-        assert_eq!(changed_line_span("a\nb", "a\nb\nb"), Some((2, 3)));
+        assert_eq!(changed_line_span("a\nb\n", "a\nb\nb\n"), Some((2, 3)));
+        assert_eq!(changed_line_span("a\nb", "a\nb\nb"), Some((1, 2)));
         assert_eq!(changed_line_span("a\nb\nc", "a\nc"), None);
         assert_eq!(changed_line_span("x", "y"), Some((0, 1)));
     }
@@ -404,6 +408,16 @@ mod tests {
         let post = "fn foo() {}\nlet a = 1;\nlet b = 2;\nfn bar() {}\n";
         let t = edit("let a = 1;\n", "let a = 1;\nlet b = 2;\n");
         assert_eq!(compute_changed_lines(Some("Edit"), &t, post), Some(vec![(3, 3)]));
+    }
+
+    /// 末尾に足した空行は変わった行として残る。空の範囲にすると lint 全体を飛ばし、空行で
+    /// 関数長やファイル長の上限を超えても報告しない (#633 の CodeRabbit 指摘)。
+    #[test]
+    fn an_appended_blank_line_is_a_changed_line() {
+        assert_eq!(changed_line_span("let x = 1;\n", "let x = 1;\n\n"), Some((1, 2)));
+        let post = "let x = 1;\n\nfn f() {}\n";
+        let t = edit("let x = 1;\n", "let x = 1;\n\n");
+        assert_eq!(compute_changed_lines(Some("Edit"), &t, post), Some(vec![(2, 2)]));
     }
 
     /// `replace_all` で複数箇所に出現するときは、出現ごとに同じ位置の行だけを範囲にする。
