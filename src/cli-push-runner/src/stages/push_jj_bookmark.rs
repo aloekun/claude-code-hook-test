@@ -565,12 +565,15 @@ mod tests {
             );
         }
 
-        /// 対比: マーカーと同じ名前空間の bookmark でも、trunk より先で target の祖先にあれば、
-        /// 主経路 (`trunk()..target`) で前進する。マーカーは主経路に現れないので邪魔をしない。
-        /// fallback は通らない。fallback が前進させられる bookmark は #631 以降は無い (順位 607)。
+        /// 対比: 除外は名前ではなく位置で決まる。マーカーと同じ名前空間の bookmark でも、
+        /// trunk より先 (rebase 後の夜間 PR) を指していれば従来どおり前進する。マーカーが
+        /// 並んでいても、それを数えずに前進先を 1 つに決める。
+        ///
+        /// target (fix commit) 自身には bookmark が無いので、主経路 (target を直接照会) では
+        /// 見つからず fallback に入る。`claude/nightly-13` は target の祖先なので前方向の移動になる。
         #[test]
         #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
-        fn a_branch_next_to_a_marker_advances_on_the_main_path() {
+        fn a_branch_off_trunk_still_advances_next_to_a_marker() {
             let tmp = tempfile::tempdir().unwrap();
             let repo = tmp.path().join("r");
             init_base_with_trunk(&repo);
