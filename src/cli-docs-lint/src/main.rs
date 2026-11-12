@@ -30,7 +30,6 @@
 use cli_docs_lint::{
     adr_index, config_banners, convention_declaration, cross_ref, entry_pairing, origin_markers,
     preamble,
-    priority_inversion,
     rustdoc_links,
     todo_routing,
     Violation,
@@ -65,11 +64,6 @@ const CHECKS: &[CheckSpec] = &[
         name: "cross-ref",
         summary: "docs/**/*.md の relative link validator (directory-aware)",
         run: cross_ref::check,
-    },
-    CheckSpec {
-        name: "priority-inversion",
-        summary: "todo-summary*.md table の Tier N→Tier N+k 依存を検知",
-        run: priority_inversion::check,
     },
     CheckSpec {
         name: "origin-markers",

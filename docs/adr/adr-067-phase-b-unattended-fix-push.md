@@ -71,7 +71,7 @@ ADR-066 § 決定 3 は「CI では master ref の写しを `--config` へ渡す
 
 ### 5. 実際に自動化される範囲は「docs 指摘の修正」に閉じる
 
-内容軸が ADR-035 の docs-only 基準である以上、Phase B が無人 push できるのは **docs / `.md` の変更だけ**である (`.claude/` `.takt/` は形式上 md でも code-equivalent として除外)。ADR-052 の自動実行可クラスは「docs-only 変更」と「Tier 3 cleanup」を挙げるが、後者は機械判定できないため対象外とする (分類不能はゲート必須、ADR-052 原則 3)。
+内容軸が ADR-035 の docs-only 基準である以上、Phase B が無人 push できるのは **docs / `.md` の変更だけ**である (`.claude/` `.takt/` は形式上 md でも code-equivalent として除外)。ADR-052 の自動実行可クラスは「docs-only 変更」と「局所 cleanup」(旧称 Tier 3 cleanup、[ADR-090](adr-090-todo-tier-as-kind.md) で改名) を挙げるが、後者は機械判定できないため対象外とする (分類不能はゲート必須、ADR-052 原則 3)。
 
 これは意図的に狭い。ADR-052 原則 5 が要求する背圧・kill-switch の運用実績が無い段階で広い権限を渡さない、という順序判断である。
 
@@ -252,7 +252,7 @@ PR #358 で `Push fix` を静的に監査し、コードを変える必要のあ
 - **repository ruleset による最終防波堤**: 設定済み (段 0)。実体は ruleset `phase-b-backstop-restrict-non-claude-push` で、`~ALL` ブランチを対象に `creation` / `update` / `non_fast_forward` を禁止し、`refs/heads/claude/**` を除外、bypass は RepositoryRole 5 (Repository admin) のみ。段 2 で**除外条件が効くこと**は観測できた (Phase B の `GITHUB_TOKEN` push が `claude/*` へ bypass 警告なしで成功する一方、ローカルからの非 `claude/` ブランチ push には `Bypassed rule violations` が出た)。ただし**`claude/` 以外へ `GITHUB_TOKEN` が push しようとして deny される**ことは依然未観測 — workflow の prefix gate が先に止めるため意図的に起こしにくい。なお副作用として master へのマージには毎回 admin bypass のチェック操作が要る。GitHub の ruleset は actor ベースの制限を書けず「全体を制限 + admin を bypass」が唯一の実現方法なので、これは設計上避けられない (緩めると `GITHUB_TOKEN` が master へ push できるようになり防波堤の意味が失われる)。
 - **「編集対象ファイル本文の指示に fix agent が影響される」経路は依然未実証**。段 2 では抑止要因を削除してから実走したため、残したまま走らせた場合の挙動は観測していない。リスクとして扱い、実証されたら [ADR-054](adr-054-prompt-injection-trust-boundary-defense.md) へ記帳する。
 - `cargo build` のキャッシュ導入 (job 時間短縮)。
-- Tier 3 cleanup の機械判定 — 現状は分類不能としてゲート必須に倒れている。判定を導入するなら ADR-052 内容軸の拡張として別途起票する。
+- 局所 cleanup の機械判定 — 現状は分類不能としてゲート必須に倒れている。判定を導入するなら ADR-052 内容軸の拡張として別途起票する。
 
 ## LLM を含む自動化経路は実走でしか検証できない (2026-09-13 追記)
 

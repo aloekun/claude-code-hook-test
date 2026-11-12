@@ -39,7 +39,7 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 | 操作 | 根拠 |
 |---|---|
 | docs-only 変更（[ADR-035](adr-035-doc-evaluation-policy.md) の path 基準 + diff 内容基準） | 実行されないテキスト変更。revert 容易 |
-| Tier 3 cleanup（todo taxonomy の Tier 3 = 低リスクな機械的 refactor / doc / rule / visibility scoping 等） | 意図表現を侵さない局所変更。revert 容易 |
+| 局所 cleanup（低リスクな機械的 refactor / doc / rule / visibility scoping 等。2026-11-12 に旧称「Tier 3 cleanup」から改名 — todo 台帳の Tier はタスクの種類を表すようになり、Tier 3 = ドキュメント / ルールと取り違えるため。[ADR-090](adr-090-todo-tier-as-kind.md)） | 意図表現を侵さない局所変更。revert 容易 |
 | `claude/` prefix ブランチへの push | trunk ではない隔離 namespace。ブランチ push は revert 可能で、まだ PR として外部にコミットされていない |
 | `claude/` ブランチからの **PR 作成**（draft / 非 draft を問わない = **autonomous-pr クラス**） | 「無人実装 → 人間レビューへの handoff 点」として設計上の停止地点になる。close は容易で、マージしない限り trunk に影響しない。**背圧（原則 5）の接続が有効化の前提条件** |
 | **自分が作った `claude/` ブランチの削除**（**PR が紐づくものに限る**。closed / merged を問わない） | `claude/**` 空間内で trunk に影響しない。PR があれば成果物と diff は PR 上に残り、GitHub の **Restore branch** で復元できる。PR が紐づく = 人間が close か merge かの判断を済ませたもの（[ADR-072](adr-072-nightly-todo-loop.md) 決定 20） |
@@ -54,7 +54,7 @@ ADR-028 は「自律性（判断の複雑度）」と「外部可視性（取り
 | PR マージ | 後戻り不可 |
 | trunk（master）/ protected branch への push | 外部可視かつ revert 困難 |
 
-**分類の合成（内容軸 × target 軸）**: 上記 2 表は独立した 2 軸を含む — 操作の**内容**（docs-only / Tier3 cleanup 等）と push / PR の**target**（`claude/` ブランチか trunk か）。両者は合成的に評価し、**いずれかの軸がゲート必須なら操作全体がゲート必須**とする（fail-closed の合成、原則 3 と整合）。したがって「docs-only 変更」の自動実行可は `claude/` 等の非 protected ブランチ上に限られ、同一内容でも trunk（master）への直接 push は常にゲート必須である（自律 actor は `claude/` ブランチに閉じる運用が前提だが、表の読み違いを防ぐため明示する）。
+**分類の合成（内容軸 × target 軸）**: 上記 2 表は独立した 2 軸を含む — 操作の**内容**（docs-only / 局所 cleanup 等）と push / PR の**target**（`claude/` ブランチか trunk か）。両者は合成的に評価し、**いずれかの軸がゲート必須なら操作全体がゲート必須**とする（fail-closed の合成、原則 3 と整合）。したがって「docs-only 変更」の自動実行可は `claude/` 等の非 protected ブランチ上に限られ、同一内容でも trunk（master）への直接 push は常にゲート必須である（自律 actor は `claude/` ブランチに閉じる運用が前提だが、表の読み違いを防ぐため明示する）。
 
 > **改訂（2026-08-09、ユーザー判断）— draft 軸の撤去**
 >

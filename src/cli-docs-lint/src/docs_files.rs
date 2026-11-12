@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 ///
 /// 分割された index の全 part (`todo-summary.md` / `todo-summary2.md` / 将来の
 /// `todo-summary3.md`) にマッチする。**この 1 箇所が唯一の定義**であり、
-/// `entry_pairing` / `priority_inversion` / `preamble` はここを参照する。
+/// `entry_pairing` / `preamble` はここを参照する (`priority_inversion` は 2026-11-12 に撤去、ADR-090)。
 pub const SUMMARY_FILE_PREFIX: &str = "todo-summary";
 
 /// ファイル名が順位 table ファイルか (I/O なし)。
