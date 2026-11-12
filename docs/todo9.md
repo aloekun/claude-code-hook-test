@@ -26,7 +26,7 @@
 >
 > **参照**: `~/.claude/rules/common/testing.md` § Minimum Test Coverage、`push-runner-config.toml` (新 step 追加候補)、`.github/workflows/` (未存在の場合 CI workflow 新設)、`cargo-llvm-cov` crate
 >
-> **実行優先度**: **Tier 2** — Effort S-M。実測カバレッジ次第で段階導入計画が必要 (現状未測定)。
+> **種類**: Tier 1 — CI の必須検査 (coverage gate) の追加。工数 S-M。実測カバレッジ次第で段階導入計画が必要 (現状未測定)。
 
 #### 設計決定 (案)
 
@@ -69,7 +69,7 @@
 >
 > **参照**: `~/.claude/rules/common/development-workflow.md` § 長時間 subprocess pipe truncate 禁止、`src/hooks-pre-tool-validate/src/main.rs` (`preset_exe_help_block` を template に拡張)、PR #109 SIGPIPE 事故 (ADR-030 root cause)
 >
-> **実行優先度**: **Tier 2** — Effort S。既存 preset 拡張 ~30 行 + test。
+> **種類**: Tier 1 — hook の検出対象の拡張。工数 S。既存 preset 拡張 ~30 行 + test。
 
 #### 設計決定 (案)
 
@@ -117,7 +117,7 @@
 >
 > **参照**: `~/.claude/rules/common/coding-style.md` § Magic Numbers、`.claude/custom-lint-rules.toml` (新 rule 追加候補)、順位 102 paths filter 実装、順位 118 rule⑧ paths filter 適用範囲検討
 >
-> **実行優先度**: **Tier 2** — Effort M。custom lint rule 1 件追加 + paths filter design + test coverage 必要。
+> **種類**: Tier 1 — custom lint rule の追加。工数 M。custom lint rule 1 件追加 + paths filter design + test coverage 必要。
 
 #### 設計決定 (案)
 
@@ -171,7 +171,7 @@
 >
 > **参照**: `.claude/feedback-reports/173.md` Tier 2 #1、順位 136 entry (本ファイル内)、PR #173 セッションで実施した実装 grep 検証 (rank 125 = `run_custom_rules_line_number_correct_with_multibyte_content` test 存在 / rank 139 = `docs/adr/adr-041-test-isolation-patterns.md` 存在 / rank 141 = `fix_push_time` + `RATE_LIMIT_BUT_MERGEABLE` シグナル存在)、ADR-042 (rule vs mechanism boundary)、memory `feedback_pipeline_over_rules.md`
 >
-> **実行優先度**: **Tier 2** — Effort XS-S。順位 136 に統合する場合は追加 ~15 行 (edit 種別判定 + delete branch)、独立 hook の場合は ~40 行 (構造的に分離)。
+> **種類**: Tier 1 — hook による削除時の警告。工数 XS-S。順位 136 に統合する場合は追加 ~15 行 (edit 種別判定 + delete branch)、独立 hook の場合は ~40 行 (構造的に分離)。
 
 #### 設計決定 (案)
 
@@ -218,7 +218,7 @@
 >
 > **参照**: ADR-031 (週次レビュー設計、本採用 2026-06-01)、順位 146-151 Bundle 既存ルール仕組み化、`feedback_no_unenforced_rules.md`、`feedback_pipeline_over_rules.md`
 >
-> **実行優先度**: **Tier 2** — Effort S。ADR-031 本採用後 (2026-06-01) のさらに 2-3 週 dogfood 後に着手判断。
+> **種類**: Tier 3 — takt facet の追加。工数 S。ADR-031 本採用後 (2026-06-01) のさらに 2-3 週 dogfood 後に着手判断。
 
 #### 設計決定 (案)
 
@@ -267,7 +267,7 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-05-30.md` § Findings、`src/cli-pr-monitor/src/state.rs:226-510` (既存 test、JSON round-trip のみ)、`docs/adr/adr-041-test-isolation-patterns.md` (適用 pattern source)
 >
-> **実行優先度**: **Tier 2** — Effort S。3-5 test 追加で済む、既存 ADR-041 pattern 流用。
+> **種類**: Tier 2 — テストの追加。工数 S。3-5 test 追加で済む、既存 ADR-041 pattern 流用。
 
 #### 設計決定 (案)
 
@@ -460,7 +460,7 @@
 >
 > **参照**: `.claude/feedback-reports/196.md` Tier 3 #5、PR #196 pre-push OBS-1 (`.takt/runs/20260605-054100-pre-push-review/`)、PR #123 同型事象 (analyzer report 内 cite)、memory `feedback_global_config_backup` (snapshot 必須)
 >
-> **実行優先度**: **Tier 3** — Effort XS。global rule への 1-2 行追記。
+> **種類**: Tier 3 — ルール文書の追記。工数 XS。global rule への 1-2 行追記。
 
 #### 設計決定 (案)
 

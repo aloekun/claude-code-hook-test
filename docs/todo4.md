@@ -18,7 +18,7 @@
 >
 > **参照**: PR #96 セッション内議論、ユーザーフィードバック「mutation scope を 変更ファイル + 依存モジュール 1 層 に拡大」。
 >
-> **実行優先度**: **Tier 2** — 工数 Medium。post-PR pipeline (post-pr-monitor の前後) に組み込み、PR 単位で 1-5 分追加。user 待機 0 (async)。
+> **種類**: Tier 2 — post-PR パイプラインへの自動化 step の追加。工数 M。post-PR pipeline (post-pr-monitor の前後) に組み込み、PR 単位で 1-5 分追加。user 待機 0 (async)。
 
 #### 背景
 
@@ -66,7 +66,7 @@
 >
 > **参照**: PR #96 セッション内議論、ユーザーフィードバック「stress test は scheduling 空間の探索」。
 >
-> **実行優先度**: **Tier 2** — 工数 Small。cli-push-runner に +~1 秒 step として追加。Bundle W で書かれた loom test と相補的 (loom は in-memory 限定、stress は filesystem も含む実環境 race)。
+> **種類**: Tier 2 — テスト実行の自動化 (stress runner)。工数 S。cli-push-runner に +~1 秒 step として追加。Bundle W で書かれた loom test と相補的 (loom は in-memory 限定、stress は filesystem も含む実環境 race)。
 
 #### 背景
 
@@ -111,7 +111,7 @@
 >
 > **参照**: PR #96 セッション内議論、ADR-031 (週次レビューパイプライン、本採用 2026-06-01、PR #192)。
 >
-> **実行優先度**: **Tier 3** — 工数 Small (ADR-031 への追加扱い)。Bundle X land 後に着手。
+> **種類**: Tier 2 — 週次パイプラインへの自動化 step の追加。工数 S (ADR-031 への追加扱い)。Bundle X land 後に着手。
 
 #### 背景
 
@@ -156,7 +156,7 @@
 >
 > **参照**: `.claude/feedback-reports/98.md` Tier 1 #2、PR #175 Bundle 2 (push-runner bookmark_check stage 実装)
 >
-> **実行優先度**: **Tier 1** — Effort XS。SKILL.md Step 1 に確認コマンド 1 行 + fallback 表への明示マッピング追加のみ。Status update により push-runner との二重防御 / 派生プロジェクト向け knowledge transfer として位置付け。
+> **種類**: Tier 3 — SKILL.md の手順の追記。工数 XS。SKILL.md Step 1 に確認コマンド 1 行 + fallback 表への明示マッピング追加のみ。Status update により push-runner との二重防御 / 派生プロジェクト向け knowledge transfer として位置付け。
 
 #### 設計決定 (案)
 
@@ -198,7 +198,7 @@
 >
 > **参照**: ADR-034 (CodeRabbit 監視・対話の自動化戦略)、PR #99 / #97 session log (token bloat 実観測)、PR #172 (順位 144 = `jj-message-required` preset 実装事例)、`src/hooks-pre-tool-validate/src/main.rs` の `preset_jj_message_required` を template に追加
 >
-> **実行優先度**: **Tier 3** — Effort M (順位 144 と同型実装で工数把握済、~90 分見込み)。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため Sub-PR 1 で先行 land 推奨。
+> **種類**: Tier 1 — PreToolUse hook の preset 追加。工数 M (順位 144 と同型実装で工数把握済、~90 分見込み)。Sub-PR 2 (cli-pr-monitor の rate-limit auto-retry) でも `gh api` を使うため、Sub-PR 1 を先に land する。
 
 #### 設計決定 (案、順位 144 hook 実装を template に踏襲)
 
@@ -256,7 +256,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: PR #115 CR Major #1+#2 解消経緯、`.claude/feedback-reports/115.md` Tier 3 #1、CLAUDE.md `security.md` (input validation)、ADR-022 (責務分離原則) の延長
 >
-> **実行優先度**: **Tier 3** — Effort S。順位 76 / 77 が land した後の codification PR。
+> **種類**: Tier 3 — ADR の新設。工数 S。順位 76 / 77 が land した後の codification PR。
 
 #### 設計決定 (案)
 
@@ -302,7 +302,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: PR #117 retirement の経緯 (`docs/coderabbit-monitoring-efficiency.md` 削除)、`.claude/feedback-reports/117.md` Tier 3 #1、`~/.claude/rules/common/docs-governance.md` § Retirement Workflow Step 2
 >
-> **実行優先度**: **Tier 3** — Effort XS。1 セクションに 5-10 行追記。
+> **種類**: Tier 3 — docs の要件の追記。工数 XS。1 セクションに 5-10 行追記。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -343,7 +343,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: PR #120 walkthrough comment (16:41Z 投稿)、`.claude/feedback-reports/120.md` Tier 1 #2、[ADR-018 §追記 2026-05-08](adr/adr-018-pr-monitor-takt-migration.md)
 >
-> **実行優先度**: **Tier 1 (defer)** — §A-2 P-5 PR (2026-05-08) で Defer 判定。1 観測のみで systemic 性未確認のため、ユーザー方針 `feedback_no_unenforced_rules` (機械検知不可なら何もしない方がマシ) と整合させて 3 PR 観測閾値到達まで待つ。
+> **種類**: Tier 2 — exe (`cli-pr-monitor`) の retry 拡張。工数 M。§A-2 P-5 PR (2026-05-08) で Defer 判定。1 観測のみで systemic 性未確認のため、ユーザー方針 `feedback_no_unenforced_rules` (機械検知不可なら何もしない方がマシ) と整合させて 3 PR 観測閾値到達まで待つ。
 >
 > **Re-trigger 条件**: `Failed to post review comments` (またはそれに類する rate-limit 以外の CR transient failure) が他の PR で 1 件以上追加観測 (合計 2 件以上) されたら本タスクを再活性化、実装に着手。
 
@@ -373,7 +373,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: `.claude/feedback-reports/101.md` Tier 2 #1、`.claude/feedback-reports/99.md`、`~/.claude/rules/common/coding-style.md` "Never silently swallow errors"
 >
-> **実行優先度**: **Tier 2** — Effort M。新 test ファイル + gh API モック。Sub-PR 2 と一体実装。
+> **種類**: Tier 2 — テスト基盤の追加。工数 M。新 test ファイル + gh API モック。Sub-PR 2 と一体実装。
 
 #### 設計決定 (案)
 
@@ -417,7 +417,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: 順位 50 PR (`src/hooks-post-tool-comment-lint-rust/src/main.rs` の `compute_changed_lines`)、Claude Code MultiEdit tool spec
 >
-> **実行優先度**: **Tier 3** — Effort S。`compute_changed_lines` に MultiEdit branch を追加。
+> **種類**: Tier 1 — PostToolUse hook (comment-lint) の対象拡張。工数 S。`compute_changed_lines` に MultiEdit branch を追加。
 
 #### 設計決定 (案)
 
@@ -452,7 +452,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: (削除済) `docs/pipeline-token-efficiency.md` #A-3 セクション、`src/cli-merge-pipeline/` の transcript 生成ロジック
 >
-> **実行優先度**: **Tier 3** — Effort M。ROI ★★★ で優先度中程度、dogfood 実測が必要。
+> **種類**: Tier 2 — exe (`cli-merge-pipeline`) の transcript 生成の変更。工数 M。dogfood 実測が必要。
 
 #### 設計決定 (案)
 
@@ -498,7 +498,7 @@ PR で空き番号を取得する運用に統一。
 >
 > **参照**: `.claude/feedback-reports/108.md` Tier 2 #1、PR #108 review (`Outside diff range comments` セクション、reviewer comment id 4217897113)、`src/check-ci-coderabbit/src/main.rs` (`parse_findings` 系 + `--list-findings` mode = 順位 45)、`.takt/facets/instructions/analyze-coderabbit.md`、PR #172 (順位 144 hook 化の dogfood 成功事例)
 >
-> **実行優先度**: **Tier 2** — Effort M。`check-ci-coderabbit` 既存 crate への parse 機能追加 + analyze-coderabbit 連携。
+> **種類**: Tier 2 — exe (`check-ci-coderabbit`) の機能追加。工数 M。`check-ci-coderabbit` 既存 crate への parse 機能追加 + analyze-coderabbit 連携。
 
 #### 設計決定 (案)
 

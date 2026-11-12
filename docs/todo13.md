@@ -23,7 +23,7 @@
 >
 > **参照**: `.claude/feedback-reports/224.md` Tier 3 #1、`docs/adr/adr-022-automation-responsibility-separation.md` (追記対象)、`src/cli-pr-monitor/src/fix_commit/abandon.rs` (`create_fix_commit` → takt amend → `try_abandon_empty_fix_commit` のシーケンス、cite 対象 + integration test 参照)、PR #224 CR#2 却下 reply (pull/224 discussion_r3487797338)。
 >
-> **実行優先度**: **Tier 3** — Effort S。doc-only。
+> **種類**: Tier 3 — ADR の拡張。工数 S。doc-only。
 
 #### 作業計画
 
@@ -46,7 +46,7 @@
 >
 > **参照**: PR #224 merge (`1c0f345b` land 後)、`.takt/facets/instructions/analyze-session.md` (+ analyze-pr / aggregate-feedback、修正対象)、`.takt/workflows/post-merge-feedback.yaml` (workflow)、`.takt/post-merge-feedback-transcript.jsonl` (gitignore 済の transcript = jq で直接読めば script 不要)、`cli-merge-pipeline` post_steps (検知ステップ追加候補)。
 >
-> **実行優先度**: **Tier 2** — Effort S-M。facet instruction 追記 (S) + 検知ステップ実装 (S-M)。
+> **種類**: Tier 2 — facet instruction の追記と検知 step の実装 (主な成果物は検知 step)。工数 S-M。facet instruction 追記 (S) + 検知ステップ実装 (S-M)。
 
 #### 設計決定 (案)
 
@@ -94,7 +94,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/227.md` Tier 3 #1、memory `~/.claude/projects/C--Users-owner-work-ccht-improve/memory/feedback-di-over-ambient-global-tests.md`、PR #227 (state path DI)、PR #224 (env_override_lock)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。memory への数行追記。
+> **種類**: Tier 3 — memory の追記。工数 XS。memory への数行追記。
 
 #### 設計決定 (案)
 
@@ -124,7 +124,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/227.md` Tier 3 #2、`docs/adr/adr-022-automation-responsibility-separation.md`、PR #224 T2-2 (env_override_lock)、PR #227 (state path DI)、順位 234 (memory 拡張、相補)。
 >
-> **実行優先度**: **Tier 3** — Effort S。ADR-022 への Appendix 追加。
+> **種類**: Tier 3 — ADR への Appendix の追加。工数 S。ADR-022 への Appendix 追加。
 
 #### 設計決定 (案)
 
@@ -157,7 +157,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/229.md` Tier 2 #1、PR #227 (`3d8e2aac`)、`src/cli-pr-monitor/src/stages/create_pr.rs` test module。
 >
-> **実行優先度**: **Tier 2** — Effort M。
+> **種類**: Tier 2 — 回帰テストの追加。工数 M。
 
 #### 作業計画
 
@@ -180,7 +180,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/230.md` Tier 3 #2、PR #230 (`3e7fdf9e`)、`src/cli-merge-pipeline/src/feedback/*.rs` (pub → pub(crate) 揃え対象)、`CLAUDE.md` (方針明文化先)、[ADR-080](adr/adr-080-rust-module-split-invariants.md) § 2: cross-module visibility は pub(crate) (旧 file-length-enforcement-plan § 制約条件の pub(crate) ガイド、2026-08-12 に convention 集へ移設、2026-09-13 に ADR 化)。
 >
-> **実行優先度**: **Tier 3** — Effort S。
+> **種類**: Tier 2 — 可視性のコード修正 (CLAUDE.md の明文化を伴う)。工数 S。
 
 #### 作業計画
 
@@ -203,7 +203,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、[ADR-080](adr/adr-080-rust-module-split-invariants.md) (旧 file-length-enforcement-plan § 制約条件の「Cross-module visibility は pub(crate)」、2026-08-12 移設)、順位 241。**注意**: 旧 file-length-enforcement-plan.md は 2026-08-12 に削除済み。配置先は [ADR-080](adr/adr-080-rust-module-split-invariants.md) § 2: cross-module visibility は pub(crate) になった (2026-08-12 に一旦 convention 集へ移設、2026-09-13 に ADR 化して恒久配置が確定)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。
+> **種類**: Tier 3 — 手順のチェックリストの追記。工数 XS。
 
 #### 作業計画
 
@@ -226,7 +226,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #2、memory `feedback_test_dry_antipattern`、`~/.claude/rules/common/coding-style.md` (追記先)、[ADR-080](adr/adr-080-rust-module-split-invariants.md) § 3: test helper は per-module に複製する (旧 file-length-enforcement-plan § test helper は per-module duplicate、2026-08-12 に convention 集へ移設、2026-09-13 に ADR 化)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。
+> **種類**: Tier 3 — ルール文書の明文化。工数 XS。
 
 #### 作業計画
 
@@ -247,7 +247,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #3、順位 151 (`pr_size_check` stage)、`push-runner-config.toml` `[pr_size_check]` section (追記先)、[ADR-069](adr/adr-069-pr-chain-declaration.md) § 3: 切断点ヒューリスティクス (`PR_SIZE_CHECK_OVERRIDE` の正当な use case、旧 file-length-enforcement-plan § push 手順の override use case、2026-08-12 に convention 集へ移設、2026-09-13 に ADR-069 へ再移設)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。
+> **種類**: Tier 3 — config のコメントによるポリシーの明文化。工数 XS。
 
 #### 作業計画
 

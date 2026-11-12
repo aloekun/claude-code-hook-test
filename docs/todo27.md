@@ -30,7 +30,7 @@
 >
 > **参照**: `.claude/feedback-reports/342.md` / `343.md` / `344.md` (各 Rationale)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-063](adr/adr-063-linux-portability-release-binaries.md)。
 >
-> **実行優先度**: Tier 3 — 各件 Effort XS〜S・合計 M / Adoption Risk None。Severity High 2 件 (#7, #8) を含むため docs バッチとしては早めの実施が望ましい。
+> **種類**: Tier 3 — docs のバッチ更新。工数 XS-S。
 
 #### 作業計画
 
@@ -52,7 +52,7 @@
 >
 > **参照**: [ADR-068](adr/adr-068-fix-step-authority-boundary.md) § 決定 3 / 残課題、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) § 欠点 (pre-push 展開の予告元)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (post-pr 側の先行実装)、PR #348 security review 注記。依存: WP-17 再分割 PR (lib-scope-guard の land) 後が効率的。
 >
-> **実行優先度**: Tier 2 — Severity High (injection 防御の穴) / Frequency Low (fix 発生時のみ) / Effort M / Adoption Risk Low (既存 stage への追加、kill-switch つき)。
+> **種類**: Tier 1 — push 前の検査 (scope guard) の展開。工数 M。
 
 #### 作業計画
 
@@ -79,7 +79,7 @@
 >
 > **参照**: [ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-072](adr/adr-072-nightly-todo-loop.md) 決定 14 § 3 つ目の公開面、[screening.rs](../src/lib-ledger/src/screening.rs) (2 関数の対照が実装済み)。
 >
-> **実行優先度**: Tier 1 — Severity Medium / Frequency **High** (出力面は増え続ける) / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — 原則の明文化。工数 S。
 
 #### 作業計画
 
@@ -114,7 +114,7 @@
 >
 > **参照**: [markers.rs](../src/cli-merge-pipeline/src/feedback/markers.rs) (`check_concurrent_run_guard`)、[run_registry.rs](../src/cli-merge-pipeline/src/feedback/run_registry.rs) (`collect_feedback_runs`)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md) § task labeling convention、[ADR-031](adr/adr-031-weekly-review-pipeline.md) (週次の棚卸し先)。
 >
-> **実行優先度**: Tier 3 — Severity Low (現時点で実害なし) / Frequency Medium (単調増加) / Effort S (案 1) 〜 M (案 2) / Adoption Risk Low。
+> **種類**: Tier 2 — exe の走査の絞り込みと保持ポリシーの実装。工数 S (案 1) - M (案 2)。
 
 #### 作業計画
 

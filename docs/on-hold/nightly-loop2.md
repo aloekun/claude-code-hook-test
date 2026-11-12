@@ -188,7 +188,7 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
+> **種類**: Tier 2 — workflow (`review-request`) の判定と待機時間の修正。工数 S。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
 
 #### 作業計画
 
@@ -208,7 +208,7 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 >
 > **由来**: `[improvement]`。順位 585 の作業計画のうち「待ち時間を延ばすかを決める (着手時判断)」を、2026-10-30 のユーザー判断で切り出した。このワークフローは bot が作った PR だけが対象で、夜間ループは 2026-10-18 から休止している ([ADR-072](../adr/adr-072-nightly-todo-loop.md)) ため、今は動いていない。実測が 1 件しか無い今より、再開時の実測で決めたほうが根拠のある値にできる。
 >
-> **実行優先度**: Tier 3 — Effort S。**夜間ループの再開前に行う**。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
+> **種類**: Tier 3 — 再開前の扱いの判断と記録。工数 S。**夜間ループの再開前に行う**。Guard 禁止パス (`.github/workflows/`) の変更なので human lane。
 
 #### 作業計画
 
@@ -229,7 +229,7 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 >
 > **由来**: `[improvement]`。2026-11-01 に順位 562 から分けた。CI で lint:workflows を走らせる部分は順位 562 に残し、2026-11-02 に済ませた。
 >
-> **実行優先度**: Tier 2 — Effort S。Guard 禁止パス (`.github/workflows/`) の変更。
+> **種類**: Tier 2 — 夜間 verify の実行対象の追加。工数 S。Guard 禁止パス (`.github/workflows/`) の変更。
 
 #### 作業計画
 
@@ -259,7 +259,7 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 >
 > **依存**: 解消済み — 順位 380 の framing は 2026-08-08 実装済み ([ADR-072](../adr/adr-072-nightly-todo-loop.md) 決定 13)。着手可能。決定 13 の unit test (marker / 不可視文字の拒否) は parse 層のみを固定しており、**prompt 組立と自然言語 adversarial payload の系統は未固定**なので本エントリの価値は残る。
 >
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+> **種類**: Tier 2 — 回帰テストの追加。工数 M。
 
 #### 作業計画
 
@@ -301,9 +301,7 @@ ADR-074 決定 6 が非決定論と分類済み。残った候補に対して人
 > (実台帳を `cargo test` で検査する既存 precedent)、
 > [ADR-072](../adr/adr-072-nightly-todo-loop.md) 決定 6
 >
-> **実行優先度**: **Tier 1** — Severity Medium (PR 汚染は起きない。実害は Max 枠の空費と
-> 人間の marker 後始末) / Frequency **High** (残り 4 件が順に選ばれる) / Effort S /
-> Adoption Risk None。
+> **種類**: Tier 1 — Guard 禁止パスに当たる行を弾く検査。工数 S。
 
 #### 背景
 

@@ -18,7 +18,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。
+> **種類**: Tier 1 — ずれを止める検査の追加。工数 S。
 
 #### 決定事項 (2026-10-12)
 
@@ -36,7 +36,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。前提だった順位 556 は 2026-10-29 に完了し、`package.json` の既存 3 件は無くなった (oxlint は devDependencies に固定、tsx は Node 本体の実行に置き換え)。検査対象の拡張子に `--no-install` の無い `npx` は残っていない (同日に grep で確認、コメント中の言及を除く)。
+> **種類**: Tier 1 — `npx` を止める検査の追加。工数 S。前提だった順位 556 は 2026-10-29 に完了し、`package.json` の既存 3 件は無くなった (oxlint は devDependencies に固定、tsx は Node 本体の実行に置き換え)。検査対象の拡張子に `--no-install` の無い `npx` は残っていない (同日に grep で確認、コメント中の言及を除く)。
 
 #### 決定事項 (2026-10-12)
 
@@ -53,7 +53,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort XS。前提だった順位 556 は 2026-10-29 に完了した (oxlint を devDependencies に固定、`pnpm lint` は `scripts/` も対象にした)。変更先が `.claude/` なので human lane。
+> **種類**: Tier 1 — PostToolUse hook の対象拡張子の追加。工数 XS。前提だった順位 556 は 2026-10-29 に完了した (oxlint を devDependencies に固定、`pnpm lint` は `scripts/` も対象にした)。変更先が `.claude/` なので human lane。
 
 #### 作業計画
 
@@ -70,7 +70,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort M。config スキーマの変更なので human lane。
+> **種類**: Tier 2 — テンプレートの config の変更。工数 M。config スキーマの変更なので human lane。
 
 #### 決定事項 (2026-10-12)
 
@@ -87,7 +87,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。前提の順位 560 (残骸 script の撤去) は 2026-10-31 に完了した。auto lane への移行は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が判断する。
+> **種類**: Tier 1 — CI で test script が走ることの検査。工数 S。前提の順位 560 (残骸 script の撤去) は 2026-10-31 に完了した。auto lane への移行は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が判断する。
 
 #### 決定事項 (2026-10-12)
 
@@ -105,7 +105,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。auto lane に載せるには、保留中の順位 589 (夜間 verify で vitest を走らせる) が前提。手で着手するなら前提は無い。
+> **種類**: Tier 2 — テストの追加。工数 S。auto lane に載せるには、保留中の順位 589 (夜間 verify で vitest を走らせる) が前提。手で着手するなら前提は無い。
 
 #### 決定事項 (2026-10-12)
 
@@ -123,7 +123,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort XS。
+> **種類**: Tier 2 — テストの追加。工数 XS。
 
 #### 決定事項 (2026-10-12)
 
@@ -141,7 +141,7 @@
 >
 > **由来**: `[improvement]`。月次 ROI レビュー (ADR-062) の集計が誤るが、まだ誤判定の観測は無い。
 >
-> **実行優先度**: Tier 3 — Effort S。集計仕様の判断を含むので human lane。
+> **種類**: Tier 2 — exe (`telemetry-report`) の修正。工数 S。集計仕様の判断を含むので human lane。
 
 #### 作業計画
 
@@ -161,7 +161,7 @@
 >
 > **由来**: `[defect:G1]`。SessionStart の setup と takt のサブセッションの組合せを検査する場が無かった。
 >
-> **実行優先度**: Tier 2 — Effort S〜M。
+> **種類**: Tier 2 — exe の配置の不具合修正。工数 S-M。
 
 #### 作業計画
 
@@ -185,7 +185,7 @@
 >
 > **由来**: `[improvement]`。#600 の post-merge feedback の採用候補 (Tier 2-4)。
 >
-> **実行優先度**: Tier 3 — Effort M。窓は exe の置き換えから stamp の書き込みまでと狭く、cloud で build と SessionStart が重なったときだけ起きる。Node に flock が無いので排他の方式を決める判断がある。human lane。
+> **種類**: Tier 2 — deploy スクリプトの修正。工数 M。窓は exe の置き換えから stamp の書き込みまでと狭く、cloud で build と SessionStart が重なったときだけ起きる。Node に flock が無いので排他の方式を決める判断がある。human lane。
 
 #### 作業計画
 
@@ -202,7 +202,7 @@
 >
 > **由来**: `[improvement]`。#602 の post-merge feedback は検知機構の新設を却下し、直接の撤去を勧めた。
 >
-> **実行優先度**: Tier 3 — Effort S。過去の takt ログに「`src/sample.ts` は lint 違反を意図して入れた fixture」とあり、lint hook の動作確認に使われている可能性があるので、着手時に調べてから決める。human lane。
+> **種類**: Tier 2 — サンプルのコードと lint 設定の撤去。工数 S。過去の takt ログに「`src/sample.ts` は lint 違反を意図して入れた fixture」とあり、lint hook の動作確認に使われている可能性があるので、着手時に調べてから決める。human lane。
 
 #### 作業計画
 
@@ -217,7 +217,7 @@
 
 ## post-merge feedback (#604〜#614) の一括採否から起票 (2026-11-04)
 
-> 対象は #604〜#614 の feedback report と、同じセッションで集めた候補である。Tier 1 / 2 の採用候補をユーザーが作業内容ごとに 8 群へまとめて採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。ここでいう Tier は、feedback report が候補を分類した Tier (1 = hook / linter、2 = テスト / 自動化、3 = ドキュメント / ルール) である。各エントリの「実行優先度: Tier N」は着手の順番を表す別の尺度なので、実行優先度が Tier 3 のエントリ (順位 591 / 592 / 593 / 595) も採用したものである。起票の前に、各項目が未実装であることを 2026-11-04 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。#609 の「複数行 pattern rule 横断のパラメータ化テスト」は、既存の `every_exception_is_justified_by_its_good_fixture` が exception を持つ全 rule を走査して fixture のずれを gap として報告するので、前提が成り立たず起票しなかった。
+> 対象は #604〜#614 の feedback report と、同じセッションで集めた候補である。Tier 1 / 2 の採用候補をユーザーが作業内容ごとに 8 群へまとめて採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。ここでいう Tier は、feedback report が候補を分類した Tier (1 = hook / linter、2 = テスト / 自動化、3 = ドキュメント / ルール) である。起票時の各エントリには着手の順番を表す「実行優先度: Tier N」が付いており、順位 591 / 592 / 593 / 595 は実行優先度が Tier 3 でも採用したものである。この行は 2026-11-13 に種類の Tier へ付け直した ([ADR-090](adr/adr-090-todo-tier-as-kind.md))。起票の前に、各項目が未実装であることを 2026-11-04 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。#609 の「複数行 pattern rule 横断のパラメータ化テスト」は、既存の `every_exception_is_justified_by_its_good_fixture` が exception を持つ全 rule を走査して fixture のずれを gap として報告するので、前提が成り立たず起票しなかった。
 
 ### 順位 591: custom lint rule の検査の陽性対照を埋め、`.rs` 対象の行単位 regex rule を点検する
 
@@ -225,7 +225,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort M。(3) の点検が M で、(1)(2) は XS〜S。
+> **種類**: Tier 2 — custom lint rule のテストの陽性対照の追加と点検。工数 M。(3) の点検が M で、(1)(2) は XS〜S。
 
 #### 作業計画
 
@@ -244,7 +244,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort M。
+> **種類**: Tier 1 — `entry_pairing` 検査の対象拡張。工数 M。
 
 #### 作業計画
 
@@ -261,7 +261,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。
+> **種類**: Tier 2 — テストの追加。工数 S。
 
 #### 作業計画
 
@@ -279,7 +279,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。
+> **種類**: Tier 2 — テストの追加。工数 S。
 
 #### 作業計画
 
@@ -296,7 +296,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort M。
+> **種類**: Tier 2 — exe (`cli-merge-pipeline`) の修正。工数 M。
 
 #### 作業計画
 
@@ -314,7 +314,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort M。
+> **種類**: Tier 2 — テストと exe の修正。工数 M。
 
 #### 作業計画
 
@@ -332,7 +332,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。
+> **種類**: Tier 2 — テストの false-green の修正。工数 S。
 
 #### 作業計画
 
@@ -354,7 +354,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort XS。
+> **種類**: Tier 2 — テストの追加。工数 XS。
 
 #### 作業計画
 
