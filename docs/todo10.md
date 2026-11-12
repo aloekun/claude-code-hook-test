@@ -64,47 +64,6 @@
 
 ---
 
-### 順位 199: multi-byte 文字を含む string window test の標準 coverage requirement 化 (PR #200 post-merge-feedback T2-1 採用)
-
-> **動機**: PR #200 で `priority_inversion::has_resolved_marker_after` の window 計算が **byte 演算** で、日本語 1 文字 = 3 bytes のため「80 文字」のつもりが実質 ~27 文字に縮退する Major bug が発生 (CR が指摘、char-based に修正済)。PR #199 でも `parse_age_secs` 周辺で byte/char 混乱があり、Frequency Medium (2 観測) で systemic。char-based fix と regression test (`is_resolved_detects_marker_across_multibyte_gap`) は PR #200 で完了済だが、**将来の新規 validator が同パターンで実装されたとき multi-byte test が無指定で欠落するリスク** を構造的に塞ぐ。
->
-> **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 2 #1 採用 (Severity High / Frequency Medium / Effort S / Adoption Risk None、2026-06-09 ユーザー承認)。`is_resolved_detects_marker_across_multibyte_gap` スタイルを **coverage requirement** として位置付け、新規 validator 追加 PR で同パターンの test を必須化する。
->
-> **参照**: `.claude/feedback-reports/200.md` Tier 2 #1、`src/cli-docs-lint/src/priority_inversion.rs:469-473` (char-based window fix)、`is_resolved_detects_marker_across_multibyte_gap` test (regression)、PR #199 PastTime newtype + proptest (parse_age_secs 周辺の byte 演算)。
->
-> **実行優先度**: **Tier 2** — 工数 Small。Coverage requirement 化のみで実装作業は新 validator 追加時の test 追記 (チェックリスト + テストテンプレート)。
-
-#### 設計決定 (案)
-
-- **配置**: `~/.claude/rules/common/testing.md` (multi-path test fixture 拡張と同じ section) または `src/cli-docs-lint/README.md` (validator 追加 checklist)
-- **要求項目**:
-  - 文字列 window 演算 (`str::find` + byte offset / `[start..end]` slice) を行う validator は、**30 bytes 超 multi-byte 文字を含む regression test を 1 件以上保持** する
-  - 推奨 fixture: CJK 40 文字 (= 120 bytes) gap + 末尾に marker
-  - assertion で window 内検出を verify
-- **enforcement layer**:
-  - 案 A: docs (manual checklist、reviewer に頼る)
-  - 案 B: custom-lint-rules.toml で `str::find` + `[..]` slice 使用 file に対応 multi-byte test の存在を grep ベースで弱検出 (FP リスク高、要検討)
-- **MVP**: 案 A (docs/checklist) で開始、3-5 validator land 後に案 B 化を再評価
-
-#### 作業計画
-
-- [ ] `~/.claude/rules/common/testing.md` の sentinel pattern section 末尾に「multi-byte string window test 必須」を追記
-- [ ] `src/cli-docs-lint/README.md` (or 該当 doc) に validator 追加 checklist として記載
-- [ ] PR #200 の `is_resolved_detects_marker_across_multibyte_gap` を参照テンプレートとして cite
-- [ ] 派生プロジェクト deploy 計画 (techbook-ledger / auto-review-fix-vc) を別 task として todo 登録
-- [ ] 本 todo10.md エントリを削除
-
-#### 完了基準
-
-- testing.md に「multi-byte string window test 必須」requirement が追記され、参照テンプレートとして PR #200 test が cite される
-- 派生プロジェクトでも同 rule が global 配下から自動波及
-
-#### 詰まっている箇所
-
-- 案 B (mechanical enforcement) は FP リスクが見えるため MVP では docs のみで開始。dogfood で test 漏れ実例が観測されたら案 B を再検討。
-
----
-
 ### 順位 200: `~/.claude/rules/rust/patterns.md` に「String Indexing with Multi-byte Characters」section 追加 (PR #200 post-merge-feedback T3-1 採用)
 
 > **動機**: PR #200 で `priority_inversion::has_resolved_marker_after` の byte/char 混同 Major bug を fix した際、`char_indices().nth(N)` パターンが Rust の canonical solution として有効と判明。同パターンは現在 `~/.claude/rules/rust/` に未記述で、将来の lint rule 著者が同型 bug を再生産するリスクあり。PR #199 (parse_age_secs 周辺) + PR #200 (priority_inversion) で 2 観測 = Frequency Medium。
@@ -112,6 +71,8 @@
 > **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 3 #1 採用 (Severity Low / Frequency Medium / Effort XS / Adoption Risk None、2026-06-09 ユーザー承認)。global `~/.claude/rules/rust/patterns.md` への section 追加で、派生プロジェクト (techbook-ledger / auto-review-fix-vc) へも自動波及。
 >
 > **参照**: `.claude/feedback-reports/200.md` Tier 3 #1、`src/cli-docs-lint/src/priority_inversion.rs:178-184` (char_indices() pattern)、PR #199 (parse_age_secs byte/char 観測)。
+>
+> **注 (2026-11-12)**: 参照先の `src/cli-docs-lint/src/priority_inversion.rs` は [ADR-090](adr/adr-090-todo-tier-as-kind.md) で撤去した。行番号は撤去前の master (`748d3deb`) のもので、`jj file show -r 748d3deb src/cli-docs-lint/src/priority_inversion.rs` で読める。
 >
 > **実行優先度**: **Tier 3** — 工数 XS。`~/.claude/rules/rust/patterns.md` に 1 section (10-20 行) 追加のみ。
 
@@ -150,6 +111,8 @@
 > **本タスクの位置づけ**: PR #200 post-merge-feedback Tier 3 #2 採用 (Severity Medium / Frequency Low / Effort XS / Adoption Risk None、2026-06-09 ユーザー承認)。ADR-007 への guideline 追記で、本リポジトリの lint runner サポートと整合。
 >
 > **参照**: `.claude/feedback-reports/200.md` Tier 3 #2、`src/cli-docs-lint/src/priority_inversion.rs:29-34` (TIER_REGEX / RANK_REGEX の LazyLock 定義)、ADR-007 (custom-linter-layer-boundary)。
+>
+> **注 (2026-11-12)**: 参照先の `src/cli-docs-lint/src/priority_inversion.rs` は [ADR-090](adr/adr-090-todo-tier-as-kind.md) で撤去した。行番号は撤去前の master (`748d3deb`) のもので、`jj file show -r 748d3deb src/cli-docs-lint/src/priority_inversion.rs` で読める。
 >
 > **実行優先度**: **Tier 3** — 工数 XS。ADR-007 に 1 guideline (5-10 行) 追記のみ。
 

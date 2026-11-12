@@ -18,7 +18,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use cli_docs_lint::{entry_pairing, preamble, priority_inversion, Violation};
+use cli_docs_lint::{entry_pairing, preamble, Violation};
 
 const TABLE_HEADER: &str = "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
                             |---|---|---|---|---|---|\n";
@@ -46,7 +46,6 @@ fn detail_entry(rank: u32) -> String {
 
 fn all_checks(docs_dir: &Path) -> Vec<Violation> {
     let mut violations = entry_pairing::check(docs_dir).expect("entry-pairing");
-    violations.extend(priority_inversion::check(docs_dir).expect("priority-inversion"));
     violations.extend(preamble::check(docs_dir).expect("preamble"));
     violations
 }

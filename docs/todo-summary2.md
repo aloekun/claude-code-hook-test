@@ -1,6 +1,6 @@
 # TODO 推奨実行順序サマリー (続き、順位 220-399)
 
-> **本ファイルの位置付け**: [docs/todo-summary.md](todo-summary.md) の推奨実行順序 table を docs 50KB 超過解消のため 2 分割した後半 (順位 220 以降を収容、2026-07-20)。全体の位置付け・更新方針・順位 6-219・anchor は [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。既存行の編集・完了削除専用。新規行は追加しない (2026-09-03 から新規行の追加先は [docs/todo-summary3.md](todo-summary3.md))。cli-docs-lint の priority-inversion / preamble / entry-pairing check は両ファイルを統合して検査する。
+> **本ファイルの位置付け**: [docs/todo-summary.md](todo-summary.md) の推奨実行順序 table を docs 50KB 超過解消のため 2 分割した後半 (順位 220 以降を収容、2026-07-20)。全体の位置付け・更新方針・順位 6-219・anchor は [docs/todo-summary.md](todo-summary.md#recommended-order-summary) を参照。既存行の編集・完了削除専用。新規行は追加しない (2026-09-03 から新規行の追加先は [docs/todo-summary3.md](todo-summary3.md))。cli-docs-lint の preamble / entry-pairing check は両ファイルを統合して検査する。
 >
 > **2026-09-03 に再分割した。** 本ファイルは順位 220-399 を収容し、**新規行の追加先は [docs/todo-summary3.md](todo-summary3.md)** (順位 400 以降) である。本ファイルは既存行の編集・完了削除専用。
 
@@ -82,4 +82,4 @@
 | 375 | Tier 2 | **CodeRabbit の指摘本文を check-ci と threads show で全文読めるようにする (旧: レビュー指摘への対応時チェックリスト)** | todo20.md | S | なし (WP-18 の 3 PR で同型の失敗が 4 件。いずれも変更の影響範囲を指摘された 1 点だけで見積もったこと、または前提を検証せず動いたことが共通項。2026-11-09 に #622 の post-merge feedback で残作業を作り替えた) |
 | 392 | Tier 2 | **push パイプラインの terminal outcome を telemetry へ記録し失敗回数・原因を機械集計可能にする** | todo21.md | M | なし (2026-08-09 WP-18 失敗頻度分析で構造化記録の欠落が判明。stage + reason code を ADR-055 系へ fail-open で追記し ADR-062 月次で集計。順位 386/387/376 の効果測定ベースラインにもなる) |
 
-**戦略**: 本 part は順位 220-399 を収容する (新規行の追加先は [docs/todo-summary3.md](todo-summary3.md))。全体の戦略と Bundle 履歴は [docs/todo-summary3.md](todo-summary3.md) を参照。
+本 part は順位 220-399 を収容する (新規行の追加先は [docs/todo-summary3.md](todo-summary3.md))。Tier 列の意味と着手順の決め方は [ADR-090](adr/adr-090-todo-tier-as-kind.md) を参照。本 part の行の Tier は、付け直しが終わるまで旧来の優先度の値のまま残っているので、種類として読まない (ADR-090 決定 8)。

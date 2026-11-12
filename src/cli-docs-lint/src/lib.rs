@@ -20,7 +20,6 @@ pub mod docs_files;
 pub mod entry_pairing;
 pub mod origin_markers;
 pub mod preamble;
-pub mod priority_inversion;
 pub mod rustdoc_links;
 pub mod todo_routing;
 
@@ -43,14 +42,15 @@ impl fmt::Display for Violation {
 #[cfg(test)]
 mod shared_summary_definition_tests {
     //! 順位 table の prefix 定義が **1 箇所** ([`docs_files::SUMMARY_FILE_PREFIX`]) であることを、
-    //! 3 validator の**挙動**で固定する。
+    //! 2 validator の**挙動**で固定する。
     //!
     //! 値の一致 (`assert_eq!(A, B)`) では固定できない — 統合前は 3 箇所とも同じ値だったが、
     //! 片方だけ書き換えられた瞬間に validator の走査範囲がずれる、という形の事故だった。
-    //! ここでは**新しい分割 part (`todo-summary3.md`) を 3 validator がそろって認識する**
+    //! (3 つ目の利用者だった priority_inversion は 2026-11-12 に撤去した。ADR-090)
+    //! ここでは**新しい分割 part (`todo-summary3.md`) を 2 validator がそろって認識する**
     //! ことを見る (#454)。
 
-    use super::{entry_pairing, preamble, priority_inversion};
+    use super::{entry_pairing, preamble};
 
     const TABLE_HEADER: &str = "| 順位 | Tier | タスク | ファイル | 工数 | 依存 |\n\
                                 |---|---|---|---|---|---|\n";
@@ -59,7 +59,6 @@ mod shared_summary_definition_tests {
     ///
     /// - `todo-summary3.md` だけが 順位 20 を宣言し、その詳細エントリは **無い**
     ///   (entry_pairing の方向 A が拾うべき状態)
-    /// - 順位 20 (Tier 1) が 順位 30 (Tier 2) に依存する (priority_inversion が拾うべき状態)
     /// - `todo1.md` の preamble は summary を除いた件数 (1 つ) を宣言する
     ///   (preamble が `todo-summary3.md` を summary と数えて初めて通る)
     fn docs_dir() -> tempfile::TempDir {
@@ -71,7 +70,7 @@ mod shared_summary_definition_tests {
             ),
             (
                 "todo-summary3.md",
-                format!("{TABLE_HEADER}| 20 | Tier 1 | **B** | todo1.md | S | 順位 30 待ち |\n"),
+                format!("{TABLE_HEADER}| 20 | Tier 1 | **B** | todo1.md | S | なし |\n"),
             ),
             (
                 "todo1.md",
@@ -94,14 +93,6 @@ mod shared_summary_definition_tests {
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].file.contains("todo-summary3.md"), "{:?}", violations[0]);
         assert!(violations[0].message.contains("順位 20"), "{:?}", violations[0]);
-    }
-
-    #[test]
-    fn priority_inversion_reads_the_third_summary_part() {
-        let dir = docs_dir();
-        let violations = priority_inversion::check(dir.path()).expect("check");
-        assert_eq!(violations.len(), 1, "{violations:?}");
-        assert!(violations[0].file.contains("todo-summary3.md"), "{:?}", violations[0]);
     }
 
     #[test]

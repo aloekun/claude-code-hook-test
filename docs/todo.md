@@ -6,7 +6,7 @@
 >
 > - **docs/todo-summary.md**: 推奨実行順序サマリー table 専用 (旧 todo.md から切り出し)、順位 6-219 を収容。既存行編集・順位再採番はここで行う。
 > - **docs/todo-summary2.md**: todo-summary.md の table を 2026-07-20 に docs 50KB 超過解消で分割した part 2 (順位 220-399 を収容)。**新規行は追加しない** (2026-09-03 に再分割し、追加先は todo-summary3.md へ移った)。既存行の編集・完了削除専用。
-> - **docs/todo-summary3.md**: todo-summary2.md の table を 2026-09-03 に docs 50KB 超過解消で再分割した part 3 (順位 400 以降を収容)。**新規行追加は末尾 = 本ファイルで行う**。cli-docs-lint の priority-inversion / preamble / entry-pairing / origin-markers は `todo-summary*.md` を glob して全 part を統合検査する。
+> - **docs/todo-summary3.md**: todo-summary2.md の table を 2026-09-03 に docs 50KB 超過解消で再分割した part 3 (順位 400 以降を収容)。**新規行追加は末尾 = 本ファイルで行う**。cli-docs-lint の preamble / entry-pairing / origin-markers は `todo-summary*.md` を glob して全 part を統合検査する。
 > - **docs/todo.md**: 既存タスクの編集・完了削除専用。新規タスクの**詳細エントリ**は追加しない (~50KB 閾値内に維持し Claude Code 読み取り安定性を確保)
 > - **docs/todo2.md**: **退役済み (2026-08-12 削除)**。主内容の ADR-032 ブロックは ADR-057 が別設計で実現したため廃止、独立価値の残る 2 タスクは todo22.md へ移送した (経緯は git log)
 > - **docs/todo3.md**: 既存タスクの編集・完了削除専用。**新規タスクは追加しない** (50KB に到達したため、PR #96 セッション以降の新規エントリは todo4.md へ)。**2026-09-29 に旧 Part 17 / Part 18 のエントリを末尾の節へ吸収した**

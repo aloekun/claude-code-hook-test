@@ -7,6 +7,8 @@
 > **新規順位の採番は、保留ファイルの順位も含めた最大 + 1 にする** (2026-11-01)。夜間ループの改善タスク 16 行と、新設の順位 589 は [docs/on-hold/nightly-loop.md](on-hold/nightly-loop.md) へ移した。本 table の最大だけを見て採番すると、保留ファイルの順位と重複する。
 >
 > **順位 500 以降の新規行は、タスク列の冒頭に起票由来のマーカーを付ける** ([ADR-079](adr/adr-079-defect-origin-tagging.md))。`[defect:G1]` (テストを書く場が無かった) / `[defect:G2]` (テストの場はあったが入力空間を覆っていなかった) / `[improvement]` (不具合ではない改善) の 3 択で、迷う defect は G1 に倒す。`[defect:*]` は**詳細エントリに実観測の証拠** (`#123` / `run 32589642740` / `発火: 4 回` のいずれか) が要る — 無ければ `[improvement]` としてしか登録できない。`pnpm lint:docs` が fail-closed で検査する。**順位 499 以前の既存行は対象外**。
+>
+> **Tier 列はタスクの種類を表す** ([ADR-090](adr/adr-090-todo-tier-as-kind.md)、2026-11-12)。Tier 1 = 決定論的に止める仕組み (hook / lint / gate)、Tier 2 = テスト / 自動化、Tier 3 = ドキュメント / ルール。優先度は書かない。post-merge feedback / 週次レビュー由来の行は、元レポートの分類をそのまま写す。**この定義は新規行から適用する。既存の行の Tier は、付け直しが終わるまで旧来の優先度の値のまま残っているので、種類として読まない** (ADR-090 決定 8)。
 
 ## 推奨実行順序サマリー (続き 2、順位 400 以降)
 
@@ -110,4 +112,4 @@
 | 608 | Tier 3 | **[improvement] push-runner の対比テストに、fallback を通った証拠を assert で入れる** | todo29.md | XS | 順位 607 の pr-monitor 側テストにも同じ assert を入れる (2026-11-11、#632 の post-merge feedback) |
 
 
-**戦略**: Tier 1 を 2〜3 セッションで片付け → Tier 2 で計測基盤 (gate telemetry / weekly-review 保存) + rate-limit + convergence cost 削減を進める → Tier 3 でドキュメント整備。Tier 4-5 は cleanup / 外部展開で daily efficiency への直接効果は小さい。(2026-08-12 更新: 旧記述の ADR-032 は ADR-057 置換で欠番)
+**着手順**: 本 table は着手の順番を持たない。何から着手するかは、着手するときにその時点の状況で決める ([ADR-090](adr/adr-090-todo-tier-as-kind.md) 決定 4)。2026-11-12 まであった「戦略」の行 (Tier 1 → 2 → 3 の順に片付ける) は、Tier を優先度として扱っていたため削除した。
