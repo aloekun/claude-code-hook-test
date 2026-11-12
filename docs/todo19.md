@@ -276,7 +276,7 @@
 - ADR-043 に hooks-stop-quality の error handling が concrete example として追記される
 - 4 error path 各々の `false` 返却 logic と「gate effective」状態への倒し方が明示される
 - PR #222 / ADR-004 / ADR-043 の 3 文書間の cross-reference が成立、reader が 1 example から原則 → 適用 → 反対例を辿れる
-- 順位 223 と合わせ、mechanical (T2) + docs (T3) の 2 層防御確立
+- 順位 223 と合わせ、mechanical (T1) + docs (T3) の 2 層防御確立
 
 #### 詰まっている箇所
 
