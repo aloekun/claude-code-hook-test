@@ -148,7 +148,7 @@
 >
 > **参照**: `.claude/feedback-reports/177.md` Tier 2 #2、PR #177 CR Major finding (id 3309140878)、`src/hooks-pre-tool-validate/src/main.rs` の `check_todo_staleness` / `build_todo_staleness_message` / `count_commits_branch_ahead`
 >
-> **種類**: Tier 2 — テストの追加。工数 S。test module への追加 ~30-50 行、unit test で独立検証可能。
+> **種類**: Tier 1 — hook (`hooks-pre-tool-validate`) の fail-closed 判定の修正と回帰テスト。元レポート (#177) の分類は Tier 2 (テスト) だが、起票時に判定の修正を範囲に加えたため、番号の小さいほうにした。工数 S。test module への追加 ~30-50 行、unit test で独立検証可能。
 
 #### 設計決定 (案)
 

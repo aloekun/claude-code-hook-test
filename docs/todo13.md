@@ -203,7 +203,7 @@ PR #478 のマージで `parse_transcript.py` が再発した (1 回目 2026-06-
 >
 > **参照**: `.claude/feedback-reports/231.md` Tier 3 #1、PR #231、[ADR-080](adr/adr-080-rust-module-split-invariants.md) (旧 file-length-enforcement-plan § 制約条件の「Cross-module visibility は pub(crate)」、2026-08-12 移設)、順位 241。**注意**: 旧 file-length-enforcement-plan.md は 2026-08-12 に削除済み。配置先は [ADR-080](adr/adr-080-rust-module-split-invariants.md) § 2: cross-module visibility は pub(crate) になった (2026-08-12 に一旦 convention 集へ移設、2026-09-13 に ADR 化して恒久配置が確定)。
 >
-> **種類**: Tier 3 — 手順のチェックリストの追記。工数 XS。
+> **種類**: Tier 1 — lint (`unreachable_pub`) による機械検出。元レポート (#231) の分類は Tier 3 だが、2026-09-08 に出口をチェックリストから lint へ再設計した。工数 XS。
 
 #### 作業計画
 

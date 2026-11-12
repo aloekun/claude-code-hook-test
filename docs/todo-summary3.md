@@ -15,7 +15,7 @@
 | 順位 | Tier | タスク | ファイル | 工数 | 依存 |
 |---|---|---|---|---|---|
 | 403 | Tier 3 | **AI レビューの数値・外部仕様の主張は仮説として扱い実測で二重検証 (系統 A-2)** | todo21.md | S | なし (2026-08-10 採用。組合せ数の指摘は観察は正しいが提示値も誤り (実測 384)、gh のオプション併用提案は実行時エラー、jq 正規表現案はパースエラー。観察と修正手段の確信度は別) |
-| 404 | Tier 3 | **外部依存の非同期応答待ちに timeout / retry を明記する convention (系統 A-3)** | todo21.md | S | なし (2026-08-10 採用。cli-stale-branch-scan の初版が timeout 無しで、同期実行経路の無診断ハング要因だった) |
+| 404 | Tier 1 | **外部依存の非同期応答待ちに timeout / retry を明記する convention (系統 A-3)** | todo21.md | S | なし (2026-08-10 採用。cli-stale-branch-scan の初版が timeout 無しで、同期実行経路の無診断ハング要因だった) |
 | 405 | Tier 3 | **新規 crate 実装時に既存同種コンポーネントとの重複を確認 (系統 B-1)** | todo21.md | S | なし (2026-08-10 採用。default_branch 解決ロジックの複製が CodeRabbit 指摘後に同一 PR 内で再発。34 crate 規模では記憶に頼れない) |
 | 407 | Tier 1 | **旧語彙が live code に出現したら reject するカスタムリントルール (系統 B-3)** | todo21.md | S | なし (2026-08-10 採用。132 箇所の改名で CodeRabbit が同一 PR 内だけで 4 箇所の取りこぼしを指摘。ADR-007 の既存 regex 基盤で足り docs は extensions で自然に除外) |
 | 408 | Tier 3 | **safety-critical な config 比較に shell glob を禁止し exact-match を必須化 (系統 C-1)** | todo21.md | S | なし (2026-08-10 採用。kill-switch 判定の部分一致で fail-closed を謳う step 自身が fail-open だった。該当コメントが無かったため症状が出ず潜伏していた) |
@@ -87,11 +87,11 @@
 | 548 | Tier 2 | **[improvement] lane マーカーを絵文字から文字列へ置き換える (絵文字の全面禁止 段 2)** | todo28.md | M | なし (2026-10-12 ユーザー決定。段 1 = 台帳の Tier 表記は同日実施済み。Guard 禁止パスの改修なので human lane) |
 | 549 | Tier 1 | **[improvement] ドキュメントの絵文字を一掃し、検出したら即時エラーにする (段 3)** | todo28.md | M | 順位 548 (docs の絵文字は 43 ファイル 263 個。facet の出力契約の置き換えを含む) |
 | 550 | Tier 3 | **[improvement] post-merge feedback の判断基準を ADR へ追記する** | todo28.md | S | なし (2026-10-12。ADR-044 / 049 / 041 / 025 / 043 / 064 の 6 項目。機械化できず置き場が ADR しか無いもの) |
-| 551 | Tier 1 | **[improvement] analyze-session facet のスキーマ例と縮約の実装のずれを検査する** | todo29.md | S | なし (2026-10-12、#518 feedback。auto lane) |
+| 551 | Tier 2 | **[improvement] analyze-session facet のスキーマ例と縮約の実装のずれを検査する** | todo29.md | S | なし (2026-10-12、#518 feedback。auto lane) |
 | 557 | Tier 1 | **[improvement] `--no-install` の無い `npx` を検査で止める** | todo29.md | S | なし (前提の順位 556 は 2026-10-29 完了、既存 3 件は解消済み) |
 | 558 | Tier 1 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | なし (前提の順位 556 は 2026-10-29 完了。変更先が `.claude/` なので human lane) |
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
-| 561 | Tier 1 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
+| 561 | Tier 2 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
 | 564 | Tier 2 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | なし (#515 / #516 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
 | 569 | Tier 2 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 2 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |

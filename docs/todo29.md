@@ -18,7 +18,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **種類**: Tier 1 — ずれを止める検査の追加。工数 S。
+> **種類**: Tier 2 — ずれを検出するテストの追加 (成果物は `transcript_compact.rs` の cargo test)。工数 S。
 
 #### 決定事項 (2026-10-12)
 
@@ -87,7 +87,7 @@
 >
 > **由来**: `[improvement]`。
 >
-> **種類**: Tier 1 — CI で test script が走ることの検査。工数 S。前提の順位 560 (残骸 script の撤去) は 2026-10-31 に完了した。auto lane への移行は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が判断する。
+> **種類**: Tier 2 — CI で test script が走ることを確かめるテストの追加 (成果物は cargo test)。工数 S。前提の順位 560 (残骸 script の撤去) は 2026-10-31 に完了した。auto lane への移行は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が判断する。
 
 #### 決定事項 (2026-10-12)
 

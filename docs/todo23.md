@@ -187,7 +187,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 3 #2、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`/skill-sync-check` skill
 >
-> **種類**: Tier 3 — チェックリストの文書化。工数 XS。
+> **種類**: Tier 3 — `/skill-sync-check` の SKILL.md への診断項目の追記。2026-09-08 にチェックリストの文書化から再設計した。skill の手順はエージェントが読んで実行する文章で、決定論的に止める仕組みではない。工数 XS。
 
 #### 設計決定 (案)
 

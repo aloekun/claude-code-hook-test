@@ -100,7 +100,7 @@
 >
 > **参照**: [ADR-016](adr/adr-016-long-running-command-strategy.md) (長時間コマンド実行戦略)、`src/lib-subprocess/`、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377)。
 >
-> **種類**: Tier 3 — 規約の明文化。工数 S。
+> **種類**: Tier 1 — custom lint による検出。2026-09-08 に出口を規約の明文化から lint へ再設計した。工数 S。
 
 #### 作業計画
 

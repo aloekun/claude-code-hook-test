@@ -44,7 +44,7 @@
 | 508 | Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | nightly-loop2.md (元 todo26.md) | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
 | 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | nightly-loop2.md (元 todo26.md) | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか。2026-09-28 にハーネス改善計画 WP-19 ステップ 3 = 自律 PR の棚卸しと無人 PR 採用率の測定 (ADR-072 の判定期限 2026-11-06) を統合。2026-10-11 追記: 09-20〜10-10 の 21 晩は自動 lane の `✅` 行が 0 件で、毎晩 green のまま何もしていなかった。red の監視ではタスク切れが見えないので、implement 未到達の連続日数と `✅` 行の残数も出す) |
 | 566 | Tier 2 | **[improvement] review-request の依頼済み判定と待機時間の記述を締める** | nightly-loop2.md (元 todo29.md) | S | なし (2026-10-12、#496 / #513 feedback。Guard 禁止パスの変更なので human lane) |
-| 586 | Tier 3 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | nightly-loop2.md (元 todo29.md) | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
+| 586 | Tier 2 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | nightly-loop2.md (元 todo29.md) | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
 | 589 | Tier 2 | **[improvement] 夜間 verify で vitest と lint:workflows を走らせる** | nightly-loop2.md (順位 562 から分割) | S | なし (2026-11-01 に順位 562 から分けた。scripts/ 系のテストを auto lane に置くための前提。順位 563 / 564 を auto lane へ移す前提) |
 
 ## 台帳 (`docs/claude-code-web-tasks.md` § Batch 1) から移した行
