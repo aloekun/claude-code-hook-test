@@ -489,6 +489,8 @@
 #### 設計決定 (案)
 
 - 判定には `execution_file` の結果 (`is_error` / `num_turns` / `total_cost_usd`) を使う。認証を確かめるための API 呼び出しは別に足さない (token を扱う箇所を増やさない)
+- 検出 step は、action の step が失敗した後に動く必要がある。条件を書かない後続 step は失敗の後にスキップされるので (2026-11-12 の失敗 run 43260513743 の 1 回目では、「Extract analysis text」が skipped)、`if: ${{ !cancelled() && steps.analyze.outcome == 'failure' }}` にする。既存の「Report degrade to Phase A」が `!cancelled()` を使うのと同じ形。重複防止で analyze が skipped のときは動かない
+- 結果ファイルの場所: 失敗した run でも、action は `$RUNNER_TEMP/claude-execution-output.json` に結果を保存していた (同じ run のログ「Log saved to」)。失敗時に output の `execution_file` が設定されるかは確かめていないので、output が空ならこの固定パスを読む。どちらにもファイルが無いときは、「結果ファイルが無いため原因を判定できない」と出して失敗させる (黙って通さない)
 - エラー本文は出さない。`show_full_output` を有効にすると、公開されるログに出力の全文が載るため
 - fix job の claude-code-action 2 箇所 (「Collect findings」「Apply fixes」) も同じ形で失敗しうるので、同じ判定を当てる
 
@@ -502,6 +504,7 @@
 
 - token が無効なとき、analyze の失敗メッセージに、認証の失効を疑う理由と更新手順が出る
 - 正常な run (2 ターン以上) では判定が発火しない
+- 結果ファイルが無いときは、判定できないことを明示して失敗する
 
 ### 順位 610: check-ci の findings に、レビュー本文の Outside diff 指摘も出す
 
