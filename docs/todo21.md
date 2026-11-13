@@ -29,7 +29,7 @@
 >
 > **参照**: [ADR-055](adr/adr-055-firing-telemetry-collection.md)、[ADR-062](adr/adr-062-monthly-harness-roi-review.md)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) (push-runner)、順位 386/387/376 (効果測定の対象となる再発防止策)。
 >
-> **実行優先度**: Tier 2 — Severity Low (観測の欠落であり機能障害ではない) / Frequency Medium (push のたびに記録機会) / Effort M / Adoption Risk Low (fail-open を守る限り本体に影響しない)。順位 386/387 の対処より先に入れると効果測定のベースラインが取れる点は考慮に値する。
+> **種類**: Tier 2 — exe による telemetry の記録。工数 M。
 
 #### 作業計画
 
@@ -79,7 +79,7 @@
 >
 > **参照**: [ADR-050](adr/adr-050-iteration-aware-decision-criteria.md)、[ADR-047](adr/adr-047-prepush-refute-facet.md) (反証機構の射程)、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377) / [#380](https://github.com/aloekun/claude-code-hook-test/pull/380) (実例)。
 >
-> **実行優先度**: Tier 1 — Severity Medium (誤った修正を land させる) / Frequency Medium (本セッションで 3 回) / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — ADR への判断基準の追記。工数 S。
 
 #### 作業計画
 
@@ -100,7 +100,7 @@
 >
 > **参照**: [ADR-016](adr/adr-016-long-running-command-strategy.md) (長時間コマンド実行戦略)、`src/lib-subprocess/`、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (無診断ハング) / Frequency Low / Effort S / Adoption Risk None。
+> **種類**: Tier 1 — custom lint による検出。2026-09-08 に出口を規約の明文化から lint へ再設計した。工数 S。
 
 #### 作業計画
 
@@ -121,7 +121,7 @@
 >
 > **参照**: [ADR-044](adr/adr-044-subprocess-utility-extraction-boundary.md) (共通化と分離の線引き)、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、PR [#377](https://github.com/aloekun/claude-code-hook-test/pull/377)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (silent drift の温床) / Frequency Medium (2 回再発) / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — 規約の明文化。工数 S。
 
 #### 作業計画
 
@@ -144,7 +144,7 @@
 >
 > **参照**: [ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、PR [#376](https://github.com/aloekun/claude-code-hook-test/pull/376)。
 >
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium (rename のたび) / Effort S / Adoption Risk None。
+> **種類**: Tier 1 — custom lint rule の追加。工数 S。
 
 #### 作業計画
 
@@ -166,7 +166,7 @@
 >
 > **参照**: [ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-066](adr/adr-066-autonomy-global-kill-switch.md) (kill-switch の 2 面契約)、PR [#380](https://github.com/aloekun/claude-code-hook-test/pull/380)。
 >
-> **実行優先度**: Tier 1 — Severity High (安全装置の silent fail-open) / Frequency Low / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — ADR と docs への規約の追記。工数 S。
 
 #### 作業計画
 
@@ -187,7 +187,7 @@
 >
 > **参照**: [ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md)、順位 408。
 >
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Low / Effort S-M / Adoption Risk Medium (false positive)。
+> **種類**: Tier 1 — custom lint rule の追加。工数 S-M。
 
 #### 作業計画
 

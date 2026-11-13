@@ -10,7 +10,7 @@
 >
 > **選別の基準**: 夜間ループや auto lane の**仕組み**を改善するタスクだけを置く。auto で実行できるだけで、本リポジトリを改善するタスクは todo 系列と台帳 (`docs/claude-code-web-tasks.md`) に残す。台帳の lane 表も維持する。
 >
-> **Tier** は移した時点の値である。再開するときに評価し直す。
+> **Tier** はタスクの種類を表す ([ADR-090](../adr/adr-090-todo-tier-as-kind.md))。2026-11-13 に種類で付け直した。
 >
 > **順位の採番**: 順位は todo 系列と共有する追記型の ID である。本ファイルの順位 (589 など) は使用済みで、todo 系列で新しく採番するときは本ファイルの順位も含めた最大 + 1 を使う。
 >
@@ -44,15 +44,15 @@
 | 508 | Tier 2 | **[improvement] 台帳追加候補の除外クラスを決定論で機械適用する** | nightly-loop2.md (元 todo26.md) | M | なし (2026-09-03 weekly-review で 238 件を人手選別した。ADR-072 決定 18 の読み替えと skill 制約の改訂を伴う。着手時判断: 順位 486/447 の検査と判定ロジックを共通化するか) |
 | 510 | Tier 1 | **[defect:G1] 夜間ループの稼働状況を週次レビューで見張る** | nightly-loop2.md (元 todo26.md) | M | なし (直近 8 晩で 5 晩 red・直近 4 晩連続なのに 2026-09-03 の findings 8 件に言及 0 件。gh が要るため L3 の決定論 scan に置く。着手時判断: ログをどこまで読むか = 停止段まで出すか conclusion だけか。2026-09-28 にハーネス改善計画 WP-19 ステップ 3 = 自律 PR の棚卸しと無人 PR 採用率の測定 (ADR-072 の判定期限 2026-11-06) を統合。2026-10-11 追記: 09-20〜10-10 の 21 晩は自動 lane の `✅` 行が 0 件で、毎晩 green のまま何もしていなかった。red の監視ではタスク切れが見えないので、implement 未到達の連続日数と `✅` 行の残数も出す) |
 | 566 | Tier 2 | **[improvement] review-request の依頼済み判定と待機時間の記述を締める** | nightly-loop2.md (元 todo29.md) | S | なし (2026-10-12、#496 / #513 feedback。Guard 禁止パスの変更なので human lane) |
-| 586 | Tier 3 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | nightly-loop2.md (元 todo29.md) | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
+| 586 | Tier 2 | **[improvement] 夜間ループの再開前に review-request.yml のスキップ通知の扱いと待ち時間を決める** | nightly-loop2.md (元 todo29.md) | S | 夜間ループの再開 (2026-10-30、順位 585 から切り出し。待ち時間 900 秒が実測の約 18 分より短い。値は再開時の実測で決める) |
 | 589 | Tier 2 | **[improvement] 夜間 verify で vitest と lint:workflows を走らせる** | nightly-loop2.md (順位 562 から分割) | S | なし (2026-11-01 に順位 562 から分けた。scripts/ 系のテストを auto lane に置くための前提。順位 563 / 564 を auto lane へ移す前提) |
 
 ## 台帳 (`docs/claude-code-web-tasks.md` § Batch 1) から移した行
 
 | 順位 | Tier | 無人可 | 内容 | 対象ファイル (実パス) | 工数 | 注意 | PRタイトル |
 |---|---|---|---|---|---|---|---|
-| 447 | T2 | — | 台帳の `✅無人可` と判断留保キーワード (再選定 / 着手時判断 / 見積り / 検討) の矛盾を決定論層で検出する | `src/lib-ledger/src/deployed_ledger.rs` | S | 転記規約 (本ファイル § 自律実行可否の 2 段階分類) の機械強制。検査は台帳を読むだけで書き換えない。順位 486 と同一ファイル・同一層なので実装順の調整が要る。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (順位 383 と同じ理由、ADR-074 除外クラス 3) | test(ledger): 無人可と判断留保キーワードの矛盾を検出する |
-| 486 | T2 | — | auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く | `src/lib-ledger/src/deployed_ledger.rs` | S | **着手時判断: 禁止パスの読み先が未決定** (順位 454 は単一定義を作らず 3 箇所の一致テストで決着した)。deny リストをどこから読むかを着手時に決める必要がある。順位 447 と同一ファイル・同一層。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (ADR-074 除外クラス 3) | test(ledger): auto lane の対象パスが Guard 禁止パスに当たる行を弾く |
+| 447 | T1 | — | 台帳の `✅無人可` と判断留保キーワード (再選定 / 着手時判断 / 見積り / 検討) の矛盾を決定論層で検出する | `src/lib-ledger/src/deployed_ledger.rs` | S | 転記規約 (本ファイル § 自律実行可否の 2 段階分類) の機械強制。検査は台帳を読むだけで書き換えない。順位 486 と同一ファイル・同一層なので実装順の調整が要る。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (順位 383 と同じ理由、ADR-074 除外クラス 3) | test(ledger): 無人可と判断留保キーワードの矛盾を検出する |
+| 486 | T1 | — | auto lane の対象ファイルが Guard 禁止パスに当たる行を決定論的に弾く | `src/lib-ledger/src/deployed_ledger.rs` | S | **着手時判断: 禁止パスの読み先が未決定** (順位 454 は単一定義を作らず 3 箇所の一致テストで決着した)。deny リストをどこから読むかを着手時に決める必要がある。順位 447 と同一ファイル・同一層。**`src/lib-ledger/` は Guard 禁止パス**のため human lane (ADR-074 除外クラス 3) | test(ledger): auto lane の対象パスが Guard 禁止パスに当たる行を弾く |
 
 ## 詳細エントリ
 
@@ -70,7 +70,7 @@
 >
 > **参照**: `ADR-072` の実走スモーク節 / 試験運用判断基準節、[ADR-067](../adr/adr-067-phase-b-unattended-fix-push.md) (WP-17 残課題 2 件の出所、および § LLM を含む自動化経路は実走でしか検証できない)。
 >
-> **実行優先度**: Tier 1 — Severity High (未実施のまま schedule が回ると無検証の自律動作が毎晩走る) / Frequency 一度きり / Effort M / Adoption Risk Low (dry_run と kill-switch がある)。
+> **種類**: Tier 2 — 夜間ループの実走による検証。工数 M。
 
 #### 作業計画
 
@@ -105,7 +105,7 @@
 >
 > **参照**: `ADR-072` の残課題節 / 欠点・留意点節、[ADR-052](../adr/adr-052-autonomy-execution-boundary-classes.md) 原則 5 (背圧の契約)、[ADR-039](../adr/adr-039-experimental-feature-standard-pattern.md) (bounded lifetime)。
 >
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Low / Effort M-L (1 は構造変更) / Adoption Risk Medium (観測前の着手は過剰設計)。**実走スモークと 2 週間の試験運用より後**。
+> **種類**: Tier 1 — 検知から防止への格上げ (見込みの成果物は防止の仕組み)。工数 M-L (1 は構造変更)。**実走スモークと 2 週間の試験運用より後**。
 
 #### 作業計画
 
@@ -130,7 +130,7 @@
 >
 > **参照**: `.claude/feedback-reports/369.md` Tier 2 #1、[ADR-072](../adr/adr-072-nightly-todo-loop.md) 決定 13、[ADR-051](../adr/adr-051-cross-system-config-coupling.md) (cross-system coupling の機械検証)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (framing の片側破れ) / Frequency Low / Effort M / Adoption Risk None。
+> **種類**: Tier 2 — CI での一致検証。工数 M。
 
 #### 作業計画
 
@@ -155,7 +155,7 @@
 >
 > **参照**: [review-request.yml](../../.github/workflows/review-request.yml)、[ADR-072](../adr/adr-072-nightly-todo-loop.md) § 定常運用 2 巡目の実走観測、[ADR-019](../adr/adr-019-coderabbit-review-hybrid-policy.md) § 無料枠の窓は固定時刻ではなく直近の消費に追随する / § M5、[ADR-064](../adr/adr-064-monitor-success-positive-evidence.md) (陽性証拠の要求)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (未レビューの自律 PR が可視化されない) / Frequency Medium (人間が 2 本マージした夜) / Effort S-M / Adoption Risk Low (判別を厳しくしすぎると正常な反応まで failure にする)。
+> **種類**: Tier 2 — workflow (`review-request`) の判定の変更。工数 S-M。
 
 #### 作業計画
 
@@ -184,7 +184,7 @@
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 1 #2、[ADR-043](../adr/adr-043-security-gates-fail-closed.md)、[ADR-072](../adr/adr-072-nightly-todo-loop.md) 決定 1、[docs/claude-code-web-tasks.md](../claude-code-web-tasks.md) § 自律実行可否の 2 段階分類
 >
-> **実行優先度**: **Tier 1** — Severity High / Frequency Medium / Effort S / Adoption Risk None。夜間ループが人間の意図と違うタスクを実装する経路を塞ぐ。
+> **種類**: Tier 1 — 決定論層での矛盾の検出。工数 S。夜間ループが人間の意図と違うタスクを実装する経路を塞ぐ。
 
 #### 設計決定 (案)
 
@@ -221,7 +221,7 @@
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 2 #1
 >
-> **実行優先度**: **Tier 2** — Severity High / Frequency Medium / Effort S / Adoption Risk None (前提タスク依存)。
+> **種類**: Tier 2 — 回帰テストの追加。工数 S。
 
 #### 設計決定 (案)
 
@@ -269,7 +269,7 @@
 >
 > **参照**: `.claude/weekly-reviews/2026-08-15.md`、`.takt/runs/20260815-100604-weekly-review-2026-08-15/reports/review-todo-whole.md` (Criterion 3-3 の表)、`.takt/workflows/weekly-review.yaml` (`model: haiku`)、`src/lib-ledger/`、`src/cli-ledger-candidates/`
 >
-> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium (毎週) / Effort S / Adoption Risk None。
+> **種類**: Tier 2 — exe (`cli-ledger-candidates`) の出力の拡張。工数 S。
 
 #### rescope (2026-08-17): 残る範囲を確定した — 逆向き差集合の決定論化
 
@@ -310,7 +310,7 @@ lane モデルへの移行 ([ADR-072](../adr/adr-072-nightly-todo-loop.md) 決�
 >
 > **参照**: `.claude/feedback-reports/411.md` Tier3 #1・#2、`.claude/feedback-reports/412.md` Tier3 #2、ADR-043 / ADR-057 / ADR-064 (stdout/exit code の扱いを扱う既存 ADR 群)
 >
-> **実行優先度**: **Tier 3** — Severity Low-Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — 規約の明文化。工数 S。
 
 #### 設計決定 (案)
 
@@ -346,7 +346,7 @@ lane モデルへの移行 ([ADR-072](../adr/adr-072-nightly-todo-loop.md) 決�
 >
 > **参照**: `.claude/feedback-reports/424.md` Tier2 #1、`lib_ledger::select` (文書順で 1 件選択)
 >
-> **実行優先度**: **Tier 2** — Severity Medium (手戻りリスク) / Frequency Low / Effort S / Adoption Risk None。
+> **種類**: Tier 1 — 同一ファイル競合の自動検知。工数 S。
 
 #### 作業計画
 

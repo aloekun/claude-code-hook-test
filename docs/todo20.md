@@ -25,7 +25,7 @@
 >
 > **参照**: `.claude/feedback-reports/352.md` Tier 1 #1、`.claude/feedback-reports/356.md` Tier 1 #1、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 (実走で検出した経緯)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md) (regex 層の線引き)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md)。
 >
-> **実行優先度**: Tier 2 — Severity High (本番経路の停止を 2 回起こした) / Frequency Medium / Effort S / Adoption Risk Low (regex 層、false positive は既存ルールと同じ運用で調整)。
+> **種類**: Tier 1 — custom lint rule の追加。工数 S。
 
 #### 作業計画
 
@@ -49,7 +49,7 @@
 >
 > **参照**: `.claude/feedback-reports/350.md` Tier 2 #1 / #2、[[dont-trust-takt-fix-output]] (parser の finding は入力空間全体を一度に固める)、[ADR-041](adr/adr-041-test-isolation-patterns.md) § 原則3: 外部 fixture 参照テストは値まで assert (順位274) — 本エントリはその「外部 CLI 出力版」。
 >
-> **実行優先度**: Tier 2 — Severity High (1 年間気付かれなかった前提誤り) / Frequency Low (jj のバージョンアップ時) / Effort M / Adoption Risk None。
+> **種類**: Tier 2 — 回帰テストの追加。工数 M。
 
 #### 作業計画
 
@@ -70,7 +70,7 @@
 >
 > **参照**: `.claude/feedback-reports/351.md` Tier 2 #1、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 決定 4 / § 利点。
 >
-> **実行優先度**: Tier 2 — Severity Medium (観測性の劣化。誤 allow は起きない) / Frequency Low / Effort S / Adoption Risk None。
+> **種類**: Tier 2 — 回帰テストの追加。工数 S。
 
 #### 作業計画
 
@@ -92,7 +92,7 @@
 >
 > **参照**: `.claude/feedback-reports/357.md` Tier 2 #1 / #2、[ADR-067](adr/adr-067-phase-b-unattended-fix-push.md) § 検証記録 (段 2 の 2 回目)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) (rate-limit の判定文保証)。
 >
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None。
+> **種類**: Tier 2 — テストの追加。工数 M。
 
 #### 作業計画
 
@@ -112,7 +112,7 @@
 >
 > **参照**: `.claude/feedback-reports/352.md` Tier 3 #2、[ADR-069](adr/adr-069-pr-chain-declaration.md)、[ADR-039](adr/adr-039-experimental-feature-standard-pattern.md) § bounded lifetime。
 >
-> **実行優先度**: Tier 3 — Severity Medium / Frequency Medium / Effort M / Adoption Risk None (docs-only)。
+> **種類**: Tier 3 — ADR の判断基準の具体化。工数 M。
 
 #### 作業計画
 
@@ -132,7 +132,7 @@
 >
 > **参照**: `.claude/feedback-reports/354.md` Tier 3 #1、[ADR-070](adr/adr-070-weekly-review-cloud-routine.md)、[ADR-031](adr/adr-031-weekly-review-pipeline.md)。本エントリと同時に採用した「ADR の trigger/scope 再定義時の同期」convention (dev-conventions 集中バッチの 5) が、この type の drift を今後防ぐ側の対処。
 >
-> **実行優先度**: Tier 3 — Severity Medium (誤誘導。実装は正しい) / Frequency Low / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — reminder の文言の同期。工数 S。
 >
 > **前提の訂正 (2026-09-28)**: 上の動機の「7 日から 30 日へ再定義」は起票時点の状態で、その後 ADR-070 決定 2 の改訂 (#396、2026-08-13) で**既定は 7 日に戻った** (`src/hooks-session-start/src/weekly_review/mod.rs` の `WEEKLY_REVIEW_DEFAULT_THRESHOLD_DAYS = 7`、テストで固定済み)。同期先の正は「7 日 / cloud routine / 監査」である。**週次レビュー WR-2026-08-15-A04 を本項へ統合した**: `docs/adr/adr-031-weekly-review-pipeline.md` 7 行目の「監査リマインダー (既定 30 日)」が今も残っている (2026-09-28 確認)。
 
@@ -157,7 +157,7 @@
 >
 > **参照**: `.claude/feedback-reports/353.md` Tier 1 #1 / template_fix、[ADR-051](adr/adr-051-cross-system-config-coupling.md) (設定の論理結合)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (派生プロジェクトへの誤誘導) / Frequency Low / Effort S / Adoption Risk Low。
+> **種類**: Tier 3 — テンプレートの example の削除と facet instruction の追記。工数 S。
 
 #### 作業計画
 
@@ -225,7 +225,7 @@
 >
 > **参照**: [ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (ルール vs 仕組みの線引き — 項目 2 は `check-ci` 側で機械化できる。残りは lint 化が難しくルール側)、[ADR-068](adr/adr-068-fix-step-authority-boundary.md) (fix step の権限境界)、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (findings handoff の contract)、memory `dont-trust-takt-fix-output` (narrow 修正の隣接穴)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (誤った「対応済み」報告がレビューを空振りさせる) / Frequency High (レビューのたび) / Effort S / Adoption Risk Low (2026-11-09 の作り替えで docs-only ではなくなった。`check-ci-coderabbit` と `cli-review-threads` の 2 つの CLI の出力に、欄と行が増える。欄の追加で JSON の読み手は壊れないはずだが、着手時に `--list-findings` を読む facet とスクリプトを確かめる)。
+> **種類**: Tier 2 — exe (`check-ci` / `threads show`) の出力の変更。工数 S。2026-11-09 の作り替えで docs-only ではなくなった。`check-ci-coderabbit` と `cli-review-threads` の 2 つの CLI の出力に、欄と行が増える。欄の追加で JSON の読み手は壊れないはずだが、着手時に `--list-findings` を読む facet とスクリプトを確かめる。
 >
 > **2026-11-09 の作り替え (#622 の post-merge feedback)**: 残作業を項目 2 の仕組み化に絞り、`threads show` の側を足した。#622 で、指摘本文を読むために `gh api` を直接 2 回叩くことになり、許可確認で作業が止まった。確認の経路は 2 つあり、どちらも指摘本文を全文出せない。
 >

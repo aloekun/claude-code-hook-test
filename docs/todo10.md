@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/feedback-reports/199.md` Tier 3 #2、`.claude/feedback-reports/203.md` Tier 3 #1、PR #96 Finding D、PR #199 Bundle W (PastTime newtype 実装 + proptest properties 5 件)、PR #203 (hooks-session-start への port + integration test 追加)、`~/.claude/rules/rust/patterns.md` § Newtype Pattern (extension 候補)、順位 135 (ADR 番号 hardcode 撤廃 policy)、順位 78 (旧 ADR-038 → 041 → NNN の 3 段振り直し実証)
 >
-> **実行優先度**: **Tier 3** — 工数 Medium。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記。Frequency High (3 PR) に昇格したため優先度内で着手順を引き上げる余地あり。
+> **種類**: Tier 3 — ADR の新設。工数 M。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記。
 
 #### 背景
 
@@ -74,7 +74,7 @@
 >
 > **注 (2026-11-12)**: 参照先の `src/cli-docs-lint/src/priority_inversion.rs` は [ADR-090](adr/adr-090-todo-tier-as-kind.md) で撤去した。行番号は撤去前の master (`748d3deb`) のもので、`jj file show -r 748d3deb src/cli-docs-lint/src/priority_inversion.rs` で読める。
 >
-> **実行優先度**: **Tier 3** — 工数 XS。`~/.claude/rules/rust/patterns.md` に 1 section (10-20 行) 追加のみ。
+> **種類**: Tier 3 — ルール文書の追記。工数 XS。`~/.claude/rules/rust/patterns.md` に 1 section (10-20 行) 追加のみ。
 
 #### 設計決定 (案)
 
@@ -114,7 +114,7 @@
 >
 > **注 (2026-11-12)**: 参照先の `src/cli-docs-lint/src/priority_inversion.rs` は [ADR-090](adr/adr-090-todo-tier-as-kind.md) で撤去した。行番号は撤去前の master (`748d3deb`) のもので、`jj file show -r 748d3deb src/cli-docs-lint/src/priority_inversion.rs` で読める。
 >
-> **実行優先度**: **Tier 3** — 工数 XS。ADR-007 に 1 guideline (5-10 行) 追記のみ。
+> **種類**: Tier 3 — ADR への guideline の追記。工数 XS。ADR-007 に 1 guideline (5-10 行) 追記のみ。
 
 #### 設計決定 (案)
 
@@ -151,7 +151,7 @@
 >
 > **参照**: `.claude/feedback-reports/200.md` Tier 3 #3、`src/cli-docs-lint/src/priority_inversion.rs:633-637` (F-3 fix のテストコメント、fixture 設計意図)、PR #200 pre-push reviewer F-3 finding。
 >
-> **実行優先度**: **Tier 3** — 工数 XS。`~/.claude/rules/common/testing.md` の sentinel section に 1 sub-section (10-15 行) 追記のみ。
+> **種類**: Tier 3 — ルール文書の追記。工数 XS。`~/.claude/rules/common/testing.md` の sentinel section に 1 sub-section (10-15 行) 追記のみ。
 
 #### 設計決定 (案)
 
@@ -191,7 +191,7 @@
 >
 > **参照**: `.claude/feedback-reports/201.md` Tier 3 #4、`~/.claude/rules/common/git-workflow.md` (拡張先、既存「jj Operations」section に追記)、PR #201 session log (auto-snapshot 由来の bundle 化事例、advisor consult)
 >
-> **実行優先度**: **Tier 3** — Effort XS。`~/.claude/rules/common/git-workflow.md` に 1 sub-section (10-15 行) 追記のみ。
+> **種類**: Tier 3 — ルール文書の追記。工数 XS。`~/.claude/rules/common/git-workflow.md` に 1 sub-section (10-15 行) 追記のみ。
 
 #### 設計決定 (案)
 
@@ -232,7 +232,7 @@
 >
 > **参照**: `.claude/feedback-reports/204.md` Tier 3 #1、PR #133 (todo.md split)、PR #153 (analysis.md 3-way split)、PR #204 (todo10.md split、本 PR)、`~/.claude/rules/common/development-workflow.md` § 1. Plan First、`~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle (相補)、memory `feedback_global_config_backup` (snapshot 必須)
 >
-> **実行優先度**: **Tier 3** — Effort S。`~/.claude/rules/common/development-workflow.md` への 5-10 行追記。
+> **種類**: Tier 3 — ルール文書の追記。工数 S。`~/.claude/rules/common/development-workflow.md` への 5-10 行追記。
 
 #### 設計決定 (案)
 
@@ -277,7 +277,7 @@
 >
 > **参照**: `.claude/feedback-reports/204.md` Tier 3 #2、PR #204 (project-local ADR-039 § 1.b 追加)、`~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須、PR #197 (順位 177 file_size_check の誤適用観測点)、順位 200/202/205 (同 pattern の global codification 事例)、memory `feedback_global_config_backup` (snapshot 必須)
 >
-> **実行優先度**: **Tier 3** — Effort S。`~/.claude/rules/common/patterns.md` への 6-10 行追記。
+> **種類**: Tier 3 — ルール文書の追記。工数 S。`~/.claude/rules/common/patterns.md` への 6-10 行追記。
 
 #### 設計決定 (案)
 

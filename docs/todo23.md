@@ -34,7 +34,7 @@
 >
 > **参照**: `.claude/feedback-reports/405.md`、`.claude/feedback-reports/406.md`
 >
-> **実行優先度**: **Tier 2** — Severity High / Frequency Medium / Effort M / Adoption Risk None。
+> **種類**: Tier 2 — 統合テストの追加。工数 M。
 
 #### 設計決定 (案)
 
@@ -65,7 +65,7 @@
 >
 > **参照**: `.claude/feedback-reports/401.md`、`.claude/feedback-reports/404.md`
 >
-> **実行優先度**: **Tier 2** — Severity Medium / Frequency Medium / Effort S-M / Adoption Risk None。
+> **種類**: Tier 2 — テストの追加。工数 S-M。
 
 #### 設計決定 (案)
 
@@ -103,7 +103,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.claude/feedback-reports/404.md`、`.claude/feedback-reports/406.md`、`.claude/feedback-reports/{481,482,483}.md`、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)
 >
-> **実行優先度**: **Tier 3** — Severity Medium / Frequency Medium / Effort S / Adoption Risk None。
+> **種類**: Tier 3 — ADR の新設。工数 S。
 
 #### 設計決定 (案)
 
@@ -156,7 +156,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 2 #3、[ADR-011](adr/adr-011-jj-push-new-bookmark-strategy.md)、`src/cli-push-runner`
 >
-> **実行優先度**: **Tier 2** — Severity Medium / Frequency Low / Effort S / Adoption Risk None。開発体験の劣化であり機能欠陥ではない。
+> **種類**: Tier 2 — exe (`cli-push-runner`) の早期検出。工数 S。
 
 #### 設計決定 (案)
 
@@ -187,7 +187,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.claude/feedback-reports/400.md` Tier 3 #2、[ADR-051](adr/adr-051-cross-system-config-coupling.md)、`/skill-sync-check` skill
 >
-> **実行優先度**: **Tier 3** — Severity Medium / Frequency Medium / Effort XS / Adoption Risk None。
+> **種類**: Tier 3 — `/skill-sync-check` の SKILL.md への診断項目の追記。2026-09-08 にチェックリストの文書化から再設計した。skill の手順はエージェントが読んで実行する文章で、決定論的に止める仕組みではない。工数 XS。
 
 #### 設計決定 (案)
 
@@ -221,7 +221,7 @@ scan 失敗テストの検証対象が未確定 (shell か exe か)
 >
 > **参照**: `.takt/facets/instructions/analyze-session.md`、`.takt/workflows/post-merge-feedback.yaml`、[ADR-022](adr/adr-022-automation-responsibility-separation.md)
 >
-> **実行優先度**: **Tier 2** — Severity Medium / Frequency Low (観測 1 回) / Effort S / Adoption Risk None。backstop が先に入っているため緊急度は低い。
+> **種類**: Tier 3 — facet instruction の追記 (検知 step は要否の判断のみ)。工数 S。
 
 #### 設計決定 (案)
 

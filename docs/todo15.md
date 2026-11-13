@@ -20,7 +20,7 @@
 >
 > **参照**: `.claude/feedback-reports/234.md` Tier 3 #1、`docs/adr/adr-043-security-gates-fail-closed.md` (fail-closed 原則)、順位 249 (ADR-043 コード例追記、相補)、custom lint ⑫ `no-hardcoded-jj-revset-range`。
 >
-> **実行優先度**: **Tier 3** — Effort S。
+> **種類**: Tier 3 — ガイド文書の追加。工数 S。
 
 #### 作業計画
 
@@ -42,7 +42,7 @@
 >
 > **参照**: `.claude/feedback-reports/234.md` Tier 3 #2、`docs/adr/adr-043-security-gates-fail-closed.md` (追記先)、順位 248 (Gate Function Design Checklist)。
 >
-> **実行優先度**: **Tier 3** — Effort S。
+> **種類**: Tier 3 — ADR への具体例の追記。工数 S。
 
 #### 作業計画
 
@@ -63,7 +63,7 @@
 >
 > **参照**: `.claude/feedback-reports/234.md` Tier 3 #3、`docs/adr/adr-021-jj-change-detection-principles.md` (追記先)、custom lint ⑫ `no-hardcoded-jj-revset-range`。
 >
-> **実行優先度**: **Tier 3** — Effort XS。
+> **種類**: Tier 3 — ADR への明文化。工数 XS。
 
 #### 作業計画
 
@@ -82,7 +82,7 @@
 >
 > **参照**: PR #238 (実害) / PR #239 (preset 実装 + feedback 提案 #1)、ADR-045 § PR 運用時の追加設定、`.claude/hooks-config.toml` gh-repo-env-guard preset。
 >
-> **実行優先度**: Tier 3 — Effort S。Severity Medium + Frequency Medium + Adoption Risk None (PR #239 post-merge-feedback T3-1、ユーザー採用 2026-07-03)。
+> **種類**: Tier 3 — ADR の新設。工数 S。
 
 #### 作業計画
 
@@ -106,7 +106,7 @@
 >
 > **参照**: PR #238 (実害) / PR #239 (`src/cli-merge-pipeline/src/pipeline.rs` の `AiStepContext::SkipWithMarker`)、ADR-030 (失敗マーカーによる recovery)。
 >
-> **実行優先度**: Tier 3 — Effort XS。Severity Low (既修正) + Frequency Low (PR #239 post-merge-feedback T3-2、ユーザー採用 2026-07-03)。次回 ADR-030 を参照・編集する PR への同乗で消化可。
+> **種類**: Tier 3 — ADR への実装記録の追記。工数 XS。次回 ADR-030 を参照・編集する PR への同乗で消化可。
 
 #### 作業計画
 
@@ -130,7 +130,7 @@
 >
 > **参照**: ADR-040 (Local LLM Context Size、実測値元)、ADR-046 (WP-01 スパイク、4 モデルの VRAM・latency 実測を保持)、ADR-038 (現行 classifier、RTX 3070 前提の記述)、memory `gpu-upgrade-rtx-pro-5000`。
 >
-> **実行優先度**: Tier 3 — Effort S。実装変更を伴わず ADR amendment 中心。分類層 (ADR-038) の運用に直接の不具合はないが、num_ctx 再選定や派生プロジェクト porting 時に誤った RTX 3070 前提を引き継ぐリスクを解消する。
+> **種類**: Tier 3 — ADR の実測値の更新。工数 S。実装変更を伴わず ADR amendment 中心。分類層 (ADR-038) の運用に直接の不具合はないが、num_ctx 再選定や派生プロジェクト porting 時に誤った RTX 3070 前提を引き継ぐリスクを解消する。
 
 #### 作業計画
 
@@ -155,7 +155,7 @@
 >
 > **参照**: ADR-038 § classify モデル格上げの評価と見送り (2026-07-05 追記、WP-04)、`src/cli-finding-classifier/prompts/classify.txt`、`src/cli-finding-classifier/src/main.rs` (`--prompt-file` で差し替え可)、WP-04 scratchpad の eval セット (Opus gold 35 件) + ハーネス。ADR-019 § 既知 CodeRabbit FP パターン (キュレート FP 例の出典)。
 >
-> **実行優先度**: Tier 5 — Effort M。現行 mistral:7b は安全軸完璧・最軽量で運用に支障なく、優先度は低い。materially better な新 local モデル出現時も再評価トリガー。
+> **種類**: Tier 3 — 見送り follow-up。classifier のプロンプトの改訂。工数 M。materially better な新 local モデル出現時も再評価トリガー。
 
 #### 作業計画
 
@@ -180,7 +180,7 @@
 >
 > **参照**: `push-runner-config.toml` の `[[quality_gate.groups]]` name=`rust-lint-test`、`src/cli-push-runner` の quality_gate stage、ADR-004 § ステップ並列実行による高速化 (2026-07-05 追記) の scope 外 note、ADR-017 (takt バージョン固定哲学 = nextest 固定の根拠)。
 >
-> **実行優先度**: Tier 5 — Effort S-M。現行 push は機能上支障なく、優先度は低い。ツール依存追加の費用対効果を要評価。
+> **種類**: Tier 2 — 見送り follow-up。push パイプラインのテスト実行の変更。工数 S-M。ツール依存追加の費用対効果を要評価。
 
 #### 作業計画
 
@@ -206,7 +206,7 @@
 >
 > **参照**: `.claude/feedback-reports/265.md` Tier 3 #2、`docs/adr/adr-007-custom-linter-layer-boundary.md` (既存 Q1-Q3 判断フロー形式で拡張)、`src/hooks-post-tool-comment-lint-rust` (Bundle Z #B-α)
 >
-> **実行優先度**: Tier 3 — Effort S。doc のみ、バッチ PR で消化可。
+> **種類**: Tier 3 — ADR への判断フローの追加。工数 S。doc のみ、バッチ PR で消化可。
 
 #### 作業計画
 
@@ -225,7 +225,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 2 #3、`hooks-post-tool-jj-op-verify` test suite。Adoption Risk: OS 依存 (temp dir / path 形式)
 >
-> **実行優先度**: Tier 2 — Severity High / Effort M。
+> **種類**: Tier 2 — 統合テストの追加。工数 M。
 
 #### 作業計画
 
@@ -244,7 +244,7 @@
 >
 > **参照**: `.claude/feedback-reports/267.md` Tier 3 #1。**順位 281 と同一 PR での bundle 実装を推奨** (別作業に切り出す価値は低い)
 >
-> **実行優先度**: Tier 3 — Effort XS。
+> **種類**: Tier 3 — 規約の明文化。工数 XS。
 
 #### 作業計画
 
@@ -263,7 +263,7 @@
 >
 > **参照**: `src/cli-push-runner/src/stages/bookmark_check.rs:39-43` (トレードオフの記述箇所、本エントリを指して「todo 登録済み」と既に言及している)
 >
-> **実行優先度**: Tier 5 (YAGNI、実運用実績なし) — Effort M。
+> **種類**: Tier 2 — 見送り follow-up。exe (`cli-push-runner`) の機能追加。工数 M。
 
 #### 作業計画
 
@@ -283,7 +283,7 @@
 >
 > **参照**: `docs/adr/adr-045-jj-workspace-parallel-sessions.md` § Known operational risks、`docs/adr/adr-053-stop-tool-call-leak-detection.md`、`src/hooks-post-tool-jj-op-verify/src/main.rs`
 >
-> **実行優先度**: Tier 3 — Effort S (ドキュメント再整理のみ、hook 実装は変更不要)。
+> **種類**: Tier 3 — ADR の位置づけの整理。工数 S (ドキュメント再整理のみ、hook 実装は変更不要)。
 
 #### 作業計画
 
@@ -303,7 +303,7 @@
 >
 > **参照**: `docs/adr/adr-045-jj-workspace-parallel-sessions.md` § Known operational risks、本セッションの調査 (transcript `ed897a3e-85b5-44d1-a78c-ff23973f207e.jsonl` 系列、独立 subagent 検証)
 >
-> **実行優先度**: Tier 3 — Effort XS。
+> **種類**: Tier 3 — ADR への注記の追加。工数 XS。
 
 #### 作業計画
 
@@ -322,7 +322,7 @@
 >
 > **参照**: `.claude/feedback-reports/271.md` Tier 2 #2、`src/lib-jj-helpers/src/pipeline_lock.rs` の tests モジュール
 >
-> **実行優先度**: Tier 2 — Effort M。
+> **種類**: Tier 2 — テストの追加。工数 M。
 
 #### 作業計画
 

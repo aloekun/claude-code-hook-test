@@ -133,7 +133,7 @@
 >
 > **参照**: 順位 78 entry ([docs/todo4.md](todo4.md) の「旧 todo5.md から移した分」節 § ADR-NNN Rust timestamp arithmetic safety + CLAUDE.md security 拡充)、`~/.claude/rules/common/docs-governance.md`
 >
-> **実行優先度**: **Tier 3** — Effort XS。global rule に 2-3 行追記。
+> **種類**: Tier 3 — docs の起票規約の変更。工数 XS。global rule に 2-3 行追記。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -173,7 +173,7 @@
 >
 > **参照**: `.claude/feedback-reports/169.md` Tier 3 #2、順位 135 entry (`docs/todo8.md` 内、本 ADR 昇格後に retire 候補)、`~/.claude/rules/common/docs-governance.md` (現状 codify 先)、PR #111 / PR #132 / PR #169 history
 >
-> **実行優先度**: **Tier 3** — Effort S。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記 + 順位 135 entry retire (= todo8.md から削除)。
+> **種類**: Tier 3 — ADR の新設。工数 S。新規 ADR 1 件作成 (記述のみ、コード変更なし) + CLAUDE.md ADR list 追記 + 順位 135 entry retire (= todo8.md から削除)。
 
 #### ADR 番号
 
@@ -221,7 +221,7 @@
 >
 > **参照**: `.claude/feedback-reports/171.md` Tier 2 #4、`src/hooks-post-tool-linter/src/main.rs` (`run_custom_rules_line_number_correct_with_multibyte_content` を helper 化対象)、PR #151 / PR #171
 >
-> **実行優先度**: **Tier 2** — Effort S。Bundle 171 ペアタスク。
+> **種類**: Tier 2 — テスト helper の追加。工数 S。Bundle 171 ペアタスク。
 
 #### 設計決定 (案)
 

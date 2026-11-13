@@ -19,7 +19,7 @@
 >
 > **参照**: `.claude/feedback-reports/217.md` Tier 2 #1、PR #217 takt-fix iter 2 / iter 3 (`lib-subprocess` 統合)、ADR-031 § Phase B (takt workflow + facets)、`#[ignore]` test 慣習 (例: cli-pr-monitor の integration test、ADR-021)、`docs/adr/adr-044-subprocess-utility-extraction-boundary.md` (lib-subprocess の extraction 境界判定)、順位 221 (ADR docs codification、bundle 推奨)。
 >
-> **実行優先度**: **Tier 2** — Effort M。stress fixture 作成 (~50 行 × 2 module) + ADR-031 weekly workflow への step 追加 + `cargo test -- --ignored` 経由の動作確認。
+> **種類**: Tier 2 — 週次で回すテストの追加。工数 M。stress fixture 作成 (~50 行 × 2 module) + ADR-031 weekly workflow への step 追加 + `cargo test -- --ignored` 経由の動作確認。
 
 #### 設計決定 (案)
 
@@ -71,7 +71,7 @@
 >
 > **参照**: `.claude/feedback-reports/217.md` Tier 3 #1、PR #217 takt-fix iter 2 (`spawn_stdout_drainer` + `poll_child_with_deadline` 初版抽出) / iter 3 (`lib-subprocess` 統合)、`docs/adr/adr-016-long-running-command-strategy.md` (append 候補)、`docs/adr/adr-025-cwd-restore-drop-guard.md` (precedent: pattern codify ADR)、`docs/adr/adr-044-subprocess-utility-extraction-boundary.md` (lib-subprocess 境界判定)、`src/lib-subprocess/src/lib.rs` (`drain_pipe_unlimited` / `wait_with_timeout_basic` 実装)、順位 220 (test 層、bundle 推奨)。
 >
-> **実行優先度**: **Tier 3** — Effort S。ADR appendix or 新 ADR 作成 (~150 行)、3 pattern (background drain / `Command::output()` / `Stdio::null()`) の説明 + lib-subprocess utility cite + anti-pattern 例 (本 PR の deadlock fix 経緯を inline cite)。
+> **種類**: Tier 3 — ADR の新設または追記。工数 S。ADR appendix or 新 ADR 作成 (~150 行)、3 pattern (background drain / `Command::output()` / `Stdio::null()`) の説明 + lib-subprocess utility cite + anti-pattern 例 (本 PR の deadlock fix 経緯を inline cite)。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -121,7 +121,7 @@
 >
 > **参照**: `.claude/feedback-reports/218.md` Tier 3 #5、PR #218 session transcript (Plan file 作成完了 → AI 先走り → ユーザー停止 → "勝手に作業を進めないでください" の course correction)、memory `feedback_no_unauthorized_reorder.md` (推奨実行順序の上位タスクが blocked された時点で停止し、ユーザーに pivot 可否を確認する、の補強)、memory `feedback_global_config_backup.md` (snapshot 必須)、`~/.claude/CLAUDE.md` (編集対象 global config)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。global config への 1 段落追記で完結、`feedback_global_config_backup` snapshot を忘れない。
+> **種類**: Tier 3 — CLAUDE.md の追記。工数 XS。global config への 1 段落追記で完結、`feedback_global_config_backup` snapshot を忘れない。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -189,11 +189,11 @@
 >
 > 同型の precedent として `cli-merge-pipeline/src/feedback.rs:60` の `pub const ORPHAN_THRESHOLD_SECS: u64 = TAKT_TIMEOUT_SECS + 300;` が存在し、derived value として上流定数 (`TAKT_TIMEOUT_SECS`) との関係を compile-time で保証している。本 task は同じ pattern を hooks-stop-quality / hooks-session-start の magic number 同期にも適用する。
 >
-> **本タスクの位置づけ**: PR #222 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None、2026-06-27 ユーザー承認)。analyzer rationale: 「3 reports 全てで threshold alignment を言及。`cli-merge-pipeline` の precedent (const + assert 方式) が参照実装として存在、実装コスト低。drift 発生時に orphan detection window と quality gate skip window が非対称になるリスクが明確。Effort M かつ Frequency Medium で採用候補」。`feedback_tier_classification` per analyzer Tier 1 (= mechanical enforcement) → project Tier 2 に再分類。
+> **本タスクの位置づけ**: PR #222 post-merge-feedback Tier 1 #1 採用 (Severity Medium / Frequency Medium / Effort M / Adoption Risk None、2026-06-27 ユーザー承認)。analyzer rationale: 「3 reports 全てで threshold alignment を言及。`cli-merge-pipeline` の precedent (const + assert 方式) が参照実装として存在、実装コスト低。drift 発生時に orphan detection window と quality gate skip window が非対称になるリスクが明確。Effort M かつ Frequency Medium で採用候補」。元レポートの分類は Tier 1 (mechanical enforcement)。起票時は旧来の優先度で Tier 2 としたが、2026-11-13 に種類で Tier 1 に付け直した ([ADR-090](adr/adr-090-todo-tier-as-kind.md))。
 >
 > **参照**: `.claude/feedback-reports/222.md` Tier 1 #1、`src/hooks-stop-quality/src/main.rs:67` (現状のコメント契約 + 定数定義)、`src/hooks-session-start/src/reaper.rs:29` (source of truth = `pub(crate) const ORPHAN_THRESHOLD_SECS: u64 = 1500`)、`src/cli-merge-pipeline/src/feedback.rs:60` (precedent: derived const + 上流定数 reference)、ADR-043 (Security/Quality Gate Fail-Closed) — fail-closed threshold の同期が崩れた場合のリスクを ADR で論じる経路、ADR-030 (決定論的 Post-Merge Feedback) § L2 reaper — `ORPHAN_THRESHOLD_SECS` の出処、順位 224 (ADR-043 amendment、bundle 推奨)。
 >
-> **実行優先度**: **Tier 2** — Effort M。lib 抽出 (shared crate / lib module) vs cross-crate const re-export + compile-time assert の選択 + test 追加。
+> **種類**: Tier 1 — 定数の不一致をコンパイル時に止める仕組み。工数 M。lib 抽出 (shared crate / lib module) vs cross-crate const re-export + compile-time assert の選択 + test 追加。
 
 #### 設計決定 (案、land 時に判断)
 
@@ -245,7 +245,7 @@
 >
 > **参照**: `.claude/feedback-reports/222.md` Tier 3 #1、`docs/adr/adr-043-security-gates-fail-closed.md` (追記対象、試験運用 ADR)、`src/hooks-stop-quality/src/main.rs` の `meta_is_fresh()` / `meta_is_active_run()` (具体例として cite)、PR #222 (`b0b91978`) (由来 cite)、順位 223 (T1 mechanical、bundle 推奨)、`feedback_global_config_backup` 適用は本リポジトリ docs/ のため不要 (グローバル CLAUDE.md / rules は触らない)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。ADR-043 の既存 § 「concrete examples」 or 末尾に新 sub-section を追加 (~30 行)、mtime 取得失敗 / clock skew / malformed JSON / read error の 4 error path を列挙し、各 path で `false` 返却 → gate effective 維持を inline 説明。
+> **種類**: Tier 3 — ADR への具体例の追記。工数 XS。ADR-043 の既存 § 「concrete examples」 or 末尾に新 sub-section を追加 (~30 行)、mtime 取得失敗 / clock skew / malformed JSON / read error の 4 error path を列挙し、各 path で `false` 返却 → gate effective 維持を inline 説明。
 
 #### 設計決定 (案)
 
@@ -276,7 +276,7 @@
 - ADR-043 に hooks-stop-quality の error handling が concrete example として追記される
 - 4 error path 各々の `false` 返却 logic と「gate effective」状態への倒し方が明示される
 - PR #222 / ADR-004 / ADR-043 の 3 文書間の cross-reference が成立、reader が 1 example から原則 → 適用 → 反対例を辿れる
-- 順位 223 と合わせ、mechanical (T2) + docs (T3) の 2 層防御確立
+- 順位 223 と合わせ、mechanical (T1) + docs (T3) の 2 層防御確立
 
 #### 詰まっている箇所
 

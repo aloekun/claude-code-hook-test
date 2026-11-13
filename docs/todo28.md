@@ -112,7 +112,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 5 — トリガーが観測されるまで着手しない。
+> **種類**: Tier 1 — 見送り follow-up。lint (allow-without-reason) の判定方式の変更。工数 S。トリガーが観測されるまで着手しない。
 
 #### 再評価トリガー (いずれかが観測されたときのみ)
 
@@ -151,7 +151,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — 2026-10-10 時点で残りのコピーは設定ファイルと一致しており、実害は無い。
+> **種類**: Tier 1 — 写経を止める検査 (テストの移行を伴う)。工数 M。2026-10-10 時点で残りのコピーは設定ファイルと一致しており、実害は無い。
 
 #### 作業計画 (2 段。順序を守る)
 
@@ -186,7 +186,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。発生の証拠は順位 537 にある。本項は同じ不具合の入口側の対策である。
 >
-> **実行優先度**: Tier 2 — Effort M。順位 537 の後に行う。
+> **種類**: Tier 1 — PreToolUse hook によるブロック。工数 M。順位 537 の後に行う。
 
 #### 決定事項 (2026-10-12)
 
@@ -204,7 +204,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort M。調査タスク。順位 537 の回帰テストが入ってから着手する。
+> **種類**: Tier 2 — exe (`cli-merge-pipeline`) の検知方式の調査 (見込みの成果物は exe の変更)。工数 M。調査タスク。順位 537 の回帰テストが入ってから着手する。
 
 #### 作業計画
 
@@ -221,7 +221,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort S。
+> **種類**: Tier 2 — exe の解決ロジックの修正。工数 S。
 
 #### 決定事項 (2026-10-12)
 
@@ -239,7 +239,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。現在の preamble は退役を個別に書いているため実害は無い。
 >
-> **実行優先度**: Tier 3 — Effort S。
+> **種類**: Tier 2 — 表駆動テストの追加。工数 S。
 
 #### 決定事項 (2026-10-12)
 
@@ -258,7 +258,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 2 — Effort M。ユーザーと二人三脚で期限を決める作業。
+> **種類**: Tier 3 — ADR 索引のタグの記入。工数 M。ユーザーと二人三脚で期限を決める作業。
 
 #### 決定事項 (2026-10-12)
 
@@ -276,7 +276,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。`(仮)` の外し忘れは 2026-10-12 時点で 0 件で、今後の予防である。
 >
-> **実行優先度**: Tier 2 — Effort S。**順位 545 の完了が前提**。それまでは human lane に置く。
+> **種類**: Tier 1 — `lint:docs` の検査の追加。工数 S。**順位 545 の完了が前提**。それまでは human lane に置く。
 
 #### 決定事項 (2026-10-12)
 
@@ -293,7 +293,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort M。Guard 禁止パス (`src/lib-ledger/`、台帳) の改修なので human lane。
+> **種類**: Tier 2 — 台帳パーサ (`lib-ledger`) と台帳の表記の置き換え。工数 M。Guard 禁止パス (`src/lib-ledger/`、台帳) の改修なので human lane。
 
 #### 作業計画
 
@@ -310,7 +310,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort M。**順位 548 の完了が前提**。
+> **種類**: Tier 1 — 絵文字を検出する検査 (docs の一掃を伴う)。工数 M。**順位 548 の完了が前提**。
 
 #### 作業計画
 
@@ -328,7 +328,7 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
 >
 > **由来**: `[improvement]`。
 >
-> **実行優先度**: Tier 3 — Effort S。ADR 編集なので human lane。
+> **種類**: Tier 3 — ADR への判断基準の追記。工数 S。ADR 編集なので human lane。
 
 #### 作業計画
 

@@ -18,7 +18,7 @@
 >
 > **参照**: `.claude/feedback-reports/88.md` の Tier 2 #5 finding
 >
-> **実行優先度**: **Tier 2** — 工数 Small。daily efficiency への影響中 (PR 作成は頻繁ではないが、エラー時の摩擦が高い)。
+> **種類**: Tier 2 — exe (`pnpm create-pr`) のヘルプの改善。工数 S。
 
 #### 背景
 
@@ -69,7 +69,7 @@ Hint:
 >
 > **参照**: `.claude/feedback-reports/90.md` の Tier 2 #2 finding
 >
-> **実行優先度**: **Tier 2** — 工数 S。daily efficiency への影響中 (recovery 発生頻度は低いが、発生時の摩擦を低減)。rate-limit 系 task (cli-pr-monitor ポーリング延長 PR #88 T2-4、完了済 / post-pr-review rate-limit 自動検出) ほど critical ではないが、ADR-030 の long-term 運用品質に寄与。
+> **種類**: Tier 2 — exe が書く marker への復旧手順の出力。工数 S。
 
 #### 背景
 
@@ -158,7 +158,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: [ADR-047](adr/adr-047-prepush-refute-facet.md) §却下理由の補強 (一般反証機構との構成差・本案の出自)、[ADR-056](adr/adr-056-review-policy-anomaly-shadow.md) (inline 反証 = 規律の移植元)、[ADR-042](adr/adr-042-rule-vs-mechanism-boundary.md) (Phase 0 需要調査の根拠)、`docs/adr/adr-056-step-timings.md` (step 別実測、別コミット)、[ADR-015](adr/adr-015-push-runner-takt-migration.md) § 検討して採らなかった方向 R4。
 >
-> **実行優先度**: Tier 2 — Severity Low〜Medium (現行に実害はない: recall 穴は post-PR CodeRabbit が受けている。改善余地の探索) / Effort: Phase 0 = S、Phase 1 = M (条件付き)。
+> **種類**: Tier 3 — 実験の起案 (facet と評価計画)。工数 Phase 0 = S、Phase 1 = M (条件付き)。
 
 #### 作業計画
 
@@ -183,7 +183,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/295.md` Tier3 #2 / `.claude/feedback-reports/296.md` Tier3 #2、`src/cli-docs-lint/`、[ADR-048](adr/adr-048-facet-findings-handoff-markdown-contract.md) (plain-text 参照統一の先例は本 R4 で ADR-047/056 に適用済)、[ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)。
 >
-> **実行優先度**: Tier 3 — Severity Low / Frequency Medium / Effort S (cli-docs-lint の検査 3 本)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
+> **種類**: Tier 1 — `cli-docs-lint` の検査の追加。工数 S (cli-docs-lint の検査 3 本)。実害は未観測 (齟齬は各 PR の review / feedback で捕捉できている) のため、より重い自動化 (custom lint / pre-push facet checklist) は再発観測後にエスカレーション。
 
 #### 作業計画
 
@@ -204,7 +204,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/299.md` Tier2 #1、[ADR-059](adr/adr-059-hook-system-message-visibility.md)、[ADR-049](adr/adr-049-incident-eval-regression-suite.md) (exe-spawn E2E 先例)、`src/hooks-session-start/src/main.rs` (`build_session_start_json`)。
 >
-> **実行優先度**: Tier 2 — Severity Medium / Frequency Medium / Effort S (既存 exe-spawn E2E convention を流用可能、tests/ 新設)。
+> **種類**: Tier 2 — E2E テストの追加。工数 S (既存 exe-spawn E2E convention を流用可能、tests/ 新設)。
 
 #### 作業計画
 
@@ -225,7 +225,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/301.md` Tier1 #2、`package.json` (`build:all` / `build:*` scripts)、memory `windows-build-cp-path-gotcha.md` (既記録・再発)。
 >
-> **実行優先度**: Tier 2 — Severity Medium (ビルド阻害) / Frequency Medium (再発 2 回目) / Effort S (Windows 限定 if 分岐、他 OS 非影響、Adoption Risk は OS 依存分岐のみ)。
+> **種類**: Tier 2 — ビルドスクリプトの修正。工数 S (Windows 限定 if 分岐、他 OS 非影響、Adoption Risk は OS 依存分岐のみ)。
 
 #### 作業計画
 
@@ -258,7 +258,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/214.md` Tier 3 #1、旧 `src/cli-pr-monitor/src/stages/poll/review_recheck.rs` の `finalize_initial_review_park` defensive reset block (**WP-17 PR 3 の park モデル廃止でファイルごと削除済み** — pattern の実例は PR #214 の diff を参照。rule 化する価値は削除後も変わらない: 同型の state machine は `finalize_pending_review` / iteration の state 継承等に現存)、memory `feedback_no_unenforced_rules.md` (enforcement 要件)、memory `feedback_global_config_backup.md` (snapshot 必須)。
 >
-> **実行優先度**: **Tier 3** — Effort S。global rules への docs 追記 ~30 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+> **種類**: Tier 3 — ルール文書の追記。工数 S。global rules への docs 追記 ~30 行で完結、`feedback_global_config_backup` snapshot を忘れない。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -302,7 +302,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/216.md` Tier 3 #1、`~/.claude/rules/common/coding-style.md` § Cross-File Reference Lifecycle (現行 section、編集対象)、順位 216 (機械層 = lint rule、本 task の機械強制対応)、memory `feedback_global_config_backup` (snapshot 必須)、PR #216 hooks-config.toml diff (違反実例として inline cite)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。global rules への docs 追記 ~15 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+> **種類**: Tier 3 — ルール文書の追記。工数 XS。global rules への docs 追記 ~15 行で完結、`feedback_global_config_backup` snapshot を忘れない。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -360,7 +360,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/216.md` Tier 3 #2、`docs/adr/adr-039-experimental-feature-standard-pattern.md` § Bounded Lifetime (編集対象、6-point design checklist 拡張)、`~/.claude/rules/common/patterns.md` § Experimental Feature 設計時の参照必須 (補助編集対象、同旨 note 追加)、PR #216 hooks-config.toml comment (違反実例)、memory `feedback_global_config_backup` (snapshot 必須)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。ADR + global rules への docs 追記 ~10 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+> **種類**: Tier 3 — ADR とルール文書の追記。工数 XS。ADR + global rules への docs 追記 ~10 行で完結、`feedback_global_config_backup` snapshot を忘れない。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で、旧環境の patterns.md に土台 section (Experimental Feature 設計時の参照必須、PR #194 由来) は存在するが、本タスクの増分 (provisional enabled 変更時の todo tracking note) は旧環境でも未実施。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
@@ -412,7 +412,7 @@ prompt and prompt Claude to re-run the workflow.
 >
 > **参照**: `.claude/feedback-reports/216.md` Tier 3 #3、`~/.claude/rules/common/development-workflow.md` § 設計 doc/実装の同期チェック (編集対象)、PR #216 cleanup session log (誤判定 → grep 救出の経緯)、memory `feedback_verify_task_not_already_done` (関連 memory、再確認 verb-noun rule の前提となる「verify」step)、memory `feedback_global_config_backup` (snapshot 必須)。
 >
-> **実行優先度**: **Tier 3** — Effort XS。global rules への docs 追記 ~8 行で完結、`feedback_global_config_backup` snapshot を忘れない。
+> **種類**: Tier 3 — ルール文書の追記。工数 XS。global rules への docs 追記 ~8 行で完結、`feedback_global_config_backup` snapshot を忘れない。
 >
 > **Status update (2026-08-12)**: 旧環境 rules snapshot (syncthing/.claude_old、2026-06-17 凍結) の実査で本タスクは旧環境でも未実施と確認。~/.claude/rules の再配置 (採否) が保留中のため、配置先確定 (docs/todo22.md の「旧 rules 採否判断」エントリ) 後に着手する。
 
