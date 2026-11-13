@@ -1,0 +1,185 @@
+//! 報告が英語で始まっているかの判定 (ADR-091 § 判定条件)。
+//!
+//! 最初の「文章の行」が英語なら英語で始まっているとみなす。文章の行とは、
+//! 計測から除くもの (コードブロック、表の行、インラインコード、URL、リンク先、パスや識別子) を
+//! 除いた後に、日本語の文字を含む行 (日本語の行) か、英単語を [`MIN_ENGLISH_WORDS`] 語以上含む行
+//! (英語の行) のこと。どちらでもない行 (空行、記号だけの行、短い英語の断片) は読み飛ばす。
+//!
+//! 行の多数決ではなく最初の行で決める理由: 日本語の報告に英語の行が混ざる例 (コマンド出力の
+//! 引用など) はあるが、最初の文章の行が英語の日本語の報告は実データに無かった。逆に、英語で
+//! 書き始めた報告の後半に日本語の表や引用が続く例はあった (ADR-091 § 実データ)。
+
+/// 英語の行とみなす英単語 (英字 2 文字以上の連なり) の最少数。
+pub(crate) const MIN_ENGLISH_WORDS: usize = 4;
+
+/// 行の分類。
+#[derive(Debug, PartialEq, Eq)]
+enum LineKind {
+    Japanese,
+    English,
+    Neither,
+}
+
+/// 報告が英語で始まっていれば true。
+pub(crate) fn starts_in_english(text: &str) -> bool {
+    first_prose_line(text) == Some(LineKind::English)
+}
+
+/// 計測から除くものを除いた後の、最初の文章の行の分類。文章の行が無ければ None。
+fn first_prose_line(text: &str) -> Option<LineKind> {
+    let mut in_fence = false;
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || trimmed.starts_with('|') {
+            continue;
+        }
+        match classify(line) {
+            LineKind::Neither => continue,
+            kind => return Some(kind),
+        }
+    }
+    None
+}
+
+fn classify(line: &str) -> LineKind {
+    let mut english_words = 0;
+    for token in strip_inline_code(line).split_whitespace() {
+        if token.chars().any(is_japanese) {
+            return LineKind::Japanese;
+        }
+        if is_excluded_token(token) {
+            continue;
+        }
+        english_words += count_words(token);
+    }
+    if english_words >= MIN_ENGLISH_WORDS {
+        LineKind::English
+    } else {
+        LineKind::Neither
+    }
+}
+
+/// `` `...` `` で囲まれた部分を空白に置き換える。
+fn strip_inline_code(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_code = false;
+    for c in line.chars() {
+        if c == '`' {
+            in_code = !in_code;
+            out.push(' ');
+        } else if !in_code {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// URL、リンク先、パス、識別子らしい語は数えない。
+///
+/// 文末の `.` / `:` / `,` は文の句読点なので、それだけでは識別子扱いにしない。
+fn is_excluded_token(token: &str) -> bool {
+    if token.contains("://") || token.contains("](") {
+        return true;
+    }
+    let body = token.trim_end_matches(['.', ':', ',']);
+    body.chars().any(|c| {
+        matches!(
+            c,
+            '/' | '\\' | '.' | '_' | ':' | '=' | '#' | '@' | '$' | '<' | '>' | '{' | '}' | '|'
+        )
+    })
+}
+
+/// 英字 2 文字以上の連なりの数。
+fn count_words(token: &str) -> usize {
+    token
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|w| w.len() >= 2)
+        .count()
+}
+
+const HIRAGANA: std::ops::RangeInclusive<char> = '\u{3040}'..='\u{309F}';
+const KATAKANA: std::ops::RangeInclusive<char> = '\u{30A0}'..='\u{30FF}';
+const CJK_EXTENSION_A: std::ops::RangeInclusive<char> = '\u{3400}'..='\u{4DBF}';
+const CJK_UNIFIED: std::ops::RangeInclusive<char> = '\u{4E00}'..='\u{9FFF}';
+const HALFWIDTH_KATAKANA: std::ops::RangeInclusive<char> = '\u{FF66}'..='\u{FF9F}';
+
+fn is_japanese(c: char) -> bool {
+    [HIRAGANA, KATAKANA, CJK_EXTENSION_A, CJK_UNIFIED, HALFWIDTH_KATAKANA]
+        .iter()
+        .any(|range| range.contains(&c))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 2026-11-13 のセッションで、ユーザーに英語だと指摘された報告の書き出し。
+    #[test]
+    fn english_report_is_detected() {
+        let text = "PR #636 is ready to merge. Here is the status.\n\n- **CI**: rust and node both pass on Ubuntu and Windows.";
+        assert!(starts_in_english(text));
+    }
+
+    #[test]
+    fn short_english_report_is_detected() {
+        let text = "I'm pushing the fix for the 1 finding on PR #637. Once it finishes, I'll reply to the thread and resolve it.";
+        assert!(starts_in_english(text));
+    }
+
+    /// 英語で書き始め、後に日本語の表が続く報告 (同日の実例)。表の行は数えない。
+    #[test]
+    fn english_report_followed_by_japanese_table_is_detected() {
+        let text = "While the push runs, here is what I found.\n\n| 順位 | 変更 |\n|---|---|\n| 551 | T1 → T2 |\n";
+        assert!(starts_in_english(text));
+    }
+
+    #[test]
+    fn japanese_report_is_not_detected() {
+        let text = "PR #636 をマージしました (master `7f3c425e`)。\n\n残っていることは次のとおりです。";
+        assert!(!starts_in_english(text));
+    }
+
+    /// 英語の識別子やコマンド名が多い日本語の報告 (実データで最も英字が多かった型)。
+    #[test]
+    fn japanese_report_with_many_identifiers_is_not_detected() {
+        let text = "`pnpm push` が完了しました。pre-push のレビュー 2 件はどちらも APPROVE で、fix step は走りませんでした。";
+        assert!(!starts_in_english(text));
+    }
+
+    /// 最初の行が英語の見出しや識別子だけの行は文章の行ではないので、次の日本語の行で決まる。
+    #[test]
+    fn short_english_heading_is_skipped() {
+        let text = "## Review Report (PR #637)\n\nCI と CodeRabbit の結果は次のとおりです。";
+        assert!(!starts_in_english(text));
+    }
+
+    #[test]
+    fn code_block_is_ignored() {
+        let text = "```\nerror: this is an English compiler message that is quite long\n```\n\nビルドが失敗しました。";
+        assert!(!starts_in_english(text));
+    }
+
+    #[test]
+    fn inline_code_and_urls_are_ignored() {
+        let text = "`cargo test --workspace --all-features` see https://example.com/a/b and [docs](https://example.com)\n修正しました。";
+        assert!(!starts_in_english(text));
+    }
+
+    #[test]
+    fn empty_text_is_not_detected() {
+        assert!(!starts_in_english(""));
+        assert!(!starts_in_english("\n\n---\n"));
+    }
+
+    /// 境界: 英単語が MIN_ENGLISH_WORDS 語ちょうどの行は英語の行。1 語少なければ数えない。
+    #[test]
+    fn word_threshold_boundary() {
+        assert!(starts_in_english("All checks have passed"));
+        assert!(!starts_in_english("All checks passed\n確認しました。"));
+    }
+}
