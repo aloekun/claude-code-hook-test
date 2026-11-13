@@ -25,16 +25,52 @@ pub(crate) fn starts_in_english(text: &str) -> bool {
     first_prose_line(text) == Some(LineKind::English)
 }
 
+/// コードブロックのフェンス (` ``` ` / `~~~` を 3 文字以上)。
+#[derive(Debug, PartialEq, Eq)]
+struct Fence {
+    marker: char,
+    len: usize,
+}
+
+/// 行がフェンスの記号で始まっていれば、そのフェンスと記号の後ろの文字列を返す。
+fn fence_marker(trimmed: &str) -> Option<(Fence, &str)> {
+    let marker = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let len = trimmed.chars().take_while(|&c| c == marker).count();
+    (len >= 3).then(|| (Fence { marker, len }, &trimmed[len..]))
+}
+
+/// 開いているフェンスを、この行が閉じるか (CommonMark と同じ条件)。
+///
+/// 開始と同じ記号で、長さが開始以上で、記号の後ろが空白だけのときに限る。
+fn closes(open: &Fence, trimmed: &str) -> bool {
+    fence_marker(trimmed).is_some_and(|(fence, rest)| {
+        fence.marker == open.marker && fence.len >= open.len && rest.trim().is_empty()
+    })
+}
+
+/// この行がフェンスを開くか。バッククォートのフェンスは、記号の後ろ (info string) に
+/// バッククォートを含まない (含むならインラインコード)。
+fn opens(trimmed: &str) -> Option<Fence> {
+    let (fence, rest) = fence_marker(trimmed)?;
+    (fence.marker != '`' || !rest.contains('`')).then_some(fence)
+}
+
 /// 計測から除くものを除いた後の、最初の文章の行の分類。文章の行が無ければ None。
 fn first_prose_line(text: &str) -> Option<LineKind> {
-    let mut in_fence = false;
+    let mut open_fence: Option<Fence> = None;
     for line in text.lines() {
         let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
+        if let Some(open) = &open_fence {
+            if closes(open, trimmed) {
+                open_fence = None;
+            }
             continue;
         }
-        if in_fence || trimmed.starts_with('|') {
+        if let Some(fence) = opens(trimmed) {
+            open_fence = Some(fence);
+            continue;
+        }
+        if trimmed.starts_with('|') {
             continue;
         }
         match classify(line) {
@@ -48,7 +84,7 @@ fn first_prose_line(text: &str) -> Option<LineKind> {
 fn classify(line: &str) -> LineKind {
     let mut english_words = 0;
     for token in strip_inline_code(line).split_whitespace() {
-        if token.chars().any(is_japanese) {
+        if has_prose_japanese(token) {
             return LineKind::Japanese;
         }
         if is_excluded_token(token) {
@@ -63,19 +99,79 @@ fn classify(line: &str) -> LineKind {
     }
 }
 
-/// `` `...` `` で囲まれた部分を空白に置き換える。
+/// URL やパスの中の日本語は数えない。日本語の連なりの直前がこれらの文字なら、パスの要素や
+/// クエリの値とみなす (`docs/日本語.md`、`C:\Users\山田`、`?q=日本語`)。
+const PATH_PREFIX_CHARS: [char; 6] = ['/', '\\', '=', '?', '&', '#'];
+
+/// 文章としての日本語 (URL やパスの一部ではない日本語) を含むか。
+///
+/// トークンごと除外しない理由: 日本語の文にパスや URL が続けて書かれることが多く
+/// (`修正はsrc/main.rsに入れた`)、トークンごと捨てると日本語の証拠まで失うため。
+fn has_prose_japanese(token: &str) -> bool {
+    let mut prev: Option<char> = None;
+    let mut in_run = false;
+    for c in token.chars() {
+        if is_japanese(c) {
+            if !in_run && !prev.is_some_and(|p| PATH_PREFIX_CHARS.contains(&p)) {
+                return true;
+            }
+            in_run = true;
+        } else {
+            in_run = false;
+        }
+        prev = Some(c);
+    }
+    false
+}
+
+/// インラインコードを空白に置き換える (CommonMark と同じ区切り方)。
+///
+/// 開始のバッククォートの連続数を覚え、同じ連続数のバッククォートで閉じる。閉じが無ければ、
+/// そのバッククォートはただの文字として残す。
 fn strip_inline_code(line: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
     let mut out = String::with_capacity(line.len());
-    let mut in_code = false;
-    for c in line.chars() {
-        if c == '`' {
-            in_code = !in_code;
-            out.push(' ');
-        } else if !in_code {
-            out.push(c);
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '`' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let run = backtick_run(&chars, i);
+        match find_closing_run(&chars, i + run, run) {
+            Some(close) => {
+                out.push(' ');
+                i = close + run;
+            }
+            None => {
+                out.extend(&chars[i..i + run]);
+                i += run;
+            }
         }
     }
     out
+}
+
+fn backtick_run(chars: &[char], start: usize) -> usize {
+    chars[start..].iter().take_while(|&&c| c == '`').count()
+}
+
+/// `from` 以降で、ちょうど `len` 個のバッククォートの連なりが始まる位置。
+fn find_closing_run(chars: &[char], from: usize, len: usize) -> Option<usize> {
+    let mut k = from;
+    while k < chars.len() {
+        if chars[k] != '`' {
+            k += 1;
+            continue;
+        }
+        let run = backtick_run(chars, k);
+        if run == len {
+            return Some(k);
+        }
+        k += run;
+    }
+    None
 }
 
 /// URL、リンク先、パス、識別子らしい語は数えない。
@@ -168,6 +264,62 @@ mod tests {
     fn inline_code_and_urls_are_ignored() {
         let text = "`cargo test --workspace --all-features` see https://example.com/a/b and [docs](https://example.com)\n修正しました。";
         assert!(!starts_in_english(text));
+    }
+
+    /// 4 個のバッククォートで開いたブロックは、その中の 3 個の行では閉じない (PR #638 CR #1)。
+    #[test]
+    fn longer_fence_is_not_closed_by_shorter_one() {
+        let text = "````\n```\nthis is an English compiler error message\n````\n修正しました。";
+        assert!(!starts_in_english(text));
+    }
+
+    /// 閉じるのは同じ記号のフェンスだけで、記号の後ろに文字がある行では閉じない。
+    #[test]
+    fn fence_closes_only_with_same_marker_and_blank_rest() {
+        let tilde = "~~~\n```\nthis is an English compiler error message\n~~~\n修正しました。";
+        assert!(!starts_in_english(tilde));
+        let trailing = "```\n``` not a close\nthis is an English compiler error message\n```\n修正しました。";
+        assert!(!starts_in_english(trailing));
+    }
+
+    #[test]
+    fn fence_with_info_string_opens_a_block() {
+        let text = "```rust\nlet message = \"this is an English sentence here\";\n```\n修正しました。";
+        assert!(!starts_in_english(text));
+    }
+
+    /// 開いたフェンスが閉じないまま終わったら、その後ろはすべてコードとして扱う。
+    #[test]
+    fn unclosed_fence_hides_the_rest() {
+        assert!(!starts_in_english("```\nthis is an English compiler error message"));
+    }
+
+    /// URL やパスの中の日本語は、文章の日本語として数えない (PR #638 CR #2)。
+    #[test]
+    fn japanese_inside_urls_and_paths_is_not_prose() {
+        assert!(starts_in_english("All checks have passed https://example.com/日本語"));
+        assert!(starts_in_english("See the notes in C:\\Users\\山田\\notes for details"));
+        assert!(starts_in_english("Search results are here https://example.com/?q=日本語"));
+    }
+
+    /// 日本語の文にパスが続けて書かれていても、日本語の証拠は失わない。
+    #[test]
+    fn japanese_prose_glued_to_a_path_is_japanese() {
+        assert!(!starts_in_english("修正はsrc/main.rsに入れた。\nAll checks have passed now."));
+        assert!(!starts_in_english("[設計書](https://example.com/a) を確認しました。"));
+    }
+
+    /// 2 個のバッククォートのインラインコードは、2 個の連なりで閉じる (PR #638 CR #3)。
+    #[test]
+    fn double_backtick_inline_code_is_ignored() {
+        assert!(!starts_in_english("``this is an English example``\n修正しました。"));
+        assert!(!starts_in_english("`` a ` b and more English words here ``\n修正しました。"));
+    }
+
+    /// 閉じの無いバッククォートは文字として扱い、後ろの文章は数える。
+    #[test]
+    fn unmatched_backtick_is_literal() {
+        assert!(starts_in_english("The ` character starts this English sentence"));
     }
 
     #[test]
