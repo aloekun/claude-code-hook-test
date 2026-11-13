@@ -475,3 +475,79 @@
 
 - `a_branch_off_trunk_still_advances_next_to_a_marker` が、移動先に加えて「主経路では見つからない」ことを assert している
 - 陽性対照の結果を PR 本文に書いている
+
+### 順位 609: pr-monitor の analyze で Claude が即時に失敗したら、認証の失効を疑う理由を示して落とす
+
+> **動機**: 2026-11-12 から 11-13 にかけて `CLAUDE_CODE_OAUTH_TOKEN` が使えなくなり、`analyze` job が 3 回続けて失敗した。Claude の結果は `is_error:true` / `num_turns:1` / `total_cost_usd:0` / 約 2 秒だった。action が出力を隠す (`show_full_output: false`) ため、エラー本文はログに出ない。原因の切り分けには、最後に成功した run (2026-11-11、run 43011383757) と action の SHA・CLI の版・モデル・workflow・secret の更新日を突き合わせる必要があった。secret を更新して再実行すると成功した (run 43260513743、14 ターン)。
+>
+> **由来**: `[improvement]`。#635 の post-merge feedback Tier 2 #1 (#636 の #3 も同じ提案) を 2026-11-13 に採用した。
+>
+> **種類**: Tier 2 — workflow (`pr-monitor.yml`) への判定 step の追加。工数 S。`.github/workflows/` は Guard 禁止パスなので human lane。
+>
+> **参照**: `.github/workflows/pr-monitor.yml` (「Run PR analysis」と、`execution_file` を読む「Extract analysis text」)、`.claude/feedback-reports/635.md`、`.claude/feedback-reports/636.md`、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md)
+
+#### 設計決定 (案)
+
+- 判定には `execution_file` の結果 (`is_error` / `num_turns` / `total_cost_usd`) を使う。認証を確かめるための API 呼び出しは別に足さない (token を扱う箇所を増やさない)
+- エラー本文は出さない。`show_full_output` を有効にすると、公開されるログに出力の全文が載るため
+- fix job の claude-code-action 2 箇所 (「Collect findings」「Apply fixes」) も同じ形で失敗しうるので、同じ判定を当てる
+
+#### 作業計画
+
+- [ ] 即時失敗の形 (`is_error:true`、`num_turns` が 1 以下、コスト 0) を検出する step を analyze に足す。検出したら、token の失効を疑う理由と更新手順 (`claude setup-token` で発行 → secret を更新 → `gh run rerun <id> --failed`) を job summary とエラーに出す
+- [ ] fix job の 2 箇所にも当てる
+- [ ] `pnpm lint:workflows` の契約検査に通ることを確かめる
+
+#### 完了基準
+
+- token が無効なとき、analyze の失敗メッセージに、認証の失効を疑う理由と更新手順が出る
+- 正常な run (2 ターン以上) では判定が発火しない
+
+### 順位 610: check-ci の findings に、レビュー本文の Outside diff 指摘も出す
+
+> **動機**: CodeRabbit は、差分の外の行への指摘をインラインのスレッドにせず、レビュー本文の「Outside diff range comments」節に書く。`check-ci-coderabbit` の findings は `pulls/{pr}/comments` (インラインコメント) だけから作り、レビュー本文は actionable 件数の読み取りにしか使わない。`pnpm threads show` もスレッドしか見ない。#636 では、本文中の Minor 1 件 (`docs/todo19.md:192`、Also applies to 279) の 279 行を見落とし、「未解決 0 件」と報告した。GitHub Actions 側の PR Monitor 分析 (LLM) はこの指摘を拾っていた。
+>
+> **由来**: `[improvement]`。#636 の post-merge feedback #4 を 2026-11-13 に採用した。
+>
+> **種類**: Tier 2 — exe (`check-ci-coderabbit`) の収集の拡張とテスト。工数 M。
+>
+> **参照**: `src/check-ci-coderabbit/src/main.rs` (`fetch_findings` / `fetch_actionable_count`)、`src/check-ci-coderabbit/src/findings.rs`、`src/cli-review-threads/`、`.claude/feedback-reports/636.md`、PR #636 の 1 回目のレビュー (commit 59ffd7c5)
+
+#### 設計決定 (案)
+
+- 対象は「Outside diff range comments」節だけにする。Nitpick 節は扱わない
+- スレッドではないので、返信して閉じる対象 ([ADR-087](adr/adr-087-review-thread-resolution-after-push.md)) にはならない。findings では出どころ (レビュー本文) を区別し、どのレビュー (commit) の指摘かを添える。解決済みかどうかは機械では分からないため、読み手が今の head と比べて判断する
+- `pnpm threads show` には、本文中の指摘の件数を 1 行出す
+- 節の書式が読めないときは 0 件にせず、「読めない」と出す ([ADR-043](adr/adr-043-security-gates-fail-closed.md))
+
+#### 作業計画
+
+- [ ] PR #636 の 1 回目のレビュー本文を fixture にして、Outside diff の指摘 1 件 (パス・行・重大度・Also applies to) が取れることをテストで固定する
+- [ ] 節の無い本文と、書式の崩れた本文の fixture も足す
+- [ ] findings の出力と `threads show` に出す
+
+#### 完了基準
+
+- #636 の fixture から Outside diff の指摘が 1 件取れる
+- 書式が読めない本文で、0 件ではなく「読めない」と出る
+
+### 順位 611: push 済みのコミットを編集し続けることを止める
+
+> **動機**: `pnpm push` の後も、作業コピー (`@`) は push したコミットのまま残る。そのまま編集すると、jj は変更を push 済みのコミットに取り込み、次の push でそのコミットが書き換わる。2026-11-13 の #636 では、レビュースレッドの返信で示したコミット (c1633731) が PR から消えるところだった。push の前に気づき、`jj op restore` で戻した。[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) は「ファイル編集を始める前に `jj new` する」と定めているが、文章の規約なので、push の直後に続けて作業する場面で漏れた。
+>
+> **由来**: `[improvement]`。2026-11-13、#636 の post-merge feedback の採否で、#5 (`jj op restore` の前に変更を確かめることを memory に書く) の代わりに採用した。
+>
+> **種類**: Tier 1 — push 済みのコミットへの書き込みを止める仕組み。元レポートの #5 は Tier 3 (memory) だが、根本の原因は push 済みのコミットへの書き込みで、仕組みで止められるため種類を変えた。工数 S-M (方式の実測を含む)。
+>
+> **参照**: [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) § ファイル編集を始める前に `jj new` する、[ADR-087](adr/adr-087-review-thread-resolution-after-push.md)、`src/cli-push-runner/`
+
+#### 作業計画
+
+- [ ] 案 1 を jj 0.42 で実測する: repo の jj config で `immutable_heads()` に push 済みの bookmark (`remote_bookmarks(remote=origin)` など) を加える。push 済みの `@` に編集があったとき、snapshot が拒否されるか、新しい `@` が作られるかを確かめる。master が進んだ後の `jj rebase -b` など、push 済みのブランチを意図して書き換える操作が止まることの扱いも確かめる
+- [ ] 案 2 を実測する: PreToolUse (Edit / Write) hook で、`@` が remote bookmark の位置と一致するときに止める。jj を呼ぶコストを測る
+- [ ] 実測の結果で方式を決め、ADR-045 の該当節から参照する
+
+#### 完了基準
+
+- push の直後に `jj new` をせずにファイルを編集すると、push 済みのコミットが書き換わる前に止まる
+- push 済みのブランチを意図して書き換える操作 (rebase など) を通す手順がある
