@@ -113,27 +113,28 @@ const PATH_ELEMENT_PREFIX_CHARS: [char; 6] = ['-', '_', '.', '%', '+', '~'];
 
 /// 文章としての日本語 (URL やパスの一部ではない日本語) を含むか。
 ///
-/// - URL (`://` を含む) の中では、`://` より後ろの日本語はすべて URL の一部とみなす
 /// - [`PATH_PREFIX_CHARS`] の直後に続く日本語は、どこでもパスの要素やクエリの値とみなす
-/// - パスの中 (区切りより後ろ) では、[`PATH_ELEMENT_PREFIX_CHARS`] の直後に続く日本語も
-///   パスの要素とみなす。英字や数字の直後の日本語は文章として数える
-/// - それ以外の日本語は文章として数える
+/// - パスの中 (区切りより後ろ。URL の中も含む) では、[`PATH_ELEMENT_PREFIX_CHARS`] の直後に
+///   続く日本語もパスの要素とみなす
+/// - それ以外の日本語 (英字や数字、閉じ括弧、全角の記号などの直後の日本語) は文章として数える
 ///
-/// トークンごと除外しない理由: 日本語の文にパスや URL が続けて書かれることが多く
-/// (`修正はsrc/main.rsに入れた`、`詳細はhttps://example.com/a`)、トークンごと捨てると
-/// 日本語の証拠まで失うため。
+/// URL を `://` から語の終わりまでとみなさない理由: 日本語の文では URL の直後に助詞を続けて
+/// 書くことが多く (`https://example.com/aを参照`、`[docs](https://example.com)を確認した`)、
+/// 語の終わりまで URL とみなすと日本語の報告を誤って block する (PR #639 の CR #1)。URL の中で
+/// 英数字の直後に日本語が来る形 (`/v2日本語`) は文章として数え、英語の報告を取り逃がす側に倒す。
+///
+/// トークンごと除外しない理由も同じで、トークンごと捨てると日本語の証拠まで失うため
+/// (`修正はsrc/main.rsに入れた`)。
 fn has_prose_japanese(token: &str) -> bool {
-    let url_start = token.find("://").map(|i| i + "://".len());
     let mut prev: Option<char> = None;
     let mut in_path = false;
     let mut in_run = false;
-    for (index, c) in token.char_indices() {
+    for c in token.chars() {
         if is_japanese(c) {
-            let in_url = url_start.is_some_and(|start| index >= start);
             let path_element = prev.is_some_and(|p| {
                 PATH_PREFIX_CHARS.contains(&p) || (in_path && PATH_ELEMENT_PREFIX_CHARS.contains(&p))
             });
-            if !in_run && !in_url && !path_element {
+            if !in_run && !path_element {
                 return true;
             }
             in_run = true;
@@ -332,8 +333,6 @@ mod tests {
             "https://example.com/日本語-ドキュメント",
             "https://example.com/a_日本語",
             "https://example.com/日本語.html",
-            "https://example.com/v2日本語",
-            "https://example.com/a%20日本語",
             "https://example.com/a+日本語",
             "https://example.com/~日本語",
             "https://example.com/#日本語",
@@ -346,6 +345,36 @@ mod tests {
             let line = format!("All checks have passed for {target}");
             assert!(starts_in_english(&line), "英語の行のまま: {line}");
         }
+    }
+
+    /// URL はリンクの閉じ括弧や全角の記号で終わり、その後ろの日本語は文章として数える
+    /// (PR #639 の CR #1 `[docs](https://example.com)を確認しました`)。URL が終わる形をまとめて固める。
+    #[test]
+    fn japanese_after_the_end_of_a_url_is_prose() {
+        let cases = [
+            "[docs](https://example.com)を確認しました。",
+            "[docs](https://example.com/日本語-メモ)を確認しました。",
+            "(https://example.com/a)を参照してください。",
+            "<https://example.com/a>を参照してください。",
+            "**https://example.com/a**を確認しました。",
+            "\"https://example.com/a\"を開きました。",
+            "https://example.com/a。続きを書きます。",
+            "「https://example.com/a」を開きました。",
+            "（https://example.com/a）を開きました。",
+            "https://example.com/a、https://example.com/bを比べました。",
+        ];
+        for line in cases {
+            let text = format!("{line}\nAll checks have passed now.");
+            assert!(!starts_in_english(&text), "日本語の行のまま: {line}");
+        }
+    }
+
+    /// URL の中で英数字の直後に続く日本語は文章として数える (誤検知を避ける側に倒す)。
+    /// この形の英語の報告は取り逃がす。
+    #[test]
+    fn japanese_right_after_alphanumerics_in_a_url_is_prose() {
+        assert!(!starts_in_english("All checks have passed for https://example.com/v2日本語"));
+        assert!(!starts_in_english("All checks have passed for https://example.com/a%20日本語"));
     }
 
     /// パスの外の記号や、英字・数字の直後の日本語は文章として数える。
