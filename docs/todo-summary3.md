@@ -110,6 +110,8 @@
 | 606 | Tier 2 | **[improvement] `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす** | todo29.md | S | 順位 592 と同じ関数を変更するため順序に注意 (2026-11-10、WR-2026-11-10-A01) |
 | 607 | Tier 2 | **[improvement] pr-monitor の bookmark 前進の主経路を、push-runner (順位 376) と同じ target 直接照会に揃える** | todo29.md | S | なし (2026-11-11、#631 の post-merge feedback 採否中にテストで観測) |
 | 608 | Tier 2 | **[improvement] push-runner の対比テストに、fallback を通った証拠を assert で入れる** | todo29.md | XS | 順位 607 の pr-monitor 側テストにも同じ assert を入れる (2026-11-11、#632 の post-merge feedback) |
-
+| 609 | Tier 2 | **[improvement] pr-monitor の analyze で Claude が即時に失敗したら、認証の失効を疑う理由を示して落とす** | todo29.md | S | なし (2026-11-13、#635 / #636 の post-merge feedback。Guard 禁止パスのため human lane) |
+| 610 | Tier 2 | **[improvement] check-ci の findings に、レビュー本文の Outside diff 指摘も出す** | todo29.md | M | なし (2026-11-13、#636 の post-merge feedback) |
+| 611 | Tier 1 | **[improvement] push 済みのコミットを編集し続けることを止める** | todo29.md | S-M | なし (2026-11-13、#636 の post-merge feedback の採否で #5 の代わりに採用) |
 
 **着手順**: 本 table は着手の順番を持たない。何から着手するかは、着手するときにその時点の状況で決める ([ADR-090](adr/adr-090-todo-tier-as-kind.md) 決定 4)。2026-11-12 まであった「戦略」の行 (Tier 1 → 2 → 3 の順に片付ける) は、Tier を優先度として扱っていたため削除した。
