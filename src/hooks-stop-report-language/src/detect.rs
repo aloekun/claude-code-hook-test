@@ -99,25 +99,47 @@ fn classify(line: &str) -> LineKind {
     }
 }
 
-/// URL やパスの中の日本語は数えない。日本語の連なりの直前がこれらの文字なら、パスの要素や
-/// クエリの値とみなす (`docs/日本語.md`、`C:\Users\山田`、`?q=日本語`)。
+/// パスの区切り。トークンにこれが現れたら、その後ろはパスの中とみなす。
+const PATH_SEPARATORS: [char; 2] = ['/', '\\'];
+
+/// 日本語の連なりの直前にあれば、どこでもパスの要素やクエリの値とみなす文字
+/// (`docs/日本語.md`、`C:\Users\山田`、`?q=日本語`、`key=日本語`)。
 const PATH_PREFIX_CHARS: [char; 6] = ['/', '\\', '=', '?', '&', '#'];
+
+/// パスの中 (区切りより後ろ) でだけ、日本語の連なりの直前にあればパスの要素とみなす文字。
+/// パスの要素の中でよく使う記号 (`日本語-ドキュメント`、`a_日本語`、`v2.日本語`、`%20日本語`、
+/// `a+日本語`、`~日本語`)。パスの外では `テスト-結果` のように文章でも使うため、区切りを条件にする。
+const PATH_ELEMENT_PREFIX_CHARS: [char; 6] = ['-', '_', '.', '%', '+', '~'];
 
 /// 文章としての日本語 (URL やパスの一部ではない日本語) を含むか。
 ///
+/// - URL (`://` を含む) の中では、`://` より後ろの日本語はすべて URL の一部とみなす
+/// - [`PATH_PREFIX_CHARS`] の直後に続く日本語は、どこでもパスの要素やクエリの値とみなす
+/// - パスの中 (区切りより後ろ) では、[`PATH_ELEMENT_PREFIX_CHARS`] の直後に続く日本語も
+///   パスの要素とみなす。英字や数字の直後の日本語は文章として数える
+/// - それ以外の日本語は文章として数える
+///
 /// トークンごと除外しない理由: 日本語の文にパスや URL が続けて書かれることが多く
-/// (`修正はsrc/main.rsに入れた`)、トークンごと捨てると日本語の証拠まで失うため。
+/// (`修正はsrc/main.rsに入れた`、`詳細はhttps://example.com/a`)、トークンごと捨てると
+/// 日本語の証拠まで失うため。
 fn has_prose_japanese(token: &str) -> bool {
+    let url_start = token.find("://").map(|i| i + "://".len());
     let mut prev: Option<char> = None;
+    let mut in_path = false;
     let mut in_run = false;
-    for c in token.chars() {
+    for (index, c) in token.char_indices() {
         if is_japanese(c) {
-            if !in_run && !prev.is_some_and(|p| PATH_PREFIX_CHARS.contains(&p)) {
+            let in_url = url_start.is_some_and(|start| index >= start);
+            let path_element = prev.is_some_and(|p| {
+                PATH_PREFIX_CHARS.contains(&p) || (in_path && PATH_ELEMENT_PREFIX_CHARS.contains(&p))
+            });
+            if !in_run && !in_url && !path_element {
                 return true;
             }
             in_run = true;
         } else {
             in_run = false;
+            in_path |= PATH_SEPARATORS.contains(&c);
         }
         prev = Some(c);
     }
@@ -300,6 +322,46 @@ mod tests {
         assert!(starts_in_english("All checks have passed https://example.com/日本語"));
         assert!(starts_in_english("See the notes in C:\\Users\\山田\\notes for details"));
         assert!(starts_in_english("Search results are here https://example.com/?q=日本語"));
+    }
+
+    /// URL とパスの要素の中で、区切り以外の記号の後ろに続く日本語もパスの一部として扱う
+    /// (PR #638 の CR #2 への再指摘 `日本語-ドキュメント`)。入力の型をまとめて固める。
+    #[test]
+    fn japanese_after_path_element_chars_is_not_prose() {
+        let cases = [
+            "https://example.com/日本語-ドキュメント",
+            "https://example.com/a_日本語",
+            "https://example.com/日本語.html",
+            "https://example.com/v2日本語",
+            "https://example.com/a%20日本語",
+            "https://example.com/a+日本語",
+            "https://example.com/~日本語",
+            "https://example.com/#日本語",
+            "docs/設計-v2/日本語-メモ.md",
+            "./日本語_メモ.md",
+            "C:\\Users\\山田\\メモ-1.txt",
+            "key=日本語",
+        ];
+        for target in cases {
+            let line = format!("All checks have passed for {target}");
+            assert!(starts_in_english(&line), "英語の行のまま: {line}");
+        }
+    }
+
+    /// パスの外の記号や、英字・数字の直後の日本語は文章として数える。
+    #[test]
+    fn japanese_outside_path_elements_is_prose() {
+        let cases = [
+            "テスト-結果を確認しました。",
+            "A-日本語の説明です。",
+            "修正はsrc/main.rsに入れた。",
+            "詳細はhttps://example.com/aを参照してください。",
+            "設計書(docs/a.md)を見た。",
+        ];
+        for line in cases {
+            let text = format!("{line}\nAll checks have passed now.");
+            assert!(!starts_in_english(&text), "日本語の行のまま: {line}");
+        }
     }
 
     /// 日本語の文にパスが続けて書かれていても、日本語の証拠は失わない。
