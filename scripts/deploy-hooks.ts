@@ -29,6 +29,7 @@ const EXE_BASENAMES = [
   "hooks-post-tool-comment-lint-rust",
   "hooks-stop-quality",
   "hooks-stop-feedback-dispatch",
+  "hooks-stop-report-language",
   "hooks-user-prompt-feedback-recovery",
   "cli-push-runner",
   "cli-pr-monitor",

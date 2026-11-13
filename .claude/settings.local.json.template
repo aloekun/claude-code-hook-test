@@ -93,6 +93,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-report-language{{EXE_SUFFIX}}\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "\"{{PROJECT_DIR}}/.claude/hooks-stop-quality{{EXE_SUFFIX}}\"",
             "timeout": 300
           },

@@ -93,6 +93,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node scripts/cloud-hook-dispatch.mjs hooks-stop-report-language",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "node scripts/cloud-hook-dispatch.mjs hooks-stop-quality",
             "timeout": 300
           },

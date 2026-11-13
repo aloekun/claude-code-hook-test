@@ -269,6 +269,15 @@ steps = [
   { cmd = "node", args = ["{{CLAUDE_DIR}}/../scripts/cargo-check-for-file.mjs", "{file}"], fix = false },
 ]
 
+# ─── Stop: 最後の報告の言語 (ADR-091、ADR-039 experimental feature 標準パターン) ───
+#
+# ターンの最後の報告が英語で始まっていたら block し、日本語で書き直させる。takt のセッションは
+# transcript の最初のユーザー発言で見分けて除く。code default は OFF で、この repo では opt-in する。
+# kill-switch: enabled = false、または env STOP_REPORT_LANGUAGE_OVERRIDE=1。
+# bounded lifetime: 月次レビュー (ADR-062) で発火 0 が続いたら撤去を判定する ([[telemetry_report.mechanisms]])。
+[stop_report_language]
+enabled = true
+
 # ─── Stop: 品質ゲート ───
 
 [stop_quality]
@@ -449,6 +458,7 @@ trend_months = 6              # レポートが遡る月数 (月別表 / 発火 
 #   file-length                                = hooks-post-tool-comment-lint-rust (file-length gate)
 #   jj-op-verify                               = hooks-post-tool-jj-op-verify (operation 未記録 warn)
 #   hooks-stop-quality                         = Stop 品質ゲート (block)
+#   hooks-stop-report-language                 = Stop 最後の報告の言語 (block、ADR-091)
 #   reaper / staleness / workspace_stale / weekly_review_reminder /
 #   monthly_review_reminder                    = hooks-session-start の nudge 群 (warn)
 #   (pr_monitor_catchup は WP-17 PR 3 で nudge ごと撤去 — 過去の firings jsonl には残るが
@@ -458,6 +468,7 @@ hook_ids = [
   "file-length",
   "jj-op-verify",
   "hooks-stop-quality",
+  "hooks-stop-report-language",
   "reaper",
   "staleness",
   "workspace_stale",
@@ -466,6 +477,12 @@ hook_ids = [
 ]
 
 
-# 非アクティブ化判定の対象 ([[telemetry_report.mechanisms]]) は、いまは登録が無い。初期の 1 件だった
-# tool call leak 検知 (ADR-053/061) は、2026-10 に撤去した (順位 582)。新しく登録するときの書式は
-# cli-telemetry-report の config.rs のテストを参照する。
+# 非アクティブ化判定の対象 ([[telemetry_report.mechanisms]])。初期の 1 件だった tool call leak 検知
+# (ADR-053/061) は、2026-10 に撤去した (順位 582)。書式は cli-telemetry-report の config.rs のテストを参照する。
+[[telemetry_report.mechanisms]]
+name = "stop_report_language"
+adr = "ADR-091"
+ids = ["hooks-stop-report-language"]
+enabled_config_keys = ["stop_report_language.enabled"]
+exe_names = ["hooks-stop-report-language"]
+proposal = "[stop_report_language] enabled = false (crate の撤去は ADR-091 § 撤去の基準に従う)"

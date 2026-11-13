@@ -92,6 +92,7 @@
 - [ADR-088: pre-push の fix の後は、再レビューしてから終える](docs/adr/adr-088-prepush-rereview-after-fix.md) *(Supersedes ADR-037 の pre-push 経路部分)*
 - [ADR-089: 再 push は、前回承認した commit 以降の差分だけをレビューする](docs/adr/adr-089-incremental-prepush-review.md)
 - [ADR-090: todo 台帳の Tier はタスクの種類を表し、優先度は着手時に決める](docs/adr/adr-090-todo-tier-as-kind.md)
+- [ADR-091: 最後の報告が英語で始まっていたら、Stop hook で止めて日本語で書き直させる](docs/adr/adr-091-stop-report-language.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
