@@ -27,7 +27,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+export const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 /** `~/.claude/projects/<project-id>/` の `project-id` 部分。`cwd_to_project_id` と同じ置換規則。 */
 function projectId(repoRoot: string): string {

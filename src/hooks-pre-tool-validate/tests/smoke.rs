@@ -105,6 +105,20 @@ const CASES: &[Case] = &[
         expect_block: false,
     },
     Case {
+        name: "Bash: 書き込み先がシェル変数の sed -i を block する (本リポジトリの opt-in preset variable-write-target-block)",
+        tool_name: "Bash",
+        field: "command",
+        value: "f=src/a.rs && sed -i 's/a/b/' $f",
+        expect_block: true,
+    },
+    Case {
+        name: "Bash: 書き込み先がリテラルの sed -i は pass する (variable-write-target-block の過剰ブロック退行ガード)",
+        tool_name: "Bash",
+        field: "command",
+        value: "sed -i 's/a/b/' src/a.rs",
+        expect_block: false,
+    },
+    Case {
         name: "Write: 保護対象ファイルを block する",
         tool_name: "Write",
         field: "file_path",
