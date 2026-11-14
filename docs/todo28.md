@@ -169,6 +169,13 @@ analyze-coderabbit facet が cross-platform の指摘を理由なく Info に落
    (id を定数経由で渡す / 呼び出しが複数行にまたがる / コメントや説明文字列に id が出る) を確かめてから
    決める。呼び出し方が限られていれば、Rust の構文解析までは導入しない
 
+#### 現在地 (2026-11-14)
+
+- 段 1 は完了した。主要拡張子側の 7 rule と `deployed_tests.rs` の 3 rule を、設定ファイルから丸ごと読む形へ移した。`rule_tests_pid_timestamp_temp_naming.rs` は pattern だけを読んで拡張子を書き写していたので、丸ごと読む形に揃えた。着手時の数え直しで新しく見つかった分は無い
+- `engine_tests.rs` はエンジン自体の挙動を見るテストで、rule id `no-console-log` を借りていただけだった (pattern も設定ファイルとずれていた)。設定ファイルを読むとエンジンのテストが設定の変更に引きずられるので、架空の id `engine-sample-console-log` に改名した
+- `paths` を持つ rule をテストのファイルに当てるときは、読んだ後に `paths` を外す。照合はファイルパスを cwd 基準のリポジトリ相対にしてから行うが、`cargo test` の cwd は crate のディレクトリなので、外さないと検査が無言で何もしない
+- 段 2 の検査は、`make_test_rule` / `make_test_rule_with_paths` の第 1 引数が設定ファイルの rule id と一致したら落とす形でよい。2026-11-14 時点の呼び出しは、id を文字列リテラルで直接渡す形と、引数 `id` を中継する helper (`engine_tests.rs` の `make_test_rule_with_paths` / `ps_rule_with_pattern`) だけである
+
 #### 完了基準
 
 - 設定ファイルにある rule を、テスト側で書き写しているテストが 0 件であること

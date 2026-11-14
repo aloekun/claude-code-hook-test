@@ -1,33 +1,30 @@
 //! rule⑯ (no-manual-hooks-config-path) の positive / negative test (part 3)。
 //!
 //! `rule_tests_extras.rs` から分離した理由は行数のみ (ADR-080 の mechanical split)。
-//! 同 crate の他 test module と同様、test helper (`make_test_rule` 等) は memory
+//! 同 crate の他 test module と同様、test helper (`rule_from_repo_config` 等) は memory
 //! `feedback_test_dry_antipattern` に従って per-module で複製している。
 
 use super::engine::{compile_rule, rule_matches_path, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix};
+use super::types::{CompiledRule, CustomRule, CustomRulesConfig};
 
-fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
-    CustomRule {
-        id: id.into(),
-        pattern: pattern.into(),
-        severity: "error".into(),
-        message: "test message".into(),
-        why: "test reason".into(),
-        extensions: extensions.iter().map(|e| e.to_string()).collect(),
-        paths: None,
-        fix: Some(CustomRuleFix {
-            strategy: "test strategy".into(),
-            steps: vec!["step1".into()],
-        }),
-        example: Some(CustomRuleExample {
-            bad: "bad code".into(),
-            good: "good code".into(),
-        }),
-        test_coverage: None,
-        incident: None,
-        exception: None,
-    }
+/// **pattern / extensions / paths を写経しない。** `config/custom-lint-rules.toml` から rule を
+/// 丸ごと読む (ADR-081、順位 534)。見つからなければ panic する (fail-closed)。
+/// ADR-084 に従いファイルごとに複製する。
+fn rule_from_repo_config(id: &str) -> CustomRule {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("config")
+        .join("custom-lint-rules.toml");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
+    let config: CustomRulesConfig = toml::from_str(&content)
+        .unwrap_or_else(|e| panic!("parse {} failed: {e}", path.display()));
+    config
+        .rules
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("rule '{id}' not found in {}", path.display()))
 }
 
 fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
@@ -44,13 +41,7 @@ fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pa
 // ─── rule⑯: no-manual-hooks-config-path ───
 
 fn no_manual_hooks_config_path_rule() -> CustomRule {
-    let mut rule = make_test_rule(
-        "no-manual-hooks-config-path",
-        r#"current_(?:dir|exe)\(\)[^;{}]{0,400}?\.join\(\s*"[\w./-]*config\.toml"\s*\)"#,
-        &["rs"],
-    );
-    rule.paths = Some(vec!["src/hooks-*/**/*.rs".to_string()]);
-    rule
+    rule_from_repo_config("no-manual-hooks-config-path")
 }
 
 /// paths filter を外した rule。regex 単体の positive / negative は tempdir の相対パスで

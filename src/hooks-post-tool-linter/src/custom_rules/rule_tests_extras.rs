@@ -1,33 +1,10 @@
 //! Deployed rule (rules⑥〜) ごとの positive / negative test (part 2)。
 //!
-//! Test helper (`make_test_rule` 等) は memory `feedback_test_dry_antipattern` に従って
+//! Test helper (`rule_from_repo_config` 等) は memory `feedback_test_dry_antipattern` に従って
 //! per-module で複製している (sibling module 間で共有しない)。
 
 use super::engine::{compile_rule, rule_matches_path, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix, CustomRulesConfig};
-
-fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
-    CustomRule {
-        id: id.into(),
-        pattern: pattern.into(),
-        severity: "error".into(),
-        message: "test message".into(),
-        why: "test reason".into(),
-        extensions: extensions.iter().map(|e| e.to_string()).collect(),
-        paths: None,
-        fix: Some(CustomRuleFix {
-            strategy: "test strategy".into(),
-            steps: vec!["step1".into()],
-        }),
-        example: Some(CustomRuleExample {
-            bad: "bad code".into(),
-            good: "good code".into(),
-        }),
-        test_coverage: None,
-        incident: None,
-        exception: None,
-    }
-}
+use super::types::{CompiledRule, CustomRule, CustomRulesConfig};
 
 fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
     rules.into_iter().filter_map(compile_rule).collect()
@@ -192,12 +169,12 @@ fn no_ephemeral_todo_detects_yml_ephemeral_reference() {
     assert_eq!(violations.len(), 1);
 }
 
+/// 実物の `paths` (`.takt/workflows/*.yaml`) は外す。テストは tempdir のファイルに当てるので、
+/// 外さないと glob が一致せず、検査が無言で何もしない。
 fn takt_workflow_persona_without_model_rule() -> CustomRule {
-    make_test_rule(
-        "takt-workflow-persona-without-model",
-        r"(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools|output_contracts|pass_previous_response|required_permission_mode|parallel):",
-        &["yaml"],
-    )
+    let mut rule = rule_from_repo_config("takt-workflow-persona-without-model");
+    rule.paths = None;
+    rule
 }
 
 #[test]
@@ -291,7 +268,7 @@ fn takt_workflow_persona_skips_non_yaml_extension() {
 }
 
 fn no_write_result_discard_rule() -> CustomRule {
-    make_test_rule("no-write-result-discard", r"let\s+_\s*=\s+write_\w+\(", &["rs"])
+    rule_from_repo_config("no-write-result-discard")
 }
 
 fn build_write_discard_fixture(callee: &str) -> String {
@@ -481,7 +458,7 @@ fn no_jj_template_first_line_detects_md_pattern() {
 }
 
 fn no_hardcoded_jj_revset_range_rule() -> CustomRule {
-    make_test_rule("no-hardcoded-jj-revset-range", r"master\.\.@", &["rs"])
+    rule_from_repo_config("no-hardcoded-jj-revset-range")
 }
 
 fn build_hardcoded_revset_fixture(branch: &str) -> String {
@@ -623,13 +600,7 @@ fn no_workstream_seq_names_in_config_skips_github_pr_reference() {
 // ─── rule⑭: no-unbounded-child-wait ───
 
 fn no_unbounded_child_wait_rule() -> CustomRule {
-    let mut rule = make_test_rule(
-        "no-unbounded-child-wait",
-        r"\.wait_with_output\(\)|\bchild\.wait\(\)",
-        &["rs"],
-    );
-    rule.paths = Some(vec!["src/*/tests/**/*.rs".to_string()]);
-    rule
+    rule_from_repo_config("no-unbounded-child-wait")
 }
 
 /// paths filter を外した rule。regex 単体の positive / negative は tempdir の相対パスで
@@ -708,11 +679,7 @@ fn no_unbounded_child_wait_paths_match_integration_tests_only() {
 // ─── rule⑮: no-weak-temp-uniqueness ───
 
 fn no_weak_temp_uniqueness_rule() -> CustomRule {
-    make_test_rule(
-        "no-weak-temp-uniqueness",
-        r#"temp_dir\(\)\s*\.join\(\s*"[^"]*"\s*\)"#,
-        &["rs"],
-    )
+    rule_from_repo_config("no-weak-temp-uniqueness")
 }
 
 fn run_weak_temp_uniqueness_rule_on(source: &str) -> usize {
