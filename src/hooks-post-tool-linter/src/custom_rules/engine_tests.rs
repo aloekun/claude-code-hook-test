@@ -172,7 +172,7 @@ fn run_custom_rules_detects_console_log() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -180,7 +180,7 @@ fn run_custom_rules_detects_console_log() {
 
     assert_eq!(violations.len(), 1);
     let v: serde_json::Value = serde_json::from_str(&violations[0]).unwrap();
-    assert_eq!(v["type"], "NO_CONSOLE_LOG");
+    assert_eq!(v["type"], "ENGINE_SAMPLE_CONSOLE_LOG");
     assert_eq!(v["severity"], "error");
     assert_eq!(v["location"]["line"], 2);
     assert_eq!(v["message"], "test message");
@@ -198,7 +198,7 @@ fn run_custom_rules_no_violation_on_clean_file() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -218,7 +218,7 @@ fn run_custom_rules_skips_non_matching_extension() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -240,7 +240,7 @@ fn run_custom_rules_multiple_violations() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -266,7 +266,7 @@ fn run_custom_rules_respects_max_violations() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -290,7 +290,7 @@ fn run_custom_rules_line_number_correct_with_multibyte_content() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -397,7 +397,7 @@ fn violation_json_has_all_fields() {
     }
 
     let rules = compile_test_rules(vec![make_test_rule(
-        "no-console-log",
+        "engine-sample-console-log",
         r"console\.log\(",
         &["ts"],
     )]);
@@ -424,7 +424,7 @@ fn violation_json_has_all_fields() {
 fn parse_custom_rules_toml() {
     let toml_str = r#"
 [[rules]]
-id = "no-console-log"
+id = "engine-sample-console-log"
 pattern = 'console\.log\('
 severity = "error"
 message = "console.log は禁止"
@@ -443,7 +443,7 @@ good = "logger.debug('x');"
     let config: CustomRulesConfig = toml::from_str(toml_str).unwrap();
     let rules = config.rules.unwrap();
     assert_eq!(rules.len(), 1);
-    assert_eq!(rules[0].id, "no-console-log");
+    assert_eq!(rules[0].id, "engine-sample-console-log");
     assert_eq!(rules[0].severity, "error");
     assert_eq!(rules[0].extensions, vec!["ts", "tsx"]);
     assert!(rules[0].fix.is_some());

@@ -1,34 +1,11 @@
 //! Deployed rule (rules①〜) ごとの positive / negative test (part 1)。
 //!
 //! 命名規約: `<rule_id_short>_<scenario>` (例: `no_personal_paths_detects_windows_user_path_in_md`)。
-//! Test helper (`make_test_rule` 等) は memory `feedback_test_dry_antipattern` に従って
+//! Test helper (`rule_from_repo_config` 等) は memory `feedback_test_dry_antipattern` に従って
 //! per-module で複製している (sibling module 間で共有しない)。
 
 use super::engine::{compile_rule, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix, CustomRulesConfig};
-
-fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
-    CustomRule {
-        id: id.into(),
-        pattern: pattern.into(),
-        severity: "error".into(),
-        message: "test message".into(),
-        why: "test reason".into(),
-        extensions: extensions.iter().map(|e| e.to_string()).collect(),
-        paths: None,
-        fix: Some(CustomRuleFix {
-            strategy: "test strategy".into(),
-            steps: vec!["step1".into()],
-        }),
-        example: Some(CustomRuleExample {
-            bad: "bad code".into(),
-            good: "good code".into(),
-        }),
-        test_coverage: None,
-        incident: None,
-        exception: None,
-    }
-}
+use super::types::{CompiledRule, CustomRule, CustomRulesConfig};
 
 fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
     rules.into_iter().filter_map(compile_rule).collect()
@@ -332,11 +309,7 @@ fn md_mutable_anchor_skips_external_url_with_fragment() {
 }
 
 fn rs_time_field_strict_greater_rule() -> CustomRule {
-    make_test_rule(
-        "no-time-field-strict-greater",
-        r"\b(created_at|submitted_at|updated_at|comment_event_time|event_time|comment_created_at|published_at|posted_at|commented_at)\s*>\s*[a-zA-Z_]",
-        &["rs"],
-    )
+    rule_from_repo_config("no-time-field-strict-greater")
 }
 
 fn build_rs_source_with_op(field_lhs: &str, op: &str, rhs: &str) -> String {

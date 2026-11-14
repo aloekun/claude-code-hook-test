@@ -4,57 +4,30 @@
 use super::engine::{
     compile_rule, find_powershell_rules_missing_case_insensitive_flag, run_custom_rules,
 };
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix, CustomRulesConfig};
-
-fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
-    CustomRule {
-        id: id.into(),
-        pattern: pattern.into(),
-        severity: "error".into(),
-        message: "test message".into(),
-        why: "test reason".into(),
-        extensions: extensions.iter().map(|e| e.to_string()).collect(),
-        paths: None,
-        fix: Some(CustomRuleFix {
-            strategy: "test strategy".into(),
-            steps: vec!["step1".into()],
-        }),
-        example: Some(CustomRuleExample {
-            bad: "bad code".into(),
-            good: "good code".into(),
-        }),
-        test_coverage: None,
-        incident: None,
-        exception: None,
-    }
-}
+use super::types::{CompiledRule, CustomRule, CustomRulesConfig};
 
 fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
     rules.into_iter().filter_map(compile_rule).collect()
 }
 
+/// rule は `config/custom-lint-rules.toml` から丸ごと読む。pattern や拡張子をテストに
+/// 書き写すと、設定ファイルだけを直したときに古い rule を検査し続ける (ADR-081、順位 534)。
 fn no_ephemeral_todo_reference_rule() -> CustomRule {
-    let stem = "todo";
-    let pattern = format!(r"(?i)docs/{stem}[0-9]*\.md");
-    make_test_rule(
-        "no-ephemeral-todo-reference",
-        &pattern,
-        &[
-            "rs", "toml", "jsonc", "json", "yaml", "yml", "ts", "tsx", "js", "jsx", "py", "ps1",
-        ],
-    )
+    load_deployed_rule_by_id("no-ephemeral-todo-reference")
 }
 
 fn no_write_result_discard_rule() -> CustomRule {
-    make_test_rule("no-write-result-discard", r"let\s+_\s*=\s+write_\w+\(", &["rs"])
+    load_deployed_rule_by_id("no-write-result-discard")
 }
 
+/// 実物の `paths` (`.takt/workflows/*.yaml`) は外す。照合はファイルパスを cwd 基準の
+/// リポジトリ相対にしてから行うが、`cargo test` の cwd は crate のディレクトリなので、
+/// 外さないと glob が一致せず、検査が無言で何もしない。走査する範囲はテスト側で
+/// `.takt/workflows/` に絞っている。
 fn takt_workflow_persona_without_model_rule() -> CustomRule {
-    make_test_rule(
-        "takt-workflow-persona-without-model",
-        r"(?m)^[ \t]+persona:[ \t]+[\w-]+[ \t]*\r?\n[ \t]+(?:policy|instruction|edit|provider_options|knowledge|condition|rules|inputs|outputs|allowed_tools|disallowed_tools|name|type|cmd|when|description|tool|tools|output_contracts|pass_previous_response|required_permission_mode|parallel):",
-        &["yaml"],
-    )
+    let mut rule = load_deployed_rule_by_id("takt-workflow-persona-without-model");
+    rule.paths = None;
+    rule
 }
 
 #[test]
