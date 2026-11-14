@@ -79,10 +79,16 @@ deno / bun と、Windows のスクリプトホスト (cscript / wscript / mshta)
 ///   Environment と、共通パラメータの ErrorAction / WarningAction / InformationAction / *Variable /
 ///   OutBuffer / ProgressAction) は値ごと読み飛ばす。PowerShell は一意な省略形も受け付けるので、
 ///   区別できるところまで先頭の文字を見る (`-W` は `wai` / `wh` / `wo` / `win` / `war`、`-P` は
-///   `pa` / `pi` / `pv` / `pr`)。省略形にならない別名は完全一致で見る (switch の `-vb` / `-wi` / `-cf`、
-///   値を取る `-wa` / `-wv`)。`-Verb` は値を取り `-Verbose` は取らないので、switch 側は `verbo` まで見る
-///   (`v` だけで値を取る側に入れると `-Verbose python` の `python` を値として読み飛ばす。#614 の穴)。
+///   `pas` / `pi` / `pv` / `pr` と、FilePath の別名の `ps` / `pat`)。省略形にならない別名は完全一致で
+///   見る (switch の `-vb` / `-wi` / `-cf`、値を取る `-wa` / `-wv`)。`-Verb` は値を取り `-Verbose` は
+///   取らないので、switch 側は `verbo` まで見る (`v` だけで値を取る側に入れると `-Verbose python` の
+///   `python` を値として読み飛ばす。#614 の穴)
+/// - 省略形が共通パラメータとも一致するときは、PowerShell は Start-Process 自身のパラメータを選ぶ。
+///   このため `-c` は Credential、`-v` / `-ve` / `-ver` は Verb として値を取る (順位 601、pwsh 7.6 で実測)
+/// - 実行するファイルは `-FilePath python` と `-FilePath:python` の両方の形で読む。
 ///   `-ArgumentList python -FilePath node` の `python` は値なので止めない
+/// - パラメータの読み方は、全パラメータ・全省略形の表駆動テスト (`tests.rs` の `start_process_table`) が
+///   PowerShell の解決規則と突き合わせている。パラメータを足し引きしたら、そちらの表も直す
 /// - switch と値を取るパラメータの読み方は、どちらか一方で後ろの名前に届けば止まる。区別が効くのは、
 ///   値を取るパラメータの値にある名前を、switch の後ろの名前と読み違えない側である
 ///
@@ -107,14 +113,14 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
     const TIME: &str = r"time(?:\s+(?:-[fo]\s+\S+|-\S+))*";
     const EXEC: &str = r"exec(?:\s+(?:-a\s+\S+|-\S+))*";
     const COMMAND: &str = r"command(?:\s+-p)*(?:\s+--)?";
-    const START_PROCESS_SWITCH: &str = r"-(?i:(?:n|pa|wai|l|u|verbo|d|wh|co)\w*|vb|wi|cf)(?::\S+)?";
+    const START_PROCESS_SWITCH: &str = r"-(?i:(?:n|pas|wai|l|u|verbo|d|wh|co)\w*|vb|wi|cf)(?::\S+)?";
     const START_PROCESS_VALUED: &str =
-        r"-(?i:(?:a|cr|wo|win|war|r|e|i|o|p[iv]|pr)\w*|verb|wa|wv)(?::\S+|\s+\S+)";
+        r"-(?i:(?:a|cr|wo|win|war|r|e|i|o|p[iv]|pr)\w*|c|v(?:e(?:rb?)?)?|wa|wv)(?::\S+|\s+\S+)";
     let start_process = format!(
-        r"(?i:start-process)(?:\s+(?:{START_PROCESS_SWITCH}|{START_PROCESS_VALUED}))*(?:\s+-(?i:f)\w*)?"
+        r"(?i:start-process)(?:\s+(?:{START_PROCESS_SWITCH}|{START_PROCESS_VALUED}))*(?:\s+-(?i:f|ps|pat)\w*(?:\s+|:)|\s+)"
     );
     let wrappers = format!(
-        r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|{ENV}|{SUDO}|{NICE}|{XARGS}|{TIME}|{EXEC}|{COMMAND}|nohup|{start_process})\s+)*"
+        r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|{ENV}|{SUDO}|{NICE}|{XARGS}|{TIME}|{EXEC}|{COMMAND}|nohup)\s+|{start_process})*"
     );
     const SHELL_STRING: &str = r#"(?:[^\s"';&|]*[\\/])?(?:(?:bash|sh|zsh|dash)(?:\.exe)?\s+-[A-Za-z]*c[A-Za-z]*|(?:pwsh|powershell)(?:\.exe)?\s+(?:-\S+\s+)*?-(?i:c|command)|cmd(?:\.exe)?\s+/[cCkK])\s+["']?\s*"#;
     const FIND_EXEC: &str = r"(?:[^\s;&|]*[\\/])?find(?:\.exe)?\s+(?:[^;&|\n]*?\s)?-(?:exec|execdir|ok|okdir)\s+";
