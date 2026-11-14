@@ -596,6 +596,10 @@ mod tests {
     /// 呼び出し `should_skip_request(..)` だけでなく、関数値としての参照
     /// (`.map(should_skip_request)`) と、`use .. as` で付けた別名の参照も数える。
     /// use 文 (複数行にまたがるものを含む) と、行頭がコメントの行は数えない。
+    ///
+    /// 数える名前は集合で持つ。同じ別名を複数のスコープで import しても、1 つの参照を
+    /// 二重に数えない (#641 の CodeRabbit 指摘)。別名はファイル全体で数えるので、import した
+    /// スコープの外にある同じ名前の別の識別子も数える (多く数える側に倒れ、経路の追加を見落とさない)。
     fn count_references(content: &str) -> usize {
         let mut use_statements = String::new();
         let mut code = Vec::new();
@@ -610,7 +614,7 @@ mod tests {
                 code.push(line);
             }
         }
-        let mut names = vec![SKIP_FN.to_string()];
+        let mut names = std::collections::BTreeSet::from([SKIP_FN.to_string()]);
         names.extend(aliases_in_use(&use_statements));
         code.iter()
             .map(|line| names.iter().map(|name| count_word(line, name)).sum::<usize>())
@@ -627,6 +631,14 @@ mod tests {
         let nested_alias = "use crate::stages::coderabbit_reviewed::{\n    should_skip_request as skip,\n};\n\
                             fn f() { skip(1, None, \"x\"); }\n";
         assert_eq!(count_references(nested_alias), 1, "複数行の use 文の別名");
+
+        let same_alias_in_two_scopes = "fn f() {\n    use crate::stages::coderabbit_reviewed::should_skip_request as skip;\n    skip(1, None, \"x\");\n}\n\
+                                        fn g() {\n    use crate::stages::coderabbit_reviewed::should_skip_request as skip;\n    skip(2, None, \"y\");\n}\n";
+        assert_eq!(count_references(same_alias_in_two_scopes), 2, "同じ別名を 2 つのスコープで import しても二重に数えない");
+
+        let alias_equal_to_the_name = "use crate::stages::coderabbit_reviewed::should_skip_request as should_skip_request;\n\
+                                       fn f() { should_skip_request(1, None, \"x\"); }\n";
+        assert_eq!(count_references(alias_equal_to_the_name), 1, "元の名前と同じ別名");
 
         let function_value = "use crate::stages::coderabbit_reviewed::should_skip_request;\n\
                               fn f() { let _ = [1].iter().map(|p| (p, should_skip_request)); }\n";
