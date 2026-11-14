@@ -1,34 +1,11 @@
 //! rule⑰ (no-pid-timestamp-temp-naming) の positive / negative test (part 4)。
 //!
 //! `rule_tests_extras.rs` から独立させた理由は行数のみ (ADR-080 の mechanical split)。
-//! 同 crate の他 test module と同様、test helper (`make_test_rule` 等) は memory
+//! 同 crate の他 test module と同様、test helper (`rule_from_repo_config` 等) は memory
 //! `feedback_test_dry_antipattern` に従って per-module で複製している。
 
 use super::engine::{compile_rule, run_custom_rules};
-use super::types::{CompiledRule, CustomRule, CustomRuleExample, CustomRuleFix};
-
-fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
-    CustomRule {
-        id: id.into(),
-        pattern: pattern.into(),
-        severity: "error".into(),
-        message: "test message".into(),
-        why: "test reason".into(),
-        extensions: extensions.iter().map(|e| e.to_string()).collect(),
-        paths: None,
-        fix: Some(CustomRuleFix {
-            strategy: "test strategy".into(),
-            steps: vec!["step1".into()],
-        }),
-        example: Some(CustomRuleExample {
-            bad: "bad code".into(),
-            good: "good code".into(),
-        }),
-        test_coverage: None,
-        incident: None,
-        exception: None,
-    }
-}
+use super::types::{CompiledRule, CustomRule};
 
 fn compile_test_rules(rules: Vec<CustomRule>) -> Vec<CompiledRule> {
     rules.into_iter().filter_map(compile_rule).collect()
@@ -44,25 +21,23 @@ fn write_file(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pa
 
 // ─── rule⑰: no-pid-timestamp-temp-naming ───
 
-/// **pattern を写経しない。** リポジトリの `config/custom-lint-rules.toml` から実物を読む。
+/// **pattern / extensions を写経しない。** リポジトリの `config/custom-lint-rules.toml` から
+/// rule を丸ごと読む。
 ///
 /// テスト側に pattern のコピーを置くと、config だけを直したときにテストが**古い pattern を
 /// 検証し続けて green のまま**になる (ADR-081 の同一事実の分散)。実際 PR #507 の指摘
 /// (引数順を片方しか見ていない) を config 側だけ直したところ、この写経が残っていて
-/// 新しいテストが落ちた。どちらが正かは config 側が持つ。
+/// 新しいテストが落ちた。どちらが正かは config 側が持つ。以前は pattern だけを読み、
+/// 拡張子は書き写していた (順位 534 で丸ごと読む形にした)。
 fn no_pid_timestamp_temp_naming_rule() -> CustomRule {
-    make_test_rule(
-        "no-pid-timestamp-temp-naming",
-        &pattern_from_repo_config("no-pid-timestamp-temp-naming"),
-        &["rs"],
-    )
+    rule_from_repo_config("no-pid-timestamp-temp-naming")
 }
 
-/// `config/custom-lint-rules.toml` から `id` の `pattern` を取り出す。
+/// `config/custom-lint-rules.toml` から `id` の rule を取り出す。
 ///
 /// 見つからなければ panic する (fail-closed)。rule の id を変えたのに本ファイルを
-/// 直し忘れた場合、黙って「pattern 無し = 何も検出しない」で green にしないため。
-fn pattern_from_repo_config(id: &str) -> String {
+/// 直し忘れた場合、黙って「rule 無し = 何も検出しない」で green にしないため。
+fn rule_from_repo_config(id: &str) -> CustomRule {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join("config")
@@ -77,7 +52,6 @@ fn pattern_from_repo_config(id: &str) -> String {
         .into_iter()
         .find(|r| r.id == id)
         .unwrap_or_else(|| panic!("rule '{id}' not found in {}", path.display()))
-        .pattern
 }
 
 fn run_pid_timestamp_temp_naming_rule_on(source: &str) -> usize {
