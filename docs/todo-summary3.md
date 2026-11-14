@@ -100,11 +100,9 @@
 | 588 | Tier 2 | **[improvement] サンプル由来の `src/sample.*` と `py-lint` / `py-typecheck` の要否を調べて撤去する** | todo29.md | S | なし (2026-10-31、#602 の post-merge feedback。lint の fixture かを着手時に調べる) |
 | 591 | Tier 2 | **[improvement] custom lint rule の検査の陽性対照を埋め、`.rs` 対象の行単位 regex rule を点検する** | todo29.md | M | なし (2026-11-04、#605 / #609 / #612 の post-merge feedback) |
 | 592 | Tier 1 | **[improvement] entry_pairing の検査を `docs/on-hold/` にも広げる** | todo29.md | M | なし (2026-11-04、#604 の post-merge feedback) |
-| 593 | Tier 2 | **[improvement] pr-monitor の「レビュー済み」判定のテストの穴を埋める** | todo29.md | S | なし (2026-11-04、#610 の post-merge feedback) |
 | 595 | Tier 2 | **[improvement] lint-workflows の jq 略記検査とコメント接頭辞のテストを足す** | todo29.md | S | なし (2026-11-04、#607 の post-merge feedback) |
 | 598 | Tier 2 | **[improvement] post-merge feedback の transcript から takt の子セッションを除き、merge-pr が `--` を受けるようにする** | todo29.md | M | なし (2026-11-06、#616〜#619 の post-merge feedback。子セッションの見分け方は着手前に決める) |
 | 599 | Tier 2 | **[improvement] jj-op-verify の分類を実際の jj で固定し、後ろのヘルプフラグを照合しない** | todo29.md | M | なし (2026-11-06、#619 の post-merge feedback) |
-| 602 | Tier 2 | **[improvement] pr-monitor の pre-merge check の上書きを、success 以外と失敗 0 件の入力でも固定する** | todo29.md | XS | なし (2026-11-09、#625 の post-merge feedback) |
 | 604 | Tier 2 | **[improvement] ISO8601 と暦日の変換を中立の crate に 1 本化する** | todo29.md | M | なし (2026-11-10、WR-2026-11-10-M01) |
 | 606 | Tier 2 | **[improvement] `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす** | todo29.md | S | 順位 592 と同じ関数を変更するため順序に注意 (2026-11-10、WR-2026-11-10-A01) |
 | 607 | Tier 2 | **[improvement] pr-monitor の bookmark 前進の主経路を、push-runner (順位 376) と同じ target 直接照会に揃える** | todo29.md | S | なし (2026-11-11、#631 の post-merge feedback 採否中にテストで観測) |
