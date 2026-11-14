@@ -159,10 +159,15 @@ fn rules_in_the_config_dir_are_applied() {
 
 /// cwd がリポジトリのサブディレクトリでも、`config/` のルールが効く (順位 594)。config は exe の
 /// 場所から解決するので cwd に依存しない。cwd を基準にする退行をこのテストで捕まえる。
+///
+/// cwd から祖先を辿ると先に見つかる `src/config/` に、別 ID のルール (decoy) を置く (順位 601)。
+/// decoy が無いと、解決が「cwd から最も近い祖先の `config/` を探す」形に退行しても、辿り着く先が
+/// `<tmp>/config/` で同じルールが見つかり、テストが通ってしまう。
 #[test]
 fn rules_in_the_config_dir_are_applied_from_a_subdirectory_cwd() {
     let (tmp, exe) = stage_linter();
     write_rules(&tmp.path().join("config"), "e2e-config-dir-marker", "e2e-config-marker");
+    write_rules(&tmp.path().join("src").join("config"), "e2e-cwd-decoy", "e2e-config-marker");
     let sub = tmp.path().join("src").join("nested");
     std::fs::create_dir_all(&sub).expect("create subdirectory cwd");
 

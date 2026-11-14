@@ -326,25 +326,6 @@
 - 照合する文言を 1 つ変えると、統合テストが落ちること
 - `jj edit --help` で警告が出ず、`jj restore -- --help` は従来どおり検証されること
 
-### 順位 601: config の解決と Start-Process の検出のテストの false-green を塞ぐ
-
-> **動機**: (1) #617 の feedback。`src/hooks-post-tool-linter/tests/config_dir_e2e.rs` の `rules_in_the_config_dir_are_applied_from_a_subdirectory_cwd` は、祖先の `src/config` に別のルールが無い構成で検査している。config の解決が「最も近い祖先を探す」形に退行しても、同じルールが見つかるのでテストは通る。(2) #616 の feedback。`src/hooks-pre-tool-validate/src/presets/safety/script_runtime.rs` の `START_PROCESS_SWITCH` と、値を取るパラメータの扱いは代表例の個別テストでしか固定されていない。列挙に無いパラメータや省略形、`command --` / `-p` との組み合わせで検出漏れが起きても気づけない。
->
-> **由来**: `[improvement]`。
->
-> **種類**: Tier 2 — テストの false-green の修正。工数 S。
-
-#### 作業計画
-
-- (1) 最も近い祖先の `src/config` に、別 ID のルール (`E2E_CWD_DECOY` など) を置く。祖先探索に退行したらそのルールが適用されて落ちるようにする
-- (2) Start-Process の全パラメータ (switch / 値を取るもの / 省略形) と `command --` / `-p` の組み合わせを表駆動のテストにし、`START_PROCESS_SWITCH` の列挙と突き合わせる
-
-#### 完了基準
-
-- (1) config の解決を祖先探索に変えると、テストが落ちること
-- (2) 列挙からパラメータを 1 つ外すと、表駆動のテストが落ちること
-
-
 ### 順位 602: pr-monitor の pre-merge check の上書きを、success 以外と失敗 0 件の入力でも固定する
 
 > **動機**: #625 の feedback。`src/cli-pr-monitor/src/stages/poll/iteration.rs` の `pre_merge_override` は、check-ci-coderabbit の `apply_pre_merge_gate` (`src/check-ci-coderabbit/src/pre_merge.rs`) の規則を複製したもので、片方だけを直すと skip 経路でだけ判定が食い違う。呼び出し元の `recompute_action` を通したテストが既に 3 ケースある (今の head での失敗、古い測定の失敗、CodeRabbit を skip したとき)。`apply_pre_merge_gate` 側のテスト (`src/check-ci-coderabbit/src/pre_merge/tests.rs`) と比べると、次の 2 ケースが無い。
