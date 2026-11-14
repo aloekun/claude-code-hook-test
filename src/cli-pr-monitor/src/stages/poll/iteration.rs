@@ -357,6 +357,40 @@ mod tests {
         assert_eq!(recompute_action(&stale, true, false), "continue_monitoring");
     }
 
+    /// 順位 602: success 以外の判定は、pre-merge check の失敗で別の action に変えない
+    /// (check-ci-coderabbit の `gate_leaves_non_success_decisions_alone` に相当)。CI の失敗を
+    /// 古い測定の失敗で `continue_monitoring` に変えると、失敗した PR の監視が終わらない。
+    #[test]
+    fn pre_merge_failure_leaves_non_success_decisions_alone() {
+        for stale in [false, true] {
+            let mut ci_failed = with_pre_merge_failure(state_with_review("success"), stale);
+            ci_failed.ci = Some(CiState {
+                overall: "failure".into(),
+                runs: vec![],
+            });
+            assert_eq!(recompute_action(&ci_failed, false, false), "stop_monitoring_failure", "stale={stale}");
+
+            let mut review_comments = with_pre_merge_failure(state_with_review("success"), stale);
+            review_comments.coderabbit.as_mut().expect("review state").new_comments = 1;
+            assert_eq!(recompute_action(&review_comments, true, false), "action_required", "stale={stale}");
+        }
+    }
+
+    /// 順位 602: 失敗 0 件の表は success を通す (check-ci-coderabbit の
+    /// `gate_passes_success_through_without_failures` に相当)。古い測定でも、失敗が無ければ
+    /// 再測定待ちにしない。
+    #[test]
+    fn pre_merge_table_without_failures_passes_success_through() {
+        for stale in [false, true] {
+            let mut state = state_with_review("success");
+            state.pre_merge_checks = Some(crate::state::PreMergeChecksState {
+                failed: vec![],
+                stale,
+            });
+            assert_eq!(recompute_action(&state, true, false), "stop_monitoring_success", "stale={stale}");
+        }
+    }
+
     /// CodeRabbit 自体を skip するなら、その要約コメントの check も見ない。
     #[test]
     fn pre_merge_failure_is_ignored_when_coderabbit_is_skipped() {

@@ -421,17 +421,23 @@ mod tests {
     const STALE: &str = "stale000bbbb";
 
     /// gh の stub。呼ばれた引数を記録し、照会の種類ごとに決めた stdout を返す。
+    /// `None` の照会は失敗 (gh の異常終了) として扱う。
     struct GhStub {
-        reviews: String,
-        status: String,
+        reviews: Option<String>,
+        status: Option<String>,
         calls: std::cell::RefCell<Vec<Vec<String>>>,
     }
 
     impl GhStub {
         fn new(reviews: &str, status: &str) -> Self {
+            Self::with_failures(Some(reviews), Some(status))
+        }
+
+        /// reviews / commit status の照会ごとに、成功 (`Some`) か失敗 (`None`) かを決める。
+        fn with_failures(reviews: Option<&str>, status: Option<&str>) -> Self {
             Self {
-                reviews: reviews.to_string(),
-                status: status.to_string(),
+                reviews: reviews.map(str::to_string),
+                status: status.map(str::to_string),
                 calls: std::cell::RefCell::new(Vec::new()),
             }
         }
@@ -442,8 +448,8 @@ mod tests {
                 .push(args.iter().map(|a| a.to_string()).collect());
             match args {
                 ["pr", "view", ..] => Some(format!("{HEAD}\n")),
-                ["api", "--paginate", ..] => Some(self.reviews.clone()),
-                ["api", _] => Some(self.status.clone()),
+                ["api", "--paginate", ..] => self.reviews.clone(),
+                ["api", _] => self.status.clone(),
                 _ => panic!("想定していない gh 呼び出し: {args:?}"),
             }
         }
@@ -492,6 +498,10 @@ mod tests {
 
         let calls = stub.calls();
         let pr_view = &calls[0];
+        assert!(
+            pr_view.contains(&PR.to_string()),
+            "pr view に PR 番号が渡っていない: {pr_view:?}"
+        );
         let repo_flag = pr_view.iter().position(|a| a == "--repo");
         assert_eq!(
             repo_flag.and_then(|i| pr_view.get(i + 1)).map(String::as_str),
@@ -527,8 +537,120 @@ mod tests {
         assert!(stub.decide(Some(REPO)));
     }
 
-    /// crate の `src/` を走査して、`should_skip_request(` の呼び出し箇所をファイルごとに数える。
-    /// 行頭がコメントの行と、定義している本 module は数えない。
+    /// 順位 593: 照会の失敗を配線の上で確かめる。`combine_covered` の単体テストだけでは、
+    /// 片方の照会の失敗で判定全体を打ち切る配線 (`covered_via_reviews_api(..)?` など) に
+    /// 退行しても気づけない。reviews の照会が失敗しても、commit status が完了なら skip する。
+    #[test]
+    fn failed_reviews_query_still_skips_when_status_is_completed() {
+        let stub = GhStub::with_failures(None, Some(&status_json("success", STATUS_COMPLETED)));
+        assert!(stub.decide(Some(REPO)));
+        assert_eq!(stub.calls().len(), 3, "reviews の失敗で status の照会を打ち切らない: {:?}", stub.calls());
+    }
+
+    /// 順位 593: commit status の照会が失敗しても、reviews に現 HEAD があれば skip する。
+    #[test]
+    fn failed_status_query_still_skips_when_head_is_reviewed() {
+        let stub = GhStub::with_failures(Some(&format!("{HEAD}\n")), None);
+        assert!(stub.decide(Some(REPO)));
+    }
+
+    /// 順位 593: 両方の照会が失敗したら判定不能で、fail-open で投稿する (skip しない)。
+    #[test]
+    fn both_queries_failing_posts_the_request() {
+        let stub = GhStub::with_failures(None, None);
+        assert!(!stub.decide(Some(REPO)));
+    }
+
+    const SKIP_FN: &str = "should_skip_request";
+
+    fn is_ident_char(c: char) -> bool {
+        c.is_alphanumeric() || c == '_'
+    }
+
+    /// `line` の中に、識別子 `name` が単語として現れる回数 (`name_with` などは数えない)。
+    fn count_word(line: &str, name: &str) -> usize {
+        line.match_indices(name)
+            .filter(|(i, _)| {
+                let before = line[..*i].chars().next_back();
+                let after = line[i + name.len()..].chars().next();
+                !before.is_some_and(is_ident_char) && !after.is_some_and(is_ident_char)
+            })
+            .count()
+    }
+
+    /// use 文で `should_skip_request as <別名>` と付けた別名。
+    fn aliases_in_use(use_statements: &str) -> Vec<String> {
+        let words: Vec<&str> = use_statements
+            .split(|c: char| !is_ident_char(c))
+            .filter(|w| !w.is_empty())
+            .collect();
+        words
+            .windows(3)
+            .filter(|w| w[0] == SKIP_FN && w[1] == "as")
+            .map(|w| w[2].to_string())
+            .collect()
+    }
+
+    /// 1 ファイルの中で `should_skip_request` を参照している箇所の数 (順位 593)。
+    ///
+    /// 呼び出し `should_skip_request(..)` だけでなく、関数値としての参照
+    /// (`.map(should_skip_request)`) と、`use .. as` で付けた別名の参照も数える。
+    /// use 文 (複数行にまたがるものを含む) と、行頭がコメントの行は数えない。
+    ///
+    /// 数える名前は集合で持つ。同じ別名を複数のスコープで import しても、1 つの参照を
+    /// 二重に数えない (#641 の CodeRabbit 指摘)。別名はファイル全体で数えるので、import した
+    /// スコープの外にある同じ名前の別の識別子も数える (多く数える側に倒れ、経路の追加を見落とさない)。
+    fn count_references(content: &str) -> usize {
+        let mut use_statements = String::new();
+        let mut code = Vec::new();
+        let mut in_use = false;
+        for line in content.lines().filter(|line| !line.trim_start().starts_with("//")) {
+            let trimmed = line.trim_start();
+            if in_use || trimmed.starts_with("use ") || trimmed.starts_with("pub use ") || trimmed.starts_with("pub(crate) use ") {
+                use_statements.push_str(line);
+                use_statements.push('\n');
+                in_use = !line.contains(';');
+            } else {
+                code.push(line);
+            }
+        }
+        let mut names = std::collections::BTreeSet::from([SKIP_FN.to_string()]);
+        names.extend(aliases_in_use(&use_statements));
+        code.iter()
+            .map(|line| names.iter().map(|name| count_word(line, name)).sum::<usize>())
+            .sum()
+    }
+
+    /// 順位 593: 文字列 `should_skip_request(` の一致で数えていたときに漏れた形を固定する。
+    #[test]
+    fn count_references_sees_aliases_and_function_values() {
+        let aliased = "use crate::stages::coderabbit_reviewed::should_skip_request as already_reviewed;\n\
+                       fn f() { if already_reviewed(1, None, \"x\") {} }\n";
+        assert_eq!(count_references(aliased), 1, "use .. as の別名での呼び出し");
+
+        let nested_alias = "use crate::stages::coderabbit_reviewed::{\n    should_skip_request as skip,\n};\n\
+                            fn f() { skip(1, None, \"x\"); }\n";
+        assert_eq!(count_references(nested_alias), 1, "複数行の use 文の別名");
+
+        let same_alias_in_two_scopes = "fn f() {\n    use crate::stages::coderabbit_reviewed::should_skip_request as skip;\n    skip(1, None, \"x\");\n}\n\
+                                        fn g() {\n    use crate::stages::coderabbit_reviewed::should_skip_request as skip;\n    skip(2, None, \"y\");\n}\n";
+        assert_eq!(count_references(same_alias_in_two_scopes), 2, "同じ別名を 2 つのスコープで import しても二重に数えない");
+
+        let alias_equal_to_the_name = "use crate::stages::coderabbit_reviewed::should_skip_request as should_skip_request;\n\
+                                       fn f() { should_skip_request(1, None, \"x\"); }\n";
+        assert_eq!(count_references(alias_equal_to_the_name), 1, "元の名前と同じ別名");
+
+        let function_value = "use crate::stages::coderabbit_reviewed::should_skip_request;\n\
+                              fn f() { let _ = [1].iter().map(|p| (p, should_skip_request)); }\n";
+        assert_eq!(count_references(function_value), 1, "関数値としての参照");
+
+        let not_references = "// should_skip_request(1, None, \"x\")\n\
+                              fn f() { should_skip_request_with(1, None, \"x\", &g); }\n";
+        assert_eq!(count_references(not_references), 0, "コメントと、名前が前方一致する別の関数");
+    }
+
+    /// crate の `src/` を走査して、`should_skip_request` を参照している箇所をファイルごとに数える
+    /// (数え方は [`count_references`])。定義している本 module は数えない。
     fn call_sites_by_file() -> std::collections::BTreeMap<String, usize> {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![src.clone()];
@@ -551,11 +673,7 @@ mod tests {
                 }
                 let content = std::fs::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("ファイルを読めません: {}: {e}", path.display()));
-                let n = content
-                    .lines()
-                    .filter(|line| !line.trim_start().starts_with("//"))
-                    .map(|line| line.matches("should_skip_request(").count())
-                    .sum::<usize>();
+                let n = count_references(&content);
                 if n > 0 {
                     let rel = path
                         .strip_prefix(&src)
