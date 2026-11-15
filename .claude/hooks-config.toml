@@ -135,6 +135,10 @@ system_message_enabled = true
 #                              scripts/tools/ の読み取り専用ツールに誘導する。使う言語が Rust と
 #                              TypeScript だけのリポジトリ向け (その場で書いたスクリプトによる
 #                              破壊・外部送信を防ぐ。2026-11-03 ユーザー判断)
+#   "variable-write-target-block" — (opt-in、既定では無効) sed -i の対象や cp / mv の書き込み先が
+#                              シェル変数 ($f / "$S/x") のコマンドをブロックし、pnpm -s mutate /
+#                              Edit / リテラルのパスに誘導する。この形は auto mode でも必ず確認が出て
+#                              作業が止まる (2026-11-14 の transcript で 3 件中 3 件)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -153,6 +157,7 @@ blocked_patterns = [
   "node-eval-cmd-meta-block",
   "cargo-fmt-block",
   "script-runtime-block",
+  "variable-write-target-block",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)

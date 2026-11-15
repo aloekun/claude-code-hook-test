@@ -61,6 +61,7 @@
     "deploy:hooks": "node scripts/deploy-hooks.ts",
     "tool:json-query": "node scripts/tools/json-query.ts",
     "tool:md-section": "node scripts/tools/md-section.ts",
+    "mutate": "node scripts/mutate/mutate.ts",
     "py-lint": "ruff check src/",
     "py-typecheck": "mypy src/"
   },

@@ -6,7 +6,9 @@
       "Bash(pnpm -s tool:json-query *)",
       "Bash(pnpm -s tool:md-section *)",
       "PowerShell(pnpm -s tool:json-query *)",
-      "PowerShell(pnpm -s tool:md-section *)"
+      "PowerShell(pnpm -s tool:md-section *)",
+      "Bash(pnpm -s mutate *)",
+      "PowerShell(pnpm -s mutate *)"
     ],
     "ask": [
       "Bash(pnpm create-pr*)",

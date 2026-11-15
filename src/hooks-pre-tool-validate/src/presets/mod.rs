@@ -20,6 +20,7 @@ pub(crate) use jj::{
 pub(crate) use safety::{
     preset_exe_help_block, preset_node_eval_cmd_meta, preset_polling_anti_pattern,
     preset_powershell_destructive_write, preset_script_runtime, preset_secret_detection,
+    preset_variable_write_target,
 };
 
 /// **telemetry の source tag に出してよい名前の全量。**
@@ -48,6 +49,7 @@ pub(crate) const KNOWN_PRESET_NAMES: &[&str] = &[
     "node-eval-cmd-meta-block",
     "cargo-fmt-block",
     "script-runtime-block",
+    "variable-write-target-block",
 ];
 
 /// Windows でだけ有効にする preset。原因が Windows 固有 (Volta の shim が cmd.exe を経由する等) で、
@@ -129,6 +131,7 @@ pub(crate) fn resolve_preset_or_custom(name: &str) -> (String, Vec<BlockedPatter
         "node-eval-cmd-meta-block" => (name.to_string(), preset_node_eval_cmd_meta()),
         "cargo-fmt-block" => (name.to_string(), preset_cargo_fmt()),
         "script-runtime-block" => (name.to_string(), preset_script_runtime()),
+        "variable-write-target-block" => (name.to_string(), preset_variable_write_target()),
         custom => (CUSTOM_BLOCK_SOURCE.to_string(), custom_regex_pattern(custom)),
     }
 }
