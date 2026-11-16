@@ -5,7 +5,8 @@
 //! ただし、その 2 関数を通らずに rule を作れば検査を迂回できる。本 module はその迂回路を塞ぐ:
 //!
 //! - `CustomRule` の構造体リテラルを書いてよいのは、上の 2 関数の中だけ
-//! - TOML 文字列で `id = "<設定ファイルにある id>"` を書かない (TOML ごと書き写す形の写経)
+//! - TOML 文字列で `id = "<設定ファイルにある id>"` を書かない (TOML ごと書き写す形の写経)。
+//!   値の単一引用符 (`'...'`) と、キーを引用符で囲む形 (`"id"` / `'id'`) も同じく検出する
 //!
 //! 走査は crate の `src/` と `tests/` の `.rs` 全体を対象にする。設定ファイルの rule を検査したい
 //! テストは、各ファイルの `rule_from_repo_config` で丸ごと読む。
@@ -14,8 +15,12 @@ use super::types::CustomRulesConfig;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 
-/// 構造体リテラルを書いてよいファイルと、その中の件数 (ファイル名, 件数)。
-const STRUCT_LITERAL_ALLOWED: &[(&str, usize)] = &[("engine_tests.rs", 1), ("coverage.rs", 1)];
+/// 構造体リテラルを書いてよいファイルと、その中の件数 (crate root からの相対パス, 件数)。
+/// ファイル名だけで照合すると、別のディレクトリの同名ファイル (`tests/coverage.rs` など) にも許可が及ぶ。
+const STRUCT_LITERAL_ALLOWED: &[(&str, usize)] = &[
+    ("src/custom_rules/engine_tests.rs", 1),
+    ("src/custom_rules/coverage.rs", 1),
+];
 
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -85,26 +90,29 @@ fn crate_sources() -> Vec<(String, String)> {
         .collect()
 }
 
-fn file_name_of(display_name: &str) -> &str {
-    display_name.rsplit('/').next().unwrap_or(display_name)
-}
-
-/// `CustomRule` の構造体リテラルが書かれた行の番号 (1 始まり)。戻り値の型 (`-> CustomRule {`) と
-/// 型定義 (`struct CustomRule`) は数えない。
+/// `CustomRule` の構造体リテラルが書かれた行の番号 (1 始まり)。1 行に 2 件あればその行を 2 回返す。
+/// 戻り値の型 (`-> CustomRule {`) と型定義 (`struct CustomRule {`) は、その出現だけを数えない。
+/// 行ごと除くと、戻り値の型と同じ行に書いた 1 行関数の本体のリテラルを見落とす。
 fn struct_literal_lines(content: &str) -> Vec<usize> {
     let struct_literal = Regex::new(r"\bCustomRule\s*\{").unwrap();
-    let not_a_literal = Regex::new(r"(->\s*CustomRule\s*\{|\bstruct\s+CustomRule\b)").unwrap();
+    let not_a_literal = Regex::new(r"(->\s*CustomRule\s*\{|\bstruct\s+CustomRule\s*\{)").unwrap();
     content
         .lines()
         .enumerate()
-        .filter(|(_, line)| struct_literal.is_match(line) && !not_a_literal.is_match(line))
-        .map(|(idx, _)| idx + 1)
+        .flat_map(|(idx, line)| {
+            let literals = struct_literal
+                .find_iter(line)
+                .count()
+                .saturating_sub(not_a_literal.find_iter(line).count());
+            std::iter::repeat_n(idx + 1, literals)
+        })
         .collect()
 }
 
 /// 写経の疑いがある箇所を `<ファイル>:<行>: <理由>` の形で返す。
 fn find_rule_copies(sources: &[(String, String)], config_ids: &[String]) -> Vec<String> {
-    let toml_id = Regex::new(r#"\bid\s*=\s*\\?"([A-Za-z0-9_-]+)\\?""#).unwrap();
+    let toml_id =
+        Regex::new(r#"(?:\bid|"id"|'id')\s*=\s*\\?["']([A-Za-z0-9_-]+)\\?["']"#).unwrap();
 
     let mut findings = Vec::new();
     for (name, content) in sources {
@@ -123,7 +131,7 @@ fn find_rule_copies(sources: &[(String, String)], config_ids: &[String]) -> Vec<
         }
         let allowed = STRUCT_LITERAL_ALLOWED
             .iter()
-            .find(|(file, _)| *file == file_name_of(name))
+            .find(|(file, _)| file == name)
             .map_or(0, |(_, count)| *count);
         if literal_lines.len() > allowed {
             findings.push(format!(
@@ -155,7 +163,7 @@ fn the_allowed_struct_literals_are_found_by_the_scan() {
     for (file, expected) in STRUCT_LITERAL_ALLOWED {
         let (_, content) = sources
             .iter()
-            .find(|(name, _)| file_name_of(name) == *file)
+            .find(|(name, _)| name == file)
             .unwrap_or_else(|| panic!("{file} が走査範囲に無い"));
         assert_eq!(
             struct_literal_lines(content).len(),
@@ -215,4 +223,47 @@ fn a_toml_copy_of_a_config_rule_is_reported() {
     );
     assert_eq!(findings.len(), 2, "{findings:?}");
     assert!(findings.iter().all(|f| f.contains("`some-rule`")), "{findings:?}");
+}
+
+/// 陽性対照 (#644 review): 戻り値の型と同じ行に書いた構造体リテラルを検出する。除くのは戻り値の型の
+/// 出現だけで、行ごとは除かない。
+#[test]
+fn a_struct_literal_on_the_same_line_as_the_return_type_is_reported() {
+    let source = format!("fn f() -> {t} {{ {t} {{ id: x }} }}\n", t = "CustomRule");
+    let findings = find_rule_copies(
+        &[("src/custom_rules/rule_tests_new.rs".into(), source)],
+        &["some-rule".into()],
+    );
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert!(findings[0].contains("rule_tests_new.rs:[1]"), "{findings:?}");
+}
+
+/// 陽性対照 (#644 review): 値を単一引用符で書いた TOML と、キーを引用符で囲んだ TOML も検出する。
+#[test]
+fn a_toml_copy_with_other_quoting_styles_is_reported() {
+    let source = format!(
+        "let a = r#\"{key} = '{known}'\"#;\nlet b = r#\"\"{key}\" = \"{known}\"\"#;\nlet c = r#\"'{key}' = '{known}'\"#;\nlet d = r#\"{key} = '{fake}'\"#;\n",
+        key = "id",
+        known = "some-rule",
+        fake = "engine-sample"
+    );
+    let findings = find_rule_copies(
+        &[("src/custom_rules/engine_tests.rs".into(), source)],
+        &["some-rule".into()],
+    );
+    assert_eq!(findings.len(), 3, "{findings:?}");
+    assert!(findings.iter().all(|f| f.contains("`some-rule`")), "{findings:?}");
+}
+
+/// 陽性対照 (#644 review): 許可は crate 相対パスで照合する。別のディレクトリにある同名ファイル
+/// (`tests/coverage.rs`) には許可が及ばない。
+#[test]
+fn the_allowance_does_not_extend_to_a_same_named_file_elsewhere() {
+    let source = format!("{} {{ id: x }}\n", "CustomRule");
+    let findings = find_rule_copies(
+        &[("tests/coverage.rs".into(), source)],
+        &["some-rule".into()],
+    );
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert!(findings[0].contains("tests/coverage.rs"), "{findings:?}");
 }
