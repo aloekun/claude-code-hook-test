@@ -11,19 +11,19 @@ import { binaryStem, compareTestLists, parseManifest, parseTestList } from "./ch
 
 const LINUX_LIST = [
   "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s",
-  "     Running unittests src/lib.rs (target/debug/deps/lib_a-0123abcd)",
+  "     Running unittests src/lib.rs (target/debug/deps/lib_a-0123abcd0123abcd)",
   "tests::shared: test",
   "tests::unix_only: test",
-  "     Running tests/parity.rs (target/debug/deps/parity-89ef0011)",
+  "     Running tests/parity.rs (target/debug/deps/parity-89ef001189ef0011)",
   "parity_case: test",
 ].join("\n");
 
 const WINDOWS_LIST = [
   "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s",
-  "     Running unittests src\\lib.rs (target\\debug\\deps\\lib_a-4567cdef.exe)",
+  "     Running unittests src\\lib.rs (target\\debug\\deps\\lib_a-4567cdef4567cdef.exe)",
   "tests::shared: test",
   "tests::windows_only: test",
-  "     Running tests\\parity.rs (target\\debug\\deps\\parity-22334455.exe)",
+  "     Running tests\\parity.rs (target\\debug\\deps\\parity-2233445522334455.exe)",
 ].join("\r\n");
 
 function manifest(linux = [], windows = []) {
@@ -35,8 +35,13 @@ function manifest(linux = [], windows = []) {
 
 describe("binaryStem", () => {
   it("removes the directory, the .exe extension and the hash on both OSes", () => {
-    expect(binaryStem("target/debug/deps/lib_a-0123abcd")).toBe("lib_a");
-    expect(binaryStem("target\\debug\\deps\\lib_a-4567cdef.exe")).toBe("lib_a");
+    expect(binaryStem("target/debug/deps/lib_a-0123abcd0123abcd")).toBe("lib_a");
+    expect(binaryStem("target\\debug\\deps\\lib_a-4567cdef4567cdef.exe")).toBe("lib_a");
+  });
+
+  it("keeps a name that ends with a dash and hex characters but has no 16-digit hash", () => {
+    expect(binaryStem("target/debug/deps/cli-abc")).toBe("cli-abc");
+    expect(binaryStem("target/debug/deps/cli-abc-0123abcd0123abcd")).toBe("cli-abc");
   });
 });
 

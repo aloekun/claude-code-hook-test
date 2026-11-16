@@ -33,10 +33,12 @@ const TEST_LINE = /^(.+): test\s*$/;
 /**
  * テストバイナリの表示名。`target\debug\deps\lib_subprocess-6f1a2b.exe` と
  * `target/debug/deps/lib_subprocess-6f1a2b` を同じ `lib_subprocess` にする (区切り文字・拡張子・hash の差を消す)。
+ * cargo が付ける hash は 16 桁の 16 進数なので、16 桁だけを削る。桁数を限らないと、`-` と 16 進文字で
+ * 終わる名前 (`cli-abc` など) の末尾まで削ってしまう。
  */
 export function binaryStem(binaryPath) {
   const base = binaryPath.split(/[\\/]/).pop() ?? binaryPath;
-  return base.replace(/\.exe$/i, "").replace(/-[0-9a-f]+$/, "");
+  return base.replace(/\.exe$/i, "").replace(/-[0-9a-f]{16}$/, "");
 }
 
 /**
