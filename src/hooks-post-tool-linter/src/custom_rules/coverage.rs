@@ -559,12 +559,19 @@ fn extension_test_coverage_check() {
     );
 }
 
+/// coverage 判定を見るための架空の rule を作る。**設定ファイルにある rule id は渡せない**
+/// (順位 534 段 2、ADR-081)。engine_tests.rs の `make_test_rule` と同じ検査を、ADR-084 に従い複製している。
 #[cfg(test)]
 fn rule_with_extensions_and_coverage(
     id: &str,
     extensions: &[&str],
     coverage: CustomRuleTestCoverage,
 ) -> CustomRule {
+    assert!(
+        !load_deployed_custom_rules().iter().any(|r| r.id == id),
+        "rule_with_extensions_and_coverage に設定ファイルの rule id `{id}` が渡された。\
+         架空の id を使うこと (ADR-081)"
+    );
     CustomRule {
         id: id.into(),
         pattern: "x".into(),
@@ -579,6 +586,22 @@ fn rule_with_extensions_and_coverage(
         incident: None,
         exception: None,
     }
+}
+
+/// 陽性対照 (順位 534 段 2): 設定ファイルにある rule id を渡すと panic する。id は一覧から取る。
+#[cfg(test)]
+#[test]
+#[should_panic(expected = "架空の id を使うこと")]
+fn rule_with_extensions_and_coverage_rejects_a_rule_id_from_the_repo_config() {
+    let id = load_deployed_custom_rules()[0].id.clone();
+    rule_with_extensions_and_coverage(
+        &id,
+        &["rs"],
+        CustomRuleTestCoverage {
+            main_ext_tests: std::collections::BTreeMap::new(),
+            other_ext_tests: Vec::new(),
+        },
+    );
 }
 
 /// #402 で実際に起きたギャップの再現: 主要拡張子 (`toml`) と非主要拡張子 (`jsonc`) を

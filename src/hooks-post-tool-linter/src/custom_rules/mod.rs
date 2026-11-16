@@ -4,6 +4,7 @@
 //! - [`engine`]: regex compile / matching / `run_custom_rules`
 //! - [`coverage`]: `rule_test_coverage_check` 機械検証 (deploy 済 TOML の test_coverage meta)
 //! - [`coverage_ext`]: 非主要拡張子の coverage をテスト本体から拡張子ごとに判定する純関数群 (順位 498)
+//! - [`copy_guard_tests`]: 設定ファイルの rule をテストに書き写していないことの検査 (順位 534 段 2)
 //! - [`engine_tests`]: engine 自体の挙動 (cap / matching / glob / paths AND) test
 //! - [`exception_mutation_tests`]: exception を外すと good fixture で発火するか (= exception が
 //!   fixture で正当化されているか) の検査 (順位 554)
@@ -28,6 +29,8 @@ mod coverage_ext;
 pub(crate) mod engine;
 pub(crate) mod types;
 
+#[cfg(test)]
+mod copy_guard_tests;
 #[cfg(test)]
 mod deployed_tests;
 #[cfg(test)]
