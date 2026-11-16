@@ -1172,15 +1172,19 @@ yaml = ["gh_json_files_detects_shell_form_in_yml"]
 # `--delete` は `--force` を含まないので、`--force` だけを見る規則では削除経路が素通りする
 # (PR #439 CodeRabbit)。1 ルールにまとめたのは、要求する対処 (lease) が同じだから。
 #
-# 引数配列は `[` から `]` まで、シェル文字列は行頭から行末 (`\` 継続行を含む) までを範囲に
-# 取る。exception は lease の有無に加え、行頭がコメントの行と `jj git push` を除く —
+# 引数配列は `[` のある行の行頭から `]` まで、シェル文字列は行頭から行末 (`\` 継続行を含む)
+# までを範囲に取る。exception は lease の有無に加え、行頭がコメントの行と `jj git push` を除く —
 # jj は観測した ref を自分で lease として渡す (`--deleted` は単語境界で `--delete` と区別)。
+# 配列の範囲を行頭から取るのは、行頭のコメント (`//` / `///` / `#` / `*`) を exception で除くため。
+# `[` から取ると範囲の先頭が行頭にならず、コメントに書いた配列も error で止まっていた (順位 591 の点検)。
+# 同じ行で `[` より前に `//` があれば一致させない (行末コメントの配列)。そのため、`[` より前に
+# `https://` などの `//` を含む行では配列を見落とす。
 # 限界: lease を変数で組み立てて配列に入れると範囲に literal が無く誤検知する。配列の中で
 # `&format!("--force-with-lease=...")` と書く (cli-branch-cleanup の delete_ref)。
 
 [[rules]]
 id = "ref-destroying-push-without-lease"
-pattern = '(?m)\[[^\]]*"push",[^\]]*?(?:"--delete"|"-d"|"--force"|"-f"|"\+[^"]*"|":[^"]*")[^\]]*\]|^[^\n]*?\bgit\s+push\b(?:\\\r?\n|[^\n])*?(?:\s--delete\b|\s-d\b|\s--force(?:\s|$|[\x27"`])|\s-f\b|\s\+[^\s\x27"]|\s:[^\s\x27"])(?:\\\r?\n|[^\n])*'
+pattern = '(?m)^(?:[^/\n]|/[^/\n])*?\[[^\]]*"push",[^\]]*?(?:"--delete"|"-d"|"--force"|"-f"|"\+[^"]*"|":[^"]*")[^\]]*\]|^[^\n]*?\bgit\s+push\b(?:\\\r?\n|[^\n])*?(?:\s--delete\b|\s-d\b|\s--force(?:\s|$|[\x27"`])|\s-f\b|\s\+[^\s\x27"]|\s:[^\s\x27"])(?:\\\r?\n|[^\n])*'
 exception = '--force-with-lease=|^\s*(?://|#|\*)|\bjj\s+git\s+push\b'
 severity = "error"
 message = "ref を削除 / 強制更新する push に `--force-with-lease=<ref>:<観測した sha>` がありません。観測から実行までの間に他経路が push した作業を消します"
@@ -1227,6 +1231,11 @@ rs = [
   "ref_push_detects_delete_in_format_string",
   "ref_push_skips_lease_in_format_string",
   "ref_push_skips_doc_comment_mention",
+  "ref_push_skips_args_array_in_line_comment",
+  "ref_push_skips_args_array_in_doc_comment",
+  "ref_push_skips_args_array_in_block_comment_line",
+  "ref_push_skips_args_array_in_trailing_comment",
+  "ref_push_detects_multiline_args_array",
 ]
 yml = [
   "ref_push_detects_shell_delete_in_yml",

@@ -219,25 +219,6 @@
 
 > 対象は #604〜#614 の feedback report と、同じセッションで集めた候補である。Tier 1 / 2 の採用候補をユーザーが作業内容ごとに 8 群へまとめて採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。ここでいう Tier は、feedback report が候補を分類した Tier (1 = hook / linter、2 = テスト / 自動化、3 = ドキュメント / ルール) である。起票時の各エントリには着手の順番を表す「実行優先度: Tier N」が付いており、順位 591 / 592 / 593 / 595 は実行優先度が Tier 3 でも採用したものである。この行は 2026-11-13 に種類の Tier へ付け直した ([ADR-090](adr/adr-090-todo-tier-as-kind.md))。起票の前に、各項目が未実装であることを 2026-11-04 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。#609 の「複数行 pattern rule 横断のパラメータ化テスト」は、既存の `every_exception_is_justified_by_its_good_fixture` が exception を持つ全 rule を走査して fixture のずれを gap として報告するので、前提が成り立たず起票しなかった。
 
-### 順位 591: custom lint rule の検査の陽性対照を埋め、`.rs` 対象の行単位 regex rule を点検する
-
-> **動機**: 3 つの report が同じ系統の穴を挙げた。(1) #609: `exception_mutation_tests.rs` の `unjustified_exceptions` には分岐が 3 つあり、陽性対照が無いのは `baseline > 0` (exception 付きでも good fixture で発火する) の分岐だけである。(2) #605: `deployed_tests.rs` の 3 か所 (`deployed_custom_rules_pass_powershell_case_insensitive_validation` の `read_to_string`、`load_deployed_rule_by_id` の `read_to_string`、`deployed_takt_workflows_have_clean_baseline_for_persona_model_rule` の `read_dir`) は、読めないと panic するが、`missing_scan_path()` を使う陽性対照が無い。どれもパスを内部で組み立てているので、パスを引数に取る helper へ切り出す必要がある。(3) #612: `mod_order.rs` で、行単位の regex がブロックコメント・raw string・複数行の構造を扱えないことが分かった。`config/custom-lint-rules.toml` の `.rs` を対象にする regex rule に、同じ弱点があるかもしれない。
->
-> **由来**: `[improvement]`。
->
-> **種類**: Tier 2 — custom lint rule のテストの陽性対照の追加と点検。工数 M。(3) の点検が M で、(1)(2) は XS〜S。
-
-#### 作業計画
-
-- (1) pattern が good fixture に一致する rule を組み立て、`baseline > 0` の gap が報告されるテストを足す
-- (2) 3 か所の読み取りを、パスを受け取る helper にする。読めないパスで panic する `#[should_panic]` テストを足す
-- (3) `.rs` を対象にする regex rule を [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) の判断フローで点検する。誤検知や見落としの恐れがある rule には境界ケースの fixture を足すか、`syn` 層への移行を起票する
-
-#### 完了基準
-
-- `unjustified_exceptions` の 3 分岐と、`deployed_tests.rs` の読み取り失敗の 3 か所に、それぞれ外すと落ちるテストがあること
-- (3) の点検結果 (rule ごとの処置と、処置しない理由) が PR か ADR-007 に残っていること
-
 ### 順位 592: entry_pairing の検査を `docs/on-hold/` にも広げる
 
 > **動機**: `src/cli-docs-lint/src/docs_files.rs` の `list_docs_files` は `docs/` 直下だけを走査し、サブディレクトリを飛ばす。`entry_pairing.rs` の 119 行目は、詳細ファイル名が `todo` で始まる行しか対にしない。このため `docs/on-hold/nightly-loop.md` の順位 table と詳細エントリ (`nightly-loop2.md` を含む) は、1 対 1 の対応を検査されていない (#604 の feedback)。
@@ -497,3 +478,26 @@
 
 - push の直後に `jj new` をせずにファイルを編集すると、push 済みのコミットが書き換わる前に止まる
 - push 済みのブランチを意図して書き換える操作 (rebase など) を通す手順がある
+
+## 順位 591 の点検から起票 (2026-11-16)
+
+### 順位 612: custom lint rule がコメントと raw string の中の違反例で発火しないようにする
+
+> **動機**: 順位 591 で `.rs` を対象にする regex rule 14 個を点検した。14 rule とも `/* */` ブロックコメントの中の違反例で発火し、raw string `r#"..."#` の中でも、文字列そのものが対象の 2 rule を除く 12 rule が発火する ([ADR-007](adr/adr-007-custom-linter-layer-boundary.md) § Amendment (2026-11-16) の表)。エンジンは pattern をファイル全体に当てており、コメントと文字列を区別しない。`//` / `///` を除けるのは、exception か行頭アンカーを持つ一部の rule だけである。error の rule (no-write-result-discard / no-weak-temp-uniqueness など 6 個) では、悪い例を説明するコメントを書くだけで編集が止まる。2026-11-16 時点で、この誤検知が実際に作業を止めた観測は無い。
+>
+> **由来**: `[improvement]`。順位 591 の点検で見つけた。実害の観測は無い。
+>
+> **種類**: Tier 1 — lint エンジンの判定の改善。工数 M。
+>
+> **参照**: [ADR-007](adr/adr-007-custom-linter-layer-boundary.md) § Amendment (2026-11-16)、`src/hooks-post-tool-linter/src/custom_rules/engine.rs` (`collect_violations_for_rule`)
+
+#### 作業計画
+
+- [ ] 着手の条件を確かめる: コメントか文字列の中の違反例で custom lint が作業を止めた事例を、telemetry (ADR-055 の発火記録) か transcript で探す。見つからなければ、本行は見送りの follow-up として残す
+- [ ] 対処を選ぶ (**着手時判断**)。(a) エンジンが `.rs` を字句解析し、コメントと文字列の中から始まる一致を除く。rule ごとに opt-in / opt-out する field を足す。(b) 該当する rule を `syn` 層 (ADR-007 § Amendment 2026-08-28) へ移す。文字列そのものが対象の rule (no-ephemeral-todo-reference / no-hardcoded-jj-revset-range) は、文字列を除くと検査が成り立たないので、除外の対象を選べる形にする
+- [ ] 選んだ対処で、ADR-007 の点検表の誤検知が消えることを、ブロックコメント・`///`・raw string の陽性対照 (除かれること) と陰性対照 (コードの違反は検出し続けること) で固定する
+
+#### 完了基準
+
+- ブロックコメント・doc コメント・raw string の中の違反例で、対象にした rule が発火しない
+- コードに書いた違反は、これまでどおり検出する

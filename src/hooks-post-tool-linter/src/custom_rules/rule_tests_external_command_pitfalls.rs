@@ -179,6 +179,47 @@ fn ref_push_skips_doc_comment_mention() {
     assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
 }
 
+/// 順位 591 の点検: 配列の形もコメントの中なら止めない。範囲の先頭が `[` だと行頭のコメントを
+/// exception で除けず、`//` / `///` / ブロックコメントの `*` 行に書いた配列が error になっていた。
+#[test]
+fn ref_push_skips_args_array_in_line_comment() {
+    let src = concat!("// 悪い例: .args([\"pu", "sh\", url, \"--force\"])\n", "fn f() {}\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+#[test]
+fn ref_push_skips_args_array_in_doc_comment() {
+    let src = concat!("/// `[\"pu", "sh\", url, \"--delete\", &refspec]` と書かない\n", "fn f() {}\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+#[test]
+fn ref_push_skips_args_array_in_block_comment_line() {
+    let src = concat!("/*\n", " * [\"pu", "sh\", url, \"--force\"]\n", " */\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+#[test]
+fn ref_push_skips_args_array_in_trailing_comment() {
+    let src = concat!("let n = 1; // [\"pu", "sh\", url, \"--force\"] は使わない\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+/// 範囲を行頭から取るように変えても、rustfmt が複数行に分けた配列は検出する。行番号は `[` の行。
+#[test]
+fn ref_push_detects_multiline_args_array() {
+    let src = concat!(
+        "fn f() {\n",
+        "    let o = Command::new(\"git\").args([\n",
+        "        \"pu", "sh\",\n",
+        "        url,\n",
+        "        \"--force\",\n",
+        "    ]).output();\n",
+        "}\n",
+    );
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![2]);
+}
+
 #[test]
 fn ref_push_detects_shell_delete_in_yml() {
     let src = concat!("      - run: |\n", "          git pu", "sh origin --delete \"$BRANCH\"\n");
