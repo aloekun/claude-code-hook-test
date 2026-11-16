@@ -1,0 +1,91 @@
+{
+  "_comment": "片方の OS でしかコンパイルされないテストの一覧 (順位 423)。CI の os-specific-tests job が、両 OS の `cargo test --workspace --lib --bins --tests -- --list --format terse` と突き合わせる (scripts/check-os-specific-tests.mjs)。片方の OS にしか無いテストはここに載っていなければならず、ここに載ったテストは指定した OS の一覧に載っていなければならない。名前は `<バイナリ> (<ソース>) <テストのパス>` で、照合スクリプトのエラーに出る形をそのまま写す。",
+  "linux": [
+    {
+      "test": "cli_docs_lint (src/lib.rs) cross_ref::tests::symlinks_are_not_followed",
+      "reason": "シンボリックリンクを作る。Windows ではリンクの作成に権限が要る"
+    },
+    {
+      "test": "cli_docs_lint (src/lib.rs) rustdoc_links::tests::symlinks_are_not_followed",
+      "reason": "シンボリックリンクを作る。Windows ではリンクの作成に権限が要る"
+    },
+    {
+      "test": "cli_pr_monitor (src/main.rs) prepare_pr_body::tests::cleanup_removes_a_dangling_symlink_itself",
+      "reason": "シンボリックリンクを作る。Windows ではリンクの作成に権限が要る"
+    },
+    {
+      "test": "cli_pr_monitor (src/main.rs) prepare_pr_body::tests::write_body_rejects_a_symlink_and_keeps_its_target",
+      "reason": "シンボリックリンクを作る。Windows ではリンクの作成に権限が要る"
+    },
+    {
+      "test": "cli_push_runner (src/main.rs) stages::scratch_file_warning::tests::zero_byte_files_does_not_follow_symlinks_to_empty_files",
+      "reason": "シンボリックリンクを作る。Windows ではリンクの作成に権限が要る"
+    },
+    {
+      "test": "workflow_awk_parity (tests/workflow_awk_parity.rs) the_known_divergences_stay_on_the_fail_closed_side",
+      "reason": "review-request.yml の shell 断片 (awk / sed) をその場で実行する。GitHub Actions の実行環境と同じ POSIX shell が要る"
+    },
+    {
+      "test": "workflow_awk_parity (tests/workflow_awk_parity.rs) the_workflow_shell_reads_the_kill_switch_as_the_rust_implementation_does",
+      "reason": "review-request.yml の shell 断片 (awk / sed) をその場で実行する。GitHub Actions の実行環境と同じ POSIX shell が要る"
+    }
+  ],
+  "windows": [
+    {
+      "test": "cli_pr_monitor (src/main.rs) runner::tests::a_summary_style_capture_keeps_stderr_out_of_stdout",
+      "reason": "PR #238 の回帰テスト。子プロセスに cmd.exe を使う"
+    },
+    {
+      "test": "cli_pr_monitor (src/main.rs) runner::tests::run_cmd_capture_separates_stdout_and_stderr",
+      "reason": "PR #238 の回帰テスト。子プロセスに cmd.exe を使う"
+    },
+    {
+      "test": "cli_pr_monitor (src/main.rs) runner::tests::run_cmd_direct_keeps_combined_output_compatibility",
+      "reason": "PR #238 の回帰テスト。子プロセスに cmd.exe を使う"
+    },
+    {
+      "test": "cli_pr_monitor (src/main.rs) stages::poll::iteration::tests::invoke_checker_parses_stdout_json_despite_stderr_noise",
+      "reason": "PR #238 の回帰テスト。子プロセスに cmd.exe を使う"
+    },
+    {
+      "test": "cli_push_runner (src/main.rs) stages::lint_screen::classifier::tests::pump_child_io_reports_empty_stdout",
+      "reason": "pump_child_io のテスト群は子プロセスに cmd.exe / PowerShell を使うので module ごと Windows 限定 (WP-15)"
+    },
+    {
+      "test": "cli_push_runner (src/main.rs) stages::lint_screen::classifier::tests::pump_child_io_reports_nonzero_exit",
+      "reason": "pump_child_io のテスト群は子プロセスに cmd.exe / PowerShell を使うので module ごと Windows 限定 (WP-15)"
+    },
+    {
+      "test": "cli_push_runner (src/main.rs) stages::lint_screen::classifier::tests::pump_child_io_reports_timeout_when_child_exceeds_deadline",
+      "reason": "pump_child_io のテスト群は子プロセスに cmd.exe / PowerShell を使うので module ごと Windows 限定 (WP-15)"
+    },
+    {
+      "test": "cli_push_runner (src/main.rs) stages::lint_screen::classifier::tests::pump_child_io_roundtrips_stdin_to_stdout",
+      "reason": "pump_child_io のテスト群は子プロセスに cmd.exe / PowerShell を使うので module ごと Windows 限定 (WP-15)"
+    },
+    {
+      "test": "cli_push_runner (src/main.rs) stages::lint_screen::classifier::tests::pump_child_io_survives_child_flooding_stdout_before_reading_stdin",
+      "reason": "pump_child_io のテスト群は子プロセスに cmd.exe / PowerShell を使うので module ごと Windows 限定 (WP-15)"
+    },
+    {
+      "test": "t7_cwd_independence (tests/t7_cwd_independence.rs) active_takt_run_skips_gate_from_non_root_cwd",
+      "reason": "T7 incident (Stop 品質ゲートの cwd 依存) の回帰テスト。由来の hooks-config.toml の step が Windows のパス (.\\.claude\\*.exe) を使う"
+    },
+    {
+      "test": "t7_cwd_independence (tests/t7_cwd_independence.rs) completed_takt_run_does_not_skip_gate_from_non_root_cwd",
+      "reason": "T7 incident (Stop 品質ゲートの cwd 依存) の回帰テスト。由来の hooks-config.toml の step が Windows のパス (.\\.claude\\*.exe) を使う"
+    },
+    {
+      "test": "t7_cwd_independence (tests/t7_cwd_independence.rs) failing_step_still_blocks_from_non_root_cwd",
+      "reason": "T7 incident (Stop 品質ゲートの cwd 依存) の回帰テスト。由来の hooks-config.toml の step が Windows のパス (.\\.claude\\*.exe) を使う"
+    },
+    {
+      "test": "t7_cwd_independence (tests/t7_cwd_independence.rs) root_relative_step_succeeds_from_non_root_cwd",
+      "reason": "T7 incident (Stop 品質ゲートの cwd 依存) の回帰テスト。由来の hooks-config.toml の step が Windows のパス (.\\.claude\\*.exe) を使う"
+    },
+    {
+      "test": "t7_cwd_independence (tests/t7_cwd_independence.rs) root_relative_step_succeeds_from_root_cwd",
+      "reason": "T7 incident (Stop 品質ゲートの cwd 依存) の回帰テスト。由来の hooks-config.toml の step が Windows のパス (.\\.claude\\*.exe) を使う"
+    }
+  ]
+}

@@ -145,25 +145,6 @@
 
 - 次に cross-system parity テストを書く人が、境界の取り方と非対称の扱いを文書から辿れること。
 
-### 順位 423: 系統 D-2: CI matrix で `#[cfg(unix)]` テストの実行を保証する
-
-> **動機**: `workflow_awk_parity.rs` は `#[cfg(unix)]` で、Windows ではテストバイナリは走るが**中身が 0 件**になる。現状は ubuntu ジョブが担保しているが、**「0 件実行」と「全件成功」は CI 出力上ほぼ見分けがつかない**。cfg で落とした範囲が意図せず広がっても気づけない。
->
-> **対処案**: (a) ubuntu ジョブで当該テストが**実際に実行された件数**を assert する、または (b) `#[cfg(unix)]` なテストの一覧を明示的に管理し、実行漏れを検出する。ADR-065 の両 OS matrix の信号品質を守る話であり、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md) の「陽性証拠を要求する」と同じ論理。
->
-> **参照**: [ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-064](adr/adr-064-monitor-success-positive-evidence.md)、[ci.yml](../.github/workflows/ci.yml)。
->
-> **種類**: Tier 2 — CI の step の追加。工数 S。
-
-#### 作業計画
-
-- [ ] 現存する `#[cfg(unix)]` / `#[cfg(windows)]` テストを棚卸しする
-- [ ] 実行件数の陽性確認を CI へ入れる方法を決める (`--format json` の集計か、専用の一覧テストか)
-
-#### 完了基準
-
-- OS 固有テストが「実行されなかった」ことを CI が検出できること。
-
 ---
 
 ### 順位 424: 系統 E-1: UNC パス復元ロジックを Windows 実機で検証する

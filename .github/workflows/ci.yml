@@ -51,6 +51,10 @@
 # - **`pnpm lint:workflows` も node job で回す** (順位 562): workflow の構文と契約の検査は
 #   手元の push gate でしか走っておらず、push gate を通らない変更 (GitHub の Web 編集など)
 #   では抜けていた。依存は vitest と同じ node_modules (js-yaml) だけなので、同じ job に置く。
+# - **OS 専用のテストを os-specific-tests job で突き合わせる** (順位 423): rust job が両 OS で
+#   `cargo test -- --list` の一覧を artifact に残し、片方にしか無いテストが
+#   config/os-specific-tests.json と一致することを確かめる。`#[cfg(unix)]` などで片方の OS から
+#   落としたテストが、もう片方で本当に走っているかは、緑の結果からは読めないため。
 # - **`pnpm lint:permissions` も node job で回す** (順位 389): permission rule の `Write(path)`
 #   指定子は no-op で、deny に書くと拒否が黙って無効になる。push gate を通らない変更でも
 #   止めるため CI に置く。依存は Node の標準ライブラリだけ。
@@ -186,6 +190,23 @@ jobs:
         shell: bash
         run: cargo test --workspace
 
+      # OS 専用のテストが実際に一覧に載っていることを、os-specific-tests job が両 OS の一覧の
+      # 突き合わせで確かめる (順位 423)。stderr の `Running ...` の行でバイナリを区別するので、
+      # stdout と stderr をまとめて残す。doctest は対象外 (`--doc` を付けない)。
+      - name: List compiled tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --lib --bins --tests -- --list --format terse > "test-list-${RUNNER_OS}.txt" 2>&1
+
+      - name: Upload the test list
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-list-${{ runner.os }}
+          path: test-list-${{ runner.os }}.txt
+          retention-days: 7
+          if-no-files-found: error
+
       # fixture stdin -> 期待する block/pass 判定 (ADR-049 の incident fixture 資産を流用)。
       - name: Run hooks smoke tests
         shell: bash
@@ -224,6 +245,41 @@ jobs:
           set -euo pipefail
           cargo run --release -p cli-ledger-removal-check -- \
             --branch "$BRANCH" --docs-dir docs
+
+  # 片方の OS でしかコンパイルされないテストが、その OS で実際に一覧に載ったことを確かめる (順位 423)。
+  # `#![cfg(unix)]` のテストファイルは Windows では中身 0 件で走り、「0 件実行」と「全件成功」が
+  # 出力で見分けにくい。両 OS の rust job が残した一覧を突き合わせ、片方にしか無いテストが
+  # config/os-specific-tests.json と一致することを求める (ADR-064 の陽性証拠と同じ考え方)。
+  # rust job が片方でも落ちると skip されるが、そのときは rust job が赤なので見落としにはならない。
+  os-specific-tests:
+    name: os-specific-tests
+    needs: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the test lists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-list-*
+          merge-multiple: true
+          path: test-lists
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Compare the test lists of both OSes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-os-specific-tests.mjs test-lists/test-list-Linux.txt test-lists/test-list-Windows.txt
 
   node:
     name: node (${{ matrix.os }})
