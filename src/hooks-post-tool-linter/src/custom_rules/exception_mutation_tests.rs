@@ -134,14 +134,20 @@ fn an_exception_the_good_fixture_does_not_need_is_reported() {
 
 /// 陽性対照 (順位 591): exception 付きのままでも good fixture で発火する rule は、mutation の
 /// 前提が崩れているので gap になる。pattern を「空白以外の 1 文字」に差し替え、good fixture の
-/// どこにでも一致させる。一致は 1 文字なので、exception がその中で一致して違反を消すことは無い。
+/// どこにでも一致させる。対象は、exception が長いフラグ (`"--ignore-working-copy"`) で 1 文字の
+/// 一致を除けない rule⑱ に固定する。config の並び順で選ぶと、`^\s*#` のように 1 文字を除ける
+/// exception の rule に当たったとき前提が変わる。
 #[test]
 fn an_exception_rule_that_fires_on_its_good_fixture_is_reported() {
     let rules = rules_from_repo_config();
     let mut rule = rules
         .into_iter()
-        .find(|r| r.exception.is_some() && r.incident.is_some())
-        .expect("exception と incident fixture を持つ rule が 1 件は要る");
+        .find(|r| r.id == "jj-workspace-list-without-ignore-working-copy")
+        .expect("rule⑱ が config に要る");
+    assert!(
+        rule.exception.is_some() && rule.incident.is_some(),
+        "rule⑱ は exception と incident fixture を持つ前提"
+    );
     rule.pattern = r"\S".to_string();
     let id = rule.id.clone();
 

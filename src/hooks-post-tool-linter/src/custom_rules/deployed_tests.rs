@@ -308,11 +308,12 @@ fn rules_from_panics_on_unreadable_config() {
     rules_from(&missing_scan_path().join("custom-lint-rules.toml"));
 }
 
-/// 陽性対照 (順位 591): id で rule を引く経路も、設定ファイルが読めなければ panic する。
+/// 陽性対照 (順位 591): id が設定ファイルに無ければ panic する。読めない場合は
+/// `rules_from_panics_on_unreadable_config` が固定している (`rule_by_id_from` は `rules_from` を通る)。
 #[test]
-#[should_panic(expected = "rule の設定ファイルを読めません")]
-fn rule_by_id_from_panics_on_unreadable_config() {
-    rule_by_id_from(&missing_scan_path().join("custom-lint-rules.toml"), "any-rule");
+#[should_panic(expected = "not found in")]
+fn rule_by_id_from_panics_on_unknown_id() {
+    rule_by_id_from(&deployed_config_path(), "rule-id-that-is-not-in-the-config");
 }
 
 /// 陽性対照 (順位 591): `.takt/workflows/` の走査も、ディレクトリが読めなければ panic する。
