@@ -234,8 +234,10 @@ export function runCommand(command: string[], timeoutMs: number): Promise<RunRes
       running = undefined;
       fn();
     };
+    let killedByTimeout = false;
     const timedOut = () => new Error(`テストが ${timeoutMs / 1000} 秒で終わらなかったので止めました`);
     const timer = setTimeout(() => {
+      killedByTimeout = true;
       if (child.pid !== undefined) killTree(child.pid);
       if (exited) settle(() => reject(timedOut()));
       else child.once("exit", () => settle(() => reject(timedOut())));
@@ -243,7 +245,9 @@ export function runCommand(command: string[], timeoutMs: number): Promise<RunRes
     child.on("error", (e) => settle(() => reject(e)));
     child.on("exit", (status, signal) => {
       exited = true;
-      if (isInterrupted(status)) {
+      // タイムアウトで自分が止めた終了は中断ではない。POSIX では SIGKILL で `status` が null になり、
+      // この listener がタイマー側の `once("exit")` より先に呼ばれるため、区別しないと中断と報告する。
+      if (!killedByTimeout && isInterrupted(status)) {
         if (child.pid !== undefined) killTree(child.pid);
         settle(() => reject(new Error(`cargo が中断されました (status: ${status}, signal: ${signal})`)));
       }
