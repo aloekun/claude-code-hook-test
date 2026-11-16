@@ -10,7 +10,42 @@ use super::types::{
 };
 use crate::violation::MAX_CUSTOM_VIOLATIONS;
 
+/// `config/custom-lint-rules.toml` にある rule id の一覧。`make_test_rule` が写経を拒むのに使う。
+/// 読めなければ panic する (fail-closed: 一覧が空だと検査が素通りになる)。ADR-084 に従い、
+/// 同じ検査を持つ `coverage.rs` とは共有しない。
+fn repo_config_rule_ids() -> &'static [String] {
+    static IDS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    IDS.get_or_init(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("config")
+            .join("custom-lint-rules.toml");
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
+        let config: CustomRulesConfig = toml::from_str(&content)
+            .unwrap_or_else(|e| panic!("parse {} failed: {e}", path.display()));
+        let ids: Vec<String> = config
+            .rules
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        assert!(!ids.is_empty(), "no rules in {}", path.display());
+        ids
+    })
+}
+
+/// エンジンの挙動を見るための架空の rule を作る。**設定ファイルにある rule id は渡せない** (順位 534
+/// 段 2)。rule の pattern / 拡張子をテストに書き写すと、設定ファイルだけを直したときに古い定義を
+/// 検証し続けて green のまま残る (ADR-081)。設定ファイルの rule を検査したいときは、各テスト
+/// ファイルの `rule_from_repo_config` で丸ごと読む。
 pub(super) fn make_test_rule(id: &str, pattern: &str, extensions: &[&str]) -> CustomRule {
+    assert!(
+        !repo_config_rule_ids().iter().any(|known| known == id),
+        "make_test_rule に設定ファイルの rule id `{id}` が渡された。rule を書き写さず、\
+         `rule_from_repo_config(\"{id}\")` で config/custom-lint-rules.toml から読むこと (ADR-081)。\
+         エンジンの挙動を見るだけなら、設定ファイルに無い架空の id を使う"
+    );
     CustomRule {
         id: id.into(),
         pattern: pattern.into(),
@@ -622,4 +657,13 @@ exception = "b"
     .unwrap();
     let rule = config.rules.unwrap().remove(0);
     assert_eq!(rule.exception.as_deref(), Some("b"));
+}
+
+/// 陽性対照 (順位 534 段 2): 設定ファイルにある rule id を渡すと `make_test_rule` が panic する。
+/// id は一覧から取り、テストに書き写さない。
+#[test]
+#[should_panic(expected = "rule_from_repo_config")]
+fn make_test_rule_rejects_a_rule_id_from_the_repo_config() {
+    let id = repo_config_rule_ids()[0].clone();
+    make_test_rule(&id, "x", &["rs"]);
 }
