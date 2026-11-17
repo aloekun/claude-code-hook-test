@@ -229,3 +229,50 @@ Rust 標準の `regex` crate は lookahead を持たない。「呼び出しに 
 ### 相互排他的な pattern の扱い (順位 204)
 
 `exception` には範囲内の否定とは別の使い道もある。包含関係にある 2 つの pattern (OpenAI の `sk-` ⊃ Anthropic の `sk-ant-`) を分けたいとき、広い側に `exception` として狭い側を与え、狭い側は専用の `pattern` で別に検出する (PreToolUse の [`secret.rs`](../../src/hooks-pre-tool-validate/src/presets/safety/secret.rs) の `sk-` / `sk-ant-` の 2 pattern、PR #171 / #201)。lookahead で片方を除外する書き方は Rust regex では書けない。
+
+## Amendment (2026-11-16, 順位 591 由来): `.rs` を対象にする regex rule の点検 — コメント・raw string・複数行
+
+`mod_order.rs` の作業 (#612) で、行単位の正規表現はブロックコメント・raw string・複数行の構造を扱えないことが分かった。`config/custom-lint-rules.toml` で `.rs` を対象にする 14 rule に同じ弱点があるかを点検した。
+
+### 方法
+
+エンジン (`collect_violations_for_rule`) は rule の `pattern` をファイル全体に当てる (行ごとではない)。そこで、配置済みの `hooks-post-tool-linter.exe` に PostToolUse の入力を与え、リポジトリ外に置いた 3 種類の probe ファイルを lint させた。
+
+- A: 各 rule の違反例を `/* */` ブロックコメント、`///` doc コメントの中に書いたもの (誤検知の確認)
+- B: 各 rule の違反例を raw string `r#"..."#` の中に書いたもの (誤検知の確認)
+- C: 各 rule の違反例を rustfmt の形で複数行に分けたもの (見逃しの確認)
+
+`paths` を持つ 3 rule はリポジトリ外の probe には効かないので、pattern を読んで判定した。
+
+### 結果
+
+| rule | A: ブロックコメント | A: `///` | B: raw string | C: 複数行 | 処置 |
+|---|---|---|---|---|---|
+| no-ephemeral-todo-reference | 誤検知 | 誤検知 | 検出 (文字列の参照は対象) | 対象外 (1 トークン) | 順位 612 |
+| no-time-field-strict-greater | 誤検知 | 誤検知 | 誤検知 | 検出 | 順位 612 |
+| no-write-result-discard | 誤検知 | 誤検知 | 誤検知 | 検出 | 順位 612 |
+| no-hardcoded-jj-revset-range | 誤検知 | 誤検知 | 検出 (文字列の revset が対象) | 対象外 (1 トークン) | 順位 612 |
+| no-weak-temp-uniqueness | 誤検知 | 誤検知 | 誤検知 | 検出 | 順位 612 |
+| no-pid-timestamp-temp-naming | 誤検知 | 誤検知 | 誤検知 | 検出 | 順位 612 |
+| jj-workspace-list-without-ignore-working-copy | 誤検知 | 誤検知 | 誤検知 | 検出 | 順位 612 |
+| gh-json-files-truncated | 誤検知 | 除外される | 誤検知 | 検出 | 順位 612 |
+| ref-destroying-push-without-lease | 誤検知 | **誤検知 (exception が効かない)** | 誤検知 | 検出 | 配列の形を修正 (下記) + 順位 612 |
+| gh-output-without-timeout | 誤検知 | 除外される | 誤検知 | 検出 | 順位 612 |
+| allow-without-reason | 誤検知 | 除外される (行頭の `#` だけに一致) | 誤検知 | 検出 | 順位 612 |
+| no-unbounded-child-wait (`paths` 付き) | 誤検知 (pattern から判定) | 誤検知 | 誤検知 | `child` と `.wait()` を別の行に分けると見逃す。rustfmt は短い呼び出しを分けないので実害は小さい | 順位 612 |
+| no-manual-hooks-config-path (`paths` 付き) | 誤検知 (pattern から判定) | 誤検知 | 誤検知 | `[^;{}]` が改行を越えるので検出。間にブロック `{}` を挟むと見逃す (既知の範囲の限界) | 順位 612 |
+| read-dir-entry-error-dropped (`paths` 付き) | 誤検知 (pattern から判定) | 除外される (`^\s*//`) | 誤検知 | `[^;]` が改行を越えるので検出 | 順位 612 |
+
+- **見逃し**: 複数行に分けた形は、probe した 9 rule ですべて検出した。行単位の弱点は見逃しの側には出ていない
+- **誤検知**: 14 rule とも、ブロックコメントの中の違反例を検出する。raw string の中の違反例も、文字列そのものが対象の 2 rule (todo 参照・revset) を除く 12 rule が検出する。Q2 (コメント・文字列内の誤検出) が問題になる形である。`//` / `///` を除いているのは exception か行頭アンカーを持つ一部の rule だけで、ブロックコメントはどの rule も除いていない。2026-11-16 時点で、この誤検知が実際に作業を止めた観測は無い。対処 (エンジンでコメントと文字列から始まる一致を除く、または `syn` 層へ移す) は順位 612 で、実害の観測を待って検討する
+
+### ref-destroying-push-without-lease の修正
+
+rule⑳ の exception (`^\s*(?://|#|\*)`) は行頭のコメントを除くためのものだが、引数配列の分岐は範囲を `[` から取っていたので、範囲の先頭が行頭にならず、exception が効かなかった。`//` / `///` / ブロックコメントの `*` 行に書いた配列が error で止まっていた。配列の分岐の前に「行頭がコメント (`//` / `///` / `#` / `* `) の行を、行全体で 1 つの範囲に取る」選択肢を足し、その範囲を既存の exception で除くようにした。配列の分岐自体は `[` から取るまま残す。
+
+最初は配列の分岐を行頭から取る形に変えたが、PR #646 の CodeRabbit レビューで 2 つの退行が分かり、上の形に改めた。
+
+- 配列より前の文字列 (`.env("X", "--force-with-lease=...")`) が範囲に入り、lease があるとみなされる
+- 行頭アンカーのため、同じ行の 2 つ目以降の配列が検査されない
+
+限界: 行末コメントの配列 (`f(); // ["push", "--force"]`) は検出する (誤検知)。`[` より前の `//` で除くと、`"https://..."` を含む行の本物の違反を見落とすので、fail-closed ([ADR-043](adr-043-security-gates-fail-closed.md)) の側に倒した。この誤検知は順位 612 で扱う。

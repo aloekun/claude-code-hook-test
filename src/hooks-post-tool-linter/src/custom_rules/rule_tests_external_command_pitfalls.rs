@@ -179,6 +179,92 @@ fn ref_push_skips_doc_comment_mention() {
     assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
 }
 
+/// 順位 591 の点検: 配列の形もコメントの中なら止めない。範囲の先頭が `[` だと行頭のコメントを
+/// exception で除けず、`//` / `///` / ブロックコメントの `*` 行に書いた配列が error になっていた。
+#[test]
+fn ref_push_skips_args_array_in_line_comment() {
+    let src = concat!("// 悪い例: .args([\"pu", "sh\", url, \"--force\"])\n", "fn f() {}\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+#[test]
+fn ref_push_skips_args_array_in_doc_comment() {
+    let src = concat!("/// `[\"pu", "sh\", url, \"--delete\", &refspec]` と書かない\n", "fn f() {}\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+#[test]
+fn ref_push_skips_args_array_in_block_comment_line() {
+    let src = concat!("/*\n", " * [\"pu", "sh\", url, \"--force\"]\n", " */\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+/// 行末コメントの配列は検出する (誤検知の側に倒した限界)。`[` より前の `//` で除くと、
+/// 次の `ref_push_detects_args_array_after_a_url` の違反を見落とす。
+#[test]
+fn ref_push_detects_args_array_in_trailing_comment() {
+    let src = concat!("let n = 1; // [\"pu", "sh\", url, \"--force\"] は使わない\n");
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![1]);
+}
+
+#[test]
+fn ref_push_detects_args_array_after_a_url() {
+    let src = concat!(
+        "let o = Command::new(\"git\").arg(\"https://example.com\").args([\"pu",
+        "sh\", \"--force\"]).output();\n"
+    );
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![1]);
+}
+
+/// 配列より前の引数にある lease は、push の lease ではない (PR #646 CodeRabbit)。
+#[test]
+fn ref_push_detects_args_array_after_a_lease_outside_it() {
+    let src = concat!(
+        "Command::new(\"git\").env(\"NOTE\", \"--force-with-lease=x:y\").args([\"pu",
+        "sh\", \"origin\", \"--force\"]);\n"
+    );
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![1]);
+}
+
+/// 同じ行の 2 つ目の配列も独立に検査する (PR #646 CodeRabbit)。1 つ目は lease 付きで除かれる。
+#[test]
+fn ref_push_detects_second_args_array_on_the_same_line() {
+    let src = concat!(
+        "g.args([\"pu", "sh\", \"--force\", \"--force-with-lease=x:y\"]).status(); ",
+        "g.args([\"pu", "sh\", \"--force\"]).status();\n"
+    );
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![1]);
+}
+
+/// コメント行の中の 2 つ目の配列も除く (行全体を 1 つの範囲に取る)。
+#[test]
+fn ref_push_skips_second_args_array_in_line_comment() {
+    let src = concat!("// [\"pu", "sh\", \"-f\"] と [\"pu", "sh\", \"--force\"] は書かない\n");
+    assert!(violation_lines(REF_PUSH, "rs", src).is_empty());
+}
+
+/// `*` で始まっても、後ろが空白でなければコメント行ではない (参照外し)。
+#[test]
+fn ref_push_detects_args_array_after_a_deref() {
+    let src = concat!("    *out = g.args([\"pu", "sh\", \"--force\"]).output();\n");
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![1]);
+}
+
+/// rustfmt が複数行に分けた配列も検出する。行番号は `[` の行。
+#[test]
+fn ref_push_detects_multiline_args_array() {
+    let src = concat!(
+        "fn f() {\n",
+        "    let o = Command::new(\"git\").args([\n",
+        "        \"pu", "sh\",\n",
+        "        url,\n",
+        "        \"--force\",\n",
+        "    ]).output();\n",
+        "}\n",
+    );
+    assert_eq!(violation_lines(REF_PUSH, "rs", src), vec![2]);
+}
+
 #[test]
 fn ref_push_detects_shell_delete_in_yml() {
     let src = concat!("      - run: |\n", "          git pu", "sh origin --delete \"$BRANCH\"\n");

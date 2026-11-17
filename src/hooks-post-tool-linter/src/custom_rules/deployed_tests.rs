@@ -64,15 +64,7 @@ fn no_ephemeral_todo_self_exclusion_invariant_holds_on_deployed_toml() {
 
 #[test]
 fn deployed_custom_rules_pass_powershell_case_insensitive_validation() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join(lib_config_path::CONFIG_DIR)
-        .join("custom-lint-rules.toml");
-    let content = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read deployed custom-lint-rules.toml: {e}"));
-    let config: CustomRulesConfig = toml::from_str(&content).unwrap();
-    let rules = config.rules.unwrap_or_default();
+    let rules = rules_from(&deployed_config_path());
     let missing = find_powershell_rules_missing_case_insensitive_flag(&rules);
     assert!(
         missing.is_empty(),
@@ -180,21 +172,55 @@ fn collect_files_with_extensions(
     }
 }
 
-fn load_deployed_rule_by_id(id: &str) -> CustomRule {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn deployed_config_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
         .join(lib_config_path::CONFIG_DIR)
-        .join("custom-lint-rules.toml");
-    let content = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read deployed custom-lint-rules.toml: {e}"));
-    let config: CustomRulesConfig = toml::from_str(&content).unwrap();
-    config
-        .rules
-        .unwrap_or_default()
+        .join("custom-lint-rules.toml")
+}
+
+/// `path` の rule 定義を読む。読めなければ panic する (検査対象が欠けたまま通さない)。
+/// パスを引数に取るのは、読めない場合の陽性対照を `missing_scan_path()` で書くため (順位 591)。
+fn rules_from(path: &std::path::Path) -> Vec<CustomRule> {
+    let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        panic!(
+            "rule の設定ファイルを読めません (検査対象が欠けたまま通さない): {}: {e}",
+            path.display()
+        )
+    });
+    let config: CustomRulesConfig = toml::from_str(&content)
+        .unwrap_or_else(|e| panic!("parse {} failed: {e}", path.display()));
+    config.rules.unwrap_or_default()
+}
+
+fn rule_by_id_from(path: &std::path::Path, id: &str) -> CustomRule {
+    rules_from(path)
         .into_iter()
         .find(|r| r.id == id)
-        .unwrap_or_else(|| panic!("rule '{id}' not found in deployed custom-lint-rules.toml"))
+        .unwrap_or_else(|| panic!("rule '{id}' not found in {}", path.display()))
+}
+
+fn load_deployed_rule_by_id(id: &str) -> CustomRule {
+    rule_by_id_from(&deployed_config_path(), id)
+}
+
+/// `dir` 直下の `.yaml` ファイル。読めなければ panic する (検査対象が欠けたまま通さない)。
+fn yaml_files_in(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| {
+        panic!(
+            "ディレクトリを読めません (検査対象が欠けたまま通さない): {}: {e}",
+            dir.display()
+        )
+    });
+    entries
+        .map(|entry| {
+            entry
+                .expect("ディレクトリの entry を読めません (検査対象が欠けたまま通さない)")
+                .path()
+        })
+        .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("yaml"))
+        .collect()
 }
 
 /// `run_custom_rules` は読めないファイルを違反 0 件として返すため、走査の前に読めることを確かめる。
@@ -275,6 +301,28 @@ fn assert_readable_for_scan_panics_on_unreadable_file() {
     assert_readable_for_scan(&missing_scan_path().join("missing.rs"));
 }
 
+/// 陽性対照 (順位 591): PowerShell の `(?i)` 検査が読む rule の設定ファイルが読めなければ panic する。
+#[test]
+#[should_panic(expected = "rule の設定ファイルを読めません")]
+fn rules_from_panics_on_unreadable_config() {
+    rules_from(&missing_scan_path().join("custom-lint-rules.toml"));
+}
+
+/// 陽性対照 (順位 591): id が設定ファイルに無ければ panic する。読めない場合は
+/// `rules_from_panics_on_unreadable_config` が固定している (`rule_by_id_from` は `rules_from` を通る)。
+#[test]
+#[should_panic(expected = "not found in")]
+fn rule_by_id_from_panics_on_unknown_id() {
+    rule_by_id_from(&deployed_config_path(), "rule-id-that-is-not-in-the-config");
+}
+
+/// 陽性対照 (順位 591): `.takt/workflows/` の走査も、ディレクトリが読めなければ panic する。
+#[test]
+#[should_panic(expected = "ディレクトリを読めません")]
+fn yaml_files_in_panics_on_unreadable_dir() {
+    yaml_files_in(&missing_scan_path());
+}
+
 #[test]
 fn deployed_tree_has_clean_baseline_for_gh_json_files_truncated_rule() {
     assert_clean_baseline_for_rule("gh-json-files-truncated");
@@ -293,17 +341,18 @@ fn deployed_takt_workflows_have_clean_baseline_for_persona_model_rule() {
         .join(".takt")
         .join("workflows");
     let rules = compile_test_rules(vec![takt_workflow_persona_without_model_rule()]);
+    let workflows = yaml_files_in(&workflows_dir);
+    assert!(
+        !workflows.is_empty(),
+        "{} に .yaml が 0 件 — false-green guard",
+        workflows_dir.display()
+    );
     let mut total_violations: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(&workflows_dir)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", workflows_dir.display()))
-    {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
-            let violations = run_custom_rules(path.to_str().unwrap(), &rules);
-            for v in violations {
-                total_violations.push(format!("{}: {}", path.display(), v));
-            }
+    for path in &workflows {
+        assert_readable_for_scan(path);
+        let violations = run_custom_rules(path.to_str().unwrap(), &rules);
+        for v in violations {
+            total_violations.push(format!("{}: {}", path.display(), v));
         }
     }
     assert!(
