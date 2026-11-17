@@ -62,6 +62,8 @@
     "tool:json-query": "node scripts/tools/json-query.ts",
     "tool:md-section": "node scripts/tools/md-section.ts",
     "mutate": "node scripts/mutate/mutate.ts",
+    "wsl-run": "node scripts/wsl-run/wsl-run.ts",
+    "wsl-script": "node scripts/wsl-run/wsl-script.ts",
     "py-lint": "ruff check src/",
     "py-typecheck": "mypy src/"
   },

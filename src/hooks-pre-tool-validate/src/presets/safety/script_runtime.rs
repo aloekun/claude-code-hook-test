@@ -105,6 +105,30 @@ deno / bun と、Windows のスクリプトホスト (cscript / wscript / mshta)
 /// - 列挙していない前置きのオプション、名前を変数に入れて呼ぶ (`$P a.py`)、別のスクリプトの中から
 ///   呼ぶ、といった間接的な起動は見ない
 pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
+    const BASE: &str = r"(?:python(?:w|[23](?:\.\d+)?)?|py|pip(?:[23](?:\.\d+)?)?|pipx|uvx?|perl|ruby|gem|irb|go|java|javac|jshell|php|lua|Rscript|R|deno|bun|bunx|cscript|wscript|mshta)";
+    const EXTENSIONS: &str = r"(?i:\.(?:py|pyw|pl|rb|php|vbs|vbe|wsf|hta|jar))";
+    let runtime_in = |path_char: &str| {
+        format!(
+            r"(?:(?i:{path_char}*[\\/]{BASE}(?:\.exe)?)|(?i:{BASE}\.exe)|{BASE}|{path_char}*{EXTENSIONS})"
+        )
+    };
+    let unquoted = runtime_in(r#"[^\s"';&|]"#);
+    let double_quoted = format!(r#""{}""#, runtime_in(r#"[^"\n]"#));
+    let single_quoted = format!("'{}'", runtime_in(r"[^'\n]"));
+    let runtime = format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|;|&)");
+    let pattern = format!(r"(?m){}{runtime}", command_head());
+    vec![BlockedPattern {
+        pattern: Regex::new(&pattern).unwrap(),
+        exception: None,
+        message: SCRIPT_RUNTIME_MSG,
+    }]
+}
+
+/// コマンドの位置から、実行するプログラムの名前の直前までに一致する正規表現 (`(?m)` は呼び手が付ける)。
+///
+/// 位置と前置きの読み方は [`preset_script_runtime`] の doc のとおり。`wsl-direct-block` も同じ読み方で
+/// `wsl` を見るので、ここを共有する。
+pub(crate) fn command_head() -> String {
     const COMMAND_POSITION: &str = r"(?:^|[;&|(\n`])\s*(?:&\s*)?";
     const ENV: &str = r"env(?:\s+(?:(?:-[uC]|--unset|--chdir)\s+\S+|-\S+))*";
     const SUDO: &str = r"sudo(?:\s+(?:(?:-[ugCDhprtTU]|--(?:user|group|host|prompt|chdir|role|type|other-user|close-from|command-timeout))\s+\S+|-\S+))*";
@@ -124,25 +148,7 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
     );
     const SHELL_STRING: &str = r#"(?:[^\s"';&|]*[\\/])?(?:(?:bash|sh|zsh|dash)(?:\.exe)?\s+-[A-Za-z]*c[A-Za-z]*|(?:pwsh|powershell)(?:\.exe)?\s+(?:-\S+\s+)*?-(?i:c|command)|cmd(?:\.exe)?\s+/[cCkK])\s+["']?\s*"#;
     const FIND_EXEC: &str = r"(?:[^\s;&|]*[\\/])?find(?:\.exe)?\s+(?:[^;&|\n]*?\s)?-(?:exec|execdir|ok|okdir)\s+";
-    const BASE: &str = r"(?:python(?:w|[23](?:\.\d+)?)?|py|pip(?:[23](?:\.\d+)?)?|pipx|uvx?|perl|ruby|gem|irb|go|java|javac|jshell|php|lua|Rscript|R|deno|bun|bunx|cscript|wscript|mshta)";
-    const EXTENSIONS: &str = r"(?i:\.(?:py|pyw|pl|rb|php|vbs|vbe|wsf|hta|jar))";
-    let runtime_in = |path_char: &str| {
-        format!(
-            r"(?:(?i:{path_char}*[\\/]{BASE}(?:\.exe)?)|(?i:{BASE}\.exe)|{BASE}|{path_char}*{EXTENSIONS})"
-        )
-    };
-    let unquoted = runtime_in(r#"[^\s"';&|]"#);
-    let double_quoted = format!(r#""{}""#, runtime_in(r#"[^"\n]"#));
-    let single_quoted = format!("'{}'", runtime_in(r"[^'\n]"));
-    let runtime = format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|;|&)");
-    let pattern = format!(
-        r"(?m){COMMAND_POSITION}{wrappers}(?:(?:{SHELL_STRING}|{FIND_EXEC}){wrappers})?{runtime}"
-    );
-    vec![BlockedPattern {
-        pattern: Regex::new(&pattern).unwrap(),
-        exception: None,
-        message: SCRIPT_RUNTIME_MSG,
-    }]
+    format!(r"{COMMAND_POSITION}{wrappers}(?:(?:{SHELL_STRING}|{FIND_EXEC}){wrappers})?")
 }
 
 #[cfg(test)]

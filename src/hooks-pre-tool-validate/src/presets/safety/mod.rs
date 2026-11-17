@@ -2,7 +2,7 @@
 //!
 //! `polling-anti-pattern`, `exe-help-block`, `powershell-destructive-write-block`,
 //! `secret-detection`, `node-eval-cmd-meta-block`, `script-runtime-block`,
-//! `variable-write-target-block` の 7 preset を sub-module に分割し、ここで re-export する。
+//! `variable-write-target-block`, `wsl-direct-block` の 8 preset を sub-module に分割し、ここで re-export する。
 
 pub(crate) mod node_eval;
 pub(crate) mod polling_exe;
@@ -10,6 +10,7 @@ pub(crate) mod powershell;
 pub(crate) mod script_runtime;
 pub(crate) mod secret;
 pub(crate) mod variable_write;
+pub(crate) mod wsl_direct;
 
 pub(crate) use node_eval::preset_node_eval_cmd_meta;
 pub(crate) use polling_exe::{preset_exe_help_block, preset_polling_anti_pattern};
@@ -17,3 +18,4 @@ pub(crate) use powershell::preset_powershell_destructive_write;
 pub(crate) use script_runtime::preset_script_runtime;
 pub(crate) use secret::preset_secret_detection;
 pub(crate) use variable_write::preset_variable_write_target;
+pub(crate) use wsl_direct::preset_wsl_direct;

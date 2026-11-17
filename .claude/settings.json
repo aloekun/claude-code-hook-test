@@ -8,7 +8,9 @@
       "PowerShell(pnpm -s tool:json-query *)",
       "PowerShell(pnpm -s tool:md-section *)",
       "Bash(pnpm -s mutate *)",
-      "PowerShell(pnpm -s mutate *)"
+      "PowerShell(pnpm -s mutate *)",
+      "Bash(pnpm -s wsl-run *)",
+      "PowerShell(pnpm -s wsl-run *)"
     ],
     "ask": [
       "Bash(pnpm create-pr*)",
