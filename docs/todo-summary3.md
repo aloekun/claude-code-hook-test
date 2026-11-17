@@ -26,7 +26,6 @@
 | 420 | Tier 2 | **run binding が並行起動下で破れないことの integration test (系統 C-2)** | todo22.md | M | なし (2026-08-11 採用。WP-18 dogfood で run 解決のインシデント 2 件が実発生。既存テストは単一セッション想定。並行バグは計装して実測すること = memory verify-concurrency-by-observation) |
 | 421 | Tier 3 | **marker の命名・状態遷移・recovery ポリシーを統一規約にする (系統 C-3)** | todo22.md | XS | なし (2026-08-11 採用。marker 生成が Rust と takt workflow に分散し post-pr-review / post-merge-feedback の 2 系統で形式が揺れている) |
 | 422 | Tier 3 | **cross-system parity テストの設計原則 (境界最小化の罠 / 方向性の非対称) を文書化 (系統 D-1)** | todo22.md | S | なし (2026-08-11 採用。workflow_awk_parity.rs の実装に 8 反復を要した根本原因。判定そのものを原本に実行させるところまでが要件だと明記) |
-| 423 | Tier 2 | **CI matrix で `#[cfg(unix)]` テストの実行を保証する (系統 D-2)** | todo22.md | S | なし (2026-08-11 採用。Windows では中身 0 件で走り「0 件実行」と「全件成功」が CI 出力上見分けにくい。ADR-064 の陽性証拠要求と同じ論理) |
 | 424 | Tier 2 | **UNC パス復元ロジックを Windows 実機で検証する (系統 E-1)** | todo22.md | M | なし (2026-08-11 採用。Linux では検証不可。本プロジェクトは Windows 固有 gotcha を反復して踏んでいる。実機再現が困難なら見送り判断を根拠つきで記録する) |
 | 425 | Tier 2 | **jj の `git.auto-local-bookmark` 既定値への依存を CI で固定する (系統 E-2)** | todo22.md | M | なし (2026-08-11 採用。順位 397 の対処はこの既定値に依存しており、変わると前提が崩れるが気づく仕組みが無い) |
 | 427 | Tier 1 | **`BookmarkSearch::RemoteOnly` への変異操作を検出する (系統 F-1)** | todo22.md | M | なし (2026-08-11 採用。ADR-013 の設計契約では読み取り専用だが呼び出し側の誤用は防げない。lint より型 (newtype) で不可能にする案と比較すること) |
