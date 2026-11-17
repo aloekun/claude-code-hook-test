@@ -571,6 +571,8 @@ mod tests {
         ///
         /// target (fix commit) 自身には bookmark が無いので、主経路 (target を直接照会) では
         /// 見つからず fallback に入る。`claude/nightly-13` は target の祖先なので前方向の移動になる。
+        /// fallback を通ったことは、advance の前に主経路と同じ照会が空であることで確かめる
+        /// (順位 608。ログを捕まえずに、`advance_jj_bookmarks` が fallback に入る条件そのものを見る)。
         #[test]
         #[ignore = "integration: requires jj in PATH; run via `cargo test -- --ignored --test-threads=1`"]
         fn a_branch_off_trunk_still_advances_next_to_a_marker() {
@@ -587,6 +589,16 @@ mod tests {
             let head = commit_of(&repo, "@");
             let marker_before = commit_of(&repo, "claude/nightly-12");
             let _guard = enter(&repo);
+            assert_eq!(
+                determine_target_revision().expect("target の決定は成功するはず"),
+                Some(head.clone()),
+                "target は説明のある @ (fix commit) であること"
+            );
+            assert_eq!(
+                get_bookmarks_in_range(&head).expect("照会は成功するはず"),
+                Vec::<String>::new(),
+                "主経路で見つかると fallback を通らず、このテストは対比にならない"
+            );
             advance_jj_bookmarks().expect("advance は成功するはず");
 
             assert_eq!(commit_of(&repo, "claude/nightly-13"), head, "trunk より先の bookmark は前進すること");

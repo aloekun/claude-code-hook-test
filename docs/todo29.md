@@ -81,24 +81,6 @@
 
 - templates の 5 個の扱いが明示され、明示なく欠けるとテストが落ちること
 
-### 順位 561: package.json の test script が CI で走っていることを検査する
-
-> **動機**: Node のテストが CI で走っていなかった (#517 の提案)。ci.yml には後から手で足されたが、成果物ごとのテストランナーが CI に入っていることを保証する検査は無い。
->
-> **由来**: `[improvement]`。
->
-> **種類**: Tier 2 — CI で test script が走ることを確かめるテストの追加 (成果物は cargo test)。工数 S。前提の順位 560 (残骸 script の撤去) は 2026-10-31 に完了した。auto lane への移行は [ADR-074](adr/adr-074-auto-lane-screening-criteria.md) に従い人間が判断する。
-
-#### 決定事項 (2026-10-12)
-
-- `src/hooks-stop-quality/tests/` に cargo test を置く (`t3_build_gate_seal.rs` が package.json を読む前例で、repo root の共有物を見る置き場として使われている)
-- 検査内容: `package.json` の名前に `test` を含む script がすべて、`.github/workflows/ci.yml` の run 行に `pnpm <script名>` として現れること。ci.yml は読むだけで変更しない
-- Rust crate 側の照合 (workspace members と `cargo test --workspace`) は含めない
-
-#### 完了基準
-
-- CI で走らない test script を足すと落ちるテストがあること
-
 ### 順位 564: deploy scripts のテストの残りを埋める
 
 > **動機**: `scripts/exe-fingerprint.mjs` / `scripts/deploy-artifacts.mjs` まわりのテストに抜けがある (#515 / #516 の提案)。
@@ -370,35 +352,14 @@
 - pr-monitor の `get_bookmarks_in_range` を push-runner と同じ「target を直接照会し、trunk 系を名前で外す」形にする。push-runner の `get_bookmarks_in_range` の doc にある順位 376 の理由 (スタック push で下の PR の bookmark を動かす) が pr-monitor にもそのまま当てはまる
 
 - [ ] pr-monitor の主経路を target 直接照会に変える
-- [ ] pr-monitor にも、マーカーと並ぶ作業 bookmark が fallback で前進する対比テスト (push-runner の `a_branch_off_trunk_still_advances_next_to_a_marker` と同じ構成) を足す
+- [ ] pr-monitor にも、マーカーと並ぶ作業 bookmark が fallback で前進する対比テスト (push-runner の `a_branch_off_trunk_still_advances_next_to_a_marker` と同じ構成) を足す。fallback を通った証拠も push-runner 側 (順位 608 で追加) と同じ形で assert する: advance の前に `determine_target_revision` が `commit_of(&repo, "@")` を返し、`get_bookmarks_in_range(&target)` が空であること
 - [ ] スタック push で下の PR の bookmark を動かさないことを pr-monitor でもテストで固定する
 
 #### 完了基準
 
 - 両 crate の `get_bookmarks_in_range` が同じ照会になっている
 - pr-monitor の対比テストが fallback を通って前進し、名前で外す回帰 (`claude/` 接頭辞で候補から外す等) を入れると落ちることを確かめている
-
-### 順位 608: push-runner の対比テストに、fallback を通った証拠を assert で入れる
-
-> **動機**: 順位 535 の対比テスト `a_branch_off_trunk_still_advances_next_to_a_marker` は、bookmark の移動先しか assert していない。fallback を通ることは、doc コメントと 2026-11-11 の手作業の確認 (ログの `自動更新 (fallback)` と陽性対照) でしか保証されていない。#631 と #632 の 2 PR で続けて「テスト名やコメントが主張する経路を実際には通っていない」誤りが出たので、経路をテスト自身に確かめさせる。
->
-> **本タスクの位置づけ**: #632 の post-merge feedback (Tier 2 #1、様子見) の採否中に、証拠の取り方が決まったので起票した。緊急度は低い
->
-> **参照**: `src/cli-push-runner/src/stages/push_jj_bookmark.rs` (`advance_jj_bookmarks` / `get_bookmarks_in_range` / テスト `a_branch_off_trunk_still_advances_next_to_a_marker`)、`.claude/feedback-reports/632.md`
-
-#### 設計決定
-
-- 証拠はログの捕捉でなく、主経路の照会結果で取る。`advance_jj_bookmarks` は `get_bookmarks_in_range(&target)` が空のときだけ fallback に入るので、advance の前に同じ照会が空であることを assert すれば、fallback を通ったことが言える。`get_bookmarks_in_range` は同じモジュールのテストから呼べる
-- target はテスト内で `commit_of(&repo, "@")` (説明のある `@`) を使う。`determine_target_revision` と同じ値になることも assert する
-- pr-monitor 側の同じテストは順位 607 で足すので、本タスクでは扱わない (607 の対比テストにも同じ assert を入れる)
-
-- [ ] テストに、主経路の照会が空であることの assert を足す
-- [ ] 陽性対照: 主経路で見つかる構成 (`claude/nightly-13` を target 自身に置く) にすると、足した assert が落ちることを確かめる
-
-#### 完了基準
-
-- `a_branch_off_trunk_still_advances_next_to_a_marker` が、移動先に加えて「主経路では見つからない」ことを assert している
-- 陽性対照の結果を PR 本文に書いている
+- pr-monitor の対比テストが、主経路の照会が空であること (fallback を通った証拠) を assert している
 
 ### 順位 609: pr-monitor の analyze で Claude が即時に失敗したら、認証の失効を疑う理由を示して落とす
 

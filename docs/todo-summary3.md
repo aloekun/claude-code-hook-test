@@ -89,7 +89,6 @@
 | 557 | Tier 1 | **[improvement] `--no-install` の無い `npx` を検査で止める** | todo29.md | S | なし (前提の順位 556 は 2026-10-29 完了、既存 3 件は解消済み) |
 | 558 | Tier 1 | **[improvement] post_tool_linter の対象拡張子に `.mjs` を加える** | todo29.md | XS | なし (前提の順位 556 は 2026-10-29 完了。変更先が `.claude/` なので human lane) |
 | 559 | Tier 2 | **[improvement] テンプレートで既定 preset を言語ごとに意図して外せるようにする** | todo29.md | M | なし (2026-10-12、#522 feedback。templates は既定 preset 9 個のうち 5 個を黙って欠いている。config スキーマの変更) |
-| 561 | Tier 2 | **[improvement] package.json の test script が CI で走っていることを検査する** | todo29.md | S | なし (前提の順位 560 は 2026-10-31 に完了。auto lane への移行は人間が判断する) |
 | 564 | Tier 2 | **[improvement] deploy scripts のテストの残りを埋める** | todo29.md | S | なし (#515 / #516 feedback。auto lane に載せるなら保留中の順位 589 が前提) |
 | 569 | Tier 2 | **[improvement] lib-telemetry のテストの残りを埋める** | todo29.md | XS | なし (2026-10-12、#543 / #511 feedback。auto lane) |
 | 570 | Tier 2 | **[improvement] telemetry-report の preset 登録と `custom-block` 正規化のずれを直す** | todo29.md | S | なし (2026-10-12 の調査で判明。集計仕様の判断を含むので human lane) |
@@ -103,7 +102,6 @@
 | 604 | Tier 2 | **[improvement] ISO8601 と暦日の変換を中立の crate に 1 本化する** | todo29.md | M | なし (2026-11-10、WR-2026-11-10-M01) |
 | 606 | Tier 2 | **[improvement] `docs_files` を `lib-ledger` へ移し、`cli-*` crate 間の依存をなくす** | todo29.md | S | 順位 592 と同じ関数を変更するため順序に注意 (2026-11-10、WR-2026-11-10-A01) |
 | 607 | Tier 2 | **[improvement] pr-monitor の bookmark 前進の主経路を、push-runner (順位 376) と同じ target 直接照会に揃える** | todo29.md | S | なし (2026-11-11、#631 の post-merge feedback 採否中にテストで観測) |
-| 608 | Tier 2 | **[improvement] push-runner の対比テストに、fallback を通った証拠を assert で入れる** | todo29.md | XS | 順位 607 の pr-monitor 側テストにも同じ assert を入れる (2026-11-11、#632 の post-merge feedback) |
 | 609 | Tier 2 | **[improvement] pr-monitor の analyze で Claude が即時に失敗したら、認証の失効を疑う理由を示して落とす** | todo29.md | S | なし (2026-11-13、#635 / #636 の post-merge feedback。Guard 禁止パスのため human lane) |
 | 610 | Tier 2 | **[improvement] check-ci の findings に、レビュー本文の Outside diff 指摘も出す** | todo29.md | M | なし (2026-11-13、#636 の post-merge feedback) |
 | 611 | Tier 1 | **[improvement] push 済みのコミットを編集し続けることを止める** | todo29.md | S-M | なし (2026-11-13、#636 の post-merge feedback の採否で #5 の代わりに採用) |
