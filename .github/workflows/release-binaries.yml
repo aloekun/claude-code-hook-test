@@ -68,16 +68,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+      # 依存クレートのビルド結果だけを保存する (ci.yml と同じ理由。target を丸ごと保存して
+      # 2.4 GB に膨らみ、リポジトリのキャッシュ上限を ci.yml と食い合っていた)。
+      # 保存は master だけにする。push は master でしか走らないが、workflow_dispatch は
+      # 任意のブランチで起動でき、そのブランチの依存の状態をキャッシュに残してしまうため。
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Show toolchain versions
         run: |

@@ -108,16 +108,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+      # 依存クレートのビルド結果だけを保存する。actions/cache で target を丸ごと保存していた頃は、
+      # キーが Cargo.lock のハッシュだけなので一度保存すると上書きされず、ワークスペースの古い
+      # 成果物や incremental の残りを抱えたまま 2.3 GB (Linux) / 1.5 GB (Windows) に膨らんでいた。
+      # 復元だけで毎回 40-60 秒かかり、リポジトリのキャッシュ上限 (10 GB) も超えていた。
+      # rust-cache はワークスペースのクレートを保存前に削り、キーに rustc の版も含める。
+      # 保存は master だけにする。PR の run は master のキャッシュを読めるので、PR ごとに
+      # 保存して上限を食い合う必要はない。
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-ci-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-ci-
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Show toolchain versions
         shell: bash
