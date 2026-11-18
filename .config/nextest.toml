@@ -1,0 +1,15 @@
+# cargo-nextest の設定 (CI の rust job が使う。ADR-065 § 追記 2026-11-18)。
+#
+# nextest はテストを 1 件ずつ別のプロセスで走らせる。cwd や環境変数を変えるテストも
+# プロセスごとに分かれるので、`cargo test -- --ignored --test-threads=1` のように
+# 全体を直列にしなくてよい。
+#
+# 版は CI (.github/workflows/ci.yml の install-action) と手元の `cargo install
+# cargo-nextest --locked --version` で揃える (2 箇所の論理結合、ADR-051)。
+
+[profile.ci]
+# 1 件目の失敗で止めず、壊れたテストを全部出す (cargo test は失敗したバイナリで止まる)。
+fail-fast = false
+# ハングしたテストを打ち切り、名前を出す。60 秒ごとに SLOW と表示し、5 回目 (300 秒) で止める。
+# 最も遅いテストでも 30 秒に届かないので、正常なテストを止めることはない。
+slow-timeout = { period = "60s", terminate-after = 5 }

@@ -1,6 +1,6 @@
 # ci — Windows / Linux の 2 OS matrix による移植退行防止ゲート
 #
-# 役割: PR と master push で Rust 成果物 (clippy / cargo test / hooks smoke test) と、
+# 役割: PR と master push で Rust 成果物 (clippy / テスト / ignored の統合テスト) と、
 # Node 製のハーネス部品 (`scripts/*.mjs`) の vitest を **windows-latest と ubuntu-latest の
 # 両方**で実行し、片方の OS でしか通らないコードが land するのを止める。設計根拠は
 # docs/adr/adr-065-ci-matrix-cross-os-regression.md。
@@ -18,13 +18,16 @@
 #   すり抜け、jj 呼び出し経路の OS 差 (上記のクォート事故) が land 前に検出できない。
 #   バージョン不一致は fail-closed で落とす — 「入っているが別バージョン」は
 #   「テストが通ったのに本番挙動が違う」を生む最悪の形なので黙って進めない。
-# - **`--ignored` を直列 (`--test-threads=1`) で回す**: これらは cwd を書き換えるため
-#   並列実行では相互干渉する (ADR-041)。ローカル push-runner の rust-test group と
-#   同一コマンドにして、CI とローカルで結果が一致するようにしている。
-# - **hooks smoke test を独立 step にする**: `cargo test --workspace` に含まれるが、
-#   「hook が fixture stdin に対して期待どおり block/pass するか」は他のユニットテストとは
-#   性質の違う契約なので、run の一覧で独立に赤/緑が読めるようにする。コンパイル済みの
-#   ため再実行コストはほぼゼロ。
+# - **テストは nextest で走らせる (2026-11-18)**: `--ignored` の統合テストは cwd を書き換える
+#   ため、cargo test では並列にすると相互干渉した (ADR-041)。nextest はテストごとにプロセスを
+#   分けるので、cwd を変えても他のテストに響かず、通常のテストも ignored も並列に回せる。
+#   ローカル push-runner の rust-test group も nextest に揃える (ADR-065 決定 2 の改訂)。
+#   切り替えは続く PR で行うので、それまでの間はローカルが cargo test のままで、CI と
+#   実行器が違う。この間に片方でしか出ない失敗は、この差を疑う。
+# - **hooks smoke test の独立 step は置かない (2026-11-18)**: 以前は run の一覧で独立に
+#   赤/緑が読めるよう、`cargo test --workspace` に含まれる smoke を step でもう一度走らせて
+#   いた。「再実行コストはほぼゼロ」としていたが、実測では 16-20 秒かかっていた。失敗は
+#   Run tests の出力にテスト名で出るので、step は消した。
 # - **release-binaries.yml の clippy/test と重複するのは意図的**: あちらは「壊れた
 #   バイナリを rolling release に載せない」ための自己完結したゲートで、workflow_dispatch や
 #   PR を経ない master push でも単独で成立する必要がある。本 workflow に依存させると
@@ -187,9 +190,23 @@ jobs:
         shell: bash
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # テストは nextest で走らせる (設定は .config/nextest.toml の ci profile)。cargo test は
+      # テストバイナリを 1 つずつ順に走らせるので、時間が各バイナリの合計になっていた。
+      # nextest は全バイナリのテストをまとめて並列に流す。版は手元と揃える (ADR-051)。
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.152
+
       - name: Run tests
         shell: bash
-        run: cargo test --workspace
+        run: cargo nextest run --workspace --profile ci
+
+      # nextest は doctest を走らせないので、cargo test で別に回す。今は doctest が 0 件で
+      # すぐ終わるが、書かれたときに黙って走らなくなるのを防ぐ。
+      - name: Run doctests
+        shell: bash
+        run: cargo test --workspace --doc
 
       # OS 専用のテストが実際に一覧に載っていることを、os-specific-tests job が両 OS の一覧の
       # 突き合わせで確かめる (順位 423)。stderr の `Running ...` の行でバイナリを区別するので、
@@ -208,17 +225,12 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # fixture stdin -> 期待する block/pass 判定 (ADR-049 の incident fixture 資産を流用)。
-      - name: Run hooks smoke tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo test -p hooks-pre-tool-validate --test smoke
-          cargo test -p hooks-post-tool-linter --test incident_eval
-
+      # ignored のテストは cwd を変えるものがあり、cargo test では `--test-threads=1` で全部を
+      # 直列にしていた。nextest はテストごとにプロセスを分けるので、並列に走らせてよい。
+      # (hooks の smoke test は Run tests に含まれるので、独立の step は置かない。ADR-065 § 追記 2026-11-18)
       - name: Run ignored (integration) tests
         shell: bash
-        run: cargo test --workspace -- --ignored --test-threads=1
+        run: cargo nextest run --workspace --profile ci --run-ignored only
 
       # 夜間 PR (claude/nightly-<順位>) に台帳の後始末が含まれているかを見る。
       #
