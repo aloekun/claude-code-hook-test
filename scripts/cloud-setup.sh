@@ -55,7 +55,7 @@ readonly TARGET_TRIPLE="x86_64-unknown-linux-gnu"
 readonly JJ_VERSION="${CLOUD_SETUP_JJ_VERSION:-0.42.0}"
 readonly JJ_TARGET_TRIPLE="x86_64-unknown-linux-musl"
 
-# push-runner の rust-test group と CI はテストを cargo-nextest で走らせる (ADR-065 § 決定 2 の改訂)。
+# push-runner の rust-lint-test group と CI はテストを cargo-nextest で走らせる (ADR-065 § 決定 2 の改訂)。
 # 版は CI (.github/workflows/ci.yml の install-action) と手元の `cargo install` と揃える
 # (3 箇所の論理結合、ADR-051)。
 readonly NEXTEST_VERSION="${CLOUD_SETUP_NEXTEST_VERSION:-0.9.152}"
@@ -276,9 +276,11 @@ install_jj() {
 
 # ─── 3b. cargo-nextest の導入 ───
 #
-# push-runner の rust-test group が `cargo nextest run` を呼ぶ。無いと pnpm push の品質ゲートが
+# push-runner の rust-lint-test group が `cargo nextest run` を呼ぶ。無いと pnpm push の品質ゲートが
 # 「no such command: nextest」で落ちる。cargo は PATH 上の `cargo-nextest` をサブコマンドとして拾う。
 # jj と違い、nextest のリリースには sha256 が付いているので、取得したアーカイブを検証してから置く。
+# sha256 の asset 名は `.tar.gz` を除いた `<stem>.sha256` で、`<archive>.sha256` ではない
+# (nextest のリリースの命名。0.9.152 の asset 一覧と実際の取得で確かめた)。
 install_nextest() {
   if command -v cargo-nextest >/dev/null 2>&1 \
     && cargo-nextest nextest --version 2>/dev/null | grep -q "cargo-nextest ${NEXTEST_VERSION} "; then
