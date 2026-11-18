@@ -39,17 +39,23 @@ pub(crate) const WSL_DIRECT_MSG: &str = r#"**WSL の直接実行がブロック�
 /// 素の名前は小文字だけを止める。英文の行頭の `WSL では ...` をコマンドと取り違えないため。パスか
 /// `.exe` が付けば大文字小文字を区別しない (Windows ではどちらも実行できる)。
 ///
+/// 名前の後ろの境界は `script-runtime-block` と同じ (空白・行末・`;`・`&`・`<`・`>`)。`<` `>` を
+/// 引用符の無いパスの文字に含めない理由も同じ (`cat</tmp/wsl>out.txt` を止めない)。
+///
 /// # 対象にしないもの
 ///
 /// - 引数に `wsl` が現れるだけのコマンド (`grep -rn wsl docs/`、`pnpm -s wsl-run ...`)
+/// - 空白も引数も無く `|` か `)` が続く形 (`wsl|cat` / `(wsl)`)。`|` と `)` を境界にすると、
+///   `grep -E "WSL|wsl|wslconfig"` のような選択肢を並べた検索が止まる (2026-11-18 ユーザー判断、
+///   理由は `script-runtime-block` の doc)
 /// - 名前を変数に入れて呼ぶ、別のスクリプトの中から呼ぶ、といった間接的な起動
 pub(crate) fn preset_wsl_direct() -> Vec<BlockedPattern> {
     let name_in = |path_char: &str| format!(r"(?:(?i:{path_char}*[\\/]wsl(?:\.exe)?)|(?i:wsl\.exe)|wsl)");
-    let unquoted = name_in(r#"[^\s"';&|]"#);
+    let unquoted = name_in(r#"[^\s"';&|<>]"#);
     let double_quoted = format!(r#""{}""#, name_in(r#"[^"\n]"#));
     let single_quoted = format!("'{}'", name_in(r"[^'\n]"));
     let pattern = format!(
-        r"(?m){}(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|;|&)",
+        r"(?m){}(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|[;&<>])",
         command_head()
     );
     vec![BlockedPattern {
@@ -93,8 +99,24 @@ mod tests {
             "wsl",
             "echo a; wsl --shutdown",
             "x | wsl bash",
+            "wsl>out.txt",
+            "wsl<in.txt",
+            "wsl.exe>out.txt",
         ] {
             assert!(blocks(command), "{command}");
+        }
+    }
+
+    /// PR #649 のレビューで検討した形。`|` と `)` は境界にしない (選択肢を並べた検索を止めないため)。
+    #[test]
+    fn allows_an_alternation_in_a_search_and_lets_a_bare_pipe_through_as_a_known_limit() {
+        for command in [
+            r#"grep -E "WSL|wsl|wslconfig" docs/"#,
+            r#"rg "(wsl|ubuntu)" scripts"#,
+            "wsl|cat",
+            "(wsl)",
+        ] {
+            assert!(!blocks(command), "{command}");
         }
     }
 
@@ -128,6 +150,14 @@ mod tests {
             "wslconfig /l",
             "wsl-run sync",
         ] {
+            assert!(!blocks(command), "{command}");
+        }
+    }
+
+    /// PR #650 のレビュー: リダイレクトの読み書き先に wsl のパスがあるだけのコマンドは止めない。
+    #[test]
+    fn allows_a_wsl_path_that_is_only_a_redirect_target() {
+        for command in ["cat</tmp/wsl>out.txt", "cat</tmp/wsl", "echo x>/tmp/wsl"] {
             assert!(!blocks(command), "{command}");
         }
     }

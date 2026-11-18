@@ -119,6 +119,36 @@ fn blocks_a_runtime_followed_directly_by_an_ampersand() {
     assert!(blocks("R --vanilla"));
 }
 
+/// PR #649 のレビュー: リダイレクトが空白なしで続く形。
+#[test]
+fn blocks_a_runtime_followed_directly_by_a_redirect() {
+    for command in ["python3>out.txt", "perl<in.txt", "./tool.py>out.txt", "cd x && ruby>log"] {
+        assert!(blocks(command), "{command}");
+    }
+}
+
+/// PR #650 のレビュー: リダイレクトの読み書き先にスクリプトのパスがあるだけのコマンドは止めない。
+#[test]
+fn allows_a_script_path_that_is_only_a_redirect_target() {
+    for command in [
+        "cat<scripts/tool.py>copy.txt",
+        "cat<scripts/tool.py",
+        "cat a.txt>scripts/x.py",
+        "cat</usr/bin/python3>out.txt",
+    ] {
+        assert!(!blocks(command), "{command}");
+    }
+}
+
+/// `|` と `)` は境界にしない。選択肢を並べた検索を止めない代わりに、空白も引数も無い形は通る
+/// (2026-11-18 ユーザー判断)。
+#[test]
+fn allows_an_alternation_in_a_search_and_lets_a_bare_pipe_through_as_a_known_limit() {
+    for command in [r#"rg "a|perl|b" src"#, r#"grep -E "(python)" a.txt"#, "python3|cat", "(python3)"] {
+        assert!(!blocks(command), "{command}");
+    }
+}
+
 /// PR #614 のレビュー: パスか `.exe` 付きの大文字の名前と、大文字の拡張子。
 #[test]
 fn blocks_an_uppercase_name_with_a_path_or_an_exe_suffix_and_an_uppercase_extension() {

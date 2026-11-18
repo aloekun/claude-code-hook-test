@@ -92,8 +92,14 @@ deno / bun と、Windows のスクリプトホスト (cscript / wscript / mshta)
 /// - switch と値を取るパラメータの読み方は、どちらか一方で後ろの名前に届けば止まる。区別が効くのは、
 ///   値を取るパラメータの値にある名前を、switch の後ろの名前と読み違えない側である
 ///
-/// 名前の後ろは空白・行末・`;`・`&` のどれかでなければならない。`|` と `)` を境界にしないのは、
-/// `grep -E "(ruby|perl)"` のような検索の正規表現を止めないため。
+/// 名前の後ろは空白・行末・`;`・`&`・`<`・`>` のどれかでなければならない (`python3>out.txt` /
+/// `python3<in.txt` も止める。PR #649 のレビュー)。`|` と `)` を境界にしないのは、
+/// `grep -E "(ruby|perl)"` / `rg "a|perl|b"` のような検索の正規表現を止めないため。`(` と `|` の直後は
+/// コマンドの位置とみなすので、境界に足すと選択肢を並べた検索が止まる。代わりに、空白も引数も無い
+/// `python3|cat` / `(python3)` は止まらない (2026-11-18 ユーザー判断)。
+///
+/// 境界にした `<` `>` は、引用符の無いパスの文字にも含めない。含めると `cat<scripts/tool.py>copy.txt`
+/// の `cat<scripts/tool.py` 全体をパスとして読み、読むだけのコマンドを止める (PR #650 のレビュー)。
 ///
 /// # 限界
 ///
@@ -112,10 +118,10 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
             r"(?:(?i:{path_char}*[\\/]{BASE}(?:\.exe)?)|(?i:{BASE}\.exe)|{BASE}|{path_char}*{EXTENSIONS})"
         )
     };
-    let unquoted = runtime_in(r#"[^\s"';&|]"#);
+    let unquoted = runtime_in(r#"[^\s"';&|<>]"#);
     let double_quoted = format!(r#""{}""#, runtime_in(r#"[^"\n]"#));
     let single_quoted = format!("'{}'", runtime_in(r"[^'\n]"));
-    let runtime = format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|;|&)");
+    let runtime = format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|[;&<>])");
     let pattern = format!(r"(?m){}{runtime}", command_head());
     vec![BlockedPattern {
         pattern: Regex::new(&pattern).unwrap(),
