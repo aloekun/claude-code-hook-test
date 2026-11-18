@@ -139,6 +139,10 @@ system_message_enabled = true
 #                              シェル変数 ($f / "$S/x") のコマンドをブロックし、pnpm -s mutate /
 #                              Edit / リテラルのパスに誘導する。この形は auto mode でも必ず確認が出て
 #                              作業が止まる (2026-11-14 の transcript で 3 件中 3 件)
+#   "wsl-direct-block" — (opt-in、既定では無効) wsl / wsl.exe の直接実行をブロックし、
+#                              pnpm -s wsl-run / wsl-script に誘導する。直接呼ぶと Git Bash のパスの
+#                              書き換えや PATH の不足を毎回踏む (2026-11-17 ユーザー判断: 回避手順を
+#                              メモに積まず、ハーネスで制御する)
 # プリセット名以外の文字列は正規表現としてカスタムパターン扱い
 blocked_patterns = [
   "default",
@@ -158,6 +162,7 @@ blocked_patterns = [
   "cargo-fmt-block",
   "script-runtime-block",
   "variable-write-target-block",
+  "wsl-direct-block",
 ]
 
 # 追加の保護ファイル (デフォルトリストに追加)

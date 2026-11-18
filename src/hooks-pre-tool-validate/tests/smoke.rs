@@ -119,6 +119,27 @@ const CASES: &[Case] = &[
         expect_block: false,
     },
     Case {
+        name: "Bash: wsl の直接実行を block する (本リポジトリの opt-in preset wsl-direct-block)",
+        tool_name: "Bash",
+        field: "command",
+        value: "MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -- bash /mnt/c/x.sh",
+        expect_block: true,
+    },
+    Case {
+        name: "PowerShell: wsl.exe の直接実行を block する (wsl-direct-block)",
+        tool_name: "PowerShell",
+        field: "command",
+        value: "wsl.exe -d Ubuntu-24.04 -- bash -lc 'cargo test'",
+        expect_block: true,
+    },
+    Case {
+        name: "Bash: 専用コマンド pnpm -s wsl-run は pass する (wsl-direct-block の過剰ブロック退行ガード)",
+        tool_name: "Bash",
+        field: "command",
+        value: "pnpm -s wsl-run cargo test --workspace",
+        expect_block: false,
+    },
+    Case {
         name: "Write: 保護対象ファイルを block する",
         tool_name: "Write",
         field: "file_path",
