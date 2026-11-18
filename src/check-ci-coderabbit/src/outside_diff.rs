@@ -99,11 +99,12 @@ fn read_section(body: &str) -> Result<Vec<SectionItem>, String> {
         return Ok(Vec::new());
     }
     let lines: Vec<&str> = body.lines().collect();
-    let (heading_at, expected) = lines
-        .iter()
-        .enumerate()
-        .find_map(|(i, l)| Some((i, HEADING.captures(l)?[1].parse::<usize>().ok()?)))
-        .ok_or_else(|| format!("「{SECTION_PHRASE}」はあるが、見出しの件数が読めない"))?;
+    let unreadable = || format!("「{SECTION_PHRASE}」はあるが、見出しの件数が読めない");
+    let heading_at = lines.iter().position(|l| l.contains(SECTION_PHRASE)).ok_or_else(unreadable)?;
+    let expected = HEADING
+        .captures(lines[heading_at])
+        .and_then(|caps| caps[1].parse::<usize>().ok())
+        .ok_or_else(unreadable)?;
     let section: Vec<&str> = lines[heading_at + 1..]
         .iter()
         .map_while(|l| unquote(l))
@@ -122,12 +123,24 @@ fn unquote(line: &str) -> Option<&str> {
 }
 
 /// 節の行を、`パス:行` の行ごとに指摘へ分ける。
+///
+/// コードブロック (```` ``` ```` で囲んだ範囲) の中の `パス:行` は、本文に書かれた例であって
+/// 指摘の始まりではない。数えると見出しの件数と合わなくなり、節全体が読めない扱いになる。
 fn split_items(section: &[&str]) -> Vec<SectionItem> {
+    let mut in_fence = false;
     let starts: Vec<(usize, String, u64)> = section
         .iter()
         .enumerate()
         .filter_map(|(i, l)| {
-            let caps = LOCATION.captures(l.trim())?;
+            let l = l.trim();
+            if l.starts_with("```") {
+                in_fence = !in_fence;
+                return None;
+            }
+            if in_fence {
+                return None;
+            }
+            let caps = LOCATION.captures(l)?;
             Some((i, caps[1].to_string(), caps[2].parse().ok()?))
         })
         .collect();
@@ -221,6 +234,29 @@ mod tests {
         let items = read_section(&body).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].line, 52);
+    }
+
+    /// コードブロックの中に行全体が `パス:行` の例があっても、指摘の始まりにしない。
+    #[test]
+    fn a_path_and_line_inside_a_code_block_does_not_start_another_item() {
+        let body = PR649.replace(
+            "> `wsl|cat` は Bash で",
+            "> ```\n> `src/example.rs:10`\n> ```\n> `wsl|cat` は Bash で",
+        );
+        assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// 件数は節の見出し行からだけ読む。見出しに件数が無ければ、本文中の例の件数を使わず読めない扱いにする。
+    #[test]
+    fn a_count_in_the_body_is_not_used_for_a_heading_without_a_count() {
+        let body = PR649
+            .replace("Outside diff range comments (1)", "Outside diff range comments")
+            .replace("> `wsl|cat` は Bash で", "> `Outside diff range comments (0)`\n> `wsl|cat` は Bash で");
+        assert!(body.contains("comments (0)"), "fixture の文が変わっていたら置換先を直す");
+        assert!(read_section(&body).unwrap_err().contains("見出しの件数が読めない"));
     }
 
     #[test]
