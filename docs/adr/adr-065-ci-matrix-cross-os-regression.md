@@ -242,6 +242,25 @@ push の quality_gate で**手元の Windows だけ**が走らせており、Lin
   Web 編集など) では抜けていた。依存は vitest と同じ `node_modules` だけなので、別 job に
   せず同じ job の step として足す
 
+## 追記 (2026-11-18): cargo のキャッシュを依存だけにし、保存を master に限る
+
+残課題の「観測結果に基づく cache 戦略の調整」を、次の観測に基づいて行った。
+
+- **観測**: `rust` job の時間のうち、キャッシュの復元が毎回 40-60 秒を占めていた。
+  キャッシュは Linux 2.3 GB、Windows 1.5 GB、release-binaries.yml 2.4 GB で、古いキーの
+  分も含めるとリポジトリの上限 (10 GB) を超えていた。一方、依存クレートはキャッシュから
+  使えていて、毎回コンパイルしていたのはワークスペースの 41 クレートだけだった。
+- **原因**: `actions/cache` で `target` を丸ごと保存し、キーは `Cargo.lock` のハッシュだけ
+  だった。キーが一致すると保存し直されないので、`Cargo.lock` が変わるまで、保存した時点の
+  ワークスペースの成果物や incremental の残りを抱えたまま復元し続けていた。
+- **決定**: `ci.yml` と `release-binaries.yml` のキャッシュを `Swatinem/rust-cache@v2` に置き換える。
+  - 保存前にワークスペースのクレートを削り、依存のビルド結果だけを残す。キーには rustc の版も入る。
+  - `ci.yml` は master でだけ保存する。PR の run は master のキャッシュを読めるので、PR ごとに
+    保存して上限を食い合わせない。
+- **効果の確かめ方**: 保存が master だけなので、この変更の PR 自身は新しいキャッシュを読めない
+  (初回は依存も含めて全部ビルドする)。効果はマージ後の PR の run で、キャッシュの大きさと
+  復元の時間を見て確かめる。
+
 ## 関連
 
 - [ADR-063](adr-063-linux-portability-release-binaries.md) — Linux 可搬性レイヤ / nightly
