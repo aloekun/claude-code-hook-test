@@ -124,21 +124,27 @@ fn unquote(line: &str) -> Option<&str> {
 
 /// 節の行を、`パス:行` の行ごとに指摘へ分ける。
 ///
-/// コードブロック (```` ``` ```` で囲んだ範囲) の中の `パス:行` は、本文に書かれた例であって
+/// コードブロック (```` ``` ```` か `~~~` で囲んだ範囲) の中の `パス:行` は、本文に書かれた例であって
 /// 指摘の始まりではない。数えると見出しの件数と合わなくなり、節全体が読めない扱いになる。
 fn split_items(section: &[&str]) -> Vec<SectionItem> {
-    let mut in_fence = false;
+    let mut open: Option<Fence> = None;
     let starts: Vec<(usize, String, u64)> = section
         .iter()
         .enumerate()
         .filter_map(|(i, l)| {
             let l = l.trim();
-            if l.starts_with("```") {
-                in_fence = !in_fence;
-                return None;
-            }
-            if in_fence {
-                return None;
+            let fence = Fence::of(l);
+            match (&open, fence) {
+                (None, Some(f)) => {
+                    open = Some(f);
+                    return None;
+                }
+                (Some(o), Some(f)) if f.closes(o, l) => {
+                    open = None;
+                    return None;
+                }
+                (Some(_), _) => return None,
+                (None, None) => {}
             }
             let caps = LOCATION.captures(l)?;
             Some((i, caps[1].to_string(), caps[2].parse().ok()?))
@@ -159,6 +165,27 @@ fn split_items(section: &[&str]) -> Vec<SectionItem> {
             }
         })
         .collect()
+}
+
+/// コードブロックの開き・閉じの行 (CommonMark の fence)。記号を 3 個以上並べる。
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Fence {
+    mark: char,
+    len: usize,
+}
+
+impl Fence {
+    /// 行 (前後の空白を外したもの) が fence で始まっていれば、その記号と個数。
+    fn of(line: &str) -> Option<Fence> {
+        let mark = line.chars().next().filter(|c| *c == '`' || *c == '~')?;
+        let len = line.chars().take_while(|c| *c == mark).count();
+        (len >= 3).then_some(Fence { mark, len })
+    }
+
+    /// `opened` で開いたブロックを閉じる行か。同じ記号を開きと同じ数以上並べ、後ろに何も書かない。
+    fn closes(self, opened: &Fence, line: &str) -> bool {
+        self.mark == opened.mark && self.len >= opened.len && line.chars().all(|c| c == self.mark)
+    }
 }
 
 fn also_applies_to(text: &str) -> Option<String> {
@@ -244,6 +271,33 @@ mod tests {
             "> ```\n> `src/example.rs:10`\n> ```\n> `wsl|cat` は Bash で",
         );
         assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// PR649 の本物の位置行の前に `block` を差し込む。ブロックが閉じなければ本物の指摘も読めなくなる
+    /// ので、閉じの判定も確かめられる。
+    fn with_block_before_the_location(block: &str) -> String {
+        const LOCATION_LINE: &str = "> `src/hooks-pre-tool-validate/src/presets/safety/wsl_direct.rs:52`";
+        let body = PR649.replace(LOCATION_LINE, &format!("{block}\n{LOCATION_LINE}"));
+        assert_ne!(body, PR649, "fixture の位置行が変わっていたら置換先を直す");
+        body
+    }
+
+    /// `~~~` のブロックも同じ。ブロック内の ```` ``` ```` は閉じではなく中身として読む。
+    #[test]
+    fn a_path_and_line_inside_a_tilde_code_block_does_not_start_another_item() {
+        let body = with_block_before_the_location("> ~~~text\n> ```\n> `src/example.rs:10`\n> ~~~");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// 開きより短い fence は閉じではない。
+    #[test]
+    fn a_shorter_fence_does_not_close_a_longer_one() {
+        let body = with_block_before_the_location("> ````\n> ```\n> `src/example.rs:10`\n> ````");
         let items = read_section(&body).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].line, 52);
