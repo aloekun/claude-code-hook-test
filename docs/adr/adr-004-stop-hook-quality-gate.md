@@ -136,7 +136,7 @@ Stop hook の実行時間短縮を検討した際、当初計画は「Rust テ�
 
 ### scope 外 (follow-up)
 
-- 計画の nextest 案は Stop hook では無効だが、**push pipeline の `cargo test` (実測 ~80s) には有効な可能性**がある。ただしツール依存追加 (ADR-017 pinning + 派生プロジェクト配布) のコストと、push が Stop より低頻度な点を踏まえた費用対効果評価が必要。順位 257 に follow-up として登録。
+- 計画の nextest 案は Stop hook では無効だが、**push pipeline の `cargo test` (実測 ~80s) には有効な可能性**がある。ただしツール依存追加 (ADR-017 pinning + 派生プロジェクト配布) のコストと、push が Stop より低頻度な点を踏まえた費用対効果評価が必要。順位 257 に follow-up として登録。2026-11-19 に採用して完了した (push-runner と CI のテストを nextest で走らせる。計測と決定は [ADR-065](adr-065-ci-matrix-cross-os-regression.md) § 追記 2026-11-18)。
 
 ## References
 

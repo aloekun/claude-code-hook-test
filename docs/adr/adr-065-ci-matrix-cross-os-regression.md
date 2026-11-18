@@ -285,6 +285,15 @@ push の quality_gate で**手元の Windows だけ**が走らせており、Lin
   切り替えは続く PR で行う (push-runner の設定、`scripts/cloud-setup.sh`、nextest が無い
   環境での扱いを含む)。それまでの間は CI とローカルで実行器が違うので、片方でしか出ない
   失敗はこの差を疑う。
+  - **2026-11-19 (順位 257) に切り替えた。** push-runner の rust-lint-test group は CI と同じ
+    `cargo nextest run --workspace` / `--run-ignored only` / `cargo test --workspace --doc` を回す。
+    違いは nextest の profile だけ (`.config/nextest.toml`。手元の default は 1 件目の失敗で止め、
+    CI の `ci` は止めずに全部を出す)。
+  - クラウドのセッションには `scripts/cloud-setup.sh` が、リリースの sha256 で検証してから入れる。
+    nextest が無い環境では、品質ゲートが「no such command: nextest」で落ちる (fail-closed)。
+    手元の入れ方は `push-runner-config.toml` のコメントに書いた。
+  - 派生プロジェクトは自分の `push-runner-config.toml` (テンプレートから作る) を使うので、
+    この切り替えの影響を受けない。テンプレートは `cargo test` のままにする。
 - **決定 3 (smoke)**: hooks smoke test の独立 step を消す。smoke は通常のテストに含まれ、
   失敗はテスト名で出る。§ 決定 4 の最後の項 (独立 step として実行する) はこれで置き換わる。
 - **incident_eval の並列化**: workspace で最も遅い単一のテスト

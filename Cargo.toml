@@ -4,11 +4,9 @@
 #   1. `cargo test` / `cargo build` を workspace 全体で一括実行可能にする
 #      (各 package で `--manifest-path` 指定が不要)
 #   2. shared `target/` で compile cache を共有し、ビルド時間を短縮
-#   3. push pipeline (push-runner-config.toml の rust-test group) で
-#      unit tests と ignored tests を 2 コマンドで網羅できる:
-#        cargo test
-#        cargo test -- --ignored --test-threads=1
-#      (ignored tests は cwd 依存のため直列実行が必須)
+#   3. push pipeline (push-runner-config.toml の rust-lint-test group) と CI で、
+#      workspace 全体のテストを `cargo nextest run --workspace` (と `--run-ignored only`) で
+#      網羅できる (ADR-065 § 決定 2 の改訂)
 #
 # 方針:
 #   - 各 member の Cargo.toml の edition / version はそのまま保持

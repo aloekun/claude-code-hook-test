@@ -207,14 +207,22 @@ commands = ["pnpm build"]
 #   lint 対象にし (#[cfg(test)] / integration test の lint gap 解消、順位259 = PR #247 の
 #   useless_format が cargo test 段階まで顕在化した手戻り由来)、--all-features で将来の
 #   feature-gated コードも検査する (現時点は全 crate [features] 未定義で no-op、将来の保険)。
-# 2 つ目: unit tests (並列実行可、高速)
-# 3 つ目: 統合テスト (#[ignore] 付き、cwd 依存のため --test-threads=1 必須)
+# 2 つ目以降のテストは CI (.github/workflows/ci.yml の rust job) と同じ cargo-nextest で走らせる
+# (ADR-065 § 決定 2 の改訂、順位 257)。CI とコマンドが違うと、どちらかの緑が嘘になる。
+# nextest はテストを 1 件ずつ別のプロセスで動かすので、cwd を変える統合テスト (#[ignore] 付き) も
+# `--test-threads=1` で直列にしなくてよい。設定は .config/nextest.toml の default profile。
+# nextest が無いと「no such command: nextest」で落ちる。入れ方は `cargo install cargo-nextest
+# --locked --version <.config/nextest.toml に書いた版>` (クラウドは scripts/cloud-setup.sh が入れる)。
+# 2 つ目: 通常のテスト
+# 3 つ目: 統合テスト (#[ignore] 付き)
+# 4 つ目: doctest (nextest は doctest を走らせない)
 [[quality_gate.groups]]
 name = "rust-lint-test"
 commands = [
   "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-  "cargo test",
-  "cargo test -- --ignored --test-threads=1",
+  "cargo nextest run --workspace",
+  "cargo nextest run --workspace --run-ignored only",
+  "cargo test --workspace --doc",
 ]
 
 [diff]

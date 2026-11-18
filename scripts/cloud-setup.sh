@@ -55,6 +55,12 @@ readonly TARGET_TRIPLE="x86_64-unknown-linux-gnu"
 readonly JJ_VERSION="${CLOUD_SETUP_JJ_VERSION:-0.42.0}"
 readonly JJ_TARGET_TRIPLE="x86_64-unknown-linux-musl"
 
+# push-runner の rust-test group と CI はテストを cargo-nextest で走らせる (ADR-065 § 決定 2 の改訂)。
+# 版は CI (.github/workflows/ci.yml の install-action) と手元の `cargo install` と揃える
+# (3 箇所の論理結合、ADR-051)。
+readonly NEXTEST_VERSION="${CLOUD_SETUP_NEXTEST_VERSION:-0.9.152}"
+readonly NEXTEST_TARGET_TRIPLE="x86_64-unknown-linux-musl"
+
 # jj/CLI bin の設置先。既定を PATH に確実に載る /usr/local/bin にする (クラウドは root 実行)。
 # これで後続の jj / hooks / push-runner が jj を解決でき、旧ラッパーの PATH 確保 (C-1) が本体に入る。
 # 非 root 環境では CLOUD_SETUP_BIN_DIR=~/.local/bin 等に上書きする。
@@ -266,6 +272,50 @@ install_jj() {
     *":${INSTALL_BIN_DIR}:"*) ;;
     *) warn "${INSTALL_BIN_DIR} が PATH にありません。PATH へ追加してください。" ;;
   esac
+}
+
+# ─── 3b. cargo-nextest の導入 ───
+#
+# push-runner の rust-test group が `cargo nextest run` を呼ぶ。無いと pnpm push の品質ゲートが
+# 「no such command: nextest」で落ちる。cargo は PATH 上の `cargo-nextest` をサブコマンドとして拾う。
+# jj と違い、nextest のリリースには sha256 が付いているので、取得したアーカイブを検証してから置く。
+install_nextest() {
+  if command -v cargo-nextest >/dev/null 2>&1 \
+    && cargo-nextest nextest --version 2>/dev/null | grep -q "cargo-nextest ${NEXTEST_VERSION} "; then
+    log "cargo-nextest ${NEXTEST_VERSION}: 導入済み (skip)"
+    return 0
+  fi
+
+  local archive="cargo-nextest-${NEXTEST_VERSION}-${NEXTEST_TARGET_TRIPLE}.tar.gz"
+  local base="https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}"
+  local stem="cargo-nextest-${NEXTEST_VERSION}-${NEXTEST_TARGET_TRIPLE}"
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  # 自己解除 + EXIT 併用の理由は install_harness_binaries の同 trap のコメント参照。
+  trap 'rm -rf "${tmp_dir}"; trap - RETURN EXIT' RETURN EXIT
+
+  log "cargo-nextest ${NEXTEST_VERSION} を取得中"
+  if ! curl --fail --location --silent --show-error --output "${tmp_dir}/${archive}" "${base}/${archive}" \
+    || ! curl --fail --location --silent --show-error --output "${tmp_dir}/${stem}.sha256" "${base}/${stem}.sha256"; then
+    warn "cargo-nextest の取得に失敗しました。pnpm push の品質ゲート (rust-lint-test) は使えません。"
+    return 0
+  fi
+  if ! (cd "${tmp_dir}" && sha256sum --check --status "${stem}.sha256"); then
+    warn "cargo-nextest のアーカイブが sha256 と一致しません。配置しません。"
+    return 0
+  fi
+
+  tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}"
+  if [ ! -f "${tmp_dir}/cargo-nextest" ]; then
+    warn "アーカイブ内に cargo-nextest が見つかりませんでした"
+    return 0
+  fi
+  if ! mkdir -p "${INSTALL_BIN_DIR}" 2>/dev/null \
+    || ! install -m 0755 "${tmp_dir}/cargo-nextest" "${INSTALL_BIN_DIR}/cargo-nextest" 2>/dev/null; then
+    warn "${INSTALL_BIN_DIR}/cargo-nextest への配置に失敗しました (権限不足の可能性)。"
+    return 0
+  fi
+  log "cargo-nextest を配置: ${INSTALL_BIN_DIR}/cargo-nextest"
 }
 
 # ─── 4. Node 依存 (takt を含む) の導入 ───
@@ -548,6 +598,7 @@ run_session_phase() {
   verify_required_binaries
   ensure_pnpm
   install_jj             # セッション内は非 attach リポの release も取得可 (ADR-060 実測)
+  install_nextest
   init_jj_repo           # A-1/A-2/A-3: colocated 初期化 + identity + bookmark track
   install_node_dependencies
   report_optional_features
@@ -575,6 +626,7 @@ run_legacy_full() {
   generate_settings
   ensure_pnpm            # C-1: pnpm 確保 (本体に取り込み)
   install_jj
+  install_nextest
   init_jj_repo           # A-1/A-2/A-3: colocated 初期化 + identity + bookmark track
   install_node_dependencies
   warmup_cargo           # C-2: lint:rust の cold compile 回避 (best-effort)
