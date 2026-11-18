@@ -41,6 +41,9 @@ stdout/stderr 分離) は Linux 実行では skip される。CI が Linux の�
 
 ### 2. 各 leg はローカル push-runner と同一のコマンドを回す
 
+> 2026-11-18 改訂: テストの実行器を CI とローカルの両方で nextest に揃える。
+> 下のコマンドのうち `cargo test` の 2 つは置き換わる (§ 追記 2026-11-18「テストを nextest で走らせる」)。
+
 `cargo clippy --workspace --all-targets --all-features -- -D warnings` /
 `cargo test --workspace` / `cargo test --workspace -- --ignored --test-threads=1`。
 
@@ -261,6 +264,37 @@ push の quality_gate で**手元の Windows だけ**が走らせており、Lin
 - **効果の確かめ方**: 保存が master だけなので、この変更の PR 自身は新しいキャッシュを読めない
   (初回は依存も含めて全部ビルドする)。効果はマージ後の PR の run で、キャッシュの大きさと
   復元の時間を見て確かめる。
+
+## 追記 (2026-11-18): テストを nextest で走らせ、smoke の重複 step を消す
+
+- **観測**: `cargo test` はテストバイナリを 1 つずつ順に走らせるので、テストの時間が
+  各バイナリの合計になっていた。`--ignored` の統合テストは cwd を書き換えるため、
+  `--test-threads=1` で全体を直列にしていた (Windows で約 98 秒)。hooks smoke test の
+  独立 step は「再実行コストはほぼゼロ」(§ 決定 4) としていたが、実測では 16-20 秒かかっていた。
+- **決定 1 (実行器)**: テストを cargo-nextest で走らせる。nextest はテストを 1 件ずつ別の
+  プロセスで動かすので、cwd や環境変数を変えるテストも他のテストに響かない。通常のテストも
+  ignored も並列にできる。
+  - 設定は `.config/nextest.toml` の `ci` profile に置く (失敗しても止めずに全部出す。
+    ハングしたテストは 300 秒で打ち切る)。
+  - nextest は doctest を走らせないので、`cargo test --workspace --doc` を別に回す。
+  - 版は CI の install-action と手元の `cargo install` で揃える (2 箇所の論理結合、
+    [ADR-051](adr-051-cross-system-config-coupling.md))。
+- **決定 2 (§ 決定 2 の改訂)**: ローカル push-runner の rust-test group も nextest に揃える。
+  CI とローカルでコマンドが違うと、どちらかの緑が嘘になるという § 決定 2 の理由は変わらない。
+  切り替えは続く PR で行う (push-runner の設定、`scripts/cloud-setup.sh`、nextest が無い
+  環境での扱いを含む)。それまでの間は CI とローカルで実行器が違うので、片方でしか出ない
+  失敗はこの差を疑う。
+- **決定 3 (smoke)**: hooks smoke test の独立 step を消す。smoke は通常のテストに含まれ、
+  失敗はテスト名で出る。§ 決定 4 の最後の項 (独立 step として実行する) はこれで置き換わる。
+- **incident_eval の並列化**: workspace で最も遅い単一のテスト
+  (`incident_eval_all_incident_rules`、CI で約 15 秒) は、24 ケースを 1 件ずつ exe を
+  起動して順に回していた。nextest でも単一テストは並列にならないので、テストの中で
+  ケースを CPU 数のスレッドに分けて回すようにした (手元で 19.6 秒から 4.7 秒)。
+- **計測 (CI、PR B と合わせた rust job の合計)**: Windows 346 秒から 196 秒、Linux 203 秒から
+  140 秒。nextest の寄与はテストの時間で Windows 約 80 秒、Linux 約 44 秒。
+  - 通常のテスト (コンパイルを除く): Windows 約 73 秒から 50 秒、Linux 約 61 秒から 34 秒。
+  - ignored: Windows 98 秒から 40 秒、Linux 27 秒から 10 秒。
+  - 手元の Windows で ignored を 4 並列で 6 回、通常のテストを 3 回繰り返し、失敗は 0 件だった。
 
 ## 関連
 

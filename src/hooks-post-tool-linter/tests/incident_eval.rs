@@ -18,6 +18,7 @@ use lib_subprocess::{drain_pipe_unlimited, wait_with_timeout_safe};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Bounded wait for the spawned linter exe (custom lint rule `no-unbounded-child-wait`): a hung
 /// child is killed and the test fails rather than blocking CI indefinitely.
@@ -240,13 +241,31 @@ fn assert_good_fixture_clean(case: &Case) {
     );
 }
 
+/// Every case spawns the linter exe twice (bad + good), so running them one after another made
+/// this the slowest test in the workspace (about 15 s on CI). Cases are independent — each one
+/// stages into its own temp dir, and the rules toml is copied once before any spawn — so they
+/// run on one thread per CPU. A failing case panics its thread, and `thread::scope` re-raises
+/// the panic here after the case's own message has been printed. The checked count is asserted
+/// at the end so that a split that drops cases cannot pass silently.
 #[test]
 fn incident_eval_all_incident_rules() {
     ensure_rules_toml_beside_exe();
-    for case in CASES {
-        assert_bad_fixture_fires(case);
-        assert_good_fixture_clean(case);
-    }
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let per_worker = CASES.len().div_ceil(workers);
+    let checked = AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for chunk in CASES.chunks(per_worker) {
+            let checked = &checked;
+            s.spawn(move || {
+                for case in chunk {
+                    assert_bad_fixture_fires(case);
+                    assert_good_fixture_clean(case);
+                    checked.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+        }
+    });
+    assert_eq!(checked.into_inner(), CASES.len(), "every case must be checked");
 }
 
 /// fail-closed: `CASES` must have one entry per incident-derived rule. This closes the
