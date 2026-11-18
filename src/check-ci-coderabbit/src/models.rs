@@ -126,6 +126,11 @@ pub(crate) struct GhReview {
     pub(crate) user: Option<GhUser>,
     pub(crate) body: Option<String>,
     pub(crate) submitted_at: Option<String>,
+    /// レビューした commit。本文中の指摘がどの時点のコードへのものかを示す (`crate::outside_diff`)
+    #[serde(default)]
+    pub(crate) commit_id: Option<String>,
+    #[serde(default)]
+    pub(crate) html_url: Option<String>,
 }
 
 /// PR インラインレビューコメント (pulls/{pr}/comments)
@@ -150,6 +155,32 @@ pub(crate) struct ListedFinding {
     pub(crate) line: u64,
     pub(crate) summary: String,
     pub(crate) url: String,
+    pub(crate) source: FindingSource,
+    /// 指摘したレビューの commit。レビュー本文の指摘だけに付ける
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) commit: Option<String>,
+    /// 同じ指摘が当てはまる他の行 (`Also applies to: 279-279` の `279-279`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) also_applies_to: Option<String>,
+}
+
+/// 指摘の出どころ。
+///
+/// `review_body` はレビュー本文の「Outside diff range comments」節の指摘で、スレッドではない。
+/// 返信して閉じる対象 (ADR-087) にならず、解決済みかどうかも機械では分からないので、
+/// 読み手が `commit` と今の head を比べて判断する (順位 610)。
+#[derive(Serialize, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FindingSource {
+    Inline,
+    ReviewBody,
+}
+
+/// 「Outside diff range comments」節を読めなかったレビュー (`crate::outside_diff`)。
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub(crate) struct UnreadableReviewBody {
+    pub(crate) url: String,
+    pub(crate) reason: String,
 }
 
 /// `--list-findings` モードの top-level 出力 (`{"findings": [...]}`).
@@ -158,6 +189,9 @@ pub(crate) struct ListFindingsOutput {
     pub(crate) findings: Vec<ListedFinding>,
     /// `findings` の重大度を読めたか (`crate::severity_readout`)
     pub(crate) severity_readout: SeverityReadout,
+    /// 節を読めなかったレビュー。空でなければ、本文中の指摘を取りこぼしている (0 件とは限らない)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) review_body_unreadable: Vec<UnreadableReviewBody>,
     /// インライン指摘には出ない失敗なので、一覧に並べて見落としを防ぐ (`crate::pre_merge`)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) pre_merge_checks: Option<PreMergeChecks>,

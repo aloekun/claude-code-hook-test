@@ -10,7 +10,8 @@
 //!   check-ci-coderabbit.exe --list-findings --pr 42 [--repo owner/repo]
 //!
 //! `--list-findings` モード: ADR-034 Bundle a Sub-PR 1 で追加。
-//! CodeRabbit のインラインレビューコメントを構造化 JSON `{"findings": [...]}`
+//! CodeRabbit のインラインレビューコメントと、レビュー本文の「Outside diff range comments」節の
+//! 指摘 (順位 610、`source: "review_body"`) を構造化 JSON `{"findings": [...]}`
 //! として stdout に出力する。CI / rate-limit / status check は実行しない。
 //! cli-pr-monitor および Claude (応答時の listing) からの呼び出しを想定。
 //!
@@ -22,6 +23,7 @@ mod decide;
 mod findings;
 mod markers;
 mod models;
+mod outside_diff;
 mod parsers;
 mod pre_merge;
 mod rate_limit;
@@ -35,6 +37,7 @@ use crate::findings::{parse_findings, parse_listed_findings};
 use crate::models::{
     CheckResult, CiRunSummary, CiStatus, CodeRabbitStatus, ListFindingsOutput,
 };
+use crate::outside_diff::parse_review_body_findings;
 use crate::parsers::{
     merge_paginated_arrays, parse_actionable_comments, parse_ci_rollup, parse_coderabbit_status,
     parse_new_comments, parse_unresolved_threads, parse_walkthrough_clean_marker,
@@ -523,12 +526,25 @@ fn run_list_findings(args: CliArgs) -> Result<ListFindingsOutput, String> {
     let comments_json = fetch_issue_comments_strict(&repo, pr)?;
     let head_sha = fetch_valid_head_sha(&repo, pr);
 
-    let findings = parse_listed_findings(&pull_comments_json, &args.push_time);
+    let reviews_json = fetch_all_pages(&format!("repos/{}/pulls/{}/reviews", repo, pr))
+        .map_err(|e| format!("reviews 取得失敗: {}", e))?;
+
+    let mut findings = parse_listed_findings(&pull_comments_json, &args.push_time);
+    let review_body = parse_review_body_findings(&reviews_json, &args.push_time)?;
+    findings.extend(review_body.findings);
+    for unreadable in &review_body.unreadable {
+        eprintln!(
+            "[check-ci-coderabbit] レビュー本文の Outside diff 節を読めなかった ({}): {}。本文の指摘を取りこぼしている。\
+本文の実物と src/check-ci-coderabbit/src/outside_diff.rs を突き合わせて原因を調べる",
+            unreadable.reason, unreadable.url
+        );
+    }
     let severity_readout = read_severities(&findings, |f| &f.severity);
     warn_on_stderr(&severity_readout);
     Ok(ListFindingsOutput {
         findings,
         severity_readout,
+        review_body_unreadable: review_body.unreadable,
         pre_merge_checks: parse_pre_merge_checks(&comments_json, head_sha.as_deref()),
     })
 }

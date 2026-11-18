@@ -3,7 +3,8 @@
 //! 使い方 (`pnpm threads <サブコマンド>`):
 //!   list [--pr <番号>]            いまのブランチの PR (か指定の PR) の未解決スレッドを番号付きで出す
 //!   show [--pr <番号>] [--full]   閉じたものも含めて、全スレッドの状態と返信を出す (--full で返信の本文も)
-//!   fixed <番号|URL> <要約>       修正したスレッドとして登録する
+//!                                 (list / show は末尾に、スレッドにならないレビュー本文の指摘の件数も出す)
+//!   fixed <番号|URL> <要約>       修正したスレッドとして登録する (オプションは取らない。`--pr` は止める)
 //!   rejected <番号|URL> <理由>    対応しないスレッドとして登録する
 //!   forget <番号|URL>             登録を取り消す
 //!   apply                        登録したスレッドに返信して閉じる (`pnpm push` が push の後に呼ぶ)
@@ -15,6 +16,7 @@
 mod apply;
 mod gh;
 mod pending;
+mod review_body;
 mod threads;
 
 use gh::{Gh, RealGh};
@@ -109,6 +111,7 @@ fn run_show(gh: &dyn Gh, args: &[String]) -> Result<(), String> {
             println!("    (ほかに返信が {} 件あるが、取得の上限を超えたので出していない: {})", t.omitted_replies, t.url);
         }
     }
+    println!("{}", review_body::line_for(pr.number, review_body::list_findings(&pr.repo, pr.number)));
     Ok(())
 }
 
@@ -127,10 +130,26 @@ fn run_list(gh: &dyn Gh, args: &[String]) -> Result<(), String> {
         let line = t.line.map(|l| format!(":{l}")).unwrap_or_default();
         println!("#{number}{mark} {}{line}  {}\n    {}", t.path, t.title, t.url);
     }
+    println!("{}", review_body::line_for(pr.number, review_body::list_findings(&pr.repo, pr.number)));
     Ok(())
 }
 
+/// 登録の引数に、`--` で始まる語があれば止める。
+///
+/// `fixed` / `rejected` はオプションを取らず、番号の後ろの語を全部つないで返信の本文にする。
+/// `--pr 650` を付けると、そのまま返信の末尾に載る (#649 / #650 で実際に載った)。
+fn reject_options(args: &[String]) -> Result<(), String> {
+    match args.iter().find(|a| a.starts_with("--")) {
+        Some(flag) => Err(format!(
+            "`{flag}` は受け付けない。fixed / rejected はいまのブランチの PR に登録するので `--pr` は要らない \
+(オプションは要約に混ざって返信に載る)。`--` で始まる語を要約に書くなら、要約全体を 1 つの引数にして先頭を変える"
+        )),
+        None => Ok(()),
+    }
+}
+
 fn run_register(gh: &dyn Gh, kind: Kind, args: &[String]) -> Result<(), String> {
+    reject_options(args)?;
     let (reference, note) = args.split_first().ok_or("登録するスレッドの番号か URL がない")?;
     let note = note.join(" ");
     if note.trim().is_empty() {

@@ -408,3 +408,51 @@ fn a_broken_pending_file_is_not_silently_discarded() {
     assert!(pending::load(&path).is_err());
     assert!(path.exists());
 }
+
+/// #649 / #650 で `--pr N` が返信の末尾に載った。登録は gh を呼ぶ前に止める。
+#[test]
+fn registration_refuses_an_option_before_calling_gh() {
+    for args in [
+        vec!["1", "直した", "--pr", "650"],
+        vec!["--pr", "650", "1", "直した"],
+        vec!["1", "--full"],
+    ] {
+        let gh = FakeGh::default();
+        let args: Vec<String> = args.into_iter().map(String::from).collect();
+        let err = run_register(&gh, Kind::Fixed, &args).unwrap_err();
+        assert!(err.contains("`--pr` は要らない"), "{args:?}: {err}");
+        assert!(gh.calls.borrow().is_empty(), "{args:?}");
+    }
+}
+
+#[test]
+fn a_note_that_only_contains_dashes_inside_is_accepted_by_the_option_check() {
+    let args = vec!["1".to_string(), "cargo test --workspace で確かめた".to_string()];
+    assert_eq!(reject_options(&args), Ok(()));
+}
+
+fn listed(findings: &[&str], unreadable: usize) -> Result<String, String> {
+    let findings: Vec<_> = findings.iter().map(|s| serde_json::json!({ "source": s })).collect();
+    let unreadable: Vec<_> = (0..unreadable).map(|_| serde_json::json!({ "url": "u", "reason": "r" })).collect();
+    Ok(serde_json::json!({ "findings": findings, "review_body_unreadable": unreadable }).to_string())
+}
+
+#[test]
+fn the_review_body_line_counts_only_review_body_findings() {
+    assert_eq!(
+        review_body::line_for(649, listed(&["inline", "review_body"], 0)),
+        "レビュー本文の指摘 (スレッドにならない Outside diff): 1 件。返信して閉じる対象ではない。中身は `pnpm -s check-ci --list-findings --pr 649` で見る"
+    );
+    assert_eq!(
+        review_body::line_for(650, listed(&["inline"], 0)),
+        "レビュー本文の指摘 (スレッドにならない Outside diff): 0 件"
+    );
+}
+
+/// 読めなかったことを 0 件に化けさせない (ADR-043)。
+#[test]
+fn the_review_body_line_reports_what_could_not_be_read() {
+    assert!(review_body::line_for(1, listed(&[], 2)).contains("節を読めなかったレビューが 2 件"));
+    assert!(review_body::line_for(1, Err("120 秒で終わらなかった".to_string())).contains("読めなかった (120 秒で終わらなかった)"));
+    assert!(review_body::line_for(1, Ok("not json".to_string())).contains("読めなかった (出力を読めない"));
+}

@@ -391,34 +391,6 @@
 - 正常な run (2 ターン以上) では判定が発火しない
 - 結果ファイルが無いときは、判定できないことを明示して失敗する
 
-### 順位 610: check-ci の findings に、レビュー本文の Outside diff 指摘も出す
-
-> **動機**: CodeRabbit は、差分の外の行への指摘をインラインのスレッドにせず、レビュー本文の「Outside diff range comments」節に書く。`check-ci-coderabbit` の findings は `pulls/{pr}/comments` (インラインコメント) だけから作り、レビュー本文は actionable 件数の読み取りにしか使わない。`pnpm threads show` もスレッドしか見ない。#636 では、本文中の Minor 1 件 (`docs/todo19.md:192`、Also applies to 279) の 279 行を見落とし、「未解決 0 件」と報告した。GitHub Actions 側の PR Monitor 分析 (LLM) はこの指摘を拾っていた。
->
-> **由来**: `[improvement]`。#636 の post-merge feedback #4 を 2026-11-13 に採用した。
->
-> **種類**: Tier 2 — exe (`check-ci-coderabbit`) の収集の拡張とテスト。工数 M。
->
-> **参照**: `src/check-ci-coderabbit/src/main.rs` (`fetch_findings` / `fetch_actionable_count`)、`src/check-ci-coderabbit/src/findings.rs`、`src/cli-review-threads/`、`.claude/feedback-reports/636.md`、PR #636 の 1 回目のレビュー (commit 59ffd7c5)
-
-#### 設計決定 (案)
-
-- 対象は「Outside diff range comments」節だけにする。Nitpick 節は扱わない
-- スレッドではないので、返信して閉じる対象 ([ADR-087](adr/adr-087-review-thread-resolution-after-push.md)) にはならない。findings では出どころ (レビュー本文) を区別し、どのレビュー (commit) の指摘かを添える。解決済みかどうかは機械では分からないため、読み手が今の head と比べて判断する
-- `pnpm threads show` には、本文中の指摘の件数を 1 行出す
-- 節の書式が読めないときは 0 件にせず、「読めない」と出す ([ADR-043](adr/adr-043-security-gates-fail-closed.md))
-
-#### 作業計画
-
-- [ ] PR #636 の 1 回目のレビュー本文を fixture にして、Outside diff の指摘 1 件 (パス・行・重大度・Also applies to) が取れることをテストで固定する
-- [ ] 節の無い本文と、書式の崩れた本文の fixture も足す
-- [ ] findings の出力と `threads show` に出す
-
-#### 完了基準
-
-- #636 の fixture から Outside diff の指摘が 1 件取れる
-- 書式が読めない本文で、0 件ではなく「読めない」と出る
-
 ### 順位 611: push 済みのコミットを編集し続けることを止める
 
 > **動機**: `pnpm push` の後も、作業コピー (`@`) は push したコミットのまま残る。そのまま編集すると、jj は変更を push 済みのコミットに取り込み、次の push でそのコミットが書き換わる。2026-11-13 の #636 では、レビュースレッドの返信で示したコミット (c1633731) が PR から消えるところだった。push の前に気づき、`jj op restore` で戻した。[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) は「ファイル編集を始める前に `jj new` する」と定めているが、文章の規約なので、push の直後に続けて作業する場面で漏れた。
