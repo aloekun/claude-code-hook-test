@@ -39,7 +39,8 @@ pub(crate) const WSL_DIRECT_MSG: &str = r#"**WSL の直接実行がブロック�
 /// 素の名前は小文字だけを止める。英文の行頭の `WSL では ...` をコマンドと取り違えないため。パスか
 /// `.exe` が付けば大文字小文字を区別しない (Windows ではどちらも実行できる)。
 ///
-/// 名前の後ろの境界は `script-runtime-block` と同じ (空白・行末・`;`・`&`・`<`・`>`)。
+/// 名前の後ろの境界は `script-runtime-block` と同じ (空白・行末・`;`・`&`・`<`・`>`)。`<` `>` を
+/// 引用符の無いパスの文字に含めない理由も同じ (`cat</tmp/wsl>out.txt` を止めない)。
 ///
 /// # 対象にしないもの
 ///
@@ -50,7 +51,7 @@ pub(crate) const WSL_DIRECT_MSG: &str = r#"**WSL の直接実行がブロック�
 /// - 名前を変数に入れて呼ぶ、別のスクリプトの中から呼ぶ、といった間接的な起動
 pub(crate) fn preset_wsl_direct() -> Vec<BlockedPattern> {
     let name_in = |path_char: &str| format!(r"(?:(?i:{path_char}*[\\/]wsl(?:\.exe)?)|(?i:wsl\.exe)|wsl)");
-    let unquoted = name_in(r#"[^\s"';&|]"#);
+    let unquoted = name_in(r#"[^\s"';&|<>]"#);
     let double_quoted = format!(r#""{}""#, name_in(r#"[^"\n]"#));
     let single_quoted = format!("'{}'", name_in(r"[^'\n]"));
     let pattern = format!(
@@ -149,6 +150,14 @@ mod tests {
             "wslconfig /l",
             "wsl-run sync",
         ] {
+            assert!(!blocks(command), "{command}");
+        }
+    }
+
+    /// PR #650 のレビュー: リダイレクトの読み書き先に wsl のパスがあるだけのコマンドは止めない。
+    #[test]
+    fn allows_a_wsl_path_that_is_only_a_redirect_target() {
+        for command in ["cat</tmp/wsl>out.txt", "cat</tmp/wsl", "echo x>/tmp/wsl"] {
             assert!(!blocks(command), "{command}");
         }
     }

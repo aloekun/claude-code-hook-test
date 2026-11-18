@@ -98,6 +98,9 @@ deno / bun と、Windows のスクリプトホスト (cscript / wscript / mshta)
 /// コマンドの位置とみなすので、境界に足すと選択肢を並べた検索が止まる。代わりに、空白も引数も無い
 /// `python3|cat` / `(python3)` は止まらない (2026-11-18 ユーザー判断)。
 ///
+/// 境界にした `<` `>` は、引用符の無いパスの文字にも含めない。含めると `cat<scripts/tool.py>copy.txt`
+/// の `cat<scripts/tool.py` 全体をパスとして読み、読むだけのコマンドを止める (PR #650 のレビュー)。
+///
 /// # 限界
 ///
 /// - 行頭を位置とみなすので、heredoc やメッセージの本文で行頭が `python ` などで始まると止まる
@@ -115,7 +118,7 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
             r"(?:(?i:{path_char}*[\\/]{BASE}(?:\.exe)?)|(?i:{BASE}\.exe)|{BASE}|{path_char}*{EXTENSIONS})"
         )
     };
-    let unquoted = runtime_in(r#"[^\s"';&|]"#);
+    let unquoted = runtime_in(r#"[^\s"';&|<>]"#);
     let double_quoted = format!(r#""{}""#, runtime_in(r#"[^"\n]"#));
     let single_quoted = format!("'{}'", runtime_in(r"[^'\n]"));
     let runtime = format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|[;&<>])");

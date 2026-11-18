@@ -127,6 +127,19 @@ fn blocks_a_runtime_followed_directly_by_a_redirect() {
     }
 }
 
+/// PR #650 のレビュー: リダイレクトの読み書き先にスクリプトのパスがあるだけのコマンドは止めない。
+#[test]
+fn allows_a_script_path_that_is_only_a_redirect_target() {
+    for command in [
+        "cat<scripts/tool.py>copy.txt",
+        "cat<scripts/tool.py",
+        "cat a.txt>scripts/x.py",
+        "cat</usr/bin/python3>out.txt",
+    ] {
+        assert!(!blocks(command), "{command}");
+    }
+}
+
 /// `|` と `)` は境界にしない。選択肢を並べた検索を止めない代わりに、空白も引数も無い形は通る
 /// (2026-11-18 ユーザー判断)。
 #[test]
