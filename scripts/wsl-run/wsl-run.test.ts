@@ -13,8 +13,27 @@ import { ALLOWED_ENV, UsageError, buildScript, cargoCommand, parseArgs, shQuote,
 describe("parseArgs", () => {
   it("reads sync and the cargo subcommands", () => {
     expect(parseArgs(["sync"])).toEqual({ kind: "sync" });
-    for (const sub of ["test", "build", "check", "clippy", "nextest"]) {
+    for (const sub of ["test", "build", "check", "clippy"]) {
       expect(parseArgs(["cargo", sub, "--workspace"])).toEqual({ kind: "cargo", env: [], args: [sub, "--workspace"] });
+    }
+    for (const sub of ["run", "list"]) {
+      expect(parseArgs(["cargo", "nextest", sub, "--workspace"])).toEqual({
+        kind: "cargo",
+        env: [],
+        args: ["nextest", sub, "--workspace"],
+      });
+    }
+  });
+
+  it("rejects nextest subcommands other than run and list, and options before the subcommand", () => {
+    for (const args of [
+      ["cargo", "nextest"],
+      ["cargo", "nextest", "self", "update", "-y"],
+      ["cargo", "nextest", "archive", "--archive-file", "x.tar.zst"],
+      ["cargo", "nextest", "show-config", "test-groups"],
+      ["cargo", "nextest", "--color", "always", "run"],
+    ]) {
+      expect(() => parseArgs(args), JSON.stringify(args)).toThrow(/run と list だけ/);
     }
   });
 

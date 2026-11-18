@@ -30,6 +30,8 @@
  *
  * - 走らせるのは上の cargo のサブコマンドだけ。`--config` / `-Z` / `--manifest-path` / `+toolchain` と、
  *   nextest の `--config-file` / `--tool-config-file` は受け付けない (任意のプログラムを起動できるため)
+ * - nextest は `run` と `list` だけ。`self update` は外からバイナリを取ってきて置き換えるので、
+ *   サブコマンドを許可したものに限る (サブコマンドの前に置くオプションも、ここで一緒に止まる)
  * - `--env` で渡せる環境変数は、ビルドとテストの性能に関わるものだけ (`ALLOWED_ENV`)。`RUSTFLAGS` /
  *   `RUSTC_WRAPPER` / `CARGO_TARGET_*_RUNNER` のような、プログラムを指定できるものは受け付けない
  * - 任意のスクリプトは `pnpm -s wsl-script <file.sh>` (`wsl-script.ts`) で走らせる。こちらは許可リストに
@@ -57,6 +59,7 @@ export type Request = { kind: "sync" } | { kind: "cargo"; env: [string, string][
 const USAGE = "使い方: pnpm -s wsl-run sync | pnpm -s wsl-run [--env NAME=VALUE]... cargo <test|build|check|clippy|nextest> ...";
 
 const CARGO_SUBCOMMANDS = new Set(["test", "build", "check", "clippy", "nextest"]);
+const NEXTEST_SUBCOMMANDS = new Set(["run", "list"]);
 
 const FORBIDDEN_CARGO_ARGS = /^(?:--config(?:=|$)|-Z|--manifest-path(?:=|$)|\+|--config-file(?:=|$)|--tool-config-file(?:=|$))/;
 
@@ -85,6 +88,9 @@ export function parseArgs(args: string[]): Request {
   }
   const rest = args.slice(i);
   if (rest[0] !== "cargo" || !CARGO_SUBCOMMANDS.has(rest[1] ?? "")) throw new UsageError(USAGE);
+  if (rest[1] === "nextest" && !NEXTEST_SUBCOMMANDS.has(rest[2] ?? "")) {
+    throw new UsageError(`cargo nextest の ${rest[2] ?? "(サブコマンドなし)"} は受け付けません (run と list だけ)`);
+  }
   const bad = rest.slice(2).find((a) => FORBIDDEN_CARGO_ARGS.test(a));
   if (bad !== undefined) {
     throw new UsageError(`cargo の ${bad} は受け付けません (確認なしで任意のプログラムを起動できるため)`);
