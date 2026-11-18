@@ -21,9 +21,8 @@
 # - **テストは nextest で走らせる (2026-11-18)**: `--ignored` の統合テストは cwd を書き換える
 #   ため、cargo test では並列にすると相互干渉した (ADR-041)。nextest はテストごとにプロセスを
 #   分けるので、cwd を変えても他のテストに響かず、通常のテストも ignored も並列に回せる。
-#   ローカル push-runner の rust-test group も nextest に揃える (ADR-065 決定 2 の改訂)。
-#   切り替えは続く PR で行うので、それまでの間はローカルが cargo test のままで、CI と
-#   実行器が違う。この間に片方でしか出ない失敗は、この差を疑う。
+#   ローカル push-runner の rust-lint-test group も同じコマンドを回す (ADR-065 決定 2 の改訂、
+#   順位 257)。違いは nextest の profile だけで、CI は失敗しても止めずに全部を出す。
 # - **hooks smoke test の独立 step は置かない (2026-11-18)**: 以前は run の一覧で独立に
 #   赤/緑が読めるよう、`cargo test --workspace` に含まれる smoke を step でもう一度走らせて
 #   いた。「再実行コストはほぼゼロ」としていたが、実測では 16-20 秒かかっていた。失敗は
