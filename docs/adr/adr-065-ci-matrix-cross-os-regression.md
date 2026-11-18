@@ -42,7 +42,8 @@ stdout/stderr 分離) は Linux 実行では skip される。CI が Linux の�
 ### 2. 各 leg はローカル push-runner と同一のコマンドを回す
 
 > 2026-11-18 改訂: テストの実行器を CI とローカルの両方で nextest に揃える。
-> 下のコマンドのうち `cargo test` の 2 つは置き換わる (§ 追記 2026-11-18「テストを nextest で走らせる」)。
+> 下のコマンドのうち `cargo test` の 2 つは置き換わる
+> ([§ 追記 (2026-11-18): テストを nextest で走らせ、smoke の重複 step を消す](#追記-2026-11-18-テストを-nextest-で走らせsmoke-の重複-step-を消す))。
 
 `cargo clippy --workspace --all-targets --all-features -- -D warnings` /
 `cargo test --workspace` / `cargo test --workspace -- --ignored --test-threads=1`。
