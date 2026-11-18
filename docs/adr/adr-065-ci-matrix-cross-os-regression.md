@@ -255,8 +255,9 @@ push の quality_gate で**手元の Windows だけ**が走らせており、Lin
   ワークスペースの成果物や incremental の残りを抱えたまま復元し続けていた。
 - **決定**: `ci.yml` と `release-binaries.yml` のキャッシュを `Swatinem/rust-cache@v2` に置き換える。
   - 保存前にワークスペースのクレートを削り、依存のビルド結果だけを残す。キーには rustc の版も入る。
-  - `ci.yml` は master でだけ保存する。PR の run は master のキャッシュを読めるので、PR ごとに
-    保存して上限を食い合わせない。
+  - どちらも master でだけ保存する。PR の run は master のキャッシュを読めるので、PR ごとに
+    保存して上限を食い合わせない。`release-binaries.yml` も、`workflow_dispatch` で
+    master 以外のブランチから起動したときは保存しない。
 - **効果の確かめ方**: 保存が master だけなので、この変更の PR 自身は新しいキャッシュを読めない
   (初回は依存も含めて全部ビルドする)。効果はマージ後の PR の run で、キャッシュの大きさと
   復元の時間を見て確かめる。
