@@ -3,7 +3,7 @@
 pub(crate) use lib_report_formatter::UNKNOWN_SEVERITY;
 use lib_report_formatter::Finding;
 
-use crate::models::{GhPullComment, ListedFinding};
+use crate::models::{FindingSource, GhPullComment, ListedFinding};
 
 /// PR インラインレビューコメント (pulls/{pr}/comments) を [`Finding`] に変換する。
 ///
@@ -151,6 +151,9 @@ fn comment_to_listed_finding(c: &GhPullComment) -> ListedFinding {
         line,
         summary,
         url,
+        source: FindingSource::Inline,
+        commit: None,
+        also_applies_to: None,
     }
 }
 
@@ -676,6 +679,7 @@ mod tests {
         let output = ListFindingsOutput {
             severity_readout: crate::severity_readout::read_severities(&findings, |f| &f.severity),
             findings,
+            review_body_unreadable: Vec::new(),
             pre_merge_checks: None,
         };
         let serialized = serde_json::to_value(&output).unwrap();
@@ -685,6 +689,10 @@ mod tests {
         assert_eq!(item["line"], 100);
         assert_eq!(item["summary"], "signature mismatch");
         assert_eq!(item["url"], "https://github.com/o/r/pull/1#r1");
+        assert_eq!(item["source"], "inline");
+        assert!(item.get("commit").is_none());
+        assert!(item.get("also_applies_to").is_none());
+        assert!(serialized.get("review_body_unreadable").is_none());
         assert_eq!(serialized["severity_readout"]["review_findings"], 1);
         assert_eq!(serialized["severity_readout"]["unknown"], 0);
         assert_eq!(serialized["severity_readout"]["unreadable"], false);

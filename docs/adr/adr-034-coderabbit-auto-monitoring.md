@@ -131,13 +131,21 @@ format drift で `is_rate_limit_comment` が常時 false を返す symptom (= 30
 ```json
 {
   "findings": [
-    {"severity": "major", "file": "...", "line": 415, "summary": "...", "url": "..."}
-  ]
+    {"severity": "Major", "file": "...", "line": 415, "summary": "...", "url": "...", "source": "inline"},
+    {"severity": "Minor", "file": "...", "line": 192, "summary": "...", "url": "...#pullrequestreview-...",
+     "source": "review_body", "commit": "59ffd7c5...", "also_applies_to": "279-279"}
+  ],
+  "severity_readout": {"review_findings": 2, "unknown": 0, "unreadable": false},
+  "review_body_unreadable": [{"url": "...", "reason": "見出しは 1 件だが、読めた指摘は 0 件"}]
 }
 ```
 
 - cli-pr-monitor からも消費可能 (rate-limit auto-retry のロジックに統合)
 - Claude が `gh api` 重複取得をせず、1 コマンドで構造化 findings を取得
+- **追記 (2026-11-18、順位 610)**: レビュー本文の「Outside diff range comments」節の指摘も `source: "review_body"` で並べる。スレッドではないので返信して閉じる対象 ([ADR-087](adr-087-review-thread-resolution-after-push.md)) にならず、解決済みかは機械で分からない。`commit` (指摘したレビューの commit) と今の head を比べて読み手が判断する。インラインの指摘は `source: "inline"` で、`commit` / `also_applies_to` は出さない
+  - 節の件数と読めた指摘の数が合わない・見出しに件数が無いときは、0 件にせず `review_body_unreadable` に載せ、stderr にも警告する ([ADR-043](adr-043-security-gates-fail-closed.md))。2026-11 より前の旧書式 (#108 など) もここに載る — 今の CodeRabbit は出さない書式なので読み取りは実装しない
+  - `pnpm threads list` / `show` は、本文の指摘の件数を末尾に 1 行出す (本文の読み取りはこの exe に任せ、書式の知識を 2 か所に置かない)
+  - 監視 (`--push-time` モード) の判定には使わない。判定に入れると、解決済みかを機械で判断できない指摘でマージ可否が変わるため
 
 ## 影響
 
