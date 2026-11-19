@@ -89,6 +89,18 @@ threshold_days = 28                # ADR-053/061 の撤去粒度「4 週間」�
 # 止めたい場合は false (additionalContext の nudge は継続)。reminder 自体の停止は上の enabled = false。
 system_message_enabled = true
 
+# [session_start.ci_sli_reminder]
+# - ADR-092: CI 時間の SLI (直近 20 本の成功した CI run の待ち時間の中央値、しきい値 330 秒) が
+#   超過している間、毎セッション改善作業への着手を指示する。計測は weekly-review skill が
+#   `pnpm ci-sli` で行い、`.claude/ci-sli-status.json` (メイン workspace root) に書く。
+#   本 hook はそのファイルの `level == "breach"` を読むだけで、ネットワークに出ない。
+#   警告 (しきい値の 80% 以上) は weekly-review の報告で伝え、ここでは出さない。
+# - しきい値は本リポジトリの CI に合わせた値のため、派生プロジェクトでは section を置かない
+#   (code default は unwrap_or(false)、ADR-039 opt-in)。
+[session_start.ci_sli_reminder]
+enabled = true
+system_message_enabled = true
+
 # ─── PreToolUse: コマンド検証 ───
 
 [pre_tool_validate]
@@ -470,7 +482,7 @@ trend_months = 6              # レポートが遡る月数 (月別表 / 発火 
 #   hooks-stop-quality                         = Stop 品質ゲート (block)
 #   hooks-stop-report-language                 = Stop 最後の報告の言語 (block、ADR-091)
 #   reaper / staleness / workspace_stale / weekly_review_reminder /
-#   monthly_review_reminder                    = hooks-session-start の nudge 群 (warn)
+#   monthly_review_reminder / ci_sli_reminder  = hooks-session-start の nudge 群 (warn)
 #   (pr_monitor_catchup は WP-17 PR 3 で nudge ごと撤去 — 過去の firings jsonl には残るが
 #    集計対象の現役 id ではない)
 [telemetry_report.registry]
@@ -484,6 +496,7 @@ hook_ids = [
   "workspace_stale",
   "weekly_review_reminder",
   "monthly_review_reminder",
+  "ci_sli_reminder",
 ]
 
 

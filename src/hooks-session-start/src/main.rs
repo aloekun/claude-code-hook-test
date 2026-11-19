@@ -8,6 +8,7 @@
 //!   4. Working copy staleness nudge: `staleness` module
 //!   5. Weekly review reminder (ADR-031 Phase C): `weekly_review` module
 //!   6. Monthly review reminder (ADR-062, WP-12 step 2/3): `monthly_review` module
+//!   7. CI 時間 SLI 超過の着手指示 (ADR-092): `ci_sli` module
 //!
 //! 旧 3. PR monitor catch-up (Bb-3) は WP-17 PR 3 で撤去 — park/wakeup モデルの廃止に伴い
 //! 「park 失効の救済」という役割ごと dead code になった (ADR-018 amendment 参照)。
@@ -24,6 +25,7 @@ use serde::Deserialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+mod ci_sli;
 mod hooks_config;
 mod jj_helpers;
 mod monthly_review;
@@ -32,6 +34,7 @@ mod reaper;
 mod staleness;
 mod weekly_review;
 
+use ci_sli::compute_ci_sli_nudge;
 use hooks_config::read_hooks_config;
 use monthly_review::compute_monthly_review_reminder_nudge;
 use reaper::compute_reaper_nudge;
@@ -156,9 +159,9 @@ fn append_cwd_nudges(
     append_review_reminder_nudges(context, session_id, cwd, session_start, now_unix)
 }
 
-/// weekly / monthly review reminder を評価して `context` に追記し、発火した systemMessage を
-/// 合成して返す。両 reminder は同型 (additionalContext + 任意 systemMessage) で、systemMessage
-/// スロットが出力 JSON に 1 つのため合成する。両 config は独立に opt-in される (片方だけ enable 可)。
+/// weekly / monthly review reminder と CI 時間 SLI 超過の指示 (ADR-092) を評価して `context` に
+/// 追記し、発火した systemMessage を合成して返す。3 つは同型 (additionalContext + 任意 systemMessage) で、
+/// systemMessage スロットが出力 JSON に 1 つのため合成する。各 config は独立に opt-in される。
 ///
 /// takt の子セッション (active な takt run がある間に起動したセッション) では、どちらも出さない
 /// ([`review_reminders_suppressed`])。
@@ -191,6 +194,14 @@ fn append_review_reminder_nudges(
             context.push_str(&monthly_nudge.additional_context);
             record_nudge_firing("monthly_review_reminder", session_id);
             system_messages.extend(monthly_nudge.system_message);
+        }
+    }
+    if let Some(ci_sli_config) = session_start.ci_sli_reminder.as_ref() {
+        if let Some(ci_sli_nudge) = compute_ci_sli_nudge(cwd, ci_sli_config) {
+            context.push_str("\n\n");
+            context.push_str(&ci_sli_nudge.additional_context);
+            record_nudge_firing("ci_sli_reminder", session_id);
+            system_messages.extend(ci_sli_nudge.system_message);
         }
     }
     combine_system_messages(system_messages)
@@ -503,7 +514,8 @@ mod tests {
         let _ = std::fs::remove_file(&tmp);
     }
 
-    /// 両 reminder を必ず発火させる設定 (last-run ファイルが無い = 未実行として stale)。
+    /// 3 つの reminder を必ず発火させる設定 (last-run ファイルが無い = 未実行として stale。
+    /// CI SLI は [`write_ci_sli_breach`] で超過の記録を置いたときに発火する)。
     fn always_firing_reminders() -> hooks_config::SessionStartConfig {
         hooks_config::SessionStartConfig {
             staleness: None,
@@ -518,7 +530,20 @@ mod tests {
                 threshold_days: Some(28),
                 system_message_enabled: Some(true),
             }),
+            ci_sli_reminder: Some(hooks_config::CiSliReminderConfig {
+                enabled: Some(true),
+                system_message_enabled: Some(true),
+            }),
         }
+    }
+
+    fn write_ci_sli_breach(root: &Path) {
+        std::fs::create_dir_all(root.join(".claude")).unwrap();
+        std::fs::write(
+            root.join(ci_sli::CI_SLI_STATUS_PATH),
+            r#"{"level":"breach","median_secs":340,"threshold_secs":330,"measured_at":"2026-11-19T12:00:00Z"}"#,
+        )
+        .unwrap();
     }
 
     fn write_takt_run_meta(root: &Path, status: &str) {
@@ -528,26 +553,30 @@ mod tests {
     }
 
     /// 順位 597 (1): takt の子セッションの SessionStart に reminder を返すと、子セッションが
-    /// report の本文に書き込む (#614)。active な run があれば、両 reminder とも出さない。
+    /// report の本文に書き込む (#614)。active な run があれば、どの reminder も出さない。
     #[test]
     fn review_reminders_are_not_emitted_while_a_takt_run_is_active() {
         let root = tempfile::tempdir().unwrap();
         write_takt_run_meta(root.path(), "running");
+        write_ci_sli_breach(root.path());
         let mut context = String::new();
         let message = append_review_reminder_nudges(&mut context, "sid", root.path(), &always_firing_reminders(), 2_000_000_000);
         assert!(message.is_none());
         assert_eq!(context, "", "子セッションの additionalContext に reminder を入れない");
     }
 
-    /// 対照: run が終わっていれば (本対話セッション)、これまでどおり両 reminder を出す。
+    /// 対照: run が終わっていれば (本対話セッション)、これまでどおり 3 つとも出す。
     #[test]
     fn review_reminders_are_emitted_when_no_takt_run_is_active() {
         let root = tempfile::tempdir().unwrap();
         write_takt_run_meta(root.path(), "completed");
+        write_ci_sli_breach(root.path());
         let mut context = String::new();
         let message = append_review_reminder_nudges(&mut context, "sid", root.path(), &always_firing_reminders(), 2_000_000_000);
-        assert!(message.is_some());
         assert!(context.contains("[WEEKLY_REVIEW_REMINDER]"), "{context}");
         assert!(context.contains("[MONTHLY_REVIEW_REMINDER]"), "{context}");
+        assert!(context.contains("[CI_TIME_SLI_BREACH]"), "{context}");
+        let message = message.expect("systemMessage");
+        assert!(message.as_str().contains("CI 時間 SLI 超過"), "{}", message.as_str());
     }
 }

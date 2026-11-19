@@ -83,6 +83,10 @@ src/*/Cargo.lock
 .claude/monthly-reviews/
 .claude/monthly-review-last-run.json
 
+# ADR-092: CI 時間の SLI の最新の計測結果 (pnpm ci-sli が書き、SessionStart hook が読む)
+.claude/ci-sli-status.json
+.claude/ci-sli-status.json.tmp-*
+
 # ADR-089: 再 push の差分レビューの起点 (cli-push-runner が branch ごとに、前回承認して push した commit を記録)
 .claude/push-review-approved.json
 

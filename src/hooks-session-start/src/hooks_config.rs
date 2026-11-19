@@ -74,11 +74,23 @@ pub(crate) struct MonthlyReviewReminderConfig {
     pub(crate) system_message_enabled: Option<bool>,
 }
 
+/// ADR-092: CI 時間の SLI 超過中に毎セッション改善の着手を指示する nudge。
+///
+/// `[session_start.ci_sli_reminder]` section 不在 / `enabled` 未設定では完全 skip (ADR-039 opt-in。
+/// しきい値は本リポジトリの CI に合わせた値なので、派生プロジェクトでは有効にしない)。
+#[derive(Deserialize)]
+pub(crate) struct CiSliReminderConfig {
+    pub(crate) enabled: Option<bool>,
+    /// systemMessage (ユーザー可視 1 行、ADR-059) を出すか。source default OFF。
+    pub(crate) system_message_enabled: Option<bool>,
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct SessionStartConfig {
     pub(crate) staleness: Option<StalenessConfig>,
     pub(crate) weekly_review_reminder: Option<WeeklyReviewReminderConfig>,
     pub(crate) monthly_review_reminder: Option<MonthlyReviewReminderConfig>,
+    pub(crate) ci_sli_reminder: Option<CiSliReminderConfig>,
 }
 
 #[derive(Deserialize, Default)]
