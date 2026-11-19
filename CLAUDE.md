@@ -93,6 +93,7 @@
 - [ADR-089: 再 push は、前回承認した commit 以降の差分だけをレビューする](docs/adr/adr-089-incremental-prepush-review.md)
 - [ADR-090: todo 台帳の Tier はタスクの種類を表し、優先度は着手時に決める](docs/adr/adr-090-todo-tier-as-kind.md)
 - [ADR-091: 最後の報告が英語で始まっていたら、Stop hook で止めて日本語で書き直させる](docs/adr/adr-091-stop-report-language.md) *(試験運用)*
+- [ADR-092: CI 時間に SLI を置き、週次レビューで測って、超過中は毎セッション改善に着手させる](docs/adr/adr-092-ci-time-sli.md) *(試験運用)*
 
 ## 開発 convention / チェックリスト
 
