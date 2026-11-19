@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -150,11 +150,30 @@ describe('resolveMainRoot', () => {
     expect(resolveMainRoot(root)).toBe(root);
   });
 
-  it('writeStatus は .claude/ci-sli-status.json に書く', () => {
+  it('writeStatus は .claude/ci-sli-status.json に書き、既存の記録を置き換える', () => {
     const root = tmp();
+    writeStatus(root, { level: 'breach' });
     const path = writeStatus(root, { level: 'ok' });
     expect(path).toBe(join(root, STATUS_PATH));
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ level: 'ok' });
+    expect(readdirSync(join(root, '.claude'))).toEqual(['ci-sli-status.json']);
+  });
+
+  it('writeStatus の書込みが途中で失敗しても、前回の記録を残し、一時ファイルも残さない', () => {
+    const root = tmp();
+    writeStatus(root, { level: 'breach' });
+    const failingFs = {
+      mkdirSync,
+      renameSync,
+      rmSync,
+      writeFileSync: (p) => {
+        writeFileSync(p, '{"lev'); // 書きかけで止まった状態
+        throw new Error('ENOSPC');
+      },
+    };
+    expect(() => writeStatus(root, { level: 'ok' }, failingFs)).toThrow('ENOSPC');
+    expect(JSON.parse(readFileSync(join(root, STATUS_PATH), 'utf8'))).toEqual({ level: 'breach' });
+    expect(readdirSync(join(root, '.claude'))).toEqual(['ci-sli-status.json']);
   });
 });
 

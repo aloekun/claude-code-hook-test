@@ -54,7 +54,7 @@
 
 - stdout の 1 行目は `[CI_TIME_SLI] level=<ok|warn|breach> median_secs=<n> threshold_secs=<n> ratio=<n>%`。続けて判定・中央値・対象期間と、run ごとの待ち時間の表を出す
 - 終了コード: 0 = 測れた (**breach でも 0**)、2 = 測れなかった (gh の失敗 / サンプル不足 / 記録の書込失敗)。「計測の失敗」と「しきい値の超過」を取り違えないための契約で、`ledger-residue-scan` と同じ
-- 測れたら、結果をメイン workspace の `.claude/ci-sli-status.json` に書く (gitignore 済み)。書き側の `resolveMainRoot` は、読み側の `lib_jj_helpers::resolve_main_workspace_root` と同じ解釈で `.jj/repo` を辿る ([ADR-045](adr-045-jj-workspace-parallel-sessions.md))。測れなかったときは前回の記録をそのまま残す
+- 測れたら、結果をメイン workspace の `.claude/ci-sli-status.json` に書く (gitignore 済み)。書き側の `resolveMainRoot` は、読み側の `lib_jj_helpers::resolve_main_workspace_root` と同じ解釈で `.jj/repo` を辿る ([ADR-045](adr-045-jj-workspace-parallel-sessions.md))。測れなかったときは前回の記録をそのまま残す。書込みは同じディレクトリの一時ファイルに書き終えてから rename で置き換え、書込みの途中で失敗しても前回の記録を壊さない
 
 ### 5. 100% 超過の強制: 毎セッションの指示
 

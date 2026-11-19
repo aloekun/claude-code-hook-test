@@ -24,7 +24,8 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -180,10 +181,25 @@ export async function fetchRuns() {
   );
 }
 
-export function writeStatus(mainRoot, status) {
+/**
+ * 記録を書く。同じディレクトリの一時ファイルに書き終えてから rename で置き換える。
+ *
+ * 直接 `writeFileSync` すると、既存ファイルを切り詰めた後で書込みに失敗したときに前回の記録
+ * (たとえば breach) が消え、SessionStart の着手指示が次の計測まで止まる。「測れなかったときは
+ * 前回の記録を残す」(ADR-092 決定 4) を守るため、失敗時は一時ファイルだけを消す。`fs` はテストで
+ * 書込みの失敗を差し込むためのもの。
+ */
+export function writeStatus(mainRoot, status, fs = { mkdirSync, writeFileSync, renameSync, rmSync }) {
   const path = join(mainRoot, STATUS_PATH);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(status, null, 2)}\n`);
+  fs.mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`;
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(status, null, 2)}\n`);
+    fs.renameSync(tmp, path);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
   return path;
 }
 
