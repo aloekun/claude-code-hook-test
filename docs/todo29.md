@@ -434,3 +434,77 @@
 
 - ブロックコメント・doc コメント・raw string の中の違反例で、対象にした rule が発火しない
 - コードに書いた違反は、これまでどおり検出する
+
+## post-merge feedback (#650〜#655) の一括採否から起票 (2026-11-20)
+
+> 対象は #650〜#655 の feedback report である。Tier 1 / 2 の採用候補から、ユーザーが作業内容の異なる 3 件を、PR 1 件ずつで採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。#650 Tier 1 #1 (`threads` の要約に紛れ込んだ `--pr` を止める) は、`src/cli-review-threads/src/main.rs` の 142 行目で実装済みなので起票しなかった。起票の前に、各項目が未実装であることを 2026-11-20 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。
+
+### 順位 613: wsl と script runtime の preset が、名前の後ろの境界を 1 つの定数から使う
+
+> **動機**: `script-runtime-block` と `wsl-direct-block` は、名前の後ろの境界 (引用なしのパスの文字クラスと、終端の `(?:\s|$|[;&<>])`) を、それぞれ自前で書いている (`src/hooks-pre-tool-validate/src/presets/safety/wsl_direct.rs` の 58 行目、`script_runtime.rs` の 124 行目)。両ファイルは doc コメントで「同じ境界」と述べるだけで、一致は誰も検査していない。#649 と #650 で同じ変更を 2 ファイルに手で入れ、#650 では引用なしの文字クラスの更新漏れで退行した (#650 の feedback、Tier 2 #1)。
+>
+> **由来**: `[improvement]`。元レポートは、2 つの定数をテストで比べる案だったため、ADR-084 (テスト専用コードは共有しない) との整合を待って様子見にしていた。本体のコードで定数を共有すればテストで比べる必要がなく、この衝突は起きないので採用した。
+>
+> **種類**: Tier 1 — hook (preset) の定義の 1 本化。工数 S。
+>
+> **参照**: [ADR-080](adr/adr-080-rust-module-split-invariants.md) (`pub(crate)`)、[ADR-081](adr/adr-081-single-fact-dispersion.md) (同一事実の分散)
+
+#### 作業計画
+
+- [ ] 境界の部品 (引用付き・引用なしのパスと終端) を `presets/safety/` の 1 箇所に `pub(crate)` で置き、両 preset の regex をそこから組み立てる。挙動は変えない
+- [ ] 既存の両 preset のテストがそのまま通ることを確かめる。共有した定数の引用なしの文字クラスから境界の文字 (`;` `&` `<` `>`) を外すと、両 preset のテストが落ちることを `pnpm -s mutate` で確かめる
+
+#### 完了基準
+
+- 境界の定義が 1 箇所にだけあり、両 preset がそれを使っている
+- 境界を変える変更が、1 箇所の編集で両 preset に効く
+
+### 順位 614: Outside diff の節のパーサで、未テストの fence の境界をまとめて固める
+
+> **動機**: #651 では、`src/check-ci-coderabbit/src/outside_diff.rs` の `split_items` / `Fence` に CodeRabbit の指摘が 4 ラウンド続いた。毎回 1 つの境界だけを直し、その隣の境界が次の指摘になった (#651 の feedback、Tier 2 #1)。2026-11-20 時点のテストは 14 件で、次の 5 つの境界を直接検証するものは無い。
+>
+> - (a) 閉じないフェンスがあると、節は読めない扱いになる (fail-closed)。現実装は、閉じないフェンスより後ろの `パス:行` を読まないだけで、それを呼び出し元へ伝えない。フェンスがすべての指摘の後ろにあると、件数の照合が通り、節は読めた扱いになる (PR #656 の CodeRabbit の指摘)。テストに加えて実装の修正が要る
+> - (b) `` ```text `` のように、記号の後ろに文字がある行は閉じにならない (`Fence::closes` は実装済みで、テストが無い)
+> - (c) 開きより長い閉じは閉じになる
+> - (d) 行頭に 4 個以上の空白がある ``` は fence にしない (CommonMark)。現実装は `split_items` で `l.trim()` してから `Fence::of` に渡すので、字下げした行も fence として扱う。テストに加えて実装の修正も要る見込み
+> - (e) 見出しより前の本文にある件数の語句は、「読めない」扱いになる
+>
+> **由来**: `[improvement]`。
+>
+> **種類**: Tier 2 — テストの追加 (と (a) / (d) の実装修正)。工数 S。
+>
+> **参照**: [ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)
+
+#### 作業計画
+
+- [ ] (a)〜(e) のテストを `outside_diff.rs` の `mod tests` にまとめて足す。それぞれ、通す側 (正しく読む) と止める側 (読めない扱い) の両方を置く
+- [ ] (a) が今の実装で落ちることを確かめてから、閉じないフェンスを `split_items` から呼び出し元へ伝え、`read_section` がその節を読めない扱いにする。件数の照合と、閉じたフェンスの扱いは変えない
+- [ ] (d) が今の実装で落ちることを確かめてから、字下げの扱いを直す。引用ブロックの `>` を外した後の行頭の空白で判定する
+- [ ] (a)〜(e) の判定を 1 つずつ外す変異が、足したテストで落ちることを `pnpm -s mutate` で確かめる
+
+#### 完了基準
+
+- (a)〜(e) がテストで固定されている
+- 閉じないフェンスがあれば、指摘の件数が見出しと合っていても、節を読めない扱いにする
+- 行頭に 4 個以上の空白がある ``` は fence として扱わない。空白 1〜3 個の ``` は、これまでどおり fence として扱う
+
+### 順位 615: nextest の版とコマンドが CI・クラウド・手元で揃っていることを検査する
+
+> **動機**: nextest の版 `0.9.152` は、`.github/workflows/ci.yml` (198 行目)、`scripts/cloud-setup.sh` の `NEXTEST_VERSION` (61 行目)、`.config/nextest.toml` のコメント (8 行目) の 3 箇所に書いてある。3 箇所を揃える約束は `.config/nextest.toml` のコメント (ADR-051 の論理結合) にあるだけで、突き合わせる検査は無い。版を上げるときに 1 箇所でも漏れると、CI・クラウド・手元のどれかが別の版で走り、緑の結果を信用できなくなる。テストのコマンドも、`push-runner-config.toml` (223〜224 行目) と `ci.yml` (202 / 232 行目) に別々に書いてある (#654 の feedback、Tier 2 #1。#653 Tier 2 #3 も同じ内容)。
+>
+> **由来**: `[improvement]`。
+>
+> **種類**: Tier 2 — 設定の一致を見るテストの追加。工数 S。
+>
+> **参照**: [ADR-051](adr/adr-051-cross-system-config-coupling.md)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md)、[ADR-081](adr/adr-081-single-fact-dispersion.md)
+
+#### 作業計画
+
+- [ ] 3 箇所から版を取り出して一致を見るテストを、`scripts/*.test.mjs` に足す (置く場所は着手時に決める)。どれか 1 箇所で版が取れないときも落とす (取れないのを「一致」と見なさない)
+- [ ] `push-runner-config.toml` と `ci.yml` の `cargo nextest run` のコマンドが、`--profile ci` を除いて同じであることも検査する
+- [ ] 1 箇所の版を書き換えると落ちることを確かめる
+
+#### 完了基準
+
+- nextest の版を 1 箇所だけ変えると、テストが落ちる
+- push-runner と CI の nextest のコマンドが食い違うと、テストが落ちる
