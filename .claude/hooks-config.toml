@@ -207,6 +207,12 @@ enabled = true
 default_branch = "master"       # trunk-based 前提、feature branch 運用では変更
 grep_recent_limit = 20          # jj log で参照する直近 commit 数
 
+# push 済みのコミットへの Edit / Write を止める (順位 611、ADR-045)。@ と同じ change を remote の
+# bookmark が指していれば、`jj new` してから編集するよう案内して止める。jj が使えなければ通す。
+[pre_tool_validate.pushed_commit_guard]
+enabled = true
+remote = "origin"
+
 # ─── PostToolUse: カスタムリンター ───
 # プロジェクト固有のカスタムルールは custom-lint-rules.toml に定義。
 # 正規表現ベースのリテラルマッチのみ。AST解析が必要なルールは
@@ -481,6 +487,7 @@ trend_months = 6              # レポートが遡る月数 (月別表 / 発火 
 #   jj-op-verify                               = hooks-post-tool-jj-op-verify (operation 未記録 warn)
 #   hooks-stop-quality                         = Stop 品質ゲート (block)
 #   hooks-stop-report-language                 = Stop 最後の報告の言語 (block、ADR-091)
+#   pushed-commit-guard                        = hooks-pre-tool-validate (push 済みコミットへの編集、block、順位 611)
 #   reaper / staleness / workspace_stale / weekly_review_reminder /
 #   monthly_review_reminder / ci_sli_reminder  = hooks-session-start の nudge 群 (warn)
 #   (pr_monitor_catchup は WP-17 PR 3 で nudge ごと撤去 — 過去の firings jsonl には残るが
@@ -491,6 +498,7 @@ hook_ids = [
   "jj-op-verify",
   "hooks-stop-quality",
   "hooks-stop-report-language",
+  "pushed-commit-guard",
   "reaper",
   "staleness",
   "workspace_stale",

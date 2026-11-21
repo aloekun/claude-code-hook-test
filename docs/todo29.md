@@ -391,27 +391,6 @@
 - 正常な run (2 ターン以上) では判定が発火しない
 - 結果ファイルが無いときは、判定できないことを明示して失敗する
 
-### 順位 611: push 済みのコミットを編集し続けることを止める
-
-> **動機**: `pnpm push` の後も、作業コピー (`@`) は push したコミットのまま残る。そのまま編集すると、jj は変更を push 済みのコミットに取り込み、次の push でそのコミットが書き換わる。2026-11-13 の #636 では、レビュースレッドの返信で示したコミット (c1633731) が PR から消えるところだった。push の前に気づき、`jj op restore` で戻した。[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) は「ファイル編集を始める前に `jj new` する」と定めているが、文章の規約なので、push の直後に続けて作業する場面で漏れた。
->
-> **由来**: `[improvement]`。2026-11-13、#636 の post-merge feedback の採否で、#5 (`jj op restore` の前に変更を確かめることを memory に書く) の代わりに採用した。
->
-> **種類**: Tier 1 — push 済みのコミットへの書き込みを止める仕組み。元レポートの #5 は Tier 3 (memory) だが、根本の原因は push 済みのコミットへの書き込みで、仕組みで止められるため種類を変えた。工数 S-M (方式の実測を含む)。
->
-> **参照**: [ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md) § ファイル編集を始める前に `jj new` する、[ADR-087](adr/adr-087-review-thread-resolution-after-push.md)、`src/cli-push-runner/`
-
-#### 作業計画
-
-- [ ] 案 1 を jj 0.42 で実測する: repo の jj config で `immutable_heads()` に push 済みの bookmark (`remote_bookmarks(remote=origin)` など) を加える。push 済みの `@` に編集があったとき、snapshot が拒否されるか、新しい `@` が作られるかを確かめる。master が進んだ後の `jj rebase -b` など、push 済みのブランチを意図して書き換える操作が止まることの扱いも確かめる
-- [ ] 案 2 を実測する: PreToolUse (Edit / Write) hook で、`@` が remote bookmark の位置と一致するときに止める。jj を呼ぶコストを測る
-- [ ] 実測の結果で方式を決め、ADR-045 の該当節から参照する
-
-#### 完了基準
-
-- push の直後に `jj new` をせずにファイルを編集すると、push 済みのコミットが書き換わる前に止まる
-- push 済みのブランチを意図して書き換える操作 (rebase など) を通す手順がある
-
 ## 順位 591 の点検から起票 (2026-11-16)
 
 ### 順位 612: custom lint rule がコメントと raw string の中の違反例で発火しないようにする

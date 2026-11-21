@@ -103,6 +103,7 @@ mod tests {
                 extra_protected_files: None,
                 todo_staleness: None,
                 allowed_commands: None,
+                pushed_commit_guard: None,
             }),
         };
         build_blocked_patterns(&config)
