@@ -105,7 +105,6 @@
 | 609 | Tier 2 | **[improvement] pr-monitor の analyze で Claude が即時に失敗したら、認証の失効を疑う理由を示して落とす** | todo29.md | S | なし (2026-11-13、#635 / #636 の post-merge feedback。Guard 禁止パスのため human lane) |
 | 611 | Tier 1 | **[improvement] push 済みのコミットを編集し続けることを止める** | todo29.md | S-M | なし (2026-11-13、#636 の post-merge feedback の採否で #5 の代わりに採用) |
 | 612 | Tier 1 | **[improvement] custom lint rule がコメントと raw string の中の違反例で発火しないようにする** | todo29.md | M | なし (2026-11-16、順位 591 の点検で判明。14 rule ともブロックコメント内で発火。実害の観測を待ってから対処を選ぶ) |
-| 613 | Tier 1 | **[improvement] wsl と script runtime の preset が、名前の後ろの境界を 1 つの定数から使う** | todo29.md | S | なし (2026-11-20、#650 の post-merge feedback) |
 | 614 | Tier 2 | **[improvement] Outside diff の節のパーサで、未テストの fence の境界をまとめて固める** | todo29.md | S | なし (2026-11-20、#651 の post-merge feedback。閉じないフェンスと字下げの扱いは実装の修正も要る) |
 | 615 | Tier 2 | **[improvement] nextest の版とコマンドが CI・クラウド・手元で揃っていることを検査する** | todo29.md | S | なし (2026-11-20、#653 / #654 の post-merge feedback) |
 

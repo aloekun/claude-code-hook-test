@@ -1,6 +1,6 @@
 //! wsl-direct-block プリセット (opt-in)。
 
-use super::script_runtime::command_head;
+use super::script_runtime::{command_head, program_name};
 use crate::blocked_patterns::BlockedPattern;
 use regex::Regex;
 
@@ -39,8 +39,9 @@ pub(crate) const WSL_DIRECT_MSG: &str = r#"**WSL の直接実行がブロック�
 /// 素の名前は小文字だけを止める。英文の行頭の `WSL では ...` をコマンドと取り違えないため。パスか
 /// `.exe` が付けば大文字小文字を区別しない (Windows ではどちらも実行できる)。
 ///
-/// 名前の後ろの境界は `script-runtime-block` と同じ (空白・行末・`;`・`&`・`<`・`>`)。`<` `>` を
-/// 引用符の無いパスの文字に含めない理由も同じ (`cat</tmp/wsl>out.txt` を止めない)。
+/// 名前の後ろの境界と引用符の読み方は、`script-runtime-block` と共有する [`program_name`] が持つ
+/// (空白・行末・`;`・`&`・`<`・`>`)。`<` `>` を引用符の無いパスの文字に含めない理由も同じ
+/// (`cat</tmp/wsl>out.txt` を止めない)。
 ///
 /// # 対象にしないもの
 ///
@@ -51,13 +52,7 @@ pub(crate) const WSL_DIRECT_MSG: &str = r#"**WSL の直接実行がブロック�
 /// - 名前を変数に入れて呼ぶ、別のスクリプトの中から呼ぶ、といった間接的な起動
 pub(crate) fn preset_wsl_direct() -> Vec<BlockedPattern> {
     let name_in = |path_char: &str| format!(r"(?:(?i:{path_char}*[\\/]wsl(?:\.exe)?)|(?i:wsl\.exe)|wsl)");
-    let unquoted = name_in(r#"[^\s"';&|<>]"#);
-    let double_quoted = format!(r#""{}""#, name_in(r#"[^"\n]"#));
-    let single_quoted = format!("'{}'", name_in(r"[^'\n]"));
-    let pattern = format!(
-        r"(?m){}(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|[;&<>])",
-        command_head()
-    );
+    let pattern = format!(r"(?m){}{}", command_head(), program_name(name_in));
     vec![BlockedPattern {
         pattern: Regex::new(&pattern).unwrap(),
         exception: None,
