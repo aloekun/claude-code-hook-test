@@ -118,16 +118,25 @@ pub(crate) fn preset_script_runtime() -> Vec<BlockedPattern> {
             r"(?:(?i:{path_char}*[\\/]{BASE}(?:\.exe)?)|(?i:{BASE}\.exe)|{BASE}|{path_char}*{EXTENSIONS})"
         )
     };
-    let unquoted = runtime_in(r#"[^\s"';&|<>]"#);
-    let double_quoted = format!(r#""{}""#, runtime_in(r#"[^"\n]"#));
-    let single_quoted = format!("'{}'", runtime_in(r"[^'\n]"));
-    let runtime = format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|[;&<>])");
-    let pattern = format!(r"(?m){}{runtime}", command_head());
+    let pattern = format!(r"(?m){}{}", command_head(), program_name(runtime_in));
     vec![BlockedPattern {
         pattern: Regex::new(&pattern).unwrap(),
         exception: None,
         message: SCRIPT_RUNTIME_MSG,
     }]
+}
+
+/// 実行するプログラムの名前 (引用符なし・`"` 付き・`'` 付き) と、その後ろの境界に一致する正規表現。
+///
+/// `name_in` は、パスに使える文字の文字クラスを受け取り、名前の選択肢を返す。引用符の種類ごとに
+/// 文字クラスを変えて呼ぶ。境界と文字クラスの決め方は [`preset_script_runtime`] の doc のとおり
+/// (`<` `>` を境界にし、引用符の無いパスの文字には含めない)。`wsl-direct-block` も同じ境界で `wsl` を
+/// 見るので、ここを共有する (#649 / #650 で 2 ファイルへ手で同じ変更を入れ、片方の更新漏れで退行した)。
+pub(crate) fn program_name(name_in: impl Fn(&str) -> String) -> String {
+    let unquoted = name_in(r#"[^\s"';&|<>]"#);
+    let double_quoted = format!(r#""{}""#, name_in(r#"[^"\n]"#));
+    let single_quoted = format!("'{}'", name_in(r"[^'\n]"));
+    format!(r"(?:{double_quoted}|{single_quoted}|{unquoted})(?:\s|$|[;&<>])")
 }
 
 /// コマンドの位置から、実行するプログラムの名前の直前までに一致する正規表現 (`(?m)` は呼び手が付ける)。

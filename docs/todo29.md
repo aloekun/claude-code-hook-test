@@ -439,26 +439,6 @@
 
 > 対象は #650〜#655 の feedback report である。Tier 1 / 2 の採用候補から、ユーザーが作業内容の異なる 3 件を、PR 1 件ずつで採用した。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した。#650 Tier 1 #1 (`threads` の要約に紛れ込んだ `--pr` を止める) は、`src/cli-review-threads/src/main.rs` の 142 行目で実装済みなので起票しなかった。起票の前に、各項目が未実装であることを 2026-11-20 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。
 
-### 順位 613: wsl と script runtime の preset が、名前の後ろの境界を 1 つの定数から使う
-
-> **動機**: `script-runtime-block` と `wsl-direct-block` は、名前の後ろの境界 (引用なしのパスの文字クラスと、終端の `(?:\s|$|[;&<>])`) を、それぞれ自前で書いている (`src/hooks-pre-tool-validate/src/presets/safety/wsl_direct.rs` の 58 行目、`script_runtime.rs` の 124 行目)。両ファイルは doc コメントで「同じ境界」と述べるだけで、一致は誰も検査していない。#649 と #650 で同じ変更を 2 ファイルに手で入れ、#650 では引用なしの文字クラスの更新漏れで退行した (#650 の feedback、Tier 2 #1)。
->
-> **由来**: `[improvement]`。元レポートは、2 つの定数をテストで比べる案だったため、ADR-084 (テスト専用コードは共有しない) との整合を待って様子見にしていた。本体のコードで定数を共有すればテストで比べる必要がなく、この衝突は起きないので採用した。
->
-> **種類**: Tier 1 — hook (preset) の定義の 1 本化。工数 S。
->
-> **参照**: [ADR-080](adr/adr-080-rust-module-split-invariants.md) (`pub(crate)`)、[ADR-081](adr/adr-081-single-fact-dispersion.md) (同一事実の分散)
-
-#### 作業計画
-
-- [ ] 境界の部品 (引用付き・引用なしのパスと終端) を `presets/safety/` の 1 箇所に `pub(crate)` で置き、両 preset の regex をそこから組み立てる。挙動は変えない
-- [ ] 既存の両 preset のテストがそのまま通ることを確かめる。共有した定数の引用なしの文字クラスから境界の文字 (`;` `&` `<` `>`) を外すと、両 preset のテストが落ちることを `pnpm -s mutate` で確かめる
-
-#### 完了基準
-
-- 境界の定義が 1 箇所にだけあり、両 preset がそれを使っている
-- 境界を変える変更が、1 箇所の編集で両 preset に効く
-
 ### 順位 615: nextest の版とコマンドが CI・クラウド・手元で揃っていることを検査する
 
 > **動機**: nextest の版 `0.9.152` は、`.github/workflows/ci.yml` (198 行目)、`scripts/cloud-setup.sh` の `NEXTEST_VERSION` (61 行目)、`.config/nextest.toml` のコメント (8 行目) の 3 箇所に書いてある。3 箇所を揃える約束は `.config/nextest.toml` のコメント (ADR-051 の論理結合) にあるだけで、突き合わせる検査は無い。版を上げるときに 1 箇所でも漏れると、CI・クラウド・手元のどれかが別の版で走り、緑の結果を信用できなくなる。テストのコマンドも、`push-runner-config.toml` (223〜224 行目) と `ci.yml` (202 / 232 行目) に別々に書いてある (#654 の feedback、Tier 2 #1。#653 Tier 2 #3 も同じ内容)。
