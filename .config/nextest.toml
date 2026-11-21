@@ -9,6 +9,7 @@
 #   - CI: .github/workflows/ci.yml の install-action
 #   - クラウド: scripts/cloud-setup.sh の NEXTEST_VERSION
 #   - 手元: `cargo install cargo-nextest --locked --version 0.9.152`
+# 一致は scripts/nextest-parity.test.mjs が検査する (push-runner と CI のコマンドの一致も同じテスト)。
 
 # push-runner (手元) が使う。1 件目の失敗で止め、push の待ち時間を短くする。
 [profile.default]
