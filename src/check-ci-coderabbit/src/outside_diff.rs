@@ -35,6 +35,10 @@ use crate::models::{FindingSource, GhReview, ListedFinding, UnreadableReviewBody
 
 /// 節があることを示す語。見出しの件数が読めなくても、この語があれば節はある。
 const SECTION_PHRASE: &str = "Outside diff range comment";
+/// 節の中のコードブロックが閉じないまま節が終わったときの理由。
+const UNCLOSED_FENCE: &str = "節の中のコードブロックが閉じていない";
+/// 見出しと読んだ行の節より後ろに、節の語がもう一度出たときの理由。
+const PHRASE_OUTSIDE_SECTION: &str = "「Outside diff range comment」が、見出しと読んだ行の節より後ろにもある";
 
 static HEADING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"Outside diff range comments? \((\d+)\)").unwrap());
@@ -107,13 +111,25 @@ fn read_section(body: &str) -> Result<Vec<SectionItem>, String> {
         .ok_or_else(unreadable)?;
     let section: Vec<&str> = lines[heading_at + 1..]
         .iter()
-        .map_while(|l| unquote(l))
+        .copied()
+        .take_while(|l| unquote(l).is_some())
         .collect();
-    let items = split_items(&section);
+    if phrase_reappears(&lines[heading_at + 1 + section.len()..]) {
+        return Err(PHRASE_OUTSIDE_SECTION.to_string());
+    }
+    let items = split_items(&section)?;
     if items.len() != expected {
         return Err(format!("見出しは {expected} 件だが、読めた指摘は {} 件", items.len()));
     }
     Ok(items)
+}
+
+/// 見出しと読んだ行の節より後ろ (`after_section`) に、節の語がもう一度出るか。
+///
+/// 見出しと読んだ行が本文中の語句で、本物の見出しが空行の後ろにあると、節が空に見えて件数 0 と
+/// 照合が合ってしまう。語がもう一度出たら、どちらが見出しか決められないので読めない扱いにする。
+fn phrase_reappears(after_section: &[&str]) -> bool {
+    after_section.iter().any(|l| l.contains(SECTION_PHRASE))
 }
 
 /// 引用ブロックの 1 行から `>` を外す。引用ブロックの外なら None (節の終わり)。
@@ -122,35 +138,65 @@ fn unquote(line: &str) -> Option<&str> {
     Some(rest.strip_prefix(' ').unwrap_or(rest))
 }
 
+/// 引用ブロックの 1 行の中身の字下げ (桁数) と、字下げの後ろの文字列。引用ブロックの外なら None。
+///
+/// CommonMark はタブを 4 桁単位のタブ位置まで進めて数え、`>` の後ろの省略できる空白 1 個は、
+/// タブの一部でもよい。そのため `> \t` の後ろの字下げは 2 桁で、fence になりうる
+/// (PR #657 の CodeRabbit の指摘)。`>` を外した後の文字列だけでは桁位置が分からないので、
+/// 元の行の桁で数える。
+fn quoted_content_indent(line: &str) -> Option<(usize, &str)> {
+    const TAB_STOP: usize = 4;
+    let rest = line.strip_prefix('>')?;
+    let content_start = if rest.starts_with([' ', '\t']) { 2 } else { 1 };
+    let mut column = 1;
+    for (at, c) in rest.char_indices() {
+        match c {
+            ' ' => column += 1,
+            '\t' => column += TAB_STOP - column % TAB_STOP,
+            _ => return Some((column.saturating_sub(content_start), &rest[at..])),
+        }
+    }
+    Some((column.saturating_sub(content_start), ""))
+}
+
 /// 節の行を、`パス:行` の行ごとに指摘へ分ける。
 ///
 /// コードブロック (```` ``` ```` か `~~~` で囲んだ範囲) の中の `パス:行` は、本文に書かれた例であって
 /// 指摘の始まりではない。数えると見出しの件数と合わなくなり、節全体が読めない扱いになる。
-fn split_items(section: &[&str]) -> Vec<SectionItem> {
+///
+/// ブロックが閉じないまま節が終われば、件数が合っていても [`UNCLOSED_FENCE`] を返す。閉じないブロックの
+/// 後ろに `パス:行` があったかどうかを区別できないため ([ADR-043] の fail-closed)。
+///
+/// `section` は引用ブロックの行を `>` を付けたまま受け取る (字下げを元の行の桁で数えるため)。
+///
+/// [ADR-043]: ../../../docs/adr/adr-043-security-gates-fail-closed.md
+fn split_items(quoted_section: &[&str]) -> Result<Vec<SectionItem>, String> {
+    let section: Vec<&str> = quoted_section.iter().map(|l| unquote(l).unwrap_or(l)).collect();
     let mut open: Option<Fence> = None;
-    let starts: Vec<(usize, String, u64)> = section
-        .iter()
-        .enumerate()
-        .filter_map(|(i, l)| {
-            let l = l.trim();
-            let fence = Fence::of(l);
-            match (&open, fence) {
-                (None, Some(f)) => {
-                    open = Some(f);
-                    return None;
-                }
-                (Some(o), Some(f)) if f.closes(o, l) => {
-                    open = None;
-                    return None;
-                }
-                (Some(_), _) => return None,
-                (None, None) => {}
+    let mut starts: Vec<(usize, String, u64)> = Vec::new();
+    for (i, (quoted, unquoted)) in quoted_section.iter().zip(&section).enumerate() {
+        let l = unquoted.trim();
+        match (open, Fence::of(quoted)) {
+            (None, Some(f)) => {
+                open = Some(f);
+                continue;
             }
-            let caps = LOCATION.captures(l)?;
-            Some((i, caps[1].to_string(), caps[2].parse().ok()?))
-        })
-        .collect();
-    starts
+            (Some(o), Some(f)) if f.closes(&o, l) => {
+                open = None;
+                continue;
+            }
+            (Some(_), _) => continue,
+            (None, None) => {}
+        }
+        let Some(caps) = LOCATION.captures(l) else { continue };
+        if let Ok(line) = caps[2].parse() {
+            starts.push((i, caps[1].to_string(), line));
+        }
+    }
+    if open.is_some() {
+        return Err(UNCLOSED_FENCE.to_string());
+    }
+    Ok(starts
         .iter()
         .enumerate()
         .map(|(n, (at, file, line))| {
@@ -164,7 +210,7 @@ fn split_items(section: &[&str]) -> Vec<SectionItem> {
                 also_applies_to: also_applies_to(&text),
             }
         })
-        .collect()
+        .collect())
 }
 
 /// コードブロックの開き・閉じの行 (CommonMark の fence)。記号を 3 個以上並べる。
@@ -175,11 +221,27 @@ struct Fence {
 }
 
 impl Fence {
-    /// 行 (前後の空白を外したもの) が fence で始まっていれば、その記号と個数。
-    fn of(line: &str) -> Option<Fence> {
+    /// 引用ブロックの 1 行 (`>` 付き) が fence で始まっていれば、その記号と個数。
+    ///
+    /// 中身の字下げ ([`quoted_content_indent`]、タブは桁位置で数える) は 3 桁まで許す。4 桁以上なら、
+    /// CommonMark では字下げのコードブロックの行であって fence ではない。
+    ///
+    /// バッククォートの fence は、記号の後ろ (info string) にバッククォートを含められない。
+    /// ```` ``` ```` の例です」のように後ろにもバッククォートがある行はインラインコードで、fence ではない
+    /// (PR #657 の CodeRabbit の指摘)。`~~~` の後ろは何でもよい。
+    fn of(quoted_line: &str) -> Option<Fence> {
+        const MAX_FENCE_INDENT: usize = 3;
+        let (indent, line) = quoted_content_indent(quoted_line)?;
+        if indent > MAX_FENCE_INDENT {
+            return None;
+        }
         let mark = line.chars().next().filter(|c| *c == '`' || *c == '~')?;
         let len = line.chars().take_while(|c| *c == mark).count();
-        (len >= 3).then_some(Fence { mark, len })
+        let info = &line[len * mark.len_utf8()..];
+        if len < 3 || (mark == '`' && info.contains('`')) {
+            return None;
+        }
+        Some(Fence { mark, len })
     }
 
     /// `opened` で開いたブロックを閉じる行か。同じ記号を開きと同じ数以上並べ、後ろに何も書かない。
@@ -298,6 +360,132 @@ mod tests {
     #[test]
     fn a_shorter_fence_does_not_close_a_longer_one() {
         let body = with_block_before_the_location("> ````\n> ```\n> `src/example.rs:10`\n> ````");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// (a) 閉じないコードブロックは、指摘がすべてその前にあって件数が合っても、節を読めない扱いにする。
+    /// 閉じないブロックより後ろの `パス:行` を読み落としたのか、本当に無いのかを区別できないため。
+    #[test]
+    fn an_unclosed_fence_after_every_item_is_unreadable() {
+        let body = PR649.replace("> `wsl|cat` は Bash で", "> ```\n> `wsl|cat` は Bash で");
+        assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
+        assert_eq!(read_section(&body), Err(UNCLOSED_FENCE.to_string()));
+    }
+
+    /// (a) 閉じないブロックが指摘より前にあれば、件数の照合より先に、閉じていないことを理由にする。
+    #[test]
+    fn an_unclosed_fence_before_the_items_is_reported_as_unclosed() {
+        let body = with_block_before_the_location("> ```");
+        assert_eq!(read_section(&body), Err(UNCLOSED_FENCE.to_string()));
+    }
+
+    /// (b) 記号の後ろに文字がある行 (```` ```text ````) は閉じではなく、ブロックの中身として読む。
+    #[test]
+    fn a_fence_with_an_info_string_does_not_close() {
+        let body = with_block_before_the_location("> ```\n> ```text\n> `src/example.rs:10`\n> ```");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// (b) ```` ```text ```` しか後ろに無ければ、ブロックは閉じていない。
+    #[test]
+    fn a_block_followed_only_by_an_info_string_fence_is_unclosed() {
+        let body = with_block_before_the_location("> ```\n> ```text");
+        assert_eq!(read_section(&body), Err(UNCLOSED_FENCE.to_string()));
+    }
+
+    /// (c) 開きより長い fence は閉じになる。閉じた後の本物の指摘は読む。
+    #[test]
+    fn a_longer_fence_closes_a_shorter_one() {
+        let body = with_block_before_the_location("> ```\n> `src/example.rs:10`\n> ````");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// (d) `>` を外した後の行頭に空白が 1〜3 個ある ```` ``` ```` は、fence として扱う (CommonMark)。
+    #[test]
+    fn a_fence_indented_by_up_to_three_spaces_is_a_fence() {
+        for indent in 1..=3 {
+            let pad = " ".repeat(indent);
+            let body = with_block_before_the_location(&format!("> {pad}```\n> `src/example.rs:10`\n> {pad}```"));
+            let items = read_section(&body).unwrap();
+            assert_eq!(items.len(), 1, "字下げ {indent} 個");
+            assert_eq!(items[0].line, 52, "字下げ {indent} 個");
+        }
+    }
+
+    /// (d) 中身の字下げが 4 桁以上ある ```` ``` ```` は fence ではない (CommonMark では字下げの
+    /// コードブロック)。fence と読むと、その後ろの本物の指摘が隠れる。タブは桁位置で数える
+    /// (`> ` の後ろの `  \t` は 6 桁、`\t  ` は 4 桁)。
+    #[test]
+    fn a_fence_indented_by_four_columns_or_more_is_not_a_fence() {
+        for pad in ["    ", "     ", "  \t", "\t  "] {
+            let body = with_block_before_the_location(&format!("> {pad}```"));
+            let items = read_section(&body).unwrap_or_else(|e| panic!("字下げ {pad:?}: {e}"));
+            assert_eq!(items.len(), 1, "字下げ {pad:?}");
+            assert_eq!(items[0].line, 52, "字下げ {pad:?}");
+        }
+    }
+
+    /// (d) `>` の後ろのタブは、省略できる空白 1 個を兼ねて 4 桁目まで進むので、字下げは 2 桁で fence に
+    /// なる (PR #657 の CodeRabbit の指摘)。開き・閉じのどちらでも fence として読む。
+    #[test]
+    fn a_tab_after_the_quote_marker_indents_a_fence_by_two_columns() {
+        for (open, close) in [("> \t", "> \t"), (">\t", ">\t"), (">  \t", ">  \t"), ("> ", "> \t")] {
+            let body = with_block_before_the_location(&format!("{open}```\n> `src/example.rs:10`\n{close}```"));
+            let items = read_section(&body).unwrap_or_else(|e| panic!("開き {open:?} / 閉じ {close:?}: {e}"));
+            assert_eq!(items.len(), 1, "開き {open:?} / 閉じ {close:?}");
+            assert_eq!(items[0].line, 52, "開き {open:?} / 閉じ {close:?}");
+        }
+    }
+
+    /// バッククォートの後ろにもバッククォートがある行 (インラインコード) は fence ではない。
+    /// fence と読むと、閉じないブロックとして節全体が読めない扱いになる (PR #657 の CodeRabbit の指摘)。
+    #[test]
+    fn a_backtick_run_followed_by_another_backtick_is_not_a_fence() {
+        let body = PR649.replace("> `wsl|cat` は Bash で", "> ```` ``` ```` の例です\n> `wsl|cat` は Bash で");
+        assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// バッククォートを含まない info string (言語名) の開きと、`~~~` の後ろのバッククォートは、
+    /// これまでどおり fence として読む。
+    #[test]
+    fn info_strings_without_backticks_and_tilde_fences_with_backticks_still_open() {
+        for block in [
+            "> ```rust\n> `src/example.rs:10`\n> ```",
+            "> ~~~ `quoted`\n> `src/example.rs:10`\n> ~~~",
+        ] {
+            let items = read_section(&with_block_before_the_location(block)).unwrap_or_else(|e| panic!("{block:?}: {e}"));
+            assert_eq!(items.len(), 1, "{block:?}");
+            assert_eq!(items[0].line, 52, "{block:?}");
+        }
+    }
+
+    /// (e) 見出しより前の本文に件数の語句があり、空行で本物の節と離れていても、0 件にせず読めない扱いにする。
+    /// 先頭の語句を見出しと読むと、その後ろの節が空に見え、本物の指摘が「指摘なし」に化ける。
+    #[test]
+    fn a_count_phrase_before_the_heading_is_unreadable_not_zero() {
+        let body = PR649.replace(
+            "**Actionable comments posted: 1**",
+            "**Actionable comments posted: 1**\n\n前回の Outside diff range comments (0) は対応済み",
+        );
+        assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
+        assert_eq!(read_section(&body), Err(PHRASE_OUTSIDE_SECTION.to_string()));
+    }
+
+    /// (e) 見出しの後ろ (節の中) の本文にある件数の語句は使わず、見出しの件数で照合する。
+    #[test]
+    fn a_count_phrase_inside_the_section_does_not_replace_the_heading_count() {
+        let body =
+            PR649.replace("> `wsl|cat` は Bash で", "> 例: `Outside diff range comments (0)`\n> `wsl|cat` は Bash で");
+        assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
         let items = read_section(&body).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].line, 52);
