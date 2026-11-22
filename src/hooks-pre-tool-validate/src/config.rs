@@ -19,7 +19,20 @@ pub(crate) struct PreToolValidateConfig {
     pub(crate) todo_staleness: Option<TodoStalenessConfig>,
     /// 削除ガードの許可リストに足すコマンド (ADR-086 決定 5)。`*` で終われば前方一致。
     pub(crate) allowed_commands: Option<Vec<String>>,
+    pub(crate) pushed_commit_guard: Option<PushedCommitGuardConfig>,
 }
+
+/// 順位 611: push 済みのコミットへの Edit / Write を止める ([`crate::pushed_commit_guard`])。
+/// ADR-039 experimental pattern 準拠 (default-OFF in source、repo config で明示 enable)。
+#[derive(Deserialize, Default)]
+pub(crate) struct PushedCommitGuardConfig {
+    pub(crate) enabled: Option<bool>,
+    /// push 先の remote の名前。省略時は [`PUSHED_COMMIT_GUARD_DEFAULT_REMOTE`]。
+    pub(crate) remote: Option<String>,
+}
+
+pub(crate) const PUSHED_COMMIT_GUARD_DEFAULT_REMOTE: &str = "origin";
+pub(crate) const PUSHED_COMMIT_GUARD_JJ_TIMEOUT_SECS: u64 = 5;
 
 /// 順位 136 案 B: `docs/todo*.md` Edit/Write 時の staleness 検知 + 既実装 grep 提示。
 /// ADR-039 experimental pattern 準拠 (default-OFF in source、repo config で明示 enable)。

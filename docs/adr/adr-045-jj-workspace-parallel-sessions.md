@@ -153,6 +153,21 @@ src の大規模分割 (メイン) と lint/facet/docs (改善) は編集領域�
 > 持つため状態だけでは区別がつかない。セッション開始時の change_id を記録する案の実測と
 > 見送りは [ADR-042](adr-042-rule-vs-mechanism-boundary.md) § 改訂 (2026-09-12) が持つ。
 
+**push 済みのコミットは hook が止める (2026-11-22 追記、順位 611)。** 上の判定できない場合のうち、
+`@` が **push 済みのコミット**である場合だけは、状態から判定できる (`@` と同じ change を remote の
+bookmark が指している)。2026-11-13 の #636 では、`pnpm push` の直後に `jj new` をせず編集を続け、
+レビュースレッドの返信で示したコミットが PR から消えかけた。
+
+- `hooks-pre-tool-validate` の `pushed_commit_guard` が、Edit / Write の前にこの状態を検出して止め、
+  `jj new` を案内する (`.claude/hooks-config.toml` の `[pre_tool_validate.pushed_commit_guard]`)。
+  change で比べるので、push 後に書き換えてまだ push していない状態も止める
+- push 済みのコミットを意図して直すときは、`jj new -m "wip: <内容>"` → 編集 → `jj squash -u` で取り込む
+  (`jj-message-required` preset が `-m` の無い `jj new` を止めるため、案内にも `-m` を付ける)
+- Bash 経由の編集 (`sed -i` など) は止めない。jj の `immutable_heads()` に push 済みの bookmark を
+  加える案は、すべての経路で効くが、push 済みの PR ブランチの rebase / squash のたびに
+  `--ignore-immutable` が要り、設定が追跡されないファイルに入るため採らなかった
+  (判定と実測は `src/hooks-pre-tool-validate/src/pushed_commit_guard.rs` の doc が持つ)
+
 ### Operation Verification Checklist (2026-07-13 新設、暫定手順)
 
 変更系 jj 操作 (`new` / `abandon` / `describe` / `rebase` / `squash` / `git fetch` / `git push`) の直後に、operation が記録されたことを確認する:

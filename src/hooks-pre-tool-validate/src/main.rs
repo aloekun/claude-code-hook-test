@@ -19,6 +19,7 @@ mod deletion_guard;
 mod handlers;
 mod presets;
 mod protected_files;
+mod pushed_commit_guard;
 #[cfg(test)]
 mod settings_wiring;
 mod todo_staleness;

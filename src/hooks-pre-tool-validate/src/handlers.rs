@@ -10,6 +10,7 @@ use crate::presets::safety::powershell::{
 };
 use crate::presets::{default_preset_names, preset_secret_detection};
 use crate::protected_files::is_protected_config;
+use crate::pushed_commit_guard::check_pushed_commit;
 use crate::todo_staleness::check_todo_staleness;
 use crate::ToolInput;
 use std::io::{self, Write};
@@ -133,7 +134,25 @@ pub(crate) fn handle_write_edit_tool(config: &Config, tool_input: &ToolInput) ->
     if let Some(code) = check_todo_staleness_for_edit(config, tool_input, &file_path) {
         return code;
     }
+    if let Some(code) = check_pushed_commit_for_edit(config, &file_path) {
+        return code;
+    }
     ExitCode::SUCCESS
+}
+
+fn check_pushed_commit_for_edit(config: &Config, file_path: &str) -> Option<ExitCode> {
+    let guard_config = config.pre_tool_validate.as_ref()?.pushed_commit_guard.as_ref()?;
+    let message = check_pushed_commit(file_path, guard_config)?;
+    lib_telemetry::record(&lib_telemetry::Firing {
+        hook: "hooks-pre-tool-validate",
+        kind: lib_telemetry::FiringKind::Hook,
+        id: "pushed-commit-guard",
+        decision: lib_telemetry::Decision::Block,
+        session_id: None,
+        reason: None,
+    });
+    let _ = io::stderr().write_all(message.as_bytes());
+    Some(ExitCode::from(2))
 }
 
 fn resolve_edit_file_path(tool_input: &ToolInput) -> String {
@@ -256,6 +275,7 @@ mod tests {
                 extra_protected_files: None,
                 todo_staleness: None,
                 allowed_commands: None,
+                pushed_commit_guard: None,
             }),
         }
     }
@@ -314,6 +334,7 @@ mod tests {
                 extra_protected_files: None,
                 todo_staleness: None,
                 allowed_commands: None,
+                pushed_commit_guard: None,
             }),
         };
         assert!(is_secret_detection_enabled(&config));
@@ -327,6 +348,7 @@ mod tests {
                 extra_protected_files: None,
                 todo_staleness: None,
                 allowed_commands: None,
+                pushed_commit_guard: None,
             }),
         };
         assert!(!is_secret_detection_enabled(&config));
