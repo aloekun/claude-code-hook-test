@@ -103,5 +103,10 @@
 | 607 | Tier 2 | **[improvement] pr-monitor の bookmark 前進の主経路を、push-runner (順位 376) と同じ target 直接照会に揃える** | todo29.md | S | なし (2026-11-11、#631 の post-merge feedback 採否中にテストで観測) |
 | 609 | Tier 2 | **[improvement] pr-monitor の analyze で Claude が即時に失敗したら、認証の失効を疑う理由を示して落とす** | todo29.md | S | なし (2026-11-13、#635 / #636 の post-merge feedback。Guard 禁止パスのため human lane) |
 | 612 | Tier 1 | **[improvement] custom lint rule がコメントと raw string の中の違反例で発火しないようにする** | todo29.md | M | なし (2026-11-16、順位 591 の点検で判明。14 rule ともブロックコメント内で発火。実害の観測を待ってから対処を選ぶ) |
+| 616 | Tier 1 | **[improvement] `pnpm threads fixed` / `rejected` の要約を、標準入力からも受け取る** | todo29.md | M | なし (2026-11-23、#661 の post-merge feedback。#660 の候補も同じ事象) |
+| 617 | Tier 2 | **[improvement] post-merge feedback が読む会話記録から、無関係な記録を除く** | todo29.md | M | なし (2026-11-23、#658 / #661 の post-merge feedback。別 session の記録を混ぜるのが仕様かを着手時に確かめる) |
+| 618 | Tier 2 | **[improvement] Outside diff の節のパーサのテストに、CommonMark 仕様書の fence の例を入れる** | todo29.md | M | なし (2026-11-23、#657 の post-merge feedback) |
+| 619 | Tier 2 | **[improvement] guard と preset の案内文に書いたコマンドが、有効な preset に止められないことを検査する** | todo29.md | S | なし (2026-11-23、#660 の post-merge feedback) |
+| 620 | Tier 1 | **[improvement] preset が、コミットメッセージの本文や heredoc の中の文字列に反応する誤検知を減らす** | todo29.md | M | なし (2026-11-23、#658 / #660 の post-merge feedback。判定から外す範囲は着手前にヒアリングで決める) |
 
 **着手順**: 本 table は着手の順番を持たない。何から着手するかは、着手するときにその時点の状況で決める ([ADR-090](adr/adr-090-todo-tier-as-kind.md) 決定 4)。2026-11-12 まであった「戦略」の行 (Tier 1 → 2 → 3 の順に片付ける) は、Tier を優先度として扱っていたため削除した。
