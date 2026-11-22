@@ -229,9 +229,14 @@ fn apply_removals(cli: &Cli, markdown: &str, verdicts: &[(u32, RankOutcome)]) ->
 /// 無いと「何が消えたのか」を台帳の履歴から引き直すことになる。タスク名は順位 table の
 /// 「タスク」列 (`SummaryRow::title`) で、鍵ではなく表示用である
 /// ([ADR-033](../../../docs/adr/adr-033-todo-numbering-simplification.md) § 2026-08-26 改訂)。
+///
+/// **タスク名は [`screen_for_public_output`] を通してから出す** (順位 504)。台帳の自由記述で、
+/// この行は GitHub Actions の run log (public repository では第三者に可視) に残る。改行が残ると
+/// 次の行頭に `::warning::` などの workflow command を書けてしまう。
 fn removal_report(rank: u32, title: &str, files: &[String]) -> String {
     format!(
-        "{MARKER_OK} 順位 {rank} ({title}) を後始末しました: {}",
+        "{MARKER_OK} 順位 {rank} ({}) を後始末しました: {}",
+        screen_for_public_output(title),
         files.join(", ")
     )
 }
@@ -360,6 +365,16 @@ mod tests {
         assert!(report.contains("順位 193"), "{report}");
         assert!(report.contains("companion helper の署名整合"), "{report}");
         assert!(report.contains("docs/todo.md"), "{report}");
+    }
+
+    /// 台帳の自由記述は改行・制御文字を落としてから出す。報告は 1 行のまま、改行の後ろに
+    /// workflow command (`::warning::`) を置けない。
+    #[test]
+    fn the_removal_report_screens_the_task_name() {
+        let report = removal_report(7, "名前\n::warning::注入\u{1b}[31m", &["a.md".to_string()]);
+        assert_eq!(report.lines().count(), 1, "{report:?}");
+        assert!(!report.contains('\u{1b}'), "{report:?}");
+        assert!(report.contains("名前::warning::注入"), "{report:?}");
     }
 
     /// 複数ファイルは従来どおり `, ` 区切りで並べる。

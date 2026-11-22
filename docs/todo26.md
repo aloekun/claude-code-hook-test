@@ -40,33 +40,6 @@
 
 ---
 
-### 順位 504: 台帳検査の入力空間を埋める
-
-> **動機**: F3 (順位索引の自己汚染) の実装中に、パーサが入力空間の一部で壊れることを
-> 実測で見つけた。PR [#457](https://github.com/aloekun/claude-code-hook-test/pull/457) /
-> PR [#458](https://github.com/aloekun/claude-code-hook-test/pull/458) /
-> PR [#460](https://github.com/aloekun/claude-code-hook-test/pull/460) の post-merge feedback。
->
-> **由来**: `[defect:G2]`。証拠 = PR #457。テストの場はあったが、`#[cfg(test)]` の宣言形の
-> 全パターン (親ファイル型 / インライン型 / multi-arg のコンマ終端) を覆っていなかった。
-
-#### 作業内容
-
-- multi-arg `#[cfg(test)]` 関数のコンマ終端パターンの回帰テスト
-- 実リポジトリに現存する `cfg(test)` 宣言パターンを全件走査して固定するテスト
-- `declared_text` と `repository_text` の非対称性 (宣言先はテストコードを含む / 索引は含まない) の固定
-- `SummaryRow.title` のような台帳の自由記述が出力前に `screen_for_public_output` を通ることの固定
-- 統合テストの変異テスト標準化 (`split_ledger.rs` で確立した手順を convention として書く)
-- **[ADR-049](adr/adr-049-incident-eval-regression-suite.md) に fix-induced-regression の case を追加**
-  (fix が隣接エッジに穴を作った incident。case を書かないと再現テストの出所が失われる)
-
-#### 完了基準
-
-- 上記パターンを潰すと落ちるテストが揃っている
-- ADR-049 の case 表に今回の incident が載っている
-
----
-
 ### 順位 511: `todo-summary2.md` を 3 分割し、明示列挙している呼び出し元を追随させる
 
 > **動機**: `docs/todo-summary2.md` が **79KB** に達した (50KB が Claude Code の読み取り安定閾値)。

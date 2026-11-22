@@ -79,7 +79,11 @@ pub(crate) fn production_code(source: &str) -> String {
 }
 
 /// テスト用の cfg 属性。2026-08-28 実測でリポジトリに在るのはこの 2 形だけ。
-const TEST_ATTRIBUTES: &[&[u8]] = &[b"#[cfg(test)]", b"#[cfg(all(test, windows))]"];
+///
+/// ここに無い形 (`cfg(any(test, ..))` など) で書いたテストコードは落とせず、索引に載る。
+/// 実リポジトリの全 `.rs` がこの形だけを使っていることは、`repo_index` のテスト
+/// (`every_test_cfg_attribute_in_the_repository_is_recognized`) が固定する (順位 504)。
+pub(crate) const TEST_ATTRIBUTES: &[&[u8]] = &[b"#[cfg(test)]", b"#[cfg(all(test, windows))]"];
 
 fn starts_with(bytes: &[u8], at: usize, needle: &[u8]) -> bool {
     bytes.len() >= at + needle.len() && &bytes[at..at + needle.len()] == needle
@@ -205,7 +209,9 @@ fn end_of_char_literal(bytes: &[u8], at: usize) -> Option<usize> {
 
 /// コメント・raw 文字列・文字列・文字リテラルのいずれかであれば読み飛ばした後の位置を返す。
 /// 該当しなければ `None` (呼び出し側が地の文字として扱う)。
-fn skip_lexical_trivia(bytes: &[u8], at: usize) -> Option<usize> {
+///
+/// `repo_index` のテストの cfg 属性の走査も、[`production_code`] と同じ字句の境界で読むために使う。
+pub(crate) fn skip_lexical_trivia(bytes: &[u8], at: usize) -> Option<usize> {
     if starts_with(bytes, at, b"//") {
         return Some(end_of_line_comment(bytes, at));
     }

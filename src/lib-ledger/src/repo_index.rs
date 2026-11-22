@@ -273,4 +273,134 @@ mod tests {
             "非ルート module のテストファイルが索引に載っています"
         );
     }
+
+    /// コード中の `#[cfg(...)]` / `#![cfg(...)]` のうち、`test` を条件に含むもの (属性の文字列ごと)。
+    /// `cfg(not(test))` は本番コードなので含めない。
+    ///
+    /// [`crate::rust_source::production_code`] と同じ読み方をする (PR #661 の CodeRabbit の指摘):
+    /// - 文字列・コメントの中は飛ばす。そこにある属性の表記は、production_code も属性として扱わない
+    /// - 行頭に限らず、どの位置の属性も拾う。production_code はどの位置でも属性を照合する
+    /// - 属性は対応する `)` と `]` まで、行をまたいで切り出す。複数行に分けた形は
+    ///   `TEST_ATTRIBUTES` と一致しないので、未知の形として報告される
+    fn test_cfg_attributes(text: &str) -> Vec<String> {
+        let bytes = text.as_bytes();
+        let mut found = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if let Some(next) = crate::rust_source::skip_lexical_trivia(bytes, i) {
+                i = next;
+                continue;
+            }
+            let opener = [&b"#[cfg("[..], &b"#![cfg("[..]]
+                .into_iter()
+                .find(|opener| bytes[i..].starts_with(opener));
+            let Some(opener) = opener else {
+                i += 1;
+                continue;
+            };
+            let end = cfg_attribute_end(bytes, i + opener.len());
+            let attribute = &text[i..end];
+            let words: Vec<&str> = attribute.split(|c: char| !(c.is_alphanumeric() || c == '_')).collect();
+            if words.contains(&"test") && !attribute.contains("not(test)") {
+                found.push(attribute.to_string());
+            }
+            i = end;
+        }
+        found
+    }
+
+    /// `cfg(` の直後 (`at`) から、対応する `)` の後の `]` までを読んだ位置。閉じなければ末尾。
+    fn cfg_attribute_end(bytes: &[u8], at: usize) -> usize {
+        let mut depth = 1usize;
+        let mut i = at;
+        while i < bytes.len() {
+            if let Some(next) = crate::rust_source::skip_lexical_trivia(bytes, i) {
+                i = next;
+                continue;
+            }
+            match bytes[i] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return if bytes.get(i + 1) == Some(&b']') { i + 2 } else { i + 1 };
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        bytes.len()
+    }
+
+    fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if !INDEX_SKIP_DIRS.contains(&name.as_str()) {
+                    collect_rs_files(&path, out);
+                }
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// **実リポジトリのテスト用 cfg 属性は、すべて [`crate::rust_source::TEST_ATTRIBUTES`] の形である**
+    /// (順位 504)。ここに無い形 (`#[cfg(any(test, unix))]` 等) でテストを書くと、索引から落とせず
+    /// 「リポジトリに在る」と読み違える。新しい形が要るなら、`TEST_ATTRIBUTES` に足してからこの
+    /// テストを通す。
+    #[test]
+    fn every_test_cfg_attribute_in_the_repository_is_recognized() {
+        let known: Vec<String> = crate::rust_source::TEST_ATTRIBUTES
+            .iter()
+            .map(|a| String::from_utf8(a.to_vec()).unwrap())
+            .collect();
+        let mut files = Vec::new();
+        collect_rs_files(&repo_root().join("src"), &mut files);
+        let mut seen_plain = 0;
+        let mut unknown = Vec::new();
+        for file in &files {
+            for attribute in test_cfg_attributes(&std::fs::read_to_string(file).unwrap()) {
+                if attribute == "#[cfg(test)]" {
+                    seen_plain += 1;
+                }
+                if !known.contains(&attribute) {
+                    unknown.push(format!("{}: {attribute}", file.display()));
+                }
+            }
+        }
+        assert!(seen_plain > 0, "走査が #[cfg(test)] を 1 件も見つけていない (走査の陽性対照、ADR-075 決定 6)");
+        assert!(unknown.is_empty(), "rust_source が落とせない cfg(test) の形:\n{}", unknown.join("\n"));
+    }
+
+    /// 上の走査が、認識されない形と `not(test)` を正しく仕分けること (陰性・陽性対照)。
+    #[test]
+    fn the_cfg_scan_reports_unrecognized_forms_and_skips_not_test() {
+        let text = "    #[cfg(any(test, unix))]\nfn a() {}\n#[cfg(not(test))]\nfn b() {}\n#![cfg(test)]\n\
+                    let s = \"#[cfg(all(test, foo))]\";\n#[cfg(feature = \"testing\")]\n";
+        assert_eq!(test_cfg_attributes(text), vec!["#[cfg(any(test, unix))]", "#![cfg(test)]"]);
+    }
+
+    /// 文字列・コメントの中の属性の表記は拾わない (PR #661 の CodeRabbit の指摘)。fixture として
+    /// 複数行の raw string に独立行で書いた属性が、未知の形として検査を落とさないこと。
+    #[test]
+    fn the_cfg_scan_skips_attributes_inside_strings_and_comments() {
+        let text = "const FIXTURE: &str = r#\"\n#[cfg(any(test, unix))]\nfn a() {}\n\"#;\n\
+                    // #[cfg(any(test, unix))]\n/* #[cfg(any(test, unix))] */\n\
+                    let s = \"\n#[cfg(any(test, unix))]\n\";\n";
+        assert_eq!(test_cfg_attributes(text), Vec::<String>::new());
+    }
+
+    /// 複数行に分けた属性と、行頭でない位置の属性も拾う (PR #661 の CodeRabbit の指摘)。
+    /// どちらも production_code が落とせない形なので、未知の形として報告されなければならない。
+    #[test]
+    fn the_cfg_scan_reports_multiline_and_mid_line_attributes() {
+        let text = "#[cfg(\n    test\n)]\nmod a {}\nmod b { #[cfg(any(test, unix))] fn f() {} }\n";
+        let found = test_cfg_attributes(text);
+        assert_eq!(found, vec!["#[cfg(\n    test\n)]", "#[cfg(any(test, unix))]"]);
+        let known: Vec<&[u8]> = crate::rust_source::TEST_ATTRIBUTES.to_vec();
+        assert!(found.iter().all(|attribute| !known.contains(&attribute.as_bytes())));
+    }
 }
