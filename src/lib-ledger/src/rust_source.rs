@@ -209,7 +209,9 @@ fn end_of_char_literal(bytes: &[u8], at: usize) -> Option<usize> {
 
 /// コメント・raw 文字列・文字列・文字リテラルのいずれかであれば読み飛ばした後の位置を返す。
 /// 該当しなければ `None` (呼び出し側が地の文字として扱う)。
-fn skip_lexical_trivia(bytes: &[u8], at: usize) -> Option<usize> {
+///
+/// `repo_index` のテストの cfg 属性の走査も、[`production_code`] と同じ字句の境界で読むために使う。
+pub(crate) fn skip_lexical_trivia(bytes: &[u8], at: usize) -> Option<usize> {
     if starts_with(bytes, at, b"//") {
         return Some(end_of_line_comment(bytes, at));
     }

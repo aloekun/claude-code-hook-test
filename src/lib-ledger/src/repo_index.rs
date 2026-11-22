@@ -274,19 +274,63 @@ mod tests {
         );
     }
 
-    /// 行頭の `#[cfg(...)]` / `#![cfg(...)]` のうち、`test` を条件に含むもの (属性の文字列ごと)。
+    /// コード中の `#[cfg(...)]` / `#![cfg(...)]` のうち、`test` を条件に含むもの (属性の文字列ごと)。
     /// `cfg(not(test))` は本番コードなので含めない。
+    ///
+    /// [`crate::rust_source::production_code`] と同じ読み方をする (PR #661 の CodeRabbit の指摘):
+    /// - 文字列・コメントの中は飛ばす。そこにある属性の表記は、production_code も属性として扱わない
+    /// - 行頭に限らず、どの位置の属性も拾う。production_code はどの位置でも属性を照合する
+    /// - 属性は対応する `)` と `]` まで、行をまたいで切り出す。複数行に分けた形は
+    ///   `TEST_ATTRIBUTES` と一致しないので、未知の形として報告される
     fn test_cfg_attributes(text: &str) -> Vec<String> {
-        text.lines()
-            .map(str::trim_start)
-            .filter(|line| line.starts_with("#[cfg(") || line.starts_with("#![cfg("))
-            .filter_map(|line| line.find(")]").map(|end| line[..end + 2].to_string()))
-            .filter(|attribute| {
-                let words: Vec<&str> =
-                    attribute.split(|c: char| !(c.is_alphanumeric() || c == '_')).collect();
-                words.contains(&"test") && !attribute.contains("not(test)")
-            })
-            .collect()
+        let bytes = text.as_bytes();
+        let mut found = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if let Some(next) = crate::rust_source::skip_lexical_trivia(bytes, i) {
+                i = next;
+                continue;
+            }
+            let opener = [&b"#[cfg("[..], &b"#![cfg("[..]]
+                .into_iter()
+                .find(|opener| bytes[i..].starts_with(opener));
+            let Some(opener) = opener else {
+                i += 1;
+                continue;
+            };
+            let end = cfg_attribute_end(bytes, i + opener.len());
+            let attribute = &text[i..end];
+            let words: Vec<&str> = attribute.split(|c: char| !(c.is_alphanumeric() || c == '_')).collect();
+            if words.contains(&"test") && !attribute.contains("not(test)") {
+                found.push(attribute.to_string());
+            }
+            i = end;
+        }
+        found
+    }
+
+    /// `cfg(` の直後 (`at`) から、対応する `)` の後の `]` までを読んだ位置。閉じなければ末尾。
+    fn cfg_attribute_end(bytes: &[u8], at: usize) -> usize {
+        let mut depth = 1usize;
+        let mut i = at;
+        while i < bytes.len() {
+            if let Some(next) = crate::rust_source::skip_lexical_trivia(bytes, i) {
+                i = next;
+                continue;
+            }
+            match bytes[i] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return if bytes.get(i + 1) == Some(&b']') { i + 2 } else { i + 1 };
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        bytes.len()
     }
 
     fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -337,5 +381,26 @@ mod tests {
         let text = "    #[cfg(any(test, unix))]\nfn a() {}\n#[cfg(not(test))]\nfn b() {}\n#![cfg(test)]\n\
                     let s = \"#[cfg(all(test, foo))]\";\n#[cfg(feature = \"testing\")]\n";
         assert_eq!(test_cfg_attributes(text), vec!["#[cfg(any(test, unix))]", "#![cfg(test)]"]);
+    }
+
+    /// 文字列・コメントの中の属性の表記は拾わない (PR #661 の CodeRabbit の指摘)。fixture として
+    /// 複数行の raw string に独立行で書いた属性が、未知の形として検査を落とさないこと。
+    #[test]
+    fn the_cfg_scan_skips_attributes_inside_strings_and_comments() {
+        let text = "const FIXTURE: &str = r#\"\n#[cfg(any(test, unix))]\nfn a() {}\n\"#;\n\
+                    // #[cfg(any(test, unix))]\n/* #[cfg(any(test, unix))] */\n\
+                    let s = \"\n#[cfg(any(test, unix))]\n\";\n";
+        assert_eq!(test_cfg_attributes(text), Vec::<String>::new());
+    }
+
+    /// 複数行に分けた属性と、行頭でない位置の属性も拾う (PR #661 の CodeRabbit の指摘)。
+    /// どちらも production_code が落とせない形なので、未知の形として報告されなければならない。
+    #[test]
+    fn the_cfg_scan_reports_multiline_and_mid_line_attributes() {
+        let text = "#[cfg(\n    test\n)]\nmod a {}\nmod b { #[cfg(any(test, unix))] fn f() {} }\n";
+        let found = test_cfg_attributes(text);
+        assert_eq!(found, vec!["#[cfg(\n    test\n)]", "#[cfg(any(test, unix))]"]);
+        let known: Vec<&[u8]> = crate::rust_source::TEST_ATTRIBUTES.to_vec();
+        assert!(found.iter().all(|attribute| !known.contains(&attribute.as_bytes())));
     }
 }
