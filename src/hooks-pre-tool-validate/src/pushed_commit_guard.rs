@@ -12,8 +12,10 @@
 //! (`@` = push したコミット) だけでなく、push 後に書き換えてまだ push していない状態も止める。
 //! `jj new` すれば `@` は別の change になり、止まらない。
 //!
-//! push 済みのコミットを意図して直すときは、`jj new` → 編集 → `jj squash -u` で取り込む。
-//! `jj squash` は Bash で走るので、この guard は止めない。
+//! push 済みのコミットを意図して直すときは、`jj new -m "wip: <内容>"` → 編集 → `jj squash -u` で
+//! 取り込む。`jj squash` は Bash で走るので、この guard は止めない。案内する `jj new` に `-m` を
+//! 付けるのは、`jj-message-required` preset が `-m` の無い `jj new` を止めるため (PR #660 の
+//! CodeRabbit の指摘)。
 //!
 //! `--ignore-working-copy` で問い合わせる。snapshot を取らないので速く (実測 約 60ms)、
 //! 編集前の検査が作業コピーの状態を変えない。snapshot していない編集があっても、`@` の change は
@@ -126,11 +128,14 @@ pub(crate) fn build_message(bookmarks: &[String]) -> String {
          作業コピー (@) は push 済みのコミット ({names}) です。このまま編集すると、jj は変更をそのコミットに\n\
          取り込み、次の push で PR のコミットが書き換わります (#636 で、レビューの返信で示したコミットが\n\
          PR から消えかけました)。\n\n\
-         **代わりに:** `jj new` してから編集してください。続きの作業は新しいコミットとして push します。\n\n\
-         push 済みのコミットを意図して直すときは、`jj new` → 編集 → `jj squash -u` で取り込みます\n\
-         (ADR-045 § ファイル編集を始める前に `jj new` する)。"
+         **代わりに:** `{SUGGESTED_JJ_NEW}` してから編集してください。続きの作業は新しいコミットとして push します。\n\n\
+         push 済みのコミットを意図して直すときは、`{SUGGESTED_JJ_NEW}` → 編集 → `jj squash -u` で取り込みます\n\
+         (ADR-045 § ファイル編集を始める前に jj new する)。"
     )
 }
+
+/// 案内する `jj new`。`jj-message-required` preset に止められないよう `-m` を付ける。
+const SUGGESTED_JJ_NEW: &str = r#"jj new -m "wip: <内容>""#;
 
 /// 編集を止めるなら理由を返す。設定で有効にしていなければ何もしない (ADR-039、既定 OFF)。
 pub(crate) fn check_pushed_commit(file_path: &str, config: &PushedCommitGuardConfig) -> Option<String> {
@@ -243,7 +248,35 @@ mod tests {
         let (_dir, file) = workspace_file();
         let message = check_pushed_commit_with(&file, &enabled(), |_| Some(row("kkqv", true, "feat@origin"))).unwrap();
         assert!(message.contains("`feat@origin`"));
-        assert!(message.contains("jj new"));
+        assert!(message.contains(&format!("`{SUGGESTED_JJ_NEW}`")));
+    }
+
+    /// 案内に書いた `jj ...` のコマンドは、このリポジトリで有効な jj の preset に止められない。
+    /// 案内どおりに打つと別の preset に止められる、を防ぐ (PR #660 の CodeRabbit の指摘:
+    /// `-m` の無い `jj new` を案内していた)。
+    #[test]
+    fn the_commands_in_the_message_pass_the_jj_presets() {
+        use crate::blocked_patterns::{build_blocked_patterns, validate_command};
+        use crate::config::{Config, PreToolValidateConfig};
+        let config = Config {
+            pre_tool_validate: Some(PreToolValidateConfig {
+                blocked_patterns: Some(
+                    ["jj-immutable", "jj-main-guard", "jj-message-required"].iter().map(|s| s.to_string()).collect(),
+                ),
+                extra_protected_files: None,
+                todo_staleness: None,
+                allowed_commands: None,
+                pushed_commit_guard: None,
+            }),
+        };
+        let patterns = build_blocked_patterns(&config);
+        let message = build_message(&["feat@origin".to_string()]);
+        let commands: Vec<&str> = message.split('`').skip(1).step_by(2).filter(|span| span.starts_with("jj ")).collect();
+        assert!(commands.contains(&SUGGESTED_JJ_NEW), "{commands:?}");
+        assert!(commands.contains(&"jj squash -u"), "{commands:?}");
+        for command in commands {
+            assert!(validate_command(command, &patterns).is_none(), "案内のコマンドが preset に止められる: {command}");
+        }
     }
 
     #[test]

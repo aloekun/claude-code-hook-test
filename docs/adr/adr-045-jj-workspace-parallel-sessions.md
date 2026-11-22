@@ -161,7 +161,8 @@ bookmark が指している)。2026-11-13 の #636 では、`pnpm push` の直�
 - `hooks-pre-tool-validate` の `pushed_commit_guard` が、Edit / Write の前にこの状態を検出して止め、
   `jj new` を案内する (`.claude/hooks-config.toml` の `[pre_tool_validate.pushed_commit_guard]`)。
   change で比べるので、push 後に書き換えてまだ push していない状態も止める
-- push 済みのコミットを意図して直すときは、`jj new` → 編集 → `jj squash -u` で取り込む
+- push 済みのコミットを意図して直すときは、`jj new -m "wip: <内容>"` → 編集 → `jj squash -u` で取り込む
+  (`jj-message-required` preset が `-m` の無い `jj new` を止めるため、案内にも `-m` を付ける)
 - Bash 経由の編集 (`sed -i` など) は止めない。jj の `immutable_heads()` に push 済みの bookmark を
   加える案は、すべての経路で効くが、push 済みの PR ブランチの rebase / squash のたびに
   `--ignore-immutable` が要り、設定が追跡されないファイルに入るため採らなかった
