@@ -58,7 +58,6 @@
 | 496 | Tier 3 | **docs の 50KB 超過 3 ファイルを物理分割する** | todo25.md | M | なし (2026-08-22 週次レビューの決定論 scan 由来。`todo-summary2.md` は表 1 枚のため節ではなく順位で切る必要がある) |
 | 497 | Tier 1 | **PostToolUse で docs ファイルの 50KB 超過を即時ブロックする** | todo25.md | S | なし (2026-08-22 週次レビューの決定論 scan 由来。現在 file-length の検査は週次レビューの報告のみで、超過しても何も止まらない。順位 496 と対) |
 | 503 | Tier 1 | **[improvement] doc と実装の同期を検査する (exit code 一覧 / 依存者リスト)** | todo26.md | M | なし (PR #456 / #464 feedback。実際に壊れた観測はまだ無く、予防のための検査) |
-| 504 | Tier 1 | **[defect:G2] 台帳検査の入力空間を埋める** | todo26.md | M | なし (PR #457 / #458 / #460 feedback。`cfg(test)` 宣言形の全パターンが未カバー。ADR-049 への case 追加を同乗) |
 | 511 | Tier 2 | **[improvement] `todo-summary2.md` を 3 分割し明示列挙の呼び出し元を追随させる** | todo26.md | M | なし (79KB。機構は F1 で 3 分割対応済みだが `--repo` ならぬ `--summary-file` の明示列挙が package.json と nightly-todo.yml に残る。workflow を触るため auto lane 不可。着手時判断: どの順位で切るか) |
 | 512 | Tier 3 | **[improvement] 50KB 超の詳細エントリファイル (`todo14.md` / `todo22.md`) を分割する** | todo26.md | M | なし (61KB / 59KB。移動したエントリの順位 table「ファイル」列の追随が必須で entry_pairing が強制する。着手時判断: 分割か孤児削除かを先に測る) |
 | 513 | Tier 3 | **[improvement] 50KB 超の恒久ドキュメント (ADR-072 / 台帳 / workflow 2 件) の扱いを決める** | todo26.md | L | なし (126KB / 60KB / 67KB / 64KB。watchlist の走査範囲が `docs/todo*.md` に限られ構造的に見逃していた。着手時判断: 分割の可否をファイルごとに決め、走査範囲の拡張方針も併せて決める) |

@@ -386,4 +386,30 @@ mod tests {
     fn duplicate_paths_are_folded() {
         assert_eq!(ok("`src/a.rs` + `src/a.rs`"), vec!["src/a.rs"]);
     }
+
+    /// **宣言先はテストコードを数え、索引は数えない** (順位 504、`repo_index::declared_text` の doc の表)。
+    ///
+    /// この関数の名前は、本番の module (本ファイル) のインラインの `#[cfg(test)]` の中にしか無い。
+    /// 同じ識別子で、宣言先は数え、索引はインラインのテストコードとして落とすことを固定する。
+    /// `repo_index.rs` などのテスト専用 module に置くと、ファイルごと索引から外れるので、
+    /// インラインの除去を確かめられない (2026-11-22、変異確認で判明)。
+    #[test]
+    fn declared_text_counts_test_code_but_the_repository_index_does_not() {
+        use crate::repo_index::{declared_text, raw_repository_text, repository_text};
+        const TEST_ONLY_IDENTIFIER: &str = "declared_text_counts_test_code_but_the_repository_index_does_not";
+        for declared in ["src/lib-ledger/src/target_files.rs", "src/lib-ledger/src"] {
+            assert!(
+                declared_text(&[declared.to_string()]).contains(TEST_ONLY_IDENTIFIER),
+                "宣言先 {declared} がテストコードを数えていない"
+            );
+        }
+        assert!(
+            raw_repository_text().contains(TEST_ONLY_IDENTIFIER),
+            "素の索引にも無い (識別子の綴りが変わったら定数を直す)"
+        );
+        assert!(
+            !repository_text().contains(TEST_ONLY_IDENTIFIER),
+            "索引がインラインのテストコードを数えている"
+        );
+    }
 }

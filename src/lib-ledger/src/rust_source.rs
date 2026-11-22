@@ -79,7 +79,11 @@ pub(crate) fn production_code(source: &str) -> String {
 }
 
 /// テスト用の cfg 属性。2026-08-28 実測でリポジトリに在るのはこの 2 形だけ。
-const TEST_ATTRIBUTES: &[&[u8]] = &[b"#[cfg(test)]", b"#[cfg(all(test, windows))]"];
+///
+/// ここに無い形 (`cfg(any(test, ..))` など) で書いたテストコードは落とせず、索引に載る。
+/// 実リポジトリの全 `.rs` がこの形だけを使っていることは、`repo_index` のテスト
+/// (`every_test_cfg_attribute_in_the_repository_is_recognized`) が固定する (順位 504)。
+pub(crate) const TEST_ATTRIBUTES: &[&[u8]] = &[b"#[cfg(test)]", b"#[cfg(all(test, windows))]"];
 
 fn starts_with(bytes: &[u8], at: usize, needle: &[u8]) -> bool {
     bytes.len() >= at + needle.len() && &bytes[at..at + needle.len()] == needle

@@ -273,4 +273,69 @@ mod tests {
             "非ルート module のテストファイルが索引に載っています"
         );
     }
+
+    /// 行頭の `#[cfg(...)]` / `#![cfg(...)]` のうち、`test` を条件に含むもの (属性の文字列ごと)。
+    /// `cfg(not(test))` は本番コードなので含めない。
+    fn test_cfg_attributes(text: &str) -> Vec<String> {
+        text.lines()
+            .map(str::trim_start)
+            .filter(|line| line.starts_with("#[cfg(") || line.starts_with("#![cfg("))
+            .filter_map(|line| line.find(")]").map(|end| line[..end + 2].to_string()))
+            .filter(|attribute| {
+                let words: Vec<&str> =
+                    attribute.split(|c: char| !(c.is_alphanumeric() || c == '_')).collect();
+                words.contains(&"test") && !attribute.contains("not(test)")
+            })
+            .collect()
+    }
+
+    fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if !INDEX_SKIP_DIRS.contains(&name.as_str()) {
+                    collect_rs_files(&path, out);
+                }
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// **実リポジトリのテスト用 cfg 属性は、すべて [`crate::rust_source::TEST_ATTRIBUTES`] の形である**
+    /// (順位 504)。ここに無い形 (`#[cfg(any(test, unix))]` 等) でテストを書くと、索引から落とせず
+    /// 「リポジトリに在る」と読み違える。新しい形が要るなら、`TEST_ATTRIBUTES` に足してからこの
+    /// テストを通す。
+    #[test]
+    fn every_test_cfg_attribute_in_the_repository_is_recognized() {
+        let known: Vec<String> = crate::rust_source::TEST_ATTRIBUTES
+            .iter()
+            .map(|a| String::from_utf8(a.to_vec()).unwrap())
+            .collect();
+        let mut files = Vec::new();
+        collect_rs_files(&repo_root().join("src"), &mut files);
+        let mut seen_plain = 0;
+        let mut unknown = Vec::new();
+        for file in &files {
+            for attribute in test_cfg_attributes(&std::fs::read_to_string(file).unwrap()) {
+                if attribute == "#[cfg(test)]" {
+                    seen_plain += 1;
+                }
+                if !known.contains(&attribute) {
+                    unknown.push(format!("{}: {attribute}", file.display()));
+                }
+            }
+        }
+        assert!(seen_plain > 0, "走査が #[cfg(test)] を 1 件も見つけていない (走査の陽性対照、ADR-075 決定 6)");
+        assert!(unknown.is_empty(), "rust_source が落とせない cfg(test) の形:\n{}", unknown.join("\n"));
+    }
+
+    /// 上の走査が、認識されない形と `not(test)` を正しく仕分けること (陰性・陽性対照)。
+    #[test]
+    fn the_cfg_scan_reports_unrecognized_forms_and_skips_not_test() {
+        let text = "    #[cfg(any(test, unix))]\nfn a() {}\n#[cfg(not(test))]\nfn b() {}\n#![cfg(test)]\n\
+                    let s = \"#[cfg(all(test, foo))]\";\n#[cfg(feature = \"testing\")]\n";
+        assert_eq!(test_cfg_attributes(text), vec!["#[cfg(any(test, unix))]", "#![cfg(test)]"]);
+    }
 }
