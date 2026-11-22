@@ -413,3 +413,120 @@
 
 - ブロックコメント・doc コメント・raw string の中の違反例で、対象にした rule が発火しない
 - コードに書いた違反は、これまでどおり検出する
+
+## post-merge feedback (#657〜#661) の一括採否から起票 (2026-11-23)
+
+> 対象は #657〜#661 の feedback report (候補 18 件) である。Tier 1 / 2 の採用候補を作業内容で 5 件にまとめ、ユーザーが 5 件とも採用した。同じ作業になる候補は 1 件にまとめた (#660 Tier 2 #3 は順位 616 へ、#661 Tier 1 #2 は順位 617 へ、#657 Tier 2 #2 は順位 618 へ、#658 Tier 1 #1 と #660 Tier 1 #1 は順位 620 へ)。却下したのは次のとおり。#658 Tier 1 #2 (push の後に自動で `jj new` する) は、空のコミットが次の push を止める副作用があり、push 済みのコミットの編集は順位 611 の guard が止めるため。#657 Tier 2 #3 (`threads show` に指摘の本文を出す) は、`check-ci --list-findings` で代わりが利くため。#659 Tier 2 #1 と #660 Tier 2 #4 / #5 は、report 自身が却下を推奨していたため。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した (#658 の analyze-session の Read の目安は、順位 617 で記録を減らせば仕組みの側で軽くなる)。起票の前に、各項目が未実装であることを 2026-11-23 にコードで確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。
+
+### 順位 616: `pnpm threads fixed` / `rejected` の要約を、標準入力からも受け取る
+
+> **動機**: `src/cli-review-threads/src/main.rs` の `run_register` (151 行目) は、番号の後ろの位置引数をつないで要約にする。入力の経路はこれしかない (7 行目の使い方の説明も「オプションは取らない」)。Windows では `pnpm` が cmd.exe を通すため、要約に `<` `>` を書くとリダイレクトとして解釈される。要約に `jj new` と書くと、jj-message-required preset にも止められる。PR #660 の作業では、要約の登録が 1 セッションで 3 回失敗した (#661 の feedback、Tier 1 #1。#660 Tier 2 #3 も同じ事象)。
+>
+> **由来**: `[improvement]`。
+>
+> **種類**: Tier 1 — CLI の入力経路の追加。工数 M。
+>
+> **範囲**: 本エントリは CLI の入力経路だけを扱う。標準入力にしても、heredoc の本文の行頭に書いた `jj new` は、jj-message-required preset に止められる。preset は改行の直後の `jj new` に当たり、heredoc の本文も含めたコマンド全体を照合するため (`src/hooks-pre-tool-validate/src/handlers.rs` の 32〜37 行目、PR #662 の CodeRabbit の指摘)。preset が heredoc の本文に反応する問題は 順位 620 で扱い、外す範囲の判断を 1 箇所に置く。
+>
+> **参照**: [ADR-087](adr/adr-087-review-thread-resolution-after-push.md)
+
+#### 作業計画
+
+- [ ] `fixed` / `rejected` で、要約を標準入力 (`--stdin`) から読めるようにする。今の `--pr` を止める仕組み (`reject_options`) と両立させる。`--stdin` だけを受け付け、ほかのオプションは今までどおり止める
+- [ ] 位置引数の要約と `--stdin` を同時に渡したら、どちらを使うか曖昧なので止める。標準入力が空なら、今と同じく「要約がない」で止める
+- [ ] heredoc で `<` `>` と、行の途中の `jj new` を含む要約を登録できることを、手元で実際に打って確かめる
+- [ ] 使い方の説明 (module doc) と、要約を登録する手順を案内している箇所を更新する
+
+#### 完了基準
+
+- `<` `>` を含む要約と、行の途中に `jj new` を含む要約を、引用符の工夫なしに登録できる
+- 行頭に `jj new` を書いた要約を heredoc で登録できるのは、順位 620 が完了してからとする (本エントリの完了基準には含めない)
+- 位置引数での登録は、これまでどおり使える
+
+### 順位 617: post-merge feedback が読む会話記録から、無関係な記録を除く
+
+> **動機**: `src/cli-merge-pipeline/src/feedback/transcript.rs` の `filter_transcripts` (41 行目) は、時刻の範囲だけで記録を選ぶ。`sessionId` は残すフィールドとして持っているが (`transcript_compact.rs` の 35 行目)、絞り込みには使っていない。そのため、同じ時間帯にあった別の PR のセッションの作業と、前回失敗した feedback の実行が読んだ内容と、この工程自身の入力ファイルを読んだ記録が、分析の入力に混ざる。#658 の分析では #657 の作業と失敗した実行の Read の結果が混ざり、#661 の分析では自分の入力ファイルを読んだ記録で Read が 3 回失敗した (#658 の feedback、Tier 2 #1。#661 Tier 1 #2 も同じ系統)。ADR-045 の並列セッション運用では再発しやすい。
+>
+> **由来**: `[improvement]`。
+>
+> **種類**: Tier 2 — 抽出の絞り込みとテストの追加。工数 M。
+>
+> **参照**: [ADR-030](adr/adr-030-deterministic-post-merge-feedback.md)、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)
+
+#### 作業計画
+
+- [ ] 着手時に、別の `sessionId` の記録を混ぜているのが意図した仕様かを先に確かめる (同じ PR を複数のセッションで作業した場合を、落とさないため)。仕様として要るなら、絞り込みの条件を PR の head branch などに置き換える
+- [ ] 別の PR のセッションの記録と、post-merge feedback の実行自身の記録 (`.takt/` の入力ファイルを読んだ tool_use / tool_result) を除く。除き方は着手時に決める
+- [ ] 混入させた fixture で、除かれることと、対象の PR の記録が残ることの両方をテストで固定する
+
+#### 完了基準
+
+- 別の PR のセッションの作業と、feedback の実行自身の読み取りが、分析の入力に入らない
+- 対象の PR の作業の記録は、これまでどおり入る
+
+### 順位 618: Outside diff の節のパーサのテストに、CommonMark 仕様書の fence の例を入れる
+
+> **動機**: `src/check-ci-coderabbit/src/outside_diff.rs` に、#651 から #657 まで CodeRabbit の指摘が続いた。どれも CommonMark の fence の仕様上の境界で、#657 でも、列挙していなかった境界が 2 件出た (#657 の feedback、Tier 2 #1)。2026-11-23 時点のテストは 26 件あり、すべて個別に選んだ境界で、仕様書の例を入力にしたものは無い。
+>
+> **由来**: `[improvement]`。#657 Tier 2 #2 (節より後ろの引用ブロックの中に「Outside diff range comment」の語があると、`phrase_reappears` が読めない扱いにする今の挙動を固定する。XS) も、同じテスト module なので一緒に扱う。
+>
+> **種類**: Tier 2 — テストの追加。工数 M。
+>
+> **参照**: [ADR-034](adr/adr-034-coderabbit-auto-monitoring.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)
+
+#### 作業計画
+
+- [ ] CommonMark 仕様書の fenced code block の節から、今のテストが扱っていない例を選ぶ (閉じの字下げ、開きより長い閉じ、記号の混在、引用ブロック内の fence など)。仕様書の例の番号を、テストの doc コメントに書く
+- [ ] 選んだ例を、引用ブロックの Outside diff の節に入れた形の入力にして、`split_items` / `Fence` の読み方が仕様書の結果と一致することを固定する。`pulldown-cmark` などの依存は足さない
+- [ ] 仕様書と食い違う例が見つかったら、読めない扱い (fail-closed) に倒すか、実装を直すかを例ごとに決める
+- [ ] 節より後ろの引用ブロックにある「Outside diff range comment」の語が、読めない扱いになることを固定する (#657 Tier 2 #2)
+
+#### 完了基準
+
+- 仕様書の fence の例が、例の番号つきでテストに入っている
+- 仕様書と食い違う読み方が残っていない (残すなら、読めない扱いに倒れることをテストで固定している)
+
+### 順位 619: guard と preset の案内文に書いたコマンドが、有効な preset に止められないことを検査する
+
+> **動機**: #660 では、push 済みのコミットの guard の案内文が `-m` の無い `jj new` を勧めていて、案内どおりに打つと jj-message-required preset に止められた (CodeRabbit の指摘 2 件)。`pushed_commit_guard.rs` の `the_commands_in_the_message_pass_the_jj_presets` (258 行目) が、この guard だけを検査している。ほかの preset と guard の案内文 (`presets/jj.rs` の手順例、`presets/safety/` の各 preset、`deletion_guard` など) が、別の preset に止められるコマンドを勧めていないかは検査していない (#660 の feedback、Tier 2 #2)。
+>
+> **由来**: `[improvement]`。
+>
+> **種類**: Tier 2 — テストの追加。工数 S。
+>
+> **参照**: [ADR-084](adr/adr-084-test-helper-no-sharing.md)、[ADR-086](adr/adr-086-deletion-guard-by-target-place.md)
+
+#### 作業計画
+
+- [ ] `hooks-pre-tool-validate` の preset と guard の案内文から、利用者に打たせるコマンドを列挙する。案内文の中の「打ってよいコマンド」と「止めた例」を区別できる書き方になっているかを先に確かめる
+- [ ] 打たせるコマンドが、本リポジトリで有効な preset (`.claude/hooks-config.toml`) に止められないことを検査する。`pushed_commit_guard.rs` の既存テストの書き方に揃え、テスト専用のコードは module ごとに複製する
+- [ ] 止められる案内が見つかったら、案内文を直す
+
+#### 完了基準
+
+- 案内文が勧めるコマンドを、別の preset が止めることがない
+- 案内文を止められる形に戻すと、テストが落ちる
+
+### 順位 620: preset が、コミットメッセージの本文や heredoc の中の文字列に反応する誤検知を減らす
+
+> **動機**: jj-immutable preset の正規表現 (`src/hooks-pre-tool-validate/src/presets/jj.rs` の 78 行目) は、コマンド全体に当たる。コミットメッセージや heredoc の本文に、bypass のオプション名を語として書いただけで止まる。#658 の作業で 2 回、#660 の作業で 1 回起きた (#658 の feedback、Tier 1 #1。#660 Tier 1 #1 も同じ内容)。本エントリを起票する heredoc も、同じ理由で止められた。jj-message-required preset も、heredoc の本文の行頭に書いた `jj new` に反応する (改行の直後に当たるため)。順位 616 で要約を標準入力から渡すようにしても、この形は止まる (PR #662 の CodeRabbit の指摘)。回避策 (本文をファイルに書いて `jj describe --stdin` などに渡す) はあるが、毎回手間がかかる。preset の判定の前に引用符の中や heredoc の本文を除く処理は無い (heredoc の本文を分ける処理は `deletion_guard/lexer/redirect.rs` にあるが、削除ガード専用)。
+>
+> **由来**: `[improvement]`。report は 2 件とも様子見だった。同じ系統が 2 つの PR で計 3 回起きたため採用した。
+>
+> **種類**: Tier 1 — preset の判定の前処理。工数 M。
+>
+> **未決事項**: **判定から外す範囲は、着手前にヒアリングで決める**。`jj.rs` には、改行をまたいで `-m` の後ろに書いた bypass を止めることを固定するテストがある。外す範囲を広げすぎると、引用符の中に隠した本物の引数を見逃す (ADR-007 の正規表現層の限界)。候補は (a) `-m` / `--message` の値だけを外す、(b) heredoc の本文だけを外す、(c) 引用符の中をすべて外す、の 3 つで、それぞれの見逃しの範囲を比べてから決める。
+>
+> **参照**: [ADR-007](adr/adr-007-custom-linter-layer-boundary.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)
+
+#### 作業計画
+
+- [ ] 外す範囲の候補 (a)〜(c) ごとに、見逃すようになる bypass の形を列挙し、ヒアリングで範囲を決めて、このエントリの「決定事項」節に書く
+- [ ] 決めた範囲の前処理を、jj の preset の判定の前に入れる。引数として渡した bypass のオプションは、これまでどおり止める
+- [ ] 本文に語を書いた場合に止まらないこと、既存の bypass のテストがすべて通ることを確かめる。前処理を外す変異が落ちることを `pnpm -s mutate` で確かめる
+
+#### 完了基準
+
+- コミットメッセージや heredoc の本文 (決めた範囲) に bypass のオプション名を書いても止まらない
+- 範囲に heredoc の本文を含めた場合は、`pnpm threads fixed N --stdin` の heredoc の本文の行頭に書いた `jj new` も止まらない (順位 616 から移した受け入れ条件)。含めない場合は、その理由をこのエントリの「決定事項」節に書き、順位 616 の要約の手順にこの形の回避策を書く
+- 引数として渡した bypass のオプションと、既存の bypass の形は、これまでどおり止まる
