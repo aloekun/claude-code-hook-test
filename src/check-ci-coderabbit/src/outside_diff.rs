@@ -111,7 +111,8 @@ fn read_section(body: &str) -> Result<Vec<SectionItem>, String> {
         .ok_or_else(unreadable)?;
     let section: Vec<&str> = lines[heading_at + 1..]
         .iter()
-        .map_while(|l| unquote(l))
+        .copied()
+        .take_while(|l| unquote(l).is_some())
         .collect();
     if phrase_reappears(&lines[heading_at + 1 + section.len()..]) {
         return Err(PHRASE_OUTSIDE_SECTION.to_string());
@@ -137,6 +138,27 @@ fn unquote(line: &str) -> Option<&str> {
     Some(rest.strip_prefix(' ').unwrap_or(rest))
 }
 
+/// 引用ブロックの 1 行の中身の字下げ (桁数) と、字下げの後ろの文字列。引用ブロックの外なら None。
+///
+/// CommonMark はタブを 4 桁単位のタブ位置まで進めて数え、`>` の後ろの省略できる空白 1 個は、
+/// タブの一部でもよい。そのため `> \t` の後ろの字下げは 2 桁で、fence になりうる
+/// (PR #657 の CodeRabbit の指摘)。`>` を外した後の文字列だけでは桁位置が分からないので、
+/// 元の行の桁で数える。
+fn quoted_content_indent(line: &str) -> Option<(usize, &str)> {
+    const TAB_STOP: usize = 4;
+    let rest = line.strip_prefix('>')?;
+    let content_start = if rest.starts_with([' ', '\t']) { 2 } else { 1 };
+    let mut column = 1;
+    for (at, c) in rest.char_indices() {
+        match c {
+            ' ' => column += 1,
+            '\t' => column += TAB_STOP - column % TAB_STOP,
+            _ => return Some((column.saturating_sub(content_start), &rest[at..])),
+        }
+    }
+    Some((column.saturating_sub(content_start), ""))
+}
+
 /// 節の行を、`パス:行` の行ごとに指摘へ分ける。
 ///
 /// コードブロック (```` ``` ```` か `~~~` で囲んだ範囲) の中の `パス:行` は、本文に書かれた例であって
@@ -145,13 +167,16 @@ fn unquote(line: &str) -> Option<&str> {
 /// ブロックが閉じないまま節が終われば、件数が合っていても [`UNCLOSED_FENCE`] を返す。閉じないブロックの
 /// 後ろに `パス:行` があったかどうかを区別できないため ([ADR-043] の fail-closed)。
 ///
+/// `section` は引用ブロックの行を `>` を付けたまま受け取る (字下げを元の行の桁で数えるため)。
+///
 /// [ADR-043]: ../../../docs/adr/adr-043-security-gates-fail-closed.md
-fn split_items(section: &[&str]) -> Result<Vec<SectionItem>, String> {
+fn split_items(quoted_section: &[&str]) -> Result<Vec<SectionItem>, String> {
+    let section: Vec<&str> = quoted_section.iter().map(|l| unquote(l).unwrap_or(l)).collect();
     let mut open: Option<Fence> = None;
     let mut starts: Vec<(usize, String, u64)> = Vec::new();
-    for (i, raw) in section.iter().enumerate() {
-        let l = raw.trim();
-        match (open, Fence::of(raw)) {
+    for (i, (quoted, unquoted)) in quoted_section.iter().zip(&section).enumerate() {
+        let l = unquoted.trim();
+        match (open, Fence::of(quoted)) {
             (None, Some(f)) => {
                 open = Some(f);
                 continue;
@@ -196,21 +221,27 @@ struct Fence {
 }
 
 impl Fence {
-    /// 行 (引用ブロックの `>` を外したもの) が fence で始まっていれば、その記号と個数。
+    /// 引用ブロックの 1 行 (`>` 付き) が fence で始まっていれば、その記号と個数。
     ///
-    /// 行頭の空白は 3 個まで許す。4 個以上なら、CommonMark では字下げのコードブロックの行であって
-    /// fence ではない。行頭のタブ (次のタブ位置 = 4 桁目まで進む) も同じ扱いで、空白を外した後の
-    /// 先頭がタブなので記号の判定で外れる。
-    fn of(line: &str) -> Option<Fence> {
+    /// 中身の字下げ ([`quoted_content_indent`]、タブは桁位置で数える) は 3 桁まで許す。4 桁以上なら、
+    /// CommonMark では字下げのコードブロックの行であって fence ではない。
+    ///
+    /// バッククォートの fence は、記号の後ろ (info string) にバッククォートを含められない。
+    /// ```` ``` ```` の例です」のように後ろにもバッククォートがある行はインラインコードで、fence ではない
+    /// (PR #657 の CodeRabbit の指摘)。`~~~` の後ろは何でもよい。
+    fn of(quoted_line: &str) -> Option<Fence> {
         const MAX_FENCE_INDENT: usize = 3;
-        let indent = line.chars().take_while(|c| *c == ' ').count();
+        let (indent, line) = quoted_content_indent(quoted_line)?;
         if indent > MAX_FENCE_INDENT {
             return None;
         }
-        let line = &line[indent..];
         let mark = line.chars().next().filter(|c| *c == '`' || *c == '~')?;
         let len = line.chars().take_while(|c| *c == mark).count();
-        (len >= 3).then_some(Fence { mark, len })
+        let info = &line[len * mark.len_utf8()..];
+        if len < 3 || (mark == '`' && info.contains('`')) {
+            return None;
+        }
+        Some(Fence { mark, len })
     }
 
     /// `opened` で開いたブロックを閉じる行か。同じ記号を開きと同じ数以上並べ、後ろに何も書かない。
@@ -387,15 +418,53 @@ mod tests {
         }
     }
 
-    /// (d) 行頭に空白が 4 個以上 (かタブ) ある ```` ``` ```` は fence ではない (CommonMark では字下げの
-    /// コードブロック)。fence と読むと、その後ろの本物の指摘が隠れる。
+    /// (d) 中身の字下げが 4 桁以上ある ```` ``` ```` は fence ではない (CommonMark では字下げの
+    /// コードブロック)。fence と読むと、その後ろの本物の指摘が隠れる。タブは桁位置で数える
+    /// (`> ` の後ろの `  \t` は 6 桁、`\t  ` は 4 桁)。
     #[test]
-    fn a_fence_indented_by_four_spaces_or_a_tab_is_not_a_fence() {
-        for pad in ["    ", "     ", "\t", " \t"] {
+    fn a_fence_indented_by_four_columns_or_more_is_not_a_fence() {
+        for pad in ["    ", "     ", "  \t", "\t  "] {
             let body = with_block_before_the_location(&format!("> {pad}```"));
             let items = read_section(&body).unwrap_or_else(|e| panic!("字下げ {pad:?}: {e}"));
             assert_eq!(items.len(), 1, "字下げ {pad:?}");
             assert_eq!(items[0].line, 52, "字下げ {pad:?}");
+        }
+    }
+
+    /// (d) `>` の後ろのタブは、省略できる空白 1 個を兼ねて 4 桁目まで進むので、字下げは 2 桁で fence に
+    /// なる (PR #657 の CodeRabbit の指摘)。開き・閉じのどちらでも fence として読む。
+    #[test]
+    fn a_tab_after_the_quote_marker_indents_a_fence_by_two_columns() {
+        for (open, close) in [("> \t", "> \t"), (">\t", ">\t"), (">  \t", ">  \t"), ("> ", "> \t")] {
+            let body = with_block_before_the_location(&format!("{open}```\n> `src/example.rs:10`\n{close}```"));
+            let items = read_section(&body).unwrap_or_else(|e| panic!("開き {open:?} / 閉じ {close:?}: {e}"));
+            assert_eq!(items.len(), 1, "開き {open:?} / 閉じ {close:?}");
+            assert_eq!(items[0].line, 52, "開き {open:?} / 閉じ {close:?}");
+        }
+    }
+
+    /// バッククォートの後ろにもバッククォートがある行 (インラインコード) は fence ではない。
+    /// fence と読むと、閉じないブロックとして節全体が読めない扱いになる (PR #657 の CodeRabbit の指摘)。
+    #[test]
+    fn a_backtick_run_followed_by_another_backtick_is_not_a_fence() {
+        let body = PR649.replace("> `wsl|cat` は Bash で", "> ```` ``` ```` の例です\n> `wsl|cat` は Bash で");
+        assert_ne!(body, PR649, "fixture の文が変わっていたら置換先を直す");
+        let items = read_section(&body).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].line, 52);
+    }
+
+    /// バッククォートを含まない info string (言語名) の開きと、`~~~` の後ろのバッククォートは、
+    /// これまでどおり fence として読む。
+    #[test]
+    fn info_strings_without_backticks_and_tilde_fences_with_backticks_still_open() {
+        for block in [
+            "> ```rust\n> `src/example.rs:10`\n> ```",
+            "> ~~~ `quoted`\n> `src/example.rs:10`\n> ~~~",
+        ] {
+            let items = read_section(&with_block_before_the_location(block)).unwrap_or_else(|e| panic!("{block:?}: {e}"));
+            assert_eq!(items.len(), 1, "{block:?}");
+            assert_eq!(items[0].line, 52, "{block:?}");
         }
     }
 
