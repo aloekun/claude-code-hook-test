@@ -8,9 +8,13 @@
 // 比べる対象が無いまま通ってしまうため。
 
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+
+// js-yaml 5.x は CommonJS のみで default export を持たない (scripts/lint-workflows.mjs と同じ取り方)。
+const yaml = createRequire(import.meta.url)('js-yaml');
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => readFileSync(join(REPO_ROOT, relative), 'utf8');
@@ -44,14 +48,50 @@ function versionsByPlace(files) {
   ];
 }
 
-/** push-runner の quality gate に書いた `cargo nextest run` のコマンド (並びは書いた順)。 */
+const NEXTEST_RUN = 'cargo nextest run';
+const collapseSpaces = (command) => command.replace(/\s+/g, ' ').trim();
+
+/**
+ * push-runner の quality gate に書いた `cargo nextest run` のコマンド (並びは書いた順)。
+ *
+ * TOML の配列の 1 要素 = 1 行の文字列だけを読む。コメントでない行に `cargo nextest run` が
+ * 読めた数より多く現れたら (複数行の文字列・行末コメント付きなど、読めない書き方)、落とす。
+ */
 function pushRunnerNextestCommands(configText) {
-  return allMatches(configText, /^\s*"(cargo nextest run[^"]*)",?\s*$/gm, PUSH_RUNNER_CONFIG);
+  const commands = allMatches(configText, /^\s*"(cargo nextest run[^"]*)",?\s*$/gm, PUSH_RUNNER_CONFIG);
+  const mentions = configText.split('\n').filter((line) => !line.trim().startsWith('#') && line.includes(NEXTEST_RUN));
+  if (mentions.length !== commands.length) {
+    throw new Error(
+      `${PUSH_RUNNER_CONFIG}: \`${NEXTEST_RUN}\` が ${mentions.length} 行にあるが、読めたのは ${commands.length} 件 (読めない書き方を足したら抽出を直す)`,
+    );
+  }
+  return commands.map(collapseSpaces);
 }
 
-/** CI に書いた `cargo nextest run` のコマンドから、CI 専用の `--profile ci` を外したもの (並びは書いた順)。 */
+/** workflow の全 job・全 step の `run` の値 (YAML として読んだもの)。 */
+function runValues(ciText) {
+  const workflow = yaml.load(ciText);
+  return Object.values(workflow?.jobs ?? {}).flatMap((job) =>
+    (job?.steps ?? []).map((step) => step?.run).filter((run) => typeof run === 'string'),
+  );
+}
+
+/**
+ * CI に書いた `cargo nextest run` のコマンドから、CI 専用の `--profile ci` を外したもの (並びは書いた順)。
+ *
+ * `run` の値を YAML として読むので、複数行の plain scalar の続きの行も引数に入る (YAML は改行を
+ * 空白へ畳む。PR #659 の CodeRabbit の指摘: 1 行目だけを読むと、続きの行に足したフラグを見落とす)。
+ * `run: |` のブロックは 1 行 = 1 コマンドとして分け、行末の `\` の続きはつなげる。
+ */
 function ciNextestCommands(ciText) {
-  return allMatches(ciText, /^\s*run:\s*(cargo nextest run.*?)\s*$/gm, CI_YML).map((command) => {
+  const commands = runValues(ciText)
+    .flatMap((run) => run.replace(/\\\n/g, ' ').split('\n'))
+    .filter((line) => line.includes(NEXTEST_RUN))
+    .map((line) => collapseSpaces(line.slice(line.indexOf(NEXTEST_RUN))));
+  if (commands.length === 0) {
+    throw new Error(`${CI_YML}: \`${NEXTEST_RUN}\` を走らせる step が無い (書式が変わったら抽出を直す)`);
+  }
+  return commands.map((command) => {
     if (!/ --profile ci(?= |$)/.test(command)) {
       throw new Error(`${CI_YML}: \`${command}\` に --profile ci が無い (CI は ci profile で走らせる)`);
     }
@@ -131,5 +171,38 @@ describe('cargo nextest run のコマンド', () => {
     );
     expect(changed).not.toBe(realFiles()[CI_YML]);
     expect(() => ciNextestCommands(changed)).toThrow(/--profile ci が無い/);
+  });
+
+  /** CI の通常のテストの `run:` 行を、`build(indent)` が返す YAML に置き換える。 */
+  const replaceCiRunLine = (build) => {
+    const original = realFiles()[CI_YML];
+    const changed = original.replace(
+      /^( *)run: cargo nextest run --workspace --profile ci$/m,
+      (_line, indent) => build(indent),
+    );
+    expect(changed).not.toBe(original);
+    return changed;
+  };
+
+  it('CI の run の続きの行に足したフラグも比べる (PR #659 の CodeRabbit の指摘)', () => {
+    const changed = replaceCiRunLine(
+      (indent) => `${indent}run: cargo nextest run --workspace --profile ci\n${indent}  --no-fail-fast`,
+    );
+    expect(ciNextestCommands(changed)).toContain('cargo nextest run --workspace --no-fail-fast');
+    expect(ciNextestCommands(changed)).not.toEqual(pushRunnerNextestCommands(realFiles()[PUSH_RUNNER_CONFIG]));
+  });
+
+  it('CI の run: | のブロックと、行末の \\ の続きも読む', () => {
+    const changed = replaceCiRunLine(
+      (indent) => `${indent}run: |\n${indent}  set -e\n${indent}  cargo nextest run --workspace \\\n${indent}    --profile ci`,
+    );
+    expect(ciNextestCommands(changed)).toEqual(pushRunnerNextestCommands(realFiles()[PUSH_RUNNER_CONFIG]));
+  });
+
+  it('push-runner 側に読めない書き方の cargo nextest run があれば落とす', () => {
+    const original = realFiles()[PUSH_RUNNER_CONFIG];
+    const changed = original.replace('"cargo nextest run --workspace",', '"cargo nextest run --workspace", # 通常のテスト');
+    expect(changed).not.toBe(original);
+    expect(() => pushRunnerNextestCommands(changed)).toThrow(/読めたのは/);
   });
 });
