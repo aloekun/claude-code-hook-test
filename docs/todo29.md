@@ -426,18 +426,21 @@
 >
 > **種類**: Tier 1 — CLI の入力経路の追加。工数 M。
 >
+> **範囲**: 本エントリは CLI の入力経路だけを扱う。標準入力にしても、heredoc の本文の行頭に書いた `jj new` は、jj-message-required preset に止められる。preset は改行の直後の `jj new` に当たり、heredoc の本文も含めたコマンド全体を照合するため (`src/hooks-pre-tool-validate/src/handlers.rs` の 32〜37 行目、PR #662 の CodeRabbit の指摘)。preset が heredoc の本文に反応する問題は 順位 620 で扱い、外す範囲の判断を 1 箇所に置く。
+>
 > **参照**: [ADR-087](adr/adr-087-review-thread-resolution-after-push.md)
 
 #### 作業計画
 
 - [ ] `fixed` / `rejected` で、要約を標準入力 (`--stdin`) から読めるようにする。今の `--pr` を止める仕組み (`reject_options`) と両立させる。`--stdin` だけを受け付け、ほかのオプションは今までどおり止める
 - [ ] 位置引数の要約と `--stdin` を同時に渡したら、どちらを使うか曖昧なので止める。標準入力が空なら、今と同じく「要約がない」で止める
-- [ ] heredoc で `<` `>` と `jj new` を含む要約を登録でき、preset に止められないことを、手元で実際に打って確かめる
+- [ ] heredoc で `<` `>` と、行の途中の `jj new` を含む要約を登録できることを、手元で実際に打って確かめる
 - [ ] 使い方の説明 (module doc) と、要約を登録する手順を案内している箇所を更新する
 
 #### 完了基準
 
-- `<` `>` や `jj new` を含む要約を、引用符の工夫なしに登録できる
+- `<` `>` を含む要約と、行の途中に `jj new` を含む要約を、引用符の工夫なしに登録できる
+- 行頭に `jj new` を書いた要約を heredoc で登録できるのは、順位 620 が完了してからとする (本エントリの完了基準には含めない)
 - 位置引数での登録は、これまでどおり使える
 
 ### 順位 617: post-merge feedback が読む会話記録から、無関係な記録を除く
@@ -506,7 +509,7 @@
 
 ### 順位 620: preset が、コミットメッセージの本文や heredoc の中の文字列に反応する誤検知を減らす
 
-> **動機**: jj-immutable preset の正規表現 (`src/hooks-pre-tool-validate/src/presets/jj.rs` の 78 行目) は、コマンド全体に当たる。コミットメッセージや heredoc の本文に、bypass のオプション名を語として書いただけで止まる。#658 の作業で 2 回、#660 の作業で 1 回起きた (#658 の feedback、Tier 1 #1。#660 Tier 1 #1 も同じ内容)。本エントリを起票する heredoc も、同じ理由で止められた。回避策 (本文をファイルに書いて `jj describe --stdin` などに渡す) はあるが、毎回手間がかかる。preset の判定の前に引用符の中や heredoc の本文を除く処理は無い (heredoc の本文を分ける処理は `deletion_guard/lexer/redirect.rs` にあるが、削除ガード専用)。
+> **動機**: jj-immutable preset の正規表現 (`src/hooks-pre-tool-validate/src/presets/jj.rs` の 78 行目) は、コマンド全体に当たる。コミットメッセージや heredoc の本文に、bypass のオプション名を語として書いただけで止まる。#658 の作業で 2 回、#660 の作業で 1 回起きた (#658 の feedback、Tier 1 #1。#660 Tier 1 #1 も同じ内容)。本エントリを起票する heredoc も、同じ理由で止められた。jj-message-required preset も、heredoc の本文の行頭に書いた `jj new` に反応する (改行の直後に当たるため)。順位 616 で要約を標準入力から渡すようにしても、この形は止まる (PR #662 の CodeRabbit の指摘)。回避策 (本文をファイルに書いて `jj describe --stdin` などに渡す) はあるが、毎回手間がかかる。preset の判定の前に引用符の中や heredoc の本文を除く処理は無い (heredoc の本文を分ける処理は `deletion_guard/lexer/redirect.rs` にあるが、削除ガード専用)。
 >
 > **由来**: `[improvement]`。report は 2 件とも様子見だった。同じ系統が 2 つの PR で計 3 回起きたため採用した。
 >
@@ -525,4 +528,5 @@
 #### 完了基準
 
 - コミットメッセージや heredoc の本文 (決めた範囲) に bypass のオプション名を書いても止まらない
+- 範囲に heredoc の本文を含めた場合は、`pnpm threads fixed N --stdin` の heredoc の本文の行頭に書いた `jj new` も止まらない (順位 616 から移した受け入れ条件)。含めない場合は、その理由をこのエントリの「決定事項」節に書き、順位 616 の要約の手順にこの形の回避策を書く
 - 引数として渡した bypass のオプションと、既存の bypass の形は、これまでどおり止まる
