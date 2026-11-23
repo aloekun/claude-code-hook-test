@@ -103,7 +103,7 @@
 
 - 持ち主は hook の `MAX_FILE_LINES` (と関数長の定数) にする
 - builtin knowledge の数値は直接編集できないので、ADR-056 の policy と同じく、リポジトリ側で knowledge を shadow して数値を除く (または hook の定数を参照と書く)
-- `weekly-scan.mjs` の 800 には相互参照のコメントを付ける (ADR-081 の手順)
+- `weekly-scan.mjs` は JavaScript なので Rust の定数を直接読めない。800 は値として残し、hook の定数への相互参照のコメントを付ける (ADR-081 の手順。数値の重複は、相互参照のある箇所に限って許す)
 
 - [ ] 着手時判断: knowledge を丸ごと shadow するか、数値の行だけを上書きする手段が takt にあるかを確かめて決める
 - [ ] shadow を入れ、3 つの workflow がそれを読むことを確かめる
@@ -112,7 +112,7 @@
 #### 完了基準
 
 - takt のレビューが 300 行超のファイルを、ファイル長だけを理由に REJECT しない
-- 閾値の数値が hook の定数に 1 か所あり、ほかの箇所はそれを参照している
+- 閾値の正が hook の定数にあり、ほかの箇所は数値を持たないか、持つ場合は hook の定数への相互参照が付いている (facet knowledge の shadow は数値を持たない)
 
 ### 順位 625: 台帳の棚卸し手順の検査範囲を `docs/todo-summary*.md` に広げる
 
