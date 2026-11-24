@@ -57,13 +57,25 @@ pub const DENIED_FILES: &[&str] = &[
 ];
 
 /// fix に編集させない場所か。[`ALWAYS_ALLOWED`] は呼び出し側で先に除く。
+pub fn is_denied_path(path: &str) -> bool {
+    let key = place_key(path);
+    DENIED_FILES.contains(&key.as_str()) || DENIED_DIRS.iter().any(|dir| key.starts_with(dir))
+}
+
+/// fix が常に書き戻してよい場所か ([`ALWAYS_ALLOWED`])。
+pub fn is_always_allowed(path: &str) -> bool {
+    ALWAYS_ALLOWED.contains(&place_key(path).as_str())
+}
+
+/// 場所の照合に使う表記に揃える。拒否リストと例外は必ずこれを通して比べる。
 ///
 /// 大文字小文字は区別しない。Windows のファイルシステムは区別しないので、
-/// `.Claude/settings.json` と書いても同じファイルを指す。
-pub fn is_denied_path(path: &str) -> bool {
-    let normalized = normalize_path(path).to_ascii_lowercase();
-    let path = normalized.trim_start_matches("./");
-    DENIED_FILES.contains(&path) || DENIED_DIRS.iter().any(|dir| path.starts_with(dir))
+/// `.Claude/settings.json` と書いても同じファイルを指す。先頭の `./` も除く。
+/// 拒否リストだけを揃えて例外を揃えないと、`.TAKT/review-diff.txt` が例外に当たらず
+/// `.takt/` の拒否に落ちる (PR #666 の CodeRabbit 指摘)。
+fn place_key(path: &str) -> String {
+    let lower = normalize_path(path).to_ascii_lowercase();
+    lower.trim_start_matches("./").to_string()
 }
 
 /// パスを正規化する。Windows のバックスラッシュ区切りを `/` へ揃え、前後空白を除去する。
@@ -121,7 +133,7 @@ pub fn find_out_of_scope(changed: &[String], allowlist: &BTreeSet<String>) -> Ve
     changed
         .iter()
         .filter(|f| {
-            !ALWAYS_ALLOWED.contains(&f.as_str()) && (is_denied_path(f) || !allowlist.contains(*f))
+            !is_always_allowed(f) && (is_denied_path(f) || !allowlist.contains(*f))
         })
         .cloned()
         .collect()
@@ -251,6 +263,24 @@ mod tests {
         let allowlist = allowlist_from_paths(std::iter::empty::<&str>());
         let changed = vec![".takt/review-diff.txt".to_string()];
         assert!(find_out_of_scope(&changed, &allowlist).is_empty());
+    }
+
+    /// 例外も拒否リストと同じ正規化で照合する。表記を変えた例外は通し、
+    /// 同じ `.takt/` の他のファイルは表記にかかわらず拒否する。
+    #[test]
+    fn always_allowed_matches_with_the_same_normalization_as_the_deny_list() {
+        let allowlist = allowlist_from_paths(std::iter::empty::<&str>());
+        for path in [".takt/review-diff.txt", ".TAKT/review-diff.txt", "./.takt/review-diff.txt", ".takt\\Review-Diff.txt"] {
+            assert!(
+                find_out_of_scope(&[normalize_path(path)], &allowlist).is_empty(),
+                "例外が通らなかった: {path:?}"
+            );
+        }
+        for path in [".takt/facets/instructions/fix.md", ".TAKT/facets/instructions/fix.md", "./.takt/facets/instructions/fix.md"] {
+            let changed = vec![normalize_path(path)];
+            let allow = allowlist_from_paths([path]);
+            assert_eq!(find_out_of_scope(&changed, &allow), changed, "拒否されなかった: {path:?}");
+        }
     }
 
     /// findings が空 (= allowlist 空) のとき、あらゆる変更が out-of-scope になる。
