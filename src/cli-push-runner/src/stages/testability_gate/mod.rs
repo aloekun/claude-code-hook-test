@@ -93,7 +93,9 @@ const RENAME_ARROW: &str = " => ";
 /// **`{`・` => `・`}` がそれぞれちょうど 1 回、この順に並ぶときだけ解決する** (順位 542)。
 /// ファイル名自体がこれらを含むと括りの位置が一意に決まらないので `Err` にする。jj の
 /// エスケープ規則を実測して正確にパースする案は採らなかった (そうしたファイル名が repo に
-/// 現れた観測は無く、`Err` に倒れても telemetry から気づける)。
+/// 現れた観測は無く、`Err` に倒れても telemetry から気づける)。矢印の重複は `matches` で
+/// 数えず、最初と最後の位置で比べる。`matches` は重ならない一致しか数えないので、空白を
+/// 共有する `{a => => b}` を 1 回と見てしまう (PR #665 の CodeRabbit 指摘)。
 ///
 /// 戻り値は区切りを `/` に正規化し、空セグメントを畳む。`{old => }suffix` のように
 /// 片側が空になる形で区切りが重複するため。jj の出力は repo 相対パスなので、先頭の
@@ -109,7 +111,8 @@ fn rename_target(path: &str) -> Result<String, String> {
         return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
     };
     let occurs_once = |pat: &str| path.matches(pat).count() == 1;
-    if !(occurs_once("{") && occurs_once("}") && occurs_once(RENAME_ARROW)) {
+    let arrow_once = path.find(RENAME_ARROW) == path.rfind(RENAME_ARROW);
+    if !(occurs_once("{") && occurs_once("}") && arrow_once) {
         return Err(format!(
             "rename 表記の括りが一意に決まりません ({{ / }} / {RENAME_ARROW:?} が複数回現れます): {path:?}"
         ));
@@ -523,6 +526,7 @@ mod tests {
             "R src/{a{b => c}/f.rs",
             "R src/{a => b}/x}.rs",
             "R src/{a => b => c}/f.rs",
+            "R src/{a => => b}/f.rs",
             "R x => y/{a => b}",
             "R src/{a => b}/{c => d}.rs",
         ] {

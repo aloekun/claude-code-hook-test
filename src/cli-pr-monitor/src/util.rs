@@ -61,22 +61,25 @@ where
 {
     for bookmark in &bookmarks() {
         log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
-        let pr_number = gh(&[
-            "pr",
-            "list",
-            "--head",
-            bookmark,
-            "--json",
-            "number",
-            "-q",
-            ".[0].number",
-        ])
-        .and_then(|s| s.parse::<u64>().ok());
+        let pr_number = gh(&["pr", "list", "--head", bookmark, "--json", "number,isCrossRepository"])
+            .and_then(|json| first_same_repo_pr(&json));
         if pr_number.is_some() {
             return pr_number;
         }
     }
     None
+}
+
+/// `gh pr list --json number,isCrossRepository` の出力から、fork でない最初の PR 番号を取る (I/O なし)。
+///
+/// `--head` は branch 名だけで絞り、head のリポジトリを見ない。他人の fork に同名の branch で
+/// PR が作られると、それを監視しうる (PR #665 の CodeRabbit 指摘)。`isCrossRepository` が
+/// `false` と読めた PR だけを採り、項目が欠けた PR は採らない (ADR-043)。
+fn first_same_repo_pr(json: &str) -> Option<u64> {
+    let prs: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+    prs.iter()
+        .find(|pr| pr["isCrossRepository"].as_bool() == Some(false))
+        .and_then(|pr| pr["number"].as_u64())
 }
 
 /// CR Major #1 fix (Bb-2 PR #114 review): PR の現在 head commit OID を `gh pr view`
@@ -235,10 +238,12 @@ mod tests {
     }
 
     /// gh の偽物。`gh pr view` (引数なし) は git HEAD の branch の PR を返し、
-    /// `gh pr list --head <name>` は `heads` に登録した PR を返す。呼ばれた引数を記録する。
+    /// `gh pr list --head <name>` は `heads` に登録した PR を同じリポジトリの PR として
+    /// JSON で返す。`raw_heads` は JSON をそのまま返す (fork を混ぜるとき用)。呼ばれた引数を記録する。
     struct FakeGh {
         git_head_pr: Option<&'static str>,
         heads: Vec<(&'static str, &'static str)>,
+        raw_heads: Vec<(&'static str, &'static str)>,
         calls: Vec<Vec<String>>,
     }
 
@@ -247,7 +252,15 @@ mod tests {
             Self {
                 git_head_pr,
                 heads: heads.to_vec(),
+                raw_heads: Vec::new(),
                 calls: Vec::new(),
+            }
+        }
+
+        fn with_raw(raw_heads: &[(&'static str, &'static str)]) -> Self {
+            Self {
+                raw_heads: raw_heads.to_vec(),
+                ..Self::new(None, &[])
             }
         }
 
@@ -255,11 +268,15 @@ mod tests {
             self.calls.push(args.iter().map(|s| s.to_string()).collect());
             match args {
                 ["pr", "view", ..] => self.git_head_pr.map(str::to_string),
-                ["pr", "list", "--head", head, ..] => self
-                    .heads
-                    .iter()
-                    .find(|(h, _)| h == head)
-                    .map(|(_, n)| n.to_string()),
+                ["pr", "list", "--head", head, ..] => {
+                    if let Some((_, raw)) = self.raw_heads.iter().find(|(h, _)| h == head) {
+                        return Some(raw.to_string());
+                    }
+                    self.heads
+                        .iter()
+                        .find(|(h, _)| h == head)
+                        .map(|(_, n)| format!(r#"[{{"number":{n},"isCrossRepository":false}}]"#))
+                }
                 _ => None,
             }
         }
@@ -306,6 +323,35 @@ mod tests {
             |args: &[&str]| gh.call(args),
         );
         assert_eq!(got, Some(7));
+    }
+
+    /// 他人の fork に同名 branch の新しい PR (#999) があっても、同じリポジトリの PR (#42) を監視する
+    /// (PR #665 の CodeRabbit 指摘)。`gh pr list` は新しい順なので fork の PR が先頭に来る。
+    #[test]
+    fn find_pr_number_skips_a_newer_fork_pr_with_the_same_branch_name() {
+        let mut gh = FakeGh::with_raw(&[(
+            "feat-x",
+            r#"[{"number":999,"isCrossRepository":true},{"number":42,"isCrossRepository":false}]"#,
+        )]);
+        let got = find_pr_number_with(|| vec!["feat-x".to_string()], |args: &[&str]| gh.call(args));
+        assert_eq!(got, Some(42));
+    }
+
+    /// 同名 branch の PR が fork にしか無いときは監視しない。
+    #[test]
+    fn find_pr_number_is_none_when_only_a_fork_pr_has_the_branch_name() {
+        let mut gh = FakeGh::with_raw(&[("feat-x", r#"[{"number":999,"isCrossRepository":true}]"#)]);
+        let got = find_pr_number_with(|| vec!["feat-x".to_string()], |args: &[&str]| gh.call(args));
+        assert_eq!(got, None);
+    }
+
+    /// fork かどうかを読めない PR は採らない (ADR-043)。
+    #[test]
+    fn first_same_repo_pr_rejects_prs_whose_fork_flag_is_unreadable() {
+        assert_eq!(first_same_repo_pr(r#"[{"number":7}]"#), None);
+        assert_eq!(first_same_repo_pr(r#"[{"number":7,"isCrossRepository":"false"}]"#), None);
+        assert_eq!(first_same_repo_pr("not json"), None);
+        assert_eq!(first_same_repo_pr("[]"), None);
     }
 
     // ─── bookmark 検出ロジック (lib-jj-helpers に集約済) ───
