@@ -106,7 +106,6 @@
 | 617 | Tier 2 | **[improvement] post-merge feedback が読む会話記録から、無関係な記録を除く** | todo29.md | M | なし (2026-11-23、#658 / #661 の post-merge feedback。別 session の記録を混ぜるのが仕様かを着手時に確かめる) |
 | 618 | Tier 2 | **[improvement] Outside diff の節のパーサのテストに、CommonMark 仕様書の fence の例を入れる** | todo29.md | M | なし (2026-11-23、#657 の post-merge feedback) |
 | 619 | Tier 2 | **[improvement] guard と preset の案内文に書いたコマンドが、有効な preset に止められないことを検査する** | todo29.md | S | なし (2026-11-23、#660 の post-merge feedback) |
-| 620 | Tier 1 | **[improvement] preset が、コミットメッセージの本文や heredoc の中の文字列に反応する誤検知を減らす** | todo29.md | M | なし (2026-11-23、#658 / #660 の post-merge feedback。判定から外す範囲は着手前にヒアリングで決める) |
 | 621 | Tier 2 | **[improvement] pr-monitor の bookmark 前進にスタック安全策を入れ、push-runner と同じ関数を通す** | todo30.md | M | 順位 607 と同じ関数を変更するため、607 と同時か後に着手 (2026-11-23、WR-2026-11-23-S01) |
 | 624 | Tier 3 | **[improvement] ファイル長と関数長の閾値を、hook の定数を持ち主にして揃える** | todo30.md | S | なし (2026-11-23、WR-2026-11-23-A02。builtin knowledge の shadow 方法は着手時判断) |
 | 625 | Tier 3 | **[improvement] 台帳の棚卸し手順の検査範囲を `docs/todo-summary*.md` に広げる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T01) |

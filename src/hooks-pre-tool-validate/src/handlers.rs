@@ -1,7 +1,7 @@
 //! Tool 別 handler (Bash / Write / Edit / PowerShell)。
 
 use crate::blocked_patterns::{
-    build_blocked_patterns, tag_source, validate_command, SourcedPattern,
+    build_blocked_patterns, tag_source, validate_command, validate_shell_command, SourcedPattern,
 };
 use crate::config::Config;
 use crate::deletion_guard::{self, Context, Dialect};
@@ -34,7 +34,7 @@ pub(crate) fn handle_bash_tool(config: &Config, tool_input: &ToolInput, places: 
         return ExitCode::SUCCESS;
     }
     let patterns = patterns_for_bash(config, &command);
-    if let Some(hit) = validate_command(&command, &patterns) {
+    if let Some(hit) = validate_shell_command(&command, Dialect::Bash, &patterns) {
         record_preset_block(hit.source);
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
@@ -115,7 +115,7 @@ pub(crate) fn handle_powershell_tool(
         return ExitCode::SUCCESS;
     }
     let patterns = build_blocked_patterns(config);
-    if let Some(hit) = validate_command(&command, &patterns) {
+    if let Some(hit) = validate_shell_command(&command, Dialect::PowerShell, &patterns) {
         record_preset_block(hit.source);
         let _ = io::stderr().write_all(hit.inner.message.as_bytes());
         return ExitCode::from(2);
@@ -282,7 +282,7 @@ mod tests {
 
     fn blocked_in_bash(command: &str) -> bool {
         let config = config_with_powershell_preset();
-        validate_command(command, &patterns_for_bash(&config, command)).is_some()
+        validate_shell_command(command, Dialect::Bash, &patterns_for_bash(&config, command)).is_some()
     }
 
     /// PR #522 CodeRabbit 指摘: 語を文字列として含むだけの Bash コマンドは止めない。

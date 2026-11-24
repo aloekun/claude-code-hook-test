@@ -1,6 +1,8 @@
 //! `BlockedPattern` 型定義と pattern build / validate ロジック。
 
 use crate::config::Config;
+use crate::deletion_guard::Dialect;
+use crate::inert_text::{strip_inert_text, uses_inert_text};
 use crate::presets::{
     default_preset_names, normalize_source_tag, preset_applies_on_this_os, resolve_preset_or_custom,
 };
@@ -56,22 +58,37 @@ pub(crate) fn build_blocked_patterns(config: &Config) -> Vec<SourcedPattern> {
 }
 
 /// command にマッチする最初の `SourcedPattern` を返す (exception 不一致のもの)。
+///
+/// 文字列をそのまま照合する。シェルのコマンドには [`validate_shell_command`] を使う。
 pub(crate) fn validate_command<'a>(
     command: &str,
     patterns: &'a [SourcedPattern],
 ) -> Option<&'a SourcedPattern> {
-    for sourced in patterns {
-        let pattern = &sourced.inner;
-        if pattern.pattern.is_match(command) {
-            if let Some(exc) = &pattern.exception {
-                if exc.is_match(command) {
-                    continue;
-                }
-            }
-            return Some(sourced);
-        }
-    }
-    None
+    patterns.iter().find(|sourced| blocks(&sourced.inner, command))
+}
+
+/// シェルのコマンドを照合する。jj 系の preset ([`uses_inert_text`]) だけは、実行されない
+/// `-m` の値と heredoc の本文を外した文字列で照合する (順位 620、[`strip_inert_text`])。
+/// 他の preset は元の文字列のまま照合する。
+pub(crate) fn validate_shell_command<'a>(
+    command: &str,
+    dialect: Dialect,
+    patterns: &'a [SourcedPattern],
+) -> Option<&'a SourcedPattern> {
+    let stripped = std::cell::OnceCell::new();
+    patterns.iter().find(|sourced| {
+        let text = if uses_inert_text(sourced.source) {
+            stripped.get_or_init(|| strip_inert_text(command, dialect)).as_str()
+        } else {
+            command
+        };
+        blocks(&sourced.inner, text)
+    })
+}
+
+/// `pattern` が `text` に当たり、exception には当たらないか。
+fn blocks(pattern: &BlockedPattern, text: &str) -> bool {
+    pattern.pattern.is_match(text) && !pattern.exception.as_ref().is_some_and(|exc| exc.is_match(text))
 }
 
 #[cfg(test)]
@@ -98,6 +115,54 @@ mod tests {
 
     fn is_blocked_with(command: &str, presets: &[&str]) -> bool {
         validate_command(command, &patterns_with_presets(presets)).is_some()
+    }
+
+    fn shell_blocked_with(command: &str, presets: &[&str]) -> bool {
+        validate_shell_command(command, Dialect::Bash, &patterns_with_presets(presets)).is_some()
+    }
+
+    const JJ_ALL: &[&str] = &["jj-immutable", "jj-main-guard", "jj-push-guard", "jj-message-required"];
+
+    /// コミットメッセージや heredoc の本文に語を書いただけでは、jj 系の preset は止めない (順位 620)。
+    #[test]
+    fn jj_presets_ignore_words_in_message_values_and_quoted_heredoc_bodies() {
+        for cmd in [
+            "jj describe -m 'avoid --ignore-immutable'",
+            "jj describe -m \"jj git push is blocked\"",
+            "pnpm threads fixed 3 --stdin <<'EOF'\njj new で直した\njj git push は使わない\nEOF\n",
+            "jj describe --stdin <<'EOF'\n--ignore-immutable を足さない\nEOF\n",
+        ] {
+            assert!(!shell_blocked_with(cmd, JJ_ALL), "止まった: {cmd:?}");
+        }
+    }
+
+    /// 引数として渡した bypass と、既存の bypass の形はこれまでどおり止まる。
+    #[test]
+    fn jj_presets_still_block_real_arguments_next_to_stripped_text() {
+        for cmd in [
+            "jj describe -m 'x' --ignore-immutable",
+            "jj rebase\n--ignore-immutable -r abc -d main",
+            "jj rebase \"--ignore-immutable\" -r x",
+            "jj describe -m 'x' && jj git push",
+            "cat <<'EOF'\nbody\nEOF\njj new",
+            "jj new \"main\" -m 'x'",
+            "bash <<'EOF'\njj git push\nEOF\n",
+        ] {
+            assert!(shell_blocked_with(cmd, JJ_ALL), "止まらなかった: {cmd:?}");
+        }
+    }
+
+    /// jj 系以外の preset は元の文字列のまま照合する (2026-11-25 のヒアリングで範囲を jj 系に限った)。
+    #[test]
+    fn non_jj_presets_still_see_the_raw_command() {
+        let cmd = "jj describe -m 'x' && bash -c 'git push'";
+        assert!(shell_blocked_with(cmd, &["git"]));
+        let raw_only = "cat <<'EOF'\nbash -c 'git push'\nEOF\n";
+        assert_eq!(
+            shell_blocked_with(raw_only, &["git"]),
+            validate_command(raw_only, &patterns_with_presets(&["git"])).is_some(),
+            "git preset の判定が前処理で変わった"
+        );
     }
 
     #[test]
