@@ -90,6 +90,13 @@ const RENAME_ARROW: &str = " => ";
 /// 倒した先は `scan-incomplete` の `unparsable-status` として telemetry に残るので、
 /// 新しい表記が現れれば観測から気づける。
 ///
+/// **`{`・` => `・`}` がそれぞれちょうど 1 回、この順に並ぶときだけ解決する** (順位 542)。
+/// ファイル名自体がこれらを含むと括りの位置が一意に決まらないので `Err` にする。jj の
+/// エスケープ規則を実測して正確にパースする案は採らなかった (そうしたファイル名が repo に
+/// 現れた観測は無く、`Err` に倒れても telemetry から気づける)。矢印の重複は `matches` で
+/// 数えず、最初と最後の位置で比べる。`matches` は重ならない一致しか数えないので、空白を
+/// 共有する `{a => => b}` を 1 回と見てしまう (PR #665 の CodeRabbit 指摘)。
+///
 /// 戻り値は区切りを `/` に正規化し、空セグメントを畳む。`{old => }suffix` のように
 /// 片側が空になる形で区切りが重複するため。jj の出力は repo 相対パスなので、先頭の
 /// 空セグメント除去が絶対パスを壊すことはない。
@@ -103,6 +110,13 @@ fn rename_target(path: &str) -> Result<String, String> {
     let Some((_, moved_to)) = path[open + 1..close].split_once(RENAME_ARROW) else {
         return Err(format!("rename 表記に {RENAME_ARROW:?} がありません: {path:?}"));
     };
+    let occurs_once = |pat: &str| path.matches(pat).count() == 1;
+    let arrow_once = path.find(RENAME_ARROW) == path.rfind(RENAME_ARROW);
+    if !(occurs_once("{") && occurs_once("}") && arrow_once) {
+        return Err(format!(
+            "rename 表記の括りが一意に決まりません ({{ / }} / {RENAME_ARROW:?} が複数回現れます): {path:?}"
+        ));
+    }
     let new = format!("{}{}{}", &path[..open], moved_to, &path[close + 1..]);
     let norm = normalize(new.trim());
     let joined = norm.split('/').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/");
@@ -496,6 +510,36 @@ mod tests {
         let bs = char::from(92u8);
         assert!(changed_paths("R old/a.rs => new/a.rs\n").is_err());
         assert!(changed_paths(&format!("C src{bs}{{old => new}}{bs}f.rs")).is_err());
+    }
+
+    /// ファイル名自体が `{` / `}` / ` => ` を含むと括りの位置が一意に決まらないので、
+    /// 推測で解決せず `Err` に倒す (順位 542)。旧実装は最初の `{` と次の `}` で括りを決め、
+    /// 別のパスへ解決して走査対象を取り違えていた。
+    ///
+    /// - `{` が 2 回: `src/{a{b => c}/f.rs` を旧実装は `src/c/f.rs` に解決していた
+    /// - `}` が 2 回: `src/{a => b}/x}.rs` を旧実装は `src/b/x}.rs` に解決していた
+    /// - 括りの中に矢印が 2 回: `src/{a => b => c}/f.rs` を旧実装は `src/b => c/f.rs` に解決していた
+    /// - 括りの外にも矢印: `x => y/{a => b}` を旧実装は `x => y/b` に解決していた
+    #[test]
+    fn changed_paths_rejects_ambiguous_rename_brackets() {
+        for line in [
+            "R src/{a{b => c}/f.rs",
+            "R src/{a => b}/x}.rs",
+            "R src/{a => b => c}/f.rs",
+            "R src/{a => => b}/f.rs",
+            "R x => y/{a => b}",
+            "R src/{a => b}/{c => d}.rs",
+        ] {
+            assert!(changed_paths(line).is_err(), "曖昧な rename 表記を解決しました: {line:?} -> {:?}", changed_paths(line));
+        }
+    }
+
+    /// 記号がそれぞれ 1 回でも、`{` → ` => ` → `}` の順でなければ `Err`。
+    #[test]
+    fn changed_paths_rejects_rename_brackets_out_of_order() {
+        for line in ["R src/}a => b{/f.rs", "R a => {b}.rs", "R {a} => b.rs"] {
+            assert!(changed_paths(line).is_err(), "順序の崩れた rename 表記を解決しました: {line:?}");
+        }
     }
 
     /// 移動を 1 件含むだけで PR 全体が未走査になっていた退行 (2026-09-14 の
