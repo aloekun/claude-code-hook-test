@@ -15,10 +15,18 @@
     "ask": [
       "Bash(pnpm create-pr*)",
       "Bash(pnpm merge-pr*)",
-      "Bash(*cli-merge-pipeline*)",
+      "Bash(*.claude*cli-merge-pipeline*)",
+      "Bash(*run-artifact.mjs cli-merge-pipeline*)",
+      "Bash(*cargo run*cli-merge-pipeline*)",
+      "Bash(*target*release*cli-merge-pipeline*)",
+      "Bash(*target*debug*cli-merge-pipeline*)",
       "PowerShell(pnpm create-pr*)",
       "PowerShell(pnpm merge-pr*)",
-      "PowerShell(*cli-merge-pipeline*)"
+      "PowerShell(*.claude*cli-merge-pipeline*)",
+      "PowerShell(*run-artifact.mjs cli-merge-pipeline*)",
+      "PowerShell(*cargo run*cli-merge-pipeline*)",
+      "PowerShell(*target*release*cli-merge-pipeline*)",
+      "PowerShell(*target*debug*cli-merge-pipeline*)"
     ]
   },
   "env": {

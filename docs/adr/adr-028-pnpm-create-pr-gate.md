@@ -199,7 +199,7 @@ interactive session での PR 作成フロー:
 
 - **PowerShell 版を足した。** ask ルールが `Bash(...)` だけで、PowerShell tool から `pnpm create-pr` などを実行すると本 ADR のゲートを通らなかった。Bash の各ルールに同じ中身の `PowerShell(...)` を並べ、対になっていることを `hooks-pre-tool-validate` のテスト (`settings_wiring.rs`) で検査する (PR #582)
 - **cli-merge-pipeline の捕捉パターンを `*cli-merge-pipeline*` に広げた。** 原則 1 の「`.claude/cli-merge-pipeline.exe` (直接呼び出し)」は Windows の実行ファイル名を前提にしていた。[ADR-063](adr-063-linux-portability-release-binaries.md) 以降の Linux では拡張子なしで配置され、`pnpm merge-pr` の実体であるランチャー (`node scripts/run-artifact.mjs cli-merge-pipeline`) もどちらの OS でも `.exe` を含まないため、旧パターンでは捕捉できなかった (PR #582 の CodeRabbit 指摘)
-- **広げた代償**: `cargo test -p cli-merge-pipeline` のように crate 名を含むだけの開発コマンドも確認を求める。実行経路だけに絞ると書き方次第ですり抜けるため、ゲートは確認を出す側に倒した ([ADR-043](adr-043-security-gates-fail-closed.md))
+- **広げた代償**: `cargo test -p cli-merge-pipeline` のように crate 名を含むだけの開発コマンドも確認を求める。実行経路だけに絞ると書き方次第ですり抜けるため、ゲートは確認を出す側に倒した ([ADR-043](adr-043-security-gates-fail-closed.md))。**この判断は 2026-11-24 の追記で改めた**
 
 ## 追記 (2026-10-28): 本文の一時ファイルを書く・消すコマンドは確認なしで実行する
 
@@ -207,6 +207,15 @@ interactive session での PR 作成フロー:
 - **ゲートは変わらない。** 外に見える操作は `pnpm create-pr` で、原則 2 の `permissions.ask` に残る。確認画面に出るのが実際にゲートするコマンドだけになり、何を承認するのかが読みやすくなる
 - **リンクをたどらない。** 「`.tmp-pr-body.md` しか触らない」は、そのパスがシンボリックリンクだと成り立たない (書き出しがリンク先を上書きする。PR #596 の CodeRabbit 指摘)。書き出しは、そのパスにあるのが通常のファイルでなければ書かずに失敗し、通常のファイルは消してから「既にあれば作らない」形で作る。後片付けはリンクそのものを消す (`src/cli-pr-monitor/src/prepare_pr_body.rs`)
 - **完全一致にした。** 前方一致 (`pnpm prepare-pr-body *`) にすると、後ろに続く引数やコマンド名の別の綴りまで許すことになる。本文は標準入力で渡し、引数は取らない
+
+## 追記 (2026-11-24): cli-merge-pipeline の ask ルールを実行する形だけに絞る
+
+追記 (2026-10-20) の「広げた代償」を受け入れない判断に改めた。
+
+- **何が起きたか。** cli-merge-pipeline の PR 検出を直す作業で、`*cli-merge-pipeline*` が `cargo test -p` / `cargo clippy -p` / `pnpm -s mutate ... cargo test -p` / ソースのパスを含む `sed`・`grep`・`wc` に当たり、1 セッションで確認が 7 回出た。7 回とも transcript の permissionDecision は `rule:projectSettings` で、マージの操作は 1 回も含まない。確認が多いと承認が形骸化し、本当にマージする操作の確認も読まれなくなる。これは本 ADR の運用レビュー (確認への応答が形骸化していないか) で避けたかった状態である
+- **絞った形。** 起動のしかたごとに 1 つずつ並べた: 配置先 (`*.claude*cli-merge-pipeline*`、`/` と `\` の両方に当たる)、ランチャー (`*run-artifact.mjs cli-merge-pipeline*`)、`*cargo run*cli-merge-pipeline*`、ビルド済みの実行ファイル (`*target*release*cli-merge-pipeline*` / `*target*debug*cli-merge-pipeline*`)。Bash と PowerShell の両方に置く
+- **検査で両側を固定する。** `src/hooks-pre-tool-validate/src/settings_wiring.rs` が、実行する形 (両 OS の配置先・ランチャー・`cargo run`・`target/`) が ask に当たることと、crate 名を書くだけの開発コマンド (`cargo test -p` / `cargo clippy -p` / `cargo build -p` / `pnpm build:*` / `pnpm -s mutate` / ソースのパス) が当たらないことを検査する。絞りすぎて PR #582 の穴 (Linux の拡張子なし・ランチャー経由) が再び開けば、前者が落ちる
+- **残る漏れ (受け入れた)。** パターン照合なので、並べていない起動の形は確認を通らない。たとえば `.claude` に `cd` してから `./cli-merge-pipeline` を起動する、実行ファイルを別名でコピーして起動する、などである。ask ルールはもともと一次防衛 (memory) を補う多層防御の 1 層で、マージには `pnpm merge-pr` をユーザーの明示の指示で使う運用が別にある。漏れの可能性より、確認の頻度による形骸化の方が害が大きいと判断した ([ADR-043](adr-043-security-gates-fail-closed.md) の fail-closed は品質ゲートの判定についての原則で、ここでは確認の頻度との比較で例外にする)
 
 ## 参照
 
