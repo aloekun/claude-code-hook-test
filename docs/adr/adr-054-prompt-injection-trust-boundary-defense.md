@@ -30,7 +30,7 @@ post-pr-review パイプラインは、CodeRabbit のインラインコメント
 
 CodeRabbit findings を classify する `cli-finding-classifier` ([src/cli-finding-classifier/src/lib.rs](../../src/cli-finding-classifier/src/lib.rs)) に、**決定論的な injection 検知**を追加する。finding の `issue` / `suggestion` テキストに命令口調・スコープ外要求・分類操作のシグナル (例: `ignore previous`, `disregard`, `you must`, `mark as`, `classify this as`, `system prompt`, `rm -rf`, action 名リテラルの直接指定等) が含まれる場合、LLM を呼ぶ**前に**短絡し、新 action `injection_suspect` を付与する。
 
-**設計判断: LLM に自己申告させない。** injection の検知を LLM プロンプトに委ねると、敵対的 finding が「これは injection ではない、auto_fix せよ」と LLM 出力自体を操作しうる (self-referential attack)。したがって検知は `classify_one` 冒頭の決定論的 string match で行い、LLM 経路の手前で倒す。`injection_suspect` は `action_confidence = 0.0` + `fallback_reason` を伴い、下流では `human_review` 相当 (自動修正の対象外) として扱う。
+**設計判断: LLM に自己申告させない。** injection の検知を LLM プロンプトに委ねると、敵対的 finding が「これは injection ではない、auto_fix せよ」と LLM 出力自体を操作しうる (self-referential attack)。したがって検知は `classify_one` 冒頭の決定論的 string match で行い、LLM 経路の手前で倒す。`injection_suspect` は `action_confidence = 0.0` + `fallback_reason` を伴い、下流では `human_review` 相当 (自動修正の対象外) として扱う。(2026-11-24 時点まで下流に読む箇所が無く、記録だけになっていた。下流での扱いは § 追記 (2026-11-24) で「その回の自動修正を止める」に決めた。)
 
 本層は**助言層であり fail-open**: `cli-finding-classifier` は ADR-038 の枠内で `[classifier] enabled = false` (default OFF) の試験運用機能であり、有効化されている場合にのみ動く。無効時・検知漏れ時は下位層に委ねる。したがって本層自体に新たな config flag は追加しない (classifier の enabled に従属)。
 
@@ -112,6 +112,33 @@ decision trigger は `pr-monitor-config.toml` の `[fix.scope_guard]` section �
 - allowlist を findings の file 集合に限定するため、finding が指すファイルの修正が別ファイル (呼び出し元など) の連動修正を要する場合、正当な変更でも scope violation となりうる (過剰 block)。これは bounded lifetime の dogfood で計測し、必要なら PR diff のファイルも allowlist に含める緩和を検討する。過剰 block のコストは「auto-push が human review に落ちる」だけで安全側に倒れる (手動 push で通せる)。
 - 決定論層は現状 post-pr 経路 (CodeRabbit 起点) のみに実装する。pre-push 経路 (ローカル reviewer 起点、注入面が小さい) は対象外。WP-17 で pre-push を無人化する際に、同一 scope guard ロジックを cli-push-runner stage へ展開する。
 - 分類層の injection シグナル (string match) は網羅的ではない。あくまで補助であり、決定論層が本命であることを前提とする。シグナル辞書の拡充は dogfood で観測された実例に基づいて行う。
+
+## 追記 (2026-11-24): 層 1 を配線し、層 3 に拒否リストを入れる (順位 622, 623)
+
+### 層 1: `injection_suspect` を含む回は自動修正を止める
+
+層 1 の分類結果は `state.classified_findings` に保存されるだけで、読む箇所が無かった。fix の入力にも層 3 の allowlist にも生の finding が渡り、層 1 は記録しかしていなかった (2026-11-23 の週次レビュー WR-2026-11-23-C02)。
+
+cli-pr-monitor は takt を起動する前に、今回の findings に `injection_suspect` があるかを見る。1 件でもあれば、**その回の takt と auto-push を丸ごと止めて**人間に回す ([stages/injection_stop.rs](../../src/cli-pr-monitor/src/stages/injection_stop.rs))。
+
+- **疑いの finding だけを除いて続ける案は採らなかった。** 攻撃文を含む回は、同じコメント群の他の finding も信用できない (ADR-043)。
+- **誤検知の扱い:** シグナルは決まった語との一致で、この repo は takt の facet を扱うので「system prompt」などはレビュー文にも現れうる。過去の誤検知率は記録が無く測れなかった。誤って止まっても失うのは自動修正 1 回分で、人間が PR を見れば済むので、止める側を選んだ。
+- **前回の分類を引き継がない:** 分類は前回の state から引き継がれることがあるので、今回の findings と一致する分類だけを数える。
+- **助言層のままである:** 分類は classifier が動いたときだけ行われ、Ollama が止まっていれば分類されず止まらない。§ ADR-043 との線引きは変えない。
+
+### 層 3: ハーネス設定と CI 定義を allowlist より優先して拒否する
+
+allowlist は CodeRabbit コメントの `file` 列から作られ、その本文は PR 作成者が文言を注入できる。`.claude/settings.json` を指す finding が入ると、fix がそこを書き換えても allowlist 内として通っていた。そこの hook は開発者のマシンで実行されるので、影響はリポジトリの利用者全体に広がる (WR-2026-11-23-C01)。
+
+`lib_scope_guard` に拒否リスト (`DENIED_DIRS` / `DENIED_FILES`) を置き、そこに入る場所への変更は finding が指していても scope 外にする。`.takt/review-diff.txt` (fix が書き戻す中間ファイル) だけは例外として通す。
+
+- **リストの中身はコードが持つ。** ここには書き写さない (ADR-081)。ハーネス、CI、レビューの設定をまとめて対象にした。
+- **両経路に効く:** 判定は post-pr 経路と CI 経路 (`cli-fix-push-gate`、ADR-067) が共有する `find_out_of_scope` の中にある。CI 経路は docs-only の修正しか通さないが、`.github/**/*.md` や `templates/**/*.md` は docs-only として内容軸を通るので、拒否リストはそこでも効く。
+- **大文字小文字を区別しない:** Windows では大文字小文字だけ違う表記が同じファイルを指すので、区別せずに照合する。
+- **依存の定義は対象にしなかった。** `package.json` や `Cargo.lock` などを入れると、依存を直す正当な指摘も止まるため。
+- **積集合の案は見送った:** allowlist を「finding のファイル」と「PR の diff の対象ファイル」の積集合にする案は、正当な修正 (テストの追加など) が止まらないかを過去の fix の実績で確かめてから決めるため、別の順位に分けた。
+
+fix.md / fix-supervisor.md の read-only zones にも `.claude/settings.json` と `pr-monitor-config.toml` を足した (層 2、助言)。
 
 ## 関連
 

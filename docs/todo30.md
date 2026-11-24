@@ -36,56 +36,29 @@
 - スタック構成の回帰テストが両 crate で通る
 - bookmark 前進の判定が 1 か所にあり、両経路がそれを通ることがテストで固定されている
 
-### 順位 622: post-pr の scope guard に、ハーネス設定と CI 定義の deny-list を決定論で入れる
+### 順位 628: scope guard の allowlist を、finding のファイルと PR の diff の対象ファイルの積集合にする
 
-> **動機**: scope guard の allowlist は CodeRabbit コメント本文の `file` 列から作られる (`allowlist_from_findings`)。この本文は PR 作成者が文言を注入できる非信頼テキストである。`.claude/settings.json` や `.github/workflows/*` を指す finding があると、fix がそこを編集しても許可されたものとして scope guard が PASS し、auto-push でマージ対象に入る。`.claude/settings.json` の hook は開発者のマシンで実行されるので、影響は PR 作成者からリポジトリの利用者全体に広がる。ハーネス設定と CI 定義の deny-list は、fix.md にも決定論層にも無い。
+> **動機**: scope guard の allowlist は CodeRabbit コメント本文の `file` 列から作られ、その本文は PR 作成者が文言を注入できる。順位 622 でハーネス設定と CI 定義は拒否リストで守ったが、それ以外の場所 (たとえば PR と無関係な `src/` のファイル) は、finding が指せば fix が書き換えても通る。PR の diff に無いファイルを allowlist から外せば、注入で広げられる範囲を PR 自身の変更に閉じ込められる。
 >
-> **本タスクの位置づけ**: 週次レビュー WR-2026-11-23-C01 で採用 (severity=high, facet=security, category=prompt-injection)。CodeRabbit が攻撃者の文言を Location に反映し、fix がそれに従うことが前提なので、確定した脆弱性ではなく高リスクとして扱う
+> **本タスクの位置づけ**: 順位 622 の設計決定 (b) を切り出した (2026-11-24、622 の着手時のヒアリング)。拒否リスト (a) で主な攻撃経路は塞いだので、(b) は実績の確認を済ませてから入れる
 >
-> **参照**: `.claude/weekly-reviews/2026-11-23.md`、`src/cli-pr-monitor/src/stages/scope_guard.rs:84-90`、`lib_scope_guard::allowlist_from_paths`、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)
+> **参照**: `src/lib-scope-guard/src/lib.rs` (`find_out_of_scope`)、`src/cli-pr-monitor/src/stages/scope_guard.rs` (`allowlist_from_findings`)、`src/cli-fix-push-gate/src/inputs.rs`、[ADR-054](adr/adr-054-prompt-injection-trust-boundary-defense.md) § 追記 (2026-11-24)
 
 #### 背景
 
-パスの正規化は `lib_scope_guard` に委譲されていて、CI 経路 (`cli-fix-push-gate`、ADR-067) と判定を共有している。deny-list も `lib_scope_guard` に置けば両経路に同時に効く。pre-push 経路への展開は順位 364 が追跡している (WR-2026-11-23-C04 は 364 と同じ内容なので却下した)。
+ADR-054 の「欠点 / 留意点」は、正当な修正が別ファイルの連動修正を要する場合の過剰 block を挙げ、緩和として PR diff のファイルを allowlist に**足す**案を書いている。本タスクは逆向きに**絞る**案なので、過剰 block が増える側に働く。
 
 #### 設計決定
 
-- (a) deny-list を `lib_scope_guard` に決定論で足す。候補は `.claude/**` / `.github/workflows/**` / `.takt/**` / `pr-monitor-config.toml` / `push-runner-config.toml` / `templates/**`。allowlist に入っていても deny-list を優先する (fail-closed)
-- (b) allowlist を「finding の `file` 列」と「PR 自身の diff の対象ファイル」の積集合にする
-- (c) fix.md の read-only zone に `.claude/settings.json` と `pr-monitor-config.toml` を加える (助言層。決定論層の代わりにはしない)
+- PR の diff の対象ファイルは post-pr 経路なら `jj diff -r <base>..<pre_takt_cid> --summary`、CI 経路なら git diff から取る。どちらも `lib_scope_guard` に積集合の関数を置いて共有する
 
-- [ ] 着手時判断: (b) の積集合で、PR の diff に無いファイルへの正当な修正 (テストの追加など) が止まらないかを、過去の fix の実績で確かめる
-- [ ] (a) を実装し、deny-list のパスを指す finding が observe / enforce の両 mode で期待どおりに振り分けられるテストを足す
-- [ ] (c) を fix.md に反映する
+- [ ] 着手時判断: `.takt/runs/` の過去の post-pr fix を調べ、PR の diff に無いファイル (テストの追加など) を直した例があるかを確かめる。あれば、テストファイルなどを例外にするか、(b) を見送るかを決める
+- [ ] 積集合を両経路に入れ、PR の diff に無いファイルを指す finding に従った fix が scope 外になるテストを足す
 
 #### 完了基準
 
-- `.claude/settings.json` を指す finding に従った fix が、enforce mode で block される
-- post-pr 経路と CI 経路 (`cli-fix-push-gate`) が同じ deny-list を通る
-
-### 順位 623: ADR-054 層 1 の `injection_suspect` を fix の入力に配線するか、ADR を実装に合わせる
-
-> **動機**: ADR-054 の層 1 は、`injection_suspect` と分類された finding を下流で自動修正の対象から外すと定めている。しかし実装では `state.classified_findings` に保存されるだけで、読む箇所が無い。auto-push に渡るのは生の finding なので、層 1 は記録するだけで防御として働いていない。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-11-23-C02 で採用 (severity=medium, facet=security, category=adr-alignment)。上の deny-list と同じ攻撃経路の防御なので、まとめて検討する
->
-> **参照**: `.claude/weekly-reviews/2026-11-23.md`、`src/cli-finding-classifier/src/lib.rs:107-127,191`、`src/cli-pr-monitor/src/stages/poll/iteration.rs`、`src/cli-pr-monitor/src/state.rs`
-
-#### 背景
-
-2026-11-23 に確認した。`injection_suspect` / `InjectionSuspect` は `cli-finding-classifier` の外では参照されていない。`classified_findings` を参照するのは pr-monitor の `poll/iteration.rs` と `state.rs` だけである。層 1 はローカル LLM による分類 (ADR-038) で、失敗しても止まらない fail-open の助言層である。
-
-#### 設計決定
-
-- 配線するなら、除外と停止のどちらにするかを決める。除外は残りの finding で fix を続け、停止は `injection_suspect` を含む回の auto-push を止める
-- 配線しないなら、ADR-054 の層 1 の記述を「記録のみ」に直し、防御として数えない
-
-- [ ] 着手時判断: 除外 / 停止 / 記録のみ のどれにするかを、ADR-038 の分類の誤検知率 (telemetry か過去の state) を見て決める
-- [ ] 決めた方を実装するか ADR を直す。配線する場合は `injection_suspect` を含む state から fix 入力を作るテストを足す
-
-#### 完了基準
-
-- ADR-054 の層 1 の記述と実装の挙動が一致している
+- PR の diff に無いファイルへの fix が、finding が指していても enforce mode で block される
+- post-pr 経路と CI 経路が同じ積集合の関数を通る
 
 ### 順位 624: ファイル長と関数長の閾値を、hook の定数を持ち主にして揃える
 

@@ -288,6 +288,34 @@ mod tests {
         }
     }
 
+    /// finding が `.claude/settings.json` を指していても、それに従った fix は enforce で止まる
+    /// (順位 622)。allowlist は注入できる CodeRabbit 本文から作られるので、拒否リストを優先する。
+    #[test]
+    fn enforce_blocks_a_fix_to_harness_settings_even_when_a_finding_names_it() {
+        let findings = vec![finding_at(".claude/settings.json")];
+        let changed = vec![".claude/settings.json".to_string()];
+        let out_of_scope = find_out_of_scope(&changed, &allowlist_from_findings(&findings));
+        assert_eq!(out_of_scope, changed);
+        match decide_violation(&enforce_config(), "test", out_of_scope) {
+            ScopeGuardOutcome::BlockedViolation { .. } => {}
+            other => panic!("拒否リストの場所への fix は enforce で block すべき: {other:?}"),
+        }
+    }
+
+    /// observe では同じ変更を block せず、scope 外として記録する。
+    #[test]
+    fn observe_records_a_fix_to_harness_settings_even_when_a_finding_names_it() {
+        let findings = vec![finding_at(".github/workflows/ci.yml")];
+        let changed = vec![".github/workflows/ci.yml".to_string()];
+        let out_of_scope = find_out_of_scope(&changed, &allowlist_from_findings(&findings));
+        match decide_violation(&observe_config(), "test", out_of_scope) {
+            ScopeGuardOutcome::ObservedViolation { out_of_scope } => {
+                assert_eq!(out_of_scope, vec![".github/workflows/ci.yml"]);
+            }
+            other => panic!("observe は記録のみで block しない: {other:?}"),
+        }
+    }
+
     struct CwdRestore {
         original: std::path::PathBuf,
     }

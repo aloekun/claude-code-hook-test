@@ -3,6 +3,7 @@ pub(crate) mod coderabbit_reviewed;
 pub(crate) mod collect;
 mod create_pr;
 pub(crate) mod gate;
+pub(crate) mod injection_stop;
 mod mark_notified;
 mod monitor;
 pub(crate) mod poll;

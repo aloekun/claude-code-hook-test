@@ -31,6 +31,41 @@ use std::collections::BTreeSet;
 /// 更新される。これを violation にすると正当な fix が毎回 block される。
 pub const ALWAYS_ALLOWED: &[&str] = &[".takt/review-diff.txt"];
 
+/// finding が指していても fix に編集させないディレクトリ (末尾 `/` 付き、順位 622)。
+///
+/// allowlist は CodeRabbit コメントの `file` 列から作られ、その本文は PR 作成者が文言を
+/// 注入できる非信頼テキストである。ここにハーネス設定や CI 定義を指す finding が入ると、
+/// fix がそこを書き換えても allowlist 内として通ってしまう。`.claude/settings.json` の hook は
+/// 開発者のマシンで実行されるので、影響は PR 作成者からリポジトリの利用者全体に広がる。
+/// allowlist より優先する (ADR-043)。
+///
+/// 各ディレクトリを丸ごと守る理由:
+/// - `.claude/`: hook の登録 (`settings.json`)、hook 設定、配布済みの exe
+/// - `.github/`: CI の workflow と、PR / issue のテンプレート
+/// - `.takt/`: takt の facet と workflow (fix 自身の指示を含む)
+/// - `templates/`: 派生プロジェクトへ配る設定の雛形
+/// - `config/`: hook が読むカスタム lint ルール (`custom-lint-rules.toml`) と、
+///   CI が読む OS 別テストの指定 (`os-specific-tests.json`)。どちらも検査の挙動を変える
+pub const DENIED_DIRS: &[&str] = &[".claude/", ".github/", ".takt/", "templates/", "config/"];
+
+/// finding が指していても fix に編集させないファイル (repo ルート、順位 622)。
+pub const DENIED_FILES: &[&str] = &[
+    "pr-monitor-config.toml",
+    "push-runner-config.toml",
+    "autonomy-config.toml",
+    ".coderabbit.yaml",
+];
+
+/// fix に編集させない場所か。[`ALWAYS_ALLOWED`] は呼び出し側で先に除く。
+///
+/// 大文字小文字は区別しない。Windows のファイルシステムは区別しないので、
+/// `.Claude/settings.json` と書いても同じファイルを指す。
+pub fn is_denied_path(path: &str) -> bool {
+    let normalized = normalize_path(path).to_ascii_lowercase();
+    let path = normalized.trim_start_matches("./");
+    DENIED_FILES.contains(&path) || DENIED_DIRS.iter().any(|dir| path.starts_with(dir))
+}
+
 /// パスを正規化する。Windows のバックスラッシュ区切りを `/` へ揃え、前後空白を除去する。
 ///
 /// `jj diff --summary` は Windows で `\` 区切りを出すが findings の `file` は `/` 区切りで、
@@ -78,12 +113,16 @@ pub fn parse_changed_files(summary: &str) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-/// 変更ファイルのうち allowlist にも [`ALWAYS_ALLOWED`] にも含まれないものを返す。
-/// 空 Vec は「scope 内に収まっている」= PASS を意味する。
+/// 変更ファイルのうち scope 外のものを返す。空 Vec は「scope 内に収まっている」= PASS を意味する。
+///
+/// 判定順: [`ALWAYS_ALLOWED`] は常に scope 内 → [`is_denied_path`] は allowlist にあっても
+/// scope 外 → それ以外は allowlist にあれば scope 内。
 pub fn find_out_of_scope(changed: &[String], allowlist: &BTreeSet<String>) -> Vec<String> {
     changed
         .iter()
-        .filter(|f| !allowlist.contains(*f) && !ALWAYS_ALLOWED.contains(&f.as_str()))
+        .filter(|f| {
+            !ALWAYS_ALLOWED.contains(&f.as_str()) && (is_denied_path(f) || !allowlist.contains(*f))
+        })
         .cloned()
         .collect()
 }
@@ -158,6 +197,59 @@ mod tests {
     fn in_scope_fix_produces_no_violation() {
         let allowlist = allowlist_from_paths(["src/main.rs", "src/lib.rs"]);
         let changed = vec!["src/main.rs".to_string(), "src/lib.rs".to_string()];
+        assert!(find_out_of_scope(&changed, &allowlist).is_empty());
+    }
+
+    /// finding がハーネス設定や CI 定義を指していても、そこへの変更は scope 外 (順位 622)。
+    /// 注入された finding が allowlist に入れた場所を、fix が書き換えても通さない。
+    #[test]
+    fn denied_paths_are_out_of_scope_even_when_a_finding_names_them() {
+        let denied = [
+            ".claude/settings.json",
+            ".claude/hooks-config.toml",
+            ".github/workflows/ci.yml",
+            ".github/CODEOWNERS",
+            ".takt/facets/instructions/fix.md",
+            "templates/pr-monitor-config.toml",
+            "config/custom-lint-rules.toml",
+            "pr-monitor-config.toml",
+            "push-runner-config.toml",
+            "autonomy-config.toml",
+            ".coderabbit.yaml",
+        ];
+        let allowlist = allowlist_from_paths(denied);
+        let changed: Vec<String> = denied.iter().map(|s| s.to_string()).collect();
+        assert_eq!(find_out_of_scope(&changed, &allowlist), changed);
+    }
+
+    /// 表記を変えても拒否リストをすり抜けない。
+    #[test]
+    fn denied_paths_match_regardless_of_case_separator_or_leading_dot_slash() {
+        for path in [".Claude/settings.json", ".claude\\settings.json", "./.github/workflows/ci.yml", "PR-Monitor-Config.toml"] {
+            assert!(is_denied_path(path), "拒否されなかった: {path:?}");
+        }
+    }
+
+    /// 名前が似ているだけのソースは拒否しない (誤検知のガード)。
+    #[test]
+    fn similar_looking_source_paths_are_not_denied() {
+        for path in [
+            "src/cli-pr-monitor/src/config.rs",
+            "src/config/mod.rs",
+            "docs/templates/x.md",
+            "src/hooks-pre-tool-validate/src/settings_wiring.rs",
+            ".claudeignore",
+            "my-pr-monitor-config.toml",
+        ] {
+            assert!(!is_denied_path(path), "拒否された: {path:?}");
+        }
+    }
+
+    /// `.takt/` を拒否しても、fix が書き戻す `.takt/review-diff.txt` は通す。
+    #[test]
+    fn always_allowed_wins_over_the_denied_takt_directory() {
+        let allowlist = allowlist_from_paths(std::iter::empty::<&str>());
+        let changed = vec![".takt/review-diff.txt".to_string()];
         assert!(find_out_of_scope(&changed, &allowlist).is_empty());
     }
 
