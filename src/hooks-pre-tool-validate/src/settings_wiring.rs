@@ -124,30 +124,74 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
 #[test]
 fn every_gated_invocation_hits_an_ask_rule_on_both_shell_tools() {
     let settings = read_settings(".claude/settings.json");
-    let ask: Vec<&str> = settings["permissions"]["ask"]
-        .as_array()
-        .expect("permissions.ask がある")
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
     let invocations = [
         "pnpm create-pr --title x --body-file .tmp-pr-body.md",
         "pnpm merge-pr 582",
         ".claude/cli-merge-pipeline.exe --pr 582",
         ".claude/cli-merge-pipeline --pr 582",
+        r".claude\cli-merge-pipeline.exe --pr 582",
+        r#"& "C:\Users\me\repo\.claude\cli-merge-pipeline.exe" --pr 582"#,
+        "cd /repo && .claude/cli-merge-pipeline --pr 582",
         "node scripts/run-artifact.mjs cli-merge-pipeline",
+        r"node scripts\run-artifact.mjs cli-merge-pipeline",
+        "cargo run -p cli-merge-pipeline -- --pr 582",
+        "cargo run --release -p cli-merge-pipeline",
+        "target/release/cli-merge-pipeline --pr 582",
+        r"target\debug\cli-merge-pipeline.exe --pr 582",
     ];
     for tool in ["Bash", "PowerShell"] {
         for command in invocations {
-            let hit = ask.iter().any(|rule| {
-                rule.strip_prefix(tool)
-                    .and_then(|r| r.strip_prefix('('))
-                    .and_then(|r| r.strip_suffix(')'))
-                    .is_some_and(|pattern| wildcard_match(pattern, command))
-            });
-            assert!(hit, "{tool} の `{command}` に当たる ask ルールが無い");
+            assert!(
+                hits_ask_rule(&settings, tool, command),
+                "{tool} の `{command}` に当たる ask ルールが無い"
+            );
         }
     }
+}
+
+/// crate 名を書くだけの開発コマンド (テスト・lint・ソースの読み取り) では確認を出さない。
+///
+/// ask ルールを `*cli-merge-pipeline*` の部分一致にしていた間 (2026-10-20〜11-24)、crate を直す
+/// 作業で `cargo test -p` やソースのパスに当たり、1 セッションで 7 回確認が出た。確認が多いと
+/// 承認が形骸化し、本当にマージする操作の確認も読まれなくなる (ADR-028 § 追記 2026-11-24)。
+#[test]
+fn development_commands_that_only_name_the_crate_do_not_hit_an_ask_rule() {
+    let settings = read_settings(".claude/settings.json");
+    let commands = [
+        "cargo test -p cli-merge-pipeline",
+        "cargo test -p cli-merge-pipeline --bin cli-merge-pipeline detect_pr_number",
+        "cargo clippy -p cli-merge-pipeline -p cli-pr-monitor --all-targets",
+        "cargo build --release -p cli-merge-pipeline",
+        "pnpm build:cli-merge-pipeline",
+        "pnpm -s mutate spec.json -- cargo test -p cli-merge-pipeline",
+        "sed -n 140,155p src/cli-merge-pipeline/src/github.rs",
+        "wc -l src/cli-merge-pipeline/src/github.rs",
+        r#"grep -rn "detect_pr_number" src | grep -v "^src/cli-merge-pipeline/""#,
+        "jj diff src/cli-merge-pipeline/src/github.rs",
+    ];
+    for tool in ["Bash", "PowerShell"] {
+        for command in commands {
+            assert!(
+                !hits_ask_rule(&settings, tool, command),
+                "{tool} の開発コマンド `{command}` が ask ルールに当たる"
+            );
+        }
+    }
+}
+
+/// `tool` の ask ルールのどれかが `command` に当たるか。
+fn hits_ask_rule(settings: &Value, tool: &str, command: &str) -> bool {
+    settings["permissions"]["ask"]
+        .as_array()
+        .expect("permissions.ask がある")
+        .iter()
+        .filter_map(Value::as_str)
+        .any(|rule| {
+            rule.strip_prefix(tool)
+                .and_then(|r| r.strip_prefix('('))
+                .and_then(|r| r.strip_suffix(')'))
+                .is_some_and(|pattern| wildcard_match(pattern, command))
+        })
 }
 
 #[test]
