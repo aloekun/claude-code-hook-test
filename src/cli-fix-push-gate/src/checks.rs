@@ -277,6 +277,22 @@ mod tests {
         );
     }
 
+    /// `.github/` や `templates/` の md は docs-only として内容軸を通るが、finding が指していても
+    /// 拒否リストで scope 外になる (順位 622、post-pr 経路と同じ `lib_scope_guard` の判定)。
+    #[test]
+    fn denied_docs_paths_are_scope_violations_even_when_in_allowlist() {
+        for path in [".github/ISSUE_TEMPLATE/bug.md", "templates/README.md"] {
+            let allow = allowlist(&[path]);
+            let summary = format!("M {path}\n");
+            let f = facts(allowed_autonomy(), "claude/x", &summary, &allow);
+            assert_eq!(
+                evaluate(&f),
+                Verdict::Denied(DenyReason::OutOfScope(vec![path.to_string()])),
+                "{path} は拒否リストの場所"
+            );
+        }
+    }
+
     /// findings が空なら、どんな docs 変更も通さない。
     #[test]
     fn empty_allowlist_denies_any_change() {

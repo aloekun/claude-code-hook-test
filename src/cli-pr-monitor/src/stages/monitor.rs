@@ -5,6 +5,7 @@ use crate::fix_commit::{create_fix_commit, FixCommitState};
 use crate::lock::{acquire as acquire_lock, LockResult};
 use crate::log::{log_info, truncate_safe};
 use crate::stages::collect::collect_findings;
+use crate::stages::injection_stop::injection_stop_reason;
 use crate::stages::poll::run_poll_loop;
 use crate::stages::repush::execute_repush_flow;
 use crate::stages::takt::run_takt;
@@ -137,6 +138,10 @@ fn run_takt_stage(
     if !has_coderabbit_findings {
         return outcome;
     }
+    if let Some(reason) = injection_stop_reason_from_state(&poll_result.findings) {
+        log_info(&format!("[injection_stop] {reason}"));
+        return outcome;
+    }
     if !collect_findings(poll_result, pr_info) {
         log_info("review-comments.json 書き出し失敗 (takt 分析をスキップ)");
         return outcome;
@@ -155,6 +160,16 @@ fn run_takt_stage(
 
     invoke_takt_into_outcome(&mut outcome, takt_config, pr_info, &poll_result.findings);
     outcome
+}
+
+/// poll が state file に書いた分類結果を読み、[`injection_stop_reason`] で止めるかを決める
+/// (順位 623、ADR-054 層 1)。state を読めないときは分類が無い扱いで止めない
+/// (層 1 は fail-open の助言層で、決定論の scope guard が後段に控える)。
+fn injection_stop_reason_from_state(findings: &[lib_report_formatter::Finding]) -> Option<String> {
+    let classified = read_state_from(&state_file_path())
+        .map(|s| s.classified_findings)
+        .unwrap_or_default();
+    injection_stop_reason(findings, &classified)
 }
 
 /// fix commit を事前作成する価値があるか。**件数だけで決め、severity は見ない。**

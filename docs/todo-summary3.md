@@ -108,10 +108,9 @@
 | 619 | Tier 2 | **[improvement] guard と preset の案内文に書いたコマンドが、有効な preset に止められないことを検査する** | todo29.md | S | なし (2026-11-23、#660 の post-merge feedback) |
 | 620 | Tier 1 | **[improvement] preset が、コミットメッセージの本文や heredoc の中の文字列に反応する誤検知を減らす** | todo29.md | M | なし (2026-11-23、#658 / #660 の post-merge feedback。判定から外す範囲は着手前にヒアリングで決める) |
 | 621 | Tier 2 | **[improvement] pr-monitor の bookmark 前進にスタック安全策を入れ、push-runner と同じ関数を通す** | todo30.md | M | 順位 607 と同じ関数を変更するため、607 と同時か後に着手 (2026-11-23、WR-2026-11-23-S01) |
-| 622 | Tier 1 | **[improvement] post-pr の scope guard に、ハーネス設定と CI 定義の deny-list を決定論で入れる** | todo30.md | M | なし (2026-11-23、WR-2026-11-23-C01。pre-push 側は順位 364) |
-| 623 | Tier 2 | **[improvement] ADR-054 層 1 の `injection_suspect` を fix の入力に配線するか、ADR を実装に合わせる** | todo30.md | S | 順位 622 と同じ攻撃経路のため一緒に検討 (2026-11-23、WR-2026-11-23-C02) |
 | 624 | Tier 3 | **[improvement] ファイル長と関数長の閾値を、hook の定数を持ち主にして揃える** | todo30.md | S | なし (2026-11-23、WR-2026-11-23-A02。builtin knowledge の shadow 方法は着手時判断) |
 | 625 | Tier 3 | **[improvement] 台帳の棚卸し手順の検査範囲を `docs/todo-summary*.md` に広げる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T01) |
 | 627 | Tier 3 | **[improvement] 順位 6 (Branch Protection の整備) の要否と完了状況を確かめる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T02) |
+| 628 | Tier 1 | **[improvement] scope guard の allowlist を、finding のファイルと PR の diff の対象ファイルの積集合にする** | todo30.md | M | なし (2026-11-24、順位 622 の設計決定 (b) を切り出し。過去の post-pr fix の実績確認が先) |
 
 **着手順**: 本 table は着手の順番を持たない。何から着手するかは、着手するときにその時点の状況で決める ([ADR-090](adr/adr-090-todo-tier-as-kind.md) 決定 4)。2026-11-12 まであった「戦略」の行 (Tier 1 → 2 → 3 の順に片付ける) は、Tier を優先度として扱っていたため削除した。

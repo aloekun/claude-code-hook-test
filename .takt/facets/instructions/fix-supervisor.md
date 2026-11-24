@@ -8,8 +8,8 @@ The following paths are **immutable inputs** and MUST NEVER be edited:
 - **`.takt/facets/**`**, **`.takt/workflows/**`**, **`.takt/config.yaml`** -- takt configuration assets.
 - **`docs/adr/**`** -- Decision records are not review targets.
 - **`templates/**`** -- Hook configuration templates.
-- **`.claude/hooks-config.toml`** -- Hook configuration is not a review target.
-- **`push-runner-config.toml`** -- Pipeline configuration is not a review target.
+- **`.claude/hooks-config.toml`**, **`.claude/settings.json`** -- Hook configuration and harness permissions are not review targets.
+- **`push-runner-config.toml`**, **`pr-monitor-config.toml`** -- Pipeline configuration is not a review target.
 
 Fixes MUST target the **source tree under review**: files under `src/`.
 
