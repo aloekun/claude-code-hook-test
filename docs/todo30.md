@@ -138,31 +138,6 @@
 
 - 台帳の現行の手順に、part 名を決め打ちした検査範囲が残っていない
 
-### 順位 626: merge-pipeline と pr-monitor の PR 検出から、git HEAD に頼る `gh pr view` を外す
-
-> **動機**: 引数なしの `gh pr view --json number` は、共有 store の git HEAD から PR を決める。並列 jj workspace (ADR-045) では git HEAD が全 workspace で 1 つなので、別の workspace で feature branch を checkout していると、その branch の PR が返る。返り値が Ok なので bookmark の検索に進まず、merge-pipeline は別 workspace の PR を黙って対象にする。`merge-pr` が誤った PR をマージしうる。git HEAD が detached なら失敗して正しくフォールバックするので、HEAD が PR を持つ名前付き branch を指すときだけ起きる。
->
-> **本タスクの位置づけ**: 週次レビュー WR-2026-11-23-J01 で採用 (severity=medium, facet=jj-robustness, category=jj-gh-no-repo)。WR-2026-09-03-J01 の残り
->
-> **参照**: `.claude/weekly-reviews/2026-11-23.md`、`src/cli-merge-pipeline/src/github.rs:147-149` (`detect_pr_number` の第 1 段)、`src/cli-pr-monitor/src/util.rs:40-42` (`get_pr_info` の Strategy A)
-
-#### 背景
-
-2026-11-23 に確認した。両 crate とも、`gh pr view` が数値を返せばそれを採用し、失敗したときだけ jj bookmark の検索 (`get_jj_bookmarks_with_remote_fallback` / `find_pr_via_jj_bookmarks`) に進む。bookmark の検索はリモート専用の bookmark にもフォールバックする (順位 397)。
-
-#### 設計決定
-
-- jj 環境では bookmark の検索 (`gh pr list --head <bookmark>`) を先頭にする
-- `gh pr view` を残す場合は、返った PR の `headRefName` が検索対象の bookmark と一致するときだけ採用する
-
-- [ ] `gh pr view` が別 branch の PR を返す状況を注入したテストを両 crate に足す (先に落ちることを確かめる)
-- [ ] 着手時判断: `gh pr view` を外すか、`headRefName` の照合を付けて残すかを、bookmark の無い状況 (git だけの派生プロジェクト) での挙動を見て決める
-- [ ] 2 crate の検出順を同じにする
-
-#### 完了基準
-
-- git HEAD が別の PR の branch を指していても、merge-pipeline と pr-monitor が現在の jj bookmark の PR を選ぶ
-
 ### 順位 627: 順位 6 (Branch Protection の整備) の要否と完了状況を確かめる
 
 > **動機**: 順位 6 (GitHub Branch Protection の整備、todo22.md) が 3 か月以上動いていない。最後の Status update は 2026-08-12 で、作業計画の 4 項目はどれも未チェックである。完了基準は `gh api` での確認を求めているが、実際の branch protection の設定は確かめていないので、既に完了している可能性もある。

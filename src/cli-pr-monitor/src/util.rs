@@ -23,10 +23,8 @@ pub(crate) struct PrInfo {
     pub(crate) fix_push_time: Option<String>,
 }
 
-/// PR 情報を取得する（多段フォールバック）
-///
-/// Strategy A: gh pr view (標準 git ブランチ環境)
-/// Strategy B: jj bookmark -> gh pr list --head (jj 環境)
+/// PR 情報を取得する。PR 番号は jj bookmark -> `gh pr list --head` で引く
+/// (git HEAD に頼る `gh pr view` は使わない、[`find_pr_number_with`] を参照)。
 pub(crate) fn get_pr_info() -> PrInfo {
     let repo = run_gh_quiet(&[
         "repo",
@@ -37,9 +35,7 @@ pub(crate) fn get_pr_info() -> PrInfo {
         ".nameWithOwner",
     ]);
 
-    let pr_number = run_gh_quiet(&["pr", "view", "--json", "number", "-q", ".number"])
-        .and_then(|s| s.parse::<u64>().ok())
-        .or_else(find_pr_via_jj_bookmarks);
+    let pr_number = find_pr_number_with(get_jj_bookmarks, run_gh_quiet);
 
     let head_commit = pr_number.and_then(|n| get_pr_head_commit(n, repo.as_deref()));
 
@@ -52,11 +48,20 @@ pub(crate) fn get_pr_info() -> PrInfo {
     }
 }
 
-fn find_pr_via_jj_bookmarks() -> Option<u64> {
-    let bookmarks = get_jj_bookmarks();
-    for bookmark in &bookmarks {
+/// 現在の jj bookmark から PR 番号を引く。bookmark の取得と gh の呼び出しを注入できる。
+///
+/// **引数なしの `gh pr view` は使わない** (順位 626)。`gh pr view` は共有 store の git HEAD
+/// から PR を決めるので、並列 jj workspace (ADR-045) では別 workspace で checkout した
+/// branch の PR を監視しうる。判断の詳細は cli-merge-pipeline の `detect_pr_number` と同じ。
+/// PR 番号を jj bookmark からしか引かないので、jj を使わない git だけのリポジトリは対象外。
+fn find_pr_number_with<B, G>(bookmarks: B, mut gh: G) -> Option<u64>
+where
+    B: FnOnce() -> Vec<String>,
+    G: FnMut(&[&str]) -> Option<String>,
+{
+    for bookmark in &bookmarks() {
         log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
-        let pr_number = run_gh_quiet(&[
+        let pr_number = gh(&[
             "pr",
             "list",
             "--head",
@@ -227,6 +232,80 @@ mod tests {
         assert_eq!(parse_repo_from_pr_url(""), None);
         assert_eq!(parse_repo_from_pr_url("no url here"), None);
         assert_eq!(parse_repo_from_pr_url("https://github.com/pull/12"), None);
+    }
+
+    /// gh の偽物。`gh pr view` (引数なし) は git HEAD の branch の PR を返し、
+    /// `gh pr list --head <name>` は `heads` に登録した PR を返す。呼ばれた引数を記録する。
+    struct FakeGh {
+        git_head_pr: Option<&'static str>,
+        heads: Vec<(&'static str, &'static str)>,
+        calls: Vec<Vec<String>>,
+    }
+
+    impl FakeGh {
+        fn new(git_head_pr: Option<&'static str>, heads: &[(&'static str, &'static str)]) -> Self {
+            Self {
+                git_head_pr,
+                heads: heads.to_vec(),
+                calls: Vec::new(),
+            }
+        }
+
+        fn call(&mut self, args: &[&str]) -> Option<String> {
+            self.calls.push(args.iter().map(|s| s.to_string()).collect());
+            match args {
+                ["pr", "view", ..] => self.git_head_pr.map(str::to_string),
+                ["pr", "list", "--head", head, ..] => self
+                    .heads
+                    .iter()
+                    .find(|(h, _)| h == head)
+                    .map(|(_, n)| n.to_string()),
+                _ => None,
+            }
+        }
+
+        fn called_pr_view(&self) -> bool {
+            self.calls.iter().any(|c| c.starts_with(&["pr".into(), "view".into()]))
+        }
+    }
+
+    /// git HEAD が別 workspace の feature branch (PR #999) を指していても、現在の jj
+    /// bookmark の PR を監視する (順位 626)。
+    #[test]
+    fn find_pr_number_prefers_the_jj_bookmark_over_the_git_head_branch() {
+        let mut gh = FakeGh::new(Some("999"), &[("feat-mine", "42")]);
+        let got = find_pr_number_with(|| vec!["feat-mine".to_string()], |args: &[&str]| gh.call(args));
+        assert_eq!(got, Some(42));
+        assert!(!gh.called_pr_view(), "git HEAD 由来の gh pr view を呼んだ: {:?}", gh.calls);
+    }
+
+    /// bookmark はあるが PR が無いとき、git HEAD の PR へ落ちない。
+    #[test]
+    fn find_pr_number_does_not_fall_back_to_the_git_head_branch() {
+        let mut gh = FakeGh::new(Some("999"), &[]);
+        let got = find_pr_number_with(|| vec!["feat-no-pr".to_string()], |args: &[&str]| gh.call(args));
+        assert_eq!(got, None);
+        assert!(!gh.called_pr_view(), "git HEAD 由来の gh pr view を呼んだ: {:?}", gh.calls);
+    }
+
+    /// bookmark が無いときも、git HEAD の PR を採用しない。
+    #[test]
+    fn find_pr_number_is_none_without_bookmarks_even_if_git_head_has_a_pr() {
+        let mut gh = FakeGh::new(Some("999"), &[]);
+        let got = find_pr_number_with(Vec::new, |args: &[&str]| gh.call(args));
+        assert_eq!(got, None);
+        assert!(!gh.called_pr_view(), "git HEAD 由来の gh pr view を呼んだ: {:?}", gh.calls);
+    }
+
+    /// 複数の bookmark があるとき、PR を持つ最初の bookmark を選ぶ。
+    #[test]
+    fn find_pr_number_skips_bookmarks_without_a_pr() {
+        let mut gh = FakeGh::new(None, &[("feat-b", "7")]);
+        let got = find_pr_number_with(
+            || vec!["feat-a".to_string(), "feat-b".to_string()],
+            |args: &[&str]| gh.call(args),
+        );
+        assert_eq!(got, Some(7));
     }
 
     // ─── bookmark 検出ロジック (lib-jj-helpers に集約済) ───

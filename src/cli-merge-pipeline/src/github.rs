@@ -106,10 +106,13 @@ pub(crate) struct PrLookupFailure {
 }
 
 /// bookmark 名から PR 番号を引く (open → 全 state の順)。
-fn pr_number_for_bookmark(bookmark: &str) -> Option<u64> {
+fn pr_number_for_bookmark<G>(bookmark: &str, gh: &mut G) -> Option<u64>
+where
+    G: FnMut(&[&str]) -> Option<String>,
+{
     log_info(&format!("jj bookmark '{}' を使用して PR を検索", bookmark));
 
-    let open = run_gh_logged(&[
+    let open = gh(&[
         "pr",
         "list",
         "--head",
@@ -124,7 +127,7 @@ fn pr_number_for_bookmark(bookmark: &str) -> Option<u64> {
         return open;
     }
 
-    run_gh_logged(&[
+    gh(&[
         "pr",
         "list",
         "--head",
@@ -144,14 +147,31 @@ fn pr_number_for_bookmark(bookmark: &str) -> Option<u64> {
 /// ローカル bookmark で見つからない場合はリモート追跡 bookmark へフォールバックする。
 /// bot が remote に作った PR (ADR-072 の夜間ループ) は `claude/nightly-163@origin` の
 /// ようなリモート専用 bookmark しか持たず、ローカル探索だけでは検出できない (順位 397)。
+///
+/// **引数なしの `gh pr view` は使わない** (順位 626)。`gh pr view` は共有 store の git HEAD
+/// から PR を決めるが、並列 jj workspace (ADR-045) では git HEAD が全 workspace で 1 つなので、
+/// 別 workspace で checkout した branch の PR が返り、それを黙ってマージしうる。jj の colocated
+/// リポジトリでは git HEAD は通常 detached なので、`gh pr view` が成功するのは誰かが
+/// branch を checkout したときだけであり、正しく働く場面が無い。bookmark が無い・PR が
+/// 無いときは git HEAD へ落ちずに失敗する。
+///
+/// jj を使わない git だけのリポジトリは対象外とする。本 crate はマージ後の同期を
+/// `jj git fetch` / `jj new` で行うので、そもそも jj 前提であり、`gh pr view` の経路を
+/// git だけの環境のために残す理由が無い。
 pub(crate) fn detect_pr_number() -> Result<u64, PrLookupFailure> {
-    if let Some(pr_number) = run_gh_logged(&["pr", "view", "--json", "number", "-q", ".number"])
-        .and_then(|s| s.parse::<u64>().ok())
-    {
-        return Ok(pr_number);
-    }
+    detect_pr_number_with(
+        || get_jj_bookmarks_with_remote_fallback(StderrMode::Piped(log_info), Some(log_info)),
+        run_gh_logged,
+    )
+}
 
-    let search = get_jj_bookmarks_with_remote_fallback(StderrMode::Piped(log_info), Some(log_info));
+/// [`detect_pr_number`] の本体。bookmark の探索と gh の呼び出しを注入できる。
+fn detect_pr_number_with<S, G>(search_bookmarks: S, mut gh: G) -> Result<u64, PrLookupFailure>
+where
+    S: FnOnce() -> BookmarkSearch,
+    G: FnMut(&[&str]) -> Option<String>,
+{
+    let search = search_bookmarks();
     let bookmarks = match &search {
         BookmarkSearch::Local(names) => names.clone(),
         BookmarkSearch::RemoteOnly(names) => {
@@ -165,7 +185,7 @@ pub(crate) fn detect_pr_number() -> Result<u64, PrLookupFailure> {
     };
 
     for bookmark in &bookmarks {
-        if let Some(pr_number) = pr_number_for_bookmark(bookmark) {
+        if let Some(pr_number) = pr_number_for_bookmark(bookmark, &mut gh) {
             return Ok(pr_number);
         }
     }
@@ -295,6 +315,89 @@ mod tests {
             detail,
             format!("timeout after {}s: partial", GH_CMD_TIMEOUT_SECS)
         );
+    }
+
+    /// gh の偽物。`gh pr view` (引数なし) は git HEAD の branch の PR を返し、
+    /// `gh pr list --head <name>` は `heads` に登録した PR を返す。呼ばれた引数を記録する。
+    struct FakeGh {
+        git_head_pr: Option<&'static str>,
+        heads: Vec<(&'static str, &'static str)>,
+        calls: Vec<Vec<String>>,
+    }
+
+    impl FakeGh {
+        fn new(git_head_pr: Option<&'static str>, heads: &[(&'static str, &'static str)]) -> Self {
+            Self {
+                git_head_pr,
+                heads: heads.to_vec(),
+                calls: Vec::new(),
+            }
+        }
+
+        fn call(&mut self, args: &[&str]) -> Option<String> {
+            self.calls.push(args.iter().map(|s| s.to_string()).collect());
+            match args {
+                ["pr", "view", ..] => self.git_head_pr.map(str::to_string),
+                ["pr", "list", "--head", head, ..] => self
+                    .heads
+                    .iter()
+                    .find(|(h, _)| h == head)
+                    .map(|(_, n)| n.to_string()),
+                _ => None,
+            }
+        }
+
+        fn called_pr_view(&self) -> bool {
+            self.calls.iter().any(|c| c.starts_with(&["pr".into(), "view".into()]))
+        }
+    }
+
+    /// git HEAD が別 workspace の feature branch (PR #999) を指していても、現在の jj
+    /// bookmark の PR を選ぶ (順位 626)。git HEAD は全 workspace で 1 つなので、
+    /// `gh pr view` を先に見ると別 workspace の PR を黙ってマージしうる。
+    #[test]
+    fn detect_pr_number_prefers_the_jj_bookmark_over_the_git_head_branch() {
+        let mut gh = FakeGh::new(Some("999"), &[("feat-mine", "42")]);
+        let got = detect_pr_number_with(
+            || BookmarkSearch::Local(vec!["feat-mine".into()]),
+            |args: &[&str]| gh.call(args),
+        );
+        assert_eq!(got.ok(), Some(42));
+        assert!(!gh.called_pr_view(), "git HEAD 由来の gh pr view を呼んだ: {:?}", gh.calls);
+    }
+
+    /// bookmark はあるが PR が無いとき、git HEAD の PR へ落ちずに失敗する。
+    /// 落ちると、bookmark を作っただけの workspace から別の PR をマージしうる。
+    #[test]
+    fn detect_pr_number_fails_without_falling_back_to_the_git_head_branch() {
+        let mut gh = FakeGh::new(Some("999"), &[]);
+        let got = detect_pr_number_with(
+            || BookmarkSearch::Local(vec!["feat-no-pr".into()]),
+            |args: &[&str]| gh.call(args),
+        );
+        let failure = got.expect_err("PR は見つからないはず");
+        assert!(matches!(failure.search, BookmarkSearch::Local(ref n) if n == &["feat-no-pr".to_string()]));
+        assert!(!gh.called_pr_view(), "git HEAD 由来の gh pr view を呼んだ: {:?}", gh.calls);
+    }
+
+    /// bookmark が 1 つも無いときも、git HEAD の PR を採用しない。
+    #[test]
+    fn detect_pr_number_fails_when_no_bookmark_even_if_git_head_has_a_pr() {
+        let mut gh = FakeGh::new(Some("999"), &[]);
+        let got = detect_pr_number_with(|| BookmarkSearch::NotFound, |args: &[&str]| gh.call(args));
+        assert!(matches!(got.err().map(|f| f.search), Some(BookmarkSearch::NotFound)));
+        assert!(!gh.called_pr_view(), "git HEAD 由来の gh pr view を呼んだ: {:?}", gh.calls);
+    }
+
+    /// リモート専用 bookmark でも PR を引ける (順位 397 の経路を保つ)。
+    #[test]
+    fn detect_pr_number_uses_remote_only_bookmarks() {
+        let mut gh = FakeGh::new(None, &[("claude/nightly-163", "163")]);
+        let got = detect_pr_number_with(
+            || BookmarkSearch::RemoteOnly(vec!["claude/nightly-163".into()]),
+            |args: &[&str]| gh.call(args),
+        );
+        assert_eq!(got.ok(), Some(163));
     }
 
     #[test]

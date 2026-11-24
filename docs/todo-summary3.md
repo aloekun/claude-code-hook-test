@@ -77,7 +77,6 @@
 | 533 | Tier 1 | **[improvement] allow-without-reason を属性単位の判定 (構文ベース) へ移す再評価 (トリガー付きの見送り follow-up)** | todo28.md | S | なし (2026-10-08、PR #548 CodeRabbit 指摘への判断で見送り。同じ行の 2 つ目以降 / 他のコードの後ろの allow 属性は rule㉕ の意図的な対象外。再評価トリガー: 対象外の形が rg で 1 件以上見つかる / 1 行に複数 allow を認める方針になる / 同種の属性 rule で同じ限界が問題になる) |
 | 538 | Tier 1 | **[improvement] 空の基準コミットに `jj new -m` するのを PreToolUse で止める (段 3)** | todo28.md | M | なし (依存先の順位 537 は完了。基準コミットを機械的に識別する手段と、jj を起動する検査の副作用テストが要る) |
 | 539 | Tier 2 | **[improvement] post_steps 残骸検知を空の基準コミットから切り離せるか調べる (段 4)** | todo28.md | M | なし (調査。依存先の順位 537 は回帰テストとともに完了) |
-| 542 | Tier 2 | **[improvement] `rename_target` を曖昧な括りで推測解決しないようにする** | todo28.md | S | なし (2026-10-12、#509 feedback。括りがちょうど 1 組のときだけ解決する。auto lane) |
 | 544 | Tier 2 | **[improvement] 範囲で書いた退役を範囲全体の退役と読み、表駆動テストで固定する** | todo28.md | S | なし (2026-10-12、#500 feedback。範囲全体を退役と読むのはユーザー判断。auto lane) |
 | 545 | Tier 3 | **[improvement] 試験運用 ADR の再評価期限を索引タグに記入する** | todo28.md | M | なし (2026-10-12、#549 feedback。42 件中 34 件は期限の日付が無く、期限切れが 3 件ある。ユーザーと二人三脚) |
 | 546 | Tier 1 | **[improvement] 試験運用 ADR の期限切れと `(仮)` の外し忘れを lint:docs で検出する** | todo28.md | S | 順位 545 (索引タグに期限が入ってから auto lane へ) |
@@ -113,7 +112,6 @@
 | 623 | Tier 2 | **[improvement] ADR-054 層 1 の `injection_suspect` を fix の入力に配線するか、ADR を実装に合わせる** | todo30.md | S | 順位 622 と同じ攻撃経路のため一緒に検討 (2026-11-23、WR-2026-11-23-C02) |
 | 624 | Tier 3 | **[improvement] ファイル長と関数長の閾値を、hook の定数を持ち主にして揃える** | todo30.md | S | なし (2026-11-23、WR-2026-11-23-A02。builtin knowledge の shadow 方法は着手時判断) |
 | 625 | Tier 3 | **[improvement] 台帳の棚卸し手順の検査範囲を `docs/todo-summary*.md` に広げる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T01) |
-| 626 | Tier 2 | **[improvement] merge-pipeline と pr-monitor の PR 検出から、git HEAD に頼る `gh pr view` を外す** | todo30.md | S | なし (2026-11-23、WR-2026-11-23-J01) |
 | 627 | Tier 3 | **[improvement] 順位 6 (Branch Protection の整備) の要否と完了状況を確かめる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T02) |
 
 **着手順**: 本 table は着手の順番を持たない。何から着手するかは、着手するときにその時点の状況で決める ([ADR-090](adr/adr-090-todo-tier-as-kind.md) 決定 4)。2026-11-12 まであった「戦略」の行 (Tier 1 → 2 → 3 の順に片付ける) は、Tier を優先度として扱っていたため削除した。
