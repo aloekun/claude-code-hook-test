@@ -175,7 +175,8 @@ const MESSAGE_TAKERS: &[&[&str]] = &[
 ///   `git -C dir commit` のような無害な大域オプションも外さない側に倒れる (PR #667 の CodeRabbit 指摘)
 /// - エディタやツールを起動するオプション ([`launches_editor`]) があれば許可リスト外とする。
 ///   `git commit --edit -m '...'` は `-m` があってもエディタを起動し、メッセージを処理系に渡せる
-/// - 文字列として決まらない語は許可リストの組に合わない (`pnpm $sub`)
+/// - 文字列として決まらない語が 1 つでもあれば許可リスト外とする (`pnpm $sub`、`git commit $OPT -m`)。
+///   中身が `--edit` に展開されても見えないため
 ///
 /// `allow_assignments` が `false` なら、前置きの代入が 1 つでもあれば許可リスト外とする。heredoc の
 /// 受け手 ([`HEREDOC_READERS`]) はこちら: `JJ_EDITOR='bash -s' jj describe <<'EOF'` のように、環境
@@ -190,7 +191,7 @@ fn command_is_one_of(words: &[Word], allowed: &[&[&str]], allow_assignments: boo
         return false;
     };
     let args: Vec<Option<String>> = rest.map(Word::literal).collect();
-    if args.iter().flatten().any(|a| launches_editor(a)) {
+    if args.iter().any(|a| a.as_deref().is_none_or(launches_editor)) {
         return false;
     }
     allowed.iter().any(|entry| {

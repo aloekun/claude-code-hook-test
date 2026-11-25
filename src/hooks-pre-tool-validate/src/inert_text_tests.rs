@@ -161,6 +161,13 @@ fn keeps_text_when_an_editor_launching_option_is_present() {
     kept_bash("jj squash --too x -m 'jj new'");
 }
 
+/// 変数で渡した語は `--edit` に展開されても見えないので、`-m` の値も外さない。
+#[test]
+fn keeps_message_values_when_any_word_of_the_command_is_dynamic() {
+    kept_bash("GIT_EDITOR=bash git commit $OPT -m 'jj git push'");
+    kept_bash("jj describe \"$FLAG\" -m 'jj new'");
+}
+
 /// オプションをサブコマンドの後ろに置く普段の形は、これまでどおり外す。
 #[test]
 fn still_strips_with_ordinary_options_after_the_subcommand() {
