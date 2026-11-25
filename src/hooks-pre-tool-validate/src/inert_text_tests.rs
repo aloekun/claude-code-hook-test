@@ -131,6 +131,48 @@ fn keeps_text_when_an_allowlisted_command_launches_another() {
     kept_bash("gh alias set x '!sh' <<'EOF'\njj new\nEOF\n");
 }
 
+/// 受け手の前の大域オプションは、許可リスト内のコマンドに別の処理系を起動させられるので外さない
+/// (PR #667 の CodeRabbit 指摘)。
+#[test]
+fn keeps_text_when_a_global_option_precedes_the_subcommand() {
+    kept_bash("git --config-env=core.editor=SHELL commit --allow-empty --template=/dev/stdin <<'EOF'\njj git push\nEOF\n");
+    kept_bash("git --config-env core.editor=SHELL commit -m 'jj new'");
+    kept_bash("git --exec-path=/x commit -m 'jj new'");
+    kept_bash("git -c core.editor=bash commit -m 'jj new'");
+    kept_bash("git -C dir commit -m 'jj new'");
+    kept_bash("jj --config 'ui.editor=\"bash\"' describe -m 'jj new'");
+    kept_bash("jj -R x describe --stdin <<'EOF'\njj new\nEOF\n");
+}
+
+/// エディタや対話ツールを起動するオプションがあると、`-m` があってもメッセージを処理系に
+/// 渡せるので外さない (PR #667 の CodeRabbit 指摘)。
+#[test]
+fn keeps_text_when_an_editor_launching_option_is_present() {
+    kept_bash("GIT_EDITOR=bash git commit --allow-empty --no-status --edit -m '\njj git push\n'");
+    kept_bash("git commit -e -m 'jj git push'");
+    kept_bash("git commit -em 'jj git push'");
+    kept_bash("jj describe --edit -m 'jj new'");
+    kept_bash("jj squash -i -m 'jj new'");
+    kept_bash("jj squash --tool x -m 'jj new'");
+    kept_bash("jj commit --editor -m 'jj new'");
+    kept_bash("jj describe --interactive -m 'jj new'");
+    kept_bash("GIT_EDITOR=bash git commit --allow-empty --edi -m '\njj git push\n'");
+    kept_bash("jj describe --interact -m 'jj new'");
+    kept_bash("jj squash --too x -m 'jj new'");
+}
+
+/// オプションをサブコマンドの後ろに置く普段の形は、これまでどおり外す。
+#[test]
+fn still_strips_with_ordinary_options_after_the_subcommand() {
+    assert_eq!(bash("jj describe -r @- -m 'jj new'"), "jj describe -r @- -m ''");
+    assert_eq!(bash("git commit --allow-empty -m 'jj git push'"), "git commit --allow-empty -m ''");
+    assert_eq!(bash("git commit -F - <<'EOF'\njj new\nEOF\n"), "git commit -F - <<'EOF'\nEOF\n");
+    assert_eq!(
+        bash("gh pr create --title x --body-file - <<'EOF'\njj new\nEOF\n"),
+        "gh pr create --title x --body-file - <<'EOF'\nEOF\n"
+    );
+}
+
 /// 前置きの環境変数は、許可リスト内のコマンドにエディタ等として別プロセスを起動させられるので、
 /// heredoc の本文は外さない (SEC-NEW-inert_text-L392)。
 #[test]

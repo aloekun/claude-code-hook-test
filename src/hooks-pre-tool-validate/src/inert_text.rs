@@ -166,16 +166,21 @@ const MESSAGE_TAKERS: &[&[&str]] = &[
     &["hg", "commit"],
 ];
 
-/// segment の (コマンド名, サブコマンド...) が `allowed` のどれかで始まるか。コマンド名はキーワードと
-/// 前置きの代入を飛ばした最初の語、サブコマンドは `-` で始まらない語を順に拾う。`git -c X x` の `X` の
-/// ように、フラグの値がサブコマンドの位置に来ると許可リストに合わず、外さない側に倒れる。
-/// 文字列として決まらない語は空の語として数え、許可リストの組の位置に来れば合わない
-/// (`pnpm $sub`)。`jj --config*` があるときも外さない。
+/// segment の (コマンド名, サブコマンド...) が `allowed` のどれかで、受け手が本文を読むだけで終わるか。
+///
+/// - コマンド名はキーワードと前置きの代入を飛ばした最初の語。**サブコマンドはその直後に続く語**で、
+///   間にオプションを挟めない。`git --config-env=core.editor=SHELL commit` / `git -c core.editor=bash
+///   commit` / `git --exec-path=X commit` / `jj --config ... describe` のような大域オプションは、
+///   許可リスト内のコマンドに別の処理系を起動させられるので、どれも許可リスト外に倒す。
+///   `git -C dir commit` のような無害な大域オプションも外さない側に倒れる (PR #667 の CodeRabbit 指摘)
+/// - エディタやツールを起動するオプション ([`launches_editor`]) があれば許可リスト外とする。
+///   `git commit --edit -m '...'` は `-m` があってもエディタを起動し、メッセージを処理系に渡せる
+/// - 文字列として決まらない語は許可リストの組に合わない (`pnpm $sub`)
 ///
 /// `allow_assignments` が `false` なら、前置きの代入が 1 つでもあれば許可リスト外とする。heredoc の
 /// 受け手 ([`HEREDOC_READERS`]) はこちら: `JJ_EDITOR='bash -s' jj describe <<'EOF'` のように、環境
 /// 変数で許可リスト内のコマンドに別の処理系を起動させ、本文を読ませられるため。`-m` の値
-/// ([`MESSAGE_TAKERS`]) は `true`: `-m` があればエディタは起動しない。
+/// ([`MESSAGE_TAKERS`]) は `true`: `-m` があり、エディタを起動するオプションが無ければエディタは起動しない。
 fn command_is_one_of(words: &[Word], allowed: &[&[&str]], allow_assignments: bool) -> bool {
     let mut rest = words.iter().skip_while(|w| is_keyword(w) || is_assignment(w));
     if !allow_assignments && words.iter().take_while(|w| is_assignment(w) || is_keyword(w)).any(is_assignment) {
@@ -184,24 +189,31 @@ fn command_is_one_of(words: &[Word], allowed: &[&[&str]], allow_assignments: boo
     let Some(name) = rest.next().and_then(|w| w.literal()).map(|t| command_name(&t)) else {
         return false;
     };
-    let mut subcommands = Vec::new();
-    for word in rest {
-        let Some(text) = word.literal() else {
-            subcommands.push(String::new());
-            continue;
-        };
-        if name == "jj" && text.starts_with("--config") {
-            return false;
-        }
-        if !text.starts_with('-') {
-            subcommands.push(text);
-        }
+    let args: Vec<Option<String>> = rest.map(Word::literal).collect();
+    if args.iter().flatten().any(|a| launches_editor(a)) {
+        return false;
     }
     allowed.iter().any(|entry| {
         entry[0] == name
-            && entry.len() - 1 <= subcommands.len()
-            && entry[1..].iter().zip(&subcommands).all(|(want, got)| want == got)
+            && entry.len() - 1 <= args.len()
+            && entry[1..].iter().zip(&args).all(|(want, got)| got.as_deref() == Some(*want))
     })
+}
+
+/// エディタや対話ツールを起動するオプションか。`--edit` / `--editor` / `--interactive` / `--tool`
+/// とその省略形 (`--edi`、`--interact`)、または `e` か `i` を含む短いオプションの塊 (`-e`、`-em`、`-i`)。
+/// git の long option は曖昧でない前方一致を受け付けるので、語幹の前方一致で見る。
+/// `git commit -i` (`--include`) や `--e` のように起動しないものも含むが、外さない側に倒れるだけなので区別しない。
+fn launches_editor(arg: &str) -> bool {
+    let short_cluster = arg.strip_prefix('-').filter(|rest| !rest.starts_with('-'));
+    short_cluster.is_some_and(|flags| flags.contains(['e', 'i'])) || arg.strip_prefix("--").is_some_and(is_editor_long_option)
+}
+
+/// `--` を除いた long option の名前 (`=` より前) が、`edit` / `editor` / `interactive` / `tool` の語幹か。
+fn is_editor_long_option(rest: &str) -> bool {
+    let name = rest.split('=').next().unwrap_or(rest);
+    !name.is_empty()
+        && ["edit", "interactive", "tool"].iter().any(|opt| opt.starts_with(name) || name.starts_with(opt))
 }
 
 fn same_segment(b: &Segment, a: &Segment) -> bool {
