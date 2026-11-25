@@ -133,3 +133,53 @@ ADR-054 の「欠点 / 留意点」は、正当な修正が別ファイルの連
 #### 完了基準
 
 - 順位 6 が削除されているか、今の CI 構成に合った作業計画に書き直されている
+
+---
+
+## post-merge feedback (#664〜#667) の一括採否から起票 (2026-11-25)
+
+> 対象は #664〜#667 の feedback report (候補 15 件) である。Tier 1 / 2 の採用候補を作業内容で 3 件にまとめ、ユーザーが 3 件とも採用した。#667 Tier 1 #1 と Tier 2 #1 は同じ作業なので順位 629 にまとめた。#665 Tier 2 #1 は順位 630 にした。#664 Tier 2 #1 (ask ルールの変異確認) は一度きりの手順なので起票せず、2026-11-25 に実施した: `pnpm -s mutate` は `.claude/` を書き換えないので、テストと同じ照合を scratchpad のスクリプトで再現し、14 本の ask ルールすべてに、そのルールにしか当たらない起動の形が 1〜5 件あることを確かめた (どのルールを外してもテストが落ちる)。#665 Tier 2 #2 (会話記録を `sessionId` で絞る) は順位 617 と同じ作業なので、617 に観測を足した。
+>
+> 却下したのは次のとおり。#666 Tier 2 #1 (fix.md / fix-supervisor.md の read-only 一覧と、`lib_scope_guard` の拒否リストの食い違いを検査する) は、前提が合わない。read-only 一覧は pre-push と post-pr の両方の fix に効く規則で、`docs/adr/**` を含み `.github/` を含まない。post-pr 経路だけの拒否リストとは別の方針で、同じ事実の分散 (ADR-081) ではない。拒否リストの中身は、facet からコードの定義を指す形になっている。#666 Tier 2 #2 (`run_takt_stage` の配線テスト) は、判定が純関数としてテスト済みで、配線のテストには state のパスの注入が要り、後段に決定論の scope guard が控えるため。#664 Tier 2 #2 (`pnpm merge-pr 664` の位置引数)、#665 Tier 1 #1 (git preset が引用符の中の語に反応する。順位 620 で「解決しない誤検知」として受け入れた形)、#665 Tier 1 #2 (変更行だけの整形検査)、#666 Tier 1 #1 (merge-pr 中の feedback の途中終了。原因が未確認) は、観測が 1 回だけのため。Tier 3 は、Tier 3 でしか拾えないものが無いので全件を却下した (#667 の一過性のレビュー ID は crate の慣習に合わせて残す、#666 の analyze-session の読み取りの目安は順位 617 で記録が減れば軽くなる、表形式のテストは過剰な一般化、テストの文字列への lint の除外は対象のルールを特定できていない)。起票の前に、各項目の前提をコードと実行で確かめた ([ADR-075](adr/adr-075-verify-premises-before-acting.md))。
+
+### 順位 629: jj の preset から本文を外す方式の判断を ADR に記録し、jj の大域オプションの位置の取りこぼしを塞ぐ
+
+> **動機**: 順位 620 (#667) で、jj 系の preset の判定の前に `-m` の値と heredoc の本文を外すようにした (`src/hooks-pre-tool-validate/src/inert_text.rs`)。外してよい受け手は許可リスト (`HEREDOC_READERS` / `MESSAGE_TAKERS`) で決める。この方式は、着手前のヒアリングで決めた「処理系を拒否リストで並べる」形から、pre-push の fix step が拒否リストの並べ漏れ (`awk -f /dev/stdin`) を塞ぐために切り替えたものである。人間がレビューして採用したが、判断の記録はモジュールの doc にしかない。ADR-068 は設計級の変更を fix の裁量で決めないとしているので、判断を ADR に残す (#667 の feedback、Tier 1 #1)。
+>
+> あわせて、`command_is_one_of` は大域オプションをサブコマンドの**前**でしか見ていない。jj は `--config` をサブコマンドの後ろでも受け付ける (2026-11-25 に `jj log ... --config ui.color=never` が通り、存在しないオプションは拒否されることを確かめた)。`jj describe --config ... -m '...'` は許可リスト内として値を外す。`-m` か `--stdin` があればエディタは起動しないので実害は小さいが、前に書いた形だけを止めるのは非対称である (#667 の feedback、Tier 2 #1)。
+>
+> **由来**: `[improvement]`。#667 Tier 1 #1 と Tier 2 #1 をまとめた。
+>
+> **種類**: Tier 1 — ADR の新設と判定の修正。工数 S〜M。
+>
+> **参照**: [ADR-068](adr/adr-068-fix-step-authority-boundary.md)、[ADR-043](adr/adr-043-security-gates-fail-closed.md)、[ADR-007](adr/adr-007-custom-linter-layer-boundary.md)
+
+#### 作業計画
+
+- [ ] 新規 ADR を書く。外す範囲 ((a)+(b)) と対象の preset (jj 系)、受け手を許可リストで決める理由 (拒否リストは並べ漏れで本文を外す)、外した後に字句解析器で同じコマンドかを確かめる二重の防御、受け入れた見逃しと解決しない誤検知を残す。モジュールの doc の判断の部分は ADR を指す形にする
+- [ ] `command_is_one_of` で、jj の `--config` / `--config-toml` / `--config-file` がサブコマンドの後ろにあっても許可リスト外にする。jj の他の大域オプション (`-R` など) を後ろに書いた形の扱いも、着手時に決めて ADR に書く
+- [ ] 回帰テストを足し、判定を外す変異が落ちることを `pnpm -s mutate` で確かめる
+
+#### 完了基準
+
+- 本文を外す方式の判断が ADR にあり、モジュールの doc がそれを指している
+- `jj describe --config ... -m '...'` と `jj describe --stdin --config ... <<'EOF'` が、外されずに元の文字列で判定される
+
+### 順位 630: PR 検出の「push 先は本家」という前提を、仕様としてコードとテストに書く
+
+> **動機**: #665 で、`detect_pr_number` (`src/cli-merge-pipeline/src/github.rs`) と `find_pr_number_with` (`src/cli-pr-monitor/src/util.rs`) は、`gh pr list --head <bookmark>` の結果から fork の PR (`isCrossRepository == true`) を除き、同じリポジトリの最初の PR を採るようにした。CodeRabbit は、`isCrossRepository == false` が「bookmark の push 先と同じリポジトリ」を保証しないと指摘し、対応済みとしなかった。push 先が fork で、本家にも同名ブランチの PR があると、本家の PR を選びうる。この repo では `pnpm push` が常に origin (本家) へ push し、PR も同じリポジトリのブランチから作るので前提は成り立つが、コードにもテストにも書かれていない (#665 の feedback、Tier 2 #1)。
+>
+> **由来**: `[improvement]`。
+>
+> **種類**: Tier 2 — 前提の明記とテストの追加。工数 S。
+>
+> **参照**: PR #665、[ADR-045](adr/adr-045-jj-workspace-parallel-sessions.md)
+
+#### 作業計画
+
+- [ ] 両関数の doc に「bookmark は本家 (origin) に push されている前提で、fork への push は対象外」と書く。前提を確かめる処理を足すか (bookmark の追跡先の remote が origin か) は、着手時に決める
+- [ ] 前提を固定するテストを足す。足さない側にした場合は、その理由を doc に書く
+
+#### 完了基準
+
+- PR 検出の前提が両関数の doc にあり、確かめる処理を足した場合はその挙動がテストで固定されている

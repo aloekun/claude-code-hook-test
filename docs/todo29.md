@@ -445,7 +445,7 @@
 
 ### 順位 617: post-merge feedback が読む会話記録から、無関係な記録を除く
 
-> **動機**: `src/cli-merge-pipeline/src/feedback/transcript.rs` の `filter_transcripts` (41 行目) は、時刻の範囲だけで記録を選ぶ。`sessionId` は残すフィールドとして持っているが (`transcript_compact.rs` の 35 行目)、絞り込みには使っていない。そのため、同じ時間帯にあった別の PR のセッションの作業と、前回失敗した feedback の実行が読んだ内容と、この工程自身の入力ファイルを読んだ記録が、分析の入力に混ざる。#658 の分析では #657 の作業と失敗した実行の Read の結果が混ざり、#661 の分析では自分の入力ファイルを読んだ記録で Read が 3 回失敗した (#658 の feedback、Tier 2 #1。#661 Tier 1 #2 も同じ系統)。ADR-045 の並列セッション運用では再発しやすい。
+> **動機**: `src/cli-merge-pipeline/src/feedback/transcript.rs` の `filter_transcripts` (41 行目) は、時刻の範囲だけで記録を選ぶ。`sessionId` は残すフィールドとして持っているが (`transcript_compact.rs` の 35 行目)、絞り込みには使っていない。そのため、同じ時間帯にあった別の PR のセッションの作業と、前回失敗した feedback の実行が読んだ内容と、この工程自身の入力ファイルを読んだ記録が、分析の入力に混ざる。#658 の分析では #657 の作業と失敗した実行の Read の結果が混ざり、#661 の分析では自分の入力ファイルを読んだ記録で Read が 3 回失敗した (#658 の feedback、Tier 2 #1。#661 Tier 1 #2 も同じ系統)。ADR-045 の並列セッション運用では再発しやすい。#665 の分析でも、takt の pre-push review のサブプロセスの記録が入力に混ざった (#665 の feedback、Tier 2 #2。2026-11-25 に本エントリへ統合)。
 >
 > **由来**: `[improvement]`。
 >
