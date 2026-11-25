@@ -53,6 +53,8 @@ mod tests_find;
 mod tests_code_exec;
 
 pub(crate) use lexer::Dialect;
+/// [`crate::inert_text`] が、外した後の文字列のコマンドが元と同じかを確かめるのに使う (順位 620)。
+pub(crate) use lexer::{segments as lex_segments, Segment, Word};
 use commands::{State, Target};
 use paths::{classify, has_brace_expansion, normalize, strip_provider, Place, Roots};
 

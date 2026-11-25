@@ -17,6 +17,7 @@ mod blocked_patterns;
 mod config;
 mod deletion_guard;
 mod handlers;
+mod inert_text;
 mod presets;
 mod protected_files;
 mod pushed_commit_guard;
