@@ -17,7 +17,7 @@
 >
 > **内容 (10 件)**:
 >
-> 1. `[workspace] default-members` 不在で `cargo test` = `cargo test --workspace` という暗黙不変条件の明記 + `push-runner-config.toml` への inline comment (#342 T3-1。順位 360 のテストと対)
+> 1. `[workspace] default-members` 不在で `cargo test` = `cargo test --workspace` という暗黙不変条件の明記 + `push-runner-config.toml` への inline comment (#342 T3-1)。**2026-11-27 に取り下げた**: push 経路 (`push-runner-config.toml`) も CI (`ci.yml`) も `cargo nextest run --workspace` を明示するようになり、`default-members` の有無に依存しなくなった。対だった順位 360 (等価性の検証テスト) も同日に削除した
 > 2. ADR-051 (cross-system config coupling) をチェックリストに登録 — 3 系統以上のインフラ設定を跨ぐ変更時の確認項目 (#342 T3-3)
 > 3. ambient/auto-detect 環境状態 (git ブランチ名・`GH_REPO`・cwd) に依存せず明示引数を使う設計原則 — PR #238/#247/#343 の 3 例目で systemic (#343 T3-1)
 > 4. 並行バグ調査の標準テストパターン — 決定論再現テスト + stress の aggregate 計測 + low-core CI でのみ再現するレースの扱い (#344 T2-1)
@@ -35,7 +35,6 @@
 #### 作業計画
 
 - [ ] **10 件のうち #7 (`paths:` フィルタ付き required check が skip=pending で PR を永久ブロックする GitHub gotcha、Severity High) のみ ADR 化**し、残り 9 件は落とす (2026-09-08 に出口を再設計。dev-conventions.md へは書かない)
-- [ ] `push-runner-config.toml` へ #1 対応の inline comment を追加
 - [ ] 本エントリ削除 + todo-summary2.md 行削除
 
 #### 完了基準

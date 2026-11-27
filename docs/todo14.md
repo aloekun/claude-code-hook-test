@@ -344,35 +344,13 @@
 
 ---
 
-### 順位 360: push-runner と ci.yml の cargo test コマンド等価性検証テスト
-
-> **動機**: `push-runner-config.toml` の rust-test group は `cargo test`、`.github/workflows/ci.yml` は `cargo test --workspace` を使い、両者は root `Cargo.toml` に `[workspace] default-members` が**無い**ことに依存して偶然等価になっている。ADR-065 § 決定 2 は「CI とローカルでコマンドが違うと、どちらかの緑が嘘になる」を設計原則とするが、この等価は機械検証されていない。#342 T2-1 と #343 T2-3 が連続 2 PR で独立に指摘し Frequency High。
->
-> **対処案**: `Cargo.toml` に `default-members` が導入されたら fail する検証テストを追加する (例: cargo metadata で default-members 不在を assert、または両コマンドの対象 crate 集合の一致を比較)。実装位置は `src/cli-push-runner` の config 検証テスト近傍が候補。
->
-> **参照**: `.claude/feedback-reports/342.md` Tier2 #1 / `.claude/feedback-reports/343.md` Tier2 #3、`push-runner-config.toml` (rust-test group)、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 2。順位 359 の #1 (文書化) と対。順位 361 と同一 PR (A 系統) にまとめてよい。
->
-> **種類**: Tier 2 — 等価性を検証するテストの追加。工数 S。
-
-#### 作業計画
-
-- [ ] default-members 不在 (または両コマンドの対象集合一致) を assert する検証テストを追加
-- [ ] 意図的に default-members を足した状態で fail することを確認
-- [ ] 本エントリ削除 + todo-summary2.md 行削除
-
-#### 完了基準
-
-- `cargo test` (push-runner) と `cargo test --workspace` (CI) の等価が破れる変更が、テスト失敗として land 前に検出されること。
-
----
-
 ### 順位 361: JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト
 
 > **動機**: jj バージョン (0.42.0) は `.github/workflows/ci.yml` と `scripts/cloud-setup.sh` の 2 ファイル + ローカル検証環境の 3 箇所論理結合 (ADR-065 § 決定 3、ADR-051 型)。「上げるときは必ず揃える」の手動運用に依存しており、片方だけの更新は「テストが緑でも本番挙動が違う」を生む。#342 T2-2 採用 (supervisor 補正: 版文字列を持つのは 2 ファイルのみ、3 箇所目 = ローカル環境は静的検出不可)。
 >
 > **対処案**: 2 ファイルから jj 版文字列を抽出して一致を assert するテストを追加する (repo-root `tests/` の配備検証系 or CI step)。
 >
-> **参照**: `.claude/feedback-reports/342.md` Tier2 #2、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 3、[ADR-051](adr/adr-051-cross-system-config-coupling.md)。順位 360 と同一 PR (A 系統) にまとめてよい。
+> **参照**: `.claude/feedback-reports/342.md` Tier2 #2、[ADR-065](adr/adr-065-ci-matrix-cross-os-regression.md) § 決定 3、[ADR-051](adr/adr-051-cross-system-config-coupling.md)。
 >
 > **種類**: Tier 2 — 一致を検証するテストの追加。工数 S。
 

@@ -66,8 +66,7 @@
 | 353 | Tier 1 | **ADR amendment 時の「§ Amendment」節追加を cli-docs-lint の検査にする (#332 post-merge feedback T3-2 採用)** | todo14.md | XS | なし (PR #332/#333 で ADR-062 が ADR-053/055/061 を amend し被 amend 側追記を都度アドホック実施。CLAUDE.md 索引の Supersedes 注記と同様に Amendment 明記を convention 化) |
 | 358 | Tier 1 | **Cross-File Reference Lifecycle (ephemeral→permanent 移行手順) を明文化 + cli-docs-lint の検査にする (#340 post-merge feedback T3-1 採用)** | todo14.md | S | なし (PR #340 で移管先未記載 3 件を CodeRabbit が指摘。順位 261 の見送り限定 convention を完了/委譲ケースへ拡張し、退役条件を含む 3 段階プロトコルを checklist 化) |
 | 359 | Tier 3 | **WP-16 系 post-merge feedback 文書系 10 件の docs バッチ (#342/#343/#344 採用)** | todo27.md | M | なし (2026-08-02 方針決定: 文書系 10 件を 1 PR に集約。paths×required-check gotcha / exe-spawn staging 規約の 2 件を含む) |
-| 360 | Tier 2 | **push-runner と ci.yml の cargo test コマンド等価性検証テスト (#342/#343 post-merge feedback 採用)** | todo14.md | S | なし (連続 2 PR で独立指摘 = Frequency High。`[workspace] default-members` 不在への暗黙依存を機械検証。順位 361 と同一 PR 可) |
-| 361 | Tier 2 | **JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト (#342 post-merge feedback 採用)** | todo14.md | S | なし (ADR-051 型の 2 ファイル結合「上げるときは必ず揃える」を機械検証へ。順位 360 と同一 PR 可) |
+| 361 | Tier 2 | **JJ_VERSION の ci.yml / cloud-setup.sh 一致検証テスト (#342 post-merge feedback 採用)** | todo14.md | S | なし (ADR-051 型の 2 ファイル結合「上げるときは必ず揃える」を機械検証へ) |
 | 362 | Tier 1 | **git subprocess のブランチ名依存引数を検出する custom lint rule (#343 post-merge feedback 採用)** | todo14.md | S | なし (detached HEAD で CI 観測が silent pending 化した PR #343 incident 由来。ADR-049 fixture 3 点セット整備込み。順位 363 と同一 PR 可) |
 | 363 | Tier 2 | **check-ci-coderabbit の detached HEAD 回帰統合テスト (#343 post-merge feedback 採用)** | todo14.md | M | なし (修正済み silent pending バグの regression test が皆無。順位 362 と同一 PR 可) |
 | 364 | Tier 1 | **ADR-054 scope guard の pre-push 展開 — fix diff の allowlist 照合 (ADR-068 残課題)** | todo27.md | M | WP-17 再分割 PR (lib-scope-guard land) 後が効率的 (ADR-068 の後退検知は削除系のみの暫定。追加系 injection と backstop 自己弱体化の経路を閉じる) |
