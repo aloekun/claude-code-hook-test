@@ -232,30 +232,6 @@
 - 発現経路の評価結果 (対応要否とその根拠) が記録されていること
 ---
 
-### 順位 478: jj 出力の path separator を前提にするコードのテスト整備 (Windows は `\` 区切り)
-
-> **動機**: PR #432 の CodeRabbit 指摘で「`jj file list` は POSIX の `/` を使うので `is_root_level` の `\` 判定は不要 / 誤判定を生む」と提案されたが、**実測すると Windows の jj 0.42 は `\` 区切りで出力する** (`sub\f.py`)。`\` 判定を外すと Windows でサブディレクトリのファイルを root 直下と誤判定して誤検知が出る。指摘は前提が誤っていた。
->
-> **問題**: この「両区切りを見る」という判断が**テストで固定されていない**。現在は module doc に理由を書いてあるだけで、将来「POSIX 準拠」を理由に再び外される余地が残る。同型の path 判定は [`extract_basename`](../src/cli-push-runner/src/stages/scratch_file_warning.rs) にもあり、そちらも同じ前提に依存している。
->
-> **対処案**: jj 出力を parse する箇所の path separator 前提を regression test で固定する。`is_root_level` / `extract_basename` の両方について、(a) `\` 区切りのサブディレクトリパスを root 扱いしない、(b) `/` 区切りも同様に扱う、の 2 方向。可能なら実 jj を使った統合テストで「実際にどちらの区切りが出るか」も固定する (ADR-065 の CI matrix で両 OS を回しているため、OS 差が出れば CI が検出する)。
->
-> **参照**: [`src/cli-push-runner/src/stages/scratch_file_warning.rs`](../src/cli-push-runner/src/stages/scratch_file_warning.rs) (`is_root_level` の module doc に実測根拠を記録済み)、PR #432 CodeRabbit 指摘、PR #432 post-merge feedback (Tier2 #1 / #3)。
->
-> **種類**: Tier 2 — 回帰テストの追加。工数 S。
-
-#### 作業計画
-
-- [ ] `is_root_level` / `extract_basename` の separator 前提を両方向の unit test で固定する
-- [ ] 実 jj の出力 separator を統合テストで固定できるか検討する (CI matrix で OS 差が出れば検出される形)
-- [ ] 変異テストで検知を確認する (`\` 判定を外すと該当テストが FAILED になること)
-
-#### 完了基準
-
-- `\` 判定を外すと FAILED になる regression test が存在すること。両 OS の CI で green であること。
-
----
-
 ### 順位 479: 手書きの「公開 API 一覧」doc が re-export とずれる — 決定論的な一致検査を入れる
 
 > **動機**: [`src/lib-jj-helpers/src/lib.rs`](../src/lib-jj-helpers/src/lib.rs) の `# 公開 API` doc 一覧が実際の `pub use` とずれていた。機械的に突き合わせた実測 (2026-08-21):
