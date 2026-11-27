@@ -357,6 +357,7 @@ fn existing_patterns_miss_the_incident_file() {
 }
 
 /// `scripts/` 配下など **root 直下でない**スクリプトは対象外 (誤検知しないこと)。
+/// `\` 区切りのケースは Windows の jj が出す形で、消すと Windows で誤検知する ([`is_root_level`] の doc)。
 #[test]
 fn root_script_ignores_non_root_scripts() {
     let files = vec![
@@ -463,6 +464,7 @@ fn root_extensionless_detects_root_file_without_dot() {
 }
 
 /// root 直下でない拡張子なしファイル・`.` を含む名前・定番名・allow-list は対象外。
+/// `\` 区切りのケースは Windows の jj が出す形 ([`is_root_level`] の doc)。
 #[test]
 fn root_extensionless_ignores_subdirs_dotted_names_and_allowed_names() {
     let files = vec![
