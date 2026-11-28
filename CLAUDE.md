@@ -94,6 +94,7 @@
 - [ADR-090: todo 台帳の Tier はタスクの種類を表し、優先度は着手時に決める](docs/adr/adr-090-todo-tier-as-kind.md)
 - [ADR-091: 最後の報告が英語で始まっていたら、Stop hook で止めて日本語で書き直させる](docs/adr/adr-091-stop-report-language.md) *(試験運用)*
 - [ADR-092: CI 時間に SLI を置き、週次レビューで測って、超過中は毎セッション改善に着手させる](docs/adr/adr-092-ci-time-sli.md) *(試験運用)*
+- [ADR-093: jj 系 preset の判定の前に、実行されない `-m` の値と heredoc の本文を外す](docs/adr/adr-093-inert-text-stripping-for-jj-presets.md)
 
 ## 開発 convention / チェックリスト
 

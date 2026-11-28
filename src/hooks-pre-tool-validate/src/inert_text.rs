@@ -8,34 +8,13 @@
 //! - 区切り語を引用した heredoc (`<<'EOF'` / `<<"EOF"` / `<<\EOF`) と PowerShell の
 //!   単引用符の here-string (`@'` ... `'@`) の本文
 //!
-//! **実行される文字列は外さない。**
-//! - 二重引用符の値に `$(` か `` ` `` がある (コマンド置換で実行される)
-//! - 区切り語を引用しない heredoc と `@"` here-string (本文が展開される)
+//! 実行される文字列 (二重引用符の中のコマンド置換、区切り語を引用しない heredoc の本文) は外さない。
+//! 外してよい受け手は許可リスト ([`HEREDOC_READERS`] / [`MESSAGE_TAKERS`]) で決め、外した結果は
+//! 削除ガードの字句解析器 ([`crate::deletion_guard::lex_segments`]) で元と同じコマンドかを確かめて
+//! から使う。どちらかで疑わしければ元の文字列で判定する (ADR-043)。
 //!
-//! **外してよい受け手は許可リストで決める。** heredoc の本文を外すのは、コマンド列のすべての
-//! コマンドが [`HEREDOC_READERS`] (本文を読むだけと分かっている、コマンドとサブコマンドの組) で、
-//! 語がすべて文字列として決まり、置換を含まないときだけ。`-m` の値を外すのは、そのコマンドが
-//! [`MESSAGE_TAKERS`] (`jj describe` / `git commit` など) のときだけ。リストにない処理系
-//! (`bash <<'EOF'`、`awk -f /dev/stdin`、`cat <<'EOF' | sh`)、変数で決まるコマンド (`$SHELL`)、
-//! 許可リスト内のコマンド名の下で別のコマンドを起動する形 (`pnpm exec awk`、`git -c alias.x=!sh x`)、
-//! プロセス置換で本文を流す形 (`tee >(bash)`) は、外さずに元の文字列で判定する。
-//! 処理系を拒否リストで並べる方式は、並べ漏れた処理系 (`awk` / `make`) で本文を外してしまう
-//! ので採らなかった (2026-11-25 の pre-push レビュー SEC-NEW-inert_text-L212)。
-//!
-//! **外した結果は、元と同じコマンドであることを確かめてから使う。** 外す前後の文字列を
-//! 削除ガードの字句解析器 ([`crate::deletion_guard::lex_segments`]) で語に分け、`-m` の値と
-//! heredoc の本文の他に違いがあれば、外すのをやめて元の文字列で判定する (ADR-043)。ここの走査が
-//! 引用符やコメントを読み違えても、本物のコマンドを隠す側には倒れない。
-//!
-//! **範囲の決め方** (2026-11-25 のヒアリング):
-//! - 引用符の中をすべて外す案は採らなかった。引用符は argv を変えないので
-//!   `jj rebase "--ignore-immutable"` や `jj new "main"` を見逃し、`bash -c '...'` の中身も見えなくなる
-//! - 受け入れた見逃し: 本文をファイルに書いてから、後の別のコマンドで実行する形
-//!   (`cat > x.sh <<'EOF'` の後で `bash x.sh`)。実行するときにファイルの中身は見えない。
-//!   Write ツールでファイルを書く形と同じく、この層では捕まえられない。同じコマンド列の中で
-//!   許可リスト外のコマンドを呼べば、外さない
-//! - 解決しない誤検知: `grep "git-only"` のように、`-m` 以外の引用符の中に語を書いた形
-//! - jj 系以外の preset (git のブロックなど) は元の文字列で照合する。同じ誤検知が続けば広げる
+//! 外す範囲・対象の preset・許可リストにした理由・受け入れた見逃しと解決しない誤検知は
+//! `docs/adr/adr-093-inert-text-stripping-for-jj-presets.md` (ADR-093) が持つ。
 
 use crate::deletion_guard::{lex_segments, Dialect, Segment, Word};
 
@@ -173,6 +152,10 @@ const MESSAGE_TAKERS: &[&[&str]] = &[
 ///   commit` / `git --exec-path=X commit` / `jj --config ... describe` のような大域オプションは、
 ///   許可リスト内のコマンドに別の処理系を起動させられるので、どれも許可リスト外に倒す。
 ///   `git -C dir commit` のような無害な大域オプションも外さない側に倒れる (PR #667 の CodeRabbit 指摘)
+/// - jj は大域オプションをサブコマンドの後ろでも受け付ける。後ろの `--config` / `--config-file`
+///   (`=` で値をつなげた形も) は前に書いた形と同じく許可リスト外とする。jj に限らず `--config` で
+///   始まる語があれば外さない側に倒す。後ろの `-R` など設定を書き換えない大域オプションは許す
+///   (ADR-093 決定 4)
 /// - エディタやツールを起動するオプション ([`launches_editor`]) があれば許可リスト外とする。
 ///   `git commit --edit -m '...'` は `-m` があってもエディタを起動し、メッセージを処理系に渡せる
 /// - 文字列として決まらない語が 1 つでもあれば許可リスト外とする (`pnpm $sub`、`git commit $OPT -m`)。
@@ -192,6 +175,9 @@ fn command_is_one_of(words: &[Word], allowed: &[&[&str]], allow_assignments: boo
     };
     let args: Vec<Option<String>> = rest.map(Word::literal).collect();
     if args.iter().any(|a| a.as_deref().is_none_or(launches_editor)) {
+        return false;
+    }
+    if args.iter().flatten().any(|a| a.starts_with("--config")) {
         return false;
     }
     allowed.iter().any(|entry| {
