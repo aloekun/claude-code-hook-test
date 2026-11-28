@@ -144,6 +144,26 @@ fn keeps_text_when_a_global_option_precedes_the_subcommand() {
     kept_bash("jj -R x describe --stdin <<'EOF'\njj new\nEOF\n");
 }
 
+/// jj は `--config` をサブコマンドの後ろでも受け付けるので、後ろに書いた形も外さない (順位 629)。
+#[test]
+fn keeps_text_when_jj_config_follows_the_subcommand() {
+    kept_bash("jj describe --config 'ui.editor=\"bash\"' -m 'jj new'");
+    kept_bash("jj describe --config='ui.editor=\"bash\"' -m 'jj new'");
+    kept_bash("jj describe --config-file x.toml -m 'jj new'");
+    kept_bash("jj describe --stdin --config 'ui.editor=\"bash\"' <<'EOF'\njj new\nEOF\n");
+}
+
+/// jj の大域オプションのうち設定を書き換えないもの (`-R` など) は、サブコマンドの後ろなら外す
+/// (順位 629、ADR-093 決定 4)。`cd dir && jj describe` と同じく、別の repo を指すだけで処理系は起動しない。
+#[test]
+fn still_strips_with_jj_global_options_other_than_config_after_the_subcommand() {
+    assert_eq!(bash("jj describe -R x -m 'jj new'"), "jj describe -R x -m ''");
+    assert_eq!(
+        bash("jj describe --stdin --ignore-working-copy <<'EOF'\njj new\nEOF\n"),
+        "jj describe --stdin --ignore-working-copy <<'EOF'\nEOF\n"
+    );
+}
+
 /// エディタや対話ツールを起動するオプションがあると、`-m` があってもメッセージを処理系に
 /// 渡せるので外さない (PR #667 の CodeRabbit 指摘)。
 #[test]

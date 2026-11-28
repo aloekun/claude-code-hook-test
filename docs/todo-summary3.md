@@ -110,7 +110,6 @@
 | 625 | Tier 3 | **[improvement] 台帳の棚卸し手順の検査範囲を `docs/todo-summary*.md` に広げる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T01) |
 | 627 | Tier 3 | **[improvement] 順位 6 (Branch Protection の整備) の要否と完了状況を確かめる** | todo30.md | XS | なし (2026-11-23、WR-2026-11-23-T02) |
 | 628 | Tier 1 | **[improvement] scope guard の allowlist を、finding のファイルと PR の diff の対象ファイルの積集合にする** | todo30.md | M | なし (2026-11-24、順位 622 の設計決定 (b) を切り出し。過去の post-pr fix の実績確認が先) |
-| 629 | Tier 1 | **[improvement] jj の preset から本文を外す方式の判断を ADR に記録し、jj の大域オプションの位置の取りこぼしを塞ぐ** | todo30.md | S〜M | なし (2026-11-25、#667 の post-merge feedback) |
 | 630 | Tier 2 | **[improvement] PR 検出の「push 先は本家」という前提を、仕様としてコードとテストに書く** | todo30.md | S | なし (2026-11-25、#665 の post-merge feedback) |
 
 **着手順**: 本 table は着手の順番を持たない。何から着手するかは、着手するときにその時点の状況で決める ([ADR-090](adr/adr-090-todo-tier-as-kind.md) 決定 4)。2026-11-12 まであった「戦略」の行 (Tier 1 → 2 → 3 の順に片付ける) は、Tier を優先度として扱っていたため削除した。
